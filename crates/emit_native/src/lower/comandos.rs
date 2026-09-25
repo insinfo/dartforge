@@ -75,13 +75,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     // R6: o local guarda a representação do tipo declarado
                     // (ou inferido do inicializador), não a do valor.
                     let ty = self.repr_do_local(var.name.span.start);
+                    let late_local = var_list.late
+                        && (var.initializer.is_none()
+                            || !self.celulas.contains(&(var.name.span.start as usize)));
                     if var_list.const_
                         && let Some(init_id) = var.initializer
                         && let Some(k) = self.chave_constante(ast, init_id, true)
                     {
                         self.chaves_de_const_locais.insert(sym, (k, init_id));
                     }
-                    let init_op = if let Some(init_id) = var.initializer {
+                    let init_op = if late_local {
+                        Self::valor_zero(ty)
+                    } else if let Some(init_id) = var.initializer {
                         let op = if var_list.const_ {
                             self.lower_em_contexto_const(ast, init_id)
                         } else {
@@ -101,6 +106,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Self::valor_zero(ty)
                     };
                     self.declarar_variavel(sym, var.name.span.start as usize, ty, init_op);
+                    if late_local {
+                        self.configurar_local_late(sym, var_list.final_, var.initializer);
+                    }
                 }
             }
             StmtKind::If {
@@ -238,12 +246,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             for var in &var_list.variables {
                                 let sym = var.name.sym;
                                 let ty = self.repr_do_local(var.name.span.start);
-                                let init_op = if let Some(init_id) = var.initializer {
+                                let late_local = var_list.late
+                                    && (var.initializer.is_none()
+                                        || !self.celulas.contains(&(var.name.span.start as usize)));
+                                let init_op = if late_local {
+                                    Self::valor_zero(ty)
+                                } else if let Some(init_id) = var.initializer {
                                     self.lower_expr(ast, init_id)
                                 } else {
                                     Self::valor_zero(ty)
                                 };
                                 self.declarar_variavel(sym, var.name.span.start as usize, ty, init_op);
+                                if late_local {
+                                    self.configurar_local_late(sym, var_list.final_, var.initializer);
+                                }
                             }
                         }
                         ast::ForInit::Expression(e) => {
@@ -323,6 +339,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             StmtKind::Assert { condition, message } => {
                 self.lower_assert(ast, *condition, *message);
+            }
+            StmtKind::ForIn {
+                target,
+                iterable,
+                body,
+                ..
+            } if self.ctx.sdk_da_fonte => {
+                // SDK da fonte: o protocolo do `Iterator` (§17.7.3).
+                self.lower_for_in_fonte(ast, target, *iterable, *body, stmt.span);
             }
             StmtKind::ForIn {
                 target,
@@ -667,6 +692,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
 
                 self.set_block(body_b);
+                // O rastro explícito pertence à exceção pendente. Leia-o
+                // antes de `clear`, que libera o slot e a raiz do runtime.
+                let st_val = clause.stack_trace.as_ref().map(|_| self.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_stack_trace_get".to_string(),
+                        args: Vec::new(),
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                ));
                 self.emit(
                     Instruction::CallRuntime {
                         name: "dartforge_exception_clear".to_string(),
@@ -680,15 +715,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if let Some(ex_name) = &clause.exception {
                     self.declarar_variavel(ex_name.sym, ex_name.span.start as usize, Type::Ref, ex_bits.clone());
                 }
-                if let Some(st_name) = &clause.stack_trace {
-                    let st_val = self.emit(
-                        Instruction::CallRuntime {
-                            name: "dartforge_stack_trace_get".to_string(),
-                            args: Vec::new(),
-                            ret_ty: Type::Ref,
-                        },
-                        Type::Ref,
-                    );
+                if let (Some(st_name), Some(st_val)) = (&clause.stack_trace, st_val) {
                     self.declarar_variavel(st_name.sym, st_name.span.start as usize, Type::Ref, st_val);
                 }
 

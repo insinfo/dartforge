@@ -209,6 +209,10 @@ impl Texto {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+    /// É um `_OneByteString` (Latin-1)?
+    pub fn e_um_byte(&self) -> bool {
+        matches!(self, Texto::Um(_))
+    }
 
     /// A unidade no índice (`codeUnitAt`); o índice é verificado por quem chama.
     pub fn unidade(&self, i: usize) -> u16 {
@@ -718,6 +722,9 @@ pub struct Heap {
     /// tear-offs da mesma função top-level; cada `code_id` tem um único handle,
     /// mantido vivo como raiz permanente, como os singletons de enum.
     tearoffs: std::collections::HashMap<i64, i64>,
+    /// Literais do compilador, canônicos por unidades UTF-16. Permanecem
+    /// enraizados pelo isolate; strings criadas em execução não entram aqui.
+    literais: std::collections::HashMap<Vec<u16>, i64>,
     /// `DARTFORGE_GC_OFF=1`: nunca coleta. Instrumento de diagnóstico
     /// (docs/NATIVO-PLANO.md §6): um programa que morre com "handle já
     /// coletado" e passa com a coleta desligada tem raiz faltando; um que
@@ -736,6 +743,16 @@ pub struct Heap {
     /// um slot reutilizado herdaria a marca "imutável" ou "em iteração" de
     /// outro objeto.
     pub imutaveis: std::collections::HashSet<i64>,
+    /// Campos `late` já escritos, por handle e índice físico. A marca fica
+    /// fora do valor: zero e null são atribuições válidas do programa.
+    pub campos_late_inicializados: std::collections::HashSet<(i64, i64)>,
+    /// Listas de tamanho fixo (`_List` do SDK da fonte, P5c).
+    pub fixas: std::collections::HashSet<i64>,
+    /// `_GrowableList` criada por `_withData(data)` (P5c): o vetor tem os
+    /// elementos de `data` (a reserva) e o tamanho lógico ainda é este, até
+    /// o primeiro `_setLength`/`_setData` — na VM a lista aponta para o
+    /// `_List` e o tamanho é outro campo.
+    pub pendentes: std::collections::HashMap<i64, usize>,
     pub iteracoes_ativas: std::collections::HashSet<i64>,
     /// Lista de chaves → mapa de origem (para acusar modificação do mapa
     /// durante a iteração das chaves).
@@ -760,11 +777,15 @@ impl Heap {
             limite_bytes: Self::limite_do_ambiente(),
             enum_values: std::collections::HashMap::new(),
             tearoffs: std::collections::HashMap::new(),
+            literais: std::collections::HashMap::new(),
             gc_desligado: std::env::var("DARTFORGE_GC_OFF").as_deref() == Ok("1"),
             globais: std::collections::HashMap::new(),
             caixas_bool: [0, 0],
             raizes_do_runtime: [0, 0],
             imutaveis: std::collections::HashSet::new(),
+            campos_late_inicializados: std::collections::HashSet::new(),
+            fixas: std::collections::HashSet::new(),
+            pendentes: std::collections::HashMap::new(),
             iteracoes_ativas: std::collections::HashSet::new(),
             origens: std::collections::HashMap::new(),
         }
@@ -783,6 +804,17 @@ impl Heap {
             self.caixas_bool[i] = self.allocate(Value::BoxedBool(valor));
         }
         self.caixas_bool[i]
+    }
+    /// Retorna o mesmo objeto para literais de mesmo conteúdo, inclusive
+    /// quando vieram de módulos LLVM diferentes.
+    pub fn string_literal(&mut self, texto: Texto) -> i64 {
+        let chave: Vec<u16> = texto.unidades().collect();
+        if let Some(&handle) = self.literais.get(&chave) {
+            return handle;
+        }
+        let handle = self.allocate(Value::String(texto));
+        self.literais.insert(chave, handle);
+        handle
     }
     /// Valor como referência: escalar vira caixa; referência passa direto.
     /// Um `int` que cabe no `Smi` (R10) não aloca. Quem chama enraíza o
@@ -1429,6 +1461,7 @@ impl Heap {
         self.stats.collections += 1;
         self.stats.roots_scanned += self.enum_values.len() as u64;
         self.stats.roots_scanned += self.tearoffs.len() as u64;
+        self.stats.roots_scanned += self.literais.len() as u64;
         self.stats.roots_scanned += self
             .frames
             .iter()
@@ -1440,6 +1473,7 @@ impl Heap {
         self.pending.clear();
         self.pending.extend(self.enum_values.values().copied());
         self.pending.extend(self.tearoffs.values().copied());
+        self.pending.extend(self.literais.values().copied());
         self.pending.extend(self.globais.values().copied());
         self.pending.extend(self.caixas_bool.iter().copied().filter(|&h| h != 0));
         self.pending.extend(self.raizes_do_runtime.iter().copied().filter(|&h| h != 0));
@@ -1474,6 +1508,9 @@ impl Heap {
             smi::e_handle(*h) && *h > 0 && marks.get(Self::indice_de(*h)).copied().unwrap_or(false)
         };
         self.imutaveis.retain(|h| vivo(h));
+        self.campos_late_inicializados.retain(|(h, _)| vivo(h));
+        self.fixas.retain(|h| vivo(h));
+        self.pendentes.retain(|h, _| vivo(h));
         self.iteracoes_ativas.retain(|h| vivo(h));
         self.origens.retain(|k, v| vivo(k) && vivo(v));
         for (index, slot) in self.slots.iter_mut().enumerate() {
@@ -1500,6 +1537,7 @@ impl Heap {
             reserved_slots: self.slots.len(),
             permanent_roots: self.enum_values.len()
                 + self.tearoffs.len()
+                + self.literais.len()
                 + self.caixas_bool.iter().filter(|&&h| h != 0).count(),
             ..self.stats
         }
@@ -1682,6 +1720,18 @@ mod texto_utf16 {
     //! forma da VM. Os casos são os do programa 04 do corpus
     //! (`corpus/js/04_strings_surrogates.dart`), com os valores da VM.
     use super::*;
+
+    #[test]
+    fn literais_iguais_sao_identicos_apos_coleta_mas_texto_dinamico_nao() {
+        let mut heap = Heap::new(true);
+        let primeiro = heap.string_literal(Texto::de_wtf8("ação".as_bytes()));
+        heap.collect();
+        let segundo = heap.string_literal(Texto::de_wtf8("ação".as_bytes()));
+        assert_eq!(primeiro, segundo);
+        let dinamico = heap.allocate(Value::String(Texto::de_str("ação")));
+        assert_ne!(primeiro, dinamico);
+        assert!(heap.string_equal(primeiro, dinamico));
+    }
 
     #[test]
     fn forma_canonica_um_e_dois_bytes() {
@@ -1947,12 +1997,19 @@ mod raizes_do_runtime {
         let lista = heap.create_list(Vec::new());
         heap.imutaveis.insert(lista);
         heap.iteracoes_ativas.insert(lista);
+        heap.campos_late_inicializados.insert((lista, 0));
+        heap.campos_late_inicializados.insert((lista, -1));
+        heap.campos_late_inicializados.insert((lista, -2));
         heap.collect();
         assert!(heap.imutaveis.is_empty());
         assert!(heap.iteracoes_ativas.is_empty());
+        assert!(heap.campos_late_inicializados.is_empty());
         let nova = heap.create_list(Vec::new());
         assert_eq!(nova, lista, "o slot é reutilizado");
         assert!(!heap.imutaveis.contains(&nova));
+        assert!(!heap.campos_late_inicializados.contains(&(nova, 0)));
+        assert!(!heap.campos_late_inicializados.contains(&(nova, -1)));
+        assert!(!heap.campos_late_inicializados.contains(&(nova, -2)));
     }
 }
 

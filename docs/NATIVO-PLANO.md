@@ -1188,3 +1188,87 @@ de custo zero verde. O job novo `--gc-stress` roda o corpus inteiro (31 s no
 runner) e o `nativo-placar` confirma: nenhum programa que passa sem estresse
 falha com ele. IR de um programa `async` típico (83): 1,2 MB, a maior parte do
 `dart:async` alcançado.
+
+### 7.9 δ: o SDK da fonte compilado (P5c) e a troca (P5d), medido
+
+**Como o SDK entra.** Com `DARTFORGE_SDK_DA_FONTE=1` (opt-in até o placar
+do SDK da fonte passar o de hoje), as oito bibliotecas da fonte (`core`,
+`async`, `collection`, `convert`, `math`, `_internal`, `_compact_hash`,
+`typed_data`, com os patches `vm` e a sobreposição `sdk_nativo/`) são
+baixadas **cada uma no seu módulo**, em mundo aberto, com os símbolos
+estáveis `df.<biblioteca>.<dono>.<membro>`, e compiladas uma vez por
+conteúdo: a chave é o blake3 das fontes do SDK e da sobreposição, das fontes
+do compilador (`crates/emit_native/build.rs`: emit_native, types, elements,
+frontend, runtime), da identidade do Clang e das bandeiras
+(`native_cache/sdk/<chave>/`, `recusados.tsv` ao lado). O programa é
+compilado como sempre (os corpos do SDK **não** são inferidos nem baixados
+por programa) e referencia os símbolos do SDK.
+
+**Dois perfis** (exigência do proprietário, 2026-09-23):
+
+* **desenvolvimento, teste, CI e JIT** — o SDK e o runtime numa **DLL em
+  cache** (`dfsdk_<chave>.dll`, com a biblioteca de importação); o
+  executável liga só o objeto do programa e a importação, e a DLL vai ao
+  lado dele por ligação física. Motivo, medido: ligar os objetos do SDK
+  (~12 MB) em cada executável custava ~450 ms por programa, contra ~60 ms da
+  ligação de antes; com a DLL a ligação pareada ficou abaixo da de antes
+  (132 ms × 198 ms na mesma máquina, mesma hora);
+* **produção** (`optimize`, `dartforge aot --optimize`) — **um executável
+  autocontido**, como o `dart compile exe`: o SDK em bitcode ThinLTO `-O2`
+  (outra entrada do mesmo cache por blake3, compilada uma vez), o programa
+  em bitcode ThinLTO, o runtime estático, ligados pelo `lld` com ThinLTO e
+  `/OPT:REF`. O teste `producao_e_um_executavel_autocontido` copia só o
+  `.exe` para uma pasta vazia e o executa (sem nenhuma DLL do DartForge).
+
+**Poda (mundo fechado pela ligação).** A tabela de métodos de uma classe é
+registrada **na primeira alocação** de um objeto dela
+(`dartforge_object_new_t` recebe a função `df.mt.<biblioteca>.<Classe>`
+que devolve a tabela); só as classes dos valores do runtime (`_Smi`,
+`_OneByteString`, `_GrowableList`…) são registradas pela entrada. Uma
+classe que o programa nunca instancia não tem a tabela alcançada, e o
+ligador tira a tabela, os adaptadores e os métodos que só ela alcançava.
+
+**Tamanho do executável de produção** (medido; o mesmo programa com o
+`dart compile exe` do SDK 3.6.2):
+
+| programa | DartForge (produção, ThinLTO) | `dart compile exe` |
+| --- | ---: | ---: |
+| hello world (`print('Olá, mundo!')`) | 2 486 784 B | 5 796 864 B |
+| médio (corpus `64_map_ordem_insercao`) | 2 528 768 B | 5 839 360 B |
+
+**Despacho: tabela por classe, não a tabela global.** A *global dispatch
+table* da VM AOT escolhe os deslocamentos vendo todas as classes; com o SDK
+compilado antes do programa, os deslocamentos do SDK não podem depender das
+classes do programa, e cada programa teria de redefinir um global por
+seletor que o SDK usa (milhares) — ou o COFF teria de resolver símbolos
+fracos, que ele não resolve como o ELF. É a solução do JIT da VM: cada
+classe tem a tabela (hash FNV-1a de 64 bits do seletor → entrada uniforme),
+e cada ponto de chamada tem um cache (id de classe, entrada). O seletor é
+`c:m` (chamar), `g:x` (ler), `s:x` (gravar), com `@<biblioteca>` nos nomes
+privados. A chamada é direta quando só a biblioteca da classe pode
+sobrescrever o membro e ele tem uma implementação que é método
+(`sdk_fonte::implementacoes`).
+
+A entrada uniforme guarda a tupla RTI do método genérico num slot oculto
+depois dos argumentos posicionais e nomeados; o descritor de aridade continua
+contando só os argumentos Dart. O adaptador passa essa tupla à função real.
+O `T` de uma classe genérica, por sua vez, é avaliado pelo RTI do receptor.
+Essa combinação permite que `Iterable.whereType<T>` filtre por `T` mesmo
+quando a chamada e `WhereTypeIterator<T>.moveNext` passam por seletores.
+
+**O que é nosso na sobreposição** (além do de 7.4): `print_patch.dart`
+(`printToConsole` como native, e os erros que o runtime lança construídos
+como os objetos da fonte, `_dartforge*`), `string_buffer_patch.dart` (o
+`StringBuffer` por partes; o da VM usa `Uint16List` e um native de criação),
+`compact_hash.dart` (os campos que a VM injeta em `_HashVMBase` como campos
+de verdade; o resto é o arquivo do SDK) e `typed_data_patch.dart` (as listas
+de inteiros e a `Float64List` sobre uma lista de tamanho fixo, ajustando o
+valor ao tipo do elemento; `ByteBuffer`/`ByteData`/visões/`Float32List`/SIMD
+ficam `external` e recusados).
+
+**Recusa por membro.** O membro do SDK que não baixa (construto não
+suportado, native pendente, intrínseco da VM sem entrada, teste de tipo sobre
+parâmetro de tipo antes da RTI) vira uma função que avisa em tempo de
+execução — `erro: membro do SDK não suportado no backend nativo: <símbolo>
+(<motivo>)`, código 254 — e entra em `recusados.tsv`. Nunca uma saída
+errada.

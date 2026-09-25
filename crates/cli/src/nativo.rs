@@ -10,7 +10,7 @@ type Resultado = Result<(), Box<dyn std::error::Error>>;
 
 #[cfg(not(feature = "nativo"))]
 fn desabilitado(comando: &str) -> Resultado {
-    Err(format!("`dartforge {comando}` exige o backend nativo: compile com `cargo build -p dartforge-cli --features nativo` (precisa do LLVM em D:/LLVM/22.1.8)").into())
+    Err(format!("`dartforge {comando}` exige o backend nativo: compile com `cargo build -p dartforge-cli --features nativo` (configure DARTFORGE_CLANG para o LLVM 22)").into())
 }
 
 #[cfg(not(feature = "nativo"))]
@@ -110,6 +110,7 @@ pub fn aot(args: &[std::ffi::OsString]) -> Resultado {
                 timings,
                 optimize,
                 versao_linguagem: None,
+                experimentos: Vec::new(),
             };
             dartforge_emit_native::compilar(&input, &output, &options)
         })
@@ -121,7 +122,8 @@ pub fn aot(args: &[std::ffi::OsString]) -> Resultado {
 
 #[cfg(feature = "nativo")]
 pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
-    let usage = "usage: dartforge compile-native <input.dart> -o <output.exe> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--optimize]
+    use dartforge_elements::sdk::Linguagem;
+    let usage = "usage: dartforge compile-native <input.dart> -o <output.exe> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--optimize] [--versao-linguagem x.y] [--enable-experiment=a,b]
        dartforge compile-native <input.dart> --emit-ir -o <saida.ll> [--resumo] [...]
        dartforge compile-native <input.dart> --resumo [...]
   --emit-ir  grava o LLVM IR em -o, sem Clang nem ligação
@@ -135,6 +137,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
     let mut optimize = false;
     let mut emit_ir = false;
     let mut resumo = false;
+    let mut linguagem = Linguagem::default();
 
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -146,6 +149,14 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
             Some("--optimize") => optimize = true,
             Some("--emit-ir") => emit_ir = true,
             Some("--resumo") => resumo = true,
+            Some("--versao-linguagem" | "--enable-experiment") => {
+                let valor = it.next().and_then(|v| v.to_str()).ok_or(usage)?;
+                linguagem.ler_opcao(a.to_str().unwrap_or_default(), &mut std::iter::once(valor))?;
+            }
+            Some(opcao) if opcao.starts_with("--versao-linguagem=")
+                || opcao.starts_with("--enable-experiment=") => {
+                linguagem.ler_opcao(opcao, &mut std::iter::empty::<&str>())?;
+            }
             _ if input.is_none() => input = Some(PathBuf::from(a)),
             _ => return Err(usage.into()),
         }
@@ -157,7 +168,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
         if emit_ir && out.is_none() {
             return Err(usage.into());
         }
-        return emitir_ir_nativo(input, out.filter(|_| emit_ir), sdk, packages, timings, resumo);
+        return emitir_ir_nativo(input, out.filter(|_| emit_ir), sdk, packages, timings, resumo, linguagem);
     }
     let Some(out) = out else {
         return Err(usage.into());
@@ -174,7 +185,8 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
                 packages: p2.as_deref(),
                 timings,
                 optimize,
-                versao_linguagem: None,
+                versao_linguagem: linguagem.versao_corrente,
+                experimentos: linguagem.experimentos,
             };
             dartforge_emit_native::compilar(&i2, &o2, &options)
         })
@@ -196,6 +208,7 @@ fn emitir_ir_nativo(
     packages: Option<PathBuf>,
     timings: bool,
     resumo: bool,
+    linguagem: dartforge_elements::sdk::Linguagem,
 ) -> Resultado {
     let ir = std::thread::Builder::new()
         .stack_size(1 << 30)
@@ -205,7 +218,8 @@ fn emitir_ir_nativo(
                 packages: packages.as_deref(),
                 timings,
                 optimize: false,
-                versao_linguagem: None,
+                versao_linguagem: linguagem.versao_corrente,
+                experimentos: linguagem.experimentos,
             };
             dartforge_emit_native::emitir_ir(&input, &options)
         })
@@ -225,4 +239,3 @@ fn emitir_ir_nativo(
     }
     Ok(())
 }
-

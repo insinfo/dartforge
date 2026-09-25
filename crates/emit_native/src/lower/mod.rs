@@ -22,10 +22,12 @@ pub mod heranca;
 pub mod literais;
 pub mod locais;
 pub mod membros;
+pub mod nsm;
 pub mod operadores;
 pub mod padroes;
 pub mod registros;
 pub mod rti;
+pub mod sdk_fonte;
 pub mod sdk_por_nome;
 pub mod verificador;
 
@@ -66,7 +68,7 @@ pub fn sanitize_symbol(name: &str) -> String {
 /// diagnóstico (N1), não `call` para um símbolo que não existe.
 pub fn funcao_do_usuario(ctx: &Context, fid: usize) -> bool {
     let f = &ctx.program.functions[fid];
-    !ctx.program.library(f.library).is_sdk
+    ctx.biblioteca_compilada(f.library)
 }
 
 /// A função é construtor generativo (inclusive o sintético): não devolve
@@ -157,6 +159,11 @@ pub fn simbolo_valor_global(ctx: &Context, vid: VariableId) -> String {
     format!("dfg.{}", caminho_da_variavel(ctx, vid))
 }
 
+/// Getter dedicado de um campo de instância `late` com inicializador.
+pub fn simbolo_getter_campo_late(ctx: &Context, vid: VariableId) -> String {
+    format!("df.late.{}", caminho_da_variavel(ctx, vid))
+}
+
 pub fn lower_program(ctx: &Context) -> Module {
     let mut module = Module::new();
 
@@ -170,6 +177,12 @@ pub fn lower_program(ctx: &Context) -> Module {
         to_string_symbol: None,
     });
 
+    module.modo_sdk = ctx.sdk_da_fonte;
+    module.biblioteca_sdk = ctx.biblioteca_sdk;
+    if ctx.sdk_da_fonte {
+        // As classes de erro são as do SDK da fonte (P5c).
+        return lower_classes_e_funcoes(ctx, module);
+    }
     // Classes e interfaces de erro da biblioteca padrão
     module.classes.push(ClassDef { id: 1000, name: "Exception".to_string(), field_count: 1, vtable: Vec::new(), to_string_symbol: None });
     module.classes.push(ClassDef { id: 1001, name: "FormatException".to_string(), field_count: 1, vtable: Vec::new(), to_string_symbol: None });
@@ -210,11 +223,14 @@ pub fn lower_program(ctx: &Context) -> Module {
     module.subtyping_edges.push((1012, 1007)); // NoSuchMethodError <: Error
     module.subtyping_edges.push((1012, 0));
     module.subtyping_edges.push((1006, 0)); // StackTrace <: Object
+    lower_classes_e_funcoes(ctx, module)
+}
 
+fn lower_classes_e_funcoes(ctx: &Context, mut module: Module) -> Module {
     for (c_idx, class) in ctx.program.classes.iter().enumerate() {
         // Classes do SDK não viram objetos do nosso heap (o runtime tem as
         // suas próprias representações); só as do usuário são registradas.
-        if ctx.program.library(class.library).is_sdk {
+        if !ctx.biblioteca_no_modulo(class.library) {
             continue;
         }
         let name = ctx.symbol_name(class.name).to_string();
@@ -236,6 +252,18 @@ pub fn lower_program(ctx: &Context) -> Module {
         if let Some(sup) = class.supertype_class.and_then(|s| ctx.id_de_classe(s)) {
             module.subtyping_edges.push((class_id, sup));
         }
+        // Enum do programa é subtipo do `Enum` do SDK (especificação §13):
+        // sem a aresta, `valor is Enum` respondia falso. A superclasse do
+        // outline não carrega o `Enum`, então a aresta é registrada aqui.
+        // Sem id do SDK (modo sem fonte), não há o que registrar.
+        if ctx.sdk_da_fonte
+            && !ctx.program.library(class.library).is_sdk
+            && enums::e_enum(ctx, dartforge_elements::model::ClassId(c_idx as u32))
+            && let Some(enum_sdk) = ctx.classe_do_sdk("core", "Enum")
+            && let Some(enum_id) = ctx.id_de_classe(enum_sdk)
+        {
+            module.subtyping_edges.push((class_id, enum_id));
+        }
         let mut nomes_de_supertipo: Vec<&str> = Vec::new();
         if let Some(sup) = class.supertype_class {
             nomes_de_supertipo.push(ctx.symbol_name(ctx.program.classes[sup.0 as usize].name));
@@ -252,6 +280,10 @@ pub fn lower_program(ctx: &Context) -> Module {
             nomes_de_supertipo.push(ctx.symbol_name(ctx.program.classes[iface.0 as usize].name));
         }
         for sup_name in nomes_de_supertipo {
+            if ctx.sdk_da_fonte {
+                // As classes de erro são as do SDK da fonte: arestas reais.
+                break;
+            }
             let builtin = match sup_name {
                 "Exception" => Some(1000),
                 "FormatException" => Some(1001),
@@ -274,12 +306,35 @@ pub fn lower_program(ctx: &Context) -> Module {
         }
     }
 
-    // P6: os símbolos das funções da fonte que têm corpo — um `external`
-    // cujo patch o carregador não ligou (`patched_by` vazio, NATIVO-PEDIDOS)
-    // tem o mesmo símbolo do membro do patch, e quem vale é o patch.
-    let com_corpo_da_fonte: std::collections::HashSet<String> = if ctx.da_fonte.is_empty() {
-        std::collections::HashSet::new()
-    } else {
+    // 2. Funções do usuário
+    for f_idx in 0..ctx.program.functions.len() {
+        if !ctx.biblioteca_no_modulo(ctx.program.functions[f_idx].library) {
+            continue;
+        }
+        if ctx.sdk_da_fonte && ctx.program.library(ctx.program.functions[f_idx].library).is_sdk {
+            // Módulo do SDK da fonte (P5c): o membro que não baixa é
+            // recusado sozinho, com o motivo (`sdk_fonte.rs`).
+            sdk_fonte::lower_funcao_ou_recusa(ctx, &mut module, f_idx);
+        } else {
+            lower_funcao(ctx, &mut module, f_idx);
+        }
+    }
+    if ctx.sdk_da_fonte {
+        sdk_fonte::lower_adaptadores_e_tabelas(ctx, &mut module);
+    }
+    let mut module = lower_globais_e_resto(ctx, module);
+    if ctx.sdk_da_fonte {
+        sdk_fonte::tabelas_das_formas_de_record(ctx, &mut module);
+    }
+    module
+}
+
+/// P6: os símbolos das funções da fonte que têm corpo — um `external` cujo
+/// patch o carregador não ligou (`patched_by` vazio, NATIVO-PEDIDOS) tem o
+/// mesmo símbolo do membro do patch, e quem vale é o patch. Calculado uma vez
+/// por contexto.
+fn com_corpo_da_fonte<'c>(ctx: &'c Context) -> &'c std::collections::HashSet<String> {
+    ctx.com_corpo_da_fonte.get_or_init(|| {
         ctx.program
             .functions
             .iter()
@@ -287,14 +342,19 @@ pub fn lower_program(ctx: &Context) -> Module {
             .filter(|(i, f)| ctx.da_fonte.contains(&f.library) && membros::tem_corpo(ctx, *i))
             .map(|(i, _)| simbolo_de(ctx, i))
             .collect()
-    };
+    })
+}
 
-    // 2. Funções do usuário
-    for (f_idx, func_elem) in ctx.program.functions.iter().enumerate() {
-        if !funcao_do_usuario(ctx, f_idx) {
-            continue;
-        }
-
+/// Baixa uma função (de topo, método, construtor) para o módulo.
+pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
+    let func_elem = &ctx.program.functions[f_idx];
+    if func_elem.external && ctx.sdk_da_fonte {
+        // `external` (inclusive construtor): o corpo é o do patch ou o
+        // native (`sdk_fonte::chamar_externo`); nada a baixar aqui — um
+        // corpo vazio com o mesmo símbolo tomaria o lugar do patch.
+        return;
+    }
+    {
         let name = ctx.symbol_name(func_elem.name);
         let symbol = simbolo_de(ctx, f_idx);
 
@@ -308,7 +368,7 @@ pub fn lower_program(ctx: &Context) -> Module {
                     if func_elem.external
                         && func_elem.patched_by.is_none()
                         && ctx.da_fonte.contains(&func_elem.library)
-                        && !com_corpo_da_fonte.contains(&symbol)
+                        && !com_corpo_da_fonte(ctx).contains(&symbol)
                     {
                         let ret_ty = ctx
                             .outline
@@ -322,10 +382,10 @@ pub fn lower_program(ctx: &Context) -> Module {
                             builder.nao_suportado(&format!("external `{name}` sem native"), ast_func.span);
                             builder.terminate(Terminator::Return(None));
                         }
-                        builder.finalizar(&mut module);
+                        builder.finalizar(module);
                     }
                     // Abstrato ou externo: não há corpo a compilar.
-                    continue;
+                    return;
                 }
 
                 let is_main = symbol == "dart_main";
@@ -369,7 +429,7 @@ pub fn lower_program(ctx: &Context) -> Module {
                     builder.declarar_parametros(f_idx, false);
                     let on = ctx.outline.extensions[e.0 as usize].on;
                     if let dartforge_types::table::Type::Interface { class, .. } = ctx.table.get(on)
-                        && !ctx.program.library(ctx.program.classes[class.0 as usize].library).is_sdk
+                        && ctx.biblioteca_compilada(ctx.program.classes[class.0 as usize].library)
                     {
                         builder.enclosing_class = Some(*class);
                     }
@@ -413,14 +473,14 @@ pub fn lower_program(ctx: &Context) -> Module {
                         builder.terminate(Terminator::Return(None));
                     }
                 }
-                builder.finalizar(&mut module);
+                builder.finalizar(module);
             }
             FunctionRef::Constructor { unit, member } => {
                 let ast = &ctx.program.unit(unit).ast;
                 let MemberKind::Constructor(ctor) = &ast.member(member).kind else {
-                    continue;
+                    return;
                 };
-                let Some(cid) = func_elem.class else { continue };
+                let Some(cid) = func_elem.class else { return };
                 if func_elem.factory {
                     let mut builder = fn_builder::FnBuilder::new(ctx, unit, symbol, name.to_string(), Type::Ref);
                     builder.preparar_capturas(
@@ -457,7 +517,29 @@ pub fn lower_program(ctx: &Context) -> Module {
                                     .then_some(sym);
                                     avaliados.push((nome, v));
                                 }
-                                let r = builder.instanciar_avaliados(t, &avaliados, span);
+                                // `factory C<T>(…) = C<T>._` deve entregar os
+                                // parâmetros reificados ao construtor alvo.
+                                // Sem isso, `MapEntry<K,V>` nasce como
+                                // `MapEntry<dynamic,dynamic>` mesmo quando a
+                                // fábrica recebeu `L<K,V>` pela ABI.
+                                let classe_alvo = ctx.program.functions[t.0 as usize].class;
+                                if classe_alvo == Some(cid) {
+                                    builder.tipo_da_criacao = Some(ctx.outline.functions[f_idx].return_type);
+                                }
+                                let (rti_alvo, tupla_alvo) = if classe_alvo
+                                    .is_some_and(|alvo| builder.classe_generica(alvo))
+                                {
+                                    let anotacao = ast.ty(r.ty);
+                                    let rti = builder.receita_da_anotacao(anotacao)
+                                        .map(|receita| builder.rti_da_receita(&receita));
+                                    let tupla = builder.tupla_da_anotacao(anotacao);
+                                    (rti, tupla)
+                                } else {
+                                    (None, None)
+                                };
+                                let r = builder.instanciar_avaliados_com_rti(
+                                    t, &avaliados, span, rti_alvo, tupla_alvo,
+                                );
                                 builder.terminate(Terminator::Return(Some(r)));
                             }
                             None => {
@@ -475,7 +557,7 @@ pub fn lower_program(ctx: &Context) -> Module {
                             _ => {}
                         }
                     }
-                    builder.finalizar(&mut module);
+                    builder.finalizar(module);
                 } else {
                     let mut builder = fn_builder::FnBuilder::new(ctx, unit, symbol, name.to_string(), Type::Void);
                     builder.preparar_capturas(
@@ -489,32 +571,60 @@ pub fn lower_program(ctx: &Context) -> Module {
                     builder.declarar_parametros(f_idx, true);
                     builder.enclosing_class = Some(cid);
                     builder.lower_construtor(ast, cid, ctor, ast.member(member).span);
-                    builder.finalizar(&mut module);
+                    builder.finalizar(module);
                 }
             }
             FunctionRef::None => {
                 // Construtor padrão sintético (`class A { int x = 1; }`):
                 // inicializadores de campo e `super()` implícito.
                 if func_elem.kind != FunctionKind::SyntheticConstructor {
-                    continue;
+                    return;
                 }
-                let Some(cid) = func_elem.class else { continue };
-                let Some(decl) = ctx.program.classes[cid.0 as usize].decl else { continue };
+                let Some(cid) = func_elem.class else { return };
+                let Some(decl) = ctx.program.classes[cid.0 as usize].decl else { return };
                 let mut builder = fn_builder::FnBuilder::new(ctx, decl.unit, symbol, name.to_string(), Type::Void);
                 builder.declarar_parametros(f_idx, true);
                 builder.enclosing_class = Some(cid);
                 let ast = &ctx.program.unit(decl.unit).ast;
                 builder.lower_construtor_sintetico(ast, cid);
-                builder.finalizar(&mut module);
+                builder.finalizar(module);
             }
         }
+    }
+}
+
+fn lower_globais_e_resto(ctx: &Context, mut module: Module) -> Module {
+    // O inicializador não pode ser expandido em cada ponto de leitura: uma
+    // auto-referência deve chamar o getter em runtime e observar reentrância.
+    for (v_idx, v) in ctx.program.variables.iter().enumerate() {
+        let vid = VariableId(v_idx as u32);
+        let VariableRef::Field { unit, member, index } = v.node else { continue };
+        if !ctx.biblioteca_no_modulo(v.library) || !v.late || v.static_ || v.class.is_none() {
+            continue;
+        }
+        let MemberKind::Field(list) = &ctx.program.unit(unit).ast.member(member).kind else { continue };
+        if list.variables.get(index).and_then(|x| x.initializer).is_none() {
+            continue;
+        }
+        let mut b = fn_builder::FnBuilder::new(
+            ctx,
+            unit,
+            simbolo_getter_campo_late(ctx, vid),
+            ctx.symbol_name(v.name).to_string(),
+            Type::Ref,
+        );
+        let obj = Operand::Val(b.add_param("this".to_string(), Type::Ref));
+        b.this_param = Some(obj.clone());
+        b.enclosing_class = v.class;
+        b.lower_getter_campo_late(obj, vid, ctx.program.unit(unit).ast.member(member).span);
+        b.finalizar(&mut module);
     }
 
     // 3. Variáveis de topo e campos estáticos do usuário: um getter
     // preguiçoso por global (N6).
     for (v_idx, v) in ctx.program.variables.iter().enumerate() {
         let vid = VariableId(v_idx as u32);
-        if ctx.program.library(v.library).is_sdk || !e_global(ctx, vid) {
+        if !ctx.biblioteca_no_modulo(v.library) || !e_global(ctx, vid) {
             continue;
         }
         let unit = match v.node {
@@ -541,6 +651,12 @@ pub fn lower_program(ctx: &Context) -> Module {
         let repr = ctx.to_hir_type(ty);
         let repr = if repr == Type::Void { Type::Ref } else { repr };
         module.globais.push((vid.0, repr, simbolo_valor_global(ctx, vid)));
+        if ctx.sdk_da_fonte {
+            // SDK da fonte (P5c): o getter (ou a recusa dele) e o setter que
+            // outro módulo chama para gravar.
+            sdk_fonte::lower_global_ou_recusa(ctx, &mut module, vid, unit, repr);
+            continue;
+        }
         let mut builder = fn_builder::FnBuilder::new(
             ctx,
             unit,
@@ -562,7 +678,7 @@ pub fn lower_program(ctx: &Context) -> Module {
     // P6: o laço de eventos (quem usa `dart:async`): a classe do quadro das
     // funções `async` e a função que o runtime usa para chamar uma closure
     // (o único ponto em que o runtime chama Dart, `eventos.rs`).
-    if !ctx.da_fonte.is_empty()
+    if ctx.usa_dart_async
         && let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied())
     {
         module.classes.push(ClassDef {
@@ -616,6 +732,12 @@ pub fn lower_program(ctx: &Context) -> Module {
         let mut builder = fn_builder::FnBuilder::new(ctx, u, simbolo, "toString".to_string(), Type::Ref);
         builder.lower_to_string_de_forma(k);
         builder.finalizar(&mut module);
+        if ctx.sdk_da_fonte {
+            let simbolo_hash = format!("df.$registro.{k}.hashCode");
+            let mut builder = fn_builder::FnBuilder::new(ctx, u, simbolo_hash, "hashCode".to_string(), Type::I64);
+            builder.lower_hash_de_forma(k);
+            builder.finalizar(&mut module);
+        }
     }
     if !ctx.formas_de_record.is_empty()
         && let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied())
@@ -635,7 +757,7 @@ pub fn lower_program(ctx: &Context) -> Module {
     // enum não declara o seu.
     for (c_idx, class) in ctx.program.classes.iter().enumerate() {
         let cid = dartforge_elements::model::ClassId(c_idx as u32);
-        if !enums::e_enum(ctx, cid) {
+        if !enums::e_enum(ctx, cid) || !ctx.biblioteca_no_modulo(class.library) {
             continue;
         }
         let Some(id) = ctx.id_de_classe(cid) else { continue };

@@ -182,18 +182,30 @@ impl Motor {
         let unidades_proprias: BTreeSet<UnitId> = unidade_de.values().copied().collect();
 
         // 1. Sintaxe: o `elements` prefixa o caminho e o offset na mensagem.
+        // O que ali não é sintático (marcador de versão) entra depois, fora da
+        // faixa publicada sempre.
+        let mut da_carga_semanticos: Vec<(PathBuf, Diagnostic)> = Vec::new();
         for d in &diags_carga {
             for (k, u) in &unidade_de {
                 let Some(p) = &program.unit(*u).path else { continue };
                 let prefixo = format!("{}:{}: ", p.display(), d.span.start);
                 if let Some(msg) = d.message.strip_prefix(&prefixo) {
-                    let cru = Diagnostic::new(msg, d.span);
-                    let a = analise.arquivos.get_mut(k).expect("próprio");
-                    a.diags.push(ponte::codificar_sintaxe(&cru));
-                    a.sintaticos += 1;
+                    let mut cru = d.clone();
+                    cru.message = msg.to_string();
+                    let sintatico = cru.code.is_none_or(|c| c.info().tipo == dartforge_diagnostics::TipoErro::SyntacticError);
+                    if sintatico {
+                        let a = analise.arquivos.get_mut(k).expect("próprio");
+                        a.diags.push(ponte::codificar_sintaxe(&cru));
+                        a.sintaticos += 1;
+                    } else {
+                        da_carga_semanticos.push((k.clone(), cru));
+                    }
                     break;
                 }
             }
+        }
+        for (k, d) in da_carga_semanticos {
+            analise.arquivos.get_mut(&k).expect("próprio").diags.push(d);
         }
 
         // 2. Diretivas cujo alvo não existe.
@@ -213,7 +225,45 @@ impl Motor {
             }
         }
 
-        // 3. Tipos.
+        // 3. Nomes duplicados (`crates/analise`), por biblioteca do lote.
+        for lib in &libs_proprias {
+            let biblioteca = program.library(*lib);
+            let ids: Vec<UnitId> = biblioteca
+                .units
+                .iter()
+                .copied()
+                .filter(|u| program.unit(*u).role != dartforge_elements::model::UnitRole::Patch)
+                .collect();
+            let unidades: Vec<dartforge_analise::Unidade<'_>> = ids
+                .iter()
+                .map(|u| dartforge_analise::Unidade { ast: &program.unit(*u).ast, unit: &program.unit(*u).unit, fonte: &program.unit(*u).source })
+                .collect();
+            let curinga = biblioteca.features.tem(dartforge_frontend::features::Feature::WildcardVariables);
+            let mut achados = dartforge_analise::duplicatas::duplicatas(&unidades, &interner, curinga);
+            achados.extend(dartforge_analise::enums::sem_constantes(&unidades));
+            achados.extend(dartforge_analise::inicializacao::finais_nao_inicializados(&unidades, &interner));
+            for (i, u) in unidades.iter().enumerate() {
+                achados.extend(dartforge_analise::locais::nao_usados(*u, &interner, curinga).into_iter().map(|d| (i, d)));
+                achados.extend(dartforge_analise::externos::inicializadores(*u).into_iter().map(|d| (i, d)));
+                achados.extend(dartforge_analise::operadores::aridade(*u, &interner).into_iter().map(|d| (i, d)));
+            }
+            for (i, d) in achados {
+                if let Some(p) = &program.unit(ids[i]).path {
+                    if let Some(a) = analise.arquivos.get_mut(&chave(p)) {
+                        a.diags.push(d);
+                    }
+                }
+            }
+            for (u, d) in dartforge_analise::heranca::estatico_contra_super(&program, *lib, &interner) {
+                if let Some(p) = &program.unit(u).path {
+                    if let Some(a) = analise.arquivos.get_mut(&chave(p)) {
+                        a.diags.push(d);
+                    }
+                }
+            }
+        }
+
+        // 4. Tipos.
         let mut table = dartforge_types::TypeTable::new();
         let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
         let (mut outline, diags_outline) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
@@ -292,6 +342,25 @@ impl Motor {
             }
             let k = chave(program.unit(unidade).path.as_deref().expect("próprio tem caminho"));
             analise.arquivos.get_mut(&k).expect("próprio").diags.push(cod);
+        }
+
+        // 5. Imports não usados, depois de tudo (a supressão olha os
+        // diagnósticos da biblioteca).
+        for lib in &libs_proprias {
+            let chaves: Vec<PathBuf> =
+                program.library(*lib).units.iter().filter_map(|u| program.unit(*u).path.as_deref().map(chave)).collect();
+            let ja: Vec<Diagnostic> = chaves
+                .iter()
+                .filter_map(|k| analise.arquivos.get(k))
+                .flat_map(|a| a.diags.iter().cloned())
+                .collect();
+            for (u, d) in dartforge_analise::importacoes::nao_usados(&program, *lib, &interner, &ja) {
+                if let Some(p) = &program.unit(u).path {
+                    if let Some(a) = analise.arquivos.get_mut(&chave(p)) {
+                        a.diags.push(d);
+                    }
+                }
+            }
         }
         analise
     }
@@ -436,5 +505,25 @@ mod testes {
         assert!(e_parte("// c\n/* x\n y */\npart of 'a.dart';\n"));
         assert!(!e_parte("library a;\npart 'b.dart';\n"));
         assert!(!e_parte("void main() {}\n"));
+    }
+
+    #[test]
+    fn conflito_herdado_chega_ao_arquivo_certo_no_motor() {
+        let raiz = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("../../target/tmp-agent/motor-heranca-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&raiz);
+        std::fs::create_dir_all(raiz.join("sdk/lib/core")).unwrap();
+        std::fs::write(raiz.join("sdk/lib/libraries.json"), r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#).unwrap();
+        std::fs::write(raiz.join("sdk/lib/core/core.dart"), "class Object {} class int extends Object {}").unwrap();
+        let entrada = raiz.join("main.dart");
+        let fonte = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/conflicting_static_and_instance/ConflictingStaticAndInstanceClass__inSu_7966ede4.dart"));
+        std::fs::write(&entrada, fonte).unwrap();
+        let motor = Motor::novo(&raiz.join("sdk/lib")).unwrap();
+        let resultado = motor.analisar(&raiz, std::slice::from_ref(&entrada), None);
+        let arquivo = &resultado.arquivos[&chave(&entrada)];
+        let achados: Vec<_> = arquivo.diags.iter().filter(|d| d.code == Some(codigos::compile_time_error::CONFLICTING_STATIC_AND_INSTANCE)).collect();
+        assert_eq!(achados.len(), 1, "{:?}", arquivo.diags);
+        assert_eq!(&fonte[achados[0].span.start as usize..achados[0].span.end as usize], "foo");
+        std::fs::remove_dir_all(&raiz).unwrap();
     }
 }

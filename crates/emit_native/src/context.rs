@@ -27,6 +27,19 @@ pub struct Context<'a> {
     /// Diretório da biblioteca de entrada: as bibliotecas `file:` são
     /// nomeadas pelo caminho relativo a ele (estável entre máquinas).
     raiz: Option<std::path::PathBuf>,
+    /// P5c: o SDK é compilado da fonte (`sdk_modulo`). As bibliotecas de
+    /// [`crate::sdk_modulo::BIBLIOTECAS_DA_FONTE`] têm corpo compilado e
+    /// classes com id, como as do programa.
+    pub sdk_da_fonte: bool,
+    /// Este contexto baixa uma biblioteca do SDK em um objeto separado.
+    pub biblioteca_sdk: bool,
+    /// Por biblioteca: o corpo das funções dela é compilado (as do programa;
+    /// com `sdk_da_fonte`, também as do SDK da fonte).
+    pub compiladas: Vec<bool>,
+    /// Por biblioteca: as funções dela são baixadas **neste** módulo (as do
+    /// programa; num módulo do SDK da fonte, só a biblioteca dele). As outras
+    /// compiladas moram em outro objeto e são chamadas pelo símbolo.
+    pub no_modulo: Vec<bool>,
     /// P6: as bibliotecas do SDK compiladas da fonte com o programa
     /// (`fonte.rs`); o `is_sdk` delas já está desligado na cópia do
     /// `Program`. Vazio para quem não usa `dart:async`.
@@ -35,6 +48,12 @@ pub struct Context<'a> {
     /// ordem do caminho estável — o id RTI é `0x2000_0000 +` ela
     /// (`lower::rti`, `Context::id_rti`).
     pub ids_rti_sdk: std::collections::HashMap<dartforge_elements::model::ClassId, u32>,
+    /// P6: o programa usa `dart:async` e tem o laço de eventos depois do
+    /// `main` (com o SDK da fonte o `dart:async` é o do módulo em cache, e
+    /// `da_fonte` fica vazio).
+    pub usa_dart_async: bool,
+    /// P6: os símbolos das funções da fonte com corpo (`lower::com_corpo_da_fonte`).
+    pub com_corpo_da_fonte: std::cell::OnceCell<std::collections::HashSet<String>>,
 }
 
 /// O nome da variável de um padrão `:x`/`:var x`/`:x?`/`:x as T`.
@@ -95,8 +114,14 @@ impl<'a> Context<'a> {
             ids_de_classe: Vec::new(),
             formas_de_record: Vec::new(),
             raiz,
+            sdk_da_fonte: false,
+            biblioteca_sdk: false,
+            compiladas: program.libraries.iter().map(|l| !l.is_sdk).collect(),
+            no_modulo: program.libraries.iter().map(|l| !l.is_sdk).collect(),
             da_fonte: std::collections::HashSet::new(),
             ids_rti_sdk: std::collections::HashMap::new(),
+            usa_dart_async: false,
+            com_corpo_da_fonte: std::cell::OnceCell::new(),
         };
         // Formas de record com campo nomeado: literais, padrões e tipos de
         // todas as unidades do programa (o conjunto inteiro, antes do
@@ -152,39 +177,100 @@ impl<'a> Context<'a> {
             }
         }
         ctx.formas_de_record = formas.into_iter().collect();
-        let mut chaves: Vec<(String, String, usize)> = program
+        ctx.numerar_classes();
+        ctx
+    }
+
+    /// Liga o SDK da fonte (P5c): as bibliotecas de `BIBLIOTECAS_DA_FONTE`
+    /// passam a ter corpo compilado e classes com id.
+    pub fn com_sdk_da_fonte(mut self) -> Self {
+        self.sdk_da_fonte = true;
+        for (i, l) in self.program.libraries.iter().enumerate() {
+            if let Some(nome) = l.uri.strip_prefix("dart:")
+                && crate::sdk_modulo::BIBLIOTECAS_DA_FONTE.contains(&nome)
+            {
+                self.compiladas[i] = true;
+            }
+        }
+        self.numerar_classes();
+        self
+    }
+
+    /// O módulo de uma biblioteca do SDK da fonte (P5c): só ela é baixada
+    /// aqui; o programa e as outras bibliotecas ficam de fora.
+    pub fn so_a_biblioteca(mut self, lib: LibraryId) -> Self {
+        self.biblioteca_sdk = true;
+        self.no_modulo = vec![false; self.program.libraries.len()];
+        self.no_modulo[lib.0 as usize] = true;
+        self
+    }
+
+    /// O corpo das funções da biblioteca é compilado?
+    pub fn biblioteca_compilada(&self, lib: LibraryId) -> bool {
+        self.compiladas[lib.0 as usize]
+    }
+
+    /// As funções da biblioteca são baixadas neste módulo?
+    pub fn biblioteca_no_modulo(&self, lib: LibraryId) -> bool {
+        self.no_modulo[lib.0 as usize]
+    }
+
+    /// A classe `nome` de `dart:<lib>` (SDK da fonte), se carregada.
+    pub fn classe_do_sdk(&self, lib: &str, nome: &str) -> Option<dartforge_elements::model::ClassId> {
+        let uri = format!("dart:{lib}");
+        let sym = self.interner.lookup(nome)?;
+        self.program
+            .classes
+            .iter()
+            .position(|c| c.name == sym && self.program.library(c.library).uri == uri)
+            .map(|i| dartforge_elements::model::ClassId(i as u32))
+    }
+
+    /// Ids de classe estáveis (P2): as classes compiladas pela ordem do
+    /// caminho — as do SDK primeiro (grupo 0), numa faixa que só depende do
+    /// SDK, depois as do programa —, a partir de 1, pulando 1000–1012.
+    fn numerar_classes(&mut self) {
+        let program = self.program;
+        let mut chaves: Vec<(bool, String, String, usize)> = program
             .classes
             .iter()
             .enumerate()
-            .filter(|(_, c)| !program.library(c.library).is_sdk)
-            .map(|(i, c)| (ctx.nome_da_biblioteca(c.library), interner.resolve(c.name).to_string(), i))
+            .filter(|(_, c)| self.compiladas[c.library.0 as usize])
+            .map(|(i, c)| {
+                (
+                    !program.library(c.library).is_sdk,
+                    self.nome_da_biblioteca(c.library),
+                    self.interner.resolve(c.name).to_string(),
+                    i,
+                )
+            })
             .collect();
         chaves.sort();
         let mut ids = vec![None; program.classes.len()];
         let mut prox = 1u32;
-        for (_, _, i) in chaves {
+        for (_, _, _, i) in chaves {
             if (1000..=1012).contains(&prox) {
                 prox = 1013;
             }
             ids[i] = Some(prox);
             prox += 1;
         }
-        ctx.ids_de_classe = ids;
-        // RTI: as classes do SDK, na ordem do caminho estável.
+        self.ids_de_classe = ids;
+        // RTI: as classes do SDK sem id do heap (as não compiladas), na
+        // ordem do caminho estável.
         let mut sdk: Vec<(String, String, usize)> = program
             .classes
             .iter()
             .enumerate()
-            .filter(|(_, c)| program.library(c.library).is_sdk)
-            .map(|(i, c)| (ctx.nome_da_biblioteca(c.library), interner.resolve(c.name).to_string(), i))
+            .filter(|(_, c)| program.library(c.library).is_sdk && !self.compiladas[c.library.0 as usize])
+            .map(|(i, c)| (self.nome_da_biblioteca(c.library), self.interner.resolve(c.name).to_string(), i))
             .collect();
         sdk.sort();
-        ctx.ids_rti_sdk = sdk
+        self.ids_rti_sdk = sdk
             .into_iter()
             .enumerate()
             .map(|(k, (_, _, i))| (dartforge_elements::model::ClassId(i as u32), k as u32))
             .collect();
-        ctx
     }
 
     /// O nome estável de uma biblioteca (P2): `dart:x` e `package:a/b.dart`
@@ -347,4 +433,3 @@ impl<'a> Context<'a> {
         self.bodies.units.get(unit.0 as usize)?.tipo_local(offset)
     }
 }
-

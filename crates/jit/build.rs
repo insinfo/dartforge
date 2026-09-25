@@ -60,7 +60,7 @@ fn prefix() -> PathBuf {
 
 /// Instalação verificada nesta máquina, usada quando nada foi configurado.
 const FALLBACK_PREFIX: &str = if cfg!(windows) {
-    "D:/DartSDKs/llvm/clang+llvm-22.1.8-x86_64-pc-windows-msvc"
+    "E:/DartSDKs/llvm/clang+llvm-22.1.8-x86_64-pc-windows-msvc"
 } else {
     "/usr/lib/llvm-22"
 };

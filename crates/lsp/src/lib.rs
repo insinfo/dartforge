@@ -12,6 +12,9 @@
 //! trocada pela semântica (`crates/types`) sem tocar no transporte.
 
 pub mod servidor;
+mod navegacao;
+mod semantica;
+mod simbolos;
 pub mod transporte;
 pub mod utf16;
 
@@ -20,6 +23,7 @@ use std::collections::HashMap;
 use utf16::TabelaLinhas;
 
 pub use servidor::Servidor;
+pub use semantica::AnalisadorSemantico;
 
 
 /// Posição LSP: linha e coluna em **unidades UTF-16** (ambas a partir de 0).
@@ -190,6 +194,11 @@ impl DocumentStore {
         self.documentos.len()
     }
 
+    /// URIs dos documentos abertos, sem reter cópia dos textos.
+    pub(crate) fn uris(&self) -> impl Iterator<Item = &str> {
+        self.documentos.keys().map(String::as_str)
+    }
+
     /// Verdadeiro quando nenhum documento está aberto.
     pub fn is_empty(&self) -> bool {
         self.documentos.is_empty()
@@ -220,6 +229,34 @@ pub trait Analisador {
     /// para que N edições não retenham N análises (o modo de falha do LSP do
     /// Dart, medido no PLANO.md).
     fn diagnosticar(&mut self, uri: &str, texto: &str) -> Vec<Diagnostic>;
+
+    /// Símbolos sintáticos do documento, sem guardar a árvore entre edições.
+    fn simbolos(&mut self, _uri: &str, _texto: &str) -> Vec<serde_json::Value> {
+        Vec::new()
+    }
+
+    /// Definição conservadora da posição no texto: URI e seleção no destino.
+    fn definicao(&mut self, _uri: &str, _texto: &str, _offset: usize) -> Option<(String, Option<dartforge_diagnostics::Span>)> {
+        None
+    }
+
+    /// Variante com os buffers abertos, para resolver imports ainda não
+    /// salvos sem duplicar documentos no analisador residente.
+    fn definicao_no_workspace(&mut self, uri: &str, texto: &str, offset: usize, _documentos: &DocumentStore) -> Option<(String, Option<dartforge_diagnostics::Span>)> {
+        self.definicao(uri, texto, offset)
+    }
+
+    /// Descrição sintática segura e intervalo da referência sob o cursor.
+    fn hover(&mut self, _uri: &str, _texto: &str, _offset: usize) -> Option<(dartforge_diagnostics::Span, String, Option<String>)> {
+        None
+    }
+
+    fn hover_no_workspace(&mut self, uri: &str, texto: &str, offset: usize, _documentos: &DocumentStore) -> Option<(dartforge_diagnostics::Span, String, Option<String>)> {
+        self.hover(uri, texto, offset)
+    }
+
+    /// Descarta estado associado ao documento quando ele sai do editor.
+    fn documento_fechado(&mut self, _uri: &str) {}
 }
 
 /// Análise sintática: o parser novo, sem resolução (nomes e tipos chegam depois).
@@ -265,9 +302,10 @@ impl AnalisadorSintatico {
         }
         // Uma vez por documento: o caminho canônico (é o que o
         // `package_config` guarda) e o pacote que o contém.
-        let caminho = uri
-            .strip_prefix("file:///")
-            .map(|p| std::path::PathBuf::from(p.replace("%3A", ":").replace("%3a", ":").replace("%20", " ")))
+        let caminho = url::Url::parse(uri)
+            .ok()
+            .filter(|u| u.scheme() == "file")
+            .and_then(|u| u.to_file_path().ok())
             .map(|p| dartforge_elements::config::sem_verbatim(std::fs::canonicalize(&p).unwrap_or(p)));
         let padrao = caminho
             .as_deref()
@@ -288,9 +326,56 @@ impl AnalisadorSintatico {
 impl Analisador for AnalisadorSintatico {
     /// Analisa com o parser completo, na versão de linguagem do arquivo, com
     /// recuperação por declaração.
+    ///
+    /// Depois da sintaxe, os verificadores de `crates/analise` que não
+    /// dependem de tipos (nomes duplicados, locais não usados) sobre o próprio
+    /// arquivo; destes, só sai o que a regra de publicação deixa
+    /// (`dartforge_analise::publicacao`): código verificado contra o oráculo.
     fn diagnosticar(&mut self, uri: &str, texto: &str) -> Vec<Diagnostic> {
         let features = self.features(uri, texto);
         let mut nomes = dartforge_intern::Interner::new();
-        dartforge_frontend::parser::parse_com(texto, &mut nomes, features).diagnostics
+        let parsed = dartforge_frontend::parser::parse_com(texto, &mut nomes, features);
+        let mut saida = parsed.diagnostics;
+        let unidade = dartforge_analise::Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: texto };
+        let curinga = features.tem(dartforge_frontend::features::Feature::WildcardVariables);
+        let semanticos = dartforge_analise::duplicatas::duplicatas(&[unidade], &nomes, curinga)
+            .into_iter()
+            .map(|(_, d)| d)
+            .chain(dartforge_analise::enums::sem_constantes(&[unidade]).into_iter().map(|(_, d)| d))
+            .chain(dartforge_analise::inicializacao::finais_nao_inicializados(&[unidade], &nomes).into_iter().map(|(_, d)| d))
+            .chain(dartforge_analise::locais::nao_usados(unidade, &nomes, curinga))
+            .chain(dartforge_analise::externos::inicializadores(unidade))
+            .chain(dartforge_analise::operadores::aridade(unidade, &nomes));
+        saida.extend(semanticos.filter(|d| dartforge_analise::publicacao::publicado(d, false)));
+        saida
+    }
+
+    fn simbolos(&mut self, uri: &str, texto: &str) -> Vec<serde_json::Value> {
+        let features = self.features(uri, texto);
+        simbolos::do_documento(texto, features)
+    }
+
+    fn definicao(&mut self, uri: &str, texto: &str, offset: usize) -> Option<(String, Option<dartforge_diagnostics::Span>)> {
+        let features = self.features(uri, texto);
+        match navegacao::destino(uri, texto, features, offset)? {
+            navegacao::Alvo::Arquivo(destino) => Some((destino, None)),
+            navegacao::Alvo::NomeLocal(tipo) => Some((uri.to_string(), Some(tipo.declaracao))),
+        }
+    }
+
+    fn hover(&mut self, uri: &str, texto: &str, offset: usize) -> Option<(dartforge_diagnostics::Span, String, Option<String>)> {
+        let features = self.features(uri, texto);
+        match navegacao::destino(uri, texto, features, offset)? {
+            navegacao::Alvo::NomeLocal(tipo) => Some((tipo.referencia, tipo.descricao?, tipo.tipo_estatico)),
+            navegacao::Alvo::Arquivo(_) => None,
+        }
+    }
+
+    fn documento_fechado(&mut self, uri: &str) {
+        self.padroes.remove(uri);
+        // A configuração pode ter mudado enquanto o arquivo estava fechado.
+        // A próxima análise a carrega novamente; nada do projeto fechado fica
+        // retido indefinidamente na sessão do servidor.
+        self.configs.clear();
     }
 }

@@ -34,7 +34,7 @@ on:
       suite:
         description: O que rodar
         type: choice
-        options: [todos, js, producao, nativo, jit, determinismo, moderno, macros, custo-zero, analise]
+        options: [todos, js, producao, limitless-ui, nativo, jit, determinismo, moderno, macros, macros-aot-sonda, custo-zero, analise]
         default: todos
       fragmentos:
         description: Fragmentos do corpus nativo (um job cada)
@@ -186,6 +186,61 @@ jobs:
           titulo: JS produção — VM × desenvolvimento × produção (dartforge-jsprod)
           args: --producao --jobs 4
 
+  # A galeria pública fornece 26 testes Puppeteer de comportamento real.
+  # Revisão fixa: mudanças no oráculo não alteram silenciosamente o placar.
+  limitless-ui:
+    name: limitless_ui (bundle de produção, e2e)
+    needs: compilar
+    if: needs.compilar.outputs.suite == 'limitless-ui' || (needs.compilar.outputs.suite == 'todos' && github.ref == 'refs/heads/ci/js')
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: insinfo/limitless_ui
+          ref: 9e381736413e635e4d616046fbe82997ccf66a08
+          path: references/limitless_ui
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - uses: ./.github/actions/dart
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: binarios
+          path: ${{ github.workspace }}
+      - name: Preparar os gerados do ngdart
+        shell: pwsh
+        run: pwsh scripts/limitless-ui.ps1 -Preparar -Producao
+      - name: Montar o bundle de produção
+        shell: pwsh
+        run: pwsh scripts/limitless-ui.ps1 -Montar -Producao
+      - name: E2E no navegador
+        shell: pwsh
+        run: |
+          $raiz = (Resolve-Path references/limitless_ui).Path
+          $saida = (Resolve-Path work/lui/out-producao).Path
+          $servidor = Start-Process -FilePath (Get-Command dart).Source `
+            -ArgumentList @('run', 'tool/serve_example.dart', '--dir', $saida, '--port', '8081', '--quiet') `
+            -WorkingDirectory $raiz -WindowStyle Hidden -PassThru
+          try {
+            $pronto = $false
+            foreach ($tentativa in 1..60) {
+              try {
+                $resposta = Invoke-WebRequest 'http://127.0.0.1:8081/' -TimeoutSec 2
+                if ($resposta.StatusCode -eq 200) { $pronto = $true; break }
+              } catch { Start-Sleep -Seconds 1 }
+            }
+            if (-not $pronto) { throw 'servidor da galeria não iniciou' }
+            node scripts/sondar-limitless-ui.mjs 'http://127.0.0.1:8081/'
+            if ($LASTEXITCODE -ne 0) { throw 'startup da galeria falhou; veja o diagnóstico CDP acima' }
+            pwsh scripts/limitless-ui.ps1 -E2e -Producao
+            if ($LASTEXITCODE -ne 0) { throw "E2E falhou (código $LASTEXITCODE)" }
+          } finally {
+            Stop-Process -Id $servidor.Id -Force -ErrorAction SilentlyContinue
+          }
+
   # Recursos 3.7–3.13 (docs/VERSOES-LINGUAGEM.md §5): o corpus/moderno contra
   # o SDK de oráculo 3.13.4 (dart run e dartdevc+node, cada um com o seu
   # dart_sdk.js), no perfil de desenvolvimento e no de produção. Código 0 =
@@ -226,6 +281,64 @@ jobs:
           args: --corpus corpus/macros --producao --jobs 4
           sdk-313: 'true'
           pub-get: corpus/macros
+          preparar: ./scripts/preparar-macros-410.ps1
+      - name: Macro com argumento posicional (CFE byte a byte)
+        shell: pwsh
+        run: ./scripts/testar-macros-412.ps1
+      - name: Macro com argumento nomeado (CFE byte a byte)
+        shell: pwsh
+        run: ./scripts/testar-macros-413.ps1
+      - name: Macro em função de topo (CFE byte a byte)
+        shell: pwsh
+        run: ./scripts/testar-macros-414.ps1
+      - name: Macro em variável de topo (CFE byte a byte)
+        shell: pwsh
+        run: ./scripts/testar-macros-415.ps1
+      - name: Macro na definição de função (CFE byte a byte)
+        shell: pwsh
+        run: ./scripts/testar-macros-416.ps1
+      - name: Macro na definição de método (CFE byte a byte)
+        shell: pwsh
+        run: ./scripts/testar-macros-418.ps1
+      - name: Macro na definição de construtor (CFE byte a byte)
+        shell: pwsh
+        run: ./scripts/testar-macros-419.ps1
+      - name: Macro na fase de tipos (CFE byte a byte)
+        shell: pwsh
+        run: ./scripts/testar-macros-420.ps1
+      - name: Macro aplicada em part (CFE byte a byte)
+        shell: pwsh
+        run: ./scripts/testar-macros-421.ps1
+
+  macros-aot-sonda:
+    name: sonda AOT do executor de macros
+    needs: compilar
+    if: needs.compilar.outputs.suite == 'macros-aot-sonda'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/dart
+      - uses: ./.github/actions/llvm-windows
+      - name: Rust fixado (rust-toolchain.toml)
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: pesado-release
+          save-if: 'false'
+      - name: Compilar CLI nativa
+        env:
+          CARGO_PROFILE_RELEASE_LTO: 'false'
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+        run: cargo build --locked --release -p dartforge-cli --features nativo
+      - name: Primeiro erro do bootstrap dfexec/1
+        shell: pwsh
+        run: ./scripts/sondar-macros-aot.ps1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sonda-macros-aot
+          path: target/macros-aot-sonda/compile-native.txt
+          retention-days: 7
 
   nativo:
     name: nativo ${{ matrix.fragmento }}/${{ needs.compilar.outputs.n }}
@@ -325,6 +438,88 @@ jobs:
           name: placar-nativo
           path: placar
           retention-days: 14
+
+  # O SDK compilado da fonte (P5c/P5d, docs/NATIVO-PLANO.md §7.7), ainda
+  # opt-in: o corpus nativo inteiro com DARTFORGE_SDK_DA_FONTE=1 (a DLL do SDK
+  # é compilada uma vez, no primeiro programa), e o perfil de produção — UM
+  # executável autocontido, que o teste copia sozinho para uma pasta vazia e
+  # executa. O artefato não entra no placar consolidado do nativo de hoje.
+  sdk-fonte:
+    name: nativo (SDK da fonte)
+    needs: compilar
+    if: contains(fromJSON('["todos","nativo"]'), needs.compilar.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      DARTFORGE_SDK_DA_FONTE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          nome: sdk-fonte
+          titulo: Nativo com o SDK da fonte (DARTFORGE_SDK_DA_FONTE=1)
+          args: --nativo --jobs 4
+          nativo: 'true'
+          aceitar-placar-parcial: 'true'
+      - name: Aridade de closure lança NoSuchMethodError da fonte
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contrato aridade_closure_lanca_no_such_method_error_da_fonte -- --ignored --nocapture
+      - name: Getter estático de função executa com ordem correta
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contrato getter_estatico_que_retorna_funcao_e_chamado_como_valor -- --ignored --nocapture
+      - name: Factory redirecionadora preserva RTI do destino
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contrato factory_redirecionadora_preserva_rti_do_destino -- --ignored --nocapture
+      - name: Getter de interface despacha campo e getter
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contrato getter_de_interface_despacha_campo_e_getter -- --ignored --nocapture
+      - name: Escrita covariante de List Map Set preserva tipo e conteúdo
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contrato escrita_covariante_em_colecoes_lanca_type_error_sem_mutar -- --ignored --nocapture
+      - name: Argumento dinâmico errado do SDK lança TypeError
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contrato argumento_dinamico_errado_do_sdk_lanca_type_error -- --ignored --nocapture
+      - name: Iterable.generate confere função genérica no SDK
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contrato iterable_generate_testa_assinatura_generica_no_sdk -- --ignored --nocapture
+      - name: Enum lê name e index implícitos no SDK
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contrato enum_name_index_implicito_no_sdk -- --ignored --nocapture
+      - name: Enum lê values implícito no SDK
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contrato enum_values_implicito_no_sdk -- --ignored --nocapture
+      - name: toString padrão de genérica inclui argumentos no SDK
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contrato classe_generica_tostring_padrao_no_sdk -- --ignored --nocapture
+      - name: Enum do programa é subtipo de Enum no SDK
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contrato enum_e_subtipo_de_enum_no_sdk -- --ignored --nocapture
+      - name: Encaminhador noSuchMethod estático de método no SDK
+        shell: pwsh
+        run: cargo test --locked --release -p dartforge-emit-native --test contrato nsm_encaminhador_metodo_no_sdk -- --ignored --nocapture
+      # JIT × AOT com o SDK da fonte: o executor carrega a DLL do SDK; os
+      # tempos pós-IR (Clang + ligação, sem o cache de objetos) são o lado
+      # nativo do portão de custo (comparar com o job `jit`).
+      - uses: ./.github/actions/harness
+        env:
+          DARTFORGE_CACHE_OBJ: '0'
+        with:
+          nome: sdk-fonte-jit
+          titulo: JIT × AOT com o SDK da fonte
+          args: --jit-aot --jobs 1
+          nativo: 'true'
+          jit: 'true'
+          aceitar-placar-parcial: 'true'
+          exige: '^JIT × AOT: '
+      - name: Recarga JIT da CLI com SDK da fonte
+        shell: pwsh
+        run: cargo test --locked -p dartforge-cli --features jit --test reload_estado cli_preserva_estatico_com_sdk_da_fonte -- --ignored --nocapture
+      - name: Produção autocontida (um .exe, sem DLL do DartForge)
+        shell: pwsh
+        env:
+          CARGO_PROFILE_RELEASE_LTO: 'false'
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+        run: cargo test --locked --release -p dartforge-emit-native --lib producao_e_um_executavel_autocontido -- --ignored --nocapture
 
   # O perfil de DESENVOLVIMENTO do nativo: cada programa pelo JIT ORCv2 e, do
   # MESMO LLVM IR, pelo AOT (Clang + ligação). Exige os dois idênticos programa

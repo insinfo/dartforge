@@ -88,6 +88,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::Void,
             );
         }
+        if self.ctx.sdk_da_fonte {
+            let nomes = self.emit(Instruction::Const(Constant::String(nomes.join(","))), Type::Ref);
+            self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_rti_registro_nomeado".to_string(),
+                    args: vec![
+                        (obj.clone(), Type::Ref),
+                        (Operand::Constant(Constant::Int(positional.len() as i64)), Type::I64),
+                        (nomes, Type::Ref),
+                    ],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            );
+        }
         obj
     }
 
@@ -154,8 +169,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             casos.push((id, b));
             blocos.push((b, i));
         }
+        // `dartforge_value_class` devolve o CID de `_Record` registrado pelo
+        // SDK da fonte; o runtime legado usa -7 para a mesma representação.
+        let id_record = self.ctx.classe_do_sdk("core", "_Record")
+            .and_then(|cid| self.ctx.id_de_classe(cid))
+            .map_or(-7, i64::from);
         let b_runtime = self.new_block();
-        casos.push((-7, b_runtime));
+        casos.push((id_record, b_runtime));
         self.terminate(Terminator::Switch {
             val: cls,
             default: b_padrao,
@@ -345,6 +365,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Type::I1,
         );
         self.terminate(Terminator::Return(Some(r)));
+    }
+
+    /// Hash de uma forma de record: valores iguais precisam ter o mesmo hash
+    /// para que `_CompactLinkedHashSet` e `_CompactLinkedHashMap` encontrem o
+    /// segundo record. O valor numérico em si não faz parte da API de Dart.
+    pub fn lower_hash_de_forma(&mut self, k: usize) {
+        let this = Operand::Val(self.add_param("this".to_string(), Type::Ref));
+        let (npos, nomes) = &self.ctx.formas_de_record[k];
+        let mut hash = Operand::Constant(Constant::Int(i64::from(ID_BASE_DE_FORMA) + k as i64));
+        for i in 0..npos + nomes.len() {
+            let campo = self.campo_de_forma(this.clone(), i);
+            let codigo = self.chamar_por_nome(campo, super::sdk_fonte::Tipo::Ler, "hashCode", &[]);
+            let codigo = self.coagir(codigo, Type::I64);
+            let multiplicado = self.emit(
+                Instruction::Mul(hash, Operand::Constant(Constant::Int(31))),
+                Type::I64,
+            );
+            hash = self.emit(Instruction::Add(multiplicado, codigo), Type::I64);
+        }
+        self.terminate(Terminator::Return(Some(hash)));
     }
 
     /// `r.f(args)` onde `f` é campo de alguma forma de record: nos records

@@ -64,7 +64,7 @@ impl Contexto<'_> {
             Operand::Constant(Constant::Int(_)) => Type::I64,
             Operand::Constant(Constant::Double(_)) => Type::F64,
             Operand::Constant(Constant::Bool(_)) => Type::I1,
-            Operand::Constant(Constant::Null | Constant::String(_)) => Type::Ref,
+            Operand::Constant(Constant::Null | Constant::String(_) | Constant::StringWtf8(_)) => Type::Ref,
         }
     }
 
@@ -216,6 +216,17 @@ fn verificar_instrucao(c: &mut Contexto, inst: &Instruction, ty: Type) {
                 c.checar_ref("chamada de closure", a, Type::Ref);
                 if c.tipo(a) != Type::Ref {
                     c.erro(format!("argumento de closure não é Ref: {a:?}"));
+                }
+            }
+        }
+        Instruction::CallSeletor { recv, args, tupla_tipos, .. } => {
+            c.checar_ref("chamada por seletor", recv, Type::Ref);
+            if c.tipo(tupla_tipos) != Type::I64 {
+                c.erro(format!("tupla de tipos do seletor não é I64: {tupla_tipos:?}"));
+            }
+            for a in args {
+                if c.tipo(a) != Type::Ref {
+                    c.erro(format!("argumento de seletor não é Ref: {a:?}"));
                 }
             }
         }

@@ -19,6 +19,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         target: &ExprId,
         prop_name: &str,
     ) -> Option<Operand> {
+        if self.ctx.sdk_da_fonte {
+            return None;
+        }
         if let ExprKind::Identifier(id) = &ast.expr(*target).kind {
             if self.ctx.symbol_name(id.sym) == "StackTrace" {
                 if prop_name == "current" {
@@ -54,6 +57,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         expr_id: ExprId,
         span: dartforge_diagnostics::Span,
     ) -> Operand {
+        if self.ctx.sdk_da_fonte {
+            // SDK da fonte (P5c): o membro pela classe dinâmica.
+            return self.chamar_por_nome(target_op, super::sdk_fonte::Tipo::Ler, prop_name, &[]);
+        }
         if prop_name == "length" {
             self.emit(
                 Instruction::CallRuntime {
@@ -263,6 +270,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         target: &ExprId,
         arguments: &ast::Arguments,
     ) -> Option<Operand> {
+        if self.ctx.sdk_da_fonte {
+            return None;
+        }
         if let ExprKind::Identifier(name) = &ast.expr(*target).kind {
             if self.ctx.symbol_name(name.sym) == "print" {
                 if let Some(first_arg) = arguments.args.first() {
@@ -395,6 +405,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         target: &ExprId,
         arguments: &ast::Arguments,
     ) -> Option<Operand> {
+        if self.ctx.sdk_da_fonte {
+            return None;
+        }
         // Verifica métodos estáticos/construtores nomeados de String (String.fromCharCode, String.fromCharCodes)
         if let ExprKind::Property {
             target: inner_target,
@@ -448,6 +461,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         recv_op: Operand,
         arguments: &ast::Arguments,
     ) -> Operand {
+        if self.ctx.sdk_da_fonte {
+            // SDK da fonte (P5c): o membro pela classe dinâmica.
+            let _ = (expr, target, inner_target);
+            let av = self.avaliar_args(ast, &arguments.args);
+            return self.chamar_por_nome(recv_op, super::sdk_fonte::Tipo::Chamar, m_name, &av);
+        }
         if m_name == "add" {
             if let Some(first_arg) = arguments.args.first() {
                 let val_op = self.lower_expr(ast, first_arg.value);

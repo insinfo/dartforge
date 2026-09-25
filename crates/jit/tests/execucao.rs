@@ -411,7 +411,7 @@ void main() {
 /// Emite o LLVM IR de um arquivo Dart pela trilha nova (`emitir_ir`), o mesmo
 /// texto que o driver AOT entrega ao Clang.
 fn emitir_ir(entrada: &Path) -> String {
-    let opcoes = dartforge_emit_native::CompileOptions { sdk: None, packages: None, timings: false, optimize: false, versao_linguagem: None };
+    let opcoes = dartforge_emit_native::CompileOptions { sdk: None, packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new() };
     dartforge_emit_native::emitir_ir(entrada, &opcoes)
         .unwrap_or_else(|erro| panic!("o programa de teste não emitiu IR: {erro}"))
         .texto
@@ -466,4 +466,32 @@ fn jit_e_aot_concordam_no_mesmo_ir() {
         assert_eq!(&jit.stdout, esperado, "{rotulo}: os dois perfis concordam, mas não com a VM: {jit:?}");
         assert_eq!(jit.codigo, Some(0), "{rotulo}: {jit:?}");
     }
+}
+
+/// Casos consecutivos que rotulam o mesmo corpo devem entregar as ligações
+/// do padrão vencedor, inclusive quando o corpo captura a variável.
+#[test]
+#[ignore = "requer LLVM-C.dll no PATH, Clang (DARTFORGE_CLANG), rustc e o SDK Dart 3.6.2"]
+fn cases_compartilhados_entregam_variaveis_ao_corpo() {
+    let fonte = r#"
+sealed class Expr {}
+class A extends Expr { final int x; A(this.x); }
+class B extends Expr { final int x; B(this.x); }
+int Function() ler(Expr e) {
+  switch (e) {
+    case A(:final x):
+    case B(:final x):
+      return () => x;
+  }
+}
+void main() {
+  print(ler(A(3))());
+  print(ler(B(7))());
+}
+"#;
+    let (jit, aot) = executar_nos_dois_perfis("cases-compartilhados", fonte);
+    assert_eq!(jit.stdout, "3\n7\n", "{jit:?}");
+    assert_eq!(jit.stdout, aot.stdout, "JIT {jit:?}\nAOT {aot:?}");
+    assert_eq!(jit.codigo, Some(0), "{jit:?}");
+    assert_eq!(jit.codigo, aot.codigo, "JIT {jit:?}\nAOT {aot:?}");
 }

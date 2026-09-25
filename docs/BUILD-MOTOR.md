@@ -147,16 +147,18 @@ Por ação, na ordem, o primeiro que aceita:
 
 1. **Nativo** (`GeradorNativo`, Rust, lê o banco semântico): há gerador,
    a versão do lock está no `imita` do descritor, e ele não recusou.
-2. **Dart** (`ExecutorDart`, `docs/BUILD-PROTOCOLO.md`): hoje só existe a
-   implementação `Indisponivel(motivo)`. A implementação virá do executor
-   nativo auto-hospedado, compartilhado com as macros.
+2. **Dart** (`ExecutorDart`, `docs/BUILD-PROTOCOLO.md`): o motor já chama um
+   executor injetado e serve `BuildStep` com visibilidade, consultas e saídas
+   permitidas. O cliente `build.*` já usa o canal `dfexec/1` compartilhado com
+   as macros. O padrão ainda é `Indisponivel(motivo)` até existir o processo
+   Dart auto-hospedado que implemente esse serviço. A sessão encerra o
+   executor ao terminar ou quando ele é substituído.
 3. **Apoio**: o que o `build_runner` deixou no disco — saída `source` na
    árvore, saída `cache` em `.dart_tool/build/generated/<pkg>/<caminho>`.
    Se a entrada primária é mais nova que o apoio: **aviso** único no
    `dev`/`serve`, **erro** com `dartforge build --estrito` (D-B5):
-   `<builder>: <saída> pode estar desatualizado — o DartForge ainda não
-   executa builders Dart (BUILD-RUST.md §3, Fase 1); rode
-   'dart run build_runner build'`.
+   `<builder>: <saída> pode estar desatualizado — <motivo da recusa ou falha>;
+   rode 'dart run build_runner build'`.
 4. **Nenhum**: a ação fica **pendente** com motivo; o placar conta.
 
 Recusa sempre tem motivo, e o placar é `iguais/pendentes/diferentes` com

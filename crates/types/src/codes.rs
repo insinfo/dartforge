@@ -37,14 +37,84 @@ pub const ASSIGNMENT_TO_FINAL_LOCAL: DiagnosticCode = DiagnosticCode::new(
     "A variável local final '{0}' só pode ser atribuída uma vez.",
 );
 
+pub const ASSIGNMENT_TO_FINAL: DiagnosticCode = DiagnosticCode::new(
+    "assignment_to_final",
+    "A variável final não tem setter.",
+);
+
 pub const ASSIGNMENT_TO_FINAL_NO_SETTER: DiagnosticCode = DiagnosticCode::new(
     "assignment_to_final_no_setter",
     "Não há setter para '{0}' na classe '{1}'.",
 );
 
+pub const ASSIGNMENT_TO_METHOD: DiagnosticCode = DiagnosticCode::new(
+    "assignment_to_method",
+    "Não é possível atribuir um valor a um método.",
+);
+
+pub const UNDEFINED_EXTENSION_SETTER: DiagnosticCode = DiagnosticCode::new(
+    "undefined_extension_setter",
+    "Setter de extensão não encontrado",
+);
+
+pub const UNDEFINED_EXTENSION_GETTER: DiagnosticCode = DiagnosticCode::new(
+    "undefined_extension_getter",
+    "Getter de extensão não encontrado",
+);
+
+pub const UNDEFINED_EXTENSION_METHOD: DiagnosticCode = DiagnosticCode::new(
+    "undefined_extension_method",
+    "Método de extensão não encontrado",
+);
+
+pub const STATIC_ACCESS_TO_INSTANCE_MEMBER: DiagnosticCode = DiagnosticCode::new(
+    "static_access_to_instance_member",
+    "Acesso estático a membro de instância",
+);
+
+pub const CLASS_INSTANTIATION_ACCESS_TO_INSTANCE_MEMBER: DiagnosticCode = DiagnosticCode::new(
+    "class_instantiation_access_to_instance_member",
+    "Membro de instância em instanciação de classe",
+);
+
+pub const CLASS_INSTANTIATION_ACCESS_TO_STATIC_MEMBER: DiagnosticCode = DiagnosticCode::new(
+    "class_instantiation_access_to_static_member",
+    "Membro estático em instanciação de classe",
+);
+
+pub const CLASS_INSTANTIATION_ACCESS_TO_UNKNOWN_MEMBER: DiagnosticCode = DiagnosticCode::new(
+    "class_instantiation_access_to_unknown_member",
+    "Membro desconhecido em instanciação de classe",
+);
+
+pub const INVOCATION_OF_EXTENSION_WITHOUT_CALL: DiagnosticCode = DiagnosticCode::new(
+    "invocation_of_extension_without_call",
+    "Invocação de extensão sem call",
+);
+
+pub const UNDEFINED_EXTENSION_OPERATOR: DiagnosticCode = DiagnosticCode::new(
+    "undefined_extension_operator",
+    "Operador de extensão não encontrado",
+);
+
+pub const EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER: DiagnosticCode = DiagnosticCode::new(
+    "extension_override_access_to_static_member",
+    "An extension override can't be used to access a static member from an extension.",
+);
+
 pub const ASSIGNMENT_TO_CONST: DiagnosticCode = DiagnosticCode::new(
     "assignment_to_const",
     "Variáveis constantes não podem receber nova atribuição.",
+);
+
+pub const ASSIGNMENT_TO_TYPE: DiagnosticCode = DiagnosticCode::new(
+    "assignment_to_type",
+    "Tipos não podem receber uma atribuição.",
+);
+
+pub const ASSIGNMENT_TO_FUNCTION: DiagnosticCode = DiagnosticCode::new(
+    "assignment_to_function",
+    "Funções não podem receber uma atribuição.",
 );
 
 pub const NOT_INITIALIZED_NON_NULLABLE_VARIABLE: DiagnosticCode = DiagnosticCode::new(

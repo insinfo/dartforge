@@ -1,0 +1,7 @@
+builders:
+  macroDeclarations:
+    import: "package:corpus_macros_registry/builder.dart"
+    builder_factories: ["macroDeclarations"]
+    build_extensions: {".dart": [".macro_declarations.json", ".macro_declarations.txt", ".macro_definitions_model.json", ".macro_definitions.json", ".macro_complete.txt", ".macro.dart"]}
+    auto_apply: none
+    build_to: source

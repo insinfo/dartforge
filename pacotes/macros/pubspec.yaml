@@ -12,3 +12,6 @@ publish_to: none
 
 environment:
   sdk: ^3.6.0
+
+dev_dependencies:
+  json: 0.20.4

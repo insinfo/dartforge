@@ -71,6 +71,11 @@ jobs:
       # (LNK1104 quando duas ligações se cruzavam).
       - name: test
         run: cargo test --locked --workspace --no-fail-fast
+      # O teste de recarga pela CLI é gated por `--features jit`; o workspace
+      # padrão compila o binário sem LLVM-C e não executa esta fixture.
+      - name: recarga JIT com estado pela CLI
+        if: success() || failure()
+        run: cargo test --locked -p dartforge-cli --features jit --test reload_estado
       # Os #[ignore] que o runner consegue satisfazer: SDK Dart,
       # Clang e rustc. Ficam de fora, pelo nome:
       #   corpus_pub*       references/pub é baixado pelo proprietário, fora do git
@@ -96,6 +101,28 @@ jobs:
             Pop-Location
           }
           Write-Host "$($casos.Count) casos com package_config.json"
+      - name: descoberta de macros pelo build_runner
+        if: success() || failure()
+        shell: pwsh
+        run: ./scripts/testar-macros-builder.ps1
+      - name: montagem Dart das augmentations
+        if: success() || failure()
+        shell: pwsh
+        run: |
+          Push-Location pacotes/macros
+          try {
+            dart pub get
+            if ($LASTEXITCODE -ne 0) { throw 'pub get da API de macros falhou' }
+            dart run test/montagem.dart
+            if ($LASTEXITCODE -ne 0) { throw 'montagem Dart das augmentations falhou' }
+            dart run test/montagem_cfe.dart
+            if ($LASTEXITCODE -ne 0) { throw 'montagem Dart divergiu do CFE' }
+            dart --enable-experiment=macros run test/executor_cfe.dart
+            if ($LASTEXITCODE -ne 0) { throw 'executor Dart no mesmo isolate divergiu do CFE' }
+            dart --enable-experiment=macros run test/builder_model_cfe.dart
+            if ($LASTEXITCODE -ne 0) { throw 'modelo do analyzer não reproduziu a fase de declarações CFE' }
+          }
+          finally { Pop-Location }
       - name: test (ignorados que o runner satisfaz)
         if: success() || failure()
         run: >-

@@ -46,6 +46,9 @@ const FRAGMENTOS: &[&str] = &[
     "nativos_strings",
     // P2 (α): operadores sobre dynamic/num (tapa-buraco até P5).
     "despacho",
+    // δ (P5c): tabelas de métodos e busca por seletor do SDK da fonte.
+    "seletores",
+    "nativos_listas",
     // P6: o laço de eventos (microtarefas e timers).
     "eventos",
     // RTI: tipos em tempo de execução.
@@ -54,6 +57,7 @@ const FRAGMENTOS: &[&str] = &[
 
 fn main() {
     println!("cargo::rerun-if-changed=build.rs");
+    println!("cargo::rustc-check-cfg=cfg(dartforge_runtime_dll)");
     println!("cargo::rerun-if-changed=src");
     println!("cargo::rustc-check-cfg=cfg(dartforge_runtime_embutido)");
     println!("cargo::rustc-cfg=dartforge_runtime_embutido");

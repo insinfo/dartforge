@@ -255,8 +255,8 @@ impl SdkLayout {
         self.libraries.get(name)
     }
 
-    /// Localiza o `lib/` do SDK: `DARTFORGE_SDK_LIB`, `DART_SDK/lib`, ou o
-    /// `dart` no `PATH` (`<bin>/../lib`).
+    /// Localiza o `lib/` do SDK: `DARTFORGE_SDK_LIB`, `DART_SDK/lib`, a cópia
+    /// no SSD, ou o `dart` no `PATH` (`<bin>/../lib`).
     pub fn discover() -> Option<PathBuf> {
         if let Ok(explicit) = std::env::var("DARTFORGE_SDK_LIB") {
             let path = PathBuf::from(explicit);
@@ -269,6 +269,10 @@ impl SdkLayout {
             if path.join("libraries.json").exists() {
                 return Some(path);
             }
+        }
+        let ssd = PathBuf::from("E:/DartSDKs/3.6.2/lib");
+        if ssd.join("libraries.json").is_file() {
+            return Some(ssd);
         }
         let path_var = std::env::var_os("PATH")?;
         for dir in std::env::split_paths(&path_var) {
@@ -315,7 +319,7 @@ mod tests {
         };
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sdk_nativo");
         let sdk = SdkLayout::load_com_sobreposicao(&lib, &dir, "dartforge_nativo").unwrap();
-        assert_eq!(sdk.substituicoes.len(), 4);
+        assert_eq!(sdk.substituicoes.len(), 9);
         let async_patch = &sdk.library("async").unwrap().patches[0];
         let novo = sdk.substituto(async_patch).expect("async_patch trocado");
         assert!(novo.ends_with("async_patch.dart") && novo.starts_with(crate::load::normalizar(&dir)));

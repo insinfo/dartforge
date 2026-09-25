@@ -115,14 +115,19 @@ fn ng_incremental_igual_ao_do_zero() {
         .take(2)
         .collect();
     let mut passos: Vec<(PathBuf, String)> = htmls.iter().map(|h| (h.clone(), "\n<span>editado</span>\n".to_string())).collect();
+    passos.push((raiz.join("lib/src/b07_estilo.css"), "\n.b07-editado { color: red; }\n".to_string()));
     passos.push((raiz.join("lib/src/z_novo.dart"), "class ZNovo {}\n".to_string()));
     for (arq, texto) in passos {
         let mut atual = std::fs::read_to_string(&arq).unwrap_or_default();
         atual.push_str(&texto);
         std::fs::write(&arq, &atual).unwrap();
         let (p, nomes) = programa(&raiz);
-        vivo.atualizar(&Contexto { banco: &SemBanco, programa: Some((&p, &nomes)) }, &[arq.clone()], Demanda::Tudo)
+        let atual = vivo.atualizar(&Contexto { banco: &SemBanco, programa: Some((&p, &nomes)) }, &[arq.clone()], Demanda::Tudo)
             .expect("atualizar");
+        if arq.extension().is_some_and(|e| e == "html" || e == "css") {
+            assert_eq!(atual.rel.unidades_nativas, 1, "a edição de um recurso deve regenerar só seu componente");
+            assert_eq!(atual.rel.consultas_gerador, 1, "só o digest do recurso mudado deve ser registrado novamente");
+        }
         let novo = motor(&raiz, &p, &nomes);
         assert_eq!(vivo.estado_canonico(), novo.estado_canonico(), "incremental ≠ do zero depois de {}", arq.display());
     }

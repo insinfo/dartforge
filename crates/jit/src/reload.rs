@@ -62,7 +62,7 @@
 //!
 //! Gerações antigas **não são liberadas**. Ver [`JitSession::hot_reload`].
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::ffi::CString;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
@@ -150,6 +150,8 @@ pub(crate) struct Reloadable {
     pub(crate) entries: BTreeMap<String, Entry>,
     /// Layout nominal das classes da versão viva: `(class_id, campos)`.
     layouts: Vec<(i64, i64)>,
+    /// Globais mutáveis da geração ativa, reiniciadas em `run_entry`/`run_main`.
+    pub(crate) globals: Vec<ffi::MutableGlobal>,
     /// Rastreadores das gerações, **retidos** até o encerramento da sessão.
     generations: Vec<ffi::ResourceTracker>,
     /// Rastreadores dos módulos de trampolim; nunca descarregados.
@@ -205,6 +207,32 @@ impl StableEntry {
     /// Assinatura diferente de `i64 (i64)`, ou entrada de outra sessão.
     pub fn call_with(&self, session: &JitSession, argument: i64) -> Result<i64, JitError> {
         self.invoke(session, Some(argument))
+    }
+
+    /// Chama uma entrada sem argumentos e sem retorno, como `dartforge_entry`.
+    pub fn call_void(&self, session: &JitSession) -> Result<(), JitError> {
+        if session.id != self.session {
+            return Err(JitError {
+                stage: "lookup",
+                message: format!("a entrada estável {} pertence a outra sessão JIT", self.name),
+            });
+        }
+        session.lljit.call_stable_void(self.address, &self.signature).map_err(|detail| {
+            JitError::new("execute", &format!("não foi possível chamar a entrada estável {}", self.name), detail)
+        })
+    }
+
+    /// Chama a entrada `i32 ()` do programa com SDK da fonte.
+    pub fn call_i32(&self, session: &JitSession) -> Result<i32, JitError> {
+        if session.id != self.session {
+            return Err(JitError {
+                stage: "lookup",
+                message: format!("a entrada estável {} pertence a outra sessão JIT", self.name),
+            });
+        }
+        session.lljit.call_stable_i32(self.address, &self.signature).map_err(|detail| {
+            JitError::new("execute", &format!("não foi possível chamar a entrada estável {}", self.name), detail)
+        })
     }
 
     /// Confere a sessão de origem e delega a chamada conferida à fronteira FFI.
@@ -341,6 +369,17 @@ impl JitSession {
     /// # Ok::<(), dartforge_jit::JitError>(())
     /// ```
     pub fn hot_reload(&mut self, name: &str, novo_ir: &str) -> Result<HotReloadReport, JitError> {
+        if self.poisoned.is_none()
+            && !self.reloadables.iter().any(|module| module.name == name)
+            && !self.modules.iter().any(|module| !module.removed && module.name == name)
+        {
+            return Err(JitError {
+                stage: "contract",
+                message: format!(
+                    "nenhum módulo chamado '{name}' está carregado nesta sessão; use add_reloadable_module para a primeira geração"
+                ),
+            });
+        }
         self.install_generation(name, novo_ir)
     }
 
@@ -441,6 +480,26 @@ impl JitSession {
         let references = parsed.declarations();
         let existing = self.reloadables.iter().position(|m| m.name == name);
         let plain = self.plain_module_index(name, existing.is_some());
+        // Um símbolo de outro módulo já ocupa o nome que viraria trampolim.
+        // Detectar a colisão aqui é obrigatório na promoção: depois que o
+        // módulo simples é removido, uma falha ao publicar o trampolim deixa
+        // a sessão envenenada e destrói a versão que ainda funcionava.
+        let ocupados: HashSet<&str> = self.modules.iter().enumerate()
+            .filter(|(index, module)| !module.removed && Some(*index) != plain)
+            .flat_map(|(_, module)| module.signatures.iter().map(|s| s.name.as_str()))
+            .chain(self.reloadables.iter().enumerate()
+                .filter(|(index, _)| Some(*index) != existing)
+                .flat_map(|(_, module)| module.entries.keys().map(String::as_str)))
+            .collect();
+        if let Some(colisao) = signatures.iter().find(|s| ocupados.contains(s.name.as_str())) {
+            return Err(JitError {
+                stage: "contract",
+                message: format!(
+                    "a função {} já pertence a outro módulo da sessão; a recarga não pode publicar uma segunda entrada com esse nome",
+                    colisao.name
+                ),
+            });
+        }
         let previous: Vec<FunctionSignature> = match (existing, plain) {
             // Só as entradas que alguma geração de fato implementou entram na
             // comparação; uma entrada órfã (célula publicada, implementação
@@ -465,6 +524,17 @@ impl JitSession {
                 message,
             }
         })?;
+        // Dados externos não aparecem em `declarations()`, que percorre só
+        // funções. Resolver aqui também detecta dados ausentes antes da janela
+        // destrutiva da promoção. Um símbolo já publicado pela LLJIT, inclusive
+        // por outro módulo ou pela DLL do SDK, pode ser usado normalmente.
+        for global in parsed.external_globals() {
+            self.lljit.lookup(&global).map_err(|detail| JitError::new(
+                "contract",
+                &format!("a global externa {global} não está disponível nesta sessão"),
+                detail,
+            ))?;
+        }
         let mut known: Vec<&str> = signatures.iter().map(|s| s.name.as_str()).collect();
         // Outros módulos ainda residentes também são fonte válida de símbolos: uma
         // sessão pode ter o programa e uma biblioteca em módulos separados, como
@@ -478,15 +548,64 @@ impl JitSession {
                 .filter(|(index, module)| !module.removed && Some(*index) != plain)
                 .flat_map(|(_, module)| module.signatures.iter().map(|s| s.name.as_str())),
         );
-        check_references(&references, &known, &self.reloadables).map_err(|message| JitError {
+        // A geração inicial só publica os exports que usava. Uma edição pode
+        // chamar outro membro do SDK: conferir a lista da DLL antes de mudar
+        // qualquer célula, e publicar somente os novos nomes.
+        let novos_sdk = if let Some(dll) = &self.sdk_dll {
+            let mut pedidos: Vec<String> = references
+                .iter()
+                .filter(|reference| {
+                    !self.is_known_external(reference)
+                        && !self.externos_do_sdk.contains(*reference)
+                        && !known.contains(&reference.as_str())
+                        && !self.reloadables.iter().any(|m| m.entries.contains_key(*reference))
+                })
+                .cloned()
+                .collect();
+            pedidos.sort();
+            pedidos.dedup();
+            ffi::Lljit::exported_symbols_in_dll(dll, &pedidos)
+                .map_err(|detail| JitError::new("sdk", "não foi possível ler as exportações do SDK", detail))?
+        } else {
+            Vec::new()
+        };
+        let mut externos = self.externos_do_sdk.clone();
+        externos.extend(novos_sdk.iter().cloned());
+        check_references(&references, &known, &self.reloadables, &externos, self.sdk_dll.is_none()).map_err(|message| JitError {
             stage: "contract",
             message,
         })?;
+        if !novos_sdk.is_empty() {
+            let dll = self.sdk_dll.as_ref().expect("novos exports exigem DLL do SDK");
+            let publicados = self.lljit.define_symbols_from_dll(dll, &novos_sdk, false)
+                .map_err(|detail| JitError::new("sdk", "não foi possível publicar novos exports do SDK", detail))?;
+            self.externos_do_sdk.extend(publicados);
+        }
         let contract = phase.elapsed();
 
         let generation = existing.map_or(1, |index| self.reloadables[index].generation + 1);
+        let previous_globals = existing.map(|index| self.reloadables[index].globals.clone()).unwrap_or_default();
         let suffix = format!("$gen{generation}");
+        // As implementações têm nomes estáveis únicos entre módulos; as
+        // globais `@dfg_*` do emissor não. A LLJIT usa uma JITDylib única,
+        // então o dado precisa carregar também a identidade do módulo.
+        let module_index = existing.unwrap_or(self.reloadables.len());
+        let global_suffix = format!("$module{module_index}{suffix}");
         let phase = Instant::now();
+        let globals = parsed.version_mutable_globals(&global_suffix)
+            .map_err(|detail| JitError::new("globais", "a geração tem estado que a sessão não sabe reiniciar", detail))?;
+        for next in &globals {
+            if !static_do_programa(&next.logical_name) {
+                continue;
+            }
+            if let Some(previous) = previous_globals.iter().find(|g| g.logical_name == next.logical_name)
+                && previous.size != next.size
+            {
+                return Err(JitError::new("contract", "o layout de um estático mudou", format!(
+                    "{}: {} para {} bytes", next.logical_name, previous.size, next.size
+                )));
+            }
+        }
         let published = parsed.version_definitions(&suffix);
         let tracker = self.lljit.create_tracker();
         self.lljit
@@ -605,6 +724,25 @@ impl JitSession {
                 }
             }
         }
+        // O código da geração nova já foi ligado, mas as entradas estáveis
+        // ainda chamam a antiga. Preserve apenas os estáticos do programa;
+        // caches de seletor guardam endereços da geração anterior e devem
+        // começar vazios.
+        for next in &globals {
+            if !static_do_programa(&next.logical_name) {
+                continue;
+            }
+            let Some(previous) = previous_globals.iter().find(|g| g.logical_name == next.logical_name) else {
+                continue;
+            };
+            if let Err(detail) = self.lljit.copy_global(previous, next) {
+                let error = JitError::new("link", "não foi possível preservar um estático", detail);
+                let _ = tracker.remove();
+                let orfas = std::mem::take(&mut slots);
+                self.register_unimplemented(name, orfas, &published, stub_tracker.take());
+                return Err(self.poison_if(promoted, error));
+            }
+        }
         let link = phase.elapsed();
 
         // Publicação: a troca dos ponteiros. Daqui em diante toda chamada nova
@@ -637,6 +775,7 @@ impl JitSession {
         }
         module.generation = generation;
         module.layouts = layouts;
+        module.globals = globals;
         module.generations.push(tracker);
         if let Some(created) = stub_tracker {
             module.stubs.push(created);
@@ -681,6 +820,7 @@ impl JitSession {
             generation: 0,
             entries: BTreeMap::new(),
             layouts: Vec::new(),
+            globals: Vec::new(),
             generations: Vec::new(),
             stubs: Vec::new(),
         });
@@ -726,31 +866,13 @@ impl JitSession {
 
     /// Índice do módulo simples que a recarga substitui, se houver.
     ///
-    /// Procura pelo nome e, mantendo o comportamento anterior do crate, aceita o
-    /// único módulo ativo quando o nome não casa — uma sessão com um programa só
-    /// é o caso corrente do laço de desenvolvimento.
+    /// A identidade é o nome informado na carga; um nome diferente nunca pode
+    /// selecionar e descarregar o único módulo ativo por acidente.
     fn plain_module_index(&self, name: &str, reloadable_exists: bool) -> Option<usize> {
         if reloadable_exists {
             return None;
         }
-        if let Some(index) = self
-            .modules
-            .iter()
-            .rposition(|module| !module.removed && module.name == name)
-        {
-            return Some(index);
-        }
-        let active: Vec<usize> = self
-            .modules
-            .iter()
-            .enumerate()
-            .filter(|(_, module)| !module.removed)
-            .map(|(index, _)| index)
-            .collect();
-        match active.as_slice() {
-            [only] if self.reloadables.is_empty() => Some(*only),
-            _ => None,
-        }
+        self.modules.iter().rposition(|module| !module.removed && module.name == name)
     }
 
     /// Envenena a sessão quando a falha aconteceu dentro da janela de promoção.
@@ -775,6 +897,11 @@ impl JitSession {
             message,
         }
     }
+}
+
+/// Somente estado do programa atravessa gerações; caches do código não.
+fn static_do_programa(name: &str) -> bool {
+    name.starts_with("dfg.") || name.starts_with("dfg_") || name == "df_statics"
 }
 
 /// Compara a impressão digital do contrato entre a versão viva e a nova.
@@ -846,19 +973,25 @@ fn check_references(
     references: &[String],
     defined: &[&str],
     reloadables: &[Reloadable],
+    externos_do_sdk: &HashSet<String>,
+    runtime_embutido: bool,
 ) -> Result<(), String> {
     for reference in references {
-        if ffi::is_known_external(reference)
+        if (runtime_embutido && ffi::is_known_external(reference))
+            || crate::CRT_SYMBOLS.contains(&reference.as_str())
+            || reference.starts_with("llvm.")
+            || externos_do_sdk.contains(reference)
             || defined.contains(&reference.as_str())
             || reloadables
                 .iter()
-                .any(|module| module.entries.contains_key(reference))
+                .any(|module| module.entries.get(reference).is_some_and(|entry| entry.generation > 0))
         {
             continue;
         }
         return Err(format!(
             "o código novo chama {reference}, que esta sessão não define; \
-             o JIT publica apenas a tabela do runtime, a CRT listada e as entradas estáveis já criadas"
+             o JIT publica a tabela do runtime, a CRT listada, as exportações carregadas do SDK \
+             e as entradas estáveis já criadas"
         ));
     }
     Ok(())
@@ -987,6 +1120,8 @@ mod tests {
             &["dartforge_print_i64".to_owned(), "minha_ffi".to_owned()],
             &["df_fn_0"],
             &[],
+            &HashSet::new(),
+            true,
         )
         .unwrap_err();
         assert!(erro.contains("minha_ffi"), "{erro}");
@@ -994,10 +1129,50 @@ mod tests {
             check_references(
                 &["dartforge_print_i64".to_owned(), "df_fn_0".to_owned()],
                 &["df_fn_0"],
-                &[]
+                &[],
+                &HashSet::new(),
+                true,
             )
             .is_ok()
         );
+    }
+
+    #[test]
+    fn references_accept_exports_of_the_sdk_loaded_in_this_session() {
+        let mut externos = HashSet::new();
+        externos.insert("df.sdk_teste".to_owned());
+        assert!(check_references(&["df.sdk_teste".to_owned()], &[], &[], &externos, false).is_ok());
+        let erro = check_references(&["df.sdk_ausente".to_owned()], &[], &[], &externos, false).unwrap_err();
+        assert!(erro.contains("df.sdk_ausente"), "{erro}");
+        let erro = check_references(&["dartforge_object_new".to_owned()], &[], &[], &externos, false).unwrap_err();
+        assert!(erro.contains("dartforge_object_new"), "{erro}");
+    }
+
+    /// Um trampolim criado por uma recarga que falhou tem célula nula. Ele só
+    /// pode satisfazer referências externas depois de uma geração publicá-lo.
+    #[test]
+    fn references_reject_unimplemented_trampoline() {
+        let mut entries = BTreeMap::new();
+        entries.insert("df_fn_1".to_owned(), Entry {
+            signature: signature("df_fn_1", "i64", &[]),
+            slot: Box::new(AtomicUsize::new(0)),
+            generation: 0,
+        });
+        let mut modules = vec![Reloadable {
+            name: "app".to_owned(),
+            generation: 1,
+            entries,
+            layouts: Vec::new(),
+            globals: Vec::new(),
+            generations: Vec::new(),
+            stubs: Vec::new(),
+        }];
+        let reference = ["df_fn_1".to_owned()];
+        let erro = check_references(&reference, &[], &modules, &HashSet::new(), true).unwrap_err();
+        assert!(erro.contains("df_fn_1"), "{erro}");
+
+        modules[0].entries.get_mut("df_fn_1").unwrap().generation = 2;
+        assert!(check_references(&reference, &[], &modules, &HashSet::new(), true).is_ok());
     }
 
     /// Ciclo completo sobre IR direto, sem passar pelo front-end Dart.

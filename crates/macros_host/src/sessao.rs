@@ -145,6 +145,15 @@ fn gerar(
     Ok((textos, g))
 }
 
+/// Aplicações que ainda exigem execução; bibliotecas com augmentation
+/// materializada já têm seus membros no programa carregado.
+pub fn aplicacoes_pendentes(program: &Program, interner: &Interner) -> Vec<Aplicacao> {
+    detectar(&Vista { program, interner })
+        .into_iter()
+        .filter(|a| !ja_materializada(program, &a.biblioteca))
+        .collect()
+}
+
 /// Aplica as macros de `program` com `executor`. Sem aplicação, devolve o
 /// programa como veio — sem abrir sessão (custo zero). Com erro (executor
 /// indisponível, diagnóstico de erro de uma macro, texto que não compila),
@@ -159,16 +168,14 @@ pub fn aplicar(
     // Biblioteca que já inclui a augmentation materializada (`import augment
     // 'x.macro.dart'` ou `part`, gravada por `dartforge macros
     // --materializar`) não roda as macros de novo: como um `.g.dart` no disco.
-    let apps: Vec<Aplicacao> = detectar(&Vista { program: &program, interner })
-        .into_iter()
-        .filter(|a| !ja_materializada(&program, &a.biblioteca))
-        .collect();
+    let apps = aplicacoes_pendentes(&program, interner);
     if apps.is_empty() {
         return Ok(Saida { program, geracao: base, textos: Vec::new(), macros_executadas: 0, avisos: Vec::new() });
     }
     SESSOES.fetch_add(1, Ordering::Relaxed);
 
     if let Err(e) = executor.iniciar() {
+        executor.encerrar();
         return Err(apps.iter().map(|a| diagnostico(a, &e)).collect());
     }
     // Uma instância por (macro, construtor, argumentos), como o CFE.
@@ -255,7 +262,13 @@ pub fn aplicar(
                 mudou = true;
                 // Fase 2: a próxima aplicação vê o que esta declarou.
                 if fase == Fase::Declaracoes && erros.is_empty() {
-                    textos = recarregar(&mut program, &mut geracao, interner, &mut tabela, &resultados)?;
+                    textos = match recarregar(&mut program, &mut geracao, interner, &mut tabela, &resultados) {
+                        Ok(textos) => textos,
+                        Err(diagnosticos) => {
+                            executor.encerrar();
+                            return Err(diagnosticos);
+                        }
+                    };
                     mudou = false;
                 }
             }
@@ -265,7 +278,13 @@ pub fn aplicar(
             return Err(erros);
         }
         if mudou {
-            textos = recarregar(&mut program, &mut geracao, interner, &mut tabela, &resultados)?;
+            textos = match recarregar(&mut program, &mut geracao, interner, &mut tabela, &resultados) {
+                Ok(textos) => textos,
+                Err(diagnosticos) => {
+                    executor.encerrar();
+                    return Err(diagnosticos);
+                }
+            };
         }
     }
     executor.encerrar();
@@ -284,7 +303,8 @@ fn alvo_e_modelo(v: &Vista<'_>, t: &mut Tabela, alvo: &Alvo) -> Result<(Value, V
         Alvo::Declaracao(c) => {
             let d = v.declaracao_json(t, c).ok_or_else(|| format!("alvo {} não suportado ou não encontrado", c.nome()))?;
             let lib = match c {
-                Chave::Tipo { lib, .. } | Chave::Metodo { lib, .. } | Chave::Campo { lib, .. } | Chave::Construtor { lib, .. } => lib,
+                Chave::Tipo { lib, .. } | Chave::Metodo { lib, .. } | Chave::Campo { lib, .. } | Chave::Construtor { lib, .. }
+                | Chave::FuncaoDeTopo { lib, .. } | Chave::VariavelDeTopo { lib, .. } => lib,
                 _ => return Err(format!("alvo {} ainda não suportado", c.nome())),
             };
             let lib_id = v.biblioteca_por_uri(lib).ok_or_else(|| format!("biblioteca {lib} não encontrada"))?;

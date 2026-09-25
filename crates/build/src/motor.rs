@@ -13,7 +13,8 @@
 //!   [`Motor::materializar`] ou [`Demanda::Tudo`].
 use crate::consulta::{digest_bytes, BancoSemantico, Consulta, Digest};
 use crate::executor::{
-    digest_de, AcaoNativa, CtxGerador, Disponibilidade, ExecutorDart, GeradorNativo, Indisponivel, PedidoNativo,
+    digest_de, AcaoNativa, CtxGerador, Disponibilidade, ExecutorDart, GeradorNativo, Indisponivel, PedidoAcao, PedidoNativo,
+    ScriptDeBuilders, ServicoAcao, ServicoBuildStep,
 };
 use crate::grafo::{AssetId, Grafo};
 use crate::pacotes::GrafoPacotes;
@@ -25,7 +26,7 @@ use dartforge_elements::unidades::Marca;
 use dartforge_intern::Interner;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -55,6 +56,7 @@ impl Default for OpcoesMotor {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Origem {
     Nativo(&'static str),
+    Dart,
     Apoio,
     Pendente,
 }
@@ -93,6 +95,11 @@ pub struct RelMotor {
     pub consultas_reavaliadas: usize,
     pub saidas_alteradas: usize,
     pub nativas: usize,
+    pub dart: usize,
+    /// Unidades efetivamente regeneradas dentro de um gerador por pacote.
+    pub unidades_nativas: usize,
+    /// Consultas registradas por geradores nesta atualização.
+    pub consultas_gerador: usize,
     pub apoio: usize,
     pub pendentes_por_motivo: BTreeMap<String, usize>,
     pub tempo: Duration,
@@ -105,12 +112,15 @@ pub struct RelMotor {
 impl RelMotor {
     pub fn texto(&self) -> String {
         let mut s = format!(
-            "motor: {} ações verificadas, {} executadas ({} nativas, {} apoio), {} consultas reavaliadas, {} saídas alteradas, {:.1} ms (revalidar {:.1} ms, nativo por pacote {:.1} ms)",
+            "motor: {} ações verificadas, {} executadas ({} nativas, {} Dart, {} apoio, {} unidades regeneradas), {} consultas reavaliadas, {} consultas do gerador, {} saídas alteradas, {:.1} ms (revalidar {:.1} ms, nativo por pacote {:.1} ms)",
             self.acoes_verificadas,
             self.acoes_executadas,
             self.nativas,
+            self.dart,
             self.apoio,
+            self.unidades_nativas,
             self.consultas_reavaliadas,
+            self.consultas_gerador,
             self.saidas_alteradas,
             self.tempo.as_secs_f64() * 1000.0,
             self.tempo_revalidar.as_secs_f64() * 1000.0,
@@ -144,6 +154,7 @@ struct RodadaPacote {
     saidas: BTreeMap<PathBuf, Arc<[u8]>>,
     recusas: BTreeMap<PathBuf, String>,
     erro: Option<String>,
+    unidades_geradas: usize,
 }
 
 pub struct Motor {
@@ -158,6 +169,7 @@ pub struct Motor {
     pub opcoes: OpcoesMotor,
     nativos: Vec<Arc<dyn GeradorNativo>>,
     dart: std::sync::Mutex<Box<dyn ExecutorDart>>,
+    dart_preparado: AtomicBool,
     registros: Vec<Option<Registro>>,
     /// Ações por fase (índices em `grafo.acoes`).
     por_fase: Vec<Vec<usize>>,
@@ -182,6 +194,12 @@ pub struct Motor {
     geracao: Arc<Geracao>,
     avisados: HashSet<PathBuf>,
     rotulos: HashMap<String, &'static str>,
+}
+
+impl Drop for Motor {
+    fn drop(&mut self) {
+        if let Ok(mut dart) = self.dart.lock() { dart.encerrar(); }
+    }
 }
 
 fn natural(grafo: &GrafoPacotes, id: &AssetId) -> PathBuf {
@@ -257,6 +275,8 @@ fn afetada(c: &Consulta, mudados: &HashSet<PathBuf>, dart_mudou: bool, estrutura
         // Uma listagem só muda quando entra ou sai arquivo (diretório observado
         // que mudou, ou arquivo novo/apagado).
         Consulta::Glob { dir, .. } => estruturais.iter().any(|m| m.starts_with(dir)),
+        Consulta::GlobAtivos { dir, candidatos, .. } => estruturais.iter().any(|m| m.starts_with(dir))
+            || candidatos.iter().any(|(rel, _)| mudados.contains(&chave(&dir.join(rel)))),
         _ => c.caminho().is_some_and(|p| mudados.contains(p)) || (c.semantica() && dart_mudou),
     }
 }
@@ -293,6 +313,7 @@ impl Motor {
             opcoes,
             nativos: Vec::new(),
             dart: std::sync::Mutex::new(Box::new(Indisponivel::default())),
+            dart_preparado: AtomicBool::new(false),
             registros: vec![None; n_acoes],
             por_fase,
             pacotes: HashMap::new(),
@@ -326,7 +347,9 @@ impl Motor {
     }
 
     pub fn definir_executor_dart(&mut self, e: Box<dyn ExecutorDart>) {
+        if let Ok(mut anterior) = self.dart.lock() { anterior.encerrar(); }
         self.dart = std::sync::Mutex::new(e);
+        self.dart_preparado.store(false, Ordering::Release);
     }
 
     pub fn geracao(&self) -> Arc<Geracao> {
@@ -544,6 +567,7 @@ impl Motor {
             *self = Motor::novo(&self.raiz.clone(), &self.cfg.clone(), opcoes)?;
             self.nativos = nativos;
             self.dart = dart;
+            self.dart_preparado.store(false, Ordering::Release);
             // Tudo o que existia conta como possivelmente alterado.
             for k in antiga.keys() {
                 mudados.insert(k.clone());
@@ -562,11 +586,10 @@ impl Motor {
         let dart_mudou = mudados.iter().any(|p| p.to_string_lossy().ends_with(".dart"));
         let mut pacotes_feitos: HashSet<(usize, Arc<str>)> = HashSet::new();
         let mut pacotes_rodaram: HashSet<(usize, Arc<str>)> = HashSet::new();
-        let disp = self.dart.lock().map(|d| d.disponibilidade()).unwrap_or(Disponibilidade::Indisponivel("executor Dart envenenado".into()));
-        let motivo_dart = match disp {
+        let motivo_dart = self.dart.lock().map(|d| match d.disponibilidade() {
             Disponibilidade::Disponivel => None,
             Disponibilidade::Indisponivel(m) => Some(m),
-        };
+        }).unwrap_or_else(|_| Some("executor Dart envenenado".into()));
 
         for fi in 0..self.fases.len() {
             let acoes: Vec<usize> = self.por_fase[fi].iter().copied().filter(|&a| self.demandada(a, demanda)).collect();
@@ -601,6 +624,11 @@ impl Motor {
                         let memoria = |p: &Path| self.memoria.get(p).cloned();
                         r.consultas.iter().filter(|(c, _)| afetada(c, &mudados, dart_mudou, &estruturais)).any(|(c, d)| {
                             rel.consultas_reavaliadas += 1;
+                            if let Consulta::GlobAtivos { dir, .. } = c {
+                                // O grafo pode ter ganhado um candidato que
+                                // não constava da consulta anterior.
+                                if estruturais.iter().any(|m| m.starts_with(dir)) { return true; }
+                            }
                             digest_de(c, ctx.banco, &memoria) != *d
                         })
                     }
@@ -619,16 +647,20 @@ impl Motor {
                 Some(g) => {
                     let mut v = Vec::with_capacity(executar.len());
                     for &a in &executar {
-                        v.push(self.nativo_por_acao(ctx, g, a, motivo_dart.as_deref()));
+                        v.push(self.nativo_por_acao(ctx, &mudados, g, a, motivo_dart.as_deref()));
                     }
                     v
                 }
+                None if motivo_dart.is_none() => executar.iter().map(|&a| {
+                    self.dart_por_acao(a).unwrap_or_else(|e| self.apoio(a, Some(&e)))
+                }).collect(),
                 None => self.apoio_em_paralelo(&executar, motivo_dart.as_deref()),
             };
             for (a, mut r) in executar.into_iter().zip(novos) {
                 rel.acoes_executadas += 1;
                 match r.origem {
                     Origem::Nativo(_) => rel.nativas += 1,
+                    Origem::Dart => rel.dart += 1,
                     Origem::Apoio => rel.apoio += 1,
                     Origem::Pendente => {}
                 }
@@ -644,9 +676,10 @@ impl Motor {
                         let loc = self.caminho_de_apoio(s, self.fases[fi].oculta);
                         if mais_nova(&entrada, &loc) && self.avisados.insert(loc.clone()) {
                             let msg = format!(
-                                "{}: {} pode estar desatualizado — o DartForge ainda não executa builders Dart (BUILD-RUST.md §3, Fase 1); rode 'dart run build_runner build'",
+                                "{}: {} pode estar desatualizado — {}; rode 'dart run build_runner build'",
                                 self.plano.aplicacoes[self.fases[fi].aplicacao].chave,
-                                s.texto()
+                                s.texto(),
+                                r.motivo.as_deref().unwrap_or("executor Dart não produziu saída atual")
                             );
                             if self.opcoes.estrito {
                                 return Err(msg);
@@ -693,6 +726,77 @@ impl Motor {
 
     fn naturais_de_entrada(&self, a: usize) -> PathBuf {
         natural(&self.grafo_pacotes, &self.grafo.acoes[a].entrada)
+    }
+
+    fn preparar_dart(&self) -> Option<String> {
+        let Ok(mut dart) = self.dart.lock() else { return Some("executor Dart envenenado".into()) };
+        match dart.disponibilidade() {
+            Disponibilidade::Indisponivel(m) => return Some(m),
+            Disponibilidade::Disponivel if self.dart_preparado.load(Ordering::Acquire) => return None,
+            Disponibilidade::Disponivel => {}
+        }
+        let aplicacoes = self.plano.aplicacoes.iter().map(|a| (a.chave.clone(), a.import.clone(), a.fabricas.clone())).collect();
+        let mut h = blake3::Hasher::new();
+        h.update(crate::VERSAO.as_bytes());
+        h.update(self.plano.texto_canonico().as_bytes());
+        let mut lock: Vec<_> = self.grafo_pacotes.lock.iter().collect();
+        lock.sort_by_key(|(nome, _)| *nome);
+        for (nome, pacote) in lock {
+            h.update(nome.as_bytes());
+            h.update(pacote.versao.as_bytes());
+            h.update(format!("{:?}", pacote.tipo).as_bytes());
+        }
+        let script = ScriptDeBuilders { aplicacoes, chave_de_cache: h.finalize().to_hex().to_string() };
+        match dart.preparar(&script) {
+            Ok(()) => { self.dart_preparado.store(true, Ordering::Release); None }
+            Err(e) => Some(e.0),
+        }
+    }
+
+    fn dart_por_acao(&self, a: usize) -> Result<Registro, String> {
+        if let Some(e) = self.preparar_dart() { return Err(e) }
+        let acao = self.grafo.acoes.get(a).ok_or("ação Dart inexistente")?;
+        let fase = &self.fases[acao.fase];
+        let memoria = |id: &AssetId| self.naturais.get(id).and_then(|p| self.memoria.get(p)).cloned();
+        let mut servico = ServicoAcao::novo(&self.grafo, &self.grafo_pacotes, a, &memoria);
+        let pedido = PedidoAcao {
+            fase: acao.fase,
+            chave: self.plano.aplicacoes[fase.aplicacao].chave.clone(),
+            fabrica: fase.fabrica.clone(),
+            opcoes: fase.opcoes.clone(),
+            raiz: fase.raiz,
+            entrada: acao.entrada.clone(),
+            saidas_permitidas: acao.saidas.clone(),
+        };
+        let mut dart = self.dart.lock().map_err(|_| "executor Dart envenenado")?;
+        let resultado = dart.executar(&pedido, &mut servico).map_err(|e| e.0)?;
+        if resultado.falhou {
+            let detalhes = resultado.logs.iter().filter(|(nivel, _)| nivel == "severo" || nivel == "erro")
+                .map(|(_, mensagem)| mensagem.as_str())
+                .chain(servico.logs.iter().filter(|(nivel, _)| *nivel == crate::executor::Nivel::Severo)
+                    .map(|(_, mensagem)| mensagem.as_str()))
+                .collect::<Vec<_>>().join("; ");
+            return Err(if detalhes.is_empty() { format!("{}: builder Dart falhou", pedido.chave) }
+                else { format!("{}: {detalhes}", pedido.chave) });
+        }
+        for (id, bytes) in resultado.saidas {
+            if let Some(ja_escritos) = servico.escritas.get(&id) {
+                if ja_escritos.as_ref() != bytes.as_ref() {
+                    return Err(format!("builder Dart retornou bytes diferentes para {} após escrever via BuildStep", id.texto()));
+                }
+            }
+            servico.escrever(&id, bytes).map_err(|e| format!("builder Dart escreveu saída não permitida: {}", e.0.texto()))?;
+        }
+        let saidas = acao.saidas.iter().map(|id| (id.clone(), servico.escritas.get(id).cloned())).collect();
+        Ok(Registro {
+            impressao: [0; 32],
+            consultas: servico.consultas,
+            saidas,
+            origem: Origem::Dart,
+            motivo: None,
+            medido: Vec::new(),
+            do_apoio: Vec::new(),
+        })
     }
 
     /// `blake3(versão ‖ chave ‖ fábrica ‖ imita ‖ opções ‖ identidade ‖
@@ -777,24 +881,41 @@ impl Motor {
         let pedido = PedidoNativo { pacote: pacote.to_string(), raiz_do_pacote: no.raiz.clone(), acoes };
         let (resultado, consultas) = {
             let memoria = |p: &Path| self.memoria.get(p).cloned();
-            let mut c = CtxGerador::novo(ctx.programa, ctx.banco, &memoria);
+            let mut c = CtxGerador::novo(ctx.programa, mudados, ctx.banco, &memoria);
             let r = gerador.gerar(&mut c, &pedido);
             (r, std::mem::take(&mut c.consultas))
         };
+        rel.consultas_gerador += consultas.len();
         let rodada = match resultado {
             Ok(s) => RodadaPacote {
-                registro_consultas: consultas,
+                registro_consultas: if s.reutilizar_consultas {
+                    let anterior = self.pacotes.get(&k).ok_or("ngdart: consultas anteriores ausentes")?;
+                    let mut mantidas = anterior.registro_consultas.clone();
+                    for (nova, digest) in consultas {
+                        if let Some((_, antigo)) = mantidas.iter_mut().find(|(c, _)| *c == nova) {
+                            *antigo = digest;
+                        } else {
+                            mantidas.push((nova, digest));
+                        }
+                    }
+                    mantidas
+                } else {
+                    consultas
+                },
                 saidas: s.saidas.into_iter().map(|(p, b)| (chave(&p), Arc::from(b))).collect(),
                 recusas: s.recusas.into_iter().map(|(p, m)| (chave(&p), m)).collect(),
                 erro: None,
+                unidades_geradas: s.unidades_geradas,
             },
             Err(e) => RodadaPacote {
                 registro_consultas: consultas,
                 saidas: BTreeMap::new(),
                 recusas: BTreeMap::new(),
                 erro: Some(e),
+                unidades_geradas: 0,
             },
         };
+        rel.unidades_nativas += rodada.unidades_geradas;
         self.pacotes.insert(k, rodada);
         rel.tempo_nativo += t_gerar.elapsed();
         Ok(true)
@@ -820,6 +941,9 @@ impl Motor {
         let recusa = rodada.and_then(|r| r.erro.clone().or_else(|| r.recusas.get(&entrada).cloned()));
         let gerou_algo = saidas.iter().any(|(_, c)| c.is_some());
         if gerador.verificado() && recusa.is_none() && gerou_algo {
+            if saidas.iter().any(|(_, c)| c.is_none()) && motivo_dart.is_none() {
+                if let Ok(r) = self.dart_por_acao(a) { return r }
+            }
             // Saída que o nativo não escreve e o oficial sim (o `.css.dart`
             // ao lado do `.css.shim.dart`) vem do apoio e é marcada como tal.
             let mut saidas = saidas;
@@ -846,6 +970,9 @@ impl Motor {
         // O apoio de uma ação que já vinha dele não é relido: o disco do
         // `build_runner` não muda sob a sessão (limitação declarada: rodá-lo
         // à parte pede reiniciar a sessão).
+        if motivo_dart.is_none() {
+            if let Ok(r) = self.dart_por_acao(a) { return r }
+        }
         let mut r = match &self.registros[a] {
             Some(ant) if ant.origem == Origem::Apoio => {
                 let mut r = ant.clone();
@@ -865,7 +992,14 @@ impl Motor {
         r
     }
 
-    fn nativo_por_acao(&self, ctx: &Contexto<'_>, g: usize, a: usize, motivo_dart: Option<&str>) -> Registro {
+    fn nativo_por_acao(
+        &self,
+        ctx: &Contexto<'_>,
+        mudados: &HashSet<PathBuf>,
+        g: usize,
+        a: usize,
+        motivo_dart: Option<&str>,
+    ) -> Registro {
         let acao = &self.grafo.acoes[a];
         let f = &self.fases[acao.fase];
         let gerador = self.nativos[g].clone();
@@ -881,11 +1015,12 @@ impl Motor {
             }],
         };
         let memoria = |p: &Path| self.memoria.get(p).cloned();
-        let mut c = CtxGerador::novo(ctx.programa, ctx.banco, &memoria);
+        let mut c = CtxGerador::novo(ctx.programa, mudados, ctx.banco, &memoria);
         let res = gerador.gerar(&mut c, &pedido);
         let consultas = std::mem::take(&mut c.consultas);
         match res {
-            Ok(s) if gerador.verificado() && !s.saidas.is_empty() => Registro {
+            Ok(s) if gerador.verificado() && s.recusas.is_empty() && !s.saidas.is_empty()
+                && (motivo_dart.is_some() || acao.saidas.iter().all(|id| s.saidas.contains_key(&self.naturais[id]))) => Registro {
                 impressao: [0; 32],
                 consultas,
                 saidas: acao
@@ -899,6 +1034,9 @@ impl Motor {
                 do_apoio: Vec::new(),
             },
             Ok(s) => {
+                if motivo_dart.is_none() {
+                    if let Ok(r) = self.dart_por_acao(a) { return r }
+                }
                 let mut r = self.apoio(a, motivo_dart);
                 r.medido = acao
                     .saidas
@@ -918,6 +1056,9 @@ impl Motor {
                 r
             }
             Err(m) => {
+                if motivo_dart.is_none() {
+                    if let Ok(r) = self.dart_por_acao(a) { return r }
+                }
                 let mut r = self.apoio(a, motivo_dart);
                 r.motivo = Some(match r.motivo.take() {
                     Some(x) => format!("{m}; {x}"),
@@ -1010,13 +1151,13 @@ impl Motor {
             let Some(r) = r else { continue };
             let acao = &self.grafo.acoes[a];
             let f = &self.fases[acao.fase];
-            if !f.oculta && !matches!(r.origem, Origem::Nativo(_)) {
+            if !f.oculta && !matches!(r.origem, Origem::Nativo(_) | Origem::Dart) {
                 continue;
             }
             for (s, conteudo) in &r.saidas {
                 let Some(conteudo) = conteudo else { continue };
                 let rotulo = match r.origem {
-                    Origem::Nativo(_) => self.plano.aplicacoes[f.aplicacao].chave.clone(),
+                    Origem::Nativo(_) | Origem::Dart => self.plano.aplicacoes[f.aplicacao].chave.clone(),
                     _ => "build_runner".to_string(),
                 };
                 rotulos.push((a, rotulo));
@@ -1044,21 +1185,47 @@ impl Motor {
     /// Conteúdo de uma saída pelo caminho natural, calculando-a se ainda não
     /// foi (a demanda de um `.css` pedido pelo navegador).
     pub fn materializar(&mut self, ctx: &Contexto<'_>, caminho: &Path) -> Option<Arc<[u8]>> {
-        let k = chave(caminho);
+        let mut k = chave(caminho);
+        if let Some(c) = self.memoria.get(&k) {
+            return Some(c.clone());
+        }
+        // `package_config.json` usa a raiz canônica; a URL servida pode
+        // chegar pela grafia lexical (alias 8.3 ou link no Windows). O
+        // arquivo gerado ainda não existe, então canonizamos só o pai.
+        if !self.naturais.values().any(|n| n == &k) {
+            if let (Some(pai), Some(nome)) = (caminho.parent(), caminho.file_name()) {
+                if let Ok(pai) = std::fs::canonicalize(pai) {
+                    k = chave(&dartforge_elements::config::sem_verbatim(pai).join(nome));
+                }
+            }
+        }
         if let Some(c) = self.memoria.get(&k) {
             return Some(c.clone());
         }
         let id = self.naturais.iter().find(|(_, n)| **n == k).map(|(id, _)| id.clone())?;
         let g = self.grafo.gerados.get(&id)?;
         if self.registros[g.acao].is_none() {
-            let r = self.apoio(g.acao, None);
+            let a = g.acao;
+            let fi = self.grafo.acoes[a].fase;
+            let motivo_dart = self.dart.lock().map(|d| match d.disponibilidade() {
+                Disponibilidade::Disponivel => None,
+                Disponibilidade::Indisponivel(m) => Some(m),
+            }).unwrap_or_else(|_| Some("executor Dart envenenado".into()));
+            let mut r = match self.nativo_da_fase(fi) {
+                Some(n) if !self.nativos[n].por_pacote() => {
+                    self.nativo_por_acao(ctx, &HashSet::new(), n, a, motivo_dart.as_deref())
+                }
+                _ if motivo_dart.is_none() => self.dart_por_acao(a).unwrap_or_else(|e| self.apoio(a, Some(&e))),
+                _ => self.apoio(a, motivo_dart.as_deref()),
+            };
+            r.impressao = self.impressao(a, &r.consultas);
             for (s, c) in &r.saidas {
                 if let Some(c) = c {
                     self.memoria.insert(self.naturais[s].clone(), c.clone());
                 }
             }
-            let _ = ctx;
-            self.registros[g.acao] = Some(r);
+            self.registros[a] = Some(r);
+            self.publicar();
             self.recalcular_observados();
         }
         self.memoria.get(&k).cloned()
@@ -1074,7 +1241,7 @@ impl Motor {
         let mut v = Vec::new();
         for (a, r) in self.registros.iter().enumerate() {
             let Some(r) = r else { continue };
-            if !matches!(r.origem, Origem::Nativo(_)) || self.fases[self.grafo.acoes[a].fase].oculta {
+            if !matches!(r.origem, Origem::Nativo(_) | Origem::Dart) || self.fases[self.grafo.acoes[a].fase].oculta {
                 continue;
             }
             for (s, c) in &r.saidas {
@@ -1151,8 +1318,9 @@ impl Motor {
                         (Origem::Nativo(n), _) if r.do_apoio.contains(id) => {
                             p.pendentes.push((id.clone(), format!("{n}: saída não gerada pelo nativo; apoio do build_runner")))
                         }
-                        (Origem::Nativo(_), Some(c)) if c.as_ref() == esperado.as_slice() => p.iguais.push(id.clone()),
+                        (Origem::Nativo(_) | Origem::Dart, Some(c)) if c.as_ref() == esperado.as_slice() => p.iguais.push(id.clone()),
                         (Origem::Nativo(n), _) => p.diferentes.push((id.clone(), format!("{n}: difere do oficial"))),
+                        (Origem::Dart, _) => p.diferentes.push((id.clone(), "executor Dart: difere do oficial".into())),
                         _ => {
                             if let Some((_, m)) = r.medido.iter().find(|(s, _)| s == id) {
                                 if m.as_ref() == esperado.as_slice() {

@@ -83,7 +83,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return op;
         };
         let classe = &self.ctx.program.classes[class.0 as usize];
-        if !self.ctx.program.library(classe.library).is_sdk {
+        if self.ctx.biblioteca_compilada(classe.library) {
             return op;
         }
         match self.ctx.symbol_name(classe.name) {
@@ -99,6 +99,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Type::I64 => ("dartforge_to_string_i64", Type::I64),
             Type::F64 => ("dartforge_to_string_f64", Type::F64),
             Type::I1 | Type::I8 => ("dartforge_to_string_bool", Type::I8),
+            _ if self.ctx.sdk_da_fonte => return self.texto_por_seletor(op),
             _ => {
                 let op = self.coagir(op, Type::Ref);
                 return self.emit_call_with_check(
@@ -143,6 +144,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let a = self.coagir(a, Type::Ref);
         let b = self.coagir(b, Type::Ref);
+        if self.ctx.sdk_da_fonte {
+            return self.igualdade_fonte(a, b);
+        }
         // `operator ==` de uma classe do programa (§17.26: com um lado null
         // vale `identical`; senão, `a.==(b)` pela classe dinâmica de `a`).
         let alvos: Vec<(i64, super::despacho::Alvo)> = self
@@ -286,6 +290,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 BinaryOp::Sub => self.emit(Instruction::FSub(a, b), Type::F64),
                 BinaryOp::Mul => self.emit(Instruction::FMul(a, b), Type::F64),
                 BinaryOp::Div => self.emit(Instruction::FDiv(a, b), Type::F64),
+                BinaryOp::Rem => self.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_nativo_DartForge_double_modulo".to_string(),
+                        args: vec![(a, Type::F64), (b, Type::F64)],
+                        ret_ty: Type::F64,
+                    },
+                    Type::F64,
+                ),
                 BinaryOp::TruncDiv => {
                     let q = self.emit(Instruction::FDiv(a, b), Type::F64);
                     self.emit(Instruction::DoubleToInt(q), Type::I64)
@@ -305,7 +317,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             BinaryOp::Sub => self.emit(Instruction::Sub(lop, rop), Type::I64),
             BinaryOp::Mul => self.emit(Instruction::Mul(lop, rop), Type::I64),
             BinaryOp::TruncDiv => self.emit_trunc_div(lop, rop),
-            BinaryOp::Rem => self.emit(Instruction::SRem(lop, rop), Type::I64),
+            BinaryOp::Rem => self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_nativo_Integer_moduloFromInteger".to_string(),
+                    args: vec![(rop, Type::I64), (lop, Type::I64)],
+                    ret_ty: Type::I64,
+                },
+                Type::I64,
+            ),
             BinaryOp::Shl => self.emit(Instruction::Shl(lop, rop), Type::I64),
             BinaryOp::Shr => self.emit(Instruction::AShr(lop, rop), Type::I64),
             BinaryOp::UShr => self.emit(Instruction::LShr(lop, rop), Type::I64),

@@ -107,7 +107,7 @@ impl Ambiente {
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap_or_else(|_| PathBuf::from("."))
         };
         let raiz = sem_prefixo_verbatim(raiz);
-        let sdk = std::env::var("DARTFORGE_DART_SDK").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("C:/tools/dartsdk-3.6.2"));
+        let sdk = std::env::var("DARTFORGE_DART_SDK").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("E:/DartSDKs/3.6.2"));
         let dart_sdk_js = raiz.join("runtime/ddc/dart_sdk.js");
         gerar_dart_sdk_js(&raiz, &sdk, &dart_sdk_js);
         let mut sdks: Vec<SdkOraculo> = SdkOraculo::detectar(sdk.clone(), dart_sdk_js.clone(), true).into_iter().collect();
@@ -116,7 +116,7 @@ impl Ambiente {
         // que configurar — nunca comparados contra o SDK errado.
         let sdk_313 = std::env::var("DARTFORGE_DART_SDK_3_13")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("D:/DartSDKs/3.13.4/dart-sdk"));
+            .unwrap_or_else(|_| PathBuf::from("E:/DartSDKs/3.13.4/dart-sdk"));
         if let Some(mut s) = SdkOraculo::detectar(sdk_313.clone(), PathBuf::new(), false) {
             s.dart_sdk_js = raiz.join("runtime/ddc").join(&s.nome).join("dart_sdk.js");
             gerar_dart_sdk_js(&raiz, &sdk_313, &s.dart_sdk_js);
@@ -135,7 +135,7 @@ impl Ambiente {
             candidatos.into_iter().find(|p| p.is_file())
         });
         let mut path_extra = Vec::new();
-        for prefixo in [std::env::var("LLVM_SYS_221_PREFIX").ok(), std::env::var("DARTFORGE_LLVM_DIR").ok(), Some(r"D:\DartSDKs\llvm\clang+llvm-22.1.8-x86_64-pc-windows-msvc".to_string())].into_iter().flatten() {
+        for prefixo in [std::env::var("LLVM_SYS_221_PREFIX").ok(), std::env::var("DARTFORGE_LLVM_DIR").ok(), Some(r"E:\DartSDKs\llvm\clang+llvm-22.1.8-x86_64-pc-windows-msvc".to_string())].into_iter().flatten() {
             let bin = PathBuf::from(prefixo).join("bin");
             if bin.join("LLVM-C.dll").is_file() {
                 path_extra.push(bin);
@@ -457,7 +457,7 @@ fn args_de_linguagem(amb: &Ambiente, programa: &Programa) -> Vec<String> {
 /// Sem cache: o emissor muda o tempo todo.
 pub fn dartforge(amb: &Ambiente, programa: &Programa, dir: &Path) -> Saida {
     let _ = std::fs::create_dir_all(dir);
-    let entrada = programa.entrada.to_string_lossy().into_owned();
+    let entrada = programa.entrada_dartforge().to_string_lossy().into_owned();
     let saida = dir.to_string_lossy().into_owned();
     let mut args: Vec<String> = vec!["compile-js".into(), entrada, "-o".into(), saida];
     args.extend(args_de_linguagem(amb, programa));
@@ -466,7 +466,7 @@ pub fn dartforge(amb: &Ambiente, programa: &Programa, dir: &Path) -> Saida {
             &bin.to_string_lossy(),
             &args,
 
-            programa.diretorio(),
+            programa.diretorio_dartforge(),
             amb.limite,
             &amb.path_extra,
         ),
@@ -511,6 +511,7 @@ pub fn dartforge_nativo(amb: &Ambiente, programa: &Programa, dir: &Path) -> Said
                 timings: false,
                 optimize: false,
                 versao_linguagem: Some(versao),
+                experimentos: Vec::new(),
             };
             dartforge_emit_native::compilar(&entrada, &saida, &options)
         })
@@ -565,6 +566,7 @@ pub fn dartforge_nativo_ir(programa: &Programa) -> Result<String, String> {
                 timings: false,
                 optimize: false,
                 versao_linguagem: Some(versao),
+                experimentos: Vec::new(),
             };
             dartforge_emit_native::emitir_ir(&entrada, &options).map(|ir| ir.texto)
         })
@@ -594,7 +596,7 @@ fn mensagem_de_panico(carga: &(dyn std::any::Any + Send)) -> String {
 /// desenvolvido é justamente este executor.
 pub fn dartforge_producao(amb: &Ambiente, programa: &Programa, dir: &Path) -> Saida {
     let _ = std::fs::create_dir_all(dir);
-    let entrada = programa.entrada.to_string_lossy().into_owned();
+    let entrada = programa.entrada_dartforge().to_string_lossy().into_owned();
     let saida = dir.join("saida.js");
     let saida_s = saida.to_string_lossy().into_owned();
     let exe = if cfg!(windows) { "dartforge-jsprod.exe" } else { "dartforge-jsprod" };
@@ -606,13 +608,17 @@ pub fn dartforge_producao(amb: &Ambiente, programa: &Programa, dir: &Path) -> Sa
         .or_else(|| std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join(exe))).filter(|p| p.is_file()));
     let mut args = vec![entrada, "-o".into(), saida_s];
     args.extend(args_de_linguagem(amb, programa));
-    let pacotes = programa.diretorio().join(".dart_tool/package_config.json");
+    let pacotes = programa.diretorio_dartforge()
+        .ancestors()
+        .map(|d| d.join(".dart_tool/package_config.json"))
+        .find(|p| p.is_file())
+        .unwrap_or_else(|| programa.diretorio_dartforge().join(".dart_tool/package_config.json"));
     if pacotes.is_file() {
         args.push("--packages".into());
         args.push(pacotes.to_string_lossy().into_owned());
     }
     let s = match &bin {
-        Some(b) => executar_com_path(&b.to_string_lossy(), &args, programa.diretorio(), amb.limite, &amb.path_extra),
+        Some(b) => executar_com_path(&b.to_string_lossy(), &args, programa.diretorio_dartforge(), amb.limite, &amb.path_extra),
         None => {
             let mut a: Vec<String> = vec!["run".into(), "-q".into(), "--release".into(), "-p".into(), "dartforge-emit-js-producao".into(), "--".into()];
             a.extend(args);
@@ -733,7 +739,23 @@ pub fn dartforge_jit(amb: &Ambiente, programa: &Programa, dir: &Path, com_aot: b
     let limite = amb.limite_nativo + FOLGA_GERACAO_JIT;
     let inicio = std::time::Instant::now();
     // `--gc-stress` vale para os dois perfis, como no `--nativo`.
-    let ambiente: &[(&str, &str)] = if amb.gc_stress { &[("DARTFORGE_GC_STRESS", "1")] } else { &[] };
+    let mut ambiente_v: Vec<(&str, String)> = Vec::new();
+    if amb.gc_stress {
+        ambiente_v.push(("DARTFORGE_GC_STRESS", "1".to_string()));
+    }
+    // Programa com o SDK da fonte (P5c/P5d): o executor carrega a DLL do SDK
+    // compilado (a mesma que o AOT importa).
+    if ir.contains("declare void @df.registrar.") {
+        match dartforge_emit_native::sdk_modulo::dll_do_sdk_da_fonte() {
+            Ok(dll) => ambiente_v.push(("DARTFORGE_SDK_DLL", dll.to_string_lossy().into_owned())),
+            Err(e) => {
+                let saida = Saida { stdout: String::new(), stderr: format!("[compile-native] SDK da fonte: {e}"), codigo: 1 };
+                return (saida, ExecucaoJit { com_ir: true, tempo: Duration::ZERO, execucao: None, aot: None });
+            }
+        }
+    }
+    let ambiente_ref: Vec<(&str, &str)> = ambiente_v.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let ambiente: &[(&str, &str)] = &ambiente_ref;
     let mut jit = executar_com_ambiente(
         &executor.to_string_lossy(),
         &[ll.to_string_lossy().into_owned(), "--timings".to_string()],

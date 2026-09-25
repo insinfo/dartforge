@@ -2,7 +2,7 @@
 //! JSON v1 do `dart analyze --format=json` (ou no texto do formato padrão).
 //!
 //! Publica só o que a regra do plano §2.3 permite: sintaxe sempre, e os
-//! códigos semânticos de `crates/paridade/verificados.txt`. `--todos` mostra
+//! códigos semânticos de `crates/analise/verificados.txt`. `--todos` mostra
 //! também os não verificados (para depurar, nunca para o editor).
 use std::path::{Path, PathBuf};
 

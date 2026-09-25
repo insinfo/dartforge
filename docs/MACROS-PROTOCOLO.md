@@ -81,9 +81,9 @@ JS embutido nem runtime de terceiros. `int` tem a semântica da VM (64 bits).
 
 | implementação | uso |
 |---|---|
-| `Indisponivel` | a do produto hoje: o `compile-js` de um programa com aplicação dá erro claro **na anotação** |
+| `Indisponivel` | diagnóstico quando nenhum executor foi configurado; não é o caminho normal do JS com macro |
 | `ExecutorDfexec<C: Canal>` | o cliente `macro.*` sobre qualquer canal: processo (`CanalDeProcesso`), gravação (`CanalGravador`) ou sessão gravada (`CanalGravado`, o executor falso dos testes) |
-| `vm::iniciar` | o executor de **materialização**: a mesma API numa VM Dart (MACROS-COMPATIBILIDADE.md) — ferramenta de compatibilidade, não dependência do compilador |
+| `vm::iniciar` | executor de materialização e caminho provisório de `compile-js`/`jsprod`: executa a nossa API numa VM Dart (MACROS-COMPATIBILIDADE.md) e recarrega a augmentation em memória |
 
 **O que espera o executor nativo**: compilar `pacotes/macros` (a API, o
 `executor/servico.dart` e o `canal_stdio.dart`) e a biblioteca da macro com o
@@ -205,9 +205,44 @@ dos identificadores é local. As declarações `augment` que os builders da fase
 * `410_json_codable` — pacote com `@JsonCodable`, `@JsonEncodable` e
   `@JsonDecodable` (aninhado, anulável, `List`/`Set`/`Map`, `DateTime`,
   `bool`, `num`); `esperado/modelos.augmentation.dart` é o texto do CFE 3.6.2
-  e `esperado/sessao.dfexec` a sessão gravada do protocolo. Está em
-  `PENDENTES` até o executor nativo existir (o `compile-js` dá o erro de
-  executor indisponível na anotação).
+  e `esperado/sessao.dfexec` a sessão gravada do protocolo. O job de macros
+  executa a fonte original nos oráculos e uma cópia com `.macro.dart`
+  materializado pelo `build_runner` nos backends DartForge.
+* `411_pedido_independente` — `@JsonCodable` em uma biblioteca nova, fonte
+  anotada original nos quatro executores; o JS roda a macro automaticamente
+  com o executor VM provisório, sem `dartforge-entrada.txt` nem preparação
+  manual. O `.macro.dart` do builder também é comparado byte a byte ao CFE.
+* `412_argumento_posicional` — macro própria `@Rotulo('P7')`, exercitando
+  `Function.apply` e o argumento posicional do protocolo no caminho direto
+  de desenvolvimento e produção. A augmentation do hospedeiro é comparada
+  byte a byte com a fonte extraída do kernel pelo CFE 3.6.2.
+* `413_argumentos_nomeados` — macro própria `@Etiquetas(prefixo: 'A')`,
+  exercitando argumento nomeado em desenvolvimento e produção. O texto
+  gerado pelo hospedeiro é comparado byte a byte com o CFE 3.6.2.
+* `414_funcao_topo` — macro em função de topo (`FunctionDeclarationsMacro`),
+  exercitando o modelo da função e declaração nova na biblioteca. O programa
+  chama a função gerada e a augmentation é comparada byte a byte ao CFE.
+* `415_variavel_topo` — macro em variável de topo (`VariableDeclarationsMacro`),
+  exercitando o modelo da variável e uma função gerada que acessa seu valor.
+  O programa chama essa função e o texto é comparado byte a byte ao CFE.
+* `416_definicao_funcao` — `FunctionDefinitionMacro` substitui o corpo de
+  uma função de topo na fase 3. A VM executa o corpo aumentado e o texto
+  estruturado pelo hospedeiro é comparado byte a byte ao CFE 3.6.2.
+* `417_aug_substitui_corpo` — `import augment` manual sob `macros` substitui
+  corpo já completo, também aceito pelo CFE 3.6.2; protege a semântica da
+  fase 3 além do nome `<biblioteca>.macro.dart`.
+* `418_definicao_metodo` — `MethodDefinitionMacro` substitui o corpo de um
+  método de instância na fase 3; VM, JS dev e JS produção executam o novo
+  corpo, com augmentation comparada integralmente ao CFE.
+* `419_definicao_construtor` — `ConstructorDefinitionMacro` substitui o
+  corpo de construtor já completo; o estado final do objeto é comparado nos
+  executores e a augmentation, byte a byte com o CFE 3.6.2.
+* `420_fase_tipos` — `ClassTypesMacro` declara uma classe nova na fase 1; a
+  biblioteca usa o tipo gerado, e o hospedeiro compara o texto integral com
+  o CFE 3.6.2.
+* `421_macro_part` — anotação em declaração de uma `part`, com macro
+  importada pela biblioteca principal; a augmentation pertence à biblioteca
+  e é comparada integralmente ao CFE 3.6.2.
 
 ## 8. Placar (medido nesta rodada)
 
@@ -220,8 +255,8 @@ dos identificadores é local. As declarações `augment` que os builders da fase
   materialização, teste `vm_executa_a_macro_e_bate_com_o_cfe`) e pela sessão
   gravada sem executor (teste `sessao_gravada_reproduz_o_texto_do_cfe`) — e
   no teste unitário da montagem (`montagem::testes`, o `Usuario` do 402);
-* materialização: o `410` materializado compila no `dartforge compile-js` sem
-  executor e imprime o mesmo que a VM 3.6.2 com as macros
+* materialização: o `410` materializado compila no `dartforge compile-js` e
+  no `dartforge-jsprod` sem executor e imprime o mesmo que a VM 3.6.2 com as macros
   (MACROS-COMPATIBILIDADE.md §3);
 * custo zero: `sem_macro_nao_abre_sessao` (0 sessões, 0 recargas, executor
   nunca tocado).

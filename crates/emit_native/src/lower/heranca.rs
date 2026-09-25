@@ -201,7 +201,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 s.chamar_direto(f, Some(this), args)
             }
             MembroSuper::Campo(v) => {
-                let x = s.ler_campo_com_late(this, v, span);
+                let x = s.ler_campo_com_late_direto(this, v, span);
                 s.chamar_valor_funcao(x, avaliados)
             }
             MembroSuper::DeMixin => s.nao_suportado("`super` dentro de mixin", span),
@@ -237,7 +237,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     s.tearoff_de_metodo(this, f, span)
                 }
             }
-            MembroSuper::Campo(v) => s.ler_campo_com_late(this, v, span),
+            MembroSuper::Campo(v) => s.ler_campo_com_late_direto(this, v, span),
             MembroSuper::DeMixin => s.nao_suportado("`super` dentro de mixin", span),
             MembroSuper::Sdk => {
                 let n = s.ctx.symbol_name(nome).to_string();

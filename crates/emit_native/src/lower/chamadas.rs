@@ -102,11 +102,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     return self.chamar_valor_funcao(v, &avaliados);
                 }
                 Some(Resolved::Element(dartforge_elements::model::Element::Variable(vid)))
-                    if !self
-                        .ctx
-                        .program
-                        .library(self.ctx.program.variables[vid.0 as usize].library)
-                        .is_sdk =>
+                    if self.ctx.biblioteca_compilada(self.ctx.program.variables[vid.0 as usize].library) =>
                 {
                     let v = self.ler_global(vid, expr.span);
                     let avaliados = self.avaliar_args(ast, &arguments.args);
@@ -148,11 +144,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                 }
                 Some(Resolved::Member { member, class, .. })
-                    if !self
-                        .ctx
-                        .program
-                        .library(self.ctx.program.classes[class.0 as usize].library)
-                        .is_sdk =>
+                    if self.ctx.biblioteca_compilada(self.ctx.program.classes[class.0 as usize].library) =>
                 {
                     // Campo ou getter de tipo função: lê e chama o valor.
                     let v = self.ler_membro_implicito(member, expr.span);
@@ -199,7 +191,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         let args = self.casar_args(fid, &avaliados);
                         return self.chamar_direto(fid, None, args);
                     }
-                    Element::Class(c) if !self.ctx.program.library(self.ctx.program.classes[c.0 as usize].library).is_sdk => {
+                    Element::Class(c) if self.ctx.biblioteca_compilada(self.ctx.program.classes[c.0 as usize].library) => {
                         let vazio = self.ctx.interner.lookup("");
                         if let Some(f) = vazio.and_then(|v| self.ctx.program.classes[c.0 as usize].constructors.get(&v).copied()) {
                             return self.instanciar(ast, f, &arguments.args, expr.span);
@@ -214,10 +206,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
 
             // `C.m(…)`: método estático do usuário.
+            // `C.m(…)` (e `Alias.m(…)`, com `typedef Alias = C`).
             let alvo_e_classe = matches!(
                 self.ctx.get_resolved(self.unit_id, *inner_target),
                 Some(Resolved::Element(
-                    dartforge_elements::model::Element::Class(_)
+                    dartforge_elements::model::Element::Class(_) | dartforge_elements::model::Element::Typedef(_)
                 ))
             );
             if alvo_e_classe {
@@ -251,6 +244,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     if crate::lower::funcao_do_usuario(self.ctx, fid)
                         && self.ctx.program.functions[fid].static_
                     {
+                        if self.ctx.program.functions[fid].kind
+                            == dartforge_elements::model::FunctionKind::Getter
+                        {
+                            // `C.g(args)` lê `g` primeiro e chama a função
+                            // devolvida. Os argumentos não pertencem ao getter.
+                            let callee = self.chamar_direto(fid, None, Vec::new());
+                            let avaliados = self.avaliar_args(ast, &arguments.args);
+                            return self.chamar_valor_funcao(callee, &avaliados);
+                        }
                         let avaliados = self.avaliar_args(ast, &arguments.args);
                         let args = self.casar_args(fid, &avaliados);
                         self.armar_tupla(fid, expr_id, arguments);
@@ -278,7 +280,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 && self.buscar_local(cn.sym).is_none()
                 && let Some(Resolved::Element(dartforge_elements::model::Element::Class(c))) =
                     self.resolver_por_nome(cn.sym)
-                && !self.ctx.program.library(self.ctx.program.classes[c.0 as usize].library).is_sdk
+                && self.ctx.biblioteca_compilada(self.ctx.program.classes[c.0 as usize].library)
             {
                 let classe = &self.ctx.program.classes[c.0 as usize];
                 if let Some(&f) = classe.constructors.get(&method_name.sym) {
@@ -286,6 +288,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 if let Some(&f) = classe.static_members.get(&method_name.sym) {
                     let fid = f.0 as usize;
+                    if self.ctx.program.functions[fid].kind
+                        == dartforge_elements::model::FunctionKind::Getter
+                    {
+                        let callee = self.chamar_direto(fid, None, Vec::new());
+                        let avaliados = self.avaliar_args(ast, &arguments.args);
+                        return self.chamar_valor_funcao(callee, &avaliados);
+                    }
                     let avaliados = self.avaliar_args(ast, &arguments.args);
                     let args = self.casar_args(fid, &avaliados);
                     return self.chamar_direto(fid, None, args);

@@ -73,12 +73,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// (subindo a cadeia de superclasses do programa), com o id de classe do
     /// runtime.
     pub fn alvos_por_nome(&self, nome: &str) -> Vec<(i64, Alvo)> {
+        if self.ctx.sdk_da_fonte {
+            // SDK da fonte: o membro vai pelo seletor (`sdk_fonte.rs`).
+            return Vec::new();
+        }
         let Some(sym) = self.ctx.interner.lookup(nome) else {
             return Vec::new();
         };
         let mut saida = Vec::new();
         for (k, classe) in self.ctx.program.classes.iter().enumerate() {
-            if self.ctx.program.library(classe.library).is_sdk
+            if !self.ctx.biblioteca_compilada(classe.library)
                 || classe.modifiers.abstract_
                 || super::membros::e_mixin(self.ctx, ClassId(k as u32))
             {
@@ -93,7 +97,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             for c in crate::lower::membros::linearizacao(self.ctx, ClassId(k as u32)) {
                 let cl = &self.ctx.program.classes[c.0 as usize];
-                if self.ctx.program.library(cl.library).is_sdk {
+                if !self.ctx.biblioteca_compilada(cl.library) {
                     break;
                 }
                 if let Some(&f) = cl.instance_members.get(&sym) {
@@ -247,11 +251,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Para cada classe concreta do programa, o que grava `nome`: o setter
     /// `nome=` ou o campo `nome` (subindo a cadeia).
     pub fn alvos_de_escrita(&self, nome: &str) -> Vec<(i64, Alvo)> {
+        if self.ctx.sdk_da_fonte {
+            return Vec::new();
+        }
         let campo = self.ctx.interner.lookup(nome);
         let setter = self.ctx.interner.lookup(&format!("{nome}="));
         let mut saida = Vec::new();
         for (k, classe) in self.ctx.program.classes.iter().enumerate() {
-            if self.ctx.program.library(classe.library).is_sdk
+            if !self.ctx.biblioteca_compilada(classe.library)
                 || classe.modifiers.abstract_
                 || super::membros::e_mixin(self.ctx, ClassId(k as u32))
             {
@@ -262,7 +269,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             };
             for c in crate::lower::membros::linearizacao(self.ctx, ClassId(k as u32)) {
                 let cl = &self.ctx.program.classes[c.0 as usize];
-                if self.ctx.program.library(cl.library).is_sdk {
+                if !self.ctx.biblioteca_compilada(cl.library) {
                     break;
                 }
                 if let Some(&f) = setter.and_then(|s| cl.instance_members.get(&s)) {
@@ -319,6 +326,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some((nome, codigo)) = operador(op) else {
             return self.nao_suportado("operador sobre num/dynamic/objeto", span);
         };
+        if self.ctx.sdk_da_fonte {
+            let r = self.chamar_por_nome(a, super::sdk_fonte::Tipo::Chamar, nome, &[(None, b)]);
+            if matches!(op, BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq) {
+                return self.coagir(r, Type::I1);
+            }
+            return r;
+        }
         let a = self.coagir(a, Type::Ref);
         let b = self.coagir(b, Type::Ref);
         let alvos: Vec<(i64, Alvo)> = self
@@ -358,6 +372,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `-a`/`~a` sobre uma referência.
     pub fn unario_dinamico(&mut self, op: UnaryOp, a: Operand) -> Operand {
         let (nome, codigo) = if op == UnaryOp::Neg { ("unary-", 16) } else { ("~", 17) };
+        if self.ctx.sdk_da_fonte {
+            return self.chamar_por_nome(a, super::sdk_fonte::Tipo::Chamar, nome, &[]);
+        }
         let a = self.coagir(a, Type::Ref);
         let alvos: Vec<(i64, Alvo)> = self
             .alvos_por_nome(nome)

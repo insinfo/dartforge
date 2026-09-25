@@ -180,18 +180,42 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Some(Resolved::Element(Element::Class(_)))
                 );
                 if alvo_e_classe {
-                    let Some(Resolved::Member { member, .. }) =
+                    let Some(Resolved::Member { class, member, .. }) =
                         self.ctx.get_resolved(self.unit_id, target).cloned()
                     else {
                         let n = self.ctx.symbol_name(name.sym).to_string();
                         return self.nao_suportado(&format!("atribuição a `{n}`"), span);
                     };
+                    let member = if matches!(member, MemberRef::Function(f)
+                        if self.ctx.program.functions[f.0 as usize].kind != FunctionKind::Setter
+                            && self.ctx.program.functions[f.0 as usize].variable.is_none()) {
+                        let key = format!("{}_=", self.ctx.symbol_name(name.sym));
+                        self.ctx.interner.lookup(&key)
+                            .and_then(|s| self.ctx.program.classes[class.0 as usize].static_members.get(&s).copied())
+                            .map(MemberRef::Function)
+                            .unwrap_or(member)
+                    } else { member };
                     return self.atribuir_membro(None, member, ast, op, value, span);
                 }
                 let Some((_, member)) = self.membro_do_usuario(target, *recv, name.sym, true)
                 else {
                     let n = self.ctx.symbol_name(name.sym).to_string();
                     if self.receptor_dinamico(*recv) {
+                        if self.ctx.sdk_da_fonte {
+                            // Em SDK da fonte, até um setter inexistente passa
+                            // pelo seletor: o runtime produz NoSuchMethodError.
+                            // O RHS é avaliado depois do receptor, como em Dart.
+                            let recv_op = self.lower_expr(ast, *recv);
+                            let cur = composto.then(|| self.chamar_por_nome(
+                                recv_op.clone(), super::sdk_fonte::Tipo::Ler, &n, &[],
+                            ));
+                            let v = self.combinar(ast, op, cur, value);
+                            self.chamar_por_nome(
+                                recv_op, super::sdk_fonte::Tipo::Gravar, &n,
+                                &[(None, v.clone())],
+                            );
+                            return v;
+                        }
                         // Receptor sem tipo útil: campo/setter pela classe
                         // dinâmica.
                         let alvos = self.alvos_de_escrita(&n);
@@ -224,6 +248,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 span,
                             );
                         }
+                        // Mundo fechado sem setter com esse nome. Ainda é uma
+                        // expressão válida: avaliar receptor e valor, então
+                        // lançar NoSuchMethodError em tempo de execução.
+                        self.lower_expr(ast, *recv);
+                        if composto {
+                            return self.lancar_nsm(&n);
+                        }
+                        self.lower_rhs(ast, value, Type::Ref);
+                        return self.lancar_nsm(&format!("{n}="));
                     }
                     return self.nao_suportado(&format!("atribuição a `{n}`"), span);
                 };
@@ -240,6 +273,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 let t_op = self.lower_expr(ast, *t);
                 let i_op = self.lower_expr(ast, *index);
+                if self.ctx.sdk_da_fonte {
+                    // SDK da fonte: `[]`/`[]=` pela classe dinâmica.
+                    use super::sdk_fonte::Tipo;
+                    let cur = composto.then(|| self.chamar_por_nome(t_op.clone(), Tipo::Chamar, "[]", &[(None, i_op.clone())]));
+                    let v = self.combinar(ast, op, cur, value);
+                    self.chamar_por_nome(t_op, Tipo::Chamar, "[]=", &[(None, i_op), (None, v.clone())]);
+                    return v;
+                }
                 if let Some(cid) = self.classe_do_usuario_de(*t) {
                     let (Some(set), get) = (
                         self.membro_na_classe(cid, "[]="),
@@ -375,7 +416,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 None
             };
             let v = self.combinar(ast, op, cur, value);
-            self.gravar_campo(obj, vid, v.clone(), span);
+            if !self.gravar_campo_fonte(obj.clone(), vid, v.clone()) {
+                self.gravar_campo(obj, vid, v.clone(), span);
+            }
             return v;
         }
         let MemberRef::Function(f) = member else {
@@ -386,17 +429,45 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if func.kind != FunctionKind::Setter || !super::funcao_do_usuario(self.ctx, fid) {
             return self.nao_suportado("atribuição a membro que não é campo nem setter", span);
         }
-        if composto {
-            return self.nao_suportado("atribuição composta via setter", span);
-        }
         let estatico = func.static_;
-        let v = self.lower_rhs(ast, value, Type::Ref);
+        let nome = self.ctx.symbol_name(func.name).to_string();
+        let cid = func.class;
+        let obj = if estatico { None } else { recv.or_else(|| self.this_param.clone()) };
+        let cur = if composto {
+            let getter = cid.and_then(|cid| {
+                if estatico {
+                    let sym = self.ctx.interner.lookup(&nome)?;
+                    self.ctx.program.classes[cid.0 as usize].static_members.get(&sym).copied()
+                } else {
+                    self.membro_na_classe(cid, &nome)
+                        .map(|fid| dartforge_elements::model::FunctionElementId(fid as u32))
+                }
+            });
+            let Some(getter) = getter else {
+                return self.nao_suportado("getter ausente para atribuição composta", span);
+            };
+            let membro_getter = MemberRef::Function(getter);
+            if estatico {
+                Some(self.ler_membro_estatico(membro_getter, span))
+            } else {
+                let Some(receptor) = obj.clone() else {
+                    return self.nao_suportado("setter fora de membro de instância", span);
+                };
+                let getter_fid = getter.0 as usize;
+                if let Some(vid) = self.ctx.program.functions[getter_fid].variable {
+                    Some(self.ler_campo_com_late(receptor, vid, span))
+                } else {
+                    Some(self.chamar_membro(receptor, getter_fid, &[], span))
+                }
+            }
+        } else { None };
+        let v = self.combinar(ast, op, cur, value);
         if estatico {
             let args = self.casar_args(fid, &[(None, v.clone())]);
             self.chamar_direto(fid, None, args);
             return v;
         }
-        let Some(obj) = recv.or_else(|| self.this_param.clone()) else {
+        let Some(obj) = obj else {
             return self.nao_suportado("setter fora de membro de instância", span);
         };
         self.chamar_membro(obj, fid, &[(None, v.clone())], span);

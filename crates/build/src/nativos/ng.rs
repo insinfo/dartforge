@@ -6,14 +6,26 @@
 //! biblioteca de fora do pacote. O motor faz o corte pela saída: só os
 //! `.template.dart`/`.css.shim.dart` com texto novo invalidam unidades.
 //!
-//! O estágio B (uma ação por componente, consultas finas) depende de
-//! `gerar_arquivo`, do índice incremental e das consultas feitas, pedidos ao
-//! agente do `gerador_ng`.
+//! Primeiro corte do estágio B: uma edição de HTML ou folha de estilo já
+//! conhecida regenera apenas os componentes que a leram. As demais edições seguem o estágio A;
+//! o pacote ainda é a unidade de revalidação do motor.
 use crate::consulta::Consulta;
 use crate::executor::{CtxGerador, GeradorNativo, PedidoNativo, SaidaNativa};
-use std::path::PathBuf;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
-pub struct NgEstagioA;
+#[derive(Default)]
+pub struct NgEstagioA {
+    cache: Mutex<Option<CacheNg>>,
+}
+
+struct CacheNg {
+    saida: SaidaNativa,
+    /// HTML/CSS/SCSS -> fontes Dart que leram o recurso.
+    fontes_do_recurso: BTreeMap<PathBuf, Vec<PathBuf>>,
+    indice: Option<dartforge_gerador_ng::Indice>,
+}
 
 /// Algo no texto que pode ser Angular (conservador: qualquer menção ao
 /// ngdart, às anotações ou a injetor).
@@ -72,6 +84,12 @@ impl GeradorNativo for NgEstagioA {
         });
         if !e_raiz {
             return Err("ngdart (estágio A): só o pacote da entrada".into());
+        }
+        // Num recurso existente, a lista de consultas conservadoras do pacote
+        // não ganha termos novos. O motor conserva as respostas anteriores e
+        // substitui apenas o digest deste arquivo.
+        if let Some(saida) = self.tentar_recurso(ctx, pedido) {
+            return Ok(saida);
         }
         let t = std::time::Instant::now();
         let mut v = Vec::new();
@@ -136,9 +154,19 @@ impl GeradorNativo for NgEstagioA {
             );
         }
         let mut s = SaidaNativa::default();
+        let mut fontes_do_recurso: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
         for (p, f) in g.iter() {
             if f.gerador == "ngdart" {
                 s.saidas.insert(p.clone(), f.conteudo.as_bytes().to_vec());
+                if p.to_string_lossy().ends_with(".template.dart") {
+                    if let Some(fonte) = f.entradas.first() {
+                        for recurso in f.entradas.iter().filter(|e| {
+                            e.extension().is_some_and(|x| matches!(x.to_str(), Some("html" | "css" | "scss" | "sass")))
+                        }) {
+                            fontes_do_recurso.entry(dartforge_elements::gerado::chave(recurso)).or_default().push(fonte.clone());
+                        }
+                    }
+                }
             }
         }
         for (i, p) in placar.pendentes.iter().enumerate() {
@@ -150,6 +178,101 @@ impl GeradorNativo for NgEstagioA {
                 .unwrap_or_else(|| "ngdart (estágio A) recusa".into());
             s.recusas.insert(p.clone(), m);
         }
+        s.unidades_geradas = placar.gerados;
+        *self.cache.lock().map_err(|_| "ngdart: cache envenenado")? = Some(CacheNg {
+            saida: clone_saida(&s),
+            fontes_do_recurso,
+            indice: None,
+        });
         Ok(s)
     }
+}
+
+fn clone_saida(s: &SaidaNativa) -> SaidaNativa {
+    SaidaNativa {
+        saidas: s.saidas.clone(),
+        recusas: s.recusas.clone(),
+        unidades_geradas: s.unidades_geradas,
+        reutilizar_consultas: s.reutilizar_consultas,
+    }
+}
+
+impl NgEstagioA {
+    fn tentar_recurso(&self, ctx: &mut CtxGerador<'_>, pedido: &PedidoNativo) -> Option<SaidaNativa> {
+        let recurso = ctx.mudados.iter().find(|p| {
+            p.starts_with(&pedido.raiz_do_pacote)
+                && p.extension().is_some_and(|e| matches!(e.to_str(), Some("html" | "css" | "scss" | "sass")))
+        })?;
+        // O motor inclui a forma lexical e a forma canônica do mesmo evento;
+        // no Windows elas podem ter raízes distintas (links/nomes curtos).
+        // Só permitimos o atalho quando *todos* os eventos são esse arquivo.
+        let canon_recurso = std::fs::canonicalize(recurso).ok()?;
+        if ctx.mudados.iter().any(|p| std::fs::canonicalize(p).ok().as_ref() != Some(&canon_recurso)) {
+            return None;
+        }
+        let mut cache = self.cache.lock().ok()?;
+        let cache = cache.as_mut()?;
+        let fontes = cache.fontes_do_recurso.get(recurso)?.clone();
+        let (programa, nomes_programa) = ctx.programa?;
+        let pacote = dartforge_gerador_ng::Pacote { nome: pedido.pacote.clone(), raiz: pedido.raiz_do_pacote.clone() };
+        let resolvedor = dartforge_gerador_ng::resolucao::Resolvedor::novo(programa, nomes_programa);
+        if cache.indice.is_none() {
+            cache.indice = Some(indice_do_pacote(&pacote, &resolvedor));
+        }
+        let indice = cache.indice.as_ref()?;
+        let mut novas = Vec::new();
+        let componentes = fontes.len();
+        for fonte in fontes {
+            let texto = std::fs::read_to_string(&fonte).ok()?;
+            let mut nomes = dartforge_intern::Interner::new();
+            let achados = dartforge_gerador_ng::analisar_arquivo(&fonte, &texto, &mut nomes);
+            let saida = dartforge_gerador_ng::gerar_arquivo(
+                &pacote, &fonte, &achados, Some(&resolvedor), &mut nomes, indice,
+            ).ok()?;
+            let destino = dartforge_gerador_ng::caminho_do_template(&fonte);
+            if !cache.saida.saidas.contains_key(&destino) {
+                return None;
+            }
+            novas.push((destino, saida.template.into_bytes()));
+            for (destino, texto) in saida.extras {
+                if !cache.saida.saidas.contains_key(&destino) {
+                    return None;
+                }
+                novas.push((destino, texto.into_bytes()));
+            }
+        }
+        for (destino, bytes) in novas {
+            cache.saida.saidas.insert(destino, bytes);
+        }
+        if std::env::var_os("DARTFORGE_MOTOR_TEMPOS").is_some() {
+            eprintln!("ngdart (estágio B): {} componente(s) para {}", cache.fontes_do_recurso[recurso].len(), recurso.display());
+        }
+        let mut saida = clone_saida(&cache.saida);
+        saida.unidades_geradas = componentes;
+        saida.reutilizar_consultas = true;
+        ctx.registrar(Consulta::Arquivo(recurso.clone()));
+        Some(saida)
+    }
+}
+
+fn indice_do_pacote(
+    pacote: &dartforge_gerador_ng::Pacote,
+    resolvedor: &dartforge_gerador_ng::resolucao::Resolvedor<'_>,
+) -> dartforge_gerador_ng::Indice {
+    let mut indice = dartforge_gerador_ng::Indice::do_programa(resolvedor);
+    let mut arquivos_dart = Vec::new();
+    for dir in ["lib", "web", "test"] {
+        arquivos(&pacote.raiz.join(dir), &mut arquivos_dart);
+    }
+    let mut nomes = dartforge_intern::Interner::new();
+    for fonte in arquivos_dart {
+        if fonte.extension().is_none_or(|e| e != "dart") || fonte.to_string_lossy().ends_with(".template.dart") {
+            continue;
+        }
+        if let Ok(texto) = std::fs::read_to_string(&fonte) {
+            let achados = dartforge_gerador_ng::analisar_arquivo(Path::new(&fonte), &texto, &mut nomes);
+            indice.atualizar(pacote, &fonte, &achados, Some(resolvedor));
+        }
+    }
+    indice
 }

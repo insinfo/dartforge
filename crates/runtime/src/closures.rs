@@ -173,3 +173,89 @@ pub unsafe extern "C" fn dartforge_arg_indice(desc: *const i64, hash: i64) -> i6
         .position(|h| *h == hash)
         .map_or(-1, |p| p as i64)
 }
+
+/// `Function._apply` da VM recebe `[função, posicionais…, nomeados…]` e os
+/// nomes em uma segunda lista, já produzidas pelo patch Dart de `Function.apply`.
+/// Recompõe a ABI uniforme das closures, inclusive o descritor de nomes.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Function_apply(arguments: i64, names: i64) -> i64 {
+    com_raizes(&[arguments, names], || {
+        let count = lista_len(arguments).max(0) as usize;
+        let named = lista_len(names).max(0) as usize;
+        if count == 0 || named >= count {
+            dartforge_nsm_chamada();
+            return 0;
+        }
+        let function = dartforge_nativo_DartForge_lista_get(arguments, 0);
+        let args: Vec<i64> = (1..count)
+            .map(|i| dartforge_nativo_DartForge_lista_get(arguments, i as i64))
+            .collect();
+        let mut desc = vec![(count - 1 - named) as i64, named as i64];
+        for i in 0..named {
+            let value = dartforge_nativo_DartForge_lista_get(names, i as i64);
+            let Some(name) = HEAP.with(|heap| match heap.borrow().try_get(value) {
+                Some(Value::String(text)) => Some(text.para_string()),
+                _ => None,
+            }) else {
+                dartforge_nsm_chamada();
+                return 0;
+            };
+            // Mesmo FNV-1a 64 do descritor emitido em `lower/closures.rs`.
+            let hash = name.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+                (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+            });
+            desc.push(hash as i64);
+        }
+        let code = dartforge_closure_entry(function);
+        if code == 0 { return 0; }
+        // SAFETY: `dartforge_closure_entry` devolve o endereço de uma entrada
+        // uniforme gerada com assinatura (closure, argumentos, descritor).
+        let entry: extern "C" fn(i64, *const i64, *const i64) -> i64 = unsafe { std::mem::transmute(code as usize) };
+        entry(function, args.as_ptr(), desc.as_ptr())
+    })
+}
+
+#[cfg(test)]
+mod function_apply_tests {
+    use super::*;
+
+    extern "C" fn entry(_closure: i64, args: *const i64, desc: *const i64) -> i64 {
+        // O patch Dart fornece 1 posicional e dois nomeados na ordem c,b.
+        dartforge_gc_collect();
+        let matches = unsafe {
+            *desc == 1 && *desc.add(1) == 2
+                && *desc.add(2) == hash("c") && *desc.add(3) == hash("b")
+                && *args.add(1) == 0 && *args.add(2) == 0
+        };
+        let value_alive = HEAP.with(|heap| matches!(heap.borrow().try_get(unsafe { *args }), Some(Value::String(t)) if t.para_string() == "valor"));
+        i64::from(matches && value_alive)
+    }
+
+    fn hash(name: &str) -> i64 {
+        name.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+            (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+        }) as i64
+    }
+
+    #[test]
+    fn function_apply_encaminha_descritor_nomeado_a_entrada_uniforme() {
+        let function = dartforge_tearoff(entry as usize as i64);
+        com_raizes(&[function], || {
+            let (arguments, names) = HEAP.with(|heap| {
+                let mut heap = heap.borrow_mut();
+                let c = heap.allocate(Value::String(Texto::de_str("c")));
+                let b = heap.allocate(Value::String(Texto::de_str("b")));
+                let value = heap.allocate(Value::String(Texto::de_str("valor")));
+                let arguments = heap.allocate(Value::List(vec![
+                    TaggedValue::reference(function),
+                    TaggedValue::reference(value),
+                    TaggedValue::reference(0),
+                    TaggedValue::reference(0),
+                ]));
+                let names = heap.allocate(Value::List(vec![TaggedValue::reference(c), TaggedValue::reference(b)]));
+                (arguments, names)
+            });
+            assert_eq!(dartforge_nativo_Function_apply(arguments, names), 1);
+        });
+    }
+}

@@ -633,6 +633,44 @@ fn tipo_do_ref(u: &mut Universo, r: i64) -> i64 {
     tipo_do_valor(u, TaggedValue::reference(r))
 }
 
+/// Os natives `_List` e `_GrowableList` recebem a tupla dos argumentos de
+/// tipo do construtor como último parâmetro. Converte `L<E>` no tipo do
+/// objeto concreto (`_List<E>` ou `_GrowableList<E>`) que será guardado no
+/// metadado do slot do heap. A classe concreta preserva `P0` nos métodos do
+/// SDK declarados nessas classes, como `_GrowableList.toList`.
+pub(crate) fn tipo_lista_da_tupla(tupla: i64, classe_concreta: Option<i64>) -> Option<i64> {
+    RTI.with(|u| {
+        let mut u = u.borrow_mut();
+        let classe = classe_concreta.unwrap_or(u.rt.list);
+        if classe == 0 {
+            return None;
+        }
+        let args = match u.tipo(tupla) {
+            Tipo::Tupla(args) => args.clone(),
+            _ => vec![T_DINAMICO],
+        };
+        Some(u.internar(Tipo::Interface(classe, args)))
+    })
+}
+
+/// `_List._sliceInternal` cria outra classe concreta de lista, mas conserva
+/// o argumento `E` do receptor. O native não recebe tupla de tipo separada.
+pub(crate) fn tipo_lista_copiada(origem: i64, classe_concreta: Option<i64>) -> Option<i64> {
+    RTI.with(|u| {
+        let mut u = u.borrow_mut();
+        let classe = classe_concreta.unwrap_or(u.rt.list);
+        if classe == 0 {
+            return None;
+        }
+        let origem = tipo_do_ref(&mut u, origem);
+        let args = match u.tipo(origem) {
+            Tipo::Interface(_, args) => args.clone(),
+            _ => vec![T_DINAMICO],
+        };
+        Some(u.internar(Tipo::Interface(classe, args)))
+    })
+}
+
 // --- ABI do código gerado ------------------------------------------------
 
 /// Registra uma classe do universo: id RTI, nome (`String` do heap) e
@@ -745,7 +783,67 @@ pub extern "C" fn dartforge_rti_definir(obj: i64, tipo: i64) {
     if !smi::e_handle(obj) {
         return;
     }
+    // O lowering dos literais reifica `List<E>`, `Map<K,V>` ou `Set<E>`, mas
+    // os objetos pertencem às classes concretas do SDK. Os métodos dessas
+    // classes (e de seus mixins) avaliam `P<i>` a partir do receptor.
+    let classe_concreta = HEAP.with(|h| match h.borrow().get(obj) {
+        Value::Object { class_id, .. } => Some(*class_id),
+        _ => cid_do_runtime(obj),
+    });
+    let tipo = if let Some(classe) = classe_concreta {
+        RTI.with(|u| {
+            let mut u = u.borrow_mut();
+            match u.tipo(tipo).clone() {
+                Tipo::Interface(c, args) if c != classe && [u.rt.list, u.rt.map, u.rt.set].contains(&c)
+                    && u.como_supertipo(classe, &args, c).as_deref() == Some(args.as_slice()) =>
+                {
+                    u.internar(Tipo::Interface(classe, args))
+                }
+                _ => tipo,
+            }
+        })
+    } else {
+        tipo
+    };
     HEAP.with(|h| h.borrow_mut().set_metadado(obj, tipo + 1));
+}
+
+/// Grava o tipo estrutural de um record com campos nomeados. Os campos do
+/// objeto já foram preenchidos em ordem canônica (posicionais, depois nomes
+/// ordenados); os tipos vêm dos valores reais, como exige `Record.runtimeType`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_rti_registro_nomeado(obj: i64, npos: i64, nomes: i64) {
+    let npos = usize::try_from(npos).expect("número de campos posicionais inválido");
+    let nomes = HEAP.with(|h| h.borrow().texto(nomes).para_string());
+    let campos = HEAP.with(|h| {
+        let h = h.borrow();
+        let Value::Object { fields, .. } = h.get(obj) else { panic!("record nomeado esperado") };
+        fields.clone()
+    });
+    let nomes: Vec<&str> = nomes.split(',').collect();
+    assert_eq!(campos.len(), npos + nomes.len(), "forma do record nomeado");
+    let tipo = RTI.with(|u| {
+        let mut u = u.borrow_mut();
+        let mut campos: Vec<i64> = campos.into_iter().map(|(bits, is_ref)| {
+            assert!(is_ref, "campo de record sem referência");
+            tipo_do_valor(&mut u, TaggedValue::reference(bits))
+        }).collect();
+        let nomeados = nomes.into_iter().zip(campos.drain(npos..)).map(|(n, t)| (n.to_string(), t)).collect();
+        u.internar(Tipo::Registro { pos: campos, nomeados })
+    });
+    dartforge_rti_definir(obj, tipo);
+}
+
+/// Texto com argumentos de tipo para o `toString` padrão de um valor
+/// (`Instance of 'Caixa<int>'`, como a VM), ou `None` quando o tipo do valor
+/// não tem argumentos — aí o chamador usa o nome registrado da classe.
+pub(crate) fn texto_com_argumentos(v: i64) -> Option<String> {
+    RTI.with(|u| {
+        let mut u = u.borrow_mut();
+        let t = tipo_do_ref(&mut u, v);
+        let tem_args = matches!(u.tipo(t), Tipo::Interface(_, args) if !args.is_empty());
+        tem_args.then(|| u.texto(t))
+    })
 }
 
 /// O tipo de um valor `Ref`.
@@ -825,7 +923,14 @@ pub extern "C" fn dartforge_rti_texto(t: i64) -> i64 {
     HEAP.with(|h| h.borrow_mut().allocate(Value::String(Texto::de_str(&s))))
 }
 
-/// `TypeError` com a mensagem (o layout do runtime: mensagem e rastro).
+/// `TypeError` com a mensagem. No SDK da fonte, a exceção precisa ser a classe
+/// `_TypeError` real para `e is TypeError` e o despacho de `toString`.
 fn dartforge_type_error_com_mensagem(mensagem: i64) -> i64 {
+    if let Some(f) = ajudante("_dartforgeErroDeTipo") {
+        // SAFETY: o helper registrado pelo `dart:core` recebe String e
+        // devolve a instância concreta de `_TypeError`.
+        let g: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(f) };
+        return com_raizes(&[mensagem], || g(mensagem));
+    }
     alocar_erro_com_rastro(1011, vec![(mensagem, true)])
 }

@@ -47,6 +47,7 @@ fn emitir(
                 timings: false,
                 optimize: false,
                 versao_linguagem: None,
+                experimentos: Vec::new(),
             };
             dartforge_emit_native::emitir_ir(&entrada, &opcoes)
         })
@@ -123,41 +124,60 @@ pub fn run(args: &[std::ffi::OsString]) -> Resultado {
     Ok(())
 }
 
-/// Carimbo dos fontes Dart sob `raiz`: soma dos instantes de modificação e dos
-/// tamanhos, e a contagem. Muda quando um arquivo muda, entra ou sai.
+/// Carimbo dos fontes Dart sob `raiz` e da configuração de pacotes usada pelo
+/// carregador: nomes, instantes de modificação e tamanhos em ordem estável.
+/// Muda quando um arquivo muda, entra, sai ou é renomeado, mesmo que a soma
+/// de tamanhos e datas continue igual.
 ///
 /// É deliberadamente simples: o R0 recompila o programa inteiro a cada
 /// mudança, então saber **qual** arquivo mudou não serve para nada ainda. A
 /// raiz é o diretório da entrada; `.dart_tool`, `build` e diretórios ocultos
-/// ficam de fora.
+/// ficam fora da varredura de fontes. `package_config.json` é observado à parte.
 #[cfg(feature = "jit")]
-fn carimbo(raiz: &Path) -> (u128, u64, usize) {
-    fn andar(dir: &Path, acc: &mut (u128, u64, usize)) {
+fn carimbo(raiz: &Path, packages: Option<&Path>) -> (u64, usize) {
+    use std::hash::{Hash, Hasher};
+
+    fn andar(dir: &Path, fontes: &mut Vec<(PathBuf, u128, u64)>) {
         let Ok(entradas) = std::fs::read_dir(dir) else { return };
         for e in entradas.flatten() {
             let caminho = e.path();
             let nome = e.file_name();
             let nome = nome.to_string_lossy();
-            let Ok(meta) = e.metadata() else { continue };
-            if meta.is_dir() {
+            let Ok(tipo) = e.file_type() else { continue };
+            if tipo.is_dir() {
                 if !nome.starts_with('.') && nome != "build" {
-                    andar(&caminho, acc);
+                    andar(&caminho, fontes);
                 }
             } else if nome.ends_with(".dart") {
+                let Ok(meta) = e.metadata() else { continue };
+                if !meta.is_file() { continue }
                 let t = meta
                     .modified()
                     .ok()
                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                     .map_or(0, |d| d.as_nanos());
-                acc.0 = acc.0.wrapping_add(t);
-                acc.1 = acc.1.wrapping_add(meta.len());
-                acc.2 += 1;
+                fontes.push((caminho, t, meta.len()));
             }
         }
     }
-    let mut acc = (0, 0, 0);
-    andar(raiz, &mut acc);
-    acc
+    let mut fontes = Vec::new();
+    andar(raiz, &mut fontes);
+    fontes.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    let mut hash = std::collections::hash_map::DefaultHasher::new();
+    fontes.hash(&mut hash);
+    let config = packages.map(Path::to_path_buf)
+        .or_else(|| dartforge_elements::config::PackageConfig::discover(raiz));
+    config.hash(&mut hash);
+    if let Some(config) = config {
+        let estado = std::fs::metadata(&config).ok().map(|meta| {
+            let modificado = meta.modified().ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_nanos());
+            (modificado, meta.len())
+        });
+        estado.hash(&mut hash);
+    }
+    (hash.finish(), fontes.len())
 }
 
 /// Diretório das gerações de IR do `reload`, apagado em qualquer saída que
@@ -189,17 +209,19 @@ impl Drop for DiretorioGeracoes {
 /// reinício também vale para programas que ainda estão executando, e um
 /// `exit`/`abort` do runtime encerra só aquela geração, não o observador.
 ///
-/// Recarga com estado preservado é o R1 do plano do JIT
-/// (`docs/PESQUISA-HOT-RELOAD.md`), e não existe ainda.
+/// `--preservar-estado` usa uma `JitSession` no processo observador: o heap e os
+/// estáticos continuam vivos enquanto observa edições do mesmo arquivo. O
+/// `main` roda a cada geração neste primeiro passo da integração R1.
 #[cfg(feature = "jit")]
 pub fn reload(args: &[std::ffi::OsString]) -> Resultado {
-    let usage = "usage: dartforge reload <input.dart> [--sdk <lib>] [--packages <package_config.json>] [--intervalo <ms>] [--uma-vez] [--timings]";
+    let usage = "usage: dartforge reload <input.dart> [--sdk <lib>] [--packages <package_config.json>] [--intervalo <ms>] [--uma-vez] [--timings] [--preservar-estado]";
     let mut entrada: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
     let mut intervalo_ms = 300u64;
     let mut uma_vez = false;
     let mut timings = false;
+    let mut preservar_estado = false;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.to_str() {
@@ -215,11 +237,15 @@ pub fn reload(args: &[std::ffi::OsString]) -> Resultado {
             }
             Some("--uma-vez") => uma_vez = true,
             Some("--timings") => timings = true,
+            Some("--preservar-estado") => preservar_estado = true,
             _ if entrada.is_none() => entrada = Some(PathBuf::from(a)),
             _ => return Err(usage.into()),
         }
     }
     let entrada = entrada.ok_or(usage)?;
+    if preservar_estado {
+        return reload_com_estado(&entrada, sdk.as_deref(), packages.as_deref(), intervalo_ms, uma_vez, timings);
+    }
     let raiz = entrada
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -233,7 +259,7 @@ pub fn reload(args: &[std::ffi::OsString]) -> Resultado {
     let mut fim_informado = false;
     let mut ultimo = None;
     loop {
-        let agora = carimbo(&raiz);
+        let agora = carimbo(&raiz, packages.as_deref());
         if ultimo != Some(agora) {
             ultimo = Some(agora);
             let inicio = std::time::Instant::now();
@@ -300,6 +326,90 @@ pub fn reload(args: &[std::ffi::OsString]) -> Resultado {
             }
         } else if uma_vez && geracao == 0 {
             return Err("a primeira compilação falhou".into());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(intervalo_ms));
+    }
+}
+
+/// Publica uma versão e só então executa a entrada na mesma thread. Se a
+/// compilação ou a publicação falhar, a versão anterior permanece instalada.
+#[cfg(feature = "jit")]
+fn publicar_com_estado(
+    sessao: &mut Option<dartforge_jit::JitSession>,
+    entrada: &Path,
+    sdk: Option<&Path>,
+    packages: Option<&Path>,
+    timings: bool,
+) -> Resultado {
+    let inicio = std::time::Instant::now();
+    let ir = emitir(entrada, sdk, packages)?;
+    let emissao = inicio.elapsed();
+    if sessao.is_none() {
+        *sessao = Some(dartforge_jit::JitSession::new_for_ir(&ir.texto)?);
+    }
+    if sessao.as_ref().is_some_and(|atual| atual.usa_sdk_da_fonte() != dartforge_jit::ir_usa_sdk_da_fonte(&ir.texto)) {
+        return Err("a edição mudou o perfil de runtime da sessão; reinicie dartforge reload".into());
+    }
+    let primeira = sessao.as_ref().is_some_and(|atual| atual.retained_generations() == 0);
+    let publicada = if primeira {
+        sessao.as_mut().expect("sessão criada acima").add_reloadable_module("app", &ir.texto)
+    } else {
+        sessao.as_mut().expect("sessão criada acima").hot_reload("app", &ir.texto)
+    };
+    let relatorio = match publicada {
+        Ok(relatorio) => relatorio,
+        Err(erro) => {
+            // Antes da primeira publicação não há programa vivo a preservar.
+            // Descartar a sessão também descarta trampolins órfãos de falha de
+            // ligação e permite tentar de novo na próxima edição.
+            if primeira { *sessao = None; }
+            return Err(erro.into());
+        }
+    };
+    let sessao = sessao.as_ref().expect("geração publicada");
+    eprintln!("[reload] geração {}: estado preservado na mesma sessão", relatorio.generation);
+    if timings {
+        eprintln!(
+            "[reload] geração {}: emissão {:.1} ms; recarga {:.1} ms; gerações retidas {}",
+            relatorio.generation,
+            emissao.as_secs_f64() * 1000.0,
+            relatorio.total.as_secs_f64() * 1000.0,
+            relatorio.retained_generations
+        );
+    }
+    let execucao = if sessao.usa_sdk_da_fonte() {
+        sessao.run_reloadable_main()?
+    } else {
+        sessao.run_reloadable_entry()?
+    };
+    if execucao.exit_code != 0 {
+        return Err(format!("geração {} terminou com código {}", relatorio.generation, execucao.exit_code).into());
+    }
+    Ok(())
+}
+
+#[cfg(feature = "jit")]
+fn reload_com_estado(
+    entrada: &Path,
+    sdk: Option<&Path>,
+    packages: Option<&Path>,
+    intervalo_ms: u64,
+    uma_vez: bool,
+    timings: bool,
+) -> Resultado {
+    let mut sessao = None;
+    let raiz = entrada.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let mut ultimo = None;
+    loop {
+        let agora = carimbo(raiz, packages);
+        if ultimo != Some(agora) {
+            ultimo = Some(agora);
+            match publicar_com_estado(&mut sessao, entrada, sdk, packages, timings) {
+                Ok(()) if uma_vez => return Ok(()),
+                Ok(()) => {}
+                Err(erro) if uma_vez => return Err(erro),
+                Err(erro) => eprintln!("[reload] compilação, publicação ou execução falhou: {erro}"),
+            }
         }
         std::thread::sleep(std::time::Duration::from_millis(intervalo_ms));
     }

@@ -15,6 +15,10 @@ pub enum Consulta {
     Existe(PathBuf),
     /// Lista ordenada do que casa `padrao` sob `dir`.
     Glob { dir: PathBuf, padrao: String },
+    /// `BuildStep.findAssets`: candidatos do grafo no pacote da entrada.
+    /// `bool` indica saída gerada, cuja presença vem da memória, não de um
+    /// arquivo de apoio antigo no disco.
+    GlobAtivos { dir: PathBuf, padrao: String, candidatos: Vec<(String, bool)> },
     /// API pública de uma biblioteca (mais as anotações).
     ApiBiblioteca(String),
     /// Superfície de uma declaração: assinatura, anotações, membros públicos.
@@ -30,7 +34,7 @@ impl Consulta {
     pub fn caminho(&self) -> Option<&Path> {
         match self {
             Consulta::Arquivo(p) | Consulta::Existe(p) => Some(p),
-            Consulta::Glob { dir, .. } => Some(dir),
+            Consulta::Glob { dir, .. } | Consulta::GlobAtivos { dir, .. } => Some(dir),
             _ => None,
         }
     }

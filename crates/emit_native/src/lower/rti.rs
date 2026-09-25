@@ -217,7 +217,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// Os nomes dos parâmetros de tipo da classe envolvente (na ordem).
-    fn params_da_classe(&self) -> Vec<SymbolId> {
+    pub(super) fn params_da_classe(&self) -> Vec<SymbolId> {
         let Some(c) = self.enclosing_class else { return Vec::new() };
         self.ctx
             .outline
@@ -234,6 +234,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut r = Receita { texto: String::new(), variaveis: false };
         self.escrever_anotacao(a, &mut Vec::new(), &mut r)?;
         Some(r)
+    }
+
+    /// Argumentos reificados de um tipo anotado, para a ABI de uma factory
+    /// redirecionadora. A receita usa o ambiente da factory de origem:
+    /// `Impl<T>` precisa ler `T` da tupla recebida por ela.
+    pub fn tupla_da_anotacao(&mut self, a: &ast::TypeAnnotation) -> Option<Operand> {
+        let TypeKind::Named { args, .. } = &a.kind else { return None };
+        if args.is_empty() { return None; }
+        let args = args.clone();
+        let mut r = Receita { texto: "L<".to_string(), variaveis: false };
+        for (i, arg) in args.iter().enumerate() {
+            if i > 0 { r.texto.push(','); }
+            let unit_ast = &self.ctx.program.unit(self.unit_id).ast;
+            let sub = self.receita_da_anotacao(unit_ast.ty(*arg))?;
+            r.texto.push_str(&sub.texto);
+            r.variaveis |= sub.variaveis;
+        }
+        r.texto.push('>');
+        Some(self.rti_da_receita(&r))
     }
 
     fn escrever_anotacao(&self, a: &ast::TypeAnnotation, ligadas: &mut Vec<SymbolId>, r: &mut Receita) -> Option<()> {
@@ -496,8 +515,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// O tipo da receita, como `I64`, no ambiente corrente.
     pub fn rti_da_receita(&mut self, r: &Receita) -> Operand {
         let h = hash_receita(&r.texto);
-        let getter = format!("df.rti.{h}");
-        let global = format!("dfr.{h}");
+        // A mesma receita pode surgir no programa e em várias bibliotecas do
+        // SDK. Cada biblioteca possui seu próprio cache preguiçoso; nomes
+        // distintos evitam definições múltiplas na ligação ThinLTO.
+        let lib = self.ctx.program.unit(self.unit_id).library;
+        let dono = crate::context::escapar(&self.ctx.nome_da_biblioteca(lib));
+        let getter = format!("df.rti.{h}.{dono}");
+        let global = format!("dfr.{h}.{dono}");
         if !self.entradas_feitas.contains(&getter) {
             self.entradas_feitas.insert(getter.clone());
             let mut g = FnBuilder::new(self.ctx, self.unit_id, getter.clone(), "rti".to_string(), Type::I64);
@@ -882,6 +906,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 /// regras de supertipo (o fecho: os supertipos das citadas também), as
 /// formas do runtime. Vazio quando o programa não usa receita nenhuma.
 pub fn registrar_universo(ctx: &Context, module: &mut Module) {
+    // O universo é global ao executável; os objetos do SDK só fornecem as
+    // receitas que usam. A entrada do programa registra o universo completo.
+    if module.biblioteca_sdk {
+        return;
+    }
     let mut receitas: Vec<String> = Vec::new();
     let mut usa_rti = false;
     for f in &module.functions {
@@ -896,10 +925,11 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
             }
         }
     }
-    if receitas.is_empty() && !usa_rti {
+    if receitas.is_empty() && !usa_rti && !module.modo_sdk {
         return;
     }
-    // O objeto `Type` (`dartforge_rti_objeto_tipo`): a classe e o `toString`.
+    // O objeto `Type` (`dartforge_rti_objeto_tipo`): a classe e os seletores
+    // usados pelo SDK da fonte. Cada tipo tem um único objeto canônico.
     {
         let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied()) else {
             return;
@@ -925,6 +955,43 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
         );
         t.terminate(Terminator::Return(Some(s)));
         t.finalizar(module);
+        let mut igualdade = FnBuilder::new(ctx, u, "df.$tipo.$3d$3d$c".to_string(), "==".to_string(), Type::Ref);
+        let recv = Operand::Val(igualdade.add_param("this".to_string(), Type::Ref));
+        let args = Operand::Val(igualdade.add_param("args".to_string(), Type::Ptr));
+        igualdade.add_param("desc".to_string(), Type::Ptr);
+        let outro = igualdade.emit(
+            Instruction::LoadIndexed { base: args, index: Operand::Constant(Constant::Int(0)) },
+            Type::Ref,
+        );
+        let igual = igualdade.emit(Instruction::ICmp(ICmpOp::Eq, recv, outro), Type::I1);
+        let igual = igualdade.coagir(igual, Type::Ref);
+        igualdade.terminate(Terminator::Return(Some(igual)));
+        igualdade.finalizar(module);
+        let mut texto = FnBuilder::new(ctx, u, "df.$tipo.toString$c".to_string(), "toString".to_string(), Type::Ref);
+        let recv = Operand::Val(texto.add_param("this".to_string(), Type::Ref));
+        texto.add_param("args".to_string(), Type::Ptr);
+        texto.add_param("desc".to_string(), Type::Ptr);
+        let valor = texto.emit_call_with_check(
+            Instruction::CallStatic { symbol: simbolo.clone(), args: vec![recv], ret_ty: Type::Ref },
+            Type::Ref,
+        );
+        texto.terminate(Terminator::Return(Some(valor)));
+        texto.finalizar(module);
+        let mut metodos = vec![
+            ("c:==".to_string(), "df.$tipo.$3d$3d$c".to_string()),
+            ("c:toString".to_string(), "df.$tipo.toString$c".to_string()),
+        ];
+        // `_Type` é criado pelo runtime, fora da hierarquia de elementos do
+        // programa. Ele ainda herda os membros de `Object`, incluindo o
+        // getter privado usado por `identityHashCode(Object)` no hashSeed.
+        if ctx.sdk_da_fonte && let Some(objeto) = ctx.core.object_class {
+            for (seletor, simbolo) in super::sdk_fonte::tabela_de_metodos(ctx, objeto) {
+                if !metodos.iter().any(|(existente, _)| *existente == seletor) {
+                    metodos.push((seletor, simbolo));
+                }
+            }
+        }
+        module.tabelas_de_metodos.push((CLASSE_TIPO as u32, "df.mt.$tipo".to_string(), metodos));
         module.classes.push(ClassDef {
             id: CLASSE_TIPO as u32,
             name: "_Type".to_string(),
@@ -932,6 +999,12 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
             vtable: Vec::new(),
             to_string_symbol: Some(simbolo),
         });
+        // O objeto `Type` criado no runtime não tem um ClassElement do
+        // programa. A RTI conhece seu tipo, mas os testes nominais da fonte
+        // usam a tabela separada de `dartforge_is_subclass`.
+        if let Some(tipo) = classe_do_core(ctx, "Type").and_then(|c| ctx.id_de_classe(c)) {
+            module.subtyping_edges.push((CLASSE_TIPO as u32, tipo));
+        }
     }
     let mut citadas: BTreeSet<i64> = BTreeSet::new();
     for r in &receitas {

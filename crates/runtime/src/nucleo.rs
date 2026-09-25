@@ -10,17 +10,41 @@
 // Só no executável AOT. Quando este arquivo é compilado como módulo do crate
 // `dartforge-runtime` (cfg `dartforge_runtime_embutido`, posta pelo build.rs),
 // quem chama a entrada é o JIT, e um `main` C colidiria com o do binário Rust.
-#[cfg(not(dartforge_runtime_embutido))]
+#[cfg(not(any(dartforge_runtime_embutido, dartforge_runtime_dll)))]
 unsafe extern "C" {
     fn dartforge_entry();
 }
 
 /// Invoca uma vez o programa ligado ao runtime Rust.
-#[cfg(not(dartforge_runtime_embutido))]
+#[cfg(not(any(dartforge_runtime_embutido, dartforge_runtime_dll)))]
 #[unsafe(no_mangle)]
 pub extern "C" fn main() -> i32 {
     // SAFETY: o objeto foi emitido para esta ABI e ligado pelo mesmo driver nativo.
     unsafe { dartforge_entry() };
+    let codigo = finalizar_programa();
+    if codigo != 0 {
+        std::process::exit(codigo);
+    }
+    0
+}
+
+/// A entrada do programa com o SDK da fonte (P5c): o runtime e o SDK moram
+/// numa DLL (cfg `dartforge_runtime_dll`, sem o `main` C), e o `main` do
+/// executável — que o emissor escreve — chama esta função com a
+/// `dartforge_entry` dele.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_iniciar(entrada: extern "C" fn(), para_texto: extern "C" fn(i64) -> i64) -> i32 {
+    PARA_TEXTO.with(|p| p.set(Some(para_texto)));
+    if depurar() {
+        // Depuração: o pânico do runtime mostra a pilha de funções Dart
+        // (`DARTFORGE_RASTRO=1` na compilação).
+        let padrao = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |i| {
+            mostrar_rastro();
+            padrao(i);
+        }));
+    }
+    entrada();
     let codigo = finalizar_programa();
     if codigo != 0 {
         std::process::exit(codigo);
@@ -47,7 +71,17 @@ pub fn finalizar_programa() -> i32 {
             let detail = match tag {
                 1 => format!("{bits}"),
                 2 => format!("{}", bits != 0),
-                _ => describe_handle(&heap, bits),
+                _ => match PARA_TEXTO.with(|p| p.get()) {
+                    // SDK da fonte: o `toString()` Dart do objeto lançado.
+                    Some(f) => {
+                        drop(heap);
+                        EXCEPTION.with(|slot| slot.borrow_mut().take());
+                        let t = f(bits);
+                        let s = HEAP.with(|h| h.borrow().try_get(t).map(|_| h.borrow().texto(t).para_string()));
+                        s.unwrap_or_else(|| "?".to_string())
+                    }
+                    None => describe_handle(&heap, bits),
+                },
             };
             use std::io::Write;
             let _ = writeln!(
@@ -74,6 +108,10 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 thread_local! {
+    /// SDK da fonte: o `toString()` Dart de um valor (a
+    /// `dartforge_dispatch_toString` do programa), para a exceção não
+    /// capturada.
+    static PARA_TEXTO: std::cell::Cell<Option<extern "C" fn(i64) -> i64>> = const { std::cell::Cell::new(None) };
     static HEAP: RefCell<Heap> = RefCell::new(Heap::new(std::env::var_os("DARTFORGE_GC_STRESS").is_some()));
     static CLASS_NAMES: RefCell<HashMap<i64, String>> = RefCell::new(HashMap::new());
     static SUBCLASSES: RefCell<HashMap<i64, Vec<i64>>> = RefCell::new(HashMap::new());
@@ -103,6 +141,14 @@ pub extern "C" fn dartforge_register_subclass(sub_id: i64, super_id: i64) {
 /// Consulta pertinência de subtipagem nominal em tempo de execução.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_is_subclass(class_id: i64, target_class: i64) -> u8 {
+    let r = is_subclass(class_id, target_class);
+    if depurar() {
+        eprintln!("[depurar] is_subclass({class_id}, {target_class}) = {r}");
+    }
+    r
+}
+
+fn is_subclass(class_id: i64, target_class: i64) -> u8 {
     if class_id == target_class {
         return 1;
     }
@@ -185,6 +231,40 @@ pub extern "C" fn dartforge_object_get(handle: i64, index: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_object_set(handle: i64, index: i64, bits: i64, is_ref: u8) {
     HEAP.with(|heap| heap.borrow_mut().set(handle, index, bits, is_ref != 0));
+}
+
+/// Estado de um campo `late` sem inicializador. O bit é independente dos
+/// bits do campo: `0`, `false` e `null` podem ser valores já atribuídos.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_late_field_initialized(handle: i64, index: i64) -> u8 {
+    HEAP.with(|heap| u8::from(heap.borrow().campos_late_inicializados.contains(&(handle, index))))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_late_field_mark_initialized(handle: i64, index: i64) {
+    HEAP.with(|heap| {
+        heap.borrow_mut().campos_late_inicializados.insert((handle, index));
+    });
+}
+
+/// O índice `-(index+2)` da mesma tabela lateral representa uma avaliação
+/// em curso. `-1` fica reservado ao estado dos locais capturados em `Cell`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_late_field_initializing(handle: i64, index: i64) -> u8 {
+    HEAP.with(|heap| u8::from(heap.borrow().campos_late_inicializados.contains(&(handle, -index - 2))))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_late_field_set_initializing(handle: i64, index: i64, active: u8) {
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let key = (handle, -index - 2);
+        if active != 0 {
+            heap.campos_late_inicializados.insert(key);
+        } else {
+            heap.campos_late_inicializados.remove(&key);
+        }
+    });
 }
 /// Consulta identidade nominal para despacho virtual gerado pelo LLVM.
 #[unsafe(no_mangle)]
@@ -353,6 +433,11 @@ fn valor_como_ref(v: TaggedValue) -> i64 {
 /// são lançáveis pelo subconjunto e devolvem -1.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_value_class(handle: i64) -> i64 {
+    // Com o SDK da fonte (P5c), os valores do runtime têm a classe do SDK
+    // que representam (`_Smi`, `_OneByteString`, `_GrowableList`…).
+    if let Some(cid) = cid_do_runtime(handle) {
+        return cid;
+    }
     // null tem classe própria (`Null`): os testes de tipo sobre `Ref`
     // perguntam a classe sem precisar desviar antes (R, testar_tipo).
     if handle == 0 {
@@ -399,4 +484,3 @@ pub unsafe extern "C" fn dartforge_record_new(pairs: *const i64, len: i64) -> i6
         heap.allocate(Value::Record(items))
     })
 }
-

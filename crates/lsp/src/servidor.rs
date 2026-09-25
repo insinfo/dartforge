@@ -37,6 +37,23 @@ use std::collections::{HashMap, HashSet, VecDeque};
 const SINCRONIZACAO_INCREMENTAL: u32 = 2;
 /// `severity` LSP para todo diagnóstico sintático.
 const SEVERIDADE_ERRO: u32 = 1;
+
+/// `DiagnosticSeverity` do LSP para a severidade do analyzer (1 erro, 2 aviso, 3 informação).
+fn severidade(s: dartforge_diagnostics::Severidade) -> u32 {
+    match s {
+        dartforge_diagnostics::Severidade::Error => SEVERIDADE_ERRO,
+        dartforge_diagnostics::Severidade::Warning => 2,
+        dartforge_diagnostics::Severidade::Info => 3,
+    }
+}
+
+/// A mensagem como o servidor do Dart a mostra: o problema e, se houver, a correção.
+fn mensagem(d: &dartforge_diagnostics::Diagnostic) -> String {
+    match d.correcao() {
+        Some(c) => format!("{}\n{c}", d.message),
+        None => d.message.clone(),
+    }
+}
 /// Origem publicada em cada diagnóstico.
 const FONTE: &str = "dartforge";
 
@@ -73,6 +90,9 @@ pub struct Servidor<A = AnalisadorSintatico> {
     encerrar: bool,
     /// Código de saída correspondente.
     codigo: i32,
+    /// O cliente aceita a árvore `DocumentSymbol` (LSP 3.10+).
+    simbolos_hierarquicos: bool,
+    hover_markdown: bool,
 }
 
 impl Servidor<AnalisadorSintatico> {
@@ -100,6 +120,8 @@ impl<A: Analisador> Servidor<A> {
             desligando: false,
             encerrar: false,
             codigo: 1,
+            simbolos_hierarquicos: false,
+            hover_markdown: false,
         }
     }
 
@@ -209,6 +231,9 @@ impl<A: Analisador> Servidor<A> {
                 let uri = doc.get("uri")?.as_str()?;
                 let versao = doc.get("version")?.as_i64()? as i32;
                 let texto = doc.get("text")?.as_str()?;
+                if self.documentos.get(uri).is_some() {
+                    self.analisador.documento_fechado(uri);
+                }
                 self.documentos
                     .open(uri.to_string(), versao, texto.to_string());
                 Some(self.publicar(uri))
@@ -219,14 +244,16 @@ impl<A: Analisador> Servidor<A> {
                 let uri = doc.get("uri")?.as_str()?;
                 let versao = doc.get("version")?.as_i64()? as i32;
                 let mudancas = ler_mudancas(params.get("contentChanges")?);
-                self.documentos.apply(uri, versao, &mudancas);
-                self.documentos.get(uri)?;
-                Some(self.publicar(uri))
+                self.documentos
+                    .apply(uri, versao, &mudancas)
+                    .then(|| self.publicar(uri))
             }
             "textDocument/didClose" => {
                 let params = mensagem.get("params")?;
                 let uri = params.get("textDocument")?.get("uri")?.as_str()?;
-                self.documentos.close(uri);
+                if self.documentos.close(uri) {
+                    self.analisador.documento_fechado(uri);
+                }
                 Some(publicacao_vazia(uri))
             }
             _ => {
@@ -245,22 +272,143 @@ impl<A: Analisador> Servidor<A> {
         }
         let metodo = mensagem.get("method").and_then(Value::as_str).unwrap_or("");
         match metodo {
-            "initialize" => resposta(
-                &id,
-                json!({
+            "initialize" => {
+                self.simbolos_hierarquicos = mensagem
+                    .pointer("/params/capabilities/textDocument/documentSymbol/hierarchicalDocumentSymbolSupport")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                self.hover_markdown = mensagem
+                    .pointer("/params/capabilities/textDocument/hover/contentFormat")
+                    .and_then(Value::as_array)
+                    .is_some_and(|formatos| formatos.iter().any(|f| f.as_str() == Some("markdown")));
+                resposta(&id, json!({
                     "capabilities": {
                         "textDocumentSync": SINCRONIZACAO_INCREMENTAL,
                         "positionEncoding": "utf-16",
+                        "documentSymbolProvider": true,
+                        "workspaceSymbolProvider": true,
+                        "definitionProvider": true,
+                        "hoverProvider": true,
                     },
                     "serverInfo": {
                         "name": "dartforge-lsp",
                         "version": env!("CARGO_PKG_VERSION"),
                     },
-                }),
-            ),
+                }))
+            }
             "shutdown" => {
                 self.desligando = true;
                 resposta(&id, Value::Null)
+            }
+            "textDocument/documentSymbol" => {
+                let uri = mensagem.get("params")
+                    .and_then(|p| p.get("textDocument"))
+                    .and_then(|d| d.get("uri"))
+                    .and_then(Value::as_str);
+                let simbolos = uri
+                    .and_then(|u| self.documentos.get(u).map(|t| (u, t.to_string())))
+                    .map_or_else(Vec::new, |(u, t)| self.analisador.simbolos(u, &t));
+                let resultado = if self.simbolos_hierarquicos {
+                    simbolos
+                } else {
+                    let mut planos = Vec::new();
+                    for simbolo in &simbolos {
+                        achatar_simbolos(simbolo, uri.unwrap_or(""), None, &mut planos);
+                    }
+                    planos
+                };
+                resposta(&id, json!(resultado))
+            }
+            "workspace/symbol" => {
+                let consulta = mensagem.get("params")
+                    .and_then(|p| p.get("query"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_lowercase();
+                let mut uris: Vec<String> = self.documentos.uris().map(str::to_string).collect();
+                uris.sort_unstable();
+                let mut resultado = Vec::new();
+                for uri in uris {
+                    let Some(texto) = self.documentos.get(&uri).map(str::to_string) else {
+                        continue;
+                    };
+                    for simbolo in self.analisador.simbolos(&uri, &texto) {
+                        achatar_simbolos(&simbolo, &uri, None, &mut resultado);
+                    }
+                }
+                resultado.retain(|s| s["name"].as_str().is_some_and(|n| n.to_lowercase().contains(&consulta)));
+                resposta(&id, json!(resultado))
+            }
+            "textDocument/definition" => {
+                let params = mensagem.get("params");
+                let uri = params
+                    .and_then(|p| p.get("textDocument"))
+                    .and_then(|d| d.get("uri"))
+                    .and_then(Value::as_str);
+                let posicao = params.and_then(|p| p.get("position")).and_then(ler_posicao);
+                let resultado = uri.zip(posicao).and_then(|(u, p)| {
+                    let texto = self.documentos.get(u)?.to_string();
+                    let offset = self.documentos.linhas(u)?
+                        .offset_de_posicao(&texto, p.linha, p.coluna);
+                    let (destino, selecao) = self.analisador.definicao_no_workspace(u, &texto, offset, &self.documentos)?;
+                    let range = if let Some(s) = selecao {
+                        let (l0, c0, l1, c1) = if let Some(fonte) = self.documentos.get(&destino) {
+                            let tabela = self.documentos.linhas(&destino)?;
+                            let (l0, c0) = tabela.posicao_de_offset(fonte, s.start);
+                            let (l1, c1) = tabela.posicao_de_offset(fonte, s.end);
+                            (l0, c0, l1, c1)
+                        } else {
+                            let caminho = url::Url::parse(&destino).ok()?.to_file_path().ok()?;
+                            let fonte = std::fs::read_to_string(caminho).ok()?;
+                            let tabela = crate::utf16::TabelaLinhas::construir(&fonte);
+                            let (l0, c0) = tabela.posicao_de_offset(&fonte, s.start);
+                            let (l1, c1) = tabela.posicao_de_offset(&fonte, s.end);
+                            (l0, c0, l1, c1)
+                        };
+                        json!({"start": {"line": l0, "character": c0}, "end": {"line": l1, "character": c1}})
+                    } else {
+                        json!({"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}})
+                    };
+                    Some(json!({
+                        "uri": destino,
+                        "range": range,
+                    }))
+                });
+                resposta(&id, resultado.unwrap_or(Value::Null))
+            }
+            "textDocument/hover" => {
+                let params = mensagem.get("params");
+                let uri = params
+                    .and_then(|p| p.get("textDocument"))
+                    .and_then(|d| d.get("uri"))
+                    .and_then(Value::as_str);
+                let posicao = params.and_then(|p| p.get("position")).and_then(ler_posicao);
+                let resultado = uri.zip(posicao).and_then(|(u, p)| {
+                    let texto = self.documentos.get(u)?.to_string();
+                    let tabela = self.documentos.linhas(u)?;
+                    let offset = tabela.offset_de_posicao(&texto, p.linha, p.coluna);
+                    let (span, descricao, tipo) = self.analisador.hover_no_workspace(u, &texto, offset, &self.documentos)?;
+                    let (l0, c0) = tabela.posicao_de_offset(&texto, span.start);
+                    let (l1, c1) = tabela.posicao_de_offset(&texto, span.end);
+                    let conteudo = if self.hover_markdown {
+                        let mut valor = format!("```dart\n{descricao}\n```");
+                        if let Some(ref t) = tipo {
+                            valor.push_str(&format!("\nType: `{t}`"));
+                        }
+                        json!({"kind": "markdown", "value": valor})
+                    } else {
+                        let valor = tipo.map_or(descricao.clone(), |t| format!("{descricao}\nType: {t}"));
+                        json!(valor)
+                    };
+                    Some(json!({
+                        "contents": conteudo,
+                        "range": {
+                            "start": {"line": l0, "character": c0},
+                            "end": {"line": l1, "character": c1},
+                        },
+                    }))
+                });
+                resposta(&id, resultado.unwrap_or(Value::Null))
             }
             METODO_DORMIR => {
                 let ms = mensagem
@@ -354,6 +502,26 @@ fn publicacao_vazia(uri: &str) -> Value {
     })
 }
 
+/// O LSP exige `SymbolInformation[]` para clientes que não anunciaram suporte
+/// a `DocumentSymbol[]` hierárquico. A localização plana é a seleção do nome.
+fn achatar_simbolos(simbolo: &Value, uri: &str, pai: Option<&str>, saida: &mut Vec<Value>) {
+    let nome = simbolo.get("name").and_then(Value::as_str).unwrap_or("");
+    let mut plano = json!({
+        "name": nome,
+        "kind": simbolo["kind"],
+        "location": {"uri": uri, "range": simbolo["selectionRange"]},
+    });
+    if let Some(pai) = pai {
+        plano["containerName"] = json!(pai);
+    }
+    saida.push(plano);
+    if let Some(filhos) = simbolo.get("children").and_then(Value::as_array) {
+        for filho in filhos {
+            achatar_simbolos(filho, uri, Some(nome), saida);
+        }
+    }
+}
+
 /// Converte `contentChanges` do protocolo em mudanças internas.
 ///
 /// Intervalo ausente ou malformado vira substituição integral (nunca `panic`
@@ -410,9 +578,10 @@ fn converter_diagnostico(
             "start": {"line": l0, "character": c0},
             "end": {"line": l1, "character": c1},
         },
-        "severity": SEVERIDADE_ERRO,
+        "severity": severidade(diagnostico.severity),
         "source": FONTE,
-        "message": diagnostico.message,
+        "message": mensagem(diagnostico),
+        "code": diagnostico.code.map(|c| c.info().nome),
     })
 }
 

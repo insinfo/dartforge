@@ -557,6 +557,7 @@ pub(crate) fn funcao_local(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast:
     let Some(nome) = af.name else { return };
     let d = inf.core.dynamic_;
     let id = cx.declarar(Local { nome: nome.sym, tipo: d, final_: true, late: false, const_: false, offset: nome.span.start, funcao_local: true });
+    cx.funcoes_locais.insert(id);
     cx.fluxo.inicializar(id);
     let u = inf.core.unknown;
     let (t, _) = funcao_literal(inf, cx, fid, u, Some(id));

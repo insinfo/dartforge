@@ -48,11 +48,21 @@ impl RuntimeCache {
     /// processo; as outras threads esperam o resultado da primeira.
     pub fn get_or_compile() -> Result<Self, String> {
         static RUNTIME: OnceLock<Result<PathBuf, String>> = OnceLock::new();
-        RUNTIME.get_or_init(compilar_runtime).clone().map(|lib_path| Self { lib_path })
+        RUNTIME.get_or_init(|| compilar_runtime(&[], "dartforge_runtime_")).clone().map(|lib_path| Self { lib_path })
+    }
+
+    /// A variante do runtime que vai para a DLL do SDK da fonte (P5c): sem o
+    /// `main` C (cfg `dartforge_runtime_dll`); o `main` é o do executável.
+    pub fn para_dll() -> Result<Self, String> {
+        static RUNTIME: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+        RUNTIME
+            .get_or_init(|| compilar_runtime(&["--cfg", "dartforge_runtime_dll"], "dartforge_rtdll_"))
+            .clone()
+            .map(|lib_path| Self { lib_path })
     }
 }
 
-fn compilar_runtime() -> Result<PathBuf, String> {
+fn compilar_runtime(extras: &[&str], prefixo: &str) -> Result<PathBuf, String> {
     let dir = dir_cache_nativo();
     std::fs::create_dir_all(&dir)
         .map_err(|e| format!("não foi possível criar diretório de cache {}: {e}", dir.display()))?;
@@ -69,13 +79,13 @@ fn compilar_runtime() -> Result<PathBuf, String> {
     let runtime_src = dartforge_runtime::RUNTIME_MAIN;
     let mut h = Fnv128::default();
     h.escrever(b"dartforge-runtime\0").escrever(&versao.stdout);
-    for b in BANDEIRAS_RUSTC {
+    for b in BANDEIRAS_RUSTC.iter().chain(extras) {
         h.escrever(b.as_bytes()).escrever(b"\0");
     }
     h.escrever(runtime_src.as_bytes());
     let hash = format!("{:032x}", h.fim());
 
-    let lib_path = dir.join(format!("dartforge_runtime_{hash}.lib"));
+    let lib_path = dir.join(format!("{prefixo}{hash}.lib"));
     if lib_path.is_file() {
         return Ok(lib_path);
     }
@@ -97,9 +107,10 @@ fn compilar_runtime() -> Result<PathBuf, String> {
         }
     }
 
-    let lib_tmp = dir.join(format!("dartforge_runtime_{hash}.{pid}.tmp.lib"));
+    let lib_tmp = dir.join(format!("{prefixo}{hash}.{pid}.tmp.lib"));
     let status = Command::new(&rustc)
         .args(BANDEIRAS_RUSTC)
+        .args(extras)
         .arg(&rs_path)
         .arg("-o")
         .arg(&lib_tmp)
@@ -117,7 +128,9 @@ fn compilar_runtime() -> Result<PathBuf, String> {
         }
     }
 
-    podar_runtimes(&dir, &lib_path);
+    if prefixo == "dartforge_runtime_" {
+        podar_runtimes(&dir, &lib_path);
+    }
     Ok(lib_path)
 }
 

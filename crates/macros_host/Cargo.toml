@@ -10,6 +10,7 @@ description = "Hospedeiro das macros do DartForge: detecção das aplicações, 
 workspace = true
 
 [dependencies]
+dartforge-dfexec = { path = "../dfexec" }
 dartforge-diagnostics = { path = "../diagnostics" }
 dartforge-elements = { path = "../elements" }
 dartforge-frontend = { path = "../frontend" }

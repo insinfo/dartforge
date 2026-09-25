@@ -2,6 +2,9 @@
 late String topLevel;
 late final int topLevelFinal;
 late int topLevelPreguicoso = calcula('topLevelPreguicoso', 7);
+late int globalReentrante = lerGlobalReentrante();
+
+int lerGlobalReentrante() => globalReentrante;
 
 int calcula(String nome, int v) {
   print('calculando $nome');
@@ -125,4 +128,29 @@ void main() {
   print(contado);
   print(contado);
   print(chamadas);
+
+  late final int capturado;
+  int lerCapturado() => capturado;
+  void gravarCapturado(int valor) { capturado = valor; }
+  try {
+    print(lerCapturado());
+  } catch (e) {
+    print(e);
+  }
+  gravarCapturado(0);
+  print(lerCapturado());
+  try {
+    gravarCapturado(2);
+  } catch (e) {
+    print(e);
+  }
+  print(lerCapturado());
+
+  for (var i = 0; i < 2; i++) {
+    try {
+      print(globalReentrante);
+    } catch (e) {
+      print(e);
+    }
+  }
 }

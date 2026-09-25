@@ -119,6 +119,14 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
+        decl: "declare i8 @dartforge_late_field_initialized(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_late_field_mark_initialized(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
         decl: "declare i64 @dartforge_object_class(i64)",
         efeitos: CONSERVADOR,
     },
@@ -611,6 +619,22 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
+        decl: "declare i64 @dartforge_late_error_new(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_stack_overflow_error_new()",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i8 @dartforge_late_field_initializing(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_late_field_set_initializing(i64, i64, i8)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
         decl: "declare i64 @dartforge_no_such_method_error_new(i64)",
         efeitos: CONSERVADOR,
     },
@@ -730,6 +754,47 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_record_get_ref(i64, i64)",
         efeitos: CONSERVADOR,
     },
+    // --- P5c (δ): SDK da fonte — seletores, tabelas de métodos, recusas ---
+    Extern {
+        decl: "declare ptr @dartforge_seletor(ptr, i64, i64, ptr, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_registrar_metodos(i64, ptr, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_membro_recusado(i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_registrar_cids(ptr, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_registrar_ajudante(ptr, i64, ptr)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i32 @dartforge_iniciar(ptr, ptr)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_rastro_entrada(ptr, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_rastro_saida()",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_object_new_t(i64, i64, ptr)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_registrar_tabela(i64, ptr)",
+        efeitos: CONSERVADOR,
+    },
     // --- P6: laço de eventos e os natives da sobreposição (`eventos.rs`) ---
     Extern {
         // O único ponto em que o runtime chama código Dart (G8).
@@ -746,6 +811,10 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare void @dartforge_nativo_DartForge_Timer_cancelar(i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_nativo_Error_throwWithStackTrace(i64, i64)",
         efeitos: CONSERVADOR,
     },
     Extern {
@@ -775,6 +844,10 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare void @dartforge_rti_definir(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_rti_registro_nomeado(i64, i64, i64)",
         efeitos: CONSERVADOR,
     },
     Extern {

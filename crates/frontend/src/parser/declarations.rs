@@ -39,7 +39,7 @@ use crate::ast::{
 };
 use crate::features::Feature;
 use crate::token::{Keyword, Kind, Op};
-use dartforge_diagnostics::{Diagnostic, Span};
+use dartforge_diagnostics::{Diagnostic, Span, codigos};
 
 /// Cabeçalho de um construtor primário já lido (Dart 3.13).
 struct CabecalhoPrimario {
@@ -68,12 +68,15 @@ enum Elaborando {
 #[derive(Debug, Default, Clone, Copy)]
 struct Modifiers {
     external: bool,
+    external_span: Option<Span>,
     static_: bool,
     abstract_: bool,
+    abstract_span: Option<Span>,
     covariant: bool,
     late: bool,
     final_: bool,
     const_: bool,
+    const_span: Option<Span>,
     var_: bool,
 }
 
@@ -120,7 +123,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         let augment = self.parse_augment_opt();
         if !self.can_start_declaration() {
-            return Err(self.error("esperava uma declaração"));
+            return Err(self.erro(codigos::parser::EXPECTED_EXECUTABLE, &[]));
         }
         let id = self.parse_top_level_declaration(start, metadata, augment)?;
         unit.declarations.push(id);
@@ -566,7 +569,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else {
             let fstart = self.span();
             let mods = self.parse_modifiers();
-            match self.parse_function_or_variables(mods, fstart)? {
+            match self.parse_function_or_variables(mods, fstart, mods.external_span)? {
                 FunctionOrVariables::Function(id) => DeclKind::Function(id),
                 FunctionOrVariables::Variables(list) => DeclKind::Variables(list),
             }
@@ -697,7 +700,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         if !self.at_op(Op::LParen) && !(self.at_op(Op::Dot) && self.kind_at(1) != Kind::Op(Op::Dot))
         {
             if let Some(c) = const_ {
-                return Err(self.error_at(c, "'const' antes do nome exige um construtor primário"));
+                return Err(self.erro_em(codigos::parser::EXTRANEOUS_MODIFIER, c, &["const"]));
             }
             return Ok(None);
         }
@@ -761,14 +764,14 @@ impl<'s, 'i> Parser<'s, 'i> {
         let Some(cab) = cab else {
             for &i in &partes {
                 let span = self.ast.member(members[i]).span;
-                self.diagnostics.push(Diagnostic::new("a parte 'this' de construtor primário exige um construtor primário no cabeçalho da declaração", span));
+                self.diagnostics.push(Diagnostic::new("A primary constructor body requires a primary constructor in the declaration header.", span));
             }
             return None;
         };
         for &i in partes.iter().skip(1) {
             let span = self.ast.member(members[i]).span;
             self.diagnostics.push(Diagnostic::new(
-                "só pode haver uma parte 'this' de construtor primário",
+                "Only one primary constructor body is allowed.",
                 span,
             ));
         }
@@ -787,14 +790,14 @@ impl<'s, 'i> Parser<'s, 'i> {
                 if !c.factory && !redireciona {
                     let span = self.ast.member(m).span;
                     self.diagnostics.push(Diagnostic::new(
-                        "com construtor primário, os construtores generativos do corpo têm de redirecionar (': this(...)')",
+                        "A class with a primary constructor can't have a non-redirecting generative constructor.",
                         span,
                     ));
                 }
                 if c.name.map(|n| n.sym) == cab.nome.map(|n| n.sym) {
                     let span = self.ast.member(m).span;
                     self.diagnostics.push(Diagnostic::new(
-                        "o construtor primário já tem esse nome",
+                        "The primary constructor already has this name.",
                         span,
                     ));
                 }
@@ -810,14 +813,15 @@ impl<'s, 'i> Parser<'s, 'i> {
         for p in parametros.iter_mut() {
             if p.covariant && !p.var_ {
                 self.diagnostics.push(Diagnostic::new(
-                    "'covariant' num parâmetro de construtor primário exige 'var' (só um campo mutável tem setter)",
+                    "A covariant declaring parameter must be declared with 'var'.",
                     p.span,
                 ));
             }
             if p.required && p.default_value.is_some() {
-                self.diagnostics.push(Diagnostic::new(
-                    "parâmetro 'required' não pode ter valor padrão",
+                self.diagnostics.push(Diagnostic::com_codigo(
+                    codigos::compile_time_error::DEFAULT_VALUE_ON_REQUIRED_PARAMETER,
                     p.span,
+                    Vec::<&str>::new(),
                 ));
             }
             if !(p.var_ || p.final_) || p.this_ || p.super_ {
@@ -871,7 +875,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         };
         if let (true, FunctionBody::Block(_), Some(span)) = (const_, &body, span_parte) {
             self.diagnostics.push(Diagnostic::new(
-                "construtor primário constante não pode ter corpo na parte 'this'",
+                "A constant primary constructor can't have a body.",
                 span,
             ));
         }
@@ -1124,9 +1128,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.exigir(Feature::PrimaryConstructors, t.span);
         } else if self.at_kw(Keyword::Var) {
             let t = self.advance();
-            self.diagnostics.push(Diagnostic::new(
-                "'var' não é permitido na representação de um extension type",
+            self.diagnostics.push(Diagnostic::com_codigo(
+                codigos::parser::REPRESENTATION_FIELD_MODIFIER,
                 t.span,
+                Vec::<&str>::new(),
             ));
         }
         let representation_type = self.parse_type()?;
@@ -1270,12 +1275,21 @@ impl<'s, 'i> Parser<'s, 'i> {
         loop {
             match self.kind() {
                 Kind::Keyword(Keyword::Final) => m.final_ = true,
-                Kind::Keyword(Keyword::Const) => m.const_ = true,
+                Kind::Keyword(Keyword::Const) => {
+                    m.const_ = true;
+                    m.const_span = Some(self.span());
+                }
                 Kind::Keyword(Keyword::Var) => m.var_ = true,
                 Kind::Ident if self.modifier_ok() => match self.text() {
-                    "external" => m.external = true,
+                    "external" => {
+                        m.external = true;
+                        m.external_span = Some(self.span());
+                    }
                     "static" => m.static_ = true,
-                    "abstract" => m.abstract_ = true,
+                    "abstract" => {
+                        m.abstract_ = true;
+                        m.abstract_span = Some(self.span());
+                    }
                     "covariant" => m.covariant = true,
                     "late" => m.late = true,
                     _ => break,
@@ -1325,7 +1339,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     ComposedGt::Shr => ">>",
                     ComposedGt::UShr => ">>>",
                     ComposedGt::ShrAssign | ComposedGt::UShrAssign => {
-                        return Err(self.error("operador inválido para 'operator'"));
+                        return Err({ let t = self.text().to_string(); self.erro(codigos::parser::INVALID_OPERATOR, &[&t]) });
                     }
                 };
                 self.eat_composed_gt(composed);
@@ -1350,7 +1364,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.advance();
                 op.text()
             }
-            _ => return Err(self.error("esperava um operador após 'operator'")),
+            _ => return Err(self.erro_identificador()),
         };
         Ok(self.name_from(text, self.span_from(start)))
     }
@@ -1362,9 +1376,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         &mut self,
         mods: Modifiers,
         start: Span,
+        external_topo: Option<Span>,
     ) -> PResult<FunctionOrVariables> {
         if let Some(kind) = self.accessor_follows() {
-            let id = self.parse_accessor(mods, start, None, kind)?;
+            let id = self.parse_accessor(mods, start, None, kind, external_topo)?;
             return Ok(FunctionOrVariables::Function(id));
         }
         let ty = if mods.var_ {
@@ -1375,14 +1390,16 @@ impl<'s, 'i> Parser<'s, 'i> {
             None
         };
         if let Some(kind) = self.accessor_follows() {
-            let id = self.parse_accessor(mods, start, ty, kind)?;
+            let id = self.parse_accessor(mods, start, ty, kind, external_topo)?;
             return Ok(FunctionOrVariables::Function(id));
         }
         let name = self.expect_identifier()?;
         if self.at_op(Op::LParen) || self.at_op(Op::Lt) {
             let type_params = self.parse_type_parameters_opt()?;
             let parameters = self.parse_formal_parameters()?;
+            let inicio_corpo = self.pos;
             let (modifier, body) = self.parse_function_body()?;
+            self.conferir_corpo_externo(mods.external, false, inicio_corpo, &body, external_topo);
             let id = self.ast.push_function(Function {
                 span: self.span_from(start),
                 external: mods.external,
@@ -1419,6 +1436,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         start: Span,
         return_type: Option<TypeId>,
         kind: FunctionKind,
+        external_topo: Option<Span>,
     ) -> PResult<FunctionId> {
         self.advance();
         let (name, parameters) = match kind {
@@ -1432,7 +1450,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 (name, Some(self.parse_formal_parameters()?))
             }
         };
+        let inicio_corpo = self.pos;
         let (modifier, body) = self.parse_function_body()?;
+        self.conferir_corpo_externo(mods.external, false, inicio_corpo, &body, external_topo);
         Ok(self.ast.push_function(Function {
             span: self.span_from(start),
             external: mods.external,
@@ -1487,7 +1507,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 return Ok(members);
             }
             if self.at_eof() {
-                self.error("esperava '}' para fechar o corpo");
+                self.erro_esperado("}");
                 return Ok(members);
             }
             let start_pos = self.pos;
@@ -1507,7 +1527,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         // nome da classe) também iniciam membro, desde a 3.13.
         if !self.can_start_declaration() && !self.at_kw(Keyword::This) && !self.at_kw(Keyword::New)
         {
-            return Err(self.error("esperava um membro"));
+            return Err(self.erro(codigos::parser::EXPECTED_CLASS_MEMBER, &[]));
         }
         let augment = self.parse_augment_opt();
         let fstart = self.span();
@@ -1528,9 +1548,22 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else if self.constructor_follows(class_name, mods) {
             self.parse_constructor(mods, false, class_name)?
         } else {
-            match self.parse_function_or_variables(mods, fstart)? {
+            match self.parse_function_or_variables(mods, fstart, None)? {
                 FunctionOrVariables::Function(id) => MemberKind::Method(id),
-                FunctionOrVariables::Variables(list) => MemberKind::Field(list),
+                FunctionOrVariables::Variables(list) => {
+                    // Fasta `AstBuilder._endClassFields`: a restrição deixa de
+                    // valer com o experimento de augmentations.
+                    if mods.static_ && !self.features.tem(Feature::Augmentations) {
+                        if let Some(span) = mods.abstract_span {
+                            self.diagnostics.push(Diagnostic::com_codigo(
+                                codigos::parser::ABSTRACT_STATIC_FIELD,
+                                span,
+                                std::iter::empty::<&str>(),
+                            ));
+                        }
+                    }
+                    MemberKind::Field(list)
+                }
             }
         };
         Ok(self.ast.push_member(Member {
@@ -1630,7 +1663,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let (modificador, body) = self.parse_function_body()?;
         if modificador != AsyncModifier::None || matches!(body, FunctionBody::Expression(_)) {
             self.diagnostics.push(Diagnostic::new(
-                "a parte 'this' de construtor primário tem de ser um bloco sem 'async'/'sync*' (ou ';')",
+                "A primary constructor body must be a block without 'async' or 'sync*', or ';'.",
                 self.span_from(inicio),
             ));
         }
@@ -1687,8 +1720,35 @@ impl<'s, 'i> Parser<'s, 'i> {
                     }
                 }
             }
-            self.parse_function_body()?.1
+            let inicio_corpo = self.pos;
+            let body = self.parse_function_body()?.1;
+            self.conferir_corpo_externo(mods.external, factory, inicio_corpo, &body, None);
+            if mods.const_ && !factory {
+                let delimitador = match body {
+                    FunctionBody::Block(_) => Some(Op::LBrace),
+                    FunctionBody::Expression(_) => Some(Op::Arrow),
+                    FunctionBody::Empty | FunctionBody::Native(_) => None,
+                };
+                if let Some(op) = delimitador {
+                    if let Some(span) = self.tokens[inicio_corpo..self.pos]
+                        .iter()
+                        .find(|t| t.kind == Kind::Op(op))
+                        .map(|t| t.span)
+                    {
+                        self.erro_em(codigos::parser::CONST_CONSTRUCTOR_WITH_BODY, span, &[]);
+                    }
+                }
+            }
+            body
         };
+        // O SDK declara factories constantes `external` (por exemplo
+        // `bool.fromEnvironment`); o ErrorVerifier só aplica `constFactory`
+        // ao ramo sem `externalKeyword`.
+        if factory && !mods.external && redirect.is_none() {
+            if let Some(span) = mods.const_span {
+                self.erro_em(codigos::parser::CONST_FACTORY, span, &[]);
+            }
+        }
         Ok(MemberKind::Constructor(Constructor {
             external: mods.external,
             const_: mods.const_,
@@ -1779,6 +1839,34 @@ impl<'s, 'i> Parser<'s, 'i> {
     // Corpos de função
     // -----------------------------------------------------------------------
 
+    /// O parser oficial relata função de topo no token `external`, mas membro
+    /// e construtor no `{` do bloco ou no `=>` (`parseTopLevelMethod` e
+    /// `parseMethod`/`parseFactoryMethod` do fasta).
+    /// O intervalo desde `inicio` começa antes do modificador `async` e só
+    /// inclui tokens desta função, então o primeiro delimitador é o corpo.
+    fn conferir_corpo_externo(&mut self, external: bool, factory: bool, inicio: usize, body: &FunctionBody, external_topo: Option<Span>) {
+        if !external {
+            return;
+        }
+        let delimitador = match body {
+            FunctionBody::Block(_) => Op::LBrace,
+            FunctionBody::Expression(_) => Op::Arrow,
+            FunctionBody::Empty | FunctionBody::Native(_) => return,
+        };
+        let span = self.tokens[inicio..self.pos]
+            .iter()
+            .find(|t| t.kind == Kind::Op(delimitador))
+            .map(|t| t.span);
+        if let Some(span) = external_topo.or(span) {
+            let codigo = if factory {
+                codigos::parser::EXTERNAL_FACTORY_WITH_BODY
+            } else {
+                codigos::parser::EXTERNAL_METHOD_WITH_BODY
+            };
+            self.erro_em(codigo, span, &[]);
+        }
+    }
+
     /// `async`/`async*`/`sync*` opcional seguido de `{...}`, `=> e;`, `;` ou
     /// `native ...;`. Ajusta `in_async`/`in_generator` durante o corpo.
     pub(crate) fn parse_function_body(&mut self) -> PResult<(AsyncModifier, FunctionBody)> {
@@ -1847,7 +1935,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.expect_op(Op::Semicolon)?;
             return Ok(FunctionBody::Native(name));
         }
-        Err(self.error("esperava o corpo da função ('{', '=>' ou ';')"))
+        Err(self.erro(codigos::parser::MISSING_FUNCTION_BODY, &[]))
     }
 }
 
@@ -1882,6 +1970,168 @@ mod tests {
 
     fn member<'a>(out: &'a Parsed, class: &crate::ast::ClassDecl, i: usize) -> &'a MemberKind {
         &out.ast.member(class.members[i]).kind
+    }
+
+    #[test]
+    fn corpo_externo_marca_abertura_do_bloco_ou_seta_com_codigo_oficial() {
+        use dartforge_diagnostics::codigos::parser as c;
+        for (src, token, codigo) in [
+            ("external int f() => 1;", "external", c::EXTERNAL_METHOD_WITH_BODY),
+            ("class C { external C() {} }", "{}", c::EXTERNAL_METHOD_WITH_BODY),
+            ("class C { external factory C.x() => C(); }", "=>", c::EXTERNAL_FACTORY_WITH_BODY),
+            ("class C { external factory C.x() {} }", "{}", c::EXTERNAL_FACTORY_WITH_BODY),
+            ("class C { external int get v => 1; }", "=>", c::EXTERNAL_METHOD_WITH_BODY),
+        ] {
+            let mut names = Interner::new();
+            let out = parse(src, &mut names);
+            let inicio = src.find(token).unwrap();
+            let fim = inicio + if token == "{}" { 1 } else { token.len() };
+            assert!(out.diagnostics.iter().any(|d|
+                d.code == Some(codigo) && d.span.start == inicio && d.span.end == fim
+            ), "{src}: {:?}", out.diagnostics);
+            assert_eq!(out.diagnostics.len(), 1, "{src}: {:?}", out.diagnostics);
+        }
+        let mut names = Interner::new();
+        let out = parse("external int f(); class C { external factory C.x(); }", &mut names);
+        assert!(!out.diagnostics.iter().any(|d| matches!(d.code,
+            Some(c::EXTERNAL_METHOD_WITH_BODY | c::EXTERNAL_FACTORY_WITH_BODY))));
+    }
+
+    #[test]
+    fn corpo_externo_bate_com_duas_amostras_do_oraculo_gravado() {
+        use dartforge_diagnostics::codigos::parser as c;
+        for (src, codigo, inicio, mensagem, correcao) in [
+            (
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_0c2b43e4.dart")),
+                c::EXTERNAL_METHOD_WITH_BODY,
+                25,
+                "An external or native method can't have a body.",
+                None,
+            ),
+            (
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_42cae48d.dart")),
+                c::EXTERNAL_FACTORY_WITH_BODY,
+                39,
+                "External factories can't have a body.",
+                Some("Try removing the body of the factory, or removing the keyword 'external'."),
+            ),
+        ] {
+            let mut names = Interner::new();
+            let out = parse(src, &mut names);
+            assert!(out.diagnostics.iter().any(|d|
+                d.code == Some(codigo) && d.span.start == inicio && d.span.end == inicio + 2
+                    && d.message == mensagem && d.correcao().as_deref() == correcao
+            ), "{src}: {:?}", out.diagnostics);
+        }
+    }
+
+    #[test]
+    fn funcao_externa_de_topo_aponta_para_external_como_fasta() {
+        use dartforge_diagnostics::codigos::parser as c;
+        let fonte = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/executable_body/ExecutableBody__topLevelFunction_extern_0464d54b.dart"));
+        let mut names = Interner::new();
+        let out = parse(fonte, &mut names);
+        assert!(out.diagnostics.iter().any(|d|
+            d.code == Some(c::EXTERNAL_METHOD_WITH_BODY)
+                && d.span.start == 43 && d.span.end == 51
+                && d.message == "An external or native method can't have a body."
+        ), "{out:?}");
+    }
+
+    #[test]
+    fn campo_abstract_static_sem_augmentations_aponta_para_abstract() {
+        use crate::features::{Feature, LanguageVersion, LibraryFeatures};
+        use crate::parser::parse_com;
+        use dartforge_diagnostics::codigos::parser as c;
+
+        let fonte = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/executable_body/ExecutableBody__class_staticField_abstr_5d2b9f54.dart"));
+        let span = fonte.find("abstract int foo").unwrap();
+        let mut nomes = Interner::new();
+        let sem_recurso = parse_com(fonte, &mut nomes, LibraryFeatures::new(LanguageVersion::PISO, &[]));
+        assert!(sem_recurso.diagnostics.iter().any(|d|
+            d.code == Some(c::ABSTRACT_STATIC_FIELD)
+                && d.span.start == span && d.span.end == span + "abstract".len()
+                && d.message == "Static fields can't be declared 'abstract'."
+                && d.correcao().as_deref() == Some("Try removing the 'abstract' or 'static' keyword.")
+        ), "{:?}", sem_recurso.diagnostics);
+
+        let com_recurso = parse_com(fonte, &mut nomes, LibraryFeatures::new(LanguageVersion::PISO, &[Feature::Augmentations]));
+        assert!(!com_recurso.diagnostics.iter().any(|d| d.code == Some(c::ABSTRACT_STATIC_FIELD)));
+    }
+
+    #[test]
+    fn corpo_de_construtor_const_aponta_para_delimitador_como_analyzer() {
+        use dartforge_diagnostics::codigos::parser as c;
+        for (fonte, inicio, fim) in [
+            (
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_482771f3.dart")),
+                41,
+                43,
+            ),
+            (
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_4a7cd473.dart")),
+                50,
+                52,
+            ),
+            (
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_79e52946.dart")),
+                50,
+                51,
+            ),
+        ] {
+            let mut nomes = Interner::new();
+            let parsed = parse(fonte, &mut nomes);
+            assert!(parsed.diagnostics.iter().any(|d|
+                d.code == Some(c::CONST_CONSTRUCTOR_WITH_BODY)
+                    && d.span.start == inicio && d.span.end == fim
+                    && d.message == "Const constructors can't have a body."
+                    && d.correcao().as_deref() == Some("Try removing either the 'const' keyword or the body.")
+            ), "{fonte}: {:?}", parsed.diagnostics);
+        }
+
+        let mut nomes = Interner::new();
+        let parsed = parse("class C { const C(); const factory C.x() => C(); }", &mut nomes);
+        assert!(!parsed.diagnostics.iter().any(|d| d.code == Some(c::CONST_CONSTRUCTOR_WITH_BODY)));
+    }
+
+    #[test]
+    fn const_factory_sem_redirecionamento_aponta_para_const() {
+        use dartforge_diagnostics::codigos::parser as c;
+        for (fonte, inicio) in [
+            (
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_6ecedb96.dart")),
+                12,
+            ),
+            (
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_c135c0a2.dart")),
+                25,
+            ),
+            (
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_d7023785.dart")),
+                55,
+            ),
+        ] {
+            let mut nomes = Interner::new();
+            let parsed = parse(fonte, &mut nomes);
+            assert!(parsed.diagnostics.iter().any(|d|
+                d.code == Some(c::CONST_FACTORY) && d.span.start == inicio && d.span.end == inicio + 5
+                    && d.message == "Only redirecting factory constructors can be declared to be 'const'."
+                    && d.correcao().as_deref() == Some("Try removing the 'const' keyword, or replacing the body with '=' followed by a valid target.")
+            ), "{fonte}: {:?}", parsed.diagnostics);
+        }
+
+        let mut nomes = Interner::new();
+        let parsed = parse("class A { const A(); const factory A.named() = A; }", &mut nomes);
+        assert!(!parsed.diagnostics.iter().any(|d| d.code == Some(c::CONST_FACTORY)));
+
+        // Declarações do SDK 3.6.2: lib/core/bool.dart e lib/core/int.dart.
+        let sdk = "class bool { external const factory bool.fromEnvironment(String name, {bool defaultValue = false}); external const factory bool.hasEnvironment(String name); } class int { external const factory int.fromEnvironment(String name, {int defaultValue = 0}); }";
+        let parsed = parse(sdk, &mut nomes);
+        assert!(!parsed.diagnostics.iter().any(|d| d.code == Some(c::CONST_FACTORY)), "{:?}", parsed.diagnostics);
+
+        let corpus = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/linguagem/const/native_factory_test.dart"));
+        let parsed = parse(corpus, &mut nomes);
+        assert!(!parsed.diagnostics.iter().any(|d| d.code == Some(c::CONST_FACTORY)), "{:?}", parsed.diagnostics);
     }
 
     // -- Independentes dos outros módulos -----------------------------------

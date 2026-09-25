@@ -4,7 +4,7 @@ O DartForge passa a ter dois perfis de execução nativa sobre **o mesmo LLVM IR
 
 | | Desenvolvimento (`crates/jit`) | Produção (`crates/native`) |
 | --- | --- | --- |
-| Comando | `dartforge run <entrada.dart>`, `dartforge reload <v1.dart> <v2.dart> …` | `dartforge aot <entrada.dart> <saida.exe>` |
+| Comando | `dartforge run <entrada.dart>`, `dartforge reload <entrada.dart> [--preservar-estado]` | `dartforge aot <entrada.dart> <saida.exe>` |
 | Geração de código | ORCv2 (`LLJIT`), em memória | Clang, em processo separado |
 | Runtime nativo | endereços das funções Rust publicados como símbolos absolutos | `rustc` compila `RUNTIME_MAIN` e o linker resolve os símbolos |
 | Artefato | nenhum | executável no disco |
@@ -19,8 +19,12 @@ divergir em resultado é defeito.
 > runtime publicado a partir da fonte do harness AOT, pré-verificação de
 > externos, alvo fixado (`x86-64`, `CodeGenLevelNone`) e o executor isolado
 > `dartforge-executar-ir`. Na CLI (`--features jit`): `dartforge run` e
-> `dartforge reload` R0 (reinício a quente, estado NÃO preservado; cada geração
-> num processo `dartforge run --ir`). No harness: `--jit` e `--jit-aot`.
+> `dartforge reload` mantém R0 por padrão (reinício a quente, estado NÃO
+> preservado; cada geração num processo `dartforge run --ir`). Com
+> `--preservar-estado`, publica as gerações numa `JitSession` R1 e chama a entrada
+> na mesma thread: estáticos e heap permanecem vivos, inclusive com a DLL do
+> SDK da fonte. No harness: `--jit` e
+> `--jit-aot`.
 > Runtime de fonte única (`dartforge_runtime::abi`) e sessão persistente com
 > cache de módulos (executor de macros), ver as seções abaixo. As seções «O que
 > executa» e «Hot reload» abaixo descrevem a trilha velha; o mecanismo de
@@ -28,8 +32,8 @@ divergir em resultado é defeito.
 > `crates/jit/testes-pendentes/`. O plano completo está no plano do JIT
 > (passos 1–13).
 >
-> **O caminho de execução (`run_ir`, `dartforge-executar-ir` e o futuro
-> `dartforge run`/`reload` R0) não passa por `src/reload.rs`.** O módulo entra
+> **O caminho de execução (`run_ir`, `dartforge-executar-ir`, `dartforge run` e
+> `dartforge reload` R0) não passa por `src/reload.rs`.** O módulo entra
 > por `add_ir_module`, sem trampolim nem célula: as chamadas são diretas, como
 > no AOT. Isso é contrato, não detalhe. O trampolim acrescenta um quadro por
 > chamada, e a profundidade de recursão divergiria do executável AOT
@@ -180,6 +184,15 @@ e em cache, e custo zero para quem não usa. A biblioteca já tem as peças.
   ligação delas de `internal` para externa **na cópia** do módulo, sem mudar o
   IR emitido. Global que não começa em zero é recusada na etapa `globais`, em
   vez de ser reiniciada errado.
+* **`run_main()` com SDK da fonte** cria uma thread nova e zera as globais
+  mutáveis dos módulos JIT do programa, inclusive da geração recarregável
+  ativa, antes de cada chamada. Os globais recebem nomes distintos por módulo
+  e geração na `JITDylib` compartilhada; só os da geração publicada são
+  reiniciados. O teste de
+  regressão executa `main` duas vezes na mesma sessão sem carregar a DLL do
+  SDK. Os estáticos internos da DLL do SDK não são exportados nem reiniciados
+  por esse caminho e continuam persistentes. A reutilização de uma sessão com
+  SDK da fonte ainda não garante estado completamente limpo entre execuções.
 
 Custo medido em 2026-09-23, `cargo test -p dartforge-jit --test
 sessao_persistente medicao -- --ignored --nocapture`. Perfil `test` (o Rust sem
@@ -364,8 +377,23 @@ geração vem do tracker, que é o que o LLVM oferece para isso.
 
 1. **Preparar**, sem tocar no que está executando: analisar o IR novo, ler a
    impressão digital do contrato e compará-la com a da versão viva, conferir que
-   toda referência externa é resolvível, versionar as implementações e entregar o
+   toda referência externa é resolvível (inclusive pelas exportações da DLL do
+   SDK da fonte carregada nesta sessão), recusar nomes de função já ocupados por
+   outro módulo, resolver as globais externas de dados antes da promoção,
+   versionar as implementações e entregar o
    módulo à `LLJIT` sob um tracker novo.
+
+   Na sessão com SDK da fonte, só os exports usados pela primeira geração são
+   publicados na abertura. Se uma recarga introduz outro membro exportado,
+   o JIT consulta `exportados.def` e publica somente esse nome antes de ligar
+   a geração nova; um nome ausente recusa a recarga na etapa `contract`.
+   Os exports adicionais já publicados permanecem na sessão mesmo se uma fase
+   posterior falhar, mas nenhuma entrada estável muda antes de a geração nova
+   estar ligada.
+   Um trampolim órfão, criado por uma tentativa anterior que falhou na ligação,
+   não satisfaz referências de outros módulos até receber uma implementação
+   publicada; a célula dele ainda contém ponteiro nulo.
+
 2. **Publicar**: materializar as implementações (aqui é onde o código nativo é
    gerado e ligado em memória) e **só então** escrever os novos ponteiros nas
    células.
@@ -376,12 +404,16 @@ A garantia que importa: **uma falha de análise, de contrato ou de ligação nã
 destrói a versão que está funcionando**. Falha na fase 1 devolve `Err` sem ter
 tocado em nada. Falha na materialização descarrega a geração recém-adicionada —
 remoção demonstravelmente segura, porque nenhuma célula aponta para ela e nada
-pode tê-la chamado — e a versão anterior continua publicada, bit a bit.
+pode tê-la chamado — e as entradas da versão anterior continuam apontando para
+os mesmos corpos.
 
 `crates/jit/tests/hot_reload.rs::falha_de_recarga_nao_destroi_a_versao_boa` cobre
-as três falhas (Dart que não compila, IR inválido, referência não resolvível) e
+IR inválido e referência não resolvível, e
 exige que a versão boa continue executando e que uma recarga válida ainda
 funcione depois delas.
+`cinco_recargas_preservam_entrada_estavel` exercita cinco publicações
+consecutivas, conferindo identidade do trampolim e contagem de gerações
+retidas; não mede vazamento, pois a retenção é deliberada nesta versão.
 
 ### A única janela não transacional: promoção
 
@@ -403,30 +435,32 @@ sessao.add_reloadable_module("app", &ir)?;   // geração 1 já nasce atrás dos
 sessao.hot_reload("app", &ir_novo)?;         // transacional de ponta a ponta
 ```
 
+O nome de `hot_reload` deve corresponder ao nome informado na carga inicial.
+Um nome desconhecido devolve erro de contrato; a sessão nunca promove o único
+módulo ativo por aproximação. A primeira geração de um módulo novo entra por
+`add_reloadable_module`.
+
 ### O laço pela linha de comando
 
-> **Desatualizado.** O `dartforge reload` de hoje é o **R0, reinício a quente**
-> (`crates/cli/src/jit.rs`). Ele observa os `.dart` do diretório da entrada,
-> recompila tudo a cada edição e recomeça do `main` num processo novo. O estado
-> **não** é preservado, e a saída diz isso. O texto abaixo descreve o `reload`
-> da trilha velha, que usava o mecanismo desta seção.
+Sem `--preservar-estado`, `dartforge reload` mantém o R0: recompila a cada
+mudança e recomeça `main` em outro processo, sem preservar o estado.
 
-`dartforge reload` abre uma sessão, executa a primeira versão e publica cada
-arquivo seguinte como uma edição, mantendo o heap vivo entre elas:
+`dartforge reload app.dart --preservar-estado` observa os arquivos `.dart` do
+diretório da entrada. A primeira versão entra por `add_reloadable_module`; cada
+edição válida entra por `hot_reload`. A CLI executa `dartforge_entry` na **mesma
+thread**, sem zerar globais ou recriar o runtime, e o teste
+`crates/cli/tests/reload_estado.rs` confirma um contador estático (`1 → 11`) e
+uma lista no heap (`1 → 2`) depois de editar o mesmo arquivo. Falhas de compilação
+ou publicação mantêm a geração anterior; `--timings` relata emissão, recarga e
+quantidade de gerações retidas.
 
-```
-$ dartforge reload v1.dart v2.dart v3.dart
-42
-100
-150
-```
-
-`v2.dart` muda `base()` de 21 para 50; `v3.dart` muda `dobro()` para `* 3`. As
-três saídas vêm da **mesma** sessão, do mesmo processo, sem reinício. Com
-`--timings`, cada recarga imprime um objeto JSON com o custo de cada etapa
-(`frontend_ns`, `parse_ir_ns`, `contract_ns`, `add_module_ns`, `stubs_ns`,
-`link_ns`, `publish_ns`, `retire_ns`, `reload_total_ns`) mais `entries`,
-`new_entries`, `generation` e `retained_generations`.
+Este é o primeiro aceite R1 da CLI, com limites explícitos: cada edição **torna
+a chamar `main`**, enquanto a Dart VM não o reexecuta; programas que dependem de
+um `main` que fica ativo, de uma thread diferente ou de `process::exit` ainda
+precisam do R0. Com `DARTFORGE_SDK_DA_FONTE=1`, a sessão carrega a DLL indicada
+por `DARTFORGE_SDK_DLL`, chama o `main` gerado via trampolim e conserva o
+runtime da DLL na mesma thread. As versões devem manter o caminho da biblioteca e o
+contrato das entradas, pois o nome do arquivo participa dos símbolos emitidos.
 
 ### Regra de visibilidade
 
@@ -500,7 +534,7 @@ mesmos. Não tem. A VM aceita bem mais do que esta versão aceita (ver
 | Localiza a classe no heap e **troca os ponteiros de método**; instâncias não mudam de endereço e os campos ficam intactos | Troca os ponteiros das **células** das entradas estáveis; os objetos do heap gerenciado não são tocados, mesmo handle, mesmos campos. A ideia é a mesma, um nível acima: lá por método de classe, aqui por função |
 | Código já promovido ao otimizador é **descartado**, não remendado; a função volta ao tier não otimizado | Não há dois níveis aqui. Se houver, esta é a política a seguir: descartar a geração otimizada e recompilar, nunca remendar código otimizado no lugar |
 | **Corrigido** (esta linha dizia que a VM recusa mudança de herança ou de assinatura; o código mostra o contrário, `docs/PESQUISA-HOT-RELOAD.md` §1.6, §1.8 e §1.9). A VM **aceita** mudar assinatura, superclasse e campos. Chamadas pendentes são religadas por nome, e quem chama um membro que sumiu ou mudou de aridade recebe `NoSuchMethodError` **na chamada** (`object_reload.cc:806-841`; `isolate_reload_test.cc:1479-1531`, `:3205-3235`, `SuperClassChanged` `:760-789`). Campo de tipo novo vira `TypeError` na leitura, pela guarda de carga. A lista de recusas é curta: enum ↔ classe, número de parâmetros de tipo, classe `const` que perde campos ou deixa de ser `const`, e campos nativos (`object_reload.cc:351-607`). Mudar o corpo de `main()` ou de `initState()` também é aceito; só não é reexecutado | As recusas da etapa `contract` (assinatura, função removida, campos de classe) são **limitação desta versão, não semântica do Dart**. O alvo (pesquisa §4.4) é célula nova por `(DeclId, abi)` e a célula antiga reescrita para lançar `NoSuchMethodError`, sem recusa |
-| Inicializador de global já inicializada **preserva o valor antigo** | Divergimos, e o limite é concreto: `crates/llvm` guarda os estáticos de classe e as variáveis de topo numa área do heap cujo handle vive em `@df_statics = internal global i64 0`, e grava todos eles no começo de `dartforge_entry()`. `internal` significa uma cópia por geração, e a inicialização na carga significa que **executar a entrada de novo reinicializa os estáticos** — o que já vale sem hot reload nenhum. Consequências: o estado em estáticos **não** sobrevive a uma recarga, e depois de recarregar é preciso executar a entrada antes de chamar entradas estáveis que toquem estáticos, senão elas leem o handle zero da geração nova. O que persiste entre gerações é o **heap gerenciado** alcançado por handles que o chamador guarda, e é isso que o teste do contador vivo afirma |
+| Inicializador de global já inicializada **preserva o valor antigo** | As globais do programa (`@dfg.<biblioteca>.<dono>.<nome>` do emissor atual, incluindo o indicador `$ok`; `@dfg_*` e `@df_statics` da IR antiga) são copiadas da geração anterior para a nova antes da troca das entradas estáveis. Globais adicionadas começam em zero; mudança de tamanho de um estático existente é recusada na etapa `contract`. Caches de despacho não são copiados, pois podem conter endereços de código antigo. O estado persiste em chamadas pela `StableEntry` na mesma thread; `run_entry()` e `run_main()` ainda iniciam uma execução isolada e zeram os estáticos dos módulos JIT, por seu contrato de executor. Os estáticos internos da DLL do SDK não são reiniciados por esse mecanismo |
 
 ### Medição do ciclo de recarga
 

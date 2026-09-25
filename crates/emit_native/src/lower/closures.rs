@@ -154,7 +154,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 l.modo,
                 Modo::Celula(_) | Modo::Ambiente { celula: true, .. }
             );
-            b.ligar_ambiente(*sym, env_b.clone(), base + i, celula, l.ty);
+            b.ligar_ambiente(*sym, env_b.clone(), base + i, celula, l.ty, l.late.as_ref());
         }
         // RTI: a closure vê as variáveis de tipo de quem a cria (`T` da
         // função genérica em volta: a tupla vai no fim do ambiente).
@@ -477,7 +477,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// Os parâmetros de uma função do programa, para a entrada uniforme.
-    fn params_da_funcao(&self, fid: usize) -> Vec<ParamEntrada> {
+    pub(super) fn params_da_funcao(&self, fid: usize) -> Vec<ParamEntrada> {
         let Some(dados) = self.ctx.outline.functions.get(fid) else {
             return Vec::new();
         };
@@ -595,7 +595,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         use dartforge_types::resolved::{MemberRef, Resolved};
         for c in self.enclosing_class.map(|c| crate::lower::membros::linearizacao(self.ctx, c)).unwrap_or_default() {
             let classe = &self.ctx.program.classes[c.0 as usize];
-            if self.ctx.program.library(classe.library).is_sdk {
+            if !self.ctx.biblioteca_compilada(classe.library) {
                 break;
             }
             if let Some(&f) = classe.instance_members.get(&sym).or_else(|| classe.static_members.get(&sym)) {
@@ -658,11 +658,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             self.absorver(e);
         }
-        self.emit(
+        let t = self.emit(
             Instruction::TearOff {
                 code_symbol: simbolo_ent,
             },
             Type::Ref,
-        )
+        );
+        // O construtor também é uma função reificada. Sem a assinatura, o
+        // `current as E` do ListIterator rejeita um tear-off guardado em
+        // `List<C Function()>` quando E passa a ser propagado pelo SDK.
+        self.definir_rti_de_tearoff(t.clone(), fid, None);
+        t
     }
 }

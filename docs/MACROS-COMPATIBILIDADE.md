@@ -23,9 +23,10 @@ A saída de uma macro é uma **augmentation em Dart comum**, gravável em
 arquivo — o `.g.dart` das macros —, na forma que cada versão do SDK aceita.
 Dois caminhos produzem **o mesmo texto, byte a byte**:
 
-* **no DartForge**, o executor nativo (D4) roda a macro em memória, no
-  hospedeiro (`crates/macros_host`), e o texto vive em
-  `elements/src/gerado.rs` como `<biblioteca>.macro.dart`;
+* **no DartForge JS**, o hospedeiro (`crates/macros_host`) executa a macro na
+  VM Dart provisoriamente e recarrega o texto em memória como
+  `<biblioteca>.macro.dart` (`elements/src/gerado.rs`). O executor nativo D4
+  continua pendente;
 * **na toolchain oficial**, um *builder* do `build_runner` roda **a mesma
   macro** na VM oficial, com a **nossa** API de macros (`pacotes/macros`, Dart
   puro, sem nada que só o nosso compilador tenha), e grava o arquivo.
@@ -83,7 +84,98 @@ Limites registrados:
   0.20.4 publicado) não compila no 3.13.4: as anotações precisam vir de um
   pacote sem `macro` para o arquivo materializado servir lá.
 
-## 4. O builder (esboço; próxima rodada)
+## 4. O builder (em andamento)
+
+O pacote `dartforge_macros_builder` já oferece uma primeira etapa opt-in:
+o `build_runner` resolve as anotações pelo element model do analyzer e grava
+`x.macro_uses.json`. Um caso derivado de `410_json_codable` identifica 4 aplicações.
+A montagem dos resultados estruturados também existe em Dart
+(`pacotes/macros/lib/src/executor/montagem.dart`): a reprodução dos 8
+`macro.resultado` de `sessao.dfexec` produz os mesmos 3266 caracteres da
+augmentation do CFE 3.6.2. Essa verificação cobre a montagem, não a
+execução da macro pelo builder.
+Um ensaio no mesmo isolate, usando `package:json` 0.20.4 com a API de
+`pacotes/macros`, reproduz os 8 resultados da sessão CFE. O builder ainda
+precisa completar o modelo semântico a partir do `Resolver` para as fases
+restantes.
+O adaptador do builder já serializa classes simples e campos no formato de
+`macro.executar`; o modelo de `Endereco` bate estruturalmente com o pedido
+gravado do CFE, depois de trocar apenas a URI do pacote do fixture.
+Com esse modelo, `@JsonCodable` executa a fase de declarações no mesmo isolate
+e devolve o resultado estruturado idêntico ao da sessão CFE (3 consultas ao
+hospedeiro). As respostas dessas consultas ainda vêm da sessão gravada no
+primeiro teste. O caso de integração resolve as 3 consultas
+`resolverIdentificador` pela sessão do analyzer e reproduz a mesma fase sem
+respostas gravadas. As demais consultas da fase de definições ainda precisam
+de implementação antes de gerar o arquivo.
+
+O builder aceita um registro explícito de fábricas Dart do projeto
+(`macroDeclarationsBuilder`). O fixture `corpus/builders/macros_registry`
+registra as três macros de `package:json` no bootstrap do `build_runner`; o resultado da fase de
+declarações de `Endereco` é emitido em `modelos.macro_declarations.json` e
+comparado integralmente com o `macro.resultado` do CFE. Quatro aplicações são
+executadas no mesmo isolate do builder. A fábrica recebe a anotação resolvida
+para poder ler argumentos; o registro distingue construtores nomeados. Esta
+etapa é opt-in; após as fases de declarações e definições, materializa
+`.macro.dart` no projeto que registrou as fábricas.
+As aplicações da mesma biblioteca agora compartilham uma tabela de IDs
+semânticos: classes distintas não colidem e `Map`, `String` e `Object` mantêm
+o ID entre as quatro execuções. Os IDs das duas primeiras classes seguem o
+oráculo CFE (1 para `Endereco`, 8 para `Usuario` neste corpus). A tabela é
+pré-requisito para fundir os resultados na augmentation parcial.
+O adaptador de montagem do analyzer já funde essas quatro declarações em
+`modelos.macro_declarations.txt`: os quatro blocos `augment class` são
+comparados byte a byte com a parte correspondente da augmentation do CFE.
+O `.txt` é a saída intermediária usada para reconstruir o modelo da fase de
+definições. A montagem final é gravada em `.macro.dart`.
+O analyzer 7.3 não associa `import augment` à classe original neste ensaio;
+por isso o builder lê a AST da saída parcial e serializa os métodos e
+construtores gerados para `modelos.macro_definitions_model.json`. O modelo
+completo de membros de `Endereco` corresponde ao pedido da fase de definições
+do CFE depois de desconsiderar os IDs locais da sessão e trocar a URI do
+fixture.
+O hospedeiro Dart já atende `resolverIdentificador`, `resolver`,
+`ehExatamente` e `declaracao`: as 14 consultas da fase de definições de
+`Endereco` correspondem ao CFE depois de desconsiderar IDs de sessão.
+O `build_runner` também executa a fase de definições de `Endereco` no mesmo
+isolate; seu `macro.resultado` corresponde ao CFE depois da mesma
+normalização. O hospedeiro responde `membros` de classes já processadas; as
+quatro aplicações agora terminam a fase de definições sem diagnósticos no
+fixture reduzido. Os resultados de `Endereco`, `SoSaida` e `SoEntrada`
+coincidem estruturalmente com o CFE depois de remover IDs de sessão;
+`Usuario` tem menos campos no fixture e requer o corpus completo para essa
+comparação.
+O builder também monta `modelos.macro_complete.txt` com as duas fases. Os
+blocos completos de `Endereco`, `SoSaida` e `SoEntrada` são comparados byte a
+byte com o CFE. A saída continua `.txt` até a validação integral de `Usuario`
+com o corpus completo e da URI da biblioteca materializada.
+O fixture foi alinhado ao fonte original de `410_json_codable` (dez campos de
+`Usuario` e o construtor com `this.valor`). O modelo semântico inclui esse
+construtor e parâmetros de tipo de interfaces do SDK. As quatro aplicações
+agora produzem resultados de definições estruturalmente iguais ao CFE; a
+augmentation inteira tem 3266 caracteres idênticos byte a byte após trocar
+somente a URI do pacote do fixture. O builder opt-in grava `modelos.macro.dart`
+com cabeçalho relativo `augment library 'modelos.dart';`, mas só se as duas
+fases terminarem sem erro. O `build_runner` concluiu 8 ações e 9 saídas no
+fixture, sem realimentar o `.macro.dart` como entrada. O consumo pelo DartForge
+é verificado no job pesado de macros: o builder materializa o caso 410,
+`compile-js` e `dartforge-jsprod` carregam o arquivo por `import augment`, e o
+Node precisa imprimir as mesmas linhas que a VM oficial com macro no fonte
+original. A fonte do
+fixture é restaurada depois da prova; o oráculo original não é alterado.
+Para incorporar o caso ao harness diferencial, o job prepara também uma cópia
+do fonte no fixture com `import augment`, e registra sua entrada em
+`dartforge-entrada.txt`. A VM e o DDC continuam executando `main.dart` e
+`lib/modelos.dart` originais; só DartForge usa a cópia. Antes da comparação, o
+arquivo materializado da cópia é conferido integralmente contra a augmentation
+do CFE, ajustando apenas as URIs da cópia.
+Esse 7/7 mede consumo do arquivo preparado, não execução automática da
+anotação original no compilador. O caso independente `411_pedido_independente`
+exercita essa execução no `compile-js` e no `dartforge-jsprod`; sua fonte
+original é usada pelos quatro executores do harness, enquanto o builder do
+fixture é comparado separadamente ao CFE byte a byte. O JS usa uma VM Dart
+como executor provisório; o executor nativo D4 e a integração no `dev` seguem
+pendentes.
 
 Um pacote `dartforge_macros_builder` para o `build_runner`:
 

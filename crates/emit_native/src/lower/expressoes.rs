@@ -282,17 +282,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             ExprKind::Bool(b) => self.emit(Instruction::Const(Constant::Bool(*b)), Type::I1),
             ExprKind::Null => self.emit(Instruction::Const(Constant::Null), Type::Ref),
+            ExprKind::Symbol(names) => {
+                let name = self.nome_literal_simbolo(names);
+                let Some(class) = self.ctx.classe_do_sdk("_internal", "Symbol") else {
+                    return self.nao_suportado("literal de símbolo sem dart:_internal", expr.span);
+                };
+                let Some(empty) = self.ctx.interner.lookup("") else {
+                    return self.nao_suportado("construtor de Symbol ausente", expr.span);
+                };
+                let Some(&ctor) = self.ctx.program.classes[class.0 as usize].constructors.get(&empty) else {
+                    return self.nao_suportado("construtor de Symbol ausente", expr.span);
+                };
+                let text = self.emit(Instruction::Const(Constant::String(name)), Type::Ref);
+                self.instanciar_avaliados(ctor, &[(None, text)], expr.span)
+            }
             ExprKind::String(str_lit) => {
                 if let Some(text) = str_lit.constant_value() {
-                    let s = String::from_utf8_lossy(text.as_bytes()).to_string();
-                    self.emit(Instruction::Const(Constant::String(s)), Type::Ref)
+                    self.emit(Instruction::Const(Constant::StringWtf8(text.as_bytes().to_vec())), Type::Ref)
                 } else {
                     let mut current_str: Option<Operand> = None;
                     for part in &str_lit.parts {
                         let part_op = match part {
                             ast::StringPart::Text(t) => {
-                                let s = String::from_utf8_lossy(t.as_bytes()).to_string();
-                                self.emit(Instruction::Const(Constant::String(s)), Type::Ref)
+                                self.emit(Instruction::Const(Constant::StringWtf8(t.as_bytes().to_vec())), Type::Ref)
                             }
                             ast::StringPart::Interpolation(sub_expr) => {
                                 let raw_op = self.lower_expr(ast, *sub_expr);
@@ -336,6 +348,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                             Type::Ref,
                                         )
                                     }
+                                    Type::Ref if self.ctx.sdk_da_fonte => self.texto_por_seletor(raw_op),
                                     Type::Ref => self.emit(
                                         Instruction::CallStatic {
                                             symbol: "dartforge_dispatch_toString".to_string(),
@@ -444,6 +457,30 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     return op;
                 }
                 let nome = self.ctx.symbol_name(sym).to_string();
+                // `dynamic`, `Never` e `Null` também são expressões que
+                // denotam objetos `Type`. Os dois últimos podem vir pela
+                // resolução normal; esta via cobre os nomes especiais sem
+                // elemento no outline, como já faz o emissor JS.
+                let receita = match nome.as_str() {
+                    "dynamic" => Some("D"),
+                    "Never" => Some("N"),
+                    "Null" => Some("U"),
+                    _ => None,
+                };
+                if let Some(texto) = receita {
+                    let tipo = self.rti_da_receita(&super::rti::Receita {
+                        texto: texto.to_string(),
+                        variaveis: false,
+                    });
+                    return self.emit(
+                        Instruction::CallRuntime {
+                            name: "dartforge_rti_objeto_tipo".to_string(),
+                            args: vec![(tipo, Type::I64)],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    );
+                }
                 self.nao_suportado(&format!("identificador `{nome}`"), span)
             }
             ExprKind::Parenthesized(sub) => self.lower_expr(ast, *sub),
@@ -685,7 +722,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     // `C.new`/`C.nome`: tear-off de construtor (P4).
                     if let Some(Resolved::Element(dartforge_elements::model::Element::Class(c))) =
                         self.ctx.get_resolved(self.unit_id, *target).cloned()
-                        && !self.ctx.program.library(self.ctx.program.classes[c.0 as usize].library).is_sdk
+                        && self.ctx.biblioteca_compilada(self.ctx.program.classes[c.0 as usize].library)
                     {
                         let chave = if prop_name == "new" {
                             self.ctx.interner.lookup("")
@@ -790,6 +827,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.desviar_se_nulo(&target_op);
                 }
                 let idx_op = self.lower_expr(ast, *index);
+                if self.ctx.sdk_da_fonte {
+                    // SDK da fonte: `[]` pela classe dinâmica.
+                    let r = self.chamar_por_nome(target_op, super::sdk_fonte::Tipo::Chamar, "[]", &[(None, idx_op)]);
+                    let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
+                    return self.coagir(r, repr);
+                }
                 // `operator []` de classe do usuário, pela classe estática.
                 if let Some(cid) = self.classe_do_usuario_de(*target) {
                     let Some(fid) = self.membro_na_classe(cid, "[]") else {
@@ -872,6 +915,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             {
                 let l = self.lower_literal_de_colecao(ast, super::literais::Colecao::Lista, elements, expr.span);
                 self.rti_do_literal(l, expr_id)
+            }
+            // SDK da fonte: mapas e conjuntos são o `_Map`/`_Set` da fonte.
+            ExprKind::SetOrMap { elements, .. } if self.ctx.sdk_da_fonte => {
+                let tipo = if self.literal_e_conjunto(expr_id, elements) {
+                    super::literais::Colecao::Conjunto
+                } else {
+                    super::literais::Colecao::Mapa
+                };
+                let colecao = self.lower_literal_de_colecao(ast, tipo, elements, expr.span);
+                self.rti_do_literal(colecao, expr_id)
             }
             ExprKind::SetOrMap { elements, .. } if self.literal_e_conjunto(expr_id, elements) => {
                 let l = self.lower_literal_de_colecao(ast, super::literais::Colecao::Conjunto, elements, expr.span);
@@ -989,7 +1042,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             outro => {
                 let oque = match outro {
                     ExprKind::Super => "`super` como valor",
-                    ExprKind::Symbol(_) => "literal de símbolo",
 
                     ExprKind::TypeArguments { .. } => "instanciação de tipo genérico",
 
@@ -1061,7 +1113,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             MemberRef::Function(f) => self.ctx.program.functions[f.0 as usize].library,
             MemberRef::Variable(v) => self.ctx.program.variables[v.0 as usize].library,
         };
-        if !self.ctx.program.library(lib).is_sdk {
+        if self.ctx.biblioteca_compilada(lib) {
             return None;
         }
         let this = self.this_param.clone()?;

@@ -111,3 +111,29 @@ O placar é o do harness (`crates/diferencial`), no CI:
 seções: as falhas agrupadas pela primeira linha do stderr, e **"construtos
 (todos os diagnósticos)"** — cada construto não suportado com o número de
 programas que o usam e a lista dos programas bloqueados **só** por ele.
+
+---
+
+## 5. Estado de `late`
+
+Globais e campos estáticos usam a bandeira de inicialização do getter;
+campos de instância sem inicializador usam uma marca por objeto e índice,
+purgada pelo GC. A marca não depende dos bits do valor, pois `0`, `false` e
+`null` podem ser atribuições válidas. Locais não capturados usam uma marca
+na pilha; seu inicializador roda na primeira leitura e uma escrita anterior
+cancela essa avaliação. Os erros usam `LateError` do SDK da fonte.
+
+Locais `late` capturados sem inicializador compartilham o estado pela `Cell`
+da variável; uma entrada de índice `-1` na tabela lateral acompanha a vida
+do handle e é purgada pelo GC. A captura de inicializador preguiçoso ainda
+precisa transportar o ambiente da declaração. Campos `late` com inicializador
+usam um getter próprio por campo. A tabela lateral distingue o valor já
+inicializado (inclusive `null`) da avaliação em curso, por objeto e índice;
+a leitura reentrante produz `StackOverflowError` do SDK sem recursão no
+lowering. O índice `-(campo+2)` reserva a marca transitória sem colidir com
+`-1` dos locais capturados. O estado transitório também é purgado pelo GC.
+
+Um global com inicializador distingue três estados (`0` pendente, `2` em
+avaliação, `1` pronto). A leitura reentrante constrói `StackOverflowError`
+do SDK, que é o erro capturável observado na VM, e uma exceção durante a
+avaliação restaura o estado pendente para a próxima leitura.

@@ -37,6 +37,10 @@ pub struct FnBuilder<'a, 'c> {
     pub locals: HashMap<LocalId, Operand>,
     /// Escopos léxicos dos locais, do mais externo (parâmetros) ao corrente (R6).
     pub escopos: Vec<HashMap<SymbolId, super::locais::Local>>,
+    /// Inicializadores `late` que o lowering já está expandindo. Uma leitura
+    /// recursiva deve consultar a célula no runtime, não expandir o AST de
+    /// novo durante a compilação.
+    pub late_inicializadores_em_lowering: std::collections::HashSet<usize>,
     /// Quantos `alloca` já estão no começo do bloco de entrada.
     pub n_allocas: usize,
     pub value_types: HashMap<ValueId, Type>,
@@ -85,6 +89,12 @@ pub struct FnBuilder<'a, 'c> {
     /// O padrão corrente é de casamento (`case`, `if-case`): um nome solto
     /// nele é um padrão constante, não uma variável nova.
     pub padrao_refutavel: bool,
+    /// O teste de tipo corrente é o de um `as` (confere só a classe).
+    pub cast_so_pela_classe: bool,
+    // --- P5c (SDK da fonte, δ) ---
+    /// Esta função é um adaptador da tabela de métodos (`sdk_fonte.rs`): o
+    /// membro que ele adapta é chamado direto, nunca pelo seletor de novo.
+    pub em_adaptador: bool,
     // --- P6 (async, `async_sm.rs`) ---
     /// Corpo de uma função `async` em curso: o quadro, as retomadas.
     pub async_estado: Option<Box<super::async_sm::EstadoAsync>>,
@@ -169,6 +179,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             next_block: 1,
             locals: HashMap::new(),
             escopos: vec![HashMap::new()],
+            late_inicializadores_em_lowering: std::collections::HashSet::new(),
             n_allocas: 0,
             value_types: HashMap::new(),
             break_targets: Vec::new(),
@@ -197,6 +208,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             em_contexto_const: false,
             chaves_de_const_locais: HashMap::new(),
             padrao_refutavel: false,
+            cast_so_pela_classe: false,
+            em_adaptador: false,
             async_estado: None,
             params_de_tipo_da_funcao: Vec::new(),
             classe_por_tupla: false,
@@ -472,7 +485,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Operand::Constant(Constant::Int(_)) => Type::I64,
             Operand::Constant(Constant::Double(_)) => Type::F64,
             Operand::Constant(Constant::Bool(_)) => Type::I1,
-            Operand::Constant(Constant::String(_)) => Type::Ref,
+            Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)) => Type::Ref,
             Operand::Constant(Constant::Null) => Type::Ref,
         }
     }
@@ -841,6 +854,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// -12 para null, -9/-10/-11 para as caixas de int/double/bool, -2 para
     /// String…) — sem desreferenciar null (H6).
     pub fn testar_tipo(&mut self, ast_ty: &ast::TypeAnnotation, op: Operand) -> Operand {
+        if let Some(r) = self.testar_tipo_fonte(ast_ty, op.clone()) {
+            return r;
+        }
         // `x is List<int>`, `x is T`, `x is FutureOr<T>`, tipo de função ou
         // de record: pelo RTI (`rti.rs`). O teste pela classe abaixo só vale
         // para a classe sem argumentos de tipo (ou com argumentos triviais).
@@ -1040,26 +1056,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Operador de uma atribuição composta (`a op= b`).
     pub fn lower_binary_op_helper(&mut self, op: BinaryOp, lop: Operand, rop: Operand) -> Operand {
-        // Local `int?` promovido: o valor corrente é `Ref`, o outro lado diz
-        // o escalar.
+        // O valor corrente em `Ref` pode ser `String`, um número anulável ou
+        // outro objeto. O tipo do operando direito não prova que ele seja
+        // numérico (`s *= 2`); o despacho dinâmico trata esses casos.
         let (tl, tr) = (self.operand_type(&lop), self.operand_type(&rop));
-        let lop = if tl == Type::Ref && matches!(tr, Type::I64 | Type::F64) {
-            self.coagir(lop, tr)
-        } else {
-            lop
-        };
         let rop = if tr == Type::Ref && matches!(tl, Type::I64 | Type::F64) {
             self.coagir(rop, tl)
         } else {
             rop
         };
-        let texto =
-            self.operand_type(&lop) == Type::Ref && matches!(op, BinaryOp::Add | BinaryOp::Mul);
         self.operar(
             op,
             lop,
             rop,
-            texto,
+            false,
             dartforge_diagnostics::Span { start: 0, end: 0 },
         )
     }

@@ -66,6 +66,15 @@ use std::time::{Duration, Instant};
 /// `main` por engano recebe erro de símbolo ausente, não uma chamada errada.
 pub const ENTRY_SYMBOL: &str = "dartforge_entry";
 
+/// Identifica o contrato do `main` emitido para o SDK da fonte. Uma simples
+/// declaração `df.registrar.*` também pode aparecer em IR que não chama o
+/// runtime da DLL; a decisão depende da chamada real a `dartforge_iniciar`.
+pub fn ir_usa_sdk_da_fonte(ir: &str) -> bool {
+    let main = ir.lines().any(|line| line.trim_start().starts_with("define i32 @main()"));
+    let iniciar = ir.lines().any(|line| line.contains("call i32 @dartforge_iniciar(ptr @dartforge_entry,"));
+    main && iniciar
+}
+
 /// Nomes do runtime nativo que a sessão publica para o código gerado.
 ///
 /// Gerado por `build.rs` a partir dos `#[unsafe(no_mangle)]` de
@@ -205,6 +214,13 @@ pub struct JitSession {
     poisoned: Option<String>,
     /// Identidade da sessão, para que uma [`StableEntry`] não cruze sessões.
     id: u64,
+    /// SDK da fonte (P5c/P5d, docs/NATIVO-PLANO.md §7.9): os nomes que a DLL
+    /// do SDK exporta (runtime e bibliotecas), publicados na sessão no lugar
+    /// do runtime deste processo. Vazio no caminho de sempre.
+    externos_do_sdk: std::collections::HashSet<String>,
+    /// DLL usada pela sessão, para publicar exports que uma recarga passar a
+    /// referenciar. Ausente quando o runtime vem deste processo.
+    sdk_dll: Option<std::path::PathBuf>,
     lljit: ffi::Lljit,
 }
 
@@ -222,6 +238,16 @@ struct Module {
 }
 
 impl JitSession {
+    /// Na sessão com DLL, só os nomes efetivamente publicados da DLL contam
+    /// como runtime. O conjunto `RUNTIME_SYMBOLS` pertence à sessão embutida.
+    fn is_known_external(&self, name: &str) -> bool {
+        if self.sdk_dll.is_some() {
+            CRT_SYMBOLS.contains(&name) || name.starts_with("llvm.")
+        } else {
+            ffi::is_known_external(name)
+        }
+    }
+
     /// Abre uma `LLJIT` para o host e publica os símbolos do runtime nativo.
     ///
     /// Os símbolos vêm de [`RUNTIME_SYMBOLS`] e são registrados como endereços
@@ -256,8 +282,80 @@ impl JitSession {
             reloadables: Vec::new(),
             poisoned: None,
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            externos_do_sdk: std::collections::HashSet::new(),
+            sdk_dll: None,
             lljit,
         })
+    }
+
+    /// Uma sessão para um programa com o SDK da fonte: o runtime e as
+    /// bibliotecas do SDK vêm da DLL do SDK compilado (`dll`, com o
+    /// `exportados.def` ao lado), carregada neste processo — o runtime deste
+    /// processo não é publicado (duas cópias do estado do runtime não
+    /// conversariam). O programa roda pelo `main` que o emissor escreve
+    /// ([`run_ir`]).
+    pub fn new_com_sdk(dll: &std::path::Path, usados: &[String]) -> Result<Self, JitError> {
+        let lljit = ffi::Lljit::new()
+            .map_err(|detail| JitError::new("lljit", "não foi possível abrir a LLJIT", detail))?;
+        let nomes = lljit
+            .define_symbols_from_dll(dll, usados, true)
+            .map_err(|detail| JitError::new("sdk", "não foi possível publicar os símbolos da DLL do SDK", detail))?;
+        static NEXT_ID: AtomicU64 = AtomicU64::new(1_000_000);
+        Ok(Self {
+            modules: Vec::new(),
+            reloadables: Vec::new(),
+            poisoned: None,
+            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            externos_do_sdk: nomes.into_iter().collect(),
+            sdk_dll: Some(dll.to_path_buf()),
+            lljit,
+        })
+    }
+
+    /// Abre uma sessão com o runtime correto para o IR emitido. Programas com
+    /// SDK da fonte usam `DARTFORGE_SDK_DLL` e só publicam os exports pedidos.
+    pub fn new_for_ir(ir: &str) -> Result<Self, JitError> {
+        if !ir_usa_sdk_da_fonte(ir) {
+            return Self::new();
+        }
+        let dll = std::env::var_os("DARTFORGE_SDK_DLL").ok_or_else(|| {
+            JitError::new("sdk", "programa com o SDK da fonte sem DARTFORGE_SDK_DLL", String::new())
+        })?;
+        let usados: Vec<String> = ir
+            .lines()
+            .filter_map(|l| {
+                let r = l.strip_prefix("declare ")?;
+                let i = r.find('@')? + 1;
+                let f = r[i..].find('(')? + i;
+                Some(r[i..f].to_string())
+            })
+            .collect();
+        Self::new_com_sdk(std::path::Path::new(&dll), &usados)
+    }
+
+    /// O runtime desta sessão vem da DLL do SDK da fonte.
+    pub fn usa_sdk_da_fonte(&self) -> bool {
+        self.sdk_dll.is_some()
+    }
+
+    /// Executa o `main` do programa com o SDK da fonte (que chama
+    /// `dartforge_iniciar` da DLL): o código de saída é o dele. As globais
+    /// mutáveis dos módulos JIT do programa são zeradas entre execuções da
+    /// mesma sessão. Estáticos internos da DLL do SDK permanecem entre chamadas.
+    pub fn run_main(&self) -> Result<EntryReport, JitError> {
+        let started = Instant::now();
+        let globals: Vec<&ffi::MutableGlobal> = self
+            .modules
+            .iter()
+            .filter(|module| !module.removed)
+            .flat_map(|module| module.globals.iter())
+            .chain(self.reloadables.iter().flat_map(|module| module.globals.iter()))
+            .collect();
+        let (lookup, exit_code, execute) = self
+            .lljit
+            .run_main(PROGRAM_STACK_BYTES, &globals)
+            .map_err(|detail| JitError::new("execute", "a execução do programa falhou", detail))?;
+        Ok(EntryReport { lookup, execute, total: started.elapsed(), exit_code })
     }
 
     /// Versão da `LLVM-C.dll` carregada neste processo, `(major, minor, patch)`.
@@ -344,7 +442,8 @@ impl JitSession {
         let signatures = parsed.signatures();
         let defined = self.defined_names();
         if let Some(unknown) = parsed.declarations().into_iter().find(|reference| {
-            !ffi::is_known_external(reference)
+            !self.is_known_external(reference)
+                && !self.externos_do_sdk.contains(reference.as_str())
                 && !defined.contains(&reference.as_str())
                 && !signatures.iter().any(|s| &s.name == reference)
         }) {
@@ -407,7 +506,8 @@ impl JitSession {
         self.check_target_strings(&parts.target.0, &parts.target.1)?;
         let defined = self.defined_names();
         if let Some(unknown) = parts.declarations.iter().find(|reference| {
-            !ffi::is_known_external(reference)
+            !self.is_known_external(reference)
+                && !self.externos_do_sdk.contains(reference.as_str())
                 && !defined.contains(&String::as_str(reference))
                 && !parts.signatures.iter().any(|s| &s.name == *reference)
         }) {
@@ -487,6 +587,7 @@ impl JitSession {
             .iter()
             .filter(|module| !module.removed)
             .flat_map(|module| module.globals.iter())
+            .chain(self.reloadables.iter().flat_map(|module| module.globals.iter()))
             .collect();
         let (lookup, exit_code, execute) =
             self.lljit.run_entry(PROGRAM_STACK_BYTES, &globals).map_err(|detail| {
@@ -508,6 +609,44 @@ impl JitSession {
             total: started.elapsed(),
             exit_code,
         })
+    }
+
+    /// Executa a entrada recarregável na thread chamadora, preservando heap e
+    /// globais entre chamadas. A CLI usa esta operação após publicar cada
+    /// geração; `run_entry` continua oferecendo execuções isoladas.
+    ///
+    /// O runtime embutido usa estado por thread. Uma sessão com DLL do SDK tem
+    /// outro contrato de inicialização (`dartforge_iniciar`) e é recusada aqui.
+    pub fn run_reloadable_entry(&self) -> Result<EntryReport, JitError> {
+        if self.sdk_dll.is_some() {
+            return Err(JitError::new("execute", "recarga com estado ainda não suporta SDK da fonte", String::new()));
+        }
+        let started = Instant::now();
+        let phase = Instant::now();
+        let entry = self.stable_entry(ENTRY_SYMBOL)?;
+        let lookup = phase.elapsed();
+        let phase = Instant::now();
+        entry.call_void(self)?;
+        let exit_code = dartforge_runtime::abi::finalizar_programa();
+        let execute = phase.elapsed();
+        Ok(EntryReport { lookup, execute, total: started.elapsed(), exit_code })
+    }
+
+    /// Executa o `main` recarregável do SDK da fonte na thread chamadora.
+    /// O `dartforge_iniciar` da DLL conserva o runtime dessa thread e faz a
+    /// finalização; nenhuma global dos módulos JIT é zerada aqui.
+    pub fn run_reloadable_main(&self) -> Result<EntryReport, JitError> {
+        if self.sdk_dll.is_none() {
+            return Err(JitError::new("execute", "a entrada main recarregável exige SDK da fonte", String::new()));
+        }
+        let started = Instant::now();
+        let phase = Instant::now();
+        let entry = self.stable_entry("main")?;
+        let lookup = phase.elapsed();
+        let phase = Instant::now();
+        let exit_code = entry.call_i32(self)?;
+        let execute = phase.elapsed();
+        Ok(EntryReport { lookup, execute, total: started.elapsed(), exit_code })
     }
 
     /// Nomes dos módulos ainda residentes, na ordem de inclusão.
@@ -622,10 +761,10 @@ pub fn compile_module(name: &str, ir: &str) -> Result<CompiledModule, JitError> 
 pub fn run_ir(ir: &str) -> Result<JitReport, JitError> {
     let started = Instant::now();
     let phase = Instant::now();
-    let mut session = JitSession::new()?;
+    let mut session = JitSession::new_for_ir(ir)?;
     let session_time = phase.elapsed();
     let module = session.add_ir_module("dartforge", ir)?;
-    let entry = session.run_entry()?;
+    let entry = if session.usa_sdk_da_fonte() { session.run_main()? } else { session.run_entry()? };
     drop(session);
     Ok(JitReport {
         session: session_time,
@@ -638,6 +777,14 @@ pub fn run_ir(ir: &str) -> Result<JitReport, JitError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn declaracao_de_registro_nao_muda_perfil_do_runtime() {
+        let sem_sdk = "declare void @df.registrar.fake()\ndefine void @dartforge_entry() { ret void }\n";
+        assert!(!ir_usa_sdk_da_fonte(sem_sdk));
+        let com_sdk = "declare void @df.registrar.core()\ndefine void @dartforge_entry() { ret void }\n\
+            define i32 @main() {\n  %r = call i32 @dartforge_iniciar(ptr @dartforge_entry, ptr @dartforge_dispatch_toString)\n  ret i32 %r\n}\n";
+        assert!(ir_usa_sdk_da_fonte(com_sdk));
+    }
     /// A mensagem de erro identifica a etapa e preserva o texto do LLVM.
     #[test]
     fn error_display_keeps_stage_and_detail() {
@@ -661,5 +808,23 @@ mod tests {
         assert!(!RUNTIME_SYMBOLS.contains(&"main"));
         // A tabela é gerada da fonte: ela cresce com o runtime, nunca à mão.
         assert!(RUNTIME_SYMBOLS.len() > 100, "{}", RUNTIME_SYMBOLS.len());
+    }
+
+    /// O caminho de objeto em cache aceita os mesmos externos do SDK da fonte
+    /// que o caminho de IR textual; sem autorização, ambos os recusam.
+    #[test]
+    #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+    fn objeto_em_cache_aceita_externo_autorizado_pelo_sdk() {
+        let ir = "declare void @df.sdk_teste()\ndefine void @dartforge_entry() {\n  call void @df.sdk_teste()\n  ret void\n}\n";
+        let compilado = compile_module("sdk", ir).unwrap();
+        let mut sem_sdk = JitSession::new().unwrap();
+        assert_eq!(sem_sdk.add_compiled_module(&compilado).unwrap_err().stage, "símbolos");
+
+        let mut com_sdk = JitSession::new().unwrap();
+        com_sdk.externos_do_sdk.insert("df.sdk_teste".to_owned());
+        com_sdk.add_ir_module("sdk-ir", ir).unwrap();
+        let mut com_sdk = JitSession::new().unwrap();
+        com_sdk.externos_do_sdk.insert("df.sdk_teste".to_owned());
+        com_sdk.add_compiled_module(&compilado).unwrap();
     }
 }

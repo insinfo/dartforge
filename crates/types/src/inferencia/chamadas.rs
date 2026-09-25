@@ -333,7 +333,26 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 }
             }
             // `C.m(args)` estático / `E.m(args)`.
-            if referencia_a_tipo(inf, cx, recv).is_some() {
+            if let Some(rt) = referencia_a_tipo(inf, cx, recv) {
+                if let RefTipo::Extensao(x) = rt {
+                    if inf.membro_estatico_de_extensao(x, name.sym, false).is_none() {
+                        if inf.program.extension(x).instance_members.contains_key(&name.sym) {
+                            let msg = format!("{}: '{}'", STATIC_ACCESS_TO_INSTANCE_MEMBER.template, inf.interner.resolve(name.sym));
+                            inf.aviso(msg, name.span);
+                            for arg in args.args.iter() {
+                                inferir_livre(inf, cx, arg.value);
+                            }
+                            return (inf.core.dynamic_, false);
+                        }
+                        let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
+                        let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_METHOD.template, inf.interner.resolve(name.sym), extensao);
+                        inf.aviso(msg, name.span);
+                        for arg in args.args.iter() {
+                            inferir_livre(inf, cx, arg.value);
+                        }
+                        return (inf.core.dynamic_, false);
+                    }
+                }
                 let t = inferir(inf, cx, target, u);
                 let (r, _) = invocar_valor(inf, cx, t, args, ctx, explicitos, span);
                 return (r, false);
@@ -348,7 +367,21 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 return (r, false);
             }
             let (r_ty, curto) = receptor(inf, cx, recv, null_aware);
-            match expr::buscar_membro_do_alvo(inf, cx, recv, r_ty, name.sym, false) {
+            let mut busca = expr::buscar_membro_do_alvo(inf, cx, recv, r_ty, name.sym, false);
+            if matches!(busca, Busca::Ausente) {
+                if let Some((x, _)) = cx.sobreposicoes.get(&recv).cloned() {
+                    if let Some(m) = inf.membro_estatico_de_extensao(x, name.sym, false) {
+                        // O analyzer ainda resolve a assinatura do método,
+                        // mas rejeita seu acesso via `E(valor).metodo()`.
+                        inf.aviso(
+                            EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template.to_string(),
+                            name.span,
+                        );
+                        busca = Busca::Achado(m);
+                    }
+                }
+            }
+            match busca {
                 Busca::Achado(m) => {
                     resolver(inf, cx, target, m.resolved.clone());
                     registrar(inf, cx, target, m.tipo);
@@ -411,6 +444,17 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                     (inf.core.never, curto)
                 }
                 Busca::Ausente => {
+                    if let Some((x, _)) = cx.sobreposicoes.get(&recv).cloned() {
+                        let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
+                        let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_METHOD.template, inf.interner.resolve(name.sym), extensao);
+                        inf.aviso(msg, name.span);
+                        let d = inf.core.dynamic_;
+                        registrar(inf, cx, target, d);
+                        for x in args.args.iter() {
+                            inferir_livre(inf, cx, x.value);
+                        }
+                        return (d, curto);
+                    }
                     let msg = format!(
                         "{}: '{}' para o tipo '{}'",
                         UNDEFINED_METHOD.template,
@@ -429,6 +473,31 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
         }
         _ => {
             let t = inferir(inf, cx, target, u);
+            if let Some((x, ext_args)) = cx.sobreposicoes.get(&target).cloned() {
+                if let Some(call) = inf.sym.call {
+                    if let Some(m) = inf.membro_de_extensao_explicita(x, &ext_args, call, false) {
+                        let (r, _) = invocar(inf, cx, m.tipo, args, ctx, explicitos);
+                        return (r, false);
+                    }
+                    if let Some(m) = inf.membro_estatico_de_extensao(x, call, false) {
+                        // `E(valor)()` usa a lista de argumentos como localização
+                        // do erro, conforme o analyzer oficial.
+                        inf.aviso(
+                            EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template.to_string(),
+                            args.span,
+                        );
+                        let (r, _) = invocar(inf, cx, m.tipo, args, ctx, explicitos);
+                        return (r, false);
+                    }
+                }
+                let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
+                let msg = format!("{}: '{}'", INVOCATION_OF_EXTENSION_WITHOUT_CALL.template, extensao);
+                inf.aviso(msg, a.expr(target).span);
+                for arg in args.args.iter() {
+                    inferir_livre(inf, cx, arg.value);
+                }
+                return (inf.core.dynamic_, false);
+            }
             let (r, _) = invocar_valor(inf, cx, t, args, ctx, explicitos, span);
             (r, false)
         }

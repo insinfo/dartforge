@@ -70,6 +70,8 @@ fn ast<'p>(inf: &BodyInferrer<'p>, cx: &Corpo) -> &'p ast::Ast {
 pub(crate) enum RefNome {
     Local(LocalId),
     TipoParam(crate::table::TypeParamId),
+    /// Pseudotipo embutido, sem elemento no namespace da biblioteca.
+    TipoDinamico,
     Elemento(Element),
     /// Membro declarado no corpo da classe/extensão envolvente.
     MembroLexico(dartforge_elements::model::FunctionElementId, bool),
@@ -121,6 +123,9 @@ pub(crate) fn resolver_nome(inf: &mut BodyInferrer<'_>, cx: &Corpo, nome: Symbol
     }
     if inf.program.library(cx.lib).prefixes.contains_key(&nome) {
         return RefNome::Prefixo;
+    }
+    if inf.interner.resolve(nome) == "dynamic" {
+        return RefNome::TipoDinamico;
     }
     if cx.tipo_this.is_some() && !cx.estatico {
         return RefNome::ThisImplicito;
@@ -300,6 +305,7 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
             resolver(inf, cx, e, Resolved::TypeParameter(p));
             inf.core.type_
         }
+        RefNome::TipoDinamico => inf.core.type_,
         RefNome::Elemento(el) => {
             resolver(inf, cx, e, Resolved::Element(el));
             ler_elemento(inf, el)
@@ -584,10 +590,8 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
             instanciar_em_contexto(inf, t, ctx)
         }
         ExprKind::Index { target, index, null_aware } => {
-            let (recv, c) = receptor(inf, cx, *target, *null_aware);
+            let (t, c) = ler_indice(inf, cx, e, *target, *index, *null_aware, ctx);
             curto = c;
-            let op = inf.sym.indice;
-            let (t, _) = operador_binario(inf, cx, recv, op, *index, ctx, span, Some(e));
             t
         }
         ExprKind::Call { .. } => {
@@ -796,6 +800,14 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
         return (membro_super(inf, cx, e, name, false), false);
     }
     let (recv, curto) = receptor(inf, cx, target, null_aware);
+    if let Some((x, args)) = cx.sobreposicoes.get(&target).cloned() {
+        if inf.membro_de_extensao_explicita(x, &args, name.sym, false).is_none()
+            && inf.membro_estatico_de_extensao(x, name.sym, false).is_some()
+        {
+            inf.aviso(EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template.to_string(), name.span);
+            return (inf.core.dynamic_, curto);
+        }
+    }
     let base = if null_aware {
         None
     } else {
@@ -827,6 +839,12 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
         }
         Busca::Nunca => inf.core.never,
         Busca::Ausente => {
+            if let Some((x, _)) = cx.sobreposicoes.get(&target).cloned() {
+                let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
+                let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_GETTER.template, inf.interner.resolve(name.sym), extensao);
+                inf.aviso(msg, name.span);
+                return (inf.core.dynamic_, curto);
+            }
             let msg = format!(
                 "{}: getter '{}' não definido para o tipo '{}'",
                 UNDEFINED_GETTER.template,
@@ -842,38 +860,115 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
 
 /// Acesso estático `C.x` / `E.x` / `C.new`.
 fn acesso_estatico(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, rt: RefTipo, name: ast::Name) -> TypeId {
+    let instancia_explicita = receptor_de_instanciacao_explicita(inf, cx, e);
     match rt {
         RefTipo::Extensao(x) => match inf.membro_estatico_de_extensao(x, name.sym, false) {
             Some(m) => {
                 resolver(inf, cx, e, m.resolved.clone());
                 m.tipo
             }
-            None => inf.core.dynamic_,
+            None => {
+                if inf.program.extension(x).instance_members.contains_key(&name.sym) {
+                    let msg = format!("{}: '{}'", STATIC_ACCESS_TO_INSTANCE_MEMBER.template, inf.interner.resolve(name.sym));
+                    inf.aviso(msg, name.span);
+                    return inf.core.dynamic_;
+                }
+                let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
+                let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_GETTER.template, inf.interner.resolve(name.sym), extensao);
+                inf.aviso(msg, name.span);
+                inf.core.dynamic_
+            }
         },
         RefTipo::Classe(c, targs) => {
             if let Some(m) = inf.membro_estatico(c, name.sym, false) {
+                if instancia_explicita {
+                    avisar_instanciacao_estatica(inf, cx, e, name);
+                    return inf.core.dynamic_;
+                }
                 resolver(inf, cx, e, m.resolved.clone());
                 return m.tipo;
             }
             let args = targs.map(|v| v.iter().map(|&t| inf.tipo_de_anotacao(cx, t)).collect::<Vec<_>>());
-            tearoff_de_construtor(inf, cx, e, c, args, name)
+            tearoff_de_construtor(inf, cx, e, c, args, name, true)
         }
         RefTipo::Alias(c, args, _) => {
             if let Some(m) = inf.membro_estatico(c, name.sym, false) {
+                if instancia_explicita {
+                    avisar_instanciacao_estatica(inf, cx, e, name);
+                    return inf.core.dynamic_;
+                }
                 resolver(inf, cx, e, m.resolved.clone());
                 return m.tipo;
             }
-            tearoff_de_construtor(inf, cx, e, c, args, name)
+            tearoff_de_construtor(inf, cx, e, c, args, name, false)
         }
     }
 }
 
+fn receptor_de_instanciacao_explicita(inf: &BodyInferrer<'_>, cx: &Corpo, e: ExprId) -> bool {
+    let ExprKind::Property { target, .. } = &ast(inf, cx).expr(e).kind else { return false };
+    matches!(&ast(inf, cx).expr(*target).kind, ExprKind::TypeArguments { .. })
+}
+
+/// Somente membros declarados na própria classe; a busca herdada requer
+/// resolver substituições e precedência antes de diagnosticar.
+fn membro_instancia_direto_visivel(inf: &BodyInferrer<'_>, cx: &Corpo, classe: ClassId, name: ast::Name, escrita: bool) -> bool {
+    if inf.interner.resolve(name.sym).starts_with('_') && inf.program.class(classe).library != cx.lib {
+        return false;
+    }
+    let membros = &inf.program.class(classe).instance_members;
+    membros.contains_key(&name.sym)
+        || (escrita && inf.chave_setter(name.sym).is_some_and(|chave| membros.contains_key(&chave)))
+}
+
+fn avisar_acesso_estatico_a_instancia(inf: &mut BodyInferrer<'_>, cx: &Corpo, classe: ClassId, name: ast::Name, escrita: bool) -> bool {
+    let encontrado = membro_instancia_direto_visivel(inf, cx, classe, name, escrita);
+    if encontrado {
+        let msg = format!("{}: '{}'", STATIC_ACCESS_TO_INSTANCE_MEMBER.template, inf.interner.resolve(name.sym));
+        inf.aviso(msg, name.span);
+    }
+    encontrado
+}
+
+fn avisar_instanciacao_de_classe(inf: &mut BodyInferrer<'_>, cx: &Corpo, expr: ExprId, classe: ClassId, name: ast::Name, escrita: bool) -> bool {
+    if !membro_instancia_direto_visivel(inf, cx, classe, name, escrita) { return false; }
+    let msg = format!("{}: '{}'", CLASS_INSTANTIATION_ACCESS_TO_INSTANCE_MEMBER.template, inf.interner.resolve(name.sym));
+    let span = ast(inf, cx).expr(expr).span;
+    inf.aviso(msg, span);
+    true
+}
+
+fn avisar_instanciacao_estatica(inf: &mut BodyInferrer<'_>, cx: &Corpo, expr: ExprId, name: ast::Name) {
+    let msg = format!("{}: '{}'", CLASS_INSTANTIATION_ACCESS_TO_STATIC_MEMBER.template, inf.interner.resolve(name.sym));
+    let span = ast(inf, cx).expr(expr).span;
+    inf.aviso(msg, span);
+}
+
+fn avisar_instanciacao_desconhecida(inf: &mut BodyInferrer<'_>, cx: &Corpo, expr: ExprId, classe: ClassId, name: ast::Name) {
+    let classe = inf.interner.resolve(inf.program.class(classe).name);
+    let membro = inf.interner.resolve(name.sym);
+    let msg = format!("{}: '{classe}', '{membro}'", CLASS_INSTANTIATION_ACCESS_TO_UNKNOWN_MEMBER.template);
+    let span = ast(inf, cx).expr(expr).span;
+    inf.aviso(msg, span);
+}
+
 /// `C.nome` / `C.new` como valor: tipo de função do construtor (genérico
 /// sobre os parâmetros da classe se não instanciado).
-fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, c: ClassId, args: Option<Vec<TypeId>>, name: ast::Name) -> TypeId {
+fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, c: ClassId, args: Option<Vec<TypeId>>, name: ast::Name, diagnosticar_ausencia: bool) -> TypeId {
+    let instancia_explicita = receptor_de_instanciacao_explicita(inf, cx, e);
     let chave = if Some(name.sym) == inf.sym.new_ { inf.sym.vazio } else { Some(name.sym) };
     let Some(chave) = chave else { return inf.core.dynamic_ };
     let Some(f) = inf.construtor_de(c, chave) else {
+        if instancia_explicita && avisar_instanciacao_de_classe(inf, cx, e, c, name, false) {
+            return inf.core.dynamic_;
+        }
+        if instancia_explicita && diagnosticar_ausencia {
+            avisar_instanciacao_desconhecida(inf, cx, e, c, name);
+            return inf.core.dynamic_;
+        }
+        if !instancia_explicita && avisar_acesso_estatico_a_instancia(inf, cx, c, name, false) {
+            return inf.core.dynamic_;
+        }
         let msg = format!("{}: getter '{}' não definido para a classe", UNDEFINED_GETTER.template, inf.interner.resolve(name.sym));
         inf.aviso(msg, name.span);
         return inf.core.dynamic_;
@@ -944,8 +1039,8 @@ pub(crate) fn membro_super(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
 }
 
 /// Símbolo do operador binário.
-fn simbolo_operador(inf: &BodyInferrer<'_>, op: BinaryOp) -> Option<SymbolId> {
-    let s = match op {
+fn texto_operador(op: BinaryOp) -> Option<&'static str> {
+    Some(match op {
         BinaryOp::Add => "+",
         BinaryOp::Sub => "-",
         BinaryOp::Mul => "*",
@@ -964,8 +1059,64 @@ fn simbolo_operador(inf: &BodyInferrer<'_>, op: BinaryOp) -> Option<SymbolId> {
         BinaryOp::GtEq => ">=",
         BinaryOp::Eq | BinaryOp::NotEq => "==",
         _ => return None,
-    };
-    inf.interner.lookup(s)
+    })
+}
+
+fn simbolo_operador(inf: &BodyInferrer<'_>, op: BinaryOp) -> Option<SymbolId> {
+    inf.interner.lookup(texto_operador(op)?)
+}
+
+fn pular_espacos_e_comentarios(trecho: &str) -> usize {
+    let bytes = trecho.as_bytes();
+    let mut pos = 0;
+    while pos < bytes.len() {
+        if bytes[pos].is_ascii_whitespace() {
+            pos += 1;
+        } else if bytes.get(pos..pos + 2) == Some(b"/*") {
+            pos += 2;
+            while pos + 1 < bytes.len() && &bytes[pos..pos + 2] != b"*/" { pos += 1; }
+            pos = (pos + 2).min(bytes.len());
+        } else if bytes.get(pos..pos + 2) == Some(b"//") {
+            while pos < bytes.len() && bytes[pos] != b'\n' { pos += 1; }
+        } else {
+            break;
+        }
+    }
+    pos
+}
+
+fn span_indice(inf: &BodyInferrer<'_>, cx: &Corpo, alvo: ExprId, target: ExprId) -> dartforge_diagnostics::Span {
+    let todo = inf.span_expr(cx.unit, alvo);
+    let inicio = inf.span_expr(cx.unit, target).end;
+    let entre = inf.program.unit(cx.unit).source.get(inicio..todo.end).unwrap_or("");
+    let pos = pular_espacos_e_comentarios(entre);
+    let colchete = inicio + pos + entre.get(pos..).unwrap_or("").find('[').unwrap_or(0);
+    dartforge_diagnostics::Span { start: colchete, end: todo.end }
+}
+
+fn avisar_operador_de_extensao(inf: &mut BodyInferrer<'_>, x: ExtensionId, nome: &str, span: dartforge_diagnostics::Span) {
+    let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
+    let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_OPERATOR.template, nome, extensao);
+    inf.aviso(msg, span);
+}
+
+fn ler_indice(
+    inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, target: ExprId,
+    index: ExprId, null_aware: bool, ctx: TypeId,
+) -> (TypeId, bool) {
+    let (recv, curto) = receptor(inf, cx, target, null_aware);
+    let op = inf.sym.indice;
+    if let Some((x, args)) = cx.sobreposicoes.get(&target).cloned() {
+        if let Some((s, m)) = op.and_then(|s| inf.membro_de_extensao_explicita(x, &args, s, false).map(|m| (s, m))) {
+            return (operador_binario_com_membro(inf, cx, recv, s, index, ctx, Some(alvo), m).0, curto);
+        }
+        inferir_livre(inf, cx, index);
+        let span = span_indice(inf, cx, alvo, target);
+        avisar_operador_de_extensao(inf, x, "[]", span);
+        return (inf.core.dynamic_, curto);
+    }
+    let span = inf.span_expr(cx.unit, alvo);
+    (operador_binario(inf, cx, recv, op, index, ctx, span, Some(alvo)).0, curto)
 }
 
 /// Invocação de um operador de um argumento (`a + b`, `a[i]`): busca o
@@ -981,32 +1132,12 @@ pub(crate) fn operador_binario(
     span: dartforge_diagnostics::Span,
     no: Option<ExprId>,
 ) -> (TypeId, Option<Membro>) {
-    let u = inf.core.unknown;
     let Some(op) = op else {
         inferir_livre(inf, cx, arg);
         return (inf.core.dynamic_, None);
     };
     match inf.buscar_membro(cx.lib, recv, op, false) {
-        Busca::Achado(m) => {
-            if let Some(n) = no {
-                resolver(inf, cx, n, m.resolved.clone());
-            }
-            let (param, ret) = match inf.table.get(m.tipo).clone() {
-                Type::Function { positional, optional, ret, .. } => (positional.first().or(optional.first()).copied(), ret),
-                _ => (None, inf.core.dynamic_),
-            };
-            let ctx_arg = match param {
-                Some(p) => contexto_numerico(inf, recv, &m, op, ctx, p),
-                None => u,
-            };
-            let ta = inferir(inf, cx, arg, ctx_arg);
-            if let Some(p) = param {
-                let sp = inf.span_expr(cx.unit, arg);
-                inf.verificar_atribuivel(ta, p, sp, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
-            }
-            let t = refinar_numerico(inf, recv, &m, op, &[ta], ret);
-            (t, Some(m))
-        }
+        Busca::Achado(m) => operador_binario_com_membro(inf, cx, recv, op, arg, ctx, no, m),
         Busca::Dinamico => {
             inferir_livre(inf, cx, arg);
             (inf.core.dynamic_, None)
@@ -1027,6 +1158,30 @@ pub(crate) fn operador_binario(
             (inf.core.dynamic_, None)
         }
     }
+}
+
+fn operador_binario_com_membro(
+    inf: &mut BodyInferrer<'_>, cx: &mut Corpo, recv: TypeId, op: SymbolId,
+    arg: ExprId, ctx: TypeId, no: Option<ExprId>, m: Membro,
+) -> (TypeId, Option<Membro>) {
+    if let Some(n) = no {
+        resolver(inf, cx, n, m.resolved.clone());
+    }
+    let (param, ret) = match inf.table.get(m.tipo).clone() {
+        Type::Function { positional, optional, ret, .. } => (positional.first().or(optional.first()).copied(), ret),
+        _ => (None, inf.core.dynamic_),
+    };
+    let ctx_arg = match param {
+        Some(p) => contexto_numerico(inf, recv, &m, op, ctx, p),
+        None => inf.core.unknown,
+    };
+    let ta = inferir(inf, cx, arg, ctx_arg);
+    if let Some(p) = param {
+        let sp = inf.span_expr(cx.unit, arg);
+        inf.verificar_atribuivel(ta, p, sp, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
+    }
+    let t = refinar_numerico(inf, recv, &m, op, &[ta], ret);
+    (t, Some(m))
 }
 
 fn e_numerico_refinavel(inf: &BodyInferrer<'_>, m: &Membro, op: SymbolId) -> bool {
@@ -1128,6 +1283,25 @@ fn binario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: BinaryOp, 
                 registrar(inf, cx, left, this);
             }
             let sym = simbolo_operador(inf, op);
+            if let Some((x, args)) = cx.sobreposicoes.get(&left).cloned()
+                && let Some(texto) = texto_operador(op)
+            {
+                if let Some((s, m)) = sym.and_then(|s| inf.membro_de_extensao_explicita(x, &args, s, false).map(|m| (s, m))) {
+                    return operador_binario_com_membro(inf, cx, l, s, right, ctx, Some(e), m).0;
+                }
+                let inicio = inf.span_expr(cx.unit, left).end;
+                let fim = inf.span_expr(cx.unit, right).start;
+                let trecho = inf.program.unit(cx.unit).source.get(inicio..fim).unwrap_or("");
+                let pos = pular_espacos_e_comentarios(trecho);
+                let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
+                let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_OPERATOR.template, texto, extensao);
+                if trecho.get(pos..).is_some_and(|resto| resto.starts_with(texto)) {
+                    let offset = inicio + pos;
+                    inf.aviso(msg, dartforge_diagnostics::Span { start: offset, end: offset + texto.len() });
+                }
+                inferir_livre(inf, cx, right);
+                return inf.core.dynamic_;
+            }
             let (t, _) = operador_binario(inf, cx, l, sym, right, ctx, span, Some(e));
             t
         }
@@ -1164,6 +1338,20 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
             let c = if literal { _ctx } else { inf.core.unknown };
             let t = inferir(inf, cx, operand, c);
             let sym = if op == UnaryOp::Neg { inf.sym.menos_unario } else { inf.sym.til };
+            if let Some((x, args)) = cx.sobreposicoes.get(&operand).cloned() {
+                if let Some(m) = sym.and_then(|s| inf.membro_de_extensao_explicita(x, &args, s, false)) {
+                    resolver(inf, cx, e, m.resolved.clone());
+                    return match inf.table.get(m.tipo) {
+                        Type::Function { ret, .. } => *ret,
+                        _ => inf.core.dynamic_,
+                    };
+                }
+                let operador = if op == UnaryOp::Neg { "unary-" } else { "~" };
+                let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
+                let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_OPERATOR.template, operador, extensao);
+                inf.aviso(msg, dartforge_diagnostics::Span { start: span.start, end: span.start + 1 });
+                return inf.core.dynamic_;
+            }
             let Some(sym) = sym else { return inf.core.dynamic_ };
             match inf.buscar_membro(cx.lib, t, sym, false) {
                 Busca::Achado(m) => {
@@ -1200,7 +1388,8 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
                 let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());
                 inf.atribuir_fluxo(&mut f, id, decl, res);
                 cx.fluxo = f;
-                check_final_local(inf, cx, id, span);
+                let alvo_span = inf.span_expr(cx.unit, operand);
+                check_final_local(inf, cx, id, alvo_span);
             }
             let _ = escrita;
             if prefixo {
@@ -1214,9 +1403,53 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
 
 fn check_final_local(inf: &mut BodyInferrer<'_>, cx: &Corpo, id: LocalId, span: dartforge_diagnostics::Span) {
     let l = cx.local(id);
-    if (l.final_ || l.const_) && !l.late {
+    if cx.funcoes_locais.contains(&id) {
+        inf.aviso(ASSIGNMENT_TO_FUNCTION.template.to_string(), span);
+    } else if l.const_ {
+        inf.aviso(ASSIGNMENT_TO_CONST.template.to_string(), span);
+    } else if l.final_ && !l.late {
         let msg = format!("{}: '{}'", ASSIGNMENT_TO_FINAL_LOCAL.template, inf.interner.resolve(l.nome));
         inf.aviso(msg, span);
+    }
+}
+
+fn avisar_escrita_em_metodo(inf: &mut BodyInferrer<'_>, nome: ast::Name) {
+    inf.aviso(ASSIGNMENT_TO_METHOD.template.to_string(), nome.span);
+}
+
+/// Diagnóstico quando a recuperação de uma escrita encontra apenas o getter.
+/// O getter explícito é uma propriedade sem setter; o getter implícito é um
+/// campo `final` ou `const`. `late final` sem inicializador ainda aceita escrita.
+fn avisar_membro_sem_setter(inf: &mut BodyInferrer<'_>, nome: ast::Name, f: dartforge_elements::model::FunctionElementId) -> bool {
+    let fe = inf.program.function(f);
+    match fe.kind {
+        FunctionKind::Getter => {
+            let dono = fe.class.map(|c| inf.program.class(c).name)
+                .or_else(|| fe.extension.and_then(|e| inf.program.extension(e).name));
+            let Some(dono) = dono else { return false };
+            let msg = format!(
+                "{}: '{}' na classe '{}'",
+                ASSIGNMENT_TO_FINAL_NO_SETTER.template,
+                inf.interner.resolve(nome.sym),
+                inf.interner.resolve(dono)
+            );
+            inf.aviso(msg, nome.span);
+            true
+        }
+        FunctionKind::ImplicitAccessor => {
+            let Some(v) = fe.variable else { return false };
+            let ve = inf.program.variable(v);
+            if ve.const_ {
+                inf.aviso(ASSIGNMENT_TO_CONST.template.to_string(), nome.span);
+            } else if ve.final_ && !(ve.late && inf.inicializador(v).is_none()) {
+                let msg = format!("{}: '{}'", ASSIGNMENT_TO_FINAL.template, inf.interner.resolve(nome.sym));
+                inf.aviso(msg, nome.span);
+            } else {
+                return false;
+            }
+            true
+        }
+        _ => false,
     }
 }
 
@@ -1242,17 +1475,25 @@ fn ler_para_escrita(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId) ->
         }
         ExprKind::Property { target, name, null_aware } => {
             let (target, name, null_aware) = (*target, *name, *null_aware);
-            let (leitura, _) = propriedade(inf, cx, alvo, target, name, null_aware);
+            let (leitura, curto_lido) = propriedade(inf, cx, alvo, target, name, null_aware);
+            let recv_lido = inf.body_types.units[cx.unit.0 as usize].get_type(target).map(|t| {
+                (if null_aware { inf.nao_nulo(t) } else { t }, curto_lido)
+            });
+            let mut curto = false;
+            let escrita = escrita_propriedade(inf, cx, alvo, target, name, null_aware, &mut curto, recv_lido);
             registrar(inf, cx, alvo, leitura);
-            (leitura, leitura, None)
+            (leitura, escrita, None)
         }
         ExprKind::Index { target, index, null_aware } => {
             let (target, index, null_aware) = (*target, *index, *null_aware);
-            let (recv, _) = receptor(inf, cx, target, null_aware);
-            let op = inf.sym.indice;
-            let sp = inf.span_expr(cx.unit, alvo);
             let u = inf.core.unknown;
-            let (t, _) = operador_binario(inf, cx, recv, op, index, u, sp, Some(alvo));
+            let (t, _) = ler_indice(inf, cx, alvo, target, index, null_aware, u);
+            if let Some((x, args)) = cx.sobreposicoes.get(&target).cloned()
+                && inf.sym.indice_set.and_then(|s| inf.membro_de_extensao_explicita(x, &args, s, false)).is_none()
+            {
+                let span = span_indice(inf, cx, alvo, target);
+                avisar_operador_de_extensao(inf, x, "[]=", span);
+            }
             registrar(inf, cx, alvo, t);
             (t, t, None)
         }
@@ -1272,8 +1513,10 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
             match el {
                 Element::Variable(v) => {
                     let ve = inf.program.variable(v);
-                    if ve.final_ || ve.const_ {
-                        let msg = format!("{}: '{}'", ASSIGNMENT_TO_FINAL_LOCAL.template, inf.interner.resolve(n.sym));
+                    if ve.const_ {
+                        inf.aviso(ASSIGNMENT_TO_CONST.template.to_string(), n.span);
+                    } else if ve.final_ && !(ve.late && inf.inicializador(v).is_none()) {
+                        let msg = format!("{}: '{}'", ASSIGNMENT_TO_FINAL.template, inf.interner.resolve(n.sym));
                         inf.aviso(msg, n.span);
                     }
                     inf.tipo_variavel(v)
@@ -1283,16 +1526,37 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
                     match (fe.kind, fe.variable) {
                         (FunctionKind::ImplicitAccessor, Some(v)) => inf.tipo_variavel(v),
                         (FunctionKind::Setter, _) => inf.outline.functions[f.0 as usize].parameters.first().map(|p| p.ty).unwrap_or(inf.core.dynamic_),
+                        (FunctionKind::Getter, _) => {
+                            let msg = format!("{}: '{}'", ASSIGNMENT_TO_FINAL.template, inf.interner.resolve(n.sym));
+                            inf.aviso(msg, n.span);
+                            inf.outline.functions[f.0 as usize].return_type
+                        }
+                        (FunctionKind::Function, _) => {
+                            inf.aviso(ASSIGNMENT_TO_FUNCTION.template.to_string(), n.span);
+                            inf.core.dynamic_
+                        }
                         _ => inf.core.dynamic_,
                     }
                 }
+                Element::Class(_) | Element::Typedef(_) => {
+                    inf.aviso(ASSIGNMENT_TO_TYPE.template.to_string(), n.span);
+                    inf.core.dynamic_
+                }
                 _ => inf.core.dynamic_,
             }
+        }
+        RefNome::TipoParam(_) | RefNome::TipoDinamico => {
+            inf.aviso(ASSIGNMENT_TO_TYPE.template.to_string(), n.span);
+            inf.core.dynamic_
         }
         RefNome::MembroLexico(f, estatico) => {
             let r = resolved_de_membro_lexico(inf, cx, f, estatico);
             resolver(inf, cx, alvo, r);
             let fe = inf.program.function(f);
+            if fe.kind == FunctionKind::Function && fe.class.is_some() {
+                avisar_escrita_em_metodo(inf, n);
+                return inf.outline.functions[f.0 as usize].signature;
+            }
             if let (FunctionKind::ImplicitAccessor, Some(v)) = (fe.kind, fe.variable) {
                 let ve = inf.program.variable(v);
                 if (ve.final_ || ve.const_) && ve.setter.is_none() {
@@ -1311,6 +1575,7 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
                     }
                 }
             }
+            avisar_membro_sem_setter(inf, n, f);
             inf.tipo_do_membro_declarado(f, true).0
         }
         RefNome::ThisImplicito => {
@@ -1321,6 +1586,14 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
                     m.tipo
                 }
                 Busca::Ausente => {
+                    if let Busca::Achado(getter) = inf.buscar_membro(cx.lib, this, n.sym, false) {
+                        if let Some(f) = getter.funcao {
+                            if avisar_membro_sem_setter(inf, n, f) {
+                                resolver(inf, cx, alvo, getter.resolved);
+                                return getter.tipo;
+                            }
+                        }
+                    }
                     let msg = format!("{}: '{}'", UNDEFINED_IDENTIFIER.template, inf.interner.resolve(n.sym));
                     inf.aviso(msg, n.span);
                     inf.core.dynamic_
@@ -1359,12 +1632,21 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                         RefNome::Local(id) => {
                             resolver(inf, cx, alvo, Resolved::Local(id));
                             let l = cx.local(id).clone();
-                            if (l.final_ || l.const_) && (!l.late || cx.fluxo.atribuida(id)) && !cx.fluxo.nao_atribuida(id) {
-                                let msg = format!("{}: '{}'", ASSIGNMENT_TO_FINAL_LOCAL.template, inf.interner.resolve(l.nome));
-                                inf.aviso(msg, span);
+                            if cx.funcoes_locais.contains(&id) {
+                                inf.aviso(ASSIGNMENT_TO_FUNCTION.template.to_string(), n.span);
+                                (inf.core.dynamic_, inf.core.dynamic_, None)
+                            } else {
+                                if (l.final_ || l.const_) && (!l.late || cx.fluxo.atribuida(id)) && !cx.fluxo.nao_atribuida(id) {
+                                    if l.const_ {
+                                        inf.aviso(ASSIGNMENT_TO_CONST.template.to_string(), n.span);
+                                    } else {
+                                        let msg = format!("{}: '{}'", ASSIGNMENT_TO_FINAL_LOCAL.template, inf.interner.resolve(l.nome));
+                                        inf.aviso(msg, n.span);
+                                    }
+                                }
+                                let atual = cx.fluxo.tipo_atual(id, l.tipo);
+                                (l.tipo, atual, Some(id))
                             }
-                            let atual = cx.fluxo.tipo_atual(id, l.tipo);
-                            (l.tipo, atual, Some(id))
                         }
                         _ => {
                             let t = tipo_de_escrita_nome(inf, cx, alvo, n);
@@ -1374,7 +1656,7 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                 }
                 ExprKind::Property { target, name, null_aware } => {
                     let (target, name, null_aware) = (*target, *name, *null_aware);
-                    let t = escrita_propriedade(inf, cx, alvo, target, name, null_aware, curto);
+                    let t = escrita_propriedade(inf, cx, alvo, target, name, null_aware, curto, None);
                     (t, t, None)
                 }
                 ExprKind::Index { target, index, null_aware } => {
@@ -1425,7 +1707,8 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                 let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());
                 inf.atribuir_fluxo(&mut f, id, decl, t);
                 cx.fluxo = f;
-                check_final_local(inf, cx, id, span);
+                let alvo_span = inf.span_expr(cx.unit, alvo);
+                check_final_local(inf, cx, id, alvo_span);
             }
             t
         }
@@ -1433,7 +1716,7 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
 }
 
 /// `r.x = …`: tipo do setter.
-fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, target: ExprId, name: ast::Name, null_aware: bool, curto: &mut bool) -> TypeId {
+fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, target: ExprId, name: ast::Name, null_aware: bool, curto: &mut bool, recv_lido: Option<(TypeId, bool)>) -> TypeId {
     let a = ast(inf, cx);
     if let ExprKind::Identifier(p) = &a.expr(target).kind {
         if matches!(resolver_nome(inf, cx, p.sym, false), RefNome::Prefixo) {
@@ -1457,16 +1740,85 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
     }
     if let Some(rt) = referencia_a_tipo(inf, cx, target) {
         registrar_ref_tipo(inf, cx, target);
-        let m = match rt {
-            RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) => inf.membro_estatico(c, name.sym, true),
-            RefTipo::Extensao(x) => inf.membro_estatico_de_extensao(x, name.sym, true),
+        let instancia_explicita = matches!(&ast(inf, cx).expr(target).kind, ExprKind::TypeArguments { .. });
+        if instancia_explicita {
+            if let RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) = &rt {
+                if inf.membro_estatico(*c, name.sym, true).is_some()
+                    || inf.membro_estatico(*c, name.sym, false).is_some()
+                {
+                    avisar_instanciacao_estatica(inf, cx, alvo, name);
+                    return inf.core.dynamic_;
+                }
+                if avisar_instanciacao_de_classe(inf, cx, alvo, *c, name, true) {
+                    return inf.core.dynamic_;
+                }
+            }
+        }
+        let m = match &rt {
+            RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) => inf.membro_estatico(*c, name.sym, true),
+            RefTipo::Extensao(x) => inf.membro_estatico_de_extensao(*x, name.sym, true),
         };
         return match m {
             Some(m) => {
                 resolver(inf, cx, alvo, m.resolved.clone());
                 m.tipo
             }
-            None => inf.core.dynamic_,
+            None => {
+                if let RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) = &rt {
+                    if inf.membro_estatico(*c, name.sym, false).is_none() {
+                        // Um método de instância não declara setter. Em `C.m = v`,
+                        // o analyzer procura o setter estático e relata sua
+                        // ausência, enquanto `C.m` como leitura é acesso
+                        // estático indevido ao método de instância.
+                        let classe = inf.program.class(*c);
+                        let setter_de_instancia = inf.chave_setter(name.sym)
+                            .is_some_and(|chave| classe.instance_members.contains_key(&chave));
+                        let metodo_de_instancia = classe.instance_members.get(&name.sym)
+                            .is_some_and(|&f| inf.program.function(f).kind == FunctionKind::Function);
+                        if !instancia_explicita && !setter_de_instancia && metodo_de_instancia
+                            && (!inf.interner.resolve(name.sym).starts_with('_') || classe.library == cx.lib)
+                        {
+                            let msg = format!(
+                                "{}: setter '{}' não definido para o tipo '{}'",
+                                UNDEFINED_SETTER.template,
+                                inf.interner.resolve(name.sym),
+                                inf.interner.resolve(classe.name),
+                            );
+                            inf.aviso(msg, name.span);
+                            return inf.core.dynamic_;
+                        }
+                        if !instancia_explicita && avisar_acesso_estatico_a_instancia(inf, cx, *c, name, true) {
+                            return inf.core.dynamic_;
+                        }
+                    }
+                }
+                if let RefTipo::Extensao(x) = rt {
+                    if inf.membro_de_extensao_explicita(x, &[], name.sym, true).is_some() {
+                        let msg = format!("{}: '{}'", STATIC_ACCESS_TO_INSTANCE_MEMBER.template, inf.interner.resolve(name.sym));
+                        inf.aviso(msg, name.span);
+                        return inf.core.dynamic_;
+                    }
+                }
+                let getter = match rt {
+                    RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) => inf.membro_estatico(c, name.sym, false),
+                    RefTipo::Extensao(x) => inf.membro_estatico_de_extensao(x, name.sym, false),
+                };
+                let getter_ausente = getter.is_none();
+                if let Some(getter) = getter {
+                    if let Some(f) = getter.funcao {
+                        if avisar_membro_sem_setter(inf, name, f) {
+                            resolver(inf, cx, alvo, getter.resolved);
+                            return getter.tipo;
+                        }
+                    }
+                }
+                if getter_ausente && let RefTipo::Extensao(x) = rt {
+                    let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
+                    let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_SETTER.template, inf.interner.resolve(name.sym), extensao);
+                    inf.aviso(msg, name.span);
+                }
+                inf.core.dynamic_
+            }
         };
     }
     if matches!(a.expr(target).kind, ExprKind::Super) {
@@ -1474,14 +1826,58 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
         registrar(inf, cx, target, this);
         return membro_super(inf, cx, alvo, name, true);
     }
-    let (recv, c) = receptor(inf, cx, target, null_aware);
+    let (recv, c) = recv_lido.unwrap_or_else(|| receptor(inf, cx, target, null_aware));
     *curto = c;
+    // `E(valor).m` força a extensão nomeada: na falta de setter ela emite
+    // `undefined_extension_setter`, mesmo que a extensão tenha um getter `m`.
+    if let Some((x, args)) = cx.sobreposicoes.get(&target).cloned() {
+        if let Some(m) = inf.membro_de_extensao_explicita(x, &args, name.sym, true) {
+            resolver(inf, cx, alvo, m.resolved);
+            return m.tipo;
+        }
+        if inf.membro_estatico_de_extensao(x, name.sym, true).is_some() {
+            // `+=` resolve leitura e escrita do mesmo nome. O analyzer relata
+            // o acesso estático uma vez, mesmo quando ambos os lados resolvem.
+            let ja_reportado = inf.diagnostics.iter().zip(&inf.unidades_dos_avisos).any(|(d, unidade)| {
+                *unidade == inf.unidade_corrente
+                    && d.span == name.span
+                    && d.message == EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template
+            });
+            if !ja_reportado {
+                inf.aviso(EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template.to_string(), name.span);
+            }
+            return inf.core.dynamic_;
+        }
+        let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
+        let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_SETTER.template, inf.interner.resolve(name.sym), extensao);
+        inf.aviso(msg, name.span);
+        return inf.core.dynamic_;
+    }
+    // Um método da interface da classe prevalece sobre setter de extensão homônimo.
+    if let Some(m) = inf.membro_de_interface(recv, name.sym, false) {
+        if m.metodo && m.funcao.is_some_and(|f| inf.program.function(f).kind == FunctionKind::Function) {
+            avisar_escrita_em_metodo(inf, name);
+            resolver(inf, cx, alvo, m.resolved);
+            return m.tipo;
+        }
+    }
     match inf.buscar_membro(cx.lib, recv, name.sym, true) {
         Busca::Achado(m) => {
             resolver(inf, cx, alvo, m.resolved.clone());
             m.tipo
         }
         Busca::Ausente => {
+            // O analyzer recupera o getter quando a escrita não encontra um
+            // setter. Um getter declarado numa classe tem diagnóstico próprio;
+            // sem getter, continua sendo um setter indefinido.
+            if let Busca::Achado(getter) = inf.buscar_membro(cx.lib, recv, name.sym, false) {
+                if let Some(f) = getter.funcao {
+                    if avisar_membro_sem_setter(inf, name, f) {
+                        resolver(inf, cx, alvo, getter.resolved);
+                        return getter.tipo;
+                    }
+                }
+            }
             let msg = format!(
                 "{}: setter '{}' não definido para o tipo '{}'",
                 UNDEFINED_SETTER.template,
@@ -1500,11 +1896,30 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
 
 /// `r[i] = …`: tipo do valor em `[]=`.
 fn escrita_indice(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, recv: TypeId, index: ExprId, span: dartforge_diagnostics::Span) -> TypeId {
-    let Some(op) = inf.sym.indice_set else {
-        inferir_livre(inf, cx, index);
-        return inf.core.dynamic_;
+    let target = match &ast(inf, cx).expr(alvo).kind {
+        ExprKind::Index { target, .. } => Some(*target),
+        _ => None,
     };
-    match inf.buscar_membro(cx.lib, recv, op, false) {
+    let busca = if let Some(target) = target
+        && let Some((x, args)) = cx.sobreposicoes.get(&target).cloned()
+    {
+        match inf.sym.indice_set.and_then(|op| inf.membro_de_extensao_explicita(x, &args, op, false)) {
+            Some(m) => Busca::Achado(m),
+            None => {
+                inferir_livre(inf, cx, index);
+                let sp = span_indice(inf, cx, alvo, target);
+                avisar_operador_de_extensao(inf, x, "[]=", sp);
+                return inf.core.dynamic_;
+            }
+        }
+    } else {
+        let Some(op) = inf.sym.indice_set else {
+            inferir_livre(inf, cx, index);
+            return inf.core.dynamic_;
+        };
+        inf.buscar_membro(cx.lib, recv, op, false)
+    };
+    match busca {
         Busca::Achado(m) => {
             resolver(inf, cx, alvo, m.resolved.clone());
             let (pi, pv) = match inf.table.get(m.tipo).clone() {

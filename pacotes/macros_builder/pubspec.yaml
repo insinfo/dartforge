@@ -1,0 +1,11 @@
+name: dartforge_macros_builder
+version: 0.1.0-dev.0
+description: Descoberta semantica de aplicacoes de macros para o build_runner.
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dependencies:
+  analyzer: 7.3.0
+  build: 2.4.2
+  macros:
+    path: ../macros

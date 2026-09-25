@@ -43,6 +43,9 @@ inputs:
   pub-get:
     description: Diretório cujos subdiretórios com pubspec.lock recebem `dart pub get --enforce-lockfile` antes do harness (corpus/macros)
     default: ''
+  preparar:
+    description: Script opcional que prepara uma entrada DartForge antes do harness
+    default: ''
 
 runs:
   using: composite
@@ -85,6 +88,14 @@ runs:
           Pop-Location
         }
         Write-Host "$($casos.Count) casos com package_config.json"
+    - name: Preparar entrada DartForge do corpus
+      if: inputs.preparar != ''
+      shell: pwsh
+      env:
+        SCRIPT_PREPARAR: ${{ inputs.preparar }}
+      run: |
+        & $env:SCRIPT_PREPARAR
+        if ($LASTEXITCODE -ne 0) { throw "preparação do corpus falhou: $env:SCRIPT_PREPARAR" }
 
     - name: dartforge-diferencial ${{ inputs.args }}
       id: rodar

@@ -1,0 +1,10 @@
+*.macro_uses.json
+*.macro_declarations.json
+*.macro_declarations.txt
+*.macro_definitions_model.json
+*.macro_definitions.json
+*.macro_complete.txt
+*.macro.dart
+*.forge.dart
+.dart_tool/
+pubspec.lock

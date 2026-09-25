@@ -35,12 +35,12 @@ pub fn linearizacao(ctx: &Context, cid: ClassId) -> Vec<ClassId> {
     let mut atual = Some(cid);
     while let Some(c) = atual {
         let classe = &ctx.program.classes[c.0 as usize];
-        if ctx.program.library(classe.library).is_sdk || saida.contains(&c) {
+        if !ctx.biblioteca_compilada(classe.library) || saida.contains(&c) {
             break;
         }
         saida.push(c);
         for m in classe.mixin_classes.iter().rev() {
-            if !ctx.program.library(ctx.program.classes[m.0 as usize].library).is_sdk && !saida.contains(m) {
+            if ctx.biblioteca_compilada(ctx.program.classes[m.0 as usize].library) && !saida.contains(m) {
                 saida.push(*m);
             }
         }
@@ -93,6 +93,9 @@ pub fn subclasse_de(ctx: &Context, sub: ClassId, sup: ClassId) -> bool {
 pub fn tem_corpo(ctx: &Context, fid: usize) -> bool {
     let f = &ctx.program.functions[fid];
     match f.node {
+        // SDK da fonte (P5c): um `external` é implementado pelo patch ou
+        // pelo native (`sdk_fonte::chamar_externo`).
+        FunctionRef::Function { .. } if f.external && ctx.sdk_da_fonte => true,
         FunctionRef::Function { unit, function } => !matches!(
             ctx.program.unit(unit).ast.function(function).body,
             FunctionBody::Empty | FunctionBody::Native(_)
@@ -207,7 +210,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut saida = Vec::new();
         for (k, classe) in self.ctx.program.classes.iter().enumerate() {
             let kid = ClassId(k as u32);
-            if self.ctx.program.library(classe.library).is_sdk || e_mixin(self.ctx, kid) {
+            if !self.ctx.biblioteca_compilada(classe.library) || e_mixin(self.ctx, kid) {
                 continue;
             }
             let base = super::enums::base_do_layout(self.ctx, kid);
@@ -302,6 +305,34 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             },
         };
+        let var = &self.ctx.program.variables[vid.0 as usize];
+        let late_sem_init = var.late && self.variable_initializer_em(vid).is_none();
+        let late_final = late_sem_init && var.final_;
+        let nome = self.ctx.symbol_name(var.name).to_string();
+        if late_final {
+            let ja_inicializado = self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_late_field_initialized".to_string(),
+                    args: vec![(obj.clone(), Type::Ref), (idx.clone(), Type::I64)],
+                    ret_ty: Type::I8,
+                },
+                Type::I8,
+            );
+            let ja_inicializado = self.emit(
+                Instruction::ICmp(ICmpOp::Ne, ja_inicializado, Operand::Constant(Constant::Int(0))),
+                Type::I1,
+            );
+            let b_erro = self.new_block();
+            let b_gravar = self.new_block();
+            self.terminate(Terminator::CondBranch {
+                cond: ja_inicializado,
+                then_block: b_erro,
+                else_block: b_gravar,
+            });
+            self.set_block(b_erro);
+            self.lancar_erro_late(&nome, 1);
+            self.set_block(b_gravar);
+        }
         let repr = self.repr_do_campo(vid);
         let val = self.coagir(val, repr);
         let (bits, is_ref) = self.para_bits(val);
@@ -309,8 +340,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Instruction::CallRuntime {
                 name: "dartforge_object_set".to_string(),
                 args: vec![
-                    (obj, Type::Ref),
-                    (idx, Type::I64),
+                    (obj.clone(), Type::Ref),
+                    (idx.clone(), Type::I64),
                     (bits, Type::I64),
                     (
                         Operand::Constant(Constant::Int(i64::from(is_ref))),
@@ -321,6 +352,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Void,
         );
+        if var.late {
+            self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_late_field_mark_initialized".to_string(),
+                    args: vec![(obj, Type::Ref), (idx, Type::I64)],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            );
+        }
     }
 
     /// Campo de instância pelo nome, na própria classe (alvo de `this.x` e
@@ -342,7 +383,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         match self.ctx.table.get(ty) {
             dartforge_types::table::Type::Interface { class, .. } => {
                 let classe = &self.ctx.program.classes[class.0 as usize];
-                (!self.ctx.program.library(classe.library).is_sdk).then_some(*class)
+                (self.ctx.biblioteca_compilada(classe.library)).then_some(*class)
             }
             _ => None,
         }
@@ -372,15 +413,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 MemberRef::Function(f) => self.ctx.program.functions[f.0 as usize].library,
                 MemberRef::Variable(v) => self.ctx.program.variables[v.0 as usize].library,
             };
-            if self.ctx.program.library(lib_do_membro).is_sdk {
+            if !self.ctx.biblioteca_compilada(lib_do_membro) {
                 return None;
             }
-            return (!self.ctx.program.library(classe.library).is_sdk).then_some((*class, *member));
+            // A resolução de `o.x = v` pode apontar para o getter `x`.
+            // Nesse caso a escrita precisa procurar a entrada distinta
+            // `x_=` (ou o setter implícito de um campo) na hierarquia.
+            let e_getter = matches!(member, MemberRef::Function(f)
+                if self.ctx.program.functions[f.0 as usize].kind != FunctionKind::Setter
+                    && self.ctx.program.functions[f.0 as usize].variable.is_none());
+            if !(setter && e_getter) {
+                return (self.ctx.biblioteca_compilada(classe.library)).then_some((*class, *member));
+            }
         }
         let cid = self.classe_do_usuario_de(recv)?;
         for c in crate::lower::membros::linearizacao(self.ctx, cid) {
             let classe = &self.ctx.program.classes[c.0 as usize];
-            if self.ctx.program.library(classe.library).is_sdk {
+            if !self.ctx.biblioteca_compilada(classe.library) {
                 return None;
             }
             if let Some(&f) = classe.instance_members.get(&nome) {
@@ -390,7 +439,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             }
             if setter {
-                let nome_setter = format!("{}=", self.ctx.symbol_name(nome));
+                let nome_setter = format!("{}_=", self.ctx.symbol_name(nome));
                 if let Some(s) = self.ctx.interner.lookup(&nome_setter)
                     && let Some(&f) = classe.instance_members.get(&s)
                 {
@@ -498,7 +547,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// para os valores que o runtime representa por conta própria.
     pub fn id_de_classe(&self, cid: ClassId) -> Option<i64> {
         let classe = &self.ctx.program.classes[cid.0 as usize];
-        if !self.ctx.program.library(classe.library).is_sdk {
+        if self.ctx.biblioteca_compilada(classe.library) {
             return self.ctx.id_de_classe(cid).map(i64::from);
         }
         Some(match self.ctx.symbol_name(classe.name) {
@@ -535,6 +584,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Identificador que a resolução diz ser membro da classe envolvente
     /// (`x` = `this.x`, ou membro estático).
     pub fn ler_membro_implicito(&mut self, member: MemberRef, span: Span) -> Operand {
+        // `values` implícito de um enum do programa, lido sem o prefixo
+        // `E.` no corpo de um membro do enum: a lista dos valores, como o
+        // caminho explícito (`E.values`, `valores_do_enum`). O getter
+        // implícito não tem corpo para chamar — emitir a chamada deixava um
+        // símbolo indefinido na ligação.
+        if let MemberRef::Function(f) = member {
+            let fid = f.0 as usize;
+            let (e_estatico, nome, cid) = {
+                let func = &self.ctx.program.functions[fid];
+                (func.static_, self.ctx.symbol_name(func.name).to_string(), func.class)
+            };
+            if e_estatico
+                && nome == "values"
+                && !tem_corpo(self.ctx, fid)
+                && let Some(cid) = cid
+                && super::enums::e_enum(self.ctx, cid)
+            {
+                return self.valores_do_enum(cid, span);
+            }
+        }
         let vid = match member {
             MemberRef::Variable(v) => Some(v),
             MemberRef::Function(f) => self.ctx.program.functions[f.0 as usize].variable,
@@ -648,58 +717,162 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Campo lido; se `late` com inicializador, inicializa na primeira leitura.
     pub fn ler_campo_com_late(&mut self, obj: Operand, vid: VariableId, span: Span) -> Operand {
-        let atual = self.ler_campo(obj.clone(), vid, span);
+        if let Some(r) = self.ler_campo_fonte(obj.clone(), vid) {
+            return r;
+        }
+        self.ler_campo_com_late_direto(obj, vid, span)
+    }
+
+    /// `super.campo` tem resolução lexical: preserva `late`, mas não pode
+    /// voltar ao getter sobrescrito da classe dinâmica via seletor do SDK.
+    pub fn ler_campo_com_late_direto(&mut self, obj: Operand, vid: VariableId, span: Span) -> Operand {
         let var = &self.ctx.program.variables[vid.0 as usize];
         if !var.late {
+            return self.ler_campo(obj, vid, span);
+        }
+        let dartforge_elements::model::VariableRef::Field { .. } = var.node else {
+            return self.ler_campo(obj, vid, span);
+        };
+        if self.variable_initializer_em(vid).is_some() {
+            return self.emit_call_with_check(
+                Instruction::CallStatic {
+                    symbol: super::simbolo_getter_campo_late(self.ctx, vid),
+                    args: vec![obj],
+                    ret_ty: self.repr_do_campo(vid),
+                },
+                self.repr_do_campo(vid),
+            );
+        }
+        let atual = self.ler_campo(obj.clone(), vid, span);
+        {
+            let idx = match self.indice_campo(vid) {
+                Some(i) => Operand::Constant(Constant::Int(i as i64)),
+                None => match self.indice_dinamico(obj.clone(), vid, span) {
+                    Some(i) => i,
+                    None => return self.nao_suportado("campo late fora do layout", span),
+                },
+            };
+            let inicializado = self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_late_field_initialized".to_string(),
+                    args: vec![(obj, Type::Ref), (idx, Type::I64)],
+                    ret_ty: Type::I8,
+                },
+                Type::I8,
+            );
+            let vazio = self.emit(
+                Instruction::ICmp(ICmpOp::Eq, inicializado, Operand::Constant(Constant::Int(0))),
+                Type::I1,
+            );
+            let b_erro = self.new_block();
+            let b_ler = self.new_block();
+            self.terminate(Terminator::CondBranch { cond: vazio, then_block: b_erro, else_block: b_ler });
+            self.set_block(b_erro);
+            let nome = self.ctx.symbol_name(var.name).to_string();
+            self.lancar_erro_late(&nome, 0);
+            self.set_block(b_ler);
             return atual;
         }
-        let dartforge_elements::model::VariableRef::Field { unit, .. } = var.node else {
-            return atual;
+    }
+
+    /// Corpo único do getter de um campo `late` com inicializador. O estado
+    /// vive por objeto, inclusive quando o valor atribuído é `null`.
+    pub fn lower_getter_campo_late(&mut self, obj: Operand, vid: VariableId, span: Span) {
+        let Some(init) = self.variable_initializer_em(vid) else { unreachable!("getter late sem initializer") };
+        let dartforge_elements::model::VariableRef::Field { unit, .. } = self.ctx.program.variables[vid.0 as usize].node else {
+            unreachable!("getter late sem campo")
         };
-        let Some(init) = self.variable_initializer_em(vid) else {
-            return atual;
+        let idx = match self.indice_campo(vid) {
+            Some(i) => Operand::Constant(Constant::Int(i as i64)),
+            None => match self.indice_dinamico(obj.clone(), vid, span) {
+                Some(i) => i,
+                None => {
+                    self.nao_suportado("campo late fora do layout", span);
+                    self.terminate(Terminator::Return(Some(Operand::Constant(Constant::Null))));
+                    return;
+                }
+            },
         };
-        let repr = self.repr_do_campo(vid);
-        if repr != Type::Ref {
-            // Sem valor sentinela para "não inicializado" num escalar.
-            return self.nao_suportado("campo late escalar com inicializador", span);
-        }
-        let e_nulo = self.emit(
-            Instruction::ICmp(
-                ICmpOp::Eq,
-                atual.clone(),
-                Operand::Constant(Constant::Int(0)),
-            ),
+        let pronto = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_late_field_initialized".to_string(),
+                args: vec![(obj.clone(), Type::Ref), (idx.clone(), Type::I64)],
+                ret_ty: Type::I8,
+            },
+            Type::I8,
+        );
+        let pronto = self.emit(
+            Instruction::ICmp(ICmpOp::Ne, pronto, Operand::Constant(Constant::Int(0))),
             Type::I1,
         );
-        let b_init = self.new_block();
-        let b_fim = self.new_block();
-        let origem = self.current_block;
-        self.terminate(Terminator::CondBranch {
-            cond: e_nulo,
-            then_block: b_init,
-            else_block: b_fim,
-        });
-        self.set_block(b_init);
-        // O inicializador roda com `this` = o objeto do campo (uma closure
-        // nele captura esse `this`, não o da função que leu o campo).
-        let this_salvo = self.this_param.replace(obj.clone());
-        let classe_salva = std::mem::replace(&mut self.enclosing_class, var.class);
-        let v = self.lower_expr_de(unit, init);
-        self.this_param = this_salvo;
-        self.enclosing_class = classe_salva;
-        self.gravar_campo(obj, vid, v.clone(), span);
-        let v = self.coagir(v, repr);
-        let fim_init = self.current_block;
-        self.terminate(Terminator::Branch(b_fim));
-        self.set_block(b_fim);
-        self.emit(
-            Instruction::Phi {
-                incoming: vec![(origem, atual), (fim_init, v)],
-                ty: repr,
+        let b_ler = self.new_block();
+        let b_verificar = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: pronto, then_block: b_ler, else_block: b_verificar });
+        self.set_block(b_ler);
+        let atual = self.ler_campo(obj.clone(), vid, span);
+        self.terminate(Terminator::Return(Some(atual)));
+
+        self.set_block(b_verificar);
+        let iniciando = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_late_field_initializing".to_string(),
+                args: vec![(obj.clone(), Type::Ref), (idx.clone(), Type::I64)],
+                ret_ty: Type::I8,
             },
-            repr,
-        )
+            Type::I8,
+        );
+        let iniciando = self.emit(
+            Instruction::ICmp(ICmpOp::Ne, iniciando, Operand::Constant(Constant::Int(0))),
+            Type::I1,
+        );
+        let b_pilha = self.new_block();
+        let b_avaliar = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: iniciando, then_block: b_pilha, else_block: b_avaliar });
+        self.set_block(b_pilha);
+        let erro = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_stack_overflow_error_new".to_string(),
+                args: Vec::new(),
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        );
+        self.emit_throw_op(erro);
+
+        self.set_block(b_avaliar);
+        self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_late_field_set_initializing".to_string(),
+                args: vec![(obj.clone(), Type::Ref), (idx.clone(), Type::I64), (Operand::Constant(Constant::Int(1)), Type::I8)],
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        );
+        let b_falha = self.new_block();
+        self.exception_targets.push(b_falha);
+        let valor = self.lower_expr_de(unit, init);
+        self.exception_targets.pop();
+        let valor = self.coagir(valor, self.repr_do_campo(vid));
+        self.gravar_campo(obj.clone(), vid, valor.clone(), span);
+        self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_late_field_set_initializing".to_string(),
+                args: vec![(obj.clone(), Type::Ref), (idx.clone(), Type::I64), (Operand::Constant(Constant::Int(0)), Type::I8)],
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        );
+        self.terminate(Terminator::Return(Some(valor)));
+        self.set_block(b_falha);
+        self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_late_field_set_initializing".to_string(),
+                args: vec![(obj, Type::Ref), (idx, Type::I64), (Operand::Constant(Constant::Int(0)), Type::I8)],
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        );
+        self.terminate(Terminator::Return(Some(Operand::Constant(Constant::Null))));
     }
 
     // ------------------------------------------------------------------
@@ -887,6 +1060,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         this: Option<Operand>,
         args: Vec<Operand>,
     ) -> Operand {
+        if let Some(r) = self.chamar_externo(fid, this.clone(), &args) {
+            return r;
+        }
         let symbol = super::simbolo_de(self.ctx, fid);
         let ret_ty = self.repr_retorno(fid);
         let mut todos = Vec::with_capacity(args.len() + 2);
@@ -920,11 +1096,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(cdecl) = decl.class else {
             return Vec::new();
         };
-        let nome = decl.name;
+        // Getters e setters compartilham `FunctionElement.name`, mas o
+        // outline guarda o setter na chave distinta `x_=`. Despachar por
+        // `x` chamaria o getter e descartaria o valor atribuído.
+        let nome = if decl.kind == FunctionKind::Setter {
+            let chave = format!("{}_=", ctx.symbol_name(decl.name));
+            let Some(sym) = ctx.interner.lookup(&chave) else { return Vec::new() };
+            sym
+        } else {
+            decl.name
+        };
         let mut saida = Vec::new();
         for (k, classe) in ctx.program.classes.iter().enumerate() {
             let kid = ClassId(k as u32);
-            if ctx.program.library(classe.library).is_sdk || !subclasse_de(ctx, kid, cdecl) {
+            if !ctx.biblioteca_compilada(classe.library) || !subclasse_de(ctx, kid, cdecl) {
                 continue;
             }
             if (classe.modifiers.abstract_ && kid != cdecl) || e_mixin(ctx, kid) {
@@ -960,15 +1145,47 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         avaliados: &[Avaliado],
         span: Span,
     ) -> Operand {
+        if let Some(r) = self.chamar_membro_fonte(recv.clone(), decl_fid, avaliados) {
+            return r;
+        }
         let impls = self.implementacoes(decl_fid);
         let mut distintos: Vec<usize> = impls.iter().map(|(_, f)| *f).collect();
         distintos.sort_unstable();
         distintos.dedup();
         let ret = self.repr_retorno(decl_fid);
         if distintos.is_empty() {
+            // Getter implícito `index`/`name` de um enum do programa
+            // (especificação §13 "Enums"): o elemento resolvido não tem corpo
+            // — o valor mora nos dois campos implícitos do objeto (posições 0
+            // e 1, gravados pelo construtor do valor). O caminho explícito
+            // (`E.a.name`, `membro_de_enum`) lê os mesmos campos; o implícito
+            // (`$name`, `index`, `this.name` no corpo de um membro do enum)
+            // chegava aqui como "sem implementação compilada".
+            if avaliados.is_empty()
+                && let Some(cid) = self.ctx.program.functions[decl_fid].class
+                && super::enums::e_enum(self.ctx, cid)
+            {
+                let nome = self.ctx.symbol_name(self.ctx.program.functions[decl_fid].name).to_string();
+                if (nome == "index" || nome == "name")
+                    && let Some(r) = self.membro_de_enum(cid, &nome, recv.clone())
+                {
+                    return self.coagir(r, ret);
+                }
+            }
             if tem_corpo(self.ctx, decl_fid) && super::funcao_do_usuario(self.ctx, decl_fid) {
                 distintos.push(decl_fid);
             } else {
+                // Encaminhador `noSuchMethod` estático (casos 57, 216, 223):
+                // a classe concreta tem `noSuchMethod` e o CFE sintetizaria o
+                // encaminhador com a assinatura do membro. Só dispara onde
+                // antes era erro; fora do escopo (setter, nomeado, genérico,
+                // múltiplos nsm) mantém o diagnóstico antigo.
+                if let Some(r) = super::nsm::encaminhar_metodo_para_nsm(self, recv.clone(), decl_fid, avaliados, span) {
+                    return r;
+                }
+                if let Some(r) = super::nsm::encaminhar_getter_para_nsm(self, recv, decl_fid, avaliados, span) {
+                    return r;
+                }
                 return self.nao_suportado("chamada de membro sem implementação compilada", span);
             }
         }
@@ -1061,6 +1278,39 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(cid) = f.class else {
             return self.nao_suportado("construtor sem classe", span);
         };
+        // As factories `const` de ambiente são resolvidas pela CFE na
+        // compilação. A CLI nativa ainda não aceita `-D`, portanto nenhuma
+        // chave foi definida e vale o `defaultValue` especificado pelo SDK.
+        // Nunca chamamos o native da VM para essas factories.
+        if f.const_ && f.external {
+            let nome = self.ctx.symbol_name(f.name);
+            let classe = if Some(cid) == self.ctx.core.bool_class {
+                Some("bool")
+            } else if Some(cid) == self.ctx.core.int_class {
+                Some("int")
+            } else if Some(cid) == self.ctx.core.string_class {
+                Some("String")
+            } else {
+                None
+            };
+            if classe == Some("bool") && nome == "hasEnvironment" {
+                return self.emit(Instruction::Const(Constant::Bool(false)), Type::I1);
+            }
+            if nome == "fromEnvironment" {
+                if let Some(classe) = classe {
+                    if let Some(valor) = args.iter().find(|a| {
+                        a.name.as_ref().is_some_and(|n| self.ctx.symbol_name(n.sym) == "defaultValue")
+                    }) {
+                        return self.lower_em_contexto_const(ast, valor.value);
+                    }
+                    return match classe {
+                        "bool" => self.emit(Instruction::Const(Constant::Bool(false)), Type::I1),
+                        "int" => self.emit(Instruction::Const(Constant::Int(0)), Type::I64),
+                        _ => self.emit(Instruction::Const(Constant::String(String::new())), Type::Ref),
+                    };
+                }
+            }
+        }
         // RTI: o tipo estático da criação (`C<T…>`), gravado por quem chama.
         let tipo = self.tipo_da_criacao.take();
         if !super::funcao_do_usuario(self.ctx, fid) {
@@ -1084,12 +1334,37 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// `C(args)` com os argumentos já avaliados.
     pub fn instanciar_avaliados(&mut self, ctor_fid: FunctionElementId, avaliados: &[Avaliado], span: Span) -> Operand {
+        self.instanciar_avaliados_com_rti(ctor_fid, avaliados, span, None, None)
+    }
+
+    /// Uma factory redirecionadora pode mudar a classe e até permutar seus
+    /// argumentos de tipo. Nesse caso, o RTI e a tupla do alvo vêm da
+    /// anotação `= Destino<U, T>`, não do tipo de retorno da origem.
+    pub fn instanciar_avaliados_com_rti(
+        &mut self,
+        ctor_fid: FunctionElementId,
+        avaliados: &[Avaliado],
+        span: Span,
+        rti_explicito: Option<Operand>,
+        tupla_explicita: Option<Operand>,
+    ) -> Operand {
         let tipo = self.tipo_da_criacao.take();
         let fid = ctor_fid.0 as usize;
         let f = &self.ctx.program.functions[fid];
         let Some(cid) = f.class else {
             return self.nao_suportado("construtor sem classe", span);
         };
+        // A factory `core.Symbol` redireciona para a classe concreta da
+        // biblioteca interna. O alvo é inequívoco e evita que a resolução
+        // da factory volte à própria declaração abstrata.
+        if self.ctx.sdk_da_fonte && Some(cid) == self.ctx.classe_do_sdk("core", "Symbol") {
+            if let Some(concreta) = self.ctx.classe_do_sdk("_internal", "Symbol")
+                && let Some(vazio) = self.ctx.interner.lookup("")
+                && let Some(&construtor) = self.ctx.program.classes[concreta.0 as usize].constructors.get(&vazio)
+            {
+                return self.instanciar_avaliados_com_rti(construtor, avaliados, span, rti_explicito, tupla_explicita);
+            }
+        }
         if !super::funcao_do_usuario(self.ctx, fid) {
             if let Some(op) = self.construtor_de_erro_do_runtime(fid, avaliados) {
                 return op;
@@ -1107,7 +1382,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // RTI: a fábrica de uma classe genérica recebe os argumentos de
             // tipo da classe na tupla (o último parâmetro).
             if generica {
-                let t = self.tupla_da_criacao(tipo);
+                let t = tupla_explicita.unwrap_or_else(|| self.tupla_da_criacao(tipo));
                 args.push(t);
             }
             return self.chamar_direto(fid, None, args);
@@ -1128,8 +1403,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Type::Ref,
         );
         // RTI: a instância de classe genérica guarda o tipo (`C<T…>`).
-        if generica && let Some(t) = tipo {
-            let r = self.rti_de_tipo(t);
+        if generica && let Some(r) = rti_explicito.or_else(|| tipo.map(|t| self.rti_de_tipo(t))) {
             self.definir_rti(obj.clone(), r);
         }
         self.chamar_direto(fid, Some(obj.clone()), args);
@@ -1211,7 +1485,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // e chama o de `S`).
         let mixins: Vec<ClassId> = self.ctx.program.classes[cid.0 as usize].mixin_classes.clone();
         for m in mixins.into_iter().rev() {
-            if !self.ctx.program.library(self.ctx.program.classes[m.0 as usize].library).is_sdk {
+            if self.ctx.biblioteca_compilada(self.ctx.program.classes[m.0 as usize].library) {
                 self.inicializar_campos(m);
             }
         }
@@ -1219,7 +1493,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return;
         };
         let sup_classe = &self.ctx.program.classes[sup.0 as usize];
-        if self.ctx.program.library(sup_classe.library).is_sdk {
+        if !self.ctx.biblioteca_compilada(sup_classe.library) {
             // `Object()` e superclasses do SDK: nada a executar no nosso heap.
             return;
         }
@@ -1379,11 +1653,40 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     // ------------------------------------------------------------------
     // Globais (N6)
 
+    /// Constrói o `LateError` do SDK e lança no fluxo de exceções do HIR.
+    /// `codigo`: 0/1 campo não inicializado/já inicializado; 2/3 local.
+    pub fn lancar_erro_late(&mut self, nome: &str, codigo: i64) {
+        let n = self.emit(Instruction::Const(Constant::String(nome.to_string())), Type::Ref);
+        let erro = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_late_error_new".to_string(),
+                args: vec![(n, Type::Ref), (Operand::Constant(Constant::Int(codigo)), Type::I64)],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        );
+        self.emit_throw_op(erro);
+    }
+
     /// Corpo do getter preguiçoso de um global.
     pub fn lower_getter_global(&mut self, vid: VariableId, repr: Type) {
         let valor = super::simbolo_valor_global(self.ctx, vid);
         let bandeira = format!("{valor}$ok");
         let Some(init) = self.variable_initializer_em(vid) else {
+            if self.ctx.program.variables[vid.0 as usize].late {
+                let ok = self.emit(Instruction::LoadGlobal { simbolo: bandeira, ty: Type::I8 }, Type::I8);
+                let pronto = self.emit(
+                    Instruction::ICmp(ICmpOp::Ne, ok, Operand::Constant(Constant::Int(0))),
+                    Type::I1,
+                );
+                let b_ler = self.new_block();
+                let b_erro = self.new_block();
+                self.terminate(Terminator::CondBranch { cond: pronto, then_block: b_ler, else_block: b_erro });
+                self.set_block(b_erro);
+                let nome = self.ctx.symbol_name(self.ctx.program.variables[vid.0 as usize].name).to_string();
+                self.lancar_erro_late(&nome, 0);
+                self.set_block(b_ler);
+            }
             let v = self.emit(
                 Instruction::LoadGlobal {
                     simbolo: valor,
@@ -1402,7 +1705,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Type::I8,
         );
         let pronto = self.emit(
-            Instruction::ICmp(ICmpOp::Ne, ok, Operand::Constant(Constant::Int(0))),
+            Instruction::ICmp(ICmpOp::Eq, ok.clone(), Operand::Constant(Constant::Int(1))),
             Type::I1,
         );
         let b_ler = self.new_block();
@@ -1422,12 +1725,34 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
         self.terminate(Terminator::Return(Some(v)));
         self.set_block(b_init);
-        // A bandeira sobe antes do inicializador: é assim que a VM trata a
-        // leitura reentrante (e a nossa não recursa para sempre).
+        let reentrante = self.emit(
+            Instruction::ICmp(ICmpOp::Eq, ok, Operand::Constant(Constant::Int(2))),
+            Type::I1,
+        );
+        let b_pilha = self.new_block();
+        let b_avaliar = self.new_block();
+        self.terminate(Terminator::CondBranch {
+            cond: reentrante,
+            then_block: b_pilha,
+            else_block: b_avaliar,
+        });
+        self.set_block(b_pilha);
+        let erro = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_stack_overflow_error_new".to_string(),
+                args: Vec::new(),
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        );
+        self.emit_throw_op(erro);
+        self.set_block(b_avaliar);
+        // 0 = não iniciado; 2 = avaliando; 1 = pronto. A leitura reentrante
+        // produz `StackOverflowError` do SDK sem expandir a pilha nativa.
         self.emit(
             Instruction::StoreGlobal {
                 simbolo: bandeira,
-                val: Operand::Constant(Constant::Int(1)),
+                val: Operand::Constant(Constant::Int(2)),
                 ty: Type::I8,
                 raiz: None,
             },
@@ -1468,16 +1793,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Void,
         );
+        self.emit(
+            Instruction::StoreGlobal {
+                simbolo: format!("{}$ok", super::simbolo_valor_global(self.ctx, vid)),
+                val: Operand::Constant(Constant::Int(1)),
+                ty: Type::I8,
+                raiz: None,
+            },
+            Type::Void,
+        );
         self.terminate(Terminator::Return(Some(v)));
     }
 
     /// Lê um global pelo getter preguiçoso.
     pub fn ler_global(&mut self, vid: VariableId, span: Span) -> Operand {
-        if self
-            .ctx
-            .program
-            .library(self.ctx.program.variables[vid.0 as usize].library)
-            .is_sdk
+        if !self.ctx.biblioteca_compilada(self.ctx.program.variables[vid.0 as usize].library)
         {
             let nome = self
                 .ctx
@@ -1498,16 +1828,42 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Grava um global (e marca-o inicializado).
     pub fn gravar_global(&mut self, vid: VariableId, val: Operand, span: Span) -> Operand {
-        if self
-            .ctx
-            .program
-            .library(self.ctx.program.variables[vid.0 as usize].library)
-            .is_sdk
+        if !self.ctx.biblioteca_compilada(self.ctx.program.variables[vid.0 as usize].library)
         {
             return self.nao_suportado("atribuição a global do SDK", span);
         }
         let repr = self.repr(tipo_da_variavel(self.ctx, vid));
         let val = self.coagir(val, repr);
+        if self.ctx.sdk_da_fonte
+            && !self.ctx.biblioteca_no_modulo(self.ctx.program.variables[vid.0 as usize].library)
+        {
+            // O global mora em outro módulo (SDK da fonte): pelo setter dele.
+            self.emit_call_with_check(
+                Instruction::CallStatic {
+                    symbol: format!("{}$set", super::simbolo_global(self.ctx, vid)),
+                    args: vec![val.clone()],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            );
+            return val;
+        }
+        let var = &self.ctx.program.variables[vid.0 as usize];
+        if var.late && var.final_ {
+            let bandeira = format!("{}$ok", super::simbolo_valor_global(self.ctx, vid));
+            let ok = self.emit(Instruction::LoadGlobal { simbolo: bandeira, ty: Type::I8 }, Type::I8);
+            let ja_inicializado = self.emit(
+                Instruction::ICmp(ICmpOp::Ne, ok, Operand::Constant(Constant::Int(0))),
+                Type::I1,
+            );
+            let b_erro = self.new_block();
+            let b_gravar = self.new_block();
+            self.terminate(Terminator::CondBranch { cond: ja_inicializado, then_block: b_erro, else_block: b_gravar });
+            self.set_block(b_erro);
+            let nome = self.ctx.symbol_name(var.name).to_string();
+            self.lancar_erro_late(&nome, 1);
+            self.set_block(b_gravar);
+        }
         self.emit(
             Instruction::StoreGlobal {
                 simbolo: format!("{}$ok", super::simbolo_valor_global(self.ctx, vid)),

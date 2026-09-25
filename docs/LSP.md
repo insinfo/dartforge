@@ -53,6 +53,11 @@ chegada da versão N substitui a N−1 no lugar e `didClose` remove. Nenhum
 cache sem teto, nenhum histórico de versões, nenhum log em memória; o
 conjunto de cancelamentos só guarda ids de requisições ainda na fila e é
 limpo ao responder. Nada de `Rc<RefCell<…>>` no estado global.
+O analisador esquece a versão de linguagem associada à URI em `didClose` e
+recarrega o `package_config.json` na próxima abertura; reabrir um documento
+já aberto também invalida esse estado.
+O caminho local da URI é decodificado como URL de arquivo, inclusive nomes
+Unicode percent-encodados, antes de descobrir o pacote e sua versão.
 
 ## Sincronização incremental e UTF-16
 
@@ -72,6 +77,83 @@ entre — o custo por tecla será remedido então.
 
 ## Capacidades
 
+`textDocument/documentSymbol` lista declarações de topo e membros a partir da
+AST do documento aberto. Usa `DocumentSymbol[]` hierárquico quando o cliente
+anuncia `hierarchicalDocumentSymbolSupport`; caso contrário devolve
+`SymbolInformation[]` plano, como exige o contrato do LSP. Os intervalos são
+UTF-16. A árvore é descartada depois de cada pedido, mantendo o platô de
+memória por edição. Edições `didChange` com versão antiga são ignoradas sem
+republicar diagnósticos. Testes direcionados: `cargo test -p dartforge-lsp
+--test simbolos --locked`.
+
+`workspace/symbol` busca nos **documentos abertos** (sem índice em disco),
+com comparação sem distinguir maiúsculas e minúsculas. As URIs são ordenadas
+antes da análise, e cada AST é liberada antes da próxima: uma consulta não
+mantém cópias das versões já substituídas. O resultado é sempre
+`SymbolInformation[]`, no intervalo do nome.
+
+`textDocument/definition` navega do literal de URI em `import`, `export`,
+`part`, `part of` e `import augment` para um **arquivo relativo existente**.
+Também resolve literais `package:` pelo `package_config.json` descoberto a
+partir do arquivo aberto, somente se o pacote estiver mapeado e o destino
+existir. Não usa o fallback de pacotes de referência do compilador.
+Também navega de uma anotação de tipo sem prefixo (`Caixa x`) para uma única
+declaração de tipo homônima no mesmo arquivo. Para esse segundo caso, só
+responde quando não há diretivas que tragam outros nomes nem parâmetro de
+tipo homônimo em qualquer escopo da unidade; assim evita apontar para uma
+classe sombreada. A posição de entrada e o intervalo de destino são UTF-16.
+Referências de expressão a uma variável de topo única também navegam quando
+nenhum parâmetro, variável local, membro ou padrão pode sombrear o nome.
+O mesmo vale para uma função de topo única; uma função local homônima impede
+a navegação até haver resolução por escopo.
+URIs `dart:` e os demais nomes importados aguardam cobertura de navegação.
+A regra de ativação do literal segue a navegação de diretivas do
+analyzer (`analyzer_plugin/.../navigation_dart.dart`): só existe alvo quando
+o arquivo existe. Teste: `cargo test -p dartforge-lsp --test navegacao
+--locked`.
+
+`textDocument/hover` mostra a descrição sintática de um tipo local resolvido
+pela regra conservadora da definição acima: `class C`, `enum E`, `mixin M`
+ou `extension type X`, quando não genérico. Usa Markdown se o cliente o
+anuncia; caso contrário devolve texto simples. O intervalo cobre apenas o
+nome sob o cursor. Tipos genéricos e typedefs aguardam a formatação de
+assinatura do modelo de elementos, e referências importadas aguardam
+resolução semântica. Para uma variável de topo única com tipo primitivo
+escrito (`int`, `double`, `num`, `bool`, `String`, `Object`, `dynamic`), mostra
+`tipo nome` e `Type: tipo`, como a descrição do `VariableElement` no analyzer.
+Nomes locais homônimos desligam esse hover até existir resolução por escopo.
+Funções de topo com até dois parâmetros posicionais obrigatórios, todos com
+tipos primitivos escritos, e retorno primitivo/`void` escrito recebem hover
+com assinatura `tipo nome(tipo parâmetro, ...)`. Getters de topo com retorno
+primitivo escrito mostram `tipo get nome` e `Type: tipo`, seguindo o formato
+dos testes de hover do servidor Dart. A navegação para a declaração funciona
+mesmo quando a assinatura não pode ser mostrada; nesses casos o hover fica
+vazio. Funções genéricas, parâmetros opcionais/nomeados e retorno inferido
+aguardam a formatação completa da assinatura.
+Teste: `cargo test -p dartforge-lsp --test hover --locked`.
+
+O binário também carrega o SDK descoberto por `SdkLayout::discover` e resolve
+variáveis, funções e getters de topo importados em `definition` e `hover`,
+com nome simples ou prefixo explícito (`p.nome`).
+`elements` escolhe o vínculo no namespace da biblioteca, e `types` resolve a
+anotação explícita para o hover (`int resposta`, `Type: int`) e a assinatura
+de funções com até dois parâmetros posicionais obrigatórios de tipos primitivos
+escritos (`int soma(int a, int b)`) ou getters de topo com retorno primitivo
+escrito (`int get resposta`, `Type: int`). A referência
+precisa ser uma expressão identificadora, sem declaração local ou parâmetro
+homônimo em qualquer escopo da unidade. Vínculos ambíguos, aliases,
+funções genéricas ou com parâmetros opcionais/nomeados, tipos inferidos de
+inicializador e prefixos sombreados por nomes locais ainda não geram esse
+resultado. Sem SDK, permanecem as respostas sintáticas anteriores. Cada
+requisição carrega o texto vigente do editor por geração em memória;
+`Program`, `Interner`, AST e `TypeTable` são descartados ao responder.
+Documentos importados também abertos entram na mesma geração com seus textos
+vigentes; as outras dependências são lidas do disco. Nenhuma cópia dessas
+fontes fica retida depois da consulta.
+`didChange` antigo e `didClose` preservam as garantias de versão. O intervalo
+de definição em outro arquivo é convertido com as linhas **desse arquivo**.
+Teste: `cargo test -p dartforge-lsp --test semantica --locked`.
+
 Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
 `exit` (0 após `shutdown`, 1 sem), `$/cancelRequest`,
 `textDocument/didOpen`/`didChange` (incremental e integral)/`didClose`,
@@ -79,10 +161,10 @@ Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
 `version`), `dartforge/dormir` (gancho de teste do cancelamento em
 execução; clientes reais nunca enviam).
 
-Explicitamente fora deste brief: hover, completion, definição, referências,
-rename, code actions, símbolos, formatação e `diagnosticProvider` por
-requisição (o servidor empurra diagnósticos; não atende pull). Semântica
-(nomes não resolvidos, erros de tipo) chega depois via `crates/types`,
+Explicitamente fora deste brief: completion, definição de variáveis/funções locais e demais nomes importados, referências,
+rename, code actions, formatação e `diagnosticProvider` por
+requisição (o servidor empurra diagnósticos; não atende pull). Diagnósticos
+semânticos (nomes não resolvidos, erros de tipo) chegam depois via `crates/types`,
 pela costura `trait Analisador { fn diagnosticar(&mut self, uri, texto) }`
 — o transporte não muda.
 

@@ -1,10 +1,11 @@
 //! Fusão das declarações `augment` no outline (docs/AUGMENTATIONS.md).
 //!
 //! Fonte normativa: `working/augmentations/feature-specification.md` v1.46,
-//! com a divergência do CFE 3.6.2 (D9): uma declaração `external` pode ser
-//! completada por uma augmentation (é o que a saída das macros do 3.6.2 faz:
-//! `external C.fromJson(...)` e depois `augment C.fromJson(...) : ...`), e não
-//! há `augmented()` nem embrulho de corpo.
+//! com duas divergências do CFE 3.6.2 (D9): uma declaração `external` pode
+//! ser completada por uma augmentation (`external C.fromJson(...)` seguido
+//! de `augment C.fromJson(...) : ...`); sob o experimento `macros`, uma
+//! augmentation pode substituir o corpo de uma função que já o tinha. O CFE
+//! 3.6.2 faz isso tanto na saída de macro quanto em `import augment` manual.
 //!
 //! É a generalização do mecanismo de patch do SDK (o CFE reusou a mesma
 //! infraestrutura): a declaração `augment` não cria nome novo; ela se liga à
@@ -26,6 +27,7 @@ use crate::model::*;
 use crate::outline::{extract_members, ElementPools};
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_frontend::ast::{self, DeclKind, FunctionBody, MemberKind};
+use dartforge_frontend::features::Feature;
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::{BTreeMap, HashMap};
 
@@ -298,7 +300,7 @@ fn ligar(
         pools.functions[novo.0 as usize].patched_by = Some(antigo);
         return false;
     }
-    if tem_corpo(f.units, &pools.functions[antigo.0 as usize]) {
+    if tem_corpo(f.units, &pools.functions[antigo.0 as usize]) && !augmentation_com_macros(f.units, unit_id) {
         f.erro(unit_id, "a declaração aumentada já tem corpo; uma augmentation não pode substituí-lo", span);
         pools.functions[novo.0 as usize].patched_by = Some(antigo);
         return false;
@@ -310,6 +312,13 @@ fn ligar(
     }
     pools.functions[antigo.0 as usize].patched_by = Some(novo);
     true
+}
+
+/// O CFE 3.6.2 aceita a substituição sob `macros`, inclusive de uma
+/// augmentation escrita manualmente; fora do experimento segue a spec.
+fn augmentation_com_macros(units: &[Unit], unit: UnitId) -> bool {
+    let u = &units[unit.0 as usize];
+    u.role == UnitRole::Augmentation && u.features.tem(Feature::Macros)
 }
 
 /// A declaração tem corpo em Dart (não `external`, não `;`)?

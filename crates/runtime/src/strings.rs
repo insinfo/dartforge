@@ -71,7 +71,7 @@ pub unsafe extern "C" fn dartforge_string_new(ptr: *const u8, len: i64) -> i64 {
         // SAFETY: única leitura de ponteiro estrangeiro; contrato da constante LLVM.
         unsafe { std::slice::from_raw_parts(ptr, len) }
     };
-    alocar_texto(Texto::de_wtf8(bytes))
+    HEAP.with(|heap| heap.borrow_mut().string_literal(Texto::de_wtf8(bytes)))
 }
 /// Concatena strings não nulas; argumentos devem estar enraizados pelo emissor.
 #[unsafe(no_mangle)]

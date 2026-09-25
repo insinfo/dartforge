@@ -1,4 +1,274 @@
-# Estado do DartForge — 2026-09-23
+# Estado do DartForge — 2026-09-24
+
+## Continuação no SSD (2026-09-24)
+
+O checkout de trabalho está em `E:\MyRustProjects\dartforge`. A cópia do
+repositório no D: foi feita sem as pastas ignoradas pelo `.gitignore` e sem os
+worktrees antigos de `.claude`; o histórico e os arquivos rastreados foram
+preservados. As toolchains ficam em `E:\DartSDKs` e `E:\Rust`, e as compilações
+locais usam `TEMP`/`TMP` em E:.
+
+Na integração `fbf7f86`, a [CI 36005425772](https://github.com/insinfo/dartforge/actions/runs/36005425772)
+e o [Pesado 36005425989](https://github.com/insinfo/dartforge/actions/runs/36005425989)
+passaram. O corpus com SDK da fonte ficou em **162/223** no nativo; JavaScript
+de desenvolvimento e produção passou o corpus completo, e macros ficaram
+**9/9**. O analyzer registrou **5.925/26.133** diagnósticos na posição exata,
+5.636 mensagens iguais, 4.319 falsos positivos, 19.740 falsos negativos e
+468 posições erradas, com resultado idêntico em 1/4/8 trabalhadores. Esta é a
+medição combinada anterior, preservada como referência histórica.
+
+Na integração `1a781ce`, a [CI 36011412677](https://github.com/insinfo/dartforge/actions/runs/36011412677)
+e o [Pesado 36011412710](https://github.com/insinfo/dartforge/actions/runs/36011412710)
+passaram. O nativo com SDK da fonte chegou a **166/223**; JS de
+desenvolvimento e produção passaram, e macros ficaram **15/15**. O analyzer
+atingiu **5.945/26.133** diagnósticos na posição exata, 5.656 mensagens
+iguais, 4.313 falsos positivos, 19.720 falsos negativos e 468 posições
+erradas, determinístico em 1/4/8 trabalhadores. Essa é a última medição
+combinada concluída; commits mais recentes estão em nova rodada de CI.
+
+No ramo de trabalho atual, o motor de build aceita um executor Dart injetado,
+serve `BuildStep` com visibilidade por fase e por pacote, e possui um cliente
+para o protocolo `build.*` sobre o canal `dfexec/1`. O processo Dart que
+execute builders ainda não está implementado; o padrão continua indisponível.
+Gates isolados da integração recente: o nativo chegou a **166/223** no SDK da
+fonte após RTI de fábrica redirecionadora e getter de interface implementado
+por campo ([Pesado 36010112751](https://github.com/insinfo/dartforge/actions/runs/36010112751));
+macros passaram **15/15** em JS de desenvolvimento e produção, incluindo
+definição de método da fixture 418, com augmentation idêntica ao CFE
+([Pesado 36010353726](https://github.com/insinfo/dartforge/actions/runs/36010353726));
+o analyzer isolado alcançou **5.868/26.133** diagnósticos na posição exata,
+5.579 mensagens iguais, 4.326 falsos positivos, 19.797 falsos negativos e
+468 posições erradas, com determinismo em 1/4/8 trabalhadores
+([Pesado 36008510883](https://github.com/insinfo/dartforge/actions/runs/36008510883)).
+Esses números vieram de ramos isolados antes da integração `1a781ce`; a
+medição conjunta acima prevalece para aquele commit.
+
+Depois dela, foram integrados `Function.apply` e `NoSuchMethodError` de
+aridade de closures, chamada de função devolvida por getter estático,
+modelos de macros 413–415, hover/definition de import prefixado no LSP,
+diagnósticos de conflito estático com mixins e o hospedeiro `BuildStep` com
+limites de leitura/escrita por ação. Gates isolados: nativo com SDK da fonte
+**164/223** após os casos 38 e 45, sem regressão de status; macros **12/12**
+em desenvolvimento e produção, augmentations 413–415 idênticas às do CFE;
+o mixin `on` levou o analyzer isolado a **5.870/26.133**, 11 acertos a mais
+no grupo sem aumento de falsos positivos. A nova rodada combinada do HEAD
+`60336d7` é [CI 36008167645](https://github.com/insinfo/dartforge/actions/runs/36008167645)
+e [Pesado 36008167704](https://github.com/insinfo/dartforge/actions/runs/36008167704).
+
+No ramo `ci/native-sdk-is-selector` (`9d29894`), a
+[CI 36044895512](https://github.com/insinfo/dartforge/actions/runs/36044895512)
+e o [Pesado 36044895476](https://github.com/insinfo/dartforge/actions/runs/36044895476)
+passaram. O nativo com SDK da fonte foi de **179/223** para **183/223**,
+igual no JIT (0 divergências JIT × AOT, `--gc-stress` sem regressão):
+`206_enum_factory` (name/index implícitos de enum), `139_string_tostring`
+e `134_object_identical` (toString padrão de genérica com argumentos) e
+`53_enums_membros` (values implícito + aresta enum → `Enum` do SDK).
+O grupo "chamada de membro sem implementação compilada" caiu de 6 para 3
+(`57_nosuchmethod`, `216_poda_nosuchmethod`, `223_nosuchmethod_argumentos`,
+os encaminhadores noSuchMethod); os maiores grupos agora são geradores
+(6), `RegExp` da fonte (5) e instanciação de tipo genérico (3).
+
+No ramo `ci/native-sdk-is-selector` (`47f843b`), a
+[CI 36048526413](https://github.com/insinfo/dartforge/actions/runs/36048526413)
+e o [Pesado 36048526434](https://github.com/insinfo/dartforge/actions/runs/36048526434)
+passaram. O nativo com SDK da fonte manteve **183/223**, igual no JIT
+(223/223 saídas idênticas JIT × AOT, 0 divergentes; `--gc-stress` sem
+regressão): o encaminhador estático de método só com posicionais
+(`Invocation.method` + `noSuchMethod` em linha) passa na fixture
+`nsm_encaminhador_metodo_no_sdk`, mas os 3 do corpus seguem bloqueados —
+`216_poda_nosuchmethod` ainda exige os encaminhadores de getter/setter, e
+`57`/`223` exigem nomeados/genéricos mais o miss dinâmico do seletor.
+
+Integração em `ci/integracao-ssd`: ajustes de caminhos, seleção do LLVM 22 no
+runner, correção de símbolos estáveis e da RTI entre módulos, regressões de
+hot reload, navegação e hover LSP, limpeza do executor de macros e avanço do
+motor nativo de Sass. O teste local foi limitado a `cargo check` direcionado
+e testes pequenos; o corpus e o link de produção rodam no GitHub Actions.
+
+Na rodada de validação, [CI 35965411301](https://github.com/insinfo/dartforge/actions/runs/35965411301)
+e [Pesado 35965411225](https://github.com/insinfo/dartforge/actions/runs/35965411225)
+passaram. O executável autocontido em produção passou após a correção dos
+símbolos RTI; após canonizar literais de string e corrigir a notação exponencial
+sem precisão explícita e aplicar `%` de Dart a inteiros e doubles,
+[Pesado 35970757894](https://github.com/insinfo/dartforge/actions/runs/35970757894)
+mediu SDK da fonte: **112/223** tanto AOT quanto JIT. O corpus padrão
+chegou a **92/223**, JS desenvolvimento/produção **223/223**, Dart moderno
+**22/26**, macros **6/7**, com determinismo em 1/4/8 trabalhadores. P5c/P5d
+ainda não está completo. Após preservar a RTI de `Set`/`Map` e corrigir
+os seletores de `Type` e `_StackTrace`,
+[Pesado 35971998885](https://github.com/insinfo/dartforge/actions/runs/35971998885)
+mediu **119/223** tanto AOT quanto JIT; 104 casos ainda falham. A
+correção de `%` fez `11_int_truncdiv_modulo_negativos` passar e permitiu que
+`13b_double_tostring_divergencia_web` avançasse até os seletores de `Type`.
+Após corrigir setters dinâmicos, `StackTrace` e acesso lexical a `super`,
+[Pesado 35975868181](https://github.com/insinfo/dartforge/actions/runs/35975868181)
+mediu **125/223** no job AOT com SDK da fonte (98 casos ainda falham); o
+workflow geral foi cancelado pelo push seguinte após esse artefato sair. A rodada
+ainda não continha a correção do getter que sobrescreve campo herdado nem
+as correções seguintes de `Object` em enums e `_Type`.
+Com o despacho de getters herdados, `Object`/`_Type`/enums e a RTI estrutural
+de records, o job AOT com SDK da fonte do
+[Pesado 35978288847](https://github.com/insinfo/dartforge/actions/runs/35978288847)
+mediu **146/223** (77 falhas). `46_classes_getters_setters`,
+`52_enums_basico`, `61_list_metodos`, `100_records_basico`, `112_typedef`,
+`129_comparable_sort` e `198_antigo_records19` passaram nessa rodada.
+
+O analisador integrado passou em [CI 35970218894](https://github.com/insinfo/dartforge/actions/runs/35970218894)
+e [Pesado 35970218770](https://github.com/insinfo/dartforge/actions/runs/35970218770):
+**5.381/26.133 (20,6%)** diagnósticos na posição exata, ante 1.445/26.133
+antes do merge, com relatório idêntico em 1/4/8 trabalhadores. Após
+preservar os aliases e getters do SDK e adaptar `NodeList` nativo aos
+métodos de `List` do DDC, [JS de produção 35972736058](https://github.com/insinfo/dartforge/actions/runs/35972736058)
+passou **223/223** e a galeria passou **26/26** no navegador
+([E2E 35971652262](https://github.com/insinfo/dartforge/actions/runs/35971652262)).
+
+Os diagnósticos de corpo e inicializador `external`, campos `abstract` e
+aridade de operadores elevaram a paridade para **5.565/26.133 (21,3%)**
+na [rodada Pesado 35973737505](https://github.com/insinfo/dartforge/actions/runs/35973737505),
+após [CI 35973737483](https://github.com/insinfo/dartforge/actions/runs/35973737483)
+verde: 5.276 mensagens iguais, 4.369 falsos positivos, 20.050 falsos
+negativos e 518 posições erradas, com determinismo em 1/4/8 trabalhadores.
+No corpus, `external_method_with_body` ficou 31/31,
+`external_with_initializer` 27/27, `abstract_field_initializer` 6/6 e
+`abstract_static_field` 8/8; todos sem falsos positivos. A aridade de
+operadores ficou 137/141, também sem falsos positivos; quatro casos com
+construtor primário ainda dependem de recuperação do parser.
+
+A [rodada Pesado 35975036788](https://github.com/insinfo/dartforge/actions/runs/35975036788)
+do diagnóstico de enum sem constantes, após
+[CI 35975036834](https://github.com/insinfo/dartforge/actions/runs/35975036834)
+verde, mediu **5.567/26.133 (21,3%)**: 5.278 mensagens iguais, 4.369
+falsos positivos, 20.048 falsos negativos e 518 posições erradas, com
+determinismo em 1/4/8 trabalhadores. `enum_without_constants` passou de
+0/126 para 2/126, sem falsos positivos. O corpus acusa, em parte dos casos
+restantes, enum vazio onde o texto atual contém constantes explícitas (por
+exemplo `enum E(int x) { v(0); ... }`); o relatório marca os grupos 3.6.2
+como oráculo desatualizado. Regravar e auditar esse oráculo é necessário
+antes de usar os 124 casos restantes como defeitos da implementação.
+
+Com os diagnósticos de construtores `const` e o intervalo corrigido de
+atribuição a variável local `final`, [CI 35978288844](https://github.com/insinfo/dartforge/actions/runs/35978288844)
+e [Pesado 35978288847](https://github.com/insinfo/dartforge/actions/runs/35978288847)
+passaram: **5.656/26.133 (21,6%)** na posição exata, 5.367 mensagens iguais,
+4.371 falsos positivos, 20.008 falsos negativos, 469 posições erradas e
+determinismo em 1/4/8 trabalhadores. `const_factory` está 15/15 sem falso
+positivo; `assignment_to_final_local` está 49/60 com 4 posições erradas.
+
+As regras adicionais de atribuição (`assignment_to_const`, getter sem
+setter e receptor tipado em atribuição composta) passaram na
+[CI 35980099471](https://github.com/insinfo/dartforge/actions/runs/35980099471)
+e no [Pesado 35980099480](https://github.com/insinfo/dartforge/actions/runs/35980099480):
+**5.700/26.133 (21,8%)** na posição exata, 5.411 mensagens iguais,
+4.378 falsos positivos, 19.964 falsos negativos, 469 posições erradas,
+determinismo em 1/4/8. São 44 acertos exatos e 44 mensagens iguais a mais
+que a rodada anterior. O mesmo Pesado mediu o nativo em **146/223** e
+JIT × AOT em **223/223 saídas idênticas**; o caso 104 ainda falha nos dois
+perfis antes da correção de passagem de variáveis de cases compartilhados.
+
+Na [CI nativa 35981507325](https://github.com/insinfo/dartforge/actions/runs/35981507325)
+e no [Pesado 35981507387](https://github.com/insinfo/dartforge/actions/runs/35981507387),
+atribuições compostas, listas e literais de `Type` elevaram o SDK da fonte a
+**151/223**. A [suíte nativa 35982482442](https://github.com/insinfo/dartforge/actions/runs/35982482442)
+confirmou `210_constantes_de_ambiente` e **152/223**. A rodada combinada
+[35982589082](https://github.com/insinfo/dartforge/actions/runs/35982589082)
+mediu **157/223**: o seletor genérico liberou seis casos, inclusive
+`104_sealed_exaustivo`, mas `69_list_de_lists_e_matriz` regrediu no
+`fold<int>` após `expand`; a rodada seguinte corrigiu essa regressão.
+O RTI da lista concreta e das fábricas redirecionadas foi validado na
+[CI 35986485976](https://github.com/insinfo/dartforge/actions/runs/35986485976)
+e na [suíte nativa 35986493960](https://github.com/insinfo/dartforge/actions/runs/35986493960):
+**160/223**, sem regressões contra a rodada de 157. `69_list_de_lists_e_matriz`
+voltou a passar, junto com `138_collection_hashmap_ordenado` e
+`199_antigo_reified18`; `41_classes_ctor_nomeado` e `64_map_ordem_insercao`
+permaneceram verdes após reificar tear-offs de construtor e `MapEntry<K,V>`.
+Na integração `06a7516`, a [CI 35987446180](https://github.com/insinfo/dartforge/actions/runs/35987446180)
+e o [Pesado 35987446121](https://github.com/insinfo/dartforge/actions/runs/35987446121)
+passaram. O nativo com SDK da fonte manteve **160/223**; JavaScript
+desenvolvimento e produção ficaram em **223/223**, e macros em **6/7**.
+O job JIT × AOT teve **223/223 saídas idênticas**, mas apenas **93/223**
+programas passaram no corpus padrão; 122 não produziram IR, portanto a
+igualdade entre perfis não implica compatibilidade com a VM. Os ajustes de
+RTI em cópias de lista, URI Unicode no LSP e execução de macros pelo
+`build_runner` foram integrados depois dessa rodada e aguardam o próximo
+Pesado combinado.
+
+Os quatro diagnósticos adicionais de membros somente para leitura passaram
+na [CI 35981633280](https://github.com/insinfo/dartforge/actions/runs/35981633280)
+e no [Pesado 35981633118](https://github.com/insinfo/dartforge/actions/runs/35981633118):
+**5.768/26.133 (22,1%)** exatos, 5.479 mensagens iguais, 4.354 falsos
+positivos, 19.896 falsos negativos, 469 posições erradas e determinismo em
+1/4/8 trabalhadores. Ante 5.700: +68 acertos e -24 falsos positivos.
+As regras de inicialização de campos `final` e atribuição a método passaram
+na [CI 35983725221](https://github.com/insinfo/dartforge/actions/runs/35983725221);
+o [Pesado 35983725139](https://github.com/insinfo/dartforge/actions/runs/35983725139)
+mediu **5.793/26.133 (22,2%)** exatos, 5.504 mensagens iguais, 4.352 falsos
+positivos, 19.871 falsos negativos, 469 posições erradas e determinismo em
+1/4/8 trabalhadores. São +25 acertos exatos e -2 falsos positivos. O próprio
+relatório marca grupos do oráculo como desatualizados; esse placar é uma medida
+de paridade com a versão gravada, não um certificado de correção total.
+Na mesma [rodada combinada 35987446121](https://github.com/insinfo/dartforge/actions/runs/35987446121),
+após os diagnósticos de atribuição e construtores, o analyzer alcançou
+**5.827/26.133 (22,3%)** na posição exata, 5.538 mensagens iguais,
+4.342 falsos positivos, 19.837 falsos negativos e 469 posições erradas,
+com relatório idêntico em 1/4/8 trabalhadores. As correções posteriores
+de `Enum.index` e setter de extensão explícita ainda não fazem parte
+desse placar combinado.
+Na integração `7d5e370`, a [CI 35989394377](https://github.com/insinfo/dartforge/actions/runs/35989394377)
+e o [Pesado 35989394369](https://github.com/insinfo/dartforge/actions/runs/35989394369)
+passaram: **5.832/26.133** diagnósticos exatos, 5.543 mensagens iguais,
+4.338 falsos positivos, 19.832 falsos negativos e 469 posições erradas,
+com determinismo em 1/4/8 trabalhadores. O nativo com SDK da fonte manteve
+**160/223**, sem mudança de estado em nenhum caso frente à rodada anterior.
+O builder executou as quatro aplicações do fixture e emitiu o resultado
+estruturado da fase de declarações; a augmentation final ainda não existe.
+No ramo isolado `ci/native-late`, a [CI 35990678510](https://github.com/insinfo/dartforge/actions/runs/35990678510)
+passou e o [Pesado dirigido 35990678930](https://github.com/insinfo/dartforge/actions/runs/35990678930)
+publicou **161/223** no SDK da fonte, sem regressões frente aos 160 casos
+verdes anteriores. `56_late` passou após inicialização preguiçosa de locais,
+globais e campos; os casos 34 e 94 permaneceram verdes. Capturas `late`
+continuam no caminho anterior, com limitação documentada em `docs/NATIVO.md`.
+Na integração `06eac49`, a [CI 35991837079](https://github.com/insinfo/dartforge/actions/runs/35991837079)
+e o [Pesado 35991837078](https://github.com/insinfo/dartforge/actions/runs/35991837078)
+passaram. O SDK da fonte confirmou **161/223** casos nativos, com `56_late`
+recuperado e sem regressões frente à rodada anterior. O analyzer mediu
+**5.835/26.133** diagnósticos na posição exata, 5.546 mensagens iguais,
+4.334 falsos positivos, 19.829 falsos negativos e 469 posições erradas;
+o relatório foi idêntico com 1, 4 e 8 trabalhadores. Esse placar inclui
+`Enum.index` e o setter de extensão explícita, mas ainda não inclui os
+commits posteriores de campos não nulos, métodos estáticos em extensões e
+definições completas de macros.
+Na integração `25ea825`, a [CI 35995133386](https://github.com/insinfo/dartforge/actions/runs/35995133386)
+e o [Pesado 35995133542](https://github.com/insinfo/dartforge/actions/runs/35995133542)
+passaram. O analyzer alcançou **5.867/26.133** diagnósticos exatos
+(22,5%), 5.578 mensagens iguais, 4.321 falsos positivos, 19.798 falsos
+negativos e 468 posições erradas, com determinismo em 1/4/8 trabalhadores.
+São +32 exatos e -13 falsos positivos frente a `06eac49`. O nativo com
+SDK da fonte manteve **161/223**, sem mudança de status em nenhum dos 223
+programas, e JS desenvolvimento/produção passaram. O corpus de macros
+permaneceu **6/7**: `410_json_codable` ainda estava em `PENDENTES` nessa
+revisão, apesar de o builder já materializar a augmentation do fixture.
+Na integração `301d1e5`, a [CI 35997168053](https://github.com/insinfo/dartforge/actions/runs/35997168053)
+e o [Pesado 35997168127](https://github.com/insinfo/dartforge/actions/runs/35997168127)
+passaram. O SDK da fonte manteve **161/223**, com os mesmos 223 estados da
+rodada anterior; a paridade do analyzer manteve **5.867/26.133** e o
+determinismo em 1/4/8 trabalhadores. Macros subiram para **7/7** em JS
+desenvolvimento e produção: `410_json_codable` usa a entrada Forge preparada
+com a augmentation materializada pelo builder. Isso valida o consumo do
+arquivo gerado, mas ainda não comprova execução automática da anotação no
+fluxo normal do compilador; o caso independente `411_pedido_independente`
+foi acrescentado depois dessa integração para testar esse caminho.
+Na integração `b72b4fb`, a [CI 35999991755](https://github.com/insinfo/dartforge/actions/runs/35999991755)
+e o [Pesado 35999991786](https://github.com/insinfo/dartforge/actions/runs/35999991786)
+passaram. O caso independente `411_pedido_independente` elevou macros a
+**8/8** em JS desenvolvimento e produção: a anotação original executa pelo
+executor provisório na VM e a augmentation fica em memória. O SDK da fonte
+manteve **161/223**, JS desenvolvimento/produção **223/223**, e o analyzer
+alcançou **5.870/26.133** diagnósticos exatos, 5.581 mensagens iguais,
+4.319 falsos positivos, 19.795 falsos negativos e 468 posições erradas,
+com determinismo em 1/4/8 trabalhadores. A CLI ganhou recarga R1 opcional
+com preservação de heap e estáticos; a execução de `main` ainda se repete.
+O executor nativo de macros, a recarga de SDK da fonte integrada e a
+compatibilidade completa continuam pendentes.
 
 ## Fechamento do dia 2026-09-23
 
@@ -40,7 +310,7 @@ commit do dia, com uma mensagem detalhada do que foi feito e do que falta.
 
 | ramo | frente | estado no fim do dia | primeiro passo amanhã |
 | --- | --- | --- | --- |
-| `wip/paridade` (d558f16) | analisador em Rust (A1–A2 → L1) | acerto exato **5.647/26.133 (21,6%, era 7,4%)**; `unused_local_variable` 2.231/2.315, `duplicate_definition` 723/1.317, `unused_import` 112/153, `expected_token` 786/1.724; 3 códigos de enum publicados (100%, sem falso positivo); projetos reais 0/15/183 internos, nenhum publicado. CI 35941746401 verde; Pesado 35941746311 rodava no fechamento | confirmar o Pesado; parser recusar sintaxe 3.7+ em biblioteca 3.6 e recuperar erro como o parser oficial (um erro por token ruim) |
+| `wip/paridade` (integrada por `ci/paridade-integracao`) | analisador em Rust (A1–A2 → L1) | acerto exato **5.343/26.133 (20,4%)**; `unused_local_variable` 2.231/2.315, `duplicate_definition` 783/1.317, `unused_import` 112/153, `expected_token` 421/1.724. CI 35967061037 e Pesado 35967060973 verdes; determinismo 1/4/8 | corrigir os falsos positivos e negativos restantes; recuperação sintática e checagens de tipo |
 | `wip/inferencia` (de9b68b) | inferência (lacunas restantes) | b485cdf verde nos dois workflows (CI 35941571461, Pesado 35941571357). Avisos no `new_sali`: core **5**, frontend **19**, todos também dados pelo analyzer (17 em templates gerados, 6 `dead_code` já com `ignore`, 1 cast desnecessário por promoção de campo); divergências core **22**, frontend **45**; corpus **89/95**; sonda 6/7 (falta `unused_local_variable`) | `git merge main`; lacuna L03 (inferência horizontal em fases de dependência, gen14); depois L05, L20, L21, L28; `unused_local_variable` (sonda 7/7) e P6 |
 | `wip/nativo-sdk-fonte` (70ec1e4) | nativo P5c/P5d (SDK compilado da fonte) | merge do `main` concluído (13 conflitos: async/RTI, Dart moderno, macros), compila; testes de emit_native, runtime e elements passam local. Último verde: Pesado 35930483005 — padrão 82/223, SDK da fonte 84/223 (108/223 local antes do merge). Rodada atual vermelha: o link de produção autocontido pega o lld do LLVM 20 do runner, que não lê bitcode do LLVM 22 | ligar a produção com o `lld-link` explícito do LLVM do `DARTFORGE_CLANG` (`-fuse-ld=` com caminho), push em `ci/nativo-d2`, conferir padrão 91/223 e o primeiro placar do SDK da fonte pós-merge |
 
@@ -50,7 +320,7 @@ commit do dia, com uma mensagem detalhada do que foi feito e do que falta.
    * Terminar P5c/P5d, o SDK compilado da fonte: DLL em cache no desenvolvimento, executável único estático com ThinLTO em produção.
    * Depois: extension types, `sync*`/`async*` restantes e isolates.
 2. **Inferência**: integrar o `wip/inferencia` (divergências 22/45, corpus 89/95; no `main` ainda 31/56 e 83/95) e fechar o resto; P6 (inferência e fluxo 3.7–3.10, `corpus/moderno` 350–352).
-3. **Analisador e LSP em Rust**: subir de 21,6% para a paridade.
+3. **Analisador e LSP em Rust**: subir de 20,4% para a paridade.
    * Primeiro a sintaxe (recuperação de erro igual à do parser oficial), depois os códigos de tipo.
    * Só publicar um código com 100% no corpus e zero falso positivo nos projetos reais.
    * Mensagens em inglês idênticas às do SDK.
@@ -75,6 +345,29 @@ commit do dia, com uma mensagem detalhada do que foi feito e do que falta.
   * temporários no D:.
 
 ---
+
+## Migração para SSD — 2026-09-24
+
+O trabalho continua em `E:/MyRustProjects/dartforge`, no ramo
+`ssd/nativo-sdk-fonte` criado a partir do WIP nativo `70ec1e4`. A cópia com
+`robocopy /MT:16` levou o código e o histórico Git, sem `target*`, `dist`,
+`references`, worktrees e demais artefatos ignorados; quatro arquivos
+`package_config.json` versionados foram restaurados depois da cópia.
+`E:/DartSDKs` contém o LLVM 22.1.8 e os SDKs Dart 3.6.2, 3.13.4 e 3.14 dev;
+`E:/Rust` contém o Rust 1.98.1 e o cache Cargo. `scripts/env.ps1` seleciona
+essas cópias por padrão, respeitando as variáveis de ambiente explícitas.
+
+Verificações no SSD: `cargo check --locked --offline --workspace` passou;
+`cargo test --locked --offline -p dartforge-emit-native --lib` passou (24
+testes, cinco medições ignoradas); `cargo test --locked --offline -p
+dartforge-jit --lib` passou (11 testes, três ignorados), e o teste isolado
+`reload::tests::ciclo_completo_com_ir_direto` passou com `LLVM-C.dll` no
+`PATH`. O teste diferencial nativo isolado `01_print` passou contra a VM
+(1/1), exercendo Clang, link e execução em `E:`. O placar do corpus nativo
+com SDK da fonte ainda precisa ser medido no CI, conforme a regra de testes
+pesados.
+O fechamento geral mais recente permanece em `main:ESTADO.md`; abaixo está
+o histórico detalhado preservado deste ramo.
 
 O que **funciona hoje, verificado por execução**, e o que **falta**, nesta
 ordem. Tudo aqui é medido; nada é estimativa salvo onde está escrito
@@ -303,59 +596,71 @@ parser novo, `DocumentStore` como dono por documento. Extensão VS Code
 mensagens: **DartForge pico 21,3 MiB / platô 19,0 MiB; `dart
 language-server` pico 640,5 MiB / platô 633,7 MiB**.
 
-**Diagnósticos com paridade (plano A1/A2) — `crates/diagnostics`,
-`crates/paridade`, `dartforge analyze`.** O `Diagnostic` tem código,
-severidade e argumentos; a mensagem de um diagnóstico com código é o molde
-oficial em inglês renderizado como o `formatList` do analyzer. A tabela
-(`diagnostics/src/codigos_g.rs`) é gerada do `analyzer-6.11.0` da cache do
-pub: 1.030 códigos — 542 `CompileTimeErrorCode`, 7 `StaticWarningCode`,
-144 `WarningCode`, 8 `HintCode`, 48 `FfiCode`, 265 `ParserErrorCode`, 12
-`ScannerErrorCode`, 4 `TodoCode`. `dartforge analyze [--format=json]` emite o
-mesmo JSON v1 do `dart analyze` (offset UTF-16, ordem do dartdev, códigos de
-saída 3/2/0) e publica pela regra do plano §2.3: sintaxe sempre, semântica só
-os códigos de `crates/paridade/verificados.txt` — **vazia hoje**.
-
+**Diagnósticos com paridade — `crates/diagnostics`, `crates/frontend`,
+`crates/analise`, `crates/paridade`, `dartforge analyze`, LSP.** O
+`Diagnostic` tem código, severidade e argumentos; a mensagem é o molde
+oficial em inglês renderizado como o `formatList` do analyzer (**nada de
+português na saída**). A tabela (`diagnostics/src/codigos_g.rs`) é gerada do
+`analyzer-6.11.0` da cache do pub: 1.030 códigos — 542
+`CompileTimeErrorCode`, 7 `StaticWarningCode`, 144 `WarningCode`, 8
+`HintCode`, 48 `FfiCode`, 265 `ParserErrorCode`, 12 `ScannerErrorCode`, 4
+`TodoCode`.
+* **Sintaxe**: o lexer e o parser saem com o código, a mensagem e a posição
+  do fasta, medidos em sondas: `;` que falta no token anterior, o resto no
+  token corrente; fecho que falta no fim do arquivo é o `expected_token` do
+  scanner com comprimento 1; `missing_identifier` ou
+  `expected_identifier_but_got_keyword`; os recursos desligados pela versão
+  são `experiment_not_enabled`.
+* **Verificadores sem tipo** (`crates/analise`): o
+  `DuplicateDefinitionVerifier` e o `MemberDuplicateDefinitionVerifier`
+  inteiros, a parte local do `UnusedLocalElementsVerifier` e o
+  `ImportsVerifier` (`unused_import` e `unused_shown_name`, pelo lado seguro:
+  112/153 no corpus, 0 FP nos projetos).
+* **Regra de publicação** (`crates/analise/verificados.txt`, a mesma no CLI
+  e no LSP): sintaxe sempre; semântica só com 100% no corpus e 0 FP nos
+  três projetos reais. Publicados hoje: `enum_constant_same_name_as_enclosing`,
+  `enum_with_name_values` e `values_declaration_in_enum`.
+* **LSP (L1)**: cada documento passa pela sintaxe e pelos verificadores sem
+  tipo, filtrados pela regra. O diagnóstico leva `code`, a severidade do
+  analyzer e a mensagem com a correção.
+  * Medido no `new_sali`, 1.258 arquivos abertos e editados
+    (`memoria_lsp`): 20,03 MiB vivos (antes, 19,94), pico 20,51 MiB,
+    780–810 ms, 1,90 M alocações (antes, 1,37 M).
 * **Aceite de A2**: dados código, argumentos e intervalo, a sonda de 7 erros
   sai **byte a byte** igual ao JSON gravado do SDK 3.6.2
-  (`crates/paridade/tests/sonda.rs`). Pela análise de hoje (inferência pela
-  especificação, main 27c31d0), 3 dos 7 batem em posição e mensagem:
-  `non_bool_condition`, `not_assigned_potentially_non_nullable_local_variable`
-  e `argument_type_not_assignable`. Os outros 4 dependem do pedido T1 a
-  `types`: `undefined_function` sai como `undefined_identifier`;
-  `return_of_invalid_type` cobre o comando inteiro, e não a expressão;
-  `unchecked_use_of_nullable_value` não existe; e `unused_local_variable` é
-  do A3. Há 1 falso positivo.
+  (`crates/paridade/tests/sonda.rs`).
+  * Pela análise de hoje, 4 dos 7 batem: `non_bool_condition`,
+    `not_assigned_potentially_non_nullable_local_variable`,
+    `argument_type_not_assignable` e `unused_local_variable`.
+  * Os outros 3 são do T1 (`types`): `undefined_function`,
+    `return_of_invalid_type` (posição) e `unchecked_use_of_nullable_value`.
 * **Placar no corpus** (`corpus/diagnosticos`, oráculo gravado em disco):
-  9.441 arquivos em 5 grupos — `tests/language` (1.180), trechos de
-  `pkg/analyzer/test/src/diagnostics` (8.253), os de `@dart` 3.7+ com o
-  oráculo 3.13.4 (7) e a sonda — e 26.133 diagnósticos do oráculo.
-  **1.935 na posição exata (7,4%), 1.731 com mensagem igual**; posição
-  errada 1.638; FP 2.696; FN 22.560. Antes da inferência reescrita o placar
-  era 1.268 (4,9%) e FP 4.660.
-  * Códigos com 100%: `illegal_character` e `unnecessary_cast`, de 593 com
-    casos.
-  * FN maiores: `unused_local_variable` 2.315 (A3), `duplicate_definition`
-    1.317, `expected_executable` 1.240, `type_argument_not_matching_bounds`
-    1.175 e `missing_const_final_var_or_type` 912. Dos 1.724
-    `expected_token`, a recuperação do parser difere da do fasta.
-  * FP maiores: `expected_token` 410, `undefined_identifier` 377,
-    `undefined_method` 368, `undefined_class` 359 e `undefined_getter` 202.
-  * 2 pânicos isolados: `part/self_test.dart` esgota a memória, e um caso de
-    `recursive_interface_inheritance` não termina. Cada lote roda num
+  9.441 arquivos e 26.133 diagnósticos do oráculo, 376 s com 2
+  trabalhadores.
+  * **5.343 na posição exata (20,4%), 5.054 com mensagem igual**, medidos
+    pelo Pesado 35967060973. Antes da integração eram 1.445 (5,5%).
+    Posição errada 518; FP 4.369; FN 20.272.
+  * `unused_local_variable` 2.231/2.315 (FP 9);
+    `duplicate_definition` 783/1.317 (quase todo o resto é sintaxe de
+    augmentation e construtor primário, que o 3.6.2 analisa de outro jeito);
+    `expected_token` 421/1.724; `values_declaration_in_enum` 13/13;
+    `conflicting_static_and_instance` 39/266 (os 227 que faltam dependem da
+    interface herdada).
+  * FN maiores: `expected_executable` 1.236 e
+    `missing_const_final_var_or_type` 912 (recuperação do fasta),
+    `type_argument_not_matching_bounds` 1.175 e `use_of_void_result` 479
+    (T1).
+  * 2 pânicos isolados (`part/self_test.dart` esgota a memória; um caso de
+    `recursive_interface_inheritance` não termina). Cada lote roda num
     processo filho com teto de memória e de tempo.
-  * 290 atribuições ambíguas: `types` ainda não diz a unidade do
-    diagnóstico.
-* **Projetos reais**: o oráculo 3.6.2 dá **0** no `new_sali/core` (36 s),
-  no `new_sali/frontend` (24 s) e no `limitless_ui` (233 s). O nosso lado
-  tem, internamente, **53, 29 e 216** diagnósticos, todos falsos positivos
-  (antes da inferência reescrita: 3.746, 3.029 e 2.045). Por código:
-  `undefined_identifier` 127, `uri_has_not_been_generated` 70,
-  `const_initialized_with_non_constant_value` 47,
-  `missing_required_argument` 34 e `argument_type_not_assignable` 13.
-  **Publicados pela regra: 0.** Nenhum chega ao editor.
+* **Projetos reais**: o oráculo 3.6.2 dá **0** no `new_sali/core`, no
+  `new_sali/frontend` e no `limitless_ui`. O nosso lado tem, internamente,
+  **0, 15 e 183**, todos de tipo ou de `uri_has_not_been_generated`.
+  Nenhum dos verificadores sem tipo tem FP nos três. **Publicados: 0.**
 * **Mutações** dos três projetos: 45 mutantes (`nome`, `import`, `tipo`,
   `!` e `await`), com o oráculo regravado sobre cada um. Oráculo 190;
-  **acertos 75**; posição errada 9; FP 58; FN 106.* **CI**: job `analise` do `pesado.yml`, contra o oráculo gravado (o runner
+  **acertos 75**; FP 49; FN 106.
+* **CI**: job `analise` do `pesado.yml`, contra o oráculo gravado (o runner
   não roda `dart analyze`), com o relatório idêntico em 1, 4 e 8
   trabalhadores (`determinismo`).
 ### 1.5 Backend nativo — `crates/emit_native` (feature `nativo`)
@@ -656,8 +961,12 @@ quando está mais velho que a fonte; erro com `dartforge build --estrito`).
   (145 `.template.dart` e 6 `.css.shim.dart` nativos), e as contagens de
   saídas esperadas iguais às do `.dart_tool/build/generated` (773
   `.template.dart`, 192 `.css`, 192 `.css.map`, 202 `.css.shim.dart`, 202
-  `.css.dart`). O Sass nativo é **não verificado** (porta de igualdade: só
-  mede, publica o apoio): 7 de 181 `.css` sairiam iguais.
+  `.css.dart`). Na medição inicial, Sass nativo era **não verificado** e só
+  7 de 181 `.css` sairiam iguais. Depois, o subconjunto `compressed` sem
+  `sourceMaps` foi habilitado para publicação: 114 CSS do `new_sali` haviam
+  sido conferidos byte a byte, e a [CI 36004370714](https://github.com/insinfo/dartforge/actions/runs/36004370714)
+  confirmou o pedido sob demanda sem apoio no disco. `expanded`, mapas de
+  fonte e sintaxe Sass fora do subconjunto continuam no apoio.
 * **`compile-js` do `new_sali/frontend` com o motor** (padrão quando há
   `build_runner`; o `emit_js` não depende mais do `gerador_ng`): 575 módulos,
   **574 byte a byte iguais** aos do `DARTFORGE_GERADOS=ng` de antes (579
@@ -684,6 +993,11 @@ quando está mais velho que a fonte; erro com `dartforge build --estrito`).
   funde as bibliotecas (3–13 s nesta máquina, com ou sem motor); sem o motor,
   a mesma sessão leva 0,42–0,47 s fora a escrita numa edição de corpo.
   `@Input` novo num filho não foi medido (só faz sentido no estágio B).
+  Um primeiro corte do estágio B passou na [CI 36004370714](https://github.com/insinfo/dartforge/actions/runs/36004370714):
+  HTML e CSS direto conhecidos regeneram somente os componentes que os
+  consultaram; o teste incremental compara a sessão viva com uma geração do
+  zero após editar ambos. Ainda falta a invalidação fina de Dart e de
+  recursos SCSS encadeados para cumprir a meta de latência geral.
 * **Custo zero** (regra governante, PLANO.md): portão estrutural
   `crates/dev/tests/custo_zero.rs` verde — num projeto sem `build_runner`,
   nenhum motor construído (`instancias() == 0`), relatório sem motor e a
@@ -826,29 +1140,28 @@ otimização a mais.
 
 ### 2.4 LSP
 
-Falta tudo além de diagnósticos: hover, ir para definição, referências,
-completion, rename, code actions — e a semântica (`crates/types`) por trás
-do `trait Analisador`, que hoje só tem a implementação sintática.
+Além dos diagnósticos, já existem símbolos de documento e workspace, hover
+e definição conservadores para nomes do mesmo arquivo e URIs relativas
+(`docs/LSP.md`). Faltam referências entre arquivos, completion, rename,
+code actions e a resolução semântica de imports e tipos pelo `trait Analisador`.
+As versões de linguagem em cache são descartadas ao fechar ou reabrir o
+documento; o teste dirigido cobre mudança do `package_config.json` entre
+as duas aberturas.
 
-Diagnósticos semânticos (plano A1/A2 feitos; ver §1.4): a lista de
-verificados está vazia. Nenhum código semântico tem 100% no corpus com 0 FP
-nos projetos, então o editor só recebe sintaxe. O caminho até lá:
+Diagnósticos (ver §1.4): o editor recebe a sintaxe e 3 códigos
+verificados. O caminho até os demais:
 
-1. **T1 em `types`**: emitir `code`/`args` (hoje a `paridade/src/ponte.rs`
-   reconhece os moldes em português) e dizer a unidade de cada diagnóstico
-   (hoje uma passada de inferência por biblioteca e casamento de intervalo:
-   290 atribuições ambíguas no corpus), e acertar posição e argumentos
-   (`undefined_function`, `return_of_invalid_type_from_*`).
-2. **Parser com `ParserErrorCode`** (métrica separada, não bloqueia):
-   a recuperação difere da do fasta em `expected_token`.
-3. **A3** (warnings: `unused_local_variable` 2.315 FN, `unused_import`,
-   `unused_element`, `dead_code`) e o `ErrorVerifier` (`duplicate_definition`,
-   `type_argument_not_matching_bounds`...).
-4. Os FP dos projetos reais: 298 internos (53 + 29 + 216). O portão dos
-   códigos que dependem de tipo é o oráculo de tipos de `types`
-   (`examples/comparar_tipos`): um código desses só entra na lista quando as
-   divergências de tipo nas bibliotecas do corpus zerarem.
-
+1. **T1 em `types`** (agente da inferência): código, argumentos e unidade
+   de cada diagnóstico; ele apaga a `paridade/src/ponte.rs`.
+2. **Sintaxe**: portar a recuperação do fasta — um erro por token no topo
+   (`expected_executable`) e nos membros (`expected_class_member`), e a
+   do comando (`missing_const_final_var_or_type`). Recurso de linguagem que
+   o SDK 3.6.2 não conhece: pede um parser que o rejeite na versão 3.6.
+3. **A3 restante**: `unused_import` exato (o `ImportsTracking` pede a
+   resolução completa), `unused_element` dos privados de topo e membros,
+   `unused_field`, `dead_code`.
+4. **Publicar**: `unused_local_variable` e `duplicate_definition` entram na
+   lista quando fecharem 100% no corpus (hoje 96% e 55%).
 ### 2.5 Backend nativo
 
 **Depois de P1–P4 (Pesado 35871381320): 142 dos 223 falham.** Quase todos
@@ -1065,7 +1378,7 @@ diretório; sem ele, `$CARGO_TARGET_DIR/native_cache`. Worktrees de
 agentes têm cada uma o seu `target/` — removê-las (`git worktree remove`)
 depois de integrar o trabalho é parte da limpeza.
 
-**Regra dos temporários: no D:, nunca no C:.** O C: tem pouco espaço e o
+**Regra dos temporários: no SSD E:, nunca no C:.** O C: tem pouco espaço e o
 `%TEMP%` chegou a 10,5 GB de sobras. Temporários grandes vão para
 `target/tmp-*` ou `target/scratch-*` do repositório (os scripts de
 navegador, `medir-lsp.ps1`, `verificar-poda-js.ps1` e `ci.ps1 -Placar`

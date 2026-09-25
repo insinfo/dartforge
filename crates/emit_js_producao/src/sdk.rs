@@ -81,6 +81,13 @@ fn e_lib(nome: &str) -> bool {
     LIBS.contains(&nome)
 }
 
+/// Tabelas de símbolos que o DDC emite como `S`, `S$`, `S$0`, `S$1` etc.
+/// Cada entrada pode ser podada separadamente; o prefixo sozinho não basta
+/// para manter uma chave privada usada por um getter vivo.
+fn e_tabela_simbolos(nome: &str) -> bool {
+    nome == "S" || nome == "S$" || nome.strip_prefix("S$").is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
 fn ident_em(b: &[u8], i: usize) -> usize {
     let mut j = i;
     while j < b.len() && (b[j].is_ascii_alphanumeric() || b[j] == b'_' || b[j] == b'$') {
@@ -100,7 +107,7 @@ fn inicio_de_ident(b: &[u8], i: usize) -> bool {
 /// (`"core|List<core|int>"`), o índice de constante (`C[42]`, `CT.C42`) e o
 /// identificador simples (que casa com os `var` de topo do arquivo, como as
 /// aplicações de mixin `EventTarget_ListBase$36`).
-fn referencias(t: &str, fora: &mut Vec<String>) {
+fn referencias(t: &str, fora: &mut Vec<String>, modulo_usuario: bool) {
     let b = t.as_bytes();
     let mut i = 0usize;
     while i < b.len() {
@@ -119,8 +126,12 @@ fn referencias(t: &str, fora: &mut Vec<String>) {
         if fim < b.len() && b[fim] == b'.' && fim + 1 < b.len() && inicio_de_ident(b, fim + 1) {
             let fim2 = ident_em(b, fim + 1);
             let membro = &t[fim + 1..fim2];
-            if e_lib(nome) {
+            if e_lib(nome) || e_tabela_simbolos(nome) {
                 fora.push(format!("{nome}.{membro}"));
+            } else if modulo_usuario && matches!(nome, "html" | "svg") {
+                // O DDC exporta `html$ as html` e `svg$ as svg`. A emissão
+                // do usuário cita o alias; o mundo do SDK usa o nome local.
+                fora.push(format!("{}.{membro}", ns_da_receita(nome)));
             } else {
                 fora.push(nome.to_string());
             }
@@ -129,7 +140,7 @@ fn referencias(t: &str, fora: &mut Vec<String>) {
                 fora.push(format!("C#{}", &membro[1..]));
             }
             avanco = fim2;
-        } else if fim < b.len() && b[fim] == b'[' && e_lib(nome) {
+        } else if fim < b.len() && b[fim] == b'[' && (e_lib(nome) || (modulo_usuario && matches!(nome, "html" | "svg"))) {
             // `lib['A|b']` — membro de extensão, cujo nome tem `|`.
             let mut j = fim + 1;
             if j < b.len() && (b[j] == b'\'' || b[j] == b'"') {
@@ -139,7 +150,7 @@ fn referencias(t: &str, fora: &mut Vec<String>) {
                 while j < b.len() && b[j] != aspa {
                     j += 1;
                 }
-                fora.push(format!("{nome}.{}", &t[ini..j]));
+                fora.push(format!("{}.{}", ns_da_receita(nome), &t[ini..j]));
                 avanco = j + 1;
             } else {
                 fora.push(nome.to_string());
@@ -194,7 +205,13 @@ fn seletores(t: &str, fora: &mut Vec<String>) {
         match b[i] {
             b'.' if i + 1 < b.len() && inicio_de_ident(b, i + 1) => {
                 let fim = ident_em(b, i + 1);
-                fora.push(format!("sel:{}", &t[i + 1..fim]));
+                let nome = &t[i + 1..fim];
+                fora.push(format!("sel:{nome}"));
+                // `S.$head` e `S$2.$console` citam os seletores Dart
+                // `head` e `console`. Preserva também o nome JS literal.
+                if nome.starts_with('$') && nome.len() > 1 {
+                    fora.push(format!("sel:{}", &nome[1..]));
+                }
                 i = fim;
             }
             b'[' if i + 1 < b.len() => {
@@ -334,6 +351,20 @@ fn nome_do_membro(t: &str) -> Option<String> {
         }
         if j < b.len() && inicio_de_ident(b, j) {
             let fim = ident_em(b, j);
+            // No DDC `get [S.$head]()` e `get [S$2.$console]()` usam um
+            // alias de símbolos. O seletor é o campo do alias, não `S`.
+            let prefixo = &t[j..fim];
+            if e_tabela_simbolos(prefixo)
+                && b.get(fim) == Some(&b'.') && fim + 1 < b.len()
+            {
+                let inicio = fim + 1 + usize::from(b[fim + 1] == b'$');
+                if inicio < b.len() && inicio_de_ident(b, inicio) {
+                    let fim_nome = ident_em(b, inicio);
+                    if b.get(fim_nome) == Some(&b']') {
+                        return Some(t[inicio..fim_nome].to_string());
+                    }
+                }
+            }
             return Some(t[j..fim].to_string());
         }
         return None;
@@ -755,10 +786,10 @@ fn classificar(src: &str, por_membro: bool) -> (Vec<Fatia>, Vec<String>) {
 pub fn raizes_do_usuario(modulos: &[Modulo]) -> Vec<String> {
     let mut v = Vec::new();
     for m in modulos {
-        referencias(&m.corpo, &mut v);
+        referencias(&m.corpo, &mut v, true);
         seletores(&m.corpo, &mut v);
         for ns in &m.namespaces {
-            referencias(ns, &mut v);
+            referencias(ns, &mut v, true);
         }
     }
     // O bundle chama `main` no fim, e o `dart_sdk.js` precisa dos seus próprios
@@ -860,6 +891,7 @@ pub fn seletores_dinamicos(src: &str) -> Vec<String> {
 
 /// Poda o `dart_sdk.js`: devolve o texto podado, o total de unidades e as vivas.
 pub fn podar(src: &str, raizes: &[String], por_membro: bool) -> (String, usize, usize) {
+    let aliases = crate::bundle::aliases_exportados(src);
     let (fatias, raizes_do_runtime) = classificar(src, por_membro);
     let mut simbolos = Simbolos::default();
     let mut unidades: Vec<Unidade> = Vec::with_capacity(fatias.len());
@@ -868,7 +900,7 @@ pub fn podar(src: &str, raizes: &[String], por_membro: bool) -> (String, usize, 
     for f in &fatias {
         let t = &src[f.ini..f.fim];
         buf_refs.clear();
-        referencias(t, &mut buf_refs);
+        referencias(t, &mut buf_refs, false);
         buf_sels.clear();
         if por_membro {
             seletores(t, &mut buf_sels);
@@ -894,7 +926,11 @@ pub fn podar(src: &str, raizes: &[String], por_membro: bool) -> (String, usize, 
         }
         unidades.push(u);
     }
-    let raizes: Vec<u32> = raizes.iter().chain(raizes_do_runtime.iter()).map(|r| simbolos.interna(r)).collect();
+    let raizes: Vec<u32> = raizes.iter().chain(raizes_do_runtime.iter())
+        // As variáveis locais exportadas sob outro nome precisam existir
+        // mesmo quando o programa só cita o alias da biblioteca.
+        .chain(aliases.iter().map(|(original, _)| original))
+        .map(|r| simbolos.interna(r)).collect();
     let viva = alcance::resolver(&unidades, &raizes, simbolos.total());
     let vivas = viva.iter().filter(|v| **v).count();
 
@@ -982,6 +1018,9 @@ pub fn podar(src: &str, raizes: &[String], por_membro: bool) -> (String, usize, 
         }
         out.push_str(t);
     }
+    for (original, alias) in aliases {
+        out.push_str(&format!("var {alias} = {original};\n"));
+    }
     (out, fatias.len(), vivas)
 }
 
@@ -992,7 +1031,7 @@ mod testes {
     #[test]
     fn referencia_receita_rti() {
         let mut v = Vec::new();
-        referencias("eval(u, \"core|List<core|int>\", true)", &mut v);
+        referencias("eval(u, \"core|List<core|int>\", true)", &mut v, false);
         assert!(v.contains(&"core.List".to_string()), "{v:?}");
         assert!(v.contains(&"core.int".to_string()), "{v:?}");
     }
@@ -1000,23 +1039,60 @@ mod testes {
     #[test]
     fn referencia_html_com_cifrao() {
         let mut v = Vec::new();
-        referencias("\"html|Element\"", &mut v);
+        referencias("\"html|Element\"", &mut v, false);
         assert!(v.contains(&"html$.Element".to_string()), "{v:?}");
+    }
+
+    #[test]
+    fn alias_do_sdk_em_modulo_usuario_aponta_para_o_nome_local() {
+        let mut v = Vec::new();
+        referencias("html.Element; svg['SvgElement'];", &mut v, true);
+        assert!(v.contains(&"html$.Element".to_string()), "{v:?}");
+        assert!(v.contains(&"svg$.SvgElement".to_string()), "{v:?}");
+        let src = "var html$ = Object.create(dart.library);\nexport { html$ as html };\nhtml$.Element = class Element {};\n";
+        let (out, _, _) = podar(src, &["html$.Element".into()], false);
+        assert!(out.contains("var html$ ="), "{out}");
+        assert!(out.contains("var html = html$;"), "{out}");
+        assert!(out.contains("html$.Element ="), "{out}");
     }
 
     #[test]
     fn referencia_constante_e_membro_com_barra() {
         let mut v = Vec::new();
-        referencias("C[42] + CT.C7 + async['FutureRecord2|get#wait']", &mut v);
+        referencias("C[42] + CT.C7 + async['FutureRecord2|get#wait']", &mut v, false);
         assert!(v.contains(&"C#42".to_string()), "{v:?}");
         assert!(v.contains(&"C#7".to_string()), "{v:?}");
         assert!(v.contains(&"async.FutureRecord2|get#wait".to_string()), "{v:?}");
     }
 
     #[test]
+    fn referencia_entrada_privada_da_tabela_de_simbolos() {
+        let mut refs = Vec::new();
+        referencias("this[S$1._head$1] + this[S.$head] + this[S$._private]", &mut refs, false);
+        assert!(refs.contains(&"S$1._head$1".to_string()), "{refs:?}");
+        assert!(refs.contains(&"S.$head".to_string()), "{refs:?}");
+        assert!(refs.contains(&"S$._private".to_string()), "{refs:?}");
+
+        let src = concat!(
+            "var html$ = Object.create(dart.library);\n",
+            "var S$1 = {\n",
+            "  $other: dartx.other = Symbol('dartx.other'),\n",
+            "  _head$1: dart.privateName('html', '_head'),\n",
+            "  $unused: dartx.unused = Symbol('dartx.unused')\n",
+            "};\n",
+            "html$.Document = class Document {\n",
+            "  get [S$1._head$1]() { return this.head; }\n",
+            "};\n",
+        );
+        let (out, _, _) = podar(src, &["html$.Document".into()], true);
+        assert!(out.contains("_head$1: dart.privateName"), "{out}");
+        assert!(!out.contains("$unused: dartx.unused"), "{out}");
+    }
+
+    #[test]
     fn nao_confunde_campo_com_biblioteca() {
         let mut v = Vec::new();
-        referencias("this.core = opts.io;", &mut v);
+        referencias("this.core = opts.io;", &mut v, false);
         assert!(!v.contains(&"core.x".to_string()));
         assert!(v.contains(&"this".to_string()));
     }
@@ -1029,6 +1105,12 @@ mod testes {
         assert_eq!(nome_do_membro("  [_priv](a) {}").as_deref(), Some("_priv"));
         assert_eq!(nome_do_membro("  [$add](a) {}").as_deref(), Some("add"));
         assert_eq!(nome_do_membro("  ['A|b'](a) {}").as_deref(), Some("A|b"));
+        assert_eq!(nome_do_membro("  get [S.$head]() { return this.head; }").as_deref(), Some("head"));
+        assert_eq!(nome_do_membro("  get [S$2.$console]() { return x; }").as_deref(), Some("console"));
+        let mut refs = Vec::new();
+        seletores("document[S.$head]; window[S$2.$console];", &mut refs);
+        assert!(refs.contains(&"sel:head".to_string()), "{refs:?}");
+        assert!(refs.contains(&"sel:console".to_string()), "{refs:?}");
     }
 
     /// Regressão do defeito que fazia `dart.applyMixin(V, M);` ser lida como

@@ -28,6 +28,8 @@ pub struct Programa {
     pub nome: String,
     /// Arquivo com `main`.
     pub entrada: PathBuf,
+    /// Entrada alternativa só para DartForge; a VM e o DDC preservam `entrada`.
+    pub entrada_forge: Option<PathBuf>,
     /// Todos os `.dart` que compõem o programa (entrada incluída), para o hash do cache.
     pub arquivos: Vec<PathBuf>,
     /// Motivo declarado no cabeçalho (`// diverge-ddc: …`) quando o programa,
@@ -78,9 +80,15 @@ impl Programa {
     pub fn novo(nome: String, entrada: PathBuf, arquivos: Vec<PathBuf>) -> Programa {
         let fonte = std::fs::read_to_string(&entrada).unwrap_or_default();
         let c = ler_cabecalho(&fonte);
+        let entrada_forge = entrada.parent().and_then(|dir| {
+            let manifesto = std::fs::read_to_string(dir.join("dartforge-entrada.txt")).ok()?;
+            let rel = manifesto.lines().map(str::trim).find(|l| !l.is_empty() && !l.starts_with('#'))?;
+            Some(dir.join(rel))
+        });
         Programa {
             nome,
             entrada,
+            entrada_forge,
             arquivos,
             diverge_ddc: c.diverge_ddc,
             requer: c.requer.unwrap_or(LanguageVersion::PISO),
@@ -96,6 +104,7 @@ impl Programa {
         Programa {
             nome: nome.to_string(),
             entrada: PathBuf::from("x.dart"),
+            entrada_forge: None,
             arquivos: vec![],
             diverge_ddc: None,
             requer: LanguageVersion::PISO,
@@ -121,6 +130,15 @@ impl Programa {
     /// Diretório do programa (onde `dart run` e o `dartdevc` são executados).
     pub fn diretorio(&self) -> &Path {
         self.entrada.parent().unwrap_or(Path::new("."))
+    }
+
+    /// A cópia materializada alimenta só os backends DartForge.
+    pub fn entrada_dartforge(&self) -> &Path {
+        self.entrada_forge.as_deref().unwrap_or(&self.entrada)
+    }
+
+    pub fn diretorio_dartforge(&self) -> &Path {
+        self.entrada_dartforge().parent().unwrap_or(Path::new("."))
     }
 
     /// Referência para o DartForge: a VM, salvo quando o cabeçalho declara divergência

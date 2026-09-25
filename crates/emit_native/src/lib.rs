@@ -30,6 +30,8 @@ pub struct CompileOptions<'a> {
     /// Versão de linguagem corrente (`--versao-linguagem`, docs/VERSOES-LINGUAGEM.md);
     /// `None` = a da ferramenta (3.13).
     pub versao_linguagem: Option<dartforge_frontend::LanguageVersion>,
+    /// Experimentos pedidos explicitamente para bibliotecas na versão corrente.
+    pub experimentos: Vec<dartforge_frontend::Feature>,
 }
 
 /// Tempo de cada fase da emissão (tudo antes do Clang).
@@ -109,6 +111,12 @@ pub fn construtos_do_erro(texto: &str) -> Vec<String> {
 /// Construto não suportado também é `Err`, com **todos** os diagnósticos do
 /// módulo (formato em `erro_de_compilacao`); nenhum IR é emitido.
 pub fn emitir_ir(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, String> {
+    emitir_ir_com(entrada, options, sdk_modulo::sdk_da_fonte_pedido())
+}
+
+/// [`emitir_ir`] escolhendo o SDK: da fonte (P5c/P5d, `sdk_modulo`) ou o
+/// runtime por nome de antes.
+pub fn emitir_ir_com(entrada: &Path, options: &CompileOptions, da_fonte: bool) -> Result<IrEmitido, String> {
     // 1. Carregamento e Inferência (Front-end)
     let t_front = Instant::now();
     let sdk_dir = match options.sdk {
@@ -117,12 +125,20 @@ pub fn emitir_ir(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, 
     };
 
     // A seção `vm` com a sobreposição `sdk_nativo/` (P5a): o `dart:async` que
-    // o programa compila da fonte (P6) é o dela. `mut`: a versão de linguagem
-    // corrente pode vir de `--versao-linguagem` (Dart moderno, P2).
+    // o programa compila da fonte (P6) é o dela; com o SDK da fonte (P5c,
+    // `da_fonte`), todas as bibliotecas de `BIBLIOTECAS_DA_FONTE` também,
+    // ligadas como objetos em cache (`sdk_modulo::sdk_compilado`). `mut`: a
+    // versão de linguagem corrente pode vir de `--versao-linguagem` (Dart
+    // moderno, P2).
     let mut sdk = sdk_modulo::carregar_sdk_nativo(&sdk_dir)
         .map_err(|e| format!("falha ao carregar SDK VM: {e}"))?;
     if let Some(v) = options.versao_linguagem {
         sdk.versao_corrente = v;
+    }
+    for experimento in &options.experimentos {
+        if !sdk.experimentos.contains(experimento) {
+            sdk.experimentos.push(*experimento);
+        }
     }
 
     let mut interner = Interner::new();
@@ -136,12 +152,16 @@ pub fn emitir_ir(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, 
     }
     // P6: as bibliotecas do SDK que este programa compila da fonte deixam de
     // ser "do SDK" nesta cópia do programa (`fonte.rs`).
-    let mut da_fonte = fonte::bibliotecas_da_fonte(&program, &interner);
-    for l in &da_fonte {
+    // Com o SDK da fonte (P5c) elas já são módulos à parte, em cache, e o
+    // programa não as baixa de novo.
+    let usadas = fonte::bibliotecas_da_fonte(&program, &interner);
+    let usa_dart_async = !usadas.is_empty();
+    let mut bibliotecas_da_fonte = if da_fonte { Vec::new() } else { usadas };
+    for l in &bibliotecas_da_fonte {
         program.libraries[l.0 as usize].is_sdk = false;
     }
-    if !da_fonte.is_empty() {
-        da_fonte.extend(fonte::separar_partes_do_core(&mut program));
+    if !bibliotecas_da_fonte.is_empty() {
+        bibliotecas_da_fonte.extend(fonte::separar_partes_do_core(&mut program));
     }
 
     let mut table = TypeTable::new();
@@ -164,12 +184,18 @@ pub fn emitir_ir(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, 
     }
 
     let mut ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
-    ctx.da_fonte = da_fonte.into_iter().collect();
+    ctx.da_fonte = bibliotecas_da_fonte.into_iter().collect();
+    ctx.usa_dart_async = usa_dart_async;
+    let ctx = if da_fonte { ctx.com_sdk_da_fonte() } else { ctx };
     let front_duration = t_front.elapsed();
 
     // 2. Lowering para HIR
     let t_hir = Instant::now();
-    let hir_module = lower::lower_program(&ctx);
+    let mut hir_module = lower::lower_program(&ctx);
+    if da_fonte {
+        hir_module.registros_do_sdk = sdk_modulo::registros_do_sdk();
+        hir_module.cids_do_runtime = sdk_modulo::cids_do_runtime(&ctx);
+    }
     let hir_duration = t_hir.elapsed();
     if !hir_module.erros.is_empty() {
         return Err(erro_de_compilacao(&hir_module.erros));
@@ -222,14 +248,23 @@ pub fn compilar(
     saida: &Path,
     options: &CompileOptions,
 ) -> Result<PathBuf, String> {
+    compilar_com(entrada, saida, options, sdk_modulo::sdk_da_fonte_pedido())
+}
+
+/// [`compilar`] escolhendo o SDK (ver [`emitir_ir_com`]).
+pub fn compilar_com(
+    entrada: &Path,
+    saida: &Path,
+    options: &CompileOptions,
+    da_fonte: bool,
+) -> Result<PathBuf, String> {
     let t_total = Instant::now();
 
-    let ir = emitir_ir(entrada, options)?;
+    let ir = emitir_ir_com(entrada, options, da_fonte)?;
 
     // 4. Clang e Ligação
     let driver_opts = driver::NativeDriverOptions {
-        clang: std::env::var_os("DARTFORGE_CLANG")
-            .map_or_else(|| PathBuf::from("D:/LLVM/22.1.8/bin/clang.exe"), PathBuf::from),
+        clang: driver::NativeDriverOptions::default().clang,
         optimize: options.optimize,
         timings: options.timings,
     };
@@ -259,7 +294,7 @@ mod testes {
     const SDK: &str = "C:/tools/dartsdk-3.6.2/lib";
 
     fn emitir(entrada: &Path) -> IrEmitido {
-        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None };
+        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new() };
         emitir_ir(entrada, &options).expect("emitir IR")
     }
 
@@ -306,7 +341,7 @@ mod testes {
         let dir = tempfile::tempdir().unwrap();
         let entrada = dir.path().join("main.dart");
         std::fs::write(&entrada, "void main() {\n  var f = #a;\n  var g = #b;\n  print(1);\n}\n").unwrap();
-        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None };
+        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new() };
         let erro = std::thread::Builder::new()
             .stack_size(64 << 20)
             .spawn(move || emitir_ir(&entrada, &options).map(|ir| ir.texto))

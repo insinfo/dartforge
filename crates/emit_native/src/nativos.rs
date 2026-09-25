@@ -36,6 +36,9 @@ pub enum Estado {
     Runtime,
     /// Sem implementação ainda: chamar é diagnóstico.
     Pendente,
+    /// O lowering gera o código no lugar da chamada (`Internal_unsafeCast`
+    /// é o próprio valor).
+    Embutido,
 }
 
 /// Efeitos de uma chamada (G8).
@@ -61,6 +64,51 @@ const fn runtime(nome: &'static str) -> Nativo {
     Nativo { nome, estado: Estado::Runtime, efeitos: CONSERVADOR }
 }
 
+const fn embutido(nome: &'static str) -> Nativo {
+    Nativo { nome, estado: Estado::Embutido, efeitos: CONSERVADOR }
+}
+
+/// Intrínsecos da VM (`vm:recognized` sem native) que o nativo implementa
+/// com uma função do runtime, pelo `Classe.membro`: (membro, native).
+pub const INTRINSECOS: &[(&str, &str)] = &[
+    ("_Array.[]", "DartForge_lista_get"),
+    ("_Double._modulo", "DartForge_double_modulo"),
+    ("_Double._remainder", "DartForge_double_remainder"),
+    ("_Double.ceilToDouble", "DartForge_double_ceil"),
+    ("_Double.floorToDouble", "DartForge_double_floor"),
+    ("_Double.hashCode", "DartForge_double_hashCode"),
+    ("_Double.roundToDouble", "DartForge_double_round"),
+    ("_Double.toInt", "DartForge_double_toInt"),
+    ("_Double.truncateToDouble", "DartForge_double_truncate"),
+    ("_GrowableList.[]", "DartForge_lista_get"),
+    ("_ImmutableList.[]", "DartForge_lista_get"),
+    ("_List.[]", "DartForge_lista_get"),
+    ("_Mint.hashCode", "DartForge_int_hashCode"),
+    ("_Record._fieldAt", "DartForge_record_fieldAt"),
+    ("_Record._fieldNames", "DartForge_record_fieldNames"),
+    ("_Record._numFields", "DartForge_record_numFields"),
+    ("_Record._shape", "DartForge_record_shape"),
+    ("_Smi.hashCode", "DartForge_int_hashCode"),
+    ("_StringBase.codeUnitAt", "DartForge_string_codeUnitAt"),
+    ("_acos", "DartForge_math_acos"),
+    ("_asin", "DartForge_math_asin"),
+    ("_atan", "DartForge_math_atan"),
+    ("_atan2", "DartForge_math_atan2"),
+    ("_cos", "DartForge_math_cos"),
+    ("_doublePow", "DartForge_math_pow"),
+    ("_exp", "DartForge_math_exp"),
+    ("_log", "DartForge_math_log"),
+    ("_sin", "DartForge_math_sin"),
+    ("_sqrt", "DartForge_math_sqrt"),
+    ("_tan", "DartForge_math_tan"),
+    ("has63BitSmis", "DartForge_verdadeiro"),
+];
+
+/// A função do runtime de um intrínseco da VM, se o nativo a tem.
+pub fn intrinseco(membro: &str) -> Option<&'static str> {
+    INTRINSECOS.iter().find(|(m, _)| *m == membro).map(|(_, n)| *n)
+}
+
 const fn pendente(nome: &'static str) -> Nativo {
     Nativo { nome, estado: Estado::Pendente, efeitos: CONSERVADOR }
 }
@@ -75,11 +123,12 @@ pub const NATIVOS: &[Nativo] = &[
     pendente("AssertionError_throwNewSource"),
     pendente("Bool_fromEnvironment"),
     pendente("Bool_hasEnvironment"),
-    pendente("ClassID_getID"),
+    runtime("ClassID_getID"),
     pendente("Closure_computeHash"),
-    pendente("Closure_equals"),
+    runtime("Closure_equals"),
     runtime("DartForge_Timer_cancelar"),
     runtime("DartForge_Timer_novo"),
+    runtime("DartForge_imprimir"),
     runtime("DartForge_scheduleImmediate"),
     pendente("DateTime_currentTimeMicros"),
     pendente("DateTime_timeZoneName"),
@@ -96,24 +145,24 @@ pub const NATIVOS: &[Nativo] = &[
     runtime("Double_greaterThan"),
     runtime("Double_greaterThanFromInteger"),
     runtime("Double_mul"),
-    pendente("Double_parse"),
+    runtime("Double_parse"),
     runtime("Double_sub"),
     runtime("Double_toString"),
     runtime("Double_toStringAsExponential"),
     runtime("Double_toStringAsFixed"),
     runtime("Double_toStringAsPrecision"),
-    pendente("Error_throwWithStackTrace"),
+    runtime("Error_throwWithStackTrace"),
     runtime("Error_trySetStackTrace"),
     pendente("FinalizerEntry_allocate"),
-    pendente("Function_apply"),
-    pendente("GrowableList_allocate"),
-    pendente("GrowableList_getCapacity"),
-    pendente("GrowableList_getLength"),
-    pendente("GrowableList_setData"),
-    pendente("GrowableList_setIndexed"),
-    pendente("GrowableList_setLength"),
-    pendente("Identical_comparison"),
-    pendente("ImmutableList_from"),
+    runtime("Function_apply"),
+    runtime("GrowableList_allocate"),
+    runtime("GrowableList_getCapacity"),
+    runtime("GrowableList_getLength"),
+    runtime("GrowableList_setData"),
+    runtime("GrowableList_setIndexed"),
+    runtime("GrowableList_setLength"),
+    runtime("Identical_comparison"),
+    runtime("ImmutableList_from"),
     runtime("Integer_addFromInteger"),
     runtime("Integer_bitAndFromInteger"),
     runtime("Integer_bitOrFromInteger"),
@@ -137,11 +186,11 @@ pub const NATIVOS: &[Nativo] = &[
     pendente("Internal_deoptimizeFunctionsOnStack"),
     pendente("Internal_extractTypeArguments"),
     pendente("Internal_loadDynamicModule"),
-    pendente("Internal_makeFixedListUnmodifiable"),
-    pendente("Internal_makeListFixedLength"),
+    runtime("Internal_makeFixedListUnmodifiable"),
+    runtime("Internal_makeListFixedLength"),
     pendente("Internal_nativeEffect"),
     pendente("Internal_prependTypeArguments"),
-    pendente("Internal_unsafeCast"),
+    embutido("Internal_unsafeCast"),
     runtime("Internal_writeIntoOneByteString"),
     runtime("Internal_writeIntoTwoByteString"),
     pendente("InvocationMirror_unpackTypeArguments"),
@@ -149,21 +198,21 @@ pub const NATIVOS: &[Nativo] = &[
     pendente("LibraryPrefix_issueLoad"),
     pendente("LibraryPrefix_loadingUnit"),
     pendente("LibraryPrefix_setLoaded"),
-    pendente("List_allocate"),
-    pendente("List_getLength"),
-    pendente("List_setIndexed"),
-    pendente("List_slice"),
+    runtime("List_allocate"),
+    runtime("List_getLength"),
+    runtime("List_setIndexed"),
+    runtime("List_slice"),
     runtime("Mint_bitLength"),
     runtime("Mint_bitNegate"),
-    pendente("NoSuchMethodError_existingMethodSignature"),
-    pendente("Object_equals"),
-    pendente("Object_getHash"),
-    pendente("Object_haveSameRuntimeType"),
+    runtime("NoSuchMethodError_existingMethodSignature"),
+    runtime("Object_equals"),
+    runtime("Object_getHash"),
+    runtime("Object_haveSameRuntimeType"),
     pendente("Object_instanceOf"),
-    pendente("Object_runtimeType"),
+    runtime("Object_runtimeType"),
     pendente("Object_simpleInstanceOf"),
-    pendente("Object_toString"),
-    pendente("OneByteString_allocateFromOneByteList"),
+    runtime("Object_toString"),
+    runtime("OneByteString_allocateFromOneByteList"),
     runtime("OneByteString_substringUnchecked"),
     pendente("Random_initialSeed"),
     pendente("RegExp_ExecuteMatch"),
@@ -179,23 +228,22 @@ pub const NATIVOS: &[Nativo] = &[
     pendente("SecureRandom_getBytes"),
     runtime("Smi_bitLength"),
     runtime("Smi_bitNegate"),
-    pendente("StackTrace_current"),
+    runtime("StackTrace_current"),
     pendente("Stopwatch_frequency"),
     pendente("Stopwatch_now"),
-    pendente("StringBase_createFromCodePoints"),
+    runtime("StringBase_createFromCodePoints"),
     pendente("StringBase_intern"),
-    pendente("StringBase_joinReplaceAllResult"),
+    runtime("StringBase_joinReplaceAllResult"),
     runtime("StringBase_substringUnchecked"),
-    pendente("StringBuffer_createStringFromUint16Array"),
     runtime("String_charAt"),
     runtime("String_concat"),
-    pendente("String_concatRange"),
+    runtime("String_concatRange"),
     pendente("String_fromEnvironment"),
     runtime("String_getHashCode"),
     runtime("String_getLength"),
     runtime("String_toLowerCase"),
     runtime("String_toUpperCase"),
-    pendente("TwoByteString_allocateFromTwoByteList"),
+    runtime("TwoByteString_allocateFromTwoByteList"),
     pendente("TypeError_throwNew"),
     pendente("Type_equality"),
     pendente("Uri_isWindowsPlatform"),
@@ -230,6 +278,65 @@ pub struct ExternalDoSdk {
     pub reconhecido: bool,
 }
 
+/// O que os `@pragma` de uma função dizem: o nome do native
+/// (`vm:external-name`) e se ela é `vm:recognized` (intrínseco).
+pub fn pragmas(
+    program: &dartforge_elements::Program,
+    interner: &dartforge_intern::Interner,
+    f: &dartforge_elements::model::FunctionElement,
+) -> (Option<String>, bool) {
+    use dartforge_elements::model::FunctionRef;
+    use dartforge_frontend::ast;
+    // O pragma mora no `Member`/`Decl` que declara a função.
+    let metadata: &[ast::Annotation] = match f.node {
+        FunctionRef::Function { unit, function } => {
+            let a = &program.unit(unit).ast;
+            a.members
+                .iter()
+                .find(|m| matches!(m.kind, ast::MemberKind::Method(id) if id == function))
+                .map(|m| &*m.metadata)
+                .or_else(|| {
+                    a.decls
+                        .iter()
+                        .find(|d| matches!(d.kind, ast::DeclKind::Function(id) if id == function))
+                        .map(|d| &*d.metadata)
+                })
+                .unwrap_or(&[])
+        }
+        FunctionRef::Constructor { unit, member } => &program.unit(unit).ast.members[member.0 as usize].metadata,
+        FunctionRef::None => &[],
+    };
+    let unit = match f.node {
+        FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => Some(unit),
+        FunctionRef::None => None,
+    };
+    let mut native = None;
+    let mut reconhecido = false;
+    for an in metadata {
+        let Some(u) = unit else { break };
+        if an.name.len() != 1 || interner.resolve(an.name[0].sym) != "pragma" {
+            continue;
+        }
+        let Some(args) = &an.arguments else { continue };
+        let textos: Vec<Option<String>> = args
+            .args
+            .iter()
+            .map(|a| match &program.unit(u).ast.exprs[a.value.0 as usize].kind {
+                ast::ExprKind::String(lit) => {
+                    lit.constant_value().map(|t| String::from_utf8_lossy(t.as_bytes()).into_owned())
+                }
+                _ => None,
+            })
+            .collect();
+        match textos.first().and_then(|t| t.as_deref()) {
+            Some("vm:external-name") => native = textos.get(1).cloned().flatten(),
+            Some("vm:recognized") => reconhecido = true,
+            _ => {}
+        }
+    }
+    (native, reconhecido)
+}
+
 /// Os `external` sem patch das bibliotecas dadas, com o pragma que os
 /// implementa. Um `external` que tem patch não entra: quem o implementa é o
 /// membro do patch (que entra, se for `external` também).
@@ -238,9 +345,6 @@ pub fn inventario(
     interner: &dartforge_intern::Interner,
     bibliotecas: &[&str],
 ) -> Vec<ExternalDoSdk> {
-    use dartforge_elements::model::FunctionRef;
-    use dartforge_frontend::ast;
-
     let mut saida = Vec::new();
     for f in &program.functions {
         if !f.external || f.patched_by.is_some() {
@@ -251,53 +355,7 @@ pub fn inventario(
         if !bibliotecas.contains(&nome_lib) {
             continue;
         }
-        // O pragma mora no `Member`/`Decl` que declara a função.
-        let metadata: &[ast::Annotation] = match f.node {
-            FunctionRef::Function { unit, function } => {
-                let a = &program.unit(unit).ast;
-                a.members
-                    .iter()
-                    .find(|m| matches!(m.kind, ast::MemberKind::Method(id) if id == function))
-                    .map(|m| &*m.metadata)
-                    .or_else(|| {
-                        a.decls
-                            .iter()
-                            .find(|d| matches!(d.kind, ast::DeclKind::Function(id) if id == function))
-                            .map(|d| &*d.metadata)
-                    })
-                    .unwrap_or(&[])
-            }
-            FunctionRef::Constructor { unit, member } => &program.unit(unit).ast.members[member.0 as usize].metadata,
-            FunctionRef::None => &[],
-        };
-        let unit = match f.node {
-            FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => Some(unit),
-            FunctionRef::None => None,
-        };
-        let mut native = None;
-        let mut reconhecido = false;
-        for an in metadata {
-            let Some(u) = unit else { break };
-            if an.name.len() != 1 || interner.resolve(an.name[0].sym) != "pragma" {
-                continue;
-            }
-            let Some(args) = &an.arguments else { continue };
-            let textos: Vec<Option<String>> = args
-                .args
-                .iter()
-                .map(|a| match &program.unit(u).ast.exprs[a.value.0 as usize].kind {
-                    ast::ExprKind::String(lit) => {
-                        lit.constant_value().map(|t| String::from_utf8_lossy(t.as_bytes()).into_owned())
-                    }
-                    _ => None,
-                })
-                .collect();
-            match textos.first().and_then(|t| t.as_deref()) {
-                Some("vm:external-name") => native = textos.get(1).cloned().flatten(),
-                Some("vm:recognized") => reconhecido = true,
-                _ => {}
-            }
-        }
+        let (native, reconhecido) = pragmas(program, interner, f);
         let dono = f.class.map(|c| interner.resolve(program.classes[c.0 as usize].name).to_string());
         let nome = interner.resolve(f.name).to_string();
         saida.push(ExternalDoSdk {

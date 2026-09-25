@@ -99,7 +99,14 @@ impl<'a> Linhas<'a> {
 
     /// Ponto do byte `byte` (limitado ao fim do texto e a uma fronteira de caractere).
     pub fn ponto(&self, byte: usize) -> Ponto {
-        let mut byte = byte.min(self.texto.len());
+        // Além do fim (o scanner do fasta relata o fecho que falta no fim do
+        // arquivo com comprimento 1): continua a linha final.
+        if byte > self.texto.len() {
+            let p = self.ponto(self.texto.len());
+            let a_mais = byte - self.texto.len();
+            return Ponto { offset: p.offset + a_mais, line: p.line, column: p.column + a_mais };
+        }
+        let mut byte = byte;
         while !self.texto.is_char_boundary(byte) {
             byte -= 1;
         }

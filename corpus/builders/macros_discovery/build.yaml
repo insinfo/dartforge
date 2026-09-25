@@ -1,0 +1,7 @@
+targets:
+  $default:
+    builders:
+      dartforge_macros_builder:macroDiscovery:
+        enabled: true
+      corpus_macros_registry:macroDeclarations:
+        enabled: true

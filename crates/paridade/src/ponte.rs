@@ -41,8 +41,12 @@ const APELIDOS: &[(&str, &str)] = &[
 
 /// Nomes relatados que vários `uniqueName` compartilham: qual variante a
 /// ponte usa quando o emissor não diz o contexto.
-const VARIANTES: &[(&str, &str)] =
-    &[("return_of_invalid_type", "CompileTimeErrorCode.RETURN_OF_INVALID_TYPE_FROM_FUNCTION")];
+const VARIANTES: &[(&str, &str)] = &[
+    ("return_of_invalid_type", "CompileTimeErrorCode.RETURN_OF_INVALID_TYPE_FROM_FUNCTION"),
+    ("class_instantiation_access_to_instance_member", "CompileTimeErrorCode.CLASS_INSTANTIATION_ACCESS_TO_INSTANCE_MEMBER"),
+    ("class_instantiation_access_to_static_member", "CompileTimeErrorCode.CLASS_INSTANTIATION_ACCESS_TO_STATIC_MEMBER"),
+    ("class_instantiation_access_to_unknown_member", "CompileTimeErrorCode.CLASS_INSTANTIATION_ACCESS_TO_UNKNOWN_MEMBER"),
+];
 
 fn por_nome(nome: &str) -> Option<Codigo> {
     let nome = APELIDOS.iter().find(|(a, _)| *a == nome).map(|(_, b)| *b).unwrap_or(nome);
@@ -64,8 +68,22 @@ fn moldes_de_tipos() -> Vec<dartforge_types::DiagnosticCode> {
         c::RETURN_OF_INVALID_TYPE,
         c::INVALID_ASSIGNMENT,
         c::ASSIGNMENT_TO_FINAL_LOCAL,
+        c::ASSIGNMENT_TO_FINAL,
         c::ASSIGNMENT_TO_FINAL_NO_SETTER,
+        c::ASSIGNMENT_TO_METHOD,
+        c::UNDEFINED_EXTENSION_SETTER,
+        c::UNDEFINED_EXTENSION_GETTER,
+        c::UNDEFINED_EXTENSION_METHOD,
+        c::STATIC_ACCESS_TO_INSTANCE_MEMBER,
+        c::CLASS_INSTANTIATION_ACCESS_TO_INSTANCE_MEMBER,
+        c::CLASS_INSTANTIATION_ACCESS_TO_STATIC_MEMBER,
+        c::CLASS_INSTANTIATION_ACCESS_TO_UNKNOWN_MEMBER,
+        c::INVOCATION_OF_EXTENSION_WITHOUT_CALL,
+        c::UNDEFINED_EXTENSION_OPERATOR,
+        c::EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER,
         c::ASSIGNMENT_TO_CONST,
+        c::ASSIGNMENT_TO_TYPE,
+        c::ASSIGNMENT_TO_FUNCTION,
         c::NOT_INITIALIZED_NON_NULLABLE_VARIABLE,
         c::DEFINITELY_UNASSIGNED_VARIABLE,
         c::UNDEFINED_IDENTIFIER,
@@ -120,6 +138,11 @@ pub fn codificar_tipos(d: &Diagnostic, texto_no_span: &str) -> Diagnostic {
         "O símbolo encontrado não é um tipo" | "O elemento prefixado não é um tipo" => {
             Some((codigos::compile_time_error::NOT_A_TYPE, vec![nome]))
         }
+        "Tipo prefixado não encontrado" => Some((codigos::compile_time_error::UNDEFINED_CLASS, vec![nome])),
+        "Parâmetro de tipo não aceita argumentos de tipo" => {
+            Some((codigos::parser::TYPE_ARGUMENTS_ON_TYPE_VARIABLE, vec![nome]))
+        }
+        "Referência ambígua de tipo" => Some((codigos::compile_time_error::AMBIGUOUS_IMPORT, vec![nome, ""])),
         _ => None,
     };
     match codigo {
@@ -186,6 +209,165 @@ mod testes {
         let c = codificar_tipos(&d, "h");
         assert_eq!(c.code.unwrap().info().nome, "undefined_identifier");
         assert_eq!(c.message, "Undefined name 'h'.");
+    }
+
+    #[test]
+    fn atribuir_const_e_final_de_topo_tem_codigos_proprios() {
+        let span = Span { start: 2, end: 3 };
+        let constante = Diagnostic::new(dartforge_types::codes::ASSIGNMENT_TO_CONST.template, span);
+        let final_ = Diagnostic::new(
+            format!("{}: 'x'", dartforge_types::codes::ASSIGNMENT_TO_FINAL.template),
+            span,
+        );
+        let constante = codificar_tipos(&constante, "x");
+        assert_eq!(constante.code, Some(codigos::compile_time_error::ASSIGNMENT_TO_CONST));
+        assert_eq!(constante.message, "Constant variables can't be assigned a value.");
+        let final_ = codificar_tipos(&final_, "x");
+        assert_eq!(final_.code, Some(codigos::compile_time_error::ASSIGNMENT_TO_FINAL));
+        assert_eq!(final_.message, "'x' can't be used as a setter because it's final.");
+    }
+
+    #[test]
+    fn atribuicao_a_tipo_e_funcao_traduz_mensagens_oficiais() {
+        let span = Span { start: 4, end: 5 };
+        for (molde, codigo, mensagem) in [
+            (dartforge_types::codes::ASSIGNMENT_TO_TYPE.template, codigos::compile_time_error::ASSIGNMENT_TO_TYPE, "Types can't be assigned a value."),
+            (dartforge_types::codes::ASSIGNMENT_TO_FUNCTION.template, codigos::compile_time_error::ASSIGNMENT_TO_FUNCTION, "Functions can't be assigned a value."),
+        ] {
+            let c = codificar_tipos(&Diagnostic::new(molde, span), "C");
+            assert_eq!(c.code, Some(codigo));
+            assert_eq!(c.message, mensagem);
+        }
+    }
+
+    #[test]
+    fn getter_de_classe_sem_setter_preserva_argumentos() {
+        let d = Diagnostic::new(
+            format!("{}: 'x' na classe 'A'", dartforge_types::codes::ASSIGNMENT_TO_FINAL_NO_SETTER.template),
+            Span { start: 4, end: 5 },
+        );
+        let c = codificar_tipos(&d, "x");
+        assert_eq!(c.code, Some(codigos::compile_time_error::ASSIGNMENT_TO_FINAL_NO_SETTER));
+        assert_eq!(c.message, "There isn't a setter named 'x' in class 'A'.");
+    }
+
+    #[test]
+    fn escrita_em_metodo_tem_codigo_oficial() {
+        let d = Diagnostic::new(
+            dartforge_types::codes::ASSIGNMENT_TO_METHOD.template,
+            Span { start: 2, end: 5 },
+        );
+        let c = codificar_tipos(&d, "foo");
+        assert_eq!(c.code, Some(codigos::compile_time_error::ASSIGNMENT_TO_METHOD));
+        assert_eq!(c.message, "Methods can't be assigned a value.");
+    }
+
+    #[test]
+    fn setter_ausente_em_sobreposicao_de_extensao() {
+        let d = Diagnostic::new(
+            format!("{}: 'foo' em 'E'", dartforge_types::codes::UNDEFINED_EXTENSION_SETTER.template),
+            Span { start: 7, end: 10 },
+        );
+        let c = codificar_tipos(&d, "foo");
+        assert_eq!(c.code, Some(codigos::compile_time_error::UNDEFINED_EXTENSION_SETTER));
+        assert_eq!(c.message, "The setter 'foo' isn't defined for the extension 'E'.");
+    }
+
+    #[test]
+    fn getter_ausente_em_sobreposicao_de_extensao() {
+        let d = Diagnostic::new(
+            format!("{}: 'foo' em 'E'", dartforge_types::codes::UNDEFINED_EXTENSION_GETTER.template),
+            Span { start: 7, end: 10 },
+        );
+        let c = codificar_tipos(&d, "foo");
+        assert_eq!(c.code, Some(codigos::compile_time_error::UNDEFINED_EXTENSION_GETTER));
+        assert_eq!(c.message, "The getter 'foo' isn't defined for the extension 'E'.");
+    }
+
+    #[test]
+    fn metodo_ausente_em_sobreposicao_de_extensao() {
+        let d = Diagnostic::new(
+            format!("{}: 'm' em 'E'", dartforge_types::codes::UNDEFINED_EXTENSION_METHOD.template),
+            Span { start: 7, end: 8 },
+        );
+        let c = codificar_tipos(&d, "m");
+        assert_eq!(c.code, Some(codigos::compile_time_error::UNDEFINED_EXTENSION_METHOD));
+        assert_eq!(c.message, "The method 'm' isn't defined for the extension 'E'.");
+    }
+
+    #[test]
+    fn override_sem_call() {
+        let d = Diagnostic::new(
+            format!("{}: 'E'", dartforge_types::codes::INVOCATION_OF_EXTENSION_WITHOUT_CALL.template),
+            Span { start: 7, end: 11 },
+        );
+        let c = codificar_tipos(&d, "E(0)");
+        assert_eq!(c.code, Some(codigos::compile_time_error::INVOCATION_OF_EXTENSION_WITHOUT_CALL));
+        assert_eq!(c.message, "The extension 'E' doesn't define a 'call' method so the override can't be used in an invocation.");
+    }
+
+    #[test]
+    fn operador_ausente_em_override() {
+        let d = Diagnostic::new(
+            format!("{}: 'unary-' em 'E'", dartforge_types::codes::UNDEFINED_EXTENSION_OPERATOR.template),
+            Span { start: 33, end: 34 },
+        );
+        let c = codificar_tipos(&d, "-");
+        assert_eq!(c.code, Some(codigos::compile_time_error::UNDEFINED_EXTENSION_OPERATOR));
+        assert_eq!(c.message, "The operator 'unary-' isn't defined for the extension 'E'.");
+    }
+
+    #[test]
+    fn membro_estatico_em_sobreposicao_de_extensao() {
+        let d = Diagnostic::new(
+            dartforge_types::codes::EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template,
+            Span { start: 7, end: 12 },
+        );
+        let c = codificar_tipos(&d, "empty");
+        assert_eq!(c.code, Some(codigos::compile_time_error::EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER));
+        assert_eq!(c.message, "An extension override can't be used to access a static member from an extension.");
+        assert_eq!((c.span.start, c.span.end), (7, 12));
+    }
+
+    #[test]
+    fn membro_de_instancia_em_acesso_estatico_a_extensao() {
+        let d = Diagnostic::new(
+            format!("{}: 'g'", dartforge_types::codes::STATIC_ACCESS_TO_INSTANCE_MEMBER.template),
+            Span { start: 7, end: 8 },
+        );
+        let c = codificar_tipos(&d, "g");
+        assert_eq!(c.code, Some(codigos::compile_time_error::STATIC_ACCESS_TO_INSTANCE_MEMBER));
+        assert_eq!(c.message, "Instance member 'g' can't be accessed using static access.");
+    }
+
+    #[test]
+    fn membro_de_instancia_em_instanciacao_de_classe() {
+        let d = Diagnostic::new(
+            format!("{}: 'i'", dartforge_types::codes::CLASS_INSTANTIATION_ACCESS_TO_INSTANCE_MEMBER.template),
+            Span { start: 7, end: 15 },
+        );
+        let c = codificar_tipos(&d, "A<int>.i");
+        assert_eq!(c.code, Some(codigos::compile_time_error::CLASS_INSTANTIATION_ACCESS_TO_INSTANCE_MEMBER));
+        assert_eq!(c.message, "The instance member 'i' can't be accessed on a class instantiation.");
+        assert_eq!((c.span.start, c.span.end), (7, 15));
+    }
+
+    #[test]
+    fn membro_estatico_ou_desconhecido_em_instanciacao_de_classe() {
+        let estatico = Diagnostic::new(
+            format!("{}: 'i'", dartforge_types::codes::CLASS_INSTANTIATION_ACCESS_TO_STATIC_MEMBER.template),
+            Span { start: 7, end: 15 },
+        );
+        let c = codificar_tipos(&estatico, "A<int>.i");
+        assert_eq!(c.code, Some(codigos::compile_time_error::CLASS_INSTANTIATION_ACCESS_TO_STATIC_MEMBER));
+        assert_eq!(c.message, "The static member 'i' can't be accessed on a class instantiation.");
+        let desconhecido = Diagnostic::new(
+            format!("{}: 'A', 'i'", dartforge_types::codes::CLASS_INSTANTIATION_ACCESS_TO_UNKNOWN_MEMBER.template),
+            Span { start: 7, end: 15 },
+        );
+        let c = codificar_tipos(&desconhecido, "A<int>.i");
+        assert_eq!(c.code, Some(codigos::compile_time_error::CLASS_INSTANTIATION_ACCESS_TO_UNKNOWN_MEMBER));
+        assert_eq!(c.message, "The class 'A' doesn't have a constructor named 'i'.");
     }
 
     #[test]

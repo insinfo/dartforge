@@ -481,6 +481,12 @@ pub fn double_com_fixo(d: f64, f: i64) -> String {
 /// `toStringAsExponential(r)` (`ToExponential`): `r + 1` dígitos
 /// significativos, expoente com sinal (`1.250e-1`, `0.000e+0`).
 pub fn double_com_expoente(d: f64, r: i64) -> String {
+    // A VM passa -1 quando o argumento opcional é omitido. Nesse caso ela
+    // pede a menor representação decimal que volta ao mesmo double, e não
+    // zero casas fracionárias.
+    if r == -1 {
+        return double_com_expoente_curto(d);
+    }
     let r = r.clamp(0, 20) as i32;
     let mut s = String::new();
     if d.is_sign_negative() {
@@ -503,6 +509,41 @@ pub fn double_com_expoente(d: f64, r: i64) -> String {
     s.push(if expoente < 0 { '-' } else { '+' });
     s.push_str(&expoente.abs().to_string());
     s
+}
+
+fn double_com_expoente_curto(d: f64) -> String {
+    let mut saida = String::new();
+    if d.is_sign_negative() {
+        saida.push('-');
+    }
+    if d == 0.0 {
+        saida.push_str("0e+0");
+        return saida;
+    }
+
+    // `Display` usa a representação decimal curta com round-trip. Aqui só
+    // deslocamos o ponto para a forma exponencial pedida por Dart.
+    let decimal = d.abs().to_string();
+    let (mantissa, expoente_original) = match decimal.find(['e', 'E']) {
+        Some(i) => (&decimal[..i], decimal[i + 1..].parse::<i32>().unwrap_or(0)),
+        None => (decimal.as_str(), 0),
+    };
+    let pos_ponto = mantissa.find('.').unwrap_or(mantissa.len()) as i32;
+    let digitos: Vec<u8> = mantissa.bytes().filter(u8::is_ascii_digit).collect();
+    let primeiro = digitos.iter().position(|&b| b != b'0').expect("double não zero");
+    let ultimo = digitos.iter().rposition(|&b| b != b'0').unwrap();
+    let expoente = pos_ponto - primeiro as i32 - 1 + expoente_original;
+    saida.push(digitos[primeiro] as char);
+    if primeiro < ultimo {
+        saida.push('.');
+        for &b in &digitos[primeiro + 1..=ultimo] {
+            saida.push(b as char);
+        }
+    }
+    saida.push('e');
+    saida.push(if expoente < 0 { '-' } else { '+' });
+    saida.push_str(&expoente.abs().to_string());
+    saida
 }
 
 /// `toStringAsPrecision(p)` (`ToPrecision`, com até 6 zeros à esquerda e
@@ -572,6 +613,21 @@ mod testes_to_string_as {
     //! Os esperados são os da VM 3.6.2 (medidos): `toStringAsFixed(0)`,
     //! `(2)`, `(5)`, `toStringAsExponential(3)`, `toStringAsPrecision(4)`.
     use super::*;
+
+    #[test]
+    fn exponencial_sem_precisao_usa_decimal_curto_da_vm() {
+        let casos = [
+            (123456.789, "1.23456789e+5"),
+            (1.0, "1e+0"),
+            (-0.0, "-0e+0"),
+            (1e-7, "1e-7"),
+            (1e20, "1e+20"),
+            (0.1 / 3.0, "3.333333333333333e-2"),
+        ];
+        for (valor, esperado) in casos {
+            assert_eq!(double_com_expoente(valor, -1), esperado, "{valor}");
+        }
+    }
 
     #[test]
     fn as_tres_formas_sao_as_da_vm() {

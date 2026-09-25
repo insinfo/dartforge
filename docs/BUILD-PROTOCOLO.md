@@ -4,9 +4,18 @@ Contrato do canal entre o motor de build (`crates/build`, hospedeiro) e o
 **executor** que roda código Dart em tempo de compilação: builders do
 ecossistema (serviço `build.*`) e, depois, macros (serviço `macro.*`).
 Um protocolo e um executor para os dois (regra governante, PLANO.md,
-item 2). Hoje **não há implementação**: o motor tem só a trait
-`ExecutorDart` e a implementação `Indisponivel`. O executor virá do backend
-nativo auto-hospedado (sem Node e sem a VM oficial no produto).
+item 2). O hospedeiro agora tem `ServicoAcao`, a implementação de
+`ServicoBuildStep` que limita leituras ao grafo, registra consultas e só
+permite escrever saídas declaradas da ação. O motor agora invoca um
+`ExecutorDart` injetado nas ações sem gerador nativo verificado, prepara o
+script uma vez por sessão e publica as saídas após o corte por digest. Um
+executor falso do corpus verifica esse caminho de ponta a ponta. O cliente
+`build.*` em `crates/build/src/cliente.rs` usa o canal de
+`crates/dfexec` compartilhado com macros, confere o handshake e serve
+`BuildStep` durante a execução. O processo
+Dart real ainda falta; `ExecutorDart` continua `Indisponivel` por padrão.
+O processo virá do backend nativo auto-hospedado
+(sem Node e sem a VM oficial no produto).
 
 ## 1. Transporte e enquadramento
 
@@ -38,8 +47,10 @@ executor fica `Indisponivel(motivo)` para a sessão.
 * `build.carregar {id, script}` — `script` é o equivalente ao
   `.dart_tool/build/entrypoint/build.dart` do oficial: imports das
   fábricas e mapa chave → fábricas. O executor compila **uma vez** e guarda
-  em cache por `blake3(fontes + versões do lock + versão do DartForge +
-  ABI)`; nunca recompila por ciclo. Resposta `build.carregado {id}` ou
+  em cache por uma chave versionada. O motor atual envia o hash do plano,
+  versões do lock e versão do DartForge; a inclusão dos bytes das fontes e
+  da ABI ainda precisa ser implementada antes de reutilizar compilações do
+  processo real. Resposta `build.carregado {id}` ou
   `erro {id, mensagem}`.
 * `build.executar {id, fase, chave, fabrica, opcoes, entrada,
   saidas_permitidas}` — `entrada` e `saidas_permitidas` são AssetIds
@@ -52,6 +63,10 @@ executor fica `Indisponivel(motivo)` para a sessão.
 
 Cada método do `BuildStep` vira um pedido; o hospedeiro registra **cada
 um** como `Consulta` da ação (é assim que o motor sabe o que a ação leu):
+`findAssets` limita o glob ao pacote da entrada e registra também os
+candidatos gerados ainda ausentes; uma nova saída em memória invalida a ação.
+`canRead` negativo registra o caminho válido mesmo antes de ele entrar no
+grafo, para que a criação posterior do arquivo invalide a ação.
 
 | pedido | `BuildStep` | resposta |
 |---|---|---|
@@ -63,14 +78,22 @@ um** como `Consulta` da ação (é assim que o motor sabe o que a ação leu):
 | `log {nivel, mensagem}` | `log.*` | — |
 | `resolver.* {...}` | `BuildStep.resolver` | Fase 3 (BUILD-RUST.md): servido pelo banco semântico; enquanto não existe, o hospedeiro responde `indisponivel` e o analyzer roda dentro do executor |
 
+No canal, os nomes da primeira coluna usam o prefixo `build.` (por exemplo,
+`build.ler` e `build.resposta`), e cada pedido recebe o mesmo `id` na resposta.
+Um pedido com `AssetId` ou bytes inválidos recebe `build.resposta {id, erro}`;
+o canal permanece aberto, para que o builder possa tratar o erro e continuar a
+ação. Mensagens sem `id` ou respostas fora de ordem continuam sendo falhas do
+protocolo.
+
 Legibilidade das respostas segue o `build_impl.dart:443-463` (§3 de
 `docs/BUILD-MOTOR.md`).
 
 ## 4. Encerramento
 
 `{"t":"fim"}` do hospedeiro; o executor responde `{"t":"fim"}` e sai.
-Processo que morre no meio de uma ação: a ação falha com o stderr no
-diagnóstico, e o próximo pedido inicia um executor novo.
+Processo que morre no meio de uma ação: a ação falha. Reiniciar o processo no
+próximo pedido e incluir stderr no diagnóstico são requisitos do futuro
+adaptador de processo; o cliente atual recebe um canal já aberto.
 
 ## 5. Serviço `macro.*`
 

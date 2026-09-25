@@ -16,8 +16,19 @@ pub struct NativeDriverOptions {
 impl Default for NativeDriverOptions {
     fn default() -> Self {
         Self {
-            clang: std::env::var_os("DARTFORGE_CLANG")
-                .map_or_else(|| PathBuf::from("D:/LLVM/22.1.8/bin/clang.exe"), PathBuf::from),
+            clang: std::env::var_os("DARTFORGE_CLANG").map_or_else(
+                || {
+                    let ssd = PathBuf::from(
+                        "E:/DartSDKs/llvm/clang+llvm-22.1.8-x86_64-pc-windows-msvc/bin/clang.exe",
+                    );
+                    if ssd.is_file() {
+                        ssd
+                    } else {
+                        PathBuf::from("D:/LLVM/22.1.8/bin/clang.exe")
+                    }
+                },
+                PathBuf::from,
+            ),
             optimize: false,
             timings: false,
         }
@@ -50,6 +61,40 @@ pub fn compile_and_link(
     options: &NativeDriverOptions,
 ) -> Result<TemposLigacao, String> {
     let runtime = RuntimeCache::get_or_compile()?;
+    // Programa com o SDK da fonte (P5c): a entrada chama o registro das
+    // bibliotecas do SDK, que moram nos objetos em cache.
+    let sdk = if llvm_ir.contains("declare void @df.registrar.") {
+        let dir = dartforge_elements::sdk::SdkLayout::discover()
+            .unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
+        let perfil = if options.optimize {
+            crate::sdk_modulo::PerfilDoSdk::Producao
+        } else {
+            crate::sdk_modulo::PerfilDoSdk::Desenvolvimento
+        };
+        let sdk = crate::sdk_modulo::sdk_compilado_no_perfil(&dir, &options.clang, perfil)?;
+        if let Some(t) = sdk.frio
+            && options.timings
+        {
+            eprintln!("  SDK frio:  {t:?} (compilado uma vez por conteúdo)");
+        }
+        Some(sdk)
+    } else {
+        None
+    };
+    // Com o SDK da fonte há dois perfis (docs/NATIVO-PLANO.md §7.9):
+    // * desenvolvimento e teste: o runtime e o SDK moram na DLL em cache, e o
+    //   executável liga só o objeto do programa e a biblioteca de importação
+    //   (ligação rápida; a DLL vai ao lado do executável);
+    // * produção (`optimize`): UM executável autocontido — o objeto do
+    //   programa, os objetos do SDK (em cache, compilados com
+    //   `-ffunction-sections`) e o runtime estático, com `/OPT:REF` tirando o
+    //   que o programa não alcança.
+    let producao = options.optimize && sdk.is_some();
+    let (ligar_com, sdk_objetos): (PathBuf, Vec<PathBuf>) = match &sdk {
+        Some(s) if producao => (crate::cache::RuntimeCache::para_dll()?.lib_path, s.objetos.clone()),
+        Some(s) => (s.importacao.clone(), Vec::new()),
+        None => (runtime.lib_path.clone(), Vec::new()),
+    };
 
     // Diretório temporário seguro no target. Com o cache de objeto ele só é
     // usado com DARTFORGE_KEEP_IR ou se a ligação recusar o objeto do cache,
@@ -67,7 +112,12 @@ pub fn compile_and_link(
     // `-mno-incremental-linker-compatible` zera o TimeDateStamp do cabeçalho
     // COFF: sem ele, o mesmo IR dava objetos diferentes no byte 4 (medido),
     // e o objeto deixava de ser função da chave.
-    let args = ["-x", "ir", "-c", opt_flag, "-mno-incremental-linker-compatible"];
+    let mut args = vec!["-x", "ir", "-c", opt_flag, "-mno-incremental-linker-compatible"];
+    if producao {
+        // Produção com o SDK da fonte: bitcode ThinLTO, otimizado junto com
+        // o do SDK na ligação.
+        args.push("-flto=thin");
+    }
 
     // Fase 1: Clang compila LLVM IR -> Objeto, ou o cache já tem o objeto
     // deste IR com este Clang e estas bandeiras.
@@ -98,7 +148,7 @@ pub fn compile_and_link(
 
     // Fase 2: Link do objeto com o runtime estático
     let t_link = Instant::now();
-    let mut ligou = ligar(&options.clang, &obj_file, &runtime.lib_path, output);
+    let mut ligou = ligar(&options.clang, &obj_file, &sdk_objetos, &ligar_com, output);
     if ligou.is_err()
         && let Some((c, chave, true)) = do_cache
     {
@@ -109,9 +159,17 @@ pub fn compile_and_link(
         obj_file = staging.join(format!("{stem}.obj"));
         compilar_objeto(&options.clang, &args, llvm_ir, &obj_file)?;
         do_cache = None;
-        ligou = ligar(&options.clang, &obj_file, &runtime.lib_path, output);
+        ligou = ligar(&options.clang, &obj_file, &sdk_objetos, &ligar_com, output);
     }
     ligou?;
+    if let Some(s) = sdk.as_ref().filter(|_| !producao) {
+        // A DLL ao lado do executável (o Windows procura primeiro ali):
+        // ligação física, sem cópia; cópia só se o volume for outro.
+        let destino = output.parent().unwrap_or(Path::new(".")).join(s.dll.file_name().unwrap_or_default());
+        if !destino.is_file() && std::fs::hard_link(&s.dll, &destino).is_err() {
+            std::fs::copy(&s.dll, &destino).map_err(|e| format!("não foi possível pôr a DLL do SDK em {}: {e}", destino.display()))?;
+        }
+    }
     let link_duration = t_link.elapsed();
 
     // Limpeza de arquivos temporários (mantém se DARTFORGE_KEEP_IR estiver
@@ -149,13 +207,57 @@ fn compilar_objeto(clang: &Path, args: &[&str], llvm_ir: &str, obj: &Path) -> Re
     Ok(())
 }
 
-fn ligar(clang: &Path, obj: &Path, runtime_lib: &Path, output: &Path) -> Result<(), String> {
-    let status = Command::new(clang)
-        .arg(obj)
-        .arg(runtime_lib)
-        .arg("-lws2_32")
-        .arg("-luserenv")
-        .arg("-lntdll")
+fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], runtime_lib: &Path, output: &Path) -> Result<(), String> {
+    let mut cmd = Command::new(clang);
+    cmd.arg(obj).args(sdk).arg(runtime_lib);
+    let nome = runtime_lib.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    if nome.starts_with("dfsdk_") {
+        // Executável do SDK da fonte (desenvolvimento): o runtime está na
+        // DLL, que usa a CRT dinâmica (a do `rustc`); o executável usa a
+        // mesma.
+        cmd.args(["-Wl,/NODEFAULTLIB:libcmt", "-lmsvcrt"]);
+    } else if nome.starts_with("dartforge_rtdll_") {
+        // Produção com o SDK da fonte: tudo estático no executável, a mesma
+        // CRT do runtime, ThinLTO entre o programa e o SDK (lld), e o ligador
+        // tira as seções que nada alcança.
+        // O lld tem de ser o do mesmo LLVM do Clang (o bitcode ThinLTO só é
+        // lido pela mesma versão). O Clang no Windows com ThinLTO exige o
+        // literal `lld` em `-fuse-ld=` (caminho absoluto dá
+        // `clang: error: LTO requires -fuse-ld=lld`); então o diretório bin
+        // irmão do próprio Clang vai ao PATH só deste spawn, para o `lld`
+        // resolvido ser o da mesma versão. Recusar sua ausência evita cair
+        // num lld errado do PATH em silêncio (medido: LLVM 20 lendo
+        // bitcode 22 — `Unknown attribute kind (105)`).
+        let lld = clang.with_file_name("lld-link.exe");
+        if !lld.is_file() {
+            return Err(format!("ThinLTO requer lld-link.exe ao lado de {}", clang.display()));
+        }
+        if let Some(bin) = clang.parent()
+            && !bin.as_os_str().is_empty()
+        {
+            let mut caminhos = vec![bin.to_path_buf()];
+            if let Some(atual) = std::env::var_os("PATH") {
+                caminhos.extend(std::env::split_paths(&atual));
+            }
+            if let Ok(novo) = std::env::join_paths(caminhos) {
+                cmd.env("PATH", novo);
+            }
+        }
+        cmd.arg("-fuse-ld=lld");
+        cmd.args([
+            "-flto=thin",
+            "-O2",
+            "-lws2_32",
+            "-luserenv",
+            "-lntdll",
+            "-Wl,/NODEFAULTLIB:libcmt",
+            "-lmsvcrt",
+            "-Wl,/OPT:REF",
+        ]);
+    } else {
+        cmd.args(["-lws2_32", "-luserenv", "-lntdll"]);
+    }
+    let status = cmd
         .arg("-o")
         .arg(output)
         .status()

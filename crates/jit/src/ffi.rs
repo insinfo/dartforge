@@ -321,13 +321,15 @@ impl ParsedModule {
         }
     }
 
-    /// Assinaturas das funções **definidas** pelo módulo, na ordem do IR.
+    /// Assinaturas das funções **exportadas** pelo módulo, na ordem do IR.
     ///
     /// Declarações externas ficam de fora: elas são o que o módulo consome (o
-    /// runtime), não o que ele oferece para ser recarregado.
+    /// runtime), não o que ele oferece para ser recarregado. Definições
+    /// `internal`/`private` pertencem à geração e também ficam de fora.
     pub(crate) fn signatures(&self) -> Vec<FunctionSignature> {
         self.definitions()
             .into_iter()
+            .filter(|&function| !self.local_function(function))
             // SAFETY: cada `function` é uma definição viva deste módulo,
             // devolvida pela travessia do próprio LLVM.
             .map(|function| unsafe { self.signature_of(function) })
@@ -351,6 +353,27 @@ impl ParsedModule {
                     names.push(value_name(function));
                 }
                 function = LLVMGetNextFunction(function);
+            }
+        }
+        names
+    }
+
+    /// Globais de dados declaradas sem definição neste módulo.
+    ///
+    /// A pré-verificação de funções não cobre `@nome = external global ...`.
+    /// Uma referência de dado ausente também pode falhar na materialização do
+    /// ORC depois de uma promoção já ter removido o módulo antigo.
+    pub(crate) fn external_globals(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        // SAFETY: travessia pela API do LLVM sobre o módulo vivo; cada nome é
+        // copiado antes de a referência ao módulo ser consumida pelo ORC.
+        unsafe {
+            let mut global = llvm_sys::core::LLVMGetFirstGlobal(self.module);
+            while !global.is_null() {
+                if LLVMIsDeclaration(global) != 0 {
+                    names.push(value_name(global));
+                }
+                global = llvm_sys::core::LLVMGetNextGlobal(global);
             }
         }
         names
@@ -439,6 +462,11 @@ impl ParsedModule {
         // valores continuam válidos enquanto o módulo existir, e as declarações
         // acrescentadas no laço não voltam a ser visitadas.
         for function in self.definitions() {
+            // Funções `internal`/`private` pertencem apenas a esta geração.
+            // Não ganham trampolim, nem podem ser resolvidas com LLJITLookup.
+            if self.local_function(function) {
+                continue;
+            }
             // SAFETY: `function` é uma definição viva deste módulo.
             let signature = unsafe { self.signature_of(function) };
             let versioned = format!("{}{suffix}", signature.name);
@@ -503,6 +531,12 @@ impl ParsedModule {
             }
         }
         functions
+    }
+
+    fn local_function(&self, function: LLVMValueRef) -> bool {
+        // SAFETY: `function` veio da travessia de definições deste módulo.
+        let linkage = unsafe { llvm_sys::core::LLVMGetLinkage(function) };
+        matches!(linkage, llvm_sys::LLVMLinkage::LLVMInternalLinkage | llvm_sys::LLVMLinkage::LLVMPrivateLinkage)
     }
 }
 
@@ -940,6 +974,33 @@ impl Lljit {
         }
     }
 
+    /// Invoca um trampolim recarregável com ABI `void ()`, conferida antes da FFI.
+    pub(crate) fn call_stable_void(&self, address: u64, signature: &FunctionSignature) -> Result<(), String> {
+        if signature.var_arg || signature.ret != "void" || !signature.params.is_empty() {
+            return Err(format!("a entrada estável tem assinatura {}, esperada void ()", signature.text()));
+        }
+        let pointer = usize::try_from(address)
+            .map_err(|_| "endereço da entrada estável não cabe em usize".to_owned())?
+            as *const ();
+        // SAFETY: a assinatura `void ()` foi conferida acima; o endereço é o
+        // trampolim publicado pela LLJIT desta sessão e vive até ela terminar.
+        unsafe { std::mem::transmute::<*const (), extern "C" fn()>(pointer)() };
+        Ok(())
+    }
+
+    /// Chama uma entrada estável com ABI `i32 ()` (o `main` do SDK da fonte).
+    pub(crate) fn call_stable_i32(&self, address: u64, signature: &FunctionSignature) -> Result<i32, String> {
+        if signature.var_arg || signature.ret != "i32" || !signature.params.is_empty() {
+            return Err(format!("a entrada estável tem assinatura {}, esperada i32 ()", signature.text()));
+        }
+        let pointer = usize::try_from(address)
+            .map_err(|_| "endereço da entrada estável não cabe em usize".to_owned())?
+            as *const ();
+        // SAFETY: ABI `i32 ()` conferida acima; o trampolim pertence à LLJIT
+        // viva desta sessão, e o chamador só recarrega quando não há execução.
+        Ok(unsafe { std::mem::transmute::<*const (), extern "C" fn() -> i32>(pointer)() })
+    }
+
     /// Resolve e executa a entrada do módulo, medindo as duas fases.
     ///
     /// A assinatura é segura de propósito: o nome do símbolo **não** vem do
@@ -986,6 +1047,92 @@ impl Drop for Lljit {
         // `crate::JitSession` declara o vetor de módulos antes deste campo e os
         // campos são destruídos na ordem de declaração.
         let _ = take_error(unsafe { LLVMOrcDisposeLLJIT(self.handle) });
+    }
+}
+
+// ─── SDK da fonte (DLL) ────────────────────────────────────────────────────
+
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn LoadLibraryW(nome: *const u16) -> *mut std::ffi::c_void;
+    fn GetProcAddress(modulo: *mut std::ffi::c_void, nome: *const std::ffi::c_char) -> *mut std::ffi::c_void;
+}
+
+impl Lljit {
+    /// Nomes pedidos que constam da lista de exportações da DLL do SDK.
+    /// A lista é consultada antes da publicação de uma geração nova, para que
+    /// uma referência desconhecida recuse a recarga sem mudar os ponteiros.
+    pub(crate) fn exported_symbols_in_dll(dll: &std::path::Path, usados: &[String]) -> Result<Vec<String>, String> {
+        let def = dll.with_file_name("exportados.def");
+        let texto = std::fs::read_to_string(&def).map_err(|e| format!("{}: {e}", def.display()))?;
+        Ok(texto
+            .lines()
+            .skip_while(|l| l.trim() != "EXPORTS")
+            .skip(1)
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty() && usados.contains(l))
+            .collect())
+    }
+
+    /// Carrega a DLL do SDK da fonte e publica na sessão o endereço de cada
+    /// nome que ela exporta (a lista é o `exportados.def` ao lado dela).
+    /// Devolve os nomes.
+    ///
+    /// # Erros
+    /// DLL ou lista ausente, ou um nome da lista que a DLL não exporta.
+    pub(crate) fn define_symbols_from_dll(&self, dll: &std::path::Path, usados: &[String], publicar_crt: bool) -> Result<Vec<String>, String> {
+        use std::os::windows::ffi::OsStrExt;
+        let nomes = Self::exported_symbols_in_dll(dll, usados)?;
+        let largo: Vec<u16> = dll.as_os_str().encode_wide().chain(Some(0)).collect();
+        // SAFETY: `largo` é um caminho terminado em zero; a DLL fica carregada
+        // até o fim do processo (nunca é descarregada).
+        let modulo = unsafe { LoadLibraryW(largo.as_ptr()) };
+        if modulo.is_null() {
+            return Err(format!("LoadLibraryW falhou para {}", dll.display()));
+        }
+        let mut pares = Vec::with_capacity(nomes.len());
+        for n in &nomes {
+            let c = CString::new(n.as_str()).map_err(|_| format!("nome com byte nulo: {n}"))?;
+            // SAFETY: `modulo` é o handle carregado acima e `c` termina em zero.
+            let p = unsafe { GetProcAddress(modulo, c.as_ptr()) };
+            if p.is_null() {
+                return Err(format!("a DLL do SDK não exporta {n}"));
+            }
+            pares.push((c, p as u64));
+        }
+        let emprestados: Vec<(&CStr, u64)> = pares.iter().map(|(n, a)| (n.as_c_str(), *a)).collect();
+        self.define_absolute(&emprestados, exported_callable())?;
+        if publicar_crt {
+            self.define_absolute(&crt_data_symbols(), exported_data())?;
+        }
+        Ok(nomes)
+    }
+
+    /// Resolve o `main` do programa (SDK da fonte) e o executa numa thread
+    /// nova com pilha de `stack_bytes`; o código é o que ele devolve. As
+    /// globais dos módulos JIT recebidos voltam a zero como em `run_entry`.
+    /// Esta operação não reinicia os estáticos internos da DLL do SDK.
+    pub(crate) fn run_main(&self, stack_bytes: usize, globals: &[&MutableGlobal]) -> Result<(Duration, i32, Duration), String> {
+        let phase = Instant::now();
+        let address = usize::try_from(self.lookup("main")?).map_err(|_| "endereço do main".to_owned())?;
+        let lookup = phase.elapsed();
+        for global in globals {
+            self.zero_global(global)?;
+        }
+        let (code, execute) = std::thread::scope(|scope| {
+            let handle = std::thread::Builder::new()
+                .stack_size(stack_bytes)
+                .spawn_scoped(scope, move || {
+                    let started = Instant::now();
+                    // SAFETY: `address` veio de `LLVMOrcLLJITLookup(main)`, que o
+                    // emissor escreve com a assinatura C `i32(void)`.
+                    let code = unsafe { std::mem::transmute::<usize, extern "C" fn() -> i32>(address)() };
+                    (code, started.elapsed())
+                })
+                .map_err(|erro| format!("não foi possível criar a thread do programa: {erro}"))?;
+            handle.join().map_err(|_| "a thread do programa terminou em pânico".to_owned())
+        })?;
+        Ok((lookup, code, execute))
     }
 }
 
@@ -1093,6 +1240,8 @@ pub(crate) fn llvm_version() -> (u32, u32, u32) {
 /// execução: nome e tamanho em bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MutableGlobal {
+    /// Nome do emissor antes do sufixo de módulo/geração.
+    pub(crate) logical_name: String,
     pub(crate) name: String,
     pub(crate) size: usize,
 }
@@ -1113,6 +1262,16 @@ impl ParsedModule {
     /// produz, e reiniciar é escrever zeros. Outra forma é recusada com o
     /// nome, em vez de uma reinicialização errada em silêncio.
     pub(crate) fn prepare_mutable_globals(&self) -> Result<Vec<MutableGlobal>, String> {
+        self.prepare_mutable_globals_with_suffix("")
+    }
+
+    /// A geração recarregável guarda uma cópia dos estáticos do programa.
+    /// O sufixo evita colisão entre gerações retidas na mesma `JITDylib`.
+    pub(crate) fn version_mutable_globals(&self, suffix: &str) -> Result<Vec<MutableGlobal>, String> {
+        self.prepare_mutable_globals_with_suffix(suffix)
+    }
+
+    fn prepare_mutable_globals_with_suffix(&self, suffix: &str) -> Result<Vec<MutableGlobal>, String> {
         use llvm_sys::LLVMLinkage;
         let mut globals = Vec::new();
         // SAFETY: travessia pela API do LLVM sobre o módulo vivo, terminada no
@@ -1136,6 +1295,9 @@ impl ParsedModule {
                         "i16" => 2,
                         "i32" | "float" => 4,
                         "i64" | "double" | "ptr" => 8,
+                        // O cache de um ponto de chamada por seletor (SDK da
+                        // fonte, `llvm/seletores.rs`): dois `i64`.
+                        "[2 x i64]" => 16,
                         outro => {
                             return Err(format!(
                                 "a global mutável @{name} tem tipo {outro}, que a sessão não sabe reiniciar"
@@ -1146,7 +1308,13 @@ impl ParsedModule {
                     if matches!(linkage, LLVMLinkage::LLVMInternalLinkage | LLVMLinkage::LLVMPrivateLinkage) {
                         llvm_sys::core::LLVMSetLinkage(global, LLVMLinkage::LLVMExternalLinkage);
                     }
-                    globals.push(MutableGlobal { name, size });
+                    let logical_name = name.clone();
+                    let name = if suffix.is_empty() { name } else {
+                        let versioned = format!("{name}{suffix}");
+                        llvm_sys::core::LLVMSetValueName2(global, versioned.as_ptr().cast::<c_char>(), versioned.len());
+                        versioned
+                    };
+                    globals.push(MutableGlobal { logical_name, name, size });
                 }
                 global = next;
             }
@@ -1156,6 +1324,27 @@ impl ParsedModule {
 }
 
 impl Lljit {
+    /// Transfere um estático da geração anterior após materializar a nova e
+    /// antes de redirecionar as entradas estáveis. A sessão tem `&mut self`
+    /// durante a recarga, então nenhum código JIT executa nesta janela.
+    pub(crate) fn copy_global(&self, previous: &MutableGlobal, next: &MutableGlobal) -> Result<(), String> {
+        if previous.size != next.size {
+            return Err(format!("a global {} mudou de {} para {} bytes", previous.logical_name, previous.size, next.size));
+        }
+        let source = self.lookup(&previous.name)?;
+        let target = self.lookup(&next.name)?;
+        // SAFETY: os endereços pertencem a globais materializadas da LLJIT,
+        // com o mesmo tamanho verificado acima e gerações distintas retidas.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                usize::try_from(source).unwrap_or(usize::MAX) as *const u8,
+                usize::try_from(target).unwrap_or(usize::MAX) as *mut u8,
+                next.size,
+            );
+        }
+        Ok(())
+    }
+
     /// Escreve zeros na global mutável, já materializada.
     ///
     /// # Erros

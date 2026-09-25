@@ -130,8 +130,23 @@ pub fn ordenar(modulos: Vec<Modulo>) -> (Vec<Modulo>, Vec<String>) {
     (saida, ciclos)
 }
 
-/// O texto do `dart_sdk.js` sem a linha `export { … };`, que não faz sentido
-/// num arquivo que não é módulo.
+/// Aliases que o DDC exporta para nomes de biblioteca diferentes dos nomes
+/// locais (`html$ as html`, `svg$ as svg`). Sem o `export`, os módulos do
+/// usuário continuam citando `html`/`svg`, portanto o bundle precisa recriar
+/// essas ligações antes de executar qualquer módulo.
+pub fn aliases_exportados(sdk: &str) -> Vec<(String, String)> {
+    sdk.lines()
+        .filter_map(|l| l.trim().strip_prefix("export {").and_then(|r| r.split_once('}').map(|(body, _)| body)))
+        .flat_map(|body| body.split(','))
+        .filter_map(|entry| {
+            let (original, alias) = entry.trim().split_once(" as ")?;
+            Some((original.trim().to_string(), alias.trim().to_string()))
+        })
+        .collect()
+}
+
+/// O texto do `dart_sdk.js` sem `export { … };`. Os aliases importados por
+/// módulos são preservados como variáveis de topo no arquivo único.
 pub fn sdk_sem_export(sdk: &str) -> String {
     let mut out = String::with_capacity(sdk.len());
     for linha in sdk.split_inclusive('\n') {
@@ -139,6 +154,9 @@ pub fn sdk_sem_export(sdk: &str) -> String {
             continue;
         }
         out.push_str(linha);
+    }
+    for (original, alias) in aliases_exportados(sdk) {
+        out.push_str(&format!("var {alias} = {original};\n"));
     }
     out
 }
@@ -180,6 +198,12 @@ pub fn montar(sdk: &str, modulos: &[Modulo], entrada: &str, preambulo: &str) -> 
     if !sdk.ends_with('\n') {
         out.push('\n');
     }
+    // `dart:html` declara o resultado nativo de querySelectorAll como
+    // `List<Node>`. No navegador ele é um NodeList, que não tem os métodos
+    // simbolizados de List (`every`, `firstWhere` etc.). A ponte do DDC para
+    // JSArray torna esses métodos disponíveis no protótipo nativo antes de
+    // executar o código do usuário; Node/servidores não têm NodeList.
+    out.push_str("if (typeof NodeList !== 'undefined' && !NodeList.prototype[dartx.every]) dart.registerExtension('NodeList', _interceptors.JSArray);\n");
     // Namespaces de todas as bibliotecas, no topo: é o que substitui os
     // `import`/`export` entre módulos.
     let mut vistos = HashSet::new();
@@ -213,6 +237,24 @@ mod testes {
         assert_eq!(resolver("main.js", "./x.js"), "x.js");
         assert_eq!(resolver("packages/a/b.js", "../../dart_sdk.js"), "dart_sdk.js");
         assert_eq!(resolver("packages/a/b.js", "../c.js"), "packages/c.js");
+    }
+
+    #[test]
+    fn export_renomeado_vira_alias_no_bundle() {
+        let sdk = "var html$ = 1;\nvar svg$ = 2;\nexport { html$ as html, svg$ as svg };\n";
+        let out = sdk_sem_export(sdk);
+        assert!(!out.contains("export {"));
+        assert!(out.contains("var html = html$;\n"));
+        assert!(out.contains("var svg = svg$;\n"));
+    }
+
+    #[test]
+    fn node_list_recebe_metodos_de_lista_antes_do_usuario() {
+        let m = separar("main.js", "var L$main = Object.create(dart.library);\nL$main.main = function () {};\n");
+        let js = montar("var dart = {};\n", &[m], "L$main", "");
+        let ponte = js.find("dart.registerExtension('NodeList', _interceptors.JSArray)").unwrap();
+        let main = js.find("L$main.main = function").unwrap();
+        assert!(ponte < main);
     }
 
     #[test]
