@@ -1058,6 +1058,7 @@ fn descricao_valor_no_arquivo(
     chave: dartforge_intern::SymbolId,
 ) -> Option<(String, Option<String>)> {
     let mut variaveis = Vec::new();
+    let mut tem_funcao = false;
     for id in &arquivo.unit.declarations {
         match &arquivo.ast.decl(*id).kind {
             DeclKind::Variables(v) => {
@@ -1073,19 +1074,25 @@ fn descricao_valor_no_arquivo(
             DeclKind::Function(f)
                 if arquivo.ast.function(*f).name.is_some_and(|n| n.sym == chave) =>
             {
-                return None;
+                // Nome de função/getter: não é variável (como em
+                // [`variavel_topo`); cai para a formatação de assinatura
+                // abaixo (como em [`funcao_topo`]).
+                tem_funcao = true;
             }
             DeclKind::Extension(d) if d.name.is_some_and(|n| n.sym == chave) => return None,
             _ => {}
         }
     }
     if !variaveis.is_empty() {
-        if variaveis.len() != 1 {
+        if tem_funcao || variaveis.len() != 1 {
             return None;
         }
         let tipo = tipo_primitivo(&arquivo.ast, &arquivo.nomes, variaveis[0].1?)?;
         let descricao = format!("{tipo} {}", arquivo.nomes.resolve(chave));
         return Some((descricao, Some(tipo)));
+    }
+    if !tem_funcao {
+        return None;
     }
     let mut funcoes = Vec::new();
     for id in &arquivo.unit.declarations {
