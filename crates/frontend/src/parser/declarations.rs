@@ -1689,11 +1689,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else if self.constructor_follows(class_name, mods) {
             self.parse_constructor(mods, false, class_name)?
         } else if self.constructor_com_retorno(class_name) {
-            // `T C(` (C é a classe) ou `T X.Y(`: construtor com tipo de
-            // retorno — o fasta relata `constructor_with_return_type` em T
-            // e lê o construtor (sondado no SDK 3.6.2 local). Sem isso,
-            // `augment A(...) : inits` caía no caminho de método e a cauda
-            // falhava em cascata.
+            // `T C(` (C é a classe) ou `T X.Y(` / `T X.Y` sem parênteses:
+            // construtor com tipo de retorno — o fasta relata
+            // `constructor_with_return_type` em T e, sem parênteses,
+            // `missing_method_parameters` em X (sondado no SDK 3.6.2 local).
+            // Sem isso, `augment A(...) : inits` caía no caminho de método
+            // e a cauda falhava em cascata.
             let tstart = self.span();
             let _ty = self.parse_type()?;
             self.erro_em(
@@ -1701,7 +1702,22 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.span_from(tstart),
                 &[],
             );
-            self.parse_constructor(mods, false, class_name)?
+            if self.constructor_follows(class_name, mods) {
+                self.parse_constructor(mods, false, class_name)?
+            } else if self.metodo_sem_parametros() {
+                // `T X.Y` sem parênteses (`int C.named;`): X é denunciado.
+                let span = self.span();
+                self.erro_em(
+                    codigos::parser::MISSING_METHOD_PARAMETERS,
+                    span,
+                    &[],
+                );
+                return Err(self.pular_membro_quebrado());
+            } else {
+                // Forma exótica (`T get.Y;`): sem regra sondada, só falha
+                // para a recuperação sem novos erros.
+                return Err(ParseError);
+            }
         } else if self.metodo_sem_parametros() {
             // `X.Y` / `X.new` sem `(` em membro (`C.named;`, `foo.bar = 1;`,
             // `C.named : ...`): o fasta relata `missing_method_parameters`
@@ -1715,19 +1731,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 span,
                 &[],
             );
-            loop {
-                match self.kind() {
-                    Kind::Eof | Kind::Op(Op::RBrace) => break,
-                    Kind::Op(Op::Semicolon) => {
-                        self.advance();
-                        break;
-                    }
-                    _ => {
-                        self.advance();
-                    }
-                }
-            }
-            return Err(ParseError);
+            return Err(self.pular_membro_quebrado());
         } else {
             match self.parse_function_or_variables(mods, fstart, None)? {
                 FunctionOrVariables::Function(id) => MemberKind::Method(id),
@@ -1753,6 +1757,25 @@ impl<'s, 'i> Parser<'s, 'i> {
             kind,
             augment,
         }))
+    }
+
+    /// Pula o resto do membro quebrado até `;` (consumido) ou `}`/fim
+    /// (preservados), sem novos erros — cada código tem a sua vez — e
+    /// devolve a falha para a recuperação continuar depois.
+    fn pular_membro_quebrado(&mut self) -> ParseError {
+        loop {
+            match self.kind() {
+                Kind::Eof | Kind::Op(Op::RBrace) => break,
+                Kind::Op(Op::Semicolon) => {
+                    self.advance();
+                    break;
+                }
+                _ => {
+                    self.advance();
+                }
+            }
+        }
+        ParseError
     }
 
     /// `X.Y` / `X.new` sem `(` nem `<` começam aqui, com o membro
@@ -1811,10 +1834,26 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.kind_of(end + 1) == Kind::Op(Op::LParen) {
             return Some(self.text_of(end)) == class_name;
         }
+        // Com parênteses (`T X.Y(`) o construtor é lido; sem (`T X.Y;`,
+        // `int C.named;`) o X ainda cai na regra do método sem parâmetros.
+        // `X.Y<` é outro grupo e `X.Y nome` pode ser campo prefixado.
         self.kind_of(end + 1) == Kind::Op(Op::Dot)
             && (self.kind_of(end + 2) == Kind::Ident
                 || self.kind_of(end + 2) == Kind::Keyword(Keyword::New))
-            && self.kind_of(end + 3) == Kind::Op(Op::LParen)
+            && (self.kind_of(end + 3) == Kind::Op(Op::LParen)
+                || matches!(
+                    self.kind_of(end + 3),
+                    Kind::Op(
+                        Op::Semicolon
+                            | Op::Assign
+                            | Op::Comma
+                            | Op::Colon
+                            | Op::Arrow
+                            | Op::RParen
+                            | Op::RBracket
+                            | Op::RBrace
+                    ) | Kind::Eof
+                ))
     }
 
     /// `Nome(` com o nome da classe (ou após `const`), ou `Nome.x(`.
@@ -2767,6 +2806,26 @@ mod tests {
             out.diagnostics
         );
         assert_eq!(class(&out, 0).members.len(), 2, "{fonte}: {:?}", out.diagnostics);
+    }
+
+    /// `T X.Y` sem parênteses: os dois erros (`int C.named;`, sondado).
+    #[test]
+    fn membro_fasta_tipo_e_metodo_sem_parametros() {
+        use dartforge_diagnostics::codigos::parser as c;
+
+        let fonte = "class C {\n  int C.named;\n}\n";
+        let mut nomes = Interner::new();
+        let out = parse(fonte, &mut nomes);
+        let codigos: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
+        assert_eq!(
+            codigos,
+            [
+                (Some(c::CONSTRUCTOR_WITH_RETURN_TYPE), (12, 15)),
+                (Some(c::MISSING_METHOD_PARAMETERS), (16, 17)),
+            ],
+            "{fonte}: {:?}",
+            out.diagnostics
+        );
     }
 
     /// `X.Y` / `X.new` sem `(` em membro: `missing_method_parameters` em X
