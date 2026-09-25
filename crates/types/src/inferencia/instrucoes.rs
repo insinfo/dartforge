@@ -578,361 +578,448 @@ pub(crate) enum Parte {
     Stmt(StmtId),
 }
 
+/// Uma escrita: o nome e o offset do nome na declaração a que ela se refere,
+/// quando essa declaração está dentro da região varrida (a mais interna com
+/// esse nome, pelo escopo léxico); `None` quando é de fora (parâmetro do
+/// membro, variável externa). Sem isso, `x = …` numa closure `test(…)`
+/// contaminava um `x` homônimo de outra closure do mesmo `main`.
+pub(crate) type Escrita = (SymbolId, Option<usize>);
+
+/// O local de `cx` a que a escrita se refere, visto do ponto corrente.
+pub(crate) fn local_da_escrita(cx: &Corpo, e: Escrita) -> Option<LocalId> {
+    let Some(Nome::Local(id)) = cx.buscar(e.0) else { return None };
+    match e.1 {
+        Some(o) if cx.local(id).offset != o => None,
+        _ => Some(id),
+    }
+}
+
 /// Locais escritos nas partes (e os escritos dentro de closures nelas).
 fn escritas_em(inf: &BodyInferrer<'_>, cx: &Corpo, partes: &[Parte]) -> (Vec<LocalId>, Vec<LocalId>) {
-    let a = &inf.program.unit(cx.unit).ast;
-    let mut nomes = Vec::new();
-    let mut em_closure = Vec::new();
+    let mut v = Varredura::nova(&inf.program.unit(cx.unit).ast);
     for p in partes {
         match p {
-            Parte::Expr(e) => varrer_expr(a, *e, &mut nomes, &mut em_closure, false),
-            Parte::Stmt(s) => varrer_stmt(a, *s, &mut nomes, &mut em_closure, false),
+            Parte::Expr(e) => v.expr(*e, false),
+            Parte::Stmt(s) => v.stmt(*s, false),
         }
     }
-    let ids = |ns: &[SymbolId]| -> Vec<LocalId> {
-        let mut v = Vec::new();
-        for n in ns {
-            if let Some(Nome::Local(id)) = cx.buscar(*n) {
-                if !v.contains(&id) {
-                    v.push(id);
+    let ids = |es: &[Escrita]| -> Vec<LocalId> {
+        let mut out = Vec::new();
+        for e in es {
+            if let Some(id) = local_da_escrita(cx, *e) {
+                if !out.contains(&id) {
+                    out.push(id);
                 }
             }
         }
-        v
+        out
     };
-    (ids(&nomes), ids(&em_closure))
+    (ids(&v.fora), ids(&v.dentro))
 }
 
-/// Nomes escritos dentro de uma função (para a captura de escrita); os
-/// parâmetros dela sombreiam os de fora no corpo inteiro.
-pub(crate) fn nomes_escritos_em_funcao(inf: &BodyInferrer<'_>, unit: UnitId, f: &ast::Function) -> Vec<SymbolId> {
-    let mut v = nomes_escritos_em_corpo(inf, unit, &f.body);
-    let ps = parametros_de(f);
-    v.retain(|n| !ps.contains(n));
-    v
-}
-
-fn parametros_de(f: &ast::Function) -> Vec<SymbolId> {
-    f.parameters.iter().flat_map(|ps| ps.iter()).filter_map(|p| p.name.map(|n| n.sym)).collect()
-}
-
-/// Closure ou função local: o que ela escreve, menos os próprios
-/// parâmetros, conta como escrito em closure.
-fn varrer_funcao_aninhada(a: &ast::Ast, f: &ast::Function, em_closure: &mut Vec<SymbolId>) {
-    let (mut n, mut em) = (Vec::new(), Vec::new());
-    match &f.body {
-        ast::FunctionBody::Block(b) => varrer_stmt(a, *b, &mut n, &mut em, true),
-        ast::FunctionBody::Expression(x) => varrer_expr(a, *x, &mut n, &mut em, true),
-        _ => {}
-    }
-    let ps = parametros_de(f);
-    for x in n.into_iter().chain(em) {
-        if !ps.contains(&x) && !em_closure.contains(&x) {
-            em_closure.push(x);
+/// Escritas dentro de uma função (para a captura de escrita): os parâmetros
+/// dela sombreiam os de fora no corpo inteiro (resolvem para eles mesmos).
+pub(crate) fn nomes_escritos_em_funcao(inf: &BodyInferrer<'_>, unit: UnitId, f: &ast::Function) -> Vec<Escrita> {
+    let mut v = Varredura::nova(&inf.program.unit(unit).ast);
+    v.escopos.push(Vec::new());
+    v.declarar_parametros(f);
+    v.corpo(&f.body, false);
+    let mut out = v.fora;
+    for e in v.dentro {
+        if !out.contains(&e) {
+            out.push(e);
         }
     }
+    out
 }
 
-/// Nomes escritos num corpo, separados: `(fora de literais de função,
-/// dentro de literais)` — `assignedVariables.anywhere.written` e
-/// `.captured` do analyzer.
-pub(crate) fn nomes_escritos_separados(inf: &BodyInferrer<'_>, unit: UnitId, body: &ast::FunctionBody) -> (Vec<SymbolId>, Vec<SymbolId>) {
-    let a = &inf.program.unit(unit).ast;
-    let mut nomes = Vec::new();
-    let mut em_closure = Vec::new();
-    match body {
-        ast::FunctionBody::Block(s) => varrer_stmt(a, *s, &mut nomes, &mut em_closure, false),
-        ast::FunctionBody::Expression(e) => varrer_expr(a, *e, &mut nomes, &mut em_closure, false),
-        _ => {}
+/// Escritas num corpo, separadas: `(fora de literais de função, dentro de
+/// literais)` — `assignedVariables.anywhere.written` e `.captured` do
+/// analyzer.
+pub(crate) fn nomes_escritos_separados(inf: &BodyInferrer<'_>, unit: UnitId, body: &ast::FunctionBody) -> (Vec<Escrita>, Vec<Escrita>) {
+    let mut v = Varredura::nova(&inf.program.unit(unit).ast);
+    v.corpo(body, false);
+    (v.fora, v.dentro)
+}
+
+/// Varredura sintática das escritas, com os escopos léxicos declarados
+/// dentro da região (blocos, `for`, `catch`, `case`, closures e funções
+/// locais).
+struct Varredura<'a> {
+    a: &'a ast::Ast,
+    escopos: Vec<Vec<(SymbolId, usize)>>,
+    fora: Vec<Escrita>,
+    dentro: Vec<Escrita>,
+}
+
+impl<'a> Varredura<'a> {
+    fn nova(a: &'a ast::Ast) -> Self {
+        Varredura { a, escopos: vec![Vec::new()], fora: Vec::new(), dentro: Vec::new() }
     }
-    (nomes, em_closure)
-}
 
-/// Nomes escritos num corpo (inclusive dentro de closures dele).
-pub(crate) fn nomes_escritos_em_corpo(inf: &BodyInferrer<'_>, unit: UnitId, body: &ast::FunctionBody) -> Vec<SymbolId> {
-    let a = &inf.program.unit(unit).ast;
-    let mut nomes = Vec::new();
-    let mut em_closure = Vec::new();
-    match body {
-        ast::FunctionBody::Block(s) => varrer_stmt(a, *s, &mut nomes, &mut em_closure, true),
-        ast::FunctionBody::Expression(e) => varrer_expr(a, *e, &mut nomes, &mut em_closure, true),
-        _ => {}
+    fn declarar(&mut self, n: ast::Name) {
+        if let Some(e) = self.escopos.last_mut() {
+            e.push((n.sym, n.span.start));
+        }
     }
-    nomes.extend(em_closure);
-    nomes
-}
 
-fn escrever_nome(a: &ast::Ast, alvo: ExprId, nomes: &mut Vec<SymbolId>, em_closure: &mut Vec<SymbolId>, dentro: bool) {
-    let mut x = alvo;
-    loop {
-        match &a.expr(x).kind {
-            ExprKind::Parenthesized(i) => x = *i,
-            ExprKind::Identifier(n) => {
-                let v = if dentro { em_closure } else { nomes };
-                if !v.contains(&n.sym) {
-                    v.push(n.sym);
+    fn declarar_parametros(&mut self, f: &ast::Function) {
+        for p in f.parameters.iter().flat_map(|ps| ps.iter()) {
+            if let Some(n) = p.name {
+                self.declarar(n);
+            }
+        }
+    }
+
+    fn escrever(&mut self, n: ast::Name, dentro: bool) {
+        let decl = self
+            .escopos
+            .iter()
+            .rev()
+            .find_map(|e| e.iter().rev().find(|(s, _)| *s == n.sym).map(|(_, o)| *o));
+        let e = (n.sym, decl);
+        let v = if dentro { &mut self.dentro } else { &mut self.fora };
+        if !v.contains(&e) {
+            v.push(e);
+        }
+    }
+
+    fn com_escopo(&mut self, f: impl FnOnce(&mut Self)) {
+        self.escopos.push(Vec::new());
+        f(self);
+        self.escopos.pop();
+    }
+
+    fn corpo(&mut self, body: &ast::FunctionBody, dentro: bool) {
+        match body {
+            ast::FunctionBody::Block(b) => self.stmt(*b, dentro),
+            ast::FunctionBody::Expression(x) => self.expr(*x, dentro),
+            _ => {}
+        }
+    }
+
+    /// Closure ou função local: o que ela escreve conta como escrito em
+    /// closure; os parâmetros dela são declarações próprias.
+    fn funcao(&mut self, f: &ast::Function) {
+        self.com_escopo(|v| {
+            v.declarar_parametros(f);
+            v.corpo(&f.body, true);
+        });
+    }
+
+    fn escrever_alvo(&mut self, alvo: ExprId, dentro: bool) {
+        let mut x = alvo;
+        loop {
+            match &self.a.expr(x).kind {
+                ExprKind::Parenthesized(i) => x = *i,
+                ExprKind::Identifier(n) => {
+                    let n = *n;
+                    self.escrever(n, dentro);
+                    return;
                 }
-                return;
+                _ => return,
             }
-            _ => return,
         }
     }
-}
 
-fn varrer_padrao(a: &ast::Ast, p: ast::PatternId, nomes: &mut Vec<SymbolId>, em_closure: &mut Vec<SymbolId>, dentro: bool) {
-    use ast::PatternKind as P;
-    match &a.pattern(p).kind {
-        P::Variable { name, .. } => {
-            let v = if dentro { &mut *em_closure } else { &mut *nomes };
-            if !v.contains(&name.sym) {
-                v.push(name.sym);
-            }
-        }
-        P::Or(x, y) | P::And(x, y) => {
-            varrer_padrao(a, *x, nomes, em_closure, dentro);
-            varrer_padrao(a, *y, nomes, em_closure, dentro);
-        }
-        P::NullCheck(x) | P::NullAssert(x) | P::Parenthesized(x) => varrer_padrao(a, *x, nomes, em_closure, dentro),
-        P::Cast { pattern, .. } => varrer_padrao(a, *pattern, nomes, em_closure, dentro),
-        P::List { elements, .. } => {
-            for el in elements.iter() {
-                match el {
-                    ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) => varrer_padrao(a, *x, nomes, em_closure, dentro),
-                    _ => {}
-                }
-            }
-        }
-        P::Map { entries, .. } => {
-            for en in entries.iter() {
-                varrer_padrao(a, en.value, nomes, em_closure, dentro);
-            }
-        }
-        P::Record { fields } | P::Object { fields, .. } => {
-            for f in fields.iter() {
-                varrer_padrao(a, f.pattern, nomes, em_closure, dentro);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn varrer_expr(a: &ast::Ast, e: ExprId, nomes: &mut Vec<SymbolId>, em_closure: &mut Vec<SymbolId>, dentro: bool) {
-    let rec = |x: ExprId, nomes: &mut Vec<SymbolId>, em: &mut Vec<SymbolId>| varrer_expr(a, x, nomes, em, dentro);
-    match &a.expr(e).kind {
-        ExprKind::Assign { target, value, .. } => {
-            escrever_nome(a, *target, nomes, em_closure, dentro);
-            rec(*target, nomes, em_closure);
-            rec(*value, nomes, em_closure);
-        }
-        ExprKind::Unary { op, operand } => {
-            if matches!(op, UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec) {
-                escrever_nome(a, *operand, nomes, em_closure, dentro);
-            }
-            rec(*operand, nomes, em_closure);
-        }
-        ExprKind::PatternAssign { pattern, value } => {
-            varrer_padrao(a, *pattern, nomes, em_closure, dentro);
-            rec(*value, nomes, em_closure);
-        }
-        ExprKind::FunctionExpression(f) => varrer_funcao_aninhada(a, a.function(*f), em_closure),
-        ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => rec(*x, nomes, em_closure),
-        ExprKind::Property { target, .. } => rec(*target, nomes, em_closure),
-        ExprKind::Index { target, index, .. } => {
-            rec(*target, nomes, em_closure);
-            rec(*index, nomes, em_closure);
-        }
-        ExprKind::Call { target, arguments } => {
-            rec(*target, nomes, em_closure);
-            for x in arguments.args.iter() {
-                rec(x.value, nomes, em_closure);
-            }
-        }
-        ExprKind::InstanceCreation { arguments, .. } => {
-            for x in arguments.args.iter() {
-                rec(x.value, nomes, em_closure);
-            }
-        }
-        ExprKind::TypeArguments { target, .. } => rec(*target, nomes, em_closure),
-        ExprKind::Binary { left, right, .. } => {
-            rec(*left, nomes, em_closure);
-            rec(*right, nomes, em_closure);
-        }
-        ExprKind::Conditional { condition, then, else_ } => {
-            rec(*condition, nomes, em_closure);
-            rec(*then, nomes, em_closure);
-            rec(*else_, nomes, em_closure);
-        }
-        ExprKind::Is { value, .. } | ExprKind::As { value, .. } => rec(*value, nomes, em_closure),
-        ExprKind::Cascade { target, sections, .. } => {
-            rec(*target, nomes, em_closure);
-            for s in sections.iter() {
-                rec(*s, nomes, em_closure);
-            }
-        }
-        ExprKind::String(lit) => {
-            for p in lit.parts.iter() {
-                if let ast::StringPart::Interpolation(x) = p {
-                    rec(*x, nomes, em_closure);
+    /// Variáveis de um padrão: escritas (`PatternAssign`) ou declarações.
+    fn padrao(&mut self, p: ast::PatternId, dentro: bool, declara: bool) {
+        use ast::PatternKind as P;
+        let a = self.a;
+        match &a.pattern(p).kind {
+            P::Variable { name, .. } => {
+                if declara {
+                    self.declarar(*name);
+                } else {
+                    self.escrever(*name, dentro);
                 }
             }
-        }
-        ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } => {
-            for el in elements.iter() {
-                varrer_elemento(a, el, nomes, em_closure, dentro);
+            P::Or(x, y) | P::And(x, y) => {
+                self.padrao(*x, dentro, declara);
+                self.padrao(*y, dentro, declara);
             }
-        }
-        ExprKind::Record { positional, named, .. } => {
-            for x in positional.iter() {
-                rec(*x, nomes, em_closure);
-            }
-            for (_, x) in named.iter() {
-                rec(*x, nomes, em_closure);
-            }
-        }
-        ExprKind::Switch { value, cases } => {
-            rec(*value, nomes, em_closure);
-            for c in cases.iter() {
-                if let Some(g) = c.guard {
-                    rec(g, nomes, em_closure);
-                }
-                rec(c.body, nomes, em_closure);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn varrer_elemento(a: &ast::Ast, el: &ast::CollectionElement, nomes: &mut Vec<SymbolId>, em_closure: &mut Vec<SymbolId>, dentro: bool) {
-    use ast::CollectionElement as C;
-    match el {
-        C::Expression(x) | C::NullAwareExpression(x) => varrer_expr(a, *x, nomes, em_closure, dentro),
-        C::MapEntry { key, value, .. } => {
-            varrer_expr(a, *key, nomes, em_closure, dentro);
-            varrer_expr(a, *value, nomes, em_closure, dentro);
-        }
-        C::Spread { value, .. } => varrer_expr(a, *value, nomes, em_closure, dentro),
-        C::If { condition, guard, then, else_, .. } => {
-            varrer_expr(a, *condition, nomes, em_closure, dentro);
-            if let Some(g) = guard {
-                varrer_expr(a, *g, nomes, em_closure, dentro);
-            }
-            varrer_elemento(a, then, nomes, em_closure, dentro);
-            if let Some(e) = else_ {
-                varrer_elemento(a, e, nomes, em_closure, dentro);
-            }
-        }
-        C::For { init, condition, updates, body, .. } => {
-            if let Some(ast::ForInit::Expression(x)) = init {
-                varrer_expr(a, *x, nomes, em_closure, dentro);
-            }
-            if let Some(c) = condition {
-                varrer_expr(a, *c, nomes, em_closure, dentro);
-            }
-            for u in updates.iter() {
-                varrer_expr(a, *u, nomes, em_closure, dentro);
-            }
-            varrer_elemento(a, body, nomes, em_closure, dentro);
-        }
-        C::ForIn { target, iterable, body, .. } => {
-            if let ast::ForInTarget::Expression(x) = target {
-                escrever_nome(a, *x, nomes, em_closure, dentro);
-            }
-            varrer_expr(a, *iterable, nomes, em_closure, dentro);
-            varrer_elemento(a, body, nomes, em_closure, dentro);
-        }
-    }
-}
-
-fn varrer_stmt(a: &ast::Ast, s: StmtId, nomes: &mut Vec<SymbolId>, em_closure: &mut Vec<SymbolId>, dentro: bool) {
-    let re = |x: ExprId, nomes: &mut Vec<SymbolId>, em: &mut Vec<SymbolId>| varrer_expr(a, x, nomes, em, dentro);
-    let rs = |x: StmtId, nomes: &mut Vec<SymbolId>, em: &mut Vec<SymbolId>| varrer_stmt(a, x, nomes, em, dentro);
-    match &a.stmt(s).kind {
-        StmtKind::Block(ss) => {
-            for x in ss.iter() {
-                rs(*x, nomes, em_closure);
-            }
-        }
-        StmtKind::Variables(vl) => {
-            for v in vl.variables.iter() {
-                if let Some(i) = v.initializer {
-                    re(i, nomes, em_closure);
-                }
-            }
-        }
-        StmtKind::PatternVariables { value, .. } => re(*value, nomes, em_closure),
-        StmtKind::Function(f) => varrer_funcao_aninhada(a, a.function(*f), em_closure),
-        StmtKind::Expression(e) => re(*e, nomes, em_closure),
-        StmtKind::If { condition, guard, then, else_, .. } => {
-            re(*condition, nomes, em_closure);
-            if let Some(g) = guard {
-                re(*g, nomes, em_closure);
-            }
-            rs(*then, nomes, em_closure);
-            if let Some(e) = else_ {
-                rs(*e, nomes, em_closure);
-            }
-        }
-        StmtKind::For { init, condition, updates, body, .. } => {
-            if let Some(i) = init {
-                match i {
-                    ast::ForInit::Expression(x) => re(*x, nomes, em_closure),
-                    ast::ForInit::Variables(vl) => {
-                        for v in vl.variables.iter() {
-                            if let Some(i) = v.initializer {
-                                re(i, nomes, em_closure);
-                            }
+            P::NullCheck(x) | P::NullAssert(x) | P::Parenthesized(x) => self.padrao(*x, dentro, declara),
+            P::Cast { pattern, .. } => self.padrao(*pattern, dentro, declara),
+            P::List { elements, .. } => {
+                for el in elements.iter() {
+                    match el {
+                        ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) => {
+                            self.padrao(*x, dentro, declara)
                         }
+                        _ => {}
                     }
                 }
             }
-            if let Some(c) = condition {
-                re(*c, nomes, em_closure);
-            }
-            for u in updates.iter() {
-                re(*u, nomes, em_closure);
-            }
-            rs(*body, nomes, em_closure);
-        }
-        StmtKind::ForIn { target, iterable, body, .. } => {
-            if let ast::ForInTarget::Expression(x) = target {
-                escrever_nome(a, *x, nomes, em_closure, dentro);
-            }
-            re(*iterable, nomes, em_closure);
-            rs(*body, nomes, em_closure);
-        }
-        StmtKind::While { condition, body } | StmtKind::DoWhile { body, condition } => {
-            re(*condition, nomes, em_closure);
-            rs(*body, nomes, em_closure);
-        }
-        StmtKind::Switch { value, cases } => {
-            re(*value, nomes, em_closure);
-            for c in cases.iter() {
-                if let Some(g) = c.guard {
-                    re(g, nomes, em_closure);
-                }
-                for x in c.body.iter() {
-                    rs(*x, nomes, em_closure);
+            P::Map { entries, .. } => {
+                for en in entries.iter() {
+                    self.padrao(en.value, dentro, declara);
                 }
             }
-        }
-        StmtKind::Return(Some(e)) => re(*e, nomes, em_closure),
-        StmtKind::Yield { value, .. } => re(*value, nomes, em_closure),
-        StmtKind::Try { body, catches, finally_ } => {
-            rs(*body, nomes, em_closure);
-            for c in catches.iter() {
-                rs(c.body, nomes, em_closure);
+            P::Record { fields } | P::Object { fields, .. } => {
+                for f in fields.iter() {
+                    self.padrao(f.pattern, dentro, declara);
+                }
             }
-            if let Some(f) = finally_ {
-                rs(*f, nomes, em_closure);
+            _ => {}
+        }
+    }
+
+    fn expr(&mut self, e: ExprId, dentro: bool) {
+        let a = self.a;
+        match &a.expr(e).kind {
+            ExprKind::Assign { target, value, .. } => {
+                self.escrever_alvo(*target, dentro);
+                self.expr(*target, dentro);
+                self.expr(*value, dentro);
+            }
+            ExprKind::Unary { op, operand } => {
+                if matches!(op, UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec) {
+                    self.escrever_alvo(*operand, dentro);
+                }
+                self.expr(*operand, dentro);
+            }
+            ExprKind::PatternAssign { pattern, value } => {
+                self.padrao(*pattern, dentro, false);
+                self.expr(*value, dentro);
+            }
+            ExprKind::FunctionExpression(f) => self.funcao(a.function(*f)),
+            ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => self.expr(*x, dentro),
+            ExprKind::Property { target, .. } => self.expr(*target, dentro),
+            ExprKind::Index { target, index, .. } => {
+                self.expr(*target, dentro);
+                self.expr(*index, dentro);
+            }
+            ExprKind::Call { target, arguments } => {
+                self.expr(*target, dentro);
+                for x in arguments.args.iter() {
+                    self.expr(x.value, dentro);
+                }
+            }
+            ExprKind::InstanceCreation { arguments, .. } => {
+                for x in arguments.args.iter() {
+                    self.expr(x.value, dentro);
+                }
+            }
+            ExprKind::TypeArguments { target, .. } => self.expr(*target, dentro),
+            ExprKind::Binary { left, right, .. } => {
+                self.expr(*left, dentro);
+                self.expr(*right, dentro);
+            }
+            ExprKind::Conditional { condition, then, else_ } => {
+                self.expr(*condition, dentro);
+                self.expr(*then, dentro);
+                self.expr(*else_, dentro);
+            }
+            ExprKind::Is { value, .. } | ExprKind::As { value, .. } => self.expr(*value, dentro),
+            ExprKind::Cascade { target, sections, .. } => {
+                self.expr(*target, dentro);
+                for s in sections.iter() {
+                    self.expr(*s, dentro);
+                }
+            }
+            ExprKind::String(lit) => {
+                for p in lit.parts.iter() {
+                    if let ast::StringPart::Interpolation(x) = p {
+                        self.expr(*x, dentro);
+                    }
+                }
+            }
+            ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } => {
+                for el in elements.iter() {
+                    self.elemento(el, dentro);
+                }
+            }
+            ExprKind::Record { positional, named, .. } => {
+                for x in positional.iter() {
+                    self.expr(*x, dentro);
+                }
+                for (_, x) in named.iter() {
+                    self.expr(*x, dentro);
+                }
+            }
+            ExprKind::Switch { value, cases } => {
+                self.expr(*value, dentro);
+                for c in cases.iter() {
+                    self.com_escopo(|v| {
+                        v.padrao(c.pattern, dentro, true);
+                        if let Some(g) = c.guard {
+                            v.expr(g, dentro);
+                        }
+                        v.expr(c.body, dentro);
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn elemento(&mut self, el: &ast::CollectionElement, dentro: bool) {
+        use ast::CollectionElement as C;
+        match el {
+            C::Expression(x) | C::NullAwareExpression(x) => self.expr(*x, dentro),
+            C::MapEntry { key, value, .. } => {
+                self.expr(*key, dentro);
+                self.expr(*value, dentro);
+            }
+            C::Spread { value, .. } => self.expr(*value, dentro),
+            C::If { condition, case_pattern, guard, then, else_ } => {
+                self.expr(*condition, dentro);
+                self.com_escopo(|v| {
+                    if let Some(p) = case_pattern {
+                        v.padrao(*p, dentro, true);
+                    }
+                    if let Some(g) = guard {
+                        v.expr(*g, dentro);
+                    }
+                    v.elemento(then, dentro);
+                });
+                if let Some(e) = else_ {
+                    self.elemento(e, dentro);
+                }
+            }
+            C::For { init, condition, updates, body, .. } => self.com_escopo(|v| {
+                match init {
+                    Some(ast::ForInit::Expression(x)) => v.expr(*x, dentro),
+                    Some(ast::ForInit::Variables(vl)) => v.variaveis(vl, dentro),
+                    None => {}
+                }
+                if let Some(c) = condition {
+                    v.expr(*c, dentro);
+                }
+                for u in updates.iter() {
+                    v.expr(*u, dentro);
+                }
+                v.elemento(body, dentro);
+            }),
+            C::ForIn { target, iterable, body, .. } => {
+                self.expr(*iterable, dentro);
+                self.com_escopo(|v| {
+                    v.alvo_for_in(target, dentro);
+                    v.elemento(body, dentro);
+                });
             }
         }
-        StmtKind::Labeled { body, .. } => rs(*body, nomes, em_closure),
-        StmtKind::Assert { condition, message } => {
-            re(*condition, nomes, em_closure);
-            if let Some(m) = message {
-                re(*m, nomes, em_closure);
+    }
+
+    fn variaveis(&mut self, vl: &ast::VariableList, dentro: bool) {
+        for x in vl.variables.iter() {
+            if let Some(i) = x.initializer {
+                self.expr(i, dentro);
             }
+            self.declarar(x.name);
         }
-        _ => {}
+    }
+
+    fn alvo_for_in(&mut self, target: &ast::ForInTarget, dentro: bool) {
+        match target {
+            ast::ForInTarget::Declared { name, .. } => self.declarar(*name),
+            ast::ForInTarget::Expression(x) => self.escrever_alvo(*x, dentro),
+            #[allow(unreachable_patterns)]
+            _ => {}
+        }
+    }
+
+    fn stmt(&mut self, s: StmtId, dentro: bool) {
+        let a = self.a;
+        match &a.stmt(s).kind {
+            StmtKind::Block(ss) => self.com_escopo(|v| {
+                for x in ss.iter() {
+                    v.stmt(*x, dentro);
+                }
+            }),
+            StmtKind::Variables(vl) => self.variaveis(vl, dentro),
+            StmtKind::PatternVariables { pattern, value, .. } => {
+                self.expr(*value, dentro);
+                self.padrao(*pattern, dentro, true);
+            }
+            StmtKind::Function(f) => {
+                let f = a.function(*f);
+                if let Some(n) = f.name {
+                    self.declarar(n);
+                }
+                self.funcao(f);
+            }
+            StmtKind::Expression(e) => self.expr(*e, dentro),
+            StmtKind::If { condition, case_pattern, guard, then, else_ } => {
+                self.expr(*condition, dentro);
+                self.com_escopo(|v| {
+                    if let Some(p) = case_pattern {
+                        v.padrao(*p, dentro, true);
+                    }
+                    if let Some(g) = guard {
+                        v.expr(*g, dentro);
+                    }
+                    v.stmt(*then, dentro);
+                });
+                if let Some(e) = else_ {
+                    self.stmt(*e, dentro);
+                }
+            }
+            StmtKind::For { init, condition, updates, body, .. } => self.com_escopo(|v| {
+                match init {
+                    Some(ast::ForInit::Expression(x)) => v.expr(*x, dentro),
+                    Some(ast::ForInit::Variables(vl)) => v.variaveis(vl, dentro),
+                    None => {}
+                }
+                if let Some(c) = condition {
+                    v.expr(*c, dentro);
+                }
+                for u in updates.iter() {
+                    v.expr(*u, dentro);
+                }
+                v.stmt(*body, dentro);
+            }),
+            StmtKind::ForIn { target, iterable, body, .. } => {
+                self.expr(*iterable, dentro);
+                self.com_escopo(|v| {
+                    v.alvo_for_in(target, dentro);
+                    v.stmt(*body, dentro);
+                });
+            }
+            StmtKind::While { condition, body } | StmtKind::DoWhile { body, condition } => {
+                self.expr(*condition, dentro);
+                self.stmt(*body, dentro);
+            }
+            StmtKind::Switch { value, cases } => {
+                self.expr(*value, dentro);
+                for c in cases.iter() {
+                    self.com_escopo(|v| {
+                        if let Some(g) = c.guard {
+                            v.expr(g, dentro);
+                        }
+                        for x in c.body.iter() {
+                            v.stmt(*x, dentro);
+                        }
+                    });
+                }
+            }
+            StmtKind::Return(Some(e)) => self.expr(*e, dentro),
+            StmtKind::Yield { value, .. } => self.expr(*value, dentro),
+            StmtKind::Try { body, catches, finally_ } => {
+                self.stmt(*body, dentro);
+                for c in catches.iter() {
+                    self.com_escopo(|v| {
+                        if let Some(n) = c.exception {
+                            v.declarar(n);
+                        }
+                        if let Some(n) = c.stack_trace {
+                            v.declarar(n);
+                        }
+                        v.stmt(c.body, dentro);
+                    });
+                }
+                if let Some(f) = finally_ {
+                    self.stmt(*f, dentro);
+                }
+            }
+            StmtKind::Labeled { body, .. } => self.stmt(*body, dentro),
+            StmtKind::Assert { condition, message } => {
+                self.expr(*condition, dentro);
+                if let Some(m) = message {
+                    self.expr(*m, dentro);
+                }
+            }
+            _ => {}
+        }
     }
 }

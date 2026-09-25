@@ -387,7 +387,7 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
     let escritos = instrucoes::nomes_escritos_em_funcao(inf, cx.unit, af);
     let mut capturados: Vec<crate::resolved::LocalId> = Vec::new();
     for n in &escritos {
-        if let Some(super::corpo::Nome::Local(id)) = cx.buscar(*n) {
+        if let Some(id) = instrucoes::local_da_escrita(cx, *n) {
             capturados.push(id);
         }
     }
@@ -397,7 +397,7 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
         fluxo_dentro.capturar(id);
     }
     for e in cx.escritos_em_closure.clone().iter() {
-        if let Some(super::corpo::Nome::Local(id)) = cx.buscar(*e) {
+        if let Some(id) = instrucoes::local_da_escrita(cx, *e) {
             fluxo_dentro.capturar(id);
         }
     }
@@ -421,12 +421,12 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
     // promove (R-FLU-07 regra 2).
     let (fora, dentro) = cx.escritos_no_corpo.clone().unwrap_or_default();
     for e in fora.iter() {
-        if let Some(super::corpo::Nome::Local(id)) = cx.buscar(*e) {
+        if let Some(id) = instrucoes::local_da_escrita(cx, *e) {
             fluxo_dentro.juncao_conservadora(&[id], &[]);
         }
     }
     for e in dentro.iter() {
-        if let Some(super::corpo::Nome::Local(id)) = cx.buscar(*e) {
+        if let Some(id) = instrucoes::local_da_escrita(cx, *e) {
             fluxo_dentro.juncao_conservadora(&[], &[id]);
         }
     }

@@ -451,6 +451,34 @@ void g() {
     assert_eq!(tipos("cap")[1..3], ["StringBuffer?", "StringBuffer?"]);
 }
 
+/// A escrita de uma variável homônima declarada noutra closure (o `main` de
+/// um arquivo de teste com vários `test(…)`) não captura a variável desta:
+/// as escritas são resolvidas pela declaração, no escopo léxico
+/// (`limitless_ui`, `li_datatable_component_test.dart`).
+#[test]
+fn escrita_homonima_noutra_closure_nao_captura() {
+    let r = ou_pula!(inferir(
+        r#"
+void rodar(void Function() f) => f();
+void main() {
+  rodar(() {
+    final StringBuffer? botao = StringBuffer();
+    botao!.write('a');
+    rodar(() { botao.write('b'); });
+  });
+  rodar(() {
+    StringBuffer? botao = StringBuffer();
+    botao = null;
+  });
+}
+"#
+    ));
+    let tipos = |t: &str| r.tipos.iter().filter(|(x, _)| x == t).map(|(_, y)| y.as_str()).collect::<Vec<_>>();
+    // `botao!`, depois `botao.write` dentro da closure: promovido.
+    assert_eq!(tipos("botao")[..2], ["StringBuffer?", "StringBuffer"]);
+    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+}
+
 /// Casos dos corpos do SDK compilado da fonte: limite de parâmetro de
 /// extensão, typedef que renomeia classe genérica, parâmetros `super.x`
 /// (tipo substituído e argumentos implícitos), tipo testado no ramo falso de

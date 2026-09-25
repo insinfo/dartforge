@@ -73,7 +73,7 @@ pub(crate) struct Corpo {
     /// Tipo de `this` (classe, mixin, enum, tipo de extensão ou `on` da extensão).
     pub tipo_this: Option<TypeId>,
     /// Nomes escritos dentro de closures (captura de escrita, que impede promoção).
-    pub escritos_em_closure: Vec<SymbolId>,
+    pub escritos_em_closure: Vec<super::instrucoes::Escrita>,
     /// Rótulos da instrução rotulada cujo corpo é o próximo laço/`switch`.
     pub rotulos_pendentes: Vec<SymbolId>,
     /// O símbolo `_` quando a biblioteca tem curingas (Dart 3.7): declarar
@@ -87,7 +87,7 @@ pub(crate) struct Corpo {
     /// junção conservadora com `assignedVariables.anywhere`).
     /// Calculado na primeira closure (a maioria dos corpos não tem nenhuma).
     /// `(escritos fora de literais, escritos dentro de literais)` do membro.
-    pub escritos_no_corpo: Option<(Vec<SymbolId>, Vec<SymbolId>)>,
+    pub escritos_no_corpo: Option<(Vec<super::instrucoes::Escrita>, Vec<super::instrucoes::Escrita>)>,
     /// O corpo de topo, para calcular `escritos_no_corpo` sob demanda.
     pub raiz: Raiz,
     /// Campos promovíveis (Dart 3.2) já referidos: `(base, campo) -> local
