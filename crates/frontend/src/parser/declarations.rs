@@ -1688,6 +1688,20 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.parse_constructor(mods, true, class_name)?
         } else if self.constructor_follows(class_name, mods) {
             self.parse_constructor(mods, false, class_name)?
+        } else if self.constructor_com_retorno(class_name) {
+            // `T C(` (C é a classe) ou `T X.Y(`: construtor com tipo de
+            // retorno — o fasta relata `constructor_with_return_type` em T
+            // e lê o construtor (sondado no SDK 3.6.2 local). Sem isso,
+            // `augment A(...) : inits` caía no caminho de método e a cauda
+            // falhava em cascata.
+            let tstart = self.span();
+            let _ty = self.parse_type()?;
+            self.erro_em(
+                codigos::parser::CONSTRUCTOR_WITH_RETURN_TYPE,
+                self.span_from(tstart),
+                &[],
+            );
+            self.parse_constructor(mods, false, class_name)?
         } else {
             match self.parse_function_or_variables(mods, fstart, None)? {
                 FunctionOrVariables::Function(id) => MemberKind::Method(id),
@@ -1713,6 +1727,34 @@ impl<'s, 'i> Parser<'s, 'i> {
             kind,
             augment,
         }))
+    }
+
+    /// `T C(` (C é a classe) ou `T X.Y(` começam aqui? `get`/`set`/
+    /// `operator`/`typedef`/`factory` têm caminho próprio e `void` segue o
+    /// antigo; o resto com forma de construtor após o tipo é retorno.
+    fn constructor_com_retorno(&self, class_name: Option<&str>) -> bool {
+        if !self.at_identifier()
+            || self.at_ident("get")
+            || self.at_ident("set")
+            || self.at_ident("operator")
+            || self.at_ident("typedef")
+            || self.at_ident("factory")
+        {
+            return false;
+        }
+        let Some(end) = self.skip_type(self.pos) else {
+            return false;
+        };
+        if self.kind_of(end) != Kind::Ident {
+            return false;
+        }
+        if self.kind_of(end + 1) == Kind::Op(Op::LParen) {
+            return Some(self.text_of(end)) == class_name;
+        }
+        self.kind_of(end + 1) == Kind::Op(Op::Dot)
+            && (self.kind_of(end + 2) == Kind::Ident
+                || self.kind_of(end + 2) == Kind::Keyword(Keyword::New))
+            && self.kind_of(end + 3) == Kind::Op(Op::LParen)
     }
 
     /// `Nome(` com o nome da classe (ou após `const`), ou `Nome.x(`.
@@ -1837,7 +1879,17 @@ impl<'s, 'i> Parser<'s, 'i> {
         let parameters = self.parse_formal_parameters()?;
         let mut initializers = Vec::new();
         let mut redirect = None;
-        let body = if factory && self.eat_op(Op::Assign) {
+        let body = if self.at_op(Op::Assign) {
+            let eq = self.advance();
+            if !factory {
+                // `Foo() = Bar;` sem `factory`: o alvo é lido normalmente e
+                // só o `=` é denunciado (fasta 3.6.2, sem cascata).
+                self.erro_em(
+                    codigos::parser::REDIRECTION_IN_NON_FACTORY_CONSTRUCTOR,
+                    eq.span,
+                    &[],
+                );
+            }
             let rstart = self.span();
             let ty = self.parse_type()?;
             let constructor = if self.eat_op(Op::Dot) {
@@ -2568,9 +2620,10 @@ mod tests {
         }
     }
 
-    /// Tentativa especulativa que falha: `augment C.named() : ...` sem o
-    /// recurso — o erro da tentativa é descartado e a varredura segue no
-    /// modo antigo; fica só o `expected_token` do membro quebrado.
+    /// Tentativa com tipo de retorno: `augment C.named() : ...` lê o tipo,
+    /// denuncia `constructor_with_return_type` nele e lê o construtor com
+    /// o redirect — sem cascata (sondado no SDK 3.6.2 local: só o erro no
+    /// `augment` mais o semântico de redirect).
     #[test]
     fn membro_recuperacao_especulativa_descarta_cascata() {
         use crate::features::{LanguageVersion, LibraryFeatures};
@@ -2580,9 +2633,14 @@ mod tests {
         let fonte = "class C {\n  augment C.named() : this.missing();\n}\n";
         let mut nomes = Interner::new();
         let out = parse_com(fonte, &mut nomes, LibraryFeatures::new(LanguageVersion::PISO, &[]));
-        assert_eq!(out.diagnostics.len(), 1, "{fonte}: {:?}", out.diagnostics);
-        assert_eq!(out.diagnostics[0].code, Some(c::EXPECTED_TOKEN));
-        assert!(class(&out, 0).members.is_empty(), "{fonte}: {:?}", out.diagnostics);
+        let codigos: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
+        assert_eq!(
+            codigos,
+            [(Some(c::CONSTRUCTOR_WITH_RETURN_TYPE), (12, 19))],
+            "{fonte}: {:?}",
+            out.diagnostics
+        );
+        assert_eq!(class(&out, 0).members.len(), 1, "{fonte}: {:?}", out.diagnostics);
     }
 
     /// Token solto pula um: `[` não engole o resto (`int? a]` continua
@@ -2611,6 +2669,44 @@ mod tests {
         );
         assert_eq!(out.unit.declarations.len(), 1);
         assert!(matches!(decl(&out, 0), DeclKind::Variables(l) if l.variables.iter().any(|v| text(&nomes, v.name) == "b")));
+    }
+
+    /// `Foo() = Bar;` sem `factory`: o alvo é lido e só o `=` é
+    /// denunciado, sem cascata (sondado no SDK 3.6.2 local).
+    #[test]
+    fn membro_fasta_redirect_sem_factory_denuncia_igual() {
+        use dartforge_diagnostics::codigos::parser as c;
+
+        let fonte = "class Foo {\n  Foo()\n  = Bar\n  ;\n}\n";
+        let mut nomes = Interner::new();
+        let out = parse(fonte, &mut nomes);
+        let codigos: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
+        assert_eq!(
+            codigos,
+            [(Some(c::REDIRECTION_IN_NON_FACTORY_CONSTRUCTOR), (22, 23))],
+            "{fonte}: {:?}",
+            out.diagnostics
+        );
+    }
+
+    /// `augment C(...) : campo = e;` com o recurso desligado lê o tipo como
+    /// retorno de construtor (`constructor_with_return_type` nele, sondado
+    /// no SDK 3.6.2 local) e a cauda como inits — sem cascata.
+    #[test]
+    fn membro_fasta_augment_construtor_le_como_construtor() {
+        use dartforge_diagnostics::codigos::parser as c;
+
+        let fonte = "class A {\n  int value;\n  augment A(int? p1) : value = p1;\n}\n";
+        let mut nomes = Interner::new();
+        let out = parse(fonte, &mut nomes);
+        let codigos: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
+        assert_eq!(
+            codigos,
+            [(Some(c::CONSTRUCTOR_WITH_RETURN_TYPE), (25, 32))],
+            "{fonte}: {:?}",
+            out.diagnostics
+        );
+        assert_eq!(class(&out, 0).members.len(), 2, "{fonte}: {:?}", out.diagnostics);
     }
 
     /// `foo;`, `foo = 1;`, `foo, bar;` em membro: o nome é campo sem tipo —
