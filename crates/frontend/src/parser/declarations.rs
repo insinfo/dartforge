@@ -306,9 +306,22 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// Sincroniza após um membro falhar em `start_pos`, sem sair do corpo.
     ///
-    /// Consome até um `;` ou até fechar o `{` do próprio membro; a `}` que
-    /// fecha a classe **não** é consumida, para que o laço do corpo termine.
+    /// Espelha [`Parser::recover_top_level`]: sem progresso (nada consumido:
+    /// token solto), um token basta — o fasta relata um erro por token
+    /// (`expected_class_member`) e continua no seguinte; engolir até `;`
+    /// esconderia os membros válidos no meio do lixo (`42` antes de
+    /// `int x = 1;` apagava o campo). Com progresso, pula até fechar o nível
+    /// em que o membro começou (`;` ou `}` com profundidade zero) ou até um
+    /// token que inicia membro. A `}` que fecha a classe **não** é consumida,
+    /// para que o laço do corpo termine. Garante progresso: consome ao menos
+    /// um token.
     fn recover_member(&mut self, start_pos: usize) {
+        if self.pos == start_pos && !self.at_eof() {
+            if !self.at_op(Op::RBrace) {
+                self.advance();
+            }
+            return;
+        }
         let mut depth = self.nesting_between(start_pos, self.pos);
         loop {
             match self.kind() {
@@ -319,7 +332,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
                 Kind::Op(Op::RParen | Op::RBracket) => {
                     // Um fechamento solto no nível zero é, ele próprio, uma
-                    // fronteira: não vale engolir a declaração seguinte.
+                    // fronteira: não vale engolir o membro seguinte.
                     self.advance();
                     if depth == 0 {
                         break;
@@ -342,14 +355,36 @@ impl<'s, 'i> Parser<'s, 'i> {
                         break;
                     }
                 }
-                Kind::Op(Op::At) if depth == 0 && self.pos > start_pos => break,
+                _ if depth == 0 && self.pos > start_pos && self.starts_member() => {
+                    break;
+                }
                 _ => {
                     self.advance();
                 }
             }
         }
-        if self.pos == start_pos && !self.at_op(Op::RBrace) {
+        if self.pos == start_pos && !self.at_op(Op::RBrace) && !self.at_eof() {
             self.advance();
+        }
+    }
+
+    /// O token corrente é um início plausível de membro (para a
+    /// sincronização de erro)? Identificadores (nomes, tipos, modificadores
+    /// contextuais como `static`/`factory`/`get`), metadata (`@`) e as
+    /// palavras que só abrem declaração (`final`/`const`/`var`/`void`;
+    /// `this`/`new` abrem membro na 3.13).
+    fn starts_member(&self) -> bool {
+        match self.kind() {
+            Kind::Ident | Kind::Op(Op::At) => true,
+            Kind::Keyword(
+                Keyword::Final
+                | Keyword::Const
+                | Keyword::Var
+                | Keyword::Void
+                | Keyword::This
+                | Keyword::New,
+            ) => true,
+            _ => false,
         }
     }
 
@@ -2369,6 +2404,70 @@ mod tests {
         let out = parse("; } class A {}", &mut names);
         assert_eq!(out.diagnostics.len(), 2, "{:?}", out.diagnostics);
         assert_eq!(out.unit.declarations.len(), 1);
+    }
+
+    /// Membro inválido no estilo do fasta: um erro por token, sem engolir o
+    /// membro válido seguinte (sondado no SDK 3.6.2 local: `42` dá um único
+    /// `EXPECTED_CLASS_MEMBER` e `int x` sobrevive; idem `;` e `)`).
+    #[test]
+    fn membro_fasta_token_solto_pula_um_e_preserva_valido() {
+        use dartforge_diagnostics::codigos::parser as c;
+
+        for (lixo, inicio, fim) in [("42", 12, 14), (";", 12, 13), (")", 12, 13)] {
+            let fonte = format!("class C {{\n  {lixo}\n  int x = 1;\n}}\n");
+            let mut nomes = Interner::new();
+            let out = parse(&fonte, &mut nomes);
+            assert_eq!(out.diagnostics.len(), 1, "{fonte}: {:?}", out.diagnostics);
+            let unico = &out.diagnostics[0];
+            assert_eq!(unico.code, Some(c::EXPECTED_CLASS_MEMBER), "{fonte}");
+            assert_eq!((unico.span.start, unico.span.end), (inicio, fim), "{fonte}");
+            assert_eq!(out.unit.declarations.len(), 1, "{fonte}");
+            let campo = match member(&out, class(&out, 0), 0) {
+                MemberKind::Field(lista) => lista,
+                outro => panic!("{fonte}: {outro:?}"),
+            };
+            assert_eq!(text(&nomes, campo.variables[0].name), "x", "{fonte}");
+        }
+    }
+
+    /// Falha com progresso ressincroniza na fronteira de membro: o `;` que
+    /// falta é apontado no token anterior (`1`) e a análise recomeça em
+    /// `garbage` (que vira um campo), sem engolir o `var y` — antes, a
+    /// recuperação pulava `garbage;` inteiro (fasta 3.6.2: `EXPECTED_TOKEN`
+    /// em `1`; a declaração quebrada `var x = 1 ...` é descartada nos dois).
+    #[test]
+    fn membro_fasta_fronteira_nao_engole_valido() {
+        use dartforge_diagnostics::codigos::parser as c;
+
+        let fonte = "class C {\n  var x = 1 garbage;\n  var y = 2;\n}\n";
+        let mut nomes = Interner::new();
+        let out = parse(fonte, &mut nomes);
+        assert!(
+            out.diagnostics.iter().any(|d|
+                d.code == Some(c::EXPECTED_TOKEN)
+                    && d.span.start == 20
+                    && d.span.end == 21
+                    && d.message == "Expected to find ';'."),
+            "{fonte}: {:?}",
+            out.diagnostics
+        );
+        let classe = class(&out, 0);
+        let nomes_campos: Vec<_> = classe.members.iter().map(|m| match &out.ast.member(*m).kind {
+            MemberKind::Field(lista) => text(&nomes, lista.variables[0].name).to_string(),
+            outro => panic!("{fonte}: {outro:?}"),
+        }).collect();
+        assert_eq!(nomes_campos, ["garbage", "y"], "{fonte}: {:?}", out.diagnostics);
+    }
+
+    /// Membros válidos de todas as formas nunca tocam a recuperação.
+    #[test]
+    fn membro_valido_nao_toca_recuperacao() {
+        let mut names = Interner::new();
+        let out = parse_ok(
+            "class C { int x = 1; static var y; C(); C.nomeado(this.x); factory C.f() => C(); get g => x; set s(int v) {} int m() => 1; }",
+            &mut names,
+        );
+        assert_eq!(class(&out, 0).members.len(), 8);
     }
 
     /// Token solto pula um: `[` não engole o resto (`int? a]` continua
