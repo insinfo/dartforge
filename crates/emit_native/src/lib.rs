@@ -340,7 +340,7 @@ mod testes {
         }
         let dir = tempfile::tempdir().unwrap();
         let entrada = dir.path().join("main.dart");
-        std::fs::write(&entrada, "void main() {\n  var f = #a;\n  var g = #b;\n  print(1);\n}\n").unwrap();
+        std::fs::write(&entrada, "void main() {\n  int? k = 1;\n  var a = {?k: 1};\n  var b = {?k: 2};\n  print(a.length + b.length);\n}\n").unwrap();
         let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new() };
         let erro = std::thread::Builder::new()
             .stack_size(64 << 20)
@@ -348,12 +348,12 @@ mod testes {
             .unwrap()
             .join()
             .unwrap()
-            .expect_err("literal de símbolo não é suportado");
+            .expect_err("entrada de mapa null-aware é recusada no nativo");
         let linhas: Vec<&str> = erro.lines().collect();
-        assert_eq!(linhas[0], "erro de compilação: não suportado no backend nativo: literal de símbolo", "{erro}");
-        assert_eq!(linhas[1], "  não suportado no backend nativo: literal de símbolo (main.dart:2:11)", "{erro}");
-        assert_eq!(linhas[2], "  não suportado no backend nativo: literal de símbolo (main.dart:3:11)", "{erro}");
-        assert_eq!(construtos_do_erro(&erro), ["literal de símbolo", "literal de símbolo"]);
+        assert_eq!(linhas[0], "erro de compilação: não suportado no backend nativo: entrada de mapa null-aware", "{erro}");
+        assert_eq!(linhas[1], "  não suportado no backend nativo: entrada de mapa null-aware (main.dart:3:11)", "{erro}");
+        assert_eq!(linhas[2], "  não suportado no backend nativo: entrada de mapa null-aware (main.dart:4:11)", "{erro}");
+        assert_eq!(construtos_do_erro(&erro), ["entrada de mapa null-aware", "entrada de mapa null-aware"]);
     }
 
     /// Os símbolos definidos (`define … @<símbolo>(`) de um IR.
