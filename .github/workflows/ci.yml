@@ -21,6 +21,8 @@ on:
   push:
     branches: [main, 'ci/**']
   pull_request:
+  # Para rodar numa branch de trabalho sem abrir pull request.
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
