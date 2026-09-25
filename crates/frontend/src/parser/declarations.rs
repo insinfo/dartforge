@@ -336,6 +336,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         &mut self,
         start_pos: usize,
         class_name: Option<&'s str>,
+        primaria: bool,
         members: &mut Vec<MemberId>,
     ) {
         if self.pos == start_pos && !self.at_eof() {
@@ -387,7 +388,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     && self.starts_member() =>
                 {
                     let marco = self.diagnostics.len();
-                    match self.parse_member(class_name) {
+                    match self.parse_member(class_name, primaria) {
                         Ok(id) => {
                             members.push(id);
                             return;
@@ -768,7 +769,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             Vec::new()
         };
         let implements = self.parse_implements_opt()?;
-        let mut members = self.parse_class_body_ou_vazio(Some(name_text))?;
+        let mut members = self.parse_class_body_ou_vazio(Some(name_text), primario.is_some())?;
         let tem_supertipos = extends.is_some() || !with.is_empty() || !implements.is_empty();
         let primary_constructor = self.elaborar_construtor_primario(
             name,
@@ -830,13 +831,17 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     /// `{ membros }` ou, a partir da 3.13, `;` (corpo vazio).
-    fn parse_class_body_ou_vazio(&mut self, class_name: Option<&'s str>) -> PResult<Vec<MemberId>> {
+    fn parse_class_body_ou_vazio(
+        &mut self,
+        class_name: Option<&'s str>,
+        primaria: bool,
+    ) -> PResult<Vec<MemberId>> {
         if self.at_op(Op::Semicolon) {
             let t = self.advance();
             self.exigir(Feature::PrimaryConstructors, t.span);
             return Ok(Vec::new());
         }
-        self.parse_class_body(class_name)
+        self.parse_class_body(class_name, primaria)
     }
 
     /// Derivação D → D2 do construtor primário (spec 3.13, `:926-1025`),
@@ -1082,7 +1087,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             Vec::new()
         };
         let implements = self.parse_implements_opt()?;
-        let members = self.parse_class_body_ou_vazio(Some(name_text))?;
+        let members = self.parse_class_body_ou_vazio(Some(name_text), false)?;
         Ok(MixinDecl {
             base,
             name,
@@ -1117,7 +1122,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
         }
         let mut members = if self.eat_op(Op::Semicolon) {
-            self.parse_member_list(Some(name_text))?
+            self.parse_member_list(Some(name_text), primario.is_some())?
         } else {
             self.expect_op(Op::RBrace)?;
             Vec::new()
@@ -1197,7 +1202,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let type_params = self.parse_type_parameters_opt()?;
         self.expect_ident("on")?;
         let on = self.parse_type()?;
-        let members = self.parse_class_body_ou_vazio(name_text)?;
+        let members = self.parse_class_body_ou_vazio(name_text, false)?;
         Ok(ExtensionDecl {
             name,
             type_params: type_params.into_boxed_slice(),
@@ -1238,7 +1243,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let representation_name = self.expect_identifier()?;
         self.expect_op(Op::RParen)?;
         let implements = self.parse_implements_opt()?;
-        let members = self.parse_class_body_ou_vazio(Some(name_text))?;
+        let members = self.parse_class_body_ou_vazio(Some(name_text), false)?;
         Ok(ExtensionTypeDecl {
             const_,
             name,
@@ -1633,15 +1638,22 @@ impl<'s, 'i> Parser<'s, 'i> {
     // -----------------------------------------------------------------------
 
     /// `{ membros }` de classe, mixin, extension ou extension type.
-    fn parse_class_body(&mut self, class_name: Option<&'s str>) -> PResult<Vec<MemberId>> {
+    /// `primaria` diz se a declaração tem cabeçalho primário: nele, `this`
+    /// e `new` abrem parte de corpo mesmo sem o recurso ligado (o oráculo
+    /// 3.6 silencia pela cascata do cabeçalho, que aceitamos por superconjunto).
+    fn parse_class_body(&mut self, class_name: Option<&'s str>, primaria: bool) -> PResult<Vec<MemberId>> {
         self.expect_op(Op::LBrace)?;
-        self.parse_member_list(class_name)
+        self.parse_member_list(class_name, primaria)
     }
 
     /// Membros até a `}` de fechamento (inclusive), com recuperação por
     /// membro. Um fim de arquivo prematuro registra o erro mas devolve os
     /// membros já lidos.
-    fn parse_member_list(&mut self, class_name: Option<&'s str>) -> PResult<Vec<MemberId>> {
+    fn parse_member_list(
+        &mut self,
+        class_name: Option<&'s str>,
+        primaria: bool,
+    ) -> PResult<Vec<MemberId>> {
         let mut members = Vec::new();
         loop {
             if self.eat_op(Op::RBrace) {
@@ -1652,19 +1664,19 @@ impl<'s, 'i> Parser<'s, 'i> {
                 return Ok(members);
             }
             let start_pos = self.pos;
-            match self.parse_member(class_name) {
+            match self.parse_member(class_name, primaria) {
                 Ok(id) => members.push(id),
-                Err(ParseError) => self.recover_member(start_pos, class_name, &mut members),
+                Err(ParseError) => self.recover_member(start_pos, class_name, primaria, &mut members),
             }
         }
     }
 
     /// Um `classMemberDefinition`: campo, método, acessor, operador ou
     /// construtor. `class_name` decide se `Nome(` é construtor.
-    fn parse_member(&mut self, class_name: Option<&'s str>) -> PResult<MemberId> {
+    fn parse_member(&mut self, class_name: Option<&'s str>, primaria: bool) -> PResult<MemberId> {
         let start = self.span();
         let metadata = self.parse_metadata()?;
-        let primarios = self.features.tem(Feature::PrimaryConstructors);
+        let primarios = self.features.tem(Feature::PrimaryConstructors) || primaria;
         // `this` (parte de construtor primário) e `new` (construtor sem o
         // nome da classe) também iniciam membro, desde a 3.13.
         if !self.can_start_declaration()
@@ -2808,6 +2820,27 @@ mod tests {
         assert_eq!(
             codigos,
             [(Some(c::CONSTRUCTOR_WITH_RETURN_TYPE), (25, 32))],
+            "{fonte}: {:?}",
+            out.diagnostics
+        );
+        assert_eq!(class(&out, 0).members.len(), 2, "{fonte}: {:?}", out.diagnostics);
+    }
+
+    /// `this :` em classe COM cabeçalho primário é parte de corpo mesmo sem
+    /// o recurso (o oráculo 3.6 silencia pela cascata do cabeçalho, que
+    /// aceitamos por superconjunto): sem `expected_class_member`.
+    #[test]
+    fn membro_fasta_this_em_classe_primaria_nao_acusa() {
+        use crate::features::{LanguageVersion, LibraryFeatures};
+        use crate::parser::parse_com;
+
+        let fonte = "class A(int x) {\n  A.named() : this(0);\n  this : assert(x > 0);\n}\n";
+        let mut nomes = Interner::new();
+        let out = parse_com(fonte, &mut nomes, LibraryFeatures::new(LanguageVersion::PISO, &[]));
+        assert!(
+            !out.diagnostics.iter().any(|d| d.code == Some(
+                dartforge_diagnostics::codigos::parser::EXPECTED_CLASS_MEMBER
+            )),
             "{fonte}: {:?}",
             out.diagnostics
         );
