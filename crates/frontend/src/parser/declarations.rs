@@ -1702,6 +1702,32 @@ impl<'s, 'i> Parser<'s, 'i> {
                 &[],
             );
             self.parse_constructor(mods, false, class_name)?
+        } else if self.metodo_sem_parametros() {
+            // `X.Y` / `X.new` sem `(` em membro (`C.named;`, `foo.bar = 1;`,
+            // `C.named : ...`): o fasta relata `missing_method_parameters`
+            // em X (sondado no SDK 3.6.2 local). `X.Y(` é construtor,
+            // `X.Y<` é outro grupo e `X.Y nome` pode ser campo de tipo
+            // prefixado — esses seguem o caminho antigo. O resto do membro
+            // é pulado sem novos erros (cada código tem a sua vez).
+            let span = self.span();
+            self.erro_em(
+                codigos::parser::MISSING_METHOD_PARAMETERS,
+                span,
+                &[],
+            );
+            loop {
+                match self.kind() {
+                    Kind::Eof | Kind::Op(Op::RBrace) => break,
+                    Kind::Op(Op::Semicolon) => {
+                        self.advance();
+                        break;
+                    }
+                    _ => {
+                        self.advance();
+                    }
+                }
+            }
+            return Err(ParseError);
         } else {
             match self.parse_function_or_variables(mods, fstart, None)? {
                 FunctionOrVariables::Function(id) => MemberKind::Method(id),
@@ -1727,6 +1753,40 @@ impl<'s, 'i> Parser<'s, 'i> {
             kind,
             augment,
         }))
+    }
+
+    /// `X.Y` / `X.new` sem `(` nem `<` começam aqui, com o membro
+    /// claramente terminado depois (`;`, `=`, `,`, `:`, `=>`, fecho, fim)?
+    /// `get`/`set`/`operator`/`typedef`/`factory` e nomes seguidos de nome
+    /// (`p.Foo x`) seguem o caminho antigo.
+    fn metodo_sem_parametros(&self) -> bool {
+        if !self.at_identifier()
+            || self.at_ident("get")
+            || self.at_ident("set")
+            || self.at_ident("operator")
+            || self.at_ident("typedef")
+            || self.at_ident("factory")
+        {
+            return false;
+        }
+        if !self.at_op_at(1, Op::Dot)
+            || (!self.at_identifier_at(2) && !self.at_kw_at(2, Keyword::New))
+        {
+            return false;
+        }
+        matches!(
+            self.kind_at(3),
+            Kind::Op(
+                Op::Semicolon
+                    | Op::Assign
+                    | Op::Comma
+                    | Op::Colon
+                    | Op::Arrow
+                    | Op::RParen
+                    | Op::RBracket
+                    | Op::RBrace
+            ) | Kind::Eof
+        )
     }
 
     /// `T C(` (C é a classe) ou `T X.Y(` começam aqui? `get`/`set`/
@@ -2707,6 +2767,27 @@ mod tests {
             out.diagnostics
         );
         assert_eq!(class(&out, 0).members.len(), 2, "{fonte}: {:?}", out.diagnostics);
+    }
+
+    /// `X.Y` / `X.new` sem `(` em membro: `missing_method_parameters` em X
+    /// (sondado no SDK 3.6.2 local: `C.named;`, `foo.bar = 1;`,
+    /// `C.named : x = 1;`, `C.new;`).
+    #[test]
+    fn membro_fasta_metodo_sem_parametros() {
+        use dartforge_diagnostics::codigos::parser as c;
+
+        for (membro, inicio, fim) in [
+            ("C.named;", 12, 13),
+            ("foo.bar = 1;", 12, 15),
+            ("C.new;", 12, 13),
+        ] {
+            let fonte = format!("class C {{\n  {membro}\n}}\n");
+            let mut nomes = Interner::new();
+            let out = parse(&fonte, &mut nomes);
+            let primeiro = &out.diagnostics[0];
+            assert_eq!(primeiro.code, Some(c::MISSING_METHOD_PARAMETERS), "{fonte}: {:?}", out.diagnostics);
+            assert_eq!((primeiro.span.start, primeiro.span.end), (inicio, fim), "{fonte}");
+        }
     }
 
     /// `foo;`, `foo = 1;`, `foo, bar;` em membro: o nome é campo sem tipo —
