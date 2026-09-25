@@ -312,16 +312,35 @@ fn chave_do_sdk(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     h.finalize().to_hex()[..32].to_string()
 }
 
-/// As bandeiras do Clang para os objetos do SDK no perfil de
-/// desenvolvimento: as do programa, e cada função na sua seção.
-pub const ARGS_CLANG_DO_SDK: &[&str] =
-    &["-x", "ir", "-c", "-O0", "-mno-incremental-linker-compatible", "-ffunction-sections", "-fdata-sections"];
-
-/// As do perfil de produção: bitcode para a otimização entre módulos
-/// (ThinLTO) na ligação do executável (docs/PESQUISA-LLVM-DART-AOT.md §5:
-/// desenvolvimento em módulos separados, produção com ThinLTO).
-pub const ARGS_CLANG_DO_SDK_PRODUCAO: &[&str] =
-    &["-x", "ir", "-c", "-O2", "-flto=thin", "-mno-incremental-linker-compatible", "-ffunction-sections", "-fdata-sections"];
+/// As bandeiras do Clang para os objetos do SDK no perfil pedido.
+///
+/// Desenvolvimento: as do programa, código independente de posição fora do
+/// Windows (os objetos vão para a biblioteca compartilhada) e cada função na
+/// sua seção. Produção: bitcode para a otimização entre módulos (ThinLTO) na
+/// ligação do executável (docs/PESQUISA-LLVM-DART-AOT.md §5: desenvolvimento
+/// em módulos separados, produção com ThinLTO).
+///
+/// ```
+/// use dartforge_emit_native::sdk_modulo::{PerfilDoSdk, args_clang_do_sdk};
+/// assert!(args_clang_do_sdk(PerfilDoSdk::Producao).contains(&"-flto=thin"));
+/// assert!(args_clang_do_sdk(PerfilDoSdk::Desenvolvimento).contains(&"-O0"));
+/// ```
+pub fn args_clang_do_sdk(perfil: PerfilDoSdk) -> Vec<&'static str> {
+    let mut args = vec!["-x", "ir", "-c"];
+    match perfil {
+        PerfilDoSdk::Desenvolvimento => {
+            args.push("-O0");
+            args.extend(crate::alvo::bandeiras_objeto());
+            args.extend(crate::alvo::bandeiras_objeto_compartilhado());
+        }
+        PerfilDoSdk::Producao => {
+            args.extend(["-O2", "-flto=thin"]);
+            args.extend(crate::alvo::bandeiras_objeto());
+        }
+    }
+    args.extend(["-ffunction-sections", "-fdata-sections"]);
+    args
+}
 
 /// O perfil em que o SDK da fonte é compilado.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -351,18 +370,24 @@ pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk
     static TRAVA: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _g = TRAVA.lock().unwrap_or_else(|e| e.into_inner());
     let clang_id = crate::cache_objeto::identidade_clang(clang)?;
-    let args = match perfil {
-        PerfilDoSdk::Desenvolvimento => ARGS_CLANG_DO_SDK,
-        PerfilDoSdk::Producao => ARGS_CLANG_DO_SDK_PRODUCAO,
-    };
+    let args = args_clang_do_sdk(perfil);
+    let args = args.as_slice();
     let chave = chave_do_sdk(lib_dir, &clang_id, args);
     let raiz = crate::cache::dir_cache_nativo().join("sdk");
     let dir = raiz.join(&chave);
     let nome_dll = format!("dfsdk_{}", &chave[..16]);
+    let arquivo_dll = crate::alvo::nome_compartilhada(&nome_dll);
+    let ext_obj = crate::alvo::ext_objeto();
     let pronto = |d: &Path, frio| SdkCompilado {
-        objetos: BIBLIOTECAS_DA_FONTE.iter().map(|b| d.join(format!("{b}.obj"))).collect(),
-        dll: d.join(format!("{nome_dll}.dll")),
-        importacao: d.join(format!("{nome_dll}.lib")),
+        objetos: BIBLIOTECAS_DA_FONTE.iter().map(|b| d.join(format!("{b}.{ext_obj}"))).collect(),
+        dll: d.join(&arquivo_dll),
+        // No Windows liga-se contra a biblioteca de importação; no ELF e no
+        // Mach-O, contra a própria biblioteca compartilhada.
+        importacao: if crate::alvo::sistema() == crate::alvo::Sistema::Windows {
+            d.join(format!("{nome_dll}.lib"))
+        } else {
+            d.join(&arquivo_dll)
+        },
         frio,
     };
     if dir.join("pronto").is_file() {
@@ -414,7 +439,7 @@ pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk
                     .args(args)
                     .arg(format!("{b}.ll"))
                     .arg("-o")
-                    .arg(format!("{b}.obj"))
+                    .arg(format!("{b}.{ext_obj}"))
                     .status();
                 match st {
                     Ok(s) if s.success() => {}
@@ -433,16 +458,44 @@ pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk
     let st = if perfil == PerfilDoSdk::Producao {
         None
     } else {
-        Some(std::process::Command::new(clang)
-        .current_dir(&tmp)
-        .arg("-shared")
-        .args(BIBLIOTECAS_DA_FONTE.iter().map(|b| format!("{b}.obj")))
-        .arg(&runtime_dll.lib_path)
-        .arg("-Wl,/DEF:exportados.def")
-        .args(["-lws2_32", "-luserenv", "-lntdll", "-o"])
-        .arg(format!("{nome_dll}.dll"))
-        .status()
-        .map_err(|e| format!("Clang: {e}"))?)
+        let mut cmd = std::process::Command::new(clang);
+        cmd.current_dir(&tmp)
+            .arg("-shared")
+            .args(BIBLIOTECAS_DA_FONTE.iter().map(|b| format!("{b}.{ext_obj}")))
+            .arg(&runtime_dll.lib_path);
+        match crate::alvo::sistema() {
+            crate::alvo::Sistema::Windows => {
+                cmd.arg("-Wl,/DEF:exportados.def");
+            }
+            sistema => {
+                // Sem `.def`: cada nome do runtime entra como não definido,
+                // para o ligador trazer da `staticlib` também o que o SDK não
+                // usa (o programa usa), e o símbolo sai exportado.
+                let mac = sistema == crate::alvo::Sistema::MacOs;
+                let mut rsp = String::new();
+                for n in dartforge_runtime::simbolos::NOMES.iter().filter(|n| **n != "main") {
+                    if mac {
+                        rsp.push_str(&format!("-Wl,-u,_{n}\n"));
+                    } else {
+                        rsp.push_str(&format!("-Wl,--undefined={n}\n"));
+                    }
+                }
+                std::fs::write(tmp.join("runtime.rsp"), rsp).map_err(|e| e.to_string())?;
+                cmd.arg("@runtime.rsp");
+                if mac {
+                    cmd.arg(format!("-Wl,-install_name,@rpath/{arquivo_dll}"));
+                } else {
+                    cmd.arg(format!("-Wl,-soname,{arquivo_dll}"));
+                }
+            }
+        }
+        Some(
+            cmd.args(crate::alvo::bibliotecas_do_sistema())
+                .arg("-o")
+                .arg(&arquivo_dll)
+                .status()
+                .map_err(|e| format!("Clang: {e}"))?,
+        )
     };
     if let Some(st) = st
         && !st.success()
@@ -687,7 +740,7 @@ mod testes {
         let dir = tempfile::tempdir().unwrap();
         let entrada = dir.path().join("main.dart");
         std::fs::write(&entrada, "void main() {\n  print('oi');\n  print([1, 2, 3].map((x) => x * 2).toList());\n  print({'a': 1});\n}\n").unwrap();
-        let exe = dir.path().join("prog.exe");
+        let exe = dir.path().join(crate::alvo::nome_executavel("prog"));
         let (e2, x2) = (entrada.clone(), exe.clone());
         let r = std::thread::Builder::new()
             .stack_size(256 << 20)
@@ -701,7 +754,7 @@ mod testes {
             .unwrap();
         r.expect("compilar em produção");
         let sozinho = tempfile::tempdir().unwrap();
-        let copia = sozinho.path().join("prog.exe");
+        let copia = sozinho.path().join(crate::alvo::nome_executavel("prog"));
         std::fs::copy(&exe, &copia).unwrap();
         let so_um: Vec<_> = std::fs::read_dir(sozinho.path()).unwrap().collect();
         assert_eq!(so_um.len(), 1, "a pasta tem só o executável");

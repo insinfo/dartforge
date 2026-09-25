@@ -1,5 +1,6 @@
 //! Driver de compilação LLVM IR -> Clang -> Link com o runtime em cache.
 
+use crate::alvo::Sistema;
 use crate::cache::{RuntimeCache, dir_cache_nativo};
 use crate::cache_objeto::{self, CacheObjeto};
 use std::path::{Path, PathBuf};
@@ -16,22 +17,31 @@ pub struct NativeDriverOptions {
 impl Default for NativeDriverOptions {
     fn default() -> Self {
         Self {
-            clang: std::env::var_os("DARTFORGE_CLANG").map_or_else(
-                || {
-                    let ssd = PathBuf::from(
-                        "E:/llvm/clang+llvm-22.1.8-x86_64-pc-windows-msvc/bin/clang.exe",
-                    );
-                    if ssd.is_file() {
-                        ssd
-                    } else {
-                        PathBuf::from("D:/LLVM/22.1.8/bin/clang.exe")
-                    }
-                },
-                PathBuf::from,
-            ),
+            clang: std::env::var_os("DARTFORGE_CLANG").map_or_else(clang_padrao, PathBuf::from),
             optimize: false,
             timings: false,
         }
+    }
+}
+
+/// O Clang quando `DARTFORGE_CLANG` não está definido: no Windows, as
+/// instalações conhecidas do LLVM 22.1.8 da máquina de desenvolvimento; nos
+/// outros sistemas, o `bin` de `DARTFORGE_LLVM_DIR`/`LLVM_SYS_221_PREFIX`, e
+/// por fim o `clang` do `PATH`.
+fn clang_padrao() -> PathBuf {
+    for var in ["DARTFORGE_LLVM_DIR", "LLVM_SYS_221_PREFIX"] {
+        if let Some(d) = std::env::var_os(var) {
+            let c = PathBuf::from(d).join("bin").join(crate::alvo::nome_clang());
+            if c.is_file() {
+                return c;
+            }
+        }
+    }
+    if cfg!(windows) {
+        let ssd = PathBuf::from("E:/llvm/clang+llvm-22.1.8-x86_64-pc-windows-msvc/bin/clang.exe");
+        if ssd.is_file() { ssd } else { PathBuf::from("D:/LLVM/22.1.8/bin/clang.exe") }
+    } else {
+        PathBuf::from("clang")
     }
 }
 
@@ -90,10 +100,10 @@ pub fn compile_and_link(
     //   `-ffunction-sections`) e o runtime estático, com `/OPT:REF` tirando o
     //   que o programa não alcança.
     let producao = options.optimize && sdk.is_some();
-    let (ligar_com, sdk_objetos): (PathBuf, Vec<PathBuf>) = match &sdk {
-        Some(s) if producao => (crate::cache::RuntimeCache::para_dll()?.lib_path, s.objetos.clone()),
-        Some(s) => (s.importacao.clone(), Vec::new()),
-        None => (runtime.lib_path.clone(), Vec::new()),
+    let (ligar_com, sdk_objetos): (Ligacao, Vec<PathBuf>) = match &sdk {
+        Some(s) if producao => (Ligacao::Producao(crate::cache::RuntimeCache::para_dll()?.lib_path), s.objetos.clone()),
+        Some(s) => (Ligacao::SdkCompartilhado(s.importacao.clone()), Vec::new()),
+        None => (Ligacao::Runtime(runtime.lib_path.clone()), Vec::new()),
     };
 
     // Diretório temporário seguro no target. Com o cache de objeto ele só é
@@ -109,10 +119,10 @@ pub fn compile_and_link(
     let ll_file = staging.join(format!("{stem}.ll"));
     let manter_ir = std::env::var_os("DARTFORGE_KEEP_IR").is_some();
     let opt_flag = if options.optimize { "-O2" } else { "-O0" };
-    // `-mno-incremental-linker-compatible` zera o TimeDateStamp do cabeçalho
-    // COFF: sem ele, o mesmo IR dava objetos diferentes no byte 4 (medido),
-    // e o objeto deixava de ser função da chave.
-    let mut args = vec!["-x", "ir", "-c", opt_flag, "-mno-incremental-linker-compatible"];
+    // As bandeiras do formato de objeto (`alvo::bandeiras_objeto`: no COFF,
+    // zerar o TimeDateStamp para o objeto ser função da chave).
+    let mut args = vec!["-x", "ir", "-c", opt_flag];
+    args.extend(crate::alvo::bandeiras_objeto());
     if producao {
         // Produção com o SDK da fonte: bitcode ThinLTO, otimizado junto com
         // o do SDK na ligação.
@@ -139,7 +149,7 @@ pub fn compile_and_link(
         }
         None => {
             criar_staging()?;
-            let obj = staging.join(format!("{stem}.obj"));
+            let obj = staging.join(format!("{stem}.{}", crate::alvo::ext_objeto()));
             compilar_objeto(&options.clang, &args, llvm_ir, &obj)?;
             (obj, None)
         }
@@ -156,15 +166,17 @@ pub fn compile_and_link(
         // cache, e a ligação é refeita uma vez com um objeto novo.
         c.remover(chave);
         criar_staging()?;
-        obj_file = staging.join(format!("{stem}.obj"));
+        obj_file = staging.join(format!("{stem}.{}", crate::alvo::ext_objeto()));
         compilar_objeto(&options.clang, &args, llvm_ir, &obj_file)?;
         do_cache = None;
         ligou = ligar(&options.clang, &obj_file, &sdk_objetos, &ligar_com, output);
     }
     ligou?;
     if let Some(s) = sdk.as_ref().filter(|_| !producao) {
-        // A DLL ao lado do executável (o Windows procura primeiro ali):
-        // ligação física, sem cópia; cópia só se o volume for outro.
+        // A biblioteca compartilhada ao lado do executável (o Windows procura
+        // primeiro ali; no Linux e no macOS o executável leva o `rpath` do
+        // próprio diretório): ligação física, sem cópia; cópia só se o volume
+        // for outro.
         let destino = output.parent().unwrap_or(Path::new(".")).join(s.dll.file_name().unwrap_or_default());
         if !destino.is_file() && std::fs::hard_link(&s.dll, &destino).is_err() {
             std::fs::copy(&s.dll, &destino).map_err(|e| format!("não foi possível pôr a DLL do SDK em {}: {e}", destino.display()))?;
@@ -207,55 +219,94 @@ fn compilar_objeto(clang: &Path, args: &[&str], llvm_ir: &str, obj: &Path) -> Re
     Ok(())
 }
 
-fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], runtime_lib: &Path, output: &Path) -> Result<(), String> {
+/// Com o que o objeto do programa é ligado.
+enum Ligacao {
+    /// Sem o SDK da fonte: o runtime estático (com o `main` C).
+    Runtime(PathBuf),
+    /// Desenvolvimento com o SDK da fonte: a biblioteca compartilhada (runtime
+    /// e SDK) — no Windows, a biblioteca de importação da DLL; nos outros, o
+    /// próprio `.so`/`.dylib`.
+    SdkCompartilhado(PathBuf),
+    /// Produção com o SDK da fonte: o runtime estático sem o `main` C; os
+    /// objetos do SDK vêm à parte.
+    Producao(PathBuf),
+}
+
+impl Ligacao {
+    fn biblioteca(&self) -> &Path {
+        match self {
+            Ligacao::Runtime(p) | Ligacao::SdkCompartilhado(p) | Ligacao::Producao(p) => p,
+        }
+    }
+}
+
+fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &Path) -> Result<(), String> {
     let mut cmd = Command::new(clang);
-    cmd.arg(obj).args(sdk).arg(runtime_lib);
-    let nome = runtime_lib.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    if nome.starts_with("dfsdk_") {
-        // Executável do SDK da fonte (desenvolvimento): o runtime está na
-        // DLL, que usa a CRT dinâmica (a do `rustc`); o executável usa a
-        // mesma.
-        cmd.args(["-Wl,/NODEFAULTLIB:libcmt", "-lmsvcrt"]);
-    } else if nome.starts_with("dartforge_rtdll_") {
-        // Produção com o SDK da fonte: tudo estático no executável, a mesma
-        // CRT do runtime, ThinLTO entre o programa e o SDK (lld), e o ligador
-        // tira as seções que nada alcança.
-        // O lld tem de ser o do mesmo LLVM do Clang (o bitcode ThinLTO só é
-        // lido pela mesma versão). O Clang no Windows com ThinLTO exige o
-        // literal `lld` em `-fuse-ld=` (caminho absoluto dá
-        // `clang: error: LTO requires -fuse-ld=lld`); então o diretório bin
-        // irmão do próprio Clang vai ao PATH só deste spawn, para o `lld`
-        // resolvido ser o da mesma versão. Recusar sua ausência evita cair
-        // num lld errado do PATH em silêncio (medido: LLVM 20 lendo
-        // bitcode 22 — `Unknown attribute kind (105)`).
-        let lld = clang.with_file_name("lld-link.exe");
-        if !lld.is_file() {
-            return Err(format!("ThinLTO requer lld-link.exe ao lado de {}", clang.display()));
+    cmd.arg(obj).args(sdk).arg(ligacao.biblioteca());
+    let sistema = crate::alvo::sistema();
+    match ligacao {
+        Ligacao::SdkCompartilhado(_) if sistema == Sistema::Windows => {
+            // Executável do SDK da fonte (desenvolvimento): o runtime está na
+            // DLL, que usa a CRT dinâmica (a do `rustc`); o executável usa a
+            // mesma.
+            cmd.args(["-Wl,/NODEFAULTLIB:libcmt", "-lmsvcrt"]);
         }
-        if let Some(bin) = clang.parent()
-            && !bin.as_os_str().is_empty()
-        {
-            let mut caminhos = vec![bin.to_path_buf()];
-            if let Some(atual) = std::env::var_os("PATH") {
-                caminhos.extend(std::env::split_paths(&atual));
+        Ligacao::SdkCompartilhado(_) => {
+            // A biblioteca compartilhada vai ao lado do executável; o `rpath`
+            // aponta o carregador para o diretório do próprio executável.
+            cmd.arg(if sistema == Sistema::MacOs { "-Wl,-rpath,@executable_path" } else { "-Wl,-rpath,$ORIGIN" });
+        }
+        Ligacao::Producao(_) => {
+            // Produção com o SDK da fonte: tudo estático no executável,
+            // ThinLTO entre o programa e o SDK (lld), e o ligador tira as
+            // seções que nada alcança.
+            // O lld tem de ser o do mesmo LLVM do Clang (o bitcode ThinLTO só
+            // é lido pela mesma versão). O Clang com ThinLTO exige o literal
+            // `lld` em `-fuse-ld=` (caminho absoluto dá `clang: error: LTO
+            // requires -fuse-ld=lld` no Windows); então o diretório bin irmão
+            // do próprio Clang vai ao PATH só deste spawn, para o `lld`
+            // resolvido ser o da mesma versão. Recusar sua ausência evita cair
+            // num lld errado do PATH em silêncio (medido: LLVM 20 lendo
+            // bitcode 22 — `Unknown attribute kind (105)`).
+            let nome_lld = match sistema {
+                Sistema::Windows => "lld-link.exe",
+                Sistema::Linux => "ld.lld",
+                Sistema::MacOs => "ld64.lld",
+            };
+            let lld = clang.with_file_name(nome_lld);
+            if !lld.is_file() {
+                return Err(format!("ThinLTO requer {nome_lld} ao lado de {}", clang.display()));
             }
-            if let Ok(novo) = std::env::join_paths(caminhos) {
-                cmd.env("PATH", novo);
+            if let Some(bin) = clang.parent()
+                && !bin.as_os_str().is_empty()
+            {
+                let mut caminhos = vec![bin.to_path_buf()];
+                if let Some(atual) = std::env::var_os("PATH") {
+                    caminhos.extend(std::env::split_paths(&atual));
+                }
+                if let Ok(novo) = std::env::join_paths(caminhos) {
+                    cmd.env("PATH", novo);
+                }
+            }
+            cmd.args(["-fuse-ld=lld", "-flto=thin", "-O2"]);
+            cmd.args(crate::alvo::bibliotecas_do_sistema());
+            match sistema {
+                Sistema::Windows => {
+                    cmd.args(["-Wl,/NODEFAULTLIB:libcmt", "-lmsvcrt", "-Wl,/OPT:REF"]);
+                }
+                // Sem a tabela de símbolos, como o `.exe` do Windows (que a
+                // deixa no PDB): metade do tamanho no ELF (medido: 9,4 → 4,4 MB).
+                Sistema::Linux => {
+                    cmd.args(["-Wl,--gc-sections", "-Wl,--strip-all"]);
+                }
+                Sistema::MacOs => {
+                    cmd.args(["-Wl,-dead_strip", "-Wl,-S", "-Wl,-x"]);
+                }
             }
         }
-        cmd.arg("-fuse-ld=lld");
-        cmd.args([
-            "-flto=thin",
-            "-O2",
-            "-lws2_32",
-            "-luserenv",
-            "-lntdll",
-            "-Wl,/NODEFAULTLIB:libcmt",
-            "-lmsvcrt",
-            "-Wl,/OPT:REF",
-        ]);
-    } else {
-        cmd.args(["-lws2_32", "-luserenv", "-lntdll"]);
+        Ligacao::Runtime(_) => {
+            cmd.args(crate::alvo::bibliotecas_do_sistema());
+        }
     }
     let status = cmd
         .arg("-o")

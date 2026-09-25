@@ -85,7 +85,7 @@ fn compilar_runtime(extras: &[&str], prefixo: &str) -> Result<PathBuf, String> {
     h.escrever(runtime_src.as_bytes());
     let hash = format!("{:032x}", h.fim());
 
-    let lib_path = dir.join(format!("{prefixo}{hash}.lib"));
+    let lib_path = dir.join(format!("{prefixo}{hash}.{}", crate::alvo::ext_estatica()));
     if lib_path.is_file() {
         return Ok(lib_path);
     }
@@ -107,7 +107,7 @@ fn compilar_runtime(extras: &[&str], prefixo: &str) -> Result<PathBuf, String> {
         }
     }
 
-    let lib_tmp = dir.join(format!("{prefixo}{hash}.{pid}.tmp.lib"));
+    let lib_tmp = dir.join(format!("{prefixo}{hash}.{pid}.tmp.{}", crate::alvo::ext_estatica()));
     let status = Command::new(&rustc)
         .args(BANDEIRAS_RUSTC)
         .args(extras)
@@ -143,7 +143,7 @@ fn podar_runtimes(dir: &Path, atual: &Path) {
         .map(|e| e.path())
         .filter(|p| {
             let nome = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            nome.starts_with("dartforge_runtime_") && nome.ends_with(".lib") && !nome.contains(".tmp")
+            nome.starts_with("dartforge_runtime_") && nome.ends_with(&format!(".{}", crate::alvo::ext_estatica())) && !nome.contains(".tmp")
         })
         .filter_map(|p| Some((std::fs::metadata(&p).ok()?.modified().ok()?, p)))
         .collect();
@@ -157,7 +157,8 @@ fn podar_runtimes(dir: &Path, atual: &Path) {
             .file_name()
             .and_then(|n| n.to_str())
             .and_then(|n| n.strip_prefix("dartforge_runtime_"))
-            .and_then(|n| n.strip_suffix(".lib"))
+            .and_then(|n| n.strip_suffix(crate::alvo::ext_estatica()))
+            .and_then(|n| n.strip_suffix('.'))
         {
             let _ = std::fs::remove_file(dir.join(format!("runtime_{hash}.rs")));
         }
