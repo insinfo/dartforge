@@ -5,9 +5,45 @@
 
 use dartforge_diagnostics::{Diagnostic, codigos::compile_time_error as c};
 use dartforge_elements::model::{ClassId, ClassKind, LibraryId, Program, UnitId};
-use dartforge_frontend::ast::{MemberKind, Name};
+use dartforge_frontend::ast::{DeclKind, MemberKind, Name};
 use dartforge_intern::Interner;
 use std::collections::HashSet;
+
+/// A restrição de `with` depende da versão da biblioteca que *declara* a
+/// classe misturada. Bibliotecas anteriores a Dart 3 ainda podem oferecer
+/// classes como mixins; os modificadores de classes do SDK podem ser ignorados
+/// pelo próprio SDK e por consumidores legados (exceto `dart:ffi`).
+pub fn classe_usada_como_mixin(programa: &Program, lib: LibraryId, nomes: &Interner) -> Vec<(UnitId, Diagnostic)> {
+    let mut saida = Vec::new();
+    let consumidora = programa.library(lib);
+    for classe in programa.classes.iter().filter(|c| c.library == lib) {
+        let Some(decl) = classe.decl else { continue };
+        let ast = &programa.unit(decl.unit).ast;
+        let mixins = match &ast.decl(decl.decl).kind {
+            DeclKind::Class(d) => &d.with,
+            DeclKind::Enum(d) => &d.with,
+            _ => continue,
+        };
+        // O carregador omite tipos que não resolveram. Não associar spans a
+        // classes erradas nesse caso: o diagnóstico primário já é emitido.
+        if mixins.len() != classe.mixin_classes.len() { continue; }
+        for (&ty, &id) in mixins.iter().zip(&classe.mixin_classes) {
+            let alvo = programa.class(id);
+            if alvo.kind != ClassKind::Class || alvo.modifiers.mixin { continue; }
+            let origem = programa.library(alvo.library);
+            if origem.features.versao().major < 3 { continue; }
+            if origem.is_sdk && origem.uri != "dart:ffi"
+                && (consumidora.is_sdk || consumidora.features.versao().major < 3)
+            { continue; }
+            saida.push((decl.unit, Diagnostic::com_codigo(
+                c::CLASS_USED_AS_MIXIN,
+                ast.ty(ty).span,
+                [nomes.resolve(alvo.name)],
+            )));
+        }
+    }
+    saida
+}
 
 /// Diagnósticos por unidade da biblioteca `lib`. Membros locais conflitantes
 /// já são emitidos por `duplicatas`; esta função considera só ancestrais.
@@ -100,6 +136,83 @@ mod testes {
     use super::*;
     use dartforge_elements::{load::load_lenient, sdk::SdkLayout};
     use std::fs;
+
+    #[test]
+    fn classe_comum_em_with_depende_da_versao_da_declaracao() {
+        let raiz = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("../../target/tmp-agent/mixin-class-{}", std::process::id()));
+        fs::create_dir_all(raiz.join("sdk/lib/core")).unwrap();
+        fs::write(raiz.join("sdk/lib/libraries.json"), r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#).unwrap();
+        fs::write(raiz.join("sdk/lib/core/core.dart"), "class Object {}").unwrap();
+        let sdk = SdkLayout::load(&raiz.join("sdk/lib"), "dartdevc").unwrap();
+        let entrada = raiz.join("main.dart");
+        let casos = [
+            (
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_used_as_mixin/ClassUsedAsMixin__inside.dart")).to_string(),
+                Some("Foo"),
+            ),
+            (
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_used_as_mixin/ClassUsedAsMixin__inside_class_hasGener_5838f665.dart")).to_string(),
+                Some("A"),
+            ),
+            (
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_used_as_mixin/ClassUsedAsMixin__inside_enum_hasGenera_724bb742.dart")).to_string(),
+                Some("A"),
+            ),
+            (
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_used_as_mixin/ClassUsedAsMixin__inside_classTypeAlias_69274ad9.dart")).to_string(),
+                Some("A"),
+            ),
+            (
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_used_as_mixin/ClassUsedAsMixin__inside_beforeClassModifiers.dart"))
+                    .replace("// %before-language-feature: class-modifiers", "// @dart=2.19"),
+                None,
+            ),
+            (
+                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/class_used_as_mixin/ClassUsedAsMixin__inside_mixinClass.dart")).to_string(),
+                None,
+            ),
+        ];
+        for (fonte, esperado) in casos {
+            fs::write(&entrada, &fonte).unwrap();
+            let mut nomes = Interner::new();
+            let (programa, _) = load_lenient(&entrada, &sdk, None, &mut nomes);
+            let diags = classe_usada_como_mixin(&programa, programa.entry.unwrap(), &nomes);
+            match esperado {
+                Some(nome) => {
+                    assert_eq!(diags.len(), 1, "{diags:?}");
+                    let d = &diags[0].1;
+                    assert_eq!(d.code, Some(c::CLASS_USED_AS_MIXIN));
+                    assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], nome);
+                    assert_eq!(d.message, format!("The class '{nome}' can't be used as a mixin because it's neither a mixin class nor a mixin."));
+                }
+                None => assert!(diags.is_empty(), "{diags:?}"),
+            }
+        }
+        fs::remove_dir_all(&raiz).unwrap();
+    }
+
+    #[test]
+    fn classe_legada_importada_pode_ser_usada_como_mixin_em_codigo_atual() {
+        let raiz = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("../../target/tmp-agent/mixin-legado-{}", std::process::id()));
+        fs::create_dir_all(raiz.join("sdk/lib/core")).unwrap();
+        fs::write(raiz.join("sdk/lib/libraries.json"), r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#).unwrap();
+        fs::write(raiz.join("sdk/lib/core/core.dart"), "class Object {}").unwrap();
+        let sdk = SdkLayout::load(&raiz.join("sdk/lib"), "dartdevc").unwrap();
+        fs::write(raiz.join("legacy.dart"), "// @dart=2.19\nclass Legacy {}\n").unwrap();
+        let entrada = raiz.join("main.dart");
+        let fonte = "import 'legacy.dart';\nclass Current {}\nclass A with Legacy {}\nclass B with Current {}\n";
+        fs::write(&entrada, fonte).unwrap();
+        let mut nomes = Interner::new();
+        let (programa, _) = load_lenient(&entrada, &sdk, None, &mut nomes);
+        let diags = classe_usada_como_mixin(&programa, programa.entry.unwrap(), &nomes);
+        assert_eq!(diags.len(), 1, "{diags:?}");
+        let d = &diags[0].1;
+        assert_eq!(&fonte[d.span.start as usize..d.span.end as usize], "Current");
+        assert_eq!(d.code, Some(c::CLASS_USED_AS_MIXIN));
+        fs::remove_dir_all(&raiz).unwrap();
+    }
 
     #[test]
     fn membro_estatico_contra_getter_do_super_e_object() {

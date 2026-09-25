@@ -3,14 +3,17 @@
 //!
 //! Decisões que não são tradução direta da gramática:
 //!
-//! * **Recuperação de erro.** Uma declaração de topo ou um membro que falha
-//!   registra um único diagnóstico; o cursor é então sincronizado até a
-//!   próxima fronteira plausível (`;` ou `}` no nível de aninhamento em que a
-//!   declaração começou, ou um token que inicia declaração de topo) e a
-//!   análise continua. Assim uma unidade com N erros independentes produz
-//!   ~N diagnósticos, e os membros seguintes a um erro dentro de uma classe
-//!   não são perdidos. A profundidade é recalculada a partir do início da
-//!   declaração, porque o erro pode ter acontecido dentro de um corpo.
+//! * **Recuperação de erro.** Uma declaração de topo que falha sem consumir
+//!   nada registra um único diagnóstico e pula um token (o fasta relata um
+//!   erro por token: `expected_executable`); com progresso, o cursor é
+//!   sincronizado até a próxima fronteira plausível (`;` ou `}` no nível de
+//!   aninhamento em que a declaração começou, ou um token que inicia
+//!   declaração de topo). A recuperação de membros segue o mesmo desenho,
+//!   um membro por vez. Rejeitar sintaxe 3.13 em biblioteca ≤3.6 para imitar
+//!   o fasta 3.6.2 token a token é pendente: hoje vale o superconjunto com
+//!   `experiment_not_enabled` (ver `docs/VERSOES-LINGUAGEM.md` e
+//!   `tests/versoes.rs`), e o lookahead de declaração ainda recusa `]`/`}`
+//!   como continuação (`int? a]` vira `expected_token` no tipo, não no nome).
 //! * **Construtor × método.** `Nome(` é construtor quando `Nome` é o da
 //!   classe corrente (o nome é passado ao parser de membros); `Nome.x(` é
 //!   sempre construtor, porque métodos não têm nome pontuado; `factory` e
@@ -80,6 +83,20 @@ struct Modifiers {
     var_: bool,
 }
 
+impl Modifiers {
+    /// Algum modificador foi lido?
+    fn algum(self) -> bool {
+        self.external
+            || self.static_
+            || self.abstract_
+            || self.covariant
+            || self.late
+            || self.final_
+            || self.const_
+            || self.var_
+    }
+}
+
 /// Resultado de `tipo? nome …`: função/método/acessor ou lista de variáveis.
 enum FunctionOrVariables {
     Function(FunctionId),
@@ -122,6 +139,15 @@ impl<'s, 'i> Parser<'s, 'i> {
             return Ok(());
         }
         let augment = self.parse_augment_opt();
+        // `;` solto no topo é `unexpected_token` no fasta 3.6.2 ("Unexpected
+        // text ';'"), não `expected_executable` (que vale para `)`, `]` e
+        // `}`). No corpo de classe o `;` continua `expected_class_member`.
+        if self.at_op(Op::Semicolon) {
+            let span = self.span();
+            // Sem consumir: a recuperação sem progresso pula o token, como
+            // nos demais erros de token solto (ver `recover_top_level`).
+            return Err(self.erro_em(codigos::parser::UNEXPECTED_TOKEN, span, &[";"]));
+        }
         if !self.can_start_declaration() {
             return Err(self.erro(codigos::parser::EXPECTED_EXECUTABLE, &[]));
         }
@@ -198,10 +224,18 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// Sincroniza após uma declaração de topo falhar em `start_pos`.
     ///
-    /// Pula tokens até fechar o nível em que a declaração começou (`;` ou
-    /// `}` com profundidade zero) ou até um token que inicia declaração de
-    /// topo. Garante progresso: consome ao menos um token.
+    /// Sem progresso (nada consumido: token solto), um token basta — o fasta
+    /// relata um erro por token (`expected_executable`) e continua no
+    /// seguinte; engolir até `;`/`}` esconderia as declarações válidas no meio
+    /// do lixo (FN em cascata). Com progresso, pula até fechar o nível em que
+    /// a declaração começou (`;` ou `}` com profundidade zero) ou até um token
+    /// que inicia declaração de topo. Garante progresso: consome ao menos um
+    /// token.
     fn recover_top_level(&mut self, start_pos: usize) {
+        if self.pos == start_pos && !self.at_eof() {
+            self.advance();
+            return;
+        }
         let mut depth = self.nesting_between(start_pos, self.pos);
         loop {
             match self.kind() {
@@ -212,11 +246,14 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
                 Kind::Op(Op::RParen | Op::RBracket) => {
                     // Um fechamento solto no nível zero é, ele próprio, uma
-                    // fronteira: não vale engolir a declaração seguinte.
-                    self.advance();
+                    // fronteira e é denunciado à parte (`expected_executable`
+                    // nele, como faz o fasta): não é consumido aqui — a
+                    // próxima volta do topo o relata e a recuperação sem
+                    // progresso o pula. Avançar esconderia o erro.
                     if depth == 0 {
                         break;
                     }
+                    self.advance();
                     depth -= 1;
                 }
                 Kind::Op(Op::RBrace) => {
@@ -281,10 +318,35 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// Sincroniza após um membro falhar em `start_pos`, sem sair do corpo.
     ///
-    /// Consome até um `;` ou até fechar o `{` do próprio membro; a `}` que
+    /// Espelha [`Parser::recover_top_level`]: sem progresso (nada consumido:
+    /// token solto), um token basta — o fasta relata um erro por token
+    /// (`expected_class_member`) e continua no seguinte; engolir até `;`
+    /// esconderia os membros válidos no meio do lixo (`42` antes de
+    /// `int x = 1;` apagava o campo). Com progresso, pula até fechar o nível
+    /// em que o membro começou (`;` ou `}` com profundidade zero) ou até um
+    /// token que inicia membro — onde tenta o resto como membro, de forma
+    /// especulativa: se vingar (ex.: a cauda `set foo...` de
+    /// `augment static set foo...` sem o recurso), fica e os membros
+    /// seguintes sobrevivem; se falhar, os diagnósticos da tentativa são
+    /// descartados e a varredura continua no modo antigo, sem nova parada
+    /// (um erro pelo membro quebrado, não um por token do resto). A `}` que
     /// fecha a classe **não** é consumida, para que o laço do corpo termine.
-    fn recover_member(&mut self, start_pos: usize) {
+    /// Garante progresso: consome ao menos um token.
+    fn recover_member(
+        &mut self,
+        start_pos: usize,
+        class_name: Option<&'s str>,
+        primaria: bool,
+        members: &mut Vec<MemberId>,
+    ) {
+        if self.pos == start_pos && !self.at_eof() {
+            if !self.at_op(Op::RBrace) {
+                self.advance();
+            }
+            return;
+        }
         let mut depth = self.nesting_between(start_pos, self.pos);
+        let mut especulativo = true;
         loop {
             match self.kind() {
                 Kind::Eof => break,
@@ -294,11 +356,14 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
                 Kind::Op(Op::RParen | Op::RBracket) => {
                     // Um fechamento solto no nível zero é, ele próprio, uma
-                    // fronteira: não vale engolir a declaração seguinte.
-                    self.advance();
+                    // fronteira e é denunciado à parte (`expected_class_member`
+                    // nele, como faz o fasta): não é consumido aqui — a
+                    // próxima volta do corpo o relata e a recuperação sem
+                    // progresso o pula. Avançar esconderia o erro.
                     if depth == 0 {
                         break;
                     }
+                    self.advance();
                     depth -= 1;
                 }
                 Kind::Op(Op::RBrace) => {
@@ -317,14 +382,50 @@ impl<'s, 'i> Parser<'s, 'i> {
                         break;
                     }
                 }
-                Kind::Op(Op::At) if depth == 0 && self.pos > start_pos => break,
+                _ if especulativo
+                    && depth == 0
+                    && self.pos > start_pos
+                    && self.starts_member() =>
+                {
+                    let marco = self.diagnostics.len();
+                    match self.parse_member(class_name, primaria) {
+                        Ok(id) => {
+                            members.push(id);
+                            return;
+                        }
+                        Err(ParseError) => {
+                            self.diagnostics.truncate(marco);
+                            especulativo = false;
+                        }
+                    }
+                }
                 _ => {
                     self.advance();
                 }
             }
         }
-        if self.pos == start_pos && !self.at_op(Op::RBrace) {
+        if self.pos == start_pos && !self.at_op(Op::RBrace) && !self.at_eof() {
             self.advance();
+        }
+    }
+
+    /// O token corrente é um início plausível de membro (para a
+    /// sincronização de erro)? Identificadores (nomes, tipos, modificadores
+    /// contextuais como `static`/`factory`/`get`), metadata (`@`) e as
+    /// palavras que só abrem declaração (`final`/`const`/`var`/`void`;
+    /// `this`/`new` abrem membro na 3.13).
+    fn starts_member(&self) -> bool {
+        match self.kind() {
+            Kind::Ident | Kind::Op(Op::At) => true,
+            Kind::Keyword(
+                Keyword::Final
+                | Keyword::Const
+                | Keyword::Var
+                | Keyword::Void
+                | Keyword::This
+                | Keyword::New,
+            ) => true,
+            _ => false,
         }
     }
 
@@ -668,7 +769,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             Vec::new()
         };
         let implements = self.parse_implements_opt()?;
-        let mut members = self.parse_class_body_ou_vazio(Some(name_text))?;
+        let mut members = self.parse_class_body_ou_vazio(Some(name_text), primario.is_some())?;
         let tem_supertipos = extends.is_some() || !with.is_empty() || !implements.is_empty();
         let primary_constructor = self.elaborar_construtor_primario(
             name,
@@ -730,13 +831,17 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     /// `{ membros }` ou, a partir da 3.13, `;` (corpo vazio).
-    fn parse_class_body_ou_vazio(&mut self, class_name: Option<&'s str>) -> PResult<Vec<MemberId>> {
+    fn parse_class_body_ou_vazio(
+        &mut self,
+        class_name: Option<&'s str>,
+        primaria: bool,
+    ) -> PResult<Vec<MemberId>> {
         if self.at_op(Op::Semicolon) {
             let t = self.advance();
             self.exigir(Feature::PrimaryConstructors, t.span);
             return Ok(Vec::new());
         }
-        self.parse_class_body(class_name)
+        self.parse_class_body(class_name, primaria)
     }
 
     /// Derivação D → D2 do construtor primário (spec 3.13, `:926-1025`),
@@ -982,7 +1087,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             Vec::new()
         };
         let implements = self.parse_implements_opt()?;
-        let members = self.parse_class_body_ou_vazio(Some(name_text))?;
+        let members = self.parse_class_body_ou_vazio(Some(name_text), false)?;
         Ok(MixinDecl {
             base,
             name,
@@ -1017,7 +1122,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
         }
         let mut members = if self.eat_op(Op::Semicolon) {
-            self.parse_member_list(Some(name_text))?
+            self.parse_member_list(Some(name_text), primario.is_some())?
         } else {
             self.expect_op(Op::RBrace)?;
             Vec::new()
@@ -1097,7 +1202,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let type_params = self.parse_type_parameters_opt()?;
         self.expect_ident("on")?;
         let on = self.parse_type()?;
-        let members = self.parse_class_body_ou_vazio(name_text)?;
+        let members = self.parse_class_body_ou_vazio(name_text, false)?;
         Ok(ExtensionDecl {
             name,
             type_params: type_params.into_boxed_slice(),
@@ -1138,7 +1243,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let representation_name = self.expect_identifier()?;
         self.expect_op(Op::RParen)?;
         let implements = self.parse_implements_opt()?;
-        let members = self.parse_class_body_ou_vazio(Some(name_text))?;
+        let members = self.parse_class_body_ou_vazio(Some(name_text), false)?;
         Ok(ExtensionTypeDecl {
             const_,
             name,
@@ -1382,9 +1487,43 @@ impl<'s, 'i> Parser<'s, 'i> {
             let id = self.parse_accessor(mods, start, None, kind, external_topo)?;
             return Ok(FunctionOrVariables::Function(id));
         }
+        // `foo;`, `foo = e;`, `foo, ...` (também `static = 1;`, `external;`,
+        // `C;`): o identificador é o NOME do campo sem tipo — `modifier_ok`
+        // já recusou o papel de modificador onde cabia. O fasta 3.6.2 relata
+        // `missing_const_final_var_or_type` no nome, salvo com
+        // `const`/`final`/`var`, que dispensam o tipo sem erro (sondado no
+        // SDK local, membro e topo).
+        if self.at_identifier()
+            && matches!(
+                self.kind_at(1),
+                Kind::Op(Op::Semicolon | Op::Assign | Op::Comma)
+            )
+        {
+            let nome = self.identifier();
+            if !mods.var_ && !mods.final_ && !mods.const_ {
+                self.erro_em(
+                    codigos::parser::MISSING_CONST_FINAL_VAR_OR_TYPE,
+                    nome.span,
+                    &[],
+                );
+            }
+            let variables = self.parse_declared_variables_tail(nome)?;
+            return Ok(FunctionOrVariables::Variables(VariableList {
+                external: mods.external,
+                static_: mods.static_,
+                abstract_: mods.abstract_,
+                covariant: mods.covariant,
+                late: mods.late,
+                final_: mods.final_,
+                const_: mods.const_,
+                var_: mods.var_,
+                ty: None,
+                variables: variables.into_boxed_slice(),
+            }));
+        }
         let ty = if mods.var_ {
             None
-        } else if self.at_kw(Keyword::Void) || self.looks_like_type_then_identifier(self.pos) {
+        } else if self.at_kw(Keyword::Void) || self.looks_like_type_then_identifier_em_declaracao(self.pos) {
             Some(self.parse_type()?)
         } else {
             None
@@ -1392,6 +1531,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         if let Some(kind) = self.accessor_follows() {
             let id = self.parse_accessor(mods, start, ty, kind, external_topo)?;
             return Ok(FunctionOrVariables::Function(id));
+        }
+        // `(` sem tipo nem modificadores não abre declaração: um tipo record
+        // pediria um nome depois do `)`. É lixo no topo, e o fasta relata
+        // `expected_executable` e continua no token seguinte (ver
+        // `recover_top_level`), em vez do `missing_identifier` genérico.
+        if ty.is_none() && !mods.algum() && self.at_op(Op::LParen) {
+            return Err(self.erro(codigos::parser::EXPECTED_EXECUTABLE, &[]));
         }
         let name = self.expect_identifier()?;
         if self.at_op(Op::LParen) || self.at_op(Op::Lt) {
@@ -1492,15 +1638,22 @@ impl<'s, 'i> Parser<'s, 'i> {
     // -----------------------------------------------------------------------
 
     /// `{ membros }` de classe, mixin, extension ou extension type.
-    fn parse_class_body(&mut self, class_name: Option<&'s str>) -> PResult<Vec<MemberId>> {
+    /// `primaria` diz se a declaração tem cabeçalho primário: nele, `this`
+    /// e `new` abrem parte de corpo mesmo sem o recurso ligado (o oráculo
+    /// 3.6 silencia pela cascata do cabeçalho, que aceitamos por superconjunto).
+    fn parse_class_body(&mut self, class_name: Option<&'s str>, primaria: bool) -> PResult<Vec<MemberId>> {
         self.expect_op(Op::LBrace)?;
-        self.parse_member_list(class_name)
+        self.parse_member_list(class_name, primaria)
     }
 
     /// Membros até a `}` de fechamento (inclusive), com recuperação por
     /// membro. Um fim de arquivo prematuro registra o erro mas devolve os
     /// membros já lidos.
-    fn parse_member_list(&mut self, class_name: Option<&'s str>) -> PResult<Vec<MemberId>> {
+    fn parse_member_list(
+        &mut self,
+        class_name: Option<&'s str>,
+        primaria: bool,
+    ) -> PResult<Vec<MemberId>> {
         let mut members = Vec::new();
         loop {
             if self.eat_op(Op::RBrace) {
@@ -1511,42 +1664,113 @@ impl<'s, 'i> Parser<'s, 'i> {
                 return Ok(members);
             }
             let start_pos = self.pos;
-            match self.parse_member(class_name) {
+            match self.parse_member(class_name, primaria) {
                 Ok(id) => members.push(id),
-                Err(ParseError) => self.recover_member(start_pos),
+                Err(ParseError) => self.recover_member(start_pos, class_name, primaria, &mut members),
             }
         }
     }
 
     /// Um `classMemberDefinition`: campo, método, acessor, operador ou
     /// construtor. `class_name` decide se `Nome(` é construtor.
-    fn parse_member(&mut self, class_name: Option<&'s str>) -> PResult<MemberId> {
+    fn parse_member(&mut self, class_name: Option<&'s str>, primaria: bool) -> PResult<MemberId> {
         let start = self.span();
         let metadata = self.parse_metadata()?;
+        // `=>` onde um membro era esperado: método sem nome nem parâmetros
+        // (o fasta denuncia os dois no `=>`, sondado no SDK 3.6.2 local).
+        if self.at_op(Op::Arrow) {
+            let span = self.span();
+            self.erro_em(codigos::parser::MISSING_IDENTIFIER, span, &[]);
+            self.erro_em(codigos::parser::MISSING_METHOD_PARAMETERS, span, &[]);
+            return Err(self.pular_membro_quebrado());
+        }
+        let com_recurso = self.features.tem(Feature::PrimaryConstructors);
+        let primarios = com_recurso || primaria;
         // `this` (parte de construtor primário) e `new` (construtor sem o
-        // nome da classe) também iniciam membro, desde a 3.13.
-        if !self.can_start_declaration() && !self.at_kw(Keyword::This) && !self.at_kw(Keyword::New)
+        // nome da classe) também iniciam membro, desde a 3.13 (ou, sem o
+        // recurso, em classe com cabeçalho primário).
+        if !self.can_start_declaration()
+            && !(primarios && self.at_kw(Keyword::This))
+            && !(primarios && self.at_kw(Keyword::New))
         {
             return Err(self.erro(codigos::parser::EXPECTED_CLASS_MEMBER, &[]));
         }
         let augment = self.parse_augment_opt();
         let fstart = self.span();
         let mods = self.parse_modifiers();
-        let primarios = self.features.tem(Feature::PrimaryConstructors);
-        let kind = if self.at_kw(Keyword::This) && !self.at_op_at(1, Op::Dot) {
-            // `this : inits? corpo`: parte de corpo do construtor primário.
+        // `this` abre parte de corpo: com o recurso, qualquer corpo (os
+        // diagnósticos próprios valem); sem ele, só `:`/`;` em classe com
+        // cabeçalho primário (superconjunto silencioso, como o oráculo).
+        // `this => ...` sem o recurso denuncia `this` (o `=>` dá o par).
+        let parte = self.at_kw(Keyword::This)
+            && !self.at_op_at(1, Op::Dot)
+            && (com_recurso
+                || (primaria
+                    && (self.at_op_at(1, Op::Colon) || self.at_op_at(1, Op::Semicolon))));
+        let kind = if parte {
+            // `this : inits? corpo` / `this;`: parte de corpo do construtor
+            // primário.
             self.parse_parte_primaria(fstart)?
-        } else if self.at_kw(Keyword::New)
+        } else if primarios
+            && self.at_kw(Keyword::New)
             && (self.at_op_at(1, Op::LParen) || self.at_identifier_at(1))
         {
             // `new nome?(...)` (3.13): construtor com o nome da classe implícito.
             self.parse_construtor_new(mods, class_name)?
+        } else if !mods.algum() && self.at_kw(Keyword::This) && !self.at_op_at(1, Op::Dot) {
+            // `this` sem parte (`=>`, ...): não abre membro (sondado no SDK
+            // 3.6.2 local); a recuperação denuncia o resto (`=>` dá o par).
+            return Err(self.erro(codigos::parser::EXPECTED_CLASS_MEMBER, &[]));
         } else if self.at_ident("factory")
             && (self.at_identifier_at(1) || (primarios && self.at_op_at(1, Op::LParen)))
         {
             self.parse_constructor(mods, true, class_name)?
         } else if self.constructor_follows(class_name, mods) {
             self.parse_constructor(mods, false, class_name)?
+        } else if self.constructor_com_retorno(class_name) {
+            // `T C(` (C é a classe) ou `T X.Y(` / `T X.Y` sem parênteses:
+            // construtor com tipo de retorno — o fasta relata
+            // `constructor_with_return_type` em T e, sem parênteses,
+            // `missing_method_parameters` em X (sondado no SDK 3.6.2 local).
+            // Sem isso, `augment A(...) : inits` caía no caminho de método
+            // e a cauda falhava em cascata.
+            let tstart = self.span();
+            let _ty = self.parse_type()?;
+            self.erro_em(
+                codigos::parser::CONSTRUCTOR_WITH_RETURN_TYPE,
+                self.span_from(tstart),
+                &[],
+            );
+            if self.constructor_follows(class_name, mods) {
+                self.parse_constructor(mods, false, class_name)?
+            } else if self.metodo_sem_parametros() {
+                // `T X.Y` sem parênteses (`int C.named;`): X é denunciado.
+                let span = self.span();
+                self.erro_em(
+                    codigos::parser::MISSING_METHOD_PARAMETERS,
+                    span,
+                    &[],
+                );
+                return Err(self.pular_membro_quebrado());
+            } else {
+                // Forma exótica (`T get.Y;`): sem regra sondada, só falha
+                // para a recuperação sem novos erros.
+                return Err(ParseError);
+            }
+        } else if self.metodo_sem_parametros() {
+            // `X.Y` / `X.new` sem `(` em membro (`C.named;`, `foo.bar = 1;`,
+            // `C.named : ...`): o fasta relata `missing_method_parameters`
+            // em X (sondado no SDK 3.6.2 local). `X.Y(` é construtor,
+            // `X.Y<` é outro grupo e `X.Y nome` pode ser campo de tipo
+            // prefixado — esses seguem o caminho antigo. O resto do membro
+            // é pulado sem novos erros (cada código tem a sua vez).
+            let span = self.span();
+            self.erro_em(
+                codigos::parser::MISSING_METHOD_PARAMETERS,
+                span,
+                &[],
+            );
+            return Err(self.pular_membro_quebrado());
         } else {
             match self.parse_function_or_variables(mods, fstart, None)? {
                 FunctionOrVariables::Function(id) => MemberKind::Method(id),
@@ -1572,6 +1796,103 @@ impl<'s, 'i> Parser<'s, 'i> {
             kind,
             augment,
         }))
+    }
+
+    /// Pula o resto do membro quebrado até `;` (consumido) ou `}`/fim
+    /// (preservados), sem novos erros — cada código tem a sua vez — e
+    /// devolve a falha para a recuperação continuar depois.
+    fn pular_membro_quebrado(&mut self) -> ParseError {
+        loop {
+            match self.kind() {
+                Kind::Eof | Kind::Op(Op::RBrace) => break,
+                Kind::Op(Op::Semicolon) => {
+                    self.advance();
+                    break;
+                }
+                _ => {
+                    self.advance();
+                }
+            }
+        }
+        ParseError
+    }
+
+    /// `X.Y` / `X.new` sem `(` nem `<` começam aqui, com o membro
+    /// claramente terminado depois (`;`, `=`, `,`, `:`, `=>`, fecho, fim)?
+    /// `get`/`set`/`operator`/`typedef`/`factory` e nomes seguidos de nome
+    /// (`p.Foo x`) seguem o caminho antigo.
+    fn metodo_sem_parametros(&self) -> bool {
+        if !self.at_identifier()
+            || self.at_ident("get")
+            || self.at_ident("set")
+            || self.at_ident("operator")
+            || self.at_ident("typedef")
+            || self.at_ident("factory")
+        {
+            return false;
+        }
+        if !self.at_op_at(1, Op::Dot)
+            || (!self.at_identifier_at(2) && !self.at_kw_at(2, Keyword::New))
+        {
+            return false;
+        }
+        matches!(
+            self.kind_at(3),
+            Kind::Op(
+                Op::Semicolon
+                    | Op::Assign
+                    | Op::Comma
+                    | Op::Colon
+                    | Op::Arrow
+                    | Op::RParen
+                    | Op::RBracket
+                    | Op::RBrace
+            ) | Kind::Eof
+        )
+    }
+
+    /// `T C(` (C é a classe) ou `T X.Y(` começam aqui? `get`/`set`/
+    /// `operator`/`typedef`/`factory` têm caminho próprio e `void` segue o
+    /// antigo; o resto com forma de construtor após o tipo é retorno.
+    fn constructor_com_retorno(&self, class_name: Option<&str>) -> bool {
+        if !self.at_identifier()
+            || self.at_ident("get")
+            || self.at_ident("set")
+            || self.at_ident("operator")
+            || self.at_ident("typedef")
+            || self.at_ident("factory")
+        {
+            return false;
+        }
+        let Some(end) = self.skip_type(self.pos) else {
+            return false;
+        };
+        if self.kind_of(end) != Kind::Ident {
+            return false;
+        }
+        if self.kind_of(end + 1) == Kind::Op(Op::LParen) {
+            return Some(self.text_of(end)) == class_name;
+        }
+        // Com parênteses (`T X.Y(`) o construtor é lido; sem (`T X.Y;`,
+        // `int C.named;`) o X ainda cai na regra do método sem parâmetros.
+        // `X.Y<` é outro grupo e `X.Y nome` pode ser campo prefixado.
+        self.kind_of(end + 1) == Kind::Op(Op::Dot)
+            && (self.kind_of(end + 2) == Kind::Ident
+                || self.kind_of(end + 2) == Kind::Keyword(Keyword::New))
+            && (self.kind_of(end + 3) == Kind::Op(Op::LParen)
+                || matches!(
+                    self.kind_of(end + 3),
+                    Kind::Op(
+                        Op::Semicolon
+                            | Op::Assign
+                            | Op::Comma
+                            | Op::Colon
+                            | Op::Arrow
+                            | Op::RParen
+                            | Op::RBracket
+                            | Op::RBrace
+                    ) | Kind::Eof
+                ))
     }
 
     /// `Nome(` com o nome da classe (ou após `const`), ou `Nome.x(`.
@@ -1696,7 +2017,17 @@ impl<'s, 'i> Parser<'s, 'i> {
         let parameters = self.parse_formal_parameters()?;
         let mut initializers = Vec::new();
         let mut redirect = None;
-        let body = if factory && self.eat_op(Op::Assign) {
+        let body = if self.at_op(Op::Assign) {
+            let eq = self.advance();
+            if !factory {
+                // `Foo() = Bar;` sem `factory`: o alvo é lido normalmente e
+                // só o `=` é denunciado (fasta 3.6.2, sem cascata).
+                self.erro_em(
+                    codigos::parser::REDIRECTION_IN_NON_FACTORY_CONSTRUCTOR,
+                    eq.span,
+                    &[],
+                );
+            }
             let rstart = self.span();
             let ty = self.parse_type()?;
             let constructor = if self.eat_op(Op::Dot) {
@@ -2337,6 +2668,379 @@ mod tests {
         let out = parse("; } class A {}", &mut names);
         assert_eq!(out.diagnostics.len(), 2, "{:?}", out.diagnostics);
         assert_eq!(out.unit.declarations.len(), 1);
+    }
+
+    /// Membro inválido no estilo do fasta: um erro por token, sem engolir o
+    /// membro válido seguinte (sondado no SDK 3.6.2 local: `42` dá um único
+    /// `EXPECTED_CLASS_MEMBER` e `int x` sobrevive; idem `;` e `)`).
+    #[test]
+    fn membro_fasta_token_solto_pula_um_e_preserva_valido() {
+        use dartforge_diagnostics::codigos::parser as c;
+
+        for (lixo, inicio, fim) in [("42", 12, 14), (";", 12, 13), (")", 12, 13)] {
+            let fonte = format!("class C {{\n  {lixo}\n  int x = 1;\n}}\n");
+            let mut nomes = Interner::new();
+            let out = parse(&fonte, &mut nomes);
+            assert_eq!(out.diagnostics.len(), 1, "{fonte}: {:?}", out.diagnostics);
+            let unico = &out.diagnostics[0];
+            assert_eq!(unico.code, Some(c::EXPECTED_CLASS_MEMBER), "{fonte}");
+            assert_eq!((unico.span.start, unico.span.end), (inicio, fim), "{fonte}");
+            assert_eq!(out.unit.declarations.len(), 1, "{fonte}");
+            let campo = match member(&out, class(&out, 0), 0) {
+                MemberKind::Field(lista) => lista,
+                outro => panic!("{fonte}: {outro:?}"),
+            };
+            assert_eq!(text(&nomes, campo.variables[0].name), "x", "{fonte}");
+        }
+    }
+
+    /// Falha com progresso ressincroniza na fronteira de membro: o `;` que
+    /// falta é apontado no token anterior (`1`) e a análise recomeça em
+    /// `garbage` (que vira um campo), sem engolir o `var y` — antes, a
+    /// recuperação pulava `garbage;` inteiro (fasta 3.6.2: `EXPECTED_TOKEN`
+    /// em `1`; a declaração quebrada `var x = 1 ...` é descartada nos dois).
+    #[test]
+    fn membro_fasta_fronteira_nao_engole_valido() {
+        use dartforge_diagnostics::codigos::parser as c;
+
+        let fonte = "class C {\n  var x = 1 garbage;\n  var y = 2;\n}\n";
+        let mut nomes = Interner::new();
+        let out = parse(fonte, &mut nomes);
+        assert!(
+            out.diagnostics.iter().any(|d|
+                d.code == Some(c::EXPECTED_TOKEN)
+                    && d.span.start == 20
+                    && d.span.end == 21
+                    && d.message == "Expected to find ';'."),
+            "{fonte}: {:?}",
+            out.diagnostics
+        );
+        let classe = class(&out, 0);
+        let nomes_campos: Vec<_> = classe.members.iter().map(|m| match &out.ast.member(*m).kind {
+            MemberKind::Field(lista) => text(&nomes, lista.variables[0].name).to_string(),
+            outro => panic!("{fonte}: {outro:?}"),
+        }).collect();
+        assert_eq!(nomes_campos, ["garbage", "y"], "{fonte}: {:?}", out.diagnostics);
+    }
+
+    /// Membros válidos de todas as formas nunca tocam a recuperação.
+    #[test]
+    fn membro_valido_nao_toca_recuperacao() {
+        let mut names = Interner::new();
+        let out = parse_ok(
+            "class C { int x = 1; static var y; C(); C.nomeado(this.x); factory C.f() => C(); get g => x; set s(int v) {} int m() => 1; }",
+            &mut names,
+        );
+        assert_eq!(class(&out, 0).members.len(), 8);
+    }
+
+    /// Tentativa especulativa que vinga: sem o recurso, `augment` vira tipo
+    /// e a cauda `get foo => 0;` é retida como membro, sem erro novo — só o
+    /// `expected_token` do membro quebrado.
+    #[test]
+    fn membro_recuperacao_especulativa_retem_cauda_valida() {
+        use crate::features::{LanguageVersion, LibraryFeatures};
+        use crate::parser::parse_com;
+        use dartforge_diagnostics::codigos::parser as c;
+
+        let fonte = "class C {\n  augment int get foo => 0;\n}\n";
+        let mut nomes = Interner::new();
+        let out = parse_com(fonte, &mut nomes, LibraryFeatures::new(LanguageVersion::PISO, &[]));
+        assert_eq!(out.diagnostics.len(), 1, "{fonte}: {:?}", out.diagnostics);
+        assert_eq!(out.diagnostics[0].code, Some(c::EXPECTED_TOKEN));
+        let classe = class(&out, 0);
+        assert_eq!(classe.members.len(), 1, "{fonte}: {:?}", out.diagnostics);
+        match member(&out, classe, 0) {
+            MemberKind::Method(id) => {
+                assert_eq!(text(&nomes, out.ast.function(*id).name.unwrap()), "foo");
+            }
+            outro => panic!("{fonte}: {outro:?}"),
+        }
+    }
+
+    /// Tentativa com tipo de retorno: `augment C.named() : ...` lê o tipo,
+    /// denuncia `constructor_with_return_type` nele e lê o construtor com
+    /// o redirect — sem cascata (sondado no SDK 3.6.2 local: só o erro no
+    /// `augment` mais o semântico de redirect).
+    #[test]
+    fn membro_recuperacao_especulativa_descarta_cascata() {
+        use crate::features::{LanguageVersion, LibraryFeatures};
+        use crate::parser::parse_com;
+        use dartforge_diagnostics::codigos::parser as c;
+
+        let fonte = "class C {\n  augment C.named() : this.missing();\n}\n";
+        let mut nomes = Interner::new();
+        let out = parse_com(fonte, &mut nomes, LibraryFeatures::new(LanguageVersion::PISO, &[]));
+        let codigos: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
+        assert_eq!(
+            codigos,
+            [(Some(c::CONSTRUCTOR_WITH_RETURN_TYPE), (12, 19))],
+            "{fonte}: {:?}",
+            out.diagnostics
+        );
+        assert_eq!(class(&out, 0).members.len(), 1, "{fonte}: {:?}", out.diagnostics);
+    }
+
+    /// Token solto pula um: `[` não engole o resto (`int? a]` continua
+    /// declaração e falta `;` no nome, cada fecho solto é denunciado e o
+    /// `;` final é inesperado; o `var b` do fim sobrevive). Sequência
+    /// sondada no SDK 3.6.2 local, byte a byte nos 5 diagnósticos.
+    #[test]
+    fn topo_fasta_token_solto_pula_um() {
+        use dartforge_diagnostics::codigos::parser as c;
+
+        let fonte = "[int? a]);\nvar b = 0;\n";
+        let mut nomes = Interner::new();
+        let out = parse(fonte, &mut nomes);
+        let codigos: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
+        assert_eq!(
+            codigos,
+            [
+                (Some(c::EXPECTED_EXECUTABLE), (0, 1)),
+                (Some(c::EXPECTED_TOKEN), (6, 7)),
+                (Some(c::EXPECTED_EXECUTABLE), (7, 8)),
+                (Some(c::EXPECTED_EXECUTABLE), (8, 9)),
+                (Some(c::UNEXPECTED_TOKEN), (9, 10)),
+            ],
+            "{fonte}: {:?}",
+            out.diagnostics
+        );
+        assert_eq!(out.unit.declarations.len(), 1);
+        assert!(matches!(decl(&out, 0), DeclKind::Variables(l) if l.variables.iter().any(|v| text(&nomes, v.name) == "b")));
+    }
+
+    /// `Foo() = Bar;` sem `factory`: o alvo é lido e só o `=` é
+    /// denunciado, sem cascata (sondado no SDK 3.6.2 local).
+    #[test]
+    fn membro_fasta_redirect_sem_factory_denuncia_igual() {
+        use dartforge_diagnostics::codigos::parser as c;
+
+        let fonte = "class Foo {\n  Foo()\n  = Bar\n  ;\n}\n";
+        let mut nomes = Interner::new();
+        let out = parse(fonte, &mut nomes);
+        let codigos: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
+        assert_eq!(
+            codigos,
+            [(Some(c::REDIRECTION_IN_NON_FACTORY_CONSTRUCTOR), (22, 23))],
+            "{fonte}: {:?}",
+            out.diagnostics
+        );
+    }
+
+    /// `augment C(...) : campo = e;` com o recurso desligado lê o tipo como
+    /// retorno de construtor (`constructor_with_return_type` nele, sondado
+    /// no SDK 3.6.2 local) e a cauda como inits — sem cascata.
+    #[test]
+    fn membro_fasta_augment_construtor_le_como_construtor() {
+        use dartforge_diagnostics::codigos::parser as c;
+
+        let fonte = "class A {\n  int value;\n  augment A(int? p1) : value = p1;\n}\n";
+        let mut nomes = Interner::new();
+        let out = parse(fonte, &mut nomes);
+        let codigos: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
+        assert_eq!(
+            codigos,
+            [(Some(c::CONSTRUCTOR_WITH_RETURN_TYPE), (25, 32))],
+            "{fonte}: {:?}",
+            out.diagnostics
+        );
+        assert_eq!(class(&out, 0).members.len(), 2, "{fonte}: {:?}", out.diagnostics);
+    }
+
+    /// `this :` em classe COM cabeçalho primário é parte de corpo mesmo sem
+    /// o recurso (o oráculo 3.6 silencia pela cascata do cabeçalho, que
+    /// aceitamos por superconjunto): sem `expected_class_member`.
+    #[test]
+    fn membro_fasta_this_em_classe_primaria_nao_acusa() {
+        use crate::features::{LanguageVersion, LibraryFeatures};
+        use crate::parser::parse_com;
+
+        let fonte = "class A(int x) {\n  A.named() : this(0);\n  this : assert(x > 0);\n}\n";
+        let mut nomes = Interner::new();
+        let out = parse_com(fonte, &mut nomes, LibraryFeatures::new(LanguageVersion::PISO, &[]));
+        assert!(
+            !out.diagnostics.iter().any(|d| d.code == Some(
+                dartforge_diagnostics::codigos::parser::EXPECTED_CLASS_MEMBER
+            )),
+            "{fonte}: {:?}",
+            out.diagnostics
+        );
+        assert_eq!(class(&out, 0).members.len(), 2, "{fonte}: {:?}", out.diagnostics);
+    }
+
+    /// `this => 0;` em enum com cabeçalho primário: `expected_class_member`
+    /// no `this` e o par sem-nome/sem-parâmetros no `=>` (sondado); `=> 0;`
+    /// em classe dá só o par.
+    #[test]
+    fn membro_fasta_this_arrow_denuncia_this_e_seta() {
+        use crate::features::{LanguageVersion, LibraryFeatures};
+        use crate::parser::parse_com;
+        use dartforge_diagnostics::codigos::parser as c;
+
+        let fonte = "enum E() {\n  v;\n  this => 0;\n}\n";
+        let mut nomes = Interner::new();
+        let out = parse_com(fonte, &mut nomes, LibraryFeatures::new(LanguageVersion::PISO, &[]));
+        let codigos: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
+        assert!(
+            codigos.contains(&(Some(c::EXPECTED_CLASS_MEMBER), (18, 22))),
+            "{fonte}: {:?}",
+            out.diagnostics
+        );
+        assert!(
+            codigos.contains(&(Some(c::MISSING_IDENTIFIER), (23, 25))),
+            "{fonte}: {:?}",
+            out.diagnostics
+        );
+        assert!(
+            codigos.contains(&(Some(c::MISSING_METHOD_PARAMETERS), (23, 25))),
+            "{fonte}: {:?}",
+            out.diagnostics
+        );
+
+        let fonte = "class C {\n  => 0;\n}\n";
+        let mut nomes = Interner::new();
+        let out = parse(fonte, &mut nomes);
+        let codigos: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
+        assert_eq!(
+            codigos,
+            [
+                (Some(c::MISSING_IDENTIFIER), (12, 14)),
+                (Some(c::MISSING_METHOD_PARAMETERS), (12, 14)),
+            ],
+            "{fonte}: {:?}",
+            out.diagnostics
+        );
+    }
+
+    /// `new foo();` sem o recurso 3.13 é `expected_class_member` no `new`
+    /// (sondado no SDK 3.6.2 local: o recurso nem existia, sem
+    /// `experiment_not_enabled`); com ele ligado, é construtor válido.
+    #[test]
+    fn membro_fasta_new_sem_recurso_e_classe() {
+        use crate::features::{LanguageVersion, LibraryFeatures};
+        use crate::parser::parse_com;
+        use dartforge_diagnostics::codigos::parser as c;
+
+        let fonte = "class C {\n  new foo();\n  static int foo = 0;\n}\n";
+        let mut nomes = Interner::new();
+        let out = parse_com(fonte, &mut nomes, LibraryFeatures::new(LanguageVersion::PISO, &[]));
+        let primeiro = &out.diagnostics[0];
+        assert_eq!(primeiro.code, Some(c::EXPECTED_CLASS_MEMBER), "{fonte}: {:?}", out.diagnostics);
+        assert_eq!((primeiro.span.start, primeiro.span.end), (12, 15), "{fonte}");
+    }
+
+    /// `T X.Y` sem parênteses: os dois erros (`int C.named;`, sondado).
+    #[test]
+    fn membro_fasta_tipo_e_metodo_sem_parametros() {
+        use dartforge_diagnostics::codigos::parser as c;
+
+        let fonte = "class C {\n  int C.named;\n}\n";
+        let mut nomes = Interner::new();
+        let out = parse(fonte, &mut nomes);
+        let codigos: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
+        assert_eq!(
+            codigos,
+            [
+                (Some(c::CONSTRUCTOR_WITH_RETURN_TYPE), (12, 15)),
+                (Some(c::MISSING_METHOD_PARAMETERS), (16, 17)),
+            ],
+            "{fonte}: {:?}",
+            out.diagnostics
+        );
+    }
+
+    /// `X.Y` / `X.new` sem `(` em membro: `missing_method_parameters` em X
+    /// (sondado no SDK 3.6.2 local: `C.named;`, `foo.bar = 1;`,
+    /// `C.named : x = 1;`, `C.new;`).
+    #[test]
+    fn membro_fasta_metodo_sem_parametros() {
+        use dartforge_diagnostics::codigos::parser as c;
+
+        for (membro, inicio, fim) in [
+            ("C.named;", 12, 13),
+            ("foo.bar = 1;", 12, 15),
+            ("C.new;", 12, 13),
+        ] {
+            let fonte = format!("class C {{\n  {membro}\n}}\n");
+            let mut nomes = Interner::new();
+            let out = parse(&fonte, &mut nomes);
+            let primeiro = &out.diagnostics[0];
+            assert_eq!(primeiro.code, Some(c::MISSING_METHOD_PARAMETERS), "{fonte}: {:?}", out.diagnostics);
+            assert_eq!((primeiro.span.start, primeiro.span.end), (inicio, fim), "{fonte}");
+        }
+    }
+
+    /// `foo;`, `foo = 1;`, `foo, bar;` em membro: o nome é campo sem tipo —
+    /// `missing_const_final_var_or_type` nele (salvo `const`/`final`/`var`),
+    /// sondado no SDK 3.6.2 local. Também `static = 1;` e `C;`.
+    #[test]
+    fn membro_fasta_campo_sem_tipo_acusa_no_nome() {
+        use dartforge_diagnostics::codigos::parser as c;
+
+        for (membro, inicio, fim, erros) in [
+            ("foo;", 12, 15, 1),
+            ("foo = 1;", 12, 15, 1),
+            ("foo, bar;", 12, 15, 1),
+            ("static = 1;", 12, 18, 1),
+            ("external;", 12, 20, 1),
+            ("int;", 12, 15, 1),
+            ("const foo;", 0, 0, 0),
+            ("final foo;", 0, 0, 0),
+            ("var foo;", 0, 0, 0),
+        ] {
+            let fonte = format!("class C {{\n  {membro}\n}}\n");
+            let mut nomes = Interner::new();
+            let out = parse(&fonte, &mut nomes);
+            assert_eq!(out.diagnostics.len(), erros, "{fonte}: {:?}", out.diagnostics);
+            if erros == 1 {
+                let unico = &out.diagnostics[0];
+                assert_eq!(unico.code, Some(c::MISSING_CONST_FINAL_VAR_OR_TYPE), "{fonte}");
+                assert_eq!((unico.span.start, unico.span.end), (inicio, fim), "{fonte}");
+            }
+        }
+    }
+    /// `int? ab]` em membro continua declaração: falta `;` no nome e o `]`
+    /// é `expected_class_member` nele (sondado no SDK 3.6.2 local).
+    #[test]
+    fn membro_fasta_tipo_nulo_com_fecho_continua_declaracao() {
+        use dartforge_diagnostics::codigos::parser as c;
+
+        let fonte = "class C {\n  int? ab]\n}\n";
+        let mut nomes = Interner::new();
+        let out = parse(fonte, &mut nomes);
+        let codigos: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
+        assert_eq!(
+            codigos,
+            [
+                (Some(c::EXPECTED_TOKEN), (17, 19)),
+                (Some(c::EXPECTED_CLASS_MEMBER), (19, 20)),
+            ],
+            "{fonte}: {:?}",
+            out.diagnostics
+        );
+        assert_eq!(out.unit.declarations.len(), 1, "{fonte}");
+        assert!(class(&out, 0).members.is_empty(), "{fonte}: {:?}", out.diagnostics);
+    }
+
+    /// `(` sem tipo nem modificadores não abre declaração no topo: é
+    /// `expected_executable`, não `missing_identifier`.
+    #[test]
+    fn topo_fasta_parentese_solto_nao_e_identificador() {
+        use dartforge_diagnostics::codigos::parser as c;
+
+        let fonte = "(42);\nvar b = 0;\n";
+        let mut nomes = Interner::new();
+        let out = parse(fonte, &mut nomes);
+        let primeiro = &out.diagnostics[0];
+        assert_eq!(primeiro.code, Some(c::EXPECTED_EXECUTABLE));
+        assert_eq!((primeiro.span.start, primeiro.span.end), (0, 1));
+        assert!(
+            !out.diagnostics.iter().any(|d| d.code == Some(c::MISSING_IDENTIFIER)),
+            "{fonte}: {:?}",
+            out.diagnostics
+        );
+        let ultimo = out.unit.declarations.len() - 1;
+        assert!(matches!(decl(&out, ultimo), DeclKind::Variables(_)));
     }
 
     #[test]

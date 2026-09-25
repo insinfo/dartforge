@@ -80,6 +80,7 @@ fn moldes_de_tipos() -> Vec<dartforge_types::DiagnosticCode> {
         c::CLASS_INSTANTIATION_ACCESS_TO_UNKNOWN_MEMBER,
         c::NEW_WITH_UNDEFINED_CONSTRUCTOR,
         c::NEW_WITH_UNDEFINED_CONSTRUCTOR_DEFAULT,
+        c::INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR,
         c::INVOCATION_OF_EXTENSION_WITHOUT_CALL,
         c::UNDEFINED_EXTENSION_OPERATOR,
         c::EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER,
@@ -273,6 +274,17 @@ mod testes {
         let c = codificar_tipos(&d, "new");
         assert_eq!(c.code, Some(codigos::compile_time_error::NEW_WITH_UNDEFINED_CONSTRUCTOR));
         assert_eq!(c.message, "The class 'NoUnnamed' doesn't have a constructor named 'new'.");
+    }
+
+    #[test]
+    fn referencia_a_construtor_gerador_de_enum_tem_codigo_proprio() {
+        let d = Diagnostic::new(
+            dartforge_types::codes::INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template,
+            Span { start: 2, end: 7 },
+        );
+        let c = codificar_tipos(&d, "E.new");
+        assert_eq!(c.code, Some(codigos::compile_time_error::INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR));
+        assert_eq!(c.message, "Generative enum constructors can only be used as targets of redirection.");
     }
 
     #[test]

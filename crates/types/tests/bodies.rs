@@ -579,6 +579,135 @@ fn new_ausente_apos_tipo_instanciado_preserva_diagnostico_de_construtor() {
 }
 
 #[test]
+fn referencia_a_construtor_gerador_de_enum_nao_e_construtor_ausente() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let main_dart = tmp.path().join("main.dart");
+    for (fonte, expr, sufixo) in [
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor/InvalidReferenceToGenerativeEnumConstru_f77bae06.dart")), "E.new", ";"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor/InvalidReferenceToGenerativeEnumConstru_24430155.dart")), "E.named", ";"),
+        (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor/InvalidReferenceToGenerativeEnumConstru_3e9c8dca.dart")), "E.named", "();"),
+    ] {
+        let mut interner = Interner::new();
+        fs::write(&main_dart, fonte).unwrap();
+        let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+        let mut table = TypeTable::new();
+        let core = CoreTypes::init(&mut table, &prog, &interner);
+        let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+        let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+        let offset = fonte.find(&format!("  {expr}{sufixo}")).unwrap() + 2;
+        let alvo: Vec<_> = diags.iter().filter(|d| d.span.start as usize == offset).collect();
+        assert_eq!(alvo.len(), 1, "{expr}: {diags:?}");
+        assert!(alvo[0].message.starts_with(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template), "{expr}: {diags:?}");
+        assert_eq!(alvo[0].span.end as usize, offset + expr.len());
+    }
+    let fonte = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor/InvalidReferenceToGenerativeEnumConstru_4790a320.dart"));
+    let mut interner = Interner::new();
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+    assert!(!diags.iter().any(|d| d.message.starts_with(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template)), "{diags:?}");
+}
+
+#[test]
+fn invocacao_de_construtor_gerador_de_enum_com_new_const_e_sem_nome() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let main_dart = tmp.path().join("main.dart");
+    // (arquivo do corpus, trecho com o ponto de partida, deslocamento do
+    // nome do construtor no trecho, comprimento do intervalo do oráculo)
+    for (arquivo, trecho, desloc, comp) in [
+        ("InvalidReferenceToGenerativeEnumConstru_f38943a5.dart", "  E();", 2, 1),
+        ("InvalidReferenceToGenerativeEnumConstru_b2744770.dart", "  new E();", 6, 1),
+        ("InvalidReferenceToGenerativeEnumConstru_3b68350d.dart", "  const E();", 8, 1),
+    ] {
+        let caminho = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor").join(arquivo);
+        let fonte = fs::read_to_string(&caminho).unwrap();
+        let mut interner = Interner::new();
+        fs::write(&main_dart, &fonte).unwrap();
+        let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+        let mut table = TypeTable::new();
+        let core = CoreTypes::init(&mut table, &prog, &interner);
+        let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+        let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+        let offset = fonte.find(trecho).unwrap() + desloc;
+        let alvo: Vec<_> = diags.iter().filter(|d| d.span.start as usize == offset).collect();
+        assert_eq!(alvo.len(), 1, "{arquivo}: {diags:?}");
+        assert!(alvo[0].message.starts_with(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template), "{arquivo}: {diags:?}");
+        assert_eq!(alvo[0].span.end as usize, offset + comp, "{arquivo}: {diags:?}");
+    }
+    // Negativos: factory com o mesmo nome e redirecionamentos para o
+    // gerador em inicializador (`: this(...)`) continuam sem acusar; nome
+    // explícito sem alvo (`const E.foo()`) é de outro código.
+    for arquivo in [
+        "InvalidReferenceToGenerativeEnumConstru_7e4106b1.dart",
+        "InvalidReferenceToGenerativeEnumConstru_4fcf1842.dart",
+        "InvalidReferenceToGenerativeEnumConstru_bd7327c1.dart",
+        "../const_with_undefined_constructor/ConstWithUndefinedConstructor__enum_not_6ecbcaf1.dart",
+        "../const_with_undefined_constructor/ConstWithUndefinedConstructor__enum_not_a082a644.dart",
+        "../const_with_undefined_constructor/ConstWithUndefinedConstructor__enum_unresolved.dart",
+    ] {
+        let caminho = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor").join(arquivo);
+        let fonte = fs::read_to_string(&caminho).unwrap();
+        let mut interner = Interner::new();
+        fs::write(&main_dart, &fonte).unwrap();
+        let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+        let mut table = TypeTable::new();
+        let core = CoreTypes::init(&mut table, &prog, &interner);
+        let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+        let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+        assert!(!diags.iter().any(|d| d.message.starts_with(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template)), "{arquivo}: {diags:?}");
+    }
+}
+
+#[test]
+fn factory_redirecionadora_para_gerador_de_enum_acusa_no_alvo() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let main_dart = tmp.path().join("main.dart");
+    // (arquivo do corpus, trecho com o ponto de partida, deslocamento do
+    // alvo no trecho, comprimento do intervalo do oráculo)
+    for (arquivo, trecho, desloc, comp) in [
+        ("InvalidReferenceToGenerativeEnumConstru_31f7f2b6.dart", " = E.named;", 3, 7),
+        ("InvalidReferenceToGenerativeEnumConstru_f6f82211.dart", " = E;", 3, 1),
+    ] {
+        let caminho = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/diagnosticos/analyzer/invalid_reference_to_generative_enum_constructor").join(arquivo);
+        let fonte = fs::read_to_string(&caminho).unwrap();
+        let mut interner = Interner::new();
+        fs::write(&main_dart, &fonte).unwrap();
+        let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+        let mut table = TypeTable::new();
+        let core = CoreTypes::init(&mut table, &prog, &interner);
+        let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+        let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+        let offset = fonte.find(trecho).unwrap() + desloc;
+        let alvo: Vec<_> = diags.iter().filter(|d| d.span.start as usize == offset).collect();
+        assert_eq!(alvo.len(), 1, "{arquivo}: {diags:?}");
+        assert!(alvo[0].message.starts_with(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template), "{arquivo}: {diags:?}");
+        assert_eq!(alvo[0].span.end as usize, offset + comp, "{arquivo}: {diags:?}");
+    }
+    // Negativos: factory para factory, classe não-enum e nome indefinido
+    // seguem sem acusar deste código.
+    for (nome, fonte) in [
+        ("fabrica_para_fabrica", "enum E { v(); factory E.named() => v; const factory E.other() = E.named; const E(); }"),
+        ("classe_comum", "class C { const C(); const factory C.a() = C; }"),
+        ("nome_indefinido", "enum E { v; const factory E.a() = E.inexistente; const E(); }"),
+    ] {
+        let mut interner = Interner::new();
+        fs::write(&main_dart, fonte).unwrap();
+        let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+        let mut table = TypeTable::new();
+        let core = CoreTypes::init(&mut table, &prog, &interner);
+        let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+        let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+        assert!(!diags.iter().any(|d| d.message.starts_with(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template)), "{nome}: {diags:?}");
+    }
+}
+
+#[test]
 fn membro_de_instancia_em_instanciacao_explicita_tem_codigo_e_span_proprios() {
     let tmp = tempdir().unwrap();
     let sdk = mock_sdk(tmp.path());

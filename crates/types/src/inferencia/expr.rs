@@ -958,7 +958,18 @@ fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
     let instancia_explicita = receptor_de_instanciacao_explicita(inf, cx, e);
     let chave = if Some(name.sym) == inf.sym.new_ { inf.sym.vazio } else { Some(name.sym) };
     let Some(chave) = chave else { return inf.core.dynamic_ };
-    let Some(f) = inf.construtor_de(c, chave) else {
+    let construtor = inf.construtor_de(c, chave);
+    // Construtores geradores de enum só criam as constantes do próprio enum.
+    // O sem nome implícito não aparece na tabela, mas `E.new` também é sua
+    // referência. Factories declaradas no enum podem ser referenciadas.
+    if inf.program.class(c).kind == dartforge_elements::model::ClassKind::Enum
+        && (construtor.is_some_and(|f| !inf.program.function(f).factory)
+            || (construtor.is_none() && Some(name.sym) == inf.sym.new_))
+    {
+        inf.aviso(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template.to_string(), ast(inf, cx).expr(e).span);
+        return inf.core.dynamic_;
+    }
+    let Some(f) = construtor else {
         // `C<T>.new` ainda é uma referência ao construtor sem nome. A
         // ausência dele tem diagnóstico no token `new`, mesmo quando o
         // receptor foi instanciado explicitamente.

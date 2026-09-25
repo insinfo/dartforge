@@ -4,12 +4,12 @@
 //! metadados.
 
 use super::corpo::{Corpo, CtxFuncao, Local};
-use super::expr::{self, declarar_local, inferir, inferir_livre};
+use super::expr::{self, declarar_local, inferir, inferir_livre, RefNome};
 use super::instrucoes;
 use super::BodyInferrer;
 use crate::codes::*;
 use crate::table::{Type, TypeId, TypeParamId};
-use dartforge_elements::model::{ClassId, Element, FunctionElementId, FunctionRef, UnitId, VariableId, VariableRef};
+use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionElementId, FunctionRef, UnitId, VariableId, VariableRef};
 use dartforge_frontend::ast::{self, AsyncModifier, FunctionBody};
 use std::collections::HashMap;
 
@@ -99,6 +99,9 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             }
             cx.tipo_this = this_salvo;
             cx.estatico = estatico_salvo;
+            if let Some(red) = &ctor.redirect {
+                alvo_de_factory_redirecionadora(inf, &mut cx, red);
+            }
             cx.tirar_escopo();
             // Escopo do corpo: parâmetros sem `this.`/`super.`.
             cx.empurrar_escopo();
@@ -158,6 +161,83 @@ fn inicializador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, classe: Option<Clas
                 inferir_livre(inf, cx, *m);
             }
         }
+    }
+}
+
+/// `factory E() = E.named;`: o alvo não pode ser um construtor gerador
+/// de enum — só factories (ou valores) podem ser referenciados assim.
+/// `: this(...)` é outro caminho ([`inicializador`]) e continua legal, e
+/// nome indefinido (`= E.inexistente`) é de outro código
+/// (`const_with_undefined_constructor`) e segue mudo.
+///
+/// O ponto do alvo vem dentro do tipo (`E.named` é um nome de duas
+/// partes; `constructor` só aparece com argumentos de tipo, em
+/// `= E<T>.nome`), então a resolução é sintática — sem inferir nada, sem
+/// recursão.
+fn alvo_de_factory_redirecionadora(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, red: &ast::RedirectTarget) {
+    let (partes, escrito): (Vec<dartforge_intern::SymbolId>, Option<ast::Name>) = {
+        let nodo = inf.program.unit(cx.unit).ast.ty(red.ty);
+        let ast::TypeKind::Named { name, .. } = &nodo.kind else { return };
+        (name.iter().map(|n| n.sym).collect(), red.constructor)
+    };
+    // (classe alvo, nome do construtor; `None` = sem nome)
+    let Some((alvo, ctor)): Option<(ClassId, Option<dartforge_intern::SymbolId>)> = (|| {
+        match partes.as_slice() {
+            [a] => Some((resolver_classe_alvo(inf, cx, *a)?, escrito.map(|n| n.sym))),
+            [a, b] if inf.program.library(cx.lib).prefixes.contains_key(a) => {
+                let el = inf.program.lookup_prefixed(cx.lib, *a, *b)?.getter?;
+                Some((classe_de_elemento(inf, el)?, escrito.map(|n| n.sym)))
+            }
+            [a, b] => {
+                if escrito.is_some() {
+                    return None;
+                }
+                Some((resolver_classe_alvo(inf, cx, *a)?, Some(*b)))
+            }
+            _ => None,
+        }
+    })() else { return };
+    if inf.program.class(alvo).kind != ClassKind::Enum {
+        return;
+    }
+    let vazio = inf.sym.vazio;
+    let chave = match ctor {
+        // `= E.new` é o sem nome escrito por extenso, como no tearoff.
+        Some(s) if Some(s) == inf.sym.new_ => vazio,
+        Some(s) => Some(s),
+        None => vazio,
+    };
+    let Some(chave) = chave else { return };
+    match inf.construtor_de(alvo, chave) {
+        Some(f) if inf.program.function(f).factory => {}
+        Some(_) => {
+            inf.aviso(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template.to_string(), red.span);
+        }
+        // Sem nome implícito = gerador implícito (como em `E()`); nome
+        // explícito sem alvo é outro diagnóstico.
+        None if ctor.is_none() => {
+            inf.aviso(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template.to_string(), red.span);
+        }
+        None => {}
+    }
+}
+
+/// Classe nomeada por um segmento de alvo de factory redirecionadora
+/// (`E` em `= E` ou `= E.nomeado`).
+fn resolver_classe_alvo(inf: &mut BodyInferrer<'_>, cx: &Corpo, nome: dartforge_intern::SymbolId) -> Option<ClassId> {
+    let RefNome::Elemento(el) = expr::resolver_nome(inf, cx, nome, false) else { return None };
+    classe_de_elemento(inf, el)
+}
+
+/// Classe por trás de um elemento de alvo (classe ou typedef de classe).
+fn classe_de_elemento(inf: &mut BodyInferrer<'_>, el: Element) -> Option<ClassId> {
+    match el {
+        Element::Class(c) => Some(c),
+        Element::Typedef(td) => match inf.table.get(inf.outline.typedefs[td.0 as usize].target_type).clone() {
+            Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => Some(class),
+            _ => None,
+        },
+        _ => None,
     }
 }
 
