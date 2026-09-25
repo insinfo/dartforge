@@ -842,6 +842,20 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// (`int? f() {}`). O SDK ainda desfaz `a ? b = c : d` analisando a
     /// expressão; aqui `=` conta como declaração.
     pub(crate) fn looks_like_type_then_identifier(&self, pos: usize) -> bool {
+        self.looks_like_type_then_identifier_com(pos, false)
+    }
+
+    /// Variante de [`Parser::looks_like_type_then_identifier`] para contextos
+    /// que já decidiram por declaração (membro de classe, topo): `int? a]` e
+    /// `int? a}` continuam declaração — o fasta 3.6.2 relata o `;` que falta
+    /// no nome e denuncia o fecho (`expected_class_member`/`expected_executable`
+    /// nele), em vez de cair no ramo de condicional. Em corpo de função a
+    /// forma restrita prevalece (`int ? a : ...` é condicional).
+    pub(crate) fn looks_like_type_then_identifier_em_declaracao(&self, pos: usize) -> bool {
+        self.looks_like_type_then_identifier_com(pos, true)
+    }
+
+    fn looks_like_type_then_identifier_com(&self, pos: usize, fecha_vale: bool) -> bool {
         let Some(end) = self.skip_type(pos) else {
             return false;
         };
@@ -854,7 +868,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             return true;
         }
         if self.kind_of(end - 1) == Kind::Op(Op::Question) {
-            return self.declaration_may_continue_at(end + 1);
+            return self.declaration_may_continue_at(end + 1, fecha_vale);
         }
         true
     }
@@ -886,11 +900,14 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     /// Depois de `T? nome`, o token em `pos` é compatível com uma declaração
-    /// (e não com o ramo de uma condicional).
-    fn declaration_may_continue_at(&self, pos: usize) -> bool {
+    /// (e não com o ramo de uma condicional). Com `fecha_vale` (contexto de
+    /// declaração: membro, topo), `]`/`}` também valem — o `;` é relatado no
+    /// nome e o fecho é denunciado à parte, como faz o fasta.
+    fn declaration_may_continue_at(&self, pos: usize, fecha_vale: bool) -> bool {
         match self.kind_of(pos) {
             Kind::Ident | Kind::Keyword(_) | Kind::Eof => true,
             Kind::Op(Op::Assign | Op::Semicolon | Op::Comma | Op::RParen) => true,
+            Kind::Op(Op::RBracket | Op::RBrace) => fecha_vale,
             Kind::Op(Op::LParen | Op::Lt) => self.looks_like_function_rest(pos),
             _ => false,
         }

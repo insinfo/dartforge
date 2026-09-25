@@ -139,6 +139,15 @@ impl<'s, 'i> Parser<'s, 'i> {
             return Ok(());
         }
         let augment = self.parse_augment_opt();
+        // `;` solto no topo é `unexpected_token` no fasta 3.6.2 ("Unexpected
+        // text ';'"), não `expected_executable` (que vale para `)`, `]` e
+        // `}`). No corpo de classe o `;` continua `expected_class_member`.
+        if self.at_op(Op::Semicolon) {
+            let span = self.span();
+            // Sem consumir: a recuperação sem progresso pula o token, como
+            // nos demais erros de token solto (ver `recover_top_level`).
+            return Err(self.erro_em(codigos::parser::UNEXPECTED_TOKEN, span, &[";"]));
+        }
         if !self.can_start_declaration() {
             return Err(self.erro(codigos::parser::EXPECTED_EXECUTABLE, &[]));
         }
@@ -237,11 +246,14 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
                 Kind::Op(Op::RParen | Op::RBracket) => {
                     // Um fechamento solto no nível zero é, ele próprio, uma
-                    // fronteira: não vale engolir a declaração seguinte.
-                    self.advance();
+                    // fronteira e é denunciado à parte (`expected_executable`
+                    // nele, como faz o fasta): não é consumido aqui — a
+                    // próxima volta do topo o relata e a recuperação sem
+                    // progresso o pula. Avançar esconderia o erro.
                     if depth == 0 {
                         break;
                     }
+                    self.advance();
                     depth -= 1;
                 }
                 Kind::Op(Op::RBrace) => {
@@ -343,11 +355,14 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
                 Kind::Op(Op::RParen | Op::RBracket) => {
                     // Um fechamento solto no nível zero é, ele próprio, uma
-                    // fronteira: não vale engolir o membro seguinte.
-                    self.advance();
+                    // fronteira e é denunciado à parte (`expected_class_member`
+                    // nele, como faz o fasta): não é consumido aqui — a
+                    // próxima volta do corpo o relata e a recuperação sem
+                    // progresso o pula. Avançar esconderia o erro.
                     if depth == 0 {
                         break;
                     }
+                    self.advance();
                     depth -= 1;
                 }
                 Kind::Op(Op::RBrace) => {
@@ -1469,7 +1484,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         let ty = if mods.var_ {
             None
-        } else if self.at_kw(Keyword::Void) || self.looks_like_type_then_identifier(self.pos) {
+        } else if self.at_kw(Keyword::Void) || self.looks_like_type_then_identifier_em_declaracao(self.pos) {
             Some(self.parse_type()?)
         } else {
             None
@@ -2537,7 +2552,9 @@ mod tests {
     }
 
     /// Token solto pula um: `[` não engole o resto (`int? a]` continua
-    /// declaração e falta `;` no tipo, o `var b` do fim sobrevive).
+    /// declaração e falta `;` no nome, cada fecho solto é denunciado e o
+    /// `;` final é inesperado; o `var b` do fim sobrevive). Sequência
+    /// sondada no SDK 3.6.2 local, byte a byte nos 5 diagnósticos.
     #[test]
     fn topo_fasta_token_solto_pula_um() {
         use dartforge_diagnostics::codigos::parser as c;
@@ -2545,21 +2562,44 @@ mod tests {
         let fonte = "[int? a]);\nvar b = 0;\n";
         let mut nomes = Interner::new();
         let out = parse(fonte, &mut nomes);
-        let primeiro = &out.diagnostics[0];
-        assert_eq!(primeiro.code, Some(c::EXPECTED_EXECUTABLE));
-        assert_eq!((primeiro.span.start, primeiro.span.end), (0, 1));
-        assert!(
-            out.diagnostics.iter().any(|d|
-                d.code == Some(c::EXPECTED_TOKEN)
-                    && d.span.start == 1
-                    && d.span.end == 4
-                    && d.message == "Expected to find ';'."),
+        let codigos: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
+        assert_eq!(
+            codigos,
+            [
+                (Some(c::EXPECTED_EXECUTABLE), (0, 1)),
+                (Some(c::EXPECTED_TOKEN), (6, 7)),
+                (Some(c::EXPECTED_EXECUTABLE), (7, 8)),
+                (Some(c::EXPECTED_EXECUTABLE), (8, 9)),
+                (Some(c::UNEXPECTED_TOKEN), (9, 10)),
+            ],
             "{fonte}: {:?}",
             out.diagnostics
         );
-        assert_eq!(out.diagnostics.len(), 4, "{fonte}: {:?}", out.diagnostics);
         assert_eq!(out.unit.declarations.len(), 1);
         assert!(matches!(decl(&out, 0), DeclKind::Variables(l) if l.variables.iter().any(|v| text(&nomes, v.name) == "b")));
+    }
+
+    /// `int? ab]` em membro continua declaração: falta `;` no nome e o `]`
+    /// é `expected_class_member` nele (sondado no SDK 3.6.2 local).
+    #[test]
+    fn membro_fasta_tipo_nulo_com_fecho_continua_declaracao() {
+        use dartforge_diagnostics::codigos::parser as c;
+
+        let fonte = "class C {\n  int? ab]\n}\n";
+        let mut nomes = Interner::new();
+        let out = parse(fonte, &mut nomes);
+        let codigos: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
+        assert_eq!(
+            codigos,
+            [
+                (Some(c::EXPECTED_TOKEN), (17, 19)),
+                (Some(c::EXPECTED_CLASS_MEMBER), (19, 20)),
+            ],
+            "{fonte}: {:?}",
+            out.diagnostics
+        );
+        assert_eq!(out.unit.declarations.len(), 1, "{fonte}");
+        assert!(class(&out, 0).members.is_empty(), "{fonte}: {:?}", out.diagnostics);
     }
 
     /// `(` sem tipo nem modificadores não abre declaração no topo: é
