@@ -706,7 +706,40 @@ Sem um prefixo válido a build do workspace inteiro falha, porque `crates/jit` �
 membro de `crates/*`. Essa é a consequência de o perfil de desenvolvimento ser
 parte do produto, não um extra.
 
-### Por que a ligação é dinâmica, e o que isso custa
+### Linux e macOS
+
+Fora do Windows o `build.rs` escolhe pelo pacote:
+
+* se o prefixo traz a biblioteca compartilhada completa (`libLLVM-22.so`,
+  `libLLVM.dylib` — pacotes do apt.llvm.org e do Homebrew), liga contra ela;
+* senão — o pacote oficial `LLVM-22.1.8-Linux-X64.tar.xz` e o de macOS só
+  trazem as estáticas —, liga **estático**, pelos componentes `orcjit native
+  irreader passes` do `llvm-config --link-static`. Não há o conflito de CRT do
+  Windows (há uma `libc` só). Das bibliotecas do sistema que o pacote declara,
+  `xml2` fica de fora (só o `LLVMWindowsManifest` a usa) e o `zstd`, que vem
+  como caminho absoluto da máquina que empacotou, cai na `libzstd.so.N` do
+  sistema quando o `.a` não existe.
+
+Não há dependência de execução: o `dartforge` não carrega nada do LLVM ao
+iniciar. A biblioteca do SDK da fonte (`libdfsdk_<chave>.so`/`.dylib`) é
+carregada com `dlopen(RTLD_NOW | RTLD_LOCAL)` e os nomes vêm de
+`exportados.def`, como no Windows. `dartforge run`/`reload` acham a biblioteca
+sozinhos (o cache, compilada na primeira vez) quando `DARTFORGE_SDK_DLL` não
+está definida.
+
+Ambiente mínimo, medido num Linux x86-64 (o mesmo que o CI prepara):
+
+```sh
+export LLVM_SYS_221_PREFIX=/opt/LLVM-22.1.8-Linux-X64
+export DARTFORGE_LLVM_DIR=$LLVM_SYS_221_PREFIX
+export DARTFORGE_CLANG=$LLVM_SYS_221_PREFIX/bin/clang
+cargo build --release -p dartforge-cli --features nativo,jit
+```
+
+Com isso o corpus dá 184/224 no JIT e no AOT com o SDK da fonte, 224/224
+saídas idênticas JIT × AOT, e os testes de `crates/jit` passam inteiros.
+
+### Por que a ligação é dinâmica no Windows, e o que isso custa
 
 A feature `no-llvm-linking` do `llvm-sys` está ligada: as diretivas de ligação
 saem do `build.rs` deste crate, que liga `LLVM-C` — a **biblioteca

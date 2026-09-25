@@ -833,6 +833,9 @@ impl Lljit {
         symbols: &[(&CStr, u64)],
         flags: LLVMJITSymbolFlags,
     ) -> Result<(), String> {
+        if symbols.is_empty() {
+            return Ok(());
+        }
         let mut pairs = Vec::with_capacity(symbols.len());
         for (name, address) in symbols {
             // SAFETY: `name` está vivo durante a chamada e `self.handle` é válido.
@@ -1052,10 +1055,56 @@ impl Drop for Lljit {
 
 // ─── SDK da fonte (DLL) ────────────────────────────────────────────────────
 
+#[cfg(windows)]
 #[link(name = "kernel32")]
 unsafe extern "system" {
     fn LoadLibraryW(nome: *const u16) -> *mut std::ffi::c_void;
     fn GetProcAddress(modulo: *mut std::ffi::c_void, nome: *const std::ffi::c_char) -> *mut std::ffi::c_void;
+}
+
+#[cfg(unix)]
+#[cfg_attr(target_os = "linux", link(name = "dl"))]
+unsafe extern "C" {
+    fn dlopen(nome: *const std::ffi::c_char, modo: std::ffi::c_int) -> *mut std::ffi::c_void;
+    fn dlsym(modulo: *mut std::ffi::c_void, nome: *const std::ffi::c_char) -> *mut std::ffi::c_void;
+}
+
+/// `RTLD_NOW | RTLD_LOCAL`: tudo resolvido na carga, e os nomes da biblioteca
+/// não entram no escopo global do processo (o runtime dela não se mistura com
+/// o `dartforge_runtime::abi` deste executável). `RTLD_LOCAL` é 0 no Linux e
+/// 4 no macOS; `RTLD_NOW` é 2 nos dois.
+#[cfg(unix)]
+const RTLD_NOW_LOCAL: std::ffi::c_int = if cfg!(target_os = "macos") { 2 | 4 } else { 2 };
+
+/// Carrega a biblioteca compartilhada do SDK e devolve o handle, ou nulo.
+#[cfg(windows)]
+fn carregar_biblioteca(caminho: &std::path::Path) -> *mut std::ffi::c_void {
+    use std::os::windows::ffi::OsStrExt;
+    let largo: Vec<u16> = caminho.as_os_str().encode_wide().chain(Some(0)).collect();
+    // SAFETY: `largo` é um caminho terminado em zero; a DLL fica carregada
+    // até o fim do processo (nunca é descarregada).
+    unsafe { LoadLibraryW(largo.as_ptr()) }
+}
+
+/// Carrega a biblioteca compartilhada do SDK e devolve o handle, ou nulo.
+#[cfg(unix)]
+fn carregar_biblioteca(caminho: &std::path::Path) -> *mut std::ffi::c_void {
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(c) = CString::new(caminho.as_os_str().as_bytes()) else { return std::ptr::null_mut() };
+    // SAFETY: `c` é um caminho terminado em zero; a biblioteca fica carregada
+    // até o fim do processo (nunca é descarregada).
+    unsafe { dlopen(c.as_ptr(), RTLD_NOW_LOCAL) }
+}
+
+/// O endereço de `nome` na biblioteca `modulo`, ou nulo.
+fn endereco_na_biblioteca(modulo: *mut std::ffi::c_void, nome: &CStr) -> *mut std::ffi::c_void {
+    // SAFETY: `modulo` é um handle devolvido por `carregar_biblioteca` e
+    // `nome` termina em zero.
+    #[cfg(windows)]
+    let p = unsafe { GetProcAddress(modulo, nome.as_ptr()) };
+    #[cfg(unix)]
+    let p = unsafe { dlsym(modulo, nome.as_ptr()) };
+    p
 }
 
 impl Lljit {
@@ -1081,20 +1130,15 @@ impl Lljit {
     /// # Erros
     /// DLL ou lista ausente, ou um nome da lista que a DLL não exporta.
     pub(crate) fn define_symbols_from_dll(&self, dll: &std::path::Path, usados: &[String], publicar_crt: bool) -> Result<Vec<String>, String> {
-        use std::os::windows::ffi::OsStrExt;
         let nomes = Self::exported_symbols_in_dll(dll, usados)?;
-        let largo: Vec<u16> = dll.as_os_str().encode_wide().chain(Some(0)).collect();
-        // SAFETY: `largo` é um caminho terminado em zero; a DLL fica carregada
-        // até o fim do processo (nunca é descarregada).
-        let modulo = unsafe { LoadLibraryW(largo.as_ptr()) };
+        let modulo = carregar_biblioteca(dll);
         if modulo.is_null() {
-            return Err(format!("LoadLibraryW falhou para {}", dll.display()));
+            return Err(format!("não foi possível carregar a biblioteca do SDK {}", dll.display()));
         }
         let mut pares = Vec::with_capacity(nomes.len());
         for n in &nomes {
             let c = CString::new(n.as_str()).map_err(|_| format!("nome com byte nulo: {n}"))?;
-            // SAFETY: `modulo` é o handle carregado acima e `c` termina em zero.
-            let p = unsafe { GetProcAddress(modulo, c.as_ptr()) };
+            let p = endereco_na_biblioteca(modulo, &c);
             if p.is_null() {
                 return Err(format!("a DLL do SDK não exporta {n}"));
             }
@@ -1222,8 +1266,9 @@ pub(crate) fn is_known_external(name: &str) -> bool {
 static FLTUSED: i32 = 0x9875;
 
 /// Símbolos de dado que a sessão publica além do runtime.
+/// Só o COFF referencia `_fltused`; no ELF e no Mach-O a lista é vazia.
 fn crt_data_symbols() -> Vec<(&'static CStr, u64)> {
-    vec![(c"_fltused", std::ptr::addr_of!(FLTUSED) as u64)]
+    if cfg!(windows) { vec![(c"_fltused", std::ptr::addr_of!(FLTUSED) as u64)] } else { Vec::new() }
 }
 
 /// Versão da `LLVM-C.dll` efetivamente carregada, `(major, minor, patch)`.

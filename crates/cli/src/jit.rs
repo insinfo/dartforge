@@ -1,9 +1,10 @@
 //! `dartforge run` e `dartforge reload`: o perfil de desenvolvimento do
 //! backend nativo, pelo JIT ORCv2 (`crates/jit`), atrás do feature `jit`.
 //!
-//! O feature é separado de `nativo` porque liga o `dartforge.exe` à
-//! `LLVM-C.dll` da distribuição completa do LLVM: sem ela o executável não
-//! inicia, nem para `compile-js`. Quem só quer o AOT não paga por isso.
+//! O feature é separado de `nativo` porque liga o `dartforge` ao LLVM da
+//! distribuição completa (no Windows, à `LLVM-C.dll`: sem ela o executável
+//! não inicia, nem para `compile-js`; no Linux e no macOS, estático ou à
+//! `libLLVM` do pacote). Quem só quer o AOT não paga por isso.
 //!
 //! Os dois comandos consomem o **mesmo** LLVM IR que `dartforge aot` entrega ao
 //! Clang (`dartforge_emit_native::emitir_ir`). Ver `docs/JIT.md`.
@@ -16,7 +17,7 @@ type Resultado = Result<(), Box<dyn std::error::Error>>;
 fn desabilitado(comando: &str) -> Resultado {
     Err(format!(
         "`dartforge {comando}` exige o JIT: compile com `cargo build -p dartforge-cli --features jit` \
-         (precisa da distribuição completa do LLVM 22.1.8, com LLVM-C.dll no PATH; ver docs/JIT.md)"
+         (precisa da distribuição completa do LLVM 22.1.8; no Windows, com LLVM-C.dll no PATH; ver docs/JIT.md)"
     )
     .into())
 }
@@ -54,6 +55,20 @@ fn emitir(
         .map_err(|e| e.to_string())?
         .join()
         .map_err(|_| "a emissão do IR abortou".to_string())?
+}
+
+/// A biblioteca compartilhada do SDK da fonte que o IR importa:
+/// `DARTFORGE_SDK_DLL` se definida, senão a do cache (compilada agora se
+/// faltar); `None` quando o IR não usa o SDK da fonte.
+#[cfg(feature = "jit")]
+fn biblioteca_do_sdk(ir: &str) -> Result<Option<PathBuf>, String> {
+    if !dartforge_jit::ir_usa_sdk_da_fonte(ir) {
+        return Ok(None);
+    }
+    if let Some(d) = std::env::var_os("DARTFORGE_SDK_DLL") {
+        return Ok(Some(PathBuf::from(d)));
+    }
+    dartforge_emit_native::sdk_modulo::dll_do_sdk_da_fonte().map(Some)
 }
 
 /// `dartforge run <entrada.dart> [--sdk <lib>] [--packages <cfg>] [--timings]`
@@ -97,7 +112,8 @@ pub fn run(args: &[std::ffi::OsString]) -> Resultado {
         ),
         _ => return Err(usage.into()),
     };
-    let relatorio = dartforge_jit::run_ir(&ir)?;
+    let sdk_dll = biblioteca_do_sdk(&ir)?;
+    let relatorio = dartforge_jit::run_ir_com(&ir, sdk_dll.as_deref())?;
     use std::io::Write;
     let _ = std::io::stdout().flush();
     if timings {
@@ -345,7 +361,8 @@ fn publicar_com_estado(
     let ir = emitir(entrada, sdk, packages)?;
     let emissao = inicio.elapsed();
     if sessao.is_none() {
-        *sessao = Some(dartforge_jit::JitSession::new_for_ir(&ir.texto)?);
+        let sdk_dll = biblioteca_do_sdk(&ir.texto)?;
+        *sessao = Some(dartforge_jit::JitSession::new_for_ir_com(&ir.texto, sdk_dll.as_deref())?);
     }
     if sessao.as_ref().is_some_and(|atual| atual.usa_sdk_da_fonte() != dartforge_jit::ir_usa_sdk_da_fonte(&ir.texto)) {
         return Err("a edição mudou o perfil de runtime da sessão; reinicie dartforge reload".into());

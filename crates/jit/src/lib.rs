@@ -315,10 +315,16 @@ impl JitSession {
     /// Abre uma sessão com o runtime correto para o IR emitido. Programas com
     /// SDK da fonte usam `DARTFORGE_SDK_DLL` e só publicam os exports pedidos.
     pub fn new_for_ir(ir: &str) -> Result<Self, JitError> {
+        Self::new_for_ir_com(ir, None)
+    }
+
+    /// [`JitSession::new_for_ir`] com a biblioteca do SDK da fonte explícita;
+    /// `None` cai em `DARTFORGE_SDK_DLL`.
+    pub fn new_for_ir_com(ir: &str, sdk: Option<&std::path::Path>) -> Result<Self, JitError> {
         if !ir_usa_sdk_da_fonte(ir) {
             return Self::new();
         }
-        let dll = std::env::var_os("DARTFORGE_SDK_DLL").ok_or_else(|| {
+        let dll = sdk.map(|p| p.as_os_str().to_owned()).or_else(|| std::env::var_os("DARTFORGE_SDK_DLL")).ok_or_else(|| {
             JitError::new("sdk", "programa com o SDK da fonte sem DARTFORGE_SDK_DLL", String::new())
         })?;
         let usados: Vec<String> = ir
@@ -759,9 +765,18 @@ pub fn compile_module(name: &str, ir: &str) -> Result<CompiledModule, JitError> 
 /// Propaga as falhas de [`JitSession::new`], [`JitSession::add_ir_module`] e
 /// [`JitSession::run_entry`].
 pub fn run_ir(ir: &str) -> Result<JitReport, JitError> {
+    run_ir_com(ir, None)
+}
+
+/// [`run_ir`] com a biblioteca do SDK da fonte explícita (`None`:
+/// `DARTFORGE_SDK_DLL`).
+///
+/// # Erros
+/// Os mesmos de [`run_ir`].
+pub fn run_ir_com(ir: &str, sdk: Option<&std::path::Path>) -> Result<JitReport, JitError> {
     let started = Instant::now();
     let phase = Instant::now();
-    let mut session = JitSession::new_for_ir(ir)?;
+    let mut session = JitSession::new_for_ir_com(ir, sdk)?;
     let session_time = phase.elapsed();
     let module = session.add_ir_module("dartforge", ir)?;
     let entry = if session.usa_sdk_da_fonte() { session.run_main()? } else { session.run_entry()? };
