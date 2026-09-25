@@ -266,8 +266,11 @@ nome, com espécie e com restrição pelo tipo do receptor:
   **seletor vivo para ela** — `foo` para leitura e chamada, `foo_=` para
   escrita, as mesmas chaves do `instance_members`;
 * cada uso registra o cone do receptor: `x.foo` com `x: T` mantém `foo` vivo
-  só nas classes subtipo de `T` (ela mesma, subclasses, mixins, implementos
-  e `on`); `nome` solto usa a classe envolvente (`this` implícito);
+  nas classes alcançáveis de `T` — ela mesma, as superclasses que ela herda
+  (o membro mora no dono, não no receptor), as subclasses que a sobrescrevem
+  e a hierarquia que um subtipo instanciado de `T` traz; `nome` solto usa a
+  classe envolvente (`this` implícito) e só em despacho real (local,
+  parâmetro, topo e estático não viram seletor de instância);
   receptor `dynamic` ou desconhecido (lacuna de inferência) registra o
   seletor irrestrito, que vale para toda classe instanciada;
 * a escrita exata vem do alvo do `Assign` simples (`=` puro), desembrulhado
@@ -290,8 +293,9 @@ que o emissor):
   variável de tipo sem classe no limite e tipo não inferido valem o seletor
   irrestrito: nunca se poda por falta de informação. Acesso estático
   (`C.nome`) também é irrestrito;
-* todo nome de membro escrito na AST vira seletor, qualquer que seja o
-  `Resolved`, e os usos estáticos vêm do `Resolved` **e** da resolução por
+* todo nome de membro escrito na AST vira seletor (exceto `nome` solto que o
+  `Resolved` mostra não ser despacho em instância), qualquer que seja o
+  resto da resolução, e os usos estáticos vêm do `Resolved` **e** da resolução por
   nome no escopo;
 * extensões por nome;
 * operadores, membros de `Object` e `call` sempre vivos em classe

@@ -51,8 +51,11 @@ impl Vivos for Adaptador<'_> {
         self.stub || self.mundo.seletor(nome) || self.mundo.tem_restricao(nome)
     }
     fn seletor_escrita(&self, nome_base: &str) -> bool {
-        // A escrita vive pela chave do setter no `instance_members`.
-        self.stub || self.mundo.seletor(&format!("{nome_base}_="))
+        // A escrita vive pela chave do setter no `instance_members`, irrestrita
+        // ou restrita a qualquer cone (como em `seletor`, acima): `p.modo = v`
+        // com `p: Proxy` só registra `modo_=` no cone de `Proxy`.
+        let chave = format!("{nome_base}_=");
+        self.stub || self.mundo.seletor(&chave) || self.mundo.tem_restricao(&chave)
     }
     fn tearoff_ctor(&self, f: FunctionElementId) -> bool {
         self.stub || self.mundo.tearoff_de_construtor(f)
