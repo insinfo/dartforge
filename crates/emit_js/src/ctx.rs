@@ -537,6 +537,11 @@ impl<'a> Ctx<'a> {
         self.filtro.is_none_or(|x| x.seletor(nome))
     }
 
+    /// Nome escrito em algum lugar (`x.nome = v`); sem filtro, sempre.
+    pub fn seletor_escrita(&self, nome_base: &str) -> bool {
+        self.filtro.is_none_or(|x| x.seletor_escrita(nome_base))
+    }
+
     /// Tearoff estático do construtor citado; sem filtro, sempre.
     pub fn tearoff_vivo(&self, f: FunctionElementId) -> bool {
         self.filtro.is_none_or(|x| x.tearoff_ctor(f))

@@ -237,11 +237,69 @@ fn referencias(texto: &str, idents: &HashSet<&str>, classes: &HashSet<String>, o
     }
 }
 
-/// Nomes usados como membro no texto: `.nome`, `[$nome]` e as strings de
-/// `dsend`/`dload`/`dput`/`bind`.
-fn seletores_do_texto(texto: &str, out: &mut HashSet<String>) {
+/// Espécie de um uso de membro no texto: leitura/chamada (`.w`, `.w()`),
+/// escrita (`.w = v`) ou as duas (`.w++`, `.w += v`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Especie {
+    Leitura,
+    Escrita,
+    Ambas,
+}
+
+/// Classifica o que vem depois de `.nome` (ou `[$nome]`, a partir de depois
+/// do `]`): `=` simples é escrita; `++`/`--` e composto (`+=`, `<<=`, `??=`…)
+/// é leitura+escrita; o resto — inclusive `==`/`===` e `=>` — é leitura.
+fn especie_apos(b: &[u8], f: usize) -> Especie {
+    let mut i = f;
+    while i < b.len() && matches!(b[i], b' ' | b'\t' | b'\n' | b'\r') {
+        i += 1;
+    }
+    if b.get(i) == Some(&b'+') && b.get(i + 1) == Some(&b'+') {
+        return Especie::Ambas;
+    }
+    if b.get(i) == Some(&b'-') && b.get(i + 1) == Some(&b'-') {
+        return Especie::Ambas;
+    }
+    let mut j = i;
+    if b.get(j) == Some(&b'?') && b.get(j + 1) == Some(&b'?') {
+        j += 2;
+    } else {
+        while matches!(b.get(j).copied(), Some(b'+' | b'-' | b'*' | b'/' | b'%' | b'&' | b'|' | b'^' | b'<' | b'>')) {
+            j += 1;
+        }
+    }
+    if b.get(j) != Some(&b'=') {
+        return Especie::Leitura;
+    }
+    if j == i {
+        if b.get(j + 1) == Some(&b'=') || b.get(j + 1) == Some(&b'>') {
+            return Especie::Leitura;
+        }
+        return Especie::Escrita;
+    }
+    Especie::Ambas
+}
+
+/// Nomes usados como membro no texto, por espécie: `.nome`, `[$nome]` e as
+/// strings de `dsend`/`dload`/`dput`/`bind` (`dput` é escrita, o resto é
+/// leitura).
+fn seletores_do_texto(texto: &str, leituras: &mut HashSet<String>, escritas: &mut HashSet<String>) {
     let b = texto.as_bytes();
     let mut i = 0usize;
+    let registra = |nome: &str, e: Especie, leituras: &mut HashSet<String>, escritas: &mut HashSet<String>| {
+        match e {
+            Especie::Leitura => {
+                leituras.insert(nome.to_string());
+            }
+            Especie::Escrita => {
+                escritas.insert(nome.to_string());
+            }
+            Especie::Ambas => {
+                leituras.insert(nome.to_string());
+                escritas.insert(nome.to_string());
+            }
+        }
+    };
     while i < b.len() {
         match b[i] {
             // Conteúdo de string não é acesso a membro (`dart.privateName(L,
@@ -263,21 +321,25 @@ fn seletores_do_texto(texto: &str, out: &mut HashSet<String>) {
                 // `opts.nome` é a leitura de um parâmetro nomeado no prólogo
                 // da função emitida, não acesso a membro.
                 if !(i >= 4 && &b[i - 4..i] == b"opts" && (i == 4 || !e_ident(b[i - 5]))) {
-                    out.insert(texto[i + 1..f].to_string());
+                    let e = especie_apos(b, f);
+                    registra(&texto[i + 1..f], e, leituras, escritas);
                 }
                 i = f;
             }
             b'[' if i + 2 < b.len() && b[i + 1] == b'$' => {
                 let f = ident_em(b, i + 2);
                 if b.get(f) == Some(&b']') {
-                    out.insert(texto[i + 2..f].to_string());
+                    let e = especie_apos(b, f + 1);
+                    registra(&texto[i + 2..f], e, leituras, escritas);
                 }
                 i = f.max(i + 1);
             }
             _ => i += 1,
         }
     }
-    out.extend(crate::sdk::seletores_dinamicos(texto));
+    let (leituras_d, escritas_d) = crate::sdk::seletores_dinamicos_por_especie(texto);
+    leituras.extend(leituras_d);
+    escritas.extend(escritas_d);
 }
 
 /// Identificador JS → biblioteca, lido do `dart.trackLibraries("…", {"uri":
@@ -319,25 +381,53 @@ pub fn conferir(modulos: &[(String, String)], libs: &HashMap<String, LibraryId>,
             faltas.sem_elemento.push(r.clone());
         }
     }
-    // Seletores do texto que são membros podados de classes instanciadas.
-    let mut sels: HashSet<String> = HashSet::new();
+    // Seletores do texto que são membros podados de classes instanciadas,
+    // por espécie: leitura cura getter/método, escrita cura setter. Uma
+    // leitura nunca ressuscita um setter — é a precisão que o mundo apura.
+    // A cura é por (tipo, seletor): se o nome só vive restrito aos cones de
+    // outras classes, a poda aqui é o desenho da restrição pelo receptor —
+    // e o modo stub (`--verificar-stub`, saída 97) denuncia se ela estiver
+    // errada na execução. Só volta como raiz irrestrita o que o mundo diz
+    // viver em toda parte (lacuna: devia estar vivo e não está) ou o que
+    // ninguém registrou (uso que a análise não viu).
+    let mut sel_l: HashSet<String> = HashSet::new();
+    let mut sel_e: HashSet<String> = HashSet::new();
     for (_, t) in modulos {
-        seletores_do_texto(t, &mut sels);
+        seletores_do_texto(t, &mut sel_l, &mut sel_e);
     }
     let mut novos: HashSet<String> = HashSet::new();
     for (i, c) in program.classes.iter().enumerate() {
         if program.library(c.library).is_sdk || mundo.classe(ClassId(i as u32)) != NivelClasse::Instanciada {
             continue;
         }
-        for &f in c.instance_members.values() {
+        for (&chave, &f) in c.instance_members.iter() {
             let func = program.function(f);
             if mundo.funcao(f) || func.abstract_ {
                 continue;
             }
-            let n = interner.resolve(func.name);
-            let js = dartforge_emit_js::body::js_member_name(n);
-            if sels.contains(n) || sels.contains(&js) {
-                novos.insert(n.to_string());
+            // A chave carrega a espécie (`foo_=` é escrita); `==` não termina
+            // em `_=`, então o corte é seguro.
+            let k = interner.resolve(chave);
+            let (base, escrita) = match k.strip_suffix("_=") {
+                Some(b) => (b, true),
+                None => (k, false),
+            };
+            let js = dartforge_emit_js::body::js_member_name(base);
+            let usado = if escrita {
+                sel_e.contains(base) || sel_e.contains(js.as_str())
+            } else {
+                sel_l.contains(base) || sel_l.contains(js.as_str())
+            };
+            if !usado {
+                continue;
+            }
+            let nome = if escrita { format!("{base}_=") } else { base.to_string() };
+            // Cura por (tipo, seletor): o membro devia estar vivo no cone da
+            // classe, ou ninguém registrou o nome (uso que a análise não
+            // viu) — lacuna, volta como raiz irrestrita. Nome só restrito
+            // aos cones de outras classes é poda de desenho, não cura.
+            if mundo.seletor_vivo_para(program, &nome, ClassId(i as u32)) || !mundo.tem_restricao(&nome) {
+                novos.insert(nome);
             }
         }
     }
@@ -473,8 +563,12 @@ mod testes {
 
     #[test]
     fn seletores_de_texto() {
-        let mut s = HashSet::new();
-        seletores_do_texto("a.foo(); b[$bar]; dart.dsend(o, \"baz\", []);", &mut s);
-        assert!(s.contains("foo") && s.contains("bar") && s.contains("baz"), "{s:?}");
+        let mut l = HashSet::new();
+        let mut e = HashSet::new();
+        seletores_do_texto("a.foo(); b[$bar]; dart.dsend(o, \"baz\", []); q.qux = 1; r.cor += 2; s.ok == 3;", &mut l, &mut e);
+        assert!(l.contains("foo") && l.contains("bar") && l.contains("baz"), "{l:?} {e:?}");
+        assert!(!l.contains("qux") && e.contains("qux"), "{l:?} {e:?}");
+        assert!(l.contains("cor") && e.contains("cor"), "{l:?} {e:?}");
+        assert!(l.contains("ok") && !e.contains("ok"), "{l:?} {e:?}");
     }
 }

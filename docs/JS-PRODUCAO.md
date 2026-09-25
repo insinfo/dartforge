@@ -259,11 +259,25 @@ antes; o teste `emit_js_producao/tests/identidade.rs` e a comparação de
 todo o corpus com o binário de `main` o provam. O texto não decide nada. Ele
 só **fiscaliza** (abaixo).
 
-**O algoritmo** é o do `ResolutionWorldBuilder` (§1.1). A primeira versão é
-por nome:
+**O algoritmo** é o do `ResolutionWorldBuilder` (§1.1). Os seletores são por
+nome, com espécie e com restrição pelo tipo do receptor:
 
-* um membro de instância vive se a classe é **instanciada** e o nome é
-  **seletor vivo**;
+* um membro de instância vive se a classe é **instanciada** e a sua chave é
+  **seletor vivo para ela** — `foo` para leitura e chamada, `foo_=` para
+  escrita, as mesmas chaves do `instance_members`;
+* cada uso registra o cone do receptor: `x.foo` com `x: T` mantém `foo` vivo
+  nas classes alcançáveis de `T` — ela mesma, as superclasses que ela herda
+  (o membro mora no dono, não no receptor), as subclasses que a sobrescrevem
+  e a hierarquia que um subtipo instanciado de `T` traz; `nome` solto usa a
+  classe envolvente (`this` implícito) e só em despacho real (local,
+  parâmetro, topo e estático não viram seletor de instância);
+  receptor `dynamic` ou desconhecido (lacuna de inferência) registra o
+  seletor irrestrito, que vale para toda classe instanciada;
+* a escrita exata vem do alvo do `Assign` simples (`=` puro), desembrulhado
+  de parênteses; composto (`+=`), `++`/`--` e alvo de `for-in` registram as
+  duas espécies; o `Resolved` já distingue getter de setter onde existe;
+* nomes vindos de fora do programa (o runtime chamando por string:
+  `dsend`/`dput`…) valem para as duas espécies;
 * instanciar sobe a cadeia de superclasses e os mixins aplicados;
 * o impacto de cada elemento é calculado quando ele entra na fila, então
   código morto nunca é percorrido.
@@ -274,11 +288,14 @@ regras rti, estáticos vivos) e instanciada.
 **Conservadorismo deliberado** (onde a análise não pode ser mais precisa
 que o emissor):
 
-* seletor por **nome**, sem restrição pelo tipo do receptor. O emissor tem
-  inferência e busca de membros próprias, e casar pelo tipo seria podar pelo
-  palpite de uma das duas partes;
-* todo nome de membro escrito na AST vira seletor, qualquer que seja o
-  `Resolved`, e os usos estáticos vêm do `Resolved` **e** da resolução por
+* restrição pelo tipo **só com tipo conhecido e nominal** (`C`, `C?`,
+  extensão). Receptor `dynamic`, `void`, função, record, `FutureOr`,
+  variável de tipo sem classe no limite e tipo não inferido valem o seletor
+  irrestrito: nunca se poda por falta de informação. Acesso estático
+  (`C.nome`) também é irrestrito;
+* todo nome de membro escrito na AST vira seletor (exceto `nome` solto que o
+  `Resolved` mostra não ser despacho em instância), qualquer que seja o
+  resto da resolução, e os usos estáticos vêm do `Resolved` **e** da resolução por
   nome no escopo;
 * extensões por nome;
 * operadores, membros de `Object` e `call` sempre vivos em classe
@@ -303,7 +320,10 @@ coisas:
 * nenhuma referência `L$x.Nome`/`L$x.C.m`/`L$x['k']` pendente;
 * nenhuma receita rti `"x|Nome"` sem a classe;
 * nenhum nome usado como membro no texto (`.x`, `[$x]`, strings de
-  `dsend`) que seja membro podado de classe instanciada.
+  `dsend`) que seja membro podado de classe instanciada — a cura é por
+  (tipo, seletor): só volta como raiz irrestrita o que o mundo diz viver em
+  toda parte ou o que ninguém registrou; membro podado pela restrição do
+  receptor não é curado (é o desenho, e o modo stub denuncia se morder).
 
 O que falta volta como raiz, e o mundo é recalculado: o resultado é ponto
 fixo do mundo **e** do texto. Cada cura é uma lacuna da análise e sai no

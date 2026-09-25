@@ -1365,7 +1365,16 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         m.use_sdk("core");
         let mut se = FnEmitter::new(ctx, m, unit, Some(c), false);
         for (name, mk) in ctx.unimplemented_abstract(c) {
-            if name == "noSuchMethod" || name.starts_with('_') || !ctx.seletor_vivo(&name) {
+            if name == "noSuchMethod" || name.starts_with('_') {
+                continue;
+            }
+            // Setter abstrato: o encaminhador só existe se alguém escreve;
+            // getter e método, se alguém lê ou chama.
+            let vivo = match mk {
+                crate::ctx::MemberKind::Setter(_) => ctx.seletor_escrita(&name),
+                _ => ctx.seletor_vivo(&name),
+            };
+            if !vivo {
                 continue;
             }
             let sym = format!("dart.const(new _internal.Symbol.new({}))", js::string_literal(&name));

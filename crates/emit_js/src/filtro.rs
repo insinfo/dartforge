@@ -36,6 +36,9 @@ pub trait Vivos {
     fn variavel(&self, v: VariableId) -> Estado;
     /// Nome invocado em algum lugar (encaminhadores de `noSuchMethod`).
     fn seletor(&self, nome: &str) -> bool;
+    /// Nome escrito em algum lugar (`x.nome = v`): os encaminhadores de
+    /// `noSuchMethod` para setters abstratos. Sem filtro, sempre.
+    fn seletor_escrita(&self, nome_base: &str) -> bool;
     /// O tearoff estático `_#nome#tearOff` do construtor é citado.
     fn tearoff_ctor(&self, f: FunctionElementId) -> bool;
 }
@@ -54,6 +57,9 @@ impl Vivos for TudoVivo {
         Estado::Viva
     }
     fn seletor(&self, _: &str) -> bool {
+        true
+    }
+    fn seletor_escrita(&self, _: &str) -> bool {
         true
     }
     fn tearoff_ctor(&self, _: FunctionElementId) -> bool {

@@ -14,9 +14,18 @@
 //!
 //! Decisões de conservadorismo (o contrato está em `docs/JS-PRODUCAO.md` §1.7):
 //!
-//! * seletor **por nome**, sem restrição pelo tipo do receptor: a inferência
-//!   ainda tem lacunas e o emissor tem busca própria de membros, então casar
-//!   por tipo seria podar pelo palpite de uma das duas partes;
+//! * seletor por nome **com restrição pelo tipo do receptor**: `foo` chamado
+//!   só em receptores de tipo estático `T` mantém `foo` vivo nas classes
+//!   alcançáveis de `T` — ela mesma, as superclasses que ela herda (o membro
+//!   mora no dono, não no receptor), as subclasses que a sobrescrevem e a
+//!   hierarquia que um subtipo instanciado de `T` traz (mixin aplicado ou
+//!   interface implementada só na subclasse). Receptor dinâmico ou
+//!   desconhecido (`dynamic`, lacuna de inferência) registra o seletor
+//!   irrestrito, como antes — nunca se poda por falta de informação;
+//! * seletor **por espécie**: leitura/chamada (`foo`) e escrita (`foo_=`)
+//!   são seletores distintos, como as chaves do `instance_members`. Nomes
+//!   vindos de fora do programa (o runtime chamando por string) valem para
+//!   as duas espécies; usos no programa registram a espécie exata;
 //! * operadores, membros de `Object` e `call` vivem em toda classe
 //!   instanciada, e também os membros que implementam um supertipo do SDK
 //!   (o runtime pré-compilado chama por esses nomes sem que o programa veja);
@@ -89,6 +98,8 @@ pub struct Estatisticas {
     pub funcoes_vivas: usize,
     pub variaveis_vivas: usize,
     pub seletores: usize,
+    /// Seletores com restrição de receptor (`foo` só em cone de `T`).
+    pub seletores_restritos: usize,
     pub itens_processados: usize,
 }
 
@@ -99,6 +110,10 @@ pub struct Mundo {
     variaveis: Vec<bool>,
     tearoffs: Vec<bool>,
     seletores: HashSet<String>,
+    /// Restrição de mundo fechado pelo tipo do receptor: `nome` chamado só em
+    /// receptores de tipo estático conhecido vive só nos cones listados. A
+    /// lista por nome é ordenada (determinismo).
+    sel_cone: HashMap<String, Vec<ClassId>>,
     causa_fn: Vec<Option<Causa>>,
     causa_classe: Vec<Option<Causa>>,
     causa_var: Vec<Option<Causa>>,
@@ -117,6 +132,38 @@ impl Mundo {
     }
     pub fn seletor(&self, nome: &str) -> bool {
         self.seletores.contains(nome)
+    }
+    /// Algum uso com receptor de tipo conhecido registrou `nome` (mesmo que
+    /// restrito a outro cone). O filtro de encaminhadores usa para não emitir
+    /// de menos; a poda de membros usa [`Mundo::seletor_vivo_para`].
+    pub fn tem_restricao(&self, nome: &str) -> bool {
+        self.sel_cone.contains_key(nome)
+    }
+    /// `nome` mantém vivo um membro da `classe`: seletor irrestrito vale para
+    /// todas; restrito, só para as classes alcançáveis do cone do receptor
+    /// (a mesma regra do ponto fixo, [`Motor::alcanca`]).
+    pub fn seletor_vivo_para(&self, program: &Program, nome: &str, classe: ClassId) -> bool {
+        if self.seletores.contains(nome) {
+            return true;
+        }
+        let Some(cones) = self.sel_cone.get(nome) else { return false };
+        cones.iter().any(|c| self.alcancada(program, classe, *c))
+    }
+    /// A regra de alcance fora do ponto fixo (sem memo): `membro` atende um
+    /// receptor de tipo estático `cone` se é a mesma classe, se um é
+    /// ancestral do outro (herdado ou sobrescrito) ou se algum subtipo
+    /// **instanciado** do cone tem o membro na cadeia (o subtipo traz
+    /// mixin/interface fora da hierarquia do cone).
+    fn alcancada(&self, program: &Program, membro: ClassId, cone: ClassId) -> bool {
+        if contem_na_cadeia(program, membro, cone) || contem_na_cadeia(program, cone, membro) {
+            return true;
+        }
+        self.classes
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| **n == NivelClasse::Instanciada)
+            .map(|(i, _)| ClassId(i as u32))
+            .any(|s| contem_na_cadeia(program, s, cone) && contem_na_cadeia(program, s, membro))
     }
     /// Os seletores vivos, em ordem alfabética (o conjunto é um `HashSet`).
     pub fn seletores(&self) -> impl Iterator<Item = &str> {
@@ -157,7 +204,7 @@ pub fn calcular(e: Entrada<'_>, r: &Raizes) -> Mundo {
         v.sort();
         v
     } {
-        m.novo_seletor(&s);
+        m.novo_seletor_externo(&s);
     }
     let mut todos: Vec<ClassId> = r.classes_todos_os_membros.clone();
     todos.sort();
@@ -202,6 +249,9 @@ pub enum Inconsistencia {
     Variavel(VariableId),
     Classe(ClassId),
     Seletor(String),
+    /// Restrição de receptor (`nome` em cone de `classe`) que o ponto fixo
+    /// não tinha.
+    SeletorRestrito { nome: String, classe: ClassId },
 }
 
 /// `checkEnqueuerConsistency` (`pkg/compiler/lib/src/enqueue.dart:142-156`):
@@ -217,6 +267,9 @@ pub fn conferir(e: Entrada<'_>, r: &Raizes, mundo: &Mundo) -> Vec<Inconsistencia
     m.v_vivo = mundo.variaveis.clone();
     m.tearoff = mundo.tearoffs.clone();
     m.sel = mundo.seletores.clone();
+    for (n, cs) in mundo.sel_cone.iter() {
+        m.sel_cone.insert(n.clone(), cs.iter().copied().collect());
+    }
     for c in &r.classes_todos_os_membros {
         m.todos_membros.insert(*c);
     }
@@ -264,7 +317,44 @@ pub fn conferir(e: Entrada<'_>, r: &Raizes, mundo: &Mundo) -> Vec<Inconsistencia
     let mut novos: Vec<&String> = m.sel.iter().filter(|s| !mundo.seletores.contains(*s)).collect();
     novos.sort();
     out.extend(novos.into_iter().map(|s| Inconsistencia::Seletor(s.clone())));
+    let mut novos_cone: Vec<(&String, ClassId)> = Vec::new();
+    for (n, cs) in m.sel_cone.iter() {
+        for c in cs.iter() {
+            if !mundo.sel_cone.get(n).is_some_and(|v| v.contains(c)) {
+                novos_cone.push((n, *c));
+            }
+        }
+    }
+    novos_cone.sort();
+    out.extend(novos_cone.into_iter().map(|(n, c)| Inconsistencia::SeletorRestrito { nome: n.clone(), classe: c }));
     out
+}
+
+/// `alvo` está na cadeia de supertipos de `classe` (ela mesma, superclasse,
+/// mixins aplicados, interfaces e `on`, transitivamente) — dirigido: `classe`
+/// é subtipo nominal de `alvo`. Só anda na hierarquia de classes, sem
+/// consultar a `TypeTable`: argumentos de tipo são ignorados de propósito
+/// (nível de nome, conservador para genéricos).
+fn contem_na_cadeia(p: &Program, classe: ClassId, alvo: ClassId) -> bool {
+    if classe == alvo {
+        return true;
+    }
+    let mut vistos: HashSet<ClassId> = HashSet::new();
+    let mut pilha = vec![classe];
+    while let Some(k) = pilha.pop() {
+        if !vistos.insert(k) {
+            continue;
+        }
+        if k == alvo {
+            return true;
+        }
+        let c = p.class(k);
+        pilha.extend(c.supertype_class);
+        pilha.extend(c.mixin_classes.iter().copied());
+        pilha.extend(c.interface_classes.iter().copied());
+        pilha.extend(c.on_classes.iter().copied());
+    }
+    false
 }
 
 pub(crate) struct Motor<'a> {
@@ -274,6 +364,11 @@ pub(crate) struct Motor<'a> {
     v_vivo: Vec<bool>,
     tearoff: Vec<bool>,
     sel: HashSet<String>,
+    /// Seletores com receptor de tipo conhecido: nome → classes dos tipos
+    /// estáticos dos receptores (`foo` chamado em `T` vive no cone de `T`).
+    sel_cone: HashMap<String, HashSet<ClassId>>,
+    /// Cadeias de supertipos já calculadas (memo de [`Motor::e_subtipo`]).
+    ancestrais: HashMap<ClassId, HashSet<ClassId>>,
     /// Membros de classes instanciadas cujo nome ainda não é seletor vivo
     /// (`_invokableInstanceMembersByName`, `resolution_world_builder.dart:232`).
     pendentes: HashMap<String, Vec<FunctionElementId>>,
@@ -291,6 +386,10 @@ pub(crate) struct Motor<'a> {
     causa_var: Vec<Option<Causa>>,
     itens: usize,
     extensoes_prontas: bool,
+    /// O alvo de um `Assign` simples sendo percorrido: o membro mais externo
+    /// dele é escrita (`foo_=`), não leitura. Consumido (e zerado) pelo braço
+    /// `Property`/`Identifier`; o resto do alvo continua sendo leitura.
+    pub(crate) alvo_de_escrita: Option<dartforge_frontend::ast::ExprId>,
 }
 
 impl<'a> Motor<'a> {
@@ -315,6 +414,8 @@ impl<'a> Motor<'a> {
             v_vivo: vec![false; p.variables.len()],
             tearoff: vec![false; p.functions.len()],
             sel: HashSet::new(),
+            sel_cone: HashMap::new(),
+            ancestrais: HashMap::new(),
             pendentes: HashMap::new(),
             todos_membros: HashSet::new(),
             fila: VecDeque::new(),
@@ -327,6 +428,7 @@ impl<'a> Motor<'a> {
             causa_var: vec![None; p.variables.len()],
             itens: 0,
             extensoes_prontas: false,
+            alvo_de_escrita: None,
         }
     }
 
@@ -358,6 +460,10 @@ impl<'a> Motor<'a> {
     }
 
     pub(crate) fn usar_variavel(&mut self, v: VariableId) {
+        self.usar_variavel_com_receptor(v, None);
+    }
+
+    pub(crate) fn usar_variavel_com_receptor(&mut self, v: VariableId, receptor: Option<ClassId>) {
         let i = v.0 as usize;
         if i >= self.v_vivo.len() || self.v_vivo[i] {
             return;
@@ -367,10 +473,13 @@ impl<'a> Motor<'a> {
             return;
         }
         // Campo de instância é armazenamento: vive com a classe instanciada,
-        // e o acesso é por seletor. Aqui só entram topo e estáticos.
+        // e o acesso é por seletor. Aqui só entram topo e estáticos. O
+        // `Resolved` não diz se o uso é leitura ou escrita, então vale a
+        // espécie de leitura (a escrita exata vem do alvo do `Assign`); o
+        // pior caso é manter o getter, nunca podar o setter sem registro.
         if var.class.is_some() && !var.static_ && var.extension.is_none() {
             let n = self.nome(var.name).to_string();
-            self.novo_seletor(&n);
+            self.novo_seletor_com_receptor(&n, receptor);
             return;
         }
         self.v_vivo[i] = true;
@@ -388,8 +497,10 @@ impl<'a> Motor<'a> {
     }
 
     pub(crate) fn novo_seletor(&mut self, nome: &str) {
-        // Setter e getter compartilham o seletor (primeira versão, por nome).
-        let nome = nome.strip_suffix("_=").unwrap_or(nome);
+        // Leitura e chamada (`x.foo`, `x.foo()`) valem para o getter e o
+        // método; a escrita (`x.foo = v`) registra `foo_=` à parte (a chave
+        // do setter no `instance_members`). Sem sufixo não há atendimento
+        // entre espécies: um `foo` lido nunca mantém um `set foo` vivo.
         if self.sel.contains(nome) {
             return;
         }
@@ -401,17 +512,173 @@ impl<'a> Motor<'a> {
         }
     }
 
+    /// Nome chamado por fora do programa (`dart.dsend`/`dput` no runtime):
+    /// pode ser leitura ou escrita, então vale para as duas espécies (a de
+    /// escrita é a chave `nome_=` do `instance_members`).
+    pub(crate) fn novo_seletor_externo(&mut self, nome: &str) {
+        self.novo_seletor(nome);
+        if !nome.ends_with('=') {
+            self.novo_seletor(&format!("{nome}_="));
+        }
+    }
+
+    /// Um uso de membro com o tipo estático do receptor conhecido: `None` é o
+    /// comportamento antigo (seletor irrestrito, vale para toda classe
+    /// instanciada); `Some(t)` restringe ao cone de `t` — classes fora da
+    /// hierarquia de `t` não mantêm o membro vivo. Monotônico como o resto do
+    /// ponto fixo: cada chamada nova só acende mais membros, nunca apaga.
+    pub(crate) fn novo_seletor_com_receptor(&mut self, nome: &str, receptor: Option<ClassId>) {
+        let Some(t) = receptor else {
+            self.novo_seletor(nome);
+            return;
+        };
+        if self.sel.contains(nome) {
+            return;
+        }
+        self.sel_cone.entry(nome.to_string()).or_default().insert(t);
+        // Acorda só os pendentes da mesma chave dentro do cone de `t`; o
+        // resto continua pendente (não é poda, é espera).
+        if let Some(pend) = self.pendentes.remove(nome) {
+            let mut ficam = Vec::new();
+            for f in pend {
+                let dentro = match self.e.program.function(f).class {
+                    // Membro de extensão não tem classe dona: vive por nome,
+                    // como antes (a aplicabilidade `on` é do emissor).
+                    None => true,
+                    Some(k) => self.alcanca(k, t),
+                };
+                if dentro {
+                    self.viva_fn(f);
+                } else {
+                    ficam.push(f);
+                }
+            }
+            if !ficam.is_empty() {
+                self.pendentes.insert(nome.to_string(), ficam);
+            }
+        }
+    }
+
+    /// `sup` está na cadeia de supertipos de `sub` (ela mesma, superclasse,
+    /// mixins aplicados, interfaces e `on`, transitivamente) — dirigido, com
+    /// memo. É o [`contem_na_cadeia`] do ponto fixo.
+    pub(crate) fn e_subtipo(&mut self, sub: ClassId, sup: ClassId) -> bool {
+        if sub == sup {
+            return true;
+        }
+        if let Some(a) = self.ancestrais.get(&sub) {
+            return a.contains(&sup);
+        }
+        let p = self.e.program;
+        let mut vistos: HashSet<ClassId> = HashSet::new();
+        let mut pilha = vec![sub];
+        while let Some(k) = pilha.pop() {
+            if !vistos.insert(k) {
+                continue;
+            }
+            let c = p.class(k);
+            pilha.extend(c.supertype_class);
+            pilha.extend(c.mixin_classes.iter().copied());
+            pilha.extend(c.interface_classes.iter().copied());
+            pilha.extend(c.on_classes.iter().copied());
+        }
+        let r = vistos.contains(&sup);
+        self.ancestrais.insert(sub, vistos);
+        r
+    }
+
+    /// Um membro declarado em `membro` atende um receptor de tipo estático
+    /// `cone`: a mesma classe, um herdado (`cone` subtipo do dono — `f` numa
+    /// `Folha` executa o `descreve` do `Raiz`), um sobrescrito (dono subtipo
+    /// do cone) ou um herdado por algum subtipo **instanciado** do cone (o
+    /// subtipo traz mixin/interface fora da hierarquia do cone). Só o que não
+    /// é nenhum dos quatro é poda de desenho.
+    pub(crate) fn alcanca(&mut self, membro: ClassId, cone: ClassId) -> bool {
+        if self.e_subtipo(membro, cone) || self.e_subtipo(cone, membro) {
+            return true;
+        }
+        let insts: Vec<ClassId> = (0..self.classes.len() as u32)
+            .map(ClassId)
+            .filter(|c| self.classes[c.0 as usize] == NivelClasse::Instanciada)
+            .collect();
+        insts.into_iter().any(|s| self.e_subtipo(s, cone) && self.e_subtipo(s, membro))
+    }
+
+    /// O seletor `nome` (irrestrito ou restrito) mantém vivo um membro da
+    /// `classe` instanciada (a regra é [`Motor::alcanca`]).
+    pub(crate) fn seletor_para(&mut self, nome: &str, classe: ClassId) -> bool {
+        if self.sel.contains(nome) {
+            return true;
+        }
+        let cones: Vec<ClassId> = match self.sel_cone.get(nome) {
+            Some(c) => c.iter().copied().collect(),
+            None => return false,
+        };
+        cones.into_iter().any(|c| self.alcanca(classe, c))
+    }
+
+    /// O seletor `nome` vive de algum jeito (irrestrito ou restrito): o que os
+    /// membros de extensão usam, porque eles não têm classe dona para o cone.
+    pub(crate) fn seletor_algum(&self, nome: &str) -> bool {
+        self.sel.contains(nome) || self.sel_cone.contains_key(nome)
+    }
+
+    /// A classe do tipo estático `t`, quando ela existe e é nominal: `C`,
+    /// `C?`, tipo de extensão. `dynamic`, lacuna de inferência, função,
+    /// record, `FutureOr`, variável de tipo sem classe no limite e `Null`/
+    /// `Never`/`void` dão `None` — receptor desconhecido, seletor irrestrito.
+    pub(crate) fn classe_do_tipo(&self, t: dartforge_types::table::TypeId) -> Option<ClassId> {
+        use dartforge_types::table::Type;
+        let mut cur = t;
+        for _ in 0..8 {
+            if cur.0 as usize >= self.e.table.len() {
+                return None;
+            }
+            match self.e.table.get(cur) {
+                Type::Dynamic | Type::Void | Type::Never | Type::Null => return None,
+                Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => return Some(*class),
+                Type::Function { .. } | Type::Record { .. } => return None,
+                Type::TypeParameter { param, .. } => cur = self.e.table.param(*param).bound,
+                Type::FutureOr { .. } | Type::Intersection { .. } => return None,
+            }
+        }
+        None
+    }
+
+    /// A chave do seletor de um membro de instância: `foo` para leitura e
+    /// chamada, `foo_=` para escrita — a mesma chave do `instance_members`.
+    pub(crate) fn chave_membro_instancia(&self, f: FunctionElementId) -> String {
+        let func = self.e.program.function(f);
+        let nome = self.nome(func.name);
+        if func.kind == FunctionKind::Setter {
+            return format!("{nome}_=");
+        }
+        if func.kind == FunctionKind::ImplicitAccessor {
+            if let Some(v) = func.variable {
+                if self.e.program.variable(v).setter == Some(f) {
+                    return format!("{nome}_=");
+                }
+            }
+        }
+        nome.to_string()
+    }
+
     /// Uso de uma função pelo seu elemento: estática, de topo, de extensão ou
-    /// construtor vão direto; membro de instância vira seletor.
+    /// construtor vão direto; membro de instância vira seletor (restrito ao
+    /// cone do `receptor`, quando conhecido).
     pub(crate) fn usar_funcao(&mut self, f: FunctionElementId) {
+        self.usar_funcao_com_receptor(f, None);
+    }
+
+    pub(crate) fn usar_funcao_com_receptor(&mut self, f: FunctionElementId, receptor: Option<ClassId>) {
         let func = self.e.program.function(f);
         match func.kind {
             FunctionKind::Constructor | FunctionKind::SyntheticConstructor => self.usar_construtor(f, false),
             _ => {
                 let instancia = func.class.is_some() && !func.static_ && func.extension.is_none();
                 if instancia {
-                    let n = self.nome(func.name).to_string();
-                    self.novo_seletor(&n);
+                    let n = self.chave_membro_instancia(f);
+                    self.novo_seletor_com_receptor(&n, receptor);
                 } else {
                     if let Some(v) = func.variable {
                         if func.kind == FunctionKind::ImplicitAccessor {
@@ -420,7 +687,7 @@ impl<'a> Motor<'a> {
                         }
                     }
                     if func.extension.is_some() {
-                        let n = self.nome(func.name).to_string();
+                        let n = self.chave_membro_instancia(f);
                         self.novo_seletor(&n);
                     }
                     if let Some(c) = func.class {
@@ -634,25 +901,27 @@ impl<'a> Motor<'a> {
         self.processar_membros(k, false);
     }
 
-    /// Membros de instância de `k` (já instanciada): vivos se o nome é
-    /// seletor vivo ou de protocolo; senão, pendentes por nome.
+    /// Membros de instância de `k` (já instanciada): vivos se a chave é
+    /// seletor vivo **para `k`** (irrestrito ou no cone dela) ou de protocolo;
+    /// senão, pendentes pela chave (`foo` e `foo_=` têm pendências separadas).
     fn processar_membros(&mut self, k: ClassId, so_pendentes: bool) {
         let p = self.e.program;
         let class = p.class(k);
         let todos = self.todos_membros.contains(&k) || class.kind == ClassKind::Enum;
-        let mut membros: Vec<FunctionElementId> = class.instance_members.values().copied().collect();
-        membros.sort();
-        for f in membros {
+        let mut membros: Vec<(dartforge_intern::SymbolId, FunctionElementId)> =
+            class.instance_members.iter().map(|(s, f)| (*s, *f)).collect();
+        membros.sort_by_key(|(_, f)| *f);
+        for (chave, f) in membros {
             let func = p.function(f);
-            let nome = self.nome(func.name);
+            let nome = self.nome(chave).to_string();
             let vive = todos
                 || func.kind == FunctionKind::Operator
-                || self.nomes_universais.contains(nome)
-                || self.sel.contains(nome);
+                || self.nomes_universais.contains(nome.as_str())
+                || self.seletor_para(nome.as_str(), k);
             if vive && !so_pendentes {
                 self.viva_fn(f);
             } else if !vive {
-                self.pendentes.entry(nome.to_string()).or_default().push(f);
+                self.pendentes.entry(nome).or_default().push(f);
             }
         }
     }
@@ -662,7 +931,8 @@ impl<'a> Motor<'a> {
     }
 
     /// Regra (i) do contrato: a implementação, na cadeia de `c`, de todo
-    /// membro de instância declarado num supertipo do SDK de `c`.
+    /// membro de instância declarado num supertipo do SDK de `c`. O casamento
+    /// é pela chave (`foo_=` casa com `set foo`), como nos pendentes.
     fn aplicar_protocolo(&mut self, c: ClassId) {
         let p = self.e.program;
         let mut vistos: HashSet<ClassId> = HashSet::new();
@@ -674,8 +944,8 @@ impl<'a> Motor<'a> {
             }
             let class = p.class(k);
             if !self.e_usuario_classe(k) {
-                for f in class.instance_members.values() {
-                    nomes.insert(self.nome(p.function(*f).name));
+                for s in class.instance_members.keys() {
+                    nomes.insert(self.nome(*s));
                 }
             }
             fila.extend(class.supertype_class);
@@ -698,10 +968,11 @@ impl<'a> Motor<'a> {
             cur = p.class(k).supertype_class;
         }
         for k in alvo {
-            let mut membros: Vec<FunctionElementId> = p.class(k).instance_members.values().copied().collect();
-            membros.sort();
-            for f in membros {
-                if nomes.contains(self.nome(p.function(f).name)) {
+            let mut membros: Vec<(dartforge_intern::SymbolId, FunctionElementId)> =
+                p.class(k).instance_members.iter().map(|(s, f)| (*s, *f)).collect();
+            membros.sort_by_key(|(_, f)| *f);
+            for (chave, f) in membros {
+                if nomes.contains(self.nome(chave)) {
                     self.viva_fn(f);
                 }
             }
@@ -709,9 +980,10 @@ impl<'a> Motor<'a> {
     }
 
     /// Membros de instância de extensões do usuário: donos "sempre
-    /// instanciados", vivos por nome. O emissor resolve extensões por conta
-    /// própria (`call.rs::try_extension_call`), então casar pelo `Resolved`
-    /// seria divergir dele.
+    /// instanciados", vivos por nome (irrestrito **ou** restrito — o membro de
+    /// extensão não tem classe dona para o cone). O emissor resolve extensões
+    /// por conta própria (`call.rs::try_extension_call`), então casar pelo
+    /// `Resolved` seria divergir dele.
     fn inicializar_extensoes(&mut self) {
         if self.extensoes_prontas {
             return;
@@ -722,14 +994,15 @@ impl<'a> Motor<'a> {
             if !self.e_usuario_lib(ext.library) {
                 continue;
             }
-            let mut membros: Vec<FunctionElementId> = ext.instance_members.values().copied().collect();
-            membros.sort();
-            for f in membros {
-                let nome = self.nome(p.function(f).name);
-                if self.sel.contains(nome) || p.function(f).kind == FunctionKind::Operator {
+            let mut membros: Vec<(dartforge_intern::SymbolId, FunctionElementId)> =
+                ext.instance_members.iter().map(|(s, f)| (*s, *f)).collect();
+            membros.sort_by_key(|(_, f)| *f);
+            for (chave, f) in membros {
+                let nome = self.nome(chave).to_string();
+                if self.seletor_algum(nome.as_str()) || p.function(f).kind == FunctionKind::Operator {
                     self.viva_fn(f);
                 } else {
-                    self.pendentes.entry(nome.to_string()).or_default().push(f);
+                    self.pendentes.entry(nome).or_default().push(f);
                 }
             }
         }
@@ -782,13 +1055,21 @@ impl<'a> Motor<'a> {
         }
         est.variaveis_vivas = self.v_vivo.iter().filter(|v| **v).count();
         est.seletores = self.sel.len();
+        est.seletores_restritos = self.sel_cone.len();
         est.itens_processados = self.itens;
+        let mut sel_cone: HashMap<String, Vec<ClassId>> = HashMap::new();
+        for (n, cs) in self.sel_cone {
+            let mut v: Vec<ClassId> = cs.into_iter().collect();
+            v.sort();
+            sel_cone.insert(n, v);
+        }
         Mundo {
             classes: self.classes,
             funcoes: self.f_vivo,
             variaveis: self.v_vivo,
             tearoffs: self.tearoff,
             seletores: self.sel,
+            sel_cone,
             causa_fn: self.causa_fn,
             causa_classe: self.causa_classe,
             causa_var: self.causa_var,
