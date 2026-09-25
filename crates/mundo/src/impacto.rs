@@ -10,8 +10,9 @@
 //!
 //! Três fontes, unidas (nunca uma no lugar da outra):
 //!
-//! 1. todo **nome** de membro escrito (`x.nome`, `nome` solto, seção de
-//!    cascata, campo de padrão de objeto) vira seletor, qualquer que seja a
+//! 1. todo **nome** de membro escrito (`x.nome`, seção de cascata, campo de
+//!    padrão de objeto — e `nome` solto só em despacho real em `this`, nunca
+//!    local, parâmetro, topo ou estático) vira seletor, qualquer que seja a
 //!    resolução — é o que torna o mundo independente da inferência —, com o
 //!    **cone do receptor** quando o tipo estático dele é conhecido (`x: T`
 //!    mantém o membro só nas classes subtipo de `T`; `nome` solto usa a
@@ -36,6 +37,9 @@ pub(crate) struct Contexto {
     pub biblioteca: LibraryId,
     pub classe: Option<ClassId>,
     pub extensao: Option<ExtensionId>,
+    /// Sem `this` (função/método estático, topo, campo estático): `nome`
+    /// solto nunca é despacho em instância, então não restringe cone nenhum.
+    pub sem_this: bool,
 }
 
 /// O que um alvo de `.` denota estaticamente.
@@ -55,11 +59,11 @@ pub(crate) fn de_funcao(m: &mut Motor<'_>, f: FunctionElementId) {
     }
     match m.no_da_funcao(f) {
         FunctionRef::Function { unit, function } => {
-            let ctx = Contexto { unidade: unit, biblioteca: func.library, classe: func.class, extensao: func.extension };
+            let ctx = Contexto { unidade: unit, biblioteca: func.library, classe: func.class, extensao: func.extension, sem_this: func.static_ };
             percorrer_funcao(m, &ctx, function);
         }
         FunctionRef::Constructor { unit, member } => {
-            let ctx = Contexto { unidade: unit, biblioteca: func.library, classe: func.class, extensao: None };
+            let ctx = Contexto { unidade: unit, biblioteca: func.library, classe: func.class, extensao: None, sem_this: false };
             let ast = &p.unit(unit).ast;
             let ast::MemberKind::Constructor(c) = &ast.member(member).kind else { return };
             let Some(k) = func.class else { return };
@@ -132,7 +136,7 @@ pub(crate) fn de_variavel(m: &mut Motor<'_>, v: VariableId) {
         }
     }
     if let Some((unit, Some(init))) = m.no_da_variavel(v) {
-        let ctx = Contexto { unidade: unit, biblioteca: var.library, classe: var.class, extensao: var.extension };
+        let ctx = Contexto { unidade: unit, biblioteca: var.library, classe: var.class, extensao: var.extension, sem_this: var.static_ || var.class.is_none() };
         expr(m, &ctx, init);
     }
 }
@@ -155,7 +159,7 @@ pub(crate) fn de_campos(m: &mut Motor<'_>, c: ClassId) {
             }
         }
         if let Some((unit, Some(init))) = m.no_da_variavel(vid) {
-            let ctx = Contexto { unidade: unit, biblioteca: var.library, classe: Some(c), extensao: None };
+            let ctx = Contexto { unidade: unit, biblioteca: var.library, classe: Some(c), extensao: None, sem_this: false };
             expr(m, &ctx, init);
         }
     }
@@ -167,7 +171,7 @@ pub(crate) fn de_campos(m: &mut Motor<'_>, c: ClassId) {
         let Some(d) = class.decl else { return };
         let ast = &p.unit(d.unit).ast;
         if let ast::DeclKind::Enum(ed) = &ast.decl(d.decl).kind {
-            let ctx = Contexto { unidade: d.unit, biblioteca: class.library, classe: Some(c), extensao: None };
+            let ctx = Contexto { unidade: d.unit, biblioteca: class.library, classe: Some(c), extensao: None, sem_this: false };
             for k in ed.constants.iter() {
                 let nome = k.constructor.map(|n| m.e.interner.resolve(n.sym)).unwrap_or("");
                 m.criar(c, nome, false);
@@ -396,8 +400,58 @@ fn receptor_do_uso(m: &Motor<'_>, ctx: &Contexto, id: ExprId) -> Option<ClassId>
             }
             classe_do_receptor(m, ctx, *target)
         }
-        ExprKind::Identifier(_) => ctx.classe,
+        ExprKind::Identifier(_) => {
+            if ctx.sem_this { None } else { ctx.classe }
+        }
         _ => None,
+    }
+}
+
+/// O que um `nome` solto registra como seletor de instância: nem todo
+/// identificador é despacho em `this` — local, parâmetro, tipo, topo e
+/// estático não são, e registrá-los (ainda que restritos) envenenaria
+/// `tem_restricao` e travaria a cura do verificador nas classes fora do
+/// cone. A resolução decide; sem resolução ou com `dynamic`, o conservador
+/// de antes (restrito à envolvente, ou irrestrito no dinâmico).
+enum Destino {
+    Pular,
+    Registrar(Option<ClassId>),
+}
+
+fn e_membro_de_instancia(m: &Motor<'_>, membro: &MemberRef) -> bool {
+    match membro {
+        MemberRef::Function(f) => {
+            let f = m.e.program.function(*f);
+            !f.static_ && (f.class.is_some() || f.extension.is_some())
+        }
+        MemberRef::Variable(v) => {
+            let v = m.e.program.variable(*v);
+            !v.static_ && (v.class.is_some() || v.extension.is_some())
+        }
+    }
+}
+
+fn destino_do_nome(m: &Motor<'_>, ctx: &Contexto, id: ExprId) -> Destino {
+    let res = m.e.bodies.units.get(ctx.unidade.0 as usize).and_then(|u| u.get_resolved(id));
+    match res {
+        None => Destino::Registrar(if ctx.sem_this { None } else { ctx.classe }),
+        Some(Resolved::Dynamic) => Destino::Registrar(None),
+        Some(
+            Resolved::Local(_)
+            | Resolved::Parameter { .. }
+            | Resolved::TypeParameter(_)
+            | Resolved::Prefix(_)
+            | Resolved::Constructor(_)
+            | Resolved::Element(_)
+            | Resolved::ExtensionMember { .. },
+        ) => Destino::Pular,
+        Some(Resolved::Member { member, .. }) => {
+            if e_membro_de_instancia(m, member) {
+                Destino::Registrar(if ctx.sem_this { None } else { ctx.classe })
+            } else {
+                Destino::Pular
+            }
+        }
     }
 }
 
@@ -408,13 +462,22 @@ fn receptor_do_uso(m: &Motor<'_>, ctx: &Contexto, id: ExprId) -> Option<ClassId>
 fn escrita_no_alvo(m: &mut Motor<'_>, ctx: &Contexto, alvo: ExprId) {
     let e = m.e;
     let ast = &e.program.unit(ctx.unidade).ast;
-    let nome = match &ast.expr(alvo).kind {
-        ExprKind::Property { name, .. } => e.interner.resolve(name.sym),
-        ExprKind::Identifier(n) => e.interner.resolve(n.sym),
-        _ => return,
-    };
-    let receptor = receptor_do_uso(m, ctx, alvo);
-    m.novo_seletor_com_receptor(&format!("{nome}_="), receptor);
+    match &ast.expr(alvo).kind {
+        ExprKind::Property { name, .. } => {
+            let nome = e.interner.resolve(name.sym);
+            let receptor = receptor_do_uso(m, ctx, alvo);
+            m.novo_seletor_com_receptor(&format!("{nome}_="), receptor);
+        }
+        ExprKind::Identifier(n) => {
+            let sym = n.sym;
+            let nome = e.interner.resolve(sym).to_string();
+            match destino_do_nome(m, ctx, alvo) {
+                Destino::Registrar(r) => m.novo_seletor_com_receptor(&format!("{nome}_="), r),
+                Destino::Pular => {}
+            }
+        }
+        _ => {}
+    }
 }
 
 fn for_init(m: &mut Motor<'_>, ctx: &Contexto, i: &ForInit) {
@@ -786,15 +849,21 @@ fn expr(m: &mut Motor<'_>, ctx: &Contexto, id: ExprId) {
         ExprKind::Identifier(n) => {
             // `nome` solto pode ser `this.nome` implícito. No alvo de um
             // `Assign` simples é escrita (`nome_=`, a chave do setter no
-            // `instance_members`); senão, leitura. O cone é o da classe
-            // envolvente (`receptor`, acima).
-            if m.alvo_de_escrita == Some(id) {
+            // `instance_members`); senão, leitura. Só vira seletor de
+            // instância em despacho real (ver `destino_do_nome`); o resto
+            // (local, topo, estático) vive pelo `Resolved` e pelo
+            // `usar_nome`, abaixo.
+            let escrita = if m.alvo_de_escrita == Some(id) {
                 m.alvo_de_escrita = None;
-                let s = e.interner.resolve(n.sym);
-                m.novo_seletor_com_receptor(&format!("{s}_="), receptor);
+                true
             } else {
-                let s = e.interner.resolve(n.sym);
-                m.novo_seletor_com_receptor(s, receptor);
+                false
+            };
+            let s = e.interner.resolve(n.sym);
+            let chave = if escrita { format!("{s}_=") } else { s.to_string() };
+            match destino_do_nome(m, ctx, id) {
+                Destino::Registrar(r) => m.novo_seletor_com_receptor(&chave, r),
+                Destino::Pular => {}
             }
             m.usar_nome(ctx, n.sym);
         }
