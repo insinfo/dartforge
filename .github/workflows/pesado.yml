@@ -34,7 +34,7 @@ on:
       suite:
         description: O que rodar
         type: choice
-        options: [todos, js, producao, limitless-ui, nativo, jit, determinismo, moderno, macros, macros-aot-sonda, custo-zero, analise]
+        options: [todos, js, producao, limitless-ui, nativo, jit, unix, determinismo, moderno, macros, macros-aot-sonda, custo-zero, analise]
         default: todos
       fragmentos:
         description: Fragmentos do corpus nativo (um job cada)
@@ -60,6 +60,8 @@ env:
 jobs:
   compilar:
     name: compilar
+    # `unix` roda só o job `nativo-unix`, que é autocontido.
+    if: (inputs.suite || 'todos') != 'unix'
     runs-on: windows-latest
     timeout-minutes: 60
     outputs:
@@ -530,6 +532,79 @@ jobs:
           CARGO_PROFILE_RELEASE_LTO: 'false'
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
         run: cargo test --locked --release -p dartforge-emit-native --lib producao_e_um_executavel_autocontido -- --ignored --nocapture
+
+  # O backend nativo e o JIT no Linux e no macOS (docs/NATIVO.md §1.1,
+  # docs/JIT.md «Linux e macOS»): o compilador tem de funcionar nos três
+  # sistemas. Job autocontido (não usa os binários Windows do `compilar`):
+  # LLVM 22.1.8 oficial do sistema, compila, roda os testes do emit_native e
+  # do JIT com os ignorados, o corpus nativo com o SDK da fonte e o JIT × AOT
+  # do mesmo IR. Reprova com placar abaixo do piso da matriz ou com qualquer
+  # divergência JIT × AOT.
+  nativo-unix:
+    name: nativo e jit (${{ matrix.nome }})
+    if: contains(fromJSON('["todos","nativo","jit","unix"]'), inputs.suite || 'todos')
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            nome: Linux x86-64
+            piso: 184
+          - os: macos-latest
+            nome: macOS arm64
+            piso: 0
+    env:
+      DARTFORGE_SDK_DA_FONTE: '1'
+      CARGO_PROFILE_RELEASE_LTO: 'false'
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/dart
+      - uses: ./.github/actions/llvm-unix
+      - name: Rust fixado (rust-toolchain.toml)
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: pesado-unix
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Compilar dartforge (nativo, jit), harness e executor do JIT
+        run: cargo build --locked --release -p dartforge-cli --features nativo,jit -p dartforge-diferencial -p dartforge-jit
+      - name: Testes do emit_native (com os ignorados)
+        env:
+          DARTFORGE_TEST_SDK_LIB: ${{ env.DARTFORGE_SDK_LIB }}
+        run: cargo test --locked --release -p dartforge-emit-native -- --include-ignored
+      - name: Testes do JIT (com os ignorados)
+        run: cargo test --locked --release -p dartforge-jit -- --include-ignored
+      - name: Recarga JIT da CLI (com e sem o SDK da fonte)
+        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test reload_estado -- --include-ignored
+      - name: Corpus nativo (AOT) e JIT × AOT
+        shell: bash
+        env:
+          PISO: ${{ matrix.piso }}
+        run: |
+          set -uo pipefail
+          mkdir -p relatorios
+          ./target/release/dartforge-diferencial --nativo --jobs 3 > relatorios/nativo.txt 2>&1
+          echo "nativo: código $?"
+          ./target/release/dartforge-diferencial --jit-aot --jobs 2 > relatorios/jit.txt 2>&1
+          echo "jit: código $?"
+          aot=$(grep -E '^DartForge Nativo: ' relatorios/nativo.txt || true)
+          jit=$(grep -E '^DartForge JIT: ' relatorios/jit.txt || true)
+          par=$(grep -E '^JIT × AOT: ' relatorios/jit.txt || true)
+          { echo "### Nativo e JIT — ${{ matrix.nome }}"; echo; echo '```text'; echo "$aot"; echo "$jit"; echo "$par"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=Nativo ${{ matrix.nome }}::$aot | $jit | $par"
+          [ -n "$aot" ] && [ -n "$jit" ] && [ -n "$par" ] || { echo "::error::relatório sem a linha de placar"; tail -40 relatorios/*.txt; exit 1; }
+          echo "$par" | grep -qE ' 0 divergentes' || { echo "::error::JIT × AOT divergiu: $par"; exit 1; }
+          ok=$(echo "$aot" | sed -E 's/.* ([0-9]+)\/[0-9]+ ok.*/\1/')
+          [ "$ok" -ge "$PISO" ] || { echo "::error::nativo $ok abaixo do piso $PISO"; exit 1; }
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: relatorio-unix-${{ matrix.os }}
+          path: relatorios/
+          if-no-files-found: ignore
 
   # O perfil de DESENVOLVIMENTO do nativo: cada programa pelo JIT ORCv2 e, do
   # MESMO LLVM IR, pelo AOT (Clang + ligação). Exige os dois idênticos programa

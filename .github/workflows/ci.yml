@@ -149,3 +149,75 @@ jobs:
           RUSTDOCFLAGS: '-D warnings -A rustdoc::private_intra_doc_links'
         # --keep-going: um crate que falha não esconde os erros dos outros.
         run: cargo doc --locked --workspace --no-deps --document-private-items --keep-going
+
+  # O backend nativo e o JIT no Linux e no macOS: compilar com os dois
+  # features, os testes do emit_native e do JIT (com os ignorados) e a recarga
+  # pela CLI. O corpus inteiro fica no job `nativo-unix` do pesado.yml.
+  # O Linux usa a libLLVM-22.so do apt.llvm.org com DARTFORGE_LLVM_LINK=shared
+  # (o caminho dinâmico do crates/jit/build.rs); o macOS, o pacote oficial
+  # arm64 em `auto` (estático: o pacote não traz a biblioteca compartilhada).
+  nativo-unix:
+    name: nativo e jit (${{ matrix.nome }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            nome: Linux, libLLVM compartilhada
+          - os: macos-latest
+            nome: macOS arm64
+    env:
+      CARGO_PROFILE_RELEASE_LTO: 'false'
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/dart
+      - name: LLVM 22 do apt.llvm.org (libLLVM-22.so)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+          . /etc/os-release
+          echo "deb http://apt.llvm.org/$VERSION_CODENAME/ llvm-toolchain-$VERSION_CODENAME-22 main" | sudo tee /etc/apt/sources.list.d/llvm-22.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang-22 lld-22 llvm-22-dev libpolly-22-dev libzstd-dev
+          prefixo=/usr/lib/llvm-22
+          ls "$prefixo"/lib/libLLVM*.so*
+          echo "DARTFORGE_CLANG=$prefixo/bin/clang" >> "$GITHUB_ENV"
+          echo "DARTFORGE_LLVM_DIR=$prefixo" >> "$GITHUB_ENV"
+          echo "LLVM_SYS_221_PREFIX=$prefixo" >> "$GITHUB_ENV"
+          echo "DARTFORGE_LLVM_LINK=shared" >> "$GITHUB_ENV"
+      - if: runner.os == 'macOS'
+        uses: ./.github/actions/llvm-unix
+      - name: Rust fixado (rust-toolchain.toml)
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: ci-unix
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Compilar dartforge (nativo, jit)
+        run: cargo build --locked --release -p dartforge-cli --features nativo,jit -p dartforge-jit
+      - name: Testes do emit_native (com os ignorados)
+        env:
+          DARTFORGE_TEST_SDK_LIB: ${{ env.DARTFORGE_SDK_LIB }}
+        run: cargo test --locked --release -p dartforge-emit-native -- --include-ignored
+      - name: Testes do JIT (com os ignorados)
+        run: cargo test --locked --release -p dartforge-jit -- --include-ignored
+      - name: Recarga JIT da CLI (com e sem o SDK da fonte)
+        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test reload_estado -- --include-ignored
+      - name: Olá, mundo — AOT de desenvolvimento, produção e JIT
+        shell: bash
+        env:
+          DARTFORGE_SDK_DA_FONTE: '1'
+        run: |
+          set -euo pipefail
+          d=$(mktemp -d)
+          printf "void main() {\n  print('oi');\n  print([1, 2, 3].map((x) => x * 2).toList());\n}\n" > "$d/main.dart"
+          esperado=$'oi\n[2, 4, 6]'
+          ./target/release/dartforge compile-native "$d/main.dart" -o "$d/dev"
+          [ "$("$d/dev")" = "$esperado" ]
+          ./target/release/dartforge aot "$d/main.dart" "$d/prod" --optimize
+          [ "$("$d/prod")" = "$esperado" ]
+          [ "$(./target/release/dartforge run "$d/main.dart")" = "$esperado" ]
