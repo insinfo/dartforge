@@ -62,19 +62,34 @@ o 3.13.4 (sondas nos testes de `declarations.rs`):
 | `main` antes (oráculo antigo) | 26.133 | 6.464 (24,7%) | 4.337 | 19.190 | 479 |
 | só o oráculo 3.13.4 nos 566 arquivos | 23.030 | 6.735 (29,2%) | 3.066 | 14.816 | 1.479 |
 | + correções do parser (`augment`, intervalos, versão) | 23.030 | 8.866 (38,5%) | 2.636 | 13.755 | 409 |
-| + membros `new`/`this` sem o recurso como o 3.13.4 | 23.030 | **8.992 (39,0%)** | **2.377** | **13.631** | **407** |
+| + membros `new`/`this` sem o recurso como o 3.13.4 | 23.030 | 8.992 (39,0%) | 2.377 | 13.631 | 407 |
+| + códigos oficiais dos erros de construtor primário; nomeado privado sem o recurso | 23.030 | **9.064 (39,4%)** | **2.244** | **13.559** | **407** |
 
 O denominador caiu porque o 3.13.4 não produz a cascata do 3.6.2 nesses
 arquivos. Por código, no fim: `experiment_not_enabled` 1.586/1.736,
 `missing_const_final_var_or_type` 513/541, `expected_token` 912/1.107,
 `expected_class_member` 0 FP (eram 176).
 
-**Próximos alvos, pelo placar:** (1) a tabela de códigos é a do analyzer
-6.11; os erros da 3.13 (`primary_constructor_body_*` e afins) saem sem
-código — `dartforge_sem_codigo`, 142 FP —, e a tabela precisa vir também
-do analyzer 3.13.4; (2) os FN de tipo continuam os maiores
+**Códigos da 3.13.** A tabela do analyzer 6.11 não tinha os erros de
+construtor primário, que saíam sem código (`dartforge_sem_codigo`, 142 FP).
+O gerador (`gerar_codigos`) acrescenta agora um suplemento de 7 códigos do
+3.13.4 no fim da tabela (os índices da 6.11 não mudam), transcritos do
+`messages.yaml` da referência e conferidos contra o oráculo:
+`non_redirecting_generative_constructor_with_primary`,
+`primary_constructor_body_without_declaration`,
+`multiple_primary_constructor_body_declarations`,
+`primary_constructor_body_with_expression_body`,
+`const_primary_constructor_with_body` (bloco e expressão) e
+`primary_constructor_body_with_modifier`; o `covariant` declarante passou a
+`extraneous_modifier_in_primary_constructor` e o nome repetido a
+`duplicate_constructor`, que já existiam. Cada um no token do analyzer (o
+`this`, o nome do construtor, o `{`/`=>`, o `async`). O nomeado privado sem
+nome público, sem o recurso, deixou de ser erro: o 3.13.4 só relata o
+recurso desligado (59 FP). `dartforge_sem_codigo` zerou.
+
+**Próximos alvos, pelo placar:** (1) os FN de tipo continuam os maiores
 (`type_argument_not_matching_bounds` 1.175, `use_of_void_result` 479,
-`unchecked_use_of_nullable_value` 384), e dependem do porte do T1; (3)
+`unchecked_use_of_nullable_value` 384), e dependem do porte do T1; (2)
 `undefined_class` tem 335 FP e `undefined_identifier` 292.
 
 **Outras correções do dia:** o teste nativo
@@ -747,7 +762,8 @@ português na saída**). A tabela (`diagnostics/src/codigos_g.rs`) é gerada do
 `analyzer-6.11.0` da cache do pub: 1.030 códigos — 542
 `CompileTimeErrorCode`, 7 `StaticWarningCode`, 144 `WarningCode`, 8
 `HintCode`, 48 `FfiCode`, 265 `ParserErrorCode`, 12 `ScannerErrorCode`, 4
-`TodoCode`.
+`TodoCode` —, mais 7 códigos de construtor primário do 3.13.4 no fim
+(`SUPLEMENTO_3_13` do gerador, 2026-09-25): 1.037 no total.
 * **Sintaxe**: o lexer e o parser saem com o código, a mensagem e a posição
   do fasta, medidos em sondas: `;` que falta no token anterior, o resto no
   token corrente; fecho que falta no fim do arquivo é o `expected_token` do
