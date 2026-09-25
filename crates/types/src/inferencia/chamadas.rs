@@ -400,7 +400,10 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             // `void` e receptor anulável: as mesmas regras do acesso a
             // propriedade (`expr::propriedade`), na variante de invocação.
             if matches!(inf.table.get(r_ty), crate::table::Type::Void) {
-                inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, name.span, &[]);
+                // Na invocação, o analyzer relata no receptor (`this` em
+                // `this.m()`); no acesso a propriedade, no nome.
+                let sp = inf.span_expr(cx.unit, recv);
+                inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, sp, &[]);
                 let d = inf.core.dynamic_;
                 registrar(inf, cx, target, d);
                 for x in args.args.iter() {

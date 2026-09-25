@@ -65,7 +65,8 @@ o 3.13.4 (sondas nos testes de `declarations.rs`):
 | + membros `new`/`this` sem o recurso como o 3.13.4 | 23.030 | 8.992 (39,0%) | 2.377 | 13.631 | 407 |
 | + códigos oficiais dos erros de construtor primário; nomeado privado sem o recurso | 23.030 | 9.064 (39,4%) | 2.244 | 13.559 | 407 |
 | + bibliotecas da VM (`dart:ffi`, `dart:mirrors`…) visíveis na análise | 23.030 | 9.074 (39,4%) | 1.917 | 13.547 | 409 |
-| + receptor anulável e `void` como o analyzer; promoção em closure (T1) | 23.030 | **9.260 (40,2%)** | **1.776** | **13.275** | 495 |
+| + receptor anulável e `void` como o analyzer; promoção em closure (T1) | 23.030 | 9.260 (40,2%) | 1.776 | 13.275 | 495 |
+| + `use_of_void_result` da invocação no receptor | 23.030 | **9.287 (40,3%)** | **1.776** | **13.275** | **468** |
 
 O denominador caiu porque o 3.13.4 não produz a cascata do 3.6.2 nesses
 arquivos. Por código, no fim: `experiment_not_enabled` 1.586/1.736,
@@ -107,8 +108,10 @@ se o membro não é de `Object` nem de extensão sobre o tipo anulável, o erro
 conforme o nó) — nunca `undefined_*`, mesmo quando o membro também falta
 no tipo não anulável. Receptor `void` dá `use_of_void_result`. Antes, a
 busca tirava a anulabilidade em silêncio (FN) ou relatava `undefined_*`
-(FP). Resultado: `unchecked_use_of_nullable_value` 144 acertos, 13 FP;
-`use_of_void_result` 44 acertos, 0 FP.
+(FP). Na invocação de método com receptor `void`, o analyzer relata no
+receptor (`this` em `this.m()`); no acesso a propriedade, no nome.
+Resultado: `unchecked_use_of_nullable_value` 144 acertos, 13 FP;
+`use_of_void_result` 71 acertos, 0 FP.
 
 **Promoção em closure.** Dois defeitos de fluxo apareceram como FP nos
 projetos reais, cada um conferido no analyzer 3.6.2 e 3.13.4:
