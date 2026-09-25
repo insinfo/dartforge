@@ -1684,9 +1684,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.erro_em(codigos::parser::MISSING_METHOD_PARAMETERS, span, &[]);
             return Err(self.pular_membro_quebrado());
         }
-        let primarios = self.features.tem(Feature::PrimaryConstructors) || primaria;
+        let com_recurso = self.features.tem(Feature::PrimaryConstructors);
+        let primarios = com_recurso || primaria;
         // `this` (parte de construtor primário) e `new` (construtor sem o
-        // nome da classe) também iniciam membro, desde a 3.13.
+        // nome da classe) também iniciam membro, desde a 3.13 (ou, sem o
+        // recurso, em classe com cabeçalho primário).
         if !self.can_start_declaration()
             && !(primarios && self.at_kw(Keyword::This))
             && !(primarios && self.at_kw(Keyword::New))
@@ -1696,13 +1698,18 @@ impl<'s, 'i> Parser<'s, 'i> {
         let augment = self.parse_augment_opt();
         let fstart = self.span();
         let mods = self.parse_modifiers();
-        // `this`/`new` só iniciam membro com o recurso 3.13 ligado; sem ele
-        // o fasta 3.6.2 denuncia `expected_class_member` (sondado: o recurso
-        // nem existia, então não há `experiment_not_enabled` no oráculo).
-        let kind = if primarios && self.at_kw(Keyword::This) && !self.at_op_at(1, Op::Dot) && (self.at_op_at(1, Op::Colon) || self.at_op_at(1, Op::Semicolon)) {
+        // `this` abre parte de corpo: com o recurso, qualquer corpo (os
+        // diagnósticos próprios valem); sem ele, só `:`/`;` em classe com
+        // cabeçalho primário (superconjunto silencioso, como o oráculo).
+        // `this => ...` sem o recurso denuncia `this` (o `=>` dá o par).
+        let parte = self.at_kw(Keyword::This)
+            && !self.at_op_at(1, Op::Dot)
+            && (com_recurso
+                || (primaria
+                    && (self.at_op_at(1, Op::Colon) || self.at_op_at(1, Op::Semicolon))));
+        let kind = if parte {
             // `this : inits? corpo` / `this;`: parte de corpo do construtor
-            // primário. `this => ...` não é parte (sondado: denuncia `this`
-            // e o par sem-nome/sem-parâmetros no `=>`).
+            // primário.
             self.parse_parte_primaria(fstart)?
         } else if primarios
             && self.at_kw(Keyword::New)
