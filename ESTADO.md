@@ -178,13 +178,20 @@ exemplo `enum E(int x) { v(0); ... }`); o relatório marca os grupos 3.6.2
 como oráculo desatualizado. Regravar e auditar esse oráculo é necessário
 antes de usar os 124 casos restantes como defeitos da implementação.
 
-Com os diagnósticos de construtores `const` e o intervalo corrigido de
-atribuição a variável local `final`, [CI 35978288844](https://github.com/insinfo/dartforge/actions/runs/35978288844)
-e [Pesado 35978288847](https://github.com/insinfo/dartforge/actions/runs/35978288847)
-passaram: **5.656/26.133 (21,6%)** na posição exata, 5.367 mensagens iguais,
-4.371 falsos positivos, 20.008 falsos negativos, 469 posições erradas e
-determinismo em 1/4/8 trabalhadores. `const_factory` está 15/15 sem falso
-positivo; `assignment_to_final_local` está 49/60 com 4 posições erradas.
+A integração com os diagnósticos de construtores `const`, a exceção para
+factories `external const` do SDK e a correção do intervalo de atribuição a
+local `final` passou em [CI 35978288844](https://github.com/insinfo/dartforge/actions/runs/35978288844)
+e [Pesado 35978288847](https://github.com/insinfo/dartforge/actions/runs/35978288847):
+**5.656/26.133 (21,6%)** na posição exata, 5.367 mensagens iguais, 4.371
+falsos positivos, 20.008 falsos negativos e 469 posições erradas, com
+determinismo em 1/4/8 trabalhadores. `const_factory` ficou 15/15 sem
+falsos positivos; `const_constructor_with_body`, 25/25 com dois falsos
+positivos. `assignment_to_final_local` ficou 49/60 exatos, quatro com
+posição errada, 38 falsos positivos e sete falsos negativos. O ganho de
+49 posições exatas desse código decorre da correção do intervalo; os 40
+falsos negativos eliminados incluem os 25 e 15 casos dos dois códigos
+`const`. A classificação de atribuições a `const` e `final` de topo e
+getters sem setter ainda não fazia parte dessa rodada.
 
 As regras adicionais de atribuição (`assignment_to_const`, getter sem
 setter e receptor tipado em atribuição composta) passaram na
