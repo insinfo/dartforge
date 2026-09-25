@@ -556,7 +556,6 @@ jobs:
             nome: macOS arm64
             piso: 0
     env:
-      DARTFORGE_SDK_DA_FONTE: '1'
       CARGO_PROFILE_RELEASE_LTO: 'false'
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
     steps:
@@ -583,6 +582,7 @@ jobs:
         shell: bash
         env:
           PISO: ${{ matrix.piso }}
+          DARTFORGE_SDK_DA_FONTE: '1'
         run: |
           set -uo pipefail
           mkdir -p relatorios
