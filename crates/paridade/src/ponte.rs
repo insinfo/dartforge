@@ -78,6 +78,8 @@ fn moldes_de_tipos() -> Vec<dartforge_types::DiagnosticCode> {
         c::CLASS_INSTANTIATION_ACCESS_TO_INSTANCE_MEMBER,
         c::CLASS_INSTANTIATION_ACCESS_TO_STATIC_MEMBER,
         c::CLASS_INSTANTIATION_ACCESS_TO_UNKNOWN_MEMBER,
+        c::NEW_WITH_UNDEFINED_CONSTRUCTOR,
+        c::NEW_WITH_UNDEFINED_CONSTRUCTOR_DEFAULT,
         c::INVOCATION_OF_EXTENSION_WITHOUT_CALL,
         c::UNDEFINED_EXTENSION_OPERATOR,
         c::EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER,
@@ -260,6 +262,17 @@ mod testes {
         let c = codificar_tipos(&d, "foo");
         assert_eq!(c.code, Some(codigos::compile_time_error::ASSIGNMENT_TO_METHOD));
         assert_eq!(c.message, "Methods can't be assigned a value.");
+    }
+
+    #[test]
+    fn construtor_new_ausente_em_instanciacao_explicita() {
+        let d = Diagnostic::new(
+            format!("{}: 'NoUnnamed', 'new'", dartforge_types::codes::NEW_WITH_UNDEFINED_CONSTRUCTOR.template),
+            Span { start: 12, end: 15 },
+        );
+        let c = codificar_tipos(&d, "new");
+        assert_eq!(c.code, Some(codigos::compile_time_error::NEW_WITH_UNDEFINED_CONSTRUCTOR));
+        assert_eq!(c.message, "The class 'NoUnnamed' doesn't have a constructor named 'new'.");
     }
 
     #[test]

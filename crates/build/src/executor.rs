@@ -289,9 +289,14 @@ impl ServicoBuildStep for ServicoAcao<'_> {
         let Ok(padrao) = crate::glob::Glob::novo(glob) else { return Vec::new() };
         let Some(pacote) = self.grafo.acoes.get(self.acao).map(|a| a.entrada.pacote.clone()) else { return Vec::new() };
         let fase = self.grafo.acoes[self.acao].fase;
-        let mut ids: Vec<_> = self.grafo.fontes.iter().flat_map(|(p, cs)| cs.iter().map(|c| AssetId { pacote: p.clone(), caminho: c.clone() }))
-            .chain(self.grafo.gerados.keys().cloned())
-            .filter(|id| id.pacote == pacote && padrao.casa(&id.caminho)
+        let fontes = self.grafo.fontes.get(&pacote).into_iter().flat_map(|cs|
+            cs.iter().map(|c| AssetId { pacote: pacote.clone(), caminho: c.clone() }));
+        let gerados = self.grafo.gerados.range(AssetId::novo(&pacote, "")..)
+            .take_while(|(id, _)| id.pacote == pacote)
+            .map(|(id, _)| id.clone());
+        let mut ids: Vec<_> = fontes
+            .chain(gerados)
+            .filter(|id| padrao.casa(&id.caminho)
                 && self.grafo.gerados.get(id).is_none_or(|g| g.fase < fase || (g.fase == fase && g.acao == self.acao)))
             .collect();
         ids.sort();

@@ -24,7 +24,39 @@ desenvolvimento e produção passaram, e macros ficaram **15/15**. O analyzer
 atingiu **5.945/26.133** diagnósticos na posição exata, 5.656 mensagens
 iguais, 4.313 falsos positivos, 19.720 falsos negativos e 468 posições
 erradas, determinístico em 1/4/8 trabalhadores. Essa é a última medição
-combinada concluída; commits mais recentes estão em nova rodada de CI.
+combinada concluída daquela etapa.
+
+Na integração `3869bba`, a [CI 36013738458](https://github.com/insinfo/dartforge/actions/runs/36013738458)
+e o [Pesado 36013738501](https://github.com/insinfo/dartforge/actions/runs/36013738501)
+passaram. O nativo com SDK da fonte manteve **166/223**; JS de
+desenvolvimento e produção passaram, e macros chegaram a **17/17**. O
+analyzer atingiu **5.954/26.133** diagnósticos exatos, 5.665 mensagens
+iguais, 4.310 falsos positivos, 19.711 falsos negativos e 468 posições
+erradas, determinístico em 1/4/8 trabalhadores. Esse é o último placar
+combinado concluído; o HEAD posterior está em
+[CI 36016165004](https://github.com/insinfo/dartforge/actions/runs/36016165004) e
+[Pesado 36016164949](https://github.com/insinfo/dartforge/actions/runs/36016164949).
+O placar do analyzer compara o corpus legado congelado: o relatório assinala
+oráculos 3.6.2 desatualizados em grupos cujas fontes mudaram. Ele serve para
+detectar regressões entre commits, mas exige uma rodada controlada de
+regravação antes de afirmar paridade com o SDK 3.13 atual.
+
+Depois dessa medição, gates isolados confirmaram macros **18/18** em JS de
+desenvolvimento e produção, com a augmentation do caso 421 idêntica ao CFE
+([Pesado 36013877707](https://github.com/insinfo/dartforge/actions/runs/36013877707)).
+O nativo com SDK da fonte chegou a **168/223** após os casos 67 e 95, sem
+regressões no placar isolado; o caso 95 passou também no teste dirigido de
+argumento dinâmico incorreto
+([Pesado 36014381691](https://github.com/insinfo/dartforge/actions/runs/36014381691)).
+No motor de build, o cliente `dfexec/1` agora responde pedidos de `BuildStep`
+inválidos com erro pelo canal e mantém a ação viva para o builder tratar a
+exceção. A medição combinada desses commits ainda está pendente.
+O analyzer isolado alcançou **5.880/26.133** diagnósticos exatos, 5.591
+mensagens iguais, 4.320 falsos positivos, 19.785 falsos negativos e 468
+posições erradas, determinístico em 1/4/8 trabalhadores
+([Pesado 36013697965](https://github.com/insinfo/dartforge/actions/runs/36013697965));
+esse é o placar da base isolada do commit de construtores, não a soma com as
+outras mudanças integradas.
 
 No ramo de trabalho atual, o motor de build aceita um executor Dart injetado,
 serve `BuildStep` com visibilidade por fase e por pacote, e possui um cliente

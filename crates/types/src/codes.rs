@@ -87,6 +87,16 @@ pub const CLASS_INSTANTIATION_ACCESS_TO_UNKNOWN_MEMBER: DiagnosticCode = Diagnos
     "Membro desconhecido em instanciação de classe",
 );
 
+pub const NEW_WITH_UNDEFINED_CONSTRUCTOR: DiagnosticCode = DiagnosticCode::new(
+    "new_with_undefined_constructor",
+    "Construtor nomeado não encontrado",
+);
+
+pub const NEW_WITH_UNDEFINED_CONSTRUCTOR_DEFAULT: DiagnosticCode = DiagnosticCode::new(
+    "new_with_undefined_constructor_default",
+    "Construtor sem nome não encontrado",
+);
+
 pub const INVOCATION_OF_EXTENSION_WITHOUT_CALL: DiagnosticCode = DiagnosticCode::new(
     "invocation_of_extension_without_call",
     "Invocação de extensão sem call",
