@@ -67,7 +67,7 @@ pub struct Ambiente {
     /// `runtime/ddc/dart_sdk.js` (o do piso, que é também o que o DartForge liga).
     pub dart_sdk_js: PathBuf,
     /// Os SDKs de oráculo, do menor para o maior: o piso e, se configurado,
-    /// o 3.13 (`DARTFORGE_DART_SDK_3_13`, padrão `D:/DartSDKs/3.13.4/dart-sdk`).
+    /// o 3.13 (`DARTFORGE_DART_SDK_3_13`, padrão `E:/DartSDKs/3.13.4/dart-sdk`).
     pub sdks: Vec<SdkOraculo>,
     /// Binário `dartforge` quando já compilado (`DARTFORGE_BIN` sobrepõe).
     pub dartforge_bin: Option<PathBuf>,

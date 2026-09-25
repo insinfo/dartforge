@@ -292,7 +292,7 @@ corrigido lá e vale este.
 
 * `crates/diferencial`: **dois SDKs de oráculo**, `DARTFORGE_DART_SDK` (o
   piso, 3.6.2) e `DARTFORGE_DART_SDK_3_13` (padrão
-  `D:/DartSDKs/3.13.4/dart-sdk`). Cada SDK tem o seu `dart`, o seu
+  `E:/DartSDKs/3.13.4/dart-sdk`). Cada SDK tem o seu `dart`, o seu
   `dartdevc` e o **seu** `dart_sdk.js` (`runtime/ddc/dart_sdk.js` e
   `runtime/ddc/3.13.4/dart_sdk.js`, gerados por `gerar-dart-sdk.ps1 -Sdk …
   -Saida …`). O cache dos oráculos do piso mantém os rótulos de sempre; os do
@@ -308,6 +308,17 @@ corrigido lá e vale este.
   `PENDENTES` no diretório do corpus lista o que ainda falha por recurso não
   implementado: pendente que falha não reprova; pendente que passa reprova
   (a lista só encolhe).
+* Placar do analyzer (`crates/paridade`, `corpus/diagnosticos`): os grupos
+  `analyzer` e `linguagem` são bibliotecas 3.6 com oráculo 3.6.2, exceto os
+  arquivos listados em `corpus/diagnosticos/sintaxe-nova.json`, gravados
+  pelo **3.13.4 sobre o mesmo pacote 3.6**. São os que usam sintaxe que o
+  3.6.2 não conhece (atalhos de ponto, construtores primários, nomeados
+  privados): o 3.6.2 responde com cascata de sintaxe, o 3.13.4 com
+  `experiment_not_enabled` e segue analisando — o comportamento de uma
+  ferramenta cuja versão corrente é a 3.13 (D2). A lista é escolhida pelo
+  próprio oráculo (`dartforge-paridade sintaxe-nova`), não pelo nosso
+  parser, e o `oraculo` a respeita ao regravar. `augment` fica de fora: sem
+  o experimento, os dois SDKs o tratam como identificador.
 * CI (`.github/workflows/pesado.yml`): a ação `.github/actions/dart` instala
   o 3.6.2 (`setup-dart`) e, com `sdk-313: true`, o 3.13.4 por zip, com cache
   pela versão, exportando `DARTFORGE_DART_SDK_3_13`. Job `moderno`: o

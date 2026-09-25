@@ -4,6 +4,7 @@
 //! dartforge-paridade placar [--grupo G]... [--trabalhadores N] [--lote N] [--detalhes]
 //! dartforge-paridade determinismo [--trabalhadores 1,4,8] [--grupo G]...
 //! dartforge-paridade oraculo [--grupo G]...          (regrava; precisa do dart)
+//! dartforge-paridade sintaxe-nova [--grupo G]...     (3.13.4 nos arquivos com sintaxe que o 3.6.2 não conhece)
 //! dartforge-paridade gerar-corpus [--referencias DIR] [--pub-cache DIR]
 //! dartforge-paridade projetos [--oraculo] [--mutacoes N] [--regravar] [--trabalhadores N] [--lote N]
 //! ```
@@ -75,7 +76,7 @@ struct Args {
 }
 
 fn uso() -> ExitCode {
-    eprintln!("{}", include_str!("main.rs").lines().skip(2).take(7).map(|l| l.trim_start_matches("//! ")).collect::<Vec<_>>().join("\n"));
+    eprintln!("{}", include_str!("main.rs").lines().skip(2).take(8).map(|l| l.trim_start_matches("//! ")).collect::<Vec<_>>().join("\n"));
     ExitCode::from(2)
 }
 
@@ -138,6 +139,7 @@ fn main() -> ExitCode {
         }
         "determinismo" => determinismo(&a),
         "oraculo" => regravar_oraculo(&a),
+        "sintaxe-nova" => classificar_sintaxe_nova(&a),
         "gerar-corpus" => match corpus::gerar(&a.referencias, &a.corpus, &a.pub_cache) {
             Ok(r) => {
                 print!("{r}");
@@ -184,6 +186,7 @@ fn placar(a: &Args, trabalhadores: usize) -> (String, bool) {
     let mut panicos = Vec::new();
     let mut ambiguos = 0;
     let grupos = grupos_escolhidos(a);
+    let sintaxe_nova = oraculo::ler_sintaxe_nova(&a.corpus);
     for (nome, g) in &grupos {
         let dir = a.corpus.join(nome);
         let (oraculo, meta) = match oraculo::ler(&dir) {
@@ -221,8 +224,12 @@ fn placar(a: &Args, trabalhadores: usize) -> (String, bool) {
         let tg = p.total();
         let _ = writeln!(
             corpo,
-            "grupo {nome} (oráculo {}, {} arquivos): oráculo {} | nosso {} | acertos {} (mensagem errada {}) | posição errada {} | FP {} | FN {}",
+            "grupo {nome} (oráculo {}{}, {} arquivos): oráculo {} | nosso {} | acertos {} (mensagem errada {}) | posição errada {} | FP {} | FN {}",
             meta.sdk.versao(),
+            match sintaxe_nova.get(nome.as_str()).map_or(0, Vec::len) {
+                0 => String::new(),
+                n => format!("; {n} com sintaxe nova pelo 3.13.4"),
+            },
             r.arquivos,
             tg.oraculo,
             tg.nosso,
@@ -331,6 +338,13 @@ fn regravar_oraculo(a: &Args) -> ExitCode {
         }
         // Diagnósticos em arquivos retirados não contam.
         regs.retain(|r| !excluidos.contains(&r.arquivo));
+        // Arquivos com sintaxe que o 3.6.2 não conhece: registro do 3.13.4.
+        let lista = oraculo::ler_sintaxe_nova(&a.corpus).remove(&nome).unwrap_or_default();
+        if g.sdk == oraculo::SdkOraculo::V362 && !lista.is_empty() {
+            eprintln!("oráculo 3.13.4 em {nome} ({} arquivo(s) com sintaxe nova)…", lista.len());
+            let novos = oraculo_313_do_grupo(&dir);
+            substituir_arquivos(&mut regs, novos, &lista);
+        }
         regs.sort();
         regs.dedup();
         let meta = Meta {
@@ -353,6 +367,85 @@ fn regravar_oraculo(a: &Args) -> ExitCode {
             fatias.len(),
             t.elapsed().as_secs_f64()
         );
+    }
+    if falhou { ExitCode::from(1) } else { ExitCode::SUCCESS }
+}
+
+/// O 3.13.4 sobre o grupo inteiro, com o pacote do grupo como está
+/// (a linguagem continua a do grupo): as mesmas fatias do `oraculo`.
+fn oraculo_313_do_grupo(dir: &Path) -> Vec<Registro> {
+    let mut regs = Vec::new();
+    let mut excluidos = Vec::new();
+    for alvo in fatias(dir, 2500) {
+        bissectar(oraculo::SdkOraculo::V3134, dir, alvo, &mut regs, &mut excluidos);
+    }
+    for e in &excluidos {
+        eprintln!("  o 3.13.4 cai em {e}; o arquivo fica com o registro do 3.6.2");
+    }
+    regs
+}
+
+/// Troca, em `regs`, os registros dos arquivos de `lista` pelos de `novos`.
+fn substituir_arquivos(regs: &mut Vec<Registro>, novos: Vec<Registro>, lista: &[String]) {
+    let lista: std::collections::BTreeSet<&str> = lista.iter().map(String::as_str).collect();
+    regs.retain(|r| !lista.contains(r.arquivo.as_str()));
+    regs.extend(novos.into_iter().filter(|r| lista.contains(r.arquivo.as_str())));
+}
+
+/// `sintaxe-nova`: roda o 3.13.4 sobre cada grupo do 3.6.2, escolhe os
+/// arquivos em que ele acusa um recurso que o 3.6.2 não conhece
+/// ([`oraculo::usa_sintaxe_nova`]), grava a lista em `sintaxe-nova.json` e
+/// troca só os registros desses arquivos no `oraculo.jsonl` do grupo. O
+/// hash e os demais metadados do grupo ficam como estão.
+fn classificar_sintaxe_nova(a: &Args) -> ExitCode {
+    let mut lista = oraculo::ler_sintaxe_nova(&a.corpus);
+    let mut falhou = false;
+    for (nome, g) in grupos_escolhidos(a) {
+        if g.sdk != oraculo::SdkOraculo::V362 {
+            continue;
+        }
+        let dir = a.corpus.join(&nome);
+        if let Err(e) = corpus::preparar(&dir, &nome, &g) {
+            eprintln!("{nome}: {e}");
+            falhou = true;
+            continue;
+        }
+        let t = Instant::now();
+        eprintln!("oráculo 3.13.4 em {nome} (linguagem {})…", g.sdk.linguagem());
+        let novos = oraculo_313_do_grupo(&dir);
+        let mut por_arquivo: std::collections::BTreeMap<&str, Vec<&Registro>> = std::collections::BTreeMap::new();
+        for r in &novos {
+            por_arquivo.entry(r.arquivo.as_str()).or_default().push(r);
+        }
+        let escolhidos: Vec<String> =
+            por_arquivo.iter().filter(|(_, rs)| oraculo::usa_sintaxe_nova(rs)).map(|(f, _)| f.to_string()).collect();
+        let (mut regs, mut meta) = match oraculo::ler(&dir) {
+            Ok(x) => x,
+            Err(e) => {
+                eprintln!("{nome}: {e}");
+                falhou = true;
+                continue;
+            }
+        };
+        substituir_arquivos(&mut regs, novos.clone(), &escolhidos);
+        regs.sort();
+        regs.dedup();
+        meta.diagnosticos = regs.len();
+        if let Err(e) = oraculo::gravar(&dir, regs, &meta) {
+            eprintln!("{nome}: {e}");
+            falhou = true;
+            continue;
+        }
+        println!("{nome}: {} arquivo(s) com sintaxe nova, oráculo 3.13.4 ({:.0} s)", escolhidos.len(), t.elapsed().as_secs_f64());
+        if escolhidos.is_empty() {
+            lista.remove(&nome);
+        } else {
+            lista.insert(nome, escolhidos);
+        }
+    }
+    if let Err(e) = oraculo::gravar_sintaxe_nova(&a.corpus, &lista) {
+        eprintln!("sintaxe-nova.json: {e}");
+        falhou = true;
     }
     if falhou { ExitCode::from(1) } else { ExitCode::SUCCESS }
 }

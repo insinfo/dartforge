@@ -16,10 +16,10 @@ use std::process::Command;
 /// Um SDK oficial usado como oráculo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum SdkOraculo {
-    /// Dart 3.6.2 (`C:/tools/dartsdk-3.6.2`).
+    /// Dart 3.6.2 (`E:/DartSDKs/3.6.2`).
     #[serde(rename = "3.6.2")]
     V362,
-    /// Dart 3.13.4 (`D:/DartSDKs/3.13.4/dart-sdk`).
+    /// Dart 3.13.4 (`E:/DartSDKs/3.13.4/dart-sdk`).
     #[serde(rename = "3.13.4")]
     V3134,
 }
@@ -198,4 +198,37 @@ pub fn ler(dir: &Path) -> Result<(Vec<Registro>, Meta), String> {
         regs.push(serde_json::from_str(l).map_err(|e| format!("{l}: {e}"))?);
     }
     Ok((regs, meta))
+}
+
+/// Recursos que o SDK 3.6.2 não conhece: numa biblioteca 3.6 ele responde
+/// com cascata de sintaxe, e o analyzer 3.13.4 com `experiment_not_enabled`
+/// (e segue analisando). O `enabledIn` de cada um é posterior ao 3.6.2
+/// (`experimental_features.yaml`); os demais recursos desligados (por
+/// exemplo `null-aware-elements`) o 3.6.2 já acusa do mesmo jeito.
+pub const RECURSOS_DESCONHECIDOS_NO_3_6_2: &[&str] = &["dot-shorthands", "primary-constructors", "private-named-parameters"];
+
+/// A ferramenta tem versão corrente 3.13 (VERSOES-LINGUAGEM.md, D2): numa
+/// biblioteca 3.6, o comportamento de referência é o do analyzer 3.13.4
+/// sobre a mesma biblioteca, não o de um SDK que não conhece o recurso. Um
+/// arquivo com sintaxe desses recursos tem o oráculo gravado pelo 3.13.4,
+/// com o pacote do grupo inalterado (linguagem 3.6).
+pub fn usa_sintaxe_nova(regs_313: &[&Registro]) -> bool {
+    regs_313.iter().any(|r| {
+        r.code == "experiment_not_enabled"
+            && RECURSOS_DESCONHECIDOS_NO_3_6_2.iter().any(|f| r.problem_message.contains(&format!("'{f}'")))
+    })
+}
+
+/// `corpus/diagnosticos/sintaxe-nova.json`: por grupo, os arquivos cujo
+/// oráculo é o 3.13.4 (ver [`usa_sintaxe_nova`]).
+pub fn ler_sintaxe_nova(raiz: &Path) -> std::collections::BTreeMap<String, Vec<String>> {
+    std::fs::read_to_string(raiz.join("sintaxe-nova.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default()
+}
+
+/// Grava a lista de [`ler_sintaxe_nova`].
+pub fn gravar_sintaxe_nova(raiz: &Path, lista: &std::collections::BTreeMap<String, Vec<String>>) -> std::io::Result<()> {
+    std::fs::write(raiz.join("sintaxe-nova.json"), serde_json::to_string_pretty(lista).expect("JSON") + "\n")
 }

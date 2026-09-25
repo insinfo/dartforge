@@ -2,7 +2,7 @@
   "sdk": "3.6.2",
   "hash": "911d6cfb31c54016",
   "arquivos": 1180,
-  "diagnosticos": 12746,
+  "diagnosticos": 12283,
   "excluidos": [
     "number/separators_error_test.dart"
   ]
