@@ -312,10 +312,20 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// esconderia os membros válidos no meio do lixo (`42` antes de
     /// `int x = 1;` apagava o campo). Com progresso, pula até fechar o nível
     /// em que o membro começou (`;` ou `}` com profundidade zero) ou até um
-    /// token que inicia membro. A `}` que fecha a classe **não** é consumida,
-    /// para que o laço do corpo termine. Garante progresso: consome ao menos
-    /// um token.
-    fn recover_member(&mut self, start_pos: usize) {
+    /// token que inicia membro — onde tenta o resto como membro, de forma
+    /// especulativa: se vingar (ex.: a cauda `set foo...` de
+    /// `augment static set foo...` sem o recurso), fica e os membros
+    /// seguintes sobrevivem; se falhar, os diagnósticos da tentativa são
+    /// descartados e a varredura continua no modo antigo, sem nova parada
+    /// (um erro pelo membro quebrado, não um por token do resto). A `}` que
+    /// fecha a classe **não** é consumida, para que o laço do corpo termine.
+    /// Garante progresso: consome ao menos um token.
+    fn recover_member(
+        &mut self,
+        start_pos: usize,
+        class_name: Option<&'s str>,
+        members: &mut Vec<MemberId>,
+    ) {
         if self.pos == start_pos && !self.at_eof() {
             if !self.at_op(Op::RBrace) {
                 self.advance();
@@ -323,6 +333,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             return;
         }
         let mut depth = self.nesting_between(start_pos, self.pos);
+        let mut especulativo = true;
         loop {
             match self.kind() {
                 Kind::Eof => break,
@@ -355,8 +366,22 @@ impl<'s, 'i> Parser<'s, 'i> {
                         break;
                     }
                 }
-                _ if depth == 0 && self.pos > start_pos && self.starts_member() => {
-                    break;
+                _ if especulativo
+                    && depth == 0
+                    && self.pos > start_pos
+                    && self.starts_member() =>
+                {
+                    let marco = self.diagnostics.len();
+                    match self.parse_member(class_name) {
+                        Ok(id) => {
+                            members.push(id);
+                            return;
+                        }
+                        Err(ParseError) => {
+                            self.diagnostics.truncate(marco);
+                            especulativo = false;
+                        }
+                    }
                 }
                 _ => {
                     self.advance();
@@ -1580,7 +1605,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             let start_pos = self.pos;
             match self.parse_member(class_name) {
                 Ok(id) => members.push(id),
-                Err(ParseError) => self.recover_member(start_pos),
+                Err(ParseError) => self.recover_member(start_pos, class_name, &mut members),
             }
         }
     }
@@ -2468,6 +2493,47 @@ mod tests {
             &mut names,
         );
         assert_eq!(class(&out, 0).members.len(), 8);
+    }
+
+    /// Tentativa especulativa que vinga: sem o recurso, `augment` vira tipo
+    /// e a cauda `get foo => 0;` é retida como membro, sem erro novo — só o
+    /// `expected_token` do membro quebrado.
+    #[test]
+    fn membro_recuperacao_especulativa_retem_cauda_valida() {
+        use crate::features::{LanguageVersion, LibraryFeatures};
+        use crate::parser::parse_com;
+        use dartforge_diagnostics::codigos::parser as c;
+
+        let fonte = "class C {\n  augment int get foo => 0;\n}\n";
+        let mut nomes = Interner::new();
+        let out = parse_com(fonte, &mut nomes, LibraryFeatures::new(LanguageVersion::PISO, &[]));
+        assert_eq!(out.diagnostics.len(), 1, "{fonte}: {:?}", out.diagnostics);
+        assert_eq!(out.diagnostics[0].code, Some(c::EXPECTED_TOKEN));
+        let classe = class(&out, 0);
+        assert_eq!(classe.members.len(), 1, "{fonte}: {:?}", out.diagnostics);
+        match member(&out, classe, 0) {
+            MemberKind::Method(id) => {
+                assert_eq!(text(&nomes, out.ast.function(*id).name.unwrap()), "foo");
+            }
+            outro => panic!("{fonte}: {outro:?}"),
+        }
+    }
+
+    /// Tentativa especulativa que falha: `augment C.named() : ...` sem o
+    /// recurso — o erro da tentativa é descartado e a varredura segue no
+    /// modo antigo; fica só o `expected_token` do membro quebrado.
+    #[test]
+    fn membro_recuperacao_especulativa_descarta_cascata() {
+        use crate::features::{LanguageVersion, LibraryFeatures};
+        use crate::parser::parse_com;
+        use dartforge_diagnostics::codigos::parser as c;
+
+        let fonte = "class C {\n  augment C.named() : this.missing();\n}\n";
+        let mut nomes = Interner::new();
+        let out = parse_com(fonte, &mut nomes, LibraryFeatures::new(LanguageVersion::PISO, &[]));
+        assert_eq!(out.diagnostics.len(), 1, "{fonte}: {:?}", out.diagnostics);
+        assert_eq!(out.diagnostics[0].code, Some(c::EXPECTED_TOKEN));
+        assert!(class(&out, 0).members.is_empty(), "{fonte}: {:?}", out.diagnostics);
     }
 
     /// Token solto pula um: `[` não engole o resto (`int? a]` continua
