@@ -2,6 +2,50 @@
 
 use dartforge_jit::JitSession;
 
+/// Uma biblioteca compartilhada com dois exports sem argumentos,
+/// `GetTickCount` (qualquer valor) e `GetCurrentProcessId` (o pid), e o
+/// `exportados.def` ao lado com os `nomes` pedidos. Serve para testar a
+/// fronteira da biblioteca do SDK sem compilar o SDK inteiro.
+///
+/// No Windows é uma cópia da `kernel32.dll`, que exporta os dois. Nos outros
+/// sistemas, uma biblioteca de duas funções compilada agora pelo Clang
+/// (`DARTFORGE_CLANG`, senão o do `PATH`), com `GetCurrentProcessId` sobre o
+/// `getpid` da libc.
+fn biblioteca_com_dois_exports(dir: &std::path::Path, nomes: &[&str]) -> std::path::PathBuf {
+    let mut def = String::from("EXPORTS\n");
+    for n in nomes {
+        def.push_str(n);
+        def.push('\n');
+    }
+    std::fs::write(dir.join("exportados.def"), def).unwrap();
+    if cfg!(windows) {
+        let origem = std::path::PathBuf::from(std::env::var_os("SystemRoot").expect("SystemRoot"))
+            .join("System32/kernel32.dll");
+        let dll = dir.join("kernel32.dll");
+        std::fs::copy(&origem, &dll).expect("cópia de kernel32 no target da worktree");
+        return dll;
+    }
+    let ll = dir.join("dois.ll");
+    std::fs::write(
+        &ll,
+        "declare i32 @getpid()\n\
+         define i32 @GetTickCount() {\n  ret i32 1\n}\n\
+         define i32 @GetCurrentProcessId() {\n  %p = call i32 @getpid()\n  ret i32 %p\n}\n",
+    )
+    .unwrap();
+    let dll = dir.join(if cfg!(target_os = "macos") { "libdois.dylib" } else { "libdois.so" });
+    let clang = std::env::var_os("DARTFORGE_CLANG").unwrap_or_else(|| "clang".into());
+    let status = std::process::Command::new(clang)
+        .args(["-x", "ir", "-shared", "-fPIC"])
+        .arg(&ll)
+        .arg("-o")
+        .arg(&dll)
+        .status()
+        .expect("Clang");
+    assert!(status.success(), "o Clang não compilou a biblioteca de teste");
+    dll
+}
+
 /// Auxiliares com linkage interno pertencem a cada módulo LLVM; o emissor
 /// atual gera `df_clo_invalido` assim. Eles não podem virar entradas públicas.
 #[test]
@@ -25,8 +69,8 @@ define i64 @df_fn_0() {{
 }
 
 /// O `main` com SDK da fonte tem ABI `i32 ()` e deve usar o trampolim
-/// atualizado. Uma DLL do Windows basta para testar a fronteira sem compilar
-/// o SDK inteiro localmente; o teste de CLI remoto cobre a DLL real.
+/// atualizado. Uma biblioteca de sistema basta para testar a fronteira sem
+/// compilar o SDK inteiro localmente; o teste de CLI remoto cobre a real.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
 fn main_da_sessao_com_dll_chama_geracao_nova() {
@@ -37,11 +81,7 @@ fn main_da_sessao_com_dll_chama_geracao_nova() {
     let dir = Diretorio(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join(format!("../../target/tmp-jit-main-dll-{}", std::process::id())));
     std::fs::create_dir_all(&dir.0).unwrap();
-    let origem = std::path::PathBuf::from(std::env::var_os("SystemRoot").expect("SystemRoot"))
-        .join("System32/kernel32.dll");
-    let dll = dir.0.join("kernel32.dll");
-    std::fs::copy(origem, &dll).unwrap();
-    std::fs::write(dir.0.join("exportados.def"), "EXPORTS\nGetTickCount\n").unwrap();
+    let dll = biblioteca_com_dois_exports(&dir.0, &["GetTickCount"]);
 
     let ir = |valor: i32| format!("define i32 @main() {{ ret i32 {valor} }}\n");
     let mut sessao = JitSession::new_com_sdk(&dll, &[]).unwrap();
@@ -341,12 +381,7 @@ fn recarga_publica_novo_externo_da_dll() {
         .join("../../target")
         .join(format!("tmp-jit-sdk-export-{}", std::process::id())));
     std::fs::create_dir_all(&dir.0).unwrap();
-    let origem = std::path::PathBuf::from(std::env::var_os("SystemRoot").expect("SystemRoot"))
-        .join("System32/kernel32.dll");
-    let dll = dir.0.join("kernel32.dll");
-    std::fs::copy(&origem, &dll).expect("cópia de kernel32 no target da worktree");
-    std::fs::write(dir.0.join("exportados.def"), "EXPORTS\nGetTickCount\nGetCurrentProcessId\n")
-        .unwrap();
+    let dll = biblioteca_com_dois_exports(&dir.0, &["GetTickCount", "GetCurrentProcessId"]);
 
     let ir = |nome: &str, retorno_fixo: bool| format!("\
 declare i32 @{nome}()

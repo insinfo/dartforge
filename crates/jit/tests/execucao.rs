@@ -187,19 +187,17 @@ fn externo_desconhecido_falha_alto() {
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
 fn alvo_divergente_falha_alto() {
     let mut sessao = JitSession::new().unwrap();
+    // Um triple que nunca é o do hospedeiro.
+    let outro = "riscv64-unknown-linux-gnu";
     let erro = sessao
-        .add_ir_module(
-            "outro_alvo",
-            "target triple = \"aarch64-unknown-linux-gnu\"\ndefine void @f() {\n  ret void\n}\n",
-        )
+        .add_ir_module("outro_alvo", &format!("target triple = \"{outro}\"\ndefine void @f() {{\n  ret void\n}}\n"))
         .unwrap_err();
     assert_eq!(erro.stage, "layout");
-    assert!(erro.message.contains("aarch64-unknown-linux-gnu"), "{erro}");
+    assert!(erro.message.contains(outro), "{erro}");
 
-    // O cabeçalho que o emissor nativo escreve (llvm/mod.rs, emit_header) tem
-    // de ser exatamente o da LLJIT deste processo.
-    let cabecalho = "target datalayout = \"e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\"\n\
-                     target triple = \"x86_64-pc-windows-msvc\"\n";
+    // O cabeçalho que o emissor nativo escreve (`alvo::cabecalho_ir`) tem de
+    // ser exatamente o da LLJIT deste processo.
+    let cabecalho = dartforge_emit_native::alvo::cabecalho_ir();
     sessao
         .add_ir_module("alvo_do_emissor", &format!("{cabecalho}define void @g() {{\n  ret void\n}}\n"))
         .unwrap();
