@@ -61,10 +61,19 @@ fn main() {
                 );
             }
         }
-        "static" => link_static(&prefix),
+        "static" => {
+            if let Err(motivo) = link_static(&prefix) {
+                panic!("DARTFORGE_LLVM_LINK=static, mas o LLVM em {} não oferece as bibliotecas estáticas: {motivo}", prefix.display());
+            }
+        }
         "auto" => {
-            if link_shared(&prefix).is_err() {
-                link_static(&prefix);
+            if let Err(compartilhada) = link_shared(&prefix)
+                && let Err(estatica) = link_static(&prefix)
+            {
+                panic!(
+                    "o LLVM em {} não oferece nem a ligação compartilhada ({compartilhada}) nem a estática ({estatica})",
+                    prefix.display()
+                );
             }
         }
         outro => panic!("DARTFORGE_LLVM_LINK={outro}: use shared, static ou auto"),
@@ -99,6 +108,7 @@ fn llvm_config(prefix: &Path, args: &[&str]) -> Result<String, String> {
 /// caminho do sistema, ou por `LD_LIBRARY_PATH`/`DYLD_LIBRARY_PATH`); os
 /// binários e testes deste crate levam o `rpath` do `lib` do prefixo.
 fn link_shared(prefix: &Path) -> Result<(), String> {
+    exigir_arquivos(prefix, "--link-shared")?;
     let mut args = vec!["--link-shared", "--libs"];
     args.extend(COMPONENTES);
     let libs = llvm_config(prefix, &args)?;
@@ -122,11 +132,11 @@ fn link_shared(prefix: &Path) -> Result<(), String> {
 /// a DLL no Windows (`/MT` × `/MD`) não se aplica a esta configuração; o que
 /// continua valendo é a ABI da biblioteca C++ do sistema (`libstdc++` ou
 /// `libc++`), com que o pacote foi compilado.
-fn link_static(prefix: &Path) {
-    let run = |args: &[&str]| llvm_config(prefix, args).unwrap_or_else(|e| panic!("{e}"));
+fn link_static(prefix: &Path) -> Result<(), String> {
+    exigir_arquivos(prefix, "--link-static")?;
     let mut args = vec!["--link-static", "--libs"];
     args.extend(COMPONENTES);
-    let libs = run(&args);
+    let libs = llvm_config(prefix, &args)?;
     for lib in libs.split_whitespace() {
         if let Some(nome) = lib.strip_prefix("-l") {
             println!("cargo::rustc-link-lib=static={nome}");
@@ -139,7 +149,7 @@ fn link_static(prefix: &Path) {
     // * `zstd` vem como caminho absoluto do `.a` da máquina que empacotou;
     //   usa-se o arquivo se existir aqui, senão a compressão fica de fora
     //   (o JIT não lê seção comprimida).
-    for lib in run(&["--link-static", "--system-libs"]).split_whitespace() {
+    for lib in llvm_config(prefix, &["--link-static", "--system-libs"])?.split_whitespace() {
         if let Some(nome) = lib.strip_prefix("-l") {
             if nome == "xml2" && !libs.contains("WindowsManifest") {
                 continue;
@@ -165,6 +175,21 @@ fn link_static(prefix: &Path) {
     }
     let macos = std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "macos");
     println!("cargo::rustc-link-lib=dylib={}", if macos { "c++" } else { "stdc++" });
+    Ok(())
+}
+
+/// Confere, antes de emitir qualquer diretiva, que os arquivos das
+/// bibliotecas dos [`COMPONENTES`] existem no modo pedido: pelo código de
+/// saída do `llvm-config <modo> --libfiles` (e não pelo texto da mensagem)
+/// e pela presença de cada arquivo listado.
+fn exigir_arquivos(prefix: &Path, modo: &str) -> Result<(), String> {
+    let mut args = vec![modo, "--libfiles"];
+    args.extend(COMPONENTES);
+    let arquivos = llvm_config(prefix, &args)?;
+    if let Some(falta) = arquivos.split_whitespace().find(|a| !Path::new(a).is_file()) {
+        return Err(format!("{falta} não existe"));
+    }
+    Ok(())
 }
 
 /// Prefixo da distribuição completa do LLVM 22.1.x.

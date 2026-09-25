@@ -724,6 +724,20 @@ os pacotes do apt.llvm.org e do Debian a trazem. O que foi verificado é mais
 estreito: o pacote pré-compilado **`LLVM-22.1.8-Linux-X64.tar.xz`** não a
 inclui (o `lib/` só tem `libLLVM*.a`, e o `llvm-config --link-shared` dele
 responde `libLLVM-22.so is missing`). Com esse pacote, `auto` liga estático.
+A verificação, sobre o arquivo original (SHA-256
+`df0e1ecf16caf3489a272a5eea4eec9b0d82878f6477fa309504f918a0006384`):
+`tar -tJf` lista 11.073 entradas (código 0); `grep -E
+'(^|/)libLLVM[^/]*\.so($|\.)'` não acha nenhuma, contando os nomes
+versionados; há 220 `libLLVM*.a`. Outras `.so` estão lá (`libclang-cpp`,
+`libLTO`, `liblldb`), a `libLLVM` monolítica não. É o esperado da
+configuração de construção dessa versão: o `release-binaries.yml` usa
+`clang/cmake/caches/Release.cmake`, que não liga `LLVM_BUILD_LLVM_DYLIB`
+nem `LLVM_LINK_LLVM_DYLIB` (padrão `OFF`).
+
+Os modos conferem os arquivos antes de ligar (`llvm-config <modo>
+--libfiles` dos componentes, pelo código de saída e pela existência de cada
+arquivo); `auto` tenta a compartilhada, depois a estática, e falha com os dois
+motivos se nenhuma servir.
 Isso não é limitação do Linux, e sim de como aquele pacote foi construído.
 
 O conflito de CRT do Windows (`/MT` × `/MD`, dois heaps) não se aplica a essas
