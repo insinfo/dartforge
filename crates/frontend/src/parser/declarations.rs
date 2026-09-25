@@ -1122,10 +1122,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
         }
         let mut members = if self.eat_op(Op::Semicolon) {
-            // Membros de enum nunca valem `this`/`new` sem o recurso: o
-            // oráculo 3.6 rejeita só o cabeçalho (`unexpected_tokens`) e lê
-            // o corpo como enum (`this => 0` denuncia `this` e o `=>`).
-            self.parse_member_list(Some(name_text), false)?
+            self.parse_member_list(Some(name_text), primario.is_some())?
         } else {
             self.expect_op(Op::RBrace)?;
             Vec::new()
@@ -1702,8 +1699,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `this`/`new` só iniciam membro com o recurso 3.13 ligado; sem ele
         // o fasta 3.6.2 denuncia `expected_class_member` (sondado: o recurso
         // nem existia, então não há `experiment_not_enabled` no oráculo).
-        let kind = if primarios && self.at_kw(Keyword::This) && !self.at_op_at(1, Op::Dot) {
-            // `this : inits? corpo`: parte de corpo do construtor primário.
+        let kind = if primarios && self.at_kw(Keyword::This) && !self.at_op_at(1, Op::Dot) && (self.at_op_at(1, Op::Colon) || self.at_op_at(1, Op::Semicolon)) {
+            // `this : inits? corpo` / `this;`: parte de corpo do construtor
+            // primário. `this => ...` não é parte (sondado: denuncia `this`
+            // e o par sem-nome/sem-parâmetros no `=>`).
             self.parse_parte_primaria(fstart)?
         } else if primarios
             && self.at_kw(Keyword::New)
@@ -1711,6 +1710,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         {
             // `new nome?(...)` (3.13): construtor com o nome da classe implícito.
             self.parse_construtor_new(mods, class_name)?
+        } else if !mods.algum() && self.at_kw(Keyword::This) && !self.at_op_at(1, Op::Dot) {
+            // `this` sem parte (`=>`, ...): não abre membro (sondado no SDK
+            // 3.6.2 local); a recuperação denuncia o resto (`=>` dá o par).
+            return Err(self.erro(codigos::parser::EXPECTED_CLASS_MEMBER, &[]));
         } else if self.at_ident("factory")
             && (self.at_identifier_at(1) || (primarios && self.at_op_at(1, Op::LParen)))
         {
