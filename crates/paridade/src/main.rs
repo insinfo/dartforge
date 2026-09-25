@@ -94,7 +94,7 @@ fn ler_args() -> Option<Args> {
         trabalhadores: vec![],
         lote: 0,
         detalhes: false,
-        referencias: PathBuf::from("D:/Projects/dartforge/references"),
+        referencias: PathBuf::from("E:/references"),
         pub_cache,
         oraculo: false,
         mutacoes: 0,

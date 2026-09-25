@@ -135,7 +135,7 @@ impl Ambiente {
             candidatos.into_iter().find(|p| p.is_file())
         });
         let mut path_extra = Vec::new();
-        for prefixo in [std::env::var("LLVM_SYS_221_PREFIX").ok(), std::env::var("DARTFORGE_LLVM_DIR").ok(), Some(r"E:\DartSDKs\llvm\clang+llvm-22.1.8-x86_64-pc-windows-msvc".to_string())].into_iter().flatten() {
+        for prefixo in [std::env::var("LLVM_SYS_221_PREFIX").ok(), std::env::var("DARTFORGE_LLVM_DIR").ok(), Some(r"E:\llvm\clang+llvm-22.1.8-x86_64-pc-windows-msvc".to_string())].into_iter().flatten() {
             let bin = PathBuf::from(prefixo).join("bin");
             if bin.join("LLVM-C.dll").is_file() {
                 path_extra.push(bin);

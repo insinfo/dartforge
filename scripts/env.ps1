@@ -17,7 +17,7 @@ if ($env:CARGO_HOME) {
 
 # Prefer user configuration or PATH; use the verified local LLVM only as fallback.
 if (!$env:DARTFORGE_CLANG -and !(Get-Command clang -ErrorAction SilentlyContinue)) {
-    foreach ($clang in @('E:\DartSDKs\llvm\clang+llvm-22.1.8-x86_64-pc-windows-msvc\bin\clang.exe', 'D:\LLVM\22.1.8\bin\clang.exe')) {
+    foreach ($clang in @('E:\llvm\clang+llvm-22.1.8-x86_64-pc-windows-msvc\bin\clang.exe', 'D:\LLVM\22.1.8\bin\clang.exe')) {
         if (Test-Path $clang) {
             $env:DARTFORGE_CLANG = $clang
             break
@@ -29,7 +29,7 @@ if (!$env:DARTFORGE_CLANG -and !(Get-Command clang -ErrorAction SilentlyContinue
 # LLVM 22.1.x. O instalador reduzido (apenas LLVM-C.dll/.lib) nao serve. Sem esta
 # variavel a build do workspace inteiro falha. Veja docs/JIT.md.
 if (!$env:LLVM_SYS_221_PREFIX) {
-    foreach ($prefix in @($env:DARTFORGE_LLVM_DIR, 'E:\DartSDKs\llvm\clang+llvm-22.1.8-x86_64-pc-windows-msvc', 'D:\DartSDKs\llvm\clang+llvm-22.1.8-x86_64-pc-windows-msvc')) {
+    foreach ($prefix in @($env:DARTFORGE_LLVM_DIR, 'E:\llvm\clang+llvm-22.1.8-x86_64-pc-windows-msvc', 'D:\DartSDKs\llvm\clang+llvm-22.1.8-x86_64-pc-windows-msvc')) {
         if ($prefix -and (Test-Path (Join-Path $prefix 'bin\llvm-config.exe'))) {
             $env:LLVM_SYS_221_PREFIX = $prefix
             break

@@ -692,7 +692,7 @@ O repositório já traz `.cargo/config.toml` com
 
 ```toml
 [env]
-LLVM_SYS_221_PREFIX = "D:/DartSDKs/llvm/clang+llvm-22.1.8-x86_64-pc-windows-msvc"
+LLVM_SYS_221_PREFIX = "E:/llvm/clang+llvm-22.1.8-x86_64-pc-windows-msvc"
 ```
 
 de modo que qualquer `cargo` executado dentro dele enxerga a variável. Uma

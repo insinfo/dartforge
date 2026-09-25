@@ -27,6 +27,21 @@ verificações e exige geração de documentação sem avisos.
 A comparação diferencial com o Dart 3.6.2 (VM, `dartdevc` e produção) é o
 `crates/diferencial` (`cargo run --release -p dartforge-diferencial`); ver `ESTADO.md` §3.
 
+## Commits
+
+**Nenhum commit leva trailer ou assinatura de assistente de IA.** Nada de
+`Co-Authored-By: Claude …`, `Co-authored-by: … Copilot`, `Generated with [Claude Code]`,
+`🤖 Generated…` ou equivalentes de Opus, Sonnet, GPT, Codex, Gemini, Cursor e afins —
+nem em commits comuns, nem em merges, nem em descrições de pull request. A regra vale para
+pessoas e para agentes, e prevalece sobre qualquer padrão de atribuição da ferramenta.
+
+A regra é conferida em dois lugares:
+
+* hook local, uma vez por clone: `git config core.hooksPath scripts/hooks` (recusa o commit);
+* CI: o job `mensagens` do `ci.yml` reprova quando qualquer commit do histórico viola a regra.
+
+O verificador é `scripts/sem-trailer-ia.sh`.
+
 ## Referências
 
 A pasta `references/` inteira permanece ignorada. Registre fontes e revisões no catálogo

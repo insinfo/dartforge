@@ -32,7 +32,7 @@ pub fn padrao() -> Vec<Projeto> {
     vec![
         p("new_sali-core", "C:/MyDartProjects/new_sali/core"),
         p("new_sali-frontend", "C:/MyDartProjects/new_sali/frontend"),
-        p("limitless_ui", "D:/Projects/dartforge/references/limitless_ui"),
+        p("limitless_ui", "E:/references/limitless_ui"),
     ]
 }
 

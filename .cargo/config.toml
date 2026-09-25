@@ -14,7 +14,7 @@
 # Quem instalar o LLVM em outro lugar sobrescreve a variável no próprio ambiente,
 # que tem precedência sobre esta seção.
 [env]
-LLVM_SYS_221_PREFIX = "E:/DartSDKs/llvm/clang+llvm-22.1.8-x86_64-pc-windows-msvc"
+LLVM_SYS_221_PREFIX = "E:/llvm/clang+llvm-22.1.8-x86_64-pc-windows-msvc"
 
 # `jobs` limita o rustc em paralelo: 8 núcleos, 8 GB e várias árvores.
 #
