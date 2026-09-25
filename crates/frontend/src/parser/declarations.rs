@@ -1664,20 +1664,26 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn parse_member(&mut self, class_name: Option<&'s str>) -> PResult<MemberId> {
         let start = self.span();
         let metadata = self.parse_metadata()?;
+        let primarios = self.features.tem(Feature::PrimaryConstructors);
         // `this` (parte de construtor primário) e `new` (construtor sem o
         // nome da classe) também iniciam membro, desde a 3.13.
-        if !self.can_start_declaration() && !self.at_kw(Keyword::This) && !self.at_kw(Keyword::New)
+        if !self.can_start_declaration()
+            && !(primarios && self.at_kw(Keyword::This))
+            && !(primarios && self.at_kw(Keyword::New))
         {
             return Err(self.erro(codigos::parser::EXPECTED_CLASS_MEMBER, &[]));
         }
         let augment = self.parse_augment_opt();
         let fstart = self.span();
         let mods = self.parse_modifiers();
-        let primarios = self.features.tem(Feature::PrimaryConstructors);
-        let kind = if self.at_kw(Keyword::This) && !self.at_op_at(1, Op::Dot) {
+        // `this`/`new` só iniciam membro com o recurso 3.13 ligado; sem ele
+        // o fasta 3.6.2 denuncia `expected_class_member` (sondado: o recurso
+        // nem existia, então não há `experiment_not_enabled` no oráculo).
+        let kind = if primarios && self.at_kw(Keyword::This) && !self.at_op_at(1, Op::Dot) {
             // `this : inits? corpo`: parte de corpo do construtor primário.
             self.parse_parte_primaria(fstart)?
-        } else if self.at_kw(Keyword::New)
+        } else if primarios
+            && self.at_kw(Keyword::New)
             && (self.at_op_at(1, Op::LParen) || self.at_identifier_at(1))
         {
             // `new nome?(...)` (3.13): construtor com o nome da classe implícito.
@@ -2806,6 +2812,23 @@ mod tests {
             out.diagnostics
         );
         assert_eq!(class(&out, 0).members.len(), 2, "{fonte}: {:?}", out.diagnostics);
+    }
+
+    /// `new foo();` sem o recurso 3.13 é `expected_class_member` no `new`
+    /// (sondado no SDK 3.6.2 local: o recurso nem existia, sem
+    /// `experiment_not_enabled`); com ele ligado, é construtor válido.
+    #[test]
+    fn membro_fasta_new_sem_recurso_e_classe() {
+        use crate::features::{LanguageVersion, LibraryFeatures};
+        use crate::parser::parse_com;
+        use dartforge_diagnostics::codigos::parser as c;
+
+        let fonte = "class C {\n  new foo();\n  static int foo = 0;\n}\n";
+        let mut nomes = Interner::new();
+        let out = parse_com(fonte, &mut nomes, LibraryFeatures::new(LanguageVersion::PISO, &[]));
+        let primeiro = &out.diagnostics[0];
+        assert_eq!(primeiro.code, Some(c::EXPECTED_CLASS_MEMBER), "{fonte}: {:?}", out.diagnostics);
+        assert_eq!((primeiro.span.start, primeiro.span.end), (12, 15), "{fonte}");
     }
 
     /// `T X.Y` sem parênteses: os dois erros (`int C.named;`, sondado).
