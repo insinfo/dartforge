@@ -306,8 +306,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }),
             _ => false,
         };
-        if !args.is_empty() && !args.iter().all(|a| trivial(unit_ast.ty(*a))) && !so_classe {
+        let argumentos = !args.is_empty() && !args.iter().all(|a| trivial(unit_ast.ty(*a)));
+        if argumentos && !so_classe {
             return None;
+        }
+        // No SDK, `is C<…>` com argumentos confere a RTI inteira (o
+        // `value is Future<T>` do `_Future._asyncComplete` decide entre
+        // encadear e completar com o próprio `Future`); o `as` segue pela
+        // classe.
+        if argumentos
+            && no_sdk
+            && !self.cast_so_pela_classe
+            && let Some(receita) = self.receita_da_anotacao(ast_ty)
+        {
+            let tipo = self.rti_da_receita(&receita);
+            return Some(self.testar_rti(op, tipo));
         }
         let ultimo = name.last()?;
         let nome = self.ctx.symbol_name(ultimo.sym).to_string();

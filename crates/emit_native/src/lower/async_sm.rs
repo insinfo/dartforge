@@ -60,6 +60,15 @@ const Q_AMBIENTE: usize = 4;
 const Q_TUPLA: usize = 5;
 const Q_PARAMS: usize = 6;
 
+/// De onde sai o tipo de retorno de um corpo `async`/`sync*`/`async*`: o
+/// tipo (declarado, ou o estático de uma closure) ou a anotação de uma
+/// função local.
+#[derive(Clone, Copy)]
+pub enum RetornoAsync {
+    Tipo(dartforge_types::table::TypeId),
+    Anotacao(ast::TypeId),
+}
+
 /// O tipo de corpo suspenso: `async`, `sync*` ou `async*`.
 ///
 /// Os três usam a mesma máquina de estados (quadro no heap, `switch` pelo
@@ -214,6 +223,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// O corpo de uma função `async`, `sync*` ou `async*`: este builder é o
     /// stub (parâmetros e capturas já declarados); o corpo vira
     /// `<símbolo>$async` e a entrada uniforme dele. Termina o stub.
+    /// O tipo do valor/elemento pela anotação de retorno de uma função local
+    /// (`Future<T> f() async`, `Iterable<T> g() sync*`, `FutureOr<T>`).
+    fn valor_da_anotacao_async(&self, ast: &ast::Ast, a: ast::TypeId, tipo: TipoCorpo) -> Option<super::rti::Receita> {
+        let ast::TypeKind::Named { name, args } = &ast.ty(a).kind else { return None };
+        let nome = self.ctx.symbol_name(name.last()?.sym);
+        let esperado = match tipo {
+            TipoCorpo::Async => nome == "Future" || nome == "FutureOr",
+            TipoCorpo::SyncStar => nome == "Iterable",
+            TipoCorpo::AsyncStar => nome == "Stream",
+        };
+        if !esperado {
+            return None;
+        }
+        self.receita_da_anotacao(ast.ty(*args.first()?))
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn lower_corpo_async(
         &mut self,
@@ -221,7 +246,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         params: &[ast::Parameter],
         corpo: &FunctionBody,
         span: Span,
-        retorno: Option<dartforge_types::table::TypeId>,
+        retorno: Option<RetornoAsync>,
         tipo: TipoCorpo,
     ) {
         let (capturas, parametros) = self.locais_do_stub();
@@ -470,17 +495,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             TipoCorpo::SyncStar => self.ctx.core.iterable_class,
             TipoCorpo::AsyncStar => self.ctx.core.stream_class,
         };
-        let valor = retorno.and_then(|t| match self.ctx.table.get(t) {
-            dartforge_types::table::Type::Interface { class, args, .. } if Some(*class) == classe_esperada => {
-                args.first().copied()
-            }
-            dartforge_types::table::Type::FutureOr { arg, .. } if tipo == TipoCorpo::Async => Some(*arg),
-            _ => None,
-        });
+        let valor: Option<super::rti::Receita> = match retorno {
+            Some(RetornoAsync::Tipo(t)) => match self.ctx.table.get(t) {
+                dartforge_types::table::Type::Interface { class, args, .. } if Some(*class) == classe_esperada => {
+                    args.first().map(|a| self.receita_de_tipo(*a))
+                }
+                dartforge_types::table::Type::FutureOr { arg, .. } if tipo == TipoCorpo::Async => {
+                    Some(self.receita_de_tipo(*arg))
+                }
+                _ => None,
+            },
+            Some(RetornoAsync::Anotacao(a)) => self.valor_da_anotacao_async(ast, a, tipo),
+            None => None,
+        };
         let armar_tupla = |b: &mut Self| {
             let salvo = b.tupla_armada.take();
-            if let Some(v) = valor {
-                let t = b.tupla_de_tipos_rti(&[v]);
+            if let Some(v) = &valor {
+                let t = b.rti_da_receita(&super::rti::Receita { texto: format!("L<{}>", v.texto), variaveis: v.variaveis });
                 b.tupla_armada = Some(t);
             }
             salvo

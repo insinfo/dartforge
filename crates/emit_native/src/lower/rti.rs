@@ -789,6 +789,36 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Casa o tipo declarado `decl` (com os parâmetros `params`) com o tipo
     /// real `real`, gravando em `achados` o que cada parâmetro vale.
+    /// Se `C<args>` é um `Future`, o argumento do supertipo `Future<X>`
+    /// (`Some(None)` quando `X` não se escreve só com os `args`); `None`
+    /// quando não é `Future`.
+    fn argumento_de_future(&self, class: dartforge_elements::model::ClassId, args: &[TypeId]) -> Option<Option<TypeId>> {
+        let future = self.ctx.core.future_class?;
+        if class == future {
+            return Some(args.first().copied());
+        }
+        let dados = self.ctx.outline.hierarchy.get(class)?;
+        let modelo = *dados.supertypes.get(&future)?;
+        let T::Interface { args: margs, .. } = self.ctx.table.get(modelo) else { return Some(None) };
+        let Some(&x) = margs.first() else { return Some(None) };
+        Some(match self.ctx.table.get(x) {
+            T::TypeParameter { param, .. } => dados.type_params.iter().position(|p| p == param).and_then(|i| args.get(i).copied()),
+            _ if !self.contem_variavel(x) => Some(x),
+            _ => None,
+        })
+    }
+
+    /// O tipo menciona algum parâmetro de tipo.
+    fn contem_variavel(&self, t: TypeId) -> bool {
+        match self.ctx.table.get(t) {
+            T::TypeParameter { .. } | T::Intersection { .. } => true,
+            T::Interface { args, .. } => args.iter().any(|a| self.contem_variavel(*a)),
+            T::FutureOr { arg, .. } => self.contem_variavel(*arg),
+            T::Function { .. } | T::Record { .. } => true,
+            _ => false,
+        }
+    }
+
     fn unificar(&self, decl: TypeId, real: TypeId, params: &[TypeParamId], achados: &mut [Option<TypeId>]) {
         if real == self.ctx.core.dynamic_ {
             return;
@@ -810,13 +840,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             }
             (T::FutureOr { arg, .. }, T::FutureOr { arg: b, .. }) => self.unificar(*arg, *b, params, achados),
+            // `FutureOr<X>` contra um `Future` casa `X` com o argumento do
+            // `Future` (a inferência tenta `Future<X>` primeiro): também
+            // para um subtipo (`_Future<T>` implementa `Future<T>`).
             (T::FutureOr { arg, .. }, T::Interface { class, args, .. }) => {
-                if Some(*class) == self.ctx.core.future_class {
-                    if let Some(x) = args.first() {
-                        self.unificar(*arg, *x, params, achados);
-                    }
-                } else {
-                    self.unificar(*arg, real, params, achados);
+                match self.argumento_de_future(*class, args) {
+                    Some(Some(x)) => self.unificar(*arg, x, params, achados),
+                    // É `Future`, mas o argumento não se deduz: fica livre.
+                    Some(None) => {}
+                    None => self.unificar(*arg, real, params, achados),
                 }
             }
             (
