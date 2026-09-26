@@ -231,6 +231,9 @@ pub fn emitir_com_cache(
         }
     }
     let _ = main_async;
+    if let Some(c) = &ctx.conferencia {
+        c.borrow().relatar();
+    }
     let erros = std::mem::take(&mut *ctx.erros.borrow_mut());
     if !erros.is_empty() {
         return Err(erros);

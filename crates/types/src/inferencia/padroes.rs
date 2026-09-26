@@ -337,10 +337,14 @@ fn tipo_casado(inf: &mut BodyInferrer<'_>, cx: &Corpo, p: PatternId, t: TypeId) 
 /// tipo casado no ramo que casa, antes da guarda (R-FLU-14).
 pub(crate) fn caso(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, guarda: Option<ExprId>, escrutinio: Option<ExprId>) -> (Fluxo, Fluxo) {
     let antes = cx.fluxo.clone();
+    // O escrutínio é resolvido no escopo de fora, antes de o padrão declarar
+    // as suas variáveis: em `switch (e) { Neg(:final e) => … }` o `e` do
+    // padrão sombreia o escrutinado, e é o escrutinado (não a variável nova,
+    // do tipo do campo) que o caso promove.
+    let alvo = escrutinio.and_then(|e| expr::alvo_de_promocao(inf, cx, e));
     tipar(inf, cx, p, t, false, false);
     let mut sim = cx.fluxo.clone();
-    if let Some(e) = escrutinio
-        && let Some(id) = expr::alvo_de_promocao(inf, cx, e)
+    if let Some(id) = alvo
         && let Some(tc) = tipo_casado(inf, cx, p, t)
     {
         let decl = cx.local(id).tipo;

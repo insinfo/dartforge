@@ -138,6 +138,10 @@ pub struct Ctx<'a> {
     /// ou sem membro, docs/VERSOES-LINGUAGEM.md §3): a emissão falha com
     /// eles. O emissor é quem tem a inferência completa do contexto.
     pub erros: RefCell<Vec<dartforge_diagnostics::Diagnostic>>,
+    /// Conferência dos tipos do emissor contra a inferência comum
+    /// (`DARTFORGE_JS_CONFERIR_TIPOS`, ver `crate::conferencia`); `None`
+    /// quando desligada.
+    pub conferencia: Option<RefCell<crate::conferencia::Conferencia>>,
 }
 
 /// Classe de interop JS (`js_interop.dart` do DDC: `usesJSInterop`,
@@ -234,6 +238,7 @@ impl<'a> Ctx<'a> {
             super_memo: RefCell::new(HashMap::new()),
             erros: RefCell::new(Vec::new()),
             filtro: None,
+            conferencia: crate::conferencia::Conferencia::do_ambiente().map(RefCell::new),
         };
         // A interop vem antes da hierarquia: os tipos de extensão de interop
         // não são apagados, e os supertipos (`implements JSAny`) precisam

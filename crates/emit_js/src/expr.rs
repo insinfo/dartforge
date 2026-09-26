@@ -6,6 +6,7 @@ use crate::js::{self, Js, P_ADD, P_AND, P_ASSIGN, P_BITAND, P_BITOR, P_BITXOR, P
 use crate::ty::Ty;
 use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionKind, LibraryId};
 use dartforge_frontend::ast::{self, AssignOp, BinaryOp, CollectionElement, ExprId, ExprKind, UnaryOp};
+use dartforge_types::resolved::Resolved;
 use std::collections::HashMap;
 
 /// Guarda de null-shorting: `temp` recebe `init`; se for nulo, a cadeia vale `null`.
@@ -118,6 +119,40 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         IdentTarget::Unknown
     }
 
+    /// Alvo do identificador `e` (de nome `sym`). O elemento de topo
+    /// (função, variável, classe, typedef, extensão) vem da resolução da
+    /// inferência comum (`BodyTypes`, a mesma que o backend nativo consome),
+    /// que segue o escopo léxico do Dart; locais, membros, parâmetros de tipo
+    /// e prefixos ainda pela busca própria ([`Self::resolve_ident`]). É o
+    /// passo 2 da fonte única de inferência (docs/INFERENCIA-JS-ALINHAMENTO.md);
+    /// sem resolução comum (nó não visitado, `e` sintético), a busca própria.
+    pub fn alvo_do_identificador(&self, sym: dartforge_intern::SymbolId, e: ExprId) -> IdentTarget {
+        if let Some(Resolved::Element(el)) = self.resolucao_comum(e) {
+            // A inferência comum também dá `Element` a campo estático de
+            // extensão lido no corpo dela; o emissor o acessa pela extensão
+            // (`IdentTarget::ExtField`). Só o que é de topo de fato vem daqui.
+            let p = self.ctx.program;
+            let de_topo = match *el {
+                Element::Prefix(..) => false,
+                Element::Variable(v) => p.variable(v).class.is_none() && p.variable(v).extension.is_none(),
+                Element::Function(f) => p.function(f).class.is_none() && p.function(f).extension.is_none(),
+                Element::Class(_) | Element::Typedef(_) | Element::Extension(_) => true,
+            };
+            if de_topo {
+                return IdentTarget::Element(*el);
+            }
+        }
+        self.resolve_ident(sym)
+    }
+
+    /// O alvo que a inferência comum registrou para `e`, se registrou.
+    pub fn resolucao_comum(&self, e: ExprId) -> Option<&'a Resolved> {
+        if e.0 == u32::MAX {
+            return None;
+        }
+        self.ctx.bodies.units.get(self.unit.0 as usize)?.get_resolved(e)
+    }
+
     /// Emite uma expressão; `expected` é o tipo de contexto (inferência descendente).
     pub fn emit_expr(&mut self, e: ExprId, expected: Option<&Ty>) -> (Js, Ty) {
         let expr = self.expr(e);
@@ -129,6 +164,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             _ => self.emit_expr_inner(e, expected),
         };
+        if self.ctx.conferencia.is_some() {
+            self.conferir_tipo(e, &ty);
+        }
         if let Some((raiz, anterior)) = registro {
             match anterior {
                 Some(a) => {
@@ -1290,7 +1328,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     fn emit_identifier(&mut self, sym: dartforge_intern::SymbolId, e: ExprId) -> (Js, Ty) {
         let n = self.name(sym).to_string();
-        match self.resolve_ident(sym) {
+        if self.ctx.conferencia.is_some() {
+            self.conferir_alvo(e, &self.resolve_ident(sym));
+        }
+        match self.alvo_do_identificador(sym, e) {
             IdentTarget::Local(js, ty) => {
                 if let Some(l) = self.lookup_local(sym).cloned() {
                     if let Some(init) = &l.lazy_init {

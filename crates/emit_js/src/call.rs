@@ -60,7 +60,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             ExprKind::Identifier(id) => {
                 let n = self.name(id.sym).to_string();
-                match self.resolve_ident(id.sym) {
+                if self.ctx.conferencia.is_some() {
+                    self.conferir_alvo(target, &self.resolve_ident(id.sym));
+                }
+                match self.alvo_do_identificador(id.sym, target) {
                     IdentTarget::Local(js, ty) => {
                         let (r, rt) = self.emit_fn_value_call(&Js::prim(js), &ty, arguments, expected);
                         (r, rt, vec![])
