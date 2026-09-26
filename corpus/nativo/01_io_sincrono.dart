@@ -19,7 +19,7 @@ void main() {
   print(f.readAsBytesSync().length);
   final g = f.renameSync('${d.path}/b.txt');
   print(g.path.endsWith('b.txt'));
-  print(d.listSync().map((e) => e.path.split('/').last).toList());
+  print(d.listSync().map((e) => e.path.split(Platform.pathSeparator).last).toList());
   print(FileSystemEntity.typeSync(d.path));
   try {
     File('${d.path}/nao').readAsStringSync();
