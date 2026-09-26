@@ -679,3 +679,59 @@ mod testes_modulo_double {
         assert!(modulo(7.5, 0.0).is_nan());
     }
 }
+
+// ---------------------------------------------------------------------------
+// Referências fracas e efêmeros (`WeakReference`, `Expando`): o estado mora
+// nas tabelas `fracas`/`efemeros` do heap, que a coleta trata (`heap.rs`).
+
+/// `WeakReference.target` (`WeakReference_getTarget`): o alvo, ou null se
+/// foi coletado.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_WeakReference_getTarget(this: i64) -> i64 {
+    HEAP.with(|h| h.borrow().fracas.get(&this).copied().unwrap_or(0))
+}
+
+/// `_WeakReference._target =` (`WeakReference_setTarget`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_WeakReference_setTarget(this: i64, alvo: i64) {
+    HEAP.with(|h| h.borrow_mut().fracas.insert(this, alvo));
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_WeakProperty_getKey(this: i64) -> i64 {
+    HEAP.with(|h| h.borrow().efemeros.get(&this).map_or(0, |p| p.0))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_WeakProperty_setKey(this: i64, chave: i64) {
+    HEAP.with(|h| h.borrow_mut().efemeros.entry(this).or_insert((0, 0)).0 = chave);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_WeakProperty_getValue(this: i64) -> i64 {
+    HEAP.with(|h| h.borrow().efemeros.get(&this).map_or(0, |p| p.1))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_WeakProperty_setValue(this: i64, valor: i64) {
+    HEAP.with(|h| h.borrow_mut().efemeros.entry(this).or_insert((0, 0)).1 = valor);
+}
+
+/// `_Closure._computeHash` (`Closure_computeHash`): coerente com o
+/// `Closure_equals` — a função e, no tear-off de um método, o receptor.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Closure_computeHash(this: i64) -> i64 {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let Some(Value::Closure { code_id, environment }) = heap.try_get(this) else { return 0 };
+        let mut h = (*code_id as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        if let Some(Value::Environment(x)) = heap.try_get(*environment)
+            && x.len() == 1
+            && x[0].is_ref
+        {
+            h ^= (x[0].bits as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F);
+        }
+        // Um `Smi` positivo de 30 bits, como o hash da VM.
+        ((h >> 34) & 0x3FFF_FFFF) as i64
+    })
+}

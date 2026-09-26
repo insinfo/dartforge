@@ -14,6 +14,7 @@
       "_internal/vm_shared/lib/string_buffer_patch.dart": "core/string_buffer_patch.dart",
       "_internal/vm_shared/lib/compact_hash.dart": "collection/compact_hash.dart",
       "_internal/vm/lib/identical_patch.dart": "core/identical_patch.dart",
+      "_internal/vm/lib/function.dart": "core/function.dart",
       "_internal/vm/lib/regexp_patch.dart": "core/regexp_patch.dart",
       "_internal/vm/lib/isolate_patch.dart": "isolate/isolate_patch.dart",
       "html/dartium/nativewrappers.dart": "nativewrappers/nativewrappers.dart",

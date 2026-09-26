@@ -81,6 +81,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `r.x` resolvido para um getter (ou tear-off de método) de extensão.
     pub fn ler_extensao(&mut self, recv: Operand, fid: usize, receptor: Option<TypeId>, span: Span) -> Operand {
         let f = &self.ctx.program.functions[fid];
+        // Um método ESTÁTICO da extensão citado sem qualificação no corpo
+        // dela (`codeUnits.any(_maiuscula)`) é um tear-off estático, como
+        // `Ext._maiuscula`; getters e campos estáticos são lidos.
+        if f.static_ && f.kind == FunctionKind::Function && f.variable.is_none() {
+            let el = dartforge_elements::model::Element::Function(dartforge_elements::model::FunctionElementId(fid as u32));
+            return self.ler_elemento(el, span);
+        }
         if f.kind == FunctionKind::Getter || f.static_ {
             return self.chamar_extensao(recv, fid, &[], receptor, None, span);
         }
