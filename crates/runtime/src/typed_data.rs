@@ -26,6 +26,10 @@ const TIPO_INT32X4: u8 = 12;
 const TIPO_FLOAT64X2: u8 = 13;
 const TIPO_BYTE_DATA: u8 = 14;
 
+/// O bit do `tipo` de [`dartforge_view_nova`] que marca a visão não
+/// modificável (`_UnmodifiableXArrayView`).
+const VISAO_IMUTAVEL: i64 = 0x100;
+
 /// Bytes por elemento de um tipo.
 fn tamanho_do_elemento(tipo: u8) -> usize {
     match tipo {
@@ -99,7 +103,8 @@ pub extern "C" fn dartforge_typed_novo_t(class_id: i64, tipo: i64, n: i64, f: ex
 }
 
 /// Aloca uma visão sobre `base` (lista interna; uma visão passada aqui é
-/// resolvida para a lista interna dela).
+/// resolvida para a lista interna dela). O bit [`VISAO_IMUTAVEL`] de `tipo`
+/// marca a visão não modificável.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_view_nova(class_id: i64, tipo: i64, base: i64, deslocamento: i64, comprimento: i64) -> i64 {
     let resolvido = HEAP.with(|h| resolver(&h.borrow(), base));
@@ -112,6 +117,7 @@ pub extern "C" fn dartforge_view_nova(class_id: i64, tipo: i64, base: i64, deslo
         base: interna,
         deslocamento: desloc_base + deslocamento.max(0) as usize,
         comprimento: comprimento.max(0) as usize,
+        imutavel: tipo & VISAO_IMUTAVEL != 0,
     };
     com_raizes(&[interna], || HEAP.with(|h| h.borrow_mut().allocate(v)))
 }
@@ -134,6 +140,46 @@ pub extern "C" fn dartforge_view_nova_t(
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_TypedDataBase_length(this: i64) -> i64 {
     HEAP.with(|h| resolver(&h.borrow(), this).map_or(0, |(_, _, _, n)| n as i64))
+}
+
+/// O caminho rápido de `[]`, `[]=` e `length` de uma lista tipada numérica
+/// (código gerado quando o tipo estático é, digamos, `Int32List`): o
+/// comprimento em elementos de `h` se ela é uma lista tipada do `tipo`
+/// dado (lista interna ou visão) e, para `escrita != 0`, modificável; senão
+/// 0 — nenhum índice passa no teste `i u< n` do código gerado, que cai no
+/// despacho do `typed_data_patch.dart` (com os erros da VM). O tipo estático
+/// garante a lista tipada do `tipo` (as classes de `dart:typed_data` são
+/// `final`), então o `length` de leitura também vem daqui. Não depende de nada que o código Dart escreva: o emissor a
+/// declara `memory(inaccessiblemem: read)`, e o LLVM a tira dos laços.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_typed_len(h: i64, tipo: i64, escrita: i64) -> i64 {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let apta = match heap.try_get(h) {
+            Some(Value::TypedData { tipo: t, .. }) => i64::from(*t) == tipo,
+            Some(Value::TypedView { tipo: t, imutavel, .. }) => i64::from(*t) == tipo && (escrita == 0 || !imutavel),
+            _ => false,
+        };
+        if !apta {
+            return 0;
+        }
+        resolver(&heap, h).map_or(0, |(_, _, _, n)| n as i64)
+    })
+}
+
+/// O endereço do primeiro elemento de `h` se ela é lista tipada, senão 0
+/// (sem efeito nem erro: o emissor a declara `speculatable`, e o LLVM pode
+/// calculá-la antes do teste de [`dartforge_typed_len`]). Os bytes não se
+/// movem enquanto a lista vive (o vetor tem tamanho fixo; o coletor não
+/// compacta), nem a memória externa de `asTypedList`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_typed_ptr(h: i64) -> i64 {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        resolver(&heap, h).map_or(0, |(interna, deslocamento, _, _)| {
+            bytes_de(&heap, interna).as_ptr() as i64 + deslocamento as i64
+        })
+    })
 }
 
 /// `TypedDataView_typedData`: a lista interna de uma visão.

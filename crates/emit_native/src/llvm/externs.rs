@@ -235,20 +235,12 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
-        decl: "declare i64 @dartforge_gc_push_frame(i64)",
-        efeitos: CONSERVADOR,
+        decl: "declare void @dartforge_gc_empilhar(ptr)",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
-        decl: "declare void @dartforge_gc_set_root(i64, i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare void @dartforge_gc_root(i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare void @dartforge_gc_pop_frame(i64)",
-        efeitos: CONSERVADOR,
+        decl: "declare void @dartforge_gc_desempilhar(ptr)",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare void @dartforge_gc_collect()",
@@ -301,6 +293,21 @@ pub const EXTERNS: &[Extern] = &[
     Extern {
         decl: "declare i64 @dartforge_typed_novo_t(i64, i64, i64, ptr)",
         efeitos: CONSERVADOR,
+    },
+    // O caminho rápido das listas tipadas (`lower/tipados.rs`): funções
+    // puras do handle. O comprimento, o endereço dos elementos, o tipo e a
+    // imutabilidade de uma lista tipada não mudam enquanto ela vive, e um
+    // handle só é reusado depois que o objeto morre — quando o código não
+    // o usa mais. Então `memory(none)`: o LLVM as tira dos laços apesar das
+    // chamadas do registro de raízes. `speculatable`: sobre um handle
+    // qualquer (até um que não é lista tipada) respondem 0, sem efeito.
+    Extern {
+        decl: "declare i64 @dartforge_typed_len(i64, i64, i64) memory(none) nounwind willreturn speculatable",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_typed_ptr(i64) memory(none) nounwind willreturn speculatable",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare i64 @dartforge_view_nova(i64, i64, i64, i64, i64)",

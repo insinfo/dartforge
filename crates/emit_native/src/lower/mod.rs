@@ -30,6 +30,7 @@ pub mod registros;
 pub mod rti;
 pub mod sdk_fonte;
 pub mod sdk_por_nome;
+pub mod tipados;
 pub mod verificador;
 
 use crate::context::Context;

@@ -492,19 +492,24 @@ representação ser honesta transforma cada escalar em posição `Ref` num
 
 ### 6.5 G — raízes
 
-* **G1.** O emissor abre `frame = dartforge_gc_push_frame(N)` na entrada de
-  toda função que tem algum valor `Ref`, e dá a cada um deles um **slot
-  fixo**: cada valor SSA `Ref` (parâmetro, resultado de chamada, `Load`,
-  `phi`, alocação) recebe `set_root(frame, slot, v)` logo depois de ser
-  definido — o parâmetro logo depois do `push_frame`, o `phi` depois do
-  último `phi` do bloco.
+* **G1.** O emissor abre, na entrada de toda função que tem algum valor
+  `Ref`, um **quadro de raízes no stack dela** — `{ anterior, N, [N x i64] }`
+  (a pilha-sombra do `ShadowStackGC` do LLVM), com os slots zerados — e o
+  encadeia com `dartforge_gc_empilhar(quadro)`; a coleta percorre a cadeia
+  da thread. Cada valor `Ref` tem um **slot fixo**: cada valor SSA `Ref`
+  (parâmetro, resultado de chamada, `Load`, `phi`, alocação) é gravado no
+  slot dele com um `store` comum logo depois de ser definido — o parâmetro
+  logo depois do prólogo, o `phi` depois do último `phi` do bloco. Antes
+  eram três chamadas ao runtime (`push_frame`, que alocava um vetor por
+  ativação, `set_root` por valor e `pop_frame`); o `store` não impede o
+  LLVM de tirar dos laços as funções puras do runtime (`typed_len`).
 * **G2.** Cada `alloca` de tipo `Ref` também tem um slot, e **todo `Store`
   nele é seguido de `set_root`** com o valor gravado. O plano original
   enraizava só valores SSA; isso não basta, porque um local vive mais que o
   SSA que o gravou: em `if (i == 0) saved = current;` dentro de um laço, a
   segunda volta redefine o SSA de `current` e sobrescreve o slot dele —
   sem o slot do `alloca`, `saved` ficaria sem raiz.
-* **G3.** `dartforge_gc_pop_frame(frame)` antes de **todo** `ret`, inclusive
+* **G3.** `dartforge_gc_desempilhar(quadro)` antes de **todo** `ret`, inclusive
   as saídas por exceção (a função que sai com exceção pendente retorna o
   valor padrão pelo mesmo `ret`).
 * **G4.** Slot fixo por SSA é correto: numa ativação há no máximo uma

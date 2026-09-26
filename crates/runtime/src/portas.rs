@@ -58,7 +58,7 @@ enum NoG {
     BoxedDouble(f64),
     BoxedBool(bool),
     TypedData { class_id: i64, tipo: u8, bytes: Vec<u8> },
-    TypedView { class_id: i64, tipo: u8, base: ValG, deslocamento: usize, comprimento: usize },
+    TypedView { class_id: i64, tipo: u8, base: ValG, deslocamento: usize, comprimento: usize, imutavel: bool },
     /// Uma `Uint8List` montada fora do heap (as respostas dos serviços
     /// nativos): a classe sai de `CIDS_DO_RUNTIME` no isolado que a recebe.
     Bytes(Vec<u8>),
@@ -212,12 +212,13 @@ fn copiar_para_grafo(raiz: i64, compartilhar: bool) -> Result<Grafo, MensagemIle
                 Value::BoxedDouble(x) => NoG::BoxedDouble(*x),
                 Value::BoxedBool(x) => NoG::BoxedBool(*x),
                 Value::TypedData { class_id, tipo, bytes } => NoG::TypedData { class_id: *class_id, tipo: *tipo, bytes: bytes.to_vec() },
-                Value::TypedView { class_id, tipo, base, deslocamento, comprimento } => NoG::TypedView {
+                Value::TypedView { class_id, tipo, base, deslocamento, comprimento, imutavel } => NoG::TypedView {
                     class_id: *class_id,
                     tipo: *tipo,
                     base: v(&TaggedValue::reference(*base)),
                     deslocamento: *deslocamento,
                     comprimento: *comprimento,
+                    imutavel: *imutavel,
                 },
             };
             Ok((no, meta))
@@ -552,12 +553,13 @@ fn materializar(g: &Grafo) -> i64 {
                     bytes: bytes.clone().into(),
                 },
                 NoG::DoRuntime { pos, id } => Value::Object { class_id: cid_registrado(*pos).unwrap_or(-1), fields: vec![(*id, false)] },
-                NoG::TypedView { class_id, tipo, deslocamento, comprimento, .. } => Value::TypedView {
+                NoG::TypedView { class_id, tipo, deslocamento, comprimento, imutavel, .. } => Value::TypedView {
                     class_id: *class_id,
                     tipo: *tipo,
                     base: 0,
                     deslocamento: *deslocamento,
                     comprimento: *comprimento,
+                    imutavel: *imutavel,
                 },
                 NoG::BoxedBool(b) => {
                     let h = heap.caixa_bool(*b);
