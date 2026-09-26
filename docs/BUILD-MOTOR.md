@@ -65,8 +65,12 @@ Duas perguntas, nada mais: **quando** (plano, agenda, impressão) e
   fase só, no fim.
 * **Extensões** — as de **execução** (`build/src/generate/expected_outputs.dart`):
   sufixo, `^caminho` exato, `{{nome}}` com `(.+)` guloso e primeiro casamento.
-  Quem diz as extensões de execução é o **descritor** do builder (§6);
-  sem descritor, as do `build.yaml`.
+  Quem diz as extensões de execução é o objeto `Builder`
+  (`buildExtensions`): com o executor Dart disponível, o motor pergunta a
+  cada fase sem gerador nativo verificado (`build.extensoes`) e refaz o
+  grafo se divergirem; sem executor, valem as do **descritor** do builder
+  (§6) e, sem descritor, as do `build.yaml` (que não separam as fábricas de
+  um builder com várias).
 * **Fontes** — por alvo: `sources.include` ou os padrões
   (`options.dart:24-51`), filtrados pela visibilidade (`target_graph.dart`:
   fora da raiz só `lib/**`, `bin/**`, `pubspec.yaml`, `CHANGELOG*`,
@@ -94,7 +98,11 @@ uma saída de builder?" e "esta saída de `cache` é legível daqui?".
 
 Legibilidade (`build_impl.dart:443-463`): saída de fase posterior não é
 legível; da mesma fase, só a própria; de fase anterior, só se foi escrita.
-Fora da raiz só o visível (`target_graph.dart`).
+Fora da raiz só o visível (`target_graph.dart`). Só os pacotes com alguma
+fase que gera têm as fontes listadas; nos outros (as dependências que um
+builder lê pelo resolver) uma fonte é decidida caminho a caminho pelo filtro
+do pacote — `sources` dos alvos e visibilidade — mais a existência no disco
+(`Grafo::externos`, `fonte_externa`).
 
 ## 4. Consultas e impressão digital (`consulta.rs`, `impressao.rs`)
 
@@ -122,6 +130,10 @@ pub enum Consulta {
   `asset_graph/node.dart:112-120`.
 * **Corte pela saída** (`build_impl.dart:681-725`): saída com o mesmo
   digest não suja dependentes nem invalida unidades.
+* **Glob depois de evento estrutural** (arquivo novo ou apagado no
+  pacote): a lista de candidatos do `findAssets` é refeita no grafo novo e
+  a ação só reexecuta se a resposta mudou (o `GlobAssetNode` do oficial);
+  a consulta gravada passa a ter os candidatos novos.
 * **Solidez**: o executor só lê pelo contexto que registra consultas
   (`CtxGerador`/`ServicoBuildStep`). O que ele não consultou não pode
   invalidá-lo. O invariante de verificação é **incremental = do zero**.
@@ -137,7 +149,13 @@ trabalhadores** — verificado pelo teste de determinismo.
 
 **Preguiça** (D-B6): saída `build_to: cache` só é calculada quando alguém a
 lê — o carregador (import), o servidor (pedido HTTP), outro builder, ou
-`--comparar`. Ações `isOptional` idem (é o `is_optional` do oficial).
+`--comparar`. Ações `isOptional` idem (é o `is_optional` do oficial). Com o
+executor Dart, as fases ocultas que ele executa entram mesmo na demanda do
+carregador: um builder posterior pode lê-las (o `combining_builder` lê as
+partes `.g.part` por glob) e o motor não interrompe uma ação Dart para
+calcular outra. Ficam preguiçosas as opcionais e as de gerador nativo.
+As ações Dart de uma fase executam em série no processo único (o executor
+é um só por sessão, atrás de um `Mutex`).
 Saídas `build_to: source` são calculadas sempre e vão ao disco só quando o
 texto muda (D-B2).
 
@@ -147,12 +165,18 @@ Por ação, na ordem, o primeiro que aceita:
 
 1. **Nativo** (`GeradorNativo`, Rust, lê o banco semântico): há gerador,
    a versão do lock está no `imita` do descritor, e ele não recusou.
-2. **Dart** (`ExecutorDart`, `docs/BUILD-PROTOCOLO.md`): o motor já chama um
-   executor injetado e serve `BuildStep` com visibilidade, consultas e saídas
-   permitidas. O cliente `build.*` já usa o canal `dfexec/1` compartilhado com
-   as macros. O padrão ainda é `Indisponivel(motivo)` até existir o processo
-   Dart auto-hospedado que implemente esse serviço. A sessão encerra o
-   executor ao terminar ou quando ele é substituído.
+2. **Dart** (`ExecutorDart`, `docs/BUILD-PROTOCOLO.md`): o motor chama o
+   executor e serve `BuildStep` com visibilidade, consultas e saídas
+   permitidas, pelo canal `dfexec/1` compartilhado com as macros. O
+   executor que existe é o **pela VM Dart** (`vm.rs` + `pacotes/build_executor`):
+   executa o builder do ecossistema de verdade (o `runBuilder` do
+   `package:build`, o `AnalyzerResolvers` do `build_resolvers`), ligado por
+   `dartforge build --dart <exe>` ou `DARTFORGE_BUILD_DART`. Sem ele, o padrão
+   é `Indisponivel(motivo)`, até existir o processo auto-hospedado. A sessão
+   encerra o executor ao terminar ou quando ele é substituído. No
+   `corpus/builders` pela VM: **56 iguais / 1 pendente / 0 diferentes**
+   (`crates/build/tests/executor_vm.rs`; o pendente é a saída de um
+   pós-processador), e incremental = do zero nas 12 edições.
 3. **Apoio**: o que o `build_runner` deixou no disco — saída `source` na
    árvore, saída `cache` em `.dart_tool/build/generated/<pkg>/<caminho>`.
    Se a entrada primária é mais nova que o apoio: **aviso** único no
@@ -187,7 +211,9 @@ mesclado (`build -o`): no motor são no-op declarados.
 * `compile-js` usa o motor numa passada; `DARTFORGE_GERADOS` fica um ciclo
   como sinônimo (`build_runner` = só apoio; `ng` = padrão com motor).
 * `dartforge build [--release] [--plano] [--comparar] [--escrever-cache
-  <dir>] [--trabalhadores N] [--estrito]`.
+  <dir>] [--trabalhadores N] [--estrito] [--dart <exe>]`; `--dart` (ou
+  `DARTFORGE_BUILD_DART`, que vale também para `dev`, `serve` e
+  `compile-js`) liga o executor de builders pela VM.
 
 ## 8. Custo zero (regra governante, PLANO.md)
 

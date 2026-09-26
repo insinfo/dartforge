@@ -104,7 +104,8 @@ jobs:
       # precisam do package_config.json de cada caso:
       # `pub get` com o lock commitado (versões fixadas). Os testes
       # #[ignore] do crates/build (plano, placar, determinismo, incremental,
-      # transparência do ngdart) rodam no passo seguinte.
+      # transparência do ngdart e o executor de builders pela VM Dart, que
+      # compara cada caso com o oráculo byte a byte) rodam no passo seguinte.
       - name: pub get dos corpora do motor de build
         if: success() || failure()
         shell: pwsh

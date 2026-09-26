@@ -238,8 +238,9 @@ outras mudanças integradas.
 
 No ramo de trabalho atual, o motor de build aceita um executor Dart injetado,
 serve `BuildStep` com visibilidade por fase e por pacote, e possui um cliente
-para o protocolo `build.*` sobre o canal `dfexec/1`. O processo Dart que
-execute builders ainda não está implementado; o padrão continua indisponível.
+para o protocolo `build.*` sobre o canal `dfexec/1`. O processo que executa
+builders existe pela VM Dart (`pacotes/build_executor`, `crates/build/src/vm.rs`,
+opcional); sem ele, o padrão continua indisponível.
 Gates isolados da integração recente: o nativo chegou a **166/223** no SDK da
 fonte após RTI de fábrica redirecionadora e getter de interface implementado
 por campo ([Pesado 36010112751](https://github.com/insinfo/dartforge/actions/runs/36010112751));
@@ -1167,8 +1168,9 @@ Contrato: `docs/BUILD-MOTOR.md`; protocolo do executor Dart:
 lê a configuração que o `build_runner` 2.4.15 leria, monta **o mesmo plano
 de fases**, e para cada ação decide pela impressão digital do que ela
 consultou se executa ou reaproveita; publica numa `Geracao` em memória.
-Executores, nesta ordem: **nativo** (Rust), **Dart** (`dfexec/1`, hoje
-indisponível), **apoio** (o que o `build_runner` deixou no disco, com aviso
+Executores, nesta ordem: **nativo** (Rust), **Dart** (`dfexec/1`; pela VM
+Dart quando pedido com `dartforge build --dart <exe>` ou
+`DARTFORGE_BUILD_DART`, indisponível sem isso), **apoio** (o que o `build_runner` deixou no disco, com aviso
 quando está mais velho que a fonte; erro com `dartforge build --estrito`).
 
 * **Plano igual ao oficial**: a forma canônica de `dartforge build --plano`
@@ -1181,7 +1183,14 @@ quando está mais velho que a fonte; erro com `dartforge build --estrito`).
   **0 iguais / 61 pendentes / 0 diferentes** (sem executor Dart nem apoio
   no corpus limpo); determinismo 1/4/8 idêntico; incremental = do zero nas
   12 edições (`crates/build/tests/corpus.rs`, `#[ignore]`, no `ci.yml` depois
-  de `pub get`).
+  de `pub get`). **Pela VM** (`crates/build/tests/executor_vm.rs`, os
+  builders do ecossistema executados de verdade, sem apoio no disco):
+  **56 iguais / 1 pendente / 0 diferentes** — json_serializable, built_value,
+  freezed, drift, mockito, riverpod_generator, sass_builder e os builders
+  locais; o pendente é a saída do pós-processador — e incremental = do zero
+  nas 12 edições. json_serializable: limpo 11,8 s (kernel e resumo do SDK
+  compilados) ou 1,8 s (em cache), edições 67–106 ms na sessão viva, contra
+  20,0 s / 4,2 s / ~4,4 s do `build_runner` (docs/BUILD-RUST.md, B7).
 * **ngdart pelo motor** (estágio A: uma ação de pacote, `gerar_com_apoio`
   sobre o `Program` da sessão, pela API pública do `gerador_ng`):
   `crates/build/tests/ng_transparencia.rs` — 60 saídas pelo motor iguais às
@@ -1452,9 +1461,9 @@ por componente, consultas finas), que depende dos acréscimos públicos
 pedidos ao `gerador_ng` em `docs/BUILD-PEDIDOS-GERADOR-NG.md` e é o que
 leva a edição de componente para baixo de 500 ms; o Sass byte a byte do
 `sass_builder` (mesmo documento, item 4), para o `.css` servido sair do
-nativo; o executor Dart (`dfexec/1`, `docs/BUILD-PROTOCOLO.md`), que é o
-executor nativo compartilhado com as macros e o que tira os 61 pendentes do
-`corpus/builders`; e o `go_router_builder` no corpus (D-B4, exige Flutter).
+nativo; o executor Dart **auto-hospedado** (`dfexec/1`,
+`docs/BUILD-PROTOCOLO.md`), compartilhado com as macros — o pela VM já tira
+os pendentes do `corpus/builders`, mas a VM oficial não é o produto; e o `go_router_builder` no corpus (D-B4, exige Flutter).
 
 Plano para substituir o `build_runner` por um motor em Rust:
 `docs/BUILD-RUST.md`. O dado que o orienta: dos 9.879 artefatos que o
