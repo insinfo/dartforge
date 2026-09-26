@@ -48,7 +48,7 @@ fn main() {
     let alvo_windows = std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows");
     if alvo_windows {
         // O pacote oficial de Windows só permite a DLL da API C (topo deste arquivo).
-        assert!(modo != "static", "DARTFORGE_LLVM_LINK=static não é suportado no Windows: ver o topo de crates/jit/build.rs");
+        assert!(modo != "static", "DARTFORGE_LLVM_LINK=static não é suportado no Windows: ver o topo de crates/llvm/build.rs");
         println!("cargo::rustc-link-lib=dylib={}", shared_library_name());
         return;
     }
@@ -80,8 +80,9 @@ fn main() {
     }
 }
 
-/// Componentes do LLVM que o JIT usa.
-const COMPONENTES: [&str; 4] = ["orcjit", "native", "irreader", "passes"];
+/// Componentes do LLVM que o dartforge usa: o JIT (`orcjit`) e a geração de
+/// objetos e bitcode do AOT (`native`, `passes`, `bitwriter`).
+const COMPONENTES: [&str; 5] = ["orcjit", "native", "irreader", "passes", "bitwriter"];
 
 /// Executa o `llvm-config` do prefixo escolhido (nunca o do `PATH`, que pode
 /// ser de outra instalação) e devolve a saída.

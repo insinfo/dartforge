@@ -12,6 +12,7 @@
 //! diagnósticos de inferência nos corpos dessas bibliotecas, que precisam ser
 //! zero antes de o lowering compilá-los.
 
+use crate::gerador::{Formato, Geracao, Gerador};
 use dartforge_elements::sdk::SdkLayout;
 use std::path::{Path, PathBuf};
 
@@ -399,34 +400,25 @@ fn chave_do_sdk(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     h.finalize().to_hex()[..32].to_string()
 }
 
-/// As bandeiras do Clang para os objetos do SDK no perfil pedido.
+/// A geração dos módulos do SDK no perfil pedido.
 ///
-/// Desenvolvimento: as do programa, código independente de posição fora do
-/// Windows (os objetos vão para a biblioteca compartilhada) e cada função na
-/// sua seção. Produção: bitcode para a otimização entre módulos (ThinLTO) na
-/// ligação do executável (docs/PESQUISA-LLVM-DART-AOT.md §5: desenvolvimento
-/// em módulos separados, produção com ThinLTO).
+/// Desenvolvimento: objetos `-O0` para a biblioteca compartilhada (código
+/// independente de posição fora do Windows). Produção: bitcode `-O2` para a
+/// otimização entre módulos na ligação do executável
+/// (docs/PESQUISA-LLVM-DART-AOT.md §5: desenvolvimento em módulos separados,
+/// produção com LTO).
 ///
 /// ```
-/// use dartforge_emit_native::sdk_modulo::{PerfilDoSdk, args_clang_do_sdk};
-/// assert!(args_clang_do_sdk(PerfilDoSdk::Producao).contains(&"-flto=thin"));
-/// assert!(args_clang_do_sdk(PerfilDoSdk::Desenvolvimento).contains(&"-O0"));
+/// use dartforge_emit_native::gerador::Formato;
+/// use dartforge_emit_native::sdk_modulo::{PerfilDoSdk, geracao_do_sdk};
+/// assert_eq!(geracao_do_sdk(PerfilDoSdk::Producao).formato, Formato::Bitcode);
+/// assert!(!geracao_do_sdk(PerfilDoSdk::Desenvolvimento).otimizar);
 /// ```
-pub fn args_clang_do_sdk(perfil: PerfilDoSdk) -> Vec<&'static str> {
-    let mut args = vec!["-x", "ir", "-c"];
+pub fn geracao_do_sdk(perfil: PerfilDoSdk) -> Geracao {
     match perfil {
-        PerfilDoSdk::Desenvolvimento => {
-            args.push("-O0");
-            args.extend(crate::alvo::bandeiras_objeto());
-            args.extend(crate::alvo::bandeiras_objeto_compartilhado());
-        }
-        PerfilDoSdk::Producao => {
-            args.extend(["-O2", "-flto=thin"]);
-            args.extend(crate::alvo::bandeiras_objeto());
-        }
+        PerfilDoSdk::Desenvolvimento => Geracao { otimizar: false, formato: Formato::Objeto, compartilhado: true },
+        PerfilDoSdk::Producao => Geracao { otimizar: true, formato: Formato::Bitcode, compartilhado: false },
     }
-    args.extend(["-ffunction-sections", "-fdata-sections"]);
-    args
 }
 
 /// O perfil em que o SDK da fonte é compilado.
@@ -456,10 +448,9 @@ pub fn sdk_compilado(lib_dir: &Path, clang: &Path) -> Result<SdkCompilado, Strin
 pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk) -> Result<SdkCompilado, String> {
     static TRAVA: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _g = TRAVA.lock().unwrap_or_else(|e| e.into_inner());
-    let clang_id = crate::cache_objeto::identidade_clang(clang)?;
-    let args = args_clang_do_sdk(perfil);
-    let args = args.as_slice();
-    let chave = chave_do_sdk(lib_dir, &clang_id, args);
+    let gerador = Gerador::escolher(clang);
+    let geracao = geracao_do_sdk(perfil);
+    let chave = chave_do_sdk(lib_dir, &gerador.identidade()?, &[geracao.descricao().as_str()]);
     let raiz = crate::cache::dir_cache_nativo().join("sdk");
     let dir = raiz.join(&chave);
     let nome_dll = format!("dfsdk_{}", &chave[..16]);
@@ -506,34 +497,34 @@ pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk
         def.push_str(&format!("  {s}\n"));
     }
     std::fs::write(tmp.join("exportados.def"), def).map_err(|e| e.to_string())?;
+    let manter_ir = std::env::var_os("DARTFORGE_KEEP_IR").is_some();
     let mut resumo = String::new();
     for (b, lib) in BIBLIOTECAS_DA_FONTE.iter().zip(&libs) {
-        std::fs::write(tmp.join(format!("{b}.ll")), &lib.ir).map_err(|e| e.to_string())?;
+        if manter_ir {
+            std::fs::write(tmp.join(format!("{b}.ll")), &lib.ir).map_err(|e| e.to_string())?;
+        }
         for (s, m) in &lib.recusados {
             resumo.push_str(&format!("{}\t{s}\t{m}\n", lib.uri));
         }
     }
     std::fs::write(tmp.join("recusados.tsv"), resumo).map_err(|e| e.to_string())?;
-    // O Clang de cada biblioteca num processo, no máximo 4 ao mesmo tempo.
-    let fila = std::sync::Mutex::new(BIBLIOTECAS_DA_FONTE.to_vec());
+    // Cada biblioteca num gerador, no máximo 4 ao mesmo tempo (a memória de
+    // um módulo grande do LLVM é a medida, não os núcleos).
+    let fila = std::sync::Mutex::new(BIBLIOTECAS_DA_FONTE.iter().zip(&libs).collect::<Vec<_>>());
     let erros = std::sync::Mutex::new(Vec::new());
     std::thread::scope(|s| {
         for _ in 0..4 {
-            s.spawn(|| loop {
-                let Some(b) = fila.lock().unwrap().pop() else { break };
-                let st = std::process::Command::new(clang)
-                    .current_dir(&tmp)
-                    .args(args)
-                    .arg(format!("{b}.ll"))
-                    .arg("-o")
-                    .arg(format!("{b}.{ext_obj}"))
-                    .status();
-                match st {
-                    Ok(s) if s.success() => {}
-                    Ok(s) => erros.lock().unwrap().push(format!("Clang recusou o IR de dart:{b} ({s})")),
-                    Err(e) => erros.lock().unwrap().push(format!("Clang: {e}")),
+            // A pilha do Clang (8 MB): passes recursivos do LLVM num módulo
+            // grande passam da pilha padrão de uma thread do Rust.
+            let r = std::thread::Builder::new().stack_size(64 << 20).spawn_scoped(s, || loop {
+                let Some((b, lib)) = fila.lock().unwrap().pop() else { break };
+                if let Err(e) = gerador.gerar(&lib.ir, geracao, &tmp.join(format!("{b}.{ext_obj}"))) {
+                    erros.lock().unwrap().push(format!("dart:{b}: {e}"));
                 }
             });
+            if let Err(e) = r {
+                erros.lock().unwrap().push(format!("thread do gerador: {e}"));
+            }
         }
     });
     if let Some(e) = erros.into_inner().unwrap().into_iter().next() {
@@ -596,11 +587,6 @@ pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk
             saida.status,
             linhas.join("\n")
         ));
-    }
-    if std::env::var_os("DARTFORGE_KEEP_IR").is_none() {
-        for b in BIBLIOTECAS_DA_FONTE {
-            let _ = std::fs::remove_file(tmp.join(format!("{b}.ll")));
-        }
     }
     std::fs::write(tmp.join("pronto"), b"").map_err(|e| e.to_string())?;
     if std::fs::rename(&tmp, &dir).is_err() {

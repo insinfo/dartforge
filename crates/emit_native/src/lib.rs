@@ -6,6 +6,7 @@ pub mod cache_objeto;
 pub mod context;
 pub mod driver;
 pub mod fonte;
+pub mod gerador;
 pub mod hir;
 pub mod llvm;
 pub mod lower;
@@ -290,7 +291,7 @@ pub fn compilar_com(
         eprintln!("--- Tempos de Compilação Nativa ---");
         ir.imprimir_tempos();
         let origem = if ligacao.objeto_do_cache { " (cache)" } else { "" };
-        eprintln!("  Clang:     {:?}{origem}", ligacao.clang);
+        eprintln!("  Objeto:    {:?}{origem}", ligacao.clang);
         eprintln!("  Link:      {:?}", ligacao.link);
         eprintln!("  Total:     {:?}", total_duration);
         eprintln!("  Pico Mem:  {} KB", peak_memory / 1024);
