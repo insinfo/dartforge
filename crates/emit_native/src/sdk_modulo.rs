@@ -46,6 +46,9 @@ pub fn dir_sobreposicao() -> PathBuf {
     if let Some(d) = std::env::var_os("DARTFORGE_SDK_NATIVO") {
         return PathBuf::from(d);
     }
+    if let Some(d) = dartforge_elements::distribuicao::sobreposicao_nativa() {
+        return d;
+    }
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sdk_nativo")
 }
 
@@ -115,10 +118,12 @@ pub fn medir_inferencia_do_sdk(lib_dir: &Path) -> Result<Vec<InferenciaDaBibliot
     Ok(saida)
 }
 
-/// O SDK da fonte está ligado neste processo? (`DARTFORGE_SDK_DA_FONTE=1`;
-/// até a troca de P5d, o caminho padrão é o runtime por nome.)
+/// O SDK da fonte está ligado neste processo? É o padrão (P5d): o corpus
+/// inteiro passa por ele, e só ele tem `dart:io`, isolados, TLS e FFI.
+/// `DARTFORGE_SDK_DA_FONTE=0` volta ao runtime por nome de antes (99 de 225
+/// programas do corpus), mantido para comparação.
 pub fn sdk_da_fonte_pedido() -> bool {
-    std::env::var("DARTFORGE_SDK_DA_FONTE").is_ok_and(|v| v.trim() == "1")
+    !std::env::var("DARTFORGE_SDK_DA_FONTE").is_ok_and(|v| v.trim() == "0")
 }
 
 /// A função que registra no runtime as classes de uma biblioteca do SDK da
@@ -433,7 +438,7 @@ pub enum PerfilDoSdk {
 /// A DLL do SDK da fonte (perfil de desenvolvimento) para o SDK instalado e
 /// o Clang de sempre: é o que o JIT carrega (`crates/jit`, `DARTFORGE_SDK_DLL`).
 pub fn dll_do_sdk_da_fonte() -> Result<PathBuf, String> {
-    let dir = SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
+    let dir = crate::sdk_do_dart()?;
     let clang = crate::driver::NativeDriverOptions::default().clang;
     Ok(sdk_compilado(&dir, &clang)?.dll)
 }

@@ -116,6 +116,17 @@ pub fn emitir_ir(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, 
     emitir_ir_com(entrada, options, sdk_modulo::sdk_da_fonte_pedido())
 }
 
+/// O `lib/` do SDK do Dart: o que [`SdkLayout::discover`] acha (a variável
+/// de ambiente, a distribuição, o `dart` do `PATH`), ou o erro que diz como
+/// apontá-lo.
+pub fn sdk_do_dart() -> Result<PathBuf, String> {
+    SdkLayout::discover().ok_or_else(|| {
+        "SDK do Dart não encontrado: a distribuição do dartforge o leva em lib/dart-sdk; \
+         numa árvore de desenvolvimento, defina DARTFORGE_SDK_LIB (o lib/ do SDK) ou DART_SDK"
+            .to_string()
+    })
+}
+
 /// [`emitir_ir`] escolhendo o SDK: da fonte (P5c/P5d, `sdk_modulo`) ou o
 /// runtime por nome de antes.
 pub fn emitir_ir_com(entrada: &Path, options: &CompileOptions, da_fonte: bool) -> Result<IrEmitido, String> {
@@ -123,7 +134,7 @@ pub fn emitir_ir_com(entrada: &Path, options: &CompileOptions, da_fonte: bool) -
     let t_front = Instant::now();
     let sdk_dir = match options.sdk {
         Some(p) => p.to_path_buf(),
-        None => SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib")),
+        None => sdk_do_dart()?,
     };
 
     // A seção `vm` com a sobreposição `sdk_nativo/` (P5a): o `dart:async` que
