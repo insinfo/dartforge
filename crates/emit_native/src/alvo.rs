@@ -141,7 +141,8 @@ pub const fn bibliotecas_do_sistema() -> &'static [&'static str] {
     match sistema() {
         Sistema::Windows => &["-lws2_32", "-luserenv", "-lntdll", "-liphlpapi", "-lbcrypt", "-ladvapi32", "-lkernel32"],
         Sistema::Linux => &["-lgcc_s", "-lutil", "-lrt", "-lpthread", "-lm", "-ldl", "-lc"],
-        Sistema::MacOs => &["-lSystem", "-lc", "-lm", "-liconv"],
+        // `CoreFoundation`: o `Platform.localeName` (io_plataforma.rs).
+        Sistema::MacOs => &["-lSystem", "-lc", "-lm", "-liconv", "-framework", "CoreFoundation"],
     }
 }
 
