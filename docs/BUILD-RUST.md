@@ -4,7 +4,7 @@ Plano para substituir o `build_runner` no ciclo de desenvolvimento, sem
 quebrar o ecossistema. Escrito em 2026-09-22 a partir de medição dos
 projetos reais do proprietário, não de suposição.
 
-## 0. Onde está (2026-09-24)
+## 0. Onde está (2026-09-26)
 
 A Fase 1 existe: `crates/build` (contrato em `docs/BUILD-MOTOR.md`,
 protocolo do executor Dart em `docs/BUILD-PROTOCOLO.md`), ligado ao
@@ -19,8 +19,7 @@ Números medidos no ESTADO.md §1.8. Em uma linha por passo do plano:
   `.dart_tool/build/entrypoint/build.dart` nos 9 casos com builders, no
   `new_sali/frontend` e no `limitless_ui/example` (lidos, nunca gerados).
 * **B3** — grafo de saídas, consultas, impressão digital, agenda
-  determinística, executores (nativo, Dart injetável com cliente `dfexec/1`,
-  apoio; o processo Dart real ainda não existe): toda saída
+  determinística, executores (nativo, Dart pelo `dfexec/1`, apoio): toda saída
   dos manifestos é prevista pelo plano (menos a de um pós-processador), 0
   diferentes, determinismo 1/4/8 e incremental = do zero nas edições.
 * **B4** — sessão, `serve`, `compile-js` (o `emit_js` não depende mais do
@@ -32,6 +31,35 @@ Números medidos no ESTADO.md §1.8. Em uma linha por passo do plano:
   nativo elegível antes do apoio.
 * **B6** — o estágio B do ngdart depende do que está pedido ao `gerador_ng`
   em `docs/BUILD-PEDIDOS-GERADOR-NG.md`.
+* **B7** — builders do ecossistema **executados de verdade**, pela VM Dart
+  (degrau provisório da Fase 4, §3): `pacotes/build_executor` (o lado Dart
+  do serviço `build.*`: `runBuilder` do `package:build`, `AnalyzerResolvers`
+  do `build_resolvers`, todas as leituras e escritas pelo motor) e
+  `crates/build/src/vm.rs` (bootstrap, kernel em cache pelo depfile,
+  processo quente na sessão). Opcional: `dartforge build --dart <exe>` ou
+  `DARTFORGE_BUILD_DART`. `corpus/builders` pela VM: json_serializable,
+  built_value, freezed, drift, mockito, riverpod_generator, sass_builder
+  (dev e compressed) e os builders locais do `cadeia_configuracao` —
+  **56 iguais / 1 pendente / 0 diferentes** contra o oráculo do
+  `build_runner`, byte a byte; incremental = do zero nas 12 edições.
+
+Números do B7 no caso `json_serializable` (Linux, VM 3.6.2, motor em
+`debug`; `build_runner` 2.4.15 na mesma máquina, cada comando um processo
+novo):
+
+| | DartForge (VM) | `dart run build_runner build` |
+|---|---:|---:|
+| limpo, compilando o script/kernel | 11,8 s | 20,0 s |
+| limpo, script/kernel já compilado | 1,8 s | 4,2 s |
+| sem mudança | 0,1 ms (sessão viva) | 2,9 s |
+| edição de corpo de método | 106 ms (3 ações, 0 saídas mudadas) | 4,4 s |
+| campo novo | 93 ms (3 ações, 2 saídas) | 4,5 s |
+| arquivo novo | 67 ms (2 ações) | 4,3 s |
+
+As edições do DartForge são na sessão viva (processo quente, como o
+`dartforge dev`); as do `build_runner` são `build` avulsos — o `watch` dele
+seria a comparação justa para as edições e não foi medido. O limpo inclui a
+geração do resumo do SDK pelo `build_resolvers` nos dois lados.
 
 ## 1. O que o `build_runner` custa hoje, medido
 
@@ -156,9 +184,10 @@ observação do sistema de arquivos, paralelismo. É a orquestração que o
   `saída <caminho> <hash>`). Sem inicialização por build e sem VM oficial.
 * `build_web_compilers` não é executado: a compilação para JavaScript é
   nossa, por substituição.
-* **Enquanto o nosso runtime não executar um builder**, a limitação é
-  declarada e o projeto roda `dart run build_runner` à parte, uma vez,
-  como já acontece hoje com os `.template.dart` do ngdart. É **limitação
+* **Enquanto o nosso runtime não executar um builder**, o motor executa o
+  builder pela VM Dart quando pedido (B7, `--dart`/`DARTFORGE_BUILD_DART`),
+  pelo mesmo protocolo que o executor auto-hospedado vai falar; sem isso,
+  vale o apoio do `dart run build_runner` rodado à parte. É **limitação
   conhecida, não arquitetura**: nada no desenho depende do `dart`.
 
 Aceite, em duas partes:

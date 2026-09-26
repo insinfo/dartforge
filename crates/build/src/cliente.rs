@@ -1,6 +1,6 @@
 //! Cliente do serviço `build.*` do `dfexec/1`. O canal e o enquadramento são
 //! os mesmos usados pelas macros; o executor real pode atender ambos.
-use crate::executor::{Disponibilidade, ErroExecutor, ExecutorDart, Nivel, PedidoAcao, ResultadoAcao, ScriptDeBuilders, ServicoBuildStep};
+use crate::executor::{Disponibilidade, ErroExecutor, ExecutorDart, ExtensoesDeExecucao, Nivel, PedidoAcao, PedidoExtensoes, ResultadoAcao, ScriptDeBuilders, ServicoBuildStep};
 use crate::grafo::AssetId;
 use crate::valor::{Mapa, Valor};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -156,6 +156,35 @@ impl<C: Canal> ExecutorDart for ClienteBuild<C> {
         resultado
     }
 
+    fn nova_rodada(&mut self) {
+        if self.carregado {
+            // Notificação sem resposta: o executor zera o estado por build
+            // antes da próxima ação, que vem pelo mesmo canal ordenado.
+            if let Err(e) = self.canal.enviar(&json!({"t":"build.rodada"})) {
+                self.falha_de_preparo = Some(e);
+                self.carregado = false;
+            }
+        }
+    }
+
+    fn extensoes(&mut self, p: &PedidoExtensoes) -> Result<Option<ExtensoesDeExecucao>, ErroExecutor> {
+        if !self.carregado { return Err(ErroExecutor("build.extensoes antes de build.carregar".into())); }
+        let id = self.id();
+        self.canal.enviar(&json!({"t":"build.extensoes","id":id,"chave":p.chave,"fabrica":p.fabrica,
+            "opcoes":mapa_json(&p.opcoes),"isRoot":p.raiz})).map_err(ErroExecutor)?;
+        let resposta = self.receber(id, "build.extensoes", &mut SemServico)?;
+        let invalida = || ErroExecutor(format!("build.extensoes inválido: {resposta}"));
+        let pares = resposta.get("extensoes").and_then(Value::as_array).ok_or_else(invalida)?;
+        let mut v = Vec::with_capacity(pares.len());
+        for par in pares {
+            let entrada = par.get(0).and_then(Value::as_str).ok_or_else(invalida)?;
+            let saidas = par.get(1).and_then(Value::as_array).ok_or_else(invalida)?
+                .iter().map(|s| s.as_str().map(str::to_string)).collect::<Option<Vec<_>>>().ok_or_else(invalida)?;
+            v.push((entrada.to_string(), saidas));
+        }
+        Ok(Some(v))
+    }
+
     fn executar(&mut self, p: &PedidoAcao, servico: &mut dyn ServicoBuildStep) -> Result<ResultadoAcao, ErroExecutor> {
         if !self.carregado { return Err(ErroExecutor("build.executar antes de build.carregar".into())); }
         let id = self.id();
@@ -269,6 +298,33 @@ mod testes {
         assert_eq!(enviadas[3]["bytes_base64"], STANDARD.encode(b"fonte"));
         assert_eq!(enviadas[4], json!({"t":"build.resposta","id":10}));
         assert_eq!(enviadas[5]["erro"], "SaidaNaoPermitida");
+    }
+
+    #[test]
+    fn extensoes_do_builder_e_nova_rodada() {
+        let enviadas = Arc::new(Mutex::new(Vec::new()));
+        let canal = CanalFalso {
+            recebidas: [
+                json!({"t":"ola","protocolo":"dfexec/1","servicos":["build"]}),
+                json!({"t":"build.carregado","id":1}),
+                json!({"t":"build.extensoes","id":2,"extensoes":[[".b",[".c",".d"]],[".a",[".e"]]]}),
+            ].into(),
+            enviadas: enviadas.clone(),
+        };
+        let mut cliente = ClienteBuild::novo(canal);
+        let pedido = PedidoExtensoes { chave: "p:b".into(), fabrica: "b".into(), opcoes: Mapa::default(), raiz: true };
+        assert!(cliente.extensoes(&pedido).is_err(), "extensões antes de carregar");
+        cliente.preparar(&ScriptDeBuilders { aplicacoes: vec![], chave_de_cache: "x".into() }).unwrap();
+        cliente.nova_rodada();
+        // A ordem do mapa `buildExtensions` é preservada (o primeiro casamento vale).
+        assert_eq!(cliente.extensoes(&pedido).unwrap(), Some(vec![
+            (".b".to_string(), vec![".c".to_string(), ".d".to_string()]),
+            (".a".to_string(), vec![".e".to_string()]),
+        ]));
+        let enviadas = enviadas.lock().unwrap();
+        assert_eq!(enviadas[2], json!({"t":"build.rodada"}));
+        assert_eq!(enviadas[3]["t"], "build.extensoes");
+        assert_eq!(enviadas[3]["isRoot"], true);
     }
 
     #[test]

@@ -1,7 +1,8 @@
 //! Os executores atrás de uma escolha só (`docs/BUILD-MOTOR.md` §6):
-//! **nativo** (Rust, lê o banco semântico), **Dart** (`dfexec/1`, hoje só
-//! [`Indisponivel`]) e **apoio** (o que o `build_runner` deixou no disco, em
-//! `motor.rs`). Quem não sabe gerar recusa com motivo.
+//! **nativo** (Rust, lê o banco semântico), **Dart** (`dfexec/1`: o processo
+//! pela VM de [`crate::vm`], ou [`Indisponivel`] quando não foi ligado) e
+//! **apoio** (o que o `build_runner` deixou no disco, em `motor.rs`). Quem não
+//! sabe gerar recusa com motivo.
 use crate::consulta::{digest_arquivo, digest_bytes, BancoSemantico, Consulta, Digest};
 use crate::grafo::{AssetId, Grafo};
 use crate::pacotes::GrafoPacotes;
@@ -106,6 +107,29 @@ impl<'a> CtxGerador<'a> {
     }
 }
 
+/// Os candidatos de um `findAssets` da ação `acao`, em ordem: fontes e
+/// saídas previstas do pacote da entrada que casam o padrão, sem as saídas
+/// que a ação não pode enxergar pela fase (`build_impl.dart:443-463`). O
+/// motor recalcula a lista depois de um evento estrutural para saber se a
+/// resposta do glob mudou de fato.
+pub(crate) fn candidatos_do_glob(grafo: &Grafo, acao: usize, padrao: &crate::glob::Glob) -> Vec<AssetId> {
+    let Some(a) = grafo.acoes.get(acao) else { return Vec::new() };
+    let (pacote, fase) = (a.entrada.pacote.clone(), a.fase);
+    let fontes = grafo.fontes.get(&pacote).into_iter().flat_map(|cs|
+        cs.iter().map(|c| AssetId { pacote: pacote.clone(), caminho: c.clone() }));
+    let gerados = grafo.gerados.range(AssetId::novo(&pacote, "")..)
+        .take_while(|(id, _)| id.pacote == pacote)
+        .map(|(id, _)| id.clone());
+    let mut ids: Vec<_> = fontes
+        .chain(gerados)
+        .filter(|id| padrao.casa(&id.caminho)
+            && grafo.gerados.get(id).is_none_or(|g| g.fase < fase || (g.fase == fase && g.acao == acao)))
+        .collect();
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
 /// Digest atual da resposta de uma consulta.
 pub(crate) fn digest_de(
     c: &Consulta,
@@ -175,6 +199,20 @@ pub struct PedidoAcao {
     pub saidas_permitidas: Vec<AssetId>,
 }
 
+/// Extensões de execução na ordem do mapa `buildExtensions`: entrada →
+/// saídas.
+pub type ExtensoesDeExecucao = Vec<(String, Vec<String>)>;
+
+/// `build.extensoes` do `dfexec/1`: a fábrica de uma fase, com as opções
+/// dela.
+#[derive(Debug, Clone)]
+pub struct PedidoExtensoes {
+    pub chave: String,
+    pub fabrica: String,
+    pub opcoes: Mapa,
+    pub raiz: bool,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ResultadoAcao {
     pub saidas: Vec<(AssetId, Arc<[u8]>)>,
@@ -220,8 +258,14 @@ impl<'a> ServicoAcao<'a> {
         Self { grafo, pacotes, acao, memoria, escritas: BTreeMap::new(), consultas: Vec::new(), logs: Vec::new() }
     }
 
+    /// Fonte legível por caminho: do grafo, ou de um pacote não listado
+    /// (uma dependência que o resolver lê).
+    fn fonte(&self, id: &AssetId) -> bool {
+        self.grafo.tem_fonte(id) || self.grafo.fonte_externa(id)
+    }
+
     fn caminho(&self, id: &AssetId) -> Option<PathBuf> {
-        if !self.grafo.existe(id) { return None; }
+        if !self.grafo.existe(id) && !self.grafo.fonte_externa(id) { return None; }
         self.caminho_de_consulta(id)
     }
 
@@ -243,7 +287,7 @@ impl<'a> ServicoAcao<'a> {
             }
             return if g.fase == fase { self.escritas.get(id).cloned() } else { (self.memoria)(id) };
         }
-        if !self.grafo.tem_fonte(id) {
+        if !self.fonte(id) {
             return None;
         }
         std::fs::read(self.caminho(id)?).ok().map(Arc::from)
@@ -260,7 +304,7 @@ impl<'a> ServicoAcao<'a> {
                 (self.memoria)(id).is_some()
             };
         }
-        self.grafo.tem_fonte(id) && self.caminho(id).is_some_and(|p| p.is_file())
+        self.fonte(id) && self.caminho(id).is_some_and(|p| p.is_file())
     }
 
     fn registrar(&mut self, id: &AssetId, existe: bool, bytes: Option<&[u8]>) {
@@ -288,19 +332,7 @@ impl ServicoBuildStep for ServicoAcao<'_> {
     fn find_assets(&mut self, glob: &str) -> Vec<AssetId> {
         let Ok(padrao) = crate::glob::Glob::novo(glob) else { return Vec::new() };
         let Some(pacote) = self.grafo.acoes.get(self.acao).map(|a| a.entrada.pacote.clone()) else { return Vec::new() };
-        let fase = self.grafo.acoes[self.acao].fase;
-        let fontes = self.grafo.fontes.get(&pacote).into_iter().flat_map(|cs|
-            cs.iter().map(|c| AssetId { pacote: pacote.clone(), caminho: c.clone() }));
-        let gerados = self.grafo.gerados.range(AssetId::novo(&pacote, "")..)
-            .take_while(|(id, _)| id.pacote == pacote)
-            .map(|(id, _)| id.clone());
-        let mut ids: Vec<_> = fontes
-            .chain(gerados)
-            .filter(|id| padrao.casa(&id.caminho)
-                && self.grafo.gerados.get(id).is_none_or(|g| g.fase < fase || (g.fase == fase && g.acao == self.acao)))
-            .collect();
-        ids.sort();
-        ids.dedup();
+        let mut ids = candidatos_do_glob(self.grafo, self.acao, &padrao);
         let candidatos: Vec<_> = ids.iter().map(|id| (id.caminho.to_string(), self.grafo.gerados.contains_key(id))).collect();
         ids.retain(|id| self.can_read(id));
         // Uma listagem vazia também depende das saídas geradas que ainda não
@@ -337,18 +369,31 @@ impl ServicoBuildStep for ServicoAcao<'_> {
 pub trait ExecutorDart: Send {
     fn disponibilidade(&self) -> Disponibilidade;
     fn preparar(&mut self, script: &ScriptDeBuilders) -> Result<(), ErroExecutor>;
+    /// Começa uma atualização do motor: o intervalo entre dois builds do
+    /// `build_runner`, em que ele zera o estado por build dos resolvers
+    /// (`build_impl.dart:94-96`). Só é chamado depois de um `preparar` bem
+    /// sucedido.
+    fn nova_rodada(&mut self) {}
+    /// As extensões de execução do `Builder` que a fábrica devolve com estas
+    /// opções (`builder.buildExtensions`, na ordem do mapa): o que o
+    /// `build_runner` usa para prever as saídas. `None` quando o executor não
+    /// sabe responder; o motor fica com as do descritor ou do `build.yaml`.
+    fn extensoes(&mut self, _pedido: &PedidoExtensoes) -> Result<Option<ExtensoesDeExecucao>, ErroExecutor> {
+        Ok(None)
+    }
     fn executar(&mut self, pedido: &PedidoAcao, servico: &mut dyn ServicoBuildStep)
         -> Result<ResultadoAcao, ErroExecutor>;
     fn encerrar(&mut self);
 }
 
-/// A única implementação de hoje.
+/// O executor quando não há processo Dart: toda ação Dart é recusada com o
+/// motivo (o motor cai no apoio). O executor pela VM está em [`crate::vm`].
 pub struct Indisponivel(pub String);
 
 impl Default for Indisponivel {
     fn default() -> Self {
         Indisponivel(
-            "o DartForge ainda não executa builders Dart (BUILD-RUST.md §3, Fase 1; executor nativo compartilhado com as macros)"
+            "executor de builders Dart desligado (o auto-hospedado ainda não existe, BUILD-RUST.md Fase 4; pela VM: `dartforge build --dart <exe>` ou DARTFORGE_BUILD_DART)"
                 .into(),
         )
     }
@@ -428,6 +473,44 @@ mod testes_servico {
         assert_eq!(s.find_assets("lib/**"), vec![fonte, primeiro, segundo]);
         assert!(!s.find_assets("lib/**").contains(&estrangeiro), "findAssets fica no pacote da entrada, como build 2.4.2");
         assert!(s.consultas.iter().any(|(c, d)| matches!(c, Consulta::Existe(_)) && d.is_none()));
+    }
+
+    #[test]
+    fn dependencia_nao_listada_e_legivel_pelo_filtro_do_pacote() {
+        let dir = tempfile::tempdir().unwrap();
+        let pacotes = GrafoPacotes {
+            nos: vec![
+                No { nome: "p".into(), raiz: dir.path().join("p"), tipo: TipoDependencia::Path, e_raiz: true, deps: vec![] },
+                No { nome: "q".into(), raiz: dir.path().join("q"), tipo: TipoDependencia::Hosted, e_raiz: false, deps: vec![] },
+            ],
+            raiz: 0,
+            por_nome: [("p".into(), 0), ("q".into(), 1)].into(),
+            lock: Default::default(),
+            dir_raiz: dir.path().to_path_buf(),
+        };
+        std::fs::create_dir_all(dir.path().join("p/lib")).unwrap();
+        std::fs::create_dir_all(dir.path().join("q/lib")).unwrap();
+        std::fs::create_dir_all(dir.path().join("q/tool")).unwrap();
+        std::fs::write(dir.path().join("p/lib/a.dart"), b"import 'package:q/q.dart';").unwrap();
+        std::fs::write(dir.path().join("q/lib/q.dart"), b"class Q {}").unwrap();
+        std::fs::write(dir.path().join("q/tool/t.dart"), b"segredo").unwrap();
+        let mut grafo = Grafo::default();
+        grafo.fontes.entry("p".into()).or_default().insert("lib/a.dart".into());
+        let lib = || vec![crate::glob::Glob::novo("lib/**").unwrap()];
+        grafo.externos.insert("q".into(), crate::grafo::FiltroFontes {
+            alvos: vec![crate::plano::Casador { include: Some(lib()), exclude: None }],
+            visiveis: Some(lib()),
+        });
+        let entrada = AssetId::novo("p", "lib/a.dart");
+        grafo.acoes = vec![Acao { fase: 0, entrada: entrada.clone(), saidas: vec![AssetId::novo("p", "lib/a.g.dart")] }];
+        let memoria = |_: &AssetId| None;
+        let mut s = ServicoAcao::novo(&grafo, &pacotes, 0, &memoria);
+        assert!(s.can_read(&AssetId::novo("q", "lib/q.dart")));
+        assert_eq!(s.ler(&AssetId::novo("q", "lib/q.dart")).as_deref(), Some(&b"class Q {}"[..]));
+        assert!(!s.can_read(&AssetId::novo("q", "tool/t.dart")), "fora do visível de uma dependência");
+        assert!(s.ler(&AssetId::novo("q", "lib/ausente.dart")).is_none());
+        assert!(s.consultas.iter().any(|(c, d)| matches!(c, Consulta::Arquivo(p) if p.ends_with("q.dart")) && d.is_some()),
+            "a leitura da dependência é consulta da ação");
     }
 
     #[test]
