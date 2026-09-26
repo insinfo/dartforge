@@ -306,12 +306,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// O elemento `indice` (já conferido) de uma lista do runtime, na
-    /// representação `repr`: em linha quando a tag é a de `repr` (`int` ou
-    /// `double`), senão pela caixa.
+    /// representação `repr`: em linha quando a tag é a de `repr` (`int`,
+    /// `double`, ou referência para `Ref`), senão pela caixa (um escalar
+    /// numa posição `Ref` sai encaixotado por `dartforge_lista_ref`).
     fn ler_elemento_da_lista(&mut self, lista: &Operand, indice: &Operand, repr: Type) -> Operand {
         let (tipo, tag) = match repr {
             Type::I64 => (TipoC::I64, TAG_INT),
             Type::F64 => (TipoC::F64, TAG_DOUBLE),
+            // Um elemento guardado como referência: os bits são o handle.
+            Type::Ref => (TipoC::I64, TAG_REF),
             _ => return self.elemento_ref(lista, indice),
         };
         let dados = self.dados_da_lista(lista);
@@ -380,3 +383,4 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 /// As tags de `ValueTag` do runtime (`heap.rs`, `#[repr(u8)]`).
 const TAG_INT: i64 = 0;
 const TAG_DOUBLE: i64 = 2;
+const TAG_REF: i64 = 3;
