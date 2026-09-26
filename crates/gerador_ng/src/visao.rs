@@ -638,9 +638,9 @@ fn consulta_em_embutida(
             let No::Elemento(e) = n else { continue };
             if e.estrela.is_some() {
                 saida.push(e);
-            } else if !filhos.contains_key(&e.nome) && dom::tag_html(&e.nome) {
-                estrelas_da_raiz(&e.filhos, filhos, saida);
-            } else if e.nome == "ng-container" {
+            } else if (!filhos.contains_key(&e.nome) && dom::tag_html(&e.nome))
+                || e.nome == "ng-container"
+            {
                 estrelas_da_raiz(&e.filhos, filhos, saida);
             }
         }
