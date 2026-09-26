@@ -542,14 +542,20 @@ impl Conversor<'_> {
                 let ponto = if *null_aware { "?." } else { "." };
                 // O tipo do fim da cadeia está noutra classe: é o banco
                 // semântico que responde, como o analyzer responde ao oficial.
+                // Receptor `dynamic` (o `#ref`, `$event`): o
+                // `_lookupGetterReturnType` só olha `InterfaceType`, e o
+                // resto dá `dynamic`.
                 let achado = match (&alvo.tipo, self.escopo.tipos) {
-                    (Some(t), Some((r, arquivo))) => {
+                    (Some(t), Some((r, arquivo))) if t != "dynamic" => {
                         r.tipo_do_membro(alvo.escopo.as_deref().unwrap_or(arquivo), t, nome)
                     }
                     _ => None,
                 };
                 let (tipo, escopo) = match achado {
                     Some((t, e)) => (Some(t), Some(e)),
+                    None if alvo.tipo.as_deref() == Some("dynamic") => {
+                        (Some("dynamic".to_string()), None)
+                    }
                     None => (None, None),
                 };
                 // O receptor não é implícito: `a.b` é sempre mutável.

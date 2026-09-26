@@ -123,6 +123,7 @@ const SEM_PREFIXO: &[&str] = &[
     "package:ngdart/src/core/render/api.dart",
 ];
 const INTERPOLATE: &str = "package:ngdart/src/runtime/interpolate.dart";
+const INTL: &str = "package:intl/intl.dart";
 const APP_VIEW_UTILS: &str = "package:ngdart/src/core/linker/app_view_utils.dart";
 
 /// Por que um arquivo ainda não é gerado por nós. O placar conta por motivo:
@@ -197,6 +198,9 @@ pub enum Motivo {
     DiretivaPorSeletor,
     /// `(evento)` no template fora do que o emissor sabe ligar.
     Evento,
+    /// `@i18n` fora da forma que o emissor traduz (mensagem com HTML,
+    /// anotação em componente filho ou em `*`, outra anotação).
+    I18n,
     /// Expressão do template fora do que o conversor traduz. É a categoria
     /// provisória do conversor: quem o chama troca pela do contexto
     /// (interpolação, ligação, evento) com [`Recusa::em`].
@@ -273,6 +277,7 @@ impl Motivo {
             Motivo::NaoEntendido => "outra forma do componente não entendida",
             Motivo::DiretivaPorSeletor => "diretiva casada por seletor",
             Motivo::Evento => "evento",
+            Motivo::I18n => "@i18n",
             Motivo::Expressao => "expressão",
         }
     }
@@ -301,6 +306,166 @@ fn referencias_livres(nos: &[No]) -> std::collections::HashSet<String> {
         .filter(|(nome, valor)| valor.is_empty() && !local_citado(nos, nome))
         .map(|(nome, _)| nome.clone())
         .collect()
+}
+
+/// Os metadados de uma mensagem `@i18n` (`I18nMetadata`), com os valores
+/// já normalizados (`_normalizeWhitespace`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct MetaI18n {
+    descricao: Option<String>,
+    locale: Option<String>,
+    meaning: Option<String>,
+    skip: bool,
+}
+
+/// `parseI18nMetadata`: as anotações do elemento agrupadas pelo atributo
+/// que internacionalizam (`None`: os filhos). O nome casa com
+/// `i18n(.locale|.meaning|.skip)?(:atributo)?`; anotação que não é de
+/// `@i18n`, parâmetro sem descrição e atributo vazio são recusados.
+fn metadados_i18n(e: &crate::html::Elemento) -> Result<Vec<(Option<String>, MetaI18n)>, Recusa> {
+    fn normalizar(v: &str) -> String {
+        v.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+    let mut saida: Vec<(Option<String>, MetaI18n)> = Vec::new();
+    for a in &e.anotacoes {
+        let Some(resto) = a.nome.strip_prefix("i18n") else {
+            return Err(recusa(Motivo::I18n, format!("anotação @{}", a.nome)));
+        };
+        let (parametro, resto) = match resto.strip_prefix('.') {
+            Some(r) => {
+                let fim = r.find(':').unwrap_or(r.len());
+                (Some(&r[..fim]), &r[fim..])
+            }
+            None => (None, resto),
+        };
+        let atributo = match resto.strip_prefix(':') {
+            Some("") => return Err(recusa(Motivo::I18n, "@i18n: sem atributo")),
+            Some(x) => Some(x.to_string()),
+            None if resto.is_empty() => None,
+            None => return Err(recusa(Motivo::I18n, format!("anotação @{}", a.nome))),
+        };
+        let i = match saida.iter().position(|(k, _)| *k == atributo) {
+            Some(i) => i,
+            None => {
+                saida.push((atributo, MetaI18n::default()));
+                saida.len() - 1
+            }
+        };
+        let m = &mut saida[i].1;
+        match parametro {
+            None => m.descricao = Some(normalizar(&a.valor)),
+            Some("locale") => m.locale = Some(normalizar(&a.valor)),
+            Some("meaning") => m.meaning = Some(normalizar(&a.valor)),
+            Some("skip") => m.skip = true,
+            Some(_) => return Err(recusa(Motivo::I18n, format!("anotação @{}", a.nome))),
+        }
+    }
+    if saida.iter().any(|(_, m)| m.descricao.is_none()) {
+        return Err(recusa(Motivo::I18n, "parâmetro de @i18n sem a descrição"));
+    }
+    Ok(saida)
+}
+
+/// Na visão do componente (fora de `*`), a primeira anotação `@i18n` vem
+/// antes da primeira interpolação? É o que decide se o `package:intl` (do
+/// campo `_message_N`) é importado antes ou depois do `text_binding.dart`:
+/// os dois campos são alocados pelo `build()`, em ordem de documento.
+/// `None`: não há anotação na visão do componente.
+fn i18n_antes_da_interpolacao(nos: &[No]) -> Option<bool> {
+    fn andar(nos: &[No], interpolou: &mut bool) -> Option<bool> {
+        for n in nos {
+            match n {
+                No::Interpolacao { .. } => *interpolou = true,
+                No::Elemento(e) if e.estrela.is_some() => {}
+                No::Elemento(e) => {
+                    if !e.anotacoes.is_empty() {
+                        return Some(!*interpolou);
+                    }
+                    if let Some(r) = andar(&e.filhos, interpolou) {
+                        return Some(r);
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+    andar(nos, &mut false)
+}
+
+/// Marca do nó de um `#ref` lido como local: `\u{5}nome\u{6}`. A
+/// declaração (`final local_x = this._el_n;`) é pedida por quem lê o local,
+/// às vezes antes de o elemento ser criado; a marca é trocada pelo nó quando
+/// a visão está completa ([`resolver_refs`]).
+const MARCA_DE_REF: char = '\u{5}';
+const FIM_DE_REF: char = '\u{6}';
+
+/// Os `#ref` que viram local da visão do componente: sem valor, declarados
+/// uma vez num elemento HTML da própria visão (não em `*`, não no conteúdo
+/// de um filho), lidos por alguma expressão, nunca de dentro de uma visão
+/// embutida, e sem membro do componente com o mesmo nome — o
+/// `_TypeResolver` do oficial tiparia a leitura pelo membro.
+///
+/// É o `nameResolver.addLocal(nome, renderNode)` do `CompileElement`: quem
+/// lê o local fora do `build()` (detecção, handler) promove o nó a campo
+/// (`NodeReferenceStorageVisitor`), e o tipo da leitura é `dynamic` (a
+/// referência não entra nos `locals` do `AnalyzedClass`).
+fn referencias_locais(
+    nos: &[No],
+    filhos: &std::collections::HashMap<String, Filho>,
+    c: &Componente,
+) -> std::collections::HashSet<String> {
+    fn todas(nos: &[No], saida: &mut Vec<(String, String)>) {
+        for n in nos {
+            if let No::Elemento(e) = n {
+                saida.extend(
+                    e.referencias
+                        .iter()
+                        .map(|r| (r.nome.clone(), r.valor.clone())),
+                );
+                todas(&e.filhos, saida);
+            }
+        }
+    }
+    /// Alguma expressão dentro de um `*` cita o nome?
+    fn citado_em_embutida(nos: &[No], nome: &str) -> bool {
+        nos.iter().any(|n| match n {
+            No::Elemento(e) if e.estrela.is_some() => local_citado(std::slice::from_ref(n), nome),
+            No::Elemento(e) => citado_em_embutida(&e.filhos, nome),
+            _ => false,
+        })
+    }
+    let mut refs = Vec::new();
+    todas(nos, &mut refs);
+    refs.iter()
+        .filter(|(nome, valor)| {
+            let mut lugares = Vec::new();
+            onde_esta(nos, nome, filhos, false, &mut lugares);
+            valor.is_empty()
+                && lugares == [Lugar::Raiz]
+                && local_citado(nos, nome)
+                && !citado_em_embutida(nos, nome)
+                && !c.membros.contains_key(nome.as_str())
+                && !c.metodos.contains_key(nome.as_str())
+        })
+        .map(|(nome, _)| nome.clone())
+        .collect()
+}
+
+/// Troca as marcas de `#ref` ([`MARCA_DE_REF`]) pelo nó de cada um.
+fn resolver_refs(texto: &str, refs: &std::collections::HashMap<String, String>) -> String {
+    let mut saida = String::with_capacity(texto.len());
+    let mut resto = texto;
+    while let Some(i) = resto.find(MARCA_DE_REF) {
+        saida.push_str(&resto[..i]);
+        let depois = &resto[i + MARCA_DE_REF.len_utf8()..];
+        let f = depois.find(FIM_DE_REF).unwrap_or(depois.len());
+        let nome = &depois[..f];
+        saida.push_str(refs.get(nome).map_or(nome, String::as_str));
+        resto = depois.get(f + FIM_DE_REF.len_utf8()..).unwrap_or("");
+    }
+    saida.push_str(resto);
+    saida
 }
 
 /// As formas do componente que só se decidem olhando o template: onde está
@@ -974,11 +1139,22 @@ struct Corpo<'a> {
     /// `#ref` aceitos neste template ([`referencias_livres`]); vazio na
     /// visão embutida.
     refs_livres: std::collections::HashSet<String>,
+    /// `#ref` de elemento desta visão lidos por expressões dela
+    /// ([`referencias_locais`]): o nó vira campo e o nome, local
+    /// (`final local_x = this._el_n;`).
+    refs_locais: std::collections::HashSet<String>,
     /// Cada `#ref` visto, com a expressão do nó (`_el_3` ou `this._el_3`) —
     /// é o valor que o `@ViewChild` recebe.
     refs: std::collections::HashMap<String, String>,
-    /// Campos `TextBinding`, que saem primeiro na classe.
+    /// Campos `TextBinding` e `_message_N`, que saem primeiro na classe, na
+    /// ordem em que o `build()` os aloca.
     campos: Vec<String>,
+    /// Prefixo do `package:intl` quando a visão tem `@i18n` que o emissor
+    /// traduz (só a do componente); `None` recusa a anotação.
+    intl: Option<String>,
+    /// As mensagens já criadas (`createI18nMessage` reaproveita a igual):
+    /// a chamada `Intl.message(..)` e o campo.
+    mensagens: Vec<(String, String)>,
     /// Campos `Object? _expr_k` das ligações, na ordem em que aparecem.
     campos_expr: Vec<String>,
     /// Campos `late final T _el_n` dos elementos com ligação.
@@ -1176,6 +1352,38 @@ impl Corpo<'_> {
 
     fn dom(&mut self) -> String {
         self.imp.alias(DOM_HELPERS)
+    }
+
+    /// O campo de uma mensagem `@i18n` sem HTML (`createI18nMessage`): um
+    /// `static final String _message_N = Intl.message(texto, desc: ..)`,
+    /// reaproveitado quando texto e metadados se repetem.
+    fn mensagem(&mut self, texto: &str, m: &MetaI18n) -> Result<String, Recusa> {
+        let Some(intl) = self.intl.clone() else {
+            return Err(recusa(Motivo::I18n, "@i18n fora da visão do componente"));
+        };
+        let mut chamada = format!(
+            "{intl}.Intl.message({}, desc: {}",
+            literal(texto),
+            literal(m.descricao.as_deref().unwrap_or_default())
+        );
+        if let Some(l) = &m.locale {
+            let _ = write!(chamada, ", locale: {}", literal(l));
+        }
+        if let Some(s) = &m.meaning {
+            let _ = write!(chamada, ", meaning: {}", literal(s));
+        }
+        if m.skip {
+            chamada.push_str(", skip: true");
+        }
+        chamada.push(')');
+        if let Some((_, campo)) = self.mensagens.iter().find(|(c, _)| *c == chamada) {
+            return Ok(campo.clone());
+        }
+        let campo = format!("_message_{}", self.mensagens.len());
+        self.campos
+            .push(format!("  static final String {campo} = {chamada};"));
+        self.mensagens.push((chamada, campo.clone()));
+        Ok(campo)
     }
 
     /// Anota uma recusa. Fora do modo de coleta ela interrompe a emissão
@@ -2990,6 +3198,13 @@ impl Corpo<'_> {
                 if e.estrela.is_none() {
                     self.guarda_do_elemento(e)?;
                 }
+                // `@i18n` só em elemento HTML: no filho ele mexe no conteúdo
+                // projetado, e no `*` vai para o `<template>`.
+                if !e.anotacoes.is_empty()
+                    && (e.estrela.is_some() || self.filhos.contains_key(&e.nome))
+                {
+                    return Err(recusa(Motivo::I18n, "@i18n em componente filho ou em `*`"));
+                }
                 // `*` num filho: o filho vai para a visão embutida, como
                 // qualquer elemento.
                 if let (Some(estrela), true) = (&e.estrela, self.filhos.contains_key(&e.nome)) {
@@ -3086,11 +3301,10 @@ impl Corpo<'_> {
         }
         // `#ref` só na forma que não muda nada no nó; o valor dele é
         // registrado adiante, para o `@ViewChild`.
-        if let Some(r) = e
-            .referencias
-            .iter()
-            .find(|r| !r.valor.is_empty() || !self.refs_livres.contains(&r.nome))
-        {
+        if let Some(r) = e.referencias.iter().find(|r| {
+            !r.valor.is_empty()
+                || !(self.refs_livres.contains(&r.nome) || self.refs_locais.contains(&r.nome))
+        }) {
             self.anotar(recusa(
                 Motivo::Ligacao,
                 if !r.valor.is_empty() {
@@ -3149,7 +3363,11 @@ impl Corpo<'_> {
         // visão: o `detectChangesInternal` precisa dele depois do
         // `build()`. Evento sozinho não exige campo.
         let tipo = dom::tipo_da_tag(&tag);
-        let alvo = if !liga_no_elemento(e, &casadas) {
+        let lido_como_local = e
+            .referencias
+            .iter()
+            .any(|r| self.refs_locais.contains(&r.nome));
+        let alvo = if !liga_no_elemento(e, &casadas) && !lido_como_local {
             self.linhas.push(format!("    final _el_{n} = {criacao};"));
             format!("_el_{n}")
         } else {
@@ -3167,11 +3385,57 @@ impl Corpo<'_> {
         for r in &e.referencias {
             self.refs.insert(r.nome.clone(), alvo.clone());
         }
+        // As mensagens `@i18n` do nó: a dos atributos sai no lugar do
+        // literal, a dos filhos no lugar do texto.
+        let mut i18n = if e.anotacoes.is_empty() {
+            Vec::new()
+        } else {
+            match metadados_i18n(e) {
+                Ok(m) => m,
+                Err(r) => {
+                    self.anotar(r)?;
+                    Vec::new()
+                }
+            }
+        };
+        let i18n_filhos = i18n
+            .iter()
+            .position(|(k, _)| k.is_none())
+            .map(|i| i18n.remove(i).1);
+        for (atributo, _) in &i18n {
+            // `I18nMessage(astNode.value!, ..)`: o valor escrito, sem
+            // interpolação; entidade, forma especial do atributo ou
+            // atributo ausente (ou ligado: `[x]`) ainda não.
+            let apto = e.atributos.iter().any(|a| {
+                Some(&a.nome) == atributo.as_ref()
+                    && !a.valor.contains("{{")
+                    && !a.valor.contains('&')
+                    && !matches!(a.nome.as_str(), "class" | "tabindex" | "tabIndex" | "style")
+            });
+            if !apto {
+                self.anotar(recusa(
+                    Motivo::I18n,
+                    "@i18n:x sem atributo x escrito e simples",
+                ))?;
+            }
+        }
         // Atributos saem em ordem alfabética (`_toSortedBindings`).
         let mut atributos = e.atributos.clone();
         atributos.sort_by(|a, b| a.nome.cmp(&b.nome));
         for a in atributos.iter().filter(|a| !a.valor.contains("{{")) {
-            let valor = literal(&a.valor);
+            let valor = match i18n.iter().find(|(k, _)| k.as_ref() == Some(&a.nome)) {
+                Some((_, m)) => {
+                    let m = m.clone();
+                    match self.mensagem(&a.valor, &m) {
+                        Ok(campo) => campo,
+                        Err(r) => {
+                            self.anotar(r)?;
+                            literal(&a.valor)
+                        }
+                    }
+                }
+                None => literal(&a.valor),
+            };
             if a.nome == "class" {
                 self.linhas
                     .push(format!("    this.updateChildClass({alvo}, {valor});"));
@@ -3324,7 +3588,10 @@ impl Corpo<'_> {
             }
         }
         self.pilha.push((n, resolvido.is_some()));
-        let r = self.nos(&e.filhos, &alvo);
+        let r = match &i18n_filhos {
+            Some(m) => self.filhos_i18n(e, m, &alvo),
+            None => self.nos(&e.filhos, &alvo),
+        };
         self.pilha.pop();
         self.acima.truncate(antes_acima);
         // `ngOnDestroy` das diretivas do nó, depois dos filhos
@@ -3342,6 +3609,32 @@ impl Corpo<'_> {
             self.injetores[i].1 = self.proximo - 1;
         }
         r
+    }
+
+    /// Os filhos de um elemento com `@i18n`: um texto só vira uma mensagem
+    /// (`internationalize`, `_textMessage`) e um nó de texto com ela. Com
+    /// HTML dentro a mensagem é um método estático com argumentos, forma
+    /// ainda recusada.
+    fn filhos_i18n(
+        &mut self,
+        e: &crate::html::Elemento,
+        m: &MetaI18n,
+        alvo: &str,
+    ) -> Result<(), Recusa> {
+        let [No::Texto(t)] = e.filhos.as_slice() else {
+            return self.anotar(recusa(Motivo::I18n, "mensagem @i18n com HTML ou vazia"));
+        };
+        if t.trim().is_empty() {
+            return self.anotar(recusa(Motivo::I18n, "mensagem @i18n com HTML ou vazia"));
+        }
+        let campo = self.mensagem(t, m)?;
+        let n = self.proximo;
+        self.proximo += 1;
+        let dom = self.dom();
+        self.linhas.push(format!(
+            "    final _text_{n} = {dom}.appendText({alvo}, {campo});"
+        ));
+        Ok(())
     }
 
     /// Os `@HostListener` de várias diretivas do nó para o mesmo evento: um
@@ -3678,11 +3971,13 @@ fn primitivo(tipo: &str) -> bool {
     matches!(tipo, "bool" | "num" | "double" | "int")
 }
 
-/// Algum elemento tem ligação de propriedade e, portanto, vira campo?
+/// Algum elemento tem ligação de propriedade (ou um `#ref` lido como
+/// local, de `refs`) e, portanto, vira campo?
 fn tem_elemento_ligado(
     nos: &[No],
     filhos: &std::collections::HashMap<String, Filho>,
     usadas: &[Usada],
+    refs: &std::collections::HashSet<String>,
 ) -> bool {
     nos.iter().any(|n| match n {
         // Componente filho não vira campo de elemento: quem guarda a raiz
@@ -3691,9 +3986,10 @@ fn tem_elemento_ligado(
         No::Elemento(e) if e.estrela.is_some() => false,
         No::Elemento(e) if !filhos.contains_key(&e.nome) => {
             liga_no_elemento(e, &diretivas_casadas(usadas, e))
-                || tem_elemento_ligado(&e.filhos, filhos, usadas)
+                || e.referencias.iter().any(|r| refs.contains(&r.nome))
+                || tem_elemento_ligado(&e.filhos, filhos, usadas, refs)
         }
-        No::Elemento(e) => tem_elemento_ligado(&e.filhos, filhos, usadas),
+        No::Elemento(e) => tem_elemento_ligado(&e.filhos, filhos, usadas, refs),
         _ => false,
     })
 }
@@ -4048,8 +4344,11 @@ impl<'a> Contexto<'a> {
             linhas: Vec::new(),
             ouvintes: Vec::new(),
             refs_livres: Default::default(),
+            refs_locais: Default::default(),
             refs: Default::default(),
             campos: Vec::new(),
+            intl: None,
+            mensagens: Vec::new(),
             campos_filho: Vec::new(),
             vistas_filhas: Vec::new(),
             campos_expr: Vec::new(),
@@ -4167,6 +4466,7 @@ fn corpo_da_embutida(
         ctx.usadas,
         &ctx.asset,
         &ctx.pipes.imports_dos_campos(espec.indice),
+        &Default::default(),
     ) {
         dentro.anotar(r)?;
     }
@@ -4463,6 +4763,7 @@ fn alocar_imports_dos_campos(
     usadas: &[Usada],
     asset: &str,
     pipes: &[String],
+    refs: &std::collections::HashSet<String>,
 ) -> Result<(), Recusa> {
     let sem_caminho = || recusa(Motivo::ComponenteNoTemplate, "filho sem caminho de import");
     let campos = campos_em_ordem(nos, filhos, usadas);
@@ -4499,7 +4800,7 @@ fn alocar_imports_dos_campos(
     for uri in pipes {
         imp.alias(uri);
     }
-    if tem_elemento_ligado(nos, filhos, usadas) {
+    if tem_elemento_ligado(nos, filhos, usadas, refs) {
         imp.alias("dart:html");
     }
     Ok(())
@@ -5066,7 +5367,26 @@ fn gerar_componente(
     // visões-filhas, valores anteriores, elementos —, e os imports são
     // alocados nessa mesma ordem. É isso que faz a numeração bater com a do
     // oficial; fora de ordem, a comparação byte a byte não vale nada.
+    // `@i18n`: o `package:intl` entra com o primeiro campo `_message_N`,
+    // antes ou depois do `text_binding.dart` conforme a ordem de documento.
+    // Com filho, diretiva ou `*` na visão, a ordem dos campos (e dos
+    // imports) entre eles ainda não tem caso.
+    let ordem_i18n = i18n_antes_da_interpolacao(nos);
+    let mut intl = None;
+    if ordem_i18n == Some(true) {
+        intl = Some(imp.alias(INTL));
+    }
     let tb = tem_interpolacao(nos).then(|| imp.alias(TEXT_BINDING));
+    if ordem_i18n == Some(false) {
+        intl = Some(imp.alias(INTL));
+    }
+    if ordem_i18n.is_some() && !campos_em_ordem(nos, filhos, usadas).is_empty() {
+        anotar(
+            coleta,
+            recusa(Motivo::I18n, "@i18n com filho, diretiva ou `*` na visão"),
+        )?;
+    }
+    let refs_locais = referencias_locais(nos, filhos, c);
     if let Err(r) = alocar_imports_dos_campos(
         &mut imp,
         nos,
@@ -5074,6 +5394,7 @@ fn gerar_componente(
         usadas,
         &local.asset(),
         &tabela.imports_dos_campos(0),
+        &refs_locais,
     ) {
         anotar(coleta, r)?;
     }
@@ -5102,6 +5423,24 @@ fn gerar_componente(
     };
     let mut corpo = ctx.corpo(&mut imp, nomes, coleta.take(), false);
     corpo.refs_livres = referencias_livres(nos);
+    for nome in &refs_locais {
+        corpo.locais.insert(
+            nome.clone(),
+            crate::expr::Local {
+                dart: format!("local_{nome}"),
+                tipo: "dynamic".into(),
+                escopo: None,
+            },
+        );
+        corpo.decl_locais.insert(
+            nome.clone(),
+            Ok(format!(
+                "final local_{nome} = {MARCA_DE_REF}{nome}{FIM_DE_REF};"
+            )),
+        );
+    }
+    corpo.refs_locais = refs_locais;
+    corpo.intl = intl;
     corpo.tb = tb;
     let r = corpo
         .nos(nos, "parentRenderNode")
@@ -5250,11 +5589,22 @@ fn gerar_componente(
         } else {
             ""
         };
+        // Os locais lidos pela detecção (os `#ref`), na ordem do primeiro
+        // uso, depois de `_ctx`, como na visão embutida.
+        let locais: String = corpo
+            .locais_raiz
+            .iter()
+            .filter_map(|nome| match corpo.decl_locais.get(nome) {
+                Some(Ok(d)) => Some(format!("    {d}\n")),
+                _ => None,
+            })
+            .collect();
         format!(
-            "\n  @override\n  void detectChangesInternal() {{\n{ctx_det}{mudou}{primeira}{}\n  }}\n",
+            "\n  @override\n  void detectChangesInternal() {{\n{ctx_det}{mudou}{primeira}{locais}{}\n  }}\n",
             linhas_deteccao.join("\n")
         )
     };
+    let deteccao = resolver_refs(&deteccao, &corpo.refs);
     // O `injectorGetInternal` vem depois do `build()` e antes da detecção.
     let injetor = resolver_tardios(corpo.imp, &metodo_injetor(&corpo.injetores, &corpo.asset));
     // Os imports da detecção entram agora, depois dos do `build()`.
@@ -5287,7 +5637,7 @@ fn gerar_componente(
     let metodos: String = corpo
         .metodos_evento
         .iter()
-        .map(|m| resolver_tardios(corpo.imp, m))
+        .map(|m| resolver_refs(&resolver_tardios(corpo.imp, m), &corpo.refs))
         .collect();
     // `corpo` empresta o interner e a tabela de imports; a emissão das
     // visões embutidas precisa dos dois.
