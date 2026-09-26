@@ -24,6 +24,15 @@ pub struct Efeitos {
     pub chama_dart: bool,
 }
 
+/// Aloca (ponto de coleta), mas não lança nem chama código Dart: as
+/// alocações e leituras simples do runtime (conferidas no código de cada
+/// uma). `otimizar/efeitos.rs` conta com isso para saber quem não lança.
+pub const ALOCA_SEM_LANCAR: Efeitos = Efeitos {
+    aloca: true,
+    lanca: false,
+    chama_dart: false,
+};
+
 /// Marca conservadora: aloca e lança.
 pub const CONSERVADOR: Efeitos = Efeitos {
     aloca: true,
@@ -88,7 +97,7 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i64 @dartforge_string_new(ptr, i64)",
-        efeitos: CONSERVADOR,
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare i64 @dartforge_string_concat(i64, i64)",
@@ -108,7 +117,7 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i64 @dartforge_object_new(i64, i64)",
-        efeitos: CONSERVADOR,
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare i64 @dartforge_object_get(i64, i64)",
@@ -136,7 +145,7 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i64 @dartforge_list_new(ptr, i64)",
-        efeitos: CONSERVADOR,
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare i64 @dartforge_list_len(i64)",
@@ -200,7 +209,7 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i64 @dartforge_cell_new(i64, i8)",
-        efeitos: CONSERVADOR,
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare i64 @dartforge_cell_get_bits(i64)",
@@ -216,7 +225,7 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i64 @dartforge_env_new(ptr, i64)",
-        efeitos: CONSERVADOR,
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare i64 @dartforge_env_get(i64, i64)",
@@ -224,19 +233,19 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i64 @dartforge_closure_new(i64, i64)",
-        efeitos: CONSERVADOR,
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare i64 @dartforge_closure_code(i64)",
-        efeitos: CONSERVADOR,
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare i64 @dartforge_closure_env(i64)",
-        efeitos: CONSERVADOR,
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare i64 @dartforge_tearoff(i64)",
-        efeitos: CONSERVADOR,
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare void @dartforge_gc_empilhar(ptr)",
@@ -252,7 +261,7 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare void @dartforge_gc_global_root(i64, i64)",
-        efeitos: CONSERVADOR,
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare void @dartforge_marcar_permanente(i64)",
@@ -260,7 +269,7 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare void @dartforge_marcar_constante(i64, i64)",
-        efeitos: CONSERVADOR,
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare i8 @dartforge_exception_capturavel()",
@@ -341,7 +350,7 @@ pub const EXTERNS: &[Extern] = &[
     // (`CIDS_DO_RUNTIME`) e os 16 bytes em dois `i64`.
     Extern {
         decl: "declare i64 @dartforge_simd_caixa(i64, i64, i64)",
-        efeitos: CONSERVADOR,
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare i64 @dartforge_view_nova(i64, i64, i64, i64, i64)",
@@ -353,15 +362,15 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i64 @dartforge_box_int(i64)",
-        efeitos: CONSERVADOR,
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare i64 @dartforge_box_double(double)",
-        efeitos: CONSERVADOR,
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare i64 @dartforge_box_bool(i8)",
-        efeitos: CONSERVADOR,
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare i64 @dartforge_unbox_int(i64)",
@@ -531,7 +540,7 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i64 @dartforge_record_new(ptr, i64)",
-        efeitos: CONSERVADOR,
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare i64 @dartforge_int_to_radix_string(i64, i64)",
@@ -800,11 +809,11 @@ pub const EXTERNS: &[Extern] = &[
     // --- P1 (closures, α): convenção uniforme e leituras com representação ---
     Extern {
         decl: "declare i64 @dartforge_cell_get_ref(i64)",
-        efeitos: CONSERVADOR,
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare i64 @dartforge_env_get_ref(i64, i64)",
-        efeitos: CONSERVADOR,
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare i64 @dartforge_closure_entry(i64)",
@@ -908,7 +917,7 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i64 @dartforge_object_new_t(i64, i64, ptr)",
-        efeitos: CONSERVADOR,
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare void @dartforge_registrar_tabela(i64, ptr)",

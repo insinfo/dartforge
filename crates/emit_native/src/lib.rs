@@ -12,6 +12,7 @@ pub mod hir;
 pub mod llvm;
 pub mod lower;
 pub mod nativos;
+pub mod otimizar;
 pub mod resumo;
 pub mod sdk_modulo;
 
@@ -251,10 +252,12 @@ fn emitir_ir_interno(
             .and_then(|d| std::fs::read_to_string(d.join("version")).ok())
             .map(|v| v.trim().to_string());
     }
-    let hir_duration = t_hir.elapsed();
     if !hir_module.erros.is_empty() {
         return Err(erro_de_compilacao(&hir_module.erros));
     }
+    // 2b. Otimização da HIR (inlining, substituição escalar: `otimizar/`).
+    otimizar::otimizar(&mut hir_module);
+    let hir_duration = t_hir.elapsed();
 
     // 3. Emissão de LLVM IR
     let t_llvm = Instant::now();

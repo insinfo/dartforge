@@ -292,6 +292,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(op) = self.expressao_simd(ast, expr_id) {
             return op;
         }
+        // Membro de `int`/`double` em linha (`intrinsecos.rs`).
+        if let Some(op) = self.expressao_intrinseca(ast, expr_id) {
+            return op;
+        }
         match &expr.kind {
             ExprKind::Int(span) => {
                 let raw = &self.source()[span.start as usize..span.end as usize];

@@ -303,7 +303,10 @@ fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &
                 // Sem a tabela de símbolos, como o `.exe` do Windows (que a
                 // deixa no PDB): metade do tamanho no ELF (medido: 9,4 → 4,4 MB).
                 Sistema::Linux => {
-                    cmd.args(["-Wl,--gc-sections", "-Wl,--strip-all"]);
+                    cmd.arg("-Wl,--gc-sections");
+                    if !crate::ligador::manter_simbolos() {
+                        cmd.arg("-Wl,--strip-all");
+                    }
                     cmd.arg(format!("-Wl,--lto-partitions={particoes}"));
                 }
                 Sistema::MacOs => {

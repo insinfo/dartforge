@@ -30,6 +30,7 @@ pub mod registros;
 pub mod rti;
 pub mod sdk_fonte;
 pub mod sdk_por_nome;
+pub mod intrinsecos;
 pub mod simd;
 pub mod tipados;
 pub mod verificador;

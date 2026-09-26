@@ -187,7 +187,11 @@ pub fn ligar(ld: &Path, sysroot: &SysrootLinux, l: &Ligacao<'_>) -> Result<(), S
         cmd.arg("--lto-O2").arg(format!("--lto-partitions={particoes}")).arg(format!("-plugin-opt=mcpu={cpu}"));
     }
     if l.podar {
-        cmd.args(["--gc-sections", "--strip-all"]);
+        cmd.arg("--gc-sections");
+        // `DARTFORGE_MANTER_SIMBOLOS=1`: a tabela de símbolos fica (perfis).
+        if !manter_simbolos() {
+            cmd.arg("--strip-all");
+        }
     }
     cmd.args(&l.entradas);
     // As bibliotecas do sistema (o `-lgcc_s -lutil -lrt -lpthread -lm -ldl
@@ -209,4 +213,10 @@ pub fn ligar(ld: &Path, sysroot: &SysrootLinux, l: &Ligacao<'_>) -> Result<(), S
         return Err(format!("o ld.lld falhou na ligação ({}):\n{}", saida.status, linhas.join("\n")));
     }
     Ok(())
+}
+
+/// `DARTFORGE_MANTER_SIMBOLOS=1` deixa a tabela de símbolos no executável,
+/// para perfilar (`perf`, `callgrind`) o código gerado.
+pub fn manter_simbolos() -> bool {
+    std::env::var("DARTFORGE_MANTER_SIMBOLOS").is_ok_and(|v| v == "1")
 }

@@ -83,7 +83,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         match &ast.expr(e).kind {
             ExprKind::Parenthesized(x) => self.mascara_constante(ast, *x),
             ExprKind::Int(span) => {
-                let texto = self.source()[span.start as usize..span.end as usize].replace('_', "");
+                let texto = self.source()[span.start..span.end].replace('_', "");
                 let v = match texto.strip_prefix("0x").or_else(|| texto.strip_prefix("0X")) {
                     Some(h) => i64::from_str_radix(h, 16).ok()?,
                     None => texto.parse::<i64>().ok()?,

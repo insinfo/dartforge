@@ -439,10 +439,16 @@ pub extern "C" fn dartforge_nativo_Internal_makeFixedListUnmodifiable(lista: i64
     h
 }
 
-/// `_Double.toInt()`: truncado; NaN e infinito lançam `UnsupportedError`
-/// na VM (aqui: o valor saturado, até os erros da fonte chegarem aqui).
+/// `_Double.toInt()`: truncado, saturado fora da faixa de 64 bits (como a
+/// VM); NaN e infinito lançam `UnsupportedError("Infinity or NaN toInt")`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_double_toInt(this: f64) -> i64 {
+    if !this.is_finite() {
+        let m = alocar_str("Infinity or NaN toInt");
+        let e = com_raizes(&[m], || dartforge_unsupported_error_new(m));
+        com_raizes(&[e], || dartforge_exception_throw(e, 3));
+        return 0;
+    }
     this as i64
 }
 
