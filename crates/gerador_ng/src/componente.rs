@@ -181,8 +181,11 @@ pub struct Consulta {
     pub referencia: String,
     /// Tipo do campo, como escrito (`html.DivElement?`). Decide o valor: um
     /// `Element` recebe o próprio nó, qualquer outro tipo um `ElementRef`
-    /// (`isElementType` em `find_components.dart`).
+    /// (`isElementType` em `find_components.dart`). Em `@ViewChildren`, o
+    /// argumento de tipo da lista.
     pub tipo: String,
+    /// `@ViewChildren`: o campo recebe a lista de todos os resultados.
+    pub lista: bool,
 }
 
 /// Um `@ContentChild`/`@ContentChildren`, como quem usa o componente precisa
@@ -658,9 +661,6 @@ fn o_que_nao_entendemos(
             let motivo = match nome.as_str() {
                 "HostBinding" => Motivo::HostBindingEmComponente,
                 "ContentChild" | "ContentChildren" => Motivo::ContentChild,
-                // Lista de resultados: a atribuição é outra, e com `*ngIf`
-                // no caminho vira `mapNestedViews`.
-                "ViewChildren" => Motivo::ViewChildDinamico,
                 _ => continue,
             };
             fora.push(recusa(motivo, format!("@{nome}")));
@@ -688,10 +688,12 @@ fn consultas_da_classe(
     for &id in &classe.members {
         let membro = arvore.member(id);
         for a in membro.metadata.iter() {
-            if crate::nome_da_anotacao(a, interner) != "ViewChild" {
-                continue;
-            }
-            match consulta_simples(arvore, fonte, interner, membro, a) {
+            let lista = match crate::nome_da_anotacao(a, interner).as_str() {
+                "ViewChild" => false,
+                "ViewChildren" => true,
+                _ => continue,
+            };
+            match consulta_simples(arvore, fonte, interner, membro, a, lista) {
                 Ok(c) => saida.push(c),
                 Err(r) => fora.push(r),
             }
@@ -793,6 +795,7 @@ fn consulta_simples(
     interner: &Interner,
     membro: &ast::Member,
     anotacao: &ast::Annotation,
+    eh_lista: bool,
 ) -> Result<Consulta, Recusa> {
     let args = anotacao
         .arguments
@@ -840,10 +843,28 @@ fn consulta_simples(
     let Some(t) = lista.ty else {
         return Err(recusa(Motivo::NaoEntendido, "@ViewChild em campo sem tipo"));
     };
+    let tipo = texto_do_tipo(arvore, fonte, t);
+    // `@ViewChildren`: `List<T>` (ou `List<T>?`); o `isElementType` olha o
+    // `T`. Outra coleção ainda não.
+    let tipo = if eh_lista {
+        let t = tipo.trim().trim_end_matches('?');
+        match t.strip_prefix("List<").and_then(|x| x.strip_suffix('>')) {
+            Some(dentro) if !dentro.contains(['<', ',']) => dentro.trim().to_string(),
+            _ => {
+                return Err(recusa(
+                    Motivo::ViewChildDinamico,
+                    "@ViewChildren em campo que não é List<T>",
+                ));
+            }
+        }
+    } else {
+        tipo
+    };
     Ok(Consulta {
         propriedade: interner.resolve(lista.variables[0].name.sym).to_string(),
         referencia,
-        tipo: texto_do_tipo(arvore, fonte, t),
+        tipo,
+        lista: eh_lista,
     })
 }
 

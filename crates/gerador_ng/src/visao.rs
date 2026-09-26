@@ -503,6 +503,28 @@ fn formas_contra_o_template(
     for consulta in &c.consultas {
         let mut lugares = Vec::new();
         onde_esta(nos, &consulta.referencia, filhos, false, &mut lugares);
+        // `@ViewChildren` estático, ou `@ViewChild` de `#ref` repetido (o
+        // primeiro resultado): todos os resultados nesta visão, e do mesmo
+        // jeito (nós com campo `Element`, ou instâncias de filho com campo
+        // do tipo dele). Sem resultado, a lista recebe `[]`. Resultado em
+        // `*` ainda não.
+        if consulta.lista || lugares.len() > 1 {
+            let elemento = e_tipo_de_elemento(&consulta.tipo, local, resolvedor);
+            let todos_nos = lugares
+                .iter()
+                .all(|l| matches!(l, Lugar::Raiz | Lugar::Projetado));
+            let todos_filhos = lugares
+                .iter()
+                .all(|l| matches!(l, Lugar::NoFilho | Lugar::NoFilhoProjetado));
+            let ok = (elemento && todos_nos) || (!elemento && todos_filhos);
+            if !ok {
+                fora.push(recusa(
+                    Motivo::ViewChildDinamico,
+                    "@ViewChildren fora da forma estática",
+                ));
+            }
+            continue;
+        }
         let r = match lugares.as_slice() {
             // `isElementType`: campo `Element` (ou subtipo) recebe o nó;
             // qualquer outro, um `ElementRef`. O primeiro caso é o estático,
@@ -1190,6 +1212,9 @@ struct Corpo<'a> {
     /// Cada `#ref` visto, com a expressão do nó (`_el_3` ou `this._el_3`) —
     /// é o valor que o `@ViewChild` recebe.
     refs: std::collections::HashMap<String, String>,
+    /// Os mesmos, em ordem de documento e com repetição: os resultados de
+    /// um `@ViewChildren` (`addQueryResult`).
+    refs_em_ordem: Vec<(String, String)>,
     /// Campos `TextBinding` e `_message_N`, que saem primeiro na classe, na
     /// ordem em que o `build()` os aloca.
     campos: Vec<String>,
@@ -2045,6 +2070,8 @@ impl Corpo<'_> {
         for r in &e.referencias {
             self.refs
                 .insert(r.nome.clone(), format!("this.{campo_inst}"));
+            self.refs_em_ordem
+                .push((r.nome.clone(), format!("this.{campo_inst}")));
             if filho.on_push {
                 self.detectores.insert(r.nome.clone(), campo_vista.clone());
             }
@@ -3566,6 +3593,7 @@ impl Corpo<'_> {
         // nó tiver sido declarado.
         for r in &e.referencias {
             self.refs.insert(r.nome.clone(), alvo.clone());
+            self.refs_em_ordem.push((r.nome.clone(), alvo.clone()));
         }
         // As mensagens `@i18n` do nó: a dos atributos sai no lugar do
         // literal, a dos filhos no lugar do texto.
@@ -4539,6 +4567,7 @@ impl<'a> Contexto<'a> {
             refs_locais: Default::default(),
             refs_ancestrais: Vec::new(),
             refs: Default::default(),
+            refs_em_ordem: Vec::new(),
             campos: Vec::new(),
             intl: None,
             mensagens: Vec::new(),
@@ -5742,10 +5771,61 @@ fn gerar_componente(
     // `#ref` está uma vez só, num elemento HTML da própria visão.
     let mut consultas = Vec::new();
     for q in &c.consultas {
-        match corpo.refs.get(&q.referencia).cloned() {
+        if q.lista {
+            let valores: Vec<String> = corpo
+                .refs_em_ordem
+                .iter()
+                .filter(|(n, _)| *n == q.referencia)
+                .map(|(_, v)| v.clone())
+                .collect();
+            // Filho `onPush` no resultado registraria o `ChangeDetectorRef`
+            // de cada um: ainda não.
+            if corpo.detectores.contains_key(&q.referencia) {
+                let r = recusa(Motivo::ViewChildEmFilho, "@ViewChildren de filho onPush");
+                if corpo.coletando() {
+                    corpo.anotar(r)?;
+                } else {
+                    *coleta = corpo.coleta.take();
+                    return Err(r);
+                }
+            }
+            consultas.push(format!(
+                "    _ctx.{} = [{}];",
+                q.propriedade,
+                valores.join(", ")
+            ));
+            corpo.usa_ctx_no_build = true;
+            continue;
+        }
+        // O primeiro resultado em ordem de documento (`#ref` repetido).
+        let primeiro = corpo
+            .refs_em_ordem
+            .iter()
+            .find(|(n, _)| *n == q.referencia)
+            .map(|(_, v)| v.clone());
+        match primeiro {
             Some(alvo) => {
                 // Filho `onPush`: o `ChangeDetectorRef` dele fica registrado
-                // (`_createAddQueryChangeDetectorRefs`).
+                // (`_createAddQueryChangeDetectorRefs`). Com `#ref` repetido,
+                // o registro guardado pode não ser o do primeiro: ainda não.
+                let repetido = corpo
+                    .refs_em_ordem
+                    .iter()
+                    .filter(|(n, _)| *n == q.referencia)
+                    .count()
+                    > 1;
+                if repetido && corpo.detectores.contains_key(&q.referencia) {
+                    let r = recusa(
+                        Motivo::ViewChildEmFilho,
+                        "@ViewChild de #ref repetido em filho onPush",
+                    );
+                    if corpo.coletando() {
+                        corpo.anotar(r)?;
+                    } else {
+                        *coleta = corpo.coleta.take();
+                        return Err(r);
+                    }
+                }
                 if let Some(cv) = corpo.detectores.get(&q.referencia).cloned() {
                     let v = corpo.imp.alias(VIEW);
                     consultas.push(format!(
