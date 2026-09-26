@@ -88,7 +88,18 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(dartforge_runtime_dll)");
     println!("cargo::rerun-if-changed=src");
     println!("cargo::rustc-check-cfg=cfg(dartforge_runtime_embutido)");
-    println!("cargo::rustc-cfg=dartforge_runtime_embutido");
+    // As features escolhem o perfil do módulo `abi`: sem nenhuma, o JIT
+    // (sem o `main` C); `aot`, a `staticlib` do executável (com o `main`);
+    // `dll`, a da biblioteca compartilhada do SDK da fonte (sem o `main`).
+    // As duas `staticlib` saem de `crates/runtime_estatico`.
+    let aot = std::env::var_os("CARGO_FEATURE_AOT").is_some();
+    let dll = std::env::var_os("CARGO_FEATURE_DLL").is_some();
+    assert!(!(aot && dll), "as features aot e dll do runtime são exclusivas");
+    if dll {
+        println!("cargo::rustc-cfg=dartforge_runtime_dll");
+    } else if !aot {
+        println!("cargo::rustc-cfg=dartforge_runtime_embutido");
+    }
 
     let manifesto =
         PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
