@@ -66,8 +66,10 @@ fn primitivo(nome: &str) -> Option<TipoC> {
 pub struct TiposNativos {
     classes: std::collections::HashMap<ClassId, TipoC>,
     /// Classes que existem em `dart:ffi` mas ainda não baixam por valor
-    /// (`Struct`, `Union`, `Handle`, `VarArgs`), com o motivo.
+    /// (`Handle`, `VarArgs`), com o motivo.
     recusadas: std::collections::HashMap<ClassId, &'static str>,
+    /// As subclasses de `Struct` e `Union`: por valor, com o layout C.
+    compostas: std::collections::HashSet<ClassId>,
 }
 
 impl TiposNativos {
@@ -76,6 +78,7 @@ impl TiposNativos {
         let ffi = dartforge_elements::model::LibraryId(ffi as u32);
         let mut classes = std::collections::HashMap::new();
         let mut recusadas = std::collections::HashMap::new();
+        let mut compostas = std::collections::HashSet::new();
         let abi_especifico = ctx.classe_do_sdk("ffi", "AbiSpecificInteger");
         let struct_ = ctx.classe_do_sdk("ffi", "Struct");
         let union_ = ctx.classe_do_sdk("ffi", "Union");
@@ -107,10 +110,10 @@ impl TiposNativos {
                     }
                 }
             } else if c.supertype_class.is_some() && (c.supertype_class == struct_ || c.supertype_class == union_) {
-                recusadas.insert(id, "struct ou union por valor");
+                compostas.insert(id);
             }
         }
-        Some(TiposNativos { classes, recusadas })
+        Some(TiposNativos { classes, recusadas, compostas })
     }
 
     /// O tipo C de um tipo nativo (argumento ou retorno de uma assinatura).
@@ -129,22 +132,44 @@ impl TiposNativos {
         }
     }
 
-    /// A assinatura C de uma função nativa `F` (de `NativeFunction<F>`).
-    pub fn assinatura(&self, ctx: &Context, f: TypeId) -> Result<(TipoC, Vec<TipoC>), String> {
+    /// O tipo nativo de um argumento ou retorno: primitivo, ou struct/union
+    /// por valor (com a classe, para criar o valor devolvido).
+    fn tipo_nativo(&self, ctx: &Context, t: TypeId) -> Result<(TipoNativo, Option<ClassId>), String> {
+        if let T::Interface { class, .. } = ctx.table.get(t)
+            && self.compostas.contains(class)
+        {
+            let layout = layout_c(ctx, *class).ok_or_else(|| {
+                format!("struct `{}` sem layout", ctx.symbol_name(ctx.program.classes[class.0 as usize].name))
+            })?;
+            if layout.tamanho == 0 {
+                return Err("struct vazia por valor".to_string());
+            }
+            return Ok((TipoNativo::Composto(layout), Some(*class)));
+        }
+        Ok((TipoNativo::Prim(self.tipo_c(ctx, t)?), None))
+    }
+
+    /// A assinatura de uma função nativa `F` (de `NativeFunction<F>`), com
+    /// structs e unions por valor.
+    pub fn assinatura_nativa(&self, ctx: &Context, f: TypeId) -> Result<AssinaturaNativa, String> {
         match ctx.table.get(f) {
             T::Function { type_params, ret, positional, optional, named, .. } => {
                 if !type_params.is_empty() || !optional.is_empty() || !named.is_empty() {
                     return Err("assinatura nativa com parâmetros opcionais, nomeados ou genéricos".to_string());
                 }
-                let r = self.tipo_c(ctx, *ret)?;
+                let (r, classe_ret) = self.tipo_nativo(ctx, *ret)?;
                 let mut ps = Vec::with_capacity(positional.len());
+                let mut cs = Vec::with_capacity(positional.len());
                 for p in positional.iter() {
-                    match self.tipo_c(ctx, *p)? {
-                        TipoC::Void => return Err("parâmetro nativo `Void`".to_string()),
-                        tc => ps.push(tc),
+                    match self.tipo_nativo(ctx, *p)? {
+                        (TipoNativo::Prim(TipoC::Void), _) => return Err("parâmetro nativo `Void`".to_string()),
+                        (t, c) => {
+                            ps.push(t);
+                            cs.push(c);
+                        }
                     }
                 }
-                Ok((r, ps))
+                Ok(AssinaturaNativa { ret: r, classe_ret, params: ps, classes_params: cs })
             }
             _ => Err("NativeFunction sem tipo de função".to_string()),
         }
@@ -165,7 +190,7 @@ impl TiposNativos {
             let f = TypeId(i as u32);
             if matches!(ctx.table.get(f), T::Function { .. })
                 && !contem_parametro_de_tipo(ctx, f)
-                && self.assinatura(ctx, f).is_ok()
+                && self.assinatura_nativa(ctx, f).is_ok()
                 && vistas.insert(f)
             {
                 saida.push(f);
@@ -237,14 +262,46 @@ fn mapeamento_da_abi(ctx: &Context, c: ClassId) -> Option<TipoC> {
     None
 }
 
+/// A chave num nome de símbolo (`S12.` vira `S12_`).
+fn escapar_chave(chave: &str) -> String {
+    chave.replace('.', "_")
+}
+
+/// Uma assinatura nativa: retorno (com a classe de uma struct devolvida
+/// por valor) e parâmetros.
+pub struct AssinaturaNativa {
+    pub ret: TipoNativo,
+    pub classe_ret: Option<ClassId>,
+    pub params: Vec<TipoNativo>,
+    pub classes_params: Vec<Option<ClassId>>,
+}
+
+impl AssinaturaNativa {
+    /// Só primitivos (o que os callbacks aceitam).
+    fn primitiva(&self) -> Option<(TipoC, Vec<TipoC>)> {
+        let prim = |t: &TipoNativo| match t {
+            TipoNativo::Prim(tc) => Some(*tc),
+            TipoNativo::Composto(_) => None,
+        };
+        Some((prim(&self.ret)?, self.params.iter().map(prim).collect::<Option<Vec<_>>>()?))
+    }
+}
+
 /// A chave de uma assinatura: a letra do retorno, `_` e as dos parâmetros
-/// (`i_ip` = `Int32 Function(Int32, Pointer)`). O runtime calcula a mesma
-/// chave a partir da RTI.
-pub fn chave_da_assinatura(ret: TipoC, params: &[TipoC]) -> String {
-    let mut s = String::with_capacity(params.len() + 2);
-    s.push(ret.letra());
+/// (`i_ip` = `Int32 Function(Int32, Pointer)`); uma struct por valor é
+/// `S<id RTI da classe>.`. O runtime calcula a mesma chave a partir da RTI.
+pub fn chave_da_assinatura(ctx: &Context, a: &AssinaturaNativa) -> String {
+    let letra = |t: &TipoNativo, classe: Option<ClassId>, s: &mut String| match (t, classe) {
+        (TipoNativo::Prim(tc), _) => s.push(tc.letra()),
+        (TipoNativo::Composto(_), Some(c)) => s.push_str(&format!("S{}.", ctx.id_rti(c))),
+        (TipoNativo::Composto(_), None) => s.push('?'),
+    };
+    let mut s = String::with_capacity(a.params.len() + 2);
+    letra(&a.ret, a.classe_ret, &mut s);
     s.push('_');
-    s.extend(params.iter().map(|p| p.letra()));
+    for (p, c) in a.params.iter().zip(&a.classes_params) {
+        letra(p, *c, &mut s);
+    }
     s
 }
 
@@ -279,20 +336,22 @@ pub fn lower_ffi(ctx: &Context, module: &mut Module) {
     for f in tipos.assinaturas_do_programa(ctx) {
         // Uma assinatura que não baixa fica sem trampolim: o runtime recusa
         // a chamada com a assinatura.
-        let Ok((ret, params)) = tipos.assinatura(ctx, f) else { continue };
-        let chave = chave_da_assinatura(ret, &params);
+        let Ok(assinatura) = tipos.assinatura_nativa(ctx, f) else { continue };
+        let chave = chave_da_assinatura(ctx, &assinatura);
         if !feitas.insert(chave.clone()) {
             continue;
         }
-        let simbolo = format!("df.ffi.{chave}$ent");
+        let simbolo = format!("df.ffi.{}$ent", escapar_chave(&chave));
         let unit = dartforge_elements::model::UnitId(0);
         let mut b = FnBuilder::new(ctx, unit, simbolo.clone(), format!("ffi {chave}"), Type::Ref);
-        b.corpo_do_trampolim(ret, &params);
+        b.corpo_do_trampolim(ctx, &assinatura);
         module.functions.push(b.func);
         module.functions.extend(b.extra_functions);
         module.ffi_trampolins.push((chave.clone(), simbolo));
         // O callback da mesma assinatura (`Pointer.fromFunction`,
-        // `NativeCallable`): o corpo HIR; a entrada C sai no emissor.
+        // `NativeCallable`): o corpo HIR; a entrada C sai no emissor. Com
+        // struct por valor não há callback (o runtime recusa com o motivo).
+        let Some((ret, params)) = assinatura.primitiva() else { continue };
         let corpo = format!("df.ffi.{chave}$cb");
         let mut b = FnBuilder::new(ctx, unit, corpo.clone(), format!("ffi callback {chave}"), ret.tipo_hir());
         b.corpo_do_callback(ret, &params);
@@ -384,12 +443,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// O corpo de um trampolim: `(closure, args, desc)` da convenção
-    /// uniforme → a chamada nativa → o retorno como `Ref`.
-    fn corpo_do_trampolim(&mut self, ret: TipoC, params: &[TipoC]) {
+    /// uniforme → a chamada nativa → o retorno como `Ref`. Uma struct por
+    /// valor vai como o endereço dos bytes dela; uma devolvida por valor é
+    /// criada antes (sobre um `Uint8List` novo, como a VM) e a chamada grava
+    /// nela.
+    fn corpo_do_trampolim(&mut self, ctx: &Context, a: &AssinaturaNativa) {
         let clo = Operand::Val(self.add_param("closure".to_string(), Type::Ref));
         let args = Operand::Val(self.add_param("args".to_string(), Type::Ptr));
         let desc = Operand::Val(self.add_param("desc".to_string(), Type::Ptr));
-        let infos: Vec<ParamEntrada> = params
+        let infos: Vec<ParamEntrada> = a
+            .params
             .iter()
             .map(|_| ParamEntrada { nome: None, kind: ParameterKind::Required, required: true, padrao: Padrao::Nenhum })
             .collect();
@@ -404,36 +467,102 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::I64,
         );
-        let mut nativos = Vec::with_capacity(params.len());
-        for (v, tc) in valores.into_iter().zip(params.iter()) {
-            let x = match tc {
-                TipoC::Ptr => self.emit_call_with_check(
-                    Instruction::CallRuntime {
-                        name: "dartforge_ffi_endereco_do_ponteiro".to_string(),
-                        args: vec![(v, Type::Ref)],
-                        ret_ty: Type::I64,
-                    },
-                    Type::I64,
-                ),
-                tc => self.coagir(v, tc.tipo_hir()),
+        let endereco = |b: &mut Self, nome: &str, v: Operand| {
+            b.emit_call_with_check(
+                Instruction::CallRuntime { name: nome.to_string(), args: vec![(v, Type::Ref)], ret_ty: Type::I64 },
+                Type::I64,
+            )
+        };
+        let mut nativos = Vec::with_capacity(a.params.len());
+        for (v, t) in valores.into_iter().zip(a.params.iter()) {
+            let x = match t {
+                TipoNativo::Prim(TipoC::Ptr) => endereco(self, "dartforge_ffi_endereco_do_ponteiro", v),
+                TipoNativo::Composto(_) => endereco(self, "dartforge_ffi_endereco_do_composto", v),
+                TipoNativo::Prim(tc) => self.coagir(v, tc.tipo_hir()),
             };
-            nativos.push((x, *tc));
+            nativos.push((x, t.clone()));
         }
-        let r = self.emit(Instruction::ChamadaNativa { alvo, args: nativos, ret }, ret.tipo_hir());
-        let resultado = match ret {
-            TipoC::Void => Operand::Constant(Constant::Null),
-            TipoC::Ptr => self.emit_call_with_check(
-                Instruction::CallRuntime {
-                    name: "dartforge_ffi_ponteiro_de_retorno".to_string(),
-                    args: vec![(r, Type::I64), (clo, Type::Ref)],
-                    ret_ty: Type::Ref,
-                },
-                Type::Ref,
-            ),
-            _ => self.coagir(r, Type::Ref),
+        let resultado = match (&a.ret, a.classe_ret) {
+            (TipoNativo::Composto(_), Some(c)) => {
+                let novo = self.emit_call_with_check(
+                    Instruction::CallRuntime {
+                        name: "dartforge_ffi_composto_novo".to_string(),
+                        args: vec![(Operand::Constant(Constant::Int(ctx.id_rti(c))), Type::I64)],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                );
+                let destino = endereco(self, "dartforge_ffi_endereco_do_composto", novo.clone());
+                self.emit(
+                    Instruction::ChamadaNativaComposta { alvo, args: nativos, ret: a.ret.clone(), destino: Some(destino) },
+                    Type::Void,
+                );
+                novo
+            }
+            (TipoNativo::Composto(_), None) => unreachable!("struct devolvida sem classe"),
+            (TipoNativo::Prim(ret), _) => {
+                let ret = *ret;
+                let r = if nativos.iter().all(|(_, t)| matches!(t, TipoNativo::Prim(_))) {
+                    let prims = nativos
+                        .into_iter()
+                        .map(|(x, t)| match t {
+                            TipoNativo::Prim(tc) => (x, tc),
+                            TipoNativo::Composto(_) => unreachable!(),
+                        })
+                        .collect();
+                    self.emit(Instruction::ChamadaNativa { alvo, args: prims, ret }, ret.tipo_hir())
+                } else {
+                    self.emit(
+                        Instruction::ChamadaNativaComposta { alvo, args: nativos, ret: a.ret.clone(), destino: None },
+                        ret.tipo_hir(),
+                    )
+                };
+                match ret {
+                    TipoC::Void => Operand::Constant(Constant::Null),
+                    TipoC::Ptr => self.emit_call_with_check(
+                        Instruction::CallRuntime {
+                            name: "dartforge_ffi_ponteiro_de_retorno".to_string(),
+                            args: vec![(r, Type::I64), (clo, Type::Ref)],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    ),
+                    _ => self.coagir(r, Type::Ref),
+                }
+            }
         };
         self.terminate(Terminator::Return(Some(resultado)));
     }
+}
+
+/// O layout C achatado de uma struct ou union do programa.
+pub fn layout_c(ctx: &Context, c: ClassId) -> Option<LayoutC> {
+    let comp = compostos(ctx)?;
+    let l = comp.classes.get(&c)?;
+    let mut folhas = Vec::new();
+    for (deslocamento, campo) in l.campos.values() {
+        achatar(ctx, campo, *deslocamento, &mut folhas)?;
+    }
+    folhas.sort_by_key(|(o, _)| *o);
+    Some(LayoutC { tamanho: l.tamanho, alinhamento: l.alinhamento, folhas })
+}
+
+/// As folhas primitivas de um campo em `base`.
+fn achatar(ctx: &Context, t: &TipoCampo, base: usize, folhas: &mut Vec<(usize, TipoC)>) -> Option<()> {
+    match t {
+        TipoCampo::Prim(tc) => folhas.push((base, *tc)),
+        TipoCampo::Composto(c) => {
+            let dentro = layout_c(ctx, *c)?;
+            folhas.extend(dentro.folhas.iter().map(|(o, tc)| (base + o, *tc)));
+        }
+        TipoCampo::Array { elem, dims } => {
+            let passo = tamanho_de(ctx, elem);
+            for i in 0..dims.iter().product::<usize>() {
+                achatar(ctx, elem, base + i * passo, folhas)?;
+            }
+        }
+    }
+    Some(())
 }
 
 // ─── Structs e unions (`Struct`, `Union`, `@Array`, `@Packed`) ─────────────
@@ -483,18 +612,6 @@ pub struct Compostos {
     pub classes: std::collections::HashMap<ClassId, Composto>,
     pub base: dartforge_elements::model::VariableId,
     pub deslocamento: dartforge_elements::model::VariableId,
-}
-
-impl TipoC {
-    fn tamanho(self) -> usize {
-        match self {
-            TipoC::I8 | TipoC::U8 | TipoC::Bool => 1,
-            TipoC::I16 | TipoC::U16 => 2,
-            TipoC::I32 | TipoC::U32 | TipoC::F32 => 4,
-            TipoC::I64 | TipoC::U64 | TipoC::F64 | TipoC::Ptr => 8,
-            TipoC::Void => 0,
-        }
-    }
 }
 
 /// Os compostos do programa (calculados uma vez por contexto).
@@ -547,7 +664,7 @@ impl Calculo<'_, '_> {
     /// `(tamanho, alinhamento)` de um tipo de campo.
     fn medida(&mut self, t: &TipoCampo) -> Option<(usize, usize)> {
         match t {
-            TipoCampo::Prim(tc) => Some((tc.tamanho(), tc.tamanho())),
+            TipoCampo::Prim(tc) => Some((tc.tamanho_c(), tc.tamanho_c())),
             TipoCampo::Composto(c) => self.layout(*c).map(|l| (l.tamanho, l.alinhamento)),
             TipoCampo::Array { elem, dims } => {
                 let (t, a) = self.medida(elem)?;
@@ -874,7 +991,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 /// O tamanho em bytes de um tipo de campo (compostos já calculados).
 fn tamanho_de(ctx: &Context, t: &TipoCampo) -> usize {
     match t {
-        TipoCampo::Prim(tc) => tc.tamanho(),
+        TipoCampo::Prim(tc) => tc.tamanho_c(),
         TipoCampo::Composto(c) => compostos(ctx).and_then(|x| x.classes.get(c)).map_or(0, |l| l.tamanho),
         TipoCampo::Array { elem, dims } => tamanho_de(ctx, elem) * dims.iter().product::<usize>(),
     }

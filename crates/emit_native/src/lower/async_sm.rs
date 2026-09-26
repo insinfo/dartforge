@@ -1214,6 +1214,11 @@ fn usos_de(inst: &Instruction) -> Vec<ValueId> {
             op(alvo);
             args.iter().for_each(|(a, _)| op(a));
         }
+        Instruction::ChamadaNativaComposta { alvo, args, destino, .. } => {
+            op(alvo);
+            args.iter().for_each(|(a, _)| op(a));
+            destino.iter().for_each(&mut op);
+        }
     }
     u
 }
@@ -1326,6 +1331,11 @@ fn trocar_usos(inst: &mut Instruction, troca: &dyn Fn(ValueId) -> Option<ValueId
         Instruction::ChamadaNativa { alvo, args, .. } => {
             t(alvo);
             args.iter_mut().for_each(|(a, _)| t(a));
+        }
+        Instruction::ChamadaNativaComposta { alvo, args, destino, .. } => {
+            t(alvo);
+            args.iter_mut().for_each(|(a, _)| t(a));
+            if let Some(d) = destino { t(d) }
         }
     }
 }

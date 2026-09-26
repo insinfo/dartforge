@@ -321,6 +321,54 @@ pub enum Instruction {
         args: Vec<(Operand, TipoC)>,
         ret: TipoC,
     },
+    /// Uma chamada nativa com structs ou unions por valor: o operando de um
+    /// composto é o endereço (`I64`) dos bytes dele, e um retorno composto é
+    /// gravado em `destino` (o resultado da instrução é então `Void`). O
+    /// emissor aplica a ABI C do alvo (`llvm/abi_c.rs`).
+    ChamadaNativaComposta {
+        alvo: Operand,
+        args: Vec<(Operand, TipoNativo)>,
+        ret: TipoNativo,
+        destino: Option<Operand>,
+    },
+}
+
+/// Um tipo na fronteira nativa: primitivo ou composto por valor.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum TipoNativo {
+    Prim(TipoC),
+    Composto(LayoutC),
+}
+
+/// O layout C de uma struct ou union: tamanho, alinhamento e as folhas
+/// primitivas (deslocamento, tipo), com structs aninhadas e arrays
+/// achatados — o que a classificação da ABI examina.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct LayoutC {
+    pub tamanho: usize,
+    pub alinhamento: usize,
+    pub folhas: Vec<(usize, TipoC)>,
+}
+
+impl LayoutC {
+    /// Alguma folha fora do alinhamento natural (`@Packed`).
+    pub fn desalinhado(&self) -> bool {
+        self.folhas.iter().any(|(o, t)| {
+            let n = t.tamanho_c();
+            n > 1 && o % n != 0
+        })
+    }
+}
+
+impl TipoNativo {
+    /// A representação na HIR do valor Dart correspondente (um composto
+    /// chega como endereço).
+    pub fn tipo_hir(&self) -> Type {
+        match self {
+            TipoNativo::Prim(t) => t.tipo_hir(),
+            TipoNativo::Composto(_) => Type::I64,
+        }
+    }
 }
 
 /// Um tipo C na fronteira de uma chamada nativa (os primitivos do
@@ -375,6 +423,17 @@ impl TipoC {
             TipoC::I8 | TipoC::I16 => "signext ",
             TipoC::U8 | TipoC::U16 | TipoC::Bool => "zeroext ",
             _ => "",
+        }
+    }
+
+    /// Bytes do tipo C (0 para `void`).
+    pub fn tamanho_c(self) -> usize {
+        match self {
+            TipoC::I8 | TipoC::U8 | TipoC::Bool => 1,
+            TipoC::I16 | TipoC::U16 => 2,
+            TipoC::I32 | TipoC::U32 | TipoC::F32 => 4,
+            TipoC::I64 | TipoC::U64 | TipoC::F64 | TipoC::Ptr => 8,
+            TipoC::Void => 0,
         }
     }
 

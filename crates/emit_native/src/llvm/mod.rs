@@ -1,5 +1,6 @@
 //! Gerador de LLVM IR a partir da HIR nativa.
 
+pub mod abi_c;
 pub mod externs;
 mod seletores;
 #[cfg(test)]
@@ -199,6 +200,19 @@ impl<'a> LlvmEmitter<'a> {
         for e in externs::EXTERNS {
             self.out.push_str(e.decl);
             self.out.push('\n');
+        }
+        // As chamadas nativas com struct por valor copiam os bytes numa
+        // temporária da pilha (`llvm/abi_c.rs`).
+        let compostas = self.module.functions.iter().any(|f| {
+            f.blocks.iter().any(|b| b.instructions.iter().any(|(_, i, _)| matches!(i, Instruction::ChamadaNativaComposta { .. })))
+        });
+        if compostas {
+            self.out.push_str(
+                "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n\
+                 declare void @llvm.memset.p0.i64(ptr, i8, i64, i1)\n\
+                 declare ptr @llvm.stacksave.p0()\n\
+                 declare void @llvm.stackrestore.p0(ptr)\n",
+            );
         }
         self.out.push('\n');
     }
@@ -649,28 +663,7 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  %fn{v} = inttoptr i64 {a} to ptr").unwrap();
                         let mut partes = Vec::with_capacity(args.len());
                         for (i, (op, tc)) in args.iter().enumerate() {
-                            let x = match tc {
-                                TipoC::F32 => {
-                                    let d = self.coagir(op, Type::F64);
-                                    writeln!(self.out, "  %na{v}_{i} = fptrunc double {d} to float").unwrap();
-                                    format!("%na{v}_{i}")
-                                }
-                                TipoC::F64 => self.coagir(op, Type::F64),
-                                TipoC::Bool => self.coagir(op, Type::I1),
-                                TipoC::Ptr => {
-                                    let n = self.coagir(op, Type::I64);
-                                    writeln!(self.out, "  %na{v}_{i} = inttoptr i64 {n} to ptr").unwrap();
-                                    format!("%na{v}_{i}")
-                                }
-                                TipoC::I64 | TipoC::U64 => self.coagir(op, Type::I64),
-                                TipoC::Void => unreachable!("argumento nativo void"),
-                                estreito => {
-                                    let n = self.coagir(op, Type::I64);
-                                    writeln!(self.out, "  %na{v}_{i} = trunc i64 {n} to {}", estreito.llvm()).unwrap();
-                                    format!("%na{v}_{i}")
-                                }
-                            };
-                            partes.push(format!("{} {}{x}", tc.llvm(), tc.extensao()));
+                            partes.push(self.argumento_c(v, i, op, *tc));
                         }
                         let lista = partes.join(", ");
                         let conv = match ret {
@@ -688,6 +681,9 @@ impl<'a> LlvmEmitter<'a> {
                                 writeln!(self.out, "  %v{v} = {c}").unwrap();
                             }
                         }
+                    }
+                    Instruction::ChamadaNativaComposta { alvo, args, ret, destino } => {
+                        self.chamada_nativa_composta(v, alvo, args, ret, destino.as_ref());
                     }
                     Instruction::AllocList { elements } => {
                         // Alloca temporário para pares (bits, tag)
@@ -1437,6 +1433,138 @@ impl<'a> LlvmEmitter<'a> {
     /// A chamada do `main` na entrada: com parâmetros, o primeiro é a lista
     /// dos argumentos da linha de comando (`dartforge_argumentos_do_main`) e
     /// o segundo, `null`.
+    /// Um argumento primitivo de chamada C: o operando convertido ao tipo C
+    /// (estreitos com a extensão da ABI), como `tipo atributos valor`.
+    fn argumento_c(&mut self, v: u32, i: usize, op: &Operand, tc: TipoC) -> String {
+        let x = match tc {
+            TipoC::F32 => {
+                let d = self.coagir(op, Type::F64);
+                writeln!(self.out, "  %na{v}_{i} = fptrunc double {d} to float").unwrap();
+                format!("%na{v}_{i}")
+            }
+            TipoC::F64 => self.coagir(op, Type::F64),
+            TipoC::Bool => self.coagir(op, Type::I1),
+            TipoC::Ptr => {
+                let n = self.coagir(op, Type::I64);
+                writeln!(self.out, "  %na{v}_{i} = inttoptr i64 {n} to ptr").unwrap();
+                format!("%na{v}_{i}")
+            }
+            TipoC::I64 | TipoC::U64 => self.coagir(op, Type::I64),
+            TipoC::Void => unreachable!("argumento nativo void"),
+            estreito => {
+                let n = self.coagir(op, Type::I64);
+                writeln!(self.out, "  %na{v}_{i} = trunc i64 {n} to {}", estreito.llvm()).unwrap();
+                format!("%na{v}_{i}")
+            }
+        };
+        format!("{} {}{x}", tc.llvm(), tc.extensao())
+    }
+
+    /// Uma chamada C com structs/unions por valor (`llvm/abi_c.rs`): cada
+    /// composto é copiado dos bytes do operando para uma temporária alinhada
+    /// da pilha (liberada por `stackrestore` depois da chamada), e passado
+    /// em peças, `byval` ou por ponteiro; um retorno composto vai para
+    /// `destino` (direto: pelas peças gravadas numa temporária; `sret`: o
+    /// próprio destino).
+    fn chamada_nativa_composta(&mut self, v: u32, alvo: &Operand, args: &[(Operand, TipoNativo)], ret: &TipoNativo, destino: Option<&Operand>) {
+        use abi_c::{PassagemArg, PassagemRet};
+        let conv = abi_c::Convencao::do_alvo();
+        let mut regs = abi_c::Registradores::novos();
+        let a = self.coagir(alvo, Type::I64);
+        writeln!(self.out, "  %fn{v} = inttoptr i64 {a} to ptr").unwrap();
+        writeln!(self.out, "  %pilha{v} = call ptr @llvm.stacksave.p0()").unwrap();
+        // Retorno primeiro: um `sret` ocupa o primeiro registrador inteiro.
+        let passagem_ret = match ret {
+            TipoNativo::Composto(l) => Some((abi_c::retorno(conv, l, &mut regs), l.clone())),
+            TipoNativo::Prim(_) => None,
+        };
+        let mut partes = Vec::with_capacity(args.len() + 1);
+        let destino_ptr = destino.map(|d| {
+            let d = self.coagir(d, Type::I64);
+            writeln!(self.out, "  %dst{v} = inttoptr i64 {d} to ptr").unwrap();
+            format!("%dst{v}")
+        });
+        if let (Some((PassagemRet::Sret { alinhamento }, l)), Some(d)) = (&passagem_ret, &destino_ptr) {
+            partes.push(format!("ptr sret([{} x i8]) align {alinhamento} {d}", l.tamanho));
+        }
+        for (i, (op, t)) in args.iter().enumerate() {
+            match t {
+                TipoNativo::Prim(tc) => {
+                    regs.consumir_primitivo(*tc);
+                    let p = self.argumento_c(v, i, op, *tc);
+                    partes.push(p);
+                }
+                TipoNativo::Composto(l) => {
+                    // A cópia: alinhada, zerada até a palavra, com os bytes.
+                    let n = self.coagir(op, Type::I64);
+                    let tam = l.tamanho.div_ceil(16) * 16;
+                    let al = l.alinhamento.max(16);
+                    writeln!(self.out, "  %src{v}_{i} = inttoptr i64 {n} to ptr").unwrap();
+                    writeln!(self.out, "  %tmp{v}_{i} = alloca [{tam} x i8], align {al}").unwrap();
+                    writeln!(self.out, "  call void @llvm.memset.p0.i64(ptr %tmp{v}_{i}, i8 0, i64 {tam}, i1 false)").unwrap();
+                    writeln!(self.out, "  call void @llvm.memcpy.p0.p0.i64(ptr %tmp{v}_{i}, ptr %src{v}_{i}, i64 {}, i1 false)", l.tamanho).unwrap();
+                    match abi_c::argumento(conv, l, &mut regs) {
+                        PassagemArg::Direta(pecas) => {
+                            for (k, p) in pecas.iter().enumerate() {
+                                writeln!(self.out, "  %pp{v}_{i}_{k} = getelementptr i8, ptr %tmp{v}_{i}, i64 {}", p.deslocamento).unwrap();
+                                writeln!(self.out, "  %pc{v}_{i}_{k} = load {}, ptr %pp{v}_{i}_{k}, align 1", p.tipo).unwrap();
+                                partes.push(format!("{} {}%pc{v}_{i}_{k}", p.tipo, p.atributos));
+                            }
+                        }
+                        PassagemArg::Byval { alinhamento } => {
+                            partes.push(format!("ptr byval([{} x i8]) align {alinhamento} %tmp{v}_{i}", l.tamanho));
+                        }
+                        PassagemArg::Indireta => partes.push(format!("ptr %tmp{v}_{i}")),
+                    }
+                }
+            }
+        }
+        let lista = partes.join(", ");
+        match (ret, &passagem_ret) {
+            (TipoNativo::Prim(TipoC::Void), _) => writeln!(self.out, "  call void %fn{v}({lista})").unwrap(),
+            (TipoNativo::Prim(tc), _) => {
+                let conv_ret = match tc {
+                    TipoC::I8 | TipoC::I16 | TipoC::I32 => Some(format!("sext {} %nr{v} to i64", tc.llvm())),
+                    TipoC::U8 | TipoC::U16 | TipoC::U32 => Some(format!("zext {} %nr{v} to i64", tc.llvm())),
+                    TipoC::F32 => Some(format!("fpext float %nr{v} to double")),
+                    TipoC::Ptr => Some(format!("ptrtoint ptr %nr{v} to i64")),
+                    _ => None,
+                };
+                match conv_ret {
+                    Some(c) => {
+                        writeln!(self.out, "  %nr{v} = call {} %fn{v}({lista})", tc.llvm()).unwrap();
+                        writeln!(self.out, "  %v{v} = {c}").unwrap();
+                    }
+                    None => writeln!(self.out, "  %v{v} = call {} %fn{v}({lista})", tc.llvm()).unwrap(),
+                }
+            }
+            (TipoNativo::Composto(_), Some((PassagemRet::Sret { .. }, _))) => {
+                writeln!(self.out, "  call void %fn{v}({lista})").unwrap();
+            }
+            (TipoNativo::Composto(_), Some((PassagemRet::Direta(pecas), l))) => {
+                let tipo = abi_c::tipo_do_retorno(pecas);
+                let tam = l.tamanho.div_ceil(16) * 16;
+                writeln!(self.out, "  %rr{v} = call {tipo} %fn{v}({lista})").unwrap();
+                writeln!(self.out, "  %rt{v} = alloca [{tam} x i8], align 16").unwrap();
+                for (k, p) in pecas.iter().enumerate() {
+                    let val = if pecas.len() == 1 {
+                        format!("%rr{v}")
+                    } else {
+                        writeln!(self.out, "  %re{v}_{k} = extractvalue {tipo} %rr{v}, {k}").unwrap();
+                        format!("%re{v}_{k}")
+                    };
+                    writeln!(self.out, "  %rp{v}_{k} = getelementptr i8, ptr %rt{v}, i64 {}", p.deslocamento).unwrap();
+                    writeln!(self.out, "  store {} {val}, ptr %rp{v}_{k}, align 1", p.tipo).unwrap();
+                }
+                if let Some(d) = &destino_ptr {
+                    writeln!(self.out, "  call void @llvm.memcpy.p0.p0.i64(ptr {d}, ptr %rt{v}, i64 {}, i1 false)", l.tamanho).unwrap();
+                }
+            }
+            (TipoNativo::Composto(_), None) => unreachable!("retorno composto sem passagem"),
+        }
+        writeln!(self.out, "  call void @llvm.stackrestore.p0(ptr %pilha{v})").unwrap();
+    }
+
     /// As entradas C dos callbacks do `dart:ffi` (`ffi_callbacks.rs` do
     /// runtime) e, de cada uma, a função que escreve um trampolim para ela. Cada entrada tem a ABI
     /// C da assinatura e o contexto do callback no parâmetro `nest` (que o
@@ -1618,6 +1746,9 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::CallSeletor { .. }
             | Instruction::CallClosureRepasse { .. } => Type::Ref,
             Instruction::ChamadaNativa { ret, .. } => ret.tipo_hir(),
+            Instruction::ChamadaNativaComposta { ret, destino, .. } => {
+                if destino.is_some() { Type::Void } else { ret.tipo_hir() }
+            }
             Instruction::CellSet { .. } => Type::Void,
             Instruction::ConstArray(_) => Type::Ptr,
             Instruction::Unbox { to, .. } => *to,

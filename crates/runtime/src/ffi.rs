@@ -82,6 +82,17 @@ fn letra_do_tipo(t: i64) -> Result<char, String> {
     })
 }
 
+/// A parte de um tipo na chave: a letra do tipo C, ou `S<rti>.` de uma
+/// struct/union por valor (registrada pelo programa).
+fn parte_da_chave(t: i64, s: &mut String) -> Result<(), String> {
+    if let Some(rti) = classe_rti_do_tipo(t).filter(|&r| composto_de_rti(r).is_some()) {
+        s.push_str(&format!("S{rti}."));
+        return Ok(());
+    }
+    s.push(letra_do_tipo(t)?);
+    Ok(())
+}
+
 /// A chave (`lower/ffi.rs::chave_da_assinatura`) da assinatura nativa `ns`.
 fn chave_da_assinatura(ns: i64) -> Result<String, String> {
     let (ret, pos) = RTI.with(|u| match u.borrow().tipo(ns) {
@@ -89,10 +100,10 @@ fn chave_da_assinatura(ns: i64) -> Result<String, String> {
         _ => Err(format!("`{}` is not a native function signature", u.borrow().texto(ns))),
     })?;
     let mut s = String::with_capacity(pos.len() + 2);
-    s.push(letra_do_tipo(ret)?);
+    parte_da_chave(ret, &mut s)?;
     s.push('_');
     for p in pos {
-        s.push(letra_do_tipo(p)?);
+        parte_da_chave(p, &mut s)?;
     }
     Ok(s)
 }
@@ -774,4 +785,43 @@ pub extern "C" fn dartforge_typed_externo(class_id: i64, tipo: i64, ponteiro: i6
 pub extern "C" fn dartforge_typed_externo_t(class_id: i64, tipo: i64, ponteiro: i64, n: i64, f: extern "C" fn() -> *const i64) -> i64 {
     dartforge_registrar_tabela(class_id, f);
     dartforge_typed_externo(class_id, tipo, ponteiro, n)
+}
+
+/// O endereço dos bytes de uma struct/union (um argumento por valor): a
+/// base (`Pointer` ou `TypedData`) mais o deslocamento, conferido contra o
+/// tamanho numa base `TypedData`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_ffi_endereco_do_composto(obj: i64) -> i64 {
+    let dados = HEAP.with(|h| match h.borrow().try_get(obj) {
+        Some(Value::Object { class_id, fields }) => {
+            let c = compostos_ffi().read().unwrap_or_else(|e| e.into_inner()).values().find(|c| c.classe == *class_id).copied()?;
+            let campo = |i: i64| usize::try_from(i).ok().and_then(|i| fields.get(i)).copied();
+            Some((c, campo(c.indice_base)?, campo(c.indice_deslocamento)?))
+        }
+        _ => None,
+    });
+    let Some((c, (base, _), (deslocamento, e_ref))) = dados else {
+        lancar_erro_de_argumento("a Struct or Union was expected in a native call");
+        return 0;
+    };
+    let deslocamento = if e_ref { HEAP.with(|h| h.borrow().int_de_ref(deslocamento)).unwrap_or(0) } else { deslocamento };
+    com_memoria(base, deslocamento, c.tamanho as usize, |p| p as i64).unwrap_or(0)
+}
+
+/// Uma struct/union nova, sobre um `Uint8List` do tamanho dela (o valor que
+/// uma chamada nativa devolve por valor, como na VM).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_ffi_composto_novo(rti: i64) -> i64 {
+    let Some(c) = composto_de_rti(rti) else {
+        lancar_unsupported("struct or union not registered in the DartForge native backend");
+        return 0;
+    };
+    let Some(cid) = cid_registrado(CID_UINT8_LIST) else {
+        lancar_unsupported("struct by value needs the Dart SDK compiled from source");
+        return 0;
+    };
+    let bytes = HEAP.with(|h| {
+        h.borrow_mut().allocate(Value::TypedData { class_id: cid, tipo: TIPO_UINT8, bytes: vec![0u8; c.tamanho as usize].into() })
+    });
+    com_raizes(&[bytes], || dartforge_ffi_composto(rti, bytes, 0))
 }
