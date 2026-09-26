@@ -121,6 +121,9 @@ pub struct FnBuilder<'a, 'c> {
     /// A tupla de argumentos de tipo da chamada genérica corrente, que
     /// `chamar_direto` acrescenta quando o alvo tem parâmetros de tipo.
     pub tupla_armada: Option<Operand>,
+    /// O tipo estático de `this` num membro de extensão (o `on`): o
+    /// receptor implícito de outra chamada de extensão.
+    pub extensao_do_this: Option<(dartforge_elements::model::ExtensionId, dartforge_types::table::TypeId)>,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
@@ -229,6 +232,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             classe_concreta: None,
             tipo_da_criacao: None,
             tupla_armada: None,
+            extensao_do_this: None,
         }
     }
 

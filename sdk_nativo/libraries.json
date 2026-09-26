@@ -17,7 +17,10 @@
       "_internal/vm/lib/regexp_patch.dart": "core/regexp_patch.dart",
       "_internal/vm/lib/isolate_patch.dart": "isolate/isolate_patch.dart",
       "html/dartium/nativewrappers.dart": "nativewrappers/nativewrappers.dart",
-      "_internal/vm/bin/common_patch.dart": "io/common_patch.dart"
+      "_internal/vm/bin/common_patch.dart": "io/common_patch.dart",
+      "_internal/vm/lib/ffi_patch.dart": "ffi/ffi_patch.dart",
+      "_internal/vm/lib/ffi_allocation_patch.dart": "ffi/ffi_allocation_patch.dart",
+      "_internal/vm/lib/ffi_dynamic_library_patch.dart": "ffi/ffi_dynamic_library_patch.dart"
     }
   }
 }

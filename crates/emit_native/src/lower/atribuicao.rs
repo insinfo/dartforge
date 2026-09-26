@@ -122,6 +122,52 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         v
     }
 
+    /// `r.x op= v` com `x` membro de instância de uma extensão (`member`
+    /// é o setter, ou o getter quando a resolução guardou a leitura): o
+    /// setter `x=` e, na composta, o getter `x` da mesma extensão, os dois
+    /// com o receptor avaliado uma vez.
+    #[allow(clippy::too_many_arguments)]
+    fn atribuir_extensao(
+        &mut self,
+        ast: &ast::Ast,
+        op: ast::AssignOp,
+        recv: Option<ExprId>,
+        member: dartforge_elements::model::FunctionElementId,
+        sym: dartforge_intern::SymbolId,
+        value: Rhs,
+        span: Span,
+    ) -> Operand {
+        let Some(e) = self.ctx.program.functions[member.0 as usize].extension else {
+            return self.nao_suportado("membro de extensão sem extensão", span);
+        };
+        let nome = self.ctx.symbol_name(sym).to_string();
+        let x = &self.ctx.program.extensions[e.0 as usize];
+        let chave_setter = self.ctx.interner.lookup(&format!("{nome}_="));
+        let setter = chave_setter.and_then(|k| x.instance_members.get(&k).copied());
+        let getter = x.instance_members.get(&sym).copied().filter(|&g| self.ctx.program.functions[g.0 as usize].kind == FunctionKind::Getter);
+        let Some(setter) = setter else {
+            return self.nao_suportado(&format!("atribuição a `{nome}` sem setter"), span);
+        };
+        let (recv_op, receptor) = match recv {
+            Some(r) => (self.lower_alvo(ast, r), self.ctx.get_type(self.unit_id, r)),
+            None => (
+                self.this_param.clone().unwrap_or(Operand::Constant(Constant::Null)),
+                self.extensao_do_this.map(|(_, on)| on),
+            ),
+        };
+        let cur = if matches!(op, ast::AssignOp::Compound(_)) {
+            let Some(g) = getter else {
+                return self.nao_suportado(&format!("leitura de `{nome}` sem getter"), span);
+            };
+            Some(self.chamar_extensao(recv_op.clone(), g.0 as usize, &[], receptor, None, span))
+        } else {
+            None
+        };
+        let v = self.combinar(ast, op, cur, value);
+        self.chamar_extensao(recv_op, setter.0 as usize, &[(None, v.clone())], receptor, None, span);
+        v
+    }
+
     /// `a?.b op= v` / `a?[i] op= v` (§17.23): `a` é avaliado uma vez; se é
     /// null, nada mais é avaliado e o valor é null; senão, a atribuição
     /// comum sobre o valor de `a`. A cadeia `?.` de `a` (`x?.y?.b = v`)
@@ -191,6 +237,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 match resolvido {
                     Some(Resolved::Member { member, .. }) => {
                         self.atribuir_membro(None, member, ast, op, value, span)
+                    }
+                    Some(Resolved::ExtensionMember { member, .. })
+                        if !self.ctx.program.functions[member.0 as usize].static_ =>
+                    {
+                        self.atribuir_extensao(ast, op, None, member, sym, value, span)
                     }
                     Some(Resolved::Element(Element::Variable(vid))) => {
                         let cur = if composto {
@@ -274,6 +325,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     };
                     let v = self.combinar(ast, op, cur, value);
                     return self.gravar_super(name.sym, v, span);
+                }
+                // Setter de extensão (P4): chamada direta com o receptor.
+                if let Some(Resolved::ExtensionMember { member, .. }) = self.ctx.get_resolved(self.unit_id, target).cloned()
+                    && !self.ctx.program.functions[member.0 as usize].static_
+                    && super::funcao_do_usuario(self.ctx, member.0 as usize)
+                {
+                    return self.atribuir_extensao(ast, op, Some(*recv), member, name.sym, value, span);
                 }
                 let alvo_e_classe = matches!(
                     self.ctx.get_resolved(self.unit_id, *recv),
@@ -374,6 +432,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.null_aware_tratado = None;
                 let t_op = self.lower_expr(ast, *t);
                 let i_op = self.lower_expr(ast, *index);
+                // `[]=` de extensão (a inferência resolve o índice para o
+                // `[]` da extensão; o `[]=` é o da mesma extensão).
+                if let Some(get) = self.operador_de_extensao(target) {
+                    let e = self.ctx.program.functions[get].extension.expect("membro de extensão");
+                    let x = &self.ctx.program.extensions[e.0 as usize];
+                    let set = self.ctx.interner.lookup("[]=").and_then(|k| x.instance_members.get(&k).copied());
+                    let Some(set) = set else {
+                        return self.nao_suportado("operador []= de extensão ausente", span);
+                    };
+                    let receptor = self.ctx.get_type(self.unit_id, *t);
+                    let cur = composto.then(|| self.chamar_extensao(t_op.clone(), get, &[(None, i_op.clone())], receptor, None, span));
+                    let v = self.combinar(ast, op, cur, value);
+                    self.chamar_extensao(t_op, set.0 as usize, &[(None, i_op), (None, v.clone())], receptor, None, span);
+                    return v;
+                }
                 if self.ctx.sdk_da_fonte {
                     // SDK da fonte: `[]`/`[]=` pela classe dinâmica.
                     use super::sdk_fonte::Tipo;

@@ -417,7 +417,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                     Some(Resolved::ExtensionMember { member, .. }) => {
                         let this = self.this_param.clone().unwrap_or(Operand::Constant(Constant::Null));
-                        return self.ler_extensao(this, member.0 as usize, span);
+                        let receptor = self.extensao_do_this.map(|(_, on)| on);
+                        return self.ler_extensao(this, member.0 as usize, receptor, span);
                     }
                     _ => {}
                 }
@@ -462,6 +463,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // envolvente, depois o escopo da biblioteca.
                 if let Some(op) = self.ler_nome_sem_resolucao(sym, span) {
                     return op;
+                }
+                // Uma variável de tipo como expressão (`T`): o objeto `Type`
+                // do argumento de tipo corrente.
+                if let Some(r) = self.receita_da_variavel_de_tipo(sym) {
+                    let tipo = self.rti_da_receita(&r);
+                    return self.emit(
+                        Instruction::CallRuntime {
+                            name: "dartforge_rti_objeto_tipo".to_string(),
+                            args: vec![(tipo, Type::I64)],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    );
                 }
                 let nome = self.ctx.symbol_name(sym).to_string();
                 // `dynamic`, `Never` e `Null` também são expressões que
@@ -513,6 +527,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         return self.emit(Instruction::LNot(b), Type::I1);
                     }
                     return r;
+                }
+                // Operador de extensão (P4): chamada direta ao membro.
+                if let Some(fid) = self.operador_de_extensao(expr_id) {
+                    let lop = self.lower_expr(ast, *left);
+                    let rop = self.lower_expr(ast, *right);
+                    let receptor = self.ctx.get_type(self.unit_id, *left);
+                    let r = self.chamar_extensao(lop, fid, &[(None, rop)], receptor, None, expr.span);
+                    let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
+                    return self.coagir(r, repr);
                 }
                 let lop = self.lower_expr(ast, *left);
                 let rop = self.lower_expr(ast, *right);
@@ -805,7 +828,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if let Some(Resolved::ExtensionMember { member, .. }) = resolved.clone()
                     && crate::lower::funcao_do_usuario(self.ctx, member.0 as usize)
                 {
-                    return self.ler_extensao(target_op, member.0 as usize, span);
+                    let receptor = self.ctx.get_type(self.unit_id, *target);
+                    return self.ler_extensao(target_op, member.0 as usize, receptor, span);
                 }
                 // `r.$1`/`r.nome`: campo de um record (posicional do
                 // runtime, ou de uma forma com campo nomeado).
@@ -834,6 +858,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.desviar_se_nulo(&target_op);
                 }
                 let idx_op = self.lower_expr(ast, *index);
+                if let Some(fid) = self.operador_de_extensao(expr_id) {
+                    let receptor = self.ctx.get_type(self.unit_id, *target);
+                    let r = self.chamar_extensao(target_op, fid, &[(None, idx_op)], receptor, None, expr.span);
+                    let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
+                    return self.coagir(r, repr);
+                }
                 if self.ctx.sdk_da_fonte {
                     // SDK da fonte: `[]` pela classe dinâmica.
                     let r = self.chamar_por_nome(target_op, super::sdk_fonte::Tipo::Chamar, "[]", &[(None, idx_op)]);

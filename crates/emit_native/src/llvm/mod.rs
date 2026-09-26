@@ -613,6 +613,55 @@ impl<'a> LlvmEmitter<'a> {
                             writeln!(self.out, "  %v{v} = call {r} @{name}({joined})").unwrap();
                         }
                     }
+                    Instruction::ChamadaNativa { alvo, args, ret } => {
+                        // A chamada C: cada argumento convertido ao tipo C
+                        // (estreitos com a extensão da ABI), o retorno
+                        // estendido de volta explicitamente (o Windows x64
+                        // não garante os bits altos de um retorno estreito).
+                        let a = self.coagir(alvo, Type::I64);
+                        writeln!(self.out, "  %fn{v} = inttoptr i64 {a} to ptr").unwrap();
+                        let mut partes = Vec::with_capacity(args.len());
+                        for (i, (op, tc)) in args.iter().enumerate() {
+                            let x = match tc {
+                                TipoC::F32 => {
+                                    let d = self.coagir(op, Type::F64);
+                                    writeln!(self.out, "  %na{v}_{i} = fptrunc double {d} to float").unwrap();
+                                    format!("%na{v}_{i}")
+                                }
+                                TipoC::F64 => self.coagir(op, Type::F64),
+                                TipoC::Bool => self.coagir(op, Type::I1),
+                                TipoC::Ptr => {
+                                    let n = self.coagir(op, Type::I64);
+                                    writeln!(self.out, "  %na{v}_{i} = inttoptr i64 {n} to ptr").unwrap();
+                                    format!("%na{v}_{i}")
+                                }
+                                TipoC::I64 | TipoC::U64 => self.coagir(op, Type::I64),
+                                TipoC::Void => unreachable!("argumento nativo void"),
+                                estreito => {
+                                    let n = self.coagir(op, Type::I64);
+                                    writeln!(self.out, "  %na{v}_{i} = trunc i64 {n} to {}", estreito.llvm()).unwrap();
+                                    format!("%na{v}_{i}")
+                                }
+                            };
+                            partes.push(format!("{} {}{x}", tc.llvm(), tc.extensao()));
+                        }
+                        let lista = partes.join(", ");
+                        let conv = match ret {
+                            TipoC::I8 | TipoC::I16 | TipoC::I32 => Some(format!("sext {} %nr{v} to i64", ret.llvm())),
+                            TipoC::U8 | TipoC::U16 | TipoC::U32 => Some(format!("zext {} %nr{v} to i64", ret.llvm())),
+                            TipoC::F32 => Some(format!("fpext float %nr{v} to double")),
+                            TipoC::Ptr => Some(format!("ptrtoint ptr %nr{v} to i64")),
+                            TipoC::I64 | TipoC::U64 | TipoC::F64 | TipoC::Bool | TipoC::Void => None,
+                        };
+                        match (ret, conv) {
+                            (TipoC::Void, _) => writeln!(self.out, "  call void %fn{v}({lista})").unwrap(),
+                            (_, None) => writeln!(self.out, "  %v{v} = call {} %fn{v}({lista})", ret.llvm()).unwrap(),
+                            (_, Some(c)) => {
+                                writeln!(self.out, "  %nr{v} = call {} %fn{v}({lista})", ret.llvm()).unwrap();
+                                writeln!(self.out, "  %v{v} = {c}").unwrap();
+                            }
+                        }
+                    }
                     Instruction::AllocList { elements } => {
                         // Alloca temporário para pares (bits, tag)
                         let count = elements.len();
@@ -1244,8 +1293,24 @@ impl<'a> LlvmEmitter<'a> {
             }
             // O que o embedder da VM prepara antes do `main` (o script de
             // `dart:io`, o `Uri.base`), já com as bibliotecas registradas.
+            // `dart:ffi`: os tipos nativos e os trampolins das assinaturas
+            // (`lower/ffi.rs`).
+            for (c, letra) in &self.module.ffi_tipos {
+                writeln!(self.out, "  call void @dartforge_ffi_registrar_tipo(i64 {c}, i64 {})", u32::from(*letra)).unwrap();
+            }
+            for (i, (chave, simbolo)) in self.module.ffi_trampolins.iter().enumerate() {
+                writeln!(
+                    self.out,
+                    "  call void @dartforge_ffi_registrar_trampolim(ptr @df.ffi.chave.{i}, i64 {}, ptr @\"{simbolo}\")",
+                    chave.len()
+                )
+                .unwrap();
+            }
             writeln!(self.out, "  call void @dartforge_preparar_embedder()").unwrap();
             writeln!(self.out, "  ret void\n}}\n").unwrap();
+            for (i, (chave, _)) in self.module.ffi_trampolins.iter().enumerate() {
+                writeln!(self.out, "@df.ffi.chave.{i} = private unnamed_addr constant [{} x i8] c\"{chave}\"", chave.len()).unwrap();
+            }
             writeln!(self.out, "define void @dartforge_entry() {{").unwrap();
             let chamar = self.module.chamar_dart.as_ref().map_or("null".to_string(), |c| format!("@{c}"));
             writeln!(self.out, "  call void @dartforge_registrar_isolados(ptr @df.preparar_isolado, ptr {chamar})").unwrap();
@@ -1340,6 +1405,7 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::CallClosure { .. }
             | Instruction::CallSeletor { .. }
             | Instruction::CallClosureRepasse { .. } => Type::Ref,
+            Instruction::ChamadaNativa { ret, .. } => ret.tipo_hir(),
             Instruction::CellSet { .. } => Type::Void,
             Instruction::ConstArray(_) => Type::Ptr,
             Instruction::Unbox { to, .. } => *to,

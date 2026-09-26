@@ -31,6 +31,14 @@ Object _dartforgeErroDeFaixa(int valor, int minimo, int maximo, String? nome) =>
 @pragma("vm:entry-point")
 Object _dartforgeErroDeEstado(String mensagem) => new StateError(mensagem);
 
+@pragma("vm:entry-point")
+Object _dartforgeErroNaoSuportado(String? mensagem) =>
+    new UnsupportedError(mensagem ?? "");
+
+@pragma("vm:entry-point")
+Object _dartforgeErroDeArgumento(String? mensagem, String? nome) =>
+    new ArgumentError(mensagem, nome);
+
 // A chamada de uma closure com aridade incompatível precisa lançar a classe
 // real do SDK; o id sintético 1012 do runtime não participa do despacho de
 // métodos nem do grafo de subtipos da biblioteca compilada da fonte.
