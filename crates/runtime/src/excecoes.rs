@@ -193,7 +193,9 @@ pub extern "C" fn dartforge_exception_throw(bits: i64, tag: u8) {
             _ => None,
         });
         if let Some(st_idx) = precisa {
-            let st = dartforge_stack_trace_get();
+            // O rastro aloca: o erro fica enraizado até virar a exceção
+            // pendente (quem lança nem sempre o enraizou).
+            let st = com_raizes(&[value.bits], || dartforge_stack_trace_get());
             HEAP.with(|heap| {
                 if let Value::Object { fields, .. } = heap.borrow_mut().get_mut(value.bits) {
                     if fields.len() <= st_idx {

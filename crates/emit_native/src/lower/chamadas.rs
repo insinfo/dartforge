@@ -194,6 +194,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let m_name = self.ctx.symbol_name(method_name.sym);
             let resolved_alvo = self.ctx.get_resolved(self.unit_id, *target).cloned();
 
+            // `p.loadLibrary()` de um `import … deferred as p`: o programa
+            // compilado já tem a biblioteca (a VM também a carrega na hora);
+            // o `Future` completa sem valor.
+            if m_name == "loadLibrary"
+                && arguments.args.is_empty()
+                && self.prefixo_deferido(ast, *inner_target)
+            {
+                return self.chamar_apoio("_dartforgeCarregarBiblioteca", Vec::new(), expr.span);
+            }
+
             // `prefixo.f(…)`: o elemento importado com prefixo.
             if let Some(el) = self.elemento_prefixado(ast, *inner_target, method_name.sym) {
                 use dartforge_elements::model::Element;
@@ -537,6 +547,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// `prefixo.nome` com `prefixo` de um `import … as prefixo`: o elemento.
+    /// `alvo` é o prefixo de um `import … deferred as`.
+    fn prefixo_deferido(&self, ast: &ast::Ast, alvo: ExprId) -> bool {
+        let ExprKind::Identifier(p) = &ast.expr(alvo).kind else { return false };
+        if !matches!(self.ctx.get_resolved(self.unit_id, alvo), Some(Resolved::Prefix(_)) | None)
+            || self.buscar_local(p.sym).is_some()
+        {
+            return false;
+        }
+        let lib = self.ctx.program.unit(self.unit_id).library;
+        self.ctx.program.library(lib).imports.iter().any(|i| i.deferred && i.prefix == Some(p.sym))
+    }
+
     pub fn elemento_prefixado(
         &self,
         ast: &ast::Ast,

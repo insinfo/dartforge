@@ -446,6 +446,7 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                 if is_instance_member {
                     builder.enclosing_class = func_elem.class;
                 }
+                builder.classe_do_membro = func_elem.class;
                 // RTI: a função genérica recebe a tupla dos argumentos de
                 // tipo no último parâmetro (`M<i>` das receitas).
                 if builder.funcao_generica(f_idx) {
