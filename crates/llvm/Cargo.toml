@@ -1,0 +1,17 @@
+[package]
+name = "dartforge-llvm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# Adota a lint do workspace (`unsafe_code = "deny"`); o `unsafe` da API C do
+# LLVM fica todo em `src/lib.rs`, o único arquivo com `#![allow(unsafe_code)]`.
+[lints]
+workspace = true
+
+[dependencies]
+# `no-llvm-linking`: as assinaturas e os invólucros de inicialização vêm do
+# llvm-sys, mas quem emite as diretivas de ligação é o `build.rs` deste crate
+# (a biblioteca compartilhada da API C no Windows; ver o topo do build.rs).
+llvm-sys = { version = "221.1.0", features = ["no-llvm-linking"] }

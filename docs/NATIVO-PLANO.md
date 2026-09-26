@@ -1446,3 +1446,41 @@ parâmetro de tipo antes da RTI) vira uma função que avisa em tempo de
 execução — `erro: membro do SDK não suportado no backend nativo: <símbolo>
 (<motivo>)`, código 254 — e entra em `recusados.tsv`. Nunca uma saída
 errada.
+
+### 7.10 Distribuição sem Rust e sem LLVM na máquina de quem usa
+
+Quem usa o dartforge instala só a distribuição. Três peças saíram da máquina
+do usuário para o build do dartforge:
+
+* **Runtime pré-compilado** (`crates/emit_native/build.rs`). As duas
+  variantes da `staticlib` do runtime (com o `main` C, e a da biblioteca
+  compartilhada do SDK da fonte) são compiladas no build, pelo `rustc` do
+  próprio build e para o alvo dele, com o nome
+  `dartforge_runtime_<blake3>`/`dartforge_rtdll_<blake3>` (o hash cobre o
+  fonte, o alvo e as bandeiras). O AOT procura em `lib/` da distribuição
+  (`<raiz>/bin/dartforge` → `<raiz>/lib/`, ou `DARTFORGE_LIB`), depois no
+  diretório do build; só uma árvore de desenvolvimento compilada com
+  `DARTFORGE_RUNTIME_SEM_PRECOMPILAR=1` compila o runtime com o `rustc` da
+  máquina, como antes. Verificado: o corpus inteiro passa com
+  `DARTFORGE_RUSTC=/nonexistent`.
+* **Gerador de objetos embutido** (`crates/llvm`, `src/gerador.rs`, feature
+  `llvm-embutido`, ligada pelo `jit` da CLI). O LLVM ligado ao dartforge lê
+  o IR, roda o `default<O0>`/`default<O2>` do `PassBuilder` e emite o objeto
+  com a CPU que o Clang assume sem `-march` (`x86-64`, `apple-m1`,
+  `generic`) e código independente de posição fora do Windows — o que o
+  `clang -x ir -c` fazia, sem processo por módulo e sem gravar o IR.
+  `DARTFORGE_GERADOR=clang` volta ao Clang. A chave dos caches leva a
+  identidade do gerador (versão do LLVM, triple, CPU).
+  Produção: a API C do LLVM não escreve o resumo do ThinLTO, então o
+  bitcode (`lto-pre-link<O2>`) vai para a **LTO completa** do `lld`, com a
+  geração de código em partições paralelas (`--lto-partitions`,
+  `/opt:lldltopartitions`). Medido no Linux x86-64 (programa pequeno com o
+  SDK da fonte): ligação de produção 15,0 s contra 13,0 s do ThinLTO pelo
+  Clang; SDK de desenvolvimento frio 4,7 s; corpus nativo 225/225 com os dois
+  geradores, JIT × AOT 225/225.
+* **Pendente**: a ligação ainda passa pelo driver do Clang (que acha o
+  `crt1.o`, a libc e o SDK do sistema). O próximo passo é o `lld` da
+  distribuição chamado direto, com as bibliotecas do sistema resolvidas pelo
+  dartforge; os caminhos fixos de desenvolvimento (`C:/tools/dartsdk…`, o
+  cache em `target/`) passam para a distribuição (o SDK Dart e o
+  `sdk_nativo/` em `lib/`, o cache no diretório de cache do usuário).

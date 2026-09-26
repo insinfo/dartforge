@@ -68,7 +68,6 @@ use llvm_sys::orc2::{
     LLVMOrcThreadSafeModuleRef,
 };
 use llvm_sys::prelude::{LLVMContextRef, LLVMModuleRef, LLVMTypeRef, LLVMValueRef};
-use llvm_sys::target::{LLVM_InitializeNativeAsmPrinter, LLVM_InitializeNativeTarget};
 use llvm_sys::target_machine::{
     LLVMCodeGenFileType, LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetMachine,
     LLVMDisposeTargetMachine, LLVMGetDefaultTargetTriple, LLVMGetTargetFromTriple, LLVMRelocMode,
@@ -77,7 +76,6 @@ use llvm_sys::target_machine::{
 use std::ffi::{CStr, CString, c_char};
 use std::mem::ManuallyDrop;
 use std::ptr;
-use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 /// Converte um `LLVMErrorRef` em `Option<String>` consumindo o erro.
@@ -114,32 +112,14 @@ unsafe fn take_message(message: *mut c_char) -> String {
     }
 }
 
-/// Inicializa o alvo nativo uma única vez por processo.
-///
-/// `LLVMOrcCreateLLJIT` sem builder detecta o host, o que exige os registradores
-/// de alvo e o `AsmPrinter` já instalados. As rotinas do LLVM não são
-/// idempotentes sob concorrência, daí o [`OnceLock`], que também memoriza a
-/// falha em vez de tentar registrar os alvos de novo a cada sessão.
+/// Inicializa o alvo nativo uma única vez por processo — a mesma
+/// inicialização do gerador de objetos do AOT (`dartforge-llvm`), que pode
+/// rodar no mesmo processo (`dartforge run` compila o SDK da fonte).
 ///
 /// # Erros
 /// Falha quando o LLVM ligado não inclui o backend da arquitetura do host.
 pub(crate) fn initialize_native_target() -> Result<(), String> {
-    static STATE: OnceLock<Result<(), String>> = OnceLock::new();
-    STATE
-        .get_or_init(|| {
-            // SAFETY: `get_or_init` garante execução única e exclusiva; as
-            // rotinas apenas registram alvos em tabelas globais do LLVM e não
-            // recebem nenhum ponteiro nosso.
-            let failed = unsafe {
-                LLVM_InitializeNativeTarget() != 0 || LLVM_InitializeNativeAsmPrinter() != 0
-            };
-            if failed {
-                Err("LLVM não tem backend nativo para esta arquitetura".to_owned())
-            } else {
-                Ok(())
-            }
-        })
-        .clone()
+    dartforge_llvm::inicializar_alvo_nativo()
 }
 
 /// Módulo LLVM já analisado e pronto para entrar numa `JITDylib`.
