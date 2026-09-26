@@ -64,6 +64,11 @@ pub struct UnitBodyTypes {
     /// na representação desse tipo (`int?` é caixa, `int` é `i64`), que não
     /// se deduz das leituras: elas têm o tipo promovido pelo fluxo.
     pub tipos_de_locais: std::collections::HashMap<usize, TypeId>,
+    /// Declaração (offset do nome) do local que cada expressão resolvida para
+    /// [`Resolved::Local`] lê ou escreve. Só é preenchida quando
+    /// [`crate::BodyInferrer::registrar_locais`] está ligado (o LSP, para
+    /// renomear e achar referências); o compilador não paga por ela.
+    pub declaracoes_de_locais: std::collections::HashMap<ast::ExprId, usize>,
 }
 
 impl UnitBodyTypes {
@@ -73,6 +78,7 @@ impl UnitBodyTypes {
             static_types: vec![fallback_type; num_exprs],
             resolved: vec![None; num_exprs],
             tipos_de_locais: std::collections::HashMap::new(),
+            declaracoes_de_locais: std::collections::HashMap::new(),
         }
     }
 
@@ -107,6 +113,12 @@ impl UnitBodyTypes {
         }
     }
 
+    /// Offset do nome na declaração do local que `expr` referencia, quando
+    /// a inferência registrou locais (ver [`UnitBodyTypes::declaracoes_de_locais`]).
+    pub fn declaracao_local(&self, expr: ast::ExprId) -> Option<usize> {
+        self.declaracoes_de_locais.get(&expr).copied()
+    }
+
     /// Obtém o alvo semântico resolvido de uma expressão.
     pub fn get_resolved(&self, expr: ast::ExprId) -> Option<&Resolved> {
         self.resolved.get(expr.0 as usize).and_then(|r| r.as_ref())
@@ -118,4 +130,38 @@ impl UnitBodyTypes {
 pub struct BodyTypes {
     /// Tabelas indexadas pelo índice da unidade em `Program::units`.
     pub units: Vec<UnitBodyTypes>,
+}
+
+/// Um local (variável, parâmetro ou função local) visível num ponto do corpo.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalVisivel {
+    pub nome: SymbolId,
+    /// Tipo declarado (escrito ou inferido do inicializador).
+    pub tipo: TypeId,
+    /// Offset do nome na declaração.
+    pub offset: usize,
+    /// Declarado como função local (`void f() {}` dentro de um corpo).
+    pub funcao: bool,
+}
+
+/// O escopo léxico capturado no identificador sondado (ver
+/// [`crate::BodyInferrer::sonda_escopo`]): o que o LSP oferece ao completar
+/// um nome simples, vindo da mesma pilha de escopos que resolve os nomes.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EscopoSondado {
+    /// Locais visíveis, do mais interno para o mais externo; um nome
+    /// sombreado aparece só uma vez (a declaração mais interna).
+    pub locais: Vec<LocalVisivel>,
+    /// Parâmetros de tipo visíveis pelo nome.
+    pub parametros_de_tipo: Vec<(SymbolId, TypeParamId)>,
+    /// Classe (ou mixin, enum, extension type) do membro envolvente.
+    pub classe: Option<ClassId>,
+    /// Extensão do membro envolvente.
+    pub extensao: Option<ExtensionId>,
+    /// Sem `this`: membro estático, topo ou construtor de fábrica.
+    pub estatico: bool,
+    /// Tipo de `this`, quando há.
+    pub tipo_this: Option<TypeId>,
+    /// Biblioteca do corpo.
+    pub biblioteca: Option<LibraryId>,
 }

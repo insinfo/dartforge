@@ -301,4 +301,39 @@ impl Corpo {
         m
     }
 
+    /// O escopo léxico deste ponto, para a sonda do LSP: cada nome uma vez,
+    /// pela declaração mais interna (a mesma ordem de [`Corpo::buscar`]).
+    pub fn escopo_visivel(&self) -> crate::resolved::EscopoSondado {
+        let mut vistos: HashSet<SymbolId> = HashSet::new();
+        let mut saida = crate::resolved::EscopoSondado {
+            classe: self.classe,
+            extensao: self.extensao,
+            estatico: self.estatico,
+            tipo_this: self.tipo_this,
+            biblioteca: Some(self.lib),
+            ..Default::default()
+        };
+        for e in self.escopos.iter().rev() {
+            for (n, r) in e.iter().rev() {
+                if !vistos.insert(*n) {
+                    continue;
+                }
+                match r {
+                    Nome::Local(id) => {
+                        let l = self.local(*id);
+                        saida.locais.push(crate::resolved::LocalVisivel {
+                            nome: l.nome,
+                            tipo: l.tipo,
+                            offset: l.offset,
+                            funcao: self.funcoes_locais.contains(id),
+                        });
+                    }
+                    Nome::TipoParam(p) => saida.parametros_de_tipo.push((*n, *p)),
+                    // Declarado adiante: ainda não pode ser usado aqui.
+                    Nome::Adiante => {}
+                }
+            }
+        }
+        saida
+    }
 }

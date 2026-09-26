@@ -58,7 +58,20 @@ pub(crate) fn registrar(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, t: Ty
 }
 
 pub(crate) fn resolver(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, r: Resolved) {
-    inf.body_types.units[cx.unit.0 as usize].set_resolved(e, r);
+    let tabela = &mut inf.body_types.units[cx.unit.0 as usize];
+    if inf.registrar_locais {
+        if let Resolved::Local(id) = &r {
+            tabela.declaracoes_de_locais.insert(e, cx.local(*id).offset);
+        }
+    }
+    tabela.set_resolved(e, r);
+}
+
+/// Captura o escopo léxico quando `nome` é o identificador sondado pelo LSP.
+pub(crate) fn sondar_escopo(inf: &mut BodyInferrer<'_>, cx: &Corpo, nome: ast::Name) {
+    if inf.sonda_escopo == Some((cx.unit, nome.span.start)) && inf.escopo_sondado.is_none() {
+        inf.escopo_sondado = Some(cx.escopo_visivel());
+    }
 }
 
 fn ast<'p>(inf: &BodyInferrer<'p>, cx: &Corpo) -> &'p ast::Ast {
@@ -292,6 +305,7 @@ fn resolved_de_membro_lexico(inf: &BodyInferrer<'_>, cx: &Corpo, f: dartforge_el
 
 /// Identificador como valor.
 fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::Name) -> TypeId {
+    sondar_escopo(inf, cx, n);
     match resolver_nome(inf, cx, n.sym, false) {
         RefNome::Local(id) => {
             resolver(inf, cx, e, Resolved::Local(id));

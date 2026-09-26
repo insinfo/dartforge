@@ -126,6 +126,16 @@ pub struct BodyInferrer<'a> {
     /// inferidos sem contexto para decidir entre conjunto e mapa (a visita
     /// dos elementos os reaproveita em vez de inferir de novo).
     pub(crate) espalhamentos_inferidos: HashMap<dartforge_frontend::ast::ExprId, TypeId>,
+    /// LSP: registra em [`UnitBodyTypes::declaracoes_de_locais`] a
+    /// declaração de cada local referido (renomear, referências). Desligado
+    /// no compilador, que não paga pela tabela.
+    pub registrar_locais: bool,
+    /// LSP (completar): o identificador simples em `(unidade, offset do
+    /// nome)` tem o escopo léxico capturado em [`BodyInferrer::escopo_sondado`]
+    /// quando a inferência passa por ele.
+    pub sonda_escopo: Option<(UnitId, usize)>,
+    /// O escopo capturado pela [`BodyInferrer::sonda_escopo`].
+    pub escopo_sondado: Option<crate::resolved::EscopoSondado>,
 }
 
 impl<'a> BodyInferrer<'a> {
@@ -168,6 +178,9 @@ impl<'a> BodyInferrer<'a> {
             unidades_dos_avisos: Vec::new(),
             unidade_corrente: None,
             espalhamentos_inferidos: HashMap::new(),
+            registrar_locais: false,
+            sonda_escopo: None,
+            escopo_sondado: None,
         }
     }
 
