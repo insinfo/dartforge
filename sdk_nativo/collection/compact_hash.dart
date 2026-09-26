@@ -296,7 +296,9 @@ mixin _OperatorEqualsAndCanonicalHashCode implements _EqualsAndHashCode {
 
   int _hashCode(Object? e) {
     final int cid = ClassID.getID(e);
-    if (cid < ClassID.numPredefinedCids || cid == cidSymbol) {
+    // DartForge: um record tem o id da FORMA dele (acima dos predefinidos);
+    // na VM é o `_Record`, predefinido — o hash é o estrutural.
+    if (cid < ClassID.numPredefinedCids || cid == cidSymbol || e is Record) {
       return e.hashCode;
     }
     return identityHashCode(e);
@@ -1075,8 +1077,10 @@ base class _ConstSet<E> extends _HashVMImmutableBase
     _data = new List<Object?>.unmodifiable(fonte._data.take(fonte._usedData));
     _usedData = fonte._usedData;
     _deletedKeys = fonte._deletedKeys;
+    // O índice de um set tem o dobro das entradas de `_data` (uma chave
+    // por entrada; no mapa são duas): o mesmo tamanho do `_createIndex`.
     _hashMask = _HashBase._indexSizeToHashMask(
-        _roundUpToPowerOfTwo(max(_data.length, _HashBase._INITIAL_INDEX_SIZE)));
+        _roundUpToPowerOfTwo(max(_data.length * 2, _HashBase._INITIAL_INDEX_SIZE)));
   }
 
   Set<R> cast<R>() => Set.castFrom<E, R>(this, newSet: _newEmpty);

@@ -31,6 +31,12 @@ Object _dartforgeErroDeFaixa(int valor, int minimo, int maximo, String? nome) =>
 @pragma("vm:entry-point")
 Object _dartforgeErroDeEstado(String mensagem) => new StateError(mensagem);
 
+// A `FormatException` que o runtime lança (`int.parse`, os filtros zlib):
+// a classe real do SDK, que o `catch` e o `e.message` do programa enxergam.
+@pragma("vm:entry-point")
+Object _dartforgeErroDeFormato(String mensagem, Object? fonte, int deslocamento) =>
+    new FormatException(mensagem, fonte, deslocamento < 0 ? null : deslocamento);
+
 @pragma("vm:entry-point")
 Object _dartforgeErroNaoSuportado(String? mensagem) =>
     new UnsupportedError(mensagem ?? "");

@@ -791,6 +791,14 @@ pub struct Heap {
     /// sistema (fecha um arquivo, solta uma contagem de referências) e nunca
     /// toca o heap.
     pub finalizaveis: std::collections::HashMap<i64, Finalizador>,
+    /// As referências fracas (`WeakReference`, o `WeakReference_*` da VM):
+    /// objeto portador → alvo. O alvo NÃO é seguido pela marcação; se não
+    /// sobreviver por outro caminho, a coleta o troca por 0 (null).
+    pub fracas: std::collections::HashMap<i64, i64>,
+    /// Os efêmeros (`_WeakProperty`, a base do `Expando`): portador →
+    /// (chave, valor). O valor só é alcançado se a chave for (ponto fixo na
+    /// marcação); chave morta zera os dois.
+    pub efemeros: std::collections::HashMap<i64, (i64, i64)>,
 }
 impl Heap {
     /// Inicializa heap; stress força coleta antes de cada alocação.
@@ -826,6 +834,8 @@ impl Heap {
             iteracoes_ativas: std::collections::HashSet::new(),
             origens: std::collections::HashMap::new(),
             finalizaveis: std::collections::HashMap::new(),
+            fracas: std::collections::HashMap::new(),
+            efemeros: std::collections::HashMap::new(),
         }
     }
     /// Raiz mantida pelo runtime: 0 = exceção pendente, 1 = rastro corrente.
@@ -1550,6 +1560,32 @@ impl Heap {
         self.slots[slot].as_mut().expect("slot vivo verificado")
     }
     /// Marca raízes e arestas tipadas iterativamente e libera inclusive ciclos inalcançáveis.
+    /// Marca tudo o que é alcançável a partir de `pending`; devolve quantos
+    /// objetos marcou.
+    fn marcar_pendentes(&mut self) -> usize {
+        let mut live = 0_usize;
+        while let Some(handle) = self.pending.pop() {
+            // null e `Smi` (R10) não são arestas: o coletor nunca segue um
+            // `Smi`, que não aponta para o heap.
+            if !smi::e_handle(handle) {
+                continue;
+            }
+            // Raiz ou aresta que não é um handle vivo: mesmas quatro
+            // mensagens de `get`, porque a causa é a mesma (N4).
+            let index = self.indice_vivo(handle);
+            if self.marks[index] {
+                continue;
+            }
+            self.marks[index] = true;
+            live += 1;
+            self.slots[index]
+                .as_ref()
+                .expect("slot vivo verificado")
+                .trace(&mut self.pending);
+        }
+        live
+    }
+
     pub fn collect(&mut self) {
         self.stats.collections += 1;
         self.stats.roots_scanned += self.enum_values.len() as u64;
@@ -1575,31 +1611,43 @@ impl Heap {
                 .iter()
                 .flat_map(|(_, roots)| roots.iter().copied()),
         );
-        let mut live = 0_usize;
-        while let Some(handle) = self.pending.pop() {
-            // null e `Smi` (R10) não são arestas: o coletor nunca segue um
-            // `Smi`, que não aponta para o heap.
-            if !smi::e_handle(handle) {
-                continue;
+        let mut live = self.marcar_pendentes();
+        // Os efêmeros: o valor de um portador vivo é alcançado quando a
+        // chave é — o que pode tornar vivas outras chaves, até o ponto fixo.
+        if !self.efemeros.is_empty() {
+            loop {
+                let marks = &self.marks;
+                let marcado = |h: i64| smi::e_handle(h) && h > 0 && marks.get(Self::indice_de(h)).copied().unwrap_or(false);
+                let antes = self.pending.len();
+                for (&portador, &(chave, valor)) in &self.efemeros {
+                    if marcado(portador) && (marcado(chave) || !smi::e_handle(chave)) && smi::e_handle(valor) && !marcado(valor) {
+                        self.pending.push(valor);
+                    }
+                }
+                if self.pending.len() == antes {
+                    break;
+                }
+                live += self.marcar_pendentes();
             }
-            // Raiz ou aresta que não é um handle vivo: mesmas quatro
-            // mensagens de `get`, porque a causa é a mesma (N4).
-            let index = self.indice_vivo(handle);
-            if self.marks[index] {
-                continue;
-            }
-            self.marks[index] = true;
-            live += 1;
-            self.slots[index]
-                .as_ref()
-                .expect("slot vivo verificado")
-                .trace(&mut self.pending);
         }
         // Tabelas laterais: só ficam os handles que sobreviveram (G6).
         let marks = &self.marks;
         let vivo = |h: &i64| {
             smi::e_handle(*h) && *h > 0 && marks.get(Self::indice_de(*h)).copied().unwrap_or(false)
         };
+        self.fracas.retain(|portador, alvo| {
+            if smi::e_handle(*alvo) && !vivo(alvo) {
+                *alvo = 0;
+            }
+            vivo(portador)
+        });
+        self.efemeros.retain(|portador, (chave, valor)| {
+            if smi::e_handle(*chave) && !vivo(chave) {
+                *chave = 0;
+                *valor = 0;
+            }
+            vivo(portador)
+        });
         self.imutaveis.retain(|h| vivo(h));
         self.campos_late_inicializados.retain(|(h, _)| vivo(h));
         self.fixas.retain(|h| vivo(h));
