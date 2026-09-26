@@ -129,6 +129,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             _ => self.emit_expr_inner(e, expected),
         };
+        if self.ctx.conferencia.is_some() {
+            self.conferir_tipo(e, &ty);
+        }
         if let Some((raiz, anterior)) = registro {
             match anterior {
                 Some(a) => {
@@ -1290,7 +1293,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     fn emit_identifier(&mut self, sym: dartforge_intern::SymbolId, e: ExprId) -> (Js, Ty) {
         let n = self.name(sym).to_string();
-        match self.resolve_ident(sym) {
+        let alvo = self.resolve_ident(sym);
+        if self.ctx.conferencia.is_some() {
+            self.conferir_alvo(e, &alvo);
+        }
+        match alvo {
             IdentTarget::Local(js, ty) => {
                 if let Some(l) = self.lookup_local(sym).cloned() {
                     if let Some(init) = &l.lazy_init {
