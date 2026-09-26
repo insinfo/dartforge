@@ -235,6 +235,37 @@ mod memoria_executavel {
     }
 }
 
+/// Uma posição da chave de uma assinatura (`lower/ffi.rs`): a letra de um
+/// tipo C ou `S<rti>.`, uma struct/union por valor.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ParteDaChave {
+    Letra(char),
+    Composto(i64),
+}
+
+/// As partes da chave: o retorno e os parâmetros.
+fn partes_da_chave(chave: &str) -> (ParteDaChave, Vec<ParteDaChave>) {
+    let mut partes = Vec::new();
+    let mut resto = chave;
+    let mut ret = None;
+    while let Some(c) = resto.chars().next() {
+        if c == '_' && ret.is_none() {
+            ret = partes.pop();
+            resto = &resto[1..];
+            continue;
+        }
+        if c == 'S' {
+            let fim = resto.find('.').unwrap_or(resto.len());
+            partes.push(ParteDaChave::Composto(resto[1..fim].parse().unwrap_or(0)));
+            resto = &resto[(fim + 1).min(resto.len())..];
+        } else {
+            partes.push(ParteDaChave::Letra(c));
+            resto = &resto[c.len_utf8()..];
+        }
+    }
+    (ret.unwrap_or(ParteDaChave::Letra('v')), partes)
+}
+
 /// O valor C de `v` (um objeto Dart) no tipo da letra `l`, para o retorno
 /// excepcional.
 fn bits_do_excepcional(v: i64, l: char) -> Result<i64, String> {
@@ -267,12 +298,7 @@ fn instalar_callback(ctx: Box<ContextoCallback>) -> Result<usize, String> {
     let registro = entradas_de_callback().read().unwrap_or_else(|e| e.into_inner()).get(&ctx.chave).copied();
     let Some(entrada) = registro else {
         let texto = RTI.with(|u| u.borrow().texto(ctx.assinatura));
-        let motivo = if ctx.chave.contains('S') {
-            "structs or unions by value are not supported in callbacks by the DartForge native backend yet"
-        } else {
-            "it must be written as a constant type argument"
-        };
-        return Err(format!("the native signature `{texto}` was not compiled into this program ({motivo})"));
+        return Err(format!("the native signature `{texto}` was not compiled into this program (it must be written as a constant type argument)"));
     };
     let Some(memoria) = memoria_executavel::alocar() else {
         return Err("could not allocate executable memory for a native callback".to_string());
@@ -301,17 +327,26 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_novo(assinatura: i64, 
             return 0;
         }
     };
-    let retorno = chave.chars().next().unwrap_or('v');
-    if modo == MODO_OUVINTE && retorno != 'v' {
+    let (retorno, _) = partes_da_chave(&chave);
+    if modo == MODO_OUVINTE && retorno != ParteDaChave::Letra('v') {
         lancar_erro_de_argumento("NativeCallable.listener callbacks must return void");
         return 0;
     }
-    let excepcional = match bits_do_excepcional(excepcional, retorno) {
-        Ok(b) => b,
-        Err(m) => {
-            lancar_erro_de_argumento(&m);
+    let excepcional = match retorno {
+        // Struct devolvida: sem retorno excepcional (a VM o recusa); com
+        // exceção, a struct volta zerada.
+        ParteDaChave::Composto(_) if excepcional != 0 => {
+            lancar_erro_de_argumento("exceptionalReturn must not be given for a struct or union return");
             return 0;
         }
+        ParteDaChave::Composto(_) => 0,
+        ParteDaChave::Letra(l) => match bits_do_excepcional(excepcional, l) {
+            Ok(b) => b,
+            Err(m) => {
+                lancar_erro_de_argumento(&m);
+                return 0;
+            }
+        },
     };
     // `fromFunction`: `porta` é o sítio da chamada (um trampolim por sítio).
     let persistente = (modo == MODO_PERSISTENTE).then(|| (chave.clone(), porta, codigo_da_closure(funcao), excepcional));
@@ -465,11 +500,19 @@ pub unsafe extern "C" fn dartforge_ffi_callback_postar(ctx: *const ContextoCallb
     let bits = unsafe { std::slice::from_raw_parts(args, n.max(0) as usize) };
     let mut itens = Vec::with_capacity(bits.len() + 1);
     itens.push(Portavel::Int(ctx as i64));
-    for (b, l) in bits.iter().zip(c.chave.chars().skip(2)) {
-        itens.push(match l {
-            'f' | 'd' => Portavel::Double(f64::from_bits(*b as u64)),
-            'b' => Portavel::Bool(*b != 0),
-            _ => Portavel::Int(*b),
+    let (_, params) = partes_da_chave(&c.chave);
+    for (b, p) in bits.iter().zip(params) {
+        itens.push(match p {
+            ParteDaChave::Letra('f' | 'd') => Portavel::Double(f64::from_bits(*b as u64)),
+            ParteDaChave::Letra('b') => Portavel::Bool(*b != 0),
+            // Uma struct: os bytes (o endereço só vale durante a chamada).
+            ParteDaChave::Composto(rti) => {
+                let n = composto_de_rti(rti).map_or(0, |c| c.tamanho as usize);
+                // SAFETY: a entrada C passa o endereço dos `n` bytes do
+                // argumento, vivos durante a chamada.
+                Portavel::Bytes(unsafe { std::slice::from_raw_parts(*b as usize as *const u8, n) }.to_vec())
+            }
+            ParteDaChave::Letra(_) => Portavel::Int(*b),
         });
     }
     postar(c.porta, Portavel::Lista(itens).para_grafo());
@@ -500,13 +543,25 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_args(mensagem: i64) ->
     });
     let mut saida = Vec::with_capacity(itens.len().saturating_sub(1));
     let frame = HEAP.with(|h| h.borrow_mut().push_frame_with_slots(itens.len().max(1)));
-    for (i, (v, l)) in itens.iter().skip(1).zip(chave.chars().skip(2)).enumerate() {
-        let x = if l == 'p' {
-            let p = novo_ponteiro(inteiro(v), tipos.get(i).copied());
-            HEAP.with(|h| h.borrow_mut().set_root(frame, i, p));
-            TaggedValue::reference(p)
-        } else {
-            *v
+    let (_, params) = partes_da_chave(&chave);
+    for (i, (v, p)) in itens.iter().skip(1).zip(params).enumerate() {
+        let x = match p {
+            ParteDaChave::Letra('p') => {
+                let p = novo_ponteiro(inteiro(v), tipos.get(i).copied());
+                HEAP.with(|h| h.borrow_mut().set_root(frame, i, p));
+                TaggedValue::reference(p)
+            }
+            // Os bytes da struct viram uma struct sobre memória Dart.
+            ParteDaChave::Composto(rti) => {
+                let bytes = HEAP.with(|h| match h.borrow().try_get(v.bits) {
+                    Some(Value::TypedData { bytes, .. }) => bytes.to_vec(),
+                    _ => Vec::new(),
+                });
+                let s = dartforge_ffi_composto_copia(rti, bytes.as_ptr() as i64);
+                HEAP.with(|h| h.borrow_mut().set_root(frame, i, s));
+                TaggedValue::reference(s)
+            }
+            ParteDaChave::Letra(_) => *v,
         };
         saida.push(x);
     }

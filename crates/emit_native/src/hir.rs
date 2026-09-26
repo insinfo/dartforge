@@ -527,13 +527,14 @@ pub struct FfiComposto {
 }
 
 /// Um callback nativo de uma assinatura: a chave, o corpo HIR (contexto e
-/// argumentos na representação Dart → retorno Dart) e os tipos C.
+/// argumentos na representação Dart → retorno Dart; um composto vai e volta
+/// como o endereço dos bytes) e os tipos nativos.
 #[derive(Debug, Clone)]
 pub struct FfiCallback {
     pub chave: String,
     pub corpo: String,
-    pub ret: TipoC,
-    pub params: Vec<TipoC>,
+    pub ret: TipoNativo,
+    pub params: Vec<TipoNativo>,
 }
 
 /// Módulo HIR completo representando um programa Dart compilável.

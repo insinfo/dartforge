@@ -206,7 +206,7 @@ impl<'a> LlvmEmitter<'a> {
         let compostas = self.module.functions.iter().any(|f| {
             f.blocks.iter().any(|b| b.instructions.iter().any(|(_, i, _)| matches!(i, Instruction::ChamadaNativaComposta { .. })))
         });
-        if compostas {
+        if compostas || !self.module.ffi_callbacks.is_empty() {
             self.out.push_str(
                 "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n\
                  declare void @llvm.memset.p0.i64(ptr, i8, i64, i1)\n\
@@ -1573,54 +1573,129 @@ impl<'a> LlvmEmitter<'a> {
     /// representação Dart, chama o corpo HIR e converte o retorno — ou
     /// devolve o retorno excepcional, se a closure lançou.
     fn emit_callbacks_ffi(&mut self) {
+        use abi_c::{PassagemArg, PassagemRet};
         if self.module.ffi_callbacks.is_empty() {
             return;
         }
+        let conv = abi_c::Convencao::do_alvo();
         for (i, cb) in self.module.ffi_callbacks.clone().iter().enumerate() {
             writeln!(self.out, "@df.ffi.cbchave.{i} = private unnamed_addr constant [{} x i8] c\"{}\"", cb.chave.len(), cb.chave).unwrap();
-            let params: Vec<String> =
-                cb.params.iter().enumerate().map(|(j, tc)| format!("{} {}%a{j}", tc.llvm(), tc.extensao())).collect();
-            let sep = if params.is_empty() { "" } else { ", " };
-            let r = cb.ret.llvm();
-            let ret_ext = match cb.ret {
-                TipoC::I8 | TipoC::I16 => "signext ",
-                TipoC::U8 | TipoC::U16 | TipoC::Bool => "zeroext ",
-                _ => "",
+            let mut regs = abi_c::Registradores::novos();
+            // O retorno primeiro: um `sret` ocupa o primeiro registrador.
+            let ret = match &cb.ret {
+                TipoNativo::Composto(l) => Some((abi_c::retorno(conv, l, &mut regs), l.clone())),
+                TipoNativo::Prim(_) => None,
             };
-            writeln!(self.out, "define internal {ret_ext}{r} @df.ffi.cbentrada.{i}(ptr nest %ctx{sep}{}) {{", params.join(", ")).unwrap();
+            let mut decls = vec!["ptr nest %ctx".to_string()];
+            if let Some((PassagemRet::Sret { alinhamento }, l)) = &ret {
+                decls.push(format!("ptr sret([{} x i8]) align {alinhamento} %sret", l.tamanho));
+            }
+            // Como cada composto chega: em peças (remontadas numa
+            // temporária) ou já em memória (`byval`/ponteiro).
+            let mut pecas_de: Vec<Option<(Vec<abi_c::Peca>, usize)>> = Vec::with_capacity(cb.params.len());
+            for (j, t) in cb.params.iter().enumerate() {
+                match t {
+                    TipoNativo::Prim(tc) => {
+                        regs.consumir_primitivo(*tc);
+                        decls.push(format!("{} {}%a{j}", tc.llvm(), tc.extensao()));
+                        pecas_de.push(None);
+                    }
+                    TipoNativo::Composto(l) => match abi_c::argumento(conv, l, &mut regs) {
+                        PassagemArg::Direta(pecas) => {
+                            for (k, p) in pecas.iter().enumerate() {
+                                decls.push(format!("{} {}%a{j}_{k}", p.tipo, p.atributos));
+                            }
+                            pecas_de.push(Some((pecas, l.tamanho)));
+                        }
+                        PassagemArg::Byval { alinhamento } => {
+                            decls.push(format!("ptr byval([{} x i8]) align {alinhamento} %a{j}", l.tamanho));
+                            pecas_de.push(None);
+                        }
+                        PassagemArg::Indireta => {
+                            decls.push(format!("ptr %a{j}"));
+                            pecas_de.push(None);
+                        }
+                    },
+                }
+            }
+            let (tipo_ret, ret_ext) = match (&cb.ret, &ret) {
+                (TipoNativo::Prim(tc), _) => (
+                    tc.llvm().to_string(),
+                    match tc {
+                        TipoC::I8 | TipoC::I16 => "signext ",
+                        TipoC::U8 | TipoC::U16 | TipoC::Bool => "zeroext ",
+                        _ => "",
+                    },
+                ),
+                (_, Some((PassagemRet::Direta(pecas), _))) => (abi_c::tipo_do_retorno(pecas), ""),
+                _ => ("void".to_string(), ""),
+            };
+            let r = tipo_ret.as_str();
+            writeln!(self.out, "define internal {ret_ext}{r} @df.ffi.cbentrada.{i}({}) {{", decls.join(", ")).unwrap();
             let n = cb.params.len().max(1);
             writeln!(self.out, "entrada:\n  %saida = alloca i64\n  %buf = alloca [{n} x i64]").unwrap();
+            if let Some((_, l)) = &ret {
+                writeln!(self.out, "  %rt = alloca [{} x i8], align 16", l.tamanho.div_ceil(16) * 16).unwrap();
+            }
+            // O endereço de cada composto (`%end{j}`, i64).
+            for (j, t) in cb.params.iter().enumerate() {
+                let TipoNativo::Composto(_) = t else { continue };
+                match &pecas_de[j] {
+                    Some((pecas, tamanho)) => {
+                        writeln!(self.out, "  %m{j} = alloca [{} x i8], align 16", tamanho.div_ceil(16) * 16).unwrap();
+                        for (k, p) in pecas.iter().enumerate() {
+                            writeln!(self.out, "  %mp{j}_{k} = getelementptr i8, ptr %m{j}, i64 {}", p.deslocamento).unwrap();
+                            writeln!(self.out, "  store {} %a{j}_{k}, ptr %mp{j}_{k}, align 1", p.tipo).unwrap();
+                        }
+                        writeln!(self.out, "  %end{j} = ptrtoint ptr %m{j} to i64").unwrap();
+                    }
+                    None => writeln!(self.out, "  %end{j} = ptrtoint ptr %a{j} to i64").unwrap(),
+                }
+            }
             writeln!(self.out, "  %modo = call i64 @dartforge_ffi_callback_entrar(ptr %ctx)").unwrap();
             writeln!(self.out, "  %e_ouvinte = icmp ne i64 %modo, 0\n  br i1 %e_ouvinte, label %ouvinte, label %local").unwrap();
-            // Ouvinte: os bits de cada argumento na mensagem.
+            // Ouvinte: os bits de cada argumento na mensagem (de um
+            // composto, o endereço: o runtime copia os bytes).
             writeln!(self.out, "ouvinte:").unwrap();
-            for (j, tc) in cb.params.iter().enumerate() {
-                let bits = match tc {
-                    TipoC::I8 | TipoC::I16 | TipoC::I32 => format!("sext {} %a{j} to i64", tc.llvm()),
-                    TipoC::U8 | TipoC::U16 | TipoC::U32 | TipoC::Bool => format!("zext {} %a{j} to i64", tc.llvm()),
-                    TipoC::I64 | TipoC::U64 => format!("add i64 %a{j}, 0"),
-                    TipoC::F32 => {
-                        writeln!(self.out, "  %of{j} = fpext float %a{j} to double").unwrap();
-                        format!("bitcast double %of{j} to i64")
-                    }
-                    TipoC::F64 => format!("bitcast double %a{j} to i64"),
-                    TipoC::Ptr => format!("ptrtoint ptr %a{j} to i64"),
-                    TipoC::Void => unreachable!("parâmetro nativo void"),
+            for (j, t) in cb.params.iter().enumerate() {
+                let bits = match t {
+                    TipoNativo::Composto(_) => format!("add i64 %end{j}, 0"),
+                    TipoNativo::Prim(tc) => match tc {
+                        TipoC::I8 | TipoC::I16 | TipoC::I32 => format!("sext {} %a{j} to i64", tc.llvm()),
+                        TipoC::U8 | TipoC::U16 | TipoC::U32 | TipoC::Bool => format!("zext {} %a{j} to i64", tc.llvm()),
+                        TipoC::I64 | TipoC::U64 => format!("add i64 %a{j}, 0"),
+                        TipoC::F32 => {
+                            writeln!(self.out, "  %of{j} = fpext float %a{j} to double").unwrap();
+                            format!("bitcast double %of{j} to i64")
+                        }
+                        TipoC::F64 => format!("bitcast double %a{j} to i64"),
+                        TipoC::Ptr => format!("ptrtoint ptr %a{j} to i64"),
+                        TipoC::Void => unreachable!("parâmetro nativo void"),
+                    },
                 };
                 writeln!(self.out, "  %o{j} = {bits}\n  %g{j} = getelementptr [{n} x i64], ptr %buf, i64 0, i64 {j}\n  store i64 %o{j}, ptr %g{j}").unwrap();
             }
             writeln!(self.out, "  call void @dartforge_ffi_callback_postar(ptr %ctx, ptr %buf, i64 {})", cb.params.len()).unwrap();
-            match cb.ret {
-                TipoC::Void => writeln!(self.out, "  ret void").unwrap(),
-                TipoC::Ptr => writeln!(self.out, "  ret ptr null").unwrap(),
-                TipoC::F32 | TipoC::F64 => writeln!(self.out, "  ret {r} 0.0").unwrap(),
-                _ => writeln!(self.out, "  ret {r} 0").unwrap(),
+            match &cb.ret {
+                TipoNativo::Prim(TipoC::Void) => writeln!(self.out, "  ret void").unwrap(),
+                TipoNativo::Prim(TipoC::Ptr) => writeln!(self.out, "  ret ptr null").unwrap(),
+                TipoNativo::Prim(TipoC::F32 | TipoC::F64) => writeln!(self.out, "  ret {r} 0.0").unwrap(),
+                TipoNativo::Prim(_) => writeln!(self.out, "  ret {r} 0").unwrap(),
+                TipoNativo::Composto(_) if r == "void" => writeln!(self.out, "  ret void").unwrap(),
+                TipoNativo::Composto(_) => writeln!(self.out, "  ret {r} zeroinitializer").unwrap(),
             }
             // Local: a chamada ao corpo HIR na representação Dart.
             writeln!(self.out, "local:\n  %c = ptrtoint ptr %ctx to i64").unwrap();
             let mut args = vec!["i64 %c".to_string()];
-            for (j, tc) in cb.params.iter().enumerate() {
-                let (conv, ty) = match tc {
+            for (j, t) in cb.params.iter().enumerate() {
+                let tc = match t {
+                    TipoNativo::Composto(_) => {
+                        args.push(format!("i64 %end{j}"));
+                        continue;
+                    }
+                    TipoNativo::Prim(tc) => *tc,
+                };
+                let (conv_arg, ty) = match tc {
                     TipoC::I8 | TipoC::I16 | TipoC::I32 => (Some(format!("sext {} %a{j} to i64", tc.llvm())), "i64"),
                     TipoC::U8 | TipoC::U16 | TipoC::U32 => (Some(format!("zext {} %a{j} to i64", tc.llvm())), "i64"),
                     TipoC::F32 => (Some(format!("fpext float %a{j} to double")), "double"),
@@ -1630,7 +1705,7 @@ impl<'a> LlvmEmitter<'a> {
                     TipoC::Bool => (None, "i1"),
                     TipoC::Void => unreachable!("parâmetro nativo void"),
                 };
-                match conv {
+                match conv_arg {
                     Some(c) => {
                         writeln!(self.out, "  %d{j} = {c}").unwrap();
                         args.push(format!("{ty} %d{j}"));
@@ -1639,20 +1714,52 @@ impl<'a> LlvmEmitter<'a> {
                 }
             }
             let hr = cb.ret.tipo_hir().llvm_ir();
-            if cb.ret == TipoC::Void {
+            let vazio = matches!(cb.ret, TipoNativo::Prim(TipoC::Void));
+            if vazio {
                 writeln!(self.out, "  call void @{}({})", cb.corpo, args.join(", ")).unwrap();
             } else {
                 writeln!(self.out, "  %r = call {hr} @{}({})", cb.corpo, args.join(", ")).unwrap();
             }
-            writeln!(self.out, "  %x = call i8 @dartforge_ffi_callback_sair(ptr %ctx, ptr %saida)").unwrap();
-            if cb.ret == TipoC::Void {
-                writeln!(self.out, "  ret void\n}}\n").unwrap();
-                continue;
+            // Uma struct devolvida: os bytes copiados já (antes de qualquer
+            // alocação); com exceção o corpo devolve 0 e o retorno é zerado.
+            if let Some((_, l)) = &ret {
+                let tam = l.tamanho.div_ceil(16) * 16;
+                writeln!(self.out, "  call void @llvm.memset.p0.i64(ptr %rt, i8 0, i64 {tam}, i1 false)").unwrap();
+                writeln!(self.out, "  call void @dartforge_ffi_copiar_composto(ptr %rt, i64 %r, i64 {})", l.tamanho).unwrap();
             }
+            writeln!(self.out, "  %x = call i8 @dartforge_ffi_callback_sair(ptr %ctx, ptr %saida)").unwrap();
+            match (&cb.ret, &ret) {
+                (TipoNativo::Prim(TipoC::Void), _) => {
+                    writeln!(self.out, "  ret void\n}}\n").unwrap();
+                    continue;
+                }
+                (_, Some((PassagemRet::Sret { .. }, l))) => {
+                    writeln!(self.out, "  call void @llvm.memcpy.p0.p0.i64(ptr %sret, ptr %rt, i64 {}, i1 false)", l.tamanho).unwrap();
+                    writeln!(self.out, "  ret void\n}}\n").unwrap();
+                    continue;
+                }
+                (_, Some((PassagemRet::Direta(pecas), _))) => {
+                    let mut atual = "undef".to_string();
+                    for (k, p) in pecas.iter().enumerate() {
+                        writeln!(self.out, "  %rp{k} = getelementptr i8, ptr %rt, i64 {}", p.deslocamento).unwrap();
+                        writeln!(self.out, "  %rv{k} = load {}, ptr %rp{k}, align 1", p.tipo).unwrap();
+                        if pecas.len() == 1 {
+                            atual = format!("%rv{k}");
+                        } else {
+                            writeln!(self.out, "  %ra{k} = insertvalue {r} {atual}, {} %rv{k}, {k}", p.tipo).unwrap();
+                            atual = format!("%ra{k}");
+                        }
+                    }
+                    writeln!(self.out, "  ret {r} {atual}\n}}\n").unwrap();
+                    continue;
+                }
+                _ => {}
+            }
+            let TipoNativo::Prim(tr) = cb.ret else { unreachable!("retorno composto sem passagem") };
             writeln!(self.out, "  %e_excecao = icmp ne i8 %x, 0\n  br i1 %e_excecao, label %excecao, label %normal").unwrap();
             // O retorno excepcional (bits do tipo C) e o normal (Dart → C).
             writeln!(self.out, "excecao:\n  %e = load i64, ptr %saida").unwrap();
-            let exc = match cb.ret {
+            let exc = match tr {
                 TipoC::I64 | TipoC::U64 => "add i64 %e, 0".to_string(),
                 TipoC::F64 => "bitcast i64 %e to double".to_string(),
                 TipoC::F32 => {
@@ -1663,7 +1770,7 @@ impl<'a> LlvmEmitter<'a> {
                 estreito => format!("trunc i64 %e to {}", estreito.llvm()),
             };
             writeln!(self.out, "  %ev = {exc}\n  ret {r} %ev").unwrap();
-            let normal = match cb.ret {
+            let normal = match tr {
                 TipoC::I64 | TipoC::U64 | TipoC::F64 | TipoC::Bool => None,
                 TipoC::F32 => Some("fptrunc double %r to float".to_string()),
                 TipoC::Ptr => Some("inttoptr i64 %r to ptr".to_string()),
