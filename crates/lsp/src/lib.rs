@@ -12,7 +12,11 @@
 //! trocada pela semântica (`crates/types`) sem tocar no transporte.
 
 pub mod servidor;
+mod acoes;
+mod completar;
+mod consulta;
 mod navegacao;
+mod renomear;
 mod semantica;
 mod simbolos;
 pub mod transporte;
@@ -24,6 +28,9 @@ use utf16::TabelaLinhas;
 
 pub use servidor::Servidor;
 pub use semantica::AnalisadorSemantico;
+pub use completar::{Completar, ItemCompletar};
+pub use renomear::Edicao;
+pub use acoes::AcaoDeCodigo;
 
 
 /// Posição LSP: linha e coluna em **unidades UTF-16** (ambas a partir de 0).
@@ -253,6 +260,75 @@ pub trait Analisador {
 
     fn hover_no_workspace(&mut self, uri: &str, texto: &str, offset: usize, _documentos: &DocumentStore) -> Option<(dartforge_diagnostics::Span, String, Option<String>)> {
         self.hover(uri, texto, offset)
+    }
+
+    /// Itens de completar na posição `offset` (bytes) do documento aberto
+    /// `uri`. `None` quando a análise não sabe responder (sem SDK, por
+    /// exemplo); lista vazia quando não há o que oferecer.
+    ///
+    /// ```
+    /// use dartforge_lsp::{Analisador, AnalisadorSemantico, AnalisadorSintatico, DocumentStore};
+    /// let mut docs = DocumentStore::new();
+    /// docs.open("file:///a.dart".into(), 1, "void f(int x) { x. }".into());
+    /// // Sem tipos não há o que completar; o semântico sem SDK também não sabe.
+    /// assert!(AnalisadorSintatico::new().completar(&docs, "file:///a.dart", 18).is_none());
+    /// assert!(AnalisadorSemantico::novo(None).completar(&docs, "file:///a.dart", 18).is_none());
+    /// ```
+    fn completar(&mut self, _documentos: &DocumentStore, _uri: &str, _offset: usize) -> Option<Completar> {
+        None
+    }
+
+    /// `prepareRename`: intervalo (bytes) e texto do nome renomeável sob o
+    /// cursor; `Ok(None)` quando não há nome ali.
+    ///
+    /// # Erros
+    ///
+    /// Mensagem para o usuário quando o elemento existe mas não pode ser
+    /// renomeado (SDK, pacote externo, forma ainda não suportada).
+    fn preparar_renomeacao(
+        &mut self,
+        _documentos: &DocumentStore,
+        _uri: &str,
+        _offset: usize,
+    ) -> Result<Option<(dartforge_diagnostics::Span, String)>, String> {
+        Ok(None)
+    }
+
+    /// `rename`: as edições em todos os arquivos do projeto.
+    ///
+    /// ```
+    /// use dartforge_lsp::{Analisador, AnalisadorSintatico, DocumentStore};
+    /// let mut docs = DocumentStore::new();
+    /// docs.open("file:///a.dart".into(), 1, "var x = 1;".into());
+    /// let mut a = AnalisadorSintatico::new();
+    /// assert_eq!(a.preparar_renomeacao(&docs, "file:///a.dart", 4), Ok(None));
+    /// assert!(a.renomear(&docs, "file:///a.dart", 4, "y").is_err());
+    /// ```
+    ///
+    /// # Erros
+    ///
+    /// Nome inválido, elemento não renomeável ou conflito, com a mensagem
+    /// para o usuário.
+    fn renomear(&mut self, _documentos: &DocumentStore, _uri: &str, _offset: usize, _novo: &str) -> Result<Vec<Edicao>, String> {
+        Err("Renomear exige a análise semântica (SDK do Dart).".into())
+    }
+
+    /// `codeAction`: correções para o intervalo `inicio..fim` (bytes) do
+    /// documento aberto. O padrão oferece as correções dos diagnósticos
+    /// sintáticos (inserir `;`).
+    ///
+    /// ```
+    /// use dartforge_lsp::{Analisador, AnalisadorSintatico, DocumentStore};
+    /// let mut docs = DocumentStore::new();
+    /// docs.open("file:///a.dart".into(), 1, "void f() { var x = 1 }".into());
+    /// let acoes = AnalisadorSintatico::new().acoes(&docs, "file:///a.dart", 19, 19);
+    /// assert_eq!(acoes[0].titulo, "Insert ';'");
+    /// assert_eq!(acoes[0].edicoes[0].texto, ";");
+    /// ```
+    fn acoes(&mut self, documentos: &DocumentStore, uri: &str, inicio: usize, fim: usize) -> Vec<AcaoDeCodigo> {
+        let Some(texto) = documentos.get(uri) else { return Vec::new() };
+        let diagnosticos = self.diagnosticar(uri, texto);
+        acoes::corrigir_sintaxe(uri, &diagnosticos, inicio, fim)
     }
 
     /// Descarta estado associado ao documento quando ele sai do editor.

@@ -15,11 +15,14 @@ use url::Url;
 pub struct AnalisadorSemantico {
     sintatico: AnalisadorSintatico,
     sdk: Option<SdkLayout>,
+    /// Nomes públicos de topo do SDK (importar biblioteca), montado na
+    /// primeira vez que um nome indefinido pede. Tamanho fixo pelo SDK.
+    indice_sdk: Option<crate::acoes::IndiceSdk>,
 }
 
 impl AnalisadorSemantico {
     pub fn novo(sdk: Option<SdkLayout>) -> Self {
-        Self { sintatico: AnalisadorSintatico::new(), sdk }
+        Self { sintatico: AnalisadorSintatico::new(), sdk, indice_sdk: None }
     }
 
     /// Descobre o SDK pelos mesmos caminhos usados pelo compilador.
@@ -28,29 +31,55 @@ impl AnalisadorSemantico {
         Self::novo(sdk)
     }
 
-    fn carregar(&self, uri: &str, texto: &str, documentos: Option<&DocumentStore>) -> Option<(Program, Interner, UnitId)> {
+    /// Carrega o programa de `uri` com `texto` e os demais documentos abertos
+    /// nos textos vigentes (os outros arquivos vêm do disco).
+    pub(crate) fn carregar(&self, uri: &str, texto: &str, documentos: Option<&DocumentStore>) -> Option<(Program, Interner, UnitId)> {
         let sdk = self.sdk.as_ref()?;
         let caminho = Url::parse(uri).ok()?.to_file_path().ok()?;
         if caminho.extension().is_none_or(|e| e != "dart") { return None; }
-        let mut gerador = Construtor::nova();
-        if let Some(documentos) = documentos {
-            for aberto in documentos.uris() {
-                let Some(fonte) = documentos.get(aberto) else { continue };
-                let Some(arquivo) = Url::parse(aberto).ok().and_then(|u| u.to_file_path().ok()) else { continue };
-                if arquivo.extension().is_some_and(|e| e == "dart") {
-                    gerador.por(arquivo, fonte.to_owned(), "lsp", vec![]);
-                }
-            }
-        }
+        let mut gerador = documentos.map_or_else(Construtor::nova, Self::abertos);
         // A chamada direta da trait também usa o texto recebido, mesmo sem
         // DocumentStore. O arquivo da requisição prevalece sobre a coleção.
         gerador.por(caminho.clone(), texto.to_owned(), "lsp", vec![]);
+        // Uma parte não é biblioteca: a carga entra pela dona, que a inclui.
+        // Se a dona não a declara (`part` ausente), a parte entra sozinha.
+        let dona = biblioteca_dona(&caminho, texto, documentos);
         let geracao = gerador.concluir(1).ok()?;
-        let mut nomes = Interner::new();
-        let (programa, _) = load_lenient_gerados(&caminho, sdk, None, &mut nomes, None, None, Some(geracao));
         let chave = dartforge_elements::gerado::chave(&caminho);
-        let unidade = programa.units.iter().position(|u| u.path.as_deref().map(dartforge_elements::gerado::chave).as_ref() == Some(&chave))?;
-        Some((programa, nomes, UnitId(unidade as u32)))
+        for entrada in dona.iter().chain([&caminho]) {
+            let mut nomes = Interner::new();
+            let (programa, _) = load_lenient_gerados(entrada, sdk, None, &mut nomes, None, None, Some(geracao.clone()));
+            let unidade = programa.units.iter().position(|u| u.path.as_deref().map(dartforge_elements::gerado::chave).as_ref() == Some(&chave));
+            if let Some(unidade) = unidade {
+                return Some((programa, nomes, UnitId(unidade as u32)));
+            }
+        }
+        None
+    }
+
+    /// Índice dos nomes públicos do SDK, montado na primeira chamada.
+    pub(crate) fn indice_sdk(&mut self) -> &crate::acoes::IndiceSdk {
+        let sdk = self.sdk.as_ref();
+        self.indice_sdk.get_or_insert_with(|| sdk.map(crate::acoes::indexar_sdk).unwrap_or_default())
+    }
+
+    /// SDK carregado, quando há.
+    pub(crate) fn sdk(&self) -> Option<&SdkLayout> {
+        self.sdk.as_ref()
+    }
+
+    /// Geração em memória com os textos vigentes dos documentos `.dart`
+    /// abertos: na carga, eles valem mais que o disco.
+    pub(crate) fn abertos(documentos: &DocumentStore) -> Construtor {
+        let mut gerador = Construtor::nova();
+        for aberto in documentos.uris() {
+            let Some(fonte) = documentos.get(aberto) else { continue };
+            let Some(arquivo) = Url::parse(aberto).ok().and_then(|u| u.to_file_path().ok()) else { continue };
+            if arquivo.extension().is_some_and(|e| e == "dart") {
+                gerador.por(arquivo, fonte.to_owned(), "lsp", vec![]);
+            }
+        }
+        gerador
     }
 
     fn elemento_importado(programa: &Program, unidade: UnitId, offset: usize) -> Option<(Span, Element)> {
@@ -166,6 +195,48 @@ impl AnalisadorSemantico {
     }
 }
 
+/// A biblioteca dona de `caminho` quando o texto é uma parte (`part of`):
+/// pela URI escrita (relativa ou `package:`), ou, na forma antiga
+/// `part of nome;`, pelo arquivo do projeto que declara `part` para ela.
+fn biblioteca_dona(caminho: &std::path::Path, texto: &str, documentos: Option<&DocumentStore>) -> Option<std::path::PathBuf> {
+    use dartforge_elements::gerado::chave;
+    use dartforge_frontend::ast::DirectiveKind;
+    if !texto.contains("part") {
+        return None;
+    }
+    let mut nomes = Interner::new();
+    let analisado = dartforge_frontend::parser::parse(texto, &mut nomes);
+    let uri = analisado.unit.directives.iter().find_map(|d| match &d.kind {
+        DirectiveKind::PartOf { uri, .. } => Some(uri.as_ref().and_then(dartforge_elements::load::string_lit_value)),
+        _ => None,
+    })?;
+    if let Some(uri) = uri {
+        if uri.starts_with("package:") {
+            let config = dartforge_elements::config::PackageConfig::discover(caminho)?;
+            return dartforge_elements::config::PackageConfig::load(&config).ok()?.resolve_package_uri(&uri).ok();
+        }
+        return Some(chave(&caminho.parent()?.join(uri)));
+    }
+    let alvo = chave(caminho);
+    let raiz = crate::renomear::raiz_do_projeto(caminho);
+    crate::renomear::arquivos_do_projeto(&raiz).into_iter().find(|candidato| {
+        let aberto = documentos
+            .and_then(|d| Url::from_file_path(candidato).ok().and_then(|u| d.get(u.as_str()).map(str::to_string)));
+        let Some(fonte) = aberto.or_else(|| std::fs::read_to_string(candidato).ok()) else { return false };
+        if !fonte.contains("part") {
+            return false;
+        }
+        let mut nomes = Interner::new();
+        let analisado = dartforge_frontend::parser::parse(&fonte, &mut nomes);
+        analisado.unit.directives.iter().any(|d| match &d.kind {
+            DirectiveKind::Part { uri } => dartforge_elements::load::string_lit_value(uri)
+                .and_then(|u| candidato.parent().map(|dir| chave(&dir.join(u))))
+                .is_some_and(|p| p == alvo),
+            _ => false,
+        })
+    })
+}
+
 impl Analisador for AnalisadorSemantico {
     fn diagnosticar(&mut self, uri: &str, texto: &str) -> Vec<Diagnostic> {
         self.sintatico.diagnosticar(uri, texto)
@@ -203,5 +274,30 @@ impl Analisador for AnalisadorSemantico {
 
     fn documento_fechado(&mut self, uri: &str) {
         self.sintatico.documento_fechado(uri);
+    }
+
+    fn preparar_renomeacao(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Result<Option<(Span, String)>, String> {
+        let Some(projeto) = crate::renomear::carregar_projeto(self, documentos, uri) else { return Ok(None) };
+        crate::renomear::preparar(&projeto, uri, offset)
+    }
+
+    fn renomear(&mut self, documentos: &DocumentStore, uri: &str, offset: usize, novo: &str) -> Result<Vec<crate::Edicao>, String> {
+        let projeto = crate::renomear::carregar_projeto(self, documentos, uri)
+            .ok_or_else(|| "O projeto do arquivo não pôde ser carregado (SDK ausente ou URI que não é de arquivo).".to_string())?;
+        crate::renomear::renomear(&projeto, uri, offset, novo)
+    }
+
+    fn acoes(&mut self, documentos: &DocumentStore, uri: &str, inicio: usize, fim: usize) -> Vec<crate::AcaoDeCodigo> {
+        let Some(texto) = documentos.get(uri) else { return Vec::new() };
+        let diagnosticos = self.diagnosticar(uri, texto);
+        let mut saida = crate::acoes::corrigir_sintaxe(uri, &diagnosticos, inicio, fim);
+        saida.extend(crate::acoes::importar(self, documentos, uri, inicio, fim));
+        saida
+    }
+
+    fn completar(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<crate::Completar> {
+        let texto = documentos.get(uri)?;
+        let features = self.sintatico.features(uri, texto);
+        crate::completar::completar(self, documentos, uri, texto, offset, features)
     }
 }

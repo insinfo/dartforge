@@ -126,6 +126,16 @@ pub struct BodyInferrer<'a> {
     /// inferidos sem contexto para decidir entre conjunto e mapa (a visita
     /// dos elementos os reaproveita em vez de inferir de novo).
     pub(crate) espalhamentos_inferidos: HashMap<dartforge_frontend::ast::ExprId, TypeId>,
+    /// LSP: registra em [`UnitBodyTypes::declaracoes_de_locais`] a
+    /// declaração de cada local referido (renomear, referências). Desligado
+    /// no compilador, que não paga pela tabela.
+    pub registrar_locais: bool,
+    /// LSP (completar): o identificador simples em `(unidade, offset do
+    /// nome)` tem o escopo léxico capturado em [`BodyInferrer::escopo_sondado`]
+    /// quando a inferência passa por ele.
+    pub sonda_escopo: Option<(UnitId, usize)>,
+    /// O escopo capturado pela [`BodyInferrer::sonda_escopo`].
+    pub escopo_sondado: Option<crate::resolved::EscopoSondado>,
 }
 
 impl<'a> BodyInferrer<'a> {
@@ -168,6 +178,9 @@ impl<'a> BodyInferrer<'a> {
             unidades_dos_avisos: Vec::new(),
             unidade_corrente: None,
             espalhamentos_inferidos: HashMap::new(),
+            registrar_locais: false,
+            sonda_escopo: None,
+            escopo_sondado: None,
         }
     }
 
@@ -179,6 +192,19 @@ impl<'a> BodyInferrer<'a> {
 
     /// Como [`BodyInferrer::infer_all`], com a unidade de cada diagnóstico.
     pub fn infer_all_com_unidades(mut self) -> (BodyTypes, Vec<Diagnostic>, Vec<Option<UnitId>>) {
+        self.inferir_tudo();
+        (self.body_types, self.diagnostics, self.unidades_dos_avisos)
+    }
+
+    /// Como [`BodyInferrer::infer_all`], devolvendo também o escopo capturado
+    /// pela [`BodyInferrer::sonda_escopo`] (o completar do LSP).
+    pub fn infer_all_com_sonda(mut self) -> (BodyTypes, Vec<Diagnostic>, Option<crate::resolved::EscopoSondado>) {
+        self.inferir_tudo();
+        (self.body_types, self.diagnostics, self.escopo_sondado)
+    }
+
+    /// Infere inicializadores, corpos e metadados, enchendo as tabelas.
+    fn inferir_tudo(&mut self) {
         // Bibliotecas do SDK pedidas explicitamente (o nativo compila o SDK
         // da fonte) ganham tabelas laterais como as do usuário.
         if let Some(pedidas) = self.apenas_bibliotecas.clone() {
@@ -204,7 +230,7 @@ impl<'a> BodyInferrer<'a> {
             if !self.inferir_corpos_de(lib) {
                 continue;
             }
-            funcoes::inferir_funcao_declarada(&mut self, FunctionElementId(f as u32));
+            funcoes::inferir_funcao_declarada(self, FunctionElementId(f as u32));
         }
         for ui in 0..self.program.units.len() {
             let lib = self.program.units[ui].library;
@@ -212,9 +238,8 @@ impl<'a> BodyInferrer<'a> {
                 continue;
             }
             self.unidade_corrente = Some(UnitId(ui as u32));
-            funcoes::inferir_metadados_da_unidade(&mut self, UnitId(ui as u32));
+            funcoes::inferir_metadados_da_unidade(self, UnitId(ui as u32));
         }
-        (self.body_types, self.diagnostics, self.unidades_dos_avisos)
     }
 
     /// Os corpos de `lib` são inferidos: os pedidos, quando há pedido

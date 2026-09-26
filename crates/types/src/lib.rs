@@ -39,7 +39,7 @@ pub use resolve::{
     ClassTypeData, ExtensionTypeData, FunctionTypeData, OutlineResolver, OutlineTypes,
     ParameterTypeData, TypedefTypeData, VariableTypeData,
 };
-pub use resolved::{BodyTypes, LocalId, MemberRef, Resolved, UnitBodyTypes};
+pub use resolved::{BodyTypes, EscopoSondado, LocalId, LocalVisivel, MemberRef, Resolved, UnitBodyTypes};
 pub use scope::supertipos_ordenados;
 pub use subtyping::{is_subtype, SubtypeEnv};
 pub use table::{
