@@ -141,6 +141,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// atribuída), ela mora numa célula nova — cada execução da declaração
     /// cria uma variável nova (a do corpo de um laço, uma por volta).
     pub fn declarar_variavel(&mut self, sym: SymbolId, offset: usize, ty: Type, valor: Operand) {
+        // Outra declaração do mesmo nome no mesmo escopo: o programa é
+        // inválido (a de um escopo de fora pode ser sombreada; a mesma
+        // declaração baixada de novo, num `finally`, não conta).
+        // Com curingas (Dart 3.7), `_` pode repetir: não liga nome.
+        let biblioteca = self.ctx.program.unit(self.unit_id).library;
+        let curinga = self.ctx.symbol_name(sym) == "_"
+            && self.ctx.program.library(biblioteca).features.tem(dartforge_frontend::Feature::WildcardVariables);
+        let repetida = !curinga
+            && self.escopos.last().and_then(|e| e.get(&sym)).is_some_and(|l| l.offset.is_some_and(|o| o != offset));
+        if repetida {
+            let nome = self.ctx.symbol_name(sym).to_string();
+            let fim = offset + nome.len();
+            self.erro_de_linguagem(&format!("'{nome}' is already declared in this scope."), dartforge_diagnostics::Span { start: offset, end: fim });
+        }
         let ty = Self::repr_de_local(ty);
         if !self.celulas.contains(&offset) {
             let ptr = self.alloca_na_entrada(ty);

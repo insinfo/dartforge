@@ -337,6 +337,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             return Operand::Constant(Constant::Null);
         }
+        let posicao = self.posicao(span);
+        self.erros.push(format!("{}{oque} ({posicao})", crate::PREFIXO_NAO_SUPORTADO));
+        Operand::Constant(Constant::Null)
+    }
+
+    /// `arquivo:linha:coluna` de `span` na unidade corrente.
+    fn posicao(&self, span: dartforge_diagnostics::Span) -> String {
+        let unit = self.ctx.program.unit(self.unit_id);
         let fonte = &unit.source;
         let ini = span.start.min(fonte.len());
         let antes = &fonte[..ini];
@@ -347,10 +355,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .as_ref()
             .and_then(|p| p.file_name())
             .map_or_else(|| unit.uri.clone(), |n| n.to_string_lossy().into_owned());
-        self.erros.push(format!(
-            "{}{oque} ({arquivo}:{linha}:{coluna})",
-            crate::PREFIXO_NAO_SUPORTADO
-        ));
+        format!("{arquivo}:{linha}:{coluna}")
+    }
+
+    /// Um erro de compilação da linguagem (o programa é inválido, não um
+    /// construto que falta), com o texto do front-end da VM. No código do
+    /// SDK compilado da fonte não acontece: o SDK é válido.
+    pub fn erro_de_linguagem(&mut self, mensagem: &str, span: dartforge_diagnostics::Span) -> Operand {
+        let posicao = self.posicao(span);
+        self.erros.push(format!("{mensagem} ({posicao})"));
         Operand::Constant(Constant::Null)
     }
 

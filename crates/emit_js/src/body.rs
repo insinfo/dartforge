@@ -1367,6 +1367,12 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
     fn emit_var_list(&mut self, list: &ast::VariableList) {
         let declared = list.ty.map(|t| self.resolve_type(t));
         for v in list.variables.iter() {
+            // Outra declaração do mesmo nome no mesmo escopo: o programa é
+            // inválido (sombrear a de um escopo de fora é permitido).
+            if self.curinga != Some(v.name.sym) && self.scopes.last().is_some_and(|s| s.contains_key(&v.name.sym)) {
+                let nome = self.name(v.name.sym).to_string();
+                self.erro_de_linguagem(v.name.span, format!("'{nome}' is already declared in this scope."));
+            }
             match v.initializer {
                 Some(e) => {
                     let saved_const = self.in_const;
