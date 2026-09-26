@@ -26,7 +26,7 @@ pub mod protocolo;
 pub mod sessao;
 pub mod vm;
 
-pub use sessao::{Saida, TextoGerado, aplicar, aplicacoes_pendentes, sessoes};
+pub use sessao::{Medicao, Saida, TextoGerado, aplicar, aplicacoes_pendentes, sessoes};
 
 /// O programa aplica alguma macro? Uma olhada em
 /// [`Program::classes_macro`](dartforge_elements::model::Program), que o
