@@ -10,13 +10,13 @@ use std::sync::Arc;
 
 /// O projeto da entrada usa builders? Custa ler o `package_config.json`
 /// (que o carregador também lê) e uma busca num `HashMap`.
-pub fn detectar(entrada: &Path, packages: Option<&Path>) -> Option<(PathBuf, PackageConfig)> {
+pub fn detectar(entrada: &Path, packages: Option<&Path>) -> Option<(PathBuf, PackageConfig, PathBuf)> {
     let caminho = packages.map(Path::to_path_buf).or_else(|| PackageConfig::discover(entrada))?;
     let cfg = PackageConfig::load(&caminho).ok()?;
     if !dartforge_build::detectar(&cfg) {
         return None;
     }
-    Some((dartforge_build::raiz_do_pacote(entrada)?, cfg))
+    Some((dartforge_build::raiz_do_pacote(entrada)?, cfg, caminho))
 }
 
 /// Uma passada do motor (o `compile-js`): o programa carregado sem os
@@ -24,10 +24,13 @@ pub fn detectar(entrada: &Path, packages: Option<&Path>) -> Option<(PathBuf, Pac
 pub fn gerar_uma_vez(
     raiz: &Path,
     cfg: &PackageConfig,
+    caminho_cfg: &Path,
     programa: &dartforge_elements::model::Program,
     nomes: &dartforge_intern::Interner,
 ) -> Result<(Arc<Geracao>, String), String> {
     let mut m = Motor::novo(raiz, cfg, OpcoesMotor::default())?;
+    // Builders Dart pela VM só quando pedidos (DARTFORGE_BUILD_DART).
+    dartforge_build::vm::ligar_do_ambiente(&mut m, caminho_cfg);
     let at = m.atualizar(&Contexto { banco: &SemBanco, programa: Some((programa, nomes)) }, &[], Demanda::Carregador)?;
     let mut texto = at.rel.texto();
     let n = at.avisos.len();
@@ -42,7 +45,9 @@ pub fn gerar_uma_vez(
 
 /// `dartforge build [<entrada.dart>] [--raiz <dir>] [--packages <cfg>] [--plano]
 /// [--comparar] [--release] [--estrito] [--trabalhadores N]
-/// [--escrever-cache <dir>]`.
+/// [--escrever-cache <dir>] [--dart <exe>]`. Com `--dart` (ou
+/// `DARTFORGE_BUILD_DART`) os builders sem gerador nativo executam pela VM
+/// Dart (`dartforge_build::vm`); sem ele, vale o apoio do `build_runner`.
 pub fn run_build(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<std::ffi::OsString> = args.to_vec();
     std::thread::Builder::new()
@@ -55,8 +60,9 @@ pub fn run_build(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::
 }
 
 fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
-    let uso = "uso: dartforge build [<entrada.dart>] [--raiz <dir>] [--packages <cfg>] [--sdk <lib>] [--plano] [--comparar] [--release] [--estrito] [--trabalhadores N] [--escrever-cache <dir>]";
+    let uso = "uso: dartforge build [<entrada.dart>] [--raiz <dir>] [--packages <cfg>] [--sdk <lib>] [--plano] [--comparar] [--release] [--estrito] [--trabalhadores N] [--escrever-cache <dir>] [--dart <exe>]";
     let (mut entrada, mut raiz, mut packages, mut sdk, mut cache) = (None, None, None, None, None);
+    let mut dart = dartforge_build::vm::dart_do_ambiente();
     let (mut plano, mut comparar, mut release, mut estrito) = (false, false, false, false);
     let mut trabalhadores = OpcoesMotor::default().trabalhadores;
     let mut it = args.iter();
@@ -67,6 +73,7 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
             Some("--packages") => packages = Some(proximo(&mut it)?),
             Some("--sdk") => sdk = Some(proximo(&mut it)?),
             Some("--escrever-cache") => cache = Some(proximo(&mut it)?),
+            Some("--dart") => dart = Some(proximo(&mut it)?),
             Some("--plano") => plano = true,
             Some("--comparar") => comparar = true,
             Some("--release") => release = true,
@@ -108,6 +115,9 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
     }
     let opcoes = OpcoesMotor { release, trabalhadores, estrito, medir_nao_verificados: comparar };
     let mut motor = Motor::novo(&raiz, &cfg, opcoes)?;
+    if let Some(d) = dart {
+        dartforge_build::vm::ligar(&mut motor, d, &caminho_cfg);
+    }
     // O programa serve de `BuildStep.resolver` aos geradores nativos.
     let entrada = entrada.or_else(|| Some(raiz.join("web/main.dart")).filter(|p| p.is_file()));
     let mut nomes = dartforge_intern::Interner::new();

@@ -66,7 +66,11 @@ pub fn etapa_de_build(entrada: &Path, packages: Option<&Path>) -> Option<Result<
         return None;
     }
     let raiz = dartforge_build::raiz_do_pacote(entrada)?;
-    Some(Motor::novo(&raiz, &cfg, OpcoesMotor::default()).map(|m| EtapaBuild {
+    Some(Motor::novo(&raiz, &cfg, OpcoesMotor::default()).map(|mut m| {
+        // Builders Dart pela VM só quando pedidos (DARTFORGE_BUILD_DART).
+        dartforge_build::vm::ligar_do_ambiente(&mut m, &caminho);
+        m
+    }).map(|m| EtapaBuild {
         esperadas: m.saidas_esperadas().clone(),
         motor: Arc::new(Mutex::new(m)),
         fontes: Mutex::new(HashMap::new()),

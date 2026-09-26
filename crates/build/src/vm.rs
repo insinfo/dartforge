@@ -57,6 +57,26 @@ pub fn dart_do_ambiente() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+/// Liga o executor pela VM no `motor` com o `dart` dado: o processo só nasce
+/// na primeira ação Dart da sessão. `package_config` é o do projeto (o que o
+/// motor leu).
+pub fn ligar(motor: &mut crate::Motor, dart: PathBuf, package_config: &Path) {
+    let raiz = motor.grafo_pacotes.dir_raiz.clone();
+    let cfg = ConfigDaVm { package_config: package_config.to_path_buf(), ..ConfigDaVm::do_projeto(dart, &raiz) };
+    motor.definir_executor_dart(Box::new(ExecutorVm::novo(cfg)));
+}
+
+/// [`ligar`] com o `dart` de [`VARIAVEL`], se o ambiente pediu; diz se ligou.
+pub fn ligar_do_ambiente(motor: &mut crate::Motor, package_config: &Path) -> bool {
+    match dart_do_ambiente() {
+        Some(d) => {
+            ligar(motor, d, package_config);
+            true
+        }
+        None => false,
+    }
+}
+
 /// Onde estão a VM e o projeto.
 #[derive(Debug, Clone)]
 pub struct ConfigDaVm {
