@@ -255,6 +255,9 @@ fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &
             // A biblioteca compartilhada vai ao lado do executável; o `rpath`
             // aponta o carregador para o diretório do próprio executável.
             cmd.arg(if sistema == Sistema::MacOs { "-Wl,-rpath,@executable_path" } else { "-Wl,-rpath,$ORIGIN" });
+            // O Clang acrescenta `-lSystem` no macOS: sem a raiz do SDK
+            // (`-isysroot`), o ligador não o acha.
+            cmd.args(crate::alvo::argumentos_de_ligacao());
         }
         Ligacao::Producao(_) => {
             // Produção com o SDK da fonte: tudo estático no executável,
@@ -308,13 +311,17 @@ fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &
             cmd.args(crate::alvo::argumentos_de_ligacao());
         }
     }
-    let status = cmd
+    let saida = cmd
         .arg("-o")
         .arg(output)
-        .status()
+        .output()
         .map_err(|e| format!("falha na ligação com Clang em {clang:?}: {e}"))?;
-    if !status.success() {
-        return Err(format!("Clang falhou na ligação do executável (status {status:?})"));
+    if !saida.status.success() {
+        // O que o ligador disse vai no erro (sem isso a falha no CI não
+        // tem diagnóstico).
+        let texto = String::from_utf8_lossy(&saida.stderr);
+        let linhas: Vec<&str> = texto.lines().filter(|l| !l.trim().is_empty()).take(40).collect();
+        return Err(format!("Clang falhou na ligação do executável ({}):\n{}", saida.status, linhas.join("\n")));
     }
     Ok(())
 }
