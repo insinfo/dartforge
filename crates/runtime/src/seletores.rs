@@ -30,6 +30,15 @@ const CID_LIST: usize = 8;
 const CID_IMMUTABLE_LIST: usize = 9;
 const CID_CLOSURE: usize = 10;
 const CID_RECORD: usize = 11;
+const CID_UINT8_LIST: usize = 12;
+const CID_UINT8_VIEW: usize = 13;
+const CID_INT64_LIST: usize = 14;
+
+/// O id de classe (do SDK da fonte) na posição `pos` de `CIDS_DO_RUNTIME`;
+/// `None` sem o SDK da fonte.
+fn cid_registrado(pos: usize) -> Option<i64> {
+    CIDS_DO_RUNTIME.with(|c| c.borrow().get(pos).copied().filter(|&c| c >= 0))
+}
 
 /// Registra a tabela de métodos da classe `cid`: `n` pares `[hash, entrada]`
 /// ordenados pelo hash, numa constante do módulo (vive o processo inteiro).

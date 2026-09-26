@@ -75,6 +75,53 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
+    /// Atribuição a um par getter/setter de topo explícito. `f` é o elemento
+    /// resolvido (getter ou setter); o setter sai do escopo da biblioteca
+    /// que o declara, e a leitura corrente (composta) do getter.
+    fn atribuir_acessor_de_topo(
+        &mut self,
+        f: dartforge_elements::model::FunctionElementId,
+        sym: dartforge_intern::SymbolId,
+        ast: &ast::Ast,
+        op: ast::AssignOp,
+        value: Rhs,
+        span: Span,
+    ) -> Operand {
+        let func = &self.ctx.program.functions[f.0 as usize];
+        let binding = self.ctx.program.lookup(func.library, sym);
+        let setter = if func.kind == FunctionKind::Setter {
+            Some(f)
+        } else {
+            binding.and_then(|b| b.setter).and_then(|el| match el {
+                Element::Function(s) => Some(s),
+                _ => None,
+            })
+        };
+        let getter = if func.kind == FunctionKind::Setter {
+            binding.and_then(|b| b.getter).and_then(|el| match el {
+                Element::Function(g) => Some(g),
+                _ => None,
+            })
+        } else {
+            Some(f)
+        };
+        let Some(setter) = setter.filter(|s| super::funcao_do_usuario(self.ctx, s.0 as usize)) else {
+            let n = self.ctx.symbol_name(sym).to_string();
+            return self.nao_suportado(&format!("atribuição a `{n}` sem setter"), span);
+        };
+        let cur = match (matches!(op, ast::AssignOp::Compound(_)), getter) {
+            (true, Some(g)) => Some(self.chamar_direto(g.0 as usize, None, Vec::new())),
+            (true, None) => {
+                let n = self.ctx.symbol_name(sym).to_string();
+                return self.nao_suportado(&format!("leitura de `{n}` sem getter"), span);
+            }
+            _ => None,
+        };
+        let v = self.combinar(ast, op, cur, value);
+        self.chamar_direto(setter.0 as usize, None, vec![v.clone()]);
+        v
+    }
+
     /// Atribuição. Ordem de avaliação do Dart: receptor, índice, leitura
     /// corrente (se composta), valor, gravação.
     pub fn lower_atribuicao(
@@ -121,6 +168,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         };
                         let v = self.combinar(ast, op, cur, value);
                         self.gravar_global(vid, v, span)
+                    }
+                    // Getter/setter de topo explícitos (`set exitCode(int)`):
+                    // o elemento resolvido pode ser o getter; o setter é o
+                    // outro lado do mesmo nome no escopo.
+                    Some(Resolved::Element(Element::Function(f))) => {
+                        self.atribuir_acessor_de_topo(f, sym, ast, op, value, span)
                     }
                     _ => {
                         let cur = if composto {

@@ -140,6 +140,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let vazio = self.ctx.interner.lookup("");
                     let ctor = vazio.and_then(|v| self.construtor_de(c, v));
                     if let Some(f) = ctor {
+                        self.tipo_da_criacao = self.ctx.get_type(self.unit_id, expr_id);
                         return self.instanciar(ast, f, &arguments.args, expr.span);
                     }
                 }
@@ -194,6 +195,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Element::Class(c) if self.ctx.biblioteca_compilada(self.ctx.program.classes[c.0 as usize].library) => {
                         let vazio = self.ctx.interner.lookup("");
                         if let Some(f) = vazio.and_then(|v| self.construtor_de(c, v)) {
+                            self.tipo_da_criacao = self.ctx.get_type(self.unit_id, expr_id);
                             return self.instanciar(ast, f, &arguments.args, expr.span);
                         }
                     }
@@ -284,6 +286,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             {
                 let classe = &self.ctx.program.classes[c.0 as usize];
                 if let Some(f) = self.construtor_de(c, method_name.sym) {
+                    self.tipo_da_criacao = self.ctx.get_type(self.unit_id, expr_id);
                     return self.instanciar(ast, f, &arguments.args, expr.span);
                 }
                 if let Some(&f) = classe.static_members.get(&method_name.sym) {

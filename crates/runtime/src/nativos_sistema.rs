@@ -153,3 +153,10 @@ pub extern "C" fn dartforge_nativo_SecureRandom_getBytes(n: i64) -> i64 {
     let v = entropia();
     if n >= 8 { v as i64 } else { (v & ((1u64 << (8 * n.max(0))) - 1)) as i64 }
 }
+
+/// `Uri_isWindowsPlatform`: se o sistema hospedeiro é o Windows (o
+/// `Uri.file` e o `Uri.base` usam as regras de caminho dele).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Uri_isWindowsPlatform() -> u8 {
+    u8::from(cfg!(windows))
+}

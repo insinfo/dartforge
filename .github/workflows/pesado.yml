@@ -551,7 +551,7 @@ jobs:
         include:
           - os: ubuntu-latest
             nome: Linux x86-64
-            piso: 197
+            piso: 199
           - os: macos-latest
             nome: macOS arm64
             piso: 0
@@ -590,10 +590,13 @@ jobs:
           echo "nativo: código $?"
           ./target/release/dartforge-diferencial --jit-aot --jobs 2 > relatorios/jit.txt 2>&1
           echo "jit: código $?"
+          ./target/release/dartforge-diferencial --nativo --corpus corpus/nativo --jobs 2 > relatorios/io.txt 2>&1
+          echo "io: código $?"
+          io=$(grep -E '^DartForge Nativo: ' relatorios/io.txt || true)
           aot=$(grep -E '^DartForge Nativo: ' relatorios/nativo.txt || true)
           jit=$(grep -E '^DartForge JIT: ' relatorios/jit.txt || true)
           par=$(grep -E '^JIT × AOT: ' relatorios/jit.txt || true)
-          { echo "### Nativo e JIT — ${{ matrix.nome }}"; echo; echo '```text'; echo "$aot"; echo "$jit"; echo "$par"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### Nativo e JIT — ${{ matrix.nome }}"; echo; echo '```text'; echo "$aot"; echo "$jit"; echo "$par"; echo "dart:io $io"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           echo "::notice title=Nativo ${{ matrix.nome }}::$aot | $jit | $par"
           [ -n "$aot" ] && [ -n "$jit" ] && [ -n "$par" ] || { echo "::error::relatório sem a linha de placar"; tail -40 relatorios/*.txt; exit 1; }
           echo "$par" | grep -qE ' 0 divergentes' || { echo "::error::JIT × AOT divergiu: $par"; exit 1; }
