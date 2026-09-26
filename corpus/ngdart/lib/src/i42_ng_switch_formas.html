@@ -1,0 +1,1 @@
+<div *ngFor="let x of itens" [ngSwitch]="x"><span *ngSwitchCase="modo">igual</span><p *ngSwitchWhen="1"><b *ngIf="mostrar">{{x}}</b></p><i *ngSwitchDefault>{{x}}</i></div>

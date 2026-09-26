@@ -146,3 +146,5 @@ export 'src/i38_estilo_tipos.dart';
 export 'src/i39_ng_container_formas.dart';
 export 'src/i40_ng_container_texto.dart';
 export 'src/i41_ng_class_formas.dart';
+export 'src/i42_ng_switch_formas.dart';
+export 'src/i43_micro_dois_pontos.dart';

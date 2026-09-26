@@ -103,6 +103,7 @@ const VIEW_CONTAINER: &str = "package:ngdart/src/core/linker/view_container.dart
 const TEMPLATE_REF: &str = "package:ngdart/src/core/linker/template_ref.dart";
 const NG_IF: &str = "package:ngdart/src/common/directives/ng_if.dart";
 const NG_FOR: &str = "package:ngdart/src/common/directives/ng_for.dart";
+const NG_SWITCH: &str = "package:ngdart/src/common/directives/ng_switch.dart";
 const EMBEDDED_VIEW: &str = "package:ngdart/src/core/linker/views/embedded_view.dart";
 const PROXIES: &str = "package:ngdart/src/runtime/proxies.dart";
 const RENDER_VIEW: &str = "package:ngdart/src/core/linker/views/render_view.dart";
@@ -2576,8 +2577,34 @@ impl Corpo<'_> {
         let Some(dir) = Estrutural::conhecida(&estrela.nome) else {
             return Err(recusa(
                 Motivo::Ligacao,
-                "`*` de diretiva que não é ngIf/ngFor",
+                "`*` de diretiva que não é ngIf/ngFor/ngSwitch",
             ));
+        };
+        // `@Host()`: o provedor num elemento acima, nesta visão ou numa
+        // ancestral (a leitura já vem pela cadeia de `parentView`). Com
+        // componente no caminho, o injetor pode ser outro: recusa.
+        let hospedeiro = match dir.hospedeiro {
+            None => None,
+            Some(classe) => {
+                let token = crate::diretivas::Token::Classe {
+                    uri: dir.uri.to_string(),
+                    classe: classe.to_string(),
+                };
+                let achado = self
+                    .provedores_acima()
+                    .into_iter()
+                    .find(|p| p.token == token)
+                    .map(|p| p.leitura);
+                match achado {
+                    Some(l) if self.componentes_acima == 0 => Some(l),
+                    _ => {
+                        return Err(recusa(
+                            Motivo::DiretivaPorSeletor,
+                            format!("{} sem o {classe} acima", dir.classe),
+                        ));
+                    }
+                }
+            }
         };
         let micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
         self.guarda_do_template(&estrela.nome, &micro, Some(&dir))?;
@@ -2623,8 +2650,9 @@ impl Corpo<'_> {
         self.linhas.push(format!(
             "    var _TemplateRef_{n}_8 = {tr}TemplateRef(this._appEl_{n}, {nome_fabrica});"
         ));
+        let extra = hospedeiro.map(|h| format!(", {h}")).unwrap_or_default();
         self.linhas.push(format!(
-            "    this.{campo} = {qd}{classe_dir}(this._appEl_{n}, _TemplateRef_{n}_8);"
+            "    this.{campo} = {qd}{classe_dir}(this._appEl_{n}, _TemplateRef_{n}_8{extra});"
         ));
         self.linhas.push(format!(
             "    if ({dev}.isDevToolsEnabled) {{\n      {dev}.Inspector.instance.registerDirective(_anchor_{n}, this.{campo});\n    }}"
@@ -4964,6 +4992,9 @@ struct Estrutural {
     direta: bool,
     /// Implementa `DoCheck`: a visão chama `ngDoCheck()` na detecção.
     do_check: bool,
+    /// Terceiro argumento do construtor: `@Host()` de uma diretiva da
+    /// mesma biblioteca num elemento acima (o `NgSwitch` do `NgSwitchWhen`).
+    hospedeiro: Option<&'static str>,
 }
 
 impl Estrutural {
@@ -4974,12 +5005,30 @@ impl Estrutural {
                 uri: NG_IF,
                 direta: true,
                 do_check: false,
+                hospedeiro: None,
             }),
             "ngFor" => Some(Estrutural {
                 classe: "NgFor",
                 uri: NG_FOR,
                 direta: false,
                 do_check: true,
+                hospedeiro: None,
+            }),
+            // As duas entradas são setters sem comparação própria: passam
+            // pelo `checkBinding` (ou, imutáveis, pelo `_bindLiteral`).
+            "ngSwitchCase" | "ngSwitchWhen" => Some(Estrutural {
+                classe: "NgSwitchWhen",
+                uri: NG_SWITCH,
+                direta: false,
+                do_check: false,
+                hospedeiro: Some("NgSwitch"),
+            }),
+            "ngSwitchDefault" => Some(Estrutural {
+                classe: "NgSwitchDefault",
+                uri: NG_SWITCH,
+                direta: false,
+                do_check: false,
+                hospedeiro: Some("NgSwitch"),
             }),
             _ => None,
         }

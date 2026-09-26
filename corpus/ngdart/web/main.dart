@@ -135,6 +135,8 @@ import 'package:corpus_ngdart/src/i38_estilo_tipos.template.dart' as i38;
 import 'package:corpus_ngdart/src/i39_ng_container_formas.template.dart' as i39;
 import 'package:corpus_ngdart/src/i40_ng_container_texto.template.dart' as i40;
 import 'package:corpus_ngdart/src/i41_ng_class_formas.template.dart' as i41;
+import 'package:corpus_ngdart/src/i42_ng_switch_formas.template.dart' as i42;
+import 'package:corpus_ngdart/src/i43_micro_dois_pontos.template.dart' as i43;
 
 void main() {
   print([
@@ -272,5 +274,7 @@ void main() {
     i39.I39NgContainerFormasNgFactory,
     i40.I40NgContainerTextoNgFactory,
     i41.I41NgClassFormasNgFactory,
+    i42.I42NgSwitchFormasNgFactory,
+    i43.I43MicroDoisPontosNgFactory,
   ].length);
 }
