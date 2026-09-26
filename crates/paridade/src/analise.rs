@@ -230,12 +230,13 @@ impl Motor {
             let unit = program.unit(*u);
             let base = unit.path.as_deref().and_then(Path::parent).unwrap_or(raiz).to_path_buf();
             for dir in &unit.unit.directives {
-                let lit = match &dir.kind {
-                    DirectiveKind::Import { uri, .. } | DirectiveKind::Export { uri, .. } | DirectiveKind::Part { uri } => uri,
+                let (lit, parte) = match &dir.kind {
+                    DirectiveKind::Import { uri, .. } | DirectiveKind::Export { uri, .. } => (uri, false),
+                    DirectiveKind::Part { uri } => (uri, true),
                     _ => continue,
                 };
                 let Some(texto) = dartforge_elements::load::string_lit_value(lit) else { continue };
-                if let Some(d) = self.diretiva_sem_alvo(&texto, &base, config.as_ref(), lit.span) {
+                if let Some(d) = self.diretiva_sem_alvo(&texto, &base, config.as_ref(), lit.span, parte) {
                     analise.arquivos.get_mut(k).expect("próprio").diags.push(d);
                 }
             }
@@ -259,7 +260,17 @@ impl Motor {
             achados.extend(dartforge_analise::enums::sem_constantes(&unidades));
             achados.extend(dartforge_analise::inicializacao::finais_nao_inicializados(&unidades, &interner));
             for (i, u) in unidades.iter().enumerate() {
-                achados.extend(dartforge_analise::locais::nao_usados(*u, &interner, curinga).into_iter().map(|d| (i, d)));
+                // Os erros de sintaxe da unidade (a fase 1 já os pôs no arquivo).
+                let sintaticos: Vec<Span> = program
+                    .unit(ids[i])
+                    .path
+                    .as_ref()
+                    .and_then(|p| analise.arquivos.get(&chave(p)))
+                    .map(|a| a.diags[..a.sintaticos].iter().filter(|d| recuperacao_do_parser(d)).map(|d| d.span).collect())
+                    .unwrap_or_default();
+                achados.extend(
+                    dartforge_analise::locais::nao_usados(*u, &interner, curinga, &sintaticos).into_iter().map(|d| (i, d)),
+                );
                 achados.extend(dartforge_analise::externos::inicializadores(*u).into_iter().map(|d| (i, d)));
                 achados.extend(dartforge_analise::operadores::aridade(*u, &interner).into_iter().map(|d| (i, d)));
             }
@@ -385,6 +396,23 @@ impl Motor {
                 }
             }
         }
+
+        // 6. Num arquivo com erro de sintaxe, a recuperação do nosso parser
+        // pode perder declarações que a do fasta mantém (`class E<inout T>`
+        // sem o recurso, `native`…): um nome que não resolve ali não é
+        // prova de nome indefinido. Os códigos de resolução de nome saem só
+        // de arquivos sem erro de sintaxe (depois dos imports, que usam
+        // esses diagnósticos para a supressão deles).
+        for a in analise.arquivos.values_mut() {
+            if a.diags[..a.sintaticos].iter().any(recuperacao_do_parser) {
+                let n = a.sintaticos;
+                let mut i = 0;
+                a.diags.retain(|d| {
+                    i += 1;
+                    i <= n || !d.code.is_some_and(|c| depende_de_declaracoes(c.info().nome))
+                });
+            }
+        }
         analise
     }
 
@@ -396,9 +424,23 @@ impl Motor {
         base: &Path,
         config: Option<&dartforge_elements::PackageConfig>,
         span: Span,
+        parte: bool,
     ) -> Option<Diagnostic> {
+        if uri.is_empty() {
+            // `import ''` resolve para a própria biblioteca, que existe.
+            return None;
+        }
         let existe = if let Some(nome) = uri.strip_prefix("dart:") {
-            self.bibliotecas_sdk.contains(nome)
+            match nome.split_once('/') {
+                // `dart:async/future.dart`: arquivo ao lado da biblioteca `dart:async`.
+                Some((lib, resto)) => self
+                    .sdk
+                    .libraries
+                    .get(lib)
+                    .and_then(|l| l.path.parent())
+                    .is_some_and(|d| d.join(resto).is_file()),
+                None => self.bibliotecas_sdk.contains(nome),
+            }
         } else if uri.starts_with("package:") {
             match config.map(|c| c.resolve_package_uri(uri)) {
                 Some(Ok(p)) => p.is_file(),
@@ -419,8 +461,39 @@ impl Motor {
         } else {
             codigos::compile_time_error::URI_DOES_NOT_EXIST
         };
+        // Numa `part` com URI relativa, o analyzer mostra a URI resolvida
+        // (`file:///…/a.dart`); em `import`/`export`, o texto da diretiva.
+        if parte && !uri.contains(':') {
+            let abs = chave(&base.join(uri)).to_string_lossy().replace('\\', "/");
+            let uri_arquivo = format!("file://{}{abs}", if abs.starts_with('/') { "" } else { "/" });
+            return Some(Diagnostic::com_codigo(codigo, span, [uri_arquivo.as_str()]));
+        }
         Some(Diagnostic::com_codigo(codigo, span, [uri]))
     }
+}
+
+/// Erro de sintaxe do qual o parser se recuperou descartando ou remontando
+/// trechos. `experiment_not_enabled` não é: a sintaxe do recurso desligado
+/// foi lida inteira (a árvore é a mesma do recurso ligado).
+pub fn recuperacao_do_parser(d: &Diagnostic) -> bool {
+    !d.code.is_some_and(|c| c.info().nome == "experiment_not_enabled")
+}
+
+/// Códigos de nome que não resolve: dependem de todas as declarações da
+/// biblioteca terem sido recuperadas pelo parser.
+fn depende_de_declaracoes(codigo: &str) -> bool {
+    matches!(
+        codigo,
+        "creation_with_non_type"
+            | "undefined_class"
+            | "undefined_identifier"
+            | "undefined_function"
+            | "undefined_method"
+            | "undefined_getter"
+            | "undefined_setter"
+            | "undefined_operator"
+            | "not_a_type"
+    )
 }
 
 /// `(unidade, intervalo do inicializador)` das variáveis fora do SDK, na

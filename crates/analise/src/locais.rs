@@ -64,6 +64,8 @@ struct Visita<'a> {
     refutavel: bool,
     /// Início (índice em `locais`) de uma região de padrões compartilhados.
     regiao_compartilhada: Option<usize>,
+    /// Início (índice em `locais`) das variáveis do padrão sendo declarado.
+    inicio_padrao: Option<usize>,
 }
 
 impl<'a> Visita<'a> {
@@ -82,6 +84,12 @@ impl<'a> Visita<'a> {
         let i = self.locais.len();
         self.locais.push(Local { nome: n.sym, span: n.span, especie, lido: false, grupo, alias: None });
         if let Some(e) = self.escopos.last_mut() {
+            // `for (int i = 0, i = 0; …)`, `var a; var a;`: a redeclaração
+            // (`duplicate_definition`) não entra no escopo — os usos são da
+            // primeira, e a segunda, nunca lida, é relatada.
+            if especie != Especie::Oculta && e.iter().any(|&j| self.locais[j].nome == n.sym) {
+                return;
+            }
             e.push(i);
         }
     }
@@ -288,7 +296,9 @@ impl<'a> Visita<'a> {
     /// primeiro as variáveis, depois as expressões constantes — `== b && var b`
     /// já se refere ao `b` do próprio padrão (`referenced_before_declaration`).
     fn padrao_declarado(&mut self, p: PatternId, grupo: Option<usize>) {
+        let antes = self.inicio_padrao.replace(self.locais.len());
         self.declarar_do_padrao(p, grupo);
+        self.inicio_padrao = antes;
         self.ler_do_padrao(p);
     }
 
@@ -303,6 +313,13 @@ impl<'a> Visita<'a> {
                     return;
                 }
                 self.locais.push(Local { nome: n.sym, span: n.span, especie: Especie::Variavel, lido: false, grupo, alias: Some(raiz) });
+                return;
+            }
+        }
+        // `var a && var a` (`duplicate_variable_pattern`): a segunda não
+        // entra no escopo; os usos de `a` são da primeira.
+        if let Some(inicio) = self.inicio_padrao {
+            if self.achar(n.sym).is_some_and(|i| i >= inicio) {
                 return;
             }
         }
@@ -668,6 +685,16 @@ impl<'a> Visita<'a> {
 
     fn parametros(&mut self, ps: &[Parameter]) {
         for p in ps {
+            // `g(@a x)`: a anotação lê o local `a` (antes dos parâmetros
+            // entrarem no escopo).
+            for a in p.metadata.iter() {
+                if let Some(n) = a.name.first() {
+                    self.referir(*n, true);
+                }
+                if let Some(args) = &a.arguments {
+                    self.argumentos(args);
+                }
+            }
             if let Some(d) = p.default_value {
                 self.expr(d);
             }
@@ -739,10 +766,59 @@ impl<'a> Visita<'a> {
     }
 }
 
-/// Locais não usados de uma unidade.
-pub fn nao_usados(u: Unidade<'_>, interner: &Interner, curinga: bool) -> Vec<Diagnostic> {
+/// Intervalos das declarações executáveis da unidade: função ou variável
+/// de topo, e cada membro de classe, mixin, extensão, tipo de extensão e
+/// enum.
+fn executaveis(u: Unidade<'_>) -> Vec<Span> {
     let ast = u.ast;
-    let mut v = Visita { ast, interner, curinga, fonte: u.fonte, locais: Vec::new(), escopos: vec![Vec::new()], grupos: 0, refutavel: false, regiao_compartilhada: None };
+    let mut out = Vec::new();
+    for &d in &u.unit.declarations {
+        let decl = ast.decl(d);
+        let membros: &[ast::MemberId] = match &decl.kind {
+            DeclKind::Class(x) => &x.members,
+            DeclKind::Mixin(x) => &x.members,
+            DeclKind::Extension(x) => &x.members,
+            DeclKind::ExtensionType(x) => &x.members,
+            DeclKind::Enum(x) => &x.members,
+            DeclKind::Function(_) | DeclKind::Variables(_) => {
+                out.push(decl.span);
+                continue;
+            }
+            DeclKind::Typedef(_) => continue,
+        };
+        out.extend(membros.iter().map(|m| ast.member(*m).span));
+    }
+    out
+}
+
+/// Locais não usados de uma unidade.
+///
+/// `erros_sintaticos`: os diagnósticos do parser na unidade. Numa
+/// declaração executável com erro de sintaxe, a recuperação do fasta guarda
+/// trechos que a nossa descarta (e o contrário); uma leitura que o analyzer
+/// vê e nós não viraria falso positivo. Um local declarado antes de um erro
+/// de sintaxe da mesma declaração executável não se relata — pelo lado
+/// seguro, como os imports.
+pub fn nao_usados(u: Unidade<'_>, interner: &Interner, curinga: bool, erros_sintaticos: &[Span]) -> Vec<Diagnostic> {
+    let mut out = nao_usados_sem_filtro(u, interner, curinga);
+    if !erros_sintaticos.is_empty() {
+        // Uma leitura vem sempre depois da declaração: só um erro depois
+        // dela, na mesma declaração executável, pode ter escondido uma.
+        let execs = executaveis(u);
+        out.retain(|d| {
+            !execs.iter().any(|e| {
+                d.span.start >= e.start
+                    && d.span.end <= e.end
+                    && erros_sintaticos.iter().any(|x| x.start >= d.span.start && x.start <= e.end)
+            })
+        });
+    }
+    out
+}
+
+fn nao_usados_sem_filtro(u: Unidade<'_>, interner: &Interner, curinga: bool) -> Vec<Diagnostic> {
+    let ast = u.ast;
+    let mut v = Visita { ast, interner, curinga, fonte: u.fonte, locais: Vec::new(), escopos: vec![Vec::new()], grupos: 0, refutavel: false, regiao_compartilhada: None, inicio_padrao: None };
     for &d in &u.unit.declarations {
         match &ast.decl(d).kind {
             DeclKind::Function(f) => v.funcao(*f, true),
@@ -802,7 +878,7 @@ mod testes {
         let p = dartforge_frontend::parser::parse(fonte, &mut interner);
         assert!(p.diagnostics.is_empty(), "{:?}", p.diagnostics);
         let u = Unidade { ast: &p.ast, unit: &p.unit, fonte };
-        let mut v: Vec<_> = nao_usados(u, &interner, false)
+        let mut v: Vec<_> = nao_usados(u, &interner, false, &[])
             .into_iter()
             .map(|d| (d.code.unwrap().info().nome.to_string(), fonte[d.span.start..d.span.end].to_string()))
             .collect();
@@ -840,5 +916,40 @@ mod testes {
         let f = "void f() {\n  var a = 1;\n  void g(int a) { print(a); }\n  g(0);\n}\n";
         let r = rodar(f);
         assert_eq!(r, vec![("unused_local_variable".to_string(), "a".to_string())]);
+    }
+
+    #[test]
+    fn redeclaracao_no_mesmo_escopo() {
+        // O `i` lido na condição é o primeiro; o segundo é relatado.
+        let f = "void f() {\n  for (int i = 0, i = 0; i < 5;) {}\n}\n";
+        let mut interner = Interner::new();
+        let p = dartforge_frontend::parser::parse(f, &mut interner);
+        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: f };
+        let r: Vec<usize> = nao_usados(u, &interner, false, &[]).iter().map(|d| d.span.start).collect();
+        assert_eq!(r, vec![f.find(", i").unwrap() + 2]);
+    }
+
+    #[test]
+    fn corpo_com_erro_de_sintaxe_nao_relata() {
+        let f = "void f() {\n  var a = 1;\n}\nvoid g() {\n  var b = 1;\n}\n";
+        let mut interner = Interner::new();
+        let p = dartforge_frontend::parser::parse(f, &mut interner);
+        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: f };
+        // Erro depois de `a`, no corpo de `f`: `a` não se relata; `b`, sim.
+        let erro = Span { start: f.find("1;").unwrap(), end: f.find("1;").unwrap() + 1 };
+        let r: Vec<usize> = nao_usados(u, &interner, false, &[erro]).iter().map(|d| d.span.start).collect();
+        assert_eq!(r, vec![f.find("b =").unwrap()]);
+        // Erro antes da declaração não esconde leitura dela.
+        let antes = Span { start: f.find("void f").unwrap(), end: f.find("void f").unwrap() + 1 };
+        assert_eq!(nao_usados(u, &interner, false, &[antes]).len(), 2);
+    }
+
+    #[test]
+    fn padrao_duplicado_e_anotacao_de_parametro() {
+        // `var a && var a`: o uso é da primeira `a` (a segunda nem entra no
+        // escopo); `g(@a x)` lê `a`.
+        let f = "void f(int x) {\n  if (x case var a && var a) {\n    a;\n  }\n  const b = 0;\n  g(@b y) {}\n  g(0);\n}\n";
+        let r = rodar(f);
+        assert_eq!(r, vec![], "{r:?}");
     }
 }
