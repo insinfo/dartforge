@@ -757,6 +757,30 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         _ => self.nao_suportado(&format!("membro estático de extensão `{prop_name}`"), span),
                     };
                 }
+                // `C<T…>.new` / `C<T…>.nome`: tear-off de construtor
+                // instanciado (os argumentos de tipo vão no ambiente).
+                if let ExprKind::TypeArguments { target: classe, type_args } = &ast.expr(*target).kind
+                    && let Some(Resolved::Element(dartforge_elements::model::Element::Class(c))) =
+                        self.resolucao_ou_nome(ast, *classe)
+                    && self.ctx.biblioteca_compilada(self.ctx.program.classes[c.0 as usize].library)
+                {
+                    let chave = if prop_name == "new" { self.ctx.interner.lookup("") } else { Some(name.sym) };
+                    let Some(f) = chave.and_then(|k| self.ctx.program.classes[c.0 as usize].constructors.get(&k).copied())
+                    else {
+                        return self.nao_suportado(&format!("construtor `{prop_name}`"), span);
+                    };
+                    let args = self.receitas_dos_argumentos_de_tipo(type_args);
+                    let objeto = self.rti_da_receita(&super::rti::Receita {
+                        texto: format!("C{}<{}>", self.ctx.id_rti(c), args.texto),
+                        variaveis: args.variaveis,
+                    });
+                    let tupla = self.rti_da_receita(&super::rti::Receita {
+                        texto: format!("L<{}>", args.texto),
+                        variaveis: args.variaveis,
+                    });
+                    let tipo = self.ctx.get_type(self.unit_id, expr_id);
+                    return self.tearoff_instanciado_de_construtor(f.0 as usize, objeto, tupla, tipo, span);
+                }
                 // `C.x`: membro estático (o alvo é um literal de classe).
                 let alvo_e_classe = matches!(
                     self.ctx.get_resolved(self.unit_id, *target),
@@ -1099,6 +1123,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Some(t) => t,
                 None => self.nao_suportado("`this` fora de membro de instância", expr.span),
             },
+            // `f<T…>`: tear-off instanciado de função genérica de topo ou
+            // estática (os argumentos de tipo vão no ambiente da closure).
+            ExprKind::TypeArguments { target, type_args }
+                if let Some(fid) = self.funcao_generica_do_alvo(ast, *target) =>
+            {
+                let args = self.receitas_dos_argumentos_de_tipo(type_args);
+                let tupla = self.rti_da_receita(&super::rti::Receita {
+                    texto: format!("L<{}>", args.texto),
+                    variaveis: args.variaveis,
+                });
+                let tipo = self.ctx.get_type(self.unit_id, expr_id);
+                self.tearoff_instanciado(fid, tupla, tipo)
+            }
             outro => {
                 let oque = match outro {
                     ExprKind::Super => "`super` como valor",

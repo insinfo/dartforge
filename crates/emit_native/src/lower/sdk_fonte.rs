@@ -29,7 +29,7 @@ use super::membros::{Avaliado, linearizacao, subclasse_de};
 use crate::context::Context;
 use crate::hir::*;
 use dartforge_diagnostics::Span;
-use dartforge_elements::model::{ClassId, FunctionKind, LibraryId, VariableId};
+use dartforge_elements::model::{ClassId, FunctionKind, LibraryId, UnitId, VariableId};
 use dartforge_frontend::ast::ParameterKind;
 use dartforge_types::table::{Type as DartType, TypeParamOwner};
 
@@ -94,7 +94,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.chamar_por_seletor_com_tupla(recv, seletor, avaliados, Operand::Constant(Constant::Int(0)))
     }
 
-    fn chamar_por_seletor_com_tupla(
+    pub(super) fn chamar_por_seletor_com_tupla(
         &mut self,
         recv: Operand,
         seletor: String,
@@ -781,6 +781,135 @@ pub fn tabela_de_metodos(ctx: &Context, cid: ClassId) -> Vec<(String, String)> {
     saida
 }
 
+/// A classe (ou uma superclasse do programa) declara `noSuchMethod`: o de
+/// `Object` não conta.
+fn tem_no_such_method_proprio(ctx: &Context, cid: ClassId) -> bool {
+    let Some(nsm) = ctx.interner.lookup("noSuchMethod") else { return false };
+    for c in linearizacao(ctx, cid) {
+        if Some(c) == ctx.core.object_class {
+            return false;
+        }
+        if let Some(&f) = ctx.program.classes[c.0 as usize].instance_members.get(&nsm)
+            && implementado(ctx, f.0 as usize)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Os membros de instância das superinterfaces de `cid` (superclasses,
+/// mixins, `implements`, `on`, transitivamente) cujo seletor a tabela não
+/// tem: (seletor, uso, membro declarado).
+fn membros_para_encaminhar(ctx: &Context, cid: ClassId, tabela: &[(String, String)]) -> Vec<(String, Tipo, usize)> {
+    let mut vistos: std::collections::HashSet<String> = tabela.iter().map(|(s, _)| s.clone()).collect();
+    let mut saida = Vec::new();
+    let mut pilha = vec![cid];
+    let mut classes = std::collections::HashSet::new();
+    while let Some(c) = pilha.pop() {
+        if !classes.insert(c) || Some(c) == ctx.core.object_class {
+            continue;
+        }
+        let classe = &ctx.program.classes[c.0 as usize];
+        pilha.extend(classe.supertype_class);
+        pilha.extend(classe.mixin_classes.iter().copied());
+        pilha.extend(classe.interface_classes.iter().copied());
+        pilha.extend(classe.on_classes.iter().copied());
+        let mut membros: Vec<(&str, usize)> =
+            classe.instance_members.iter().map(|(k, f)| (ctx.symbol_name(*k), f.0 as usize)).collect();
+        membros.sort();
+        for (chave, fid) in membros {
+            let f = &ctx.program.functions[fid];
+            if f.static_ || matches!(f.kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor) {
+                continue;
+            }
+            let nome = chave.strip_suffix("_=").unwrap_or(chave);
+            let usos: &[Tipo] = match f.kind {
+                FunctionKind::Setter => &[Tipo::Gravar],
+                FunctionKind::Getter => &[Tipo::Ler],
+                FunctionKind::ImplicitAccessor if chave.ends_with("_=") => &[Tipo::Gravar],
+                FunctionKind::ImplicitAccessor => &[Tipo::Ler],
+                _ => &[Tipo::Chamar],
+            };
+            for &uso in usos {
+                let s = texto_seletor(ctx, uso, nome, f.library);
+                if vistos.insert(s.clone()) {
+                    saida.push((s, uso, fid));
+                }
+            }
+        }
+    }
+    saida
+}
+
+/// O encaminhador de `noSuchMethod` do membro `fid` (entrada uniforme):
+/// desempacota os argumentos como o membro declara (os padrões dos
+/// opcionais omitidos), e o runtime monta o `Invocation` na ordem da
+/// declaração e chama o `noSuchMethod` do receptor.
+fn gerar_encaminhador_nsm(ctx: &Context, module: &mut Module, unit: UnitId, simbolo: &str, fid: usize, tipo: Tipo) {
+    let f = &ctx.program.functions[fid];
+    let nome = ctx.symbol_name(f.name).to_string();
+    let mut b = FnBuilder::new(ctx, unit, simbolo.to_string(), nome.clone(), Type::Ref);
+    let this = Operand::Val(b.add_param("this".to_string(), Type::Ref));
+    let args = Operand::Val(b.add_param("args".to_string(), Type::Ptr));
+    let desc = Operand::Val(b.add_param("desc".to_string(), Type::Ptr));
+    let (codigo, valores, nomes, tupla) = match tipo {
+        Tipo::Chamar => {
+            let infos = b.params_da_funcao(fid);
+            let Some(vals) = b.desempacotar(&infos, args.clone(), desc.clone()) else {
+                b.finalizar(module);
+                return;
+            };
+            let nomes: Vec<String> = infos
+                .iter()
+                .filter(|p| p.kind == ParameterKind::Named)
+                .map(|p| p.nome.clone().unwrap_or_default())
+                .collect();
+            // A tupla do método genérico vem depois dos argumentos.
+            let tupla = if b.funcao_generica(fid) {
+                let npos = b.emit(Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(0)) }, Type::I64);
+                let nnom = b.emit(Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(1)) }, Type::I64);
+                let i = b.emit(Instruction::Add(npos, nnom), Type::I64);
+                b.emit(Instruction::LoadIndexed { base: args.clone(), index: i }, Type::I64)
+            } else {
+                Operand::Constant(Constant::Int(0))
+            };
+            (0, vals, nomes, tupla)
+        }
+        Tipo::Ler => (1, Vec::new(), Vec::new(), Operand::Constant(Constant::Int(0))),
+        Tipo::Gravar => {
+            let v = b.emit(Instruction::LoadIndexed { base: args.clone(), index: Operand::Constant(Constant::Int(0)) }, Type::Ref);
+            (2, vec![v], Vec::new(), Operand::Constant(Constant::Int(0)))
+        }
+    };
+    let npos = valores.len() - nomes.len();
+    let nnom = nomes.len();
+    let mut campos = valores;
+    for n in nomes {
+        campos.push(b.emit(Instruction::Const(Constant::String(n)), Type::Ref));
+    }
+    let ambiente = b.emit(Instruction::AllocEnv { values: campos }, Type::Ref);
+    let texto = b.emit(Instruction::Const(Constant::String(nome)), Type::Ref);
+    let r = b.emit_call_with_check(
+        Instruction::CallRuntime {
+            name: "dartforge_encaminhar_nsm".to_string(),
+            args: vec![
+                (this, Type::Ref),
+                (Operand::Constant(Constant::Int(codigo)), Type::I64),
+                (texto, Type::Ref),
+                (ambiente, Type::Ref),
+                (Operand::Constant(Constant::Int(npos as i64)), Type::I64),
+                (Operand::Constant(Constant::Int(nnom as i64)), Type::I64),
+                (tupla, Type::I64),
+            ],
+            ret_ty: Type::Ref,
+        },
+        Type::Ref,
+    );
+    b.terminate(Terminator::Return(Some(r)));
+    b.finalizar(module);
+}
+
 /// As entradas uniformes de um membro de instância (ou campo) do módulo.
 pub fn lower_adaptadores_da_funcao(ctx: &Context, module: &mut Module, fid: usize) {
     let f = &ctx.program.functions[fid];
@@ -1195,6 +1324,23 @@ pub fn lower_adaptadores_e_tabelas(ctx: &Context, module: &mut Module) {
                 b.finalizar(module);
                 tabela.retain(|(s, _)| s != "c:toString");
                 tabela.push(("c:toString".to_string(), simbolo));
+            }
+            // Encaminhadores de `noSuchMethod`: a classe com `noSuchMethod`
+            // próprio responde a todo membro das suas interfaces que não
+            // implementa (a VM gera o encaminhador no kernel).
+            if let Some(decl) = classe.decl
+                && tem_no_such_method_proprio(ctx, cid)
+            {
+                for (seletor, tipo, fid) in membros_para_encaminhar(ctx, cid, &tabela) {
+                    let simbolo = format!(
+                        "df.{}.{}.$nsm.{}",
+                        crate::context::escapar(&ctx.nome_da_biblioteca(classe.library)),
+                        crate::context::escapar(ctx.symbol_name(classe.name)),
+                        crate::context::escapar(&seletor)
+                    );
+                    gerar_encaminhador_nsm(ctx, module, decl.unit, &simbolo, fid, tipo);
+                    tabela.push((seletor, simbolo));
+                }
             }
             module.tabelas_de_metodos.push((id, simbolo_de_tabela(ctx, cid), tabela));
         }
