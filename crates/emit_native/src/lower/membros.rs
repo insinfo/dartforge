@@ -1669,6 +1669,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // `Object()` e superclasses do SDK: nada a executar no nosso heap.
             return;
         }
+        // `Object()` (`const Object();`): sem corpo, sem inicializadores e sem
+        // superclasse — a chamada não faz nada (e custava uma chamada, uma
+        // conferência de exceção e um quadro por objeto criado).
+        if sup_classe.supertype_class.is_none()
+            && self.ctx.program.library(sup_classe.library).uri == "dart:core"
+            && self.ctx.symbol_name(sup_classe.name) == "Object"
+        {
+            return;
+        }
         let Some(vazio) = self.ctx.interner.lookup("") else {
             return;
         };

@@ -10,6 +10,10 @@
 thread_local! {
     /// Tabela de métodos por id de classe: (ponteiro para os pares, quantos).
     static METODOS: RefCell<HashMap<i64, (usize, usize)>> = RefCell::new(HashMap::default());
+    /// As classes com tabela já registrada, por id (o teste de toda alocação
+    /// em `dartforge_object_new_t`, sem o hash de `METODOS`). Só cresce, como
+    /// `METODOS`.
+    static REGISTRADAS: RefCell<Vec<bool>> = const { RefCell::new(Vec::new()) };
     /// Ids de classe (do SDK da fonte) dos valores que o runtime representa
     /// por conta própria, na ordem de `CID_*`; vazio sem o SDK da fonte.
     static CIDS_DO_RUNTIME: RefCell<Vec<i64>> = const { RefCell::new(Vec::new()) };
@@ -85,6 +89,7 @@ fn cid_registrado(pos: usize) -> Option<i64> {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_registrar_metodos(cid: i64, pares: *const i64, n: i64) {
     METODOS.with(|m| m.borrow_mut().insert(cid, (pares as usize, n as usize)));
+    marcar_registrada(cid);
 }
 
 /// Registra a tabela de métodos da classe `cid` pela função que a devolve
@@ -92,7 +97,7 @@ pub unsafe extern "C" fn dartforge_registrar_metodos(cid: i64, pares: *const i64
 /// não registrada.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_registrar_tabela(cid: i64, f: extern "C" fn() -> *const i64) {
-    if !REPUBLICANDO.with(|r| r.get()) && METODOS.with(|m| m.borrow().contains_key(&cid)) {
+    if ja_registrada(cid) && !REPUBLICANDO.with(|r| r.get()) {
         return;
     }
     let t = f();
@@ -101,6 +106,34 @@ pub extern "C" fn dartforge_registrar_tabela(cid: i64, f: extern "C" fn() -> *co
     // SAFETY: os pares começam na terceira palavra.
     let pares = unsafe { t.add(2) };
     METODOS.with(|m| m.borrow_mut().insert(cid, (pares as usize, n)));
+    marcar_registrada(cid);
+}
+
+/// Até que id de classe o vetor [`REGISTRADAS`] vale: os ids do programa e
+/// do SDK são densos e pequenos; os internos do runtime (a classe `Type`,
+/// 0x3FFF_FF01…) ficam com o mapa.
+const REGISTRADAS_ATE: usize = 1 << 16;
+
+/// A classe `cid` já tem tabela registrada?
+fn ja_registrada(cid: i64) -> bool {
+    match usize::try_from(cid) {
+        Ok(i) if i < REGISTRADAS_ATE => REGISTRADAS.with(|r| r.borrow().get(i).copied().unwrap_or(false)),
+        _ => METODOS.with(|m| m.borrow().contains_key(&cid)),
+    }
+}
+
+fn marcar_registrada(cid: i64) {
+    if let Ok(i) = usize::try_from(cid)
+        && i < REGISTRADAS_ATE
+    {
+        REGISTRADAS.with(|r| {
+            let mut r = r.borrow_mut();
+            if r.len() <= i {
+                r.resize(i + 1, false);
+            }
+            r[i] = true;
+        });
+    }
 }
 
 thread_local! {
