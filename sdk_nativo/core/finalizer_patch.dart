@@ -3,13 +3,12 @@
 //
 // O `Finalizer` da VM vive do GC fraco dela: `FinalizerEntry.allocate`,
 // `exchangeEntriesCollectedWithNull` e a mensagem que o GC manda ao isolado
-// (`_handleFinalizerMessage`) — natives e intrínsecos que dependem de
-// referências fracas no coletor. O coletor do nativo ainda não tem
-// referência fraca (vem com o experimento ARC, PLANO.md). Até lá, este
-// finalizador valida os argumentos como a VM e nunca roda o callback — o que
-// a especificação permite: "there is no promise that a finalizer will ever
-// be run" (`Finalizer`, dart:core/weak.dart). Nenhum programa pode observar
-// a diferença pela semântica garantida.
+// (`_handleFinalizerMessage`). Aqui o anexo mora no coletor do runtime
+// (`crates/runtime/src/finalizadores.rs`): valor e chave de `detach` fracos,
+// e a ação `() => callback(token)` forte. Quando a coleta acha o valor
+// morto, a ação vai para a fila de finalizações prontas, que o laço de
+// eventos chama entre um evento e outro (na VM, uma mensagem ao isolado).
+// O callback é ligado à zona da criação, como na VM.
 
 part of "core_patch.dart";
 
@@ -20,8 +19,6 @@ abstract class Finalizer<T> {
 }
 
 final class _FinalizerImpl<T> implements Finalizer<T> {
-  // O callback fica registrado na zona, como na VM, para o dia em que o
-  // coletor rodar finalizadores.
   final void Function(T) _callback;
 
   _FinalizerImpl(void Function(T) callback)
@@ -34,9 +31,24 @@ final class _FinalizerImpl<T> implements Finalizer<T> {
     if (detach != null) {
       checkValidWeakTarget(detach, 'detach');
     }
+    _anexarFinalizador(
+        this, value, _acaoDeFinalizador<T>(_callback, token), detach);
   }
 
   void detach(Object detach) {
     checkValidWeakTarget(detach, 'detach');
+    _desanexarFinalizador(this, detach);
   }
 }
+
+/// A ação de um anexo: só o callback e o token (não o finalizador nem o
+/// valor, que precisa poder morrer).
+void Function() _acaoDeFinalizador<T>(void Function(T) callback, T token) =>
+    () => callback(token);
+
+@pragma("vm:external-name", "DartForge_finalizador_anexar")
+external void _anexarFinalizador(
+    Object dono, Object valor, void Function() acao, Object? desanexo);
+
+@pragma("vm:external-name", "DartForge_finalizador_desanexar")
+external void _desanexarFinalizador(Object dono, Object desanexo);

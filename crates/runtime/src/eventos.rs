@@ -132,6 +132,13 @@ pub extern "C" fn dartforge_laco_de_eventos(chamar: extern "C" fn(i64) -> i64) {
             soltar_raiz(raiz);
             continue;
         }
+        // 1b. As finalizações prontas (`Finalizer`, `finalizadores.rs`):
+        //     na VM chegam como mensagem ao isolado; aqui, entre eventos.
+        if let Some(acao) = proxima_finalizacao() {
+            chamar(acao);
+            concluir_finalizacao();
+            continue;
+        }
         // 2. Os pedidos no ponto seguro (a publicação de uma recarga do JIT,
         //    `portas.rs`) e as mensagens de controle (`isolados.rs`), entre
         //    um evento e outro; pausado, o isolado só atende os dois.
