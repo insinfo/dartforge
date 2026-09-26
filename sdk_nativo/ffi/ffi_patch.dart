@@ -216,6 +216,24 @@ void _updateNativeCallableKeepIsolateAliveCounter<NS extends NativeFunction>(
 // front-end reescreve) por estes ajudantes, com os mesmos argumentos de tipo
 // e de valor (`lower/ffi.rs`).
 
+/// `Struct.create`/`Union.create` (o `#fromTypedData` que o front-end da VM
+/// gera): o composto sobre `typedData` a partir de `offset` elementos dele,
+/// ou sobre um `Uint8List` novo do tamanho exato.
+T _dartforgeCompostoCriado<T extends _Compound>(
+    [TypedData? typedData, int offset = 0]) {
+  final tamanho = _tamanhoDe(T);
+  if (typedData == null) {
+    return _compostoDeTipo(T, Uint8List(tamanho), 0) as T;
+  }
+  final inicio = offset * typedData.elementSizeInBytes;
+  if (inicio < 0 || inicio + tamanho > typedData.lengthInBytes) {
+    throw RangeError.range(inicio + tamanho, 0, typedData.lengthInBytes,
+        'typedData', 'Not enough bytes for the ${T} struct');
+  }
+  return _compostoDeTipo(
+      T, typedData.buffer.asUint8List(), typedData.offsetInBytes + inicio) as T;
+}
+
 /// Modos de `_callbackNovo` (os `MODO_*` do runtime).
 const int _modoPersistente = 0;
 const int _modoLocal = 1;

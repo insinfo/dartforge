@@ -303,12 +303,12 @@ pub fn lower_ffi(ctx: &Context, module: &mut Module) {
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// O que o front-end da VM reescreve nas chamadas estáticas de callback
+    /// O que o front-end da VM reescreve nas chamadas estáticas de `dart:ffi`
     /// (`Pointer.fromFunction`, as factories `NativeCallable.isolateLocal` e
-    /// `.listener`): o ajudante da sobreposição de `dart:ffi` que as
-    /// implementa, e se a tupla de tipos vem no fim dos argumentos (a de
-    /// uma factory de classe genérica).
-    pub fn callback_ffi_redirecionado(&self, fid: usize) -> Option<(usize, bool)> {
+    /// `.listener`, `Struct.create`/`Union.create`): o ajudante da
+    /// sobreposição que as implementa, com os mesmos parâmetros, e como os
+    /// argumentos de tipo e o sítio chegam a ele.
+    pub fn chamada_ffi_redirecionada(&self, fid: usize) -> Option<(usize, Redirecionamento)> {
         let f = &self.ctx.program.functions[fid];
         let c = f.class?;
         if self.ctx.program.library(f.library).uri != "dart:ffi" {
@@ -316,13 +316,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let classe = self.ctx.symbol_name(self.ctx.program.classes[c.0 as usize].name);
         let nome = self.ctx.symbol_name(f.name);
-        let (ajudante, tupla_no_fim) = match (classe, nome, f.factory) {
-            ("Pointer", "fromFunction", false) if f.static_ => ("_dartforgeFromFunction", false),
-            ("NativeCallable", "isolateLocal", true) => ("_dartforgeCallableLocal", true),
-            ("NativeCallable", "listener", true) => ("_dartforgeCallableListener", true),
+        let (ajudante, forma) = match (classe, nome, f.factory) {
+            ("Pointer", "fromFunction", false) if f.static_ => ("_dartforgeFromFunction", Redirecionamento::ComSitio),
+            ("NativeCallable", "isolateLocal", true) => ("_dartforgeCallableLocal", Redirecionamento::TuplaDaClasse),
+            ("NativeCallable", "listener", true) => ("_dartforgeCallableListener", Redirecionamento::TuplaDaClasse),
+            ("Struct" | "Union", "create", false) if f.static_ => ("_dartforgeCompostoCriado", Redirecionamento::Direto),
             _ => return None,
         };
-        Some((self.funcao_de_topo("dart:ffi", ajudante)?, tupla_no_fim))
+        Some((self.funcao_de_topo("dart:ffi", ajudante)?, forma))
     }
 
     /// O corpo de um callback nativo: `(contexto, argumentos)` na
@@ -445,6 +446,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 // gravação em `_typedDataBase` + `_offsetInBytes` + deslocamento do campo
 // (`FnBuilder::ler_campo_ffi`). O runtime recebe o tamanho e o alinhamento
 // de cada composto (`sizeOf<S>()`, `Pointer<S>.ref`, `[i]`), por classe.
+
+/// Como uma chamada redirecionada ([`FnBuilder::chamada_ffi_redirecionada`])
+/// passa ao ajudante o que o front-end da VM resolveria em compilação.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Redirecionamento {
+    /// Os mesmos argumentos e a mesma tupla de tipos.
+    Direto,
+    /// A tupla de uma factory de classe genérica (o último argumento) vira a
+    /// do ajudante genérico.
+    TuplaDaClasse,
+    /// Mais um argumento: o sítio da chamada (`fromFunction`, um trampolim
+    /// por sítio).
+    ComSitio,
+}
 
 /// O tipo de um campo de composto.
 #[derive(Debug, Clone)]

@@ -160,6 +160,20 @@ pub fn cids_do_runtime(ctx: &crate::context::Context) -> Vec<i64> {
         ("typed_data", "_Float32x4"),
         ("typed_data", "_Int32x4"),
         ("typed_data", "_Float64x2"),
+        ("typed_data", "_Int8List"),
+        ("typed_data", "_Uint8ClampedList"),
+        ("typed_data", "_Int16List"),
+        ("typed_data", "_Uint16List"),
+        ("typed_data", "_Int32List"),
+        ("typed_data", "_Uint32List"),
+        ("typed_data", "_Uint64List"),
+        ("typed_data", "_Float32List"),
+        ("typed_data", "_Float64List"),
+        ("typed_data", "_Int32x4List"),
+        ("typed_data", "_Float32x4List"),
+        ("typed_data", "_Float64x2List"),
+        ("isolate", "_SendPort"),
+        ("isolate", "_Capability"),
     ];
     CLASSES
         .iter()

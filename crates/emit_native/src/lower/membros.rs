@@ -1080,29 +1080,31 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         this: Option<Operand>,
         args: Vec<Operand>,
     ) -> Operand {
-        if let Some(r) = self.chamar_externo(fid, this.clone(), &args) {
-            return r;
-        }
-        if let Some((alvo, tupla_no_fim)) = self.callback_ffi_redirecionado(fid) {
-            // `Pointer.fromFunction`/`NativeCallable.*`: o ajudante da
-            // sobreposição tem os mesmos parâmetros; a tupla de uma factory
-            // (os argumentos de tipo da classe) vira a do ajudante genérico.
+        if let Some((alvo, forma)) = self.chamada_ffi_redirecionada(fid) {
+            // `Pointer.fromFunction`, `NativeCallable.*`, `Struct.create`: o
+            // ajudante da sobreposição tem os mesmos parâmetros
+            // (`lower/ffi.rs`).
             let mut args = args;
             let salvo = self.tupla_armada.clone();
-            if tupla_no_fim {
-                self.tupla_armada = args.pop();
-            } else {
-                // `fromFunction`: o sítio da chamada, estável entre
-                // compilações (símbolo da função e ordem no corpo).
-                let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-                for b in self.func.symbol.bytes().chain(self.sitios_de_callback.to_le_bytes()) {
-                    h = (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+            match forma {
+                super::ffi::Redirecionamento::Direto => {}
+                super::ffi::Redirecionamento::TuplaDaClasse => self.tupla_armada = args.pop(),
+                super::ffi::Redirecionamento::ComSitio => {
+                    // O sítio, estável entre compilações (símbolo da função
+                    // e ordem no corpo).
+                    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+                    for b in self.func.symbol.bytes().chain(self.sitios_de_callback.to_le_bytes()) {
+                        h = (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+                    }
+                    self.sitios_de_callback += 1;
+                    args.push(Operand::Constant(Constant::Int((h >> 1) as i64)));
                 }
-                self.sitios_de_callback += 1;
-                args.push(Operand::Constant(Constant::Int((h >> 1) as i64)));
             }
             let r = self.chamar_direto(alvo, this, args);
             self.tupla_armada = salvo;
+            return r;
+        }
+        if let Some(r) = self.chamar_externo(fid, this.clone(), &args) {
             return r;
         }
         let symbol = super::simbolo_de(self.ctx, fid);

@@ -62,6 +62,12 @@ enum NoG {
     /// Uma `Uint8List` montada fora do heap (as respostas dos serviços
     /// nativos): a classe sai de `CIDS_DO_RUNTIME` no isolado que a recebe.
     Bytes(Vec<u8>),
+    /// Uma lista tipada montada fora do heap (`Dart_PostCObject` com
+    /// `kTypedData`): a classe sai do tipo, no isolado que a recebe.
+    Tipada(u8, Vec<u8>),
+    /// Um objeto do runtime de um campo inteiro (`SendPort`, `Capability`
+    /// vindos do C): a classe é a da posição `pos` de `CIDS_DO_RUNTIME`.
+    DoRuntime { pos: usize, id: i64 },
 }
 
 /// Uma mensagem copiada: os nós (com o metadado RTI de cada um) e a raiz.
@@ -282,7 +288,9 @@ impl Grafo {
                 | NoG::BoxedDouble(_)
                 | NoG::BoxedBool(_)
                 | NoG::TypedData { .. }
-                | NoG::Bytes(_) => {}
+                | NoG::Bytes(_)
+                | NoG::Tipada(..)
+                | NoG::DoRuntime { .. } => {}
             }
         }
     }
@@ -308,6 +316,10 @@ pub enum Portavel {
     /// Os bytes de uma lista tipada (de qualquer tipo de elemento, como o
     /// `CObjectTypedData` da VM).
     Bytes(Vec<u8>),
+    /// Uma lista tipada de elementos `tipo` (os `TIPO_*` do runtime).
+    Tipada(u8, Vec<u8>),
+    /// Um objeto do runtime de um campo inteiro (ver [`NoG::DoRuntime`]).
+    DoRuntime { pos: usize, id: i64 },
     Objeto(Vec<Portavel>),
 }
 
@@ -373,7 +385,8 @@ impl Grafo {
                             let n = pendente.unwrap_or(itens.len()).min(itens.len());
                             Portavel::Lista(itens[..n].iter().map(|x| val(g, x, visitando)).collect())
                         }
-                        NoG::TypedData { bytes, .. } | NoG::Bytes(bytes) => Portavel::Bytes(bytes.clone()),
+                        NoG::TypedData { bytes, .. } | NoG::Bytes(bytes) | NoG::Tipada(_, bytes) => Portavel::Bytes(bytes.clone()),
+                        NoG::DoRuntime { pos, id } => Portavel::DoRuntime { pos: *pos, id: *id },
                         NoG::TypedView { tipo, base, deslocamento, comprimento, .. } => {
                             let n = comprimento * tamanho_do_elemento(*tipo);
                             match val(g, base, visitando) {
@@ -433,6 +446,16 @@ impl Portavel {
                 Portavel::Bytes(b) => {
                     let i = nos.len();
                     nos.push((NoG::Bytes(b.clone()), 0));
+                    ValG::No(i)
+                }
+                Portavel::Tipada(tipo, b) => {
+                    let i = nos.len();
+                    nos.push((NoG::Tipada(*tipo, b.clone()), 0));
+                    ValG::No(i)
+                }
+                Portavel::DoRuntime { pos, id } => {
+                    let i = nos.len();
+                    nos.push((NoG::DoRuntime { pos: *pos, id: *id }, 0));
                     ValG::No(i)
                 }
                 // Um objeto só existe em grafos que vieram do heap.
@@ -523,6 +546,12 @@ fn materializar(g: &Grafo) -> i64 {
                     tipo: TIPO_UINT8,
                     bytes: bytes.clone().into(),
                 },
+                NoG::Tipada(tipo, bytes) => Value::TypedData {
+                    class_id: cid_da_lista_tipada(*tipo).and_then(cid_registrado).unwrap_or(-1),
+                    tipo: *tipo,
+                    bytes: bytes.clone().into(),
+                },
+                NoG::DoRuntime { pos, id } => Value::Object { class_id: cid_registrado(*pos).unwrap_or(-1), fields: vec![(*id, false)] },
                 NoG::TypedView { class_id, tipo, deslocamento, comprimento, .. } => Value::TypedView {
                     class_id: *class_id,
                     tipo: *tipo,
@@ -951,6 +980,11 @@ fn fechar_portas_do_isolado() {
         Dono::Nativo(_) => true,
     });
     PORTAS_ABERTAS.with(|p| p.borrow_mut().clear());
+}
+
+/// Fecha uma porta nativa: as mensagens seguintes são descartadas.
+pub fn fechar_porta_nativa(id: i64) {
+    registro().lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
 }
 
 /// Abre uma porta nativa atendida por `servico` e devolve o id.

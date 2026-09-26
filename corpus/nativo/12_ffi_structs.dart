@@ -3,6 +3,7 @@
 // por Pointer.ref e índice, cópia de struct por atribuição, asTypedList
 // sobre memória nativa e a extensão `call` de um Allocator.
 import 'dart:ffi';
+import 'dart:typed_data';
 
 final class Ponto extends Struct {
   @Int32()
@@ -136,4 +137,23 @@ void main() {
   zerado.free(g);
   _free(u.cast());
   _free(p.cast());
+
+  // Struct.create/Union.create: memória do heap Dart (TypedData).
+  final h = Struct.create<Caixa>();
+  h.a.x = 5;
+  h.marcas[1] = 250;
+  print([h.a.x, h.marcas[1], h.b.y]);
+  final memoria = Uint8List(32);
+  final par = Struct.create<Par>(memoria, 4);
+  par.a = 0x0102;
+  par.ok = true;
+  print(memoria.sublist(0, 8));
+  final un = Union.create<Pacote>();
+  un.f = 1.0;
+  print(un.i);
+  try {
+    Struct.create<Grade>(Uint8List(8));
+  } on RangeError {
+    print('RangeError');
+  }
 }
