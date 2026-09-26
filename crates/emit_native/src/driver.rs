@@ -289,7 +289,7 @@ fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &
                 }
             }
             cmd.args(["-fuse-ld=lld", "-flto=thin", "-O2"]);
-            cmd.args(crate::alvo::bibliotecas_do_sistema());
+            cmd.args(crate::alvo::argumentos_de_ligacao());
             match sistema {
                 Sistema::Windows => {
                     cmd.args(["-Wl,/NODEFAULTLIB:libcmt", "-lmsvcrt", "-Wl,/OPT:REF"]);
@@ -300,15 +300,12 @@ fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &
                     cmd.args(["-Wl,--gc-sections", "-Wl,--strip-all"]);
                 }
                 Sistema::MacOs => {
-                    if let Some(raiz) = crate::alvo::raiz_do_sdk_macos() {
-                        cmd.arg("-isysroot").arg(raiz);
-                    }
                     cmd.args(["-Wl,-dead_strip", "-Wl,-S", "-Wl,-x"]);
                 }
             }
         }
         Ligacao::Runtime(_) => {
-            cmd.args(crate::alvo::bibliotecas_do_sistema());
+            cmd.args(crate::alvo::argumentos_de_ligacao());
         }
     }
     let status = cmd
