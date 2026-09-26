@@ -255,7 +255,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return Vec::new();
         }
         let campo = self.ctx.interner.lookup(nome);
-        let setter = self.ctx.interner.lookup(&format!("{nome}="));
+        let setter = self.ctx.interner.lookup(&format!("{nome}_="));
         let mut saida = Vec::new();
         for (k, classe) in self.ctx.program.classes.iter().enumerate() {
             if !self.ctx.biblioteca_compilada(classe.library)
