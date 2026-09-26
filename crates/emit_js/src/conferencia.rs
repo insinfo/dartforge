@@ -34,6 +34,7 @@ use crate::expr::IdentTarget;
 use crate::ty::{Ty, TyParam};
 use dartforge_elements::model::{Element, UnitId};
 use dartforge_frontend::ast::{AssignOp, ExprId, ExprKind, UnaryOp};
+use dartforge_intern::SymbolId;
 use dartforge_types::resolved::{MemberRef, Resolved};
 use dartforge_types::table::{Type, TypeId};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -235,7 +236,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if !c.borrow_mut().alvos_vistos.insert((self.unit.0, e.0)) {
             return;
         }
-        let Some(emissor) = chave_do_emissor(self.ctx, alvo) else {
+        let nome = match &self.expr(e).kind {
+            ExprKind::Identifier(n) => Some(n.sym),
+            _ => None,
+        };
+        let Some(emissor) = chave_do_emissor(self.ctx, alvo, nome) else {
             return;
         };
         c.borrow_mut().alvos_conferidos += 1;
@@ -247,7 +252,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             .and_then(|u| u.get_resolved(e))
             .map(|r| chave_comum(self.ctx, r))
             .unwrap_or_else(|| "sem resolução".to_string());
-        if emissor == comum {
+        // Nome sem declaração (`dynamic`/`Never` como valor, nome indefinido):
+        // nenhum dos dois tem elemento.
+        if emissor == comum || (emissor == "desconhecido" && comum == "sem resolução") {
             return;
         }
         let categoria = format!(
@@ -853,10 +860,10 @@ fn chave_de_elemento(ctx: &Ctx, el: &Element) -> String {
     }
 }
 
-/// Chave do alvo que o emissor resolveu; `None` para alvos sem identidade
-/// estável (membro achado por nome no `$this` de extensão, extensão
-/// aplicável a `this`, campo de extensão).
-fn chave_do_emissor(ctx: &Ctx, alvo: &IdentTarget) -> Option<String> {
+/// Chave do alvo que o emissor resolveu para o identificador `nome`; `None`
+/// para alvos sem identidade estável (membro achado por nome no `$this` de
+/// extensão, extensão aplicável a `this`).
+fn chave_do_emissor(ctx: &Ctx, alvo: &IdentTarget, nome: Option<SymbolId>) -> Option<String> {
     let membro = |mk: &MemberKind| match *mk {
         MemberKind::Method(f) | MemberKind::Getter(f) | MemberKind::Setter(f) => {
             chave_de_elemento(ctx, &Element::Function(f))
@@ -874,9 +881,19 @@ fn chave_do_emissor(ctx: &Ctx, alvo: &IdentTarget) -> Option<String> {
             chave_de_elemento(ctx, &Element::Function(*f))
         }
         IdentTarget::Unknown => "desconhecido".into(),
-        IdentTarget::ExtThisMember(_) | IdentTarget::ThisExt | IdentTarget::ExtField(_) => {
-            return None;
+        // Campo estático da extensão: o emissor guarda a extensão; o campo
+        // é o de mesmo nome.
+        IdentTarget::ExtField(x) => {
+            let nome = nome?;
+            let v = ctx
+                .program
+                .extension(*x)
+                .fields
+                .iter()
+                .find(|&&v| ctx.program.variable(v).name == nome)?;
+            chave_de_elemento(ctx, &Element::Variable(*v))
         }
+        IdentTarget::ExtThisMember(_) | IdentTarget::ThisExt => return None,
     })
 }
 
