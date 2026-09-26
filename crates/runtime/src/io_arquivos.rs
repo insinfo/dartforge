@@ -43,6 +43,56 @@ mod codigo_do_so {
     pub const JA_EXISTE: i32 = 183; // ERROR_ALREADY_EXISTS
 }
 
+/// A mensagem do sistema para o código `c`, como a VM a monta.
+///
+/// No Windows é o `FormatMessageIntoBuffer` da VM (`bin/utils_win.cc`): o
+/// texto do `FormatMessageW` como vem, com o CRLF final (o `std` o tira), e
+/// `OS Error N` quando o sistema não tem mensagem.
+#[cfg(windows)]
+fn mensagem_do_sistema(c: i32) -> String {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn FormatMessageW(
+            flags: u32,
+            origem: *const std::ffi::c_void,
+            id: u32,
+            idioma: u32,
+            buffer: *mut u16,
+            tamanho: u32,
+            argumentos: *const std::ffi::c_void,
+        ) -> u32;
+    }
+    const FORMAT_MESSAGE_IGNORE_INSERTS: u32 = 0x0000_0200;
+    const FORMAT_MESSAGE_FROM_SYSTEM: u32 = 0x0000_1000;
+    // MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT).
+    const IDIOMA: u32 = 0x0400;
+    let mut buffer = [0u16; 1024];
+    // SAFETY: o buffer tem o tamanho informado; sem inserções.
+    let n = unsafe {
+        FormatMessageW(
+            FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+            std::ptr::null(),
+            c as u32,
+            IDIOMA,
+            buffer.as_mut_ptr(),
+            buffer.len() as u32,
+            std::ptr::null(),
+        )
+    };
+    if n == 0 {
+        return format!("OS Error {c}");
+    }
+    String::from_utf16_lossy(&buffer[..n as usize])
+}
+
+/// No Unix, o `strerror` (a mensagem do `std` sem o " (os error N)").
+#[cfg(not(windows))]
+fn mensagem_do_sistema(c: i32) -> String {
+    let texto = std::io::Error::from_raw_os_error(c).to_string();
+    let sufixo = format!(" (os error {c})");
+    texto.strip_suffix(&sufixo).map(str::to_string).unwrap_or(texto)
+}
+
 /// Um erro do sistema operacional, como o `OSError` da VM (`bin/utils.h`):
 /// o código e a mensagem do sistema (`strerror_r`; `FormatMessage` no
 /// Windows).
@@ -55,11 +105,7 @@ struct ErroDoSo {
 impl ErroDoSo {
     /// O erro do código `c` do sistema.
     fn do_codigo(c: i32) -> ErroDoSo {
-        // A mensagem do `std` é a do sistema seguida de " (os error N)".
-        let texto = std::io::Error::from_raw_os_error(c).to_string();
-        let sufixo = format!(" (os error {c})");
-        let mensagem = texto.strip_suffix(&sufixo).map(str::to_string).unwrap_or(texto);
-        ErroDoSo { codigo: i64::from(c), mensagem }
+        ErroDoSo { codigo: i64::from(c), mensagem: mensagem_do_sistema(c) }
     }
 
     /// O erro de uma operação do `std` (que carrega o código do sistema).
