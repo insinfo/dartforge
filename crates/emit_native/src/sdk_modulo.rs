@@ -540,6 +540,26 @@ pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk
     // executável.
     let st = if perfil == PerfilDoSdk::Producao {
         None
+    } else if crate::alvo::sistema() == crate::alvo::Sistema::Linux {
+        // O `ld.lld` direto com o sysroot de ligação (`ligador.rs`).
+        let exportados: Vec<String> =
+            dartforge_runtime::simbolos::NOMES.iter().filter(|n| **n != "main").map(|n| n.to_string()).collect();
+        let mut entradas: Vec<PathBuf> = BIBLIOTECAS_DA_FONTE.iter().map(|b| tmp.join(format!("{b}.{ext_obj}"))).collect();
+        entradas.push(runtime_dll.lib_path.clone());
+        crate::ligador::ligar(
+            &crate::ligador::ld_lld(clang),
+            crate::ligador::SysrootLinux::localizar(clang)?,
+            &crate::ligador::Ligacao {
+                produto: crate::ligador::Produto::Compartilhada { soname: &arquivo_dll, exportados: &exportados },
+                entradas,
+                rpath_origem: false,
+                lto: false,
+                podar: false,
+                saida: &tmp.join(&arquivo_dll),
+            },
+        )
+        .map_err(|e| format!("a ligação da DLL do SDK da fonte falhou: {e}"))?;
+        None
     } else {
         let mut cmd = std::process::Command::new(clang);
         cmd.current_dir(&tmp)

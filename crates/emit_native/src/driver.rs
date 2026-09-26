@@ -212,7 +212,33 @@ impl Ligacao {
     }
 }
 
+/// A ligação no Linux: o `ld.lld` direto, com o sysroot de ligação
+/// (`ligador.rs`) — sem o driver do Clang nem o GCC na máquina.
+fn ligar_no_linux(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &Path) -> Result<(), String> {
+    use crate::ligador;
+    let sysroot = ligador::SysrootLinux::localizar(clang)?;
+    let mut entradas = vec![obj.to_path_buf()];
+    entradas.extend(sdk.iter().cloned());
+    entradas.push(ligacao.biblioteca().to_path_buf());
+    let producao = matches!(ligacao, Ligacao::Producao(_));
+    ligador::ligar(
+        &ligador::ld_lld(clang),
+        sysroot,
+        &ligador::Ligacao {
+            produto: ligador::Produto::Executavel,
+            entradas,
+            rpath_origem: matches!(ligacao, Ligacao::SdkCompartilhado(_)),
+            lto: producao,
+            podar: producao,
+            saida: output,
+        },
+    )
+}
+
 fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &Path) -> Result<(), String> {
+    if crate::alvo::sistema() == Sistema::Linux {
+        return ligar_no_linux(clang, obj, sdk, ligacao, output);
+    }
     let mut cmd = Command::new(clang);
     cmd.arg(obj).args(sdk).arg(ligacao.biblioteca());
     let sistema = crate::alvo::sistema();

@@ -228,3 +228,22 @@ jobs:
           ./target/release/dartforge aot "$d/main.dart" "$d/prod" --optimize
           [ "$("$d/prod")" = "$esperado" ]
           [ "$(./target/release/dartforge run "$d/main.dart")" = "$esperado" ]
+      # A distribuição (`dartforge empacotar`) num ambiente limpo: sem Rust,
+      # sem LLVM, sem o SDK do Dart no ambiente (`env -i`, PATH do sistema).
+      # No Linux ela liga pelo lld com o sysroot próprio, sem o Clang.
+      - name: Distribuição num ambiente limpo
+        shell: bash
+        run: |
+          set -euo pipefail
+          dist=$(mktemp -d)/dartforge
+          ./target/release/dartforge empacotar "$dist"
+          du -sh "$dist"
+          d=$(mktemp -d)
+          printf "import 'dart:isolate';\nFuture<void> main(List<String> a) async {\n  print('oi \${a.join(\",\")}');\n  print(await Isolate.run(() => [1, 2, 3].map((x) => x * x).toList()));\n}\n" > "$d/main.dart"
+          esperado=$'oi x,y\n[1, 4, 9]'
+          cd "$d"
+          env -i PATH=/usr/bin:/bin HOME="$d/home" "$dist/bin/dartforge" aot main.dart dev
+          [ "$(./dev x y)" = "$esperado" ]
+          env -i PATH=/usr/bin:/bin HOME="$d/home" "$dist/bin/dartforge" aot main.dart prod --optimize
+          [ "$(./prod x y)" = "$esperado" ]
+          [ "$(env -i PATH=/usr/bin:/bin HOME="$d/home" "$dist/bin/dartforge" run main.dart x y)" = "$esperado" ]
