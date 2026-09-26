@@ -455,7 +455,10 @@ fn referencias_locais(
         .filter(|nome| {
             let mut lugares = Vec::new();
             onde_esta(nos, nome, filhos, false, &mut lugares);
-            matches!(lugares.as_slice(), [Lugar::Raiz | Lugar::NoFilho]) && local_citado(nos, nome)
+            matches!(
+                lugares.as_slice(),
+                [Lugar::Raiz | Lugar::NoFilho | Lugar::Projetado | Lugar::NoFilhoProjetado]
+            ) && local_citado(nos, nome)
         })
         .cloned()
         .collect()
@@ -504,15 +507,19 @@ fn formas_contra_o_template(
             // `isElementType`: campo `Element` (ou subtipo) recebe o nó;
             // qualquer outro, um `ElementRef`. O primeiro caso é o estático,
             // que sai no `build()`.
-            [Lugar::Raiz] if e_tipo_de_elemento(&consulta.tipo, local, resolvedor) => continue,
-            [Lugar::Raiz] => recusa(
+            [Lugar::Raiz | Lugar::Projetado]
+                if e_tipo_de_elemento(&consulta.tipo, local, resolvedor) =>
+            {
+                continue;
+            }
+            [Lugar::Raiz | Lugar::Projetado] => recusa(
                 Motivo::ViewChildEmFilho,
                 "@ViewChild de elemento com tipo que não é Element",
             ),
             // A instância do filho: o campo tem de ser do tipo dele (não um
             // `Element`) e o filho não pode ser `onPush`, que registra o
             // `ChangeDetectorRef` da consulta (`queryChangeDetectorRefs`).
-            [Lugar::NoFilho] => {
+            [Lugar::NoFilho | Lugar::NoFilhoProjetado] => {
                 if e_tipo_de_elemento(&consulta.tipo, local, resolvedor) {
                     recusa(
                         Motivo::ViewChildEmFilho,
@@ -547,11 +554,18 @@ enum Lugar {
     Raiz,
     /// Dentro de uma visão embutida (`*ngIf`, `*ngFor`).
     Embutida,
-    /// No conteúdo projetado num componente filho.
+    /// Numa tag que não é HTML nem componente (a de uma diretiva), ou
+    /// abaixo dela: forma ainda recusada para o `@ViewChild`.
     Filho,
     /// No próprio elemento de um componente filho da visão: vale a
     /// instância.
     NoFilho,
+    /// Num elemento HTML do conteúdo projetado num filho: ainda é um nó
+    /// desta visão (criado solto e entregue no `createAndProject`).
+    Projetado,
+    /// Num componente filho dentro do conteúdo projetado noutro: a
+    /// instância, também desta visão.
+    NoFilhoProjetado,
 }
 
 fn onde_esta(
@@ -565,10 +579,16 @@ fn onde_esta(
         let No::Elemento(e) = no else { continue };
         let lugar = if e.estrela.is_some() {
             Lugar::Embutida
-        } else if !em_filho && filhos.contains_key(&e.nome) {
-            Lugar::NoFilho
-        } else if em_filho || !dom::tag_html(&e.nome) {
+        } else if filhos.contains_key(&e.nome) {
+            if em_filho {
+                Lugar::NoFilhoProjetado
+            } else {
+                Lugar::NoFilho
+            }
+        } else if !dom::tag_html(&e.nome) {
             Lugar::Filho
+        } else if em_filho {
+            Lugar::Projetado
         } else {
             Lugar::Raiz
         };
@@ -576,7 +596,11 @@ fn onde_esta(
             saida.push(lugar);
         }
         let mut dentro = Vec::new();
-        let abaixo_de_filho = matches!(lugar, Lugar::Filho | Lugar::NoFilho);
+        let abaixo_de_filho = em_filho
+            || matches!(
+                lugar,
+                Lugar::Filho | Lugar::NoFilho | Lugar::NoFilhoProjetado | Lugar::Projetado
+            );
         onde_esta(&e.filhos, nome, filhos, abaixo_de_filho, &mut dentro);
         // Tudo abaixo de um `*` é da visão embutida.
         if lugar == Lugar::Embutida {

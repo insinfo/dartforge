@@ -139,6 +139,9 @@ import 'package:corpus_ngdart/src/i42_ng_switch_formas.template.dart' as i42;
 import 'package:corpus_ngdart/src/i43_micro_dois_pontos.template.dart' as i43;
 import 'package:corpus_ngdart/src/i44_ref_em_embutida.template.dart' as i44;
 import 'package:corpus_ngdart/src/i45_ref_formas.template.dart' as i45;
+import 'package:corpus_ngdart/src/i46_view_child_projetado.template.dart' as i46;
+import 'package:corpus_ngdart/src/i47_view_child_em_if.template.dart' as i47;
+import 'package:corpus_ngdart/src/i48_ref_projetado_lido.template.dart' as i48;
 
 void main() {
   print([
@@ -280,5 +283,8 @@ void main() {
     i43.I43MicroDoisPontosNgFactory,
     i44.I44RefEmEmbutidaNgFactory,
     i45.I45RefFormasNgFactory,
+    i46.I46ViewChildProjetadoNgFactory,
+    i47.I47ViewChildEmIfNgFactory,
+    i48.I48RefProjetadoLidoNgFactory,
   ].length);
 }

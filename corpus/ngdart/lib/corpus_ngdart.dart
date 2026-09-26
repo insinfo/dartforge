@@ -150,3 +150,6 @@ export 'src/i42_ng_switch_formas.dart';
 export 'src/i43_micro_dois_pontos.dart';
 export 'src/i44_ref_em_embutida.dart';
 export 'src/i45_ref_formas.dart';
+export 'src/i46_view_child_projetado.dart';
+export 'src/i47_view_child_em_if.dart';
+export 'src/i48_ref_projetado_lido.dart';
