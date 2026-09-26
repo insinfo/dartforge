@@ -178,15 +178,148 @@ liberada antes da próxima, como em `workspace/symbol`: só os documentos
 abertos são lidos, nunca o disco por tecla, mantendo o platô de memória por
 edição. Teste: `cargo test -p dartforge-lsp --test referencias --locked`.
 
+### Consultas semânticas por requisição (completar, renomear, ações)
+
+As três capacidades abaixo leem tipos e resoluções da **inferência comum**
+de `crates/types` (`BodyInferrer`, tabelas `BodyTypes`: `get_type`,
+`get_resolved`), nunca de uma inferência paralela no LSP. Cada requisição
+monta uma `Consulta` transitória (`crates/lsp/src/consulta.rs`): programa
+carregado com os textos vigentes dos documentos abertos (os demais arquivos
+vêm do disco), outline, tabela de tipos e corpos inferidos só das bibliotecas
+necessárias; tudo é descartado ao responder. Um arquivo `part of` entra
+pela biblioteca dona (URI escrita, ou o arquivo do projeto que declara o
+`part` na forma `part of nome;`), o que vale também para `definition` e
+`hover` semânticos; parte que a dona não declara entra sozinha. Dois ganchos da inferência,
+desligados no compilador, existem para o LSP: `sonda_escopo` captura o
+escopo léxico (locais, parâmetros, parâmetros de tipo, classe/extensão
+envolvente, `this`) no identificador pedido, e `registrar_locais` guarda,
+para cada expressão que lê ou escreve um local, o offset da declaração.
+Sem SDK, completar responde `null`, renomear recusa e as ações ficam só nas
+sintáticas. Custo medido (binário release, projeto pequeno com o SDK 3.6.2
+real, processo novo por medida): completar ~70–100 ms, renomear ~70–100 ms,
+ação de importar ~135 ms na primeira vez (inclui o índice de nomes do SDK);
+o tempo é dominado pela carga das bibliotecas `dart:`.
+
+`textDocument/completion` (`triggerCharacters: ["."]`). O ponto de
+digitação quase nunca analisa (`a.` sem nome, `a.ca` sem `;`), e o parser
+recupera por comando: o comando incompleto some da árvore. Antes da
+análise, o nome sob o cursor vira um identificador sentinela e, se preciso,
+recebe um fecho curto (`;`, `)`, `);`, `));`, `]`, `});` …); vale a
+variante que põe o sentinela numa expressão com o menor número de
+diagnósticos. Então:
+
+* `alvo.▮` — membros de instância pelo tipo estático do alvo
+  (`get_type`), pela busca de membros de `crates/types`
+  (`MemberResolver::lookup_member`), com genéricos substituídos
+  (`List<String>.first` mostra `String`), herdados, de mixins, interfaces
+  e de extensões aplicáveis; parâmetro de tipo usa o limite; `dynamic` usa
+  `Object`; registros mostram `$1`… e os nomeados. Nome de classe
+  (`A.▮`): estáticos e construtores nomeados. Prefixo de import
+  (`p.▮`): o espaço de nomes do prefixo.
+* nome simples — locais e parâmetros visíveis (os declarados adiante e os
+  de blocos fechados não aparecem), parâmetros de tipo, membros da classe
+  envolvente (de instância só fora de contexto estático), declarações de
+  topo, importados sem prefixo, os prefixos e palavras-chave pelo contexto
+  (comando, expressão, membro de classe, topo). Numa lista de argumentos,
+  os parâmetros nomeados ainda não passados (`nome: `) vêm primeiro.
+* privado de outra biblioteca nunca aparece; nada em comentário, texto de
+  string ou número (interpolação é código).
+
+Os itens seguem o formato do servidor do Dart: `label` `met(…)`/`met()`
+para funções, `detail` `(int x, {String? nome}) → void` ou o tipo, `kind`
+(2 método, 3 função, 4 construtor, 5 campo, 6 variável, 7 classe, 9
+prefixo, 10 getter, 13 enum, 14 palavra-chave, 20 constante de enum, 25
+parâmetro de tipo), `textEdit` sobre o prefixo digitado. A ordem é estável
+— grupo (nomeados, locais, membros, biblioteca, importados, prefixos,
+palavras-chave) e nome — e `sortText` a repete; o filtro é pelo prefixo,
+sem diferenciar maiúsculas de minúsculas. Teste: `cargo test -p
+dartforge-lsp --test completar --locked`.
+
+`textDocument/prepareRename` e `textDocument/rename` (`renameProvider:
+{prepareProvider: true}` quando o cliente anuncia `prepareSupport`). O
+projeto é o diretório mais próximo com `pubspec.yaml` (sem ele, o do
+arquivo); todos os `.dart` dele (sem ocultos, `build` nem subpacotes), menos
+as partes, entram como bibliotecas de entrada de uma só carga
+(`load_lenient_entradas` em `crates/elements`), para que as bibliotecas que
+*importam* a declaração também sejam vistas; os corpos do projeto são
+inferidos com `registrar_locais`. O que o cursor denota vem de
+`get_resolved`/`declaracao_local`:
+
+* local, parâmetro ou função local — a declaração e as expressões que a
+  referem (inclusive em interpolação e como alvo de atribuição); num
+  parâmetro nomeado, também os rótulos `nome:` nas chamadas da função;
+* membro de classe — a família ligada por sobrescrita na hierarquia (sobe e
+  desce por `extends`, `with`, `implements` e `on` até fechar), getter e
+  setter juntos, cada uso resolvido para um membro da família (por
+  instância, `this` implícito, `super`, cascata), parâmetros `this.x`,
+  inicializadores `x = e` e os rótulos dos `this.x` nomeados; membro de
+  extensão e estático são só os do dono; constantes de enum inclusas;
+* declaração de topo — a declaração (getter e setter homônimos juntos), os
+  usos resolvidos com ou sem prefixo, as anotações de tipo (resolvidas pelo
+  escopo da biblioteca, respeitando parâmetros de tipo homônimos), os
+  construtores escritos com o nome da classe, `show`/`hide` e metadados
+  `@nome`.
+
+Recusa com o código `-32010` (o `RenameNotValid` do servidor do Dart):
+identificador malformado, palavra reservada, identificador embutido como
+nome de tipo, elemento do SDK ou de pacote fora da raiz (inclusive a
+sobrescrita de um membro deles, como `toString`), local que colidiria com
+outro do mesmo corpo ou sombrearia um uso, membro já existente na família,
+nome já declarado na biblioteca (ou numa que usa o elemento) e nome
+público que viraria privado com usos em outra biblioteca. Construtores
+nomeados, prefixos de import e parâmetros de tipo ainda são recusados.
+`prepareRename` em espaço, palavra-chave ou literal devolve `null`. As
+edições saem como `WorkspaceEdit.changes`, convertidas com as linhas do
+texto aberto ou, para arquivo fechado, do arquivo no disco. Uso dentro de
+um comando que não analisa não é visto (a recuperação do parser o
+descarta). Teste: `cargo test -p dartforge-lsp --test renomear --locked`.
+
+`textDocument/codeAction` (`codeActionKinds: ["quickfix"]`, honra
+`context.only`):
+
+* `Insert ';'` (`quickfix.insertSemicolon`) para o `expected_token`
+  "Expected to find ';'." publicado, inserindo no fim do intervalo do
+  diagnóstico, com o diagnóstico na ação — como o `dart.fix.insertSemicolon`.
+* `Import library '…'` para um nome indefinido no intervalo: identificador
+  sem resolução na inferência e fora do escopo da biblioteca, ou nome de
+  tipo não encontrado (sem parâmetro de tipo homônimo). Candidatas: as
+  bibliotecas públicas do SDK que o declaram (`quickfix.import.librarySdk`;
+  índice de nomes de topo das bibliotecas sem `_` e das suas partes, montado
+  na primeira vez e de tamanho fixo) e as do projeto
+  (`quickfix.import.libraryProject1`): import relativo, ou `package:` quando
+  o arquivo está fora de `lib/` e o alvo dentro. A diretiva entra na ordem
+  (`dart:`, `package:`, relativas), depois de `library`, ou no topo.
+
+Dos códigos semânticos publicados (`crates/analise/verificados.txt`:
+`enum_constant_same_name_as_enclosing`, `enum_with_name_values`,
+`values_declaration_in_enum`), o `dart language-server` 3.6.2 não oferece
+correção rápida para nenhum (conferido), e este servidor também não. Teste:
+`cargo test -p dartforge-lsp --test acoes --locked`.
+
 Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
 `exit` (0 após `shutdown`, 1 sem), `$/cancelRequest`,
 `textDocument/didOpen`/`didChange` (incremental e integral)/`didClose`,
 `textDocument/publishDiagnostics` (`severity`, `source: "dartforge"`,
-`version`), `dartforge/dormir` (gancho de teste do cancelamento em
-execução; clientes reais nunca enviam).
+`version`), `textDocument/documentSymbol`, `workspace/symbol`,
+`textDocument/definition`, `textDocument/references`, `textDocument/hover`,
+`textDocument/completion`, `textDocument/prepareRename`,
+`textDocument/rename`, `textDocument/codeAction`, `dartforge/dormir`
+(gancho de teste do cancelamento em execução; clientes reais nunca enviam).
 
-Explicitamente fora deste brief: completion, definição de variáveis/funções locais e demais nomes importados,
-rename, code actions, formatação e `diagnosticProvider` por
+Pendentes no completar: sugestões de nomes ainda não importados (o Dart as
+oferece com import automático), `completionItem/resolve` com documentação,
+snippets, ordenação por relevância (o Dart pondera por uso), filtro
+aproximado (só prefixo aqui) e contexto de tipo (em posição de tipo a lista
+traz também valores). No renomear: construtores nomeados, prefixos de
+import, parâmetros de tipo, rótulos de parâmetros nomeados de sobrescritas,
+comentários de documentação (`[nome]`), renomear o arquivo junto com a
+classe e a detecção completa de conflitos por escopo (a de hoje é
+conservadora por corpo). Nas ações: as demais correções e assistências do
+Dart (criar classe, remover variável não usada…), que dependem de
+diagnósticos ainda não publicados.
+
+Explicitamente fora deste brief: definição de variáveis/funções locais e demais nomes importados,
+formatação e `diagnosticProvider` por
 requisição (o servidor empurra diagnósticos; não atende pull). Diagnósticos
 semânticos (nomes não resolvidos, erros de tipo) chegam depois via `crates/types`,
 pela costura `trait Analisador { fn diagnosticar(&mut self, uri, texto) }`
@@ -203,6 +336,11 @@ quadro a quadro), `cancelamento` (resposta -32800).
 transporte com arquivos reais): binário separado de propósito — o alocador
 contador é global e os testes de um binário dividem o processo, então a
 medição precisa do processo só para ela.
+`tests/completar.rs`, `tests/renomear.rs` e `tests/acoes.rs` falam
+JSON-RPC com o `Servidor` semântico sobre um projeto temporário
+(`pubspec.yaml`, `package_config.json`) e um SDK mínimo em disco
+(`tests/comum`), sem depender do Dart instalado; cobrem código incompleto
+(`a.` solto, `a.ca` sem `;`, chamada sem `)`, comando quebrado no corpo).
 
 ## Medição D.2 — mesmo projeto, mesma sequência
 

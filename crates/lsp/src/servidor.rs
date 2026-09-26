@@ -846,6 +846,22 @@ pub fn metodos_suportados() -> HashMap<&'static str, &'static str> {
             "notificação: fecha e publica lista vazia",
         ),
         (
+            "textDocument/completion",
+            "requisição: membros pelo tipo do receptor, escopo, palavras-chave, nomeados",
+        ),
+        (
+            "textDocument/prepareRename",
+            "requisição: intervalo e nome renomeáveis sob o cursor",
+        ),
+        (
+            "textDocument/rename",
+            "requisição: edições em todos os arquivos do projeto",
+        ),
+        (
+            "textDocument/codeAction",
+            "requisição: inserir ';' e importar biblioteca de nome indefinido",
+        ),
+        (
             METODO_DORMIR,
             "requisição: gancho de teste do cancelamento em execução",
         ),
