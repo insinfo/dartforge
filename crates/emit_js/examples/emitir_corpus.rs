@@ -6,6 +6,9 @@
 //!
 //! Com `DARTFORGE_JS_CONFERIR_TIPOS` ligado, cada compilação também confere
 //! os tipos do emissor contra a inferência comum (`crates/emit_js/src/conferencia.rs`).
+//! Com `EMITIR_CORPUS_EXECUTAVEL=1`, cada programa também é escrito pronto
+//! para o Node em `<dir_saida>/<nome>/` (`node <dir_saida>/<nome>/main.mjs`),
+//! com o `dart_sdk.js` de `DARTFORGE_DART_SDK_JS`.
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -24,6 +27,11 @@ fn main() {
             .to_string();
         let texto = match dartforge_emit_js::compilar(&caminho, None, None) {
             Ok(e) => {
+                if std::env::var_os("EMITIR_CORPUS_EXECUTAVEL").is_some() {
+                    let dir = saida.join(&nome);
+                    dartforge_emit_js::escrever(&e, &dir, &dartforge_emit_js::dart_sdk_js_padrao())
+                        .expect("escrever o programa executável");
+                }
                 let mut modulos = e.modulos;
                 modulos.sort();
                 let mut t = String::new();

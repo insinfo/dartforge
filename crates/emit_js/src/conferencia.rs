@@ -691,6 +691,32 @@ fn categoria_de_tipo(a: &Ty, b: &Ty) -> &'static str {
             "mesma classe, argumentos de tipo diferentes"
         }
         (Ty::Iface { .. }, Ty::Iface { .. }) => "classes diferentes",
+        // O emissor instancia o tear-off genérico na coerção (`coerce_to`);
+        // a inferência comum já registra no nó o tipo instanciado, e o
+        // analyzer, o genérico (a instanciação é um nó à parte).
+        (
+            Ty::Fn {
+                type_params: p1,
+                pos: s1,
+                opt: o1,
+                named: m1,
+                ..
+            },
+            Ty::Fn {
+                type_params: p2,
+                pos: s2,
+                opt: o2,
+                named: m2,
+                ..
+            },
+        ) if !p1.is_empty()
+            && p2.is_empty()
+            && s1.len() == s2.len()
+            && o1.len() == o2.len()
+            && m1.len() == m2.len() =>
+        {
+            "tear-off genérico: comum já instanciado"
+        }
         (Ty::Fn { .. }, Ty::Fn { .. }) => "tipos de função diferentes",
         (Ty::Record { .. }, Ty::Record { .. }) => "records diferentes",
         (Ty::Param { .. }, Ty::Param { .. }) => "parâmetros de tipo diferentes",
@@ -744,7 +770,17 @@ pub fn mostrar(ctx: &Ctx, t: &Ty) -> String {
                     "<{}>",
                     type_params
                         .iter()
-                        .map(|p| p.name.clone())
+                        .map(|p| {
+                            // Como o analyzer: o limite só aparece quando não é
+                            // o implícito (`Object?`/`dynamic`).
+                            let implicito = p.bound.is_dynamic()
+                                || (p.bound.is_class(ctx.object) && p.bound.is_nullable());
+                            if implicito {
+                                p.name.clone()
+                            } else {
+                                format!("{} extends {}", p.name, mostrar(ctx, &p.bound))
+                            }
+                        })
                         .collect::<Vec<_>>()
                         .join(", ")
                 )
