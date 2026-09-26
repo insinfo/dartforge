@@ -699,7 +699,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::Ref,
             );
 
-            let mut current_test_block = dispatch_block;
+            // O desenrolar do isolado (`Isolate.exit`) não é capturável:
+            // vai direto ao caminho de "nenhuma cláusula casou".
+            let capturavel = self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_exception_capturavel".to_string(),
+                    args: Vec::new(),
+                    ret_ty: Type::I8,
+                },
+                Type::I8,
+            );
+            let capturavel = self.emit(
+                Instruction::ICmp(ICmpOp::Ne, capturavel, Operand::Constant(Constant::Int(0))),
+                Type::I1,
+            );
+            let primeiro_teste = self.new_block();
+            let sem_captura = self.new_block();
+            self.terminate(Terminator::CondBranch {
+                cond: capturavel,
+                then_block: primeiro_teste,
+                else_block: sem_captura,
+            });
+            let mut current_test_block = primeiro_teste;
 
             for clause in catches.iter() {
                 self.set_block(current_test_block);
@@ -773,6 +794,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 current_test_block = next_test_b;
             }
 
+            self.set_block(sem_captura);
+            self.terminate(Terminator::Branch(current_test_block));
             self.set_block(current_test_block);
             if let Some((entry, _, _, _)) = fin_info {
                 let default_ret = self.default_return_operand();

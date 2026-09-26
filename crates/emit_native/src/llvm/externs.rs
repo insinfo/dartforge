@@ -263,6 +263,18 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
+        decl: "declare void @dartforge_marcar_constante(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i8 @dartforge_exception_capturavel()",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_registrar_isolados(ptr, ptr)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
         decl: "declare i64 @dartforge_typed_novo(i64, i64, i64)",
         efeitos: CONSERVADOR,
     },

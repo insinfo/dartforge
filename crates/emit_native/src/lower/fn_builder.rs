@@ -500,6 +500,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Operand::Constant(Constant::Bool(_)) => Type::I1,
             Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)) => Type::Ref,
             Operand::Constant(Constant::Null) => Type::Ref,
+            Operand::Constant(Constant::Funcao(_)) => Type::I64,
         }
     }
 
