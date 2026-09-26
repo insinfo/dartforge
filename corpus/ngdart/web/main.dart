@@ -93,6 +93,42 @@ import 'package:corpus_ngdart/src/h01_usa_cabecalho.template.dart' as h01;
 import 'package:corpus_ngdart/src/h02_campo.template.dart' as h02;
 import 'package:corpus_ngdart/src/h02_usa_campo.template.dart' as h02;
 import 'package:corpus_ngdart/src/h03_opcoes.template.dart' as h03;
+import 'package:corpus_ngdart/src/i01_ng_for_index.template.dart' as i01;
+import 'package:corpus_ngdart/src/i02_ng_for_track_by.template.dart' as i02;
+import 'package:corpus_ngdart/src/i03_ng_for_first_last.template.dart' as i03;
+import 'package:corpus_ngdart/src/i04_ng_switch.template.dart' as i04;
+import 'package:corpus_ngdart/src/i05_estilo_unidade.template.dart' as i05;
+import 'package:corpus_ngdart/src/i06_ref_em_evento.template.dart' as i06;
+import 'package:corpus_ngdart/src/i07_ref_em_interpolacao.template.dart' as i07;
+import 'package:corpus_ngdart/src/i08_pipe_encadeado.template.dart' as i08;
+import 'package:corpus_ngdart/src/i09_ng_container.template.dart' as i09;
+import 'package:corpus_ngdart/src/i10_template_explicito.template.dart' as i10;
+import 'package:corpus_ngdart/src/i11_ng_class.template.dart' as i11;
+import 'package:corpus_ngdart/src/i12_ng_style.template.dart' as i12;
+import 'package:corpus_ngdart/src/i13_seguro_nulo.template.dart' as i13;
+import 'package:corpus_ngdart/src/i14_inner_html.template.dart' as i14;
+import 'package:corpus_ngdart/src/i15_view_children.template.dart' as i15;
+import 'package:corpus_ngdart/src/i16_view_child_componente.template.dart' as i16;
+import 'package:corpus_ngdart/src/i17_host_binding_componente.template.dart' as i17;
+import 'package:corpus_ngdart/src/i18_host_listener_componente.template.dart' as i18;
+import 'package:corpus_ngdart/src/i19_providers_classe.template.dart' as i19;
+import 'package:corpus_ngdart/src/i20_i18n.template.dart' as i20;
+import 'package:corpus_ngdart/src/i21_ng_container_for.template.dart' as i21;
+import 'package:corpus_ngdart/src/i22_ng_for_objeto.template.dart' as i22;
+import 'package:corpus_ngdart/src/i23_entrada_getter.template.dart' as i23;
+import 'package:corpus_ngdart/src/i24_two_way_filho.template.dart' as i24;
+import 'package:corpus_ngdart/src/i25_on_push_entrada.template.dart' as i25;
+import 'package:corpus_ngdart/src/i26_ng_content_varios.template.dart' as i26;
+import 'package:corpus_ngdart/src/i27_evento_evento.template.dart' as i27;
+import 'package:corpus_ngdart/src/i28_attr_class.template.dart' as i28;
+import 'package:corpus_ngdart/src/i29_async_pipe.template.dart' as i29;
+import 'package:corpus_ngdart/src/i30_template_outlet.template.dart' as i30;
+import 'package:corpus_ngdart/src/i31_ng_for_campo_indice.template.dart' as i31;
+import 'package:corpus_ngdart/src/i32_evento_filho_ref.template.dart' as i32;
+import 'package:corpus_ngdart/src/i33_ng_if_aninhado_em_for.template.dart' as i33;
+import 'package:corpus_ngdart/src/i34_texto_ternario_nulo.template.dart' as i34;
+import 'package:corpus_ngdart/src/i35_i18n_formas.template.dart' as i35;
+import 'package:corpus_ngdart/src/i36_prefixos_longos.template.dart' as i36;
 
 void main() {
   print([
@@ -188,5 +224,41 @@ void main() {
     h02.H02CampoNgFactory,
     h02.H02UsaCampoNgFactory,
     h03.H03OpcoesNgFactory,
+    i01.I01NgForIndexNgFactory,
+    i02.I02NgForTrackByNgFactory,
+    i03.I03NgForFirstLastNgFactory,
+    i04.I04NgSwitchNgFactory,
+    i05.I05EstiloUnidadeNgFactory,
+    i06.I06RefEmEventoNgFactory,
+    i07.I07RefEmInterpolacaoNgFactory,
+    i08.I08PipeEncadeadoNgFactory,
+    i09.I09NgContainerNgFactory,
+    i10.I10TemplateExplicitoNgFactory,
+    i11.I11NgClassNgFactory,
+    i12.I12NgStyleNgFactory,
+    i13.I13SeguroNuloNgFactory,
+    i14.I14InnerHtmlNgFactory,
+    i15.I15ViewChildrenNgFactory,
+    i16.I16ViewChildComponenteNgFactory,
+    i17.I17HostBindingComponenteNgFactory,
+    i18.I18HostListenerComponenteNgFactory,
+    i19.I19ProvidersClasseNgFactory,
+    i20.I20I18nNgFactory,
+    i21.I21NgContainerForNgFactory,
+    i22.I22NgForObjetoNgFactory,
+    i23.I23EntradaGetterNgFactory,
+    i24.I24TwoWayFilhoNgFactory,
+    i25.I25OnPushEntradaNgFactory,
+    i26.I26NgContentVariosNgFactory,
+    i27.I27EventoEventoNgFactory,
+    i28.I28AttrClassNgFactory,
+    i29.I29AsyncPipeNgFactory,
+    i30.I30TemplateOutletNgFactory,
+    i31.I31NgForCampoIndiceNgFactory,
+    i32.I32EventoFilhoRefNgFactory,
+    i33.I33NgIfAninhadoEmForNgFactory,
+    i34.I34TextoTernarioNuloNgFactory,
+    i35.I35I18nFormasNgFactory,
+    i36.I36PrefixosLongosNgFactory,
   ].length);
 }
