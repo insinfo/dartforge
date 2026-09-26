@@ -130,25 +130,48 @@ pub extern "C" fn dartforge_laco_de_eventos(chamar: extern "C" fn(i64) -> i64) {
             soltar_raiz(raiz);
             continue;
         }
-        // 2. O timer de menor (prazo, id); dorme até o prazo se preciso.
+        // 2. O próximo evento: o timer de menor (prazo, id) ou a mensagem
+        //    mais antiga da fila do isolado (`portas.rs`), pela ordem de
+        //    chegada — na VM o timer também chega como mensagem. Sem nenhum
+        //    dos dois, o isolado espera enquanto tiver porta viva.
         let proximo = EVENTOS.with(|e| {
             let mut e = e.borrow_mut();
             loop {
                 let (&(prazo, seq), &id) = e.fila.iter().next()?;
-                e.fila.remove(&(prazo, seq));
                 if e.ativos.contains_key(&id) {
-                    return Some((prazo, id));
+                    return Some((prazo, seq, id));
                 }
                 // Cancelado: a entrada da fila é descartada.
+                e.fila.remove(&(prazo, seq));
             }
         });
-        let Some((prazo, id)) = proximo else {
+        let vencimento = proximo.map(|(prazo, _, _)| {
+            EVENTOS.with(|e| {
+                let mut e = e.borrow_mut();
+                e.agora();
+                e.inicio.expect("relógio iniciado") + std::time::Duration::from_millis(prazo.max(0) as u64)
+            })
+        });
+        if let Some(chegada) = chegada_da_proxima()
+            && vencimento.is_none_or(|v| chegada < v)
+        {
+            despachar_proxima(chamar);
+            continue;
+        }
+        let Some((prazo, seq, id)) = proximo else {
+            if tem_porta_viva() {
+                esperar_mensagem(None);
+                continue;
+            }
             return;
         };
-        let espera = EVENTOS.with(|e| prazo - e.borrow_mut().agora());
-        if espera > 0 {
-            std::thread::sleep(std::time::Duration::from_millis(espera as u64));
+        let vencimento = vencimento.expect("timer com prazo");
+        if std::time::Instant::now() < vencimento {
+            // Espera o prazo, acordando antes se chegar mensagem.
+            esperar_mensagem(Some(vencimento));
+            continue;
         }
+        EVENTOS.with(|e| e.borrow_mut().fila.remove(&(prazo, seq)));
         let disparo = EVENTOS.with(|e| {
             let mut e = e.borrow_mut();
             let t = e.ativos.get(&id)?;

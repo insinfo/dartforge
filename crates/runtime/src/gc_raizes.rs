@@ -51,6 +51,13 @@ pub extern "C" fn dartforge_gc_pop_frame(frame: i64) {
 pub extern "C" fn dartforge_gc_global_root(id: i64, handle: i64) {
     HEAP.with(|heap| heap.borrow_mut().set_global_root(id, handle));
 }
+/// Marca um valor canônico (constante, valor de enum, global `const`) como
+/// permanente e imutável: uma mensagem no mesmo isolado o passa pela
+/// identidade (`portas.rs`). O valor já é raiz global de quem chama.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_marcar_permanente(handle: i64) {
+    HEAP.with(|heap| heap.borrow_mut().marcar_permanente(handle));
+}
 /// Permite coleta explícita em testes e futuras rotinas de manutenção.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_gc_collect() {

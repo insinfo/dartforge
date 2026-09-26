@@ -725,6 +725,12 @@ pub struct Heap {
     /// Literais do compilador, canônicos por unidades UTF-16. Permanecem
     /// enraizados pelo isolate; strings criadas em execução não entram aqui.
     literais: std::collections::HashMap<Vec<u16>, i64>,
+    /// Objetos permanentes e imutáveis que uma mensagem entre portas do
+    /// mesmo isolado passa pela identidade, sem copiar (a VM compartilha os
+    /// profundamente imutáveis): constantes canônicas, valores de enum e
+    /// globais `const` (o código gerado os marca, `dartforge_marcar_permanente`),
+    /// tear-offs de topo e literais.
+    permanentes: std::collections::HashSet<i64>,
     /// `DARTFORGE_GC_OFF=1`: nunca coleta. Instrumento de diagnóstico
     /// (docs/NATIVO-PLANO.md §6): um programa que morre com "handle já
     /// coletado" e passa com a coleta desligada tem raiz faltando; um que
@@ -778,6 +784,7 @@ impl Heap {
             enum_values: std::collections::HashMap::new(),
             tearoffs: std::collections::HashMap::new(),
             literais: std::collections::HashMap::new(),
+            permanentes: std::collections::HashSet::new(),
             gc_desligado: std::env::var("DARTFORGE_GC_OFF").as_deref() == Ok("1"),
             globais: std::collections::HashMap::new(),
             caixas_bool: [0, 0],
@@ -814,6 +821,7 @@ impl Heap {
         }
         let handle = self.allocate(Value::String(texto));
         self.literais.insert(chave, handle);
+        self.permanentes.insert(handle);
         handle
     }
     /// Valor como referência: escalar vira caixa; referência passa direto.
@@ -874,6 +882,19 @@ impl Heap {
             self.get(handle);
             self.globais.insert(id, handle);
         }
+    }
+
+    /// Marca `handle` como permanente (ver `permanentes`).
+    pub fn marcar_permanente(&mut self, handle: i64) {
+        if smi::e_handle(handle) {
+            self.permanentes.insert(handle);
+        }
+    }
+
+    /// Se `handle` é permanente e imutável (ver `permanentes`): uma
+    /// mensagem no mesmo isolado o passa sem copiar.
+    pub fn e_permanente(&self, handle: i64) -> bool {
+        self.permanentes.contains(&handle) || self.caixas_bool.contains(&handle)
     }
     /// Le o teto do heap do ambiente uma vez, na criacao.
     fn limite_do_ambiente() -> usize {
@@ -945,6 +966,7 @@ impl Heap {
             fields: vec![(index, false), (text, true)],
         });
         self.enum_values.insert((class_id, index), object);
+        self.permanentes.insert(object);
         self.pop_frame(frame);
         object
     }
@@ -964,6 +986,7 @@ impl Heap {
         self.set_root(frame, 0, env);
         let closure = self.create_closure(code_id, env);
         self.tearoffs.insert(code_id, closure);
+        self.permanentes.insert(closure);
         self.pop_frame(frame);
         closure
     }

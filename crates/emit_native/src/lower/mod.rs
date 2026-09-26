@@ -604,18 +604,27 @@ fn lower_globais_e_resto(ctx: &Context, mut module: Module) -> Module {
         if list.variables.get(index).and_then(|x| x.initializer).is_none() {
             continue;
         }
-        let mut b = fn_builder::FnBuilder::new(
-            ctx,
-            unit,
-            simbolo_getter_campo_late(ctx, vid),
-            ctx.symbol_name(v.name).to_string(),
-            Type::Ref,
-        );
-        let obj = Operand::Val(b.add_param("this".to_string(), Type::Ref));
-        b.this_param = Some(obj.clone());
-        b.enclosing_class = v.class;
-        b.lower_getter_campo_late(obj, vid, ctx.program.unit(unit).ast.member(member).span);
-        b.finalizar(&mut module);
+        let construir = |m: &mut Module| {
+            let mut b = fn_builder::FnBuilder::new(
+                ctx,
+                unit,
+                simbolo_getter_campo_late(ctx, vid),
+                ctx.symbol_name(v.name).to_string(),
+                Type::Ref,
+            );
+            let obj = Operand::Val(b.add_param("this".to_string(), Type::Ref));
+            b.this_param = Some(obj.clone());
+            b.enclosing_class = v.class;
+            b.lower_getter_campo_late(obj, vid, ctx.program.unit(unit).ast.member(member).span);
+            b.finalizar(m);
+        };
+        if ctx.sdk_da_fonte {
+            // SDK da fonte: o getter que não baixa vira recusa, como os
+            // outros membros (`sdk_fonte::lower_funcao_ou_recusa`).
+            sdk_fonte::lower_getter_late_ou_recusa(ctx, &mut module, vid, unit, construir);
+        } else {
+            construir(&mut module);
+        }
     }
 
     // 3. Variáveis de topo e campos estáticos do usuário: um getter
