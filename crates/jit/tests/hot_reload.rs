@@ -38,6 +38,7 @@ fn biblioteca_com_dois_exports(dir: &std::path::Path, nomes: &[&str]) -> std::pa
     let status = std::process::Command::new(clang)
         .args(["-x", "ir", "-shared", "-fPIC"])
         .arg(&ll)
+        .args(dartforge_emit_native::alvo::argumentos_de_ligacao())
         .arg("-o")
         .arg(&dll)
         .status()

@@ -576,7 +576,7 @@ pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk
             }
         }
         Some(
-            cmd.args(crate::alvo::bibliotecas_do_sistema())
+            cmd.args(crate::alvo::argumentos_de_ligacao())
                 .arg("-o")
                 .arg(&arquivo_dll)
                 .status()
