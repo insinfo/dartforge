@@ -267,11 +267,12 @@ fn enum_name_index_implicito_le_os_campos_do_valor() {
     let fonte = "enum E { a, b; String d() => 'v=$name'; int i() => index + 1; }\n\
         void main() { print(E.a.d()); print(E.b.i()); }\n";
     let Some(ir) = ir_de_fonte(fonte) else { return };
+    // O campo é lido em linha: o par `(bits, is_ref)` de índice 1 ou 0.
     assert!(
-        ir.contains("@dartforge_object_get(i64 %") && ir.contains(", i64 1)"),
+        ir.contains("@dartforge_object_campos(i64 %") && ir.contains(", i64 1, i32 0"),
         "o $name implícito lê o campo 1:\n{ir}"
     );
-    assert!(ir.contains(", i64 0)"), "o index implícito lê o campo 0:\n{ir}");
+    assert!(ir.contains(", i64 0, i32 0"), "o index implícito lê o campo 0:\n{ir}");
 }
 
 /// O programa acima executado (AOT com SDK da fonte): implícito e explícito

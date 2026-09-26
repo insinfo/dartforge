@@ -3,6 +3,9 @@
 pub mod abi_c;
 pub mod externs;
 mod raizes;
+
+/// Maior índice de campo lido em linha (`CAMPOS_EM_LINHA` do runtime).
+const CAMPOS_EM_LINHA: usize = 4096;
 mod seletores;
 #[cfg(test)]
 mod testes;
@@ -565,12 +568,33 @@ impl<'a> LlvmEmitter<'a> {
                             ).unwrap();
                         }
                     }
+                    // O campo em linha: o par `(bits, is_ref)` de 16 bytes no
+                    // endereço que `dartforge_object_campos` dá (o layout é
+                    // conferido no runtime, `nucleo.rs`).
+                    Instruction::GetField { object, index } if (*index as usize) < CAMPOS_EM_LINHA => {
+                        let so = self.coagir(object, Type::I64);
+                        writeln!(self.out, "  %fc{v} = call i64 @dartforge_object_campos(i64 {so})").unwrap();
+                        writeln!(self.out, "  %fp{v} = inttoptr i64 %fc{v} to ptr").unwrap();
+                        writeln!(self.out, "  %fg{v} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {index}, i32 0").unwrap();
+                        writeln!(self.out, "  %v{v} = load i64, ptr %fg{v}, align 8").unwrap();
+                    }
                     Instruction::GetField { object, index } => {
                         let so = self.coagir(object, Type::I64);
                         writeln!(
                             self.out,
                             "  %v{v} = call i64 @dartforge_object_get(i64 {so}, i64 {index})"
                         ).unwrap();
+                    }
+                    Instruction::SetField { object, index, value } if (*index as usize) < CAMPOS_EM_LINHA => {
+                        let is_ref = u8::from(self.tipo_de(value) == Type::Ref);
+                        let so = self.coagir(object, Type::I64);
+                        let sv = self.coagir(value, Type::I64);
+                        writeln!(self.out, "  %fc{v} = call i64 @dartforge_object_campos(i64 {so})").unwrap();
+                        writeln!(self.out, "  %fp{v} = inttoptr i64 %fc{v} to ptr").unwrap();
+                        writeln!(self.out, "  %fg{v} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {index}, i32 0").unwrap();
+                        writeln!(self.out, "  store i64 {sv}, ptr %fg{v}, align 8").unwrap();
+                        writeln!(self.out, "  %fr{v} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {index}, i32 1").unwrap();
+                        writeln!(self.out, "  store i8 {is_ref}, ptr %fr{v}, align 8").unwrap();
                     }
                     Instruction::SetField { object, index, value } => {
                         let is_ref = u8::from(self.tipo_de(value) == Type::Ref);
@@ -608,6 +632,44 @@ impl<'a> LlvmEmitter<'a> {
                         } else {
                             writeln!(self.out, "  %v{v} = call {r} @{symbol}({joined})").unwrap();
                         }
+                    }
+                    // Campo com índice constante: em linha, como `GetField`.
+                    Instruction::CallRuntime { name, args, .. }
+                        if name == "dartforge_object_get"
+                            && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..CAMPOS_EM_LINHA as i64).contains(i)) =>
+                    {
+                        let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1) else { unreachable!() };
+                        let so = self.coagir(&args[0].0, Type::I64);
+                        writeln!(self.out, "  %fc{v} = call i64 @dartforge_object_campos(i64 {so})").unwrap();
+                        writeln!(self.out, "  %fp{v} = inttoptr i64 %fc{v} to ptr").unwrap();
+                        writeln!(self.out, "  %fg{v} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {i}, i32 0").unwrap();
+                        writeln!(self.out, "  %v{v} = load i64, ptr %fg{v}, align 8").unwrap();
+                    }
+                    Instruction::CallRuntime { name, args, .. }
+                        if name == "dartforge_object_set"
+                            && args.len() == 4
+                            && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..CAMPOS_EM_LINHA as i64).contains(i)) =>
+                    {
+                        let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1) else { unreachable!() };
+                        let so = self.coagir(&args[0].0, Type::I64);
+                        let sv = self.coagir(&args[2].0, Type::I64);
+                        // `is_ref` é um `bool` do Rust: só 0 ou 1.
+                        let is_ref = match &args[3].0 {
+                            Operand::Constant(Constant::Int(n)) => u8::from(*n != 0).to_string(),
+                            Operand::Constant(Constant::Bool(b)) => u8::from(*b).to_string(),
+                            outro => {
+                                let x = self.coagir(outro, Type::I64);
+                                writeln!(self.out, "  %fb{v} = icmp ne i64 {x}, 0").unwrap();
+                                writeln!(self.out, "  %fz{v} = zext i1 %fb{v} to i8").unwrap();
+                                format!("%fz{v}")
+                            }
+                        };
+                        writeln!(self.out, "  %fc{v} = call i64 @dartforge_object_campos(i64 {so})").unwrap();
+                        writeln!(self.out, "  %fp{v} = inttoptr i64 %fc{v} to ptr").unwrap();
+                        writeln!(self.out, "  %fg{v} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {i}, i32 0").unwrap();
+                        writeln!(self.out, "  store i64 {sv}, ptr %fg{v}, align 8").unwrap();
+                        writeln!(self.out, "  %fr{v} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {i}, i32 1").unwrap();
+                        writeln!(self.out, "  store i8 {is_ref}, ptr %fr{v}, align 8").unwrap();
                     }
                     Instruction::CallRuntime { name, args, ret_ty }
                         if name == "dartforge_object_new"
@@ -1995,6 +2057,13 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::IntToDouble(a)
             | Instruction::DoubleToInt(a) => !escalar(a),
             Instruction::Alloca(_) | Instruction::Load { .. } | Instruction::Phi { .. } => false,
+            // Em linha (load/store no vetor de campos), sem conversão que
+            // aloque: um `Ref` já é `i64`, um `double` é `bitcast`.
+            Instruction::GetField { index, .. } => (*index as usize) >= CAMPOS_EM_LINHA,
+            Instruction::SetField { index, value, .. } => {
+                (*index as usize) >= CAMPOS_EM_LINHA
+                    || matches!(value, Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)))
+            }
             Instruction::Store { ptr, val } => {
                 let t = match ptr {
                     Operand::Val(p) => self.apontado.get(p).copied().unwrap_or(Type::I64),

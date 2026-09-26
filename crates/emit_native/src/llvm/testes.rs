@@ -207,7 +207,8 @@ fn local_ref_tem_slot_proprio() {
     );
 }
 
-/// E1: gravar um `Ref` num campo leva `is_ref = 1`; um escalar, 0.
+/// E1: gravar um `Ref` num campo leva `is_ref = 1`; um escalar, 0 — em
+/// linha, no par `(bits, is_ref)` do vetor de campos.
 #[test]
 fn campo_ref_leva_is_ref() {
     let (v0, v1) = (ValueId(0), ValueId(1));
@@ -245,14 +246,12 @@ fn campo_ref_leva_is_ref() {
     );
     let ir = emitir(f);
     let corpo = corpo_de(&ir, "k");
-    assert!(
-        corpo.contains("@dartforge_object_set(i64 %v0, i64 0, i64 %v1, i8 1)"),
-        "{corpo}"
-    );
-    assert!(
-        corpo.contains("@dartforge_object_set(i64 %v0, i64 1, i64 7, i8 0)"),
-        "{corpo}"
-    );
+    assert!(corpo.contains("%fc2 = call i64 @dartforge_object_campos(i64 %v0)"), "{corpo}");
+    assert!(corpo.contains("ptr %fp2, i64 0, i32 0\n  store i64 %v1, ptr %fg2"), "{corpo}");
+    assert!(corpo.contains("store i8 1, ptr %fr2"), "{corpo}");
+    assert!(corpo.contains("store i64 7, ptr %fg3"), "{corpo}");
+    assert!(corpo.contains("store i8 0, ptr %fr3"), "{corpo}");
+    assert!(!corpo.contains("@dartforge_object_set("), "{corpo}");
 }
 
 /// E3: o verificador recusa constante inteira numa posição `Ref` e tag
