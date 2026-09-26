@@ -9,7 +9,7 @@
 
 thread_local! {
     /// Tabela de métodos por id de classe: (ponteiro para os pares, quantos).
-    static METODOS: RefCell<HashMap<i64, (usize, usize)>> = RefCell::new(HashMap::new());
+    static METODOS: RefCell<HashMap<i64, (usize, usize)>> = RefCell::new(HashMap::default());
     /// Ids de classe (do SDK da fonte) dos valores que o runtime representa
     /// por conta própria, na ordem de `CID_*`; vazio sem o SDK da fonte.
     static CIDS_DO_RUNTIME: RefCell<Vec<i64>> = const { RefCell::new(Vec::new()) };

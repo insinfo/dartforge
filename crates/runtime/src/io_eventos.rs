@@ -491,14 +491,14 @@ fn iniciar_manipulador() -> ManipuladorDeEventos {
 struct LacoDeEventos {
     sondagem: Sondagem,
     interrupcao: i32,
-    descritores: std::collections::HashMap<i64, InfoDeDescritor>,
+    descritores: crate::hash::HashMap<i64, InfoDeDescritor>,
 }
 
 #[cfg(unix)]
 impl LacoDeEventos {
     fn novo(interrupcao: i32) -> LacoDeEventos {
         let sondagem = Sondagem::nova(interrupcao);
-        LacoDeEventos { sondagem, interrupcao, descritores: std::collections::HashMap::new() }
+        LacoDeEventos { sondagem, interrupcao, descritores: crate::hash::HashMap::default() }
     }
 
     fn rodar(mut self) {
@@ -740,7 +740,7 @@ unsafe extern "C" {
 struct Sondagem {
     kq: i32,
     /// Os descritores que estão no kqueue e se são de escuta.
-    vigiados: std::cell::RefCell<std::collections::HashMap<i64, bool>>,
+    vigiados: std::cell::RefCell<crate::hash::HashMap<i64, bool>>,
 }
 
 #[cfg(all(unix, not(target_os = "linux")))]
@@ -769,7 +769,7 @@ impl Sondagem {
         if unsafe { kevent(kq, &ev, 1, std::ptr::null_mut(), 0, std::ptr::null()) } == -1 {
             panic!("dart:io: falha ao vigiar o pipe de interrupção");
         }
-        Sondagem { kq, vigiados: std::cell::RefCell::new(std::collections::HashMap::new()) }
+        Sondagem { kq, vigiados: std::cell::RefCell::new(crate::hash::HashMap::default()) }
     }
 
     /// `AddToKqueue`.
@@ -880,7 +880,7 @@ struct RegistroDeEscuta {
     /// Os soquetes do sistema.
     soquetes: Vec<SoqueteDeEscuta>,
     /// Soquete nativo (ponteiro) → descritor do sistema.
-    por_soquete: std::collections::HashMap<i64, i64>,
+    por_soquete: crate::hash::HashMap<i64, i64>,
 }
 
 fn registro_de_escuta() -> std::sync::MutexGuard<'static, RegistroDeEscuta> {

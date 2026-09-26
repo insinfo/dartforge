@@ -396,7 +396,8 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i8 @dartforge_exception_pending()",
-        efeitos: CONSERVADOR,
+        // Só lê ou limpa a pendência: não aloca.
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare i64 @dartforge_exception_take_bits()",
@@ -416,7 +417,8 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare void @dartforge_exception_clear()",
-        efeitos: CONSERVADOR,
+        // Só lê ou limpa a pendência: não aloca.
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare void @dartforge_register_subclass(i64, i64)",
@@ -1066,10 +1068,8 @@ pub const EXTERNS: &[Extern] = &[
 
 /// Efeitos da extern `nome`; desconhecida é conservadora.
 pub fn efeitos_de(nome: &str) -> Efeitos {
-    EXTERNS
-        .iter()
-        .find(|e| e.nome() == nome)
-        .map_or(CONSERVADOR, |e| e.efeitos)
+    static TABELA: std::sync::OnceLock<std::collections::HashMap<&'static str, Efeitos>> = std::sync::OnceLock::new();
+    TABELA.get_or_init(|| EXTERNS.iter().map(|e| (e.nome(), e.efeitos)).collect()).get(nome).copied().unwrap_or(CONSERVADOR)
 }
 
 #[cfg(test)]

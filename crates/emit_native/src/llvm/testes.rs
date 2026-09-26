@@ -52,9 +52,10 @@ fn literal_wtf8_preserva_surrogate_isolado_no_ir() {
     assert!(!ir.contains("\\EF\\BF\\BD"), "surrogate foi substituído: {ir}");
 }
 
-/// G1/G3: função com `Ref` abre o quadro, enraíza parâmetro e resultado de
-/// chamada, e fecha o quadro antes de TODO `ret` — inclusive o da saída
-/// por exceção.
+/// G1/G3: função com `Ref` vivo num ponto de coleta abre o quadro, enraíza
+/// o parâmetro (argumento da chamada que aloca) e fecha o quadro antes de
+/// TODO `ret` — inclusive o da saída por exceção. O resultado da chamada só
+/// é usado no `ret`, sem coleta no meio: não ganha raiz (`raizes.rs`).
 #[test]
 fn quadro_de_raizes_em_todo_ret() {
     let v0 = ValueId(0);
@@ -97,22 +98,57 @@ fn quadro_de_raizes_em_todo_ret() {
     let ir = emitir(f);
     let corpo = corpo_de(&ir, "f");
     assert!(
-        corpo.contains("%gcq = alloca { ptr, i64, [2 x i64] }")
+        corpo.contains("%gcq = alloca { ptr, i64, [1 x i64] }")
             && corpo.contains("call void @dartforge_gc_empilhar(ptr %gcq)"),
         "{corpo}"
     );
-    assert!(
-        corpo.contains("store i64 %v0, ptr %gcs0"),
-        "{corpo}"
-    );
-    assert!(
-        corpo.contains("store i64 %v1, ptr %gcs1"),
-        "{corpo}"
-    );
+    assert!(corpo.contains("store i64 %v0, ptr %gcs0"), "{corpo}");
+    assert!(!corpo.contains("store i64 %v1, ptr"), "{corpo}");
     let rets = corpo.matches("\n  ret ").count();
     let pops = corpo.matches("@dartforge_gc_desempilhar(ptr %gcq)").count();
     assert_eq!(rets, 2, "{corpo}");
     assert_eq!(pops, rets, "todo ret fecha o quadro: {corpo}");
+}
+
+/// Uma chamada que aloca.
+fn concat(a: ValueId, b: ValueId) -> Instruction {
+    Instruction::CallRuntime {
+        name: "dartforge_string_concat".to_string(),
+        args: vec![(Operand::Val(a), Type::Ref), (Operand::Val(b), Type::Ref)],
+        ret_ty: Type::Ref,
+    }
+}
+
+/// Vivacidade: `v1` atravessa a segunda chamada (é usado depois dela) e
+/// ganha raiz; `v0` morre na primeira e `v1` nasce dela, então os dois
+/// dividem o slot; `v2` só vai ao `ret`.
+#[test]
+fn raizes_por_vivacidade_e_slot_compartilhado() {
+    let (v0, v1, v2, v3) = (ValueId(0), ValueId(1), ValueId(2), ValueId(3));
+    let f = funcao(
+        "g",
+        vec![(v0, "s".to_string(), Type::Ref)],
+        Type::Ref,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![
+                (v1, concat(v0, v0), Type::Ref),
+                (v2, concat(v1, v1), Type::Ref),
+                (v3, concat(v2, v1), Type::Ref),
+            ],
+            terminator: Terminator::Return(Some(Operand::Val(v3))),
+        }],
+    );
+    let ir = emitir(f);
+    let corpo = corpo_de(&ir, "g");
+    // v0 e v1 no slot 0 (não interferem: v0 morre na definição de v1); v2
+    // é argumento da terceira chamada junto com v1, então interfere e vai
+    // ao slot 1; v3 não passa por coleta.
+    assert!(corpo.contains("[2 x i64]"), "{corpo}");
+    assert!(corpo.contains("store i64 %v0, ptr %gcs0"), "{corpo}");
+    assert!(corpo.contains("store i64 %v1, ptr %gcs0"), "{corpo}");
+    assert!(corpo.contains("store i64 %v2, ptr %gcs1"), "{corpo}");
+    assert!(!corpo.contains("store i64 %v3, ptr"), "{corpo}");
 }
 
 /// G: função sem valor `Ref` não abre quadro.

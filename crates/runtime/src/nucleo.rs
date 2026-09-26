@@ -120,7 +120,7 @@ pub fn finalizar_programa() -> i32 {
 
 use crate::heap::{Heap, TaggedValue, Texto, TextoMut, Value};
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use crate::hash::{HashMap, HashSet};
 
 thread_local! {
     /// SDK da fonte: o `toString()` Dart de um valor (a
@@ -128,8 +128,13 @@ thread_local! {
     /// capturada.
     static PARA_TEXTO: std::cell::Cell<Option<extern "C" fn(i64) -> i64>> = const { std::cell::Cell::new(None) };
     static HEAP: RefCell<Heap> = RefCell::new(Heap::new(std::env::var_os("DARTFORGE_GC_STRESS").is_some()));
-    static CLASS_NAMES: RefCell<HashMap<i64, String>> = RefCell::new(HashMap::new());
-    static SUBCLASSES: RefCell<HashMap<i64, Vec<i64>>> = RefCell::new(HashMap::new());
+    static CLASS_NAMES: RefCell<HashMap<i64, String>> = RefCell::new(HashMap::default());
+    static SUBCLASSES: RefCell<HashMap<i64, Vec<i64>>> = RefCell::new(HashMap::default());
+    /// As respostas de [`is_subclass`] já calculadas: toda checagem de tipo
+    /// passa por aqui (a covariância de cada `Map.[]=`, por exemplo), e a
+    /// busca no grafo alocava um conjunto por consulta. Limpo a cada
+    /// registro de subclasse (a carga e cada recarga).
+    static SUBTIPO_CALCULADO: RefCell<HashMap<(i64, i64), u8>> = RefCell::new(HashMap::default());
 }
 
 /// O heap para as funções do caminho rápido que o emissor declara com
@@ -170,6 +175,7 @@ pub extern "C" fn dartforge_register_subclass(sub_id: i64, super_id: i64) {
         let lista = supers.entry(sub_id).or_default();
         if !lista.contains(&super_id) {
             lista.push(super_id);
+            SUBTIPO_CALCULADO.with(|c| c.borrow_mut().clear());
         }
     });
 }
@@ -192,9 +198,19 @@ fn is_subclass(class_id: i64, target_class: i64) -> u8 {
         // Object é supertipo de toda classe nominal
         return 1;
     }
+    if let Some(r) = SUBTIPO_CALCULADO.with(|c| c.borrow().get(&(class_id, target_class)).copied()) {
+        return r;
+    }
+    let r = subclasse_pelo_grafo(class_id, target_class);
+    SUBTIPO_CALCULADO.with(|c| c.borrow_mut().insert((class_id, target_class), r));
+    r
+}
+
+/// A busca de [`is_subclass`] no grafo de supertipos diretos.
+fn subclasse_pelo_grafo(class_id: i64, target_class: i64) -> u8 {
     SUBCLASSES.with(|map| {
         let map = map.borrow();
-        let mut visited = std::collections::HashSet::new();
+        let mut visited = crate::hash::HashSet::default();
         let mut queue = std::collections::VecDeque::new();
         queue.push_back(class_id);
         visited.insert(class_id);

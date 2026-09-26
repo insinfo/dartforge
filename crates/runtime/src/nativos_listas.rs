@@ -17,7 +17,7 @@
 
 thread_local! {
     /// Funções Dart que o runtime chama, pelo nome (`_dartforgeErroDeIndice`…).
-    static AJUDANTES: RefCell<HashMap<String, usize>> = RefCell::new(HashMap::new());
+    static AJUDANTES: RefCell<HashMap<String, usize>> = RefCell::new(HashMap::default());
 }
 
 /// Registra uma função Dart que o runtime chama pelo nome.

@@ -91,6 +91,13 @@ struct Universo {
     cache_sub: HashMap<(i64, i64), bool>,
     cache_aval: HashMap<(i64, i64, i64, i64), i64>,
     receitas: HashMap<Vec<u16>, i64>,
+    /// `Interface(classe, [])` já internado, por classe: o tipo de todo
+    /// `int`, `double`, `String`… de uma checagem, sem montar e hashear o
+    /// `Tipo` a cada vez (ids internados nunca mudam).
+    sem_args: HashMap<i64, i64>,
+    /// O tipo cru de cada classe, com a aridade com que foi calculado (uma
+    /// recarga que mude a aridade recalcula).
+    crus: HashMap<i64, (usize, i64)>,
 }
 
 thread_local! {
@@ -233,6 +240,14 @@ impl Universo {
     }
 
     fn interface(&mut self, classe: i64, args: Vec<i64>) -> i64 {
+        if args.is_empty() {
+            if let Some(&id) = self.sem_args.get(&classe) {
+                return id;
+            }
+            let id = self.internar(Tipo::Interface(classe, args));
+            self.sem_args.insert(classe, id);
+            return id;
+        }
         self.internar(Tipo::Interface(classe, args))
     }
 
@@ -244,7 +259,14 @@ impl Universo {
     /// Tipo cru de uma classe: argumentos `dynamic`.
     fn cru(&mut self, classe: i64) -> i64 {
         let n = self.classes.get(&classe).map_or(0, |c| c.1);
-        self.interface(classe, vec![T_DINAMICO; n])
+        if let Some(&(aridade, id)) = self.crus.get(&classe)
+            && aridade == n
+        {
+            return id;
+        }
+        let id = self.interface(classe, vec![T_DINAMICO; n]);
+        self.crus.insert(classe, (n, id));
+        id
     }
 
     /// Troca as variáveis de receita pelos tipos do ambiente.
@@ -1020,7 +1042,7 @@ pub extern "C" fn dartforge_rti_como(v: i64, t: i64) {
 const CLASSE_TIPO: i64 = 0x3FFF_FF01;
 
 thread_local! {
-    static OBJETOS_TIPO: RefCell<HashMap<i64, i64>> = RefCell::new(HashMap::new());
+    static OBJETOS_TIPO: RefCell<HashMap<i64, i64>> = RefCell::new(HashMap::default());
 }
 
 /// O objeto `Type` canônico do tipo `t` (raiz permanente, como os valores

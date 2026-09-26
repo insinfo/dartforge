@@ -215,7 +215,7 @@ struct EsperaDeFilhos {
 #[derive(Default)]
 struct EstadoDaEspera {
     /// pid → lado de escrita do pipe de saída.
-    ativos: std::collections::HashMap<i32, i32>,
+    ativos: crate::hash::HashMap<i32, i32>,
     rodando: bool,
 }
 
@@ -824,9 +824,9 @@ unsafe extern "C" {
 }
 
 #[cfg(unix)]
-fn inscricoes_mutex() -> std::sync::MutexGuard<'static, std::collections::HashMap<i32, usize>> {
+fn inscricoes_mutex() -> std::sync::MutexGuard<'static, crate::hash::HashMap<i32, usize>> {
     // Sinal → o tratador anterior, restaurado quando a última inscrição sai.
-    static M: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<i32, usize>>> = std::sync::OnceLock::new();
+    static M: std::sync::OnceLock<std::sync::Mutex<crate::hash::HashMap<i32, usize>>> = std::sync::OnceLock::new();
     M.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner())
 }
 
@@ -874,7 +874,7 @@ fn inscrever_sinal(sinal: i64) -> ResultadoIo<i64> {
 /// tratador, espera os `write` em andamento e fecha o lado de escrita; o
 /// tratador anterior volta quando o sinal fica sem inscrições.
 #[cfg(unix)]
-fn remover_inscricoes(anteriores: &mut std::collections::HashMap<i32, usize>, filtro: impl Fn(&InscricaoDeSinal) -> bool) {
+fn remover_inscricoes(anteriores: &mut crate::hash::HashMap<i32, usize>, filtro: impl Fn(&InscricaoDeSinal) -> bool) {
     use std::sync::atomic::Ordering::SeqCst;
     for i in &INSCRICOES {
         let sinal = i.sinal.load(SeqCst);

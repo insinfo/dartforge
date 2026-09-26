@@ -2,6 +2,7 @@
 
 pub mod abi_c;
 pub mod externs;
+mod raizes;
 mod seletores;
 #[cfg(test)]
 mod testes;
@@ -327,35 +328,17 @@ impl<'a> LlvmEmitter<'a> {
         let (ligacao, comdat) = self.ligacao_de(&func.symbol);
         writeln!(self.out, "define {ligacao}{ret_ty} @{}({}){comdat} {{", func.symbol, params_str).unwrap();
 
-        // G1/G2 (docs/NATIVO-PLANO.md §6.5): um slot fixo por `alloca` de
-        // tipo `Ref` e por valor SSA `Ref` (parâmetro, resultado de chamada,
-        // `Load`, `phi`, caixa, alocação). A ordem é a das instruções, para
-        // o IR ser determinístico.
-        self.slots.clear();
-        for block in &func.blocks {
-            for (vid, inst, _) in &block.instructions {
-                if matches!(inst, Instruction::Alloca(Type::Ref)) {
-                    let n = self.slots.len();
-                    self.slots.insert(*vid, n);
-                }
-            }
-        }
-        for (vid, _, ty) in &func.params {
-            if *ty == Type::Ref {
-                let n = self.slots.len();
-                self.slots.insert(*vid, n);
-            }
-        }
-        for block in &func.blocks {
-            for (vid, inst, _) in &block.instructions {
-                let define_ref = self.tipos.get(vid) == Some(&Type::Ref)
-                    && !matches!(inst, Instruction::Const(Constant::Null) | Instruction::Alloca(_));
-                if define_ref {
-                    let n = self.slots.len();
-                    self.slots.insert(*vid, n);
-                }
-            }
-        }
+        // G1/G2 (docs/NATIVO-PLANO.md §6.5): um slot por `alloca` de tipo
+        // `Ref`, e os valores SSA `Ref` vivos em algum ponto de coleta, com
+        // slot compartilhado entre os que nunca estão vivos juntos
+        // (`raizes.rs`).
+        let blocos_que_convertem: std::collections::HashSet<u32> = self.conv_phi.iter().map(|(b, ..)| *b).collect();
+        self.slots = raizes::atribuir_slots(
+            func,
+            &self.tipos,
+            &|inst| self.pode_coletar(inst),
+            &|b| blocos_que_convertem.contains(&b.0),
+        );
         self.tem_frame = !self.slots.is_empty();
 
         for block in &func.blocks {
@@ -378,8 +361,9 @@ impl<'a> LlvmEmitter<'a> {
                 // O quadro de raízes no stack da função (a pilha-sombra,
                 // `QuadroDeRaizes` do runtime): anterior, número de slots e
                 // os slots, zerados antes de o runtime encadeá-lo. Cada raiz
-                // é um `store` no slot dela.
-                let n = self.slots.len();
+                // é um `store` no slot dela (slots compartilhados: o tamanho
+                // é o do maior).
+                let n = self.slots.values().max().map_or(0, |m| m + 1);
                 let t = format!("{{ ptr, i64, [{n} x i64] }}");
                 writeln!(self.out, "  %gcq = alloca {t}, align 8").unwrap();
                 writeln!(self.out, "  store {t} {{ ptr null, i64 {n}, [{n} x i64] zeroinitializer }}, ptr %gcq").unwrap();
@@ -387,9 +371,8 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  %gcs{slot} = getelementptr inbounds {t}, ptr %gcq, i64 0, i32 2, i64 {slot}").unwrap();
                 }
                 writeln!(self.out, "  call void @dartforge_gc_empilhar(ptr %gcq)").unwrap();
-                for (vid, _, ty) in &func.params {
-                    if *ty == Type::Ref {
-                        let slot = self.slots[vid];
+                for (vid, _, _) in &func.params {
+                    if let Some(&slot) = self.slots.get(vid) {
                         writeln!(self.out, "  store i64 %v{}, ptr %gcs{slot}", vid.0).unwrap();
                     }
                 }
@@ -1969,6 +1952,69 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     /// Tipo estatico de um operando dentro da funcao corrente.
+    /// A instrução pode alocar (e, portanto, coletar)? Conservador: só não
+    /// coleta o que comprovadamente emite só aritmética, memória local ou
+    /// extern que não aloca — e sem conversão que encaixote (um operando
+    /// `Ref` onde se espera escalar pode lançar `TypeError`, que aloca; um
+    /// escalar onde se espera `Ref`, ou uma constante de texto, aloca).
+    fn pode_coletar(&self, inst: &Instruction) -> bool {
+        let escalar = |op: &Operand| {
+            self.tipo_de(op) != Type::Ref && !matches!(op, Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)))
+        };
+        let exato = |op: &Operand, t: Type| match op {
+            Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)) => false,
+            Operand::Constant(Constant::Null) => t == Type::Ref,
+            _ => {
+                let a = self.tipo_de(op);
+                a == t || (a != Type::Ref && t != Type::Ref)
+            }
+        };
+        match inst {
+            Instruction::Const(Constant::Int(_) | Constant::Double(_) | Constant::Bool(_) | Constant::Null) => false,
+            Instruction::Add(a, b)
+            | Instruction::Sub(a, b)
+            | Instruction::Mul(a, b)
+            | Instruction::SDiv(a, b)
+            | Instruction::SRem(a, b)
+            | Instruction::Shl(a, b)
+            | Instruction::AShr(a, b)
+            | Instruction::LShr(a, b)
+            | Instruction::And(a, b)
+            | Instruction::Or(a, b)
+            | Instruction::Xor(a, b)
+            | Instruction::FAdd(a, b)
+            | Instruction::FSub(a, b)
+            | Instruction::FMul(a, b)
+            | Instruction::FDiv(a, b)
+            | Instruction::ICmp(_, a, b)
+            | Instruction::FCmp(_, a, b) => !(escalar(a) && escalar(b)),
+            Instruction::Neg(a)
+            | Instruction::Not(a)
+            | Instruction::FNeg(a)
+            | Instruction::LNot(a)
+            | Instruction::IntToDouble(a)
+            | Instruction::DoubleToInt(a) => !escalar(a),
+            Instruction::Alloca(_) | Instruction::Load { .. } | Instruction::Phi { .. } => false,
+            Instruction::Store { ptr, val } => {
+                let t = match ptr {
+                    Operand::Val(p) => self.apontado.get(p).copied().unwrap_or(Type::I64),
+                    _ => return true,
+                };
+                !exato(val, t)
+            }
+            Instruction::CargaNativa { endereco, indice, .. } => !(escalar(endereco) && escalar(indice)),
+            Instruction::GravacaoNativa { endereco, indice, valor, .. } => {
+                !(escalar(endereco) && escalar(indice) && escalar(valor))
+            }
+            Instruction::CallRuntime { name, args, .. } => {
+                let e = externs::efeitos_de(name);
+                let nao_aloca = !e.aloca && !e.chama_dart;
+                !(nao_aloca && args.iter().all(|(a, t)| exato(a, *t)))
+            }
+            _ => true,
+        }
+    }
+
     fn tipo_de(&self, op: &Operand) -> Type {
         match op {
             Operand::Val(v) => self.tipos.get(v).copied().unwrap_or(Type::I64),

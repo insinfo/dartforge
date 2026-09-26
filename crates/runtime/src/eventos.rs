@@ -42,7 +42,7 @@ struct Eventos {
     fila: std::collections::BTreeMap<(i64, i64), i64>,
     prox_seq: i64,
     /// Timers ativos por id (o de `DartForge_Timer_novo`, nunca 0).
-    ativos: std::collections::HashMap<i64, TimerDoLaco>,
+    ativos: crate::hash::HashMap<i64, TimerDoLaco>,
     prox_id: i64,
     prox_raiz: i64,
     inicio: Option<std::time::Instant>,

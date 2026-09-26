@@ -412,8 +412,8 @@ mod processos_windows {
         pipe: Bruto,
     }
 
-    fn processos_vivos() -> std::sync::MutexGuard<'static, std::collections::HashMap<u32, ProcessoVivo>> {
-        static P: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<u32, ProcessoVivo>>> = std::sync::OnceLock::new();
+    fn processos_vivos() -> std::sync::MutexGuard<'static, crate::hash::HashMap<u32, ProcessoVivo>> {
+        static P: std::sync::OnceLock<std::sync::Mutex<crate::hash::HashMap<u32, ProcessoVivo>>> = std::sync::OnceLock::new();
         P.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner())
     }
 

@@ -76,8 +76,8 @@ thread_local! {
 
 /// Porta de controle → nome de depuração (`Isolate.debugName`), de todos os
 /// isolados vivos.
-fn nomes_dos_isolados() -> std::sync::MutexGuard<'static, std::collections::HashMap<i64, String>> {
-    static N: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<i64, String>>> = std::sync::OnceLock::new();
+fn nomes_dos_isolados() -> std::sync::MutexGuard<'static, crate::hash::HashMap<i64, String>> {
+    static N: std::sync::OnceLock<std::sync::Mutex<crate::hash::HashMap<i64, String>>> = std::sync::OnceLock::new();
     N.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner())
 }
 

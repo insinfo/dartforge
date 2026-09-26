@@ -57,21 +57,21 @@ pub struct ContextoCallback {
 }
 
 /// Chave da assinatura → a entrada C do callback.
-fn entradas_de_callback() -> &'static std::sync::RwLock<std::collections::HashMap<String, usize>> {
-    static T: std::sync::OnceLock<std::sync::RwLock<std::collections::HashMap<String, usize>>> = std::sync::OnceLock::new();
+fn entradas_de_callback() -> &'static std::sync::RwLock<crate::hash::HashMap<String, usize>> {
+    static T: std::sync::OnceLock<std::sync::RwLock<crate::hash::HashMap<String, usize>>> = std::sync::OnceLock::new();
     T.get_or_init(Default::default)
 }
 
 /// Ponteiro de função → contexto, dos callbacks vivos.
-fn callbacks_vivos() -> &'static std::sync::Mutex<std::collections::HashMap<usize, usize>> {
-    static T: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<usize, usize>>> = std::sync::OnceLock::new();
+fn callbacks_vivos() -> &'static std::sync::Mutex<crate::hash::HashMap<usize, usize>> {
+    static T: std::sync::OnceLock<std::sync::Mutex<crate::hash::HashMap<usize, usize>>> = std::sync::OnceLock::new();
     T.get_or_init(Default::default)
 }
 
 thread_local! {
     /// Os `fromFunction` deste isolado: (chave, sítio, código da função,
     /// excepcional) → ponteiro de função.
-    static PERSISTENTES: RefCell<std::collections::HashMap<(String, i64, i64, i64), usize>> = RefCell::new(std::collections::HashMap::new());
+    static PERSISTENTES: RefCell<crate::hash::HashMap<(String, i64, i64, i64), usize>> = RefCell::new(crate::hash::HashMap::default());
 }
 
 /// # Safety
