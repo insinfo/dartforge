@@ -74,73 +74,53 @@ fn lista_len(this: i64) -> i64 {
 /// do runtime: o emissor a declara `memory(inaccessiblemem: read)`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_lista_len_rapido(h: i64, escrita: i64) -> i64 {
-    HEAP.with(|heap| {
-        let heap = heap.borrow();
+    heap_sem_emprestimo(|heap| {
         match heap.try_get(h) {
-            Some(Value::List(itens)) if escrita == 0 || !heap.imutaveis.contains(&h) => {
-                heap.pendentes.get(&h).map_or(itens.len(), |&n| n) as i64
+            // Os conjuntos quase sempre estão vazios: sem o hash no caso comum.
+            Some(Value::List(itens)) if escrita == 0 || heap.imutaveis.is_empty() || !heap.imutaveis.contains(&h) => {
+                if heap.pendentes.is_empty() {
+                    itens.len() as i64
+                } else {
+                    heap.pendentes.get(&h).map_or(itens.len(), |&n| n) as i64
+                }
             }
             _ => 0,
         }
     })
 }
 
-/// O elemento `i` (já conferido) de uma lista do runtime.
-fn elemento_da_lista(heap: &Heap, h: i64, i: i64) -> Option<TaggedValue> {
-    match heap.try_get(h) {
-        Some(Value::List(itens)) => itens.get(usize::try_from(i).ok()?).copied(),
-        _ => None,
-    }
-}
-
-/// `lista[i]` de uma `List<int>`: o `int` sem caixa.
+/// O endereço dos elementos (`TaggedValue`, 16 bytes cada) de `h` se ela
+/// é uma lista do runtime, senão 0. O código gerado lê e grava o elemento
+/// em linha (`lower/tipados.rs`): o buffer é memória que o módulo acessa;
+/// esta função lê só o cabeçalho do vetor, que muda apenas por chamadas sem
+/// atributo (crescer, encolher, `_setData`) — o endereço vale até a próxima
+/// delas, e o LLVM não o reaproveita depois de uma. Daí `memory(inaccessiblemem: read)`: uma
+/// gravação de elemento em linha não invalida o endereço, e qualquer
+/// chamada que possa realocar o vetor invalida.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_lista_int(h: i64, i: i64) -> i64 {
-    HEAP.with(|heap| {
-        let heap = heap.borrow();
-        match elemento_da_lista(&heap, h, i) {
-            Some(v) if v.tag == ValueTag::Int => v.bits,
-            Some(v) if v.is_ref => heap.int_de_ref(v.bits).unwrap_or(0),
+pub extern "C" fn dartforge_lista_dados(h: i64) -> i64 {
+    heap_sem_emprestimo(|heap| {
+        if heap.try_get(h).is_none() {
+            return 0;
+        }
+        // O ponteiro mutável: o código gerado grava por ele.
+        match heap.get_mut(h) {
+            Value::List(itens) => itens.as_mut_ptr() as i64,
             _ => 0,
         }
     })
 }
 
-/// `lista[i]` de uma `List<double>`: o `double` sem caixa.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_lista_double(h: i64, i: i64) -> f64 {
-    HEAP.with(|heap| {
-        let heap = heap.borrow();
-        match elemento_da_lista(&heap, h, i) {
-            Some(v) if v.tag == ValueTag::Double => f64::from_bits(v.bits as u64),
-            _ => 0.0,
-        }
-    })
-}
-
-/// `lista[i]` numa posição `Ref` (a caixa de um escalar, se for o caso).
+/// `lista[i]` (já conferido) numa posição `Ref` (a caixa de um escalar, se
+/// for o caso): o caminho do código gerado quando a tag do elemento não é
+/// a da representação esperada.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_lista_ref(h: i64, i: i64) -> i64 {
-    let v = HEAP.with(|heap| elemento_da_lista(&heap.borrow(), h, i));
+    let v = HEAP.with(|heap| match heap.borrow().try_get(h) {
+        Some(Value::List(itens)) => usize::try_from(i).ok().and_then(|i| itens.get(i).copied()),
+        _ => None,
+    });
     v.map_or(0, valor_como_ref)
-}
-
-/// `lista[i] = v` de uma `List<int>` modificável, índice já conferido.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_lista_gravar_int(h: i64, i: i64, v: i64) {
-    HEAP.with(|heap| heap.borrow_mut().list_set(h, i as usize, TaggedValue::scalar(v)));
-}
-
-/// `lista[i] = v` de uma `List<double>` modificável, índice já conferido.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_lista_gravar_double(h: i64, i: i64, v: f64) {
-    HEAP.with(|heap| heap.borrow_mut().list_set(h, i as usize, TaggedValue::double(v)));
-}
-
-/// `lista[i] = v` de uma `List<bool>` modificável, índice já conferido.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_lista_gravar_bool(h: i64, i: i64, v: i8) {
-    HEAP.with(|heap| heap.borrow_mut().list_set(h, i as usize, TaggedValue::boolean(v != 0)));
 }
 
 /// `_List(length)`: `length` nulls, tamanho fixo. O parâmetro não tem tipo

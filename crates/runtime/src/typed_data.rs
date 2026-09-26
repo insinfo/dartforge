@@ -153,8 +153,7 @@ pub extern "C" fn dartforge_nativo_TypedDataBase_length(this: i64) -> i64 {
 /// declara `memory(inaccessiblemem: read)`, e o LLVM a tira dos laços.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_typed_len(h: i64, tipo: i64, escrita: i64) -> i64 {
-    HEAP.with(|heap| {
-        let heap = heap.borrow();
+    heap_sem_emprestimo(|heap| {
         let apta = match heap.try_get(h) {
             Some(Value::TypedData { tipo: t, .. }) => i64::from(*t) == tipo,
             Some(Value::TypedView { tipo: t, imutavel, .. }) => i64::from(*t) == tipo && (escrita == 0 || !imutavel),
@@ -163,7 +162,7 @@ pub extern "C" fn dartforge_typed_len(h: i64, tipo: i64, escrita: i64) -> i64 {
         if !apta {
             return 0;
         }
-        resolver(&heap, h).map_or(0, |(_, _, _, n)| n as i64)
+        resolver(heap, h).map_or(0, |(_, _, _, n)| n as i64)
     })
 }
 
@@ -174,11 +173,13 @@ pub extern "C" fn dartforge_typed_len(h: i64, tipo: i64, escrita: i64) -> i64 {
 /// compacta), nem a memória externa de `asTypedList`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_typed_ptr(h: i64) -> i64 {
-    HEAP.with(|heap| {
-        let heap = heap.borrow();
-        resolver(&heap, h).map_or(0, |(interna, deslocamento, _, _)| {
-            bytes_de(&heap, interna).as_ptr() as i64 + deslocamento as i64
-        })
+    heap_sem_emprestimo(|heap| {
+        let Some((interna, deslocamento, _, _)) = resolver(heap, h) else { return 0 };
+        // O ponteiro mutável: o código gerado grava por ele.
+        match heap.get_mut(interna) {
+            Value::TypedData { bytes, .. } => bytes.as_mut_ptr() as i64 + deslocamento as i64,
+            _ => 0,
+        }
     })
 }
 

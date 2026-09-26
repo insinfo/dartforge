@@ -309,36 +309,22 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_typed_ptr(i64) memory(none) nounwind willreturn speculatable",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
-    // O caminho rápido das listas do núcleo (`lower/tipados.rs`): só leem
-    // o heap do runtime, que o código gerado não vê (`inaccessiblemem`); sem
-    // chamada que o escreva no laço, o LLVM tira o comprimento dele.
+    // O caminho rápido das listas do núcleo (`lower/tipados.rs`): o
+    // comprimento e o endereço dos elementos vêm do cabeçalho do vetor no
+    // heap do runtime, que o código gerado não vê (`inaccessiblemem`) e que
+    // só muda por chamadas sem atributo; os elementos são lidos e gravados
+    // em linha (memória acessível ao módulo, que nenhuma destas lê).
     Extern {
         decl: "declare i64 @dartforge_lista_len_rapido(i64, i64) memory(inaccessiblemem: read) nounwind willreturn speculatable",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_lista_int(i64, i64) memory(inaccessiblemem: read) nounwind willreturn speculatable",
-        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
-    },
-    Extern {
-        decl: "declare double @dartforge_lista_double(i64, i64) memory(inaccessiblemem: read) nounwind willreturn speculatable",
+        decl: "declare i64 @dartforge_lista_dados(i64) memory(inaccessiblemem: read) nounwind willreturn speculatable",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare i64 @dartforge_lista_ref(i64, i64)",
         efeitos: Efeitos { aloca: true, lanca: false, chama_dart: false },
-    },
-    Extern {
-        decl: "declare void @dartforge_lista_gravar_int(i64, i64, i64) memory(inaccessiblemem: readwrite) nounwind willreturn",
-        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
-    },
-    Extern {
-        decl: "declare void @dartforge_lista_gravar_double(i64, i64, double) memory(inaccessiblemem: readwrite) nounwind willreturn",
-        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
-    },
-    Extern {
-        decl: "declare void @dartforge_lista_gravar_bool(i64, i64, i8) memory(inaccessiblemem: readwrite) nounwind willreturn",
-        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare i64 @dartforge_view_nova(i64, i64, i64, i64, i64)",
