@@ -113,9 +113,9 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
     let mut nomes = dartforge_intern::Interner::new();
     let programa = match &entrada {
         Some(e) => {
-            let dir = sdk
-                .or_else(dartforge_elements::sdk::SdkLayout::discover)
-                .unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
+            let dir = sdk.or_else(dartforge_elements::sdk::SdkLayout::discover).ok_or(
+                "SDK do Dart não encontrado: defina DARTFORGE_SDK_LIB (o lib/ do SDK) ou DART_SDK",
+            )?;
             let layout = dartforge_elements::sdk::SdkLayout::load(&dir, "dartdevc")?;
             Some(dartforge_elements::load::load_lenient(e, &layout, packages.as_deref(), &mut nomes).0)
         }

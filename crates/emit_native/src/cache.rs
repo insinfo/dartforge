@@ -11,11 +11,18 @@
 use std::path::{Path, PathBuf};
 
 /// Diretório dos caches do backend nativo (objetos, SDK da fonte):
-/// `DARTFORGE_CACHE_NATIVO`, senão `$CARGO_TARGET_DIR/native_cache`, senão
-/// `target/native_cache` do repositório que compilou este binário.
+/// `DARTFORGE_CACHE_NATIVO`; na distribuição, o cache do usuário
+/// (`~/.cache/dartforge/nativo`…); numa árvore de desenvolvimento,
+/// `$CARGO_TARGET_DIR/native_cache` ou `target/native_cache` do repositório
+/// que compilou este binário.
 pub fn dir_cache_nativo() -> PathBuf {
     if let Some(d) = std::env::var_os("DARTFORGE_CACHE_NATIVO") {
         return PathBuf::from(d);
+    }
+    if dartforge_elements::distribuicao::raiz().is_some()
+        && let Some(c) = dartforge_elements::distribuicao::cache_do_usuario()
+    {
+        return c.join("nativo");
     }
     if let Some(t) = std::env::var_os("CARGO_TARGET_DIR") {
         return PathBuf::from(t).join("native_cache");
@@ -40,17 +47,13 @@ impl RuntimeCache {
     }
 }
 
-/// Onde a distribuição guarda as bibliotecas do dartforge: `lib/` ao lado do
-/// `bin/` do executável (`<raiz>/bin/dartforge`, `<raiz>/lib/…`), ou
-/// `DARTFORGE_LIB`.
+/// Onde a distribuição guarda o runtime pré-compilado: `lib/runtime/`
+/// (`dartforge_elements::distribuicao`), ou `DARTFORGE_LIB`.
 pub fn dir_lib_da_distribuicao() -> Option<PathBuf> {
     if let Some(d) = std::env::var_os("DARTFORGE_LIB") {
         return Some(PathBuf::from(d));
     }
-    let exe = std::env::current_exe().ok()?;
-    let raiz = exe.parent()?.parent()?;
-    let lib = raiz.join("lib");
-    lib.is_dir().then_some(lib)
+    dartforge_elements::distribuicao::em_lib("runtime")
 }
 
 /// O runtime pré-compilado `nome`: na distribuição, senão no diretório do
