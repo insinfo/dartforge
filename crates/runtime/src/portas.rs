@@ -52,6 +52,9 @@ enum NoG {
     BoxedBool(bool),
     TypedData { class_id: i64, tipo: u8, bytes: Vec<u8> },
     TypedView { class_id: i64, tipo: u8, base: ValG, deslocamento: usize, comprimento: usize },
+    /// Uma `Uint8List` montada fora do heap (as respostas dos serviços
+    /// nativos): a classe sai de `CIDS_DO_RUNTIME` no isolado que a recebe.
+    Bytes(Vec<u8>),
 }
 
 /// Uma mensagem copiada: os nós (com o metadado RTI de cada um) e a raiz.
@@ -178,10 +181,10 @@ impl Grafo {
     }
 }
 
-/// Um valor que o runtime monta fora de um heap (as respostas dos serviços
-/// nativos) e que vira um grafo: `null`, `bool`, `int`, `double`, `String`,
-/// lista e `Uint8List` (os bytes; materializada como a lista de inteiros de
-/// tamanho fixo que o `typed_data` da sobreposição envolve).
+/// Um valor que o runtime lê ou monta fora de um heap (as mensagens dos
+/// serviços nativos — o `Dart_CObject` da VM): `null`, `bool`, `int`,
+/// `double`, `String`, lista, `Uint8List` e, só na leitura, os campos de um
+/// objeto (a `SendPort` de resposta).
 #[derive(Clone, Debug)]
 pub enum Portavel {
     Nulo,
@@ -190,7 +193,93 @@ pub enum Portavel {
     Double(f64),
     Str(String),
     Lista(Vec<Portavel>),
+    /// Os bytes de uma lista tipada (de qualquer tipo de elemento, como o
+    /// `CObjectTypedData` da VM).
     Bytes(Vec<u8>),
+    Objeto(Vec<Portavel>),
+}
+
+impl Portavel {
+    pub fn int(&self) -> Option<i64> {
+        match self {
+            Portavel::Int(x) => Some(*x),
+            _ => None,
+        }
+    }
+    pub fn bool(&self) -> Option<bool> {
+        match self {
+            Portavel::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+    pub fn str(&self) -> Option<&str> {
+        match self {
+            Portavel::Str(s) => Some(s),
+            _ => None,
+        }
+    }
+    pub fn bytes(&self) -> Option<&[u8]> {
+        match self {
+            Portavel::Bytes(b) => Some(b),
+            _ => None,
+        }
+    }
+    pub fn lista(&self) -> Option<&[Portavel]> {
+        match self {
+            Portavel::Lista(l) => Some(l),
+            _ => None,
+        }
+    }
+}
+
+impl Grafo {
+    /// O grafo lido como [`Portavel`] (numa thread sem heap Dart). Um ciclo,
+    /// que as mensagens dos serviços nunca têm, vira `Nulo` na volta.
+    pub fn para_portavel(&self) -> Portavel {
+        fn val(g: &Grafo, v: &ValG, visitando: &mut Vec<bool>) -> Portavel {
+            match *v {
+                ValG::Bits(bits, is_ref, tag) => match tag {
+                    ValueTag::Int => Portavel::Int(bits),
+                    ValueTag::Bool => Portavel::Bool(bits != 0),
+                    ValueTag::Double => Portavel::Double(f64::from_bits(bits as u64)),
+                    ValueTag::Ref if bits == 0 => Portavel::Nulo,
+                    ValueTag::Ref if is_ref && smi::e_smi(bits) => Portavel::Int(smi::valor(bits)),
+                    ValueTag::Ref => Portavel::Nulo,
+                },
+                ValG::Mesmo(_) => Portavel::Nulo,
+                ValG::No(i) => {
+                    if visitando[i] {
+                        return Portavel::Nulo;
+                    }
+                    visitando[i] = true;
+                    let r = match &g.nos[i].0 {
+                        NoG::String(t) => Portavel::Str(t.para_string()),
+                        NoG::BoxedInt(x) => Portavel::Int(*x),
+                        NoG::BoxedDouble(x) => Portavel::Double(*x),
+                        NoG::BoxedBool(b) => Portavel::Bool(*b),
+                        NoG::List { itens, pendente, .. } => {
+                            let n = pendente.unwrap_or(itens.len()).min(itens.len());
+                            Portavel::Lista(itens[..n].iter().map(|x| val(g, x, visitando)).collect())
+                        }
+                        NoG::TypedData { bytes, .. } | NoG::Bytes(bytes) => Portavel::Bytes(bytes.clone()),
+                        NoG::TypedView { tipo, base, deslocamento, comprimento, .. } => {
+                            let n = comprimento * tamanho_do_elemento(*tipo);
+                            match val(g, base, visitando) {
+                                Portavel::Bytes(b) => Portavel::Bytes(b[(*deslocamento).min(b.len())..(deslocamento + n).min(b.len())].to_vec()),
+                                _ => Portavel::Nulo,
+                            }
+                        }
+                        NoG::Object { fields, .. } => Portavel::Objeto(fields.iter().map(|x| val(g, x, visitando)).collect()),
+                        _ => Portavel::Nulo,
+                    };
+                    visitando[i] = false;
+                    r
+                }
+            }
+        }
+        let mut visitando = vec![false; self.nos.len()];
+        val(self, &self.raiz, &mut visitando)
+    }
 }
 
 impl Portavel {
@@ -231,10 +320,11 @@ impl Portavel {
                 }
                 Portavel::Bytes(b) => {
                     let i = nos.len();
-                    let vs = b.iter().map(|&x| ValG::Bits(i64::from(x), false, ValueTag::Int)).collect();
-                    nos.push((NoG::List { itens: vs, fixa: true, imutavel: false, pendente: None }, 0));
+                    nos.push((NoG::Bytes(b.clone()), 0));
                     ValG::No(i)
                 }
+                // Um objeto só existe em grafos que vieram do heap.
+                Portavel::Objeto(_) => ValG::Bits(0, true, ValueTag::Ref),
             }
         }
         let mut nos = Vec::new();
@@ -269,6 +359,11 @@ fn materializar(g: &Grafo) -> i64 {
                 NoG::BoxedInt(x) => Value::BoxedInt(*x),
                 NoG::BoxedDouble(x) => Value::BoxedDouble(*x),
                 NoG::TypedData { class_id, tipo, bytes } => Value::TypedData { class_id: *class_id, tipo: *tipo, bytes: bytes.clone() },
+                NoG::Bytes(bytes) => Value::TypedData {
+                    class_id: cid_registrado(CID_UINT8_LIST).unwrap_or(-1),
+                    tipo: TIPO_UINT8,
+                    bytes: bytes.clone(),
+                },
                 NoG::TypedView { class_id, tipo, deslocamento, comprimento, .. } => Value::TypedView {
                     class_id: *class_id,
                     tipo: *tipo,

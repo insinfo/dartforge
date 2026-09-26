@@ -147,6 +147,9 @@ pub fn cids_do_runtime(ctx: &crate::context::Context) -> Vec<i64> {
         ("core", "_ImmutableList"),
         ("core", "_Closure"),
         ("core", "_Record"),
+        ("typed_data", "_Uint8List"),
+        ("typed_data", "_Uint8ArrayView"),
+        ("typed_data", "_Int64List"),
     ];
     CLASSES
         .iter()
@@ -698,7 +701,7 @@ mod testes {
             return;
         }
         let sdk = carregar_sdk_nativo(Path::new(SDK_DIR.as_str())).unwrap();
-        assert_eq!(sdk.substituicoes.len(), 10);
+        assert_eq!(sdk.substituicoes.len(), 12);
         for b in BIBLIOTECAS_DA_FONTE {
             assert!(sdk.library(b).is_some(), "dart:{b} fora do layout");
         }
