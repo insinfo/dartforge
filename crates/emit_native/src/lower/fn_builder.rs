@@ -124,6 +124,9 @@ pub struct FnBuilder<'a, 'c> {
     /// O tipo estático de `this` num membro de extensão (o `on`): o
     /// receptor implícito de outra chamada de extensão.
     pub extensao_do_this: Option<(dartforge_elements::model::ExtensionId, dartforge_types::table::TypeId)>,
+    /// A classe que declara a função corrente (também num membro
+    /// estático): os estáticos dela estão no escopo léxico.
+    pub classe_do_membro: Option<dartforge_elements::model::ClassId>,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
@@ -233,6 +236,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             tipo_da_criacao: None,
             tupla_armada: None,
             extensao_do_this: None,
+            classe_do_membro: None,
         }
     }
 
