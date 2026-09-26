@@ -142,3 +142,4 @@ export 'src/i35_i18n_formas.dart';
 export 'src/i36_prefixos_longos.dart';
 export 'src/i37_filho_callback.dart';
 export 'src/i37_usa_callback.dart';
+export 'src/i38_estilo_tipos.dart';

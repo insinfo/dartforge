@@ -1629,16 +1629,35 @@ impl Corpo<'_> {
             };
             format!("{dom}.{f}({alvo}, '{attr}', {valor})")
         } else if let Some(estilo) = l.nome.strip_prefix("style.") {
-            if estilo.contains('.') {
-                return Err(recusa(Motivo::Ligacao, "[style.x.unidade]"));
-            }
-            if c.tipo.as_deref() != Some("String") {
-                return Err(recusa(
-                    Motivo::Ligacao,
-                    "[style.x] com valor que não é String",
-                ));
-            }
-            format!("{alvo}.style.setProperty('{estilo}', {valor})")
+            // `visitStyleBinding`: com unidade, `v == null ? null : v +
+            // 'px'` (`v.toString()` se não é `String`); sem, o próprio valor
+            // se é `String`, senão `v.toString()` — `v?.toString()` quando
+            // `canBeNull`. `isString` é o `_TypeResolver` (`String?` conta).
+            let Some(tipo) = c.tipo.as_deref() else {
+                return Err(recusa(Motivo::Ligacao, "[style.x] de tipo desconhecido"));
+            };
+            let e_texto = tipo.trim_end_matches('?') == "String";
+            let (nome, unidade) = match estilo.split_once('.') {
+                Some((_, u)) if u.contains('.') => {
+                    return Err(recusa(Motivo::Ligacao, "[style.x.y.z]"));
+                }
+                Some((n, u)) => (n, Some(u)),
+                None => (estilo, None),
+            };
+            let valor = match unidade {
+                Some(u) => {
+                    let texto = if e_texto {
+                        valor.to_string()
+                    } else {
+                        format!("{valor}.toString()")
+                    };
+                    format!("(({valor} == null) ? null : ({texto} + {}))", literal(u))
+                }
+                None if e_texto => valor.to_string(),
+                None if c.pode_ser_nulo => format!("{valor}?.toString()"),
+                None => format!("{valor}.toString()"),
+            };
+            format!("{alvo}.style.setProperty('{nome}', {valor})")
         } else if l.nome.contains('.') {
             return Err(recusa(Motivo::Ligacao, "ligação com prefixo desconhecido"));
         } else {

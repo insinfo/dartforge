@@ -131,6 +131,7 @@ import 'package:corpus_ngdart/src/i35_i18n_formas.template.dart' as i35;
 import 'package:corpus_ngdart/src/i36_prefixos_longos.template.dart' as i36;
 import 'package:corpus_ngdart/src/i37_filho_callback.template.dart' as i37;
 import 'package:corpus_ngdart/src/i37_usa_callback.template.dart' as i37;
+import 'package:corpus_ngdart/src/i38_estilo_tipos.template.dart' as i38;
 
 void main() {
   print([
@@ -264,5 +265,6 @@ void main() {
     i36.I36PrefixosLongosNgFactory,
     i37.I37FilhoCallbackNgFactory,
     i37.I37UsaCallbackNgFactory,
+    i38.I38EstiloTiposNgFactory,
   ].length);
 }
