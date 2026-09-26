@@ -39,6 +39,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return op;
         }
 
+        // `Native.addressOf<T>(f)`: o front-end da VM a reescreve para o
+        // endereço do símbolo; o argumento é o elemento, não um valor.
+        if let Some(Resolved::Member { member: MemberRef::Function(f), .. }) = self.ctx.get_resolved(self.unit_id, *target).cloned() {
+            let fe = &self.ctx.program.functions[f.0 as usize];
+            if self.ctx.symbol_name(fe.name) == "addressOf"
+                && fe.class.is_some_and(|c| self.ctx.symbol_name(self.ctx.program.classes[c.0 as usize].name) == "Native")
+                && self.ctx.program.library(fe.library).uri == "dart:ffi"
+                && let Some(a) = arguments.args.first()
+            {
+                return self.endereco_de_native(ast, a.value, expr.span);
+            }
+        }
+
         // `valor(args)` resolvido para o `call` de uma extensão
         // (`calloc<Int32>(4)`, o `AllocatorAlloc.call`): o valor é o receptor.
         if let Some(Resolved::ExtensionMember { member, .. }) = self.ctx.get_resolved(self.unit_id, expr_id).cloned()

@@ -935,6 +935,22 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
+        decl: "declare i64 @dartforge_ffi_handles_abrir()",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_ffi_handles_fechar(i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_ffi_handle_novo(i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_ffi_objeto_do_handle(i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
         decl: "declare i64 @dartforge_ffi_composto_copia(i64, i64)",
         efeitos: CONSERVADOR,
     },

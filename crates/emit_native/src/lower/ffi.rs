@@ -95,7 +95,7 @@ impl TiposNativos {
                 }
                 match nome {
                     "Handle" => {
-                        recusadas.insert(id, "Handle (objeto Dart na fronteira nativa)");
+                        classes.insert(id, TipoC::Handle);
                     }
                     "VarArgs" => varargs = Some(id),
                     _ => {}
@@ -431,6 +431,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut avaliados = Vec::with_capacity(a.params.len());
         for (i, ((v, t), classe)) in valores.into_iter().zip(a.params.iter()).zip(&a.classes_params).enumerate() {
             let x = match (t, classe) {
+                (TipoNativo::Prim(TipoC::Handle), _) => self.emit_call_with_check(
+                    Instruction::CallRuntime {
+                        name: "dartforge_ffi_objeto_do_handle".to_string(),
+                        args: vec![(v, Type::I64)],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                ),
                 (TipoNativo::Prim(TipoC::Ptr), _) => self.emit(
                     Instruction::CallRuntime {
                         name: "dartforge_ffi_callback_ponteiro".to_string(),
@@ -459,6 +467,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let resultado = match &a.ret {
             TipoNativo::Prim(TipoC::Void) => None,
+            TipoNativo::Prim(TipoC::Handle) => {
+                let r = self.coagir(r, Type::Ref);
+                Some(self.emit_call_with_check(
+                    Instruction::CallRuntime {
+                        name: "dartforge_ffi_handle_novo".to_string(),
+                        args: vec![(r, Type::Ref)],
+                        ret_ty: Type::I64,
+                    },
+                    Type::I64,
+                ))
+            }
             TipoNativo::Prim(TipoC::Ptr) => {
                 let r = self.coagir(r, Type::Ref);
                 Some(self.emit_call_with_check(
@@ -802,7 +821,7 @@ impl TipoC {
             TipoC::U16 => "u16",
             TipoC::I32 => "i32",
             TipoC::U32 => "u32",
-            TipoC::I64 | TipoC::Ptr => "i64",
+            TipoC::I64 | TipoC::Ptr | TipoC::Handle => "i64",
             TipoC::U64 => "u64",
             TipoC::F32 => "f32",
             TipoC::F64 => "f64",
@@ -834,7 +853,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Leitura de um campo `external` de struct/union (`None`: não é um).
     pub fn ler_campo_ffi(&mut self, obj: Operand, vid: dartforge_elements::model::VariableId) -> Option<Operand> {
         let (base, d, tipo) = self.endereco_do_campo_ffi(obj, vid)?;
-        Some(match tipo {
+        Some(self.ler_memoria_ffi(base, d, tipo))
+    }
+
+    /// O valor Dart do tipo `tipo` em `base` + `d` (base `Pointer` ou
+    /// `TypedData`): um campo de struct ou uma variável `@Native`.
+    fn ler_memoria_ffi(&mut self, base: Operand, d: Operand, tipo: TipoCampo) -> Operand {
+        match tipo {
             TipoCampo::Prim(tc) => {
                 let ret = if matches!(tc, TipoC::F32 | TipoC::F64) { Type::F64 } else { Type::I64 };
                 let v = self.emit(
@@ -891,7 +916,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Type::Ref,
                 );
                 let Some(f) = self.funcao_de_topo("dart:ffi", "_dartforgeArray") else {
-                    return Some(self.nao_suportado("dart:ffi sem `_dartforgeArray`", dartforge_diagnostics::Span { start: 0, end: 0 }));
+                    return self.nao_suportado("dart:ffi sem `_dartforgeArray`", dartforge_diagnostics::Span { start: 0, end: 0 });
                 };
                 let bytes = tamanho_de(self.ctx, &elem) as i64;
                 let args = vec![
@@ -904,12 +929,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let args = self.casar_args(f, &args);
                 self.chamar_direto(f, None, args)
             }
-        })
+        }
     }
 
     /// Gravação de um campo `external` de struct/union (`false`: não é um).
     pub fn gravar_campo_ffi(&mut self, obj: Operand, vid: dartforge_elements::model::VariableId, val: Operand) -> bool {
         let Some((base, d, tipo)) = self.endereco_do_campo_ffi(obj, vid) else { return false };
+        self.gravar_memoria_ffi(base, d, tipo, val);
+        true
+    }
+
+    /// Grava o valor Dart `val` do tipo `tipo` em `base` + `d`.
+    fn gravar_memoria_ffi(&mut self, base: Operand, d: Operand, tipo: TipoCampo, val: Operand) {
         match tipo {
             TipoCampo::Prim(tc) => {
                 let (v, ty) = match tc {
@@ -946,7 +977,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             TipoCampo::Composto(_) | TipoCampo::Array { .. } => {
                 // Por valor: copia os bytes do composto atribuído.
                 let tamanho = tamanho_de(self.ctx, &tipo);
-                let Some(comp) = compostos(self.ctx) else { return true };
+                let Some(comp) = compostos(self.ctx) else { return };
                 let (vbase, vdesl) = (comp.base, comp.deslocamento);
                 let span = dartforge_diagnostics::Span { start: 0, end: 0 };
                 let val = self.coagir(val, Type::Ref);
@@ -969,8 +1000,139 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 );
             }
         }
+    }
+
+    /// O endereço (i64) do símbolo nativo `simbolo` no processo.
+    fn endereco_do_simbolo(&mut self, simbolo: &[u8]) -> Operand {
+        let palavras: Vec<i64> = simbolo
+            .chunks(8)
+            .map(|c| {
+                let mut w = [0u8; 8];
+                w[..c.len()].copy_from_slice(c);
+                i64::from_le_bytes(w)
+            })
+            .collect();
+        let nome = self.emit(Instruction::ConstArray(palavras), Type::Ptr);
+        self.emit_call_with_check(
+            Instruction::CallRuntime {
+                name: "dartforge_ffi_simbolo_nativo".to_string(),
+                args: vec![(nome, Type::Ptr), (Operand::Constant(Constant::Int(simbolo.len() as i64)), Type::I64)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        )
+    }
+
+    /// Uma variável `external` com `@Native<T>()`: o símbolo e o tipo do
+    /// dado (`None`: não é uma).
+    fn variavel_nativa(&self, vid: dartforge_elements::model::VariableId) -> Option<Result<(Vec<u8>, TipoCampo), String>> {
+        use dartforge_elements::model::VariableRef;
+        let v = &self.ctx.program.variables[vid.0 as usize];
+        if !v.external {
+            return None;
+        }
+        let VariableRef::TopLevel { unit, decl, .. } = v.node else { return None };
+        let u = self.ctx.program.unit(unit);
+        let an = u.ast.decls[decl.0 as usize]
+            .metadata
+            .iter()
+            .find(|an| an.name.last().map(|n| self.ctx.interner.resolve(n.sym)) == Some("Native"))?;
+        let Some(tipos) = TiposNativos::do_programa(self.ctx) else { return Some(Err("@Native sem dart:ffi".to_string())) };
+        let Some(&t) = an.type_args.first() else {
+            return Some(Err("@Native de variável sem o argumento de tipo".to_string()));
+        };
+        let tipo = match tipos.tipo_nativo_da_anotacao(self.ctx, &u.ast, t, v.library) {
+            Ok((TipoNativo::Prim(TipoC::Void), _)) => return Some(Err("@Native de variável `Void`".to_string())),
+            Ok((TipoNativo::Prim(tc), _)) => TipoCampo::Prim(tc),
+            Ok((TipoNativo::Composto(_), Some(c))) => TipoCampo::Composto(c),
+            Ok(_) => return Some(Err("tipo de variável @Native".to_string())),
+            Err(m) => return Some(Err(m)),
+        };
+        let simbolo = simbolo_da_anotacao(self.ctx, &u.ast, an).unwrap_or_else(|| self.ctx.symbol_name(v.name).as_bytes().to_vec());
+        Some(Ok((simbolo, tipo)))
+    }
+
+    /// A base (`Pointer` para o símbolo) de uma variável `@Native`.
+    fn base_da_variavel_nativa(&mut self, simbolo: &[u8]) -> Operand {
+        let e = self.endereco_do_simbolo(simbolo);
+        self.emit_call_with_check(
+            Instruction::CallRuntime { name: "dartforge_ffi_ponteiro_novo".to_string(), args: vec![(e, Type::I64)], ret_ty: Type::Ref },
+            Type::Ref,
+        )
+    }
+
+    /// Leitura de uma variável `@Native` (`None`: não é uma).
+    pub fn ler_variavel_nativa(&mut self, vid: dartforge_elements::model::VariableId, span: dartforge_diagnostics::Span) -> Option<Operand> {
+        let (simbolo, tipo) = match self.variavel_nativa(vid)? {
+            Ok(x) => x,
+            Err(m) => return Some(self.nao_suportado(&m, span)),
+        };
+        let base = self.base_da_variavel_nativa(&simbolo);
+        Some(self.ler_memoria_ffi(base, Operand::Constant(Constant::Int(0)), tipo))
+    }
+
+    /// Gravação de uma variável `@Native` (`false`: não é uma).
+    pub fn gravar_variavel_nativa(&mut self, vid: dartforge_elements::model::VariableId, val: Operand, span: dartforge_diagnostics::Span) -> bool {
+        let Some(r) = self.variavel_nativa(vid) else { return false };
+        let (simbolo, tipo) = match r {
+            Ok(x) => x,
+            Err(m) => {
+                self.nao_suportado(&m, span);
+                return true;
+            }
+        };
+        let base = self.base_da_variavel_nativa(&simbolo);
+        self.gravar_memoria_ffi(base, Operand::Constant(Constant::Int(0)), tipo, val);
         true
     }
+
+    /// `Native.addressOf<T>(x)` (o que o front-end da VM reescreve): o
+    /// `Pointer` para o símbolo da função ou variável `@Native` citada.
+    pub fn endereco_de_native(&mut self, ast: &ast::Ast, arg: ast::ExprId, span: dartforge_diagnostics::Span) -> Operand {
+        use dartforge_elements::model::Element;
+        let resolvido = self.ctx.get_resolved(self.unit_id, arg).cloned();
+        let el = match resolvido {
+            Some(dartforge_types::resolved::Resolved::Element(e)) => Some(e),
+            _ => match &ast.expr(arg).kind {
+                ast::ExprKind::Identifier(n) => match self.resolver_por_nome(n.sym) {
+                    Some(dartforge_types::resolved::Resolved::Element(e)) => Some(e),
+                    _ => None,
+                },
+                _ => None,
+            },
+        };
+        let simbolo = match el {
+            Some(Element::Function(f)) => {
+                let fid = f.0 as usize;
+                match self.ctx.program.functions[fid].variable {
+                    Some(vid) => self.variavel_nativa(vid).and_then(Result::ok).map(|(s, _)| s),
+                    None => metadados_da_funcao(self.ctx, fid).and_then(|(_, a, meta)| {
+                        let an = meta.iter().find(|an| an.name.last().map(|n| self.ctx.interner.resolve(n.sym)) == Some("Native"))?;
+                        Some(simbolo_da_anotacao(self.ctx, a, an).unwrap_or_else(|| self.ctx.symbol_name(self.ctx.program.functions[fid].name).as_bytes().to_vec()))
+                    }),
+                }
+            }
+            Some(Element::Variable(vid)) => self.variavel_nativa(vid).and_then(Result::ok).map(|(s, _)| s),
+            _ => None,
+        };
+        let Some(simbolo) = simbolo else {
+            return self.erro_de_linguagem("Argument to 'Native.addressOf' must be annotated with @Native.", span);
+        };
+        self.base_da_variavel_nativa(&simbolo)
+    }
+}
+
+/// O `symbol:` de uma anotação `@Native`.
+fn simbolo_da_anotacao(ctx: &Context, ast: &ast::Ast, an: &ast::Annotation) -> Option<Vec<u8>> {
+    an.arguments
+        .as_ref()?
+        .args
+        .iter()
+        .find(|x| x.name.map(|n| ctx.interner.resolve(n.sym)) == Some("symbol"))
+        .and_then(|x| match &ast.expr(x.value).kind {
+            ast::ExprKind::String(s) => s.constant_value().map(|t| t.as_bytes().to_vec()),
+            _ => None,
+        })
 }
 
 /// O tamanho em bytes de um tipo de campo (compostos já calculados).
@@ -1136,33 +1298,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Err(m) => return Some(self.nao_suportado(&m, span)),
         };
         // O símbolo: `symbol: 'x'`, ou o nome da função.
-        let simbolo = an
-            .arguments
-            .as_ref()
-            .and_then(|a| a.args.iter().find(|x| x.name.map(|n| self.ctx.interner.resolve(n.sym)) == Some("symbol")))
-            .and_then(|x| match &ast.expr(x.value).kind {
-                ast::ExprKind::String(s) => s.constant_value().map(|t| t.as_bytes().to_vec()),
-                _ => None,
-            })
+        let simbolo = simbolo_da_anotacao(self.ctx, ast, an)
             .unwrap_or_else(|| self.ctx.symbol_name(self.ctx.program.functions[fid].name).as_bytes().to_vec());
         let _ = fonte;
-        let palavras: Vec<i64> = simbolo
-            .chunks(8)
-            .map(|c| {
-                let mut w = [0u8; 8];
-                w[..c.len()].copy_from_slice(c);
-                i64::from_le_bytes(w)
-            })
-            .collect();
-        let nome = self.emit(Instruction::ConstArray(palavras), Type::Ptr);
-        let alvo = self.emit_call_with_check(
-            Instruction::CallRuntime {
-                name: "dartforge_ffi_simbolo_nativo".to_string(),
-                args: vec![(nome, Type::Ptr), (Operand::Constant(Constant::Int(simbolo.len() as i64)), Type::I64)],
-                ret_ty: Type::I64,
-            },
-            Type::I64,
-        );
+        let alvo = self.endereco_do_simbolo(&simbolo);
         if args.len() != assinatura.params.len() {
             return Some(self.nao_suportado("@Native com aridade diferente da assinatura nativa", span));
         }
@@ -1190,9 +1329,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::I64,
             )
         };
+        // `Handle`: as células dos objetos passados vivem num escopo aberto
+        // em volta da chamada (os handles locais da VM).
+        let com_handles = std::iter::once(&a.ret).chain(a.params.iter()).any(|t| matches!(t, TipoNativo::Prim(TipoC::Handle)));
+        let escopo = com_handles.then(|| {
+            self.emit(
+                Instruction::CallRuntime { name: "dartforge_ffi_handles_abrir".to_string(), args: Vec::new(), ret_ty: Type::I64 },
+                Type::I64,
+            )
+        });
         let mut nativos = Vec::with_capacity(a.params.len());
         for (v, t) in args.iter().cloned().zip(a.params.iter()) {
             let x = match t {
+                TipoNativo::Prim(TipoC::Handle) => endereco(self, "dartforge_ffi_handle_novo", v),
                 TipoNativo::Prim(TipoC::Ptr) => endereco(self, "dartforge_ffi_endereco_do_ponteiro", v),
                 TipoNativo::Composto(_) => endereco(self, "dartforge_ffi_endereco_do_composto", v),
                 TipoNativo::Prim(tc) => self.coagir(v, tc.tipo_hir()),
@@ -1235,8 +1384,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     )
                 };
                 let trampolim = closure.is_some();
-                match (ret, closure) {
+                let resultado = match (ret, closure) {
                     (TipoC::Void, _) => Operand::Constant(Constant::Null),
+                    (TipoC::Handle, _) => self.emit_call_with_check(
+                        Instruction::CallRuntime {
+                            name: "dartforge_ffi_objeto_do_handle".to_string(),
+                            args: vec![(r, Type::I64)],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    ),
                     (TipoC::Ptr, Some(clo)) => self.emit_call_with_check(
                         Instruction::CallRuntime {
                             name: "dartforge_ffi_ponteiro_de_retorno".to_string(),
@@ -1253,7 +1410,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     // (quem chama o coage ao retorno Dart, sem caixa).
                     _ if trampolim => self.coagir(r, Type::Ref),
                     _ => r,
+                };
+                if let Some(e) = escopo {
+                    self.emit(
+                        Instruction::CallRuntime {
+                            name: "dartforge_ffi_handles_fechar".to_string(),
+                            args: vec![(e, Type::I64)],
+                            ret_ty: Type::Void,
+                        },
+                        Type::Void,
+                    );
                 }
+                resultado
             }
         }
     }

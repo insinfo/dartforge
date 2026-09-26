@@ -275,6 +275,9 @@ fn bits_do_excepcional(v: i64, l: char) -> Result<i64, String> {
     if l == 'p' {
         return endereco_de(v).ok_or_else(|| "exceptionalReturn must be a Pointer".to_string());
     }
+    if l == 'H' {
+        return Err("exceptionalReturn must not be given for a Handle return".to_string());
+    }
     HEAP.with(|h| {
         let h = h.borrow();
         let inteiro = h.int_de_ref(v);
@@ -327,9 +330,13 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_novo(assinatura: i64, 
             return 0;
         }
     };
-    let (retorno, _) = partes_da_chave(&chave);
+    let (retorno, params) = partes_da_chave(&chave);
     if modo == MODO_OUVINTE && retorno != ParteDaChave::Letra('v') {
         lancar_erro_de_argumento("NativeCallable.listener callbacks must return void");
+        return 0;
+    }
+    if modo == MODO_OUVINTE && params.contains(&ParteDaChave::Letra('H')) {
+        lancar_erro_de_argumento("NativeCallable.listener callbacks cannot take a Handle");
         return 0;
     }
     let excepcional = match retorno {

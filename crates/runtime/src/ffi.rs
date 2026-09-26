@@ -877,3 +877,57 @@ pub unsafe extern "C" fn dartforge_ffi_copiar_composto(destino: *mut u8, origem:
         unsafe { std::ptr::copy_nonoverlapping(origem as usize as *const u8, destino, n as usize) };
     }
 }
+
+// ---------------------------------------------------------------------------
+// `Handle`: objetos Dart na fronteira nativa (os handles locais da VM).
+//
+// Cada objeto passado vira uma célula (`Box<i64>` com o handle do objeto,
+// raiz do coletor pelo endereço dela) e o C recebe o endereço da célula. As
+// células pertencem ao escopo aberto em volta da chamada nativa e são soltas
+// quando ele fecha; um `Handle` que volta do C é conferido contra as células
+// vivas deste isolado (um ponteiro qualquer é `ArgumentError`).
+
+thread_local! {
+    static CELULAS_DE_HANDLE: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_ffi_handles_abrir() -> i64 {
+    CELULAS_DE_HANDLE.with(|c| c.borrow().len() as i64)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_ffi_handles_fechar(escopo: i64) {
+    let soltas: Vec<usize> = CELULAS_DE_HANDLE.with(|c| {
+        let mut c = c.borrow_mut();
+        let de = (escopo.max(0) as usize).min(c.len());
+        c.split_off(de)
+    });
+    for celula in soltas {
+        HEAP.with(|h| h.borrow_mut().soltar_raiz_global(celula as i64));
+        // SAFETY: a célula foi criada por `dartforge_ffi_handle_novo` e sai
+        // do registro uma vez.
+        unsafe { drop(Box::from_raw(celula as *mut i64)) };
+    }
+}
+
+/// O `Handle` de `obj`: o endereço de uma célula nova do escopo corrente.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_ffi_handle_novo(obj: i64) -> i64 {
+    let celula = Box::into_raw(Box::new(obj)) as usize;
+    HEAP.with(|h| h.borrow_mut().set_global_root(celula as i64, obj));
+    CELULAS_DE_HANDLE.with(|c| c.borrow_mut().push(celula));
+    celula as i64
+}
+
+/// O objeto de um `Handle` devolvido pelo C.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_ffi_objeto_do_handle(handle: i64) -> i64 {
+    let vivo = CELULAS_DE_HANDLE.with(|c| c.borrow().iter().rev().any(|&x| x as i64 == handle));
+    if !vivo {
+        lancar_erro_de_argumento("the native code returned a Handle that is not alive in this isolate");
+        return 0;
+    }
+    // SAFETY: a célula está viva (registrada neste isolado).
+    unsafe { *(handle as usize as *const i64) }
+}
