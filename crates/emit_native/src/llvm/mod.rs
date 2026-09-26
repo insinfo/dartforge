@@ -1156,8 +1156,20 @@ impl<'a> LlvmEmitter<'a> {
                 ids.join(", ")
             )
             .unwrap();
+            if let Some(v) = &self.module.versao_do_sdk {
+                writeln!(
+                    self.out,
+                    "@df.versao_do_sdk = private unnamed_addr constant [{} x i8] c\"{}\"",
+                    v.len(),
+                    seletores::bytes_llvm(v)
+                )
+                .unwrap();
+            }
             writeln!(self.out, "define void @dartforge_entry() {{").unwrap();
             writeln!(self.out, "  call void @dartforge_registrar_cids(ptr @df.cids, i64 {})", ids.len()).unwrap();
+            if let Some(v) = &self.module.versao_do_sdk {
+                writeln!(self.out, "  call void @dartforge_registrar_versao_do_sdk(ptr @df.versao_do_sdk, i64 {})", v.len()).unwrap();
+            }
             // As tabelas das classes dos valores do runtime (que não passam
             // por `dartforge_object_new_t`).
             for c in self.module.cids_do_runtime.clone() {
@@ -1175,6 +1187,9 @@ impl<'a> LlvmEmitter<'a> {
             if let Some(iniciar) = &self.module.iniciar_rti {
                 writeln!(self.out, "  call void @{iniciar}()").unwrap();
             }
+            // O que o embedder da VM prepara antes do `main` (o script de
+            // `dart:io`, o `Uri.base`), já com as bibliotecas registradas.
+            writeln!(self.out, "  call void @dartforge_preparar_embedder()").unwrap();
             if let Some(entry) = &self.module.entry_symbol {
                 writeln!(self.out, "  call void @{entry}()").unwrap();
             }

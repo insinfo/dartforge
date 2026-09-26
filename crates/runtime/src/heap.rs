@@ -775,6 +775,12 @@ pub struct Heap {
     /// Lista de chaves → mapa de origem (para acusar modificação do mapa
     /// durante a iteração das chaves).
     pub origens: std::collections::HashMap<i64, i64>,
+    /// Pares nativos finalizáveis (o `Dart_NewFinalizableHandle` da VM):
+    /// objeto → (finalizador, par). Quando o objeto morre, a coleta tira a
+    /// entrada e chama `finalizador(par)` — que só libera recursos do
+    /// sistema (fecha um arquivo, solta uma contagem de referências) e nunca
+    /// toca o heap.
+    pub finalizaveis: std::collections::HashMap<i64, (fn(usize), usize)>,
 }
 impl Heap {
     /// Inicializa heap; stress força coleta antes de cada alocação.
@@ -807,6 +813,7 @@ impl Heap {
             pendentes: std::collections::HashMap::new(),
             iteracoes_ativas: std::collections::HashSet::new(),
             origens: std::collections::HashMap::new(),
+            finalizaveis: std::collections::HashMap::new(),
         }
     }
     /// Raiz mantida pelo runtime: 0 = exceção pendente, 1 = rastro corrente.
@@ -1548,6 +1555,14 @@ impl Heap {
         self.pendentes.retain(|h, _| vivo(h));
         self.iteracoes_ativas.retain(|h| vivo(h));
         self.origens.retain(|k, v| vivo(k) && vivo(v));
+        let mut finalizar = Vec::new();
+        self.finalizaveis.retain(|h, &mut par| {
+            let fica = vivo(h);
+            if !fica {
+                finalizar.push(par);
+            }
+            fica
+        });
         for (index, slot) in self.slots.iter_mut().enumerate() {
             if slot.is_some() && !self.marks[index] {
                 self.stats.estimated_bytes -= slot.as_ref().unwrap().estimated_bytes();
@@ -1555,6 +1570,9 @@ impl Heap {
                 self.free.push(index);
                 self.stats.reclaimed += 1;
             }
+        }
+        for (finalizador, par) in finalizar {
+            finalizador(par);
         }
         self.allocations = 0;
         self.threshold = live.saturating_mul(2).max(256);

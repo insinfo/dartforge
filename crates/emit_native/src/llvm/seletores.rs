@@ -26,7 +26,7 @@ pub fn hash_seletor(texto: &str) -> i64 {
 }
 
 /// Escapa bytes para um `c"…"` do LLVM.
-fn bytes_llvm(s: &str) -> String {
+pub(super) fn bytes_llvm(s: &str) -> String {
     let mut t = String::new();
     for &b in s.as_bytes() {
         if b.is_ascii_alphanumeric() || b == b' ' || b == b'_' || b == b'.' || b == b':' || b == b'@' {

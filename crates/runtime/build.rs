@@ -59,6 +59,13 @@ const FRAGMENTOS: &[&str] = &[
     "eventos",
     // Portas e a fila de mensagens do isolado.
     "portas",
+    // O `dart:io` da VM: arquivos, diretórios, o IOService e a plataforma.
+    "io_arquivos",
+    "io_diretorios",
+    "io_servico",
+    "io_plataforma",
+    // `dart:developer` e a timeline no perfil de produção.
+    "nativos_desenvolvedor",
     // RTI: tipos em tempo de execução.
     "tipos",
 ];

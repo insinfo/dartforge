@@ -796,6 +796,14 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
+        decl: "declare void @dartforge_registrar_versao_do_sdk(ptr, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_preparar_embedder()",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
         decl: "declare i32 @dartforge_iniciar(ptr, ptr)",
         efeitos: CONSERVADOR,
     },

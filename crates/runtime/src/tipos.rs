@@ -655,6 +655,21 @@ pub(crate) fn tipo_lista_da_tupla(tupla: i64, classe_concreta: Option<i64>) -> O
     })
 }
 
+/// `List<String>` na classe concreta de uma lista que o runtime cria (o
+/// `Dart_NewListOfTypeFilled` da VM).
+pub(crate) fn tipo_lista_de_textos(classe_concreta: Option<i64>) -> Option<i64> {
+    RTI.with(|u| {
+        let mut u = u.borrow_mut();
+        let classe = classe_concreta.unwrap_or(u.rt.list);
+        if classe == 0 || u.rt.string == 0 {
+            return None;
+        }
+        let string = u.rt.string;
+        let texto = u.interface(string, Vec::new());
+        Some(u.internar(Tipo::Interface(classe, vec![texto])))
+    })
+}
+
 /// `_List._sliceInternal` cria outra classe concreta de lista, mas conserva
 /// o argumento `E` do receptor. O native não recebe tupla de tipo separada.
 pub(crate) fn tipo_lista_copiada(origem: i64, classe_concreta: Option<i64>) -> Option<i64> {

@@ -203,6 +203,10 @@ pub fn emitir_ir_com(entrada: &Path, options: &CompileOptions, da_fonte: bool) -
     if da_fonte {
         hir_module.registros_do_sdk = sdk_modulo::registros_do_sdk();
         hir_module.cids_do_runtime = sdk_modulo::cids_do_runtime(&ctx);
+        hir_module.versao_do_sdk = sdk_dir
+            .parent()
+            .and_then(|d| std::fs::read_to_string(d.join("version")).ok())
+            .map(|v| v.trim().to_string());
     }
     let hir_duration = t_hir.elapsed();
     if !hir_module.erros.is_empty() {

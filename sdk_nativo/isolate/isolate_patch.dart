@@ -194,6 +194,11 @@ final class _RawReceivePort implements RawReceivePort {
   static final _portMap = <int, _RawReceivePort>{};
 }
 
+/// A `SendPort` de uma porta aberta pelo runtime (as portas nativas, como a
+/// do IOService: o `Dart_NewSendPort` da VM).
+@pragma("vm:entry-point")
+SendPort _dartforgeSendPort(int id) => new _SendPort._(id);
+
 /// O lado de envio: só o id da porta, que a cópia de uma mensagem preserva
 /// — uma `SendPort` vale em qualquer isolado.
 @pragma("vm:entry-point")
