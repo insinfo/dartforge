@@ -28,7 +28,7 @@ use serde_json::{Value, json};
 use std::collections::HashSet;
 
 /// O que recebe a aplicação.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Alvo {
     Biblioteca(String),
     Declaracao(Chave),

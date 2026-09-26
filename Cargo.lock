@@ -324,6 +324,7 @@ dependencies = [
 name = "dartforge-macros-host"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "dartforge-dfexec",
  "dartforge-diagnostics",
  "dartforge-elements",

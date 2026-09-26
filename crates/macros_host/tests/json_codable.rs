@@ -19,10 +19,18 @@
 //!   o `pub get` do caso. `DARTFORGE_GRAVAR_SESSAO=1` regrava a sessão.
 use dartforge_elements::load::load_lenient_gerados;
 use dartforge_elements::sdk::SdkLayout;
+use dartforge_elements::unidades::CacheUnidades;
 use dartforge_frontend::{Feature, LanguageVersion};
 use dartforge_intern::Interner;
-use dartforge_macros_host::executor::{CanalGravado, CanalGravador, ExecutorDfexec, ExecutorMacros, sessao_em_texto};
+use dartforge_macros_host::Saida;
+use dartforge_macros_host::cache::CacheDeMacros;
+use dartforge_macros_host::executor::{
+    CanalGravado, CanalGravador, Disponibilidade, ExecutorDfexec, ExecutorMacros, PedidoDeExecucao, ServicoDeConsultas, sessao_em_texto,
+};
 use dartforge_macros_host::modelo::Vista;
+use dartforge_macros_host::montagem::Resultado;
+use dartforge_macros_host::protocolo::Apresentacao;
+use serde_json::Value;
 use std::path::{Path, PathBuf};
 
 fn raiz() -> PathBuf {
@@ -92,6 +100,68 @@ fn sessao_gravada_reproduz_o_texto_do_cfe() {
     let textos = aplicar(&c, &sdk, &mut executor);
     assert_eq!(executor.canal().restante(), 0, "sobrou sessão gravada sem consumir");
     conferir(&c, &textos);
+}
+
+/// Como [`aplicar`], com o cache de expansões e a recarga por diferença.
+fn aplicar_com_cache(c: &Caso, sdk: &SdkLayout, executor: &mut dyn ExecutorMacros, cache: &mut CacheDeMacros) -> Saida {
+    let mut nomes = Interner::new();
+    let (p, d) = load_lenient_gerados(&c.entrada, sdk, Some(&c.config), &mut nomes, None, None, None);
+    assert!(d.is_empty(), "{d:?}");
+    let mut carregar =
+        |i: &mut Interner, g, u: &mut CacheUnidades| load_lenient_gerados(&c.entrada, sdk, Some(&c.config), i, None, Some(u), g);
+    match dartforge_macros_host::aplicar_incremental(p, &mut nomes, None, &mut carregar, executor, Some(cache)) {
+        Ok(s) => s,
+        Err(ds) => panic!("{}", ds.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("\n")),
+    }
+}
+
+/// Um executor que reprova o teste se for tocado.
+struct Proibido;
+
+impl ExecutorMacros for Proibido {
+    fn disponibilidade(&self) -> Disponibilidade {
+        panic!("o executor não podia ser consultado")
+    }
+    fn iniciar(&mut self) -> Result<Apresentacao, String> {
+        panic!("o executor não podia ser iniciado")
+    }
+    fn instanciar(&mut self, _: &str, _: &str, _: &Value) -> Result<(u64, Vec<String>), String> {
+        panic!("o executor não podia instanciar")
+    }
+    fn executar(&mut self, _: &PedidoDeExecucao, _: &mut dyn ServicoDeConsultas) -> Result<Resultado, String> {
+        panic!("o executor não podia executar")
+    }
+    fn encerrar(&mut self) {
+        panic!("o executor não podia ser encerrado")
+    }
+}
+
+/// O `@JsonCodable` de verdade (sessão gravada) com o cache: a primeira
+/// compilação fala com o executor exatamente como a sessão gravada (o cache
+/// não muda o protocolo) e a segunda reaproveita as 8 expansões sem tocar
+/// executor nenhum; as duas dão o texto do CFE.
+#[test]
+#[ignore = "exige o SDK (DARTFORGE_SDK_LIB) e o pub get de corpus/macros"]
+fn cache_reaproveita_o_json_codable_sem_executor() {
+    let (Some(sdk), Some(c)) = (sdk(), caso("410_json_codable")) else {
+        eprintln!("sem SDK ou sem o pub get de corpus/macros/410_json_codable: pulado");
+        return;
+    };
+    let gravada = std::fs::read_to_string(c.dir.join("esperado/sessao.dfexec")).expect("sessão gravada");
+    let mut executor = ExecutorDfexec::novo(CanalGravado::de_texto(&gravada).unwrap());
+    let mut cache = CacheDeMacros::novo("sessão gravada");
+    let primeira = aplicar_com_cache(&c, &sdk, &mut executor, &mut cache);
+    assert_eq!(executor.canal().restante(), 0, "sobrou sessão gravada sem consumir");
+    assert_eq!((primeira.macros_executadas, primeira.medicao.reutilizadas), (8, 0));
+    let textos: Vec<_> = primeira.textos.iter().map(|t| (t.caminho.clone(), t.texto.clone())).collect();
+    conferir(&c, &textos);
+
+    let segunda = aplicar_com_cache(&c, &sdk, &mut Proibido, &mut cache);
+    assert_eq!((segunda.macros_executadas, segunda.medicao.reutilizadas), (0, 8));
+    let textos: Vec<_> = segunda.textos.iter().map(|t| (t.caminho.clone(), t.texto.clone())).collect();
+    conferir(&c, &textos);
+    let ordem = |s: &Saida| s.expansoes.iter().map(|e| (e.aplicacao.clone(), e.fase)).collect::<Vec<_>>();
+    assert_eq!(ordem(&primeira), ordem(&segunda));
 }
 
 #[test]
