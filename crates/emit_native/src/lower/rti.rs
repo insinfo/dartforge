@@ -1154,24 +1154,19 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
     let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied()) else {
         return;
     };
+    // Os registros vão numa TABELA constante que o runtime lê de uma vez
+    // (`dartforge_rti_iniciar_tabela`), não em código: são milhares de
+    // classes do SDK, e uma chamada por registro dava uma função de dezenas
+    // de milhares de instruções que o LLVM compilava a cada `dartforge run`,
+    // a cada recarga do JIT e a cada ligação AOT. Uma linha por registro:
+    // `C<id> <parâmetros> <nome>`, `R<id> <receita>`, `F<forma> <id>`.
+    let mut tabela = String::new();
     let mut b = FnBuilder::new(ctx, u, "dartforge_rti_iniciar".to_string(), "rti".to_string(), Type::Void);
     for &c in &classes {
         let id = ctx.id_rti(c);
         let nome = nome_visivel(ctx, c);
         let n = ctx.outline.classes.get(c.0 as usize).map_or(0, |d| d.type_params.len());
-        let s = b.emit(Instruction::Const(Constant::String(nome)), Type::Ref);
-        b.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_rti_classe_nome".to_string(),
-                args: vec![
-                    (Operand::Constant(Constant::Int(id)), Type::I64),
-                    (s, Type::Ref),
-                    (Operand::Constant(Constant::Int(n as i64)), Type::I64),
-                ],
-                ret_ty: Type::Void,
-            },
-            Type::Void,
-        );
+        tabela.push_str(&format!("C{id} {n} {nome}\n"));
         let Some(d) = ctx.outline.hierarchy.get(c) else { continue };
         let mut sups: Vec<(i64, TypeId)> = d.supertypes.iter().map(|(k, t)| (ctx.id_rti(*k), *t)).collect();
         sups.sort_by_key(|x| x.0);
@@ -1183,38 +1178,12 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
             let r = b.receita_de_tipo(t);
             b.enclosing_class = salvo.0;
             b.classe_por_tupla = salvo.1;
-            let s = b.emit(Instruction::Const(Constant::String(r.texto)), Type::Ref);
-            let m = b.emit(
-                Instruction::CallRuntime {
-                    name: "dartforge_rti_receita".to_string(),
-                    args: vec![(s, Type::Ref)],
-                    ret_ty: Type::I64,
-                },
-                Type::I64,
-            );
-            b.emit(
-                Instruction::CallRuntime {
-                    name: "dartforge_rti_regra".to_string(),
-                    args: vec![(Operand::Constant(Constant::Int(id)), Type::I64), (m, Type::I64)],
-                    ret_ty: Type::Void,
-                },
-                Type::Void,
-            );
+            tabela.push_str(&format!("R{id} {}\n", r.texto));
         }
     }
     for (forma, c) in formas {
         if let Some(c) = c {
-            b.emit(
-                Instruction::CallRuntime {
-                    name: "dartforge_rti_classe_do_runtime".to_string(),
-                    args: vec![
-                        (Operand::Constant(Constant::Int(forma)), Type::I64),
-                        (Operand::Constant(Constant::Int(ctx.id_rti(c))), Type::I64),
-                    ],
-                    ret_ty: Type::Void,
-                },
-                Type::Void,
-            );
+            tabela.push_str(&format!("F{forma} {}\n", ctx.id_rti(c)));
         }
     }
     // As classes de erro que o runtime representa (ids 1000–1012).
@@ -1237,18 +1206,27 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
         let Some(core_lib) = ctx.program.core else { continue };
         let Some(sym) = ctx.interner.lookup(nome) else { continue };
         let Some(Element::Class(c)) = ctx.program.lookup(core_lib, sym).and_then(|b| b.getter) else { continue };
-        b.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_rti_classe_do_runtime".to_string(),
-                args: vec![
-                    (Operand::Constant(Constant::Int(heap_id)), Type::I64),
-                    (Operand::Constant(Constant::Int(ctx.id_rti(c))), Type::I64),
-                ],
-                ret_ty: Type::Void,
-            },
-            Type::Void,
-        );
+        tabela.push_str(&format!("F{heap_id} {}\n", ctx.id_rti(c)));
     }
+    // Os bytes empacotados em palavras (little-endian, como todos os alvos).
+    let bytes = tabela.into_bytes();
+    let palavras: Vec<i64> = bytes
+        .chunks(8)
+        .map(|c| {
+            let mut w = [0u8; 8];
+            w[..c.len()].copy_from_slice(c);
+            i64::from_le_bytes(w)
+        })
+        .collect();
+    let dados = b.emit(Instruction::ConstArray(palavras), Type::Ptr);
+    b.emit(
+        Instruction::CallRuntime {
+            name: "dartforge_rti_iniciar_tabela".to_string(),
+            args: vec![(dados, Type::Ptr), (Operand::Constant(Constant::Int(bytes.len() as i64)), Type::I64)],
+            ret_ty: Type::Void,
+        },
+        Type::Void,
+    );
     b.terminate(Terminator::Return(None));
     b.finalizar(module);
     module.iniciar_rti = Some("dartforge_rti_iniciar".to_string());
