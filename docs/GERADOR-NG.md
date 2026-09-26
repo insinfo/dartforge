@@ -252,3 +252,98 @@ Números do `new_sali/frontend` (166 pendentes) e do
 A ordem de ataque segue a coluna "new_sali", que é o projeto maior, com um
 desvio: `@ViewChild` e `providers:` mexem na **numeração de provedores**, e
 por isso devem entrar junto com o modelo do §2 inteiro, não em cima dele.
+
+---
+
+## 9. Tabela de suporte por forma
+
+Levantamento de 2026-09-26: as sondas `i01`…`i58` do `corpus/ngdart`
+(uma forma por arquivo, com o `.template.dart` do `build_runner` oficial
+em `oraculo/`) cobrem os padrões de template e de anotação de aplicações
+reais. "Gerado" quer dizer **byte a byte igual ao oficial**, conferido
+por `tests/corpus.rs`; "recusado", que o arquivo fica com o
+`build_runner` e o motivo aparece no placar (e em `RECUSADOS`, que
+confere o motivo). No fim da rodada: 157 arquivos conferidos, 0
+diferentes, 8 recusados.
+
+### Diretivas estruturais
+
+| forma | estado | casos |
+|---|---|---|
+| `*ngIf`, `*ngFor` (`let x of`, `index`, `first`/`last`/`even`/`odd`) | gerado | a09, a10, a25, i01, i03 |
+| `*ngFor` com `trackBy: metodo` | gerado (método lido como valor, imutável: `if (firstCheck)` com `!= null`) | i02, i37 |
+| `*ngFor` sobre coleção `dynamic` (índice, `??`) | gerado (local sem cast) | i31, i52 |
+| `*ngIf="a ? b : c"` (`:` fora da microssintaxe) | gerado (`isMicroExpression`) | i43 |
+| `*ngIf` com `else`/`then` | não existe no ngdart 8 (`NgIf` só tem `ngIf`) | — |
+| `[ngSwitch]` + `*ngSwitchCase`/`*ngSwitchWhen`/`*ngSwitchDefault` | gerado (`@Host() NgSwitch` lido do nó acima) | i04, i42 |
+| `<ng-container>` com e sem `*` (raízes de texto, interpolação, várias) | gerado | i09, i21, i39, i40 |
+| `<template [ngIf]>`, `<template [ngSwitchCase]>`, `<template ngSwitchDefault>` | gerado (reescrito como `<ng-container *…>`) | i10, i53 |
+| `<template #t>` + `*ngTemplateOutlet`, `<template ngFor let-x>` | **recusado** (`<template> escrito no template`) | i30 |
+
+### Ligações e eventos
+
+| forma | estado | casos |
+|---|---|---|
+| `[prop]`, `[attr.x]`, `[class.x]`, `[class]`, `[style.x]` | gerado | a14, i28 |
+| `[style.x.px]`/`[style.x.%]`, `[style.x]` que não é `String` | gerado (`visitStyleBinding`) | i05, i38 |
+| `[innerHtml]`, `[href]`, `[src]`, `href="/p/{{id}}"` | gerado (`sanitizeHtml`/`Url`/`ResourceUrl` pela tabela do esquema) | i14, i57 |
+| `[style]`/`[attr.x]` com contexto de segurança | recusado | — |
+| `bind-x`, `on-x` | gerado (antes viravam atributo: **saída errada**) | i36 |
+| `(evento)` com `$event`, `(keyup.enter)`, atribuição | gerado | c04, c12, c14, i27 |
+| `[(ngModel)]` | gerado | g01, h03 |
+| `[(x)]` em componente filho | sem caso isolado (i24 é recusado por ter dois componentes no arquivo) | i24 |
+| `[ngClass]`, `[ngStyle]` (diretivas com `DoCheck`) | gerado | i11, i12, i41 |
+| `?.`, `??`, ternário, getters | gerado | i13, i23, i34 |
+
+### Referências e consultas
+
+| forma | estado | casos |
+|---|---|---|
+| `#ref` lido em expressão (elemento, filho, conteúdo projetado) | gerado (`final local_x = this._el_n;`, nó promovido a campo) | a15, i06, i07, i32, i48 |
+| `#ref` lido numa visão embutida (dela ou de ancestral) | gerado (`unsafeCast<_ViewX1>((this.parentView!))._el_n`) | i44, i45 |
+| `#ref` repetido, com membro ou `let` de mesmo nome, `#f="ngForm"` | recusado | — |
+| `@ViewChild('ref')` de elemento, de filho, no conteúdo projetado | gerado | b03, b20, i46 |
+| `@ViewChild` de `#ref` repetido (o primeiro) | gerado | i49 |
+| `@ViewChildren('ref')` estático, sem resultado (`[]`) | gerado | i15, i49 |
+| `@ViewChild(Tipo)`/`@ViewChildren(Tipo)` de componente filho | gerado | i16, i50 |
+| `@ViewChild`/`@ViewChildren` com o resultado em `*ngIf`/`*ngFor` (um nível) | gerado (`_viewQuery_x_N_isDirty`, `mapNestedViewsWithSingleResult`, `dirtyParentQueriesInternal`) | i47, i51 |
+| consulta com vários resultados em `*`, dois níveis, `read:` | recusado | — |
+| `@ContentChild`/`@ContentChildren` no próprio componente | **recusado** | d09, h01 |
+
+### Pipes
+
+| forma | estado | casos |
+|---|---|---|
+| `$pipe.nome(x, args)` puro | gerado | c09, c17 |
+| pipe dentro de pipe | gerado (o de dentro ganha proxy primeiro) | i08, i54 |
+| pipe impuro e com `OnDestroy` (`$pipe.async`) | gerado (instância por chamada, `ngOnDestroy` no `destroyInternal`) | i29, i58 |
+| `x \| nome` | não existe no ngdart 8 (erro do parser oficial) | — |
+
+### Anotações da classe
+
+| forma | estado | casos |
+|---|---|---|
+| `@Input`, `@Output`, ciclo de vida, `OnPush` | gerado | a16, b01…b14, d05…d07, i25 |
+| `@HostListener` em componente | gerado | b04, b17, b21, i18 |
+| `@HostBinding('class.x'/'attr.x')` em componente (campo, `final`, getter) | gerado (`detectHostChanges(firstCheck)`, chamado pela hospedeira e por quem usa o filho) | b05, i17, i55, i56 |
+| `@HostBinding` de propriedade, `style.x`, sem argumento, com herança | recusado | — |
+| `@i18n`, `@i18n:attr`, `.meaning`, `.locale`, `.skip` (texto puro) | gerado (`static final String _message_N = Intl.message(..)`; antes: **saída errada**) | i20, i35 |
+| `@i18n` com HTML dentro, em filho, em `*` ou com filho/diretiva na visão | recusado | — |
+| `providers: [..]` no componente | **recusado** (numeração de provedores na hospedeira) | b02, h02, i19 |
+| `encapsulation:` | **recusado** | b06 |
+| vários `@Component` no mesmo arquivo | **recusado** (imports compartilhados, filho do mesmo arquivo sem prefixo) | i24 |
+
+### O que falta, pela frequência
+
+1. `providers:` do componente (11 arquivos no new_sali): a hospedeira
+   ganha os provedores (`late X _X_0_6 = X();` preguiçoso, ou criado antes
+   do componente quando ele depende), o `injectorGetInternal` e a
+   construção do componente pelo provedor local. O resolvedor de
+   `diretivas.rs` já modela o `_ProviderResolver` de um nó.
+2. `@ContentChild(ren)` no próprio componente.
+3. Vários componentes num arquivo e `ngTemplateOutlet`/`<template #t>`.
+4. Consultas dinâmicas além de um nível e um resultado.
+
+O oráculo das sondas se regenera como os outros casos
+(`scripts/corpus-ngdart.ps1`): criar o `.dart` e o `.html` em
+`corpus/ngdart/lib/src/` e rodar o script.

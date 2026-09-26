@@ -50,7 +50,18 @@ fn raiz_do_corpus() -> PathBuf {
 /// Casos do corpus que o gerador tem de recusar, com a sub-forma da recusa.
 /// (O g02, `<select>` com `<option>`, saiu daqui na rodada 3: o
 /// `NgSelectOption` é instanciado com o `@Host` do acessor do `<select>`.)
-const RECUSADOS: &[(&str, &str)] = &[];
+/// São as formas ainda sem tradução (docs/GERADOR-NG.md §9): gerar
+/// qualquer uma ignorando o que falta daria saída errada.
+const RECUSADOS: &[(&str, &str)] = &[
+    ("b02_providers.dart", "@Component(.., providers: [..])"),
+    ("h02_campo.dart", "@Component(.., providers: [..])"),
+    ("i19_providers_classe.dart", "@Component(.., providers: [..])"),
+    ("b06_encapsulation.dart", "@Component(.., encapsulation: ..)"),
+    ("d09_projecao_select.dart", "@ContentChild"),
+    ("h01_cabecalho.dart", "@ContentChildren"),
+    ("i24_two_way_filho.dart", "vários componentes no arquivo"),
+    ("i30_template_outlet.dart", "<template> escrito no template"),
+];
 
 #[test]
 fn o_que_geramos_e_igual_ao_oficial() {
