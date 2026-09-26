@@ -53,8 +53,10 @@
 //! [`docs/JIT.md`]: https://github.com/insinfo/dartforge/blob/main/docs/JIT.md
 mod ffi;
 mod reload;
+mod vivo;
 
 pub use reload::{HotReloadReport, StableEntry};
+pub use vivo::ProgramaVivo;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -233,6 +235,8 @@ struct Module {
     signatures: Vec<ffi::FunctionSignature>,
     /// Layout nominal das classes que ele constrói: `(class_id, campos)`.
     layouts: Vec<(i64, i64)>,
+    /// Nomes das classes que ele registra: `(class_id, nome)`.
+    class_names: Vec<(i64, String)>,
     /// Globais mutáveis (estáticos preguiçosos) zeradas antes de cada execução.
     globals: Vec<ffi::MutableGlobal>,
 }
@@ -474,6 +478,7 @@ impl JitSession {
         // porque é o que permite a uma recarga futura comparar a versão nova com
         // esta — inclusive quando este módulo entrou pelo caminho simples.
         let layouts = parsed.class_layouts();
+        let class_names = parsed.class_names();
         let globals = parsed
             .prepare_mutable_globals()
             .map_err(|detail| JitError::new("globais", "o módulo tem estado que a sessão não sabe reiniciar", detail))?;
@@ -491,6 +496,7 @@ impl JitSession {
             removed: false,
             signatures,
             layouts,
+            class_names,
             globals,
         });
         Ok(ModuleReport {
@@ -546,6 +552,9 @@ impl JitSession {
             removed: false,
             signatures: parts.signatures.clone(),
             layouts: parts.layouts.clone(),
+            // O objeto compilado não guarda os nomes: a comparação por nome
+            // começa na primeira recarga.
+            class_names: Vec::new(),
             globals: parts.globals.clone(),
         });
         Ok(ModuleReport {

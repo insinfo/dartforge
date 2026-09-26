@@ -55,7 +55,7 @@ pub unsafe extern "C" fn dartforge_registrar_metodos(cid: i64, pares: *const i64
 /// não registrada.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_registrar_tabela(cid: i64, f: extern "C" fn() -> *const i64) {
-    if METODOS.with(|m| m.borrow().contains_key(&cid)) {
+    if !REPUBLICANDO.with(|r| r.get()) && METODOS.with(|m| m.borrow().contains_key(&cid)) {
         return;
     }
     let t = f();
@@ -64,6 +64,40 @@ pub extern "C" fn dartforge_registrar_tabela(cid: i64, f: extern "C" fn() -> *co
     // SAFETY: os pares começam na terceira palavra.
     let pares = unsafe { t.add(2) };
     METODOS.with(|m| m.borrow_mut().insert(cid, (pares as usize, n)));
+}
+
+thread_local! {
+    /// Os registros da geração nova de uma recarga do JIT estão sendo
+    /// refeitos: as tabelas de métodos substituem as já registradas.
+    static REPUBLICANDO: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// A publicação de uma geração nova do programa (a recarga do JIT), no ponto
+/// seguro do isolado: estende a área de globais ao layout da geração
+/// (`area`, o `df.preparar_area` dela — agora, sem quadro nenhum na pilha,
+/// para que um crescimento que precise de outra alocação não deixe um
+/// `%area` antigo apontando para a aposentada); refaz os registros do programa (`registrar`, o
+/// `df.registrar.programa` da geração: nomes, arestas de subtipo e tabelas
+/// de métodos, que agora SUBSTITUEM as da geração anterior — uma classe pode
+/// ter ganhado métodos) e as regras de supertipo da RTI (`rti`). Os
+/// registros que acrescentam (arestas, regras) não duplicam.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_publicar_geracao(
+    area: Option<extern "C" fn()>,
+    registrar: Option<extern "C" fn()>,
+    rti: Option<extern "C" fn()>,
+) {
+    if let Some(f) = area {
+        f();
+    }
+    REPUBLICANDO.with(|r| r.set(true));
+    if let Some(f) = registrar {
+        f();
+    }
+    REPUBLICANDO.with(|r| r.set(false));
+    if let Some(f) = rti {
+        f();
+    }
 }
 
 /// `dartforge_object_new` que registra a tabela de métodos da classe na

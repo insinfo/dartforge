@@ -130,8 +130,10 @@ pub extern "C" fn dartforge_laco_de_eventos(chamar: extern "C" fn(i64) -> i64) {
             soltar_raiz(raiz);
             continue;
         }
-        // 2. As mensagens de controle (`isolados.rs`), entre um evento e
-        //    outro; pausado, o isolado só atende o controle.
+        // 2. Os pedidos no ponto seguro (a publicação de uma recarga do JIT,
+        //    `portas.rs`) e as mensagens de controle (`isolados.rs`), entre
+        //    um evento e outro; pausado, o isolado só atende os dois.
+        atender_pontos_seguros();
         if !atender_controle() {
             return;
         }

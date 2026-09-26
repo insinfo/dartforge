@@ -130,7 +130,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let com_this = self.this_param.is_some();
         let base = usize::from(com_this);
 
-        let simbolo = self.nome_de_closure(f.name.map(|n| n.sym));
+        // O nome leva a impressão digital do que o corpo espera do ambiente
+        // (as capturas, na ordem, com o modo e o tipo; o `this`; a tupla de
+        // tipos) e dos parâmetros: numa recarga do JIT, uma closure viva só
+        // passa a executar o corpo novo de mesmo nome se ele lê o ambiente
+        // dela do mesmo jeito. Uma closure nova inserida antes, ou capturas
+        // que mudam, dão outro nome, e as closures vivas seguem no corpo em
+        // que foram criadas.
+        let mut forma = format!("{com_this}|{}|", self.tupla_de_tipos.is_some());
+        for (sym, l) in &capturas {
+            let celula = matches!(l.modo, Modo::Celula(_) | Modo::Ambiente { celula: true, .. });
+            forma.push_str(&format!("{}:{celula}:{:?};", self.ctx.symbol_name(*sym), l.ty));
+        }
+        for p in f.parameters.as_deref().unwrap_or(&[]) {
+            let nome = p.name.map_or("", |n| self.ctx.symbol_name(n.sym));
+            forma.push_str(&format!("{nome}:{:?}:{};", p.kind, p.required));
+        }
+        let simbolo = format!(
+            "{}$e{:08x}",
+            self.nome_de_closure(f.name.map(|n| n.sym)),
+            (hash_nome(&forma) as u64) as u32
+        );
         let legivel = f
             .name
             .map_or_else(|| "<closure>".to_string(), |n| self.ctx.symbol_name(n.sym).to_string());
