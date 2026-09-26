@@ -160,6 +160,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // função genérica em volta: a tupla vai no fim do ambiente).
         b.params_de_tipo_da_funcao = self.params_de_tipo_da_funcao.clone();
         b.extensao_do_this = self.extensao_do_this;
+        b.classe_do_membro = self.classe_do_membro;
         b.classe_por_tupla = self.classe_por_tupla;
         if self.classe_por_tupla {
             // Numa fábrica não há `this`, mas `T` é o da classe.
@@ -633,6 +634,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     member: MemberRef::Variable(v),
                     via_super: false,
                 });
+            }
+        }
+        // Num membro estático, os estáticos da classe que o declara.
+        if self.enclosing_class.is_none()
+            && let Some(c) = self.classe_do_membro
+        {
+            let classe = &self.ctx.program.classes[c.0 as usize];
+            if let Some(&f) = classe.static_members.get(&sym) {
+                return Some(Resolved::Member { class: c, member: MemberRef::Function(f), via_super: false });
+            }
+            if let Some(&v) = classe.fields.iter().find(|&&v| {
+                let var = &self.ctx.program.variables[v.0 as usize];
+                var.static_ && var.name == sym
+            }) {
+                return Some(Resolved::Member { class: c, member: MemberRef::Variable(v), via_super: false });
             }
         }
         let lib = self.ctx.program.unit(self.unit_id).library;

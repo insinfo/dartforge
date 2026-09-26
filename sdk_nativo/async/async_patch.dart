@@ -91,6 +91,11 @@ dynamic _asyncStartSync(
   return completer.future;
 }
 
+/// `p.loadLibrary()` de um `import deferred`: a biblioteca já está no
+/// programa compilado.
+@pragma("vm:entry-point", "call")
+Future<Null> _dartforgeCarregarBiblioteca() => new _Future<Null>.value(null);
+
 /// O `await` de uma função `async`: registra a continuação no objeto.
 @pragma("vm:entry-point", "call")
 dynamic _asyncAwait(dynamic object, _WrappedAsyncBody bodyFunction) {

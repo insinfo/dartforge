@@ -136,7 +136,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// Chama o apoio `nome` do `dart:async` com os argumentos já avaliados.
-    fn chamar_apoio(&mut self, nome: &str, args: Vec<Operand>, span: Span) -> Operand {
+    pub(super) fn chamar_apoio(&mut self, nome: &str, args: Vec<Operand>, span: Span) -> Operand {
         let Some(fid) = self.apoio_async(nome) else {
             return self.nao_suportado(&format!("apoio `{nome}` do dart:async ausente"), span);
         };
@@ -283,6 +283,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // RTI: as variáveis de tipo do stub (a tupla mora no quadro).
         b.params_de_tipo_da_funcao = self.params_de_tipo_da_funcao.clone();
         b.extensao_do_this = self.extensao_do_this;
+        b.classe_do_membro = self.classe_do_membro;
         b.classe_por_tupla = self.classe_por_tupla;
         if self.tupla_de_tipos.is_some() {
             let t = b.ler_posicao(quadro.clone(), Q_TUPLA, Type::I64);
