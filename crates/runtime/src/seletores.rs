@@ -132,11 +132,82 @@ fn cid_do_runtime(handle: i64) -> Option<i64> {
     })
 }
 
-/// Entrada de um seletor que a classe do receptor não tem.
-extern "C" fn dartforge_nsm_seletor(_recv: i64, _args: *const i64, _desc: *const i64) -> i64 {
+/// Os nomes dos argumentos nomeados, pelo hash do descritor (o mesmo em
+/// todo módulo e em todo isolado).
+fn nomes_de_argumento() -> &'static std::sync::RwLock<HashMap<i64, String>> {
+    static N: std::sync::OnceLock<std::sync::RwLock<HashMap<i64, String>>> = std::sync::OnceLock::new();
+    N.get_or_init(Default::default)
+}
+
+/// Registra o nome de um argumento nomeado que algum descritor do módulo usa.
+///
+/// # Safety
+/// `nome` aponta para `len` bytes UTF-8 de uma constante do módulo.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_registrar_nome_de_argumento(nome: *const u8, len: i64) {
+    // SAFETY: constante do módulo com `len` bytes.
+    let bytes = unsafe { std::slice::from_raw_parts(nome, len as usize) };
+    let nome = String::from_utf8_lossy(bytes).into_owned();
+    let h = hash_do_nome(&nome);
+    nomes_de_argumento().write().unwrap_or_else(|e| e.into_inner()).entry(h).or_insert(nome);
+}
+
+/// FNV-1a de 64 bits (`lower/closures.rs::hash_nome`).
+fn hash_do_nome(nome: &str) -> i64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in nome.bytes() {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h as i64
+}
+
+/// Entrada de um seletor que a classe do receptor não tem: como na VM, o
+/// `noSuchMethod` do receptor recebe o `Invocation` (o de `Object` lança
+/// `NoSuchMethodError`; uma classe pode sobrescrevê-lo e devolver um valor).
+extern "C" fn dartforge_nsm_seletor(recv: i64, args: *const i64, desc: *const i64) -> i64 {
     let texto = SELETOR_AUSENTE.with(|s| s.borrow().clone());
-    let nome = texto.split_once(':').map_or(texto.as_str(), |(_, n)| n);
+    let (tipo, nome) = texto.split_once(':').unwrap_or(("c", texto.as_str()));
     let nome = nome.split_once('@').map_or(nome, |(n, _)| n);
+    if let Some(f) = ajudante("_dartforgeNoSuchMethod") {
+        // SAFETY: o descritor e o vetor de argumentos são os da chamada.
+        let (npos, nnom) = unsafe { (*desc as usize, *desc.add(1) as usize) };
+        let valores: Vec<i64> = unsafe { std::slice::from_raw_parts(args, npos + nnom) }.to_vec();
+        let hashes: Vec<i64> = unsafe { std::slice::from_raw_parts(desc.add(2), nnom) }.to_vec();
+        let codigo = match tipo {
+            "g" => 1,
+            "s" => 2,
+            _ => 0,
+        };
+        // Tudo o que é alocado aqui fica num frame de raízes até a chamada
+        // (cada alocação pode coletar).
+        let frame = HEAP.with(|h| h.borrow_mut().push_frame_with_slots(valores.len() + nnom + 5));
+        let mut proximo = 0;
+        let mut enraizar = |x: i64| {
+            HEAP.with(|h| h.borrow_mut().set_root(frame, proximo, x));
+            proximo += 1;
+            x
+        };
+        enraizar(recv);
+        for &v in &valores {
+            enraizar(v);
+        }
+        let n = enraizar(alocar_str(nome));
+        let pos = enraizar(dart_lista_fixa(&valores[..npos]));
+        let textos: Vec<String> = {
+            let tabela = nomes_de_argumento().read().unwrap_or_else(|e| e.into_inner());
+            hashes.iter().map(|h| tabela.get(h).cloned().unwrap_or_default()).collect()
+        };
+        let textos: Vec<i64> = textos.iter().map(|t| enraizar(alocar_str(t))).collect();
+        let nomes = enraizar(dart_lista_fixa(&textos));
+        let vals = enraizar(dart_lista_fixa(&valores[npos..]));
+        // SAFETY: registrado pelo `dart:core` com a assinatura
+        // (Object?, int, String, List, List, List) -> Object?.
+        let g: extern "C" fn(i64, i64, i64, i64, i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
+        let r = g(recv, codigo, n, pos, nomes, vals);
+        HEAP.with(|h| h.borrow_mut().pop_frame(frame));
+        return r;
+    }
     let h = HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(Texto::de_str(nome))));
     let erro = com_raizes(&[h], || dartforge_no_such_method_error_new(h));
     com_raizes(&[erro], || dartforge_exception_throw(erro, 3));

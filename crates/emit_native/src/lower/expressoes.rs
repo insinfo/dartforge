@@ -594,6 +594,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                     _ => {}
                 }
+                // `-x`/`~x` de extensão (P4): chamada direta ao membro.
+                if matches!(op, UnaryOp::Neg | UnaryOp::BitNot)
+                    && let Some(fid) = self.operador_de_extensao(expr_id)
+                {
+                    let v = self.lower_expr(ast, *operand);
+                    let receptor = self.ctx.get_type(self.unit_id, *operand);
+                    let r = self.chamar_extensao(v, fid, &[], receptor, None, expr.span);
+                    let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
+                    return self.coagir(r, repr);
+                }
                 if *op == UnaryOp::NullAssert {
                     let sub_op = self.lower_expr(ast, *operand);
                     if self.operand_type(&sub_op) != Type::Ref {
@@ -734,6 +744,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let span = expr.span;
                 let resolved = self.ctx.get_resolved(self.unit_id, expr_id).cloned();
 
+                // `E.x`: campo ou getter estático de extensão.
+                if matches!(
+                    self.ctx.get_resolved(self.unit_id, *target),
+                    Some(Resolved::Element(dartforge_elements::model::Element::Extension(_)))
+                ) {
+                    return match resolved {
+                        Some(Resolved::Element(el)) => self.ler_elemento(el, span),
+                        Some(Resolved::ExtensionMember { member, .. }) => {
+                            self.ler_membro_estatico(MemberRef::Function(member), span)
+                        }
+                        _ => self.nao_suportado(&format!("membro estático de extensão `{prop_name}`"), span),
+                    };
+                }
                 // `C.x`: membro estático (o alvo é um literal de classe).
                 let alvo_e_classe = matches!(
                     self.ctx.get_resolved(self.unit_id, *target),

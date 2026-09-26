@@ -29,6 +29,10 @@ pub struct LlvmEmitter<'a> {
     /// Vetores constantes de `i64` (`@df.arr.<k>`): assinaturas e descritores.
     vetores: Vec<Vec<i64>>,
     vetor_de: std::collections::HashMap<Vec<i64>, usize>,
+    /// Os nomes dos argumentos nomeados dos descritores do módulo: o
+    /// descritor só guarda o hash, e o `Invocation` de um `noSuchMethod`
+    /// precisa do nome (`dartforge_registrar_nome_de_argumento`).
+    nomes_de_argumento: std::collections::BTreeSet<String>,
     // --- P5c (SDK da fonte, δ; `seletores.rs`) ---
     /// Pontos de chamada por seletor já emitidos (um cache cada).
     caches_de_seletor: usize,
@@ -68,6 +72,7 @@ impl<'a> LlvmEmitter<'a> {
 
             vetores: Vec::new(),
             vetor_de: std::collections::HashMap::new(),
+            nomes_de_argumento: std::collections::BTreeSet::new(),
             caches_de_seletor: 0,
             nomes_de_seletor: Vec::new(),
             externos: std::collections::BTreeMap::new(),
@@ -984,6 +989,7 @@ impl<'a> LlvmEmitter<'a> {
                         }
                         Instruction::CallClosure { args, nomes, .. } | Instruction::CallSeletor { args, nomes, .. } => {
                             self.registrar_vetor(Self::descritor(args.len(), nomes));
+                            self.nomes_de_argumento.extend(nomes.iter().cloned());
                         }
                         _ => {}
                     }

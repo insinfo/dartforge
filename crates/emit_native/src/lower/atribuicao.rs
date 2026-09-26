@@ -326,6 +326,37 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let v = self.combinar(ast, op, cur, value);
                     return self.gravar_super(name.sym, v, span);
                 }
+                // `E.x = v`: campo estático de extensão (ou setter estático).
+                if matches!(
+                    self.ctx.get_resolved(self.unit_id, *recv),
+                    Some(Resolved::Element(Element::Extension(_)))
+                ) {
+                    match self.ctx.get_resolved(self.unit_id, target).cloned() {
+                        Some(Resolved::Element(Element::Variable(vid))) => {
+                            let cur = composto.then(|| self.ler_global(vid, span));
+                            let v = self.combinar(ast, op, cur, value);
+                            return self.gravar_global(vid, v, span);
+                        }
+                        Some(Resolved::ExtensionMember { member, .. })
+                            if self.ctx.program.functions[member.0 as usize].kind == FunctionKind::Setter =>
+                        {
+                            let e = self.ctx.program.functions[member.0 as usize].extension.expect("extensão");
+                            let getter = self.ctx.program.extensions[e.0 as usize].static_members.get(&name.sym).copied();
+                            let cur = match (composto, getter) {
+                                (true, Some(g)) => Some(self.chamar_direto(g.0 as usize, None, Vec::new())),
+                                (true, None) => return self.nao_suportado("leitura sem getter estático", span),
+                                _ => None,
+                            };
+                            let v = self.combinar(ast, op, cur, value);
+                            self.chamar_direto(member.0 as usize, None, vec![v.clone()]);
+                            return v;
+                        }
+                        _ => {
+                            let n = self.ctx.symbol_name(name.sym).to_string();
+                            return self.nao_suportado(&format!("atribuição a `{n}` de extensão"), span);
+                        }
+                    }
+                }
                 // Setter de extensão (P4): chamada direta com o receptor.
                 if let Some(Resolved::ExtensionMember { member, .. }) = self.ctx.get_resolved(self.unit_id, target).cloned()
                     && !self.ctx.program.functions[member.0 as usize].static_

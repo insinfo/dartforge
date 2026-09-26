@@ -131,8 +131,10 @@ pub fn simbolo_de(ctx: &Context, fid: usize) -> String {
 /// Variável de topo ou campo estático: mora num global do módulo (N6).
 pub fn e_global(ctx: &Context, vid: VariableId) -> bool {
     let v = &ctx.program.variables[vid.0 as usize];
+    // Campos de extensão são sempre estáticos (§13): globais como os de
+    // classe.
     (v.class.is_none() || v.static_)
-        && v.extension.is_none()
+        && (v.extension.is_none() || v.static_)
         && matches!(
             v.node,
             VariableRef::TopLevel { .. } | VariableRef::Field { .. } | VariableRef::EnumConstant { .. }
