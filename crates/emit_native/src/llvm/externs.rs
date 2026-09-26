@@ -935,6 +935,14 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
+        decl: "declare i64 @dartforge_ffi_composto_copia(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_ffi_copiar_composto(ptr, i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
         decl: "declare void @dartforge_ffi_registrar_callback(ptr, i64, ptr)",
         efeitos: CONSERVADOR,
     },

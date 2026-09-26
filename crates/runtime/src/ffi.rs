@@ -825,3 +825,34 @@ pub extern "C" fn dartforge_ffi_composto_novo(rti: i64) -> i64 {
     });
     com_raizes(&[bytes], || dartforge_ffi_composto(rti, bytes, 0))
 }
+
+/// Uma struct/union nova (sobre `Uint8List`) com os bytes em `endereco` — o
+/// argumento por valor de um callback, copiado como na VM.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_ffi_composto_copia(rti: i64, endereco: i64) -> i64 {
+    let novo = dartforge_ffi_composto_novo(rti);
+    if novo == 0 {
+        return 0;
+    }
+    let n = composto_de_rti(rti).map_or(0, |c| c.tamanho as usize);
+    let destino = com_raizes(&[novo], || dartforge_ffi_endereco_do_composto(novo));
+    if destino != 0 && endereco != 0 {
+        // SAFETY: `endereco` tem os `n` bytes da struct (a entrada C ou uma
+        // mensagem); `destino`, os da struct nova.
+        unsafe { std::ptr::copy_nonoverlapping(endereco as usize as *const u8, destino as usize as *mut u8, n) };
+    }
+    novo
+}
+
+/// Copia os `n` bytes da struct devolvida por um callback (em `origem`; 0 se
+/// a closure lançou) para o retorno da entrada C.
+///
+/// # Safety
+/// `destino` tem `n` bytes graváveis; `origem` é 0 ou tem `n` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_ffi_copiar_composto(destino: *mut u8, origem: i64, n: i64) {
+    if origem != 0 && n > 0 {
+        // SAFETY: garantido por quem chama.
+        unsafe { std::ptr::copy_nonoverlapping(origem as usize as *const u8, destino, n as usize) };
+    }
+}
