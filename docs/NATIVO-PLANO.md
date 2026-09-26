@@ -1488,3 +1488,52 @@ do usuário para o build do dartforge:
   dartforge; os caminhos fixos de desenvolvimento (`C:/tools/dartsdk…`, o
   cache em `target/`) passam para a distribuição (o SDK Dart e o
   `sdk_nativo/` em `lib/`, o cache no diretório de cache do usuário).
+
+### 7.11 TLS: `SecureSocket`, `SecurityContext`, `X509Certificate`, HTTPS
+
+O runtime (`crates/runtime/src/tls.rs`) implementa o filtro da VM
+(`runtime/bin/secure_socket_filter.cc`) sobre o **rustls** (provedor
+`ring`); o `secure_socket.dart` e o `dart:_http` do SDK rodam intactos por
+cima. A sobreposição troca só o patch da VM
+(`sdk_nativo/io/secure_socket_patch.dart`) e o pedido `sslProcessFilter` do
+IOService (`io_service_patch.dart`).
+
+* **Os anéis.** Os quatro `_ExternalBuffer` (texto lido/a escrever, cifrado
+  lido/a escrever) são `Uint8List` do heap; o `ProcessAllBuffers` da VM é
+  reproduzido com as mesmas regras de anel (um byte sempre livre). O pedido
+  é atendido na thread do isolado — o filtro só faz criptografia em
+  memória; a E/S continua no `RawSocket` — e responde **num evento seguinte**
+  do laço (como a porta do IOService): responder numa microtarefa deixava o
+  `_tryFilter` girar sem ceder ao laço, e um servidor no mesmo isolado nunca
+  completava o handshake.
+* **Certificados.** O que as raízes do contexto não validam não derruba o
+  handshake: ele para com o código 16 (`SSL_ERROR_WANT_CERTIFICATE_VERIFY`),
+  o Dart chama o `onBadCertificate` / `badCertificateCallback` num evento
+  seguinte e decide (`_decidir`); até lá nada do que o rustls produziu sai
+  para o soquete. Recusado, o erro é o da VM:
+  `HandshakeException: Handshake error in client (OS Error: \n\tCERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate(handshake.cc:392))`
+  (os motivos seguem os textos do BoringSSL). As raízes embutidas
+  (`defaultContext`, `withTrustedRoots`) são as do sistema
+  (`rustls-native-certs`: arquivos do Linux, chaveiro do macOS, repositório
+  do Windows) e, sem nenhuma, as da Mozilla (`webpki-roots`).
+* **Por que rustls e não BoringSSL.** O `boring` exige, no build, cmake, Go
+  e bindgen (libclang), e o BoringSSL não tem ABI estável; o rustls com
+  `ring` compila com o Cargo nos três sistemas e vai pré-compilado no
+  runtime da distribuição. Diferenças documentadas em relação à VM:
+  sem renegociação (`allowLegacyUnsafeRenegotiation` só é guardado), e
+  chaves cifradas/PKCS#12 são recusadas com a `TlsException` da operação.
+  O resto — PEM e DER, cadeia e chave, autoridades de cliente, ALPN, versão
+  mínima 1.2/1.3, `keyLog`, `peerCertificate`, `selectedProtocol` — segue a
+  VM.
+* **Verificado** (`crates/cli/tests/io_regressao.rs`, `tls_e_https_como_a_vm`,
+  saída idêntica à do `dart run`, também no JIT e com
+  `DARTFORGE_GC_STRESS=1`): cliente e servidor no mesmo isolado, ALPN, os
+  campos do `X509Certificate`, a recusa sem a CA, o `onBadCertificate`, 200 KB
+  (mais que os anéis) e `HttpServer.bindSecure` + `HttpClient`.
+
+Achado no caminho: a estimativa de bytes do heap estourava (subtraía, na
+coleta, a capacidade de agora de valores cujo armazenamento natives como
+`_GrowableList._setLength` trocaram no lugar); agora a coleta refaz a
+estimativa a partir dos vivos. E o `main(List<String> args)` passou a
+receber a linha de comando (AOT; no JIT, os argumentos depois do programa
+em `dartforge run`, entregues também ao runtime da biblioteca do SDK).

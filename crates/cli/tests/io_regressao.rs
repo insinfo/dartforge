@@ -8,9 +8,9 @@ use std::io::Read;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-/// Compila `fixtures/<nome>.dart` com o SDK da fonte, roda e compara a
-/// saída; falha se o programa não termina em `prazo`.
-fn compilar_e_rodar(nome: &str, esperado: &str, prazo: Duration) {
+/// Compila `fixtures/<nome>.dart` com o SDK da fonte, roda (com `args`) e
+/// compara a saída; falha se o programa não termina em `prazo`.
+fn compilar_e_rodar(nome: &str, args: &[&std::ffi::OsStr], esperado: &str, prazo: Duration) {
     let raiz = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let dir = raiz.join(format!("../../target/tmp-io-regressao-{}-{nome}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("diretório do teste");
@@ -25,7 +25,7 @@ fn compilar_e_rodar(nome: &str, esperado: &str, prazo: Duration) {
         .expect("CLI");
     assert!(compilacao.status.success(), "compilação de {nome}: {}", String::from_utf8_lossy(&compilacao.stderr));
 
-    let mut filho = Command::new(&exe).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("programa");
+    let mut filho = Command::new(&exe).args(args).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("programa");
     let inicio = Instant::now();
     let status = loop {
         if let Some(s) = filho.try_wait().expect("estado do programa") {
@@ -51,11 +51,50 @@ fn compilar_e_rodar(nome: &str, esperado: &str, prazo: Duration) {
 #[test]
 #[ignore = "compila com o SDK da fonte e liga com o Clang; roda no CI de cada sistema"]
 fn soquete_de_escuta_compartilhado_so_fecha_com_o_ultimo() {
-    compilar_e_rodar("escuta_compartilhada", "o compartilhado sobrevive: ok\no ultimo fecha: ok\n", Duration::from_secs(60));
+    compilar_e_rodar("escuta_compartilhada", &[], "o compartilhado sobrevive: ok\no ultimo fecha: ok\n", Duration::from_secs(60));
 }
 
 #[test]
 #[ignore = "compila com o SDK da fonte e liga com o Clang; roda no CI de cada sistema"]
 fn rajada_de_sinais_nao_trava_o_tratador() {
-    compilar_e_rodar("rajada_de_sinais", "rajada: ok\nreinscricao: ok\n", Duration::from_secs(60));
+    compilar_e_rodar("rajada_de_sinais", &[], "rajada: ok\nreinscricao: ok\n", Duration::from_secs(60));
+}
+
+#[test]
+#[ignore = "compila com o SDK da fonte e liga com o Clang; roda no CI de cada sistema"]
+fn tls_e_https_como_a_vm() {
+    let certificados = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tls");
+    compilar_e_rodar(
+        "tls_https",
+        &[certificados.as_os_str()],
+        "protocolo: http/1.1
+sujeito: /C=BR/O=DartForge/CN=localhost
+emissor: /C=BR/O=DartForge Teste/CN=CA de Teste
+validade: true
+der: true sha1: 20
+pem: true
+eco: olá TLS
+
+recusado: HandshakeException
+true
+servidor: HandshakeException
+aceito pelo callback: /C=BR/O=DartForge/CN=localhost
+eco: de novo
+
+grande: 11
+200 application/json; charset=utf-8 {\"metodo\":\"POST\",\"caminho\":\"/a\",\"corpo\":50000,\"https\":\"https\"}
+200 application/json; charset=utf-8 {\"metodo\":\"POST\",\"caminho\":\"/b/c\",\"corpo\":50000,\"https\":\"https\"}
+callback: localhost /C=BR/O=DartForge Teste/CN=CA de Teste
+inseguro: 200 {\"metodo\":\"GET\",\"caminho\":\"/i\",\"corpo\":0,\"https\":\"https\"}
+recusado: CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate(handshake.cc:392)
+",
+        Duration::from_secs(120),
+    );
+}
+
+#[test]
+#[ignore = "compila com o SDK da fonte e liga com o Clang; roda no CI de cada sistema"]
+fn main_recebe_os_argumentos() {
+    let args = [std::ffi::OsStr::new("um"), std::ffi::OsStr::new("dois três")];
+    compilar_e_rodar("argumentos_do_main", &args, "[um, dois três]\ntrue\nfixa\n", Duration::from_secs(60));
 }

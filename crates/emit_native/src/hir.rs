@@ -466,6 +466,10 @@ pub struct Module {
     pub selectors: Vec<SelectorDef>,
     pub subtyping_edges: Vec<(u32, u32)>,
     pub entry_symbol: Option<String>,
+    /// Quantos parâmetros o `main` declara: com um, recebe os argumentos da
+    /// linha de comando (`List<String>`); o segundo (`message`, do
+    /// `Isolate.spawnUri`) é `null`.
+    pub entry_params: usize,
     /// Globais do usuário: (id da variável, representação). Cada um vira
     /// Globais do usuário: (id da raiz no runtime, representação, símbolo
     /// estável do valor `dfg.<caminho>`); a bandeira de inicialização é

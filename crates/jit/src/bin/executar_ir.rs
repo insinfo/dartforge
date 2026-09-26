@@ -1,4 +1,5 @@
-//! `dartforge-executar-ir <programa.ll> [--timings]` — executa um LLVM IR do
+//! `dartforge-executar-ir <programa.ll> [--timings] [-- <argumentos do main>]`
+//! — executa um LLVM IR do
 //! backend nativo pelo JIT ORCv2, num processo só dele.
 //!
 //! É o executor isolado do perfil de desenvolvimento: o harness diferencial e
@@ -26,13 +27,20 @@ const FALHA_DO_JIT: u8 = 70;
 fn main() -> ExitCode {
     let mut arquivo = None;
     let mut timings = false;
-    for argumento in std::env::args_os().skip(1) {
+    let mut argumentos = std::env::args_os().skip(1);
+    let mut do_programa = Vec::new();
+    while let Some(argumento) = argumentos.next() {
         match argumento.to_str() {
             Some("--timings") => timings = true,
+            // O resto é do `main` do programa.
+            Some("--") => {
+                do_programa.extend(argumentos.by_ref().map(|a| a.to_string_lossy().into_owned()));
+            }
             _ if arquivo.is_none() => arquivo = Some(argumento),
             _ => return uso(),
         }
     }
+    dartforge_jit::definir_argumentos(do_programa);
     let Some(arquivo) = arquivo else {
         return uso();
     };
@@ -74,6 +82,6 @@ fn main() -> ExitCode {
 
 /// Mostra o uso e sai com código 2.
 fn uso() -> ExitCode {
-    eprintln!("uso: dartforge-executar-ir <programa.ll> [--timings]");
+    eprintln!("uso: dartforge-executar-ir <programa.ll> [--timings] [-- <argumentos do main>]");
     ExitCode::from(2)
 }
