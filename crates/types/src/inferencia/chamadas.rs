@@ -207,6 +207,7 @@ pub(crate) fn invocar(
             let t = inferir(inf, cx, a.value, contexto);
             tipos[i] = t;
             if let Some(p) = params[i] {
+                let t = inf.tipo_do_call_implicito(t, p).unwrap_or(t);
                 let mut env = inf.env();
                 gi.constrain_argument(t, p, &mut env);
             }

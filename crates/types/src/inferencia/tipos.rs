@@ -237,6 +237,20 @@ impl<'a> BodyInferrer<'a> {
         false
     }
 
+    /// Coerção por `call` (*implicit call tearoff*): um objeto de tipo de
+    /// interface com método `call`, num contexto de tipo função, vale o tipo
+    /// do seu `call`. É com esse tipo que o argumento restringe os parâmetros
+    /// de tipo de uma chamada genérica (`[1].map(somador)` infere `T` pelo
+    /// retorno de `Somador.call`). `None` quando a coerção não se aplica.
+    pub(crate) fn tipo_do_call_implicito(&mut self, de: TypeId, contexto: TypeId) -> Option<TypeId> {
+        if !matches!(self.table.get(contexto), Type::Function { .. }) || !matches!(self.table.get(de), Type::Interface { nullable: false, .. }) {
+            return None;
+        }
+        let call = self.sym.call?;
+        let m = self.membro_de_interface(de, call, false)?;
+        m.metodo.then_some(m.tipo)
+    }
+
     /// Tipo `this` da classe (argumentos = os próprios parâmetros).
     pub(crate) fn tipo_this_classe(&mut self, c: ClassId) -> TypeId {
         let params = self.outline.classes[c.0 as usize].type_params.clone();

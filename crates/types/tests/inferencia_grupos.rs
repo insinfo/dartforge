@@ -584,6 +584,46 @@ A f(C c) => c;
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }
 
+/// Objeto com `call` passado a um parâmetro de tipo função de uma chamada
+/// genérica: a coerção por `call` vem antes da restrição, e `T` sai do
+/// retorno do `call` (o analyzer dá `Iterable<int>`).
+#[test]
+fn call_implicito_restringe_a_chamada_generica() {
+    let r = ou_pula!(inferir(
+        r#"
+class Somador {
+  final int base;
+  Somador(this.base);
+  int call(int x) => base + x;
+}
+void main() {
+  final s = Somador(5);
+  var l = [1, 2, 3].map(s);
+  print(l);
+}
+"#
+    ));
+    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+    assert_eq!(r.tipo("[1, 2, 3].map(s)"), "Iterable<int>");
+}
+
+/// `Never` como valor é literal de tipo, como `dynamic` (o analyzer dá
+/// `Type`); não há declaração dele no `dart:core`.
+#[test]
+fn never_como_literal_de_tipo() {
+    let r = ou_pula!(inferir(
+        r#"
+void main() {
+  var t = Never;
+  print([Never, Null, dynamic]);
+}
+"#
+    ));
+    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+    assert_eq!(r.tipo("Never"), "Type");
+    assert_eq!(r.tipo("[Never, Null, dynamic]"), "List<Type>");
+}
+
 /// A variável de um padrão que sombreia o escrutinado (`Neg(:final e)` em
 /// `switch (e)`) tem o tipo do campo; a promoção do caso vale para o
 /// escrutinado, não para ela (o analyzer dá `Expr` ao `e` do corpo).
