@@ -1321,9 +1321,7 @@ impl<'a> LlvmEmitter<'a> {
             let chamar = self.module.chamar_dart.as_ref().map_or("null".to_string(), |c| format!("@{c}"));
             writeln!(self.out, "  call void @dartforge_registrar_isolados(ptr @df.preparar_isolado, ptr {chamar})").unwrap();
             writeln!(self.out, "  call void @df.preparar_isolado()").unwrap();
-            if let Some(entry) = &self.module.entry_symbol {
-                writeln!(self.out, "  call void @{entry}()").unwrap();
-            }
+            self.chamar_main();
             if let Some(chamar) = &self.module.chamar_dart {
                 writeln!(self.out, "  call void @dartforge_laco_de_eventos(ptr @{chamar})").unwrap();
             }
@@ -1361,15 +1359,28 @@ impl<'a> LlvmEmitter<'a> {
         if let Some(iniciar) = &self.module.iniciar_rti {
             writeln!(self.out, "  call void @{iniciar}()").unwrap();
         }
-        if let Some(entry) = &self.module.entry_symbol {
-            writeln!(self.out, "  call void @{entry}()").unwrap();
-        }
+        self.chamar_main();
         // P6: microtarefas e timers depois do `main` (runtime, `eventos.rs`).
         if let Some(chamar) = &self.module.chamar_dart {
             writeln!(self.out, "  call void @dartforge_laco_de_eventos(ptr @{chamar})").unwrap();
         }
         writeln!(self.out, "  ret void").unwrap();
         writeln!(self.out, "}}\n").unwrap();
+    }
+
+    /// A chamada do `main` na entrada: com parâmetros, o primeiro é a lista
+    /// dos argumentos da linha de comando (`dartforge_argumentos_do_main`) e
+    /// o segundo, `null`.
+    fn chamar_main(&mut self) {
+        let Some(entry) = self.module.entry_symbol.clone() else { return };
+        let n = self.module.entry_params.min(2);
+        if n == 0 {
+            writeln!(self.out, "  call void @{entry}()").unwrap();
+            return;
+        }
+        writeln!(self.out, "  %df.args = call i64 @dartforge_argumentos_do_main()").unwrap();
+        let args = if n == 1 { "i64 %df.args".to_string() } else { "i64 %df.args, i64 0".to_string() };
+        writeln!(self.out, "  call void @{entry}({args})").unwrap();
     }
 
     /// Tipo do valor que o emissor de fato imprime para uma instrucao.

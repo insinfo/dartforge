@@ -139,10 +139,13 @@ pub const fn bandeiras_objeto_compartilhado() -> &'static [&'static str] {
 /// `rustc`. No Windows o CRT é escolhido por quem liga (ver `driver.rs`).
 pub const fn bibliotecas_do_sistema() -> &'static [&'static str] {
     match sistema() {
-        Sistema::Windows => &["-lws2_32", "-luserenv", "-lntdll", "-liphlpapi", "-lbcrypt", "-ladvapi32", "-lkernel32"],
+        // `crypt32`: o repositório de certificados do sistema (as raízes da
+        // TLS, `tls.rs`).
+        Sistema::Windows => &["-lws2_32", "-luserenv", "-lntdll", "-liphlpapi", "-lbcrypt", "-ladvapi32", "-lcrypt32", "-lkernel32"],
         Sistema::Linux => &["-lgcc_s", "-lutil", "-lrt", "-lpthread", "-lm", "-ldl", "-lc"],
-        // `CoreFoundation`: o `Platform.localeName` (io_plataforma.rs).
-        Sistema::MacOs => &["-lSystem", "-lc", "-lm", "-liconv", "-framework", "CoreFoundation"],
+        // `CoreFoundation`: o `Platform.localeName` (io_plataforma.rs);
+        // `Security`: o chaveiro do sistema (as raízes da TLS, `tls.rs`).
+        Sistema::MacOs => &["-lSystem", "-lc", "-lm", "-liconv", "-framework", "CoreFoundation", "-framework", "Security"],
     }
 }
 

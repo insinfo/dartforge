@@ -20,7 +20,9 @@
       "_internal/vm/bin/common_patch.dart": "io/common_patch.dart",
       "_internal/vm/lib/ffi_patch.dart": "ffi/ffi_patch.dart",
       "_internal/vm/lib/ffi_allocation_patch.dart": "ffi/ffi_allocation_patch.dart",
-      "_internal/vm/lib/ffi_dynamic_library_patch.dart": "ffi/ffi_dynamic_library_patch.dart"
+      "_internal/vm/lib/ffi_dynamic_library_patch.dart": "ffi/ffi_dynamic_library_patch.dart",
+      "_internal/vm/bin/io_service_patch.dart": "io/io_service_patch.dart",
+      "_internal/vm/bin/secure_socket_patch.dart": "io/secure_socket_patch.dart"
     }
   }
 }

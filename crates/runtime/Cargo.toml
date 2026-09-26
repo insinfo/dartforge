@@ -7,6 +7,15 @@ publish = false
 [lints]
 workspace = true
 
+[dependencies]
+# A TLS do `dart:io` (fragmento `tls`): o rustls com o provedor `ring` (o
+# `ring` também dá o SHA-1 do `X509Certificate.sha1`), as raízes do sistema
+# e, sem nenhuma, as da Mozilla.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+ring = "0.17"
+rustls-native-certs = "0.8"
+webpki-roots = "1"
+
 [features]
 # O perfil do módulo `abi` (ver o build.rs): nenhuma feature é o JIT; `aot` e
 # `dll` são as duas `staticlib` do AOT, montadas por `crates/runtime_estatico`.

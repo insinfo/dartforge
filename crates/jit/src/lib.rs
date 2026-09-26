@@ -300,6 +300,15 @@ impl JitSession {
         let nomes = lljit
             .define_symbols_from_dll(dll, usados, true)
             .map_err(|detail| JitError::new("sdk", "não foi possível publicar os símbolos da DLL do SDK", detail))?;
+        // O runtime do programa é o da biblioteca: os argumentos do `main`
+        // vão para ele.
+        let mut argumentos = Vec::new();
+        for a in argumentos_do_programa().lock().unwrap_or_else(|e| e.into_inner()).iter() {
+            argumentos.extend_from_slice(a.as_bytes());
+            argumentos.push(0);
+        }
+        ffi::definir_argumentos_na_biblioteca(dll, &argumentos)
+            .map_err(|detail| JitError::new("sdk", "não foi possível entregar os argumentos do main à DLL do SDK", detail))?;
         static NEXT_ID: AtomicU64 = AtomicU64::new(1_000_000);
         Ok(Self {
             modules: Vec::new(),
@@ -749,6 +758,21 @@ pub fn compile_module(name: &str, ir: &str) -> Result<CompiledModule, JitError> 
         JitError::new(stage, "não foi possível compilar o módulo", detail)
     })?;
     Ok(CompiledModule { name: name.to_owned(), parts })
+}
+
+/// Os argumentos que o `main(List<String> args)` do programa recebe: o
+/// processo do JIT não é o programa, então a linha de comando dele não
+/// serve (o AOT usa a do executável).
+pub fn definir_argumentos(argumentos: Vec<String>) {
+    *argumentos_do_programa().lock().unwrap_or_else(|e| e.into_inner()) = argumentos.clone();
+    dartforge_runtime::abi::definir_argumentos_do_main(argumentos);
+}
+
+/// Os argumentos de [`definir_argumentos`], que uma sessão com o SDK da fonte
+/// repassa ao runtime da biblioteca dela.
+fn argumentos_do_programa() -> &'static std::sync::Mutex<Vec<String>> {
+    static A: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+    &A
 }
 
 /// Compila e executa um IR numa sessão descartável, imprimindo no stdout.
