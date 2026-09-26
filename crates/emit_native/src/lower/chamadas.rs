@@ -62,7 +62,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if let Some(Resolved::ExtensionMember { member, .. }) = resolvido {
                 let avaliados = self.avaliar_args(ast, &arguments.args);
                 let this = self.this_param.clone().unwrap_or(Operand::Constant(Constant::Null));
-                return self.chamar_extensao(this, member.0 as usize, &avaliados, expr.span);
+                let receptor = self.extensao_do_this.map(|(_, on)| on);
+                return self.chamar_extensao(
+                    this,
+                    member.0 as usize,
+                    &avaliados,
+                    receptor,
+                    Some((expr_id, arguments)),
+                    expr.span,
+                );
             }
             // Método do SDK chamado sem receptor (no corpo de uma extensão
             // sobre um tipo do SDK): pelo nome, com `this`.
@@ -320,7 +328,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 && crate::lower::funcao_do_usuario(self.ctx, member.0 as usize)
             {
                 let avaliados = self.avaliar_args(ast, &arguments.args);
-                return self.chamar_extensao(recv_op, member.0 as usize, &avaliados, expr.span);
+                let receptor = self.ctx.get_type(self.unit_id, *inner_target);
+                return self.chamar_extensao(
+                    recv_op,
+                    member.0 as usize,
+                    &avaliados,
+                    receptor,
+                    Some((expr_id, arguments)),
+                    expr.span,
+                );
             }
 
             // Método de classe do usuário: pelo elemento resolvido, com

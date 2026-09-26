@@ -15,7 +15,7 @@ use dartforge_elements::model::{
 use dartforge_frontend::ast::{self, ExprId, FunctionBody, MemberKind, ParameterKind};
 use dartforge_intern::SymbolId;
 use dartforge_types::resolved::MemberRef;
-use dartforge_types::table::TypeId;
+use dartforge_types::table::{TypeId, TypeParamId};
 
 /// Argumento já avaliado: nome (se nomeado) e valor.
 pub type Avaliado = (Option<SymbolId>, Operand);
@@ -1484,10 +1484,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// A função (não construtor) declara parâmetros de tipo: recebe a tupla.
+    /// Um membro de instância de extensão genérica também recebe: os
+    /// argumentos da extensão vêm primeiro (`params_de_tipo_de`).
     pub fn funcao_generica(&self, fid: usize) -> bool {
         !matches!(self.ctx.program.functions[fid].node, FunctionRef::Constructor { .. })
-            && self.ctx.outline.functions.get(fid).is_some_and(|d| !d.type_params.is_empty())
+            && !self.params_de_tipo_de(fid).is_empty()
             && super::funcao_do_usuario(self.ctx, fid)
+    }
+
+    /// Os parâmetros de tipo que a tupla de `fid` carrega, na ordem: os da
+    /// extensão (membro de instância; um estático não os vê) e os próprios.
+    pub fn params_de_tipo_de(&self, fid: usize) -> Vec<TypeParamId> {
+        let f = &self.ctx.program.functions[fid];
+        let mut v = Vec::new();
+        if let Some(e) = f.extension.filter(|_| !f.static_)
+            && let Some(x) = self.ctx.outline.extensions.get(e.0 as usize)
+        {
+            v.extend(x.type_params.iter().copied());
+        }
+        if let Some(d) = self.ctx.outline.functions.get(fid) {
+            v.extend(d.type_params.iter().copied());
+        }
+        v
     }
 
     /// A classe declara parâmetros de tipo.

@@ -323,6 +323,12 @@ pub extern "C" fn dartforge_state_error_new(msg_handle: i64) -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_argument_error_new(msg_handle: i64, name_handle: i64) -> i64 {
+    if let Some(f) = ajudante("_dartforgeErroDeArgumento") {
+        // SAFETY: registrado pelo `dart:core` com a assinatura
+        // `(String?, String?) -> Object`.
+        let g: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
+        return com_raizes(&[msg_handle, name_handle], || g(msg_handle, name_handle));
+    }
     alocar_erro_com_rastro(1003, vec![(msg_handle, true), (name_handle, true), (0, false), (0, false), (0, false)])
 }
 
@@ -379,6 +385,11 @@ pub extern "C" fn dartforge_range_error_index(index: i64, indexable_or_len: i64,
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_unsupported_error_new(msg_handle: i64) -> i64 {
+    if let Some(f) = ajudante("_dartforgeErroNaoSuportado") {
+        // SAFETY: registrado pelo `dart:core` com a assinatura `(String?) -> Object`.
+        let g: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(f) };
+        return com_raizes(&[msg_handle], || g(msg_handle));
+    }
     alocar_erro_com_rastro(1005, vec![(msg_handle, true)])
 }
 

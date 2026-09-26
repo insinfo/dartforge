@@ -311,6 +311,91 @@ pub enum Instruction {
         args: Operand,
         desc: Operand,
     },
+    /// Chamada a uma função nativa (C) no endereço `alvo` (`i64`), com a
+    /// ABI C do alvo (`dart:ffi`, `lower/ffi.rs`). Os argumentos vêm na
+    /// representação da HIR — inteiros e ponteiros `I64`, ponto flutuante
+    /// `F64`, `bool` `I1` — e são convertidos ao tipo C; o resultado volta
+    /// do mesmo jeito (inteiros estendidos a 64 bits pelo sinal do tipo C).
+    ChamadaNativa {
+        alvo: Operand,
+        args: Vec<(Operand, TipoC)>,
+        ret: TipoC,
+    },
+}
+
+/// Um tipo C na fronteira de uma chamada nativa (os primitivos do
+/// `dart:ffi`, com os inteiros específicos da ABI já resolvidos).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TipoC {
+    I8,
+    U8,
+    I16,
+    U16,
+    I32,
+    U32,
+    I64,
+    U64,
+    F32,
+    F64,
+    Bool,
+    Ptr,
+    Void,
+}
+
+impl TipoC {
+    /// O tipo LLVM do valor C.
+    pub fn llvm(self) -> &'static str {
+        match self {
+            TipoC::I8 | TipoC::U8 => "i8",
+            TipoC::I16 | TipoC::U16 => "i16",
+            TipoC::I32 | TipoC::U32 => "i32",
+            TipoC::I64 | TipoC::U64 => "i64",
+            TipoC::F32 => "float",
+            TipoC::F64 => "double",
+            TipoC::Bool => "i1",
+            TipoC::Ptr => "ptr",
+            TipoC::Void => "void",
+        }
+    }
+
+    /// A representação na HIR do valor Dart correspondente.
+    pub fn tipo_hir(self) -> Type {
+        match self {
+            TipoC::F32 | TipoC::F64 => Type::F64,
+            TipoC::Bool => Type::I1,
+            TipoC::Void => Type::Void,
+            _ => Type::I64,
+        }
+    }
+
+    /// O atributo de extensão de um parâmetro estreito (quem chama estende:
+    /// exigido pela ABI da Apple em arm64 e inócuo nas outras).
+    pub fn extensao(self) -> &'static str {
+        match self {
+            TipoC::I8 | TipoC::I16 => "signext ",
+            TipoC::U8 | TipoC::U16 | TipoC::Bool => "zeroext ",
+            _ => "",
+        }
+    }
+
+    /// A letra do tipo na chave de uma assinatura nativa.
+    pub fn letra(self) -> char {
+        match self {
+            TipoC::I8 => 'a',
+            TipoC::U8 => 'h',
+            TipoC::I16 => 's',
+            TipoC::U16 => 't',
+            TipoC::I32 => 'i',
+            TipoC::U32 => 'j',
+            TipoC::I64 => 'l',
+            TipoC::U64 => 'm',
+            TipoC::F32 => 'f',
+            TipoC::F64 => 'd',
+            TipoC::Bool => 'b',
+            TipoC::Ptr => 'p',
+            TipoC::Void => 'v',
+        }
+    }
 }
 
 /// Terminador de controle de fluxo de um bloco básico.
@@ -372,6 +457,10 @@ pub struct SelectorDef {
 /// Módulo HIR completo representando um programa Dart compilável.
 #[derive(Debug, Default)]
 pub struct Module {
+    /// `dart:ffi`: (id RTI da classe, letra do tipo C) de cada tipo nativo
+    /// e (chave da assinatura, símbolo do trampolim) (`lower/ffi.rs`).
+    pub ffi_tipos: Vec<(i64, char)>,
+    pub ffi_trampolins: Vec<(String, String)>,
     pub functions: Vec<Function>,
     pub classes: Vec<ClassDef>,
     pub selectors: Vec<SelectorDef>,
