@@ -578,6 +578,14 @@ pub enum Value {
     BoxedDouble(f64),
     /// `bool` numa posição `Ref`: só existem dois, permanentes.
     BoxedBool(bool),
+    /// Lista tipada interna (`_Uint8List`, `_Float64List`, … do
+    /// `typed_data_patch.dart` da VM): a classe, o tipo do elemento
+    /// (`typed_data.rs`, `TIPO_*`) e os bytes, no endian do hospedeiro.
+    TypedData { class_id: i64, tipo: u8, bytes: Vec<u8> },
+    /// Visão sobre uma lista tipada interna (`_Uint8ArrayView`,
+    /// `_ByteDataView`, …): a classe, o tipo do elemento, a lista de base,
+    /// o deslocamento em bytes e o comprimento em elementos.
+    TypedView { class_id: i64, tipo: u8, base: i64, deslocamento: usize, comprimento: usize },
 }
 impl Value {
     /// Estima armazenamento próprio usando capacidades efetivas, com overflow explícito.
@@ -590,6 +598,8 @@ impl Value {
                 .checked_mul(std::mem::size_of::<(i64, bool)>())
                 .expect("payload excede usize"),
             Self::Cell(_) | Self::Closure { .. } | Self::BoxedInt(_) | Self::BoxedDouble(_) | Self::BoxedBool(_) => 0,
+            Self::TypedData { bytes, .. } => bytes.capacity(),
+            Self::TypedView { .. } => 0,
             Self::Environment(values) | Self::List(values) | Self::Set(values) | Self::Record(values) => values
                 .capacity()
                 .checked_mul(std::mem::size_of::<TaggedValue>())
@@ -612,7 +622,9 @@ impl Value {
             | Self::Match(_)
             | Self::BoxedInt(_)
             | Self::BoxedDouble(_)
-            | Self::BoxedBool(_) => {}
+            | Self::BoxedBool(_)
+            | Self::TypedData { .. } => {}
+            Self::TypedView { base, .. } => pending.push(*base),
             Self::Object { fields, .. } => pending.extend(
                 fields
                     .iter()

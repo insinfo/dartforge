@@ -431,6 +431,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 n
             }
+            None if reconhecido && let Some(op) = self.fabrica_tipada(&membro, args) => return Some(op),
             None if reconhecido => match crate::nativos::intrinseco(&membro) {
                 Some(n) => n.to_string(),
                 None => return Some(self.nao_suportado(&format!("intrínseco da VM `{membro}`"), span)),
@@ -491,6 +492,92 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             _ => r,
         };
         Some(if ret == Type::Void { Operand::Constant(Constant::Null) } else { self.coagir(r, ret) })
+    }
+
+    /// As fábricas `vm:recognized` do `typed_data_patch.dart` da VM: a
+    /// lista pública (`Uint8List(n)`) aloca a lista interna da classe
+    /// correspondente (`_Uint8List`), e `_XArrayView._(base, desloc, n)` a
+    /// visão (`typed_data.rs` do runtime). A alocação registra a tabela de
+    /// métodos da classe, como a de um objeto comum (emissor LLVM).
+    fn fabrica_tipada(&mut self, membro: &str, args: &[Operand]) -> Option<Operand> {
+        const LISTAS: &[(&str, &str, i64)] = &[
+            ("Int8List.", "_Int8List", 0),
+            ("Uint8List.", "_Uint8List", 1),
+            ("Uint8ClampedList.", "_Uint8ClampedList", 2),
+            ("Int16List.", "_Int16List", 3),
+            ("Uint16List.", "_Uint16List", 4),
+            ("Int32List.", "_Int32List", 5),
+            ("Uint32List.", "_Uint32List", 6),
+            ("Int64List.", "_Int64List", 7),
+            ("Uint64List.", "_Uint64List", 8),
+            ("Float32List.", "_Float32List", 9),
+            ("Float64List.", "_Float64List", 10),
+            ("Float32x4List.", "_Float32x4List", 11),
+            ("Int32x4List.", "_Int32x4List", 12),
+            ("Float64x2List.", "_Float64x2List", 13),
+        ];
+        const VISOES: &[(&str, i64)] = &[
+            ("_Int8ArrayView", 0),
+            ("_Uint8ArrayView", 1),
+            ("_Uint8ClampedArrayView", 2),
+            ("_Int16ArrayView", 3),
+            ("_Uint16ArrayView", 4),
+            ("_Int32ArrayView", 5),
+            ("_Uint32ArrayView", 6),
+            ("_Int64ArrayView", 7),
+            ("_Uint64ArrayView", 8),
+            ("_Float32ArrayView", 9),
+            ("_Float64ArrayView", 10),
+            ("_Float32x4ArrayView", 11),
+            ("_Int32x4ArrayView", 12),
+            ("_Float64x2ArrayView", 13),
+            ("_ByteDataView", 14),
+        ];
+        let id_de = |b: &Self, nome: &str| -> Option<i64> {
+            b.ctx.classe_do_sdk("typed_data", nome).and_then(|c| b.ctx.id_de_classe(c)).map(i64::from)
+        };
+        if let Some(&(_, interna, tipo)) = LISTAS.iter().find(|(m, _, _)| *m == membro) {
+            let cid = id_de(self, interna)?;
+            let n = self.coagir(args.first()?.clone(), Type::I64);
+            return Some(self.emit_call_with_check(
+                Instruction::CallRuntime {
+                    name: "dartforge_typed_novo".to_string(),
+                    args: vec![
+                        (Operand::Constant(Constant::Int(cid)), Type::I64),
+                        (Operand::Constant(Constant::Int(tipo)), Type::I64),
+                        (n, Type::I64),
+                    ],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            ));
+        }
+        let (classe, fabrica) = membro.split_once('.')?;
+        if fabrica != "_" {
+            return None;
+        }
+        // `_UnmodifiableXArrayView` estende `_XArrayView`: o mesmo tipo.
+        let modificavel = classe.strip_prefix("_Unmodifiable").map(|r| format!("_{r}"));
+        let procurada = modificavel.as_deref().unwrap_or(classe);
+        let &(_, tipo) = VISOES.iter().find(|(c, _)| *c == procurada)?;
+        let cid = id_de(self, classe)?;
+        let base = self.coagir(args.first()?.clone(), Type::Ref);
+        let desloc = self.coagir(args.get(1)?.clone(), Type::I64);
+        let n = self.coagir(args.get(2)?.clone(), Type::I64);
+        Some(self.emit_call_with_check(
+            Instruction::CallRuntime {
+                name: "dartforge_view_nova".to_string(),
+                args: vec![
+                    (Operand::Constant(Constant::Int(cid)), Type::I64),
+                    (Operand::Constant(Constant::Int(tipo)), Type::I64),
+                    (base, Type::Ref),
+                    (desloc, Type::I64),
+                    (n, Type::I64),
+                ],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        ))
     }
 
     /// A representação de um tipo na fronteira com um native: a de valor

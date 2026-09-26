@@ -50,6 +50,8 @@ enum NoG {
     BoxedInt(i64),
     BoxedDouble(f64),
     BoxedBool(bool),
+    TypedData { class_id: i64, tipo: u8, bytes: Vec<u8> },
+    TypedView { class_id: i64, tipo: u8, base: ValG, deslocamento: usize, comprimento: usize },
 }
 
 /// Uma mensagem copiada: os nós (com o metadado RTI de cada um) e a raiz.
@@ -152,6 +154,14 @@ fn copiar_para_grafo(raiz: i64, compartilhar: bool) -> Result<Grafo, MensagemIle
                 Value::BoxedInt(x) => NoG::BoxedInt(*x),
                 Value::BoxedDouble(x) => NoG::BoxedDouble(*x),
                 Value::BoxedBool(x) => NoG::BoxedBool(*x),
+                Value::TypedData { class_id, tipo, bytes } => NoG::TypedData { class_id: *class_id, tipo: *tipo, bytes: bytes.clone() },
+                Value::TypedView { class_id, tipo, base, deslocamento, comprimento } => NoG::TypedView {
+                    class_id: *class_id,
+                    tipo: *tipo,
+                    base: v(&TaggedValue::reference(*base)),
+                    deslocamento: *deslocamento,
+                    comprimento: *comprimento,
+                },
             };
             Ok((no, meta))
         });
@@ -258,6 +268,14 @@ fn materializar(g: &Grafo) -> i64 {
                 NoG::Record(v) => Value::Record(vec![TaggedValue::scalar(0); v.len()]),
                 NoG::BoxedInt(x) => Value::BoxedInt(*x),
                 NoG::BoxedDouble(x) => Value::BoxedDouble(*x),
+                NoG::TypedData { class_id, tipo, bytes } => Value::TypedData { class_id: *class_id, tipo: *tipo, bytes: bytes.clone() },
+                NoG::TypedView { class_id, tipo, deslocamento, comprimento, .. } => Value::TypedView {
+                    class_id: *class_id,
+                    tipo: *tipo,
+                    base: 0,
+                    deslocamento: *deslocamento,
+                    comprimento: *comprimento,
+                },
                 NoG::BoxedBool(b) => {
                     let h = heap.caixa_bool(*b);
                     heap.set_root(frame, i, h);
@@ -330,6 +348,12 @@ fn materializar(g: &Grafo) -> i64 {
                 NoG::Record(vs) => {
                     let x: Vec<TaggedValue> = vs.iter().map(t).collect();
                     *heap.get_mut(h) = Value::Record(x);
+                }
+                NoG::TypedView { base, .. } => {
+                    let b = t(base).bits;
+                    if let Value::TypedView { base: slot, .. } = heap.get_mut(h) {
+                        *slot = b;
+                    }
                 }
                 _ => {}
             }

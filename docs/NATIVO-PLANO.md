@@ -1261,10 +1261,21 @@ quando a chamada e `WhereTypeIterator<T>.moveNext` passam por seletores.
 como os objetos da fonte, `_dartforge*`), `string_buffer_patch.dart` (o
 `StringBuffer` por partes; o da VM usa `Uint16List` e um native de criação),
 `compact_hash.dart` (os campos que a VM injeta em `_HashVMBase` como campos
-de verdade; o resto é o arquivo do SDK) e `typed_data_patch.dart` (as listas
-de inteiros e a `Float64List` sobre uma lista de tamanho fixo, ajustando o
-valor ao tipo do elemento; `ByteBuffer`/`ByteData`/visões/`Float32List`/SIMD
-ficam `external` e recusados).
+de verdade; o resto é o arquivo do SDK), `regexp_patch.dart` (o `_RegExp`
+sobre o motor do runtime, `crates/runtime/src/regexp.rs`) e
+`isolate_patch.dart` (portas e capacidades sobre `crates/runtime/src/
+portas.rs`).
+
+**`typed_data` é o da VM, sem sobreposição.** As listas tipadas internas
+(`_Uint8List`…) e as visões (`_Uint8ArrayView`, `_ByteDataView`…) são formas
+do heap (`Value::TypedData`/`TypedView`): bytes no endian do hospedeiro, um
+byte por elemento de `Uint8List`. Os intrínsecos (`vm:recognized`) — as
+fábricas, `_getX`/`_setX`, `[]`, `_memMoveN` — e os natives `TypedData*` são
+funções de `crates/runtime/src/typed_data.rs`; a fábrica registra a tabela
+de métodos da classe na primeira alocação. `ByteBuffer`, `ByteData`, visões
+e visões não modificáveis funcionam; o SIMD (`Float32x4`…) ainda é recusado
+por membro. O nome em `Type.toString()` segue o `Class::UserVisibleName`
+da VM (`_Uint8List` → `Uint8List`, `_GrowableList` → `List`).
 
 **Recusa por membro.** O membro do SDK que não baixa (construto não
 suportado, native pendente, intrínseco da VM sem entrada, teste de tipo sobre

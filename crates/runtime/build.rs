@@ -53,6 +53,8 @@ const FRAGMENTOS: &[&str] = &[
     // δ (P5c): tabelas de métodos e busca por seletor do SDK da fonte.
     "seletores",
     "nativos_listas",
+    // As listas tipadas do `typed_data_patch.dart` da VM.
+    "typed_data",
     // P6: o laço de eventos (microtarefas e timers).
     "eventos",
     // Portas e a fila de mensagens do isolado.

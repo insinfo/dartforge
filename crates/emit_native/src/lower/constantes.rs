@@ -40,7 +40,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let v: i64 = if let Some(h) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
                     u64::from_str_radix(h, 16).ok()? as i64
                 } else {
-                    t.parse().ok()?
+                    // Ver `lower_expr`: o literal é lido como `u64`.
+                    t.parse::<u64>().ok()? as i64
                 };
                 Some(format!("i:{v}"))
             }

@@ -271,7 +271,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 {
                     u64::from_str_radix(hex, 16).unwrap_or(0) as i64
                 } else {
-                    text.parse().unwrap_or(0)
+                    // Como `u64`: `9223372036854775808` só é válido sob o
+                    // menos unário (o front-end recusa fora dele), e o
+                    // complemento de dois dá `-9223372036854775808`.
+                    text.parse::<u64>().map_or(0, |v| v as i64)
                 };
                 self.emit(Instruction::Const(Constant::Int(val)), Type::I64)
             }

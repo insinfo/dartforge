@@ -1075,7 +1075,7 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
     let mut b = FnBuilder::new(ctx, u, "dartforge_rti_iniciar".to_string(), "rti".to_string(), Type::Void);
     for &c in &classes {
         let id = ctx.id_rti(c);
-        let nome = ctx.symbol_name(ctx.program.classes[c.0 as usize].name).to_string();
+        let nome = nome_visivel(ctx, c);
         let n = ctx.outline.classes.get(c.0 as usize).map_or(0, |d| d.type_params.len());
         let s = b.emit(Instruction::Const(Constant::String(nome)), Type::Ref);
         b.emit(
@@ -1170,4 +1170,46 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
     b.terminate(Terminator::Return(None));
     b.finalizar(module);
     module.iniciar_rti = Some("dartforge_rti_iniciar".to_string());
+}
+
+/// O nome de uma classe em `Type.toString()`: o `Class::UserVisibleName` da
+/// VM troca as implementações internas do `dart:core` e do
+/// `dart:typed_data` pela interface pública (`_Smi` → `int`,
+/// `_GrowableList` → `List`, `_Uint8List` → `Uint8List`…); as demais —
+/// inclusive as visões (`_Uint8ArrayView`) e `_Map` — ficam com o nome
+/// declarado.
+pub fn nome_visivel(ctx: &Context, c: ClassId) -> String {
+    let classe = &ctx.program.classes[c.0 as usize];
+    let nome = ctx.symbol_name(classe.name);
+    let lib = ctx.program.library(classe.library).uri.as_str();
+    let visivel = match (lib, nome) {
+        ("dart:core", "_Smi" | "_Mint") => Some("int"),
+        ("dart:core", "_Double") => Some("double"),
+        ("dart:core", "_OneByteString" | "_TwoByteString" | "_ExternalOneByteString" | "_ExternalTwoByteString") => {
+            Some("String")
+        }
+        ("dart:core", "_List" | "_ImmutableList" | "_GrowableList") => Some("List"),
+        ("dart:typed_data", n) => match n {
+            "_Int8List" | "_ExternalInt8Array" => Some("Int8List"),
+            "_Uint8List" | "_ExternalUint8Array" => Some("Uint8List"),
+            "_Uint8ClampedList" | "_ExternalUint8ClampedArray" => Some("Uint8ClampedList"),
+            "_Int16List" | "_ExternalInt16Array" => Some("Int16List"),
+            "_Uint16List" | "_ExternalUint16Array" => Some("Uint16List"),
+            "_Int32List" | "_ExternalInt32Array" => Some("Int32List"),
+            "_Uint32List" | "_ExternalUint32Array" => Some("Uint32List"),
+            "_Int64List" | "_ExternalInt64Array" => Some("Int64List"),
+            "_Uint64List" | "_ExternalUint64Array" => Some("Uint64List"),
+            "_Float32List" | "_ExternalFloat32Array" => Some("Float32List"),
+            "_Float64List" | "_ExternalFloat64Array" => Some("Float64List"),
+            "_Float32x4List" | "_ExternalFloat32x4Array" => Some("Float32x4List"),
+            "_Int32x4List" | "_ExternalInt32x4Array" => Some("Int32x4List"),
+            "_Float64x2List" | "_ExternalFloat64x2Array" => Some("Float64x2List"),
+            "_Float32x4" => Some("Float32x4"),
+            "_Int32x4" => Some("Int32x4"),
+            "_Float64x2" => Some("Float64x2"),
+            _ => None,
+        },
+        _ => None,
+    };
+    visivel.unwrap_or(nome).to_string()
 }

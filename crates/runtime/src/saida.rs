@@ -230,6 +230,12 @@ fn describe_texto(heap: &Heap, handle: i64) -> Texto {
                     }
                     output.push(')');
                 }
+                Value::TypedData { class_id, .. } | Value::TypedView { class_id, .. } => {
+                    // Só o caminho do SDK da fonte cria listas tipadas, e lá
+                    // o texto vem do `toString` Dart; este é o nome da classe.
+                    let name = CLASS_NAMES.with(|map| map.borrow().get(class_id).cloned()).unwrap_or_default();
+                    output.push_str(&format!("Instance of '{name}'"));
+                }
                 Value::Object { class_id, fields } => {
                     if *class_id == 1013 {
                         if let Some((b, _)) = fields.first() {
