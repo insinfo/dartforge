@@ -60,6 +60,9 @@ const FONTE: &str = "dartforge";
 /// Códigos de erro JSON-RPC/LSP usados nas respostas.
 const REQUEST_CANCELLED: i32 = -32800;
 const METHOD_NOT_FOUND: i32 = -32601;
+/// Renomear recusado (nome inválido, elemento externo, conflito): o mesmo
+/// código do servidor do Dart (`ServerErrorCodes.RenameNotValid`).
+const RENOMEAR_INVALIDO: i32 = -32010;
 
 /// Teto do conjunto de cancelamentos: defesa contra cliente que cancela ids
 /// inexistentes em volume. Acima do teto, o conjunto é esvaziado — o pior
@@ -93,6 +96,8 @@ pub struct Servidor<A = AnalisadorSintatico> {
     /// O cliente aceita a árvore `DocumentSymbol` (LSP 3.10+).
     simbolos_hierarquicos: bool,
     hover_markdown: bool,
+    /// O cliente aceita `prepareRename` (`rename.prepareSupport`).
+    preparar_renomeacao: bool,
 }
 
 impl Servidor<AnalisadorSintatico> {
@@ -122,6 +127,7 @@ impl<A: Analisador> Servidor<A> {
             codigo: 1,
             simbolos_hierarquicos: false,
             hover_markdown: false,
+            preparar_renomeacao: false,
         }
     }
 
@@ -281,6 +287,11 @@ impl<A: Analisador> Servidor<A> {
                     .pointer("/params/capabilities/textDocument/hover/contentFormat")
                     .and_then(Value::as_array)
                     .is_some_and(|formatos| formatos.iter().any(|f| f.as_str() == Some("markdown")));
+                self.preparar_renomeacao = mensagem
+                    .pointer("/params/capabilities/textDocument/rename/prepareSupport")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let renomear = if self.preparar_renomeacao { json!({"prepareProvider": true}) } else { json!(true) };
                 resposta(&id, json!({
                     "capabilities": {
                         "textDocumentSync": SINCRONIZACAO_INCREMENTAL,
@@ -290,6 +301,7 @@ impl<A: Analisador> Servidor<A> {
                         "definitionProvider": true,
                         "referencesProvider": true,
                         "hoverProvider": true,
+                        "renameProvider": renomear,
                         "completionProvider": {
                             "triggerCharacters": ["."],
                             "resolveProvider": false,
@@ -486,6 +498,39 @@ impl<A: Analisador> Servidor<A> {
                 });
                 resposta(&id, resultado.unwrap_or(Value::Null))
             }
+            "textDocument/prepareRename" => {
+                let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {
+                    return resposta(&id, Value::Null);
+                };
+                match self.analisador.preparar_renomeacao(&self.documentos, &u, offset) {
+                    Ok(Some((span, texto))) => {
+                        let range = self.faixa(&u, span);
+                        resposta(&id, range.map_or(Value::Null, |r| json!({"range": r, "placeholder": texto})))
+                    }
+                    Ok(None) => resposta(&id, Value::Null),
+                    Err(motivo) => erro(&id, RENOMEAR_INVALIDO, motivo),
+                }
+            }
+            "textDocument/rename" => {
+                let novo = mensagem.pointer("/params/newName").and_then(Value::as_str).unwrap_or("").to_string();
+                let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {
+                    return resposta(&id, Value::Null);
+                };
+                match self.analisador.renomear(&self.documentos, &u, offset, &novo) {
+                    Ok(edicoes) => {
+                        let mut mudancas = serde_json::Map::new();
+                        for e in edicoes {
+                            let Some(range) = self.faixa(&e.uri, e.span) else { continue };
+                            let lista = mudancas.entry(e.uri.clone()).or_insert_with(|| json!([]));
+                            if let Value::Array(itens) = lista {
+                                itens.push(json!({"range": range, "newText": e.texto}));
+                            }
+                        }
+                        resposta(&id, json!({"changes": mudancas}))
+                    }
+                    Err(motivo) => erro(&id, RENOMEAR_INVALIDO, motivo),
+                }
+            }
             METODO_DORMIR => {
                 let ms = mensagem
                     .get("params")
@@ -519,6 +564,18 @@ impl<A: Analisador> Servidor<A> {
         let texto = self.documentos.get(uri)?;
         let offset = self.documentos.linhas(uri)?.offset_de_posicao(texto, posicao.linha, posicao.coluna);
         Some((uri.to_string(), offset))
+    }
+
+    /// Intervalo LSP de `span` (bytes) em `uri`: pelo texto aberto, senão
+    /// pelo arquivo no disco (renomear toca arquivos fechados do projeto).
+    fn faixa(&self, uri: &str, span: dartforge_diagnostics::Span) -> Option<Value> {
+        if let (Some(texto), Some(tabela)) = (self.documentos.get(uri), self.documentos.linhas(uri)) {
+            return Some(intervalo_lsp(texto, tabela, span.start, span.end));
+        }
+        let caminho = url::Url::parse(uri).ok()?.to_file_path().ok()?;
+        let fonte = std::fs::read_to_string(caminho).ok()?;
+        let tabela = crate::utf16::TabelaLinhas::construir(&fonte);
+        Some(intervalo_lsp(&fonte, &tabela, span.start, span.end))
     }
 
     /// Diagnostica o documento e monta `textDocument/publishDiagnostics`.

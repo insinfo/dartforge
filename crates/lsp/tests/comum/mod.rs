@@ -88,6 +88,12 @@ impl Projeto {
         fs::write(lib.join("core/core.dart"), CORE).unwrap();
         let sdk = SdkLayout::load(&lib, "dartdevc").unwrap();
         fs::write(raiz.join("projeto/pubspec.yaml"), "name: projeto\n").unwrap();
+        fs::create_dir_all(raiz.join("projeto/.dart_tool")).unwrap();
+        fs::write(
+            raiz.join("projeto/.dart_tool/package_config.json"),
+            r#"{"configVersion":2,"packages":[{"name":"projeto","rootUri":"../","packageUri":"lib/","languageVersion":"3.6"}]}"#,
+        )
+        .unwrap();
         let mut servidor = Servidor::com_analisador(AnalisadorSemantico::novo(Some(sdk)));
         servidor.receber(
             json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{
@@ -212,4 +218,42 @@ pub fn item<'a>(resposta: &'a Value, rotulo: &str) -> &'a Value {
         .iter()
         .find(|i| i["label"] == rotulo)
         .unwrap_or_else(|| panic!("sem {rotulo} em {:?}", rotulos(resposta)))
+}
+
+/// Offset em bytes de uma posição LSP (linha, coluna UTF-16).
+pub fn offset_de(texto: &str, posicao: &Value) -> usize {
+    let linha = posicao["line"].as_u64().unwrap() as usize;
+    let coluna = posicao["character"].as_u64().unwrap() as usize;
+    let inicio: usize = texto.split_inclusive('\n').take(linha).map(str::len).sum();
+    let mut unidades = 0;
+    for (i, c) in texto[inicio..].char_indices() {
+        if unidades >= coluna || c == '\n' {
+            return inicio + i;
+        }
+        unidades += c.len_utf16();
+    }
+    texto.len()
+}
+
+/// Aplica as edições (`TextEdit[]`) de `uri` de um `WorkspaceEdit` a `texto`.
+pub fn aplicar(edicao: &Value, uri: &str, texto: &str) -> String {
+    let Some(lista) = edicao["changes"][uri].as_array() else {
+        return texto.to_string();
+    };
+    let mut trocas: Vec<(usize, usize, &str)> = lista
+        .iter()
+        .map(|e| {
+            (
+                offset_de(texto, &e["range"]["start"]),
+                offset_de(texto, &e["range"]["end"]),
+                e["newText"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    trocas.sort_by_key(|t| std::cmp::Reverse(t.0));
+    let mut saida = texto.to_string();
+    for (de, ate, novo) in trocas {
+        saida.replace_range(de..ate, novo);
+    }
+    saida
 }

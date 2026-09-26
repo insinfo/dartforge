@@ -6,7 +6,9 @@
 //! Tudo pertence a uma requisição: a consulta é descartada ao responder, e
 //! nada dela sobrevive à próxima versão do texto (o platô de memória do LSP).
 
-use dartforge_elements::model::{FunctionElementId, LibraryId, Program, UnitId, VariableId};
+use dartforge_elements::model::{
+    Element, FunctionElementId, LibraryId, Program, UnitId, VariableId,
+};
 use dartforge_intern::{Interner, SymbolId};
 use dartforge_types::scope::MemberResolver;
 use dartforge_types::{
@@ -170,5 +172,17 @@ impl Consulta {
             Some(n) => format!("{} {}", self.formatar(tipo), self.nome(n)),
             None => self.formatar(tipo),
         }
+    }
+
+    /// Nome simples de um elemento de topo, quando ele tem nome.
+    pub fn nome_do_elemento(&self, elemento: Element) -> Option<SymbolId> {
+        Some(match elemento {
+            Element::Class(c) => self.programa.class(c).name,
+            Element::Extension(x) => self.programa.extension(x).name?,
+            Element::Typedef(t) => self.programa.typedef(t).name,
+            Element::Function(f) => self.programa.function(f).name,
+            Element::Variable(v) => self.programa.variable(v).name,
+            Element::Prefix(_, p) => p,
+        })
     }
 }

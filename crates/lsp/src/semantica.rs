@@ -34,16 +34,7 @@ impl AnalisadorSemantico {
         let sdk = self.sdk.as_ref()?;
         let caminho = Url::parse(uri).ok()?.to_file_path().ok()?;
         if caminho.extension().is_none_or(|e| e != "dart") { return None; }
-        let mut gerador = Construtor::nova();
-        if let Some(documentos) = documentos {
-            for aberto in documentos.uris() {
-                let Some(fonte) = documentos.get(aberto) else { continue };
-                let Some(arquivo) = Url::parse(aberto).ok().and_then(|u| u.to_file_path().ok()) else { continue };
-                if arquivo.extension().is_some_and(|e| e == "dart") {
-                    gerador.por(arquivo, fonte.to_owned(), "lsp", vec![]);
-                }
-            }
-        }
+        let mut gerador = documentos.map_or_else(Construtor::nova, Self::abertos);
         // A chamada direta da trait também usa o texto recebido, mesmo sem
         // DocumentStore. O arquivo da requisição prevalece sobre a coleção.
         gerador.por(caminho.clone(), texto.to_owned(), "lsp", vec![]);
@@ -53,6 +44,25 @@ impl AnalisadorSemantico {
         let chave = dartforge_elements::gerado::chave(&caminho);
         let unidade = programa.units.iter().position(|u| u.path.as_deref().map(dartforge_elements::gerado::chave).as_ref() == Some(&chave))?;
         Some((programa, nomes, UnitId(unidade as u32)))
+    }
+
+    /// SDK carregado, quando há.
+    pub(crate) fn sdk(&self) -> Option<&SdkLayout> {
+        self.sdk.as_ref()
+    }
+
+    /// Geração em memória com os textos vigentes dos documentos `.dart`
+    /// abertos: na carga, eles valem mais que o disco.
+    pub(crate) fn abertos(documentos: &DocumentStore) -> Construtor {
+        let mut gerador = Construtor::nova();
+        for aberto in documentos.uris() {
+            let Some(fonte) = documentos.get(aberto) else { continue };
+            let Some(arquivo) = Url::parse(aberto).ok().and_then(|u| u.to_file_path().ok()) else { continue };
+            if arquivo.extension().is_some_and(|e| e == "dart") {
+                gerador.por(arquivo, fonte.to_owned(), "lsp", vec![]);
+            }
+        }
+        gerador
     }
 
     fn elemento_importado(programa: &Program, unidade: UnitId, offset: usize) -> Option<(Span, Element)> {
@@ -205,6 +215,17 @@ impl Analisador for AnalisadorSemantico {
 
     fn documento_fechado(&mut self, uri: &str) {
         self.sintatico.documento_fechado(uri);
+    }
+
+    fn preparar_renomeacao(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Result<Option<(Span, String)>, String> {
+        let Some(projeto) = crate::renomear::carregar_projeto(self, documentos, uri) else { return Ok(None) };
+        crate::renomear::preparar(&projeto, uri, offset)
+    }
+
+    fn renomear(&mut self, documentos: &DocumentStore, uri: &str, offset: usize, novo: &str) -> Result<Vec<crate::Edicao>, String> {
+        let projeto = crate::renomear::carregar_projeto(self, documentos, uri)
+            .ok_or_else(|| "O projeto do arquivo não pôde ser carregado (SDK ausente ou URI que não é de arquivo).".to_string())?;
+        crate::renomear::renomear(&projeto, uri, offset, novo)
     }
 
     fn completar(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<crate::Completar> {

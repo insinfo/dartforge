@@ -15,6 +15,7 @@ pub mod servidor;
 mod completar;
 mod consulta;
 mod navegacao;
+mod renomear;
 mod semantica;
 mod simbolos;
 pub mod transporte;
@@ -27,6 +28,7 @@ use utf16::TabelaLinhas;
 pub use servidor::Servidor;
 pub use semantica::AnalisadorSemantico;
 pub use completar::{Completar, ItemCompletar};
+pub use renomear::Edicao;
 
 
 /// Posição LSP: linha e coluna em **unidades UTF-16** (ambas a partir de 0).
@@ -263,6 +265,32 @@ pub trait Analisador {
     /// exemplo); lista vazia quando não há o que oferecer.
     fn completar(&mut self, _documentos: &DocumentStore, _uri: &str, _offset: usize) -> Option<Completar> {
         None
+    }
+
+    /// `prepareRename`: intervalo (bytes) e texto do nome renomeável sob o
+    /// cursor; `Ok(None)` quando não há nome ali.
+    ///
+    /// # Erros
+    ///
+    /// Mensagem para o usuário quando o elemento existe mas não pode ser
+    /// renomeado (SDK, pacote externo, forma ainda não suportada).
+    fn preparar_renomeacao(
+        &mut self,
+        _documentos: &DocumentStore,
+        _uri: &str,
+        _offset: usize,
+    ) -> Result<Option<(dartforge_diagnostics::Span, String)>, String> {
+        Ok(None)
+    }
+
+    /// `rename`: as edições em todos os arquivos do projeto.
+    ///
+    /// # Erros
+    ///
+    /// Nome inválido, elemento não renomeável ou conflito, com a mensagem
+    /// para o usuário.
+    fn renomear(&mut self, _documentos: &DocumentStore, _uri: &str, _offset: usize, _novo: &str) -> Result<Vec<Edicao>, String> {
+        Err("Renomear exige a análise semântica (SDK do Dart).".into())
     }
 
     /// Descarta estado associado ao documento quando ele sai do editor.
