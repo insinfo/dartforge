@@ -1565,7 +1565,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         // Fasta `TopLevelDeclarationIdentifierContext`: no topo, uma palavra
         // que abre a declaração seguinte (`mixin M`, `extension X`,
         // `typedef`, `import`…) não é aceita como nome depois de um tipo, a
-        // menos que venha `;`, `=` ou `,`. O nome vira sintético (antes
+        // menos que venha `;`, `=`, `,` ou os parâmetros de uma função
+        // (`(`, `<`). O nome vira sintético (antes
         // dela), com `missing_identifier` na palavra, e o `;` que falta é
         // relatado no tipo (`augment mixin M {}` sem o experimento).
         if topo
@@ -1575,7 +1576,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.text_of(self.pos),
                 "extension" | "export" | "import" | "library" | "mixin" | "part" | "typedef" | "get" | "set"
             )
-            && !matches!(self.kind_at(1), Kind::Op(Op::Semicolon | Op::Assign | Op::Comma))
+            // Seguida de parâmetros é o nome de uma função (`String
+            // extension(String path)` do `package:path`), como no Fasta.
+            && !matches!(self.kind_at(1), Kind::Op(Op::Semicolon | Op::Assign | Op::Comma | Op::LParen | Op::Lt))
         {
             let palavra = self.span();
             self.erro_em(codigos::parser::MISSING_IDENTIFIER, palavra, &[]);
@@ -2349,6 +2352,22 @@ mod tests {
 
     fn member<'a>(out: &'a Parsed, class: &crate::ast::ClassDecl, i: usize) -> &'a MemberKind {
         &out.ast.member(class.members[i]).kind
+    }
+
+    /// `extension`, `get`, `set`, `mixin`… são identificadores embutidos: no
+    /// topo, depois de um tipo, com parâmetros, são o nome de uma função
+    /// (`String extension(String path, [int level = 1])` do `package:path`).
+    #[test]
+    fn identificador_embutido_como_nome_de_funcao_de_topo() {
+        let mut names = Interner::new();
+        let out = parse_ok(
+            "String extension(String p, [int n = 1]) => p;\nT get<T>(T x) => x;\nint mixin() => 1;\n",
+            &mut names,
+        );
+        for (i, esperado) in ["extension", "get", "mixin"].into_iter().enumerate() {
+            let DeclKind::Function(f) = decl(&out, i) else { panic!("esperava função") };
+            assert_eq!(text(&names, out.ast.function(*f).name.expect("nome")), esperado);
+        }
     }
 
     #[test]

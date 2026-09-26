@@ -686,10 +686,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 };
                 let then_end = self.current_block;
                 let then_reaches = !self.is_terminated();
-                if then_reaches {
-                    self.terminate(Terminator::Branch(merge_block));
-                }
 
+                // O `then` só fecha depois do `else`: sem tipo estático, a
+                // representação do resultado vem dos dois ramos (iguais, ou
+                // `Ref`), e o `then` é coagido no bloco dele.
                 self.set_block(else_block);
                 let else_op = self.lower_expr(ast, *else_);
                 let ty = ty.unwrap_or_else(|| {
@@ -702,16 +702,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if else_reaches {
                     self.terminate(Terminator::Branch(merge_block));
                 }
-                // Sem tipo estático, o `then` pode ter ficado noutra
-                // representação; o phi exige as duas iguais.
-                if then_reaches && self.operand_type(&then_op) != ty {
-                    self.set_block(merge_block);
+                let (then_op, then_end) = if then_reaches {
                     self.set_block(then_end);
-                    return self.nao_suportado(
-                        "condicional com ramos de representações diferentes",
-                        expr.span,
-                    );
-                }
+                    let op = self.coagir(then_op, ty);
+                    let fim = self.current_block;
+                    self.terminate(Terminator::Branch(merge_block));
+                    (op, fim)
+                } else {
+                    (then_op, then_end)
+                };
 
                 self.set_block(merge_block);
                 if then_reaches && else_reaches {

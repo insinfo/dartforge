@@ -315,6 +315,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         let v = self.combinar(ast, op, cur, value);
                         return self.gravar_global(vid, v, span);
                     }
+                    // Getter/setter de topo explícitos da biblioteca do
+                    // prefixo (`intl.defaultLocale = l`).
+                    if let Element::Function(f) = el {
+                        return self.atribuir_acessor_de_topo(f, name.sym, ast, op, value, span);
+                    }
                 }
                 // `super.x = v` (P4).
                 if matches!(ast.expr(*recv).kind, ast::ExprKind::Super) {
