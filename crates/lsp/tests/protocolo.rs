@@ -224,10 +224,12 @@ fn sessao_completa() {
     iniciar(&mut sessao);
 
     let uri = "file:///sessao/teste.dart";
+    // As variáveis são lidas (`x;`): `unused_local_variable` é publicado, e
+    // o teste conta só os erros de sintaxe.
     sessao.enviar(&publicar(
         uri,
         1,
-        "void main() { int x = ; }\nvoid outra() { int y = ; }\n",
+        "void main() { int x = ; x; }\nvoid outra() { int y = ; y; }\n",
     ));
     let primeira = sessao.diagnosticos(uri);
     assert_eq!(
@@ -287,7 +289,7 @@ fn utf16_correto() {
     sessao.enviar(&publicar(
         uri,
         1,
-        "var s = '👭'; void main() { int x = ; }\r\nvar e = '\\uD800';\r\n",
+        "var s = '👭'; void main() { int x = ; x; }\r\nvar e = '\\uD800';\r\n",
     ));
     let primeira = sessao.diagnosticos(uri);
     assert_eq!(itens(&primeira).len(), 1, "só o `;`: {primeira}");
@@ -329,13 +331,13 @@ fn stdout_limpo() {
     iniciar(&mut sessao);
 
     let uri = "file:///limpo/a.dart";
-    sessao.enviar(&publicar(uri, 1, "void main() { int x = ; }\n"));
+    sessao.enviar(&publicar(uri, 1, "void main() { int x = ; x; }\n"));
     let primeira = sessao.diagnosticos(uri);
     assert_eq!(itens(&primeira).len(), 1);
     sessao.enviar(&editar(
         uri,
         2,
-        json!([{"text": "void main() { int x = 1; }\n"}]),
+        json!([{"text": "void main() { int x = 1; x; }\n"}]),
     ));
     let segunda = sessao.diagnosticos(uri);
     assert!(itens(&segunda).is_empty());

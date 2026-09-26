@@ -10,11 +10,13 @@
 //!   projeto (arquivos sob a raiz com `pubspec.yaml`), como
 //!   `quickfix.import.librarySdk` e `quickfix.import.libraryProject1`.
 //!
-//! Dos códigos semânticos publicados (`crates/analise/verificados.txt`), o
-//! servidor do Dart 3.6.2 não oferece correção para nenhum
-//! (`enum_constant_same_name_as_enclosing`, `enum_with_name_values`,
-//! `values_declaration_in_enum`: conferido com o `dart language-server`), e
-//! este servidor também não inventa uma.
+//! Dos códigos semânticos publicados (`crates/analise/verificados.txt`), os
+//! três de enum (`enum_constant_same_name_as_enclosing`,
+//! `enum_with_name_values`, `values_declaration_in_enum`) não têm correção
+//! no servidor do Dart 3.6.2 (conferido com o `dart language-server`). Os
+//! publicados depois (2026-09-26: `unused_local_variable`,
+//! `unused_element`, …) têm correções no servidor oficial que este ainda
+//! não oferece; nenhuma é inventada.
 
 use crate::consulta::Consulta;
 use crate::renomear::{arquivos_do_projeto, eh_parte, raiz_do_projeto};

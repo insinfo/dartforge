@@ -1,10 +1,64 @@
 # Códigos semânticos publicados pelo `dartforge analyze` e pelo LSP (plano §2.3).
-# Um código entra aqui quando tem 100% de acerto (posição e mensagem) nos casos
-# dele no corpus/diagnosticos e 0 falso positivo nos três projetos reais
-# (`dartforge-paridade placar` e `dartforge-paridade projetos`). O placar
-# reprova um código listado que divergir no corpus. Sintaxe é publicada sempre.
+# Um código entra aqui quando nada do que ele emite está errado: zero falso
+# positivo, zero posição errada e zero mensagem errada no corpus
+# (`dartforge-paridade placar`) e nos projetos reais (`dartforge-paridade
+# projetos`). Falso negativo (o Dart relata e nós não) é permitido. O placar
+# reprova um código listado que emita algo errado no corpus. Sintaxe é
+# publicada sempre, e por isso os códigos sintáticos não aparecem aqui.
 
 # 2026-09-23: 100% no corpus (placar8) e 0 FP nos três projetos reais.
 enum_constant_same_name_as_enclosing
 enum_with_name_values
 values_declaration_in_enum
+
+# 2026-09-26: oráculo 3.6.2 regravado; sem erro emitido no corpus (placar
+# 9.660/23.030) e 0 FP em 60 pacotes do pub-cache (2.150 arquivos: analyzer,
+# _fe_analyzer_shared, dart_style, collection, async, build_runner_core,
+# pointycastle, petitparser, rxdart…). Os três projetos do proprietário não
+# existem nesta máquina: conferir com `projetos` lá antes do próximo corte.
+abstract_field_initializer
+assignment_to_const
+assignment_to_final
+assignment_to_final_no_setter
+assignment_to_function
+assignment_to_method
+assignment_to_type
+conflicting_constructor_and_static_member
+conflicting_static_and_instance
+const_primary_constructor_with_body
+enum_without_constants
+equal_keys_in_const_map
+extension_conflicting_static_and_instance
+extension_override_access_to_static_member
+external_with_initializer
+illegal_language_version_override
+instance_access_to_static_member
+invalid_language_version_override
+invalid_null_aware_operator
+invalid_reference_to_generative_enum_constructor
+invocation_of_extension_without_call
+invocation_of_non_function_expression
+multiple_primary_constructor_body_declarations
+new_with_undefined_constructor
+new_with_undefined_constructor_default
+non_bool_condition
+non_bool_expression
+non_bool_operand
+non_redirecting_generative_constructor_with_primary
+prefix_collides_with_top_level_member
+primary_constructor_body_with_expression_body
+primary_constructor_body_without_declaration
+private_optional_parameter
+record_literal_one_positional_no_trailing_comma
+referenced_before_declaration
+undefined_extension_getter
+undefined_extension_method
+undefined_extension_operator
+undefined_extension_setter
+unnecessary_cast
+unnecessary_non_null_assertion
+unused_element
+unused_local_variable
+uri_does_not_exist
+uri_has_not_been_generated
+wrong_number_of_parameters_for_operator
