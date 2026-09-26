@@ -713,7 +713,30 @@ fn matar_processo(pid: i64, sinal: i64) -> bool {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Process_KillPid(pid: i64, sinal: i64) -> u8 {
-    u8::from(matar_processo(pid, sinal))
+    u8::from(matar_processo(pid, sinal_do_sistema(sinal)))
+}
+
+/// O número do sinal no sistema a partir do de `ProcessSignal`, que o Dart
+/// numera como o Linux (`sigusr2` é 12): no macOS e nos BSDs vários
+/// números diferem (lá 12 é `SIGSYS`), e a VM traduz (`SignalMap` de
+/// `process_macos.cc`) antes do `kill` e da inscrição.
+fn sinal_do_sistema(sinal: i64) -> i64 {
+    if cfg!(any(target_os = "linux", target_os = "android", not(unix))) {
+        return sinal;
+    }
+    match sinal {
+        7 => 10,  // SIGBUS
+        10 => 30, // SIGUSR1
+        12 => 31, // SIGUSR2
+        17 => 20, // SIGCHLD
+        18 => 19, // SIGCONT
+        19 => 17, // SIGSTOP
+        20 => 18, // SIGTSTP
+        23 => 16, // SIGURG
+        29 => 23, // SIGPOLL (SIGIO)
+        31 => 12, // SIGSYS
+        s => s,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -721,7 +744,7 @@ pub extern "C" fn dartforge_nativo_Process_KillPid(pid: i64, sinal: i64) -> u8 {
 // sinal escreve um byte nos pipes do sinal, e o Dart lê o outro lado como
 // soquete.
 
-/// Os sinais que o Dart pode vigiar (`kSignals`).
+/// Os sinais que o Dart pode vigiar (`kSignals`), no número do sistema.
 #[cfg(unix)]
 fn sinal_vigiavel(s: i64) -> bool {
     #[cfg(target_os = "linux")]
@@ -811,6 +834,7 @@ fn inscricoes_mutex() -> std::sync::MutexGuard<'static, std::collections::HashMa
 #[cfg(unix)]
 fn inscrever_sinal(sinal: i64) -> ResultadoIo<i64> {
     use std::sync::atomic::Ordering::SeqCst;
+    let sinal = sinal_do_sistema(sinal);
     if !sinal_vigiavel(sinal) {
         return Err(ErroDoSo::do_codigo(codigo_do_so::INVALIDO));
     }
@@ -881,6 +905,7 @@ fn remover_inscricoes(anteriores: &mut std::collections::HashMap<i32, usize>, fi
 /// `Process::ClearSignalHandler`.
 #[cfg(unix)]
 fn cancelar_sinal(sinal: i64) {
+    let sinal = sinal_do_sistema(sinal);
     let mut anteriores = inscricoes_mutex();
     remover_inscricoes(&mut anteriores, |i| i64::from(i.sinal.load(std::sync::atomic::Ordering::SeqCst)) == sinal);
 }
