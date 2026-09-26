@@ -494,15 +494,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.chamar_extensao(t_op, set.0 as usize, &[(None, i_op), (None, v.clone())], receptor, None, span);
                     return v;
                 }
-                if let Some(l) = self.lista_tipada_numerica(self.ctx.get_type(self.unit_id, *t))
+                if let Some(l) = self.indexavel(self.ctx.get_type(self.unit_id, *t))
                     && self.operand_type(&i_op) == Type::I64
                 {
-                    // Lista tipada numérica: leitura e gravação diretas
-                    // (`tipados.rs`).
+                    // Lista tipada numérica ou `List<E>`: leitura e gravação
+                    // diretas (`tipados.rs`).
                     let repr = self.repr_da_expressao(target).unwrap_or(Type::Ref);
-                    let cur = if composto { self.ler_tipado(t_op.clone(), i_op.clone(), l, repr) } else { None };
+                    let cur = if composto { self.ler_indexado(t_op.clone(), i_op.clone(), l, repr) } else { None };
                     let v = self.combinar(ast, op, cur, value);
-                    if self.gravar_tipado(t_op.clone(), i_op.clone(), v.clone(), l) {
+                    if self.gravar_indexado(t_op.clone(), i_op.clone(), v.clone(), l) {
                         return v;
                     }
                     self.chamar_por_nome(t_op, super::sdk_fonte::Tipo::Chamar, "[]=", &[(None, i_op), (None, v.clone())]);
