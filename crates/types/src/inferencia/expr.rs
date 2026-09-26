@@ -59,10 +59,10 @@ pub(crate) fn registrar(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, t: Ty
 
 pub(crate) fn resolver(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, r: Resolved) {
     let tabela = &mut inf.body_types.units[cx.unit.0 as usize];
-    if inf.registrar_locais {
-        if let Resolved::Local(id) = &r {
-            tabela.declaracoes_de_locais.insert(e, cx.local(*id).offset);
-        }
+    if inf.registrar_locais
+        && let Resolved::Local(id) = &r
+    {
+        tabela.declaracoes_de_locais.insert(e, cx.local(*id).offset);
     }
     tabela.set_resolved(e, r);
 }
