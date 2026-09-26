@@ -24,7 +24,7 @@ description: >
 #   include/llvm-c/         (0,5 MB) cabeçalhos da API C
 #   include/llvm/Config/    (44 KB)  incluídos por llvm-c/Target.h (wrapper do llvm-sys)
 # O recorte antigo de 1,1 GB levava as bibliotecas estáticas, que o JIT não usa
-# (CRT estática, ver crates/jit/build.rs).
+# (CRT estática, ver crates/llvm/build.rs).
 #
 # O pacote inteiro tem 862 MB comprimidos; cada recorte cabe num cache pequeno,
 # com chave fixa pela versão e pelo recorte (não muda com o código).

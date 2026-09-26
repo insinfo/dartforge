@@ -15,11 +15,10 @@ workspace = true
 # O runtime: `abi` (os mesmos fragmentos de `crates/runtime/src` que o AOT liga) e a tabela de
 # símbolos gerada dele (`simbolos`). Fonte única, ver crates/runtime/src/lib.rs.
 dartforge-runtime = { path = "../runtime" }
-# `no-llvm-linking`: as assinaturas e os invólucros de inicialização vêm daqui,
-# mas quem emite as diretivas de ligação é o `build.rs` deste crate, que liga a
-# biblioteca compartilhada da API C. O motivo está documentado lá e em
-# docs/JIT.md: as bibliotecas estáticas do pacote oficial de Windows usam CRT
-# estática e conflitam com a CRT dinâmica do Rust.
+# As assinaturas da API C do LLVM (`no-llvm-linking`). A ligação com o LLVM
+# vem de `dartforge-llvm` (o `build.rs` dele), que também inicializa o alvo
+# nativo uma vez por processo para o JIT e para o gerador de objetos do AOT.
+dartforge-llvm = { path = "../llvm" }
 llvm-sys = { version = "221.1.0", features = ["no-llvm-linking"] }
 
 [dev-dependencies]

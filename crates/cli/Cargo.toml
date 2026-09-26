@@ -24,8 +24,9 @@ serde_json = "1"
 nativo = ["dep:dartforge-abi", "dep:dartforge-emit-native"]
 # `dartforge run` e `dartforge reload` pelo JIT ORCv2 (crates/jit). Separado de
 # `nativo` porque liga o executável à LLVM-C.dll da distribuição completa do
-# LLVM 22.1.8: sem a DLL no PATH, o dartforge.exe não inicia.
-jit = ["nativo", "dep:dartforge-jit"]
+# LLVM 22.1.8: sem a DLL no PATH, o dartforge.exe não inicia. Com o LLVM no
+# processo, o AOT também gera os objetos por ele (`llvm-embutido`), sem Clang.
+jit = ["nativo", "dep:dartforge-jit", "dartforge-emit-native/llvm-embutido"]
 
 [[bin]]
 name = "dartforge"

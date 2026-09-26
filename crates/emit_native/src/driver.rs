@@ -3,6 +3,7 @@
 use crate::alvo::Sistema;
 use crate::cache::{RuntimeCache, dir_cache_nativo};
 use crate::cache_objeto::{self, CacheObjeto};
+use crate::gerador::{Geracao, Gerador};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -118,39 +119,36 @@ pub fn compile_and_link(
     let stem = output.file_stem().unwrap_or_default().to_string_lossy();
     let ll_file = staging.join(format!("{stem}.ll"));
     let manter_ir = std::env::var_os("DARTFORGE_KEEP_IR").is_some();
-    let opt_flag = if options.optimize { "-O2" } else { "-O0" };
-    // As bandeiras do formato de objeto (`alvo::bandeiras_objeto`: no COFF,
-    // zerar o TimeDateStamp para o objeto ser função da chave).
-    let mut args = vec!["-x", "ir", "-c", opt_flag];
-    args.extend(crate::alvo::bandeiras_objeto());
-    if producao {
-        // Produção com o SDK da fonte: bitcode ThinLTO, otimizado junto com
-        // o do SDK na ligação.
-        args.push("-flto=thin");
+    // Produção com o SDK da fonte: bitcode, otimizado junto com o do SDK na
+    // ligação (LTO).
+    let gerador = Gerador::escolher(&options.clang);
+    let geracao = Geracao::do_programa(options.optimize, producao);
+    if manter_ir {
+        // A cópia em `.df_tmp` só existe para quem pediu DARTFORGE_KEEP_IR
+        // (o `determinismo --executar` do harness lê essas cópias).
+        criar_staging()?;
+        std::fs::write(&ll_file, llvm_ir)
+            .map_err(|e| format!("falha ao escrever LLVM IR em {}: {e}", ll_file.display()))?;
     }
 
-    // Fase 1: Clang compila LLVM IR -> Objeto, ou o cache já tem o objeto
-    // deste IR com este Clang e estas bandeiras.
+    // Fase 1: o gerador compila LLVM IR -> objeto, ou o cache já tem o
+    // objeto deste IR com este gerador e esta geração.
     let t_clang = Instant::now();
     let cache = CacheObjeto::do_ambiente();
+    let obj_staging = || -> Result<PathBuf, String> {
+        criar_staging()?;
+        Ok(staging.join(format!("{stem}.{}", crate::alvo::ext_objeto())))
+    };
     let (mut obj_file, mut do_cache) = match cache {
         Some(c) => {
-            // Com cache, o `.ll` vive no diretório temporário da entrada; a
-            // cópia em `.df_tmp` só existe para quem pediu DARTFORGE_KEEP_IR
-            // (o `determinismo --executar` do harness lê essas cópias).
-            if manter_ir {
-                criar_staging()?;
-                std::fs::write(&ll_file, llvm_ir)
-                    .map_err(|e| format!("falha ao escrever LLVM IR em {}: {e}", ll_file.display()))?;
-            }
-            let chave = cache_objeto::chave(llvm_ir, &cache_objeto::identidade_clang(&options.clang)?, &args);
-            let (obj, acerto) = c.obter_ou_criar(chave, |tmp| compilar_objeto(&options.clang, &args, llvm_ir, tmp))?;
+            let descricao = geracao.descricao();
+            let chave = cache_objeto::chave(llvm_ir, &gerador.identidade()?, &[descricao.as_str()]);
+            let (obj, acerto) = c.obter_ou_criar(chave, |tmp| gerador.gerar(llvm_ir, geracao, tmp))?;
             (obj, Some((c, chave, acerto)))
         }
         None => {
-            criar_staging()?;
-            let obj = staging.join(format!("{stem}.{}", crate::alvo::ext_objeto()));
-            compilar_objeto(&options.clang, &args, llvm_ir, &obj)?;
+            let obj = obj_staging()?;
+            gerador.gerar(llvm_ir, geracao, &obj)?;
             (obj, None)
         }
     };
@@ -165,9 +163,8 @@ pub fn compile_and_link(
         // Um objeto do cache que o ligador recusa não pode ficar lá: sai do
         // cache, e a ligação é refeita uma vez com um objeto novo.
         c.remover(chave);
-        criar_staging()?;
-        obj_file = staging.join(format!("{stem}.{}", crate::alvo::ext_objeto()));
-        compilar_objeto(&options.clang, &args, llvm_ir, &obj_file)?;
+        obj_file = obj_staging()?;
+        gerador.gerar(llvm_ir, geracao, &obj_file)?;
         do_cache = None;
         ligou = ligar(&options.clang, &obj_file, &sdk_objetos, &ligar_com, output);
     }
@@ -195,28 +192,6 @@ pub fn compile_and_link(
         link: link_duration,
         objeto_do_cache: matches!(do_cache, Some((_, _, true))),
     })
-}
-
-/// Escreve o IR ao lado de `obj` e compila com o Clang. O Clang roda no
-/// diretório do objeto com nomes relativos, para que o `source_filename` e o
-/// `.file` do objeto não carreguem o caminho de quem compilou: com o cache,
-/// o nome é o hash, e o mesmo IR dá o mesmo objeto byte a byte.
-fn compilar_objeto(clang: &Path, args: &[&str], llvm_ir: &str, obj: &Path) -> Result<(), String> {
-    let ll = obj.with_extension("ll");
-    std::fs::write(&ll, llvm_ir).map_err(|e| format!("falha ao escrever LLVM IR em {}: {e}", ll.display()))?;
-    let dir = obj.parent().unwrap_or(Path::new("."));
-    let status = Command::new(clang)
-        .current_dir(dir)
-        .args(args)
-        .arg(ll.file_name().unwrap_or_default())
-        .arg("-o")
-        .arg(obj.file_name().unwrap_or_default())
-        .status()
-        .map_err(|e| format!("falha ao executar Clang em {clang:?}: {e}"))?;
-    if !status.success() {
-        return Err(format!("Clang falhou na compilação do IR (status {status:?})"));
-    }
-    Ok(())
 }
 
 /// Com o que o objeto do programa é ligado.
@@ -293,14 +268,20 @@ fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &
             }
             cmd.args(["-fuse-ld=lld", "-flto=thin", "-O2"]);
             cmd.args(crate::alvo::argumentos_de_ligacao());
+            // O bitcode do gerador embutido não tem o resumo do ThinLTO: o
+            // `lld` faz a LTO completa, e a geração de código dela divide-se
+            // em partições paralelas (o Mach-O não tem a opção).
+            let particoes = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, 16);
             match sistema {
                 Sistema::Windows => {
                     cmd.args(["-Wl,/NODEFAULTLIB:libcmt", "-lmsvcrt", "-Wl,/OPT:REF"]);
+                    cmd.arg(format!("-Wl,/opt:lldltopartitions={particoes}"));
                 }
                 // Sem a tabela de símbolos, como o `.exe` do Windows (que a
                 // deixa no PDB): metade do tamanho no ELF (medido: 9,4 → 4,4 MB).
                 Sistema::Linux => {
                     cmd.args(["-Wl,--gc-sections", "-Wl,--strip-all"]);
+                    cmd.arg(format!("-Wl,--lto-partitions={particoes}"));
                 }
                 Sistema::MacOs => {
                     cmd.args(["-Wl,-dead_strip", "-Wl,-S", "-Wl,-x"]);
