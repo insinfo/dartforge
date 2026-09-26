@@ -1217,7 +1217,10 @@ impl<'a> LlvmEmitter<'a> {
                 )
                 .unwrap();
             }
-            writeln!(self.out, "define void @dartforge_entry() {{").unwrap();
+            // A preparação de um isolado (a principal e a de cada
+            // `Isolate.spawn`, que o runtime chama na thread nova): os
+            // registros das bibliotecas, a RTI e o embedder.
+            writeln!(self.out, "define void @df.preparar_isolado() {{").unwrap();
             writeln!(self.out, "  call void @dartforge_registrar_cids(ptr @df.cids, i64 {})", ids.len()).unwrap();
             if let Some(v) = &self.module.versao_do_sdk {
                 writeln!(self.out, "  call void @dartforge_registrar_versao_do_sdk(ptr @df.versao_do_sdk, i64 {})", v.len()).unwrap();
@@ -1242,6 +1245,11 @@ impl<'a> LlvmEmitter<'a> {
             // O que o embedder da VM prepara antes do `main` (o script de
             // `dart:io`, o `Uri.base`), já com as bibliotecas registradas.
             writeln!(self.out, "  call void @dartforge_preparar_embedder()").unwrap();
+            writeln!(self.out, "  ret void\n}}\n").unwrap();
+            writeln!(self.out, "define void @dartforge_entry() {{").unwrap();
+            let chamar = self.module.chamar_dart.as_ref().map_or("null".to_string(), |c| format!("@{c}"));
+            writeln!(self.out, "  call void @dartforge_registrar_isolados(ptr @df.preparar_isolado, ptr {chamar})").unwrap();
+            writeln!(self.out, "  call void @df.preparar_isolado()").unwrap();
             if let Some(entry) = &self.module.entry_symbol {
                 writeln!(self.out, "  call void @{entry}()").unwrap();
             }
@@ -1362,6 +1370,7 @@ impl<'a> LlvmEmitter<'a> {
             Operand::Constant(Constant::Bool(_)) => Type::I1,
             Operand::Constant(Constant::Null) => Type::Ref,
             Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)) => Type::Ref,
+            Operand::Constant(Constant::Funcao(_)) => Type::I64,
         }
     }
 
@@ -1387,6 +1396,8 @@ impl<'a> LlvmEmitter<'a> {
         let Operand::Constant(c) = op else { return None };
         let s = match (c, alvo) {
             (Constant::String(_) | Constant::StringWtf8(_), _) => panic!("string deve ser carregada via Instruction::Const"),
+            (Constant::Funcao(f), Type::I64) => format!("ptrtoint (ptr @{f} to i64)"),
+            (Constant::Funcao(_), _) => panic!("endereço de função só como i64"),
             (Constant::Int(n), Type::I1) => if *n != 0 { "true".to_string() } else { "false".to_string() },
             (Constant::Bool(b), Type::I1) => if *b { "true".to_string() } else { "false".to_string() },
             (Constant::Null, Type::I1) => "false".to_string(),
@@ -1497,6 +1508,7 @@ impl<'a> LlvmEmitter<'a> {
             Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)) => {
                 panic!("string deve ser carregada via Instruction::Const");
             }
+            Operand::Constant(Constant::Funcao(f)) => format!("ptrtoint (ptr @{f} to i64)"),
         }
     }
 }

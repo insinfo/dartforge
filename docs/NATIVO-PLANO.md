@@ -1367,6 +1367,37 @@ corpus `corpus/nativo` rodando no runner Windows e de medições sob carga
 (vazão, latência, CPU, memória e threads com muitas conexões, consumidores
 lentos e processos com muita saída).
 
+**Isolados** (`isolados.rs`, `portas.rs`). Um isolado é uma thread com o
+próprio heap, área de globais, universo de tipos e laço de eventos. A
+entrada gerada separa `df.preparar_isolado` (registros das bibliotecas,
+RTI, embedder), que o runtime roda em cada thread nova, e registra a
+chamada de closure (`dartforge_registrar_isolados`). `Isolate.spawn`
+copia a entrada e a mensagem para grafos; na thread nova, o isolado
+manda a mensagem de pronto (`[porta de controle, [pausa, término]]`) e
+roda a entrada como a primeira mensagem. Numa mensagem para outro
+isolado:
+
+* constantes canônicas (`const`, valores de enum, globais `const`) vão
+  pelo getter que as produz (`dartforge_marcar_constante`: o endereço do
+  getter é o mesmo em todos os isolados) e tear-offs de topo pelo código —
+  o destino recebe as dele, e `identical`/`switch` valem entre isolados,
+  como no grupo de isolados da VM;
+* os tipos (RTI) dos objetos vão numa tabela própria e são reinternados no
+  destino (os ids de tipo são por isolado), inclusive os objetos `Type`;
+* as tabelas de métodos das classes vão junto (o destino pode nunca ter
+  criado um objeto da classe);
+* `TransferableTypedData` é movido: a origem fica vazia.
+
+A porta de controle recebe as mensagens OOB da VM (`pause`, `resume`,
+`ping`, `kill`, ouvintes de saída e de erro, erros fatais), atendidas
+entre eventos antes das comuns. Um erro não tratado vai aos ouvintes de
+erro; sem ouvinte e com erros fatais, é impresso (`Unhandled exception:`)
+e o isolado termina. `Isolate.exit` desenrola o isolado com uma exceção
+que nenhum `catch` recebe (`dartforge_exception_capturavel`). Limites:
+o `kill` imediato só é visto quando o isolado volta ao laço de eventos (a
+VM interrompe na verificação de pilha); `Isolate.spawnUri` não existe
+num programa compilado (a porta de pronto recebe o erro).
+
 **Recusa por membro.** O membro do SDK que não baixa (construto não
 suportado, native pendente, intrínseco da VM sem entrada, teste de tipo sobre
 parâmetro de tipo antes da RTI) vira uma função que avisa em tempo de

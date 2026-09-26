@@ -56,6 +56,9 @@ pub enum Constant {
     /// Bytes WTF-8 de um literal Dart; preserva surrogates isolados.
     StringWtf8(Vec<u8>),
     Null,
+    /// O endereço da função `símbolo` como `i64` (`ptrtoint`): a mesma em
+    /// todos os isolados do processo.
+    Funcao(String),
 }
 
 /// Operando de instrução: uma constante direta ou um resultado SSA anterior.
