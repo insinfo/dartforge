@@ -2056,7 +2056,7 @@ pub(crate) fn condicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId) ->
         ExprKind::Unary { op: UnaryOp::Not, operand } => {
             let o = *operand;
             let (v, f) = condicao(inf, cx, o);
-            verificar_bool(inf, cx, o, NON_BOOL_NEGATION_EXPRESSION.template);
+            verificar_bool(inf, cx, o, UsoBool::Negacao);
             let t = inf.core.bool_;
             registrar(inf, cx, e, t);
             (f, v)
@@ -2106,19 +2106,59 @@ pub(crate) fn e_forma_de_condicao(inf: &BodyInferrer<'_>, cx: &Corpo, e: ExprId)
     }
 }
 
-/// Condição de `if`/`while`/`?:`/`assert`, com o diagnóstico de não-`bool`.
+/// Condição de `if`/`while`/`?:`/`for`/`when`, com o diagnóstico de não-`bool`.
 pub(crate) fn condicao_verificada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId) -> (Fluxo, Fluxo) {
     let r = condicao(inf, cx, e);
-    verificar_bool(inf, cx, e, NON_BOOL_CONDITION.template);
+    verificar_bool(inf, cx, e, UsoBool::Condicao);
     r
 }
 
-fn verificar_bool(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, template: &str) {
+/// Condição de `assert` (comando ou inicializador).
+pub(crate) fn condicao_de_assert(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId) -> (Fluxo, Fluxo) {
+    let r = condicao(inf, cx, e);
+    verificar_bool(inf, cx, e, UsoBool::Assert);
+    r
+}
+
+/// Onde uma expressão precisa ser `bool` (o `BoolExpressionVerifier` do
+/// analyzer escolhe o código por aí).
+#[derive(Clone, Copy)]
+enum UsoBool {
+    /// `if`, `while`, `do`, `for`, `?:`, `when`: `NON_BOOL_CONDITION`.
+    Condicao,
+    /// `assert`: `NON_BOOL_EXPRESSION`.
+    Assert,
+    /// Operando de `&&`/`||`: `NON_BOOL_OPERAND`.
+    Operando(&'static str),
+    /// Operando de `!`: `NON_BOOL_NEGATION_EXPRESSION`.
+    Negacao,
+}
+
+/// `checkForNonBoolExpression`: tipo não atribuível a `bool`. Com o próprio
+/// `bool` anulável (`bool?`), o erro é de uso de valor anulável como
+/// condição, em qualquer dos usos. Com `void`, o analyzer relata o uso do
+/// resultado `void` no lugar (fora daqui); nada sai.
+fn verificar_bool(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, uso: UsoBool) {
+    use dartforge_diagnostics::codigos::compile_time_error as c;
     let t = inf.body_types.units[cx.unit.0 as usize].get_type(e).unwrap_or(inf.core.bool_);
     let b = inf.core.bool_;
-    if !inf.atribuivel(t, b) {
-        let sp = inf.span_expr(cx.unit, e);
-        inf.aviso(template.to_string(), sp);
+    if inf.atribuivel(t, b) || matches!(inf.table.get(t), Type::Void) {
+        return;
+    }
+    let sp = inf.span_expr(cx.unit, e);
+    let e_bool = match (inf.table.get(t), inf.table.get(b)) {
+        (Type::Interface { class: c1, .. }, Type::Interface { class: c2, .. }) => c1 == c2,
+        _ => false,
+    };
+    if e_bool {
+        inf.aviso_com_codigo(c::UNCHECKED_USE_OF_NULLABLE_VALUE_AS_CONDITION, sp, &[]);
+        return;
+    }
+    match uso {
+        UsoBool::Condicao => inf.aviso(NON_BOOL_CONDITION.template.to_string(), sp),
+        UsoBool::Negacao => inf.aviso(NON_BOOL_NEGATION_EXPRESSION.template.to_string(), sp),
+        UsoBool::Assert => inf.aviso_com_codigo(c::NON_BOOL_EXPRESSION, sp, &[]),
+        UsoBool::Operando(op) => inf.aviso_com_codigo(c::NON_BOOL_OPERAND, sp, &[op]),
     }
 }
 
@@ -2126,11 +2166,12 @@ fn condicao_binaria(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: B
     match op {
         BinaryOp::And | BinaryOp::Or => {
             let antes = cx.fluxo.clone();
+            let simbolo = if op == BinaryOp::And { "&&" } else { "||" };
             let (lv, lf) = condicao(inf, cx, left);
-            verificar_bool(inf, cx, left, NON_BOOL_CONDITION.template);
+            verificar_bool(inf, cx, left, UsoBool::Operando(simbolo));
             cx.fluxo = if op == BinaryOp::And { lv.clone() } else { lf.clone() };
             let (rv, rf) = condicao(inf, cx, right);
-            verificar_bool(inf, cx, right, NON_BOOL_CONDITION.template);
+            verificar_bool(inf, cx, right, UsoBool::Operando(simbolo));
             cx.fluxo = antes;
             if op == BinaryOp::And {
                 let falso = inf.juntar(&lf, &rf);

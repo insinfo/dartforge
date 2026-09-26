@@ -1559,3 +1559,53 @@ fn new_sali_tipa() {
         assert!(total_exprs > 0, "new_sali {label} deve conter expressões em corpos");
     }
 }
+
+/// Diagnósticos de corpo de uma fonte sobre o SDK simulado.
+fn diagnosticos_de(fonte: &str) -> Vec<dartforge_diagnostics::Diagnostic> {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline).1
+}
+
+#[test]
+fn membro_herdado_usa_a_declaracao_mais_especifica() {
+    // `CompilationUnitElement implements UriReferencedElement implements
+    // _ExistingElement implements Element`: o `library` não anulável de
+    // `_ExistingElement` sobrescreve o anulável de `Element`, declarado antes.
+    let fonte = "library test; import 'dart:core';
+        class Lib { int get n => 0; }
+        abstract class Elem { Lib? get library; }
+        abstract class Existe implements Elem { Lib get library; }
+        abstract class Uri implements Existe {}
+        abstract class Unit implements Uri, Elem {}
+        int f(Unit u) => u.library.n;";
+    let diags = diagnosticos_de(fonte);
+    assert!(diags.is_empty(), "{diags:?}");
+}
+
+#[test]
+fn criacao_de_nome_que_nao_e_classe() {
+    let fonte = "library test; import 'dart:core'; class C<T> { m() => new T(); } void f() { new A(); const B.x(); }";
+    let diags = diagnosticos_de(fonte);
+    let criacoes: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code.is_some_and(|c| c.info().nome == "creation_with_non_type"))
+        .map(|d| (&fonte[d.span.start..d.span.end], d.message.as_str()))
+        .collect();
+    assert_eq!(
+        criacoes,
+        vec![
+            ("T", "The name 'T' isn't a class."),
+            ("A", "The name 'A' isn't a class."),
+            ("B.x", "The name 'x' isn't a class."),
+        ],
+        "{diags:?}"
+    );
+}

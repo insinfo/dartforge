@@ -68,19 +68,33 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// Declaração do membro `chave` em `classe` ou nos seus supertipos, na
-    /// ordem de busca (superclasses e mixins, depois interfaces).
+    /// Declaração do membro `chave` em `classe` ou nos seus supertipos.
+    ///
+    /// Das declarações herdadas, a de um supertipo que outro candidato
+    /// estende ou implementa foi sobrescrita por ele no caminho e não conta
+    /// (a interface de `CompilationUnitElement` tem o `library` não anulável
+    /// de `_ExistingElement`, não o anulável de `Element`, que ele
+    /// sobrescreve). Entre as que sobram, vale a ordem de busca
+    /// (superclasses e mixins, depois interfaces).
     fn declaracao_em_classe(&self, classe: ClassId, chave: SymbolId) -> Option<(ClassId, FunctionElementId)> {
         let c = self.program.class(classe);
         if let Some(&f) = c.instance_members.get(&chave) {
             return Some((classe, f));
         }
-        for (sup, _) in crate::scope::supertipos_ordenados(self.program, &self.outline.hierarchy, classe) {
-            if let Some(&f) = self.program.class(sup).instance_members.get(&chave) {
-                return Some((sup, f));
-            }
+        let candidatos: Vec<(ClassId, FunctionElementId)> =
+            crate::scope::supertipos_ordenados(self.program, &self.outline.hierarchy, classe)
+                .into_iter()
+                .filter_map(|(sup, _)| self.program.class(sup).instance_members.get(&chave).map(|&f| (sup, f)))
+                .collect();
+        if candidatos.len() <= 1 {
+            return candidatos.first().copied();
         }
-        None
+        let sobrescrito = |a: ClassId| {
+            candidatos.iter().any(|&(b, _)| {
+                b != a && self.outline.hierarchy.get(b).is_some_and(|d| d.supertypes.contains_key(&a))
+            })
+        };
+        candidatos.iter().copied().find(|&(a, _)| !sobrescrito(a)).or_else(|| candidatos.first().copied())
     }
 
     /// Membro de instância pela interface do receptor (sem extensões).

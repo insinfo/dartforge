@@ -788,6 +788,51 @@ pub(crate) fn construir(
     r
 }
 
+/// `CREATION_WITH_NON_TYPE` (`new X()`, `const X()`, `X<T>.nome()`): o nome
+/// escrito como tipo da criação não é classe — indefinido, local, parâmetro
+/// de tipo, função. O intervalo é o nome escrito; com `p.X` e `p` prefixo de
+/// import, só o `X`. O argumento é a última parte do nome (`new A.foo()` com
+/// `A` indefinido: `'foo'`).
+///
+/// Ficam de fora (o analyzer relata outro código ou nada):
+/// * `p.X` com `p` declarado mas não prefixo (`void p() {}`):
+///   `prefix_shadowed_by_local_declaration`;
+/// * `p.X` com `p` prefixo de um import que não resolveu: nada.
+fn criacao_sem_classe(inf: &mut BodyInferrer<'_>, cx: &Corpo, name: &[ast::Name]) {
+    let (Some(primeiro), Some(ultimo)) = (name.first(), name.last()) else { return };
+    let mut prefixo = false;
+    if name.len() == 2 {
+        let lib = inf.program.library(cx.lib);
+        if lib.prefixes.contains_key(&primeiro.sym) {
+            prefixo = true;
+        } else if inf.program.lookup(cx.lib, primeiro.sym).is_some_and(|b| {
+            !matches!(b.getter, Some(Element::Class(_)))
+        }) || prefixo_de_import_nao_resolvido(inf, cx, primeiro.sym)
+        {
+            return;
+        }
+    }
+    let inicio = if prefixo { ultimo.span.start } else { primeiro.span.start };
+    let texto = inf.interner.resolve(ultimo.sym).to_string();
+    inf.aviso_com_codigo(
+        dartforge_diagnostics::codigos::compile_time_error::NEW_WITH_NON_TYPE,
+        Span { start: inicio, end: ultimo.span.end },
+        &[&texto],
+    );
+}
+
+/// `p` é o prefixo de alguma diretiva `import … as p` da biblioteca, mas
+/// não chegou ao escopo (o alvo do import não existe).
+fn prefixo_de_import_nao_resolvido(inf: &BodyInferrer<'_>, cx: &Corpo, p: dartforge_intern::SymbolId) -> bool {
+    let lib = inf.program.library(cx.lib);
+    !lib.prefixes.contains_key(&p)
+        && lib.units.iter().any(|u| {
+            inf.program.unit(*u).unit.directives.iter().any(|d| {
+                matches!(&d.kind, ast::DirectiveKind::Import { prefix: Some(n), .. } if n.sym == p)
+            })
+        })
+}
+
 /// `new C<T>.nome(args)` / `const C(args)`.
 pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx: TypeId) -> TypeId {
     let a = &inf.program.unit(cx.unit).ast;
@@ -822,7 +867,14 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
             let t = inf.tipo_de_anotacao(cx, ty);
             match inf.table.get(t).clone() {
                 Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } => (class, Some(args.to_vec())),
-                _ => {
+                ref outro => {
+                    // `typedef F = void Function()`: o alias não nomeia
+                    // classe. Outros alvos (`typedef T = dynamic`, `typedef
+                    // A<X> = X`, que é `instantiate_type_alias_expands_…`)
+                    // ficam mudos.
+                    if matches!(outro, Type::Function { .. }) {
+                        criacao_sem_classe(inf, cx, name);
+                    }
                     for x in args.args.iter() {
                         inferir_livre(inf, cx, x.value);
                     }
@@ -831,6 +883,9 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
             }
         }
         _ => {
+            if !binding.is_some_and(|b| b.ambiguous) {
+                criacao_sem_classe(inf, cx, name);
+            }
             for x in args.args.iter() {
                 inferir_livre(inf, cx, x.value);
             }

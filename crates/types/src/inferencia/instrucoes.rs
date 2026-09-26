@@ -326,7 +326,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
         }
         StmtKind::Assert { condition, message } => {
             let antes = cx.fluxo.clone();
-            expr::condicao_verificada(inf, cx, *condition);
+            expr::condicao_de_assert(inf, cx, *condition);
             if let Some(m) = message {
                 inferir_livre(inf, cx, *m);
             }

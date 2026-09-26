@@ -156,7 +156,7 @@ fn inicializador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, classe: Option<Clas
             chamar_construtor_de(inf, cx, alvo, *constructor, arguments, &[]);
         }
         ast::Initializer::Assert { condition, message, .. } => {
-            expr::condicao_verificada(inf, cx, *condition);
+            expr::condicao_de_assert(inf, cx, *condition);
             if let Some(m) = message {
                 inferir_livre(inf, cx, *m);
             }
