@@ -156,3 +156,4 @@ export 'src/i48_ref_projetado_lido.dart';
 export 'src/i49_view_children_formas.dart';
 export 'src/i50_view_child_tipos.dart';
 export 'src/i51_view_child_dinamico.dart';
+export 'src/i52_ng_for_dinamico.dart';

@@ -3095,6 +3095,12 @@ impl Corpo<'_> {
         let mut locais = self.locais.clone();
         for (nome, chave) in &micro.locais {
             let (tipo, escopo) = match chave.as_str() {
+                // Coleção `dynamic` (índice, `??`, ternário, campo
+                // `dynamic`): o `getIterableElementType` não acha tipo, e o
+                // local fica sem cast (`this.locals['\$implicit']`).
+                "$implicit" if tipo_da_colecao.is_some_and(|(t, _)| t == "dynamic") => {
+                    ("dynamic".to_string(), None)
+                }
                 "$implicit" => {
                     let Some((t, escopo)) = tipo_da_colecao
                         .and_then(|(t, e)| tipo_do_elemento(t).map(|x| (x, e.clone())))
@@ -5168,6 +5174,10 @@ fn declaracao_de_local(
         }
         format!("{util}.unsafeCast<{}>({vista}).locals", origem.classe)
     };
+    // Sem tipo, sem cast (`getLocal`: `type != null && type != dynamic`).
+    if l.tipo == "dynamic" {
+        return Ok(format!("final {d} = {locals}[{chave}];"));
+    }
     let tipo = if matches!(
         l.tipo.as_str(),
         "String" | "int" | "double" | "bool" | "num" | "Object"

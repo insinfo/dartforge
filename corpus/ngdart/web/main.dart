@@ -145,6 +145,7 @@ import 'package:corpus_ngdart/src/i48_ref_projetado_lido.template.dart' as i48;
 import 'package:corpus_ngdart/src/i49_view_children_formas.template.dart' as i49;
 import 'package:corpus_ngdart/src/i50_view_child_tipos.template.dart' as i50;
 import 'package:corpus_ngdart/src/i51_view_child_dinamico.template.dart' as i51;
+import 'package:corpus_ngdart/src/i52_ng_for_dinamico.template.dart' as i52;
 
 void main() {
   print([
@@ -292,5 +293,6 @@ void main() {
     i49.I49ViewChildrenFormasNgFactory,
     i50.I50ViewChildTiposNgFactory,
     i51.I51ViewChildDinamicoNgFactory,
+    i52.I52NgForDinamicoNgFactory,
   ].length);
 }
