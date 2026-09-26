@@ -346,13 +346,11 @@ impl Conversor<'_> {
         // em que os locais são pedidos.
         let mut args = Vec::new();
         let mut locais = Vec::new();
+        // O pipe de dentro ganha o proxy primeiro (é convertido antes), mas
+        // a marca de fora vem antes no texto: quem troca as marcas as ordena
+        // pelo fim da chamada.
         for a in arguments.args.iter() {
             let v = self.expr(a.value, true)?;
-            // O pipe de dentro ganharia o proxy primeiro; a marca de fora
-            // viria antes no texto. Ainda sem caso.
-            if v.texto.contains(MARCA_DE_PIPE) {
-                return Err(recusa(Motivo::PipesUsados, "pipe dentro de pipe"));
-            }
             locais.extend(v.locais);
             args.push(v.texto);
         }
@@ -942,23 +940,24 @@ mod testes {
     }
 
     /// `$pipe.nome(entrada, args)` vira a marca com o nome e o número de
-    /// argumentos, tipo `dynamic`; dentro de outro pipe ou com argumento
-    /// nomeado, recusa.
+    /// argumentos, tipo `dynamic`, também dentro de outro pipe; com
+    /// argumento nomeado, recusa.
     #[test]
     fn pipe_vira_marca() {
         let c = conv("$pipe.date(fixo, 'dd/MM')");
         assert_eq!(c.texto, "\u{3}date/2\u{4}(_ctx.fixo, 'dd/MM')");
         assert_eq!(c.tipo.as_deref(), Some("dynamic"));
         assert!(!c.imutavel);
+        assert_eq!(
+            conv("$pipe.a($pipe.b(fixo))").texto,
+            "\u{3}a/1\u{4}(\u{3}b/1\u{4}(_ctx.fixo))"
+        );
         let m = &membros();
         let mut i = Interner::new();
-        for e in ["$pipe.a($pipe.b(fixo))", "$pipe.a(fixo, x: 1)"] {
-            assert_eq!(
-                converter(e, m, &mut i).map_err(|r| r.motivo),
-                Err(Motivo::PipesUsados),
-                "{e}"
-            );
-        }
+        assert_eq!(
+            converter("$pipe.a(fixo, x: 1)", m, &mut i).map_err(|r| r.motivo),
+            Err(Motivo::PipesUsados)
+        );
     }
 
     /// O que o parser do ngdart lê diferente do Dart fica de fora: `-x` é

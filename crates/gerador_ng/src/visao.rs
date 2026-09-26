@@ -1118,9 +1118,10 @@ fn chamadas_brutas(
     Ok(())
 }
 
-/// As chamadas `$pipe.nome(..)` de uma expressão, em ordem de texto, com o
-/// número de argumentos. Texto entre aspas não conta; pipe dentro de pipe é
-/// recusado (o de dentro seria convertido primeiro).
+/// As chamadas `$pipe.nome(..)` de uma expressão, com o número de
+/// argumentos, na ordem da conversão: os pipes dos argumentos antes do de
+/// fora (`visitPipe` converte a entrada e os argumentos primeiro). Texto
+/// entre aspas não conta.
 fn pipes_na_expressao(
     texto: &str,
     vista: u32,
@@ -1136,7 +1137,6 @@ fn pipes_na_expressao(
     let b = texto.as_bytes();
     let mut i = 0;
     let mut aspas: Option<u8> = None;
-    let mut fim_do_ultimo = 0;
     while i < b.len() {
         let c = b[i];
         if let Some(q) = aspas {
@@ -1162,9 +1162,6 @@ fn pipes_na_expressao(
         if i > 0 && (e_nome(b[i - 1]) || b[i - 1] == b'.') {
             return Err(forma());
         }
-        if i < fim_do_ultimo {
-            return Err(recusa(Motivo::PipesUsados, "pipe dentro de pipe"));
-        }
         if b.get(i + 5) != Some(&b'.') {
             return Err(forma());
         }
@@ -1181,9 +1178,9 @@ fn pipes_na_expressao(
             return Err(forma());
         }
         let (fim, argumentos) = argumentos_da_chamada(texto, k).ok_or_else(forma)?;
+        pipes_na_expressao(&texto[k + 1..fim - 1], vista, saida)?;
         saida.push((vista, texto[ini..j].to_string(), argumentos));
-        fim_do_ultimo = fim;
-        i = j;
+        i = fim;
     }
     Ok(())
 }
@@ -1738,7 +1735,9 @@ impl Corpo<'_> {
 
     /// Troca cada marca de pipe do texto convertido pelo proxy da próxima
     /// chamada desta visão (`this._pipe_date_0_1`), conferindo nome e número
-    /// de argumentos com a tabela — que tem a ordem do oficial.
+    /// de argumentos com a tabela — que tem a ordem do oficial. A ordem é a
+    /// da conversão, que visita os argumentos antes do pipe: com pipe dentro
+    /// de pipe, é a ordem em que as chamadas **fecham** no texto.
     fn trocar_pipes(&mut self, texto: &str) -> Result<String, Recusa> {
         use crate::expr::{FIM_DE_PIPE, MARCA_DE_PIPE};
         let chamadas: Vec<(String, usize, String)> = self
@@ -1752,14 +1751,37 @@ impl Corpo<'_> {
                 )
             })
             .collect();
+        // Cada marca: onde começa e onde fecha a chamada dela.
+        let mut marcas = Vec::new();
+        let mut desde = 0;
+        while let Some(i) = texto[desde..].find(MARCA_DE_PIPE).map(|i| i + desde) {
+            let depois = i + MARCA_DE_PIPE.len_utf8();
+            let f = texto[depois..]
+                .find(FIM_DE_PIPE)
+                .map_or(texto.len(), |f| f + depois);
+            let abre = f + FIM_DE_PIPE.len_utf8();
+            let fecha = argumentos_da_chamada(texto, abre).map_or(texto.len(), |(fim, _)| fim);
+            marcas.push((i, fecha));
+            desde = depois;
+        }
+        let mut por_fim: Vec<usize> = (0..marcas.len()).collect();
+        por_fim.sort_by_key(|&k| marcas[k].1);
+        let mut ordem = vec![0; marcas.len()];
+        for (posicao, &k) in por_fim.iter().enumerate() {
+            ordem[k] = posicao;
+        }
+        let base = self.cursor_pipe;
         let mut saida = String::with_capacity(texto.len());
         let mut resto = texto;
+        let mut k = 0;
         while let Some(i) = resto.find(MARCA_DE_PIPE) {
             saida.push_str(&resto[..i]);
             let depois = &resto[i + MARCA_DE_PIPE.len_utf8()..];
             let f = depois.find(FIM_DE_PIPE).unwrap_or(depois.len());
             let (nome, n) = depois[..f].rsplit_once('/').unwrap_or((&depois[..f], ""));
-            match chamadas.get(self.cursor_pipe) {
+            let posicao = ordem.get(k).copied().unwrap_or(k);
+            k += 1;
+            match chamadas.get(base + posicao) {
                 Some((esperado, argumentos, proxy))
                     if esperado == nome && argumentos.to_string() == n =>
                 {
