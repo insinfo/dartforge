@@ -524,16 +524,7 @@ pub fn dartforge_nativo(amb: &Ambiente, programa: &Programa, dir: &Path) -> Said
         return recusa(linha_do_erro_forge(e, &fonte));
     }
     if let Err(e) = comp_res {
-        let primeira = e.lines().next().unwrap_or("").to_string();
-        // Um erro do programa (carga, diagnóstico) é o erro de compilação da
-        // VM: código 254 (`dart run`). O construto não suportado é falha
-        // nossa e fica com 1.
-        let do_programa = !e.contains("não suportado no backend nativo") && !e.contains("bug do compilador");
-        return Saida {
-            stdout: String::new(),
-            stderr: format!("[compile-native] {primeira}\n{e}"),
-            codigo: if do_programa { 254 } else { 1 },
-        };
+        return saida_do_erro_de_compilacao(&e);
     }
 
     if !saida_exe.is_file() {
@@ -706,6 +697,15 @@ pub fn executor_jit() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(nome))
 }
 
+/// A saída de uma compilação nativa recusada (AOT ou o IR do JIT). Um erro
+/// do programa (carga, diagnóstico) é o erro de compilação da VM: código 254
+/// (`dart run`). O construto não suportado é falha nossa e fica com 1.
+fn saida_do_erro_de_compilacao(e: &str) -> Saida {
+    let primeira = e.lines().next().unwrap_or("");
+    let do_programa = !e.contains("não suportado no backend nativo") && !e.contains("bug do compilador");
+    Saida { stdout: String::new(), stderr: format!("[compile-native] {primeira}\n{e}"), codigo: if do_programa { 254 } else { 1 } }
+}
+
 /// O perfil de **desenvolvimento** do backend nativo: o LLVM IR do programa
 /// executado pelo JIT ORCv2, num processo do executor.
 ///
@@ -723,9 +723,7 @@ pub fn dartforge_jit(amb: &Ambiente, programa: &Programa, dir: &Path, com_aot: b
     let ir = match dartforge_nativo_ir(programa) {
         Ok(ir) => ir,
         Err(e) => {
-            let e = e.strip_prefix("[emitir-ir] ").unwrap_or(&e).to_string();
-            let primeira = e.lines().next().unwrap_or("").to_string();
-            let saida = Saida { stdout: String::new(), stderr: format!("[compile-native] {primeira}\n{e}"), codigo: 1 };
+            let saida = saida_do_erro_de_compilacao(e.strip_prefix("[emitir-ir] ").unwrap_or(&e));
             let aot = com_aot.then(|| AotDoMesmoIr { saida: saida.clone(), ligacao: Duration::ZERO, execucao: Duration::ZERO, objeto_do_cache: false });
             return (saida, ExecucaoJit { com_ir: false, tempo: Duration::ZERO, execucao: None, aot });
         }
