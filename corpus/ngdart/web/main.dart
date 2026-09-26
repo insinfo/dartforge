@@ -129,6 +129,8 @@ import 'package:corpus_ngdart/src/i33_ng_if_aninhado_em_for.template.dart' as i3
 import 'package:corpus_ngdart/src/i34_texto_ternario_nulo.template.dart' as i34;
 import 'package:corpus_ngdart/src/i35_i18n_formas.template.dart' as i35;
 import 'package:corpus_ngdart/src/i36_prefixos_longos.template.dart' as i36;
+import 'package:corpus_ngdart/src/i37_filho_callback.template.dart' as i37;
+import 'package:corpus_ngdart/src/i37_usa_callback.template.dart' as i37;
 
 void main() {
   print([
@@ -260,5 +262,7 @@ void main() {
     i34.I34TextoTernarioNuloNgFactory,
     i35.I35I18nFormasNgFactory,
     i36.I36PrefixosLongosNgFactory,
+    i37.I37FilhoCallbackNgFactory,
+    i37.I37UsaCallbackNgFactory,
   ].length);
 }

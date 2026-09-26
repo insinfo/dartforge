@@ -2611,8 +2611,11 @@ impl Corpo<'_> {
             "    if ({dev}.isDevToolsEnabled) {{\n      {dev}.Inspector.instance.registerDirective(_anchor_{n}, this.{campo});\n    }}"
         ));
 
-        // As entradas da diretiva, na ordem em que a microssintaxe as declara.
+        // As entradas da diretiva, na ordem em que a microssintaxe as declara
+        // (é a ordem dos índices de ligação). O `bindAndWriteToRenderer`
+        // escreve as imutáveis (`if (firstCheck)`) antes das outras.
         let mut tipo_da_colecao = None;
+        let mut dinamicas = Vec::new();
         for (prop, expr) in &micro.propriedades {
             let c = self.converter(expr, Motivo::Ligacao)?;
             if prop.ends_with("Of") {
@@ -2655,7 +2658,7 @@ impl Corpo<'_> {
             if dir.direta {
                 // `_isDirectBinding` do ngcompiler: o `NgIf` já compara o
                 // valor antes de agir, então não há `checkBinding` fora.
-                self.entradas.push(format!(
+                dinamicas.push(format!(
                     "    if ({dev}.isDevToolsEnabled) {{\n      {dev}.Inspector.instance.recordInput(this.{campo}, '{prop}', {valor});\n    }}\n    this.{campo}.{prop} = {valor} /* REF:{url}:{ini}:{fim} */;"
                 ));
             } else {
@@ -2666,11 +2669,12 @@ impl Corpo<'_> {
                 // O nome que vai na verificação é a expressão desta
                 // propriedade (`itens`), não o valor inteiro do `*`.
                 let texto = expr.trim();
-                self.entradas.push(format!(
+                dinamicas.push(format!(
                     "    final currVal_{k} = {valor};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, '{texto}', '{url}')) {{\n      if ({dev}.isDevToolsEnabled) {{\n        {dev}.Inspector.instance.recordInput(this.{campo}, '{prop}', currVal_{k});\n      }}\n      this.{campo}.{prop} = currVal_{k} /* REF:{url}:{ini}:{fim} */;\n      this._expr_{k} = currVal_{k};\n    }}"
                 ));
             }
         }
+        self.entradas.extend(dinamicas);
         if dir.do_check {
             let chk = tardio(CHECK_BINDING);
             self.entradas.push(format!(

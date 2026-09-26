@@ -140,3 +140,5 @@ export 'src/i33_ng_if_aninhado_em_for.dart';
 export 'src/i34_texto_ternario_nulo.dart';
 export 'src/i35_i18n_formas.dart';
 export 'src/i36_prefixos_longos.dart';
+export 'src/i37_filho_callback.dart';
+export 'src/i37_usa_callback.dart';

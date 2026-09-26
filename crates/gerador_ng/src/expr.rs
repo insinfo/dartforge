@@ -517,12 +517,21 @@ impl Conversor<'_> {
                         ..Convertida::nova(l.dart.clone(), "local")
                     });
                 }
+                // Método lido como valor (o `trackBy: rastrear` do `*ngFor`,
+                // um callback passado a um filho): `isImmutable` diz que
+                // "methods are immutable"; `canBeNull` não o isenta; e o
+                // `_TypeResolver` procura um *getter* com o nome — não há,
+                // então é `dynamic`.
+                if !self.escopo.membros.contains_key(nome) && self.escopo.metodos.contains_key(nome)
+                {
+                    return Ok(Convertida {
+                        imutavel: true,
+                        tipo: Some("dynamic".into()),
+                        ..Convertida::nova(format!("_ctx.{nome}"), "método como valor")
+                    });
+                }
                 let Some(m) = self.escopo.membros.get(nome) else {
-                    return Err(fora(if self.escopo.metodos.contains_key(nome) {
-                        "método como valor"
-                    } else {
-                        "nome fora do componente"
-                    }));
+                    return Err(fora("nome fora do componente"));
                 };
                 // `isImmutable` de `PropertyRead` com receptor implícito:
                 // campo `final`/`const` (o getter já chega aqui mutável).
