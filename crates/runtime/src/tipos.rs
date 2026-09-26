@@ -761,6 +761,38 @@ pub extern "C" fn dartforge_rti_classe_nome(classe: i64, nome: i64, n_params: i6
     });
 }
 
+/// Os registros da RTI do programa numa tabela (`lower/rti.rs`): uma linha
+/// por registro — `C<id> <parâmetros> <nome>` (o nome da classe),
+/// `R<id> <receita>` (uma regra de supertipo) e `F<forma> <id>` (a classe de
+/// uma forma do runtime) —, lidos na ordem.
+///
+/// # Safety
+/// `dados` aponta para `len` bytes UTF-8 legíveis.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_rti_iniciar_tabela(dados: *const u8, len: i64) {
+    // SAFETY: garantido por quem chama (uma constante do módulo).
+    let bytes = unsafe { std::slice::from_raw_parts(dados, usize::try_from(len).unwrap_or(0)) };
+    let texto = std::str::from_utf8(bytes).expect("tabela da RTI em UTF-8");
+    for linha in texto.lines() {
+        let (tipo, resto) = linha.split_at(1);
+        let (a, b) = resto.split_once(' ').expect("registro da RTI");
+        let id: i64 = a.parse().expect("id da RTI");
+        match tipo {
+            "C" => {
+                let (n, nome) = b.split_once(' ').unwrap_or((b, ""));
+                let n: usize = n.parse().unwrap_or(0);
+                RTI.with(|u| u.borrow_mut().classes.insert(id, (nome.to_string(), n)));
+            }
+            "R" => {
+                let modelo = receita_de_unidades(b.encode_utf16().collect());
+                dartforge_rti_regra(id, modelo);
+            }
+            "F" => dartforge_rti_classe_do_runtime(id, b.parse().expect("id da RTI")),
+            _ => panic!("registro da RTI desconhecido: {linha}"),
+        }
+    }
+}
+
 /// Registra uma regra de supertipo: `classe` tem o supertipo `modelo` (uma
 /// receita já lida, em `P<i>` dos parâmetros de `classe`).
 #[unsafe(no_mangle)]
@@ -819,6 +851,11 @@ pub extern "C" fn dartforge_rti_classe_do_runtime(forma: i64, classe: i64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_receita(texto: i64) -> i64 {
     let unidades = HEAP.with(|h| h.borrow().texto(texto).para_vec());
+    receita_de_unidades(unidades)
+}
+
+/// A receita (em UTF-16) lida e internada.
+fn receita_de_unidades(unidades: Vec<u16>) -> i64 {
     RTI.with(|u| {
         let mut u = u.borrow_mut();
         if let Some(&t) = u.receitas.get(&unidades) {
