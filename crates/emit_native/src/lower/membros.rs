@@ -1975,6 +1975,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Lê um global pelo getter preguiçoso.
     pub fn ler_global(&mut self, vid: VariableId, span: Span) -> Operand {
+        if let Some(v) = self.ler_variavel_nativa(vid, span) {
+            return v;
+        }
         if !self.ctx.biblioteca_compilada(self.ctx.program.variables[vid.0 as usize].library)
         {
             let nome = self
@@ -1996,6 +1999,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Grava um global (e marca-o inicializado).
     pub fn gravar_global(&mut self, vid: VariableId, val: Operand, span: Span) -> Operand {
+        if self.gravar_variavel_nativa(vid, val.clone(), span) {
+            return val;
+        }
         if !self.ctx.biblioteca_compilada(self.ctx.program.variables[vid.0 as usize].library)
         {
             return self.nao_suportado("atribuição a global do SDK", span);

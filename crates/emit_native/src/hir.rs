@@ -390,6 +390,9 @@ pub enum TipoC {
     F64,
     Bool,
     Ptr,
+    /// `Handle`: um objeto Dart na fronteira nativa, como o ponteiro opaco
+    /// de uma célula do runtime (o `Dart_Handle` da VM).
+    Handle,
     Void,
 }
 
@@ -404,7 +407,7 @@ impl TipoC {
             TipoC::F32 => "float",
             TipoC::F64 => "double",
             TipoC::Bool => "i1",
-            TipoC::Ptr => "ptr",
+            TipoC::Ptr | TipoC::Handle => "ptr",
             TipoC::Void => "void",
         }
     }
@@ -435,7 +438,7 @@ impl TipoC {
             TipoC::I8 | TipoC::U8 | TipoC::Bool => 1,
             TipoC::I16 | TipoC::U16 => 2,
             TipoC::I32 | TipoC::U32 | TipoC::F32 => 4,
-            TipoC::I64 | TipoC::U64 | TipoC::F64 | TipoC::Ptr => 8,
+            TipoC::I64 | TipoC::U64 | TipoC::F64 | TipoC::Ptr | TipoC::Handle => 8,
             TipoC::Void => 0,
         }
     }
@@ -455,6 +458,7 @@ impl TipoC {
             TipoC::F64 => 'd',
             TipoC::Bool => 'b',
             TipoC::Ptr => 'p',
+            TipoC::Handle => 'H',
             TipoC::Void => 'v',
         }
     }

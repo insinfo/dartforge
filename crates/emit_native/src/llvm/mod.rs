@@ -670,7 +670,7 @@ impl<'a> LlvmEmitter<'a> {
                             TipoC::I8 | TipoC::I16 | TipoC::I32 => Some(format!("sext {} %nr{v} to i64", ret.llvm())),
                             TipoC::U8 | TipoC::U16 | TipoC::U32 => Some(format!("zext {} %nr{v} to i64", ret.llvm())),
                             TipoC::F32 => Some(format!("fpext float %nr{v} to double")),
-                            TipoC::Ptr => Some(format!("ptrtoint ptr %nr{v} to i64")),
+                            TipoC::Ptr | TipoC::Handle => Some(format!("ptrtoint ptr %nr{v} to i64")),
                             TipoC::I64 | TipoC::U64 | TipoC::F64 | TipoC::Bool | TipoC::Void => None,
                         };
                         match (ret, conv) {
@@ -1444,7 +1444,7 @@ impl<'a> LlvmEmitter<'a> {
             }
             TipoC::F64 => self.coagir(op, Type::F64),
             TipoC::Bool => self.coagir(op, Type::I1),
-            TipoC::Ptr => {
+            TipoC::Ptr | TipoC::Handle => {
                 let n = self.coagir(op, Type::I64);
                 writeln!(self.out, "  %na{v}_{i} = inttoptr i64 {n} to ptr").unwrap();
                 format!("%na{v}_{i}")
@@ -1570,7 +1570,7 @@ impl<'a> LlvmEmitter<'a> {
                     TipoC::I8 | TipoC::I16 | TipoC::I32 => Some(format!("sext {} %nr{v} to i64", tc.llvm())),
                     TipoC::U8 | TipoC::U16 | TipoC::U32 => Some(format!("zext {} %nr{v} to i64", tc.llvm())),
                     TipoC::F32 => Some(format!("fpext float %nr{v} to double")),
-                    TipoC::Ptr => Some(format!("ptrtoint ptr %nr{v} to i64")),
+                    TipoC::Ptr | TipoC::Handle => Some(format!("ptrtoint ptr %nr{v} to i64")),
                     _ => None,
                 };
                 match conv_ret {
@@ -1712,7 +1712,7 @@ impl<'a> LlvmEmitter<'a> {
                             format!("bitcast double %of{j} to i64")
                         }
                         TipoC::F64 => format!("bitcast double %a{j} to i64"),
-                        TipoC::Ptr => format!("ptrtoint ptr %a{j} to i64"),
+                        TipoC::Ptr | TipoC::Handle => format!("ptrtoint ptr %a{j} to i64"),
                         TipoC::Void => unreachable!("parâmetro nativo void"),
                     },
                 };
@@ -1721,7 +1721,7 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(self.out, "  call void @dartforge_ffi_callback_postar(ptr %ctx, ptr %buf, i64 {})", cb.params.len()).unwrap();
             match &cb.ret {
                 TipoNativo::Prim(TipoC::Void) => writeln!(self.out, "  ret void").unwrap(),
-                TipoNativo::Prim(TipoC::Ptr) => writeln!(self.out, "  ret ptr null").unwrap(),
+                TipoNativo::Prim(TipoC::Ptr | TipoC::Handle) => writeln!(self.out, "  ret ptr null").unwrap(),
                 TipoNativo::Prim(TipoC::F32 | TipoC::F64) => writeln!(self.out, "  ret {r} 0.0").unwrap(),
                 TipoNativo::Prim(_) => writeln!(self.out, "  ret {r} 0").unwrap(),
                 TipoNativo::Composto(_) if r == "void" => writeln!(self.out, "  ret void").unwrap(),
@@ -1742,7 +1742,7 @@ impl<'a> LlvmEmitter<'a> {
                     TipoC::I8 | TipoC::I16 | TipoC::I32 => (Some(format!("sext {} %a{j} to i64", tc.llvm())), "i64"),
                     TipoC::U8 | TipoC::U16 | TipoC::U32 => (Some(format!("zext {} %a{j} to i64", tc.llvm())), "i64"),
                     TipoC::F32 => (Some(format!("fpext float %a{j} to double")), "double"),
-                    TipoC::Ptr => (Some(format!("ptrtoint ptr %a{j} to i64")), "i64"),
+                    TipoC::Ptr | TipoC::Handle => (Some(format!("ptrtoint ptr %a{j} to i64")), "i64"),
                     TipoC::I64 | TipoC::U64 => (None, "i64"),
                     TipoC::F64 => (None, "double"),
                     TipoC::Bool => (None, "i1"),
@@ -1809,14 +1809,14 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  %ed = bitcast i64 %e to double").unwrap();
                     "fptrunc double %ed to float".to_string()
                 }
-                TipoC::Ptr => "inttoptr i64 %e to ptr".to_string(),
+                TipoC::Ptr | TipoC::Handle => "inttoptr i64 %e to ptr".to_string(),
                 estreito => format!("trunc i64 %e to {}", estreito.llvm()),
             };
             writeln!(self.out, "  %ev = {exc}\n  ret {r} %ev").unwrap();
             let normal = match tr {
                 TipoC::I64 | TipoC::U64 | TipoC::F64 | TipoC::Bool => None,
                 TipoC::F32 => Some("fptrunc double %r to float".to_string()),
-                TipoC::Ptr => Some("inttoptr i64 %r to ptr".to_string()),
+                TipoC::Ptr | TipoC::Handle => Some("inttoptr i64 %r to ptr".to_string()),
                 estreito => Some(format!("trunc i64 %r to {}", estreito.llvm())),
             };
             match normal {
