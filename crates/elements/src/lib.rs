@@ -9,6 +9,7 @@
 
 pub mod augmentation;
 pub mod config;
+pub mod distribuicao;
 pub mod gerado;
 pub mod load;
 pub mod model;

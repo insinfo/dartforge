@@ -25,11 +25,14 @@ impl Default for NativeDriverOptions {
     }
 }
 
-/// O Clang quando `DARTFORGE_CLANG` não está definido: no Windows, as
-/// instalações conhecidas do LLVM 22.1.8 da máquina de desenvolvimento; nos
-/// outros sistemas, o `bin` de `DARTFORGE_LLVM_DIR`/`LLVM_SYS_221_PREFIX`, e
-/// por fim o `clang` do `PATH`.
+/// O Clang quando `DARTFORGE_CLANG` não está definido: o da distribuição
+/// (`lib/llvm/bin`), o `bin` de `DARTFORGE_LLVM_DIR`/`LLVM_SYS_221_PREFIX`,
+/// e por fim o `clang` do `PATH` (`scripts/env.ps1` aponta o da máquina de
+/// desenvolvimento no Windows).
 fn clang_padrao() -> PathBuf {
+    if let Some(c) = dartforge_elements::distribuicao::ferramenta_llvm("clang") {
+        return c;
+    }
     for var in ["DARTFORGE_LLVM_DIR", "LLVM_SYS_221_PREFIX"] {
         if let Some(d) = std::env::var_os(var) {
             let c = PathBuf::from(d).join("bin").join(crate::alvo::nome_clang());
@@ -38,12 +41,7 @@ fn clang_padrao() -> PathBuf {
             }
         }
     }
-    if cfg!(windows) {
-        let ssd = PathBuf::from("E:/llvm/clang+llvm-22.1.8-x86_64-pc-windows-msvc/bin/clang.exe");
-        if ssd.is_file() { ssd } else { PathBuf::from("D:/LLVM/22.1.8/bin/clang.exe") }
-    } else {
-        PathBuf::from("clang")
-    }
+    PathBuf::from(crate::alvo::nome_clang())
 }
 
 #[derive(Debug, Clone, Default)]
@@ -75,8 +73,7 @@ pub fn compile_and_link(
     // Programa com o SDK da fonte (P5c): a entrada chama o registro das
     // bibliotecas do SDK, que moram nos objetos em cache.
     let sdk = if llvm_ir.contains("declare void @df.registrar.") {
-        let dir = dartforge_elements::sdk::SdkLayout::discover()
-            .unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
+        let dir = crate::sdk_do_dart()?;
         let perfil = if options.optimize {
             crate::sdk_modulo::PerfilDoSdk::Producao
         } else {
