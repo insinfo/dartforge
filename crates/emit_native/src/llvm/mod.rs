@@ -671,7 +671,6 @@ impl<'a> LlvmEmitter<'a> {
                         // Alloca temporário para pares (bits, tag)
                         let count = elements.len();
                         let alloca_id = format!("list_buf_{v}");
-                        writeln!(self.out, "  %{alloca_id} = alloca [{} x i64]", count * 2).unwrap();
                         for (idx, (elem, tag)) in elements.iter().enumerate() {
                             let se = self.coagir(elem, Type::I64);
                             let off_bits = idx * 2;
@@ -690,8 +689,6 @@ impl<'a> LlvmEmitter<'a> {
                         let count = entries.len();
                         let k_buf = format!("map_k_{v}");
                         let v_buf = format!("map_v_{v}");
-                        writeln!(self.out, "  %{k_buf} = alloca [{} x i64]", count * 2).unwrap();
-                        writeln!(self.out, "  %{v_buf} = alloca [{} x i64]", count * 2).unwrap();
                         for (idx, ((k, k_tag), (val, v_tag))) in entries.iter().enumerate() {
                             let sk = self.coagir(k, Type::I64);
                             let sv = self.coagir(val, Type::I64);
@@ -716,7 +713,6 @@ impl<'a> LlvmEmitter<'a> {
                         let count = elements.len();
                         let total_i64 = count * 2;
                         let buf_name = format!("rec_buf_{v}");
-                        writeln!(self.out, "  %{buf_name} = alloca [{total_i64} x i64]").unwrap();
                         for (i, (elem, tag)) in elements.iter().enumerate() {
                             let sop = self.coagir(elem, Type::I64);
                             let ptr_bits = format!("ptr_rec_{v}_{i}_bits");
@@ -733,9 +729,8 @@ impl<'a> LlvmEmitter<'a> {
                             "  %v{v} = call i64 @dartforge_record_new(ptr %{buf_name}, i64 {count})"
                         ).unwrap();
                     }
-                    Instruction::Alloca(ty) => {
-                        writeln!(self.out, "  %v{v} = alloca {}", ty.llvm_ir()).unwrap();
-                    }
+                    // O `alloca` nasce no bloco de entrada (`emit_buffers_de_closure`).
+                    Instruction::Alloca(_) => {}
                     Instruction::Load { ptr, ty } => {
                         let sp = self.operand_str(ptr);
                         writeln!(self.out, "  %v{v} = load {}, ptr {sp}", ty.llvm_ir()).unwrap();
@@ -1137,13 +1132,27 @@ impl<'a> LlvmEmitter<'a> {
         true
     }
 
-    /// Os vetores de pilha das closures (argumentos de uma chamada, pares do
-    /// ambiente) nascem no bloco de entrada: um `alloca` num laço cresceria a
-    /// pilha a cada volta.
+    /// Todo `alloca` da função nasce no bloco de entrada — os vetores das
+    /// closures (argumentos, pares do ambiente), os dos literais de lista,
+    /// mapa e record, e os locais: um `alloca` fora da entrada reserva pilha
+    /// nova a cada execução, e num laço a pilha cresce até estourar.
     fn emit_buffers_de_closure(&mut self, func: &Function) {
         for block in &func.blocks {
             for (vid, inst, _) in &block.instructions {
                 match inst {
+                    Instruction::Alloca(ty) => {
+                        writeln!(self.out, "  %v{} = alloca {}", vid.0, ty.llvm_ir()).unwrap();
+                    }
+                    Instruction::AllocList { elements } => {
+                        writeln!(self.out, "  %list_buf_{} = alloca [{} x i64]", vid.0, elements.len() * 2).unwrap();
+                    }
+                    Instruction::AllocMap { entries } => {
+                        writeln!(self.out, "  %map_k_{} = alloca [{} x i64]", vid.0, entries.len() * 2).unwrap();
+                        writeln!(self.out, "  %map_v_{} = alloca [{} x i64]", vid.0, entries.len() * 2).unwrap();
+                    }
+                    Instruction::AllocRecord { elements } => {
+                        writeln!(self.out, "  %rec_buf_{} = alloca [{} x i64]", vid.0, elements.len() * 2).unwrap();
+                    }
                     Instruction::CallClosure { args, .. } => {
                         writeln!(self.out, "  %cargs{} = alloca [{} x i64]", vid.0, args.len().max(1)).unwrap();
                     }

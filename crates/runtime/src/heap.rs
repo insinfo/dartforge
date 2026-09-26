@@ -1119,17 +1119,22 @@ impl Heap {
     /// Aloca após coleta; o chamador deve proteger o resultado antes de outra alocação.
     pub fn allocate(&mut self, value: Value) -> i64 {
         let bytes = value.estimated_bytes();
-        let perto_do_teto = self.limite_bytes != usize::MAX
-            && self.bytes_totais(bytes) > self.limite_bytes / 2;
-        // G6: coleta em qualquer alocação que passe do limiar. O portão
-        // antigo (`!self.frames.is_empty()`) existia porque o código gerado
-        // não registrava raízes; com o frame de cada função (G1), coletar sem
-        // frame aberto é só coletar com as raízes permanentes.
+        // Dois limites diferentes (G6):
+        // * o GATILHO (`threshold`, `byte_threshold`): quanto se aloca desde
+        //   a última coleta, recalculado no fim de cada uma
+        //   (`recalcular_gatilhos`) a partir dos sobreviventes e da folga até
+        //   o teto;
+        // * o TETO (`limite_bytes`): só a alocação que passaria dele força
+        //   uma última coleta; se ainda passa, falta memória.
+        // O portão antigo (`!self.frames.is_empty()`) existia porque o código
+        // gerado não registrava raízes; com o frame de cada função (G1),
+        // coletar sem frame aberto é só coletar com as raízes permanentes.
+        let passa_do_teto = self.limite_bytes != usize::MAX && self.bytes_totais(bytes) > self.limite_bytes;
         if !self.gc_desligado
             && (self.stress
                 || self.allocations >= self.threshold
                 || self.stats.estimated_bytes.saturating_add(bytes) > self.byte_threshold
-                || perto_do_teto)
+                || passa_do_teto)
         {
             self.collect();
         }
@@ -1630,12 +1635,37 @@ impl Heap {
             finalizador(par);
         }
         self.allocations = 0;
-        self.threshold = live.saturating_mul(2).max(256);
-        self.byte_threshold = self
-            .stats
-            .estimated_bytes
-            .saturating_mul(2)
-            .max(1024 * 1024);
+        self.recalcular_gatilhos(live);
+    }
+
+    /// Os gatilhos da próxima coleta, a partir do que sobreviveu a esta.
+    ///
+    /// Sem teto, o heap pode dobrar (o geométrico de sempre). Com teto, a
+    /// próxima coleta vem quando se gastar metade da folga que resta — a
+    /// histerese: uma coleta que achou quase tudo vivo não se repete na
+    /// alocação seguinte (antes, passar da metade do teto coletava em TODA
+    /// alocação, e um programa com muito dado vivo parava de andar). O passo
+    /// mínimo garante progresso mesmo com a folga no fim; o teto em si é
+    /// conferido à parte (`allocate`).
+    fn recalcular_gatilhos(&mut self, vivos: usize) {
+        const PASSO_MINIMO: usize = 256 * 1024;
+        let crescimento = self.stats.estimated_bytes.saturating_mul(2).max(1024 * 1024);
+        self.byte_threshold = if self.limite_bytes == usize::MAX {
+            crescimento
+        } else {
+            let folga = self.limite_bytes.saturating_sub(self.bytes_totais(0));
+            crescimento.min(self.stats.estimated_bytes.saturating_add((folga / 2).max(PASSO_MINIMO)))
+        };
+        // O gatilho por contagem acompanha: com teto, no máximo tantos
+        // objetos quanto a folga comporta pelo tamanho mínimo de um slot.
+        let por_contagem = vivos.saturating_mul(2).max(256);
+        self.threshold = if self.limite_bytes == usize::MAX {
+            por_contagem
+        } else {
+            let folga = self.limite_bytes.saturating_sub(self.bytes_totais(0));
+            let slot = std::mem::size_of::<Option<Value>>().max(1);
+            por_contagem.min(vivos.saturating_add((folga / 2 / slot).max(PASSO_MINIMO / slot)))
+        };
     }
 
     /// Obtém contadores sem percorrer os objetos ou suas raízes.
