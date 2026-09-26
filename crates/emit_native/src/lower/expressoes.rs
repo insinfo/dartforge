@@ -201,6 +201,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     pub fn lower_expr(&mut self, ast: &ast::Ast, expr_id: ExprId) -> Operand {
+        self.lower_expr_com(ast, expr_id, false)
+    }
+
+    /// A expressão de um comando (`e;`): o valor se descarta, então não se
+    /// encaixota no fim (um `acc = acc + v` SIMD ou um `i++` não alocam a
+    /// caixa que ninguém lê). As demais coerções ficam, pois podem falhar.
+    pub fn lower_expr_descartada(&mut self, ast: &ast::Ast, expr_id: ExprId) {
+        self.lower_expr_com(ast, expr_id, true);
+    }
+
+    fn lower_expr_com(&mut self, ast: &ast::Ast, expr_id: ExprId, descartada: bool) -> Operand {
         if self.receptor_pronto.as_ref().is_some_and(|(e, _)| *e == expr_id) {
             self.continuar_cadeia = false;
             return self.receptor_pronto.take().expect("verificado acima").1;
@@ -252,7 +263,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(t) = self.ctx.get_type(self.unit_id, expr_id) {
             if t != self.ctx.core.dynamic_ && !self.ctx.is_void(t) && !self.is_terminated() {
                 let r = self.ctx.to_hir_type(t);
-                if !matches!(r, Type::Void) && !matches!(self.operand_type(&v), Type::Void) {
+                if !matches!(r, Type::Void)
+                    && !matches!(self.operand_type(&v), Type::Void)
+                    && !(descartada && r == Type::Ref)
+                {
                     v = self.coagir(v, r);
                 }
             }
@@ -260,10 +274,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         v
     }
 
+    /// A expressão sem a coerção final ao tipo estático (um local SIMD sem
+    /// caixa sai como vetor): para `simd.rs`.
+    pub(super) fn lower_expr_cru(&mut self, ast: &ast::Ast, expr_id: ExprId) -> Operand {
+        self.lower_expr_interno(ast, expr_id)
+    }
+
     fn lower_expr_interno(&mut self, ast: &ast::Ast, expr_id: ExprId) -> Operand {
         let expr = ast.expr(expr_id);
         // `const` canônico (P3).
         if let Some(op) = self.constante_canonica(ast, expr_id) {
+            return op;
+        }
+        // Operador, método, getter ou construtor SIMD com forma sem caixa
+        // (`simd.rs`): o vetor sai na caixa do tipo estático (fim de
+        // `lower_expr`), o escalar direto.
+        if let Some(op) = self.expressao_simd(ast, expr_id) {
             return op;
         }
         match &expr.kind {
@@ -354,6 +380,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                             },
                                             Type::Ref,
                                         )
+                                    }
+                                    // Um vetor SIMD sem caixa nunca sai de
+                                    // `lower_expr` (ele coage ao tipo estático).
+                                    Type::V4F32 | Type::V4I32 | Type::V2F64 => {
+                                        let caixa = self.coagir(raw_op, Type::Ref);
+                                        self.texto_por_seletor(caixa)
                                     }
                                     Type::Ref if self.ctx.sdk_da_fonte => self.texto_por_seletor(raw_op),
                                     Type::Ref => self.emit(

@@ -143,8 +143,40 @@ aquecida (`dart compile exe` 3.6.2 como referência):
 | `Uint8List[]=` | 4 ms | 2738 ms | 2–4 ms |
 | `List<int>[]` | 5 ms | 1623 ms | 40–50 ms |
 
+### Valores SIMD sem caixa
+
+`Float32x4`, `Int32x4` e `Float64x2` com esse tipo estático (não anulável)
+são vetores do LLVM na HIR (`Type::V4F32`/`V4I32`/`V2F64`,
+`Instruction::Simd`): `lower/simd.rs` reconhece operadores, getters,
+construtores, `shuffle`/`shuffleMix` com máscara constante (literal ou as
+constantes `xyzw`), `select`, `signMask`, `withX`…, flags, as conversões de
+bits e de largura, e `llvm/simd.rs` emite as instruções de vetor (`fadd <4
+x float>`, `shufflevector`, `fcmp` + `select`), sem intrínseca de alvo nem
+`fast-math`.
+
+* **Locais** guardam o vetor (`repr_do_local`); o capturado por closure, o
+  `late` e os de funções assíncronas continuam na caixa. A caixa só aparece
+  numa fronteira (argumento, retorno, campo, `dynamic`): os 16 bytes vão ao
+  runtime (`dartforge_simd_caixa`), e o desencaixe é uma carga no endereço
+  de `dartforge_typed_ptr` (a caixa é imutável).
+* **Listas SIMD** (`Float32x4List`, `Int32x4List`, `Float64x2List`) entram
+  no caminho direto das listas tipadas: o elemento é carregado e gravado
+  como vetor.
+* **Comando descartado**: `e;` e as atualizações do `for` não encaixotam o
+  valor final (`lower_expr_descartada`) — sem isso, `acc = acc + v` alocava
+  uma caixa por volta.
+* **`min`/`max`/`clamp`** por API: os de `Float32x4`/`Float64x2` seguem o
+  resultado da plataforma da VM (`Utils::Minimum`/`Maximum`: `fcmp olt`/
+  `ogt` + `select`, com NaN e ±0 dando o segundo operando), conferidos
+  contra a VM em `corpus/nativo/24` (também com `--optimize`, GC stress e
+  JIT). O `min`/`max` de `dart:math` (que propaga NaN) e o `clamp` de `num`
+  (pelo `compareTo`) não passam por aqui.
+
+| Laço (`simd/bench.dart`, 819 200 voltas) | VM AOT | caixa | sem caixa |
+| --- | ---: | ---: | ---: |
+| `Float32x4` `acc + a[i] * b[i] + um` | 6 ms | 414 ms | 2 ms |
+| `Int32x4` `acc + (a[i] & m)` | 6 ms | 254 ms | 0–1 ms |
+
 Falta: tirar comprimento e endereço de `List<E>` dos laços com prova de
-estabilidade na HIR; a análise de vivacidade das raízes; os valores `Float32x4`/`Int32x4`/`Float64x2` como vetores
-sem caixa na HIR (item 1 do contrato), com a leitura das listas SIMD pelo
-mesmo caminho direto; e `min`/`max` com NaN e zero com sinal decididos contra
-a VM (issue dart-lang/sdk#63962).
+estabilidade na HIR; parâmetros e retornos SIMD sem caixa (entrada tipada
+das funções).

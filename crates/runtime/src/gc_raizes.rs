@@ -22,15 +22,25 @@ fn com_raizes<R>(handles: &[i64], f: impl FnOnce() -> R) -> R {
 /// Encadeia o quadro de raízes de uma função gerada, no stack dela
 /// (`crate::heap::QuadroDeRaizes`): o prólogo escreve o número de slots e
 /// os zera; cada raiz depois é um `store` no slot.
+///
+/// # Safety
+/// `quadro` é o quadro no stack da função gerada que chama.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_gc_empilhar(quadro: *mut crate::heap::QuadroDeRaizes) {
-    crate::heap::empilhar_quadro(quadro);
+#[allow(unsafe_code)]
+pub unsafe extern "C" fn dartforge_gc_empilhar(quadro: *mut crate::heap::QuadroDeRaizes) {
+    // SAFETY: o contrato acima, que o emissor cumpre.
+    unsafe { crate::heap::empilhar_quadro(quadro) };
 }
 
 /// Desencadeia o quadro de raízes antes de cada retorno da função.
+///
+/// # Safety
+/// `quadro` é o topo, empilhado pela mesma função.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_gc_desempilhar(quadro: *const crate::heap::QuadroDeRaizes) {
-    crate::heap::desempilhar_quadro(quadro);
+#[allow(unsafe_code)]
+pub unsafe extern "C" fn dartforge_gc_desempilhar(quadro: *const crate::heap::QuadroDeRaizes) {
+    // SAFETY: o contrato acima, que o emissor cumpre.
+    unsafe { crate::heap::desempilhar_quadro(quadro) };
 }
 
 /// Valor corrente de um global `Ref` do programa, mantido como raiz permanente.

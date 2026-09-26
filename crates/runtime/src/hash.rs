@@ -27,11 +27,10 @@ impl Fx {
 impl Hasher for Fx {
     #[inline]
     fn write(&mut self, bytes: &[u8]) {
-        let mut pedacos = bytes.chunks_exact(8);
-        for p in &mut pedacos {
-            self.palavra(u64::from_le_bytes(p.try_into().unwrap_or_default()));
+        let (pedacos, resto) = bytes.as_chunks::<8>();
+        for p in pedacos {
+            self.palavra(u64::from_le_bytes(*p));
         }
-        let resto = pedacos.remainder();
         if !resto.is_empty() {
             let mut b = [0u8; 8];
             b[..resto.len()].copy_from_slice(resto);

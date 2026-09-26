@@ -214,6 +214,50 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(Instruction::Phi { incoming: entradas, ty: Type::Ref }, Type::Ref)
     }
 
+    /// `v = e` e `v op= e` num local SIMD sem caixa: o valor e a operação
+    /// como vetores; um operador sem forma vetorial passa pela caixa.
+    fn atribuir_local_simd(&mut self, ast: &ast::Ast, sym: dartforge_intern::SymbolId, op: ast::AssignOp, value: Rhs, span: Span) -> Operand {
+        let k = self.buscar_local(sym).map(|l| l.ty).expect("local SIMD");
+        let v = match (op, value) {
+            (ast::AssignOp::Assign, Rhs::Expr(e)) => self.lower_simd(ast, e, k),
+            (ast::AssignOp::Compound(b), Rhs::Expr(e)) => {
+                let cur = self.ler_local_por_nome(sym).expect("local SIMD");
+                let op_simd = match (b, k) {
+                    (ast::BinaryOp::Add, _) => Some(OpSimd::Add),
+                    (ast::BinaryOp::Sub, _) => Some(OpSimd::Sub),
+                    (ast::BinaryOp::Mul, Type::V4F32 | Type::V2F64) => Some(OpSimd::Mul),
+                    (ast::BinaryOp::Div, Type::V4F32 | Type::V2F64) => Some(OpSimd::Div),
+                    (ast::BinaryOp::BitAnd, Type::V4I32) => Some(OpSimd::And),
+                    (ast::BinaryOp::BitOr, Type::V4I32) => Some(OpSimd::Or),
+                    (ast::BinaryOp::BitXor, Type::V4I32) => Some(OpSimd::Xor),
+                    _ => None,
+                };
+                match op_simd {
+                    Some(o) => {
+                        let rhs = self.lower_simd(ast, e, k);
+                        self.emit(Instruction::Simd { op: o, args: vec![cur, rhs] }, k)
+                    }
+                    None => {
+                        let caixa = self.coagir(cur, Type::Ref);
+                        let v = self.combinar(ast, op, Some(caixa), Rhs::Expr(e));
+                        self.coagir(v, k)
+                    }
+                }
+            }
+            (op, value) => {
+                let cur = matches!(op, ast::AssignOp::Compound(_))
+                    .then(|| self.ler_local_por_nome(sym).map(|c| self.coagir(c, Type::Ref)))
+                    .flatten();
+                let v = self.combinar(ast, op, cur, value);
+                self.coagir(v, k)
+            }
+        };
+        match self.gravar_local(sym, v) {
+            Some(v) => v,
+            None => self.nao_suportado("atribuição a local desconhecido", span),
+        }
+    }
+
     /// Atribuição. Ordem de avaliação do Dart: receptor, índice, leitura
     /// corrente (se composta), valor, gravação.
     pub fn lower_atribuicao(
@@ -271,6 +315,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     // outro lado do mesmo nome no escopo.
                     Some(Resolved::Element(Element::Function(f))) => {
                         self.atribuir_acessor_de_topo(f, sym, ast, op, value, span)
+                    }
+                    _ if self.buscar_local(sym).is_some_and(|l| l.ty.e_vetor()) => {
+                        // Local SIMD sem caixa (`simd.rs`): o valor vem como vetor.
+                        self.atribuir_local_simd(ast, sym, op, value, span)
                     }
                     _ => {
                         let cur = if composto {

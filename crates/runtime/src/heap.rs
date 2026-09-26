@@ -804,8 +804,12 @@ thread_local! {
 
 /// Encadeia `q` no topo da pilha-sombra. `q.n` e os slots (zerados) já
 /// foram escritos pelo código gerado.
+///
+/// # Safety
+/// `q` aponta um quadro válido que vive até o [`desempilhar_quadro`]
+/// correspondente.
 #[allow(unsafe_code)]
-pub fn empilhar_quadro(q: *mut QuadroDeRaizes) {
+pub unsafe fn empilhar_quadro(q: *mut QuadroDeRaizes) {
     TOPO_DOS_QUADROS.with(|t| {
         // SAFETY: `q` é o quadro no stack da função que chama, vivo até o
         // `desempilhar_quadro` antes de cada retorno dela.
@@ -816,8 +820,11 @@ pub fn empilhar_quadro(q: *mut QuadroDeRaizes) {
 
 /// Desencadeia `q`, que tem de ser o topo (os retornos fecham os quadros
 /// em ordem, G3).
+///
+/// # Safety
+/// `q` é o quadro válido passado ao último [`empilhar_quadro`].
 #[allow(unsafe_code)]
-pub fn desempilhar_quadro(q: *const QuadroDeRaizes) {
+pub unsafe fn desempilhar_quadro(q: *const QuadroDeRaizes) {
     TOPO_DOS_QUADROS.with(|t| {
         assert!(std::ptr::eq(t.get(), q), "bug do compilador: quadro de raízes fechado fora de ordem");
         // SAFETY: `q` é o topo, ainda no stack de quem chama.

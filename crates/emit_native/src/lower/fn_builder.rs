@@ -384,6 +384,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return op;
         }
         match (de, para) {
+            // O vetor SIMD e a caixa do tipo estático (`lower/simd.rs`): o
+            // tipo estático não anulável garante a caixa certa.
+            (k, Type::Ref) if k.e_vetor() => self.emit(Instruction::Box { op, from: k }, Type::Ref),
+            (Type::Ref, k) if k.e_vetor() => self.emit(Instruction::Unbox { op, to: k }, k),
             (Type::I64 | Type::F64 | Type::I1, Type::Ref) => {
                 self.emit(Instruction::Box { op, from: de }, Type::Ref)
             }

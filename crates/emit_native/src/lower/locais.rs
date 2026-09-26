@@ -540,8 +540,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// tipo declarado, ou o inferido do inicializador. Sem informação, `Ref`
     /// — a caixa é sempre correta, só mais lenta.
     pub fn repr_do_local(&self, offset: usize) -> Type {
-        self.ctx
-            .tipo_local(self.unit_id, offset)
-            .map_or(Type::Ref, |t| self.repr(t))
+        let tipo = self.ctx.tipo_local(self.unit_id, offset);
+        // SIMD sem caixa (`simd.rs`), salvo o local capturado (a célula
+        // guarda 64 bits: a caixa).
+        if let Some(k) = self.tipo_simd(tipo)
+            && !self.celulas.contains(&offset)
+        {
+            return k;
+        }
+        tipo.map_or(Type::Ref, |t| self.repr(t))
     }
 }

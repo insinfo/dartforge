@@ -3,6 +3,7 @@
 pub mod abi_c;
 pub mod externs;
 mod raizes;
+mod simd;
 
 /// Maior índice de campo lido em linha (`CAMPOS_EM_LINHA` do runtime).
 const CAMPOS_EM_LINHA: usize = 4096;
@@ -218,6 +219,7 @@ impl<'a> LlvmEmitter<'a> {
         let compostas = self.module.functions.iter().any(|f| {
             f.blocks.iter().any(|b| b.instructions.iter().any(|(_, i, _)| matches!(i, Instruction::ChamadaNativaComposta { .. })))
         });
+        self.out.push_str(simd::DECLARACOES);
         if compostas || !self.module.ffi_callbacks.is_empty() {
             self.out.push_str(
                 "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n\
@@ -880,6 +882,32 @@ impl<'a> LlvmEmitter<'a> {
                         {
                             writeln!(self.out, "  store i64 {sv}, ptr %gcs{slot}").unwrap();
                         }
+                    }
+                    // O vetor SIMD em caixa: os 16 bytes como dois `i64`, na
+                    // ordem da memória (qualquer endian), para o runtime.
+                    Instruction::Box { op, from } if from.e_vetor() => {
+                        let so = self.coagir(op, *from);
+                        let pos = match from {
+                            Type::V4F32 => 15,
+                            Type::V4I32 => 16,
+                            _ => 17,
+                        };
+                        writeln!(self.out, "  %bx{v} = bitcast {} {so} to <2 x i64>", from.llvm_ir()).unwrap();
+                        writeln!(self.out, "  %bl{v} = extractelement <2 x i64> %bx{v}, i32 0").unwrap();
+                        writeln!(self.out, "  %bh{v} = extractelement <2 x i64> %bx{v}, i32 1").unwrap();
+                        writeln!(self.out, "  %v{v} = call i64 @dartforge_simd_caixa(i64 {pos}, i64 %bl{v}, i64 %bh{v})").unwrap();
+                    }
+                    // Da caixa (imutável), os bytes no endereço que
+                    // `dartforge_typed_ptr` dá.
+                    Instruction::Unbox { op, to } if to.e_vetor() => {
+                        let so = self.coagir(op, Type::Ref);
+                        writeln!(self.out, "  %ux{v} = call i64 @dartforge_typed_ptr(i64 {so})").unwrap();
+                        writeln!(self.out, "  %up{v} = inttoptr i64 %ux{v} to ptr").unwrap();
+                        writeln!(self.out, "  %v{v} = load {}, ptr %up{v}, align 1", to.llvm_ir()).unwrap();
+                    }
+                    Instruction::Simd { op, args } => {
+                        let ty = self.tipos.get(vid).copied().unwrap_or(Type::Void);
+                        self.emitir_simd(v, *op, args, ty);
                     }
                     Instruction::Box { op, from } => {
                         match from {
@@ -2057,6 +2085,9 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::IntToDouble(a)
             | Instruction::DoubleToInt(a) => !escalar(a),
             Instruction::Alloca(_) | Instruction::Load { .. } | Instruction::Phi { .. } => false,
+            // Aritmética de vetores e o desencaixe (carga direta): não alocam.
+            Instruction::Simd { .. } => false,
+            Instruction::Unbox { to, .. } if to.e_vetor() => false,
             // Em linha (load/store no vetor de campos), sem conversão que
             // aloque: um `Ref` já é `i64`, um `double` é `bitcast`.
             Instruction::GetField { index, .. } => (*index as usize) >= CAMPOS_EM_LINHA,

@@ -77,6 +77,22 @@ fn novo_f64x2(v: [f64; 2]) -> i64 {
     simd_novo(CID_FLOAT64X2, TIPO_FLOAT64X2, b)
 }
 
+/// A caixa de um vetor sem caixa do código gerado (`llvm/simd.rs`): `pos` é
+/// a posição do id de classe (`CID_FLOAT32X4`…), e `lo`/`hi` os 16 bytes na
+/// ordem da memória.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_simd_caixa(pos: i64, lo: i64, hi: i64) -> i64 {
+    let mut b = [0u8; 16];
+    b[..8].copy_from_slice(&lo.to_ne_bytes());
+    b[8..].copy_from_slice(&hi.to_ne_bytes());
+    let (pos, tipo) = match pos as usize {
+        CID_INT32X4 => (CID_INT32X4, TIPO_INT32X4),
+        CID_FLOAT64X2 => (CID_FLOAT64X2, TIPO_FLOAT64X2),
+        _ => (CID_FLOAT32X4, TIPO_FLOAT32X4),
+    };
+    simd_novo(pos, tipo, b)
+}
+
 /// `Utils::Minimum`/`Maximum` da VM (com NaN, o segundo operando).
 fn simd_min<T: PartialOrd>(a: T, b: T) -> T {
     if a < b { a } else { b }

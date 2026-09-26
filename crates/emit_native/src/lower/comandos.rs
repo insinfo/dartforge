@@ -53,7 +53,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.fechar_escopo();
             }
             StmtKind::Expression(expr_id) => {
-                self.lower_expr(ast, *expr_id);
+                self.lower_expr_descartada(ast, *expr_id);
                 // Dentro de um `try`: uma extern que não confere a exceção
                 // pendente (as do SDK casado pelo nome, congeladas) não pode
                 // deixar o `catch` para depois — confere no fim do comando.
@@ -74,7 +74,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let sym = var.name.sym;
                     // R6: o local guarda a representação do tipo declarado
                     // (ou inferido do inicializador), não a do valor.
-                    let ty = self.repr_do_local(var.name.span.start);
+                    let mut ty = self.repr_do_local(var.name.span.start);
+                    if var_list.late && ty.e_vetor() {
+                        // O `late` guarda o estado ao lado do valor: a caixa.
+                        ty = Type::Ref;
+                    }
                     let late_local = var_list.late
                         && (var.initializer.is_none()
                             || !self.celulas.contains(&(var.name.span.start as usize)));
@@ -86,6 +90,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                     let init_op = if late_local {
                         Self::valor_zero(ty)
+                    } else if ty.e_vetor() {
+                        // SIMD sem caixa: o inicializador como vetor, ou o zero
+                        // (a leitura antes da atribuição não compila).
+                        match var.initializer {
+                            Some(init_id) => self.lower_simd(ast, init_id, ty),
+                            None => self.emit(Instruction::Simd { op: OpSimd::Zero, args: Vec::new() }, ty),
+                        }
                     } else if let Some(init_id) = var.initializer {
                         let op = if var_list.const_ {
                             self.lower_em_contexto_const(ast, init_id)
@@ -263,7 +274,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             }
                         }
                         ast::ForInit::Expression(e) => {
-                            self.lower_expr(ast, *e);
+                            self.lower_expr_descartada(ast, *e);
                         }
                     }
                 }
@@ -310,7 +321,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                 }
                 for &u in updates.iter() {
-                    self.lower_expr(ast, u);
+                    self.lower_expr_descartada(ast, u);
                 }
                 self.terminate(Terminator::Branch(loop_header));
 

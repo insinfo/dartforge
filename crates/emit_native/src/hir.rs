@@ -29,6 +29,14 @@ pub enum Type {
     Void,
     /// Endereço de um `alloca` (local em memória, R6). Nunca é valor Dart.
     Ptr,
+    /// `Float32x4` sem caixa: `<4 x float>` (`docs/SIMD-NATIVO.md`). Só em
+    /// locais e temporários de funções síncronas; nas fronteiras (campos,
+    /// parâmetros, retornos, coleções) o valor é a caixa `Ref`.
+    V4F32,
+    /// `Int32x4` sem caixa: `<4 x i32>`.
+    V4I32,
+    /// `Float64x2` sem caixa: `<2 x double>`.
+    V2F64,
 }
 
 impl Type {
@@ -42,8 +50,78 @@ impl Type {
             Self::Ref => "i64",
             Self::Void => "void",
             Self::Ptr => "ptr",
+            Self::V4F32 => "<4 x float>",
+            Self::V4I32 => "<4 x i32>",
+            Self::V2F64 => "<2 x double>",
         }
     }
+
+    /// Um dos vetores SIMD sem caixa?
+    pub fn e_vetor(self) -> bool {
+        matches!(self, Self::V4F32 | Self::V4I32 | Self::V2F64)
+    }
+}
+
+/// Uma operação SIMD sobre vetores sem caixa, com a semântica pista a pista
+/// da VM (a mesma de `runtime/src/simd.rs`). O tipo do vetor é o da
+/// instrução ou o do primeiro operando.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpSimd {
+    /// `a op b` pista a pista (`+ - * /` nos de ponto flutuante; `+ -` com
+    /// volta no estouro e `& | ^` no `Int32x4`).
+    Add,
+    Sub,
+    Mul,
+    Div,
+    And,
+    Or,
+    Xor,
+    /// `a < b ? a : b` e `a > b ? a : b` (o `Utils::Minimum`/`Maximum` da
+    /// VM: com NaN, o segundo operando).
+    Min,
+    Max,
+    /// `max(min(a, hi), lo)`.
+    Clamp,
+    Neg,
+    Abs,
+    Sqrt,
+    /// `1 / x` e `sqrt(1 / x)`.
+    Recip,
+    RecipSqrt,
+    /// `v * s`, com `s` `double` (arredondado a `float` no `Float32x4`).
+    Escala,
+    /// Comparação de `Float32x4` que dá a máscara `Int32x4` (-1/0).
+    Cmp(FCmpOp),
+    /// A pista `i` como `double` (`int` no `Int32x4`).
+    Pista(u8),
+    /// O vetor com a pista `i` trocada.
+    ComPista(u8),
+    /// A pista `i` do `Int32x4` como `bool` (≠ 0).
+    Flag(u8),
+    /// O `Int32x4` com a pista `i` em -1/0 pelo `bool`.
+    ComFlag(u8),
+    /// O vetor das pistas dadas (`double`, `int` ou `bool`).
+    Monta,
+    /// `Int32x4.bool(x, y, z, w)`: -1/0 por pista.
+    MontaFlags,
+    Splat,
+    Zero,
+    /// Os bits de sinal das pistas, a pista 0 no bit 0.
+    SinalMask,
+    /// `shuffle(m)` / `shuffleMix(b, m)` com a máscara constante `m`.
+    Shuffle(u8),
+    ShuffleMix(u8),
+    /// `Int32x4.select(t, f)`: bit a bit, `t` onde a máscara tem 1.
+    Select,
+    /// Os mesmos bits noutro tipo (`fromInt32x4Bits`, `fromFloat32x4Bits`).
+    Bits,
+    /// `Float64x2.fromFloat32x4` (pistas 0 e 1) e `Float32x4.fromFloat64x2`
+    /// (`[x, y, 0, 0]`).
+    Converte,
+    /// O vetor no endereço `args[0]` + 16 × `args[1]` (lista SIMD).
+    Carrega,
+    /// Grava `args[2]` no endereço `args[0]` + 16 × `args[1]`.
+    Grava,
 }
 
 /// Constantes suportadas na HIR.
@@ -264,6 +342,13 @@ pub enum Instruction {
         val: Operand,
         ty: Type,
         raiz: Option<u32>,
+    },
+
+    /// Operação SIMD sem caixa (`OpSimd`); o tipo do resultado é o da
+    /// instrução.
+    Simd {
+        op: OpSimd,
+        args: Vec<Operand>,
     },
 
     // Phi node

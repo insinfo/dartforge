@@ -1021,6 +1021,9 @@ fn ler_do_quadro(quadro: &Operand, slot: usize, ty: Type, destino: ValueId, prox
             ]
         }
         Type::Void | Type::Ptr => Vec::new(),
+        // Vetores SIMD sem caixa só existem em funções síncronas
+        // (`lower/simd.rs` não os produz num corpo assíncrono).
+        Type::V4F32 | Type::V4I32 | Type::V2F64 => unreachable!("vetor SIMD sem caixa num quadro assíncrono"),
     }
 }
 
@@ -1041,6 +1044,7 @@ fn gravar_no_quadro(quadro: &Operand, slot: usize, valor: Operand, ty: Type, pro
             (Operand::Val(t), 0)
         }
         Type::Void | Type::Ptr => return saida,
+        Type::V4F32 | Type::V4I32 | Type::V2F64 => unreachable!("vetor SIMD sem caixa num quadro assíncrono"),
     };
     saida.push((
         novo_valor(prox),
@@ -1228,6 +1232,7 @@ pub(crate) fn usos_de(inst: &Instruction) -> Vec<ValueId> {
             args.iter().for_each(|(a, _)| op(a));
             destino.iter().for_each(&mut op);
         }
+        Instruction::Simd { args, .. } => args.iter().for_each(&mut op),
     }
     u
 }
@@ -1355,6 +1360,7 @@ fn trocar_usos(inst: &mut Instruction, troca: &dyn Fn(ValueId) -> Option<ValueId
             args.iter_mut().for_each(|(a, _)| t(a));
             if let Some(d) = destino { t(d) }
         }
+        Instruction::Simd { args, .. } => args.iter_mut().for_each(t),
     }
 }
 

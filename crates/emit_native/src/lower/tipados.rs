@@ -38,6 +38,10 @@ pub enum Indexavel {
     /// `List<E>`: a representação do elemento que se grava direto (`E`
     /// igual a `int` ou `double`), ou `None` (só leitura direta).
     Nucleo { gravacao: Option<Type> },
+    /// `Float32x4List`, `Int32x4List`, `Float64x2List`: o tipo no runtime
+    /// e o vetor sem caixa do elemento (16 bytes, lidos e gravados como um
+    /// vetor LLVM).
+    Simd { tipo: i64, k: Type },
 }
 
 /// Uma lista tipada numérica: o tipo do elemento no runtime (`TIPO_*` de
@@ -104,9 +108,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             "Uint64List" => (8, TipoC::U64),
             "Float32List" => (9, TipoC::F32),
             "Float64List" => (10, TipoC::F64),
+            "Float32x4List" => return self.lista_simd(11, Type::V4F32),
+            "Int32x4List" => return self.lista_simd(12, Type::V4I32),
+            "Float64x2List" => return self.lista_simd(13, Type::V2F64),
             _ => return None,
         };
         Some(Indexavel::Tipada(ListaTipada { tipo, elemento }))
+    }
+
+    /// Uma lista SIMD: o vetor sem caixa não atravessa quadros assíncronos
+    /// (lá o elemento fica com o despacho).
+    fn lista_simd(&self, tipo: i64, k: Type) -> Option<Indexavel> {
+        self.async_estado.is_none().then_some(Indexavel::Simd { tipo, k })
     }
 
     /// O comprimento para o caminho rápido, ou 0 se ele não serve
@@ -114,9 +127,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     fn comprimento_rapido(&mut self, lista: &Operand, ix: Indexavel, escrita: bool) -> Operand {
         let escrita = (Operand::Constant(Constant::Int(i64::from(escrita))), Type::I64);
         let (name, args) = match ix {
-            Indexavel::Tipada(l) => (
+            Indexavel::Tipada(ListaTipada { tipo, .. }) | Indexavel::Simd { tipo, .. } => (
                 "dartforge_typed_len",
-                vec![(lista.clone(), Type::Ref), (Operand::Constant(Constant::Int(l.tipo)), Type::I64), escrita],
+                vec![(lista.clone(), Type::Ref), (Operand::Constant(Constant::Int(tipo)), Type::I64), escrita],
             ),
             Indexavel::Nucleo { .. } => ("dartforge_lista_len_rapido", vec![(lista.clone(), Type::Ref), escrita]),
         };
@@ -127,7 +140,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub(super) fn length_indexado(&mut self, lista: Operand, ix: Indexavel) -> Operand {
         let lista = self.coagir(lista, Type::Ref);
         let n = self.comprimento_rapido(&lista, ix, false);
-        if let Indexavel::Tipada(_) = ix {
+        if let Indexavel::Tipada(_) | Indexavel::Simd { .. } = ix {
             // O tipo estático garante a lista tipada do tipo: o comprimento
             // é esse.
             return n;
@@ -222,6 +235,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 s.emit(Instruction::CargaNativa { endereco, indice: indice2.clone(), tipo: l.elemento }, l.repr())
             }
             Indexavel::Nucleo { .. } => s.ler_elemento_da_lista(&lista2, &indice2, repr),
+            Indexavel::Simd { k, .. } => {
+                let endereco = s.enderecos_tipados(&lista2);
+                s.emit(Instruction::Simd { op: OpSimd::Carrega, args: vec![endereco, indice2.clone()] }, k)
+            }
         };
         let mut lento = |s: &mut Self| {
             s.chamar_por_nome(lista2.clone(), super::sdk_fonte::Tipo::Chamar, "[]", &[(None, indice2.clone())])
@@ -235,6 +252,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let direta = match ix {
             Indexavel::Tipada(l) => l.gravacao_direta(),
             Indexavel::Nucleo { gravacao } => gravacao.is_some(),
+            Indexavel::Simd { .. } => true,
         };
         if !direta || self.operand_type(&indice) != Type::I64 {
             return false;
@@ -256,6 +274,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     s.gravar_elemento_da_lista(&lista2, &indice2, v, t);
                 }
                 Indexavel::Nucleo { gravacao: None } => unreachable!("gravação direta conferida acima"),
+                Indexavel::Simd { k, .. } => {
+                    let endereco = s.enderecos_tipados(&lista2);
+                    let v = s.coagir(valor2.clone(), k);
+                    s.emit(
+                        Instruction::Simd { op: OpSimd::Grava, args: vec![endereco, indice2.clone(), v] },
+                        Type::Void,
+                    );
+                }
             }
             Operand::Constant(Constant::Int(0))
         };

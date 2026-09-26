@@ -337,6 +337,12 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_object_campos(i64) memory(inaccessiblemem: read) nounwind willreturn speculatable",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
+    // A caixa de um vetor SIMD (`llvm/simd.rs`): posição do id de classe
+    // (`CIDS_DO_RUNTIME`) e os 16 bytes em dois `i64`.
+    Extern {
+        decl: "declare i64 @dartforge_simd_caixa(i64, i64, i64)",
+        efeitos: CONSERVADOR,
+    },
     Extern {
         decl: "declare i64 @dartforge_view_nova(i64, i64, i64, i64, i64)",
         efeitos: CONSERVADOR,
