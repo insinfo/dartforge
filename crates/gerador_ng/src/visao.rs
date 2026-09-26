@@ -694,6 +694,52 @@ struct ConsultaDinamica {
     origem: Option<(String, String)>,
 }
 
+/// `<template [ngIf]="x">…</template>` escrito à mão é o mesmo
+/// `EmbeddedTemplateAst` que `<ng-container *ngIf="x">…</ng-container>`:
+/// os filhos são as raízes da visão embutida. Só a forma com uma ligação
+/// a uma diretiva estrutural conhecida de uma entrada só (`ngIf`,
+/// `ngSwitchCase`, `ngSwitchWhen`), ou só com o atributo `ngSwitchDefault`,
+/// e nada mais é reescrita — com o
+/// intervalo da ligação, que é o do `REF`; o resto continua `<template>`
+/// e é recusado.
+fn template_como_container(nos: &[No]) -> Vec<No> {
+    nos.iter()
+        .map(|n| match n {
+            No::Elemento(e) => {
+                let mut e = e.clone();
+                e.filhos = template_como_container(&e.filhos);
+                let limpo = e.eventos.is_empty()
+                    && e.bananas.is_empty()
+                    && e.referencias.is_empty()
+                    && e.anotacoes.is_empty()
+                    && e.estrela.is_none();
+                let ligacao = match (e.atributos.as_slice(), e.propriedades.as_slice()) {
+                    ([], [p])
+                        if matches!(p.nome.as_str(), "ngIf" | "ngSwitchCase" | "ngSwitchWhen")
+                            && !crate::micro::e_micro(p.valor.trim()) =>
+                    {
+                        Some(p.clone())
+                    }
+                    // `<template ngSwitchDefault>`: o atributo só casa o
+                    // seletor, sem entrada.
+                    ([a], []) if a.nome == "ngSwitchDefault" && a.valor.is_empty() => {
+                        Some(a.clone())
+                    }
+                    _ => None,
+                };
+                if let (true, "template", Some(l)) = (limpo, e.nome.as_str(), ligacao) {
+                    e.estrela = Some(l);
+                    e.propriedades.clear();
+                    e.atributos.clear();
+                    e.nome = "ng-container".into();
+                }
+                No::Elemento(e)
+            }
+            outro => outro.clone(),
+        })
+        .collect()
+}
+
 /// Onde um `#ref` aparece no template.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Lugar {
@@ -5856,6 +5902,7 @@ fn gerar_componente(
     pipes: &Result<Vec<PipeUsado>, Recusa>,
     coleta: &mut Option<Vec<Recusa>>,
 ) -> Result<String, Recusa> {
+    let nos = &template_como_container(nos);
     // Anota na coleta ou interrompe.
     fn anotar(coleta: &mut Option<Vec<Recusa>>, r: Recusa) -> Result<(), Recusa> {
         match coleta {

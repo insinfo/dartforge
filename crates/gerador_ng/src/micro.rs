@@ -84,7 +84,7 @@ pub fn analisar(dir: &str, valor: &str) -> Micro {
 
 /// `isMicroExpression` do ngast: começa com `let` ou casa `\S+[:;]` no
 /// início — uma palavra sem espaço seguida de `:` ou `;`.
-fn e_micro(valor: &str) -> bool {
+pub(crate) fn e_micro(valor: &str) -> bool {
     if valor.starts_with("let") {
         return true;
     }
