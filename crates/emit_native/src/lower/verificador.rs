@@ -65,6 +65,7 @@ impl Contexto<'_> {
             Operand::Constant(Constant::Double(_)) => Type::F64,
             Operand::Constant(Constant::Bool(_)) => Type::I1,
             Operand::Constant(Constant::Null | Constant::String(_) | Constant::StringWtf8(_)) => Type::Ref,
+            Operand::Constant(Constant::Funcao(_)) => Type::I64,
         }
     }
 

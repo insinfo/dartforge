@@ -60,7 +60,8 @@ pub extern "C" fn dartforge_iniciar(entrada: extern "C" fn(), para_texto: extern
 /// AOT; o executor, no JIT). Não chama `exit` aqui: é o único trecho do
 /// runtime que os dois perfis dirigem, e fica escrito uma vez só.
 pub fn finalizar_programa() -> i32 {
-    let pending = EXCEPTION.with(|slot| slot.borrow().is_some());
+    // `Isolate.exit` no isolado principal: ele terminou, sem erro.
+    let pending = EXCEPTION.with(|slot| slot.borrow().is_some()) && !desenrolando();
     if pending {
         let (bits, tag) = EXCEPTION.with(|slot| {
             let value = slot.borrow().expect("exceção verificada acima");

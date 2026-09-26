@@ -363,8 +363,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
         self.emit(
             Instruction::CallRuntime {
-                name: "dartforge_marcar_permanente".to_string(),
-                args: vec![(v.clone(), Type::Ref)],
+                name: "dartforge_marcar_constante".to_string(),
+                args: vec![(v.clone(), Type::Ref), (Operand::Constant(Constant::Funcao(self.func.symbol.clone())), Type::I64)],
                 ret_ty: Type::Void,
             },
             Type::Void,

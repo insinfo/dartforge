@@ -130,7 +130,16 @@ pub extern "C" fn dartforge_laco_de_eventos(chamar: extern "C" fn(i64) -> i64) {
             soltar_raiz(raiz);
             continue;
         }
-        // 2. O próximo evento: o timer de menor (prazo, id) ou a mensagem
+        // 2. As mensagens de controle (`isolados.rs`), entre um evento e
+        //    outro; pausado, o isolado só atende o controle.
+        if !atender_controle() {
+            return;
+        }
+        if isolado_pausado() {
+            esperar_mensagem(None, true);
+            continue;
+        }
+        // 3. O próximo evento: o timer de menor (prazo, id) ou a mensagem
         //    mais antiga da fila do isolado (`portas.rs`), pela ordem de
         //    chegada — na VM o timer também chega como mensagem. Sem nenhum
         //    dos dois, o isolado espera enquanto tiver porta viva.
@@ -160,7 +169,7 @@ pub extern "C" fn dartforge_laco_de_eventos(chamar: extern "C" fn(i64) -> i64) {
         }
         let Some((prazo, seq, id)) = proximo else {
             if tem_porta_viva() {
-                esperar_mensagem(None);
+                esperar_mensagem(None, false);
                 continue;
             }
             return;
@@ -168,7 +177,7 @@ pub extern "C" fn dartforge_laco_de_eventos(chamar: extern "C" fn(i64) -> i64) {
         let vencimento = vencimento.expect("timer com prazo");
         if std::time::Instant::now() < vencimento {
             // Espera o prazo, acordando antes se chegar mensagem.
-            esperar_mensagem(Some(vencimento));
+            esperar_mensagem(Some(vencimento), false);
             continue;
         }
         EVENTOS.with(|e| e.borrow_mut().fila.remove(&(prazo, seq)));

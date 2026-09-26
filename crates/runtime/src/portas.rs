@@ -29,6 +29,13 @@ enum ValG {
     /// Um objeto permanente do heap de origem, passado pela identidade (só
     /// quando origem e destino são o mesmo isolado).
     Mesmo(i64),
+    /// Uma constante canônica, pelo getter gerado que a produz: o destino
+    /// recebe a instância canônica dele (o grupo de isolados da VM
+    /// compartilha as constantes; aqui cada isolado tem a sua, e `identical`
+    /// continua valendo entre eles).
+    Constante(usize),
+    /// O tear-off canônico de uma função de topo, pelo código.
+    TearOff(i64),
 }
 
 /// Um nó do grafo: a forma de um `Value` do heap, com as referências
@@ -58,11 +65,20 @@ enum NoG {
 }
 
 /// Uma mensagem copiada: os nós (com o metadado RTI de cada um) e a raiz.
+#[derive(Clone)]
 pub struct Grafo {
     nos: Vec<(NoG, i64)>,
     raiz: ValG,
     /// O isolado de origem (id da fila): `ValG::Mesmo` só vale nele.
     origem: u64,
+    /// Numa mensagem para outro isolado, os tipos (RTI) dos nós: o
+    /// metadado de cada nó (`1 + tipo`) é então `1 + índice` nesta tabela
+    /// (0 = sem tipo), porque os ids de tipo são por isolado.
+    tipos: Option<TiposDaMensagem>,
+    /// Numa mensagem para outro isolado, a tabela de métodos de cada classe
+    /// dos objetos (registrada no isolado na criação do primeiro objeto da
+    /// classe; um objeto que chega numa mensagem não passa por lá).
+    tabelas: Vec<(i64, (usize, usize))>,
 }
 
 /// Por que uma mensagem não pode ser enviada.
@@ -87,6 +103,18 @@ fn ref_de_handle(h: i64, mapa: &mut std::collections::HashMap<i64, usize>, pilha
         if permanente {
             return ValG::Mesmo(h);
         }
+    } else {
+        let canonico = HEAP.with(|heap| {
+            let heap = heap.borrow();
+            if let Some(g) = heap.getter_da_constante(h) {
+                Some(ValG::Constante(g))
+            } else {
+                heap.codigo_do_tearoff(h).map(ValG::TearOff)
+            }
+        });
+        if let Some(v) = canonico {
+            return v;
+        }
     }
     if let Some(&i) = mapa.get(&h) {
         return ValG::No(i);
@@ -97,6 +125,18 @@ fn ref_de_handle(h: i64, mapa: &mut std::collections::HashMap<i64, usize>, pilha
     nos.push((NoG::BoxedBool(false), 0));
     pilha.push(h);
     ValG::No(i)
+}
+
+/// Classes cujo primeiro campo é MOVIDO numa mensagem (o
+/// `TransferableTypedData`): o objeto de origem fica com `null`. Os ids de
+/// classe são do programa, então o registro vale para todos os isolados.
+fn classes_transferiveis() -> std::sync::RwLockReadGuard<'static, std::collections::HashSet<i64>> {
+    transferiveis().read().unwrap_or_else(|e| e.into_inner())
+}
+
+fn transferiveis() -> &'static std::sync::RwLock<std::collections::HashSet<i64>> {
+    static T: std::sync::OnceLock<std::sync::RwLock<std::collections::HashSet<i64>>> = std::sync::OnceLock::new();
+    T.get_or_init(Default::default)
 }
 
 thread_local! {
@@ -114,6 +154,8 @@ fn copiar_para_grafo(raiz: i64, compartilhar: bool) -> Result<Grafo, MensagemIle
     let mut mapa = std::collections::HashMap::new();
     let mut pilha = Vec::new();
     let mut nos: Vec<(NoG, i64)> = Vec::new();
+    let mut tipos = (!compartilhar).then(TiposDaMensagem::default);
+    let mut transferidos: Vec<i64> = Vec::new();
     let r = ref_de_handle(raiz, &mut mapa, &mut pilha, &mut nos, compartilhar);
     while let Some(h) = pilha.pop() {
         let i = mapa[&h];
@@ -132,6 +174,12 @@ fn copiar_para_grafo(raiz: i64, compartilhar: bool) -> Result<Grafo, MensagemIle
                 Value::Object { class_id, fields } => {
                     if let Some(d) = NAO_ENVIAVEIS.with(|n| n.borrow().get(class_id).cloned()) {
                         return Err(MensagemIlegal(d));
+                    }
+                    if classes_transferiveis().contains(class_id) {
+                        if fields.first().is_none_or(|f| f.0 == 0) {
+                            return Err(MensagemIlegal("(TransferableTypedData has been transferred already)\n".to_string()));
+                        }
+                        transferidos.push(h);
                     }
                     let fields = fields
                         .iter()
@@ -168,16 +216,80 @@ fn copiar_para_grafo(raiz: i64, compartilhar: bool) -> Result<Grafo, MensagemIle
             };
             Ok((no, meta))
         });
-        let (no, meta) = r?;
+        let (mut no, meta) = r?;
+        let meta = match tipos.as_mut() {
+            // O metadado é `1 + tipo` (0 = sem tipo, `tipos.rs`).
+            Some(t) if meta != 0 => 1 + t.exportar(meta - 1),
+            _ => meta,
+        };
+        // Um objeto `Type` leva o tipo pela tabela da mensagem.
+        if let (Some(t), NoG::Object { class_id: CLASSE_TIPO, fields }) = (tipos.as_mut(), &mut no)
+            && let Some(ValG::Bits(id, _, _)) = fields.first().copied()
+        {
+            fields[0] = ValG::Bits(t.exportar(id), false, ValueTag::Int);
+        }
         nos[i] = (no, meta);
     }
-    Ok(Grafo { nos, raiz: r, origem: id_do_isolado() })
+    // Os `TransferableTypedData` enviados ficam vazios na origem.
+    if !transferidos.is_empty() {
+        HEAP.with(|heap| {
+            let mut heap = heap.borrow_mut();
+            for h in transferidos {
+                if let Value::Object { fields, .. } = heap.get_mut(h)
+                    && let Some(f) = fields.first_mut()
+                {
+                    *f = (0, true);
+                }
+            }
+        });
+    }
+    let tabelas = if compartilhar {
+        Vec::new()
+    } else {
+        let classes: std::collections::BTreeSet<i64> = nos
+            .iter()
+            .filter_map(|(no, _)| match no {
+                NoG::Object { class_id, .. } => Some(*class_id),
+                _ => None,
+            })
+            .collect();
+        METODOS.with(|m| {
+            let m = m.borrow();
+            classes.into_iter().filter_map(|c| m.get(&c).map(|t| (c, *t))).collect()
+        })
+    };
+    Ok(Grafo { nos, raiz: r, origem: id_do_isolado(), tipos, tabelas })
 }
 
 impl Grafo {
+    /// Chama `f` para a raiz e para cada aresta do grafo.
+    fn visitar_valores(&self, mut f: impl FnMut(&ValG)) {
+        f(&self.raiz);
+        for (no, _) in &self.nos {
+            match no {
+                NoG::Object { fields, .. } => fields.iter().for_each(&mut f),
+                NoG::Cell(v) | NoG::Closure { environment: v, .. } | NoG::TypedView { base: v, .. } => f(v),
+                NoG::Environment(vs) | NoG::Set(vs, _) | NoG::Record(vs) | NoG::List { itens: vs, .. } => vs.iter().for_each(&mut f),
+                NoG::Map(es, _) => es.iter().for_each(|(a, b)| {
+                    f(a);
+                    f(b);
+                }),
+                NoG::String(_)
+                | NoG::StringBuffer(_)
+                | NoG::RegExp(_)
+                | NoG::Match(_)
+                | NoG::BoxedInt(_)
+                | NoG::BoxedDouble(_)
+                | NoG::BoxedBool(_)
+                | NoG::TypedData { .. }
+                | NoG::Bytes(_) => {}
+            }
+        }
+    }
+
     /// Um grafo de um valor só, sem referências (as respostas do runtime).
     pub fn escalar(bits: i64, tag: ValueTag) -> Grafo {
-        Grafo { nos: Vec::new(), raiz: ValG::Bits(bits, false, tag), origem: 0 }
+        Grafo { nos: Vec::new(), raiz: ValG::Bits(bits, false, tag), origem: 0, tipos: None, tabelas: Vec::new() }
     }
 }
 
@@ -246,7 +358,7 @@ impl Grafo {
                     ValueTag::Ref if is_ref && smi::e_smi(bits) => Portavel::Int(smi::valor(bits)),
                     ValueTag::Ref => Portavel::Nulo,
                 },
-                ValG::Mesmo(_) => Portavel::Nulo,
+                ValG::Mesmo(_) | ValG::Constante(_) | ValG::TearOff(_) => Portavel::Nulo,
                 ValG::No(i) => {
                     if visitando[i] {
                         return Portavel::Nulo;
@@ -329,7 +441,7 @@ impl Portavel {
         }
         let mut nos = Vec::new();
         let raiz = val(self, &mut nos);
-        Grafo { nos, raiz, origem: 0 }
+        Grafo { nos, raiz, origem: 0, tipos: None, tabelas: Vec::new() }
     }
 }
 
@@ -338,11 +450,58 @@ impl Portavel {
 /// ligadas depois — o grafo pode ter ciclos.
 fn materializar(g: &Grafo) -> i64 {
     let mesmo = g.origem == id_do_isolado();
+    // As tabelas de métodos das classes que este isolado ainda não viu.
+    if !g.tabelas.is_empty() {
+        METODOS.with(|m| {
+            let mut m = m.borrow_mut();
+            for (c, t) in &g.tabelas {
+                m.entry(*c).or_insert(*t);
+            }
+        });
+    }
+    // Os tipos da mensagem no universo deste isolado, e os objetos `Type`
+    // canônicos dela (fora do empréstimo do heap).
+    let ids_de_tipo = g.tipos.as_ref().map(TiposDaMensagem::importar);
+    let mut objetos_tipo: std::collections::HashMap<usize, i64> = std::collections::HashMap::new();
+    if let Some(ids) = &ids_de_tipo {
+        for (i, (no, _)) in g.nos.iter().enumerate() {
+            if let NoG::Object { class_id: CLASSE_TIPO, fields } = no
+                && let Some(ValG::Bits(k, _, _)) = fields.first()
+            {
+                objetos_tipo.insert(i, dartforge_rti_objeto_tipo(ids[*k as usize]));
+            }
+        }
+    }
+    // As constantes canônicas deste isolado, pelos getters (fora do
+    // empréstimo do heap: o getter é código gerado, que aloca na primeira
+    // vez). São permanentes: não precisam de raiz durante a montagem.
+    let mut canonicas: std::collections::HashMap<usize, i64> = std::collections::HashMap::new();
+    let mut tearoffs: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
+    g.visitar_valores(|v| match *v {
+        ValG::Constante(getter) => {
+            canonicas.entry(getter).or_insert_with(|| {
+                // SAFETY: `getter` é o endereço de um getter gerado sem
+                // argumentos (registrado por `dartforge_marcar_constante`),
+                // o mesmo em todos os isolados do processo.
+                let f: extern "C" fn() -> i64 = unsafe { std::mem::transmute(getter) };
+                f()
+            });
+        }
+        ValG::TearOff(c) => {
+            tearoffs.entry(c).or_insert_with(|| HEAP.with(|h| h.borrow_mut().tearoff(c)));
+        }
+        _ => {}
+    });
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         let frame = heap.push_frame_with_slots(g.nos.len());
         let mut handles = Vec::with_capacity(g.nos.len());
         for (i, (no, _)) in g.nos.iter().enumerate() {
+            if let Some(&h) = objetos_tipo.get(&i) {
+                heap.set_root(frame, i, h);
+                handles.push(h);
+                continue;
+            }
             let vazio = match no {
                 NoG::String(t) => Value::String(t.clone()),
                 NoG::StringBuffer(u) => Value::StringBuffer(u.clone()),
@@ -387,12 +546,17 @@ fn materializar(g: &Grafo) -> i64 {
                 ValG::Bits(bits, is_ref, tag) => TaggedValue { bits, is_ref, tag },
                 ValG::No(i) => TaggedValue::reference(handles[i]),
                 ValG::Mesmo(h) if mesmo => TaggedValue::reference(h),
+                ValG::Constante(getter) => TaggedValue::reference(canonicas.get(&getter).copied().unwrap_or(0)),
+                ValG::TearOff(c) => TaggedValue::reference(tearoffs.get(&c).copied().unwrap_or(0)),
                 // Fora do isolado de origem não há o que compartilhar: o
                 // emissor copia (`compartilhar` falso) para outro isolado.
                 ValG::Mesmo(_) => TaggedValue::reference(0),
             }
         };
         for (i, (no, meta)) in g.nos.iter().enumerate() {
+            if objetos_tipo.contains_key(&i) {
+                continue;
+            }
             let h = handles[i];
             match no {
                 NoG::Object { fields, .. } => {
@@ -453,7 +617,11 @@ fn materializar(g: &Grafo) -> i64 {
                 _ => {}
             }
             if *meta != 0 && !matches!(no, NoG::BoxedBool(_)) {
-                heap.set_metadado(h, *meta);
+                let meta = match &ids_de_tipo {
+                    Some(ids) => 1 + ids[(*meta - 1) as usize],
+                    None => *meta,
+                };
+                heap.set_metadado(h, meta);
             }
         }
         let r = t(&g.raiz);
@@ -473,10 +641,19 @@ struct Mensagem {
     chegada: std::time::Instant,
 }
 
+/// As mensagens de um isolado: as das portas do Dart e as da porta de
+/// controle (as OOB da VM: `pause`, `kill`, `ping`…), que o runtime atende
+/// antes das outras.
+#[derive(Default)]
+struct Filas {
+    normal: std::collections::VecDeque<Mensagem>,
+    controle: std::collections::VecDeque<Grafo>,
+}
+
 /// A fila de mensagens de um isolado; qualquer thread posta nela.
 pub struct FilaDoIsolado {
     id: u64,
-    mensagens: std::sync::Mutex<std::collections::VecDeque<Mensagem>>,
+    mensagens: std::sync::Mutex<Filas>,
     sinal: std::sync::Condvar,
 }
 
@@ -485,6 +662,8 @@ pub type ServicoNativo = std::sync::Arc<dyn Fn(i64, Grafo) + Send + Sync>;
 
 enum Dono {
     Isolado(std::sync::Arc<FilaDoIsolado>),
+    /// A porta de controle de um isolado (`Isolate.controlPort`).
+    Controle(std::sync::Arc<FilaDoIsolado>),
     Nativo(ServicoNativo),
 }
 
@@ -503,7 +682,7 @@ thread_local! {
         static PROX: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         std::sync::Arc::new(FilaDoIsolado {
             id: PROX.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-            mensagens: std::sync::Mutex::new(std::collections::VecDeque::new()),
+            mensagens: std::sync::Mutex::new(Filas::default()),
             sinal: std::sync::Condvar::new(),
         })
     };
@@ -532,6 +711,7 @@ pub fn postar(porta: i64, grafo: Grafo) {
         let r = registro().lock().unwrap_or_else(|e| e.into_inner());
         match r.get(&porta) {
             Some(Dono::Isolado(f)) => Some(Dono::Isolado(f.clone())),
+            Some(Dono::Controle(f)) => Some(Dono::Controle(f.clone())),
             Some(Dono::Nativo(s)) => Some(Dono::Nativo(s.clone())),
             None => None,
         }
@@ -539,12 +719,57 @@ pub fn postar(porta: i64, grafo: Grafo) {
     match dono {
         Some(Dono::Isolado(f)) => {
             let mut m = f.mensagens.lock().unwrap_or_else(|e| e.into_inner());
-            m.push_back(Mensagem { porta, grafo, chegada: std::time::Instant::now() });
+            m.normal.push_back(Mensagem { porta, grafo, chegada: std::time::Instant::now() });
+            f.sinal.notify_one();
+        }
+        Some(Dono::Controle(f)) => {
+            let mut m = f.mensagens.lock().unwrap_or_else(|e| e.into_inner());
+            m.controle.push_back(grafo);
             f.sinal.notify_one();
         }
         Some(Dono::Nativo(s)) => s(porta, grafo),
         None => {}
     }
+}
+
+/// Posta `grafo` na fila de controle do isolado dono de `porta` (as
+/// mensagens OOB: `Isolate_sendOOB` vale para qualquer porta do isolado).
+fn postar_controle(porta: i64, grafo: Grafo) {
+    let fila = {
+        let r = registro().lock().unwrap_or_else(|e| e.into_inner());
+        match r.get(&porta) {
+            Some(Dono::Isolado(f) | Dono::Controle(f)) => Some(f.clone()),
+            _ => None,
+        }
+    };
+    if let Some(f) = fila {
+        f.mensagens.lock().unwrap_or_else(|e| e.into_inner()).controle.push_back(grafo);
+        f.sinal.notify_one();
+    }
+}
+
+/// A próxima mensagem da porta de controle deste isolado.
+fn proxima_de_controle() -> Option<Grafo> {
+    FILA.with(|f| f.mensagens.lock().unwrap_or_else(|e| e.into_inner()).controle.pop_front())
+}
+
+/// Abre a porta de controle deste isolado e devolve o id.
+fn abrir_porta_de_controle() -> i64 {
+    let id = proximo_id_de_porta();
+    let fila = FILA.with(|f| f.clone());
+    registro().lock().unwrap_or_else(|e| e.into_inner()).insert(id, Dono::Controle(fila));
+    id
+}
+
+/// Fecha todas as portas deste isolado (ele terminou): as mensagens que
+/// chegarem depois são descartadas, como na VM.
+fn fechar_portas_do_isolado() {
+    let meu = id_do_isolado();
+    registro().lock().unwrap_or_else(|e| e.into_inner()).retain(|_, d| match d {
+        Dono::Isolado(f) | Dono::Controle(f) => f.id != meu,
+        Dono::Nativo(_) => true,
+    });
+    PORTAS_ABERTAS.with(|p| p.borrow_mut().clear());
 }
 
 /// Abre uma porta nativa atendida por `servico` e devolve o id.
@@ -561,15 +786,16 @@ fn tem_porta_viva() -> bool {
 
 /// A chegada da mensagem mais antiga da fila, se houver.
 fn chegada_da_proxima() -> Option<std::time::Instant> {
-    FILA.with(|f| f.mensagens.lock().unwrap_or_else(|e| e.into_inner()).front().map(|m| m.chegada))
+    FILA.with(|f| f.mensagens.lock().unwrap_or_else(|e| e.into_inner()).normal.front().map(|m| m.chegada))
 }
 
-/// Espera uma mensagem até `prazo` (ou sem prazo). Devolve se chegou.
-fn esperar_mensagem(prazo: Option<std::time::Instant>) -> bool {
+/// Espera uma mensagem até `prazo` (ou sem prazo). Devolve se chegou. Com
+/// `so_controle` (o isolado pausado), só a de controle acorda.
+fn esperar_mensagem(prazo: Option<std::time::Instant>, so_controle: bool) -> bool {
     FILA.with(|f| {
         let mut m = f.mensagens.lock().unwrap_or_else(|e| e.into_inner());
         loop {
-            if !m.is_empty() {
+            if !m.controle.is_empty() || (!so_controle && !m.normal.is_empty()) {
                 return true;
             }
             match prazo {
@@ -589,7 +815,7 @@ fn esperar_mensagem(prazo: Option<std::time::Instant>) -> bool {
 /// Tira a próxima mensagem, materializa e despacha pelo `chamar` do código
 /// gerado. Devolve se havia mensagem.
 fn despachar_proxima(chamar: extern "C" fn(i64) -> i64) -> bool {
-    let Some(m) = FILA.with(|f| f.mensagens.lock().unwrap_or_else(|e| e.into_inner()).pop_front()) else {
+    let Some(m) = FILA.with(|f| f.mensagens.lock().unwrap_or_else(|e| e.into_inner()).normal.pop_front()) else {
         return false;
     };
     // Mensagem para porta já fechada: descartada, como na VM.
@@ -724,6 +950,21 @@ pub extern "C" fn dartforge_nativo_DartForge_classe_nao_enviavel(objeto: i64) {
             )
         });
     });
+}
+
+/// `DartForge_classe_transferivel(objeto)`: a classe de `objeto` tem o
+/// primeiro campo movido numa mensagem (`TransferableTypedData`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_classe_transferivel(objeto: i64) {
+    let classe = HEAP.with(|h| match h.borrow().try_get(objeto) {
+        Some(Value::Object { class_id, .. }) => Some(*class_id),
+        _ => None,
+    });
+    if let Some(c) = classe
+        && !classes_transferiveis().contains(&c)
+    {
+        transferiveis().write().unwrap_or_else(|e| e.into_inner()).insert(c);
+    }
 }
 
 /// `DartForge_capacidade_nova()`: um id de capacidade único no processo.

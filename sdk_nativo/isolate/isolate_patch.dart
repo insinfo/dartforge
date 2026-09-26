@@ -46,6 +46,9 @@ class _Capability implements Capability {
 
   _Capability() : _id = _nova();
 
+  /// A capacidade de id conhecido (a de um isolado, que o runtime guarda).
+  _Capability._comId(this._id);
+
   @pragma("vm:external-name", "DartForge_capacidade_nova")
   external static int _nova();
 
@@ -199,6 +202,47 @@ final class _RawReceivePort implements RawReceivePort {
 @pragma("vm:entry-point")
 SendPort _dartforgeSendPort(int id) => new _SendPort._(id);
 
+// As funções que o runtime chama num isolado (`crates/runtime/src/
+// isolados.rs`): o que a VM faz em C++ ao criar e encerrar um isolado.
+
+/// `[SendPort, Capability, Capability]` do isolado: a porta de controle e
+/// as capacidades de pausa e de término
+/// (`Isolate_getPortAndCapabilitiesOfCurrentIsolate`).
+@pragma("vm:entry-point")
+List _dartforgePortaECapacidades(int controle, int pausa, int termino) =>
+    new List<Object>.unmodifiable(<Object>[
+      new _SendPort._(controle),
+      new _Capability._comId(pausa),
+      new _Capability._comId(termino)
+    ]);
+
+/// A mensagem de pronto que o isolado novo manda ao que o criou:
+/// `[porta de controle, [pausa, término]]` (a de `IsolateSpawnState`).
+@pragma("vm:entry-point")
+List _dartforgeMensagemDePronto(int controle, int pausa, int termino) => [
+      new _SendPort._(controle),
+      [new _Capability._comId(pausa), new _Capability._comId(termino)]
+    ];
+
+/// O começo do isolado: a entrada roda como a primeira mensagem, como no
+/// `_delayEntrypointInvocation` da VM para `Isolate.spawn` (que sempre
+/// chama `entryPoint(message)`).
+@pragma("vm:entry-point")
+void _dartforgeIniciarIsolado(Function entrada, Object? mensagem) {
+  final port = RawReceivePort();
+  port.handler = (_) {
+    port.close();
+    entrada(mensagem);
+  };
+  port.sendPort.send(null);
+}
+
+/// O erro não tratado como os ouvintes de erro o recebem:
+/// `[erro.toString(), rastro.toString()]`.
+@pragma("vm:entry-point")
+List<String> _dartforgeDescreverErro(Object? erro, Object? rastro) =>
+    <String>[erro.toString(), rastro?.toString() ?? ""];
+
 /// O lado de envio: só o id da porta, que a cópia de uma mensagem preserva
 /// — uma `SendPort` vale em qualquer isolado.
 @pragma("vm:entry-point")
@@ -339,7 +383,9 @@ final class Isolate {
     // We do not inherit the package config settings from the parent isolate,
     // instead we use the values that were set on the command line.
     var packageConfig = VMLibraryHooks.packageConfigString;
-    var script = VMLibraryHooks.platformScript;
+    // O script do executável, com ou sem `dart:io` no programa (o embedder
+    // da VM sempre o define; o isolado novo roda no mesmo executável).
+    var script = VMLibraryHooks.platformScript ?? _rootUri;
     if (script == null) {
       // We do not have enough information to support spawning the new
       // isolate.
@@ -689,15 +735,39 @@ abstract final class TransferableTypedData {
   }
 }
 
+/// Os bytes de um `TransferableTypedData`: concatenados uma vez na
+/// criação; `materialize` os entrega uma vez só, e enviar numa mensagem os
+/// move (o objeto de origem fica vazio), como o peer externo da VM.
 @pragma("vm:entry-point")
 final class _TransferableTypedDataImpl implements TransferableTypedData {
-  @pragma("vm:external-name", "TransferableTypedData_factory")
-  external factory _TransferableTypedDataImpl(List<TypedData> list);
+  Uint8List? _dados;
 
-  ByteBuffer materialize() {
-    return _materializeIntoUint8List().buffer;
+  _TransferableTypedDataImpl(List<TypedData> list) {
+    var total = 0;
+    for (final c in list) {
+      total += c.lengthInBytes;
+    }
+    final dados = new Uint8List(total);
+    var i = 0;
+    for (final c in list) {
+      dados.setRange(
+          i, i + c.lengthInBytes, c.buffer.asUint8List(c.offsetInBytes, c.lengthInBytes));
+      i += c.lengthInBytes;
+    }
+    _dados = dados;
+    _transferivel(this);
   }
 
-  @pragma("vm:external-name", "TransferableTypedData_materialize")
-  external Uint8List _materializeIntoUint8List();
+  ByteBuffer materialize() {
+    final dados = _dados;
+    if (dados == null) {
+      throw new ArgumentError(
+          "Attempt to materialize object that was transferred already.");
+    }
+    _dados = null;
+    return dados.buffer;
+  }
+
+  @pragma("vm:external-name", "DartForge_classe_transferivel")
+  external static void _transferivel(Object objeto);
 }

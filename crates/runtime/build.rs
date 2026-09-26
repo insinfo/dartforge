@@ -59,6 +59,8 @@ const FRAGMENTOS: &[&str] = &[
     "eventos",
     // Portas e a fila de mensagens do isolado.
     "portas",
+    // Os isolados (`Isolate.spawn`, a porta de controle).
+    "isolados",
     // O `dart:io` da VM: arquivos, diretórios, o IOService e a plataforma.
     "io_arquivos",
     "io_diretorios",
