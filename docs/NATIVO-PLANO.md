@@ -1537,3 +1537,19 @@ coleta, a capacidade de agora de valores cujo armazenamento natives como
 estimativa a partir dos vivos. E o `main(List<String> args)` passou a
 receber a linha de comando (AOT; no JIT, os argumentos depois do programa
 em `dartforge run`, entregues também ao runtime da biblioteca do SDK).
+
+### 7.12 Gatilho da coleta com histerese; `alloca` só na entrada
+
+* **Gatilho × teto** (`heap.rs`, `recalcular_gatilhos`). Antes, passar da
+  metade do teto (`DARTFORGE_HEAP_MAX_MB`) coletava em **toda** alocação:
+  um programa com muito dado vivo parava de andar (medido: 9 000 listas de
+  400 inteiros vivas e 300 000 temporárias, teto de 64 MB — mais de 120 s).
+  Agora a próxima coleta vem quando se gasta metade da folga até o teto
+  (no mínimo 256 KB; sem teto, o heap pode dobrar), e só a alocação que
+  passaria do teto força uma última coleta antes da falta de memória. O
+  mesmo programa: 2,8 s. Teste: `io_regressao::heap_perto_do_teto…`.
+* **`alloca` só no bloco de entrada** (`llvm/mod.rs`,
+  `emit_buffers_de_closure`). Os vetores dos literais de lista, mapa e
+  record e os locais nasciam onde a instrução estava: num laço, cada volta
+  reservava pilha nova, e 300 000 voltas de `<int>[i, i + 1, i + 2]`
+  estouravam a pilha (a queda aparecia no RTI, a primeira chamada funda).
