@@ -220,6 +220,18 @@ fn json_serializable_pela_vm_igual_ao_build_runner_e_incremental() {
         texto.contains("'codigo_interno'"),
         "fieldRename.snake aplicado:\n{texto}"
     );
+
+    // Demanda do carregador (`dev`/`serve`/`compile-js`): a parte oculta não
+    // é `.dart`, mas o combining_builder a lê por glob — sem ela o `.g.dart`
+    // sairia vazio. Com o executor Dart, só o opcional fica preguiçoso.
+    let mut c = motor_vm(&dir);
+    c.atualizar(&Contexto { banco: &SemBanco, programa: None }, &[], Demanda::Carregador).expect("atualizar");
+    let g = |m: &Motor| {
+        let id = AssetId::novo("corpus_json_serializable", "lib/modelos.g.dart");
+        m.registro(m.grafo.gerados[&id].acao).and_then(|r| r.saidas.iter().find(|(s, _)| *s == id)?.1.clone())
+    };
+    assert!(g(&c).is_some(), "modelos.g.dart na demanda do carregador");
+    assert_eq!(g(&c), g(&m));
 }
 
 /// O placar de todos os casos pela VM (informativo, com a tabela no resumo

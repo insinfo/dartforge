@@ -10,7 +10,9 @@
 //! * Preguiça (D-B6): na demanda [`Demanda::Carregador`] só se calculam as
 //!   saídas que o carregador pode importar (`.dart`) e as `build_to: source`;
 //!   o resto (um `.css` servido, o `--comparar`) sai por
-//!   [`Motor::materializar`] ou [`Demanda::Tudo`].
+//!   [`Motor::materializar`] ou [`Demanda::Tudo`]. Com o executor Dart, as
+//!   fases ocultas que ele executa também entram (um builder posterior pode
+//!   lê-las); só as opcionais ficam preguiçosas.
 use crate::consulta::{digest_bytes, BancoSemantico, Consulta, Digest};
 use crate::executor::{
     candidatos_do_glob, digest_de, AcaoNativa, CtxGerador, Disponibilidade, ExecutorDart, GeradorNativo, Indisponivel, PedidoAcao, PedidoExtensoes, PedidoNativo,
@@ -463,12 +465,21 @@ impl Motor {
         }
     }
 
-    fn demandada(&self, a: usize, demanda: Demanda) -> bool {
+    /// A ação entra nesta atualização? `dart_ativo`: há executor Dart. Um
+    /// builder Dart pode ler uma saída `cache` de fase anterior que não é
+    /// `.dart` (o combining_builder lê as partes `.g.part` por glob) e o motor
+    /// não interrompe uma ação para calcular outra; então, com o executor,
+    /// as fases ocultas sem gerador nativo não são preguiçosas — só as
+    /// opcionais, como no `build_runner` (`is_optional`).
+    fn demandada(&self, a: usize, demanda: Demanda, dart_ativo: bool) -> bool {
         if demanda == Demanda::Tudo || self.registros[a].is_some() {
             return true;
         }
-        let f = &self.fases[self.grafo.acoes[a].fase];
-        !f.oculta || self.grafo.acoes[a].saidas.iter().any(|s| s.caminho.ends_with(".dart"))
+        let fi = self.grafo.acoes[a].fase;
+        let f = &self.fases[fi];
+        !f.oculta
+            || self.grafo.acoes[a].saidas.iter().any(|s| s.caminho.ends_with(".dart"))
+            || (dart_ativo && !f.opcional && self.nativo_da_fase(fi).is_none())
     }
 
     /// O gerador nativo que cobre a fase, se a versão do lock é a imitada.
@@ -602,7 +613,8 @@ impl Motor {
         }).unwrap_or_else(|_| Some("executor Dart envenenado".into()));
 
         for fi in 0..self.fases.len() {
-            let acoes: Vec<usize> = self.por_fase[fi].iter().copied().filter(|&a| self.demandada(a, demanda)).collect();
+            let acoes: Vec<usize> =
+                self.por_fase[fi].iter().copied().filter(|&a| self.demandada(a, demanda, motivo_dart.is_none())).collect();
             if acoes.is_empty() {
                 continue;
             }
