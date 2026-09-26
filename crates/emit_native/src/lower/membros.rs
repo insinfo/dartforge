@@ -1188,6 +1188,43 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             if tem_corpo(self.ctx, decl_fid) && super::funcao_do_usuario(self.ctx, decl_fid) {
                 distintos.push(decl_fid);
+            } else if self.ctx.sdk_da_fonte {
+                // Nenhuma classe do programa implementa o membro: o que a
+                // alcança só pode ser um encaminhador de `noSuchMethod`
+                // (classe com `noSuchMethod` que não o declara). Pelo
+                // seletor, a falta na tabela chega ao `noSuchMethod` do
+                // receptor com o `Invocation`, como na VM.
+                use super::sdk_fonte::Tipo;
+                let f = &self.ctx.program.functions[decl_fid];
+                let tipo = match f.kind {
+                    FunctionKind::Getter => Tipo::Ler,
+                    FunctionKind::Setter => Tipo::Gravar,
+                    FunctionKind::ImplicitAccessor if avaliados.len() == 1 => Tipo::Gravar,
+                    FunctionKind::ImplicitAccessor => Tipo::Ler,
+                    _ => Tipo::Chamar,
+                };
+                let nome = self.ctx.symbol_name(f.name).to_string();
+                let s = super::sdk_fonte::texto_seletor(self.ctx, tipo, &nome, f.library);
+                let tupla = if self.funcao_generica(decl_fid) {
+                    self.tupla_armada.clone().unwrap_or(Operand::Constant(Constant::Int(0)))
+                } else {
+                    Operand::Constant(Constant::Int(0))
+                };
+                // O encaminhador da VM passa todos os parâmetros do membro,
+                // com os padrões dos opcionais omitidos.
+                let completos: Vec<Avaliado> = if matches!(tipo, Tipo::Chamar) {
+                    let valores = self.casar_args(decl_fid, avaliados);
+                    self.ctx.outline.functions[decl_fid]
+                        .parameters
+                        .iter()
+                        .zip(valores)
+                        .map(|(p, v)| (if p.kind == ParameterKind::Named { p.externo } else { None }, v))
+                        .collect()
+                } else {
+                    avaliados.to_vec()
+                };
+                let r = self.chamar_por_seletor_com_tupla(recv, s, &completos, tupla);
+                return if ret == Type::Void { Operand::Constant(Constant::Null) } else { self.coagir(r, ret) };
             } else {
                 // Encaminhador `noSuchMethod` estático (casos 57, 216, 223):
                 // a classe concreta tem `noSuchMethod` e o CFE sintetizaria o

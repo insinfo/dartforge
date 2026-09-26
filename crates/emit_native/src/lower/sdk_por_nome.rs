@@ -465,6 +465,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // SDK da fonte (P5c): o membro pela classe dinâmica.
             let _ = (expr, target, inner_target);
             let av = self.avaliar_args(ast, &arguments.args);
+            // Argumentos de tipo escritos (`d.m<int>(…)`): a tupla vai no
+            // slot da chamada por seletor (o método genérico, ou o
+            // `Invocation.typeArguments` de um `noSuchMethod`).
+            if !arguments.type_args.is_empty() {
+                let args = self.receitas_dos_argumentos_de_tipo(&arguments.type_args);
+                let tupla = self.rti_da_receita(&super::rti::Receita {
+                    texto: format!("L<{}>", args.texto),
+                    variaveis: args.variaveis,
+                });
+                let lib = self.ctx.program.unit(self.unit_id).library;
+                let s = super::sdk_fonte::texto_seletor(self.ctx, super::sdk_fonte::Tipo::Chamar, m_name, lib);
+                return self.chamar_por_seletor_com_tupla(recv_op, s, &av, tupla);
+            }
             return self.chamar_por_nome(recv_op, super::sdk_fonte::Tipo::Chamar, m_name, &av);
         }
         if m_name == "add" {
