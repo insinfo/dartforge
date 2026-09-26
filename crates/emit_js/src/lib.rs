@@ -449,10 +449,12 @@ pub fn compilar_com_gerador<R>(
             Some(vm) => vm,
             None => &mut indisponivel,
         };
-        let mut carregar = |i: &mut Interner, g| {
-            dartforge_elements::load::load_lenient_gerados(entrada, &sdk, packages, i, None, None, g)
+        // Recarga por diferença: entre uma aplicação e a seguinte só a
+        // augmentation de macro muda; as outras unidades são reaproveitadas.
+        let mut carregar = |i: &mut Interner, g, u: &mut dartforge_elements::unidades::CacheUnidades| {
+            dartforge_elements::load::load_lenient_gerados(entrada, &sdk, packages, i, None, Some(u), g)
         };
-        match dartforge_macros_host::aplicar(program, &mut interner, gerados_das_macros, &mut carregar, executor) {
+        match dartforge_macros_host::aplicar_incremental(program, &mut interner, gerados_das_macros, &mut carregar, executor, None) {
             Ok(s) => {
                 for a in &s.avisos {
                     eprintln!("aviso: {a}");
