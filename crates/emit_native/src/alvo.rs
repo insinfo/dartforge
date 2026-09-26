@@ -139,8 +139,29 @@ pub const fn bandeiras_objeto_compartilhado() -> &'static [&'static str] {
 /// `rustc`. No Windows o CRT é escolhido por quem liga (ver `driver.rs`).
 pub const fn bibliotecas_do_sistema() -> &'static [&'static str] {
     match sistema() {
-        Sistema::Windows => &["-lws2_32", "-luserenv", "-lntdll"],
+        Sistema::Windows => &["-lws2_32", "-luserenv", "-lntdll", "-liphlpapi", "-lbcrypt", "-ladvapi32", "-lkernel32"],
         Sistema::Linux => &["-lgcc_s", "-lutil", "-lrt", "-lpthread", "-lm", "-ldl", "-lc"],
         Sistema::MacOs => &["-lSystem", "-lc", "-lm", "-liconv"],
     }
+}
+
+/// A raiz do SDK do macOS para o ligador: o `SDKROOT` do ambiente ou o SDK
+/// que o `xcrun` indica (consultado uma vez). O `ld` da Apple acha o SDK
+/// sozinho; o `ld64.lld` (ThinLTO) só acha `-lSystem` com o `-isysroot`
+/// que o Clang lhe repassa. `None` fora do macOS ou sem Xcode.
+pub fn raiz_do_sdk_macos() -> Option<&'static std::path::Path> {
+    static RAIZ: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+    RAIZ.get_or_init(|| {
+        if sistema() != Sistema::MacOs {
+            return None;
+        }
+        if let Some(r) = std::env::var_os("SDKROOT").filter(|r| !r.is_empty()) {
+            return Some(std::path::PathBuf::from(r));
+        }
+        let saida = std::process::Command::new("xcrun").args(["--sdk", "macosx", "--show-sdk-path"]).output().ok()?;
+        let caminho = String::from_utf8(saida.stdout).ok()?;
+        let caminho = caminho.trim();
+        (saida.status.success() && !caminho.is_empty()).then(|| std::path::PathBuf::from(caminho))
+    })
+    .as_deref()
 }
