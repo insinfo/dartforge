@@ -302,6 +302,7 @@ impl<A: Analisador> Servidor<A> {
                         "referencesProvider": true,
                         "hoverProvider": true,
                         "renameProvider": renomear,
+                        "codeActionProvider": {"codeActionKinds": ["quickfix"]},
                         "completionProvider": {
                             "triggerCharacters": ["."],
                             "resolveProvider": false,
@@ -497,6 +498,51 @@ impl<A: Analisador> Servidor<A> {
                     Some(json!({"isIncomplete": false, "items": itens}))
                 });
                 resposta(&id, resultado.unwrap_or(Value::Null))
+            }
+            "textDocument/codeAction" => {
+                let params = mensagem.get("params");
+                let uri = params.and_then(|p| p.pointer("/textDocument/uri")).and_then(Value::as_str).map(str::to_string);
+                let intervalo = params.and_then(|p| p.get("range")).and_then(ler_intervalo);
+                let (Some(u), Some((de, ate))) = (uri, intervalo) else {
+                    return resposta(&id, Value::Null);
+                };
+                let (Some(texto), Some(tabela)) = (self.documentos.get(&u), self.documentos.linhas(&u)) else {
+                    return resposta(&id, Value::Null);
+                };
+                let inicio = tabela.offset_de_posicao(texto, de.linha, de.coluna);
+                let fim = tabela.offset_de_posicao(texto, ate.linha, ate.coluna);
+                let (inicio, fim) = (inicio.min(fim), inicio.max(fim));
+                let apenas: Option<Vec<String>> = params
+                    .and_then(|p| p.pointer("/context/only"))
+                    .and_then(Value::as_array)
+                    .map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect());
+                let acoes = self.analisador.acoes(&self.documentos, &u, inicio, fim);
+                let mut saida = Vec::new();
+                for acao in acoes {
+                    let permitida = apenas.as_ref().is_none_or(|l| {
+                        l.iter().any(|k| acao.especie == *k || acao.especie.starts_with(&format!("{k}.")))
+                    });
+                    if !permitida {
+                        continue;
+                    }
+                    let mut mudancas = serde_json::Map::new();
+                    for e in &acao.edicoes {
+                        let Some(range) = self.faixa(&e.uri, e.span) else { continue };
+                        let lista = mudancas.entry(e.uri.clone()).or_insert_with(|| json!([]));
+                        if let Value::Array(itens) = lista {
+                            itens.push(json!({"range": range, "newText": e.texto}));
+                        }
+                    }
+                    let mut valor = json!({"title": acao.titulo, "kind": acao.especie, "edit": {"changes": mudancas}});
+                    if let (Some(d), Some(texto), Some(tabela)) =
+                        (&acao.diagnostico, self.documentos.get(&u), self.documentos.linhas(&u))
+                    {
+                        valor["diagnostics"] = json!([converter_diagnostico(texto, tabela, d)]);
+                        valor["isPreferred"] = json!(true);
+                    }
+                    saida.push(valor);
+                }
+                resposta(&id, json!(saida))
             }
             "textDocument/prepareRename" => {
                 let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {

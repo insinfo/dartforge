@@ -114,7 +114,7 @@ enum Dono {
 
 /// Raiz do projeto de `arquivo`: o diretório mais próximo com
 /// `pubspec.yaml`; sem ele, o próprio diretório do arquivo.
-fn raiz_do_projeto(arquivo: &Path) -> PathBuf {
+pub(crate) fn raiz_do_projeto(arquivo: &Path) -> PathBuf {
     let mut atual = arquivo.parent();
     while let Some(dir) = atual {
         if dir.join("pubspec.yaml").is_file() {
@@ -127,7 +127,7 @@ fn raiz_do_projeto(arquivo: &Path) -> PathBuf {
 
 /// Arquivos `.dart` sob `raiz`, sem diretórios ocultos, `build` nem
 /// subpacotes (outro `pubspec.yaml`), em ordem.
-fn arquivos_do_projeto(raiz: &Path) -> Vec<PathBuf> {
+pub(crate) fn arquivos_do_projeto(raiz: &Path) -> Vec<PathBuf> {
     let mut saida = Vec::new();
     let mut pilha = vec![raiz.to_path_buf()];
     while let Some(dir) = pilha.pop() {
@@ -157,7 +157,7 @@ fn arquivos_do_projeto(raiz: &Path) -> Vec<PathBuf> {
 }
 
 /// O texto é uma parte (`part of`), que não pode entrar como biblioteca.
-fn eh_parte(texto: &str) -> bool {
+pub(crate) fn eh_parte(texto: &str) -> bool {
     if !texto.contains("part") {
         return false;
     }

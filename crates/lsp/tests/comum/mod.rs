@@ -82,10 +82,31 @@ impl Projeto {
         fs::create_dir_all(lib.join("core")).unwrap();
         fs::write(
             lib.join("libraries.json"),
-            r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#,
+            r#"{"dartdevc":{"libraries":{
+                "core":{"uri":"core/core.dart","patches":[]},
+                "math":{"uri":"math/math.dart","patches":[]},
+                "_interna":{"uri":"interna/interna.dart","patches":[]}
+            }}}"#,
         )
         .unwrap();
         fs::write(lib.join("core/core.dart"), CORE).unwrap();
+        fs::create_dir_all(lib.join("math")).unwrap();
+        fs::write(
+            lib.join("math/math.dart"),
+            "library dart.math;\npart 'aleatorio.dart';\nconst double pi = 3.14;\n",
+        )
+        .unwrap();
+        fs::write(
+            lib.join("math/aleatorio.dart"),
+            "part of dart.math;\nclass Random { int nextInt(int max) => 0; }\n",
+        )
+        .unwrap();
+        fs::create_dir_all(lib.join("interna")).unwrap();
+        fs::write(
+            lib.join("interna/interna.dart"),
+            "library dart._interna;\nclass Random {}\n",
+        )
+        .unwrap();
         let sdk = SdkLayout::load(&lib, "dartdevc").unwrap();
         fs::write(raiz.join("projeto/pubspec.yaml"), "name: projeto\n").unwrap();
         fs::create_dir_all(raiz.join("projeto/.dart_tool")).unwrap();

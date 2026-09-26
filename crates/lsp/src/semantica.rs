@@ -15,11 +15,14 @@ use url::Url;
 pub struct AnalisadorSemantico {
     sintatico: AnalisadorSintatico,
     sdk: Option<SdkLayout>,
+    /// Nomes públicos de topo do SDK (importar biblioteca), montado na
+    /// primeira vez que um nome indefinido pede. Tamanho fixo pelo SDK.
+    indice_sdk: Option<crate::acoes::IndiceSdk>,
 }
 
 impl AnalisadorSemantico {
     pub fn novo(sdk: Option<SdkLayout>) -> Self {
-        Self { sintatico: AnalisadorSintatico::new(), sdk }
+        Self { sintatico: AnalisadorSintatico::new(), sdk, indice_sdk: None }
     }
 
     /// Descobre o SDK pelos mesmos caminhos usados pelo compilador.
@@ -44,6 +47,12 @@ impl AnalisadorSemantico {
         let chave = dartforge_elements::gerado::chave(&caminho);
         let unidade = programa.units.iter().position(|u| u.path.as_deref().map(dartforge_elements::gerado::chave).as_ref() == Some(&chave))?;
         Some((programa, nomes, UnitId(unidade as u32)))
+    }
+
+    /// Índice dos nomes públicos do SDK, montado na primeira chamada.
+    pub(crate) fn indice_sdk(&mut self) -> &crate::acoes::IndiceSdk {
+        let sdk = self.sdk.as_ref();
+        self.indice_sdk.get_or_insert_with(|| sdk.map(crate::acoes::indexar_sdk).unwrap_or_default())
     }
 
     /// SDK carregado, quando há.
@@ -226,6 +235,14 @@ impl Analisador for AnalisadorSemantico {
         let projeto = crate::renomear::carregar_projeto(self, documentos, uri)
             .ok_or_else(|| "O projeto do arquivo não pôde ser carregado (SDK ausente ou URI que não é de arquivo).".to_string())?;
         crate::renomear::renomear(&projeto, uri, offset, novo)
+    }
+
+    fn acoes(&mut self, documentos: &DocumentStore, uri: &str, inicio: usize, fim: usize) -> Vec<crate::AcaoDeCodigo> {
+        let Some(texto) = documentos.get(uri) else { return Vec::new() };
+        let diagnosticos = self.diagnosticar(uri, texto);
+        let mut saida = crate::acoes::corrigir_sintaxe(uri, &diagnosticos, inicio, fim);
+        saida.extend(crate::acoes::importar(self, documentos, uri, inicio, fim));
+        saida
     }
 
     fn completar(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<crate::Completar> {
