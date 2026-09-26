@@ -33,7 +33,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         let texto = self.ctx.symbol_name(nome).to_string();
         let chave = if setter {
-            self.ctx.interner.lookup(&format!("{texto}="))
+            self.ctx.interner.lookup(&format!("{texto}_="))
         } else {
             Some(nome)
         };
@@ -93,7 +93,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         let texto = self.ctx.symbol_name(nome).to_string();
         let chave = if setter {
-            self.ctx.interner.lookup(&format!("{texto}="))
+            self.ctx.interner.lookup(&format!("{texto}_="))
         } else {
             Some(nome)
         };

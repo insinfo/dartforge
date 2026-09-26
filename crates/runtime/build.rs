@@ -55,6 +55,8 @@ const FRAGMENTOS: &[&str] = &[
     "nativos_listas",
     // As listas tipadas do `typed_data_patch.dart` da VM.
     "typed_data",
+    // Os tipos SIMD (`Float32x4`, `Int32x4`, `Float64x2`).
+    "simd",
     // P6: o laço de eventos (microtarefas e timers).
     "eventos",
     // Portas e a fila de mensagens do isolado.

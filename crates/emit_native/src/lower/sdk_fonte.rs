@@ -191,11 +191,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let nome = self.ctx.symbol_name(v.name).to_string();
         let e_sdk = self.ctx.program.library(self.ctx.program.classes[cid.0 as usize].library).is_sdk;
         if !e_sdk {
-            let sobrescrito = implementacoes(self.ctx, cid, &nome).iter().any(|i| {
-                matches!(i, Implementacao::Funcao(f)
-                    if self.ctx.program.functions[*f].kind == FunctionKind::Getter)
-            });
-            if !sobrescrito {
+            // A leitura direta do campo só vale se toda classe concreta do
+            // tipo tem ESTE campo: um getter que o sobrescreve, ou outro
+            // campo de mesmo nome numa classe que só implementa a interface
+            // (`class ScalarToken implements Token { final FileSpan span; }`
+            // do `package:yaml`, noutra posição do objeto), vão pelo seletor.
+            let so_este_campo =
+                implementacoes(self.ctx, cid, &nome).iter().all(|i| *i == Implementacao::Campo(vid));
+            if so_este_campo {
                 return None;
             }
         }
@@ -219,13 +222,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let v = &self.ctx.program.variables[vid.0 as usize];
         let Some(cid) = v.class else { return false };
-        if !self.ctx.program.library(self.ctx.program.classes[cid.0 as usize].library).is_sdk {
-            return false;
-        }
+        let e_sdk = self.ctx.program.library(self.ctx.program.classes[cid.0 as usize].library).is_sdk;
         let nome = self.ctx.symbol_name(v.name).to_string();
-        if membro_fechado(self.ctx, cid, &nome)
-            && implementacoes(self.ctx, cid, &format!("{nome}_=")).iter().all(|i| *i == Implementacao::Campo(vid))
-        {
+        // Como na leitura: direto só se toda classe concreta grava ESTE
+        // campo (no SDK, também se o membro é fechado).
+        let so_este_campo =
+            implementacoes(self.ctx, cid, &format!("{nome}_=")).iter().all(|i| *i == Implementacao::Campo(vid));
+        if so_este_campo && (!e_sdk || membro_fechado(self.ctx, cid, &nome)) {
             return false;
         }
         let s = texto_seletor(self.ctx, Tipo::Gravar, &nome, v.library);
