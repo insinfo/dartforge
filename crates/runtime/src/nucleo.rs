@@ -451,6 +451,7 @@ pub extern "C" fn dartforge_value_class(handle: i64) -> i64 {
         let heap = heap.borrow();
         match heap.get(handle) {
             Value::Object { class_id, .. } => *class_id,
+            Value::TypedData { class_id, .. } | Value::TypedView { class_id, .. } => *class_id,
             Value::String(_) => -2,
             Value::StringBuffer(_) => -8,
             Value::List(_) => -3,

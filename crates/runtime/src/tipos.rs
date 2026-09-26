@@ -614,7 +614,9 @@ fn tipo_do_valor(u: &mut Universo, v: TaggedValue) -> i64 {
             Value::Set(_) => Forma::Cru(u.rt.set),
             Value::Closure { .. } => Forma::Cru(u.rt.function),
             Value::Record(campos) => Forma::Registro(campos.clone()),
-            Value::Object { class_id, .. } => Forma::Cru(u.classe_do_heap(*class_id)),
+            Value::Object { class_id, .. }
+            | Value::TypedData { class_id, .. }
+            | Value::TypedView { class_id, .. } => Forma::Cru(u.classe_do_heap(*class_id)),
             Value::Cell(_) | Value::Environment(_) => Forma::Cru(u.rt.object),
         }
     });

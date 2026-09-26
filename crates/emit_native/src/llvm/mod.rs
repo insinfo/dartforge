@@ -565,6 +565,21 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  %v{v} = call i64 @dartforge_object_new_t(i64 {c}, i64 {n}, ptr @{f})").unwrap();
                         let _ = ret_ty;
                     }
+                    Instruction::CallRuntime { name, args, ret_ty }
+                        if (name == "dartforge_typed_novo" || name == "dartforge_view_nova")
+                            && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
+                                if self.module.funcoes_de_tabela.contains_key(&(*c as u32))) =>
+                    {
+                        // A primeira lista tipada (ou visão) de uma classe
+                        // registra a tabela de métodos dela, como
+                        // `dartforge_object_new_t`.
+                        let Some((Operand::Constant(Constant::Int(c)), _)) = args.first() else { unreachable!() };
+                        let f = self.module.funcoes_de_tabela[&(*c as u32)].clone();
+                        self.anotar_externo(&f, Type::Ptr, &[]);
+                        let resto: Vec<String> = args.iter().map(|(a, t)| format!("{} {}", t.llvm_ir(), self.coagir(a, *t))).collect();
+                        writeln!(self.out, "  %v{v} = call i64 @{name}_t({}, ptr @{f})", resto.join(", ")).unwrap();
+                        let _ = ret_ty;
+                    }
                     Instruction::CallRuntime { name, args, ret_ty } => {
                         if name.starts_with("dartforge_nativo_") {
                             let tipos: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
