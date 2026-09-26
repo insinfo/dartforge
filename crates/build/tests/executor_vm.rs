@@ -225,18 +225,28 @@ fn json_serializable_pela_vm_igual_ao_build_runner_e_incremental() {
     // é `.dart`, mas o combining_builder a lê por glob — sem ela o `.g.dart`
     // sairia vazio. Com o executor Dart, só o opcional fica preguiçoso.
     let mut c = motor_vm(&dir);
-    c.atualizar(&Contexto { banco: &SemBanco, programa: None }, &[], Demanda::Carregador).expect("atualizar");
+    c.atualizar(
+        &Contexto {
+            banco: &SemBanco,
+            programa: None,
+        },
+        &[],
+        Demanda::Carregador,
+    )
+    .expect("atualizar");
     let g = |m: &Motor| {
         let id = AssetId::novo("corpus_json_serializable", "lib/modelos.g.dart");
-        m.registro(m.grafo.gerados[&id].acao).and_then(|r| r.saidas.iter().find(|(s, _)| *s == id)?.1.clone())
+        m.registro(m.grafo.gerados[&id].acao)
+            .and_then(|r| r.saidas.iter().find(|(s, _)| *s == id)?.1.clone())
     };
     assert!(g(&c).is_some(), "modelos.g.dart na demanda do carregador");
     assert_eq!(g(&c), g(&m));
 }
 
-/// O placar de todos os casos pela VM (informativo, com a tabela no resumo
-/// do CI): a mesma régua do `corpus.rs`, com o executor Dart real e sem o
-/// apoio do `build_runner` no disco.
+/// O placar de todos os casos pela VM (com a tabela no resumo do CI): a
+/// mesma régua do `corpus.rs`, com o executor Dart real e sem o apoio do
+/// `build_runner` no disco — zero diferentes, e incremental = do zero em
+/// cada edição do caso.
 #[test]
 #[ignore = "exige a VM Dart e `dart pub get` em cada caso de corpus/builders"]
 fn corpus_builders_pela_vm() {
@@ -281,6 +291,27 @@ fn corpus_builders_pela_vm() {
         ));
         for (id, motivo) in &p.diferentes {
             diferentes.push(format!("{nome}: {} ({motivo})", id.texto()));
+        }
+        // Incremental = do zero nas edições do caso, com o executor real.
+        let mut passos: Vec<PathBuf> = std::fs::read_dir(origem.join("edicoes"))
+            .map(|l| l.flatten().map(|e| e.path()).collect())
+            .unwrap_or_default();
+        passos.sort();
+        for passo in passos {
+            let mudados = aplicar(&passo, &dir);
+            let (rel, ms) = atualizar(&mut m, &mudados);
+            let mut novo = motor_vm(&dir);
+            atualizar(&mut novo, &[]);
+            let nome_passo = passo.file_name().unwrap().to_string_lossy().to_string();
+            println!(
+                "{nome}/{nome_passo}: {ms:.0} ms, {} ações executadas",
+                rel.acoes_executadas
+            );
+            if m.estado_canonico() != novo.estado_canonico() {
+                diferentes.push(format!(
+                    "{nome}: incremental ≠ do zero depois de {nome_passo}"
+                ));
+            }
         }
     }
     println!("{}", linhas.join("\n"));
