@@ -291,6 +291,30 @@ mixin _IdenticalAndIdentityHashCode implements _EqualsAndHashCode {
   bool _equals(Object? e1, Object? e2) => identical(e1, e2);
 }
 
+// DartForge: um literal de mapa grande de escalares constantes chega como a
+// lista `[chave, valor, …]` lida de uma tabela (`lower/literais.rs`), e não
+// como uma chamada de `[]=` por entrada no código.
+@pragma("vm:entry-point")
+void _dartforgePreencherMapa(Map mapa, List chavesEValores) {
+  for (int i = 0; i < chavesEValores.length; i += 2) {
+    mapa[chavesEValores[i]] = chavesEValores[i + 1];
+  }
+}
+
+@pragma("vm:entry-point")
+void _dartforgePreencherLista(List lista, List valores) {
+  for (int i = 0; i < valores.length; i++) {
+    lista.add(valores[i]);
+  }
+}
+
+@pragma("vm:entry-point")
+void _dartforgePreencherConjunto(Set conjunto, List valores) {
+  for (int i = 0; i < valores.length; i++) {
+    conjunto.add(valores[i]);
+  }
+}
+
 mixin _OperatorEqualsAndCanonicalHashCode implements _EqualsAndHashCode {
   static final int cidSymbol = ClassID.getID(#a);
 
