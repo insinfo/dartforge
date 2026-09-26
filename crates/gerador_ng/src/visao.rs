@@ -853,9 +853,10 @@ pub struct PipeUsado {
     pub pipe: crate::componente::Pipe,
 }
 
-/// A instância de um pipe puro, campo da visão do componente
-/// (`_pipe_date_0`): uma por nome, na ordem do primeiro uso
-/// (`compView.purePipes`, `pipeCount`).
+/// A instância de um pipe, campo de uma visão (`_pipe_date_0`): a de um
+/// pipe puro é uma por nome, na visão do componente, criada no primeiro uso
+/// (`compView.purePipes`); a de um impuro é uma por chamada, na visão da
+/// chamada. O número é o `pipeCount` da visão que a guarda.
 #[derive(Debug, Clone)]
 struct InstanciaDePipe {
     nome: String,
@@ -863,17 +864,26 @@ struct InstanciaDePipe {
     classe: String,
     /// Caminho do import da biblioteca do pipe (`getImportModulePath`).
     caminho: String,
+    /// A visão que guarda a instância (0 para todo pipe puro).
+    vista: u32,
+    impura: bool,
+    /// O construtor recebe o `ChangeDetectorRef` (a própria visão).
+    detector: bool,
+    /// `OnDestroy`: `ngOnDestroy()` no `destroyInternal` da visão.
+    destroi: bool,
 }
 
-/// Uma chamada `$pipe.nome(..)`: a visão onde está e o proxy dela
-/// (`_pipe_date_0_1`, `_PurePipeProxy`), que é campo dessa visão.
+/// Uma chamada `$pipe.nome(..)`: a visão onde está e o que a substitui —
+/// o proxy (`_pipe_date_0_1`, `_PurePipeProxy`, campo dessa visão) de um
+/// pipe puro, ou `_pipe_async_1.transform` de um impuro.
 #[derive(Debug, Clone)]
 struct ChamadaDePipe {
     vista: u32,
     instancia: usize,
     proxy: String,
     argumentos: usize,
-    /// `o.FunctionType(retorno, paramTypes.sublist(0, argCount))`.
+    /// `o.FunctionType(retorno, paramTypes.sublist(0, argCount))`; vazio
+    /// no impuro, que não tem proxy.
     tipo: String,
     /// O tipo cita o `dart:core` (tudo o que não é `dynamic`).
     core: bool,
@@ -895,16 +905,22 @@ impl PipesDoTemplate {
         self.chamadas.iter().filter(move |c| c.vista == vista)
     }
 
+    /// Os proxies de pipe puro desta visão, de uma instância.
+    fn proxies(&self, vista: u32, k: usize) -> impl Iterator<Item = &ChamadaDePipe> {
+        self.da_vista(vista)
+            .filter(move |c| c.instancia == k && !self.instancias[k].impura)
+    }
+
     /// Os imports dos campos de pipe desta visão, na ordem da declaração: a
-    /// classe de cada instância (só na visão do componente) e o `dart:core`
-    /// do tipo de um proxy.
+    /// classe de cada instância guardada aqui e o `dart:core` do tipo de um
+    /// proxy.
     fn imports_dos_campos(&self, vista: u32) -> Vec<String> {
         let mut saida = Vec::new();
         for (k, inst) in self.instancias.iter().enumerate() {
-            if vista == 0 {
+            if inst.vista == vista {
                 saida.push(inst.caminho.clone());
             }
-            if self.da_vista(vista).any(|c| c.instancia == k && c.core) {
+            if self.proxies(vista, k).any(|c| c.core) {
                 saida.push("dart:core".to_string());
             }
         }
@@ -918,11 +934,11 @@ impl PipesDoTemplate {
     fn campos(&self, vista: u32, imp: &mut Importacoes) -> Vec<String> {
         let mut saida = Vec::new();
         for (k, inst) in self.instancias.iter().enumerate() {
-            if vista == 0 {
+            if inst.vista == vista {
                 let q = imp.q(&inst.caminho);
                 saida.push(format!("  late final {q}{} {};", inst.classe, inst.campo));
             }
-            for c in self.da_vista(vista).filter(|c| c.instancia == k) {
+            for c in self.proxies(vista, k) {
                 saida.push(format!("  late final {} {};", c.tipo, c.proxy));
             }
         }
@@ -935,11 +951,15 @@ impl PipesDoTemplate {
     fn criacao(&self, vista: u32, base: &str, imp: &mut Importacoes) -> Vec<String> {
         let mut saida = Vec::new();
         for (k, inst) in self.instancias.iter().enumerate() {
-            if vista == 0 {
+            if inst.vista == vista {
                 let q = imp.q(&inst.caminho);
-                saida.push(format!("    this.{} = {q}{}();", inst.campo, inst.classe));
+                let arg = if inst.detector { "this" } else { "" };
+                saida.push(format!(
+                    "    this.{} = {q}{}({arg});",
+                    inst.campo, inst.classe
+                ));
             }
-            for c in self.da_vista(vista).filter(|c| c.instancia == k) {
+            for c in self.proxies(vista, k) {
                 saida.push(format!(
                     "    this.{} = {}.pureProxy{}({base}.{}.transform);",
                     c.proxy,
@@ -950,6 +970,16 @@ impl PipesDoTemplate {
             }
         }
         saida
+    }
+
+    /// O `ngOnDestroy()` das instâncias desta visão
+    /// (`bindPipeDestroyLifecycleCallbacks`), na ordem delas.
+    fn destruicao(&self, vista: u32) -> Vec<String> {
+        self.instancias
+            .iter()
+            .filter(|i| i.vista == vista && i.destroi)
+            .map(|i| format!("    this.{}.ngOnDestroy();", i.campo))
+            .collect()
     }
 }
 
@@ -980,6 +1010,8 @@ fn pipes_do_template(
     }
     let pipes = pipes.as_ref().map_err(Clone::clone)?;
     let fora = |f: &str| recusa(Motivo::PipesUsados, f);
+    // O `pipeCount` de cada visão.
+    let mut contadores: std::collections::HashMap<u32, usize> = Default::default();
     for (vista, nome, argumentos) in brutas {
         let usado = pipes
             .iter()
@@ -990,12 +1022,48 @@ fn pipes_do_template(
         if let Some(f) = p.fora {
             return Err(fora(f));
         }
-        if !p.puro {
-            return Err(fora("pipe impuro (`pure: false`)"));
-        }
         // Mais argumentos que parâmetros é erro de compilação no oficial.
         if argumentos > p.parametros.len() {
             return Err(fora("pipe com argumentos demais"));
+        }
+        let caminho = || {
+            asset_de_uri(&usado.uri, "", Path::new(""))
+                .and_then(|alvo| caminho_do_import(asset, &alvo))
+                .ok_or_else(|| fora("pipe sem caminho de import"))
+        };
+        let nova = |t: &mut PipesDoTemplate,
+                    contadores: &mut std::collections::HashMap<u32, usize>,
+                    vista: u32,
+                    impura: bool|
+         -> Result<usize, Recusa> {
+            let n = contadores.entry(vista).or_default();
+            t.instancias.push(InstanciaDePipe {
+                campo: format!("_pipe_{nome}_{n}"),
+                nome: nome.clone(),
+                classe: p.classe.clone(),
+                caminho: caminho()?,
+                vista,
+                impura,
+                detector: p.detector,
+                destroi: p.destroi,
+            });
+            *n += 1;
+            Ok(t.instancias.len() - 1)
+        };
+        // Impuro: uma instância por chamada, na visão dela, chamada direto
+        // (`_call`: `instance.transform(..)`).
+        if !p.puro {
+            let instancia = nova(&mut t, &mut contadores, vista, true)?;
+            let proxy = format!("{}.transform", t.instancias[instancia].campo);
+            t.chamadas.push(ChamadaDePipe {
+                vista,
+                instancia,
+                proxy,
+                argumentos,
+                tipo: String::new(),
+                core: false,
+            });
+            continue;
         }
         // `Identifiers.pureProxies`: `pureProxy1` a `pureProxy6` conferidos
         // no `proxies.dart`.
@@ -1012,20 +1080,13 @@ fn pipes_do_template(
         let core = std::iter::once(&p.retorno)
             .chain(&parametros)
             .any(|x| x != "dynamic");
-        let instancia = match t.instancias.iter().position(|i| i.nome == nome) {
+        let instancia = match t
+            .instancias
+            .iter()
+            .position(|i| i.nome == nome && !i.impura)
+        {
             Some(k) => k,
-            None => {
-                let caminho = asset_de_uri(&usado.uri, "", Path::new(""))
-                    .and_then(|alvo| caminho_do_import(asset, &alvo))
-                    .ok_or_else(|| fora("pipe sem caminho de import"))?;
-                t.instancias.push(InstanciaDePipe {
-                    campo: format!("_pipe_{nome}_{}", t.instancias.len()),
-                    nome: nome.clone(),
-                    classe: p.classe.clone(),
-                    caminho,
-                });
-                t.instancias.len() - 1
-            }
+            None => nova(&mut t, &mut contadores, 0, false)?,
         };
         let ja = t
             .chamadas
@@ -1040,6 +1101,15 @@ fn pipes_do_template(
             tipo: format!("{} Function({})", p.retorno, parametros.join(", ")),
             core,
         });
+    }
+    // Numa visão embutida, a ordem entre a instância de um impuro e os
+    // proxies de um puro (criados pelo `create()` da instância, na visão do
+    // componente) ainda não tem caso.
+    for c in &t.chamadas {
+        let impura_aqui = t.instancias.iter().any(|i| i.impura && i.vista == c.vista);
+        if c.vista != 0 && impura_aqui && !t.instancias[c.instancia].impura {
+            return Err(fora("pipe impuro e pipe puro na mesma visão embutida"));
+        }
     }
     Ok(t)
 }
@@ -5050,6 +5120,7 @@ fn corpo_da_embutida(
     ctx.refs_resolvidos
         .borrow_mut()
         .extend(dentro.refs.iter().map(|(k, v)| (k.clone(), v.clone())));
+    dentro.destruir.extend(ctx.pipes.destruicao(espec.indice));
     // Na coleta, um nó recusado não consome índice: a visão parece vazia
     // sem estar.
     if dentro.proximo == 0 && dentro.coleta.as_ref().map_or(0, Vec::len) == anotadas {
@@ -6170,6 +6241,8 @@ fn gerar_componente(
     ctx.refs_resolvidos
         .borrow_mut()
         .extend(corpo.refs.iter().map(|(k, v)| (k.clone(), v.clone())));
+    // O `ngOnDestroy` dos pipes vem depois dos das diretivas.
+    corpo.destruir.extend(tabela.destruicao(0));
     // `@ViewChild` estático: atribuição imediata, no `afterNodes` — depois
     // dos ouvintes, na ordem de declaração das consultas
     // (`updateQueryAtStartup`, `createImmediateUpdates` em

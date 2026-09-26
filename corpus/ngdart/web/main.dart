@@ -151,6 +151,7 @@ import 'package:corpus_ngdart/src/i54_pipes_aninhados.template.dart' as i54;
 import 'package:corpus_ngdart/src/i55_host_binding_formas.template.dart' as i55;
 import 'package:corpus_ngdart/src/i56_usa_host_binding.template.dart' as i56;
 import 'package:corpus_ngdart/src/i57_seguranca.template.dart' as i57;
+import 'package:corpus_ngdart/src/i58_async_formas.template.dart' as i58;
 
 void main() {
   print([
@@ -304,5 +305,6 @@ void main() {
     i55.I55HostBindingFormasNgFactory,
     i56.I56UsaHostBindingNgFactory,
     i57.I57SegurancaNgFactory,
+    i58.I58AsyncFormasNgFactory,
   ].length);
 }

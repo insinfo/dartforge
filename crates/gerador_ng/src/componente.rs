@@ -344,6 +344,12 @@ pub struct Pipe {
     /// (`bindPipeDestroyLifecycleCallbacks`), `transform` herdado, sem tipo
     /// de retorno ou com parâmetro nomeado.
     pub fora: Option<&'static str>,
+    /// O construtor recebe só o `ChangeDetectorRef`: a visão que o cria
+    /// passa a si mesma (`o.thisExpr` do `createPipeInstance`).
+    pub detector: bool,
+    /// `OnDestroy`: a visão que o cria chama `ngOnDestroy()` ao ser
+    /// destruída.
+    pub destroi: bool,
 }
 
 /// Extrai o `@Pipe` de uma classe anotada.
@@ -385,12 +391,19 @@ pub fn ler_pipe(
             }
         }
     }
-    if !parametros_do_construtor(arvore, fonte, interner, classe).is_empty() {
-        p.fora = Some("pipe com injeção no construtor");
+    let parametros = parametros_do_construtor(arvore, fonte, interner, classe);
+    match parametros.as_slice() {
+        [] => {}
+        [x] if x.tipo.as_deref().map(|t| t.rsplit('.').next().unwrap_or(t))
+            == Some("ChangeDetectorRef")
+            && !x.anotado
+            && !x.nomeado =>
+        {
+            p.detector = true;
+        }
+        _ => p.fora = Some("pipe com injeção no construtor"),
     }
-    if ganchos_da_classe(arvore, fonte, classe).on_destroy {
-        p.fora = Some("pipe com OnDestroy");
-    }
+    p.destroi = ganchos_da_classe(arvore, fonte, classe).on_destroy;
     let mut achou = false;
     for &id in &classe.members {
         let ast::MemberKind::Method(f) = &arvore.member(id).kind else {
