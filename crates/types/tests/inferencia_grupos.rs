@@ -583,3 +583,32 @@ A f(C c) => c;
     ));
     assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
 }
+
+/// A variável de um padrão que sombreia o escrutinado (`Neg(:final e)` em
+/// `switch (e)`) tem o tipo do campo; a promoção do caso vale para o
+/// escrutinado, não para ela (o analyzer dá `Expr` ao `e` do corpo).
+#[test]
+fn variavel_do_padrao_que_sombreia_o_escrutinado() {
+    let r = ou_pula!(inferir(
+        r#"
+sealed class Expr {}
+class Num extends Expr { final int valor; Num(this.valor); }
+class Neg extends Expr { final Expr e; Neg(this.e); }
+Object mostra(Expr e) => switch (e) {
+      Num() => e,
+      Neg(:final e) => e,
+    };
+Object comando(Expr e) {
+  switch (e) {
+    case Neg(:final e):
+      return e;
+    case Num():
+      return e;
+  }
+}
+"#
+    ));
+    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+    let tipos: Vec<&str> = r.tipos.iter().filter(|(t, _)| t == "e").map(|(_, y)| y.as_str()).collect();
+    assert_eq!(tipos, ["Expr", "Num", "Expr", "Expr", "Expr", "Num"]);
+}
