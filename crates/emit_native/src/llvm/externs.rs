@@ -907,6 +907,10 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
+        decl: "declare void @dartforge_rti_iniciar_tabela(ptr, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
         decl: "declare void @dartforge_rti_classe_do_runtime(i64, i64)",
         efeitos: CONSERVADOR,
     },

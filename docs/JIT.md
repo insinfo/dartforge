@@ -480,6 +480,12 @@ seguro (`HotReloadReport::safepoint_wait`). `--reiniciar` é o R0: cada edição
 recompila e recomeça `main` num processo novo (`dartforge run --ir`), sem
 estado. `--preservar-estado`, a forma antiga, é aceito e não muda nada.
 
+Custo medido (programa com timer e `async`, Linux x86-64): emissão ~90 ms e
+recarga ~35 ms (análise 7, ligação 24, espera do ponto seguro ~1). O registro
+da RTI de todas as classes vai numa tabela constante lida pelo runtime
+(`dartforge_rti_iniciar_tabela`), e não em código: antes eram ~13 mil
+instruções por programa, 0,7 s de ligação a cada recarga e a cada `run`.
+
 Limites: os isolados criados por `Isolate.spawn` não esperam o ponto seguro
 (a publicação só sincroniza com o principal); um trecho síncrono longo adia a
 publicação até o próximo evento (a CLI avisa depois de 2 s).
