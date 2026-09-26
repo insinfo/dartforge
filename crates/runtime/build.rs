@@ -64,6 +64,10 @@ const FRAGMENTOS: &[&str] = &[
     "io_diretorios",
     "io_servico",
     "io_plataforma",
+    // O manipulador de eventos, os soquetes e os processos.
+    "io_eventos",
+    "io_soquetes",
+    "io_processos",
     // `dart:developer` e a timeline no perfil de produção.
     "nativos_desenvolvedor",
     // RTI: tipos em tempo de execução.

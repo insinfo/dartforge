@@ -110,3 +110,18 @@ Object _dartforgeIniciarIo(String script) {
   _Platform._nativeScript = script;
   return _getUriBaseClosure();
 }
+
+/// O erro de início de um processo no `_ProcessStartStatus` (o
+/// `Dart_SetField` de `Process_Start`).
+@pragma("vm:entry-point")
+void _dartforgeFalhaAoIniciar(
+    _ProcessStartStatus status, int codigo, String mensagem) {
+  status._errorCode = codigo;
+  status._errorMessage = mensagem;
+}
+
+/// O `Datagram` que `Socket_RecvFrom` devolve (a VM chama `_makeDatagram`).
+@pragma("vm:entry-point")
+Datagram _dartforgeDatagrama(
+        Uint8List dados, String endereco, Uint8List bruto, int porta, int tipo) =>
+    _makeDatagram(dados, endereco, bruto, porta, tipo);

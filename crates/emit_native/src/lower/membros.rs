@@ -909,6 +909,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
+    /// Os parâmetros de `fid` na AST (a unidade e a lista).
+    pub fn parametros_de(&self, fid: usize) -> Option<(UnitId, &'a [ast::Parameter])> {
+        self.parametros_ast(fid)
+    }
+
     /// Baixa uma expressão de outra unidade (valor padrão de parâmetro).
     ///
     /// `lower_expr` usa `self.unit_id` para os tipos e resoluções; trocar a
@@ -930,6 +935,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let (unit, params) = self.parametros_ast(fid)?;
         let p = params.get(i)?;
         if let Some(e) = p.default_value {
+            // O padrão de uma função do SDK da fonte chamada de fora do
+            // módulo dela: as resoluções da unidade do SDK não existem aqui;
+            // o módulo do SDK exporta o valor (`lower_padroes_do_sdk`).
+            if padrao_exportado(self.ctx, fid, unit, e) {
+                return Some(self.emit_call_with_check(
+                    Instruction::CallStatic { symbol: simbolo_do_padrao(self.ctx, fid, i), args: Vec::new(), ret_ty: Type::Ref },
+                    Type::Ref,
+                ));
+            }
             // O valor padrão é constante (§9.2.2): contexto const.
             let salvo = std::mem::replace(&mut self.em_contexto_const, true);
             let v = self.lower_expr_de(unit, e);
@@ -1985,4 +1999,33 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let chave = nome.or_else(|| self.ctx.interner.lookup(""))?;
         self.ctx.program.classes[c.0 as usize].constructors.get(&chave).copied()
     }
+}
+
+/// Um valor padrão que não precisa de resolução (literal de null, bool,
+/// número ou string sem interpolação): qualquer módulo o baixa.
+pub fn padrao_literal(ast: &ast::Ast, e: ExprId) -> bool {
+    use dartforge_frontend::ast::ExprKind;
+    match &ast.expr(e).kind {
+        ExprKind::Null | ExprKind::Bool(_) | ExprKind::Int(_) | ExprKind::Double(_) => true,
+        ExprKind::String(s) => s.parts.iter().all(|p| matches!(p, ast::StringPart::Text(_))),
+        ExprKind::Unary { op: ast::UnaryOp::Neg, operand } => {
+            matches!(ast.expr(*operand).kind, ExprKind::Int(_) | ExprKind::Double(_))
+        }
+        _ => false,
+    }
+}
+
+/// O padrão do parâmetro de uma função do SDK da fonte que o módulo dela
+/// exporta: não literal, de uma biblioteca do SDK fora do módulo corrente.
+pub fn padrao_exportado(ctx: &crate::context::Context, fid: usize, unit: UnitId, e: ExprId) -> bool {
+    let lib = ctx.program.functions[fid].library;
+    ctx.sdk_da_fonte
+        && ctx.program.library(lib).is_sdk
+        && !ctx.biblioteca_no_modulo(lib)
+        && !padrao_literal(&ctx.program.unit(unit).ast, e)
+}
+
+/// O símbolo da função que devolve o padrão do parâmetro `i` de `fid`.
+pub fn simbolo_do_padrao(ctx: &crate::context::Context, fid: usize, i: usize) -> String {
+    format!("{}.padrao.{i}", super::simbolo_de(ctx, fid))
 }
