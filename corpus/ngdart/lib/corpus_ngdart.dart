@@ -155,3 +155,4 @@ export 'src/i47_view_child_em_if.dart';
 export 'src/i48_ref_projetado_lido.dart';
 export 'src/i49_view_children_formas.dart';
 export 'src/i50_view_child_tipos.dart';
+export 'src/i51_view_child_dinamico.dart';

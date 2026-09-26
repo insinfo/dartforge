@@ -144,6 +144,7 @@ import 'package:corpus_ngdart/src/i47_view_child_em_if.template.dart' as i47;
 import 'package:corpus_ngdart/src/i48_ref_projetado_lido.template.dart' as i48;
 import 'package:corpus_ngdart/src/i49_view_children_formas.template.dart' as i49;
 import 'package:corpus_ngdart/src/i50_view_child_tipos.template.dart' as i50;
+import 'package:corpus_ngdart/src/i51_view_child_dinamico.template.dart' as i51;
 
 void main() {
   print([
@@ -290,5 +291,6 @@ void main() {
     i48.I48RefProjetadoLidoNgFactory,
     i49.I49ViewChildrenFormasNgFactory,
     i50.I50ViewChildTiposNgFactory,
+    i51.I51ViewChildDinamicoNgFactory,
   ].length);
 }
