@@ -117,8 +117,13 @@ fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, fi
     let u = inf.core.unknown;
     match &a.pattern(p).kind {
         PatternKind::Wildcard { .. } => {}
-        PatternKind::Variable { final_: f2, ty, name, .. } => {
+        PatternKind::Variable { final_: f2, var_, ty, name } => {
             let (f2, ty, name) = (*f2, *ty, *name);
+            if cx.padrao_refutavel && !*var_ && !f2 && ty.is_none() {
+                // `case limite:`: constante (o nome de uma const), não uma
+                // variável que esconde a constante e fica sem valor.
+                return;
+            }
             if atribuicao {
                 if let Some(Nome::Local(id)) = cx.buscar(name.sym) {
                     let decl = cx.local(id).tipo;
@@ -337,7 +342,9 @@ fn tipo_casado(inf: &mut BodyInferrer<'_>, cx: &Corpo, p: PatternId, t: TypeId) 
 /// tipo casado no ramo que casa, antes da guarda (R-FLU-14).
 pub(crate) fn caso(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, guarda: Option<ExprId>, escrutinio: Option<ExprId>) -> (Fluxo, Fluxo) {
     let antes = cx.fluxo.clone();
+    let refutavel_antes = std::mem::replace(&mut cx.padrao_refutavel, true);
     tipar(inf, cx, p, t, false, false);
+    cx.padrao_refutavel = refutavel_antes;
     let mut sim = cx.fluxo.clone();
     if let Some(e) = escrutinio
         && let Some(id) = expr::alvo_de_promocao(inf, cx, e)

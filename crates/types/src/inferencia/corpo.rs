@@ -90,6 +90,9 @@ pub(crate) struct Corpo {
     pub fluxo: Fluxo,
     pub funcoes: Vec<CtxFuncao>,
     pub cascatas: Vec<TypeId>,
+    /// Tipando o padrão de um `case`/`if-case` (refutável): o identificador
+    /// solto é uma constante (`case _padrao:`), não uma variável nova.
+    pub padrao_refutavel: bool,
     /// Pilha de alvos de `break`/`continue` (rótulos e laços): modelos de
     /// fluxo acumulados nos saltos.
     pub saltos: Vec<AlvoSalto>,
@@ -167,6 +170,7 @@ impl Corpo {
             fluxo: Fluxo::alcancavel(),
             funcoes: Vec::new(),
             cascatas: Vec::new(),
+            padrao_refutavel: false,
             saltos: Vec::new(),
             tipo_this: None,
             escritos_em_closure: Vec::new(),

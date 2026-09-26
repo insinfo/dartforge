@@ -1865,7 +1865,13 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
         AssignOp::Compound(bop) => {
             let (leitura, escrita, local) = ler_para_escrita(inf, cx, alvo, curto);
             if bop == BinaryOp::IfNull {
+                // O lado direito só roda se o alvo for nulo: o que ele promove
+                // ou atribui não vale depois (`origin ??= element!.library;`
+                // não promove `element`).
+                let antes = cx.fluxo.clone();
                 let tv = inferir(inf, cx, valor, escrita);
+                let depois = cx.fluxo.clone();
+                cx.fluxo = inf.juntar(&antes, &depois);
                 let nn = inf.nao_nulo(leitura);
                 let t = inf.up(nn, tv);
                 if let Some(id) = local {
