@@ -289,7 +289,7 @@ pub struct ClassElement {
     pub interface_classes: Vec<ClassId>,
     pub on_classes: Vec<ClassId>,
     /// Membros de instância por nome; getters e setters são entradas
-    /// separadas (`x` e `x=`), operadores pelo texto (`+`, `[]=`).
+    /// separadas (`x` e `x_=`), operadores pelo texto (`+`, `[]=`).
     pub instance_members: HashMap<SymbolId, FunctionElementId>,
     pub static_members: HashMap<SymbolId, FunctionElementId>,
     /// Construtores por nome; o sem nome usa o símbolo vazio `""`. A chave é

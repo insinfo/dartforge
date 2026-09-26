@@ -320,6 +320,9 @@ pub extern "C" fn dartforge_nativo_Object_toString(this: i64) -> i64 {
     })) {
         return dartforge_nativo_Double_toString(d);
     }
+    if let Some(t) = texto_simd(this) {
+        return alocar_str(&t);
+    }
     let cid = dartforge_value_class(this);
     // Genérica com argumentos reificados: o nome inclui os argumentos
     // (`Instance of 'Caixa<int>'`), como a VM; sem argumentos, o nome
