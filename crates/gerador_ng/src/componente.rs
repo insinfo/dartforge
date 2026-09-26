@@ -75,6 +75,10 @@ pub struct Componente {
     pub consultas: Vec<Consulta>,
     /// `@HostListener` da classe, na forma simples, na ordem de declaração.
     pub ouvintes: Vec<Ouvinte>,
+    /// `@HostBinding` de um componente, na ordem em que o oficial os coleta
+    /// (acessores, depois campos, cada grupo em ordem de declaração): o
+    /// `detectHostChanges` da visão.
+    pub ligacoes_do_hospedeiro: Vec<LigacaoDoHospedeiro>,
     /// `@ContentChild`/`@ContentChildren`, na ordem do `directive.queries`
     /// (setters antes dos campos, como o visitante do oficial os visita).
     /// `None`: alguma fora da forma conhecida.
@@ -169,6 +173,17 @@ pub struct Membro {
     pub tipo: String,
     /// `final` (ou getter): conta como imutável na regra `isImmutable` do
     /// ngcompiler, que decide se o valor primitivo vai pelo caminho rápido.
+    pub imutavel: bool,
+}
+
+/// Um `@HostBinding('class.x')`/`@HostBinding('attr.x')` de componente.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LigacaoDoHospedeiro {
+    /// `class.ativo`, `attr.role`.
+    pub nome: String,
+    /// O campo ou getter lido.
+    pub membro: String,
+    /// Campo `final`: escrito uma vez, na primeira checagem (`isImmutable`).
     pub imutavel: bool,
 }
 
@@ -472,6 +487,17 @@ fn ler(
     );
     c.consultas = consultas_da_classe(arvore, fonte, interner, classe, &mut c.nao_entendidos);
     c.ouvintes = ouvintes_da_classe(arvore, interner, classe, &mut c.nao_entendidos);
+    if e_componente && c.liga_hospedeiro {
+        if c.herda {
+            // Os herdados entram na lista do oficial e não se veem daqui.
+            c.nao_entendidos.push(recusa(
+                Motivo::HostBindingEmComponente,
+                "@HostBinding em componente que herda",
+            ));
+        }
+        c.ligacoes_do_hospedeiro =
+            ligacoes_do_hospedeiro(arvore, interner, classe, &mut c.nao_entendidos);
+    }
     c.consultas_de_conteudo = consultas_de_conteudo(arvore, interner, classe);
     c
 }
@@ -661,7 +687,7 @@ fn o_que_nao_entendemos(
         for a in membro.metadata.iter() {
             let nome = crate::nome_da_anotacao(a, interner);
             let motivo = match nome.as_str() {
-                "HostBinding" => Motivo::HostBindingEmComponente,
+                "HostBinding" if !e_componente => Motivo::HostBindingEmComponente,
                 "ContentChild" | "ContentChildren" => Motivo::ContentChild,
                 _ => continue,
             };
@@ -702,6 +728,77 @@ fn consultas_da_classe(
         }
     }
     saida
+}
+
+/// Os `@HostBinding` de um componente, na ordem do `DirectiveVisitor`:
+/// acessores, depois campos. Só `class.x` e `attr.x` (sem contexto de
+/// segurança) com texto literal, num getter ou num campo de instância; o
+/// resto é recusado aqui.
+fn ligacoes_do_hospedeiro(
+    arvore: &ast::Ast,
+    interner: &Interner,
+    classe: &ast::ClassDecl,
+    fora: &mut Vec<Recusa>,
+) -> Vec<LigacaoDoHospedeiro> {
+    let mut acessores = Vec::new();
+    let mut campos = Vec::new();
+    let fora_da_forma = || {
+        recusa(
+            Motivo::HostBindingEmComponente,
+            "@HostBinding fora de class.x/attr.x em campo ou getter",
+        )
+    };
+    for &id in &classe.members {
+        let membro = arvore.member(id);
+        for a in membro.metadata.iter() {
+            if crate::nome_da_anotacao(a, interner) != "HostBinding" {
+                continue;
+            }
+            let nome = a.arguments.as_ref().and_then(|args| match &args.args[..] {
+                [x] if x.name.is_none() => texto_do_argumento(arvore, x.value),
+                _ => None,
+            });
+            let Some(nome) = nome else {
+                fora.push(fora_da_forma());
+                continue;
+            };
+            let simples = |n: &str| !n.is_empty() && !n.contains(['.', ':']);
+            let aceito = match (nome.strip_prefix("class."), nome.strip_prefix("attr.")) {
+                (Some(c), _) => simples(c),
+                (_, Some(a)) => simples(a) && !crate::visao::com_seguranca(a),
+                _ => false,
+            };
+            if !aceito {
+                fora.push(fora_da_forma());
+                continue;
+            }
+            match &membro.kind {
+                ast::MemberKind::Field(l) if !l.static_ && !l.const_ && l.variables.len() == 1 => {
+                    campos.push(LigacaoDoHospedeiro {
+                        nome,
+                        membro: interner.resolve(l.variables[0].name.sym).to_string(),
+                        imutavel: l.final_,
+                    });
+                }
+                ast::MemberKind::Method(f) => {
+                    let funcao = arvore.function(*f);
+                    match (funcao.kind, funcao.name) {
+                        (ast::FunctionKind::Getter, Some(n)) if !funcao.static_ => {
+                            acessores.push(LigacaoDoHospedeiro {
+                                nome,
+                                membro: interner.resolve(n.sym).to_string(),
+                                imutavel: false,
+                            });
+                        }
+                        _ => fora.push(fora_da_forma()),
+                    }
+                }
+                _ => fora.push(fora_da_forma()),
+            }
+        }
+    }
+    acessores.extend(campos);
+    acessores
 }
 
 /// Os `@HostListener` da classe, na ordem de declaração dos métodos (o

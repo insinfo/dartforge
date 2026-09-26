@@ -1249,6 +1249,9 @@ pub struct Filho {
     pub ganchos: crate::componente::Ganchos,
     /// `onPush`: quem muda uma entrada marca a checagem do filho.
     pub on_push: bool,
+    /// `@HostBinding`: quem o usa chama `detectHostChanges(firstCheck)`
+    /// antes de detectar a visão dele (`bindDirectiveHostProps`).
+    pub hospedeiro: bool,
     /// `@Output`s (nome no template, membro), na ordem do mapa `outputs`.
     pub saidas: Vec<(String, String)>,
     /// O que o construtor do filho recebe, na ordem.
@@ -1484,6 +1487,8 @@ struct Corpo<'a> {
     campos_filho: Vec<String>,
     /// `_compView_n` de cada filho, para a detecção e a destruição.
     vistas_filhas: Vec<String>,
+    /// As visões-filhas de componente com `@HostBinding`.
+    vistas_hospedeiras: std::collections::HashSet<String>,
     /// Asset deste arquivo, para calcular os caminhos de import dos filhos.
     asset: String,
     /// Banco semântico e o arquivo, para tipar cadeias como `item.nome`.
@@ -2243,6 +2248,10 @@ impl Corpo<'_> {
         self.campos_filho
             .push(format!("  late final {vd}.{classe} {campo_inst};"));
         self.vistas_filhas.push(campo_vista.clone());
+        if filho.hospedeiro {
+            self.vistas_hospedeiras.insert(campo_vista.clone());
+            self.usa_primeira_checagem = true;
+        }
         self.linhas.push(format!(
             "    this.{campo_vista} = {vt}.View{classe}0(this, {n});"
         ));
@@ -4843,6 +4852,7 @@ impl<'a> Contexto<'a> {
             mensagens: Vec::new(),
             campos_filho: Vec::new(),
             vistas_filhas: Vec::new(),
+            vistas_hospedeiras: Default::default(),
             campos_expr: Vec::new(),
             campos_el: Vec::new(),
             proxima_ligacao: 0,
@@ -5106,6 +5116,9 @@ fn corpo_da_embutida(
     linhas_det.extend(sem_lancar(&dentro.apos_conteudo));
     linhas_det.extend(dentro.deteccao.clone());
     for v in &dentro.vistas_filhas {
+        if dentro.vistas_hospedeiras.contains(v) {
+            linhas_det.push(format!("    this.{v}.detectHostChanges(firstCheck);"));
+        }
         linhas_det.push(format!("    this.{v}.detectChanges();"));
     }
     linhas_det.extend(sem_lancar(&dentro.apos_visao));
@@ -5571,7 +5584,7 @@ fn resolver_tardios(imp: &mut Importacoes, texto: &str) -> String {
 /// (`_initializeSecuritySchema`, em `dom_element_schema_registry.dart`): o
 /// valor sai embrulhado num `sanitize*`. Sem olhar a tag, recusa o nome em
 /// qualquer elemento.
-fn com_seguranca(nome: &str) -> bool {
+pub(crate) fn com_seguranca(nome: &str) -> bool {
     matches!(
         nome,
         "srcdoc"
@@ -6238,6 +6251,56 @@ fn gerar_componente(
     } else {
         format!("\n{linhas}")
     };
+    // `@HostBinding` do componente: o `detectHostChanges(firstCheck)` da
+    // visão (`bindAndWriteToRenderer` com `isHtmlElement` falso — daí o
+    // `updateClassBindingNonHtml`), com os índices de ligação depois dos do
+    // template e as imutáveis antes, no `if (firstCheck)`. O `checkBinding`
+    // leva `null, null`: a ligação não tem texto de template.
+    let host_changes = if c.ligacoes_do_hospedeiro.is_empty() {
+        String::new()
+    } else {
+        let dom = tardio(DOM_HELPERS);
+        let chk = tardio(CHECK_BINDING);
+        let mut constantes = Vec::new();
+        let mut dinamicas = Vec::new();
+        for l in &c.ligacoes_do_hospedeiro {
+            let k = corpo.proxima_ligacao;
+            corpo.proxima_ligacao += 1;
+            let acao = |v: &str| match (l.nome.strip_prefix("class."), l.nome.strip_prefix("attr."))
+            {
+                (Some(x), _) => {
+                    format!("{dom}.updateClassBindingNonHtml(this.rootElement, '{x}', {v})")
+                }
+                (_, Some(x)) => format!("{dom}.updateAttribute(this.rootElement, '{x}', {v})"),
+                _ => String::new(),
+            };
+            let m = &l.membro;
+            if l.imutavel {
+                constantes.push(format!(
+                    "      if ((_ctx.{m} != null)) {{\n        {};\n      }}",
+                    acao(&format!("_ctx.{m}"))
+                ));
+            } else {
+                corpo.campos_expr.push(format!("  Object? _expr_{k};"));
+                dinamicas.push(format!(
+                    "    final currVal_{k} = _ctx.{m};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, null, null)) {{\n      {};\n      this._expr_{k} = currVal_{k};\n    }}",
+                    acao(&format!("currVal_{k}"))
+                ));
+            }
+        }
+        let mut linhas = vec!["    final _ctx = this.ctx;".to_string()];
+        if !constantes.is_empty() {
+            linhas.push(format!(
+                "    if (firstCheck) {{\n{}\n    }}",
+                constantes.join("\n")
+            ));
+        }
+        linhas.extend(dinamicas);
+        format!(
+            "\n  void detectHostChanges(bool firstCheck) {{\n{}\n  }}\n",
+            linhas.join("\n")
+        )
+    };
     // Ordem dos campos na classe, como o oficial escreve: ligações de texto,
     // depois os valores anteriores das ligações, depois os elementos.
     let especs = std::mem::take(&mut corpo.embutidas);
@@ -6288,6 +6351,9 @@ fn gerar_componente(
     linhas_deteccao.extend(sem_lancar(&apos_conteudo));
     linhas_deteccao.extend(corpo.deteccao.iter().cloned());
     for v in &corpo.vistas_filhas {
+        if corpo.vistas_hospedeiras.contains(v) {
+            linhas_deteccao.push(format!("    this.{v}.detectHostChanges(firstCheck);"));
+        }
         linhas_deteccao.push(format!("    this.{v}.detectChanges();"));
     }
     linhas_deteccao.extend(sem_lancar(&corpo.apos_visao));
@@ -6359,6 +6425,8 @@ fn gerar_componente(
         .iter()
         .map(|m| resolver_refs(&resolver_tardios(corpo.imp, m), &ctx.refs_resolvidos.borrow()))
         .collect();
+    // O `detectHostChanges` vem depois dos handlers (`view.methods`).
+    let metodos = metodos + &resolver_tardios(corpo.imp, &host_changes);
     // `corpo` empresta o interner e a tabela de imports; a emissão das
     // visões embutidas precisa dos dois.
     *coleta = corpo.coleta.take();
@@ -6398,7 +6466,20 @@ fn gerar_componente(
             return Err(r);
         }
     }
-    let ciclo = resolver_tardios(&mut imp, &ciclo_de_vida(&c.ganchos, marca));
+    let mut ciclo = resolver_tardios(&mut imp, &ciclo_de_vida(&c.ganchos, marca));
+    // Com `@HostBinding`, a hospedeira chama o `detectHostChanges` antes de
+    // detectar a visão do componente. Junto de ganchos de ciclo de vida,
+    // a ordem ainda não tem caso.
+    if !c.ligacoes_do_hospedeiro.is_empty() {
+        if ciclo.is_empty() {
+            ciclo = "\n  @override\n  void detectChangesInternal() {\n    bool firstCheck = this.firstCheck;\n    this.componentView.detectHostChanges(firstCheck);\n    this.componentView.detectChanges();\n  }\n".to_string();
+        } else if coleta.is_none() {
+            return Err(recusa(
+                Motivo::HostBindingEmComponente,
+                "@HostBinding com gancho de ciclo de vida",
+            ));
+        }
+    }
 
     let x = &c.classe;
     let seletor = &c.seletor;
