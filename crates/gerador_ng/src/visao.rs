@@ -401,51 +401,34 @@ fn i18n_antes_da_interpolacao(nos: &[No]) -> Option<bool> {
 const MARCA_DE_REF: char = '\u{5}';
 const FIM_DE_REF: char = '\u{6}';
 
-/// Os `#ref` que viram local da visão do componente: sem valor, declarados
-/// uma vez num elemento HTML da própria visão (não em `*`, não no conteúdo
-/// de um filho), lidos por alguma expressão, nunca de dentro de uma visão
-/// embutida, e sem membro do componente com o mesmo nome — o
-/// `_TypeResolver` do oficial tiparia a leitura pelo membro.
-///
-/// É o `nameResolver.addLocal(nome, renderNode)` do `CompileElement`: quem
-/// lê o local fora do `build()` (detecção, handler) promove o nó a campo
-/// (`NodeReferenceStorageVisitor`), e o tipo da leitura é `dynamic` (a
-/// referência não entra nos `locals` do `AnalyzedClass`).
-fn referencias_locais(
-    nos: &[No],
-    filhos: &std::collections::HashMap<String, Filho>,
-    c: &Componente,
-) -> std::collections::HashSet<String> {
-    fn todas(nos: &[No], saida: &mut Vec<(String, String)>) {
+/// Os nomes de `#ref` do template que podem virar local: sem valor,
+/// declarados uma vez só, sem membro do componente com o mesmo nome (o
+/// `_TypeResolver` do oficial tiparia a leitura pelo membro) e sem `let`
+/// que o sombreie.
+fn referencias_unicas(nos: &[No], c: &Componente) -> std::collections::HashSet<String> {
+    fn todas(nos: &[No], refs: &mut Vec<(String, String)>, lets: &mut Vec<String>) {
         for n in nos {
             if let No::Elemento(e) = n {
-                saida.extend(
+                refs.extend(
                     e.referencias
                         .iter()
                         .map(|r| (r.nome.clone(), r.valor.clone())),
                 );
-                todas(&e.filhos, saida);
+                if let Some(estrela) = &e.estrela {
+                    let micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
+                    lets.extend(micro.locais.into_iter().map(|(nome, _)| nome));
+                }
+                todas(&e.filhos, refs, lets);
             }
         }
     }
-    /// Alguma expressão dentro de um `*` cita o nome?
-    fn citado_em_embutida(nos: &[No], nome: &str) -> bool {
-        nos.iter().any(|n| match n {
-            No::Elemento(e) if e.estrela.is_some() => local_citado(std::slice::from_ref(n), nome),
-            No::Elemento(e) => citado_em_embutida(&e.filhos, nome),
-            _ => false,
-        })
-    }
-    let mut refs = Vec::new();
-    todas(nos, &mut refs);
+    let (mut refs, mut lets) = (Vec::new(), Vec::new());
+    todas(nos, &mut refs, &mut lets);
     refs.iter()
         .filter(|(nome, valor)| {
-            let mut lugares = Vec::new();
-            onde_esta(nos, nome, filhos, false, &mut lugares);
             valor.is_empty()
-                && lugares == [Lugar::Raiz]
-                && local_citado(nos, nome)
-                && !citado_em_embutida(nos, nome)
+                && refs.iter().filter(|(n, _)| n == nome).count() == 1
+                && !lets.contains(nome)
                 && !c.membros.contains_key(nome.as_str())
                 && !c.metodos.contains_key(nome.as_str())
         })
@@ -453,7 +436,34 @@ fn referencias_locais(
         .collect()
 }
 
-/// Troca as marcas de `#ref` ([`MARCA_DE_REF`]) pelo nó de cada um.
+/// Os `#ref` (de `unicos`) que viram local desta visão: declarados num
+/// elemento HTML ou de componente filho dela (não dentro de outro `*`, não
+/// no conteúdo de um filho) — o nó ou a instância do filho — e lidos por
+/// alguma expressão dela ou das visões embutidas nela.
+///
+/// É o `nameResolver.addLocal(nome, renderNode)` do `CompileElement`: quem
+/// lê o local fora do `build()` (detecção, handler, outra visão) promove o
+/// nó a campo (`NodeReferenceStorageVisitor`), e o tipo da leitura é
+/// `dynamic` (a referência não entra nos `locals` do `AnalyzedClass`).
+fn referencias_locais(
+    nos: &[No],
+    filhos: &std::collections::HashMap<String, Filho>,
+    unicos: &std::collections::HashSet<String>,
+) -> std::collections::HashSet<String> {
+    unicos
+        .iter()
+        .filter(|nome| {
+            let mut lugares = Vec::new();
+            onde_esta(nos, nome, filhos, false, &mut lugares);
+            matches!(lugares.as_slice(), [Lugar::Raiz | Lugar::NoFilho]) && local_citado(nos, nome)
+        })
+        .cloned()
+        .collect()
+}
+
+/// Troca as marcas de `#ref` ([`MARCA_DE_REF`]) pelo nó de cada um:
+/// `\u{5}x\u{6}` pela leitura na própria visão (`this._el_3`), e
+/// `\u{5}.x\u{6}` só pelo campo (`_el_3`), lido de uma visão aninhada.
 fn resolver_refs(texto: &str, refs: &std::collections::HashMap<String, String>) -> String {
     let mut saida = String::with_capacity(texto.len());
     let mut resto = texto;
@@ -462,7 +472,14 @@ fn resolver_refs(texto: &str, refs: &std::collections::HashMap<String, String>) 
         let depois = &resto[i + MARCA_DE_REF.len_utf8()..];
         let f = depois.find(FIM_DE_REF).unwrap_or(depois.len());
         let nome = &depois[..f];
-        saida.push_str(refs.get(nome).map_or(nome, String::as_str));
+        match nome.strip_prefix('.') {
+            Some(n) => {
+                let leitura = refs.get(n).map_or(n, String::as_str);
+                saida.push('.');
+                saida.push_str(leitura.strip_prefix("this.").unwrap_or(leitura));
+            }
+            None => saida.push_str(refs.get(nome).map_or(nome, String::as_str)),
+        }
         resto = depois.get(f + FIM_DE_REF.len_utf8()..).unwrap_or("");
     }
     saida.push_str(resto);
@@ -1144,6 +1161,8 @@ struct Corpo<'a> {
     /// ([`referencias_locais`]): o nó vira campo e o nome, local
     /// (`final local_x = this._el_n;`).
     refs_locais: std::collections::HashSet<String>,
+    /// Os `#ref` locais das visões ancestrais (ver [`EspecEmbutida`]).
+    refs_ancestrais: Vec<(String, String, u32)>,
     /// Cada `#ref` visto, com a expressão do nó (`_el_3` ou `this._el_3`) —
     /// é o valor que o `@ViewChild` recebe.
     refs: std::collections::HashMap<String, String>,
@@ -1353,6 +1372,28 @@ impl Corpo<'_> {
 
     fn dom(&mut self) -> String {
         self.imp.alias(DOM_HELPERS)
+    }
+
+    /// Os `#ref` desta visão lidos como local: o local (`dynamic`) e a
+    /// declaração com a marca do nó, trocada quando a visão termina.
+    fn declarar_refs(&mut self, refs: std::collections::HashSet<String>) {
+        for nome in &refs {
+            self.locais.insert(
+                nome.clone(),
+                crate::expr::Local {
+                    dart: format!("local_{nome}"),
+                    tipo: "dynamic".into(),
+                    escopo: None,
+                },
+            );
+            self.decl_locais.insert(
+                nome.clone(),
+                Ok(format!(
+                    "final local_{nome} = {MARCA_DE_REF}{nome}{FIM_DE_REF};"
+                )),
+            );
+        }
+        self.refs_locais = refs;
     }
 
     /// O campo de uma mensagem `@i18n` sem HTML (`createI18nMessage`): um
@@ -1850,13 +1891,13 @@ impl Corpo<'_> {
         } else {
             None
         };
-        // `#ref` no filho vale a instância; só na forma que não muda nada
-        // no nó e que nenhuma expressão lê (o `@ViewChild` a recebe).
+        // `#ref` no filho vale a instância (o campo dela): só sem valor, e
+        // lido por expressão só da própria visão ([`referencias_locais`]).
         for r in &e.referencias {
             if !r.valor.is_empty() {
                 return Err(em_filho("#ref com valor no filho"));
             }
-            if !self.refs_livres.contains(&r.nome) {
+            if !self.refs_livres.contains(&r.nome) && !self.refs_locais.contains(&r.nome) {
                 return Err(em_filho(if self.embutida {
                     "#ref no filho em visão embutida"
                 } else {
@@ -2776,6 +2817,16 @@ impl Corpo<'_> {
             locais,
             micro,
             ancestrais,
+            refs_ancestrais: self
+                .refs_ancestrais
+                .iter()
+                .map(|(n, c, k)| (n.clone(), c.clone(), k + 1))
+                .chain(
+                    self.refs_locais
+                        .iter()
+                        .map(|n| (n.clone(), self.classe_desta_visao(), 1)),
+                )
+                .collect(),
             acima: self
                 .acima
                 .iter()
@@ -4404,6 +4455,9 @@ struct EspecEmbutida {
     micro: crate::micro::Micro,
     /// Os locais declarados em visões ancestrais, com de onde vêm.
     ancestrais: std::collections::HashMap<String, Origem>,
+    /// Os `#ref` lidos como local declarados em visões ancestrais: (nome,
+    /// classe da visão que o declara, quantos `parentView` até ela).
+    refs_ancestrais: Vec<(String, String, u32)>,
     /// Os provedores acima da âncora, vistos da visão nova.
     acima: Vec<(crate::diretivas::Token, String, Option<(String, u32)>)>,
     componentes_acima: u32,
@@ -4435,6 +4489,11 @@ struct Contexto<'a> {
     tipo_do_contexto: String,
     html: String,
     pipes: &'a PipesDoTemplate,
+    /// Os nomes de `#ref` que podem virar local ([`referencias_unicas`]).
+    refs_unicos: std::collections::HashSet<String>,
+    /// O nó de cada `#ref` visto, de todas as visões já percorridas: a visão
+    /// aninhada é emitida depois da que a contém, e lê dela o campo.
+    refs_resolvidos: std::cell::RefCell<std::collections::HashMap<String, String>>,
 }
 
 impl<'a> Contexto<'a> {
@@ -4454,6 +4513,7 @@ impl<'a> Contexto<'a> {
             ouvintes: Vec::new(),
             refs_livres: Default::default(),
             refs_locais: Default::default(),
+            refs_ancestrais: Vec::new(),
             refs: Default::default(),
             campos: Vec::new(),
             intl: None,
@@ -4568,6 +4628,7 @@ fn corpo_da_embutida(
     if tem_interpolacao(&espec.nos) {
         dentro.tb = Some(dentro.imp.alias(TEXT_BINDING));
     }
+    let refs_locais = referencias_locais(&espec.nos, ctx.filhos, &ctx.refs_unicos);
     if let Err(r) = alocar_imports_dos_campos(
         dentro.imp,
         &espec.nos,
@@ -4575,7 +4636,7 @@ fn corpo_da_embutida(
         ctx.usadas,
         &ctx.asset,
         &ctx.pipes.imports_dos_campos(espec.indice),
-        &Default::default(),
+        &refs_locais,
     ) {
         dentro.anotar(r)?;
     }
@@ -4593,6 +4654,23 @@ fn corpo_da_embutida(
     dentro.ancestrais = espec.ancestrais.clone();
     dentro.acima = espec.acima.clone();
     dentro.componentes_acima = espec.componentes_acima;
+    // Os `#ref` das visões ancestrais: o campo do nó na visão que o
+    // declara (`getPropertyInView`, sem cast do valor: a referência não tem
+    // tipo).
+    for (nome, classe, niveis) in &espec.refs_ancestrais {
+        let mut cadeia = "(this.parentView!)".to_string();
+        for _ in 1..*niveis {
+            cadeia = format!("({cadeia}.parentView!)");
+        }
+        dentro.decl_locais.insert(
+            nome.clone(),
+            Ok(format!(
+                "final local_{nome} = {util}.unsafeCast<{classe}>({cadeia}){MARCA_DE_REF}.{nome}{FIM_DE_REF};"
+            )),
+        );
+    }
+    dentro.refs_ancestrais = espec.refs_ancestrais.clone();
+    dentro.declarar_refs(refs_locais);
     for (nome, origem) in &espec.ancestrais {
         let Some(l) = espec.locais.get(nome.as_str()) else {
             continue;
@@ -4615,6 +4693,9 @@ fn corpo_da_embutida(
     let anotadas = dentro.coleta.as_ref().map_or(0, Vec::len);
     dentro.nos(&espec.nos, "")?;
     dentro.conferir_pipes()?;
+    ctx.refs_resolvidos
+        .borrow_mut()
+        .extend(dentro.refs.iter().map(|(k, v)| (k.clone(), v.clone())));
     // Na coleta, um nó recusado não consome índice: a visão parece vazia
     // sem estar.
     if dentro.proximo == 0 && dentro.coleta.as_ref().map_or(0, Vec::len) == anotadas {
@@ -4712,7 +4793,10 @@ fn corpo_da_embutida(
     };
     // O `injectorGetInternal` vem depois do `build()` e antes da detecção.
     let injetor = resolver_tardios(dentro.imp, &metodo_injetor(&dentro.injetores, &dentro.asset));
-    let deteccao = resolver_tardios(dentro.imp, &deteccao);
+    let deteccao = resolver_refs(
+        &resolver_tardios(dentro.imp, &deteccao),
+        &ctx.refs_resolvidos.borrow(),
+    );
     // Visão embutida também destrói o que pendurou nela.
     let destruicao = if dentro.ancoras.is_empty()
         && dentro.vistas_filhas.is_empty()
@@ -4742,7 +4826,7 @@ fn corpo_da_embutida(
     let metodos: String = dentro
         .metodos_evento
         .iter()
-        .map(|m| resolver_tardios(dentro.imp, m))
+        .map(|m| resolver_refs(&resolver_tardios(dentro.imp, m), &ctx.refs_resolvidos.borrow()))
         .collect();
     // As raízes (`rootNodesOrViewContainers`): cada nó criado sem pai, o
     // local ou o campo (`renderNode.toReadExpr()`) — mais de uma quando o
@@ -4962,23 +5046,65 @@ fn contar_estruturais(nos: &[No]) -> u32 {
 /// A declaração dele abre o `detectChangesInternal` e traz o `dart:core`
 /// junto, então a decisão precisa ser tomada antes de percorrer o corpo.
 fn local_citado(nos: &[No], nome: &str) -> bool {
-    let cita = |texto: &str| {
-        texto
-            .split(|c: char| !c.is_alphanumeric() && c != '_' && c != '$')
-            .any(|t| t == nome)
-    };
+    let cita = |texto: &str| cita_na_raiz(texto, nome);
     nos.iter().any(|n| match n {
         No::Interpolacao { expr, .. } => cita(expr),
         No::Elemento(e) => {
             e.propriedades
                 .iter()
                 .chain(e.eventos.iter())
+                .chain(e.bananas.iter())
                 .any(|l| cita(&l.valor))
+                || e.atributos
+                    .iter()
+                    .any(|a| a.valor.contains("{{") && cita(&a.valor))
                 || e.estrela.as_ref().is_some_and(|l| cita(&l.valor))
                 || local_citado(&e.filhos, nome)
         }
         _ => false,
     })
+}
+
+/// A expressão lê `nome` com o receptor implícito — que é quando o
+/// `ViewNameResolver.getLocal` é chamado? O nome depois de `.`/`?.` é
+/// membro de outra coisa, antes de `:` depois de `(`/`,` é argumento
+/// nomeado, e dentro de aspas é texto.
+fn cita_na_raiz(texto: &str, nome: &str) -> bool {
+    let cs: Vec<char> = texto.chars().collect();
+    let parte = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+    let mut i = 0;
+    while i < cs.len() {
+        let c = cs[i];
+        if c == '\'' || c == '"' {
+            i += 1;
+            while i < cs.len() && cs[i] != c {
+                if cs[i] == '\\' {
+                    i += 1;
+                }
+                i += 1;
+            }
+            i += 1;
+            continue;
+        }
+        if !parte(c) {
+            i += 1;
+            continue;
+        }
+        let ini = i;
+        while i < cs.len() && parte(cs[i]) {
+            i += 1;
+        }
+        if cs[ini..i].iter().copied().eq(nome.chars()) {
+            let antes = cs[..ini].iter().rev().find(|c| !c.is_whitespace());
+            let depois = cs[i..].iter().find(|c| !c.is_whitespace());
+            let membro = antes == Some(&'.');
+            let nomeado = depois == Some(&':') && matches!(antes, Some('(' | ','));
+            if !membro && !nomeado {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// As diretivas estruturais que o gerador conhece, com o que muda em cada
@@ -5532,7 +5658,8 @@ fn gerar_componente(
             recusa(Motivo::I18n, "@i18n com filho, diretiva ou `*` na visão"),
         )?;
     }
-    let refs_locais = referencias_locais(nos, filhos, c);
+    let refs_unicos = referencias_unicas(nos, c);
+    let refs_locais = referencias_locais(nos, filhos, &refs_unicos);
     if let Err(r) = alocar_imports_dos_campos(
         &mut imp,
         nos,
@@ -5566,26 +5693,12 @@ fn gerar_componente(
         tipo_do_contexto: format!("{proprio}.{}", c.classe),
         html: html.clone(),
         pipes: &tabela,
+        refs_unicos,
+        refs_resolvidos: Default::default(),
     };
     let mut corpo = ctx.corpo(&mut imp, nomes, coleta.take(), false);
     corpo.refs_livres = referencias_livres(nos);
-    for nome in &refs_locais {
-        corpo.locais.insert(
-            nome.clone(),
-            crate::expr::Local {
-                dart: format!("local_{nome}"),
-                tipo: "dynamic".into(),
-                escopo: None,
-            },
-        );
-        corpo.decl_locais.insert(
-            nome.clone(),
-            Ok(format!(
-                "final local_{nome} = {MARCA_DE_REF}{nome}{FIM_DE_REF};"
-            )),
-        );
-    }
-    corpo.refs_locais = refs_locais;
+    corpo.declarar_refs(refs_locais);
     corpo.intl = intl;
     corpo.tb = tb;
     let r = corpo
@@ -5595,6 +5708,9 @@ fn gerar_componente(
         *coleta = corpo.coleta.take();
         return Err(r);
     }
+    ctx.refs_resolvidos
+        .borrow_mut()
+        .extend(corpo.refs.iter().map(|(k, v)| (k.clone(), v.clone())));
     // `@ViewChild` estático: atribuição imediata, no `afterNodes` — depois
     // dos ouvintes, na ordem de declaração das consultas
     // (`updateQueryAtStartup`, `createImmediateUpdates` em
@@ -5750,7 +5866,7 @@ fn gerar_componente(
             linhas_deteccao.join("\n")
         )
     };
-    let deteccao = resolver_refs(&deteccao, &corpo.refs);
+    let deteccao = resolver_refs(&deteccao, &ctx.refs_resolvidos.borrow());
     // O `injectorGetInternal` vem depois do `build()` e antes da detecção.
     let injetor = resolver_tardios(corpo.imp, &metodo_injetor(&corpo.injetores, &corpo.asset));
     // Os imports da detecção entram agora, depois dos do `build()`.
@@ -5783,7 +5899,7 @@ fn gerar_componente(
     let metodos: String = corpo
         .metodos_evento
         .iter()
-        .map(|m| resolver_refs(&resolver_tardios(corpo.imp, m), &corpo.refs))
+        .map(|m| resolver_refs(&resolver_tardios(corpo.imp, m), &ctx.refs_resolvidos.borrow()))
         .collect();
     // `corpo` empresta o interner e a tabela de imports; a emissão das
     // visões embutidas precisa dos dois.
@@ -6092,6 +6208,18 @@ mod testes {
             anotado: false,
             opcional: false,
         }
+    }
+
+    /// Só a leitura com receptor implícito chama o `getLocal` (caso i45).
+    #[test]
+    fn citacao_de_local_so_na_raiz() {
+        assert!(cita_na_raiz("usar(campo.value)", "campo"));
+        assert!(cita_na_raiz("a ? campo : b", "campo"));
+        assert!(!cita_na_raiz("p.campo", "campo"));
+        assert!(!cita_na_raiz("p?.campo", "campo"));
+        assert!(!cita_na_raiz("f(campo: 1)", "campo"));
+        assert!(!cita_na_raiz("'campo' + x", "campo"));
+        assert!(!cita_na_raiz("campos", "campo"));
     }
 
     /// Bytes exatos do arquivo que o compilador oficial gerou para

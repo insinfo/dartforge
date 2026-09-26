@@ -1,0 +1,1 @@
+<input #busca><ul><li *ngFor="let x of itens"><input #campo><button (click)="usar(campo.value, busca.value, x)">+</button>{{campo.value}}</li></ul>

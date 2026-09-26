@@ -148,3 +148,5 @@ export 'src/i40_ng_container_texto.dart';
 export 'src/i41_ng_class_formas.dart';
 export 'src/i42_ng_switch_formas.dart';
 export 'src/i43_micro_dois_pontos.dart';
+export 'src/i44_ref_em_embutida.dart';
+export 'src/i45_ref_formas.dart';
