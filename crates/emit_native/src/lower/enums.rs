@@ -57,13 +57,31 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// `E.values`: a lista dos valores, na ordem de declaração.
     pub fn valores_do_enum(&mut self, cid: ClassId, span: Span) -> Operand {
-        let consts: Vec<VariableId> = self.ctx.program.classes[cid.0 as usize].enum_constants.clone();
-        let mut elementos = Vec::with_capacity(consts.len());
-        for v in consts {
-            let x = self.ler_global(v, span);
-            elementos.push((x, 3));
-        }
-        self.emit(Instruction::AllocList { elements: elementos }, Type::Ref)
+        // `E.values` é uma constante: a mesma lista (`List<E>`, imutável)
+        // em toda leitura.
+        let classe = &self.ctx.program.classes[cid.0 as usize];
+        let simbolo = format!(
+            "dfc.{}.{}.values",
+            crate::context::escapar(&self.ctx.nome_da_biblioteca(classe.library)),
+            crate::context::escapar(self.ctx.symbol_name(classe.name))
+        );
+        let consts: Vec<VariableId> = classe.enum_constants.clone();
+        self.constante_gerada(&simbolo, true, |b| {
+            let mut elementos = Vec::with_capacity(consts.len());
+            for v in consts {
+                let x = b.ler_global(v, span);
+                elementos.push((x, 3));
+            }
+            let l = b.emit(Instruction::AllocList { elements: elementos }, Type::Ref);
+            if let Some(lista) = b.ctx.core.list_class {
+                let tipo = b.rti_da_receita(&super::rti::Receita {
+                    texto: format!("C{}<C{}>", b.ctx.id_rti(lista), b.ctx.id_rti(cid)),
+                    variaveis: false,
+                });
+                b.definir_rti(l.clone(), tipo);
+            }
+            l
+        })
     }
 
     /// Corpo do getter preguiçoso de um valor de enum: cria o objeto

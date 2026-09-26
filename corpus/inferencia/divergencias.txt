@@ -1,6 +1,6 @@
 # Divergências e avisos conhecidos do corpus/inferencia contra o oráculo
 # (catraca de crates/types/tests/corpus_inferencia.rs; só encolhe).
-# programas iguais ao oráculo: 83/95; expressões comparadas: 2433; divergentes: 35; avisos: 3
+# programas iguais ao oráculo: 84/95; expressões comparadas: 2433; divergentes: 33; avisos: 3
 01_contexto/ctx11_override.dart:461:2	List	nós=List<dynamic>	oráculo=List<double>
 01_contexto/ctx11_override.dart:490:32	List	nós=List<dynamic>	oráculo=List<Object>
 01_contexto/ctx11_override.dart:512:9	Property	nós=dynamic	oráculo=List<double>
@@ -21,8 +21,6 @@
 02_genericos/gen14_horizontal_cadeia.dart:264:1	Identifier	nós=Object?	oráculo=int
 02_genericos/gen14_horizontal_cadeia.dart:308:1	Identifier	nós=dynamic	oráculo=bool
 02_genericos/gen14_horizontal_cadeia.dart:aviso:270	The property 'isEven' can't be unconditionally accessed because the receiver can be 'null'.
-03_literais/lit03_conjunto_mapa.dart:269:6	SetOrMap	nós=Map<dynamic, dynamic>	oráculo=Set<int>
-03_literais/lit03_conjunto_mapa.dart:401:1	Identifier	nós=Map<dynamic, dynamic>	oráculo=Set<int>
 05_closures/clo04_geradores.dart:239:11	FunctionExpression	nós=Iterable<Never> Function()	oráculo=Iterable<dynamic> Function()
 05_closures/clo04_geradores.dart:267:39	FunctionExpression	nós=Iterable<int> Function()	oráculo=Iterable<int?> Function()
 05_closures/clo04_geradores.dart:434:1	Identifier	nós=Iterable<Never> Function()	oráculo=Iterable<dynamic> Function()

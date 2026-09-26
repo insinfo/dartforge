@@ -131,11 +131,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if !(em_const || *const_) {
                     return None;
                 }
-                let mut partes = Vec::new();
-                for el in elements.iter() {
-                    let CollectionElement::Expression(x) = el else { return None };
-                    partes.push(self.chave_constante(ast, *x, true)?);
-                }
+                let partes = self.partes_dos_elementos(ast, elements, false)?;
                 Some(format!("l{}:[{}]", self.tipo_na_chave(e)?, partes.join(",")))
             }
             ExprKind::SetOrMap { const_, elements, .. } => {
@@ -143,26 +139,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     return None;
                 }
                 let conjunto = self.literal_e_conjunto(e, elements);
-                let mut partes = Vec::new();
-                for el in elements.iter() {
-                    match (el, conjunto) {
-                        (CollectionElement::Expression(x), true) => partes.push(self.chave_constante(ast, *x, true)?),
-                        (
-                            CollectionElement::MapEntry {
-                                key,
-                                value,
-                                null_aware_key: false,
-                                null_aware_value: false,
-                            },
-                            false,
-                        ) => {
-                            let k = self.chave_constante(ast, *key, true)?;
-                            let v = self.chave_constante(ast, *value, true)?;
-                            partes.push(format!("{k}=>{v}"));
-                        }
-                        _ => return None,
-                    }
-                }
+                let partes = self.partes_dos_elementos(ast, elements, !conjunto)?;
                 Some(format!("{}{}:{{{}}}", if conjunto { "c" } else { "m" }, self.tipo_na_chave(e)?, partes.join(",")))
             }
             ExprKind::Record { positional, named, .. } if em_const => {
@@ -179,6 +156,83 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     partes.push(format!("{n}={k}"));
                 }
                 Some(format!("r:({})", partes.join(",")))
+            }
+            _ => None,
+        }
+    }
+
+    /// As chaves dos elementos de uma coleção constante, na ordem: os
+    /// espalhamentos de outra coleção constante entram elemento a elemento e
+    /// o `if` de condição constante pelo ramo escolhido (`const [...a, 3]` é
+    /// a mesma constante que `const [1, 2, 3]`). `mapa`: entradas `k=>v`.
+    fn partes_dos_elementos(&self, ast: &ast::Ast, elements: &[CollectionElement], mapa: bool) -> Option<Vec<String>> {
+        let mut partes = Vec::new();
+        for el in elements {
+            self.partes_do_elemento(ast, el, mapa, &mut partes)?;
+        }
+        Some(partes)
+    }
+
+    fn partes_do_elemento(&self, ast: &ast::Ast, el: &CollectionElement, mapa: bool, partes: &mut Vec<String>) -> Option<()> {
+        match el {
+            CollectionElement::Expression(x) if !mapa => partes.push(self.chave_constante(ast, *x, true)?),
+            CollectionElement::MapEntry { key, value, null_aware_key: false, null_aware_value: false } if mapa => {
+                let k = self.chave_constante(ast, *key, true)?;
+                let v = self.chave_constante(ast, *value, true)?;
+                partes.push(format!("{k}=>{v}"));
+            }
+            CollectionElement::Spread { value, null_aware } => {
+                if *null_aware && self.chave_constante(ast, *value, true).as_deref() == Some("n") {
+                    return Some(());
+                }
+                partes.extend(self.partes_do_espalhado(ast, *value, mapa)?);
+            }
+            CollectionElement::If { condition, case_pattern: None, guard: None, then, else_ } => {
+                match self.chave_constante(ast, *condition, true)?.as_str() {
+                    "b:true" => self.partes_do_elemento(ast, then, mapa, partes)?,
+                    "b:false" => {
+                        if let Some(e) = else_ {
+                            self.partes_do_elemento(ast, e, mapa, partes)?;
+                        }
+                    }
+                    _ => return None,
+                }
+            }
+            _ => return None,
+        }
+        Some(())
+    }
+
+    /// Os elementos (ou entradas) da coleção constante que `e` denota: o
+    /// literal, uma `const` local, ou uma `const` de topo/estática desta
+    /// unidade.
+    fn partes_do_espalhado(&self, ast: &ast::Ast, e: ExprId, mapa: bool) -> Option<Vec<String>> {
+        match &ast.expr(e).kind {
+            ExprKind::Parenthesized(x) => self.partes_do_espalhado(ast, *x, mapa),
+            ExprKind::List { elements, .. } if !mapa => self.partes_dos_elementos(ast, elements, false),
+            ExprKind::SetOrMap { elements, .. } => {
+                let conjunto = self.literal_e_conjunto(e, elements);
+                if conjunto == mapa {
+                    return None;
+                }
+                self.partes_dos_elementos(ast, elements, mapa)
+            }
+            ExprKind::Identifier(n) if self.chaves_de_const_locais.contains_key(&n.sym) => {
+                let (_, init) = self.chaves_de_const_locais.get(&n.sym)?;
+                self.partes_do_espalhado(ast, *init, mapa)
+            }
+            ExprKind::Identifier(_) | ExprKind::Property { .. } => {
+                let vid = match self.ctx.get_resolved(self.unit_id, e) {
+                    Some(Resolved::Element(Element::Variable(v))) => *v,
+                    Some(Resolved::Element(Element::Function(f))) => self.ctx.program.functions[f.0 as usize].variable?,
+                    Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => *v,
+                    _ => return None,
+                };
+                if !self.ctx.program.variables[vid.0 as usize].const_ {
+                    return None;
+                }
+                let init = self.variable_initializer_em(vid)?;
+                self.partes_do_espalhado(ast, init, mapa)
             }
             _ => None,
         }
@@ -309,6 +363,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Corpo do getter de uma constante canônica.
     fn lower_getter_constante(&mut self, ast: &ast::Ast, e: ExprId, valor: &str, raiz: u32) {
+        let colecao = matches!(ast.expr(e).kind, ExprKind::List { .. } | ExprKind::SetOrMap { .. });
+        self.lower_getter_canonico(valor, raiz, colecao, |b| b.lower_expr(ast, e));
+    }
+
+    /// A constante canônica que `gerar` produz, pelo getter `simbolo_valor`
+    /// + `.get` (criada na primeira leitura; `colecao`: fica imutável).
+    pub fn constante_gerada(&mut self, simbolo_valor: &str, colecao: bool, gerar: impl FnOnce(&mut Self) -> Operand) -> Operand {
+        let getter = format!("{simbolo_valor}.get");
+        if !self.entradas_feitas.contains(&getter) {
+            self.entradas_feitas.insert(getter.clone());
+            let hash = super::closures::hash_nome(simbolo_valor) as u64;
+            let raiz = 0x4000_0000 | (hash as u32 & 0x3fff_ffff);
+            self.globais_extras.push((raiz, Type::Ref, simbolo_valor.to_string()));
+            let mut g = FnBuilder::new(self.ctx, self.unit_id, getter.clone(), "const".to_string(), Type::Ref);
+            g.em_contexto_const = true;
+            g.lower_getter_canonico(simbolo_valor, raiz, colecao, gerar);
+            self.globais_extras.extend(std::mem::take(&mut g.globais_extras));
+            self.absorver(g);
+        }
+        self.emit_call_with_check(Instruction::CallStatic { symbol: getter, args: Vec::new(), ret_ty: Type::Ref }, Type::Ref)
+    }
+
+    fn lower_getter_canonico(&mut self, valor: &str, raiz: u32, colecao: bool, gerar: impl FnOnce(&mut Self) -> Operand) {
         let bandeira = format!("{valor}$ok");
         let ok = self.emit(
             Instruction::LoadGlobal {
@@ -338,9 +415,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
         self.terminate(Terminator::Return(Some(v)));
         self.set_block(b_init);
-        let v = self.lower_expr(ast, e);
+        let v = gerar(self);
         let v = self.coagir(v, Type::Ref);
-        let v = if matches!(ast.expr(e).kind, ExprKind::List { .. } | ExprKind::SetOrMap { .. }) {
+        let v = if colecao {
             self.emit(
                 Instruction::CallRuntime {
                     name: "dartforge_collection_mark_unmodifiable".to_string(),
