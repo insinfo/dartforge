@@ -928,13 +928,15 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
                 inf.aviso(msg, name.span);
                 return (inf.core.dynamic_, curto);
             }
-            let msg = format!(
-                "{}: getter '{}' não definido para o tipo '{}'",
-                UNDEFINED_GETTER.template,
-                inf.interner.resolve(name.sym),
-                inf.table.format(recv, inf.interner, inf.program)
-            );
-            inf.aviso(msg, name.span);
+            if !inf.acesso_de_instancia_a_estatico(recv, name.sym, false, name.span) {
+                let msg = format!(
+                    "{}: getter '{}' não definido para o tipo '{}'",
+                    UNDEFINED_GETTER.template,
+                    inf.interner.resolve(name.sym),
+                    inf.table.format(recv, inf.interner, inf.program)
+                );
+                inf.aviso(msg, name.span);
+            }
             inf.core.dynamic_
         }
     };

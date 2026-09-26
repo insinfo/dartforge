@@ -1638,3 +1638,46 @@ fn extensoes_homonimas_importadas_continuam_aplicaveis() {
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
     assert!(diags.is_empty(), "{diags:?}");
 }
+
+#[test]
+fn casos_que_dividem_o_corpo_e_caso_irrefutavel_atribuem() {
+    // Variável de junção de `case`s que dividem o corpo (dart_style), e
+    // `case _:` que torna inalcançável a saída sem casamento.
+    let fonte = "library test; import 'dart:core';
+        class A { int? i; int? j; }
+        int f(Object o) {
+          switch (o) {
+            case A a when a.i != null:
+            case A a when a.j != null:
+              return a.i ?? 0;
+          }
+          return 0;
+        }
+        int g(Object o) {
+          int x;
+          switch (o) {
+            case int _:
+              x = 1;
+            case _:
+              x = 0;
+          }
+          return x;
+        }";
+    let diags = diagnosticos_de(fonte);
+    assert!(diags.is_empty(), "{diags:?}");
+}
+
+#[test]
+fn membro_estatico_por_instancia() {
+    let fonte = "library test; import 'dart:core'; class C { static void a() {} static int get g => 0; } void f(C c) { c.a(); c.g; }";
+    let diags = diagnosticos_de(fonte);
+    let v: Vec<_> = diags.iter().map(|d| (&fonte[d.span.start..d.span.end], d.message.as_str())).collect();
+    assert_eq!(
+        v,
+        vec![
+            ("a", "The static method 'a' can't be accessed through an instance."),
+            ("g", "The static getter 'g' can't be accessed through an instance."),
+        ],
+        "{diags:?}"
+    );
+}

@@ -272,12 +272,32 @@ fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, t: TypeI
             for a in args.args.iter() {
                 inferir_livre(inf, cx, a.value);
             }
-            let msg = format!(
-                "{}: expressão de tipo '{}' não é invocável",
-                UNDEFINED_METHOD.template,
-                inf.table.format(t, inf.interner, inf.program)
-            );
-            inf.aviso(msg, span);
+            // `o()`, `x.campo()`, `3(5)`: o analyzer relata
+            // `invocation_of_non_function_expression` no alvo da chamada. Um
+            // literal de tipo (`T<Null>()` com `T` alias de `dynamic`) é outro
+            // código (`invocation_of_non_function`), fora daqui.
+            // Ficam de fora (outros códigos ou nada): receptor anulável
+            // (`unchecked_…`), `void` (`use_of_void_result`), parâmetro de
+            // tipo (a chamada vai pelo limite) e nome solto que não é local
+            // (`foo()` com só `set foo`: `undefined_method`).
+            let _ = span;
+            let a = &inf.program.unit(cx.unit).ast;
+            let alvo = match &a.expr(e).kind {
+                ExprKind::Call { target, .. } => Some(*target),
+                _ => None,
+            };
+            let nome_nao_local = alvo.is_some_and(|x| match &a.expr(x).kind {
+                ExprKind::Identifier(n) => !matches!(cx.buscar(n.sym), Some(super::corpo::Nome::Local(_))),
+                _ => false,
+            });
+            let fora = t_nn == inf.core.type_
+                || t != t_nn
+                || nome_nao_local
+                || matches!(inf.table.get(t_nn), Type::Void | Type::TypeParameter { .. } | Type::Intersection { .. });
+            if let (false, Some(alvo)) = (fora, alvo) {
+                let sp = inf.span_expr(cx.unit, alvo);
+                inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::INVOCATION_OF_NON_FUNCTION_EXPRESSION, sp, &[]);
+            }
             (inf.core.dynamic_, t)
         }
     }
@@ -525,13 +545,15 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                         }
                         return (d, curto);
                     }
-                    let msg = format!(
-                        "{}: '{}' para o tipo '{}'",
-                        UNDEFINED_METHOD.template,
-                        inf.interner.resolve(name.sym),
-                        inf.table.format(r_ty, inf.interner, inf.program)
-                    );
-                    inf.aviso(msg, name.span);
+                    if !inf.acesso_de_instancia_a_estatico(r_ty, name.sym, false, name.span) {
+                        let msg = format!(
+                            "{}: '{}' para o tipo '{}'",
+                            UNDEFINED_METHOD.template,
+                            inf.interner.resolve(name.sym),
+                            inf.table.format(r_ty, inf.interner, inf.program)
+                        );
+                        inf.aviso(msg, name.span);
+                    }
                     let d = inf.core.dynamic_;
                     registrar(inf, cx, target, d);
                     for x in args.args.iter() {

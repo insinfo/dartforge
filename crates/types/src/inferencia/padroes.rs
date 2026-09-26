@@ -347,7 +347,10 @@ pub(crate) fn caso(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: 
         inf.promover(&mut sim, id, decl, tc);
         cx.fluxo = sim.clone();
     }
-    let mut nao = antes;
+    // Padrão que casa com qualquer valor do tipo (`case _:`, `case var x:`,
+    // `case Object o:` sobre `Object`): a falha do casamento é inalcançável,
+    // como na análise de fluxo do analyzer.
+    let mut nao = if irrefutavel(inf, cx, p, t) { antes.inalcancavel() } else { antes };
     if let Some(g) = guarda {
         let (gv, gf) = expr::condicao_verificada(inf, cx, g);
         sim = gv;
@@ -355,6 +358,42 @@ pub(crate) fn caso(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: 
     }
     cx.fluxo = sim.clone();
     (sim, nao)
+}
+
+/// O padrão (num `case`) casa com todo valor de tipo `t`? Só as formas
+/// simples: curinga e variável (com tipo que `t` satisfaz), `as`, `!`,
+/// parênteses, `&&` e `||`. O identificador solto de um `case` é constante,
+/// não variável.
+fn irrefutavel(inf: &mut BodyInferrer<'_>, cx: &Corpo, p: PatternId, t: TypeId) -> bool {
+    let kind = &inf.program.unit(cx.unit).ast.pattern(p).kind;
+    match kind {
+        PatternKind::Wildcard { ty: None } => true,
+        PatternKind::Variable { ty: None, var_, final_, .. } => *var_ || *final_,
+        PatternKind::Wildcard { ty: Some(a) } | PatternKind::Variable { ty: Some(a), .. } => {
+            let a = *a;
+            let tt = inf.tipo_de_anotacao(cx, a);
+            inf.sub(t, tt)
+        }
+        PatternKind::Cast { .. } => true,
+        PatternKind::Parenthesized(q) => {
+            let q = *q;
+            irrefutavel(inf, cx, q, t)
+        }
+        PatternKind::NullAssert(q) => {
+            let q = *q;
+            let nn = inf.nao_nulo(t);
+            irrefutavel(inf, cx, q, nn)
+        }
+        PatternKind::And(a, b) => {
+            let (a, b) = (*a, *b);
+            irrefutavel(inf, cx, a, t) && irrefutavel(inf, cx, b, t)
+        }
+        PatternKind::Or(a, b) => {
+            let (a, b) = (*a, *b);
+            irrefutavel(inf, cx, a, t) || irrefutavel(inf, cx, b, t)
+        }
+        _ => false,
+    }
 }
 
 /// `var (a, b) = e;` / `final [x] = e;`

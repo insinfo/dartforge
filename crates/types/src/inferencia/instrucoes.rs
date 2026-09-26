@@ -181,6 +181,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                 let mut j = i;
                 let mut entradas: Vec<Fluxo> = Vec::new();
                 cx.empurrar_escopo();
+                let primeiro_local = cx.locais.len();
                 loop {
                     let c = &cases[j];
                     cx.fluxo = nao_casou.clone();
@@ -203,6 +204,19 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                 }
                 let base = depois_valor.clone();
                 cx.fluxo = inf.juntar_todos(&base, &entradas);
+                // Casos que dividem o corpo: as variáveis dos padrões são
+                // variáveis de junção, atribuídas em qualquer caminho que
+                // chegue ao corpo (cada `case` declarou a sua cópia; a
+                // junção dos fluxos, sozinha, as via como não atribuídas).
+                if j > i {
+                    for id in primeiro_local..cx.locais.len() {
+                        let id = LocalId(id as u32);
+                        if cx.fluxo.modelo(id).is_none() {
+                            cx.fluxo.declarar(id);
+                        }
+                        cx.fluxo.inicializar(id);
+                    }
+                }
                 let corpo: Vec<StmtId> = cases[j].body.to_vec();
                 let mut avisou = false;
                 for s in corpo {
