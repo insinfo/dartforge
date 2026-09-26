@@ -486,9 +486,14 @@ da RTI de todas as classes vai numa tabela constante lida pelo runtime
 (`dartforge_rti_iniciar_tabela`), e não em código: antes eram ~13 mil
 instruções por programa, 0,7 s de ligação a cada recarga e a cada `run`.
 
-Limites: os isolados criados por `Isolate.spawn` não esperam o ponto seguro
-(a publicação só sincroniza com o principal); um trecho síncrono longo adia a
-publicação até o próximo evento (a CLI avisa depois de 2 s).
+Os isolados criados por `Isolate.spawn` param também: no ponto seguro do
+principal, a publicação pede a cada isolado vivo que pare no ponto seguro
+dele (`dartforge_parar_isolados`), troca o código com todos parados e os
+libera (`dartforge_liberar_isolados`); cada um refaz os próprios registros da
+geração nova antes de continuar.
+
+Limite: um trecho síncrono longo, em qualquer isolado, adia a publicação até
+o próximo evento dele (a CLI avisa depois de 2 s).
 
 ### Regra de visibilidade
 
