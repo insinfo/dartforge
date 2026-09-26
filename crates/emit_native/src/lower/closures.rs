@@ -156,6 +156,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // RTI: a closure vê as variáveis de tipo de quem a cria (`T` da
         // função genérica em volta: a tupla vai no fim do ambiente).
         b.params_de_tipo_da_funcao = self.params_de_tipo_da_funcao.clone();
+        b.extensao_do_this = self.extensao_do_this;
         b.classe_por_tupla = self.classe_por_tupla;
         if self.classe_por_tupla {
             // Numa fábrica não há `this`, mas `T` é o da classe.
@@ -591,6 +592,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// resolução que a inferência teria gravado, para os caminhos de sempre.
     pub fn resolver_por_nome(&self, sym: SymbolId) -> Option<dartforge_types::resolved::Resolved> {
         use dartforge_types::resolved::{MemberRef, Resolved};
+        // No corpo de uma extensão, os membros dela vêm antes dos do tipo
+        // `on` (o escopo léxico da extensão envolve o corpo).
+        if let Some((e, _)) = self.extensao_do_this {
+            let x = &self.ctx.program.extensions[e.0 as usize];
+            if let Some(&f) = x.instance_members.get(&sym).or_else(|| x.static_members.get(&sym)) {
+                return Some(Resolved::ExtensionMember { extension: e, member: f });
+            }
+        }
         for c in self.enclosing_class.map(|c| crate::lower::membros::linearizacao(self.ctx, c)).unwrap_or_default() {
             let classe = &self.ctx.program.classes[c.0 as usize];
             if !self.ctx.biblioteca_compilada(classe.library) {
@@ -626,6 +635,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         match self.resolver_por_nome(sym)? {
             Resolved::Member { member, .. } => Some(self.ler_membro_implicito(member, span)),
             Resolved::Element(el) => Some(self.ler_elemento(el, span)),
+            Resolved::ExtensionMember { member, .. } => {
+                let this = self.this_param.clone().unwrap_or(Operand::Constant(Constant::Null));
+                let receptor = self.extensao_do_this.map(|(_, on)| on);
+                Some(self.ler_extensao(this, member.0 as usize, receptor, span))
+            }
             _ => None,
         }
     }

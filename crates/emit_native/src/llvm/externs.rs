@@ -275,6 +275,26 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
+        decl: "declare void @dartforge_ffi_registrar_tipo(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_ffi_registrar_trampolim(ptr, i64, ptr)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_ffi_endereco_da_closure(i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_ffi_endereco_do_ponteiro(i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_ffi_ponteiro_de_retorno(i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
         decl: "declare i64 @dartforge_typed_novo(i64, i64, i64)",
         efeitos: CONSERVADOR,
     },

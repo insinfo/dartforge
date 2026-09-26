@@ -257,6 +257,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         // RTI: as variáveis de tipo do stub (a tupla mora no quadro).
         b.params_de_tipo_da_funcao = self.params_de_tipo_da_funcao.clone();
+        b.extensao_do_this = self.extensao_do_this;
         b.classe_por_tupla = self.classe_por_tupla;
         if self.tupla_de_tipos.is_some() {
             let t = b.ler_posicao(quadro.clone(), Q_TUPLA, Type::I64);
@@ -1167,6 +1168,10 @@ fn usos_de(inst: &Instruction) -> Vec<ValueId> {
             op(args);
             op(desc);
         }
+        Instruction::ChamadaNativa { alvo, args, .. } => {
+            op(alvo);
+            args.iter().for_each(|(a, _)| op(a));
+        }
     }
     u
 }
@@ -1275,6 +1280,10 @@ fn trocar_usos(inst: &mut Instruction, troca: &dyn Fn(ValueId) -> Option<ValueId
             t(closure);
             t(args);
             t(desc);
+        }
+        Instruction::ChamadaNativa { alvo, args, .. } => {
+            t(alvo);
+            args.iter_mut().for_each(|(a, _)| t(a));
         }
     }
 }

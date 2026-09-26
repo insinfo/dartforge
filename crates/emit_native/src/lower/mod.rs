@@ -16,6 +16,7 @@ pub mod enums;
 pub mod erros_do_runtime;
 pub mod expressoes;
 pub mod extensoes;
+pub mod ffi;
 pub mod externos;
 pub mod fn_builder;
 pub mod heranca;
@@ -325,6 +326,9 @@ fn lower_classes_e_funcoes(ctx: &Context, mut module: Module) -> Module {
     let mut module = lower_globais_e_resto(ctx, module);
     if ctx.sdk_da_fonte {
         sdk_fonte::tabelas_das_formas_de_record(ctx, &mut module);
+        if !ctx.biblioteca_sdk {
+            ffi::lower_ffi(ctx, &mut module);
+        }
     }
     module
 }
@@ -428,6 +432,7 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                     builder.this_param = Some(Operand::Val(this));
                     builder.declarar_parametros(f_idx, false);
                     let on = ctx.outline.extensions[e.0 as usize].on;
+                    builder.extensao_do_this = Some((e, on));
                     if let dartforge_types::table::Type::Interface { class, .. } = ctx.table.get(on)
                         && ctx.biblioteca_compilada(ctx.program.classes[class.0 as usize].library)
                     {
@@ -444,7 +449,8 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                 if builder.funcao_generica(f_idx) {
                     let t = builder.add_param("$tipos".to_string(), Type::I64);
                     builder.tupla_de_tipos = Some(Operand::Val(t));
-                    builder.params_de_tipo_da_funcao = ast_func.type_params.iter().map(|p| p.name.sym).collect();
+                    builder.params_de_tipo_da_funcao =
+                        builder.params_de_tipo_de(f_idx).iter().map(|&p| ctx.table.param(p).name).collect();
                 }
 
                 match ast_func.modifier {

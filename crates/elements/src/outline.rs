@@ -155,6 +155,22 @@ pub fn build_outline(
                         entry.getter = Some(Element::Class(enum_id));
                     }
                     DeclKind::Extension(ext) => {
+                        // `@patch extension E` funde os membros na extensão
+                        // `E` da biblioteca (como `merge_class_patch`).
+                        let existente = if role == UnitRole::Patch {
+                            ext.name.and_then(|n| {
+                                program.libraries[lib_idx].declared.get(&n.sym).and_then(|b| match b.getter {
+                                    Some(Element::Extension(e)) => Some(e),
+                                    _ => None,
+                                })
+                            })
+                        } else {
+                            None
+                        };
+                        if let Some(e) = existente {
+                            merge_extension_patch(&mut pools, ast, e, unit_id, ext, is_patch, interner);
+                            continue;
+                        }
                         let ext_id = create_extension_element(
                             &mut pools, ast, lib_id, unit_id, decl_id, ext, empty_sym, interner,
                         );
@@ -830,6 +846,53 @@ fn create_extension_element(
         fields: Vec::new(),
     };
 
+    extension_members(pools, ast, ext_id, lib_id, unit_id, ext, &mut ext_elem, false, interner);
+    pools.extensions.push(ext_elem);
+    ext_id
+}
+
+/// Funde os membros de um `@patch extension` na extensão `ext_id`.
+fn merge_extension_patch(
+    pools: &mut ElementPools,
+    ast: &dartforge_frontend::ast::Ast,
+    ext_id: ExtensionId,
+    unit_id: UnitId,
+    ext: &ast::ExtensionDecl,
+    is_patch: bool,
+    interner: &mut Interner,
+) {
+    // O elemento sai do pool enquanto os membros entram (os dois são
+    // emprestados mutavelmente).
+    let mut elem = std::mem::replace(
+        &mut pools.extensions[ext_id.0 as usize],
+        ExtensionElement {
+            name: None,
+            library: LibraryId(0),
+            decl: DeclRef { unit: unit_id, decl: ast::DeclId(0) },
+            type_params: Vec::new(),
+            on: (unit_id, ext.on),
+            instance_members: HashMap::new(),
+            static_members: HashMap::new(),
+            fields: Vec::new(),
+        },
+    );
+    let lib_id = elem.library;
+    extension_members(pools, ast, ext_id, lib_id, unit_id, ext, &mut elem, is_patch, interner);
+    pools.extensions[ext_id.0 as usize] = elem;
+}
+
+#[allow(clippy::too_many_arguments)]
+fn extension_members(
+    pools: &mut ElementPools,
+    ast: &dartforge_frontend::ast::Ast,
+    ext_id: ExtensionId,
+    lib_id: LibraryId,
+    unit_id: UnitId,
+    ext: &ast::ExtensionDecl,
+    ext_elem: &mut ExtensionElement,
+    is_patch: bool,
+    interner: &mut Interner,
+) {
     for &member_id in &ext.members {
         let member = ast.member(member_id);
         match &member.kind {
@@ -875,10 +938,15 @@ fn create_extension_element(
                     } else {
                         fn_sym
                     };
-                    if ast_fn.static_ {
-                        ext_elem.static_members.insert(key, fn_id);
+                    let membros = if ast_fn.static_ {
+                        &mut ext_elem.static_members
                     } else {
-                        ext_elem.instance_members.insert(key, fn_id);
+                        &mut ext_elem.instance_members
+                    };
+                    // Um membro `@patch` substitui o `external` da declaração.
+                    let velho = membros.insert(key, fn_id);
+                    if is_patch && let Some(velho) = velho {
+                        pools.functions[velho.0 as usize].patched_by = Some(fn_id);
                     }
                 }
             }
@@ -910,8 +978,6 @@ fn create_extension_element(
         }
     }
 
-    pools.extensions.push(ext_elem);
-    ext_id
 }
 
 fn create_extension_type_element(
