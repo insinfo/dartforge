@@ -86,3 +86,40 @@ superar o ganho das quatro operações juntas.
   JIT e AOT separados, dados preparados fora da medição, resultado consumido,
   comparação contra a variante escalar e contra `dart compile exe`, com
   mediana de ≥ 10 execuções. Um SIMD mais lento que o escalar é defeito.
+
+## 5. Estado medido (2026-09-26)
+
+O primeiro degrau do contrato é o **acesso aos elementos**: sem ele, nenhum
+laço sobre lista tipada escapa da chamada genérica, SIMD ou não.
+
+* **Listas tipadas numéricas** (`Int8List` … `Float64List`), com esse tipo
+  estático: `[]`, `[]=`, compostos e `length` são carga/gravação direta
+  (`lower/tipados.rs`, `CargaNativa`/`GravacaoNativa` da HIR). O comprimento
+  e o endereço vêm de `dartforge_typed_len`/`dartforge_typed_ptr`, funções
+  puras do handle (`memory(none) speculatable`) que o LLVM tira dos laços;
+  índice fora dos limites, visão não modificável e `Uint8ClampedList` caem
+  no `typed_data_patch.dart`, com os erros da VM (`corpus/nativo/20`).
+* **`List<E>`**: comprimento e elemento sem caixa por funções que só leem o
+  heap do runtime (`memory(inaccessiblemem: read)`); classe do usuário que
+  implementa `List`, listas não modificáveis e covariância ficam com o
+  despacho (`corpus/nativo/21`).
+* **Raízes do GC**: o quadro de cada função fica no stack dela (pilha-sombra)
+  e cada raiz é um `store`. Antes eram uma chamada ao runtime por valor
+  `Ref` e um vetor alocado por ativação, e essas chamadas impediam o LLVM de
+  tirar qualquer coisa dos laços.
+
+4 milhões de acessos, AOT com `--optimize`, Linux x86-64, uma execução
+aquecida (`dart compile exe` 3.6.2 como referência):
+
+| Laço | VM AOT | antes | agora |
+| --- | ---: | ---: | ---: |
+| `Int32List[]` | 3 ms | 1584 ms | 1 ms |
+| `Float32List[]` | 3 ms | 1753 ms | 2–3 ms |
+| `Uint8List[]=` | 4 ms | 2738 ms | 2–4 ms |
+| `List<int>[]` | 5 ms | 1623 ms | 45 ms |
+
+Falta: o elemento de `List<E>` lido em linha (a chamada por elemento é o que
+sobra dos 45 ms); os valores `Float32x4`/`Int32x4`/`Float64x2` como vetores
+sem caixa na HIR (item 1 do contrato), com a leitura das listas SIMD pelo
+mesmo caminho direto; e `min`/`max` com NaN e zero com sinal decididos contra
+a VM (issue dart-lang/sdk#63962).
