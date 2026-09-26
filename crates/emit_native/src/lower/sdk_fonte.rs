@@ -1108,6 +1108,51 @@ fn adaptadores_ou_recusa(ctx: &Context, module: &mut Module, gerar: impl FnOnce(
         module.functions.push(b.func);
     }
 }
+/// O getter de um campo `late` com inicializador do SDK da fonte, ou a
+/// recusa dele: `construir` baixa o getter num módulo à parte; se ele tem
+/// diagnóstico (ou o lowering entra em pânico), fica no lugar a função que
+/// avisa em tempo de execução.
+pub fn lower_getter_late_ou_recusa(
+    ctx: &Context,
+    module: &mut Module,
+    vid: VariableId,
+    unit: dartforge_elements::model::UnitId,
+    construir: impl Fn(&mut Module),
+) {
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut m = Module::new();
+        m.modo_sdk = true;
+        construir(&mut m);
+        if m.erros.is_empty() {
+            let problemas = super::verificador::verificar(&m);
+            m.erros.extend(problemas);
+        }
+        m
+    }));
+    let simbolo = super::simbolo_getter_campo_late(ctx, vid);
+    let motivo = match r {
+        Ok(m) if m.erros.is_empty() => {
+            module.functions.extend(m.functions);
+            module.globais.extend(m.globais);
+            return;
+        }
+        Ok(m) => m.erros[0].strip_prefix(crate::PREFIXO_NAO_SUPORTADO).unwrap_or(&m.erros[0]).to_string(),
+        Err(_) => "pânico do lowering".to_string(),
+    };
+    let motivo = motivo.rsplit_once(" (").map_or(motivo.as_str(), |(a, _)| a).to_string();
+    let nome = ctx.symbol_name(ctx.program.variables[vid.0 as usize].name).to_string();
+    let mut b = FnBuilder::new(ctx, unit, simbolo.clone(), nome, Type::Ref);
+    b.add_param("this".to_string(), Type::Ref);
+    let t = b.emit(Instruction::Const(Constant::String(format!("{simbolo} ({motivo})"))), Type::Ref);
+    b.emit(
+        Instruction::CallRuntime { name: "dartforge_membro_recusado".to_string(), args: vec![(t, Type::Ref)], ret_ty: Type::Void },
+        Type::Void,
+    );
+    b.terminate(Terminator::Unreachable);
+    module.functions.push(b.func);
+    module.recusados.push((simbolo, motivo));
+}
+
 /// O getter preguiçoso de um global do SDK da fonte (ou a recusa dele) e o
 /// setter `<getter>$set`, que outro módulo chama para gravar o global.
 pub fn lower_global_ou_recusa(

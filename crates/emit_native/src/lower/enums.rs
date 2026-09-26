@@ -139,6 +139,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
         self.emit(
             Instruction::CallRuntime {
+                name: "dartforge_marcar_permanente".to_string(),
+                args: vec![(obj.clone(), Type::Ref)],
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        );
+        self.emit(
+            Instruction::CallRuntime {
                 name: "dartforge_object_set".to_string(),
                 args: vec![
                     (obj.clone(), Type::Ref),

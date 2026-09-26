@@ -361,6 +361,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Type::Void,
         );
         self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_marcar_permanente".to_string(),
+                args: vec![(v.clone(), Type::Ref)],
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        );
+        self.emit(
             Instruction::StoreGlobal {
                 simbolo: bandeira,
                 val: Operand::Constant(Constant::Int(1)),

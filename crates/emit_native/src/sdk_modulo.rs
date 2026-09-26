@@ -22,7 +22,21 @@ pub const ALVO_SOBREPOSICAO: &str = "dartforge_nativo";
 /// NATIVO-PLANO §7.1), na ordem de dependência aproximada. `typed_data`
 /// entra depois (P9).
 pub const BIBLIOTECAS_DA_FONTE: &[&str] =
-    &["_internal", "core", "_compact_hash", "collection", "math", "convert", "async", "typed_data"];
+    &[
+        "_internal",
+        "core",
+        "_compact_hash",
+        "collection",
+        "math",
+        "convert",
+        "async",
+        "typed_data",
+        "isolate",
+        "developer",
+        "nativewrappers",
+        "_http",
+        "io",
+    ];
 
 /// Diretório da sobreposição: `DARTFORGE_SDK_NATIVO`, senão o `sdk_nativo/`
 /// do repositório que compilou este binário.
@@ -168,6 +182,59 @@ fn carregar_bibliotecas_da_fonte(
     Ok((program, interner))
 }
 
+/// A tabela de ids das classes do SDK da fonte (`context::TabelaDeIds`),
+/// calculada uma vez por conteúdo do SDK, da sobreposição e do compilador,
+/// e guardada em `<cache nativo>/sdk_ids/<chave>.tsv`. O programa a usa para
+/// numerar as classes do SDK como o módulo do SDK as numera, sem carregar
+/// as bibliotecas do SDK que não importa.
+///
+/// # Erros
+/// Falha ao carregar o SDK com a sobreposição, ou ao gravar o cache.
+pub fn ids_de_classe_do_sdk(lib_dir: &Path) -> Result<std::sync::Arc<crate::context::TabelaDeIds>, String> {
+    use crate::context::TabelaDeIds;
+    use std::sync::{Arc, Mutex, OnceLock};
+    static MEMO: OnceLock<Mutex<std::collections::HashMap<PathBuf, Arc<TabelaDeIds>>>> = OnceLock::new();
+    let memo = MEMO.get_or_init(Default::default);
+    if let Some(t) = memo.lock().unwrap_or_else(|e| e.into_inner()).get(lib_dir) {
+        return Ok(t.clone());
+    }
+    let chave = chave_do_sdk(lib_dir, "ids-de-classe", &[]);
+    let dir = crate::cache::dir_cache_nativo().join("sdk_ids");
+    let arquivo = dir.join(format!("{chave}.tsv"));
+    let tabela = match std::fs::read_to_string(&arquivo).ok().and_then(|t| TabelaDeIds::de_texto(&t)) {
+        Some(t) => t,
+        None => {
+            let lib_dir_c = lib_dir.to_path_buf();
+            let t = std::thread::Builder::new()
+                .stack_size(256 << 20)
+                .spawn(move || -> Result<TabelaDeIds, String> {
+                    let (program, interner) = carregar_bibliotecas_da_fonte(&lib_dir_c)?;
+                    let compiladas: Vec<bool> = program
+                        .libraries
+                        .iter()
+                        .map(|l| l.uri.strip_prefix("dart:").is_some_and(|n| BIBLIOTECAS_DA_FONTE.contains(&n)))
+                        .collect();
+                    Ok(crate::context::ids_das_classes_do_sdk(&program, &interner, &compiladas))
+                })
+                .map_err(|e| e.to_string())?
+                .join()
+                .map_err(|_| "pânico ao numerar as classes do SDK".to_string())??;
+            std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+            // Publicação atômica: outro processo pode estar gravando a mesma
+            // chave (o conteúdo é o mesmo).
+            let tmp = dir.join(format!("{chave}.{}.tmp", std::process::id()));
+            std::fs::write(&tmp, t.para_texto()).map_err(|e| format!("{}: {e}", tmp.display()))?;
+            if std::fs::rename(&tmp, &arquivo).is_err() {
+                let _ = std::fs::remove_file(&tmp);
+            }
+            t
+        }
+    };
+    let t = Arc::new(tabela);
+    memo.lock().unwrap_or_else(|e| e.into_inner()).insert(lib_dir.to_path_buf(), t.clone());
+    Ok(t)
+}
+
 /// Uma biblioteca do SDK da fonte baixada e emitida.
 #[derive(Debug, Clone)]
 pub struct BibliotecaDoSdk {
@@ -276,7 +343,23 @@ fn chave_do_sdk(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
         }
     }
     let mut arquivos = Vec::new();
-    for d in ["core", "async", "collection", "convert", "math", "internal", "typed_data", "_internal/vm/lib", "_internal/vm_shared/lib"] {
+    for d in [
+        "core",
+        "async",
+        "collection",
+        "convert",
+        "math",
+        "internal",
+        "typed_data",
+        "isolate",
+        "developer",
+        "html/dartium",
+        "_http",
+        "io",
+        "_internal/vm/lib",
+        "_internal/vm/bin",
+        "_internal/vm_shared/lib",
+    ] {
         juntar(&lib_dir.join(d), &mut arquivos);
     }
     arquivos.push(lib_dir.join("libraries.json"));
@@ -597,18 +680,25 @@ pub fn medir_lowering_do_sdk(lib_dir: &Path) -> Result<Vec<MembroDoSdk>, String>
 mod testes {
     use super::*;
 
-    const SDK: &str = "C:/tools/dartsdk-3.6.2/lib";
+    /// O SDK dos testes: `DARTFORGE_TEST_SDK_LIB`, senão o descoberto
+    /// (`SdkLayout::discover`), senão o caminho da máquina de desenvolvimento.
+    static SDK_DIR: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        std::env::var("DARTFORGE_TEST_SDK_LIB")
+            .ok()
+            .or_else(|| SdkLayout::discover().map(|p| p.to_string_lossy().into_owned()))
+            .unwrap_or_else(|| "C:/tools/dartsdk-3.6.2/lib".to_string())
+    });
 
     /// A sobreposição existe, troca os quatro arquivos e aponta para arquivos
     /// que existem.
     #[test]
     fn sobreposicao_carrega() {
-        if !Path::new(SDK).join("libraries.json").is_file() {
-            eprintln!("SDK ausente em {SDK}; teste pulado");
+        if !Path::new(SDK_DIR.as_str()).join("libraries.json").is_file() {
+            eprintln!("SDK ausente em {}; teste pulado", SDK_DIR.as_str());
             return;
         }
-        let sdk = carregar_sdk_nativo(Path::new(SDK)).unwrap();
-        assert_eq!(sdk.substituicoes.len(), 9);
+        let sdk = carregar_sdk_nativo(Path::new(SDK_DIR.as_str())).unwrap();
+        assert_eq!(sdk.substituicoes.len(), 11);
         for b in BIBLIOTECAS_DA_FONTE {
             assert!(sdk.library(b).is_some(), "dart:{b} fora do layout");
         }
@@ -621,13 +711,13 @@ mod testes {
     #[test]
     #[ignore = "medição; roda à parte"]
     fn medir_inferencia_das_bibliotecas_da_fonte() {
-        if !Path::new(SDK).join("libraries.json").is_file() {
-            eprintln!("SDK ausente em {SDK}; teste pulado");
+        if !Path::new(SDK_DIR.as_str()).join("libraries.json").is_file() {
+            eprintln!("SDK ausente em {}; teste pulado", SDK_DIR.as_str());
             return;
         }
         let tabela = std::thread::Builder::new()
             .stack_size(256 << 20)
-            .spawn(|| medir_inferencia_do_sdk(Path::new(SDK)).unwrap())
+            .spawn(|| medir_inferencia_do_sdk(Path::new(SDK_DIR.as_str())).unwrap())
             .unwrap()
             .join()
             .unwrap();
@@ -656,13 +746,13 @@ mod testes {
     #[test]
     #[ignore = "medição; roda à parte"]
     fn emitir_o_sdk() {
-        if !Path::new(SDK).join("libraries.json").is_file() {
+        if !Path::new(SDK_DIR.as_str()).join("libraries.json").is_file() {
             return;
         }
         let t = std::time::Instant::now();
         let libs = std::thread::Builder::new()
             .stack_size(256 << 20)
-            .spawn(|| emitir_bibliotecas_do_sdk(Path::new(SDK)).unwrap())
+            .spawn(|| emitir_bibliotecas_do_sdk(Path::new(SDK_DIR.as_str())).unwrap())
             .unwrap()
             .join()
             .unwrap();
@@ -691,7 +781,7 @@ mod testes {
         }
         if std::env::var("DARTFORGE_SDK_COMPILAR").is_ok_and(|v| v == "1") {
             let clang = crate::driver::NativeDriverOptions::default().clang;
-            let s = sdk_compilado(Path::new(SDK), &clang).unwrap();
+            let s = sdk_compilado(Path::new(SDK_DIR.as_str()), &clang).unwrap();
             println!("dll: {:?} (frio: {:?})", s.dll, s.frio);
         }
     }
@@ -709,7 +799,7 @@ mod testes {
             .spawn(move || {
 
                 let otimizar = std::env::var("DARTFORGE_OTIMIZAR").is_ok_and(|v| v == "1");
-                let opcoes = crate::CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: true, optimize: otimizar, versao_linguagem: None, experimentos: Vec::new() };
+                let opcoes = crate::CompileOptions { sdk: Some(Path::new(SDK_DIR.as_str())), packages: None, timings: true, optimize: otimizar, versao_linguagem: None, experimentos: Vec::new() };
                 crate::compilar(&entrada, &saida, &opcoes).map(|_| saida)
             })
             .unwrap()
@@ -732,7 +822,7 @@ mod testes {
     fn producao_e_um_executavel_autocontido() {
         // O SDK instalado (no CI, o do `DART_HOME`); sem ele, o teste só é
         // pulado fora do CI — no CI, ausência é falha, não sucesso vazio.
-        let sdk_dir = SdkLayout::discover().unwrap_or_else(|| PathBuf::from(SDK));
+        let sdk_dir = SdkLayout::discover().unwrap_or_else(|| PathBuf::from(SDK_DIR.as_str()));
         if !sdk_dir.join("libraries.json").is_file() {
             assert!(std::env::var_os("CI").is_none(), "SDK do Dart ausente no CI ({})", sdk_dir.display());
             return;
@@ -768,13 +858,13 @@ mod testes {
     #[test]
     #[ignore = "medição; roda à parte"]
     fn medir_lowering_das_bibliotecas_da_fonte() {
-        if !Path::new(SDK).join("libraries.json").is_file() {
+        if !Path::new(SDK_DIR.as_str()).join("libraries.json").is_file() {
             return;
         }
         std::panic::set_hook(Box::new(|_| {}));
         let membros = std::thread::Builder::new()
             .stack_size(256 << 20)
-            .spawn(|| medir_lowering_do_sdk(Path::new(SDK)).unwrap())
+            .spawn(|| medir_lowering_do_sdk(Path::new(SDK_DIR.as_str())).unwrap())
             .unwrap()
             .join()
             .unwrap();

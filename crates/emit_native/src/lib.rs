@@ -187,7 +187,14 @@ pub fn emitir_ir_com(entrada: &Path, options: &CompileOptions, da_fonte: bool) -
     let mut ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
     ctx.da_fonte = bibliotecas_da_fonte.into_iter().collect();
     ctx.usa_dart_async = usa_dart_async;
-    let ctx = if da_fonte { ctx.com_sdk_da_fonte() } else { ctx };
+    let ctx = if da_fonte {
+        // Os ids das classes do SDK são os do SDK compilado, não os do que
+        // este programa carregou (`context::TabelaDeIds`).
+        let ids = sdk_modulo::ids_de_classe_do_sdk(&sdk_dir)?;
+        ctx.com_sdk_da_fonte_e_ids(ids)
+    } else {
+        ctx
+    };
     let front_duration = t_front.elapsed();
 
     // 2. Lowering para HIR

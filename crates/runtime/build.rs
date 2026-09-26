@@ -55,6 +55,8 @@ const FRAGMENTOS: &[&str] = &[
     "nativos_listas",
     // P6: o laço de eventos (microtarefas e timers).
     "eventos",
+    // Portas e a fila de mensagens do isolado.
+    "portas",
     // RTI: tipos em tempo de execução.
     "tipos",
 ];

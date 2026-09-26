@@ -1852,6 +1852,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Void,
         );
+        if e_const && repr == Type::Ref {
+            self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_marcar_permanente".to_string(),
+                    args: vec![(v.clone(), Type::Ref)],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            );
+        }
         self.emit(
             Instruction::StoreGlobal {
                 simbolo: format!("{}$ok", super::simbolo_valor_global(self.ctx, vid)),

@@ -20,6 +20,11 @@ pub struct Context<'a> {
     /// pulando a faixa 1000–1012 das classes de erro do runtime. `None` para
     /// as classes do SDK.
     pub ids_de_classe: Vec<Option<u32>>,
+    /// Com o SDK da fonte, os ids das classes do SDK vêm desta tabela
+    /// (`sdk_modulo::ids_de_classe_do_sdk`), a mesma do módulo do SDK: o
+    /// programa carrega só as bibliotecas que importa, e numerar pelo que
+    /// carregou daria ids diferentes dos do SDK compilado.
+    pub ids_fixos_do_sdk: Option<std::sync::Arc<TabelaDeIds>>,
     /// As formas de record com campo nomeado do programa (P3): número de
     /// posicionais e os nomes, ordenados — cada uma é uma "classe" de record
     /// com id `ID_BASE_DE_FORMA + índice`.
@@ -112,6 +117,7 @@ impl<'a> Context<'a> {
             bodies,
             entry_lib: program.entry,
             ids_de_classe: Vec::new(),
+            ids_fixos_do_sdk: None,
             formas_de_record: Vec::new(),
             raiz,
             sdk_da_fonte: false,
@@ -196,6 +202,13 @@ impl<'a> Context<'a> {
         self
     }
 
+    /// [`Context::com_sdk_da_fonte`] com os ids das classes do SDK fixados
+    /// pela tabela do SDK compilado.
+    pub fn com_sdk_da_fonte_e_ids(mut self, ids: std::sync::Arc<TabelaDeIds>) -> Self {
+        self.ids_fixos_do_sdk = Some(ids);
+        self.com_sdk_da_fonte()
+    }
+
     /// O módulo de uma biblioteca do SDK da fonte (P5c): só ela é baixada
     /// aqui; o programa e as outras bibliotecas ficam de fora.
     pub fn so_a_biblioteca(mut self, lib: LibraryId) -> Self {
@@ -228,27 +241,54 @@ impl<'a> Context<'a> {
 
     /// Ids de classe estáveis (P2): as classes compiladas pela ordem do
     /// caminho — as do SDK primeiro (grupo 0), numa faixa que só depende do
-    /// SDK, depois as do programa —, a partir de 1, pulando 1000–1012.
+    /// SDK, depois as do programa —, a partir de 1, pulando 1000–1012. Com
+    /// a tabela do SDK (`ids_fixos_do_sdk`), as do SDK vêm dela e as do
+    /// programa começam depois da maior.
     fn numerar_classes(&mut self) {
         let program = self.program;
-        let mut chaves: Vec<(bool, String, String, usize)> = program
-            .classes
-            .iter()
-            .enumerate()
-            .filter(|(_, c)| self.compiladas[c.library.0 as usize])
-            .map(|(i, c)| {
-                (
-                    !program.library(c.library).is_sdk,
-                    self.nome_da_biblioteca(c.library),
-                    self.interner.resolve(c.name).to_string(),
-                    i,
-                )
-            })
-            .collect();
-        chaves.sort();
         let mut ids = vec![None; program.classes.len()];
+        let mut chaves: Vec<(String, String, usize)> = Vec::new();
         let mut prox = 1u32;
-        for (_, _, _, i) in chaves {
+        match self.ids_fixos_do_sdk.clone() {
+            Some(tabela) => {
+                for (i, c) in program.classes.iter().enumerate() {
+                    if !self.compiladas[c.library.0 as usize] {
+                        continue;
+                    }
+                    let lib = self.nome_da_biblioteca(c.library);
+                    let nome = self.interner.resolve(c.name).to_string();
+                    if program.library(c.library).is_sdk {
+                        let id = tabela.ids.get(&(lib, nome)).copied().unwrap_or_else(|| {
+                            panic!(
+                                "classe {}::{} sem id na tabela do SDK compilado (cache desatualizado)",
+                                self.nome_da_biblioteca(c.library),
+                                self.interner.resolve(c.name)
+                            )
+                        });
+                        ids[i] = Some(id);
+                    } else {
+                        chaves.push((lib, nome, i));
+                    }
+                }
+                prox = tabela.proximo;
+            }
+            None => {
+                let sdk = ids_das_classes_do_sdk(program, self.interner, &self.compiladas);
+                for (i, c) in program.classes.iter().enumerate() {
+                    if !self.compiladas[c.library.0 as usize] {
+                        continue;
+                    }
+                    if program.library(c.library).is_sdk {
+                        ids[i] = sdk.ids.get(&(self.nome_da_biblioteca(c.library), self.interner.resolve(c.name).to_string())).copied();
+                    } else {
+                        chaves.push((self.nome_da_biblioteca(c.library), self.interner.resolve(c.name).to_string(), i));
+                    }
+                }
+                prox = prox.max(sdk.proximo);
+            }
+        }
+        chaves.sort();
+        for (_, _, i) in chaves {
             if (1000..=1012).contains(&prox) {
                 prox = 1013;
             }
@@ -432,4 +472,70 @@ impl<'a> Context<'a> {
     pub fn tipo_local(&self, unit: UnitId, offset: usize) -> Option<TypeId> {
         self.bodies.units.get(unit.0 as usize)?.tipo_local(offset)
     }
+}
+
+/// Os ids das classes do SDK compilado: `(biblioteca, classe) → id`, e o
+/// primeiro id livre depois deles (onde começam as do programa).
+#[derive(Debug, Clone, Default)]
+pub struct TabelaDeIds {
+    pub ids: std::collections::HashMap<(String, String), u32>,
+    pub proximo: u32,
+}
+
+impl TabelaDeIds {
+    /// A tabela em texto: uma linha `id\tbiblioteca\tclasse` por classe e
+    /// a última `proximo\t<n>`.
+    pub fn para_texto(&self) -> String {
+        let mut v: Vec<_> = self.ids.iter().collect();
+        v.sort_by_key(|(_, id)| **id);
+        let mut t = String::new();
+        for ((lib, nome), id) in v {
+            t.push_str(&format!("{id}\t{lib}\t{nome}\n"));
+        }
+        t.push_str(&format!("proximo\t{}\n", self.proximo));
+        t
+    }
+
+    /// Lê o texto de [`TabelaDeIds::para_texto`].
+    pub fn de_texto(t: &str) -> Option<Self> {
+        let mut tabela = TabelaDeIds::default();
+        for linha in t.lines() {
+            let mut partes = linha.split('\t');
+            let a = partes.next()?;
+            if a == "proximo" {
+                tabela.proximo = partes.next()?.parse().ok()?;
+                continue;
+            }
+            let id: u32 = a.parse().ok()?;
+            let lib = partes.next()?.to_string();
+            let nome = partes.next()?.to_string();
+            tabela.ids.insert((lib, nome), id);
+        }
+        (tabela.proximo > 0).then_some(tabela)
+    }
+}
+
+/// Numera as classes das bibliotecas do SDK que `compiladas` marca, pela
+/// ordem (biblioteca, classe), a partir de 1, pulando 1000–1012 (os ids do
+/// runtime). É a fonte única dos ids do SDK: o módulo do SDK a calcula com
+/// todas as bibliotecas carregadas, e o programa recebe a mesma tabela.
+pub fn ids_das_classes_do_sdk(program: &Program, interner: &Interner, compiladas: &[bool]) -> TabelaDeIds {
+    let mut chaves: Vec<(String, String)> = program
+        .classes
+        .iter()
+        .filter(|c| compiladas[c.library.0 as usize] && program.library(c.library).is_sdk)
+        .map(|c| (program.library(c.library).uri.clone(), interner.resolve(c.name).to_string()))
+        .collect();
+    chaves.sort();
+    let mut tabela = TabelaDeIds::default();
+    let mut prox = 1u32;
+    for k in chaves {
+        if (1000..=1012).contains(&prox) {
+            prox = 1013;
+        }
+        tabela.ids.insert(k, prox);
+        prox += 1;
+    }
+    tabela.proximo = prox;
+    tabela
 }

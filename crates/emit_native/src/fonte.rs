@@ -136,8 +136,17 @@ pub fn separar_partes_do_core(program: &mut Program) -> Option<LibraryId> {
 /// O programa (as bibliotecas que não são do SDK) usa `dart:async`?
 fn usa_dart_async(program: &Program, interner: &Interner, async_lib: LibraryId) -> bool {
     let nomes: HashSet<&str> = ["Future", "Stream", "FutureOr"].into_iter().collect();
+    // `dart:isolate` e `dart:io` entregam resultados pela fila do isolado
+    // (portas, IOService): quem os importa precisa do laço de eventos.
+    let com_laco: Vec<LibraryId> = program
+        .libraries
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| l.uri == "dart:isolate" || l.uri == "dart:io")
+        .map(|(i, _)| LibraryId(i as u32))
+        .collect();
     for lib in program.libraries.iter().filter(|l| !l.is_sdk) {
-        if lib.imports.iter().any(|i| i.library == async_lib) {
+        if lib.imports.iter().any(|i| i.library == async_lib || com_laco.contains(&i.library)) {
             return true;
         }
         for &u in &lib.units {
