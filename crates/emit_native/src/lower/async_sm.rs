@@ -406,6 +406,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let n_temp = guardar_vivos(&mut b.func, &quadro, base_locais + n_locais, &est.suspensoes, entrada, &mut prox);
         b.next_value = prox;
         let tamanho = base_locais + n_locais + n_temp;
+        // O nome do corpo leva a impressão digital dele: um quadro suspenso
+        // num `await` guarda o estado e as posições deste corpo, e numa
+        // recarga do JIT só pode retomar num corpo idêntico. Um corpo que
+        // mudou tem outro nome, e os quadros vivos seguem no código em que
+        // começaram (como os quadros ativos na VM).
+        let simbolo_corpo = format!(
+            "{simbolo_corpo}$q{:08x}",
+            (super::closures::hash_nome(&format!("{tamanho}|{:?}", b.func.blocks)) as u64) as u32
+        );
+        b.func.symbol = simbolo_corpo.clone();
         self.absorver(b);
 
         // --- entrada uniforme do corpo: ([iterador,] código, resultado) --

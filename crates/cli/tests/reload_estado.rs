@@ -74,3 +74,61 @@ fn verificar_recarga(com_sdk_da_fonte: bool) {
     assert!(stderr.contains("geração 1: estado preservado"), "{stderr}");
     assert!(stderr.contains("geração 2: estado preservado"), "{stderr}");
 }
+
+/// Hot reload ao vivo: a edição chega ao programa em execução (um timer
+/// periódico), no ponto seguro do laço, sem executar o `main` de novo, e o
+/// estático continua a contagem.
+#[test]
+fn cli_recarrega_o_programa_em_execucao() {
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(format!("../../target/tmp-reload-vivo-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("diretório da fixture");
+    let entrada = dir.join("main.dart");
+    std::fs::copy(fixtures.join("reload_vivo_v1.dart"), &entrada).expect("versão 1");
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_dartforge"))
+        .arg("reload").arg(&entrada)
+        .arg("--intervalo").arg("50")
+        .stdout(Stdio::piped()).stderr(Stdio::piped())
+        .spawn().expect("CLI");
+    let (tx, rx) = mpsc::channel();
+    let stdout = child.stdout.take().expect("stdout");
+    let reader = std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            let _ = tx.send(line.expect("linha"));
+        }
+    });
+
+    let mut linhas = Vec::new();
+    let mut ultimo_v1 = None;
+    let mut primeiro_v2 = None;
+    let mut editado = false;
+    while let Ok(linha) = rx.recv_timeout(Duration::from_secs(60)) {
+        linhas.push(linha.clone());
+        if let Some(n) = linha.strip_prefix("v1 ").and_then(|n| n.parse::<u32>().ok()) {
+            ultimo_v1 = Some(n);
+            if n == 3 && !editado {
+                editado = true;
+                std::fs::copy(fixtures.join("reload_vivo_v2.dart"), &entrada).expect("versão 2");
+            }
+        }
+        if let Some(n) = linha.strip_prefix("v2 ").and_then(|n| n.parse::<u32>().ok()) {
+            primeiro_v2 = Some(n);
+            break;
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    reader.join().expect("leitor");
+    let mut stderr = String::new();
+    child.stderr.take().expect("stderr").read_to_string(&mut stderr).expect("diagnósticos");
+    std::fs::remove_dir_all(&dir).expect("limpeza da fixture");
+
+    let (Some(v1), Some(v2)) = (ultimo_v1, primeiro_v2) else {
+        panic!("sem as duas versões na saída: {linhas:?}\n{stderr}");
+    };
+    assert_eq!(v2, v1 + 1, "a contagem continua do estático vivo: {linhas:?}");
+    assert_eq!(linhas.iter().filter(|l| *l == "main").count(), 1, "o main não roda de novo: {linhas:?}");
+    assert!(stderr.contains("geração 2: publicada no programa em execução"), "{stderr}");
+}

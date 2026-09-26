@@ -771,7 +771,14 @@ pub extern "C" fn dartforge_rti_regra(classe: i64, modelo: i64) {
             Tipo::Interface(c, _) => *c,
             _ => return,
         };
-        u.regras.entry(classe).or_default().push((sup, modelo));
+        // Sem duplicar: a publicação de uma recarga refaz as regras.
+        let regras = u.regras.entry(classe).or_default();
+        if !regras.contains(&(sup, modelo)) {
+            regras.push((sup, modelo));
+            // Uma regra nova (a geração nova de uma recarga) pode mudar uma
+            // resposta já guardada.
+            u.cache_sub.clear();
+        }
     });
 }
 

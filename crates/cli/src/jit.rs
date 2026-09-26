@@ -38,6 +38,18 @@ fn emitir(
     sdk: Option<&Path>,
     packages: Option<&Path>,
 ) -> Result<dartforge_emit_native::IrEmitido, String> {
+    emitir_geracao(entrada, sdk, packages, None)
+}
+
+/// [`emitir`] de uma geração nova do programa em execução: `anterior` é o IR
+/// da geração viva, cujo layout de estáticos a nova estende.
+#[cfg(feature = "jit")]
+fn emitir_geracao(
+    entrada: &Path,
+    sdk: Option<&Path>,
+    packages: Option<&Path>,
+    anterior: Option<std::sync::Arc<String>>,
+) -> Result<dartforge_emit_native::IrEmitido, String> {
     let (entrada, sdk, packages) = (entrada.to_path_buf(), sdk.map(Path::to_path_buf), packages.map(Path::to_path_buf));
     std::thread::Builder::new()
         .stack_size(1 << 30)
@@ -50,7 +62,7 @@ fn emitir(
                 versao_linguagem: None,
                 experimentos: Vec::new(),
             };
-            dartforge_emit_native::emitir_ir(&entrada, &opcoes)
+            dartforge_emit_native::emitir_ir_recarregavel(&entrada, &opcoes, anterior.as_deref().map(String::as_str))
         })
         .map_err(|e| e.to_string())?
         .join()
@@ -222,35 +234,38 @@ impl Drop for DiretorioGeracoes {
     }
 }
 
-/// `dartforge reload <entrada.dart> [--sdk] [--packages] [--intervalo <ms>] [--uma-vez] [--timings]`
+/// `dartforge reload <entrada.dart> [--sdk] [--packages] [--intervalo <ms>] [--uma-vez] [--timings] [--reiniciar]`
 ///
-/// **R0: reinício a quente, não hot reload.** A cada mudança nos fontes `.dart`
-/// do diretório da entrada, o programa é recompilado inteiro. Se compila, o
-/// processo da geração anterior é encerrado (se ainda estiver rodando) e a
-/// geração nova começa do zero, pelo `main`. **Nenhum estado é preservado**:
-/// heap, estáticos, nada. Isso está dito na saída de cada geração.
+/// **Hot reload com estado (padrão).** O programa roda numa thread própria de
+/// uma `JitSession`; a cada mudança nos fontes `.dart` do diretório da
+/// entrada, o programa é recompilado e a geração nova é publicada no ponto
+/// seguro do isolado principal — entre dois eventos do laço —, sem executar
+/// o `main` de novo: heap, estáticos, timers, portas e conexões continuam, e o
+/// próximo evento já chama o código novo (`dartforge_jit::ProgramaVivo`). Se
+/// o programa já terminou, a geração nova é publicada e o `main` roda de novo
+/// sobre o mesmo estado.
 ///
-/// Se a compilação falha, o diagnóstico é mostrado e a geração em execução
-/// **continua**: uma edição quebrada não derruba o que funciona (o mesmo
-/// princípio do rollback da VM, `isolate_reload.cc`).
+/// Uma edição que não compila não derruba nada: o diagnóstico é mostrado e a
+/// geração em execução continua. Uma edição que a recarga não sabe aplicar
+/// sobre os objetos vivos (a assinatura de uma função mudou, uma classe
+/// ganhou campos ou foi renumerada) é recusada com o motivo, e o programa
+/// **reinicia** com o código novo: quem observa é um supervisor, e a sessão
+/// roda num processo filho (`--filho`) que ele recria.
 ///
-/// Cada geração roda num processo próprio (`dartforge run --ir`). Com isso o
-/// reinício também vale para programas que ainda estão executando, e um
-/// `exit`/`abort` do runtime encerra só aquela geração, não o observador.
-///
-/// `--preservar-estado` usa uma `JitSession` no processo observador: o heap e os
-/// estáticos continuam vivos enquanto observa edições do mesmo arquivo. O
-/// `main` roda a cada geração neste primeiro passo da integração R1.
+/// `--reiniciar` é o R0: reinício a quente a cada edição, sem estado, cada
+/// geração num processo próprio (`dartforge run --ir`).
 #[cfg(feature = "jit")]
 pub fn reload(args: &[std::ffi::OsString]) -> Resultado {
-    let usage = "usage: dartforge reload <input.dart> [--sdk <lib>] [--packages <package_config.json>] [--intervalo <ms>] [--uma-vez] [--timings] [--preservar-estado]";
+    let usage = "usage: dartforge reload <input.dart> [--sdk <lib>] [--packages <package_config.json>] [--intervalo <ms>] [--uma-vez] [--timings] [--reiniciar]";
     let mut entrada: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
     let mut intervalo_ms = 300u64;
     let mut uma_vez = false;
     let mut timings = false;
-    let mut preservar_estado = false;
+    let mut reiniciar = false;
+    let mut filho = false;
+    let mut supervisor: Option<u16> = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.to_str() {
@@ -266,14 +281,26 @@ pub fn reload(args: &[std::ffi::OsString]) -> Resultado {
             }
             Some("--uma-vez") => uma_vez = true,
             Some("--timings") => timings = true,
-            Some("--preservar-estado") => preservar_estado = true,
+            Some("--reiniciar") => reiniciar = true,
+            // A forma antiga do hot reload com estado, que agora é o padrão.
+            Some("--preservar-estado") => {}
+            Some("--filho") => filho = true,
+            Some("--supervisor") => {
+                supervisor = Some(it.next().and_then(|v| v.to_str()).and_then(|v| v.parse().ok()).ok_or(usage)?);
+            }
             _ if entrada.is_none() => entrada = Some(PathBuf::from(a)),
             _ => return Err(usage.into()),
         }
     }
     let entrada = entrada.ok_or(usage)?;
-    if preservar_estado {
-        return reload_com_estado(&entrada, sdk.as_deref(), packages.as_deref(), intervalo_ms, uma_vez, timings);
+    if !reiniciar {
+        if filho {
+            if let Some(porta) = supervisor {
+                vigiar_supervisor(porta)?;
+            }
+            return reload_ao_vivo(&entrada, sdk.as_deref(), packages.as_deref(), intervalo_ms, uma_vez, timings);
+        }
+        return supervisionar(args);
     }
     let raiz = entrada
         .parent()
@@ -360,66 +387,86 @@ pub fn reload(args: &[std::ffi::OsString]) -> Resultado {
     }
 }
 
-/// Publica uma versão e só então executa a entrada na mesma thread. Se a
-/// compilação ou a publicação falhar, a versão anterior permanece instalada.
+/// O código de saída com que o processo da sessão pede para ser recriado:
+/// uma edição que a recarga não aplica sobre os objetos vivos.
 #[cfg(feature = "jit")]
-fn publicar_com_estado(
-    sessao: &mut Option<dartforge_jit::JitSession>,
-    entrada: &Path,
-    sdk: Option<&Path>,
-    packages: Option<&Path>,
-    timings: bool,
-) -> Resultado {
-    let inicio = std::time::Instant::now();
-    let ir = emitir(entrada, sdk, packages)?;
-    let emissao = inicio.elapsed();
-    if sessao.is_none() {
-        let sdk_dll = biblioteca_do_sdk(&ir.texto)?;
-        *sessao = Some(dartforge_jit::JitSession::new_for_ir_com(&ir.texto, sdk_dll.as_deref())?);
-    }
-    if sessao.as_ref().is_some_and(|atual| atual.usa_sdk_da_fonte() != dartforge_jit::ir_usa_sdk_da_fonte(&ir.texto)) {
-        return Err("a edição mudou o perfil de runtime da sessão; reinicie dartforge reload".into());
-    }
-    let primeira = sessao.as_ref().is_some_and(|atual| atual.retained_generations() == 0);
-    let publicada = if primeira {
-        sessao.as_mut().expect("sessão criada acima").add_reloadable_module("app", &ir.texto)
-    } else {
-        sessao.as_mut().expect("sessão criada acima").hot_reload("app", &ir.texto)
-    };
-    let relatorio = match publicada {
-        Ok(relatorio) => relatorio,
-        Err(erro) => {
-            // Antes da primeira publicação não há programa vivo a preservar.
-            // Descartar a sessão também descarta trampolins órfãos de falha de
-            // ligação e permite tentar de novo na próxima edição.
-            if primeira { *sessao = None; }
-            return Err(erro.into());
+const CODIGO_REINICIAR: i32 = 75;
+
+/// O supervisor do hot reload: roda a sessão num processo filho e o recria
+/// quando ele pede (`CODIGO_REINICIAR`); qualquer outro fim é o do programa.
+///
+/// O filho conecta num soquete local do supervisor e termina quando a
+/// conexão fecha: matar o supervisor (Ctrl+C, o `kill` de uma IDE) não deixa
+/// o programa rodando órfão.
+#[cfg(feature = "jit")]
+fn supervisionar(args: &[std::ffi::OsString]) -> Resultado {
+    let proprio = std::env::current_exe()?;
+    let vigia = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
+    let porta = vigia.local_addr()?.port();
+    vigia.set_nonblocking(true)?;
+    loop {
+        let mut filho = std::process::Command::new(&proprio)
+            .arg("reload")
+            .args(args)
+            .arg("--filho")
+            .arg("--supervisor")
+            .arg(porta.to_string())
+            .spawn()?;
+        // A conexão do filho fica aberta enquanto o supervisor vive.
+        let mut _conexao = None;
+        let status = loop {
+            if _conexao.is_none()
+                && let Ok((c, _)) = vigia.accept()
+            {
+                _conexao = Some(c);
+            }
+            if let Some(status) = filho.try_wait()? {
+                break status;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(if _conexao.is_some() { 100 } else { 10 }));
+        };
+        match status.code() {
+            Some(CODIGO_REINICIAR) => eprintln!("[reload] reiniciando o programa com o código novo"),
+            Some(0) => return Ok(()),
+            Some(codigo) => std::process::exit(codigo),
+            None => return Err("a sessão de recarga terminou por sinal".into()),
         }
-    };
-    let sessao = sessao.as_ref().expect("geração publicada");
-    eprintln!("[reload] geração {}: estado preservado na mesma sessão", relatorio.generation);
-    if timings {
-        eprintln!(
-            "[reload] geração {}: emissão {:.1} ms; recarga {:.1} ms; gerações retidas {}",
-            relatorio.generation,
-            emissao.as_secs_f64() * 1000.0,
-            relatorio.total.as_secs_f64() * 1000.0,
-            relatorio.retained_generations
-        );
     }
-    let execucao = if sessao.usa_sdk_da_fonte() {
-        sessao.run_reloadable_main()?
-    } else {
-        sessao.run_reloadable_entry()?
-    };
-    if execucao.exit_code != 0 {
-        return Err(format!("geração {} terminou com código {}", relatorio.generation, execucao.exit_code).into());
-    }
+}
+
+/// O filho: conecta no supervisor e sai quando a conexão fecha.
+#[cfg(feature = "jit")]
+fn vigiar_supervisor(porta: u16) -> Resultado {
+    use std::io::Read;
+    let mut conexao = std::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, porta))?;
+    std::thread::Builder::new().name("dartforge-vigia".into()).spawn(move || {
+        let mut byte = [0u8; 1];
+        // Nada é escrito nesta conexão: o `read` só volta quando ela fecha.
+        let _ = conexao.read(&mut byte);
+        std::process::exit(CODIGO_REINICIAR + 1);
+    })?;
     Ok(())
 }
 
+/// Encerra a sessão pedindo ao supervisor que a recrie. Sai já: o programa
+/// em execução (uma thread da sessão) não tem como ser interrompido, e o
+/// processo é a unidade de reinício — portas e arquivos abertos fecham com ele.
 #[cfg(feature = "jit")]
-fn reload_com_estado(
+fn pedir_reinicio() -> ! {
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
+    std::process::exit(CODIGO_REINICIAR);
+}
+
+/// Milissegundos, para os relatórios.
+#[cfg(feature = "jit")]
+fn ms(d: std::time::Duration) -> f64 {
+    d.as_secs_f64() * 1000.0
+}
+
+/// A sessão do hot reload (o processo filho do supervisor).
+#[cfg(feature = "jit")]
+fn reload_ao_vivo(
     entrada: &Path,
     sdk: Option<&Path>,
     packages: Option<&Path>,
@@ -427,20 +474,118 @@ fn reload_com_estado(
     uma_vez: bool,
     timings: bool,
 ) -> Resultado {
-    let mut sessao = None;
     let raiz = entrada.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let intervalo = std::time::Duration::from_millis(intervalo_ms);
+    // A primeira geração: a sessão depende do IR (o runtime embutido ou a
+    // biblioteca do SDK da fonte). Uma primeira compilação que falha espera
+    // a próxima edição.
     let mut ultimo = None;
-    loop {
+    let (mut sessao, ir) = loop {
         let agora = carimbo(raiz, packages);
         if ultimo != Some(agora) {
             ultimo = Some(agora);
-            match publicar_com_estado(&mut sessao, entrada, sdk, packages, timings) {
-                Ok(()) if uma_vez => return Ok(()),
-                Ok(()) => {}
-                Err(erro) if uma_vez => return Err(erro),
-                Err(erro) => eprintln!("[reload] compilação, publicação ou execução falhou: {erro}"),
+            match emitir(entrada, sdk, packages) {
+                Ok(ir) => {
+                    let sdk_dll = biblioteca_do_sdk(&ir.texto)?;
+                    let sessao = dartforge_jit::JitSession::new_for_ir_com(&ir.texto, sdk_dll.as_deref())?;
+                    break (sessao, ir);
+                }
+                Err(erro) if uma_vez => return Err(erro.into()),
+                Err(erro) => {
+                    eprintln!("[reload] erro de compilação:\n{erro}");
+                    eprintln!("[reload] nenhuma geração em execução; esperando a próxima edição");
+                }
             }
         }
-        std::thread::sleep(std::time::Duration::from_millis(intervalo_ms));
+        std::thread::sleep(intervalo);
+    };
+    let da_fonte = sessao.usa_sdk_da_fonte();
+    let mut vivo_ir = std::sync::Arc::new(ir.texto);
+    let resultado = sessao.com_programa_vivo(|vivo| -> Result<i32, Box<dyn std::error::Error>> {
+        vivo.ao_esperar_ponto_seguro(|| {
+            eprintln!("[reload] esperando o programa chegar a um ponto seguro (entre dois eventos)…");
+        });
+        let relatorio = vivo.publicar("app", &vivo_ir)?;
+        eprintln!("[reload] geração {}: estado preservado na mesma sessão", relatorio.generation);
+        vivo.executar_main()?;
+        loop {
+            if let Some(fim) = vivo.terminou() {
+                if uma_vez {
+                    return Ok(fim.exit_code);
+                }
+                eprintln!("[reload] o programa terminou com código {}; esperando edições", fim.exit_code);
+            }
+            let agora = carimbo(raiz, packages);
+            if ultimo != Some(agora) {
+                ultimo = Some(agora);
+                let inicio = std::time::Instant::now();
+                let ir = match emitir_geracao(entrada, sdk, packages, Some(vivo_ir.clone())) {
+                    Ok(ir) => ir,
+                    Err(erro) => {
+                        eprintln!("[reload] erro de compilação:\n{erro}");
+                        eprintln!("[reload] a versão em execução continua como estava");
+                        std::thread::sleep(intervalo);
+                        continue;
+                    }
+                };
+                let emissao = inicio.elapsed();
+                if dartforge_jit::ir_usa_sdk_da_fonte(&ir.texto) != da_fonte {
+                    eprintln!("[reload] a edição mudou o perfil de runtime do programa");
+                    pedir_reinicio();
+                }
+                let executando = vivo.executando();
+                match vivo.publicar("app", &ir.texto) {
+                    Ok(relatorio) => {
+                        vivo_ir = std::sync::Arc::new(ir.texto);
+                        if executando {
+                            eprintln!(
+                                "[reload] geração {}: publicada no programa em execução (estado preservado)",
+                                relatorio.generation
+                            );
+                        } else {
+                            eprintln!("[reload] geração {}: estado preservado na mesma sessão", relatorio.generation);
+                        }
+                        if timings {
+                            eprintln!(
+                                "[reload] geração {}: emissão {:.1} ms; recarga {:.1} ms (análise {:.1}, contrato {:.1}, módulo {:.1}, \
+                                 trampolins {:.1}, ligação {:.1}, publicação {:.1}, espera do ponto seguro {:.1}); gerações retidas {}",
+                                relatorio.generation,
+                                ms(emissao),
+                                ms(relatorio.total),
+                                ms(relatorio.parse_ir),
+                                ms(relatorio.contract),
+                                ms(relatorio.add_module),
+                                ms(relatorio.stubs),
+                                ms(relatorio.link),
+                                ms(relatorio.publish),
+                                ms(relatorio.safepoint_wait),
+                                relatorio.retained_generations
+                            );
+                        }
+                        if !vivo.executando() {
+                            // O programa tinha terminado: roda de novo, sobre
+                            // o mesmo estado.
+                            vivo.executar_main()?;
+                        }
+                    }
+                    Err(erro) if matches!(erro.stage, "contract" | "poisoned") => {
+                        eprintln!("[reload] a edição não pode ser aplicada ao programa em execução: {erro}");
+                        pedir_reinicio();
+                    }
+                    Err(erro) => {
+                        eprintln!("[reload] a recarga falhou: {erro}");
+                        eprintln!("[reload] a versão em execução continua como estava");
+                    }
+                }
+            }
+            std::thread::sleep(intervalo);
+        }
+    })?;
+    let codigo = resultado?;
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
+    if codigo != 0 {
+        std::process::exit(codigo);
     }
+    Ok(())
 }

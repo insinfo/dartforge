@@ -648,7 +648,15 @@ struct Mensagem {
 struct Filas {
     normal: std::collections::VecDeque<Mensagem>,
     controle: std::collections::VecDeque<Grafo>,
+    /// Os pedidos para rodar no ponto seguro (a publicação de uma recarga
+    /// do JIT), atendidos com o controle, entre um evento e outro.
+    pontos_seguros: std::collections::VecDeque<PedidoNoPontoSeguro>,
 }
+
+/// Um pedido para rodar no ponto seguro do isolado: a função recebe o dado
+/// e `1` quando roda no ponto seguro, ou `0` quando o isolado terminou sem
+/// atendê-lo (o pedido é descartado, e quem pediu fica sabendo).
+pub type PedidoNoPontoSeguro = (extern "C" fn(usize, i32), usize);
 
 /// A fila de mensagens de um isolado; qualquer thread posta nela.
 pub struct FilaDoIsolado {
@@ -748,6 +756,67 @@ fn postar_controle(porta: i64, grafo: Grafo) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// O ponto seguro do isolado principal (a recarga do JIT).
+//
+// A publicação de uma geração nova (a troca das células das entradas
+// estáveis, o registro das tabelas) só pode acontecer quando nenhum quadro
+// Dart do isolado está na pilha: entre dois eventos do laço — o ponto em que
+// a VM também comita uma recarga (`isolate_reload.cc`). O observador do
+// `dartforge reload` compila numa thread própria e entrega a publicação como
+// um pedido na fila do isolado principal; o laço o atende antes do próximo
+// evento, e um isolado ocioso (um servidor esperando conexão) acorda para ele.
+
+fn isolado_principal() -> &'static std::sync::Mutex<Option<std::sync::Arc<FilaDoIsolado>>> {
+    static P: std::sync::OnceLock<std::sync::Mutex<Option<std::sync::Arc<FilaDoIsolado>>>> = std::sync::OnceLock::new();
+    P.get_or_init(Default::default)
+}
+
+/// Este isolado é o principal: passa a aceitar pedidos no ponto seguro.
+pub fn marcar_isolado_principal() {
+    let fila = FILA.with(|f| f.clone());
+    *isolado_principal().lock().unwrap_or_else(|e| e.into_inner()) = Some(fila);
+}
+
+/// O isolado principal terminou: os pedidos pendentes são descartados (quem
+/// pediu recebe `0`) e os novos, recusados.
+pub fn desmarcar_isolado_principal() {
+    let Some(fila) = isolado_principal().lock().unwrap_or_else(|e| e.into_inner()).take() else {
+        return;
+    };
+    let pendentes = std::mem::take(&mut fila.mensagens.lock().unwrap_or_else(|e| e.into_inner()).pontos_seguros);
+    for (f, dado) in pendentes {
+        f(dado, 0);
+    }
+}
+
+/// Pede que `f(dado, 1)` rode no próximo ponto seguro do isolado principal,
+/// na thread dele. Devolve `0` (e não chama `f`) se não há isolado principal
+/// rodando o laço de eventos; `1` se o pedido foi aceito — então `f` é
+/// chamada exatamente uma vez, com `1` no ponto seguro ou com `0` se o
+/// isolado terminar antes.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_pedir_no_ponto_seguro(f: extern "C" fn(usize, i32), dado: usize) -> i32 {
+    // O registro fica travado durante a inserção: o descarte do fim do
+    // isolado não perde um pedido que chegue ao mesmo tempo.
+    let principal = isolado_principal().lock().unwrap_or_else(|e| e.into_inner());
+    let Some(fila) = principal.as_ref() else {
+        return 0;
+    };
+    fila.mensagens.lock().unwrap_or_else(|e| e.into_inner()).pontos_seguros.push_back((f, dado));
+    fila.sinal.notify_one();
+    1
+}
+
+/// Atende os pedidos no ponto seguro deste isolado (o laço de eventos).
+fn atender_pontos_seguros() {
+    loop {
+        let pedido = FILA.with(|f| f.mensagens.lock().unwrap_or_else(|e| e.into_inner()).pontos_seguros.pop_front());
+        let Some((f, dado)) = pedido else { return };
+        f(dado, 1);
+    }
+}
+
 /// A próxima mensagem da porta de controle deste isolado.
 fn proxima_de_controle() -> Option<Grafo> {
     FILA.with(|f| f.mensagens.lock().unwrap_or_else(|e| e.into_inner()).controle.pop_front())
@@ -795,7 +864,7 @@ fn esperar_mensagem(prazo: Option<std::time::Instant>, so_controle: bool) -> boo
     FILA.with(|f| {
         let mut m = f.mensagens.lock().unwrap_or_else(|e| e.into_inner());
         loop {
-            if !m.controle.is_empty() || (!so_controle && !m.normal.is_empty()) {
+            if !m.controle.is_empty() || !m.pontos_seguros.is_empty() || (!so_controle && !m.normal.is_empty()) {
                 return true;
             }
             match prazo {
