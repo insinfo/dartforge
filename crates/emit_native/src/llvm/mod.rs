@@ -1368,7 +1368,7 @@ impl<'a> LlvmEmitter<'a> {
             for (i, cb) in self.module.ffi_callbacks.iter().enumerate() {
                 writeln!(
                     self.out,
-                    "  call void @dartforge_ffi_registrar_callback(ptr @df.ffi.cbchave.{i}, i64 {}, ptr @df.ffi.cbiniciar.{i})",
+                    "  call void @dartforge_ffi_registrar_callback(ptr @df.ffi.cbchave.{i}, i64 {}, ptr @df.ffi.cbentrada.{i})",
                     cb.chave.len()
                 )
                 .unwrap();
@@ -1566,9 +1566,9 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     /// As entradas C dos callbacks do `dart:ffi` (`ffi_callbacks.rs` do
-    /// runtime) e, de cada uma, a função que escreve um trampolim para ela. Cada entrada tem a ABI
-    /// C da assinatura e o contexto do callback no parâmetro `nest` (que o
-    /// trampolim de `llvm.init.trampoline` carrega): no modo ouvinte copia
+    /// runtime). Cada entrada tem a ABI C da assinatura e o contexto do
+    /// callback no parâmetro `nest` (r10 no x86-64, x15 no AArch64), que o
+    /// trampolim escrito pelo runtime carrega: no modo ouvinte copia
     /// os argumentos para a mensagem; senão converte-os para a
     /// representação Dart, chama o corpo HIR e converte o retorno — ou
     /// devolve o retorno excepcional, se a closure lançou.
@@ -1576,26 +1576,8 @@ impl<'a> LlvmEmitter<'a> {
         if self.module.ffi_callbacks.is_empty() {
             return;
         }
-        // Com `llvm.init.trampoline` no módulo o LLVM deixa de emitir a nota
-        // `.note.GNU-stack` (supõe o trampolim na pilha, como nas funções
-        // aninhadas do GCC), e o ligador ELF passaria a exigir pilha
-        // executável. Os trampolins do dartforge moram em memória própria
-        // (`ffi_callbacks.rs`): a nota vai explícita, pilha não executável.
-        if crate::alvo::sistema() == crate::alvo::Sistema::Linux {
-            self.out.push_str("module asm \".pushsection .note.GNU-stack,\\22\\22,@progbits\"\nmodule asm \".popsection\"\n");
-        }
-        self.out.push_str("declare void @llvm.init.trampoline(ptr, ptr, ptr)\ndeclare ptr @llvm.adjust.trampoline(ptr)\n");
         for (i, cb) in self.module.ffi_callbacks.clone().iter().enumerate() {
             writeln!(self.out, "@df.ffi.cbchave.{i} = private unnamed_addr constant [{} x i8] c\"{}\"", cb.chave.len(), cb.chave).unwrap();
-            // O iniciador do trampolim desta entrada (o alvo do
-            // `init.trampoline` tem de ser uma função constante).
-            writeln!(
-                self.out,
-                "define internal ptr @df.ffi.cbiniciar.{i}(ptr %m, ptr %c) {{\n  \
-                 call void @llvm.init.trampoline(ptr %m, ptr @df.ffi.cbentrada.{i}, ptr %c)\n  \
-                 %p = call ptr @llvm.adjust.trampoline(ptr %m)\n  ret ptr %p\n}}"
-            )
-            .unwrap();
             let params: Vec<String> =
                 cb.params.iter().enumerate().map(|(j, tc)| format!("{} {}%a{j}", tc.llvm(), tc.extensao())).collect();
             let sep = if params.is_empty() { "" } else { ", " };

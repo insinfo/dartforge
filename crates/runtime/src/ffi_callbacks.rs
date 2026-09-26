@@ -10,13 +10,14 @@
 //   converte os argumentos C para Dart, chama a closure pela convenção
 //   uniforme (por um corpo HIR comum), converte o retorno e, se a closure
 //   lançou, devolve o retorno excepcional (`dartforge_ffi_callback_sair`).
-// * Cada callback é um ponteiro de função C distinto: um trampolim de
-//   `llvm.init.trampoline` (o mesmo mecanismo das funções aninhadas do GCC)
-//   que carrega o contexto no registrador `nest` (r10 no x86-64, x15 no
-//   AArch64) e salta para a entrada. O código do trampolim é escrito por
-//   uma função do módulo gerado (registrada com a entrada) numa
-//   fatia de memória executável deste arquivo — sem gerar código de máquina
-//   à mão, e igual nos três sistemas e nas duas arquiteturas.
+// * Cada callback é um ponteiro de função C distinto: um trampolim de poucas
+//   instruções que carrega o contexto no registrador `nest` da entrada (r10
+//   no x86-64, x15 no AArch64 — o mesmo código que `llvm.init.trampoline`
+//   escreveria) e salta para ela, escrito por este arquivo numa fatia de
+//   memória executável. Escrever aqui, e não pelo intrínseco no módulo
+//   gerado, mantém a pilha não executável em todo objeto (com o intrínseco
+//   o LLVM omite a nota `.note.GNU-stack`, e as partições do LTO não a
+//   recuperam).
 // * Modos: `isolateLocal` e `fromFunction` chamam a closure na hora, e só
 //   na thread do isolado dono (outra thread é erro fatal, como na VM);
 //   `fromFunction` é persistente e único por (função, assinatura, retorno
@@ -55,16 +56,11 @@ pub struct ContextoCallback {
     trampolim: usize,
 }
 
-/// Chave da assinatura → o iniciador do trampolim da entrada C dela.
+/// Chave da assinatura → a entrada C do callback.
 fn entradas_de_callback() -> &'static std::sync::RwLock<std::collections::HashMap<String, usize>> {
     static T: std::sync::OnceLock<std::sync::RwLock<std::collections::HashMap<String, usize>>> = std::sync::OnceLock::new();
     T.get_or_init(Default::default)
 }
-
-/// A função gerada que escreve o trampolim de uma entrada: `(memória,
-/// contexto)` → o ponteiro de função (`llvm.init.trampoline` +
-/// `adjust.trampoline`).
-type IniciadorDeTrampolim = extern "C" fn(*mut u8, usize) -> usize;
 
 /// Ponteiro de função → contexto, dos callbacks vivos.
 fn callbacks_vivos() -> &'static std::sync::Mutex<std::collections::HashMap<usize, usize>> {
@@ -79,14 +75,14 @@ thread_local! {
 }
 
 /// # Safety
-/// `chave` aponta para `n` bytes ASCII; `iniciador` é a função gerada que
-/// escreve um trampolim para a entrada C da assinatura.
+/// `chave` aponta para `n` bytes ASCII; `entrada` é a entrada C gerada da
+/// assinatura (o contexto no parâmetro `nest`).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_ffi_registrar_callback(chave: *const u8, n: i64, iniciador: usize) {
+pub unsafe extern "C" fn dartforge_ffi_registrar_callback(chave: *const u8, n: i64, entrada: usize) {
     // SAFETY: garantido por quem chama (constante do módulo).
     let b = unsafe { std::slice::from_raw_parts(chave, n as usize) };
     let chave = String::from_utf8_lossy(b).into_owned();
-    entradas_de_callback().write().unwrap_or_else(|e| e.into_inner()).insert(chave, iniciador);
+    entradas_de_callback().write().unwrap_or_else(|e| e.into_inner()).insert(chave, entrada);
 }
 
 /// A memória executável dos trampolins: regiões mapeadas uma vez e nunca
@@ -105,6 +101,7 @@ mod memoria_executavel {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     unsafe extern "C" {
         fn pthread_jit_write_protect_np(enabled: i32);
+        fn sys_icache_invalidate(start: *mut u8, len: usize);
     }
     #[cfg(windows)]
     #[link(name = "kernel32")]
@@ -155,29 +152,86 @@ mod memoria_executavel {
         LIVRES.lock().unwrap_or_else(|e| e.into_inner()).push(p);
     }
 
-    /// Escreve código em `p` com `f`, com a proteção de escrita de código
-    /// desligada nesta thread (Apple Silicon) e o cache de instruções
-    /// sincronizado depois (Windows; no AArch64 Unix o próprio
-    /// `llvm.init.trampoline` chama `__clear_cache`).
-    pub fn escrever<R>(p: usize, f: impl FnOnce() -> R) -> R {
+    /// Escreve em `p` o trampolim que carrega `ctx` no registrador `nest` e
+    /// salta para `entrada`; devolve o ponteiro de função (o próprio `p`).
+    pub fn escrever_trampolim(p: usize, entrada: usize, ctx: usize) -> usize {
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
         // SAFETY: alterna a proteção MAP_JIT só nesta thread.
         unsafe {
             pthread_jit_write_protect_np(0)
         };
-        let r = f();
+        // SAFETY: `p` é uma fatia de `TAM_FATIA` bytes graváveis desta
+        // região, de uso exclusivo deste callback.
+        unsafe { gravar_codigo(p as *mut u8, entrada, ctx) };
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
         // SAFETY: idem.
         unsafe {
             pthread_jit_write_protect_np(1)
         };
+        sincronizar_instrucoes(p);
+        p
+    }
+
+    /// x86-64: `movabs r11, entrada; movabs r10, ctx; jmp r11`.
+    #[cfg(target_arch = "x86_64")]
+    unsafe fn gravar_codigo(p: *mut u8, entrada: usize, ctx: usize) {
+        let mut c = Vec::with_capacity(23);
+        c.extend_from_slice(&[0x49, 0xBB]);
+        c.extend_from_slice(&(entrada as u64).to_le_bytes());
+        c.extend_from_slice(&[0x49, 0xBA]);
+        c.extend_from_slice(&(ctx as u64).to_le_bytes());
+        c.extend_from_slice(&[0x41, 0xFF, 0xE3]);
+        // SAFETY: garantido por quem chama (23 bytes de 64).
+        unsafe { std::ptr::copy_nonoverlapping(c.as_ptr(), p, c.len()) };
+    }
+
+    /// AArch64: `ldr x15, [pc+16]; ldr x17, [pc+20]; br x17; nop`, com o
+    /// contexto em +16 e a entrada em +24.
+    #[cfg(target_arch = "aarch64")]
+    unsafe fn gravar_codigo(p: *mut u8, entrada: usize, ctx: usize) {
+        let instrucoes: [u32; 4] = [0x5800_008F, 0x5800_00B1, 0xD61F_0220, 0xD503_201F];
+        let mut c = Vec::with_capacity(32);
+        for i in instrucoes {
+            c.extend_from_slice(&i.to_le_bytes());
+        }
+        c.extend_from_slice(&(ctx as u64).to_le_bytes());
+        c.extend_from_slice(&(entrada as u64).to_le_bytes());
+        // SAFETY: garantido por quem chama (32 bytes de 64).
+        unsafe { std::ptr::copy_nonoverlapping(c.as_ptr(), p, c.len()) };
+    }
+
+    /// O cache de instruções vê o código recém escrito.
+    fn sincronizar_instrucoes(p: usize) {
         #[cfg(windows)]
         // SAFETY: a fatia acabou de ser escrita neste processo.
         unsafe {
             FlushInstructionCache(GetCurrentProcess(), p as *const u8, TAM_FATIA)
         };
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        // SAFETY: invalida o cache de instruções da fatia escrita.
+        unsafe {
+            sys_icache_invalidate(p as *mut u8, TAM_FATIA)
+        };
+        #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+        // SAFETY: manutenção de cache de EL0 (`dc cvau`/`ic ivau`), como o
+        // `__clear_cache` do compiler-rt, linha a linha da fatia.
+        unsafe {
+            const LINHA: usize = 64;
+            let ini = p & !(LINHA - 1);
+            let mut a = ini;
+            while a < p + TAM_FATIA {
+                std::arch::asm!("dc cvau, {0}", in(reg) a);
+                a += LINHA;
+            }
+            std::arch::asm!("dsb ish");
+            a = ini;
+            while a < p + TAM_FATIA {
+                std::arch::asm!("ic ivau, {0}", in(reg) a);
+                a += LINHA;
+            }
+            std::arch::asm!("dsb ish", "isb");
+        };
         let _ = p;
-        r
     }
 }
 
@@ -211,17 +265,20 @@ fn codigo_da_closure(clo: i64) -> i64 {
 /// Cria o trampolim de `ctx` e o registra.
 fn instalar_callback(ctx: Box<ContextoCallback>) -> Result<usize, String> {
     let registro = entradas_de_callback().read().unwrap_or_else(|e| e.into_inner()).get(&ctx.chave).copied();
-    let Some(iniciador) = registro else {
+    let Some(entrada) = registro else {
         let texto = RTI.with(|u| u.borrow().texto(ctx.assinatura));
-        return Err(format!("the native signature `{texto}` was not compiled into this program (it must be written as a constant type argument)"));
+        let motivo = if ctx.chave.contains('S') {
+            "structs or unions by value are not supported in callbacks by the DartForge native backend yet"
+        } else {
+            "it must be written as a constant type argument"
+        };
+        return Err(format!("the native signature `{texto}` was not compiled into this program ({motivo})"));
     };
     let Some(memoria) = memoria_executavel::alocar() else {
         return Err("could not allocate executable memory for a native callback".to_string());
     };
     let ctx = Box::into_raw(ctx);
-    // SAFETY: a função registrada pelo módulo gerado, com essa assinatura.
-    let iniciar: IniciadorDeTrampolim = unsafe { std::mem::transmute(iniciador) };
-    let f = memoria_executavel::escrever(memoria, || iniciar(memoria as *mut u8, ctx as usize));
+    let f = memoria_executavel::escrever_trampolim(memoria, entrada, ctx as usize);
     // SAFETY: o contexto acabou de ser criado e só esta thread o conhece.
     unsafe { (*ctx).trampolim = memoria };
     callbacks_vivos().lock().unwrap_or_else(|e| e.into_inner()).insert(f, ctx as usize);
