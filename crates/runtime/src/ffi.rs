@@ -103,7 +103,28 @@ fn chave_da_assinatura(ns: i64) -> Result<String, String> {
     parte_da_chave(ret, &mut s)?;
     s.push('_');
     for p in pos {
-        parte_da_chave(p, &mut s)?;
+        // `VarArgs<(T1, T2…)>`/`VarArgs<T>`: a marca e os tipos variádicos.
+        let variadicos = RTI.with(|u| {
+            let u = u.borrow();
+            let Tipo::Interface(c, args) = u.tipo(p) else { return None };
+            if tipos_nativos().read().unwrap_or_else(|e| e.into_inner()).get(c) != Some(&'*') {
+                return None;
+            }
+            let a = *args.first()?;
+            Some(match u.tipo(a) {
+                Tipo::Registro { pos, nomeados } if nomeados.is_empty() => pos.clone(),
+                _ => vec![a],
+            })
+        });
+        match variadicos {
+            Some(vs) => {
+                s.push('*');
+                for v in vs {
+                    parte_da_chave(v, &mut s)?;
+                }
+            }
+            None => parte_da_chave(p, &mut s)?,
+        }
     }
     Ok(s)
 }
