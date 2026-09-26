@@ -551,7 +551,7 @@ jobs:
         include:
           - os: ubuntu-latest
             nome: Linux x86-64
-            piso: 192
+            piso: 197
           - os: macos-latest
             nome: macOS arm64
             piso: 0

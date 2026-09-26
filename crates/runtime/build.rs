@@ -46,6 +46,8 @@ const FRAGMENTOS: &[&str] = &[
     "nativos_strings",
     // Relógio, fuso horário e entropia.
     "nativos_sistema",
+    // O motor de expressões regulares do `RegExp`.
+    "regexp",
     // P2 (α): operadores sobre dynamic/num (tapa-buraco até P5).
     "despacho",
     // δ (P5c): tabelas de métodos e busca por seletor do SDK da fonte.
