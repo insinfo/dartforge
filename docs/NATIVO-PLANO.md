@@ -1569,9 +1569,22 @@ em `dartforge run`, entregues também ao runtime da biblioteca do SDK).
   que compilou o binário. Verificado no Linux x86-64 num ambiente limpo
   (`env -i PATH=/usr/bin:/bin`: sem Rust, sem LLVM, sem Dart): AOT de
   desenvolvimento e de produção (com TLS), `Isolate.run`, argumentos do
-  `main` e o JIT. Tamanho: 619 MB, dos quais 450 MB são o Clang e o lld do
-  pacote oficial — o próximo passo é ligar chamando o lld direto, sem o
-  driver do Clang.
+  `main` e o JIT.
+* **Linux: ligação pelo `ld.lld` direto** (`ligador.rs`), sem o driver do
+  Clang e sem GCC/`libc6-dev` na máquina: a distribuição leva um **sysroot
+  de ligação** (`lib/sysroot/<triple>/`: `Scrt1.o`, `crti.o`,
+  `crtbeginS.o`, `crtendS.o`, `crtn.o`, as `.so` da glibc e da libgcc,
+  `libc_nonshared.a`, `libgcc.a`, o carregador), copiado pelo `empacotar`
+  da máquina que monta a distribuição; numa árvore de desenvolvimento os
+  mesmos arquivos vêm do sistema (`clang -print-file-name`). As `.so` são
+  só entrada da ligação: o programa carrega as do sistema ao rodar. O
+  executável, a biblioteca do SDK da fonte e a produção (LTO no lld, com
+  `--lto-partitions`) passam por aí; o corpus continua 225/225. Tamanho da
+  distribuição no Linux: 293 MB (129 MB do lld sem símbolos, 70 MB do SDK do
+  Dart, 51 MB do dartforge). O CI monta a distribuição e a exercita num
+  ambiente limpo (`env -i`). No macOS e no Windows a ligação ainda passa
+  pelo driver do Clang (que a distribuição leva); o Windows precisa ainda das
+  bibliotecas do MSVC/Windows SDK na máquina.
 * **O SDK da fonte é o padrão** (a troca de P5d): o corpus nativo passa
   225/225 por ele e 99/225 pelo runtime por nome de antes, que fica atrás de
   `DARTFORGE_SDK_DA_FONTE=0`.

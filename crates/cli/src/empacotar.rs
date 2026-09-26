@@ -10,7 +10,8 @@
 //! lib/runtime/                   as duas staticlib do runtime (build.rs do emit_native)
 //! lib/sdk_nativo/                a sobreposição do backend nativo
 //! lib/dart-sdk/{lib,version}     as bibliotecas do SDK do Dart
-//! lib/llvm/bin/                  o Clang (driver da ligação) e o lld
+//! lib/llvm/bin/                  o lld (e, fora do Linux, o Clang, driver da ligação)
+//! lib/sysroot/<triple>/          no Linux: a glibc e a libgcc para a ligação
 //! ```
 use std::path::{Path, PathBuf};
 
@@ -57,7 +58,15 @@ pub fn run(args: &[std::ffi::OsString]) -> Resultado {
     let clang = localizar(&clang).ok_or_else(|| format!("Clang não encontrado ({})", clang.display()))?;
     let dir_llvm = clang.parent().ok_or("Clang sem diretório")?.to_path_buf();
     let llvm_bin = lib.join("llvm").join("bin");
-    copiar(&clang, &llvm_bin.join(dartforge_emit_native::alvo::nome_clang()))?;
+    let linux = dartforge_emit_native::alvo::sistema() == dartforge_emit_native::alvo::Sistema::Linux;
+    if linux {
+        // No Linux a ligação é o `ld.lld` direto: vai o sysroot de ligação
+        // (glibc e libgcc desta máquina), não o Clang.
+        let sysroot = dartforge_emit_native::ligador::SysrootLinux::do_sistema(&clang)?;
+        sysroot.copiar_para(&lib.join("sysroot").join(dartforge_emit_native::ligador::triple_do_sysroot()))?;
+    } else {
+        copiar(&clang, &llvm_bin.join(dartforge_emit_native::alvo::nome_clang()))?;
+    }
     let lld = if cfg!(windows) {
         "lld-link.exe"
     } else if cfg!(target_os = "macos") {
@@ -66,6 +75,22 @@ pub fn run(args: &[std::ffi::OsString]) -> Resultado {
         "ld.lld"
     };
     copiar(&dir_llvm.join(lld), &llvm_bin.join(lld))?;
+    // Os executáveis do pacote oficial do LLVM vêm com a tabela de símbolos
+    // (o `ld.lld` do Linux: 200 MB → 1/3 disso sem ela).
+    let strip = dir_llvm.join(if cfg!(windows) { "llvm-strip.exe" } else { "llvm-strip" });
+    if strip.is_file() {
+        let mut executaveis: Vec<PathBuf> = std::fs::read_dir(&llvm_bin)?.flatten().map(|e| e.path()).collect();
+        if !cfg!(windows) {
+            // No Windows os símbolos já ficam fora, no PDB.
+            executaveis.push(bin.join(exe.file_name().ok_or("executável sem nome")?));
+        }
+        for e in executaveis {
+            let st = std::process::Command::new(&strip).arg("--strip-all").arg(&e).status()?;
+            if !st.success() {
+                return Err(format!("llvm-strip falhou em {}", e.display()).into());
+            }
+        }
+    }
     // O JIT no Windows carrega a DLL da API C do LLVM ao lado do executável.
     if cfg!(windows) && dir_llvm.join("LLVM-C.dll").is_file() {
         copiar(&dir_llvm.join("LLVM-C.dll"), &bin.join("LLVM-C.dll"))?;
