@@ -1,0 +1,19 @@
+name: dartforge_build_executor
+version: 0.1.0-dev.0
+description: >-
+  Lado Dart do serviço build.* do dfexec/1 (docs/BUILD-PROTOCOLO.md): executa
+  builders do package:build com um BuildStep cujas leituras e escritas passam
+  pelo motor de build do DartForge. Não é resolvido por `pub get`: o motor o
+  acrescenta ao package_config.json do projeto, que já traz build,
+  build_resolvers e as dependências deles (o projeto usa build_runner).
+publish_to: none
+
+environment:
+  sdk: ^3.6.0
+
+dependencies:
+  build: ^2.4.2
+  build_resolvers: ^2.4.4
+  glob: ^2.1.0
+  logging: ^1.2.0
+  package_config: ^2.1.0
