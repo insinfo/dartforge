@@ -257,13 +257,13 @@ por isso devem entrar junto com o modelo do §2 inteiro, não em cima dele.
 
 ## 9. Tabela de suporte por forma
 
-Levantamento de 2026-09-26: as sondas `i01`…`i58` do `corpus/ngdart`
+Levantamento de 2026-09-26: as sondas `i01`…`i59` do `corpus/ngdart`
 (uma forma por arquivo, com o `.template.dart` do `build_runner` oficial
 em `oraculo/`) cobrem os padrões de template e de anotação de aplicações
 reais. "Gerado" quer dizer **byte a byte igual ao oficial**, conferido
 por `tests/corpus.rs`; "recusado", que o arquivo fica com o
 `build_runner` e o motivo aparece no placar (e em `RECUSADOS`, que
-confere o motivo). No fim da rodada: 157 arquivos conferidos, 0
+confere o motivo). No fim da rodada: 159 arquivos conferidos, 0
 diferentes, 8 recusados.
 
 ### Diretivas estruturais
@@ -291,7 +291,7 @@ diferentes, 8 recusados.
 | `bind-x`, `on-x` | gerado (antes viravam atributo: **saída errada**) | i36 |
 | `(evento)` com `$event`, `(keyup.enter)`, atribuição | gerado | c04, c12, c14, i27 |
 | `[(ngModel)]` | gerado | g01, h03 |
-| `[(x)]` em componente filho | sem caso isolado (i24 é recusado por ter dois componentes no arquivo) | i24 |
+| `[(x)]` em componente filho (`@Input x` + `@Output xChange`) | gerado (desfeito como o `DesugarVisitor`) | i59 |
 | `[ngClass]`, `[ngStyle]` (diretivas com `DoCheck`) | gerado | i11, i12, i41 |
 | `?.`, `??`, ternário, getters | gerado | i13, i23, i34 |
 

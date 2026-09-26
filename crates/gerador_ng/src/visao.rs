@@ -2212,6 +2212,25 @@ impl Corpo<'_> {
         if let Some(r) = filho.pendencias.first() {
             return Err(r.clone());
         }
+        // `[(x)]` que o próprio filho recebe (`@Input x`, `@Output
+        // xChange`), desfeito como o `DesugarVisitor`: a entrada no fim das
+        // propriedades e o evento `x = $event` no fim dos eventos.
+        let mut desfeito = e.clone();
+        desfeito.bananas.clear();
+        for b in &e.bananas {
+            let mudanca = format!("{}Change", b.nome);
+            if filho.entrada(&b.nome).is_some() && filho.saida(&mudanca).is_some() {
+                desfeito.propriedades.push(b.clone());
+                desfeito.eventos.push(crate::html::Ligacao {
+                    nome: mudanca,
+                    valor: format!("{} = $event", b.valor),
+                    ..b.clone()
+                });
+            } else {
+                desfeito.bananas.push(b.clone());
+            }
+        }
+        let e = &desfeito;
         // As diretivas que casam o elemento do filho (`NgModel`), e o
         // `[(x)]` delas desfeito como no elemento HTML.
         let extras = diretivas_casadas(self.usadas, e);

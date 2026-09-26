@@ -163,3 +163,5 @@ export 'src/i55_host_binding_formas.dart';
 export 'src/i56_usa_host_binding.dart';
 export 'src/i57_seguranca.dart';
 export 'src/i58_async_formas.dart';
+export 'src/i59_contador.dart';
+export 'src/i59_usa_contador.dart';
