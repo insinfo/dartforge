@@ -261,10 +261,9 @@ fn untag(value: TaggedValue) -> (i64, u8) {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_object_new(class_id: i64, field_count: i64) -> i64 {
     HEAP.with(|heap| {
-        heap.borrow_mut().allocate(Value::Object {
-            class_id,
-            fields: vec![(0, false); usize::try_from(field_count).expect("campos inválidos")],
-        })
+        let mut heap = heap.borrow_mut();
+        let fields = heap.campos_novos(usize::try_from(field_count).expect("campos inválidos"));
+        heap.allocate(Value::Object { class_id, fields })
     })
 }
 // Os campos de um objeto (`Value::Object`) são lidos e gravados em linha

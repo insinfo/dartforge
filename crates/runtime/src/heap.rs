@@ -843,6 +843,26 @@ fn visitar_quadros(mut f: impl FnMut(i64)) {
     }
 }
 
+/// Até quantos campos um vetor de objeto coletado é guardado para reúso.
+const CAMPOS_REAPROVEITADOS: usize = 16;
+/// Quantos vetores de cada tamanho ficam guardados (o resto volta ao
+/// alocador).
+const VETORES_POR_TAMANHO: usize = 4096;
+
+/// Guarda o vetor de campos de um objeto coletado, se couber.
+fn guardar_campos(livres: &mut Vec<Vec<Vec<(i64, bool)>>>, campos: Vec<(i64, bool)>) {
+    let n = campos.len();
+    if n == 0 || n > CAMPOS_REAPROVEITADOS || campos.capacity() != n {
+        return;
+    }
+    if livres.len() <= n {
+        livres.resize_with(n + 1, Vec::new);
+    }
+    if livres[n].len() < VETORES_POR_TAMANHO {
+        livres[n].push(campos);
+    }
+}
+
 /// Heap preciso sem compactação; handles pares indexam slots reutilizáveis.
 #[derive(Debug)]
 pub struct Heap {
@@ -923,6 +943,11 @@ pub struct Heap {
     /// elementos de `data` (a reserva) e o tamanho lógico ainda é este, até
     /// o primeiro `_setLength`/`_setData` — na VM a lista aponta para o
     /// `_List` e o tamanho é outro campo.
+    /// Vetores de campos de objetos coletados, por número de campos (até
+    /// [`CAMPOS_REAPROVEITADOS`]): a alocação de um objeto pega daqui antes
+    /// de pedir memória ao alocador — criar e descartar objetos pequenos
+    /// custava um `calloc` e um `free` por objeto.
+    campos_livres: Vec<Vec<Vec<(i64, bool)>>>,
     pub pendentes: crate::hash::HashMap<i64, usize>,
     pub iteracoes_ativas: crate::hash::HashSet<i64>,
     /// Lista de chaves → mapa de origem (para acusar modificação do mapa
@@ -1021,6 +1046,7 @@ impl Heap {
             imutaveis: crate::hash::HashSet::default(),
             campos_late_inicializados: crate::hash::HashSet::default(),
             fixas: crate::hash::HashSet::default(),
+            campos_livres: Vec::new(),
             pendentes: crate::hash::HashMap::default(),
             iteracoes_ativas: crate::hash::HashSet::default(),
             origens: crate::hash::HashMap::default(),
@@ -1424,6 +1450,15 @@ impl Heap {
     pub fn get(&self, handle: i64) -> &Value {
         let index = self.indice_vivo(handle);
         self.slots[index].as_ref().expect("slot vivo verificado")
+    }
+    /// Um vetor de `n` campos zerados: reaproveitado de um objeto coletado,
+    /// ou novo.
+    pub fn campos_novos(&mut self, n: usize) -> Vec<(i64, bool)> {
+        if let Some(mut v) = self.campos_livres.get_mut(n).and_then(Vec::pop) {
+            v.fill((0, false));
+            return v;
+        }
+        vec![(0, false); n]
     }
     /// O endereço dos campos do objeto `handle`, numa busca só (o caminho
     /// quente de `dartforge_object_campos`); `None` se não é objeto vivo.
@@ -1906,6 +1941,9 @@ impl Heap {
             if self.marks[index] {
                 vivos_em_bytes = vivos_em_bytes.saturating_add(valor.estimated_bytes());
             } else {
+                if let Some(Value::Object { fields, .. }) = slot.take() {
+                    guardar_campos(&mut self.campos_livres, fields);
+                }
                 *slot = None;
                 self.free.push(index);
                 self.stats.reclaimed += 1;
