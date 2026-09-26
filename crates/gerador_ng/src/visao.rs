@@ -126,6 +126,7 @@ const SEM_PREFIXO: &[&str] = &[
 const INTERPOLATE: &str = "package:ngdart/src/runtime/interpolate.dart";
 const INTL: &str = "package:intl/intl.dart";
 const QUERIES: &str = "package:ngdart/src/runtime/queries.dart";
+const SAFE_HTML: &str = "package:ngdart/src/security/safe_html_adapter.dart";
 const APP_VIEW_UTILS: &str = "package:ngdart/src/core/linker/app_view_utils.dart";
 
 /// Por que um arquivo ainda não é gerado por nós. O placar conta por motivo:
@@ -1420,6 +1421,9 @@ struct Corpo<'a> {
     /// Os mesmos, em ordem de documento e com repetição: os resultados de
     /// um `@ViewChildren` (`addQueryResult`).
     refs_em_ordem: Vec<(String, String)>,
+    /// A tag do elemento cujas ligações estão sendo escritas: o contexto de
+    /// segurança de uma propriedade depende dela ([`saneador`]).
+    tag_atual: String,
     /// Campos `TextBinding` e `_message_N`, que saem primeiro na classe, na
     /// ordem em que o `build()` os aloca.
     campos: Vec<String>,
@@ -1984,20 +1988,33 @@ impl Corpo<'_> {
         } else if l.nome.contains('.') {
             return Err(recusa(Motivo::Ligacao, "ligação com prefixo desconhecido"));
         } else {
-            let prop = &l.nome;
-            if com_seguranca(prop) || matches!(prop.as_str(), "innerHtml" | "style") {
-                return Err(recusa(
-                    Motivo::Ligacao,
-                    "[propriedade] com contexto de segurança",
-                ));
-            }
-            if matches!(prop.as_str(), "readonly" | "tabindex" | "tabIndex") {
+            // `getMappedPropName`: `innerHtml` é `innerHTML`; os outros
+            // nomes do mapa têm forma própria (`class`, `tabIndex`).
+            let prop = if l.nome == "innerHtml" {
+                "innerHTML"
+            } else {
+                l.nome.as_str()
+            };
+            if matches!(prop, "readonly" | "tabindex" | "tabIndex" | "style") {
                 return Err(recusa(
                     Motivo::Ligacao,
                     "[propriedade] renomeada pelo esquema",
                 ));
             }
-            format!("{dom}.setProperty({alvo}, '{prop}', {valor})")
+            // `_sanitizedValue`: o valor passa pelo saneador do contexto.
+            match saneador(&self.tag_atual.to_ascii_lowercase(), prop) {
+                Some("sanitizeStyle") => {
+                    return Err(recusa(
+                        Motivo::Ligacao,
+                        "[propriedade] com contexto de segurança de estilo",
+                    ));
+                }
+                Some(f) => {
+                    let s = tardio(SAFE_HTML);
+                    format!("{dom}.setProperty({alvo}, '{prop}', {s}.{f}({valor}))")
+                }
+                None => format!("{dom}.setProperty({alvo}, '{prop}', {valor})"),
+            }
         })
     }
 
@@ -3414,7 +3431,6 @@ impl Corpo<'_> {
         // erro), fica de fora.
         if nome != "class"
             && (!nome.chars().all(|c| c.is_ascii_lowercase())
-                || com_seguranca(nome)
                 || matches!(nome, "style" | "readonly" | "tabindex" | "for"))
         {
             return Err(recusa(
@@ -3952,6 +3968,7 @@ impl Corpo<'_> {
                 ));
             }
         }
+        self.tag_atual = tag.clone();
         // As ligações são numeradas em ordem de documento — a do
         // pai antes das dos filhos —, então são registradas antes
         // de descer. Os eventos também: o ouvinte do pai vem
@@ -4850,6 +4867,7 @@ impl<'a> Contexto<'a> {
             campos: Vec::new(),
             intl: None,
             mensagens: Vec::new(),
+            tag_atual: String::new(),
             campos_filho: Vec::new(),
             vistas_filhas: Vec::new(),
             vistas_hospedeiras: Default::default(),
@@ -5584,6 +5602,65 @@ fn resolver_tardios(imp: &mut Importacoes, texto: &str) -> String {
 /// (`_initializeSecuritySchema`, em `dom_element_schema_registry.dart`): o
 /// valor sai embrulhado num `sanitize*`. Sem olhar a tag, recusa o nome em
 /// qualquer elemento.
+/// O saneador de uma propriedade do DOM (`securityContext` do
+/// `DomElementSchemaRegistry`, com a tabela dele): `sanitizeHtml`,
+/// `sanitizeStyle`, `sanitizeUrl` ou `sanitizeResourceUrl`, ou nenhum. A
+/// chave é `tag|propriedade`, depois `*|propriedade`.
+fn saneador(tag: &str, prop: &str) -> Option<&'static str> {
+    const HTML: &[&str] = &["iframe|srcdoc", "*|innerHTML", "*|outerHTML"];
+    const URL: &[&str] = &[
+        "*|formAction",
+        "area|href",
+        "area|ping",
+        "audio|src",
+        "a|href",
+        "a|ping",
+        "blockquote|cite",
+        "body|background",
+        "del|cite",
+        "form|action",
+        "img|src",
+        "img|srcset",
+        "input|src",
+        "ins|cite",
+        "q|cite",
+        "source|src",
+        "source|srcset",
+        "video|poster",
+        "video|src",
+    ];
+    const RECURSO: &[&str] = &[
+        "applet|code",
+        "applet|codebase",
+        "base|href",
+        "embed|src",
+        "frame|src",
+        "head|profile",
+        "html|manifest",
+        "iframe|src",
+        "link|href",
+        "media|src",
+        "object|codebase",
+        "object|data",
+        "script|src",
+        "track|src",
+    ];
+    let contexto = |chave: &str| {
+        if HTML.contains(&chave) {
+            Some("sanitizeHtml")
+        } else if chave == "*|style" {
+            Some("sanitizeStyle")
+        } else if URL.contains(&chave) {
+            Some("sanitizeUrl")
+        } else if RECURSO.contains(&chave) {
+            Some("sanitizeResourceUrl")
+        } else {
+            None
+        }
+    };
+    contexto(&format!("{tag}|{prop}")).or_else(|| contexto(&format!("*|{prop}")))
+}
+
 pub(crate) fn com_seguranca(nome: &str) -> bool {
     matches!(
         nome,
