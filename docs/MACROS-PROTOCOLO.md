@@ -58,9 +58,11 @@ toolchain oficial em [`MACROS-COMPATIBILIDADE.md`](MACROS-COMPATIBILIDADE.md).
 3. **Executor persistente e quente**: um processo por sessão, iniciado só se
    há aplicação; as instâncias são criadas uma vez por (macro, construtor,
    argumentos) e servem às três fases.
-4. **Só reexecuta o que mudou**: cada execução registra as consultas feitas
-   (`Consultor::registro`); o cache por digest (§6) é o próximo passo, junto
-   do executor nativo e do `dartforge dev` (P10).
+4. **Só reexecuta o que mudou**: com um `CacheDeMacros`, cada execução grava
+   o pedido e as consultas com a impressão digital das respostas, e a
+   compilação seguinte revalida antes de ir ao executor (§6). O executor só
+   é iniciado se alguma aplicação precisar rodar. Falta ligar o cache no
+   `dartforge dev` (P10), que ainda não aplica macros.
 5. **Paralelo onde a spec permite**: o protocolo já numera pedidos e
    consultas por execução (várias execuções em voo são possíveis); a sessão
    ainda executa uma por vez.
@@ -117,10 +119,23 @@ Implementação: `crates/macros_host/src/{aplicacoes,sessao}.rs`.
   texto final. A recarga é a carga comum do `elements` com a geração em
   memória, e a augmentation entra como `UnitRole::Augmentation` depois das
   partes (`load.rs`, `anexar_augmentation_de_macro`).
+* **Recarga por diferença** (`aplicar_incremental`, usada pelo
+  `compile-js`): antes de cada recarga as unidades do programa anterior vão
+  para um `elements::unidades::CacheUnidades` (o da sessão residente do
+  `dev`), a augmentation de macro sai dele, e o carregador só analisa de novo
+  o que não está guardado — na prática, só o `<biblioteca>.macro.dart`. O
+  texto continua montado de todos os resultados (a montagem é ~1% do tempo,
+  §8), porque o texto intermediário da fase 2 tem de ser o mesmo que a
+  compilação limpa carrega. `aplicar` (materialização) mantém a recarga
+  completa; as duas dão o mesmo programa e o mesmo texto (teste
+  `sem_cache_e_com_cache_dao_o_mesmo`), e o JS do `411` é idêntico.
 * **Identificadores estáveis**: o id de um identificador é o de uma
   `modelo::Chave` textual (biblioteca, dono, nome, tipo), resolvida de novo
   no programa corrente a cada uso — os ids do `elements` mudam a cada recarga,
-  e a Regra 1 funde por identificador.
+  e a Regra 1 funde por identificador. Os ids são sequenciais na ordem de
+  uso (os da sessão gravada, que o builder Dart reproduz); com cache, a
+  tabela vive no cache entre compilações, então um identificador novo ganha
+  id novo sem deslocar os outros.
 * **Texto** (`montagem.rs`, `:288-487`): as declarações de topo na ordem dos
   resultados; tudo o que aumenta um tipo fundido num `augment <tipo>` (Regra
   1), tipos na ordem de primeira aparição por categoria; identificador vira
@@ -162,7 +177,9 @@ correspondente na macro). Consultas: `resolverIdentificador {uri, nome}`,
 `declaracao {ident}`, `membros {dono, tipo}`, `tiposDe {biblioteca}`,
 `declaracoesDe`, `resolver {tipo}` → `{chave, declaracao, args}`,
 `ehExatamente {a, b}`, `ehSubtipo {a, b}`, `comoInstanciaDe`, `inferirTipo
-{chave}`. `inferType`, `asInstanceOf` e subtipo com argumentos de tipo
+{chave}`. A `chave` de um `StaticType` é um apelido do tipo: tipos iguais
+têm a mesma chave (a comparação é estrutural), para que a resposta de
+`resolver` não dependa de quantos `resolve` vieram antes (§6). `inferType`, `asInstanceOf` e subtipo com argumentos de tipo
 respondem erro claro: dependem do `crates/types` (pedido ao dono).
 Reservados: `avaliar {codigo}` (`evaluate`) e `recurso {uri}` (`Resource`).
 
@@ -185,16 +202,63 @@ dos identificadores é local. As declarações `augment` que os builders da fase
 3 formam (`augmentacaoDeFuncao`, `augmentacoesDeVariavel` em
 `executor/resultado.dart`) têm o texto do CFE 3.6.2.
 
-## 6. Cache e incrementalidade (próximo passo)
+## 6. Cache de expansões (`crates/macros_host/src/cache.rs`)
 
-* **Chave de uma aplicação** = hash(identidade do bundle da macro,
-  argumentos, digest do alvo no modelo). **Valor** = resultado estruturado +
-  as consultas feitas (`Consultor::registro`), com o digest de cada
-  resposta. Tudo igual na reanálise → reutiliza **sem falar com o executor**.
-* Edição de corpo não altera o modelo (só declarações): o caminho de 227 ms
-  continua com zero execuções (`macros_executadas` no relatório).
-* Entra com o executor nativo e a integração do `dartforge dev` (P10); hoje
-  o `dev` não aplica macros.
+Implementado em memória; `aplicar_incremental(…, Some(&mut cache))`. A
+disciplina é a do motor de build (BUILD-MOTOR.md §4): consultas gravadas,
+revalidação só delas, corte pela saída.
+
+* **Chave** = identidade **estável** da aplicação (biblioteca, alvo pela
+  `Chave` textual, `uri#Classe`, construtor, argumentos e o ordinal entre
+  anotações idênticas no mesmo alvo — nada de índice ou intervalo da AST) e
+  a fase.
+* **Dependências gravadas**:
+  * a impressão digital (blake3) do pedido `macro.executar`: versão do
+    hospedeiro, identidade do executor (dada em `CacheDeMacros::novo`),
+    identidade da implementação da macro (o fonte de todas as unidades do
+    fecho de imports e exports da biblioteca da macro; as do SDK pela URI),
+    construtor, argumentos, fase, alvo e **modelo com os membros
+    pré-carregados**. O número da instância fica de fora (é do processo);
+  * cada `macro.consulta`, na ordem, com a impressão digital da resposta —
+    inclusive as negativas (erro "não existe", p. ex. `resolveIdentifier`
+    de um nome ausente) e as coleções na ordem que o executor viu;
+  * as interfaces de macro de cada instância, para decidir as fases sem
+    `macro.instanciar`.
+* **Revalidação**: o hospedeiro monta o pedido de novo; impressão igual, as
+  consultas gravadas são refeitas contra o programa corrente, parando na
+  primeira que responde diferente. Tudo igual → o resultado gravado entra
+  **sem enviar nada ao executor**; senão a macro roda e o registro é trocado.
+  A macro é tratada como função determinística do que recebeu (sem E/S fora
+  de `Resource`; estado da instância entre fases não é garantido pela spec).
+* **Executor preguiçoso**: `iniciar` e as instâncias só acontecem quando uma
+  aplicação precisa rodar (ou quando as interfaces de uma instância não
+  estão no cache). Numa compilação limpa a sequência de mensagens é a de
+  sempre (a sessão gravada do 410 é reproduzida igual com o cache ligado).
+* **Ids estáveis entre compilações**: a `Tabela` e os `StaticType` vivem no
+  cache; um identificador novo (um campo acrescentado) ganha id novo sem
+  deslocar os outros, então uma edição que a aplicação não observa não muda o
+  pedido nem as respostas dela.
+* **Saída igual não propaga**: a propagação entre macros é só pelo programa;
+  se uma aplicação roda de novo e dá o mesmo resultado, o programa que as
+  seguintes veem é o mesmo e elas continuam valendo
+  (`Medicao::reexecutadas_iguais`).
+* **Poda**: depois de uma compilação sem erro, saem os registros das
+  aplicações que não existem mais.
+* **Onde vive**: em memória, com quem compila várias vezes no mesmo processo.
+  Nada em disco: o motor de build também não grava registro (D-B1) e a regra
+  governante 6 proíbe contabilidade em disco. O `compile-js` é uma passada
+  só e usa `aplicar_incremental` sem cache (só a recarga por diferença).
+* **Aceite** (`tests/cache.rs`, executor falso em Rust com três macros que
+  usam o protocolo de verdade): recompilação sem mudança não executa macro nem
+  toca o executor; corpo de método editado reutiliza tudo; campo novo e função
+  de topo antes inexistente invalidam só quem os observou; `toJson` novo em
+  `A` reexecuta `@Rotulo(A)` (mesmo resultado) e o consumidor que lê os
+  métodos de `A`; campo novo em `A` reexecuta `@Rotulo(A)` com saída igual e
+  **não** o consumidor; editar a biblioteca da macro invalida as aplicações
+  dela; em todos, textos, ordem das expansões (`Saida::expansoes`) e
+  diagnósticos iguais aos de uma compilação limpa. No 410
+  (`cache_reaproveita_o_json_codable_sem_executor`): a segunda compilação
+  reaproveita as 8 expansões sem executor e o texto é o do CFE.
 
 ## 7. Corpus de macros
 
@@ -264,9 +328,51 @@ dos identificadores é local. As declarações `augment` que os builders da fase
 * custo zero: `sem_macro_nao_abre_sessao` (0 sessões, 0 recargas, executor
   nunca tocado).
 
+### Tempo da sessão (2026-09-26)
+
+`Saida::medicao` separa início (handshake e instâncias), modelo, execução
+(sem o tempo servindo consultas), consultas, revalidação, montagem e recarga.
+Teste ignorado `tests/medicao.rs`, `--release`, VM Dart 3.6.2 como executor,
+Linux; o sintético tem `N` classes `@JsonCodable` de 3 campos numa biblioteca.
+Colunas: (1) limpa com `aplicar` (recarga completa, o caminho anterior);
+(2) limpa com `aplicar_incremental` (recarga por diferença); (3) recompilação
+sem mudança com o cache; (4) recompilação com um campo novo numa classe.
+
+| caso | etapa | total | execução | consultas | montagem | recarga |
+|---|---|---:|---:|---:|---:|---:|
+| 410 (4 aplicações) | 1 | 1352 ms | 94 ms (8) | 1,3 ms (85) | 0,7 ms (18 res.) | 293 ms (5) |
+| | 2 | 1516 ms | 121 ms (8) | 1,3 ms | 0,6 ms | 20 ms (5) |
+| | 3 | 159 ms | 0 | 0 (85 refeitas) | 0,4 ms | 18 ms |
+| | 4 | 1652 ms | 47 ms (2) | 0,4 ms (19) | 0,5 ms | 19 ms |
+| N=8 | 1 | 1708 ms | 126 ms (16) | 2,6 ms (168) | 1,7 ms (52 res.) | 534 ms (9) |
+| | 3 | 92 ms | 0 | 0 | 1,0 ms | 24 ms |
+| N=32 | 1 | 3149 ms | 277 ms (64) | 9,8 ms (672) | 15 ms (592 res.) | 2062 ms (33) |
+| | 2 | 1271 ms | 234 ms (64) | 9,2 ms | 9,3 ms | 108 ms (33) |
+| | 3 | 280 ms | 0 | 0 (672 refeitas) | 15 ms | 154 ms |
+| | 4 | 1097 ms | 58 ms (2) | 0,4 ms (23) | 8,9 ms | 99 ms |
+| N=64 | 1 | 6346 ms | 558 ms (128) | 21 ms (1344) | 59 ms (2208 res.) | 4513 ms (65) |
+| | 2 | 1868 ms | 497 ms (128) | 19 ms | 35 ms | 218 ms (65) |
+| | 3 | 348 ms | 0 | 0 (1344 refeitas) | 31 ms | 212 ms |
+| | 4 | 1271 ms | 55 ms (2) | 0,4 ms (23) | 30 ms | 209 ms |
+
+Leitura:
+
+* antes, a **recarga** dominava e crescia com `aplicações × programa`: cada
+  resultado da fase 2 recarregava o programa inteiro, SDK incluído (~70 ms
+  por recarga no N=64). Por diferença, ~3 ms por recarga: 4513 → 218 ms;
+* a **montagem** acumulada é quadrática de fato (2208 resultados montados
+  para 128 expansões), mas custa 1–2% do total; fica como está (§4);
+* o **início** (processo da VM, compilação do bootstrap, handshake) é de
+  0,6–1,3 s e aparece em 1, 2 e 4; na 3 o executor nem é criado. O total de
+  1, 2 e 4 inclui ainda criar o processo;
+* com o cache, a edição de um campo reexecuta só as 2 expansões da classe
+  editada (a de declarações dá a mesma saída: `reexecutadas_iguais` = 1) e
+  revalida as outras refazendo as consultas (10–20 ms).
+
 **Pendente** (registrado, não silencioso): o grafo de espera da fase 2 com
 `MacroIntrospectionCycleException` (hoje a fase 2 roda na ordem do CFE, sem
 espera), os erros de sombreamento (`:960-965`) e de macro aplicada no próprio
 SCC (`elements/src/ciclos.rs`), `inferType`/subtipo genérico (dependem do
-`crates/types`), o cache por digest (§6), a execução paralela na fase, o
-`dartforge dev`/LSP (P10) e o executor nativo (P11).
+`crates/types`), a execução paralela na fase, o `dartforge dev`/LSP (P10,
+onde o `CacheDeMacros` passa a viver entre as edições), o executor nativo
+(P11) e, se a montagem crescer, a montagem incremental da fase 2.
