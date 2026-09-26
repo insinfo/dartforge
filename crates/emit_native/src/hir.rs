@@ -321,7 +321,7 @@ pub enum Instruction {
         args: Vec<(Operand, TipoC)>,
         ret: TipoC,
     },
-    /// Uma chamada nativa com structs ou unions por valor: o operando de um
+    /// Uma chamada nativa com structs ou unions por valor, ou variádica: o operando de um
     /// composto é o endereço (`I64`) dos bytes dele, e um retorno composto é
     /// gravado em `destino` (o resultado da instrução é então `Void`). O
     /// emissor aplica a ABI C do alvo (`llvm/abi_c.rs`).
@@ -330,6 +330,9 @@ pub enum Instruction {
         args: Vec<(Operand, TipoNativo)>,
         ret: TipoNativo,
         destino: Option<Operand>,
+        /// Função variádica (`VarArgs`): quantos parâmetros são fixos; os
+        /// seguintes vão com as promoções de argumento do C.
+        variadica: Option<usize>,
     },
 }
 

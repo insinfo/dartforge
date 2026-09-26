@@ -70,6 +70,8 @@ pub struct TiposNativos {
     recusadas: std::collections::HashMap<ClassId, &'static str>,
     /// As subclasses de `Struct` e `Union`: por valor, com o layout C.
     compostas: std::collections::HashSet<ClassId>,
+    /// `VarArgs` (o último parâmetro de uma função variádica).
+    varargs: Option<ClassId>,
 }
 
 impl TiposNativos {
@@ -79,6 +81,7 @@ impl TiposNativos {
         let mut classes = std::collections::HashMap::new();
         let mut recusadas = std::collections::HashMap::new();
         let mut compostas = std::collections::HashSet::new();
+        let mut varargs = None;
         let abi_especifico = ctx.classe_do_sdk("ffi", "AbiSpecificInteger");
         let struct_ = ctx.classe_do_sdk("ffi", "Struct");
         let union_ = ctx.classe_do_sdk("ffi", "Union");
@@ -94,9 +97,7 @@ impl TiposNativos {
                     "Handle" => {
                         recusadas.insert(id, "Handle (objeto Dart na fronteira nativa)");
                     }
-                    "VarArgs" => {
-                        recusadas.insert(id, "função variádica (VarArgs)");
-                    }
+                    "VarArgs" => varargs = Some(id),
                     _ => {}
                 }
             }
@@ -113,7 +114,7 @@ impl TiposNativos {
                 compostas.insert(id);
             }
         }
-        Some(TiposNativos { classes, recusadas, compostas })
+        Some(TiposNativos { classes, recusadas, compostas, varargs })
     }
 
     /// O tipo C de um tipo nativo (argumento ou retorno de uma assinatura).
@@ -160,16 +161,38 @@ impl TiposNativos {
                 let (r, classe_ret) = self.tipo_nativo(ctx, *ret)?;
                 let mut ps = Vec::with_capacity(positional.len());
                 let mut cs = Vec::with_capacity(positional.len());
-                for p in positional.iter() {
-                    match self.tipo_nativo(ctx, *p)? {
-                        (TipoNativo::Prim(TipoC::Void), _) => return Err("parâmetro nativo `Void`".to_string()),
-                        (t, c) => {
-                            ps.push(t);
-                            cs.push(c);
+                let mut variadica = None;
+                for (i, p) in positional.iter().enumerate() {
+                    // `VarArgs<(T1, T2…)>` ou `VarArgs<T>`, só no fim: os
+                    // tipos da parte variádica.
+                    let variadicos = match ctx.table.get(*p) {
+                        T::Interface { class, args, .. } if Some(*class) == self.varargs => {
+                            if i + 1 != positional.len() {
+                                return Err("VarArgs fora do último parâmetro".to_string());
+                            }
+                            variadica = Some(i);
+                            match args.first().map(|a| ctx.table.get(*a)) {
+                                Some(T::Record { positional, named, .. }) if named.is_empty() => positional.to_vec(),
+                                Some(_) => args.to_vec(),
+                                None => return Err("VarArgs sem argumento de tipo".to_string()),
+                            }
+                        }
+                        _ => vec![*p],
+                    };
+                    for v in variadicos {
+                        match self.tipo_nativo(ctx, v)? {
+                            (TipoNativo::Prim(TipoC::Void), _) => return Err("parâmetro nativo `Void`".to_string()),
+                            (TipoNativo::Composto(_), _) if variadica.is_some() => {
+                                return Err("struct por valor em VarArgs ainda não é suportado no backend nativo".to_string());
+                            }
+                            (t, c) => {
+                                ps.push(t);
+                                cs.push(c);
+                            }
                         }
                     }
                 }
-                Ok(AssinaturaNativa { ret: r, classe_ret, params: ps, classes_params: cs })
+                Ok(AssinaturaNativa { ret: r, classe_ret, params: ps, classes_params: cs, variadica })
             }
             _ => Err("NativeFunction sem tipo de função".to_string()),
         }
@@ -202,6 +225,8 @@ impl TiposNativos {
     /// A tabela (id RTI da classe, letra do tipo C) que o runtime recebe.
     pub fn tabela_rti(&self, ctx: &Context) -> Vec<(i64, char)> {
         let mut v: Vec<(i64, char)> = self.classes.iter().map(|(c, t)| (ctx.id_rti(*c), t.letra())).collect();
+        // `VarArgs`: a marca da parte variádica na chave.
+        v.extend(self.varargs.map(|c| (ctx.id_rti(c), '*')));
         v.sort_unstable();
         v
     }
@@ -262,9 +287,10 @@ fn mapeamento_da_abi(ctx: &Context, c: ClassId) -> Option<TipoC> {
     None
 }
 
-/// A chave num nome de símbolo (`S12.` vira `S12_`).
+/// A chave num nome de símbolo, sem ambiguidade: `.` (fim de `S<rti>.`)
+/// vira `$p` e `*` (início dos variádicos) vira `$v`.
 fn escapar_chave(chave: &str) -> String {
-    chave.replace('.', "_")
+    chave.replace('.', "$p").replace('*', "$v")
 }
 
 /// Uma assinatura nativa: retorno (com a classe de uma struct devolvida
@@ -274,6 +300,8 @@ pub struct AssinaturaNativa {
     pub classe_ret: Option<ClassId>,
     pub params: Vec<TipoNativo>,
     pub classes_params: Vec<Option<ClassId>>,
+    /// Função variádica: quantos parâmetros são fixos.
+    pub variadica: Option<usize>,
 }
 
 /// A chave de uma assinatura: a letra do retorno, `_` e as dos parâmetros
@@ -288,8 +316,14 @@ pub fn chave_da_assinatura(ctx: &Context, a: &AssinaturaNativa) -> String {
     let mut s = String::with_capacity(a.params.len() + 2);
     letra(&a.ret, a.classe_ret, &mut s);
     s.push('_');
-    for (p, c) in a.params.iter().zip(&a.classes_params) {
+    for (i, (p, c)) in a.params.iter().zip(&a.classes_params).enumerate() {
+        if a.variadica == Some(i) {
+            s.push('*');
+        }
         letra(p, *c, &mut s);
+    }
+    if a.variadica == Some(a.params.len()) {
+        s.push('*');
     }
     s
 }
@@ -338,7 +372,11 @@ pub fn lower_ffi(ctx: &Context, module: &mut Module) {
         module.functions.extend(b.extra_functions);
         module.ffi_trampolins.push((chave.clone(), simbolo));
         // O callback da mesma assinatura (`Pointer.fromFunction`,
-        // `NativeCallable`): o corpo HIR; a entrada C sai no emissor.
+        // `NativeCallable`): o corpo HIR; a entrada C sai no emissor. Um
+        // callback nunca é variádico.
+        if assinatura.variadica.is_some() {
+            continue;
+        }
         let corpo = format!("df.ffi.{}$cb", escapar_chave(&chave));
         let mut b = FnBuilder::new(ctx, unit, corpo.clone(), format!("ffi callback {chave}"), assinatura.ret.tipo_hir());
         b.corpo_do_callback(ctx, &assinatura);
@@ -1053,7 +1091,7 @@ fn assinatura_da_anotacao(
             ps.push(tn);
             cs.push(c);
         }
-        Ok(AssinaturaNativa { ret: r, classe_ret, params: ps, classes_params: cs })
+        Ok(AssinaturaNativa { ret: r, classe_ret, params: ps, classes_params: cs, variadica: None })
     };
     match &ast.ty(t).kind {
         ast::TypeKind::Function { return_type, parameters, .. } => de_params(ast, lib, *return_type, parameters),
@@ -1173,7 +1211,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 );
                 let destino = endereco(self, "dartforge_ffi_endereco_do_composto", novo.clone());
                 self.emit(
-                    Instruction::ChamadaNativaComposta { alvo, args: nativos, ret: a.ret.clone(), destino: Some(destino) },
+                    Instruction::ChamadaNativaComposta { alvo, args: nativos, ret: a.ret.clone(), destino: Some(destino), variadica: a.variadica },
                     Type::Void,
                 );
                 novo
@@ -1181,7 +1219,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             (TipoNativo::Composto(_), None) => unreachable!("struct devolvida sem classe"),
             (TipoNativo::Prim(ret), _) => {
                 let ret = *ret;
-                let r = if nativos.iter().all(|(_, t)| matches!(t, TipoNativo::Prim(_))) {
+                let r = if a.variadica.is_none() && nativos.iter().all(|(_, t)| matches!(t, TipoNativo::Prim(_))) {
                     let prims = nativos
                         .into_iter()
                         .map(|(x, t)| match t {
@@ -1192,7 +1230,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.emit(Instruction::ChamadaNativa { alvo, args: prims, ret }, ret.tipo_hir())
                 } else {
                     self.emit(
-                        Instruction::ChamadaNativaComposta { alvo, args: nativos, ret: a.ret.clone(), destino: None },
+                        Instruction::ChamadaNativaComposta { alvo, args: nativos, ret: a.ret.clone(), destino: None, variadica: a.variadica },
                         ret.tipo_hir(),
                     )
                 };

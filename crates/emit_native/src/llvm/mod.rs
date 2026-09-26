@@ -682,8 +682,8 @@ impl<'a> LlvmEmitter<'a> {
                             }
                         }
                     }
-                    Instruction::ChamadaNativaComposta { alvo, args, ret, destino } => {
-                        self.chamada_nativa_composta(v, alvo, args, ret, destino.as_ref());
+                    Instruction::ChamadaNativaComposta { alvo, args, ret, destino, variadica } => {
+                        self.chamada_nativa_composta(v, alvo, args, ret, destino.as_ref(), *variadica);
                     }
                     Instruction::AllocList { elements } => {
                         // Alloca temporário para pares (bits, tag)
@@ -1466,7 +1466,15 @@ impl<'a> LlvmEmitter<'a> {
     /// em peças, `byval` ou por ponteiro; um retorno composto vai para
     /// `destino` (direto: pelas peças gravadas numa temporária; `sret`: o
     /// próprio destino).
-    fn chamada_nativa_composta(&mut self, v: u32, alvo: &Operand, args: &[(Operand, TipoNativo)], ret: &TipoNativo, destino: Option<&Operand>) {
+    fn chamada_nativa_composta(
+        &mut self,
+        v: u32,
+        alvo: &Operand,
+        args: &[(Operand, TipoNativo)],
+        ret: &TipoNativo,
+        destino: Option<&Operand>,
+        variadica: Option<usize>,
+    ) {
         use abi_c::{PassagemArg, PassagemRet};
         let conv = abi_c::Convencao::do_alvo();
         let mut regs = abi_c::Registradores::novos();
@@ -1487,11 +1495,35 @@ impl<'a> LlvmEmitter<'a> {
         if let (Some((PassagemRet::Sret { alinhamento }, l)), Some(d)) = (&passagem_ret, &destino_ptr) {
             partes.push(format!("ptr sret([{} x i8]) align {alinhamento} {d}", l.tamanho));
         }
+        let mut tipos_fixos: Vec<String> = Vec::new();
+        if matches!(&passagem_ret, Some((PassagemRet::Sret { .. }, _))) {
+            tipos_fixos.push("ptr".to_string());
+        }
         for (i, (op, t)) in args.iter().enumerate() {
+            let variadico = variadica.is_some_and(|n| i >= n);
             match t {
+                // Promoções de argumento padrão do C num argumento variádico:
+                // `float` vai como `double`; inteiros menores que `int`,
+                // como `int` (com o sinal do tipo).
+                TipoNativo::Prim(tc) if variadico => {
+                    regs.consumir_primitivo(*tc);
+                    let p = match tc {
+                        TipoC::F32 => self.argumento_c(v, i, op, TipoC::F64),
+                        TipoC::I8 | TipoC::I16 => self.argumento_c(v, i, op, TipoC::I32),
+                        TipoC::U8 | TipoC::U16 | TipoC::Bool => {
+                            let n = self.coagir(op, if *tc == TipoC::Bool { Type::I1 } else { Type::I64 });
+                            let ext = if *tc == TipoC::Bool { format!("zext i1 {n} to i32") } else { format!("trunc i64 {n} to i32") };
+                            writeln!(self.out, "  %na{v}_{i} = {ext}").unwrap();
+                            format!("i32 %na{v}_{i}")
+                        }
+                        _ => self.argumento_c(v, i, op, *tc),
+                    };
+                    partes.push(p);
+                }
                 TipoNativo::Prim(tc) => {
                     regs.consumir_primitivo(*tc);
                     let p = self.argumento_c(v, i, op, *tc);
+                    tipos_fixos.push(p.split(' ').next().unwrap_or("i64").to_string());
                     partes.push(p);
                 }
                 TipoNativo::Composto(l) => {
@@ -1509,19 +1541,30 @@ impl<'a> LlvmEmitter<'a> {
                                 writeln!(self.out, "  %pp{v}_{i}_{k} = getelementptr i8, ptr %tmp{v}_{i}, i64 {}", p.deslocamento).unwrap();
                                 writeln!(self.out, "  %pc{v}_{i}_{k} = load {}, ptr %pp{v}_{i}_{k}, align 1", p.tipo).unwrap();
                                 partes.push(format!("{} {}%pc{v}_{i}_{k}", p.tipo, p.atributos));
+                                tipos_fixos.push(p.tipo.clone());
                             }
                         }
                         PassagemArg::Byval { alinhamento } => {
                             partes.push(format!("ptr byval([{} x i8]) align {alinhamento} %tmp{v}_{i}", l.tamanho));
+                            tipos_fixos.push("ptr".to_string());
                         }
-                        PassagemArg::Indireta => partes.push(format!("ptr %tmp{v}_{i}")),
+                        PassagemArg::Indireta => {
+                            partes.push(format!("ptr %tmp{v}_{i}"));
+                            tipos_fixos.push("ptr".to_string());
+                        }
                     }
                 }
             }
         }
         let lista = partes.join(", ");
+        // O tipo da chamada: numa variádica, `ret (fixos, ...)`.
+        let tipo_da_chamada = |ret: &str| match variadica {
+            Some(_) if tipos_fixos.is_empty() => format!("{ret} (...)"),
+            Some(_) => format!("{ret} ({}, ...)", tipos_fixos.join(", ")),
+            None => ret.to_string(),
+        };
         match (ret, &passagem_ret) {
-            (TipoNativo::Prim(TipoC::Void), _) => writeln!(self.out, "  call void %fn{v}({lista})").unwrap(),
+            (TipoNativo::Prim(TipoC::Void), _) => writeln!(self.out, "  call {} %fn{v}({lista})", tipo_da_chamada("void")).unwrap(),
             (TipoNativo::Prim(tc), _) => {
                 let conv_ret = match tc {
                     TipoC::I8 | TipoC::I16 | TipoC::I32 => Some(format!("sext {} %nr{v} to i64", tc.llvm())),
@@ -1532,19 +1575,19 @@ impl<'a> LlvmEmitter<'a> {
                 };
                 match conv_ret {
                     Some(c) => {
-                        writeln!(self.out, "  %nr{v} = call {} %fn{v}({lista})", tc.llvm()).unwrap();
+                        writeln!(self.out, "  %nr{v} = call {} %fn{v}({lista})", tipo_da_chamada(tc.llvm())).unwrap();
                         writeln!(self.out, "  %v{v} = {c}").unwrap();
                     }
-                    None => writeln!(self.out, "  %v{v} = call {} %fn{v}({lista})", tc.llvm()).unwrap(),
+                    None => writeln!(self.out, "  %v{v} = call {} %fn{v}({lista})", tipo_da_chamada(tc.llvm())).unwrap(),
                 }
             }
             (TipoNativo::Composto(_), Some((PassagemRet::Sret { .. }, _))) => {
-                writeln!(self.out, "  call void %fn{v}({lista})").unwrap();
+                writeln!(self.out, "  call {} %fn{v}({lista})", tipo_da_chamada("void")).unwrap();
             }
             (TipoNativo::Composto(_), Some((PassagemRet::Direta(pecas), l))) => {
                 let tipo = abi_c::tipo_do_retorno(pecas);
                 let tam = l.tamanho.div_ceil(16) * 16;
-                writeln!(self.out, "  %rr{v} = call {tipo} %fn{v}({lista})").unwrap();
+                writeln!(self.out, "  %rr{v} = call {} %fn{v}({lista})", tipo_da_chamada(&tipo)).unwrap();
                 writeln!(self.out, "  %rt{v} = alloca [{tam} x i8], align 16").unwrap();
                 for (k, p) in pecas.iter().enumerate() {
                     let val = if pecas.len() == 1 {
