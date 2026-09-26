@@ -15,7 +15,11 @@
 //!   categoria em `stderr` ao fim da emissão;
 //! - caminho de arquivo terminado em `.tsv`: além do resumo, cada divergência
 //!   vira uma linha acrescentada ao arquivo (arquivo:linha, espécie do nó,
-//!   categoria, texto da expressão, tipo do emissor, tipo comum).
+//!   categoria, texto da expressão, tipo do emissor, tipo comum, caminho,
+//!   início e comprimento em bytes — estes três para cruzar com o oráculo do
+//!   `package:analyzer`, `tools/oraculo_tipos`). Cada emissão acrescenta
+//!   antes uma linha `#totais` (expressões conferidas, identificadores
+//!   conferidos, alvos de escrita pulados).
 //!
 //! A comparação normaliza o que é só representação (ver [`normalizar`] e
 //! [`equivalentes`]): `FutureOr` como classe ou como `Ty::FutureOr`, a classe
@@ -52,6 +56,11 @@ pub struct Divergencia {
     pub texto: String,
     pub emissor: String,
     pub comum: String,
+    /// Caminho da unidade e intervalo da expressão em bytes, para cruzar
+    /// com o oráculo do analyzer (`tools/oraculo_tipos`).
+    pub caminho: String,
+    pub inicio: usize,
+    pub comprimento: usize,
 }
 
 /// Estado da conferência de uma emissão.
@@ -154,8 +163,17 @@ impl Conferencia {
                 ));
                 for d in &self.divergencias {
                     texto.push_str(&format!(
-                        "{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
-                        d.local, d.no, d.especie, d.categoria, d.texto, d.emissor, d.comum
+                        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                        d.local,
+                        d.no,
+                        d.especie,
+                        d.categoria,
+                        d.texto,
+                        d.emissor,
+                        d.comum,
+                        d.caminho,
+                        d.inicio,
+                        d.comprimento
                     ));
                 }
                 if let Err(e) = f.write_all(texto.as_bytes()) {
@@ -275,7 +293,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             .next()
             .unwrap_or("")
             .to_string();
+        let caminho = unit
+            .path
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| unit.uri.clone());
         Divergencia {
+            caminho,
+            inicio: expr.span.start,
+            comprimento: expr.span.end - expr.span.start,
             local: format!("{arquivo}:{linha}"),
             no,
             especie,
@@ -741,7 +767,8 @@ pub fn mostrar(ctx: &Ctx, t: &Ty) -> String {
                 ps.push(format!("{{{}}}", v.join(", ")));
             }
             let f = format!("{} Function{tp}({})", mostrar(ctx, ret), ps.join(", "));
-            if *nullable { format!("({f})?") } else { f }
+            // Como o analyzer: `String Function(int)?`.
+            if *nullable { format!("{f}?") } else { f }
         }
         Ty::Record {
             pos,
