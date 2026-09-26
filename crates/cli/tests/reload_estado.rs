@@ -5,6 +5,15 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 
+/// Grava a fixture como um editor grava: conteúdo novo no mesmo arquivo, com
+/// o mtime de agora. (`fs::copy` no Windows — `CopyFileW` — preserva o mtime
+/// da origem, e duas fixtures do mesmo tamanho, gravadas juntas no checkout,
+/// deixariam o arquivo com a mesma assinatura de antes.)
+fn editar(origem: &std::path::Path, destino: &std::path::Path) {
+    let conteudo = std::fs::read(origem).expect("fixture");
+    std::fs::write(destino, conteudo).expect("edição");
+}
+
 #[test]
 fn cli_preserva_estatico_apos_editar_o_mesmo_arquivo_dart() {
     verificar_recarga(false);
@@ -24,7 +33,7 @@ fn verificar_recarga(com_sdk_da_fonte: bool) {
         .join(format!("../../target/tmp-reload-cli-{}-{}", std::process::id(), u8::from(com_sdk_da_fonte)));
     std::fs::create_dir_all(&dir).expect("diretório da fixture");
     let entrada = dir.join("main.dart");
-    std::fs::copy(fixtures.join("reload_estado_v1.dart"), &entrada).expect("versão 1");
+    editar(&fixtures.join("reload_estado_v1.dart"), &entrada);
 
     let mut command = Command::new(env!("CARGO_BIN_EXE_dartforge"));
     command.arg("reload").arg(&entrada).arg("--preservar-estado")
@@ -45,10 +54,12 @@ fn verificar_recarga(com_sdk_da_fonte: bool) {
         }
     });
 
-    let first = rx.recv_timeout(Duration::from_secs(20));
-    let first_len = rx.recv_timeout(Duration::from_secs(20));
+    // A primeira geração compila o programa inteiro (o perfil `test` do CI
+    // é debug): o mesmo prazo do teste ao vivo.
+    let first = rx.recv_timeout(Duration::from_secs(60));
+    let first_len = rx.recv_timeout(Duration::from_secs(60));
     if first.as_deref() == Ok("1") && first_len.as_deref() == Ok("1") {
-        std::fs::copy(fixtures.join("reload_estado_v2.dart"), &entrada).expect("versão 2");
+        editar(&fixtures.join("reload_estado_v2.dart"), &entrada);
     }
     let second = if first.as_deref() == Ok("1") && first_len.as_deref() == Ok("1") {
         rx.recv_timeout(Duration::from_secs(20))
@@ -85,7 +96,7 @@ fn cli_recarrega_o_programa_em_execucao() {
         .join(format!("../../target/tmp-reload-vivo-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("diretório da fixture");
     let entrada = dir.join("main.dart");
-    std::fs::copy(fixtures.join("reload_vivo_v1.dart"), &entrada).expect("versão 1");
+    editar(&fixtures.join("reload_vivo_v1.dart"), &entrada);
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_dartforge"))
         .arg("reload").arg(&entrada)
@@ -110,7 +121,7 @@ fn cli_recarrega_o_programa_em_execucao() {
             ultimo_v1 = Some(n);
             if n == 3 && !editado {
                 editado = true;
-                std::fs::copy(fixtures.join("reload_vivo_v2.dart"), &entrada).expect("versão 2");
+                editar(&fixtures.join("reload_vivo_v2.dart"), &entrada);
             }
         }
         if let Some(n) = linha.strip_prefix("v2 ").and_then(|n| n.parse::<u32>().ok()) {
