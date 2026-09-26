@@ -277,6 +277,9 @@ pub extern "C" fn dartforge_exception_clear() {
 
 fn allocate_format_exception(message: &str) -> i64 {
     let msg = HEAP.with(|h| h.borrow_mut().allocate(Value::String(Texto::de_str(message))));
+    if ajudante("_dartforgeErroDeFormato").is_some() {
+        return com_raizes(&[msg], || dartforge_format_exception_new(msg, 0, -1));
+    }
     com_raizes(&[msg], || {
         HEAP.with(|h| {
             h.borrow_mut().allocate(Value::Object {
@@ -305,6 +308,12 @@ pub extern "C" fn dartforge_exception_new(msg_bits: i64, is_ref: u8) -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_format_exception_new(msg_handle: i64, src_handle: i64, offset: i64) -> i64 {
+    if let Some(f) = ajudante("_dartforgeErroDeFormato") {
+        // SAFETY: registrado pelo `dart:core` com a assinatura
+        // `(String, Object?, int) -> Object`.
+        let g: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
+        return com_raizes(&[msg_handle, src_handle], || g(msg_handle, src_handle, offset));
+    }
     HEAP.with(|h| {
         h.borrow_mut().allocate(Value::Object {
             class_id: 1001,
