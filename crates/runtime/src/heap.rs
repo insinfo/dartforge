@@ -584,8 +584,9 @@ pub enum Value {
     TypedData { class_id: i64, tipo: u8, bytes: Armazenamento },
     /// Visão sobre uma lista tipada interna (`_Uint8ArrayView`,
     /// `_ByteDataView`, …): a classe, o tipo do elemento, a lista de base,
-    /// o deslocamento em bytes e o comprimento em elementos.
-    TypedView { class_id: i64, tipo: u8, base: i64, deslocamento: usize, comprimento: usize },
+    /// o deslocamento em bytes, o comprimento em elementos e se é não
+    /// modificável (`_UnmodifiableXArrayView`, que rejeita escrita).
+    TypedView { class_id: i64, tipo: u8, base: i64, deslocamento: usize, comprimento: usize, imutavel: bool },
 }
 /// Os bytes de uma lista tipada interna: próprios (do heap do runtime) ou
 /// externos — a memória nativa de `Pointer.asTypedList`, que o Dart só vê
@@ -770,6 +771,64 @@ pub mod smi {
 
 /// Um finalizador nativo e o dado dele (`Dart_NewFinalizableHandle`).
 pub type Finalizador = (fn(usize), usize);
+
+/// O quadro de raízes de uma função gerada (G1), no stack dela: o
+/// anterior, o número de slots e os slots, que o código gerado grava com um
+/// `store` comum (a pilha-sombra do LLVM, `ShadowStackGC`). O runtime só
+/// encadeia e desencadeia o quadro ([`empilhar_quadro`]) e o percorre na
+/// coleta; os quadros do próprio runtime continuam em `Heap::frames`.
+#[repr(C)]
+pub struct QuadroDeRaizes {
+    anterior: *const QuadroDeRaizes,
+    n: i64,
+    slots: [i64; 0],
+}
+
+thread_local! {
+    /// O quadro do topo da pilha-sombra desta thread (do isolado dela).
+    static TOPO_DOS_QUADROS: std::cell::Cell<*const QuadroDeRaizes> = const { std::cell::Cell::new(std::ptr::null()) };
+}
+
+/// Encadeia `q` no topo da pilha-sombra. `q.n` e os slots (zerados) já
+/// foram escritos pelo código gerado.
+#[allow(unsafe_code)]
+pub fn empilhar_quadro(q: *mut QuadroDeRaizes) {
+    TOPO_DOS_QUADROS.with(|t| {
+        // SAFETY: `q` é o quadro no stack da função que chama, vivo até o
+        // `desempilhar_quadro` antes de cada retorno dela.
+        unsafe { (*q).anterior = t.get() };
+        t.set(q);
+    });
+}
+
+/// Desencadeia `q`, que tem de ser o topo (os retornos fecham os quadros
+/// em ordem, G3).
+#[allow(unsafe_code)]
+pub fn desempilhar_quadro(q: *const QuadroDeRaizes) {
+    TOPO_DOS_QUADROS.with(|t| {
+        assert!(std::ptr::eq(t.get(), q), "bug do compilador: quadro de raízes fechado fora de ordem");
+        // SAFETY: `q` é o topo, ainda no stack de quem chama.
+        t.set(unsafe { (*q).anterior });
+    });
+}
+
+/// Visita as raízes de todos os quadros da pilha-sombra desta thread.
+#[allow(unsafe_code)]
+fn visitar_quadros(mut f: impl FnMut(i64)) {
+    let mut q = TOPO_DOS_QUADROS.with(|t| t.get());
+    while !q.is_null() {
+        // SAFETY: cada quadro encadeado está no stack de uma função ainda
+        // ativa desta thread, com `n` slots depois do cabeçalho.
+        unsafe {
+            let n = (*q).n as usize;
+            let slots = std::ptr::addr_of!((*q).slots) as *const i64;
+            for i in 0..n {
+                f(*slots.add(i));
+            }
+            q = (*q).anterior;
+        }
+    }
+}
 
 /// Heap preciso sem compactação; handles pares indexam slots reutilizáveis.
 #[derive(Debug)]
@@ -1739,6 +1798,11 @@ impl Heap {
                 .iter()
                 .flat_map(|(_, roots)| roots.iter().copied()),
         );
+        let (pending, stats) = (&mut self.pending, &mut self.stats);
+        visitar_quadros(|h| {
+            stats.roots_scanned += 1;
+            pending.push(h);
+        });
         let mut live = self.marcar_pendentes();
         // Os efêmeros: o valor de um portador vivo é alcançado quando a
         // chave é — o que pode tornar vivas outras chaves, até o ponto fixo.

@@ -76,6 +76,8 @@ pub enum ICmpOp {
     Sle,
     Sgt,
     Sge,
+    /// Menor sem sinal: `i u< n` testa `0 <= i < n` de uma vez.
+    Ult,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -320,6 +322,22 @@ pub enum Instruction {
         alvo: Operand,
         args: Vec<(Operand, TipoC)>,
         ret: TipoC,
+    },
+    /// O elemento `indice` (tipo C `tipo`) da memória em `endereco` (`I64`):
+    /// o caminho rápido de uma lista tipada, com os limites já conferidos.
+    /// O resultado vem na representação Dart do tipo (`I64`, `F64`).
+    CargaNativa {
+        endereco: Operand,
+        indice: Operand,
+        tipo: TipoC,
+    },
+    /// Grava `valor` (representação Dart) como o elemento `indice` do tipo
+    /// C `tipo` em `endereco`.
+    GravacaoNativa {
+        endereco: Operand,
+        indice: Operand,
+        tipo: TipoC,
+        valor: Operand,
     },
     /// Uma chamada nativa com structs ou unions por valor, ou variádica: o operando de um
     /// composto é o endereço (`I64`) dos bytes dele, e um retorno composto é

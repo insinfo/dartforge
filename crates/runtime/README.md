@@ -32,7 +32,7 @@ A coleta automática ocorre antes de alocar, após um limiar de 256 alocações 
 
 ## ABI
 
-- dartforge_gc_push_frame(slot_count:i64) -> i64; dartforge_gc_set_root(frame:i64, slot:i64, handle:i64); dartforge_gc_pop_frame(frame:i64); dartforge_gc_collect().
+- dartforge_gc_empilhar(quadro:*mut QuadroDeRaizes); dartforge_gc_desempilhar(quadro); dartforge_gc_collect(). O quadro `{ anterior, n, [n x i64] }` fica no stack da função gerada, que grava cada raiz no slot dela com um `store`.
 - dartforge_object_new(class_id:i64, field_count:i64) -> i64; dartforge_object_get(handle:i64,index:i64) -> i64; dartforge_object_set(handle:i64,index:i64,bits:i64,is_ref:i8); dartforge_object_class(handle:i64) -> i64.
 - dartforge_string_new(ptr:*const u8,len:i64) -> i64; dartforge_string_concat(a:i64,b:i64) -> i64; dartforge_string_equal(a:i64,b:i64) -> i8; dartforge_print_string(handle:i64).
 - Strings são UTF-8 e imutáveis. Concatenação exige operandos não nulos; igualdade e impressão aceitam handle zero. Não há normalização Unicode.

@@ -614,6 +614,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let modificavel = classe.strip_prefix("_Unmodifiable").map(|r| format!("_{r}"));
         let procurada = modificavel.as_deref().unwrap_or(classe);
         let &(_, tipo) = VISOES.iter().find(|(c, _)| *c == procurada)?;
+        // O bit `VISAO_IMUTAVEL` do runtime: a visão não modificável recusa
+        // o caminho rápido de `[]=` (o `[]=` dela lança, como na VM).
+        let tipo = if modificavel.is_some() { tipo | 0x100 } else { tipo };
         let cid = id_de(self, classe)?;
         let base = self.coagir(args.first()?.clone(), Type::Ref);
         let desloc = self.coagir(args.get(1)?.clone(), Type::I64);

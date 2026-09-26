@@ -24,7 +24,7 @@ pub struct LlvmEmitter<'a> {
     apontado: std::collections::HashMap<ValueId, Type>,
     /// G: slot de raiz de cada valor `Ref` da função (SSA ou `alloca`).
     slots: std::collections::HashMap<ValueId, usize>,
-    /// A função abriu um frame de raízes (`%gcf`).
+    /// A função abriu um quadro de raízes (`%gcq`).
     tem_frame: bool,
     // --- P1 (closures, α) ---
     /// Vetores constantes de `i64` (`@df.arr.<k>`): assinaturas e descritores.
@@ -367,11 +367,22 @@ impl<'a> LlvmEmitter<'a> {
                 writeln!(self.out, "  call void @dartforge_rastro_entrada(ptr @df.rastro.{n}, i64 {})", func.symbol.len()).unwrap();
             }
             if block.id.0 == 0 && self.tem_frame {
-                writeln!(self.out, "  %gcf = call i64 @dartforge_gc_push_frame(i64 {})", self.slots.len()).unwrap();
+                // O quadro de raízes no stack da função (a pilha-sombra,
+                // `QuadroDeRaizes` do runtime): anterior, número de slots e
+                // os slots, zerados antes de o runtime encadeá-lo. Cada raiz
+                // é um `store` no slot dela.
+                let n = self.slots.len();
+                let t = format!("{{ ptr, i64, [{n} x i64] }}");
+                writeln!(self.out, "  %gcq = alloca {t}, align 8").unwrap();
+                writeln!(self.out, "  store {t} {{ ptr null, i64 {n}, [{n} x i64] zeroinitializer }}, ptr %gcq").unwrap();
+                for slot in 0..n {
+                    writeln!(self.out, "  %gcs{slot} = getelementptr inbounds {t}, ptr %gcq, i64 0, i32 2, i64 {slot}").unwrap();
+                }
+                writeln!(self.out, "  call void @dartforge_gc_empilhar(ptr %gcq)").unwrap();
                 for (vid, _, ty) in &func.params {
                     if *ty == Type::Ref {
                         let slot = self.slots[vid];
-                        writeln!(self.out, "  call void @dartforge_gc_set_root(i64 %gcf, i64 {slot}, i64 %v{})", vid.0).unwrap();
+                        writeln!(self.out, "  store i64 %v{}, ptr %gcs{slot}", vid.0).unwrap();
                     }
                 }
             }
@@ -383,7 +394,7 @@ impl<'a> LlvmEmitter<'a> {
                 let v = vid.0;
                 if !matches!(inst, Instruction::Phi { .. }) && !raizes_de_phi.is_empty() {
                     for (slot, pv) in std::mem::take(&mut raizes_de_phi) {
-                        writeln!(self.out, "  call void @dartforge_gc_set_root(i64 %gcf, i64 {slot}, i64 %v{pv})").unwrap();
+                        writeln!(self.out, "  store i64 %v{pv}, ptr %gcs{slot}").unwrap();
                     }
                 }
                 match inst {
@@ -504,6 +515,7 @@ impl<'a> LlvmEmitter<'a> {
                             ICmpOp::Sle => "sle",
                             ICmpOp::Sgt => "sgt",
                             ICmpOp::Sge => "sge",
+                            ICmpOp::Ult => "ult",
                         };
                         let sa = self.coagir(a, Type::I64);
                         let sb = self.coagir(b, Type::I64);
@@ -682,6 +694,50 @@ impl<'a> LlvmEmitter<'a> {
                             }
                         }
                     }
+                    Instruction::CargaNativa { endereco, indice, tipo } => {
+                        // Sem alinhamento suposto (os bytes de uma lista
+                        // tipada são de um `Vec<u8>`).
+                        let e = self.coagir(endereco, Type::I64);
+                        let i = self.coagir(indice, Type::I64);
+                        let t = tipo.llvm();
+                        writeln!(self.out, "  %cp{v} = inttoptr i64 {e} to ptr").unwrap();
+                        writeln!(self.out, "  %cg{v} = getelementptr {t}, ptr %cp{v}, i64 {i}").unwrap();
+                        let conv = match tipo {
+                            TipoC::I8 | TipoC::I16 | TipoC::I32 => Some(format!("sext {t} %cl{v} to i64")),
+                            TipoC::U8 | TipoC::U16 | TipoC::U32 => Some(format!("zext {t} %cl{v} to i64")),
+                            TipoC::F32 => Some(format!("fpext float %cl{v} to double")),
+                            _ => None,
+                        };
+                        match conv {
+                            Some(c) => {
+                                writeln!(self.out, "  %cl{v} = load {t}, ptr %cg{v}, align 1").unwrap();
+                                writeln!(self.out, "  %v{v} = {c}").unwrap();
+                            }
+                            None => writeln!(self.out, "  %v{v} = load {t}, ptr %cg{v}, align 1").unwrap(),
+                        }
+                    }
+                    Instruction::GravacaoNativa { endereco, indice, tipo, valor } => {
+                        let e = self.coagir(endereco, Type::I64);
+                        let i = self.coagir(indice, Type::I64);
+                        let t = tipo.llvm();
+                        let x = match tipo {
+                            TipoC::F32 => {
+                                let d = self.coagir(valor, Type::F64);
+                                writeln!(self.out, "  %gx{v} = fptrunc double {d} to float").unwrap();
+                                format!("%gx{v}")
+                            }
+                            TipoC::F64 => self.coagir(valor, Type::F64),
+                            TipoC::I64 | TipoC::U64 => self.coagir(valor, Type::I64),
+                            _ => {
+                                let n = self.coagir(valor, Type::I64);
+                                writeln!(self.out, "  %gx{v} = trunc i64 {n} to {t}").unwrap();
+                                format!("%gx{v}")
+                            }
+                        };
+                        writeln!(self.out, "  %gp{v} = inttoptr i64 {e} to ptr").unwrap();
+                        writeln!(self.out, "  %gg{v} = getelementptr {t}, ptr %gp{v}, i64 {i}").unwrap();
+                        writeln!(self.out, "  store {t} {x}, ptr %gg{v}, align 1").unwrap();
+                    }
                     Instruction::ChamadaNativaComposta { alvo, args, ret, destino, variadica } => {
                         self.chamada_nativa_composta(v, alvo, args, ret, destino.as_ref(), *variadica);
                     }
@@ -769,7 +825,7 @@ impl<'a> LlvmEmitter<'a> {
                         if let Operand::Val(pv) = ptr
                             && let Some(&slot) = self.slots.get(pv)
                         {
-                            writeln!(self.out, "  call void @dartforge_gc_set_root(i64 %gcf, i64 {slot}, i64 {sv})").unwrap();
+                            writeln!(self.out, "  store i64 {sv}, ptr %gcs{slot}").unwrap();
                         }
                     }
                     Instruction::Box { op, from } => {
@@ -876,13 +932,13 @@ impl<'a> LlvmEmitter<'a> {
                     if matches!(inst, Instruction::Phi { .. }) {
                         raizes_de_phi.push((slot, v));
                     } else if !matches!(inst, Instruction::Alloca(_)) {
-                        writeln!(self.out, "  call void @dartforge_gc_set_root(i64 %gcf, i64 {slot}, i64 %v{v})").unwrap();
+                        writeln!(self.out, "  store i64 %v{v}, ptr %gcs{slot}").unwrap();
                     }
                 }
                 let _ = ty;
             }
             for (slot, pv) in std::mem::take(&mut raizes_de_phi) {
-                writeln!(self.out, "  call void @dartforge_gc_set_root(i64 %gcf, i64 {slot}, i64 %v{pv})").unwrap();
+                writeln!(self.out, "  store i64 %v{pv}, ptr %gcs{slot}").unwrap();
             }
 
             for (b, nome, de, v, para) in self.conv_phi.clone() {
@@ -898,7 +954,7 @@ impl<'a> LlvmEmitter<'a> {
             // G3: o frame de raízes fecha antes de TODO `ret`, inclusive o
             // das saídas por exceção (que retornam o valor padrão).
             if self.tem_frame && matches!(block.terminator, Terminator::Return(_)) {
-                writeln!(self.out, "  call void @dartforge_gc_pop_frame(i64 %gcf)").unwrap();
+                writeln!(self.out, "  call void @dartforge_gc_desempilhar(ptr %gcq)").unwrap();
             }
             match &block.terminator {
                 Terminator::Return(Some(op)) => {
@@ -1878,6 +1934,8 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::CallSeletor { .. }
             | Instruction::CallClosureRepasse { .. } => Type::Ref,
             Instruction::ChamadaNativa { ret, .. } => ret.tipo_hir(),
+            Instruction::CargaNativa { tipo, .. } => tipo.tipo_hir(),
+            Instruction::GravacaoNativa { .. } => Type::Void,
             Instruction::ChamadaNativaComposta { ret, destino, .. } => {
                 if destino.is_some() { Type::Void } else { ret.tipo_hir() }
             }

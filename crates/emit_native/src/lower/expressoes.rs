@@ -839,6 +839,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.desviar_se_nulo(&target_op);
                 }
 
+                // `length` de uma lista tipada numérica (`tipados.rs`).
+                if prop_name == "length"
+                    && let Some(l) = self.lista_tipada_numerica(self.ctx.get_type(self.unit_id, *target))
+                {
+                    let n = self.length_tipado(target_op, l);
+                    let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::I64);
+                    return self.coagir(n, repr);
+                }
+
                 // `index`/`name` de um valor de enum do programa (os
                 // campos implícitos, que o elemento não compila).
                 if let Some(c) = self.classe_do_usuario_de(*target)
@@ -926,6 +935,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let r = self.chamar_extensao(target_op, fid, &[(None, idx_op)], receptor, None, expr.span);
                     let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
                     return self.coagir(r, repr);
+                }
+                if let Some(l) = self.lista_tipada_numerica(self.ctx.get_type(self.unit_id, *target)) {
+                    let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
+                    if let Some(r) = self.ler_tipado(target_op.clone(), idx_op.clone(), l, repr) {
+                        return r;
+                    }
                 }
                 if self.ctx.sdk_da_fonte {
                     // SDK da fonte: `[]` pela classe dinâmica.

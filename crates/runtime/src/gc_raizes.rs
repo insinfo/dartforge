@@ -19,33 +19,20 @@ fn com_raizes<R>(handles: &[i64], f: impl FnOnce() -> R) -> R {
     r
 }
 
-/// Abre frame para raízes precisas dos valores SSA da função.
+/// Encadeia o quadro de raízes de uma função gerada, no stack dela
+/// (`crate::heap::QuadroDeRaizes`): o prólogo escreve o número de slots e
+/// os zera; cada raiz depois é um `store` no slot.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_gc_push_frame(slot_count: i64) -> i64 {
-    HEAP.with(|heap| {
-        heap.borrow_mut().push_frame_with_slots(
-            usize::try_from(slot_count).expect("quantidade de slots inválida"),
-        )
-    })
+pub extern "C" fn dartforge_gc_empilhar(quadro: *mut crate::heap::QuadroDeRaizes) {
+    crate::heap::empilhar_quadro(quadro);
 }
-/// Substitui uma raiz estática; zero limpa o slot sem alterar o tamanho do frame.
+
+/// Desencadeia o quadro de raízes antes de cada retorno da função.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_gc_set_root(frame: i64, slot: i64, handle: i64) {
-    HEAP.with(|heap| {
-        heap.borrow_mut()
-            .set_root(frame, usize::try_from(slot).expect("slot inválido"), handle)
-    });
+pub extern "C" fn dartforge_gc_desempilhar(quadro: *const crate::heap::QuadroDeRaizes) {
+    crate::heap::desempilhar_quadro(quadro);
 }
-/// Protege handle positivo; zero representa null.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_gc_root(frame: i64, handle: i64) {
-    HEAP.with(|heap| heap.borrow_mut().root(frame, handle));
-}
-/// Remove raízes do frame sem disparar coleta durante retorno ao chamador.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_gc_pop_frame(frame: i64) {
-    HEAP.with(|heap| heap.borrow_mut().pop_frame(frame));
-}
+
 /// Valor corrente de um global `Ref` do programa, mantido como raiz permanente.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_gc_global_root(id: i64, handle: i64) {
