@@ -58,6 +58,12 @@ pub extern "C" fn dartforge_gc_global_root(id: i64, handle: i64) {
 pub extern "C" fn dartforge_marcar_permanente(handle: i64) {
     HEAP.with(|heap| heap.borrow_mut().marcar_permanente(handle));
 }
+/// Marca a constante canônica `handle`, produzida pelo getter gerado no
+/// endereço `getter` (ver `Heap::marcar_constante`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_marcar_constante(handle: i64, getter: i64) {
+    HEAP.with(|heap| heap.borrow_mut().marcar_constante(handle, getter as usize));
+}
 /// Permite coleta explícita em testes e futuras rotinas de manutenção.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_gc_collect() {

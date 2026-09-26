@@ -746,6 +746,13 @@ pub struct Heap {
     /// globais `const` (o código gerado os marca, `dartforge_marcar_permanente`),
     /// tear-offs de topo e literais.
     permanentes: std::collections::HashSet<i64>,
+    /// Constante canônica → o getter gerado que a produz (o mesmo endereço
+    /// em todos os isolados): uma mensagem para outro isolado leva o getter,
+    /// e o destino recebe a própria instância canônica (`identical` entre
+    /// isolados, como os objetos compartilhados do grupo da VM).
+    constantes: std::collections::HashMap<i64, usize>,
+    /// Tear-off canônico → o código dele (o inverso de `tearoffs`).
+    codigo_do_tearoff: std::collections::HashMap<i64, i64>,
     /// `DARTFORGE_GC_OFF=1`: nunca coleta. Instrumento de diagnóstico
     /// (docs/NATIVO-PLANO.md §6): um programa que morre com "handle já
     /// coletado" e passa com a coleta desligada tem raiz faltando; um que
@@ -806,6 +813,8 @@ impl Heap {
             tearoffs: std::collections::HashMap::new(),
             literais: std::collections::HashMap::new(),
             permanentes: std::collections::HashSet::new(),
+            constantes: std::collections::HashMap::new(),
+            codigo_do_tearoff: std::collections::HashMap::new(),
             gc_desligado: std::env::var("DARTFORGE_GC_OFF").as_deref() == Ok("1"),
             globais: std::collections::HashMap::new(),
             caixas_bool: [0, 0],
@@ -926,6 +935,26 @@ impl Heap {
         }
     }
 
+    /// Marca `handle` como a constante canônica que `getter` produz.
+    pub fn marcar_constante(&mut self, handle: i64, getter: usize) {
+        if smi::e_handle(handle) {
+            self.permanentes.insert(handle);
+            if getter != 0 {
+                self.constantes.insert(handle, getter);
+            }
+        }
+    }
+
+    /// O getter da constante canônica `handle`, se for uma.
+    pub fn getter_da_constante(&self, handle: i64) -> Option<usize> {
+        self.constantes.get(&handle).copied()
+    }
+
+    /// O código do tear-off canônico `handle`, se for um.
+    pub fn codigo_do_tearoff(&self, handle: i64) -> Option<i64> {
+        self.codigo_do_tearoff.get(&handle).copied()
+    }
+
     /// Se `handle` é permanente e imutável (ver `permanentes`): uma
     /// mensagem no mesmo isolado o passa sem copiar.
     pub fn e_permanente(&self, handle: i64) -> bool {
@@ -1021,6 +1050,7 @@ impl Heap {
         self.set_root(frame, 0, env);
         let closure = self.create_closure(code_id, env);
         self.tearoffs.insert(code_id, closure);
+        self.codigo_do_tearoff.insert(closure, code_id);
         self.permanentes.insert(closure);
         self.pop_frame(frame);
         closure

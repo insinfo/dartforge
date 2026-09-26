@@ -1039,7 +1039,7 @@ pub fn lower_padroes_do_sdk(ctx: &Context, module: &mut Module) {
             dartforge_elements::model::FunctionRef::None => continue,
         };
         let simbolo_base = super::simbolo_de(ctx, fid);
-        let mut b = FnBuilder::new(ctx, unit, String::new(), String::new(), Type::Ref);
+        let b = FnBuilder::new(ctx, unit, String::new(), String::new(), Type::Ref);
         let Some((unidade, params)) = b.parametros_de(fid) else { continue };
         let exportados: Vec<usize> = params
             .iter()

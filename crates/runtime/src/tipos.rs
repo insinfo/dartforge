@@ -97,6 +97,67 @@ thread_local! {
     static RTI: RefCell<Universo> = RefCell::new(Universo::novo());
 }
 
+impl Tipo {
+    /// O tipo com cada tipo-filho trocado por `f(filho)`.
+    fn com_filhos(&self, mut f: impl FnMut(i64) -> i64) -> Tipo {
+        match self {
+            Tipo::Interface(c, args) => Tipo::Interface(*c, args.iter().map(|&x| f(x)).collect()),
+            Tipo::Anulavel(x) => Tipo::Anulavel(f(*x)),
+            Tipo::FutureOr(x) => Tipo::FutureOr(f(*x)),
+            Tipo::Funcao { genericos, ret, pos, n_obrig, nomeados } => Tipo::Funcao {
+                genericos: *genericos,
+                ret: f(*ret),
+                pos: pos.iter().map(|&x| f(x)).collect(),
+                n_obrig: *n_obrig,
+                nomeados: nomeados.iter().map(|(n, x, r)| (n.clone(), f(*x), *r)).collect(),
+            },
+            Tipo::Registro { pos, nomeados } => Tipo::Registro {
+                pos: pos.iter().map(|&x| f(x)).collect(),
+                nomeados: nomeados.iter().map(|(n, x)| (n.clone(), f(*x))).collect(),
+            },
+            Tipo::Tupla(args) => Tipo::Tupla(args.iter().map(|&x| f(x)).collect()),
+            Tipo::Dinamico | Tipo::Vazio | Tipo::Nunca | Tipo::Nulo | Tipo::Ligada(_) | Tipo::ParamClasse(_) | Tipo::ParamFuncao(_) => self.clone(),
+        }
+    }
+}
+
+/// Os tipos de uma mensagem para outro isolado: cada id do universo deste
+/// isolado vira um índice de uma tabela própria, com os filhos antes dos
+/// pais (os ids de tipo são por isolado; os de classe, do programa).
+#[derive(Clone, Default)]
+pub struct TiposDaMensagem {
+    tipos: Vec<Tipo>,
+    indice: HashMap<i64, i64>,
+}
+
+impl TiposDaMensagem {
+    /// O índice (na tabela da mensagem) do tipo `id` deste isolado.
+    pub fn exportar(&mut self, id: i64) -> i64 {
+        if let Some(&i) = self.indice.get(&id) {
+            return i;
+        }
+        let t = RTI.with(|u| u.borrow().tipo(id).clone());
+        let local = t.com_filhos(|filho| self.exportar(filho));
+        let i = self.tipos.len() as i64;
+        self.tipos.push(local);
+        self.indice.insert(id, i);
+        i
+    }
+
+    /// Os ids, no universo deste isolado, de todos os tipos da tabela.
+    pub fn importar(&self) -> Vec<i64> {
+        RTI.with(|u| {
+            let mut u = u.borrow_mut();
+            let mut ids: Vec<i64> = Vec::with_capacity(self.tipos.len());
+            for t in &self.tipos {
+                let t = t.com_filhos(|filho| ids[filho as usize]);
+                ids.push(u.internar(t));
+            }
+            ids
+        })
+    }
+}
+
 const T_DINAMICO: i64 = 0;
 const T_VAZIO: i64 = 1;
 const T_NUNCA: i64 = 2;

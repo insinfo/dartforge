@@ -123,6 +123,30 @@ pub extern "C" fn dartforge_nativo_Error_throwWithStackTrace(error: i64, trace: 
 /// compilação no Dart 3.6.2 e nunca chega aqui.
 thread_local! {
     static EXCEPTION: RefCell<Option<TaggedValue>> = RefCell::new(None);
+    /// O isolado está sendo desenrolado para terminar (`Isolate.exit`, o
+    /// `UnwindError` da VM): a exceção pendente não é capturável, nenhum
+    /// `catch` a recebe e ela não sai da pendência até o laço de eventos.
+    static DESENROLANDO: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Começa a desenrolar o isolado: uma exceção pendente que nenhum `catch`
+/// recebe, até o laço de eventos (`isolados.rs`).
+fn comecar_desenrolar() {
+    DESENROLANDO.with(|d| d.set(true));
+    EXCEPTION.with(|slot| *slot.borrow_mut() = Some(TaggedValue::reference(0)));
+    HEAP.with(|h| h.borrow_mut().set_raiz_do_runtime(0, 0));
+}
+
+/// Se o isolado está sendo desenrolado para terminar.
+fn desenrolando() -> bool {
+    DESENROLANDO.with(|d| d.get())
+}
+
+/// Se a exceção pendente pode ser capturada por um `catch` (o tratador
+/// gerado pergunta antes dos testes `on T`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_exception_capturavel() -> u8 {
+    u8::from(!desenrolando())
 }
 
 /// A exceção pendente como referência (o valor da variável do `catch`).
@@ -200,6 +224,9 @@ pub extern "C" fn dartforge_exception_pending() -> u8 {
 /// Toma os bits da exceção pendente e limpa o slot.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_exception_take_bits() -> i64 {
+    if desenrolando() {
+        return 0;
+    }
     HEAP.with(|h| h.borrow_mut().set_raiz_do_runtime(0, 0));
     EXCEPTION.with(|slot| slot.borrow_mut().take().map_or(0, |value| value.bits))
 }
@@ -228,6 +255,11 @@ pub extern "C" fn dartforge_exception_peek_tag() -> u8 {
 /// Desarma e limpa o slot de exceção pendente.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_exception_clear() {
+    if desenrolando() {
+        // O desenrolar não sai da pendência (`finally`, `return` e saltos
+        // também limpam): a pendência chega ao laço de eventos.
+        return;
+    }
     EXCEPTION.with(|slot| {
         slot.borrow_mut().take();
     });
