@@ -122,6 +122,10 @@ pub struct BodyInferrer<'a> {
     pub unidades_dos_avisos: Vec<Option<UnitId>>,
     /// Unidade do corpo em inferência.
     pub(crate) unidade_corrente: Option<UnitId>,
+    /// Tipos dos espalhamentos de um `{…}` só de espalhamentos, já
+    /// inferidos sem contexto para decidir entre conjunto e mapa (a visita
+    /// dos elementos os reaproveita em vez de inferir de novo).
+    pub(crate) espalhamentos_inferidos: HashMap<dartforge_frontend::ast::ExprId, TypeId>,
 }
 
 impl<'a> BodyInferrer<'a> {
@@ -163,6 +167,7 @@ impl<'a> BodyInferrer<'a> {
             contexto_numerico_pendente: None,
             unidades_dos_avisos: Vec::new(),
             unidade_corrente: None,
+            espalhamentos_inferidos: HashMap::new(),
         }
     }
 
