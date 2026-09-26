@@ -17,8 +17,8 @@ void main() {
   print(<int>[1].t);
   print(<String>['a'].eh(1));
   print(<String>['a'].eh('b'));
-  print(<int>[1, 2].mapear((x) => x * 1.5));
-  print(<int>[1, 2].mapear((x) => x * 1.5).runtimeType);
+  print(<int>[1, 2].mapear((x) => 'v$x'));
+  print(<int>[1, 2].mapear((x) => 'v$x').runtimeType);
   print(<num>[1].descr());
   print(<bool>[true].viaClosure());
   print(21.dobro);

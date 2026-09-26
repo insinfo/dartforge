@@ -570,7 +570,7 @@ jobs:
         include:
           - os: ubuntu-latest
             nome: Linux x86-64
-            piso: 200
+            piso: 225
           - os: macos-latest
             nome: macOS arm64
             piso: 0
@@ -605,12 +605,14 @@ jobs:
         run: |
           set -uo pipefail
           mkdir -p relatorios
-          ./target/release/dartforge-diferencial --nativo --jobs 3 > relatorios/nativo.txt 2>&1
-          echo "nativo: código $?"
-          ./target/release/dartforge-diferencial --jit-aot --jobs 2 > relatorios/jit.txt 2>&1
-          echo "jit: código $?"
-          ./target/release/dartforge-diferencial --nativo --corpus corpus/nativo --jobs 2 > relatorios/io.txt 2>&1
-          echo "io: código $?"
+          # O passo roda com `bash -e`: o código de cada rodada é lido sem
+          # encerrar o passo, e o placar abaixo decide.
+          c=0; ./target/release/dartforge-diferencial --nativo --jobs 3 > relatorios/nativo.txt 2>&1 || c=$?
+          echo "nativo: código $c"
+          c=0; ./target/release/dartforge-diferencial --jit-aot --jobs 2 > relatorios/jit.txt 2>&1 || c=$?
+          echo "jit: código $c"
+          c=0; ./target/release/dartforge-diferencial --nativo --corpus corpus/nativo --jobs 2 > relatorios/io.txt 2>&1 || c=$?
+          echo "io: código $c"
           io=$(grep -E '^DartForge Nativo: ' relatorios/io.txt || true)
           aot=$(grep -E '^DartForge Nativo: ' relatorios/nativo.txt || true)
           jit=$(grep -E '^DartForge JIT: ' relatorios/jit.txt || true)
