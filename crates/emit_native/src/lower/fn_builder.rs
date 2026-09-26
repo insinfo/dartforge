@@ -107,6 +107,10 @@ pub struct FnBuilder<'a, 'c> {
     /// A tupla de argumentos de tipo da função corrente (`I64`), se há.
     pub tupla_de_tipos: Option<Operand>,
     /// O tipo estático da criação que `instanciar` vai baixar (`C<T…>`).
+    /// A classe concreta da próxima criação, quando o construtor escolhido é o
+    /// da superclasse que uma aplicação de mixin encaminha
+    /// (`membros::construtor_de`).
+    pub classe_concreta: Option<dartforge_elements::model::ClassId>,
     pub tipo_da_criacao: Option<dartforge_types::table::TypeId>,
     /// A tupla de argumentos de tipo da chamada genérica corrente, que
     /// `chamar_direto` acrescenta quando o alvo tem parâmetros de tipo.
@@ -214,6 +218,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             params_de_tipo_da_funcao: Vec::new(),
             classe_por_tupla: false,
             tupla_de_tipos: None,
+            classe_concreta: None,
             tipo_da_criacao: None,
             tupla_armada: None,
         }

@@ -341,6 +341,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.lower_assert(ast, *condition, *message);
             }
             StmtKind::ForIn {
+                await_: true,
+                target,
+                iterable,
+                body,
+            } => {
+                self.lower_await_for(ast, target, *iterable, *body, stmt.span);
+            }
+            StmtKind::ForIn {
                 target,
                 iterable,
                 body,
@@ -542,8 +550,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             StmtKind::Switch { value, cases } => {
                 self.lower_switch_comando(ast, *value, cases);
             }
-            StmtKind::Yield { .. } => {
-                self.nao_suportado("yield", stmt.span);
+            StmtKind::Yield { star, value } => {
+                self.lower_yield(ast, *star, *value, stmt.span);
             }
         }
     }
@@ -554,6 +562,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         body: StmtId,
         catches: &[ast::CatchClause],
         finally_: Option<StmtId>,
+    ) {
+        let mut fin = finally_.map(|f| move |b: &mut Self| b.lower_stmt(ast, f));
+        self.lower_try_com(
+            ast,
+            &mut |b: &mut Self| b.lower_stmt(ast, body),
+            catches,
+            fin.as_mut().map(|f| f as &mut dyn FnMut(&mut Self)),
+        );
+    }
+
+    /// O `try` com o corpo e o `finally` dados por quem chama: o do comando
+    /// (`lower_try_stmt`) e os sintetizados pelo lowering (o `finally` que
+    /// cancela a inscrição de um `await for`).
+    pub(super) fn lower_try_com(
+        &mut self,
+        ast: &ast::Ast,
+        corpo: &mut dyn FnMut(&mut Self),
+        catches: &[ast::CatchClause],
+        mut finally_: Option<&mut dyn FnMut(&mut Self)>,
     ) {
         let try_body_block = self.new_block();
         let merge_block = self.new_block();
@@ -642,7 +669,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::Branch(try_body_block));
 
         self.set_block(try_body_block);
-        self.lower_stmt(ast, body);
+        corpo(self);
 
         if !self.is_terminated() {
             if let Some((entry, _, _, _)) = fin_info {
@@ -761,7 +788,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         }
 
-        if let Some(fin_stmt) = finally_ {
+        if let Some(fin_corpo) = finally_.as_mut() {
             let (entry, _resume, reason_phi, ret_val_phi) = fin_info.unwrap();
             let scope = self.finally_scopes.pop().unwrap();
 
@@ -820,7 +847,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::Void,
             );
 
-            self.lower_stmt(ast, fin_stmt);
+            fin_corpo(self);
 
             if !self.is_terminated() {
                 let b_norm = merge_block;

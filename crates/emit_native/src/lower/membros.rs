@@ -1327,9 +1327,40 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .to_string();
             return self.nao_suportado(&format!("construtor de classe do SDK ({nome})"), span);
         }
+        // A classe concreta (aplicação de mixin) vale para esta criação, não
+        // para as que a avaliação dos argumentos fizer.
+        let concreta = self.classe_concreta.take();
         let avaliados = self.avaliar_args(ast, args);
         self.tipo_da_criacao = tipo;
+        self.classe_concreta = concreta;
         self.instanciar_avaliados(ctor_fid, &avaliados, span)
+    }
+
+    /// O construtor `nome` da classe `cid`. Uma aplicação de mixin
+    /// (`class C = S with M;`, especificação §12.1) não declara construtores:
+    /// ela tem um construtor de encaminhamento para cada construtor
+    /// generativo da superclasse. Aí devolve o da superclasse (subindo pelas
+    /// aplicações encadeadas) e anota `cid` como a classe concreta da criação
+    /// seguinte — o objeto é de `cid`, e os campos dos mixins são
+    /// inicializados antes do construtor da superclasse.
+    pub fn construtor_de(&mut self, cid: ClassId, nome: SymbolId) -> Option<FunctionElementId> {
+        let mut c = cid;
+        loop {
+            let classe = &self.ctx.program.classes[c.0 as usize];
+            if let Some(&f) = classe.constructors.get(&nome) {
+                if c != cid {
+                    if self.ctx.program.functions[f.0 as usize].factory {
+                        return None;
+                    }
+                    self.classe_concreta = Some(cid);
+                }
+                return Some(f);
+            }
+            if classe.kind != dartforge_elements::model::ClassKind::MixinApplication || !classe.constructors.is_empty() {
+                return None;
+            }
+            c = classe.supertype_class?;
+        }
     }
 
     /// `C(args)` com os argumentos já avaliados.
@@ -1349,11 +1380,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         tupla_explicita: Option<Operand>,
     ) -> Operand {
         let tipo = self.tipo_da_criacao.take();
+        let concreta = self.classe_concreta.take();
         let fid = ctor_fid.0 as usize;
         let f = &self.ctx.program.functions[fid];
-        let Some(cid) = f.class else {
+        let Some(cid_ctor) = f.class else {
             return self.nao_suportado("construtor sem classe", span);
         };
+        // O objeto é da classe concreta (aplicação de mixin) quando o
+        // construtor é o da superclasse que ela encaminha.
+        let cid = concreta.unwrap_or(cid_ctor);
         // A factory `core.Symbol` redireciona para a classe concreta da
         // biblioteca interna. O alvo é inequívoco e evita que a resolução
         // da factory volte à própria declaração abstrata.
@@ -1406,8 +1441,32 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if generica && let Some(r) = rti_explicito.or_else(|| tipo.map(|t| self.rti_de_tipo(t))) {
             self.definir_rti(obj.clone(), r);
         }
+        if concreta.is_some() {
+            self.inicializar_mixins_das_aplicacoes(obj.clone(), cid, cid_ctor);
+        }
         self.chamar_direto(fid, Some(obj.clone()), args);
         obj
+    }
+
+    /// Os construtores de encaminhamento das aplicações de mixin de `de` até
+    /// `ate` (exclusive): cada um inicializa os campos dos seus mixins, do
+    /// último para o primeiro, antes do construtor da superclasse.
+    fn inicializar_mixins_das_aplicacoes(&mut self, obj: Operand, de: ClassId, ate: ClassId) {
+        let salvo = self.this_param.replace(obj);
+        let mut c = de;
+        while c != ate {
+            let classe = &self.ctx.program.classes[c.0 as usize];
+            let mixins = classe.mixin_classes.clone();
+            let sup = classe.supertype_class;
+            for m in mixins.into_iter().rev() {
+                if self.ctx.biblioteca_compilada(self.ctx.program.classes[m.0 as usize].library) {
+                    self.inicializar_campos(m);
+                }
+            }
+            let Some(s) = sup else { break };
+            c = s;
+        }
+        self.this_param = salvo;
     }
 
     /// A função (não construtor) declara parâmetros de tipo: recebe a tupla.

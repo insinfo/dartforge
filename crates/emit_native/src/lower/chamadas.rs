@@ -138,7 +138,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     // `C(…)` sem resolução (operando de `throw`, corpo de
                     // closure): o construtor sem nome da classe.
                     let vazio = self.ctx.interner.lookup("");
-                    let ctor = vazio.and_then(|v| self.ctx.program.classes[c.0 as usize].constructors.get(&v).copied());
+                    let ctor = vazio.and_then(|v| self.construtor_de(c, v));
                     if let Some(f) = ctor {
                         return self.instanciar(ast, f, &arguments.args, expr.span);
                     }
@@ -193,7 +193,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                     Element::Class(c) if self.ctx.biblioteca_compilada(self.ctx.program.classes[c.0 as usize].library) => {
                         let vazio = self.ctx.interner.lookup("");
-                        if let Some(f) = vazio.and_then(|v| self.ctx.program.classes[c.0 as usize].constructors.get(&v).copied()) {
+                        if let Some(f) = vazio.and_then(|v| self.construtor_de(c, v)) {
                             return self.instanciar(ast, f, &arguments.args, expr.span);
                         }
                     }
@@ -219,7 +219,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if let Some(Resolved::Element(dartforge_elements::model::Element::Class(c))) =
                     self.ctx.get_resolved(self.unit_id, *inner_target).cloned()
                     && !matches!(resolved_alvo, Some(Resolved::Member { .. }))
-                    && let Some(&f) = self.ctx.program.classes[c.0 as usize].constructors.get(&method_name.sym)
+                    && let Some(f) = self.construtor_de(c, method_name.sym)
                 {
                     self.tipo_da_criacao = self.ctx.get_type(self.unit_id, expr_id);
                     return self.instanciar(ast, f, &arguments.args, expr.span);
@@ -283,7 +283,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 && self.ctx.biblioteca_compilada(self.ctx.program.classes[c.0 as usize].library)
             {
                 let classe = &self.ctx.program.classes[c.0 as usize];
-                if let Some(&f) = classe.constructors.get(&method_name.sym) {
+                if let Some(f) = self.construtor_de(c, method_name.sym) {
                     return self.instanciar(ast, f, &arguments.args, expr.span);
                 }
                 if let Some(&f) = classe.static_members.get(&method_name.sym) {

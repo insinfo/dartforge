@@ -448,16 +448,8 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                 }
 
                 match ast_func.modifier {
-                    // P6: o corpo `async` vira máquina de estados (`async_sm.rs`).
-                    dartforge_frontend::ast::AsyncModifier::Async => {
-                        builder.lower_corpo_async(
-                            ast,
-                            ast_func.parameters.as_deref().unwrap_or(&[]),
-                            &ast_func.body,
-                            ast_func.span,
-                            ctx.outline.functions.get(f_idx).map(|d| d.return_type),
-                        );
-                    }
+                    // P6: o corpo `async` vira máquina de estados
+                    // (`async_sm.rs`); os geradores `sync*`/`async*` também.
                     dartforge_frontend::ast::AsyncModifier::None => match &ast_func.body {
                         FunctionBody::Block(stmt_id) => {
                             builder.lower_stmt(ast, *stmt_id);
@@ -468,9 +460,15 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                         }
                         _ => {}
                     },
-                    _ => {
-                        builder.nao_suportado("gerador (sync*/async*)", ast_func.span);
-                        builder.terminate(Terminator::Return(None));
+                    modificador => {
+                        builder.lower_corpo_async(
+                            ast,
+                            ast_func.parameters.as_deref().unwrap_or(&[]),
+                            &ast_func.body,
+                            ast_func.span,
+                            ctx.outline.functions.get(f_idx).map(|d| d.return_type),
+                            async_sm::tipo_do_corpo(modificador),
+                        );
                     }
                 }
                 builder.finalizar(module);

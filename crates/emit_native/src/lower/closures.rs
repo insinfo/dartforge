@@ -118,9 +118,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `(params) => e`, `(params) { … }` ou o valor de uma função local.
     pub fn lower_closure(&mut self, ast: &ast::Ast, fid: FunctionId, span: Span) -> Operand {
         let f = ast.function(fid);
-        if !matches!(f.modifier, AsyncModifier::None | AsyncModifier::Async) {
-            return self.nao_suportado("closure geradora", span);
-        }
         // Variáveis livres que são locais visíveis aqui.
         let (livres, _) = captura::livres(self.ctx, self.unit_id, ast, fid);
         let capturas: Vec<(SymbolId, super::locais::Local)> = livres
@@ -193,9 +190,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 b.declarar_variavel(n.sym, n.span.start as usize, Type::Ref, Operand::Val(vid));
             }
         }
-        if f.modifier == AsyncModifier::Async {
-            // P6: closure `async` — o corpo vira máquina de estados.
-            b.lower_corpo_async(ast, params, &f.body, span, None);
+        if f.modifier != AsyncModifier::None {
+            // P6: closure `async`, `sync*` ou `async*` — o corpo vira máquina
+            // de estados. O tipo do elemento/valor fica `dynamic`.
+            b.lower_corpo_async(ast, params, &f.body, span, None, super::async_sm::tipo_do_corpo(f.modifier));
         } else {
             match &f.body {
                 FunctionBody::Block(s) => b.lower_stmt(ast, *s),
