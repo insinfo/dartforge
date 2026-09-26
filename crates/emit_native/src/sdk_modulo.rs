@@ -580,14 +580,22 @@ pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk
             cmd.args(crate::alvo::argumentos_de_ligacao())
                 .arg("-o")
                 .arg(&arquivo_dll)
-                .status()
+                .output()
                 .map_err(|e| format!("Clang: {e}"))?,
         )
     };
-    if let Some(st) = st
-        && !st.success()
+    if let Some(saida) = st
+        && !saida.status.success()
     {
-        return Err(format!("a ligação da DLL do SDK da fonte falhou ({st})"));
+        // O erro leva o que o ligador disse (símbolos ausentes, biblioteca
+        // não achada): sem isso a falha no CI não tem diagnóstico.
+        let texto = String::from_utf8_lossy(&saida.stderr);
+        let linhas: Vec<&str> = texto.lines().filter(|l| !l.trim().is_empty()).take(40).collect();
+        return Err(format!(
+            "a ligação da DLL do SDK da fonte falhou ({}):\n{}",
+            saida.status,
+            linhas.join("\n")
+        ));
     }
     if std::env::var_os("DARTFORGE_KEEP_IR").is_none() {
         for b in BIBLIOTECAS_DA_FONTE {
