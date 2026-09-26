@@ -33,6 +33,43 @@ const CID_RECORD: usize = 11;
 const CID_UINT8_LIST: usize = 12;
 const CID_UINT8_VIEW: usize = 13;
 const CID_INT64_LIST: usize = 14;
+// 15–17: os valores SIMD (`simd.rs`).
+const CID_INT8_LIST: usize = 18;
+const CID_UINT8_CLAMPED_LIST: usize = 19;
+const CID_INT16_LIST: usize = 20;
+const CID_UINT16_LIST: usize = 21;
+const CID_INT32_LIST: usize = 22;
+const CID_UINT32_LIST: usize = 23;
+const CID_UINT64_LIST: usize = 24;
+const CID_FLOAT32_LIST: usize = 25;
+const CID_FLOAT64_LIST: usize = 26;
+const CID_INT32X4_LIST: usize = 27;
+const CID_FLOAT32X4_LIST: usize = 28;
+const CID_FLOAT64X2_LIST: usize = 29;
+const CID_SEND_PORT: usize = 30;
+const CID_CAPABILITY: usize = 31;
+
+/// A posição em `CIDS_DO_RUNTIME` da lista tipada interna de elementos
+/// `tipo` (os `TIPO_*` de `typed_data.rs`); `ByteData` vira `Uint8List`.
+fn cid_da_lista_tipada(tipo: u8) -> Option<usize> {
+    Some(match tipo {
+        TIPO_INT8 => CID_INT8_LIST,
+        TIPO_UINT8 | TIPO_BYTE_DATA => CID_UINT8_LIST,
+        TIPO_UINT8_CLAMPED => CID_UINT8_CLAMPED_LIST,
+        TIPO_INT16 => CID_INT16_LIST,
+        TIPO_UINT16 => CID_UINT16_LIST,
+        TIPO_INT32 => CID_INT32_LIST,
+        TIPO_UINT32 => CID_UINT32_LIST,
+        TIPO_INT64 => CID_INT64_LIST,
+        TIPO_UINT64 => CID_UINT64_LIST,
+        TIPO_FLOAT32 => CID_FLOAT32_LIST,
+        TIPO_FLOAT64 => CID_FLOAT64_LIST,
+        TIPO_INT32X4 => CID_INT32X4_LIST,
+        TIPO_FLOAT32X4 => CID_FLOAT32X4_LIST,
+        TIPO_FLOAT64X2 => CID_FLOAT64X2_LIST,
+        _ => return None,
+    })
+}
 
 /// O id de classe (do SDK da fonte) na posição `pos` de `CIDS_DO_RUNTIME`;
 /// `None` sem o SDK da fonte.
