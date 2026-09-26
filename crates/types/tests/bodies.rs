@@ -1681,3 +1681,25 @@ fn membro_estatico_por_instancia() {
         "{diags:?}"
     );
 }
+
+#[test]
+fn constante_em_case_e_promocao_no_lado_direito_de_se_nulo() {
+    // `case _k:` lê a constante (não declara `_k` sem valor); `o ??= a!`
+    // não promove `a` depois do comando (o lado direito pode não rodar).
+    let fonte = "library test; import 'dart:core';
+        const _k = 1;
+        int g(int t) {
+          switch (t) {
+            case _k:
+              return _k;
+          }
+          return t;
+        }
+        int? h(int? a) {
+          int? o;
+          o ??= a!;
+          return a!;
+        }";
+    let diags = diagnosticos_de(fonte);
+    assert!(diags.is_empty(), "{diags:?}");
+}
