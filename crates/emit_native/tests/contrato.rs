@@ -2,7 +2,7 @@
 //! achou no emissor nativo, cada um preso pelo IR que o contrato de
 //! representação produz (docs/NATIVO-PLANO.md §6). Sem Clang: só a emissão.
 
-use dartforge_emit_native::{CompileOptions, emitir_ir, emitir_ir_com};
+use dartforge_emit_native::{CompileOptions, emitir_ir_com};
 use std::path::Path;
 
 const SDK: &str = "C:/tools/dartsdk-3.6.2/lib";
@@ -28,7 +28,9 @@ fn ir_de(fonte: &str) -> Option<String> {
                 versao_linguagem: None,
                 experimentos: Vec::new(),
             };
-            emitir_ir(&entrada, &options)
+            // O contrato do runtime por nome (sem o SDK da fonte), fixo:
+            // não depende do padrão nem de `DARTFORGE_SDK_DA_FONTE`.
+            emitir_ir_com(&entrada, &options, false)
                 .unwrap_or_else(|e| panic!("não compilou:\n{e}"))
                 .texto
         })
