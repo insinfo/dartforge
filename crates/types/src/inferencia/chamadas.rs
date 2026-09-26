@@ -422,7 +422,8 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 !cx.sobreposicoes.contains_key(&recv) && inf.exige_checagem_de_nulo(cx.lib, r_ty, name.sym, false);
             if checar_nulo {
                 let nome = inf.interner.resolve(name.sym).to_string();
-                inf.aviso_com_codigo(
+                inf.aviso_de_nulo(
+                    r_ty,
                     dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE,
                     name.span,
                     &[&nome],

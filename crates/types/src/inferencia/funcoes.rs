@@ -9,8 +9,8 @@ use super::instrucoes;
 use super::BodyInferrer;
 use crate::codes::*;
 use crate::table::{Type, TypeId, TypeParamId};
-use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionElementId, FunctionRef, UnitId, VariableId, VariableRef};
-use dartforge_frontend::ast::{self, AsyncModifier, FunctionBody};
+use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionElementId, FunctionKind, FunctionRef, UnitId, VariableId, VariableRef};
+use dartforge_frontend::ast::{self, AsyncModifier, ExprId, FunctionBody};
 use std::collections::HashMap;
 
 impl<'a> BodyInferrer<'a> {
@@ -71,7 +71,8 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             }
             let ret = dados.return_type;
             let ctx_ret = inf.contexto_de_retorno_declarado(ret, af.modifier);
-            cx.funcoes.push(CtxFuncao { modificador: af.modifier, retorno: Some(ret), contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false });
+            let executavel = inf.executavel_declarado(f);
+            cx.funcoes.push(CtxFuncao { modificador: af.modifier, retorno: Some(ret), contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, executavel });
             corpo_de_funcao(inf, &mut cx, &af.body, af.modifier, ret);
             cx.funcoes.pop();
         }
@@ -119,7 +120,9 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             let v = inf.core.void_;
             let ret = if fe.factory { dados.return_type } else { v };
             let ctx_ret = ret;
-            cx2.funcoes.push(CtxFuncao { modificador: AsyncModifier::None, retorno: Some(ret), contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false });
+            // Construtor gerador: `return e;` é `return_in_generative_constructor`.
+            let executavel = if fe.factory { inf.executavel_declarado(f) } else { None };
+            cx2.funcoes.push(CtxFuncao { modificador: AsyncModifier::None, retorno: Some(ret), contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, executavel });
             corpo_de_funcao(inf, &mut cx2, &ctor.body, AsyncModifier::None, ret);
         }
         FunctionRef::None => {}
@@ -292,13 +295,13 @@ fn sem_parametros_super(inf: &mut BodyInferrer<'_>, sig: TypeId, args: &ast::Arg
 
 /// Infere um corpo (bloco ou expressão) com o retorno já no contexto.
 fn corpo_de_funcao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, body: &FunctionBody, m: AsyncModifier, ret: TypeId) {
+    let _ = (m, ret);
     match body {
         FunctionBody::Expression(e) => {
             let ctx = cx.funcoes.last().map(|f| f.contexto_retorno).unwrap_or(inf.core.unknown);
             let t = inferir(inf, cx, *e, ctx);
-            if m == AsyncModifier::None && !matches!(inf.table.get(ret), Type::Void | Type::Dynamic) {
-                let sp = inf.span_expr(cx.unit, *e);
-                inf.verificar_atribuivel(t, ret, sp, RETURN_OF_INVALID_TYPE.template);
+            if let Some(fc) = cx.funcoes.last().cloned() {
+                verificar_retorno_de_expressao(inf, cx, &fc, *e, t);
             }
         }
         FunctionBody::Block(s) => {
@@ -549,12 +552,23 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
         cx.locais[id.0 as usize].tipo = ft;
         cx.locais[id.0 as usize].funcao_local = false;
     }
-    cx.funcoes.push(CtxFuncao { modificador: m, retorno: declarado, contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false });
+    // Função local com nome: "function 'f'"; closure: outra regra (fora).
+    let executavel = match (local, af.name) {
+        (Some(_), Some(n)) => Some(super::corpo::Executavel {
+            especie: super::corpo::EspecieExecutavel::Funcao,
+            nome: inf.interner.resolve(n.sym).to_string(),
+        }),
+        _ => None,
+    };
+    cx.funcoes.push(CtxFuncao { modificador: m, retorno: declarado, contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, executavel });
     let saltos_salvos = std::mem::take(&mut cx.saltos);
     let cascatas_salvas = std::mem::take(&mut cx.cascatas);
     let (corpo_t, completa) = match &af.body {
         FunctionBody::Expression(e) => {
             let t = inferir(inf, cx, *e, ctx_ret);
+            if let Some(fc) = cx.funcoes.last().cloned() {
+                verificar_retorno_de_expressao(inf, cx, &fc, *e, t);
+            }
             (Some(t), false)
         }
         FunctionBody::Block(s) => {
@@ -765,5 +779,120 @@ fn anotacao(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option<ClassId>, _
     }
     for x in args.args.iter() {
         inferir_livre(inf, &mut cx, x.value);
+    }
+}
+
+/// `=> e`: o `verifyExpressionFunctionBody` do analyzer — retorno (depois do
+/// `flatten` em `async`) `void` aceita qualquer expressão; o resto é a regra
+/// de `return e;` ([`verificar_retorno`]).
+fn verificar_retorno_de_expressao(inf: &mut BodyInferrer<'_>, cx: &Corpo, fc: &CtxFuncao, e: ExprId, t: TypeId) {
+    let Some(r) = fc.retorno else { return };
+    let achatado = if fc.modificador == AsyncModifier::None { r } else { inf.flatten(r) };
+    if matches!(inf.table.get(achatado), Type::Void) {
+        return;
+    }
+    verificar_retorno(inf, cx, fc, e, t);
+}
+
+/// `_checkReturnExpression` do `ReturnTypeVerifier`: `return e;` (ou `=> e`)
+/// com `e` de tipo `S` num executável de retorno declarado `T`. Em geradores,
+/// closures e construtores geradores nada sai daqui.
+pub(crate) fn verificar_retorno(inf: &mut BodyInferrer<'_>, cx: &Corpo, fc: &CtxFuncao, e: ExprId, s: TypeId) {
+    let (Some(t), Some(exe)) = (fc.retorno, fc.executavel.as_ref()) else { return };
+    let e_void_dyn = |inf: &BodyInferrer<'_>, x: TypeId| matches!(inf.table.get(x), Type::Void | Type::Dynamic);
+    let e_void_dyn_null = |inf: &BodyInferrer<'_>, x: TypeId| matches!(inf.table.get(x), Type::Void | Type::Dynamic | Type::Null);
+    let erro = match fc.modificador {
+        AsyncModifier::None => {
+            if matches!(inf.table.get(t), Type::Void) && !e_void_dyn_null(inf, s) {
+                true
+            } else if matches!(inf.table.get(s), Type::Void) {
+                !e_void_dyn(inf, t)
+            } else if let Some(campo) = campo_de_registro_de_um(inf, cx, t, s, e)
+                && inf.atribuivel(campo, s)
+            {
+                // `(int,) f() => (1);`: o parêntese queria ser um registro.
+                let sp = inf.span_expr(cx.unit, e);
+                inf.aviso_com_codigo(
+                    dartforge_diagnostics::codigos::compile_time_error::RECORD_LITERAL_ONE_POSITIONAL_NO_TRAILING_COMMA,
+                    sp,
+                    &[],
+                );
+                return;
+            } else {
+                !inf.atribuivel(s, t)
+            }
+        }
+        AsyncModifier::Async => {
+            let tv = inf.tipo_valor_futuro(t);
+            let fs = inf.flatten(s);
+            if matches!(inf.table.get(tv), Type::Void) && !e_void_dyn_null(inf, fs) {
+                true
+            } else if matches!(inf.table.get(fs), Type::Void) {
+                !e_void_dyn(inf, tv)
+            } else {
+                !inf.atribuivel(s, tv) && !inf.sub(fs, tv)
+            }
+        }
+        AsyncModifier::SyncStar | AsyncModifier::AsyncStar => false,
+    };
+    if !erro {
+        return;
+    }
+    use super::corpo::EspecieExecutavel as E;
+    use dartforge_diagnostics::codigos::compile_time_error as c;
+    let codigo = match exe.especie {
+        E::Funcao => c::RETURN_OF_INVALID_TYPE_FROM_FUNCTION,
+        E::Metodo => c::RETURN_OF_INVALID_TYPE_FROM_METHOD,
+        E::Construtor => c::RETURN_OF_INVALID_TYPE_FROM_CONSTRUCTOR,
+    };
+    let sp = inf.span_expr(cx.unit, e);
+    let de = inf.table.format(s, inf.interner, inf.program);
+    let para = inf.table.format(t, inf.interner, inf.program);
+    let nome = exe.nome.clone();
+    inf.aviso_com_codigo(codigo, sp, &[&de, &para, &nome]);
+}
+
+/// `T` é um registro de um só campo posicional, `S` não é registro e `e` é
+/// uma expressão entre parênteses: o tipo do campo.
+fn campo_de_registro_de_um(inf: &BodyInferrer<'_>, cx: &Corpo, t: TypeId, s: TypeId, e: ExprId) -> Option<TypeId> {
+    let Type::Record { positional, named, .. } = inf.table.get(t) else { return None };
+    if positional.len() != 1 || !named.is_empty() || matches!(inf.table.get(s), Type::Record { .. }) {
+        return None;
+    }
+    let campo = positional[0];
+    matches!(inf.program.unit(cx.unit).ast.expr(e).kind, ast::ExprKind::Parenthesized(_)).then_some(campo)
+}
+
+impl<'a> BodyInferrer<'a> {
+    /// **futureValueType**(`T`) de um retorno declarado: `Future<S>`,
+    /// `FutureOr<S>` (anuláveis ou não) dão `S`; `void` e `dynamic` ficam;
+    /// o resto é `Object?`.
+    pub(crate) fn tipo_valor_futuro(&mut self, t: TypeId) -> TypeId {
+        match self.table.get(t).clone() {
+            Type::Void | Type::Dynamic => t,
+            Type::FutureOr { arg, .. } => arg,
+            Type::Interface { class, args, .. } if Some(class) == self.core.future_class && args.len() == 1 => args[0],
+            _ => self.core.object_nullable,
+        }
+    }
+
+    /// Espécie e nome de exibição de um executável declarado.
+    pub(crate) fn executavel_declarado(&self, f: FunctionElementId) -> Option<super::corpo::Executavel> {
+        use super::corpo::{EspecieExecutavel as E, Executavel};
+        let fe = self.program.function(f);
+        let nome = self.interner.resolve(fe.name);
+        if matches!(fe.node, FunctionRef::Constructor { .. }) {
+            let classe = self.interner.resolve(self.program.class(fe.class?).name).to_string();
+            let nome = if nome.is_empty() || nome == "new" { classe } else { format!("{classe}.{nome}") };
+            return Some(Executavel { especie: E::Construtor, nome });
+        }
+        let especie = match fe.kind {
+            FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor => E::Funcao,
+            _ if fe.class.is_some() || fe.extension.is_some() => E::Metodo,
+            _ => E::Funcao,
+        };
+        // O setter se exibe sem o `=` da chave; `operator ==` fica como está.
+        let nome = if fe.kind == FunctionKind::Setter { nome.strip_suffix('=').unwrap_or(nome) } else { nome };
+        Some(Executavel { especie, nome: nome.to_string() })
     }
 }

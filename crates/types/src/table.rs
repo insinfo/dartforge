@@ -310,7 +310,30 @@ impl TypeTable {
                     p_strs.push(format!("{{{}}}", named_strs.join(", ")));
                 }
                 let ret_str = self.format(*ret, interner, program);
-                format!("{ret_str} Function({}){q}", p_strs.join(", "))
+                // Genérica: `T Function<T>(T)`, com o limite quando não é `Object?`.
+                let tps = match t {
+                    Type::Function { type_params, .. } if !type_params.is_empty() => {
+                        let ps: Vec<String> = type_params
+                            .iter()
+                            .map(|&p| {
+                                let d = self.param(p);
+                                let nome = interner.resolve(d.name);
+                                match self.get(d.bound) {
+                                    Type::Interface { nullable: true, class, .. }
+                                        if interner.resolve(program.classes[class.0 as usize].name) == "Object" =>
+                                    {
+                                        nome.to_string()
+                                    }
+                                    Type::Dynamic => nome.to_string(),
+                                    _ => format!("{nome} extends {}", self.format(d.bound, interner, program)),
+                                }
+                            })
+                            .collect();
+                        format!("<{}>", ps.join(", "))
+                    }
+                    _ => String::new(),
+                };
+                format!("{ret_str} Function{tps}({}){q}", p_strs.join(", "))
             }
             Type::Record {
                 positional,
@@ -322,12 +345,16 @@ impl TypeTable {
                 for &p in positional.iter() {
                     parts.push(self.format(p, interner, program));
                 }
-                for (n, t) in named.iter() {
-                    parts.push(format!(
-                        "{} {}",
-                        self.format(*t, interner, program),
-                        interner.resolve(*n)
-                    ));
+                // Como o analyzer: nomeados entre chaves, e `(int,)` com um
+                // único posicional.
+                if !named.is_empty() {
+                    let nomeados: Vec<String> = named
+                        .iter()
+                        .map(|(n, t)| format!("{} {}", self.format(*t, interner, program), interner.resolve(*n)))
+                        .collect();
+                    parts.push(format!("{{{}}}", nomeados.join(", ")));
+                } else if positional.len() == 1 {
+                    return format!("({},){q}", parts[0]);
                 }
                 format!("({}){q}", parts.join(", "))
             }

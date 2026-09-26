@@ -257,6 +257,12 @@ pub const INVALID_NULL_AWARE_OPERATOR: DiagnosticCode = DiagnosticCode::new(
     "O operador de verificação de nulo é desnecessário porque o receptor não pode ser nulo.",
 );
 
+/// `e!` com `e` estritamente não anulável (aviso, no `!`).
+pub const UNNECESSARY_NON_NULL_ASSERTION: DiagnosticCode = DiagnosticCode::new(
+    "unnecessary_non_null_assertion",
+    "O '!' não tem efeito porque o receptor não pode ser nulo.",
+);
+
 pub const UNNECESSARY_CAST: DiagnosticCode = DiagnosticCode::new(
     "unnecessary_cast",
     "O cast de tipo é desnecessário porque o valor já possui este tipo.",

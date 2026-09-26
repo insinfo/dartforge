@@ -50,6 +50,29 @@ pub(crate) struct CtxFuncao {
     pub retornados: Vec<TypeId>,
     /// Há `return;` sem valor.
     pub retorno_vazio: bool,
+    /// O executável que declara o retorno, para `return_of_invalid_type`;
+    /// `None` em closures e construtores geradores (outras regras).
+    pub executavel: Option<Executavel>,
+}
+
+/// Espécie e nome de exibição do executável (`EnclosingExecutableContext`
+/// do analyzer): o `return_of_invalid_type` diz "function", "method" ou
+/// "constructor" e o nome.
+#[derive(Debug, Clone)]
+pub(crate) struct Executavel {
+    pub especie: EspecieExecutavel,
+    pub nome: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EspecieExecutavel {
+    /// Função de topo ou local com nome, e getters/setters (de topo ou de
+    /// classe): `PropertyAccessorElement` conta como função.
+    Funcao,
+    /// Método ou operador de classe ou extensão.
+    Metodo,
+    /// Construtor factory.
+    Construtor,
 }
 
 /// Estado de inferência de um corpo.

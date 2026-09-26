@@ -533,25 +533,9 @@ fn retorno(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: Option<ExprId>, span: 
         Some(e) => {
             let t = inferir(inf, cx, e, fc.contexto_retorno);
             match fc.retorno {
-                Some(r) => {
-                    let (valor, esperado) = match fc.modificador {
-                        AsyncModifier::Async => {
-                            let fv = inf.tipo_valor_futuro_esquema(r);
-                            let ft = inf.flatten(t);
-                            (ft, fv)
-                        }
-                        _ => (t, r),
-                    };
-                    if !matches!(inf.table.get(esperado), Type::Void | Type::Dynamic) && !inf.atribuivel(valor, esperado) {
-                        // `return v` em função `void`/`dynamic` não se checa; `Future<void>` também não.
-                        let msg = format!(
-                            "{}: retorno '{}' incompatível com '{}'",
-                            RETURN_OF_INVALID_TYPE.template,
-                            inf.table.format(valor, inf.interner, inf.program),
-                            inf.table.format(esperado, inf.interner, inf.program)
-                        );
-                        inf.aviso(msg, span);
-                    }
+                Some(_) => {
+                    let _ = span;
+                    super::funcoes::verificar_retorno(inf, cx, &fc, e, t);
                 }
                 None => {
                     let t = if fc.modificador == AsyncModifier::Async { inf.flatten(t) } else { t };

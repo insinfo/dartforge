@@ -216,7 +216,12 @@ fn verificar_diagnostico(codigo_dart: &str, diagnostic_esperado: DiagnosticCode)
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
 
-    let encontrou = diags.iter().any(|d| d.message.contains(diagnostic_esperado.template));
+    // O diagnóstico pode sair com o molde de `types::codes` ou já com o
+    // código do analyzer (mensagem oficial em inglês).
+    let encontrou = diags.iter().any(|d| {
+        d.message.contains(diagnostic_esperado.template)
+            || d.code.is_some_and(|c| c.info().nome == diagnostic_esperado.name)
+    });
     assert!(
         encontrou,
         "Esperava diagnóstico '{}', mas obteve:\n{:?}",
@@ -1363,10 +1368,11 @@ fn negativos_do_analyzer_40_casos() {
         CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE,
     );
 
-    // 35. INVALID_NULL_AWARE_OPERATOR: bang (!) em tipo garantidamente não-nulo
+    // 35. UNNECESSARY_NON_NULL_ASSERTION: bang (!) em tipo garantidamente não-nulo
+    // (o analyzer não usa `invalid_null_aware_operator` para o `!`).
     verificar_diagnostico(
         "void main() { int x = 1; var y = x!; }",
-        INVALID_NULL_AWARE_OPERATOR,
+        UNNECESSARY_NON_NULL_ASSERTION,
     );
 
     // 36. INVALID_NULL_AWARE_OPERATOR: ?. em int não-nulo
@@ -1608,4 +1614,27 @@ fn criacao_de_nome_que_nao_e_classe() {
         ],
         "{diags:?}"
     );
+}
+
+#[test]
+fn extensoes_homonimas_importadas_continuam_aplicaveis() {
+    // `package:collection` e o analyzer declaram, cada um, uma
+    // `IterableExtension`: o nome conflita, os membros continuam acessíveis.
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    fs::write(tmp.path().join("a.dart"), "library a; extension E on String { int get primeiro => 0; }").unwrap();
+    fs::write(tmp.path().join("b.dart"), "library b; extension E on String { int get segundo => 0; }").unwrap();
+    let main_dart = tmp.path().join("main.dart");
+    fs::write(
+        &main_dart,
+        "library test; import 'dart:core'; import 'a.dart'; import 'b.dart'; int f(String s) => s.primeiro + s.segundo;",
+    )
+    .unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+    assert!(diags.is_empty(), "{diags:?}");
 }
