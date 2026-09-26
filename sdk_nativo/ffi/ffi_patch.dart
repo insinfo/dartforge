@@ -203,14 +203,63 @@ external Pointer<NS>
     _createNativeCallableIsolateLocal<NS extends NativeFunction>(
         dynamic trampoline, dynamic target, bool keepIsolateAlive);
 
-@pragma("vm:external-name", "Ffi_deleteNativeCallable")
-external void _deleteNativeCallable<NS extends NativeFunction>(
-    Pointer<NS> pointer);
+void _deleteNativeCallable<NS extends NativeFunction>(Pointer<NS> pointer) =>
+    _callbackApagar(pointer.address);
 
-@pragma("vm:external-name", "Ffi_updateNativeCallableKeepIsolateAliveCounter")
-external void
-    _updateNativeCallableKeepIsolateAliveCounter<NS extends NativeFunction>(
-        int delta);
+void _updateNativeCallableKeepIsolateAliveCounter<NS extends NativeFunction>(
+        int delta) =>
+    _callbackManter(delta);
+
+// DartForge: os callbacks nativos (`crates/runtime/src/ffi_callbacks.rs`).
+// O compilador troca as chamadas estáticas a `Pointer.fromFunction`,
+// `NativeCallable.isolateLocal` e `NativeCallable.listener` (que na VM o
+// front-end reescreve) por estes ajudantes, com os mesmos argumentos de tipo
+// e de valor (`lower/ffi.rs`).
+
+/// Modos de `_callbackNovo` (os `MODO_*` do runtime).
+const int _modoPersistente = 0;
+const int _modoLocal = 1;
+const int _modoOuvinte = 2;
+
+@pragma("vm:external-name", "DartForge_ffi_callback_novo")
+external int _callbackNovo(Type assinatura, Object? funcao,
+    Object? excepcional, int modo, int porta);
+
+@pragma("vm:external-name", "DartForge_ffi_callback_apagar")
+external void _callbackApagar(int endereco);
+
+@pragma("vm:external-name", "DartForge_ffi_callback_manter")
+external void _callbackManter(int delta);
+
+@pragma("vm:external-name", "DartForge_ffi_callback_args")
+external List _callbackArgs(List mensagem);
+
+/// `sitio` identifica a chamada no programa: cada sítio tem o seu
+/// trampolim, único durante a vida do isolado (a VM compila um por sítio).
+Pointer<NativeFunction<T>> _dartforgeFromFunction<T extends Function>(
+        Function f, Object? exceptionalReturn, int sitio) =>
+    Pointer<NativeFunction<T>>.fromAddress(
+        _callbackNovo(T, f, exceptionalReturn, _modoPersistente, sitio));
+
+NativeCallable<T> _dartforgeCallableLocal<T extends Function>(
+    Function callback,
+    {Object? exceptionalReturn}) {
+  final p = Pointer<NativeFunction<T>>.fromAddress(
+      _callbackNovo(T, callback, exceptionalReturn, _modoLocal, 0));
+  // Um `isolateLocal` nasce mantendo o isolado vivo (`keepIsolateAlive`).
+  _callbackManter(1);
+  return _NativeCallableIsolateLocal<T>(p);
+}
+
+NativeCallable<T> _dartforgeCallableListener<T extends Function>(
+    Function callback) {
+  final c = _NativeCallableListener<T>(
+      (List mensagem) => Function.apply(callback, _callbackArgs(mensagem)),
+      'NativeCallable($callback)');
+  c._pointer = Pointer<NativeFunction<T>>.fromAddress(_callbackNovo(
+      T, null, null, _modoOuvinte, c._port.sendPort.nativePort));
+  return c;
+}
 
 @pragma("vm:recognized", "other")
 @pragma("vm:external-name", "Ffi_nativeIsolateLocalCallbackFunction")

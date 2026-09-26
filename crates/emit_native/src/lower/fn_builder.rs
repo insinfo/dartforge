@@ -127,6 +127,9 @@ pub struct FnBuilder<'a, 'c> {
     /// A classe que declara a função corrente (também num membro
     /// estático): os estáticos dela estão no escopo léxico.
     pub classe_do_membro: Option<dartforge_elements::model::ClassId>,
+    /// Quantos `Pointer.fromFunction` a função já baixou: com o símbolo, o
+    /// sítio de cada um (o trampolim é um por sítio, como na VM).
+    pub sitios_de_callback: u32,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
@@ -237,6 +240,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             tupla_armada: None,
             extensao_do_this: None,
             classe_do_membro: None,
+            sitios_de_callback: 0,
         }
     }
 

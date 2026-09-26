@@ -290,11 +290,98 @@ pub fn lower_ffi(ctx: &Context, module: &mut Module) {
         b.corpo_do_trampolim(ret, &params);
         module.functions.push(b.func);
         module.functions.extend(b.extra_functions);
-        module.ffi_trampolins.push((chave, simbolo));
+        module.ffi_trampolins.push((chave.clone(), simbolo));
+        // O callback da mesma assinatura (`Pointer.fromFunction`,
+        // `NativeCallable`): o corpo HIR; a entrada C sai no emissor.
+        let corpo = format!("df.ffi.{chave}$cb");
+        let mut b = FnBuilder::new(ctx, unit, corpo.clone(), format!("ffi callback {chave}"), ret.tipo_hir());
+        b.corpo_do_callback(ret, &params);
+        module.functions.push(b.func);
+        module.functions.extend(b.extra_functions);
+        module.ffi_callbacks.push(FfiCallback { chave, corpo, ret, params });
     }
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
+    /// O que o front-end da VM reescreve nas chamadas estáticas de callback
+    /// (`Pointer.fromFunction`, as factories `NativeCallable.isolateLocal` e
+    /// `.listener`): o ajudante da sobreposição de `dart:ffi` que as
+    /// implementa, e se a tupla de tipos vem no fim dos argumentos (a de
+    /// uma factory de classe genérica).
+    pub fn callback_ffi_redirecionado(&self, fid: usize) -> Option<(usize, bool)> {
+        let f = &self.ctx.program.functions[fid];
+        let c = f.class?;
+        if self.ctx.program.library(f.library).uri != "dart:ffi" {
+            return None;
+        }
+        let classe = self.ctx.symbol_name(self.ctx.program.classes[c.0 as usize].name);
+        let nome = self.ctx.symbol_name(f.name);
+        let (ajudante, tupla_no_fim) = match (classe, nome, f.factory) {
+            ("Pointer", "fromFunction", false) if f.static_ => ("_dartforgeFromFunction", false),
+            ("NativeCallable", "isolateLocal", true) => ("_dartforgeCallableLocal", true),
+            ("NativeCallable", "listener", true) => ("_dartforgeCallableListener", true),
+            _ => return None,
+        };
+        Some((self.funcao_de_topo("dart:ffi", ajudante)?, tupla_no_fim))
+    }
+
+    /// O corpo de um callback nativo: `(contexto, argumentos)` na
+    /// representação Dart (um ponteiro chega como endereço) → a closure do
+    /// callback pela convenção uniforme → o retorno na representação Dart
+    /// (um `Pointer` volta como endereço). Uma exceção da closure fica
+    /// pendente: a entrada C devolve o retorno excepcional
+    /// (`ffi_callbacks.rs`).
+    fn corpo_do_callback(&mut self, ret: TipoC, params: &[TipoC]) {
+        let ctx = Operand::Val(self.add_param("ctx".to_string(), Type::I64));
+        let valores: Vec<Operand> =
+            params.iter().enumerate().map(|(i, tc)| Operand::Val(self.add_param(format!("a{i}"), tc.tipo_hir()))).collect();
+        let clo = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_ffi_callback_closure".to_string(),
+                args: vec![(ctx.clone(), Type::I64)],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        );
+        let mut avaliados = Vec::with_capacity(params.len());
+        for (i, (v, tc)) in valores.into_iter().zip(params.iter()).enumerate() {
+            let x = match tc {
+                TipoC::Ptr => self.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_ffi_callback_ponteiro".to_string(),
+                        args: vec![(ctx.clone(), Type::I64), (Operand::Constant(Constant::Int(i as i64)), Type::I64), (v, Type::I64)],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                ),
+                _ => self.coagir(v, Type::Ref),
+            };
+            avaliados.push((None, x));
+        }
+        let r = self.chamar_valor_funcao(clo, &avaliados);
+        if self.is_terminated() {
+            return;
+        }
+        let resultado = match ret {
+            TipoC::Void => None,
+            TipoC::Ptr => {
+                let r = self.coagir(r, Type::Ref);
+                Some(self.emit_call_with_check(
+                    Instruction::CallRuntime {
+                        name: "dartforge_ffi_endereco_do_ponteiro".to_string(),
+                        args: vec![(r, Type::Ref)],
+                        ret_ty: Type::I64,
+                    },
+                    Type::I64,
+                ))
+            }
+            tc => Some(self.coagir(r, tc.tipo_hir())),
+        };
+        if !self.is_terminated() {
+            self.terminate(Terminator::Return(resultado));
+        }
+    }
+
     /// O corpo de um trampolim: `(closure, args, desc)` da convenção
     /// uniforme → a chamada nativa → o retorno como `Ref`.
     fn corpo_do_trampolim(&mut self, ret: TipoC, params: &[TipoC]) {
