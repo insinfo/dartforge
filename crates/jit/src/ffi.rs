@@ -1206,6 +1206,9 @@ pub(crate) struct RuntimeDaRecarga {
     pedir: usize,
     /// `dartforge_publicar_geracao`.
     publicar: usize,
+    /// `dartforge_parar_isolados` e `dartforge_liberar_isolados`.
+    parar: usize,
+    liberar: usize,
 }
 
 /// O pedido entregue ao runtime: a tarefa (tomada por quem a roda) e a
@@ -1241,6 +1244,8 @@ impl RuntimeDaRecarga {
         Self {
             pedir: dartforge_runtime::abi::dartforge_pedir_no_ponto_seguro as *const () as usize,
             publicar: dartforge_runtime::abi::dartforge_publicar_geracao as *const () as usize,
+            parar: dartforge_runtime::abi::dartforge_parar_isolados as *const () as usize,
+            liberar: dartforge_runtime::abi::dartforge_liberar_isolados as *const () as usize,
         }
     }
 
@@ -1252,14 +1257,16 @@ impl RuntimeDaRecarga {
         }
         let pedir = endereco_na_biblioteca(modulo, c"dartforge_pedir_no_ponto_seguro");
         let publicar = endereco_na_biblioteca(modulo, c"dartforge_publicar_geracao");
-        if pedir.is_null() || publicar.is_null() {
+        let parar = endereco_na_biblioteca(modulo, c"dartforge_parar_isolados");
+        let liberar = endereco_na_biblioteca(modulo, c"dartforge_liberar_isolados");
+        if pedir.is_null() || publicar.is_null() || parar.is_null() || liberar.is_null() {
             return Err(format!(
                 "a biblioteca do SDK {} não exporta a recarga ao vivo (dartforge_pedir_no_ponto_seguro); \
                  recompile-a com este dartforge",
                 dll.display()
             ));
         }
-        Ok(Self { pedir: pedir as usize, publicar: publicar as usize })
+        Ok(Self { pedir: pedir as usize, publicar: publicar as usize, parar: parar as usize, liberar: liberar as usize })
     }
 
     /// Roda `tarefa` no ponto seguro do isolado principal, na thread dele, e
@@ -1306,6 +1313,23 @@ impl RuntimeDaRecarga {
         }
         let tarefa = pedido.tarefa.lock().unwrap_or_else(|e| e.into_inner()).take();
         Err(tarefa.expect("pedido descartado mantém a tarefa"))
+    }
+
+    /// Para os demais isolados no ponto seguro deles (chamada na thread do
+    /// isolado principal, no ponto seguro dele) e devolve a parada.
+    pub(crate) fn parar_isolados(&self) -> usize {
+        // SAFETY: `parar` é `dartforge_parar_isolados` (`portas.rs`).
+        unsafe { std::mem::transmute::<usize, extern "C" fn() -> usize>(self.parar)() }
+    }
+
+    /// Libera a parada: cada isolado refaz os registros da geração nova.
+    pub(crate) fn liberar_isolados(&self, parada: usize, area: Option<u64>, registrar: Option<u64>, rti: Option<u64>) {
+        let e = |x: Option<u64>| x.map_or(0, |v| v as usize);
+        // SAFETY: `liberar` é `dartforge_liberar_isolados` (`portas.rs`), e
+        // `parada` veio de `parar_isolados`, uma vez.
+        unsafe {
+            std::mem::transmute::<usize, extern "C" fn(usize, usize, usize, usize)>(self.liberar)(parada, e(area), e(registrar), e(rti));
+        }
     }
 
     /// `dartforge_publicar_geracao(area, registrar, rti)`: a área de globais

@@ -781,6 +781,7 @@ pub fn marcar_isolado_principal() {
 /// O isolado principal terminou: os pedidos pendentes são descartados (quem
 /// pediu recebe `0`) e os novos, recusados.
 pub fn desmarcar_isolado_principal() {
+    retirar_isolado_vivo();
     let Some(fila) = isolado_principal().lock().unwrap_or_else(|e| e.into_inner()).take() else {
         return;
     };
@@ -806,6 +807,117 @@ pub extern "C" fn dartforge_pedir_no_ponto_seguro(f: extern "C" fn(usize, i32), 
     fila.mensagens.lock().unwrap_or_else(|e| e.into_inner()).pontos_seguros.push_back((f, dado));
     fila.sinal.notify_one();
     1
+}
+
+// A parada de todos os isolados (a publicação de uma recarga): o código
+// novo só pode entrar com nenhum quadro Dart na pilha de NENHUM isolado,
+// porque as células das entradas estáveis são do processo. O isolado
+// principal, no ponto seguro dele, pede aos demais que parem no próximo
+// ponto seguro deles (`dartforge_parar_isolados`), troca o código, e os
+// libera (`dartforge_liberar_isolados`); cada um refaz os próprios registros
+// da geração nova (o estado do runtime é por isolado) antes de continuar.
+
+/// Os isolados vivos no laço de eventos (os que atendem pedidos).
+fn isolados_vivos() -> &'static std::sync::Mutex<Vec<std::sync::Arc<FilaDoIsolado>>> {
+    static V: std::sync::OnceLock<std::sync::Mutex<Vec<std::sync::Arc<FilaDoIsolado>>>> = std::sync::OnceLock::new();
+    V.get_or_init(Default::default)
+}
+
+thread_local! {
+    static VIVO_REGISTRADO: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Este isolado entrou no laço: passa a ser parado nas publicações.
+fn registrar_isolado_vivo() {
+    if VIVO_REGISTRADO.with(|r| r.replace(true)) {
+        return;
+    }
+    let fila = FILA.with(|f| f.clone());
+    isolados_vivos().lock().unwrap_or_else(|e| e.into_inner()).push(fila);
+}
+
+/// Este isolado terminou: sai do registro, e os pedidos pendentes dele são
+/// respondidos com `0` (sob o mesmo trinco: nenhum pedido chega depois).
+fn retirar_isolado_vivo() {
+    if !VIVO_REGISTRADO.with(|r| r.replace(false)) {
+        return;
+    }
+    let meu = id_do_isolado();
+    let pendentes = {
+        let mut vivos = isolados_vivos().lock().unwrap_or_else(|e| e.into_inner());
+        vivos.retain(|f| f.id != meu);
+        FILA.with(|f| std::mem::take(&mut f.mensagens.lock().unwrap_or_else(|e| e.into_inner()).pontos_seguros))
+    };
+    for (f, dado) in pendentes {
+        f(dado, 0);
+    }
+}
+
+/// A barreira de uma parada: quantos pararam, e os registros da geração nova
+/// quando o principal libera.
+#[derive(Default)]
+struct Barreira {
+    estado: std::sync::Mutex<(usize, Option<[usize; 3]>)>,
+    sinal: std::sync::Condvar,
+}
+
+/// O pedido de parada, num isolado que não é o principal.
+extern "C" fn parar_neste_isolado(dado: usize, executar: i32) {
+    // SAFETY: `dado` é um `Arc<Barreira>` entregue por `dartforge_parar_isolados`
+    // (uma referência por pedido, devolvida aqui).
+    let barreira = unsafe { std::sync::Arc::from_raw(dado as *const Barreira) };
+    let mut estado = barreira.estado.lock().unwrap_or_else(|e| e.into_inner());
+    estado.0 += 1;
+    barreira.sinal.notify_all();
+    if executar == 0 {
+        return;
+    }
+    while estado.1.is_none() {
+        estado = barreira.sinal.wait(estado).unwrap_or_else(|e| e.into_inner());
+    }
+    let [area, registrar, rti] = estado.1.expect("liberado");
+    drop(estado);
+    let como_fn = |p: usize| {
+        // SAFETY: 0 ou um trampolim `void ()` da geração publicada.
+        (p != 0).then(|| unsafe { std::mem::transmute::<usize, extern "C" fn()>(p) })
+    };
+    dartforge_publicar_geracao(como_fn(area), como_fn(registrar), como_fn(rti));
+}
+
+/// Para todos os isolados vivos além deste no ponto seguro deles e devolve a
+/// parada, que [`dartforge_liberar_isolados`] encerra. Chamada no ponto
+/// seguro do isolado principal.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_parar_isolados() -> usize {
+    let meu = id_do_isolado();
+    let barreira = std::sync::Arc::new(Barreira::default());
+    let mut n = 0;
+    {
+        let vivos = isolados_vivos().lock().unwrap_or_else(|e| e.into_inner());
+        for f in vivos.iter().filter(|f| f.id != meu) {
+            let dado = std::sync::Arc::into_raw(barreira.clone()) as usize;
+            f.mensagens.lock().unwrap_or_else(|e| e.into_inner()).pontos_seguros.push_back((parar_neste_isolado, dado));
+            f.sinal.notify_one();
+            n += 1;
+        }
+    }
+    let mut estado = barreira.estado.lock().unwrap_or_else(|e| e.into_inner());
+    while estado.0 < n {
+        estado = barreira.sinal.wait(estado).unwrap_or_else(|e| e.into_inner());
+    }
+    drop(estado);
+    std::sync::Arc::into_raw(barreira) as usize
+}
+
+/// Libera os isolados da parada `parada`: cada um refaz os registros da
+/// geração nova (`area`, `registrar`, `rti`, trampolins `void ()` ou 0) na
+/// thread dele e continua.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_liberar_isolados(parada: usize, area: usize, registrar: usize, rti: usize) {
+    // SAFETY: `parada` veio de `dartforge_parar_isolados`, uma vez.
+    let barreira = unsafe { std::sync::Arc::from_raw(parada as *const Barreira) };
+    barreira.estado.lock().unwrap_or_else(|e| e.into_inner()).1 = Some([area, registrar, rti]);
+    barreira.sinal.notify_all();
 }
 
 /// Atende os pedidos no ponto seguro deste isolado (o laço de eventos).
