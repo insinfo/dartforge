@@ -2914,12 +2914,20 @@ impl Corpo<'_> {
                 "interpolação sem ligação de texto",
             ));
         };
-        // Texto solto entregue a um filho (`createText`, sem pai): forma
-        // ainda sem caso no corpus.
-        if pai.is_empty() {
+        // Sem pai: raiz de uma visão embutida (o `*` num `<ng-container>`),
+        // que é o próprio `TextBinding.element`; texto solto entregue a um
+        // filho (`createText`) ainda não tem caso no corpus.
+        let raiz_embutida = pai.is_empty() && self.embutida && self.pai_projetado.is_none();
+        if pai.is_empty() && !raiz_embutida {
             return Err(recusa(Motivo::Projecao, "interpolação projetada solta"));
         }
         let convertida = self.converter(expr, Motivo::Interpolacao)?;
+        if raiz_embutida && convertida.imutavel {
+            return Err(recusa(
+                Motivo::Interpolacao,
+                "interpolação imutável na raiz de visão embutida",
+            ));
+        }
         // Sem o tipo estático não dá para escolher entre `interpolateString`,
         // `interpolate` e `updateTextWithPrimitive` — e escolher errado muda o
         // que o programa faz.
@@ -2967,8 +2975,12 @@ impl Corpo<'_> {
         self.campos.push(format!(
             "  final {tb}.TextBinding _textBinding_{n} = {tb}.TextBinding();"
         ));
-        self.linhas
-            .push(format!("    {pai}.append(this._textBinding_{n}.element);"));
+        if raiz_embutida {
+            self.raizes.push(format!("this._textBinding_{n}.element"));
+        } else {
+            self.linhas
+                .push(format!("    {pai}.append(this._textBinding_{n}.element);"));
+        }
         let acesso = convertida.texto;
         let atualizacao = if primitivo_mutavel {
             format!("updateTextWithPrimitive({acesso})")
@@ -3201,22 +3213,36 @@ impl Corpo<'_> {
         match no {
             No::Comentario(_) => {}
             No::Texto(t) => {
-                if pai.is_empty() {
+                // Sem pai: raiz de visão embutida (`createText`, e o nó
+                // entra nas raízes); no conteúdo projetado, ainda não.
+                let raiz_embutida = pai.is_empty() && self.embutida && self.pai_projetado.is_none();
+                if pai.is_empty() && !raiz_embutida {
                     return Err(recusa(Motivo::Projecao, "texto projetado solto"));
                 }
                 let n = self.proximo;
                 self.proximo += 1;
                 let dom = self.dom();
                 let texto = literal(t);
-                self.linhas.push(format!(
-                    "    final _text_{n} = {dom}.appendText({pai}, {texto});"
-                ));
+                if raiz_embutida {
+                    self.linhas
+                        .push(format!("    final _text_{n} = {dom}.createText({texto});"));
+                    self.raizes.push(format!("_text_{n}"));
+                } else {
+                    self.linhas.push(format!(
+                        "    final _text_{n} = {dom}.appendText({pai}, {texto});"
+                    ));
+                }
             }
             No::Elemento(e) => {
                 // `<template>` escrito à mão é uma visão embutida, não um
                 // elemento HTML (`EmbeddedTemplateAst`).
                 if e.nome.eq_ignore_ascii_case("template") {
                     return Err(recusa(Motivo::Ligacao, "<template> escrito no template"));
+                }
+                // `<ng-container>` sem `*` (`visitNgContainer`): os filhos
+                // vão direto para o pai, sem nó nem índice.
+                if e.nome == "ng-container" && e.estrela.is_none() {
+                    return self.container(e, pai);
                 }
                 if e.estrela.is_none() {
                     self.guarda_do_elemento(e)?;
@@ -3238,7 +3264,10 @@ impl Corpo<'_> {
                 }
                 // Tag que não é HTML só com diretiva (`<pg-breadcrumb-item>`): é
                 // um elemento tipado `Element` (`identifierFromTagName`).
-                if !dom::tag_html(&e.nome) && diretivas_casadas(self.usadas, e).is_empty() {
+                if !dom::tag_html(&e.nome)
+                    && e.nome != "ng-container"
+                    && diretivas_casadas(self.usadas, e).is_empty()
+                {
                     return Err(recusa(
                         Motivo::ComponenteNoTemplate,
                         "tag que não é HTML nem componente conhecido",
@@ -3288,6 +3317,33 @@ impl Corpo<'_> {
             }
         }
         Ok(())
+    }
+
+    /// `<ng-container>`: só agrupa. Os filhos são criados no pai dele (na
+    /// visão embutida de um `*`, soltos: cada um é uma raiz). O ngast só
+    /// aceita nele `*`, `#ref` e anotações; `#ref` e `@i18n` ainda não, nem
+    /// o contêiner no conteúdo projetado num filho (o `ngContentIndex` dele
+    /// é calculado pelo seletor vazio do contêiner).
+    fn container(&mut self, e: &crate::html::Elemento, pai: &str) -> Result<(), Recusa> {
+        let tem_algo = !(e.atributos.is_empty()
+            && e.propriedades.is_empty()
+            && e.eventos.is_empty()
+            && e.bananas.is_empty()
+            && e.referencias.is_empty()
+            && e.anotacoes.is_empty());
+        if tem_algo {
+            return Err(recusa(
+                Motivo::Ligacao,
+                "<ng-container> com atributo, ligação, #ref ou anotação",
+            ));
+        }
+        if pai.is_empty() && self.pai_projetado.is_some() {
+            return Err(recusa(
+                Motivo::Projecao,
+                "<ng-container> no conteúdo projetado",
+            ));
+        }
+        self.nos(&e.filhos, pai)
     }
 
     /// Um elemento HTML: criação, atributos, ligações, eventos, estilo e os
@@ -4658,28 +4714,44 @@ fn corpo_da_embutida(
         .iter()
         .map(|m| resolver_tardios(dentro.imp, m))
         .collect();
-    // A raiz é o nó 0: o local, ou o campo quando ele tem ligação
-    // (`renderNode.toReadExpr()`).
-    let raiz = if dentro.campos_el.iter().any(|c| c.ends_with(" _el_0;")) {
-        "this._el_0"
+    // As raízes (`rootNodesOrViewContainers`): cada nó criado sem pai, o
+    // local ou o campo (`renderNode.toReadExpr()`) — mais de uma quando o
+    // `*` está num `<ng-container>`. Na coleta, com nó recusado, a lista
+    // pode vir vazia; o texto é descartado.
+    let raizes = if dentro.raizes.is_empty() {
+        vec!["_el_0".to_string()]
     } else {
-        "_el_0"
+        dentro.raizes.clone()
     };
-    // `_generateInitStatement`: com `subscription_N`, a raiz vai numa lista.
-    let inicio = if dentro.subscricoes == 0 {
-        format!("this.initRootNode({raiz});")
+    // `_generateInitStatement`: uma raiz só e nenhuma `subscription_N` é
+    // `initRootNode`; o resto vai numa lista.
+    let inicio = match (raizes.as_slice(), dentro.subscricoes) {
+        ([raiz], 0) => format!("this.initRootNode({raiz});"),
+        (_, subscricoes) => {
+            let subs = if subscricoes == 0 {
+                "null".to_string()
+            } else {
+                let lista: Vec<String> = (0..subscricoes)
+                    .map(|k| format!("subscription_{k}"))
+                    .collect();
+                format!("[{}]", lista.join(", "))
+            };
+            format!(
+                "this.initRootNodesAndSubscriptions({util}.unsafeCast(<Object>[{}]), {subs});",
+                raizes.join(", ")
+            )
+        }
+    };
+    // Sem nó criado (a raiz é só um `TextBinding`), o `build()` é só o
+    // `initRootNode`.
+    let corpo = if corpo.is_empty() {
+        corpo
     } else {
-        let subs: Vec<String> = (0..dentro.subscricoes)
-            .map(|k| format!("subscription_{k}"))
-            .collect();
-        format!(
-            "this.initRootNodesAndSubscriptions({util}.unsafeCast(<Object>[{raiz}]), [{}]);",
-            subs.join(", ")
-        )
+        format!("{corpo}\n")
     };
     let tipo_do_contexto = &ctx.tipo_do_contexto;
     let texto = format!(
-        "\nclass {classe} extends {ev}.EmbeddedView<{tipo_do_contexto}> {{\n{campos}  {classe}({rv}.RenderView parentView, int parentIndex) : super(parentView, parentIndex);\n  @override\n  void build() {{\n{ctx_build}{corpo}\n    {inicio}\n  }}\n{injetor}{deteccao}{destruicao}{metodos}}}\n\n{ev}.EmbeddedView<void> {fabrica}({rv}.RenderView parentView, int parentIndex) {{\n  return {classe}(parentView, parentIndex);\n}}\n"
+        "\nclass {classe} extends {ev}.EmbeddedView<{tipo_do_contexto}> {{\n{campos}  {classe}({rv}.RenderView parentView, int parentIndex) : super(parentView, parentIndex);\n  @override\n  void build() {{\n{ctx_build}{corpo}    {inicio}\n  }}\n{injetor}{deteccao}{destruicao}{metodos}}}\n\n{ev}.EmbeddedView<void> {fabrica}({rv}.RenderView parentView, int parentIndex) {{\n  return {classe}(parentView, parentIndex);\n}}\n"
     );
     Ok((texto, aninhadas))
 }

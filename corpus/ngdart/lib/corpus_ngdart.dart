@@ -143,3 +143,5 @@ export 'src/i36_prefixos_longos.dart';
 export 'src/i37_filho_callback.dart';
 export 'src/i37_usa_callback.dart';
 export 'src/i38_estilo_tipos.dart';
+export 'src/i39_ng_container_formas.dart';
+export 'src/i40_ng_container_texto.dart';
