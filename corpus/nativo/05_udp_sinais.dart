@@ -16,9 +16,13 @@ Future<void> main() async {
   print(await recebido.future);
   a.close();
   b.close();
-  final sub = ProcessSignal.sigusr1.watch().listen((s) => print('sinal $s'));
-  Process.killPid(pid, ProcessSignal.sigusr1);
-  await Future.delayed(Duration(milliseconds: 200));
-  await sub.cancel();
+  // No Windows só há SIGINT/SIGHUP (eventos de console), e o killPid termina
+  // o processo: o sinal é exercitado nos sistemas Unix.
+  if (!Platform.isWindows) {
+    final sub = ProcessSignal.sigusr1.watch().listen((s) => print('sinal $s'));
+    Process.killPid(pid, ProcessSignal.sigusr1);
+    await Future.delayed(Duration(milliseconds: 200));
+    await sub.cancel();
+  }
   print(ProcessInfo.currentRss > 0);
 }

@@ -1295,20 +1295,77 @@ que o embedder faz antes do `main`: `Platform.script` e `Uri.base`). Cada
 native tem a versão Unix (Linux e macOS) e a do Windows. `dart:developer`
 segue o perfil de produção da VM (`nativos_desenvolvedor.rs`).
 
-O manipulador de eventos (`io_eventos.rs`) é o da VM: uma thread com epoll
-(Linux) ou kqueue (macOS) que vigia os descritores dos `_NativeSocket` e
-posta a máscara dos eventos na porta de cada um, com as fichas de controle
-de fluxo e os soquetes de escuta compartilhados. Sobre ele, `io_soquetes.rs`
-(TCP, UDP, domínio Unix, `InternetAddress` e a resolução de nomes do
-IOService — o que basta para `HttpServer` e `HttpClient`) e
-`io_processos.rs` (`fork` + `execvp` com os pipes e o pipe de controle da
-VM, a thread que espera os filhos, `runSync`, `killPid`, os sinais de
-`ProcessSignal.watch` e `ProcessInfo`). No Windows, soquetes e processos
-ainda devolvem `ERROR_NOT_SUPPORTED` (falta o manipulador com IOCP); o
-`FileSystemWatcher`, o SIMD e as mensagens de controle de soquete
+O manipulador de eventos segue o da VM, com um backend próprio por sistema,
+sem fingir que um é o outro. O contrato comum é o do `_NativeSocket`: a
+máscara de eventos (`kInEvent`, `kOutEvent`, `kCloseEvent`, `kErrorEvent`,
+`kDestroyedEvent`) postada na porta do soquete, as fichas de controle de
+fluxo (`InfoDeDescritor`, 16 por soquete e 4 por porta num soquete de escuta
+compartilhado), a leitura e a escrita parciais (0 = nada agora) e o
+fechamento em dois tempos (o comando de fechar, depois `kDestroyedEvent`).
+
+* **Linux e macOS** (`io_eventos.rs`): uma thread com epoll (Linux) ou
+  kqueue (macOS), por prontidão e com disparo por borda; os natives leem e
+  escrevem direto no descritor não bloqueante (`io_soquetes_unix.rs`).
+* **Windows** (`io_windows_eventos.rs`): uma porta de conclusão (IOCP)
+  atendida por uma thread, com E/S sobreposta, como o `eventhandler_win.cc`
+  da VM. O "descritor" é um `Manipulador` (o `Handle` da VM); ele mantém uma
+  leitura emitida (`WSARecv`, `WSARecvFrom`, `ReadFile`) e cinco `AcceptEx`
+  num soquete de escuta; o que chegou fica no manipulador até o Dart ler, e
+  a leitura que esvazia o buffer emite a seguinte. A escrita copia até 64
+  KiB e emite `WSASend`/`WriteFile`; enquanto ela não conclui, o soquete
+  escreve 0 (`Socket_HasPendingWrite` = verdadeiro). A conexão sai por
+  `ConnectEx` e o fechamento de um cliente por `DisconnectEx`. Os comandos
+  do Dart chegam pela mesma porta (`PostQueuedCompletionStatus`). A única
+  thread auxiliar é a da entrada padrão, que não aceita E/S sobreposta
+  (console): ela faz o `ReadFile` síncrono e posta a conclusão.
+  Os soquetes são criados com `WSA_FLAG_NO_HANDLE_INHERIT`.
+
+**Posse no Windows.** Cada operação emitida é uma `Operacao` no heap (o
+`OVERLAPPED` é o primeiro campo) que carrega o buffer e uma referência
+(`Arc`) do `Manipulador`; ela passa ao sistema na emissão e volta na
+conclusão, que é sempre entregue pela porta — também quando a chamada
+conclui na hora e quando o fechamento a aborta (`ERROR_OPERATION_ABORTED`).
+Assim buffer e manipulador vivem até a última conclusão, mesmo depois de o
+objeto Dart fechar ou ser coletado; o `kDestroyedEvent` só sai quando não há
+operação pendente. O objeto Dart (`SoqueteNativo`) é dono de uma referência
+do manipulador (soquetes de escuta compartilhados: uma por objeto), solta no
+fechamento (`CloseFd`) ou com o objeto.
+
+**Soquete de escuta compartilhado.** Só o último objeto fecha o soquete do
+sistema (`CloseSafe` do registro); os outros soltam a própria referência.
+Regressão em `crates/cli/tests/io_regressao.rs`.
+
+**Sinais.** No Unix, cada inscrição é um pipe **não bloqueante** nos dois
+lados: com o pipe cheio o tratador descarta o byte (a notificação se funde
+às pendentes, como o sistema funde sinais), sem nunca travar a thread
+interrompida — a VM do Dart trava nesse caso, por isso a regressão é da CLI e
+não do corpus diferencial. O tratador preserva o `errno` e só usa atômicos;
+o cancelamento espera os `write` em andamento (`em_uso`) antes do `close`,
+e fechar o soquete do sinal desfaz a inscrição (`ClearSignalHandlerByFd`).
+No Windows os sinais são os eventos de console (`SetConsoleCtrlHandler`:
+SIGINT = Ctrl+C, SIGHUP = fechamento), escritos num pipe sobreposto.
+
+Sobre isso, `io_soquetes.rs` (os natives de TCP, UDP, domínio Unix,
+`InternetAddress` e a resolução de nomes do IOService — o que basta para
+`HttpServer` e `HttpClient` —, iguais nos três sistemas) e `io_processos.rs`
+(no Unix, `fork` + `execvp` com os pipes e o pipe de controle da VM, a
+thread que espera os filhos, `runSync`, `killPid`, os sinais e
+`ProcessInfo`). No Windows (`io_windows_processos.rs`), `CreateProcessW`
+com só os três handles de E/S herdados (`PROC_THREAD_ATTRIBUTE_HANDLE_LIST`),
+pipes nomeados sobrepostos do lado do pai e síncronos do lado do filho, e o
+código de saída pelo pool do sistema (`RegisterWaitForSingleObject`). O
+Windows não tem soquetes de domínio Unix no `dart:io` (o `OSError` da VM).
+O `FileSystemWatcher`, o SIMD e as mensagens de controle de soquete
 (`SCM_RIGHTS`) são recusados por membro. O corpus `corpus/nativo/` (só VM ×
-nativo) cobre o `dart:io`: arquivos, diretórios, processos, TCP, HTTP, UDP e
-sinais.
+nativo) cobre o `dart:io`: arquivos, diretórios, processos, TCP, HTTP, UDP,
+sinais e escuta compartilhada.
+
+**Validação por sistema.** `cargo check --target` só filtra erros de
+compilação; o que vale é o CI de cada sistema (build, testes do emissor e do
+JIT, `io_regressao` e o corpus nativo). A camada Windows ainda precisa do
+corpus `corpus/nativo` rodando no runner Windows e de medições sob carga
+(vazão, latência, CPU, memória e threads com muitas conexões, consumidores
+lentos e processos com muita saída).
 
 **Recusa por membro.** O membro do SDK que não baixa (construto não
 suportado, native pendente, intrínseco da VM sem entrada, teste de tipo sobre

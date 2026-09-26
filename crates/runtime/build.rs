@@ -67,7 +67,12 @@ const FRAGMENTOS: &[&str] = &[
     // O manipulador de eventos, os soquetes e os processos.
     "io_eventos",
     "io_soquetes",
+    "io_soquetes_unix",
     "io_processos",
+    // O mesmo no Windows: a porta de conclusão, o Winsock e os processos.
+    "io_windows_eventos",
+    "io_windows_soquetes",
+    "io_windows_processos",
     // `dart:developer` e a timeline no perfil de produção.
     "nativos_desenvolvedor",
     // RTI: tipos em tempo de execução.

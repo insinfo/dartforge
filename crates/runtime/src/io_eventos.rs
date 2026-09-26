@@ -6,7 +6,8 @@
 // que recebe os eventos dele, com contagem de referências. O Dart pede ao
 // manipulador, por `EventHandler_SendData`, para vigiar o descritor (uma
 // máscara de leitura/escrita), devolver fichas ou fechar; o manipulador é
-// uma thread com epoll (Linux) ou kqueue (macOS) que posta na porta do
+// uma thread com epoll (Linux), kqueue (macOS) ou uma porta de conclusão de
+// E/S (Windows, em `io_windows_eventos.rs`) que posta na porta do
 // soquete a máscara dos eventos prontos (`kInEvent`, `kOutEvent`,
 // `kCloseEvent`, `kErrorEvent`, `kDestroyedEvent`) — como a VM, inclusive
 // o controle de fluxo por fichas (`TokenCounter`) e os soquetes de escuta
@@ -85,9 +86,32 @@ impl SoqueteNativo {
         self.descritor.load(std::sync::atomic::Ordering::Acquire)
     }
 
-    /// `Socket::CloseFd`.
+    /// Fecha o recurso do sistema (o descritor, no Unix; a referência do
+    /// `Handle`, no Windows, cujo fechamento o manipulador já fez).
     fn fechar_descritor(&self) {
         let d = self.descritor.swap(-1, std::sync::atomic::Ordering::AcqRel);
+        if d >= 0 {
+            fechar_descritor_de_soquete(d);
+        }
+    }
+
+    /// `Socket::CloseFd`: o objeto deixa o descritor sem fechá-lo no Unix
+    /// (quem fecha é o manipulador, ou ninguém: a entrada padrão); no
+    /// Windows solta a referência do `Handle`.
+    fn soltar_descritor(&self) {
+        #[cfg(unix)]
+        self.descritor.store(-1, std::sync::atomic::Ordering::Release);
+        #[cfg(windows)]
+        self.fechar_descritor();
+    }
+}
+
+/// No Windows cada objeto é dono de uma referência do `Handle` (o
+/// `descritor`); ela é solta com o objeto, se ainda não foi.
+#[cfg(windows)]
+impl Drop for SoqueteNativo {
+    fn drop(&mut self) {
+        let d = *self.descritor.get_mut();
         if d >= 0 {
             fechar_descritor_de_soquete(d);
         }
@@ -102,9 +126,19 @@ fn fechar_descritor_de_soquete(d: i64) {
     // SAFETY: `d` é um descritor deste soquete, fechado uma vez.
     unsafe { close(d as i32) };
 }
-#[cfg(windows)]
-fn fechar_descritor_de_soquete(d: i64) {
-    drop(arquivo_do_descritor(d));
+
+/// Outra referência ao descritor de um soquete de escuta compartilhado
+/// (no Unix o descritor é o mesmo, sem contagem).
+#[cfg(unix)]
+fn reter_descritor(d: i64) -> i64 {
+    d
+}
+
+/// O soquete da entrada padrão (`SocketBase::GetStdioHandle`): o próprio
+/// descritor no Unix.
+#[cfg(unix)]
+fn manipulador_padrao(num: i64) -> i64 {
+    descritor_padrao(num)
 }
 
 /// Os finalizadores do `_NativeSocket` coletado sem `close` (os
@@ -131,7 +165,7 @@ fn finalizar_soquete_de_sinal(par: usize) {
 
 fn finalizar_soquete_stdio(par: usize) {
     // SAFETY: a referência do objeto ainda existe; é solta aqui.
-    unsafe { SoqueteNativo::de(par as i64) }.fechar_descritor();
+    unsafe { SoqueteNativo::de(par as i64) }.soltar_descritor();
     SoqueteNativo::liberar(par as i64);
 }
 
@@ -316,6 +350,20 @@ impl InfoDeDescritor {
     }
 
     /// A máscara a vigiar agora (vazia sem fichas).
+    /// `RemoveAllPorts`.
+    fn remover_todas(&mut self) {
+        match self {
+            InfoDeDescritor::Unico { porta, mascara, .. } => {
+                *porta = 0;
+                *mascara = 0;
+            }
+            InfoDeDescritor::Multiplo { portas, ativos } => {
+                portas.clear();
+                ativos.clear();
+            }
+        }
+    }
+
     fn mascara(&self) -> i64 {
         match self {
             InfoDeDescritor::Unico { mascara, fichas, .. } => {
@@ -347,11 +395,15 @@ struct ComandoDeEvento {
 }
 
 /// A thread do manipulador e a fila de pedidos dela; um byte no pipe de
-/// interrupção a acorda.
+/// interrupção a acorda. No Windows o pedido vai pela porta de conclusão
+/// (`io_windows_eventos.rs`).
 struct ManipuladorDeEventos {
+    #[cfg(unix)]
     pedidos: std::sync::Mutex<Vec<ComandoDeEvento>>,
     #[cfg(unix)]
     interrupcao: i32,
+    #[cfg(windows)]
+    porta: usize,
 }
 
 fn manipulador_de_eventos() -> &'static ManipuladorDeEventos {
@@ -359,13 +411,13 @@ fn manipulador_de_eventos() -> &'static ManipuladorDeEventos {
     M.get_or_init(iniciar_manipulador)
 }
 
+#[cfg(unix)]
 impl ManipuladorDeEventos {
     fn enviar(&self, c: ComandoDeEvento) {
         self.pedidos.lock().unwrap_or_else(|e| e.into_inner()).push(c);
         self.acordar();
     }
 
-    #[cfg(unix)]
     fn acordar(&self) {
         unsafe extern "C" {
             fn write(fd: i32, b: *const std::ffi::c_void, n: usize) -> isize;
@@ -375,8 +427,6 @@ impl ManipuladorDeEventos {
         // (o pipe cheio já acorda o manipulador, então a falha é inócua).
         unsafe { write(self.interrupcao, b.as_ptr().cast(), 1) };
     }
-    #[cfg(windows)]
-    fn acordar(&self) {}
 }
 
 #[cfg(unix)]
@@ -434,10 +484,6 @@ fn iniciar_manipulador() -> ManipuladorDeEventos {
         .spawn(move || LacoDeEventos::novo(leitura).rodar())
         .expect("dart:io: falha ao criar a thread do manipulador de eventos");
     ManipuladorDeEventos { pedidos: std::sync::Mutex::new(Vec::new()), interrupcao: fds[1] }
-}
-#[cfg(windows)]
-fn iniciar_manipulador() -> ManipuladorDeEventos {
-    ManipuladorDeEventos { pedidos: std::sync::Mutex::new(Vec::new()) }
 }
 
 /// O estado da thread do manipulador.
@@ -532,16 +578,23 @@ impl LacoDeEventos {
             // SAFETY: descritor aberto deste soquete (SHUT_WR = 1).
             unsafe { shutdown(fd as i32, 1) };
         } else if e_comando(c.dados, COMANDO_FECHAR) {
+            if c.dados & (1 << SOQUETE_DE_SINAL) != 0 {
+                limpar_sinal_por_descritor(fd);
+            }
             let antiga = di.mascara();
             if c.porta != 0 {
                 di.remover_porta(c.porta);
             }
             self.atualizar(fd, antiga);
             if de_escuta {
+                // Outros objetos podem dividir o descritor: só o último
+                // fecha (`CloseSafe`).
                 if registro_de_escuta().fechar(c.soquete) {
                     self.descritores.remove(&fd);
+                    soquete.fechar_descritor();
+                } else {
+                    soquete.soltar_descritor();
                 }
-                soquete.fechar_descritor();
             } else {
                 self.descritores.remove(&fd);
                 soquete.fechar_descritor();

@@ -196,7 +196,9 @@ fn alvo_divergente_falha_alto() {
     assert!(erro.message.contains(outro), "{erro}");
 
     // O cabeçalho que o emissor nativo escreve (`alvo::cabecalho_ir`) tem de
-    // ser exatamente o da LLJIT deste processo.
+    // ser compatível com o da LLJIT deste processo: mesma arquitetura,
+    // sistema e ABI, ainda que o LLVM instalado grafe o triple de outro
+    // jeito (`x86_64-pc-linux-gnu`, `arm64-apple-macosx15.7.3`).
     let cabecalho = dartforge_emit_native::alvo::cabecalho_ir();
     sessao
         .add_ir_module("alvo_do_emissor", &format!("{cabecalho}define void @g() {{\n  ret void\n}}\n"))

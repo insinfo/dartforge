@@ -675,7 +675,7 @@ pub mod smi {
     /// O `Ref` de um `int` que cabe num `Smi`.
     #[inline]
     pub fn de(v: i64) -> Option<i64> {
-        (MIN..=MAX).contains(&v).then(|| (v << 1) | 1)
+        (MIN..=MAX).contains(&v).then_some((v << 1) | 1)
     }
 
     /// O `Ref` é um `Smi`?
@@ -696,6 +696,9 @@ pub mod smi {
         r != 0 && r & 1 == 0
     }
 }
+
+/// Um finalizador nativo e o dado dele (`Dart_NewFinalizableHandle`).
+pub type Finalizador = (fn(usize), usize);
 
 /// Heap preciso sem compactação; handles pares indexam slots reutilizáveis.
 #[derive(Debug)]
@@ -780,7 +783,7 @@ pub struct Heap {
     /// entrada e chama `finalizador(par)` — que só libera recursos do
     /// sistema (fecha um arquivo, solta uma contagem de referências) e nunca
     /// toca o heap.
-    pub finalizaveis: std::collections::HashMap<i64, (fn(usize), usize)>,
+    pub finalizaveis: std::collections::HashMap<i64, Finalizador>,
 }
 impl Heap {
     /// Inicializa heap; stress força coleta antes de cada alocação.

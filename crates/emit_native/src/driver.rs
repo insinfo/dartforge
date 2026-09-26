@@ -300,6 +300,9 @@ fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &
                     cmd.args(["-Wl,--gc-sections", "-Wl,--strip-all"]);
                 }
                 Sistema::MacOs => {
+                    if let Some(raiz) = crate::alvo::raiz_do_sdk_macos() {
+                        cmd.arg("-isysroot").arg(raiz);
+                    }
                     cmd.args(["-Wl,-dead_strip", "-Wl,-S", "-Wl,-x"]);
                 }
             }
