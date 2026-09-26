@@ -12,6 +12,12 @@
 //!   via o arquivo existir e ligava contra uma `.lib` ainda pela metade;
 //! * **uma compilação por processo** (`OnceLock`), e só as duas `.lib` mais
 //!   recentes ficam no disco.
+//!
+//! Normalmente nada disso roda: o runtime vem **pré-compilado** com o
+//! dartforge (`build.rs`), em `lib/` da distribuição ou no diretório do build
+//! (`runtime_precompilado`), e quem usa o dartforge não precisa de Rust. A
+//! compilação com o `rustc` da máquina fica para uma árvore de
+//! desenvolvimento compilada com `DARTFORGE_RUNTIME_SEM_PRECOMPILAR=1`.
 
 use crate::resumo::Fnv128;
 use std::path::{Path, PathBuf};
@@ -48,7 +54,13 @@ impl RuntimeCache {
     /// processo; as outras threads esperam o resultado da primeira.
     pub fn get_or_compile() -> Result<Self, String> {
         static RUNTIME: OnceLock<Result<PathBuf, String>> = OnceLock::new();
-        RUNTIME.get_or_init(|| compilar_runtime(&[], "dartforge_runtime_")).clone().map(|lib_path| Self { lib_path })
+        RUNTIME
+            .get_or_init(|| match runtime_precompilado(env!("DARTFORGE_RUNTIME_PRINCIPAL")) {
+                Some(p) => Ok(p),
+                None => compilar_runtime(&[], "dartforge_runtime_"),
+            })
+            .clone()
+            .map(|lib_path| Self { lib_path })
     }
 
     /// A variante do runtime que vai para a DLL do SDK da fonte (P5c): sem o
@@ -56,10 +68,33 @@ impl RuntimeCache {
     pub fn para_dll() -> Result<Self, String> {
         static RUNTIME: OnceLock<Result<PathBuf, String>> = OnceLock::new();
         RUNTIME
-            .get_or_init(|| compilar_runtime(&["--cfg", "dartforge_runtime_dll"], "dartforge_rtdll_"))
+            .get_or_init(|| match runtime_precompilado(env!("DARTFORGE_RUNTIME_DLL")) {
+                Some(p) => Ok(p),
+                None => compilar_runtime(&["--cfg", "dartforge_runtime_dll"], "dartforge_rtdll_"),
+            })
             .clone()
             .map(|lib_path| Self { lib_path })
     }
+}
+
+/// Onde a distribuição guarda as bibliotecas do dartforge: `lib/` ao lado do
+/// `bin/` do executável (`<raiz>/bin/dartforge`, `<raiz>/lib/…`), ou
+/// `DARTFORGE_LIB`.
+pub fn dir_lib_da_distribuicao() -> Option<PathBuf> {
+    if let Some(d) = std::env::var_os("DARTFORGE_LIB") {
+        return Some(PathBuf::from(d));
+    }
+    let exe = std::env::current_exe().ok()?;
+    let raiz = exe.parent()?.parent()?;
+    let lib = raiz.join("lib");
+    lib.is_dir().then_some(lib)
+}
+
+/// O runtime pré-compilado `nome` (o nome leva o hash do fonte: só o deste
+/// compilador casa): na distribuição, senão no diretório do build.
+fn runtime_precompilado(nome: &str) -> Option<PathBuf> {
+    let candidatos = [dir_lib_da_distribuicao(), Some(PathBuf::from(env!("DARTFORGE_RUNTIME_DIR_DO_BUILD")))];
+    candidatos.into_iter().flatten().map(|d| d.join(nome)).find(|p| p.is_file())
 }
 
 fn compilar_runtime(extras: &[&str], prefixo: &str) -> Result<PathBuf, String> {
