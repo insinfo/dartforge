@@ -90,7 +90,8 @@ fn membro_com_sobrescritas_e_usos_por_instancia_em_outro_arquivo() {
     let mut p = Projeto::novo("renomear-membro");
     let base = "class A {\n  void met() {}\n  void usa() { met(); this.met(); }\n}\nclass B extends A {\n  @override\n  void met() { super.met(); }\n}\nclass C implements A {\n  void met() {}\n  void usa() {}\n}\nclass D { void met() {} }\n";
     // O arquivo que usa fica só no disco (fechado).
-    let usos = "import 'a.dart';\nvoid f(A a, B b, D d) { a.met(); b.met(); d.met(); }\n";
+    let usos =
+        "import 'a.dart';\nvoid f(A a, B b, D d) { a.met(); b.met(); d.met(); a..met()..usa(); }\n";
     p.gravar("lib/usos.dart", usos);
     let (texto, _, _) = abrir(
         &mut p,
@@ -106,7 +107,7 @@ fn membro_com_sobrescritas_e_usos_por_instancia_em_outro_arquivo() {
     );
     assert_eq!(
         aplicar(&r["result"], &p.uri("lib/usos.dart"), usos),
-        "import 'a.dart';\nvoid f(A a, B b, D d) { a.executar(); b.executar(); d.met(); }\n"
+        "import 'a.dart';\nvoid f(A a, B b, D d) { a.executar(); b.executar(); d.met(); a..executar()..usa(); }\n"
     );
     // Conflito com um membro existente na família.
     let r = renomear(&mut p, "lib/a.dart", 6, 8, "usa");

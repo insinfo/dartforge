@@ -41,12 +41,20 @@ impl AnalisadorSemantico {
         // A chamada direta da trait também usa o texto recebido, mesmo sem
         // DocumentStore. O arquivo da requisição prevalece sobre a coleção.
         gerador.por(caminho.clone(), texto.to_owned(), "lsp", vec![]);
+        // Uma parte não é biblioteca: a carga entra pela dona, que a inclui.
+        // Se a dona não a declara (`part` ausente), a parte entra sozinha.
+        let dona = biblioteca_dona(&caminho, texto, documentos);
         let geracao = gerador.concluir(1).ok()?;
-        let mut nomes = Interner::new();
-        let (programa, _) = load_lenient_gerados(&caminho, sdk, None, &mut nomes, None, None, Some(geracao));
         let chave = dartforge_elements::gerado::chave(&caminho);
-        let unidade = programa.units.iter().position(|u| u.path.as_deref().map(dartforge_elements::gerado::chave).as_ref() == Some(&chave))?;
-        Some((programa, nomes, UnitId(unidade as u32)))
+        for entrada in dona.iter().chain([&caminho]) {
+            let mut nomes = Interner::new();
+            let (programa, _) = load_lenient_gerados(entrada, sdk, None, &mut nomes, None, None, Some(geracao.clone()));
+            let unidade = programa.units.iter().position(|u| u.path.as_deref().map(dartforge_elements::gerado::chave).as_ref() == Some(&chave));
+            if let Some(unidade) = unidade {
+                return Some((programa, nomes, UnitId(unidade as u32)));
+            }
+        }
+        None
     }
 
     /// Índice dos nomes públicos do SDK, montado na primeira chamada.
@@ -185,6 +193,48 @@ impl AnalisadorSemantico {
             _ => None,
         }
     }
+}
+
+/// A biblioteca dona de `caminho` quando o texto é uma parte (`part of`):
+/// pela URI escrita (relativa ou `package:`), ou, na forma antiga
+/// `part of nome;`, pelo arquivo do projeto que declara `part` para ela.
+fn biblioteca_dona(caminho: &std::path::Path, texto: &str, documentos: Option<&DocumentStore>) -> Option<std::path::PathBuf> {
+    use dartforge_elements::gerado::chave;
+    use dartforge_frontend::ast::DirectiveKind;
+    if !texto.contains("part") {
+        return None;
+    }
+    let mut nomes = Interner::new();
+    let analisado = dartforge_frontend::parser::parse(texto, &mut nomes);
+    let uri = analisado.unit.directives.iter().find_map(|d| match &d.kind {
+        DirectiveKind::PartOf { uri, .. } => Some(uri.as_ref().and_then(dartforge_elements::load::string_lit_value)),
+        _ => None,
+    })?;
+    if let Some(uri) = uri {
+        if uri.starts_with("package:") {
+            let config = dartforge_elements::config::PackageConfig::discover(caminho)?;
+            return dartforge_elements::config::PackageConfig::load(&config).ok()?.resolve_package_uri(&uri).ok();
+        }
+        return Some(chave(&caminho.parent()?.join(uri)));
+    }
+    let alvo = chave(caminho);
+    let raiz = crate::renomear::raiz_do_projeto(caminho);
+    crate::renomear::arquivos_do_projeto(&raiz).into_iter().find(|candidato| {
+        let aberto = documentos
+            .and_then(|d| Url::from_file_path(candidato).ok().and_then(|u| d.get(u.as_str()).map(str::to_string)));
+        let Some(fonte) = aberto.or_else(|| std::fs::read_to_string(candidato).ok()) else { return false };
+        if !fonte.contains("part") {
+            return false;
+        }
+        let mut nomes = Interner::new();
+        let analisado = dartforge_frontend::parser::parse(&fonte, &mut nomes);
+        analisado.unit.directives.iter().any(|d| match &d.kind {
+            DirectiveKind::Part { uri } => dartforge_elements::load::string_lit_value(uri)
+                .and_then(|u| candidato.parent().map(|dir| chave(&dir.join(u))))
+                .is_some_and(|p| p == alvo),
+            _ => false,
+        })
+    })
 }
 
 impl Analisador for AnalisadorSemantico {

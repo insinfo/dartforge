@@ -290,3 +290,31 @@ fn documento_editado_usa_o_texto_vigente() {
     let r_rotulos = rotulos(&r);
     assert!(r_rotulos.contains(&"novo".to_string()) && !r_rotulos.contains(&"velho".to_string()));
 }
+
+#[test]
+fn arquivo_parte_usa_a_biblioteca_dona() {
+    let mut p = Projeto::novo("completar-parte");
+    p.gravar(
+        "lib/a.dart",
+        "part 'p.dart';\npart 'q.dart';\nclass A { int campo = 0; }\nint global = 0;\n",
+    );
+    let r = completar(
+        &mut p,
+        "lib/p.dart",
+        "part of 'a.dart';\nvoid f(A a) {\n  a.▮\n}\n",
+    );
+    assert!(rotulos(&r).contains(&"campo".to_string()), "{r}");
+    let r = completar(
+        &mut p,
+        "lib/q.dart",
+        "part of 'a.dart';\nvoid g() {\n  glo▮\n}\n",
+    );
+    assert_eq!(rotulos(&r), vec!["global"]);
+    // Parte que a dona não declara: entra sozinha, sem os nomes da dona.
+    let r = completar(
+        &mut p,
+        "lib/r.dart",
+        "part of 'a.dart';\nvoid h() {\n  glo▮\n}\n",
+    );
+    assert_eq!(r["result"]["items"], json!([]));
+}
