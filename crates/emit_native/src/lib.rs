@@ -7,6 +7,7 @@ pub mod context;
 pub mod driver;
 pub mod fonte;
 pub mod gerador;
+pub mod ligador;
 pub mod hir;
 pub mod llvm;
 pub mod lower;
