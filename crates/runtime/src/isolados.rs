@@ -297,6 +297,7 @@ fn encerrar_isolado() {
         postar(porta, resposta);
     }
     nomes_dos_isolados().remove(&controle);
+    retirar_isolado_vivo();
     fechar_portas_do_isolado();
 }
 
