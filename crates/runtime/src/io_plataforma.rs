@@ -476,6 +476,51 @@ pub extern "C" fn dartforge_nativo_Platform_ExecutableArguments() -> i64 {
     dart_lista_de_textos(&[], true)
 }
 
+/// Os argumentos do `main`: os da linha de comando depois do executável
+/// (AOT), ou os que o executor do JIT definiu ([`definir_argumentos_do_main`]).
+fn argumentos_do_main() -> &'static std::sync::Mutex<Option<Vec<String>>> {
+    static A: std::sync::Mutex<Option<Vec<String>>> = std::sync::Mutex::new(None);
+    &A
+}
+
+/// Os argumentos que o `main(List<String> args)` recebe quando o processo
+/// não é o próprio programa (o executor do JIT).
+pub fn definir_argumentos_do_main(argumentos: Vec<String>) {
+    *argumentos_do_main().lock().unwrap_or_else(|e| e.into_inner()) = Some(argumentos);
+}
+
+/// [`definir_argumentos_do_main`] pela fronteira C, para o executor do JIT
+/// alcançar o runtime da biblioteca do SDK da fonte: os argumentos em UTF-8,
+/// cada um terminado em NUL.
+///
+/// # Safety
+/// `dados` aponta `tamanho` bytes legíveis (ou `tamanho` é 0).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_definir_argumentos_do_main(dados: *const u8, tamanho: usize) {
+    let bytes = if tamanho == 0 {
+        &[][..]
+    } else {
+        // SAFETY: garantido pelo chamador.
+        unsafe { std::slice::from_raw_parts(dados, tamanho) }
+    };
+    let mut argumentos: Vec<String> = bytes.split(|&b| b == 0).map(|a| String::from_utf8_lossy(a).into_owned()).collect();
+    // O último NUL deixa um pedaço vazio que não é argumento.
+    argumentos.pop();
+    definir_argumentos_do_main(argumentos);
+}
+
+/// O `args` do `main`: uma `List<String>` de tamanho fixo, como a do
+/// embedder da VM (`Dart_NewListOfType`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_argumentos_do_main() -> i64 {
+    let argumentos = argumentos_do_main()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+        .unwrap_or_else(|| std::env::args_os().skip(1).map(|a| a.to_string_lossy().into_owned()).collect());
+    dart_lista_de_textos(&argumentos, true)
+}
+
 /// `Platform_GetVersion`: a versão do SDK, o canal e o alvo, na forma do
 /// `Dart_VersionString` da VM (sem a data de compilação da VM, que não
 /// existe aqui).

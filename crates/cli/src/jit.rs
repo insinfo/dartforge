@@ -71,8 +71,11 @@ fn biblioteca_do_sdk(ir: &str) -> Result<Option<PathBuf>, String> {
     dartforge_emit_native::sdk_modulo::dll_do_sdk_da_fonte().map(Some)
 }
 
-/// `dartforge run <entrada.dart> [--sdk <lib>] [--packages <cfg>] [--timings]`
-/// ou `dartforge run --ir <programa.ll> [--timings]`.
+/// `dartforge run [--sdk <lib>] [--packages <cfg>] [--timings] <entrada.dart>
+/// [<argumentos do main>…]` ou `dartforge run --ir <programa.ll> [--timings]
+/// [<argumentos>…]`. O que vem depois do programa é do `main(List<String>
+/// args)`, como no `dart run`; um `--timings` logo depois da entrada continua
+/// sendo do dartforge (a forma antiga).
 ///
 /// Emite o IR e o executa numa sessão ORCv2 **deste** processo, pelo caminho
 /// sem trampolim (`dartforge_jit::run_ir`): as chamadas são diretas, como no
@@ -83,23 +86,33 @@ fn biblioteca_do_sdk(ir: &str) -> Result<Option<PathBuf>, String> {
 /// fases da emissão e do JIT (`docs/JIT.md`, «Medição por fase»).
 #[cfg(feature = "jit")]
 pub fn run(args: &[std::ffi::OsString]) -> Resultado {
-    let usage = "usage: dartforge run <input.dart> [--sdk <lib>] [--packages <package_config.json>] [--timings]\n       dartforge run --ir <programa.ll> [--timings]";
+    let usage = "usage: dartforge run [--sdk <lib>] [--packages <package_config.json>] [--timings] <input.dart> [<argumentos do main>…]\n       dartforge run --ir <programa.ll> [--timings] [<argumentos do main>…]";
     let mut entrada: Option<PathBuf> = None;
     let mut ir_pronto: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
     let mut timings = false;
+    // Como no `dart run`: as opções antes do programa são do dartforge; o
+    // que vem depois dele é do `main(List<String> args)`.
+    let mut do_programa: Vec<String> = Vec::new();
     let mut it = args.iter();
     while let Some(a) = it.next() {
+        if entrada.is_some() || ir_pronto.is_some() {
+            match a.to_str() {
+                Some("--timings") if do_programa.is_empty() => timings = true,
+                _ => do_programa.push(a.to_string_lossy().into_owned()),
+            }
+            continue;
+        }
         match a.to_str() {
             Some("--ir") => ir_pronto = Some(PathBuf::from(it.next().ok_or(usage)?)),
             Some("--sdk") => sdk = Some(PathBuf::from(it.next().ok_or(usage)?)),
             Some("--packages") => packages = Some(PathBuf::from(it.next().ok_or(usage)?)),
             Some("--timings") => timings = true,
-            _ if entrada.is_none() && ir_pronto.is_none() => entrada = Some(PathBuf::from(a)),
-            _ => return Err(usage.into()),
+            _ => entrada = Some(PathBuf::from(a)),
         }
     }
+    dartforge_jit::definir_argumentos(do_programa);
     let (ir, emissao) = match (entrada, ir_pronto) {
         (Some(entrada), None) => {
             let ir = emitir(&entrada, sdk.as_deref(), packages.as_deref())?;

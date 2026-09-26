@@ -397,6 +397,7 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                 let is_main = symbol == "dart_main";
                 if is_main {
                     module.entry_symbol = Some(symbol.clone());
+                    module.entry_params = ast_func.parameters.as_deref().map_or(0, <[_]>::len);
                 }
 
                 if let Some(c_id) = func_elem.class

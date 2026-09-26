@@ -1609,14 +1609,23 @@ impl Heap {
             }
             fica
         });
+        // A estimativa é refeita dos vivos a cada coleta: os natives que
+        // trocam o armazenamento de um valor no lugar (`_setLength`,
+        // `_setData`, as listas tipadas…) não passam pela contabilidade, e
+        // subtrair a capacidade de agora do que foi somado na alocação
+        // estouraria o contador.
+        let mut vivos_em_bytes = 0usize;
         for (index, slot) in self.slots.iter_mut().enumerate() {
-            if slot.is_some() && !self.marks[index] {
-                self.stats.estimated_bytes -= slot.as_ref().unwrap().estimated_bytes();
+            let Some(valor) = slot.as_ref() else { continue };
+            if self.marks[index] {
+                vivos_em_bytes = vivos_em_bytes.saturating_add(valor.estimated_bytes());
+            } else {
                 *slot = None;
                 self.free.push(index);
                 self.stats.reclaimed += 1;
             }
         }
+        self.stats.estimated_bytes = vivos_em_bytes;
         for (finalizador, par) in finalizar {
             finalizador(par);
         }

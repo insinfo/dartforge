@@ -1087,6 +1087,31 @@ fn endereco_na_biblioteca(modulo: *mut std::ffi::c_void, nome: &CStr) -> *mut st
     p
 }
 
+/// Chama `dartforge_definir_argumentos_do_main` do runtime da biblioteca do
+/// SDK (`dados`: os argumentos em UTF-8, cada um terminado em NUL).
+pub(crate) fn definir_argumentos_na_biblioteca(dll: &std::path::Path, dados: &[u8]) -> Result<(), String> {
+    let modulo = carregar_biblioteca(dll);
+    if modulo.is_null() {
+        return Err(format!("não foi possível carregar a biblioteca do SDK {}", dll.display()));
+    }
+    let p = endereco_na_biblioteca(modulo, c"dartforge_definir_argumentos_do_main");
+    if p.is_null() && dados.is_empty() {
+        // Sem argumentos a entregar, uma biblioteca sem o runtime inteiro
+        // (as dos testes) serve.
+        return Ok(());
+    }
+    if p.is_null() {
+        return Err("a DLL do SDK não exporta dartforge_definir_argumentos_do_main".to_string());
+    }
+    // SAFETY: o símbolo é a função do runtime com esta assinatura
+    // (`io_plataforma.rs`); `dados` vive durante a chamada, que o copia.
+    unsafe {
+        let f: unsafe extern "C" fn(*const u8, usize) = std::mem::transmute(p);
+        f(dados.as_ptr(), dados.len());
+    }
+    Ok(())
+}
+
 impl Lljit {
     /// Nomes pedidos que constam da lista de exportações da DLL do SDK.
     /// A lista é consultada antes da publicação de uma geração nova, para que
