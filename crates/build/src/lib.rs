@@ -24,6 +24,7 @@ pub mod oraculo;
 pub mod pacotes;
 pub mod plano;
 pub mod valor;
+pub mod vm;
 
 pub use motor::{Atualizacao, Contexto, Demanda, Motor, OpcoesMotor, Placar, RelMotor};
 

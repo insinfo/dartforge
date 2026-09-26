@@ -86,6 +86,24 @@ pub struct Grafo {
     pub acoes: Vec<Acao>,
     /// Pacotes cujas fontes foram listadas (os que têm alguma fase que gera).
     pub listados: BTreeSet<Arc<str>>,
+    /// Filtros de fontes dos pacotes não listados: uma leitura de builder
+    /// num deles é decidida caminho a caminho, sem listar o pacote.
+    pub externos: BTreeMap<Arc<str>, FiltroFontes>,
+}
+
+/// Quais caminhos de um pacote são fontes: algum alvo os inclui (e não
+/// exclui) e, fora da raiz, são visíveis (`target_graph.dart`).
+#[derive(Debug, Clone)]
+pub struct FiltroFontes {
+    pub alvos: Vec<Casador>,
+    pub visiveis: Option<Vec<Glob>>,
+}
+
+impl FiltroFontes {
+    pub fn admite(&self, caminho: &str) -> bool {
+        self.visiveis.as_ref().is_none_or(|g| g.iter().any(|x| x.casa(caminho)))
+            && self.alvos.iter().any(|c| c.include.as_ref().is_some_and(|i| !i.is_empty()) && c.casa(caminho))
+    }
 }
 
 /// Lista, sob `raiz`, os arquivos que algum `globs` casa, podando os
@@ -134,43 +152,46 @@ impl Grafo {
         atual
     }
 
-    /// Fontes de um pacote, pelos alvos (`_listAssetIds`).
-    fn fontes_do_pacote(grafo: &GrafoPacotes, configs: &Configs, pacote: usize) -> Result<BTreeSet<String>, String> {
+    /// O filtro de fontes de um pacote (`_listAssetIds`): os `sources` de
+    /// cada alvo sobre os padrões, e a visibilidade fora da raiz. `None` para
+    /// o `$sdk` e pacotes sem diretório.
+    fn filtro_do_pacote(grafo: &GrafoPacotes, configs: &Configs, pacote: usize) -> Result<Option<FiltroFontes>, String> {
         let no = &grafo.nos[pacote];
         let cfg = &configs.por_pacote[pacote];
-        let mut v = BTreeSet::new();
         if no.nome == SDK || no.raiz.as_os_str().is_empty() {
-            return Ok(v);
+            return Ok(None);
         }
-        let padrao: Vec<String> = if no.e_raiz {
-            FONTES_DA_RAIZ.iter().map(|s| s.to_string()).chain(cfg.publicos_adicionais.iter().cloned()).collect()
-        } else {
-            VISIVEIS_FORA_DA_RAIZ.iter().map(|s| s.to_string()).chain(cfg.publicos_adicionais.iter().cloned()).collect()
-        };
-        let visiveis = if no.e_raiz {
-            None
-        } else {
-            let pub_: Vec<String> =
-                VISIVEIS_FORA_DA_RAIZ.iter().map(|s| s.to_string()).chain(cfg.publicos_adicionais.iter().cloned()).collect();
-            Some(globs(&pub_)?)
-        };
-        for alvo in &cfg.alvos {
-            let casador = Casador::novo(&alvo.sources, Some(&padrao))?;
+        let base: &[&str] = if no.e_raiz { FONTES_DA_RAIZ } else { VISIVEIS_FORA_DA_RAIZ };
+        let padrao: Vec<String> = base.iter().map(|s| s.to_string()).chain(cfg.publicos_adicionais.iter().cloned()).collect();
+        let visiveis = if no.e_raiz { None } else { Some(globs(&padrao)?) };
+        let alvos = cfg.alvos.iter().map(|alvo| Casador::novo(&alvo.sources, Some(&padrao))).collect::<Result<_, _>>()?;
+        Ok(Some(FiltroFontes { alvos, visiveis }))
+    }
+
+    /// Fontes de um pacote, pelos alvos (`_listAssetIds`).
+    fn fontes_do_pacote(grafo: &GrafoPacotes, configs: &Configs, pacote: usize) -> Result<BTreeSet<String>, String> {
+        let mut v = BTreeSet::new();
+        let Some(filtro) = Self::filtro_do_pacote(grafo, configs, pacote)? else { return Ok(v) };
+        for casador in &filtro.alvos {
             let inc = casador.include.clone().unwrap_or_default();
             if inc.is_empty() {
                 continue;
             }
-            for c in listar(&no.raiz, &inc) {
-                if visiveis.as_ref().is_some_and(|g| !g.iter().any(|x| x.casa(&c))) {
-                    continue;
+            for c in listar(&grafo.nos[pacote].raiz, &inc) {
+                if filtro.admite(&c) {
+                    v.insert(c);
                 }
-                if casador.exclui(&c) {
-                    continue;
-                }
-                v.insert(c);
             }
         }
         Ok(v)
+    }
+
+    /// `id` é fonte de um pacote que o grafo não listou (nenhuma fase gera
+    /// nele), pelo filtro do pacote? Não olha o disco. É o que o
+    /// `build_runner` responde a um builder que lê uma dependência — o
+    /// `BuildStep.resolver` lê assim cada biblioteca importada.
+    pub fn fonte_externa(&self, id: &AssetId) -> bool {
+        !id.caminho.contains('$') && self.externos.get(&id.pacote).is_some_and(|f| f.admite(&id.caminho))
     }
 
     /// Monta o grafo: fontes dos pacotes com fases que geram, sintéticos de
@@ -189,6 +210,8 @@ impl Grafo {
                     conj.insert(c.into());
                 }
                 g.listados.insert(no.nome.as_str().into());
+            } else if let Some(f) = Self::filtro_do_pacote(grafo, configs, i)? {
+                g.externos.insert(no.nome.as_str().into(), f);
             }
         }
         // `allInputs`: fontes + sintéticos, e as saídas acumuladas.

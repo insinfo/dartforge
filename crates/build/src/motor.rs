@@ -13,7 +13,7 @@
 //!   [`Motor::materializar`] ou [`Demanda::Tudo`].
 use crate::consulta::{digest_bytes, BancoSemantico, Consulta, Digest};
 use crate::executor::{
-    digest_de, AcaoNativa, CtxGerador, Disponibilidade, ExecutorDart, GeradorNativo, Indisponivel, PedidoAcao, PedidoNativo,
+    candidatos_do_glob, digest_de, AcaoNativa, CtxGerador, Disponibilidade, ExecutorDart, GeradorNativo, Indisponivel, PedidoAcao, PedidoExtensoes, PedidoNativo,
     ScriptDeBuilders, ServicoAcao, ServicoBuildStep,
 };
 use crate::grafo::{AssetId, Grafo};
@@ -170,6 +170,9 @@ pub struct Motor {
     nativos: Vec<Arc<dyn GeradorNativo>>,
     dart: std::sync::Mutex<Box<dyn ExecutorDart>>,
     dart_preparado: AtomicBool,
+    /// As extensões de execução já foram conferidas com o executor Dart
+    /// ([`Motor::conferir_extensoes`]).
+    extensoes_conferidas: bool,
     registros: Vec<Option<Registro>>,
     /// Ações por fase (índices em `grafo.acoes`).
     por_fase: Vec<Vec<usize>>,
@@ -314,6 +317,7 @@ impl Motor {
             nativos: Vec::new(),
             dart: std::sync::Mutex::new(Box::new(Indisponivel::default())),
             dart_preparado: AtomicBool::new(false),
+            extensoes_conferidas: false,
             registros: vec![None; n_acoes],
             por_fase,
             pacotes: HashMap::new(),
@@ -574,11 +578,17 @@ impl Motor {
             }
             self.memoria = antiga;
         }
+        if !self.extensoes_conferidas {
+            self.conferir_extensoes(&mut mudados)?;
+        }
         // Eventos que mudam listagens: diretório observado, arquivo novo ou
         // apagado. Também refazem as fontes e as saídas esperadas.
         let estruturais: HashSet<PathBuf> = mudados.iter().filter(|m| self.estrutural(m)).cloned().collect();
         if !estruturais.is_empty() {
             self.reconstruir_grafo(&mut mudados)?;
+        }
+        if self.dart_preparado.load(Ordering::Acquire) && let Ok(mut d) = self.dart.lock() {
+            d.nova_rodada();
         }
         let mut rel = RelMotor::default();
         let mut avisos = Vec::new();
@@ -622,15 +632,37 @@ impl Motor {
                     (Some(r), None) => {
                         // Só as consultas que os eventos podem ter mudado.
                         let memoria = |p: &Path| self.memoria.get(p).cloned();
-                        r.consultas.iter().filter(|(c, _)| afetada(c, &mudados, dart_mudou, &estruturais)).any(|(c, d)| {
+                        let mut refeitas = Vec::new();
+                        let sujo = r.consultas.iter().enumerate()
+                            .filter(|(_, (c, _))| afetada(c, &mudados, dart_mudou, &estruturais)).any(|(i, (c, d))| {
                             rel.consultas_reavaliadas += 1;
-                            if let Consulta::GlobAtivos { dir, .. } = c {
-                                // O grafo pode ter ganhado um candidato que
-                                // não constava da consulta anterior.
-                                if estruturais.iter().any(|m| m.starts_with(dir)) { return true; }
+                            if let Consulta::GlobAtivos { dir, padrao, .. } = c {
+                                // O grafo pode ter ganhado (ou perdido) um
+                                // candidato: a lista é refeita no grafo novo
+                                // e só a resposta diferente suja a ação.
+                                if estruturais.iter().any(|m| m.starts_with(dir)) {
+                                    let Ok(g) = crate::glob::Glob::novo(padrao) else { return true };
+                                    let candidatos = candidatos_do_glob(&self.grafo, a, &g).into_iter()
+                                        .map(|id| (id.caminho.to_string(), self.grafo.gerados.contains_key(&id))).collect();
+                                    let refeita = Consulta::GlobAtivos { dir: dir.clone(), padrao: padrao.clone(), candidatos };
+                                    let mudou = digest_de(&refeita, ctx.banco, &memoria) != *d;
+                                    refeitas.push((i, refeita));
+                                    return mudou;
+                                }
                             }
                             digest_de(c, ctx.banco, &memoria) != *d
-                        })
+                        });
+                        if !sujo && !refeitas.is_empty() {
+                            // A resposta é a mesma, mas os candidatos são os
+                            // do grafo novo: um evento futuro num deles tem
+                            // de acordar a ação.
+                            if let Some(r) = self.registros[a].as_mut() {
+                                for (i, c) in refeitas {
+                                    r.consultas[i].0 = c;
+                                }
+                            }
+                        }
+                        sujo
                     }
                 };
                 if sujo {
@@ -724,6 +756,42 @@ impl Motor {
         Ok(Atualizacao { geracao: self.geracao.clone(), alterados: alterados.into_iter().collect(), rel, avisos })
     }
 
+    /// As extensões de execução vêm do objeto `Builder`, não do `build.yaml`
+    /// (`expected_outputs.dart`). Com o executor Dart disponível, o motor
+    /// pergunta a cada fase que nenhum gerador nativo verificado cobre quais
+    /// são (`build.extensoes`) e, se alguma diverge do descritor ou do
+    /// `build.yaml` — uma fábrica de um builder com várias, extensões que
+    /// dependem das opções —, refaz o grafo com as do `Builder`. Uma vez por
+    /// plano; sem executor, ficam as previstas.
+    fn conferir_extensoes(&mut self, mudados: &mut HashSet<PathBuf>) -> Result<(), String> {
+        self.extensoes_conferidas = true;
+        let candidatas: Vec<usize> = (0..self.fases.len())
+            .filter(|&fi| self.fases[fi].extensoes.is_some() && self.nativo_da_fase(fi).is_none())
+            .collect();
+        let disponivel = self.dart.lock().is_ok_and(|d| d.disponibilidade() == Disponibilidade::Disponivel);
+        if candidatas.is_empty() || !disponivel || self.preparar_dart().is_some() {
+            return Ok(());
+        }
+        let mut mudou = false;
+        for fi in candidatas {
+            let f = &self.fases[fi];
+            let chave = self.plano.aplicacoes[f.aplicacao].chave.clone();
+            let pedido = PedidoExtensoes { chave: chave.clone(), fabrica: f.fabrica.clone(), opcoes: f.opcoes.clone(), raiz: f.raiz };
+            let resposta = self.dart.lock().map_err(|_| "executor Dart envenenado")?.extensoes(&pedido);
+            // Sem resposta (fábrica que falha ao instanciar, executor que não
+            // sabe): ficam as previstas, e a ação dirá o erro ao executar.
+            let Ok(Some(v)) = resposta else { continue };
+            if self.fases[fi].extensoes.as_ref().is_some_and(|e| e.declaradas != v) {
+                self.fases[fi].extensoes = Some(crate::extensoes::Extensoes::novas(&v, &chave)?);
+                mudou = true;
+            }
+        }
+        if mudou {
+            self.reconstruir_grafo(mudados)?;
+        }
+        Ok(())
+    }
+
     fn naturais_de_entrada(&self, a: usize) -> PathBuf {
         natural(&self.grafo_pacotes, &self.grafo.acoes[a].entrada)
     }
@@ -735,7 +803,12 @@ impl Motor {
             Disponibilidade::Disponivel if self.dart_preparado.load(Ordering::Acquire) => return None,
             Disponibilidade::Disponivel => {}
         }
-        let aplicacoes = self.plano.aplicacoes.iter().map(|a| (a.chave.clone(), a.import.clone(), a.fabricas.clone())).collect();
+        // Só o que pode virar ação Dart: pós-processadores são no-op no motor
+        // e os substituídos nunca executam (§6 do BUILD-MOTOR.md); importá-los
+        // só aumentaria a compilação do script.
+        let aplicacoes = self.plano.aplicacoes.iter()
+            .filter(|a| !a.pos && crate::descritor::substituido(&a.chave).is_none())
+            .map(|a| (a.chave.clone(), a.import.clone(), a.fabricas.clone())).collect();
         let mut h = blake3::Hasher::new();
         h.update(crate::VERSAO.as_bytes());
         h.update(self.plano.texto_canonico().as_bytes());
