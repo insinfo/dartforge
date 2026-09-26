@@ -231,7 +231,7 @@ pub(crate) fn invocar(
 }
 
 /// Invoca um valor de tipo `t` (função, objeto com `call`, `dynamic`).
-fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, t: TypeId, args: &ast::Arguments, ctx: TypeId, explicitos: Option<Vec<TypeId>>, span: Span) -> (TypeId, TypeId) {
+fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, t: TypeId, args: &ast::Arguments, ctx: TypeId, explicitos: Option<Vec<TypeId>>, span: Span) -> (TypeId, TypeId) {
     let t_nn = inf.nao_nulo(t);
     match inf.table.get(t_nn).clone() {
         Type::Function { .. } => invocar(inf, cx, t_nn, args, ctx, explicitos),
@@ -259,6 +259,13 @@ fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, t: TypeId, args: &a
                     return invocar(inf, cx, m.tipo, args, ctx, explicitos);
                 }
                 if let Busca::Achado(m) = inf.buscar_membro(cx.lib, t_nn, call, false) {
+                    // `valor(args)` com o `call` de uma extensão
+                    // (`calloc<Int32>(4)`, o `AllocatorAlloc.call`): a
+                    // chamada registra o membro, que o lowering invoca com
+                    // o valor como receptor.
+                    if m.de_extensao {
+                        super::expr::resolver(inf, cx, e, m.resolved.clone());
+                    }
                     return invocar(inf, cx, m.tipo, args, ctx, explicitos);
                 }
             }
@@ -358,7 +365,7 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             if let ExprKind::Identifier(p) = &a.expr(recv).kind {
                 if matches!(resolver_nome(inf, cx, p.sym, false), RefNome::Prefixo) {
                     let t = inferir(inf, cx, target, u);
-                    let (r, _) = invocar_valor(inf, cx, t, args, ctx, explicitos, span);
+                    let (r, _) = invocar_valor(inf, cx, e, t, args, ctx, explicitos, span);
                     return (r, false);
                 }
             }
@@ -384,7 +391,7 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                     }
                 }
                 let t = inferir(inf, cx, target, u);
-                let (r, _) = invocar_valor(inf, cx, t, args, ctx, explicitos, span);
+                let (r, _) = invocar_valor(inf, cx, e, t, args, ctx, explicitos, span);
                 return (r, false);
             }
             // `super.m(args)`.
@@ -393,7 +400,7 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 registrar(inf, cx, recv, this);
                 let t = expr::membro_super(inf, cx, target, name, false);
                 registrar(inf, cx, target, t);
-                let (r, _) = invocar_valor(inf, cx, t, args, ctx, explicitos, span);
+                let (r, _) = invocar_valor(inf, cx, e, t, args, ctx, explicitos, span);
                 return (r, false);
             }
             let (r_ty, curto) = receptor(inf, cx, recv, null_aware);
@@ -456,7 +463,7 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                         let t = inf.nao_nulo(m.tipo);
                         invocar(inf, cx, t, args, ctx, explicitos)
                     } else {
-                        invocar_valor(inf, cx, m.tipo, args, ctx, explicitos, span)
+                        invocar_valor(inf, cx, e, m.tipo, args, ctx, explicitos, span)
                     };
                     if m.metodo {
                         // Refinamento numérico de `remainder`/`clamp`.
@@ -560,7 +567,7 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 }
                 return (inf.core.dynamic_, false);
             }
-            let (r, _) = invocar_valor(inf, cx, t, args, ctx, explicitos, span);
+            let (r, _) = invocar_valor(inf, cx, e, t, args, ctx, explicitos, span);
             (r, false)
         }
     }

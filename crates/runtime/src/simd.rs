@@ -17,7 +17,7 @@ const CID_FLOAT64X2: usize = 17;
 
 fn simd_novo(pos: usize, tipo: u8, bytes: [u8; 16]) -> i64 {
     let class_id = cid_registrado(pos).expect("bug do compilador: SIMD sem o SDK da fonte");
-    HEAP.with(|h| h.borrow_mut().allocate(Value::TypedData { class_id, tipo, bytes: bytes.to_vec() }))
+    HEAP.with(|h| h.borrow_mut().allocate(Value::TypedData { class_id, tipo, bytes: bytes.to_vec().into() }))
 }
 
 fn simd_bytes(h: i64) -> [u8; 16] {

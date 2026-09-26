@@ -173,14 +173,14 @@ fn dart_texto_de_bytes(b: &[u8]) -> i64 {
 /// Uma `Uint8List` (`_Uint8List`) com os bytes.
 fn dart_bytes(bytes: Vec<u8>) -> i64 {
     let class_id = cid_registrado(CID_UINT8_LIST).expect("bug do compilador: dart:io sem o SDK da fonte");
-    HEAP.with(|h| h.borrow_mut().allocate(Value::TypedData { class_id, tipo: TIPO_UINT8, bytes }))
+    HEAP.with(|h| h.borrow_mut().allocate(Value::TypedData { class_id, tipo: TIPO_UINT8, bytes: bytes.into() }))
 }
 
 /// Uma `Int64List` (`_Int64List`) com os valores.
 fn dart_int64s(valores: &[i64]) -> i64 {
     let class_id = cid_registrado(CID_INT64_LIST).expect("bug do compilador: dart:io sem o SDK da fonte");
-    let bytes = valores.iter().flat_map(|v| v.to_ne_bytes()).collect();
-    HEAP.with(|h| h.borrow_mut().allocate(Value::TypedData { class_id, tipo: TIPO_INT64, bytes }))
+    let bytes: Vec<u8> = valores.iter().flat_map(|v| v.to_ne_bytes()).collect();
+    HEAP.with(|h| h.borrow_mut().allocate(Value::TypedData { class_id, tipo: TIPO_INT64, bytes: bytes.into() }))
 }
 
 /// Uma `_List` de tamanho fixo com os valores (já na posição `Ref`).

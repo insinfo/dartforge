@@ -301,11 +301,20 @@ impl<'a> BodyInferrer<'a> {
         drop(env);
         let mapa = self.mapa(&dados.type_params, &args);
         let on = self.subst(dados.on, &mapa);
-        if self.sub(recv, on) {
-            Some(args)
-        } else {
-            None
+        if !self.sub(recv, on) {
+            return None;
         }
+        // Os argumentos inferidos respeitam os limites (`T extends Struct`):
+        // senão a extensão não se aplica (§13.2), e outra — a de
+        // `Array<Array<T>>`, e não a de `Array<T extends AbiSpecificInteger>`
+        // — é a escolhida.
+        for (i, &p) in dados.type_params.iter().enumerate() {
+            let limite = self.subst(self.table.param(p).bound, &mapa);
+            if !self.sub(args[i], limite) {
+                return None;
+            }
+        }
+        Some(args)
     }
 
     /// Membro de extensão aplicável ao receptor, com desempate por especificidade.

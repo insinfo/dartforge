@@ -607,7 +607,7 @@ impl<'a> LlvmEmitter<'a> {
                         let _ = ret_ty;
                     }
                     Instruction::CallRuntime { name, args, ret_ty }
-                        if (name == "dartforge_typed_novo" || name == "dartforge_view_nova")
+                        if (name == "dartforge_typed_novo" || name == "dartforge_view_nova" || name == "dartforge_typed_externo")
                             && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
                                 if self.module.funcoes_de_tabela.contains_key(&(*c as u32))) =>
                     {
@@ -1350,6 +1350,14 @@ impl<'a> LlvmEmitter<'a> {
             // `dart:io`, o `Uri.base`), já com as bibliotecas registradas.
             // `dart:ffi`: os tipos nativos e os trampolins das assinaturas
             // (`lower/ffi.rs`).
+            for c in self.module.ffi_compostos.clone() {
+                writeln!(
+                    self.out,
+                    "  call void @dartforge_ffi_registrar_composto(i64 {}, i64 {}, i64 {}, i64 {}, i64 {}, i64 {}, i64 {})",
+                    c.rti, c.classe, c.campos, c.indice_base, c.indice_deslocamento, c.tamanho, c.alinhamento
+                )
+                .unwrap();
+            }
             for (c, letra) in &self.module.ffi_tipos {
                 writeln!(self.out, "  call void @dartforge_ffi_registrar_tipo(i64 {c}, i64 {})", u32::from(*letra)).unwrap();
             }

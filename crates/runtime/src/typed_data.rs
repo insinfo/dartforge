@@ -57,7 +57,7 @@ fn bytes_de(heap: &Heap, h: i64) -> &[u8] {
 }
 
 /// Os bytes mutáveis da lista interna `h`.
-fn bytes_de_mut(heap: &mut Heap, h: i64) -> &mut Vec<u8> {
+fn bytes_de_mut(heap: &mut Heap, h: i64) -> &mut crate::heap::Armazenamento {
     match heap.get_mut(h) {
         Value::TypedData { bytes, .. } => bytes,
         _ => panic!("bug do compilador: lista tipada interna esperada"),
@@ -87,7 +87,7 @@ pub extern "C" fn dartforge_typed_novo(class_id: i64, tipo: i64, n: i64) -> i64 
         return 0;
     }
     let bytes = vec![0u8; n as usize * tamanho_do_elemento(tipo)];
-    HEAP.with(|h| h.borrow_mut().allocate(Value::TypedData { class_id, tipo, bytes }))
+    HEAP.with(|h| h.borrow_mut().allocate(Value::TypedData { class_id, tipo, bytes: bytes.into() }))
 }
 
 /// [`dartforge_typed_novo`] que registra a tabela de métodos da classe na

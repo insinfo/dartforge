@@ -581,12 +581,83 @@ pub enum Value {
     /// Lista tipada interna (`_Uint8List`, `_Float64List`, … do
     /// `typed_data_patch.dart` da VM): a classe, o tipo do elemento
     /// (`typed_data.rs`, `TIPO_*`) e os bytes, no endian do hospedeiro.
-    TypedData { class_id: i64, tipo: u8, bytes: Vec<u8> },
+    TypedData { class_id: i64, tipo: u8, bytes: Armazenamento },
     /// Visão sobre uma lista tipada interna (`_Uint8ArrayView`,
     /// `_ByteDataView`, …): a classe, o tipo do elemento, a lista de base,
     /// o deslocamento em bytes e o comprimento em elementos.
     TypedView { class_id: i64, tipo: u8, base: i64, deslocamento: usize, comprimento: usize },
 }
+/// Os bytes de uma lista tipada interna: próprios (do heap do runtime) ou
+/// externos — a memória nativa de `Pointer.asTypedList`, que o Dart só vê
+/// (o `ExternalTypedData` da VM): nem copiada nem liberada pelo coletor.
+#[derive(Debug)]
+pub enum Armazenamento {
+    Proprio(Vec<u8>),
+    Externo { endereco: usize, tamanho: usize },
+}
+
+impl Default for Armazenamento {
+    fn default() -> Self {
+        Armazenamento::Proprio(Vec::new())
+    }
+}
+
+impl Clone for Armazenamento {
+    /// Uma cópia de uma lista externa continua sobre a mesma memória nativa.
+    fn clone(&self) -> Self {
+        match self {
+            Armazenamento::Proprio(v) => Armazenamento::Proprio(v.clone()),
+            Armazenamento::Externo { endereco, tamanho } => Armazenamento::Externo { endereco: *endereco, tamanho: *tamanho },
+        }
+    }
+}
+
+impl From<Vec<u8>> for Armazenamento {
+    fn from(v: Vec<u8>) -> Self {
+        Armazenamento::Proprio(v)
+    }
+}
+
+// A única leitura de memória nativa do heap: a de uma lista externa.
+#[allow(unsafe_code)]
+impl std::ops::Deref for Armazenamento {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        match self {
+            Armazenamento::Proprio(v) => v,
+            // SAFETY: a memória nativa de `asTypedList`, que o programa
+            // garante viva e com `tamanho` bytes enquanto usa a lista (o
+            // mesmo contrato da VM).
+            Armazenamento::Externo { endereco, tamanho } => unsafe {
+                std::slice::from_raw_parts(*endereco as *const u8, *tamanho)
+            },
+        }
+    }
+}
+
+#[allow(unsafe_code)]
+impl std::ops::DerefMut for Armazenamento {
+    fn deref_mut(&mut self) -> &mut [u8] {
+        match self {
+            Armazenamento::Proprio(v) => v,
+            // SAFETY: como em `deref`.
+            Armazenamento::Externo { endereco, tamanho } => unsafe {
+                std::slice::from_raw_parts_mut(*endereco as *mut u8, *tamanho)
+            },
+        }
+    }
+}
+
+impl Armazenamento {
+    /// Bytes que o heap do runtime ocupa (a memória externa não conta).
+    pub fn capacity(&self) -> usize {
+        match self {
+            Armazenamento::Proprio(v) => v.capacity(),
+            Armazenamento::Externo { .. } => 0,
+        }
+    }
+}
+
 impl Value {
     /// Estima armazenamento próprio usando capacidades efetivas, com overflow explícito.
     fn estimated_bytes(&self) -> usize {

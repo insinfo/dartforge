@@ -39,6 +39,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return op;
         }
 
+        // `valor(args)` resolvido para o `call` de uma extensão
+        // (`calloc<Int32>(4)`, o `AllocatorAlloc.call`): o valor é o receptor.
+        if let Some(Resolved::ExtensionMember { member, .. }) = self.ctx.get_resolved(self.unit_id, expr_id).cloned()
+            && self.ctx.symbol_name(self.ctx.program.functions[member.0 as usize].name) == "call"
+        {
+            let recv = self.lower_expr(ast, *target);
+            let recv = self.coagir(recv, Type::Ref);
+            let avaliados = self.avaliar_args(ast, &arguments.args);
+            let receptor = self.ctx.get_type(self.unit_id, *target);
+            return self.chamar_extensao(recv, member.0 as usize, &avaliados, receptor, Some((expr_id, arguments)), expr.span);
+        }
+
         if let ExprKind::Identifier(id) = &ast.expr(*target).kind {
             let resolvido = self.ctx.get_resolved(self.unit_id, *target).cloned();
             // Local ou parâmetro que guarda um valor função (função local,
