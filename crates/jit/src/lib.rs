@@ -396,7 +396,7 @@ impl JitSession {
                 ),
             });
         }
-        if !triple.is_empty() && triple != jit_triple {
+        if !triple.is_empty() && !alvos_compativeis(triple, &jit_triple) {
             return Err(JitError {
                 stage: "layout",
                 message: format!(
@@ -841,5 +841,77 @@ mod tests {
         let mut com_sdk = JitSession::new().unwrap();
         com_sdk.externos_do_sdk.insert("df.sdk_teste".to_owned());
         com_sdk.add_compiled_module(&compilado).unwrap();
+    }
+}
+
+/// Os componentes de um triple que decidem o código: arquitetura, sistema
+/// (sem a versão mínima) e ambiente/ABI; o fabricante só distingue quando
+/// não é genérico.
+#[derive(Debug, PartialEq, Eq)]
+struct AlvoNormalizado {
+    arquitetura: String,
+    fabricante: Option<String>,
+    sistema: String,
+    ambiente: String,
+}
+
+fn normalizar_alvo(triple: &str) -> AlvoNormalizado {
+    let partes: Vec<&str> = triple.split('-').collect();
+    let arquitetura = match partes.first().copied().unwrap_or("") {
+        "arm64" => "aarch64",
+        "amd64" | "x86-64" => "x86_64",
+        a => a,
+    }
+    .to_string();
+    let fabricante = match partes.get(1).copied() {
+        None | Some("unknown" | "pc" | "") => None,
+        Some(f) => Some(f.to_string()),
+    };
+    // O sistema sem a versão (`macosx15.7.3`, `darwin24.6.0`, `ios17.0`);
+    // `darwin` e `macosx` são o mesmo sistema.
+    let sistema_bruto = partes.get(2).copied().unwrap_or("");
+    let sistema = match sistema_bruto.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.') {
+        "darwin" | "macosx" | "macos" => "macos",
+        s => s,
+    }
+    .to_string();
+    let ambiente = partes.get(3..).map(|r| r.join("-")).unwrap_or_default();
+    AlvoNormalizado { arquitetura, fabricante, sistema, ambiente }
+}
+
+/// Se código emitido para `modulo` roda na `LLJIT` de `jit`: mesma
+/// arquitetura, mesmo sistema e mesma ABI. Diferenças só de grafia
+/// (`x86_64-unknown-linux-gnu` × `x86_64-pc-linux-gnu`,
+/// `arm64-apple-darwin` × `arm64-apple-macosx15.7.3`) são aceitas; outra
+/// arquitetura, outro sistema ou outro ambiente (`gnu` × `musl`, `msvc` ×
+/// `gnu`) não.
+fn alvos_compativeis(modulo: &str, jit: &str) -> bool {
+    let (a, b) = (normalizar_alvo(modulo), normalizar_alvo(jit));
+    let fabricante_ok = match (&a.fabricante, &b.fabricante) {
+        (Some(x), Some(y)) => x == y,
+        _ => true,
+    };
+    a.arquitetura == b.arquitetura && a.sistema == b.sistema && a.ambiente == b.ambiente && fabricante_ok
+}
+
+#[cfg(test)]
+mod testes_de_alvo {
+    use super::alvos_compativeis;
+
+    #[test]
+    fn grafias_do_mesmo_alvo_sao_compativeis() {
+        assert!(alvos_compativeis("x86_64-unknown-linux-gnu", "x86_64-pc-linux-gnu"));
+        assert!(alvos_compativeis("arm64-apple-darwin", "arm64-apple-macosx15.7.3"));
+        assert!(alvos_compativeis("aarch64-apple-darwin", "arm64-apple-macosx14.0.0"));
+        assert!(alvos_compativeis("x86_64-pc-windows-msvc", "x86_64-pc-windows-msvc"));
+    }
+
+    #[test]
+    fn alvos_diferentes_sao_recusados() {
+        assert!(!alvos_compativeis("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"));
+        assert!(!alvos_compativeis("x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl"));
+        assert!(!alvos_compativeis("x86_64-pc-windows-msvc", "x86_64-pc-windows-gnu"));
+        assert!(!alvos_compativeis("x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"));
+        assert!(!alvos_compativeis("arm64-apple-darwin", "arm64-apple-ios17.0"));
     }
 }

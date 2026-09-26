@@ -373,6 +373,25 @@ jobs:
           # Placar abaixo de 214 é o estado do backend, não quebra do CI.
           aceitar-placar-parcial: 'true'
 
+  # O `dart:io` nativo no Windows (a porta de conclusão, o Winsock e os
+  # processos de io_windows_*.rs) contra a VM: o corpus corpus/nativo.
+  nativo-io-windows:
+    name: dart:io nativo (Windows)
+    needs: compilar
+    if: contains(fromJSON('["todos","nativo"]'), needs.compilar.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      DARTFORGE_SDK_DA_FONTE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          nome: nativo-io-windows
+          titulo: dart:io nativo no Windows (corpus/nativo)
+          args: --nativo --corpus corpus/nativo --jobs 2
+          nativo: 'true'
+
   # O portão G7 do contrato de raízes (docs/NATIVO-PLANO.md §6.5): o corpus
   # nativo inteiro com DARTFORGE_GC_STRESS=1 — coleta antes de TODA
   # alocação, então uma raiz faltando vira "handle já coletado" em vez de

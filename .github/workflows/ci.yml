@@ -89,6 +89,9 @@ jobs:
       - name: recarga JIT com estado pela CLI
         if: success() || failure()
         run: cargo test --locked -p dartforge-cli --features jit --test reload_estado
+      - name: regressões do dart:io nativo (escuta compartilhada, rajada de sinais)
+        if: success() || failure()
+        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test io_regressao -- --include-ignored
       # Os #[ignore] que o runner consegue satisfazer: SDK Dart,
       # Clang e rustc. Ficam de fora, pelo nome:
       #   corpus_pub*       references/pub é baixado pelo proprietário, fora do git
@@ -209,6 +212,8 @@ jobs:
         run: cargo test --locked --release -p dartforge-jit -- --include-ignored
       - name: Recarga JIT da CLI (com e sem o SDK da fonte)
         run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test reload_estado -- --include-ignored
+      - name: Regressões do dart:io nativo (escuta compartilhada, rajada de sinais)
+        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test io_regressao -- --include-ignored
       - name: Olá, mundo — AOT de desenvolvimento, produção e JIT
         shell: bash
         env:

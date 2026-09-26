@@ -16,8 +16,11 @@
 // (argumentos, ambiente) é montado antes do `fork`. O filho informa só o
 // `errno`; a mensagem sai do mesmo `strerror` no pai.
 //
-// No Windows os processos ainda não são suportados: o início falha com o
-// erro do sistema `ERROR_NOT_SUPPORTED`.
+// No Windows (`io_windows_processos.rs`) o filho nasce de `CreateProcessW`,
+// com pipes nomeados sobrepostos no lado do pai, e o código de saída chega
+// pelo pool de threads do sistema (`RegisterWaitForSingleObject`), com as
+// mesmas funções (`iniciar_processo`, `esperar_processo`,
+// `matar_processo`, `inscrever_sinal`…).
 
 /// `ProcessStartMode`.
 const MODO_NORMAL: i64 = 0;
@@ -534,17 +537,6 @@ fn iniciar_processo(
     Ok(r)
 }
 
-#[cfg(windows)]
-fn iniciar_processo(
-    _caminho: &[u8],
-    _argumentos: &[Vec<u8>],
-    _diretorio: Option<&[u8]>,
-    _ambiente: Option<&[Vec<u8>]>,
-    _modo: i64,
-) -> Result<ProcessoIniciado, ErroDoSo> {
-    Err(ErroDoSo::do_codigo(50 /* ERROR_NOT_SUPPORTED */))
-}
-
 /// `Process_Start(namespace, path, arguments, workingDirectory,
 /// environment, mode, stdin, stdout, stderr, exitHandler, status)`.
 #[unsafe(no_mangle)]
@@ -683,9 +675,14 @@ pub extern "C" fn dartforge_nativo_Process_Wait(processo: i64, entrada: i64, sai
         esperar_processo(fds.0, fds.1, fds.2, fds.3)
     };
     #[cfg(windows)]
-    let resultado: ResultadoIo<(i64, Vec<u8>, Vec<u8>)> = {
-        let _ = (e, s, r, f);
-        Err(ErroDoSo::do_codigo(50))
+    let resultado = {
+        let r0 = esperar_processo(e.descritor(), s.descritor(), r.descritor(), f.descritor());
+        // `Process::Wait` fechou os handles; os objetos soltam as
+        // referências (`CloseFd`).
+        for x in [e, s, r, f] {
+            x.soltar_descritor();
+        }
+        r0
     };
     match resultado {
         Ok((codigo, out, err)) => {
@@ -713,10 +710,6 @@ fn matar_processo(pid: i64, sinal: i64) -> bool {
         }
     }
 }
-#[cfg(windows)]
-fn matar_processo(_pid: i64, _sinal: i64) -> bool {
-    false
-}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Process_KillPid(pid: i64, sinal: i64) -> u8 {
@@ -738,26 +731,67 @@ fn sinal_vigiavel(s: i64) -> bool {
     SINAIS.contains(&s)
 }
 
-/// As inscrições: (sinal, lado de escrita do pipe); o tratador só lê
-/// atômicos.
+/// Uma inscrição (`SignalInfo`): o sinal, os dois lados do pipe e quantos
+/// tratadores estão escrevendo nele agora. O tratador só usa atômicos e
+/// `write`.
+#[cfg(unix)]
+struct InscricaoDeSinal {
+    sinal: std::sync::atomic::AtomicI32,
+    escrita: std::sync::atomic::AtomicI32,
+    leitura: std::sync::atomic::AtomicI32,
+    em_uso: std::sync::atomic::AtomicU32,
+}
+
 #[cfg(unix)]
 const MAXIMO_DE_INSCRICOES: usize = 64;
 #[cfg(unix)]
-static INSCRICOES: [(std::sync::atomic::AtomicI32, std::sync::atomic::AtomicI32); MAXIMO_DE_INSCRICOES] =
-    [const { (std::sync::atomic::AtomicI32::new(0), std::sync::atomic::AtomicI32::new(-1)) }; MAXIMO_DE_INSCRICOES];
+static INSCRICOES: [InscricaoDeSinal; MAXIMO_DE_INSCRICOES] = [const {
+    InscricaoDeSinal {
+        sinal: std::sync::atomic::AtomicI32::new(0),
+        escrita: std::sync::atomic::AtomicI32::new(-1),
+        leitura: std::sync::atomic::AtomicI32::new(-1),
+        em_uso: std::sync::atomic::AtomicU32::new(0),
+    }
+}; MAXIMO_DE_INSCRICOES];
 
+/// O tratador: um byte no pipe de cada inscrição do sinal.
+///
+/// O pipe é não bloqueante: cheio, o `write` falha com `EAGAIN` e a
+/// notificação se funde às que o Dart ainda não leu (como o sistema funde
+/// sinais pendentes), sem nunca parar a thread interrompida. O `errno` da
+/// thread interrompida é preservado. A contagem `em_uso` impede que o
+/// cancelamento feche (e o sistema reaproveite) o descritor durante o
+/// `write`.
 #[cfg(unix)]
 extern "C" fn tratar_sinal(sinal: i32) {
-    for (s, fd) in &INSCRICOES {
-        if s.load(std::sync::atomic::Ordering::Acquire) == sinal {
-            let fd = fd.load(std::sync::atomic::Ordering::Acquire);
-            if fd >= 0 {
-                let b = [0u8];
-                // SAFETY: `write` é seguro num tratador de sinal.
-                unsafe { write(fd, b.as_ptr().cast(), 1) };
-            }
+    use std::sync::atomic::Ordering::SeqCst;
+    let errno_salvo = errno_atual();
+    for i in &INSCRICOES {
+        if i.sinal.load(SeqCst) != sinal {
+            continue;
         }
+        i.em_uso.fetch_add(1, SeqCst);
+        let fd = i.escrita.load(SeqCst);
+        if fd >= 0 && i.sinal.load(SeqCst) == sinal {
+            let b = [0u8];
+            // SAFETY: `write` é seguro num tratador de sinal; o descritor
+            // não é fechado enquanto `em_uso` > 0, e não bloqueia.
+            unsafe { write(fd, b.as_ptr().cast(), 1) };
+        }
+        i.em_uso.fetch_sub(1, SeqCst);
     }
+    definir_errno(errno_salvo);
+}
+
+#[cfg(target_os = "linux")]
+fn definir_errno(e: i32) {
+    // SAFETY: o `errno` da thread.
+    unsafe { *__errno_location() = e };
+}
+#[cfg(all(unix, not(target_os = "linux")))]
+fn definir_errno(e: i32) {
+    // SAFETY: o `errno` da thread.
+    unsafe { *__error() = e };
 }
 
 /// `signal(sinal, tratador)`: o tratador anterior.
@@ -776,12 +810,24 @@ fn inscricoes_mutex() -> std::sync::MutexGuard<'static, std::collections::HashMa
 /// `Process::SetSignalHandler`: o lado de leitura do pipe da inscrição.
 #[cfg(unix)]
 fn inscrever_sinal(sinal: i64) -> ResultadoIo<i64> {
+    use std::sync::atomic::Ordering::SeqCst;
     if !sinal_vigiavel(sinal) {
         return Err(ErroDoSo::do_codigo(codigo_do_so::INVALIDO));
     }
     let fds = pipe_fechado_no_exec()?;
+    if !(tornar_nao_bloqueante(fds[0]) && tornar_nao_bloqueante(fds[1])) {
+        let e = ErroDoSo::de(&std::io::Error::last_os_error());
+        // SAFETY: os descritores acabaram de ser criados.
+        unsafe {
+            close(fds[0]);
+            close(fds[1]);
+        }
+        return Err(e);
+    }
     let mut anteriores = inscricoes_mutex();
-    let Some(livre) = INSCRICOES.iter().find(|(_, fd)| fd.load(std::sync::atomic::Ordering::Acquire) < 0) else {
+    // Os campos só mudam com a trava; o tratador vê a inscrição quando o
+    // sinal é gravado, por último.
+    let Some(livre) = INSCRICOES.iter().find(|i| i.sinal.load(SeqCst) == 0) else {
         // SAFETY: os descritores acabaram de ser criados.
         unsafe {
             close(fds[0]);
@@ -789,8 +835,9 @@ fn inscrever_sinal(sinal: i64) -> ResultadoIo<i64> {
         }
         return Err(ErroDoSo::do_codigo(24 /* EMFILE */));
     };
-    livre.0.store(sinal as i32, std::sync::atomic::Ordering::Release);
-    livre.1.store(fds[1], std::sync::atomic::Ordering::Release);
+    livre.escrita.store(fds[1], SeqCst);
+    livre.leitura.store(fds[0], SeqCst);
+    livre.sinal.store(sinal as i32, SeqCst);
     if let std::collections::hash_map::Entry::Vacant(v) = anteriores.entry(sinal as i32) {
         // SAFETY: instala o tratador do sinal.
         let antigo = unsafe { signal(sinal as i32, tratar_sinal as usize) };
@@ -799,46 +846,61 @@ fn inscrever_sinal(sinal: i64) -> ResultadoIo<i64> {
     Ok(i64::from(fds[0]))
 }
 
-/// `Process::ClearSignalHandler`: tira as inscrições do sinal e restaura o
-/// tratador anterior.
+/// Desfaz as inscrições que `filtro` escolhe (com a trava): tira-as do
+/// tratador, espera os `write` em andamento e fecha o lado de escrita; o
+/// tratador anterior volta quando o sinal fica sem inscrições.
 #[cfg(unix)]
-fn cancelar_sinal(sinal: i64) {
-    let mut anteriores = inscricoes_mutex();
-    for (s, fd) in &INSCRICOES {
-        if s.load(std::sync::atomic::Ordering::Acquire) == sinal as i32 {
-            let f = fd.swap(-1, std::sync::atomic::Ordering::AcqRel);
-            s.store(0, std::sync::atomic::Ordering::Release);
-            if f >= 0 {
-                // SAFETY: o lado de escrita da inscrição, fechado uma vez.
-                unsafe { close(f) };
+fn remover_inscricoes(anteriores: &mut std::collections::HashMap<i32, usize>, filtro: impl Fn(&InscricaoDeSinal) -> bool) {
+    use std::sync::atomic::Ordering::SeqCst;
+    for i in &INSCRICOES {
+        let sinal = i.sinal.load(SeqCst);
+        if sinal == 0 || !filtro(i) {
+            continue;
+        }
+        let f = i.escrita.swap(-1, SeqCst);
+        i.leitura.store(-1, SeqCst);
+        // Um tratador que já leu o descritor termina o `write` antes do
+        // `close`.
+        while i.em_uso.load(SeqCst) != 0 {
+            std::hint::spin_loop();
+        }
+        if f >= 0 {
+            // SAFETY: o lado de escrita da inscrição, fechado uma vez.
+            unsafe { close(f) };
+        }
+        i.sinal.store(0, SeqCst);
+        if !INSCRICOES.iter().any(|x| x.sinal.load(SeqCst) == sinal) {
+            if let Some(antigo) = anteriores.remove(&sinal) {
+                // SAFETY: restaura o tratador anterior.
+                unsafe { signal(sinal, antigo) };
             }
         }
     }
-    if let Some(antigo) = anteriores.remove(&(sinal as i32)) {
-        // SAFETY: restaura o tratador anterior.
-        unsafe { signal(sinal as i32, antigo) };
-    }
+}
+
+/// `Process::ClearSignalHandler`.
+#[cfg(unix)]
+fn cancelar_sinal(sinal: i64) {
+    let mut anteriores = inscricoes_mutex();
+    remover_inscricoes(&mut anteriores, |i| i64::from(i.sinal.load(std::sync::atomic::Ordering::SeqCst)) == sinal);
+}
+
+/// `Process::ClearSignalHandlerByFd`: o soquete do sinal (o lado de
+/// leitura `fd`) fechou.
+#[cfg(unix)]
+fn limpar_sinal_por_descritor(fd: i64) {
+    let mut anteriores = inscricoes_mutex();
+    remover_inscricoes(&mut anteriores, |i| i64::from(i.leitura.load(std::sync::atomic::Ordering::SeqCst)) == fd);
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Process_SetSignalHandler(sinal: i64) -> i64 {
-    #[cfg(unix)]
-    {
-        dart_ou_erro(inscrever_sinal(sinal), dart_int)
-    }
-    #[cfg(windows)]
-    {
-        let _ = sinal;
-        ErroDoSo::do_codigo(50).para_dart()
-    }
+    dart_ou_erro(inscrever_sinal(sinal), dart_int)
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Process_ClearSignalHandler(sinal: i64) {
-    #[cfg(unix)]
     cancelar_sinal(sinal);
-    #[cfg(windows)]
-    let _ = sinal;
 }
 
 // ---------------------------------------------------------------------------
