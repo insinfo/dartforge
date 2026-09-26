@@ -150,3 +150,351 @@ _WrappedAsyncBody _envolverCorpo(_WrappedAsyncBody corpo) {
 
   return Zone.current.registerBinaryCallback<void, int, dynamic>(protegido);
 }
+
+// ─── sync* ──────────────────────────────────────────────────────────────────
+//
+// O modelo é o da VM (`_internal/vm/lib/async_patch.dart`, `_SyncStarIterable`
+// e `_SyncStarIterator`), com a máquina de estados no lugar do
+// `_SuspendState`: chamar a função `sync*` não roda nada e devolve o
+// iterável; cada `iterator` começa o corpo do início, com um quadro novo
+// (`_novoCorpo`, o equivalente do `_stateAtStart._clone()` da VM).
+//
+// O corpo é `corpo(iterador, código, valor)` e devolve se há mais elementos:
+// `yield e` grava `_current` e devolve `true`; `yield* e` grava
+// `_yieldStarIterable` e devolve `true`; o fim do corpo devolve `false`. Uma
+// exceção sai do corpo como de qualquer função, e `moveNext` a trata como a
+// VM; `código == _ERRO` retoma lançando o `_ErroAssincrono` no ponto do
+// `yield*` (a exceção do iterador aninhado).
+
+/// O corpo de uma função `sync*` transformado em máquina de estados:
+/// `bool corpo(_SyncStarIterator iterador, int codigo, Object? valor)`. Fica
+/// `Function` (chamado dinamicamente) porque a closure que o lowering cria não
+/// carrega o tipo de função reificado, e um teste contra o tipo exato falharia.
+typedef _CorpoSyncStar = Function;
+
+/// Cria o iterável de uma chamada de função `sync*`.
+@pragma("vm:entry-point", "call")
+_SyncStarIterable<T> _makeSyncStarIterable<T>(Function novo) {
+  return _SyncStarIterable<T>(novo);
+}
+
+/// `yield e` num corpo `sync*`.
+@pragma("vm:entry-point", "call")
+bool _syncStarYield(_SyncStarIterator iterador, Object? valor) {
+  iterador._current = valor;
+  return true;
+}
+
+/// `yield* e` num corpo `sync*`.
+@pragma("vm:entry-point", "call")
+bool _syncStarYieldStar(_SyncStarIterator iterador, Iterable iteravel) {
+  iterador._yieldStarIterable = iteravel;
+  return true;
+}
+
+class _SyncStarIterable<T> extends Iterable<T> {
+  // `_CorpoSyncStar Function()`, sem o tipo exato (ver `_CorpoSyncStar`).
+  final Function _novoCorpo;
+
+  _SyncStarIterable(this._novoCorpo);
+
+  Iterator<T> get iterator {
+    return _SyncStarIterator<T>(_novoCorpo());
+  }
+}
+
+class _SyncStarIterator<T> implements Iterator<T> {
+  _CorpoSyncStar? _state;
+  Iterator<T>? _yieldStarIterator;
+
+  // Pilha dos corpos sync* suspensos num `yield*` de outro sync*.
+  List<_CorpoSyncStar>? _stack;
+
+  // O corpo grava `_current` ou `_yieldStarIterable` antes de suspender.
+  T? _current;
+  Iterable<T>? _yieldStarIterable;
+
+  @override
+  T get current => _current as T;
+
+  _SyncStarIterator(_CorpoSyncStar state) : _state = state;
+
+  bool _handleSyncStarMethodCompletion() {
+    _current = null;
+    _state = null;
+    final stack = _stack;
+    if (stack != null && stack.isNotEmpty) {
+      _state = stack.removeLast();
+      return true;
+    }
+    return false;
+  }
+
+  @override
+  bool moveNext() {
+    if (_state == null) {
+      return false;
+    }
+
+    Object? pendingException;
+    StackTrace? pendingStackTrace;
+    while (true) {
+      // Primeiro o iterador aninhado de um `yield*` (se houver).
+      final iterator = _yieldStarIterator;
+      if (iterator != null) {
+        try {
+          if (iterator.moveNext()) {
+            _current = iterator.current;
+            return true;
+          }
+        } catch (exception, stackTrace) {
+          pendingException = exception;
+          pendingStackTrace = stackTrace;
+        }
+        _yieldStarIterator = null;
+      }
+
+      try {
+        // Retoma o corpo corrente até o próximo elemento.
+        final corpo = _state!;
+        final bool hasMore = (pendingException == null
+            ? corpo(this, _SUCESSO, null)
+            : corpo(this, _ERRO,
+                _ErroAssincrono(pendingException, pendingStackTrace!))) as bool;
+        pendingException = null;
+        pendingStackTrace = null;
+        if (!hasMore) {
+          if (_handleSyncStarMethodCompletion()) {
+            continue;
+          }
+          return false;
+        }
+      } catch (exception, stackTrace) {
+        pendingException = exception;
+        pendingStackTrace = stackTrace;
+        if (_handleSyncStarMethodCompletion()) {
+          continue;
+        }
+        rethrow;
+      }
+
+      // `yield*` de um iterável.
+      final iterable = _yieldStarIterable;
+      if (iterable != null) {
+        _yieldStarIterable = null;
+        _current = null;
+        if (iterable is _SyncStarIterable) {
+          // `yield*` de outro sync*: o corpo dele passa a ser o corrente, e
+          // este fica na pilha até ele terminar.
+          final stack = (_stack ??= []);
+          stack.add(_state!);
+          _state = unsafeCast<_SyncStarIterable>(iterable)._novoCorpo();
+        } else {
+          try {
+            _yieldStarIterator = iterable.iterator;
+          } catch (exception, stackTrace) {
+            pendingException = exception;
+            pendingStackTrace = stackTrace;
+          }
+        }
+        continue;
+      }
+
+      return true;
+    }
+  }
+}
+
+// ─── async* ─────────────────────────────────────────────────────────────────
+//
+// O controlador é o da VM, sem mudança de comportamento (a ordem de eventos e
+// microtarefas é a dela). Onde a VM retoma o `_SuspendState`, aqui se chama o
+// corpo transformado: `asyncStarBody(cancelado)` vira
+// `corpo(_SUCESSO, cancelado)`. O lowering emite, como o compilador da VM:
+//
+// * no começo do corpo e depois de cada `yield`: se `cancelado`, `return`;
+// * `yield e`: `if (_asyncStarAdd(c, e)) return;` e suspende;
+// * `yield* s`: `if (_asyncStarAddStream(c, s)) return;` e suspende;
+// * `return`: `_asyncStarReturn(c)`; exceção não capturada:
+//   `_asyncStarErro(c, e, s)`.
+
+@pragma("vm:entry-point")
+class _AsyncStarStreamController<T> {
+  StreamController<T> controller;
+  void Function(Object?)? asyncStarBody;
+  bool isAdding = false;
+  bool onListenReceived = false;
+  bool isScheduled = false;
+  bool isSuspendedAtYield = false;
+  _Future? cancellationFuture = null;
+
+  Stream<T> get stream {
+    return controller.stream;
+  }
+
+  void runBody() {
+    isScheduled = false;
+    isSuspendedAtYield = false;
+    asyncStarBody!(!controller.hasListener);
+  }
+
+  void scheduleGenerator() {
+    if (isScheduled || controller.isPaused || isAdding) {
+      return;
+    }
+    isScheduled = true;
+    scheduleMicrotask(runBody);
+  }
+
+  // Acrescenta o evento ao stream. Devolve true se o gerador deve terminar.
+  bool add(T event) {
+    if (!onListenReceived) throw StateError("yield before stream is listened to");
+    if (isSuspendedAtYield) throw StateError("unexpected yield");
+    controller.add(event);
+    if (!controller.hasListener) {
+      return true;
+    }
+
+    scheduleGenerator();
+    isSuspendedAtYield = true;
+    return false;
+  }
+
+  // Acrescenta os elementos de `stream`; o gerador volta a ser agendado
+  // quando todos forem consumidos. Devolve true se o gerador deve terminar.
+  bool addStream(Stream<T> stream) {
+    if (!onListenReceived) throw StateError("yield before stream is listened to");
+    if (!controller.hasListener) {
+      return true;
+    }
+
+    isAdding = true;
+    final whenDoneAdding = controller.addStream(stream, cancelOnError: false);
+    final self = this;
+    whenDoneAdding.then((_) {
+      self.isAdding = false;
+      self.scheduleGenerator();
+      if (!self.isScheduled) self.isSuspendedAtYield = true;
+    });
+
+    return false;
+  }
+
+  void addError(Object error, StackTrace stackTrace) {
+    final future = cancellationFuture;
+    if ((future != null) && future._mayComplete) {
+      future._completeError(error, stackTrace);
+      return;
+    }
+    if (!controller.hasListener) return;
+    controller.addError(error, stackTrace);
+  }
+
+  close() {
+    final future = cancellationFuture;
+    if ((future != null) && future._mayComplete) {
+      future._completeWithValue(null);
+    }
+    controller.close();
+  }
+
+  _AsyncStarStreamController() : controller = new StreamController(sync: true) {
+    controller.onListen = this.onListen;
+    controller.onResume = this.onResume;
+    controller.onCancel = this.onCancel;
+  }
+
+  onListen() {
+    assert(!onListenReceived);
+    onListenReceived = true;
+    scheduleGenerator();
+  }
+
+  onResume() {
+    if (isSuspendedAtYield) {
+      scheduleGenerator();
+    }
+  }
+
+  onCancel() {
+    if (controller.isClosed) {
+      return null;
+    }
+    if (cancellationFuture == null) {
+      cancellationFuture = new _Future();
+      // Só retoma o gerador suspenso num `yield`; o cancelamento não afeta um
+      // gerador suspenso num `await`.
+      if (isSuspendedAtYield) {
+        scheduleGenerator();
+      }
+    }
+    return cancellationFuture;
+  }
+}
+
+/// Cria o controlador de uma chamada de função `async*`.
+@pragma("vm:entry-point", "call")
+_AsyncStarStreamController<T> _makeAsyncStarController<T>() {
+  return _AsyncStarStreamController<T>();
+}
+
+/// Liga o corpo ao controlador e devolve o stream (o gerador só roda quando
+/// alguém escuta).
+@pragma("vm:entry-point", "call")
+Stream _asyncStarStart(
+    _AsyncStarStreamController controlador, _WrappedAsyncBody corpo) {
+  controlador.asyncStarBody = (cancelado) {
+    corpo(_SUCESSO, cancelado);
+  };
+  return controlador.stream;
+}
+
+/// `yield e` num corpo `async*`: true se o gerador deve terminar.
+@pragma("vm:entry-point", "call")
+bool _asyncStarAdd(_AsyncStarStreamController controlador, Object? valor) {
+  return controlador.add(valor);
+}
+
+/// `yield* s` num corpo `async*`: true se o gerador deve terminar.
+@pragma("vm:entry-point", "call")
+bool _asyncStarAddStream(_AsyncStarStreamController controlador, Stream s) {
+  return controlador.addStream(s);
+}
+
+/// O fim de um corpo `async*`.
+@pragma("vm:entry-point", "call")
+void _asyncStarReturn(_AsyncStarStreamController controlador) {
+  controlador.close();
+}
+
+/// A exceção não capturada de um corpo `async*`.
+@pragma("vm:entry-point", "call")
+void _asyncStarErro(
+    _AsyncStarStreamController controlador, Object erro, StackTrace rastro) {
+  controlador.addError(erro, rastro);
+  controlador.close();
+}
+
+// ─── await for ──────────────────────────────────────────────────────────────
+//
+// `await for (x in s) corpo` é baixado como o kernel da VM o desaçucara:
+//
+//     final it = StreamIterator(s);
+//     try {
+//       while (await it.moveNext()) { x = it.current; corpo }
+//     } finally {
+//       if (it._subscription != null) await it.cancel();
+//     }
+
+/// O `StreamIterator` de um `await for`.
+@pragma("vm:entry-point", "call")
+StreamIterator<T> _awaitForIterador<T>(Stream<T> s) {
+  return StreamIterator<T>(s);
+}
+
+/// Se o iterador do `await for` ainda tem inscrição (então o `finally`
+/// cancela; sem inscrição não há o que cancelar, e não se espera nada).
+@pragma("vm:entry-point", "call")
+bool _awaitForAtivo(StreamIterator iterador) {
+  return iterador is _StreamIterator && iterador._subscription != null;
+}

@@ -60,12 +60,48 @@ const Q_AMBIENTE: usize = 4;
 const Q_TUPLA: usize = 5;
 const Q_PARAMS: usize = 6;
 
-/// O estado do lowering do corpo de uma função `async`.
+/// O tipo de corpo suspenso: `async`, `sync*` ou `async*`.
+///
+/// Os três usam a mesma máquina de estados (quadro no heap, `switch` pelo
+/// estado na entrada, as duas passadas sobre a HIR); mudam o stub, os pontos
+/// de suspensão e o que `return` e a exceção não capturada fazem:
+///
+/// | | stub devolve | suspensão | `return` | exceção no topo |
+/// | --- | --- | --- | --- | --- |
+/// | `async` | `completer.future` | `await` | `_asyncReturn` | `_asyncRethrow` |
+/// | `sync*` | `_SyncStarIterable` | `yield`, `yield*` (devolve `true`) | devolve `false` | sai do corpo |
+/// | `async*` | o stream do controlador | `await`, `yield`, `yield*` | `_asyncStarReturn` | `_asyncStarErro` |
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TipoCorpo {
+    Async,
+    SyncStar,
+    AsyncStar,
+}
+
+/// O tipo de corpo de um modificador que suspende (`async`, `sync*`,
+/// `async*`).
+///
+/// # Panics
+/// Com `AsyncModifier::None`, que não é corpo suspenso.
+pub fn tipo_do_corpo(m: ast::AsyncModifier) -> TipoCorpo {
+    match m {
+        ast::AsyncModifier::Async => TipoCorpo::Async,
+        ast::AsyncModifier::SyncStar => TipoCorpo::SyncStar,
+        ast::AsyncModifier::AsyncStar => TipoCorpo::AsyncStar,
+        ast::AsyncModifier::None => panic!("corpo síncrono não é suspenso"),
+    }
+}
+
+/// O estado do lowering do corpo de uma função `async`, `sync*` ou `async*`.
 #[derive(Debug, Clone)]
 pub struct EstadoAsync {
+    pub tipo: TipoCorpo,
+    /// `sync*`: o iterador que chama o corpo (um parâmetro; nulo nos outros).
+    pub iterador: Operand,
     pub quadro: Operand,
     /// A closure do corpo registrada na zona (a que `_asyncAwait` recebe).
     pub corpo: Operand,
+    /// O `Completer` (`async`) ou o controlador do stream (`async*`).
     pub completer: Operand,
     pub codigo: Operand,
     pub resultado: Operand,
@@ -98,6 +134,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let avaliados: Vec<super::membros::Avaliado> = args.into_iter().map(|a| (None, a)).collect();
         let args = self.casar_args(fid, &avaliados);
         self.chamar_direto(fid, None, args)
+    }
+
+    /// [`FnBuilder::chamar_apoio`] no caminho do `return`: o desvio de
+    /// exceção dele, sem tratador, é um retorno cru — senão voltaria a
+    /// `retorno_async`, que chamaria o apoio de novo.
+    fn chamar_apoio_cru(&mut self, nome: &str, args: Vec<Operand>) -> Operand {
+        let antes = self.async_estado.as_ref().is_some_and(|e| e.retorno_cru);
+        if let Some(e) = self.async_estado.as_mut() {
+            e.retorno_cru = true;
+        }
+        let r = self.chamar_apoio(nome, args, Span { start: 0, end: 0 });
+        if let Some(e) = self.async_estado.as_mut() {
+            e.retorno_cru = antes;
+        }
+        r
     }
 
     /// `dartforge_object_get` na representação `ty`.
@@ -160,9 +211,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         (ambiente, outros)
     }
 
-    /// O corpo de uma função `async`: este builder é o stub (parâmetros e
-    /// capturas já declarados); o corpo vira `<símbolo>$async` e a entrada
-    /// uniforme dele. Termina o stub.
+    /// O corpo de uma função `async`, `sync*` ou `async*`: este builder é o
+    /// stub (parâmetros e capturas já declarados); o corpo vira
+    /// `<símbolo>$async` e a entrada uniforme dele. Termina o stub.
+    #[allow(clippy::too_many_arguments)]
     pub fn lower_corpo_async(
         &mut self,
         ast: &ast::Ast,
@@ -170,6 +222,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         corpo: &FunctionBody,
         span: Span,
         retorno: Option<dartforge_types::table::TypeId>,
+        tipo: TipoCorpo,
     ) {
         let (capturas, parametros) = self.locais_do_stub();
         let simbolo_corpo = format!("{}$async", self.func.symbol);
@@ -178,6 +231,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // --- corpo ------------------------------------------------------
         let mut b = FnBuilder::new(self.ctx, self.unit_id, simbolo_corpo.clone(), legivel.clone(), Type::Ref);
         let env = Operand::Val(b.add_param("env".to_string(), Type::Ref));
+        let iterador = if tipo == TipoCorpo::SyncStar {
+            Operand::Val(b.add_param("iterador".to_string(), Type::Ref))
+        } else {
+            Operand::Constant(Constant::Null)
+        };
         let codigo = Operand::Val(b.add_param("codigo".to_string(), Type::Ref));
         let resultado = Operand::Val(b.add_param("resultado".to_string(), Type::Ref));
         let quadro = b.emit(Instruction::EnvGet { env, index: 0 }, Type::Ref);
@@ -205,6 +263,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             b.tupla_de_tipos = Some(t);
         }
         b.async_estado = Some(Box::new(EstadoAsync {
+            tipo,
+            iterador,
             quadro: quadro.clone(),
             corpo: fechamento,
             completer: completer.clone(),
@@ -234,9 +294,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         }
         // O tratador do topo: exceção que ninguém no corpo pegou completa o
-        // `Future` com erro.
+        // `Future` com erro (`async`) ou vai ao stream (`async*`). No
+        // `sync*` ela sai do corpo, e o `moveNext` a trata.
         let topo = b.new_block();
-        b.exception_targets.push(topo);
+        if tipo != TipoCorpo::SyncStar {
+            b.exception_targets.push(topo);
+        }
+        // `async*`: o corpo só começa quando alguém escuta, e começa
+        // cancelado se a inscrição já foi cancelada (`asyncStarBody(true)`).
+        if tipo == TipoCorpo::AsyncStar {
+            b.sair_se_cancelado();
+        }
         match corpo {
             FunctionBody::Block(s) => b.lower_stmt(ast, *s),
             FunctionBody::Expression(e) => {
@@ -248,7 +316,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if !b.is_terminated() {
             b.terminate(Terminator::Return(None));
         }
-        b.exception_targets.pop();
+        if tipo != TipoCorpo::SyncStar {
+            b.exception_targets.pop();
+        }
         // O tratador do topo não tem tratador: nada nele volta a
         // `_asyncReturn` (um retorno de exceção aqui é cru).
         if let Some(e) = b.async_estado.as_mut() {
@@ -279,7 +349,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Void,
         );
-        b.chamar_apoio("_asyncRethrow", vec![erro, rastro, completer], span);
+        match tipo {
+            TipoCorpo::Async => {
+                b.chamar_apoio("_asyncRethrow", vec![erro, rastro, completer], span);
+            }
+            TipoCorpo::AsyncStar => {
+                b.chamar_apoio("_asyncStarErro", vec![completer, erro, rastro], span);
+            }
+            // Sem tratador do topo: o bloco não é alcançado.
+            TipoCorpo::SyncStar => {}
+        }
         b.terminar_cru(Operand::Constant(Constant::Null));
 
         // O salto pelo estado, no fim do bloco de entrada.
@@ -302,8 +381,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let tamanho = base_locais + n_locais + n_temp;
         self.absorver(b);
 
-        // --- entrada uniforme do corpo: (código, resultado) --------------
-        let infos = vec![
+        // --- entrada uniforme do corpo: ([iterador,] código, resultado) --
+        let mut infos = Vec::new();
+        if tipo == TipoCorpo::SyncStar {
+            infos.push(super::closures::ParamEntrada {
+                nome: Some("iterador".to_string()),
+                kind: ast::ParameterKind::Required,
+                required: true,
+                padrao: super::closures::Padrao::Nenhum,
+            });
+        }
+        infos.extend([
             super::closures::ParamEntrada {
                 nome: Some("codigo".to_string()),
                 kind: ast::ParameterKind::Required,
@@ -316,7 +404,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 required: true,
                 padrao: super::closures::Padrao::Nenhum,
             },
-        ];
+        ]);
         let simbolo_ent = format!("{simbolo_corpo}$ent");
         let mut e = FnBuilder::new(self.ctx, self.unit_id, simbolo_ent.clone(), legivel, Type::Ref);
         let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
@@ -371,40 +459,326 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Ref,
         );
-        // O `T` do `Completer<T>`: o tipo do valor do `Future` declarado
-        // (especificação §9 "future value type": `Future<T>`/`FutureOr<T>` dão
-        // `T`; o resto, `dynamic`).
+        // O `T` do `Completer<T>`, do `Iterable<T>` ou do `Stream<T>`: para
+        // `async`, o tipo do valor do `Future` declarado (especificação §9
+        // "future value type": `Future<T>`/`FutureOr<T>` dão `T`); para os
+        // geradores, o tipo do elemento (§9 "element type"). O resto,
+        // `dynamic`.
+        let classe_esperada = match tipo {
+            TipoCorpo::Async => self.ctx.core.future_class,
+            TipoCorpo::SyncStar => self.ctx.core.iterable_class,
+            TipoCorpo::AsyncStar => self.ctx.core.stream_class,
+        };
         let valor = retorno.and_then(|t| match self.ctx.table.get(t) {
-            dartforge_types::table::Type::Interface { class, args, .. }
-                if Some(*class) == self.ctx.core.future_class =>
-            {
+            dartforge_types::table::Type::Interface { class, args, .. } if Some(*class) == classe_esperada => {
                 args.first().copied()
             }
-            dartforge_types::table::Type::FutureOr { arg, .. } => Some(*arg),
+            dartforge_types::table::Type::FutureOr { arg, .. } if tipo == TipoCorpo::Async => Some(*arg),
             _ => None,
         });
-        let salvo = self.tupla_armada.take();
-        if let Some(v) = valor {
-            let t = self.tupla_de_tipos_rti(&[v]);
-            self.tupla_armada = Some(t);
+        let armar_tupla = |b: &mut Self| {
+            let salvo = b.tupla_armada.take();
+            if let Some(v) = valor {
+                let t = b.tupla_de_tipos_rti(&[v]);
+                b.tupla_armada = Some(t);
+            }
+            salvo
+        };
+        match tipo {
+            TipoCorpo::Async => {
+                let salvo = armar_tupla(self);
+                let completer_s = self.chamar_apoio("_makeAsyncAwaitCompleter", Vec::new(), span);
+                self.tupla_armada = salvo;
+                let completer_s = self.coagir(completer_s, Type::Ref);
+                self.gravar_posicao(quadro_s.clone(), Q_COMPLETER, completer_s.clone());
+                let corpo_s = self.fechar_corpo(quadro_s.clone(), simbolo_ent, span);
+                let r = self.chamar_apoio("_asyncStartSync", vec![corpo_s, completer_s], span);
+                self.terminate(Terminator::Return(Some(r)));
+            }
+            TipoCorpo::AsyncStar => {
+                let salvo = armar_tupla(self);
+                let controlador = self.chamar_apoio("_makeAsyncStarController", Vec::new(), span);
+                self.tupla_armada = salvo;
+                let controlador = self.coagir(controlador, Type::Ref);
+                self.gravar_posicao(quadro_s.clone(), Q_COMPLETER, controlador.clone());
+                let corpo_s = self.fechar_corpo(quadro_s.clone(), simbolo_ent, span);
+                let r = self.chamar_apoio("_asyncStarStart", vec![controlador, corpo_s], span);
+                self.terminate(Terminator::Return(Some(r)));
+            }
+            TipoCorpo::SyncStar => {
+                // O quadro do stub é o modelo: cada `iterator` começa o corpo
+                // num quadro novo, com os parâmetros dele (`$novo`).
+                let simbolo_novo = format!("{simbolo_ent}$novo");
+                self.funcao_novo_quadro(&simbolo_novo, &simbolo_ent, &parametros, tamanho);
+                let env_s = self.emit(Instruction::AllocEnv { values: vec![quadro_s] }, Type::Ref);
+                let novo = self.emit(
+                    Instruction::AllocClosure {
+                        code_symbol: format!("{simbolo_novo}$ent"),
+                        env: env_s,
+                    },
+                    Type::Ref,
+                );
+                let salvo = armar_tupla(self);
+                let r = self.chamar_apoio("_makeSyncStarIterable", vec![novo], span);
+                self.tupla_armada = salvo;
+                self.terminate(Terminator::Return(Some(r)));
+            }
         }
-        let completer_s = self.chamar_apoio("_makeAsyncAwaitCompleter", Vec::new(), span);
-        self.tupla_armada = salvo;
-        let completer_s = self.coagir(completer_s, Type::Ref);
-        self.gravar_posicao(quadro_s.clone(), Q_COMPLETER, completer_s.clone());
-        let env_s = self.emit(Instruction::AllocEnv { values: vec![quadro_s.clone()] }, Type::Ref);
-        let clo_s = self.emit(
+    }
+
+    /// A closure do corpo sobre o quadro, registrada na zona
+    /// (`_envolverCorpo`) e guardada no quadro.
+    fn fechar_corpo(&mut self, quadro: Operand, simbolo_ent: String, span: Span) -> Operand {
+        let env = self.emit(Instruction::AllocEnv { values: vec![quadro.clone()] }, Type::Ref);
+        let clo = self.emit(
             Instruction::AllocClosure {
                 code_symbol: simbolo_ent,
-                env: env_s,
+                env,
             },
             Type::Ref,
         );
-        let corpo_s = self.chamar_apoio("_envolverCorpo", vec![clo_s], span);
-        let corpo_s = self.coagir(corpo_s, Type::Ref);
-        self.gravar_posicao(quadro_s, Q_CORPO, corpo_s.clone());
-        let r = self.chamar_apoio("_asyncStartSync", vec![corpo_s, completer_s], span);
-        self.terminate(Terminator::Return(Some(r)));
+        let corpo = self.chamar_apoio("_envolverCorpo", vec![clo], span);
+        let corpo = self.coagir(corpo, Type::Ref);
+        self.gravar_posicao(quadro, Q_CORPO, corpo.clone());
+        corpo
+    }
+
+    /// `sync*`: a closure sem argumentos `simbolo_novo` (a entrada uniforme
+    /// `<simbolo_novo>$ent`), que copia do quadro modelo (o ambiente dela)
+    /// `this`, as capturas, a tupla de tipos e os parâmetros para um quadro
+    /// novo e devolve a closure do corpo sobre ele — o `_stateAtStart._clone()`
+    /// da VM.
+    fn funcao_novo_quadro(
+        &mut self,
+        simbolo_novo: &str,
+        simbolo_corpo_ent: &str,
+        parametros: &[(SymbolId, Local)],
+        tamanho: usize,
+    ) {
+        let legivel = self.func.name.clone();
+        let mut e = FnBuilder::new(self.ctx, self.unit_id, format!("{simbolo_novo}$ent"), legivel, Type::Ref);
+        let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
+        let args = Operand::Val(e.add_param("args".to_string(), Type::Ptr));
+        let desc = Operand::Val(e.add_param("desc".to_string(), Type::Ptr));
+        let env = e.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_closure_env".to_string(),
+                args: vec![(clo, Type::Ref)],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        );
+        if e.desempacotar(&[], args, desc).is_some() {
+            let modelo = e.emit(Instruction::EnvGet { env, index: 0 }, Type::Ref);
+            let mut campos: Vec<Operand> = vec![Operand::Constant(Constant::Int(0)); tamanho];
+            campos[Q_COMPLETER] = Operand::Constant(Constant::Null);
+            campos[Q_CORPO] = Operand::Constant(Constant::Null);
+            campos[Q_THIS] = e.ler_posicao(modelo.clone(), Q_THIS, Type::Ref);
+            campos[Q_AMBIENTE] = e.ler_posicao(modelo.clone(), Q_AMBIENTE, Type::Ref);
+            if self.tupla_de_tipos.is_some() {
+                campos[Q_TUPLA] = e.ler_posicao(modelo.clone(), Q_TUPLA, Type::I64);
+            }
+            for (k, (_, l)) in parametros.iter().enumerate() {
+                campos[Q_PARAMS + k] = e.ler_posicao(modelo.clone(), Q_PARAMS + k, l.ty);
+            }
+            let quadro = e.emit(
+                Instruction::AllocObject {
+                    class_id: ID_QUADRO_ASYNC,
+                    fields: campos,
+                },
+                Type::Ref,
+            );
+            let env_q = e.emit(Instruction::AllocEnv { values: vec![quadro] }, Type::Ref);
+            let corpo = e.emit(
+                Instruction::AllocClosure {
+                    code_symbol: simbolo_corpo_ent.to_string(),
+                    env: env_q,
+                },
+                Type::Ref,
+            );
+            e.terminate(Terminator::Return(Some(corpo)));
+        }
+        self.absorver(e);
+    }
+
+    /// `async*`: termina o corpo (pelos `finally`) se o valor da retomada diz
+    /// que a inscrição foi cancelada.
+    fn sair_se_cancelado(&mut self) {
+        let resultado = self.async_estado.as_ref().expect("corpo async*").resultado.clone();
+        let cancelado = self.coagir(resultado, Type::I1);
+        let sair = self.new_block();
+        let seguir = self.new_block();
+        self.terminate(Terminator::CondBranch {
+            cond: cancelado,
+            then_block: sair,
+            else_block: seguir,
+        });
+        self.set_block(sair);
+        self.route_return(None);
+        self.set_block(seguir);
+    }
+
+    /// `yield e` e `yield* e` (especificação §18.16, §18.17) num corpo
+    /// `sync*` ou `async*`.
+    pub fn lower_yield(&mut self, ast: &ast::Ast, star: bool, e: ast::ExprId, span: Span) {
+        let tipo = self.async_estado.as_ref().map(|e| e.tipo);
+        if !matches!(tipo, Some(TipoCorpo::SyncStar | TipoCorpo::AsyncStar)) {
+            self.nao_suportado("yield fora de gerador", span);
+            return;
+        }
+        let v = self.lower_expr(ast, e);
+        let v = if matches!(self.operand_type(&v), Type::Void) {
+            Operand::Constant(Constant::Null)
+        } else {
+            self.coagir(v, Type::Ref)
+        };
+        if self.is_terminated() {
+            return;
+        }
+        let est = self.async_estado.as_ref().expect("corpo gerador");
+        let (quadro, iterador, controlador) = (est.quadro.clone(), est.iterador.clone(), est.completer.clone());
+        let k = est.retomadas.len() as i64 + 1;
+        if tipo == Some(TipoCorpo::SyncStar) {
+            let apoio = if star { "_syncStarYieldStar" } else { "_syncStarYield" };
+            self.chamar_apoio(apoio, vec![iterador, v], span);
+            if self.is_terminated() {
+                return;
+            }
+            self.gravar_posicao(quadro, Q_ESTADO, Operand::Constant(Constant::Int(k)));
+            let suspende = self.current_block;
+            self.terminar_cru(Operand::Constant(Constant::Bool(true)));
+            let retomada = self.registrar_retomada(k, suspende);
+            // A exceção do iterador de um `yield*` volta lançada aqui.
+            let est = self.async_estado.as_ref().expect("corpo sync*");
+            let (codigo, resultado) = (est.codigo.clone(), est.resultado.clone());
+            self.set_block(retomada);
+            self.lancar_se_erro(codigo, resultado, span);
+        } else {
+            let apoio = if star { "_asyncStarAddStream" } else { "_asyncStarAdd" };
+            let parar = self.chamar_apoio(apoio, vec![controlador, v], span);
+            if self.is_terminated() {
+                return;
+            }
+            let parar = self.coagir(parar, Type::I1);
+            let sair = self.new_block();
+            let suspender = self.new_block();
+            self.terminate(Terminator::CondBranch {
+                cond: parar,
+                then_block: sair,
+                else_block: suspender,
+            });
+            self.set_block(sair);
+            self.route_return(None);
+            self.set_block(suspender);
+            self.gravar_posicao(quadro, Q_ESTADO, Operand::Constant(Constant::Int(k)));
+            let suspende = self.current_block;
+            self.terminar_cru(Operand::Constant(Constant::Null));
+            let retomada = self.registrar_retomada(k, suspende);
+            self.set_block(retomada);
+            self.sair_se_cancelado();
+        }
+    }
+
+    /// `await for (alvo in s) corpo` (especificação §18.6.3), baixado como o
+    /// kernel da VM o desaçucara (`sdk_nativo/async/async_patch.dart`):
+    /// `StreamIterator`, `while (await it.moveNext())`, e o `finally` que
+    /// cancela a inscrição se ela ainda existe — por `break`, `return` ou
+    /// exceção no corpo.
+    pub fn lower_await_for(
+        &mut self,
+        ast: &ast::Ast,
+        target: &ast::ForInTarget,
+        iterable: ast::ExprId,
+        body: ast::StmtId,
+        span: Span,
+    ) {
+        if !self.async_estado.as_ref().is_some_and(|e| e.tipo != TipoCorpo::SyncStar) {
+            self.nao_suportado("await for fora de função async", span);
+            return;
+        }
+        let s = self.lower_expr(ast, iterable);
+        let s = self.coagir(s, Type::Ref);
+        let it = self.chamar_apoio("_awaitForIterador", vec![s], span);
+        let it = self.coagir(it, Type::Ref);
+        if self.is_terminated() {
+            return;
+        }
+        let rotulos = std::mem::take(&mut self.pending_labels);
+        let it_c = it.clone();
+        let mut laco = |b: &mut Self| {
+            let cabeca = b.new_block();
+            let corpo = b.new_block();
+            let fim = b.new_block();
+            for &r in &rotulos {
+                b.labeled_break_targets.insert(r, fim);
+                b.labeled_continue_targets.insert(r, cabeca);
+            }
+            b.terminate(Terminator::Branch(cabeca));
+            b.set_block(cabeca);
+            let proximo = b.chamar_por_seletor(it_c.clone(), "c:moveNext".to_string(), &[]);
+            let ok = b.await_valor(proximo, span);
+            let ok = b.coagir(ok, Type::I1);
+            b.terminate(Terminator::CondBranch { cond: ok, then_block: corpo, else_block: fim });
+            b.set_block(corpo);
+            b.break_targets.push(fim);
+            b.continue_targets.push(cabeca);
+            b.abrir_escopo();
+            let x = b.chamar_por_seletor(it_c.clone(), "g:current".to_string(), &[]);
+            b.ligar_alvo_de_for_in(ast, target, x, iterable, span);
+            b.lower_stmt(ast, body);
+            b.fechar_escopo();
+            b.terminate(Terminator::Branch(cabeca));
+            b.break_targets.pop();
+            b.continue_targets.pop();
+            for &r in &rotulos {
+                b.labeled_break_targets.remove(&r);
+                b.labeled_continue_targets.remove(&r);
+            }
+            b.set_block(fim);
+        };
+        let mut cancelar = |b: &mut Self| {
+            let ativo = b.chamar_apoio("_awaitForAtivo", vec![it.clone()], span);
+            let ativo = b.coagir(ativo, Type::I1);
+            let sim = b.new_block();
+            let depois = b.new_block();
+            b.terminate(Terminator::CondBranch { cond: ativo, then_block: sim, else_block: depois });
+            b.set_block(sim);
+            let f = b.chamar_por_seletor(it.clone(), "c:cancel".to_string(), &[]);
+            b.await_valor(f, span);
+            b.terminate(Terminator::Branch(depois));
+            b.set_block(depois);
+        };
+        self.lower_try_com(ast, &mut laco, &[], Some(&mut cancelar));
+    }
+
+    /// Cria o bloco de retomada do estado `k`, suspenso em `suspende`.
+    fn registrar_retomada(&mut self, k: i64, suspende: BlockId) -> BlockId {
+        let retomada = self.new_block();
+        let est = self.async_estado.as_mut().expect("corpo suspenso");
+        est.retomadas.push((k, retomada));
+        est.suspensoes.push((suspende, retomada));
+        retomada
+    }
+
+    /// Na retomada: com `código == _ERRO`, lança o `_ErroAssincrono` do
+    /// `resultado` ali; senão segue.
+    fn lancar_se_erro(&mut self, codigo: Operand, resultado: Operand, span: Span) {
+        // `código` chega como `int` numa posição `Ref` (Smi).
+        let c = self.coagir(codigo, Type::I64);
+        let e_erro = self.emit(
+            Instruction::ICmp(ICmpOp::Eq, c, Operand::Constant(Constant::Int(1))),
+            Type::I1,
+        );
+        let b_erro = self.new_block();
+        let b_ok = self.new_block();
+        self.terminate(Terminator::CondBranch {
+            cond: e_erro,
+            then_block: b_erro,
+            else_block: b_ok,
+        });
+        self.set_block(b_erro);
+        self.lancar_erro_assincrono(resultado, span);
+        self.set_block(b_ok);
     }
 
     /// `Return` que não passa por `_asyncReturn`.
@@ -425,20 +799,41 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn retorno_async(&mut self, v: Option<Operand>) {
         let est = self.async_estado.as_ref().expect("corpo async");
         let completer = est.completer.clone();
+        match est.tipo {
+            TipoCorpo::Async => {}
+            TipoCorpo::SyncStar => {
+                self.terminar_cru(Operand::Constant(Constant::Bool(false)));
+                return;
+            }
+            TipoCorpo::AsyncStar => {
+                self.chamar_apoio_cru("_asyncStarReturn", vec![completer]);
+                self.terminar_cru(Operand::Constant(Constant::Null));
+                return;
+            }
+        }
         let v = match v {
             Some(v) if !matches!(self.operand_type(&v), Type::Void) => self.coagir(v, Type::Ref),
             _ => Operand::Constant(Constant::Null),
         };
-        self.chamar_apoio("_asyncReturn", vec![v, completer], Span { start: 0, end: 0 });
+        self.chamar_apoio_cru("_asyncReturn", vec![v, completer]);
         self.terminar_cru(Operand::Constant(Constant::Null));
     }
 
     /// `await e` (especificação §17.34): suspende até o `Future` completar.
     pub fn lower_await(&mut self, ast: &ast::Ast, e: ast::ExprId, span: Span) -> Operand {
-        if self.async_estado.is_none() {
+        if !self.async_estado.as_ref().is_some_and(|e| e.tipo != TipoCorpo::SyncStar) {
             return self.nao_suportado("await fora de função async", span);
         }
         let v = self.lower_expr(ast, e);
+        self.await_valor(v, span)
+    }
+
+    /// `await` de um valor já avaliado (o de `lower_await`, e os do
+    /// `await for`).
+    pub fn await_valor(&mut self, v: Operand, span: Span) -> Operand {
+        if !self.async_estado.as_ref().is_some_and(|e| e.tipo != TipoCorpo::SyncStar) {
+            return self.nao_suportado("await fora de função async", span);
+        }
         let v = if matches!(self.operand_type(&v), Type::Void) {
             Operand::Constant(Constant::Null)
         } else {
@@ -454,28 +849,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.chamar_apoio("_asyncAwait", vec![v, corpo], span);
         let suspende = self.current_block;
         self.terminar_cru(Operand::Constant(Constant::Null));
-        let retomada = self.new_block();
-        let est = self.async_estado.as_mut().expect("corpo async");
-        est.retomadas.push((k, retomada));
-        est.suspensoes.push((suspende, retomada));
+        let retomada = self.registrar_retomada(k, suspende);
+        let est = self.async_estado.as_ref().expect("corpo async");
         let (codigo, resultado) = (est.codigo.clone(), est.resultado.clone());
         self.set_block(retomada);
-        // `código` chega como `int` numa posição `Ref` (Smi).
-        let c = self.coagir(codigo, Type::I64);
-        let e_erro = self.emit(
-            Instruction::ICmp(ICmpOp::Eq, c, Operand::Constant(Constant::Int(1))),
-            Type::I1,
-        );
-        let b_erro = self.new_block();
-        let b_ok = self.new_block();
-        self.terminate(Terminator::CondBranch {
-            cond: e_erro,
-            then_block: b_erro,
-            else_block: b_ok,
-        });
-        self.set_block(b_erro);
-        self.lancar_erro_assincrono(resultado.clone(), span);
-        self.set_block(b_ok);
+        self.lancar_se_erro(codigo, resultado.clone(), span);
         resultado
     }
 
