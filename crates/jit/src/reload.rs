@@ -845,7 +845,11 @@ impl JitSession {
                 .expect("a verificação de contrato garante a entrada existente");
             trocas.push((ffi::Celula::de(&entry.slot), *address as usize));
         }
+        // Com um programa em execução, a tarefa roda no ponto seguro do
+        // isolado principal e para antes os demais isolados no ponto seguro
+        // deles: nenhum quadro Dart de nenhum isolado vê a troca pela metade.
         let tarefa: ffi::Tarefa = Box::new(move || {
+            let parada = registros.map(|(runtime, ..)| (runtime, runtime.parar_isolados()));
             for copia in copias {
                 copia.aplicar();
             }
@@ -854,6 +858,9 @@ impl JitSession {
             }
             if let Some((runtime, area, registrar, rti)) = registros {
                 runtime.publicar_registros(area, registrar, rti);
+                if let Some((_, p)) = parada {
+                    runtime.liberar_isolados(p, area, registrar, rti);
+                }
             }
         });
         let espera = Instant::now();

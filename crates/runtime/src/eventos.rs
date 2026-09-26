@@ -117,6 +117,8 @@ pub extern "C" fn dartforge_nativo_DartForge_Timer_cancelar(id: i64) {
 /// código gerado que chama uma closure sem argumentos.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_laco_de_eventos(chamar: extern "C" fn(i64) -> i64) {
+    // No laço, o isolado atende pedidos no ponto seguro (`portas.rs`).
+    registrar_isolado_vivo();
     loop {
         if dartforge_exception_pending() != 0 {
             return;

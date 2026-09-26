@@ -477,6 +477,10 @@ pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk
         frio,
     };
     if dir.join("pronto").is_file() {
+        // A marca registra o último uso (a poda do cache a respeita).
+        if let Ok(f) = std::fs::File::options().write(true).open(dir.join("pronto")) {
+            let _ = f.set_modified(std::time::SystemTime::now());
+        }
         return Ok(pronto(&dir, None));
     }
     let runtime_dll = crate::cache::RuntimeCache::para_dll()?;
@@ -624,7 +628,31 @@ pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk
             return Err(format!("não foi possível instalar o SDK compilado em {}", dir.display()));
         }
     }
+    podar_sdks_antigos(&raiz, &dir);
     Ok(pronto(&dir, Some(t0.elapsed())))
+}
+
+/// Remove do cache os SDKs compilados de versões anteriores do dartforge
+/// (cada um passa de 1 GB): ficam os quatro mais recentes (os perfis de
+/// desenvolvimento e de produção desta versão e da anterior), e nenhum
+/// usado na última hora (a marca `pronto` guarda o último uso) — outro
+/// processo pode estar ligando contra ele. Uma
+/// remoção que falha (a biblioteca aberta no Windows) fica para a próxima.
+fn podar_sdks_antigos(raiz: &Path, atual: &Path) {
+    let Ok(entradas) = std::fs::read_dir(raiz) else { return };
+    let mut dirs: Vec<(std::time::SystemTime, PathBuf)> = entradas
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir() && p != atual && p.join("pronto").is_file())
+        .filter_map(|p| Some((std::fs::metadata(p.join("pronto")).ok()?.modified().ok()?, p)))
+        .collect();
+    dirs.sort_by(|a, b| b.0.cmp(&a.0));
+    let hora = std::time::Duration::from_secs(3600);
+    for (quando, dir) in dirs.into_iter().skip(3) {
+        if quando.elapsed().is_ok_and(|d| d > hora) {
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
 }
 
 /// O resultado do lowering de um membro do SDK da fonte.
