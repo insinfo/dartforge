@@ -474,8 +474,10 @@ pub extern "C" fn dartforge_no_such_method_error_new(nome: i64) -> i64 {
         let t = HEAP.with(|h| h.borrow().try_get(nome).map(|_| h.borrow().texto(nome).para_string()));
         eprintln!("[depurar] NoSuchMethodError: {t:?}");
     }
-    let chamada = HEAP.with(|h| matches!(h.borrow().try_get(nome), Some(Value::String(t)) if t.para_string() == "call"));
-    if chamada && let Some(f) = ajudante("_dartforgeErroDeChamada") {
+    // No SDK da fonte o erro é sempre o `NoSuchMethodError` do SDK (a
+    // classe sintética 1012 não é subtipo de nada no RTI da biblioteca
+    // compilada: nem um `catch (e)` a pegaria).
+    if let Some(f) = ajudante("_dartforgeErroDeChamada") {
         // O SDK da fonte fornece a instância concreta de NoSuchMethodError.
         // O nome é enraizado enquanto os construtores Dart alocam.
         let g: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(f) };
