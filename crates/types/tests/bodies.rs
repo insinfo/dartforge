@@ -1703,3 +1703,37 @@ fn constante_em_case_e_promocao_no_lado_direito_de_se_nulo() {
     let diags = diagnosticos_de(fonte);
     assert!(diags.is_empty(), "{diags:?}");
 }
+
+#[test]
+fn argumentos_de_tipo_fora_dos_limites() {
+    // `C<Object>` e o alias `F<Object>` violam `X extends num`; `C<dynamic>`
+    // é super-bounded (o invertido `C<Never>` cabe); `C<int>` cabe; o
+    // `extends` não aceita super-bounded. O limite do parâmetro do typedef
+    // precisa estar resolvido no outline.
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = "library test; import 'dart:core';
+        class C<X extends num> {}
+        typedef F<X extends num> = X Function();
+        class D extends C<dynamic> {}
+        void f() { C<Object> a; F<Object> b; C<int> c; C<dynamic> d; }";
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let unit = prog.library(prog.entry.unwrap()).units[0];
+    let diags = dartforge_types::limites::argumentos_fora_dos_limites(&prog, &interner, &mut table, &core, &outline, unit);
+    let v: Vec<(&str, &str)> = diags.iter().map(|d| (&fonte[d.span.start..d.span.end], d.message.as_str())).collect();
+    assert_eq!(
+        v,
+        vec![
+            ("dynamic", "'dynamic' doesn't conform to the bound 'num' of the type parameter 'X'."),
+            ("Object", "'Object' doesn't conform to the bound 'num' of the type parameter 'X'."),
+            ("Object", "'Object' doesn't conform to the bound 'num' of the type parameter 'X'."),
+        ],
+        "{diags:?}"
+    );
+}

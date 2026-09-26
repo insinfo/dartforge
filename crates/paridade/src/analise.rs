@@ -362,6 +362,12 @@ impl Motor {
                 atribuidos.push((u, d.clone()));
             }
         }
+        // Argumentos de tipo fora dos limites, unidade a unidade.
+        for &u in &unidades_proprias {
+            for d in dartforge_types::limites::argumentos_fora_dos_limites(&program, &interner, &mut table, &core, &outline, u) {
+                atribuidos.push((u, d));
+            }
+        }
         let mut vistos: BTreeSet<(UnitId, usize, usize, String)> = BTreeSet::new();
         for (unidade, d) in &atribuidos {
             let unidade = *unidade;

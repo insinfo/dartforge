@@ -236,6 +236,22 @@ impl<'a> OutlineResolver<'a> {
                 }
             }
         }
+
+        // E os dos typedefs (`typedef F<X extends num> = X Function();`):
+        // sem eles, o limite era `Object?` e `F<Object>` passava.
+        for (i, typedef) in self.program.typedefs.iter().enumerate() {
+            let params = self.typedef_type_params[i].clone();
+            let mut scope = HashMap::with_capacity(params.len());
+            for (p_elem, &pid) in typedef.type_params.iter().zip(params.iter()) {
+                scope.insert(p_elem.name, pid);
+            }
+            for (p_elem, &pid) in typedef.type_params.iter().zip(params.iter()) {
+                if let Some((unit_id, ast_ty_id)) = p_elem.bound {
+                    let bound_ty = self.resolve_annotation(unit_id, ast_ty_id, typedef.library, &scope);
+                    self.table.set_type_param_bound(pid, bound_ty);
+                }
+            }
+        }
     }
 
     fn resolve_typedefs(&mut self) {
