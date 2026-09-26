@@ -110,9 +110,33 @@ pub fn load_lenient_gerados(
     package_config_path: Option<&Path>,
     interner: &mut Interner,
     cache: Option<crate::sdk_cache::SdkCache>,
+    unidades: Option<&mut crate::unidades::CacheUnidades>,
+    gerados: Option<std::sync::Arc<crate::gerado::Geracao>>,
+) -> (Program, Vec<Diagnostic>) {
+    load_lenient_entradas(&[entry], sdk, package_config_path, interner, cache, unidades, gerados)
+}
+
+/// Como [`load_lenient_gerados`], com várias bibliotecas de entrada no mesmo
+/// programa: a primeira é [`Program::entry`] e as outras só entram na fila,
+/// com o que importam. É a carga de um projeto inteiro (o renomear do LSP
+/// precisa ver as bibliotecas que importam a declaração, não só as que ela
+/// importa). As entradas devem ser bibliotecas, não partes (`part of`): uma
+/// parte carregada como biblioteca apareceria duas vezes.
+///
+/// # Panics
+///
+/// Quando `entries` é vazio.
+#[allow(clippy::too_many_arguments)]
+pub fn load_lenient_entradas(
+    entries: &[&Path],
+    sdk: &SdkLayout,
+    package_config_path: Option<&Path>,
+    interner: &mut Interner,
+    cache: Option<crate::sdk_cache::SdkCache>,
     mut unidades: Option<&mut crate::unidades::CacheUnidades>,
     gerados: Option<std::sync::Arc<crate::gerado::Geracao>>,
 ) -> (Program, Vec<Diagnostic>) {
+    let entry = *entries.first().expect("ao menos uma entrada");
     if let Some(u) = unidades.as_deref_mut() {
         u.iniciar_carga();
     }
@@ -158,42 +182,46 @@ pub fn load_lenient_gerados(
         queue.push_back(core_id);
     }
 
-    // 3. Registra e enfileira o ponto de entrada. É o único `canonicalize`
+    // 3. Registra e enfileira os pontos de entrada. É o único `canonicalize`
     // da carga (corrige maiúsculas e links do caminho dado pelo usuário);
     // tudo o que deriva dele — partes e imports relativos — é resolvido
     // lexicalmente, como a `Uri.resolve` do Dart faz.
-    let canonical_entry = crate::config::sem_verbatim(
-        std::fs::canonicalize(entry).unwrap_or_else(|_| entry.to_path_buf()),
-    );
-    let entry_uri = canonical_file_uri(&canonical_entry, &package_config);
     let mut prefetch = Prefetch { gerados: package_config.gerados.clone(), ..Default::default() };
     let mut considerados = 0usize;
     // Unidades do SDK já decodificadas do cache pela onda, à espera da vez da
     // biblioteca na fila.
     let mut sdk_decodificadas: HashMap<String, Vec<crate::sdk_cache::UnitCache>> = HashMap::new();
-    let entry_lib_id = if let Some(&existing) = uri_to_library.get(&entry_uri) {
-        existing
-    } else {
-        let lib_id = LibraryId(program.libraries.len() as u32);
-        let is_sdk = entry_uri.starts_with("dart:");
-        program.libraries.push(Library {
-            uri: entry_uri.clone(),
-            name: None,
-            units: Vec::new(),
-            imports: Vec::new(),
-            exports: Vec::new(),
-            declared: HashMap::new(),
-            exported: HashMap::new(),
-            scope: HashMap::new(),
-            prefixes: HashMap::new(),
-            is_sdk,
-            features: if is_sdk { LibraryFeatures::piso() } else { LibraryFeatures::atual() },
-        });
-        uri_to_library.insert(entry_uri.clone(), lib_id);
-        queue.push_back(lib_id);
-        lib_id
-    };
-    program.entry = Some(entry_lib_id);
+    for (i, entrada) in entries.iter().enumerate() {
+        let canonical_entry = crate::config::sem_verbatim(
+            std::fs::canonicalize(entrada).unwrap_or_else(|_| entrada.to_path_buf()),
+        );
+        let entry_uri = canonical_file_uri(&canonical_entry, &package_config);
+        let entry_lib_id = if let Some(&existing) = uri_to_library.get(&entry_uri) {
+            existing
+        } else {
+            let lib_id = LibraryId(program.libraries.len() as u32);
+            let is_sdk = entry_uri.starts_with("dart:");
+            program.libraries.push(Library {
+                uri: entry_uri.clone(),
+                name: None,
+                units: Vec::new(),
+                imports: Vec::new(),
+                exports: Vec::new(),
+                declared: HashMap::new(),
+                exported: HashMap::new(),
+                scope: HashMap::new(),
+                prefixes: HashMap::new(),
+                is_sdk,
+                features: if is_sdk { LibraryFeatures::piso() } else { LibraryFeatures::atual() },
+            });
+            uri_to_library.insert(entry_uri.clone(), lib_id);
+            queue.push_back(lib_id);
+            lib_id
+        };
+        if i == 0 {
+            program.entry = Some(entry_lib_id);
+        }
+    }
 
     // 4. Processa a fila de bibliotecas transitivas
     while let Some(lib_id) = queue.pop_front() {
