@@ -525,10 +525,14 @@ pub fn dartforge_nativo(amb: &Ambiente, programa: &Programa, dir: &Path) -> Said
     }
     if let Err(e) = comp_res {
         let primeira = e.lines().next().unwrap_or("").to_string();
+        // Um erro do programa (carga, diagnóstico) é o erro de compilação da
+        // VM: código 254 (`dart run`). O construto não suportado é falha
+        // nossa e fica com 1.
+        let do_programa = !e.contains("não suportado no backend nativo") && !e.contains("bug do compilador");
         return Saida {
             stdout: String::new(),
             stderr: format!("[compile-native] {primeira}\n{e}"),
-            codigo: 1,
+            codigo: if do_programa { 254 } else { 1 },
         };
     }
 

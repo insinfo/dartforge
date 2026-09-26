@@ -117,7 +117,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// `(params) => e`, `(params) { … }` ou o valor de uma função local.
-    pub fn lower_closure(&mut self, ast: &ast::Ast, fid: FunctionId, span: Span) -> Operand {
+    /// `tipo`: o tipo estático da expressão da closure (o de contexto), de
+    /// onde sai o tipo do valor de um corpo `async`/gerador.
+    pub fn lower_closure(&mut self, ast: &ast::Ast, fid: FunctionId, span: Span, tipo: Option<TypeId>) -> Operand {
         let f = ast.function(fid);
         // Variáveis livres que são locais visíveis aqui.
         let (livres, _) = captura::livres(self.ctx, self.unit_id, ast, fid);
@@ -194,8 +196,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         if f.modifier != AsyncModifier::None {
             // P6: closure `async`, `sync*` ou `async*` — o corpo vira máquina
-            // de estados. O tipo do elemento/valor fica `dynamic`.
-            b.lower_corpo_async(ast, params, &f.body, span, None, super::async_sm::tipo_do_corpo(f.modifier));
+            // de estados. O tipo do valor/elemento sai da anotação de retorno
+            // ou do tipo estático da closure; sem nenhum, `dynamic`.
+            use super::async_sm::RetornoAsync;
+            let retorno = f.return_type.map(RetornoAsync::Anotacao).or_else(|| {
+                tipo.and_then(|t| match self.ctx.table.get(t) {
+                    dartforge_types::table::Type::Function { ret, .. } => Some(RetornoAsync::Tipo(*ret)),
+                    _ => None,
+                })
+            });
+            b.lower_corpo_async(ast, params, &f.body, span, retorno, super::async_sm::tipo_do_corpo(f.modifier));
         } else {
             match &f.body {
                 FunctionBody::Block(s) => b.lower_stmt(ast, *s),
@@ -286,7 +296,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Type::Ref,
             Operand::Constant(Constant::Null),
         );
-        let clo = self.lower_closure(ast, fid, span);
+        let clo = self.lower_closure(ast, fid, span, None);
         self.definir_rti_de_closure(clo.clone(), ast, fid, None);
         self.gravar_local(nome.sym, clo);
     }

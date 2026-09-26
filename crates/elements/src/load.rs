@@ -1027,7 +1027,9 @@ fn resolve_directive_target(
         if sdk.library(sdk_name).is_some() {
             Ok((format!("dart:{sdk_name}"), None))
         } else {
-            Err(format!("biblioteca SDK 'dart:{sdk_name}' não encontrada"))
+            // Como o CFE: a biblioteca de outra plataforma (`dart:js_interop`
+            // no nativo, `dart:io` sem o layout da VM) é erro de compilação.
+            Err(format!("a biblioteca Dart 'dart:{sdk_name}' não está disponível nesta plataforma"))
         }
     } else if uri_str.starts_with("package:") {
         // Só valida o pacote; o caminho é calculado uma vez, quando a

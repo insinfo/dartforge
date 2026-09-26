@@ -936,7 +936,11 @@ pub extern "C" fn dartforge_rti_e(v: i64, t: i64) -> u8 {
     RTI.with(|u| {
         let mut u = u.borrow_mut();
         let s = tipo_do_ref(&mut u, v);
-        u8::from(u.sub(s, t))
+        let r = u.sub(s, t);
+        if depurar() {
+            eprintln!("[depurar] {} is {} = {r}", u.texto(s), u.texto(t));
+        }
+        u8::from(r)
     })
 }
 

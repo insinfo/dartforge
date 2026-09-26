@@ -474,7 +474,7 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                             ast_func.parameters.as_deref().unwrap_or(&[]),
                             &ast_func.body,
                             ast_func.span,
-                            ctx.outline.functions.get(f_idx).map(|d| d.return_type),
+                            ctx.outline.functions.get(f_idx).map(|d| async_sm::RetornoAsync::Tipo(d.return_type)),
                             async_sm::tipo_do_corpo(modificador),
                         );
                     }

@@ -56,15 +56,7 @@ pub extern "C" fn dartforge_print_handle(handle: i64) {
 
 /// `double` como a VM imprime (`1.0`, `0.5`, `NaN`, `Infinity`).
 fn formatar_double(d: f64) -> String {
-    if d.is_nan() {
-        "NaN".to_string()
-    } else if d.is_infinite() {
-        if d > 0.0 { "Infinity".to_string() } else { "-Infinity".to_string() }
-    } else if d.fract() == 0.0 {
-        format!("{d:.1}")
-    } else {
-        d.to_string()
-    }
+    texto_de_double_da_vm(d)
 }
 
 /// Imprime conteúdo da string gerenciada ou null para handle zero.
@@ -534,11 +526,7 @@ pub extern "C" fn dartforge_print_set(handle: i64) {
 
 /// `double.toString` na forma que o runtime usa hoje (`1.0`, `0.5`).
 fn texto_de_double(d: f64) -> String {
-    if d.fract() == 0.0 && !d.is_infinite() && !d.is_nan() {
-        format!("{d:.1}")
-    } else {
-        d.to_string()
-    }
+    texto_de_double_da_vm(d)
 }
 
 /// Converte um valor (bits, tag) para uma string gerenciada no heap.
