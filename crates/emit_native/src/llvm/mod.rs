@@ -44,6 +44,13 @@ pub struct LlvmEmitter<'a> {
     /// (`DARTFORGE_DEPURAR=1`). Só para depurar o SDK da fonte.
     rastro: Option<usize>,
     nomes_do_rastro: Vec<String>,
+    // --- Área de globais por isolado ---
+    /// O slot (`i64`) de cada global do módulo na área (`@dfg_…` e a
+    /// bandeira `$ok`): os estáticos do Dart são por isolado, e cada
+    /// isolado é uma thread com a sua área (`dartforge_area_de_globais`).
+    slots_de_global: std::collections::HashMap<String, usize>,
+    /// Os nomes dos slots, na ordem (para migrar a área numa recarga).
+    nomes_de_slot: Vec<String>,
 }
 
 impl<'a> LlvmEmitter<'a> {
@@ -67,6 +74,8 @@ impl<'a> LlvmEmitter<'a> {
             comdats: Vec::new(),
             rastro: std::env::var("DARTFORGE_RASTRO").is_ok_and(|v| v == "1").then_some(0),
             nomes_do_rastro: Vec::new(),
+            slots_de_global: std::collections::HashMap::new(),
+            nomes_de_slot: Vec::new(),
         }
     }
 
@@ -107,6 +116,7 @@ impl<'a> LlvmEmitter<'a> {
             let reg = self.module.registro.clone().unwrap_or_else(|| "df.registrar".to_string());
             self.emitir_registro(&reg);
             self.emitir_globais_de_seletores();
+            self.emitir_descritor_da_area();
             self.emitir_declaracoes_externas();
             return self.out;
         }
@@ -122,6 +132,7 @@ impl<'a> LlvmEmitter<'a> {
         self.emit_entry();
 
         self.emitir_globais_de_seletores();
+        self.emitir_descritor_da_area();
         self.emitir_declaracoes_externas();
         self.out
     }
@@ -302,6 +313,9 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(self.out, "b{}:", block.id.0).unwrap();
             if block.id.0 == 0 {
                 self.emit_buffers_de_closure(func);
+                if Self::usa_area(func) {
+                    writeln!(self.out, "  %area = call ptr @dartforge_area_de_globais(ptr @df.area)").unwrap();
+                }
             }
             if block.id.0 == 0
                 && let Some(k) = self.rastro.as_mut()
@@ -737,20 +751,18 @@ impl<'a> LlvmEmitter<'a> {
                         }
                     }
                     Instruction::LoadGlobal { simbolo, ty } => {
-                        writeln!(self.out, "  %v{v} = load {}, ptr @{simbolo}", ty.llvm_ir()).unwrap();
+                        self.endereco_do_global(v, simbolo);
+                        writeln!(self.out, "  %v{v} = load {}, ptr %ga{v}", ty.llvm_ir()).unwrap();
                     }
                     Instruction::StoreGlobal { simbolo, val, ty, raiz } => {
                         let sv = self.coagir(val, *ty);
-                        writeln!(self.out, "  store {} {sv}, ptr @{simbolo}", ty.llvm_ir()).unwrap();
+                        self.endereco_do_global(v, simbolo);
+                        writeln!(self.out, "  store {} {sv}, ptr %ga{v}", ty.llvm_ir()).unwrap();
                         if raiz.is_some() {
-                            // A raiz é identificada pelo endereço do global:
-                            // única entre os módulos (o SDK da fonte e o
-                            // programa), sem numeração combinada.
-                            writeln!(
-                                self.out,
-                                "  call void @dartforge_gc_global_root(i64 ptrtoint (ptr @{simbolo} to i64), i64 {sv})"
-                            )
-                            .unwrap();
+                            // A raiz é identificada pelo endereço do slot:
+                            // único entre os módulos e os isolados.
+                            writeln!(self.out, "  %gr{v} = ptrtoint ptr %ga{v} to i64").unwrap();
+                            writeln!(self.out, "  call void @dartforge_gc_global_root(i64 %gr{v}, i64 {sv})").unwrap();
                         }
                     }
                     Instruction::Phi { incoming, ty } => {
@@ -1092,19 +1104,59 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    /// `@dfg_<id>` (valor, no tipo da representação) e `@dfg_<id>_ok`.
+    /// Os globais do módulo (`@dfg_<id>` e a bandeira `$ok`) viram slots da
+    /// área de globais do isolado: a VM guarda os estáticos na *field table*
+    /// de cada isolado, e aqui cada isolado (uma thread) tem a sua área, que
+    /// o runtime cria na primeira vez (`dartforge_area_de_globais`, zerada).
+    /// Os caches dos seletores (`seletores.rs`) ganham slots depois destes.
     fn emit_globais(&mut self) {
-        for (_, ty, simbolo) in &self.module.globais {
-            let (t, zero) = match ty {
-                Type::F64 => ("double", "0.0"),
-                Type::I1 => ("i1", "false"),
-                Type::I8 => ("i8", "0"),
-                _ => ("i64", "0"),
-            };
-            writeln!(self.out, "@{simbolo} = internal global {t} {zero}").unwrap();
-            writeln!(self.out, "@{simbolo}$ok = internal global i8 0").unwrap();
+        for (_, _, simbolo) in &self.module.globais {
+            for nome in [simbolo.clone(), format!("{simbolo}$ok")] {
+                let n = self.nomes_de_slot.len();
+                self.slots_de_global.insert(nome.clone(), n);
+                self.nomes_de_slot.push(nome);
+            }
         }
-        self.out.push('\n');
+    }
+
+    /// O descritor da área de globais do módulo: `[chave, n, nome_0…]`, com
+    /// a chave estável do módulo e o hash do nome de cada slot (0 = não
+    /// migra numa recarga: os caches de seletor guardam endereços de código).
+    fn emitir_descritor_da_area(&mut self) {
+        let chave = self.module.registro.clone().unwrap_or_else(|| "df.programa".to_string());
+        let mut valores = vec![hash_de_slot(&chave).to_string(), String::new()];
+        for nome in &self.nomes_de_slot {
+            valores.push(hash_de_slot(nome).to_string());
+        }
+        for _ in 0..self.caches_de_seletor * 2 {
+            valores.push("0".to_string());
+        }
+        valores[1] = (valores.len() - 2).to_string();
+        let itens: Vec<String> = valores.iter().map(|v| format!("i64 {v}")).collect();
+        writeln!(self.out, "@df.area = private unnamed_addr constant [{} x i64] [{}]", itens.len(), itens.join(", ")).unwrap();
+    }
+
+    /// O slot de um cache de seletor na área.
+    pub(super) fn slot_do_cache(&self, ic: usize) -> usize {
+        self.nomes_de_slot.len() + 2 * ic
+    }
+
+    /// A função usa a área de globais (global, bandeira ou cache de seletor)?
+    fn usa_area(func: &Function) -> bool {
+        func.blocks.iter().any(|b| {
+            b.instructions.iter().any(|(_, i, _)| {
+                matches!(i, Instruction::LoadGlobal { .. } | Instruction::StoreGlobal { .. } | Instruction::CallSeletor { .. })
+            })
+        })
+    }
+
+    /// O endereço do slot de um global, em `%ga<v>`.
+    fn endereco_do_global(&mut self, v: u32, simbolo: &str) {
+        let slot = *self
+            .slots_de_global
+            .get(simbolo)
+            .unwrap_or_else(|| panic!("bug do compilador: global @{simbolo} sem slot na área"));
+        writeln!(self.out, "  %ga{v} = getelementptr i64, ptr %area, i64 {slot}").unwrap();
     }
 
     fn emit_dispatch_functions(&mut self) {
@@ -1447,4 +1499,15 @@ impl<'a> LlvmEmitter<'a> {
             }
         }
     }
+}
+
+/// O hash (FNV-1a de 64 bits) do nome de um slot ou da chave do módulo na
+/// área de globais; nunca 0, que marca o slot que não migra.
+fn hash_de_slot(nome: &str) -> i64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in nome.bytes() {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    (if h == 0 { 1 } else { h }) as i64
 }
