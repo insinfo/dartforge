@@ -1553,3 +1553,25 @@ em `dartforge run`, entregues também ao runtime da biblioteca do SDK).
   record e os locais nasciam onde a instrução estava: num laço, cada volta
   reservava pilha nova, e 300 000 voltas de `<int>[i, i + 1, i + 2]`
   estouravam a pilha (a queda aparecia no RTI, a primeira chamada funda).
+
+### 7.13 A distribuição (`dartforge empacotar`) e o SDK da fonte por padrão
+
+* **Leiaute** (`crates/elements/src/distribuicao.rs`): `bin/dartforge`,
+  `lib/dartforge-distribuicao.json` (a marca), `lib/runtime/`,
+  `lib/sdk_nativo/`, `lib/dart-sdk/{lib,version}`, `lib/llvm/bin/` (Clang e
+  lld). O SDK do Dart, a sobreposição, o Clang e o runtime são procurados
+  primeiro ali (depois nas variáveis de ambiente e na árvore de
+  desenvolvimento); o cache vai para o do usuário
+  (`~/.cache/dartforge/nativo`, `~/Library/Caches/…`, `%LOCALAPPDATA%\…`).
+  Os caminhos fixos da máquina de desenvolvimento saíram do código (o
+  `scripts/env.ps1` os aponta por variável).
+* **`dartforge empacotar <destino>`** monta a distribuição a partir da árvore
+  que compilou o binário. Verificado no Linux x86-64 num ambiente limpo
+  (`env -i PATH=/usr/bin:/bin`: sem Rust, sem LLVM, sem Dart): AOT de
+  desenvolvimento e de produção (com TLS), `Isolate.run`, argumentos do
+  `main` e o JIT. Tamanho: 619 MB, dos quais 450 MB são o Clang e o lld do
+  pacote oficial — o próximo passo é ligar chamando o lld direto, sem o
+  driver do Clang.
+* **O SDK da fonte é o padrão** (a troca de P5d): o corpus nativo passa
+  225/225 por ele e 99/225 pelo runtime por nome de antes, que fica atrás de
+  `DARTFORGE_SDK_DA_FONTE=0`.
