@@ -110,10 +110,13 @@ pub extern "C" fn dartforge_closure_entry(handle: i64) -> i64 {
         Some(Value::Closure { code_id, .. }) => Some(*code_id),
         _ => None,
     });
-    codigo.unwrap_or_else(|| {
-        dartforge_nsm_chamada();
-        0
-    })
+    // Um objeto de classe com `call` (classe chamável): a entrada do método
+    // na tabela da classe tem a mesma convenção (receptor, args, desc).
+    codigo.or_else(|| metodo_da_classe(dartforge_value_class(handle), hash_do_nome("c:call")).map(|f| f as i64))
+        .unwrap_or_else(|| {
+            dartforge_nsm_chamada();
+            0
+        })
 }
 
 /// Lança o `NoSuchMethodError` de uma chamada de valor função que não casa

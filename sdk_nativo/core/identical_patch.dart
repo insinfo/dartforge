@@ -51,8 +51,14 @@ Object _dartforgeErroDeChamada(String nome) =>
 /// 2 setter): como na VM, o `noSuchMethod` do receptor recebe o
 /// `Invocation`; o resultado dele é o da chamada.
 @pragma("vm:entry-point")
-Object? _dartforgeNoSuchMethod(Object? receptor, int tipo, String nome,
-    List<Object?> posicionais, List<String> nomes, List<Object?> valores) {
+Object? _dartforgeNoSuchMethod(
+    Object? receptor,
+    int tipo,
+    String nome,
+    List<Object?> posicionais,
+    List<String> nomes,
+    List<Object?> valores,
+    List<Type> tipos) {
   final Invocation invocacao;
   if (tipo == 1) {
     invocacao = new Invocation.getter(new Symbol(nome));
@@ -64,7 +70,8 @@ Object? _dartforgeNoSuchMethod(Object? receptor, int tipo, String nome,
     for (var i = 0; i < nomes.length; i++) {
       nomeados[new Symbol(nomes[i])] = valores[i];
     }
-    invocacao = new Invocation.method(new Symbol(nome), posicionais, nomeados);
+    invocacao = new Invocation.genericMethod(
+        new Symbol(nome), tipos.isEmpty ? null : tipos, posicionais, nomeados);
   }
   return receptor.noSuchMethod(invocacao);
 }

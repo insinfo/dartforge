@@ -132,6 +132,18 @@ fn cid_do_runtime(handle: i64) -> Option<i64> {
     })
 }
 
+/// A entrada uniforme do seletor `hash` na tabela da classe `cid`, se ela tem.
+fn metodo_da_classe(cid: i64, hash: i64) -> Option<usize> {
+    METODOS.with(|m| {
+        let m = m.borrow();
+        let &(p, n) = m.get(&cid)?;
+        // SAFETY: registrado por `dartforge_registrar_metodos` com `n` pares.
+        let pares = unsafe { std::slice::from_raw_parts(p as *const [i64; 2], n) };
+        let i = pares.binary_search_by(|par| par[0].cmp(&hash)).ok()?;
+        Some(pares[i][1] as usize)
+    })
+}
+
 /// Os nomes dos argumentos nomeados, pelo hash do descritor (o mesmo em
 /// todo módulo e em todo isolado).
 fn nomes_de_argumento() -> &'static std::sync::RwLock<HashMap<i64, String>> {
@@ -169,49 +181,116 @@ extern "C" fn dartforge_nsm_seletor(recv: i64, args: *const i64, desc: *const i6
     let texto = SELETOR_AUSENTE.with(|s| s.borrow().clone());
     let (tipo, nome) = texto.split_once(':').unwrap_or(("c", texto.as_str()));
     let nome = nome.split_once('@').map_or(nome, |(n, _)| n);
-    if let Some(f) = ajudante("_dartforgeNoSuchMethod") {
-        // SAFETY: o descritor e o vetor de argumentos são os da chamada.
-        let (npos, nnom) = unsafe { (*desc as usize, *desc.add(1) as usize) };
-        let valores: Vec<i64> = unsafe { std::slice::from_raw_parts(args, npos + nnom) }.to_vec();
-        let hashes: Vec<i64> = unsafe { std::slice::from_raw_parts(desc.add(2), nnom) }.to_vec();
-        let codigo = match tipo {
-            "g" => 1,
-            "s" => 2,
-            _ => 0,
-        };
-        // Tudo o que é alocado aqui fica num frame de raízes até a chamada
-        // (cada alocação pode coletar).
-        let frame = HEAP.with(|h| h.borrow_mut().push_frame_with_slots(valores.len() + nnom + 5));
-        let mut proximo = 0;
-        let mut enraizar = |x: i64| {
-            HEAP.with(|h| h.borrow_mut().set_root(frame, proximo, x));
-            proximo += 1;
-            x
-        };
-        enraizar(recv);
-        for &v in &valores {
-            enraizar(v);
-        }
-        let n = enraizar(alocar_str(nome));
-        let pos = enraizar(dart_lista_fixa(&valores[..npos]));
-        let textos: Vec<String> = {
-            let tabela = nomes_de_argumento().read().unwrap_or_else(|e| e.into_inner());
-            hashes.iter().map(|h| tabela.get(h).cloned().unwrap_or_default()).collect()
-        };
-        let textos: Vec<i64> = textos.iter().map(|t| enraizar(alocar_str(t))).collect();
-        let nomes = enraizar(dart_lista_fixa(&textos));
-        let vals = enraizar(dart_lista_fixa(&valores[npos..]));
-        // SAFETY: registrado pelo `dart:core` com a assinatura
-        // (Object?, int, String, List, List, List) -> Object?.
-        let g: extern "C" fn(i64, i64, i64, i64, i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
-        let r = g(recv, codigo, n, pos, nomes, vals);
-        HEAP.with(|h| h.borrow_mut().pop_frame(frame));
+    let codigo = match tipo {
+        "g" => 1,
+        "s" => 2,
+        _ => 0,
+    };
+    // SAFETY: o descritor e o vetor de argumentos são os da chamada; a
+    // chamada por seletor sempre leva a tupla de tipos depois dos argumentos
+    // (0 sem argumentos de tipo).
+    let (valores, hashes, tupla) = unsafe {
+        let (npos, nnom) = (*desc as usize, *desc.add(1) as usize);
+        (
+            std::slice::from_raw_parts(args, npos + nnom).to_vec(),
+            std::slice::from_raw_parts(desc.add(2), nnom).to_vec(),
+            *args.add(npos + nnom),
+        )
+    };
+    let npos = valores.len() - hashes.len();
+    let nomes: Vec<String> = {
+        let tabela = nomes_de_argumento().read().unwrap_or_else(|e| e.into_inner());
+        hashes.iter().map(|h| tabela.get(h).cloned().unwrap_or_default()).collect()
+    };
+    let n = com_raizes(&[recv], || alocar_str(nome));
+    let nomes: Vec<&str> = nomes.iter().map(String::as_str).collect();
+    if let Some(r) = com_raizes(&[n], || invocar_no_such_method(recv, codigo, n, &valores, npos, &nomes, tupla)) {
         return r;
     }
-    let h = HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(Texto::de_str(nome))));
-    let erro = com_raizes(&[h], || dartforge_no_such_method_error_new(h));
+    let erro = com_raizes(&[n], || dartforge_no_such_method_error_new(n));
     com_raizes(&[erro], || dartforge_exception_throw(erro, 3));
     0
+}
+
+/// Os argumentos de tipo de uma tupla RTI (`L<…>`), ou nenhum.
+fn argumentos_da_tupla(tupla: i64) -> Vec<i64> {
+    if tupla <= 0 {
+        return Vec::new();
+    }
+    RTI.with(|u| match u.borrow().tipos.get(tupla as usize) {
+        Some(Tipo::Tupla(v)) => v.clone(),
+        _ => Vec::new(),
+    })
+}
+
+/// `receptor.noSuchMethod(Invocation)` pelo `_dartforgeNoSuchMethod`
+/// (`codigo`: 0 método, 1 getter, 2 setter): `valores` são os posicionais
+/// e depois os nomeados, na ordem de `nomes`. `None` sem o SDK da fonte.
+fn invocar_no_such_method(recv: i64, codigo: i64, nome: i64, valores: &[i64], npos: usize, nomes: &[&str], tupla: i64) -> Option<i64> {
+    let f = ajudante("_dartforgeNoSuchMethod")?;
+    let tipos = argumentos_da_tupla(tupla);
+    // Tudo o que é alocado aqui fica num frame de raízes até a chamada
+    // (cada alocação pode coletar).
+    let frame = HEAP.with(|h| h.borrow_mut().push_frame_with_slots(valores.len() + nomes.len() + tipos.len() + 7));
+    let mut proximo = 0;
+    let mut enraizar = |x: i64| {
+        HEAP.with(|h| h.borrow_mut().set_root(frame, proximo, x));
+        proximo += 1;
+        x
+    };
+    enraizar(recv);
+    enraizar(nome);
+    for &v in valores {
+        enraizar(v);
+    }
+    let pos = enraizar(dart_lista_fixa(&valores[..npos]));
+    let textos: Vec<i64> = nomes.iter().map(|t| enraizar(alocar_str(t))).collect();
+    let nomes = enraizar(dart_lista_fixa(&textos));
+    let vals = enraizar(dart_lista_fixa(&valores[npos..]));
+    let objetos: Vec<i64> = tipos.iter().map(|&t| enraizar(dartforge_rti_objeto_tipo(t))).collect();
+    let tipos = enraizar(dart_lista_fixa(&objetos));
+    // SAFETY: registrado pelo `dart:core` com a assinatura
+    // (Object?, int, String, List, List, List, List) -> Object?.
+    let g: extern "C" fn(i64, i64, i64, i64, i64, i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
+    let r = g(recv, codigo, nome, pos, nomes, vals, tipos);
+    HEAP.with(|h| h.borrow_mut().pop_frame(frame));
+    Some(r)
+}
+
+/// O encaminhador de `noSuchMethod` que o compilador gera na tabela de uma
+/// classe com `noSuchMethod` próprio, para um membro de interface sem
+/// implementação: `ambiente` tem os `npos` posicionais, os `nnom`
+/// nomeados (todos, com os padrões) e depois os nomes deles, na ordem da
+/// declaração.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_encaminhar_nsm(recv: i64, codigo: i64, nome: i64, ambiente: i64, npos: i64, nnom: i64, tupla: i64) -> i64 {
+    let (npos, nnom) = (npos as usize, nnom as usize);
+    let campos: Vec<TaggedValue> = HEAP.with(|h| match h.borrow().try_get(ambiente) {
+        Some(Value::Environment(v)) => v.clone(),
+        _ => Vec::new(),
+    });
+    if campos.len() != npos + 2 * nnom {
+        return 0;
+    }
+    // O ambiente guarda os escalares sem caixa: cada valor volta à posição
+    // `Ref` (pode alocar) e fica enraizado até a chamada.
+    let frame = HEAP.with(|h| h.borrow_mut().push_frame_with_slots(npos + nnom + 3));
+    let enraizar = |i: usize, x: i64| HEAP.with(|h| h.borrow_mut().set_root(frame, i, x));
+    enraizar(0, recv);
+    enraizar(1, nome);
+    enraizar(2, ambiente);
+    let mut valores = Vec::with_capacity(npos + nnom);
+    for (i, t) in campos[..npos + nnom].iter().enumerate() {
+        let r = HEAP.with(|h| h.borrow_mut().como_ref(*t));
+        enraizar(3 + i, r);
+        valores.push(r);
+    }
+    let nomes: Vec<String> =
+        HEAP.with(|h| campos[npos + nnom..].iter().map(|t| h.borrow().texto(t.bits).para_string()).collect());
+    let nomes: Vec<&str> = nomes.iter().map(String::as_str).collect();
+    let r = invocar_no_such_method(recv, codigo, nome, &valores, npos, &nomes, tupla).unwrap_or(0);
+    HEAP.with(|h| h.borrow_mut().pop_frame(frame));
+    r
 }
 
 /// A entrada de `recv.<seletor>`, pelo cache do ponto de chamada
@@ -229,14 +308,7 @@ pub unsafe extern "C" fn dartforge_seletor(cache: *mut i64, recv: i64, hash: i64
             return *cache.add(1) as usize;
         }
     }
-    let achado = METODOS.with(|m| {
-        let m = m.borrow();
-        let &(p, n) = m.get(&cid)?;
-        // SAFETY: registrado por `dartforge_registrar_metodos` com `n` pares.
-        let pares = unsafe { std::slice::from_raw_parts(p as *const [i64; 2], n) };
-        let i = pares.binary_search_by(|par| par[0].cmp(&hash)).ok()?;
-        Some(pares[i][1] as usize)
-    });
+    let achado = metodo_da_classe(cid, hash);
     match achado {
         Some(f) => {
             // SAFETY: ver acima.

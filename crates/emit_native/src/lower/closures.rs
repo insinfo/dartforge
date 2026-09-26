@@ -33,6 +33,7 @@ use dartforge_diagnostics::Span;
 use dartforge_elements::model::UnitId;
 use dartforge_frontend::ast::{self, AsyncModifier, ExprId, FunctionBody, FunctionId, ParameterKind};
 use dartforge_intern::SymbolId;
+use dartforge_types::table::TypeId;
 
 /// Hash estável do nome de um argumento nomeado (FNV-1a de 64 bits sobre o
 /// UTF-8): o mesmo em qualquer módulo, o que o descritor precisa para que uma
@@ -642,6 +643,165 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             _ => None,
         }
+    }
+
+    /// `f<T…>`: a closure de uma função genérica com os argumentos de tipo
+    /// fixos (`tupla`, no ambiente). A entrada arma a tupla e chama a
+    /// função; o tipo reificado é o da instanciação (`tipo`, estático).
+    pub fn tearoff_instanciado(&mut self, fid: usize, tupla: Operand, tipo: Option<TypeId>) -> Operand {
+        let alvo = super::simbolo_de(self.ctx, fid);
+        let simbolo_ent = format!("{alvo}$teari");
+        if !self.entradas_feitas.contains(&simbolo_ent) {
+            self.entradas_feitas.insert(simbolo_ent.clone());
+            let infos = self.params_da_funcao(fid);
+            let nome = self.ctx.symbol_name(self.ctx.program.functions[fid].name).to_string();
+            let mut e = FnBuilder::new(self.ctx, self.unit_id, simbolo_ent.clone(), nome, Type::Ref);
+            let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
+            let args = Operand::Val(e.add_param("args".to_string(), Type::Ptr));
+            let desc = Operand::Val(e.add_param("desc".to_string(), Type::Ptr));
+            let env = e.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_closure_env".to_string(),
+                    args: vec![(clo, Type::Ref)],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            );
+            let t = e.emit(Instruction::EnvGet { env, index: 0 }, Type::I64);
+            if let Some(vals) = e.desempacotar(&infos, args, desc) {
+                let reprs: Vec<Type> = self.ctx.outline.functions[fid].parameters.iter().map(|p| e.repr(p.ty)).collect();
+                let vals: Vec<Operand> = vals.into_iter().zip(reprs).map(|(v, r)| e.coagir(v, r)).collect();
+                e.tupla_armada = Some(t);
+                let r = e.chamar_direto(fid, None, vals);
+                let r = if matches!(e.operand_type(&r), Type::Void) {
+                    Operand::Constant(Constant::Null)
+                } else {
+                    e.coagir(r, Type::Ref)
+                };
+                e.terminate(Terminator::Return(Some(r)));
+            }
+            self.absorver(e);
+        }
+        let env = self.emit(Instruction::AllocEnv { values: vec![tupla] }, Type::Ref);
+        let c = self.emit(Instruction::AllocClosure { code_symbol: simbolo_ent, env }, Type::Ref);
+        self.definir_rti_de_instanciacao(c.clone(), fid, tipo);
+        c
+    }
+
+    /// `C<T…>.new`: como `tearoff_de_construtor`, com o tipo do objeto
+    /// (`objeto`, `C<T…>`) e a tupla da classe (`tupla`, para uma factory)
+    /// no ambiente.
+    pub fn tearoff_instanciado_de_construtor(
+        &mut self,
+        fid: usize,
+        objeto: Operand,
+        tupla: Operand,
+        tipo: Option<TypeId>,
+        span: Span,
+    ) -> Operand {
+        let alvo = super::simbolo_de(self.ctx, fid);
+        let simbolo_ent = format!("{alvo}$teari");
+        if !self.entradas_feitas.contains(&simbolo_ent) {
+            self.entradas_feitas.insert(simbolo_ent.clone());
+            let infos = self.params_da_funcao(fid);
+            let nome = self.ctx.symbol_name(self.ctx.program.functions[fid].name).to_string();
+            let mut e = FnBuilder::new(self.ctx, self.unit_id, simbolo_ent.clone(), nome, Type::Ref);
+            let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
+            let args = Operand::Val(e.add_param("args".to_string(), Type::Ptr));
+            let desc = Operand::Val(e.add_param("desc".to_string(), Type::Ptr));
+            let env = e.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_closure_env".to_string(),
+                    args: vec![(clo, Type::Ref)],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            );
+            let obj = e.emit(Instruction::EnvGet { env: env.clone(), index: 0 }, Type::I64);
+            let t = e.emit(Instruction::EnvGet { env, index: 1 }, Type::I64);
+            if let Some(vals) = e.desempacotar(&infos, args, desc) {
+                let avaliados: Vec<Avaliado> = self.ctx.outline.functions[fid]
+                    .parameters
+                    .iter()
+                    .zip(vals)
+                    .map(|(p, v)| (if p.kind == ParameterKind::Named { p.name } else { None }, v))
+                    .collect();
+                let r = e.instanciar_avaliados_com_rti(
+                    dartforge_elements::model::FunctionElementId(fid as u32),
+                    &avaliados,
+                    span,
+                    Some(obj),
+                    Some(t),
+                );
+                let r = e.coagir(r, Type::Ref);
+                e.terminate(Terminator::Return(Some(r)));
+            }
+            self.absorver(e);
+        }
+        let env = self.emit(Instruction::AllocEnv { values: vec![objeto, tupla] }, Type::Ref);
+        let c = self.emit(Instruction::AllocClosure { code_symbol: simbolo_ent, env }, Type::Ref);
+        self.definir_rti_de_instanciacao(c.clone(), fid, tipo);
+        c
+    }
+
+    /// O tipo reificado de um tear-off instanciado: o tipo estático da
+    /// expressão (a assinatura com os argumentos de tipo aplicados); sem
+    /// ele, a assinatura declarada.
+    fn definir_rti_de_instanciacao(&mut self, clo: Operand, fid: usize, tipo: Option<TypeId>) {
+        match tipo {
+            Some(t) if matches!(self.ctx.table.get(t), dartforge_types::table::Type::Function { type_params, .. } if type_params.is_empty()) => {
+                let r = self.rti_de_tipo(t);
+                self.definir_rti(clo, r);
+            }
+            _ => self.definir_rti_de_tearoff(clo, fid, None),
+        }
+    }
+
+    /// A resolução de uma expressão, ou (identificador sem resolução, como
+    /// num corpo de closure) a do nome pelo escopo léxico.
+    pub fn resolucao_ou_nome(&self, ast: &ast::Ast, e: ast::ExprId) -> Option<dartforge_types::resolved::Resolved> {
+        if let Some(r) = self.ctx.get_resolved(self.unit_id, e).cloned() {
+            return Some(r);
+        }
+        match &ast.expr(e).kind {
+            ast::ExprKind::Identifier(n) if self.buscar_local(n.sym).is_none() => self.resolver_por_nome(n.sym),
+            _ => None,
+        }
+    }
+
+    /// A função genérica (de topo ou estática, do programa) que `alvo`
+    /// nomeia, para `alvo<T…>`.
+    pub fn funcao_generica_do_alvo(&self, ast: &ast::Ast, alvo: ast::ExprId) -> Option<usize> {
+        use dartforge_types::resolved::{MemberRef, Resolved};
+        let fid = match self.resolucao_ou_nome(ast, alvo)? {
+            Resolved::Element(dartforge_elements::model::Element::Function(f)) => f.0 as usize,
+            Resolved::Member { member: MemberRef::Function(f), .. } => f.0 as usize,
+            _ => return None,
+        };
+        let f = &self.ctx.program.functions[fid];
+        let livre = f.class.is_none() || f.static_;
+        (livre && f.variable.is_none() && f.kind == dartforge_elements::model::FunctionKind::Function && self.funcao_generica(fid))
+            .then_some(fid)
+    }
+
+    /// As receitas dos argumentos de tipo escritos (`<int, T>`), unidas por
+    /// vírgula (`dynamic` para o que não resolve).
+    pub fn receitas_dos_argumentos_de_tipo(&self, args: &[ast::TypeId]) -> super::rti::Receita {
+        let unit_ast = &self.ctx.program.unit(self.unit_id).ast;
+        let mut r = super::rti::Receita { texto: String::new(), variaveis: false };
+        for (i, a) in args.iter().enumerate() {
+            if i > 0 {
+                r.texto.push(',');
+            }
+            match self.receita_da_anotacao(unit_ast.ty(*a)) {
+                Some(x) => {
+                    r.texto.push_str(&x.texto);
+                    r.variaveis |= x.variaveis;
+                }
+                None => r.texto.push('D'),
+            }
+        }
+        r
     }
 
     /// Tear-off de construtor (`C.new`, `C.nome`): canônico, e a entrada
