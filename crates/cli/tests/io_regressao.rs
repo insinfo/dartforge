@@ -11,6 +11,11 @@ use std::time::{Duration, Instant};
 /// Compila `fixtures/<nome>.dart` com o SDK da fonte, roda (com `args`) e
 /// compara a saída; falha se o programa não termina em `prazo`.
 fn compilar_e_rodar(nome: &str, args: &[&std::ffi::OsStr], esperado: &str, prazo: Duration) {
+    compilar_e_rodar_com_ambiente(nome, args, &[], esperado, prazo);
+}
+
+/// [`compilar_e_rodar`] com variáveis de ambiente para o programa.
+fn compilar_e_rodar_com_ambiente(nome: &str, args: &[&std::ffi::OsStr], ambiente: &[(&str, &str)], esperado: &str, prazo: Duration) {
     let raiz = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let dir = raiz.join(format!("../../target/tmp-io-regressao-{}-{nome}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("diretório do teste");
@@ -25,7 +30,7 @@ fn compilar_e_rodar(nome: &str, args: &[&std::ffi::OsStr], esperado: &str, prazo
         .expect("CLI");
     assert!(compilacao.status.success(), "compilação de {nome}: {}", String::from_utf8_lossy(&compilacao.stderr));
 
-    let mut filho = Command::new(&exe).args(args).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("programa");
+    let mut filho = Command::new(&exe).args(args).envs(ambiente.iter().copied()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("programa");
     let inicio = Instant::now();
     let status = loop {
         if let Some(s) = filho.try_wait().expect("estado do programa") {
@@ -97,4 +102,16 @@ recusado: CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate(hand
 fn main_recebe_os_argumentos() {
     let args = [std::ffi::OsStr::new("um"), std::ffi::OsStr::new("dois três")];
     compilar_e_rodar("argumentos_do_main", &args, "[um, dois três]\ntrue\nfixa\n", Duration::from_secs(60));
+}
+
+#[test]
+#[ignore = "compila com o SDK da fonte e liga com o Clang; roda no CI de cada sistema"]
+fn heap_perto_do_teto_nao_coleta_a_cada_alocacao() {
+    compilar_e_rodar_com_ambiente(
+        "pressao_do_heap",
+        &[],
+        &[("DARTFORGE_HEAP_MAX_MB", "64")],
+        "9000 45000150000\n",
+        Duration::from_secs(60),
+    );
 }
