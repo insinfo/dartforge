@@ -95,3 +95,10 @@ fn p3_genericas() {
 fn p8_nosuchmethod_ordem() {
     verifica("p8_nosuchmethod_ordem");
 }
+
+/// Identificador resolvido pelo escopo léxico (a resolução da inferência
+/// comum): a declaração de topo vence o membro herdado homônimo.
+#[test]
+fn p9_escopo_lexico() {
+    verifica("p9_escopo_lexico");
+}
