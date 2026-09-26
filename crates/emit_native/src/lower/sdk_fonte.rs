@@ -1024,9 +1024,74 @@ pub fn lower_funcao_ou_recusa(ctx: &Context, module: &mut Module, fid: usize) {
     }
 }
 
+/// As funções que devolvem os valores padrão não literais dos parâmetros
+/// das funções do módulo (`membros::simbolo_do_padrao`): quem chama de fora
+/// do módulo (o programa) não tem as resoluções das unidades do SDK e chama
+/// esta função no lugar de baixar a expressão.
+pub fn lower_padroes_do_sdk(ctx: &Context, module: &mut Module) {
+    for (fid, f) in ctx.program.functions.iter().enumerate() {
+        if !ctx.biblioteca_no_modulo(f.library) {
+            continue;
+        }
+        let unit = match f.node {
+            dartforge_elements::model::FunctionRef::Function { unit, .. }
+            | dartforge_elements::model::FunctionRef::Constructor { unit, .. } => unit,
+            dartforge_elements::model::FunctionRef::None => continue,
+        };
+        let simbolo_base = super::simbolo_de(ctx, fid);
+        let mut b = FnBuilder::new(ctx, unit, String::new(), String::new(), Type::Ref);
+        let Some((unidade, params)) = b.parametros_de(fid) else { continue };
+        let exportados: Vec<usize> = params
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.default_value.is_some_and(|e| !super::membros::padrao_literal(&ctx.program.unit(unidade).ast, e)))
+            .map(|(i, _)| i)
+            .collect();
+        drop(b);
+        for i in exportados {
+            let simbolo = format!("{simbolo_base}.padrao.{i}");
+            let mut b = FnBuilder::new(ctx, unit, simbolo.clone(), simbolo.clone(), Type::Ref);
+            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let v = b.valor_padrao(fid, i).unwrap_or(Operand::Constant(Constant::Null));
+                let v = b.coagir(v, Type::Ref);
+                b.terminate(Terminator::Return(Some(v)));
+                b
+            }));
+            match r {
+                Ok(b) if b.erros.is_empty() => b.finalizar(module),
+                Ok(b) => {
+                    let motivo = b.erros[0].clone();
+                    module.functions.push(padrao_recusado(ctx, unit, &simbolo, &motivo));
+                    module.recusados.push((simbolo, motivo));
+                }
+                Err(_) => {
+                    let motivo = "pânico ao baixar o valor padrão".to_string();
+                    module.functions.push(padrao_recusado(ctx, unit, &simbolo, &motivo));
+                    module.recusados.push((simbolo, motivo));
+                }
+            }
+        }
+    }
+}
+
+/// A função de padrão que não baixa: avisa em tempo de execução, como as
+/// funções recusadas.
+fn padrao_recusado(ctx: &Context, unit: dartforge_elements::model::UnitId, simbolo: &str, motivo: &str) -> Function {
+    let mut b = FnBuilder::new(ctx, unit, simbolo.to_string(), simbolo.to_string(), Type::Ref);
+    let curto = motivo.strip_prefix(crate::PREFIXO_NAO_SUPORTADO).unwrap_or(motivo);
+    let t = b.emit(Instruction::Const(Constant::String(format!("{simbolo} ({curto})"))), Type::Ref);
+    b.emit(
+        Instruction::CallRuntime { name: "dartforge_membro_recusado".to_string(), args: vec![(t, Type::Ref)], ret_ty: Type::Void },
+        Type::Void,
+    );
+    b.terminate(Terminator::Unreachable);
+    b.func
+}
+
 /// Os adaptadores dos membros de instância das classes do módulo e as
 /// tabelas de métodos das classes concretas dele (SDK da fonte).
 pub fn lower_adaptadores_e_tabelas(ctx: &Context, module: &mut Module) {
+    lower_padroes_do_sdk(ctx, module);
     for (fid, f) in ctx.program.functions.iter().enumerate() {
         let nome = ctx.symbol_name(f.name);
         if f.class.is_none() && nome.starts_with("_dartforge") && ctx.biblioteca_no_modulo(f.library) {

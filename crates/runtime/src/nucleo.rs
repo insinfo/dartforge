@@ -76,9 +76,17 @@ pub fn finalizar_programa() -> i32 {
                     Some(f) => {
                         drop(heap);
                         EXCEPTION.with(|slot| slot.borrow_mut().take());
-                        let t = f(bits);
-                        let s = HEAP.with(|h| h.borrow().try_get(t).map(|_| h.borrow().texto(t).para_string()));
-                        s.unwrap_or_else(|| "?".to_string())
+                        let t = com_raizes(&[bits], || f(bits));
+                        let s = HEAP.with(|h| match h.borrow().try_get(t) {
+                            Some(Value::String(texto)) => Some(texto.para_string()),
+                            _ => None,
+                        });
+                        // O `toString()` também falhou: a descrição do
+                        // runtime (a classe do objeto).
+                        s.unwrap_or_else(|| {
+                            EXCEPTION.with(|slot| slot.borrow_mut().take());
+                            HEAP.with(|h| describe_handle(&h.borrow(), bits))
+                        })
                     }
                     None => describe_handle(&heap, bits),
                 },

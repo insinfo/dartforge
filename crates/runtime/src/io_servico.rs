@@ -164,8 +164,10 @@ fn responder_pedido_de_io(pedido: i64, d: &[Portavel]) -> Portavel {
         31 => resposta(criar_pipe(), |(r, w)| {
             Portavel::Lista(vec![Portavel::Int(ArquivoNativo::novo(r)), Portavel::Int(ArquivoNativo::novo(w))])
         }),
-        // Resolução de nomes e interfaces de rede: com os soquetes.
-        32..=34 => argumento_invalido(),
+        // Resolução de nomes e interfaces de rede (`io_soquetes.rs`).
+        32 => pedido_de_resolucao(d),
+        33 => pedido_de_interfaces(d),
+        34 => pedido_de_resolucao_reversa(d),
         _ => responder_pedido_de_caminho(pedido, d).unwrap_or_else(argumento_invalido),
     }
 }

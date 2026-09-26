@@ -1426,7 +1426,7 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
         UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec => {
             let prefixo = matches!(op, UnaryOp::PrefixInc | UnaryOp::PrefixDec);
             let bop = if matches!(op, UnaryOp::PrefixInc | UnaryOp::PostfixInc) { BinaryOp::Add } else { BinaryOp::Sub };
-            let (leitura, escrita, local) = ler_para_escrita(inf, cx, operand);
+            let (leitura, escrita, local) = ler_para_escrita(inf, cx, operand, curto);
             let sym = simbolo_operador(inf, bop);
             let int = inf.core.int;
             let res = match sym.map(|s| inf.buscar_membro(cx.lib, leitura, s, false)) {
@@ -1512,7 +1512,10 @@ fn avisar_membro_sem_setter(inf: &mut BodyInferrer<'_>, nome: ast::Name, f: dart
 }
 
 /// Para `x op= e` / `x++`: lê o alvo, devolvendo `(tipo lido, tipo de escrita, local)`.
-fn ler_para_escrita(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId) -> (TypeId, TypeId, Option<LocalId>) {
+/// `curto` fica verdadeiro quando o alvo está numa cadeia `?.`/`?[` (o
+/// resultado da expressão é então anulável: `a?.x += 1` vale null com `a`
+/// null).
+fn ler_para_escrita(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, curto_saida: &mut bool) -> (TypeId, TypeId, Option<LocalId>) {
     let a = ast(inf, cx);
     match &a.expr(alvo).kind {
         ExprKind::Identifier(n) => {
@@ -1539,13 +1542,15 @@ fn ler_para_escrita(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId) ->
             });
             let mut curto = false;
             let escrita = escrita_propriedade(inf, cx, alvo, target, name, null_aware, &mut curto, recv_lido);
+            *curto_saida = curto_lido || curto;
             registrar(inf, cx, alvo, leitura);
             (leitura, escrita, None)
         }
         ExprKind::Index { target, index, null_aware } => {
             let (target, index, null_aware) = (*target, *index, *null_aware);
             let u = inf.core.unknown;
-            let (t, _) = ler_indice(inf, cx, alvo, target, index, null_aware, u);
+            let (t, c) = ler_indice(inf, cx, alvo, target, index, null_aware, u);
+            *curto_saida = c;
             if let Some((x, args)) = cx.sobreposicoes.get(&target).cloned()
                 && inf.sym.indice_set.and_then(|s| inf.membro_de_extensao_explicita(x, &args, s, false)).is_none()
             {
@@ -1744,7 +1749,7 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
             tv
         }
         AssignOp::Compound(bop) => {
-            let (leitura, escrita, local) = ler_para_escrita(inf, cx, alvo);
+            let (leitura, escrita, local) = ler_para_escrita(inf, cx, alvo, curto);
             if bop == BinaryOp::IfNull {
                 let tv = inferir(inf, cx, valor, escrita);
                 let nn = inf.nao_nulo(leitura);

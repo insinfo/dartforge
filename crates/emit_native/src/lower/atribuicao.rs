@@ -122,6 +122,52 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         v
     }
 
+    /// `a?.b op= v` / `a?[i] op= v` (§17.23): `a` é avaliado uma vez; se é
+    /// null, nada mais é avaliado e o valor é null; senão, a atribuição
+    /// comum sobre o valor de `a`. A cadeia `?.` de `a` (`x?.y?.b = v`)
+    /// desvia para o mesmo null.
+    fn atribuir_com_null_aware(
+        &mut self,
+        ast: &ast::Ast,
+        op: ast::AssignOp,
+        target: ExprId,
+        recv: ExprId,
+        value: Rhs,
+        span: Span,
+    ) -> Operand {
+        let saida = self.new_block();
+        let cadeia_salva = self.cadeia_nula.replace((saida, Vec::new()));
+        let recv_op = self.lower_alvo(ast, recv);
+        self.desviar_se_nulo(&recv_op);
+        self.receptor_pronto = Some((recv, recv_op));
+        self.null_aware_tratado = Some(target);
+        let mut v = self.lower_atribuicao(ast, op, target, value, span);
+        self.receptor_pronto = None;
+        // O valor antigo (`a?.x++`) também passa pela junção: null quando a
+        // cadeia desviou.
+        let mut antigo = self.valor_antigo.take();
+        let (saida, mut entradas) = std::mem::replace(&mut self.cadeia_nula, cadeia_salva).expect("cadeia aberta");
+        let mut entradas_antigo: Vec<(BlockId, Operand)> =
+            entradas.iter().map(|(b, _)| (*b, Operand::Constant(Constant::Null))).collect();
+        if !self.is_terminated() {
+            v = self.coagir(v, Type::Ref);
+            if let Some(a) = antigo.take() {
+                let a = self.coagir(a, Type::Ref);
+                entradas_antigo.push((self.current_block, a));
+            }
+            entradas.push((self.current_block, v));
+            self.terminate(Terminator::Branch(saida));
+        }
+        self.set_block(saida);
+        if entradas.is_empty() {
+            return Operand::Constant(Constant::Null);
+        }
+        if entradas_antigo.len() == entradas.len() {
+            self.valor_antigo = Some(self.emit(Instruction::Phi { incoming: entradas_antigo, ty: Type::Ref }, Type::Ref));
+        }
+        self.emit(Instruction::Phi { incoming: entradas, ty: Type::Ref }, Type::Ref)
+    }
+
     /// Atribuição. Ordem de avaliação do Dart: receptor, índice, leitura
     /// corrente (se composta), valor, gravação.
     pub fn lower_atribuicao(
@@ -198,9 +244,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 name,
                 null_aware,
             } => {
-                if *null_aware {
-                    return self.nao_suportado("atribuição com `?.`", span);
+                if *null_aware && self.null_aware_tratado != Some(target) {
+                    return self.atribuir_com_null_aware(ast, op, target, *recv, value, span);
                 }
+                self.null_aware_tratado = None;
                 // `prefixo.x = v`: variável de topo importada com prefixo.
                 if let Some(el) = self.elemento_prefixado(ast, *recv, name.sym) {
                     let vid = match el {
@@ -321,9 +368,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 index,
                 null_aware,
             } => {
-                if *null_aware {
-                    return self.nao_suportado("atribuição com `?[`", span);
+                if *null_aware && self.null_aware_tratado != Some(target) {
+                    return self.atribuir_com_null_aware(ast, op, target, *t, value, span);
                 }
+                self.null_aware_tratado = None;
                 let t_op = self.lower_expr(ast, *t);
                 let i_op = self.lower_expr(ast, *index);
                 if self.ctx.sdk_da_fonte {

@@ -57,6 +57,12 @@ pub struct FnBuilder<'a, 'c> {
     pub labeled_continue_targets: HashMap<SymbolId, BlockId>,
     pub pending_labels: Vec<SymbolId>,
     pub current_cascade_target: Option<Operand>,
+    /// Um receptor já avaliado: quando `lower_expr` chega à expressão, usa o
+    /// valor em vez de avaliá-la de novo (a atribuição `a?.b = v` avalia `a`
+    /// antes, para testar o null).
+    pub receptor_pronto: Option<(ExprId, Operand)>,
+    /// A atribuição `?.`/`?[` cujo teste de null já foi feito (o alvo).
+    pub null_aware_tratado: Option<ExprId>,
     /// Diagnósticos de construto não suportado (N1).
     pub erros: Vec<String>,
     /// Cadeia `?.` em curso: bloco de saída com null e as entradas do phi
@@ -199,6 +205,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             labeled_continue_targets: HashMap::new(),
             pending_labels: Vec::new(),
             current_cascade_target: None,
+            receptor_pronto: None,
+            null_aware_tratado: None,
             erros: Vec::new(),
             cadeia_nula: None,
             continuar_cadeia: false,

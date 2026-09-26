@@ -1293,10 +1293,22 @@ respostas do `IO_SERVICE_REQUEST_LIST`) e `io_plataforma.rs` (`Platform`,
 `Stdin`/`Stdout`, `exit`, `exitCode`, `sleep`, bytes aleatórios e o preparo
 que o embedder faz antes do `main`: `Platform.script` e `Uri.base`). Cada
 native tem a versão Unix (Linux e macOS) e a do Windows. `dart:developer`
-segue o perfil de produção da VM (`nativos_desenvolvedor.rs`). Processos,
-soquetes, o manipulador de eventos e o `FileSystemWatcher` ainda são
-recusados por membro. O corpus `corpus/nativo/` (só VM × nativo) cobre o
-`dart:io`.
+segue o perfil de produção da VM (`nativos_desenvolvedor.rs`).
+
+O manipulador de eventos (`io_eventos.rs`) é o da VM: uma thread com epoll
+(Linux) ou kqueue (macOS) que vigia os descritores dos `_NativeSocket` e
+posta a máscara dos eventos na porta de cada um, com as fichas de controle
+de fluxo e os soquetes de escuta compartilhados. Sobre ele, `io_soquetes.rs`
+(TCP, UDP, domínio Unix, `InternetAddress` e a resolução de nomes do
+IOService — o que basta para `HttpServer` e `HttpClient`) e
+`io_processos.rs` (`fork` + `execvp` com os pipes e o pipe de controle da
+VM, a thread que espera os filhos, `runSync`, `killPid`, os sinais de
+`ProcessSignal.watch` e `ProcessInfo`). No Windows, soquetes e processos
+ainda devolvem `ERROR_NOT_SUPPORTED` (falta o manipulador com IOCP); o
+`FileSystemWatcher`, o SIMD e as mensagens de controle de soquete
+(`SCM_RIGHTS`) são recusados por membro. O corpus `corpus/nativo/` (só VM ×
+nativo) cobre o `dart:io`: arquivos, diretórios, processos, TCP, HTTP, UDP e
+sinais.
 
 **Recusa por membro.** O membro do SDK que não baixa (construto não
 suportado, native pendente, intrínseco da VM sem entrada, teste de tipo sobre
