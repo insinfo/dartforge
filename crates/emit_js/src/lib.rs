@@ -218,20 +218,6 @@ fn configuracao_de_pacotes(
         .and_then(|p| dartforge_elements::config::PackageConfig::load(&p).ok())
 }
 
-/// Nome do pacote cuja raiz é `raiz` — é ele que aparece nas URIs `asset:`
-/// que o ngdart usa em modo de desenvolvimento.
-fn nome_do_pacote(cfg: &dartforge_elements::config::PackageConfig, raiz: &std::path::Path) -> String {
-    cfg.packages
-        .iter()
-        .find(|(_, p)| {
-            p.root_uri
-                .to_file_path()
-                .is_ok_and(|d| dartforge_elements::config::sem_verbatim(d) == raiz)
-        })
-        .map(|(n, _)| n.clone())
-        .unwrap_or_default()
-}
-
 /// `DARTFORGE_GERADOS_PKGS=a,b` restringe a geração a esses pacotes — serve
 /// para comparar com o disco sem mudar mais nada.
 fn filtro_de_pacotes() -> Option<std::collections::HashSet<String>> {

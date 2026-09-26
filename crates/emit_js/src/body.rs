@@ -1,10 +1,10 @@
 //! Emissor de corpos: escopos, tipos locais, ambiente rti e statements.
 
 use crate::ctx::{Ctx, Member, MemberKind};
-use crate::js::{self, Js, Writer, P_ASSIGN, P_COMMA, P_COND, P_PRIMARY, P_UNARY, P_YIELD};
+use crate::js::{self, Js, Writer, P_ASSIGN, P_COND, P_UNARY};
 use crate::module::ModState;
-use crate::ty::{Ty, TyParam};
-use dartforge_elements::model::{ClassId, Element, FunctionElementId, FunctionKind, LibraryId, UnitId, VariableId};
+use crate::ty::Ty;
+use dartforge_elements::model::{ClassId, Element, FunctionKind, LibraryId, UnitId};
 use dartforge_frontend::ast::{self, Ast, ExprId, FunctionBody, StmtId, StmtKind};
 use dartforge_intern::SymbolId;
 use std::collections::HashMap;

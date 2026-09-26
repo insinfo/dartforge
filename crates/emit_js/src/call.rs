@@ -78,7 +78,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         (js, ty, vec![])
                     }
                     IdentTarget::Element(el) => {
-                        let (js, ty) = self.emit_element_call(el, &n, arguments, expected);
+                        let (js, ty) = self.emit_element_call(el, arguments, expected);
                         (js, ty, vec![])
                     }
                     IdentTarget::ExtThisMember(_) => {
@@ -487,7 +487,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     let sym = self.ctx.sym(name)?;
                     let b = self.ctx.program.lookup_prefixed(self.lib, p, sym)?;
                     let el = b.getter?;
-                    Some(self.emit_element_call(el, name, arguments, expected))
+                    Some(self.emit_element_call(el, arguments, expected))
                 }
                 IdentTarget::Element(Element::Class(c)) => self.static_call_on_class(c, name, arguments, expected),
                 IdentTarget::Element(Element::Extension(ext)) => self.static_extension_call(ext, name, arguments, expected),
@@ -632,7 +632,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    pub fn emit_element_call(&mut self, el: Element, name: &str, arguments: &ast::Arguments, expected: Option<&Ty>) -> (Js, Ty) {
+    pub fn emit_element_call(&mut self, el: Element, arguments: &ast::Arguments, expected: Option<&Ty>) -> (Js, Ty) {
         match el {
             Element::Function(fid) => {
                 let f = self.ctx.program.function(fid);

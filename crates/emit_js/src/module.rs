@@ -1249,7 +1249,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     continue;
                 }
                 let jsname = js_member_name(&name);
-                let mut e_tmp = FnEmitter::new(ctx, m, mu, Some(c), af.static_);
+                let e_tmp = FnEmitter::new(ctx, m, mu, Some(c), af.static_);
                 let key_js = e_tmp.decl_member_key(c, &name);
                 let data = &ctx.outline.functions[feid.0 as usize];
                 let fty = ctx.fn_ty(feid);
@@ -1423,7 +1423,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             }
             let mut args = String::from("...args");
             if generic {
-                let mut e = FnEmitter::new(ctx, m, unit, Some(c), true);
+                let e = FnEmitter::new(ctx, m, unit, Some(c), true);
                 args = format!("{}, ...args", e.rti(&ctx.this_ty_default(c)));
             }
             let call = if cf.factory { format!("{cref}.{jsname}({args})") } else { format!("new {cref}.{jsname}({args})") };
@@ -1996,7 +1996,6 @@ fn emit_super_call_default(ctx: &Ctx, m: &ModState, c: ClassId, body: &mut Write
 
 /// Se a classe tem mixins, o construtor da superclasse imediata é o da última aplicação.
 fn mixin_base_ref(ctx: &Ctx, c: ClassId, sref: &str) -> String {
-    let class = ctx.program.class(c);
     if ctx.mixins_of(c).is_empty() {
         sref.to_string()
     } else {
