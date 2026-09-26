@@ -90,14 +90,14 @@ pub struct Grafo {
 /// Por que uma mensagem não pode ser enviada.
 pub struct MensagemIlegal(pub String);
 
-fn val_de_tagged(v: TaggedValue, mapa: &mut std::collections::HashMap<i64, usize>, pilha: &mut Vec<i64>, nos: &mut Vec<(NoG, i64)>, compartilhar: bool) -> ValG {
+fn val_de_tagged(v: TaggedValue, mapa: &mut crate::hash::HashMap<i64, usize>, pilha: &mut Vec<i64>, nos: &mut Vec<(NoG, i64)>, compartilhar: bool) -> ValG {
     if !v.is_ref || !smi::e_handle(v.bits) {
         return ValG::Bits(v.bits, v.is_ref, v.tag);
     }
     ref_de_handle(v.bits, mapa, pilha, nos, compartilhar)
 }
 
-fn ref_de_handle(h: i64, mapa: &mut std::collections::HashMap<i64, usize>, pilha: &mut Vec<i64>, nos: &mut Vec<(NoG, i64)>, compartilhar: bool) -> ValG {
+fn ref_de_handle(h: i64, mapa: &mut crate::hash::HashMap<i64, usize>, pilha: &mut Vec<i64>, nos: &mut Vec<(NoG, i64)>, compartilhar: bool) -> ValG {
     if !smi::e_handle(h) {
         return ValG::Bits(h, true, ValueTag::Ref);
     }
@@ -136,12 +136,12 @@ fn ref_de_handle(h: i64, mapa: &mut std::collections::HashMap<i64, usize>, pilha
 /// Classes cujo primeiro campo é MOVIDO numa mensagem (o
 /// `TransferableTypedData`): o objeto de origem fica com `null`. Os ids de
 /// classe são do programa, então o registro vale para todos os isolados.
-fn classes_transferiveis() -> std::sync::RwLockReadGuard<'static, std::collections::HashSet<i64>> {
+fn classes_transferiveis() -> std::sync::RwLockReadGuard<'static, crate::hash::HashSet<i64>> {
     transferiveis().read().unwrap_or_else(|e| e.into_inner())
 }
 
-fn transferiveis() -> &'static std::sync::RwLock<std::collections::HashSet<i64>> {
-    static T: std::sync::OnceLock<std::sync::RwLock<std::collections::HashSet<i64>>> = std::sync::OnceLock::new();
+fn transferiveis() -> &'static std::sync::RwLock<crate::hash::HashSet<i64>> {
+    static T: std::sync::OnceLock<std::sync::RwLock<crate::hash::HashSet<i64>>> = std::sync::OnceLock::new();
     T.get_or_init(Default::default)
 }
 
@@ -149,7 +149,7 @@ thread_local! {
     /// Classes cujas instâncias não podem ir numa mensagem (as portas de
     /// recepção; `DartForge_porta_abrir` registra a classe).
     /// Classe → a descrição que a recusa leva (o texto da VM).
-    static NAO_ENVIAVEIS: RefCell<std::collections::HashMap<i64, String>> = RefCell::new(std::collections::HashMap::new());
+    static NAO_ENVIAVEIS: RefCell<crate::hash::HashMap<i64, String>> = RefCell::new(crate::hash::HashMap::default());
     /// A descrição da última mensagem recusada.
     static ULTIMA_RECUSA: RefCell<String> = const { RefCell::new(String::new()) };
 }
@@ -157,7 +157,7 @@ thread_local! {
 /// Copia o valor `raiz` (um valor numa posição `Ref`) para um grafo.
 /// `compartilhar`: o destino é este mesmo isolado.
 fn copiar_para_grafo(raiz: i64, compartilhar: bool) -> Result<Grafo, MensagemIlegal> {
-    let mut mapa = std::collections::HashMap::new();
+    let mut mapa = crate::hash::HashMap::default();
     let mut pilha = Vec::new();
     let mut nos: Vec<(NoG, i64)> = Vec::new();
     let mut tipos = (!compartilhar).then(TiposDaMensagem::default);
@@ -486,7 +486,7 @@ fn materializar(g: &Grafo) -> i64 {
     // Os tipos da mensagem no universo deste isolado, e os objetos `Type`
     // canônicos dela (fora do empréstimo do heap).
     let ids_de_tipo = g.tipos.as_ref().map(TiposDaMensagem::importar);
-    let mut objetos_tipo: std::collections::HashMap<usize, i64> = std::collections::HashMap::new();
+    let mut objetos_tipo: crate::hash::HashMap<usize, i64> = crate::hash::HashMap::default();
     if let Some(ids) = &ids_de_tipo {
         for (i, (no, _)) in g.nos.iter().enumerate() {
             if let NoG::Object { class_id: CLASSE_TIPO, fields } = no
@@ -499,8 +499,8 @@ fn materializar(g: &Grafo) -> i64 {
     // As constantes canônicas deste isolado, pelos getters (fora do
     // empréstimo do heap: o getter é código gerado, que aloca na primeira
     // vez). São permanentes: não precisam de raiz durante a montagem.
-    let mut canonicas: std::collections::HashMap<usize, i64> = std::collections::HashMap::new();
-    let mut tearoffs: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
+    let mut canonicas: crate::hash::HashMap<usize, i64> = crate::hash::HashMap::default();
+    let mut tearoffs: crate::hash::HashMap<i64, i64> = crate::hash::HashMap::default();
     g.visitar_valores(|v| match *v {
         ValG::Constante(getter) => {
             canonicas.entry(getter).or_insert_with(|| {
@@ -706,8 +706,8 @@ enum Dono {
     Nativo(ServicoNativo),
 }
 
-fn registro() -> &'static std::sync::Mutex<std::collections::HashMap<i64, Dono>> {
-    static R: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<i64, Dono>>> = std::sync::OnceLock::new();
+fn registro() -> &'static std::sync::Mutex<crate::hash::HashMap<i64, Dono>> {
+    static R: std::sync::OnceLock<std::sync::Mutex<crate::hash::HashMap<i64, Dono>>> = std::sync::OnceLock::new();
     R.get_or_init(Default::default)
 }
 
@@ -726,7 +726,7 @@ thread_local! {
         })
     };
     /// Portas abertas deste isolado → se mantêm o isolado vivo.
-    static PORTAS_ABERTAS: RefCell<std::collections::HashMap<i64, bool>> = RefCell::new(std::collections::HashMap::new());
+    static PORTAS_ABERTAS: RefCell<crate::hash::HashMap<i64, bool>> = RefCell::new(crate::hash::HashMap::default());
     /// A mensagem em despacho: (porta, valor), o valor enraizado.
     static ATUAL: RefCell<(i64, i64)> = const { RefCell::new((0, 0)) };
     /// O despachante Dart (`_RawReceivePort._despachar`), enraizado.

@@ -1106,7 +1106,7 @@ fn converter_allocas(func: &mut Function, quadro: &Operand, base: usize, prox: &
 }
 
 /// Os valores lidos por uma instrução.
-fn usos_de(inst: &Instruction) -> Vec<ValueId> {
+pub(crate) fn usos_de(inst: &Instruction) -> Vec<ValueId> {
     let mut u = Vec::new();
     let mut op = |o: &Operand| {
         if let Operand::Val(v) = o {
@@ -1358,7 +1358,7 @@ fn trocar_usos(inst: &mut Instruction, troca: &dyn Fn(ValueId) -> Option<ValueId
     }
 }
 
-fn usos_do_terminador(term: &Terminator) -> Vec<ValueId> {
+pub(crate) fn usos_do_terminador(term: &Terminator) -> Vec<ValueId> {
     let op = |o: &Operand| match o {
         Operand::Val(v) => Some(*v),
         _ => None,
@@ -1387,7 +1387,7 @@ fn trocar_no_terminador(term: &mut Terminator, troca: &dyn Fn(ValueId) -> Option
     }
 }
 
-fn sucessores(term: &Terminator) -> Vec<BlockId> {
+pub(crate) fn sucessores(term: &Terminator) -> Vec<BlockId> {
     match term {
         Terminator::Branch(b) => vec![*b],
         Terminator::CondBranch { then_block, else_block, .. } => vec![*then_block, *else_block],

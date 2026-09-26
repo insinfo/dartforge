@@ -13,6 +13,7 @@
 //! flags semânticas são as mesmas nos dois (opt-level 2, sem overflow-checks,
 //! sem debug-assertions): o `Cargo.toml` da raiz fixa o perfil deste crate no
 //! que o `rustc -O` do AOT dá. O teste `tests/fonte_unica.rs` confere.
+pub mod hash;
 pub mod heap;
 
 /// O harness do runtime, compilado como módulo: tudo o que o executável AOT
@@ -37,6 +38,9 @@ pub mod simbolos {
 /// Programa Rust 2024 completo: heap e harness ligados ao objeto LLVM.
 /// O compilador mantém referências vivas por frames e tags de campos explícitas.
 pub const RUNTIME_MAIN: &str = concat!(
+    "mod hash {\n",
+    include_str!("hash.rs"),
+    "\n}\n",
     "mod heap {\n",
     include_str!("heap.rs"),
     "\n}\n",

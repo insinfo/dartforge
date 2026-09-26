@@ -26,7 +26,7 @@
 //!    fragmentos, exceto o `main`. Nenhum nome é escrito à mão; tomar o
 //!    endereço também impede o linker de descartar as funções do rlib.
 //!
-//! Um arquivo novo em `src/` que não seja `lib.rs`, `heap.rs` nem fragmento
+//! Um arquivo novo em `src/` que não seja `lib.rs`, `heap.rs`, `hash.rs` nem fragmento
 //! listado derruba o build: um fragmento esquecido fora da lista seria código
 //! do runtime que nenhum dos dois perfis compila.
 use std::path::PathBuf;
@@ -174,7 +174,7 @@ fn main() {
     std::fs::write(out.join("abi.rs"), abi).expect("gravar abi.rs");
 }
 
-/// Todo `src/*.rs` é `lib.rs`, `heap.rs` ou um fragmento listado.
+/// Todo `src/*.rs` é `lib.rs`, `heap.rs`, `hash.rs` ou um fragmento listado.
 fn conferir_lista(src: &std::path::Path) {
     let entradas = std::fs::read_dir(src).unwrap_or_else(|e| panic!("ler {}: {e}", src.display()));
     for entrada in entradas {
@@ -184,7 +184,7 @@ fn conferir_lista(src: &std::path::Path) {
         }
         let nome = caminho.file_stem().and_then(|s| s.to_str()).unwrap_or("");
         assert!(
-            nome == "lib" || nome == "heap" || FRAGMENTOS.contains(&nome),
+            nome == "lib" || nome == "heap" || nome == "hash" || FRAGMENTOS.contains(&nome),
             "{} não é fragmento do runtime: acrescente \"{nome}\" a FRAGMENTOS em crates/runtime/build.rs",
             caminho.display()
         );

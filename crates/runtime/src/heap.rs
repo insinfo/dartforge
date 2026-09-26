@@ -873,29 +873,29 @@ pub struct Heap {
     ///
     /// Padrao 256 MiB; `DARTFORGE_HEAP_MAX_MB` ajusta, e 0 desliga o teto.
     limite_bytes: usize,
-    enum_values: std::collections::HashMap<(i64, i64), i64>,
+    enum_values: crate::hash::HashMap<(i64, i64), i64>,
     /// Tear-offs canônicos de funções top-level, por ID de código.
     ///
     /// O oráculo Dart 3.6.2 exige `identical(f, f)` verdadeiro para dois
     /// tear-offs da mesma função top-level; cada `code_id` tem um único handle,
     /// mantido vivo como raiz permanente, como os singletons de enum.
-    tearoffs: std::collections::HashMap<i64, i64>,
+    tearoffs: crate::hash::HashMap<i64, i64>,
     /// Literais do compilador, canônicos por unidades UTF-16. Permanecem
     /// enraizados pelo isolate; strings criadas em execução não entram aqui.
-    literais: std::collections::HashMap<Vec<u16>, i64>,
+    literais: crate::hash::HashMap<Vec<u16>, i64>,
     /// Objetos permanentes e imutáveis que uma mensagem entre portas do
     /// mesmo isolado passa pela identidade, sem copiar (a VM compartilha os
     /// profundamente imutáveis): constantes canônicas, valores de enum e
     /// globais `const` (o código gerado os marca, `dartforge_marcar_permanente`),
     /// tear-offs de topo e literais.
-    permanentes: std::collections::HashSet<i64>,
+    permanentes: crate::hash::HashSet<i64>,
     /// Constante canônica → o getter gerado que a produz (o mesmo endereço
     /// em todos os isolados): uma mensagem para outro isolado leva o getter,
     /// e o destino recebe a própria instância canônica (`identical` entre
     /// isolados, como os objetos compartilhados do grupo da VM).
-    constantes: std::collections::HashMap<i64, usize>,
+    constantes: crate::hash::HashMap<i64, usize>,
     /// Tear-off canônico → o código dele (o inverso de `tearoffs`).
-    codigo_do_tearoff: std::collections::HashMap<i64, i64>,
+    codigo_do_tearoff: crate::hash::HashMap<i64, i64>,
     /// `DARTFORGE_GC_OFF=1`: nunca coleta. Instrumento de diagnóstico
     /// (docs/NATIVO-PLANO.md §6): um programa que morre com "handle já
     /// coletado" e passa com a coleta desligada tem raiz faltando; um que
@@ -903,7 +903,7 @@ pub struct Heap {
     gc_desligado: bool,
     /// Valor corrente de cada global `Ref` do programa (variável de topo ou
     /// campo estático), por id: raízes permanentes (N6/G6 do contrato).
-    globais: std::collections::HashMap<i64, i64>,
+    globais: crate::hash::HashMap<i64, i64>,
     /// As caixas de `false` e `true` (0 = ainda não alocada), permanentes.
     caixas_bool: [i64; 2],
     /// Raízes que moram no runtime e não num frame (G6): a exceção pendente
@@ -913,35 +913,35 @@ pub struct Heap {
     /// `thread_local`s do runtime, porque são purgadas a cada coleta (G6):
     /// um slot reutilizado herdaria a marca "imutável" ou "em iteração" de
     /// outro objeto.
-    pub imutaveis: std::collections::HashSet<i64>,
+    pub imutaveis: crate::hash::HashSet<i64>,
     /// Campos `late` já escritos, por handle e índice físico. A marca fica
     /// fora do valor: zero e null são atribuições válidas do programa.
-    pub campos_late_inicializados: std::collections::HashSet<(i64, i64)>,
+    pub campos_late_inicializados: crate::hash::HashSet<(i64, i64)>,
     /// Listas de tamanho fixo (`_List` do SDK da fonte, P5c).
-    pub fixas: std::collections::HashSet<i64>,
+    pub fixas: crate::hash::HashSet<i64>,
     /// `_GrowableList` criada por `_withData(data)` (P5c): o vetor tem os
     /// elementos de `data` (a reserva) e o tamanho lógico ainda é este, até
     /// o primeiro `_setLength`/`_setData` — na VM a lista aponta para o
     /// `_List` e o tamanho é outro campo.
-    pub pendentes: std::collections::HashMap<i64, usize>,
-    pub iteracoes_ativas: std::collections::HashSet<i64>,
+    pub pendentes: crate::hash::HashMap<i64, usize>,
+    pub iteracoes_ativas: crate::hash::HashSet<i64>,
     /// Lista de chaves → mapa de origem (para acusar modificação do mapa
     /// durante a iteração das chaves).
-    pub origens: std::collections::HashMap<i64, i64>,
+    pub origens: crate::hash::HashMap<i64, i64>,
     /// Pares nativos finalizáveis (o `Dart_NewFinalizableHandle` da VM):
     /// objeto → (finalizador, par). Quando o objeto morre, a coleta tira a
     /// entrada e chama `finalizador(par)` — que só libera recursos do
     /// sistema (fecha um arquivo, solta uma contagem de referências) e nunca
     /// toca o heap.
-    pub finalizaveis: std::collections::HashMap<i64, Finalizador>,
+    pub finalizaveis: crate::hash::HashMap<i64, Finalizador>,
     /// As referências fracas (`WeakReference`, o `WeakReference_*` da VM):
     /// objeto portador → alvo. O alvo NÃO é seguido pela marcação; se não
     /// sobreviver por outro caminho, a coleta o troca por 0 (null).
-    pub fracas: std::collections::HashMap<i64, i64>,
+    pub fracas: crate::hash::HashMap<i64, i64>,
     /// Os efêmeros (`_WeakProperty`, a base do `Expando`): portador →
     /// (chave, valor). O valor só é alcançado se a chave for (ponto fixo na
     /// marcação); chave morta zera os dois.
-    pub efemeros: std::collections::HashMap<i64, (i64, i64)>,
+    pub efemeros: crate::hash::HashMap<i64, (i64, i64)>,
     /// Os anexos de `Finalizer`/`NativeFinalizer` (o `FinalizerEntry` da
     /// VM): o valor e a chave de `detach` são fracos; o dono e a ação,
     /// fortes. Valor morto: a ação de um `Finalizer` vai para
@@ -1008,25 +1008,25 @@ impl Heap {
             pending: Vec::new(),
             byte_threshold: 1024 * 1024,
             limite_bytes: Self::limite_do_ambiente(),
-            enum_values: std::collections::HashMap::new(),
-            tearoffs: std::collections::HashMap::new(),
-            literais: std::collections::HashMap::new(),
-            permanentes: std::collections::HashSet::new(),
-            constantes: std::collections::HashMap::new(),
-            codigo_do_tearoff: std::collections::HashMap::new(),
+            enum_values: crate::hash::HashMap::default(),
+            tearoffs: crate::hash::HashMap::default(),
+            literais: crate::hash::HashMap::default(),
+            permanentes: crate::hash::HashSet::default(),
+            constantes: crate::hash::HashMap::default(),
+            codigo_do_tearoff: crate::hash::HashMap::default(),
             gc_desligado: std::env::var("DARTFORGE_GC_OFF").as_deref() == Ok("1"),
-            globais: std::collections::HashMap::new(),
+            globais: crate::hash::HashMap::default(),
             caixas_bool: [0, 0],
             raizes_do_runtime: [0, 0],
-            imutaveis: std::collections::HashSet::new(),
-            campos_late_inicializados: std::collections::HashSet::new(),
-            fixas: std::collections::HashSet::new(),
-            pendentes: std::collections::HashMap::new(),
-            iteracoes_ativas: std::collections::HashSet::new(),
-            origens: std::collections::HashMap::new(),
-            finalizaveis: std::collections::HashMap::new(),
-            fracas: std::collections::HashMap::new(),
-            efemeros: std::collections::HashMap::new(),
+            imutaveis: crate::hash::HashSet::default(),
+            campos_late_inicializados: crate::hash::HashSet::default(),
+            fixas: crate::hash::HashSet::default(),
+            pendentes: crate::hash::HashMap::default(),
+            iteracoes_ativas: crate::hash::HashSet::default(),
+            origens: crate::hash::HashMap::default(),
+            finalizaveis: crate::hash::HashMap::default(),
+            fracas: crate::hash::HashMap::default(),
+            efemeros: crate::hash::HashMap::default(),
             anexos: Vec::new(),
             finalizacoes_prontas: std::collections::VecDeque::new(),
         }

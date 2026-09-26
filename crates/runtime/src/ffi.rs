@@ -20,14 +20,14 @@
 const HANDLE_DO_PROCESSO: i64 = i64::MIN + 1;
 
 /// Classe RTI → letra do tipo C (`TipoC::letra` do compilador).
-fn tipos_nativos() -> &'static std::sync::RwLock<std::collections::HashMap<i64, char>> {
-    static T: std::sync::OnceLock<std::sync::RwLock<std::collections::HashMap<i64, char>>> = std::sync::OnceLock::new();
+fn tipos_nativos() -> &'static std::sync::RwLock<crate::hash::HashMap<i64, char>> {
+    static T: std::sync::OnceLock<std::sync::RwLock<crate::hash::HashMap<i64, char>>> = std::sync::OnceLock::new();
     T.get_or_init(Default::default)
 }
 
 /// Chave da assinatura → entrada do trampolim.
-fn trampolins() -> &'static std::sync::RwLock<std::collections::HashMap<String, usize>> {
-    static T: std::sync::OnceLock<std::sync::RwLock<std::collections::HashMap<String, usize>>> = std::sync::OnceLock::new();
+fn trampolins() -> &'static std::sync::RwLock<crate::hash::HashMap<String, usize>> {
+    static T: std::sync::OnceLock<std::sync::RwLock<crate::hash::HashMap<String, usize>>> = std::sync::OnceLock::new();
     T.get_or_init(Default::default)
 }
 
@@ -668,8 +668,8 @@ struct CompostoFfi {
 
 /// Classe RTI → composto (os ids de classe são do programa, iguais em todo
 /// isolado).
-fn compostos_ffi() -> &'static std::sync::RwLock<std::collections::HashMap<i64, CompostoFfi>> {
-    static C: std::sync::OnceLock<std::sync::RwLock<std::collections::HashMap<i64, CompostoFfi>>> = std::sync::OnceLock::new();
+fn compostos_ffi() -> &'static std::sync::RwLock<crate::hash::HashMap<i64, CompostoFfi>> {
+    static C: std::sync::OnceLock<std::sync::RwLock<crate::hash::HashMap<i64, CompostoFfi>>> = std::sync::OnceLock::new();
     C.get_or_init(Default::default)
 }
 
@@ -754,7 +754,7 @@ pub unsafe extern "C" fn dartforge_ffi_simbolo_nativo(nome: *const u8, n: i64) -
     // SAFETY: garantido por quem chama (uma constante do módulo).
     let nome = unsafe { std::slice::from_raw_parts(nome, usize::try_from(n).unwrap_or(0)) };
     let nome = String::from_utf8_lossy(nome).into_owned();
-    static CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, i64>>> = std::sync::OnceLock::new();
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<crate::hash::HashMap<String, i64>>> = std::sync::OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
     if let Some(&e) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(&nome) {
         return e;

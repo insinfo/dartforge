@@ -270,8 +270,8 @@ impl ArenaDeCObject {
 type HandlerDePortaNativa = extern "C" fn(i64, *mut u8);
 
 /// As portas nativas abertas: id → fila da thread que as atende.
-fn portas_nativas() -> &'static std::sync::Mutex<std::collections::HashMap<i64, std::sync::mpsc::Sender<(i64, Grafo)>>> {
-    static T: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<i64, std::sync::mpsc::Sender<(i64, Grafo)>>>> =
+fn portas_nativas() -> &'static std::sync::Mutex<crate::hash::HashMap<i64, std::sync::mpsc::Sender<(i64, Grafo)>>> {
+    static T: std::sync::OnceLock<std::sync::Mutex<crate::hash::HashMap<i64, std::sync::mpsc::Sender<(i64, Grafo)>>>> =
         std::sync::OnceLock::new();
     T.get_or_init(Default::default)
 }
