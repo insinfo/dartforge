@@ -114,7 +114,16 @@ fn etapa(inicio: std::time::Instant, nome: &str) {
 fn executar_pelo_jit(dir: &Path, ir: &str) -> Execucao {
     let arquivo = dir.join("programa.ll");
     std::fs::write(&arquivo, ir).unwrap();
-    executar(&mut Command::new(env!("CARGO_BIN_EXE_dartforge-executar-ir")).arg(&arquivo))
+    let mut comando = Command::new(env!("CARGO_BIN_EXE_dartforge-executar-ir"));
+    comando.arg(&arquivo);
+    // O IR com o SDK da fonte (o padrão) importa o runtime e o SDK da
+    // biblioteca compartilhada, que o executor recebe pelo ambiente, como o
+    // `dartforge run` a acha no cache.
+    if dartforge_jit::ir_usa_sdk_da_fonte(ir) && std::env::var_os("DARTFORGE_SDK_DLL").is_none() {
+        let dll = dartforge_emit_native::sdk_modulo::dll_do_sdk_da_fonte().expect("biblioteca do SDK da fonte");
+        comando.env("DARTFORGE_SDK_DLL", dll);
+    }
+    executar(&mut comando)
 }
 
 // ─── Tabela de símbolos × emissor, sem LLVM ───────────────────────────────

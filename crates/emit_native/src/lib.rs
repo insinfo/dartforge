@@ -131,6 +131,36 @@ pub fn sdk_do_dart() -> Result<PathBuf, String> {
 /// [`emitir_ir`] escolhendo o SDK: da fonte (P5c/P5d, `sdk_modulo`) ou o
 /// runtime por nome de antes.
 pub fn emitir_ir_com(entrada: &Path, options: &CompileOptions, da_fonte: bool) -> Result<IrEmitido, String> {
+    emitir_ir_interno(entrada, options, da_fonte, None)
+}
+
+/// [`emitir_ir`] de uma geração nova de um programa em execução (o hot
+/// reload do JIT): `ir_anterior` é o IR da geração viva, de onde sai o layout
+/// da área de globais que a geração nova estende ([`area_do_ir`]).
+pub fn emitir_ir_recarregavel(entrada: &Path, options: &CompileOptions, ir_anterior: Option<&str>) -> Result<IrEmitido, String> {
+    let area = ir_anterior.and_then(area_do_ir);
+    emitir_ir_interno(entrada, options, sdk_modulo::sdk_da_fonte_pedido(), area)
+}
+
+/// Os nomes (hashes) dos slots da área de globais do programa no IR `ir`:
+/// o `@df.area = … [chave, n, nome_0…]` que o emissor escreve.
+pub fn area_do_ir(ir: &str) -> Option<Vec<i64>> {
+    let linha = ir.lines().find(|l| l.starts_with("@df.area = "))?;
+    let lista = &linha[linha.rfind('[')? + 1..linha.rfind(']')?];
+    let valores: Vec<i64> = lista
+        .split(',')
+        .map(|v| v.trim().strip_prefix("i64 ").and_then(|n| n.trim().parse().ok()))
+        .collect::<Option<_>>()?;
+    let n = usize::try_from(*valores.get(1)?).ok()?;
+    (valores.len() == n + 2).then(|| valores[2..].to_vec())
+}
+
+fn emitir_ir_interno(
+    entrada: &Path,
+    options: &CompileOptions,
+    da_fonte: bool,
+    area_anterior: Option<Vec<i64>>,
+) -> Result<IrEmitido, String> {
     // 1. Carregamento e Inferência (Front-end)
     let t_front = Instant::now();
     let sdk_dir = match options.sdk {
@@ -228,7 +258,7 @@ pub fn emitir_ir_com(entrada: &Path, options: &CompileOptions, da_fonte: bool) -
 
     // 3. Emissão de LLVM IR
     let t_llvm = Instant::now();
-    let emitter = llvm::LlvmEmitter::new(&hir_module);
+    let emitter = llvm::LlvmEmitter::new(&hir_module).com_area_anterior(area_anterior);
     let llvm_ir = emitter.emit_all();
     let llvm_duration = t_llvm.elapsed();
 
@@ -456,7 +486,7 @@ mod testes {
 
         let assincrono = emitir_fonte("Future<int> f() async { await null; return 2; }\nFuture<void> main() async { print(await f()); }\n");
         assert!(assincrono.texto.contains("call void @dartforge_laco_de_eventos(ptr @dartforge_chamar_dart0)"));
-        assert!(assincrono.texto.contains("define i64 @df.main$2edart..f$async("), "o corpo da máquina de estados");
+        assert!(assincrono.texto.contains("define i64 @df.main$2edart..f$async$q"), "o corpo da máquina de estados");
         assert!(assincrono.texto.contains("@df.dart$3aasync.._asyncAwait("));
         assert!(assincrono.bytes_sdk > 0);
     }

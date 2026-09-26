@@ -64,7 +64,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 use std::ffi::CString;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
 use std::time::{Duration, Instant};
 
 use crate::ffi::{self, FunctionSignature};
@@ -107,6 +107,10 @@ pub struct HotReloadReport {
     pub publish: Duration,
     /// Aposentadoria do código antigo; zero enquanto a política é de retenção.
     pub retire: Duration,
+    /// Espera pelo ponto seguro do programa em execução (recarga ao vivo):
+    /// do pedido até a publicação rodar na thread do programa. Zero quando
+    /// a publicação roda direto (nenhum programa em execução).
+    pub safepoint_wait: Duration,
     /// Chamada completa de [`JitSession::hot_reload`].
     pub total: Duration,
     /// Bytes de IR textual analisados, para separar tempo de tamanho.
@@ -150,6 +154,8 @@ pub(crate) struct Reloadable {
     pub(crate) entries: BTreeMap<String, Entry>,
     /// Layout nominal das classes da versão viva: `(class_id, campos)`.
     layouts: Vec<(i64, i64)>,
+    /// Nomes das classes registradas pela versão viva: `(class_id, nome)`.
+    class_names: Vec<(i64, String)>,
     /// Globais mutáveis da geração ativa, reiniciadas em `run_entry`/`run_main`.
     pub(crate) globals: Vec<ffi::MutableGlobal>,
     /// Rastreadores das gerações, **retidos** até o encerramento da sessão.
@@ -177,7 +183,7 @@ pub(crate) struct Reloadable {
 #[derive(Debug, Clone)]
 pub struct StableEntry {
     name: String,
-    address: u64,
+    pub(crate) address: u64,
     signature: FunctionSignature,
     session: u64,
 }
@@ -296,7 +302,7 @@ impl JitSession {
                 ),
             });
         }
-        self.install_generation(name, ir)
+        self.install_generation(name, ir, None)
     }
 
     /// Publica uma versão nova do módulo `name`, preservando o estado da sessão.
@@ -380,7 +386,25 @@ impl JitSession {
                 ),
             });
         }
-        self.install_generation(name, novo_ir)
+        self.install_generation(name, novo_ir, None)
+    }
+
+    /// [`JitSession::hot_reload`] com a publicação entregue a `ponto_seguro`,
+    /// que a roda na thread do programa em execução, entre dois eventos do
+    /// laço do isolado principal (`crate::vivo`), e só retorna depois.
+    pub(crate) fn hot_reload_no_ponto_seguro(
+        &mut self,
+        name: &str,
+        novo_ir: &str,
+        ponto_seguro: &mut dyn FnMut(ffi::Tarefa),
+    ) -> Result<HotReloadReport, JitError> {
+        if !self.reloadables.iter().any(|module| module.name == name) {
+            return Err(JitError {
+                stage: "contract",
+                message: format!("nenhum módulo recarregável chamado '{name}' está carregado nesta sessão"),
+            });
+        }
+        self.install_generation(name, novo_ir, Some(ponto_seguro))
     }
 
     /// Resolve uma entrada estável e devolve seu endereço com a assinatura.
@@ -458,7 +482,12 @@ impl JitSession {
     /// Serve tanto à primeira geração ([`JitSession::add_reloadable_module`])
     /// quanto às recargas ([`JitSession::hot_reload`]); a diferença está apenas
     /// em o que existe antes.
-    fn install_generation(&mut self, name: &str, ir: &str) -> Result<HotReloadReport, JitError> {
+    fn install_generation(
+        &mut self,
+        name: &str,
+        ir: &str,
+        ponto_seguro: Option<&mut dyn FnMut(ffi::Tarefa)>,
+    ) -> Result<HotReloadReport, JitError> {
         let started = Instant::now();
         if let Some(motivo) = self.poisoned.clone() {
             return Err(JitError {
@@ -477,6 +506,7 @@ impl JitSession {
         let phase = Instant::now();
         let signatures = parsed.signatures();
         let layouts = parsed.class_layouts();
+        let class_names = parsed.class_names();
         let references = parsed.declarations();
         let existing = self.reloadables.iter().position(|m| m.name == name);
         let plain = self.plain_module_index(name, existing.is_some());
@@ -518,12 +548,40 @@ impl JitSession {
             (None, Some(index)) => &self.modules[index].layouts,
             (None, None) => &[],
         };
+        let previous_names: &[(i64, String)] = match (existing, plain) {
+            (Some(index), _) => &self.reloadables[index].class_names,
+            (None, Some(index)) => &self.modules[index].class_names,
+            (None, None) => &[],
+        };
         check_contract(&previous, previous_layouts, &signatures, &layouts).map_err(|message| {
             JitError {
                 stage: "contract",
                 message,
             }
         })?;
+        check_class_names(previous_names, &class_names).map_err(|message| JitError { stage: "contract", message })?;
+        // A publicação refaz os registros do programa (tabelas de métodos,
+        // regras da RTI) quando já houve uma geração: o programa em execução
+        // tem os da anterior. As funções de registro são entradas da própria
+        // geração; o runtime que as recebe é o da sessão.
+        let registros = if existing.is_some() {
+            let tem = |nome: &str| signatures.iter().any(|s| s.name == nome && s.ret == "void" && s.params.is_empty());
+            let area = tem(PREPARO_DA_AREA);
+            let registrar = tem(REGISTRO_DO_PROGRAMA);
+            let rti = tem(INICIO_DA_RTI);
+            if area || registrar || rti {
+                let runtime = match &self.sdk_dll {
+                    Some(dll) => ffi::RuntimeDaRecarga::da_biblioteca(dll)
+                        .map_err(|detail| JitError::new("contract", "o runtime da sessão não publica gerações", detail))?,
+                    None => ffi::RuntimeDaRecarga::embutido(),
+                };
+                Some((runtime, area, registrar, rti))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         // Dados externos não aparecem em `declarations()`, que percorre só
         // funções. Resolver aqui também detecta dados ausentes antes da janela
         // destrutiva da promoção. Um símbolo já publicado pela LLJIT, inclusive
@@ -727,7 +785,9 @@ impl JitSession {
         // O código da geração nova já foi ligado, mas as entradas estáveis
         // ainda chamam a antiga. Preserve apenas os estáticos do programa;
         // caches de seletor guardam endereços da geração anterior e devem
-        // começar vazios.
+        // começar vazios. A cópia em si é da publicação: o programa pode
+        // estar escrevendo neles até o ponto seguro.
+        let mut copias = Vec::new();
         for next in &globals {
             if !static_do_programa(&next.logical_name) {
                 continue;
@@ -735,14 +795,33 @@ impl JitSession {
             let Some(previous) = previous_globals.iter().find(|g| g.logical_name == next.logical_name) else {
                 continue;
             };
-            if let Err(detail) = self.lljit.copy_global(previous, next) {
-                let error = JitError::new("link", "não foi possível preservar um estático", detail);
-                let _ = tracker.remove();
-                let orfas = std::mem::take(&mut slots);
-                self.register_unimplemented(name, orfas, &published, stub_tracker.take());
-                return Err(self.poison_if(promoted, error));
+            match self.lljit.copia_de_global(previous, next) {
+                Ok(copia) => copias.push(copia),
+                Err(detail) => {
+                    let error = JitError::new("link", "não foi possível preservar um estático", detail);
+                    let _ = tracker.remove();
+                    let orfas = std::mem::take(&mut slots);
+                    self.register_unimplemented(name, orfas, &published, stub_tracker.take());
+                    return Err(self.poison_if(promoted, error));
+                }
             }
         }
+        // Os trampolins das funções de registro, resolvidos antes da
+        // publicação (a tarefa só leva endereços).
+        let registros = match registros {
+            Some((runtime, area, registrar, rti)) => {
+                let endereco = |sessao: &Self, nome: &str, pedido: bool| -> Result<Option<u64>, JitError> {
+                    if pedido { sessao.lookup(nome).map(Some) } else { Ok(None) }
+                };
+                Some((
+                    runtime,
+                    endereco(self, PREPARO_DA_AREA, area)?,
+                    endereco(self, REGISTRO_DO_PROGRAMA, registrar)?,
+                    endereco(self, INICIO_DA_RTI, rti)?,
+                ))
+            }
+            None => None,
+        };
         let link = phase.elapsed();
 
         // Publicação: a troca dos ponteiros. Daqui em diante toda chamada nova
@@ -750,37 +829,59 @@ impl JitSession {
         let phase = Instant::now();
         let index = self.index_or_create(name);
         let module = &mut self.reloadables[index];
+        // As entradas novas entram já registradas (a célula ainda nula:
+        // nenhum código publicado as chama); a tarefa só leva endereços.
+        let mut trocas = Vec::with_capacity(published.len());
         for (signature, address) in published.iter().zip(&addresses) {
-            let slot = match slots.remove(&signature.name) {
-                Some(cell) => cell,
-                None => {
-                    let entry = module
-                        .entries
-                        .get_mut(&signature.name)
-                        .expect("a verificação de contrato garante a entrada existente");
-                    entry.slot.store(*address as usize, Ordering::Release);
-                    entry.generation = generation;
-                    continue;
-                }
-            };
-            slot.store(*address as usize, Ordering::Release);
-            module.entries.insert(
-                signature.name.clone(),
-                Entry {
-                    signature: signature.clone(),
-                    slot,
-                    generation,
-                },
-            );
+            if let Some(slot) = slots.remove(&signature.name) {
+                module.entries.insert(
+                    signature.name.clone(),
+                    Entry { signature: signature.clone(), slot, generation: 0 },
+                );
+            }
+            let entry = module
+                .entries
+                .get(&signature.name)
+                .expect("a verificação de contrato garante a entrada existente");
+            trocas.push((ffi::Celula::de(&entry.slot), *address as usize));
+        }
+        let tarefa: ffi::Tarefa = Box::new(move || {
+            for copia in copias {
+                copia.aplicar();
+            }
+            for (celula, implementacao) in trocas {
+                celula.publicar(implementacao);
+            }
+            if let Some((runtime, area, registrar, rti)) = registros {
+                runtime.publicar_registros(area, registrar, rti);
+            }
+        });
+        let espera = Instant::now();
+        let safepoint_wait = match ponto_seguro {
+            Some(executar) => {
+                executar(tarefa);
+                espera.elapsed()
+            }
+            None => {
+                tarefa();
+                Duration::ZERO
+            }
+        };
+        let module = &mut self.reloadables[index];
+        for signature in &published {
+            if let Some(entry) = module.entries.get_mut(&signature.name) {
+                entry.generation = generation;
+            }
         }
         module.generation = generation;
         module.layouts = layouts;
+        module.class_names = class_names;
         module.globals = globals;
         module.generations.push(tracker);
         if let Some(created) = stub_tracker {
             module.stubs.push(created);
         }
-        let publish = phase.elapsed();
+        let publish = phase.elapsed().saturating_sub(safepoint_wait);
 
         // Fase 3: aposentar. A política de retenção não libera nada, e o campo
         // existe para que o relatório não esconda a etapa que falta.
@@ -801,6 +902,7 @@ impl JitSession {
             link,
             publish,
             retire,
+            safepoint_wait,
             total: started.elapsed(),
             ir_bytes: ir.len(),
             entries: published.len(),
@@ -820,6 +922,7 @@ impl JitSession {
             generation: 0,
             entries: BTreeMap::new(),
             layouts: Vec::new(),
+            class_names: Vec::new(),
             globals: Vec::new(),
             generations: Vec::new(),
             stubs: Vec::new(),
@@ -923,15 +1026,11 @@ fn check_contract(
         ));
     }
     for old in previous {
+        // Uma função que sumiu do código novo continua com o corpo antigo: o
+        // código novo não a chama, e uma closure ou um tear-off antigo que
+        // ainda a alcance executa a versão em que foi criado — como na VM.
         match new.iter().find(|signature| signature.name == old.name) {
-            None => {
-                return Err(format!(
-                    "a função {} existe na versão em execução e não existe no código novo; \
-                     a entrada estável dela ficaria presa no corpo antigo, então a recarga é \
-                     recusada — reinicie a sessão",
-                    old.name
-                ));
-            }
+            None => {}
             Some(novo) if novo.text() != old.text() => {
                 return Err(format!(
                     "a assinatura de {} mudou de {} para {}; \
@@ -953,6 +1052,29 @@ fn check_contract(
                 "a classe de id {class} tinha {fields} campos e passou a ter {novos}; \
                  os objetos já vivos no heap gerenciado mantêm o layout antigo, então a recarga \
                  é recusada — reinicie a sessão"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// As funções que a publicação de uma geração chama: a área de globais com
+/// o layout dela e os registros que ela refaz.
+const PREPARO_DA_AREA: &str = "df.preparar_area";
+const REGISTRO_DO_PROGRAMA: &str = "df.registrar.programa";
+const INICIO_DA_RTI: &str = "dartforge_rti_iniciar";
+
+/// Os ids de classe do programa são posicionais: uma edição que insere ou
+/// reordena classes troca a classe de um id que já tem objetos no heap.
+///
+/// # Erros
+/// Nomeia o id, a classe da versão viva e a do código novo.
+fn check_class_names(previous: &[(i64, String)], new: &[(i64, String)]) -> Result<(), String> {
+    for (id, antigo) in previous {
+        if let Some((_, novo)) = new.iter().find(|(candidato, novo)| candidato == id && novo != antigo) {
+            return Err(format!(
+                "a classe de id {id} era {antigo} e passou a ser {novo} (classes inseridas ou reordenadas); \
+                 os objetos já vivos no heap têm o id antigo, então a recarga é recusada — reinicie a sessão"
             ));
         }
     }
@@ -1081,13 +1203,20 @@ mod tests {
         assert!(erro.contains("reiniciar a sessão"), "{erro}");
     }
 
-    /// Função que desaparece é recusada, porque a entrada ficaria no corpo antigo.
+    /// Função que desaparece mantém o corpo antigo: não é recusa.
     #[test]
-    fn contract_rejects_a_vanished_function() {
+    fn contract_keeps_a_vanished_function() {
         let antes = vec![signature("df_fn_0", "i64", &[])];
-        let erro = check_contract(&antes, &[], &[], &[]).unwrap_err();
-        assert!(erro.contains("df_fn_0"), "{erro}");
-        assert!(erro.contains("corpo antigo"), "{erro}");
+        assert!(check_contract(&antes, &[], &[], &[]).is_ok());
+    }
+
+    /// Um id de classe que passa a ser de outra classe é recusado.
+    #[test]
+    fn class_names_reject_a_renumbered_class() {
+        let antes = vec![(922, "Contador".to_owned())];
+        let erro = check_class_names(&antes, &[(922, "Novo".to_owned()), (923, "Contador".to_owned())]).unwrap_err();
+        assert!(erro.contains("era Contador e passou a ser Novo"), "{erro}");
+        assert!(check_class_names(&antes, &[(922, "Contador".to_owned()), (923, "Novo".to_owned())]).is_ok());
     }
 
     /// Mudança no número de campos de uma classe já construída é recusada.
@@ -1163,6 +1292,7 @@ mod tests {
             generation: 1,
             entries,
             layouts: Vec::new(),
+            class_names: Vec::new(),
             globals: Vec::new(),
             generations: Vec::new(),
             stubs: Vec::new(),

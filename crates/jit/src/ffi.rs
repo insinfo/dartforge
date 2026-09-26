@@ -48,7 +48,8 @@ use llvm_sys::core::{
     LLVMGetNextInstruction, LLVMGetNumOperands, LLVMGetOperand, LLVMGetParamTypes,
     LLVMGetReturnType, LLVMGetValueName2, LLVMGlobalGetValueType, LLVMIsACallInst,
     LLVMIsAConstantInt, LLVMIsDeclaration, LLVMIsFunctionVarArg, LLVMPrintTypeToString,
-    LLVMReplaceAllUsesWith, LLVMSetValueName2,
+    LLVMReplaceAllUsesWith, LLVMSetValueName2, LLVMGetInitializer, LLVMIsAGlobalVariable,
+    LLVMIsAConstantDataSequential, LLVMGetAsString,
 };
 use llvm_sys::error::{LLVMDisposeErrorMessage, LLVMErrorRef, LLVMGetErrorMessage};
 use llvm_sys::ir_reader::LLVMParseIRInContext2;
@@ -412,6 +413,36 @@ impl ParsedModule {
         layouts
     }
 
+    /// Os nomes das classes que o módulo registra: `(class_id, nome)`, das
+    /// chamadas `dartforge_register_class_name(id, @.str, n)`.
+    ///
+    /// Os ids de classe do programa são posicionais; uma edição que insere
+    /// ou reordena classes muda o id de uma classe que já tem objetos no
+    /// heap, e a recarga precisa saber disso para recusar em vez de trocar a
+    /// classe dos objetos vivos.
+    pub(crate) fn class_names(&self) -> Vec<(i64, String)> {
+        let mut nomes = Vec::new();
+        for function in self.definitions() {
+            // SAFETY: a mesma travessia de `class_layouts`.
+            unsafe {
+                let mut block = LLVMGetFirstBasicBlock(function);
+                while !block.is_null() {
+                    let mut instruction = LLVMGetFirstInstruction(block);
+                    while !instruction.is_null() {
+                        if let Some(nome) = class_name_registration(instruction) {
+                            nomes.push(nome);
+                        }
+                        instruction = LLVMGetNextInstruction(instruction);
+                    }
+                    block = LLVMGetNextBasicBlock(block);
+                }
+            }
+        }
+        nomes.sort_unstable();
+        nomes.dedup();
+        nomes
+    }
+
     /// Versiona as implementações e desvia todas as chamadas para as entradas.
     ///
     /// Para cada função definida `F` o módulo passa a conter:
@@ -534,7 +565,10 @@ unsafe fn object_new_layout(instruction: LLVMValueRef) -> Option<(i64, i64)> {
             return None;
         }
         let callee = LLVMGetCalledValue(instruction);
-        if callee.is_null() || value_name(callee) != "dartforge_object_new" {
+        // `dartforge_object_new_t` é a do SDK da fonte (registra a tabela de
+        // métodos na primeira alocação); os dois primeiros argumentos são os
+        // mesmos.
+        if callee.is_null() || !matches!(value_name(callee).as_str(), "dartforge_object_new" | "dartforge_object_new_t") {
             return None;
         }
         if LLVMGetNumOperands(instruction) < 3 {
@@ -549,6 +583,45 @@ unsafe fn object_new_layout(instruction: LLVMValueRef) -> Option<(i64, i64)> {
             LLVMConstIntGetSExtValue(class_id) as i64,
             LLVMConstIntGetSExtValue(fields) as i64,
         ))
+    }
+}
+
+/// `(class_id, nome)` de uma chamada `dartforge_register_class_name` com
+/// argumentos constantes.
+///
+/// # Safety
+/// `instruction` precisa ser uma instrução viva de um módulo não consumido.
+unsafe fn class_name_registration(instruction: LLVMValueRef) -> Option<(i64, String)> {
+    // SAFETY: como em `object_new_layout`; o texto é o inicializador de uma
+    // global constante do próprio módulo, lido com o comprimento que o LLVM
+    // informa e copiado.
+    unsafe {
+        if LLVMIsACallInst(instruction).is_null() {
+            return None;
+        }
+        let callee = LLVMGetCalledValue(instruction);
+        if callee.is_null() || value_name(callee) != "dartforge_register_class_name" {
+            return None;
+        }
+        if LLVMGetNumOperands(instruction) < 4 {
+            return None;
+        }
+        let class_id = LLVMGetOperand(instruction, 0);
+        let texto = LLVMGetOperand(instruction, 1);
+        if LLVMIsAConstantInt(class_id).is_null() || LLVMIsAGlobalVariable(texto).is_null() {
+            return None;
+        }
+        let inicial = LLVMGetInitializer(texto);
+        if inicial.is_null() || LLVMIsAConstantDataSequential(inicial).is_null() {
+            return None;
+        }
+        let mut len = 0usize;
+        let bytes = LLVMGetAsString(inicial, &mut len);
+        if bytes.is_null() {
+            return None;
+        }
+        let nome = String::from_utf8_lossy(std::slice::from_raw_parts(bytes.cast::<u8>(), len)).into_owned();
+        Some((LLVMConstIntGetSExtValue(class_id) as i64, nome))
     }
 }
 
@@ -1112,6 +1185,202 @@ pub(crate) fn definir_argumentos_na_biblioteca(dll: &std::path::Path, dados: &[u
     Ok(())
 }
 
+// ─── Recarga ao vivo ───────────────────────────────────────────────────────
+//
+// O programa roda numa thread própria enquanto o observador compila a
+// geração nova; a publicação (as células, os estáticos, os registros) roda
+// na thread do programa, no ponto seguro do isolado principal — entre dois
+// eventos do laço (`dartforge_pedir_no_ponto_seguro`, `portas.rs`), ou com o
+// programa parado. Tudo o que atravessa a fronteira é endereço: a tarefa de
+// publicação é dona dos seus dados e não empresta nada da sessão.
+
+/// Uma tarefa que roda na thread do programa.
+pub(crate) type Tarefa = Box<dyn FnOnce() + Send>;
+
+/// As funções do runtime da sessão que a recarga ao vivo usa: as do runtime
+/// deste processo, ou as da biblioteca do SDK da fonte (o estado do runtime
+/// do programa é o dela).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RuntimeDaRecarga {
+    /// `dartforge_pedir_no_ponto_seguro`.
+    pedir: usize,
+    /// `dartforge_publicar_geracao`.
+    publicar: usize,
+}
+
+/// O pedido entregue ao runtime: a tarefa (tomada por quem a roda) e a
+/// resposta, que o observador espera.
+struct PedidoDeRecarga {
+    tarefa: std::sync::Mutex<Option<Tarefa>>,
+    /// `Some(true)`: rodou no ponto seguro; `Some(false)`: o isolado terminou
+    /// sem atendê-lo e a tarefa continua em `tarefa`.
+    resposta: std::sync::Mutex<Option<bool>>,
+    sinal: std::sync::Condvar,
+}
+
+/// O que o runtime chama no ponto seguro (`executar` = 1) ou no descarte
+/// (`executar` = 0), exatamente uma vez por pedido aceito.
+extern "C" fn atender_pedido_de_recarga(dado: usize, executar: i32) {
+    // SAFETY: `dado` é o endereço do `PedidoDeRecarga` que
+    // `RuntimeDaRecarga::no_ponto_seguro` mantém vivo até ler a resposta, e o
+    // runtime chama esta função uma única vez por pedido aceito.
+    let pedido = unsafe { &*(dado as *const PedidoDeRecarga) };
+    if executar != 0 {
+        let tarefa = pedido.tarefa.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(tarefa) = tarefa {
+            tarefa();
+        }
+    }
+    *pedido.resposta.lock().unwrap_or_else(|e| e.into_inner()) = Some(executar != 0);
+    pedido.sinal.notify_all();
+}
+
+impl RuntimeDaRecarga {
+    /// O runtime deste processo (`dartforge_runtime::abi`).
+    pub(crate) fn embutido() -> Self {
+        Self {
+            pedir: dartforge_runtime::abi::dartforge_pedir_no_ponto_seguro as *const () as usize,
+            publicar: dartforge_runtime::abi::dartforge_publicar_geracao as *const () as usize,
+        }
+    }
+
+    /// O runtime da biblioteca do SDK da fonte.
+    pub(crate) fn da_biblioteca(dll: &std::path::Path) -> Result<Self, String> {
+        let modulo = carregar_biblioteca(dll);
+        if modulo.is_null() {
+            return Err(format!("não foi possível carregar a biblioteca do SDK {}", dll.display()));
+        }
+        let pedir = endereco_na_biblioteca(modulo, c"dartforge_pedir_no_ponto_seguro");
+        let publicar = endereco_na_biblioteca(modulo, c"dartforge_publicar_geracao");
+        if pedir.is_null() || publicar.is_null() {
+            return Err(format!(
+                "a biblioteca do SDK {} não exporta a recarga ao vivo (dartforge_pedir_no_ponto_seguro); \
+                 recompile-a com este dartforge",
+                dll.display()
+            ));
+        }
+        Ok(Self { pedir: pedir as usize, publicar: publicar as usize })
+    }
+
+    /// Roda `tarefa` no ponto seguro do isolado principal, na thread dele, e
+    /// espera. `Err(tarefa)` (a tarefa NÃO rodou) quando não há isolado
+    /// principal no laço, ou quando ele terminou antes de atendê-la.
+    /// `esperando` é chamada uma vez se o isolado demorar a chegar ao ponto
+    /// seguro (código síncrono longo).
+    pub(crate) fn no_ponto_seguro(&self, tarefa: Tarefa, esperando: &mut dyn FnMut()) -> Result<(), Tarefa> {
+        let pedido = PedidoDeRecarga {
+            tarefa: std::sync::Mutex::new(Some(tarefa)),
+            resposta: std::sync::Mutex::new(None),
+            sinal: std::sync::Condvar::new(),
+        };
+        // SAFETY: `pedir` é `dartforge_pedir_no_ponto_seguro` (`portas.rs`),
+        // com esta assinatura; o pedido vive até a resposta abaixo.
+        let aceito = unsafe {
+            let pedir: extern "C" fn(extern "C" fn(usize, i32), usize) -> i32 = std::mem::transmute(self.pedir);
+            pedir(atender_pedido_de_recarga, &pedido as *const PedidoDeRecarga as usize)
+        };
+        if aceito == 0 {
+            let tarefa = pedido.tarefa.lock().unwrap_or_else(|e| e.into_inner()).take();
+            return Err(tarefa.expect("pedido recusado mantém a tarefa"));
+        }
+        let mut resposta = pedido.resposta.lock().unwrap_or_else(|e| e.into_inner());
+        let mut avisado = false;
+        // O pedido aceito é respondido exatamente uma vez (no ponto seguro
+        // ou no fim do isolado): esperar sem prazo é o que mantém o pedido
+        // vivo enquanto o runtime tem o endereço dele.
+        while resposta.is_none() {
+            let (r, prazo) = pedido
+                .sinal
+                .wait_timeout(resposta, Duration::from_secs(2))
+                .unwrap_or_else(|e| e.into_inner());
+            resposta = r;
+            if prazo.timed_out() && resposta.is_none() && !avisado {
+                avisado = true;
+                esperando();
+            }
+        }
+        let rodou = resposta.expect("respondido");
+        drop(resposta);
+        if rodou {
+            return Ok(());
+        }
+        let tarefa = pedido.tarefa.lock().unwrap_or_else(|e| e.into_inner()).take();
+        Err(tarefa.expect("pedido descartado mantém a tarefa"))
+    }
+
+    /// `dartforge_publicar_geracao(area, registrar, rti)`: a área de globais
+    /// e os registros da geração nova, na thread do programa.
+    pub(crate) fn publicar_registros(&self, area: Option<u64>, registrar: Option<u64>, rti: Option<u64>) {
+        let como_fn = |endereco: Option<u64>| {
+            // SAFETY: os endereços são trampolins `void ()` da sessão
+            // (`df.preparar_area`, `df.registrar.programa`,
+            // `dartforge_rti_iniciar`), vivos
+            // enquanto ela existir.
+            endereco.map(|e| unsafe { std::mem::transmute::<usize, extern "C" fn()>(e as usize) })
+        };
+        // SAFETY: `publicar` é `dartforge_publicar_geracao` (`seletores.rs`).
+        unsafe {
+            let publicar: extern "C" fn(Option<extern "C" fn()>, Option<extern "C" fn()>, Option<extern "C" fn()>) =
+                std::mem::transmute(self.publicar);
+            publicar(como_fn(area), como_fn(registrar), como_fn(rti));
+        }
+    }
+}
+
+/// A célula de uma entrada estável, pelo endereço (a `Box<AtomicUsize>` da
+/// sessão, estável enquanto ela existir).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Celula(usize);
+
+impl Celula {
+    pub(crate) fn de(celula: &std::sync::atomic::AtomicUsize) -> Self {
+        Self(celula as *const std::sync::atomic::AtomicUsize as usize)
+    }
+
+    /// Aponta a entrada para `implementacao`: as chamadas seguintes a usam.
+    pub(crate) fn publicar(self, implementacao: usize) {
+        // SAFETY: a célula pertence a uma entrada da sessão, que vive mais do
+        // que a thread do programa (`JitSession::com_programa_vivo`).
+        let celula = unsafe { &*(self.0 as *const std::sync::atomic::AtomicUsize) };
+        celula.store(implementacao, std::sync::atomic::Ordering::Release);
+    }
+}
+
+/// A cópia de um estático de uma geração para a seguinte.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CopiaDeGlobal {
+    de: usize,
+    para: usize,
+    tamanho: usize,
+}
+
+impl CopiaDeGlobal {
+    pub(crate) fn aplicar(self) {
+        // SAFETY: os dois endereços são globais materializadas da LLJIT, do
+        // mesmo tamanho (`Lljit::copia_de_global`), de gerações retidas.
+        unsafe { std::ptr::copy_nonoverlapping(self.de as *const u8, self.para as *mut u8, self.tamanho) };
+    }
+}
+
+/// Chama o `main` `i32 ()` do SDK da fonte na thread atual (ele chama o
+/// `dartforge_iniciar` da biblioteca, que marca o isolado principal).
+pub(crate) fn chamar_main_da_fonte(endereco: u64) -> i32 {
+    // SAFETY: `endereco` é o trampolim `main`, conferido `i32 ()` pela
+    // sessão, que vive mais do que a thread do programa.
+    unsafe { std::mem::transmute::<usize, extern "C" fn() -> i32>(endereco as usize)() }
+}
+
+/// Chama a `dartforge_entry` do runtime embutido na thread atual, como o
+/// isolado principal, e finaliza o programa como o AOT.
+pub(crate) fn chamar_entrada_embutida(endereco: u64) -> i32 {
+    dartforge_runtime::abi::marcar_isolado_principal();
+    // SAFETY: `endereco` é o trampolim `dartforge_entry`, conferido
+    // `void ()` pela sessão, que vive mais do que a thread do programa.
+    unsafe { std::mem::transmute::<usize, extern "C" fn()>(endereco as usize)() };
+    dartforge_runtime::abi::desmarcar_isolado_principal();
+    dartforge_runtime::abi::finalizar_programa()
+}
+
 impl Lljit {
     /// Nomes pedidos que constam da lista de exportações da DLL do SDK.
     /// A lista é consultada antes da publicação de uma geração nova, para que
@@ -1374,25 +1643,16 @@ impl ParsedModule {
 }
 
 impl Lljit {
-    /// Transfere um estático da geração anterior após materializar a nova e
-    /// antes de redirecionar as entradas estáveis. A sessão tem `&mut self`
-    /// durante a recarga, então nenhum código JIT executa nesta janela.
-    pub(crate) fn copy_global(&self, previous: &MutableGlobal, next: &MutableGlobal) -> Result<(), String> {
+    /// A transferência de um estático da geração anterior para a nova, que a
+    /// publicação aplica antes de redirecionar as entradas estáveis — com o
+    /// programa parado ou no ponto seguro, nunca no meio de um evento.
+    pub(crate) fn copia_de_global(&self, previous: &MutableGlobal, next: &MutableGlobal) -> Result<CopiaDeGlobal, String> {
         if previous.size != next.size {
             return Err(format!("a global {} mudou de {} para {} bytes", previous.logical_name, previous.size, next.size));
         }
-        let source = self.lookup(&previous.name)?;
-        let target = self.lookup(&next.name)?;
-        // SAFETY: os endereços pertencem a globais materializadas da LLJIT,
-        // com o mesmo tamanho verificado acima e gerações distintas retidas.
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                usize::try_from(source).unwrap_or(usize::MAX) as *const u8,
-                usize::try_from(target).unwrap_or(usize::MAX) as *mut u8,
-                next.size,
-            );
-        }
-        Ok(())
+        let de = usize::try_from(self.lookup(&previous.name)?).map_err(|_| "endereço da global".to_owned())?;
+        let para = usize::try_from(self.lookup(&next.name)?).map_err(|_| "endereço da global".to_owned())?;
+        Ok(CopiaDeGlobal { de, para, tamanho: next.size })
     }
 
     /// Escreve zeros na global mutável, já materializada.

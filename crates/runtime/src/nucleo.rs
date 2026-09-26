@@ -44,7 +44,11 @@ pub extern "C" fn dartforge_iniciar(entrada: extern "C" fn(), para_texto: extern
             padrao(i);
         }));
     }
+    // O isolado principal aceita os pedidos no ponto seguro (a recarga do
+    // JIT) enquanto a entrada roda — o `main` e o laço de eventos.
+    marcar_isolado_principal();
     entrada();
+    desmarcar_isolado_principal();
     let codigo = finalizar_programa();
     if codigo != 0 {
         std::process::exit(codigo);
@@ -143,7 +147,12 @@ pub unsafe extern "C" fn dartforge_register_class_name(class_id: i64, ptr: *cons
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_register_subclass(sub_id: i64, super_id: i64) {
     SUBCLASSES.with(|map| {
-        map.borrow_mut().entry(sub_id).or_default().push(super_id);
+        // Sem duplicar: a publicação de uma recarga refaz os registros.
+        let mut supers = map.borrow_mut();
+        let lista = supers.entry(sub_id).or_default();
+        if !lista.contains(&super_id) {
+            lista.push(super_id);
+        }
     });
 }
 
