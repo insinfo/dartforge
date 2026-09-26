@@ -33,7 +33,7 @@ use llvm_sys::error::{LLVMDisposeErrorMessage, LLVMErrorRef, LLVMGetErrorMessage
 use llvm_sys::ir_reader::LLVMParseIRInContext2;
 use llvm_sys::prelude::{LLVMContextRef, LLVMMemoryBufferRef, LLVMModuleRef};
 use llvm_sys::target::{
-    LLVM_InitializeNativeAsmPrinter, LLVM_InitializeNativeTarget, LLVMDisposeTargetData, LLVMSetModuleDataLayout,
+    LLVM_InitializeNativeAsmParser, LLVM_InitializeNativeAsmPrinter, LLVM_InitializeNativeTarget, LLVMDisposeTargetData, LLVMSetModuleDataLayout,
 };
 use llvm_sys::target_machine::{
     LLVMCodeGenFileType, LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetDataLayout, LLVMCreateTargetMachine,
@@ -47,7 +47,9 @@ use std::ffi::{CStr, CString, c_char};
 use std::ptr;
 use std::sync::OnceLock;
 
-/// Registra o alvo nativo e o `AsmPrinter` dele, uma única vez por processo.
+/// Registra o alvo nativo, o `AsmPrinter` e o `AsmParser` dele (o
+/// `module asm` da nota de pilha não executável dos callbacks do
+/// `dart:ffi`), uma única vez por processo.
 ///
 /// As rotinas do LLVM não são seguras sob concorrência; o [`OnceLock`]
 /// garante execução única e memoriza a falha.
@@ -60,7 +62,11 @@ pub fn inicializar_alvo_nativo() -> Result<(), String> {
         .get_or_init(|| {
             // SAFETY: `get_or_init` garante execução única e exclusiva; as
             // rotinas só registram o alvo em tabelas globais do LLVM.
-            let falhou = unsafe { LLVM_InitializeNativeTarget() != 0 || LLVM_InitializeNativeAsmPrinter() != 0 };
+            let falhou = unsafe {
+                LLVM_InitializeNativeTarget() != 0
+                    || LLVM_InitializeNativeAsmPrinter() != 0
+                    || LLVM_InitializeNativeAsmParser() != 0
+            };
             if falhou { Err("o LLVM não tem backend nativo para esta arquitetura".to_owned()) } else { Ok(()) }
         })
         .clone()

@@ -927,6 +927,30 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
+        decl: "declare void @dartforge_ffi_registrar_callback(ptr, i64, ptr)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_ffi_callback_entrar(ptr)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i8 @dartforge_ffi_callback_sair(ptr, ptr)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare void @dartforge_ffi_callback_postar(ptr, ptr, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_ffi_callback_closure(i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_ffi_callback_ponteiro(i64, i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
         decl: "declare i64 @dartforge_ffi_simbolo_nativo(ptr, i64)",
         efeitos: CONSERVADOR,
     },

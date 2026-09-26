@@ -960,9 +960,20 @@ pub fn abrir_porta_nativa(servico: ServicoNativo) -> i64 {
     id
 }
 
-/// Se o isolado tem porta aberta que o mantém vivo.
+thread_local! {
+    /// `NativeCallable.isolateLocal` abertos com `keepIsolateAlive`
+    /// (`ffi_callbacks.rs`): cada um mantém o isolado vivo como uma porta.
+    static CALLBACKS_QUE_MANTEM_VIVO: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
+}
+
+/// Soma `delta` aos callbacks locais que mantêm o isolado vivo.
+pub fn ajustar_callbacks_que_mantem_vivo(delta: i64) {
+    CALLBACKS_QUE_MANTEM_VIVO.with(|c| c.set((c.get() + delta).max(0)));
+}
+
+/// Se o isolado tem porta aberta (ou callback local) que o mantém vivo.
 fn tem_porta_viva() -> bool {
-    PORTAS_ABERTAS.with(|p| p.borrow().values().any(|&v| v))
+    CALLBACKS_QUE_MANTEM_VIVO.with(|c| c.get() > 0) || PORTAS_ABERTAS.with(|p| p.borrow().values().any(|&v| v))
 }
 
 /// A chegada da mensagem mais antiga da fila, se houver.

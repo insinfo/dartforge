@@ -1083,6 +1083,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(r) = self.chamar_externo(fid, this.clone(), &args) {
             return r;
         }
+        if let Some((alvo, tupla_no_fim)) = self.callback_ffi_redirecionado(fid) {
+            // `Pointer.fromFunction`/`NativeCallable.*`: o ajudante da
+            // sobreposição tem os mesmos parâmetros; a tupla de uma factory
+            // (os argumentos de tipo da classe) vira a do ajudante genérico.
+            let mut args = args;
+            let salvo = self.tupla_armada.clone();
+            if tupla_no_fim {
+                self.tupla_armada = args.pop();
+            } else {
+                // `fromFunction`: o sítio da chamada, estável entre
+                // compilações (símbolo da função e ordem no corpo).
+                let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+                for b in self.func.symbol.bytes().chain(self.sitios_de_callback.to_le_bytes()) {
+                    h = (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+                }
+                self.sitios_de_callback += 1;
+                args.push(Operand::Constant(Constant::Int((h >> 1) as i64)));
+            }
+            let r = self.chamar_direto(alvo, this, args);
+            self.tupla_armada = salvo;
+            return r;
+        }
         let symbol = super::simbolo_de(self.ctx, fid);
         let ret_ty = self.repr_retorno(fid);
         let mut todos = Vec::with_capacity(args.len() + 2);

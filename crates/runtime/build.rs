@@ -65,6 +65,7 @@ const FRAGMENTOS: &[&str] = &[
     "isolados",
     // O dart:ffi (bibliotecas dinâmicas, memória nativa, trampolins de chamada).
     "ffi",
+    "ffi_callbacks",
     // O `dart:io` da VM: arquivos, diretórios, o IOService e a plataforma.
     "io_arquivos",
     "io_diretorios",

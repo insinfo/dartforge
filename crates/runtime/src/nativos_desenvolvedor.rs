@@ -112,3 +112,9 @@ pub extern "C" fn dartforge_nativo_Timeline_getTraceClock() -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Timeline_reportTaskEvent(_id: i64, _fluxo: i64, _tipo: i64, _nome: i64, _args: i64) {}
+
+/// `SendPort.nativePort` (o `NativePort` do `dart:ffi`): o id da porta.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_SendPort_get_id(porta: i64) -> i64 {
+    id_da_send_port(porta)
+}

@@ -1369,11 +1369,20 @@ impl<'a> LlvmEmitter<'a> {
                 )
                 .unwrap();
             }
+            for (i, cb) in self.module.ffi_callbacks.iter().enumerate() {
+                writeln!(
+                    self.out,
+                    "  call void @dartforge_ffi_registrar_callback(ptr @df.ffi.cbchave.{i}, i64 {}, ptr @df.ffi.cbiniciar.{i})",
+                    cb.chave.len()
+                )
+                .unwrap();
+            }
             writeln!(self.out, "  call void @dartforge_preparar_embedder()").unwrap();
             writeln!(self.out, "  ret void\n}}\n").unwrap();
             for (i, (chave, _)) in self.module.ffi_trampolins.iter().enumerate() {
                 writeln!(self.out, "@df.ffi.chave.{i} = private unnamed_addr constant [{} x i8] c\"{chave}\"", chave.len()).unwrap();
             }
+            self.emit_callbacks_ffi();
             writeln!(self.out, "define void @dartforge_entry() {{").unwrap();
             let chamar = self.module.chamar_dart.as_ref().map_or("null".to_string(), |c| format!("@{c}"));
             writeln!(self.out, "  call void @dartforge_registrar_isolados(ptr @df.preparar_isolado, ptr {chamar})").unwrap();
@@ -1428,6 +1437,135 @@ impl<'a> LlvmEmitter<'a> {
     /// A chamada do `main` na entrada: com parâmetros, o primeiro é a lista
     /// dos argumentos da linha de comando (`dartforge_argumentos_do_main`) e
     /// o segundo, `null`.
+    /// As entradas C dos callbacks do `dart:ffi` (`ffi_callbacks.rs` do
+    /// runtime) e, de cada uma, a função que escreve um trampolim para ela. Cada entrada tem a ABI
+    /// C da assinatura e o contexto do callback no parâmetro `nest` (que o
+    /// trampolim de `llvm.init.trampoline` carrega): no modo ouvinte copia
+    /// os argumentos para a mensagem; senão converte-os para a
+    /// representação Dart, chama o corpo HIR e converte o retorno — ou
+    /// devolve o retorno excepcional, se a closure lançou.
+    fn emit_callbacks_ffi(&mut self) {
+        if self.module.ffi_callbacks.is_empty() {
+            return;
+        }
+        // Com `llvm.init.trampoline` no módulo o LLVM deixa de emitir a nota
+        // `.note.GNU-stack` (supõe o trampolim na pilha, como nas funções
+        // aninhadas do GCC), e o ligador ELF passaria a exigir pilha
+        // executável. Os trampolins do dartforge moram em memória própria
+        // (`ffi_callbacks.rs`): a nota vai explícita, pilha não executável.
+        if crate::alvo::sistema() == crate::alvo::Sistema::Linux {
+            self.out.push_str("module asm \".pushsection .note.GNU-stack,\\22\\22,@progbits\"\nmodule asm \".popsection\"\n");
+        }
+        self.out.push_str("declare void @llvm.init.trampoline(ptr, ptr, ptr)\ndeclare ptr @llvm.adjust.trampoline(ptr)\n");
+        for (i, cb) in self.module.ffi_callbacks.clone().iter().enumerate() {
+            writeln!(self.out, "@df.ffi.cbchave.{i} = private unnamed_addr constant [{} x i8] c\"{}\"", cb.chave.len(), cb.chave).unwrap();
+            // O iniciador do trampolim desta entrada (o alvo do
+            // `init.trampoline` tem de ser uma função constante).
+            writeln!(
+                self.out,
+                "define internal ptr @df.ffi.cbiniciar.{i}(ptr %m, ptr %c) {{\n  \
+                 call void @llvm.init.trampoline(ptr %m, ptr @df.ffi.cbentrada.{i}, ptr %c)\n  \
+                 %p = call ptr @llvm.adjust.trampoline(ptr %m)\n  ret ptr %p\n}}"
+            )
+            .unwrap();
+            let params: Vec<String> =
+                cb.params.iter().enumerate().map(|(j, tc)| format!("{} {}%a{j}", tc.llvm(), tc.extensao())).collect();
+            let sep = if params.is_empty() { "" } else { ", " };
+            let r = cb.ret.llvm();
+            let ret_ext = match cb.ret {
+                TipoC::I8 | TipoC::I16 => "signext ",
+                TipoC::U8 | TipoC::U16 | TipoC::Bool => "zeroext ",
+                _ => "",
+            };
+            writeln!(self.out, "define internal {ret_ext}{r} @df.ffi.cbentrada.{i}(ptr nest %ctx{sep}{}) {{", params.join(", ")).unwrap();
+            let n = cb.params.len().max(1);
+            writeln!(self.out, "entrada:\n  %saida = alloca i64\n  %buf = alloca [{n} x i64]").unwrap();
+            writeln!(self.out, "  %modo = call i64 @dartforge_ffi_callback_entrar(ptr %ctx)").unwrap();
+            writeln!(self.out, "  %e_ouvinte = icmp ne i64 %modo, 0\n  br i1 %e_ouvinte, label %ouvinte, label %local").unwrap();
+            // Ouvinte: os bits de cada argumento na mensagem.
+            writeln!(self.out, "ouvinte:").unwrap();
+            for (j, tc) in cb.params.iter().enumerate() {
+                let bits = match tc {
+                    TipoC::I8 | TipoC::I16 | TipoC::I32 => format!("sext {} %a{j} to i64", tc.llvm()),
+                    TipoC::U8 | TipoC::U16 | TipoC::U32 | TipoC::Bool => format!("zext {} %a{j} to i64", tc.llvm()),
+                    TipoC::I64 | TipoC::U64 => format!("add i64 %a{j}, 0"),
+                    TipoC::F32 => {
+                        writeln!(self.out, "  %of{j} = fpext float %a{j} to double").unwrap();
+                        format!("bitcast double %of{j} to i64")
+                    }
+                    TipoC::F64 => format!("bitcast double %a{j} to i64"),
+                    TipoC::Ptr => format!("ptrtoint ptr %a{j} to i64"),
+                    TipoC::Void => unreachable!("parâmetro nativo void"),
+                };
+                writeln!(self.out, "  %o{j} = {bits}\n  %g{j} = getelementptr [{n} x i64], ptr %buf, i64 0, i64 {j}\n  store i64 %o{j}, ptr %g{j}").unwrap();
+            }
+            writeln!(self.out, "  call void @dartforge_ffi_callback_postar(ptr %ctx, ptr %buf, i64 {})", cb.params.len()).unwrap();
+            match cb.ret {
+                TipoC::Void => writeln!(self.out, "  ret void").unwrap(),
+                TipoC::Ptr => writeln!(self.out, "  ret ptr null").unwrap(),
+                TipoC::F32 | TipoC::F64 => writeln!(self.out, "  ret {r} 0.0").unwrap(),
+                _ => writeln!(self.out, "  ret {r} 0").unwrap(),
+            }
+            // Local: a chamada ao corpo HIR na representação Dart.
+            writeln!(self.out, "local:\n  %c = ptrtoint ptr %ctx to i64").unwrap();
+            let mut args = vec!["i64 %c".to_string()];
+            for (j, tc) in cb.params.iter().enumerate() {
+                let (conv, ty) = match tc {
+                    TipoC::I8 | TipoC::I16 | TipoC::I32 => (Some(format!("sext {} %a{j} to i64", tc.llvm())), "i64"),
+                    TipoC::U8 | TipoC::U16 | TipoC::U32 => (Some(format!("zext {} %a{j} to i64", tc.llvm())), "i64"),
+                    TipoC::F32 => (Some(format!("fpext float %a{j} to double")), "double"),
+                    TipoC::Ptr => (Some(format!("ptrtoint ptr %a{j} to i64")), "i64"),
+                    TipoC::I64 | TipoC::U64 => (None, "i64"),
+                    TipoC::F64 => (None, "double"),
+                    TipoC::Bool => (None, "i1"),
+                    TipoC::Void => unreachable!("parâmetro nativo void"),
+                };
+                match conv {
+                    Some(c) => {
+                        writeln!(self.out, "  %d{j} = {c}").unwrap();
+                        args.push(format!("{ty} %d{j}"));
+                    }
+                    None => args.push(format!("{ty} %a{j}")),
+                }
+            }
+            let hr = cb.ret.tipo_hir().llvm_ir();
+            if cb.ret == TipoC::Void {
+                writeln!(self.out, "  call void @{}({})", cb.corpo, args.join(", ")).unwrap();
+            } else {
+                writeln!(self.out, "  %r = call {hr} @{}({})", cb.corpo, args.join(", ")).unwrap();
+            }
+            writeln!(self.out, "  %x = call i8 @dartforge_ffi_callback_sair(ptr %ctx, ptr %saida)").unwrap();
+            if cb.ret == TipoC::Void {
+                writeln!(self.out, "  ret void\n}}\n").unwrap();
+                continue;
+            }
+            writeln!(self.out, "  %e_excecao = icmp ne i8 %x, 0\n  br i1 %e_excecao, label %excecao, label %normal").unwrap();
+            // O retorno excepcional (bits do tipo C) e o normal (Dart → C).
+            writeln!(self.out, "excecao:\n  %e = load i64, ptr %saida").unwrap();
+            let exc = match cb.ret {
+                TipoC::I64 | TipoC::U64 => "add i64 %e, 0".to_string(),
+                TipoC::F64 => "bitcast i64 %e to double".to_string(),
+                TipoC::F32 => {
+                    writeln!(self.out, "  %ed = bitcast i64 %e to double").unwrap();
+                    "fptrunc double %ed to float".to_string()
+                }
+                TipoC::Ptr => "inttoptr i64 %e to ptr".to_string(),
+                estreito => format!("trunc i64 %e to {}", estreito.llvm()),
+            };
+            writeln!(self.out, "  %ev = {exc}\n  ret {r} %ev").unwrap();
+            let normal = match cb.ret {
+                TipoC::I64 | TipoC::U64 | TipoC::F64 | TipoC::Bool => None,
+                TipoC::F32 => Some("fptrunc double %r to float".to_string()),
+                TipoC::Ptr => Some("inttoptr i64 %r to ptr".to_string()),
+                estreito => Some(format!("trunc i64 %r to {}", estreito.llvm())),
+            };
+            match normal {
+                Some(c) => writeln!(self.out, "normal:\n  %nv = {c}\n  ret {r} %nv\n}}\n").unwrap(),
+                None => writeln!(self.out, "normal:\n  ret {r} %r\n}}\n").unwrap(),
+            }
+        }
+    }
+
     fn chamar_main(&mut self) {
         let Some(entry) = self.module.entry_symbol.clone() else { return };
         let n = self.module.entry_params.min(2);

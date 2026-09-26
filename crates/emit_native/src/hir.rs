@@ -467,6 +467,16 @@ pub struct FfiComposto {
     pub alinhamento: i64,
 }
 
+/// Um callback nativo de uma assinatura: a chave, o corpo HIR (contexto e
+/// argumentos na representação Dart → retorno Dart) e os tipos C.
+#[derive(Debug, Clone)]
+pub struct FfiCallback {
+    pub chave: String,
+    pub corpo: String,
+    pub ret: TipoC,
+    pub params: Vec<TipoC>,
+}
+
 /// Módulo HIR completo representando um programa Dart compilável.
 #[derive(Debug, Default)]
 pub struct Module {
@@ -474,6 +484,9 @@ pub struct Module {
     /// e (chave da assinatura, símbolo do trampolim) (`lower/ffi.rs`).
     pub ffi_tipos: Vec<(i64, char)>,
     pub ffi_trampolins: Vec<(String, String)>,
+    /// `dart:ffi`: as entradas C dos callbacks nativos, uma por assinatura
+    /// (`lower/ffi.rs`; o emissor gera a entrada com a ABI C).
+    pub ffi_callbacks: Vec<FfiCallback>,
     /// `dart:ffi`: as structs e unions do programa (`lower/ffi.rs`).
     pub ffi_compostos: Vec<FfiComposto>,
     pub functions: Vec<Function>,
