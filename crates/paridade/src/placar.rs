@@ -44,6 +44,15 @@ impl Conta {
     pub fn perfeito(&self) -> bool {
         self.oraculo > 0 && self.acertos == self.oraculo && self.nosso == self.oraculo && self.mensagem_errada == 0
     }
+
+    /// Tudo o que emitimos bate com o oráculo (posição, severidade e
+    /// mensagem), com pelo menos um acerto: nenhum falso positivo, nenhuma
+    /// posição errada, nenhuma mensagem errada. Falsos negativos são
+    /// permitidos — é o critério de publicação (`verificados.txt`): o que o
+    /// usuário vê está certo, ainda que falte algum diagnóstico.
+    pub fn sem_erro_emitido(&self) -> bool {
+        self.acertos > 0 && self.falsos_positivos == 0 && self.posicao_errada == 0 && self.mensagem_errada == 0
+    }
 }
 
 /// Placar por código, e amostras de divergência por código.

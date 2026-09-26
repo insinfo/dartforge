@@ -258,23 +258,34 @@ fn placar(a: &Args, trabalhadores: usize) -> (String, bool) {
     s.push_str(&corpo);
     s.push('\n');
     s.push_str(&total.tabela("corpus inteiro"));
-    // Regra de publicação: um verificado com divergência no corpus é erro.
+    // Regra de publicação: um verificado que emite algo errado no corpus
+    // (falso positivo, posição ou mensagem) é erro. Falso negativo não é.
     let ver = dartforge_paridade::verificados();
     let mut quebrados = Vec::new();
     for c in &ver {
-        match total.por_codigo.get(*c) {
-            Some(k) if k.perfeito() => {}
-            Some(_) => quebrados.push(*c),
-            None => {}
+        if let Some(k) = total.por_codigo.get(*c) {
+            if k.falsos_positivos > 0 || k.posicao_errada > 0 || k.mensagem_errada > 0 {
+                quebrados.push(*c);
+            }
         }
     }
     let _ = writeln!(s, "\npublicados: sintaxe + {} códigos verificados {:?}", ver.len(), ver);
     if !quebrados.is_empty() {
-        let _ = writeln!(s, "VERIFICADOS COM DIVERGÊNCIA NO CORPUS: {quebrados:?}");
+        let _ = writeln!(s, "VERIFICADOS COM ERRO EMITIDO NO CORPUS: {quebrados:?}");
         ok = false;
     }
-    let candidatos: Vec<&String> = total.por_codigo.iter().filter(|(k, c)| c.perfeito() && !ver.contains(&k.as_str())).map(|(k, _)| k).collect();
-    let _ = writeln!(s, "100% no corpus e fora da lista (candidatos, falta 0 FP nos projetos): {candidatos:?}");
+    // Códigos sintáticos são publicados sempre: não são candidatos.
+    let sintatico = |k: &str| {
+        dartforge_diagnostics::Codigo::por_nome(k)
+            .is_some_and(|c| c.info().tipo == dartforge_diagnostics::TipoErro::SyntacticError)
+    };
+    let candidatos: Vec<&String> = total
+        .por_codigo
+        .iter()
+        .filter(|(k, c)| c.sem_erro_emitido() && !ver.contains(&k.as_str()) && !sintatico(k))
+        .map(|(k, _)| k)
+        .collect();
+    let _ = writeln!(s, "sem erro emitido no corpus e fora da lista (candidatos, falta 0 FP nos projetos): {candidatos:?}");
     let _ = writeln!(s, "pânicos: {}{}", panicos.len(), if panicos.is_empty() { String::new() } else { format!(" {:?}", &panicos[..panicos.len().min(20)]) });
     let _ = writeln!(s, "atribuição ambígua (diagnóstico sem unidade, mais de uma candidata): {ambiguos}");
     if a.detalhes {

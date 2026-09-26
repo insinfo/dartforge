@@ -10,8 +10,9 @@
 //! * [`placar`]: a comparação por código.
 //!
 //! Regra de publicação (plano §2.3): sintaxe é publicada sempre; um código
-//! semântico só é publicado se estiver em `crates/analise/verificados.txt` (100% no corpus e
-//! 0 falso positivo nos projetos reais). O resto existe internamente e vai só
+//! semântico só é publicado se estiver em `crates/analise/verificados.txt`
+//! (zero falso positivo, posição ou mensagem errada no corpus e nos projetos
+//! reais; falso negativo é permitido). O resto existe internamente e vai só
 //! para o placar.
 
 pub mod analise;
