@@ -186,6 +186,8 @@ pub struct Consulta {
     pub tipo: String,
     /// `@ViewChildren`: o campo recebe a lista de todos os resultados.
     pub lista: bool,
+    /// `@ViewChild(Tipo)`: `referencia` é o nome do tipo procurado.
+    pub por_tipo: bool,
 }
 
 /// Um `@ContentChild`/`@ContentChildren`, como quem usa o componente precisa
@@ -821,9 +823,13 @@ fn consulta_simples(
         ));
     }
     // Seletor de tipo (`@ViewChild(OutroComp)`) consulta um componente ou
-    // diretiva, não um elemento.
-    let Some(referencia) = texto_do_argumento(arvore, unico.value) else {
-        return Err(recusa(Motivo::ViewChildEmFilho, "@ViewChild(Tipo)"));
+    // diretiva, não um elemento: só o nome simples, resolvido depois.
+    let (referencia, por_tipo) = match texto_do_argumento(arvore, unico.value) {
+        Some(r) => (r, false),
+        None => match &arvore.expr(unico.value).kind {
+            ast::ExprKind::Identifier(n) => (interner.resolve(n.sym).to_string(), true),
+            _ => return Err(recusa(Motivo::ViewChildEmFilho, "@ViewChild(prefixo.Tipo)")),
+        },
     };
     // `'a,b'` são dois seletores numa consulta só.
     if referencia.contains(',') || referencia.trim() != referencia || referencia.is_empty() {
@@ -865,6 +871,7 @@ fn consulta_simples(
         referencia,
         tipo,
         lista: eh_lista,
+        por_tipo,
     })
 }
 

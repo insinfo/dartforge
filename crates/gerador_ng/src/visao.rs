@@ -502,6 +502,40 @@ fn formas_contra_o_template(
     let mut fora = Vec::new();
     for consulta in &c.consultas {
         let mut lugares = Vec::new();
+        if consulta.por_tipo {
+            // `@ViewChild(Tipo)`: as instâncias dos filhos dessa classe. A
+            // diretiva de atributo do mesmo tipo também seria resultado:
+            // ainda não.
+            let Some(uri) = uri_da_consulta(consulta, local, resolvedor) else {
+                fora.push(recusa(
+                    Motivo::ViewChildEmFilho,
+                    "@ViewChild(Tipo) sem resolução",
+                ));
+                continue;
+            };
+            let e_filho = |e: &crate::html::Elemento| {
+                filhos
+                    .get(&e.nome)
+                    .is_some_and(|f| f.uri_dart == uri && f.classe == consulta.referencia)
+            };
+            onde_casa(nos, &e_filho, filhos, false, &mut lugares);
+            let so_filhos = lugares
+                .iter()
+                .all(|l| matches!(l, Lugar::NoFilho | Lugar::NoFilhoProjetado));
+            let elemento = e_tipo_de_elemento(&consulta.tipo, local, resolvedor);
+            // O tipo tem de ser um componente de `directives:`: diretiva,
+            // serviço ou `ElementRef` dariam outros resultados.
+            let e_componente = filhos
+                .values()
+                .any(|f| f.uri_dart == uri && f.classe == consulta.referencia);
+            if !e_componente || !so_filhos || elemento || (lugares.is_empty() && !consulta.lista) {
+                fora.push(recusa(
+                    Motivo::ViewChildEmFilho,
+                    "@ViewChild(Tipo) fora da forma estática",
+                ));
+            }
+            continue;
+        }
         onde_esta(nos, &consulta.referencia, filhos, false, &mut lugares);
         // `@ViewChildren` estático, ou `@ViewChild` de `#ref` repetido (o
         // primeiro resultado): todos os resultados nesta visão, e do mesmo
@@ -597,6 +631,34 @@ fn onde_esta(
     em_filho: bool,
     saida: &mut Vec<Lugar>,
 ) {
+    let tem_ref = |e: &crate::html::Elemento| e.referencias.iter().any(|r| r.nome == nome);
+    onde_casa(nos, &tem_ref, filhos, em_filho, saida);
+}
+
+/// A chave dos resultados de um `@ViewChild(Tipo)` entre os `#ref` vistos
+/// (`Corpo::refs_em_ordem`): não colide com nome de referência.
+fn chave_de_tipo(uri: &str, classe: &str) -> String {
+    format!("\u{7}{uri}#{classe}")
+}
+
+/// A biblioteca que declara o tipo de um `@ViewChild(Tipo)`, no escopo do
+/// componente.
+fn uri_da_consulta(
+    consulta: &crate::componente::Consulta,
+    local: &Local,
+    resolvedor: Option<&dyn Resolucao>,
+) -> Option<String> {
+    resolvedor?.uri_do_tipo(local.caminho, &consulta.referencia)
+}
+
+/// Onde estão, em ordem de documento, os elementos que casam `casa`.
+fn onde_casa(
+    nos: &[No],
+    casa: &dyn Fn(&crate::html::Elemento) -> bool,
+    filhos: &std::collections::HashMap<String, Filho>,
+    em_filho: bool,
+    saida: &mut Vec<Lugar>,
+) {
     for no in nos {
         let No::Elemento(e) = no else { continue };
         let lugar = if e.estrela.is_some() {
@@ -614,7 +676,7 @@ fn onde_esta(
         } else {
             Lugar::Raiz
         };
-        if e.referencias.iter().any(|r| r.nome == nome) {
+        if casa(e) {
             saida.push(lugar);
         }
         let mut dentro = Vec::new();
@@ -623,7 +685,7 @@ fn onde_esta(
                 lugar,
                 Lugar::Filho | Lugar::NoFilho | Lugar::NoFilhoProjetado | Lugar::Projetado
             );
-        onde_esta(&e.filhos, nome, filhos, abaixo_de_filho, &mut dentro);
+        onde_casa(&e.filhos, casa, filhos, abaixo_de_filho, &mut dentro);
         // Tudo abaixo de um `*` é da visão embutida.
         if lugar == Lugar::Embutida {
             dentro.iter_mut().for_each(|l| *l = Lugar::Embutida);
@@ -2072,6 +2134,15 @@ impl Corpo<'_> {
                 .insert(r.nome.clone(), format!("this.{campo_inst}"));
             self.refs_em_ordem
                 .push((r.nome.clone(), format!("this.{campo_inst}")));
+        }
+        // O resultado de um `@ViewChild(Tipo)` ([`chave_de_tipo`]).
+        let chave = chave_de_tipo(&filho.uri_dart, &filho.classe);
+        self.refs_em_ordem
+            .push((chave.clone(), format!("this.{campo_inst}")));
+        if filho.on_push {
+            self.detectores.insert(chave, campo_vista.clone());
+        }
+        for r in &e.referencias {
             if filho.on_push {
                 self.detectores.insert(r.nome.clone(), campo_vista.clone());
             }
@@ -5771,16 +5842,24 @@ fn gerar_componente(
     // `#ref` está uma vez só, num elemento HTML da própria visão.
     let mut consultas = Vec::new();
     for q in &c.consultas {
+        // O que procurar entre os resultados: o `#ref`, ou a chave do tipo.
+        let chave = if q.por_tipo {
+            uri_da_consulta(q, local, resolvedor)
+                .map(|u| chave_de_tipo(&u, &q.referencia))
+                .unwrap_or_default()
+        } else {
+            q.referencia.clone()
+        };
         if q.lista {
             let valores: Vec<String> = corpo
                 .refs_em_ordem
                 .iter()
-                .filter(|(n, _)| *n == q.referencia)
+                .filter(|(n, _)| *n == chave)
                 .map(|(_, v)| v.clone())
                 .collect();
             // Filho `onPush` no resultado registraria o `ChangeDetectorRef`
             // de cada um: ainda não.
-            if corpo.detectores.contains_key(&q.referencia) {
+            if corpo.detectores.contains_key(&chave) {
                 let r = recusa(Motivo::ViewChildEmFilho, "@ViewChildren de filho onPush");
                 if corpo.coletando() {
                     corpo.anotar(r)?;
@@ -5801,7 +5880,7 @@ fn gerar_componente(
         let primeiro = corpo
             .refs_em_ordem
             .iter()
-            .find(|(n, _)| *n == q.referencia)
+            .find(|(n, _)| *n == chave)
             .map(|(_, v)| v.clone());
         match primeiro {
             Some(alvo) => {
@@ -5811,10 +5890,10 @@ fn gerar_componente(
                 let repetido = corpo
                     .refs_em_ordem
                     .iter()
-                    .filter(|(n, _)| *n == q.referencia)
+                    .filter(|(n, _)| *n == chave)
                     .count()
                     > 1;
-                if repetido && corpo.detectores.contains_key(&q.referencia) {
+                if repetido && corpo.detectores.contains_key(&chave) {
                     let r = recusa(
                         Motivo::ViewChildEmFilho,
                         "@ViewChild de #ref repetido em filho onPush",
@@ -5826,7 +5905,7 @@ fn gerar_componente(
                         return Err(r);
                     }
                 }
-                if let Some(cv) = corpo.detectores.get(&q.referencia).cloned() {
+                if let Some(cv) = corpo.detectores.get(&chave).cloned() {
                     let v = corpo.imp.alias(VIEW);
                     consultas.push(format!(
                         "    {v}.View.queryChangeDetectorRefs[{alvo}] = this.{cv};"
