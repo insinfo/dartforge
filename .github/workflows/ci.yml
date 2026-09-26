@@ -159,7 +159,7 @@ jobs:
   # features, os testes do emit_native e do JIT (com os ignorados) e a recarga
   # pela CLI. O corpus inteiro fica no job `nativo-unix` do pesado.yml.
   # O Linux usa a libLLVM-22.so do apt.llvm.org com DARTFORGE_LLVM_LINK=shared
-  # (o caminho dinâmico do crates/jit/build.rs); o macOS, o pacote oficial
+  # (o caminho dinâmico do crates/llvm/build.rs); o macOS, o pacote oficial
   # arm64 em `auto` (estático: o pacote não traz a biblioteca compartilhada).
   nativo-unix:
     name: nativo e jit (${{ matrix.nome }})

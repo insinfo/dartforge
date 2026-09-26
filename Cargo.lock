@@ -225,6 +225,7 @@ dependencies = [
  "dartforge-frontend",
  "dartforge-instrument",
  "dartforge-intern",
+ "dartforge-llvm",
  "dartforge-runtime",
  "dartforge-types",
  "tempfile",
@@ -266,7 +267,15 @@ name = "dartforge-jit"
 version = "0.1.0"
 dependencies = [
  "dartforge-emit-native",
+ "dartforge-llvm",
  "dartforge-runtime",
+ "llvm-sys",
+]
+
+[[package]]
+name = "dartforge-llvm"
+version = "0.1.0"
+dependencies = [
  "llvm-sys",
 ]
 

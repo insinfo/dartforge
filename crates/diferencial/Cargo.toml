@@ -12,6 +12,11 @@ workspace = true
 dartforge-emit-native = { path = "../emit_native" }
 dartforge-frontend = { path = "../frontend" }
 
+[features]
+# O gerador de objetos embutido no AOT do harness (crates/emit_native/src/gerador.rs);
+# sem ele, o harness gera pelo Clang de `DARTFORGE_CLANG`.
+llvm-embutido = ["dartforge-emit-native/llvm-embutido"]
+
 [lib]
 path = "src/lib.rs"
 
