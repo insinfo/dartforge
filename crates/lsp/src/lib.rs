@@ -12,6 +12,8 @@
 //! trocada pela semântica (`crates/types`) sem tocar no transporte.
 
 pub mod servidor;
+mod completar;
+mod consulta;
 mod navegacao;
 mod semantica;
 mod simbolos;
@@ -24,6 +26,7 @@ use utf16::TabelaLinhas;
 
 pub use servidor::Servidor;
 pub use semantica::AnalisadorSemantico;
+pub use completar::{Completar, ItemCompletar};
 
 
 /// Posição LSP: linha e coluna em **unidades UTF-16** (ambas a partir de 0).
@@ -253,6 +256,13 @@ pub trait Analisador {
 
     fn hover_no_workspace(&mut self, uri: &str, texto: &str, offset: usize, _documentos: &DocumentStore) -> Option<(dartforge_diagnostics::Span, String, Option<String>)> {
         self.hover(uri, texto, offset)
+    }
+
+    /// Itens de completar na posição `offset` (bytes) do documento aberto
+    /// `uri`. `None` quando a análise não sabe responder (sem SDK, por
+    /// exemplo); lista vazia quando não há o que oferecer.
+    fn completar(&mut self, _documentos: &DocumentStore, _uri: &str, _offset: usize) -> Option<Completar> {
+        None
     }
 
     /// Descarta estado associado ao documento quando ele sai do editor.

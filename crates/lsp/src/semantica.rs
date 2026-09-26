@@ -28,7 +28,9 @@ impl AnalisadorSemantico {
         Self::novo(sdk)
     }
 
-    fn carregar(&self, uri: &str, texto: &str, documentos: Option<&DocumentStore>) -> Option<(Program, Interner, UnitId)> {
+    /// Carrega o programa de `uri` com `texto` e os demais documentos abertos
+    /// nos textos vigentes (os outros arquivos vêm do disco).
+    pub(crate) fn carregar(&self, uri: &str, texto: &str, documentos: Option<&DocumentStore>) -> Option<(Program, Interner, UnitId)> {
         let sdk = self.sdk.as_ref()?;
         let caminho = Url::parse(uri).ok()?.to_file_path().ok()?;
         if caminho.extension().is_none_or(|e| e != "dart") { return None; }
@@ -203,5 +205,11 @@ impl Analisador for AnalisadorSemantico {
 
     fn documento_fechado(&mut self, uri: &str) {
         self.sintatico.documento_fechado(uri);
+    }
+
+    fn completar(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<crate::Completar> {
+        let texto = documentos.get(uri)?;
+        let features = self.sintatico.features(uri, texto);
+        crate::completar::completar(self, documentos, uri, texto, offset, features)
     }
 }

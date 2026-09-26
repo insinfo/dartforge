@@ -290,6 +290,10 @@ impl<A: Analisador> Servidor<A> {
                         "definitionProvider": true,
                         "referencesProvider": true,
                         "hoverProvider": true,
+                        "completionProvider": {
+                            "triggerCharacters": ["."],
+                            "resolveProvider": false,
+                        },
                     },
                     "serverInfo": {
                         "name": "dartforge-lsp",
@@ -454,6 +458,34 @@ impl<A: Analisador> Servidor<A> {
                 });
                 resposta(&id, resultado.unwrap_or(Value::Null))
             }
+            "textDocument/completion" => {
+                let resultado = self.posicao_da_requisicao(mensagem).and_then(|(u, offset)| {
+                    let completar = self.analisador.completar(&self.documentos, &u, offset)?;
+                    let texto = self.documentos.get(&u)?;
+                    let tabela = self.documentos.linhas(&u)?;
+                    let range = intervalo_lsp(texto, tabela, completar.inicio, completar.fim);
+                    let itens: Vec<Value> = completar
+                        .itens
+                        .iter()
+                        .enumerate()
+                        .map(|(i, item)| {
+                            let mut valor = json!({
+                                "label": item.rotulo,
+                                "kind": item.especie,
+                                "sortText": format!("{i:05}"),
+                                "filterText": item.inserir.trim_end(),
+                                "textEdit": {"range": range, "newText": item.inserir},
+                            });
+                            if let Some(detalhe) = &item.detalhe {
+                                valor["detail"] = json!(detalhe);
+                            }
+                            valor
+                        })
+                        .collect();
+                    Some(json!({"isIncomplete": false, "items": itens}))
+                });
+                resposta(&id, resultado.unwrap_or(Value::Null))
+            }
             METODO_DORMIR => {
                 let ms = mensagem
                     .get("params")
@@ -476,6 +508,17 @@ impl<A: Analisador> Servidor<A> {
                 )
             }
         }
+    }
+
+    /// URI e offset (bytes) de `params.textDocument` + `params.position`,
+    /// quando o documento está aberto.
+    fn posicao_da_requisicao(&self, mensagem: &Value) -> Option<(String, usize)> {
+        let params = mensagem.get("params")?;
+        let uri = params.get("textDocument")?.get("uri")?.as_str()?;
+        let posicao = ler_posicao(params.get("position")?)?;
+        let texto = self.documentos.get(uri)?;
+        let offset = self.documentos.linhas(uri)?.offset_de_posicao(texto, posicao.linha, posicao.coluna);
+        Some((uri.to_string(), offset))
     }
 
     /// Diagnostica o documento e monta `textDocument/publishDiagnostics`.
@@ -600,6 +643,15 @@ fn ler_posicao(valor: &Value) -> Option<Posicao> {
     let linha = valor.get("line")?.as_u64()? as u32;
     let coluna = valor.get("character")?.as_u64()? as u32;
     Some(Posicao { linha, coluna })
+}
+
+/// Intervalo LSP (UTF-16) de `inicio..fim` em bytes, saturado no texto.
+fn intervalo_lsp(texto: &str, tabela: &crate::utf16::TabelaLinhas, inicio: usize, fim: usize) -> Value {
+    let inicio = inicio.min(texto.len());
+    let fim = fim.clamp(inicio, texto.len());
+    let (l0, c0) = tabela.posicao_de_offset(texto, inicio);
+    let (l1, c1) = tabela.posicao_de_offset(texto, fim);
+    json!({"start": {"line": l0, "character": c0}, "end": {"line": l1, "character": c1}})
 }
 
 /// Converte um diagnóstico (span em bytes UTF-8) em diagnóstico LSP.
