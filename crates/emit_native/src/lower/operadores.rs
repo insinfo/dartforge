@@ -317,6 +317,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             BinaryOp::Sub => self.emit(Instruction::Sub(lop, rop), Type::I64),
             BinaryOp::Mul => self.emit(Instruction::Mul(lop, rop), Type::I64),
             BinaryOp::TruncDiv => self.emit_trunc_div(lop, rop),
+            // `a % c` com `c` constante: em linha. O `%` do Dart devolve um
+            // valor em `[0, |c|)`: o resto truncado mais `|c|` quando ele é
+            // negativo (`(r >> 63) & |c|`, sem desvio). `c = ±1` dá sempre 0
+            // (e evita o `srem` de `i64::MIN` por `-1`, indefinido no LLVM);
+            // `c = 0` lança e `c = i64::MIN` não tem `|c|`: ficam com o runtime.
+            BinaryOp::Rem
+                if matches!(rop, Operand::Constant(Constant::Int(c)) if c != 0 && c != i64::MIN) =>
+            {
+                let Operand::Constant(Constant::Int(c)) = rop else { unreachable!() };
+                if c == 1 || c == -1 {
+                    return Operand::Constant(Constant::Int(0));
+                }
+                let r = self.emit(Instruction::SRem(lop, Operand::Constant(Constant::Int(c))), Type::I64);
+                let sinal = self.emit(Instruction::AShr(r.clone(), Operand::Constant(Constant::Int(63))), Type::I64);
+                let ajuste = self.emit(Instruction::And(sinal, Operand::Constant(Constant::Int(c.abs()))), Type::I64);
+                self.emit(Instruction::Add(r, ajuste), Type::I64)
+            }
             BinaryOp::Rem => self.emit(
                 Instruction::CallRuntime {
                     name: "dartforge_nativo_Integer_moduloFromInteger".to_string(),
