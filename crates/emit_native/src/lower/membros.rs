@@ -534,6 +534,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// Membro de instância por nome, subindo a cadeia de superclasses.
+    /// O operador `nome` (`+`, `[]`, `unary-`…) declarado por uma classe do
+    /// PROGRAMA (não do SDK) para o receptor de tipo estático `e`: a chamada
+    /// vai por `chamar_membro` (direta, ou o despacho só entre as
+    /// implementações do programa), não pelo seletor dinâmico.
+    pub fn operador_do_programa(&self, e: ExprId, nome: &str) -> Option<usize> {
+        let cid = self.classe_do_usuario_de(e)?;
+        if self.ctx.program.library(self.ctx.program.classes[cid.0 as usize].library).is_sdk {
+            return None;
+        }
+        let fid = self.membro_na_classe(cid, nome)?;
+        let f = &self.ctx.program.functions[fid];
+        (crate::lower::funcao_do_usuario(self.ctx, fid) && !self.ctx.program.library(f.library).is_sdk).then_some(fid)
+    }
+
     pub fn membro_na_classe(&self, cid: ClassId, nome: &str) -> Option<usize> {
         let sym = self.ctx.interner.lookup(nome)?;
         for c in crate::lower::membros::linearizacao(self.ctx, cid) {

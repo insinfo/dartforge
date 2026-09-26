@@ -267,6 +267,36 @@ pub extern "C" fn dartforge_object_new(class_id: i64, field_count: i64) -> i64 {
         })
     })
 }
+// Os campos de um objeto (`Value::Object`) são lidos e gravados em linha
+// pelo código gerado (`llvm/mod.rs`, `GetField`/`SetField`): cada um é o par
+// `(bits, is_ref)` — 16 bytes, os bits no deslocamento 0 e `is_ref` no 8.
+// O layout de tupla do Rust não é garantido pela linguagem; esta conferência
+// em tempo de compilação faz o contrato falhar no build, não em execução.
+const _: () = {
+    assert!(std::mem::size_of::<(i64, bool)>() == 16);
+    assert!(std::mem::offset_of!((i64, bool), 0) == 0);
+    assert!(std::mem::offset_of!((i64, bool), 1) == 8);
+};
+
+/// Zeros para a leitura de campo de algo que não é objeto (o que
+/// `dartforge_object_get` devolvia): nunca gravado — está em memória só de
+/// leitura, e gravar nela é erro do compilador que termina o processo.
+static CAMPOS_VAZIOS: [(i64, bool); CAMPOS_EM_LINHA] = [(0, false); CAMPOS_EM_LINHA];
+
+/// Maior índice de campo que o emissor lê em linha (acima dele, a chamada).
+pub const CAMPOS_EM_LINHA: usize = 4096;
+
+/// O endereço dos campos do objeto `h` (ponteiro mutável: o código gerado
+/// grava por ele); de algo que não é objeto, [`CAMPOS_VAZIOS`]. O vetor de
+/// campos não muda de tamanho enquanto o objeto vive, a não ser por
+/// chamadas sem atributo (a exceção que ganha o rastro): o emissor a
+/// declara `memory(inaccessiblemem: read)`, e uma gravação de campo em
+/// linha não invalida o endereço, mas qualquer chamada desconhecida sim.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_object_campos(h: i64) -> i64 {
+    heap_sem_emprestimo(|heap| heap.campos_de_objeto(h).map_or(CAMPOS_VAZIOS.as_ptr() as i64, |p| p as i64))
+}
+
 /// Obtém bits do campo pelo índice estável escolhido pelo emissor.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_object_get(handle: i64, index: i64) -> i64 {

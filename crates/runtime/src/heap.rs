@@ -1425,6 +1425,18 @@ impl Heap {
         let index = self.indice_vivo(handle);
         self.slots[index].as_ref().expect("slot vivo verificado")
     }
+    /// O endereço dos campos do objeto `handle`, numa busca só (o caminho
+    /// quente de `dartforge_object_campos`); `None` se não é objeto vivo.
+    #[inline]
+    pub fn campos_de_objeto(&mut self, handle: i64) -> Option<*mut (i64, bool)> {
+        if !smi::e_handle(handle) || handle < 0 {
+            return None;
+        }
+        match self.slots.get_mut(Self::indice_de(handle)) {
+            Some(Some(Value::Object { fields, .. })) => Some(fields.as_mut_ptr()),
+            _ => None,
+        }
+    }
     /// Obtém valor vivo se o handle for válido, ou None se inválido/destruído.
     /// Null, `Smi` e escalar qualquer dão `None`.
     pub fn try_get(&self, handle: i64) -> Option<&Value> {

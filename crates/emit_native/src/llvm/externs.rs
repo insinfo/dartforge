@@ -112,11 +112,15 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i64 @dartforge_object_get(i64, i64)",
-        efeitos: CONSERVADOR,
+        // Lê/grava um campo: não aloca (o emissor a expande em linha com
+        // índice constante).
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare void @dartforge_object_set(i64, i64, i64, i8)",
-        efeitos: CONSERVADOR,
+        // Lê/grava um campo: não aloca (o emissor a expande em linha com
+        // índice constante).
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare i8 @dartforge_late_field_initialized(i64, i64)",
@@ -325,6 +329,13 @@ pub const EXTERNS: &[Extern] = &[
     Extern {
         decl: "declare i64 @dartforge_lista_ref(i64, i64)",
         efeitos: Efeitos { aloca: true, lanca: false, chama_dart: false },
+    },
+    // Os campos dos objetos em linha (`GetField`/`SetField`): o endereço
+    // vem do vetor de campos no heap do runtime, que só muda de tamanho por
+    // chamadas sem atributo; os campos são memória que o módulo acessa.
+    Extern {
+        decl: "declare i64 @dartforge_object_campos(i64) memory(inaccessiblemem: read) nounwind willreturn speculatable",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare i64 @dartforge_view_nova(i64, i64, i64, i64, i64)",

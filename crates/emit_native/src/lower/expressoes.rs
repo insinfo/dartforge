@@ -543,6 +543,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
                     return self.coagir(r, repr);
                 }
+                // Operador de classe do programa: chamada direta pelo membro
+                // (o `==`, com a regra do `null`, fica com o caminho geral).
+                if let Some((nome, _)) = super::despacho::operador(*op)
+                    && let Some(fid) = self.operador_do_programa(*left, nome)
+                {
+                    let lop = self.lower_expr(ast, *left);
+                    let rop = self.lower_expr(ast, *right);
+                    let r = self.chamar_membro(lop, fid, &[(None, rop)], expr.span);
+                    let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
+                    return self.coagir(r, repr);
+                }
                 let lop = self.lower_expr(ast, *left);
                 let rop = self.lower_expr(ast, *right);
                 let l_ty = self.ctx.get_type(self.unit_id, *left);
@@ -941,6 +952,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     if let Some(r) = self.ler_indexado(target_op.clone(), idx_op.clone(), l, repr) {
                         return r;
                     }
+                }
+                // `operator []` de classe do programa: pelo membro.
+                if let Some(fid) = self.operador_do_programa(*target, "[]") {
+                    let r = self.chamar_membro(target_op, fid, &[(None, idx_op)], expr.span);
+                    let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
+                    return self.coagir(r, repr);
                 }
                 if self.ctx.sdk_da_fonte {
                     // SDK da fonte: `[]` pela classe dinâmica.

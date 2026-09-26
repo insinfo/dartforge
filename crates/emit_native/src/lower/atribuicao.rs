@@ -508,6 +508,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.chamar_por_nome(t_op, super::sdk_fonte::Tipo::Chamar, "[]=", &[(None, i_op), (None, v.clone())]);
                     return v;
                 }
+                // `[]=` (e o `[]` do composto) de classe do programa: pelos
+                // membros.
+                if let Some(set) = self.operador_do_programa(*t, "[]=") {
+                    let cur = if composto {
+                        let Some(get) = self.operador_do_programa(*t, "[]") else {
+                            return self.nao_suportado("operador [] ausente", span);
+                        };
+                        Some(self.chamar_membro(t_op.clone(), get, &[(None, i_op.clone())], span))
+                    } else {
+                        None
+                    };
+                    let v = self.combinar(ast, op, cur, value);
+                    self.chamar_membro(t_op, set, &[(None, i_op), (None, v.clone())], span);
+                    return v;
+                }
                 if self.ctx.sdk_da_fonte {
                     // SDK da fonte: `[]`/`[]=` pela classe dinâmica.
                     use super::sdk_fonte::Tipo;
