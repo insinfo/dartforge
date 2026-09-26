@@ -339,6 +339,13 @@ name = "dartforge-runtime"
 version = "0.1.0"
 
 [[package]]
+name = "dartforge-runtime-estatico"
+version = "0.1.0"
+dependencies = [
+ "dartforge-runtime",
+]
+
+[[package]]
 name = "dartforge-types"
 version = "0.1.0"
 dependencies = [

@@ -6,3 +6,9 @@ license.workspace = true
 publish = false
 [lints]
 workspace = true
+
+[features]
+# O perfil do módulo `abi` (ver o build.rs): nenhuma feature é o JIT; `aot` e
+# `dll` são as duas `staticlib` do AOT, montadas por `crates/runtime_estatico`.
+aot = []
+dll = []
