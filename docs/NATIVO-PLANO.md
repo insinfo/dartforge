@@ -1398,6 +1398,48 @@ o `kill` imediato só é visto quando o isolado volta ao laço de eventos (a
 VM interrompe na verificação de pilha); `Isolate.spawnUri` não existe
 num programa compilado (a porta de pronto recebe o erro).
 
+**dart:ffi** (`lower/ffi.rs`, `runtime/src/ffi.rs`, `sdk_nativo/ffi/`).
+O que o transformador de FFI da VM faz no kernel, aqui é feito no
+lowering, e a chamada nativa é LLVM puro — sem libffi e sem interpretar a
+assinatura a cada chamada:
+
+* **Tipos nativos.** Os primitivos (`Int8`…`Double`, `Bool`, `Void`), o
+  `Pointer` e os inteiros específicos da ABI (`Long`, `IntPtr`, `Size`,
+  `WChar`…, do SDK ou do programa) ganham um tipo C; os da ABI saem do
+  `@AbiSpecificIntegerMapping` para o alvo (`linuxX64`, `windowsX64`,
+  `macosArm64`…). A tabela vai ao runtime (`dartforge_ffi_registrar_tipo`)
+  e serve a `sizeOf<T>()` e à chave do trampolim.
+* **Trampolins.** Todo tipo de função feito só de tipos nativos que aparece
+  no programa é uma assinatura: `lookupFunction<NS, DS>` e `asFunction`
+  instanciam `NativeFunction<NS>` dentro do corpo genérico, então a
+  assinatura concreta só existe como argumento de tipo. Cada uma ganha um
+  trampolim na convenção uniforme das closures: confere a aridade, converte
+  os argumentos (`int` truncado ao inteiro estreito com o `signext`/`zeroext`
+  que a ABI C exige, `double` a `float`, `Pointer` ao endereço), chama o
+  endereço guardado na closure (`Instruction::ChamadaNativa`) e converte o
+  retorno. `asFunction` pede ao runtime a closure da chave da assinatura
+  (letras dos tipos C, a mesma dos dois lados).
+* **Memória.** `Pointer` guarda o endereço como `int`; as cargas e
+  gravações (`_loadInt8`…`_storeDouble`, os da ABI, `_memCopy`) são natives
+  do runtime que aceitam como base um `Pointer` ou uma lista tipada (com
+  conferência de limites). `DynamicLibrary` usa `dlopen`/`dlsym` (Linux,
+  macOS) e `LoadLibraryW`/`GetProcAddress` com busca nos módulos do
+  processo (Windows).
+* **Pendente** (recusado com o motivo, nunca com a ABI errada): structs e
+  unions por valor (classificação de ABI por alvo), `Pointer.fromFunction`,
+  `NativeCallable`, `@Native`, `asTypedList`, `NativeFinalizer`, `Handle` e
+  funções variádicas.
+
+**Extensões genéricas.** Um membro de instância de extensão recebe a tupla
+de argumentos de tipo `[os da extensão…, os do membro…]`: os da extensão
+saem do tipo estático do receptor casado com o `on` (como na aplicação de
+extensão da especificação), então `T` vale como expressão, em `is`/`as` e
+dentro de closures. Setters, `[]`/`[]=` e operadores de extensão baixam
+como chamadas diretas; o `@patch` de um membro de extensão do SDK
+substitui o `external` da declaração. Uma variável de tipo como expressão
+(`T` numa função ou classe genérica) produz o objeto `Type` do argumento
+corrente.
+
 **Recusa por membro.** O membro do SDK que não baixa (construto não
 suportado, native pendente, intrínseco da VM sem entrada, teste de tipo sobre
 parâmetro de tipo antes da RTI) vira uma função que avisa em tempo de

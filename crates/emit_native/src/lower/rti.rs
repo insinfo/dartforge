@@ -102,8 +102,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let i = self.ctx.outline.classes.get(c.0 as usize)?.type_params.iter().position(|&x| x == p)?;
                 Some((if self.classe_por_tupla { 'M' } else { 'P' }, i))
             }
+            // Na tupla de um membro de extensão, os parâmetros da extensão
+            // vêm antes dos do membro (`params_de_tipo_de`).
             TypeParamOwner::Function(f) => {
                 let i = self.ctx.outline.functions.get(f.0 as usize)?.type_params.iter().position(|&x| x == p)?;
+                let fe = &self.ctx.program.functions[f.0 as usize];
+                let base = fe
+                    .extension
+                    .filter(|_| !fe.static_)
+                    .and_then(|e| self.ctx.outline.extensions.get(e.0 as usize))
+                    .map_or(0, |x| x.type_params.len());
+                Some(('M', base + i))
+            }
+            TypeParamOwner::Extension(e) => {
+                let i = self.ctx.outline.extensions.get(e.0 as usize)?.type_params.iter().position(|&x| x == p)?;
                 Some(('M', i))
             }
             _ => None,
@@ -253,6 +265,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         r.texto.push('>');
         Some(self.rti_da_receita(&r))
+    }
+
+    /// Receita de uma variável de tipo em escopo, pelo nome: da função (e da
+    /// extensão), depois da classe. `None` quando `sym` não é uma delas.
+    pub fn receita_da_variavel_de_tipo(&self, sym: SymbolId) -> Option<Receita> {
+        let texto = if let Some(i) = self.params_de_tipo_da_funcao.iter().position(|s| *s == sym) {
+            format!("M{i}")
+        } else {
+            let i = self.params_da_classe().iter().position(|s| *s == sym)?;
+            format!("{}{i}", if self.classe_por_tupla { 'M' } else { 'P' })
+        };
+        Some(Receita { texto, variaveis: true })
     }
 
     fn escrever_anotacao(&self, a: &ast::TypeAnnotation, ligadas: &mut Vec<SymbolId>, r: &mut Receita) -> Option<()> {
@@ -690,50 +714,76 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// casando o retorno declarado com o tipo estático da chamada e cada
     /// parâmetro com o tipo do argumento. O que não se deduz fica `dynamic`.
     pub fn armar_tupla(&mut self, fid: usize, expr: ast::ExprId, arguments: &ast::Arguments) {
+        self.armar_tupla_com_receptor(fid, None, Some((expr, arguments)));
+    }
+
+    /// `armar_tupla` de um membro de extensão: os argumentos de tipo da
+    /// extensão saem do tipo estático do receptor casado com o `on` (como
+    /// na inferência da aplicação de extensão), os do membro da chamada.
+    /// Sem `chamada` (getter, setter, operador), só a parte da extensão.
+    pub fn armar_tupla_com_receptor(
+        &mut self,
+        fid: usize,
+        receptor: Option<TypeId>,
+        chamada: Option<(ast::ExprId, &ast::Arguments)>,
+    ) {
         if !self.funcao_generica(fid) {
             return;
         }
-        let dados = &self.ctx.outline.functions[fid];
-        let params: Vec<TypeParamId> = dados.type_params.to_vec();
-        let unit_ast = &self.ctx.program.unit(self.unit_id).ast;
-        if !arguments.type_args.is_empty() {
-            let mut r = Receita { texto: "L<".to_string(), variaveis: false };
-            for (i, a) in arguments.type_args.iter().enumerate() {
-                if i > 0 {
-                    r.texto.push(',');
-                }
-                match self.receita_da_anotacao(unit_ast.ty(*a)) {
-                    Some(x) => {
-                        r.texto.push_str(&x.texto);
-                        r.variaveis |= x.variaveis;
-                    }
-                    None => r.texto.push('D'),
-                }
-            }
-            r.texto.push('>');
-            let t = self.rti_da_receita(&r);
-            self.tupla_armada = Some(t);
-            return;
-        }
+        let params = self.params_de_tipo_de(fid);
+        let f = &self.ctx.program.functions[fid];
+        let extensao = f
+            .extension
+            .filter(|_| !f.static_)
+            .and_then(|e| self.ctx.outline.extensions.get(e.0 as usize))
+            .map(|x| (x.type_params.len(), x.on));
+        let n_ext = extensao.map_or(0, |(n, _)| n);
         let mut achados: Vec<Option<TypeId>> = vec![None; params.len()];
-        if let Some(real) = self.ctx.get_type(self.unit_id, expr) {
-            self.unificar(dados.return_type, real, &params, &mut achados);
+        if let (Some((_, on)), Some(r)) = (extensao, receptor) {
+            self.unificar(on, r, &params, &mut achados);
         }
-        let mut posicionais = arguments.args.iter().filter(|a| a.name.is_none());
-        for p in dados.parameters.iter() {
-            let arg = if p.kind == ast::ParameterKind::Named {
-                arguments.args.iter().find(|a| a.name.map(|n| n.sym) == p.name)
+        let dados = &self.ctx.outline.functions[fid];
+        let mut escritos: Vec<Receita> = Vec::new();
+        if let Some((expr, arguments)) = chamada {
+            let unit_ast = &self.ctx.program.unit(self.unit_id).ast;
+            if !arguments.type_args.is_empty() {
+                for a in &arguments.type_args {
+                    let x = self.receita_da_anotacao(unit_ast.ty(*a));
+                    escritos.push(x.unwrap_or(Receita { texto: "D".to_string(), variaveis: false }));
+                }
             } else {
-                posicionais.next()
-            };
-            if let Some(a) = arg
-                && let Some(real) = self.ctx.get_type(self.unit_id, a.value)
-            {
-                self.unificar(p.ty, real, &params, &mut achados);
+                if let Some(real) = self.ctx.get_type(self.unit_id, expr) {
+                    self.unificar(dados.return_type, real, &params, &mut achados);
+                }
+                let mut posicionais = arguments.args.iter().filter(|a| a.name.is_none());
+                for p in dados.parameters.iter() {
+                    let arg = if p.kind == ast::ParameterKind::Named {
+                        arguments.args.iter().find(|a| a.name.map(|n| n.sym) == p.name)
+                    } else {
+                        posicionais.next()
+                    };
+                    if let Some(a) = arg
+                        && let Some(real) = self.ctx.get_type(self.unit_id, a.value)
+                    {
+                        self.unificar(p.ty, real, &params, &mut achados);
+                    }
+                }
             }
         }
-        let args: Vec<TypeId> = achados.into_iter().map(|t| t.unwrap_or(self.ctx.core.dynamic_)).collect();
-        let t = self.tupla_de_tipos_rti(&args);
+        let mut r = Receita { texto: "L<".to_string(), variaveis: false };
+        for (i, achado) in achados.iter().enumerate() {
+            if i > 0 {
+                r.texto.push(',');
+            }
+            let x = match escritos.get(i.wrapping_sub(n_ext)).filter(|_| i >= n_ext) {
+                Some(e) => e.clone(),
+                None => self.receita_de_tipo(achado.unwrap_or(self.ctx.core.dynamic_)),
+            };
+            r.texto.push_str(&x.texto);
+            r.variaveis |= x.variaveis;
+        }
+        r.texto.push('>');
+        let t = self.rti_da_receita(&r);
         self.tupla_armada = Some(t);
     }
 
