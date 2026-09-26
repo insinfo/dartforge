@@ -735,3 +735,50 @@ pub extern "C" fn dartforge_nativo_Closure_computeHash(this: i64) -> i64 {
         ((h >> 34) & 0x3FFF_FFFF) as i64
     })
 }
+
+/// Uma lista com os elementos da tabela `dados` (`lower/literais.rs`): os
+/// literais de coleção grandes de escalares constantes chegam como dados, e
+/// não como uma instrução por elemento. Cada elemento: `n` (null), `t`/`f`
+/// (bool), `i` + 8 bytes (int, little-endian), `s` + 4 bytes de tamanho +
+/// os bytes WTF-8 (string, canônica como a de um literal).
+///
+/// # Safety
+/// `dados` aponta para `len` bytes legíveis.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_lista_de_tabela(dados: *const u8, len: i64) -> i64 {
+    // SAFETY: garantido por quem chama (uma constante do módulo).
+    let b = unsafe { std::slice::from_raw_parts(dados, usize::try_from(len).unwrap_or(0)) };
+    let mut itens = Vec::new();
+    let mut i = 0;
+    let palavra = |b: &[u8], i: usize, n: usize| {
+        let mut w = [0u8; 8];
+        w[..n].copy_from_slice(&b[i..i + n]);
+        u64::from_le_bytes(w)
+    };
+    while i < b.len() {
+        let tag = b[i];
+        i += 1;
+        let v = match tag {
+            b'n' => TaggedValue::reference(0),
+            b't' => TaggedValue::boolean(true),
+            b'f' => TaggedValue::boolean(false),
+            b'i' => {
+                let x = palavra(b, i, 8) as i64;
+                i += 8;
+                TaggedValue::scalar(x)
+            }
+            b's' => {
+                let n = palavra(b, i, 4) as usize;
+                i += 4;
+                // Strings literais são canônicas e permanentes: nenhuma
+                // coleta no meio as perde.
+                let h = HEAP.with(|heap| heap.borrow_mut().string_literal(Texto::de_wtf8(&b[i..i + n])));
+                i += n;
+                TaggedValue::reference(h)
+            }
+            _ => panic!("bug do compilador: tabela de coleção com o marcador {tag}"),
+        };
+        itens.push(v);
+    }
+    HEAP.with(|heap| heap.borrow_mut().create_list(itens))
+}

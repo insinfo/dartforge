@@ -544,6 +544,45 @@ impl ParsedModule {
         functions
     }
 
+    /// Torna locais ao módulo todas as funções definidas, menos `manter`.
+    ///
+    /// Um programa executado de uma vez (`dartforge run`) só precisa exportar
+    /// a entrada; exportar as dezenas de milhares de funções de um programa
+    /// com pacotes grandes faz o ORC rastrear a dependência de cada símbolo
+    /// emitido (`WaitingOnGraph`), o que cresce mais que linearmente e levava
+    /// minutos. Funções locais o ORC não rastreia, e o LLVM ainda pode
+    /// descartar as que nada alcança.
+    pub(crate) fn internalizar_funcoes(&self, manter: &[&str]) {
+        for function in self.definitions() {
+            // SAFETY: `function` veio da travessia de definições deste módulo;
+            // a troca de ligação e a retirada do comdat são as operações que a
+            // passagem `internalize` do LLVM faz.
+            unsafe {
+                if manter.contains(&value_name(function).as_str()) {
+                    continue;
+                }
+                llvm_sys::comdat::LLVMSetComdat(function, ptr::null_mut());
+                llvm_sys::core::LLVMSetLinkage(function, llvm_sys::LLVMLinkage::LLVMInternalLinkage);
+                llvm_sys::core::LLVMSetVisibility(function, llvm_sys::LLVMVisibility::LLVMDefaultVisibility);
+            }
+        }
+        // O que a entrada não alcança sai antes da geração de código (um
+        // pacote grande importado inteiro — todos os algoritmos de um
+        // `export.dart` — custava o código de máquina de tudo).
+        let pipeline = CString::new("globaldce").expect("sem NUL");
+        // SAFETY: o módulo é deste valor; as opções são criadas e liberadas
+        // aqui, e o erro devolvido é consumido.
+        unsafe {
+            let opcoes = llvm_sys::transforms::pass_builder::LLVMCreatePassBuilderOptions();
+            let erro = llvm_sys::transforms::pass_builder::LLVMRunPasses(self.module, pipeline.as_ptr(), ptr::null_mut(), opcoes);
+            llvm_sys::transforms::pass_builder::LLVMDisposePassBuilderOptions(opcoes);
+            if !erro.is_null() {
+                let msg = LLVMGetErrorMessage(erro);
+                LLVMDisposeErrorMessage(msg);
+            }
+        }
+    }
+
     fn local_function(&self, function: LLVMValueRef) -> bool {
         // SAFETY: `function` veio da travessia de definições deste módulo.
         let linkage = unsafe { llvm_sys::core::LLVMGetLinkage(function) };

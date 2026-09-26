@@ -129,10 +129,95 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         span: Span,
     ) -> Operand {
         let alvo = self.colecao_vazia(tipo);
+        if self.preencher_de_tabela(ast, alvo.clone(), tipo, elements) {
+            return alvo;
+        }
         for el in elements {
             self.elemento_de_colecao(ast, alvo.clone(), tipo, el, span);
         }
         alvo
+    }
+
+    /// Um literal grande só de strings, bools e null (as tabelas de nomes e
+    /// de entidades dos pacotes reais) vira DADOS: os elementos numa tabela
+    /// de bytes que o runtime converte numa lista
+    /// (`dartforge_lista_de_tabela`), e um apoio Dart que a copia para a
+    /// coleção — em vez de uma chamada de `add`/`[]=` por elemento, que
+    /// fazia do getter de uma constante de 2 mil entradas uma função de 50
+    /// mil instruções. Os inteiros ficam de fora: o tipo de contexto pode
+    /// fazer de um literal inteiro um `double`.
+    fn preencher_de_tabela(&mut self, ast: &ast::Ast, alvo: Operand, tipo: Colecao, elements: &[CollectionElement]) -> bool {
+        const MINIMO: usize = 8;
+        if !self.ctx.sdk_da_fonte || elements.len() < MINIMO {
+            return false;
+        }
+        let mut tabela: Vec<u8> = Vec::new();
+        let mut escalar = |e: ast::ExprId, tabela: &mut Vec<u8>| -> bool {
+            match &ast.expr(e).kind {
+                ast::ExprKind::Null => tabela.push(b'n'),
+                ast::ExprKind::Bool(b) => tabela.push(if *b { b't' } else { b'f' }),
+                ast::ExprKind::String(s) => {
+                    let Some(texto) = s.constant_value() else { return false };
+                    let bytes = texto.as_bytes();
+                    tabela.push(b's');
+                    tabela.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+                    tabela.extend_from_slice(bytes);
+                }
+                _ => return false,
+            }
+            true
+        };
+        for el in elements {
+            let ok = match (el, tipo) {
+                (CollectionElement::Expression(e), Colecao::Lista | Colecao::Conjunto) => escalar(*e, &mut tabela),
+                (
+                    CollectionElement::MapEntry { key, value, null_aware_key: false, null_aware_value: false },
+                    Colecao::Mapa,
+                ) => escalar(*key, &mut tabela) && escalar(*value, &mut tabela),
+                _ => false,
+            };
+            if !ok {
+                return false;
+            }
+        }
+        let apoio = match tipo {
+            Colecao::Lista => "_dartforgePreencherLista",
+            Colecao::Conjunto => "_dartforgePreencherConjunto",
+            Colecao::Mapa => "_dartforgePreencherMapa",
+        };
+        let Some(fid) = self.funcao_de_topo("dart:_compact_hash", apoio) else { return false };
+        let palavras: Vec<i64> = tabela
+            .chunks(8)
+            .map(|c| {
+                let mut w = [0u8; 8];
+                w[..c.len()].copy_from_slice(c);
+                i64::from_le_bytes(w)
+            })
+            .collect();
+        let dados = self.emit(Instruction::ConstArray(palavras), Type::Ptr);
+        let valores = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_lista_de_tabela".to_string(),
+                args: vec![(dados, Type::Ptr), (Operand::Constant(Constant::Int(tabela.len() as i64)), Type::I64)],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        );
+        let avaliados: Vec<super::membros::Avaliado> = vec![(None, alvo), (None, valores)];
+        let args = self.casar_args(fid, &avaliados);
+        self.chamar_direto(fid, None, args);
+        true
+    }
+
+    /// A função de topo `nome` da biblioteca `uri`.
+    pub fn funcao_de_topo(&self, uri: &str, nome: &str) -> Option<usize> {
+        let lib = self.ctx.program.libraries.iter().position(|l| l.uri == uri)?;
+        let sym = self.ctx.interner.lookup(nome)?;
+        let b = self.ctx.program.lookup(dartforge_elements::model::LibraryId(lib as u32), sym)?;
+        match b.getter? {
+            dartforge_elements::model::Element::Function(f) => Some(f.0 as usize),
+            _ => None,
+        }
     }
 
     fn elemento_de_colecao(
