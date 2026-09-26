@@ -453,10 +453,24 @@ impl JitSession {
     /// desconhecido (`símbolos`) ou símbolo já definido na sessão
     /// (`add-module`). Em nenhum caso a sessão fica em estado parcial.
     pub fn add_ir_module(&mut self, name: &str, ir: &str) -> Result<ModuleReport, JitError> {
+        self.add_ir_module_com(name, ir, None)
+    }
+
+    /// [`JitSession::add_ir_module`] de um programa inteiro, executado de uma
+    /// vez: só as entradas (`main`, `dartforge_entry`) ficam exportadas; as
+    /// demais funções são locais ao módulo (ver `internalizar_funcoes`).
+    pub fn add_program_module(&mut self, name: &str, ir: &str) -> Result<ModuleReport, JitError> {
+        self.add_ir_module_com(name, ir, Some(&["main", ENTRY_SYMBOL]))
+    }
+
+    fn add_ir_module_com(&mut self, name: &str, ir: &str, exportar_so: Option<&[&str]>) -> Result<ModuleReport, JitError> {
         let started = Instant::now();
         let phase = Instant::now();
         let parsed = ffi::parse_module(name, ir)
             .map_err(|detail| JitError::new("parse-ir", "IR inválido", detail))?;
+        if let Some(manter) = exportar_so {
+            parsed.internalizar_funcoes(manter);
+        }
         self.check_target(&parsed)?;
         let signatures = parsed.signatures();
         let defined = self.defined_names();
@@ -811,7 +825,7 @@ pub fn run_ir_com(ir: &str, sdk: Option<&std::path::Path>) -> Result<JitReport, 
     let phase = Instant::now();
     let mut session = JitSession::new_for_ir_com(ir, sdk)?;
     let session_time = phase.elapsed();
-    let module = session.add_ir_module("dartforge", ir)?;
+    let module = session.add_program_module("dartforge", ir)?;
     let entry = if session.usa_sdk_da_fonte() { session.run_main()? } else { session.run_entry()? };
     drop(session);
     Ok(JitReport {

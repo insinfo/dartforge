@@ -752,7 +752,7 @@ mod testes {
             return;
         }
         let sdk = carregar_sdk_nativo(Path::new(SDK_DIR.as_str())).unwrap();
-        assert_eq!(sdk.substituicoes.len(), 18);
+        assert_eq!(sdk.substituicoes.len(), 19);
         for b in BIBLIOTECAS_DA_FONTE {
             assert!(sdk.library(b).is_some(), "dart:{b} fora do layout");
         }
