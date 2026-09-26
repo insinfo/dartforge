@@ -1277,6 +1277,27 @@ e visões não modificáveis funcionam; o SIMD (`Float32x4`…) ainda é recusad
 por membro. O nome em `Type.toString()` segue o `Class::UserVisibleName`
 da VM (`_Uint8List` → `Uint8List`, `_GrowableList` → `List`).
 
+**`dart:io` é o da VM.** Os patches de `_internal/vm/bin` compilam sem
+mudança; a sobreposição só troca `common_patch.dart` (o arquivo da VM mais
+as funções `_dartforge*` que o runtime chama para criar `OSError`, as
+entradas da listagem síncrona e o preparo da partida) e
+`nativewrappers.dart` (o campo nativo de `NativeFieldWrapperClass1` vira um
+campo declarado, o primeiro do layout, que os natives leem e gravam). Os
+natives seguem o contrato de `runtime/bin/*.cc` — devolvem o valor ou um
+`OSError`, com os mesmos códigos de erro (`SetErrno` de `file_linux.cc`) —
+e estão em `crates/runtime/src/io_arquivos.rs` (arquivos, o `File` com
+contagem de referências e finalizador no coletor), `io_diretorios.rs`
+(diretórios e a listagem, síncrona e em lotes), `io_servico.rs` (o
+IOService: uma porta nativa atendida por até 32 threads, com os pedidos e as
+respostas do `IO_SERVICE_REQUEST_LIST`) e `io_plataforma.rs` (`Platform`,
+`Stdin`/`Stdout`, `exit`, `exitCode`, `sleep`, bytes aleatórios e o preparo
+que o embedder faz antes do `main`: `Platform.script` e `Uri.base`). Cada
+native tem a versão Unix (Linux e macOS) e a do Windows. `dart:developer`
+segue o perfil de produção da VM (`nativos_desenvolvedor.rs`). Processos,
+soquetes, o manipulador de eventos e o `FileSystemWatcher` ainda são
+recusados por membro. O corpus `corpus/nativo/` (só VM × nativo) cobre o
+`dart:io`.
+
 **Recusa por membro.** O membro do SDK que não baixa (construto não
 suportado, native pendente, intrínseco da VM sem entrada, teste de tipo sobre
 parâmetro de tipo antes da RTI) vira uma função que avisa em tempo de

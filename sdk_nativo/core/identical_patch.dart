@@ -41,3 +41,10 @@ Object _dartforgeErroDeChamada(String nome) =>
 
 @pragma("vm:entry-point")
 Object _dartforgeRastroVazio() => StackTrace.empty;
+
+/// O gancho de `Uri.base` que o embedder instala na partida
+/// (`DartUtils::PrepareCoreLibrary`: o `_getUriBaseClosure` de `dart:io`).
+@pragma("vm:entry-point")
+void _dartforgeDefinirUriBase(_UriBaseClosure gancho) {
+  _uriBaseClosure = gancho;
+}

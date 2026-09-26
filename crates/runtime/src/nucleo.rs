@@ -56,7 +56,7 @@ pub extern "C" fn dartforge_iniciar(entrada: extern "C" fn(), para_texto: extern
 ///
 /// Exceção pendente: escreve `Uncaught exception: …` em stderr e devolve 101.
 /// Senão, com `DARTFORGE_GC_STATS=1`, escreve as estatísticas do coletor, e
-/// devolve 0. Quem chama encerra o processo com o código (o `main` acima, no
+/// devolve o código de saída global (`exitCode` do `dart:io`; 0 sem ele). Quem chama encerra o processo com o código (o `main` acima, no
 /// AOT; o executor, no JIT). Não chama `exit` aqui: é o único trecho do
 /// runtime que os dois perfis dirigem, e fica escrito uma vez só.
 pub fn finalizar_programa() -> i32 {
@@ -100,7 +100,7 @@ pub fn finalizar_programa() -> i32 {
                 s.estimated_bytes, s.peak_estimated_bytes, s.permanent_roots, s.caixas_evitadas);
         });
     }
-    0
+    codigo_de_saida_global()
 }
 
 use crate::heap::{Heap, TaggedValue, Texto, TextoMut, Value};

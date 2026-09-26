@@ -410,6 +410,9 @@ pub struct Module {
     /// `_ImmutableList`, `_Closure`, `_Record`), na ordem de
     /// `runtime/src/seletores.rs`.
     pub cids_do_runtime: Vec<i64>,
+    /// Programa com o SDK da fonte: a versão do SDK Dart compilado (o
+    /// arquivo `version` dele), que `Platform.version` informa.
+    pub versao_do_sdk: Option<String>,
     /// Membros do SDK da fonte recusados neste módulo: (símbolo, motivo).
     /// Cada um virou uma função que avisa em tempo de execução.
     pub recusados: Vec<(String, String)>,
