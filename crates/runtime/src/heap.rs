@@ -32,21 +32,34 @@ pub struct HeapStats {
 /// A distinção existe porque chaves de `Map` seguem `==` de Dart: `0` e `false`
 /// são chaves diferentes, e zero como handle null só vale para referências.
 /// A invariante é `is_ref ⟺ tag == Ref`; os construtores abaixo a garantem.
+///
+/// Discriminantes fixos: o código gerado lê e grava a tag dos elementos de
+/// uma lista em linha (`lower/tipados.rs`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum ValueTag {
-    Int,
-    Bool,
-    Double,
-    Ref,
+    Int = 0,
+    Bool = 1,
+    Double = 2,
+    Ref = 3,
 }
 
 /// Payload com tag precisa; bits escalares jamais são interpretados como handles.
+///
+/// Layout C fixo (16 bytes: `bits` no deslocamento 0, `is_ref` no 8, `tag`
+/// no 9): o código gerado lê e grava elementos de `Value::List` em linha.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
 pub struct TaggedValue {
     pub bits: i64,
     pub is_ref: bool,
     pub tag: ValueTag,
 }
+const _: () = {
+    assert!(std::mem::size_of::<TaggedValue>() == 16);
+    assert!(std::mem::offset_of!(TaggedValue, is_ref) == 8);
+    assert!(std::mem::offset_of!(TaggedValue, tag) == 9);
+};
 impl TaggedValue {
     /// Representa inteiro; booleanos usam [`TaggedValue::boolean`].
     pub fn scalar(bits: i64) -> Self {

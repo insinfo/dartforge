@@ -12,7 +12,12 @@ use std::fmt::Write;
 pub struct LlvmEmitter<'a> {
     module: &'a Module,
     out: String,
-    string_constants: Vec<(Vec<u8>, usize)>,
+    /// As constantes de string, na ordem de emissão (determinística); o
+    /// índice de cada uma é a posição.
+    string_constants: Vec<Vec<u8>>,
+    /// O índice de cada constante pelo conteúdo: coletar e consultar sem
+    /// percorrer a tabela (antes, quadrático no número de literais).
+    indice_de_string: std::collections::HashMap<Vec<u8>, usize>,
     /// Tipo de cada valor da funcao sendo emitida, para coercao de operandos.
     tipos: std::collections::HashMap<ValueId, Type>,
     /// Contador dos temporarios de coercao (%c0, %c1, ...), por funcao.
@@ -68,6 +73,7 @@ impl<'a> LlvmEmitter<'a> {
             module,
             out: String::new(),
             string_constants: Vec::new(),
+            indice_de_string: std::collections::HashMap::new(),
             tipos: std::collections::HashMap::new(),
             prox_coercao: 0,
             conv_phi: Vec::new(),
@@ -175,19 +181,21 @@ impl<'a> LlvmEmitter<'a> {
                             Instruction::Const(Constant::StringWtf8(s)) => s,
                             _ => unreachable!(),
                         };
-                        if !self.string_constants.iter().any(|(existing, _)| existing == bytes) {
-                            let idx = self.string_constants.len();
-                            self.string_constants.push((bytes.to_vec(), idx));
-                        }
+                        Self::registrar_string(&mut self.string_constants, &mut self.indice_de_string, bytes);
                     }
                 }
             }
         }
         for class in &self.module.classes {
-            if !self.string_constants.iter().any(|(existing, _)| existing == class.name.as_bytes()) {
-                let idx = self.string_constants.len();
-                self.string_constants.push((class.name.as_bytes().to_vec(), idx));
-            }
+            Self::registrar_string(&mut self.string_constants, &mut self.indice_de_string, class.name.as_bytes());
+        }
+    }
+
+    /// Acrescenta `bytes` à tabela de constantes, se ainda não estiver.
+    fn registrar_string(tabela: &mut Vec<Vec<u8>>, indice: &mut std::collections::HashMap<Vec<u8>, usize>, bytes: &[u8]) {
+        if !indice.contains_key(bytes) {
+            indice.insert(bytes.to_vec(), tabela.len());
+            tabela.push(bytes.to_vec());
         }
     }
 
@@ -222,7 +230,7 @@ impl<'a> LlvmEmitter<'a> {
             return;
         }
         self.out.push_str("; Constantes de string WTF-8\n");
-        for (s, idx) in &self.string_constants {
+        for (idx, s) in self.string_constants.iter().enumerate() {
             let bytes = s.as_slice();
             let len = bytes.len();
             let mut escaped = String::new();
@@ -242,7 +250,7 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     fn string_const_index(&self, s: &[u8]) -> Option<usize> {
-        self.string_constants.iter().find(|(existing, _)| existing == s).map(|(_, idx)| *idx)
+        self.indice_de_string.get(s).copied()
     }
 
     fn emit_vtables(&mut self) {

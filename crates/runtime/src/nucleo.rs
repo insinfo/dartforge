@@ -132,6 +132,22 @@ thread_local! {
     static SUBCLASSES: RefCell<HashMap<i64, Vec<i64>>> = RefCell::new(HashMap::new());
 }
 
+/// O heap para as funções do caminho rápido que o emissor declara com
+/// efeitos restritos (`memory(none)`, `memory(inaccessiblemem: read)`,
+/// `llvm/externs.rs`): sem o `RefCell::borrow`, que gravaria o contador de
+/// empréstimos — uma escrita que essas declarações não permitem, mesmo
+/// desfeita no fim. Quem usa só lê o heap (o `&mut` serve para tirar de um
+/// vetor o ponteiro mutável dos elementos, sem gravar nada).
+fn heap_sem_emprestimo<R>(f: impl FnOnce(&mut Heap) -> R) -> R {
+    HEAP.with(|h| {
+        // SAFETY: só o código gerado chama estas funções, e ele nunca roda
+        // dentro de um empréstimo do heap (o runtime não chama código Dart
+        // segurando um: o `borrow` desse código entraria em pânico). O
+        // heap já foi inicializado pelo primeiro acesso do programa.
+        f(unsafe { &mut *h.as_ptr() })
+    })
+}
+
 /// Registra o nome de uma classe pelo id para exibição em toString/print.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_register_class_name(class_id: i64, ptr: *const u8, len: i64) {

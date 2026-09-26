@@ -99,10 +99,35 @@ laço sobre lista tipada escapa da chamada genérica, SIMD ou não.
   puras do handle (`memory(none) speculatable`) que o LLVM tira dos laços;
   índice fora dos limites, visão não modificável e `Uint8ClampedList` caem
   no `typed_data_patch.dart`, com os erros da VM (`corpus/nativo/20`).
-* **`List<E>`**: comprimento e elemento sem caixa por funções que só leem o
-  heap do runtime (`memory(inaccessiblemem: read)`); classe do usuário que
-  implementa `List`, listas não modificáveis e covariância ficam com o
-  despacho (`corpus/nativo/21`).
+* **`List<E>`**: o runtime dá o comprimento e o endereço dos elementos
+  (`dartforge_lista_len_rapido`/`dartforge_lista_dados`, que leem só o
+  cabeçalho do vetor e os conjuntos de listas especiais —
+  `memory(inaccessiblemem: read)`, sem tocar o contador do `RefCell`); o
+  código gerado lê e grava o elemento em linha pela ABI de `TaggedValue`
+  (`#[repr(C)]`, 16 bytes: `bits` no 0, `is_ref` no 8, a tag no 9,
+  conferidos em tempo de compilação no runtime). A leitura confere a tag e
+  cai na caixa se não bate; a gravação direta é só para `int`/`double`.
+  Classe do usuário que implementa `List`, listas não modificáveis e
+  covariância ficam com o despacho (`corpus/nativo/21`).
+* **Validade do endereço**: o vetor da lista pode ser realocado (crescer,
+  `length =`, `_setData`), sempre por chamada sem atributo. O endereço é
+  obtido no bloco do acesso, e o LLVM só o reaproveita entre pontos sem
+  chamada assim; o dono continua enraizado (o slot do valor SSA só é
+  sobrescrito ao fim do quadro). `corpus/nativo/22` cobre crescimento por
+  outra referência, realocação no meio de uma expressão e de um composto,
+  callback que encurta a lista, coleta entre o endereço e o uso e
+  gravações alternadas entre o acesso direto, o SDK e `dynamic` — iguais à
+  VM também com `--optimize` e GC stress.
+* **Medido e descartado**: o runtime em bitcode na LTO de produção
+  (`-Clinker-plugin-lto`, mesmo LLVM do rustc) deu 41 → 38 ms em
+  `List<int>[]`, com +1,5 min de build e uma terceira variante do runtime:
+  o inliner não expande os helpers (personalidade de exceção, `RefCell`,
+  caminhos de pânico). O que resta nos ~40 ms são as chamadas de
+  comprimento e endereço dentro do laço, que o LLVM não tira porque os
+  caminhos frios do mesmo laço (despacho, caixa) são chamadas que podem
+  realocar a lista. O próximo passo é na HIR: provar a estabilidade da
+  lista no laço (nenhuma chamada que possa realocá-la) e obter comprimento
+  e endereço uma vez, com o laço original como alternativa.
 * **Raízes do GC**: o quadro de cada função fica no stack dela (pilha-sombra)
   e cada raiz é um `store`. Antes eram uma chamada ao runtime por valor
   `Ref` e um vetor alocado por ativação, e essas chamadas impediam o LLVM de
@@ -116,10 +141,10 @@ aquecida (`dart compile exe` 3.6.2 como referência):
 | `Int32List[]` | 3 ms | 1584 ms | 1 ms |
 | `Float32List[]` | 3 ms | 1753 ms | 2–3 ms |
 | `Uint8List[]=` | 4 ms | 2738 ms | 2–4 ms |
-| `List<int>[]` | 5 ms | 1623 ms | 45 ms |
+| `List<int>[]` | 5 ms | 1623 ms | 40–50 ms |
 
-Falta: o elemento de `List<E>` lido em linha (a chamada por elemento é o que
-sobra dos 45 ms); os valores `Float32x4`/`Int32x4`/`Float64x2` como vetores
+Falta: tirar comprimento e endereço de `List<E>` dos laços com prova de
+estabilidade na HIR; a análise de vivacidade das raízes; os valores `Float32x4`/`Int32x4`/`Float64x2` como vetores
 sem caixa na HIR (item 1 do contrato), com a leitura das listas SIMD pelo
 mesmo caminho direto; e `min`/`max` com NaN e zero com sinal decididos contra
 a VM (issue dart-lang/sdk#63962).

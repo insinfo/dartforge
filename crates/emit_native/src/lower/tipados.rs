@@ -17,9 +17,14 @@
 //! responde o comprimento só das listas dele (`_List`, `_GrowableList`,
 //! `_ImmutableList`; na escrita, só das modificáveis) e 0 para as outras,
 //! que ficam com o despacho. Os elementos saem sem caixa na representação
-//! do resultado (`int`, `double`); gravar direto só com `E` igual a `int`,
-//! `double` ou `bool`, que nenhuma classe estende — com outro `E`, a lista
-//! pode ser de um subtipo e o `[]=` do SDK confere o valor (covariância).
+//! do resultado (`int`, `double`); gravar direto só com `E` igual a `int`
+//! ou `double`, que nenhuma classe estende — com outro `E`, a lista pode
+//! ser de um subtipo e o `[]=` do SDK confere o valor (covariância).
+//!
+//! O elemento de `List` é um `TaggedValue` do runtime (16 bytes: os bits, e
+//! `is_ref` e a tag nos bytes 8 e 9), lido e gravado em linha no endereço
+//! que `dartforge_lista_dados` dá. A leitura confere a tag: um elemento
+//! guardado de outra forma (uma caixa) sai por `dartforge_lista_ref`.
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
@@ -31,7 +36,7 @@ use dartforge_types::TypeId;
 pub enum Indexavel {
     Tipada(ListaTipada),
     /// `List<E>`: a representação do elemento que se grava direto (`E`
-    /// igual a `int`, `double` ou `bool`), ou `None` (só leitura direta).
+    /// igual a `int` ou `double`), ou `None` (só leitura direta).
     Nucleo { gravacao: Option<Type> },
 }
 
@@ -77,7 +82,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     match self.ctx.symbol_name(e.name) {
                         "int" if nucleo => Some(Type::I64),
                         "double" if nucleo => Some(Type::F64),
-                        "bool" if nucleo => Some(Type::I1),
                         _ => None,
                     }
                 }
@@ -217,21 +221,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let endereco = s.enderecos_tipados(&lista2);
                 s.emit(Instruction::CargaNativa { endereco, indice: indice2.clone(), tipo: l.elemento }, l.repr())
             }
-            Indexavel::Nucleo { .. } => {
-                let (name, ret) = match repr {
-                    Type::I64 => ("dartforge_lista_int", Type::I64),
-                    Type::F64 => ("dartforge_lista_double", Type::F64),
-                    _ => ("dartforge_lista_ref", Type::Ref),
-                };
-                s.emit(
-                    Instruction::CallRuntime {
-                        name: name.to_string(),
-                        args: vec![(lista2.clone(), Type::Ref), (indice2.clone(), Type::I64)],
-                        ret_ty: ret,
-                    },
-                    ret,
-                )
-            }
+            Indexavel::Nucleo { .. } => s.ler_elemento_da_lista(&lista2, &indice2, repr),
         };
         let mut lento = |s: &mut Self| {
             s.chamar_por_nome(lista2.clone(), super::sdk_fonte::Tipo::Chamar, "[]", &[(None, indice2.clone())])
@@ -263,20 +253,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 Indexavel::Nucleo { gravacao: Some(t) } => {
                     let v = s.coagir(valor2.clone(), t);
-                    let (name, tv) = match t {
-                        Type::F64 => ("dartforge_lista_gravar_double", Type::F64),
-                        Type::I1 => ("dartforge_lista_gravar_bool", Type::I8),
-                        _ => ("dartforge_lista_gravar_int", Type::I64),
-                    };
-                    let v = if tv == Type::I8 { s.coagir(v, Type::I8) } else { v };
-                    s.emit(
-                        Instruction::CallRuntime {
-                            name: name.to_string(),
-                            args: vec![(lista2.clone(), Type::Ref), (indice2.clone(), Type::I64), (v, tv)],
-                            ret_ty: Type::Void,
-                        },
-                        Type::Void,
-                    );
+                    s.gravar_elemento_da_lista(&lista2, &indice2, v, t);
                 }
                 Indexavel::Nucleo { gravacao: None } => unreachable!("gravação direta conferida acima"),
             }
@@ -294,4 +271,112 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.desviar_indexado(&lista, &indice, ix, true, Type::I64, &mut rapido, &mut lento);
         true
     }
+
+    /// O endereço dos elementos de uma lista do runtime apta.
+    fn dados_da_lista(&mut self, lista: &Operand) -> Operand {
+        self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_lista_dados".to_string(),
+                args: vec![(lista.clone(), Type::Ref)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        )
+    }
+
+    /// `indice * k + d`, em `int`.
+    fn escala(&mut self, indice: &Operand, k: i64, d: i64) -> Operand {
+        let m = self.emit(Instruction::Mul(indice.clone(), Operand::Constant(Constant::Int(k))), Type::I64);
+        if d == 0 {
+            return m;
+        }
+        self.emit(Instruction::Add(m, Operand::Constant(Constant::Int(d))), Type::I64)
+    }
+
+    /// `dartforge_lista_ref(lista, indice)`: o elemento numa posição `Ref`.
+    fn elemento_ref(&mut self, lista: &Operand, indice: &Operand) -> Operand {
+        self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_lista_ref".to_string(),
+                args: vec![(lista.clone(), Type::Ref), (indice.clone(), Type::I64)],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        )
+    }
+
+    /// O elemento `indice` (já conferido) de uma lista do runtime, na
+    /// representação `repr`: em linha quando a tag é a de `repr` (`int` ou
+    /// `double`), senão pela caixa.
+    fn ler_elemento_da_lista(&mut self, lista: &Operand, indice: &Operand, repr: Type) -> Operand {
+        let (tipo, tag) = match repr {
+            Type::I64 => (TipoC::I64, TAG_INT),
+            Type::F64 => (TipoC::F64, TAG_DOUBLE),
+            _ => return self.elemento_ref(lista, indice),
+        };
+        let dados = self.dados_da_lista(lista);
+        let i_tag = self.escala(indice, 16, 9);
+        let t = self.emit(Instruction::CargaNativa { endereco: dados.clone(), indice: i_tag, tipo: TipoC::U8 }, Type::I64);
+        let ok = self.emit(Instruction::ICmp(ICmpOp::Eq, t, Operand::Constant(Constant::Int(tag))), Type::I1);
+        let direto = self.new_block();
+        let caixa = self.new_block();
+        let juncao = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: ok, then_block: direto, else_block: caixa });
+
+        self.set_block(direto);
+        let i_bits = self.escala(indice, 2, 0);
+        let v = self.emit(Instruction::CargaNativa { endereco: dados, indice: i_bits, tipo }, repr);
+        let fim_direto = self.current_block;
+        self.terminate(Terminator::Branch(juncao));
+
+        self.set_block(caixa);
+        let r = self.elemento_ref(lista, indice);
+        let r = self.coagir(r, repr);
+        let fim_caixa = self.current_block;
+        let caixa_chega = !self.is_terminated();
+        if caixa_chega {
+            self.terminate(Terminator::Branch(juncao));
+        }
+
+        self.set_block(juncao);
+        if caixa_chega {
+            self.emit(Instruction::Phi { incoming: vec![(fim_direto, v), (fim_caixa, r)], ty: repr }, repr)
+        } else {
+            v
+        }
+    }
+
+    /// Grava `valor` (`int` ou `double`, sem caixa) no elemento `indice`
+    /// (já conferido) de uma lista do runtime modificável: os bits, `is_ref`
+    /// falso e a tag.
+    fn gravar_elemento_da_lista(&mut self, lista: &Operand, indice: &Operand, valor: Operand, repr: Type) {
+        let (tipo, tag) = if repr == Type::F64 { (TipoC::F64, TAG_DOUBLE) } else { (TipoC::I64, TAG_INT) };
+        let dados = self.dados_da_lista(lista);
+        let i_bits = self.escala(indice, 2, 0);
+        self.emit(Instruction::GravacaoNativa { endereco: dados.clone(), indice: i_bits, tipo, valor }, Type::Void);
+        let i_ref = self.escala(indice, 16, 8);
+        self.emit(
+            Instruction::GravacaoNativa {
+                endereco: dados.clone(),
+                indice: i_ref,
+                tipo: TipoC::U8,
+                valor: Operand::Constant(Constant::Int(0)),
+            },
+            Type::Void,
+        );
+        let i_tag = self.escala(indice, 16, 9);
+        self.emit(
+            Instruction::GravacaoNativa {
+                endereco: dados,
+                indice: i_tag,
+                tipo: TipoC::U8,
+                valor: Operand::Constant(Constant::Int(tag)),
+            },
+            Type::Void,
+        );
+    }
 }
+
+/// As tags de `ValueTag` do runtime (`heap.rs`, `#[repr(u8)]`).
+const TAG_INT: i64 = 0;
+const TAG_DOUBLE: i64 = 2;
