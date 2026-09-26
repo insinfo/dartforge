@@ -870,6 +870,54 @@ pub struct Heap {
     /// (chave, valor). O valor só é alcançado se a chave for (ponto fixo na
     /// marcação); chave morta zera os dois.
     pub efemeros: std::collections::HashMap<i64, (i64, i64)>,
+    /// Os anexos de `Finalizer`/`NativeFinalizer` (o `FinalizerEntry` da
+    /// VM): o valor e a chave de `detach` são fracos; o dono e a ação,
+    /// fortes. Valor morto: a ação de um `Finalizer` vai para
+    /// [`Heap::finalizacoes_prontas`] (o laço de eventos a chama); a de um
+    /// `NativeFinalizer` roda logo depois da coleta.
+    pub anexos: Vec<AnexoDeFinalizador>,
+    /// As ações de `Finalizer` cujo valor morreu, à espera do laço de
+    /// eventos (raízes até lá).
+    pub finalizacoes_prontas: std::collections::VecDeque<i64>,
+}
+
+/// Um anexo de finalizador (ver [`Heap::anexos`]).
+#[derive(Debug, Clone, Copy)]
+pub struct AnexoDeFinalizador {
+    /// O `Finalizer`/`NativeFinalizer` (identidade do `detach`).
+    pub dono: i64,
+    pub valor: i64,
+    /// A chave de `detach` (0 = nenhuma).
+    pub desanexo: i64,
+    pub acao: AcaoDeFinalizador,
+}
+
+/// O que um finalizador faz quando o valor morre.
+#[derive(Debug, Clone, Copy)]
+pub enum AcaoDeFinalizador {
+    /// Uma closure Dart sem argumentos (`callback(token)` já aplicada).
+    Dart(i64),
+    /// `funcao(token)`, uma função C (`NativeFinalizerFunction`).
+    Nativa(usize, usize),
+}
+
+#[allow(unsafe_code)]
+impl Heap {
+    /// Roda as ações nativas de todos os anexos ainda vivos (o isolado
+    /// terminou: a VM garante os `NativeFinalizer` no encerramento) e
+    /// descarta os de `Finalizer`.
+    pub fn encerrar_finalizadores(&mut self) {
+        let anexos = std::mem::take(&mut self.anexos);
+        self.finalizacoes_prontas.clear();
+        for a in anexos {
+            if let AcaoDeFinalizador::Nativa(f, token) = a.acao {
+                // SAFETY: `f` é a `NativeFinalizerFunction` que o programa
+                // registrou, `void f(void* token)`.
+                let f: extern "C" fn(usize) = unsafe { std::mem::transmute(f) };
+                f(token);
+            }
+        }
+    }
 }
 impl Heap {
     /// Inicializa heap; stress força coleta antes de cada alocação.
@@ -907,6 +955,8 @@ impl Heap {
             finalizaveis: std::collections::HashMap::new(),
             fracas: std::collections::HashMap::new(),
             efemeros: std::collections::HashMap::new(),
+            anexos: Vec::new(),
+            finalizacoes_prontas: std::collections::VecDeque::new(),
         }
     }
     /// Raiz mantida pelo runtime: 0 = exceção pendente, 1 = rastro corrente.
@@ -1677,6 +1727,13 @@ impl Heap {
         self.pending.extend(self.globais.values().copied());
         self.pending.extend(self.caixas_bool.iter().copied().filter(|&h| h != 0));
         self.pending.extend(self.raizes_do_runtime.iter().copied().filter(|&h| h != 0));
+        self.pending.extend(self.finalizacoes_prontas.iter().copied());
+        for a in &self.anexos {
+            self.pending.push(a.dono);
+            if let AcaoDeFinalizador::Dart(acao) = a.acao {
+                self.pending.push(acao);
+            }
+        }
         self.pending.extend(
             self.frames
                 .iter()
@@ -1725,6 +1782,22 @@ impl Heap {
         self.pendentes.retain(|h, _| vivo(h));
         self.iteracoes_ativas.retain(|h| vivo(h));
         self.origens.retain(|k, v| vivo(k) && vivo(v));
+        let mut prontas = Vec::new();
+        let mut nativas = Vec::new();
+        self.anexos.retain_mut(|a| {
+            if smi::e_handle(a.desanexo) && !vivo(&a.desanexo) {
+                a.desanexo = 0;
+            }
+            if vivo(&a.valor) {
+                return true;
+            }
+            match a.acao {
+                AcaoDeFinalizador::Dart(acao) => prontas.push(acao),
+                AcaoDeFinalizador::Nativa(f, token) => nativas.push((f, token)),
+            }
+            false
+        });
+        self.finalizacoes_prontas.extend(prontas);
         let mut finalizar = Vec::new();
         self.finalizaveis.retain(|h, &mut par| {
             let fica = vivo(h);
@@ -1752,6 +1825,13 @@ impl Heap {
         self.stats.estimated_bytes = vivos_em_bytes;
         for (finalizador, par) in finalizar {
             finalizador(par);
+        }
+        for (f, token) in nativas {
+            #[allow(unsafe_code)]
+            // SAFETY: a `NativeFinalizerFunction` do anexo, `void f(void*)`;
+            // como na VM, roda durante a coleta e não pode tocar o heap.
+            let f: extern "C" fn(usize) = unsafe { std::mem::transmute(f) };
+            f(token);
         }
         self.allocations = 0;
         self.recalcular_gatilhos(live);

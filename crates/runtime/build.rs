@@ -66,6 +66,8 @@ const FRAGMENTOS: &[&str] = &[
     // O dart:ffi (bibliotecas dinâmicas, memória nativa, trampolins de chamada).
     "ffi",
     "ffi_callbacks",
+    // Finalizer e NativeFinalizer sobre os anexos do coletor.
+    "finalizadores",
     // O `dart:io` da VM: arquivos, diretórios, o IOService e a plataforma.
     "io_arquivos",
     "io_diretorios",
