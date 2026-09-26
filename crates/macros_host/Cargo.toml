@@ -15,6 +15,7 @@ dartforge-diagnostics = { path = "../diagnostics" }
 dartforge-elements = { path = "../elements" }
 dartforge-frontend = { path = "../frontend" }
 dartforge-intern = { path = "../intern" }
+blake3 = "1"
 serde_json = "1"
 
 [dev-dependencies]

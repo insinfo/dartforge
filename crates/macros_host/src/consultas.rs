@@ -22,21 +22,46 @@ use dartforge_elements::model::*;
 use serde_json::{Value, json};
 
 /// Um tipo resolvido (`StaticType`), comparável estruturalmente.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TipoEstatico {
     Nomeado { chave: Chave, args: Vec<TipoEstatico>, anulavel: bool },
     /// Tipos de função e record: comparados pelo texto canônico.
     Estrutural { texto: String, anulavel: bool },
 }
 
+/// Os `StaticType` entregues ao executor, pela chave que ele devolve em
+/// `ehExatamente`/`ehSubtipo`. Tipos iguais têm **a mesma** chave (a
+/// comparação é estrutural, então a chave é só um apelido do tipo): assim a
+/// resposta de `resolver` não depende de quantos `resolve` vieram antes, e o
+/// cache de expansões ([`crate::cache`]) consegue revalidá-la.
+#[derive(Debug, Default)]
+pub struct Estaticos {
+    lista: Vec<TipoEstatico>,
+    por_tipo: std::collections::HashMap<TipoEstatico, u64>,
+}
+
+impl Estaticos {
+    /// A chave de `e` (a partir de 1), a mesma para tipos iguais.
+    fn chave(&mut self, e: TipoEstatico) -> u64 {
+        if let Some(&k) = self.por_tipo.get(&e) {
+            return k;
+        }
+        self.lista.push(e.clone());
+        let k = self.lista.len() as u64;
+        self.por_tipo.insert(e, k);
+        k
+    }
+
+    fn tipo(&self, chave: u64) -> Option<&TipoEstatico> {
+        self.lista.get((chave as usize).wrapping_sub(1))
+    }
+}
+
 /// O serviço de consultas de uma execução.
 pub struct Consultor<'a, 'p> {
     pub vista: &'a Vista<'p>,
     pub tabela: &'a mut Tabela,
-    pub estaticos: &'a mut Vec<TipoEstatico>,
-    /// O registro das consultas (tipo, argumentos) — a base do cache por
-    /// digest (docs/MACROS-PROTOCOLO.md §6).
-    pub registro: Vec<(String, Value)>,
+    pub estaticos: &'a mut Estaticos,
 }
 
 fn u(args: &Value, k: &str) -> Result<u64, ErroDeConsulta> {
@@ -111,13 +136,13 @@ impl Consultor<'_, '_> {
             }
             _ => (None, Vec::new()),
         };
-        self.estaticos.push(e);
-        json!({"chave": self.estaticos.len(), "declaracao": declaracao, "args": args})
+        let chave = self.estaticos.chave(e);
+        json!({"chave": chave, "declaracao": declaracao, "args": args})
     }
 
     fn estatico_por_chave(&self, args: &Value, k: &str) -> Result<TipoEstatico, ErroDeConsulta> {
-        let n = u(args, k)? as usize;
-        self.estaticos.get(n.wrapping_sub(1)).cloned().ok_or_else(|| ErroDeConsulta::inesperado(format!("tipo {n} desconhecido")))
+        let n = u(args, k)?;
+        self.estaticos.tipo(n).cloned().ok_or_else(|| ErroDeConsulta::inesperado(format!("tipo {n} desconhecido")))
     }
 
     /// Subtipo nominal sem argumentos de tipo (o que dá para decidir pelo
@@ -162,7 +187,6 @@ impl Consultor<'_, '_> {
 
 impl ServicoDeConsultas for Consultor<'_, '_> {
     fn consultar(&mut self, tipo: &str, args: &Value) -> Result<Value, ErroDeConsulta> {
-        self.registro.push((tipo.to_string(), args.clone()));
         match tipo {
             "resolverIdentificador" => self.resolver_identificador(args),
             "declaracao" => {
