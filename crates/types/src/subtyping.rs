@@ -497,13 +497,15 @@ fn check_left_null(t1: &Type, env: &mut SubtypeEnv) -> bool {
     if matches!(t1, Type::TypeParameter { nullable: false, .. } | Type::Intersection { .. }) {
         return false;
     }
+    // - if T1 is Null, S? for some S, then the query is true. Vem antes do
+    //   FutureOr: `Null <: FutureOr<int>?` é verdade pelo `?`, mesmo com
+    //   `Null <: int` falso (`Completer<int>.complete(int?)` era erro).
+    if matches!(t1, Type::Null) || t1.is_declared_nullable() {
+        return true;
+    }
     // - if T1 is FutureOr<S> for some S, then the query is true iff Null <: S
     if let Type::FutureOr { arg: s, .. } = t1 {
         return is_subtype(env.core.null, *s, env);
-    }
-    // - if T1 is Null, S? for some S, then the query is true
-    if matches!(t1, Type::Null) || t1.is_declared_nullable() {
-        return true;
     }
     // - Otherwise, the query is false
     false
