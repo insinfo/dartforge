@@ -53,8 +53,12 @@ pub struct LlvmEmitter<'a> {
     /// bandeira `$ok`): os estáticos do Dart são por isolado, e cada
     /// isolado é uma thread com a sua área (`dartforge_area_de_globais`).
     slots_de_global: std::collections::HashMap<String, usize>,
-    /// Os nomes dos slots, na ordem (para migrar a área numa recarga).
-    nomes_de_slot: Vec<String>,
+    /// O hash do nome de cada slot, na ordem (o descritor da área): 0 nos
+    /// caches de seletor.
+    hashes_de_slot: Vec<i64>,
+    /// O layout da área da geração em execução (hot reload): os slots que
+    /// continuam mantêm o índice, os novos vêm depois (`emit_globais`).
+    area_anterior: Option<Vec<i64>>,
 }
 
 impl<'a> LlvmEmitter<'a> {
@@ -80,8 +84,20 @@ impl<'a> LlvmEmitter<'a> {
             rastro: std::env::var("DARTFORGE_RASTRO").is_ok_and(|v| v == "1").then_some(0),
             nomes_do_rastro: Vec::new(),
             slots_de_global: std::collections::HashMap::new(),
-            nomes_de_slot: Vec::new(),
+            hashes_de_slot: Vec::new(),
+            area_anterior: None,
         }
+    }
+
+    /// O emissor de uma geração nova de um programa em execução (hot reload
+    /// do JIT): `anterior` são os nomes dos slots da área da geração viva
+    /// ([`crate::area_do_ir`]). Os globais que continuam mantêm o índice e
+    /// os novos vêm depois, então o código das duas gerações lê e grava a
+    /// mesma área — os quadros `async` suspensos e as closures que ainda
+    /// executam código antigo veem os mesmos estáticos que o código novo.
+    pub fn com_area_anterior(mut self, anterior: Option<Vec<i64>>) -> Self {
+        self.area_anterior = anterior;
+        self
     }
 
     /// O módulo inteiro. Um módulo com diagnósticos não chega aqui:
@@ -138,6 +154,12 @@ impl<'a> LlvmEmitter<'a> {
 
         self.emitir_globais_de_seletores();
         self.emitir_descritor_da_area();
+        // A área deste isolado com o layout desta geração, criada (ou
+        // estendida) agora: a publicação de uma recarga do JIT a chama no
+        // ponto seguro, antes de o código novo executar.
+        self.out.push_str(
+            "define void @df.preparar_area() {\n  %a = call ptr @dartforge_area_de_globais(ptr @df.area)\n  ret void\n}\n",
+        );
         self.emitir_declaracoes_externas();
         self.out
     }
@@ -1173,12 +1195,30 @@ impl<'a> LlvmEmitter<'a> {
     /// de cada isolado, e aqui cada isolado (uma thread) tem a sua área, que
     /// o runtime cria na primeira vez (`dartforge_area_de_globais`, zerada).
     /// Os caches dos seletores (`seletores.rs`) ganham slots depois destes.
+    ///
+    /// Numa geração de hot reload ([`LlvmEmitter::com_area_anterior`]), a
+    /// área começa com o layout da geração viva inteiro — inclusive os slots
+    /// que sumiram e os caches de seletor dela, que o código antigo ainda
+    /// usa — e só acrescenta: um global que continua fica no mesmo índice.
     fn emit_globais(&mut self) {
+        let anterior: std::collections::HashMap<i64, usize> = match &self.area_anterior {
+            Some(a) => {
+                self.hashes_de_slot = a.clone();
+                a.iter().enumerate().filter(|(_, h)| **h != 0).map(|(i, h)| (*h, i)).collect()
+            }
+            None => std::collections::HashMap::new(),
+        };
         for (_, _, simbolo) in &self.module.globais {
             for nome in [simbolo.clone(), format!("{simbolo}$ok")] {
-                let n = self.nomes_de_slot.len();
-                self.slots_de_global.insert(nome.clone(), n);
-                self.nomes_de_slot.push(nome);
+                let h = hash_de_slot(&nome);
+                let n = match anterior.get(&h) {
+                    Some(&i) => i,
+                    None => {
+                        self.hashes_de_slot.push(h);
+                        self.hashes_de_slot.len() - 1
+                    }
+                };
+                self.slots_de_global.insert(nome, n);
             }
         }
     }
@@ -1189,8 +1229,8 @@ impl<'a> LlvmEmitter<'a> {
     fn emitir_descritor_da_area(&mut self) {
         let chave = self.module.registro.clone().unwrap_or_else(|| "df.programa".to_string());
         let mut valores = vec![hash_de_slot(&chave).to_string(), String::new()];
-        for nome in &self.nomes_de_slot {
-            valores.push(hash_de_slot(nome).to_string());
+        for h in &self.hashes_de_slot {
+            valores.push(h.to_string());
         }
         for _ in 0..self.caches_de_seletor * 2 {
             valores.push("0".to_string());
@@ -1202,7 +1242,7 @@ impl<'a> LlvmEmitter<'a> {
 
     /// O slot de um cache de seletor na área.
     pub(super) fn slot_do_cache(&self, ic: usize) -> usize {
-        self.nomes_de_slot.len() + 2 * ic
+        self.hashes_de_slot.len() + 2 * ic
     }
 
     /// A função usa a área de globais (global, bandeira ou cache de seletor)?

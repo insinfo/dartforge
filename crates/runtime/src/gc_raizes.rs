@@ -80,23 +80,44 @@ pub extern "C" fn dartforge_gc_collect() {
 // primeiro acesso. Os globais `Ref` são raízes pelo endereço do slot
 // (`dartforge_gc_global_root`).
 //
-// Numa recarga (JIT), o módulo novo tem outro descritor com a mesma chave:
-// a área nova recebe, pelo nome, os valores dos slots que continuam
-// existindo, e as raízes mudam de endereço junto; os slots de nome 0 (os
-// caches de seletor, que guardam endereços do código antigo) recomeçam
-// zerados.
+// Numa recarga (JIT), o módulo novo tem outro descritor com a mesma chave.
+// A geração nova é emitida com o layout da viva (`emitir_ir_recarregavel`):
+// os slots que continuam mantêm o índice e os novos vêm depois, então as
+// duas gerações usam a MESMA área — que cresce no lugar (a capacidade é
+// reservada com folga) — e o código antigo que ainda executa (um quadro
+// `async` suspenso, uma closure criada antes) vê os mesmos estáticos que o
+// novo. Um descritor que não estende o layout (um módulo emitido sem o
+// layout anterior) recebe uma área nova, com os valores dos slots que
+// continuam, pelo nome; os caches de seletor (nome 0) recomeçam zerados.
+//
+// Memória de uma área nunca é liberada enquanto o isolado vive: um quadro
+// pode guardar o endereço dela (o `%area` do começo da função). Crescer
+// além da capacidade copia para outra alocação e aposenta a antiga.
 
 /// A área de um módulo neste isolado.
 struct AreaDeGlobais {
-    descritor: usize,
+    /// Os descritores (as gerações do módulo) que usam esta área.
+    descritores: Vec<usize>,
     chave: i64,
-    slots: Box<[i64]>,
+    /// Os nomes do layout mais longo visto (o da geração mais nova).
+    nomes: Vec<i64>,
+    slots: Vec<i64>,
 }
 
 thread_local! {
     static AREAS: RefCell<Vec<AreaDeGlobais>> = const { RefCell::new(Vec::new()) };
+    /// As alocações que deixaram de ser a de uma área (ver acima).
+    static AREAS_APOSENTADAS: RefCell<Vec<Vec<i64>>> = const { RefCell::new(Vec::new()) };
     /// O último descritor pedido e a área dele (o caminho rápido).
     static ULTIMA_AREA: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) };
+}
+
+/// Slots zerados para `n` nomes, com folga para as gerações seguintes
+/// crescerem no lugar.
+fn slots_novos(n: usize) -> Vec<i64> {
+    let mut v = Vec::with_capacity(n + n / 2 + 256);
+    v.resize(n, 0);
+    v
 }
 
 /// A área de globais do módulo de `descritor` neste isolado.
@@ -118,35 +139,59 @@ pub unsafe extern "C" fn dartforge_area_de_globais(descritor: *const i64) -> *mu
     };
     let p = AREAS.with(|areas| {
         let mut areas = areas.borrow_mut();
-        if let Some(a) = areas.iter_mut().find(|a| a.descritor == d) {
+        if let Some(a) = areas.iter_mut().find(|a| a.descritores.contains(&d)) {
             return a.slots.as_mut_ptr();
         }
-        let mut nova = AreaDeGlobais { descritor: d, chave, slots: vec![0i64; nomes.len()].into_boxed_slice() };
         if let Some(i) = areas.iter().position(|a| a.chave == chave) {
+            let a = &mut areas[i];
+            if nomes.len() >= a.nomes.len() && nomes[..a.nomes.len()] == a.nomes[..] {
+                estender_area(a, nomes);
+                a.descritores.push(d);
+                return a.slots.as_mut_ptr();
+            }
             let antiga = areas.remove(i);
-            migrar_area(&antiga, &mut nova, nomes);
+            let mut nova = AreaDeGlobais { descritores: vec![d], chave, nomes: nomes.to_vec(), slots: slots_novos(nomes.len()) };
+            migrar_area(&antiga, &mut nova);
+            AREAS_APOSENTADAS.with(|x| x.borrow_mut().push(antiga.slots));
+            areas.push(nova);
+        } else {
+            areas.push(AreaDeGlobais { descritores: vec![d], chave, nomes: nomes.to_vec(), slots: slots_novos(nomes.len()) });
         }
-        areas.push(nova);
         areas.last_mut().expect("acabou de entrar").slots.as_mut_ptr()
     });
     ULTIMA_AREA.with(|u| u.set((d, p as usize)));
     p
 }
 
+/// Estende `a` ao layout `nomes` (que começa pelo dela): no lugar, se cabe;
+/// senão numa alocação maior, com as raízes movidas e a antiga aposentada.
+fn estender_area(a: &mut AreaDeGlobais, nomes: &[i64]) {
+    if nomes.len() > a.slots.capacity() {
+        let mut maior = slots_novos(nomes.len());
+        maior[..a.slots.len()].copy_from_slice(&a.slots);
+        let endereco = |slots: &[i64], i: usize| (&slots[i] as *const i64) as i64;
+        HEAP.with(|heap| {
+            let mut heap = heap.borrow_mut();
+            for i in 0..a.slots.len() {
+                heap.mover_raiz_global(endereco(&a.slots, i), endereco(&maior, i));
+            }
+        });
+        let antiga = std::mem::replace(&mut a.slots, maior);
+        AREAS_APOSENTADAS.with(|x| x.borrow_mut().push(antiga));
+    } else {
+        a.slots.resize(nomes.len(), 0);
+    }
+    a.nomes = nomes.to_vec();
+}
+
 /// Copia para `nova` os slots de `antiga` com o mesmo nome e move as raízes
 /// deles; as dos slots que sumiram são soltas.
-fn migrar_area(antiga: &AreaDeGlobais, nova: &mut AreaDeGlobais, nomes_novos: &[i64]) {
-    // SAFETY: o descritor antigo é uma constante do módulo antigo, que o JIT
-    // mantém carregado enquanto houver área dele.
-    let nomes_antigos = unsafe {
-        let p = antiga.descritor as *const i64;
-        std::slice::from_raw_parts(p.add(2), *p.add(1) as usize)
-    };
+fn migrar_area(antiga: &AreaDeGlobais, nova: &mut AreaDeGlobais) {
     let endereco = |slots: &[i64], i: usize| (&slots[i] as *const i64) as i64;
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        for (i, &nome) in nomes_antigos.iter().enumerate() {
-            let destino = if nome == 0 { None } else { nomes_novos.iter().position(|&n| n == nome) };
+        for (i, &nome) in antiga.nomes.iter().enumerate() {
+            let destino = if nome == 0 { None } else { nova.nomes.iter().position(|&n| n == nome) };
             match destino {
                 Some(j) => {
                     nova.slots[j] = antiga.slots[i];

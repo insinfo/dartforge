@@ -4,7 +4,7 @@ O DartForge passa a ter dois perfis de execução nativa sobre **o mesmo LLVM IR
 
 | | Desenvolvimento (`crates/jit`) | Produção (`crates/native`) |
 | --- | --- | --- |
-| Comando | `dartforge run <entrada.dart>`, `dartforge reload <entrada.dart> [--preservar-estado]` | `dartforge aot <entrada.dart> <saida.exe>` |
+| Comando | `dartforge run <entrada.dart>`, `dartforge reload <entrada.dart> [--reiniciar]` | `dartforge aot <entrada.dart> <saida.exe>` |
 | Geração de código | ORCv2 (`LLJIT`), em memória | Clang, em processo separado |
 | Runtime nativo | endereços das funções Rust publicados como símbolos absolutos | `rustc` compila `RUNTIME_MAIN` e o linker resolve os símbolos |
 | Artefato | nenhum | executável no disco |
@@ -19,11 +19,11 @@ divergir em resultado é defeito.
 > runtime publicado a partir da fonte do harness AOT, pré-verificação de
 > externos, alvo fixado (`x86-64`, `CodeGenLevelNone`) e o executor isolado
 > `dartforge-executar-ir`. Na CLI (`--features jit`): `dartforge run` e
-> `dartforge reload` mantém R0 por padrão (reinício a quente, estado NÃO
-> preservado; cada geração num processo `dartforge run --ir`). Com
-> `--preservar-estado`, publica as gerações numa `JitSession` R1 e chama a entrada
-> na mesma thread: estáticos e heap permanecem vivos, inclusive com a DLL do
-> SDK da fonte. No harness: `--jit` e
+> `dartforge reload` faz hot reload ao vivo por padrão: publica cada geração no
+> programa em execução, no ponto seguro do laço de eventos, sem executar o
+> `main` de novo (ver «O laço pela linha de comando» abaixo); `--reiniciar` é o
+> R0 (reinício a quente sem estado, cada geração num processo
+> `dartforge run --ir`). No harness: `--jit` e
 > `--jit-aot`.
 > Runtime de fonte única (`dartforge_runtime::abi`) e sessão persistente com
 > cache de módulos (executor de macros), ver as seções abaixo. As seções «O que
@@ -440,27 +440,49 @@ Um nome desconhecido devolve erro de contrato; a sessão nunca promove o único
 módulo ativo por aproximação. A primeira geração de um módulo novo entra por
 `add_reloadable_module`.
 
-### O laço pela linha de comando
+### O laço pela linha de comando: hot reload ao vivo
 
-Sem `--preservar-estado`, `dartforge reload` mantém o R0: recompila a cada
-mudança e recomeça `main` em outro processo, sem preservar o estado.
+`dartforge reload app.dart` observa os arquivos `.dart` do diretório da entrada
+e publica cada edição **no programa em execução**, sem executar o `main` de
+novo (R1b de `docs/PESQUISA-HOT-RELOAD.md`, `crates/jit/src/vivo.rs`):
 
-`dartforge reload app.dart --preservar-estado` observa os arquivos `.dart` do
-diretório da entrada. A primeira versão entra por `add_reloadable_module`; cada
-edição válida entra por `hot_reload`. A CLI executa `dartforge_entry` na **mesma
-thread**, sem zerar globais ou recriar o runtime, e o teste
-`crates/cli/tests/reload_estado.rs` confirma um contador estático (`1 → 11`) e
-uma lista no heap (`1 → 2`) depois de editar o mesmo arquivo. Falhas de compilação
-ou publicação mantêm a geração anterior; `--timings` relata emissão, recarga e
-quantidade de gerações retidas.
+1. o programa roda numa thread própria da `JitSession`
+   (`JitSession::com_programa_vivo`); o observador fica livre;
+2. a cada edição, o observador emite o IR, analisa, confere o contrato, liga a
+   geração nova em memória — tudo com o programa rodando;
+3. a publicação (a cópia dos estáticos, a troca das células das entradas
+   estáveis e o registro das tabelas de métodos e das regras da RTI da geração
+   nova, `dartforge_publicar_geracao`) é entregue ao isolado principal como um
+   pedido no ponto seguro (`dartforge_pedir_no_ponto_seguro`, `portas.rs`): o
+   laço de eventos o atende **entre dois eventos**, quando nenhum quadro Dart
+   está na pilha — o ponto em que a VM comita uma recarga. Um isolado ocioso
+   (um servidor esperando conexão) acorda para ele;
+4. o próximo evento (timer, mensagem, conexão) já chama o código novo; heap,
+   estáticos (a área de globais migra pelo nome), timers, portas e conexões
+   continuam.
 
-Este é o primeiro aceite R1 da CLI, com limites explícitos: cada edição **torna
-a chamar `main`**, enquanto a Dart VM não o reexecuta; programas que dependem de
-um `main` que fica ativo, de uma thread diferente ou de `process::exit` ainda
-precisam do R0. Com `DARTFORGE_SDK_DA_FONTE=1`, a sessão carrega a DLL indicada
-por `DARTFORGE_SDK_DLL`, chama o `main` gerado via trampolim e conserva o
-runtime da DLL na mesma thread. As versões devem manter o caminho da biblioteca e o
-contrato das entradas, pois o nome do arquivo participa dos símbolos emitidos.
+Se o programa já terminou, a geração é publicada na thread dele (o estado do
+runtime é por thread, e a thread é a mesma a sessão inteira) e o `main` roda
+de novo sobre o mesmo estado — é o que `crates/cli/tests/reload_estado.rs`
+confirma (contador estático `1 → 11`, lista no heap `1 → 2`).
+
+Uma edição que não compila não derruba nada: a geração em execução continua.
+Uma edição que a recarga não aplica sobre os objetos vivos — assinatura de uma
+função alterada, classe com outro número de campos, id de classe que passou a
+ser de outra classe (classes inseridas ou reordenadas) — é recusada na etapa
+`contract` com o motivo, e o programa **reinicia** com o código novo: a sessão
+roda num processo filho (`--filho`) que o supervisor recria quando ele sai com
+o código 75. Uma função que sumiu do código novo não é recusa: ela mantém o
+corpo antigo, que só uma closure ou um tear-off antigo ainda alcança.
+
+`--timings` relata, por geração, a emissão, a recarga e a espera pelo ponto
+seguro (`HotReloadReport::safepoint_wait`). `--reiniciar` é o R0: cada edição
+recompila e recomeça `main` num processo novo (`dartforge run --ir`), sem
+estado. `--preservar-estado`, a forma antiga, é aceito e não muda nada.
+
+Limites: os isolados criados por `Isolate.spawn` não esperam o ponto seguro
+(a publicação só sincroniza com o principal); um trecho síncrono longo adia a
+publicação até o próximo evento (a CLI avisa depois de 2 s).
 
 ### Regra de visibilidade
 
