@@ -1,5 +1,5 @@
 //! Interface de linha de comando do compilador DartForge.
-use std::{env, fs, path::PathBuf, process::ExitCode};
+use std::{env, path::PathBuf, process::ExitCode};
 mod analisar;
 #[cfg(feature = "nativo")]
 mod empacotar;
