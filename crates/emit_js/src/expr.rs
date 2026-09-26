@@ -1288,7 +1288,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         self.emit_identifier(sym, ExprId(u32::MAX))
     }
 
-    fn emit_identifier(&mut self, sym: dartforge_intern::SymbolId, _e: ExprId) -> (Js, Ty) {
+    fn emit_identifier(&mut self, sym: dartforge_intern::SymbolId, e: ExprId) -> (Js, Ty) {
         let n = self.name(sym).to_string();
         match self.resolve_ident(sym) {
             IdentTarget::Local(js, ty) => {
@@ -1352,6 +1352,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 };
                 if let Some(t) = special {
                     return (Js::prim(format!("dart_rti.createRuntimeType({})", self.rti(&t))), self.ctx.t_type());
+                }
+                // Nada no escopo léxico, nas importações nem no outline tem o
+                // nome: o programa é inválido (o `Undefined name` da VM).
+                let biblioteca = self.ctx.program.unit(self.unit).library;
+                if e != ExprId(u32::MAX) && !self.ctx.libs[biblioteca.0 as usize].is_sdk {
+                    self.erro_de_linguagem(self.expr(e).span, format!("Undefined name '{n}'."));
                 }
                 (Js::prim(js::ident(&n)), Ty::Dynamic)
             }

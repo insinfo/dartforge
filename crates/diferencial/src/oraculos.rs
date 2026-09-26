@@ -318,12 +318,23 @@ pub fn linha_do_erro_cfe(s: &Saida) -> Option<usize> {
 pub fn linha_do_erro_forge(texto: &str, fonte: &str) -> Option<usize> {
     // Só as linhas de erro: os avisos de tipos (`aviso: … at bytes …`) também
     // trazem deslocamento, e podem ser de outra unidade.
-    let inicio: usize = texto.lines().filter(|l| l.trim_start().starts_with("erro")).find_map(|l| {
+    let inicio: Option<usize> = texto.lines().filter(|l| l.trim_start().starts_with("erro")).find_map(|l| {
         let (_, resto) = l.rsplit_once(" at bytes ")?;
         resto.split("..").next()?.trim().parse().ok()
-    })?;
-    let inicio = inicio.min(fonte.len());
-    Some(fonte.as_bytes()[..inicio].iter().filter(|b| **b == b'\n').count() + 1)
+    });
+    if let Some(inicio) = inicio {
+        let inicio = inicio.min(fonte.len());
+        return Some(fonte.as_bytes()[..inicio].iter().filter(|b| **b == b'\n').count() + 1);
+    }
+    // Os erros de linguagem do lowering nativo: `mensagem (arquivo.dart:L:C)`.
+    texto.lines().find_map(|l| {
+        let (_, pos) = l.trim_end().strip_suffix(')')?.rsplit_once(" (")?;
+        let (_, lc) = pos.rsplit_once(".dart:")?;
+        let mut campos = lc.split(':');
+        let linha: usize = campos.next()?.parse().ok()?;
+        campos.next()?.parse::<usize>().ok()?;
+        Some(linha)
+    })
 }
 
 /// Para um programa negativo: o DartForge recusou (código ≠ 0 na
@@ -723,7 +734,13 @@ pub fn dartforge_jit(amb: &Ambiente, programa: &Programa, dir: &Path, com_aot: b
     let ir = match dartforge_nativo_ir(programa) {
         Ok(ir) => ir,
         Err(e) => {
-            let saida = saida_do_erro_de_compilacao(e.strip_prefix("[emitir-ir] ").unwrap_or(&e));
+            // Programa negativo recusado: a mesma recusa do `--nativo`.
+            let saida = if programa.erro_compilacao {
+                let fonte = std::fs::read_to_string(&programa.entrada).unwrap_or_default();
+                recusa(linha_do_erro_forge(&e, &fonte))
+            } else {
+                saida_do_erro_de_compilacao(e.strip_prefix("[emitir-ir] ").unwrap_or(&e))
+            };
             let aot = com_aot.then(|| AotDoMesmoIr { saida: saida.clone(), ligacao: Duration::ZERO, execucao: Duration::ZERO, objeto_do_cache: false });
             return (saida, ExecucaoJit { com_ir: false, tempo: Duration::ZERO, execucao: None, aot });
         }

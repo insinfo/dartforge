@@ -502,7 +502,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Type::Ref,
                     );
                 }
-                self.nao_suportado(&format!("identificador `{nome}`"), span)
+                // Nada no escopo léxico, nas importações nem no outline tem o
+                // nome: o programa é inválido (o `Undefined name` da VM). No
+                // código do SDK da fonte, construto que falta.
+                if self.ctx.da_fonte.contains(&self.ctx.program.unit(self.unit_id).library) {
+                    return self.nao_suportado(&format!("identificador `{nome}`"), span);
+                }
+                self.erro_de_linguagem(&format!("Undefined name '{nome}'."), span)
             }
             ExprKind::Parenthesized(sub) => self.lower_expr(ast, *sub),
             ExprKind::Binary { op, left, right } => {
