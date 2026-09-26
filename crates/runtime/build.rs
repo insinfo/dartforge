@@ -77,6 +77,8 @@ const FRAGMENTOS: &[&str] = &[
     "io_windows_eventos",
     "io_windows_soquetes",
     "io_windows_processos",
+    // A TLS do `dart:io` (`SecureSocket`, `SecurityContext`), sobre o rustls.
+    "tls",
     // `dart:developer` e a timeline no perfil de produção.
     "nativos_desenvolvedor",
     // RTI: tipos em tempo de execução.
