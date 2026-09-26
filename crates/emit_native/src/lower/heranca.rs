@@ -100,7 +100,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut saida = Vec::new();
         for (k, classe) in self.ctx.program.classes.iter().enumerate() {
             let kid = dartforge_elements::model::ClassId(k as u32);
-            if self.ctx.program.library(classe.library).is_sdk
+            // As classes do SDK da fonte também aplicam mixins com `super`
+            // (`_ConstMap` com `_ImmutableLinkedHashMapMixin`).
+            if !self.ctx.biblioteca_compilada(classe.library)
                 || classe.modifiers.abstract_
                 || super::membros::e_mixin(self.ctx, kid)
             {

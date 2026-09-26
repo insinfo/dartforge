@@ -461,6 +461,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     return self.atribuir_com_null_aware(ast, op, target, *t, value, span);
                 }
                 self.null_aware_tratado = None;
+                // `super[i] op= v`: os operadores `[]`/`[]=` da superclasse.
+                if matches!(ast.expr(*t).kind, ast::ExprKind::Super) {
+                    let i_op = self.lower_expr(ast, *index);
+                    let (Some(get), Some(set)) = (self.ctx.interner.lookup("[]"), self.ctx.interner.lookup("[]=")) else {
+                        return self.nao_suportado("`super[]=` sem operador", span);
+                    };
+                    let cur = composto.then(|| self.chamar_super_metodo(get, &[(None, i_op.clone())], span));
+                    let v = self.combinar(ast, op, cur, value);
+                    self.chamar_super_metodo(set, &[(None, i_op), (None, v.clone())], span);
+                    return v;
+                }
                 let t_op = self.lower_expr(ast, *t);
                 let i_op = self.lower_expr(ast, *index);
                 // `[]=` de extensão (a inferência resolve o índice para o

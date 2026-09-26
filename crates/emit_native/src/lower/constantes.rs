@@ -363,8 +363,58 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Corpo do getter de uma constante canônica.
     fn lower_getter_constante(&mut self, ast: &ast::Ast, e: ExprId, valor: &str, raiz: u32) {
+        // SDK da fonte: `const {…}` é um `_ConstMap`/`_ConstSet` (imutável,
+        // como na VM), montado do `_Map`/`_Set` do literal.
+        if self.ctx.sdk_da_fonte
+            && let ExprKind::SetOrMap { elements, .. } = &ast.expr(e).kind
+        {
+            let conjunto = self.literal_e_conjunto(e, elements);
+            let tipo = self.ctx.get_type(self.unit_id, e);
+            self.lower_getter_canonico(valor, raiz, false, |b| {
+                let fonte = b.lower_expr(ast, e);
+                b.colecao_constante_fonte(fonte, tipo, conjunto, ast.expr(e).span)
+            });
+            return;
+        }
         let colecao = matches!(ast.expr(e).kind, ExprKind::List { .. } | ExprKind::SetOrMap { .. });
         self.lower_getter_canonico(valor, raiz, colecao, |b| b.lower_expr(ast, e));
+    }
+
+    /// O `_ConstMap<K, V>`/`_ConstSet<E>` que adota o conteúdo de `fonte`
+    /// (o `_Map`/`_Set` do literal), com os argumentos de tipo de `tipo`.
+    fn colecao_constante_fonte(&mut self, fonte: Operand, tipo: Option<TypeId>, conjunto: bool, span: dartforge_diagnostics::Span) -> Operand {
+        let nome = if conjunto { "_ConstSet" } else { "_ConstMap" };
+        let Some(cid) = self.ctx.classe_do_sdk("_compact_hash", nome) else {
+            return self.nao_suportado(&format!("constante sem `{nome}`"), span);
+        };
+        let ctor = self
+            .ctx
+            .interner
+            .lookup("_deFonte")
+            .and_then(|k| self.ctx.program.classes[cid.0 as usize].constructors.get(&k).copied());
+        let Some(ctor) = ctor else {
+            return self.nao_suportado(&format!("`{nome}._deFonte` ausente"), span);
+        };
+        let n = if conjunto { 1 } else { 2 };
+        let args: Vec<TypeId> = match tipo.map(|t| self.ctx.table.get(t)) {
+            Some(DartType::Interface { args, .. }) if args.len() == n => args.to_vec(),
+            _ => vec![self.ctx.core.dynamic_; n],
+        };
+        let mut receita = super::rti::Receita { texto: String::new(), variaveis: false };
+        for (i, a) in args.iter().enumerate() {
+            if i > 0 {
+                receita.texto.push(',');
+            }
+            let r = self.receita_de_tipo(*a);
+            receita.texto.push_str(&r.texto);
+            receita.variaveis |= r.variaveis;
+        }
+        let objeto = self.rti_da_receita(&super::rti::Receita {
+            texto: format!("C{}<{}>", self.ctx.id_rti(cid), receita.texto),
+            variaveis: receita.variaveis,
+        });
+        let fonte = self.coagir(fonte, Type::Ref);
+        self.instanciar_avaliados_com_rti(ctor, &[(None, fonte)], span, Some(objeto), None)
     }
 
     /// A constante canônica que `gerar` produz, pelo getter `simbolo_valor`

@@ -895,6 +895,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 self.propriedade_sem_membro(target_op, *target, prop_name, expr_id, span)
             }
+            // `super[i]` (P4): o `operator []` da superclasse (ou do mixin
+            // anterior na linearização).
+            ExprKind::Index { target, index, .. } if matches!(ast.expr(*target).kind, ExprKind::Super) => {
+                let i = self.lower_expr(ast, *index);
+                let Some(nome) = self.ctx.interner.lookup("[]") else {
+                    return self.nao_suportado("`super[]` sem operador", expr.span);
+                };
+                let r = self.chamar_super_metodo(nome, &[(None, i)], expr.span);
+                let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
+                self.coagir(r, repr)
+            }
             ExprKind::Index {
                 target,
                 index,
