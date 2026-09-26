@@ -365,6 +365,20 @@ base class _ConstMap<K, V> extends _HashVMImmutableBase
   factory _ConstMap._uninstantiable() {
     throw new UnsupportedError("_ConstMap can only be allocated by the VM");
   }
+
+  // DartForge: a constante `const {…}` é o `_Map` do literal adotado aqui
+  // (a VM aloca o `_ConstMap` direto do kernel). O índice é criado na
+  // primeira consulta, como no da VM.
+  @pragma("vm:entry-point")
+  _ConstMap._deFonte(_HashVMBase fonte) {
+    // Como a da VM: os dados exatos (imutáveis) e a máscara de hash que o
+    // `_createIndex` preguiçoso confere.
+    _data = new List<Object?>.unmodifiable(fonte._data.take(fonte._usedData));
+    _usedData = fonte._usedData;
+    _deletedKeys = fonte._deletedKeys;
+    _hashMask = _HashBase._indexSizeToHashMask(
+        _roundUpToPowerOfTwo(max(_data.length, _HashBase._INITIAL_INDEX_SIZE)));
+  }
 }
 
 mixin _ImmutableLinkedHashMapMixin<K, V>
@@ -1051,6 +1065,18 @@ base class _ConstSet<E> extends _HashVMImmutableBase
     implements LinkedHashSet<E> {
   factory _ConstSet._uninstantiable() {
     throw new UnsupportedError("_ConstSet can only be allocated by the VM");
+  }
+
+  // DartForge: como `_ConstMap._deFonte`, para `const {a, b}`.
+  @pragma("vm:entry-point")
+  _ConstSet._deFonte(_HashVMBase fonte) {
+    // Como a da VM: os dados exatos (imutáveis) e a máscara de hash que o
+    // `_createIndex` preguiçoso confere.
+    _data = new List<Object?>.unmodifiable(fonte._data.take(fonte._usedData));
+    _usedData = fonte._usedData;
+    _deletedKeys = fonte._deletedKeys;
+    _hashMask = _HashBase._indexSizeToHashMask(
+        _roundUpToPowerOfTwo(max(_data.length, _HashBase._INITIAL_INDEX_SIZE)));
   }
 
   Set<R> cast<R>() => Set.castFrom<E, R>(this, newSet: _newEmpty);
