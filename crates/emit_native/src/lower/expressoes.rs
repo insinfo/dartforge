@@ -201,6 +201,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     pub fn lower_expr(&mut self, ast: &ast::Ast, expr_id: ExprId) -> Operand {
+        if self.receptor_pronto.as_ref().is_some_and(|(e, _)| *e == expr_id) {
+            self.continuar_cadeia = false;
+            return self.receptor_pronto.take().expect("verificado acima").1;
+        }
         let continuar = std::mem::replace(&mut self.continuar_cadeia, false);
         let salvo = if continuar {
             None

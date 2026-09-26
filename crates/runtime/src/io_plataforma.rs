@@ -70,6 +70,7 @@ pub extern "C" fn dartforge_preparar_embedder() {
     let Some(iniciar) = ajudante("_dartforgeIniciarIo") else {
         return;
     };
+    preparar_sinais_do_processo();
     // SAFETY: registrada pela biblioteca `dart:io` da sobreposição com a
     // assinatura (`String`) → `Object`.
     let iniciar: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(iniciar) };
@@ -84,6 +85,19 @@ pub extern "C" fn dartforge_preparar_embedder() {
         // a assinatura (`Uri Function()`) → `void`.
         let definir: extern "C" fn(i64) = unsafe { std::mem::transmute(definir) };
         com_raizes(&[gancho], || definir(gancho));
+    }
+}
+
+/// O `Platform::Initialize` da VM: escrever num pipe ou soquete fechado dá
+/// o erro `EPIPE` em vez de matar o processo (SIGPIPE ignorado).
+fn preparar_sinais_do_processo() {
+    #[cfg(unix)]
+    {
+        unsafe extern "C" {
+            fn signal(sinal: i32, tratador: usize) -> usize;
+        }
+        // SAFETY: SIGPIPE = 13, SIG_IGN = 1.
+        unsafe { signal(13, 1) };
     }
 }
 
