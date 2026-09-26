@@ -134,6 +134,7 @@ import 'package:corpus_ngdart/src/i37_usa_callback.template.dart' as i37;
 import 'package:corpus_ngdart/src/i38_estilo_tipos.template.dart' as i38;
 import 'package:corpus_ngdart/src/i39_ng_container_formas.template.dart' as i39;
 import 'package:corpus_ngdart/src/i40_ng_container_texto.template.dart' as i40;
+import 'package:corpus_ngdart/src/i41_ng_class_formas.template.dart' as i41;
 
 void main() {
   print([
@@ -270,5 +271,6 @@ void main() {
     i38.I38EstiloTiposNgFactory,
     i39.I39NgContainerFormasNgFactory,
     i40.I40NgContainerTextoNgFactory,
+    i41.I41NgClassFormasNgFactory,
   ].length);
 }

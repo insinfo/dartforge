@@ -3886,11 +3886,13 @@ impl Corpo<'_> {
                 .iter()
                 .map(|x| (x.nome.clone(), x.membro.clone(), x.booleana))
                 .collect();
-            // Só `AfterChanges` e `OnInit` chegam aqui: os outros ganchos são
+            // Só `AfterChanges`, `OnInit` e `DoCheck` chegam aqui (o
+            // `OnDestroy` sai no `destroyInternal`): os outros ganchos são
             // recusados pela guarda (`Diretiva::pendencia`).
             let ganchos = crate::componente::Ganchos {
                 after_changes: d.ganchos.after_changes,
                 on_init: d.ganchos.on_init,
+                do_check: d.ganchos.do_check,
                 ..Default::default()
             };
             self.entradas_de(
