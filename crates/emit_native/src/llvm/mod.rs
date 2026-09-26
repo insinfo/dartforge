@@ -36,6 +36,9 @@ pub struct LlvmEmitter<'a> {
     slots: std::collections::HashMap<ValueId, usize>,
     /// A função abriu um quadro de raízes (`%gcq`).
     tem_frame: bool,
+    /// A função leu `%ctx` (`dartforge_contexto`, o contexto da thread do
+    /// runtime) na entrada: exceção pendente e pilha-sombra sem chamada.
+    tem_ctx: bool,
     // --- P1 (closures, α) ---
     /// Vetores constantes de `i64` (`@df.arr.<k>`): assinaturas e descritores.
     vetores: Vec<Vec<i64>>,
@@ -85,6 +88,7 @@ impl<'a> LlvmEmitter<'a> {
             apontado: std::collections::HashMap::new(),
             slots: std::collections::HashMap::new(),
             tem_frame: false,
+            tem_ctx: false,
 
             vetores: Vec::new(),
             vetor_de: std::collections::HashMap::new(),
@@ -345,6 +349,12 @@ impl<'a> LlvmEmitter<'a> {
             &|b| blocos_que_convertem.contains(&b.0),
         );
         self.tem_frame = !self.slots.is_empty();
+        self.tem_ctx = self.tem_frame
+            || func.blocks.iter().any(|b| {
+                b.instructions.iter().any(|(_, i, _)| {
+                    matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending")
+                })
+            });
 
         for block in &func.blocks {
             writeln!(self.out, "b{}:", block.id.0).unwrap();
@@ -362,6 +372,12 @@ impl<'a> LlvmEmitter<'a> {
                 self.nomes_do_rastro.push(func.symbol.clone());
                 writeln!(self.out, "  call void @dartforge_rastro_entrada(ptr @df.rastro.{n}, i64 {})", func.symbol.len()).unwrap();
             }
+            // O contexto da thread (`runtime/src/heap.rs`, `Contexto`): a
+            // exceção pendente no deslocamento 0, o topo da pilha-sombra no 8.
+            if block.id.0 == 0 && self.tem_ctx {
+                writeln!(self.out, "  %ctx = call ptr @dartforge_contexto()").unwrap();
+                writeln!(self.out, "  %ctxtopo = getelementptr inbounds i8, ptr %ctx, i64 8").unwrap();
+            }
             if block.id.0 == 0 && self.tem_frame {
                 // O quadro de raízes no stack da função (a pilha-sombra,
                 // `QuadroDeRaizes` do runtime): anterior, número de slots e
@@ -375,7 +391,10 @@ impl<'a> LlvmEmitter<'a> {
                 for slot in 0..n {
                     writeln!(self.out, "  %gcs{slot} = getelementptr inbounds {t}, ptr %gcq, i64 0, i32 2, i64 {slot}").unwrap();
                 }
-                writeln!(self.out, "  call void @dartforge_gc_empilhar(ptr %gcq)").unwrap();
+                // Encadeia o quadro: `anterior` = topo; topo = quadro.
+                writeln!(self.out, "  %gcant = load ptr, ptr %ctxtopo, align 8").unwrap();
+                writeln!(self.out, "  store ptr %gcant, ptr %gcq, align 8").unwrap();
+                writeln!(self.out, "  store ptr %gcq, ptr %ctxtopo, align 8").unwrap();
                 for (vid, _, _) in &func.params {
                     if let Some(&slot) = self.slots.get(vid) {
                         writeln!(self.out, "  store i64 %v{}, ptr %gcs{slot}", vid.0).unwrap();
@@ -701,6 +720,10 @@ impl<'a> LlvmEmitter<'a> {
                         let resto: Vec<String> = args.iter().map(|(a, t)| format!("{} {}", t.llvm_ir(), self.coagir(a, *t))).collect();
                         writeln!(self.out, "  %v{v} = call i64 @{name}_t({}, ptr @{f})", resto.join(", ")).unwrap();
                         let _ = ret_ty;
+                    }
+                    // A exceção pendente: o espelho no contexto da thread.
+                    Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending" && self.tem_ctx => {
+                        writeln!(self.out, "  %v{v} = load i8, ptr %ctx, align 8").unwrap();
                     }
                     Instruction::CallRuntime { name, args, ret_ty } => {
                         if name.starts_with("dartforge_nativo_") {
@@ -1035,7 +1058,8 @@ impl<'a> LlvmEmitter<'a> {
             // G3: o frame de raízes fecha antes de TODO `ret`, inclusive o
             // das saídas por exceção (que retornam o valor padrão).
             if self.tem_frame && matches!(block.terminator, Terminator::Return(_)) {
-                writeln!(self.out, "  call void @dartforge_gc_desempilhar(ptr %gcq)").unwrap();
+                writeln!(self.out, "  %gcvolta{} = load ptr, ptr %gcq, align 8", block.id.0).unwrap();
+                writeln!(self.out, "  store ptr %gcvolta{}, ptr %ctxtopo, align 8", block.id.0).unwrap();
             }
             match &block.terminator {
                 Terminator::Return(Some(op)) => {

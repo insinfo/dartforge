@@ -89,6 +89,47 @@ pub extern "C" fn dartforge_lista_len_rapido(h: i64, escrita: i64) -> i64 {
     })
 }
 
+/// `lista[i] = v` direto (`lower/tipados.rs`) com `v` `int` (`codigo` 1),
+/// `double` (2) ou `bool` (3): o comprimento de `h` se ela é uma lista do
+/// runtime modificável cujo `E` reificado aceita o valor; senão 0 (o `[]=`
+/// do SDK, com a conferência de covariância e os erros da VM). Uma
+/// `List<Never>` vista como `List<int>` cai aqui. Só lê o heap e os tipos.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_lista_len_gravavel(h: i64, codigo: i64) -> i64 {
+    heap_sem_emprestimo(|heap| match heap.try_get(h) {
+        Some(Value::List(itens)) if heap.imutaveis.is_empty() || !heap.imutaveis.contains(&h) => {
+            let meta = heap.metadado(h);
+            if meta != 0 && !lista_aceita_escalar(meta - 1, codigo) {
+                return 0;
+            }
+            if heap.pendentes.is_empty() {
+                itens.len() as i64
+            } else {
+                heap.pendentes.get(&h).map_or(itens.len(), |&n| n) as i64
+            }
+        }
+        _ => 0,
+    })
+}
+
+/// O comprimento de `h` se ela é uma lista do runtime (`_List`,
+/// `_GrowableList`, `_ImmutableList`), senão -1: o `for-in` direto
+/// (`lower/sdk_fonte.rs`) distingue a lista vazia de uma classe do usuário
+/// que implementa `List` (que fica com o `Iterator` dela). Só lê o heap.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_lista_len_ou_menos1(h: i64) -> i64 {
+    heap_sem_emprestimo(|heap| match heap.try_get(h) {
+        Some(Value::List(itens)) => {
+            if heap.pendentes.is_empty() {
+                itens.len() as i64
+            } else {
+                heap.pendentes.get(&h).map_or(itens.len(), |&n| n) as i64
+            }
+        }
+        _ => -1,
+    })
+}
+
 /// O endereço dos elementos (`TaggedValue`, 16 bytes cada) de `h` se ela
 /// é uma lista do runtime, senão 0. O código gerado lê e grava o elemento
 /// em linha (`lower/tipados.rs`): o buffer é memória que o módulo acessa;

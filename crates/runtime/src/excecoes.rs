@@ -129,11 +129,24 @@ thread_local! {
     static DESENROLANDO: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+/// Grava a exceção pendente e o espelho dela no contexto da thread (que o
+/// código gerado lê, `Contexto::pendente`).
+fn definir_excecao(v: Option<TaggedValue>) {
+    CONTEXTO.with(|c| c.pendente.set(u8::from(v.is_some())));
+    EXCEPTION.with(|slot| *slot.borrow_mut() = v);
+}
+
+/// Toma a exceção pendente (e limpa o espelho).
+fn tomar_excecao() -> Option<TaggedValue> {
+    CONTEXTO.with(|c| c.pendente.set(0));
+    EXCEPTION.with(|slot| slot.borrow_mut().take())
+}
+
 /// Começa a desenrolar o isolado: uma exceção pendente que nenhum `catch`
 /// recebe, até o laço de eventos (`isolados.rs`).
 fn comecar_desenrolar() {
     DESENROLANDO.with(|d| d.set(true));
-    EXCEPTION.with(|slot| *slot.borrow_mut() = Some(TaggedValue::reference(0)));
+    definir_excecao(Some(TaggedValue::reference(0)));
     HEAP.with(|h| h.borrow_mut().set_raiz_do_runtime(0, 0));
 }
 
@@ -214,13 +227,13 @@ pub extern "C" fn dartforge_exception_throw(bits: i64, tag: u8) {
     }
     // G6: a exceção pendente é raiz até ser consumida.
     HEAP.with(|h| h.borrow_mut().set_raiz_do_runtime(0, if value.is_ref { value.bits } else { 0 }));
-    EXCEPTION.with(|slot| *slot.borrow_mut() = Some(value));
+    definir_excecao(Some(value));
 }
 
 /// Indica se há exceção pendente na thread corrente.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_exception_pending() -> u8 {
-    EXCEPTION.with(|slot| u8::from(slot.borrow().is_some()))
+    CONTEXTO.with(|c| c.pendente.get())
 }
 
 /// Toma os bits da exceção pendente e limpa o slot.
@@ -230,7 +243,7 @@ pub extern "C" fn dartforge_exception_take_bits() -> i64 {
         return 0;
     }
     HEAP.with(|h| h.borrow_mut().set_raiz_do_runtime(0, 0));
-    EXCEPTION.with(|slot| slot.borrow_mut().take().map_or(0, |value| value.bits))
+    tomar_excecao().map_or(0, |value| value.bits)
 }
 
 /// Lê a tag da exceção pendente sem limpar (a limpeza é de `take_bits`).
@@ -262,9 +275,12 @@ pub extern "C" fn dartforge_exception_clear() {
         // também limpam): a pendência chega ao laço de eventos.
         return;
     }
-    EXCEPTION.with(|slot| {
-        slot.borrow_mut().take();
-    });
+    // Sem exceção nem rastro guardado (o caso de todo `return`): nada a
+    // limpar, e o heap não é tocado.
+    if CONTEXTO.with(|c| c.pendente.get()) == 0 && CURRENT_STACK_TRACE.with(|slot| slot.borrow().is_none()) {
+        return;
+    }
+    tomar_excecao();
     CURRENT_STACK_TRACE.with(|slot| {
         slot.borrow_mut().take();
     });

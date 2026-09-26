@@ -86,6 +86,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     match self.ctx.symbol_name(e.name) {
                         "int" if nucleo => Some(Type::I64),
                         "double" if nucleo => Some(Type::F64),
+                        "bool" if nucleo => Some(Type::I1),
                         _ => None,
                     }
                 }
@@ -131,6 +132,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 "dartforge_typed_len",
                 vec![(lista.clone(), Type::Ref), (Operand::Constant(Constant::Int(tipo)), Type::I64), escrita],
             ),
+            // Gravação: o `E` reificado tem de aceitar o valor (covariância).
+            Indexavel::Nucleo { gravacao: Some(t) } if escrita.0 == Operand::Constant(Constant::Int(1)) => {
+                let codigo = match t {
+                    Type::I64 => 1,
+                    Type::F64 => 2,
+                    _ => 3,
+                };
+                ("dartforge_lista_len_gravavel", vec![(lista.clone(), Type::Ref), (Operand::Constant(Constant::Int(codigo)), Type::I64)])
+            }
             Indexavel::Nucleo { .. } => ("dartforge_lista_len_rapido", vec![(lista.clone(), Type::Ref), escrita]),
         };
         self.emit(Instruction::CallRuntime { name: name.to_string(), args, ret_ty: Type::I64 }, Type::I64)
@@ -335,12 +345,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// representação `repr`: em linha quando a tag é a de `repr` (`int`,
     /// `double`, ou referência para `Ref`), senão pela caixa (um escalar
     /// numa posição `Ref` sai encaixotado por `dartforge_lista_ref`).
-    fn ler_elemento_da_lista(&mut self, lista: &Operand, indice: &Operand, repr: Type) -> Operand {
+    pub(super) fn ler_elemento_da_lista(&mut self, lista: &Operand, indice: &Operand, repr: Type) -> Operand {
         let (tipo, tag) = match repr {
             Type::I64 => (TipoC::I64, TAG_INT),
             Type::F64 => (TipoC::F64, TAG_DOUBLE),
             // Um elemento guardado como referência: os bits são o handle.
             Type::Ref => (TipoC::I64, TAG_REF),
+            // `bool`: os bits são 0 ou 1.
+            Type::I1 => (TipoC::I64, TAG_BOOL),
             _ => return self.elemento_ref(lista, indice),
         };
         let dados = self.dados_da_lista(lista);
@@ -354,7 +366,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
         self.set_block(direto);
         let i_bits = self.escala(indice, 2, 0);
-        let v = self.emit(Instruction::CargaNativa { endereco: dados, indice: i_bits, tipo }, repr);
+        let v = if repr == Type::I1 {
+            let b = self.emit(Instruction::CargaNativa { endereco: dados, indice: i_bits, tipo }, Type::I64);
+            self.emit(Instruction::ICmp(ICmpOp::Ne, b, Operand::Constant(Constant::Int(0))), Type::I1)
+        } else {
+            self.emit(Instruction::CargaNativa { endereco: dados, indice: i_bits, tipo }, repr)
+        };
         let fim_direto = self.current_block;
         self.terminate(Terminator::Branch(juncao));
 
@@ -375,11 +392,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Grava `valor` (`int` ou `double`, sem caixa) no elemento `indice`
+    /// Grava `valor` (`int`, `double` ou `bool`, sem caixa) no elemento `indice`
     /// (já conferido) de uma lista do runtime modificável: os bits, `is_ref`
     /// falso e a tag.
     fn gravar_elemento_da_lista(&mut self, lista: &Operand, indice: &Operand, valor: Operand, repr: Type) {
-        let (tipo, tag) = if repr == Type::F64 { (TipoC::F64, TAG_DOUBLE) } else { (TipoC::I64, TAG_INT) };
+        let (tipo, tag, valor) = match repr {
+            Type::F64 => (TipoC::F64, TAG_DOUBLE, valor),
+            Type::I1 => {
+                let b = self.emit(Instruction::ZExt { op: valor, from: Type::I1, to: Type::I64 }, Type::I64);
+                (TipoC::I64, TAG_BOOL, b)
+            }
+            _ => (TipoC::I64, TAG_INT, valor),
+        };
         let dados = self.dados_da_lista(lista);
         let i_bits = self.escala(indice, 2, 0);
         self.emit(Instruction::GravacaoNativa { endereco: dados.clone(), indice: i_bits, tipo, valor }, Type::Void);
@@ -408,5 +432,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
 /// As tags de `ValueTag` do runtime (`heap.rs`, `#[repr(u8)]`).
 const TAG_INT: i64 = 0;
+const TAG_BOOL: i64 = 1;
 const TAG_DOUBLE: i64 = 2;
 const TAG_REF: i64 = 3;

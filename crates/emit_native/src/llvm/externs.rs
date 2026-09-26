@@ -314,6 +314,12 @@ pub const EXTERNS: &[Extern] = &[
     // o usa mais. Então `memory(none)`: o LLVM as tira dos laços apesar das
     // chamadas do registro de raízes. `speculatable`: sobre um handle
     // qualquer (até um que não é lista tipada) respondem 0, sem efeito.
+    // O contexto da thread (`runtime/src/heap.rs`, `Contexto`): o mesmo
+    // endereço enquanto a thread vive — pura para o código de uma ativação.
+    Extern {
+        decl: "declare ptr @dartforge_contexto() memory(none) nounwind willreturn speculatable",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
     Extern {
         decl: "declare i64 @dartforge_typed_len(i64, i64, i64) memory(none) nounwind willreturn speculatable",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
@@ -329,6 +335,14 @@ pub const EXTERNS: &[Extern] = &[
     // em linha (memória acessível ao módulo, que nenhuma destas lê).
     Extern {
         decl: "declare i64 @dartforge_lista_len_rapido(i64, i64) memory(inaccessiblemem: read) nounwind willreturn speculatable",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_lista_len_gravavel(i64, i64) memory(inaccessiblemem: read) nounwind willreturn speculatable",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_lista_len_ou_menos1(i64) memory(inaccessiblemem: read) nounwind willreturn speculatable",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {

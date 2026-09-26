@@ -82,7 +82,7 @@ pub fn finalizar_programa() -> i32 {
                     // SDK da fonte: o `toString()` Dart do objeto lançado.
                     Some(f) => {
                         drop(heap);
-                        EXCEPTION.with(|slot| slot.borrow_mut().take());
+                        tomar_excecao();
                         let t = com_raizes(&[bits], || f(bits));
                         let s = HEAP.with(|h| match h.borrow().try_get(t) {
                             Some(Value::String(texto)) => Some(texto.para_string()),
@@ -91,7 +91,7 @@ pub fn finalizar_programa() -> i32 {
                         // O `toString()` também falhou: a descrição do
                         // runtime (a classe do objeto).
                         s.unwrap_or_else(|| {
-                            EXCEPTION.with(|slot| slot.borrow_mut().take());
+                            tomar_excecao();
                             HEAP.with(|h| describe_handle(&h.borrow(), bits))
                         })
                     }
@@ -118,7 +118,7 @@ pub fn finalizar_programa() -> i32 {
     codigo_de_saida_global()
 }
 
-use crate::heap::{Heap, TaggedValue, Texto, TextoMut, Value};
+use crate::heap::{CONTEXTO, Heap, TaggedValue, Texto, TextoMut, Value};
 use std::cell::RefCell;
 use crate::hash::{HashMap, HashSet};
 

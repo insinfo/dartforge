@@ -99,13 +99,14 @@ fn quadro_de_raizes_em_todo_ret() {
     let corpo = corpo_de(&ir, "f");
     assert!(
         corpo.contains("%gcq = alloca { ptr, i64, [1 x i64] }")
-            && corpo.contains("call void @dartforge_gc_empilhar(ptr %gcq)"),
+            && corpo.contains("%ctx = call ptr @dartforge_contexto()")
+            && corpo.contains("store ptr %gcq, ptr %ctxtopo"),
         "{corpo}"
     );
     assert!(corpo.contains("store i64 %v0, ptr %gcs0"), "{corpo}");
     assert!(!corpo.contains("store i64 %v1, ptr"), "{corpo}");
     let rets = corpo.matches("\n  ret ").count();
-    let pops = corpo.matches("@dartforge_gc_desempilhar(ptr %gcq)").count();
+    let pops = corpo.matches("store ptr %gcvolta").count();
     assert_eq!(rets, 2, "{corpo}");
     assert_eq!(pops, rets, "todo ret fecha o quadro: {corpo}");
 }

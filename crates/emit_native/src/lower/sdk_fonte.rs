@@ -1639,11 +1639,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         span: Span,
     ) {
         let fonte = self.lower_expr(ast, iterable);
+        // Os rótulos deste laço (os dois caminhos abaixo os usam; um laço
+        // aninhado no corpo não pode vê-los como seus).
+        let rotulos = std::mem::take(&mut self.pending_labels);
+        // `List<E>`: a lista do runtime percorrida pelo índice, com a
+        // conferência de comprimento do `ListIterator`; outra classe que
+        // implementa `List` segue pelo `Iterator` dela (abaixo).
+        let mut fim_direto = None;
+        if let Some(super::tipados::Indexavel::Nucleo { gravacao }) = self.indexavel(self.ctx.get_type(self.unit_id, iterable)) {
+            let fonte = self.coagir(fonte.clone(), Type::Ref);
+            if let Some(fim) = self.for_in_de_lista(ast, target, iterable, body, span, fonte, gravacao.unwrap_or(Type::Ref), &rotulos) {
+                fim_direto = Some(fim);
+            }
+        }
         let it = self.chamar_por_seletor(fonte, "g:iterator".to_string(), &[]);
         let cabeca = self.new_block();
         let corpo = self.new_block();
         let fim = self.new_block();
-        let rotulos = std::mem::take(&mut self.pending_labels);
         for &r in &rotulos {
             self.labeled_break_targets.insert(r, fim);
             self.labeled_continue_targets.insert(r, cabeca);
@@ -1669,6 +1681,106 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.labeled_continue_targets.remove(&r);
         }
         self.set_block(fim);
+        // A saída do laço pelo `Iterator` encontra a do laço direto.
+        if let Some(depois) = fim_direto {
+            self.terminate(Terminator::Branch(depois));
+            self.set_block(depois);
+        }
+    }
+
+    /// O `for-in` sobre uma lista do runtime pelo índice. Deixa o bloco
+    /// corrente no caminho do `Iterator` (lista de outra classe) e devolve o
+    /// bloco depois do laço, aonde os dois caminhos chegam.
+    ///
+    /// É o que o `ListIterator` (e o `_FixedSizeArrayIterator`, que nunca vê
+    /// o comprimento mudar) faz: a cada volta, comprimento diferente do
+    /// inicial lança `ConcurrentModificationError(lista)`; índice no fim
+    /// termina; senão o elemento `lista[i]`.
+    #[allow(clippy::too_many_arguments)]
+    fn for_in_de_lista(
+        &mut self,
+        ast: &dartforge_frontend::ast::Ast,
+        target: &dartforge_frontend::ast::ForInTarget,
+        iterable: dartforge_frontend::ast::ExprId,
+        body: dartforge_frontend::ast::StmtId,
+        span: Span,
+        lista: Operand,
+        repr: Type,
+        rotulos: &[dartforge_intern::SymbolId],
+    ) -> Option<BlockId> {
+        let classe = self.ctx.classe_do_sdk("core", "ConcurrentModificationError")?;
+        let vazio = self.ctx.interner.lookup("")?;
+        let ctor = *self.ctx.program.classes[classe.0 as usize].constructors.get(&vazio)?;
+        let comprimento = |s: &mut Self| {
+            s.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_lista_len_ou_menos1".to_string(),
+                    args: vec![(lista.clone(), Type::Ref)],
+                    ret_ty: Type::I64,
+                },
+                Type::I64,
+            )
+        };
+        let n0 = comprimento(self);
+        let e_lista = self.emit(Instruction::ICmp(ICmpOp::Sge, n0.clone(), Operand::Constant(Constant::Int(0))), Type::I1);
+        let direto = self.new_block();
+        let iterador = self.new_block();
+        let depois = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: e_lista, then_block: direto, else_block: iterador });
+
+        self.set_block(direto);
+        let indice = self.emit(Instruction::Alloca(Type::I64), Type::Ptr);
+        self.emit(Instruction::Store { ptr: indice.clone(), val: Operand::Constant(Constant::Int(0)) }, Type::Void);
+        let cabeca = self.new_block();
+        let mudou = self.new_block();
+        let confere = self.new_block();
+        let corpo = self.new_block();
+        self.terminate(Terminator::Branch(cabeca));
+
+        self.set_block(cabeca);
+        let n = comprimento(self);
+        let igual = self.emit(Instruction::ICmp(ICmpOp::Eq, n.clone(), n0), Type::I1);
+        self.terminate(Terminator::CondBranch { cond: igual, then_block: confere, else_block: mudou });
+
+        self.set_block(mudou);
+        let erro = self.instanciar_avaliados(ctor, &[(None, lista.clone())], span);
+        if !self.is_terminated() {
+            self.emit_throw_op(erro);
+        }
+        if !self.is_terminated() {
+            self.terminate(Terminator::Unreachable);
+        }
+
+        self.set_block(confere);
+        let i = self.emit(Instruction::Load { ptr: indice.clone(), ty: Type::I64 }, Type::I64);
+        let dentro = self.emit(Instruction::ICmp(ICmpOp::Slt, i.clone(), n), Type::I1);
+        self.terminate(Terminator::CondBranch { cond: dentro, then_block: corpo, else_block: depois });
+
+        self.set_block(corpo);
+        let x = self.ler_elemento_da_lista(&lista, &i, repr);
+        let prox = self.emit(Instruction::Add(i, Operand::Constant(Constant::Int(1))), Type::I64);
+        self.emit(Instruction::Store { ptr: indice, val: prox }, Type::Void);
+        for &r in rotulos {
+            self.labeled_break_targets.insert(r, depois);
+            self.labeled_continue_targets.insert(r, cabeca);
+        }
+        self.break_targets.push(depois);
+        self.continue_targets.push(cabeca);
+        self.abrir_escopo();
+        self.ligar_alvo_de_for_in(ast, target, x, iterable, span);
+        self.lower_stmt(ast, body);
+        self.fechar_escopo();
+        if !self.is_terminated() {
+            self.terminate(Terminator::Branch(cabeca));
+        }
+        self.break_targets.pop();
+        self.continue_targets.pop();
+        for r in rotulos {
+            self.labeled_break_targets.remove(r);
+            self.labeled_continue_targets.remove(r);
+        }
+        self.set_block(iterador);
+        Some(depois)
     }
 }
 

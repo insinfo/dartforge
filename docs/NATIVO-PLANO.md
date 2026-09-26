@@ -1593,3 +1593,96 @@ em `dartforge run`, entregues também ao runtime da biblioteca do SDK).
 * **O SDK da fonte é o padrão** (a troca de P5d): o corpus nativo passa
   225/225 por ele e 99/225 pelo runtime por nome de antes, que fica atrás de
   `DARTFORGE_SDK_DA_FONTE=0`.
+
+## 8. Eliminar trabalho antes do LLVM (otimizador da HIR)
+
+O LLVM só otimiza o que recebe. Um objeto criado pelo runtime
+(`dartforge_object_new`) e lido por chamadas opacas não some no LLVM; um
+`i.toDouble()` que passa pelo despacho por seletor também não. O objetivo
+aqui não é deixar o runtime fazer mais depressa o trabalho de sempre, é o
+executável precisar de menos trabalho.
+
+### 8.1 Os passes (`crates/emit_native/src/otimizar/`)
+
+Rodam sobre o módulo HIR do programa, antes do emissor, em todo modo (AOT,
+produção e JIT); `DARTFORGE_OTIMIZAR_HIR=0` desliga para comparar.
+
+1. **`mem2reg`**: locais (`Alloca` lido e gravado só por `Load`/`Store`)
+   viram valores SSA, com `phi` nas fronteiras de dominância (Cytron et al.;
+   dominadores de Cooper, Harvey e Kennedy). Um local `Ref` promovido deixa
+   de ter slot fixo no quadro de raízes: a vivacidade (`llvm/raizes.rs`)
+   decide.
+2. **Resumo de exceções** (`efeitos.rs`): quem não pode deixar exceção
+   pendente, pelo maior ponto fixo (começa com todas as funções do módulo
+   sem lançar). Em toda chamada o estado de exceção está limpo — cada
+   operação que pode lançar é conferida em seguida —, então a conferência
+   logo depois de uma chamada a uma função que não lança é sempre falsa e
+   some com o desvio (`simplificar.rs`). Só vale numa função em que toda
+   operação que lança é conferida logo depois (as externas casadas pelo
+   nome, conferidas no fim do comando, desligam isso na função). As
+   alocações simples do runtime estão marcadas sem lançar
+   (`ALOCA_SEM_LANCAR`, conferidas no código de cada uma).
+3. **Inlining** (`inline.rs`) das funções pequenas do módulo que não lançam:
+   construtores, getters, operadores. Sem caminho de exceção no corpo
+   copiado, não há o que religar aos `catch`/`finally` de quem chama.
+4. **Substituição escalar** (`escape.rs`): um objeto criado na função cujo
+   único uso é ler e gravar os próprios campos por índice constante não
+   escapa — ninguém observa a identidade dele (nem `==`, nem `is`, nem o
+   coletor). Cada campo vira um local, que o `mem2reg` promove. Qualquer
+   outro uso (argumento, retorno, `phi`, gravação em outro objeto, tipo,
+   RTI) conta como fuga.
+5. Limpezas: dobra de comparações e desvios constantes, blocos
+   inalcançáveis e encadeados, valores puros sem uso.
+
+O critério do exemplo de referência foi cumprido:
+
+```dart
+double soma(double a, double b) {
+  final p = Ponto(a, b);
+  return p.x + p.y;
+}
+```
+
+sai como um `fadd` dos dois argumentos: nenhuma alocação, nenhum acesso ao
+heap, nenhuma raiz, nenhuma conferência de exceção.
+
+### 8.2 O que mais saiu do caminho quente
+
+* **`int`/`double` em linha** (`lower/intrinsecos.rs`): com o tipo estático
+  exato, `isEven`, `isOdd`, `isNegative`, `toDouble`, `abs`, `isNaN`,
+  `isInfinite`, `isFinite` e `toInt`/`truncate` (o membro do SDK no caminho
+  frio, para NaN e infinito) não passam mais pelo seletor.
+* **Contexto da thread** (`runtime/src/heap.rs`, `Contexto`): a exceção
+  pendente e o topo da pilha-sombra num `#[repr(C)]` que o código gerado lê
+  e grava direto; `dartforge_contexto()` uma vez por ativação no lugar de
+  uma chamada por conferência e duas por quadro. O `exception_clear` de
+  todo `return` não toca mais no heap quando não há exceção.
+* **`for-in` sobre `List<E>`** (`lower/sdk_fonte.rs`): a lista do runtime é
+  percorrida pelo índice, com a conferência de comprimento do
+  `ListIterator` (`ConcurrentModificationError`) a cada volta; outra classe
+  que implementa `List` segue pelo `Iterator` dela.
+* **`List<bool>`** lida e gravada em linha, e a gravação direta confere o
+  `E` reificado da lista (`dartforge_lista_len_gravavel`): um `List<Never>`
+  ou um `List<int>` visto como `List<num>` fica com o `[]=` do SDK, que
+  lança o `TypeError` da VM (`corpus/nativo/27`). Antes, a gravação direta
+  de `int`/`double` não conferia a covariância.
+
+### 8.3 Medido (Linux x86-64, AOT `--optimize`, `bench/desempenho`)
+
+Tempo estável por núcleo, ms (mediana das rodadas depois da primeira):
+
+| núcleo | antes | depois |
+| --- | ---: | ---: |
+| `objetos_temporarios/soma_ponto` | 555 | 4 |
+| `objetos_temporarios/pontos` | 350 | 57 |
+| `numerico/collatz` | 4600 | 55 |
+| `chamadas/formas` | 700 | 39 |
+| `chamadas/fib` | 11,6 | 2,3 |
+| `colecoes/crivo` | 1041 | 330 |
+
+A comparação com a VM e o `dart compile exe` é
+`scripts/comparar-desempenho.py`. O que ainda pesa, pelo perfil: o código do
+SDK compilado à parte (`List.filled`, `add`, `sort`, `Map`) passa pelo
+despacho por seletor com a convenção uniforme e pelas conferências de RTI
+(`dartforge_rti_como`), sem o inlining nem a especialização que o programa
+já recebe.

@@ -797,10 +797,31 @@ pub struct QuadroDeRaizes {
     slots: [i64; 0],
 }
 
-thread_local! {
-    /// O quadro do topo da pilha-sombra desta thread (do isolado dela).
-    static TOPO_DOS_QUADROS: std::cell::Cell<*const QuadroDeRaizes> = const { std::cell::Cell::new(std::ptr::null()) };
+/// O contexto da thread que o código gerado lê e grava direto, sem
+/// chamada (`llvm/mod.rs`): a exceção pendente (espelho de
+/// `excecoes::EXCEPTION`, conferido depois de cada chamada) e o topo da
+/// pilha-sombra desta thread (do isolado dela). O endereço vem de
+/// [`dartforge_contexto`], uma vez por ativação; não muda enquanto a
+/// thread vive. Os deslocamentos são contrato com o emissor.
+#[repr(C)]
+pub struct Contexto {
+    /// 1 com exceção pendente (deslocamento 0).
+    pub pendente: std::cell::Cell<u8>,
+    /// O quadro do topo da pilha-sombra (deslocamento 8).
+    pub topo: std::cell::Cell<*const QuadroDeRaizes>,
 }
+
+const _: () = {
+    assert!(std::mem::offset_of!(Contexto, pendente) == 0);
+    assert!(std::mem::offset_of!(Contexto, topo) == 8);
+};
+
+thread_local! {
+    pub static CONTEXTO: Contexto = const {
+        Contexto { pendente: std::cell::Cell::new(0), topo: std::cell::Cell::new(std::ptr::null()) }
+    };
+}
+
 
 /// Encadeia `q` no topo da pilha-sombra. `q.n` e os slots (zerados) já
 /// foram escritos pelo código gerado.
@@ -810,11 +831,11 @@ thread_local! {
 /// correspondente.
 #[allow(unsafe_code)]
 pub unsafe fn empilhar_quadro(q: *mut QuadroDeRaizes) {
-    TOPO_DOS_QUADROS.with(|t| {
+    CONTEXTO.with(|c| {
         // SAFETY: `q` é o quadro no stack da função que chama, vivo até o
         // `desempilhar_quadro` antes de cada retorno dela.
-        unsafe { (*q).anterior = t.get() };
-        t.set(q);
+        unsafe { (*q).anterior = c.topo.get() };
+        c.topo.set(q);
     });
 }
 
@@ -825,17 +846,17 @@ pub unsafe fn empilhar_quadro(q: *mut QuadroDeRaizes) {
 /// `q` é o quadro válido passado ao último [`empilhar_quadro`].
 #[allow(unsafe_code)]
 pub unsafe fn desempilhar_quadro(q: *const QuadroDeRaizes) {
-    TOPO_DOS_QUADROS.with(|t| {
-        assert!(std::ptr::eq(t.get(), q), "bug do compilador: quadro de raízes fechado fora de ordem");
+    CONTEXTO.with(|c| {
+        assert!(std::ptr::eq(c.topo.get(), q), "bug do compilador: quadro de raízes fechado fora de ordem");
         // SAFETY: `q` é o topo, ainda no stack de quem chama.
-        t.set(unsafe { (*q).anterior });
+        c.topo.set(unsafe { (*q).anterior });
     });
 }
 
 /// Visita as raízes de todos os quadros da pilha-sombra desta thread.
 #[allow(unsafe_code)]
 fn visitar_quadros(mut f: impl FnMut(i64)) {
-    let mut q = TOPO_DOS_QUADROS.with(|t| t.get());
+    let mut q = CONTEXTO.with(|c| c.topo.get());
     while !q.is_null() {
         // SAFETY: cada quadro encadeado está no stack de uma função ainda
         // ativa desta thread, com `n` slots depois do cabeçalho.

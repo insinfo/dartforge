@@ -738,6 +738,33 @@ pub(crate) fn tipo_lista_da_tupla(tupla: i64, classe_concreta: Option<i64>) -> O
     })
 }
 
+/// O tipo reificado `meta` de uma lista (`Interface(List, [E])`) aceita um
+/// valor `int` (`codigo` 1), `double` (2) ou `bool` (3)? Só lê o universo
+/// (sem internar): `E` é `dynamic`, `void`, `Object`, a própria classe, ou
+/// um anulável ou `FutureOr` deles. Outro `E` (`num`, `Comparable`…)
+/// responde falso, e quem pergunta segue pelo `[]=` do SDK, que confere.
+pub(crate) fn lista_aceita_escalar(meta: i64, codigo: i64) -> bool {
+    RTI.with(|u| {
+        let u = u.borrow();
+        let alvo = match codigo {
+            1 => u.rt.int,
+            2 => u.rt.double,
+            3 => u.rt.bool_,
+            _ => return false,
+        };
+        let Some(Tipo::Interface(_, args)) = u.tipos.get(meta as usize) else { return false };
+        let mut e = args.first().copied().unwrap_or(T_DINAMICO);
+        loop {
+            match u.tipos.get(e as usize) {
+                Some(Tipo::Dinamico | Tipo::Vazio) => return true,
+                Some(Tipo::Anulavel(x) | Tipo::FutureOr(x)) => e = *x,
+                Some(Tipo::Interface(c, a)) => return a.is_empty() && (*c == alvo || *c == u.rt.object),
+                _ => return false,
+            }
+        }
+    })
+}
+
 /// `List<String>` na classe concreta de uma lista que o runtime cria (o
 /// `Dart_NewListOfTypeFilled` da VM).
 pub(crate) fn tipo_lista_de_textos(classe_concreta: Option<i64>) -> Option<i64> {

@@ -19,6 +19,14 @@ fn com_raizes<R>(handles: &[i64], f: impl FnOnce() -> R) -> R {
     r
 }
 
+/// O endereço do contexto da thread corrente (`heap::Contexto`): a exceção
+/// pendente e o topo da pilha-sombra, que o código gerado lê e grava sem
+/// chamada.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_contexto() -> *const crate::heap::Contexto {
+    crate::heap::CONTEXTO.with(|c| c as *const crate::heap::Contexto)
+}
+
 /// Encadeia o quadro de raízes de uma função gerada, no stack dela
 /// (`crate::heap::QuadroDeRaizes`): o prólogo escreve o número de slots e
 /// os zera; cada raiz depois é um `store` no slot.
