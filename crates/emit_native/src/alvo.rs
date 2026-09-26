@@ -165,3 +165,17 @@ pub fn raiz_do_sdk_macos() -> Option<&'static std::path::Path> {
     })
     .as_deref()
 }
+
+/// Os argumentos de ligação que o sistema exige em toda ligação do Clang
+/// (executável, DLL do SDK, runtime): as bibliotecas do sistema e, no
+/// macOS, a raiz do SDK (`-isysroot`), sem a qual nem o `ld` da Apple
+/// chamado pelo Clang do LLVM nem o `ld64.lld` acham `-lSystem`.
+pub fn argumentos_de_ligacao() -> Vec<std::ffi::OsString> {
+    let mut v: Vec<std::ffi::OsString> = Vec::new();
+    if let Some(raiz) = raiz_do_sdk_macos() {
+        v.push("-isysroot".into());
+        v.push(raiz.as_os_str().to_owned());
+    }
+    v.extend(bibliotecas_do_sistema().iter().map(std::ffi::OsString::from));
+    v
+}
