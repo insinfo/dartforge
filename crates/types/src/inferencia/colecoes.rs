@@ -136,25 +136,54 @@ fn tipo_final(inf: &mut BodyInferrer<'_>, forma: Forma, args: &[TypeId]) -> Type
 
 /// `{}` indeciso: pelo contexto (`Map`/`Iterable`), senão pelos
 /// espalhamentos inferidos; `{}` vazio sem contexto é mapa.
-fn forma_pelo_contexto(inf: &mut BodyInferrer<'_>, _cx: &mut Corpo, _els: &[CollectionElement], ctx: TypeId) -> Forma {
+fn forma_pelo_contexto(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, els: &[CollectionElement], ctx: TypeId) -> Forma {
+    if let Some(f) = forma_pelo_tipo_do_contexto(inf, ctx) {
+        return f;
+    }
+    // Sem contexto que decida: os espalhamentos são inferidos sem contexto
+    // e o tipo deles decide (um `Iterable` faz o conjunto, um `Map` o
+    // mapa). O tipo fica guardado para a visita dos elementos.
+    let u = inf.core.unknown;
+    let mut forma = None;
+    for el in els {
+        if let CollectionElement::Spread { value, .. } = el {
+            let t = inferir(inf, cx, *value, u);
+            inf.espalhamentos_inferidos.insert(*value, t);
+            let t = inf.nao_nulo(t);
+            if forma.is_none() {
+                if inf.como_instancia_de(t, inf.core.iterable_class).is_some() {
+                    forma = Some(Forma::Conjunto);
+                } else if inf.como_instancia_de(t, inf.core.map_class).is_some()
+                    || matches!(inf.table.get(t), Type::Interface { class, .. } if Some(*class) == inf.core.map_class)
+                {
+                    forma = Some(Forma::Mapa);
+                }
+            }
+        }
+    }
+    forma.unwrap_or(Forma::Mapa)
+}
+
+/// A forma que o contexto (`Map`/`Iterable`) impõe, se impõe.
+fn forma_pelo_tipo_do_contexto(inf: &mut BodyInferrer<'_>, ctx: TypeId) -> Option<Forma> {
     if !inf.e_desconhecido(ctx) {
         let k = inf.fecho_maior(ctx);
         let k = inf.nao_nulo(k);
         let e_mapa = inf.como_instancia_de(k, inf.core.map_class).is_some() || matches!(inf.table.get(k), Type::Interface { class, .. } if Some(*class) == inf.core.map_class);
         let e_iter = inf.como_instancia_de(k, inf.core.iterable_class).is_some();
         if e_iter && !e_mapa {
-            return Forma::Conjunto;
+            return Some(Forma::Conjunto);
         }
         if e_mapa && !e_iter {
-            return Forma::Mapa;
+            return Some(Forma::Mapa);
         }
         if let Type::FutureOr { arg, .. } = inf.table.get(k).clone() {
             if inf.como_instancia_de(arg, inf.core.iterable_class).is_some() {
-                return Forma::Conjunto;
+                return Some(Forma::Conjunto);
             }
         }
     }
-    Forma::Mapa
+    None
 }
 
 type Inferidor<'g> = Option<(&'g mut GenericInferrer, &'g [TypeParamId])>;
@@ -202,7 +231,10 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, f
                 _ => inf.iteravel(ctxs[0]),
             };
             let c = if *null_aware { inf.anulavel(c) } else { c };
-            let t = inferir(inf, cx, *value, c);
+            let t = match inf.espalhamentos_inferidos.remove(value) {
+                Some(t) => t,
+                None => inferir(inf, cx, *value, c),
+            };
             let t = inf.nao_nulo(t);
             if inf.e_dynamic(t) {
                 let d = inf.core.dynamic_;
