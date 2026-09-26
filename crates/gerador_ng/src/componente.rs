@@ -75,6 +75,10 @@ pub struct Componente {
     pub consultas: Vec<Consulta>,
     /// `@HostListener` da classe, na forma simples, na ordem de declaração.
     pub ouvintes: Vec<Ouvinte>,
+    /// `@HostBinding` de um componente, na ordem em que o oficial os coleta
+    /// (acessores, depois campos, cada grupo em ordem de declaração): o
+    /// `detectHostChanges` da visão.
+    pub ligacoes_do_hospedeiro: Vec<LigacaoDoHospedeiro>,
     /// `@ContentChild`/`@ContentChildren`, na ordem do `directive.queries`
     /// (setters antes dos campos, como o visitante do oficial os visita).
     /// `None`: alguma fora da forma conhecida.
@@ -172,6 +176,17 @@ pub struct Membro {
     pub imutavel: bool,
 }
 
+/// Um `@HostBinding('class.x')`/`@HostBinding('attr.x')` de componente.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LigacaoDoHospedeiro {
+    /// `class.ativo`, `attr.role`.
+    pub nome: String,
+    /// O campo ou getter lido.
+    pub membro: String,
+    /// Campo `final`: escrito uma vez, na primeira checagem (`isImmutable`).
+    pub imutavel: bool,
+}
+
 /// Um `@ViewChild('ref') T? campo;`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Consulta {
@@ -181,8 +196,13 @@ pub struct Consulta {
     pub referencia: String,
     /// Tipo do campo, como escrito (`html.DivElement?`). Decide o valor: um
     /// `Element` recebe o próprio nó, qualquer outro tipo um `ElementRef`
-    /// (`isElementType` em `find_components.dart`).
+    /// (`isElementType` em `find_components.dart`). Em `@ViewChildren`, o
+    /// argumento de tipo da lista.
     pub tipo: String,
+    /// `@ViewChildren`: o campo recebe a lista de todos os resultados.
+    pub lista: bool,
+    /// `@ViewChild(Tipo)`: `referencia` é o nome do tipo procurado.
+    pub por_tipo: bool,
 }
 
 /// Um `@ContentChild`/`@ContentChildren`, como quem usa o componente precisa
@@ -324,6 +344,12 @@ pub struct Pipe {
     /// (`bindPipeDestroyLifecycleCallbacks`), `transform` herdado, sem tipo
     /// de retorno ou com parâmetro nomeado.
     pub fora: Option<&'static str>,
+    /// O construtor recebe só o `ChangeDetectorRef`: a visão que o cria
+    /// passa a si mesma (`o.thisExpr` do `createPipeInstance`).
+    pub detector: bool,
+    /// `OnDestroy`: a visão que o cria chama `ngOnDestroy()` ao ser
+    /// destruída.
+    pub destroi: bool,
 }
 
 /// Extrai o `@Pipe` de uma classe anotada.
@@ -365,12 +391,19 @@ pub fn ler_pipe(
             }
         }
     }
-    if !parametros_do_construtor(arvore, fonte, interner, classe).is_empty() {
-        p.fora = Some("pipe com injeção no construtor");
+    let parametros = parametros_do_construtor(arvore, fonte, interner, classe);
+    match parametros.as_slice() {
+        [] => {}
+        [x] if x.tipo.as_deref().map(|t| t.rsplit('.').next().unwrap_or(t))
+            == Some("ChangeDetectorRef")
+            && !x.anotado
+            && !x.nomeado =>
+        {
+            p.detector = true;
+        }
+        _ => p.fora = Some("pipe com injeção no construtor"),
     }
-    if ganchos_da_classe(arvore, fonte, classe).on_destroy {
-        p.fora = Some("pipe com OnDestroy");
-    }
+    p.destroi = ganchos_da_classe(arvore, fonte, classe).on_destroy;
     let mut achou = false;
     for &id in &classe.members {
         let ast::MemberKind::Method(f) = &arvore.member(id).kind else {
@@ -467,6 +500,17 @@ fn ler(
     );
     c.consultas = consultas_da_classe(arvore, fonte, interner, classe, &mut c.nao_entendidos);
     c.ouvintes = ouvintes_da_classe(arvore, interner, classe, &mut c.nao_entendidos);
+    if e_componente && c.liga_hospedeiro {
+        if c.herda {
+            // Os herdados entram na lista do oficial e não se veem daqui.
+            c.nao_entendidos.push(recusa(
+                Motivo::HostBindingEmComponente,
+                "@HostBinding em componente que herda",
+            ));
+        }
+        c.ligacoes_do_hospedeiro =
+            ligacoes_do_hospedeiro(arvore, interner, classe, &mut c.nao_entendidos);
+    }
     c.consultas_de_conteudo = consultas_de_conteudo(arvore, interner, classe);
     c
 }
@@ -656,11 +700,8 @@ fn o_que_nao_entendemos(
         for a in membro.metadata.iter() {
             let nome = crate::nome_da_anotacao(a, interner);
             let motivo = match nome.as_str() {
-                "HostBinding" => Motivo::HostBindingEmComponente,
+                "HostBinding" if !e_componente => Motivo::HostBindingEmComponente,
                 "ContentChild" | "ContentChildren" => Motivo::ContentChild,
-                // Lista de resultados: a atribuição é outra, e com `*ngIf`
-                // no caminho vira `mapNestedViews`.
-                "ViewChildren" => Motivo::ViewChildDinamico,
                 _ => continue,
             };
             fora.push(recusa(motivo, format!("@{nome}")));
@@ -688,16 +729,89 @@ fn consultas_da_classe(
     for &id in &classe.members {
         let membro = arvore.member(id);
         for a in membro.metadata.iter() {
-            if crate::nome_da_anotacao(a, interner) != "ViewChild" {
-                continue;
-            }
-            match consulta_simples(arvore, fonte, interner, membro, a) {
+            let lista = match crate::nome_da_anotacao(a, interner).as_str() {
+                "ViewChild" => false,
+                "ViewChildren" => true,
+                _ => continue,
+            };
+            match consulta_simples(arvore, fonte, interner, membro, a, lista) {
                 Ok(c) => saida.push(c),
                 Err(r) => fora.push(r),
             }
         }
     }
     saida
+}
+
+/// Os `@HostBinding` de um componente, na ordem do `DirectiveVisitor`:
+/// acessores, depois campos. Só `class.x` e `attr.x` (sem contexto de
+/// segurança) com texto literal, num getter ou num campo de instância; o
+/// resto é recusado aqui.
+fn ligacoes_do_hospedeiro(
+    arvore: &ast::Ast,
+    interner: &Interner,
+    classe: &ast::ClassDecl,
+    fora: &mut Vec<Recusa>,
+) -> Vec<LigacaoDoHospedeiro> {
+    let mut acessores = Vec::new();
+    let mut campos = Vec::new();
+    let fora_da_forma = || {
+        recusa(
+            Motivo::HostBindingEmComponente,
+            "@HostBinding fora de class.x/attr.x em campo ou getter",
+        )
+    };
+    for &id in &classe.members {
+        let membro = arvore.member(id);
+        for a in membro.metadata.iter() {
+            if crate::nome_da_anotacao(a, interner) != "HostBinding" {
+                continue;
+            }
+            let nome = a.arguments.as_ref().and_then(|args| match &args.args[..] {
+                [x] if x.name.is_none() => texto_do_argumento(arvore, x.value),
+                _ => None,
+            });
+            let Some(nome) = nome else {
+                fora.push(fora_da_forma());
+                continue;
+            };
+            let simples = |n: &str| !n.is_empty() && !n.contains(['.', ':']);
+            let aceito = match (nome.strip_prefix("class."), nome.strip_prefix("attr.")) {
+                (Some(c), _) => simples(c),
+                (_, Some(a)) => simples(a) && !crate::visao::com_seguranca(a),
+                _ => false,
+            };
+            if !aceito {
+                fora.push(fora_da_forma());
+                continue;
+            }
+            match &membro.kind {
+                ast::MemberKind::Field(l) if !l.static_ && !l.const_ && l.variables.len() == 1 => {
+                    campos.push(LigacaoDoHospedeiro {
+                        nome,
+                        membro: interner.resolve(l.variables[0].name.sym).to_string(),
+                        imutavel: l.final_,
+                    });
+                }
+                ast::MemberKind::Method(f) => {
+                    let funcao = arvore.function(*f);
+                    match (funcao.kind, funcao.name) {
+                        (ast::FunctionKind::Getter, Some(n)) if !funcao.static_ => {
+                            acessores.push(LigacaoDoHospedeiro {
+                                nome,
+                                membro: interner.resolve(n.sym).to_string(),
+                                imutavel: false,
+                            });
+                        }
+                        _ => fora.push(fora_da_forma()),
+                    }
+                }
+                _ => fora.push(fora_da_forma()),
+            }
+        }
+    }
+    acessores.extend(campos);
+    acessores
 }
 
 /// Os `@HostListener` da classe, na ordem de declaração dos métodos (o
@@ -793,6 +907,7 @@ fn consulta_simples(
     interner: &Interner,
     membro: &ast::Member,
     anotacao: &ast::Annotation,
+    eh_lista: bool,
 ) -> Result<Consulta, Recusa> {
     let args = anotacao
         .arguments
@@ -818,9 +933,13 @@ fn consulta_simples(
         ));
     }
     // Seletor de tipo (`@ViewChild(OutroComp)`) consulta um componente ou
-    // diretiva, não um elemento.
-    let Some(referencia) = texto_do_argumento(arvore, unico.value) else {
-        return Err(recusa(Motivo::ViewChildEmFilho, "@ViewChild(Tipo)"));
+    // diretiva, não um elemento: só o nome simples, resolvido depois.
+    let (referencia, por_tipo) = match texto_do_argumento(arvore, unico.value) {
+        Some(r) => (r, false),
+        None => match &arvore.expr(unico.value).kind {
+            ast::ExprKind::Identifier(n) => (interner.resolve(n.sym).to_string(), true),
+            _ => return Err(recusa(Motivo::ViewChildEmFilho, "@ViewChild(prefixo.Tipo)")),
+        },
     };
     // `'a,b'` são dois seletores numa consulta só.
     if referencia.contains(',') || referencia.trim() != referencia || referencia.is_empty() {
@@ -840,10 +959,29 @@ fn consulta_simples(
     let Some(t) = lista.ty else {
         return Err(recusa(Motivo::NaoEntendido, "@ViewChild em campo sem tipo"));
     };
+    let tipo = texto_do_tipo(arvore, fonte, t);
+    // `@ViewChildren`: `List<T>` (ou `List<T>?`); o `isElementType` olha o
+    // `T`. Outra coleção ainda não.
+    let tipo = if eh_lista {
+        let t = tipo.trim().trim_end_matches('?');
+        match t.strip_prefix("List<").and_then(|x| x.strip_suffix('>')) {
+            Some(dentro) if !dentro.contains(['<', ',']) => dentro.trim().to_string(),
+            _ => {
+                return Err(recusa(
+                    Motivo::ViewChildDinamico,
+                    "@ViewChildren em campo que não é List<T>",
+                ));
+            }
+        }
+    } else {
+        tipo
+    };
     Ok(Consulta {
         propriedade: interner.resolve(lista.variables[0].name.sym).to_string(),
         referencia,
-        tipo: texto_do_tipo(arvore, fonte, t),
+        tipo,
+        lista: eh_lista,
+        por_tipo,
     })
 }
 

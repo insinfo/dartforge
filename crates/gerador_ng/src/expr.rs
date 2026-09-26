@@ -346,13 +346,11 @@ impl Conversor<'_> {
         // em que os locais são pedidos.
         let mut args = Vec::new();
         let mut locais = Vec::new();
+        // O pipe de dentro ganha o proxy primeiro (é convertido antes), mas
+        // a marca de fora vem antes no texto: quem troca as marcas as ordena
+        // pelo fim da chamada.
         for a in arguments.args.iter() {
             let v = self.expr(a.value, true)?;
-            // O pipe de dentro ganharia o proxy primeiro; a marca de fora
-            // viria antes no texto. Ainda sem caso.
-            if v.texto.contains(MARCA_DE_PIPE) {
-                return Err(recusa(Motivo::PipesUsados, "pipe dentro de pipe"));
-            }
             locais.extend(v.locais);
             args.push(v.texto);
         }
@@ -517,12 +515,21 @@ impl Conversor<'_> {
                         ..Convertida::nova(l.dart.clone(), "local")
                     });
                 }
+                // Método lido como valor (o `trackBy: rastrear` do `*ngFor`,
+                // um callback passado a um filho): `isImmutable` diz que
+                // "methods are immutable"; `canBeNull` não o isenta; e o
+                // `_TypeResolver` procura um *getter* com o nome — não há,
+                // então é `dynamic`.
+                if !self.escopo.membros.contains_key(nome) && self.escopo.metodos.contains_key(nome)
+                {
+                    return Ok(Convertida {
+                        imutavel: true,
+                        tipo: Some("dynamic".into()),
+                        ..Convertida::nova(format!("_ctx.{nome}"), "método como valor")
+                    });
+                }
                 let Some(m) = self.escopo.membros.get(nome) else {
-                    return Err(fora(if self.escopo.metodos.contains_key(nome) {
-                        "método como valor"
-                    } else {
-                        "nome fora do componente"
-                    }));
+                    return Err(fora("nome fora do componente"));
                 };
                 // `isImmutable` de `PropertyRead` com receptor implícito:
                 // campo `final`/`const` (o getter já chega aqui mutável).
@@ -542,14 +549,20 @@ impl Conversor<'_> {
                 let ponto = if *null_aware { "?." } else { "." };
                 // O tipo do fim da cadeia está noutra classe: é o banco
                 // semântico que responde, como o analyzer responde ao oficial.
+                // Receptor `dynamic` (o `#ref`, `$event`): o
+                // `_lookupGetterReturnType` só olha `InterfaceType`, e o
+                // resto dá `dynamic`.
                 let achado = match (&alvo.tipo, self.escopo.tipos) {
-                    (Some(t), Some((r, arquivo))) => {
+                    (Some(t), Some((r, arquivo))) if t != "dynamic" => {
                         r.tipo_do_membro(alvo.escopo.as_deref().unwrap_or(arquivo), t, nome)
                     }
                     _ => None,
                 };
                 let (tipo, escopo) = match achado {
                     Some((t, e)) => (Some(t), Some(e)),
+                    None if alvo.tipo.as_deref() == Some("dynamic") => {
+                        (Some("dynamic".to_string()), None)
+                    }
                     None => (None, None),
                 };
                 // O receptor não é implícito: `a.b` é sempre mutável.
@@ -927,23 +940,24 @@ mod testes {
     }
 
     /// `$pipe.nome(entrada, args)` vira a marca com o nome e o número de
-    /// argumentos, tipo `dynamic`; dentro de outro pipe ou com argumento
-    /// nomeado, recusa.
+    /// argumentos, tipo `dynamic`, também dentro de outro pipe; com
+    /// argumento nomeado, recusa.
     #[test]
     fn pipe_vira_marca() {
         let c = conv("$pipe.date(fixo, 'dd/MM')");
         assert_eq!(c.texto, "\u{3}date/2\u{4}(_ctx.fixo, 'dd/MM')");
         assert_eq!(c.tipo.as_deref(), Some("dynamic"));
         assert!(!c.imutavel);
+        assert_eq!(
+            conv("$pipe.a($pipe.b(fixo))").texto,
+            "\u{3}a/1\u{4}(\u{3}b/1\u{4}(_ctx.fixo))"
+        );
         let m = &membros();
         let mut i = Interner::new();
-        for e in ["$pipe.a($pipe.b(fixo))", "$pipe.a(fixo, x: 1)"] {
-            assert_eq!(
-                converter(e, m, &mut i).map_err(|r| r.motivo),
-                Err(Motivo::PipesUsados),
-                "{e}"
-            );
-        }
+        assert_eq!(
+            converter("$pipe.a(fixo, x: 1)", m, &mut i).map_err(|r| r.motivo),
+            Err(Motivo::PipesUsados)
+        );
     }
 
     /// O que o parser do ngdart lê diferente do Dart fica de fora: `-x` é

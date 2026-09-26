@@ -171,13 +171,12 @@ impl Diretiva {
             return Some("consulta de conteúdo ou de visão".into());
         }
         let g = &self.ganchos;
-        if g.do_check
-            || g.after_content_init
+        if g.after_content_init
             || g.after_content_checked
             || g.after_view_init
             || g.after_view_checked
         {
-            return Some("gancho de ciclo de vida além de OnInit/AfterChanges".into());
+            return Some("gancho de ciclo de vida além de OnInit/AfterChanges/DoCheck".into());
         }
         if self
             .ouvintes

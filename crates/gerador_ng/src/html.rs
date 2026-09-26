@@ -75,6 +75,9 @@ pub struct Elemento {
     pub referencias: Vec<Ligacao>,
     /// `*ngIf="e"` — a forma abreviada do `<template>`.
     pub estrela: Option<Ligacao>,
+    /// `@i18n="descrição"`, `@i18n:title="…"`: as anotações (`AnnotationAst`
+    /// do ngast), com o nome sem o `@`.
+    pub anotacoes: Vec<Ligacao>,
     pub filhos: Vec<No>,
 }
 
@@ -440,8 +443,23 @@ fn classificar(
             nome: interno.to_string(),
             ..l
         });
-    } else if nome.eq_ignore_ascii_case("bind-") {
-        // forma longa não abreviada; sem uso nos projetos do proprietário
+    } else if let Some(interno) = nome.strip_prefix('@') {
+        el.anotacoes.push(Ligacao {
+            nome: interno.to_string(),
+            ..l
+        });
+    } else if let Some(interno) = nome.strip_prefix("on-").filter(|n| !n.is_empty()) {
+        // As formas longas que o `RecursiveAstParser` do ngast reconhece:
+        // `on-x` é `(x)` e `bind-x` é `[x]` (não há `bindon-` nem `ref-`).
+        el.eventos.push(Ligacao {
+            nome: interno.to_string(),
+            ..l
+        });
+    } else if let Some(interno) = nome.strip_prefix("bind-").filter(|n| !n.is_empty()) {
+        el.propriedades.push(Ligacao {
+            nome: interno.to_string(),
+            ..l
+        });
     } else {
         if el.nome.eq_ignore_ascii_case("ng-content") && nome == "select" {
             *conteudo = Some(valor.clone());
@@ -567,6 +585,22 @@ mod testes {
             analisar("<!--{{message}}-->"),
             vec![No::Comentario("{{message}}".into())]
         );
+    }
+
+    /// `bind-x`/`on-x` são ligação e evento, `@x` é anotação: nenhum dos
+    /// três é atributo do DOM (caso i36 e i20 do corpus).
+    #[test]
+    fn formas_longas_e_anotacoes() {
+        let nos = analisar(r#"<p bind-title="t" on-click="f()" @i18n="d">x</p>"#);
+        let [No::Elemento(e)] = nos.as_slice() else {
+            panic!("não é um elemento só: {nos:?}");
+        };
+        assert!(e.atributos.is_empty());
+        assert_eq!(e.propriedades[0].nome, "title");
+        assert_eq!((e.propriedades[0].inicio, e.propriedades[0].fim), (3, 17));
+        assert_eq!(e.eventos[0].nome, "click");
+        assert_eq!(e.anotacoes[0].nome, "i18n");
+        assert_eq!(e.anotacoes[0].valor, "d");
     }
 
     #[test]

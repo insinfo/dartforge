@@ -1,0 +1,1 @@
+<div *ngFor="let g of grupos ?? vazio; let i = index"><span *ngFor="let x of itens" (click)="usar(g, x)">{{g.nome}} {{i}}</span></div>

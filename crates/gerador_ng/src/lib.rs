@@ -872,9 +872,6 @@ fn indexar(
             }
         }
     }
-    if comp.liga_hospedeiro {
-        pendencias.push(em_filho("filho com @HostBinding"));
-    }
     // As consultas de conteúdo, com o alvo resolvido no arquivo do filho.
     // Tipo do ngdart (`TemplateRef`, diretivas do núcleo) casaria com o que
     // o emissor põe no conteúdo (`*ngIf`): ainda não.
@@ -936,6 +933,7 @@ fn indexar(
             entradas: comp.entradas.clone(),
             ganchos: comp.ganchos,
             on_push: comp.on_push,
+            hospedeiro: comp.liga_hospedeiro,
             saidas: comp.saidas.clone(),
             parametros,
             consultas,

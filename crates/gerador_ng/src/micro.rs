@@ -17,6 +17,10 @@
 //! | `let x` | local `x` ligado a `$implicit` |
 //! | `let x = y` | local `x` ligado a `locals['y']` |
 //! | `nome: expr` | propriedade `dir` + `Nome` |
+//!
+//! Só é microssintaxe o valor que começa com `let` ou com uma palavra
+//! colada a `:`/`;` (`isMicroExpression`); o resto é uma expressão só,
+//! mesmo com `:` dentro (`a ? b : c`, `x == 'a:b'`).
 
 /// O que um `*dir="..."` declara.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -30,6 +34,13 @@ pub struct Micro {
 /// Analisa o valor de `*dir`, onde `dir` é o nome da diretiva.
 pub fn analisar(dir: &str, valor: &str) -> Micro {
     let mut m = Micro::default();
+    let valor = valor.trim();
+    if !e_micro(valor) {
+        if !valor.is_empty() {
+            m.propriedades.push((dir.to_string(), valor.to_string()));
+        }
+        return m;
+    }
     for (i, parte) in valor.split(';').enumerate() {
         let parte = parte.trim();
         if parte.is_empty() {
@@ -71,6 +82,18 @@ pub fn analisar(dir: &str, valor: &str) -> Micro {
     m
 }
 
+/// `isMicroExpression` do ngast: começa com `let` ou casa `\S+[:;]` no
+/// início — uma palavra sem espaço seguida de `:` ou `;`.
+pub(crate) fn e_micro(valor: &str) -> bool {
+    if valor.starts_with("let") {
+        return true;
+    }
+    let palavra = valor.split(char::is_whitespace).next().unwrap_or("");
+    palavra
+        .char_indices()
+        .any(|(i, c)| i > 0 && matches!(c, ':' | ';'))
+}
+
 /// `ngFor` + `of` -> `ngForOf`.
 fn propriedade(dir: &str, sufixo: &str) -> String {
     let mut s = String::with_capacity(dir.len() + sufixo.len());
@@ -92,6 +115,22 @@ mod testes {
         let m = analisar("ngIf", "mostrar");
         assert_eq!(m.propriedades, vec![("ngIf".into(), "mostrar".into())]);
         assert!(m.locais.is_empty());
+    }
+
+    /// `:` dentro de uma expressão que não é microssintaxe (caso i43).
+    #[test]
+    fn dois_pontos_na_expressao_solta() {
+        let m = analisar("ngIf", "ativo ? mostrar : false");
+        assert_eq!(
+            m.propriedades,
+            vec![("ngIf".into(), "ativo ? mostrar : false".into())]
+        );
+        let m = analisar("ngIf", " modo == 'a:b' ");
+        assert_eq!(
+            m.propriedades,
+            vec![("ngIf".into(), "modo == 'a:b'".into())]
+        );
+        assert!(analisar("ngSwitchDefault", "").propriedades.is_empty());
     }
 
     #[test]
