@@ -73,9 +73,11 @@ impl LlvmEmitter<'_> {
         };
         self.caches_de_seletor += 1;
         let h = hash_seletor(seletor);
+        let slot = self.slot_do_cache(ic);
+        writeln!(self.out, "  %sic{v} = getelementptr i64, ptr %area, i64 {slot}").unwrap();
         writeln!(
             self.out,
-            "  %sf{v} = call ptr @dartforge_seletor(ptr @df.ic.{ic}, i64 {r}, i64 {h}, ptr @df.seln.{nome}, i64 {})",
+            "  %sf{v} = call ptr @dartforge_seletor(ptr %sic{v}, i64 {r}, i64 {h}, ptr @df.seln.{nome}, i64 {})",
             seletor.len()
         )
         .unwrap();
@@ -95,10 +97,8 @@ impl LlvmEmitter<'_> {
         if self.caches_de_seletor == 0 {
             return;
         }
-        self.out.push_str("; Seletores: cache por ponto de chamada (id de classe, entrada) e nomes\n");
-        for k in 0..self.caches_de_seletor {
-            writeln!(self.out, "@df.ic.{k} = private global [2 x i64] zeroinitializer").unwrap();
-        }
+        // Os caches por ponto de chamada (id de classe, entrada) moram na
+        // área de globais do isolado; aqui só os nomes dos seletores.
         for (j, s) in self.nomes_de_seletor.iter().enumerate() {
             writeln!(
                 self.out,
@@ -177,10 +177,13 @@ impl LlvmEmitter<'_> {
         self.caches_de_seletor += 1;
         let k = self.vetor_de[&vec![0, 0]];
         let h = hash_seletor(s);
+        let slot = self.slot_do_cache(ic);
         writeln!(
             self.out,
             "define i64 @dartforge_dispatch_toString(i64 %obj) {{\nb0:\n  %a = alloca [1 x i64]\n  \
-             %f = call ptr @dartforge_seletor(ptr @df.ic.{ic}, i64 %obj, i64 {h}, ptr @df.seln.{nome}, i64 {})\n  \
+             %area = call ptr @dartforge_area_de_globais(ptr @df.area)\n  \
+             %ic = getelementptr i64, ptr %area, i64 {slot}\n  \
+             %f = call ptr @dartforge_seletor(ptr %ic, i64 %obj, i64 {h}, ptr @df.seln.{nome}, i64 {})\n  \
              %r = call i64 %f(i64 %obj, ptr %a, ptr @df.arr.{k})\n  ret i64 %r\n}}\n",
             s.len()
         )

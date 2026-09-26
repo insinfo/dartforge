@@ -903,6 +903,19 @@ impl Heap {
         }
     }
 
+    /// Move a raiz de um global de um endereço de slot para outro (a área de
+    /// globais de um módulo recarregado, `gc_raizes.rs`).
+    pub fn mover_raiz_global(&mut self, de: i64, para: i64) {
+        if let Some(h) = self.globais.remove(&de) {
+            self.globais.insert(para, h);
+        }
+    }
+
+    /// Solta a raiz de um global que deixou de existir.
+    pub fn soltar_raiz_global(&mut self, id: i64) {
+        self.globais.remove(&id);
+    }
+
     /// Marca `handle` como permanente (ver `permanentes`).
     pub fn marcar_permanente(&mut self, handle: i64) {
         if smi::e_handle(handle) {
