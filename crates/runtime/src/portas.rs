@@ -205,7 +205,7 @@ fn copiar_para_grafo(raiz: i64, compartilhar: bool) -> Result<Grafo, MensagemIle
                 Value::BoxedInt(x) => NoG::BoxedInt(*x),
                 Value::BoxedDouble(x) => NoG::BoxedDouble(*x),
                 Value::BoxedBool(x) => NoG::BoxedBool(*x),
-                Value::TypedData { class_id, tipo, bytes } => NoG::TypedData { class_id: *class_id, tipo: *tipo, bytes: bytes.clone() },
+                Value::TypedData { class_id, tipo, bytes } => NoG::TypedData { class_id: *class_id, tipo: *tipo, bytes: bytes.to_vec() },
                 Value::TypedView { class_id, tipo, base, deslocamento, comprimento } => NoG::TypedView {
                     class_id: *class_id,
                     tipo: *tipo,
@@ -517,11 +517,11 @@ fn materializar(g: &Grafo) -> i64 {
                 NoG::Record(v) => Value::Record(vec![TaggedValue::scalar(0); v.len()]),
                 NoG::BoxedInt(x) => Value::BoxedInt(*x),
                 NoG::BoxedDouble(x) => Value::BoxedDouble(*x),
-                NoG::TypedData { class_id, tipo, bytes } => Value::TypedData { class_id: *class_id, tipo: *tipo, bytes: bytes.clone() },
+                NoG::TypedData { class_id, tipo, bytes } => Value::TypedData { class_id: *class_id, tipo: *tipo, bytes: bytes.clone().into() },
                 NoG::Bytes(bytes) => Value::TypedData {
                     class_id: cid_registrado(CID_UINT8_LIST).unwrap_or(-1),
                     tipo: TIPO_UINT8,
-                    bytes: bytes.clone(),
+                    bytes: bytes.clone().into(),
                 },
                 NoG::TypedView { class_id, tipo, deslocamento, comprimento, .. } => Value::TypedView {
                     class_id: *class_id,

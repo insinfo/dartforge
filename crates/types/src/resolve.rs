@@ -305,6 +305,15 @@ impl<'a> OutlineResolver<'a> {
         let mut hierarchy_inputs: Vec<Option<crate::hierarchy::ImmediateSupertypeInput>> =
             Vec::with_capacity(self.program.classes.len());
 
+        let enum_type = self.program.core.and_then(|core| {
+            let sym = self.interner.lookup("Enum")?;
+            match self.program.lookup(core, sym)?.getter {
+                Some(dartforge_elements::model::Element::Class(c)) => {
+                    Some(self.table.intern(Type::Interface { class: c, args: Box::new([]), nullable: false }))
+                }
+                _ => None,
+            }
+        });
         for (i, class) in self.program.classes.iter().enumerate() {
             let params = self.class_type_params[i].clone();
             let mut scope = HashMap::with_capacity(params.len());
@@ -341,6 +350,15 @@ impl<'a> OutlineResolver<'a> {
             all_direct.extend_from_slice(&mixins);
             all_direct.extend_from_slice(&interfaces);
             all_direct.extend_from_slice(&on);
+            // Toda declaração `enum` é subtipo de `Enum` (§14.1: a classe
+            // estende implicitamente `_Enum`, que implementa `Enum`), mesmo
+            // sem superclasse escrita: `Cor <: Enum` decide os limites de
+            // `extension EnumByName<T extends Enum> on Iterable<T>`.
+            if class.kind == dartforge_elements::model::ClassKind::Enum {
+                if let Some(e) = enum_type {
+                    all_direct.push(e);
+                }
+            }
 
             hierarchy_inputs.push(Some((params.clone(), all_direct)));
 

@@ -253,6 +253,28 @@ pub fn chave_da_assinatura(ret: TipoC, params: &[TipoC]) -> String {
 pub fn lower_ffi(ctx: &Context, module: &mut Module) {
     let Some(tipos) = TiposNativos::do_programa(ctx) else { return };
     module.ffi_tipos = tipos.tabela_rti(ctx);
+    if let Some(comp) = compostos(ctx) {
+        let idx = |v: dartforge_elements::model::VariableId, c: ClassId| {
+            super::membros::layout(ctx, c).iter().position(|&x| x == v).map_or(-1, |i| (i + super::enums::base_do_layout(ctx, c)) as i64)
+        };
+        let mut v: Vec<FfiComposto> = comp
+            .classes
+            .iter()
+            .filter_map(|(c, l)| {
+                Some(FfiComposto {
+                    rti: ctx.id_rti(*c),
+                    classe: i64::from(ctx.id_de_classe(*c)?),
+                    campos: (super::membros::layout(ctx, *c).len() + super::enums::base_do_layout(ctx, *c)) as i64,
+                    indice_base: idx(comp.base, *c),
+                    indice_deslocamento: idx(comp.deslocamento, *c),
+                    tamanho: l.tamanho as i64,
+                    alinhamento: l.alinhamento as i64,
+                })
+            })
+            .collect();
+        v.sort_by_key(|x| x.rti);
+        module.ffi_compostos = v;
+    }
     let mut feitas = std::collections::HashSet::new();
     for f in tipos.assinaturas_do_programa(ctx) {
         // Uma assinatura que não baixa fica sem trampolim: o runtime recusa
@@ -323,5 +345,613 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             _ => self.coagir(r, Type::Ref),
         };
         self.terminate(Terminator::Return(Some(resultado)));
+    }
+}
+
+// ─── Structs e unions (`Struct`, `Union`, `@Array`, `@Packed`) ─────────────
+//
+// O que o transformador de FFI do front-end da VM faz com uma subclasse de
+// `Struct`/`Union`: o layout dos campos `external` na ABI do alvo (C: cada
+// campo no próximo múltiplo do alinhamento dele; a struct com o tamanho
+// arredondado ao maior alinhamento; `@Packed(n)` limita os alinhamentos; na
+// union tudo começa em 0), e cada acesso a um desses campos vira uma carga ou
+// gravação em `_typedDataBase` + `_offsetInBytes` + deslocamento do campo
+// (`FnBuilder::ler_campo_ffi`). O runtime recebe o tamanho e o alinhamento
+// de cada composto (`sizeOf<S>()`, `Pointer<S>.ref`, `[i]`), por classe.
+
+/// O tipo de um campo de composto.
+#[derive(Debug, Clone)]
+pub enum TipoCampo {
+    Prim(TipoC),
+    Composto(ClassId),
+    /// `@Array(d0, d1…)` de elementos `elem` (o tipo mais interno).
+    Array { elem: Box<TipoCampo>, dims: Vec<usize> },
+}
+
+/// O layout de uma struct ou union.
+#[derive(Debug, Clone)]
+pub struct Composto {
+    pub tamanho: usize,
+    pub alinhamento: usize,
+    pub campos: std::collections::HashMap<dartforge_elements::model::VariableId, (usize, TipoCampo)>,
+}
+
+/// Os compostos do programa e os campos de `_Compound` que os acessos usam.
+pub struct Compostos {
+    pub classes: std::collections::HashMap<ClassId, Composto>,
+    pub base: dartforge_elements::model::VariableId,
+    pub deslocamento: dartforge_elements::model::VariableId,
+}
+
+impl TipoC {
+    fn tamanho(self) -> usize {
+        match self {
+            TipoC::I8 | TipoC::U8 | TipoC::Bool => 1,
+            TipoC::I16 | TipoC::U16 => 2,
+            TipoC::I32 | TipoC::U32 | TipoC::F32 => 4,
+            TipoC::I64 | TipoC::U64 | TipoC::F64 | TipoC::Ptr => 8,
+            TipoC::Void => 0,
+        }
+    }
+}
+
+/// Os compostos do programa (calculados uma vez por contexto).
+pub fn compostos<'c>(ctx: &'c Context) -> Option<&'c Compostos> {
+    ctx.compostos_ffi.get_or_init(|| calcular_compostos(ctx)).as_ref()
+}
+
+fn calcular_compostos(ctx: &Context) -> Option<Compostos> {
+    let tipos = TiposNativos::do_programa(ctx)?;
+    let compound = ctx.classe_do_sdk("ffi", "_Compound")?;
+    let campo = |nome: &str| {
+        ctx.program.classes[compound.0 as usize]
+            .fields
+            .iter()
+            .copied()
+            .find(|v| ctx.symbol_name(ctx.program.variables[v.0 as usize].name) == nome)
+    };
+    let (base, deslocamento) = (campo("_typedDataBase")?, campo("_offsetInBytes")?);
+    let struct_ = ctx.classe_do_sdk("ffi", "Struct");
+    let union_ = ctx.classe_do_sdk("ffi", "Union");
+    let mut calc = Calculo { ctx, tipos: &tipos, struct_, union_, feitos: Default::default(), em_curso: Default::default() };
+    for i in 0..ctx.program.classes.len() {
+        let c = ClassId(i as u32);
+        if calc.e_composto(c) {
+            calc.layout(c);
+        }
+    }
+    Some(Compostos { classes: calc.feitos.into_iter().filter_map(|(c, l)| Some((c, l?))).collect(), base, deslocamento })
+}
+
+struct Calculo<'a, 'c> {
+    ctx: &'a Context<'c>,
+    tipos: &'a TiposNativos,
+    struct_: Option<ClassId>,
+    union_: Option<ClassId>,
+    feitos: std::collections::HashMap<ClassId, Option<Composto>>,
+    em_curso: std::collections::HashSet<ClassId>,
+}
+
+impl Calculo<'_, '_> {
+    fn e_composto(&self, c: ClassId) -> bool {
+        let s = self.ctx.program.classes[c.0 as usize].supertype_class;
+        s.is_some() && (s == self.struct_ || s == self.union_)
+    }
+
+    fn e_union(&self, c: ClassId) -> bool {
+        self.union_.is_some() && self.ctx.program.classes[c.0 as usize].supertype_class == self.union_
+    }
+
+    /// `(tamanho, alinhamento)` de um tipo de campo.
+    fn medida(&mut self, t: &TipoCampo) -> Option<(usize, usize)> {
+        match t {
+            TipoCampo::Prim(tc) => Some((tc.tamanho(), tc.tamanho())),
+            TipoCampo::Composto(c) => self.layout(*c).map(|l| (l.tamanho, l.alinhamento)),
+            TipoCampo::Array { elem, dims } => {
+                let (t, a) = self.medida(elem)?;
+                Some((t * dims.iter().product::<usize>(), a))
+            }
+        }
+    }
+
+    fn layout(&mut self, c: ClassId) -> Option<Composto> {
+        if let Some(l) = self.feitos.get(&c) {
+            return l.clone();
+        }
+        if !self.em_curso.insert(c) {
+            // Composto que contém a si mesmo por valor: recusado.
+            return None;
+        }
+        let r = self.calcular(c);
+        self.em_curso.remove(&c);
+        self.feitos.insert(c, r.clone());
+        r
+    }
+
+    fn calcular(&mut self, c: ClassId) -> Option<Composto> {
+        let ctx = self.ctx;
+        let empacotado = anotacao_inteira(ctx, c, "Packed");
+        let union_ = self.e_union(c);
+        let mut deslocamento = 0usize;
+        let mut maior_alinhamento = 1usize;
+        let mut tamanho_max = 0usize;
+        let mut campos = std::collections::HashMap::new();
+        for &vid in &ctx.program.classes[c.0 as usize].fields {
+            let v = &ctx.program.variables[vid.0 as usize];
+            if v.static_ || !v.external {
+                continue;
+            }
+            let tipo = self.tipo_do_campo(vid)?;
+            let (t, mut a) = self.medida(&tipo)?;
+            if let Some(p) = empacotado {
+                a = a.min(p.max(1) as usize);
+            }
+            let a = a.max(1);
+            maior_alinhamento = maior_alinhamento.max(a);
+            let off = if union_ { 0 } else { deslocamento.div_ceil(a) * a };
+            campos.insert(vid, (off, tipo));
+            deslocamento = off + t;
+            tamanho_max = tamanho_max.max(t);
+        }
+        let bruto = if union_ { tamanho_max } else { deslocamento };
+        let tamanho = bruto.div_ceil(maior_alinhamento) * maior_alinhamento;
+        Some(Composto { tamanho, alinhamento: maior_alinhamento, campos })
+    }
+
+    /// O tipo nativo de um campo: pela anotação (`@Int32()`, `@Long()`,
+    /// `@Array(…)`) ou pelo tipo declarado (`Pointer<…>`, outra struct).
+    fn tipo_do_campo(&mut self, vid: dartforge_elements::model::VariableId) -> Option<TipoCampo> {
+        let ctx = self.ctx;
+        let declarado = super::membros::tipo_da_variavel(ctx, vid);
+        let dartforge_elements::model::VariableRef::Field { unit, member, .. } = ctx.program.variables[vid.0 as usize].node else {
+            return None;
+        };
+        let u = ctx.program.unit(unit);
+        let ast = &u.ast;
+        for an in ast.members[member.0 as usize].metadata.iter() {
+            let nome = ctx.interner.resolve(an.name.first()?.sym);
+            if nome == "Array" {
+                let dims = dimensoes_do_array(&u.source, ast, an)?;
+                let elem = self.elemento_do_array(declarado)?;
+                return Some(TipoCampo::Array { elem: Box::new(elem), dims });
+            }
+            if let Some(tc) = primitivo(nome) {
+                return Some(TipoCampo::Prim(tc));
+            }
+            if let Some((_, tc)) = self.tipos.classes.iter().find(|(c, _)| ctx.symbol_name(ctx.program.classes[c.0 as usize].name) == nome) {
+                return Some(TipoCampo::Prim(*tc));
+            }
+        }
+        match ctx.table.get(declarado) {
+            T::Interface { class, .. } if self.tipos.classes.get(class) == Some(&TipoC::Ptr) => Some(TipoCampo::Prim(TipoC::Ptr)),
+            T::Interface { class, .. } if self.e_composto(*class) => Some(TipoCampo::Composto(*class)),
+            _ => None,
+        }
+    }
+
+    /// O tipo mais interno de `Array<Array<…<E>>>`.
+    fn elemento_do_array(&mut self, t: TypeId) -> Option<TipoCampo> {
+        let T::Interface { class, args, .. } = self.ctx.table.get(t) else { return None };
+        let nome = self.ctx.symbol_name(self.ctx.program.classes[class.0 as usize].name);
+        if nome == "Array" {
+            return self.elemento_do_array(*args.first()?);
+        }
+        if let Some(tc) = self.tipos.classes.get(class) {
+            return Some(TipoCampo::Prim(*tc));
+        }
+        if self.e_composto(*class) {
+            return Some(TipoCampo::Composto(*class));
+        }
+        None
+    }
+}
+
+/// As dimensões de `@Array(2, 3)` ou `@Array.multi([2, 3])`.
+fn dimensoes_do_array(fonte: &str, ast: &ast::Ast, an: &ast::Annotation) -> Option<Vec<usize>> {
+    let args = &an.arguments.as_ref()?.args;
+    let inteiro = |e: ast::ExprId| inteiro_literal(fonte, ast, e).and_then(|n| usize::try_from(n).ok());
+    if an.name.len() > 1 {
+        // `Array.multi([…])`.
+        let ast::ExprKind::List { elements, .. } = &ast.expr(args.first()?.value).kind else { return None };
+        return elements
+            .iter()
+            .map(|el| match el {
+                ast::CollectionElement::Expression(e) => inteiro(*e),
+                _ => None,
+            })
+            .collect();
+    }
+    args.iter().map(|a| inteiro(a.value)).collect()
+}
+
+/// O argumento inteiro de uma anotação de classe (`@Packed(1)`).
+fn anotacao_inteira(ctx: &Context, c: ClassId, nome: &str) -> Option<i64> {
+    let decl = ctx.program.classes[c.0 as usize].decl?;
+    let u = ctx.program.unit(decl.unit);
+    for an in u.ast.decls[decl.decl.0 as usize].metadata.iter() {
+        if an.name.last().map(|n| ctx.interner.resolve(n.sym)) != Some(nome) {
+            continue;
+        }
+        let arg = an.arguments.as_ref()?.args.first()?;
+        return inteiro_literal(&u.source, &u.ast, arg.value);
+    }
+    None
+}
+
+/// O valor de um literal inteiro (decimal ou hexadecimal).
+fn inteiro_literal(fonte: &str, ast: &ast::Ast, e: ast::ExprId) -> Option<i64> {
+    let ast::ExprKind::Int(span) = &ast.expr(e).kind else { return None };
+    let texto = fonte.get(span.start as usize..span.end as usize)?.replace('_', "");
+    match texto.strip_prefix("0x").or_else(|| texto.strip_prefix("0X")) {
+        Some(h) => i64::from_str_radix(h, 16).ok(),
+        None => texto.parse().ok(),
+    }
+}
+
+impl TipoC {
+    /// O sufixo dos natives de carga/gravação (`DartForge_ffi_carregar_i32`).
+    fn sufixo_de_memoria(self) -> &'static str {
+        match self {
+            TipoC::I8 => "i8",
+            TipoC::U8 | TipoC::Bool => "u8",
+            TipoC::I16 => "i16",
+            TipoC::U16 => "u16",
+            TipoC::I32 => "i32",
+            TipoC::U32 => "u32",
+            TipoC::I64 | TipoC::Ptr => "i64",
+            TipoC::U64 => "u64",
+            TipoC::F32 => "f32",
+            TipoC::F64 => "f64",
+            TipoC::Void => "i64",
+        }
+    }
+}
+
+impl<'a, 'c> FnBuilder<'a, 'c> {
+    /// O campo `external` de uma struct/union: `(base, deslocamento, tipo)`
+    /// do acesso — `_typedDataBase` do objeto e `_offsetInBytes` + o
+    /// deslocamento do campo no layout.
+    fn endereco_do_campo_ffi(&mut self, obj: Operand, vid: dartforge_elements::model::VariableId) -> Option<(Operand, Operand, TipoCampo)> {
+        let v = &self.ctx.program.variables[vid.0 as usize];
+        if !v.external || v.static_ {
+            return None;
+        }
+        let comp = compostos(self.ctx)?;
+        let (off, tipo) = comp.classes.get(&v.class?)?.campos.get(&vid)?.clone();
+        let (vbase, vdesl) = (comp.base, comp.deslocamento);
+        let span = dartforge_diagnostics::Span { start: 0, end: 0 };
+        let base = self.ler_campo(obj.clone(), vbase, span);
+        let d0 = self.ler_campo(obj, vdesl, span);
+        let d0 = self.coagir(d0, Type::I64);
+        let d = self.emit(Instruction::Add(d0, Operand::Constant(Constant::Int(off as i64))), Type::I64);
+        Some((base, d, tipo))
+    }
+
+    /// Leitura de um campo `external` de struct/union (`None`: não é um).
+    pub fn ler_campo_ffi(&mut self, obj: Operand, vid: dartforge_elements::model::VariableId) -> Option<Operand> {
+        let (base, d, tipo) = self.endereco_do_campo_ffi(obj, vid)?;
+        Some(match tipo {
+            TipoCampo::Prim(tc) => {
+                let ret = if matches!(tc, TipoC::F32 | TipoC::F64) { Type::F64 } else { Type::I64 };
+                let v = self.emit(
+                    Instruction::CallRuntime {
+                        name: format!("dartforge_nativo_DartForge_ffi_carregar_{}", tc.sufixo_de_memoria()),
+                        args: vec![(base, Type::Ref), (d, Type::I64)],
+                        ret_ty: ret,
+                    },
+                    ret,
+                );
+                match tc {
+                    TipoC::Bool => self.emit(Instruction::ICmp(ICmpOp::Ne, v, Operand::Constant(Constant::Int(0))), Type::I1),
+                    TipoC::Ptr => self.emit_call_with_check(
+                        Instruction::CallRuntime {
+                            name: "dartforge_ffi_ponteiro_novo".to_string(),
+                            args: vec![(v, Type::I64)],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    ),
+                    _ => v,
+                }
+            }
+            TipoCampo::Composto(c) => self.emit_call_with_check(
+                Instruction::CallRuntime {
+                    name: "dartforge_ffi_composto".to_string(),
+                    args: vec![(Operand::Constant(Constant::Int(self.ctx.id_rti(c))), Type::I64), (base, Type::Ref), (d, Type::I64)],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            ),
+            TipoCampo::Array { dims, elem } => {
+                // `Array._(base, deslocamento, primeira dimensão, as demais)`.
+                let mut tabela = Vec::new();
+                for &n in &dims[1..] {
+                    tabela.push(b'i');
+                    tabela.extend_from_slice(&(n as i64).to_le_bytes());
+                }
+                let palavras: Vec<i64> = tabela
+                    .chunks(8)
+                    .map(|c| {
+                        let mut w = [0u8; 8];
+                        w[..c.len()].copy_from_slice(c);
+                        i64::from_le_bytes(w)
+                    })
+                    .collect();
+                let dados = self.emit(Instruction::ConstArray(palavras), Type::Ptr);
+                let resto = self.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_lista_de_tabela".to_string(),
+                        args: vec![(dados, Type::Ptr), (Operand::Constant(Constant::Int(tabela.len() as i64)), Type::I64)],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                );
+                let Some(f) = self.funcao_de_topo("dart:ffi", "_dartforgeArray") else {
+                    return Some(self.nao_suportado("dart:ffi sem `_dartforgeArray`", dartforge_diagnostics::Span { start: 0, end: 0 }));
+                };
+                let bytes = tamanho_de(self.ctx, &elem) as i64;
+                let args = vec![
+                    (None, base),
+                    (None, d),
+                    (None, Operand::Constant(Constant::Int(dims[0] as i64))),
+                    (None, resto),
+                    (None, Operand::Constant(Constant::Int(bytes))),
+                ];
+                let args = self.casar_args(f, &args);
+                self.chamar_direto(f, None, args)
+            }
+        })
+    }
+
+    /// Gravação de um campo `external` de struct/union (`false`: não é um).
+    pub fn gravar_campo_ffi(&mut self, obj: Operand, vid: dartforge_elements::model::VariableId, val: Operand) -> bool {
+        let Some((base, d, tipo)) = self.endereco_do_campo_ffi(obj, vid) else { return false };
+        match tipo {
+            TipoCampo::Prim(tc) => {
+                let (v, ty) = match tc {
+                    TipoC::F32 | TipoC::F64 => (self.coagir(val, Type::F64), Type::F64),
+                    TipoC::Bool => {
+                        let b = self.coagir(val, Type::I1);
+                        (self.emit(Instruction::ZExt { op: b, from: Type::I1, to: Type::I64 }, Type::I64), Type::I64)
+                    }
+                    TipoC::Ptr => {
+                        let p = self.coagir(val, Type::Ref);
+                        (
+                            self.emit_call_with_check(
+                                Instruction::CallRuntime {
+                                    name: "dartforge_ffi_endereco_do_ponteiro".to_string(),
+                                    args: vec![(p, Type::Ref)],
+                                    ret_ty: Type::I64,
+                                },
+                                Type::I64,
+                            ),
+                            Type::I64,
+                        )
+                    }
+                    _ => (self.coagir(val, Type::I64), Type::I64),
+                };
+                self.emit(
+                    Instruction::CallRuntime {
+                        name: format!("dartforge_nativo_DartForge_ffi_gravar_{}", tc.sufixo_de_memoria()),
+                        args: vec![(base, Type::Ref), (d, Type::I64), (v, ty)],
+                        ret_ty: Type::Void,
+                    },
+                    Type::Void,
+                );
+            }
+            TipoCampo::Composto(_) | TipoCampo::Array { .. } => {
+                // Por valor: copia os bytes do composto atribuído.
+                let tamanho = tamanho_de(self.ctx, &tipo);
+                let Some(comp) = compostos(self.ctx) else { return true };
+                let (vbase, vdesl) = (comp.base, comp.deslocamento);
+                let span = dartforge_diagnostics::Span { start: 0, end: 0 };
+                let val = self.coagir(val, Type::Ref);
+                let ob = self.ler_campo(val.clone(), vbase, span);
+                let od = self.ler_campo(val, vdesl, span);
+                let od = self.coagir(od, Type::I64);
+                self.emit_call_with_check(
+                    Instruction::CallRuntime {
+                        name: "dartforge_nativo_DartForge_ffi_copiar".to_string(),
+                        args: vec![
+                            (base, Type::Ref),
+                            (d, Type::I64),
+                            (ob, Type::Ref),
+                            (od, Type::I64),
+                            (Operand::Constant(Constant::Int(tamanho as i64)), Type::I64),
+                        ],
+                        ret_ty: Type::Void,
+                    },
+                    Type::Void,
+                );
+            }
+        }
+        true
+    }
+}
+
+/// O tamanho em bytes de um tipo de campo (compostos já calculados).
+fn tamanho_de(ctx: &Context, t: &TipoCampo) -> usize {
+    match t {
+        TipoCampo::Prim(tc) => tc.tamanho(),
+        TipoCampo::Composto(c) => compostos(ctx).and_then(|x| x.classes.get(c)).map_or(0, |l| l.tamanho),
+        TipoCampo::Array { elem, dims } => tamanho_de(ctx, elem) * dims.iter().product::<usize>(),
+    }
+}
+
+// ─── `@Native` ─────────────────────────────────────────────────────────────
+//
+// `@Native<NF>(symbol: 's', isLeaf: …) external R f(…)`: o corpo é a chamada
+// à função nativa `s` (o nome da função, sem `symbol:`), com a assinatura
+// `NF`. A VM resolve o símbolo no *asset* da biblioteca e, sem ele, no
+// processo e no executável; aqui a resolução é no processo
+// (`dartforge_ffi_simbolo_nativo`, com cache), onde estão a libc e o que o
+// programa carregou (`DynamicLibrary.open` com `RTLD_GLOBAL` não é
+// necessário: o processo inclui as bibliotecas ligadas ao executável).
+
+/// As anotações da declaração de uma função.
+fn metadados_da_funcao<'p>(ctx: &'p Context, fid: usize) -> Option<(&'p str, &'p ast::Ast, &'p [ast::Annotation])> {
+    use dartforge_elements::model::FunctionRef;
+    let f = &ctx.program.functions[fid];
+    let FunctionRef::Function { unit, function } = f.node else { return None };
+    let u = ctx.program.unit(unit);
+    let a = &u.ast;
+    let meta = a
+        .members
+        .iter()
+        .find(|m| matches!(m.kind, ast::MemberKind::Method(id) if id == function))
+        .map(|m| &*m.metadata)
+        .or_else(|| a.decls.iter().find(|d| matches!(d.kind, ast::DeclKind::Function(id) if id == function)).map(|d| &*d.metadata))?;
+    Some((&u.source, a, meta))
+}
+
+impl TiposNativos {
+    /// O tipo C de um tipo nativo escrito na anotação (`Pointer<Utf8>`,
+    /// `Size`, `Int32`), pelo nome da classe.
+    fn tipo_c_da_anotacao(&self, ctx: &Context, ast: &ast::Ast, t: ast::TypeId) -> Result<TipoC, String> {
+        match &ast.ty(t).kind {
+            ast::TypeKind::Void => Ok(TipoC::Void),
+            ast::TypeKind::Named { name, .. } => {
+                let nome = ctx.interner.resolve(name.last().ok_or("tipo sem nome")?.sym);
+                if let Some(tc) = primitivo(nome) {
+                    return Ok(tc);
+                }
+                if let Some((_, tc)) = self.classes.iter().find(|(c, _)| ctx.symbol_name(ctx.program.classes[c.0 as usize].name) == nome) {
+                    return Ok(*tc);
+                }
+                if let Some((_, m)) = self.recusadas.iter().find(|(c, _)| ctx.symbol_name(ctx.program.classes[c.0 as usize].name) == nome) {
+                    return Err(format!("{m} ainda não é suportado no backend nativo"));
+                }
+                Err(format!("`{nome}` não é um tipo nativo suportado em @Native"))
+            }
+            _ => Err("tipo nativo inesperado em @Native".to_string()),
+        }
+    }
+}
+
+/// A assinatura C do tipo de função `t` escrito numa anotação (seguindo
+/// `typedef`s, inclusive de outra unidade).
+fn assinatura_da_anotacao(
+    ctx: &Context,
+    tipos: &TiposNativos,
+    ast: &ast::Ast,
+    t: ast::TypeId,
+    lib: dartforge_elements::model::LibraryId,
+    profundidade: usize,
+) -> Result<(TipoC, Vec<TipoC>), String> {
+    let de_params = |ast: &ast::Ast, ret: Option<ast::TypeId>, params: &[ast::Parameter]| -> Result<(TipoC, Vec<TipoC>), String> {
+        let r = match ret {
+            Some(r) => tipos.tipo_c_da_anotacao(ctx, ast, r)?,
+            None => TipoC::Void,
+        };
+        let ps = params
+            .iter()
+            .map(|p| p.ty.ok_or_else(|| "parâmetro nativo sem tipo".to_string()).and_then(|t| tipos.tipo_c_da_anotacao(ctx, ast, t)))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok((r, ps))
+    };
+    match &ast.ty(t).kind {
+        ast::TypeKind::Function { return_type, parameters, .. } => de_params(ast, *return_type, parameters),
+        ast::TypeKind::Named { name, .. } if profundidade < 8 => {
+            let nome = ctx.interner.resolve(name.last().ok_or("tipo sem nome")?.sym);
+            // O `typedef` com esse nome, de preferência da mesma biblioteca.
+            let mut candidatos: Vec<&dartforge_elements::model::TypedefElement> =
+                ctx.program.typedefs.iter().filter(|td| ctx.symbol_name(td.name) == nome).collect();
+            candidatos.sort_by_key(|td| td.library != lib);
+            let Some(td) = candidatos.first() else {
+                return Err("@Native de variável (ponteiro para dado nativo) ainda não é suportado".to_string());
+            };
+            let u = ctx.program.unit(td.decl.unit);
+            let ast::DeclKind::Typedef(decl) = &u.ast.decls[td.decl.decl.0 as usize].kind else {
+                return Err(format!("`{nome}` não é um typedef"));
+            };
+            match &decl.kind {
+                ast::TypedefKind::Alias(alvo) => assinatura_da_anotacao(ctx, tipos, &u.ast, *alvo, td.library, profundidade + 1),
+                ast::TypedefKind::Legacy { return_type, parameters } => de_params(&u.ast, *return_type, parameters),
+            }
+        }
+        _ => Err("assinatura nativa inesperada em @Native".to_string()),
+    }
+}
+
+impl<'a, 'c> FnBuilder<'a, 'c> {
+    /// O corpo de um `external` com `@Native` (`None`: não tem a anotação).
+    pub fn chamar_native_anotado(&mut self, fid: usize, args: &[Operand], span: dartforge_diagnostics::Span) -> Option<Operand> {
+        let (fonte, ast, meta) = metadados_da_funcao(self.ctx, fid)?;
+        let an = meta.iter().find(|an| an.name.last().map(|n| self.ctx.interner.resolve(n.sym)) == Some("Native"))?;
+        let Some(tipos) = TiposNativos::do_programa(self.ctx) else {
+            return Some(self.nao_suportado("@Native sem dart:ffi", span));
+        };
+        // A assinatura: `NF` da anotação.
+        let Some(&nf) = an.type_args.first() else {
+            return Some(self.nao_suportado("@Native sem o argumento de tipo da assinatura nativa", span));
+        };
+        let lib = self.ctx.program.functions[fid].library;
+        let assinatura = assinatura_da_anotacao(self.ctx, &tipos, ast, nf, lib, 0);
+        let (ret, params) = match assinatura {
+            Ok(x) => x,
+            Err(m) => return Some(self.nao_suportado(&m, span)),
+        };
+        // O símbolo: `symbol: 'x'`, ou o nome da função.
+        let simbolo = an
+            .arguments
+            .as_ref()
+            .and_then(|a| a.args.iter().find(|x| x.name.map(|n| self.ctx.interner.resolve(n.sym)) == Some("symbol")))
+            .and_then(|x| match &ast.expr(x.value).kind {
+                ast::ExprKind::String(s) => s.constant_value().map(|t| t.as_bytes().to_vec()),
+                _ => None,
+            })
+            .unwrap_or_else(|| self.ctx.symbol_name(self.ctx.program.functions[fid].name).as_bytes().to_vec());
+        let _ = fonte;
+        let palavras: Vec<i64> = simbolo
+            .chunks(8)
+            .map(|c| {
+                let mut w = [0u8; 8];
+                w[..c.len()].copy_from_slice(c);
+                i64::from_le_bytes(w)
+            })
+            .collect();
+        let nome = self.emit(Instruction::ConstArray(palavras), Type::Ptr);
+        let alvo = self.emit_call_with_check(
+            Instruction::CallRuntime {
+                name: "dartforge_ffi_simbolo_nativo".to_string(),
+                args: vec![(nome, Type::Ptr), (Operand::Constant(Constant::Int(simbolo.len() as i64)), Type::I64)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        if args.len() != params.len() {
+            return Some(self.nao_suportado("@Native com aridade diferente da assinatura nativa", span));
+        }
+        let mut nativos = Vec::with_capacity(params.len());
+        for (v, tc) in args.iter().cloned().zip(params.iter()) {
+            let x = match tc {
+                TipoC::Ptr => {
+                    let v = self.coagir(v, Type::Ref);
+                    self.emit_call_with_check(
+                        Instruction::CallRuntime {
+                            name: "dartforge_ffi_endereco_do_ponteiro".to_string(),
+                            args: vec![(v, Type::Ref)],
+                            ret_ty: Type::I64,
+                        },
+                        Type::I64,
+                    )
+                }
+                tc => self.coagir(v, tc.tipo_hir()),
+            };
+            nativos.push((x, *tc));
+        }
+        let r = self.emit(Instruction::ChamadaNativa { alvo, args: nativos, ret }, ret.tipo_hir());
+        let dart_ret = self.repr_retorno(fid);
+        Some(match ret {
+            TipoC::Void => Operand::Constant(Constant::Null),
+            TipoC::Ptr => {
+                let p = self.emit_call_with_check(
+                    Instruction::CallRuntime { name: "dartforge_ffi_ponteiro_novo".to_string(), args: vec![(r, Type::I64)], ret_ty: Type::Ref },
+                    Type::Ref,
+                );
+                self.coagir(p, dart_ret)
+            }
+            _ => self.coagir(r, dart_ret),
+        })
     }
 }

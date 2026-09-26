@@ -454,6 +454,19 @@ pub struct SelectorDef {
     pub arity: usize,
 }
 
+/// Uma struct/union do programa para o runtime: a classe (RTI e heap), onde
+/// ficam `_typedDataBase`/`_offsetInBytes` no objeto, e a medida na ABI.
+#[derive(Debug, Clone)]
+pub struct FfiComposto {
+    pub rti: i64,
+    pub classe: i64,
+    pub campos: i64,
+    pub indice_base: i64,
+    pub indice_deslocamento: i64,
+    pub tamanho: i64,
+    pub alinhamento: i64,
+}
+
 /// Módulo HIR completo representando um programa Dart compilável.
 #[derive(Debug, Default)]
 pub struct Module {
@@ -461,6 +474,8 @@ pub struct Module {
     /// e (chave da assinatura, símbolo do trampolim) (`lower/ffi.rs`).
     pub ffi_tipos: Vec<(i64, char)>,
     pub ffi_trampolins: Vec<(String, String)>,
+    /// `dart:ffi`: as structs e unions do programa (`lower/ffi.rs`).
+    pub ffi_compostos: Vec<FfiComposto>,
     pub functions: Vec<Function>,
     pub classes: Vec<ClassDef>,
     pub selectors: Vec<SelectorDef>,

@@ -269,6 +269,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Lê um campo de instância na representação do seu tipo declarado.
     pub fn ler_campo(&mut self, obj: Operand, vid: VariableId, span: Span) -> Operand {
+        if let Some(r) = self.ler_campo_ffi(obj.clone(), vid) {
+            return r;
+        }
         let idx = match self.indice_campo(vid) {
             Some(i) => Operand::Constant(Constant::Int(i as i64)),
             None => match self.indice_dinamico(obj.clone(), vid, span) {
@@ -295,6 +298,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Grava um campo de instância; `is_ref` pela representação (E1).
     pub fn gravar_campo(&mut self, obj: Operand, vid: VariableId, val: Operand, span: Span) {
+        if self.gravar_campo_ffi(obj.clone(), vid, val.clone()) {
+            return;
+        }
         let idx = match self.indice_campo(vid) {
             Some(i) => Operand::Constant(Constant::Int(i as i64)),
             None => match self.indice_dinamico(obj.clone(), vid, span) {

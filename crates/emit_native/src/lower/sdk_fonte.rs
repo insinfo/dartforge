@@ -452,7 +452,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Some(n) => n.to_string(),
                 None => return Some(self.nao_suportado(&format!("intrínseco da VM `{membro}`"), span)),
             },
-            None => return Some(self.nao_suportado(&format!("external sem implementação `{membro}`"), span)),
+            None => {
+                if let Some(r) = self.chamar_native_anotado(fid, args, span) {
+                    return Some(r);
+                }
+                return Some(self.nao_suportado(&format!("external sem implementação `{membro}`"), span));
+            }
         };
         // A assinatura do native é a representação dos tipos declarados;
         // `bool` cruza a fronteira como `i8` (nativos.rs).
@@ -561,6 +566,39 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     args: vec![
                         (Operand::Constant(Constant::Int(cid)), Type::I64),
                         (Operand::Constant(Constant::Int(tipo)), Type::I64),
+                        (n, Type::I64),
+                    ],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            ));
+        }
+        // `Pointer<X>.asTypedList(n)` (`_asExternalTypedDataX` do
+        // `ffi_patch.dart`): a lista interna da classe, sobre a memória
+        // nativa do ponteiro (o `ExternalTypedData` da VM).
+        const EXTERNAS: &[(&str, &str, i64)] = &[
+            ("_asExternalTypedDataInt8", "_Int8List", 0),
+            ("_asExternalTypedDataUint8", "_Uint8List", 1),
+            ("_asExternalTypedDataInt16", "_Int16List", 3),
+            ("_asExternalTypedDataUint16", "_Uint16List", 4),
+            ("_asExternalTypedDataInt32", "_Int32List", 5),
+            ("_asExternalTypedDataUint32", "_Uint32List", 6),
+            ("_asExternalTypedDataInt64", "_Int64List", 7),
+            ("_asExternalTypedDataUint64", "_Uint64List", 8),
+            ("_asExternalTypedDataFloat", "_Float32List", 9),
+            ("_asExternalTypedDataDouble", "_Float64List", 10),
+        ];
+        if let Some(&(_, interna, tipo)) = EXTERNAS.iter().find(|(m, _, _)| *m == membro) {
+            let cid = id_de(self, interna)?;
+            let ponteiro = self.coagir(args.first()?.clone(), Type::Ref);
+            let n = self.coagir(args.get(1)?.clone(), Type::I64);
+            return Some(self.emit_call_with_check(
+                Instruction::CallRuntime {
+                    name: "dartforge_typed_externo".to_string(),
+                    args: vec![
+                        (Operand::Constant(Constant::Int(cid)), Type::I64),
+                        (Operand::Constant(Constant::Int(tipo)), Type::I64),
+                        (ponteiro, Type::Ref),
                         (n, Type::I64),
                     ],
                     ret_ty: Type::Ref,

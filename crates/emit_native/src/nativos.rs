@@ -203,6 +203,7 @@ pub const NATIVOS: &[Nativo] = &[
     runtime("DartForge_ffi_carregar_u32"),
     runtime("DartForge_ffi_carregar_u64"),
     runtime("DartForge_ffi_carregar_u8"),
+    runtime("DartForge_ffi_composto_de_tipo"),
     runtime("DartForge_ffi_copiar"),
     runtime("DartForge_ffi_funcao"),
     runtime("DartForge_ffi_gravar_abi"),

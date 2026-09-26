@@ -348,13 +348,18 @@ final class Array<T extends NativeType> extends _Compound {
   int? _nestedDimensionsFirstCache;
   List<int>? _nestedDimensionsRestCache;
 
+  /// DartForge: o tamanho em bytes do elemento mais interno (o transformador
+  /// da VM o põe como constante em cada acesso; aqui ele viaja no objeto).
+  final int _bytesDoElemento;
+
   @pragma("vm:entry-point")
   Array._(
     super._typedDataBase,
     super._offsetInBytes,
     this._size,
-    this._nestedDimensions,
-  ) : super._fromTypedDataBase();
+    this._nestedDimensions, [
+    this._bytesDoElemento = 0,
+  ]) : super._fromTypedDataBase();
 
   int get _nestedDimensionsFlattened =>
       _nestedDimensionsFlattenedCache ??= _nestedDimensions.fold<int>(
@@ -514,6 +519,21 @@ external int _carregarAbi(Type tipo, Object typedDataBase, int offsetInBytes);
 @pragma("vm:external-name", "DartForge_ffi_gravar_abi")
 external void _gravarAbi(
     Type tipo, Object typedDataBase, int offsetInBytes, int value);
+
+/// A instância da struct/union `tipo` sobre `base` + `deslocamento` (o
+/// `S#fromTypedDataBase` que o transformador de FFI da VM gera).
+@pragma("vm:external-name", "DartForge_ffi_composto_de_tipo")
+external Object _compostoDeTipo(Type tipo, Object base, int deslocamento);
+
+/// Copia o composto `valor` (por valor) para `base` + `deslocamento`.
+void _copiarComposto(Object base, int deslocamento, _Compound valor, int bytes) =>
+    _memCopy(base, deslocamento, valor._typedDataBase, valor._offsetInBytes, bytes);
+
+/// O campo `@Array(…)` de uma struct (`lower/ffi.rs`).
+@pragma("vm:entry-point")
+Array<Never> _dartforgeArray(Object base, int deslocamento, int tamanho,
+        List<int> dimensoes, int bytesDoElemento) =>
+    new Array<Never>._(base, deslocamento, tamanho, dimensoes, bytesDoElemento);
 
 /// O `Pointer` que o trampolim de uma função nativa devolve.
 @pragma("vm:entry-point")
@@ -1260,95 +1280,86 @@ extension PointerPointer<T extends NativeType> on Pointer<Pointer<T>> {
 @patch
 extension StructPointer<T extends Struct> on Pointer<T> {
   @patch
-  T get ref =>
-      throw "UNREACHABLE: This case should have been rewritten in the CFE.";
+  T get ref => _compostoDeTipo(T, this, 0) as T;
 
   @patch
-  set ref(T value) =>
-      throw "UNREACHABLE: This case should have been rewritten in the CFE";
+  set ref(T value) => _copiarComposto(this, 0, value, _tamanhoDe(T));
 
   @patch
-  T operator [](int index) =>
-      throw "UNREACHABLE: This case should have been rewritten in the CFE.";
+  T operator [](int index) => _compostoDeTipo(T, this, index * _tamanhoDe(T)) as T;
 
   @patch
   void operator []=(int index, T value) =>
-      throw "UNREACHABLE: This case should have been rewritten in the CFE.";
+      _copiarComposto(this, index * _tamanhoDe(T), value, _tamanhoDe(T));
 
   @patch
   Pointer<T> elementAt(int index) =>
-      throw "UNREACHABLE: This case should have been rewritten in the CFE.";
+      Pointer.fromAddress(address + index * _tamanhoDe(T));
 
   @patch
   Pointer<T> operator +(int offset) =>
-      throw "UNREACHABLE: This case should have been rewritten in the CFE.";
+      Pointer.fromAddress(address + offset * _tamanhoDe(T));
 
   @patch
   Pointer<T> operator -(int offset) =>
-      throw "UNREACHABLE: This case should have been rewritten in the CFE.";
+      Pointer.fromAddress(address - offset * _tamanhoDe(T));
 }
 
 @patch
 extension UnionPointer<T extends Union> on Pointer<T> {
   @patch
-  T get ref =>
-      throw "UNREACHABLE: This case should have been rewritten in the CFE.";
+  T get ref => _compostoDeTipo(T, this, 0) as T;
 
   @patch
-  set ref(T value) =>
-      throw "UNREACHABLE: This case should have been rewritten in the CFE";
+  set ref(T value) => _copiarComposto(this, 0, value, _tamanhoDe(T));
 
   @patch
-  T operator [](int index) =>
-      throw "UNREACHABLE: This case should have been rewritten in the CFE.";
+  T operator [](int index) => _compostoDeTipo(T, this, index * _tamanhoDe(T)) as T;
 
   @patch
   void operator []=(int index, T value) =>
-      throw "UNREACHABLE: This case should have been rewritten in the CFE.";
+      _copiarComposto(this, index * _tamanhoDe(T), value, _tamanhoDe(T));
 
   @patch
   Pointer<T> elementAt(int index) =>
-      throw "UNREACHABLE: This case should have been rewritten in the CFE.";
+      Pointer.fromAddress(address + index * _tamanhoDe(T));
 
   @patch
   Pointer<T> operator +(int offset) =>
-      throw "UNREACHABLE: This case should have been rewritten in the CFE.";
+      Pointer.fromAddress(address + offset * _tamanhoDe(T));
 
   @patch
   Pointer<T> operator -(int offset) =>
-      throw "UNREACHABLE: This case should have been rewritten in the CFE.";
+      Pointer.fromAddress(address - offset * _tamanhoDe(T));
 }
 
 @patch
 extension AbiSpecificIntegerPointer<T extends AbiSpecificInteger>
     on Pointer<T> {
   @patch
-  int get value =>
-      throw "UNREACHABLE: This case should have been rewritten in the CFE.";
+  int get value => _carregarAbi(T, this, 0);
 
   @patch
-  void set value(int value) =>
-      throw "UNREACHABLE: This case should have been rewritten in the CFE.";
+  void set value(int value) => _gravarAbi(T, this, 0, value);
 
   @patch
-  int operator [](int index) =>
-      throw "UNREACHABLE: This case should have been rewritten in the CFE.";
+  int operator [](int index) => _carregarAbi(T, this, index * _tamanhoDe(T));
 
   @patch
   void operator []=(int index, int value) =>
-      throw "UNREACHABLE: This case should have been rewritten in the CFE.";
+      _gravarAbi(T, this, index * _tamanhoDe(T), value);
 
   @patch
   Pointer<T> elementAt(int index) =>
-      throw "UNREACHABLE: This case should have been rewritten in the CFE.";
+      Pointer.fromAddress(address + index * _tamanhoDe(T));
 
   @patch
   Pointer<T> operator +(int offset) =>
-      throw "UNREACHABLE: This case should have been rewritten in the CFE.";
+      Pointer.fromAddress(address + offset * _tamanhoDe(T));
 
   @patch
   Pointer<T> operator -(int offset) =>
-      throw "UNREACHABLE: This case should have been rewritten in the CFE.";
+      Pointer.fromAddress(address - offset * _tamanhoDe(T));
 }
 
 @patch
@@ -1376,20 +1387,32 @@ extension PointerArray<T extends NativeType> on Array<Pointer<T>> {
 @patch
 extension ArrayArray<T extends NativeType> on Array<Array<T>> {
   @patch
-  Array<T> operator [](int index) =>
-      throw "UNREACHABLE: This case should have been rewritten in the CFE.";
+  Array<T> operator [](int index) {
+    _checkIndex(index);
+    return new Array<T>._(
+        _typedDataBase,
+        _offsetInBytes + index * _nestedDimensionsFlattened * _bytesDoElemento,
+        _nestedDimensionsFirst,
+        _nestedDimensionsRest,
+        _bytesDoElemento);
+  }
 
   @patch
-  void operator []=(int index, Array<T> value) =>
-      throw "UNREACHABLE: This case should have been rewritten in the CFE.";
+  void operator []=(int index, Array<T> value) {
+    _checkIndex(index);
+    final bytes = _nestedDimensionsFlattened * _bytesDoElemento;
+    _memCopy(_typedDataBase, _offsetInBytes + index * bytes,
+        value._typedDataBase, value._offsetInBytes, bytes);
+  }
 }
 
 @patch
 extension StructArray<T extends Struct> on Array<T> {
   @patch
   T operator [](int index) {
-    throw ArgumentError(
-        "T ($T) should be a subtype of Struct at compile-time.");
+    _checkIndex(index);
+    return _compostoDeTipo(
+        T, _typedDataBase, _offsetInBytes + index * _tamanhoDe(T)) as T;
   }
 }
 
@@ -1397,7 +1420,9 @@ extension StructArray<T extends Struct> on Array<T> {
 extension UnionArray<T extends Union> on Array<T> {
   @patch
   T operator [](int index) {
-    throw ArgumentError("T ($T) should be a subtype of Union at compile-time.");
+    _checkIndex(index);
+    return _compostoDeTipo(
+        T, _typedDataBase, _offsetInBytes + index * _tamanhoDe(T)) as T;
   }
 }
 
@@ -1405,14 +1430,14 @@ extension UnionArray<T extends Union> on Array<T> {
 extension AbiSpecificIntegerArray<T extends AbiSpecificInteger> on Array<T> {
   @patch
   int operator [](int index) {
-    throw ArgumentError(
-        "Receiver should be a subtype of AbiSpecificInteger at compile-time.");
+    _checkIndex(index);
+    return _carregarAbi(T, _typedDataBase, _offsetInBytes + index * _tamanhoDe(T));
   }
 
   @patch
   void operator []=(int index, int value) {
-    throw ArgumentError(
-        "Receiver should be a subtype of AbiSpecificInteger at compile-time.");
+    _checkIndex(index);
+    _gravarAbi(T, _typedDataBase, _offsetInBytes + index * _tamanhoDe(T), value);
   }
 }
 

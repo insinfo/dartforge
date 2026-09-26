@@ -59,6 +59,8 @@ pub struct Context<'a> {
     pub usa_dart_async: bool,
     /// P6: os símbolos das funções da fonte com corpo (`lower::com_corpo_da_fonte`).
     pub com_corpo_da_fonte: std::cell::OnceCell<std::collections::HashSet<String>>,
+    /// `dart:ffi`: o layout das structs e unions do programa (`lower::ffi::compostos`).
+    pub compostos_ffi: std::cell::OnceCell<Option<crate::lower::ffi::Compostos>>,
 }
 
 /// O nome da variável de um padrão `:x`/`:var x`/`:x?`/`:x as T`.
@@ -128,6 +130,7 @@ impl<'a> Context<'a> {
             ids_rti_sdk: std::collections::HashMap::new(),
             usa_dart_async: false,
             com_corpo_da_fonte: std::cell::OnceCell::new(),
+            compostos_ffi: std::cell::OnceCell::new(),
         };
         // Formas de record com campo nomeado: literais, padrões e tipos de
         // todas as unidades do programa (o conjunto inteiro, antes do

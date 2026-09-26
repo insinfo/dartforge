@@ -110,6 +110,9 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_tamanho(tipo: i64) -> i64 {
         lancar_erro_de_argumento("sizeOf: type argument expected");
         return 0;
     };
+    if let Some(c) = classe_rti_do_tipo(t).and_then(composto_de_rti) {
+        return c.tamanho;
+    }
     match letra_do_tipo(t).map(tamanho_da_letra) {
         Ok(Some(n)) => n,
         Ok(None) => {
@@ -615,4 +618,160 @@ pub extern "C" fn dartforge_nativo_Ffi_dl_close(handle: i64) {
     unsafe {
         dl::FreeLibrary(handle as usize);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Structs e unions (`lower/ffi.rs`, «Structs e unions»).
+
+/// Uma struct/union do programa: a classe no heap, onde ficam os campos de
+/// `_Compound` no objeto e a medida na ABI do alvo.
+#[derive(Clone, Copy)]
+struct CompostoFfi {
+    classe: i64,
+    campos: i64,
+    indice_base: i64,
+    indice_deslocamento: i64,
+    tamanho: i64,
+}
+
+/// Classe RTI → composto (os ids de classe são do programa, iguais em todo
+/// isolado).
+fn compostos_ffi() -> &'static std::sync::RwLock<std::collections::HashMap<i64, CompostoFfi>> {
+    static C: std::sync::OnceLock<std::sync::RwLock<std::collections::HashMap<i64, CompostoFfi>>> = std::sync::OnceLock::new();
+    C.get_or_init(Default::default)
+}
+
+/// Registra uma struct/union do programa (a preparação do isolado).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_ffi_registrar_composto(
+    rti: i64,
+    classe: i64,
+    campos: i64,
+    indice_base: i64,
+    indice_deslocamento: i64,
+    tamanho: i64,
+    _alinhamento: i64,
+) {
+    compostos_ffi()
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(rti, CompostoFfi { classe, campos, indice_base, indice_deslocamento, tamanho });
+}
+
+fn composto_de_rti(rti: i64) -> Option<CompostoFfi> {
+    compostos_ffi().read().unwrap_or_else(|e| e.into_inner()).get(&rti).copied()
+}
+
+/// A classe RTI de um tipo RTI `Interface`.
+fn classe_rti_do_tipo(t: i64) -> Option<i64> {
+    RTI.with(|u| match u.borrow().tipo(t) {
+        Tipo::Interface(c, _) => Some(*c),
+        _ => None,
+    })
+}
+
+/// Uma instância da struct/union `rti` sobre a memória `base` +
+/// `deslocamento` (o `S#fromTypedDataBase` do transformador da VM).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_ffi_composto(rti: i64, base: i64, deslocamento: i64) -> i64 {
+    let Some(c) = composto_de_rti(rti) else {
+        lancar_unsupported("struct or union not registered in the DartForge native backend");
+        return 0;
+    };
+    let obj = com_raizes(&[base], || dartforge_object_new(c.classe, c.campos));
+    HEAP.with(|h| {
+        let mut h = h.borrow_mut();
+        if let Value::Object { fields, .. } = h.get_mut(obj) {
+            if let Some(f) = usize::try_from(c.indice_base).ok().and_then(|i| fields.get_mut(i)) {
+                *f = (base, true);
+            }
+            if let Some(f) = usize::try_from(c.indice_deslocamento).ok().and_then(|i| fields.get_mut(i)) {
+                *f = (deslocamento, false);
+            }
+        }
+    });
+    obj
+}
+
+/// `Pointer<S>.ref`/`[i]` (a sobreposição): a instância de `S` sobre
+/// `base` + `deslocamento`, pelo objeto `Type` de `S`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_ffi_composto_de_tipo(tipo: i64, base: i64, deslocamento: i64) -> i64 {
+    let Some(rti) = tipo_do_objeto_type(tipo).and_then(classe_rti_do_tipo) else {
+        lancar_erro_de_argumento("struct type argument expected");
+        return 0;
+    };
+    dartforge_ffi_composto(rti, base, deslocamento)
+}
+
+/// Um `Pointer` (tipo `Pointer<Never>`) com o endereço (campo `Pointer` de
+/// uma struct).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_ffi_ponteiro_novo(endereco: i64) -> i64 {
+    novo_ponteiro(endereco, None)
+}
+
+/// O endereço do símbolo nativo `nome` (UTF-8) no processo, para um
+/// `external` com `@Native` (com cache: o `Ffi_GetFfiNativeResolver` da VM
+/// resolve uma vez por função). Símbolo ausente: `ArgumentError`, como a VM.
+///
+/// # Safety
+/// `nome` aponta para `n` bytes legíveis.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_ffi_simbolo_nativo(nome: *const u8, n: i64) -> i64 {
+    // SAFETY: garantido por quem chama (uma constante do módulo).
+    let nome = unsafe { std::slice::from_raw_parts(nome, usize::try_from(n).unwrap_or(0)) };
+    let nome = String::from_utf8_lossy(nome).into_owned();
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, i64>>> = std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    if let Some(&e) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(&nome) {
+        return e;
+    }
+    let e = std::ffi::CString::new(nome.clone()).map_or(0, |c| procurar(HANDLE_DO_PROCESSO, &c) as i64);
+    match e {
+        e if e != 0 => {
+            cache.lock().unwrap_or_else(|e| e.into_inner()).insert(nome, e);
+            e
+        }
+        _ => {
+            lancar_erro_de_argumento(&format!("Couldn't resolve native function '{nome}' in the process: symbol not found"));
+            0
+        }
+    }
+}
+
+/// `Pointer<X>.asTypedList(n)`: a lista tipada interna `class_id` (elementos
+/// `tipo`) sobre a memória nativa do ponteiro, sem cópia — escrever numa é
+/// escrever na outra.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_typed_externo(class_id: i64, tipo: i64, ponteiro: i64, n: i64) -> i64 {
+    let Some(endereco) = endereco_de(ponteiro) else {
+        lancar_erro_de_argumento("a Pointer was expected");
+        return 0;
+    };
+    let tipo = tipo as u8;
+    if n < 0 {
+        lancar_erro_de_argumento("length must be non-negative");
+        return 0;
+    }
+    if endereco == 0 && n > 0 {
+        lancar_erro_de_argumento("asTypedList on nullptr");
+        return 0;
+    }
+    let tamanho = n as usize * tamanho_do_elemento(tipo);
+    HEAP.with(|h| {
+        h.borrow_mut().allocate(Value::TypedData {
+            class_id,
+            tipo,
+            bytes: crate::heap::Armazenamento::Externo { endereco: endereco as usize, tamanho },
+        })
+    })
+}
+
+/// [`dartforge_typed_externo`] que registra a tabela de métodos da classe na
+/// primeira alocação (como `dartforge_typed_novo_t`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_typed_externo_t(class_id: i64, tipo: i64, ponteiro: i64, n: i64, f: extern "C" fn() -> *const i64) -> i64 {
+    dartforge_registrar_tabela(class_id, f);
+    dartforge_typed_externo(class_id, tipo, ponteiro, n)
 }

@@ -689,7 +689,7 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_processar(
     // Os bytes dos anéis e das posições saem do heap durante o
     // processamento (nada aqui chama o Dart nem aloca no heap) e voltam
     // depois, sem cópia.
-    let mut aneis: [Vec<u8>; 4] = std::array::from_fn(|i| tomar_bytes_tipados(listas[i]));
+    let mut aneis: [crate::heap::Armazenamento; 4] = std::array::from_fn(|i| tomar_bytes_tipados(listas[i]));
     let mut bytes_pos = tomar_bytes_tipados(pos);
     let mut p = [0usize; 8];
     for (i, v) in p.iter_mut().enumerate() {
@@ -714,7 +714,7 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_processar(
     }
 }
 
-fn processar_aneis(f: &mut FiltroTls, em_handshake: bool, aneis: &mut [Vec<u8>; 4], p: &mut [usize; 8]) -> Result<(), (i64, String)> {
+fn processar_aneis(f: &mut FiltroTls, em_handshake: bool, aneis: &mut [crate::heap::Armazenamento; 4], p: &mut [usize; 8]) -> Result<(), (i64, String)> {
     use std::io::{Read, Write};
     let Some(conexao) = f.conexao.as_mut() else { return Ok(()) };
     for (i, a) in aneis.iter().enumerate() {
@@ -782,17 +782,17 @@ fn processar_aneis(f: &mut FiltroTls, em_handshake: bool, aneis: &mut [Vec<u8>; 
 
 /// Tira os bytes de uma lista tipada interna do heap (a lista fica vazia
 /// até [`devolver_bytes_tipados`]).
-fn tomar_bytes_tipados(h: i64) -> Vec<u8> {
+fn tomar_bytes_tipados(h: i64) -> crate::heap::Armazenamento {
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         if !matches!(heap.try_get(h), Some(Value::TypedData { .. })) {
-            return Vec::new();
+            return Default::default();
         }
         std::mem::take(bytes_de_mut(&mut heap, h))
     })
 }
 
-fn devolver_bytes_tipados(h: i64, b: Vec<u8>) {
+fn devolver_bytes_tipados(h: i64, b: crate::heap::Armazenamento) {
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         if matches!(heap.try_get(h), Some(Value::TypedData { .. })) {

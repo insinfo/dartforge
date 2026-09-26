@@ -152,7 +152,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return false;
         }
         let mut tabela: Vec<u8> = Vec::new();
-        let mut escalar = |e: ast::ExprId, tabela: &mut Vec<u8>| -> bool {
+        let escalar = |e: ast::ExprId, tabela: &mut Vec<u8>| -> bool {
             match &ast.expr(e).kind {
                 ast::ExprKind::Null => tabela.push(b'n'),
                 ast::ExprKind::Bool(b) => tabela.push(if *b { b't' } else { b'f' }),
