@@ -26,8 +26,6 @@ llvm-embutido = ["dep:dartforge-llvm"]
 
 [build-dependencies]
 blake3 = "1"
-# O fonte do runtime (`RUNTIME_MAIN`), que o build.rs compila para o alvo.
-dartforge-runtime = { path = "../runtime" }
 
 [dev-dependencies]
 tempfile = "3"

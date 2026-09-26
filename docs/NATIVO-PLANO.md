@@ -1452,17 +1452,21 @@ errada.
 Quem usa o dartforge instala só a distribuição. Três peças saíram da máquina
 do usuário para o build do dartforge:
 
-* **Runtime pré-compilado** (`crates/emit_native/build.rs`). As duas
-  variantes da `staticlib` do runtime (com o `main` C, e a da biblioteca
-  compartilhada do SDK da fonte) são compiladas no build, pelo `rustc` do
-  próprio build e para o alvo dele, com o nome
-  `dartforge_runtime_<blake3>`/`dartforge_rtdll_<blake3>` (o hash cobre o
-  fonte, o alvo e as bandeiras). O AOT procura em `lib/` da distribuição
-  (`<raiz>/bin/dartforge` → `<raiz>/lib/`, ou `DARTFORGE_LIB`), depois no
-  diretório do build; só uma árvore de desenvolvimento compilada com
-  `DARTFORGE_RUNTIME_SEM_PRECOMPILAR=1` compila o runtime com o `rustc` da
-  máquina, como antes. Verificado: o corpus inteiro passa com
-  `DARTFORGE_RUSTC=/nonexistent`.
+* **Runtime pré-compilado** (`crates/runtime_estatico`,
+  `crates/emit_native/build.rs`). O runtime é a `staticlib` de um crate do
+  Cargo — o módulo `abi` de `dartforge-runtime` no perfil `aot` (com o
+  `main` C) ou `dll` (a biblioteca compartilhada do SDK da fonte) —, e por
+  isso pode ter dependências (a TLS do `dart:io`) numa cópia só da
+  biblioteca padrão do Rust. O `build.rs` do emit_native compila as duas
+  variantes com um `cargo build` próprio (outro diretório de alvo), com
+  `--remap-path-prefix` para as mensagens de pânico não levarem o caminho de
+  quem compilou, e as publica como `dartforge_runtime_<blake3>`/
+  `dartforge_rtdll_<blake3>` (o hash cobre o fonte do runtime, o
+  `Cargo.lock`, o alvo e a variante). O AOT procura em `lib/` da
+  distribuição (`<raiz>/bin/dartforge` → `<raiz>/lib/`, ou `DARTFORGE_LIB`),
+  depois no diretório do build; não há mais compilação com o `rustc` da
+  máquina. `DARTFORGE_RUNTIME_SEM_PRECOMPILAR=1` pula a etapa em `cargo
+  check`/`clippy`.
 * **Gerador de objetos embutido** (`crates/llvm`, `src/gerador.rs`, feature
   `llvm-embutido`, ligada pelo `jit` da CLI). O LLVM ligado ao dartforge lê
   o IR, roda o `default<O0>`/`default<O2>` do `PassBuilder` e emite o objeto

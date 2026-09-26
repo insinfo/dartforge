@@ -1,0 +1,25 @@
+[package]
+name = "dartforge-runtime-estatico"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# A `staticlib` do runtime que o AOT liga aos executáveis: o módulo `abi` de
+# `dartforge-runtime` no perfil `aot` (com o `main` C) ou `dll` (a biblioteca
+# compartilhada do SDK da fonte), com as dependências dele (a TLS do
+# `dart:io`) dentro do mesmo arquivo — uma cópia só da biblioteca padrão do
+# Rust. Compilado pelo `build.rs` de `crates/emit_native` (um `cargo build`
+# próprio, com o alvo e o diretório dele), nunca na máquina de quem usa o
+# dartforge.
+[lib]
+crate-type = ["staticlib"]
+test = false
+doctest = false
+
+[features]
+aot = ["dartforge-runtime/aot"]
+dll = ["dartforge-runtime/dll"]
+
+[dependencies]
+dartforge-runtime = { path = "../runtime" }
