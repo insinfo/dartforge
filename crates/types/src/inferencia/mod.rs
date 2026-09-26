@@ -336,8 +336,7 @@ impl<'a> BodyInferrer<'a> {
         if let Some((unit, init)) = self.inicializador(vid) {
             let mut cx = Corpo::para_variavel(self, vid, unit);
             let t = expr::inferir(self, &mut cx, init, declarado);
-            let span = self.span_expr(unit, init);
-            self.verificar_atribuivel(t, declarado, span, crate::codes::INVALID_ASSIGNMENT.template);
+            expr::verificar_atribuivel_expr(self, &cx, init, t, declarado, crate::codes::INVALID_ASSIGNMENT.template);
         }
     }
 

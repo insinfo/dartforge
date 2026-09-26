@@ -35,7 +35,10 @@ fn declarar_parametros(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, params: &[ast
     for (i, p) in params.iter().enumerate() {
         let t = tipos.get(i).copied().unwrap_or(inf.core.dynamic_);
         if let Some(d) = p.default_value {
-            inferir(inf, cx, d, t);
+            let td = inferir(inf, cx, d, t);
+            if !matches!(inf.table.get(t), Type::Void) {
+                expr::uso_de_void(inf, cx, d, td);
+            }
         }
         if pular_inicializadores && (p.this_ || p.super_) {
             continue;
@@ -138,8 +141,7 @@ fn inicializador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, classe: Option<Clas
             let t = campo.map(|v| inf.tipo_variavel(v)).unwrap_or(u);
             let tv = inferir(inf, cx, *value, t);
             if campo.is_some() {
-                let sp = inf.span_expr(cx.unit, *value);
-                inf.verificar_atribuivel(tv, t, sp, INVALID_ASSIGNMENT.template);
+                expr::verificar_atribuivel_expr(inf, cx, *value, tv, t, INVALID_ASSIGNMENT.template);
             }
         }
         ast::Initializer::Super { constructor, arguments, .. } => {
@@ -499,7 +501,10 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
                 },
             };
             if let Some(d) = p.default_value {
-                inferir(inf, cx, d, t);
+                let td = inferir(inf, cx, d, t);
+                if !matches!(inf.table.get(t), Type::Void) {
+                    expr::uso_de_void(inf, cx, d, td);
+                }
             }
             match p.kind {
                 ast::ParameterKind::Required => pos.push(t),

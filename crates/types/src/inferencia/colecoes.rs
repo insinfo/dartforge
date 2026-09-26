@@ -203,6 +203,11 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, f
         CollectionElement::Expression(x) => {
             let c = if forma == Forma::Mapa { u } else { ctxs[0] };
             let t = inferir(inf, cx, *x, c);
+            // Com argumentos de tipo escritos (sem inferência) e elemento
+            // não `void`: valor `void` é `use_of_void_result`.
+            if gi.is_none() && !matches!(inf.table.get(c), Type::Void) {
+                super::expr::uso_de_void(inf, cx, *x, t);
+            }
             if forma != Forma::Mapa {
                 restringir(inf, &mut gi, t, 0);
             }
@@ -220,6 +225,14 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, f
             let cv = if *null_aware_value && !inf.e_desconhecido(ctxs[2]) { inf.anulavel(ctxs[2]) } else { ctxs[2] };
             let tk = inferir(inf, cx, *key, ck);
             let tv = inferir(inf, cx, *value, cv);
+            if gi.is_none() {
+                if !matches!(inf.table.get(ck), Type::Void) {
+                    super::expr::uso_de_void(inf, cx, *key, tk);
+                }
+                if !matches!(inf.table.get(cv), Type::Void) {
+                    super::expr::uso_de_void(inf, cx, *value, tv);
+                }
+            }
             let tk = if *null_aware_key { inf.nao_nulo(tk) } else { tk };
             let tv = if *null_aware_value { inf.nao_nulo(tv) } else { tv };
             restringir(inf, &mut gi, tk, 0);

@@ -1737,3 +1737,31 @@ fn argumentos_de_tipo_fora_dos_limites() {
         "{diags:?}"
     );
 }
+
+#[test]
+fn uso_de_resultado_void() {
+    // Argumento, inicializador e condição com valor `void`: o analyzer relata
+    // `use_of_void_result` (no nome, numa invocação de função), não
+    // `argument_type_not_assignable`/`invalid_assignment`. `void v = f();`
+    // e `f();` como comando são permitidos.
+    let fonte = "library test; import 'dart:core';
+        void f() {}
+        void g(Object? o) {}
+        void h(void x) {
+          g(f());
+          Object? y = f();
+          void v = f();
+          f();
+          if (x) {}
+        }";
+    let diags = diagnosticos_de(fonte);
+    let v: Vec<(&str, &str)> = diags
+        .iter()
+        .map(|d| (&fonte[d.span.start..d.span.end], d.code.map_or("", |c| c.info().nome)))
+        .collect();
+    assert_eq!(
+        v,
+        vec![("f", "use_of_void_result"), ("f", "use_of_void_result"), ("x", "use_of_void_result")],
+        "{diags:?}"
+    );
+}

@@ -169,6 +169,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
         StmtKind::Switch { value, cases } => {
             let rotulos = rotulos_pendentes(cx);
             let t = inferir_livre(inf, cx, *value);
+            expr::uso_de_void(inf, cx, *value, t);
             let depois_valor = cx.fluxo.clone();
             let mut nao_casou = depois_valor.clone();
             cx.saltos.push(AlvoSalto { rotulos, laco: false, e_switch: true, breaks: Vec::new(), continues: Vec::new() });
@@ -264,6 +265,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
             if *star {
                 let ctx = if m == AsyncModifier::AsyncStar { inf.fluxo_de(k) } else { inf.iteravel(k) };
                 let t = inferir(inf, cx, *value, ctx);
+                expr::uso_de_void(inf, cx, *value, t);
                 let classe = if m == AsyncModifier::AsyncStar { inf.core.stream_class } else { inf.core.iterable_class };
                 let el = if inf.e_dynamic(t) { inf.core.dynamic_ } else { inf.como_instancia_de(t, classe).map(|a| a[0]).unwrap_or(inf.core.dynamic_) };
                 if let Some(f) = cx.funcoes.last_mut() {
@@ -271,6 +273,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                 }
             } else {
                 let t = inferir(inf, cx, *value, k);
+                expr::uso_de_void(inf, cx, *value, t);
                 if let Some(f) = cx.funcoes.last_mut() {
                     f.retornados.push(t);
                 }
@@ -426,8 +429,7 @@ pub(crate) fn declaracao_de_variaveis(inf: &mut BodyInferrer<'_>, cx: &mut Corpo
             };
             escrito = Some(t);
             if let Some(d) = declarado {
-                let sp = inf.span_expr(cx.unit, init);
-                inf.verificar_atribuivel(t, d, sp, INVALID_ASSIGNMENT.template);
+                expr::verificar_atribuivel_expr(inf, cx, init, t, d, INVALID_ASSIGNMENT.template);
             } else {
                 tipo = Some(if matches!(inf.table.get(t), Type::Null) { inf.core.dynamic_ } else { t });
             }
@@ -503,6 +505,7 @@ pub(crate) fn cabecalho_for_in(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, targe
         None => u,
     };
     let t = inferir(inf, cx, iterable, ctx);
+    expr::uso_de_void(inf, cx, iterable, t);
     let el = if inf.e_dynamic(t) {
         inf.core.dynamic_
     } else {

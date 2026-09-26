@@ -551,7 +551,8 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
         ExprKind::String(lit) => {
             for p in lit.parts.iter() {
                 if let ast::StringPart::Interpolation(i) = p {
-                    inferir_livre(inf, cx, *i);
+                    let t = inferir_livre(inf, cx, *i);
+                    uso_de_void(inf, cx, *i, t);
                 }
             }
             inf.core.string
@@ -669,6 +670,7 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
         ExprKind::PatternAssign { pattern, value } => padroes::atribuicao_de_padrao(inf, cx, *pattern, *value),
         ExprKind::Cascade { target, sections, null_aware } => {
             let t = inferir(inf, cx, *target, ctx);
+            uso_de_void(inf, cx, *target, t);
             let r = if *null_aware { inf.nao_nulo(t) } else { t };
             cx.cascatas.push(r);
             let secs = sections.to_vec();
@@ -682,10 +684,12 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
         ExprKind::Await(i) => {
             let k1 = contexto_de_await(inf, ctx);
             let t1 = inferir(inf, cx, *i, k1);
+            uso_de_void(inf, cx, *i, t1);
             inf.flatten(t1)
         }
         ExprKind::Throw(i) => {
-            inferir_livre(inf, cx, *i);
+            let t = inferir_livre(inf, cx, *i);
+            uso_de_void(inf, cx, *i, t);
             cx.fluxo.alcancavel = false;
             inf.core.never
         }
@@ -743,6 +747,49 @@ pub(crate) fn limite_superior_em_contexto(inf: &mut BodyInferrer<'_>, t1: TypeId
     } else {
         t
     }
+}
+
+/// `checkForUseOfVoidResult`: uma expressão de tipo `void` usada onde se
+/// espera um valor. O intervalo é o nome do método numa invocação de método
+/// (`f()` com `f` função ou método, `a.m()`); senão, a expressão inteira.
+/// Devolve se relatou.
+pub(crate) fn uso_de_void(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, t: TypeId) -> bool {
+    if !matches!(inf.table.get(t), Type::Void) {
+        return false;
+    }
+    let a = ast(inf, cx);
+    let tipos = &inf.body_types.units[cx.unit.0 as usize];
+    let metodo = |x: ExprId| -> bool {
+        match tipos.get_resolved(x) {
+            Some(Resolved::Element(dartforge_elements::model::Element::Function(_))) => true,
+            Some(Resolved::Member { member: crate::resolved::MemberRef::Function(f), .. })
+            | Some(Resolved::ExtensionMember { member: f, .. }) => {
+                !matches!(inf.program.function(*f).kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor)
+            }
+            Some(Resolved::Local(id)) => cx.funcoes_locais.contains(id),
+            _ => false,
+        }
+    };
+    let sp = match &a.expr(e).kind {
+        ExprKind::Call { target, .. } => match &a.expr(*target).kind {
+            ExprKind::Property { name, .. } if metodo(*target) => name.span,
+            ExprKind::Identifier(n) if metodo(*target) => n.span,
+            _ => a.expr(e).span,
+        },
+        _ => a.expr(e).span,
+    };
+    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, sp, &[]);
+    true
+}
+
+/// `checkForAssignableExpressionAtType`: com o alvo não `void`, valor `void`
+/// é `use_of_void_result`; senão, a atribuibilidade.
+pub(crate) fn verificar_atribuivel_expr(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, de: TypeId, para: TypeId, template: &str) {
+    if !matches!(inf.table.get(para), Type::Void) && uso_de_void(inf, cx, e, de) {
+        return;
+    }
+    let sp = inf.span_expr(cx.unit, e);
+    inf.verificar_atribuivel(de, para, sp, template);
 }
 
 /// `t` é estritamente não anulável (`isStrictlyNonNullable`): nem `dynamic`,
@@ -886,7 +933,10 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
     };
     // `void`: o valor não pode ser usado (analyzer: `use_of_void_result`, no nome).
     if matches!(inf.table.get(recv), Type::Void) {
-        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, name.span, &[]);
+        // Em `x..p`, o relato é no alvo da cascata (feito lá).
+        if !matches!(a.expr(target).kind, ExprKind::CascadeTarget) {
+            inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, name.span, &[]);
+        }
         return (inf.core.dynamic_, curto);
     }
     // Receptor potencialmente anulável sem o membro em `Object` nem numa
@@ -1340,8 +1390,7 @@ fn operador_binario_com_membro(
     };
     let ta = inferir(inf, cx, arg, ctx_arg);
     if let Some(p) = param {
-        let sp = inf.span_expr(cx.unit, arg);
-        inf.verificar_atribuivel(ta, p, sp, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
+        verificar_atribuivel_expr(inf, cx, arg, ta, p, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
     }
     let t = refinar_numerico(inf, recv, &m, op, &[ta], ret);
     (t, Some(m))
@@ -1426,6 +1475,7 @@ fn binario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: BinaryOp, 
         BinaryOp::IfNull => {
             let k_q = if inf.e_desconhecido(ctx) { ctx } else { inf.anulavel(ctx) };
             let t1 = inferir(inf, cx, left, k_q);
+            uso_de_void(inf, cx, left, t1);
             let j = if inf.e_desconhecido(ctx) || inf.e_dynamic(ctx) { t1 } else { ctx };
             let antes = cx.fluxo.clone();
             if let Some(id) = alvo_de_promocao(inf, cx, left) {
@@ -1441,6 +1491,7 @@ fn binario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: BinaryOp, 
         _ => {
             let u = inf.core.unknown;
             let l = inferir(inf, cx, left, u);
+            uso_de_void(inf, cx, left, l);
             if matches!(inf.program.unit(cx.unit).ast.expr(left).kind, ExprKind::Super) {
                 let this = cx.tipo_this.unwrap_or(inf.core.dynamic_);
                 registrar(inf, cx, left, this);
@@ -1481,6 +1532,8 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
     match op {
         UnaryOp::Not => {
             let (vf, ff) = condicao(inf, cx, operand);
+            // Fora de condição, `!e` também exige `bool` (e não `void`).
+            verificar_bool(inf, cx, operand, UsoBool::Negacao);
             cx.fluxo = inf.juntar(&vf, &ff);
             inf.core.bool_
         }
@@ -1509,6 +1562,7 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
             let literal = op == UnaryOp::Neg && matches!(inf.program.unit(cx.unit).ast.expr(operand).kind, ExprKind::Int(_));
             let c = if literal { ctx } else { inf.core.unknown };
             let t = inferir(inf, cx, operand, c);
+            uso_de_void(inf, cx, operand, t);
             let sym = if op == UnaryOp::Neg { inf.sym.menos_unario } else { inf.sym.til };
             if let Some((x, args)) = cx.sobreposicoes.get(&operand).cloned() {
                 if let Some(m) = sym.and_then(|s| inf.membro_de_extensao_explicita(x, &args, s, false)) {
@@ -1857,19 +1911,28 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                 cx.esquecer_campos_de(id);
             }
             if !inf.e_dynamic(escrita) {
-                let sp = inf.span_expr(cx.unit, valor);
-                inf.verificar_atribuivel(tv, escrita, sp, INVALID_ASSIGNMENT.template);
+                verificar_atribuivel_expr(inf, cx, valor, tv, escrita, INVALID_ASSIGNMENT.template);
+            } else {
+                uso_de_void(inf, cx, valor, tv);
             }
             tv
         }
         AssignOp::Compound(bop) => {
             let (leitura, escrita, local) = ler_para_escrita(inf, cx, alvo, curto);
+            // `x += 1` / `x ??= 3` com `x` de tipo `void`: no operador.
+            if matches!(inf.table.get(leitura), Type::Void) {
+                let token = token_de_operador(inf, cx, inf.span_expr(cx.unit, alvo).end);
+                inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, token, &[]);
+            }
             if bop == BinaryOp::IfNull {
                 // O lado direito só roda se o alvo for nulo: o que ele promove
                 // ou atribui não vale depois (`origin ??= element!.library;`
                 // não promove `element`).
                 let antes = cx.fluxo.clone();
                 let tv = inferir(inf, cx, valor, escrita);
+                if !matches!(inf.table.get(escrita), Type::Void) {
+                    uso_de_void(inf, cx, valor, tv);
+                }
                 let depois = cx.fluxo.clone();
                 cx.fluxo = inf.juntar(&antes, &depois);
                 let nn = inf.nao_nulo(leitura);
@@ -2114,8 +2177,7 @@ fn escrita_indice(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, recv
             let u = inf.core.unknown;
             let ti = inferir(inf, cx, index, pi.unwrap_or(u));
             if let Some(p) = pi {
-                let sp = inf.span_expr(cx.unit, index);
-                inf.verificar_atribuivel(ti, p, sp, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
+                verificar_atribuivel_expr(inf, cx, index, ti, p, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
             }
             pv.unwrap_or(inf.core.dynamic_)
         }
@@ -2250,7 +2312,7 @@ fn verificar_bool(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, uso: UsoBoo
     use dartforge_diagnostics::codigos::compile_time_error as c;
     let t = inf.body_types.units[cx.unit.0 as usize].get_type(e).unwrap_or(inf.core.bool_);
     let b = inf.core.bool_;
-    if inf.atribuivel(t, b) || matches!(inf.table.get(t), Type::Void) {
+    if uso_de_void(inf, cx, e, t) || inf.atribuivel(t, b) {
         return;
     }
     let sp = inf.span_expr(cx.unit, e);
@@ -2293,9 +2355,12 @@ fn condicao_binaria(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: B
             // `==` / `!=`
             let u = inf.core.unknown;
             let tl = inferir(inf, cx, left, u);
+            uso_de_void(inf, cx, left, tl);
             // `e == .x`: o atalho à direita usa o tipo de `e` (3.10).
             atalhos::registrar_igualdade(inf, cx, right, tl);
             let tr = inferir(inf, cx, right, u);
+            // O lado direito é o argumento de `operator ==(Object)`.
+            uso_de_void(inf, cx, right, tr);
             if matches!(inf.program.unit(cx.unit).ast.expr(left).kind, ExprKind::Super) {
                 let this = cx.tipo_this.unwrap_or(inf.core.dynamic_);
                 registrar(inf, cx, left, this);
@@ -2345,6 +2410,7 @@ fn condicao_binaria(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: B
 /// `e is T` / `e is! T`: `(true, false)` com promoção.
 fn teste_de_tipo(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, value: ExprId, ty: ast::TypeId, negado: bool, span: dartforge_diagnostics::Span) -> (Fluxo, Fluxo) {
     let v = inferir_livre(inf, cx, value);
+    uso_de_void(inf, cx, value, v);
     let t = inf.tipo_de_anotacao(cx, ty);
     if t == inf.core.object && !inf.e_dynamic(v) && inf.sub(v, t) && !negado {
         inf.aviso(UNNECESSARY_TYPE_CHECK_TRUE.template.to_string(), span);

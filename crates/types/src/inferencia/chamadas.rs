@@ -166,8 +166,7 @@ pub(crate) fn invocar(
             };
             let t = inferir(inf, cx, a.value, c);
             if let Some(p) = p {
-                let sp = inf.span_expr(cx.unit, a.value);
-                inf.verificar_atribuivel(t, *p, sp, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
+                expr::verificar_atribuivel_expr(inf, cx, a.value, t, *p, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
             }
         }
         return (ret, f);
@@ -221,8 +220,7 @@ pub(crate) fn invocar(
         let ips = parametros_dos_argumentos(inf, &ip, &io, &inm, args);
         for (i, a) in args.args.iter().enumerate() {
             if let Some(p) = ips[i] {
-                let sp = inf.span_expr(cx.unit, a.value);
-                inf.verificar_atribuivel(tipos[i], p, sp, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
+                expr::verificar_atribuivel_expr(inf, cx, a.value, tipos[i], p, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
             }
         }
         return (iret, inst);
@@ -233,6 +231,13 @@ pub(crate) fn invocar(
 /// Invoca um valor de tipo `t` (função, objeto com `call`, `dynamic`).
 fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, t: TypeId, args: &ast::Arguments, ctx: TypeId, explicitos: Option<Vec<TypeId>>, span: Span) -> (TypeId, TypeId) {
     let t_nn = inf.nao_nulo(t);
+    // `x(3)` com `x` de tipo `void`: `use_of_void_result` na função.
+    if matches!(inf.table.get(t_nn), Type::Void) {
+        if let ExprKind::Call { target, .. } = &inf.program.unit(cx.unit).ast.expr(e).kind {
+            let alvo = *target;
+            expr::uso_de_void(inf, cx, alvo, t_nn);
+        }
+    }
     match inf.table.get(t_nn).clone() {
         Type::Function { .. } => invocar(inf, cx, t_nn, args, ctx, explicitos),
         Type::Dynamic => {
@@ -429,8 +434,12 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             if matches!(inf.table.get(r_ty), crate::table::Type::Void) {
                 // Na invocação, o analyzer relata no receptor (`this` em
                 // `this.m()`); no acesso a propriedade, no nome.
-                let sp = inf.span_expr(cx.unit, recv);
-                inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, sp, &[]);
+                // Numa seção de cascata (`x..m()`), o relato é no alvo da
+                // cascata, feito lá.
+                if !matches!(inf.program.unit(cx.unit).ast.expr(recv).kind, ExprKind::CascadeTarget) {
+                    let sp = inf.span_expr(cx.unit, recv);
+                    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, sp, &[]);
+                }
                 let d = inf.core.dynamic_;
                 registrar(inf, cx, target, d);
                 for x in args.args.iter() {

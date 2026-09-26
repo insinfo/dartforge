@@ -451,6 +451,7 @@ fn esquema_de_atribuicao(inf: &mut BodyInferrer<'_>, cx: &Corpo, p: PatternId) -
 /// `switch (v) { p => e, ... }` como expressão.
 pub(crate) fn expressao_switch(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, valor: ExprId, casos: &[ast::SwitchExprCase], ctx: TypeId) -> TypeId {
     let t = inferir_livre(inf, cx, valor);
+    expr::uso_de_void(inf, cx, valor, t);
     let antes = cx.fluxo.clone();
     let mut nao_casou = antes.clone();
     let mut tipos: Vec<TypeId> = Vec::new();
