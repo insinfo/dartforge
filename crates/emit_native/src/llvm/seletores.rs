@@ -156,6 +156,21 @@ impl LlvmEmitter<'_> {
             )
             .unwrap();
         }
+        for (k, nome) in self.nomes_de_argumento.iter().enumerate() {
+            writeln!(
+                self.out,
+                "@df.nomearg.{k} = private unnamed_addr constant [{} x i8] c\"{}\"",
+                nome.len(),
+                bytes_llvm(nome)
+            )
+            .unwrap();
+            writeln!(
+                corpo,
+                "  call void @dartforge_registrar_nome_de_argumento(ptr @df.nomearg.{k}, i64 {})",
+                nome.len()
+            )
+            .unwrap();
+        }
         writeln!(self.out, "define void @{registro}() {{\nb0:").unwrap();
         self.out.push_str(&corpo);
         self.out.push_str("  ret void\n}\n\n");

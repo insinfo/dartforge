@@ -57,6 +57,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 None => self.resolver_por_nome(id.sym),
                 r => r,
             };
+            // `E(x)`: aplicação explícita de extensão (sobreposição,
+            // §13.3). Só aparece como receptor de um membro de `E`, que a
+            // inferência já resolveu; o valor é o próprio `x`.
+            if let Some(Resolved::Element(dartforge_elements::model::Element::Extension(_))) = resolvido {
+                let Some(a) = arguments.args.first() else {
+                    return self.nao_suportado("aplicação de extensão sem receptor", expr.span);
+                };
+                return self.lower_expr(ast, a.value);
+            }
             // Função de topo, membro implícito (`m()` = `this.m()`) ou
             // estático: pelo elemento resolvido do alvo.
             if let Some(Resolved::ExtensionMember { member, .. }) = resolvido {
@@ -212,6 +221,38 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         let avaliados = self.avaliar_args(ast, &arguments.args);
                         return self.chamar_valor_funcao(v, &avaliados);
                     }
+                }
+            }
+
+            // `E.m(…)`: membro estático de extensão (método, ou getter/campo
+            // de tipo função chamado).
+            if matches!(
+                self.ctx.get_resolved(self.unit_id, *inner_target),
+                Some(Resolved::Element(dartforge_elements::model::Element::Extension(_)))
+            ) {
+                match resolved_alvo {
+                    Some(Resolved::ExtensionMember { member, .. })
+                        if crate::lower::funcao_do_usuario(self.ctx, member.0 as usize)
+                            && self.ctx.program.functions[member.0 as usize].kind
+                                == dartforge_elements::model::FunctionKind::Function =>
+                    {
+                        let fid = member.0 as usize;
+                        let avaliados = self.avaliar_args(ast, &arguments.args);
+                        let args = self.casar_args(fid, &avaliados);
+                        self.armar_tupla(fid, expr_id, arguments);
+                        return self.chamar_direto(fid, None, args);
+                    }
+                    Some(Resolved::ExtensionMember { member, .. }) => {
+                        let v = self.ler_membro_estatico(MemberRef::Function(member), expr.span);
+                        let avaliados = self.avaliar_args(ast, &arguments.args);
+                        return self.chamar_valor_funcao(v, &avaliados);
+                    }
+                    Some(Resolved::Element(el)) => {
+                        let v = self.ler_elemento(el, expr.span);
+                        let avaliados = self.avaliar_args(ast, &arguments.args);
+                        return self.chamar_valor_funcao(v, &avaliados);
+                    }
+                    _ => return self.nao_suportado(&format!("membro estático de extensão `{m_name}`"), expr.span),
                 }
             }
 

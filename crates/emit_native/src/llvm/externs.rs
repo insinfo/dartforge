@@ -828,6 +828,10 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
+        decl: "declare void @dartforge_registrar_nome_de_argumento(ptr, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
         decl: "declare void @dartforge_registrar_versao_do_sdk(ptr, i64)",
         efeitos: CONSERVADOR,
     },

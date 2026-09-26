@@ -47,6 +47,28 @@ Object _dartforgeErroDeChamada(String nome) =>
     new NoSuchMethodError.withInvocation(
         null, new Invocation.method(new Symbol(nome), const []));
 
+/// O seletor que a classe do receptor não tem (`tipo`: 0 método, 1 getter,
+/// 2 setter): como na VM, o `noSuchMethod` do receptor recebe o
+/// `Invocation`; o resultado dele é o da chamada.
+@pragma("vm:entry-point")
+Object? _dartforgeNoSuchMethod(Object? receptor, int tipo, String nome,
+    List<Object?> posicionais, List<String> nomes, List<Object?> valores) {
+  final Invocation invocacao;
+  if (tipo == 1) {
+    invocacao = new Invocation.getter(new Symbol(nome));
+  } else if (tipo == 2) {
+    invocacao = new Invocation.setter(
+        new Symbol("$nome="), posicionais.isEmpty ? null : posicionais[0]);
+  } else {
+    final nomeados = <Symbol, Object?>{};
+    for (var i = 0; i < nomes.length; i++) {
+      nomeados[new Symbol(nomes[i])] = valores[i];
+    }
+    invocacao = new Invocation.method(new Symbol(nome), posicionais, nomeados);
+  }
+  return receptor.noSuchMethod(invocacao);
+}
+
 @pragma("vm:entry-point")
 Object _dartforgeRastroVazio() => StackTrace.empty;
 
