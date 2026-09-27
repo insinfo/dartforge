@@ -7260,9 +7260,35 @@ fn gerar_componente(
             PipesDoTemplate::default()
         }
     };
-    if !c.styles.is_empty() {
-        // `styles: ['…']` escrito na anotação ainda não.
-        anotar(coleta, recusa(Motivo::Estilos, "styles: [..] na anotação"))?;
+    if c.estilos_ilegiveis {
+        anotar(
+            coleta,
+            recusa(
+                Motivo::Estilos,
+                "styleUrls/styles com item que não é texto literal",
+            ),
+        )?;
+    }
+    // `styles: ['…']` escrito na anotação: cada texto entra na lista
+    // `styles$X` depois das folhas de `styleUrls` (`_compileStyles`), com
+    // shim no encapsulamento emulado e tal qual no `none` (casos j07, j08).
+    let mut em_linha = Vec::new();
+    for texto in &c.styles {
+        if texto.contains("@import") {
+            anotar(coleta, recusa(Motivo::Estilos, "styles: [..] com @import"))?;
+            continue;
+        }
+        if c.sem_encapsulamento {
+            em_linha.push(literal(texto));
+            continue;
+        }
+        match crate::css::shim(texto) {
+            Ok(t) => em_linha.push(format!("'{t}'")),
+            Err(_) => anotar(
+                coleta,
+                recusa(Motivo::Estilos, "Sass ou CSS fora do subconjunto"),
+            )?,
+        }
     }
     // `ViewEncapsulation.none` com folha: a folha sem shim (`.css.dart`,
     // escrita por `gerar_interno`), `ComponentStyles.unscoped` e nenhum
@@ -7390,7 +7416,7 @@ fn gerar_componente(
         usadas,
         asset: local.asset(),
         tipos: resolvedor.map(|r| (r, local.caminho)),
-        com_estilo: !c.style_urls.is_empty() && !c.sem_encapsulamento,
+        com_estilo: (!c.style_urls.is_empty() || !c.styles.is_empty()) && !c.sem_encapsulamento,
         url_do_template: local.url_do_template.clone(),
         classe_da_visao: format!("View{}", c.classe),
         tipo_do_contexto: format!("{proprio}.{}", c.classe),
@@ -7902,10 +7928,15 @@ fn gerar_componente(
         "checkAlways"
     };
     // Sem folha, a lista é constante e o estilo não é encapsulado.
-    let (lista_de_estilos, encapsulamento) = match &estilo {
-        Some(a) if c.sem_encapsulamento => (format!("[{a}.styles]"), "unscoped"),
-        Some(a) => (format!("[{a}.styles]"), "scoped"),
-        None => ("const []".to_string(), "unscoped"),
+    let itens: Vec<String> = estilo
+        .iter()
+        .map(|a| format!("{a}.styles"))
+        .chain(em_linha)
+        .collect();
+    let (lista_de_estilos, encapsulamento) = match (itens.is_empty(), c.sem_encapsulamento) {
+        (true, _) => ("const []".to_string(), "unscoped"),
+        (false, true) => (format!("[{}]", itens.join(", ")), "unscoped"),
+        (false, false) => (format!("[{}]", itens.join(", ")), "scoped"),
     };
     let asset = format!("asset:{}/{}", local.pacote, local.relativo);
 

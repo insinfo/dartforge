@@ -46,6 +46,9 @@ pub struct Componente {
     pub style_urls: Vec<String>,
     /// `styles: ['...']` — folhas escritas na anotação.
     pub styles: Vec<String>,
+    /// `styleUrls:`/`styles:` com item que não é texto literal (ou que não é
+    /// lista): o que o oficial lê não se vê daqui, e a visão recusa.
+    pub estilos_ilegiveis: bool,
     /// `changeDetection: ChangeDetectionStrategy.OnPush`.
     pub on_push: bool,
     /// `encapsulation: ViewEncapsulation.none`. Sem folha de estilo o
@@ -518,8 +521,19 @@ fn ler(
                         .and_then(|t| deslocamento_do_template(arvore, fonte, a.value, t));
                 }
                 "templateUrl" => c.template_url = texto_do_argumento(arvore, a.value),
-                "styleUrls" => c.style_urls = lista_de_textos(arvore, a.value),
-                "styles" => c.styles = lista_de_textos(arvore, a.value),
+                "styleUrls" | "styles" => {
+                    let textos = lista_de_textos(arvore, a.value);
+                    let itens = match &arvore.expr(a.value).kind {
+                        ast::ExprKind::List { elements, .. } => Some(elements.len()),
+                        _ => None,
+                    };
+                    c.estilos_ilegiveis |= itens != Some(textos.len());
+                    if nome == "styles" {
+                        c.styles = textos;
+                    } else {
+                        c.style_urls = textos;
+                    }
+                }
                 "changeDetection" => c.on_push = e_on_push(arvore, fonte, a.value),
                 "encapsulation" => {
                     c.sem_encapsulamento =
