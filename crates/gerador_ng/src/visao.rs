@@ -1433,6 +1433,9 @@ pub struct Local<'a> {
     /// onde aponta o comentário `/* REF:url:inicio:fim */` que o oficial
     /// escreve em cada ligação.
     pub url_do_template: Option<String>,
+    /// Os metadados do próprio componente lidos do programa
+    /// (`metadados.rs`): os `providers:` dele vão para a visão-hospedeira.
+    pub metadados: Option<std::sync::Arc<crate::diretivas::Diretiva>>,
 }
 
 impl Local<'_> {
@@ -2262,7 +2265,10 @@ impl Corpo<'_> {
         );
         // Os provedores do nó: o componente primeiro, depois as diretivas.
         let com_provedores = !extras.is_empty()
-            || filho.metadados.as_ref().is_some_and(|m| !m.provedores.is_empty());
+            || filho
+                .metadados
+                .as_ref()
+                .is_some_and(|m| !m.provedores.is_empty());
         let no_resolvido = if com_provedores {
             let meta = filho
                 .metadados
@@ -2712,7 +2718,9 @@ impl Corpo<'_> {
                 AlvoDeConsulta::Classe(uri, classe) => (uri, classe),
             };
             if self.classe_em_embutida(&e.filhos, uri, classe, false) {
-                return Err(fora("@ContentChild do filho com resultado em visão embutida"));
+                return Err(fora(
+                    "@ContentChild do filho com resultado em visão embutida",
+                ));
             }
             let token = crate::diretivas::Token::Classe {
                 uri: uri.clone(),
@@ -4139,7 +4147,11 @@ impl Corpo<'_> {
             // Isolamento de estilo por atributo: o elemento entra
             // no escopo do componente (`shimCssForNode`: `addShimE` no nó
             // tipado `Element`, a tag que não é HTML).
-            let metodo = if tipo == "Element" { "addShimE" } else { "addShimC" };
+            let metodo = if tipo == "Element" {
+                "addShimE"
+            } else {
+                "addShimC"
+            };
             self.linhas.push(format!("    this.{metodo}({alvo});"));
         }
         let mut injetor = None;
@@ -4292,14 +4304,22 @@ impl Corpo<'_> {
                     )
                 }
                 (Criacao::Diretiva { diretiva, .. }, _) => {
-                    format!("{}{}", self.imp.q(&import_de(&diretiva.uri, &self.asset)), diretiva.classe)
+                    format!(
+                        "{}{}",
+                        self.imp.q(&import_de(&diretiva.uri, &self.asset)),
+                        diretiva.classe
+                    )
                 }
                 (Criacao::Lista(_), Token::Multi { tipo, .. }) if tipo.e_object() => {
                     format!("List<{}Object>", self.imp.q("dart:core"))
                 }
                 (Criacao::Lista(_), Token::Multi { tipo, .. }) if tipo.genericos > 0 => {
                     let args = vec!["dynamic"; tipo.genericos].join(", ");
-                    format!("List<{}{}<{args}>>", self.imp.q(&import_de(&tipo.uri, &self.asset)), tipo.classe)
+                    format!(
+                        "List<{}{}<{args}>>",
+                        self.imp.q(&import_de(&tipo.uri, &self.asset)),
+                        tipo.classe
+                    )
                 }
                 _ => return Err(recusa(Motivo::DiretivaPorSeletor, "provedor sem tipo")),
             };
@@ -4337,6 +4357,13 @@ impl Corpo<'_> {
                 Criacao::Lista(itens) => {
                     let itens: Vec<String> = itens.iter().map(|c| format!("this.{c}")).collect();
                     format!("[{}]", itens.join(", "))
+                }
+                // Só a visão-hospedeira cria provedores assim.
+                Criacao::Expressao(_) | Criacao::Multi(_) => {
+                    return Err(recusa(
+                        Motivo::DiretivaPorSeletor,
+                        "provedor que não é diretiva nem apelido no nó",
+                    ));
                 }
             };
             if inst.preguicosa {
@@ -4660,6 +4687,13 @@ fn metodo_injetor(injetores: &[NoInjetor], asset: &str) -> String {
                 ..tipo.clone()
             },
         },
+        Token::Opaco { nome, tipo } => Token::Opaco {
+            nome: nome.clone(),
+            tipo: crate::diretivas::TipoDeToken {
+                uri: import_de(&tipo.uri, asset),
+                ..tipo.clone()
+            },
+        },
         outro => outro.clone(),
     };
     let convertidos: Vec<NoInjetor> = injetores
@@ -4685,35 +4719,15 @@ fn metodo_injetor(injetores: &[NoInjetor], asset: &str) -> String {
         }
         pais.push(p);
     }
-    fn token(t: &Token) -> String {
-        match t {
-            Token::Classe { uri, classe } => format!("{}{classe}", tardio_q(uri)),
-            Token::Multi { nome, tipo } => {
-                let arg = if tipo.e_object() {
-                    format!("{}Object", tardio_q("dart:core"))
-                } else {
-                    let (uri, classe) = (&tipo.uri, &tipo.classe);
-                    let args = vec!["dynamic"; tipo.genericos].join(", ");
-                    format!("\u{1}k:{uri}#token|{uri}\u{2}{classe}<{args}>")
-                };
-                format!(
-                    "const {}MultiToken<{arg}>('{nome}')",
-                    tardio_q(crate::diretivas::DI_TOKENS)
-                )
-            }
-            Token::Elemento | Token::Detector => String::new(),
-        }
-    }
     fn tokens(ts: &[Token]) -> String {
         let partes: Vec<String> = ts
             .iter()
-            .map(|t| format!("identical(token, {})", token(t)))
+            .map(|t| format!("identical(token, {})", expr_do_token(t)))
             .collect();
-        if partes.len() == 1 {
-            partes[0].clone()
-        } else {
-            format!("({})", partes.join(" || "))
-        }
+        // `||` associa à esquerda: `((a || b) || c)`.
+        let mut it = partes.into_iter();
+        let primeiro = it.next().unwrap_or_default();
+        it.fold(primeiro, |acc, t| format!("({acc} || {t})"))
     }
     fn indice(ini: u32, fim: u32, baixo: i64, alto: i64) -> String {
         if ini == fim {
@@ -4777,6 +4791,36 @@ fn metodo_injetor(injetores: &[NoInjetor], asset: &str) -> String {
     )
 }
 
+/// A expressão de um token (`createDiTokenExpression`), com a URI já vista
+/// deste arquivo e o import tardio: a classe, ou o `const MultiToken<T>('x')`
+/// / `const OpaqueToken<T>('x')`. O `T` de `dart:core` sai sem prefixo; o de
+/// outra biblioteca ganha import próprio (ver [`Importacoes::q_chave`]).
+fn expr_do_token(t: &crate::diretivas::Token) -> String {
+    use crate::diretivas::Token;
+    let (classe_do_token, nome, tipo) = match t {
+        Token::Classe { uri, classe } => return format!("{}{classe}", tardio_q(uri)),
+        Token::Multi { nome, tipo } => ("MultiToken", nome, tipo),
+        Token::Opaco { nome, tipo } => ("OpaqueToken", nome, tipo),
+        Token::Elemento | Token::Detector => return String::new(),
+    };
+    let arg = if tipo.uri == "dart:core" {
+        format!("{}{}", tardio_q("dart:core"), tipo.classe)
+    } else {
+        let (uri, classe) = (&tipo.uri, &tipo.classe);
+        let args = if tipo.genericos > 0 {
+            format!("<{}>", vec!["dynamic"; tipo.genericos].join(", "))
+        } else {
+            String::new()
+        };
+        format!("\u{1}k:{uri}#token|{uri}\u{2}{classe}{args}")
+    };
+    format!(
+        "const {}{classe_do_token}<{arg}>({})",
+        tardio_q(crate::diretivas::DI_TOKENS),
+        literal(nome)
+    )
+}
+
 /// O que gera campo na classe da visão, na ordem em que aparece.
 enum CampoDaVisao<'a> {
     Filho(&'a Filho),
@@ -4836,7 +4880,10 @@ fn campos_em_ordem<'a>(
             }
         } else {
             let casadas = diretivas_casadas(usadas, e);
-            if let (false, Ok(r)) = (casadas.is_empty(), crate::diretivas::resolver(&casadas, 0, None)) {
+            if let (false, Ok(r)) = (
+                casadas.is_empty(),
+                crate::diretivas::resolver(&casadas, 0, None),
+            ) {
                 let uris = r
                     .instancias
                     .iter()
@@ -5259,7 +5306,10 @@ fn corpo_da_embutida(
         )
     };
     // O `injectorGetInternal` vem depois do `build()` e antes da detecção.
-    let injetor = resolver_tardios(dentro.imp, &metodo_injetor(&dentro.injetores, &dentro.asset));
+    let injetor = resolver_tardios(
+        dentro.imp,
+        &metodo_injetor(&dentro.injetores, &dentro.asset),
+    );
     let deteccao = resolver_refs(
         &resolver_tardios(dentro.imp, &deteccao),
         &ctx.refs_resolvidos.borrow(),
@@ -5293,7 +5343,12 @@ fn corpo_da_embutida(
     let metodos: String = dentro
         .metodos_evento
         .iter()
-        .map(|m| resolver_refs(&resolver_tardios(dentro.imp, m), &ctx.refs_resolvidos.borrow()))
+        .map(|m| {
+            resolver_refs(
+                &resolver_tardios(dentro.imp, m),
+                &ctx.refs_resolvidos.borrow(),
+            )
+        })
         .collect();
     // As raízes (`rootNodesOrViewContainers`): cada nó criado sem pai, o
     // local ou o campo (`renderNode.toReadExpr()`) — mais de uma quando o
@@ -6138,6 +6193,30 @@ fn gerar_componente(
     if let Some(r) = falta_para_construir(c, local, resolvedor) {
         anotar(coleta, r)?;
     }
+    // `providers:` do componente: a visão-hospedeira os cria.
+    let no_hospedeiro = if c.com_provedores {
+        match provedores_da_hospedeira(local) {
+            Ok(r) => Some(r),
+            Err(r) => {
+                anotar(coleta, r)?;
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let tokens_do_no: Vec<crate::diretivas::Token> = no_hospedeiro
+        .iter()
+        .flat_map(|r| &r.instancias)
+        .flat_map(|i| std::iter::once(i.token.clone()).chain(i.apelidos.iter().cloned()))
+        .collect();
+    let consultas_hosp = match consultas_da_hospedeira(c, local, resolvedor, &tokens_do_no) {
+        Ok(s) => s,
+        Err(r) => {
+            anotar(coleta, r)?;
+            String::new()
+        }
+    };
 
     let mut imp = Importacoes::default();
     // A folha compilada é o primeiro import do arquivo, antes de tudo.
@@ -6592,7 +6671,12 @@ fn gerar_componente(
     let metodos: String = corpo
         .metodos_evento
         .iter()
-        .map(|m| resolver_refs(&resolver_tardios(corpo.imp, m), &ctx.refs_resolvidos.borrow()))
+        .map(|m| {
+            resolver_refs(
+                &resolver_tardios(corpo.imp, m),
+                &ctx.refs_resolvidos.borrow(),
+            )
+        })
         .collect();
     // O `detectHostChanges` vem depois dos handlers (`view.methods`).
     let metodos = metodos + &resolver_tardios(corpo.imp, &host_changes);
@@ -6609,20 +6693,52 @@ fn gerar_componente(
         embutidas.push_str(&emitir_embutida(espec, &ctx, &mut imp, nomes, coleta)?);
     }
     let hosp = imp.alias(HOST_VIEW);
-    let construcao = match construcao_do_componente(c, local, resolvedor, &mut imp, &proprio, &util)
-    {
-        Some(x) => x,
-        None => {
-            // Na coleta a recusa já veio de `falta_para_construir`.
-            if coleta.is_none() {
-                return Err(recusa(
-                    Motivo::InjecaoNaoResolvida,
-                    "construção do componente",
-                ));
+    // Os provedores: campos, instruções antes do componente e o
+    // `injectorGetInternal`, com os imports na ordem em que são escritos.
+    let asset_local = local.asset();
+    let provedores = match &no_hospedeiro {
+        Some(r) => match escrever_provedores_da_hospedeira(r, &asset_local, &util) {
+            Ok(p) => Some(p),
+            Err(r) => {
+                if coleta.is_none() {
+                    return Err(r);
+                }
+                None
             }
-            String::new()
-        }
+        },
+        None => None,
     };
+    let campos_hosp = provedores
+        .as_ref()
+        .map(|p| resolver_tardios(&mut imp, &p.campos))
+        .unwrap_or_default();
+    let antes_do_componente = provedores
+        .as_ref()
+        .map(|p| resolver_tardios(&mut imp, &p.antes_do_componente))
+        .unwrap_or_default();
+    let locais: Vec<(crate::diretivas::Token, String)> = no_hospedeiro
+        .iter()
+        .flat_map(|r| &r.instancias)
+        .flat_map(|i| {
+            std::iter::once(i.token.clone())
+                .chain(i.apelidos.iter().cloned())
+                .map(|t| (t, i.leitura.clone()))
+        })
+        .collect();
+    let construcao =
+        match construcao_do_componente(c, local, resolvedor, &mut imp, &proprio, &util, &locais) {
+            Some(x) => x,
+            None => {
+                // Na coleta a recusa já veio de `falta_para_construir`.
+                if coleta.is_none() {
+                    return Err(recusa(
+                        Motivo::InjecaoNaoResolvida,
+                        "construção do componente",
+                    ));
+                }
+                String::new()
+            }
+        };
     // Os ganchos de ciclo de vida saem na visão-hospedeira, depois do
     // `build()`, e o `check_binding.dart` entra aí.
     // `onPush` com `@Input`: a hospedeira marca a checagem
@@ -6635,6 +6751,13 @@ fn gerar_componente(
             return Err(r);
         }
     }
+    let injetor_hosp = match &provedores {
+        Some(p) if !p.injetaveis.is_empty() => resolver_tardios(
+            &mut imp,
+            &metodo_injetor(&[(0, 0, p.injetaveis.clone())], &asset_local),
+        ),
+        _ => String::new(),
+    };
     let mut ciclo = resolver_tardios(&mut imp, &ciclo_de_vida(&c.ganchos, marca));
     // Com `@HostBinding`, a hospedeira chama o `detectHostChanges` antes de
     // detectar a visão do componente. Junto de ganchos de ciclo de vida,
@@ -6652,6 +6775,11 @@ fn gerar_componente(
 
     let x = &c.classe;
     let seletor = &c.seletor;
+    // `_tagNameFromComponentSelector`: o primeiro seletor com elemento.
+    let tag = crate::seletor::Seletor::analisar(seletor)
+        .into_iter()
+        .find_map(|s| s.elemento)
+        .unwrap_or_else(|| seletor.trim().to_string());
     // `_getChangeDetectionCheckMode`: componente `onPush` começa em
     // `checkOnce`.
     let estado = if c.on_push {
@@ -6679,7 +6807,7 @@ class View{x}0 extends {vista}.ComponentView<{proprio}.{x}> {{
 {campos}  static {estilos}.ComponentStyles? _componentStyles;
   View{x}0({view}.View parentView, int parentIndex) : super(parentView, parentIndex, {cd}.ChangeDetectionCheckedState.{estado}) {{
     this.initComponentStyles();
-    this.rootElement = {util}.unsafeCast({html}.document.createElement('{seletor}'));
+    this.rootElement = {util}.unsafeCast({html}.document.createElement('{tag}'));
   }}
   static String? get _debugComponentUrl {{
     return ({util}.isDevMode ? '{asset}' : null);
@@ -6718,14 +6846,14 @@ ComponentFactory<{proprio}.{x}> create{x}Factory() {{
 final List<Object> styles${x}Host = const [];
 
 class _View{x}Host0 extends {hosp}.HostView<{proprio}.{x}> {{
-  @override
+{campos_hosp}  @override
   void build() {{
     this.componentView = View{x}0(this, 0);
     final _el_0 = this.componentView.rootElement;
-    this.component = {construcao}
-    this.initRootNode(_el_0);
+{antes_do_componente}    this.component = {construcao}
+{consultas_hosp}    this.initRootNode(_el_0);
   }}
-{ciclo}}}
+{injetor_hosp}{ciclo}}}
 
 {hosp}.HostView<{proprio}.{x}> viewFactory_{x}Host0() {{
   return _View{x}Host0();
@@ -6737,6 +6865,343 @@ class _View{x}Host0 extends {hosp}.HostView<{proprio}.{x}> {{
     let s = resolver_refs(&s, &ctx.refs_resolvidos.borrow());
     if s.contains(MARCA_DE_REF) && coleta.is_none() {
         return Err(recusa(Motivo::Ligacao, "#ref sem nó no template"));
+    }
+    Ok(s)
+}
+
+/// Os provedores da visão-hospedeira: o nó 0, com o componente e os
+/// `providers:` dele (`ProviderElementContext` do elemento hospedeiro).
+/// Recusa o que o emissor ainda não escreve.
+fn provedores_da_hospedeira(local: &Local) -> Result<crate::diretivas::NoResolvido, Recusa> {
+    use crate::diretivas::{Criacao, Expr, TipoDeToken, Token};
+    let prov = |f: &str| recusa(Motivo::Providers, format!("providers: {f}"));
+    let meta = local
+        .metadados
+        .clone()
+        .ok_or_else(|| prov("sem os metadados do programa"))?;
+    if let Some(f) = meta.fora.first() {
+        return Err(prov(f));
+    }
+    // O `T` de um token de fora do `dart:core` e sem argumentos de tipo
+    // ganharia outro import: ainda sem caso.
+    let tipo_conhecido = |t: &TipoDeToken| t.uri == "dart:core" || t.genericos > 0;
+    let token_conhecido = |t: &Token| match t {
+        Token::Multi { tipo, .. } => tipo_conhecido(tipo),
+        // `OpaqueToken<T>` genérico: ainda sem caso.
+        Token::Opaco { tipo, .. } => tipo.uri == "dart:core",
+        _ => true,
+    };
+    for p in &meta.provedores {
+        let alvo = match &p.fonte {
+            crate::diretivas::Fornece::Existente(t) => Some(t),
+            _ => None,
+        };
+        if !token_conhecido(&p.token) || alvo.is_some_and(|t| !token_conhecido(t)) {
+            return Err(prov("token de tipo fora do dart:core"));
+        }
+        // O campo tipado pelo `T` com argumentos só tem caso no multi.
+        if !p.multi && p.tipo.as_ref().is_some_and(|t| t.genericos > 0) {
+            return Err(prov("tipo de provedor com argumentos"));
+        }
+    }
+    let r = crate::diretivas::resolver_hospedeira(meta).map_err(prov)?;
+    // O componente é o último ansioso: os que ele pede vêm antes, e nada
+    // depois dele é criado no `build()` (consulta de conteúdo que acha um
+    // provedor o tornaria ansioso: recusada à parte).
+    let ultimo_ansioso = r.instancias.iter().rposition(|i| !i.preguicosa);
+    if ultimo_ansioso.map(|k| r.instancias[k].campo.as_str()) != Some("component") {
+        return Err(prov("provedor ansioso depois do componente"));
+    }
+    for i in &r.instancias {
+        if let Criacao::Multi(itens) = &i.criacao
+            && itens.iter().any(Expr::dinamica)
+        {
+            return Err(prov("item de multi-provedor com dependência de fora"));
+        }
+    }
+    Ok(r)
+}
+
+/// O tipo de um `T` inferido (`o.importType`): o do `dart:core` sem prefixo,
+/// com o import dele contado.
+fn texto_do_tipo(t: &crate::diretivas::TipoDeToken, asset: &str) -> String {
+    let args = if t.genericos > 0 {
+        format!("<{}>", vec!["dynamic"; t.genericos].join(", "))
+    } else {
+        String::new()
+    };
+    let uri = if t.uri == "dart:core" {
+        t.uri.clone()
+    } else {
+        import_de(&t.uri, asset)
+    };
+    format!("{}{}{args}", tardio_q(&uri), t.classe)
+}
+
+/// O token de um provedor visto deste arquivo, pronto para [`expr_do_token`].
+fn token_local(t: &crate::diretivas::Token, asset: &str) -> crate::diretivas::Token {
+    use crate::diretivas::{TipoDeToken, Token};
+    let tipo = |x: &TipoDeToken| TipoDeToken {
+        uri: import_de(&x.uri, asset),
+        ..x.clone()
+    };
+    match t {
+        Token::Classe { uri, classe } => Token::Classe {
+            uri: import_de(uri, asset),
+            classe: classe.clone(),
+        },
+        Token::Multi { nome, tipo: x } => Token::Multi {
+            nome: nome.clone(),
+            tipo: tipo(x),
+        },
+        Token::Opaco { nome, tipo: x } => Token::Opaco {
+            nome: nome.clone(),
+            tipo: tipo(x),
+        },
+        outro => outro.clone(),
+    }
+}
+
+/// Um `useValue:` como o emissor o escreve.
+fn texto_do_valor(v: &crate::diretivas::ValorConst, asset: &str) -> String {
+    use crate::diretivas::ValorConst;
+    match v {
+        ValorConst::Texto(s) => literal(s),
+        ValorConst::Inteiro(i) => i.to_string(),
+        ValorConst::Booleano(b) => b.to_string(),
+        ValorConst::Objeto {
+            uri,
+            classe,
+            construtor,
+            posicionais,
+            nomeados,
+        } => {
+            let mut args: Vec<String> = posicionais
+                .iter()
+                .map(|x| texto_do_valor(x, asset))
+                .collect();
+            args.extend(
+                nomeados
+                    .iter()
+                    .map(|(n, x)| format!("{n}: {}", texto_do_valor(x, asset))),
+            );
+            let ctor = construtor
+                .as_ref()
+                .map(|c| format!(".{c}"))
+                .unwrap_or_default();
+            format!(
+                "const {}{classe}{ctor}({})",
+                tardio_q(&import_de(uri, asset)),
+                args.join(", ")
+            )
+        }
+    }
+}
+
+/// O valor de um provedor da hospedeira (`ProviderSource.build`). Com
+/// dependência do injetor, a criação vai embrulhada em `debugInjectorWrap`
+/// sob `isDevMode` (`recuo`: a coluna da instrução ou do campo).
+fn texto_da_expr(
+    e: &crate::diretivas::Expr,
+    token: &crate::diretivas::Token,
+    asset: &str,
+    util: &str,
+    recuo: usize,
+) -> String {
+    use crate::diretivas::Expr;
+    let simples = |e: &Expr| -> String {
+        let args = |a: &[Expr]| -> String {
+            a.iter()
+                .map(|x| texto_da_expr(x, token, asset, util, recuo))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        match e {
+            Expr::Campo(c) => format!("this.{c}"),
+            Expr::Injetor { token, opcional } => format!(
+                "this.{}({}, this.parentIndex)",
+                if *opcional {
+                    "injectorGetOptional"
+                } else {
+                    "injectorGet"
+                },
+                expr_do_token(&token_local(token, asset))
+            ),
+            Expr::Classe {
+                uri,
+                classe,
+                args: a,
+            } => {
+                format!("{}{classe}({})", tardio_q(&import_de(uri, asset)), args(a))
+            }
+            Expr::Fabrica { uri, nome, args: a } => {
+                format!("{}{nome}({})", tardio_q(&import_de(uri, asset)), args(a))
+            }
+            Expr::Valor(v) => texto_do_valor(v, asset),
+        }
+    };
+    let x = simples(e);
+    if !e.dinamica() {
+        return x;
+    }
+    let (a, b, c) = (
+        " ".repeat(recuo + 4),
+        " ".repeat(recuo + 8),
+        " ".repeat(recuo + 6),
+    );
+    format!(
+        "({util}.isDevMode\n{a}? {}.debugInjectorWrap({}, () {{\n{b}return {x};\n{c}}})\n{a}: {x})",
+        tardio(DI_ERRORS),
+        expr_do_token(&token_local(token, asset))
+    )
+}
+
+/// O tipo do campo de um provedor da hospedeira (`createProvider`): o `T`
+/// inferido; sem ele, o tipo da expressão (`dynamic` quando ela não tem).
+fn tipo_do_provedor(i: &crate::diretivas::Instancia, asset: &str) -> Result<String, Recusa> {
+    use crate::diretivas::{Criacao, Expr, ValorConst};
+    if let Criacao::Multi(_) = &i.criacao {
+        return Ok(match &i.tipo {
+            Some(t) => format!("List<{}>", texto_do_tipo(t, asset)),
+            None => "List<dynamic>".to_string(),
+        });
+    }
+    if let Some(t) = &i.tipo {
+        return Ok(texto_do_tipo(t, asset));
+    }
+    let Criacao::Expressao(e) = &i.criacao else {
+        return Err(recusa(
+            Motivo::Providers,
+            "providers: provedor sem expressão",
+        ));
+    };
+    Ok(match e {
+        Expr::Classe { uri, classe, .. } if !e.dinamica() => {
+            format!("{}{classe}", tardio_q(&import_de(uri, asset)))
+        }
+        Expr::Valor(ValorConst::Texto(_)) => "String".into(),
+        Expr::Valor(ValorConst::Inteiro(_)) => "int".into(),
+        Expr::Valor(ValorConst::Booleano(_)) => "bool".into(),
+        Expr::Valor(ValorConst::Objeto { uri, classe, .. }) => {
+            format!("{}{classe}", tardio_q(&import_de(uri, asset)))
+        }
+        Expr::Classe { .. } | Expr::Fabrica { .. } | Expr::Injetor { .. } => "dynamic".into(),
+        Expr::Campo(_) => {
+            return Err(recusa(
+                Motivo::Providers,
+                "providers: provedor que lê outro campo",
+            ));
+        }
+    })
+}
+
+/// O que os provedores põem na hospedeira: os campos (os preguiçosos, com
+/// inicializador, antes — `visitDeclareClassStmt` agrupa assim), as
+/// instruções do `build()` antes do componente, e os injetáveis do
+/// `injectorGetInternal`. Tudo com imports tardios, na ordem do texto.
+struct ProvedoresNaHospedeira {
+    campos: String,
+    antes_do_componente: String,
+    injetaveis: Vec<(Vec<crate::diretivas::Token>, String)>,
+}
+
+fn escrever_provedores_da_hospedeira(
+    r: &crate::diretivas::NoResolvido,
+    asset: &str,
+    util: &str,
+) -> Result<ProvedoresNaHospedeira, Recusa> {
+    use crate::diretivas::Criacao;
+    let mut preguicosos = Vec::new();
+    let mut ansiosos = Vec::new();
+    let mut antes = String::new();
+    for i in &r.instancias {
+        if i.campo == "component" {
+            continue;
+        }
+        let tipo = tipo_do_provedor(i, asset)?;
+        let valor = |recuo: usize| match &i.criacao {
+            Criacao::Expressao(e) => texto_da_expr(e, &i.token, asset, util, recuo),
+            Criacao::Multi(itens) => format!(
+                "[{}]",
+                itens
+                    .iter()
+                    .map(|x| texto_da_expr(x, &i.token, asset, util, recuo))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            _ => String::new(),
+        };
+        if i.preguicosa {
+            preguicosos.push(format!("  late {tipo} {} = {};\n", i.campo, valor(2)));
+        } else {
+            ansiosos.push(format!("  late final {tipo} {};\n", i.campo));
+            let _ = writeln!(antes, "    this.{} = {};", i.campo, valor(4));
+        }
+    }
+    let injetaveis = r
+        .instancias
+        .iter()
+        .filter(|i| !i.injetavel_por.is_empty())
+        .map(|i| {
+            (
+                i.injetavel_por
+                    .iter()
+                    .map(|t| token_local(t, asset))
+                    .collect(),
+                i.leitura.clone(),
+            )
+        })
+        .collect();
+    preguicosos.extend(ansiosos);
+    Ok(ProvedoresNaHospedeira {
+        campos: preguicosos.concat(),
+        antes_do_componente: antes,
+        injetaveis,
+    })
+}
+
+/// `@ContentChildren` do próprio componente na hospedeira: sem conteúdo, a
+/// lista recebe `[]` logo depois da construção (`updateQueryAtStartup`), na
+/// ordem das consultas; o `@ContentChild` único não recebe nada. Uma
+/// consulta que acharia o próprio nó (o componente, um provedor dele ou um
+/// tipo do ngdart) é recusada.
+fn consultas_da_hospedeira(
+    c: &Componente,
+    local: &Local,
+    resolvedor: Option<&dyn Resolucao>,
+    tokens: &[crate::diretivas::Token],
+) -> Result<String, Recusa> {
+    let Some(consultas) = &c.consultas_de_conteudo else {
+        return Ok(String::new());
+    };
+    let mut s = String::new();
+    for q in consultas {
+        if !q.referencia {
+            let uri = resolvedor
+                .and_then(|r| r.uri_do_tipo(local.caminho, &q.alvo))
+                .ok_or_else(|| {
+                    recusa(Motivo::ContentChild, "@ContentChild de tipo não resolvido")
+                })?;
+            let simples = q.alvo.rsplit('.').next().unwrap_or(&q.alvo).to_string();
+            let token = crate::diretivas::Token::Classe {
+                uri: uri.clone(),
+                classe: simples.clone(),
+            };
+            let proprio = import_de(&uri, &local.asset()) == local.arquivo && simples == c.classe;
+            if proprio
+                || tokens.contains(&token)
+                || uri.starts_with("package:ngdart/")
+                || uri.starts_with("dart:")
+            {
+                return Err(recusa(
+                    Motivo::ContentChild,
+                    "@ContentChild que acharia o próprio nó",
+                ));
+            }
+        }
+        if q.lista {
+            let _ = writeln!(s, "    this.component.{} = [];", q.campo);
+        }
     }
     Ok(s)
 }
@@ -6759,12 +7224,27 @@ fn construcao_do_componente(
     imp: &mut Importacoes,
     proprio: &str,
     util: &str,
+    locais: &[(crate::diretivas::Token, String)],
 ) -> Option<String> {
     let x = &c.classe;
-    let injeta = c
-        .parametros
-        .iter()
-        .any(|p| !e_elemento(p.tipo.as_deref()) && !e_detector(p, local, resolvedor));
+    // Um parâmetro que um provedor do próprio nó satisfaz lê o campo dele
+    // (`this._Servico_0_5`) e não conta como injeção.
+    let do_no = |p: &crate::componente::Parametro| -> Option<String> {
+        let tipo = p.tipo.as_deref()?.trim_end_matches('?');
+        let simples = tipo.rsplit('.').next()?;
+        let uri = resolvedor?.uri_do_tipo(local.caminho, tipo)?;
+        let token = crate::diretivas::Token::Classe {
+            uri,
+            classe: simples.to_string(),
+        };
+        locais
+            .iter()
+            .find(|(t, _)| *t == token)
+            .map(|(_, c)| format!("this.{c}"))
+    };
+    let injeta = c.parametros.iter().any(|p| {
+        !e_elemento(p.tipo.as_deref()) && !e_detector(p, local, resolvedor) && do_no(p).is_none()
+    });
     // O `errors.dart` entra antes dos tipos injetados, como no oficial.
     let erros = injeta.then(|| imp.alias(DI_ERRORS));
     let mut args = Vec::new();
@@ -6776,6 +7256,12 @@ fn construcao_do_componente(
         // `ChangeDetectorRef`: a visão do componente.
         if e_detector(p, local, resolvedor) {
             args.push("this.componentView".to_string());
+            continue;
+        }
+        if !p.nomeado
+            && let Some(campo) = do_no(p)
+        {
+            args.push(campo);
             continue;
         }
         if (p.anotado && !p.opcional) || p.nomeado {
@@ -6898,6 +7384,7 @@ mod testes {
             caminho: Path::new("x.dart"),
             raiz: Path::new(""),
             url_do_template: None,
+            metadados: None,
         }
     }
 
@@ -6978,6 +7465,7 @@ mod testes {
             caminho: Path::new("callback_component.dart"),
             raiz: Path::new(""),
             url_do_template: None,
+            metadados: None,
         };
         let nos = crate::html::analisar("<div>Processando login...</div>");
         let saida = template_de_componente(
@@ -7086,6 +7574,7 @@ mod testes {
             caminho: Path::new("callback_component.dart"),
             raiz: Path::new(""),
             url_do_template: None,
+            metadados: None,
         };
         let tabela = Tabela(&[
             (

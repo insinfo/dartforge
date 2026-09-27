@@ -221,6 +221,8 @@ pub struct ConsultaDeConteudo {
     /// `descendants:` — sem ele, só casa o conteúdo a uma diretiva de
     /// distância (`_getQueriesFor`).
     pub descendentes: bool,
+    /// `read:` — o valor lido é outro token do nó achado.
+    pub leitura: bool,
 }
 
 /// Um `@HostListener` do componente: o evento e o texto do handler que o
@@ -512,6 +514,10 @@ fn ler(
             ligacoes_do_hospedeiro(arvore, interner, classe, &mut c.nao_entendidos);
     }
     c.consultas_de_conteudo = consultas_de_conteudo(arvore, interner, classe);
+    if e_componente && c.consulta_conteudo && c.consultas_de_conteudo.is_none() {
+        c.nao_entendidos
+            .push(recusa(Motivo::ContentChild, "@ContentChild fora da forma"));
+    }
     c
 }
 
@@ -545,8 +551,9 @@ fn consultas_de_conteudo(
                 ),
             };
             // `ContentChildren(descendants: true)` por omissão no ngdart 8;
-            // `ContentChild` sempre. `read:` troca o valor: ainda não.
+            // `ContentChild` sempre. `read:` troca o valor lido.
             let mut descendentes = true;
+            let mut leitura = false;
             for x in a.arguments.as_ref().map(|g| &g.args[..]).unwrap_or(&[]) {
                 match x.name.map(|n| interner.resolve(n.sym)) {
                     None => {}
@@ -554,6 +561,7 @@ fn consultas_de_conteudo(
                         ast::ExprKind::Bool(b) => descendentes = *b,
                         _ => return None,
                     },
+                    Some("read") => leitura = true,
                     _ => return None,
                 }
             }
@@ -565,6 +573,7 @@ fn consultas_de_conteudo(
                         alvo,
                         referencia,
                         descendentes,
+                        leitura,
                     });
                 }
                 ast::MemberKind::Method(f) => {
@@ -577,6 +586,7 @@ fn consultas_de_conteudo(
                                 alvo,
                                 referencia,
                                 descendentes,
+                                leitura,
                             })
                         }
                         _ => return None,
@@ -681,6 +691,9 @@ fn o_que_nao_entendemos(
                 // A lista vazia não muda a visão (caso b18 do corpus) — e é
                 // 57 dos 70 `providers:` do new_sali.
                 "providers" if lista_vazia(arvore, a.value) => {}
+                // Os do componente vão para a visão-hospedeira, que os
+                // resolve pelos metadados lidos do programa (`visao.rs`).
+                "providers" if e_componente => {}
                 "providers" => fora.push(recusa(
                     Motivo::Providers,
                     format!("{anot}(.., providers: [..])"),
@@ -701,7 +714,9 @@ fn o_que_nao_entendemos(
             let nome = crate::nome_da_anotacao(a, interner);
             let motivo = match nome.as_str() {
                 "HostBinding" if !e_componente => Motivo::HostBindingEmComponente,
-                "ContentChild" | "ContentChildren" => Motivo::ContentChild,
+                // No componente, a hospedeira atribui o resultado vazio (ver
+                // [`consultas_de_conteudo`]).
+                "ContentChild" | "ContentChildren" if !e_componente => Motivo::ContentChild,
                 _ => continue,
             };
             fora.push(recusa(motivo, format!("@{nome}")));

@@ -18,8 +18,7 @@ use std::path::{Path, PathBuf};
 /// Os nomes em `dependencies:` do `pubspec.yaml` do corpus (o bloco de
 /// primeiro nível, um pacote por linha com dois espaços).
 fn dependencias_do_pubspec(raiz: &Path) -> Vec<String> {
-    let texto =
-        std::fs::read_to_string(raiz.join("pubspec.yaml")).expect("pubspec.yaml do corpus");
+    let texto = std::fs::read_to_string(raiz.join("pubspec.yaml")).expect("pubspec.yaml do corpus");
     let mut dentro = false;
     let mut saida = Vec::new();
     for linha in texto.lines() {
@@ -38,7 +37,10 @@ fn dependencias_do_pubspec(raiz: &Path) -> Vec<String> {
             saida.push(nome.trim().to_string());
         }
     }
-    assert!(!saida.is_empty(), "pubspec.yaml do corpus sem dependencies:");
+    assert!(
+        !saida.is_empty(),
+        "pubspec.yaml do corpus sem dependencies:"
+    );
     saida
 }
 
@@ -49,17 +51,23 @@ fn raiz_do_corpus() -> PathBuf {
 
 /// Casos do corpus que o gerador tem de recusar, com a sub-forma da recusa.
 /// (O g02, `<select>` com `<option>`, saiu daqui na rodada 3: o
-/// `NgSelectOption` é instanciado com o `@Host` do acessor do `<select>`.)
+/// `NgSelectOption` é instanciado com o `@Host` do acessor do `<select>`.
+/// O b02, o h02 e o i19 — `providers:` no componente — e o d09 e o h01 —
+/// `@ContentChild(ren)` no componente — saíram quando a hospedeira passou a
+/// escrever os provedores e o resultado vazio das consultas.)
 /// São as formas ainda sem tradução (docs/GERADOR-NG.md §9): gerar
 /// qualquer uma ignorando o que falta daria saída errada.
 const RECUSADOS: &[(&str, &str)] = &[
-    ("b02_providers.dart", "@Component(.., providers: [..])"),
-    ("h02_campo.dart", "@Component(.., providers: [..])"),
-    ("i19_providers_classe.dart", "@Component(.., providers: [..])"),
-    ("b06_encapsulation.dart", "@Component(.., encapsulation: ..)"),
-    ("d09_projecao_select.dart", "@ContentChild"),
-    ("h01_cabecalho.dart", "@ContentChildren"),
+    (
+        "b06_encapsulation.dart",
+        "@Component(.., encapsulation: ..)",
+    ),
     ("i24_two_way_filho.dart", "vários componentes no arquivo"),
+    // Filho com `providers:` de classe: os provedores entram no nó de quem
+    // o usa — a hospedeira do próprio filho já os escreve, o nó de
+    // template ainda não.
+    ("i72_usa_provider.dart", "filho com providers"),
+    ("i73_usa_consulta_read.dart", "filho com @ContentChild(.., read:)"),
     ("i30_template_outlet.dart", "<template> escrito no template"),
 ];
 
