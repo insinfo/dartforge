@@ -317,6 +317,41 @@ fn referencias_livres(nos: &[No]) -> std::collections::HashSet<String> {
         .collect()
 }
 
+/// Os `#ref` de uma visão embutida que são só um nome para o nó: sem valor,
+/// declarados nela, não lidos por nenhuma expressão do escopo dela
+/// ([`citado_no_escopo`]) e sem consulta que os procure — o oficial cria o
+/// elemento como se o `#ref` não existisse.
+fn referencias_livres_da_visao(
+    nos: &[No],
+    filhos: &std::collections::HashMap<String, Filho>,
+    consultados: &std::collections::HashSet<String>,
+) -> std::collections::HashSet<String> {
+    let mut proprios = Vec::new();
+    fn andar(nos: &[No], saida: &mut Vec<(String, String)>) {
+        for n in nos {
+            if let No::Elemento(e) = n {
+                // O que está num `*` (ou num `<template>`) é de outra visão.
+                if e.estrela.is_some() {
+                    if e.estrela.as_ref().is_some_and(|l| l.nome == MARCA_DE_MOLDE) {
+                        saida.extend(e.referencias.iter().map(|r| (r.nome.clone(), r.valor.clone())));
+                    }
+                    continue;
+                }
+                saida.extend(e.referencias.iter().map(|r| (r.nome.clone(), r.valor.clone())));
+                andar(&e.filhos, saida);
+            }
+        }
+    }
+    andar(nos, &mut proprios);
+    proprios
+        .into_iter()
+        .filter(|(nome, valor)| {
+            valor.is_empty() && !consultados.contains(nome) && !citado_no_escopo(nos, nome, filhos)
+        })
+        .map(|(nome, _)| nome)
+        .collect()
+}
+
 /// Os metadados de uma mensagem `@i18n` (`I18nMetadata`), com os valores
 /// já normalizados (`_normalizeWhitespace`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -510,66 +545,173 @@ fn mensagem_com_html(
 const MARCA_DE_REF: char = '\u{5}';
 const FIM_DE_REF: char = '\u{6}';
 
-/// Os nomes de `#ref` do template que podem virar local: sem valor,
-/// declarados uma vez só, sem membro do componente com o mesmo nome (o
-/// `_TypeResolver` do oficial tiparia a leitura pelo membro) e sem `let`
-/// que o sombreie.
-fn referencias_unicas(nos: &[No], c: &Componente) -> std::collections::HashSet<String> {
-    fn todas(nos: &[No], refs: &mut Vec<(String, String)>, lets: &mut Vec<String>) {
+/// Os nomes de `#ref` do template que podem virar local de alguma visão:
+/// sem membro do componente com o mesmo nome (o `_TypeResolver` do oficial
+/// tiparia a leitura pelo membro). A unicidade e o sombreamento por `let`
+/// são de cada visão ([`referencias_locais`]).
+fn referencias_candidatas(nos: &[No], c: &Componente) -> std::collections::HashSet<String> {
+    fn todas(nos: &[No], refs: &mut Vec<String>) {
         for n in nos {
             if let No::Elemento(e) = n {
-                refs.extend(
-                    e.referencias
-                        .iter()
-                        .map(|r| (r.nome.clone(), r.valor.clone())),
-                );
-                if let Some(estrela) = &e.estrela {
-                    let micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
-                    lets.extend(micro.locais.into_iter().map(|(nome, _)| nome));
-                }
-                todas(&e.filhos, refs, lets);
+                refs.extend(e.referencias.iter().map(|r| r.nome.clone()));
+                todas(&e.filhos, refs);
             }
         }
     }
-    let (mut refs, mut lets) = (Vec::new(), Vec::new());
-    todas(nos, &mut refs, &mut lets);
-    refs.iter()
-        .filter(|(nome, _)| {
-            refs.iter().filter(|(n, _)| n == nome).count() == 1
-                && !lets.contains(nome)
-                && !c.membros.contains_key(nome.as_str())
-                && !c.metodos.contains_key(nome.as_str())
-        })
-        .map(|(nome, _)| nome.clone())
+    let mut refs = Vec::new();
+    todas(nos, &mut refs);
+    refs.into_iter()
+        .filter(|nome| !c.membros.contains_key(nome.as_str()) && !c.metodos.contains_key(nome.as_str()))
         .collect()
 }
 
-/// Os `#ref` (de `unicos`) que viram local desta visão: declarados num
-/// elemento HTML ou de componente filho dela (não dentro de outro `*`, não
-/// no conteúdo de um filho) — o nó ou a instância do filho — e lidos por
-/// alguma expressão dela ou das visões embutidas nela.
+/// Os `#ref` (de `candidatos`) que viram local desta visão: declarados uma
+/// vez só num elemento HTML ou de componente filho dela (não no conteúdo de
+/// um filho; os de visões embutidas nela são delas), sem um `let` desta
+/// visão com o mesmo nome — o nó ou a instância do filho — e lidos por
+/// alguma expressão dela ou das visões embutidas em que o nome não é
+/// sombreado.
 ///
-/// É o `nameResolver.addLocal(nome, renderNode)` do `CompileElement`: quem
+/// É o `nameResolver.addLocal(nome, renderNode)` do `CompileElement`: cada
+/// visão tem o seu resolvedor, filho do da visão de fora, e o nome mais
+/// próximo vence (`let` e `#ref` da visão embutida escondem o de fora). Quem
 /// lê o local fora do `build()` (detecção, handler, outra visão) promove o
 /// nó a campo (`NodeReferenceStorageVisitor`), e o tipo da leitura é
 /// `dynamic` (a referência não entra nos `locals` do `AnalyzedClass`).
 fn referencias_locais(
     nos: &[No],
     filhos: &std::collections::HashMap<String, Filho>,
-    unicos: &std::collections::HashSet<String>,
+    candidatos: &std::collections::HashSet<String>,
+    lets: &[String],
 ) -> std::collections::HashSet<String> {
-    unicos
+    candidatos
         .iter()
         .filter(|nome| {
             let mut lugares = Vec::new();
             onde_esta(nos, nome, filhos, false, &mut lugares);
+            let proprios: Vec<&Lugar> = lugares.iter().filter(|l| **l != Lugar::Embutida).collect();
             matches!(
-                lugares.as_slice(),
+                proprios.as_slice(),
                 [Lugar::Raiz | Lugar::NoFilho | Lugar::Projetado | Lugar::NoFilhoProjetado]
-            ) && local_citado(nos, nome)
+            ) && !lets.contains(nome)
+                && citado_no_escopo(nos, nome, filhos)
         })
         .cloned()
         .collect()
+}
+
+/// `nome` é lido por alguma expressão desta visão ou de uma embutida nela
+/// que não o sombreie (um `let` dela, ou um `#ref` declarado nela). As
+/// ligações do `*` são avaliadas na visão de fora; os `let` dele, não são
+/// leituras.
+fn citado_no_escopo(nos: &[No], nome: &str, filhos: &std::collections::HashMap<String, Filho>) -> bool {
+    let cita = |texto: &str| cita_na_raiz(texto, nome);
+    nos.iter().any(|n| match n {
+        No::Interpolacao { expr, .. } => cita(expr),
+        No::Elemento(e) => match &e.estrela {
+            Some(estrela) if estrela.nome != MARCA_DE_MOLDE => {
+                let micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
+                micro.propriedades.iter().any(|(_, expr)| cita(expr)) || citado_na_embutida(e, nome, filhos)
+            }
+            Some(_) => elemento_cita(e, nome) || citado_na_embutida(e, nome, filhos),
+            None => elemento_cita(e, nome) || citado_no_escopo(&e.filhos, nome, filhos),
+        },
+        _ => false,
+    })
+}
+
+/// Alguma ligação do próprio elemento lê `nome` com o receptor implícito?
+fn elemento_cita(e: &crate::html::Elemento, nome: &str) -> bool {
+    let cita = |texto: &str| cita_na_raiz(texto, nome);
+    e.propriedades
+        .iter()
+        .chain(e.eventos.iter())
+        .chain(e.bananas.iter())
+        .any(|l| cita(&l.valor))
+        || e.atributos.iter().any(|a| a.valor.contains("{{") && cita(&a.valor))
+}
+
+/// A visão embutida do `*` (ou do `<template>` escrito) `e` lê o `nome` de
+/// fora? Não, se ela o sombreia: um `let` dela ou um `#ref` declarado nela.
+fn citado_na_embutida(e: &crate::html::Elemento, nome: &str, filhos: &std::collections::HashMap<String, Filho>) -> bool {
+    let tem_ref = |x: &crate::html::Elemento| x.referencias.iter().any(|r| r.nome == nome);
+    let mut lugares = Vec::new();
+    match &e.estrela {
+        Some(estrela) if estrela.nome != MARCA_DE_MOLDE => {
+            let micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
+            // O elemento do `*` e o que está abaixo dele são da visão
+            // embutida.
+            onde_casa(
+                &[No::Elemento(crate::html::Elemento { estrela: None, ..e.clone() })],
+                &tem_ref,
+                filhos,
+                false,
+                &mut lugares,
+            );
+            let sombreado = micro.locais.iter().any(|(l, _)| l == nome) || lugares.iter().any(|l| *l != Lugar::Embutida);
+            !sombreado && (elemento_cita(e, nome) || citado_no_escopo(&e.filhos, nome, filhos))
+        }
+        _ => {
+            // `<template>` escrito: o conteúdo é a visão embutida; os
+            // `let-x` ficam nos atributos do elemento.
+            onde_casa(&e.filhos, &tem_ref, filhos, false, &mut lugares);
+            let lets = e.atributos.iter().any(|a| a.nome.strip_prefix("let-") == Some(nome));
+            let sombreado = lets || lugares.iter().any(|l| *l != Lugar::Embutida);
+            !sombreado && citado_no_escopo(&e.filhos, nome, filhos)
+        }
+    }
+}
+
+/// Os campos criados pelo binder, na ordem dele: os `_expr_k` das ligações
+/// e, entre eles, o nó que uma embutida lê, na posição em que ela foi ligada
+/// ([`Corpo::posicao_de_embutida`]; sem posição, depois de todos).
+fn campos_da_deteccao(
+    exprs: &[String],
+    de_embutidas: &[(String, String)],
+    posicoes: &std::collections::HashMap<String, usize>,
+) -> Vec<String> {
+    let posicao = |nome: &str| posicoes.get(nome).copied().unwrap_or(exprs.len());
+    let mut saida = Vec::with_capacity(exprs.len() + de_embutidas.len());
+    for k in 0..=exprs.len() {
+        saida.extend(de_embutidas.iter().filter(|(n, _)| posicao(n) == k).map(|(_, c)| c.clone()));
+        if let Some(e) = exprs.get(k) {
+            saida.push(e.clone());
+        }
+    }
+    saida
+}
+
+/// `nome` é lido só de dentro de uma visão embutida nesta (sem contar as
+/// expressões da própria visão): o oficial promove o nó quando compila a
+/// embutida, antes das ligações desta (o campo vem antes dos `_expr_k`).
+fn citado_em_embutidas(nos: &[No], nome: &str, filhos: &std::collections::HashMap<String, Filho>) -> bool {
+    nos.iter().any(|n| match n {
+        No::Elemento(e) if e.estrela.is_some() => citado_na_embutida(e, nome, filhos),
+        No::Elemento(e) => citado_em_embutidas(&e.filhos, nome, filhos),
+        _ => false,
+    })
+}
+
+/// A chave de um `#ref` lido como local na marca e no mapa dos resolvidos:
+/// o nome e a visão que o declara — o mesmo nome pode ser de visões
+/// diferentes (cada uma resolve o seu, [`referencias_locais`]).
+fn chave_de_ref(nome: &str, classe_da_visao: &str) -> String {
+    format!("{nome}@{classe_da_visao}")
+}
+
+/// Os `#ref` de uma visão pronta no mapa dos resolvidos: pela chave com a
+/// visão ([`chave_de_ref`]) e pelo nome (o das consultas, que leem o nó de
+/// uma aninhada pelo nome).
+fn exportar_refs(
+    resolvidos: &std::cell::RefCell<std::collections::HashMap<String, String>>,
+    refs: &std::collections::HashMap<String, String>,
+    classe_da_visao: &str,
+) {
+    let mut r = resolvidos.borrow_mut();
+    for (nome, leitura) in refs {
+        r.insert(chave_de_ref(nome, classe_da_visao), leitura.clone());
+        r.insert(nome.clone(), leitura.clone());
+    }
 }
 
 /// Troca as marcas de `#ref` ([`MARCA_DE_REF`]) pelo nó de cada um:
@@ -2059,6 +2201,15 @@ struct Corpo<'a> {
     campos_expr: Vec<String>,
     /// Campos `late final T _el_n` dos elementos com ligação.
     campos_el: Vec<String>,
+    /// Campos dos nós que uma visão embutida lê (`#ref` desta visão lido de
+    /// dentro de um `*`), com o nome: vão entre os `_expr_k`, na posição
+    /// de [`Corpo::posicao_de_embutida`] ([`citado_em_embutidas`]).
+    campos_el_de_embutidas: Vec<(String, String)>,
+    /// Os `#ref` locais desta visão lidos de uma embutida.
+    refs_de_embutidas: std::collections::HashSet<String>,
+    /// Quantos `_expr_k` existiam quando a primeira embutida que lê cada um
+    /// deles foi ligada.
+    posicao_de_embutida: std::collections::HashMap<String, usize>,
     /// Próximo índice de ligação (`_expr_k`, `currVal_k`).
     proxima_ligacao: u32,
     /// Corpo do `detectChangesInternal`.
@@ -2265,6 +2416,7 @@ impl Corpo<'_> {
     /// Os `#ref` desta visão lidos como local: o local (`dynamic`) e a
     /// declaração com a marca do nó, trocada quando a visão termina.
     fn declarar_refs(&mut self, refs: std::collections::HashSet<String>) {
+        let classe = self.classe_desta_visao();
         for nome in &refs {
             self.locais.insert(
                 nome.clone(),
@@ -2277,7 +2429,8 @@ impl Corpo<'_> {
             self.decl_locais.insert(
                 nome.clone(),
                 Ok(format!(
-                    "final local_{nome} = {MARCA_DE_REF}{nome}{FIM_DE_REF};"
+                    "final local_{nome} = {MARCA_DE_REF}{}{FIM_DE_REF};",
+                    chave_de_ref(nome, &classe)
                 )),
             );
         }
@@ -4056,6 +4209,20 @@ impl Corpo<'_> {
         locais: std::collections::HashMap<String, crate::expr::Local>,
         micro: crate::micro::Micro,
     ) {
+        // O oficial liga a embutida quando o binder chega ao molde, depois
+        // das entradas dele: o nó desta visão que ela lê é promovido aí,
+        // entre os `_expr_k` já criados e os seguintes.
+        let pendentes: Vec<String> = self
+            .refs_de_embutidas
+            .iter()
+            .filter(|nome| !self.posicao_de_embutida.contains_key(*nome))
+            .cloned()
+            .collect();
+        for nome in pendentes {
+            if citado_na_embutida(e, &nome, self.filhos) {
+                self.posicao_de_embutida.insert(nome, self.campos_expr.len());
+            }
+        }
         // Para a visão nova, os locais desta visão e das ancestrais ficam um
         // `parentView` mais longe.
         let mut ancestrais: std::collections::HashMap<String, Origem> = self
@@ -4887,13 +5054,21 @@ impl Corpo<'_> {
                 && (self.refs_locais.contains(&r.nome)
                     || self.refs_consultados.iter().any(|(n, _, _)| *n == r.nome))
         });
+        let lido_de_embutida = e
+            .referencias
+            .iter()
+            .find(|r| r.valor.is_empty() && self.refs_de_embutidas.contains(&r.nome))
+            .map(|r| r.nome.clone());
         let alvo = if !liga_no_elemento(e, &casadas) && !lido_como_local {
             self.linhas.push(format!("    final _el_{n} = {criacao};"));
             format!("_el_{n}")
         } else {
             let html = self.html.clone();
-            self.campos_el
-                .push(format!("  late final {html}.{tipo} _el_{n};"));
+            let campo = format!("  late final {html}.{tipo} _el_{n};");
+            match lido_de_embutida {
+                Some(nome) => self.campos_el_de_embutidas.push((nome, campo)),
+                None => self.campos_el.push(campo),
+            }
             self.linhas.push(format!("    this._el_{n} = {criacao};"));
             format!("this._el_{n}")
         };
@@ -5961,7 +6136,9 @@ struct Contexto<'a> {
     html: String,
     pipes: &'a PipesDoTemplate,
     /// Os nomes de `#ref` que podem virar local ([`referencias_unicas`]).
-    refs_unicos: std::collections::HashSet<String>,
+    refs_candidatos: std::collections::HashSet<String>,
+    /// Os nomes que alguma consulta (`@ViewChild('x')`) procura.
+    refs_das_consultas: std::collections::HashSet<String>,
     /// Os nomes de `#ref` repetidos ou sombreados por `let`.
     refs_ambiguos: std::collections::HashSet<String>,
     /// O nó de cada `#ref` visto, de todas as visões já percorridas: a visão
@@ -6008,6 +6185,9 @@ impl<'a> Contexto<'a> {
             vistas_hospedeiras: Default::default(),
             campos_expr: Vec::new(),
             campos_el: Vec::new(),
+            campos_el_de_embutidas: Vec::new(),
+            refs_de_embutidas: Default::default(),
+            posicao_de_embutida: Default::default(),
             proxima_ligacao: 0,
             deteccao: Vec::new(),
             nomes,
@@ -6137,7 +6317,8 @@ fn corpo_da_embutida(
         }
         dentro.intl.get_or_insert_with(String::new);
     }
-    let refs_locais = referencias_locais(&espec.nos, ctx.filhos, &ctx.refs_unicos);
+    let lets: Vec<String> = espec.micro.locais.iter().map(|(n, _)| n.clone()).collect();
+    let refs_locais = referencias_locais(&espec.nos, ctx.filhos, &ctx.refs_candidatos, &lets);
     let mut promovidos = refs_locais.clone();
     promovidos.extend(espec.refs_consultados.iter().map(|(n, _, _)| n.clone()));
     dentro.refs_consultados = espec.refs_consultados.clone();
@@ -6178,11 +6359,15 @@ fn corpo_da_embutida(
         dentro.decl_locais.insert(
             nome.clone(),
             Ok(format!(
-                "final local_{nome} = {util}.unsafeCast<{classe}>({cadeia}){MARCA_DE_REF}.{nome}{FIM_DE_REF};"
+                "final local_{nome} = {util}.unsafeCast<{classe}>({cadeia}){MARCA_DE_REF}.{}{FIM_DE_REF};",
+                chave_de_ref(nome, classe)
             )),
         );
     }
     dentro.refs_ancestrais = espec.refs_ancestrais.clone();
+    dentro.refs_livres = referencias_livres_da_visao(&espec.nos, ctx.filhos, &ctx.refs_das_consultas);
+    dentro.refs_de_embutidas =
+        refs_locais.iter().filter(|n| citado_em_embutidas(&espec.nos, n, ctx.filhos)).cloned().collect();
     dentro.declarar_refs(refs_locais);
     for (nome, origem) in &espec.ancestrais {
         let Some(l) = espec.locais.get(nome.as_str()) else {
@@ -6206,9 +6391,7 @@ fn corpo_da_embutida(
     let anotadas = dentro.coleta.as_ref().map_or(0, Vec::len);
     dentro.nos(&espec.nos, "")?;
     dentro.conferir_pipes()?;
-    ctx.refs_resolvidos
-        .borrow_mut()
-        .extend(dentro.refs.iter().map(|(k, v)| (k.clone(), v.clone())));
+    exportar_refs(&ctx.refs_resolvidos, &dentro.refs, &espec.classe);
     dentro.destruir.extend(ctx.pipes.destruicao(espec.indice));
     // Na coleta, um nó recusado não consome índice: a visão parece vazia
     // sem estar. O `<ng-container *x>` vazio é vazio de fato: a visão não
@@ -6273,7 +6456,7 @@ fn corpo_da_embutida(
     // âncoras, valores anteriores, elementos.
     let mut todos = dentro.campos.clone();
     todos.extend(dentro.campos_filho.clone());
-    todos.extend(dentro.campos_expr.clone());
+    todos.extend(campos_da_deteccao(&dentro.campos_expr, &dentro.campos_el_de_embutidas, &dentro.posicao_de_embutida));
     todos.extend(ctx.pipes.campos(espec.indice, dentro.imp));
     todos.extend(dentro.campos_el.clone());
     let campos = if todos.is_empty() {
@@ -7612,8 +7795,8 @@ fn gerar_componente(
             recusa(Motivo::I18n, "@i18n com filho, diretiva ou `*` na visão"),
         )?;
     }
-    let refs_unicos = referencias_unicas(nos, c);
-    let refs_locais = referencias_locais(nos, filhos, &refs_unicos);
+    let refs_candidatos = referencias_candidatas(nos, c);
+    let refs_locais = referencias_locais(nos, filhos, &refs_candidatos, &[]);
     if let Err(r) = alocar_imports_dos_campos(
         imp,
         nos,
@@ -7648,12 +7831,14 @@ fn gerar_componente(
         html: html.clone(),
         pipes: &tabela,
         refs_ambiguos: referencias_ambiguas(nos),
-        refs_unicos,
+        refs_candidatos,
+        refs_das_consultas: c.consultas.iter().filter(|q| !q.por_tipo).map(|q| q.referencia.clone()).collect(),
         refs_resolvidos: Default::default(),
         cadeias: Default::default(),
     };
     let mut corpo = ctx.corpo(imp, nomes, coleta.take(), false);
     corpo.refs_livres = referencias_livres(nos);
+    corpo.refs_de_embutidas = refs_locais.iter().filter(|n| citado_em_embutidas(nos, n, filhos)).cloned().collect();
     corpo.declarar_refs(refs_locais);
     corpo.consultas_dinamicas = c
         .consultas
@@ -7683,9 +7868,7 @@ fn gerar_componente(
         *coleta = corpo.coleta.take();
         return Err(r);
     }
-    ctx.refs_resolvidos
-        .borrow_mut()
-        .extend(corpo.refs.iter().map(|(k, v)| (k.clone(), v.clone())));
+    exportar_refs(&ctx.refs_resolvidos, &corpo.refs, &corpo.classe_desta_visao());
     // O `ngOnDestroy` dos pipes vem depois dos das diretivas.
     corpo.destruir.extend(tabela.destruicao(0));
     // `@ViewChild` estático: atribuição imediata, no `afterNodes` — depois
@@ -7911,7 +8094,7 @@ fn gerar_componente(
     let especs = std::mem::take(&mut corpo.embutidas);
     let mut todos = corpo.campos.clone();
     todos.extend(corpo.campos_filho.clone());
-    todos.extend(corpo.campos_expr.clone());
+    todos.extend(campos_da_deteccao(&corpo.campos_expr, &corpo.campos_el_de_embutidas, &corpo.posicao_de_embutida));
     todos.extend(tabela.campos(0, corpo.imp));
     todos.extend(corpo.campos_el.clone());
     let campos = if todos.is_empty() {

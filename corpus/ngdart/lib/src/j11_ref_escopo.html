@@ -1,0 +1,1 @@
+<input #n value="fora"><span #s>{{n.value}}</span><div *ngIf="a"><input #n value="meio"><p *ngIf="b">{{n.value}} {{s.text}}<input #n value="dentro">{{n.value}}</p></div><div *ngIf="b"><input #so>{{so.value}}</div><ul><li *ngFor="let n of itens" (click)="ver(n)">{{n}}</li></ul>

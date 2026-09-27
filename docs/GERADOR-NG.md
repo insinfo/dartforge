@@ -286,6 +286,22 @@ filho, fora destes itens) e as sondas de recusa i94 (`#f="ngForm"` com
 `ngControl`: o `@SkipSelf` do `NgControlName`) e i95 (`#ref` repetido ou
 sombreado por `let`). i84 e i85 passaram a ser gerados.
 
+Escopo de `#ref` por visão (NG06): cada visão resolve o nome pelo escopo
+dela, como o `ViewNameResolver` do oficial (o mais próximo vence: um `let`
+ou um `#ref` da embutida esconde o de fora). O `#ref` vira local da visão
+que o declara uma vez só (os das embutidas são delas), quando alguma
+expressão do escopo o lê; o de uma embutida que ninguém lê é só um nome
+para o nó, como na visão de topo; a marca do nó leva a visão
+(`nome@ViewX1`), e o de ancestral é lido pela cadeia de `parentView`. O
+campo do nó lido de uma embutida é criado quando o binder do oficial liga
+a embutida — depois das entradas do molde, entre os `_expr_k` já criados e
+os seguintes — e o lido só na própria visão, no fim. i95 e j11 (o mesmo
+nome em três níveis, o de fora lido duas visões abaixo, um só na
+embutida, `let` que esconde o de fora num evento) iguais ao oficial byte a
+byte: 221 conferidos, 0 diferentes. O comportamento é o do oficial por
+construção (o código gerado é o dele); o e2e em navegador segue sendo o
+do limitless_ui no Pesado.
+
 ### Diretivas estruturais
 
 | forma | estado | casos |
@@ -331,7 +347,7 @@ sombreado por `let`). i84 e i85 passaram a ser gerados.
 | `#d="x"` com a diretiva do nó de `exportAs: 'x'` | gerado (o local vale a instância, `this._X_n_m`; o elemento não vira campo por isso) | i93 |
 | `#f="ngForm"` num `<form>` sem controles | gerado | j03 |
 | `#f="ngForm"` com `ngControl` dentro | recusado (o `@SkipSelf` do `NgControlName`) | i94 |
-| `#ref` repetido em visões diferentes ou sombreado por `let` | recusado (`#ref repetido ou sombreado por let`: escopo por visão) | i95 |
+| `#ref` repetido em visões diferentes ou sombreado por `let` | gerado (escopo por visão, o mais próximo vence) | i95, j11 |
 | `#ref` com membro de mesmo nome, `@ViewChild` de `#ref` com valor | recusado | — |
 | `@ViewChild('ref')` de elemento, de filho, no conteúdo projetado | gerado | b03, b20, i46 |
 | `@ViewChild` de `#ref` repetido (o primeiro) | gerado | i49 |
@@ -391,8 +407,7 @@ sombreado por `let`). i84 e i85 passaram a ser gerados.
    no oráculo do i76), a dependência de fora do nó (elementos acima e
    `parentView!.injectorGet(.., this.parentIndex)`, i78) e o filho que
    injeta o próprio provedor (i77).
-2. Escopo de `#ref` por visão (repetido, sombreado por `let`: i95) e a
-   dependência `@SkipSelf` do `NgControlName` (i94).
+2. A dependência `@SkipSelf` do `NgControlName` (i94).
 3. Consultas dinâmicas com filho `onPush` ou misturadas com estáticas.
 
 O oráculo das sondas se regenera como os outros casos

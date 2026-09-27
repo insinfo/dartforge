@@ -82,12 +82,6 @@ const RECUSADOS: &[(&str, &str)] = &[
         "i78_usa_provider_externo.dart",
         "provedor apelido de token de fora do nó",
     ),
-    // `#ref` repetido em visões diferentes e sombreado por `let`: o escopo
-    // por visão (o mais próximo vence) ainda não é traduzido.
-    (
-        "i95_ref_sombreado.dart",
-        "#ref repetido ou sombreado por `let`",
-    ),
     // `#f="ngForm"` com `ngControl` dentro do `<form>`: o `NgControlName`
     // depende de `@SkipSelf() ControlContainer` (o `NgForm` do nó de cima).
     (

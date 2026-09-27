@@ -204,6 +204,7 @@ import 'package:corpus_ngdart/src/j07_estilos_na_anotacao.template.dart' as j07;
 import 'package:corpus_ngdart/src/j08_estilos_none.template.dart' as j08;
 import 'package:corpus_ngdart/src/j09_view_child_filho_em_if.template.dart' as j09;
 import 'package:corpus_ngdart/src/j10_view_child_tipo_em_if.template.dart' as j10;
+import 'package:corpus_ngdart/src/j11_ref_escopo.template.dart' as j11;
 
 void main() {
   print([
@@ -410,5 +411,6 @@ void main() {
     j08.J08EstilosNoneNgFactory,
     j09.J09ViewChildFilhoEmIfNgFactory,
     j10.J10ViewChildTipoEmIfNgFactory,
+    j11.J11RefEscopoNgFactory,
   ].length);
 }

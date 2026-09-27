@@ -221,3 +221,4 @@ export 'src/j07_estilos_na_anotacao.dart';
 export 'src/j08_estilos_none.dart';
 export 'src/j09_view_child_filho_em_if.dart';
 export 'src/j10_view_child_tipo_em_if.dart';
+export 'src/j11_ref_escopo.dart';
