@@ -27,6 +27,12 @@ pub struct AnalisadorSemantico {
 }
 
 impl AnalisadorSemantico {
+    /// Analisador com o SDK dado; sem SDK, só as respostas sintáticas.
+    ///
+    /// ```
+    /// let a = dartforge_lsp::AnalisadorSemantico::novo(None);
+    /// assert_eq!(a.estatisticas_da_sessao().carregadas, 0);
+    /// ```
     pub fn novo(sdk: Option<SdkLayout>) -> Self {
         Self { sintatico: AnalisadorSintatico::new(), sdk, indice_sdk: None, indice_projeto: crate::indice::IndiceProjeto::default(), sessao: crate::sessao::Sessao::nova() }
     }
@@ -120,6 +126,7 @@ impl AnalisadorSemantico {
         self.sintatico.definicao_no_workspace(uri, texto, offset, documentos)
     }
 
+    /// Hover pela identidade semântica; sem ela, o sintático conservador.
     fn passar_hover(&mut self, uri: &str, texto: &str, offset: usize, documentos: &DocumentStore) -> Option<Hover> {
         if let Some(projeto) = self.biblioteca(documentos, uri)
             && let Some(unidade) = projeto.unidade_do_uri(uri)

@@ -183,6 +183,7 @@ impl Projeto {
         )
     }
 
+    /// `<T extends B, U>` como escrito na fonte (vazio sem parâmetros).
     fn parametros_de_tipo_escritos(&self, ps: &[ast::TypeParameter], fonte: &str) -> String {
         if ps.is_empty() {
             return String::new();
@@ -437,10 +438,12 @@ impl Projeto {
         }
     }
 
+    /// `t` é `Object` (não se escreve `extends Object`).
     fn eh_object(&self, t: TypeId) -> bool {
         matches!(self.consulta.tabela.get(t), Type::Interface { class, .. } if Some(*class) == self.consulta.core.object_class)
     }
 
+    /// `T extends B` como declarado.
     fn descrever_parametro_de_tipo(&self, u: UnitId, declaracao: usize) -> Option<String> {
         let unidade = self.programa().unit(u);
         let ast = &unidade.ast;

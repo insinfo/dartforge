@@ -109,6 +109,7 @@ fn trechos_de_comentario(fonte: &str) -> Vec<(usize, usize)> {
     saida
 }
 
+/// Byte que pode compor um identificador Dart.
 fn eh_ident(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
 }

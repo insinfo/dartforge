@@ -293,6 +293,14 @@ contador, juntas):
 | | com sessão | 0,3; 97,9 ms | 0,5 ms | 0,4 ms | 82,2 ms | 2,5 MiB | 21,1 MiB | 0,0 MiB | 3 / 41 |
 | `collection-1.19.1/lib/src/iterable_extensions.dart` (32 KB) | sem sessão | 58,1; 80,3 ms | 57,5 ms | 120,1 ms | 69,2 ms | 0 | 0 | 0 | 44 / 0 |
 | | com sessão | 0,9; 87,8 ms | 1,5 ms | 0,7 ms | 112,0 ms | 2,7 MiB | 25,9 MiB | 0,0 MiB | 3 / 41 |
+| `analyzer-7.7.1/lib/src/dart/element/display_string_builder.dart` (18 KB; projeto de 1.607 arquivos), 10 posições | sem sessão | 59,9; 103,8 ms | 58,6 ms | 1.358,7 ms | 71,4 ms | 0 | 0 | 0 | 24 / 0 |
+| | com sessão | 6,8; 84,8 ms | 7,6 ms | 1.174,8 ms | 70,0 ms | 0 (projeto acima do orçamento) | 19,4 MiB | 0,0 MiB | 5 / 19 |
+
+No `analyzer` (projeto grande), a biblioteca cabe no orçamento e é
+reaproveitada (a mediana de ~7 ms é quase toda a conferência da chave: a
+lista de 1.607 arquivos e as datas dos lidos); o projeto inteiro passa de 8
+MiB de fonte, então cada `references` recarrega (~1,2 s) e nada dele fica
+retido — o orçamento funcionando como limite, não como cache.
 
 Leitura: a sessão troca ~60–120 ms por consulta por ~1 ms enquanto o texto
 não muda, ao custo de ~8–10× a fonte carregada em memória viva **enquanto**

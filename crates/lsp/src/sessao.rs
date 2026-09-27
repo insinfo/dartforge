@@ -182,6 +182,7 @@ fn abertos(documentos: &DocumentStore) -> Vec<(String, i32, usize)> {
     v
 }
 
+/// Data de modificação e tamanho de um arquivo.
 fn metadados(caminho: &Path) -> Option<(SystemTime, u64)> {
     let m = std::fs::metadata(caminho).ok()?;
     Some((m.modified().ok()?, m.len()))

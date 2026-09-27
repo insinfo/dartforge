@@ -205,6 +205,7 @@ impl Projeto {
         })
     }
 
+    /// Os conflitos de trocar `antigo` por `novo` no alvo, por espécie.
     fn conflitos(&self, alvo: &Alvo, antigo: &str, novo: &str) -> Result<(), String> {
         let p = self.programa();
         let ocorrencias: Vec<(UnitId, usize, usize)> =

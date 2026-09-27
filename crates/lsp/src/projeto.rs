@@ -262,10 +262,12 @@ pub(crate) fn carregar_biblioteca(
     })
 }
 
+/// `caminho` está sob `raiz` (comparação pelas chaves canônicas).
 pub(crate) fn dentro(caminho: &Path, raiz: &Path) -> bool {
     dartforge_elements::gerado::chave(caminho).starts_with(dartforge_elements::gerado::chave(raiz))
 }
 
+/// Byte que pode compor um identificador Dart.
 fn eh_ident(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
 }
@@ -295,15 +297,18 @@ pub(crate) fn nome_base(nome: &str) -> &str {
         .unwrap_or(nome)
 }
 
+/// `offset` cai dentro de `s` (fim exclusivo).
 fn contem(s: Span, offset: usize) -> bool {
     s.start <= offset && offset < s.end
 }
 
 impl Projeto {
+    /// O programa carregado.
     pub(crate) fn programa(&self) -> &Program {
         &self.consulta.programa
     }
 
+    /// O texto de um símbolo.
     pub(crate) fn nome(&self, s: SymbolId) -> &str {
         self.consulta.nome(s)
     }
@@ -316,12 +321,14 @@ impl Projeto {
             .collect()
     }
 
+    /// A URI `file:` de uma unidade com caminho.
     pub(crate) fn uri_da_unidade(&self, u: UnitId) -> Option<String> {
         Url::from_file_path(self.programa().unit(u).path.as_ref()?)
             .ok()
             .map(|u| u.to_string())
     }
 
+    /// A unidade carregada do arquivo de `uri` (caminho canônico).
     pub(crate) fn unidade_do_uri(&self, uri: &str) -> Option<UnitId> {
         let caminho = arquivo_da_uri(uri)?;
         let chave = dartforge_elements::gerado::chave(&caminho);
@@ -696,6 +703,7 @@ impl Projeto {
         }
     }
 
+    /// O alvo de um membro função (acessor implícito vira a variável).
     pub(crate) fn membro_de_funcao(&self, f: FunctionElementId) -> Alvo {
         let fe = self.programa().function(f);
         if let Some(v) = fe.variable
@@ -716,6 +724,7 @@ impl Projeto {
         }
     }
 
+    /// O alvo de um campo ou constante de enum (de topo vira [`Alvo::Topo`]).
     pub(crate) fn membro_de_variavel(&self, v: VariableId) -> Alvo {
         let ve = self.programa().variable(v);
         let nome = self.nome(ve.name).to_string();
@@ -1153,6 +1162,7 @@ impl Projeto {
             .map(|i| FunctionElementId(i as u32))
     }
 
+    /// O elemento da variável declarada no nó `no`.
     fn variavel_do_no(&self, no: VariableRef) -> Option<VariableId> {
         self.programa()
             .variables
@@ -1601,6 +1611,8 @@ impl Projeto {
         Ok(saida)
     }
 
+    /// Membro: as declarações da família, os usos resolvidos para ela e,
+    /// num campo, os `this.x`, os inicializadores e os rótulos nomeados.
     fn ocorrencias_de_membro(
         &self,
         dono: Dono,
@@ -2011,6 +2023,7 @@ impl Projeto {
         v
     }
 
+    /// Topo: declarações, usos, tipos, metadados e `show`/`hide`.
     fn ocorrencias_de_topo(&self, el: Element, por: &mut impl FnMut(UnitId, Span)) {
         let p = self.programa();
         let elementos = self.elementos_de_topo(el);
@@ -2173,6 +2186,7 @@ impl Projeto {
         v
     }
 
+    /// Erro quando `lib` não é do projeto (renomear só mexe no projeto).
     fn recusar_externo(&self, lib: LibraryId, nome: &str) -> Result<(), String> {
         if self.do_projeto(lib) {
             return Ok(());
