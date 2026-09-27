@@ -164,8 +164,8 @@ define i64 @df_fn_1(i64 %h) {{
 }
 
 /// Cinco recargas consecutivas mantêm o endereço público estável e avançam
-/// geração por geração. O código antigo permanece retido pela política atual;
-/// este teste não afirma ausência de crescimento de memória.
+/// geração por geração; cada uma descarrega a anterior, que nenhuma entrada
+/// alcança mais (J02): a memória de código não cresce com as recargas.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
 fn cinco_recargas_preservam_entrada_estavel() {
@@ -180,11 +180,39 @@ fn cinco_recargas_preservam_entrada_estavel() {
         let relatorio = sessao.hot_reload("app", &ir(valor)).expect("recarga");
         assert_eq!(relatorio.generation, valor as u32 + 1);
         assert_eq!(relatorio.new_entries, 0);
-        assert_eq!(relatorio.retained_generations, valor as usize + 1);
+        assert_eq!(relatorio.retained_generations, 1);
         assert_eq!(sessao.lookup("df_fn_0").unwrap(), endereco);
         assert_eq!(entrada.call(&sessao).unwrap(), valor);
         assert_eq!(sessao.module_names(), vec!["app"]);
     }
+}
+
+/// Uma função que some do código novo continua alcançável pela entrada
+/// estável (um tear-off antigo): a geração dela fica retida até outra
+/// geração voltar a implementá-la.
+#[test]
+#[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+fn geracao_de_funcao_que_sumiu_fica_retida() {
+    let com_as_duas = |valor: i64| {
+        format!("define i64 @df_fn_0() {{\n  ret i64 {valor}\n}}\ndefine i64 @df_fn_1() {{\n  ret i64 {}\n}}\n", valor + 100)
+    };
+    let so_a_primeira = |valor: i64| format!("define i64 @df_fn_0() {{\n  ret i64 {valor}\n}}\n");
+    let mut sessao = JitSession::new().expect("sessão");
+    sessao.add_reloadable_module("app", &com_as_duas(1)).expect("geração 1");
+    let segunda = sessao.stable_entry("df_fn_1").expect("entrada estável");
+    assert_eq!(segunda.call(&sessao).unwrap(), 101);
+    let r = sessao.hot_reload("app", &so_a_primeira(2)).expect("geração 2");
+    // `df_fn_1` ainda chama o corpo da geração 1.
+    assert_eq!(r.retained_generations, 2);
+    assert_eq!(segunda.call(&sessao).unwrap(), 101);
+    let r = sessao.hot_reload("app", &so_a_primeira(3)).expect("geração 3");
+    // A 2 some; a 1 fica pela `df_fn_1`.
+    assert_eq!(r.retained_generations, 2);
+    assert_eq!(segunda.call(&sessao).unwrap(), 101);
+    let r = sessao.hot_reload("app", &com_as_duas(4)).expect("geração 4");
+    // As duas voltam na 4: a 1 e a 3 saem.
+    assert_eq!(r.retained_generations, 1);
+    assert_eq!(segunda.call(&sessao).unwrap(), 104);
 }
 
 /// A promoção recusa uma função nova com o nome já definido por outro módulo

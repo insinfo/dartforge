@@ -9,7 +9,11 @@
 
 thread_local! {
     /// Tabela de métodos por id de classe: (ponteiro para os pares, quantos).
-    static METODOS: RefCell<HashMap<i64, (usize, usize)>> = RefCell::new(HashMap::default());
+    /// As tabelas de métodos por classe: `n` pares `[hash, entrada]`
+    /// ordenados pelo hash, **copiados** da constante do módulo — a memória
+    /// de uma geração do JIT pode ser liberada depois de uma recarga (J02), e
+    /// um `Arc` porque as mensagens entre isolados levam a tabela junto.
+    static METODOS: RefCell<HashMap<i64, TabelaDeMetodos>> = RefCell::new(HashMap::default());
     /// As classes com tabela já registrada, por id (o teste de toda alocação
     /// em `dartforge_object_new_t`, sem o hash de `METODOS`). Só cresce, como
     /// `METODOS`.
@@ -75,6 +79,18 @@ fn cid_da_lista_tipada(tipo: u8) -> Option<usize> {
     })
 }
 
+/// Os pares `[hash, entrada]` de uma classe, em memória do runtime.
+pub type TabelaDeMetodos = std::sync::Arc<[[i64; 2]]>;
+
+/// Copia `n` pares de uma constante do módulo.
+///
+/// # Safety
+/// `pares` aponta para `2 * n` palavras legíveis.
+unsafe fn copiar_tabela(pares: *const i64, n: usize) -> TabelaDeMetodos {
+    // SAFETY: garantido por quem chama.
+    unsafe { std::slice::from_raw_parts(pares as *const [i64; 2], n) }.into()
+}
+
 /// O id de classe (do SDK da fonte) na posição `pos` de `CIDS_DO_RUNTIME`;
 /// `None` sem o SDK da fonte.
 fn cid_registrado(pos: usize) -> Option<i64> {
@@ -82,13 +98,15 @@ fn cid_registrado(pos: usize) -> Option<i64> {
 }
 
 /// Registra a tabela de métodos da classe `cid`: `n` pares `[hash, entrada]`
-/// ordenados pelo hash, numa constante do módulo (vive o processo inteiro).
+/// ordenados pelo hash, numa constante do módulo, que é copiada.
 ///
 /// # Safety
-/// `pares` aponta para `2 * n` palavras legíveis durante todo o processo.
+/// `pares` aponta para `2 * n` palavras legíveis.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_registrar_metodos(cid: i64, pares: *const i64, n: i64) {
-    METODOS.with(|m| m.borrow_mut().insert(cid, (pares as usize, n as usize)));
+    // SAFETY: garantido por quem chama.
+    let t = unsafe { copiar_tabela(pares, n as usize) };
+    METODOS.with(|m| m.borrow_mut().insert(cid, t));
     marcar_registrada(cid);
 }
 
@@ -101,11 +119,10 @@ pub extern "C" fn dartforge_registrar_tabela(cid: i64, f: extern "C" fn() -> *co
         return;
     }
     let t = f();
-    // SAFETY: a tabela é uma constante do módulo: cid, n e os n pares.
-    let n = unsafe { *t.add(1) } as usize;
-    // SAFETY: os pares começam na terceira palavra.
-    let pares = unsafe { t.add(2) };
-    METODOS.with(|m| m.borrow_mut().insert(cid, (pares as usize, n)));
+    // SAFETY: a tabela é uma constante do módulo: cid, n e os n pares
+    // (a partir da terceira palavra), copiados aqui.
+    let tabela = unsafe { copiar_tabela(t.add(2), *t.add(1) as usize) };
+    METODOS.with(|m| m.borrow_mut().insert(cid, tabela));
     marcar_registrada(cid);
 }
 
@@ -167,6 +184,10 @@ pub extern "C" fn dartforge_publicar_geracao(
     REPUBLICANDO.with(|r| r.set(false));
     if let Some(f) = rti {
         f();
+    }
+    // Nada deste isolado aponta mais para a memória das gerações anteriores.
+    if area.is_some() {
+        esquecer_geracoes_anteriores_das_areas();
     }
 }
 
@@ -240,9 +261,7 @@ fn cid_do_runtime(handle: i64) -> Option<i64> {
 fn metodo_da_classe(cid: i64, hash: i64) -> Option<usize> {
     METODOS.with(|m| {
         let m = m.borrow();
-        let &(p, n) = m.get(&cid)?;
-        // SAFETY: registrado por `dartforge_registrar_metodos` com `n` pares.
-        let pares = unsafe { std::slice::from_raw_parts(p as *const [i64; 2], n) };
+        let pares = m.get(&cid)?;
         let i = pares.binary_search_by(|par| par[0].cmp(&hash)).ok()?;
         Some(pares[i][1] as usize)
     })

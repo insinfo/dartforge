@@ -60,7 +60,8 @@
 //!
 //! # Retenção de memória
 //!
-//! Gerações antigas **não são liberadas**. Ver [`JitSession::hot_reload`].
+//! Uma geração é descarregada na publicação seguinte, quando nenhuma entrada
+//! estável a alcança mais (J02). Ver [`JitSession::hot_reload`].
 
 use std::collections::{BTreeMap, HashSet};
 use std::ffi::CString;
@@ -105,7 +106,8 @@ pub struct HotReloadReport {
     pub link: Duration,
     /// Publicação: troca dos ponteiros das entradas estáveis.
     pub publish: Duration,
-    /// Aposentadoria do código antigo; zero enquanto a política é de retenção.
+    /// Aposentadoria do código antigo: o descarregamento das gerações que
+    /// nenhuma entrada estável alcança mais.
     pub retire: Duration,
     /// Espera pelo ponto seguro do programa em execução (recarga ao vivo):
     /// do pedido até a publicação rodar na thread do programa. Zero quando
@@ -119,7 +121,8 @@ pub struct HotReloadReport {
     pub entries: usize,
     /// Entradas estáveis criadas agora, que não existiam antes.
     pub new_entries: usize,
-    /// Gerações retidas em memória depois desta recarga, incluindo ela.
+    /// Gerações retidas em memória depois desta recarga, incluindo ela: a
+    /// publicada e as de funções que sumiram do código novo.
     pub retained_generations: usize,
     /// A recarga promoveu um módulo simples a recarregável.
     ///
@@ -158,8 +161,11 @@ pub(crate) struct Reloadable {
     class_names: Vec<(i64, String)>,
     /// Globais mutáveis da geração ativa, reiniciadas em `run_entry`/`run_main`.
     pub(crate) globals: Vec<ffi::MutableGlobal>,
-    /// Rastreadores das gerações, **retidos** até o encerramento da sessão.
-    generations: Vec<ffi::ResourceTracker>,
+    /// Rastreadores das gerações ainda alcançáveis, com o número de cada:
+    /// a publicada e as que alguma entrada estável ainda implementa (uma
+    /// função que sumiu do código novo). As outras são descarregadas na
+    /// publicação (J02; ver [`JitSession::hot_reload`]).
+    generations: Vec<(u32, ffi::ResourceTracker)>,
     /// Rastreadores dos módulos de trampolim; nunca descarregados.
     stubs: Vec<ffi::ResourceTracker>,
 }
@@ -319,8 +325,8 @@ impl JitSession {
     ///    nativo é gerado e ligado em memória) e só então trocar os ponteiros das
     ///    entradas estáveis. A troca é a única operação visível ao código que
     ///    executa, e é uma escrita de palavra por entrada.
-    /// 3. **Aposentar** o código antigo — que nesta versão **não acontece**. Ver
-    ///    a política de retenção abaixo.
+    /// 3. **Aposentar** o código antigo: descarregar as gerações que nenhuma
+    ///    entrada estável alcança mais. Ver a política de retenção abaixo.
     ///
     /// # Regra de visibilidade
     ///
@@ -331,23 +337,30 @@ impl JitSession {
     /// função que esteja no meio de um laço termina o laço no corpo em que
     /// entrou.
     ///
-    /// # Retenção de memória, declarada
+    /// # Retenção de memória (J02)
     ///
-    /// Nenhuma geração é liberada antes do fim da sessão. Provar que é seguro
-    /// descarregar uma geração exigiria saber que nenhuma das suas funções está
-    /// em nenhum quadro de pilha de nenhuma thread, e a sessão não tem essa
-    /// informação: o código gerado não publica safepoints e o LLVM não verifica
-    /// nada disso. Descarregar sem essa prova transformaria código em memória
-    /// liberada debaixo de um `call` em andamento.
+    /// Uma geração é descarregada assim que é seguro:
     ///
-    /// O custo é **linear no número de recargas**: cada recarga retém o código
-    /// nativo e as constantes daquela geração. Um laço de desenvolvimento longo
-    /// cresce em memória até o processo ser reiniciado. Esse é o compromisso
-    /// aceito para a versão 1, e está registrado em `docs/JIT.md`.
+    /// * **nenhum quadro** dela existe: a publicação roda sem programa em
+    ///   execução, ou no ponto seguro de evento do isolado principal com os
+    ///   demais isolados parados no deles (`dartforge_parar_isolados`) — em
+    ///   nenhum deles há quadro Dart na pilha; `hot_reload` toma `&mut self`,
+    ///   então nada da sessão executa em paralelo;
+    /// * **nenhum endereço** dela está guardado: toda referência a função do
+    ///   programa, também a de uma closure ou de um tear-off, é a do
+    ///   trampolim estável; o runtime copia as tabelas de métodos e esquece os
+    ///   descritores de área da geração anterior na publicação; as globais
+    ///   mutáveis foram copiadas para as da geração nova;
+    /// * **nenhuma entrada estável** a implementa: uma função que sumiu do
+    ///   código novo continua chamando o corpo antigo (um tear-off antigo a
+    ///   alcança), e a geração dela fica retida até outra voltar a
+    ///   implementá-la.
     ///
-    /// A única remoção que acontece é a de uma geração que **falhou antes de ser
-    /// publicada**: essa é demonstravelmente segura, porque nenhum endereço dela
-    /// chegou a nenhuma célula e nada pode tê-la chamado.
+    /// A memória de código fica, portanto, na geração publicada mais as das
+    /// funções sumidas, e não cresce com o número de recargas.
+    /// `HotReloadReport::retained_generations` relata quantas ficaram. Uma
+    /// geração que falhou antes de ser publicada também é removida: nenhum
+    /// endereço dela chegou a nenhuma célula.
     ///
     /// # Escopo da versão 1
     ///
@@ -884,15 +897,33 @@ impl JitSession {
         module.layouts = layouts;
         module.class_names = class_names;
         module.globals = globals;
-        module.generations.push(tracker);
+        module.generations.push((generation, tracker));
         if let Some(created) = stub_tracker {
             module.stubs.push(created);
         }
         let publish = phase.elapsed().saturating_sub(safepoint_wait);
 
-        // Fase 3: aposentar. A política de retenção não libera nada, e o campo
-        // existe para que o relatório não esconda a etapa que falta.
-        let retire = Duration::ZERO;
+        // Fase 3: aposentar. Depois da publicação nenhum quadro de uma geração
+        // anterior existe (a tarefa rodou no ponto seguro de evento de todos
+        // os isolados, ou sem programa em execução), toda chamada passa pelos
+        // trampolins e o runtime não guarda endereço da memória de uma
+        // geração (tabelas de métodos copiadas, descritores de área
+        // esquecidos na publicação). Só uma entrada estável cuja função sumiu
+        // do código novo ainda aponta para o corpo antigo: a geração dela fica.
+        let phase = Instant::now();
+        let module = &mut self.reloadables[index];
+        let alcancadas: HashSet<u32> = module.entries.values().map(|e| e.generation).collect();
+        let mut retidas = Vec::with_capacity(module.generations.len());
+        for (g, rastreador) in std::mem::take(&mut module.generations) {
+            if g == generation || alcancadas.contains(&g) {
+                retidas.push((g, rastreador));
+            } else if rastreador.remove().is_err() {
+                // O LLVM não descarregou: a geração fica retida, como antes.
+                retidas.push((g, rastreador));
+            }
+        }
+        module.generations = retidas;
+        let retire = phase.elapsed();
 
         // Materializa os trampolins agora, para que o custo apareça no relatório
         // desta recarga e não na primeira chamada da aplicação.
@@ -1337,7 +1368,8 @@ mod tests {
         let segunda = sessao.hot_reload("app", &ir(2)).expect("geração 2");
         assert_eq!((segunda.generation, segunda.new_entries), (2, 0));
         assert_eq!(entrada.call(&sessao).unwrap(), 2);
-        assert_eq!(sessao.retained_generations(), 2);
+        // A geração 1 não é mais alcançável: descarregada.
+        assert_eq!(sessao.retained_generations(), 1);
 
         // Chamar com argumento uma entrada `i64 ()` é erro, não ABI errada.
         let erro = entrada.call_with(&sessao, 7).unwrap_err();

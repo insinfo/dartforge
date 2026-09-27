@@ -540,24 +540,36 @@ Chamadas já iniciadas terminam no corpo antigo; chamadas novas usam a
 implementação nova, inclusive quando partem de um quadro de uma geração antiga.
 Substituir quadros ativos está **fora de escopo**.
 
-### Política de retenção de memória
+### Política de retenção de memória (J02)
 
-**Nenhuma geração é liberada antes do fim da sessão.** Provar que é seguro
-descarregar uma geração exigiria saber que nenhuma função dela está em nenhum
-quadro de pilha de nenhuma thread; a sessão não tem essa informação — o código
-gerado não publica safepoints e o LLVM não verifica nada disso. Descarregar sem
-essa prova transformaria código em memória liberada debaixo de um `call` em
-andamento.
+Uma geração é descarregada (o `ResourceTracker` dela removido) na fase
+**aposentar** da publicação seguinte, quando é seguro:
 
-O custo é **linear no número de recargas**: cada recarga retém o código nativo e
-as constantes daquela geração. Um laço de desenvolvimento longo cresce em memória
-até o processo ser reiniciado. `JitSession::retained_generations()` expõe o
-contador, e `HotReloadReport::retained_generations` o repete em cada recarga, para
-que o crescimento seja observável e não uma surpresa. A única remoção que acontece
-é a de uma geração que falhou antes de ser publicada.
+* **nenhum quadro** dela existe: a publicação roda sem programa em execução ou
+  no ponto seguro de evento do isolado principal, com os demais isolados
+  parados no deles (`dartforge_parar_isolados`) — nenhum tem quadro Dart na
+  pilha (o ponto seguro das voltas de laço, J01, não atende publicação);
+* **nenhum endereço** dela está guardado: toda referência a função do
+  programa — chamada, closure, tear-off, tabela de métodos, cache de ponto de
+  chamada — é a do trampolim estável; o runtime **copia** as tabelas de
+  métodos (`seletores.rs`, `Arc` compartilhado com as mensagens entre
+  isolados) e, na publicação, cada isolado **esquece** os descritores de área
+  e as alocações aposentadas das gerações anteriores (`gc_raizes.rs`); as
+  receitas da RTI são copiadas e internadas; as globais mutáveis são copiadas
+  para as da geração nova antes da troca;
+* **nenhuma entrada estável** a implementa: uma função que sumiu do código
+  novo continua chamando o corpo antigo (um tear-off antigo a alcança), e a
+  geração dela fica até outra voltar a implementá-la.
 
-Isto é um compromisso da versão 1, não uma afirmação de que liberar é impossível:
-liberar exige safepoints no código gerado, que ainda não existem.
+A memória de código fica na geração publicada mais as das funções sumidas, e
+não cresce com o número de recargas: `HotReloadReport::retained_generations`
+relata quantas ficaram, e `retire` o tempo do descarregamento
+(`tests/hot_reload.rs`: `cinco_recargas_preservam_entrada_estavel` fica em 1;
+`geracao_de_funcao_que_sumiu_fica_retida`). Uma geração que falhou antes de
+ser publicada também é removida: nenhum endereço dela chegou a nenhuma célula.
+
+*Histórico (até 2026-09-27):* nenhuma geração era liberada antes do fim da
+sessão; o custo era linear no número de recargas.
 
 ### Escopo da versão 1 e as mensagens exatas
 

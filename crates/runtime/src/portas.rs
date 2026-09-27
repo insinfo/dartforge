@@ -84,7 +84,7 @@ pub struct Grafo {
     /// Numa mensagem para outro isolado, a tabela de métodos de cada classe
     /// dos objetos (registrada no isolado na criação do primeiro objeto da
     /// classe; um objeto que chega numa mensagem não passa por lá).
-    tabelas: Vec<(i64, (usize, usize))>,
+    tabelas: Vec<(i64, TabelaDeMetodos)>,
 }
 
 /// Por que uma mensagem não pode ser enviada.
@@ -268,7 +268,7 @@ fn copiar_para_grafo(raiz: i64, compartilhar: bool) -> Result<Grafo, MensagemIle
             .collect();
         METODOS.with(|m| {
             let m = m.borrow();
-            classes.into_iter().filter_map(|c| m.get(&c).map(|t| (c, *t))).collect()
+            classes.into_iter().filter_map(|c| m.get(&c).map(|t| (c, t.clone()))).collect()
         })
     };
     Ok(Grafo { nos, raiz: r, origem: id_do_isolado(), tipos, tabelas })
@@ -485,7 +485,7 @@ fn materializar(g: &Grafo) -> i64 {
         METODOS.with(|m| {
             let mut m = m.borrow_mut();
             for (c, t) in &g.tabelas {
-                m.entry(*c).or_insert(*t);
+                m.entry(*c).or_insert_with(|| t.clone());
             }
         });
     }

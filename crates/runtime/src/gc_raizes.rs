@@ -130,6 +130,25 @@ fn esquecer_tabela_de_areas() {
     ULTIMA_AREA.with(|u| u.set((0, 0)));
 }
 
+/// Depois da publicação de uma geração nova neste isolado (sem quadro Dart
+/// na pilha, J02): cada área fica só com o descritor da geração mais nova
+/// (o último que chegou) — o de uma geração aposentada é um endereço da
+/// memória dela, que o JIT pode liberar e reaproveitar — e as alocações
+/// aposentadas, que só um `%area` de um quadro antigo ainda usaria, são
+/// soltas.
+pub fn esquecer_geracoes_anteriores_das_areas() {
+    AREAS.with(|areas| {
+        for a in areas.borrow_mut().iter_mut() {
+            if let Some(&novo) = a.descritores.last() {
+                a.descritores.clear();
+                a.descritores.push(novo);
+            }
+        }
+    });
+    AREAS_APOSENTADAS.with(|x| x.borrow_mut().clear());
+    esquecer_tabela_de_areas();
+}
+
 /// O caminho lento de `@df.obter_area`: a área (`dartforge_area_de_globais`)
 /// e, na tabela desta thread, a entrada do id do módulo (dado agora, se
 /// ainda não tem).
