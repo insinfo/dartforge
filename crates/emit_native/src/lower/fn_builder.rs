@@ -137,6 +137,12 @@ pub struct FnBuilder<'a, 'c> {
     /// A tupla dos argumentos de tipo escritos no padrão de objeto de tipo
     /// de extensão genérico em curso (`padroes.rs`).
     pub tupla_do_padrao_te: Option<Operand>,
+    /// N13: as listas do núcleo cujo comprimento e dados são fixos nas
+    /// voltas em emissão (`comandos::Contado::Lista`), pelo endereço do
+    /// local.
+    pub listas_fixas: Vec<ListaFixa>,
+    /// A lista fixa do acesso indexado em emissão (`tipados.rs`).
+    pub fixa_do_acesso: Option<ListaFixa>,
     /// A classe que declara a função corrente (também num membro
     /// estático): os estáticos dela estão no escopo léxico.
     pub classe_do_membro: Option<dartforge_elements::model::ClassId>,
@@ -256,6 +262,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             tipo_ext_do_this: None,
             retorno_do_construtor: None,
             tupla_do_padrao_te: None,
+            listas_fixas: Vec::new(),
+            fixa_do_acesso: None,
             classe_do_membro: None,
             sitios_de_callback: 0,
         }
@@ -1057,15 +1065,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(Instruction::Or(base, nulo), Type::I1)
     }
 
-    /// `as T` implícito ou explícito: `TypeError` se o valor não é um `T`.
-    pub fn checar_tipo_ou_lancar(&mut self, ast_ty: &ast::TypeAnnotation, op: Operand) {
-        // `as List<int>`, `as T`…: o cast inteiro pelo RTI, com a mensagem
-        // da VM ("type 'S' is not a subtype of type 'T' in type cast").
+    /// `as T` implícito ou explícito: `TypeError` se o valor não é um `T`,
+    /// com a mensagem da VM do `contexto` ("… in type cast" no `as`, sem
+    /// sufixo na atribuição implícita de um `dynamic`).
+    pub fn checar_tipo_ou_lancar(&mut self, ast_ty: &ast::TypeAnnotation, op: Operand, contexto: super::rti::ContextoDoCast) {
+        // `as List<int>`, `as T`…: o cast inteiro pelo RTI.
         if self.anotacao_precisa_rti(ast_ty) {
             match self.receita_da_anotacao(ast_ty) {
                 Some(r) => {
                     let t = self.rti_da_receita(&r);
-                    self.cast_rti(op, t);
+                    self.cast_rti_em(op, t, contexto);
                 }
                 None => {
                     self.nao_suportado("cast com nome não resolvido", ast_ty.span);
@@ -1073,7 +1082,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             return;
         }
-        let ok = self.testar_tipo(ast_ty, op);
+        let ok = self.testar_tipo(ast_ty, op.clone());
         let ok = self.para_bool(ok);
         let fail_b = self.new_block();
         let pass_b = self.new_block();
@@ -1083,15 +1092,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             else_block: fail_b,
         });
         self.set_block(fail_b);
-        let err_op = self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_type_error_new".to_string(),
-                args: Vec::new(),
-                ret_ty: Type::Ref,
-            },
-            Type::Ref,
-        );
-        self.emit_throw_op(err_op);
+        // A falha (caminho frio): o RTI decide e lança com a mensagem da VM
+        // — o tipo dinâmico do valor e o da anotação.
+        match self.receita_da_anotacao(ast_ty) {
+            Some(r) => {
+                let t = self.rti_da_receita(&r);
+                self.cast_rti_em(op, t, contexto);
+                self.terminate(Terminator::Branch(pass_b));
+            }
+            None => {
+                let err_op = self.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_type_error_new".to_string(),
+                        args: Vec::new(),
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                );
+                self.emit_throw_op(err_op);
+            }
+        }
         self.set_block(pass_b);
     }
 
@@ -1210,4 +1230,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             dartforge_diagnostics::Span { start: 0, end: 0 },
         )
     }
+}
+
+/// Uma lista do runtime com comprimento e endereço dos elementos lidos uma
+/// vez antes das voltas de um laço que não pode mudá-los (N13).
+#[derive(Debug, Clone)]
+pub struct ListaFixa {
+    /// O endereço do local da lista (o `alloca` dele): a identidade do
+    /// local, também de um parâmetro.
+    pub chave: Operand,
+    pub comprimento: Operand,
+    pub dados: Operand,
 }

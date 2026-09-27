@@ -1,7 +1,8 @@
 //! Comandos: blocos, declarações, `if`, laços, `break`/`continue` com
 //! rótulo, `return`, `try`/`catch`/`finally` e `assert`.
 
-use super::fn_builder::{FinallyScope, FnBuilder};
+use super::fn_builder::{FinallyScope, FnBuilder, ListaFixa};
+use dartforge_intern::SymbolId;
 use crate::hir::*;
 use dartforge_frontend::ast::{self, ExprId, ExprKind, StmtId, StmtKind};
 
@@ -110,7 +111,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         let init_dinamico = self.ctx.get_type(self.unit_id, init_id)
                             == Some(self.ctx.core.dynamic_);
                         if let Some(tid) = var_ty_opt.filter(|_| init_dinamico) {
-                            self.checar_tipo_ou_lancar(ast.ty(tid), op.clone());
+                            self.checar_tipo_ou_lancar(ast.ty(tid), op.clone(), super::rti::ContextoDoCast::Implicito);
                         }
                         op
                     } else {
@@ -285,64 +286,43 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                 }
 
-                let loop_header = self.new_block();
-                let loop_body = self.new_block();
-                let loop_update = self.new_block();
-                let exit_block = self.new_block();
-
-                let attached_labels = std::mem::take(&mut self.pending_labels);
-                for &lbl in &attached_labels {
-                    self.labeled_break_targets.insert(lbl, exit_block);
-                    self.labeled_continue_targets.insert(lbl, loop_update);
-                }
-
-                self.terminate(Terminator::Branch(loop_header));
-                self.set_block(loop_header);
-
-                if let Some(cond_id) = condition {
-                    let cond_op = self.lower_expr(ast, *cond_id);
-                    let cond_op = self.para_bool(cond_op);
-                    self.terminate(Terminator::CondBranch {
-                        cond: cond_op,
-                        then_block: loop_body,
-                        else_block: exit_block,
-                    });
-                } else {
-                    self.terminate(Terminator::Branch(loop_body));
-                }
-
-                self.break_targets.push(exit_block);
-                self.continue_targets.push(loop_update);
-
-                self.set_block(loop_body);
-                if !contado {
-                    self.emitir_ponto_seguro();
-                }
-                self.lower_stmt(ast, *body);
-                self.terminate(Terminator::Branch(loop_update));
-
-                self.set_block(loop_update);
-                // Uma variável nova por volta (a especificação do `for`):
-                // só muda algo para a que mora numa célula (P1).
-                if let Some(ast::ForInit::Variables(var_list)) = init {
-                    for var in var_list.variables.iter() {
-                        self.renovar_celula(var.name.sym);
+                let rotulos = std::mem::take(&mut self.pending_labels);
+                match contado {
+                    // N13: a lista do limite é do runtime (o cabeçalho tem
+                    // comprimento) — as voltas usam o comprimento e os dados
+                    // lidos uma vez, e as conferências de limite do `v[i]`
+                    // ficam provadas pela condição; senão (vazia, ou uma
+                    // classe do programa que implementa `List`), as voltas de
+                    // sempre, que leem o `length` a cada volta.
+                    Some(Contado::Lista { alvo, local }) => {
+                        let lista = self.lower_expr(ast, alvo);
+                        let lista = self.coagir(lista, Type::Ref);
+                        let cab = self.cabecalho_da_lista(&lista);
+                        let n = self.campo_do_cabecalho(&cab, 1);
+                        let dados = self.campo_do_cabecalho(&cab, 0);
+                        let do_runtime = self.emit(Instruction::ICmp(ICmpOp::Ne, n.clone(), Operand::Constant(Constant::Int(0))), Type::I1);
+                        let rapido = self.new_block();
+                        let geral = self.new_block();
+                        let juncao = self.new_block();
+                        self.terminate(Terminator::CondBranch { cond: do_runtime, then_block: rapido, else_block: geral });
+                        self.set_block(rapido);
+                        let chave = match self.buscar_local(local).map(|l| l.modo) {
+                            Some(super::locais::Modo::Memoria(p)) => p,
+                            _ => unreachable!("o laço de lista exige um local em memória"),
+                        };
+                        self.listas_fixas.push(ListaFixa { chave, comprimento: n, dados });
+                        self.voltas_do_for(ast, init.as_ref(), *condition, updates, *body, true, &rotulos);
+                        self.listas_fixas.pop();
+                        self.terminate(Terminator::Branch(juncao));
+                        self.set_block(geral);
+                        self.voltas_do_for(ast, init.as_ref(), *condition, updates, *body, false, &rotulos);
+                        self.terminate(Terminator::Branch(juncao));
+                        self.set_block(juncao);
+                    }
+                    _ => {
+                        self.voltas_do_for(ast, init.as_ref(), *condition, updates, *body, contado.is_some(), &rotulos);
                     }
                 }
-                for &u in updates.iter() {
-                    self.lower_expr_descartada(ast, u);
-                }
-                self.terminate(Terminator::Branch(loop_header));
-
-                self.break_targets.pop();
-                self.continue_targets.pop();
-
-                for &lbl in &attached_labels {
-                    self.labeled_break_targets.remove(&lbl);
-                    self.labeled_continue_targets.remove(&lbl);
-                }
-
-                self.set_block(exit_block);
                 self.fechar_escopo();
             }
             StmtKind::Return(expr_opt) => {
@@ -891,6 +871,40 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::Void,
             );
 
+            // O desenrolar do isolado (`kill`, `Isolate.exit`: o `UnwindError`
+            // da VM) não roda o corpo do `finally`, como a VM: a pendência
+            // segue direto para o tratador de fora. Antes isso dependia de a
+            // primeira chamada conferida do corpo ver a pendência — e o efeito
+            // de uma chamada que acontece antes da conferência escapava.
+            let capturavel = self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_exception_capturavel".to_string(),
+                    args: Vec::new(),
+                    ret_ty: Type::I8,
+                },
+                Type::I8,
+            );
+            let desenrolando = self.emit(
+                Instruction::ICmp(ICmpOp::Eq, capturavel, Operand::Constant(Constant::Int(0))),
+                Type::I1,
+            );
+            let b_corpo = self.new_block();
+            let b_desenrolar = self.new_block();
+            self.terminate(Terminator::CondBranch { cond: desenrolando, then_block: b_desenrolar, else_block: b_corpo });
+            self.set_block(b_desenrolar);
+            if let Some(&parent_target) = self.exception_targets.last() {
+                self.terminate(Terminator::Branch(parent_target));
+            } else if !self.finally_scopes.is_empty() {
+                let default_ret = self.default_return_operand();
+                let parent_fin = self.finally_scopes.last_mut().unwrap();
+                parent_fin.incoming.push((b_desenrolar, 2, default_ret));
+                let p_entry = parent_fin.entry_block;
+                self.terminate(Terminator::Branch(p_entry));
+            } else {
+                self.terminate(Terminator::Return(self.default_return_operand_opt()));
+            }
+            self.set_block(b_corpo);
+
             fin_corpo(self);
 
             if !self.is_terminated() {
@@ -959,6 +973,182 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
+    /// O corpo de um laço sobre a lista local `lista` (N13) não chama nada:
+    /// só locais, literais, aritmética e comparação de `int`/`double`/`bool`,
+    /// `if`/blocos/`break`/`continue`, e índice ou `length` da própria lista
+    /// ou de listas de `dart:typed_data` (classes finais do SDK). Nenhum
+    /// caminho dele executa código do programa, então o comprimento e os
+    /// dados da lista não mudam nas voltas (o heap não move objetos).
+    fn corpo_sem_chamadas(&self, ast: &ast::Ast, corpo: StmtId, lista: SymbolId, contador: SymbolId) -> bool {
+        let mut declarados: std::collections::HashSet<SymbolId> = [contador].into_iter().collect();
+        self.comando_sem_chamadas(ast, corpo, lista, &mut declarados)
+    }
+
+    fn comando_sem_chamadas(
+        &self,
+        ast: &ast::Ast,
+        s: StmtId,
+        lista: SymbolId,
+        declarados: &mut std::collections::HashSet<SymbolId>,
+    ) -> bool {
+        match &ast.stmt(s).kind {
+            StmtKind::Block(ss) => ss.iter().all(|&x| self.comando_sem_chamadas(ast, x, lista, declarados)),
+            StmtKind::Expression(e) => self.expressao_sem_chamadas(ast, *e, lista, declarados),
+            StmtKind::Variables(l) => {
+                if l.late {
+                    return false;
+                }
+                l.variables.iter().all(|v| {
+                    let ok = v.initializer.is_none_or(|e| self.expressao_sem_chamadas(ast, e, lista, declarados))
+                        && self.escalar(self.ctx.tipo_local(self.unit_id, v.name.span.start as usize));
+                    declarados.insert(v.name.sym);
+                    ok
+                })
+            }
+            StmtKind::If { condition, then, else_, .. } => {
+                self.expressao_sem_chamadas(ast, *condition, lista, declarados)
+                    && self.comando_sem_chamadas(ast, *then, lista, declarados)
+                    && else_.is_none_or(|x| self.comando_sem_chamadas(ast, x, lista, declarados))
+            }
+            StmtKind::Break(None) | StmtKind::Continue(None) => true,
+            _ => false,
+        }
+    }
+
+    /// `int`, `double` ou `bool` (não anuláveis): os operadores deles são do
+    /// compilador, não chamados.
+    fn escalar(&self, t: Option<dartforge_types::TypeId>) -> bool {
+        let c = &self.ctx.core;
+        t.is_some_and(|t| t == c.int || t == c.double || t == c.bool_)
+    }
+
+    fn expressao_sem_chamadas(
+        &self,
+        ast: &ast::Ast,
+        e: ExprId,
+        lista: SymbolId,
+        declarados: &std::collections::HashSet<SymbolId>,
+    ) -> bool {
+        use super::tipados::Indexavel;
+        let tipo = |x: ExprId| self.ctx.get_type(self.unit_id, x);
+        let local = |n: &ast::Name| declarados.contains(&n.sym) || self.buscar_local(n.sym).is_some();
+        // A própria lista, ou uma de `dart:typed_data`.
+        let lista_ok = |x: ExprId| match &ast.expr(x).kind {
+            ExprKind::Identifier(n) if n.sym == lista => true,
+            ExprKind::Identifier(n) if local(n) => {
+                matches!(self.indexavel(tipo(x)), Some(Indexavel::Tipada(_) | Indexavel::Simd { .. }))
+            }
+            _ => false,
+        };
+        let sub = |x: ExprId| self.expressao_sem_chamadas(ast, x, lista, declarados);
+        match &ast.expr(e).kind {
+            ExprKind::Int(_) | ExprKind::Double(_) | ExprKind::Bool(_) => true,
+            ExprKind::Identifier(n) => local(n) && (self.escalar(tipo(e)) || n.sym == lista),
+            ExprKind::Parenthesized(x) => sub(*x),
+            ExprKind::Binary { op, left, right } => {
+                !matches!(op, ast::BinaryOp::IfNull)
+                    && self.escalar(tipo(*left))
+                    && self.escalar(tipo(*right))
+                    && sub(*left)
+                    && sub(*right)
+            }
+            ExprKind::Unary { operand, .. } => self.escalar(tipo(*operand)) && sub(*operand),
+            ExprKind::Conditional { condition, then, else_ } => sub(*condition) && sub(*then) && sub(*else_),
+            ExprKind::Index { target, index, null_aware: false } => {
+                lista_ok(*target) && self.escalar(tipo(*index)) && sub(*index)
+            }
+            ExprKind::Property { target, name, null_aware: false } => {
+                self.ctx.symbol_name(name.sym) == "length" && lista_ok(*target)
+            }
+            ExprKind::Assign { target, value, .. } => {
+                let alvo_ok = match &ast.expr(*target).kind {
+                    // O tipo do alvo de uma atribuição fica na própria
+                    // atribuição (o do resultado: o do local, em `s += x`).
+                    ExprKind::Identifier(n) => local(n) && self.escalar(tipo(e)),
+                    ExprKind::Index { target: t, index, null_aware: false } => {
+                        lista_ok(*t) && self.escalar(tipo(*index)) && sub(*index)
+                    }
+                    _ => false,
+                };
+                alvo_ok && self.escalar(tipo(*value)) && sub(*value)
+            }
+            _ => false,
+        }
+    }
+
+    /// As voltas de um `for` (a condição, o corpo e as atualizações), depois
+    /// da inicialização; termina no bloco de saída. `contado`: o laço termina
+    /// sozinho e as voltas não levam ponto seguro (J01).
+    #[allow(clippy::too_many_arguments)]
+    fn voltas_do_for(
+        &mut self,
+        ast: &ast::Ast,
+        init: Option<&ast::ForInit>,
+        condition: Option<ExprId>,
+        updates: &[ExprId],
+        body: StmtId,
+        contado: bool,
+        rotulos: &[SymbolId],
+    ) {
+        let loop_header = self.new_block();
+        let loop_body = self.new_block();
+        let loop_update = self.new_block();
+        let exit_block = self.new_block();
+
+        for &lbl in rotulos {
+            self.labeled_break_targets.insert(lbl, exit_block);
+            self.labeled_continue_targets.insert(lbl, loop_update);
+        }
+
+        self.terminate(Terminator::Branch(loop_header));
+        self.set_block(loop_header);
+
+        if let Some(cond_id) = &condition {
+            let cond_op = self.lower_expr(ast, *cond_id);
+            let cond_op = self.para_bool(cond_op);
+            self.terminate(Terminator::CondBranch {
+                cond: cond_op,
+                then_block: loop_body,
+                else_block: exit_block,
+            });
+        } else {
+            self.terminate(Terminator::Branch(loop_body));
+        }
+
+        self.break_targets.push(exit_block);
+        self.continue_targets.push(loop_update);
+
+        self.set_block(loop_body);
+        if !contado {
+            self.emitir_ponto_seguro();
+        }
+        self.lower_stmt(ast, body);
+        self.terminate(Terminator::Branch(loop_update));
+
+        self.set_block(loop_update);
+        // Uma variável nova por volta (a especificação do `for`):
+        // só muda algo para a que mora numa célula (P1).
+        if let Some(ast::ForInit::Variables(var_list)) = init {
+            for var in var_list.variables.iter() {
+                self.renovar_celula(var.name.sym);
+            }
+        }
+        for &u in updates.iter() {
+            self.lower_expr_descartada(ast, u);
+        }
+        self.terminate(Terminator::Branch(loop_header));
+
+        self.break_targets.pop();
+        self.continue_targets.pop();
+
+        for &lbl in rotulos {
+            self.labeled_break_targets.remove(&lbl);
+            self.labeled_continue_targets.remove(&lbl);
+        }
+
+        self.set_block(exit_block);
+    }
+
     /// `for (int i = a; i < L; i++)` e as variações (`<=`, `>`, `>=`;
     /// `i += c`, `i -= c` com `c` literal positivo no sentido da condição),
     /// com `i` sem outra gravação no corpo e na condição, e o limite `L`
@@ -975,19 +1165,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         condition: Option<ExprId>,
         updates: &[ExprId],
         body: StmtId,
-    ) -> bool {
-        let Some(ast::ForInit::Variables(lista)) = init else { return false };
-        let [var] = &lista.variables[..] else { return false };
+    ) -> Option<Contado> {
+        let Some(ast::ForInit::Variables(lista)) = init else { return None };
+        let [var] = &lista.variables[..] else { return None };
         if lista.late || var.initializer.is_none() {
-            return false;
+            return None;
         }
         let i = var.name.sym;
         let int = self.ctx.core.int;
         if self.ctx.tipo_local(self.unit_id, var.name.span.start as usize) != Some(int) {
-            return false;
+            return None;
         }
-        let Some(cond) = condition else { return false };
-        let ExprKind::Binary { op, left, right } = &ast.expr(cond).kind else { return false };
+        let Some(cond) = condition else { return None };
+        let ExprKind::Binary { op, left, right } = &ast.expr(cond).kind else { return None };
         let e_i = |e: ExprId| matches!(&ast.expr(e).kind, ExprKind::Identifier(n) if n.sym == i);
         // `i < L` ou `L > i` (e as demais): o sentido em que `i` anda e se a
         // comparação é estrita.
@@ -1000,9 +1190,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ast::BinaryOp::GtEq if e_i(*right) => (*left, true, false),
             ast::BinaryOp::Lt if e_i(*right) => (*left, false, true),
             ast::BinaryOp::LtEq if e_i(*right) => (*left, false, false),
-            _ => return false,
+            _ => return None,
         };
-        let [u] = updates else { return false };
+        let [u] = updates else { return None };
         let fonte = self.source();
         let literal = |e: ExprId| match &ast.expr(e).kind {
             ExprKind::Int(span) => fonte.get(span.start as usize..span.end as usize).and_then(|t| {
@@ -1027,11 +1217,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             _ => 0,
         };
         if passo <= 0 {
-            return false;
+            return None;
         }
         let gravados = super::captura::gravados_de_fora(self.ctx, self.unit_id, ast, body, &[cond]);
         if gravados.contains(&i) {
-            return false;
+            return None;
         }
         // Um local que nem o corpo, nem a condição, nem closure alguma
         // grava: sem célula (`captura.rs`), o valor não muda no laço.
@@ -1051,7 +1241,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let ultimo = if estrita { if crescente { l.checked_sub(1) } else { l.checked_add(1) } } else { Some(l) };
             ultimo.is_some_and(|u| if crescente { u.checked_add(passo).is_some() } else { u.checked_sub(passo).is_some() })
         };
-        match &ast.expr(limite).kind {
+        let simples = match &ast.expr(limite).kind {
             ExprKind::Int(_) => literal(limite).is_some_and(sem_transbordar),
             // Um valor qualquer: só o passo 1 estrito nunca transborda.
             ExprKind::Identifier(_) => {
@@ -1060,15 +1250,38 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // O comprimento de uma lista tipada fica em `0..=2^60` (cabe na
             // memória endereçável); o passo não o faz transbordar.
             ExprKind::Property { target, name, null_aware: false } if self.ctx.symbol_name(name.sym) == "length" => {
+                let alvo = self.indexavel(self.ctx.get_type(self.unit_id, *target));
+                // N13: `List<E>` só termina sozinho se o comprimento não muda
+                // nas voltas — nenhum chamado no corpo — e a lista for do
+                // runtime, o que só a execução diz (as voltas são duplicadas).
+                if crescente
+                    && estrita
+                    && passo <= 1 << 60
+                    && local_fixo(*target)
+                    && matches!(alvo, Some(super::tipados::Indexavel::Nucleo { .. }))
+                    && let ExprKind::Identifier(n) = &ast.expr(*target).kind
+                    && self.buscar_local(n.sym).is_some_and(|l| matches!(l.modo, super::locais::Modo::Memoria(_)))
+                    && self.corpo_sem_chamadas(ast, body, n.sym, i)
+                {
+                    return Some(Contado::Lista { alvo: *target, local: n.sym });
+                }
                 crescente
                     && passo <= 1 << 60
                     && local_fixo(*target)
-                    && matches!(
-                        self.indexavel(self.ctx.get_type(self.unit_id, *target)),
-                        Some(super::tipados::Indexavel::Tipada(_) | super::tipados::Indexavel::Simd { .. })
-                    )
+                    && matches!(alvo, Some(super::tipados::Indexavel::Tipada(_) | super::tipados::Indexavel::Simd { .. }))
             }
             _ => false,
-        }
+        };
+        simples.then_some(Contado::Simples)
     }
+}
+
+/// Um `for` que termina sozinho (J01): o limite é fixo, ou (N13) é o
+/// `length` de uma lista do núcleo que o corpo não pode mudar — aí as voltas
+/// valem para a lista do runtime, e a classe do programa que implementa
+/// `List` segue pelas voltas de sempre.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum Contado {
+    Simples,
+    Lista { alvo: ExprId, local: SymbolId },
 }

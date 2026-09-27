@@ -31,7 +31,6 @@ use crate::hir::*;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, FunctionKind, LibraryId, UnitId, VariableId};
 use dartforge_frontend::ast::ParameterKind;
-use dartforge_types::table::{Type as DartType, TypeParamOwner};
 
 /// O que o seletor faz com o membro.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1175,25 +1174,16 @@ pub fn lower_adaptadores_da_funcao(ctx: &Context, module: &mut Module, fid: usiz
                     b.finalizar(module);
                     continue;
                 };
+                // A VM confere os argumentos na entrada do método, antes do
+                // corpo (e do native, no SDK: `String.+(String)` não pode
+                // receber um Smi como handle de String via `dynamic`): os
+                // covariantes de classe e os de tipo nominal, com a mensagem
+                // " of 'nome'" — antes de converter cada um à representação.
+                b.this_param = Some(recv.clone());
+                b.enclosing_class = f.class;
+                b.conferir_argumentos_da_entrada(fid, &vals);
                 let reprs: Vec<Type> = ctx.outline.functions[fid].parameters.iter().map(|p| b.repr(p.ty)).collect();
                 let vals: Vec<Operand> = vals.into_iter().zip(reprs).map(|(v, r)| b.coagir(v, r)).collect();
-                // A VM confere parâmetros na entrada do método. Além dos
-                // covariantes de classe, um parâmetro nominal do SDK precisa
-                // ser validado antes do corpo/native: `String.+(String)` não
-                // pode receber um Smi como handle de String via `dynamic`.
-                if ctx.program.library(f.library).is_sdk {
-                    b.this_param = Some(recv.clone());
-                    b.enclosing_class = f.class;
-                    for (p, v) in ctx.outline.functions[fid].parameters.iter().zip(&vals) {
-                        let covariante = matches!(ctx.table.get(p.ty), DartType::TypeParameter { param, .. }
-                            if matches!(ctx.table.param(*param).owner, TypeParamOwner::Class(c) if Some(c) == f.class));
-                        let nominal = matches!(ctx.table.get(p.ty), DartType::Interface { .. });
-                        if covariante || nominal {
-                            let tipo = b.rti_de_tipo(p.ty);
-                            b.cast_rti(v.clone(), tipo);
-                        }
-                    }
-                }
                 if b.funcao_generica(fid) {
                     let npos = b.emit(
                         Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(0)) },

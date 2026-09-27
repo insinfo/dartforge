@@ -709,6 +709,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let args = Operand::Val(e.add_param("args".to_string(), Type::Ptr));
             let desc = Operand::Val(e.add_param("desc".to_string(), Type::Ptr));
             if let Some(vals) = e.desempacotar(&infos, args, desc) {
+                // Os argumentos de uma chamada dinâmica, conferidos como na
+                // VM (" of 'nome'") antes de convertidos.
+                e.conferir_argumentos_da_entrada(fid, &vals);
                 let reprs: Vec<Type> = self.ctx.outline.functions[fid]
                     .parameters
                     .iter()
@@ -896,6 +899,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             );
             let t = e.emit(Instruction::EnvGet { env, index: 0 }, Type::I64);
             if let Some(vals) = e.desempacotar(&infos, args, desc) {
+                // Os argumentos de uma chamada dinâmica, conferidos como na
+                // VM (" of 'nome'") antes de convertidos.
+                e.conferir_argumentos_da_entrada(fid, &vals);
                 let reprs: Vec<Type> = self.ctx.outline.functions[fid].parameters.iter().map(|p| e.repr(p.ty)).collect();
                 let vals: Vec<Operand> = vals.into_iter().zip(reprs).map(|(v, r)| e.coagir(v, r)).collect();
                 e.tupla_armada = Some(t);

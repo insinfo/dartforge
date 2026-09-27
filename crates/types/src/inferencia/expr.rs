@@ -501,7 +501,7 @@ fn leitura_de_campo(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, base: Bas
 
 /// Coerção de tear-off genérico para um contexto de função não genérico
 /// (instanciação implícita).
-fn instanciar_em_contexto(inf: &mut BodyInferrer<'_>, t: TypeId, ctx: TypeId) -> TypeId {
+fn instanciar_em_contexto(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, t: TypeId, ctx: TypeId) -> TypeId {
     let Type::Function { type_params, ret, positional, optional, named, nullable } = inf.table.get(t).clone() else { return t };
     if type_params.is_empty() || inf.e_desconhecido(ctx) {
         return t;
@@ -524,7 +524,9 @@ fn instanciar_em_contexto(inf: &mut BodyInferrer<'_>, t: TypeId, ctx: TypeId) ->
     let mut env = inf.env();
     gi.constrain_return(sem, k, &mut env);
     let args = gi.choose_final(&mut env);
-    crate::constraints::instanciar_funcao(t, &args, &mut env)
+    let r = crate::constraints::instanciar_funcao(t, &args, &mut env);
+    inf.body_types.units[cx.unit.0 as usize].instanciacoes_de_tearoff.insert(e, args.into_boxed_slice());
+    r
 }
 
 /// Infere um nó; devolve `(tipo, curto)` onde `curto` diz que há `?.` na
@@ -563,7 +565,7 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
         ExprKind::Identifier(n) if Some(n.sym) == inf.sym.this_ => cx.tipo_this.unwrap_or(inf.core.dynamic_),
         ExprKind::Identifier(n) => {
             let t = identificador(inf, cx, e, *n);
-            instanciar_em_contexto(inf, t, ctx)
+            instanciar_em_contexto(inf, cx, e, t, ctx)
         }
         ExprKind::This => cx.tipo_this.unwrap_or(inf.core.dynamic_),
         ExprKind::Super => cx.tipo_this.unwrap_or(inf.core.dynamic_),
@@ -603,7 +605,7 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
         ExprKind::Property { target, name, null_aware } => {
             let (t, c) = propriedade(inf, cx, e, *target, *name, *null_aware);
             curto = c;
-            instanciar_em_contexto(inf, t, ctx)
+            instanciar_em_contexto(inf, cx, e, t, ctx)
         }
         ExprKind::Index { target, index, null_aware } => {
             let (t, c) = ler_indice(inf, cx, e, *target, *index, *null_aware, ctx);

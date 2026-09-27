@@ -565,9 +565,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     // Lista tipada numérica ou `List<E>`: leitura e gravação
                     // diretas (`tipados.rs`).
                     let repr = self.repr_da_expressao(target).unwrap_or(Type::Ref);
+                    let fixa = self.lista_fixa_de(ast, *t);
+                    self.fixa_do_acesso = fixa.clone();
                     let cur = if composto { self.ler_indexado(t_op.clone(), i_op.clone(), l, repr) } else { None };
+                    self.fixa_do_acesso = None;
                     let v = self.combinar(ast, op, cur, value);
-                    if self.gravar_indexado(t_op.clone(), i_op.clone(), v.clone(), l) {
+                    self.fixa_do_acesso = fixa;
+                    let gravou = self.gravar_indexado(t_op.clone(), i_op.clone(), v.clone(), l);
+                    self.fixa_do_acesso = None;
+                    if gravou {
                         return v;
                     }
                     self.chamar_por_nome(t_op, super::sdk_fonte::Tipo::Chamar, "[]=", &[(None, i_op), (None, v.clone())]);

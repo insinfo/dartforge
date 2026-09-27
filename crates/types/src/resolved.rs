@@ -86,6 +86,11 @@ pub struct UnitBodyTypes {
     /// tipo de qualquer nó (`id(5)` tem tipo `Object?`, mas a instanciação
     /// `<Object?>` só aparece aqui) e é o que o backend reifica.
     pub instanciacoes: std::collections::HashMap<usize, Box<[TypeId]>>,
+    /// Os argumentos de tipo da instanciação implícita de um tear-off de
+    /// função genérica num contexto de função não genérica
+    /// (`int Function(int) f = id;`), pela expressão do tear-off: a closure
+    /// tem o tipo instanciado e leva os argumentos, como na VM.
+    pub instanciacoes_de_tearoff: std::collections::HashMap<ast::ExprId, Box<[TypeId]>>,
 }
 
 impl UnitBodyTypes {
@@ -99,7 +104,14 @@ impl UnitBodyTypes {
             tipos_invalidos: std::collections::HashSet::new(),
             tipos_de_execucao_de_funcoes: std::collections::HashMap::new(),
             instanciacoes: std::collections::HashMap::new(),
+            instanciacoes_de_tearoff: std::collections::HashMap::new(),
         }
+    }
+
+    /// Os argumentos de tipo da instanciação implícita do tear-off `e` (ver
+    /// [`UnitBodyTypes::instanciacoes_de_tearoff`]).
+    pub fn instanciacao_de_tearoff(&self, e: ast::ExprId) -> Option<&[TypeId]> {
+        self.instanciacoes_de_tearoff.get(&e).map(|a| &**a)
     }
 
     /// Registra os argumentos de tipo da chamada genérica cuja lista de

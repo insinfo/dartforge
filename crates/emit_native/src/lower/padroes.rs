@@ -361,7 +361,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             PatternKind::Cast { pattern, ty } => {
                 let v = self.coagir(valor.clone(), Type::Ref);
-                self.checar_tipo_ou_lancar(ast.ty(*ty), v);
+                self.checar_tipo_ou_lancar(ast.ty(*ty), v, super::rti::ContextoDoCast::Como);
                 self.casar(ast, *pattern, valor, falha, ligacao, ligados, origem);
             }
             PatternKind::List { elements, .. } if self.ctx.sdk_da_fonte => {

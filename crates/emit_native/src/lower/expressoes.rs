@@ -216,6 +216,30 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.continuar_cadeia = false;
             return self.receptor_pronto.take().expect("verificado acima").1;
         }
+        // Tear-off de função genérica num contexto de função não genérica
+        // (`int Function(int) f = id;`): a instanciação implícita que a
+        // inferência escolheu, como a de `id<int>` — a closure tem o tipo
+        // instanciado e leva os argumentos de tipo.
+        if matches!(ast.expr(expr_id).kind, ExprKind::Identifier(_) | ExprKind::Property { .. })
+            && let Some(args) = self.ctx.bodies.units[self.unit_id.0 as usize]
+                .instanciacao_de_tearoff(expr_id)
+                .map(<[_]>::to_vec)
+            && let Some(fid) = self.funcao_generica_do_alvo(ast, expr_id)
+        {
+            let mut r = super::rti::Receita { texto: "L<".to_string(), variaveis: false };
+            for (i, t) in args.iter().enumerate() {
+                if i > 0 {
+                    r.texto.push(',');
+                }
+                let x = self.receita_de_tipo(*t);
+                r.texto.push_str(&x.texto);
+                r.variaveis |= x.variaveis;
+            }
+            r.texto.push('>');
+            let tupla = self.rti_da_receita(&r);
+            let tipo = self.ctx.get_type(self.unit_id, expr_id);
+            return self.tearoff_instanciado(fid, tupla, tipo);
+        }
         let continuar = std::mem::replace(&mut self.continuar_cadeia, false);
         let salvo = if continuar {
             None
@@ -904,7 +928,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if prop_name == "length"
                     && let Some(l) = self.indexavel(self.ctx.get_type(self.unit_id, *target))
                 {
+                    self.fixa_do_acesso = self.lista_fixa_de(ast, *target);
                     let n = self.length_indexado(target_op, l);
+                    self.fixa_do_acesso = None;
                     let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::I64);
                     return self.coagir(n, repr);
                 }
@@ -999,7 +1025,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 if let Some(l) = self.indexavel(self.ctx.get_type(self.unit_id, *target)) {
                     let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
-                    if let Some(r) = self.ler_indexado(target_op.clone(), idx_op.clone(), l, repr) {
+                    self.fixa_do_acesso = self.lista_fixa_de(ast, *target);
+                    let lido = self.ler_indexado(target_op.clone(), idx_op.clone(), l, repr);
+                    self.fixa_do_acesso = None;
+                    if let Some(r) = lido {
                         return r;
                     }
                 }
@@ -1199,7 +1228,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ExprKind::As { value, ty } => {
                 let val_op = self.lower_expr(ast, *value);
                 let ast_ty = self.ctx.program.unit(self.unit_id).ast.ty(*ty);
-                self.checar_tipo_ou_lancar(ast_ty, val_op.clone());
+                self.checar_tipo_ou_lancar(ast_ty, val_op.clone(), super::rti::ContextoDoCast::Como);
                 val_op
             }
             ExprKind::Assign { op, target, value } => self.lower_atribuicao(

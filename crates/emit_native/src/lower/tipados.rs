@@ -36,6 +36,18 @@ use crate::hir::*;
 use dartforge_types::table::Type as T;
 use dartforge_types::TypeId;
 
+impl FnBuilder<'_, '_> {
+    /// A lista fixa das voltas em emissão que `alvo` (um local) nomeia (N13).
+    pub(super) fn lista_fixa_de(&self, ast: &dartforge_frontend::ast::Ast, alvo: dartforge_frontend::ast::ExprId) -> Option<super::fn_builder::ListaFixa> {
+        if self.listas_fixas.is_empty() {
+            return None;
+        }
+        let dartforge_frontend::ast::ExprKind::Identifier(n) = &ast.expr(alvo).kind else { return None };
+        let super::locais::Modo::Memoria(chave) = self.buscar_local(n.sym)?.modo else { return None };
+        self.listas_fixas.iter().rev().find(|f| f.chave == chave).cloned()
+    }
+}
+
 /// Um receptor com caminho rápido de índice.
 #[derive(Debug, Clone, Copy)]
 pub enum Indexavel {
@@ -147,9 +159,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         debug_assert_eq!(tipo, 0);
         // O comprimento lógico, em linha (0 para quem não é lista do
-        // runtime: o `CABECALHO_VAZIO`).
+        // runtime: o `CABECALHO_VAZIO`); numa lista fixa das voltas (N13),
+        // o lido antes delas.
         let cab = self.cabecalho_da_lista(lista);
-        let len = self.campo_do_cabecalho(&cab, 1);
+        let len = match &self.fixa_do_acesso {
+            Some(f) => f.comprimento.clone(),
+            None => self.campo_do_cabecalho(&cab, 1),
+        };
         let Some(t) = gravacao.filter(|_| escrita) else { return len };
         // Gravação: o `E` reificado tem de aceitar o valor (covariância) e a
         // lista, ser modificável. Conferido uma vez por lista pelo runtime,
@@ -183,7 +199,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// O cabeçalho de uma lista do runtime (`heap::CabecalhoDeLista`).
-    fn cabecalho_da_lista(&mut self, lista: &Operand) -> Operand {
+    pub(super) fn cabecalho_da_lista(&mut self, lista: &Operand) -> Operand {
         self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_lista_cabecalho".to_string(),
@@ -196,7 +212,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// A palavra `i` do cabeçalho: 0 os dados, 1 o comprimento, 2 as
     /// gravações conferidas.
-    fn campo_do_cabecalho(&mut self, cab: &Operand, i: i64) -> Operand {
+    pub(super) fn campo_do_cabecalho(&mut self, cab: &Operand, i: i64) -> Operand {
         self.emit(
             Instruction::CargaNativa { endereco: cab.clone(), indice: Operand::Constant(Constant::Int(i)), tipo: TipoC::I64 },
             Type::I64,
@@ -206,6 +222,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `lista.length`.
     pub(super) fn length_indexado(&mut self, lista: Operand, ix: Indexavel) -> Operand {
         let lista = self.coagir(lista, Type::Ref);
+        // N13: a lista do runtime das voltas (comprimento não nulo, fixo).
+        if let (Indexavel::Nucleo { .. }, Some(f)) = (ix, &self.fixa_do_acesso) {
+            return f.comprimento.clone();
+        }
         let n = self.comprimento_rapido(&lista, ix, false);
         if let Indexavel::Tipada(_) | Indexavel::Simd { .. } = ix {
             // O tipo estático garante a lista tipada do tipo: o comprimento
@@ -367,6 +387,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// O endereço dos elementos de uma lista do runtime apta, do cabeçalho.
     fn dados_da_lista(&mut self, lista: &Operand) -> Operand {
+        if let Some(f) = &self.fixa_do_acesso {
+            return f.dados.clone();
+        }
         let cab = self.cabecalho_da_lista(lista);
         self.campo_do_cabecalho(&cab, 0)
     }

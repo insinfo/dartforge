@@ -726,15 +726,48 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// `op as <tipo>` pelo RTI: `TypeError` pendente se falha.
     pub fn cast_rti(&mut self, op: Operand, tipo: Operand) {
+        self.cast_rti_em(op, tipo, ContextoDoCast::Como);
+    }
+
+    /// [`Self::cast_rti`] com o contexto que dá o fim da mensagem da VM.
+    pub fn cast_rti_em(&mut self, op: Operand, tipo: Operand, contexto: ContextoDoCast) {
         let v = self.coagir(op, Type::Ref);
+        let (codigo, nome) = match contexto {
+            ContextoDoCast::Como => (0, Operand::Constant(Constant::Null)),
+            ContextoDoCast::Implicito => (1, Operand::Constant(Constant::Null)),
+            ContextoDoCast::Parametro(n) => (2, self.emit(Instruction::Const(Constant::String(n)), Type::Ref)),
+        };
         self.emit_call_with_check(
             Instruction::CallRuntime {
-                name: "dartforge_rti_como".to_string(),
-                args: vec![(v, Type::Ref), (tipo, Type::I64)],
+                name: "dartforge_rti_como_em".to_string(),
+                args: vec![(v, Type::Ref), (tipo, Type::I64), (Operand::Constant(Constant::Int(codigo)), Type::I64), (nome, Type::Ref)],
                 ret_ty: Type::Void,
             },
             Type::Void,
         );
+    }
+
+    /// Na entrada de uma chamada dinâmica (tear-off, adaptador da tabela de
+    /// métodos), confere cada argumento contra o tipo do parâmetro antes de
+    /// convertê-lo, como a VM: "type 'S' is not a subtype of type 'T' of
+    /// 'nome'". Só os parâmetros de tipo nominal (classe) e os covariantes
+    /// de classe; os outros (`dynamic`, `Object?`, tipos de função e
+    /// parâmetros de tipo da função) ficam com a conversão de sempre.
+    pub fn conferir_argumentos_da_entrada(&mut self, fid: usize, vals: &[Operand]) {
+        use dartforge_types::table::{Type as DartType, TypeParamOwner};
+        let f = &self.ctx.program.functions[fid];
+        for (p, v) in self.ctx.outline.functions[fid].parameters.clone().iter().zip(vals) {
+            let covariante = matches!(self.ctx.table.get(p.ty), DartType::TypeParameter { param, .. }
+                if matches!(self.ctx.table.param(*param).owner, TypeParamOwner::Class(c) if Some(c) == f.class));
+            let nominal = matches!(self.ctx.table.get(p.ty), DartType::Interface { .. });
+            let topo = p.ty == self.ctx.core.dynamic_ || p.ty == self.ctx.core.object_nullable;
+            if topo || !(covariante || nominal) {
+                continue;
+            }
+            let nome = p.name.map(|n| self.ctx.symbol_name(n).to_string()).unwrap_or_default();
+            let tipo = self.rti_de_tipo(p.ty);
+            self.cast_rti_em(v.clone(), tipo, ContextoDoCast::Parametro(nome));
+        }
     }
 
     /// Arma a tupla de argumentos de tipo da chamada `expr` à função `fid`
@@ -1347,4 +1380,15 @@ pub fn nome_visivel(ctx: &Context, c: ClassId) -> String {
         _ => None,
     };
     visivel.unwrap_or(nome).to_string()
+}
+
+/// Onde uma conferência de tipo acontece: muda o fim da mensagem da VM.
+#[derive(Debug, Clone)]
+pub enum ContextoDoCast {
+    /// `v as T`: " in type cast".
+    Como,
+    /// Atribuição implícita de um `dynamic`: sem sufixo.
+    Implicito,
+    /// O parâmetro de uma chamada dinâmica ou covariante: " of 'nome'".
+    Parametro(String),
 }

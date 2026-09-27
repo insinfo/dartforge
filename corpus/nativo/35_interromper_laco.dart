@@ -1,8 +1,9 @@
 // J01: controle de um isolado preso num laço síncrono sem eventos (o ponto
 // seguro de cada volta de laço, como a verificação de pilha da VM): o `ping`
-// imediato responde, o `kill` imediato termina o isolado (rodando os
-// `finally` do caminho, que um `catch` não intercepta) e os outros isolados
-// seguem; um laço `for-in`, um `do-while` e um laço num gerador também param.
+// imediato responde, o `kill` imediato termina o isolado (o `UnwindError`
+// da VM: nenhum `catch` o intercepta e nenhum `finally` do caminho roda) e
+// os outros isolados seguem; um laço `for-in`, um `do-while` e um laço num
+// gerador também param.
 import 'dart:async';
 import 'dart:isolate';
 
@@ -59,7 +60,7 @@ Future<void> controlar(void Function(SendPort) entrada) async {
   iso.kill(priority: Isolate.immediate);
   final r = await saiu.first.timeout(const Duration(seconds: 10), onTimeout: () => 'não saiu');
   print('saiu: ${r == null}');
-  // O que o isolado mandou antes de morrer (o `finally`).
+  // O que o isolado mandou depois do início: nada (o `finally` não roda).
   while (await fila.moveNext().timeout(const Duration(milliseconds: 200), onTimeout: () => false)) {
     print('  ${fila.current}');
   }

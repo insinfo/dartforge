@@ -1073,6 +1073,20 @@ pub extern "C" fn dartforge_rti_subtipo(s: i64, t: i64) -> u8 {
 /// "type 'S' is not a subtype of type 'T' in type cast").
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_como(v: i64, t: i64) {
+    dartforge_rti_como_em(v, t, 0, 0);
+}
+
+/// [`dartforge_rti_como`] com o contexto da conferência, que muda o fim da
+/// mensagem da VM: 0 o `as` (" in type cast"), 1 a atribuição implícita de
+/// um `dynamic` (sem sufixo), 2 o parâmetro `nome` (um `String`) na entrada
+/// de uma chamada dinâmica ou covariante (" of 'nome'").
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_rti_como_em(v: i64, t: i64, contexto: i64, nome: i64) {
+    let sufixo = match contexto {
+        0 => " in type cast".to_string(),
+        1 => String::new(),
+        _ => format!(" of '{}'", HEAP.with(|h| h.borrow().texto(nome).para_string())),
+    };
     let falha = RTI.with(|u| {
         let mut u = u.borrow_mut();
         if u.teste_sem_o_valor(v, t) == Some(true) {
@@ -1082,7 +1096,7 @@ pub extern "C" fn dartforge_rti_como(v: i64, t: i64) {
         if u.sub(s, t) {
             None
         } else {
-            Some(format!("type '{}' is not a subtype of type '{}' in type cast", u.texto(s), u.texto(t)))
+            Some(format!("type '{}' is not a subtype of type '{}'{sufixo}", u.texto(s), u.texto(t)))
         }
     });
     if let Some(msg) = falha {
