@@ -60,12 +60,17 @@ Natives: `FileSystemWatcher_CloseWatcher`, `_GetSocketId`, `_InitWatcher`,
 * APIs públicas: `FileSystemEntity.watch()` (e portanto `File.watch`,
   `Directory.watch`, `Link.watch`) em `io/file_system_entity.dart:450-459`,
   e `FileSystemEntity.isWatchSupported` em `io/file_system_entity.dart:638-644`.
-* Estado: **implementado no Linux** (inotify, como a VM:
-  `crates/runtime/src/io_observador.rs`; o descritor vai ao laço de eventos
-  como soquete interno pelo `_NativeSocket.watch` do patch);
-  `corpus/nativo/34_observar_arquivos.dart`. No macOS (FSEvents) e no
-  Windows (`ReadDirectoryChangesW`) falta: `isWatchSupported` é falso e
-  `watch()` lança a `FileSystemException` "not supported" do patch.
+* Estado: **implementado no Linux e no Windows** (Linux: inotify, como a
+  VM, `crates/runtime/src/io_observador.rs`, o descritor vai ao laço de
+  eventos como soquete interno pelo `_NativeSocket.watch` do patch;
+  `corpus/nativo/34_observar_arquivos.dart`. Windows: `ReadDirectoryChangesW`
+  na porta de conclusão, como `file_system_watcher_win.cc` — cada caminho é
+  um manipulador de diretório do laço de eventos (`DirectoryWatchHandle`,
+  `io_windows_eventos.rs`) com a leitura já emitida, filtro de nomes e de
+  escrita, recursivo, falha de emissão silenciosa como na VM;
+  `corpus/nativo/38_observar_arquivos_windows.dart`, comparado com a VM do
+  Windows no Pesado). No macOS (FSEvents) falta: `isWatchSupported` é
+  falso e `watch()` lança a `FileSystemException` "not supported" do patch.
 
 ### 1.2 `dart:io` — multicast de UDP
 
@@ -289,7 +294,7 @@ lança `UnsupportedError`. Para programas válidos, são inalcançáveis.
 
 | API pública | Natives pendentes | Estado | Evidência |
 |---|---|---|---|
-| `FileSystemEntity.watch`, `isWatchSupported` (`dart:io`) | 7 `FileSystemWatcher_*` | implementado no Linux; ausente no macOS e no Windows | `file_patch.dart:163-168`, `380-395`; `io/file_system_entity.dart:450-459`, `638-644` |
+| `FileSystemEntity.watch`, `isWatchSupported` (`dart:io`) | 7 `FileSystemWatcher_*` | implementado no Linux e no Windows; ausente no macOS | `file_patch.dart:163-168`, `380-395`; `io/file_system_entity.dart:450-459`, `638-644` |
 | `RawDatagramSocket.joinMulticast`/`leaveMulticast` | `Socket_JoinMulticast`, `Socket_LeaveMulticast` | implementado | `socket_patch.dart:1713-1728`, `1797-1802` |
 | `RawSocket.readMessage`/`sendMessage`, `SocketControlMessage.fromHandles`/`extractHandles`, `ResourceHandle.to*` | `Socket_ReceiveMessage`, `Socket_SendMessage`, 2 `SocketControlMessage*`, 4 `ResourceHandleImpl_*` | implementado (Unix) | `socket_patch.dart:1155-1165`, `1295-1316`, `1744-1757`, `2740-2833` |
 | `RawSynchronousSocket` | 11 `SynchronousSocket_*` | implementado | `sync_socket_patch.dart:303-323` |
@@ -311,8 +316,8 @@ Contagem dos 66 pendentes do levantamento:
 * **implementados depois — 21:** 2 de multicast + 8 de mensagens de
   controle e `ResourceHandle` + 11 `SynchronousSocket_*` (saíram da tabela
   de pendentes);
-* **implementados depois (só Linux) — 7:** `FileSystemWatcher_*` (inotify; no
-  macOS e no Windows `isWatchSupported` é falso);
+* **implementados depois (Linux e Windows) — 7:** `FileSystemWatcher_*`
+  (inotify; `ReadDirectoryChangesW`; no macOS `isWatchSupported` é falso);
 * **ausente — 1:** `writeHeapSnapshotToFile`;
 * **servido por sobreposição — 6:** `FinalizerEntry_allocate` + 5 de
   callbacks FFI;

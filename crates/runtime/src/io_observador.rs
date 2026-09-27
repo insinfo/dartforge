@@ -15,9 +15,19 @@
 // (pelo manipulador de eventos) que libera o descritor, e `_closeWatcher`
 // não o fecha de novo — fechar duas vezes poderia fechar um descritor já
 // reaproveitado por outra abertura.
+//
+// Windows: `ReadDirectoryChangesW` na porta de conclusão, como a VM
+// (`file_system_watcher_win.cc`). Não há descritor do observador (`Init` é
+// 0): cada caminho é um manipulador de diretório (`DirectoryWatchHandle`,
+// em `io_windows_eventos.rs`), e o ponteiro dele é o id do caminho e o do
+// soquete interno. `_unwatchPath` para a leitura e fecha o handle; a
+// referência fica com o soquete, que o Dart fecha logo depois. Os eventos
+// não trazem "é diretório" (o `_Win32FileSystemWatcher` consulta o disco)
+// nem pares de mudança de nome (o cookie é sempre 1, e o Dart os junta).
 
 /// Os bits de `FileSystemEvent` (e os internos do `_FileSystemWatcher`).
-#[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(any(target_os = "linux", target_os = "android", windows))]
+#[allow(dead_code)]
 mod evento_fs {
     pub const CRIAR: i64 = 1 << 0;
     pub const MODIFICAR_CONTEUDO: i64 = 1 << 1;
@@ -54,10 +64,26 @@ mod inotify {
     }
 }
 
+/// Os filtros do `ReadDirectoryChangesW` e as ações de
+/// `FILE_NOTIFY_INFORMATION`.
+#[cfg(windows)]
+mod notificacao {
+    pub const FILE_NOTIFY_CHANGE_FILE_NAME: u32 = 0x0000_0001;
+    pub const FILE_NOTIFY_CHANGE_DIR_NAME: u32 = 0x0000_0002;
+    pub const FILE_NOTIFY_CHANGE_LAST_WRITE: u32 = 0x0000_0010;
+    pub const FILE_ACTION_ADDED: u32 = 1;
+    pub const FILE_ACTION_REMOVED: u32 = 2;
+    pub const FILE_ACTION_MODIFIED: u32 = 3;
+    pub const FILE_ACTION_RENAMED_OLD_NAME: u32 = 4;
+    pub const FILE_ACTION_RENAMED_NEW_NAME: u32 = 5;
+    /// `NextEntryOffset`, `Action` e `FileNameLength` antes do nome.
+    pub const CABECALHO: usize = 12;
+}
+
 /// `FileSystemWatcher::IsSupported`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_FileSystemWatcher_IsSupported() -> u8 {
-    u8::from(cfg!(any(target_os = "linux", target_os = "android")))
+    u8::from(cfg!(any(target_os = "linux", target_os = "android", windows)))
 }
 
 /// `FileSystemWatcher::Init`: o descritor do inotify, não bloqueante; lança
@@ -74,7 +100,13 @@ pub extern "C" fn dartforge_nativo_FileSystemWatcher_InitWatcher() -> i64 {
         }
         i64::from(fd)
     }
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    // Windows: `FileSystemWatcher::Init` devolve 0; o observador é cada
+    // caminho.
+    #[cfg(windows)]
+    {
+        0
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "android", windows)))]
     {
         lancar_os_error(&ErroDoSo::argumento_invalido());
         0
@@ -90,9 +122,11 @@ pub extern "C" fn dartforge_nativo_FileSystemWatcher_CloseWatcher(_id: i64) {}
 /// pedidos (e sempre `IN_DELETE_SELF | IN_MOVE_SELF`); lança o `OSError`.
 /// O inotify não observa subdiretórios: `recursive` é ignorado, como na VM.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_FileSystemWatcher_WatchPath(id: i64, _ns: i64, caminho: i64, eventos: i64, _recursivo: u8) -> i64 {
+pub extern "C" fn dartforge_nativo_FileSystemWatcher_WatchPath(id: i64, _ns: i64, caminho: i64, eventos: i64, recursivo: u8) -> i64 {
+    let recursivo = recursivo != 0;
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
+        let _ = recursivo;
         use inotify::*;
         let mut mascara = IN_DELETE_SELF | IN_MOVE_SELF;
         if eventos & evento_fs::CRIAR != 0 {
@@ -119,9 +153,28 @@ pub extern "C" fn dartforge_nativo_FileSystemWatcher_WatchPath(id: i64, _ns: i64
         }
         i64::from(wd)
     }
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    #[cfg(windows)]
     {
-        let _ = (id, caminho, eventos);
+        use notificacao::*;
+        let _ = id;
+        let mut filtro = 0;
+        if eventos & (evento_fs::CRIAR | evento_fs::MOVER | evento_fs::APAGAR) != 0 {
+            filtro |= FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME;
+        }
+        if eventos & evento_fs::MODIFICAR_CONTEUDO != 0 {
+            filtro |= FILE_NOTIFY_CHANGE_LAST_WRITE;
+        }
+        match observar_diretorio(&String::from_utf8_lossy(&utf8_de_texto(caminho)), filtro, recursivo) {
+            Ok(d) => d,
+            Err(e) => {
+                lancar_os_error(&e);
+                0
+            }
+        }
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "android", windows)))]
+    {
+        let _ = (id, caminho, eventos, recursivo);
         lancar_os_error(&ErroDoSo::argumento_invalido());
         0
     }
@@ -135,14 +188,20 @@ pub extern "C" fn dartforge_nativo_FileSystemWatcher_UnwatchPath(id: i64, caminh
     unsafe {
         inotify::inotify_rm_watch(id as i32, caminho as i32);
     }
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    #[cfg(windows)]
+    {
+        let _ = id;
+        parar_observacao(caminho);
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "android", windows)))]
     let _ = (id, caminho);
 }
 
-/// `FileSystemWatcher::GetSocketId`: no Linux, o próprio descritor.
+/// `FileSystemWatcher::GetSocketId`: no Linux, o próprio descritor; no
+/// Windows, o manipulador do caminho.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_FileSystemWatcher_GetSocketId(id: i64, _caminho: i64) -> i64 {
-    id
+pub extern "C" fn dartforge_nativo_FileSystemWatcher_GetSocketId(id: i64, caminho: i64) -> i64 {
+    if cfg!(windows) { caminho } else { id }
 }
 
 /// A máscara de `FileSystemEvent` de um evento do inotify
@@ -184,10 +243,11 @@ const TAMANHO_DA_LEITURA_DE_EVENTOS: usize = 4096;
 /// não há nenhum, o que encerra o laço de leitura do `_listenOnSocket`);
 /// lança o `OSError`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_FileSystemWatcher_ReadEvents(id: i64, _caminho: i64) -> i64 {
+pub extern "C" fn dartforge_nativo_FileSystemWatcher_ReadEvents(id: i64, caminho: i64) -> i64 {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         use inotify::*;
+        let _ = caminho;
         let mut buf = vec![0u8; TAMANHO_DA_LEITURA_DE_EVENTOS];
         let lidos = match ler_do_soquete(id, &mut buf) {
             Ok(n) => n,
@@ -223,9 +283,50 @@ pub extern "C" fn dartforge_nativo_FileSystemWatcher_ReadEvents(id: i64, _caminh
         }
         com_raizes(&eventos, || dart_lista_fixa(&eventos))
     }
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    #[cfg(windows)]
     {
+        use notificacao::*;
         let _ = id;
+        let buf = match eventos_do_diretorio(caminho) {
+            Ok(b) => b,
+            Err(e) => {
+                lancar_os_error(&e);
+                return 0;
+            }
+        };
+        let campo = |i: usize| u32::from_ne_bytes(buf[i..i + 4].try_into().unwrap());
+        let mut eventos: Vec<i64> = Vec::new();
+        let mut p = 0;
+        while p + CABECALHO <= buf.len() {
+            let (proximo, acao, tamanho) = (campo(p) as usize, campo(p + 4), campo(p + 8) as usize);
+            let fim = (p + CABECALHO + tamanho).min(buf.len());
+            let nome: Vec<u16> = buf[p + CABECALHO..fim].chunks_exact(2).map(|b| u16::from_ne_bytes([b[0], b[1]])).collect();
+            let mascara = match acao {
+                FILE_ACTION_ADDED => evento_fs::CRIAR,
+                FILE_ACTION_REMOVED => evento_fs::APAGAR,
+                FILE_ACTION_MODIFIED => evento_fs::MODIFICAR_CONTEUDO,
+                FILE_ACTION_RENAMED_OLD_NAME | FILE_ACTION_RENAMED_NEW_NAME => evento_fs::MOVER,
+                _ => 0,
+            };
+            let evento = com_raizes(&eventos, || {
+                let texto = alocar_str(&String::from_utf16_lossy(&nome));
+                com_raizes(&[texto], || {
+                    // O cookie 1 e "é destino" verdadeiro para todos, como
+                    // a VM: o Dart junta os pares de mudança de nome.
+                    dart_lista_fixa(&[dart_int(mascara), dart_int(1), texto, dart_bool(true), dart_int(caminho)])
+                })
+            });
+            eventos.push(evento);
+            if proximo == 0 {
+                break;
+            }
+            p += proximo;
+        }
+        com_raizes(&eventos, || dart_lista_fixa(&eventos))
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "android", windows)))]
+    {
+        let _ = (id, caminho);
         dart_lista_fixa(&[])
     }
 }

@@ -120,6 +120,16 @@ mod es_windows {
         pub(super) fn GetLastError() -> u32;
         pub(super) fn GetFileType(h: Bruto) -> u32;
         fn GetStdHandle(qual: u32) -> Bruto;
+        fn ReadDirectoryChangesW(
+            diretorio: Bruto,
+            b: *mut u8,
+            n: u32,
+            subarvore: i32,
+            filtro: u32,
+            lidos: *mut u32,
+            ov: *mut Sobreposto,
+            rotina: usize,
+        ) -> i32;
     }
 
     #[link(name = "ws2_32")]
@@ -367,6 +377,9 @@ mod es_windows {
         Cliente,
         Escuta,
         Datagrama,
+        /// Um diretório observado (`DirectoryWatchHandle`): a leitura é o
+        /// `ReadDirectoryChangesW`.
+        Diretorio,
     }
 
     /// O `Handle` da VM.
@@ -374,6 +387,9 @@ mod es_windows {
         pub(super) tipo: TipoDeManipulador,
         pub(super) bruto: Bruto,
         sobreposto: bool,
+        /// Diretório observado: o filtro do `ReadDirectoryChangesW`
+        /// (`FILE_NOTIFY_CHANGE_*`) e se a subárvore entra.
+        observacao: (u32, bool),
         estado: std::sync::Mutex<Estado>,
         /// Acorda a thread de leitura síncrona (entrada padrão).
         pedido_de_leitura: std::sync::Condvar,
@@ -419,11 +435,16 @@ mod es_windows {
         /// Cria o manipulador de `bruto`, associado à porta de conclusão
         /// quando faz E/S sobreposta.
         pub(super) fn novo(tipo: TipoDeManipulador, bruto: Bruto) -> Arc<Manipulador> {
+            Manipulador::novo_com(tipo, bruto, (0, false))
+        }
+
+        fn novo_com(tipo: TipoDeManipulador, bruto: Bruto, observacao: (u32, bool)) -> Arc<Manipulador> {
             let sobreposto = tipo != TipoDeManipulador::Padrao;
             let m = Arc::new(Manipulador {
                 tipo,
                 bruto,
                 sobreposto,
+                observacao,
                 estado: std::sync::Mutex::new(Estado {
                     fechando: false,
                     leitura_fechada: false,
@@ -633,6 +654,16 @@ mod es_windows {
             // SAFETY: a operação (buffer, bandeiras, `OVERLAPPED`) vive
             // até a conclusão.
             unsafe { WSARecv(m.bruto, b, 1, std::ptr::null_mut(), f, ov, 0) == 0 }
+        } else if m.tipo == TipoDeManipulador::Diretorio {
+            // `DirectoryWatchHandle::IssueReadLocked`: os registros
+            // `FILE_NOTIFY_INFORMATION` chegam no buffer da operação.
+            let (filtro, subarvore) = m.observacao;
+            let (p, n) = (op.dados.as_mut_ptr(), op.dados.len() as u32);
+            let ov = op.sobreposto_limpo();
+            // SAFETY: como acima. O `ReadDirectoryChangesW` exige o buffer
+            // alinhado a `DWORD`; o do `Vec` vem do `HeapAlloc` (o alocador
+            // do sistema no Windows), alinhado a 16.
+            unsafe { ReadDirectoryChangesW(m.bruto, p, n, i32::from(subarvore), filtro, std::ptr::null_mut(), ov, 0) != 0 }
         } else {
             let (p, n) = (op.dados.as_mut_ptr(), op.dados.len() as u32);
             let ov = op.sobreposto_limpo();
@@ -646,7 +677,12 @@ mod es_windows {
         }
         e.leitura_pendente = false;
         drop(op);
-        falha_ao_emitir(m, e, codigo);
+        // O `DirectoryWatchHandle::IssueReadLocked` da VM devolve a falha
+        // sem avisar o Dart (um arquivo no lugar do diretório, por exemplo,
+        // fica sem eventos); os outros manipuladores avisam.
+        if m.tipo != TipoDeManipulador::Diretorio {
+            falha_ao_emitir(m, e, codigo);
+        }
         false
     }
 
@@ -797,10 +833,11 @@ mod es_windows {
         }
         e.fechando = true;
         match m.tipo {
-            TipoDeManipulador::Arquivo | TipoDeManipulador::Padrao => {
+            TipoDeManipulador::Arquivo | TipoDeManipulador::Padrao | TipoDeManipulador::Diretorio => {
                 if e.aberto {
                     // SAFETY: o handle é deste manipulador; a E/S pendente
-                    // conclui com `ERROR_OPERATION_ABORTED`.
+                    // conclui com `ERROR_OPERATION_ABORTED` (a do diretório
+                    // observado também: `DirectoryWatchHandle::Stop`).
                     unsafe { CloseHandle(m.bruto) };
                     e.aberto = false;
                 }
@@ -924,16 +961,75 @@ mod es_windows {
     /// leitura.
     pub(super) fn ler_de(s: &SoqueteNativo, destino: &mut [u8]) -> ResultadoIo<usize> {
         let Some(m) = manipulador_do_soquete(s) else { return Ok(0) };
+        ler_do_manipulador(&m, destino)
+    }
+
+    fn ler_do_manipulador(m: &Arc<Manipulador>, destino: &mut [u8]) -> ResultadoIo<usize> {
         let mut e = m.estado();
         let Some(p) = e.pronto.as_mut() else { return Ok(0) };
         let n = p.ler(destino);
         if p.restante() == 0 {
             e.pronto = None;
             if !e.fechando && !e.leitura_fechada {
-                emitir_leitura(&m, &mut e);
+                emitir_leitura(m, &mut e);
             }
         }
         Ok(n)
+    }
+
+    // -----------------------------------------------------------------------
+    // Observação de diretórios (`file_system_watcher_win.cc`).
+
+    /// `FILE_LIST_DIRECTORY`.
+    const FILE_LIST_DIRECTORY: u32 = 0x0001;
+    const FILE_SHARE_READ: u32 = 0x1;
+    const FILE_SHARE_WRITE: u32 = 0x2;
+    const FILE_SHARE_DELETE: u32 = 0x4;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    const FILE_FLAG_OVERLAPPED: u32 = 0x4000_0000;
+
+    /// `FileSystemWatcher::WatchPath`: abre o diretório para E/S
+    /// sobreposta, cria o manipulador (o `DirectoryWatchHandle`, associado
+    /// à porta de conclusão) e já emite a primeira leitura, para os eventos
+    /// contarem desde agora (`Start`). O descritor devolvido é o id do
+    /// caminho e o do soquete interno que o Dart cria com ele.
+    pub(super) fn observar_diretorio(caminho: &str, filtro: u32, recursivo: bool) -> ResultadoIo<i64> {
+        use std::os::windows::fs::OpenOptionsExt;
+        use std::os::windows::io::IntoRawHandle;
+        let arquivo = std::fs::OpenOptions::new()
+            .access_mode(FILE_LIST_DIRECTORY)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED)
+            .open(caminho)
+            .map_err(|e| ErroDoSo::de(&e))?;
+        let m = Manipulador::novo_com(TipoDeManipulador::Diretorio, arquivo.into_raw_handle() as Bruto, (filtro, recursivo));
+        {
+            let mut e = m.estado();
+            emitir_leitura(&m, &mut e);
+        }
+        Ok(descritor_de(m))
+    }
+
+    /// `FileSystemWatcher::UnwatchPath` (`DirectoryWatchHandle::Stop`):
+    /// cancela a leitura e fecha o handle; a referência continua com o
+    /// soquete interno, que o Dart fecha em seguida.
+    pub(super) fn parar_observacao(d: i64) {
+        if let Some(m) = manipulador_de(d) {
+            let mut e = m.estado();
+            fechar_manipulador(&m, &mut e);
+            avisar_destruicao_se_fechado(&m, &mut e);
+        }
+    }
+
+    /// `FileSystemWatcher::ReadEvents`: os registros que já chegaram
+    /// (`Available` e `Read`; esvaziar emite a próxima leitura).
+    pub(super) fn eventos_do_diretorio(d: i64) -> ResultadoIo<Vec<u8>> {
+        let Some(m) = manipulador_de(d) else { return Ok(Vec::new()) };
+        let disponivel = m.estado().pronto.as_ref().map_or(0, |p| p.restante());
+        let mut buf = vec![0u8; disponivel];
+        let n = ler_do_manipulador(&m, &mut buf)?;
+        buf.truncate(n);
+        Ok(buf)
     }
 
     /// `Handle::Write`: copia até 64 KiB e emite a escrita; 0 enquanto
