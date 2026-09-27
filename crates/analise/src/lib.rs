@@ -8,6 +8,8 @@
 //!   `MemberDuplicateDefinitionVerifier` (`src/error/duplicate_definition_verifier.dart`).
 //! * [`externos`]: inicializadores de campos e variáveis `external`
 //!   (`ErrorVerifier`).
+//! * [`privados`]: declarações privadas nunca referenciadas
+//!   (`UnusedLocalElementsVerifier`, a parte de biblioteca).
 //! * [`operadores`]: aridade de métodos `operator` (`ErrorVerifier`).
 //! * [`enums`]: enum sem constantes após augmentations (`ErrorVerifier`).
 //! * [`clausulas`]: cláusulas de herança (`subtype_of_disallowed_type`,
@@ -26,6 +28,7 @@ pub mod inicializacao;
 pub mod locais;
 pub mod modificadores;
 pub mod operadores;
+pub mod privados;
 pub mod publicacao;
 
 use dartforge_frontend::ast::{Ast, CompilationUnit};

@@ -311,6 +311,11 @@ impl Motor {
                 achados.extend(dartforge_analise::externos::inicializadores(*u).into_iter().map(|d| (i, d)));
                 achados.extend(dartforge_analise::operadores::aridade(*u, &interner).into_iter().map(|d| (i, d)));
             }
+            // Privados não usados: pela biblioteca inteira, sem erro de sintaxe.
+            let com_erro = ids.iter().any(|u| {
+                program.unit(*u).path.as_ref().and_then(|p| analise.arquivos.get(&chave(p))).is_none_or(|a| a.sintaticos > 0)
+            });
+            achados.extend(dartforge_analise::privados::nao_usados(&unidades, &interner, com_erro));
             for (i, d) in achados {
                 if let Some(p) = &program.unit(ids[i]).path {
                     if let Some(a) = analise.arquivos.get_mut(&chave(p)) {
