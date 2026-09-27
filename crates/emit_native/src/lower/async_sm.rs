@@ -283,6 +283,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // RTI: as variáveis de tipo do stub (a tupla mora no quadro).
         b.params_de_tipo_da_funcao = self.params_de_tipo_da_funcao.clone();
         b.extensao_do_this = self.extensao_do_this;
+        b.tipo_ext_do_this = self.tipo_ext_do_this;
         b.classe_do_membro = self.classe_do_membro;
         b.classe_por_tupla = self.classe_por_tupla;
         if self.tupla_de_tipos.is_some() {

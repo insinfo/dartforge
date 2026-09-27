@@ -137,22 +137,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         value: Rhs,
         span: Span,
     ) -> Operand {
-        let Some(e) = self.ctx.program.functions[member.0 as usize].extension else {
-            return self.nao_suportado("membro de extensão sem extensão", span);
-        };
+        // O setter e o getter do mesmo dono: a extensão, ou o tipo de
+        // extensão (`tipos_de_extensao.rs`).
         let nome = self.ctx.symbol_name(sym).to_string();
-        let x = &self.ctx.program.extensions[e.0 as usize];
+        let m = member.0 as usize;
         let chave_setter = self.ctx.interner.lookup(&format!("{nome}_="));
-        let setter = chave_setter.and_then(|k| x.instance_members.get(&k).copied());
-        let getter = x.instance_members.get(&sym).copied().filter(|&g| self.ctx.program.functions[g.0 as usize].kind == FunctionKind::Getter);
+        let setter = chave_setter.and_then(|k| self.acessor_do_mesmo_dono(m, k));
+        let getter = self
+            .acessor_do_mesmo_dono(m, sym)
+            .filter(|&g| self.ctx.program.functions[g.0 as usize].kind == FunctionKind::Getter);
         let Some(setter) = setter else {
             return self.nao_suportado(&format!("atribuição a `{nome}` sem setter"), span);
         };
         let (recv_op, receptor) = match recv {
-            Some(r) => (self.lower_alvo(ast, r), self.ctx.get_type(self.unit_id, r)),
+            Some(r) => (self.lower_alvo(ast, r), self.ctx.get_type_bruto(self.unit_id, r)),
             None => (
                 self.this_param.clone().unwrap_or(Operand::Constant(Constant::Null)),
-                self.extensao_do_this.map(|(_, on)| on),
+                self.receptor_implicito(),
             ),
         };
         let cur = if matches!(op, ast::AssignOp::Compound(_)) {
@@ -279,6 +280,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     r => r,
                 };
                 match resolvido {
+                    // Setter de tipo de extensão com o `this` implícito.
+                    r @ Some(Resolved::Member { .. }) if self.membro_te_resolvido(r.as_ref()).is_some() => {
+                        match self.membro_te_resolvido(r.as_ref()) {
+                            Some(MemberRef::Function(f)) if !self.e_representacao(MemberRef::Function(f)) => {
+                                self.atribuir_extensao(ast, op, None, f, sym, value, span)
+                            }
+                            _ => self.nao_suportado("atribuição à representação de tipo de extensão", span),
+                        }
+                    }
                     Some(Resolved::Member { member, .. }) => {
                         self.atribuir_membro(None, member, ast, op, value, span)
                     }
@@ -410,6 +420,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         }
                     }
                 }
+                // Setter de tipo de extensão: como o de extensão.
+                if let Some(m) = self.membro_te(target) {
+                    return match m {
+                        MemberRef::Function(f) if !self.e_representacao(m) => {
+                            self.atribuir_extensao(ast, op, Some(*recv), f, name.sym, value, span)
+                        }
+                        _ => self.nao_suportado("atribuição à representação de tipo de extensão", span),
+                    };
+                }
                 // Setter de extensão (P4): chamada direta com o receptor.
                 if let Some(Resolved::ExtensionMember { member, .. }) = self.ctx.get_resolved(self.unit_id, target).cloned()
                     && !self.ctx.program.functions[member.0 as usize].static_
@@ -530,13 +549,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // `[]=` de extensão (a inferência resolve o índice para o
                 // `[]` da extensão; o `[]=` é o da mesma extensão).
                 if let Some(get) = self.operador_de_extensao(target) {
-                    let e = self.ctx.program.functions[get].extension.expect("membro de extensão");
-                    let x = &self.ctx.program.extensions[e.0 as usize];
-                    let set = self.ctx.interner.lookup("[]=").and_then(|k| x.instance_members.get(&k).copied());
+                    let set = self.ctx.interner.lookup("[]=").and_then(|k| self.acessor_do_mesmo_dono(get, k));
                     let Some(set) = set else {
                         return self.nao_suportado("operador []= de extensão ausente", span);
                     };
-                    let receptor = self.ctx.get_type(self.unit_id, *t);
+                    let receptor = self.ctx.get_type_bruto(self.unit_id, *t);
                     let cur = composto.then(|| self.chamar_extensao(t_op.clone(), get, &[(None, i_op.clone())], receptor, None, span));
                     let v = self.combinar(ast, op, cur, value);
                     self.chamar_extensao(t_op, set.0 as usize, &[(None, i_op), (None, v.clone())], receptor, None, span);

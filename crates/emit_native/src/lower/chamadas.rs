@@ -39,6 +39,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         target: &ExprId,
         arguments: &ast::Arguments,
     ) -> Operand {
+        // `E(…)`, `E.nome(…)` de tipo de extensão (`tipos_de_extensao.rs`).
+        if let Some((c, nome)) = self.criacao_te(ast, *target) {
+            return self.construir_te(ast, expr_id, c, nome, &arguments.args, expr.span);
+        }
         if let Some(op) = self.funcao_sdk_por_nome(ast, target, arguments) {
             return op;
         }
@@ -64,7 +68,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let recv = self.lower_expr(ast, *target);
             let recv = self.coagir(recv, Type::Ref);
             let avaliados = self.avaliar_args(ast, &arguments.args);
-            let receptor = self.ctx.get_type(self.unit_id, *target);
+            let receptor = self.ctx.get_type_bruto(self.unit_id, *target);
             return self.chamar_extensao(recv, member.0 as usize, &avaliados, receptor, Some((expr_id, arguments)), expr.span);
         }
 
@@ -95,12 +99,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 };
                 return self.lower_expr(ast, a.value);
             }
+            // Membro de tipo de extensão com o `this` implícito.
+            if let Some(m) = self.membro_te_resolvido(resolvido.as_ref()) {
+                let this = self.this_param.clone().unwrap_or(Operand::Constant(Constant::Null));
+                let receptor = self.receptor_implicito();
+                return self.chamar_membro_te(ast, this, m, receptor, expr_id, arguments, expr.span);
+            }
             // Função de topo, membro implícito (`m()` = `this.m()`) ou
             // estático: pelo elemento resolvido do alvo.
             if let Some(Resolved::ExtensionMember { member, .. }) = resolvido {
                 let avaliados = self.avaliar_args(ast, &arguments.args);
                 let this = self.this_param.clone().unwrap_or(Operand::Constant(Constant::Null));
-                let receptor = self.extensao_do_this.map(|(_, on)| on);
+                let receptor = self.receptor_implicito();
                 return self.chamar_extensao(
                     this,
                     member.0 as usize,
@@ -186,7 +196,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let vazio = self.ctx.interner.lookup("");
                     let ctor = vazio.and_then(|v| self.construtor_de(c, v));
                     if let Some(f) = ctor {
-                        self.tipo_da_criacao = self.ctx.get_type(self.unit_id, expr_id);
+                        self.tipo_da_criacao = self.ctx.get_type_bruto(self.unit_id, expr_id);
                         return self.instanciar(ast, f, &arguments.args, expr.span);
                     }
                 }
@@ -209,7 +219,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(Resolved::Constructor(fid)) =
             self.ctx.get_resolved(self.unit_id, expr_id).cloned()
         {
-            self.tipo_da_criacao = self.ctx.get_type(self.unit_id, expr_id);
+            self.tipo_da_criacao = self.ctx.get_type_bruto(self.unit_id, expr_id);
             return self.instanciar(ast, fid, &arguments.args, expr.span);
         }
 
@@ -251,7 +261,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Element::Class(c) if self.ctx.biblioteca_compilada(self.ctx.program.classes[c.0 as usize].library) => {
                         let vazio = self.ctx.interner.lookup("");
                         if let Some(f) = vazio.and_then(|v| self.construtor_de(c, v)) {
-                            self.tipo_da_criacao = self.ctx.get_type(self.unit_id, expr_id);
+                            self.tipo_da_criacao = self.ctx.get_type_bruto(self.unit_id, expr_id);
                             return self.instanciar(ast, f, &arguments.args, expr.span);
                         }
                     }
@@ -311,7 +321,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     && !matches!(resolved_alvo, Some(Resolved::Member { .. }))
                     && let Some(f) = self.construtor_de(c, method_name.sym)
                 {
-                    self.tipo_da_criacao = self.ctx.get_type(self.unit_id, expr_id);
+                    self.tipo_da_criacao = self.ctx.get_type_bruto(self.unit_id, expr_id);
                     return self.instanciar(ast, f, &arguments.args, expr.span);
                 }
                 // Sem resolução do membro (a inferência não resolveu o
@@ -374,7 +384,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             {
                 let classe = &self.ctx.program.classes[c.0 as usize];
                 if let Some(f) = self.construtor_de(c, method_name.sym) {
-                    self.tipo_da_criacao = self.ctx.get_type(self.unit_id, expr_id);
+                    self.tipo_da_criacao = self.ctx.get_type_bruto(self.unit_id, expr_id);
                     return self.instanciar(ast, f, &arguments.args, expr.span);
                 }
                 if let Some(&f) = classe.static_members.get(&method_name.sym) {
@@ -408,7 +418,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 && crate::lower::funcao_do_usuario(self.ctx, member.0 as usize)
             {
                 let avaliados = self.avaliar_args(ast, &arguments.args);
-                let receptor = self.ctx.get_type(self.unit_id, *inner_target);
+                let receptor = self.ctx.get_type_bruto(self.unit_id, *inner_target);
                 return self.chamar_extensao(
                     recv_op,
                     member.0 as usize,
@@ -419,6 +429,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 );
             }
 
+            // Membro de tipo de extensão: estático, pelo tipo não apagado
+            // do receptor.
+            if let Some(m) = self.membro_te_resolvido(resolved_alvo.as_ref()) {
+                let receptor = self.ctx.get_type_bruto(self.unit_id, *inner_target);
+                return self.chamar_membro_te(ast, recv_op, m, receptor, expr_id, arguments, expr.span);
+            }
             // Método de classe do usuário: pelo elemento resolvido, com
             // despacho pela classe dinâmica (R7).
             if let Some((_, member)) =

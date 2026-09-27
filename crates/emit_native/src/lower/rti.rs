@@ -100,18 +100,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         match self.ctx.table.param(p).owner {
             TypeParamOwner::Class(c) => {
                 let i = self.ctx.outline.classes.get(c.0 as usize)?.type_params.iter().position(|&x| x == p)?;
-                Some((if self.classe_por_tupla { 'M' } else { 'P' }, i))
+                // Os de um tipo de extensão vêm sempre na tupla (não há
+                // objeto que os guarde).
+                Some((if self.classe_por_tupla || self.ctx.e_tipo_de_extensao(c) { 'M' } else { 'P' }, i))
             }
             // Na tupla de um membro de extensão, os parâmetros da extensão
             // vêm antes dos do membro (`params_de_tipo_de`).
             TypeParamOwner::Function(f) => {
                 let i = self.ctx.outline.functions.get(f.0 as usize)?.type_params.iter().position(|&x| x == p)?;
-                let fe = &self.ctx.program.functions[f.0 as usize];
-                let base = fe
-                    .extension
-                    .filter(|_| !fe.static_)
-                    .and_then(|e| self.ctx.outline.extensions.get(e.0 as usize))
-                    .map_or(0, |x| x.type_params.len());
+                let base = self.padrao_do_receptor(f.0 as usize).map_or(0, |(n, _)| n);
                 Some(('M', base + i))
             }
             TypeParamOwner::Extension(e) => {
@@ -136,6 +133,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         subst: &HashMap<TypeParamId, TypeId>,
         r: &mut Receita,
     ) {
+        // Um tipo de extensão é, em tempo de execução, o da representação.
+        if matches!(self.ctx.table.get(t), T::ExtensionType { .. }) {
+            let apagado = self.ctx.apagar(t);
+            if apagado != t {
+                return self.escrever_tipo(apagado, ligadas, subst, r);
+            }
+        }
         let anulavel = self.ctx.table.get(t).is_declared_nullable();
         match self.ctx.table.get(t) {
             T::Dynamic => r.texto.push('D'),
@@ -315,6 +319,30 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         _ => self.ctx.program.lookup(lib, ultimo.sym),
                     }?;
                     match b.getter? {
+                        // Tipo de extensão: a receita da representação, com
+                        // os argumentos escritos (como um typedef).
+                        Element::Class(c) if self.ctx.e_tipo_de_extensao(c) => {
+                            let this = *self.ctx.te.this.get(&c)?;
+                            let params = self.ctx.outline.classes.get(c.0 as usize)?.type_params.clone();
+                            let mut sub = Receita { texto: String::new(), variaveis: false };
+                            let mut textos = Vec::new();
+                            for i in 0..params.len() {
+                                sub.texto.clear();
+                                match args.get(i) {
+                                    Some(x) => self.escrever_anotacao(unit_ast.ty(*x), ligadas, &mut sub)?,
+                                    None => sub.texto.push('D'),
+                                }
+                                r.variaveis |= sub.variaveis;
+                                textos.push(sub.texto.clone());
+                            }
+                            let mut alvo = self.receita_de_tipo_com(self.ctx.apagar(this), &params, &textos);
+                            r.variaveis |= alvo.variaveis;
+                            if a.nullable && !alvo.texto.ends_with('?') {
+                                alvo.texto.push('?');
+                            }
+                            r.texto.push_str(&alvo.texto);
+                            return Some(());
+                        }
                         Element::Class(c) => {
                             r.texto.push_str(&format!("C{}", self.ctx.id_rti(c)));
                             let n = self.ctx.outline.classes.get(c.0 as usize).map_or(0, |d| d.type_params.len());
@@ -731,12 +759,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return;
         }
         let params = self.params_de_tipo_de(fid);
-        let f = &self.ctx.program.functions[fid];
-        let extensao = f
-            .extension
-            .filter(|_| !f.static_)
-            .and_then(|e| self.ctx.outline.extensions.get(e.0 as usize))
-            .map(|x| (x.type_params.len(), x.on));
+        let extensao = self.padrao_do_receptor(fid);
         let n_ext = extensao.map_or(0, |(n, _)| n);
         let mut achados: Vec<Option<TypeId>> = vec![None; params.len()];
         if let (Some((_, on)), Some(r)) = (extensao, receptor) {
@@ -752,7 +775,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     escritos.push(x.unwrap_or(Receita { texto: "D".to_string(), variaveis: false }));
                 }
             } else {
-                if let Some(real) = self.ctx.get_type(self.unit_id, expr) {
+                if let Some(real) = self.ctx.get_type_bruto(self.unit_id, expr) {
                     self.unificar(dados.return_type, real, &params, &mut achados);
                 }
                 let mut posicionais = arguments.args.iter().filter(|a| a.name.is_none());
@@ -763,7 +786,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         posicionais.next()
                     };
                     if let Some(a) = arg
-                        && let Some(real) = self.ctx.get_type(self.unit_id, a.value)
+                        && let Some(real) = self.ctx.get_type_bruto(self.unit_id, a.value)
                     {
                         self.unificar(p.ty, real, &params, &mut achados);
                     }
@@ -822,6 +845,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     fn unificar(&self, decl: TypeId, real: TypeId, params: &[TypeParamId], achados: &mut [Option<TypeId>]) {
         if real == self.ctx.core.dynamic_ {
             return;
+        }
+        // Tipos de extensão: pelos argumentos quando os dois são do mesmo
+        // (ou o real implementa o do padrão); senão pelos apagados.
+        match (self.ctx.table.get(decl), self.ctx.table.get(real)) {
+            (T::ExtensionType { decl: d1, args: a1, .. }, T::ExtensionType { decl: d2, args: a2, .. }) => {
+                if d1 == d2 {
+                    for (x, y) in a1.iter().zip(a2.iter()) {
+                        self.unificar(*x, *y, params, achados);
+                    }
+                } else if let Some(&s) = self.ctx.te.supertipos.get(&(real, *d1)) {
+                    self.unificar(decl, s, params, achados);
+                }
+                return;
+            }
+            (T::ExtensionType { .. }, _) | (_, T::ExtensionType { .. }) => {
+                let (a, b) = (self.ctx.apagar(decl), self.ctx.apagar(real));
+                if (a, b) != (decl, real) {
+                    self.unificar(a, b, params, achados);
+                }
+                return;
+            }
+            _ => {}
         }
         match (self.ctx.table.get(decl), self.ctx.table.get(real)) {
             (T::TypeParameter { param, .. }, _) => {
@@ -943,16 +988,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Grava a assinatura do tear-off da função `fid` (a do outline; num
     /// método, avaliada no tipo do receptor `recv`).
     pub fn definir_rti_de_tearoff(&mut self, clo: Operand, fid: usize, recv: Option<Operand>) {
+        self.definir_rti_de_tearoff_com_tupla(clo, fid, recv, None);
+    }
+
+    /// [`Self::definir_rti_de_tearoff`] de um membro de extensão ou de tipo
+    /// de extensão genéricos: os parâmetros de tipo do dono vêm de `tupla`
+    /// (a de `armar_tupla_com_receptor`, calculada aqui), não de um objeto.
+    pub fn definir_rti_de_tearoff_com_tupla(&mut self, clo: Operand, fid: usize, recv: Option<Operand>, tupla: Option<Operand>) {
         let Some(sig) = self.ctx.outline.functions.get(fid).map(|d| d.signature) else {
             return;
         };
         let salvo = (self.this_param.clone(), self.enclosing_class, self.classe_por_tupla, self.tupla_de_tipos.clone());
         if let Some(r) = recv {
             self.this_param = Some(r);
-            self.enclosing_class = self.ctx.program.functions[fid].class;
+            // Um tipo de extensão não tem objeto com os argumentos de tipo.
+            self.enclosing_class = self.ctx.program.functions[fid].class.filter(|&c| !self.ctx.e_tipo_de_extensao(c));
             self.classe_por_tupla = false;
         }
-        self.tupla_de_tipos = None;
+        self.tupla_de_tipos = tupla;
         let r = self.receita_de_tipo(sig);
         let tipo = self.rti_da_receita(&r);
         (self.this_param, self.enclosing_class, self.classe_por_tupla, self.tupla_de_tipos) = salvo;
@@ -983,6 +1036,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     _ => self.ctx.program.lookup(lib, ultimo.sym),
                 };
                 if matches!(b.and_then(|b| b.getter), Some(Element::Typedef(_))) {
+                    return true;
+                }
+                // Tipo de extensão: o teste é o da representação (sem classe
+                // própria no heap).
+                if let Some(Element::Class(c)) = b.and_then(|b| b.getter)
+                    && self.ctx.e_tipo_de_extensao(c)
+                {
                     return true;
                 }
                 let trivial = |t: &ast::TypeAnnotation| match &t.kind {

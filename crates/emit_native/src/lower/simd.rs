@@ -281,6 +281,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// escalar direto, ou o vetor (que o `lower_expr` põe na caixa do tipo
     /// estático). `None`: a expressão segue o caminho de sempre.
     pub(super) fn expressao_simd(&mut self, ast: &ast::Ast, e: ExprId) -> Option<Operand> {
+        // O membro de um tipo de extensão sobre um tipo SIMD é o dele.
+        let membro = match &ast.expr(e).kind {
+            ExprKind::Call { target, .. } => *target,
+            _ => e,
+        };
+        if self.membro_te(membro).is_some() {
+            return None;
+        }
         let r = self.receita_simd(ast, e)?;
         Some(self.emitir_receita(ast, r))
     }

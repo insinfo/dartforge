@@ -23,6 +23,7 @@ use dartforge_frontend::ast::{
     self, BinaryOp, ExprId, ExprKind, ListPatternElement, PatternId, PatternKind, StmtId,
 };
 use dartforge_intern::SymbolId;
+use dartforge_types::resolved::MemberRef;
 use std::collections::HashSet;
 
 /// Como um padrão liga os nomes.
@@ -113,8 +114,30 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         span: Span,
     ) -> Operand {
         let texto = self.ctx.symbol_name(nome).to_string();
+        // Tipo de extensão: o membro dele, estático (`tipos_de_extensao.rs`);
+        // o que ele não declara é o da representação, pelo despacho.
+        if let Some(c) = classe.filter(|&c| self.ctx.e_tipo_de_extensao(c))
+            && let Some(r) = self.membro_te_na_classe(c, nome)
+            && let Some(m) = self.membro_te_resolvido(Some(&r))
+        {
+            // O getter de um tipo genérico recebe a tupla da anotação.
+            if let (MemberRef::Function(f), Some(tupla)) = (m, self.tupla_do_padrao_te.clone())
+                && !self.e_representacao(m)
+                && self.ctx.program.functions[f.0 as usize].kind == FunctionKind::Getter
+            {
+                let fid = f.0 as usize;
+                let r = self.repr_do_this_estatico(fid).unwrap_or(Type::Ref);
+                let recv = self.coagir(valor, r);
+                let salvo = self.tupla_armada.replace(tupla);
+                let x = self.chamar_direto(fid, Some(recv), Vec::new());
+                self.tupla_armada = salvo;
+                return x;
+            }
+            return self.ler_membro_te(valor, m, None, span);
+        }
         if let Some(c) = classe
             && self.ctx.biblioteca_compilada(self.ctx.program.classes[c.0 as usize].library)
+            && !self.ctx.e_tipo_de_extensao(c)
         {
             // `index`/`name` de enum.
             if let Some(op) = self.membro_de_enum(c, &texto, valor.clone()) {
@@ -587,6 +610,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let ok = self.testar_tipo(t, v.clone());
                 self.exigir(ok, falha);
                 let classe = self.classe_do_tipo(t);
+                // Os argumentos de tipo escritos de um tipo de extensão
+                // genérico: a tupla dos getters dele.
+                let tupla_te = match classe {
+                    Some(c) if self.ctx.e_tipo_de_extensao(c) && self.classe_generica(c) => self.tupla_da_anotacao(t),
+                    _ => None,
+                };
+                let salvo_tupla = std::mem::replace(&mut self.tupla_do_padrao_te, tupla_te);
                 for f in fields.iter() {
                     let nome = match f.name {
                         Some(n) => Some(n.sym),
@@ -605,6 +635,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.casar(ast, f.pattern, x, falha, ligacao, ligados, origem);
                     self.padrao_refutavel = salvo;
                 }
+                self.tupla_do_padrao_te = salvo_tupla;
             }
         }
     }

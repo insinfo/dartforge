@@ -1080,6 +1080,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if super::construtor_generativo(self.ctx, fid) {
             return Type::Void;
         }
+        // Construtor de tipo de extensão: a representação.
+        let f = &self.ctx.program.functions[fid];
+        if matches!(f.node, FunctionRef::Constructor { .. })
+            && let Some(c) = f.class.filter(|&c| self.ctx.e_tipo_de_extensao(c))
+        {
+            return self.ctx.te.this.get(&c).map_or(Type::Ref, |&t| self.repr(t));
+        }
         self.ctx
             .outline
             .functions
@@ -1505,7 +1512,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .to_string();
             return self.nao_suportado(&format!("construtor de classe do SDK ({nome})"), span);
         }
-        let factory = f.factory;
+        // O construtor de tipo de extensão (`tipos_de_extensao.rs`) é uma
+        // função que devolve a representação, chamada como uma fábrica.
+        let factory = f.factory || self.ctx.e_tipo_de_extensao(cid_ctor);
         let mut args = self.casar_args(fid, avaliados);
         let generica = self.classe_generica(cid);
         if factory {
@@ -1583,6 +1592,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         {
             v.extend(x.type_params.iter().copied());
         }
+        // Membro de instância de tipo de extensão: os do tipo, como os de
+        // uma extensão (não há objeto que os guarde).
+        if let Some(c) = super::tipos_de_extensao::dono_de_instancia(self.ctx, fid)
+            && let Some(d) = self.ctx.outline.classes.get(c.0 as usize)
+        {
+            v.extend(d.type_params.iter().copied());
+        }
         if let Some(d) = self.ctx.outline.functions.get(fid) {
             v.extend(d.type_params.iter().copied());
         }
@@ -1600,7 +1616,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(t) = tipo else {
             return Operand::Constant(Constant::Int(0));
         };
-        let dartforge_types::table::Type::Interface { args, .. } = self.ctx.table.get(t) else {
+        // (O de um tipo de extensão também: seus construtores recebem a
+        // tupla como as fábricas.)
+        let (dartforge_types::table::Type::Interface { args, .. } | dartforge_types::table::Type::ExtensionType { args, .. }) =
+            self.ctx.table.get(t)
+        else {
             return Operand::Constant(Constant::Int(0));
         };
         let args = args.clone();

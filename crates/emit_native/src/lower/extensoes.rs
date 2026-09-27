@@ -44,9 +44,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     fn chamar_extensao_armada(&mut self, recv: Operand, fid: usize, avaliados: &[Avaliado], span: Span) -> Operand {
         let f = &self.ctx.program.functions[fid];
-        let Some(e) = f.extension else {
-            return self.nao_suportado("membro de extensão sem extensão", span);
-        };
         if !super::funcao_do_usuario(self.ctx, fid) || !super::membros::tem_corpo(self.ctx, fid) {
             return self.nao_suportado("membro de extensão do SDK", span);
         }
@@ -54,7 +51,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let args = self.casar_args(fid, avaliados);
             return self.chamar_direto(fid, None, args);
         }
-        let r = self.repr_do_receptor_de_extensao(e);
+        // O receptor na representação do `on` (extensão) ou da
+        // representação (tipo de extensão, `tipos_de_extensao.rs`).
+        let Some(r) = self.repr_do_this_estatico(fid) else {
+            return self.nao_suportado("membro de extensão sem extensão", span);
+        };
         let recv = self.coagir(recv, r);
         if f.kind == FunctionKind::Getter && !avaliados.is_empty() {
             let v = self.chamar_direto(fid, Some(recv), Vec::new());
@@ -67,6 +68,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// O operador de instância de extensão que a inferência resolveu para a
     /// expressão (`p + 1`, `p[i]`), se é um.
     pub fn operador_de_extensao(&self, expr: ast::ExprId) -> Option<usize> {
+        // O de um tipo de extensão também é chamado assim.
+        if let Some(f) = self.funcao_te(expr) {
+            return Some(f);
+        }
         match self.ctx.get_resolved(self.unit_id, expr) {
             Some(dartforge_types::resolved::Resolved::ExtensionMember { member, .. })
                 if !self.ctx.program.functions[member.0 as usize].static_
@@ -142,14 +147,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let recv = self.coagir(recv, Type::Ref);
         let env = self.emit(Instruction::AllocEnv { values: vec![recv.clone()] }, Type::Ref);
         let c = self.emit(Instruction::AllocClosure { code_symbol: simbolo_ent, env }, Type::Ref);
-        self.definir_rti_de_tearoff(c.clone(), fid, Some(recv));
+        // A assinatura com os argumentos de tipo do dono tirados do tipo
+        // estático do receptor (a tupla da chamada que a entrada faria).
+        let tupla = if self.extensao_generica(fid) {
+            let salvo = self.tupla_armada.take();
+            self.armar_tupla_com_receptor(fid, receptor, None);
+            std::mem::replace(&mut self.tupla_armada, salvo)
+        } else {
+            None
+        };
+        self.definir_rti_de_tearoff_com_tupla(c.clone(), fid, Some(recv), tupla);
         c
     }
 
-    /// O membro é de uma extensão com parâmetros de tipo.
+    /// O membro é de uma extensão (ou tipo de extensão) com parâmetros de
+    /// tipo.
     fn extensao_generica(&self, fid: usize) -> bool {
-        self.ctx.program.functions[fid]
-            .extension
-            .is_some_and(|e| !self.ctx.outline.extensions[e.0 as usize].type_params.is_empty())
+        self.padrao_do_receptor(fid).is_some_and(|(n, _)| n > 0)
     }
 }

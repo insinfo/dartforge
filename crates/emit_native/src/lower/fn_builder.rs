@@ -127,6 +127,16 @@ pub struct FnBuilder<'a, 'c> {
     /// O tipo estático de `this` num membro de extensão (o `on`): o
     /// receptor implícito de outra chamada de extensão.
     pub extensao_do_this: Option<(dartforge_elements::model::ExtensionId, dartforge_types::table::TypeId)>,
+    /// Num membro de instância de tipo de extensão: o tipo e o tipo estático
+    /// de `this` (`E<T…>`, não apagado) — o receptor implícito dos membros
+    /// dele (`tipos_de_extensao.rs`).
+    pub tipo_ext_do_this: Option<(dartforge_elements::model::ClassId, dartforge_types::table::TypeId)>,
+    /// O valor de um `return;` (e do fim do corpo): a representação, no
+    /// construtor generativo de tipo de extensão.
+    pub retorno_do_construtor: Option<Operand>,
+    /// A tupla dos argumentos de tipo escritos no padrão de objeto de tipo
+    /// de extensão genérico em curso (`padroes.rs`).
+    pub tupla_do_padrao_te: Option<Operand>,
     /// A classe que declara a função corrente (também num membro
     /// estático): os estáticos dela estão no escopo léxico.
     pub classe_do_membro: Option<dartforge_elements::model::ClassId>,
@@ -243,6 +253,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             tipo_da_criacao: None,
             tupla_armada: None,
             extensao_do_this: None,
+            tipo_ext_do_this: None,
+            retorno_do_construtor: None,
+            tupla_do_padrao_te: None,
             classe_do_membro: None,
             sitios_de_callback: 0,
         }
@@ -648,6 +661,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     pub fn route_return(&mut self, ret_val: Option<Operand>) {
+        let ret_val = ret_val.or_else(|| self.retorno_do_construtor.clone());
         // O valor na representação do retorno da função (o corpo de uma
         // closure tipada devolve `int` sem caixa, por exemplo).
         let ret_val = match ret_val {

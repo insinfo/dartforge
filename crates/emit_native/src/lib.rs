@@ -1,6 +1,7 @@
 //! Compilador nativo LLVM do DartForge sobre a trilha nova.
 
 pub mod alvo;
+pub mod apagamento;
 pub mod cache;
 pub mod cache_objeto;
 pub mod context;
@@ -229,7 +230,9 @@ fn emitir_ir_interno(
         return Err(msg);
     }
 
+    let te = apagamento::calcular(&program, &outline, &mut table);
     let mut ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
+    ctx.te = te;
     ctx.da_fonte = bibliotecas_da_fonte.into_iter().collect();
     ctx.usa_dart_async = usa_dart_async;
     let ctx = if da_fonte {

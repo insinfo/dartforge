@@ -61,6 +61,9 @@ pub struct Context<'a> {
     pub com_corpo_da_fonte: std::cell::OnceCell<std::collections::HashSet<String>>,
     /// `dart:ffi`: o layout das structs e unions do programa (`lower::ffi::compostos`).
     pub compostos_ffi: std::cell::OnceCell<Option<crate::lower::ffi::Compostos>>,
+    /// Os tipos de extensão apagados (`apagamento.rs`), calculados antes do
+    /// contexto; vazio sem tipo de extensão.
+    pub te: crate::apagamento::TiposDeExtensao,
 }
 
 /// O nome da variável de um padrão `:x`/`:var x`/`:x?`/`:x as T`.
@@ -131,6 +134,7 @@ impl<'a> Context<'a> {
             usa_dart_async: false,
             com_corpo_da_fonte: std::cell::OnceCell::new(),
             compostos_ffi: std::cell::OnceCell::new(),
+            te: crate::apagamento::TiposDeExtensao::default(),
         };
         // Formas de record com campo nomeado: literais, padrões e tipos de
         // todas as unidades do programa (o conjunto inteiro, antes do
@@ -269,7 +273,9 @@ impl<'a> Context<'a> {
                             )
                         });
                         ids[i] = Some(id);
-                    } else {
+                    } else if c.kind != dartforge_elements::model::ClassKind::ExtensionType {
+                        // Um tipo de extensão não tem objeto no heap: o
+                        // valor é o da representação.
                         chaves.push((lib, nome, i));
                     }
                 }
@@ -283,7 +289,7 @@ impl<'a> Context<'a> {
                     }
                     if program.library(c.library).is_sdk {
                         ids[i] = sdk.ids.get(&(self.nome_da_biblioteca(c.library), self.interner.resolve(c.name).to_string())).copied();
-                    } else {
+                    } else if c.kind != dartforge_elements::model::ClassKind::ExtensionType {
                         chaves.push((self.nome_da_biblioteca(c.library), self.interner.resolve(c.name).to_string(), i));
                     }
                 }
@@ -354,13 +360,33 @@ impl<'a> Context<'a> {
         self.interner.resolve(sym)
     }
 
+    /// O tipo estático de `expr`, **apagado** (`apagamento.rs`): é o tipo
+    /// que o valor tem em tempo de execução, o que decide representação,
+    /// caminhos rápidos e testes de tipo.
     pub fn get_type(&self, unit: UnitId, expr: dartforge_frontend::ast::ExprId) -> Option<TypeId> {
+        self.get_type_bruto(unit, expr).map(|t| self.te.apagar(t))
+    }
+
+    /// O tipo estático de `expr` como a inferência o deu, com os tipos de
+    /// extensão: só a rota dos membros deles e os argumentos de tipo desses
+    /// membros o usam.
+    pub fn get_type_bruto(&self, unit: UnitId, expr: dartforge_frontend::ast::ExprId) -> Option<TypeId> {
         let u_idx = unit.0 as usize;
         if u_idx < self.bodies.units.len() {
             self.bodies.units[u_idx].get_type(expr)
         } else {
             None
         }
+    }
+
+    /// O tipo apagado de `t` (ver [`Context::get_type`]).
+    pub fn apagar(&self, t: TypeId) -> TypeId {
+        self.te.apagar(t)
+    }
+
+    /// `c` é um tipo de extensão (apagado em tempo de execução).
+    pub fn e_tipo_de_extensao(&self, c: dartforge_elements::model::ClassId) -> bool {
+        self.program.classes[c.0 as usize].kind == dartforge_elements::model::ClassKind::ExtensionType
     }
 
     pub fn get_resolved(&self, unit: UnitId, expr: dartforge_frontend::ast::ExprId) -> Option<&Resolved> {
@@ -452,6 +478,7 @@ impl<'a> Context<'a> {
     /// parâmetros de tipo são `Ref` — `Type` inclusive: é o objeto canônico
     /// do RTI (`lower/rti.rs`).
     pub fn to_hir_type(&self, ty: TypeId) -> crate::hir::Type {
+        let ty = self.apagar(ty);
         if self.is_void(ty) {
             return crate::hir::Type::Void;
         }
@@ -473,7 +500,7 @@ impl<'a> Context<'a> {
     /// Tipo declarado (ou inferido) da variável local cujo nome começa em
     /// `offset` (R6).
     pub fn tipo_local(&self, unit: UnitId, offset: usize) -> Option<TypeId> {
-        self.bodies.units.get(unit.0 as usize)?.tipo_local(offset)
+        self.bodies.units.get(unit.0 as usize)?.tipo_local(offset).map(|t| self.apagar(t))
     }
 }
 

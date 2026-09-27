@@ -1465,6 +1465,28 @@ substitui o `external` da declaração. Uma variável de tipo como expressão
 (`T` numa função ou classe genérica) produz o objeto `Type` do argumento
 corrente.
 
+**Tipos de extensão (3.3).** Apagados: o valor **é** o da representação
+(`Id(3)` é o `int` 3), sem classe no heap. `apagamento.rs` calcula, antes do
+contexto (a tabela de tipos ainda aceita tipos novos), o apagamento de cada
+tipo da tabela, o tipo de `this` de cada tipo de extensão (`E<T…>`) e a
+instância de cada supertipo de extensão (`Filho<int>` implementa
+`Base<List<int>>`). O contexto só entrega tipos apagados (`get_type`,
+`tipo_local`, `to_hir_type` e as receitas de RTI, também as das anotações):
+representação, caminhos rápidos, `is`/`as` e `runtimeType` veem a
+representação. A rota dos membros é a resolução da inferência
+(`Resolved::Member` num tipo de extensão), sempre antes dos caminhos pelo
+tipo apagado (um `length` do tipo de extensão não é o da lista que ele
+representa; intrínsecos e SIMD também cedem): o membro de instância é uma
+função com a representação como primeiro parâmetro, como o de uma extensão,
+com os argumentos de tipo do tipo de extensão na tupla, tirados do tipo
+estático **não apagado** do receptor (`get_type_bruto`), inclusive nos
+tear-offs (a assinatura) e nos padrões de objeto (os argumentos escritos).
+A representação é o próprio receptor; o construtor primário é o valor do
+argumento; os demais (generativos com `this.v`, `v = e` ou `this(…)`, e as
+fábricas, redirecionadoras inclusive) são funções que devolvem a
+representação, chamadas como fábricas. `lower/tipos_de_extensao.rs`;
+`corpus/nativo/36` e `corpus/js/230`–`232` iguais à VM.
+
 **Recusa por membro.** O membro do SDK que não baixa (construto não
 suportado, native pendente, intrínseco da VM sem entrada, teste de tipo sobre
 parâmetro de tipo antes da RTI) vira uma função que avisa em tempo de

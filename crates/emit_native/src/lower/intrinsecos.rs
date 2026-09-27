@@ -79,6 +79,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(id) = self.id_de_classe_do_runtime(ast, e) {
             return Some(self.emit(Instruction::Const(Constant::Int(id)), Type::I64));
         }
+        // Membro de tipo de extensão: o receptor tem o tipo apagado de um
+        // primitivo ou de uma lista, mas o membro é o do tipo de extensão.
+        let membro = match &ast.expr(e).kind {
+            ExprKind::Call { target, .. } => *target,
+            _ => e,
+        };
+        if self.membro_te(membro).is_some() {
+            return None;
+        }
         if let Some(r) = self.lista_add_escalar(ast, e) {
             return Some(r);
         }

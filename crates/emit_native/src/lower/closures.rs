@@ -239,6 +239,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // função genérica em volta: a tupla vai no fim do ambiente).
         b.params_de_tipo_da_funcao = self.params_de_tipo_da_funcao.clone();
         b.extensao_do_this = self.extensao_do_this;
+        b.tipo_ext_do_this = self.tipo_ext_do_this;
         b.classe_do_membro = self.classe_do_membro;
         b.classe_por_tupla = self.classe_por_tupla;
         if self.classe_por_tupla {
@@ -801,6 +802,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 return Some(Resolved::ExtensionMember { extension: e, member: f });
             }
         }
+        // No corpo de um tipo de extensão, os membros dele (e dos tipos de
+        // extensão que ele implementa).
+        if let Some(r) = self.membro_te_por_nome(sym) {
+            return Some(r);
+        }
         for c in self.enclosing_class.map(|c| crate::lower::membros::linearizacao(self.ctx, c)).unwrap_or_default() {
             let classe = &self.ctx.program.classes[c.0 as usize];
             if !self.ctx.biblioteca_compilada(classe.library) {
@@ -849,11 +855,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn ler_nome_sem_resolucao(&mut self, sym: SymbolId, span: Span) -> Option<Operand> {
         use dartforge_types::resolved::Resolved;
         match self.resolver_por_nome(sym)? {
+            r @ Resolved::Member { .. } if self.membro_te_resolvido(Some(&r)).is_some() => {
+                let m = self.membro_te_resolvido(Some(&r))?;
+                let this = self.this_param.clone().unwrap_or(Operand::Constant(Constant::Null));
+                let receptor = self.receptor_implicito();
+                Some(self.ler_membro_te(this, m, receptor, span))
+            }
             Resolved::Member { member, .. } => Some(self.ler_membro_implicito(member, span)),
             Resolved::Element(el) => Some(self.ler_elemento(el, span)),
             Resolved::ExtensionMember { member, .. } => {
                 let this = self.this_param.clone().unwrap_or(Operand::Constant(Constant::Null));
-                let receptor = self.extensao_do_this.map(|(_, on)| on);
+                let receptor = self.receptor_implicito();
                 Some(self.ler_extensao(this, member.0 as usize, receptor, span))
             }
             _ => None,

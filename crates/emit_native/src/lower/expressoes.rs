@@ -428,6 +428,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             return op;
                         }
                     }
+                    r @ Some(Resolved::Member { .. }) if self.membro_te_resolvido(r.as_ref()).is_some() => {
+                        let m = self.membro_te_resolvido(r.as_ref()).expect("membro de tipo de extensão");
+                        let this = self.this_param.clone().unwrap_or(Operand::Constant(Constant::Null));
+                        let receptor = self.receptor_implicito();
+                        return self.ler_membro_te(this, m, receptor, span);
+                    }
                     Some(Resolved::Member { member, .. }) => {
                         if let Some(op) = self.ler_membro_implicito_do_sdk(member, sym, expr_id, span) {
                             return op;
@@ -439,7 +445,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                     Some(Resolved::ExtensionMember { member, .. }) => {
                         let this = self.this_param.clone().unwrap_or(Operand::Constant(Constant::Null));
-                        let receptor = self.extensao_do_this.map(|(_, on)| on);
+                        let receptor = self.receptor_implicito();
                         return self.ler_extensao(this, member.0 as usize, receptor, span);
                     }
                     _ => {}
@@ -560,7 +566,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if let Some(fid) = self.operador_de_extensao(expr_id) {
                     let lop = self.lower_expr(ast, *left);
                     let rop = self.lower_expr(ast, *right);
-                    let receptor = self.ctx.get_type(self.unit_id, *left);
+                    let receptor = self.ctx.get_type_bruto(self.unit_id, *left);
                     let r = self.chamar_extensao(lop, fid, &[(None, rop)], receptor, None, expr.span);
                     let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
                     return self.coagir(r, repr);
@@ -638,7 +644,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     && let Some(fid) = self.operador_de_extensao(expr_id)
                 {
                     let v = self.lower_expr(ast, *operand);
-                    let receptor = self.ctx.get_type(self.unit_id, *operand);
+                    let receptor = self.ctx.get_type_bruto(self.unit_id, *operand);
                     let r = self.chamar_extensao(v, fid, &[], receptor, None, expr.span);
                     let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
                     return self.coagir(r, repr);
@@ -819,6 +825,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let tipo = self.ctx.get_type(self.unit_id, expr_id);
                     return self.tearoff_instanciado_de_construtor(f.0 as usize, objeto, tupla, tipo, span);
                 }
+                // `E.new`/`E.nome` de tipo de extensão: tear-off de
+                // construtor (o primário também).
+                if let Some(c) = self.tipo_de_extensao_nomeado(ast, *target) {
+                    let chave = if prop_name == "new" { self.ctx.interner.lookup("") } else { Some(name.sym) };
+                    if let Some(k) = chave
+                        && (super::tipos_de_extensao::nome_do_primario(self.ctx, c) == Some(k)
+                            || self.ctx.program.classes[c.0 as usize].constructors.contains_key(&k))
+                        && !matches!(resolved, Some(Resolved::Member { .. }))
+                    {
+                        return self.tearoff_de_construtor_te(expr_id, c, k, span);
+                    }
+                }
                 // `C.x`: membro estático (o alvo é um literal de classe).
                 let alvo_e_classe = matches!(
                     self.ctx.get_resolved(self.unit_id, *target),
@@ -872,6 +890,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.desviar_se_nulo(&target_op);
                 }
 
+                // Membro de tipo de extensão (`tipos_de_extensao.rs`): antes
+                // dos caminhos pelo tipo apagado (um `length` do tipo de
+                // extensão não é o da lista que ele representa).
+                if let Some(m) = self.membro_te_resolvido(resolved.as_ref()) {
+                    let receptor = self.ctx.get_type_bruto(self.unit_id, *target);
+                    let r = self.ler_membro_te(target_op, m, receptor, span);
+                    let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
+                    return self.coagir(r, repr);
+                }
+
                 // `length` de uma lista tipada numérica ou `List<E>` (`tipados.rs`).
                 if prop_name == "length"
                     && let Some(l) = self.indexavel(self.ctx.get_type(self.unit_id, *target))
@@ -922,7 +950,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if let Some(Resolved::ExtensionMember { member, .. }) = resolved.clone()
                     && crate::lower::funcao_do_usuario(self.ctx, member.0 as usize)
                 {
-                    let receptor = self.ctx.get_type(self.unit_id, *target);
+                    let receptor = self.ctx.get_type_bruto(self.unit_id, *target);
                     return self.ler_extensao(target_op, member.0 as usize, receptor, span);
                 }
                 // `r.$1`/`r.nome`: campo de um record (posicional do
@@ -964,7 +992,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 let idx_op = self.lower_expr(ast, *index);
                 if let Some(fid) = self.operador_de_extensao(expr_id) {
-                    let receptor = self.ctx.get_type(self.unit_id, *target);
+                    let receptor = self.ctx.get_type_bruto(self.unit_id, *target);
                     let r = self.chamar_extensao(target_op, fid, &[(None, idx_op)], receptor, None, expr.span);
                     let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
                     return self.coagir(r, repr);
@@ -1132,13 +1160,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 m
             }
-            ExprKind::InstanceCreation { arguments, .. } => {
+            ExprKind::InstanceCreation { arguments, constructor, .. } => {
                 match self.ctx.get_resolved(self.unit_id, expr_id).cloned() {
                     Some(Resolved::Constructor(fid)) => {
-                        self.tipo_da_criacao = self.ctx.get_type(self.unit_id, expr_id);
+                        self.tipo_da_criacao = self.ctx.get_type_bruto(self.unit_id, expr_id);
                         self.instanciar(ast, fid, &arguments.args, expr.span)
                     }
-                    _ => self.nao_suportado("instanciação não resolvida", expr.span),
+                    // `new E(…)`/`const E.nome(…)` de tipo de extensão: o
+                    // primário não é elemento (`tipos_de_extensao.rs`).
+                    _ => match self.ctx.get_type_bruto(self.unit_id, expr_id).map(|t| self.ctx.table.get(t).clone()) {
+                        Some(dartforge_types::table::Type::ExtensionType { decl, .. }) => {
+                            let nome = match constructor {
+                                Some(n) => Some(n.sym),
+                                None => self.ctx.interner.lookup(""),
+                            };
+                            match nome {
+                                Some(n) => self.construir_te(ast, expr_id, decl, n, &arguments.args, expr.span),
+                                None => self.nao_suportado("instanciação não resolvida", expr.span),
+                            }
+                        }
+                        _ => self.nao_suportado("instanciação não resolvida", expr.span),
+                    },
                 }
             }
             ExprKind::Throw(inner) => self.emit_throw(ast, *inner),

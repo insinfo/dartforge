@@ -33,6 +33,7 @@ pub mod sdk_por_nome;
 pub mod intrinsecos;
 pub mod simd;
 pub mod tipados;
+pub mod tipos_de_extensao;
 pub mod verificador;
 
 use crate::context::Context;
@@ -80,7 +81,9 @@ pub fn funcao_do_usuario(ctx: &Context, fid: usize) -> bool {
 pub fn construtor_generativo(ctx: &Context, fid: usize) -> bool {
     let f = &ctx.program.functions[fid];
     match f.node {
-        FunctionRef::Constructor { .. } => !f.factory,
+        // O de tipo de extensão devolve a representação, como uma fábrica
+        // (`tipos_de_extensao.rs`).
+        FunctionRef::Constructor { .. } => !f.factory && !f.class.is_some_and(|c| ctx.e_tipo_de_extensao(c)),
         FunctionRef::None => f.kind == FunctionKind::SyntheticConstructor,
         FunctionRef::Function { .. } => false,
     }
@@ -444,10 +447,19 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                     {
                         builder.enclosing_class = Some(*class);
                     }
+                } else if let Some(c) = tipos_de_extensao::dono_de_instancia(ctx, f_idx) {
+                    // Membro de instância de tipo de extensão: o receptor é o
+                    // primeiro parâmetro, na representação; os parâmetros de
+                    // tipo do tipo vêm na tupla (`tipos_de_extensao.rs`).
+                    let r = builder.repr_do_this_estatico(f_idx).unwrap_or(Type::Ref);
+                    let this = builder.add_param("this".to_string(), r);
+                    builder.this_param = Some(Operand::Val(this));
+                    builder.declarar_parametros(f_idx, false);
+                    builder.tipo_ext_do_this = ctx.te.this.get(&c).map(|&t| (c, t));
                 } else {
                     builder.declarar_parametros(f_idx, is_instance_member);
                 }
-                if is_instance_member {
+                if is_instance_member && tipos_de_extensao::dono_de_instancia(ctx, f_idx).is_none() {
                     builder.enclosing_class = func_elem.class;
                 }
                 builder.classe_do_membro = func_elem.class;
@@ -492,8 +504,32 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                     return;
                 };
                 let Some(cid) = func_elem.class else { return };
+                if !func_elem.factory && ctx.e_tipo_de_extensao(cid) {
+                    // Construtor generativo de tipo de extensão: devolve a
+                    // representação (`tipos_de_extensao.rs`).
+                    let ret = ctx.te.this.get(&cid).map_or(Type::Ref, |&t| ctx.to_hir_type(t));
+                    let mut builder = fn_builder::FnBuilder::new(ctx, unit, symbol, name.to_string(), ret);
+                    builder.preparar_capturas(
+                        ast,
+                        captura::Raiz {
+                            parametros: &ctor.parameters,
+                            corpo: Some(&ctor.body),
+                            inicializadores: &ctor.initializers,
+                        },
+                    );
+                    builder.declarar_parametros(f_idx, false);
+                    builder.lower_construtor_te(ast, cid, ctor, ast.member(member).span);
+                    builder.finalizar(module);
+                    return;
+                }
                 if func_elem.factory {
-                    let mut builder = fn_builder::FnBuilder::new(ctx, unit, symbol, name.to_string(), Type::Ref);
+                    // A fábrica de tipo de extensão devolve a representação.
+                    let ret = if ctx.e_tipo_de_extensao(cid) {
+                        ctx.te.this.get(&cid).map_or(Type::Ref, |&t| ctx.to_hir_type(t))
+                    } else {
+                        Type::Ref
+                    };
+                    let mut builder = fn_builder::FnBuilder::new(ctx, unit, symbol, name.to_string(), ret);
                     builder.preparar_capturas(
                         ast,
                         captura::Raiz {
@@ -552,6 +588,21 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                                     t, &avaliados, span, rti_alvo, tupla_alvo,
                                 );
                                 builder.terminate(Terminator::Return(Some(r)));
+                            }
+                            // `factory E.x(R v) = E;` para o primário de um
+                            // tipo de extensão: o próprio argumento.
+                            None if ctx.e_tipo_de_extensao(cid)
+                                && tipos_de_extensao::nome_do_primario(ctx, cid)
+                                    == r.constructor.map(|n| n.sym).or_else(|| ctx.interner.lookup(""))
+                                && let Some(v) = ctx.outline.functions[f_idx]
+                                    .parameters
+                                    .first()
+                                    .and_then(|p| p.name)
+                                    .and_then(|n| builder.ler_local_por_nome(n)) =>
+                            {
+                                let ret = builder.func.return_ty;
+                                let v = builder.coagir(v, ret);
+                                builder.terminate(Terminator::Return(Some(v)));
                             }
                             None => {
                                 builder.nao_suportado("factory redirecionadora", span);
