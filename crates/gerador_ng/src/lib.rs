@@ -887,17 +887,43 @@ fn indexar(
         None => pendencias.push(em_filho("filho com @ContentChild fora da forma")),
         Some(lidas) => {
             for q in lidas {
-                // `read:` troca o valor lido: no conteúdo, ainda não.
-                if q.leitura {
-                    pendencias.push(em_filho("filho com @ContentChild(.., read:)"));
-                    break;
-                }
+                // `read:` troca o valor lido: o nó (`HtmlElement`/`Element`)
+                // ou outro provedor do nó, de classe do pacote. O resto
+                // (`ViewContainerRef`, `TemplateRef`, tokens) ainda não.
+                let leitura = match &q.leitura {
+                    None => None,
+                    Some(nome) => {
+                        let uri = match (caminho, resolvedor) {
+                            (Some(c), Some(r)) => r.uri_do_tipo(c, nome),
+                            _ => None,
+                        };
+                        let simples = nome.rsplit('.').next().unwrap_or(nome);
+                        match uri {
+                            Some(u)
+                                if u == "dart:html"
+                                    && matches!(simples, "HtmlElement" | "Element") =>
+                            {
+                                Some(visao::LeituraDaConsulta::Elemento)
+                            }
+                            Some(u)
+                                if !u.starts_with("package:ngdart/") && !u.starts_with("dart:") =>
+                            {
+                                Some(visao::LeituraDaConsulta::Classe(u, simples.to_string()))
+                            }
+                            _ => {
+                                pendencias.push(em_filho("filho com @ContentChild(.., read:)"));
+                                break;
+                            }
+                        }
+                    }
+                };
                 if q.referencia {
                     consultas.push(visao::ConsultaDoFilho {
                         campo: q.campo.clone(),
                         lista: q.lista,
                         alvo: visao::AlvoDeConsulta::Referencia(q.alvo.clone()),
                         descendentes: q.descendentes,
+                        leitura,
                     });
                     continue;
                 }
@@ -913,6 +939,7 @@ fn indexar(
                             lista: q.lista,
                             alvo: visao::AlvoDeConsulta::Classe(u, simples.to_string()),
                             descendentes: q.descendentes,
+                            leitura,
                         });
                     }
                     _ => {

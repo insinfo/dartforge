@@ -58,9 +58,23 @@ fn raiz_do_corpus() -> PathBuf {
 /// São as formas ainda sem tradução (docs/GERADOR-NG.md §9): gerar
 /// qualquer uma ignorando o que falta daria saída errada.
 const RECUSADOS: &[(&str, &str)] = &[
+    // Filho que injeta um provedor do próprio nó: o provedor sairia antes
+    // dele, no `build()`.
     (
-        "i73_usa_consulta_read.dart",
-        "filho com @ContentChild(.., read:)",
+        "i77_usa_provider_ansioso.dart",
+        "filho que injeta um provedor do próprio nó",
+    ),
+    // Provedor preguiçoso do filho pedido por um nó do conteúdo: o oficial
+    // o cria no `build()`, logo depois do filho.
+    (
+        "i76_usa_provider_projeta.dart",
+        "provedor do filho pedido por um nó do conteúdo",
+    ),
+    // Provedor do filho que depende de fora do nó (elementos acima ou o
+    // injetor de fora) e apelido de token que o nó não provê.
+    (
+        "i78_usa_provider_externo.dart",
+        "provedor apelido de token de fora do nó",
     ),
     ("i30_template_outlet.dart", "<template> escrito no template"),
 ];

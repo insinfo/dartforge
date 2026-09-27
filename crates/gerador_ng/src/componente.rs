@@ -231,8 +231,9 @@ pub struct ConsultaDeConteudo {
     /// `descendants:` — sem ele, só casa o conteúdo a uma diretiva de
     /// distância (`_getQueriesFor`).
     pub descendentes: bool,
-    /// `read:` — o valor lido é outro token do nó achado.
-    pub leitura: bool,
+    /// `read:` — o valor lido é outro token do nó achado: o nome do tipo,
+    /// como escrito.
+    pub leitura: Option<String>,
 }
 
 /// Um `@HostListener` do componente: o evento e o texto do handler que o
@@ -609,7 +610,7 @@ fn consultas_de_conteudo(
             // `ContentChildren(descendants: true)` por omissão no ngdart 8;
             // `ContentChild` sempre. `read:` troca o valor lido.
             let mut descendentes = true;
-            let mut leitura = false;
+            let mut leitura = None;
             for x in a.arguments.as_ref().map(|g| &g.args[..]).unwrap_or(&[]) {
                 match x.name.map(|n| interner.resolve(n.sym)) {
                     None => {}
@@ -617,7 +618,11 @@ fn consultas_de_conteudo(
                         ast::ExprKind::Bool(b) => descendentes = *b,
                         _ => return None,
                     },
-                    Some("read") => leitura = true,
+                    Some("read") => {
+                        leitura = Some(crate::resolucao::nome_qualificado(
+                            arvore, interner, x.value,
+                        )?)
+                    }
                     _ => return None,
                 }
             }
@@ -629,7 +634,7 @@ fn consultas_de_conteudo(
                         alvo,
                         referencia,
                         descendentes,
-                        leitura,
+                        leitura: leitura.clone(),
                     });
                 }
                 ast::MemberKind::Method(f) => {
@@ -642,7 +647,7 @@ fn consultas_de_conteudo(
                                 alvo,
                                 referencia,
                                 descendentes,
-                                leitura,
+                                leitura: leitura.clone(),
                             })
                         }
                         _ => return None,

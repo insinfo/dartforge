@@ -1365,6 +1365,17 @@ pub struct ConsultaDoFilho {
     pub lista: bool,
     pub alvo: AlvoDeConsulta,
     pub descendentes: bool,
+    /// `read:`: o que se lê do nó achado, em vez da instância que casou.
+    pub leitura: Option<LeituraDaConsulta>,
+}
+
+/// O `read:` de uma consulta de conteúdo de um filho.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LeituraDaConsulta {
+    /// `HtmlElement`/`Element` do `dart:html`: o próprio nó.
+    Elemento,
+    /// Outro provedor do nó achado, pela classe (URI, nome).
+    Classe(String, String),
 }
 
 /// O que uma consulta de conteúdo de um filho procura.
@@ -1668,6 +1679,9 @@ struct Registro {
     acima: Vec<(u32, bool)>,
     /// (token, campo, componente `onPush`).
     provedores: Vec<(crate::diretivas::Token, String, bool)>,
+    /// O nó como o `build()` o lê (`_el_3` ou `this._el_3`), para o
+    /// `read: HtmlElement`.
+    elemento: String,
 }
 
 impl Corpo<'_> {
@@ -2437,6 +2451,7 @@ impl Corpo<'_> {
                 campo_inst.clone(),
                 filho.on_push,
             )],
+            elemento: format!("_el_{n}"),
         });
         for r in &e.referencias {
             self.refs
@@ -2481,12 +2496,35 @@ impl Corpo<'_> {
             if primeira.campo != campo_inst {
                 return Err(em_filho("provedor do nó antes do filho"));
             }
+            // Provedor preguiçoso do filho pedido por um nó do conteúdo: o
+            // oficial o cria no `build()`, logo depois do filho (caso i76).
+            // Ainda sem tradução.
+            let preguicosos: Vec<crate::diretivas::Token> = r.instancias[1..]
+                .iter()
+                .filter(|i| {
+                    i.preguicosa
+                        && matches!(
+                            i.criacao,
+                            crate::diretivas::Criacao::Expressao(_)
+                                | crate::diretivas::Criacao::Multi(_)
+                        )
+                })
+                .flat_map(|i| std::iter::once(i.token.clone()).chain(i.apelidos.iter().cloned()))
+                .collect();
+            if !preguicosos.is_empty()
+                && pede_algum(&e.filhos, self.filhos, self.usadas, &preguicosos)
+            {
+                return Err(em_filho("provedor do filho pedido por um nó do conteúdo"));
+            }
             let resto = crate::diretivas::NoResolvido {
                 instancias: r.instancias[1..].to_vec(),
                 diretivas: r.diretivas[1..].to_vec(),
             };
             self.diretivas_do_no(e, &resto, &format!("_el_{n}"), &props_dir, &eventos_dir)?;
-            let injetaveis: Vec<(Vec<crate::diretivas::Token>, String)> = resto
+            // O filho entra primeiro no `injectorGetInternal`, pelos
+            // apelidos dele (`ExistingProvider(X, OFilho)`) e, visível, pela
+            // classe.
+            let injetaveis: Vec<(Vec<crate::diretivas::Token>, String)> = r
                 .instancias
                 .iter()
                 .filter(|i| !i.injetavel_por.is_empty())
@@ -2496,7 +2534,7 @@ impl Corpo<'_> {
                 injetor_do_filho = Some(self.injetores.len());
                 self.injetores.push((n, n, injetaveis));
             }
-            for i in &resto.instancias {
+            for i in &r.instancias {
                 for t in &i.injetavel_por {
                     self.acima.push((t.clone(), i.leitura.clone(), None));
                 }
@@ -2508,11 +2546,16 @@ impl Corpo<'_> {
             }
             let mut acima_reg = self.pilha.clone();
             acima_reg.push((n, true));
-            let provedores = resto
+            // O token do filho já está no registro dele; os apelidos dele,
+            // aqui.
+            let provedores = r
                 .instancias
                 .iter()
-                .flat_map(|i| {
-                    std::iter::once(&i.token)
+                .enumerate()
+                .flat_map(|(k, i)| {
+                    (k > 0)
+                        .then_some(&i.token)
+                        .into_iter()
                         .chain(&i.apelidos)
                         .map(|t| (t.clone(), i.leitura.clone(), false))
                 })
@@ -2520,6 +2563,7 @@ impl Corpo<'_> {
             self.registros.push(Registro {
                 acima: acima_reg,
                 provedores,
+                elemento: format!("_el_{n}"),
             });
         }
         if filho.projecoes.is_empty() {
@@ -2685,6 +2729,15 @@ impl Corpo<'_> {
                     if self.filhos_acima.iter().any(|(u, c)| u == uri && c == tipo) {
                         return Err(em_filho("filho que injeta um componente acima dele"));
                     }
+                    // Um elemento acima provê o serviço: o oficial o leria
+                    // de lá (`_getDependency`), não do injetor de fora.
+                    let token = crate::diretivas::Token::Classe {
+                        uri: uri.clone(),
+                        classe: tipo.clone(),
+                    };
+                    if self.acima.iter().any(|(t, _, _)| *t == token) {
+                        return Err(em_filho("filho que injeta um provedor de um nó acima"));
+                    }
                     let caminho = asset_de_uri(uri, "", Path::new(""))
                         .and_then(|alvo| caminho_do_import(&self.asset, &alvo))
                         .ok_or_else(|| em_filho("tipo injetado no filho sem caminho de import"))?;
@@ -2765,7 +2818,29 @@ impl Corpo<'_> {
                     if *on_push {
                         return Err(fora("@ContentChild do filho que acha componente onPush"));
                     }
-                    valores.push(format!("this.{campo}"));
+                    valores.push(match &q.leitura {
+                        None => format!("this.{campo}"),
+                        // `read:` lê outro token do mesmo nó.
+                        Some(LeituraDaConsulta::Elemento) => r.elemento.clone(),
+                        Some(LeituraDaConsulta::Classe(u, c)) => {
+                            let lido = crate::diretivas::Token::Classe {
+                                uri: u.clone(),
+                                classe: c.clone(),
+                            };
+                            let no = r.acima.last().map(|(k, _)| *k);
+                            self.registros
+                                .iter()
+                                .filter(|x| x.acima.last().map(|(k, _)| *k) == no)
+                                .flat_map(|x| &x.provedores)
+                                .find(|(t, _, _)| *t == lido)
+                                .map(|(_, c, _)| format!("this.{c}"))
+                                .ok_or_else(|| {
+                                    fora(
+                                        "@ContentChild(.., read:) de token que o nó achado não tem",
+                                    )
+                                })?
+                        }
+                    });
                 }
             }
             if q.lista {
@@ -2774,8 +2849,11 @@ impl Corpo<'_> {
                     q.campo,
                     valores.join(", ")
                 ));
-            } else if !valores.is_empty() {
-                return Err(fora("@ContentChild único com resultado no conteúdo"));
+            } else if let Some(primeiro) = valores.first() {
+                // A única recebe o primeiro, em pré-ordem; sem resultado,
+                // nada.
+                self.linhas
+                    .push(format!("    this.{campo_inst}.{} = {primeiro};", q.campo));
             }
         }
         Ok(())
@@ -4201,7 +4279,11 @@ impl Corpo<'_> {
                         .map(|t| (t.clone(), i.leitura.clone(), false))
                 })
                 .collect();
-            self.registros.push(Registro { acima, provedores });
+            self.registros.push(Registro {
+                acima,
+                provedores,
+                elemento: alvo.clone(),
+            });
         }
         // Os provedores injetáveis deste nó ficam acima dos filhos
         // (`injetavel_por`: os visíveis e os apelidos).
@@ -4669,6 +4751,32 @@ fn diretivas_casadas(
         .filter(|u| u.filho.is_none() && crate::seletor::casa_algum(&u.seletores, &desc))
         .filter_map(|u| u.diretiva.clone())
         .collect()
+}
+
+/// Alguma diretiva ou componente filho em `nos` (também dentro de `*`)
+/// depende de um destes tokens?
+fn pede_algum(
+    nos: &[No],
+    filhos: &std::collections::HashMap<String, Filho>,
+    usadas: &[Usada],
+    tokens: &[crate::diretivas::Token],
+) -> bool {
+    nos.iter().any(|n| {
+        let No::Elemento(e) = n else { return false };
+        let das_diretivas = diretivas_casadas(usadas, e)
+            .iter()
+            .any(|d| d.dependencias.iter().any(|x| tokens.contains(&x.token)));
+        let do_filho = filhos.get(&e.nome).is_some_and(|f| {
+            f.parametros.iter().any(|p| {
+                matches!(p, Injetado::Servico { uri, classe, .. }
+                if tokens.contains(&crate::diretivas::Token::Classe {
+                    uri: uri.clone(),
+                    classe: classe.clone(),
+                }))
+            })
+        });
+        das_diretivas || do_filho || pede_algum(&e.filhos, filhos, usadas, tokens)
+    })
 }
 
 /// Algum `@Input` das diretivas tem este nome?

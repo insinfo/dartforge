@@ -168,6 +168,14 @@ import 'package:corpus_ngdart/src/i70_provider_ansioso_externo.template.dart' as
 import 'package:corpus_ngdart/src/i71_provider_valores.template.dart' as i71;
 import 'package:corpus_ngdart/src/i72_usa_provider.template.dart' as i72;
 import 'package:corpus_ngdart/src/i73_usa_consulta_read.template.dart' as i73;
+import 'package:corpus_ngdart/src/i74_usa_provider_formas.template.dart' as i74;
+import 'package:corpus_ngdart/src/i75_provider_projeta.template.dart' as i75;
+import 'package:corpus_ngdart/src/i76_usa_provider_projeta.template.dart' as i76;
+import 'package:corpus_ngdart/src/i77_usa_provider_ansioso.template.dart' as i77;
+import 'package:corpus_ngdart/src/i78_usa_provider_externo.template.dart' as i78;
+import 'package:corpus_ngdart/src/i79_varios_componentes.template.dart' as i79;
+import 'package:corpus_ngdart/src/i80_consultas_leitura.template.dart' as i80;
+import 'package:corpus_ngdart/src/i81_usa_consultas_leitura.template.dart' as i81;
 
 void main() {
   print([
@@ -338,5 +346,13 @@ void main() {
     i71.I71ProviderValoresNgFactory,
     i72.I72UsaProviderNgFactory,
     i73.I73UsaConsultaReadNgFactory,
+    i74.I74UsaProviderFormasNgFactory,
+    i75.I75ProviderProjetaNgFactory,
+    i76.I76UsaProviderProjetaNgFactory,
+    i77.I77UsaProviderAnsiosoNgFactory,
+    i78.I78UsaProviderExternoNgFactory,
+    i79.I79VariosComponentesNgFactory,
+    i80.I80ConsultasLeituraNgFactory,
+    i81.I81UsaConsultasLeituraNgFactory,
   ].length);
 }
