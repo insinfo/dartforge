@@ -684,7 +684,7 @@ fn rule_recipe(ctx: &Ctx, t: &Ty, class: ClassId) -> String {
 // ---------------------------------------------------------------------------
 
 /// Emite `function nome(params) { corpo }` (texto completo) para um elemento função.
-fn function_text(ctx: &Ctx, m: &ModState, fid: FunctionElementId, head_name: Option<&str>, class: Option<ClassId>, is_static: bool, extension_this: Option<&Ty>) -> (String, AsyncKind) {
+pub(crate) fn function_text(ctx: &Ctx, m: &ModState, fid: FunctionElementId, head_name: Option<&str>, class: Option<ClassId>, is_static: bool, extension_this: Option<&Ty>) -> (String, AsyncKind) {
     let f = ctx.program.function(fid);
     let FunctionRef::Function { unit, function } = f.node else {
         return (String::new(), AsyncKind::None);
@@ -846,7 +846,7 @@ fn encaminhador_nsm(ctx: &Ctx, m: &ModState, c: ClassId, unit_classe: UnitId, fi
 }
 
 /// Fecha o corpo: declara temps.
-fn finish_body(e: &mut FnEmitter) -> String {
+pub(crate) fn finish_body(e: &mut FnEmitter) -> String {
     let mut body = String::new();
     if !e.temps.is_empty() {
         body.push_str(&format!("let {};\n", e.temps.join(", ")));
@@ -1056,7 +1056,7 @@ fn emit_top_variables(ctx: &Ctx, m: &ModState, lib: LibraryId, vars: &[VariableI
     }
 }
 
-fn indent(s: &str) -> String {
+pub(crate) fn indent(s: &str) -> String {
     s.lines().map(|l| format!("  {l}")).collect::<Vec<_>>().join("\n")
 }
 
@@ -1090,7 +1090,8 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     let is_enum = class.kind == ClassKind::Enum;
     let is_mixin = class.kind == ClassKind::Mixin;
     if class.kind == ClassKind::ExtensionType && !ctx.is_js_class(c) {
-        // Membros viram funções estáticas… (não suportado além do básico).
+        // Tipo de extensão apagado: objeto de apoio com funções estáticas.
+        crate::tipo_extensao::emit_tipo_extensao(ctx, m, c, w);
         return;
     }
     if ctx.is_js_class(c) {
@@ -2253,7 +2254,7 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
     text
 }
 
-fn flush_stmts(e: &mut FnEmitter, body: &mut Writer) {
+pub(crate) fn flush_stmts(e: &mut FnEmitter, body: &mut Writer) {
     let out = std::mem::take(&mut e.w.out);
     for line in out.lines() {
         body.line(line);

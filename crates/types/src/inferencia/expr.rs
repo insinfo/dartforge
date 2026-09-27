@@ -1113,6 +1113,9 @@ fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
     let instancia_explicita = receptor_de_instanciacao_explicita(inf, cx, e);
     let chave = if Some(name.sym) == inf.sym.new_ { inf.sym.vazio } else { Some(name.sym) };
     let Some(chave) = chave else { return inf.core.dynamic_ };
+    // O primário de um tipo de extensão (`E.new`, `E.nome`) não é elemento:
+    // `Some(None)`, com a assinatura `(Representação) -> E`.
+    let primario = inf.construtor_ou_primario(c, chave) == Some(None);
     let construtor = inf.construtor_de(c, chave);
     // Construtores geradores de enum só criam as constantes do próprio enum.
     // O sem nome implícito não aparece na tabela, mas `E.new` também é sua
@@ -1125,6 +1128,10 @@ fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
         return inf.core.dynamic_;
     }
     let Some(f) = construtor else {
+        if primario {
+            let sig = inf.assinatura_primario(c);
+            return tearoff_com_argumentos(inf, c, sig, args);
+        }
         // `C<T>.new` ainda é uma referência ao construtor sem nome. A
         // ausência dele tem diagnóstico no token `new`, mesmo quando o
         // receptor foi instanciado explicitamente.
@@ -1156,6 +1163,12 @@ fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
         resolver(inf, cx, e, Resolved::Constructor(f));
     }
     let sig = inf.assinatura_construtor(c, f);
+    tearoff_com_argumentos(inf, c, sig, args)
+}
+
+/// O tipo do tearoff de um construtor de `c` com assinatura `sig`: instanciado
+/// com `args`, ou genérico sobre parâmetros novos no lugar dos da classe.
+fn tearoff_com_argumentos(inf: &mut BodyInferrer<'_>, c: ClassId, sig: TypeId, args: Option<Vec<TypeId>>) -> TypeId {
     let params = inf.outline.classes[c.0 as usize].type_params.clone();
     match args {
         Some(args) if args.len() == params.len() => {
@@ -2422,6 +2435,18 @@ fn condicao_binaria(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: B
                 inf.promover_nao_nulo(&mut diferente, id, decl);
                 let _ = &mut igual;
             }
+            // Fluxo sólido (3.9, `sound-flow-analysis`): comparar com `null`
+            // uma expressão de tipo não anulável tem resultado conhecido — o
+            // ramo "igual" é inalcançável (`flow-analysis.md`, `equalityOp`:
+            // `equivalentToNull(T1)` e `T2` não anulável, ou o inverso). Antes
+            // da 3.9 os dois ramos continuam alcançáveis (mixed mode).
+            let solido = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::SoundFlowAnalysis);
+            if solido {
+                let nulo = |inf: &BodyInferrer<'_>, t: TypeId| matches!(inf.table.get(t), Type::Null);
+                if (nulo(inf, tr) && inf.e_nao_anulavel(tl)) || (nulo(inf, tl) && inf.e_nao_anulavel(tr)) {
+                    igual = igual.inalcancavel();
+                }
+            }
             if op == BinaryOp::Eq {
                 (igual, diferente)
             } else {
@@ -2500,6 +2525,26 @@ impl<'a> BodyInferrer<'a> {
     /// Expressão constante (especificação, "Constants"), sobre a resolução
     /// já feita: literais, constantes referidas, construtores e coleções
     /// `const`, operadores sobre constantes, `?:`, interpolação, tipos.
+    /// `alvo` (de uma chamada) é o construtor primário de um tipo de extensão
+    /// declarado `const` (`extension type const E._(int v)`: `E._(1)`), que
+    /// não é elemento e por isso não tem `Resolved::Constructor`.
+    fn primario_const(&self, cx: &Corpo, alvo: ExprId) -> bool {
+        let a = ast(self, cx);
+        let bt = &self.body_types.units[cx.unit.0 as usize];
+        let (classe, nome) = match &a.expr(alvo).kind {
+            ExprKind::Identifier(_) => (alvo, self.sym.vazio),
+            ExprKind::Property { target, name, .. } => (*target, Some(name.sym)),
+            _ => return false,
+        };
+        let Some(Resolved::Element(Element::Class(c))) = bt.get_resolved(classe) else { return false };
+        let Some(nome) = nome else { return false };
+        if self.construtor_ou_primario(*c, nome) != Some(None) {
+            return false;
+        }
+        let Some(d) = self.program.class(*c).decl else { return false };
+        matches!(&self.program.unit(d.unit).ast.decl(d.decl).kind, ast::DeclKind::ExtensionType(et) if et.const_)
+    }
+
     pub(crate) fn e_constante(&self, cx: &Corpo, e: ExprId) -> bool {
         let a = &self.program.unit(cx.unit).ast;
         let bt = &self.body_types.units[cx.unit.0 as usize];
@@ -2558,7 +2603,7 @@ impl<'a> BodyInferrer<'a> {
                 if !ok_args {
                     return false;
                 }
-                if self.construtor_const(bt.get_resolved(e)) {
+                if self.construtor_const(bt.get_resolved(e)) || self.primario_const(cx, *target) {
                     return true;
                 }
                 matches!(&a.expr(*target).kind, ExprKind::Identifier(n) if self.interner.resolve(n.sym) == "identical")

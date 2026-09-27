@@ -675,7 +675,10 @@ impl<'a> Motor<'a> {
         match func.kind {
             FunctionKind::Constructor | FunctionKind::SyntheticConstructor => self.usar_construtor(f, false),
             _ => {
-                let instancia = func.class.is_some() && !func.static_ && func.extension.is_none();
+                // Membro de tipo de extensão: despacho estático (como o de
+                // uma extensão), vive pelo uso, sem esperar instanciação.
+                let de_tipo_de_extensao = func.class.is_some_and(|c| self.e.program.class(c).kind == ClassKind::ExtensionType);
+                let instancia = func.class.is_some() && !func.static_ && func.extension.is_none() && !de_tipo_de_extensao;
                 if instancia {
                     let n = self.chave_membro_instancia(f);
                     self.novo_seletor_com_receptor(&n, receptor);

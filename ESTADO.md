@@ -614,7 +614,7 @@ commit do dia, com uma mensagem detalhada do que foi feito e do que falta.
 1. **Nativo**: 132 dos 223 do corpus ainda falham.
    * Terminar P5c/P5d, o SDK compilado da fonte: DLL em cache no desenvolvimento, executável único estático com ThinLTO em produção.
    * Depois: extension types, `sync*`/`async*` restantes e isolates.
-2. **Inferência**: integrar o `wip/inferencia` (divergências 22/45, corpus 89/95; no `main` ainda 31/56 e 83/95) e fechar o resto; P6 (inferência e fluxo 3.7–3.10, `corpus/moderno` 350–352).
+2. **Inferência**: integrar o `wip/inferencia` (divergências 22/45, corpus 89/95; no `main` ainda 31/56 e 83/95) e fechar o resto.
 3. **Analisador e LSP em Rust**: subir de 20,4% para a paridade.
    * Primeiro a sintaxe (recuperação de erro igual à do parser oficial), depois os códigos de tipo.
    * Só publicar um código com 100% no corpus e zero falso positivo nos projetos reais.
@@ -626,7 +626,7 @@ commit do dia, com uma mensagem detalhada do que foi feito e do que falta.
 6. **JIT**: acompanha o nativo (mesmo IR). Hot reload R1+ segue `docs/` (ORCv2, sessão persistente).
 7. **Produção JS**: segue a pesquisa de otimização (`docs/PESQUISA-OTIMIZACAO.md`).
 8. **Coletor de lixo**: os 9 itens de `crates/runtime/README.md`.
-9. **Dart moderno**: `corpus/moderno` 347 (membros de extension type) e 350–352 (P6).
+9. **Dart moderno**: `corpus/moderno` 26/26 (JS04 fechou 347 e 350–352); `PENDENTES` vazio.
 
 ### Ambiente e máquina
 
@@ -704,12 +704,13 @@ oráculo** (3.6.2 e 3.13.4, cada um com o seu `dartdevc` e o seu
 | elementos null-aware | 3.8 | 310–311 passam (1 negativo); chave nula não avalia o valor |
 | nomeados privados `{this._x}` | 3.12 | 320–323 passam (3 negativos) |
 | atalhos de ponto | 3.10 | 330–332 passam (2 negativos) |
-| construtores primários, `new`/`factory`, corpo `;`, `var`/`final` | 3.13 | 340–346, 348–349 passam (4 negativos); 347 pendente (membros de extension type, lacuna da 3.3) |
-| inferência por bounds, fluxo sólido, gerador | 3.7–3.10 | 350–352 **pendentes** (P6, com o dono de `types`) |
+| construtores primários, `new`/`factory`, corpo `;`, `var`/`final` | 3.13 | 340–349 passam (4 negativos); 347 com os membros de extension type (JS04) |
+| inferência por bounds, fluxo sólido, gerador | 3.7–3.10 | 350–352 passam (1 negativo; JS04) |
 
 Placar no CI (Pesado 35904470774 e CI 35904470762, `ci/moderno` em 5a68e2d, os dois verdes): **22/26** em desenvolvimento
 e em produção, **26/26** DDC×VM, 12 negativos recusados na mesma linha que o
-CFE; os 4 que faltam estão em `corpus/moderno/PENDENTES`. Na mesma rodada:
+CFE; os 4 que faltavam (347, 350–352) passaram na rodada JS04 (2026-09-27, local: 26/26 em
+desenvolvimento e produção, `PENDENTES` vazio). Na rodada do CI:
 `corpus/js` 223/223 em desenvolvimento e produção, determinismo idêntico
 (produção e IR do nativo), nativo e JIT 82/223 (os do `main`) e o portão
 **custo zero verde** — nada regrediu. O `corpus/js` compilado na 3.6 dá **JS idêntico

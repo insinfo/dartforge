@@ -80,6 +80,9 @@ pub struct FnEmitter<'m, 'a> {
     pub pending_prefix: Vec<String>,
     pub extension_this: Option<Ty>,
     pub current_extension: Option<dartforge_elements::model::ExtensionId>,
+    /// Tipo de extensão (apagado, não de interop) dono do membro em emissão:
+    /// os estáticos dele são alcançados sem qualificação (`crate::tipo_extensao`).
+    pub tipo_extensao: Option<ClassId>,
     /// Extensão aplicada explicitamente (`Ext(x).m`), consumida no próximo acesso.
     pub forced_ext: Option<dartforge_elements::model::ExtensionId>,
     /// Padrão de atribuição: variáveis já existem.
@@ -142,6 +145,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             pending_prefix: Vec::new(),
             extension_this: None,
             current_extension: None,
+            tipo_extensao: None,
             forced_ext: None,
             pattern_assign: false,
             in_const: false,
@@ -261,6 +265,22 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         self.temps.push(n.clone());
         n
     }
+    /// Tipo do elemento de `t` visto como o que o gerador corrente produz:
+    /// `Iterable<E>` num `sync*`, `Stream<E>` num `async*` (o `E` de
+    /// `yield*` e do contexto de `yield`). `None` fora de gerador ou quando
+    /// `t` não é desse tipo (`dynamic`, `Object`).
+    pub fn elemento_do_gerador(&self, t: &Ty) -> Option<Ty> {
+        let alvo = match self.async_kind {
+            AsyncKind::SyncStar => self.ctx.iterable_?,
+            AsyncKind::AsyncStar => self.ctx.stream_?,
+            _ => return None,
+        };
+        if t.is_dynamic() {
+            return None;
+        }
+        self.ctx.as_super(&t.non_null(), alvo).and_then(|s| s.args().first().cloned())
+    }
+
     pub fn fresh_label(&mut self) -> String {
         let n = format!("L{}", self.label_counter);
         self.label_counter += 1;
@@ -1290,7 +1310,20 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 None => self.w.line("return;"),
             },
             StmtKind::Yield { star, value } => {
-                let (js, _) = self.emit_expr(*value, None);
+                // Contexto: o tipo do elemento (`yield e`) ou o próprio tipo
+                // de retorno (`yield* e`) do gerador, quando conhecido.
+                let elemento = self.elemento_do_gerador(&self.ret_ty.clone());
+                let contexto = match (star, &elemento) {
+                    (false, Some(e)) => Some(e.clone()),
+                    (true, Some(_)) => Some(self.ret_ty.non_null()),
+                    _ => None,
+                };
+                let (js, ty) = self.emit_expr(*value, contexto.as_ref());
+                // Num gerador, `return e;` é proibido: `returns` guarda os
+                // tipos de elemento produzidos, que dão o tipo de retorno
+                // inferido de uma função literal (`emit_function_expr`).
+                let produzido = if *star { self.elemento_do_gerador(&ty).unwrap_or(Ty::Dynamic) } else { ty };
+                self.returns.push(produzido);
                 match (self.async_kind, star) {
                     (AsyncKind::AsyncStar, false) => {
                         self.m.use_sdk("async");
@@ -1422,8 +1455,14 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
         let name = f.name.expect("função local com nome");
         let ty = self.local_fn_ty(f);
         let jsn = self.declare(name.sym, ty.clone());
-        let (fn_js, _) = self.emit_function_expr(fid, Some(&ty), false);
+        let (fn_js, inferido) = self.emit_function_expr(fid, Some(&ty), false);
         crate::linha!(self.w, "let {jsn} = {};", fn_js.code);
+        // Sem tipo de retorno escrito, o da função local é o inferido do
+        // corpo (o mesmo que o rti dela leva): as leituras seguintes o veem.
+        // Dentro do próprio corpo (recursão) ela ainda tem retorno `dynamic`.
+        if f.return_type.is_none() && matches!(inferido, Ty::Fn { .. }) {
+            self.set_local_ty(name.sym, inferido);
+        }
     }
 
     /// Tipo declarado de uma função (local ou expressão) a partir da anotação.

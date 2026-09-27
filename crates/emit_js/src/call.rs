@@ -38,6 +38,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             ExprKind::Property { target: recv, name, null_aware } => {
                 let n = self.name(name.sym).to_string();
+                if let Some((dono, membro)) = self.membro_de_tipo_extensao(target) {
+                    let (rjs, _, mut guards) = self.emit_target(*recv);
+                    let r = if *null_aware {
+                        let tmp = self.temp();
+                        guards.push(Guard { temp: tmp.clone(), init: rjs.code });
+                        Js::prim(tmp)
+                    } else {
+                        rjs
+                    };
+                    let (js, ty) = self.tipo_ext_chamar(&r, Some(*recv), dono, membro, arguments, expected);
+                    let ty = if *null_aware { ty.with_nullable(true) } else { ty };
+                    return (js, ty, guards);
+                }
                 if let Some(r) = self.try_static_call(*recv, &n, arguments, expected) {
                     return (r.0, r.1, vec![]);
                 }
@@ -62,6 +75,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let n = self.name(id.sym).to_string();
                 if self.ctx.conferencia.is_some() {
                     self.conferir_alvo(target, &self.resolve_ident(id.sym));
+                }
+                // Membro de instância de tipo de extensão pelo `this` implícito.
+                if let Some((dono, membro)) = self.membro_de_tipo_extensao(target) {
+                    let (js, ty) = self.tipo_ext_chamar(&Js::prim("$this"), None, dono, membro, arguments, expected);
+                    return (js, ty, vec![]);
                 }
                 match self.alvo_do_identificador(id.sym, target) {
                     IdentTarget::Local(js, ty) => {
@@ -179,6 +197,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             t => t.clone(),
         };
         let (args, _) = self.emit_args_infer(&inner, arguments, &free, &mut subst, expected);
+        if arguments.type_args.is_empty() {
+            self.restringir_pelos_limites(type_params, &free, &mut subst);
+        }
         let mut targs = Vec::new();
         for p in type_params {
             let t = subst.get(&p.id).cloned().unwrap_or_else(|| self.default_type_arg(&p.bound));
@@ -186,6 +207,31 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             targs.push(self.rti(&t));
         }
         (args, ret.subst(&subst), targs)
+    }
+
+    /// Inferência usando bounds (3.7, `inference-using-bounds`, na
+    /// biblioteca da chamada): um parâmetro cuja solução pelos argumentos não
+    /// satisfaz o limite declarado recebe as restrições de `solução <: limite`
+    /// (casamento com os parâmetros livres como incógnitas), e a solução
+    /// passa ao limite superior das duas. `f<X extends A<X>>(C())`, com
+    /// `C <: B <: A<B>`, dá `X = B`; `Caixa<T extends Comparable<T>>(3)` dá
+    /// `T = num`. É a regra de `GenericInferrer::restringir_pelos_limites`
+    /// de `types`.
+    pub fn restringir_pelos_limites(&self, params: &[TyParam], free: &[u32], subst: &mut HashMap<u32, Ty>) {
+        let biblioteca = self.ctx.program.library(self.lib);
+        if !biblioteca.features.tem(dartforge_frontend::Feature::InferenceUsingBounds) {
+            return;
+        }
+        for p in params {
+            let Some(s) = subst.get(&p.id).cloned() else { continue };
+            if p.bound.is_dynamic() || s.is_dynamic() || self.ctx.object.is_some_and(|o| *p.bound == Ty::iface(o).with_nullable(true)) {
+                continue;
+            }
+            if self.ctx.is_subtype(&s, &p.bound.subst(subst)) {
+                continue;
+            }
+            self.match_type(&p.bound, &s, free, subst);
+        }
     }
 
     /// Núcleo: emite argumentos casando com a assinatura `fty` (sem parâmetros
@@ -556,6 +602,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
         // Construtor nomeado.
         let cname = if name == "new" { "" } else { name };
+        if crate::tipo_extensao::e_tipo_extensao_apagado(self.ctx, c) {
+            // O primário não é elemento: `tipo_ext_construir` o reconhece.
+            if !crate::tipo_extensao::tem_construtor(self.ctx, c, cname) {
+                return None;
+            }
+            return Some(self.tipo_ext_construir(c, vec![], false, cname, arguments, expected));
+        }
         let key = if cname.is_empty() { self.ctx.empty_sym } else { self.ctx.sym(cname) };
         if key.is_some_and(|k| self.ctx.program.class(c).constructors.contains_key(&k)) {
             let is_const = self.in_const;
@@ -660,12 +713,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             Element::Class(c) => {
                 // Extension type: `E(x)` é o valor representado (nos de
                 // interop, `X(...)` é o construtor JS).
-                let class = self.ctx.program.class(c);
-                if class.kind == dartforge_elements::model::ClassKind::ExtensionType && !self.ctx.is_js_class(c) {
-                    if let Some(a) = arguments.args.first() {
-                        let (js, _) = self.emit_expr(a.value, None);
-                        return (js, self.ctx.this_ty(c));
-                    }
+                if crate::tipo_extensao::e_tipo_extensao_apagado(self.ctx, c) {
+                    return self.tipo_ext_construir(c, vec![], false, "", arguments, expected);
                 }
                 let is_const = self.in_const;
                 self.emit_constructor_call(c, vec![], false, "", arguments, expected, is_const)
@@ -744,6 +793,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         self.emit_body(&f.body);
         let (body, returns) = self.exit_fn(saved);
         self.is_closure_body = false;
+        // Num gerador, `returns` são os elementos produzidos (`yield`).
+        let gerador = matches!(kind, AsyncKind::SyncStar | AsyncKind::AsyncStar);
+        let (returns, mut rendimentos) = if gerador { (Vec::new(), returns) } else { (returns, Vec::new()) };
         // Tipo de retorno: declarado, senão inferido do corpo (ou do contexto).
         let inferred = if returns.is_empty() {
             if matches!(f.body, ast::FunctionBody::Expression(_)) { None } else { Some(Ty::Void) }
@@ -777,14 +829,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 Ty::Iface { class, .. } if Some(*class) == self.ctx.future_ && declared_ret.is_some() => inner_ret.clone(),
                 _ => self.ctx.t_future(self.flatten_future(&inner_ret)),
             },
-            AsyncKind::AsyncStar => match &inner_ret {
-                Ty::Iface { class, .. } if Some(*class) == self.ctx.stream_ && declared_ret.is_some() => inner_ret.clone(),
-                _ => self.ctx.t_stream(Ty::Dynamic),
-            },
-            AsyncKind::SyncStar => match &inner_ret {
-                Ty::Iface { class, .. } if Some(*class) == self.ctx.iterable_ && declared_ret.is_some() => inner_ret.clone(),
-                _ => self.ctx.t_iterable(Ty::Dynamic),
-            },
+            AsyncKind::AsyncStar | AsyncKind::SyncStar if declared_ret.is_some() => inner_ret,
+            AsyncKind::AsyncStar | AsyncKind::SyncStar => {
+                self.retorno_inferido_de_gerador(kind, std::mem::take(&mut rendimentos), expected_ret.as_ref())
+            }
         };
         let fn_ty = Ty::Fn { type_params: tps.clone(), ret: Box::new(ret_ty.clone()), pos, opt, named, nullable: false };
         let mut all_params: Vec<String> = scope_params.iter().map(|(_, n)| n.clone()).collect();
@@ -803,6 +851,34 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 Js::prim(format!("dart.gFn({text}, {rti}, dart.constList(dart_rti._Universe.eval(dart_rti._theUniverse(), \"@\", true), [{}]))", defaults.join(", "))),
                 fn_ty,
             )
+        }
+    }
+
+    /// Tipo de retorno inferido de uma função literal geradora sem tipo
+    /// declarado (`closure_context.dart` do CFE, `inferReturnType` dos
+    /// contextos `sync*`/`async*`): o elemento é o limite superior dos tipos
+    /// produzidos (`Null` sem nenhum `yield`), embrulhado em `Iterable`/
+    /// `Stream`. Com tipo de retorno de contexto `R` cujo elemento é `E`, o
+    /// CFE compara o tipo **embrulhado** com `E` e, se não for subtipo, usa
+    /// `R`: por isso `Iterable<num> Function() f = () sync* { yield 1; }` tem
+    /// tipo `() => Iterable<num>`, mas com `Iterable<Object>` fica
+    /// `() => Iterable<int>` (medido na VM 3.6.2 e 3.13.4).
+    fn retorno_inferido_de_gerador(&self, kind: AsyncKind, rendimentos: Vec<Ty>, contexto: Option<&Ty>) -> Ty {
+        let mut it = rendimentos.into_iter();
+        let elemento = match it.next() {
+            Some(primeiro) => it.fold(primeiro, |a, b| self.ctx.lub(&a, &b)),
+            None => Ty::Null,
+        };
+        let (inferido, alvo) = if kind == AsyncKind::AsyncStar {
+            (self.ctx.t_stream(elemento), self.ctx.stream_)
+        } else {
+            (self.ctx.t_iterable(elemento), self.ctx.iterable_)
+        };
+        let Some(r) = contexto.filter(|r| !r.is_dynamic()) else { return inferido };
+        let e = alvo.and_then(|c| self.ctx.as_super(&r.non_null(), c)).and_then(|s| s.args().first().cloned());
+        match e {
+            Some(e) if !self.ctx.is_subtype(&inferido, &e) => r.clone(),
+            _ => inferido,
         }
     }
 

@@ -266,7 +266,11 @@ pub(crate) fn invocar(
             }
         }
     }
+    let usar_limites = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::InferenceUsingBounds);
     let mut env = inf.env();
+    if usar_limites {
+        gi.restringir_pelos_limites(&mut env);
+    }
     let finais = gi.choose_final(&mut env);
     let inst = instanciar_funcao(f, &finais, &mut env);
     drop(env);

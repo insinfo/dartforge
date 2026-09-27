@@ -270,23 +270,39 @@ corrigido lá e vale este.
 
 ### 4.6 Inferência e fluxo (3.7–3.13)
 
-> **Passou ao dono de `crates/types`** (decisão de 2026-09-23, durante a
-> rodada): o contrato abaixo continua valendo, e os programas 350–352 do
-> `corpus/moderno` ficam em `PENDENTES` até ele.
+> Implementado em 2026-09-27 (JS04): os programas 350–352 do
+> `corpus/moderno` saíram de `PENDENTES` e passam em desenvolvimento e
+> produção.
 
-* **Bounds (3.7)**: `design-document.md` de `inference-using-bounds`. Ao
-  resolver uma variável de tipo sem solução pelas restrições, o bound declarado
-  entra como restrição (com a própria variável substituída pela solução
-  parcial) antes de desistir: `f<X extends A<X>>(C())` infere `X = B`
-  (`C <: B <: A<B>`), onde < 3.7 era erro.
-* **Fluxo sólido (3.9)** e #56893/#62889: afetam só quais programas são
-  aceitos (atribuição definitiva, alcançabilidade); como o DartForge não recusa
-  programa por atribuição definitiva, o efeito observável é nenhum. O par
-  `s38`/`s313` do corpus confere: aceito na 3.13, recusado pela VM na 3.8.
+* **Bounds (3.7)**: `design-document.md` de `inference-using-bounds`. Quando a
+  solução de uma variável pelas restrições dos argumentos não satisfaz o bound
+  declarado, as restrições de `solução <: bound` (com as variáveis do bound
+  como incógnitas) entram antes da escolha final: `f<X extends A<X>>(C())`
+  infere `X = UP(C, B) = B` (`C <: B <: A<B>`), onde < 3.7 era erro, e
+  `Caixa<T extends Comparable<T>>(3)` infere `T = num`. Nos dois lados:
+  `GenericInferrer::restringir_pelos_limites` (`types/constraints.rs`,
+  chamado pela inferência de chamadas) e `FnEmitter::restringir_pelos_limites`
+  (`emit_js/call.rs`, chamadas genéricas e construtores), ligados pela
+  versão da biblioteca da chamada.
+* **Fluxo sólido (3.9)** e #56893/#62889: `e == null` / `e != null` com `e`
+  de tipo não anulável (ou o inverso) tem resultado conhecido — o ramo
+  "igual" é inalcançável (`condicao_binaria` em `types/inferencia/expr.rs`,
+  só com `sound-flow-analysis`). Isso muda a atribuição definitiva, e a
+  leitura de local não anulável (ou `final`) que não está definitivamente
+  atribuído passou a **recusar** o programa, como no CFE
+  (`codes::e_erro_de_compilacao`, consultado por `compile-js`,
+  `dartforge-jsprod` e o nativo). O par 351/352 confere: aceito na 3.13,
+  recusado na 3.8 na mesma linha que a VM.
 * **getter/setter (3.9)**: não havia o diagnóstico; nada muda.
 * **Gerador (3.10)**: `f() sync* { yield 1; return; }` infere `Iterable<int>`
-  nas duas versões na VM 3.13.4 (a diferença era do analyzer); o programa do
-  corpus fixa o comportamento.
+  nas duas versões (VM 3.6.2 e 3.13.4). O `emit_js` agora infere o tipo de
+  retorno das funções literais e locais geradoras: o elemento é o `UP` do que
+  `yield`/`yield*` produzem (`Null` sem `yield`), com a regra do CFE para o
+  contexto (compara o tipo embrulhado com o *elemento* do contexto e, se não é
+  subtipo, usa o contexto — `Iterable<num> Function() f = () sync* { yield 1; }`
+  é `() => Iterable<num>`); `yield` recebe o elemento como contexto, e a
+  função local sem tipo escrito passa a ter o tipo inferido depois da
+  declaração (`corpus/js/233_geradores_tipo_inferido.dart`).
 
 ## 5. Harness, corpus e CI
 
@@ -328,16 +344,19 @@ corrigido lá e vale este.
 ## 6. Fora desta rodada
 
 * Macros e augmentations (P7+).
-* Inferência e fluxo 3.7–3.13 (P6, §4.6): com o dono de `crates/types`.
 * O adaptador dos 220 testes de
   `references/dart-sdk/tests/language/{wildcard_variables,…}` (§6.2 do
   plano): dependem de `package:expect`, que importa `dart:io` via
   `package:smith`.
 * A biblioteca de plataforma 3.13 (D1).
-* **Membros de extension type** (Dart 3.3, anterior à rodada): `Id(21).dobro`
-  sai `21.dobro` no `emit_js` e `i.tri()` falha — só o interop JS de extension
-  type funciona. O programa 347 (a gramática 3.13 de extension type) fica em
-  `PENDENTES` por isso.
+* ~~Membros de extension type~~ (Dart 3.3): implementados em 2026-09-27
+  (JS04) no `emit_js` (`crates/emit_js/src/tipo_extensao.rs`): cada tipo de
+  extensão apagado vira um objeto de apoio com funções estáticas (membros de
+  instância com o receptor como argumento, construtores devolvendo a
+  representação), e a rota de cada acesso vem da resolução comum
+  (`Resolved::Member` de um tipo de extensão). No mundo fechado da produção os
+  membros de instância de tipo de extensão vivem pelo uso (despacho
+  estático). O 347 saiu de `PENDENTES`; `corpus/js` 230–232 cobrem o resto.
 * No nativo: curingas (`_` liga nome), entrada de mapa null-aware (recusa explícita)
   e atalho de ponto que não é construção (§4.1–4.3).
 
@@ -352,9 +371,13 @@ do `main` d5ca257): Pesado 35904470774 e CI 35904470762, os dois verdes.
 | Elementos null-aware (3.8) | 310–311 (1 negativo) | 2/2 | 2/2 |
 | Nomeados privados (3.12) | 320–323 (3 negativos) | 4/4 | 4/4 |
 | Atalhos de ponto (3.10) | 330–332 (2 negativos) | 3/3 | 3/3 |
-| Construtores primários (3.13) | 340–349 (4 negativos) | 9/10 (347 pendente) | 10/10 |
-| Inferência e fluxo (P6) | 350–352 (1 negativo) | pendentes (dono de `types`) | 3/3 |
-| **Total `corpus/moderno`** | **26** | **22/26 + 4 pendentes** | **26/26** |
+| Construtores primários (3.13) | 340–349 (4 negativos) | 10/10 | 10/10 |
+| Inferência e fluxo (P6) | 350–352 (1 negativo) | 3/3 | 3/3 |
+| **Total `corpus/moderno`** | **26** | **26/26** | **26/26** |
+
+As linhas de 347 e 350–352 são da rodada JS04 (2026-09-27, local): antes,
+22/26 com os quatro em `PENDENTES`; depois, 26/26 em desenvolvimento e em
+produção, `PENDENTES` vazio.
 
 Sem regressão: `corpus/js` 223/223 em desenvolvimento e produção (o JS dos
 222 de antes sai **byte a byte igual** ao da base e7cb898 com
