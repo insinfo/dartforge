@@ -229,6 +229,7 @@ impl<'a> LlvmEmitter<'a> {
             f.blocks.iter().any(|b| b.instructions.iter().any(|(_, i, _)| matches!(i, Instruction::ChamadaNativaComposta { .. })))
         });
         self.out.push_str(simd::DECLARACOES);
+        self.out.push_str("declare i8 @llvm.expect.i8(i8, i8)\n");
         self.out.push_str(CAIXA_DE_INT);
         if compostas || !self.module.ffi_callbacks.is_empty() {
             self.out.push_str(
@@ -730,6 +731,16 @@ impl<'a> LlvmEmitter<'a> {
                     // A exceção pendente: o espelho no contexto da thread.
                     Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending" && self.tem_ctx => {
                         writeln!(self.out, "  %v{v} = load i8, ptr %ctx, align 8").unwrap();
+                    }
+                    // O pedido de interrupção (J01): o byte no contexto
+                    // (deslocamento 32), lido atômico — outra thread o liga, e
+                    // a carga não pode sair do laço.
+                    Instruction::CallRuntime { name, .. } if name == "dartforge_interrupcao_pendente" && self.tem_ctx => {
+                        writeln!(self.out, "  %ip{v} = getelementptr inbounds i8, ptr %ctx, i64 32").unwrap();
+                        writeln!(self.out, "  %iv{v} = load atomic i8, ptr %ip{v} monotonic, align 8").unwrap();
+                        // O pedido é raro: o caminho lento fica fora do corpo
+                        // do laço.
+                        writeln!(self.out, "  %v{v} = call i8 @llvm.expect.i8(i8 %iv{v}, i8 0)").unwrap();
                     }
                     Instruction::CallRuntime { name, args, ret_ty } => {
                         if name.starts_with("dartforge_nativo_") {

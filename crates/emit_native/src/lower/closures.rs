@@ -397,7 +397,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Type::Ref,
             Operand::Constant(Constant::Null),
         );
-        let clo = self.lower_closure(ast, fid, span, None);
+        let tipo = self.tipo_da_funcao_literal(ast, fid, None);
+        let clo = self.lower_closure(ast, fid, span, tipo);
         self.definir_rti_de_closure(clo.clone(), ast, fid, None);
         self.gravar_local(nome.sym, clo);
     }

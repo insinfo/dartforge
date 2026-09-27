@@ -1743,6 +1743,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let ok = self.coagir(ok, Type::I1);
         self.terminate(Terminator::CondBranch { cond: ok, then_block: corpo, else_block: fim });
         self.set_block(corpo);
+        self.emitir_ponto_seguro();
         let x = self.chamar_por_seletor(it, "g:current".to_string(), &[]);
         f(self, x);
         self.terminate(Terminator::Branch(cabeca));
@@ -1820,6 +1821,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let ok = self.coagir(ok, Type::I1);
         self.terminate(Terminator::CondBranch { cond: ok, then_block: corpo, else_block: fim });
         self.set_block(corpo);
+        self.emitir_ponto_seguro();
         self.break_targets.push(fim);
         self.continue_targets.push(cabeca);
         self.abrir_escopo();
@@ -1924,6 +1926,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::CondBranch { cond: dentro, then_block: corpo, else_block: depois });
 
         self.set_block(corpo);
+        self.emitir_ponto_seguro();
         let x = self.ler_elemento_da_lista(&lista, &i, repr);
         let prox = self.emit(Instruction::Add(i, Operand::Constant(Constant::Int(1))), Type::I64);
         self.emit(Instruction::Store { ptr: indice, val: prox }, Type::Void);

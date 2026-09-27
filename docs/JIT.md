@@ -513,7 +513,26 @@ libera (`dartforge_liberar_isolados`); cada um refaz os próprios registros da
 geração nova antes de continuar.
 
 Limite: um trecho síncrono longo, em qualquer isolado, adia a publicação até
-o próximo evento dele (a CLI avisa depois de 2 s).
+o próximo evento dele (a CLI avisa depois de 2 s). O controle do isolado não
+espera: cada volta de laço tem um ponto seguro (J01) — o código lê, atômico, o
+pedido de interrupção que a porta de controle liga
+(`Contexto::interrupcao`, deslocamento 32) e, com pedido, chama
+`dartforge_ponto_seguro`, que atende `ping`, pausa, ouvintes e `kill`; um
+`kill` imediato desenrola o isolado ocupado (sem rodar `finally`, como o
+`UnwindError` da VM) e os outros seguem (`corpus/nativo/35_interromper_laco.dart`).
+A publicação de uma geração **não** é atendida nesse ponto: a área de globais
+migra pelo nome para o layout da geração nova, e um quadro antigo no meio do
+laço continuaria lendo e gravando com os deslocamentos antigos — a publicação
+precisa da pilha sem quadros Dart.
+
+Custo do ponto seguro (AOT `--optimize`, `bench/desempenho`, mediana de 3
+rodadas alternadas contra o mesmo compilador sem o ponto): a maior parte fica
+no ruído (±5%); o laço mais apertado, `collatz` (9 instruções por volta),
+paga ~24% — a mesma carga, comparação e desvio da verificação de pilha que a
+VM faz em toda volta. O `for` contado (`for (var i = a; i < L; i++)` com `i`
+e `L` sem escrita no corpo, e `L` literal, local ou `length` de lista
+tipada) termina sozinho e não leva o ponto; o caminho lento sai do corpo
+(`llvm.expect`).
 
 ### Regra de visibilidade
 

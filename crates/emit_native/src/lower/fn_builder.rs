@@ -762,6 +762,33 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.saltar(true, label);
     }
 
+    /// O ponto seguro de uma volta de laço (J01), no começo do corpo: lê o
+    /// pedido de interrupção do isolado (um byte, pelo contexto da thread) e,
+    /// com pedido, chama o runtime, que atende a porta de controle (`ping`,
+    /// pausa, `kill`). Um `kill` imediato deixa a exceção pendente não
+    /// capturável, e o caminho de exceção comum desenrola o isolado. É o papel
+    /// da verificação de pilha da VM nas voltas de laço.
+    pub fn emitir_ponto_seguro(&mut self) {
+        if self.is_terminated() {
+            return;
+        }
+        let pedido = self.emit(
+            Instruction::CallRuntime { name: "dartforge_interrupcao_pendente".to_string(), args: Vec::new(), ret_ty: Type::I8 },
+            Type::I8,
+        );
+        let ha = self.emit(Instruction::ICmp(ICmpOp::Ne, pedido, Operand::Constant(Constant::Int(0))), Type::I1);
+        let lento = self.new_block();
+        let segue = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: ha, then_block: lento, else_block: segue });
+        self.set_block(lento);
+        self.emit_call_with_check(
+            Instruction::CallRuntime { name: "dartforge_ponto_seguro".to_string(), args: Vec::new(), ret_ty: Type::Void },
+            Type::Void,
+        );
+        self.terminate(Terminator::Branch(segue));
+        self.set_block(segue);
+    }
+
     pub fn emit_call_with_check(&mut self, inst: Instruction, ret_ty: Type) -> Operand {
         let res_op = self.emit(inst, ret_ty);
         if self.is_terminated() {

@@ -383,6 +383,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     None => self.terminate(Terminator::Branch(corpo)),
                 }
                 self.set_block(corpo);
+                self.emitir_ponto_seguro();
                 self.elemento_de_colecao(ast, alvo, tipo, body, span);
                 if let Some(ForInit::Variables(lista)) = init {
                     for var in lista.variables.iter() {

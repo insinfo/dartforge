@@ -464,6 +464,17 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
+        // O pedido de interrupção do isolado (J01): só lê um byte.
+        decl: "declare i8 @dartforge_interrupcao_pendente()",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
+        // O ponto seguro de laço: atende o controle; um `kill` imediato
+        // deixa a exceção pendente (não capturável).
+        decl: "declare void @dartforge_ponto_seguro()",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
         decl: "declare i8 @dartforge_exception_pending()",
         // Só lê ou limpa a pendência: não aloca.
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },

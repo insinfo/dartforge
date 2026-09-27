@@ -60,6 +60,8 @@ struct Percurso<'x, 'a> {
     /// Nomes lidos ou gravados sem declaração no percurso (as variáveis
     /// livres, na ordem da primeira referência).
     livres: Vec<SymbolId>,
+    /// Nomes sem declaração no percurso que ele grava.
+    livres_gravados: HashSet<SymbolId>,
     usa_this: bool,
 }
 
@@ -74,6 +76,7 @@ impl<'x, 'a> Percurso<'x, 'a> {
             capturadas: HashSet::new(),
             atribuidas: HashSet::new(),
             livres: Vec::new(),
+            livres_gravados: HashSet::new(),
             usa_this: false,
         }
     }
@@ -121,6 +124,9 @@ impl<'x, 'a> Percurso<'x, 'a> {
             None => {
                 if !self.livres.contains(&sym) {
                     self.livres.push(sym);
+                }
+                if grava {
+                    self.livres_gravados.insert(sym);
                 }
             }
         }
@@ -624,4 +630,17 @@ pub fn livres(ctx: &Context, unit: UnitId, ast: &ast::Ast, fid: FunctionId) -> (
     }
     p.corpo(&f.body);
     (p.livres, p.usa_this)
+}
+
+/// Os nomes declarados fora de `corpo` e de `exprs` que eles gravam
+/// (atribuição, `++`/`--`, atribuição composta, padrão; também de dentro de
+/// closures aninhadas): o que decide se um laço `for` é contado
+/// (`comandos.rs`).
+pub fn gravados_de_fora(ctx: &Context, unit: UnitId, ast: &ast::Ast, corpo: StmtId, exprs: &[ExprId]) -> HashSet<SymbolId> {
+    let mut p = Percurso::novo(ctx, unit, ast);
+    p.stmt(corpo);
+    for &e in exprs {
+        p.expr(e);
+    }
+    p.livres_gravados
 }

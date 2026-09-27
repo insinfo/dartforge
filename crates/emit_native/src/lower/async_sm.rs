@@ -763,6 +763,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let ok = b.coagir(ok, Type::I1);
             b.terminate(Terminator::CondBranch { cond: ok, then_block: corpo, else_block: fim });
             b.set_block(corpo);
+            b.emitir_ponto_seguro();
             b.break_targets.push(fim);
             b.continue_targets.push(cabeca);
             b.abrir_escopo();

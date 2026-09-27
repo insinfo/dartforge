@@ -1168,7 +1168,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 expr.span,
             ),
             ExprKind::FunctionExpression(fid) => {
-                let tipo = self.ctx.get_type(self.unit_id, expr_id);
+                let tipo = self.tipo_da_funcao_literal(ast, *fid, Some(expr_id));
                 let c = self.lower_closure(ast, *fid, expr.span, tipo);
                 // RTI: a assinatura da closure (`f is R Function(P)`).
                 self.definir_rti_de_closure(c.clone(), ast, *fid, Some(expr_id));

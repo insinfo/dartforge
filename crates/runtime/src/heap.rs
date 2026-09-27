@@ -1050,6 +1050,11 @@ pub struct Contexto {
     /// e comprimento (24); uma entrada nula vai ao runtime.
     pub areas: std::cell::Cell<*const *mut i64>,
     pub n_areas: std::cell::Cell<usize>,
+    /// O pedido de interrupção do isolado (deslocamento 32): a porta de
+    /// controle o liga, de outra thread, quando chega uma mensagem de controle
+    /// (`portas.rs`). O código gerado o lê, atômico, no começo de cada volta
+    /// de laço (o ponto seguro da J01).
+    pub interrupcao: std::sync::atomic::AtomicU8,
 }
 
 const _: () = {
@@ -1057,6 +1062,7 @@ const _: () = {
     assert!(std::mem::offset_of!(Contexto, topo) == 8);
     assert!(std::mem::offset_of!(Contexto, areas) == 16);
     assert!(std::mem::offset_of!(Contexto, n_areas) == 24);
+    assert!(std::mem::offset_of!(Contexto, interrupcao) == 32);
 };
 
 thread_local! {
@@ -1066,6 +1072,7 @@ thread_local! {
             topo: std::cell::Cell::new(std::ptr::null()),
             areas: std::cell::Cell::new(std::ptr::null()),
             n_areas: std::cell::Cell::new(0),
+            interrupcao: std::sync::atomic::AtomicU8::new(0),
         }
     };
 }

@@ -33,7 +33,7 @@ definição de escopo do produto antes de implementar).
 
 | Item | Estado | Evidência / o que falta |
 | --- | --- | --- |
-| J01 laço síncrono longo | aberto | |
+| J01 laço síncrono longo | parcial | ponto seguro em toda volta de laço (`while`, `do`, `for`, `for-in`, `await for`, laços de coleção e do SDK): uma carga atômica do pedido de interrupção (`Contexto::interrupcao`) e, com pedido, `dartforge_ponto_seguro`, que atende o controle — `kill` imediato desenrola o isolado ocupado e `ping` imediato responde; `corpus/nativo/35` igual à VM (AOT, JIT, --gc-stress). A publicação de recarga no meio do laço continua adiada até o próximo evento (a área de globais muda de layout; ver docs/JIT.md). |
 | J02 recolher gerações | aberto | |
 | J03 recarga estrutural | aberto | |
 | J04 granularidade | aberto | |

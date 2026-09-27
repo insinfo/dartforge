@@ -73,6 +73,13 @@ pub struct UnitBodyTypes {
     /// uma leitura que não resolve): em `static_types` ficam `dynamic`, que
     /// é como o `InvalidType` se comporta; a marca só distingue na exibição.
     pub tipos_invalidos: std::collections::HashSet<ast::ExprId>,
+    /// O tipo de execução (a regra do CFE, que dá o `runtimeType`) de uma
+    /// função literal ou local geradora (`sync*`/`async*`) sem retorno
+    /// escrito, quando difere do tipo estático, que segue o analyzer 3.6.2:
+    /// o analyzer junta o `Null` de um `return;` aos `yield` e dá `dynamic`
+    /// ao gerador sem nenhum; o CFE ignora o `return;` e dá `Null`. Pela
+    /// função (`ast::FunctionId`).
+    pub tipos_de_execucao_de_funcoes: std::collections::HashMap<ast::FunctionId, TypeId>,
 }
 
 impl UnitBodyTypes {
@@ -84,12 +91,19 @@ impl UnitBodyTypes {
             tipos_de_locais: std::collections::HashMap::new(),
             declaracoes_de_locais: std::collections::HashMap::new(),
             tipos_invalidos: std::collections::HashSet::new(),
+            tipos_de_execucao_de_funcoes: std::collections::HashMap::new(),
         }
     }
 
     /// Registra o tipo de uma variável local declarada em `offset`.
     pub fn set_tipo_local(&mut self, offset: usize, ty: TypeId) {
         self.tipos_de_locais.insert(offset, ty);
+    }
+
+    /// O tipo de execução de uma função geradora sem retorno escrito, quando
+    /// difere do estático (ver [`Self::tipos_de_execucao_de_funcoes`]).
+    pub fn tipo_de_execucao_de_funcao(&self, f: ast::FunctionId) -> Option<TypeId> {
+        self.tipos_de_execucao_de_funcoes.get(&f).copied()
     }
 
     /// Tipo da variável local declarada em `offset` (o do nome).

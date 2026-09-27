@@ -188,6 +188,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.continue_targets.push(loop_header);
 
                 self.set_block(loop_body);
+                self.emitir_ponto_seguro();
                 self.lower_stmt(ast, *body);
                 self.terminate(Terminator::Branch(loop_header));
 
@@ -214,6 +215,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
                 self.terminate(Terminator::Branch(loop_body));
                 self.set_block(loop_body);
+                self.emitir_ponto_seguro();
 
                 self.break_targets.push(exit_block);
                 self.continue_targets.push(loop_cond);
@@ -247,6 +249,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 body,
                 ..
             } => {
+                // Um laço contado termina sozinho: sem ponto seguro nas
+                // voltas (o que ficar em laço infinito está num chamado, que
+                // tem os dele), e o LLVM continua livre para vetorizá-lo.
+                let contado = self.laco_contado(ast, init.as_ref(), *condition, updates, *body);
                 // A variável do `for` vive num `alloca` (R6): antes ela era só
                 // um valor SSA no mapa por nome, e a condição, baixada antes
                 // do `i++`, lia para sempre o valor inicial.
@@ -309,6 +315,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.continue_targets.push(loop_update);
 
                 self.set_block(loop_body);
+                if !contado {
+                    self.emitir_ponto_seguro();
+                }
                 self.lower_stmt(ast, *body);
                 self.terminate(Terminator::Branch(loop_update));
 
@@ -442,6 +451,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.continue_targets.push(loop_update);
 
                 self.set_block(loop_body);
+                self.emitir_ponto_seguro();
                 self.abrir_escopo();
                 match target {
                     ast::ForInTarget::Declared { name, .. } => {
@@ -945,5 +955,120 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
 
         self.set_block(merge_block);
+    }
+}
+
+impl<'a, 'c> FnBuilder<'a, 'c> {
+    /// `for (int i = a; i < L; i++)` e as variações (`<=`, `>`, `>=`;
+    /// `i += c`, `i -= c` com `c` literal positivo no sentido da condição),
+    /// com `i` sem outra gravação no corpo e na condição, e o limite `L`
+    /// invariante: literal, local sem célula que o laço não grava, ou
+    /// `v.length` de um local `v` assim cuja lista tem comprimento fixo (as
+    /// listas de `dart:typed_data`). `i` também não pode transbordar ao
+    /// passar do último valor: com `L` qualquer, só `<`/`>` com passo 1.
+    /// Um laço assim termina: o ponto seguro de volta (J01) é dispensado,
+    /// como o HotSpot dispensa o dos laços contados.
+    fn laco_contado(
+        &self,
+        ast: &ast::Ast,
+        init: Option<&ast::ForInit>,
+        condition: Option<ExprId>,
+        updates: &[ExprId],
+        body: StmtId,
+    ) -> bool {
+        let Some(ast::ForInit::Variables(lista)) = init else { return false };
+        let [var] = &lista.variables[..] else { return false };
+        if lista.late || var.initializer.is_none() {
+            return false;
+        }
+        let i = var.name.sym;
+        let int = self.ctx.core.int;
+        if self.ctx.tipo_local(self.unit_id, var.name.span.start as usize) != Some(int) {
+            return false;
+        }
+        let Some(cond) = condition else { return false };
+        let ExprKind::Binary { op, left, right } = &ast.expr(cond).kind else { return false };
+        let e_i = |e: ExprId| matches!(&ast.expr(e).kind, ExprKind::Identifier(n) if n.sym == i);
+        // `i < L` ou `L > i` (e as demais): o sentido em que `i` anda e se a
+        // comparação é estrita.
+        let (limite, crescente, estrita) = match op {
+            ast::BinaryOp::Lt if e_i(*left) => (*right, true, true),
+            ast::BinaryOp::LtEq if e_i(*left) => (*right, true, false),
+            ast::BinaryOp::Gt if e_i(*left) => (*right, false, true),
+            ast::BinaryOp::GtEq if e_i(*left) => (*right, false, false),
+            ast::BinaryOp::Gt if e_i(*right) => (*left, true, true),
+            ast::BinaryOp::GtEq if e_i(*right) => (*left, true, false),
+            ast::BinaryOp::Lt if e_i(*right) => (*left, false, true),
+            ast::BinaryOp::LtEq if e_i(*right) => (*left, false, false),
+            _ => return false,
+        };
+        let [u] = updates else { return false };
+        let fonte = self.source();
+        let literal = |e: ExprId| match &ast.expr(e).kind {
+            ExprKind::Int(span) => fonte.get(span.start as usize..span.end as usize).and_then(|t| {
+                let t = t.replace('_', "");
+                match t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
+                    Some(h) => i64::from_str_radix(h, 16).ok(),
+                    None => t.parse::<i64>().ok(),
+                }
+            }),
+            _ => None,
+        };
+        // O passo, positivo, no sentido da comparação.
+        let passo = match &ast.expr(*u).kind {
+            ExprKind::Unary { op: ast::UnaryOp::PostfixInc | ast::UnaryOp::PrefixInc, operand } if crescente && e_i(*operand) => 1,
+            ExprKind::Unary { op: ast::UnaryOp::PostfixDec | ast::UnaryOp::PrefixDec, operand } if !crescente && e_i(*operand) => 1,
+            ExprKind::Assign { op: ast::AssignOp::Compound(ast::BinaryOp::Add), target, value } if crescente && e_i(*target) => {
+                literal(*value).unwrap_or(0)
+            }
+            ExprKind::Assign { op: ast::AssignOp::Compound(ast::BinaryOp::Sub), target, value } if !crescente && e_i(*target) => {
+                literal(*value).unwrap_or(0)
+            }
+            _ => 0,
+        };
+        if passo <= 0 {
+            return false;
+        }
+        let gravados = super::captura::gravados_de_fora(self.ctx, self.unit_id, ast, body, &[cond]);
+        if gravados.contains(&i) {
+            return false;
+        }
+        // Um local que nem o corpo, nem a condição, nem closure alguma
+        // grava: sem célula (`captura.rs`), o valor não muda no laço.
+        let local_fixo = |e: ExprId| match &ast.expr(e).kind {
+            ExprKind::Identifier(n) => {
+                !gravados.contains(&n.sym)
+                    && self.buscar_local(n.sym).is_some_and(|l| {
+                        matches!(l.modo, super::locais::Modo::Memoria(_) | super::locais::Modo::Valor(_) | super::locais::Modo::Ambiente { celula: false, .. })
+                    })
+            }
+            _ => false,
+        };
+        // O último valor que `i` pode ter sem sair do laço é `L - 1` (estrita)
+        // ou `L`; o laço termina se somar o passo a ele não transborda — o
+        // `int` do nativo dá a volta, e aí o laço não terminaria.
+        let sem_transbordar = |l: i64| {
+            let ultimo = if estrita { if crescente { l.checked_sub(1) } else { l.checked_add(1) } } else { Some(l) };
+            ultimo.is_some_and(|u| if crescente { u.checked_add(passo).is_some() } else { u.checked_sub(passo).is_some() })
+        };
+        match &ast.expr(limite).kind {
+            ExprKind::Int(_) => literal(limite).is_some_and(sem_transbordar),
+            // Um valor qualquer: só o passo 1 estrito nunca transborda.
+            ExprKind::Identifier(_) => {
+                estrita && passo == 1 && local_fixo(limite) && self.ctx.get_type(self.unit_id, limite) == Some(int)
+            }
+            // O comprimento de uma lista tipada fica em `0..=2^60` (cabe na
+            // memória endereçável); o passo não o faz transbordar.
+            ExprKind::Property { target, name, null_aware: false } if self.ctx.symbol_name(name.sym) == "length" => {
+                crescente
+                    && passo <= 1 << 60
+                    && local_fixo(*target)
+                    && matches!(
+                        self.indexavel(self.ctx.get_type(self.unit_id, *target)),
+                        Some(super::tipados::Indexavel::Tipada(_) | super::tipados::Indexavel::Simd { .. })
+                    )
+            }
+            _ => false,
+        }
     }
 }

@@ -528,6 +528,8 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
     // Retorno: escrito, ou inferido com o esquema imposto pelo contexto.
     let escrito_ret = af.return_type.map(|r| inf.tipo_de_anotacao(cx, r));
     let m = af.modifier;
+    // O contexto do retorno inteiro (o tipo de execução de um gerador o usa).
+    let contexto_completo = cret;
     let (ctx_ret, declarado) = match escrito_ret {
         Some(r) => (inf.contexto_de_retorno_declarado(r, m), Some(r)),
         None => {
@@ -590,6 +592,7 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
     for &id in &capturados {
         cx.fluxo.capturar(id);
     }
+    let mut execucao_do_gerador = None;
     let ret = match declarado {
         Some(r) => r,
         None => {
@@ -625,26 +628,67 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
                 t = inf.flatten(t);
             }
             let r = inf.fecho_maior(ctx_ret);
-            let s = if matches!(inf.table.get(r), Type::Void)
-                || (m == AsyncModifier::Async && matches!(inf.table.get(r), Type::FutureOr { arg, .. } if matches!(inf.table.get(*arg), Type::Void)))
-            {
-                inf.core.void_
-            } else if inf.sub(t, r) {
-                t
-            } else {
-                r
-            };
-            match m {
-                AsyncModifier::Async => {
-                    let f = inf.flatten(s);
-                    inf.futuro(f)
+            let embrulhar = |inf: &mut BodyInferrer<'_>, t: TypeId| {
+                let s = if matches!(inf.table.get(r), Type::Void)
+                    || (m == AsyncModifier::Async && matches!(inf.table.get(r), Type::FutureOr { arg, .. } if matches!(inf.table.get(*arg), Type::Void)))
+                {
+                    inf.core.void_
+                } else if inf.sub(t, r) {
+                    t
+                } else {
+                    r
+                };
+                match m {
+                    AsyncModifier::Async => {
+                        let f = inf.flatten(s);
+                        inf.futuro(f)
+                    }
+                    AsyncModifier::AsyncStar => inf.fluxo_de(s),
+                    AsyncModifier::SyncStar => inf.iteravel(s),
+                    AsyncModifier::None => s,
                 }
-                AsyncModifier::AsyncStar => inf.fluxo_de(s),
-                AsyncModifier::SyncStar => inf.iteravel(s),
-                AsyncModifier::None => s,
+            };
+            let estatico = embrulhar(inf, t);
+            // O tipo de execução do gerador (a regra do CFE, conferida contra
+            // a VM 3.6.2 e a 3.13.4): o elemento é o limite superior dos
+            // `yield` (o `return;` não conta; `Null` sem nenhum), embrulhado
+            // (`Iterable`/`Stream`); o CFE compara esse tipo embrulhado com o
+            // ELEMENTO do contexto e, se não for subtipo dele, o retorno é o
+            // tipo de retorno do contexto, inteiro (`Iterable<num>? Function()`
+            // dá `Iterable<num>?`).
+            if gerador && corpo_t.is_none() {
+                let mut e = if fc.retornados.is_empty() { inf.core.null } else { inf.core.never };
+                for &y in &fc.retornados {
+                    e = inf.up(y, e);
+                }
+                let embrulhado = match m {
+                    AsyncModifier::AsyncStar => inf.fluxo_de(e),
+                    _ => inf.iteravel(e),
+                };
+                let execucao = if inf.sub(embrulhado, r) {
+                    embrulhado
+                } else {
+                    let contexto = contexto_completo.unwrap_or(inf.core.unknown);
+                    inf.fecho_maior(contexto)
+                };
+                if execucao != estatico {
+                    execucao_do_gerador = Some(execucao);
+                }
             }
+            estatico
         }
     };
+    if let Some(r) = execucao_do_gerador {
+        let fe = inf.table.intern(Type::Function {
+            type_params: tps.clone().into_boxed_slice(),
+            ret: r,
+            positional: pos.clone().into_boxed_slice(),
+            optional: opt.clone().into_boxed_slice(),
+            named: named.clone().into_boxed_slice(),
+            nullable: false,
+        });
+        inf.body_types.units[cx.unit.0 as usize].tipos_de_execucao_de_funcoes.insert(fid, fe);
+    }
     let ft = inf.table.intern(Type::Function {
         type_params: tps.into_boxed_slice(),
         ret,

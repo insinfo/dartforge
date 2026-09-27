@@ -711,6 +711,24 @@ pub struct FilaDoIsolado {
     id: u64,
     mensagens: std::sync::Mutex<Filas>,
     sinal: std::sync::Condvar,
+    /// O endereço do pedido de interrupção da thread do isolado
+    /// (`Contexto::interrupcao`), ou 0 depois que ela terminou. Uma mensagem
+    /// de controle o liga: o código gerado o lê no ponto seguro de cada volta
+    /// de laço e chama [`dartforge_ponto_seguro`], que atende o controle sem
+    /// esperar o próximo evento — um `kill` imediato ou um `ping` alcançam
+    /// um isolado preso num laço sem eventos, como a verificação de pilha da
+    /// VM. O mutex garante que ninguém grava depois que a thread o zerou.
+    interrupcao: std::sync::Mutex<usize>,
+}
+
+/// Zera o endereço do pedido de interrupção quando a thread termina (antes
+/// de a memória dos `thread_local` dela ser liberada).
+struct GuardaDaInterrupcao(std::sync::Arc<FilaDoIsolado>);
+
+impl Drop for GuardaDaInterrupcao {
+    fn drop(&mut self) {
+        *self.0.interrupcao.lock().unwrap_or_else(|e| e.into_inner()) = 0;
+    }
 }
 
 /// Um serviço nativo: recebe (porta, grafo) na thread de quem enviou.
@@ -736,12 +754,19 @@ fn proximo_id_de_porta() -> i64 {
 thread_local! {
     static FILA: std::sync::Arc<FilaDoIsolado> = {
         static PROX: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-        std::sync::Arc::new(FilaDoIsolado {
+        let alvo = crate::heap::CONTEXTO.with(|c| &c.interrupcao as *const std::sync::atomic::AtomicU8 as usize);
+        let fila = std::sync::Arc::new(FilaDoIsolado {
             id: PROX.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             mensagens: std::sync::Mutex::new(Filas::default()),
             sinal: std::sync::Condvar::new(),
-        })
+            interrupcao: std::sync::Mutex::new(alvo),
+        });
+        let guarda = GuardaDaInterrupcao(fila.clone());
+        GUARDA_DA_INTERRUPCAO.with(|g| *g.borrow_mut() = Some(guarda));
+        fila
     };
+    /// Zera o endereço do pedido de interrupção no fim da thread.
+    static GUARDA_DA_INTERRUPCAO: RefCell<Option<GuardaDaInterrupcao>> = const { RefCell::new(None) };
     /// Portas abertas deste isolado → se mantêm o isolado vivo.
     static PORTAS_ABERTAS: RefCell<crate::hash::HashMap<i64, bool>> = RefCell::new(crate::hash::HashMap::default());
     /// A mensagem em despacho: (porta, valor), o valor enraizado.
@@ -800,8 +825,21 @@ fn postar_controle(porta: i64, grafo: Grafo) {
     };
     if let Some(f) = fila {
         f.mensagens.lock().unwrap_or_else(|e| e.into_inner()).controle.push_back(grafo);
+        let alvo = f.interrupcao.lock().unwrap_or_else(|e| e.into_inner());
+        if *alvo != 0 {
+            // SAFETY: o contexto da thread do isolado, vivo enquanto o
+            // endereço não foi zerado (com este mutex) pela guarda dela.
+            unsafe { (*(*alvo as *const std::sync::atomic::AtomicU8)).store(1, std::sync::atomic::Ordering::Release) };
+        }
+        drop(alvo);
         f.sinal.notify_one();
     }
+}
+
+/// Apaga o pedido de interrupção deste isolado (quem o atende vai esvaziar a
+/// fila de controle em seguida; uma mensagem que chegar depois liga de novo).
+fn limpar_pedido_de_interrupcao() {
+    crate::heap::CONTEXTO.with(|c| c.interrupcao.store(0, std::sync::atomic::Ordering::Relaxed));
 }
 
 // ---------------------------------------------------------------------------
@@ -979,6 +1017,7 @@ fn atender_pontos_seguros() {
 
 /// A próxima mensagem da porta de controle deste isolado.
 fn proxima_de_controle() -> Option<Grafo> {
+    limpar_pedido_de_interrupcao();
     FILA.with(|f| f.mensagens.lock().unwrap_or_else(|e| e.into_inner()).controle.pop_front())
 }
 

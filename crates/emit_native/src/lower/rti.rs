@@ -868,9 +868,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// expressão de função, se a inferência o tem, senão o que a declaração
     /// escreve (parâmetros sem tipo são `dynamic`). É o `$signature` do
     /// dart2js: o que `f is void Function(Object, StackTrace)` pergunta.
+    /// O tipo de uma função literal (`expr`) ou local nomeada: o de execução
+    /// de um gerador sem retorno escrito (a regra do CFE,
+    /// `tipos_de_execucao_de_funcoes`), senão o inferido — o da expressão, ou
+    /// o do local, cujo retorno sem tipo escrito vem do corpo (`g() { return
+    /// 1; }` é `() => int`, não `() => dynamic`).
+    pub fn tipo_da_funcao_literal(&self, ast: &ast::Ast, fid: ast::FunctionId, expr: Option<ast::ExprId>) -> Option<dartforge_types::table::TypeId> {
+        let execucao = self.ctx.bodies.units.get(self.unit_id.0 as usize).and_then(|u| u.tipo_de_execucao_de_funcao(fid));
+        execucao.or_else(|| match expr {
+            Some(e) => self.ctx.get_type(self.unit_id, e),
+            None => ast.function(fid).name.and_then(|n| self.ctx.tipo_local(self.unit_id, n.span.start as usize)),
+        })
+    }
+
     pub fn definir_rti_de_closure(&mut self, clo: Operand, ast: &ast::Ast, fid: ast::FunctionId, expr: Option<ast::ExprId>) {
-        if let Some(e) = expr
-            && let Some(t) = self.ctx.get_type(self.unit_id, e)
+        // O tipo inferido: o da expressão (função literal) ou o do local
+        // (função local nomeada, cujo retorno sem tipo escrito é inferido do
+        // corpo — `g() { return 1; }` é `() => int`, não `() => dynamic`).
+        if let Some(t) = self.tipo_da_funcao_literal(ast, fid, expr)
             && matches!(self.ctx.table.get(t), T::Function { .. })
         {
             let r = self.receita_de_tipo(t);

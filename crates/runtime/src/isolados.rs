@@ -23,9 +23,14 @@
 // termina — o processo, não: ele termina com o isolado principal.
 //
 // `Isolate.exit` e o `kill` desenrolam o isolado (o `UnwindError` da VM):
-// a exceção pendente não é capturável (`excecoes.rs`). O `kill` é atendido
-// entre eventos: um isolado preso num laço Dart sem eventos só o vê ao
-// voltar ao laço de eventos (a VM o interrompe na verificação de pilha).
+// a exceção pendente não é capturável (`excecoes.rs`). O controle é atendido
+// entre eventos e também no ponto seguro de cada volta de laço
+// ([`dartforge_ponto_seguro`], o papel da verificação de pilha da VM): um
+// `kill` imediato ou um `ping` alcançam um isolado preso num laço sem
+// eventos; o `kill` com `beforeNextEvent` espera o evento atual terminar.
+
+/// `Isolate.immediate` (a prioridade de `kill` e `ping`).
+const PRIORIDADE_IMEDIATA: i64 = 0;
 
 /// `IsolateMessageHandler` (`isolate_patch.dart`, `_PAUSE`…).
 const OOB_PAUSA: i64 = 1;
@@ -68,6 +73,9 @@ struct EstadoDoIsolado {
     ouvintes_de_erro: Vec<i64>,
     /// Um `kill` foi aceito: o isolado termina no próximo retorno ao laço.
     encerrar: bool,
+    /// O `kill` aceito é imediato (`Isolate.immediate`): o ponto seguro de
+    /// um laço desenrola o isolado sem esperar o laço de eventos (J01).
+    encerrar_ja: bool,
 }
 
 thread_local! {
@@ -98,6 +106,7 @@ fn com_estado<R>(f: impl FnOnce(&mut EstadoDoIsolado) -> R) -> R {
                 ouvintes_de_saida: Vec::new(),
                 ouvintes_de_erro: Vec::new(),
                 encerrar: false,
+                encerrar_ja: false,
             }
         });
         f(e)
@@ -194,9 +203,11 @@ fn tratar_mensagem_de_controle(msg: i64) {
         }
         OOB_MATAR => {
             let Some(cap) = id(2) else { return };
+            let imediato = itens.get(3).and_then(|v| inteiro_de(*v)) == Some(PRIORIDADE_IMEDIATA);
             com_estado(|e| {
                 if cap == e.termino {
                     e.encerrar = true;
+                    e.encerrar_ja |= imediato;
                 }
             });
         }
@@ -317,6 +328,30 @@ fn rodar_laco_do_isolado(chamar: extern "C" fn(i64) -> i64) {
             return;
         }
     }
+}
+
+/// O ponto seguro de uma volta de laço (J01), que o código gerado chama
+/// quando a porta de controle tem mensagem (`Contexto::interrupcao`): atende
+/// o controle (ping, pausa, ouvintes, `kill`) e, com um `kill` imediato,
+/// desenrola o isolado — a exceção pendente não capturável sobe até o laço de
+/// eventos, e os `finally` do caminho rodam. A publicação de uma recarga do
+/// JIT não é atendida aqui: ela precisa da pilha sem quadros Dart.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_ponto_seguro() {
+    if desenrolando() {
+        return;
+    }
+    atender_controle();
+    if ISOLADO.with(|i| i.borrow().as_ref().is_some_and(|e| e.encerrar_ja)) {
+        comecar_desenrolar();
+    }
+}
+
+/// O pedido de interrupção sem o contexto no código gerado (o caminho lento
+/// de [`dartforge_ponto_seguro`]; o emissor lê o byte direto).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_interrupcao_pendente() -> u8 {
+    crate::heap::CONTEXTO.with(|c| c.interrupcao.load(std::sync::atomic::Ordering::Acquire))
 }
 
 // ---------------------------------------------------------------------------
