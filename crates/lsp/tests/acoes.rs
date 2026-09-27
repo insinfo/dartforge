@@ -350,3 +350,110 @@ fn assistencia_de_anotacao_de_tipo() {
     assert!(titulos(&acoes(&mut p, "lib/a.dart", pos, pos, json!({"only": ["quickfix"]}))).iter().all(|t| t != "Add type annotation"));
     assert_eq!(titulos(&acoes(&mut p, "lib/a.dart", pos, pos, json!({"only": ["refactor"]}))), vec!["Add type annotation"]);
 }
+
+/// L06: as correções do Dart 3.6.2 para mais códigos publicados, com os
+/// títulos e as edições do `analysis_server`.
+#[test]
+fn correcoes_de_campo_final_abstrato_condicao_e_elemento() {
+    let mut p = Projeto::novo("acoes-l06");
+    let casos: &[(&str, &str, &str, &str, &str, &str)] = &[
+        (
+            "lib/final_tipado.dart",
+            "class C {\n  final int y = 2;\n  void m() {\n    y = 4;\n  }\n}\n",
+            "y = 4",
+            "Make field 'y' not final",
+            "quickfix.makeFieldNotFinal",
+            "class C {\n  int y = 2;\n  void m() {\n    y = 4;\n  }\n}\n",
+        ),
+        (
+            "lib/final_sem_tipo.dart",
+            "class C {\n  final z = 3;\n  void m() {\n    this.z = 5;\n  }\n}\n",
+            "z = 5",
+            "Make field 'z' not final",
+            "quickfix.makeFieldNotFinal",
+            "class C {\n  var z = 3;\n  void m() {\n    this.z = 5;\n  }\n}\n",
+        ),
+        (
+            "lib/abstrato1.dart",
+            "abstract class A {\n  abstract int x = 1;\n}\n",
+            "x = 1",
+            "Remove initializer",
+            "quickfix.remove.initializer",
+            "abstract class A {\n  abstract int x;\n}\n",
+        ),
+        (
+            "lib/abstrato2.dart",
+            "abstract class A {\n  abstract int x = 1;\n}\n",
+            "x = 1",
+            "Remove the 'abstract' keyword",
+            "quickfix.remove.abstract",
+            "abstract class A {\n  int x = 1;\n}\n",
+        ),
+        (
+            "lib/condicao.dart",
+            "void f(int? n) {\n  if (n) {}\n}\n",
+            "n) {}",
+            "Add != null",
+            "quickfix.add.neNull",
+            "void f(int? n) {\n  if (n != null) {}\n}\n",
+        ),
+        (
+            "lib/topo.dart",
+            "int _g() => 1;\nvoid main() {}\n",
+            "_g",
+            "Remove unused element",
+            "quickfix.remove.unusedElement",
+            "void main() {}\n",
+        ),
+        (
+            "lib/membro.dart",
+            "class B {\n  /// Doc.\n  void _p() {}\n  void q() {}\n}\n",
+            "_p",
+            "Remove unused element",
+            "quickfix.remove.unusedElement",
+            "class B {\n  void q() {}\n}\n",
+        ),
+    ];
+    for &(rel, texto, agulha, titulo, especie, esperado) in casos {
+        let r = acoes_em(&mut p, rel, texto, agulha);
+        let a = acao(&r, titulo);
+        assert_eq!(a["kind"], especie, "{rel}");
+        assert!(a["diagnostics"][0]["code"].is_string(), "{a}");
+        assert_eq!(aplicar(&a["edit"], &p.uri(rel), texto), esperado, "{rel}");
+    }
+    // Campo `final` que é escrito sem ser campo (local): nada de campo.
+    let texto = "void f() {\n  final int w = 1;\n  print(w);\n}\n";
+    let r = acoes_em(&mut p, "lib/local.dart", texto, "w = 1");
+    assert!(!titulos(&r).iter().any(|t| t.starts_with("Make field")), "{r}");
+}
+
+/// L06: `Create file` para a URI relativa que não existe, só ao cliente que
+/// aceita a operação `create`; a parte nasce com o `part of`.
+#[test]
+fn criar_arquivo_da_uri_ausente() {
+    let capacidades = json!({"workspace": {"workspaceEdit": {"documentChanges": true, "resourceOperations": ["create"]}}});
+    let mut p = Projeto::com_capacidades("acoes-criar", capacidades);
+    let texto = "import 'novo.dart';\npart 'parte.dart';\n";
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "'novo.dart'");
+    let a = acao(&r, "Create file 'novo.dart'");
+    assert_eq!(a["kind"], "quickfix.create.file");
+    let mudancas = a["edit"]["documentChanges"].as_array().expect("documentChanges");
+    assert_eq!(mudancas[0]["kind"], "create");
+    assert_eq!(mudancas[0]["uri"], p.uri("lib/novo.dart"));
+    assert_eq!(mudancas.len(), 1, "{mudancas:?}");
+    let pos = common_pos(texto, "'parte.dart'");
+    let r = acoes(&mut p, "lib/a.dart", pos, pos, json!({}));
+    let a = acao(&r, "Create file 'parte.dart'");
+    let mudancas = a["edit"]["documentChanges"].as_array().expect("documentChanges");
+    assert_eq!(mudancas[0]["uri"], p.uri("lib/parte.dart"));
+    assert_eq!(mudancas[1]["edits"][0]["newText"], "part of 'a.dart';\n");
+
+    // Sem a operação `create` no cliente, a correção não é oferecida.
+    let mut p = Projeto::novo("acoes-criar-sem");
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "'novo.dart'");
+    assert!(!titulos(&r).iter().any(|t| t.starts_with("Create file")), "{r}");
+}
+
+fn common_pos(texto: &str, agulha: &str) -> (u32, u32) {
+    onde(texto, agulha, 0)
+}

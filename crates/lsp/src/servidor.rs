@@ -104,6 +104,9 @@ pub struct Servidor<A = AnalisadorSintatico> {
     /// O cliente aceita a operação de recurso `rename` e pediu
     /// `renameFilesWithClasses: "always"` nas opções de inicialização.
     renomear_arquivos: bool,
+    /// O cliente aceita `documentChanges` com a operação `create`: as
+    /// correções que criam arquivo (`Create file`) são oferecidas.
+    criar_arquivos: bool,
     /// O cliente aceita snippets no completar e não pediu
     /// `completeFunctionCalls: false`: chamadas saem com os parênteses e os
     /// parâmetros obrigatórios como marcadores.
@@ -168,6 +171,7 @@ impl<A: Analisador> Servidor<A> {
             preparar_renomeacao: false,
             mudancas_versionadas: false,
             renomear_arquivos: false,
+            criar_arquivos: false,
             completar_chamadas: false,
             documentacao_markdown: false,
             raizes: Vec::new(),
@@ -463,10 +467,15 @@ impl<A: Analisador> Servidor<A> {
                     .pointer("/params/capabilities/workspace/workspaceEdit/documentChanges")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                let aceita_renomear_arquivo = mensagem
-                    .pointer("/params/capabilities/workspace/workspaceEdit/resourceOperations")
-                    .and_then(Value::as_array)
-                    .is_some_and(|l| l.iter().any(|o| o.as_str() == Some("rename")));
+                let aceita_operacao = |op: &str| {
+                    mensagem
+                        .pointer("/params/capabilities/workspace/workspaceEdit/resourceOperations")
+                        .and_then(Value::as_array)
+                        .is_some_and(|l| l.iter().any(|o| o.as_str() == Some(op)))
+                };
+                let aceita_renomear_arquivo = aceita_operacao("rename");
+                self.criar_arquivos = self.mudancas_versionadas
+                    && aceita_operacao("create");
                 self.renomear_arquivos = self.mudancas_versionadas
                     && aceita_renomear_arquivo
                     && mensagem.pointer("/params/initializationOptions/renameFilesWithClasses").and_then(Value::as_str) == Some("always");
@@ -757,7 +766,24 @@ impl<A: Analisador> Servidor<A> {
                     if !permitida {
                         continue;
                     }
-                    let edicao = self.edicao_de_workspace(&acao.edicoes, None);
+                    let edicao = match &acao.criar_arquivo {
+                        // Só a quem aceita criar arquivo: a capacidade é a
+                        // edição inteira ou nada.
+                        Some(_) if !self.criar_arquivos => continue,
+                        Some((novo, conteudo)) => {
+                            let mut e = self.edicao_de_workspace(&acao.edicoes, Some(json!({"kind": "create", "uri": novo, "options": {"ignoreIfExists": true}})));
+                            if !conteudo.is_empty()
+                                && let Some(l) = e["documentChanges"].as_array_mut()
+                            {
+                                l.push(json!({
+                                    "textDocument": {"uri": novo, "version": null},
+                                    "edits": [{"range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "newText": conteudo}],
+                                }));
+                            }
+                            e
+                        }
+                        None => self.edicao_de_workspace(&acao.edicoes, None),
+                    };
                     let mut valor = json!({"title": acao.titulo, "kind": acao.especie, "edit": edicao});
                     if let (Some(d), Some(texto), Some(tabela)) =
                         (&acao.diagnostico, self.documentos.get(&u), self.documentos.linhas(&u))

@@ -475,12 +475,16 @@ correção leva o diagnóstico que corrige.
   | Código publicado | Ação | Espécie |
   | --- | --- | --- |
   | `unused_local_variable` | `Remove unused local variable` (a declaração, ou só a variável numa lista, e os comandos que só atribuem a ela) | `quickfix.remove.unusedLocalVariable` |
-  | `unused_element` (função local) | `Remove unused element` | `quickfix.remove.unusedElement` |
+  | `unused_element` (função local, declaração de topo, membro de classe) | `Remove unused element` (as linhas da declaração, com o `///` de cima) | `quickfix.remove.unusedElement` |
   | `unnecessary_cast` | `Remove unnecessary cast` (e o parêntese que sobraria em volta de uma primária) | `quickfix.remove.unnecessaryCast` |
   | `unnecessary_non_null_assertion` | `Remove the '!'` | `quickfix.remove.nonNullAssertion` |
   | `invalid_null_aware_operator` | `Replace with '.'` / `Replace with '['` | `quickfix.replace.withNotNullAware` |
   | `instance_access_to_static_member` | `Change access to static using 'C'` (`p.C` se a classe é vista por prefixo) | `quickfix.change.toStaticAccess` |
   | `record_literal_one_positional_no_trailing_comma` | `Add trailing comma` | `quickfix.add.trailingComma` |
+  | `assignment_to_final` (campo) | `Make field 'x' not final` (tira o `final` da declaração, ou troca por `var` sem tipo, no arquivo dela) | `quickfix.makeFieldNotFinal` |
+  | `abstract_field_initializer` | `Remove initializer` e `Remove the 'abstract' keyword` | `quickfix.remove.initializer`, `quickfix.remove.abstract` |
+  | `non_bool_condition` | `Add != null` (como o `AddNeNull` do Dart, depois da condição) | `quickfix.add.neNull` |
+  | `uri_does_not_exist` (URI relativa `.dart`) | `Create file 'x.dart'`: operação `create` no `WorkspaceEdit`, vazio ou com o `part of` para uma parte; só ao cliente que anuncia `documentChanges` e `resourceOperations: create` | `quickfix.create.file` |
 
   Cada edição é conferida contra a árvore do texto vigente: diagnóstico que
   não corresponde ao nó esperado não gera ação.

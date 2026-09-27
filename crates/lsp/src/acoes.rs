@@ -45,6 +45,9 @@ pub struct AcaoDeCodigo {
     pub edicoes: Vec<Edicao>,
     /// Diagnóstico corrigido, quando a ação responde a um publicado.
     pub diagnostico: Option<Diagnostic>,
+    /// Arquivo que a ação cria (URI e conteúdo): uma operação `create` no
+    /// `WorkspaceEdit`, oferecida só ao cliente que a aceita.
+    pub criar_arquivo: Option<(String, String)>,
 }
 
 /// Correções dos diagnósticos sintáticos que tocam `inicio..fim`.
@@ -72,6 +75,7 @@ pub(crate) fn corrigir_sintaxe(
                     texto: ";".into(),
                 }],
                 diagnostico: Some(d.clone()),
+                criar_arquivo: None,
             });
         }
     }
@@ -274,6 +278,7 @@ pub(crate) fn importar(
                     texto: novo,
                 }],
                 diagnostico: None,
+                criar_arquivo: None,
             });
         }
     }
@@ -307,6 +312,7 @@ pub(crate) fn importar(
                 texto: novo,
             }],
             diagnostico: None,
+            criar_arquivo: None,
         });
     }
     saida
@@ -357,6 +363,7 @@ fn correcao(
             })
             .collect(),
         diagnostico: Some(d.clone()),
+        criar_arquivo: None,
     }
 }
 
@@ -533,10 +540,256 @@ pub(crate) fn corrigir_publicados(
                     ));
                 }
             }
+            Some("assignment_to_final") => {
+                if let Some(acao) = campo_nao_final(projeto, unidade, d) {
+                    saida.push(acao);
+                }
+            }
+            Some("abstract_field_initializer") => {
+                saida.extend(campo_abstrato_inicializado(uri, ast, texto, d));
+            }
+            Some("non_bool_condition") => {
+                // Como o `AddNeNull` do Dart: ` != null` depois da condição.
+                saida.push(correcao(
+                    uri,
+                    "Add != null".into(),
+                    "quickfix.add.neNull",
+                    vec![(Span { start: d.span.end, end: d.span.end }, " != null".into())],
+                    d,
+                ));
+            }
+            Some("uri_does_not_exist") => {
+                if let Some(acao) = criar_arquivo(projeto, unidade, uri, d) {
+                    saida.push(acao);
+                }
+            }
             _ => {}
+        }
+        // Declaração de topo ou membro de classe não usado (a função local
+        // foi tratada acima).
+        if codigo(d) == Some("unused_element")
+            && !saida.iter().any(|a| a.diagnostico.as_ref() == Some(d))
+            && let Some(span) = declaracao_nomeada(ast, d.span)
+        {
+            saida.push(correcao(
+                uri,
+                "Remove unused element".into(),
+                "quickfix.remove.unusedElement",
+                vec![(com_documentacao(texto, linha_inteira(texto, span)), String::new())],
+                d,
+            ));
         }
     }
     saida
+}
+
+/// Os tokens de `texto[inicio..fim]`, com spans no texto inteiro.
+fn tokens(texto: &str, inicio: usize, fim: usize) -> Vec<dartforge_frontend::token::Token> {
+    dartforge_frontend::lexer::lex(&texto[inicio..fim])
+        .map(|ts| {
+            ts.into_iter()
+                .map(|mut t| {
+                    t.span.start += inicio;
+                    t.span.end += inicio;
+                    t
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// O trecho de um token e do espaço em branco que o segue (apagar `final `).
+fn com_espaco_depois(texto: &str, span: Span) -> Span {
+    let resto = &texto[span.end..];
+    let n = resto.len() - resto.trim_start_matches([' ', '\t']).len();
+    Span { start: span.start, end: span.end + n }
+}
+
+/// `span` estendido para cima pelas linhas de comentário de documentação
+/// (`///`) logo acima dele (o nó da declaração no analyzer as inclui).
+fn com_documentacao(texto: &str, span: Span) -> Span {
+    let mut inicio = span.start;
+    while inicio > 0 {
+        let fim_anterior = inicio - 1;
+        let comeco = texto[..fim_anterior].rfind('\n').map_or(0, |i| i + 1);
+        if texto[comeco..fim_anterior].trim_start().starts_with("///") {
+            inicio = comeco;
+        } else {
+            break;
+        }
+    }
+    Span { start: inicio, end: span.end }
+}
+
+/// O span da declaração de topo ou do membro de classe cujo nome está em
+/// `nome` (função, getter, setter, classe, `typedef`, ou campo/variável de
+/// topo sozinho na lista).
+fn declaracao_nomeada(ast: &ast::Ast, nome: Span) -> Option<Span> {
+    let funcao = |f: ast::FunctionId| ast.function(f).name.is_some_and(|n| n.span == nome);
+    let lista = |l: &ast::VariableList| l.variables.len() == 1 && l.variables[0].name.span == nome;
+    for decl in &ast.decls {
+        let casa = match &decl.kind {
+            DeclKind::Function(f) => funcao(*f),
+            DeclKind::Variables(l) => lista(l),
+            DeclKind::Class(c) => c.name.span == nome,
+            DeclKind::Mixin(m) => m.name.span == nome,
+            DeclKind::Enum(e) => e.name.span == nome,
+            DeclKind::Typedef(t) => t.name.span == nome,
+            _ => false,
+        };
+        if casa {
+            return Some(decl.span);
+        }
+    }
+    ast.members.iter().find_map(|m| {
+        let casa = match &m.kind {
+            ast::MemberKind::Method(f) => funcao(*f),
+            ast::MemberKind::Field(l) => lista(l),
+            ast::MemberKind::Constructor(c) => c.name.is_some_and(|n| n.span == nome),
+        };
+        casa.then_some(m.span)
+    })
+}
+
+/// `assignment_to_final` num campo → `Make field 'x' not final`, como o
+/// `MakeFieldNotFinal` do Dart: a declaração do campo perde o `final` (ou o
+/// troca por `var`, sem tipo), no arquivo dela.
+fn campo_nao_final(projeto: &Projeto, unidade: UnitId, d: &Diagnostic) -> Option<AcaoDeCodigo> {
+    let consulta = &projeto.consulta;
+    let p = &consulta.programa;
+    let u = p.unit(unidade);
+    let corpos = &consulta.corpos.units[unidade.0 as usize];
+    // A expressão escrita: `y` ou o nome de `this.y`/`o.y`.
+    let id = u.ast.exprs.iter().enumerate().find_map(|(i, e)| {
+        let casa = match &e.kind {
+            ExprKind::Identifier(n) => n.span == d.span,
+            ExprKind::Property { name, .. } => name.span == d.span,
+            _ => false,
+        };
+        casa.then_some(ast::ExprId(i as u32))
+    })?;
+    // O campo escrito: a variável, ou a do acessor implícito dela.
+    let v = match corpos.get_resolved(id)? {
+        Resolved::Member { member: MemberRef::Variable(v), .. } | Resolved::Element(Element::Variable(v)) => *v,
+        Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::Element(Element::Function(f)) => {
+            p.function(*f).variable?
+        }
+        _ => return None,
+    };
+    p.variable(v).class?;
+    let (u_decl, nome) = projeto.nome_da_variavel(v)?;
+    let ud = p.unit(u_decl);
+    let texto = ud.source.as_str();
+    let membro = ud.ast.members.iter().find(|m| match &m.kind {
+        ast::MemberKind::Field(l) => l.variables.iter().any(|x| x.name.span == nome),
+        _ => false,
+    })?;
+    let ast::MemberKind::Field(l) = &membro.kind else { return None };
+    if !l.final_ || l.const_ {
+        return None;
+    }
+    let final_ = tokens(texto, membro.span.start, nome.start)
+        .into_iter()
+        .find(|t| t.kind == dartforge_frontend::token::Kind::Keyword(dartforge_frontend::token::Keyword::Final))?;
+    let (span, novo) = if l.ty.is_some() {
+        (com_espaco_depois(texto, final_.span), String::new())
+    } else {
+        (final_.span, "var".to_string())
+    };
+    let uri_decl = projeto.uri_da_unidade(u_decl)?;
+    let campo = &texto[nome.start..nome.end];
+    Some(AcaoDeCodigo {
+        titulo: format!("Make field '{campo}' not final"),
+        especie: "quickfix.makeFieldNotFinal".into(),
+        edicoes: vec![Edicao { uri: uri_decl, span, texto: novo }],
+        diagnostico: Some(d.clone()),
+        criar_arquivo: None,
+    })
+}
+
+/// `abstract_field_initializer` → `Remove initializer` e `Remove the
+/// 'abstract' keyword`, como o `RemoveInitializer` e o `RemoveAbstract` do
+/// Dart.
+fn campo_abstrato_inicializado(uri: &str, ast: &ast::Ast, texto: &str, d: &Diagnostic) -> Vec<AcaoDeCodigo> {
+    let mut saida = Vec::new();
+    let Some((membro, var)) = ast.members.iter().find_map(|m| match &m.kind {
+        ast::MemberKind::Field(l) if l.abstract_ => {
+            l.variables.iter().find(|x| x.name.span == d.span).map(|x| (m, x))
+        }
+        _ => None,
+    }) else {
+        return saida;
+    };
+    if let Some(init) = var.initializer {
+        let fim = ast.expr(init).span.end;
+        saida.push(correcao(
+            uri,
+            "Remove initializer".into(),
+            "quickfix.remove.initializer",
+            vec![(Span { start: var.name.span.end, end: fim }, String::new())],
+            d,
+        ));
+    }
+    let abstrato = tokens(texto, membro.span.start, var.name.span.start)
+        .into_iter()
+        .find(|t| t.kind == dartforge_frontend::token::Kind::Ident && &texto[t.span.start..t.span.end] == "abstract");
+    if let Some(t) = abstrato {
+        saida.push(correcao(
+            uri,
+            "Remove the 'abstract' keyword".into(),
+            "quickfix.remove.abstract",
+            vec![(com_espaco_depois(texto, t.span), String::new())],
+            d,
+        ));
+    }
+    saida
+}
+
+/// `uri_does_not_exist` num `import`/`export`/`part` de arquivo relativo →
+/// `Create file 'x.dart'`, como o `CreateFile` do Dart: vazio, ou com o
+/// `part of` para uma parte.
+fn criar_arquivo(projeto: &Projeto, unidade: UnitId, uri: &str, d: &Diagnostic) -> Option<AcaoDeCodigo> {
+    let u = projeto.consulta.programa.unit(unidade);
+    let (literal, parte) = u.unit.directives.iter().find_map(|dir| match &dir.kind {
+        DirectiveKind::Import { uri, .. } | DirectiveKind::Export { uri, .. } if uri.span == d.span => Some((uri, false)),
+        DirectiveKind::Part { uri } if uri.span == d.span => Some((uri, true)),
+        _ => None,
+    })?;
+    let relativo = literal.constant_value()?.as_str()?.to_string();
+    if relativo.contains(':') || !relativo.ends_with(".dart") {
+        return None;
+    }
+    let base = Url::parse(uri).ok()?;
+    let alvo = base.join(&relativo).ok()?;
+    if alvo.to_file_path().ok()?.exists() {
+        return None;
+    }
+    let nome = alvo.path_segments()?.next_back()?.to_string();
+    let conteudo = if parte {
+        let proprio = base.path_segments()?.next_back()?.to_string();
+        // O caminho da parte de volta para esta biblioteca.
+        let de_volta = relativo_entre(&alvo, &base).unwrap_or(proprio);
+        format!("part of '{de_volta}';\n")
+    } else {
+        String::new()
+    };
+    Some(AcaoDeCodigo {
+        titulo: format!("Create file '{nome}'"),
+        especie: "quickfix.create.file".into(),
+        edicoes: Vec::new(),
+        diagnostico: Some(d.clone()),
+        criar_arquivo: Some((alvo.to_string(), conteudo)),
+    })
+}
+
+/// O caminho relativo de `de` (arquivo) até `para` (arquivo), com `/`.
+fn relativo_entre(de: &Url, para: &Url) -> Option<String> {
+    let a: Vec<&str> = de.path_segments()?.collect();
+    let b: Vec<&str> = para.path_segments()?.collect();
+    let comum = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
+    let mut partes: Vec<&str> = vec![".."; a.len().saturating_sub(comum + 1)];
+    partes.extend(&b[comum..]);
+    Some(partes.join("/"))
 }
 
 /// As edições que removem o local declarado em `nome` (a declaração ou a
@@ -733,6 +986,7 @@ pub(crate) fn assistencias(
                 texto: edicao.1,
             }],
             diagnostico: None,
+            criar_arquivo: None,
         });
     }
     saida
