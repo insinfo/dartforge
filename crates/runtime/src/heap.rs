@@ -726,6 +726,30 @@ impl Drop for GuardaDeElementos<'_> {
     }
 }
 
+/// Uma closure: imutável depois de criada. Layout C fixo, lido em linha
+/// pela chamada tipada (`lower/closures.rs`) a partir de
+/// `dartforge_closure_cabecalho`.
+#[derive(Debug, Clone, Copy, Default)]
+#[repr(C)]
+pub struct CabecalhoDeClosure {
+    pub code_id: i64,
+    pub environment: i64,
+    /// O corpo com a ABI tipada, ou 0: chamado direto quando a ABI de quem
+    /// chama é `abi`.
+    pub tipado: i64,
+    pub abi: i64,
+}
+
+const _: () = {
+    assert!(std::mem::offset_of!(CabecalhoDeClosure, environment) == 8);
+    assert!(std::mem::offset_of!(CabecalhoDeClosure, tipado) == 16);
+    assert!(std::mem::offset_of!(CabecalhoDeClosure, abi) == 24);
+};
+
+/// O cabeçalho de quem não é closure: `abi` 0 não casa com nenhuma chamada
+/// tipada.
+pub static CLOSURE_VAZIA: CabecalhoDeClosure = CabecalhoDeClosure { code_id: 0, environment: 0, tipado: 0, abi: 0 };
+
 /// Valor gerenciado; somente campos marcados como referência participam do tracing.
 #[derive(Debug)]
 pub enum Value {
@@ -745,15 +769,10 @@ pub enum Value {
     Cell(TaggedValue),
     /// Capturas ordenadas imutáveis; mutabilidade compartilhada usa Cell.
     Environment(Vec<TaggedValue>),
-    /// Identidade própria, código simbólico e ambiente; não executa código Rust/Dart.
-    Closure {
-        code_id: i64,
-        environment: i64,
-        /// O corpo com a ABI tipada (`closure_tipada`, `lower/closures.rs`),
-        /// ou 0: chamado direto quando a ABI de quem chama é `abi`.
-        tipado: i64,
-        abi: i64,
-    },
+    /// Identidade própria, código simbólico e ambiente; não executa código
+    /// Rust/Dart. O cabeçalho mora num `Box`: endereço fixo enquanto a
+    /// closure vive, lido em linha pelo código gerado ([`CabecalhoDeClosure`]).
+    Closure(Box<CabecalhoDeClosure>),
     /// Lista expansível de payloads tipados para tracing, sem generics Dart ainda.
     List(Elementos),
     /// Mapa de inserção ordenada, como o `LinkedHashMap` padrão de Dart.
@@ -865,7 +884,8 @@ impl Value {
                 .capacity()
                 .checked_mul(std::mem::size_of::<(i64, bool)>())
                 .expect("payload excede usize"),
-            Self::Cell(_) | Self::Closure { .. } | Self::BoxedInt(_) | Self::BoxedDouble(_) | Self::BoxedBool(_) => 0,
+            Self::Cell(_) | Self::BoxedInt(_) | Self::BoxedDouble(_) | Self::BoxedBool(_) => 0,
+            Self::Closure(_) => std::mem::size_of::<CabecalhoDeClosure>(),
             Self::TypedData { bytes, .. } => bytes.capacity(),
             Self::TypedView { .. } => 0,
             Self::List(values) => values
@@ -942,8 +962,8 @@ impl Value {
                 }));
                 entries.len() * 2
             }
-            Self::Closure { environment, .. } => {
-                pending.push(*environment);
+            Self::Closure(c) => {
+                pending.push(c.environment);
                 1
             }
         }
@@ -1832,21 +1852,12 @@ impl Heap {
             matches!(self.get(environment), Value::Environment(_)),
             "ambiente esperado"
         );
-        self.allocate_linked(Value::Closure {
-            code_id,
-            environment,
-            tipado: 0,
-            abi: 0,
-        })
+        self.allocate_linked(Value::Closure(Box::new(CabecalhoDeClosure { code_id, environment, tipado: 0, abi: 0 })))
     }
     /// Retorna código simbólico e ambiente, preservando a identidade do handle.
     pub fn closure_parts(&self, handle: i64) -> (i64, i64) {
         match self.get(handle) {
-            Value::Closure {
-                code_id,
-                environment,
-                ..
-            } => (*code_id, *environment),
+            Value::Closure(c) => (c.code_id, c.environment),
             _ => panic!("closure esperada"),
         }
     }

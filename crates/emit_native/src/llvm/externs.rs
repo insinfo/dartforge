@@ -337,6 +337,18 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_lista_cabecalho(i64) memory(none) nounwind willreturn speculatable",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
+    // O cabeçalho imutável de uma closure (`heap::CabecalhoDeClosure`),
+    // de endereço fixo: puro do handle.
+    Extern {
+        decl: "declare i64 @dartforge_closure_cabecalho(i64) memory(none) nounwind willreturn speculatable",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    // O endereço dos elementos de um ambiente de closure (o vetor não muda
+    // de tamanho enquanto o ambiente vive): puro do handle.
+    Extern {
+        decl: "declare i64 @dartforge_env_dados(i64) memory(none) nounwind willreturn speculatable",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
     // `lista.add(v)` de um escalar sem caixa: acrescenta ou devolve 0 (o
     // `add` do SDK); pode coletar.
     Extern {

@@ -693,10 +693,8 @@ pub extern "C" fn dartforge_nativo_Closure_equals(this: i64, outro: i64) -> u8 {
     HEAP.with(|heap| {
         let heap = heap.borrow();
         match (heap.try_get(this), heap.try_get(outro)) {
-            (Some(Value::Closure { code_id: a, environment: ea, .. }), Some(Value::Closure { code_id: b, environment: eb, .. }))
-                if a == b =>
-            {
-                match (heap.try_get(*ea), heap.try_get(*eb)) {
+            (Some(Value::Closure(ca)), Some(Value::Closure(cb))) if ca.code_id == cb.code_id => {
+                match (heap.try_get(ca.environment), heap.try_get(cb.environment)) {
                     (Some(Value::Environment(x)), Some(Value::Environment(y))) if x.len() == 1 && y.len() == 1 => {
                         u8::from(x[0].is_ref && y[0].is_ref && x[0].bits == y[0].bits)
                     }
@@ -895,9 +893,9 @@ pub extern "C" fn dartforge_nativo_WeakProperty_setValue(this: i64, valor: i64) 
 pub extern "C" fn dartforge_nativo_Closure_computeHash(this: i64) -> i64 {
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        let Some(Value::Closure { code_id, environment, .. }) = heap.try_get(this) else { return 0 };
-        let mut h = (*code_id as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
-        if let Some(Value::Environment(x)) = heap.try_get(*environment)
+        let Some(Value::Closure(c)) = heap.try_get(this) else { return 0 };
+        let mut h = (c.code_id as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        if let Some(Value::Environment(x)) = heap.try_get(c.environment)
             && x.len() == 1
             && x[0].is_ref
         {

@@ -202,7 +202,7 @@ fn describe_texto(heap: &Heap, handle: i64) -> Texto {
                     }
                     output.push('}');
                 }
-                Value::Closure { .. }
+                Value::Closure(_)
                 | Value::Environment(_)
                 | Value::Cell(_) => {
                     output.push_str("Instance");

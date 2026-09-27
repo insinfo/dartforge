@@ -709,7 +709,7 @@ fn tipo_do_valor(u: &mut Universo, v: TaggedValue) -> i64 {
             Value::List(_) => Forma::Cru(u.rt.list),
             Value::Map(_) => Forma::Cru(u.rt.map),
             Value::Set(_) => Forma::Cru(u.rt.set),
-            Value::Closure { .. } => Forma::Cru(u.rt.function),
+            Value::Closure(_) => Forma::Cru(u.rt.function),
             Value::Record(campos) => Forma::Registro(campos.clone()),
             Value::Object { class_id, .. }
             | Value::TypedData { class_id, .. }

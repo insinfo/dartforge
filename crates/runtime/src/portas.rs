@@ -204,11 +204,11 @@ fn copiar_para_grafo(raiz: i64, compartilhar: bool) -> Result<Grafo, MensagemIle
                 }
                 Value::Cell(t) => NoG::Cell(v(t)),
                 Value::Environment(vs) => NoG::Environment(vs.iter().map(&mut v).collect()),
-                Value::Closure { code_id, environment, tipado, abi } => NoG::Closure {
-                    code_id: *code_id,
-                    environment: v(&TaggedValue::reference(*environment)),
-                    tipado: *tipado,
-                    abi: *abi,
+                Value::Closure(c) => NoG::Closure {
+                    code_id: c.code_id,
+                    environment: v(&TaggedValue::reference(c.environment)),
+                    tipado: c.tipado,
+                    abi: c.abi,
                 },
                 Value::List(vs) => NoG::List { itens: vs.iter().map(&mut v).collect(), fixa, imutavel, pendente },
                 Value::Map(es) => NoG::Map(es.iter().map(|(a, b)| (v(a), v(b))).collect(), imutavel),
@@ -541,7 +541,12 @@ fn materializar(g: &Grafo) -> i64 {
                 NoG::Cell(_) => Value::Cell(TaggedValue::scalar(0)),
                 NoG::Environment(v) => Value::Environment(vec![TaggedValue::scalar(0); v.len()]),
                 NoG::Closure { code_id, tipado, abi, .. } => {
-                    Value::Closure { code_id: *code_id, environment: 0, tipado: *tipado, abi: *abi }
+                    Value::Closure(Box::new(crate::heap::CabecalhoDeClosure {
+                        code_id: *code_id,
+                        environment: 0,
+                        tipado: *tipado,
+                        abi: *abi,
+                    }))
                 }
                 NoG::List { itens, .. } => Value::List(vec![TaggedValue::scalar(0); itens.len()].into()),
                 NoG::Map(es, _) => Value::Map(Vec::with_capacity(es.len())),
@@ -614,7 +619,10 @@ fn materializar(g: &Grafo) -> i64 {
                 }
                 NoG::Closure { code_id, environment, tipado, abi } => {
                     let e = t(environment).bits;
-                    *heap.get_mut(h) = Value::Closure { code_id: *code_id, environment: e, tipado: *tipado, abi: *abi };
+                    // No mesmo cabeçalho (endereço fixo).
+                    if let Value::Closure(c) = heap.get_mut(h) {
+                        **c = crate::heap::CabecalhoDeClosure { code_id: *code_id, environment: e, tipado: *tipado, abi: *abi };
+                    }
                 }
                 NoG::List { itens, fixa, imutavel, pendente } => {
                     let x: Vec<TaggedValue> = itens.iter().map(t).collect();

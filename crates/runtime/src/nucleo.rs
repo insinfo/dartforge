@@ -556,7 +556,7 @@ pub extern "C" fn dartforge_value_class(handle: i64) -> i64 {
             Value::List(_) => -3,
             Value::Map(_) => -4,
             Value::Set(_) => -5,
-            Value::Closure { .. } => -6,
+            Value::Closure(_) => -6,
             Value::BoxedInt(_) => -9,
             Value::BoxedDouble(_) => -10,
             Value::BoxedBool(_) => -11,

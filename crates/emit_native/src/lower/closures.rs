@@ -573,30 +573,40 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// com outra representação seguem pela entrada uniforme): sem vetor de
     /// argumentos, descritor, conferência de aridade nem caixas.
     fn chamar_closure_tipada(&mut self, callee: Operand, avaliados: &[Avaliado], reprs: &[Type], ret: Type, abi: i64) -> Operand {
-        // Devolve `Ref`, como a chamada uniforme.
-        let alvo = self.emit(
+        // Devolve `Ref`, como a chamada uniforme. O cabeçalho da closure
+        // (`heap::CabecalhoDeClosure`: código, ambiente, corpo tipado, ABI)
+        // vem de uma chamada pura e é lido em linha; quem não é closure tem
+        // ABI 0, que não casa com nenhuma.
+        debug_assert_ne!(abi, 0);
+        let cab = self.emit(
             Instruction::CallRuntime {
-                name: "dartforge_closure_tipada".to_string(),
-                args: vec![(callee.clone(), Type::Ref), (Operand::Constant(Constant::Int(abi)), Type::I64)],
+                name: "dartforge_closure_cabecalho".to_string(),
+                args: vec![(callee.clone(), Type::Ref)],
                 ret_ty: Type::I64,
             },
             Type::I64,
         );
-        let tem = self.emit(Instruction::ICmp(ICmpOp::Ne, alvo.clone(), Operand::Constant(Constant::Int(0))), Type::I1);
+        let palavra = |s: &mut Self, i: i64, ty: Type| {
+            s.emit(
+                Instruction::CargaNativa {
+                    endereco: cab.clone(),
+                    indice: Operand::Constant(Constant::Int(i)),
+                    tipo: TipoC::I64,
+                },
+                ty,
+            )
+        };
+        let abi_da_closure = palavra(self, 3, Type::I64);
+        let tem = self.emit(Instruction::ICmp(ICmpOp::Eq, abi_da_closure, Operand::Constant(Constant::Int(abi))), Type::I1);
         let rapido = self.new_block();
         let lento = self.new_block();
         let juncao = self.new_block();
         self.terminate(Terminator::CondBranch { cond: tem, then_block: rapido, else_block: lento });
 
         self.set_block(rapido);
-        let env = self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_closure_env".to_string(),
-                args: vec![(callee.clone(), Type::Ref)],
-                ret_ty: Type::Ref,
-            },
-            Type::Ref,
-        );
+        let alvo = palavra(self, 2, Type::I64);
+        // O ambiente é uma referência (raiz enquanto vivo).
+        let env = palavra(self, 1, Type::Ref);
         let mut args = vec![(env, Type::Ref)];
         for ((_, v), &t) in avaliados.iter().zip(reprs) {
             let v = self.coagir(v.clone(), t);

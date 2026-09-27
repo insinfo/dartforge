@@ -222,7 +222,7 @@ fn cid_do_runtime(handle: i64) -> Option<i64> {
                             CID_GROWABLE_LIST
                         }
                     }
-                    Value::Closure { .. } => CID_CLOSURE,
+                    Value::Closure(_) => CID_CLOSURE,
                     Value::BoxedInt(_) => CID_MINT,
                     Value::BoxedDouble(_) => CID_DOUBLE,
                     Value::BoxedBool(_) => CID_BOOL,

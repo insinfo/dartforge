@@ -70,9 +70,9 @@ pub extern "C" fn dartforge_closure_new_tipada(code_id: i64, env: i64, tipado: i
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         let h = heap.create_closure(code_id, env);
-        if let Value::Closure { tipado: t, abi: a, .. } = heap.get_mut(h) {
-            *t = tipado;
-            *a = abi;
+        if let Value::Closure(c) = heap.get_mut(h) {
+            c.tipado = tipado;
+            c.abi = abi;
         }
         h
     })
@@ -84,7 +84,7 @@ pub extern "C" fn dartforge_closure_new_tipada(code_id: i64, env: i64, tipado: i
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_closure_tipada(h: i64, abi: i64) -> i64 {
     heap_sem_emprestimo(|heap| match heap.try_get(h) {
-        Some(Value::Closure { tipado, abi: a, .. }) if *a == abi && abi != 0 => *tipado,
+        Some(Value::Closure(c)) if c.abi == abi && abi != 0 => c.tipado,
         _ => 0,
     })
 }
@@ -104,7 +104,34 @@ pub extern "C" fn dartforge_closure_code(handle: i64) -> i64 {
 /// Consulta o ambiente de uma closure para chamadas indiretas.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_closure_env(handle: i64) -> i64 {
-    HEAP.with(|heap| heap.borrow().closure_parts(handle).1)
+    heap_sem_emprestimo(|heap| match heap.try_get(handle) {
+        Some(Value::Closure(c)) => c.environment,
+        _ => heap.closure_parts(handle).1,
+    })
+}
+
+/// O cabeçalho da closure `h` (`heap::CabecalhoDeClosure`), ou o
+/// `CLOSURE_VAZIA` (`abi` 0) para quem não é closure. O endereço não muda
+/// enquanto a closure vive e ela é imutável: função pura do handle, e o
+/// código gerado lê `abi`, `tipado` e o ambiente em linha.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_closure_cabecalho(h: i64) -> i64 {
+    heap_sem_emprestimo(|heap| match heap.try_get(h) {
+        Some(Value::Closure(c)) => &**c as *const crate::heap::CabecalhoDeClosure as i64,
+        _ => std::ptr::addr_of!(crate::heap::CLOSURE_VAZIA) as i64,
+    })
+}
+
+/// O endereço dos elementos (`TaggedValue`) do ambiente `h`, ou 0. O vetor
+/// de capturas não muda de tamanho (a mutabilidade compartilhada mora em
+/// `Cell`): o endereço vale enquanto o ambiente vive, e o código gerado lê
+/// as capturas em linha (`EnvGet`, `llvm/mod.rs`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_env_dados(h: i64) -> i64 {
+    heap_sem_emprestimo(|heap| match heap.try_get(h) {
+        Some(Value::Environment(v)) => v.as_ptr() as i64,
+        _ => 0,
+    })
 }
 
 
@@ -134,7 +161,7 @@ pub extern "C" fn dartforge_env_get_ref(handle: i64, index: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_closure_entry(handle: i64) -> i64 {
     let codigo = HEAP.with(|heap| match heap.borrow().try_get(handle) {
-        Some(Value::Closure { code_id, .. }) => Some(*code_id),
+        Some(Value::Closure(c)) => Some(c.code_id),
         _ => None,
     });
     // Um objeto de classe com `call` (classe chamável): a entrada do método

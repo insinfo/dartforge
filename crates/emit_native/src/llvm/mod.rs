@@ -1234,12 +1234,18 @@ impl<'a> LlvmEmitter<'a> {
                 let s = self.coagir(value, Type::I64);
                 writeln!(self.out, "  call void @dartforge_cell_set(i64 {c}, i64 {s}, i8 {tag})").unwrap();
             }
+            // A captura lida em linha: o vetor de um ambiente não muda de
+            // tamanho, então o endereço dos elementos (`TaggedValue`, 16
+            // bytes) é uma função pura do handle (`dartforge_env_dados`).
             Instruction::EnvGet { env, index } => {
                 let e = self.coagir(env, Type::Ref);
                 if ty == Type::Ref {
-                    writeln!(self.out, "  %v{v} = call i64 @dartforge_env_get_ref(i64 {e}, i64 {index})").unwrap();
+                    writeln!(self.out, "  %v{v} = call i64 @df.env_ref(i64 {e}, i64 {index})").unwrap();
                 } else {
-                    writeln!(self.out, "  %u{v} = call i64 @dartforge_env_get(i64 {e}, i64 {index})").unwrap();
+                    writeln!(self.out, "  %ed{v} = call i64 @dartforge_env_dados(i64 {e})").unwrap();
+                    writeln!(self.out, "  %ep{v} = inttoptr i64 %ed{v} to ptr").unwrap();
+                    writeln!(self.out, "  %eg{v} = getelementptr i8, ptr %ep{v}, i64 {}", index * 16).unwrap();
+                    writeln!(self.out, "  %u{v} = load i64, ptr %eg{v}, align 8").unwrap();
                     self.bits_para_repr(v, &format!("%u{v}"), ty);
                 }
             }
@@ -2344,6 +2350,28 @@ smi:\n\
 heap:\n\
   %h = call i64 @dartforge_box_int(i64 %v)\n\
   ret i64 %h\n\
+}\n\
+define internal i64 @df.env_ref(i64 %e, i64 %i) alwaysinline {\n\
+  %d = call i64 @dartforge_env_dados(i64 %e)\n\
+  %p = inttoptr i64 %d to ptr\n\
+  %o = shl i64 %i, 4\n\
+  %g = getelementptr i8, ptr %p, i64 %o\n\
+  %gt = getelementptr i8, ptr %g, i64 9\n\
+  %t = load i8, ptr %gt, align 1\n\
+  %b = load i64, ptr %g, align 8\n\
+  %ref = icmp eq i8 %t, 3\n\
+  br i1 %ref, label %direto, label %int\n\
+direto:\n\
+  ret i64 %b\n\
+int:\n\
+  %ei = icmp eq i8 %t, 0\n\
+  br i1 %ei, label %inteiro, label %caixa\n\
+inteiro:\n\
+  %bi = call i64 @df.caixa_int(i64 %b)\n\
+  ret i64 %bi\n\
+caixa:\n\
+  %c = call i64 @dartforge_env_get_ref(i64 %e, i64 %i)\n\
+  ret i64 %c\n\
 }\n\
 define internal i64 @df.desencaixa_int(i64 %r) alwaysinline {\n\
   %b = and i64 %r, 1\n\
