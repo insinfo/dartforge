@@ -46,6 +46,9 @@ pub struct Componente {
     pub style_urls: Vec<String>,
     /// `styles: ['...']` — folhas escritas na anotação.
     pub styles: Vec<String>,
+    /// `styleUrls:`/`styles:` com item que não é texto literal (ou que não é
+    /// lista): o que o oficial lê não se vê daqui, e a visão recusa.
+    pub estilos_ilegiveis: bool,
     /// `changeDetection: ChangeDetectionStrategy.OnPush`.
     pub on_push: bool,
     /// `encapsulation: ViewEncapsulation.none`. Sem folha de estilo o
@@ -213,6 +216,9 @@ pub struct Consulta {
     pub lista: bool,
     /// `@ViewChild(Tipo)`: `referencia` é o nome do tipo procurado.
     pub por_tipo: bool,
+    /// `read: T`, como escrito: o token do provedor do nó achado que vira o
+    /// valor (`queryWithRead.read` em `compile_element.dart`).
+    pub leitura: Option<String>,
 }
 
 /// Um `@ContentChild`/`@ContentChildren`, como quem usa o componente precisa
@@ -515,8 +521,19 @@ fn ler(
                         .and_then(|t| deslocamento_do_template(arvore, fonte, a.value, t));
                 }
                 "templateUrl" => c.template_url = texto_do_argumento(arvore, a.value),
-                "styleUrls" => c.style_urls = lista_de_textos(arvore, a.value),
-                "styles" => c.styles = lista_de_textos(arvore, a.value),
+                "styleUrls" | "styles" => {
+                    let textos = lista_de_textos(arvore, a.value);
+                    let itens = match &arvore.expr(a.value).kind {
+                        ast::ExprKind::List { elements, .. } => Some(elements.len()),
+                        _ => None,
+                    };
+                    c.estilos_ilegiveis |= itens != Some(textos.len());
+                    if nome == "styles" {
+                        c.styles = textos;
+                    } else {
+                        c.style_urls = textos;
+                    }
+                }
                 "changeDetection" => c.on_push = e_on_push(arvore, fonte, a.value),
                 "encapsulation" => {
                     c.sem_encapsulamento =
@@ -559,14 +576,9 @@ fn ler(
     );
     c.consultas = consultas_da_classe(arvore, fonte, interner, classe, &mut c.nao_entendidos);
     c.ouvintes = ouvintes_da_classe(arvore, interner, classe, &mut c.nao_entendidos);
+    // Os herdados entram na lista do oficial e não se veem daqui: a visão
+    // completa a lista pelos metadados lidos do programa, ou recusa.
     if e_componente && c.liga_hospedeiro {
-        if c.herda {
-            // Os herdados entram na lista do oficial e não se veem daqui.
-            c.nao_entendidos.push(recusa(
-                Motivo::HostBindingEmComponente,
-                "@HostBinding em componente que herda",
-            ));
-        }
         c.ligacoes_do_hospedeiro =
             ligacoes_do_hospedeiro(arvore, interner, classe, &mut c.nao_entendidos);
     }
@@ -825,10 +837,12 @@ fn consultas_da_classe(
     saida
 }
 
-/// Os `@HostBinding` de um componente, na ordem do `DirectiveVisitor`:
-/// acessores, depois campos. Só `class.x` e `attr.x` (sem contexto de
-/// segurança) com texto literal, num getter ou num campo de instância; o
-/// resto é recusado aqui.
+/// Os `@HostBinding` declarados na própria classe de um componente, na
+/// ordem do `DirectiveVisitor`: acessores, depois campos. O nome é o texto
+/// literal do argumento ou, sem argumento, o do membro
+/// (`hostProperties[bindingName ?? memberName]`); só getter ou campo de
+/// instância. A forma de cada nome (`class.x`, `attr.x`, `style.x`,
+/// propriedade) é conferida pela visão, que também junta os herdados.
 fn ligacoes_do_hospedeiro(
     arvore: &ast::Ast,
     interner: &Interner,
@@ -840,7 +854,7 @@ fn ligacoes_do_hospedeiro(
     let fora_da_forma = || {
         recusa(
             Motivo::HostBindingEmComponente,
-            "@HostBinding fora de class.x/attr.x em campo ou getter",
+            "@HostBinding fora de campo ou getter, ou de nome ilegível",
         )
     };
     for &id in &classe.members {
@@ -849,29 +863,22 @@ fn ligacoes_do_hospedeiro(
             if crate::nome_da_anotacao(a, interner) != "HostBinding" {
                 continue;
             }
-            let nome = a.arguments.as_ref().and_then(|args| match &args.args[..] {
-                [x] if x.name.is_none() => texto_do_argumento(arvore, x.value),
+            // `Some(None)`: sem argumento — o nome é o do membro.
+            let nome = match a.arguments.as_ref().map(|args| &args.args[..]) {
+                None | Some([]) => Some(None),
+                Some([x]) if x.name.is_none() => texto_do_argumento(arvore, x.value).map(Some),
                 _ => None,
-            });
+            };
             let Some(nome) = nome else {
                 fora.push(fora_da_forma());
                 continue;
             };
-            let simples = |n: &str| !n.is_empty() && !n.contains(['.', ':']);
-            let aceito = match (nome.strip_prefix("class."), nome.strip_prefix("attr.")) {
-                (Some(c), _) => simples(c),
-                (_, Some(a)) => simples(a) && !crate::visao::com_seguranca(a),
-                _ => false,
-            };
-            if !aceito {
-                fora.push(fora_da_forma());
-                continue;
-            }
             match &membro.kind {
                 ast::MemberKind::Field(l) if !l.static_ && !l.const_ && l.variables.len() == 1 => {
+                    let m = interner.resolve(l.variables[0].name.sym).to_string();
                     campos.push(LigacaoDoHospedeiro {
-                        nome,
-                        membro: interner.resolve(l.variables[0].name.sym).to_string(),
+                        nome: nome.unwrap_or_else(|| m.clone()),
+                        membro: m,
                         imutavel: l.final_,
                     });
                 }
@@ -879,9 +886,10 @@ fn ligacoes_do_hospedeiro(
                     let funcao = arvore.function(*f);
                     match (funcao.kind, funcao.name) {
                         (ast::FunctionKind::Getter, Some(n)) if !funcao.static_ => {
+                            let m = interner.resolve(n.sym).to_string();
                             acessores.push(LigacaoDoHospedeiro {
-                                nome,
-                                membro: interner.resolve(n.sym).to_string(),
+                                nome: nome.unwrap_or_else(|| m.clone()),
+                                membro: m,
                                 imutavel: false,
                             });
                         }
@@ -995,25 +1003,29 @@ fn consulta_simples(
         .arguments
         .as_ref()
         .ok_or_else(|| recusa(Motivo::NaoEntendido, "@ViewChild sem argumento"))?;
-    let [unico] = &args.args[..] else {
-        // `read:` troca o valor por um provedor do nó; `first:`,
-        // `descendants:` não fazem sentido aqui. Todos ainda não.
-        let tem_read = args
-            .args
-            .iter()
-            .any(|x| x.name.is_some_and(|n| interner.resolve(n.sym) == "read"));
-        return Err(if tem_read {
-            recusa(Motivo::ViewChildEmFilho, "@ViewChild(.., read: T)")
-        } else {
-            recusa(Motivo::NaoEntendido, "@ViewChild com opções")
-        });
-    };
-    if unico.name.is_some() {
+    // `read: T` troca o valor por um provedor do nó: guardado como o nome
+    // escrito, que a visão resolve (`ElementRef`, `Element`/`HtmlElement`).
+    // `first:`, `descendants:` e `read:` que não é nome simples ainda não.
+    let mut leitura = None;
+    let mut posicionais = Vec::new();
+    for x in args.args.iter() {
+        match x.name.map(|n| interner.resolve(n.sym)) {
+            None => posicionais.push(x),
+            Some("read") => match &arvore.expr(x.value).kind {
+                ast::ExprKind::Identifier(n) if leitura.is_none() => {
+                    leitura = Some(interner.resolve(n.sym).to_string());
+                }
+                _ => return Err(recusa(Motivo::ViewChildEmFilho, "@ViewChild(.., read: T)")),
+            },
+            Some(_) => return Err(recusa(Motivo::NaoEntendido, "@ViewChild com opções")),
+        }
+    }
+    let [unico] = posicionais[..] else {
         return Err(recusa(
             Motivo::NaoEntendido,
             "@ViewChild só com argumento nomeado",
         ));
-    }
+    };
     // Seletor de tipo (`@ViewChild(OutroComp)`) consulta um componente ou
     // diretiva, não um elemento: só o nome simples, resolvido depois.
     let (referencia, por_tipo) = match texto_do_argumento(arvore, unico.value) {
@@ -1064,6 +1076,7 @@ fn consulta_simples(
         tipo,
         lista: eh_lista,
         por_tipo,
+        leitura,
     })
 }
 

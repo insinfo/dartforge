@@ -1,0 +1,1 @@
+final List<Object> styles = ['.c { color: red; }\nspan { font-weight: bold; }\n'];

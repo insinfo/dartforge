@@ -58,7 +58,9 @@ fn raiz_do_corpus() -> PathBuf {
 /// — `encapsulation:` —, o i24 — vários componentes no arquivo —, o i30 —
 /// `<template #t>` e `*ngTemplateOutlet` —, o i72 — filho com `providers:`
 /// — e o i73 — `@ContentChild(.., read:)` de filho — saíram na rodada
-/// seguinte; as recusas de agora são sondas que guardam a saída oficial.)
+/// seguinte; as recusas de agora são sondas que guardam a saída oficial.
+/// O i84 — `<template>` com diretiva — e o i85 — `@ViewChild` de
+/// `<template>` — saíram na rodada dos itens NG04–NG10.)
 /// São as formas ainda sem tradução (docs/GERADOR-NG.md §9): gerar
 /// qualquer uma ignorando o que falta daria saída errada.
 const RECUSADOS: &[(&str, &str)] = &[
@@ -80,13 +82,18 @@ const RECUSADOS: &[(&str, &str)] = &[
         "i78_usa_provider_externo.dart",
         "provedor apelido de token de fora do nó",
     ),
-    // `<template>` com diretiva (`ngFor` escrito à mão): só o sem diretiva
-    // é traduzido.
+    // `#ref` repetido em visões diferentes e sombreado por `let`: o escopo
+    // por visão (o mais próximo vence) ainda não é traduzido.
     (
-        "i84_template_com_diretiva.dart",
-        "<template> escrito no template",
+        "i95_ref_sombreado.dart",
+        "#ref repetido ou sombreado por `let`",
     ),
-    ("i85_template_view_child.dart", "@ViewChild de <template>"),
+    // `#f="ngForm"` com `ngControl` dentro do `<form>`: o `NgControlName`
+    // depende de `@SkipSelf() ControlContainer` (o `NgForm` do nó de cima).
+    (
+        "i94_ref_ng_form.dart",
+        "diretiva NgControlName (dependência @SkipSelf)",
+    ),
 ];
 
 #[test]

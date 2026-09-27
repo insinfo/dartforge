@@ -67,11 +67,12 @@ pub struct Achados {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Hospedeira {
     pub classe: String,
-    /// `(classe CSS, membro)` de cada `@HostBinding('class.x')`, na ordem em
-    /// que o oficial os coleta (`DirectiveVisitor`, em
+    /// `(nome da ligação, membro)` de cada `@HostBinding` — `class.x`,
+    /// `attr.x`, propriedade ou, sem argumento, o nome do membro —, na ordem
+    /// em que o oficial os coleta (`DirectiveVisitor`, em
     /// `angular_compiler/analyzer/view/directive.dart`): acessores, depois
     /// métodos, depois campos — cada grupo em ordem de declaração.
-    pub classes: Vec<(String, String)>,
+    pub ligacoes: Vec<(String, String)>,
     /// Alguma ligação fora do que sabemos traduzir.
     pub recusada: bool,
 }
@@ -93,20 +94,29 @@ fn hospedeira(
                 continue;
             }
             alguma = true;
-            // Sem argumento, o nome da ligação é o do próprio membro — uma
-            // ligação de propriedade, fora do subconjunto.
-            let nome = a.arguments.as_ref().and_then(|args| match &args.args[..] {
-                [x] if x.name.is_none() => match &arvore.expr(x.value).kind {
-                    ast::ExprKind::String(lit) => lit.constant_value().map(|s| s.to_string_lossy()),
+            // Sem argumento (`Some(None)`), o nome da ligação é o do próprio
+            // membro (`bindingName ?? memberName`).
+            let nome = match a.arguments.as_ref().map(|args| &args.args[..]) {
+                None | Some([]) => Some(None),
+                Some([x]) if x.name.is_none() => match &arvore.expr(x.value).kind {
+                    ast::ExprKind::String(lit) => {
+                        lit.constant_value().map(|s| Some(s.to_string_lossy()))
+                    }
                     _ => None,
                 },
                 _ => None,
-            });
-            // Só `class.x`. `attr.`, `style.` e propriedade têm cada um a sua
-            // chamada e ficam de fora até terem caso no corpus.
-            let Some(classe_css) = nome.as_deref().and_then(|n| n.strip_prefix("class.")) else {
+            };
+            let Some(nome) = nome else {
                 recusada = true;
                 continue;
+            };
+            // `class.x`, `attr.x` e propriedade ([`visao::forma_do_hospedeiro`]);
+            // `style.x` depende do tipo do membro, que daqui não se lê.
+            let aceita = |n: &str| {
+                matches!(
+                    visao::forma_do_hospedeiro(n),
+                    Ok(f) if !matches!(f, visao::FormaDoHospedeiro::Estilo { .. })
+                )
             };
             match &membro.kind {
                 // Campo `final` é imutável e seria escrito uma vez, na
@@ -116,14 +126,18 @@ fn hospedeira(
                     if !l.static_ && !l.final_ && !l.const_ && l.variables.len() == 1 =>
                 {
                     let membro = interner.resolve(l.variables[0].name.sym).to_string();
-                    campos.push((classe_css.to_string(), membro));
+                    let nome = nome.unwrap_or_else(|| membro.clone());
+                    recusada |= !aceita(&nome);
+                    campos.push((nome, membro));
                 }
                 ast::MemberKind::Method(f) => {
                     let funcao = arvore.function(*f);
                     match (funcao.kind, funcao.name) {
                         (ast::FunctionKind::Getter, Some(n)) if !funcao.static_ => {
                             let membro = interner.resolve(n.sym).to_string();
-                            acessores.push((classe_css.to_string(), membro));
+                            let nome = nome.unwrap_or_else(|| membro.clone());
+                            recusada |= !aceita(&nome);
+                            acessores.push((nome, membro));
                         }
                         _ => recusada = true,
                     }
@@ -148,7 +162,7 @@ fn hospedeira(
     }
     Some(Hospedeira {
         classe: interner.resolve(classe.name.sym).to_string(),
-        classes: acessores,
+        ligacoes: acessores,
         recusada,
     })
 }
@@ -1054,7 +1068,7 @@ pub(crate) fn gerar_interno(
                     .hospedeiras
                     .iter()
                     .filter(|h| h.classe == d.classe)
-                    .flat_map(|h| h.classes.iter().map(|(c, _)| format!("class.{c}")))
+                    .flat_map(|h| h.ligacoes.iter().map(|(n, _)| n.clone()))
                     .collect();
                 m.fora.is_empty()
                     && m.ligacoes_do_hospedeiro.len() == proprias.len()
@@ -1085,7 +1099,7 @@ pub(crate) fn gerar_interno(
             )),
             _ => Err(recusa(
                 Motivo::HostBindingEmDiretiva,
-                "@HostBinding fora de `class.x` ou várias diretivas no arquivo",
+                "@HostBinding fora de class.x/attr.x/propriedade ou várias diretivas no arquivo",
             )),
         };
     }
@@ -1236,6 +1250,22 @@ fn trecho_do_componente(
             .parent()
             .ok_or_else(|| folha("folha fora de lib/"))?
             .join(url);
+        // `ViewEncapsulation.none`: o componente importa o `.css.dart`, a
+        // folha como escrita, sem shim (`compileStylesheet(.., false)`).
+        if comp.sem_encapsulamento {
+            let texto =
+                folha_sem_shim(fonte, url).map_err(|f| recusa(visao::Motivo::Encapsulamento, f))?;
+            let destino = css.with_file_name(format!(
+                "{}.dart",
+                css.file_name().unwrap_or_default().to_string_lossy()
+            ));
+            folhas.push((
+                destino,
+                format!("final List<Object> styles = [{}];", visao::literal(&texto)),
+                css.clone(),
+            ));
+            continue;
+        }
         // O `.css` do `styleUrls` quase nunca existe no disco: quem o produz
         // é o `sass_builder`, a partir do `.scss` ao lado. Fazemos os dois.
         let (texto_css, entrada) = match std::fs::read_to_string(&css) {
@@ -1284,6 +1314,28 @@ fn url_do_template(pacote: &Pacote, fonte: &Path, comp: &componente::Componente)
 
 /// A folha de um componente compila (Sass e shim)? É a mesma conta que o
 /// gerador faz; o placar usa para não marcar como pendente o que já sai.
+/// O texto da folha de um componente com `ViewEncapsulation.none`, que vai
+/// sem shim no `.css.dart`: o `.css` escrito, tal qual — o `compileStylesheet`
+/// do ngcompiler só tira os `@import` (`extractStyleUrls`) e escapa a
+/// string.
+///
+/// # Erros
+///
+/// A forma recusada, quando o texto não é conhecido byte a byte: a folha
+/// vem do `sass_builder` (o `.css` não existe; a formatação da saída dele
+/// não é a nossa), tem `@import` (vira outra entrada na lista) ou não se lê.
+pub(crate) fn folha_sem_shim(fonte: &Path, url: &str) -> Result<String, &'static str> {
+    let css = fonte.parent().ok_or("folha fora de lib/")?.join(url);
+    if !css.is_file() && css.with_extension("scss").is_file() {
+        return Err("ViewEncapsulation.none com folha Sass");
+    }
+    let texto = std::fs::read_to_string(&css).map_err(|_| "folha não encontrada")?;
+    if texto.contains("@import") {
+        return Err("ViewEncapsulation.none com @import na folha");
+    }
+    Ok(texto)
+}
+
 pub(crate) fn estilo_compila(fonte: &Path, url: &str) -> bool {
     let Some(dir) = fonte.parent() else {
         return false;
@@ -1392,6 +1444,30 @@ pub fn gerar_com_apoio(
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    /// A folha sem shim do `ViewEncapsulation.none` é o `.css` tal qual;
+    /// Sass e `@import` são recusados (caso i88).
+    #[test]
+    fn folha_sem_shim_so_do_css_escrito() {
+        let dir = tempfile::tempdir().expect("temporário");
+        let fonte = dir.path().join("x.dart");
+        std::fs::write(dir.path().join("a.css"), ".a { color: red; }\n").unwrap();
+        std::fs::write(dir.path().join("b.css"), "@import 'c.css';\n").unwrap();
+        std::fs::write(dir.path().join("s.scss"), ".a { b: c; }").unwrap();
+        assert_eq!(
+            folha_sem_shim(&fonte, "a.css").as_deref(),
+            Ok(".a { color: red; }\n")
+        );
+        assert_eq!(
+            folha_sem_shim(&fonte, "b.css"),
+            Err("ViewEncapsulation.none com @import na folha")
+        );
+        assert_eq!(
+            folha_sem_shim(&fonte, "s.css"),
+            Err("ViewEncapsulation.none com folha Sass")
+        );
+        assert_eq!(folha_sem_shim(&fonte, "z.css"), Err("folha não encontrada"));
+    }
 
     fn achados_de(fonte: &str) -> Achados {
         let mut i = Interner::new();

@@ -10,7 +10,7 @@
 //! lidas do próprio pacote, não adivinhadas.
 
 /// Elementos que o HTML fecha sozinho.
-const VAZIOS: &[&str] = &[
+pub(crate) const VAZIOS: &[&str] = &[
     "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source",
     "track", "wbr",
 ];
@@ -25,7 +25,7 @@ const EM_LINHA: &[&str] = &[
 
 /// `&ngsp;` vira este caractere no scanner do ngast e volta a ser espaço no
 /// fim, escapando da redução.
-const NGSP: char = '\u{E500}';
+pub(crate) const NGSP: char = '\u{E500}';
 const NBSP: char = '\u{00A0}';
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,6 +79,12 @@ pub struct Elemento {
     /// do ngast), com o nome sem o `@`.
     pub anotacoes: Vec<Ligacao>,
     pub filhos: Vec<No>,
+    /// As ligações `[dirX]="e"` de um `<template dir let-x [dirX]="e">`
+    /// escrito à mão, depois de ele ser reescrito como `*dir` (ver
+    /// `template_como_container` em `visao.rs`): o `REF` de cada entrada é o
+    /// intervalo da ligação escrita, não o da `estrela` inteira. Vazio no
+    /// resto.
+    pub ligacoes_do_molde: Vec<Ligacao>,
 }
 
 impl Elemento {

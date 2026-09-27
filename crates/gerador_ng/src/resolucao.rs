@@ -37,6 +37,14 @@ pub trait Resolucao {
         None
     }
 
+    /// O membro de instância `membro` da classe `tipo` (nomeada no escopo de
+    /// `arquivo`, subindo pelas superclasses) é um campo `final`/`const`?
+    /// `Some(false)` para campo mutável ou getter; `None` quando não se acha
+    /// a declaração. É o `isImmutable` do ngcompiler para um membro herdado.
+    fn membro_final(&self, _arquivo: &Path, _tipo: &str, _membro: &str) -> Option<bool> {
+        None
+    }
+
     /// O que um nome de `directives:` designa no escopo de `arquivo`: uma
     /// classe ou uma lista constante de outros nomes.
     fn designado(&self, arquivo: &Path, nome: &str) -> Option<Designado> {
@@ -282,6 +290,38 @@ impl Resolucao for Resolvedor<'_> {
     ) -> Option<(String, PathBuf)> {
         let classe = self.classe(arquivo, tipo)?;
         self.membro_da_classe(classe, membro)
+    }
+
+    fn membro_final(&self, arquivo: &Path, tipo: &str, membro: &str) -> Option<bool> {
+        let sym = self.interner.lookup(membro)?;
+        let mut atual = self.classe(arquivo, tipo);
+        while let Some(id) = atual {
+            let c = self.program.class(id);
+            if let Some(&fid) = c.instance_members.get(&sym) {
+                let f = self.program.function(fid);
+                let Some(vid) = f.variable else {
+                    // Getter escrito: nunca imutável.
+                    return matches!(
+                        f.node,
+                        dartforge_elements::model::FunctionRef::Function { .. }
+                    )
+                    .then_some(false);
+                };
+                let dartforge_elements::model::VariableRef::Field { unit, member, .. } =
+                    self.program.variable(vid).node
+                else {
+                    return None;
+                };
+                let u = self.program.unit(unit);
+                let dartforge_frontend::ast::MemberKind::Field(lista) = &u.ast.member(member).kind
+                else {
+                    return None;
+                };
+                return Some(lista.final_ || lista.const_);
+            }
+            atual = c.supertype_class;
+        }
+        None
     }
 
     fn designado(&self, arquivo: &Path, nome: &str) -> Option<Designado> {

@@ -101,6 +101,7 @@ const CHECK_BINDING: &str = "package:ngdart/src/runtime/check_binding.dart";
 const DEVTOOLS: &str = "package:ngdart/src/devtools.dart";
 const VIEW_CONTAINER: &str = "package:ngdart/src/core/linker/view_container.dart";
 const TEMPLATE_REF: &str = "package:ngdart/src/core/linker/template_ref.dart";
+const ELEMENT_REF: &str = "package:ngdart/src/core/linker/element_ref.dart";
 const NG_IF: &str = "package:ngdart/src/common/directives/ng_if.dart";
 const NG_FOR: &str = "package:ngdart/src/common/directives/ng_for.dart";
 const NG_SWITCH: &str = "package:ngdart/src/common/directives/ng_switch.dart";
@@ -120,7 +121,7 @@ const DIRECTIVE_CHANGE_DETECTOR: &str =
 const SEM_PREFIXO: &[&str] = &[
     ANGULAR,
     "dart:core",
-    "package:ngdart/src/core/linker/element_ref.dart",
+    ELEMENT_REF,
     VIEW_CONTAINER,
     TEMPLATE_REF,
     "package:ngdart/src/core/change_detection/change_detection.dart",
@@ -387,7 +388,12 @@ fn i18n_antes_da_interpolacao(nos: &[No]) -> Option<bool> {
                 No::Elemento(e) if e.estrela.is_some() => {}
                 No::Elemento(e) => {
                     if !e.anotacoes.is_empty() {
-                        return Some(!*interpolou);
+                        // Mensagem com HTML é método, não campo: o import
+                        // sai com o método, depois do `build()`.
+                        if mensagem_em_campo(e) {
+                            return Some(!*interpolou);
+                        }
+                        continue;
                     }
                     if let Some(r) = andar(&e.filhos, interpolou) {
                         return Some(r);
@@ -399,6 +405,102 @@ fn i18n_antes_da_interpolacao(nos: &[No]) -> Option<bool> {
         None
     }
     andar(nos, &mut false)
+}
+
+/// Algum elemento com anotação (`@i18n`) nesta visão (fora de `*`)?
+fn contem_anotacao(nos: &[No]) -> bool {
+    nos.iter().any(|n| match n {
+        No::Elemento(e) if e.estrela.is_some() => false,
+        No::Elemento(e) => !e.anotacoes.is_empty() || contem_anotacao(&e.filhos),
+        _ => false,
+    })
+}
+
+/// O `@i18n` do elemento gera algum campo `static final String
+/// _message_N`? Os de atributo (`@i18n:x`) e o dos filhos quando eles são
+/// um texto só (`_isText` do `i18n.dart`); com HTML, a mensagem dos filhos é
+/// um método estático.
+fn mensagem_em_campo(e: &crate::html::Elemento) -> bool {
+    let de_atributo = e.anotacoes.iter().any(|a| a.nome.contains(':'));
+    de_atributo || matches!(e.filhos.as_slice(), [No::Texto(_)])
+}
+
+/// A mensagem `@i18n` de filhos com HTML, como o `I18nBuilder` a monta: o
+/// texto (escapado à mão: `\n`, `\r`, `'`, `$`, `\`) com `${startTagK}`,
+/// `${endTagK}` e `${voidElementK}` no lugar das tags, e os argumentos na
+/// ordem em que aparecem. Só elemento HTML sem atributo, ligação, evento,
+/// `#ref`, anotação ou `*`, e texto sem `&` (a entidade seria decodificada e
+/// escapada de novo); interpolação e `<ng-content>` são erro no oficial.
+///
+/// # Erros
+///
+/// A forma que ainda não se escreve.
+fn mensagem_com_html(
+    nos: &[No],
+    filhos: &std::collections::HashMap<String, Filho>,
+    texto: &mut String,
+    args: &mut Vec<(String, String)>,
+    tags: &mut usize,
+) -> Result<bool, &'static str> {
+    let mut tem_texto = false;
+    for n in nos {
+        match n {
+            No::Comentario(_) => {}
+            No::Texto(t) => {
+                if t.contains('&') || t.contains(crate::html::NGSP) {
+                    return Err("mensagem @i18n com entidade HTML");
+                }
+                tem_texto |= !t.trim().is_empty();
+                for c in t.chars() {
+                    match c {
+                        '\n' => texto.push_str("\\n"),
+                        '\r' => texto.push_str("\\r"),
+                        '\'' | '$' | '\\' => {
+                            texto.push('\\');
+                            texto.push(c);
+                        }
+                        c => texto.push(c),
+                    }
+                }
+            }
+            No::Elemento(e) => {
+                let simples = e.atributos.is_empty()
+                    && e.propriedades.is_empty()
+                    && e.eventos.is_empty()
+                    && e.bananas.is_empty()
+                    && e.referencias.is_empty()
+                    && e.anotacoes.is_empty()
+                    && e.estrela.is_none()
+                    && !filhos.contains_key(&e.nome)
+                    && dom::tag_html(&e.nome)
+                    && !matches!(e.nome.as_str(), "template" | "ng-container");
+                if !simples {
+                    return Err("mensagem @i18n com elemento que não é HTML simples");
+                }
+                let k = *tags;
+                *tags += 1;
+                let mut arg = |nome: String, valor: String, texto: &mut String| {
+                    let _ = write!(texto, "${{{nome}}}");
+                    args.push((nome, valor));
+                };
+                if crate::html::VAZIOS.contains(&e.nome.as_str()) {
+                    if !e.filhos.is_empty() {
+                        return Err("mensagem @i18n com elemento vazio com filhos");
+                    }
+                    arg(format!("voidElement{k}"), format!("<{}>", e.nome), texto);
+                } else {
+                    arg(format!("startTag{k}"), format!("<{}>", e.nome), texto);
+                    tem_texto |= mensagem_com_html(&e.filhos, filhos, texto, args, tags)?;
+                    let _ = write!(texto, "${{endTag{k}}}");
+                    args.push((format!("endTag{k}"), format!("</{}>", e.nome)));
+                }
+            }
+            No::Interpolacao { .. } | No::Conteudo { .. } => {
+                return Err("mensagem @i18n com interpolação ou <ng-content>");
+            }
+        }
+    }
+    Ok(tem_texto)
 }
 
 /// Marca do nó de um `#ref` lido como local: `\u{5}nome\u{6}`. A
@@ -432,9 +534,8 @@ fn referencias_unicas(nos: &[No], c: &Componente) -> std::collections::HashSet<S
     let (mut refs, mut lets) = (Vec::new(), Vec::new());
     todas(nos, &mut refs, &mut lets);
     refs.iter()
-        .filter(|(nome, valor)| {
-            valor.is_empty()
-                && refs.iter().filter(|(n, _)| n == nome).count() == 1
+        .filter(|(nome, _)| {
+            refs.iter().filter(|(n, _)| n == nome).count() == 1
                 && !lets.contains(nome)
                 && !c.membros.contains_key(nome.as_str())
                 && !c.metodos.contains_key(nome.as_str())
@@ -515,8 +616,23 @@ fn formas_contra_o_template(
     filhos: &std::collections::HashMap<String, Filho>,
 ) -> Vec<Recusa> {
     let mut fora = Vec::new();
+    let moldes = referencias_de_moldes(nos);
     for consulta in &c.consultas {
         let mut lugares = Vec::new();
+        // `read:` só na consulta estática de um elemento da visão (abaixo):
+        // por tipo, lista, `<template>` ou resultado em `*` ainda não.
+        if consulta.leitura.is_some()
+            && (consulta.por_tipo
+                || consulta.lista
+                || moldes.contains(&consulta.referencia)
+                || consulta_em_embutida(nos, consulta, filhos, local, resolvedor))
+        {
+            fora.push(recusa(
+                Motivo::ViewChildEmFilho,
+                "@ViewChild(.., read: T) fora de elemento estático",
+            ));
+            continue;
+        }
         if consulta.por_tipo {
             // `@ViewChild(Tipo)`: as instâncias dos filhos dessa classe. A
             // diretiva de atributo do mesmo tipo também seria resultado:
@@ -528,6 +644,9 @@ fn formas_contra_o_template(
                 ));
                 continue;
             };
+            if consulta_em_embutida(nos, consulta, filhos, local, resolvedor) {
+                continue;
+            }
             let e_filho = |e: &crate::html::Elemento| {
                 filhos
                     .get(&e.nome)
@@ -552,6 +671,36 @@ fn formas_contra_o_template(
             continue;
         }
         onde_esta(nos, &consulta.referencia, filhos, false, &mut lugares);
+        // `#ref="x"`: o valor seria a diretiva exportada, forma ainda sem
+        // caso na consulta.
+        if referencia_com_valor(nos, &consulta.referencia) {
+            fora.push(recusa(
+                Motivo::ViewChildEmFilho,
+                "@ViewChild de #ref com valor (exportAs)",
+            ));
+            continue;
+        }
+        // `@ViewChild('t')` de um `<template #t>` escrito ([`Corpo::molde`]):
+        // o valor lido é o `TemplateRef` do nó (o `read` implícito de um
+        // `<template>`), atribuído no `build()` como o de um elemento
+        // (`_ctx.x = this._TemplateRef_n_7;`). Só a forma estática — um
+        // `#t` só, na própria visão, campo `TemplateRef` do ngdart; lista,
+        // resultado em `*` ou no conteúdo projetado ainda não.
+        if moldes.contains(&consulta.referencia) {
+            match lugares.as_slice() {
+                [Lugar::Raiz]
+                    if !consulta.lista && e_template_ref(&consulta.tipo, local, resolvedor) => {}
+                [Lugar::Raiz] if !consulta.lista => fora.push(recusa(
+                    Motivo::ViewChildEmFilho,
+                    "@ViewChild de <template> em campo que não é TemplateRef",
+                )),
+                _ => fora.push(recusa(
+                    Motivo::ViewChildDinamico,
+                    "@ViewChild de <template> fora da forma estática",
+                )),
+            }
+            continue;
+        }
         // `@ViewChildren` estático, ou `@ViewChild` de `#ref` repetido (o
         // primeiro resultado): todos os resultados nesta visão, e do mesmo
         // jeito (nós com campo `Element`, ou instâncias de filho com campo
@@ -578,23 +727,27 @@ fn formas_contra_o_template(
             continue;
         }
         let r = match lugares.as_slice() {
-            // `isElementType`: campo `Element` (ou subtipo) recebe o nó;
-            // qualquer outro, um `ElementRef`. O primeiro caso é o estático,
-            // que sai no `build()`.
+            // O nó ou `ElementRef(nó)`, pela leitura ([`valor_de_elemento`]):
+            // a consulta estática, que sai no `build()`.
             [Lugar::Raiz | Lugar::Projetado]
-                if e_tipo_de_elemento(&consulta.tipo, local, resolvedor) =>
+                if valor_de_elemento(consulta, local, resolvedor).is_some() =>
             {
                 continue;
             }
             [Lugar::Raiz | Lugar::Projetado] => recusa(
                 Motivo::ViewChildEmFilho,
-                "@ViewChild de elemento com tipo que não é Element",
+                "@ViewChild(.., read: T) de token que o elemento não provê",
             ),
             // A instância do filho: o campo tem de ser do tipo dele (não um
             // `Element`) e o filho não pode ser `onPush`, que registra o
             // `ChangeDetectorRef` da consulta (`queryChangeDetectorRefs`).
             [Lugar::NoFilho | Lugar::NoFilhoProjetado] => {
-                if e_tipo_de_elemento(&consulta.tipo, local, resolvedor) {
+                if consulta.leitura.is_some() {
+                    recusa(
+                        Motivo::ViewChildEmFilho,
+                        "@ViewChild(.., read: T) de #ref de filho",
+                    )
+                } else if e_tipo_de_elemento(&consulta.tipo, local, resolvedor) {
                     recusa(
                         Motivo::ViewChildEmFilho,
                         "@ViewChild de tipo Element em #ref de filho",
@@ -621,13 +774,15 @@ fn formas_contra_o_template(
     fora
 }
 
-/// A consulta de visão cujo único resultado está numa visão embutida filha
-/// direta da do componente (`*` na raiz, fora do conteúdo projetado): um
-/// elemento HTML com o `#ref` (uma vez só no template), na raiz dessa
-/// visão, e campo `Element`. É a forma de `mapNestedViewsWithSingleResult`
-/// com um nível, a mais comum (`@ViewChild` dentro de `*ngIf`); as outras
-/// (vários resultados, dois níveis, filho, mistura com estáticos) ainda
-/// não.
+/// A consulta de visão cujo único resultado (`#ref` declarado uma vez, ou
+/// um só componente filho do tipo) está numa visão embutida alcançada de
+/// `*` em `*` — cada um na raiz da visão de cima, fora do conteúdo
+/// projetado: um elemento HTML com campo `Element`, ou a instância de um
+/// filho que não é `onPush`. É a forma de
+/// `mapNestedViews`/`mapNestedViewsWithSingleResult` (`@ViewChild` dentro
+/// de `*ngIf`, `@ViewChildren` em `*ngFor`, em qualquer profundidade: i47,
+/// i96, i97, j06, j09, j10); `read:`, vários resultados em visões
+/// diferentes e mistura com estáticos ainda não.
 fn consulta_em_embutida(
     nos: &[No],
     consulta: &crate::componente::Consulta,
@@ -651,39 +806,134 @@ fn consulta_em_embutida(
             }
         }
     }
-    if consulta.por_tipo || !e_tipo_de_elemento(&consulta.tipo, local, resolvedor) {
+    if consulta.leitura.is_some() {
         return false;
     }
-    let nome = consulta.referencia.as_str();
+    let Some(chave) = chave_da_consulta(consulta, local, resolvedor) else {
+        return false;
+    };
+    let nome = chave.as_str();
+    let elemento = e_tipo_de_elemento(&consulta.tipo, local, resolvedor);
+    // O resultado: um elemento HTML (campo `Element`, por `#ref`) ou a
+    // instância de um componente filho que não é `onPush` (campo do tipo
+    // dele; o `onPush` registraria o `ChangeDetectorRef` da consulta).
+    let terminal = |l: &[Lugar]| match l {
+        [Lugar::Raiz] => elemento && !consulta.por_tipo,
+        [Lugar::NoFilho] => !elemento && !filho_on_push(nos, nome, filhos),
+        _ => false,
+    };
     let mut todos = Vec::new();
     onde_esta(nos, nome, filhos, false, &mut todos);
     if todos.len() != 1 {
         return false;
     }
-    let mut estrelas = Vec::new();
-    estrelas_da_raiz(nos, filhos, &mut estrelas);
-    let com_ref: Vec<&&crate::html::Elemento> = estrelas
-        .iter()
-        .filter(|e| {
-            let mut l = Vec::new();
-            onde_esta(
-                std::slice::from_ref(&No::Elemento((**e).clone())),
-                nome,
-                filhos,
-                false,
-                &mut l,
-            );
-            !l.is_empty()
-        })
-        .collect();
-    let [e] = com_ref.as_slice() else {
-        return false;
-    };
-    let mut sem = (**e).clone();
-    sem.estrela = None;
-    let mut l = Vec::new();
-    onde_esta(&[No::Elemento(sem)], nome, filhos, false, &mut l);
-    l == [Lugar::Raiz]
+    // Desce de `*` em `*`: em cada visão, um só `*` na raiz dela (fora de
+    // filho e de `<template>` escrito) contém o `#ref`; para quando ele
+    // está na própria visão.
+    let mut atuais: Vec<No> = nos.to_vec();
+    loop {
+        let mut estrelas = Vec::new();
+        estrelas_da_raiz(&atuais, filhos, &mut estrelas);
+        let com_ref: Vec<&&crate::html::Elemento> = estrelas
+            .iter()
+            .filter(|e| {
+                let mut l = Vec::new();
+                onde_esta(
+                    std::slice::from_ref(&No::Elemento((**e).clone())),
+                    nome,
+                    filhos,
+                    false,
+                    &mut l,
+                );
+                !l.is_empty()
+            })
+            .collect();
+        let [e] = com_ref.as_slice() else {
+            return false;
+        };
+        if e.estrela.as_ref().is_some_and(|l| l.nome == MARCA_DE_MOLDE) {
+            return false;
+        }
+        let mut sem = (**e).clone();
+        sem.estrela = None;
+        let mut l = Vec::new();
+        onde_esta(
+            std::slice::from_ref(&No::Elemento(sem.clone())),
+            nome,
+            filhos,
+            false,
+            &mut l,
+        );
+        match l.as_slice() {
+            [Lugar::Embutida] => atuais = vec![No::Elemento(sem)],
+            l => return terminal(l),
+        }
+    }
+}
+
+/// A cadeia de cada consulta de visão dinâmica, pelo campo sujo: (âncora
+/// `_appEl_n`, classe da visão embutida) em cada nível, de cima para baixo.
+type Cadeias = std::collections::HashMap<String, Vec<(String, String)>>;
+
+/// Marca do valor de uma consulta de visão dinâmica na visão do componente:
+/// `\u{e}campo\u{f}`, trocada por [`mapa_da_consulta`] quando a cadeia
+/// inteira é conhecida ([`resolver_consultas`]).
+const MARCA_DE_CONSULTA: char = '\u{e}';
+const FIM_DE_CONSULTA: char = '\u{f}';
+
+/// `mapNestedViews` em cada nível da cadeia e
+/// `mapNestedViewsWithSingleResult` no último, que devolve o nó do `#ref`
+/// (`createDynamicUpdates` e `_mapNestedViews` em `compile_query.dart`):
+///
+/// ```text
+/// this._appEl_0.mapNestedViews((_ViewX1 nestedView) {
+///   return nestedView._appEl_1.mapNestedViewsWithSingleResult((_ViewX2 nestedView) {
+///     return nestedView._el_1;
+///   });
+/// })
+/// ```
+///
+/// Com a indentação de quem o escreve dentro do `if` do campo sujo.
+fn mapa_da_consulta(cadeia: &[(String, String)], referencia: &str) -> String {
+    let mut saida = String::new();
+    let ultimo = cadeia.len().saturating_sub(1);
+    for (k, (ancora, classe)) in cadeia.iter().enumerate() {
+        let receptor = if k == 0 { "this" } else { "nestedView" };
+        let metodo = if k == ultimo {
+            "mapNestedViewsWithSingleResult"
+        } else {
+            "mapNestedViews"
+        };
+        let _ = writeln!(
+            saida,
+            "{receptor}.{ancora}.{metodo}(({classe} nestedView) {{"
+        );
+        let _ = write!(saida, "{}return ", " ".repeat(6 + 2 * k));
+    }
+    let _ = write!(saida, "nestedView{MARCA_DE_REF}.{referencia}{FIM_DE_REF};");
+    for k in (0..cadeia.len()).rev() {
+        let _ = write!(saida, "\n{}}})", " ".repeat(4 + 2 * k));
+        if k > 0 {
+            saida.push(';');
+        }
+    }
+    saida
+}
+
+/// Troca cada [`MARCA_DE_CONSULTA`] pelo [`mapa_da_consulta`] da cadeia
+/// dela, com a indentação do lugar (o `if` do campo sujo, dentro do
+/// `if (!debugThrowIfChanged)`).
+fn resolver_consultas(texto: &str, consultas: &[(String, String)], cadeias: &Cadeias) -> String {
+    let mut saida = texto.to_string();
+    for (campo, referencia) in consultas {
+        let Some(cadeia) = cadeias.get(campo) else {
+            continue;
+        };
+        let marca = format!("{MARCA_DE_CONSULTA}{campo}{FIM_DE_CONSULTA}");
+        let mapa = indentar(&mapa_da_consulta(cadeia, referencia), 4);
+        saida = saida.replace(&marca, mapa.trim_start());
+    }
+    saida
 }
 
 /// Uma consulta de visão atualizada na detecção (`createDynamicUpdates`):
@@ -692,8 +942,9 @@ fn consulta_em_embutida(
 struct ConsultaDinamica {
     indice: usize,
     propriedade: String,
-    referencia: String,
     lista: bool,
+    /// O que procurar ([`chave_da_consulta`]).
+    chave: String,
     /// `_viewQuery_ref_N_isDirty`.
     campo: String,
     /// (âncora `_appEl_n`, classe `_ViewX1`), quando o `*` foi visto.
@@ -738,6 +989,14 @@ fn template_como_container(nos: &[No]) -> Vec<No> {
                     e.propriedades.clear();
                     e.atributos.clear();
                     e.nome = "ng-container".into();
+                } else if let (true, "template", Some((estrela, ligacoes))) =
+                    (limpo, e.nome.as_str(), molde_com_diretiva(&e))
+                {
+                    e.estrela = Some(estrela);
+                    e.ligacoes_do_molde = ligacoes;
+                    e.propriedades.clear();
+                    e.atributos.clear();
+                    e.nome = "ng-container".into();
                 } else if e.nome == "template"
                     && e.estrela.is_none()
                     && e.atributos.is_empty()
@@ -763,6 +1022,128 @@ fn template_como_container(nos: &[No]) -> Vec<No> {
             outro => outro.clone(),
         })
         .collect()
+}
+
+/// `<template dir let-x let-y="chave" [dirA]="a" [dirB]="b">` escrito à
+/// mão é exatamente o `<template>` que a microssintaxe de
+/// `*dir="let x; let y = chave; a: a; b: b"` produz (`micro/parser.dart` do
+/// ngast desfaz o `*` nesses atributos): o mesmo `EmbeddedTemplateAst`, com
+/// a diretiva casada pelo seletor (`[ngFor][ngForOf]`). Reescrito como a
+/// `estrela` equivalente, ele segue o caminho do `*`; a única coisa que o
+/// `*` não guarda é o intervalo de cada ligação escrita — o `REF` de cada
+/// entrada —, devolvido à parte.
+///
+/// Só a forma sem ambiguidade: exatamente um atributo sem valor com o nome
+/// de uma diretiva estrutural conhecida, `let-x` (com ou sem valor) e ao
+/// menos uma ligação `[dirX]` com o prefixo da diretiva e sem `;` na
+/// expressão (que a microssintaxe separaria). O resto continua `<template>`
+/// e é recusado.
+fn molde_com_diretiva(
+    e: &crate::html::Elemento,
+) -> Option<(crate::html::Ligacao, Vec<crate::html::Ligacao>)> {
+    let (lets, outros): (Vec<_>, Vec<_>) =
+        e.atributos.iter().partition(|a| a.nome.starts_with("let-"));
+    let [dir] = outros.as_slice() else {
+        return None;
+    };
+    if !dir.valor.is_empty() || Estrutural::conhecida(&dir.nome).is_none() {
+        return None;
+    }
+    if e.propriedades.is_empty() {
+        return None;
+    }
+    let mut partes = Vec::new();
+    for l in &lets {
+        let nome = &l.nome["let-".len()..];
+        if nome.is_empty()
+            || !nome
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+        {
+            return None;
+        }
+        let chave = l.valor.trim();
+        if chave.contains([';', '=']) {
+            return None;
+        }
+        partes.push(if chave.is_empty() {
+            format!("let {nome}")
+        } else {
+            format!("let {nome} = {chave}")
+        });
+    }
+    for p in &e.propriedades {
+        let sufixo = p.nome.strip_prefix(dir.nome.as_str())?;
+        let mut cs = sufixo.chars();
+        let primeira = cs.next()?;
+        if !primeira.is_ascii_uppercase() || p.valor.contains(';') || p.valor.trim().is_empty() {
+            return None;
+        }
+        partes.push(format!(
+            "{}{}: {}",
+            primeira.to_ascii_lowercase(),
+            cs.as_str(),
+            p.valor.trim()
+        ));
+    }
+    Some((
+        crate::html::Ligacao {
+            nome: dir.nome.clone(),
+            valor: partes.join("; "),
+            inicio: dir.inicio,
+            fim: dir.fim,
+        },
+        e.propriedades.clone(),
+    ))
+}
+
+/// Os nomes de `#ref` declarados mais de uma vez no template, ou com o
+/// nome de um `let` de algum `*`: cada visão resolve o nome pelo escopo
+/// dela (o mais próximo vence), o que ainda não é traduzido.
+fn referencias_ambiguas(nos: &[No]) -> std::collections::HashSet<String> {
+    fn andar(nos: &[No], refs: &mut Vec<String>, lets: &mut Vec<String>) {
+        for n in nos {
+            if let No::Elemento(e) = n {
+                refs.extend(e.referencias.iter().map(|r| r.nome.clone()));
+                if let Some(estrela) = &e.estrela {
+                    let micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
+                    lets.extend(micro.locais.into_iter().map(|(nome, _)| nome));
+                }
+                andar(&e.filhos, refs, lets);
+            }
+        }
+    }
+    let (mut refs, mut lets) = (Vec::new(), Vec::new());
+    andar(nos, &mut refs, &mut lets);
+    refs.iter()
+        .filter(|n| refs.iter().filter(|x| x == n).count() > 1 || lets.contains(n))
+        .cloned()
+        .collect()
+}
+
+/// Os `#ref` lidos como local cujo nó vira campo: os sem valor. Com valor
+/// (`#d="x"`), o local é a diretiva exportada, e o elemento fica como está.
+fn nos_promovidos(
+    nos: &[No],
+    refs: &std::collections::HashSet<String>,
+) -> std::collections::HashSet<String> {
+    refs.iter()
+        .filter(|n| !referencia_com_valor(nos, n))
+        .cloned()
+        .collect()
+}
+
+/// Algum `#nome="valor"` (com valor) no template, em qualquer profundidade?
+fn referencia_com_valor(nos: &[No], nome: &str) -> bool {
+    nos.iter().any(|n| match n {
+        No::Elemento(e) => {
+            e.referencias
+                .iter()
+                .any(|r| r.nome == nome && !r.valor.is_empty())
+                || referencia_com_valor(&e.filhos, nome)
+        }
+        _ => false,
+    })
 }
 
 /// Os `#ref` dos `<template>` escritos ([`MARCA_DE_MOLDE`]), em qualquer
@@ -808,8 +1189,66 @@ fn onde_esta(
     em_filho: bool,
     saida: &mut Vec<Lugar>,
 ) {
-    let tem_ref = |e: &crate::html::Elemento| e.referencias.iter().any(|r| r.nome == nome);
+    let tem_ref = |e: &crate::html::Elemento| casa_a_chave(e, nome, filhos);
     onde_casa(nos, &tem_ref, filhos, em_filho, saida);
+}
+
+/// O que uma consulta procura, como chave de [`onde_esta`]: o `#ref`, ou
+/// [`chave_de_tipo`] do componente de `@ViewChild(Tipo)` (`None` sem
+/// resolução).
+fn chave_da_consulta(
+    consulta: &crate::componente::Consulta,
+    local: &Local,
+    resolvedor: Option<&dyn Resolucao>,
+) -> Option<String> {
+    if consulta.por_tipo {
+        uri_da_consulta(consulta, local, resolvedor)
+            .map(|u| chave_de_tipo(&u, &consulta.referencia))
+    } else {
+        Some(consulta.referencia.clone())
+    }
+}
+
+/// O filho achado pela chave ([`onde_esta`]) é `onPush`?
+fn filho_on_push(
+    nos: &[No],
+    chave: &str,
+    filhos: &std::collections::HashMap<String, Filho>,
+) -> bool {
+    fn andar(
+        nos: &[No],
+        chave: &str,
+        filhos: &std::collections::HashMap<String, Filho>,
+    ) -> Option<bool> {
+        for n in nos {
+            let No::Elemento(e) = n else { continue };
+            if let Some(f) = filhos.get(&e.nome)
+                && casa_a_chave(e, chave, filhos)
+            {
+                return Some(f.on_push);
+            }
+            if let Some(r) = andar(&e.filhos, chave, filhos) {
+                return Some(r);
+            }
+        }
+        None
+    }
+    andar(nos, chave, filhos).unwrap_or(false)
+}
+
+/// O elemento casa a chave de uma consulta: tem o `#ref`, ou é um
+/// componente filho do tipo de [`chave_de_tipo`].
+fn casa_a_chave(
+    e: &crate::html::Elemento,
+    chave: &str,
+    filhos: &std::collections::HashMap<String, Filho>,
+) -> bool {
+    match chave.strip_prefix('\u{7}').and_then(|c| c.rsplit_once('#')) {
+        Some((uri, classe)) => filhos
+            .get(&e.nome)
+            .is_some_and(|f| f.uri_dart == uri && f.classe == classe),
+        None => e.referencias.iter().any(|r| r.nome == chave),
+    }
 }
 
 /// A chave dos resultados de um `@ViewChild(Tipo)` entre os `#ref` vistos
@@ -885,6 +1324,52 @@ fn e_tipo_de_elemento(tipo: &str, local: &Local, resolvedor: Option<&dyn Resoluc
             .and_then(|r| r.uri_do_tipo(local.caminho, tipo))
             .as_deref()
             == Some("dart:html")
+}
+
+/// O valor de uma consulta de visão cujo resultado é um elemento HTML.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ValorDeElemento {
+    /// O próprio nó (`_el_n`).
+    No,
+    /// `ElementRef(_el_n)`.
+    ElementRef,
+}
+
+/// O que um elemento dá a uma consulta (`compile_element.dart`, laço de
+/// `queriesWithReads`): com `read: ElementRef`, o `ElementRef` do nó; com
+/// `read: Element`/`HtmlElement` (do `dart:html`), o nó; sem `read:`, o nó
+/// se o campo é `Element` (`isElementType`), senão o `ElementRef`. `None`
+/// para `read:` de outro token (diretiva, `ViewContainerRef`…), que ainda
+/// não se escreve.
+fn valor_de_elemento(
+    consulta: &crate::componente::Consulta,
+    local: &Local,
+    resolvedor: Option<&dyn Resolucao>,
+) -> Option<ValorDeElemento> {
+    let Some(t) = consulta.leitura.as_deref() else {
+        return Some(if e_tipo_de_elemento(&consulta.tipo, local, resolvedor) {
+            ValorDeElemento::No
+        } else {
+            ValorDeElemento::ElementRef
+        });
+    };
+    let uri = resolvedor.and_then(|r| r.uri_do_tipo(local.caminho, t))?;
+    match (t, uri.as_str()) {
+        ("ElementRef", ELEMENT_REF) => Some(ValorDeElemento::ElementRef),
+        ("Element" | "HtmlElement", "dart:html") => Some(ValorDeElemento::No),
+        _ => None,
+    }
+}
+
+/// O tipo do campo é o `TemplateRef` do ngdart (`TemplateRef` ou
+/// `TemplateRef?`, sem prefixo, resolvido para `template_ref.dart`)?
+fn e_template_ref(tipo: &str, local: &Local, resolvedor: Option<&dyn Resolucao>) -> bool {
+    let tipo = tipo.trim().trim_end_matches('?');
+    tipo == "TemplateRef"
+        && resolvedor
+            .and_then(|r| r.uri_do_tipo(local.caminho, tipo))
+            .as_deref()
+            == Some(TEMPLATE_REF)
 }
 
 /// Um pipe de `pipes:`, com a URI da biblioteca que o declara.
@@ -1491,8 +1976,10 @@ pub struct Local<'a> {
 }
 
 impl Local<'_> {
-    /// URI `package:` do `.css.shim.dart` de uma folha do `styleUrls`.
-    pub(crate) fn uri_do_estilo(&self, url: &str) -> Option<String> {
+    /// URI `package:` da folha compilada de um `styleUrls`: o
+    /// `.css.shim.dart` (com shim) ou, com `ViewEncapsulation.none`, o
+    /// `.css.dart` (`stylesModuleUrl(url, shim)` do ngcompiler).
+    pub(crate) fn uri_do_estilo(&self, url: &str, shim: bool) -> Option<String> {
         let dentro = self.relativo.strip_prefix("lib/")?;
         let dir = dentro.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
         let caminho = if dir.is_empty() {
@@ -1500,7 +1987,8 @@ impl Local<'_> {
         } else {
             format!("{dir}/{url}")
         };
-        Some(format!("package:{}/{caminho}.shim.dart", self.pacote))
+        let sufixo = if shim { ".shim.dart" } else { ".dart" };
+        Some(format!("package:{}/{caminho}{sufixo}", self.pacote))
     }
 
     /// URI `asset:` deste arquivo — o espaço em que o emissor oficial calcula
@@ -1532,14 +2020,23 @@ struct Corpo<'a> {
     /// ([`referencias_locais`]): o nó vira campo e o nome, local
     /// (`final local_x = this._el_n;`).
     refs_locais: std::collections::HashSet<String>,
+    /// Os `#ref` repetidos ou sombreados por `let`
+    /// ([`referencias_ambiguas`]): o escopo por visão deles ainda não é
+    /// traduzido, e a recusa diz isso.
+    refs_ambiguos: std::collections::HashSet<String>,
     /// Os `#ref` locais das visões ancestrais (ver [`EspecEmbutida`]).
     refs_ancestrais: Vec<(String, String, u32)>,
     /// Na visão do componente: as consultas de visão atualizadas na
     /// detecção ([`consulta_em_embutida`]).
     consultas_dinamicas: Vec<ConsultaDinamica>,
+    /// As consultas dinâmicas cujo resultado está abaixo desta visão
+    /// embutida: (`#ref`, campo sujo, níveis até a visão do componente).
+    consultas_em_transito: Vec<(String, String, u32)>,
+    /// As cadeias do [`Contexto`].
+    cadeias: &'a std::cell::RefCell<Cadeias>,
     /// Na embutida: os `#ref` resultado de consulta da visão do componente
     /// (o nó vira campo) e o campo "sujo" de cada uma.
-    refs_consultados: Vec<(String, String)>,
+    refs_consultados: Vec<(String, String, u32)>,
     /// Cada `#ref` visto, com a expressão do nó (`_el_3` ou `this._el_3`) —
     /// é o valor que o `@ViewChild` recebe.
     refs: std::collections::HashMap<String, String>,
@@ -1581,6 +2078,9 @@ struct Corpo<'a> {
     /// Os métodos `_handleEvent_N` desta visão, na ordem em que foram
     /// criados (`createEventHandler`); saem depois do `destroyInternal`.
     metodos_evento: Vec<String>,
+    /// Os métodos `static String _message_N(..)` das mensagens `@i18n` com
+    /// HTML, que abrem os métodos da visão.
+    metodos_i18n: Vec<String>,
     /// Declaração (`final local_x = …;`) de cada local **desta** visão, ou
     /// por que ele não pode ser declarado. Local de visão ancestral não está
     /// aqui: ele é lido pela cadeia de `parentView`, forma ainda recusada.
@@ -1788,7 +2288,7 @@ impl Corpo<'_> {
     /// `static final String _message_N = Intl.message(texto, desc: ..)`,
     /// reaproveitado quando texto e metadados se repetem.
     fn mensagem(&mut self, texto: &str, m: &MetaI18n) -> Result<String, Recusa> {
-        let Some(intl) = self.intl.clone() else {
+        let Some(intl) = self.intl.clone().filter(|i| !i.is_empty()) else {
             return Err(recusa(Motivo::I18n, "@i18n fora da visão do componente"));
         };
         let mut chamada = format!(
@@ -1814,6 +2314,77 @@ impl Corpo<'_> {
             .push(format!("  static final String {campo} = {chamada};"));
         self.mensagens.push((chamada, campo.clone()));
         Ok(campo)
+    }
+
+    /// Os filhos com HTML de um elemento com `@i18n` ([`Corpo::filhos_i18n`]).
+    fn filhos_i18n_html(
+        &mut self,
+        e: &crate::html::Elemento,
+        m: &MetaI18n,
+        alvo: &str,
+    ) -> Result<(), Recusa> {
+        if self.intl.is_none() {
+            return self.anotar(recusa(Motivo::I18n, "@i18n fora da visão do componente"));
+        }
+        let mut texto = String::new();
+        let mut args = Vec::new();
+        match mensagem_com_html(&e.filhos, self.filhos, &mut texto, &mut args, &mut 0) {
+            Ok(true) if !args.is_empty() => {}
+            Ok(_) => {
+                return self.anotar(recusa(Motivo::I18n, "mensagem @i18n sem texto"));
+            }
+            Err(f) => return self.anotar(recusa(Motivo::I18n, f)),
+        }
+        // `HtmlEscape(HtmlEscapeMode.element)` do texto já escapado.
+        let texto = texto
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
+        let intl = tardio(INTL);
+        let mut chamada = format!(
+            "{intl}.Intl.message('{texto}', desc: {}",
+            literal(m.descricao.as_deref().unwrap_or_default())
+        );
+        if let Some(l) = &m.locale {
+            let _ = write!(chamada, ", locale: {}", literal(l));
+        }
+        if let Some(s) = &m.meaning {
+            let _ = write!(chamada, ", meaning: {}", literal(s));
+        }
+        if m.skip {
+            chamada.push_str(", skip: true");
+        }
+        let valores: Vec<String> = args.iter().map(|(_, v)| literal(v)).collect();
+        let invocacao = |campo: &str| format!("{campo}({})", valores.join(", "));
+        let campo = match self.mensagens.iter().find(|(c, _)| *c == chamada) {
+            Some((_, campo)) => campo.clone(),
+            None => {
+                let campo = format!("_message_{}", self.mensagens.len());
+                let nomes: Vec<&str> = args.iter().map(|(n, _)| n.as_str()).collect();
+                let exemplos: Vec<String> = args
+                    .iter()
+                    .map(|(n, v)| format!("{}: {}", literal(n), literal(v)))
+                    .collect();
+                let parametros: Vec<String> = nomes.iter().map(|n| format!("String {n}")).collect();
+                self.metodos_i18n.push(format!(
+                    "\n  static String {campo}({}) {{\n    return {chamada}, name: '{}_{campo}', args: [{}], examples: const {{{}}});\n  }}\n",
+                    parametros.join(", "),
+                    self.classe_desta_visao(),
+                    nomes.join(", "),
+                    exemplos.join(", ")
+                ));
+                self.mensagens.push((chamada, campo.clone()));
+                campo
+            }
+        };
+        let n = self.proximo;
+        self.proximo += 1;
+        let avu = self.imp.q(APP_VIEW_UTILS);
+        self.linhas.push(format!(
+            "    final _html_{n} = {avu}createTrustedHtml({});\n    {alvo}.append(_html_{n});",
+            invocacao(&campo)
+        ));
+        Ok(())
     }
 
     /// Anota uma recusa. Fora do modo de coleta ela interrompe a emissão
@@ -2063,12 +2634,21 @@ impl Corpo<'_> {
                     "[attr.x.if] ou atributo com namespace",
                 ));
             }
-            if com_seguranca(attr) {
-                return Err(recusa(
-                    Motivo::Ligacao,
-                    "[attr.x] com contexto de segurança",
-                ));
-            }
+            // Com contexto de segurança o valor passa pelo saneador do
+            // contexto, achado pelo nome de propriedade mapeado
+            // (`securityContext(tag, getMappedPropName(x))` em
+            // `createElementPropertyAst`); o atributo escrito fica como está.
+            let saneado = match saneador(
+                &self.tag_atual.to_ascii_lowercase(),
+                propriedade_mapeada(attr),
+            ) {
+                Some(f) => {
+                    let s = tardio(SAFE_HTML);
+                    format!("{s}.{f}({valor})")
+                }
+                None => valor.to_string(),
+            };
+            let valor = saneado.as_str();
             // `canBeNull` (`analyzed_class.dart`): só o literal não pode ser
             // nulo, e só ele vai por `setAttribute`. `a ?? b` tem regra
             // própria, ainda sem caso no corpus.
@@ -2123,20 +2703,15 @@ impl Corpo<'_> {
             } else {
                 l.nome.as_str()
             };
-            if matches!(prop, "readonly" | "tabindex" | "tabIndex" | "style") {
+            if matches!(prop, "readonly" | "tabindex" | "tabIndex") {
                 return Err(recusa(
                     Motivo::Ligacao,
                     "[propriedade] renomeada pelo esquema",
                 ));
             }
-            // `_sanitizedValue`: o valor passa pelo saneador do contexto.
+            // `_sanitizedValue`: o valor passa pelo saneador do contexto
+            // (`[style]` é `*|style`: `sanitizeStyle`, caso i92).
             match saneador(&self.tag_atual.to_ascii_lowercase(), prop) {
-                Some("sanitizeStyle") => {
-                    return Err(recusa(
-                        Motivo::Ligacao,
-                        "[propriedade] com contexto de segurança de estilo",
-                    ));
-                }
                 Some(f) => {
                     let s = tardio(SAFE_HTML);
                     format!("{dom}.setProperty({alvo}, '{prop}', {s}.{f}({valor}))")
@@ -2363,7 +2938,10 @@ impl Corpo<'_> {
             if !r.valor.is_empty() {
                 return Err(em_filho("#ref com valor no filho"));
             }
-            if !self.refs_livres.contains(&r.nome) && !self.refs_locais.contains(&r.nome) {
+            if !self.refs_livres.contains(&r.nome)
+                && !self.refs_locais.contains(&r.nome)
+                && !self.refs_consultados.iter().any(|(n, _, _)| *n == r.nome)
+            {
                 return Err(em_filho(if self.embutida {
                     "#ref no filho em visão embutida"
                 } else {
@@ -2500,8 +3078,11 @@ impl Corpo<'_> {
             self.refs_em_ordem
                 .push((r.nome.clone(), format!("this.{campo_inst}")));
         }
-        // O resultado de um `@ViewChild(Tipo)` ([`chave_de_tipo`]).
+        // O resultado de um `@ViewChild(Tipo)` ([`chave_de_tipo`]), também
+        // lido de uma visão de cima (consulta dinâmica).
         let chave = chave_de_tipo(&filho.uri_dart, &filho.classe);
+        self.refs
+            .insert(chave.clone(), format!("this.{campo_inst}"));
         self.refs_em_ordem
             .push((chave.clone(), format!("this.{campo_inst}")));
         if filho.on_push {
@@ -3199,8 +3780,33 @@ impl Corpo<'_> {
                 }
             }
         };
-        let micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
+        let mut micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
+        // As ligações saem na ordem das entradas da diretiva, não na escrita
+        // (`_orderingOf(directive.inputs)`). Entrada que a diretiva não
+        // declara é erro no oficial ("Can't bind to ..."): não há saída.
+        if let Some((p, _)) = micro
+            .propriedades
+            .iter()
+            .find(|(p, _)| !dir.entradas.contains(&p.as_str()))
+        {
+            return Err(recusa(
+                Motivo::Ligacao,
+                format!("`{p}` não é entrada de {}", dir.classe),
+            ));
+        }
+        micro
+            .propriedades
+            .sort_by_key(|(p, _)| dir.entradas.iter().position(|x| x == p));
         self.guarda_do_template(&estrela.nome, &micro, Some(&dir))?;
+        // O `REF` de cada entrada: o intervalo da ligação escrita num
+        // `<template dir [dirX]>` ([`molde_com_diretiva`]); no `*`, o do
+        // atributo inteiro.
+        let intervalo = |prop: &str| {
+            e.ligacoes_do_molde
+                .iter()
+                .find(|l| l.nome == prop)
+                .map_or((estrela.inicio, estrela.fim), |l| (l.inicio, l.fim))
+        };
         let n = self.proximo;
         self.proximo += 1;
         let dom = self.dom();
@@ -3272,7 +3878,7 @@ impl Corpo<'_> {
             // `_bindLiteral` no `NgFor`, que consome o índice da ligação e
             // põe o `if (x != null)` em volta do que pode ser nulo.
             if c.imutavel {
-                let (ini, fim) = (estrela.inicio, estrela.fim);
+                let (ini, fim) = intervalo(prop);
                 let valor = &c.texto;
                 let dev_rec = format!(
                     "if ({dev}.isDevToolsEnabled) {{\n  {dev}.Inspector.instance.recordInput(this.{campo}, '{prop}', {valor});\n}}"
@@ -3299,7 +3905,7 @@ impl Corpo<'_> {
                 continue;
             }
             let valor = c.texto;
-            let (ini, fim) = (estrela.inicio, estrela.fim);
+            let (ini, fim) = intervalo(prop);
             if dir.direta {
                 // `_isDirectBinding` do ngcompiler: o `NgIf` já compara o
                 // valor antes de agir, então não há `checkBinding` fora.
@@ -3370,7 +3976,7 @@ impl Corpo<'_> {
             let mut l = Vec::new();
             onde_esta(
                 std::slice::from_ref(&No::Elemento(e.clone())),
-                &q.referencia,
+                &q.chave,
                 self.filhos,
                 false,
                 &mut l,
@@ -3483,14 +4089,17 @@ impl Corpo<'_> {
         } else {
             self.profundidade + 1
         };
-        // Consulta de visão com o resultado aqui dentro: a embutida marca o
-        // campo sujo no `dirtyParentQueriesInternal`.
-        let mut refs_consultados = Vec::new();
+        // Consulta de visão com o resultado aqui dentro: a âncora e a classe
+        // entram na cadeia dela; se o resultado está na visão nova, ela marca
+        // o campo sujo no `dirtyParentQueriesInternal`; se está mais abaixo,
+        // a consulta segue em trânsito para as aninhadas.
+        let classe_nova = format!("_{}{indice}", self.classe_da_visao);
+        let mut pendentes: Vec<(String, String, u32)> = Vec::new();
         for q in &mut self.consultas_dinamicas {
             let mut l = Vec::new();
             onde_esta(
                 std::slice::from_ref(&No::Elemento(e.clone())),
-                &q.referencia,
+                &q.chave,
                 self.filhos,
                 false,
                 &mut l,
@@ -3498,15 +4107,42 @@ impl Corpo<'_> {
             if l.is_empty() || q.origem.is_some() {
                 continue;
             }
-            q.origem = Some((
-                format!("_appEl_{n}"),
-                format!("_{}{indice}", self.classe_da_visao),
-            ));
-            refs_consultados.push((q.referencia.clone(), q.campo.clone()));
+            q.origem = Some((format!("_appEl_{n}"), classe_nova.clone()));
+            pendentes.push((q.chave.clone(), q.campo.clone(), 1));
+        }
+        for (r, campo, niveis) in &self.consultas_em_transito {
+            let mut l = Vec::new();
+            onde_esta(
+                std::slice::from_ref(&No::Elemento(e.clone())),
+                r,
+                self.filhos,
+                false,
+                &mut l,
+            );
+            if !l.is_empty() {
+                pendentes.push((r.clone(), campo.clone(), niveis + 1));
+            }
+        }
+        let mut refs_consultados = Vec::new();
+        let mut consultas_em_transito = Vec::new();
+        for (r, campo, niveis) in pendentes {
+            self.cadeias
+                .borrow_mut()
+                .entry(campo.clone())
+                .or_default()
+                .push((format!("_appEl_{n}"), classe_nova.clone()));
+            let mut l = Vec::new();
+            onde_esta(&nos, &r, self.filhos, false, &mut l);
+            if matches!(l.as_slice(), [Lugar::Raiz] | [Lugar::NoFilho]) {
+                refs_consultados.push((r, campo, niveis));
+            } else {
+                consultas_em_transito.push((r, campo, niveis));
+            }
         }
         self.embutidas.push(EspecEmbutida {
             indice,
             refs_consultados,
+            consultas_em_transito,
             profundidade: self.profundidade + 1,
             nivel_do_topo,
             classe: format!("_{}{indice}", self.classe_da_visao),
@@ -4033,11 +4669,10 @@ impl Corpo<'_> {
                     self.guarda_do_elemento(e)?;
                 }
                 // `@i18n` só em elemento HTML: no filho ele mexe no conteúdo
-                // projetado, e no `*` vai para o `<template>`.
-                if !e.anotacoes.is_empty()
-                    && (e.estrela.is_some() || self.filhos.contains_key(&e.nome))
-                {
-                    return Err(recusa(Motivo::I18n, "@i18n em componente filho ou em `*`"));
+                // projetado. No `*` a anotação fica no elemento, que vai para
+                // a visão embutida (caso j01).
+                if !e.anotacoes.is_empty() && self.filhos.contains_key(&e.nome) {
+                    return Err(recusa(Motivo::I18n, "@i18n em componente filho"));
                 }
                 // `*` num filho: o filho vai para a visão embutida, como
                 // qualquer elemento.
@@ -4166,18 +4801,33 @@ impl Corpo<'_> {
                 format!("atributo interpolado em entrada de diretiva ({})", a.nome),
             ))?;
         }
+        // `#ref="x"`: a diretiva do nó com `exportAs: 'x'` (uma só; mais de
+        // uma é erro no oficial). O local vale a instância dela
+        // (`referenceTokens` em `compile_element.dart`).
+        let exportada = |r: &crate::html::Ligacao| {
+            let achadas: Vec<_> = casadas
+                .iter()
+                .filter(|d| d.export_as.as_deref() == Some(r.valor.as_str()))
+                .collect();
+            match achadas.as_slice() {
+                [d] => Some(std::sync::Arc::clone(d)),
+                _ => None,
+            }
+        };
         // `#ref` só na forma que não muda nada no nó; o valor dele é
         // registrado adiante, para o `@ViewChild`.
         if let Some(r) = e.referencias.iter().find(|r| {
-            !r.valor.is_empty()
+            (!r.valor.is_empty() && exportada(r).is_none())
                 || !(self.refs_livres.contains(&r.nome)
                     || self.refs_locais.contains(&r.nome)
-                    || self.refs_consultados.iter().any(|(n, _)| *n == r.nome))
+                    || self.refs_consultados.iter().any(|(n, _, _)| *n == r.nome))
         }) {
             self.anotar(recusa(
                 Motivo::Ligacao,
                 if !r.valor.is_empty() {
-                    "#ref com valor (`#f=\"ngForm\"`)"
+                    "#ref com valor sem uma diretiva do nó que o exporte"
+                } else if self.refs_ambiguos.contains(&r.nome) {
+                    "#ref repetido ou sombreado por `let`"
                 } else if self.embutida {
                     "#ref em visão embutida"
                 } else {
@@ -4233,8 +4883,9 @@ impl Corpo<'_> {
         // `build()`. Evento sozinho não exige campo.
         let tipo = dom::tipo_da_tag(&tag);
         let lido_como_local = e.referencias.iter().any(|r| {
-            self.refs_locais.contains(&r.nome)
-                || self.refs_consultados.iter().any(|(n, _)| *n == r.nome)
+            r.valor.is_empty()
+                && (self.refs_locais.contains(&r.nome)
+                    || self.refs_consultados.iter().any(|(n, _, _)| *n == r.nome))
         });
         let alvo = if !liga_no_elemento(e, &casadas) && !lido_como_local {
             self.linhas.push(format!("    final _el_{n} = {criacao};"));
@@ -4252,8 +4903,21 @@ impl Corpo<'_> {
         // `renderNode.toReadExpr()`: o local ou o campo, como o
         // nó tiver sido declarado.
         for r in &e.referencias {
-            self.refs.insert(r.nome.clone(), alvo.clone());
-            self.refs_em_ordem.push((r.nome.clone(), alvo.clone()));
+            // Com valor, a instância da diretiva exportada.
+            let leitura = match (r.valor.is_empty(), exportada(r), &resolvido) {
+                (true, _, _) => alvo.clone(),
+                (false, Some(d), Some(res)) => match res
+                    .diretivas
+                    .iter()
+                    .find(|(x, _)| std::sync::Arc::ptr_eq(x, &d))
+                {
+                    Some((_, campo)) => format!("this.{campo}"),
+                    None => continue,
+                },
+                _ => continue,
+            };
+            self.refs.insert(r.nome.clone(), leitura.clone());
+            self.refs_em_ordem.push((r.nome.clone(), leitura));
         }
         // As mensagens `@i18n` do nó: a dos atributos sai no lugar do
         // literal, a dos filhos no lugar do texto.
@@ -4492,8 +5156,10 @@ impl Corpo<'_> {
 
     /// Os filhos de um elemento com `@i18n`: um texto só vira uma mensagem
     /// (`internationalize`, `_textMessage`) e um nó de texto com ela. Com
-    /// HTML dentro a mensagem é um método estático com argumentos, forma
-    /// ainda recusada.
+    /// HTML dentro ([`mensagem_com_html`]) a mensagem é um método estático
+    /// com um parâmetro por tag (`createI18nMessage`), e o nó é um
+    /// `DocumentFragment` (`createHtml`): `final _html_n =
+    /// createTrustedHtml(_message_K('<b>', '</b>'));` e `pai.append(_html_n)`.
     fn filhos_i18n(
         &mut self,
         e: &crate::html::Elemento,
@@ -4501,7 +5167,7 @@ impl Corpo<'_> {
         alvo: &str,
     ) -> Result<(), Recusa> {
         let [No::Texto(t)] = e.filhos.as_slice() else {
-            return self.anotar(recusa(Motivo::I18n, "mensagem @i18n com HTML ou vazia"));
+            return self.filhos_i18n_html(e, m, alvo);
         };
         if t.trim().is_empty() {
             return self.anotar(recusa(Motivo::I18n, "mensagem @i18n com HTML ou vazia"));
@@ -5258,8 +5924,11 @@ struct EspecEmbutida {
     /// Os `#ref` lidos como local declarados em visões ancestrais: (nome,
     /// classe da visão que o declara, quantos `parentView` até ela).
     refs_ancestrais: Vec<(String, String, u32)>,
-    /// Os resultados de consulta de visão nesta visão: (`#ref`, campo sujo).
-    refs_consultados: Vec<(String, String)>,
+    /// Os resultados de consulta de visão nesta visão: (`#ref`, campo sujo,
+    /// quantos `parentView` até a visão do componente).
+    refs_consultados: Vec<(String, String, u32)>,
+    /// As consultas com resultado mais abaixo ([`Corpo::consultas_em_transito`]).
+    consultas_em_transito: Vec<(String, String, u32)>,
     /// Os provedores acima da âncora, vistos da visão nova.
     acima: Vec<(crate::diretivas::Token, String, Option<(String, u32)>)>,
     componentes_acima: u32,
@@ -5293,9 +5962,16 @@ struct Contexto<'a> {
     pipes: &'a PipesDoTemplate,
     /// Os nomes de `#ref` que podem virar local ([`referencias_unicas`]).
     refs_unicos: std::collections::HashSet<String>,
+    /// Os nomes de `#ref` repetidos ou sombreados por `let`.
+    refs_ambiguos: std::collections::HashSet<String>,
     /// O nó de cada `#ref` visto, de todas as visões já percorridas: a visão
     /// aninhada é emitida depois da que a contém, e lê dela o campo.
     refs_resolvidos: std::cell::RefCell<std::collections::HashMap<String, String>>,
+    /// A cadeia de cada consulta de visão dinâmica (pelo campo sujo): a
+    /// âncora `_appEl_n` e a classe da visão embutida em cada nível, da do
+    /// componente para baixo. Os níveis de baixo só se conhecem ao emitir
+    /// as visões aninhadas.
+    cadeias: std::cell::RefCell<Cadeias>,
 }
 
 impl<'a> Contexto<'a> {
@@ -5315,8 +5991,11 @@ impl<'a> Contexto<'a> {
             ouvintes: Vec::new(),
             refs_livres: Default::default(),
             refs_locais: Default::default(),
+            refs_ambiguos: self.refs_ambiguos.clone(),
             refs_ancestrais: Vec::new(),
             consultas_dinamicas: Vec::new(),
+            consultas_em_transito: Vec::new(),
+            cadeias: &self.cadeias,
             refs_consultados: Vec::new(),
             refs: Default::default(),
             refs_em_ordem: Vec::new(),
@@ -5340,6 +6019,7 @@ impl<'a> Contexto<'a> {
             metodos: self.metodos,
             aridades: self.aridades,
             metodos_evento: Vec::new(),
+            metodos_i18n: Vec::new(),
             decl_locais: Default::default(),
             locais_raiz: Vec::new(),
             classe_desta: String::new(),
@@ -5431,14 +6111,37 @@ fn corpo_da_embutida(
     fabrica: &str,
 ) -> Result<(String, Vec<EspecEmbutida>), Recusa> {
     // O campo de ligação de texto é declarado antes do construtor, então o
-    // import dele entra aqui.
+    // import dele entra aqui — e o do `package:intl`, antes ou depois dele
+    // conforme a ordem de documento, quando a visão tem `@i18n` (caso j01).
+    let ordem_i18n = i18n_antes_da_interpolacao(&espec.nos);
+    if ordem_i18n == Some(true) {
+        dentro.intl = Some(dentro.imp.alias(INTL));
+    }
     if tem_interpolacao(&espec.nos) {
         dentro.tb = Some(dentro.imp.alias(TEXT_BINDING));
     }
+    if ordem_i18n == Some(false) {
+        dentro.intl = Some(dentro.imp.alias(INTL));
+    }
+    // Com filho, diretiva ou `*` na visão, a ordem dos campos entre eles
+    // ainda não tem caso; sem mensagem em campo, a de HTML usa o `intl`
+    // só no método.
+    if contem_anotacao(&espec.nos) {
+        if ordem_i18n.is_some()
+            && !campos_em_ordem(&espec.nos, ctx.filhos, ctx.usadas, &ctx.asset).is_empty()
+        {
+            dentro.anotar(recusa(
+                Motivo::I18n,
+                "@i18n com filho, diretiva ou `*` na visão",
+            ))?;
+        }
+        dentro.intl.get_or_insert_with(String::new);
+    }
     let refs_locais = referencias_locais(&espec.nos, ctx.filhos, &ctx.refs_unicos);
     let mut promovidos = refs_locais.clone();
-    promovidos.extend(espec.refs_consultados.iter().map(|(n, _)| n.clone()));
+    promovidos.extend(espec.refs_consultados.iter().map(|(n, _, _)| n.clone()));
     dentro.refs_consultados = espec.refs_consultados.clone();
+    dentro.consultas_em_transito = espec.consultas_em_transito.clone();
     if let Err(r) = alocar_imports_dos_campos(
         dentro.imp,
         &espec.nos,
@@ -5446,7 +6149,7 @@ fn corpo_da_embutida(
         ctx.usadas,
         &ctx.asset,
         &ctx.pipes.imports_dos_campos(espec.indice),
-        &promovidos,
+        &nos_promovidos(&espec.nos, &promovidos),
     ) {
         dentro.anotar(r)?;
     }
@@ -5623,9 +6326,13 @@ fn corpo_da_embutida(
         let linhas: Vec<String> = espec
             .refs_consultados
             .iter()
-            .map(|(_, campo)| {
+            .map(|(_, campo, niveis)| {
+                let mut vista = "this".to_string();
+                for _ in 0..*niveis {
+                    vista = format!("({vista}.parentView!)");
+                }
                 format!(
-                    "    {util}.unsafeCast<{}0>((this.parentView!)).{campo} = true;",
+                    "    {util}.unsafeCast<{}0>({vista}).{campo} = true;",
                     ctx.classe_da_visao
                 )
             })
@@ -5670,9 +6377,16 @@ fn corpo_da_embutida(
     };
     let aninhadas = std::mem::take(&mut dentro.embutidas);
     // Os `_handleEvent_N`, depois do `destroyInternal`.
+    if !dentro.metodos_i18n.is_empty() && !dentro.metodos_evento.is_empty() {
+        return Err(recusa(
+            Motivo::I18n,
+            "@i18n com HTML e handler de evento na mesma visão",
+        ));
+    }
     let metodos: String = dentro
-        .metodos_evento
+        .metodos_i18n
         .iter()
+        .chain(&dentro.metodos_evento)
         .map(|m| {
             resolver_refs(
                 &resolver_tardios(dentro.imp, m),
@@ -5991,6 +6705,10 @@ struct Estrutural {
     /// O construtor recebe o `TemplateRef` (o `NgTemplateOutlet` só o
     /// `ViewContainerRef`; o `TemplateRef` do `*` fica num local sem uso).
     com_template: bool,
+    /// As entradas (`@Input`), na ordem de declaração na classe: é a ordem
+    /// das ligações (`ast.inputs.sort(_orderingOf(directive.inputs))` no
+    /// `ast_template_parser.dart`), qualquer que seja a ordem escrita.
+    entradas: &'static [&'static str],
 }
 
 impl Estrutural {
@@ -6003,6 +6721,7 @@ impl Estrutural {
                 do_check: false,
                 hospedeiro: None,
                 com_template: true,
+                entradas: &["ngIf"],
             }),
             "ngFor" => Some(Estrutural {
                 classe: "NgFor",
@@ -6011,6 +6730,7 @@ impl Estrutural {
                 do_check: true,
                 hospedeiro: None,
                 com_template: true,
+                entradas: &["ngForOf", "ngForTemplate", "ngForTrackBy"],
             }),
             "ngTemplateOutlet" => Some(Estrutural {
                 classe: "NgTemplateOutlet",
@@ -6019,6 +6739,11 @@ impl Estrutural {
                 do_check: true,
                 hospedeiro: None,
                 com_template: false,
+                entradas: &[
+                    "ngTemplateOutlet",
+                    "ngTemplateOutletContext",
+                    "ngTemplateOutletValue",
+                ],
             }),
             // As duas entradas são setters sem comparação própria: passam
             // pelo `checkBinding` (ou, imutáveis, pelo `_bindLiteral`).
@@ -6029,6 +6754,7 @@ impl Estrutural {
                 do_check: false,
                 hospedeiro: Some("NgSwitch"),
                 com_template: true,
+                entradas: &["ngSwitchCase", "ngSwitchWhen"],
             }),
             "ngSwitchDefault" => Some(Estrutural {
                 classe: "NgSwitchDefault",
@@ -6037,6 +6763,7 @@ impl Estrutural {
                 do_check: false,
                 hospedeiro: Some("NgSwitch"),
                 com_template: true,
+                entradas: &[],
             }),
             _ => None,
         }
@@ -6162,28 +6889,16 @@ fn saneador(tag: &str, prop: &str) -> Option<&'static str> {
     contexto(&format!("{tag}|{prop}")).or_else(|| contexto(&format!("*|{prop}")))
 }
 
-pub(crate) fn com_seguranca(nome: &str) -> bool {
-    matches!(
-        nome,
-        "srcdoc"
-            | "innerHTML"
-            | "outerHTML"
-            | "style"
-            | "formAction"
-            | "href"
-            | "ping"
-            | "src"
-            | "cite"
-            | "background"
-            | "action"
-            | "srcset"
-            | "poster"
-            | "code"
-            | "codebase"
-            | "profile"
-            | "manifest"
-            | "data"
-    )
+/// `getMappedPropName` do `DomElementSchemaRegistry`: o nome de
+/// propriedade de um atributo, usado para achar o contexto de segurança.
+fn propriedade_mapeada(atributo: &str) -> &str {
+    match atributo {
+        "class" => "className",
+        "innerHtml" => "innerHTML",
+        "readonly" => "readOnly",
+        "tabindex" => "tabIndex",
+        outro => outro,
+    }
 }
 
 /// `isNativeHtmlEvent` do ngcompiler (`html_events.dart`): só estes vão
@@ -6400,21 +7115,26 @@ pub fn detector_de_diretiva(h: &crate::Hospedeira, arquivo: &str) -> String {
     let mut imp = Importacoes::default();
     // A ordem dos imports é a da escrita da classe: a superclasse, o campo
     // `instance`, os parâmetros de `detectHostChanges` e, no corpo,
-    // `checkBinding` e o `dom_helpers`.
+    // `checkBinding` e, pela ação de cada ligação, o `dom_helpers` (e o
+    // saneador, quando há).
     let cd = imp.alias(DIRECTIVE_CHANGE_DETECTOR);
     let proprio = imp.alias(arquivo);
     let rv = imp.alias(RENDER_VIEW);
     let html = imp.alias("dart:html");
     let chk = imp.alias(CHECK_BINDING);
-    let dom = imp.alias(DOM_HELPERS);
     let x = &h.classe;
     let mut campos = String::new();
     let mut corpo = String::new();
-    for (k, (classe_css, membro)) in h.classes.iter().enumerate() {
+    for (k, (nome, membro)) in h.ligacoes.iter().enumerate() {
+        // `hospedeira` (lib.rs) só deixa passar as formas conhecidas.
+        let Ok(forma) = forma_do_hospedeiro(nome) else {
+            continue;
+        };
+        let acao = resolver_tardios(&mut imp, &forma.acao("el", &format!("currVal_{k}")));
         let _ = writeln!(campos, "  Object? _expr_{k};");
         let _ = write!(
             corpo,
-            "    final currVal_{k} = this.instance.{membro};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, null, null)) {{\n      {dom}.updateClassBindingNonHtml(el, '{classe_css}', currVal_{k});\n      this._expr_{k} = currVal_{k};\n    }}\n"
+            "    final currVal_{k} = this.instance.{membro};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, null, null)) {{\n      {acao};\n      this._expr_{k} = currVal_{k};\n    }}\n"
         );
     }
     let mut s = String::with_capacity(1024);
@@ -6533,13 +7253,198 @@ pub fn coletar(
     // diagnóstico roda a mesma conta aqui.
     if c.style_urls.len() == 1 {
         let url = &c.style_urls[0];
-        if local.uri_do_estilo(url).is_none() {
+        if local.uri_do_estilo(url, !c.sem_encapsulamento).is_none() {
             fora.insert(recusa(Motivo::Estilos, "folha fora de lib/"));
+        } else if c.sem_encapsulamento {
+            if let Err(f) = crate::folha_sem_shim(local.caminho, url) {
+                fora.insert(recusa(Motivo::Encapsulamento, f));
+            }
         } else if !crate::estilo_compila(local.caminho, url) {
             fora.insert(recusa(Motivo::Estilos, "Sass ou CSS fora do subconjunto"));
         }
     }
     fora
+}
+
+/// O que um `@HostBinding` de componente escreve no elemento hospedeiro:
+/// as ligações de `createElementPropertyAst` com o elemento `div`
+/// (`_securityContextElementName` do `DirectiveConverter`), escritas por
+/// `bindAndWriteToRenderer` com `isHtmlElement` falso.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum FormaDoHospedeiro {
+    /// `class.x`: `updateClassBindingNonHtml`.
+    Classe(String),
+    /// `attr.x`, com o saneador do contexto de segurança: `updateAttribute`.
+    Atributo(String, Option<&'static str>),
+    /// `style.x` e `style.x.unidade`, com o texto do valor decidido pelo
+    /// tipo do membro (`visitStyleBinding`: `isString`, `isNullable`).
+    Estilo {
+        nome: String,
+        unidade: Option<String>,
+        texto: bool,
+        nulo: bool,
+    },
+    /// Propriedade (nome mapeado por `getMappedPropName`), com o saneador:
+    /// `setProperty`.
+    Propriedade(String, Option<&'static str>),
+}
+
+/// Um `@HostBinding` do componente, resolvido: o membro lido, se é
+/// imutável (`isImmutable`: campo `final`) e a forma.
+#[derive(Debug, Clone)]
+struct LigacaoDoHospedeiro {
+    membro: String,
+    imutavel: bool,
+    forma: FormaDoHospedeiro,
+}
+
+impl LigacaoDoHospedeiro {
+    /// A instrução que escreve o valor `v` no elemento hospedeiro.
+    fn acao(&self, v: &str) -> String {
+        self.forma.acao("this.rootElement", v)
+    }
+}
+
+impl FormaDoHospedeiro {
+    /// A instrução que escreve o valor `v` no elemento `el` (o
+    /// `this.rootElement` do componente, o `el` do `XNgCd` da diretiva). Os
+    /// imports vão como marcas de [`tardio`], na ordem do texto.
+    pub(crate) fn acao(&self, el: &str, v: &str) -> String {
+        let dom = tardio(DOM_HELPERS);
+        let saneado = |s: &Option<&'static str>| match s {
+            Some(f) => format!("{}.{f}({v})", tardio(SAFE_HTML)),
+            None => v.to_string(),
+        };
+        match self {
+            FormaDoHospedeiro::Classe(x) => {
+                format!("{dom}.updateClassBindingNonHtml({el}, '{x}', {v})")
+            }
+            FormaDoHospedeiro::Atributo(x, s) => {
+                format!("{dom}.updateAttribute({el}, '{x}', {})", saneado(s))
+            }
+            FormaDoHospedeiro::Propriedade(x, s) => {
+                format!("{dom}.setProperty({el}, '{x}', {})", saneado(s))
+            }
+            FormaDoHospedeiro::Estilo {
+                nome,
+                unidade,
+                texto,
+                nulo,
+            } => {
+                let valor = match unidade {
+                    Some(u) => {
+                        let t = if *texto {
+                            v.to_string()
+                        } else {
+                            format!("{v}.toString()")
+                        };
+                        format!("(({v} == null) ? null : ({t} + {}))", literal(u))
+                    }
+                    None if *texto => v.to_string(),
+                    None if *nulo => format!("{v}?.toString()"),
+                    None => format!("{v}.toString()"),
+                };
+                format!("{el}.style.setProperty('{nome}', {valor})")
+            }
+        }
+    }
+}
+
+/// A forma de um nome de `@HostBinding` (`createElementPropertyAst`): o que
+/// não é `class.x`, `attr.x`, `style.x[.unidade]` ou propriedade simples é
+/// recusado — `class`/`className` (a classe inteira), `attr.x.if`,
+/// namespace e prefixo desconhecido ainda não têm caso.
+pub(crate) fn forma_do_hospedeiro(nome: &str) -> Result<FormaDoHospedeiro, String> {
+    let simples = |n: &str| !n.is_empty() && !n.contains(['.', ':']);
+    let fora = || format!("@HostBinding('{nome}') fora de class.x, attr.x, style.x e propriedade");
+    let partes: Vec<&str> = nome.split('.').collect();
+    Ok(match partes.as_slice() {
+        ["class", x] if simples(x) => FormaDoHospedeiro::Classe(x.to_string()),
+        ["attr", x] if simples(x) => {
+            FormaDoHospedeiro::Atributo(x.to_string(), saneador("div", propriedade_mapeada(x)))
+        }
+        ["style", x] | ["style", x, _] if simples(x) => FormaDoHospedeiro::Estilo {
+            nome: x.to_string(),
+            unidade: partes.get(2).map(|u| u.to_string()),
+            texto: false,
+            nulo: false,
+        },
+        [p] if simples(p) => {
+            let mapeada = propriedade_mapeada(p);
+            if mapeada == "className" {
+                return Err(fora());
+            }
+            FormaDoHospedeiro::Propriedade(mapeada.to_string(), saneador("div", mapeada))
+        }
+        _ => return Err(fora()),
+    })
+}
+
+/// Os `@HostBinding` do componente na ordem do mapa `hostProperties` do
+/// oficial. Sem herança, os da própria classe ([`Componente`]); com
+/// herança, os dos metadados lidos do programa (`metadados.rs`: supertipos
+/// primeiro, a chave é o nome e o último vence na posição do primeiro), com
+/// a imutabilidade dos membros herdados perguntada ao resolvedor.
+/// `style.x` precisa do tipo do membro (`isString`, `isNullable`).
+///
+/// # Erros
+///
+/// A recusa da forma que ainda não se escreve: nome fora das formas
+/// conhecidas, herança sem os metadados do programa, membro herdado
+/// ilegível, `style.x` em campo `final` ou de tipo desconhecido.
+fn ligacoes_do_componente(
+    c: &Componente,
+    local: &Local,
+    resolvedor: Option<&dyn Resolucao>,
+) -> Result<Vec<LigacaoDoHospedeiro>, Recusa> {
+    let fora = |f: &str| recusa(Motivo::HostBindingEmComponente, f.to_string());
+    let lista: Vec<(String, String)> = if c.herda {
+        match local.metadados.as_deref() {
+            Some(m) if m.fora.is_empty() => m.ligacoes_do_hospedeiro.clone(),
+            _ if c.liga_hospedeiro => {
+                return Err(fora("@HostBinding em componente que herda"));
+            }
+            _ => Vec::new(),
+        }
+    } else {
+        c.ligacoes_do_hospedeiro
+            .iter()
+            .map(|l| (l.nome.clone(), l.membro.clone()))
+            .collect()
+    };
+    let mut saida = Vec::new();
+    for (nome, membro) in lista {
+        let mut forma = forma_do_hospedeiro(&nome).map_err(|f| fora(&f))?;
+        let proprio = c.ligacoes_do_hospedeiro.iter().find(|l| l.membro == membro);
+        let imutavel = match proprio {
+            Some(l) => l.imutavel,
+            None => resolvedor
+                .and_then(|r| r.membro_final(local.caminho, &c.classe, &membro))
+                .ok_or_else(|| fora("@HostBinding herdado sem declaração legível"))?,
+        };
+        if let FormaDoHospedeiro::Estilo { texto, nulo, .. } = &mut forma {
+            if imutavel {
+                return Err(fora("@HostBinding('style.x') em campo final"));
+            }
+            let tipo = resolvedor
+                .and_then(|r| r.tipo_do_membro(local.caminho, &c.classe, &membro))
+                .map(|(t, _)| t)
+                .or_else(|| c.membros.get(&membro).map(|m| m.tipo.clone()))
+                .unwrap_or_default();
+            let base = tipo.trim().trim_end_matches('?');
+            if base.is_empty() || matches!(base, "dynamic" | "var" | "Object" | "Never") {
+                return Err(fora("@HostBinding('style.x') de tipo desconhecido"));
+            }
+            *texto = base == "String";
+            *nulo = tipo.trim().ends_with('?');
+        }
+        saida.push(LigacaoDoHospedeiro {
+            membro,
+            imutavel,
+            forma,
+        });
+    }
+    Ok(saida)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -6572,15 +7477,6 @@ fn gerar_componente(
     for r in formas_contra_o_template(c, local, nos, resolvedor, filhos) {
         anotar(coleta, r)?;
     }
-    // `@ViewChild('t')` de um `<template #t>`: o valor lido seria o
-    // `TemplateRef`, forma ainda sem caso.
-    let moldes = referencias_de_moldes(nos);
-    if c.consultas
-        .iter()
-        .any(|q| !q.por_tipo && moldes.contains(&q.referencia))
-    {
-        anotar(coleta, recusa(Motivo::Ligacao, "@ViewChild de <template>"))?;
-    }
     // `pipes:` sem uso não muda a visão (caso b19).
     let tabela = match pipes_do_template(nos, filhos, pipes, &local.asset()) {
         Ok(t) => t,
@@ -6589,22 +7485,54 @@ fn gerar_componente(
             PipesDoTemplate::default()
         }
     };
-    if !c.styles.is_empty() {
-        // `styles: ['…']` escrito na anotação ainda não.
-        anotar(coleta, recusa(Motivo::Estilos, "styles: [..] na anotação"))?;
-    }
-    // `ViewEncapsulation.none` com folha: estilo sem shim (`.css.dart`),
-    // `ComponentStyles.unscoped` e sem `addShimC`. Sem caso ainda; sem folha
-    // o oficial desliga o encapsulamento de qualquer jeito e nada muda.
-    if c.sem_encapsulamento && (!c.style_urls.is_empty() || !c.styles.is_empty()) {
+    if c.estilos_ilegiveis {
         anotar(
             coleta,
             recusa(
-                Motivo::Encapsulamento,
-                "encapsulation: ViewEncapsulation.none com folha de estilo",
+                Motivo::Estilos,
+                "styleUrls/styles com item que não é texto literal",
             ),
         )?;
     }
+    // `styles: ['…']` escrito na anotação: cada texto entra na lista
+    // `styles$X` depois das folhas de `styleUrls` (`_compileStyles`), com
+    // shim no encapsulamento emulado e tal qual no `none` (casos j07, j08).
+    let mut em_linha = Vec::new();
+    for texto in &c.styles {
+        if texto.contains("@import") {
+            anotar(coleta, recusa(Motivo::Estilos, "styles: [..] com @import"))?;
+            continue;
+        }
+        if c.sem_encapsulamento {
+            em_linha.push(literal(texto));
+            continue;
+        }
+        match crate::css::shim(texto) {
+            Ok(t) => em_linha.push(format!("'{t}'")),
+            Err(_) => anotar(
+                coleta,
+                recusa(Motivo::Estilos, "Sass ou CSS fora do subconjunto"),
+            )?,
+        }
+    }
+    // `ViewEncapsulation.none` com folha: a folha sem shim (`.css.dart`,
+    // escrita por `gerar_interno`), `ComponentStyles.unscoped` e nenhum
+    // `addShimC` (caso i88). Só a folha `.css` escrita, sem `@import`: a
+    // saída do `sass_builder` e as folhas importadas mudam o texto.
+    if c.sem_encapsulamento
+        && let [url] = c.style_urls.as_slice()
+        && let Err(f) = crate::folha_sem_shim(local.caminho, url)
+    {
+        anotar(coleta, recusa(Motivo::Encapsulamento, f))?;
+    }
+    // Os `@HostBinding` do componente, com os herdados.
+    let do_hospedeiro = match ligacoes_do_componente(c, local, resolvedor) {
+        Ok(l) => l,
+        Err(r) => {
+            anotar(coleta, r)?;
+            Vec::new()
+        }
+    };
     // A construção sai depois dos imports fixos, porque a injeção aloca os
     // seus (o `errors.dart` e o de cada tipo injetado) no fim da tabela.
     if let Some(r) = falta_para_construir(c, local, resolvedor) {
@@ -6642,7 +7570,7 @@ fn gerar_componente(
             // A folha entra pela URI `package:` mesmo estando ao lado: é
             // assim que o oficial escreve (o resolvedor de `styleUrls` é
             // outro, e não passa pelo caminho relativo).
-            match local.uri_do_estilo(&c.style_urls[0]) {
+            match local.uri_do_estilo(&c.style_urls[0], !c.sem_encapsulamento) {
                 Some(uri) => Some(imp.alias(&uri)),
                 None => {
                     anotar(coleta, recusa(Motivo::Estilos, "folha fora de lib/"))?;
@@ -6693,7 +7621,7 @@ fn gerar_componente(
         usadas,
         &local.asset(),
         &tabela.imports_dos_campos(0),
-        &refs_locais,
+        &nos_promovidos(nos, &refs_locais),
     ) {
         anotar(coleta, r)?;
     }
@@ -6713,14 +7641,16 @@ fn gerar_componente(
         usadas,
         asset: local.asset(),
         tipos: resolvedor.map(|r| (r, local.caminho)),
-        com_estilo: !c.style_urls.is_empty(),
+        com_estilo: (!c.style_urls.is_empty() || !c.styles.is_empty()) && !c.sem_encapsulamento,
         url_do_template: local.url_do_template.clone(),
         classe_da_visao: format!("View{}", c.classe),
         tipo_do_contexto: format!("{proprio}.{}", c.classe),
         html: html.clone(),
         pipes: &tabela,
+        refs_ambiguos: referencias_ambiguas(nos),
         refs_unicos,
         refs_resolvidos: Default::default(),
+        cadeias: Default::default(),
     };
     let mut corpo = ctx.corpo(imp, nomes, coleta.take(), false);
     corpo.refs_livres = referencias_livres(nos);
@@ -6733,8 +7663,8 @@ fn gerar_componente(
         .map(|(i, q)| ConsultaDinamica {
             indice: i,
             propriedade: q.propriedade.clone(),
-            referencia: q.referencia.clone(),
             lista: q.lista,
+            chave: chave_da_consulta(q, local, resolvedor).unwrap_or_default(),
             campo: format!("_viewQuery_{}_{i}_isDirty", q.referencia),
             origem: None,
         })
@@ -6743,7 +7673,8 @@ fn gerar_componente(
     for d in &corpo.consultas_dinamicas {
         corpo.campos.push(format!("  bool {} = true;", d.campo));
     }
-    corpo.intl = intl;
+    // Só mensagens com HTML: o `intl` é pedido pelo método, mais tarde.
+    corpo.intl = intl.or_else(|| contem_anotacao(nos).then(String::new));
     corpo.tb = tb;
     let r = corpo
         .nos(nos, "parentRenderNode")
@@ -6762,6 +7693,7 @@ fn gerar_componente(
     // (`updateQueryAtStartup`, `createImmediateUpdates` em
     // `compile_query.dart`). `formas_contra_o_template` já garantiu que cada
     // `#ref` está uma vez só, num elemento HTML da própria visão.
+    let moldes = referencias_de_moldes(nos);
     let mut consultas = Vec::new();
     for (i, q) in c.consultas.iter().enumerate() {
         // A dinâmica sai na detecção.
@@ -6837,6 +7769,20 @@ fn gerar_componente(
                         "    {v}.View.queryChangeDetectorRefs[{alvo}] = this.{cv};"
                     ));
                 }
+                // `ElementRef(nó)` para o elemento lido assim; o import sai
+                // na ordem do texto, depois dos ouvintes e dos pipes.
+                let mut lugares = Vec::new();
+                onde_esta(nos, &q.referencia, filhos, false, &mut lugares);
+                let elemento = matches!(lugares.first(), Some(Lugar::Raiz | Lugar::Projetado));
+                let alvo = if !q.por_tipo
+                    && elemento
+                    && !moldes.contains(&q.referencia)
+                    && valor_de_elemento(q, local, resolvedor) == Some(ValorDeElemento::ElementRef)
+                {
+                    format!("{}ElementRef({alvo})", tardio_q(ELEMENT_REF))
+                } else {
+                    alvo
+                };
                 consultas.push(format!("    _ctx.{} = {alvo};", q.propriedade));
             }
             // Na coleta a recusa já veio de `formas_contra_o_template`.
@@ -6860,6 +7806,10 @@ fn gerar_componente(
     // Os pipes: instância e proxies, no `afterNodes`, antes das consultas.
     let criacao_pipes: Vec<String> = tabela
         .criacao(0, "this", corpo.imp)
+        .iter()
+        .map(|l| resolver_tardios(corpo.imp, l))
+        .collect();
+    let consultas: Vec<String> = consultas
         .iter()
         .map(|l| resolver_tardios(corpo.imp, l))
         .collect();
@@ -6920,35 +7870,26 @@ fn gerar_componente(
     // `updateClassBindingNonHtml`), com os índices de ligação depois dos do
     // template e as imutáveis antes, no `if (firstCheck)`. O `checkBinding`
     // leva `null, null`: a ligação não tem texto de template.
-    let host_changes = if c.ligacoes_do_hospedeiro.is_empty() {
+    let host_changes = if do_hospedeiro.is_empty() {
         String::new()
     } else {
-        let dom = tardio(DOM_HELPERS);
         let chk = tardio(CHECK_BINDING);
         let mut constantes = Vec::new();
         let mut dinamicas = Vec::new();
-        for l in &c.ligacoes_do_hospedeiro {
+        for l in &do_hospedeiro {
             let k = corpo.proxima_ligacao;
             corpo.proxima_ligacao += 1;
-            let acao = |v: &str| match (l.nome.strip_prefix("class."), l.nome.strip_prefix("attr."))
-            {
-                (Some(x), _) => {
-                    format!("{dom}.updateClassBindingNonHtml(this.rootElement, '{x}', {v})")
-                }
-                (_, Some(x)) => format!("{dom}.updateAttribute(this.rootElement, '{x}', {v})"),
-                _ => String::new(),
-            };
             let m = &l.membro;
             if l.imutavel {
                 constantes.push(format!(
                     "      if ((_ctx.{m} != null)) {{\n        {};\n      }}",
-                    acao(&format!("_ctx.{m}"))
+                    l.acao(&format!("_ctx.{m}"))
                 ));
             } else {
                 corpo.campos_expr.push(format!("  Object? _expr_{k};"));
                 dinamicas.push(format!(
                     "    final currVal_{k} = _ctx.{m};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, null, null)) {{\n      {};\n      this._expr_{k} = currVal_{k};\n    }}",
-                    acao(&format!("currVal_{k}"))
+                    l.acao(&format!("currVal_{k}"))
                 ));
             }
         }
@@ -6983,14 +7924,13 @@ fn gerar_componente(
     // na ordem das consultas.
     let mut apos_conteudo = Vec::new();
     for d in &corpo.consultas_dinamicas {
-        let Some((ancora, classe)) = &d.origem else {
+        if d.origem.is_none() {
             continue;
-        };
+        }
         let q = tardio(QUERIES);
-        let mapa = format!(
-            "this.{ancora}.mapNestedViewsWithSingleResult(({classe} nestedView) {{\n      return nestedView{MARCA_DE_REF}.{}{FIM_DE_REF};\n    }})",
-            d.referencia
-        );
+        // Os níveis de baixo da cadeia só se conhecem depois de emitidas as
+        // aninhadas: [`mapa_da_consulta`] entra no lugar da marca.
+        let mapa = format!("{MARCA_DE_CONSULTA}{}{FIM_DE_CONSULTA}", d.campo);
         let valor = if d.lista {
             mapa
         } else {
@@ -7004,6 +7944,11 @@ fn gerar_componente(
         ));
     }
     apos_conteudo.extend(corpo.apos_conteudo.iter().cloned());
+    let corpo_consultas: Vec<(String, String)> = corpo
+        .consultas_dinamicas
+        .iter()
+        .map(|d| (d.campo.clone(), d.chave.clone()))
+        .collect();
     // A detecção na ordem de `writeChangeDetectionStatements`: entradas de
     // diretivas e filhos, visões aninhadas, ligações de propriedade e texto,
     // visões-filhas. `_ctx` e `firstCheck` só são declarados se alguém os
@@ -7084,9 +8029,18 @@ fn gerar_componente(
         )
     };
     // Os `_handleEvent_N`, depois do `destroyInternal`.
+    if !corpo.metodos_i18n.is_empty() && !corpo.metodos_evento.is_empty() {
+        let r = recusa(
+            Motivo::I18n,
+            "@i18n com HTML e handler de evento na mesma visão",
+        );
+        *coleta = corpo.coleta.take();
+        return Err(r);
+    }
     let metodos: String = corpo
-        .metodos_evento
+        .metodos_i18n
         .iter()
+        .chain(&corpo.metodos_evento)
         .map(|m| {
             resolver_refs(
                 &resolver_tardios(corpo.imp, m),
@@ -7178,7 +8132,7 @@ fn gerar_componente(
     // Com `@HostBinding`, a hospedeira chama o `detectHostChanges` antes de
     // detectar a visão do componente. Junto de ganchos de ciclo de vida,
     // a ordem ainda não tem caso.
-    if !c.ligacoes_do_hospedeiro.is_empty() {
+    if !do_hospedeiro.is_empty() {
         if ciclo.is_empty() {
             ciclo = "\n  @override\n  void detectChangesInternal() {\n    bool firstCheck = this.firstCheck;\n    this.componentView.detectHostChanges(firstCheck);\n    this.componentView.detectChanges();\n  }\n".to_string();
         } else if coleta.is_none() {
@@ -7204,9 +8158,15 @@ fn gerar_componente(
         "checkAlways"
     };
     // Sem folha, a lista é constante e o estilo não é encapsulado.
-    let (lista_de_estilos, encapsulamento) = match &estilo {
-        Some(a) => (format!("[{a}.styles]"), "scoped"),
-        None => ("const []".to_string(), "unscoped"),
+    let itens: Vec<String> = estilo
+        .iter()
+        .map(|a| format!("{a}.styles"))
+        .chain(em_linha)
+        .collect();
+    let (lista_de_estilos, encapsulamento) = match (itens.is_empty(), c.sem_encapsulamento) {
+        (true, _) => ("const []".to_string(), "unscoped"),
+        (false, true) => (format!("[{}]", itens.join(", ")), "unscoped"),
+        (false, false) => (format!("[{}]", itens.join(", ")), "scoped"),
     };
     let asset = format!("asset:{}/{}", local.pacote, local.relativo);
 
@@ -7273,8 +8233,10 @@ class _View{x}Host0 extends {hosp}.HostView<{proprio}.{x}> {{
 }}
 "
     );
-    // O nó que uma visão lê de uma aninhada (o resultado de consulta) só é
-    // conhecido depois de emitida a aninhada.
+    // As cadeias das consultas dinâmicas e o nó que uma visão lê de uma
+    // aninhada (o resultado de consulta) só são conhecidos depois de
+    // emitidas as aninhadas.
+    let s = resolver_consultas(&s, &corpo_consultas, &ctx.cadeias.borrow());
     let s = resolver_refs(&s, &ctx.refs_resolvidos.borrow());
     if s.contains(MARCA_DE_REF) && coleta.is_none() {
         return Err(recusa(Motivo::Ligacao, "#ref sem nó no template"));
@@ -7826,6 +8788,57 @@ mod testes {
     use super::*;
     use crate::componente::Parametro;
     use dartforge_intern::Interner;
+
+    /// `<template ngFor let-x [ngForOf]>` vira a `estrela` do `*ngFor`
+    /// equivalente, guardando o intervalo de cada ligação escrita (i84, i86).
+    #[test]
+    fn template_com_diretiva_vira_estrela() {
+        let nos = crate::html::analisar(
+            r#"<template ngFor [ngForTrackBy]="f" let-item [ngForOf]="xs" let-i="index"><p></p></template>"#,
+        );
+        let nos = template_como_container(&nos);
+        let [No::Elemento(e)] = nos.as_slice() else {
+            panic!("um elemento");
+        };
+        assert_eq!(e.nome, "ng-container");
+        let estrela = e.estrela.as_ref().expect("estrela");
+        assert_eq!(estrela.nome, "ngFor");
+        assert_eq!(estrela.valor, "let item; let i = index; trackBy: f; of: xs");
+        let micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
+        assert_eq!(
+            micro.propriedades,
+            vec![
+                ("ngForTrackBy".to_string(), "f".to_string()),
+                ("ngForOf".to_string(), "xs".to_string())
+            ]
+        );
+        let spans: Vec<(&str, usize, usize)> = e
+            .ligacoes_do_molde
+            .iter()
+            .map(|l| (l.nome.as_str(), l.inicio, l.fim))
+            .collect();
+        assert_eq!(spans, vec![("ngForTrackBy", 16, 34), ("ngForOf", 44, 58)]);
+    }
+
+    /// O que não é a forma exata continua `<template>` (e é recusado):
+    /// diretiva desconhecida, dois atributos, `;` na expressão, evento.
+    #[test]
+    fn template_com_diretiva_fora_da_forma() {
+        for t in [
+            r#"<template foo [fooOf]="xs"></template>"#,
+            r#"<template ngFor ngIf [ngForOf]="xs"></template>"#,
+            r#"<template ngFor [ngForOf]="f(';')"></template>"#,
+            r#"<template ngFor [ngForOf]="xs" (x)="y()"></template>"#,
+            r#"<template ngFor let-x></template>"#,
+        ] {
+            let nos = template_como_container(&crate::html::analisar(t));
+            let [No::Elemento(e)] = nos.as_slice() else {
+                panic!("um elemento");
+            };
+            assert_eq!(e.nome, "template", "{t}");
+            assert!(e.ligacoes_do_molde.is_empty(), "{t}");
+        }
+    }
 
     fn local() -> Local<'static> {
         Local {
