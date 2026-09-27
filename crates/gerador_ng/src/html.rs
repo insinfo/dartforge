@@ -79,6 +79,12 @@ pub struct Elemento {
     /// do ngast), com o nome sem o `@`.
     pub anotacoes: Vec<Ligacao>,
     pub filhos: Vec<No>,
+    /// As ligações `[dirX]="e"` de um `<template dir let-x [dirX]="e">`
+    /// escrito à mão, depois de ele ser reescrito como `*dir` (ver
+    /// `template_como_container` em `visao.rs`): o `REF` de cada entrada é o
+    /// intervalo da ligação escrita, não o da `estrela` inteira. Vazio no
+    /// resto.
+    pub ligacoes_do_molde: Vec<Ligacao>,
 }
 
 impl Elemento {

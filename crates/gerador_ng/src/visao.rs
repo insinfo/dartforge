@@ -515,6 +515,7 @@ fn formas_contra_o_template(
     filhos: &std::collections::HashMap<String, Filho>,
 ) -> Vec<Recusa> {
     let mut fora = Vec::new();
+    let moldes = referencias_de_moldes(nos);
     for consulta in &c.consultas {
         let mut lugares = Vec::new();
         if consulta.por_tipo {
@@ -552,6 +553,27 @@ fn formas_contra_o_template(
             continue;
         }
         onde_esta(nos, &consulta.referencia, filhos, false, &mut lugares);
+        // `@ViewChild('t')` de um `<template #t>` escrito ([`Corpo::molde`]):
+        // o valor lido é o `TemplateRef` do nó (o `read` implícito de um
+        // `<template>`), atribuído no `build()` como o de um elemento
+        // (`_ctx.x = this._TemplateRef_n_7;`). Só a forma estática — um
+        // `#t` só, na própria visão, campo `TemplateRef` do ngdart; lista,
+        // resultado em `*` ou no conteúdo projetado ainda não.
+        if moldes.contains(&consulta.referencia) {
+            match lugares.as_slice() {
+                [Lugar::Raiz]
+                    if !consulta.lista && e_template_ref(&consulta.tipo, local, resolvedor) => {}
+                [Lugar::Raiz] if !consulta.lista => fora.push(recusa(
+                    Motivo::ViewChildEmFilho,
+                    "@ViewChild de <template> em campo que não é TemplateRef",
+                )),
+                _ => fora.push(recusa(
+                    Motivo::ViewChildDinamico,
+                    "@ViewChild de <template> fora da forma estática",
+                )),
+            }
+            continue;
+        }
         // `@ViewChildren` estático, ou `@ViewChild` de `#ref` repetido (o
         // primeiro resultado): todos os resultados nesta visão, e do mesmo
         // jeito (nós com campo `Element`, ou instâncias de filho com campo
@@ -738,6 +760,14 @@ fn template_como_container(nos: &[No]) -> Vec<No> {
                     e.propriedades.clear();
                     e.atributos.clear();
                     e.nome = "ng-container".into();
+                } else if let (true, "template", Some((estrela, ligacoes))) =
+                    (limpo, e.nome.as_str(), molde_com_diretiva(&e))
+                {
+                    e.estrela = Some(estrela);
+                    e.ligacoes_do_molde = ligacoes;
+                    e.propriedades.clear();
+                    e.atributos.clear();
+                    e.nome = "ng-container".into();
                 } else if e.nome == "template"
                     && e.estrela.is_none()
                     && e.atributos.is_empty()
@@ -763,6 +793,79 @@ fn template_como_container(nos: &[No]) -> Vec<No> {
             outro => outro.clone(),
         })
         .collect()
+}
+
+/// `<template dir let-x let-y="chave" [dirA]="a" [dirB]="b">` escrito à
+/// mão é exatamente o `<template>` que a microssintaxe de
+/// `*dir="let x; let y = chave; a: a; b: b"` produz (`micro/parser.dart` do
+/// ngast desfaz o `*` nesses atributos): o mesmo `EmbeddedTemplateAst`, com
+/// a diretiva casada pelo seletor (`[ngFor][ngForOf]`). Reescrito como a
+/// `estrela` equivalente, ele segue o caminho do `*`; a única coisa que o
+/// `*` não guarda é o intervalo de cada ligação escrita — o `REF` de cada
+/// entrada —, devolvido à parte.
+///
+/// Só a forma sem ambiguidade: exatamente um atributo sem valor com o nome
+/// de uma diretiva estrutural conhecida, `let-x` (com ou sem valor) e ao
+/// menos uma ligação `[dirX]` com o prefixo da diretiva e sem `;` na
+/// expressão (que a microssintaxe separaria). O resto continua `<template>`
+/// e é recusado.
+fn molde_com_diretiva(
+    e: &crate::html::Elemento,
+) -> Option<(crate::html::Ligacao, Vec<crate::html::Ligacao>)> {
+    let (lets, outros): (Vec<_>, Vec<_>) =
+        e.atributos.iter().partition(|a| a.nome.starts_with("let-"));
+    let [dir] = outros.as_slice() else {
+        return None;
+    };
+    if !dir.valor.is_empty() || Estrutural::conhecida(&dir.nome).is_none() {
+        return None;
+    }
+    if e.propriedades.is_empty() {
+        return None;
+    }
+    let mut partes = Vec::new();
+    for l in &lets {
+        let nome = &l.nome["let-".len()..];
+        if nome.is_empty()
+            || !nome
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+        {
+            return None;
+        }
+        let chave = l.valor.trim();
+        if chave.contains([';', '=']) {
+            return None;
+        }
+        partes.push(if chave.is_empty() {
+            format!("let {nome}")
+        } else {
+            format!("let {nome} = {chave}")
+        });
+    }
+    for p in &e.propriedades {
+        let sufixo = p.nome.strip_prefix(dir.nome.as_str())?;
+        let mut cs = sufixo.chars();
+        let primeira = cs.next()?;
+        if !primeira.is_ascii_uppercase() || p.valor.contains(';') || p.valor.trim().is_empty() {
+            return None;
+        }
+        partes.push(format!(
+            "{}{}: {}",
+            primeira.to_ascii_lowercase(),
+            cs.as_str(),
+            p.valor.trim()
+        ));
+    }
+    Some((
+        crate::html::Ligacao {
+            nome: dir.nome.clone(),
+            valor: partes.join("; "),
+            inicio: dir.inicio,
+            fim: dir.fim,
+        },
+        e.propriedades.clone(),
+    ))
 }
 
 /// Os `#ref` dos `<template>` escritos ([`MARCA_DE_MOLDE`]), em qualquer
@@ -885,6 +988,17 @@ fn e_tipo_de_elemento(tipo: &str, local: &Local, resolvedor: Option<&dyn Resoluc
             .and_then(|r| r.uri_do_tipo(local.caminho, tipo))
             .as_deref()
             == Some("dart:html")
+}
+
+/// O tipo do campo é o `TemplateRef` do ngdart (`TemplateRef` ou
+/// `TemplateRef?`, sem prefixo, resolvido para `template_ref.dart`)?
+fn e_template_ref(tipo: &str, local: &Local, resolvedor: Option<&dyn Resolucao>) -> bool {
+    let tipo = tipo.trim().trim_end_matches('?');
+    tipo == "TemplateRef"
+        && resolvedor
+            .and_then(|r| r.uri_do_tipo(local.caminho, tipo))
+            .as_deref()
+            == Some(TEMPLATE_REF)
 }
 
 /// Um pipe de `pipes:`, com a URI da biblioteca que o declara.
@@ -3199,8 +3313,33 @@ impl Corpo<'_> {
                 }
             }
         };
-        let micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
+        let mut micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
+        // As ligações saem na ordem das entradas da diretiva, não na escrita
+        // (`_orderingOf(directive.inputs)`). Entrada que a diretiva não
+        // declara é erro no oficial ("Can't bind to ..."): não há saída.
+        if let Some((p, _)) = micro
+            .propriedades
+            .iter()
+            .find(|(p, _)| !dir.entradas.contains(&p.as_str()))
+        {
+            return Err(recusa(
+                Motivo::Ligacao,
+                format!("`{p}` não é entrada de {}", dir.classe),
+            ));
+        }
+        micro
+            .propriedades
+            .sort_by_key(|(p, _)| dir.entradas.iter().position(|x| x == p));
         self.guarda_do_template(&estrela.nome, &micro, Some(&dir))?;
+        // O `REF` de cada entrada: o intervalo da ligação escrita num
+        // `<template dir [dirX]>` ([`molde_com_diretiva`]); no `*`, o do
+        // atributo inteiro.
+        let intervalo = |prop: &str| {
+            e.ligacoes_do_molde
+                .iter()
+                .find(|l| l.nome == prop)
+                .map_or((estrela.inicio, estrela.fim), |l| (l.inicio, l.fim))
+        };
         let n = self.proximo;
         self.proximo += 1;
         let dom = self.dom();
@@ -3272,7 +3411,7 @@ impl Corpo<'_> {
             // `_bindLiteral` no `NgFor`, que consome o índice da ligação e
             // põe o `if (x != null)` em volta do que pode ser nulo.
             if c.imutavel {
-                let (ini, fim) = (estrela.inicio, estrela.fim);
+                let (ini, fim) = intervalo(prop);
                 let valor = &c.texto;
                 let dev_rec = format!(
                     "if ({dev}.isDevToolsEnabled) {{\n  {dev}.Inspector.instance.recordInput(this.{campo}, '{prop}', {valor});\n}}"
@@ -3299,7 +3438,7 @@ impl Corpo<'_> {
                 continue;
             }
             let valor = c.texto;
-            let (ini, fim) = (estrela.inicio, estrela.fim);
+            let (ini, fim) = intervalo(prop);
             if dir.direta {
                 // `_isDirectBinding` do ngcompiler: o `NgIf` já compara o
                 // valor antes de agir, então não há `checkBinding` fora.
@@ -5991,6 +6130,10 @@ struct Estrutural {
     /// O construtor recebe o `TemplateRef` (o `NgTemplateOutlet` só o
     /// `ViewContainerRef`; o `TemplateRef` do `*` fica num local sem uso).
     com_template: bool,
+    /// As entradas (`@Input`), na ordem de declaração na classe: é a ordem
+    /// das ligações (`ast.inputs.sort(_orderingOf(directive.inputs))` no
+    /// `ast_template_parser.dart`), qualquer que seja a ordem escrita.
+    entradas: &'static [&'static str],
 }
 
 impl Estrutural {
@@ -6003,6 +6146,7 @@ impl Estrutural {
                 do_check: false,
                 hospedeiro: None,
                 com_template: true,
+                entradas: &["ngIf"],
             }),
             "ngFor" => Some(Estrutural {
                 classe: "NgFor",
@@ -6011,6 +6155,7 @@ impl Estrutural {
                 do_check: true,
                 hospedeiro: None,
                 com_template: true,
+                entradas: &["ngForOf", "ngForTemplate", "ngForTrackBy"],
             }),
             "ngTemplateOutlet" => Some(Estrutural {
                 classe: "NgTemplateOutlet",
@@ -6019,6 +6164,11 @@ impl Estrutural {
                 do_check: true,
                 hospedeiro: None,
                 com_template: false,
+                entradas: &[
+                    "ngTemplateOutlet",
+                    "ngTemplateOutletContext",
+                    "ngTemplateOutletValue",
+                ],
             }),
             // As duas entradas são setters sem comparação própria: passam
             // pelo `checkBinding` (ou, imutáveis, pelo `_bindLiteral`).
@@ -6029,6 +6179,7 @@ impl Estrutural {
                 do_check: false,
                 hospedeiro: Some("NgSwitch"),
                 com_template: true,
+                entradas: &["ngSwitchCase", "ngSwitchWhen"],
             }),
             "ngSwitchDefault" => Some(Estrutural {
                 classe: "NgSwitchDefault",
@@ -6037,6 +6188,7 @@ impl Estrutural {
                 do_check: false,
                 hospedeiro: Some("NgSwitch"),
                 com_template: true,
+                entradas: &[],
             }),
             _ => None,
         }
@@ -6571,15 +6723,6 @@ fn gerar_componente(
     }
     for r in formas_contra_o_template(c, local, nos, resolvedor, filhos) {
         anotar(coleta, r)?;
-    }
-    // `@ViewChild('t')` de um `<template #t>`: o valor lido seria o
-    // `TemplateRef`, forma ainda sem caso.
-    let moldes = referencias_de_moldes(nos);
-    if c.consultas
-        .iter()
-        .any(|q| !q.por_tipo && moldes.contains(&q.referencia))
-    {
-        anotar(coleta, recusa(Motivo::Ligacao, "@ViewChild de <template>"))?;
     }
     // `pipes:` sem uso não muda a visão (caso b19).
     let tabela = match pipes_do_template(nos, filhos, pipes, &local.asset()) {
@@ -7826,6 +7969,57 @@ mod testes {
     use super::*;
     use crate::componente::Parametro;
     use dartforge_intern::Interner;
+
+    /// `<template ngFor let-x [ngForOf]>` vira a `estrela` do `*ngFor`
+    /// equivalente, guardando o intervalo de cada ligação escrita (i84, i86).
+    #[test]
+    fn template_com_diretiva_vira_estrela() {
+        let nos = crate::html::analisar(
+            r#"<template ngFor [ngForTrackBy]="f" let-item [ngForOf]="xs" let-i="index"><p></p></template>"#,
+        );
+        let nos = template_como_container(&nos);
+        let [No::Elemento(e)] = nos.as_slice() else {
+            panic!("um elemento");
+        };
+        assert_eq!(e.nome, "ng-container");
+        let estrela = e.estrela.as_ref().expect("estrela");
+        assert_eq!(estrela.nome, "ngFor");
+        assert_eq!(estrela.valor, "let item; let i = index; trackBy: f; of: xs");
+        let micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
+        assert_eq!(
+            micro.propriedades,
+            vec![
+                ("ngForTrackBy".to_string(), "f".to_string()),
+                ("ngForOf".to_string(), "xs".to_string())
+            ]
+        );
+        let spans: Vec<(&str, usize, usize)> = e
+            .ligacoes_do_molde
+            .iter()
+            .map(|l| (l.nome.as_str(), l.inicio, l.fim))
+            .collect();
+        assert_eq!(spans, vec![("ngForTrackBy", 16, 34), ("ngForOf", 44, 58)]);
+    }
+
+    /// O que não é a forma exata continua `<template>` (e é recusado):
+    /// diretiva desconhecida, dois atributos, `;` na expressão, evento.
+    #[test]
+    fn template_com_diretiva_fora_da_forma() {
+        for t in [
+            r#"<template foo [fooOf]="xs"></template>"#,
+            r#"<template ngFor ngIf [ngForOf]="xs"></template>"#,
+            r#"<template ngFor [ngForOf]="f(';')"></template>"#,
+            r#"<template ngFor [ngForOf]="xs" (x)="y()"></template>"#,
+            r#"<template ngFor let-x></template>"#,
+        ] {
+            let nos = template_como_container(&crate::html::analisar(t));
+            let [No::Elemento(e)] = nos.as_slice() else {
+                panic!("um elemento");
+            };
+            assert_eq!(e.nome, "template", "{t}");
+            assert!(e.ligacoes_do_molde.is_empty(), "{t}");
+        }
+    }
 
     fn local() -> Local<'static> {
         Local {
