@@ -305,6 +305,8 @@ dependencies = [
  "dartforge-emit-js",
  "dartforge-intern",
  "dartforge-mundo",
+ "postcard",
+ "serde",
 ]
 
 [[package]]

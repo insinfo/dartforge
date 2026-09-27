@@ -93,6 +93,17 @@ fn executar() -> Result<(), String> {
         prod.sdk_vivas,
         prod.sdk_unidades,
     );
+    if let Some((origem, t)) = prod.indice {
+        let de = match origem {
+            dartforge_emit_js_producao::cache::Origem::Cache => "do cache",
+            dartforge_emit_js_producao::cache::Origem::Construido => "construído",
+        };
+        println!(
+            "runtime: índice {de} em {:.0} ms; poda {:.0} ms",
+            t.as_secs_f64() * 1000.0,
+            prod.tempo_poda.as_secs_f64() * 1000.0
+        );
+    }
     if let Some(m) = &prod.mundo {
         let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
         let e = &m.estat;

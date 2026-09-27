@@ -247,6 +247,36 @@ Duas aplicações concretas, nesta ordem:
 A regra de higiene que vem junto (§2.1 da pesquisa): **nenhum cache cresce
 sem política de descarte explícita.**
 
+**Implementado (aplicação 1), 2026-09-27** — `crates/emit_js_producao/src/cache.rs`.
+O índice (`sdk::IndiceSdk`: fatias, unidades com condições, referências e
+seletores internados, raízes do próprio arquivo, aliases exportados e os
+seletores que o runtime chama por string) sai de `sdk::indexar` e fica em
+`<cache>/jsprod-sdk-<chave>.bin` (o diretório do cache do SDK Dart,
+`DARTFORGE_CACHE_DIR`). A poda por programa (`sdk::podar_com_indice`) corre
+por cima dele.
+
+* **Chave**: FNV-1a sobre a versão do formato, o texto inteiro do
+  `dart_sdk.js`, `por_membro` e o código da classificação (`sdk.rs`,
+  `varredura.rs`, `alcance.rs`, `bundle.rs`, embutidos). Outro runtime,
+  outra granularidade ou outra versão da classificação não usam o índice.
+* **Conferência ao ler**: o cabeçalho repete a chave, o tamanho e um
+  segundo hash do texto; arquivo corrompido, de outro formato ou de outro
+  texto é ignorado e reconstruído. Escrita atômica (temporário + `rename`),
+  porque o diferencial compila em paralelo.
+* **Descarte**: no máximo 4 índices no diretório; os mais antigos saem.
+* `DARTFORGE_JSPROD_CACHE=0` desliga.
+
+Medido no `01_print` (processo inteiro, com o cache do SDK Dart já quente):
+455 ms construindo o índice (334 ms dele), **130 ms** lendo do cache (48 ms);
+o bundle é byte a byte o mesmo com e sem cache. Testes em `cache.rs`: reuso,
+runtime e configuração incompatíveis recusados, arquivo corrompido, descarte
+e poda idêntica pelo índice lido.
+
+A aplicação 2 (resumo por biblioteca do usuário) não foi feita: o mundo do
+usuário (`crates/mundo`) custa 14 ms no `new_sali/core` e roda sobre o
+`Program` já carregado; o custo dominante que sobra é carregar e inferir o
+programa, que é do `dartforge dev`/`serve`, não deste perfil.
+
 ### 1.7 O mundo fechado sobre a nossa trilha — o contrato (etapa 5)
 
 Implementado em `crates/mundo` (a análise, sem backend) e consumido por

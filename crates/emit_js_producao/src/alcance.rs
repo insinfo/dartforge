@@ -46,10 +46,19 @@ impl Simbolos {
     pub fn total(&self) -> usize {
         self.nomes.len()
     }
+    /// Os nomes, na ordem dos `Sym` (o que o índice guarda).
+    pub fn nomes(self) -> Vec<String> {
+        self.nomes
+    }
+    /// A tabela de volta a partir dos nomes na ordem dos `Sym`.
+    pub fn de_nomes(nomes: Vec<String>) -> Simbolos {
+        let mapa = nomes.iter().enumerate().map(|(i, n)| (n.clone(), i as Sym)).collect();
+        Simbolos { mapa, nomes }
+    }
 }
 
 /// Uma unidade indivisível do arquivo de saída.
-#[derive(Default)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Unidade {
     /// Viva desde o começo, sem condição (o `export`, o `trackLibraries`).
     pub sempre: bool,
