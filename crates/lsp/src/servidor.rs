@@ -98,6 +98,15 @@ pub struct Servidor<A = AnalisadorSintatico> {
     hover_markdown: bool,
     /// O cliente aceita `prepareRename` (`rename.prepareSupport`).
     preparar_renomeacao: bool,
+    /// Trabalhador dos diagnósticos tipados (`crate::tipado`), iniciado no
+    /// primeiro documento aberto quando o analisador tem SDK.
+    tipado: Option<crate::tipado::Tipado>,
+    /// O trabalhador já foi tentado (iniciado ou recusado).
+    tipado_tentado: bool,
+    /// Chamado pelo trabalhador quando há resultado (acorda o laço do `main`).
+    despertar: Option<crate::tipado::Despertar>,
+    /// Resultados tipados descartados por versão velha ou documento fechado.
+    tipados_descartados: usize,
 }
 
 impl Servidor<AnalisadorSintatico> {
@@ -128,7 +137,86 @@ impl<A: Analisador> Servidor<A> {
             simbolos_hierarquicos: false,
             hover_markdown: false,
             preparar_renomeacao: false,
+            tipado: None,
+            tipado_tentado: false,
+            despertar: None,
+            tipados_descartados: 0,
         }
+    }
+
+    /// Registra o gancho chamado (de outra thread) quando a análise tipada
+    /// tem resultado: o laço do `main` o usa para acordar e chamar
+    /// [`Servidor::bombear`], que publica o que ainda for da versão vigente.
+    pub fn ao_ter_diagnosticos(&mut self, gancho: impl Fn() + Send + Sync + 'static) {
+        self.despertar = Some(crate::tipado::Despertar(std::sync::Arc::new(gancho)));
+    }
+
+    /// Espera a análise tipada ficar ociosa (até `limite`) e devolve as
+    /// publicações que ela produziu, já filtradas pela versão vigente. Para
+    /// testes e medições; o editor recebe as mesmas pelo [`Servidor::bombear`].
+    pub fn aguardar_diagnosticos(&mut self, limite: std::time::Duration) -> Vec<Value> {
+        if let Some(t) = &self.tipado {
+            t.esperar_ocioso(limite);
+        }
+        self.drenar_tipados()
+    }
+
+    /// Espera a análise tipada ficar ociosa sem publicar o resultado (que
+    /// fica para o próximo [`Servidor::bombear`]). Gancho de teste.
+    #[doc(hidden)]
+    pub fn esperar_analise_ociosa(&self, limite: std::time::Duration) -> bool {
+        self.tipado.as_ref().is_none_or(|t| t.esperar_ocioso(limite))
+    }
+
+    /// Suspende (ou retoma) o início de análises tipadas. Gancho de teste
+    /// para exercitar a coalescência de edições rápidas.
+    #[doc(hidden)]
+    pub fn pausar_analise_tipada(&mut self, pausar: bool) {
+        self.garantir_tipado();
+        if let Some(t) = &self.tipado {
+            t.pausar(pausar);
+        }
+    }
+
+    /// Resultados tipados descartados até agora (versão velha ou documento
+    /// fechado antes de publicar).
+    pub fn tipados_descartados(&self) -> usize {
+        self.tipados_descartados
+    }
+
+    /// Inicia o trabalhador tipado uma vez, se o analisador tem SDK.
+    fn garantir_tipado(&mut self) {
+        if self.tipado_tentado {
+            return;
+        }
+        self.tipado_tentado = true;
+        if let Some(sdk) = crate::tipado::sdk_do_analisador(&self.analisador) {
+            self.tipado = crate::tipado::Tipado::iniciar(sdk, self.despertar.clone());
+        }
+    }
+
+    /// Pede a análise tipada do texto vigente de `uri`.
+    fn pedir_tipado(&mut self, uri: &str) {
+        self.garantir_tipado();
+        let (Some(t), Some(versao), Some(texto)) = (&self.tipado, self.documentos.version(uri), self.documentos.get(uri)) else {
+            return;
+        };
+        t.documento(uri, versao, texto);
+    }
+
+    /// Publica os resultados tipados prontos que ainda são da versão vigente;
+    /// os demais são descartados.
+    fn drenar_tipados(&mut self) -> Vec<Value> {
+        let Some(t) = &self.tipado else { return Vec::new() };
+        let mut saidas = Vec::new();
+        for r in t.receber() {
+            if self.documentos.version(&r.uri) != Some(r.versao) {
+                self.tipados_descartados += 1;
+                continue;
+            }
+            saidas.push(self.publicacao(&r.uri, &r.diagnosticos));
+        }
+        saidas
     }
 
     /// Enfileira uma mensagem decodificada do transporte, sem despachar.
@@ -186,6 +274,10 @@ impl<A: Analisador> Servidor<A> {
             debug_assert!(eh_requisicao(&requisicao));
             saidas.push(self.tratar_requisicao(&requisicao));
         }
+        // Resultados tipados depois das notificações: o que uma mudança já
+        // recebida tornou velho é descartado aqui, antes de chegar ao editor.
+        // (Uma requisição não muda documentos; a resposta sai primeiro.)
+        saidas.extend(self.drenar_tipados());
         saidas
     }
 
@@ -242,6 +334,7 @@ impl<A: Analisador> Servidor<A> {
                 }
                 self.documentos
                     .open(uri.to_string(), versao, texto.to_string());
+                self.pedir_tipado(uri);
                 Some(self.publicar(uri))
             }
             "textDocument/didChange" => {
@@ -250,15 +343,20 @@ impl<A: Analisador> Servidor<A> {
                 let uri = doc.get("uri")?.as_str()?;
                 let versao = doc.get("version")?.as_i64()? as i32;
                 let mudancas = ler_mudancas(params.get("contentChanges")?);
-                self.documentos
-                    .apply(uri, versao, &mudancas)
-                    .then(|| self.publicar(uri))
+                if !self.documentos.apply(uri, versao, &mudancas) {
+                    return None;
+                }
+                self.pedir_tipado(uri);
+                Some(self.publicar(uri))
             }
             "textDocument/didClose" => {
                 let params = mensagem.get("params")?;
                 let uri = params.get("textDocument")?.get("uri")?.as_str()?;
                 if self.documentos.close(uri) {
                     self.analisador.documento_fechado(uri);
+                    if let Some(t) = &self.tipado {
+                        t.fechado(uri);
+                    }
                 }
                 Some(publicacao_vazia(uri))
             }
@@ -629,14 +727,19 @@ impl<A: Analisador> Servidor<A> {
         let Some(texto) = self.documentos.get(uri).map(str::to_string) else {
             return publicacao_vazia(uri);
         };
-        let versao = self.documentos.version(uri).unwrap_or(0);
         let diagnosticos = self.analisador.diagnosticar(uri, &texto);
-        let Some(tabela) = self.documentos.linhas(uri) else {
+        self.publicacao(uri, &diagnosticos)
+    }
+
+    /// `publishDiagnostics` de `diagnosticos` (spans do texto vigente de `uri`).
+    fn publicacao(&self, uri: &str, diagnosticos: &[dartforge_diagnostics::Diagnostic]) -> Value {
+        let (Some(texto), Some(tabela)) = (self.documentos.get(uri), self.documentos.linhas(uri)) else {
             return publicacao_vazia(uri);
         };
+        let versao = self.documentos.version(uri).unwrap_or(0);
         let itens: Vec<Value> = diagnosticos
             .iter()
-            .map(|d| converter_diagnostico(&texto, tabela, d))
+            .map(|d| converter_diagnostico(texto, tabela, d))
             .collect();
         json!({
             "jsonrpc": "2.0",

@@ -6,10 +6,12 @@
 //! `mem_docs.rs`; fila com cancelamento como em `op_queue.rs`; conversão
 //! UTF-16 como em `lsp/utils.rs` (aqui em [`utf16`]).
 //!
-//! O servidor diagnostica pelo parser novo
-//! (`dartforge_frontend::parser::parse`) através do [`trait Analisador`],
-//! cuja implementação sintática de hoje ([`AnalisadorSintatico`]) será
-//! trocada pela semântica (`crates/types`) sem tocar no transporte.
+//! O servidor diagnostica em dois tempos: na hora, pelo parser novo e pelos
+//! verificadores locais de `crates/analise` através do [`trait Analisador`];
+//! em segundo plano, quando o analisador tem SDK
+//! ([`Analisador::sdk_para_diagnosticos`]), pela mesma análise tipada do
+//! `dartforge analyze` (`tipado`), publicada só se a versão ainda é a
+//! vigente (`docs/LSP.md`, "Diagnósticos tipados").
 
 pub mod servidor;
 mod acoes;
@@ -19,6 +21,7 @@ mod navegacao;
 mod renomear;
 mod semantica;
 mod simbolos;
+mod tipado;
 pub mod transporte;
 pub mod utf16;
 
@@ -225,10 +228,12 @@ impl DocumentStore {
 
 /// Análise que produz os diagnósticos publicados após cada mudança.
 ///
-/// A costura pela qual a semântica (`crates/types`) entrará sem tocar no
-/// transporte: o [`Servidor`] chama este trait, nunca o parser diretamente.
-/// A assinatura leva `uri` e `texto` (não o documento) para que a
-/// implementação futura possa consultar outros arquivos.
+/// O [`Servidor`] chama este trait, nunca o parser diretamente. A
+/// assinatura leva `uri` e `texto` (não o documento) para que a
+/// implementação possa consultar outros arquivos. Os diagnósticos tipados
+/// não passam por [`Analisador::diagnosticar`] (que é síncrono): o servidor
+/// os pede ao trabalhador em segundo plano com o SDK de
+/// [`Analisador::sdk_para_diagnosticos`].
 pub trait Analisador {
     /// Diagnostica o texto vigente e devolve spans em bytes UTF-8.
     ///
@@ -334,6 +339,14 @@ pub trait Analisador {
     /// Descarta estado associado ao documento quando ele sai do editor.
     fn documento_fechado(&mut self, _uri: &str) {}
 
+    /// O `lib/` do SDK com que o servidor roda, em segundo plano, a análise
+    /// tipada do `dartforge analyze` sobre os documentos abertos
+    /// (`docs/LSP.md`, "Diagnósticos tipados"). `None` (o padrão): só os
+    /// diagnósticos de [`Analisador::diagnosticar`].
+    fn sdk_para_diagnosticos(&self) -> Option<std::path::PathBuf> {
+        None
+    }
+
     /// Referências conservadoras no próprio documento: declaração primeiro,
     /// depois os usos, todos como spans em bytes UTF-8.
     ///
@@ -419,6 +432,14 @@ impl AnalisadorSintatico {
         self.padroes.insert(uri.to_string(), padrao);
         LibraryFeatures::new(padrao, &[])
     }
+
+    /// Só os diagnósticos do parser (sempre publicados), na versão de
+    /// linguagem do arquivo.
+    pub(crate) fn sintaxe(&mut self, uri: &str, texto: &str) -> Vec<Diagnostic> {
+        let features = self.features(uri, texto);
+        let mut nomes = dartforge_intern::Interner::new();
+        dartforge_frontend::parser::parse_com(texto, &mut nomes, features).diagnostics
+    }
 }
 
 impl Analisador for AnalisadorSintatico {
@@ -428,7 +449,8 @@ impl Analisador for AnalisadorSintatico {
     /// Depois da sintaxe, os verificadores de `crates/analise` que não
     /// dependem de tipos (nomes duplicados, locais não usados) sobre o próprio
     /// arquivo; destes, só sai o que a regra de publicação deixa
-    /// (`dartforge_analise::publicacao`): código verificado contra o oráculo.
+    /// (`dartforge_analise::publicacao`): código verificado contra o oráculo,
+    /// e não suprimido por `// ignore:` (o filtro do `dartforge analyze`).
     fn diagnosticar(&mut self, uri: &str, texto: &str) -> Vec<Diagnostic> {
         let features = self.features(uri, texto);
         let mut nomes = dartforge_intern::Interner::new();
@@ -450,7 +472,14 @@ impl Analisador for AnalisadorSintatico {
             .chain(dartforge_analise::locais::nao_usados(unidade, &nomes, curinga, &erros_sintaticos))
             .chain(dartforge_analise::externos::inicializadores(unidade))
             .chain(dartforge_analise::operadores::aridade(unidade, &nomes));
-        saida.extend(semanticos.filter(|d| dartforge_analise::publicacao::publicado(d, false)));
+        // `// ignore:` como no `dartforge analyze` (o mesmo filtro).
+        let ignorados = dartforge_paridade::filtros::Ignorados::de_texto(texto);
+        let linhas = dartforge_paridade::json::Linhas::new(texto);
+        saida.extend(
+            semanticos
+                .filter(|d| dartforge_analise::publicacao::publicado(d, false))
+                .filter(|d| !ignorados.ignora(d, linhas.ponto(d.span.start).line)),
+        );
         saida
     }
 

@@ -42,22 +42,35 @@ pub fn diagnosticos_json(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoe
             continue;
         }
         let linhas = json::Linhas::new(&a.texto);
-        let ignorados = filtros::Ignorados::de_texto(&a.texto);
         let caminho = p.to_string_lossy();
-        for (i, d) in a.diags.iter().enumerate() {
-            let sintaxe = i < a.sintaticos;
-            if so_publicados && !publicado(d, sintaxe) {
-                continue;
-            }
-            let Some(d) = opcoes.processar(d.clone()) else { continue };
-            let linha = linhas.ponto(d.span.start).line;
-            if ignorados.ignora(&d, linha) {
-                continue;
-            }
+        for (d, sintaxe) in publicaveis(a, opcoes, so_publicados) {
             out.push(json::para_json(&caminho, &linhas, &d, sintaxe));
         }
     }
     json::ordenar(&mut out);
+    out
+}
+
+/// Os diagnósticos de um arquivo que saem para o usuário, com a marca de
+/// sintaxe: a regra de publicação (com `so_publicados`), o
+/// `analysis_options.yaml` (`opcoes`) e os comentários `// ignore:` do
+/// texto. É o filtro comum do `dartforge analyze` e do LSP.
+pub fn publicaveis(a: &analise::Arquivo, opcoes: &filtros::Opcoes, so_publicados: bool) -> Vec<(dartforge_diagnostics::Diagnostic, bool)> {
+    let linhas = json::Linhas::new(&a.texto);
+    let ignorados = filtros::Ignorados::de_texto(&a.texto);
+    let mut out = Vec::new();
+    for (i, d) in a.diags.iter().enumerate() {
+        let sintaxe = i < a.sintaticos;
+        if so_publicados && !publicado(d, sintaxe) {
+            continue;
+        }
+        let Some(d) = opcoes.processar(d.clone()) else { continue };
+        let linha = linhas.ponto(d.span.start).line;
+        if ignorados.ignora(&d, linha) {
+            continue;
+        }
+        out.push((d, sintaxe));
+    }
     out
 }
 

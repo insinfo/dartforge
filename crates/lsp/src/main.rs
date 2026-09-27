@@ -9,7 +9,9 @@
 //! e enfileira valores no [`Servidor`]; a thread principal despacha com
 //! [`Servidor::bombear`] e escreve cada mensagem de saída por inteiro sob um
 //! `Mutex`. O servidor nunca envia requisições, então não há resposta a
-//! tratar nem correlação de ids no caminho de volta.
+//! tratar nem correlação de ids no caminho de volta. A análise tipada
+//! (`docs/LSP.md`, "Diagnósticos tipados") roda numa terceira thread e
+//! acorda o despacho com [`Entrada::Despertar`] quando termina.
 
 use dartforge_lsp::{AnalisadorSemantico, Servidor};
 use dartforge_lsp::transporte::{escrever_mensagem, ler_mensagem};
@@ -23,6 +25,8 @@ enum Entrada {
     Mensagem(Value),
     /// `stdin` fechou ou falhou de forma irrecuperável.
     Fim,
+    /// A análise tipada terminou: há diagnósticos a publicar.
+    Despertar,
 }
 
 fn main() {
@@ -52,10 +56,15 @@ fn servir_stdio() -> i32 {
         eprintln!("[dartforge-lsp] log em stderr; stdout é só protocolo");
     }
     let (tx, rx) = mpsc::channel::<Entrada>();
+    let despertar = tx.clone();
     std::thread::spawn(move || ler_tudo(tx));
 
     let saida = Arc::new(Mutex::new(io::stdout()));
     let mut servidor = Servidor::com_analisador(AnalisadorSemantico::descobrir());
+    // A análise tipada roda noutra thread e acorda o laço ao terminar.
+    servidor.ao_ter_diagnosticos(move || {
+        let _ = despertar.send(Entrada::Despertar);
+    });
     let mut fechou = false;
     loop {
         if !servidor.tem_pendente() && !fechou {
@@ -64,6 +73,7 @@ fn servir_stdio() -> i32 {
                     servidor.registrar_recebida(&mensagem);
                     servidor.receber(mensagem);
                 }
+                Ok(Entrada::Despertar) => {}
                 Ok(Entrada::Fim) | Err(_) => fechou = true,
             }
         }
@@ -77,6 +87,7 @@ fn servir_stdio() -> i32 {
                     fechou = true;
                     break;
                 }
+                Ok(Entrada::Despertar) => {}
                 Err(_) => break,
             }
         }
