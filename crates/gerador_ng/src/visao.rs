@@ -644,6 +644,9 @@ fn formas_contra_o_template(
                 ));
                 continue;
             };
+            if consulta_em_embutida(nos, consulta, filhos, local, resolvedor) {
+                continue;
+            }
             let e_filho = |e: &crate::html::Elemento| {
                 filhos
                     .get(&e.nome)
@@ -771,13 +774,15 @@ fn formas_contra_o_template(
     fora
 }
 
-/// A consulta de visão cujo único `#ref` (declarado uma vez no template)
-/// está num elemento HTML de uma visão embutida alcançada de `*` em `*` —
-/// cada um na raiz da visão de cima, fora do conteúdo projetado — e campo
-/// `Element`. É a forma de `mapNestedViews`/`mapNestedViewsWithSingleResult`
-/// (`@ViewChild` dentro de `*ngIf`, `@ViewChildren` em `*ngFor`, em
-/// qualquer profundidade: i47, i96, i97, j06); filho, `read:` e mistura
-/// com estáticos ainda não.
+/// A consulta de visão cujo único resultado (`#ref` declarado uma vez, ou
+/// um só componente filho do tipo) está numa visão embutida alcançada de
+/// `*` em `*` — cada um na raiz da visão de cima, fora do conteúdo
+/// projetado: um elemento HTML com campo `Element`, ou a instância de um
+/// filho que não é `onPush`. É a forma de
+/// `mapNestedViews`/`mapNestedViewsWithSingleResult` (`@ViewChild` dentro
+/// de `*ngIf`, `@ViewChildren` em `*ngFor`, em qualquer profundidade: i47,
+/// i96, i97, j06, j09, j10); `read:`, vários resultados em visões
+/// diferentes e mistura com estáticos ainda não.
 fn consulta_em_embutida(
     nos: &[No],
     consulta: &crate::componente::Consulta,
@@ -801,13 +806,22 @@ fn consulta_em_embutida(
             }
         }
     }
-    if consulta.por_tipo
-        || consulta.leitura.is_some()
-        || !e_tipo_de_elemento(&consulta.tipo, local, resolvedor)
-    {
+    if consulta.leitura.is_some() {
         return false;
     }
-    let nome = consulta.referencia.as_str();
+    let Some(chave) = chave_da_consulta(consulta, local, resolvedor) else {
+        return false;
+    };
+    let nome = chave.as_str();
+    let elemento = e_tipo_de_elemento(&consulta.tipo, local, resolvedor);
+    // O resultado: um elemento HTML (campo `Element`, por `#ref`) ou a
+    // instância de um componente filho que não é `onPush` (campo do tipo
+    // dele; o `onPush` registraria o `ChangeDetectorRef` da consulta).
+    let terminal = |l: &[Lugar]| match l {
+        [Lugar::Raiz] => elemento && !consulta.por_tipo,
+        [Lugar::NoFilho] => !elemento && !filho_on_push(nos, nome, filhos),
+        _ => false,
+    };
     let mut todos = Vec::new();
     onde_esta(nos, nome, filhos, false, &mut todos);
     if todos.len() != 1 {
@@ -851,9 +865,8 @@ fn consulta_em_embutida(
             &mut l,
         );
         match l.as_slice() {
-            [Lugar::Raiz] => return true,
             [Lugar::Embutida] => atuais = vec![No::Elemento(sem)],
-            _ => return false,
+            l => return terminal(l),
         }
     }
 }
@@ -929,8 +942,9 @@ fn resolver_consultas(
 struct ConsultaDinamica {
     indice: usize,
     propriedade: String,
-    referencia: String,
     lista: bool,
+    /// O que procurar ([`chave_da_consulta`]).
+    chave: String,
     /// `_viewQuery_ref_N_isDirty`.
     campo: String,
     /// (âncora `_appEl_n`, classe `_ViewX1`), quando o `*` foi visto.
@@ -1175,8 +1189,66 @@ fn onde_esta(
     em_filho: bool,
     saida: &mut Vec<Lugar>,
 ) {
-    let tem_ref = |e: &crate::html::Elemento| e.referencias.iter().any(|r| r.nome == nome);
+    let tem_ref = |e: &crate::html::Elemento| casa_a_chave(e, nome, filhos);
     onde_casa(nos, &tem_ref, filhos, em_filho, saida);
+}
+
+/// O que uma consulta procura, como chave de [`onde_esta`]: o `#ref`, ou
+/// [`chave_de_tipo`] do componente de `@ViewChild(Tipo)` (`None` sem
+/// resolução).
+fn chave_da_consulta(
+    consulta: &crate::componente::Consulta,
+    local: &Local,
+    resolvedor: Option<&dyn Resolucao>,
+) -> Option<String> {
+    if consulta.por_tipo {
+        uri_da_consulta(consulta, local, resolvedor)
+            .map(|u| chave_de_tipo(&u, &consulta.referencia))
+    } else {
+        Some(consulta.referencia.clone())
+    }
+}
+
+/// O filho achado pela chave ([`onde_esta`]) é `onPush`?
+fn filho_on_push(
+    nos: &[No],
+    chave: &str,
+    filhos: &std::collections::HashMap<String, Filho>,
+) -> bool {
+    fn andar(
+        nos: &[No],
+        chave: &str,
+        filhos: &std::collections::HashMap<String, Filho>,
+    ) -> Option<bool> {
+        for n in nos {
+            let No::Elemento(e) = n else { continue };
+            if let Some(f) = filhos.get(&e.nome)
+                && casa_a_chave(e, chave, filhos)
+            {
+                return Some(f.on_push);
+            }
+            if let Some(r) = andar(&e.filhos, chave, filhos) {
+                return Some(r);
+            }
+        }
+        None
+    }
+    andar(nos, chave, filhos).unwrap_or(false)
+}
+
+/// O elemento casa a chave de uma consulta: tem o `#ref`, ou é um
+/// componente filho do tipo de [`chave_de_tipo`].
+fn casa_a_chave(
+    e: &crate::html::Elemento,
+    chave: &str,
+    filhos: &std::collections::HashMap<String, Filho>,
+) -> bool {
+    match chave.strip_prefix('\u{7}').and_then(|c| c.rsplit_once('#')) {
+        Some((uri, classe)) => filhos
+            .get(&e.nome)
+            .is_some_and(|f| f.uri_dart == uri && f.classe == classe),
+        None => e.referencias.iter().any(|r| r.nome == chave),
+    }
 }
 
 /// A chave dos resultados de um `@ViewChild(Tipo)` entre os `#ref` vistos
@@ -2866,7 +2938,10 @@ impl Corpo<'_> {
             if !r.valor.is_empty() {
                 return Err(em_filho("#ref com valor no filho"));
             }
-            if !self.refs_livres.contains(&r.nome) && !self.refs_locais.contains(&r.nome) {
+            if !self.refs_livres.contains(&r.nome)
+                && !self.refs_locais.contains(&r.nome)
+                && !self.refs_consultados.iter().any(|(n, _, _)| *n == r.nome)
+            {
                 return Err(em_filho(if self.embutida {
                     "#ref no filho em visão embutida"
                 } else {
@@ -3003,8 +3078,11 @@ impl Corpo<'_> {
             self.refs_em_ordem
                 .push((r.nome.clone(), format!("this.{campo_inst}")));
         }
-        // O resultado de um `@ViewChild(Tipo)` ([`chave_de_tipo`]).
+        // O resultado de um `@ViewChild(Tipo)` ([`chave_de_tipo`]), também
+        // lido de uma visão de cima (consulta dinâmica).
         let chave = chave_de_tipo(&filho.uri_dart, &filho.classe);
+        self.refs
+            .insert(chave.clone(), format!("this.{campo_inst}"));
         self.refs_em_ordem
             .push((chave.clone(), format!("this.{campo_inst}")));
         if filho.on_push {
@@ -3898,7 +3976,7 @@ impl Corpo<'_> {
             let mut l = Vec::new();
             onde_esta(
                 std::slice::from_ref(&No::Elemento(e.clone())),
-                &q.referencia,
+                &q.chave,
                 self.filhos,
                 false,
                 &mut l,
@@ -4021,7 +4099,7 @@ impl Corpo<'_> {
             let mut l = Vec::new();
             onde_esta(
                 std::slice::from_ref(&No::Elemento(e.clone())),
-                &q.referencia,
+                &q.chave,
                 self.filhos,
                 false,
                 &mut l,
@@ -4030,7 +4108,7 @@ impl Corpo<'_> {
                 continue;
             }
             q.origem = Some((format!("_appEl_{n}"), classe_nova.clone()));
-            pendentes.push((q.referencia.clone(), q.campo.clone(), 1));
+            pendentes.push((q.chave.clone(), q.campo.clone(), 1));
         }
         for (r, campo, niveis) in &self.consultas_em_transito {
             let mut l = Vec::new();
@@ -4055,7 +4133,7 @@ impl Corpo<'_> {
                 .push((format!("_appEl_{n}"), classe_nova.clone()));
             let mut l = Vec::new();
             onde_esta(&nos, &r, self.filhos, false, &mut l);
-            if l == [Lugar::Raiz] {
+            if matches!(l.as_slice(), [Lugar::Raiz] | [Lugar::NoFilho]) {
                 refs_consultados.push((r, campo, niveis));
             } else {
                 consultas_em_transito.push((r, campo, niveis));
@@ -7585,8 +7663,8 @@ fn gerar_componente(
         .map(|(i, q)| ConsultaDinamica {
             indice: i,
             propriedade: q.propriedade.clone(),
-            referencia: q.referencia.clone(),
             lista: q.lista,
+            chave: chave_da_consulta(q, local, resolvedor).unwrap_or_default(),
             campo: format!("_viewQuery_{}_{i}_isDirty", q.referencia),
             origem: None,
         })
@@ -7869,7 +7947,7 @@ fn gerar_componente(
     let corpo_consultas: Vec<(String, String)> = corpo
         .consultas_dinamicas
         .iter()
-        .map(|d| (d.campo.clone(), d.referencia.clone()))
+        .map(|d| (d.campo.clone(), d.chave.clone()))
         .collect();
     // A detecção na ordem de `writeChangeDetectionStatements`: entradas de
     // diretivas e filhos, visões aninhadas, ligações de propriedade e texto,
