@@ -26,7 +26,9 @@ Dois caminhos produzem **o mesmo texto, byte a byte**:
 * **no DartForge JS**, o hospedeiro (`crates/macros_host`) executa a macro na
   VM Dart provisoriamente e recarrega o texto em memória como
   `<biblioteca>.macro.dart` (`elements/src/gerado.rs`). O executor nativo D4
-  continua pendente;
+  (`macros_host::nativo`, `dartforge macros --nativo`,
+  `DARTFORGE_MACROS_NATIVO`) produz o mesmo texto sem VM (MACROS-PROTOCOLO.md
+  §3);
 * **na toolchain oficial**, um *builder* do `build_runner` roda **a mesma
   macro** na VM oficial, com a **nossa** API de macros (`pacotes/macros`, Dart
   puro, sem nada que só o nosso compilador tenha), e grava o arquivo.
@@ -174,8 +176,17 @@ anotação original no compilador. O caso independente `411_pedido_independente`
 exercita essa execução no `compile-js` e no `dartforge-jsprod`; sua fonte
 original é usada pelos quatro executores do harness, enquanto o builder do
 fixture é comparado separadamente ao CFE byte a byte. O JS usa uma VM Dart
-como executor provisório; o executor nativo D4 e a integração no `dev` seguem
-pendentes.
+como executor padrão; o executor nativo D4 existe (`DARTFORGE_MACROS_NATIVO`)
+e a integração no `dev` segue pendente.
+
+**Erro e formas materializadas (B07)**: uma macro que lança exceção faz a
+compilação falhar com o erro dela, e o cache de expansões continua o da última
+geração válida — voltar ao fonte anterior não executa nada e dá o mesmo texto
+(`erro_na_macro_preserva_a_ultima_geracao_valida`, `tests/cache.rs`). Com o
+`x.macro.dart` materializado na forma 3.6 (`import augment` + `augment
+library`) **e** na forma atual (`part` + `part of`), o DartForge carrega o
+arquivo e não roda as macros de novo: nenhuma execução, nenhuma augmentation
+nova, nada declarado duas vezes (`materializado_nas_duas_formas_nao_duplica`).
 
 Um pacote `dartforge_macros_builder` para o `build_runner`:
 
