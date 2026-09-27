@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 /// Um programa com um estático: lança se o encontrar já inicializado, e o
 /// inicializa. Na primeira execução termina bem; numa segunda que herdasse o
-/// estado da primeira, terminaria com exceção não capturada (101).
+/// estado da primeira, terminaria com exceção não capturada (255).
 const COM_ESTATICO: &str = "\
 @dfg_0 = internal global i64 0
 @dfg_0_ok = internal global i8 0

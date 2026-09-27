@@ -1563,10 +1563,10 @@ fn runtime_symbol_addresses() -> Vec<(&'static str, usize)> {
 /// executável AOT recebe, para que recursão profunda falhe igual.
 ///
 /// Depois da entrada vem `dartforge_runtime::abi::finalizar_programa`, o mesmo
-/// código que o `main` C do AOT roda (exceção não capturada → 101, estatísticas
+/// código que o `main` C do AOT roda (exceção não capturada → 255, estatísticas
 /// do coletor). O código que ela devolve é devolvido aqui; os finais que o
 /// runtime trata com `process::exit` durante a execução — asserção de não
-/// nulidade (101), teto do heap (255) — encerram **este processo**, como no
+/// nulidade e teto do heap (255, como a VM) — encerram **este processo**, como no
 /// AOT. Por isso testes e o harness diferencial executam por subprocesso
 /// (`dartforge-executar-ir`).
 ///

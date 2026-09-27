@@ -288,10 +288,11 @@ define void @dartforge_entry() {
     assert_eq!(execucao.codigo, Some(0), "{execucao:?}");
 }
 
-/// Exceção não capturada termina como no AOT: mensagem em stderr e código 101.
+/// Exceção não capturada termina como no AOT e na VM: `Unhandled exception:`
+/// e a mensagem em stderr, código 255.
 #[test]
 #[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
-fn executor_excecao_nao_capturada_sai_com_101() {
+fn executor_excecao_nao_capturada_sai_com_255() {
     let dir = OutputDir::new("excecao");
     let ir = "\
 declare void @dartforge_print_i64(i64)
@@ -304,8 +305,8 @@ define void @dartforge_entry() {
 ";
     let execucao = executar_pelo_jit(&dir.0, ir);
     assert_eq!(execucao.stdout, "1\n", "{execucao:?}");
-    assert_eq!(execucao.codigo, Some(101), "{execucao:?}");
-    assert!(execucao.stderr.starts_with("Uncaught exception: 7"), "{execucao:?}");
+    assert_eq!(execucao.codigo, Some(255), "{execucao:?}");
+    assert!(execucao.stderr.starts_with("Unhandled exception:\n7\n"), "{execucao:?}");
 }
 
 /// `double` e quadro maior que 4 KiB: o caminho COFF que o JIT antigo nunca

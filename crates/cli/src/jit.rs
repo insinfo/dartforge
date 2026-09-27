@@ -92,7 +92,7 @@ fn biblioteca_do_sdk(ir: &str) -> Result<Option<PathBuf>, String> {
 /// Emite o IR e o executa numa sessão ORCv2 **deste** processo, pelo caminho
 /// sem trampolim (`dartforge_jit::run_ir`): as chamadas são diretas, como no
 /// executável AOT. O stdout é o do programa, e o código de saída também. O
-/// runtime encerra o processo com 101/255 nos mesmos casos que o AOT.
+/// runtime encerra o processo com 255 nos mesmos casos que o AOT e a VM.
 ///
 /// `--timings` escreve em stderr, depois da execução, um objeto JSON com as
 /// fases da emissão e do JIT (`docs/JIT.md`, «Medição por fase»).

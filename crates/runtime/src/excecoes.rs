@@ -1,8 +1,9 @@
 // Runtime nativo: exceção pendente, rastros e as classes de erro do SDK.
 
-/// Encerra o processo quando uma asserção de não nulidade falha.
-///
-/// Ainda não há exceções Dart capturáveis; a falha é explícita e não retorna.
+/// Encerra o processo quando uma asserção de não nulidade falha, como a
+/// exceção não capturada da VM. O `!` do lowering lança o `TypeError`
+/// capturável (`dartforge_null_check_error_new`); esta entrada fica para quem
+/// não pode continuar depois da falha.
 // SAFETY: símbolo reservado e contrato C sem retorno, conforme a declaração LLVM.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_null_assert_fail() -> ! {
@@ -11,9 +12,38 @@ pub extern "C" fn dartforge_null_assert_fail() -> ! {
     use std::io::Write;
     let _ = writeln!(
         std::io::stderr().lock(),
-        "Null check operator used on a null value"
+        "Unhandled exception:\n{MENSAGEM_DE_NULL_CHECK}"
     );
-    std::process::exit(101)
+    std::process::exit(255)
+}
+
+/// A mensagem do `TypeError` de `x!` sobre null na VM.
+const MENSAGEM_DE_NULL_CHECK: &str = "Null check operator used on a null value";
+
+/// `x!` sobre null: o `TypeError` da VM, capturável, com a mensagem dela.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_null_check_error_new() -> i64 {
+    if let Some(e) = erro_da_fonte_com_texto("_dartforgeErroDeTipo", MENSAGEM_DE_NULL_CHECK) {
+        return e;
+    }
+    let m = HEAP.with(|h| h.borrow_mut().allocate(Value::String(Texto::de_str(MENSAGEM_DE_NULL_CHECK))));
+    com_raizes(&[m], || alocar_erro_com_rastro(1011, vec![(m, true)]))
+}
+
+/// O texto do rastro da exceção corrente (o `StackTrace` do lançamento),
+/// para a exceção não capturada; vazio sem rastro.
+pub fn texto_do_rastro_da_excecao() -> String {
+    let Some(h) = CURRENT_STACK_TRACE.with(|slot| *slot.borrow()) else { return String::new() };
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        match heap.try_get(h) {
+            Some(Value::Object { fields, .. }) => match fields.first().and_then(|(t, _)| heap.try_get(*t)) {
+                Some(Value::String(texto)) => texto.para_string(),
+                _ => String::new(),
+            },
+            _ => String::new(),
+        }
+    })
 }
 
 fn id_da_classe_stack_trace() -> i64 {

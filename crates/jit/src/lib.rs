@@ -17,10 +17,10 @@
 //!
 //! # Término do programa
 //!
-//! Exceção não capturada volta como `exit_code` 101 ([`EntryReport`]), pelo mesmo
+//! Exceção não capturada volta como `exit_code` 255 ([`EntryReport`]), pelo mesmo
 //! `finalizar_programa` que o `main` do AOT roda. Durante a execução, o runtime
 //! encerra o **processo** com `process::exit` nos mesmos casos em que o
-//! executável AOT termina: asserção de não nulidade (101) e teto do heap (255). Um erro interno do runtime aborta. Dentro de
+//! executável AOT termina: asserção de não nulidade e teto do heap (255, como a VM). Um erro interno do runtime aborta. Dentro de
 //! `dartforge run` isso é o comportamento certo — o processo termina com o
 //! código do programa, como `dart run`. Para testes e para o harness
 //! diferencial, a execução isolada é o binário `dartforge-executar-ir`.
@@ -168,7 +168,7 @@ pub struct EntryReport {
     pub execute: Duration,
     /// Chamada completa de [`JitSession::run_entry`].
     pub total: Duration,
-    /// Código que `finalizar_programa` devolveu: 0, ou 101 para exceção não
+    /// Código que `finalizar_programa` devolveu: 0, ou 255 para exceção não
     /// capturada. Asserção de não nulidade e teto do heap encerram o processo
     /// antes de chegar aqui (ver o topo do crate).
     pub exit_code: i32,
@@ -619,7 +619,7 @@ impl JitSession {
     /// puder ser criada (`execute`).
     ///
     /// # Término
-    /// Exceção não capturada devolve `exit_code` 101. Asserção de não nulidade
+    /// Exceção não capturada devolve `exit_code` 255. Asserção de não nulidade
     /// e teto do heap encerram o processo com o código do AOT; um erro interno
     /// do runtime aborta. Ver o topo do crate.
     pub fn run_entry(&self) -> Result<EntryReport, JitError> {

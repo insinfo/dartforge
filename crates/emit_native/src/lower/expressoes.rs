@@ -673,7 +673,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.set_block(null_block);
                     let err_op = self.emit(
                         Instruction::CallRuntime {
-                            name: "dartforge_type_error_new".to_string(),
+                            name: "dartforge_null_check_error_new".to_string(),
                             args: Vec::new(),
                             ret_ty: Type::Ref,
                         },

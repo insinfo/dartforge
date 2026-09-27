@@ -58,7 +58,8 @@ pub extern "C" fn dartforge_iniciar(entrada: extern "C" fn(), para_texto: extern
 
 /// O que acontece depois que `dartforge_entry` retorna, nos DOIS perfis.
 ///
-/// Exceção pendente: escreve `Uncaught exception: …` em stderr e devolve 101.
+/// Exceção pendente: escreve `Unhandled exception:`, a mensagem e o rastro em
+/// stderr e devolve 255, como a VM.
 /// Senão, com `DARTFORGE_GC_STATS=1`, escreve as estatísticas do coletor, e
 /// devolve o código de saída global (`exitCode` do `dart:io`; 0 sem ele). Quem chama encerra o processo com o código (o `main` acima, no
 /// AOT; o executor, no JIT). Não chama `exit` aqui: é o único trecho do
@@ -98,13 +99,20 @@ pub fn finalizar_programa() -> i32 {
                     None => describe_handle(&heap, bits),
                 },
             };
+            // O formato e o código da VM (`Unhandled exception:`, a mensagem,
+            // o rastro; 255). O rastro é o que o runtime tem da exceção.
+            let rastro = texto_do_rastro_da_excecao();
             use std::io::Write;
-            let _ = writeln!(
-                std::io::stderr().lock(),
-                "Uncaught exception: {detail}"
-            );
+            let mut err = std::io::stderr().lock();
+            let _ = writeln!(err, "Unhandled exception:\n{detail}");
+            if !rastro.is_empty() {
+                let _ = write!(err, "{rastro}");
+                if !rastro.ends_with('\n') {
+                    let _ = writeln!(err);
+                }
+            }
         });
-        return 101;
+        return 255;
     }
     if std::env::var("DARTFORGE_GC_STATS").as_deref() == Ok("1") {
         HEAP.with(|heap| {

@@ -10,7 +10,7 @@
 //! Contrato de saída, o mesmo do executável AOT:
 //!
 //! * stdout é o do programa, e nada mais;
-//! * o código de saída é o do programa (0, ou 101/255 pelo próprio runtime);
+//! * o código de saída é o do programa (0, ou 255 pelo próprio runtime);
 //! * `--timings` escreve **em stderr**, depois da execução, um objeto JSON com
 //!   os campos `*_ns` de `docs/JIT.md` §Medição por fase e a versão da
 //!   `LLVM-C.dll` carregada.

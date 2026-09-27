@@ -129,8 +129,8 @@ O arquivo é compilado de duas formas (`crates/runtime/src/lib.rs`):
 O JIT publica essa tabela com `LLVMOrcAbsoluteSymbols`, junto com `_fltused`, o
 marcador que o gerador COFF exige quando há `double` e que no AOT vem da CRT
 estática. Depois que `dartforge_entry` retorna, os dois perfis rodam o mesmo
-`abi::finalizar_programa()`: exceção não capturada → `Uncaught exception: …` e
-101; `DARTFORGE_GC_STATS`. É o único trecho do runtime que os perfis dirigem, e
+`abi::finalizar_programa()`: exceção não capturada → `Unhandled exception:`, a
+mensagem e o rastro, e 255 (como a VM); `DARTFORGE_GC_STATS`. É o único trecho do runtime que os perfis dirigem, e
 está escrito uma vez só.
 
 O perfil de compilação de `dartforge-runtime` está fixado no `Cargo.toml` raiz
