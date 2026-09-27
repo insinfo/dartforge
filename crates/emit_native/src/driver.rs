@@ -297,7 +297,11 @@ fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &
             let particoes = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, 16);
             match sistema {
                 Sistema::Windows => {
-                    cmd.args(["-Wl,/NODEFAULTLIB:libcmt", "-lmsvcrt", "-Wl,/OPT:REF"]);
+                    // `/OPT:REF` liga também o `/OPT:ICF` do `lld-link`, que
+                    // funde funções de corpo idêntico num endereço só; o
+                    // tear-off de função de topo se compara pelo endereço
+                    // (`left == right` daria `true`, corpus/js 147 e 184).
+                    cmd.args(["-Wl,/NODEFAULTLIB:libcmt", "-lmsvcrt", "-Wl,/OPT:REF", "-Wl,/OPT:NOICF"]);
                     cmd.arg(format!("-Wl,/opt:lldltopartitions={particoes}"));
                 }
                 // Sem a tabela de símbolos, como o `.exe` do Windows (que a

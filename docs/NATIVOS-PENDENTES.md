@@ -1,9 +1,9 @@
 # Natives pendentes: o que realmente falta ao backend nativo
 
 Levantamento de 2026-09-27 sobre `crates/emit_native/src/nativos.rs` e o SDK
-3.6.2 (`/opt/tc/dart-3.6.2/lib`). A tabela `NATIVOS` tem **66** entradas
-`pendente(...)` (as linhas 178–667; a linha 171 é a própria função
-`pendente`). Esse número **não** mede o que falta: a maior parte das
+3.6.2 (`/opt/tc/dart-3.6.2/lib`). A tabela `NATIVOS` tinha **66** entradas
+`pendente(...)`; depois do multicast, do `RawSynchronousSocket` e das
+mensagens de controle (§1.2–1.4, agora implementados) restam **45**. Esse número **não** mede o que falta: a maior parte das
 entradas é de natives que continuam declarados no SDK com a sobreposição
 `sdk_nativo/`, mas que nenhum caminho de um programa Dart válido alcança,
 porque o recurso público é servido pela sobreposição ou pelo próprio
@@ -98,8 +98,11 @@ Natives: `Socket_JoinMulticast`, `Socket_LeaveMulticast` (`nativos.rs:612-613`).
 * APIs públicas: `RawDatagramSocket.joinMulticast` e
   `RawDatagramSocket.leaveMulticast`. O resto do UDP
   (`RawDatagramSocket.bind`, `send`, `receive`, `Socket_SendTo`/`RecvFrom`)
-  é `runtime(...)` (`nativos.rs:597`, `616`, `618`).
-* Estado: **ausente** (`UnsupportedError`).
+  é `runtime(...)`.
+* Estado: **implementado** (`Socket_JoinMulticast`/`LeaveMulticast` em
+  `crates/runtime/src/io_soquetes.rs`: `MCAST_JOIN_GROUP`/`MCAST_LEAVE_GROUP`
+  no Linux, `IP_ADD_MEMBERSHIP`/`IPV6_JOIN_GROUP` nos outros);
+  `corpus/nativo/31_udp_multicast.dart`.
 
 ### 1.3 `dart:io` — mensagens de controle e `ResourceHandle` (Unix domain sockets)
 
@@ -122,9 +125,14 @@ Natives: `Socket_ReceiveMessage`, `Socket_SendMessage` (`nativos.rs:615`,
   `fromRawDatagramSocket`/`fromStdin` são Dart puro
   (`socket_patch.dart:2681-2719`) e funcionam; o que falha é converter o
   handle de volta e trafegá-lo pelo socket.
-* Estado: **ausente**. Os Unix domain sockets em si (`ServerSocket_CreateUnixDomainBindListen`,
-  `Socket_CreateUnixDomainConnect`…) são `runtime(...)` (`nativos.rs:588`,
-  `599-600`); só a passagem de descritores (`SCM_RIGHTS`) falta.
+* Estado: **implementado** no Unix (`sendmsg`/`recvmsg` com `SCM_RIGHTS`,
+  `crates/runtime/src/io_soquetes_unix.rs`; os objetos Dart pelos ajudantes
+  `_dartforge*` de `sdk_nativo/io/common_patch.dart`);
+  `corpus/nativo/33_mensagens_de_controle.dart`. Como na VM,
+  `ResourceHandle.toSocket`/`toRawDatagramSocket` não são suportados (o
+  native da VM devolve um `UnsupportedError`, que o retorno tipado vira
+  `TypeError`; aqui a `UnsupportedError` é lançada) e o Windows não passa
+  descritores.
 
 ### 1.4 `dart:io` — `RawSynchronousSocket`
 
@@ -135,8 +143,9 @@ Natives: os 11 `SynchronousSocket_*` (`nativos.rs:649-659`).
 * API pública: `RawSynchronousSocket.connectSync` e todos os métodos da
   instância (`io/sync_socket.dart`). Nenhuma outra biblioteca do SDK usa
   `RawSynchronousSocket` (só os patches de JS/Wasm, que lançam).
-* Estado: **ausente** — `connectSync` já falha em
-  `SynchronousSocket_LookupRequest`.
+* Estado: **implementado** (`SynchronousSocket_*` em
+  `crates/runtime/src/io_soquetes.rs`, sobre `std::net::TcpStream`);
+  `corpus/nativo/32_soquete_sincrono.dart`.
 
 ### 1.5 `dart:developer` — `NativeRuntime.writeHeapSnapshotToFile`
 
@@ -302,9 +311,9 @@ lança `UnsupportedError`. Para programas válidos, são inalcançáveis.
 | API pública | Natives pendentes | Estado | Evidência |
 |---|---|---|---|
 | `FileSystemEntity.watch`, `isWatchSupported` (`dart:io`) | 7 `FileSystemWatcher_*` | ausente | `file_patch.dart:163-168`, `380-395`; `io/file_system_entity.dart:450-459`, `638-644` |
-| `RawDatagramSocket.joinMulticast`/`leaveMulticast` | `Socket_JoinMulticast`, `Socket_LeaveMulticast` | ausente | `socket_patch.dart:1713-1728`, `1797-1802` |
-| `RawSocket.readMessage`/`sendMessage`, `SocketControlMessage.fromHandles`/`extractHandles`, `ResourceHandle.to*` | `Socket_ReceiveMessage`, `Socket_SendMessage`, 2 `SocketControlMessage*`, 4 `ResourceHandleImpl_*` | ausente | `socket_patch.dart:1155-1165`, `1295-1316`, `1744-1757`, `2740-2833` |
-| `RawSynchronousSocket` | 11 `SynchronousSocket_*` | ausente | `sync_socket_patch.dart:303-323` |
+| `RawDatagramSocket.joinMulticast`/`leaveMulticast` | `Socket_JoinMulticast`, `Socket_LeaveMulticast` | implementado | `socket_patch.dart:1713-1728`, `1797-1802` |
+| `RawSocket.readMessage`/`sendMessage`, `SocketControlMessage.fromHandles`/`extractHandles`, `ResourceHandle.to*` | `Socket_ReceiveMessage`, `Socket_SendMessage`, 2 `SocketControlMessage*`, 4 `ResourceHandleImpl_*` | implementado (Unix) | `socket_patch.dart:1155-1165`, `1295-1316`, `1744-1757`, `2740-2833` |
+| `RawSynchronousSocket` | 11 `SynchronousSocket_*` | implementado | `sync_socket_patch.dart:303-323` |
 | `NativeRuntime.writeHeapSnapshotToFile` (`dart:developer`) | `Developer_NativeRuntime_writeHeapSnapshotToFile` | ausente | `_internal/vm/lib/developer.dart:193-195` |
 | `Finalizer`, `NativeFinalizer` | `FinalizerEntry_allocate` | servido por sobreposição | `sdk_nativo/core/finalizer_patch.dart`, `sdk_nativo/ffi/ffi_native_finalizer_patch.dart`; `corpus/nativo/14_finalizadores.dart` |
 | `Pointer.fromFunction`, `NativeCallable.isolateLocal`/`listener` | 5 `Ffi_*Callback*`/`Ffi_createNativeCallable*` | servido por sobreposição (com redirecionamento no lowering) | `lower/ffi.rs:390-409`; `sdk_nativo/ffi/ffi_patch.dart:214-280`; `corpus/nativo/13_ffi_callbacks.dart` |
@@ -318,11 +327,12 @@ lança `UnsupportedError`. Para programas válidos, são inalcançáveis.
 | closures genéricas da VM, `_InvocationMirror` | `Internal_prependTypeArguments`, `Internal_boundsCheckForPartialInstantiation`, `InvocationMirror_unpackTypeArguments` | inalcançável | §4 |
 | `Isolate.createUriForKernelBlob` (membro injetado) | `Isolate_registerKernelBlob`, `Isolate_unregisterKernelBlob` | inalcançável | `sdk_nativo/isolate/isolate_patch.dart:701-717` |
 
-Contagem dos 66 pendentes:
+Contagem dos 66 pendentes do levantamento:
 
-* **ausente — 29:** 7 `FileSystemWatcher_*` + 2 de multicast + 8 de
-  mensagens de controle e `ResourceHandle` + 11 `SynchronousSocket_*` + 1
-  `writeHeapSnapshotToFile`;
+* **implementados depois — 21:** 2 de multicast + 8 de mensagens de
+  controle e `ResourceHandle` + 11 `SynchronousSocket_*` (saíram da tabela
+  de pendentes);
+* **ausente — 8:** 7 `FileSystemWatcher_*` + 1 `writeHeapSnapshotToFile`;
 * **servido por sobreposição — 6:** `FinalizerEntry_allocate` + 5 de
   callbacks FFI;
 * **servido pelo lowering — 18:** 4 de ambiente + `Ffi_GetFfiNativeResolver`
@@ -331,10 +341,9 @@ Contagem dos 66 pendentes:
 * **inalcançável — 13:** 9 `Internal_*` + `StringBase_intern` +
   `InvocationMirror_unpackTypeArguments` + 2 de kernel blob.
 
-Ou seja: a lacuna real do backend nativo nesta tabela são cinco grupos de
-`dart:io`/`dart:developer` (observação de arquivos, multicast, passagem de
-descritores, socket síncrono, heap snapshot); os outros 37 pendentes não
-correspondem a recurso público faltando.
+Ou seja: a lacuna real do backend nativo nesta tabela são dois grupos de
+`dart:io`/`dart:developer` (observação de arquivos e heap snapshot); os
+outros 37 pendentes não correspondem a recurso público faltando.
 
 ## 6. Conferência
 

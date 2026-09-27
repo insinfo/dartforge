@@ -42,6 +42,9 @@ mod so_rede {
     pub const NI_NUMERICHOST: i32 = 1;
     pub const NI_NAMEREQD: i32 = 8;
     pub const TAMANHO_DO_CAMINHO_UNIX: usize = 108;
+    pub const SCM_RIGHTS: i32 = 1;
+    pub const MSG_NOSIGNAL: i32 = 0x4000;
+    pub const MSG_CMSG_CLOEXEC: i32 = 0x4000_0000;
     /// Erros de `accept` que não fecham o servidor (`IsTemporaryAcceptError`).
     pub const ERROS_TEMPORARIOS_DE_ACCEPT: &[i32] = &[11, 100, 71, 92, 112, 64, 113, 95, 101];
 }
@@ -83,6 +86,11 @@ mod so_rede {
     pub const NI_NUMERICHOST: i32 = 2;
     pub const NI_NAMEREQD: i32 = 4;
     pub const TAMANHO_DO_CAMINHO_UNIX: usize = 104;
+    pub const SCM_RIGHTS: i32 = 1;
+    /// O macOS não tem `MSG_NOSIGNAL` (os soquetes já têm `SO_NOSIGPIPE`)
+    /// nem `MSG_CMSG_CLOEXEC`.
+    pub const MSG_NOSIGNAL: i32 = 0;
+    pub const MSG_CMSG_CLOEXEC: i32 = 0;
     pub const ERROS_TEMPORARIOS_DE_ACCEPT: &[i32] = &[35, 50, 100, 42, 64, 65, 102, 51];
 }
 
@@ -109,6 +117,70 @@ unsafe extern "C" {
     fn freeifaddrs(res: *mut EnderecoDeInterface);
     fn if_nametoindex(nome: *const std::ffi::c_char) -> u32;
     fn unlink(caminho: *const std::ffi::c_char) -> i32;
+    fn sendmsg(fd: i32, m: *const CabecalhoDeMensagem, flags: i32) -> isize;
+    fn recvmsg(fd: i32, m: *mut CabecalhoDeMensagem, flags: i32) -> isize;
+}
+
+/// `struct iovec`.
+#[cfg(unix)]
+#[repr(C)]
+struct Fatia {
+    base: *mut u8,
+    tamanho: usize,
+}
+
+/// `struct msghdr` (no macOS, `msg_iovlen` é `int` e `msg_controllen` é
+/// `socklen_t`).
+#[cfg(unix)]
+#[repr(C)]
+struct CabecalhoDeMensagem {
+    nome: *mut u8,
+    tamanho_do_nome: u32,
+    fatias: *mut Fatia,
+    #[cfg(target_os = "linux")]
+    n_fatias: usize,
+    #[cfg(not(target_os = "linux"))]
+    n_fatias: i32,
+    controle: *mut u8,
+    #[cfg(target_os = "linux")]
+    tamanho_do_controle: usize,
+    #[cfg(not(target_os = "linux"))]
+    tamanho_do_controle: u32,
+    bandeiras: i32,
+}
+
+/// O `struct cmsghdr` e o `CMSG_ALIGN`: no Linux, `cmsg_len` é `size_t` e o
+/// alinhamento é o do `size_t`; no macOS, `socklen_t` e 4 bytes.
+#[cfg(target_os = "linux")]
+mod cmsg {
+    pub const TAMANHO_DO_CABECALHO: usize = 16;
+    pub const ALINHAMENTO: usize = 8;
+    pub fn gravar_tamanho(b: &mut [u8], n: usize) {
+        b[..8].copy_from_slice(&(n as u64).to_ne_bytes());
+    }
+    pub fn ler_tamanho(b: &[u8]) -> usize {
+        u64::from_ne_bytes(b[..8].try_into().unwrap()) as usize
+    }
+    pub const DESLOCAMENTO_DO_NIVEL: usize = 8;
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+mod cmsg {
+    pub const TAMANHO_DO_CABECALHO: usize = 12;
+    pub const ALINHAMENTO: usize = 4;
+    pub fn gravar_tamanho(b: &mut [u8], n: usize) {
+        b[..4].copy_from_slice(&(n as u32).to_ne_bytes());
+    }
+    pub fn ler_tamanho(b: &[u8]) -> usize {
+        u32::from_ne_bytes(b[..4].try_into().unwrap()) as usize
+    }
+    pub const DESLOCAMENTO_DO_NIVEL: usize = 4;
+}
+
+/// `CMSG_ALIGN`.
+#[cfg(unix)]
+fn alinhar_cmsg(n: usize) -> usize {
+    (n + cmsg::ALINHAMENTO - 1) & !(cmsg::ALINHAMENTO - 1)
 }
 
 /// `struct addrinfo` (a ordem de `ai_addr` e `ai_canonname` difere).
@@ -887,4 +959,127 @@ fn apagar_caminho_unix(caminho: &[u8]) {
         // SAFETY: caminho C válido.
         unsafe { unlink(c.as_ptr()) };
     }
+}
+
+// ---------------------------------------------------------------------------
+// Mensagens de controle (`SocketBase::SendMessage`/`ReceiveMessage`).
+
+/// Uma mensagem de controle: nível, tipo e dados.
+#[cfg(unix)]
+type MensagemDeControle = (i64, i64, Vec<u8>);
+
+/// O tamanho do buffer de controle da recepção (cabe o que o sistema
+/// entrega de uma vez: `SCM_MAX_FD` do Linux é 253 descritores).
+#[cfg(unix)]
+const TAMANHO_DO_CONTROLE_RECEBIDO: usize = 4096;
+
+/// O `SOL_SOCKET`/`SCM_RIGHTS` do sistema (a mensagem que leva descritores).
+#[cfg(unix)]
+fn nivel_e_tipo_de_recursos() -> (i64, i64) {
+    (i64::from(so_rede::SOL_SOCKET), i64::from(so_rede::SCM_RIGHTS))
+}
+
+/// `SocketBase::SendMessage`: os bytes enviados (0 se o soquete está cheio).
+#[cfg(unix)]
+fn enviar_mensagem(fd: i64, dados: &[u8], controles: &[MensagemDeControle]) -> ResultadoIo<usize> {
+    let tamanho: usize = controles.iter().map(|(_, _, d)| alinhar_cmsg(cmsg::TAMANHO_DO_CABECALHO + d.len())).sum();
+    // `u64` para o alinhamento do `cmsghdr`.
+    let mut controle = vec![0u64; tamanho.div_ceil(8)];
+    // SAFETY: a fatia cobre o `Vec` de `u64`, com `tamanho` ≤ o comprimento.
+    let bytes = unsafe { std::slice::from_raw_parts_mut(controle.as_mut_ptr().cast::<u8>(), controle.len() * 8) };
+    let mut p = 0;
+    for (nivel, tipo, d) in controles {
+        let b = &mut bytes[p..];
+        cmsg::gravar_tamanho(b, cmsg::TAMANHO_DO_CABECALHO + d.len());
+        let n = cmsg::DESLOCAMENTO_DO_NIVEL;
+        b[n..n + 4].copy_from_slice(&(*nivel as i32).to_ne_bytes());
+        b[n + 4..n + 8].copy_from_slice(&(*tipo as i32).to_ne_bytes());
+        b[cmsg::TAMANHO_DO_CABECALHO..cmsg::TAMANHO_DO_CABECALHO + d.len()].copy_from_slice(d);
+        p += alinhar_cmsg(cmsg::TAMANHO_DO_CABECALHO + d.len());
+    }
+    let mut fatia = Fatia { base: dados.as_ptr().cast_mut(), tamanho: dados.len() };
+    let m = CabecalhoDeMensagem {
+        nome: std::ptr::null_mut(),
+        tamanho_do_nome: 0,
+        fatias: &mut fatia,
+        n_fatias: 1,
+        controle: if tamanho == 0 { std::ptr::null_mut() } else { bytes.as_mut_ptr() },
+        tamanho_do_controle: tamanho as _,
+        bandeiras: 0,
+    };
+    loop {
+        // SAFETY: `m` aponta para a fatia e o controle vivos; `sendmsg` só lê.
+        let r = unsafe { sendmsg(fd as i32, &m, so_rede::MSG_NOSIGNAL) };
+        if r >= 0 {
+            return Ok(r as usize);
+        }
+        let err = std::io::Error::last_os_error();
+        match err.kind() {
+            std::io::ErrorKind::Interrupted => continue,
+            std::io::ErrorKind::WouldBlock => return Ok(0),
+            _ => return Err(ErroDoSo::de(&err)),
+        }
+    }
+}
+
+/// `SocketBase::ReceiveMessage`: os dados (vazios se não há nada agora) e as
+/// mensagens de controle recebidas.
+#[cfg(unix)]
+fn receber_mensagem(fd: i64, maximo: usize) -> ResultadoIo<(Vec<u8>, Vec<MensagemDeControle>)> {
+    let mut dados = vec![0u8; maximo];
+    let mut controle = vec![0u64; TAMANHO_DO_CONTROLE_RECEBIDO / 8];
+    let mut fatia = Fatia { base: dados.as_mut_ptr(), tamanho: dados.len() };
+    let mut m = CabecalhoDeMensagem {
+        nome: std::ptr::null_mut(),
+        tamanho_do_nome: 0,
+        fatias: &mut fatia,
+        n_fatias: 1,
+        controle: controle.as_mut_ptr().cast(),
+        tamanho_do_controle: TAMANHO_DO_CONTROLE_RECEBIDO as _,
+        bandeiras: 0,
+    };
+    let lidos = loop {
+        // SAFETY: `m` aponta para os buffers graváveis com os tamanhos dados.
+        let r = unsafe { recvmsg(fd as i32, &mut m, so_rede::MSG_CMSG_CLOEXEC) };
+        if r >= 0 {
+            break r as usize;
+        }
+        let err = std::io::Error::last_os_error();
+        match err.kind() {
+            std::io::ErrorKind::Interrupted => continue,
+            std::io::ErrorKind::WouldBlock => return Ok((Vec::new(), Vec::new())),
+            _ => return Err(ErroDoSo::de(&err)),
+        }
+    };
+    dados.truncate(lidos);
+    // SAFETY: o sistema preencheu `tamanho_do_controle` bytes do buffer.
+    let bytes = unsafe { std::slice::from_raw_parts(controle.as_ptr().cast::<u8>(), (m.tamanho_do_controle as usize).min(TAMANHO_DO_CONTROLE_RECEBIDO)) };
+    let mut mensagens = Vec::new();
+    let mut p = 0;
+    while p + cmsg::TAMANHO_DO_CABECALHO <= bytes.len() {
+        let b = &bytes[p..];
+        let n = cmsg::ler_tamanho(b);
+        if n < cmsg::TAMANHO_DO_CABECALHO || n > b.len() {
+            break;
+        }
+        let d = cmsg::DESLOCAMENTO_DO_NIVEL;
+        let nivel = i32::from_ne_bytes(b[d..d + 4].try_into().unwrap());
+        let tipo = i32::from_ne_bytes(b[d + 4..d + 8].try_into().unwrap());
+        mensagens.push((i64::from(nivel), i64::from(tipo), b[cmsg::TAMANHO_DO_CABECALHO..n].to_vec()));
+        p += alinhar_cmsg(n);
+    }
+    Ok((dados, mensagens))
+}
+
+/// O endereço local do descritor (`SocketBase::GetSocketName`).
+#[cfg(unix)]
+fn endereco_local(fd: i64) -> ResultadoIo<EnderecoSo> {
+    let mut e = EnderecoSo::vazio();
+    let mut n = 128u32;
+    // SAFETY: `e` tem 128 bytes.
+    if unsafe { getsockname(fd as i32, e.bytes.as_mut_ptr(), &mut n) } != 0 {
+        return Err(ultimo_erro());
+    }
+    e.tamanho = n;
+    Ok(e)
 }

@@ -904,3 +904,211 @@ pub extern "C" fn dartforge_nativo_SynchronousSocket_ShutdownWrite(this: i64) {
         let _ = s.shutdown(std::net::Shutdown::Write);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Mensagens de controle e recursos passados por soquete de domínio Unix
+// (`SocketControlMessage`, `ResourceHandle`; N04). Os objetos Dart saem dos
+// ajudantes `_dartforge*` de `sdk_nativo/io/common_patch.dart`; no Windows,
+// como na VM, não há passagem de descritores.
+
+/// A função Dart registrada `nome` (da sobreposição de `dart:io`).
+#[cfg(unix)]
+fn ajudante_de_io(nome: &str) -> usize {
+    ajudante(nome).unwrap_or_else(|| panic!("bug do compilador: dart:io sem `{nome}` registrado"))
+}
+
+/// O `int` de um elemento de `List<dynamic>` (escalar ou caixa).
+#[cfg(unix)]
+fn int_da_lista(lista: i64, i: usize) -> Option<i64> {
+    HEAP.with(|h| {
+        let h = h.borrow();
+        let v = h.list_get(lista, i);
+        if v.is_ref { h.int_de_ref(v.bits) } else { Some(v.bits) }
+    })
+}
+
+/// A `UnsupportedError` dos recursos por soquete fora do Unix.
+#[cfg(windows)]
+fn lancar_sem_recursos() {
+    let msg = alocar_str("This is not supported on this operating system");
+    let e = com_raizes(&[msg], || dartforge_unsupported_error_new(msg));
+    com_raizes(&[e], || dartforge_exception_throw(e, 3));
+}
+
+/// `SocketControlMessage.fromHandles(handles)`: a mensagem `SCM_RIGHTS`
+/// com os descritores.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_SocketControlMessage_fromHandles(recursos: i64) -> i64 {
+    #[cfg(unix)]
+    {
+        // SAFETY: `(List<ResourceHandle>, int, int) → Object`.
+        let f: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(ajudante_de_io("_dartforgeMensagemDeRecursos")) };
+        let (nivel, tipo) = nivel_e_tipo_de_recursos();
+        f(recursos, nivel, tipo)
+    }
+    #[cfg(windows)]
+    {
+        let _ = recursos;
+        lancar_sem_recursos();
+        0
+    }
+}
+
+/// `_SocketControlMessageImpl.extractHandles()`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_SocketControlMessageImpl_extractHandles(this: i64) -> i64 {
+    #[cfg(unix)]
+    {
+        // SAFETY: `(Object, int, int) → List<ResourceHandle>`.
+        let f: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(ajudante_de_io("_dartforgeRecursosDaMensagem")) };
+        let (nivel, tipo) = nivel_e_tipo_de_recursos();
+        f(this, nivel, tipo)
+    }
+    #[cfg(windows)]
+    {
+        let _ = this;
+        lancar_sem_recursos();
+        0
+    }
+}
+
+/// `Socket_SendMessage(buffer, offset, bytes, controlMessages)`: os bytes
+/// enviados; `controlMessages` é `[nível, tipo, Uint8List]*`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Socket_SendMessage(this: i64, buffer: i64, inicio: i64, n: i64, controles: i64) -> i64 {
+    let Some(s) = soquete_do_objeto(this) else { return 0 };
+    #[cfg(unix)]
+    {
+        let bytes = bytes_da_lista_tipada(buffer).unwrap_or_default();
+        let inicio = (inicio.max(0) as usize).min(bytes.len());
+        let fim = (inicio + n.max(0) as usize).min(bytes.len());
+        let total = HEAP.with(|h| h.borrow().list_len(controles));
+        let mut mensagens = Vec::with_capacity(total / 3);
+        for i in (0..total - total % 3).step_by(3) {
+            let dados = HEAP.with(|h| h.borrow().list_get(controles, i + 2));
+            match (int_da_lista(controles, i), int_da_lista(controles, i + 1), bytes_da_lista_tipada(dados.bits)) {
+                (Some(nivel), Some(tipo), Some(d)) if dados.is_ref => mensagens.push((nivel, tipo, d)),
+                _ => {
+                    lancar_erro_de_argumento("Invalid control message");
+                    return 0;
+                }
+            }
+        }
+        match enviar_mensagem(s.descritor(), &bytes[inicio..fim], &mensagens) {
+            Ok(n) => dart_int(n as i64),
+            Err(e) => {
+                lancar_os_error(&e);
+                0
+            }
+        }
+    }
+    #[cfg(windows)]
+    {
+        let _ = (s, buffer, inicio, n, controles);
+        lancar_sem_recursos();
+        0
+    }
+}
+
+/// `Socket_ReceiveMessage(len)`: `[nível, tipo, Uint8List]*` e, por último,
+/// a `Uint8List` dos dados.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Socket_ReceiveMessage(this: i64, n: i64) -> i64 {
+    let Some(s) = soquete_do_objeto(this) else { return 0 };
+    #[cfg(unix)]
+    {
+        let (dados, mensagens) = match receber_mensagem(s.descritor(), n.max(0) as usize) {
+            Ok(x) => x,
+            Err(e) => {
+                lancar_os_error(&e);
+                return 0;
+            }
+        };
+        let mut itens: Vec<i64> = Vec::with_capacity(mensagens.len() * 3 + 1);
+        for (nivel, tipo, d) in mensagens {
+            let b = com_raizes(&itens, || dart_bytes(d));
+            itens.extend([dart_int(nivel), dart_int(tipo), b]);
+        }
+        let b = com_raizes(&itens, || dart_bytes(dados));
+        itens.push(b);
+        com_raizes(&itens, || dart_lista_fixa(&itens))
+    }
+    #[cfg(windows)]
+    {
+        let _ = (s, n);
+        lancar_sem_recursos();
+        0
+    }
+}
+
+/// `ResourceHandleImpl_toFile`: o `RandomAccessFile` sobre o descritor (o
+/// arquivo passa a ser dono dele).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_ResourceHandleImpl_toFile(this: i64) -> i64 {
+    #[cfg(unix)]
+    {
+        // SAFETY: `(Object) → int` e `(int) → RandomAccessFile`.
+        let descritor: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(ajudante_de_io("_dartforgeDescritorDoRecurso")) };
+        let arquivo: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(ajudante_de_io("_dartforgeArquivoDoRecurso")) };
+        arquivo(ArquivoNativo::novo(descritor(this)))
+    }
+    #[cfg(windows)]
+    {
+        let _ = this;
+        lancar_sem_recursos();
+        0
+    }
+}
+
+/// `ResourceHandleImpl_toRawSocket`: `[tipo, texto, bytes, fd]` do endereço
+/// local do descritor.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_ResourceHandleImpl_toRawSocket(this: i64) -> i64 {
+    #[cfg(unix)]
+    {
+        // SAFETY: `(Object) → int`.
+        let descritor: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(ajudante_de_io("_dartforgeDescritorDoRecurso")) };
+        let fd = descritor(this);
+        match endereco_local(fd) {
+            Ok(e) => {
+                let tipo = e.tipo();
+                let texto = e.texto();
+                let bruto = if tipo == TIPO_UNIX { texto.clone().into_bytes() } else { e.ip() };
+                let t = alocar_str(&texto);
+                let b = com_raizes(&[t], || dart_bytes(bruto));
+                com_raizes(&[t, b], || dart_lista_fixa(&[dart_int(tipo), t, b, dart_int(fd)]))
+            }
+            Err(e) => {
+                lancar_os_error(&e);
+                0
+            }
+        }
+    }
+    #[cfg(windows)]
+    {
+        let _ = this;
+        lancar_sem_recursos();
+        0
+    }
+}
+
+/// `ResourceHandleImpl_toSocket` e `_toRawDatagramSocket`: a VM não os
+/// suporta (o native dela devolve um `UnsupportedError`, que o retorno
+/// tipado transforma em `TypeError`); aqui a `UnsupportedError` é lançada.
+fn lancar_recurso_nao_suportado(api: &str) {
+    let msg = alocar_str(&format!("ResourceHandle.{api} is not supported"));
+    let e = com_raizes(&[msg], || dartforge_unsupported_error_new(msg));
+    com_raizes(&[e], || dartforge_exception_throw(e, 3));
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_ResourceHandleImpl_toSocket(_this: i64) -> i64 {
+    lancar_recurso_nao_suportado("toSocket");
+    0
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_ResourceHandleImpl_toRawDatagramSocket(_this: i64) -> i64 {
+    lancar_recurso_nao_suportado("toRawDatagramSocket");
+    0
+}

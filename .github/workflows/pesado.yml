@@ -472,7 +472,7 @@ jobs:
           foreach ($l in ($rels | Get-Content -Encoding utf8)) {
             if ($l -match '^DartForge Nativo:\s+(\d+)/(\d+)') { $ok += [int]$Matches[1]; $total += [int]$Matches[2] }
           }
-          if ($total -eq 0 -or $ok -lt $total) { Write-Host "::error::nativo $ok/$total: programa do corpus falhando"; exit 1 }
+          if ($total -eq 0 -or $ok -lt $total) { Write-Host "::error::nativo ${ok}/${total}: programa do corpus falhando"; exit 1 }
           # Portão G7: o que passa sem estresse passa com ele.
           if (!$estresse) { Write-Host '::error::o job nativo-gc-stress não produziu relatório'; exit 1 }
           $falhas = { param($arqs) $arqs | Get-Content -Encoding utf8 | ForEach-Object { if ($_ -match '^\s*FALHA\s+(\S+)') { $Matches[1] } } | Sort-Object -Unique }

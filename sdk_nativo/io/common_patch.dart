@@ -41,7 +41,7 @@ import "dart:math" show min;
 
 import "dart:nativewrappers" show NativeFieldWrapperClass1;
 
-import "dart:typed_data" show Int64List, Uint8List, BytesBuilder;
+import "dart:typed_data" show ByteData, BytesBuilder, Endian, Int64List, Uint8List;
 
 /// These are the additional parts of this patch library:
 part "directory_patch.dart";
@@ -125,3 +125,42 @@ void _dartforgeFalhaAoIniciar(
 Datagram _dartforgeDatagrama(
         Uint8List dados, String endereco, Uint8List bruto, int porta, int tipo) =>
     _makeDatagram(dados, endereco, bruto, porta, tipo);
+
+// ---------------------------------------------------------------------------
+// DartForge: as mensagens de controle e os recursos passados por soquete
+// (`SocketControlMessage`, `ResourceHandle`, N04). O runtime faz o
+// `sendmsg`/`recvmsg`; estes montam os objetos Dart (a VM os monta com a
+// API de embutir). `nivel`/`tipo` são o `SOL_SOCKET`/`SCM_RIGHTS` do sistema.
+
+/// `SocketControlMessage.fromHandles`: os descritores como `int32` do
+/// sistema, na ordem.
+@pragma("vm:entry-point")
+Object _dartforgeMensagemDeRecursos(List<ResourceHandle> recursos, int nivel, int tipo) {
+  final dados = Uint8List(recursos.length * 4);
+  final bd = ByteData.sublistView(dados);
+  for (var i = 0; i < recursos.length; i++) {
+    bd.setInt32(i * 4, (recursos[i] as _ResourceHandleImpl)._handle, Endian.host);
+  }
+  return _SocketControlMessageImpl(nivel, tipo, dados);
+}
+
+/// `_SocketControlMessageImpl.extractHandles`: os descritores de uma
+/// mensagem `SCM_RIGHTS`; outra mensagem não tem recursos.
+@pragma("vm:entry-point")
+List<ResourceHandle> _dartforgeRecursosDaMensagem(Object m, int nivel, int tipo) {
+  final msg = m as _SocketControlMessageImpl;
+  if (msg.level != nivel || msg.type != tipo) return <ResourceHandle>[];
+  final bd = ByteData.sublistView(msg.data);
+  return <ResourceHandle>[
+    for (var i = 0; i + 4 <= msg.data.length; i += 4) _ResourceHandleImpl(bd.getInt32(i, Endian.host)),
+  ];
+}
+
+/// O descritor de um `ResourceHandle`.
+@pragma("vm:entry-point")
+int _dartforgeDescritorDoRecurso(Object recurso) => (recurso as _ResourceHandleImpl)._handle;
+
+/// `ResourceHandleImpl_toFile`: o arquivo do ponteiro que o runtime abriu
+/// sobre o descritor.
+@pragma("vm:entry-point")
+RandomAccessFile _dartforgeArquivoDoRecurso(int ponteiro) => _RandomAccessFile(ponteiro, "");
