@@ -169,6 +169,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             FunctionKind::ImplicitAccessor => Tipo::Ler,
             _ => Tipo::Chamar,
         };
+        if e_sdk && membro_fechado(self.ctx, cid, &nome) {
+            let ret = match self.repr_retorno(decl_fid) {
+                Type::Void => Type::Ref,
+                t => t,
+            };
+            if let Some(r) = self.despacho_por_classe(&recv, cid, &chave, tipo, f.library, avaliados, ret) {
+                let void = matches!(self.repr_retorno(decl_fid), Type::Void);
+                return Some(if void { Operand::Constant(Constant::Null) } else { r });
+            }
+        }
         let s = texto_seletor(self.ctx, tipo, &nome, f.library);
         let tupla = if self.funcao_generica(decl_fid) {
             self.tupla_armada.clone().unwrap_or(Operand::Constant(Constant::Int(0)))
@@ -178,6 +188,101 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let r = self.chamar_por_seletor_com_tupla(recv, s, avaliados, tupla);
         let ret = self.repr_retorno(decl_fid);
         Some(if matches!(ret, Type::Void) { Operand::Constant(Constant::Null) } else { self.coagir(r, ret) })
+    }
+
+    /// Despacho de poucos alvos (P2) de um membro fechado (só a biblioteca
+    /// dele o implementa, e o programa inteiro dela está compilado) com 2 a
+    /// [`POUCOS_ALVOS`] implementações: um `switch` pela classe do receptor
+    /// escolhe a chamada direta ou o acesso ao campo de cada uma — o mesmo
+    /// que a chamada direta do caso de uma implementação só, repetido por
+    /// classe —, e o seletor fica no `default` (uma classe que o módulo não
+    /// conhece). Sem isto, cada acesso ia pelo seletor e pela entrada
+    /// uniforme, que confere os argumentos (os `_index`, `_data`,
+    /// `_usedData` dos mapas e conjuntos: duas hierarquias no
+    /// `compact_hash.dart`). `None`: sem despacho por classe (o chamador
+    /// segue pelo seletor).
+    #[allow(clippy::too_many_arguments)]
+    fn despacho_por_classe(
+        &mut self,
+        recv: &Operand,
+        cid: ClassId,
+        chave: &str,
+        tipo: Tipo,
+        biblioteca: dartforge_elements::model::LibraryId,
+        avaliados: &[Avaliado],
+        ret: Type,
+    ) -> Option<Operand> {
+        let por_classe = implementacoes_por_classe(self.ctx, cid, chave)?;
+        let mut distintas: Vec<Implementacao> = Vec::new();
+        for (_, i) in &por_classe {
+            if !distintas.contains(i) {
+                distintas.push(*i);
+            }
+        }
+        if distintas.len() < 2 || distintas.len() > POUCOS_ALVOS {
+            return None;
+        }
+        // Chamar um campo (uma closure guardada) fica com o seletor.
+        if tipo == Tipo::Chamar && distintas.iter().any(|i| matches!(i, Implementacao::Campo(_))) {
+            return None;
+        }
+        let recv = self.coagir(recv.clone(), Type::Ref);
+        let cls = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_value_class".to_string(),
+                args: vec![(recv.clone(), Type::Ref)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        let blocos: Vec<BlockId> = distintas.iter().map(|_| self.new_block()).collect();
+        let padrao = self.new_block();
+        let juncao = self.new_block();
+        let cases = por_classe
+            .iter()
+            .map(|(id, i)| (*id, blocos[distintas.iter().position(|d| d == i).expect("implementação listada")]))
+            .collect();
+        self.terminate(Terminator::Switch { val: cls, default: padrao, cases });
+        let span = dartforge_diagnostics::Span { start: 0, end: 0 };
+        let mut entradas = Vec::new();
+        for (i, &b) in distintas.iter().zip(&blocos) {
+            self.set_block(b);
+            let r = match (*i, tipo) {
+                (Implementacao::Campo(vid), Tipo::Gravar) => {
+                    let v = avaliados.first().map(|(_, v)| v.clone()).unwrap_or(Operand::Constant(Constant::Null));
+                    let v = self.coagir(v, self.repr_do_campo(vid));
+                    self.gravar_campo(recv.clone(), vid, v, span);
+                    Operand::Constant(Constant::Null)
+                }
+                (Implementacao::Campo(vid), _) => self.ler_campo_com_late_direto(recv.clone(), vid, span),
+                (Implementacao::Funcao(alvo), _) => {
+                    let args = self.casar_args(alvo, avaliados);
+                    let r = self.chamar_direto(alvo, Some(recv.clone()), args);
+                    if matches!(self.repr_retorno(alvo), Type::Void) { Operand::Constant(Constant::Null) } else { r }
+                }
+            };
+            if self.is_terminated() {
+                continue;
+            }
+            let r = self.coagir(r, ret);
+            entradas.push((self.current_block, r));
+            self.terminate(Terminator::Branch(juncao));
+        }
+        self.set_block(padrao);
+        let nome = chave.strip_suffix("_=").unwrap_or(chave);
+        let s = texto_seletor(self.ctx, tipo, nome, biblioteca);
+        let r = self.chamar_por_seletor(recv, s, avaliados);
+        if !self.is_terminated() {
+            let r = self.coagir(r, ret);
+            entradas.push((self.current_block, r));
+            self.terminate(Terminator::Branch(juncao));
+        }
+        self.set_block(juncao);
+        if entradas.is_empty() {
+            // Todo caminho lança: a junção é inalcançável.
+            return Some(Self::valor_zero(ret));
+        }
+        Some(self.emit(Instruction::Phi { incoming: entradas, ty: ret }, ret))
     }
 
     /// Hook da leitura de campo: um getter de subclasse pode sobrescrever
@@ -207,6 +312,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         {
             return None;
         }
+        let repr = self.repr_do_campo(vid);
+        if e_sdk && membro_fechado(self.ctx, cid, &nome)
+            && let Some(r) = self.despacho_por_classe(&obj, cid, &nome, Tipo::Ler, v.library, &[], repr)
+        {
+            return Some(r);
+        }
         let s = texto_seletor(self.ctx, Tipo::Ler, &nome, v.library);
         let r = self.chamar_por_seletor(obj, s, &[]);
         let repr = self.repr_do_campo(vid);
@@ -230,6 +341,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             implementacoes(self.ctx, cid, &format!("{nome}_=")).iter().all(|i| *i == Implementacao::Campo(vid));
         if so_este_campo && (!e_sdk || membro_fechado(self.ctx, cid, &nome)) {
             return false;
+        }
+        if e_sdk && membro_fechado(self.ctx, cid, &nome)
+            && self
+                .despacho_por_classe(&obj, cid, &format!("{nome}_="), Tipo::Gravar, v.library, &[(None, valor.clone())], Type::Ref)
+                .is_some()
+        {
+            return true;
         }
         let s = texto_seletor(self.ctx, Tipo::Gravar, &nome, v.library);
         self.chamar_por_seletor(obj, s, &[(None, valor)]);
@@ -729,6 +847,42 @@ pub fn implementacoes(ctx: &Context, cid: ClassId, chave: &str) -> Vec<Implement
     }
     saida
 }
+
+/// Cada classe concreta compilada, subtipo de `cid`, com a implementação
+/// de `chave` que a linearização dela acha (como em [`implementacoes`]), pelo
+/// id de classe do runtime; `None` se alguma não tem id.
+pub fn implementacoes_por_classe(ctx: &Context, cid: ClassId, chave: &str) -> Option<Vec<(i64, Implementacao)>> {
+    let sym = ctx.interner.lookup(chave)?;
+    let mut saida = Vec::new();
+    for (k, classe) in ctx.program.classes.iter().enumerate() {
+        let kid = ClassId(k as u32);
+        if !ctx.biblioteca_compilada(classe.library)
+            || classe.modifiers.abstract_
+            || super::membros::e_mixin(ctx, kid)
+            || !subclasse_de(ctx, kid, cid)
+        {
+            continue;
+        }
+        for c in linearizacao(ctx, kid) {
+            let Some(&f) = ctx.program.classes[c.0 as usize].instance_members.get(&sym) else { continue };
+            let f = f.0 as usize;
+            if !implementado(ctx, f) {
+                continue;
+            }
+            let i = match ctx.program.functions[f].variable {
+                Some(v) => Implementacao::Campo(v),
+                None => Implementacao::Funcao(f),
+            };
+            saida.push((i64::from(ctx.id_de_classe(kid)?), i));
+            break;
+        }
+    }
+    Some(saida)
+}
+
+/// Quantas implementações distintas o despacho por classe
+/// (`despacho_por_classe`) aceita; acima disso, o seletor.
+const POUCOS_ALVOS: usize = 4;
 
 /// O que uma entrada da tabela de métodos faz.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
