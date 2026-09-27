@@ -730,7 +730,17 @@ fn caminho_da_biblioteca(lib_uri: &str, package_config: &PackageConfig) -> Optio
     if lib_uri.starts_with("package:") {
         package_config.resolve_package_uri(lib_uri).ok()
     } else if let Ok(url) = Url::parse(lib_uri) {
-        url.to_file_path().ok()
+        let p = url.to_file_path().ok()?;
+        // `file:` sem arquivo no lugar: o gerado do `build_runner`, se houver.
+        if package_config.generated_root.is_some()
+            && !p.is_file()
+            && !package_config.gerados.as_ref().is_some_and(|g| g.contem(&p))
+        {
+            if let Some(gerado) = package_config.gerado_no_lugar_de(&p) {
+                return Some(gerado);
+            }
+        }
+        Some(p)
     } else {
         Some(PathBuf::from(lib_uri))
     }
@@ -1099,11 +1109,21 @@ fn resolve_directive_target(
                 }
             }
         }
-        let base = base_path.and_then(|p| p.parent()).unwrap_or(Path::new("."));
+        // Um gerado do `build_runner` resolve os relativos a partir do lugar
+        // de origem dele (`test/x.template.dart` importa `x.dart` de `test/`).
+        let origem = base_path.and_then(|p| package_config.origem_do_gerado(p));
+        let base = origem.as_deref().or(base_path).and_then(|p| p.parent()).unwrap_or(Path::new("."));
         let target_path = base.join(uri_str);
         // Lexical, como `Uri.resolve`; arquivo inexistente falha na leitura.
         let canonical = normalizar(&target_path);
         let canonical_uri = canonical_file_uri(&canonical, package_config);
+        // Fora de `lib/` (`test/`, `web/`), o gerado do `build_runner` ocupa
+        // o lugar do arquivo que falta, com a URI do lugar.
+        if !canonical.is_file() && !package_config.gerados.as_ref().is_some_and(|g| g.contem(&canonical)) {
+            if let Some(gerado) = package_config.gerado_no_lugar_de(&canonical) {
+                return Ok((canonical_uri, Some(gerado)));
+            }
+        }
         Ok((canonical_uri, Some(canonical)))
     }
 }

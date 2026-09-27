@@ -408,3 +408,46 @@ fn test_inheritance_cycle_detection() {
         errs
     );
 }
+
+/// Gerados do `build_runner` fora de `lib/` (`test/`, `web/`): um import
+/// relativo a um `.template.dart` que só existe em
+/// `.dart_tool/build/generated/<pacote>/test/` resolve para ele, com a URI do
+/// lugar de origem, e os relativos do gerado voltam para `test/`. O `dart
+/// analyze` 3.6.2 dá "No issues found!" nesse projeto (`v01/min/gentest`).
+#[test]
+fn gerado_do_build_runner_fora_de_lib() {
+    let tmp = tempdir().unwrap();
+    let sdk = empty_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let proj = tmp.path().join("proj");
+    fs::create_dir_all(proj.join("test")).unwrap();
+    fs::create_dir_all(proj.join("lib")).unwrap();
+    fs::create_dir_all(proj.join(".dart_tool/build/generated/gentest/test")).unwrap();
+    fs::write(proj.join("pubspec.yaml"), "name: gentest\nenvironment:\n  sdk: ^3.6.0\n").unwrap();
+    fs::write(
+        proj.join(".dart_tool/package_config.json"),
+        r#"{"configVersion":2,"packages":[{"name":"gentest","rootUri":"../","packageUri":"lib/","languageVersion":"3.6"}]}"#,
+    )
+    .unwrap();
+    fs::write(proj.join("test/x_test.dart"), "import 'x_test.template.dart' as ng;\nint f() => ng.valor;\nconst base = 1;\n").unwrap();
+    fs::write(
+        proj.join(".dart_tool/build/generated/gentest/test/x_test.template.dart"),
+        "import 'x_test.dart' as orig;\nconst valor = orig.base + 1;\n",
+    )
+    .unwrap();
+    let entrada = proj.join("test/x_test.dart");
+    let config = proj.join(".dart_tool/package_config.json");
+    let prog = load(&entrada, &sdk, Some(&config), &mut interner).expect("carregamento falhou");
+    let gerado = prog.libraries.iter().find(|l| l.uri.ends_with("test/x_test.template.dart")).expect("biblioteca gerada");
+    assert!(gerado.uri.starts_with("file://"), "{}", gerado.uri);
+    let unidade = &prog.units[gerado.units[0].0 as usize];
+    let caminho = unidade.path.as_ref().unwrap().to_string_lossy().replace('\\', "/");
+    assert!(caminho.contains(".dart_tool/build/generated/gentest/test/x_test.template.dart"), "{caminho}");
+    let valor = interner.intern("valor");
+    assert!(gerado.declared.contains_key(&valor));
+    // O relativo do gerado (`x_test.dart`) é a biblioteca de `test/`, não
+    // um arquivo inexistente na pasta dos gerados.
+    let orig = interner.intern("orig");
+    let alvo = gerado.imports.iter().find(|i| i.prefix == Some(orig)).expect("import do gerado");
+    assert!(prog.library(alvo.library).uri.ends_with("/proj/test/x_test.dart"), "{}", prog.library(alvo.library).uri);
+}

@@ -83,6 +83,37 @@ impl PackageConfig {
         candidate.is_file().then_some(candidate)
     }
 
+    /// O arquivo gerado pelo `build_runner` que ocupa o lugar de `path`, um
+    /// arquivo de qualquer pasta de um pacote (não só `lib/`: `test/`,
+    /// `web/`, `example/`): `<projeto>/.dart_tool/build/generated/<pacote>/<rel>`,
+    /// com `rel` relativo à raiz (`rootUri`) do pacote mais interno que o
+    /// contém. É a sobreposição que o analyzer faz dos gerados.
+    ///
+    /// ```
+    /// use dartforge_elements::PackageConfig;
+    /// // Sem `.dart_tool/build/generated`, nada é sobreposto.
+    /// assert!(PackageConfig::default().gerado_no_lugar_de(std::path::Path::new("/p/test/a.template.dart")).is_none());
+    /// ```
+    pub fn gerado_no_lugar_de(&self, path: &Path) -> Option<PathBuf> {
+        let raiz_gerados = self.generated_root.as_ref()?;
+        let (nome, raiz) = self.root_dirs.iter().find(|(_, dir)| path.starts_with(dir))?;
+        let rel = path.strip_prefix(raiz).ok()?;
+        let candidato = raiz_gerados.join(nome).join(rel);
+        candidato.is_file().then_some(candidato)
+    }
+
+    /// O lugar de origem de um arquivo gerado (o inverso de
+    /// [`PackageConfig::gerado_no_lugar_de`]): `…/generated/<pacote>/<rel>` →
+    /// `<raiz do pacote>/<rel>`. Os imports relativos de um gerado se
+    /// resolvem a partir daí, como no analyzer.
+    pub fn origem_do_gerado(&self, path: &Path) -> Option<PathBuf> {
+        let rel = path.strip_prefix(self.generated_root.as_ref()?).ok()?;
+        let mut partes = rel.iter();
+        let nome = partes.next()?.to_str()?;
+        let raiz = &self.root_dirs.iter().find(|(n, _)| n == nome)?.1;
+        Some(raiz.join(partes.as_path()))
+    }
+
     /// Localiza o arquivo `package_config.json` procurando a partir do diretório
     /// de `entry` e subindo a árvore de diretórios.
     pub fn discover(entry: &Path) -> Option<PathBuf> {
