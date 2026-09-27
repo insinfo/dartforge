@@ -36,6 +36,11 @@ pub struct Componente {
     pub com_provedores: bool,
     /// `template: '...'` quando o template está na própria anotação.
     pub template: Option<String>,
+    /// Onde o conteúdo do `template:` começa no `.dart`, em unidades UTF-16
+    /// — o que o oficial soma às posições do comentário `REF`. Só quando o
+    /// literal é uma string simples, sem escape nem interpolação (o texto do
+    /// template é o do fonte, e as posições dentro dele valem nos dois).
+    pub deslocamento_do_template: Option<usize>,
     /// `templateUrl: 'x.html'`.
     pub template_url: Option<String>,
     pub style_urls: Vec<String>,
@@ -263,6 +268,25 @@ fn texto_do_argumento(arvore: &ast::Ast, id: ast::ExprId) -> Option<String> {
     }
 }
 
+/// Onde começa, no fonte, o conteúdo de um `template:` escrito como string
+/// simples (`'..'` ou `".."`, sem `r`, aspas triplas, escape ou `$`): o
+/// deslocamento em unidades UTF-16, como o analyzer conta.
+fn deslocamento_do_template(
+    arvore: &ast::Ast,
+    fonte: &str,
+    id: ast::ExprId,
+    valor: &str,
+) -> Option<usize> {
+    let span = arvore.expr(id).span;
+    let bruto = fonte.get(span.start..span.end)?;
+    let aspa = bruto.chars().next().filter(|c| *c == '\'' || *c == '"')?;
+    let dentro = bruto.strip_prefix(aspa)?.strip_suffix(aspa)?;
+    if dentro.starts_with(aspa) || dentro.contains(['\\', '$']) || dentro != valor {
+        return None;
+    }
+    Some(fonte.get(..span.start + 1)?.encode_utf16().count())
+}
+
 /// Lista de strings literais (`styleUrls: ['a.css', 'b.css']`).
 fn lista_de_textos(arvore: &ast::Ast, id: ast::ExprId) -> Vec<String> {
     let ast::ExprKind::List { elements, .. } = &arvore.expr(id).kind else {
@@ -482,7 +506,13 @@ fn ler(
             match nome {
                 "selector" => c.seletor = texto_do_argumento(arvore, a.value).unwrap_or_default(),
                 "exportAs" => c.export_as = texto_do_argumento(arvore, a.value),
-                "template" => c.template = texto_do_argumento(arvore, a.value),
+                "template" => {
+                    c.template = texto_do_argumento(arvore, a.value);
+                    c.deslocamento_do_template = c
+                        .template
+                        .as_deref()
+                        .and_then(|t| deslocamento_do_template(arvore, fonte, a.value, t));
+                }
                 "templateUrl" => c.template_url = texto_do_argumento(arvore, a.value),
                 "styleUrls" => c.style_urls = lista_de_textos(arvore, a.value),
                 "styles" => c.styles = lista_de_textos(arvore, a.value),

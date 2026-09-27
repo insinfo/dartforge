@@ -137,6 +137,36 @@ pub fn analisar(fonte: &str) -> Vec<No> {
     nos
 }
 
+/// Soma `k` às posições de todas as ligações e interpolações: o template
+/// escrito na anotação, cujas posições no `REF` são as do `.dart` (o
+/// oficial soma o `templateOffset`).
+pub fn deslocar(nos: &mut [No], k: usize) {
+    for no in nos {
+        match no {
+            No::Interpolacao { inicio, fim, .. } => {
+                *inicio += k;
+                *fim += k;
+            }
+            No::Elemento(e) => {
+                for l in e
+                    .atributos
+                    .iter_mut()
+                    .chain(e.propriedades.iter_mut())
+                    .chain(e.eventos.iter_mut())
+                    .chain(e.bananas.iter_mut())
+                    .chain(e.referencias.iter_mut())
+                    .chain(e.estrela.iter_mut())
+                {
+                    l.inicio += k;
+                    l.fim += k;
+                }
+                deslocar(&mut e.filhos, k);
+            }
+            _ => {}
+        }
+    }
+}
+
 /// O parser anda em bytes, mas o `REF:url:inicio:fim` do oficial conta em
 /// unidades UTF-16: o `ngast` abre o template com `SourceFile.fromString`,
 /// que usa `text.codeUnits`. Um `©` antes da ligação é 2 bytes e 1 unidade.

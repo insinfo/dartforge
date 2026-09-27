@@ -553,9 +553,11 @@ impl Indice {
                     .and_then(|id| crate::metadados::ler(r, id))
                 && let Some(f) = self.por_classe.get_mut(&k)
             {
-                // Só `ExistingProvider` um nó de template sabe criar; os
-                // outros provedores só a hospedeira do próprio componente.
-                if m.fora.is_empty() && m.so_apelidos() {
+                // O nó de template escreve os `providers:` do filho como a
+                // hospedeira; o que ainda não sai (dependência de fora do
+                // nó, provedor pedido no próprio nó) é recusado pela visão,
+                // com o motivo.
+                if crate::visao::provedores_escreviveis(&m).is_ok() {
                     f.pendencias.retain(|p| p.forma != "filho com providers");
                 }
                 f.metadados = Some(std::sync::Arc::new(m));
@@ -1066,30 +1068,63 @@ pub(crate) fn gerar_interno(
             "componente com diretiva ou pipe no arquivo",
         ));
     }
-    if achados.componentes.len() != 1 {
+    // Vários componentes: a tabela de imports é uma só e os trechos saem na
+    // ordem do fonte (caso i24). Folha de estilo em mais de um ainda não tem
+    // caso (o import da folha é alocado no meio do arquivo).
+    if achados.componentes.len() > 1
+        && achados
+            .componentes
+            .iter()
+            .any(|c| !c.style_urls.is_empty() || !c.styles.is_empty())
+    {
         return Err(recusa(
             Motivo::VariosComponentes,
-            "vários componentes no arquivo",
+            "vários componentes no arquivo com folha de estilo",
         ));
     }
-    let comp = &achados.componentes[0];
-    if let Some(r) = comp.nao_entendidos.first() {
-        return Err(r.clone());
-    }
-    let ausente = || recusa(Motivo::TemplateAusente, "templateUrl não encontrado");
-    let (template, arquivo_html) = match (&comp.template, &comp.template_url) {
-        (Some(t), _) => (t.clone(), None),
-        (None, Some(url)) => {
-            let caminho = fonte.parent().ok_or_else(ausente)?.join(url);
-            let texto = std::fs::read_to_string(&caminho).map_err(|_| ausente())?;
-            (texto, Some(caminho))
+    let mut imp = visao::Importacoes::default();
+    let mut trechos = Vec::new();
+    let mut entradas = vec![fonte.to_path_buf()];
+    let mut extras: Vec<(PathBuf, String)> = Vec::new();
+    for comp in &achados.componentes {
+        let (trecho, html, folhas) = trecho_do_componente(
+            pacote,
+            fonte,
+            nome_do_arquivo,
+            comp,
+            resolvedor,
+            nomes,
+            indice,
+            &mut imp,
+        )?;
+        trechos.push(trecho);
+        entradas.extend(html);
+        for (destino, conteudo, entrada) in folhas {
+            if !extras.iter().any(|(d, _)| *d == destino) {
+                extras.push((destino, conteudo));
+                entradas.push(entrada);
+            }
         }
-        (None, None) => (String::new(), None),
-    };
-    let relativo = pacote.relativo(fonte);
-    let local = visao::Local {
+    }
+    Ok((
+        visao::montar_arquivo(nome_do_arquivo, &imp, &trechos),
+        entradas,
+        extras,
+    ))
+}
+
+/// O `Local` de um componente: onde ele mora e os metadados dele.
+fn local_do_componente<'a>(
+    pacote: &'a Pacote,
+    fonte: &'a Path,
+    relativo: &'a str,
+    nome_do_arquivo: &'a str,
+    comp: &componente::Componente,
+    indice: &Indice,
+) -> visao::Local<'a> {
+    visao::Local {
         pacote: &pacote.nome,
-        relativo: &relativo,
+        relativo,
         arquivo: nome_do_arquivo,
         caminho: fonte,
         raiz: &pacote.raiz,
@@ -1100,8 +1135,56 @@ pub(crate) fn gerar_interno(
                 .get(&(uri, comp.classe.clone()))
                 .and_then(|f| f.metadados.clone())
         }),
-    };
-    let nos = html::analisar(&template);
+    }
+}
+
+/// O template de um componente, já analisado: o texto do `.html` (ou o da
+/// anotação, com as posições deslocadas para as do `.dart`) e o arquivo
+/// que o alimenta.
+fn template_do_componente(
+    fonte: &Path,
+    comp: &componente::Componente,
+) -> Result<(Vec<html::No>, Option<PathBuf>), Recusa> {
+    let ausente = || recusa(Motivo::TemplateAusente, "templateUrl não encontrado");
+    Ok(match (&comp.template, &comp.template_url) {
+        (Some(t), _) => {
+            let mut nos = html::analisar(t);
+            if let Some(k) = comp.deslocamento_do_template {
+                html::deslocar(&mut nos, k);
+            }
+            (nos, None)
+        }
+        (None, Some(url)) => {
+            let caminho = fonte.parent().ok_or_else(ausente)?.join(url);
+            let texto = std::fs::read_to_string(&caminho).map_err(|_| ausente())?;
+            (html::analisar(&texto), Some(caminho))
+        }
+        (None, None) => (html::analisar(""), None),
+    })
+}
+
+/// Uma folha gerada à parte: destino, conteúdo e o arquivo que a alimenta.
+type Folha = (PathBuf, String, PathBuf);
+
+/// O trecho de um componente no `.template.dart`, com o `.html` e as
+/// folhas compiladas dele.
+#[allow(clippy::too_many_arguments)]
+fn trecho_do_componente(
+    pacote: &Pacote,
+    fonte: &Path,
+    nome_do_arquivo: &str,
+    comp: &componente::Componente,
+    resolvedor: Option<&dyn resolucao::Resolucao>,
+    nomes: &mut Interner,
+    indice: &Indice,
+    imp: &mut visao::Importacoes,
+) -> Result<(String, Option<PathBuf>, Vec<Folha>), Recusa> {
+    if let Some(r) = comp.nao_entendidos.first() {
+        return Err(r.clone());
+    }
+    let (nos, arquivo_html) = template_do_componente(fonte, comp)?;
+    let relativo = pacote.relativo(fonte);
+    let local = local_do_componente(pacote, fonte, &relativo, nome_do_arquivo, comp, indice);
     let (usadas, fora) = indice.diretivas_de(comp, fonte, resolvedor);
     if let Some(r) = fora.into_iter().next() {
         return Err(r);
@@ -1114,14 +1197,12 @@ pub(crate) fn gerar_interno(
         Some(r) => Err(r),
         None => Ok(pipes),
     };
-    let texto = visao::template_de_componente(
-        comp, &local, &nos, resolvedor, nomes, &filhos, &usadas, &pipes,
+    let texto = visao::trecho_de_componente(
+        comp, &local, &nos, resolvedor, nomes, &filhos, &usadas, &pipes, imp,
     )?;
-    let mut entradas = vec![fonte.to_path_buf()];
-    entradas.extend(arquivo_html);
     // A folha compilada é um arquivo à parte, como o oficial gera: o
     // `<nome>.css.shim.dart` que o template importa.
-    let mut extras = Vec::new();
+    let mut folhas = Vec::new();
     let folha = |f: &str| recusa(Motivo::Estilos, f);
     for url in &comp.style_urls {
         let css = fonte
@@ -1148,16 +1229,25 @@ pub(crate) fn gerar_interno(
             "{}.shim.dart",
             css.file_name().unwrap_or_default().to_string_lossy()
         ));
-        extras.push((destino, format!("final List<Object> styles = ['{shim}'];")));
-        entradas.push(entrada);
+        folhas.push((
+            destino,
+            format!("final List<Object> styles = ['{shim}'];"),
+            entrada,
+        ));
     }
-    Ok((texto, entradas, extras))
+    Ok((texto, arquivo_html, folhas))
 }
 
 /// URI `package:` do arquivo do template — o que o oficial escreve no
 /// comentário `REF` de cada ligação. Só para componentes em `lib/` com
 /// `templateUrl`; com template escrito na anotação a referência é outra.
 fn url_do_template(pacote: &Pacote, fonte: &Path, comp: &componente::Componente) -> Option<String> {
+    // Template na anotação: a referência é o `.dart` (`asset:`), com as
+    // posições dele — só quando o literal permite contá-las.
+    if comp.template.is_some() {
+        comp.deslocamento_do_template?;
+        return Some(format!("asset:{}/{}", pacote.nome, pacote.relativo(fonte)));
+    }
     let url = comp.template_url.as_ref()?;
     let html = fonte.parent()?.join(url);
     let rel = pacote.relativo(&html);
@@ -1201,56 +1291,29 @@ fn motivos_do_arquivo(
 ) -> std::collections::BTreeSet<Recusa> {
     let mut fora = std::collections::BTreeSet::new();
     fora.insert(primeira);
-    if achados.componentes.len() != 1 {
-        return fora;
-    }
-    let comp = &achados.componentes[0];
-    let template = match (&comp.template, &comp.template_url) {
-        (Some(t), _) => t.clone(),
-        (None, Some(url)) => match fonte.parent().map(|d| d.join(url)) {
-            Some(c) => std::fs::read_to_string(c).unwrap_or_default(),
-            None => String::new(),
-        },
-        (None, None) => String::new(),
-    };
     let relativo = pacote.relativo(fonte);
     let nome = fonte
         .file_name()
         .unwrap_or_default()
         .to_string_lossy()
         .to_string();
-    let local = visao::Local {
-        pacote: &pacote.nome,
-        relativo: &relativo,
-        arquivo: &nome,
-        caminho: fonte,
-        raiz: &pacote.raiz,
-        url_do_template: url_do_template(pacote, fonte, comp),
-        metadados: uri_de_biblioteca(pacote, fonte).and_then(|uri| {
-            indice
-                .por_classe
-                .get(&(uri, comp.classe.clone()))
-                .and_then(|f| f.metadados.clone())
-        }),
-    };
-    let (usadas, fora_da_lista) = indice.diretivas_de(comp, fonte, resolvedor);
-    fora.extend(fora_da_lista);
-    let filhos = filhos_por_tag(&usadas);
-    let (pipes, fora_dos_pipes) = indice.pipes_de(comp, fonte, resolvedor);
-    let pipes = match fora_dos_pipes.into_iter().next() {
-        Some(r) => Err(r),
-        None => Ok(pipes),
-    };
-    fora.extend(visao::coletar(
-        comp,
-        &local,
-        &html::analisar(&template),
-        resolvedor,
-        nomes,
-        &filhos,
-        &usadas,
-        &pipes,
-    ));
+    for comp in &achados.componentes {
+        let Ok((nos, _)) = template_do_componente(fonte, comp) else {
+            continue;
+        };
+        let local = local_do_componente(pacote, fonte, &relativo, &nome, comp, indice);
+        let (usadas, fora_da_lista) = indice.diretivas_de(comp, fonte, resolvedor);
+        fora.extend(fora_da_lista);
+        let filhos = filhos_por_tag(&usadas);
+        let (pipes, fora_dos_pipes) = indice.pipes_de(comp, fonte, resolvedor);
+        let pipes = match fora_dos_pipes.into_iter().next() {
+            Some(r) => Err(r),
+            None => Ok(pipes),
+        };
+        fora.extend(visao::coletar(
+            comp, &local, &nos, resolvedor, nomes, &filhos, &usadas, &pipes,
+        ));
+    }
     fora
 }
 

@@ -58,11 +58,6 @@ fn raiz_do_corpus() -> PathBuf {
 /// São as formas ainda sem tradução (docs/GERADOR-NG.md §9): gerar
 /// qualquer uma ignorando o que falta daria saída errada.
 const RECUSADOS: &[(&str, &str)] = &[
-    ("i24_two_way_filho.dart", "vários componentes no arquivo"),
-    // Filho com `providers:` de classe: os provedores entram no nó de quem
-    // o usa — a hospedeira do próprio filho já os escreve, o nó de
-    // template ainda não.
-    ("i72_usa_provider.dart", "filho com providers"),
     (
         "i73_usa_consulta_read.dart",
         "filho com @ContentChild(.., read:)",
