@@ -266,6 +266,10 @@ por `tests/corpus.rs`; "recusado", que o arquivo fica com o
 confere o motivo). No fim da rodada: 159 arquivos conferidos, 0
 diferentes, 8 recusados.
 
+Rodada de 2026-09-27 (`providers:` e consultas de conteúdo no componente,
+sondas `i60`…`i73`): 178 arquivos conferidos, 0 diferentes, 5 recusados
+(b06, i24, i30 e as sondas de recusa i72 e i73).
+
 ### Diretivas estruturais
 
 | forma | estado | casos |
@@ -308,7 +312,9 @@ diferentes, 8 recusados.
 | `@ViewChild(Tipo)`/`@ViewChildren(Tipo)` de componente filho | gerado | i16, i50 |
 | `@ViewChild`/`@ViewChildren` com o resultado em `*ngIf`/`*ngFor` (um nível) | gerado (`_viewQuery_x_N_isDirty`, `mapNestedViewsWithSingleResult`, `dirtyParentQueriesInternal`) | i47, i51 |
 | consulta com vários resultados em `*`, dois níveis, `read:` | recusado | — |
-| `@ContentChild`/`@ContentChildren` no próprio componente | **recusado** | d09, h01 |
+| `@ContentChild`/`@ContentChildren` no próprio componente (campo ou setter, `descendants:`, `read:`, por tipo ou `'ref'`) | gerado (na hospedeira, sem conteúdo: `this.component.x = [];` para cada lista logo depois da construção, setters antes dos campos; o único não recebe nada) | d09, h01, i68, i69 |
+| consulta de conteúdo do componente que acharia o próprio nó (o componente, um provedor dele, tipo do ngdart) | recusado | — |
+| `@ContentChild(.., read:)` de filho usado no template | recusado | i73 |
 
 ### Pipes
 
@@ -329,21 +335,27 @@ diferentes, 8 recusados.
 | `@HostBinding` de propriedade, `style.x`, sem argumento, com herança | recusado | — |
 | `@i18n`, `@i18n:attr`, `.meaning`, `.locale`, `.skip` (texto puro) | gerado (`static final String _message_N = Intl.message(..)`; antes: **saída errada**) | i20, i35 |
 | `@i18n` com HTML dentro, em filho, em `*` ou com filho/diretiva na visão | recusado | — |
-| `providers: [..]` no componente | **recusado** (numeração de provedores na hospedeira) | b02, h02, i19 |
+| `providers:` no componente: `ClassProvider`, `Provider(X, useClass:)`, classe solta, `ExistingProvider`/`useExisting:` (apelido local, apelido de apelido, do próprio componente, de token de fora), `ValueProvider`/`useValue:` (texto, inteiro, booleano, objeto `const`), `FactoryProvider`/`useFactory:` com `deps:` ou pelos parâmetros, `.forToken` de `OpaqueToken` (`T` do `dart:core`) e de `MultiToken` (`T` do `dart:core` ou genérico), listas aninhadas e constantes, sobrescrita de token | gerado (na hospedeira: preguiçoso `late T _X_0_n = ..;`, ou `late final` criado no `build()` antes do componente quando ele depende; campos com inicializador primeiro; `debugInjectorWrap` com dependência do injetor; `injectorGetInternal` do nó 0; o componente montado com `this._X_0_n`) | b02, h02, i19, i60…i67, i69…i71 |
+| `multi: true` | não existe no ngdart 8 (multi é o `MultiToken`) | — |
+| `providers:` com `useValue:` de lista, mapa, enum, `null` ou objeto aninhado; `useFactory:` de método estático; classe genérica ou abstrata; token de subclasse de `OpaqueToken`, `OpaqueToken` sem nome ou com `T` de fora do `dart:core`, `MultiToken` com `T` de fora do `dart:core` sem argumentos; dependência `@Self`/`@Host`/`@SkipSelf` ou de embutido (`ElementRef`, `Injector`…) num serviço; `viewProviders:` | recusado | — |
+| componente com `providers:` além de `ExistingProvider` usado como filho no template | recusado (`filho com providers`: os provedores entram no nó de quem usa) | i72 |
 | `encapsulation:` | **recusado** | b06 |
 | vários `@Component` no mesmo arquivo | **recusado** (imports compartilhados, filho do mesmo arquivo sem prefixo) | i24 |
 
 ### O que falta, pela frequência
 
-1. `providers:` do componente (11 arquivos no new_sali): a hospedeira
-   ganha os provedores (`late X _X_0_6 = X();` preguiçoso, ou criado antes
-   do componente quando ele depende), o `injectorGetInternal` e a
-   construção do componente pelo provedor local. O resolvedor de
-   `diretivas.rs` já modela o `_ProviderResolver` de um nó.
-2. `@ContentChild(ren)` no próprio componente.
-3. Vários componentes num arquivo e `ngTemplateOutlet`/`<template #t>`.
-4. Consultas dinâmicas além de um nível e um resultado.
+1. Componente com `providers:` (fora `ExistingProvider`) usado como filho:
+   os provedores dele entram no nó de quem o usa, com as dependências
+   subindo pelos elementos acima e pelo injetor de fora. A hospedeira
+   já escreve essas formas; falta levá-las ao nó de template
+   (`diretivas_do_no`, `campos_em_ordem`).
+2. Vários componentes num arquivo e `ngTemplateOutlet`/`<template #t>`.
+3. Consultas dinâmicas além de um nível e um resultado.
 
 O oráculo das sondas se regenera como os outros casos
 (`scripts/corpus-ngdart.ps1`): criar o `.dart` e o `.html` em
-`corpus/ngdart/lib/src/` e rodar o script.
+`corpus/ngdart/lib/src/` e rodar o script. (Sem `pwsh`, o mesmo roteiro — gerar o
+`web/main.dart` e o `lib/corpus_ngdart.dart`, `dart pub get --offline`,
+`dart run build_runner build --delete-conflicting-outputs` e copiar os
+`.template.dart` de `.dart_tool/build/generated/corpus_ngdart/lib/src/`
+para `oraculo/` — dá o mesmo oráculo.)
