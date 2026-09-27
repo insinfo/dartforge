@@ -207,6 +207,9 @@ import 'package:corpus_ngdart/src/j10_view_child_tipo_em_if.template.dart' as j1
 import 'package:corpus_ngdart/src/j11_ref_escopo.template.dart' as j11;
 import 'package:corpus_ngdart/src/j12_view_child_ref_exportado.template.dart' as j12;
 import 'package:corpus_ngdart/src/j13_ref_com_membro.template.dart' as j13;
+import 'package:corpus_ngdart/src/j14_view_child_read_em_if.template.dart' as j14;
+import 'package:corpus_ngdart/src/j15_consultas_misturadas.template.dart' as j15;
+import 'package:corpus_ngdart/src/j16_filho_on_push_em_if.template.dart' as j16;
 
 void main() {
   print([
@@ -416,5 +419,8 @@ void main() {
     j11.J11RefEscopoNgFactory,
     j12.J12ViewChildRefExportadoNgFactory,
     j13.J13RefComMembroNgFactory,
+    j14.J14ViewChildReadEmIfNgFactory,
+    j15.J15ConsultasMisturadasNgFactory,
+    j16.J16FilhoOnPushEmIfNgFactory,
   ].length);
 }

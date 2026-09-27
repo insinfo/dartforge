@@ -224,3 +224,6 @@ export 'src/j10_view_child_tipo_em_if.dart';
 export 'src/j11_ref_escopo.dart';
 export 'src/j12_view_child_ref_exportado.dart';
 export 'src/j13_ref_com_membro.dart';
+export 'src/j14_view_child_read_em_if.dart';
+export 'src/j15_consultas_misturadas.dart';
+export 'src/j16_filho_on_push_em_if.dart';

@@ -359,9 +359,11 @@ do limitless_ui no Pesado.
 | `@ViewChild` de `#ref` repetido (o primeiro) | gerado | i49 |
 | `@ViewChildren('ref')` estático, sem resultado (`[]`) | gerado | i15, i49 |
 | `@ViewChild(Tipo)`/`@ViewChildren(Tipo)` de componente filho | gerado | i16, i50 |
-| `@ViewChild`/`@ViewChildren` com o resultado em `*ngIf`/`*ngFor`, em qualquer profundidade (`*` na raiz de `*`), elemento ou componente filho não `onPush`, por `#ref` ou por tipo | gerado (`_viewQuery_x_N_isDirty`, `mapNestedViews` em cada nível e `mapNestedViewsWithSingleResult` no último, `dirtyParentQueriesInternal` subindo um `parentView` por nível) | i47, i51, i96, i97, j06, j09, j10 |
+| `@ViewChild`/`@ViewChildren` com o resultado em `*ngIf`/`*ngFor`, em qualquer profundidade (`*` na raiz de `*`), elemento ou componente filho, por `#ref` ou por tipo, junto de consultas estáticas | gerado (`_viewQuery_x_N_isDirty`, `mapNestedViews` em cada nível e `mapNestedViewsWithSingleResult` no último, `dirtyParentQueriesInternal` subindo um `parentView` por nível) | i47, i51, i96, i97, j06, j09, j10, j15 |
+| consulta dinâmica com `read: ElementRef`/`Element` | gerado (`return ElementRef(nestedView._el_n);`) | j14 |
+| consulta dinâmica de filho `onPush` | gerado (`View.queryChangeDetectorRefs[nestedView._X_n] = nestedView._compView_n;` antes do `return`, como `_createAddQueryChangeDetectorRefs`) | j16 |
 | `@ViewChild(.., read: ElementRef)`, `read: Element`/`HtmlElement`, e campo que não é `Element` (sem `read:`) de elemento estático | gerado (`ElementRef(_el_n)` ou o nó) | i98 |
-| consulta dinâmica com filho `onPush`, `read:`, mistura com estáticos; `read:` de outro token | recusado | — |
+| consulta dinâmica com resultados em visões diferentes; `read:` de outro token | recusado | — |
 | `@ContentChild`/`@ContentChildren` no próprio componente (campo ou setter, `descendants:`, `read:`, por tipo ou `'ref'`) | gerado (na hospedeira, sem conteúdo: `this.component.x = [];` para cada lista logo depois da construção, setters antes dos campos; o único não recebe nada) | d09, h01, i68, i69 |
 | consulta de conteúdo do componente que acharia o próprio nó (o componente, um provedor dele, tipo do ngdart) | recusado | — |
 | `@ContentChild(.., read:)` de filho usado no template, `read:` do elemento (`HtmlElement`/`Element`) ou de outra diretiva do nó achado | gerado (o nó, local ou campo; o campo da diretiva) | i73, i81 |

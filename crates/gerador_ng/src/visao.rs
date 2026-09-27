@@ -333,11 +333,19 @@ fn referencias_livres_da_visao(
                 // O que está num `*` (ou num `<template>`) é de outra visão.
                 if e.estrela.is_some() {
                     if e.estrela.as_ref().is_some_and(|l| l.nome == MARCA_DE_MOLDE) {
-                        saida.extend(e.referencias.iter().map(|r| (r.nome.clone(), r.valor.clone())));
+                        saida.extend(
+                            e.referencias
+                                .iter()
+                                .map(|r| (r.nome.clone(), r.valor.clone())),
+                        );
                     }
                     continue;
                 }
-                saida.extend(e.referencias.iter().map(|r| (r.nome.clone(), r.valor.clone())));
+                saida.extend(
+                    e.referencias
+                        .iter()
+                        .map(|r| (r.nome.clone(), r.valor.clone())),
+                );
                 andar(&e.filhos, saida);
             }
         }
@@ -545,6 +553,11 @@ fn mensagem_com_html(
 const MARCA_DE_REF: char = '\u{5}';
 const FIM_DE_REF: char = '\u{6}';
 
+/// Prefixo, na chave de [`resolver_refs`], da visão de um filho `onPush`
+/// achado pela chave de uma consulta (`\u{5}.\u{8}f\u{6}` →
+/// `._compView_1`), lido de uma visão aninhada ([`mapa_da_consulta`]).
+const MARCA_DE_DETECTOR: char = '\u{8}';
+
 /// Os nomes de `#ref` do template que podem virar local de alguma visão:
 /// sem método do componente com o mesmo nome, e sem membro cujo tipo não se
 /// sabe daqui (com o mesmo nome de um membro, o local é o nó, mas o
@@ -565,7 +578,9 @@ fn referencias_candidatas(nos: &[No], c: &Componente) -> std::collections::HashS
     refs.into_iter()
         .filter(|nome| {
             !c.metodos.contains_key(nome.as_str())
-                && c.membros.get(nome.as_str()).is_none_or(|m| !m.tipo.trim().is_empty())
+                && c.membros
+                    .get(nome.as_str())
+                    .is_none_or(|m| !m.tipo.trim().is_empty())
         })
         .collect()
 }
@@ -609,14 +624,19 @@ fn referencias_locais(
 /// que não o sombreie (um `let` dela, ou um `#ref` declarado nela). As
 /// ligações do `*` são avaliadas na visão de fora; os `let` dele, não são
 /// leituras.
-fn citado_no_escopo(nos: &[No], nome: &str, filhos: &std::collections::HashMap<String, Filho>) -> bool {
+fn citado_no_escopo(
+    nos: &[No],
+    nome: &str,
+    filhos: &std::collections::HashMap<String, Filho>,
+) -> bool {
     let cita = |texto: &str| cita_na_raiz(texto, nome);
     nos.iter().any(|n| match n {
         No::Interpolacao { expr, .. } => cita(expr),
         No::Elemento(e) => match &e.estrela {
             Some(estrela) if estrela.nome != MARCA_DE_MOLDE => {
                 let micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
-                micro.propriedades.iter().any(|(_, expr)| cita(expr)) || citado_na_embutida(e, nome, filhos)
+                micro.propriedades.iter().any(|(_, expr)| cita(expr))
+                    || citado_na_embutida(e, nome, filhos)
             }
             Some(_) => elemento_cita(e, nome) || citado_na_embutida(e, nome, filhos),
             None => elemento_cita(e, nome) || citado_no_escopo(&e.filhos, nome, filhos),
@@ -633,12 +653,18 @@ fn elemento_cita(e: &crate::html::Elemento, nome: &str) -> bool {
         .chain(e.eventos.iter())
         .chain(e.bananas.iter())
         .any(|l| cita(&l.valor))
-        || e.atributos.iter().any(|a| a.valor.contains("{{") && cita(&a.valor))
+        || e.atributos
+            .iter()
+            .any(|a| a.valor.contains("{{") && cita(&a.valor))
 }
 
 /// A visão embutida do `*` (ou do `<template>` escrito) `e` lê o `nome` de
 /// fora? Não, se ela o sombreia: um `let` dela ou um `#ref` declarado nela.
-fn citado_na_embutida(e: &crate::html::Elemento, nome: &str, filhos: &std::collections::HashMap<String, Filho>) -> bool {
+fn citado_na_embutida(
+    e: &crate::html::Elemento,
+    nome: &str,
+    filhos: &std::collections::HashMap<String, Filho>,
+) -> bool {
     let tem_ref = |x: &crate::html::Elemento| x.referencias.iter().any(|r| r.nome == nome);
     let mut lugares = Vec::new();
     match &e.estrela {
@@ -647,20 +673,27 @@ fn citado_na_embutida(e: &crate::html::Elemento, nome: &str, filhos: &std::colle
             // O elemento do `*` e o que está abaixo dele são da visão
             // embutida.
             onde_casa(
-                &[No::Elemento(crate::html::Elemento { estrela: None, ..e.clone() })],
+                &[No::Elemento(crate::html::Elemento {
+                    estrela: None,
+                    ..e.clone()
+                })],
                 &tem_ref,
                 filhos,
                 false,
                 &mut lugares,
             );
-            let sombreado = micro.locais.iter().any(|(l, _)| l == nome) || lugares.iter().any(|l| *l != Lugar::Embutida);
+            let sombreado = micro.locais.iter().any(|(l, _)| l == nome)
+                || lugares.iter().any(|l| *l != Lugar::Embutida);
             !sombreado && (elemento_cita(e, nome) || citado_no_escopo(&e.filhos, nome, filhos))
         }
         _ => {
             // `<template>` escrito: o conteúdo é a visão embutida; os
             // `let-x` ficam nos atributos do elemento.
             onde_casa(&e.filhos, &tem_ref, filhos, false, &mut lugares);
-            let lets = e.atributos.iter().any(|a| a.nome.strip_prefix("let-") == Some(nome));
+            let lets = e
+                .atributos
+                .iter()
+                .any(|a| a.nome.strip_prefix("let-") == Some(nome));
             let sombreado = lets || lugares.iter().any(|l| *l != Lugar::Embutida);
             !sombreado && citado_no_escopo(&e.filhos, nome, filhos)
         }
@@ -678,7 +711,12 @@ fn campos_da_deteccao(
     let posicao = |nome: &str| posicoes.get(nome).copied().unwrap_or(exprs.len());
     let mut saida = Vec::with_capacity(exprs.len() + de_embutidas.len());
     for k in 0..=exprs.len() {
-        saida.extend(de_embutidas.iter().filter(|(n, _)| posicao(n) == k).map(|(_, c)| c.clone()));
+        saida.extend(
+            de_embutidas
+                .iter()
+                .filter(|(n, _)| posicao(n) == k)
+                .map(|(_, c)| c.clone()),
+        );
         if let Some(e) = exprs.get(k) {
             saida.push(e.clone());
         }
@@ -689,7 +727,11 @@ fn campos_da_deteccao(
 /// `nome` é lido só de dentro de uma visão embutida nesta (sem contar as
 /// expressões da própria visão): o oficial promove o nó quando compila a
 /// embutida, antes das ligações desta (o campo vem antes dos `_expr_k`).
-fn citado_em_embutidas(nos: &[No], nome: &str, filhos: &std::collections::HashMap<String, Filho>) -> bool {
+fn citado_em_embutidas(
+    nos: &[No],
+    nome: &str,
+    filhos: &std::collections::HashMap<String, Filho>,
+) -> bool {
     nos.iter().any(|n| match n {
         No::Elemento(e) if e.estrela.is_some() => citado_na_embutida(e, nome, filhos),
         No::Elemento(e) => citado_em_embutidas(&e.filhos, nome, filhos),
@@ -710,12 +752,19 @@ fn chave_de_ref(nome: &str, classe_da_visao: &str) -> String {
 fn exportar_refs(
     resolvidos: &std::cell::RefCell<std::collections::HashMap<String, String>>,
     refs: &std::collections::HashMap<String, String>,
+    detectores: &std::collections::HashMap<String, String>,
     classe_da_visao: &str,
 ) {
     let mut r = resolvidos.borrow_mut();
     for (nome, leitura) in refs {
         r.insert(chave_de_ref(nome, classe_da_visao), leitura.clone());
         r.insert(nome.clone(), leitura.clone());
+    }
+    for (chave, visao) in detectores {
+        r.insert(
+            format!("{MARCA_DE_DETECTOR}{chave}"),
+            format!("this.{visao}"),
+        );
     }
 }
 
@@ -766,13 +815,12 @@ fn formas_contra_o_template(
     let moldes = referencias_de_moldes(nos);
     for consulta in &c.consultas {
         let mut lugares = Vec::new();
-        // `read:` só na consulta estática de um elemento da visão (abaixo):
-        // por tipo, lista, `<template>` ou resultado em `*` ainda não.
+        // `read:` na consulta estática de um elemento da visão (abaixo) ou
+        // na de um elemento em `*` ([`consulta_em_embutida`]): por tipo,
+        // lista estática ou `<template>` ainda não.
         if consulta.leitura.is_some()
-            && (consulta.por_tipo
-                || consulta.lista
-                || moldes.contains(&consulta.referencia)
-                || consulta_em_embutida(nos, consulta, filhos, local, resolvedor))
+            && !consulta_em_embutida(nos, consulta, filhos, local, resolvedor)
+            && (consulta.por_tipo || consulta.lista || moldes.contains(&consulta.referencia))
         {
             fora.push(recusa(
                 Motivo::ViewChildEmFilho,
@@ -928,12 +976,13 @@ fn formas_contra_o_template(
 /// A consulta de visão cujo único resultado (`#ref` declarado uma vez, ou
 /// um só componente filho do tipo) está numa visão embutida alcançada de
 /// `*` em `*` — cada um na raiz da visão de cima, fora do conteúdo
-/// projetado: um elemento HTML com campo `Element`, ou a instância de um
-/// filho que não é `onPush`. É a forma de
-/// `mapNestedViews`/`mapNestedViewsWithSingleResult` (`@ViewChild` dentro
-/// de `*ngIf`, `@ViewChildren` em `*ngFor`, em qualquer profundidade: i47,
-/// i96, i97, j06, j09, j10); `read:`, vários resultados em visões
-/// diferentes e mistura com estáticos ainda não.
+/// projetado: um elemento HTML com campo `Element` (ou lido com `read:
+/// ElementRef`/`Element`), ou a instância de um filho (a de um `onPush`
+/// registra o `ChangeDetectorRef`).
+/// É a forma de `mapNestedViews`/`mapNestedViewsWithSingleResult`
+/// (`@ViewChild` dentro de `*ngIf`, `@ViewChildren` em `*ngFor`, em
+/// qualquer profundidade: i47, i96, i97, j06, j09, j10, j14); vários
+/// resultados em visões diferentes ainda não.
 fn consulta_em_embutida(
     nos: &[No],
     consulta: &crate::componente::Consulta,
@@ -957,20 +1006,21 @@ fn consulta_em_embutida(
             }
         }
     }
-    if consulta.leitura.is_some() {
-        return false;
-    }
     let Some(chave) = chave_da_consulta(consulta, local, resolvedor) else {
         return false;
     };
     let nome = chave.as_str();
     let elemento = e_tipo_de_elemento(&consulta.tipo, local, resolvedor);
-    // O resultado: um elemento HTML (campo `Element`, por `#ref`) ou a
-    // instância de um componente filho que não é `onPush` (campo do tipo
-    // dele; o `onPush` registraria o `ChangeDetectorRef` da consulta).
+    let leitura = consulta.leitura.is_some();
+    // O resultado: um elemento HTML (campo `Element`, por `#ref`, ou o que
+    // o `read:` pede dele — o nó ou o `ElementRef`) ou a instância de um
+    // componente filho (campo do tipo dele), sem `read:`.
     let terminal = |l: &[Lugar]| match l {
+        [Lugar::Raiz] if leitura => {
+            !consulta.por_tipo && valor_de_elemento(consulta, local, resolvedor).is_some()
+        }
         [Lugar::Raiz] => elemento && !consulta.por_tipo,
-        [Lugar::NoFilho] => !elemento && !filho_on_push(nos, nome, filhos),
+        [Lugar::NoFilho] => !leitura && !elemento,
         _ => false,
     };
     let mut todos = Vec::new();
@@ -1044,8 +1094,15 @@ const FIM_DE_CONSULTA: char = '\u{f}';
 /// })
 /// ```
 ///
-/// Com a indentação de quem o escreve dentro do `if` do campo sujo.
-fn mapa_da_consulta(cadeia: &[(String, String)], referencia: &str) -> String {
+/// Com a indentação de quem o escreve dentro do `if` do campo sujo. Com
+/// `read: ElementRef`, o nó sai como `ElementRef(nestedView._el_1)`; a
+/// instância de um filho `onPush` registra antes o `ChangeDetectorRef` dela
+/// (`_createAddQueryChangeDetectorRefs`, lido da visão aninhada).
+fn mapa_da_consulta(
+    cadeia: &[(String, String)],
+    referencia: &str,
+    extra: &ExtraDaConsulta,
+) -> String {
     let mut saida = String::new();
     let ultimo = cadeia.len().saturating_sub(1);
     for (k, (ancora, classe)) in cadeia.iter().enumerate() {
@@ -1059,9 +1116,23 @@ fn mapa_da_consulta(cadeia: &[(String, String)], referencia: &str) -> String {
             saida,
             "{receptor}.{ancora}.{metodo}(({classe} nestedView) {{"
         );
-        let _ = write!(saida, "{}return ", " ".repeat(6 + 2 * k));
+        let recuo = " ".repeat(6 + 2 * k);
+        if k == ultimo
+            && let Some(v) = &extra.view
+        {
+            let _ = writeln!(
+                saida,
+                "{recuo}{v}View.queryChangeDetectorRefs[nestedView{MARCA_DE_REF}.{referencia}{FIM_DE_REF}] = \
+                 nestedView{MARCA_DE_REF}.{MARCA_DE_DETECTOR}{referencia}{FIM_DE_REF};"
+            );
+        }
+        let _ = write!(saida, "{recuo}return ");
     }
-    let _ = write!(saida, "nestedView{MARCA_DE_REF}.{referencia}{FIM_DE_REF};");
+    let no = format!("nestedView{MARCA_DE_REF}.{referencia}{FIM_DE_REF}");
+    let _ = match &extra.element_ref {
+        Some(q) => write!(saida, "{q}ElementRef({no});"),
+        None => write!(saida, "{no};"),
+    };
     for k in (0..cadeia.len()).rev() {
         let _ = write!(saida, "\n{}}})", " ".repeat(4 + 2 * k));
         if k > 0 {
@@ -1073,18 +1144,45 @@ fn mapa_da_consulta(cadeia: &[(String, String)], referencia: &str) -> String {
 
 /// Troca cada [`MARCA_DE_CONSULTA`] pelo [`mapa_da_consulta`] da cadeia
 /// dela, com a indentação do lugar (o `if` do campo sujo, dentro do
-/// `if (!debugThrowIfChanged)`).
+/// `if (!debugThrowIfChanged)`). A marca é `campo`, seguido de
+/// `|e<qualificador>` (`read: ElementRef`) e `|d<qualificador>` (filho
+/// `onPush`, o do `View`), os qualificadores já resolvidos na ordem do
+/// texto por [`resolver_tardios`].
 fn resolver_consultas(texto: &str, consultas: &[(String, String)], cadeias: &Cadeias) -> String {
     let mut saida = texto.to_string();
     for (campo, referencia) in consultas {
         let Some(cadeia) = cadeias.get(campo) else {
             continue;
         };
-        let marca = format!("{MARCA_DE_CONSULTA}{campo}{FIM_DE_CONSULTA}");
-        let mapa = indentar(&mapa_da_consulta(cadeia, referencia), 4);
-        saida = saida.replace(&marca, mapa.trim_start());
+        let inicio = format!("{MARCA_DE_CONSULTA}{campo}");
+        while let Some(i) = saida.find(&inicio) {
+            let depois = &saida[i + inicio.len()..];
+            let Some(f) = depois.find(FIM_DE_CONSULTA) else {
+                break;
+            };
+            // O campo termina em `_isDirty`: nenhum outro o tem de prefixo.
+            let mut extra = ExtraDaConsulta::default();
+            for parte in depois[..f].split('|').skip(1) {
+                match parte.split_at(1) {
+                    ("e", q) => extra.element_ref = Some(q.to_string()),
+                    ("d", q) => extra.view = Some(q.to_string()),
+                    _ => {}
+                }
+            }
+            let mapa = indentar(&mapa_da_consulta(cadeia, referencia, &extra), 4);
+            let fim = i + inicio.len() + f + FIM_DE_CONSULTA.len_utf8();
+            saida.replace_range(i..fim, mapa.trim_start());
+        }
     }
     saida
+}
+
+/// O que o resultado de uma consulta dinâmica pede além do nó
+/// ([`mapa_da_consulta`]): os qualificadores do `ElementRef` e do `View`.
+#[derive(Debug, Default)]
+struct ExtraDaConsulta {
+    element_ref: Option<String>,
+    view: Option<String>,
 }
 
 /// Uma consulta de visão atualizada na detecção (`createDynamicUpdates`):
@@ -1098,6 +1196,11 @@ struct ConsultaDinamica {
     chave: String,
     /// `_viewQuery_ref_N_isDirty`.
     campo: String,
+    /// `read: ElementRef`: o resultado é `ElementRef(nó)`.
+    element_ref: bool,
+    /// O resultado é a instância de um filho `onPush`, cujo
+    /// `ChangeDetectorRef` a consulta registra.
+    detector: bool,
     /// (âncora `_appEl_n`, classe `_ViewX1`), quando o `*` foi visto.
     origem: Option<(String, String)>,
 }
@@ -4238,7 +4341,8 @@ impl Corpo<'_> {
             .collect();
         for nome in pendentes {
             if citado_na_embutida(e, &nome, self.filhos) {
-                self.posicao_de_embutida.insert(nome, self.campos_expr.len());
+                self.posicao_de_embutida
+                    .insert(nome, self.campos_expr.len());
             }
         }
         // Para a visão nova, os locais desta visão e das ancestrais ficam um
@@ -6386,9 +6490,13 @@ fn corpo_da_embutida(
         );
     }
     dentro.refs_ancestrais = espec.refs_ancestrais.clone();
-    dentro.refs_livres = referencias_livres_da_visao(&espec.nos, ctx.filhos, &ctx.refs_das_consultas);
-    dentro.refs_de_embutidas =
-        refs_locais.iter().filter(|n| citado_em_embutidas(&espec.nos, n, ctx.filhos)).cloned().collect();
+    dentro.refs_livres =
+        referencias_livres_da_visao(&espec.nos, ctx.filhos, &ctx.refs_das_consultas);
+    dentro.refs_de_embutidas = refs_locais
+        .iter()
+        .filter(|n| citado_em_embutidas(&espec.nos, n, ctx.filhos))
+        .cloned()
+        .collect();
     dentro.declarar_refs(refs_locais);
     for (nome, origem) in &espec.ancestrais {
         let Some(l) = espec.locais.get(nome.as_str()) else {
@@ -6412,7 +6520,12 @@ fn corpo_da_embutida(
     let anotadas = dentro.coleta.as_ref().map_or(0, Vec::len);
     dentro.nos(&espec.nos, "")?;
     dentro.conferir_pipes()?;
-    exportar_refs(&ctx.refs_resolvidos, &dentro.refs, &espec.classe);
+    exportar_refs(
+        &ctx.refs_resolvidos,
+        &dentro.refs,
+        &dentro.detectores,
+        &espec.classe,
+    );
     dentro.destruir.extend(ctx.pipes.destruicao(espec.indice));
     // Na coleta, um nó recusado não consome índice: a visão parece vazia
     // sem estar. O `<ng-container *x>` vazio é vazio de fato: a visão não
@@ -6477,7 +6590,11 @@ fn corpo_da_embutida(
     // âncoras, valores anteriores, elementos.
     let mut todos = dentro.campos.clone();
     todos.extend(dentro.campos_filho.clone());
-    todos.extend(campos_da_deteccao(&dentro.campos_expr, &dentro.campos_el_de_embutidas, &dentro.posicao_de_embutida));
+    todos.extend(campos_da_deteccao(
+        &dentro.campos_expr,
+        &dentro.campos_el_de_embutidas,
+        &dentro.posicao_de_embutida,
+    ));
     todos.extend(ctx.pipes.campos(espec.indice, dentro.imp));
     todos.extend(dentro.campos_el.clone());
     let campos = if todos.is_empty() {
@@ -7853,13 +7970,22 @@ fn gerar_componente(
         pipes: &tabela,
         refs_ambiguos: referencias_ambiguas(nos),
         refs_candidatos,
-        refs_das_consultas: c.consultas.iter().filter(|q| !q.por_tipo).map(|q| q.referencia.clone()).collect(),
+        refs_das_consultas: c
+            .consultas
+            .iter()
+            .filter(|q| !q.por_tipo)
+            .map(|q| q.referencia.clone())
+            .collect(),
         refs_resolvidos: Default::default(),
         cadeias: Default::default(),
     };
     let mut corpo = ctx.corpo(imp, nomes, coleta.take(), false);
     corpo.refs_livres = referencias_livres(nos);
-    corpo.refs_de_embutidas = refs_locais.iter().filter(|n| citado_em_embutidas(nos, n, filhos)).cloned().collect();
+    corpo.refs_de_embutidas = refs_locais
+        .iter()
+        .filter(|n| citado_em_embutidas(nos, n, filhos))
+        .cloned()
+        .collect();
     corpo.declarar_refs(refs_locais);
     corpo.consultas_dinamicas = c
         .consultas
@@ -7872,6 +7998,11 @@ fn gerar_componente(
             lista: q.lista,
             chave: chave_da_consulta(q, local, resolvedor).unwrap_or_default(),
             campo: format!("_viewQuery_{}_{i}_isDirty", q.referencia),
+            element_ref: q.leitura.is_some()
+                && valor_de_elemento(q, local, resolvedor) == Some(ValorDeElemento::ElementRef),
+            detector: !e_tipo_de_elemento(&q.tipo, local, resolvedor)
+                && chave_da_consulta(q, local, resolvedor)
+                    .is_some_and(|k| filho_on_push(nos, &k, filhos)),
             origem: None,
         })
         .collect();
@@ -7889,7 +8020,12 @@ fn gerar_componente(
         *coleta = corpo.coleta.take();
         return Err(r);
     }
-    exportar_refs(&ctx.refs_resolvidos, &corpo.refs, &corpo.classe_desta_visao());
+    exportar_refs(
+        &ctx.refs_resolvidos,
+        &corpo.refs,
+        &corpo.detectores,
+        &corpo.classe_desta_visao(),
+    );
     // O `ngOnDestroy` dos pipes vem depois dos das diretivas.
     corpo.destruir.extend(tabela.destruicao(0));
     // `@ViewChild` estático: atribuição imediata, no `afterNodes` — depois
@@ -8117,7 +8253,11 @@ fn gerar_componente(
     let especs = std::mem::take(&mut corpo.embutidas);
     let mut todos = corpo.campos.clone();
     todos.extend(corpo.campos_filho.clone());
-    todos.extend(campos_da_deteccao(&corpo.campos_expr, &corpo.campos_el_de_embutidas, &corpo.posicao_de_embutida));
+    todos.extend(campos_da_deteccao(
+        &corpo.campos_expr,
+        &corpo.campos_el_de_embutidas,
+        &corpo.posicao_de_embutida,
+    ));
     todos.extend(tabela.campos(0, corpo.imp));
     todos.extend(corpo.campos_el.clone());
     let campos = if todos.is_empty() {
@@ -8136,7 +8276,14 @@ fn gerar_componente(
         let q = tardio(QUERIES);
         // Os níveis de baixo da cadeia só se conhecem depois de emitidas as
         // aninhadas: [`mapa_da_consulta`] entra no lugar da marca.
-        let mapa = format!("{MARCA_DE_CONSULTA}{}{FIM_DE_CONSULTA}", d.campo);
+        let mut envolver = String::new();
+        if d.detector {
+            envolver += &format!("|d{}", tardio_q(VIEW));
+        }
+        if d.element_ref {
+            envolver += &format!("|e{}", tardio_q(ELEMENT_REF));
+        }
+        let mapa = format!("{MARCA_DE_CONSULTA}{}{envolver}{FIM_DE_CONSULTA}", d.campo);
         let valor = if d.lista {
             mapa
         } else {
