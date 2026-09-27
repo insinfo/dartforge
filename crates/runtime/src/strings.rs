@@ -102,6 +102,40 @@ thread_local! {
     static LITERAIS_POR_ENDERECO: RefCell<crate::hash::HashMap<(usize, usize), (Box<[u8]>, i64)>> =
         RefCell::new(crate::hash::HashMap::default());
 }
+/// A interpolação: as `n` partes (textos, `Ref`) numa string só, com uma
+/// alocação. As partes estão enraizadas pelo emissor e são copiadas antes
+/// de alocar o resultado.
+///
+/// # Safety
+/// `partes` aponta para `n` palavras legíveis (a temporária do emissor).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_string_juntar(partes: *const i64, n: i64) -> i64 {
+    let n = usize::try_from(n).expect("número de partes inválido");
+    // SAFETY: garantido por quem chama.
+    let partes = unsafe { std::slice::from_raw_parts(partes, n) };
+    let junto = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let textos: Vec<&Texto> = partes.iter().map(|&p| heap.texto(p)).collect();
+        let total: usize = textos.iter().map(|t| t.len()).sum();
+        // Todas Latin-1: os bytes direto, na forma canônica `Um`.
+        if textos.iter().all(|t| matches!(t, Texto::Um(_))) {
+            let mut v = Vec::with_capacity(total);
+            for t in &textos {
+                if let Texto::Um(b) = t {
+                    v.extend_from_slice(b);
+                }
+            }
+            return Texto::Um(v);
+        }
+        let mut v = Vec::with_capacity(total);
+        for t in &textos {
+            v.extend(t.unidades());
+        }
+        Texto::de_unidades(v)
+    });
+    alocar_texto(junto)
+}
+
 /// Concatena strings não nulas; argumentos devem estar enraizados pelo emissor.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_string_concat(a: i64, b: i64) -> i64 {

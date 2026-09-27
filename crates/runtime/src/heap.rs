@@ -1660,6 +1660,11 @@ impl Heap {
         let i = self.indice_vivo(handle);
         self.metadados[i]
     }
+    /// O metadado e o valor de um handle vivo, numa consulta só ao slot.
+    pub fn metadado_e_valor(&self, handle: i64) -> (i64, &Value) {
+        let i = self.indice_vivo(handle);
+        (self.metadados[i], self.slots[i].as_ref().expect("slot vivo verificado"))
+    }
     /// Grava o metadado do slot de um handle vivo.
     pub fn set_metadado(&mut self, handle: i64, valor: i64) {
         let i = self.indice_vivo(handle);

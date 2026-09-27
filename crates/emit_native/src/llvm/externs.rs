@@ -337,6 +337,11 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_lista_cabecalho(i64) memory(none) nounwind willreturn speculatable",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
+    // A interpolação: as partes (textos) numa string só; aloca.
+    Extern {
+        decl: "declare i64 @dartforge_string_juntar(ptr, i64) nounwind",
+        efeitos: ALOCA_SEM_LANCAR,
+    },
     // O cabeçalho imutável de uma closure (`heap::CabecalhoDeClosure`),
     // de endereço fixo: puro do handle.
     Extern {

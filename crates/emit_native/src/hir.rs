@@ -239,6 +239,12 @@ pub enum Instruction {
     AllocEnv {
         values: Vec<Operand>,
     },
+    /// A interpolação `'a$b c'`: as partes (textos, `Ref`) numa só string,
+    /// com uma alocação (`dartforge_string_juntar`), não uma por
+    /// concatenação.
+    JuntarTextos {
+        partes: Vec<Operand>,
+    },
     AllocClosure {
         code_symbol: String,
         env: Operand,

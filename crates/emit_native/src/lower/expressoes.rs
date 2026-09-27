@@ -337,7 +337,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if let Some(text) = str_lit.constant_value() {
                     self.emit(Instruction::Const(Constant::StringWtf8(text.as_bytes().to_vec())), Type::Ref)
                 } else {
-                    let mut current_str: Option<Operand> = None;
+                    let mut partes: Vec<Operand> = Vec::with_capacity(str_lit.parts.len());
                     for part in &str_lit.parts {
                         let part_op = match part {
                             ast::StringPart::Text(t) => {
@@ -407,27 +407,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 }
                             }
                         };
-                        current_str = match current_str {
-                            None => Some(part_op),
-                            Some(prev) => {
-                                let concat = self.emit(
-                                    Instruction::CallRuntime {
-                                        name: "dartforge_string_concat".to_string(),
-                                        args: vec![(prev, Type::Ref), (part_op, Type::Ref)],
-                                        ret_ty: Type::Ref,
-                                    },
-                                    Type::Ref,
-                                );
-                                Some(concat)
-                            }
-                        };
+                        partes.push(part_op);
                     }
-                    current_str.unwrap_or_else(|| {
-                        self.emit(
-                            Instruction::Const(Constant::String("".to_string())),
-                            Type::Ref,
-                        )
-                    })
+                    match partes.len() {
+                        0 => self.emit(Instruction::Const(Constant::String(String::new())), Type::Ref),
+                        1 => partes.pop().expect("uma parte"),
+                        _ => self.emit(Instruction::JuntarTextos { partes }, Type::Ref),
+                    }
                 }
             }
             ExprKind::Identifier(name) => {

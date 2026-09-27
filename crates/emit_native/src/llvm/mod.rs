@@ -1249,6 +1249,15 @@ impl<'a> LlvmEmitter<'a> {
                     self.bits_para_repr(v, &format!("%u{v}"), ty);
                 }
             }
+            Instruction::JuntarTextos { partes } => {
+                let n = partes.len();
+                for (i, p) in partes.iter().enumerate() {
+                    let s = self.coagir(p, Type::Ref);
+                    writeln!(self.out, "  %jp{v}_{i} = getelementptr [{n} x i64], ptr %jbuf{v}, i64 0, i64 {i}").unwrap();
+                    writeln!(self.out, "  store i64 {s}, ptr %jp{v}_{i}").unwrap();
+                }
+                writeln!(self.out, "  %v{v} = call i64 @dartforge_string_juntar(ptr %jbuf{v}, i64 {n})").unwrap();
+            }
             Instruction::AllocEnv { values } => {
                 let n = values.len();
                 if n == 0 {
@@ -1370,6 +1379,9 @@ impl<'a> LlvmEmitter<'a> {
                     }
                     Instruction::AllocEnv { values } if !values.is_empty() => {
                         writeln!(self.out, "  %envbuf{} = alloca [{} x i64]", vid.0, values.len() * 2).unwrap();
+                    }
+                    Instruction::JuntarTextos { partes } => {
+                        writeln!(self.out, "  %jbuf{} = alloca [{} x i64]", vid.0, partes.len().max(1)).unwrap();
                     }
                     _ => {}
                 }
@@ -2063,6 +2075,7 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::Box { .. }
             | Instruction::AllocCell { .. }
             | Instruction::AllocEnv { .. }
+            | Instruction::JuntarTextos { .. }
             | Instruction::AllocClosure { .. }
             | Instruction::AllocClosureTipada { .. }
             | Instruction::TearOff { .. }

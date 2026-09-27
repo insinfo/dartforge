@@ -694,11 +694,11 @@ fn tipo_do_valor(u: &mut Universo, v: TaggedValue) -> i64 {
     }
     let forma = HEAP.with(|heap| {
         let heap = heap.borrow();
-        let meta = heap.metadado(h);
+        let (meta, valor) = heap.metadado_e_valor(h);
         if meta != 0 {
             return Forma::Pronto(meta - 1);
         }
-        match heap.get(h) {
+        match valor {
             Value::BoxedInt(_) => Forma::Cru(u.rt.int),
             Value::BoxedDouble(_) => Forma::Cru(u.rt.double),
             Value::BoxedBool(_) => Forma::Cru(u.rt.bool_),
