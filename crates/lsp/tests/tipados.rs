@@ -217,3 +217,72 @@ fn fechar_descarta_resultado_pendente() {
     assert!(codigos(&saidas[0]).is_empty());
     assert_eq!(p.servidor.tipados_descartados(), 1);
 }
+
+/// Códigos de um relatório de `textDocument/diagnostic`.
+fn codigos_puxados(relatorio: &Value) -> Vec<String> {
+    relatorio["result"]["items"]
+        .as_array()
+        .unwrap_or_else(|| panic!("sem itens: {relatorio}"))
+        .iter()
+        .map(|d| d["code"].as_str().unwrap_or("").to_string())
+        .collect()
+}
+
+/// L08: o cliente que anuncia `textDocument.diagnostic` recebe o
+/// `diagnosticProvider` e puxa; o servidor não empurra `publishDiagnostics`.
+#[test]
+fn diagnosticos_puxados_no_lugar_dos_empurrados() {
+    // A capacidade só é anunciada a quem a pede.
+    for (capacidades, anuncia) in [(json!({}), false), (json!({"textDocument": {"diagnostic": {}}}), true)] {
+        let mut s = dartforge_lsp::Servidor::new();
+        s.receber(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":capacidades}}));
+        let r = s.bombear();
+        let provedor = &r[0]["result"]["capabilities"]["diagnosticProvider"];
+        assert_eq!(provedor.is_object(), anuncia, "{provedor}");
+        if anuncia {
+            assert_eq!(provedor["interFileDependencies"], true);
+            assert_eq!(provedor["workspaceDiagnostics"], false);
+        }
+    }
+
+    let mut p = Projeto::com_capacidades(
+        "tipado-puxado",
+        json!({"textDocument": {"diagnostic": {}}, "workspace": {"diagnostics": {"refreshSupport": true}}}),
+    );
+    let uri = p.uri("lib/a.dart");
+    let texto_do_documento = json!({"uri": uri});
+    p.servidor.pausar_analise_tipada(true);
+    // Abrir não empurra nada.
+    assert_eq!(p.abrir("lib/a.dart", "void f() {\n  if (1) {}\n}\n"), Value::Null);
+    // O fluxo imediato (sintático) por pedido; o mesmo `resultId` volta
+    // `unchanged`.
+    let imediato = p.requisitar("textDocument/diagnostic", json!({"textDocument": texto_do_documento}));
+    assert_eq!(imediato["result"]["kind"], "full", "{imediato}");
+    assert_eq!(imediato["result"]["resultId"], "1");
+    assert!(codigos_puxados(&imediato).is_empty(), "{imediato}");
+    let igual = p.requisitar("textDocument/diagnostic", json!({"textDocument": texto_do_documento, "previousResultId": "1"}));
+    assert_eq!(igual["result"], json!({"kind": "unchanged", "resultId": "1"}));
+    // O resultado tipado pede `refresh` em vez de publicar.
+    p.servidor.pausar_analise_tipada(false);
+    let saidas = p.servidor.aguardar_diagnosticos(LIMITE);
+    assert!(saidas.iter().all(|m| m["method"] != "textDocument/publishDiagnostics"), "{saidas:?}");
+    let refresh = saidas
+        .iter()
+        .find(|m| m["method"] == "workspace/diagnostic/refresh")
+        .unwrap_or_else(|| panic!("sem refresh: {saidas:?}"));
+    assert!(refresh["id"].is_string(), "{refresh}");
+    // A resposta do cliente ao `refresh` é aceita em silêncio.
+    p.servidor.receber(json!({"jsonrpc":"2.0","id":refresh["id"].clone(),"result":null}));
+    assert!(p.servidor.bombear().is_empty());
+    // Puxado de novo, vem o tipado da mesma versão.
+    let tipado = p.requisitar("textDocument/diagnostic", json!({"textDocument": texto_do_documento, "previousResultId": "1"}));
+    assert_eq!(tipado["result"]["kind"], "full", "{tipado}");
+    assert_eq!(tipado["result"]["resultId"], "1.t");
+    assert_eq!(codigos_puxados(&tipado), vec!["non_bool_condition"], "{tipado}");
+    assert_eq!(tipado["result"]["items"][0]["range"]["start"], json!({"line": 1, "character": 6}));
+    // Fechar também não empurra; fechado, o documento não tem diagnóstico.
+    p.servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didClose","params":{"textDocument": texto_do_documento}}));
+    assert!(p.servidor.bombear().is_empty());
+    let fechado = p.requisitar("textDocument/diagnostic", json!({"textDocument": texto_do_documento}));
+    assert_eq!(fechado["result"], json!({"kind": "full", "items": []}));
+}

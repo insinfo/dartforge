@@ -506,7 +506,8 @@ Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
 `textDocument/definition`, `textDocument/references`, `textDocument/hover`,
 `textDocument/completion`, `textDocument/prepareRename`,
 `textDocument/rename`, `textDocument/codeAction`, `completionItem/resolve`,
-`dartforge/dormir`
+`textDocument/diagnostic` (só com o cliente que anuncia
+`textDocument.diagnostic`), `dartforge/dormir`
 (gancho de teste do cancelamento em execução; clientes reais nunca enviam).
 
 Pendentes no completar: a relevância não pondera pelo tipo esperado nem
@@ -515,8 +516,26 @@ que ainda não são publicados (criar classe ou método para nome indefinido,
 remover import não usado…) esperam a publicação deles; das assistências do
 Dart, só a anotação de tipo de local existe.
 
-Explicitamente fora deste brief: formatação e `diagnosticProvider` por
-requisição (o servidor empurra diagnósticos; não atende pull). Os
+**Diagnósticos puxados (LSP 3.17).** O cliente que anuncia
+`textDocument.diagnostic` recebe o `diagnosticProvider`
+(`interFileDependencies: true`, `workspaceDiagnostics: false`) e o servidor
+deixa de empurrar `publishDiagnostics` para ele. `textDocument/diagnostic`
+devolve o resultado tipado da versão vigente, senão o imediato; o
+`resultId` é a versão (`"3"`, ou `"3.t"` quando já é o tipado), e um
+`previousResultId` igual volta `unchanged` sem recalcular. Quando chega um
+resultado tipado, o servidor pede `workspace/diagnostic/refresh` (se o
+cliente anunciou `workspace.diagnostics.refreshSupport`) e o cliente puxa de
+novo; a resposta do cliente é aceita em silêncio. Documento fechado não tem
+diagnóstico. Cliente sem a capacidade continua no fluxo empurrado.
+Teste: `tipados::diagnosticos_puxados_no_lugar_dos_empurrados`.
+
+**Formatação: decisão (L08).** `documentFormattingProvider` não é
+anunciado. O formatador de referência é o `dart_style` (`dart format`), com
+regras que mudam por versão de linguagem ("tall style" a partir da 3.7); um
+formatador que não seja byte a byte o do SDK reescreveria arquivos de forma
+diferente do `dart format` do projeto e do CI dele. A capacidade só entra com
+um porte do `dart_style` conferido contra ele num oráculo (como os demais
+componentes); até lá, a formatação fica com o `dart format`. Os
 diagnósticos semânticos publicados (os códigos de `verificados.txt`,
 inclusive os que dependem de tipos) chegam pelo fluxo tipado descrito em
 "Diagnósticos tipados"; os não verificados continuam fora do editor.

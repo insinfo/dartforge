@@ -71,6 +71,12 @@ pub struct Projeto {
 impl Projeto {
     /// Cria `target/tmp-agent/<nome>-<pid>` com `pubspec.yaml` e SDK.
     pub fn novo(nome: &str) -> Self {
+        Self::com_capacidades(nome, json!({}))
+    }
+
+    /// [`Projeto::novo`] com as capacidades de cliente dadas no `initialize`.
+    #[allow(dead_code)]
+    pub fn com_capacidades(nome: &str, capacidades: Value) -> Self {
         let raiz = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
             "../../target/tmp-agent/lsp-{nome}-{}",
             std::process::id()
@@ -119,7 +125,7 @@ impl Projeto {
         servidor.receber(
             json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{
                 "rootUri": url::Url::from_file_path(raiz.join("projeto")).unwrap().to_string(),
-                "capabilities": {}
+                "capabilities": capacidades
             }}),
         );
         servidor.bombear();

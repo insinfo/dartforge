@@ -126,6 +126,16 @@ pub struct Servidor<A = AnalisadorSintatico> {
     /// as ações de código corrigem o que o editor mostra. Uma entrada por
     /// documento, substituída a cada publicação e removida no `didClose`.
     tipados_publicados: HashMap<String, (i32, Vec<dartforge_diagnostics::Diagnostic>)>,
+    /// O cliente puxa os diagnósticos (`textDocument/diagnostic`, LSP 3.17:
+    /// anunciou `textDocument.diagnostic`): o servidor anuncia o
+    /// `diagnosticProvider` e deixa de empurrar `publishDiagnostics`.
+    diagnosticos_puxados: bool,
+    /// Com os diagnósticos puxados, o cliente aceita
+    /// `workspace/diagnostic/refresh`: pedido quando chega um resultado
+    /// tipado, para ele puxar de novo.
+    atualizar_puxados: bool,
+    /// Número do próximo pedido do servidor ao cliente (o id do `refresh`).
+    proximo_pedido: u64,
 }
 
 impl Servidor<AnalisadorSintatico> {
@@ -166,6 +176,9 @@ impl<A: Analisador> Servidor<A> {
             despertar: None,
             tipados_descartados: 0,
             tipados_publicados: HashMap::new(),
+            diagnosticos_puxados: false,
+            atualizar_puxados: false,
+            proximo_pedido: 0,
         }
     }
 
@@ -234,13 +247,27 @@ impl<A: Analisador> Servidor<A> {
     fn drenar_tipados(&mut self) -> Vec<Value> {
         let Some(t) = &self.tipado else { return Vec::new() };
         let mut saidas = Vec::new();
+        let mut novos = false;
         for r in t.receber() {
             if self.documentos.version(&r.uri) != Some(r.versao) {
                 self.tipados_descartados += 1;
                 continue;
             }
-            saidas.push(self.publicacao(&r.uri, &r.diagnosticos));
+            if !self.diagnosticos_puxados {
+                saidas.push(self.publicacao(&r.uri, &r.diagnosticos));
+            }
             self.tipados_publicados.insert(r.uri, (r.versao, r.diagnosticos));
+            novos = true;
+        }
+        // Puxados: um pedido de `refresh` por lote, e o cliente puxa de novo
+        // os documentos visíveis (o `resultId` muda com o resultado tipado).
+        if novos && self.diagnosticos_puxados && self.atualizar_puxados {
+            self.proximo_pedido += 1;
+            saidas.push(json!({
+                "jsonrpc": "2.0",
+                "id": format!("dartforge/refresh/{}", self.proximo_pedido),
+                "method": "workspace/diagnostic/refresh",
+            }));
         }
         saidas
     }
@@ -282,10 +309,10 @@ impl<A: Analisador> Servidor<A> {
     /// Um passo é: aplicar todos os cancelamentos da fila; processar as
     /// notificações líderes (cada `didOpen`/`didChange` publica
     /// diagnósticos); executar **uma** requisição (ou responder
-    /// `RequestCancelled` se ela foi cancelada). Respostas a mensagens que
-    /// não são requisições nem notificações válidas são ignoradas em
-    /// silêncio: o servidor nunca envia requisições, então não há resposta
-    /// a tratar.
+    /// `RequestCancelled` se ela foi cancelada). Mensagens que não são
+    /// requisições nem notificações válidas são ignoradas em silêncio: entre
+    /// elas as respostas do cliente ao único pedido do servidor
+    /// (`workspace/diagnostic/refresh`), que não levam dado.
     pub fn bombear(&mut self) -> Vec<Value> {
         self.aplicar_cancelamentos();
         let mut saidas = Vec::new();
@@ -367,6 +394,9 @@ impl<A: Analisador> Servidor<A> {
                     .open(uri.to_string(), versao, texto.to_string());
                 self.analisador.documento_alterado(uri);
                 self.pedir_tipado(uri);
+                if self.diagnosticos_puxados {
+                    return None;
+                }
                 Some(self.publicar(uri))
             }
             "textDocument/didChange" => {
@@ -380,6 +410,9 @@ impl<A: Analisador> Servidor<A> {
                 }
                 self.analisador.documento_alterado(uri);
                 self.pedir_tipado(uri);
+                if self.diagnosticos_puxados {
+                    return None;
+                }
                 Some(self.publicar(uri))
             }
             "textDocument/didClose" => {
@@ -391,6 +424,9 @@ impl<A: Analisador> Servidor<A> {
                     if let Some(t) = &self.tipado {
                         t.fechado(uri);
                     }
+                }
+                if self.diagnosticos_puxados {
+                    return None;
                 }
                 Some(publicacao_vazia(uri))
             }
@@ -444,8 +480,13 @@ impl<A: Analisador> Servidor<A> {
                     .pointer("/params/capabilities/textDocument/completion/completionItem/documentationFormat")
                     .and_then(Value::as_array)
                     .is_some_and(|f| f.iter().any(|x| x.as_str() == Some("markdown")));
+                self.diagnosticos_puxados = mensagem.pointer("/params/capabilities/textDocument/diagnostic").is_some_and(Value::is_object);
+                self.atualizar_puxados = mensagem
+                    .pointer("/params/capabilities/workspace/diagnostics/refreshSupport")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 let renomear = if self.preparar_renomeacao { json!({"prepareProvider": true}) } else { json!(true) };
-                resposta(&id, json!({
+                let mut resultado = json!({
                     "capabilities": {
                         "textDocumentSync": SINCRONIZACAO_INCREMENTAL,
                         "positionEncoding": "utf-16",
@@ -465,7 +506,23 @@ impl<A: Analisador> Servidor<A> {
                         "name": "dartforge-lsp",
                         "version": env!("CARGO_PKG_VERSION"),
                     },
-                }))
+                });
+                if self.diagnosticos_puxados {
+                    // Um documento depende de outros (imports): editar um
+                    // muda os diagnósticos de quem o importa. Sem diagnóstico
+                    // do workspace inteiro (só dos documentos pedidos).
+                    resultado["capabilities"]["diagnosticProvider"] = json!({
+                        "identifier": FONTE,
+                        "interFileDependencies": true,
+                        "workspaceDiagnostics": false,
+                    });
+                }
+                resposta(&id, resultado)
+            }
+            "textDocument/diagnostic" => {
+                let uri = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).map(str::to_string);
+                let anterior = mensagem.pointer("/params/previousResultId").and_then(Value::as_str);
+                resposta(&id, uri.map_or_else(|| json!({"kind": "full", "items": []}), |u| self.relatorio_puxado(&u, anterior)))
             }
             "shutdown" => {
                 self.desligando = true;
@@ -897,6 +954,34 @@ impl<A: Analisador> Servidor<A> {
         };
         let diagnosticos = self.analisador.diagnosticar(uri, &texto);
         self.publicacao(uri, &diagnosticos)
+    }
+
+    /// O relatório de `textDocument/diagnostic` de `uri`: o resultado tipado
+    /// da versão vigente, senão o do analisador (o mesmo que o
+    /// `publishDiagnostics` levaria). O `resultId` é a versão e se o
+    /// resultado é o tipado; igual ao `previousResultId`, a resposta é
+    /// `unchanged` sem recalcular. Documento que não está aberto não tem
+    /// diagnóstico (como o `didClose` do modo empurrado).
+    fn relatorio_puxado(&mut self, uri: &str, anterior: Option<&str>) -> Value {
+        let Some(versao) = self.documentos.version(uri) else {
+            return json!({"kind": "full", "items": []});
+        };
+        let tipado = self.tipados_publicados.get(uri).is_some_and(|(v, _)| *v == versao);
+        let id_do_resultado = format!("{versao}{}", if tipado { ".t" } else { "" });
+        if anterior == Some(id_do_resultado.as_str()) {
+            return json!({"kind": "unchanged", "resultId": id_do_resultado});
+        }
+        let diagnosticos = if tipado {
+            self.tipados_publicados[uri].1.clone()
+        } else {
+            let texto = self.documentos.get(uri).map(str::to_string).unwrap_or_default();
+            self.analisador.diagnosticar(uri, &texto)
+        };
+        let (Some(texto), Some(tabela)) = (self.documentos.get(uri), self.documentos.linhas(uri)) else {
+            return json!({"kind": "full", "items": []});
+        };
+        let itens: Vec<Value> = diagnosticos.iter().map(|d| converter_diagnostico(texto, tabela, d)).collect();
+        json!({"kind": "full", "resultId": id_do_resultado, "items": itens})
     }
 
     /// `publishDiagnostics` de `diagnosticos` (spans do texto vigente de `uri`).
