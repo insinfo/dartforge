@@ -168,7 +168,9 @@ fn renegociacao_legada_e_recusada() {
         "tls_renegociacao",
         &[certificados.as_os_str()],
         "controle: recebido: linha do servidor\npadrão: erro: TlsException\ncom a opção: erro: TlsException\n",
-        Duration::from_secs(120),
+        // Cada etapa do programa tem prazo próprio (a soma no pior caso das
+        // três rodadas fica abaixo disto): travar aqui é o laço de eventos.
+        Duration::from_secs(300),
     );
 }
 

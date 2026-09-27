@@ -328,8 +328,38 @@ impl ParsedModule {
             let definicao = self.definitions().into_iter().find(|&f| value_name(f) == de);
             let ocupado = self.definitions().into_iter().any(|f| value_name(f) == para);
             let Some(funcao) = definicao.filter(|_| !ocupado) else { return false };
-            LLVMSetValueName2(funcao, para.as_ptr().cast::<c_char>(), para.len());
+            self.renomear_definicao(funcao, para);
             value_name(funcao) == para
+        }
+    }
+
+    /// Dá o nome `para` à definição `funcao`, levando junto o `comdat` dela.
+    ///
+    /// Uma função `linkonce_odr` do SDK da fonte (entrada de tear-off,
+    /// constante canônica) mora num `comdat` com o nome dela. O ELF aceita
+    /// qualquer membro num grupo, mas no COFF o membro cujo nome não é a chave
+    /// do `comdat` é "associativo" e exige a chave no módulo — sem ela o LLVM
+    /// aborta a geração de código (`Associative COMDAT symbol '…' is not a key
+    /// for its COMDAT`). A função renomeada passa a um `comdat` com o nome
+    /// novo, de mesma seleção: a deduplicação entre módulos continua valendo
+    /// para quem tem o mesmo nome.
+    ///
+    /// # Safety
+    /// `funcao` precisa ser uma definição viva deste módulo.
+    unsafe fn renomear_definicao(&self, funcao: LLVMValueRef, para: &str) {
+        // SAFETY: o chamador garante a validade; o nome é copiado pelo LLVM e
+        // o `comdat` pertence ao módulo.
+        unsafe {
+            LLVMSetValueName2(funcao, para.as_ptr().cast::<c_char>(), para.len());
+            let antigo = llvm_sys::comdat::LLVMGetComdat(funcao);
+            if antigo.is_null() {
+                return;
+            }
+            let Ok(nome) = CString::new(para) else { return };
+            let selecao = llvm_sys::comdat::LLVMGetComdatSelectionKind(antigo);
+            let novo = llvm_sys::comdat::LLVMGetOrInsertComdat(self.module, nome.as_ptr());
+            llvm_sys::comdat::LLVMSetComdatSelectionKind(novo, selecao);
+            llvm_sys::comdat::LLVMSetComdat(funcao, novo);
         }
     }
 
@@ -508,11 +538,7 @@ impl ParsedModule {
             // sufixando o segundo, quebrando a entrada estável em silêncio.
             unsafe {
                 let kind = LLVMGlobalGetValueType(function);
-                LLVMSetValueName2(
-                    function,
-                    versioned.as_ptr().cast::<c_char>(),
-                    versioned.len(),
-                );
+                self.renomear_definicao(function, &versioned);
                 let entry = LLVMAddFunction(self.module, stable.as_ptr(), kind);
                 LLVMReplaceAllUsesWith(function, entry);
             }
@@ -1903,6 +1929,52 @@ mod tests {
         assert!(!RUNTIME_SYMBOLS.contains(&"main"));
         assert!(!RUNTIME_SYMBOLS.contains(&"dartforge_entry"));
     }
+    /// A função `linkonce_odr` num `comdat` (entrada de tear-off do SDK da
+    /// fonte) versionada pela recarga continua gerando objeto COFF: o
+    /// `comdat` acompanha o nome novo. Antes, o nome `f$g1` num `comdat` `f`
+    /// sem chave abortava o LLVM no Windows ("Associative COMDAT symbol
+    /// 'f$g1' is not a key for its COMDAT"), e o ELF não acusava nada.
+    #[test]
+    fn versao_de_funcao_em_comdat_gera_objeto_coff() {
+        let ir = "target triple = \"x86_64-pc-windows-msvc\"\n\
+                  $\"C.m$tearm\" = comdat any\n\
+                  define linkonce_odr i64 @\"C.m$tearm\"(i64 %x) comdat {\n  ret i64 %x\n}\n\
+                  define i64 @usa(i64 %x) {\n  %r = call i64 @\"C.m$tearm\"(i64 %x)\n  ret i64 %r\n}\n";
+        let parsed = parse_module("comdat", ir).expect("IR");
+        let assinaturas = parsed.version_definitions("$g1");
+        assert_eq!(assinaturas.len(), 2);
+        initialize_native_target().expect("alvo");
+        // SAFETY: triple, máquina e buffer são criados e liberados aqui; o
+        // módulo pertence a `parsed`, vivo durante a emissão.
+        unsafe {
+            let triple = c"x86_64-pc-windows-msvc";
+            let mut target = ptr::null_mut();
+            let mut message = ptr::null_mut();
+            assert_eq!(LLVMGetTargetFromTriple(triple.as_ptr(), &mut target, &mut message), 0, "sem o alvo x86-64");
+            let machine = LLVMCreateTargetMachine(
+                target,
+                triple.as_ptr(),
+                c"x86-64".as_ptr(),
+                c"".as_ptr(),
+                LLVMCodeGenOptLevel::LLVMCodeGenLevelNone,
+                LLVMRelocMode::LLVMRelocDefault,
+                LLVMCodeModel::LLVMCodeModelDefault,
+            );
+            assert!(!machine.is_null());
+            let mut buffer = ptr::null_mut();
+            let falhou = LLVMTargetMachineEmitToMemoryBuffer(
+                machine,
+                parsed.module,
+                LLVMCodeGenFileType::LLVMObjectFile,
+                &mut message,
+                &mut buffer,
+            ) != 0;
+            LLVMDisposeTargetMachine(machine);
+            assert!(!falhou, "{}", take_message(message));
+            LLVMDisposeMemoryBuffer(buffer);
+        }
+    }
+
     /// Externos: runtime, CRT listada e intrínsecos passam; o resto não.
     #[test]
     fn only_listed_externals_are_known() {

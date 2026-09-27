@@ -9,9 +9,25 @@
 // * Controle: sem pedido de renegociação, os dados chegam.
 //
 // Argumentos: o diretório dos certificados (tls/).
+//
+// Cada espera tem prazo e o programa sempre termina: uma etapa que não
+// conclui vira a linha da rodada (`etapa X: sem resposta em Ns`), em vez de
+// um processo morto pelo teste com a saída perdida no pipe.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
+/// [f] com prazo; estourado, [EtapaSemResposta] com o nome da etapa.
+Future<T> etapa<T>(String nome, Duration prazo, Future<T> f) =>
+    f.timeout(prazo, onTimeout: () => throw EtapaSemResposta(nome, prazo));
+
+class EtapaSemResposta implements Exception {
+  final String etapa;
+  final Duration prazo;
+  EtapaSemResposta(this.etapa, this.prazo);
+  @override
+  String toString() => 'etapa $etapa: sem resposta em ${prazo.inSeconds}s';
+}
 
 /// Uma rodada: o servidor manda `R` (renegociar) ou só uma linha; o que o
 /// cliente viu.
@@ -19,10 +35,10 @@ Future<String> rodada(String dir, {required bool permitir, required bool renegoc
   final livre = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
   final porta = livre.port;
   await livre.close();
-  final servidor = await Process.start('openssl', [
+  final servidor = await etapa('Process.start', const Duration(seconds: 20), Process.start('openssl', [
     's_server', '-accept', '$porta', '-cert', '$dir/srv.pem', '-key', '$dir/srv.key', //
     '-tls1_2', '-legacy_renegotiation',
-  ]);
+  ]));
   final saida = StringBuffer();
   final erros = StringBuffer();
   servidor.stdout.transform(utf8.decoder).listen(saida.write);
@@ -37,14 +53,15 @@ Future<String> rodada(String dir, {required bool permitir, required bool renegoc
   final prazo = DateTime.now().add(const Duration(seconds: 20));
   while (s == null && saiu == null && DateTime.now().isBefore(prazo)) {
     try {
-      s = await SecureSocket.connect('localhost', porta, context: c, timeout: const Duration(seconds: 5));
+      s = await etapa('SecureSocket.connect', const Duration(seconds: 15),
+          SecureSocket.connect('localhost', porta, context: c, timeout: const Duration(seconds: 5)));
     } on SocketException {
       await Future.delayed(const Duration(milliseconds: 50));
     }
   }
   if (s == null) {
     servidor.kill();
-    await servidor.exitCode;
+    await etapa('exitCode do openssl', const Duration(seconds: 10), servidor.exitCode);
     return 'sem conexão (openssl ${saiu == null ? 'não escutou' : 'saiu com $saiu'}): ${erros.toString().trim()}';
   }
   final recebido = StringBuffer();
@@ -58,23 +75,32 @@ Future<String> rodada(String dir, {required bool permitir, required bool renegoc
   });
   // O aperto de mão terminou (o `connect` voltou): o pedido ou a linha.
   servidor.stdin.write(renegociar ? 'R\n' : 'linha do servidor\n');
-  await servidor.stdin.flush();
+  await etapa('stdin.flush', const Duration(seconds: 10), servidor.stdin.flush());
   await Future.any([fim.future, Future.delayed(const Duration(seconds: 3))]);
   s.destroy();
   servidor.kill();
-  await servidor.exitCode;
+  await etapa('exitCode do openssl', const Duration(seconds: 10), servidor.exitCode);
   return erro != null ? 'erro: $erro' : 'recebido: ${recebido.toString().trim()}';
 }
 
 Future<void> main(List<String> a) async {
   try {
-    await Process.run('openssl', ['version']);
+    await etapa('openssl version', const Duration(seconds: 20), Process.run('openssl', ['version']));
   } on ProcessException {
     print('sem openssl');
     return;
   }
   final dir = a[0];
-  print('controle: ${await rodada(dir, permitir: false, renegociar: false)}');
-  print('padrão: ${await rodada(dir, permitir: false, renegociar: true)}');
-  print('com a opção: ${await rodada(dir, permitir: true, renegociar: true)}');
+  var semResposta = false;
+  Future<String> medir(bool permitir, bool renegociar) =>
+      rodada(dir, permitir: permitir, renegociar: renegociar).catchError((Object e) {
+        semResposta = true;
+        return '$e';
+      }, test: (e) => e is EtapaSemResposta);
+  print('controle: ${await medir(false, false)}');
+  print('padrão: ${await medir(false, true)}');
+  print('com a opção: ${await medir(true, true)}');
+  // A operação que não respondeu ainda prende o laço de eventos: sai com o
+  // relato já impresso (a comparação da saída acusa a etapa).
+  if (semResposta) exit(0);
 }
