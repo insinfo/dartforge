@@ -1065,10 +1065,16 @@ o executável passa a exigir a `LLVM-C.dll` da distribuição completa no
 
 * `dartforge run <entrada.dart> [--timings]` emite o IR e o executa neste
   processo, sem trampolim: chamadas diretas, como no AOT.
-* `dartforge reload <entrada.dart>` é **reinício a quente (R0)**: a cada
-  edição recompila tudo e recomeça do `main` num processo novo. **O estado
-  NÃO é preservado**, e a saída diz isso. Edição que não compila mantém a
-  geração em execução. Recarga com estado é o R1 (`docs/PESQUISA-HOT-RELOAD.md`).
+* `dartforge reload <entrada.dart>` é **hot reload com estado** por padrão:
+  a geração nova é publicada no programa vivo, no ponto seguro do laço de
+  eventos, sem rodar o `main` de novo — heap, estáticos, timers e portas
+  continuam (`crates/cli/src/jit.rs:237-256`; teste
+  `crates/cli/tests/reload_estado.rs`, no `ci.yml`). Edição que a recarga não
+  sabe aplicar é recusada com o motivo e o programa reinicia; edição que não
+  compila mantém a geração em execução. `--reiniciar` é o R0 (reinício a
+  quente sem estado, um processo por geração).
+  *Histórico (até 2026-09-27):* aqui se lia que `reload` era só o R0 e que
+  «o estado NÃO é preservado».
 * `dartforge-diferencial --jit` compara o JIT com a VM (mesmo placar do
   `--nativo`); `--jit-aot` passa o MESMO IR também pelo AOT, lista todo
   `JIT≠AOT` (é defeito) e mede os tempos. No CI é o job `jit` do `pesado.yml`.
@@ -1136,7 +1142,12 @@ antes de toda alocação.
     fazê-lo antes conflita com todas elas.
   * **Ubuntu**: a trilha nova falha no Linux em `dartforge-dev` (`hashes`,
     `plato`), `dartforge-emit-js` (`basico`) e `dartforge-elements`
-    (`sdk_cache`), e passa no Windows.
+    (`sdk_cache`), e passa no Windows (registro de 2026-09-23 no cabeçalho do
+    `ci.yml`, não reconferido). O `cargo test --workspace` continua só no
+    Windows, mas o job `nativo-unix` do `ci.yml` (Ubuntu e macOS) compila a
+    CLI com `--features nativo,jit` e roda os testes do `emit_native`, do
+    `jit`, a recarga pela CLI, as regressões de `dart:io` e a distribuição
+    num ambiente limpo (`.github/workflows/ci.yml:162-250`).
   * Sem exclusões de crate: a trilha velha, o `cranelift-jit` e o driver
     `native` saíram do workspace (§4), e com eles os 16 testes que falhavam
     e a falha registrada de `real_executable_prints_ints_and_bools`. Os
@@ -1473,6 +1484,23 @@ demais:
    lista quando fecharem 100% no corpus (hoje 96% e 55%).
 ### 2.5 Backend nativo
 
+**Estado atual.** O SDK da fonte é o padrão e o corpus nativo passa por
+ele (`docs/NATIVO-PLANO.md` §7.10 e §7.13, que registram 225/225, e JIT × AOT
+225/225); o último placar registrado neste arquivo é **183/223** no SDK da
+fonte (rodada `ci/native-sdk-is-selector`, acima). `async`/`await` e laço de
+eventos (`lower/async_sm.rs`), genéricos reificados (`lower/rti.rs`),
+`dart:io` e isolados (`corpus/nativo/01`–`07`), `dart:ffi`
+(`corpus/nativo/08`, `12`–`19`) e o `dart:core` da fonte existem. O que
+falta de API pública está em `docs/NATIVOS-PENDENTES.md` (observação de
+arquivos, multicast, passagem de descritores por socket,
+`RawSynchronousSocket`, heap snapshot).
+
+> **Histórico (até 2026-09-27).** O texto abaixo é o diagnóstico de antes da
+> rodada 2 e de P5; as frases «continuam faltando `async` e event loop,
+> genéricos reificados, `dart:io`, isolates e o `dart:core` da seção `vm`» e
+> «0% do IR é corpo de função do SDK» deixaram de valer: o SDK da fonte é
+> compilado num módulo próprio (`docs/NATIVO.md` §1).
+
 **Depois de P1–P4 (Pesado 35871381320): 142 dos 223 falham.** Quase todos
 por membro do SDK sem implementação no runtime (`where`, `map`, `fold`,
 `toStringAsFixed`, `sort`, `List.filled`/`List.generate`, `parse`,
@@ -1545,18 +1573,22 @@ ecossistema.** A VM oficial não faz parte do produto; `json_serializable`,
 alvo dominante é compilar e executar o `package:analyzer` (438 arquivos,
 227.252 linhas, `dart:io`/`isolate`/`ffi`/`typed_data`), de onde esses
 geradores dependem. Geradores nativos em Rust são aceleração opcional,
-com saída byte a byte igual verificada por `corpus/builders/` (ainda não
-existe). O `dart` oficial fica só como oráculo de comparação.
+com saída byte a byte igual verificada por `corpus/builders/` (existe:
+`corpus/builders/` com `freezed`, `riverpod_generator` e outros, §1.8). O `dart` oficial fica só como oráculo de comparação.
 
 ### 2.7 JIT
 
-O R0 funciona (§1.5.1): `run` e `reload` sobre o mesmo IR do `emit_native`.
-Falta:
+O R0 e a recarga com estado pela CLI funcionam (§1.5.1): `run` e `reload`
+sobre o mesmo IR do `emit_native`, e os cenários de recarga foram migrados
+para `crates/jit/tests/hot_reload.rs` («migrados da trilha antiga para o IR
+do emit_native»). Falta:
 
-* **recarga com estado (R1)** — `docs/PESQUISA-HOT-RELOAD.md`. Os cenários
-  estão em `crates/jit/testes-pendentes/hot_reload.rs`, escritos contra a
-  trilha velha (não compilam; ficam fora de `tests/` como a lista do que
-  migrar para o IR do `emit_native`);
+* o que a recarga ainda recusa ou não confere (`docs/JIT.md`, «Escopo da
+  versão 1»: mudança de assinatura, campos de classe, classe renumerada,
+  ambiente de closure) — `docs/PESQUISA-HOT-RELOAD.md`.
+  *Histórico (até 2026-09-27):* este item dizia que a recarga com estado
+  (R1) faltava e que os cenários de `crates/jit/testes-pendentes/` não
+  compilavam;
 * preservar o contrato de `crates/jit/tests/execucao.rs` — o mesmo programa
   compila uma vez e executa pelos dois caminhos (ORCv2 e AOT) exigindo saída
   idêntica. Divergir em tempo de compilação é esperado; em resultado, é
@@ -1740,8 +1772,18 @@ Números (release, máquina de 8 núcleos e 7,7 GB compartilhados):
 | ligação, morna | ~95 ms |
 | runtime (`rustc -O`), uma vez por conteúdo | ~10 s |
 
-Por que é tão barato: a seção `vm` do `libraries.json` só declara
-`dart:cli`, e o `include` de `vm_common` ainda não é seguido — o programa é
+> **Histórico (até 2026-09-27).** A tabela acima e o parágrafo abaixo são
+> da medição de antes do SDK da fonte. Hoje o `include` é seguido
+> (`crates/elements/src/sdk.rs:191-212`), o SDK da fonte é compilado uma vez
+> por conteúdo num módulo próprio, com ids de classe fixados pela tabela do
+> SDK compilado (`sdk_modulo::ids_de_classe_do_sdk`,
+> `crates/emit_native/src/sdk_modulo.rs:220`) e símbolos estáveis por
+> declaração (teste `t_id_simbolos_estaveis`), e o cache por módulo existe
+> (`docs/NATIVO.md` §1.1). A linha «fração do IR que é corpo de função do
+> SDK: 0%» vale só para o módulo do programa.
+
+Por que era tão barato: a seção `vm` do `libraries.json` só declara
+`dart:cli`, e o `include` de `vm_common` ainda não era seguido — o programa é
 compilado sem o SDK, e é por isso também que 30 programas nem carregam
 (`dart:math`, `dart:async`, `dart:collection`…). Quando o SDK entrar, cada
 emissão analisa o SDK inteiro (no JS isso custa centenas de MB, §1.3); por
