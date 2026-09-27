@@ -76,7 +76,13 @@ const RECUSADOS: &[(&str, &str)] = &[
         "i78_usa_provider_externo.dart",
         "provedor apelido de token de fora do nó",
     ),
-    ("i30_template_outlet.dart", "<template> escrito no template"),
+    // `<template>` com diretiva (`ngFor` escrito à mão): só o sem diretiva
+    // é traduzido.
+    (
+        "i84_template_com_diretiva.dart",
+        "<template> escrito no template",
+    ),
+    ("i85_template_view_child.dart", "@ViewChild de <template>"),
 ];
 
 #[test]

@@ -191,3 +191,7 @@ export 'src/i79_varios_componentes.dart';
 export 'src/i80_consultas_leitura.dart';
 export 'src/i80_rotulo.dart';
 export 'src/i81_usa_consultas_leitura.dart';
+export 'src/i82_template_formas.dart';
+export 'src/i83_template_contexto.dart';
+export 'src/i84_template_com_diretiva.dart';
+export 'src/i85_template_view_child.dart';

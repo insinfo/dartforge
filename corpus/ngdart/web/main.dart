@@ -176,6 +176,10 @@ import 'package:corpus_ngdart/src/i78_usa_provider_externo.template.dart' as i78
 import 'package:corpus_ngdart/src/i79_varios_componentes.template.dart' as i79;
 import 'package:corpus_ngdart/src/i80_consultas_leitura.template.dart' as i80;
 import 'package:corpus_ngdart/src/i81_usa_consultas_leitura.template.dart' as i81;
+import 'package:corpus_ngdart/src/i82_template_formas.template.dart' as i82;
+import 'package:corpus_ngdart/src/i83_template_contexto.template.dart' as i83;
+import 'package:corpus_ngdart/src/i84_template_com_diretiva.template.dart' as i84;
+import 'package:corpus_ngdart/src/i85_template_view_child.template.dart' as i85;
 
 void main() {
   print([
@@ -354,5 +358,9 @@ void main() {
     i79.I79VariosComponentesNgFactory,
     i80.I80ConsultasLeituraNgFactory,
     i81.I81UsaConsultasLeituraNgFactory,
+    i82.I82TemplateFormasNgFactory,
+    i83.I83TemplateContextoNgFactory,
+    i84.I84TemplateComDiretivaNgFactory,
+    i85.I85TemplateViewChildNgFactory,
   ].length);
 }

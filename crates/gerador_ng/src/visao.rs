@@ -104,6 +104,11 @@ const TEMPLATE_REF: &str = "package:ngdart/src/core/linker/template_ref.dart";
 const NG_IF: &str = "package:ngdart/src/common/directives/ng_if.dart";
 const NG_FOR: &str = "package:ngdart/src/common/directives/ng_for.dart";
 const NG_SWITCH: &str = "package:ngdart/src/common/directives/ng_switch.dart";
+const NG_TEMPLATE_OUTLET: &str = "package:ngdart/src/common/directives/ng_template_outlet.dart";
+/// O nome da `estrela` posta num `<template>` escrito à mão
+/// ([`template_como_container`]): marca a fronteira da visão embutida para
+/// quem anda pelo template, sem ser diretiva nenhuma.
+const MARCA_DE_MOLDE: &str = "\u{0}template";
 const EMBEDDED_VIEW: &str = "package:ngdart/src/core/linker/views/embedded_view.dart";
 const PROXIES: &str = "package:ngdart/src/runtime/proxies.dart";
 const RENDER_VIEW: &str = "package:ngdart/src/core/linker/views/render_view.dart";
@@ -733,12 +738,46 @@ fn template_como_container(nos: &[No]) -> Vec<No> {
                     e.propriedades.clear();
                     e.atributos.clear();
                     e.nome = "ng-container".into();
+                } else if e.nome == "template"
+                    && e.estrela.is_none()
+                    && e.atributos.is_empty()
+                    && e.propriedades.is_empty()
+                    && e.eventos.is_empty()
+                    && e.bananas.is_empty()
+                    && e.anotacoes.is_empty()
+                    && e.referencias.len() <= 1
+                    && e.referencias.iter().all(|r| r.valor.is_empty())
+                {
+                    // `<template>` só com (no máximo) um `#ref` e sem
+                    // diretiva: âncora, `ViewContainer` e `TemplateRef`, com o
+                    // conteúdo numa visão embutida ([`Corpo::molde`]).
+                    e.estrela = Some(crate::html::Ligacao {
+                        nome: MARCA_DE_MOLDE.into(),
+                        valor: String::new(),
+                        inicio: 0,
+                        fim: 0,
+                    });
                 }
                 No::Elemento(e)
             }
             outro => outro.clone(),
         })
         .collect()
+}
+
+/// Os `#ref` dos `<template>` escritos ([`MARCA_DE_MOLDE`]), em qualquer
+/// profundidade.
+fn referencias_de_moldes(nos: &[No]) -> Vec<String> {
+    let mut saida = Vec::new();
+    for n in nos {
+        if let No::Elemento(e) = n {
+            if e.estrela.as_ref().is_some_and(|l| l.nome == MARCA_DE_MOLDE) {
+                saida.extend(e.referencias.iter().map(|r| r.nome.clone()));
+            }
+            saida.extend(referencias_de_moldes(&e.filhos));
+        }
+    }
+    saida
 }
 
 /// Onde um `#ref` aparece no template.
@@ -799,7 +838,9 @@ fn onde_casa(
 ) {
     for no in nos {
         let No::Elemento(e) = no else { continue };
-        let lugar = if e.estrela.is_some() {
+        // O `<template>` escrito é desta visão; o conteúdo dele, não.
+        let molde = e.estrela.as_ref().is_some_and(|l| l.nome == MARCA_DE_MOLDE);
+        let lugar = if e.estrela.is_some() && !molde {
             Lugar::Embutida
         } else if filhos.contains_key(&e.nome) {
             if em_filho {
@@ -825,7 +866,7 @@ fn onde_casa(
             );
         onde_casa(&e.filhos, casa, filhos, abaixo_de_filho, &mut dentro);
         // Tudo abaixo de um `*` é da visão embutida.
-        if lugar == Lugar::Embutida {
+        if lugar == Lugar::Embutida || molde {
             dentro.iter_mut().for_each(|l| *l = Lugar::Embutida);
         }
         saida.extend(dentro);
@@ -3203,8 +3244,13 @@ impl Corpo<'_> {
             "    var _TemplateRef_{n}_8 = {tr}TemplateRef(this._appEl_{n}, {nome_fabrica});"
         ));
         let extra = hospedeiro.map(|h| format!(", {h}")).unwrap_or_default();
+        let molde = if dir.com_template {
+            format!(", _TemplateRef_{n}_8")
+        } else {
+            String::new()
+        };
         self.linhas.push(format!(
-            "    this.{campo} = {qd}{classe_dir}(this._appEl_{n}, _TemplateRef_{n}_8{extra});"
+            "    this.{campo} = {qd}{classe_dir}(this._appEl_{n}{molde}{extra});"
         ));
         self.linhas.push(format!(
             "    if ({dev}.isDevToolsEnabled) {{\n      {dev}.Inspector.instance.registerDirective(_anchor_{n}, this.{campo});\n    }}"
@@ -3285,6 +3331,125 @@ impl Corpo<'_> {
         let locais = self.locais_da_micro(&micro, tipo_da_colecao.as_ref())?;
         let mut sem_estrela = e.clone();
         sem_estrela.estrela = None;
+        self.empilhar_embutida(
+            e,
+            vec![No::Elemento(sem_estrela)],
+            n,
+            indice,
+            nome_fabrica,
+            pai,
+            locais,
+            micro,
+        );
+        Ok(())
+    }
+
+    /// `<template>` escrito à mão, sem diretiva: âncora, `ViewContainer` e
+    /// `TemplateRef` (o 7 da tabela do nó: não há diretiva), com o conteúdo
+    /// numa visão embutida. Com `#ref` o `TemplateRef` é campo e o nome o
+    /// lê; sem, um local sem uso. Ninguém cria a visão: o `ViewContainer`
+    /// fica fora da detecção e da destruição.
+    fn molde(&mut self, e: &crate::html::Elemento, pai: &str) -> Result<(), Recusa> {
+        if self.pai_projetado.is_some() {
+            return Err(recusa(Motivo::Projecao, "<template> no conteúdo projetado"));
+        }
+        let desc = crate::seletor::Elemento::do_template(e);
+        if let Some(u) = self
+            .usadas
+            .iter()
+            .find(|u| crate::seletor::casa_algum(&u.seletores, &desc))
+        {
+            return Err(recusa(
+                Motivo::DiretivaPorSeletor,
+                format!("diretiva {} em <template>", u.classe),
+            ));
+        }
+        // `@ViewChild` com o resultado no `<template>` ou dentro dele: o
+        // valor seria o `TemplateRef` ou uma visão que ninguém cria.
+        for q in &self.consultas_dinamicas {
+            let mut l = Vec::new();
+            onde_esta(
+                std::slice::from_ref(&No::Elemento(e.clone())),
+                &q.referencia,
+                self.filhos,
+                false,
+                &mut l,
+            );
+            if !l.is_empty() {
+                return Err(recusa(Motivo::Ligacao, "@ViewChild em <template>"));
+            }
+        }
+        let n = self.proximo;
+        self.proximo += 1;
+        let dom = self.dom();
+        let vc = self.imp.q(VIEW_CONTAINER);
+        let tr = self.imp.q(TEMPLATE_REF);
+        let indice = self.proxima_embutida;
+        self.proxima_embutida += 1 + contar_estruturais(&e.filhos);
+        let nome_fabrica = format!("viewFactory_{}{indice}", &self.classe_da_visao[4..]);
+        self.campos_filho
+            .push(format!("  late final {vc}ViewContainer _appEl_{n};"));
+        let referencia = e.referencias.first().map(|r| r.nome.clone());
+        if referencia.is_some() {
+            self.campos_filho
+                .push(format!("  late final {tr}TemplateRef _TemplateRef_{n}_7;"));
+        }
+        let pai_indice = if pai.is_empty() {
+            self.raizes.push(format!("this._appEl_{n}"));
+            self.linhas
+                .push(format!("    final _anchor_{n} = {dom}.createAnchor();"));
+            "null".to_string()
+        } else {
+            self.linhas.push(format!(
+                "    final _anchor_{n} = {dom}.appendAnchor({pai});"
+            ));
+            indice_do_elemento(pai)
+        };
+        self.linhas.push(format!(
+            "    this._appEl_{n} = {vc}ViewContainer({n}, {pai_indice}, this, _anchor_{n});"
+        ));
+        match &referencia {
+            Some(nome) => {
+                self.linhas.push(format!(
+                    "    this._TemplateRef_{n}_7 = {tr}TemplateRef(this._appEl_{n}, {nome_fabrica});"
+                ));
+                let leitura = format!("this._TemplateRef_{n}_7");
+                self.refs.insert(nome.clone(), leitura.clone());
+                self.refs_em_ordem.push((nome.clone(), leitura));
+            }
+            None => self.linhas.push(format!(
+                "    var _TemplateRef_{n}_7 = {tr}TemplateRef(this._appEl_{n}, {nome_fabrica});"
+            )),
+        }
+        let locais = self.locais.clone();
+        self.empilhar_embutida(
+            e,
+            e.filhos.clone(),
+            n,
+            indice,
+            nome_fabrica,
+            pai,
+            locais,
+            crate::micro::Micro::default(),
+        );
+        Ok(())
+    }
+
+    /// Guarda a especificação da visão embutida de um `*` ou `<template>`
+    /// (`e`, na âncora `n`), com o que ela herda desta: os locais, os
+    /// `#ref` e os provedores acima, um `parentView` mais longe.
+    #[allow(clippy::too_many_arguments)]
+    fn empilhar_embutida(
+        &mut self,
+        e: &crate::html::Elemento,
+        nos: Vec<No>,
+        n: u32,
+        indice: u32,
+        nome_fabrica: String,
+        pai: &str,
+        locais: std::collections::HashMap<String, crate::expr::Local>,
+        micro: crate::micro::Micro,
+    ) {
         // Para a visão nova, os locais desta visão e das ancestrais ficam um
         // `parentView` mais longe.
         let mut ancestrais: std::collections::HashMap<String, Origem> = self
@@ -3346,7 +3511,7 @@ impl Corpo<'_> {
             nivel_do_topo,
             classe: format!("_{}{indice}", self.classe_da_visao),
             fabrica: nome_fabrica,
-            nos: vec![No::Elemento(sem_estrela)],
+            nos,
             locais,
             micro,
             ancestrais,
@@ -3373,7 +3538,6 @@ impl Corpo<'_> {
                 .collect(),
             componentes_acima: self.componentes_acima,
         });
-        Ok(())
     }
 
     /// Os locais que o `*` põe no escopo da visão embutida, com o tipo:
@@ -3853,7 +4017,11 @@ impl Corpo<'_> {
             No::Elemento(e) => {
                 // `<template>` escrito à mão é uma visão embutida, não um
                 // elemento HTML (`EmbeddedTemplateAst`).
-                if e.nome.eq_ignore_ascii_case("template") {
+                // (O que [`template_como_container`] não reescreveu nem marcou
+                // como [`MARCA_DE_MOLDE`] ainda não é traduzido.)
+                if e.nome.eq_ignore_ascii_case("template")
+                    && e.estrela.as_ref().is_none_or(|l| l.nome != MARCA_DE_MOLDE)
+                {
                     return Err(recusa(Motivo::Ligacao, "<template> escrito no template"));
                 }
                 // `<ng-container>` sem `*` (`visitNgContainer`): os filhos
@@ -3916,6 +4084,9 @@ impl Corpo<'_> {
                     ));
                 }
                 if let Some(estrela) = &e.estrela {
+                    if estrela.nome == MARCA_DE_MOLDE {
+                        return self.molde(e, pai);
+                    }
                     return self.estrutural(e, estrela, pai);
                 }
                 self.elemento_html(e, pai)?;
@@ -4973,6 +5144,9 @@ enum CampoDaVisao<'a> {
     Filho(&'a Filho),
     /// Diretiva estrutural, com a URI da classe dela.
     Estrutural(&'static str),
+    /// `<template>` escrito: o `ViewContainer` e, com `#ref`, o campo do
+    /// `TemplateRef`.
+    Molde(bool),
     /// Provedores de diretivas num nó: o texto com os imports tardios do
     /// campo de cada um ([`uri_do_campo`]), na ordem.
     Diretivas(Vec<String>),
@@ -5009,7 +5183,9 @@ fn campos_em_ordem<'a>(
         let No::Elemento(e) = no else { continue };
         if let Some(estrela) = &e.estrela {
             // O conteúdo vai para a visão embutida; os campos dele são de lá.
-            if let Some(d) = Estrutural::conhecida(&estrela.nome) {
+            if estrela.nome == MARCA_DE_MOLDE {
+                saida.push(CampoDaVisao::Molde(!e.referencias.is_empty()));
+            } else if let Some(d) = Estrutural::conhecida(&estrela.nome) {
                 saida.push(CampoDaVisao::Estrutural(d.uri));
             }
             continue;
@@ -5332,8 +5508,18 @@ fn corpo_da_embutida(
         .extend(dentro.refs.iter().map(|(k, v)| (k.clone(), v.clone())));
     dentro.destruir.extend(ctx.pipes.destruicao(espec.indice));
     // Na coleta, um nó recusado não consome índice: a visão parece vazia
-    // sem estar.
-    if dentro.proximo == 0 && dentro.coleta.as_ref().map_or(0, Vec::len) == anotadas {
+    // sem estar. O `<ng-container *x>` vazio é vazio de fato: a visão não
+    // tem raiz nenhuma (`const <Object>[]`).
+    let vazia = matches!(espec.nos.as_slice(), [No::Elemento(x)]
+        if x.nome == "ng-container"
+            && x.filhos.is_empty()
+            && x.estrela.is_none()
+            && x.atributos.is_empty()
+            && x.propriedades.is_empty()
+            && x.eventos.is_empty()
+            && x.bananas.is_empty()
+            && x.referencias.is_empty());
+    if !vazia && dentro.proximo == 0 && dentro.coleta.as_ref().map_or(0, Vec::len) == anotadas {
         dentro.anotar(recusa(Motivo::Ligacao, "visão embutida sem nó"))?;
     }
     // Os locais lidos pela detecção, na ordem do primeiro uso.
@@ -5506,6 +5692,9 @@ fn corpo_da_embutida(
     // `_generateInitStatement`: uma raiz só e nenhuma `subscription_N` é
     // `initRootNode`; o resto vai numa lista.
     let inicio = match (raizes.as_slice(), dentro.subscricoes) {
+        _ if vazia && dentro.raizes.is_empty() && dentro.subscricoes == 0 => format!(
+            "this.initRootNodesAndSubscriptions({util}.unsafeCast(const <Object>[]), null);"
+        ),
         ([raiz], 0) => format!("this.initRootNode({raiz});"),
         (_, subscricoes) => {
             let subs = if subscricoes == 0 {
@@ -5670,6 +5859,12 @@ fn alocar_imports_dos_campos(
                 imp.alias(VIEW_CONTAINER);
                 imp.alias(uri);
             }
+            CampoDaVisao::Molde(com_ref) => {
+                imp.alias(VIEW_CONTAINER);
+                if com_ref {
+                    imp.alias(TEMPLATE_REF);
+                }
+            }
             CampoDaVisao::Diretivas(textos) => {
                 for t in textos {
                     resolver_tardios(imp, &t);
@@ -5793,6 +5988,9 @@ struct Estrutural {
     /// Terceiro argumento do construtor: `@Host()` de uma diretiva da
     /// mesma biblioteca num elemento acima (o `NgSwitch` do `NgSwitchWhen`).
     hospedeiro: Option<&'static str>,
+    /// O construtor recebe o `TemplateRef` (o `NgTemplateOutlet` só o
+    /// `ViewContainerRef`; o `TemplateRef` do `*` fica num local sem uso).
+    com_template: bool,
 }
 
 impl Estrutural {
@@ -5804,6 +6002,7 @@ impl Estrutural {
                 direta: true,
                 do_check: false,
                 hospedeiro: None,
+                com_template: true,
             }),
             "ngFor" => Some(Estrutural {
                 classe: "NgFor",
@@ -5811,6 +6010,15 @@ impl Estrutural {
                 direta: false,
                 do_check: true,
                 hospedeiro: None,
+                com_template: true,
+            }),
+            "ngTemplateOutlet" => Some(Estrutural {
+                classe: "NgTemplateOutlet",
+                uri: NG_TEMPLATE_OUTLET,
+                direta: false,
+                do_check: true,
+                hospedeiro: None,
+                com_template: false,
             }),
             // As duas entradas são setters sem comparação própria: passam
             // pelo `checkBinding` (ou, imutáveis, pelo `_bindLiteral`).
@@ -5820,6 +6028,7 @@ impl Estrutural {
                 direta: false,
                 do_check: false,
                 hospedeiro: Some("NgSwitch"),
+                com_template: true,
             }),
             "ngSwitchDefault" => Some(Estrutural {
                 classe: "NgSwitchDefault",
@@ -5827,6 +6036,7 @@ impl Estrutural {
                 direta: false,
                 do_check: false,
                 hospedeiro: Some("NgSwitch"),
+                com_template: true,
             }),
             _ => None,
         }
@@ -6361,6 +6571,15 @@ fn gerar_componente(
     }
     for r in formas_contra_o_template(c, local, nos, resolvedor, filhos) {
         anotar(coleta, r)?;
+    }
+    // `@ViewChild('t')` de um `<template #t>`: o valor lido seria o
+    // `TemplateRef`, forma ainda sem caso.
+    let moldes = referencias_de_moldes(nos);
+    if c.consultas
+        .iter()
+        .any(|q| !q.por_tipo && moldes.contains(&q.referencia))
+    {
+        anotar(coleta, recusa(Motivo::Ligacao, "@ViewChild de <template>"))?;
     }
     // `pipes:` sem uso não muda a visão (caso b19).
     let tabela = match pipes_do_template(nos, filhos, pipes, &local.asset()) {
