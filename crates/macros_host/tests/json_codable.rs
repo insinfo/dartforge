@@ -197,3 +197,45 @@ fn vm_executa_a_macro_e_bate_com_o_cfe() {
     }
     conferir(&c, &textos);
 }
+
+/// O executor **nativo** (D4): o bootstrap compilado pelo `compile-native` do
+/// próprio DartForge, sem VM Dart, executa as macros de cada caso do corpus e
+/// a augmentation montada é a do CFE 3.6.2, byte a byte.
+///
+/// Exige um `dartforge` com a feature `nativo` em `DARTFORGE_COMPILADOR_NATIVO`
+/// (o `compile-native` dele compila o executor) e o `pub get` de cada caso.
+#[test]
+#[ignore = "exige DARTFORGE_COMPILADOR_NATIVO (dartforge com a feature nativo), o SDK e o pub get de corpus/macros"]
+fn executor_nativo_bate_com_o_cfe() {
+    let compilador = PathBuf::from(std::env::var_os("DARTFORGE_COMPILADOR_NATIVO").expect("DARTFORGE_COMPILADOR_NATIVO"));
+    let sdk = sdk().expect("SDK (DARTFORGE_SDK_LIB)");
+    let mut conferidos = 0;
+    for nome in ["410_json_codable", "411_pedido_independente", "412_argumento_posicional", "413_argumentos_nomeados"] {
+        let Some(c) = caso(nome) else { panic!("sem o pub get de corpus/macros/{nome}") };
+        let apps = {
+            let mut nomes = Interner::new();
+            let (p, _) = load_lenient_gerados(&c.entrada, &sdk, Some(&c.config), &mut nomes, None, None, None);
+            dartforge_macros_host::aplicacoes::detectar(&Vista { program: &p, interner: &nomes })
+        };
+        assert!(!apps.is_empty(), "{nome}: nenhuma aplicação");
+        let trabalho = tempfile::tempdir().unwrap();
+        let cfg = dartforge_macros_host::nativo::ConfigNativa {
+            compilador: compilador.clone(),
+            sdk_lib: sdk.root.clone(),
+            api: raiz().join("pacotes/macros"),
+            trabalho: trabalho.path().to_path_buf(),
+        };
+        let t0 = std::time::Instant::now();
+        let exe = dartforge_macros_host::nativo::compilar(&cfg, &apps, Some(&c.config)).unwrap();
+        let compilacao = t0.elapsed();
+        // A segunda vez vem do cache: a mesma chave, sem compilar.
+        assert_eq!(dartforge_macros_host::nativo::compilar(&cfg, &apps, Some(&c.config)).unwrap(), exe);
+        let mut executor = dartforge_macros_host::nativo::iniciar(&cfg, &apps, Some(&c.config)).unwrap();
+        let t1 = std::time::Instant::now();
+        let textos = aplicar(&c, &sdk, &mut executor);
+        println!("{nome}: compilação {:.1} s, aplicação {:.0} ms", compilacao.as_secs_f64(), t1.elapsed().as_secs_f64() * 1000.0);
+        conferir(&c, &textos);
+        conferidos += 1;
+    }
+    assert_eq!(conferidos, 4);
+}

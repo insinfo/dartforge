@@ -148,10 +148,12 @@ fn json_serializable_pela_vm_igual_ao_build_runner_e_incremental() {
     let (rel, ms) = atualizar(&mut m, &[]);
     println!("limpo: {ms:.0} ms — {}", rel.texto());
     // json_serializable e combining_builder em lib/modelos.dart e bin/main.dart
-    // (este sem anotação: nenhuma saída, como no oficial).
+    // (este sem anotação: nenhuma saída, como no oficial), e o
+    // `source_gen:part_cleanup` na parte escrita (a âncora da parte que não
+    // foi escrita é omitida, como no oficial).
     assert_eq!(
         (rel.dart, rel.acoes_executadas, rel.saidas_alteradas),
-        (4, 4, 2),
+        (5, 5, 2),
         "{}",
         rel.texto()
     );
@@ -164,6 +166,10 @@ fn json_serializable_pela_vm_igual_ao_build_runner_e_incremental() {
         p.pendentes
     );
     assert_eq!(p.iguais.len(), 2);
+    // O `source_gen:part_cleanup` apaga a parte oculta: ela some da geração
+    // publicada (o `FinalizedReader` do oficial), mas o `.g.dart` continua.
+    assert!(!publicado(&m, "lib/modelos.json_serializable.g.part"));
+    assert!(publicado(&m, "lib/modelos.g.dart"));
 
     // Nada mudou: nada executa.
     let (rel, ms) = atualizar(&mut m, &[]);
@@ -176,11 +182,12 @@ fn json_serializable_pela_vm_igual_ao_build_runner_e_incremental() {
         // json_serializable dele e o de `bin/main.dart`, que o importa, e o
         // combining_builder, que resolve a biblioteca); nenhuma saída muda.
         ("01-corpo-de-metodo", 3, 0),
-        // Campo novo: as mesmas três; a parte e o `.g.dart` mudam.
-        ("02-campo-novo", 3, 2),
-        // Arquivo novo: só as duas ações dele (a listagem de partes das
-        // outras não mudou).
-        ("03-arquivo-novo", 2, 2),
+        // Campo novo: as mesmas três e a limpeza da parte, que mudou; a
+        // parte e o `.g.dart` mudam.
+        ("02-campo-novo", 4, 2),
+        // Arquivo novo: só as duas ações dele e a limpeza da parte nova (a
+        // listagem de partes das outras não mudou).
+        ("03-arquivo-novo", 3, 2),
     ];
     for (passo, executadas, alteradas) in esperado {
         let mudados = aplicar(&origem.join("edicoes").join(passo), &dir);
@@ -322,4 +329,218 @@ fn corpus_builders_pela_vm() {
         }
     }
     assert!(diferentes.is_empty(), "{}", diferentes.join("\n"));
+}
+
+/// Estado salvo entre processos com o executor real (B04): o segundo processo
+/// não executa nenhum builder, chega ao estado de um motor do zero e o
+/// código dos builders vem do depfile do bootstrap.
+#[test]
+#[ignore = "exige a VM Dart e `dart pub get` em corpus/builders/json_serializable"]
+fn estado_salvo_pela_vm() {
+    let origem = raiz_do_corpus().join("json_serializable");
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("json_serializable");
+    copiar(&origem, &dir);
+    let processo = |persistir: bool| {
+        let cfg = PackageConfig::load(&dir.join(".dart_tool/package_config.json")).unwrap();
+        let opcoes = OpcoesMotor {
+            persistir,
+            ..OpcoesMotor::default()
+        };
+        let mut m = Motor::novo(&dir, &cfg, opcoes).unwrap();
+        m.definir_executor_dart(Box::new(ExecutorVm::novo(ConfigDaVm::do_projeto(
+            dart(),
+            &dir,
+        ))));
+        let t0 = Instant::now();
+        let at = m
+            .atualizar(
+                &Contexto {
+                    banco: &SemBanco,
+                    programa: None,
+                },
+                &[],
+                Demanda::Tudo,
+            )
+            .expect("atualizar");
+        // Como a CLI: as saídas `source` que mudaram vão ao disco.
+        for (p, c) in m.saidas_source_nativas(&at.alterados) {
+            std::fs::write(&p, &c[..]).unwrap();
+        }
+        let ms = t0.elapsed().as_secs_f64() * 1000.0;
+        (m.estado_canonico(), at.rel, ms)
+    };
+    let (primeiro, rel, ms) = processo(true);
+    println!("primeiro processo: {ms:.0} ms — {}", rel.texto());
+    assert!(rel.dart > 0);
+    let estado = std::fs::read_to_string(dir.join(".dart_tool/dartforge/build/estado/estado.json"))
+        .expect("estado gravado");
+    assert!(
+        estado.contains("builders.dart") || estado.contains("\"codigo_dart\":["),
+        "código dos builders registrado"
+    );
+    let (segundo, rel, ms) = processo(true);
+    println!("segundo processo: {ms:.0} ms — {}", rel.texto());
+    assert_eq!(rel.acoes_executadas, 0, "{}", rel.texto());
+    let (zero, _, _) = processo(false);
+    assert_eq!(primeiro, zero);
+    assert_eq!(segundo, zero, "restaurado ≠ do zero");
+    assert_eq!(m_placar_iguais(&dir, &origem), 2);
+}
+
+/// Iguais ao oráculo num processo novo que restaura o estado.
+fn m_placar_iguais(dir: &Path, origem: &Path) -> usize {
+    let cfg = PackageConfig::load(&dir.join(".dart_tool/package_config.json")).unwrap();
+    let opcoes = OpcoesMotor {
+        persistir: true,
+        ..OpcoesMotor::default()
+    };
+    let mut m = Motor::novo(dir, &cfg, opcoes).unwrap();
+    atualizar(&mut m, &[]);
+    let p = m.placar(&referencias(origem));
+    assert!(p.diferentes.is_empty(), "{:?}", p.diferentes);
+    p.iguais.len()
+}
+
+/// A saída de pós-processador `notas.rascunho.resumo` no registro da âncora.
+fn resumo(m: &Motor) -> Option<std::sync::Arc<[u8]>> {
+    (0..m.grafo.acoes.len())
+        .filter(|&a| m.grafo.acoes[a].pos)
+        .filter_map(|a| m.registro(a))
+        .flat_map(|r| r.saidas.iter())
+        .find(|(s, _)| s.caminho.as_ref() == "lib/entrada/notas.rascunho.resumo")
+        .and_then(|(_, c)| c.clone())
+}
+
+/// A geração publicada tem um arquivo que termina em `fim`?
+fn publicado(m: &Motor, fim: &str) -> bool {
+    m.geracao()
+        .iter()
+        .any(|(k, _)| k.to_string_lossy().replace('\\', "/").ends_with(fim))
+}
+
+/// Pós-processadores (`post_process_builders`) pela VM: a âncora roda o
+/// `PostProcessBuildStep` de verdade, a saída é a do `build_runner` byte a
+/// byte, só a âncora cuja entrada mudou reexecuta, a saída some com a
+/// entrada, e o `deletePrimaryInput` (opção de release do caso) é registrado
+/// e recusado no modo estrito — o DartForge não tem o diretório mesclado em
+/// que ele teria efeito.
+#[test]
+#[ignore = "exige a VM Dart e `dart pub get` em corpus/builders/cadeia_configuracao"]
+fn pos_processador_pela_vm() {
+    let origem = raiz_do_corpus().join("cadeia_configuracao");
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("cadeia_configuracao");
+    copiar(&origem, &dir);
+    let esperado = std::fs::read(
+        origem.join("oraculo/cache/corpus_cadeia_configuracao/lib/entrada/notas.rascunho.resumo"),
+    )
+    .unwrap();
+    let saida = "lib/entrada/notas.rascunho.resumo";
+
+    let mut m = motor_vm(&dir);
+    atualizar(&mut m, &[]);
+    assert_eq!(resumo(&m).as_deref(), Some(esperado.as_slice()));
+    let ancoras: Vec<usize> = (0..m.grafo.acoes.len())
+        .filter(|&a| m.grafo.acoes[a].pos)
+        .collect();
+    assert_eq!(ancoras.len(), 1, "uma âncora: a única entrada .rascunho");
+    assert!(
+        m.registro(ancoras[0]).is_some_and(|r| r.apagados.is_empty()),
+        "apagar: false no dev"
+    );
+    assert!(publicado(&m, saida), "saída publicada na geração");
+
+    // Segunda linha mudou: só a âncora reexecuta, a saída é a mesma.
+    let notas = dir.join("lib/entrada/notas.rascunho");
+    std::fs::write(
+        &notas,
+        "nota do post_process_builder limpeza\noutra segunda linha",
+    )
+    .unwrap();
+    let (rel, _) = atualizar(&mut m, std::slice::from_ref(&notas));
+    assert_eq!(
+        (rel.acoes_executadas, rel.saidas_alteradas),
+        (1, 0),
+        "{}",
+        rel.texto()
+    );
+
+    // Primeira linha mudou: a saída muda; incremental = do zero.
+    std::fs::write(&notas, "nota nova\nsegunda").unwrap();
+    let (rel, _) = atualizar(&mut m, std::slice::from_ref(&notas));
+    assert_eq!(
+        (rel.acoes_executadas, rel.saidas_alteradas),
+        (1, 1),
+        "{}",
+        rel.texto()
+    );
+    let texto = resumo(&m).unwrap();
+    assert!(std::str::from_utf8(&texto).unwrap().ends_with("---\nnota nova\n"));
+    let mut novo = motor_vm(&dir);
+    atualizar(&mut novo, &[]);
+    assert_eq!(m.estado_canonico(), novo.estado_canonico(), "incremental ≠ do zero");
+
+    // Entrada apagada: a âncora e a saída somem.
+    std::fs::remove_file(&notas).unwrap();
+    let (rel, _) = atualizar(&mut m, std::slice::from_ref(&notas));
+    assert!(rel.saidas_alteradas >= 1, "{}", rel.texto());
+    assert!(resumo(&m).is_none());
+    assert!(!publicado(&m, saida), "saída retirada da geração");
+    let mut novo = motor_vm(&dir);
+    atualizar(&mut novo, &[]);
+    assert_eq!(m.estado_canonico(), novo.estado_canonico(), "incremental ≠ do zero");
+
+    // Release: `apagar: true` chama `deletePrimaryInput`.
+    std::fs::write(&notas, "nota do post_process_builder limpeza\n").unwrap();
+    let cfg = PackageConfig::load(&dir.join(".dart_tool/package_config.json")).unwrap();
+    let release = OpcoesMotor {
+        release: true,
+        ..OpcoesMotor::default()
+    };
+    let contexto = Contexto {
+        banco: &SemBanco,
+        programa: None,
+    };
+    let mut r = Motor::novo(&dir, &cfg, release.clone()).unwrap();
+    r.definir_executor_dart(Box::new(ExecutorVm::novo(ConfigDaVm::do_projeto(
+        dart(),
+        &dir,
+    ))));
+    let at = r
+        .atualizar(&contexto, &[], Demanda::Tudo)
+        .expect("atualizar em release");
+    let ancora = (0..r.grafo.acoes.len())
+        .find(|&a| r.grafo.acoes[a].pos)
+        .unwrap();
+    assert_eq!(
+        r.registro(ancora).unwrap().apagados,
+        vec![AssetId::novo(
+            "corpus_cadeia_configuracao",
+            "lib/entrada/notas.rascunho"
+        )]
+    );
+    assert!(
+        at.avisos.iter().any(|a| a.contains("deletePrimaryInput")),
+        "{:?}",
+        at.avisos
+    );
+    let mut estrito = Motor::novo(
+        &dir,
+        &cfg,
+        OpcoesMotor {
+            estrito: true,
+            ..release
+        },
+    )
+    .unwrap();
+    estrito.definir_executor_dart(Box::new(ExecutorVm::novo(ConfigDaVm::do_projeto(
+        dart(),
+        &dir,
+    ))));
+    let erro = estrito
+        .atualizar(&contexto, &[], Demanda::Tudo)
+        .err()
+        .expect("o estrito recusa o apagamento sem efeito");
+    assert!(erro.contains("deletePrimaryInput"), "{erro}");
 }

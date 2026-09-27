@@ -1,0 +1,6 @@
+@mixin m {
+  top: 0;
+}
+.a {
+  @include m;
+}

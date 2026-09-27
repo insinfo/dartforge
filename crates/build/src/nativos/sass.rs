@@ -1,9 +1,13 @@
 //! `sass_builder:sass_builder` pelo Sass do `gerador_ng`
 //! (`sass::compilar_com`, API pública).
 //!
-//! **Porta de igualdade**: só o estilo `compressed` sem mapas, medido byte a
-//! byte, pode ser publicado. O estilo `expanded` e o `.css.map` continuam no
-//! apoio. Os módulos lidos por `@use`/`@import` são dependências da ação.
+//! **Porta de igualdade**: os dois estilos (`compressed` e `expanded`, o
+//! padrão do `sass_builder`), sem mapas, conferidos forma a forma contra o
+//! `sass_builder` de verdade (`crates/gerador_ng/tests/sass_formas`); o que o
+//! `gerador_ng` não sabe escrever igual ele recusa. O `.css.map` (o `dev` o
+//! liga por padrão) não é gerado: a ação é recusada com motivo e vai ao
+//! executor Dart ou ao apoio. Os módulos lidos por `@use`/`@import` são
+//! dependências da ação.
 use crate::consulta::Consulta;
 use crate::executor::{CtxGerador, GeradorNativo, PedidoNativo, SaidaNativa};
 use crate::valor::Valor;
@@ -39,16 +43,23 @@ impl GeradorNativo for SassNativo {
                 s.recusas.insert(a.entrada_natural.clone(), "sass: sintaxe indentada (.sass) não suportada".into());
                 continue;
             }
-            if !matches!(a.opcoes.obter("outputStyle"), Some(Valor::Texto(v)) if v == "compressed") {
-                s.recusas.insert(a.entrada_natural.clone(), "sass: outputStyle expanded ainda não verificado".into());
-                continue;
-            }
+            // `outputStyle` ausente é o `expanded` do `sass_builder`; valor
+            // desconhecido ele avisa e usa o `expanded` — o aviso não temos.
+            let estilo = match a.opcoes.obter("outputStyle") {
+                None | Some(Valor::Nulo) => Estilo::Expandido,
+                Some(Valor::Texto(v)) if v == "expanded" => Estilo::Expandido,
+                Some(Valor::Texto(v)) if v == "compressed" => Estilo::Comprimido,
+                Some(_) => {
+                    s.recusas.insert(a.entrada_natural.clone(), "sass: outputStyle desconhecido (o oficial avisa)".into());
+                    continue;
+                }
+            };
             let Some(fonte) = ctx.ler(&a.entrada_natural) else {
                 s.recusas.insert(a.entrada_natural.clone(), "sass: entrada ilegível".into());
                 continue;
             };
             let texto = String::from_utf8_lossy(&fonte);
-            let (mut saida, modulos) = match compilar_com(&texto, a.entrada_natural.parent(), Estilo::Comprimido) {
+            let (mut saida, modulos) = match compilar_com(&texto, a.entrada_natural.parent(), estilo) {
                 Ok(c) => c,
                 Err(m) => {
                     s.recusas.insert(a.entrada_natural.clone(), format!("sass: recusa {m:?}"));

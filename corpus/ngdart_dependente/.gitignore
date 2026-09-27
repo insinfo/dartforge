@@ -1,0 +1,4 @@
+.dart_tool/
+app/.dart_tool/
+dep/.dart_tool/
+build/

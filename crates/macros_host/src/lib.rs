@@ -26,6 +26,7 @@ pub mod consultas;
 pub mod executor;
 pub mod modelo;
 pub mod montagem;
+pub mod nativo;
 pub mod protocolo;
 pub mod sessao;
 pub mod vm;

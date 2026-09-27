@@ -109,6 +109,45 @@ o `.css` servido pelo `dartforge serve` passa a sair do nativo. O `.css.map`
 de desenvolvimento (D-B3: o mesmo que o oficial, em memória) precisa também
 do mapa de fontes; pode vir num segundo passo.
 
+## Estágio B no motor (B03, 2026-09-27)
+
+Com a API acima, o adaptador (`crates/build/src/nativos/ng.rs`) já regenera
+por arquivo, dentro da ação de pacote:
+
+* **recurso** (`.html`/`.css`/`.scss` já lido): só os componentes que o
+  leram;
+* **`.dart` do pacote** (`tentar_dart`): o arquivo e o **fecho de quem o
+  alcança por `import`/`export`** no programa novo, reindexados antes de
+  gerar. Tudo o que a geração de um arquivo lê de outra biblioteca (filho de
+  `directives:`, tipo resolvido, metadados herdados de superclasse, seletor)
+  vem de biblioteca alcançável pelos imports dele; o fecho cobre com folga as
+  `ConsultaNg` que o `gerar_arquivo` anota. Medido no `corpus/ngdart`: uma
+  declaração nova em cada um dos 219 `.dart` do corpus, uma de cada vez —
+  **incremental = do zero nas 219**, e 209 sem regenerar o pacote inteiro (o
+  `a02`, filho de 13 casos, regenera 15 arquivos; um filho com `@Input` novo,
+  3); `ng_edicao_dart_em_cada_arquivo_igual_ao_do_zero` e
+  `ng_incremental_igual_ao_do_zero` (corpo, `@Input` novo em filho, seletor,
+  import novo).
+* Volta ao estágio A (pacote inteiro): arquivo novo ou apagado, parte,
+  arquivo recusado antes ou agora, `.dart` de outro pacote.
+
+**Pacote dependente**: o nativo gera também as dependências a que o ngdart
+se aplica (`toDependentsOf(ngdart)`: uma dependência `path` com componentes,
+como o `limitless_ui` do `example`, e os `hosted` ngdart/ngcompiler, cujos
+`.template.dart` o DDC pede), cada pacote com a sua rodada e o seu cache. As
+consultas `FonteBiblioteca` de uma rodada ficam só nas bibliotecas que as do
+pacote alcançam por `import`/`export`: editar a aplicação não acorda a rodada
+de uma dependência. Conferido contra o `build_runner` oficial
+(`corpus/ngdart_dependente`, oráculo por `scripts/corpus-ngdart-dependente.sh`):
+os 5 `.template.dart` da aplicação e da dependência iguais, e incremental = do
+zero depois de editar o HTML e um `@Input` da dependência e o `.dart` da
+aplicação (`ng_dependencia_pelo_motor_igual_ao_oraculo`). Na mesma rodada de
+medição, os 219 `.template.dart` que o oficial gerou para `ngdart` e
+`ngcompiler` saíram iguais do `gerador_ng` (0 diferentes; 18 arquivos que o
+oficial não gera por serem opcionais não pedidos). Um componente da
+dependência que o programa da entrada não carrega é recusado com motivo, e a
+saída vem do executor Dart ou do apoio.
+
 ## O que não é pedido
 
 Nada muda em `gerar_com_apoio`, `gerar_em`, `sass::compilar_em`,
@@ -143,3 +182,18 @@ Atendido, público, sem mudar a saída (new_sali: 162 gerados, 166 iguais,
    recusado** por ora: os casos do `corpus/builders/sass_builder` usam
    namespace, `@mixin` e funções de cor, fora do subconjunto; não há caso
    aceito para conferir.
+
+   **Atualização (B05, 2026-09-27)**: oráculo por forma e por opção
+   (`crates/gerador_ng/tests/sass_formas`, gravado pelo `sass_builder` 2.2.1
+   de verdade com `scripts/sass-formas.sh`). Ele achou onze formas em que o
+   `compressed` "verificado" saía diferente do oficial (cor com nome e
+   hexadecimal, números, BOM, módulos, ordem de listas aninhadas, `@media`
+   com lista, propriedade customizada, variável local); corrigidas ou
+   recusadas. O **`expanded`** passou a ser gerado (grupos com linha em
+   branco como o `isGroupEnd` do dart-sass, quebra de linha de seletor,
+   `@charset`, cor como escrita, números com zero à esquerda). Placar: 73
+   formas; `compressed` 57 iguais e 16 recusadas, `expanded` 54 iguais e 19
+   recusadas; **0 diferentes**. O `.css.map` continua recusado com motivo
+   (o `dev` o liga por padrão, e a ação vai ao executor Dart ou ao apoio): o
+   mapa do dart-sass depende de cada trecho do CSS apontar para o intervalo
+   exato do fonte, e não há gerador de mapa aqui.

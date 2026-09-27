@@ -137,7 +137,49 @@ pub enum Consulta {
 * **Solidez**: o executor só lê pelo contexto que registra consultas
   (`CtxGerador`/`ServicoBuildStep`). O que ele não consultou não pode
   invalidá-lo. O invariante de verificação é **incremental = do zero**.
-* Só em memória (D-B1): nada de registro em disco por enquanto.
+* **Visibilidade**: uma consulta de arquivo sobre uma saída que a ação não
+  enxerga pela fase (de fase posterior, de outra ação da mesma fase, ou a
+  própria) não entra na revalidação: a resposta que a ação recebeu não
+  depende do conteúdo, e o `canRead` negativo de um `.g.dart` futuro não
+  pode sujar o `json_serializable` quando o `.g.dart` aparece.
+
+### 4.1 Estado entre processos (B04, opcional)
+
+O equivalente do `asset_graph.json`: `.dart_tool/dartforge/build/estado/`
+(`persistencia.rs`). **Só quando o usuário pede** — `dartforge build
+--estado`, ou `DARTFORGE_BUILD_ESTADO=1` para `build`, `compile-js`, `dev` e
+`serve` —, pela regra governante 6 do `PLANO.md` ("o disco só recebe o que o
+usuário pedir"). Sem pedido o motor continua só em memória (o D-B1 vale como
+padrão).
+
+* **O que é salvo** — por ação, a chave (identidade da fase com as extensões e
+  as entradas de pós-processador já conferidas, opções, `isRoot`, entrada,
+  saídas previstas), a origem, as consultas com os digests e o digest de cada
+  saída; o conteúdo vai para `blobs/`, endereçado pelo blake3 e conferido na
+  leitura. A gravação é atômica e os blobs sem referência são apagados.
+* **O que não é salvo** — ação com consulta semântica (depende do banco da
+  sessão; numa passada única ele nem responde), ação de gerador por pacote (a
+  revalidação é a rodada do pacote: o ngdart no estágio A), pendente e
+  medida.
+* **Entradas ocultas** (o que nenhuma consulta vê) — na chave global: versão
+  do motor, identidade do executável (código dos geradores nativos: caminho,
+  tamanho e data), plano canônico, versões do lock, `--release`. Para ação do
+  executor Dart, o **código do builder**: os arquivos do depfile do bootstrap
+  fora dos pacotes `hosted` (fixados pelo lock), pelo conteúdo; mudou um, as
+  ações Dart salvas não valem. Sem essa lista, ação Dart não é salva.
+* **Restauração** — na primeira atualização, depois de conferidas as
+  extensões com o executor: volta a ação cuja chave existe e cuja origem é a
+  que este motor escolheria (o mesmo nativo; Dart com o código conferido,
+  mesmo sem executor nesta sessão; apoio só sem nativo e sem executor). A
+  primeira verificação de uma ação restaurada recalcula **todas** as
+  consultas (um `GlobAtivos` com os candidatos do grafo atual) e confere no
+  disco as saídas `source`, que a CLI só regrava quando o texto muda.
+* Medido (`estado_salvo_pela_vm`, `json_serializable`, motor em `debug`):
+  primeiro processo 19,9 s (5 ações Dart pela VM); segundo processo 0,27 s, 0
+  ações executadas, estado igual ao de um motor do zero. Testes:
+  `estado_salvo_entre_processos` (entrada editada, opção global alterada,
+  código do builder alterado, saída `source` apagada, estado corrompido) e
+  `estado_salvo_pela_vm`.
 
 ## 5. Agenda (`agenda.rs`)
 
@@ -155,7 +197,15 @@ carregador: um builder posterior pode lê-las (o `combining_builder` lê as
 partes `.g.part` por glob) e o motor não interrompe uma ação Dart para
 calcular outra. Ficam preguiçosas as opcionais e as de gerador nativo.
 As ações Dart de uma fase executam em série no processo único (o executor
-é um só por sessão, atrás de um `Mutex`).
+é um só por sessão, atrás de um `Mutex`). **Decisão (B04)**: não há
+execução paralela de ações Dart. O `build_runner` as intercala num isolate só
+(`Future.wait`), com um `Resolvers` compartilhado cujo `reset` entre builds
+exige que nenhuma ação esteja em curso; o canal `dfexec/1` atende uma ação por
+vez e o `ServicoAcao` empresta o grafo à ação corrente. Paralelizar pediria
+vários processos (cada um com o seu analyzer e o seu resumo do SDK, a memória
+que o `build_runner` evita) ou multiplexar o canal sem garantir isolamento
+entre builders que não foram escritos para isso. Os geradores nativos e o
+apoio seguem em paralelo.
 Saídas `build_to: source` são calculadas sempre e vão ao disco só quando o
 texto muda (D-B2).
 
@@ -174,9 +224,9 @@ Por ação, na ordem, o primeiro que aceita:
    `dartforge build --dart <exe>` ou `DARTFORGE_BUILD_DART`. Sem ele, o padrão
    é `Indisponivel(motivo)`, até existir o processo auto-hospedado. A sessão
    encerra o executor ao terminar ou quando ele é substituído. No
-   `corpus/builders` pela VM: **56 iguais / 1 pendente / 0 diferentes**
-   (`crates/build/tests/executor_vm.rs`; o pendente é a saída de um
-   pós-processador), e incremental = do zero nas 12 edições.
+   `corpus/builders` pela VM: **57 iguais / 0 pendentes / 0 diferentes**
+   (`crates/build/tests/executor_vm.rs`, com a saída do pós-processador do
+   `cadeia_configuracao`), e incremental = do zero nas 12 edições.
 3. **Apoio**: o que o `build_runner` deixou no disco — saída `source` na
    árvore, saída `cache` em `.dart_tool/build/generated/<pkg>/<caminho>`.
    Se a entrada primária é mais nova que o apoio: **aviso** único no
@@ -192,8 +242,38 @@ os motivos.
 execução a partir das opções, versões imitadas, gerador nativo.
 **Substituídos** (ficam no plano, não geram ação): `build_web_compilers:*`,
 `build_modules:*`, `build_resolvers:*`, `build_test:*` (fora de
-`dartforge test`). Pós-processadores só apagam arquivos de um diretório
-mesclado (`build -o`): no motor são no-op declarados.
+`dartforge test`).
+
+**Pós-processadores** (`post_process_builders`, §6.1): executados pelo
+executor Dart, como o `build_runner_core` 8.0.0 os executa.
+
+### 6.1 Pós-processadores
+
+* **Âncoras** — `_addPostBuildPhaseAnchors` (`graph.dart:465-482`): na fase
+  de pós-processamento (a última), uma ação por entrada do pacote — fontes e
+  todas as saídas das fases de build — que termina numa das
+  `inputExtensions`, casa o `generate_for` e cuja fonte original está nos
+  `sources` do alvo (`_actionMatches`). As `inputExtensions` são as do
+  **objeto** `PostProcessBuilder` (o oficial ignora o `input_extensions` do
+  `build.yaml`), perguntadas ao executor por `build.entradas_pos`; sem
+  executor Dart a fase não tem âncoras e a saída fica pendente no placar.
+* **Execução** — `build.posprocessar`: o `runPostProcessBuilder` do
+  `package:build` com o leitor e o escritor do motor. Uma entrada gerada que
+  não foi escrita não executa a âncora (`wasOutput`, origem `Omitida`). A
+  âncora depende do digest da entrada primária mesmo que o pós-processador não
+  a leia (`_postProcessBuildShouldRun`: o `part_cleanup` só apaga).
+* **Saídas** — o grafo não as prevê: ficam no registro da âncora, ocultas,
+  publicadas na geração e contadas no placar. O `addAsset` do oficial recusa
+  o que o grafo já tem; aqui a escrita é recusada se o asset é fonte, saída
+  prevista, saída de outra âncora ou já foi escrito pela mesma ação. Uma
+  reexecução que não escreve mais uma saída a retira (`_cleanUpStaleOutputs`).
+* **`deletePrimaryInput`** — o `deletedBy` do nó; só o `FinalizedReader` do
+  oficial (o `serve` e o diretório mesclado `build -o`) deixa de enxergar a
+  entrada, os builders continuam lendo. Numa entrada **gerada** o efeito é o
+  mesmo aqui: ela sai da geração publicada (a `.g.part` que o
+  `source_gen:part_cleanup` apaga). Numa **fonte** o DartForge não tem como
+  escondê-la (o `serve` lê o disco e não há `build -o`): aviso, e erro com
+  `--estrito`. Teste: `pos_processador_pela_vm`.
 
 ## 7. Sessão, `serve`, `compile-js`, `build`
 
@@ -211,9 +291,10 @@ mesclado (`build -o`): no motor são no-op declarados.
 * `compile-js` usa o motor numa passada; `DARTFORGE_GERADOS` fica um ciclo
   como sinônimo (`build_runner` = só apoio; `ng` = padrão com motor).
 * `dartforge build [--release] [--plano] [--comparar] [--escrever-cache
-  <dir>] [--trabalhadores N] [--estrito] [--dart <exe>]`; `--dart` (ou
-  `DARTFORGE_BUILD_DART`, que vale também para `dev`, `serve` e
-  `compile-js`) liga o executor de builders pela VM.
+  <dir>] [--trabalhadores N] [--estrito] [--dart <exe>] [--estado]`;
+  `--dart` (ou `DARTFORGE_BUILD_DART`, que vale também para `dev`, `serve` e
+  `compile-js`) liga o executor de builders pela VM; `--estado` (ou
+  `DARTFORGE_BUILD_ESTADO=1`, idem) liga o estado entre processos (§4.1).
 
 ## 8. Custo zero (regra governante, PLANO.md)
 

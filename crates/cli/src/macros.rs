@@ -1,16 +1,18 @@
 //! `dartforge macros`: roda o hospedeiro de macros e mostra ou **materializa**
 //! a augmentation de cada biblioteca (docs/MACROS-COMPATIBILIDADE.md).
 //!
-//! O executor do produto é o nativo (D4), ainda indisponível; com `--dart`,
-//! a mesma macro roda com a nossa API numa VM Dart (o executor de
-//! materialização, `macros_host::vm`) — o caminho de compatibilidade com a
-//! toolchain oficial, não uma dependência do compilador.
+//! O executor do produto é o nativo (D4, `--nativo`): o bootstrap compilado
+//! pelo `compile-native` deste mesmo executável (exige a feature `nativo`),
+//! sem VM Dart (`macros_host::nativo`). Com `--dart`, a mesma macro roda com a
+//! nossa API numa VM Dart (o executor de materialização, `macros_host::vm`) —
+//! o caminho de compatibilidade com a toolchain oficial, não uma dependência
+//! do compilador.
 use dartforge_elements::sdk::{Linguagem, SdkLayout};
 use dartforge_intern::Interner;
 use dartforge_macros_host::executor::{ExecutorMacros, Indisponivel};
 use std::path::{Path, PathBuf};
 
-const USO: &str = "usage: dartforge macros <entrada.dart> [--materializar] [--forma 3.6|atual] [--dart <executável dart>] \
+const USO: &str = "usage: dartforge macros <entrada.dart> [--materializar] [--forma 3.6|atual] [--dart <executável dart> | --nativo] \
 [--api <pacotes/macros>] [--packages <package_config.json>] [--sdk <lib>] [--versao-linguagem x.y] [--enable-experiment=a,b]";
 
 /// A forma do arquivo materializado, por versão do SDK oficial.
@@ -60,6 +62,7 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>
     let mut materializar = false;
     let mut forma = Forma::Sdk36;
     let mut dart: Option<PathBuf> = None;
+    let mut nativo = false;
     let mut api: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
     let mut sdk_lib: Option<PathBuf> = None;
@@ -78,6 +81,7 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>
                 }
             }
             "--dart" => dart = Some(PathBuf::from(it.next().ok_or(USO)?)),
+            "--nativo" => nativo = true,
             "--api" => api = Some(PathBuf::from(it.next().ok_or(USO)?)),
             "--packages" => packages = Some(PathBuf::from(it.next().ok_or(USO)?)),
             "--sdk" => sdk_lib = Some(PathBuf::from(it.next().ok_or(USO)?)),
@@ -105,7 +109,24 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>
         println!("nenhuma aplicação de macro");
         return Ok(());
     }
+    if nativo && dart.is_some() {
+        return Err("use --dart ou --nativo, não os dois".into());
+    }
     let mut executor: Box<dyn ExecutorMacros> = match &dart {
+        None if nativo => {
+            if !cfg!(feature = "nativo") {
+                return Err("--nativo exige o dartforge compilado com a feature nativo (o compile-native compila o executor)".into());
+            }
+            let api = achar_api(api).ok_or("a API de macros (pacotes/macros) não foi encontrada: use --api")?;
+            let raiz = entrada.parent().unwrap_or(Path::new("."));
+            let cfg = dartforge_macros_host::nativo::ConfigNativa {
+                compilador: std::env::current_exe()?,
+                sdk_lib: sdk.root.clone(),
+                api,
+                trabalho: raiz.join(".dart_tool").join("dartforge").join("macros").join("nativo"),
+            };
+            Box::new(dartforge_macros_host::nativo::iniciar(&cfg, &apps, packages.as_deref())?)
+        }
         Some(d) => {
             let api = achar_api(api).ok_or("a API de macros (pacotes/macros) não foi encontrada: use --api")?;
             let raiz = entrada.parent().unwrap_or(Path::new("."));

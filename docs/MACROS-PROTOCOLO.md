@@ -85,15 +85,23 @@ JS embutido nem runtime de terceiros. `int` tem a semântica da VM (64 bits).
 |---|---|
 | `Indisponivel` | diagnóstico quando nenhum executor foi configurado; não é o caminho normal do JS com macro |
 | `ExecutorDfexec<C: Canal>` | o cliente `macro.*` sobre qualquer canal: processo (`CanalDeProcesso`), gravação (`CanalGravador`) ou sessão gravada (`CanalGravado`, o executor falso dos testes) |
-| `vm::iniciar` | executor de materialização e caminho provisório de `compile-js`/`jsprod`: executa a nossa API numa VM Dart (MACROS-COMPATIBILIDADE.md) e recarrega a augmentation em memória |
+| `vm::iniciar` | executor de materialização e caminho padrão de `compile-js`/`jsprod`: executa a nossa API numa VM Dart (MACROS-COMPATIBILIDADE.md) e recarrega a augmentation em memória |
+| `nativo::iniciar` | **o executor nativo (D4)**: o mesmo bootstrap e o mesmo `package_config.json`, compilados pelo `dartforge compile-native` (o `emit_native`, com `--versao-linguagem 3.6 --enable-experiment=macros`) num executável em cache em `.dart_tool/dartforge/macros/nativo`; `dartforge macros --nativo`, e `DARTFORGE_MACROS_NATIVO=<dartforge com a feature nativo>` no `compile-js`/`jsprod` |
 
-**O que espera o executor nativo**: compilar `pacotes/macros` (a API, o
-`executor/servico.dart` e o `canal_stdio.dart`) e a biblioteca da macro com o
-*bootstrap* gerado (`vm::bootstrap`: mapa `uri#Classe` → construtor por
-*tear-off* e `Function.apply`), com `async`/`Future`, `Completer`, coleções,
-records, `switch` de padrões, `dart:convert` (JSON) e `dart:io` (stdio). O
-ponto de encaixe é um `ExecutorDfexec<CanalDeProcesso>` com o executável
-nativo no lugar do `dart`.
+**Executor nativo (B06, 2026-09-27)**: `macros_host::nativo` compila
+`pacotes/macros` (a API, o `executor/servico.dart` e o `canal_stdio.dart`) e
+as bibliotecas das macros com o *bootstrap* do `vm::bootstrap` pelo backend
+nativo do DartForge, e roda o executável num `ExecutorDfexec<CanalDeProcesso>`.
+A chave do cache é o compilador (caminho, tamanho, data), o SDK e o conteúdo
+de cada arquivo que o programa do bootstrap carrega fora do SDK. Medido:
+`executor_nativo_bate_com_o_cfe` (`tests/json_codable.rs`) — os quatro casos
+`410`–`413` do `corpus/macros` com a augmentation **igual à do CFE 3.6.2,
+byte a byte**, sem VM Dart; a sessão gravada do `410` (98 mensagens
+`dfexec/1`) reproduzida igual pelo executável nativo em 87 ms (a VM, 1011
+ms). Compilação do executor: ~24 s na primeira vez (o runtime nativo entra
+no cache), ~2,5 s depois; o executável fica em cache. O `compile-js` segue
+com a VM por padrão até o executor nativo ser o padrão da distribuição (a
+distribuição precisa do `dartforge` com a feature `nativo` e do Clang).
 
 Bibliotecas permitidas no fecho de uma macro (`:1329-1350`):
 `dart:{async,collection,convert,core,math,typed_data}`; o executor em si usa
@@ -245,7 +253,8 @@ revalidação só delas, corte pela saída.
 * **Poda**: depois de uma compilação sem erro, saem os registros das
   aplicações que não existem mais.
 * **Onde vive**: em memória, com quem compila várias vezes no mesmo processo.
-  Nada em disco: o motor de build também não grava registro (D-B1) e a regra
+  Nada em disco: o motor de build só grava o estado das próprias ações
+  quando o usuário pede (`BUILD-MOTOR.md` §4.1), e a regra
   governante 6 proíbe contabilidade em disco. O `compile-js` é uma passada
   só e usa `aplicar_incremental` sem cache (só a recarga por diferença).
 * **Aceite** (`tests/cache.rs`, executor falso em Rust com três macros que

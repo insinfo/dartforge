@@ -401,6 +401,30 @@ impl ExecutorVm {
     }
 }
 
+impl ExecutorVm {
+    /// Uma ação (de build ou de pós-processamento) pelo processo.
+    fn acao(
+        &mut self,
+        pedido: &PedidoAcao,
+        servico: &mut dyn ServicoBuildStep,
+        pos: bool,
+    ) -> Result<ResultadoAcao, ErroExecutor> {
+        let cliente = self
+            .cliente
+            .as_mut()
+            .ok_or_else(|| ErroExecutor("build.executar antes de build.carregar".into()))?;
+        let r = if pos { cliente.pos_processar(pedido, servico) } else { cliente.executar(pedido, servico) };
+        if let Err(e) = &r {
+            // Canal quebrado (processo morreu, protocolo violado): a sessão
+            // não usa mais este processo.
+            self.falha = Some(format!("executor de builders pela VM: {}", e.0));
+            self.cliente = None;
+            self.chave = None;
+        }
+        r
+    }
+}
+
 impl ExecutorDart for ExecutorVm {
     fn disponibilidade(&self) -> Disponibilidade {
         match &self.falha {
@@ -453,19 +477,29 @@ impl ExecutorDart for ExecutorVm {
         pedido: &PedidoAcao,
         servico: &mut dyn ServicoBuildStep,
     ) -> Result<ResultadoAcao, ErroExecutor> {
-        let cliente = self
-            .cliente
-            .as_mut()
-            .ok_or_else(|| ErroExecutor("build.executar antes de build.carregar".into()))?;
-        let r = cliente.executar(pedido, servico);
-        if let Err(e) = &r {
-            // Canal quebrado (processo morreu, protocolo violado): a sessão
-            // não usa mais este processo.
-            self.falha = Some(format!("executor de builders pela VM: {}", e.0));
-            self.cliente = None;
-            self.chave = None;
+        self.acao(pedido, servico, false)
+    }
+
+    fn codigo(&self) -> Option<Vec<PathBuf>> {
+        let chave = self.chave.as_ref()?;
+        let texto = std::fs::read_to_string(self.cfg.trabalho.join(format!("bootstrap-{chave}.d"))).ok()?;
+        let deps = deps_do_depfile(&texto);
+        (!deps.is_empty()).then_some(deps)
+    }
+
+    fn entradas_pos(&mut self, pedido: &PedidoExtensoes) -> Result<Option<Vec<String>>, ErroExecutor> {
+        match self.cliente.as_mut() {
+            Some(c) => c.entradas_pos(pedido),
+            None => Ok(None),
         }
-        r
+    }
+
+    fn pos_processar(
+        &mut self,
+        pedido: &PedidoAcao,
+        servico: &mut dyn ServicoBuildStep,
+    ) -> Result<ResultadoAcao, ErroExecutor> {
+        self.acao(pedido, servico, true)
     }
 
     fn encerrar(&mut self) {

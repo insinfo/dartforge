@@ -15,7 +15,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if args.is_empty() || args[0] == "--help" {
         println!(
             "DartForge - compilador Dart para JavaScript\nUsage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <cfg>] [--timings]\n       dartforge dev <input.dart> -o <dir> [--packages <cfg>] [--sdk <lib>] [--intervalo <ms>] [--uma-vez]
-       dartforge serve <input.dart> -o <dir> [--web <dir>] [--porta N] [--packages <cfg>]\n       dartforge build [<entrada.dart>] [--raiz <dir>] [--plano] [--comparar] [--release] [--estrito] [--trabalhadores N] [--escrever-cache <dir>] [--dart <exe>]\n       dartforge aot|abi-info ...  (compile com --features nativo)
+       dartforge serve <input.dart> -o <dir> [--web <dir>] [--porta N] [--packages <cfg>]\n       dartforge build [<entrada.dart>] [--raiz <dir>] [--plano] [--comparar] [--release] [--estrito] [--trabalhadores N] [--escrever-cache <dir>] [--dart <exe>] [--estado]\n       dartforge aot|abi-info ...  (compile com --features nativo)
        dartforge run|reload <input.dart> ...  (compile com --features jit)
        dartforge empacotar <destino>  (a distribuição: executável, runtime, SDK, ligador)\n       dartforge analyze [--format=json] [--todos] [<dir|arquivo>]  (o JSON do dart analyze)\n       dartforge macros <entrada.dart> [--materializar] [--forma 3.6|atual] [--dart <exe>]\n\ncompile-js emite um modulo ES por biblioteca no contrato do DDC.\ndev mantem a sessao viva e recompila so o que a edicao afeta."
         );

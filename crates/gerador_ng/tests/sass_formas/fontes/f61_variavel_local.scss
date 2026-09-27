@@ -1,0 +1,8 @@
+$c: red;
+.a {
+  $c: blue;
+  color: $c;
+}
+.b {
+  color: $c;
+}

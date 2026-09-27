@@ -66,7 +66,11 @@ pub fn etapa_de_build(entrada: &Path, packages: Option<&Path>) -> Option<Result<
         return None;
     }
     let raiz = dartforge_build::raiz_do_pacote(entrada)?;
-    Some(Motor::novo(&raiz, &cfg, OpcoesMotor::default()).map(|mut m| {
+    // O estado salvo entre processos (§4.1 do BUILD-MOTOR.md), só quando o
+    // usuário pede (`DARTFORGE_BUILD_ESTADO=1`): a sessão começa das ações
+    // que continuam válidas.
+    let opcoes = OpcoesMotor { persistir: dartforge_build::persistencia::pedido_no_ambiente(), ..OpcoesMotor::default() };
+    Some(Motor::novo(&raiz, &cfg, opcoes).map(|mut m| {
         // Builders Dart pela VM só quando pedidos (DARTFORGE_BUILD_DART).
         dartforge_build::vm::ligar_do_ambiente(&mut m, &caminho);
         m

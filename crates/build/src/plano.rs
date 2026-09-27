@@ -386,6 +386,11 @@ pub struct Fase {
     pub pos: bool,
     /// `None` para pós-processadores e builders substituídos.
     pub extensoes: Option<Extensoes>,
+    /// Pós-processador: as `inputExtensions` do objeto `PostProcessBuilder`
+    /// (o `build_runner` ignora o `input_extensions` do `build.yaml`). Só o
+    /// executor Dart as conhece; `None` enquanto ninguém respondeu, e então a
+    /// fase não tem âncoras (`_addPostBuildPhaseAnchors`).
+    pub entradas_pos: Option<Vec<String>>,
     pub substituido: Option<&'static str>,
 }
 
@@ -393,7 +398,7 @@ impl Fase {
     /// `InBuildPhase.identity`: o que muda a fase sem ser opção.
     pub fn identidade(&self, plano: &Plano, grafo: &GrafoPacotes) -> String {
         format!(
-            "{}#{} {} {} gen={} fontes={} opcional={} oculta={} pos={} ext={:?}",
+            "{}#{} {} {} gen={} fontes={} opcional={} oculta={} pos={} ext={:?} entradas_pos={:?}",
             plano.aplicacoes[self.aplicacao].chave,
             self.fabrica,
             grafo.nos[self.pacote].nome,
@@ -404,6 +409,7 @@ impl Fase {
             self.oculta,
             self.pos,
             self.extensoes.as_ref().map(|e| &e.declaradas),
+            self.entradas_pos,
         )
     }
 }
@@ -543,6 +549,7 @@ pub fn fases(
                         oculta: ap.oculta,
                         pos: ap.pos,
                         extensoes,
+                        entradas_pos: None,
                         substituido,
                     };
                     if ap.pos {

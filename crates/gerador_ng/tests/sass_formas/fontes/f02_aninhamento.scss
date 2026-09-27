@@ -1,0 +1,12 @@
+.a {
+  color: red;
+  .b {
+    color: blue;
+  }
+  &:hover {
+    color: green;
+  }
+  &--m {
+    top: 0;
+  }
+}

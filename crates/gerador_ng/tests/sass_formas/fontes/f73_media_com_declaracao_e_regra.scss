@@ -1,0 +1,9 @@
+.a {
+  width: 50%;
+  @media (max-width: 600px) {
+    width: 100%;
+    .b {
+      top: 0;
+    }
+  }
+}

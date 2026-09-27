@@ -218,6 +218,10 @@ pub struct ResultadoAcao {
     pub saidas: Vec<(AssetId, Arc<[u8]>)>,
     pub logs: Vec<(String, String)>,
     pub falhou: bool,
+    /// Pós-processador: as entradas marcadas por `deletePrimaryInput` (o
+    /// `deletedBy` do nó; só o diretório mesclado e o `serve` do oficial
+    /// deixam de enxergá-las).
+    pub apagados: Vec<AssetId>,
 }
 
 /// O `Resolver` servido pelo banco semântico (Fase 3 do BUILD-RUST.md).
@@ -246,6 +250,10 @@ pub struct ServicoAcao<'a> {
     pub escritas: BTreeMap<AssetId, Arc<[u8]>>,
     pub consultas: Vec<(Consulta, Option<Digest>)>,
     pub logs: Vec<(Nivel, String)>,
+    /// Numa âncora de pós-processador: as saídas que outras âncoras já
+    /// escreveram (o `addAsset` do oficial recusa um asset que o grafo já
+    /// tem).
+    pub ocupadas: std::collections::BTreeSet<AssetId>,
 }
 
 impl<'a> ServicoAcao<'a> {
@@ -255,7 +263,16 @@ impl<'a> ServicoAcao<'a> {
         acao: usize,
         memoria: &'a dyn Fn(&AssetId) -> Option<Arc<[u8]>>,
     ) -> Self {
-        Self { grafo, pacotes, acao, memoria, escritas: BTreeMap::new(), consultas: Vec::new(), logs: Vec::new() }
+        Self {
+            grafo,
+            pacotes,
+            acao,
+            memoria,
+            escritas: BTreeMap::new(),
+            consultas: Vec::new(),
+            logs: Vec::new(),
+            ocupadas: Default::default(),
+        }
     }
 
     /// Fonte legível por caminho: do grafo, ou de um pacote não listado
@@ -349,7 +366,25 @@ impl ServicoBuildStep for ServicoAcao<'_> {
     }
 
     fn escrever(&mut self, id: &AssetId, bytes: Arc<[u8]>) -> Result<(), SaidaNaoPermitida> {
-        if self.caminho(id).is_none() || self.grafo.acoes.get(self.acao).is_none_or(|a| !a.saidas.contains(id)) {
+        let Some(acao) = self.grafo.acoes.get(self.acao) else { return Err(SaidaNaoPermitida(id.clone())) };
+        if acao.pos {
+            // `PostProcessBuildStep.writeAsBytes` → `addAsset`
+            // (`build_impl.dart:643-656`): qualquer asset que o grafo ainda
+            // não tenha — nem fonte, nem saída prevista, nem saída de outra
+            // âncora, nem o mesmo asset duas vezes na ação.
+            let novo = !self.grafo.existe(id)
+                && !self.grafo.fonte_externa(id)
+                && !self.ocupadas.contains(id)
+                && !self.escritas.contains_key(id)
+                && self.pacotes.no(&id.pacote).is_some()
+                && self.caminho_de_consulta(id).is_some();
+            if !novo {
+                return Err(SaidaNaoPermitida(id.clone()));
+            }
+            self.escritas.insert(id.clone(), bytes);
+            return Ok(());
+        }
+        if self.caminho(id).is_none() || !acao.saidas.contains(id) {
             return Err(SaidaNaoPermitida(id.clone()));
         }
         self.escritas.insert(id.clone(), bytes);
@@ -383,6 +418,27 @@ pub trait ExecutorDart: Send {
     }
     fn executar(&mut self, pedido: &PedidoAcao, servico: &mut dyn ServicoBuildStep)
         -> Result<ResultadoAcao, ErroExecutor>;
+    /// As `inputExtensions` do `PostProcessBuilder` que a fábrica devolve com
+    /// estas opções. `None` quando o executor não sabe responder: a fase de
+    /// pós-processamento fica sem âncoras e o placar a conta como pendente.
+    fn entradas_pos(&mut self, _pedido: &PedidoExtensoes) -> Result<Option<Vec<String>>, ErroExecutor> {
+        Ok(None)
+    }
+    /// `build.posprocessar`: o `runPostProcessBuilder` do `package:build`
+    /// sobre a entrada da âncora. `saidas_permitidas` vem vazia; as escritas
+    /// passam pelo [`ServicoBuildStep::escrever`], que aplica a regra do
+    /// `addAsset`.
+    /// Os arquivos de que o código dos builders depende (o depfile do
+    /// bootstrap), para o estado salvo entre processos saber quando uma ação
+    /// Dart deixou de valer sem que nenhuma consulta dela mude. `None`
+    /// quando o executor não sabe: as ações Dart não são salvas.
+    fn codigo(&self) -> Option<Vec<PathBuf>> {
+        None
+    }
+    fn pos_processar(&mut self, _pedido: &PedidoAcao, _servico: &mut dyn ServicoBuildStep)
+        -> Result<ResultadoAcao, ErroExecutor> {
+        Err(ErroExecutor("este executor não roda pós-processadores".into()))
+    }
     fn encerrar(&mut self);
 }
 
@@ -446,9 +502,9 @@ mod testes_servico {
         grafo.fontes.entry("p".into()).or_default().insert("lib/a.dart".into());
         grafo.fontes.entry("q".into()).or_default().insert("lib/outro.dart".into());
         grafo.acoes = vec![
-            Acao { fase: 0, entrada: fonte.clone(), saidas: vec![primeiro.clone()] },
-            Acao { fase: 1, entrada: primeiro.clone(), saidas: vec![segundo.clone(), escape.clone()] },
-            Acao { fase: 2, entrada: segundo.clone(), saidas: vec![futuro.clone()] },
+            Acao { fase: 0, entrada: fonte.clone(), saidas: vec![primeiro.clone()], pos: false },
+            Acao { fase: 1, entrada: primeiro.clone(), saidas: vec![segundo.clone(), escape.clone()], pos: false },
+            Acao { fase: 2, entrada: segundo.clone(), saidas: vec![futuro.clone()], pos: false },
         ];
         for (id, acao, fase) in [(&primeiro, 0, 0), (&segundo, 1, 1), (&futuro, 2, 2)] {
             grafo.gerados.insert(id.clone(), NoGerado { acao, fase, oculto: false });
@@ -473,6 +529,42 @@ mod testes_servico {
         assert_eq!(s.find_assets("lib/**"), vec![fonte, primeiro, segundo]);
         assert!(!s.find_assets("lib/**").contains(&estrangeiro), "findAssets fica no pacote da entrada, como build 2.4.2");
         assert!(s.consultas.iter().any(|(c, d)| matches!(c, Consulta::Existe(_)) && d.is_none()));
+    }
+
+    #[test]
+    fn ancora_de_pos_processador_escreve_so_asset_novo() {
+        let dir = tempfile::tempdir().unwrap();
+        let pacotes = GrafoPacotes {
+            nos: vec![No { nome: "p".into(), raiz: dir.path().join("p"), tipo: TipoDependencia::Path, e_raiz: true, deps: vec![] }],
+            raiz: 0,
+            por_nome: [("p".into(), 0)].into(),
+            lock: Default::default(),
+            dir_raiz: dir.path().to_path_buf(),
+        };
+        std::fs::create_dir_all(dir.path().join("p/lib")).unwrap();
+        std::fs::write(dir.path().join("p/lib/a.rascunho"), b"x").unwrap();
+        let entrada = AssetId::novo("p", "lib/a.rascunho");
+        let prevista = AssetId::novo("p", "lib/a.g.dart");
+        let mut grafo = Grafo::default();
+        grafo.fontes.entry("p".into()).or_default().insert("lib/a.rascunho".into());
+        grafo.acoes = vec![
+            Acao { fase: 0, entrada: entrada.clone(), saidas: vec![prevista.clone()], pos: false },
+            Acao { fase: 1, entrada: entrada.clone(), saidas: vec![], pos: true },
+        ];
+        grafo.gerados.insert(prevista.clone(), NoGerado { acao: 0, fase: 0, oculto: true });
+        let memoria = |_: &AssetId| None;
+        let mut s = ServicoAcao::novo(&grafo, &pacotes, 1, &memoria);
+        s.ocupadas.insert(AssetId::novo("p", "lib/de_outra.txt"));
+        let b = || Arc::from(&b"r"[..]);
+        assert!(s.escrever(&entrada, b()).is_err(), "a fonte já existe no grafo");
+        assert!(s.escrever(&prevista, b()).is_err(), "saída prevista de outra fase");
+        assert!(s.escrever(&AssetId::novo("p", "lib/de_outra.txt"), b()).is_err(), "saída de outra âncora");
+        assert!(s.escrever(&AssetId::novo("p", "lib/../fora.txt"), b()).is_err());
+        assert!(s.escrever(&AssetId::novo("q", "lib/x.txt"), b()).is_err(), "pacote desconhecido");
+        let nova = AssetId::novo("p", "lib/a.rascunho.resumo");
+        s.escrever(&nova, b()).unwrap();
+        assert!(s.escrever(&nova, b()).is_err(), "o mesmo asset duas vezes");
+        assert_eq!(s.escritas.keys().collect::<Vec<_>>(), vec![&nova]);
     }
 
     #[test]
@@ -502,7 +594,7 @@ mod testes_servico {
             visiveis: Some(lib()),
         });
         let entrada = AssetId::novo("p", "lib/a.dart");
-        grafo.acoes = vec![Acao { fase: 0, entrada: entrada.clone(), saidas: vec![AssetId::novo("p", "lib/a.g.dart")] }];
+        grafo.acoes = vec![Acao { fase: 0, entrada: entrada.clone(), saidas: vec![AssetId::novo("p", "lib/a.g.dart")], pos: false }];
         let memoria = |_: &AssetId| None;
         let mut s = ServicoAcao::novo(&grafo, &pacotes, 0, &memoria);
         assert!(s.can_read(&AssetId::novo("q", "lib/q.dart")));

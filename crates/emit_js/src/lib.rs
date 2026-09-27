@@ -403,8 +403,9 @@ pub fn compilar_com_gerador<R>(
         return Err(format!("{} erro(s) ao carregar o programa", elements_diags.len()));
     }
     // Macros (docs/MACROS-PROTOCOLO.md): só se o programa declara alguma
-    // classe `macro` — sem aplicação pendente não iniciamos executor. Enquanto
-    // o executor nativo não compila a API, a VM Dart executa a nossa API e o
+    // classe `macro` — sem aplicação pendente não iniciamos executor. Por
+    // padrão a VM Dart executa a nossa API; com `DARTFORGE_MACROS_NATIVO` (um
+    // `dartforge` com a feature `nativo`) o executor é o nativo (D4). O
     // hospedeiro recarrega a augmentation diretamente da memória.
     let program = if dartforge_macros_host::tem_macros(&program) {
         let t = Instant::now();
@@ -430,7 +431,20 @@ pub fn compilar_com_gerador<R>(
             };
             let pacotes = packages.map(std::path::Path::to_path_buf)
                 .or_else(|| dartforge_elements::config::PackageConfig::discover(entrada));
-            Some(dartforge_macros_host::vm::iniciar(&cfg, &pendentes, pacotes.as_deref())?)
+            // Executor nativo (D4): o bootstrap compilado pelo `compile-native`
+            // do `dartforge` indicado, sem VM Dart.
+            match std::env::var_os("DARTFORGE_MACROS_NATIVO") {
+                Some(compilador) => {
+                    let nativa = dartforge_macros_host::nativo::ConfigNativa {
+                        compilador: std::path::PathBuf::from(compilador),
+                        sdk_lib: sdk.root.clone(),
+                        api: cfg.api.clone(),
+                        trabalho: cfg.trabalho.join("nativo"),
+                    };
+                    Some(dartforge_macros_host::nativo::iniciar(&nativa, &pendentes, pacotes.as_deref())?)
+                }
+                None => Some(dartforge_macros_host::vm::iniciar(&cfg, &pendentes, pacotes.as_deref())?),
+            }
         };
         let mut indisponivel = dartforge_macros_host::executor::Indisponivel::default();
         let executor: &mut dyn dartforge_macros_host::executor::ExecutorMacros = match vm.as_mut() {

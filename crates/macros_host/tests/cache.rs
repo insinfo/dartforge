@@ -44,11 +44,13 @@ struct Falso {
     /// `(macro, fase, alvo)` de cada execução, na ordem.
     execucoes: Vec<(String, Fase, String)>,
     iniciado: bool,
+    /// A macro que lança exceção ao executar (o erro de uma macro).
+    falhar: Option<&'static str>,
 }
 
 impl Falso {
     fn novo() -> Self {
-        Falso { permitido: true, instancias: Vec::new(), execucoes: Vec::new(), iniciado: false }
+        Falso { permitido: true, instancias: Vec::new(), execucoes: Vec::new(), iniciado: false, falhar: None }
     }
     fn proibido() -> Self {
         Falso { permitido: false, ..Falso::novo() }
@@ -98,6 +100,9 @@ impl ExecutorMacros for Falso {
         let nome = p.alvo["ident"]["nome"].as_str().unwrap().to_string();
         let uri = p.alvo["lib"]["uri"].as_str().unwrap().to_string();
         self.execucoes.push((macro_.clone(), p.fase, nome.clone()));
+        if self.falhar == Some(macro_.as_str()) {
+            return Err(format!("{macro_}: exceção na macro"));
+        }
         let mut r = Resultado::default();
         match (macro_.as_str(), p.fase) {
             ("Rotulo", Fase::Declaracoes) => {
@@ -370,4 +375,81 @@ fn sem_cache_e_com_cache_dao_o_mesmo() {
     assert_eq!(produto(&completa), produto(&por_diferenca));
     assert!(por_diferenca.medicao.unidades_reaproveitadas > 0);
     assert_eq!(completa.program.units.len(), por_diferenca.program.units.len());
+}
+
+/// Compila sem entrar em pânico no erro: o que o hospedeiro devolve.
+fn tentar(entrada: &Path, sdk: &SdkLayout, executor: &mut dyn ExecutorMacros, cache: &mut CacheDeMacros) -> Result<Saida, String> {
+    let mut nomes = Interner::new();
+    let (p, d) = load_lenient_gerados(entrada, sdk, None, &mut nomes, None, None, None);
+    assert!(d.is_empty(), "{d:?}");
+    let mut carregar = |i: &mut Interner, g, u: &mut CacheUnidades| load_lenient_gerados(entrada, sdk, None, i, None, Some(u), g);
+    aplicar_incremental(p, &mut nomes, None, &mut carregar, executor, Some(cache))
+        .map_err(|ds| ds.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("\n"))
+}
+
+/// B07: uma macro que lança exceção faz a compilação falhar com o erro dela,
+/// e o cache continua sendo o da última geração válida — voltar ao fonte
+/// anterior não executa nada e dá o mesmo texto de antes; corrigir a macro
+/// reexecuta só a aplicação que falhou.
+#[test]
+fn erro_na_macro_preserva_a_ultima_geracao_valida() {
+    let inicial = Fonte::default();
+    let Some(mut c) = Cenario::novo(&inicial) else { return };
+    let antes = produto(&compilar(&c.entrada, &c.sdk, &mut Falso::proibido(), Some(&mut c.cache)));
+
+    // Campo novo em `B` acorda o @Campos, que agora lança.
+    let editada = Fonte { campo_extra_em_b: true, ..Fonte::default() };
+    std::fs::write(&c.entrada, editada.texto()).unwrap();
+    let mut quebrado = Falso::novo();
+    quebrado.falhar = Some("Campos");
+    let erro = tentar(&c.entrada, &c.sdk, &mut quebrado, &mut c.cache).err().expect("a exceção da macro vira erro");
+    assert!(erro.contains("Campos: exceção na macro"), "{erro}");
+
+    // De volta ao fonte válido: nada executa e o texto é o da última
+    // geração válida.
+    std::fs::write(&c.entrada, inicial.texto()).unwrap();
+    let s = tentar(&c.entrada, &c.sdk, &mut Falso::proibido(), &mut c.cache).expect("fonte válido");
+    assert_eq!(s.medicao.reutilizadas, 4);
+    assert_eq!(produto(&s), antes, "a falha estragou a geração válida");
+
+    // A macro corrigida: só a aplicação observada roda de novo, e o
+    // resultado é o de uma compilação limpa.
+    let mut executor = Falso::novo();
+    let s = c.recompilar(&editada, &mut executor);
+    assert_eq!(executor.execucoes, vec![("Campos".to_string(), Fase::Declaracoes, "B".to_string())]);
+    assert!(s.textos[0].texto.contains("campo_y"));
+}
+
+/// B07: com o `main.macro.dart` materializado nas duas formas (a do 3.6.2,
+/// `import augment` + `augment library`, e a atual, `part` + `part of`), a
+/// biblioteca não roda as macros de novo: nenhuma execução e nenhuma
+/// augmentation nova — as declarações não saem duas vezes.
+#[test]
+fn materializado_nas_duas_formas_nao_duplica() {
+    let Some(sdk) = sdk() else { return };
+    let dir = tempfile::tempdir().unwrap();
+    let entrada = diretorio(dir.path());
+    let fonte = Fonte::default().texto();
+    std::fs::write(&entrada, &fonte).unwrap();
+    let mut cache = CacheDeMacros::novo("falso");
+    let s = compilar(&entrada, &sdk, &mut Falso::novo(), Some(&mut cache));
+    let (caminho, texto) = (s.textos[0].caminho.clone(), s.textos[0].texto.clone());
+    assert!(caminho.ends_with("main.macro.dart"), "{}", caminho.display());
+    let corpo = texto.split_once('\n').map(|(_, r)| r).unwrap();
+    for (cabecalho, diretiva) in [
+        ("augment library 'main.dart';", "import augment 'main.macro.dart';"),
+        ("part of 'main.dart';", "part 'main.macro.dart';"),
+    ] {
+        std::fs::write(&caminho, format!("{cabecalho}\n{corpo}")).unwrap();
+        std::fs::write(&entrada, fonte.replacen("import 'macros.dart';", &format!("import 'macros.dart';\n{diretiva}"), 1)).unwrap();
+        let mut nomes = Interner::new();
+        let (p, d) = load_lenient_gerados(&entrada, &sdk, None, &mut nomes, None, None, None);
+        assert!(d.is_empty(), "{diretiva}: {d:?}");
+        let mut carregar =
+            |i: &mut Interner, g, u: &mut CacheUnidades| load_lenient_gerados(&entrada, &sdk, None, i, None, Some(u), g);
+        let s = aplicar_incremental(p, &mut nomes, None, &mut carregar, &mut Falso::proibido(), None)
+            .unwrap_or_else(|ds| panic!("{diretiva}: {:?}", ds.iter().map(|d| d.message.clone()).collect::<Vec<_>>()));
+        assert_eq!(s.macros_executadas, 0, "{diretiva}");
+        assert!(s.textos.is_empty(), "{diretiva}: augmentation montada de novo sobre a materializada");
+    }
 }
