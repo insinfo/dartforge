@@ -9,8 +9,10 @@
 //! Só nomes e a hierarquia declarada: cada tipo das cláusulas
 //! `extends`/`with`/`implements`/`on` é resolvido pelo nome no escopo da
 //! biblioteca. Uma cláusula que não resolve para classe ou mixin não é
-//! conferida, e uma classe com supertipo proibido (`extends int`) fica toda
-//! de fora das verificações do `ErrorVerifier`, como no analyzer.
+//! conferida, e as verificações do `ErrorVerifier` só rodam com a porta de
+//! `_checkClassInheritance` aberta (`clausulas::porta`): uma classe com
+//! supertipo proibido (`extends int`, `extends Enum`), cláusula adiada ou
+//! erro de mixin fica de fora, como no analyzer.
 
 use dartforge_diagnostics::{codigos::compile_time_error as c, Codigo, Diagnostic, Span};
 use dartforge_elements::model::{ClassId, ClassKind, Element, LibraryId, Program, UnitId};
@@ -158,10 +160,9 @@ pub fn fora_da_biblioteca(programa: &Program, lib: LibraryId, nomes: &Interner) 
             }
         };
 
-        // `ErrorVerifier`: só sem supertipo proibido.
-        let proibido = cl.extends.iter().chain(cl.implements.iter()).chain(cl.with.iter()).chain(cl.on.iter())
-            .any(|(_, c)| c.is_some_and(|c| proibida(&cx, c)));
-        if !proibido {
+        // `ErrorVerifier`: só com a porta de `_checkClassInheritance` aberta
+        // (nenhum supertipo proibido, cláusula adiada ou erro de mixin).
+        if crate::clausulas::porta(programa, lib, nomes, id) == crate::clausulas::Porta::Aberta {
             // base implementada fora da biblioteca.
             for &(t, alvo) in &cl.implements {
                 let Some(alvo) = alvo else { continue };
@@ -293,17 +294,6 @@ fn restricao(cx: &Contexto<'_>, elemento: ClassId, sup: ClassId, implementado: O
         return Some((codigo, nome_sp, vec![cx.nome(elemento), cx.nome(bf)]));
     }
     None
-}
-
-/// Classes do `dart:core` que não se estendem nem implementam
-/// (`EXTENDS_DISALLOWED_CLASS` e afins).
-fn proibida(cx: &Contexto<'_>, id: ClassId) -> bool {
-    let c = cx.classe(id);
-    match &cx.programa.library(c.library).uri[..] {
-        "dart:core" => matches!(cx.nomes.resolve(c.name), "bool" | "double" | "int" | "Null" | "num" | "Record" | "String"),
-        "dart:async" => cx.nomes.resolve(c.name) == "FutureOr",
-        _ => false,
-    }
 }
 
 /// `_checkForNoGenerativeConstructorsInSuperclass`: a superclasse só tem

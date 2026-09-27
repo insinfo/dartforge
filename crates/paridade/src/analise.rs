@@ -332,7 +332,7 @@ impl Motor {
                     }
                 }
             }
-            for (u, d) in dartforge_analise::heranca::classe_usada_como_mixin(&program, *lib, &interner) {
+            for (u, d) in dartforge_analise::clausulas::verificar(&program, *lib, &interner) {
                 if let Some(p) = &program.unit(u).path {
                     if let Some(a) = analise.arquivos.get_mut(&chave(p)) {
                         a.diags.push(d);

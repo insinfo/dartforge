@@ -10,9 +10,13 @@
 //!   (`ErrorVerifier`).
 //! * [`operadores`]: aridade de métodos `operator` (`ErrorVerifier`).
 //! * [`enums`]: enum sem constantes após augmentations (`ErrorVerifier`).
+//! * [`clausulas`]: cláusulas de herança (`subtype_of_disallowed_type`,
+//!   erros de mixin, `class_used_as_mixin`) e a porta do `ErrorVerifier`
+//!   que desliga as verificações seguintes.
 //! * [`modificadores`]: `base`/`final`/`interface`/`sealed` usados fora da
 //!   biblioteca (`ErrorVerifier` e `BaseOrFinalTypeVerifier`).
 
+pub mod clausulas;
 pub mod duplicatas;
 pub mod enums;
 pub mod externos;
