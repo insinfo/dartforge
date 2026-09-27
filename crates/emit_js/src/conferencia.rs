@@ -29,7 +29,7 @@
 //! O inventário do corpus está em `docs/INFERENCIA-JS-ALINHAMENTO.md`.
 
 use crate::body::FnEmitter;
-use crate::ctx::{Ctx, MemberKind};
+use crate::ctx::{Ctx, Member, MemberKind};
 use crate::expr::IdentTarget;
 use crate::ty::{Ty, TyParam};
 use dartforge_elements::model::{Element, UnitId};
@@ -82,6 +82,12 @@ pub struct Conferencia {
     origem_vista: HashSet<(u32, u32)>,
     pub alvos_pela_comum: usize,
     pub alvos_pela_busca_propria: usize,
+    /// Acessos a membro com receptor explícito (`a.b`, `a.m()`, `a.b = v`)
+    /// cujo membro veio da resolução comum ([`FnEmitter::membro_do_acesso`])
+    /// e os que ficaram com a busca própria, uma vez por nó e espécie.
+    membro_visto: HashSet<(u32, u32, bool)>,
+    pub membros_pela_comum: usize,
+    pub membros_pela_busca_propria: usize,
     /// Chamadas genéricas (e construtores de classe genérica sem argumentos
     /// de tipo escritos) instanciadas pela inferência comum e pela dedução
     /// própria (`emit_args_infer`), uma vez por lista de argumentos.
@@ -121,12 +127,14 @@ impl Conferencia {
                 .or_default() += 1;
         }
         eprintln!(
-            "conferência de tipos: {} expressões, {tipos} divergem ({} alvos de escrita não conferidos); {} identificadores, {alvos} com alvo divergente; alvo pela resolução comum em {}, pela busca própria em {}; instanciação genérica pela comum em {}, própria em {}",
+            "conferência de tipos: {} expressões, {tipos} divergem ({} alvos de escrita não conferidos); {} identificadores, {alvos} com alvo divergente; alvo pela resolução comum em {}, pela busca própria em {}; membro com receptor pela comum em {}, pela busca própria em {}; instanciação genérica pela comum em {}, própria em {}",
             self.tipos_conferidos,
             self.alvos_de_escrita_pulados,
             self.alvos_conferidos,
             self.alvos_pela_comum,
             self.alvos_pela_busca_propria,
+            self.membros_pela_comum,
+            self.membros_pela_busca_propria,
             self.instanciacoes_pela_comum,
             self.instanciacoes_proprias
         );
@@ -145,14 +153,16 @@ impl Conferencia {
                 let mut texto = String::new();
                 // Linha de totais, para quem soma vários programas.
                 texto.push_str(&format!(
-                    "#totais\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                    "#totais\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
                     self.tipos_conferidos,
                     self.alvos_conferidos,
                     self.alvos_de_escrita_pulados,
                     self.alvos_pela_comum,
                     self.alvos_pela_busca_propria,
                     self.instanciacoes_pela_comum,
-                    self.instanciacoes_proprias
+                    self.instanciacoes_proprias,
+                    self.membros_pela_comum,
+                    self.membros_pela_busca_propria
                 ));
                 for d in &self.divergencias {
                     texto.push_str(&format!(
@@ -197,6 +207,35 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         } else {
             c.alvos_pela_busca_propria += 1;
         }
+    }
+
+    /// Confere o membro do acesso `e` com receptor explícito: conta de onde
+    /// veio (resolução comum ou busca própria) e registra a divergência
+    /// quando as duas acham declarações diferentes. Uma vez por nó e
+    /// espécie (leitura ou escrita), fora da emissão especulativa.
+    pub(crate) fn conferir_membro(&self, e: ExprId, nome: &str, comum: Option<&Member>, proprio: Option<&Member>) {
+        let Some(c) = &self.ctx.conferencia else {
+            return;
+        };
+        if self.especulando > 0 || e.0 == u32::MAX {
+            return;
+        }
+        let escrita = matches!(comum.or(proprio).map(|m| m.kind), Some(MemberKind::Setter(_)));
+        if !c.borrow_mut().membro_visto.insert((self.unit.0, e.0, escrita)) {
+            return;
+        }
+        if comum.is_some() {
+            c.borrow_mut().membros_pela_comum += 1;
+        } else {
+            c.borrow_mut().membros_pela_busca_propria += 1;
+        }
+        let (Some(a), Some(b)) = (comum, proprio) else { return };
+        if a.class == b.class && a.kind == b.kind && a.subst == b.subst {
+            return;
+        }
+        let descrever = |m: &Member| format!("{}.{nome} ({:?}) {:?}", self.ctx.interner.resolve(self.ctx.program.class(m.class).name), m.kind, m.subst);
+        let d = self.divergencia(e, "membro", "declaração do membro".to_string(), descrever(b), descrever(a));
+        c.borrow_mut().divergencias.push(d);
     }
 
     /// Conta de onde veio a instanciação da chamada genérica cuja lista de

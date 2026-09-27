@@ -56,7 +56,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 if let ExprKind::Super = self.expr(*recv).kind {
                     let sup_ty = self.super_ty();
-                    let (js, ty) = self.emit_method_call(&Js::prim(self.super_ref()), &sup_ty, &n, arguments, expected, true);
+                    let (js, ty) = self.emit_method_call(&Js::prim(self.super_ref()), &sup_ty, &n, arguments, expected, true, None);
                     return (js, ty, vec![]);
                 }
                 let (rjs, rty, mut guards) = self.emit_target(*recv);
@@ -67,7 +67,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 } else {
                     (rjs, rty)
                 };
-                let (js, ty) = self.emit_method_call(&recv, &recv_ty, &n, arguments, expected, false);
+                let (js, ty) = self.emit_method_call(&recv, &recv_ty, &n, arguments, expected, false, Some(target));
                 let ty = if *null_aware { ty.with_nullable(true) } else { ty };
                 (js, ty, guards)
             }
@@ -88,7 +88,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     }
                     IdentTarget::ThisMember(_) => {
                         let this_ty = self.class.map(|c| self.ctx.this_ty(c)).unwrap_or(Ty::Dynamic);
-                        let (js, ty) = self.emit_method_call(&Js::prim("this"), &this_ty, &n, arguments, expected, false);
+                        let (js, ty) = self.emit_method_call(&Js::prim("this"), &this_ty, &n, arguments, expected, false, None);
                         (js, ty, vec![])
                     }
                     IdentTarget::Static(c, mk) => {
@@ -101,18 +101,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     }
                     IdentTarget::ExtThisMember(_) => {
                         let t = self.extension_this.clone().unwrap_or(Ty::Dynamic);
-                        let (js, ty) = self.emit_method_call(&Js::prim("$this"), &t, &n, arguments, expected, false);
+                        let (js, ty) = self.emit_method_call(&Js::prim("$this"), &t, &n, arguments, expected, false, None);
                         (js, ty, vec![])
                     }
                     IdentTarget::ThisExt => {
                         let t = self.class.map(|c| self.ctx.this_ty(c)).unwrap_or(Ty::Dynamic);
-                        let (js, ty) = self.emit_method_call(&Js::prim("this"), &t, &n, arguments, expected, false);
+                        let (js, ty) = self.emit_method_call(&Js::prim("this"), &t, &n, arguments, expected, false, None);
                         (js, ty, vec![])
                     }
                     IdentTarget::ExtMember(ext, fid) => {
                         let t = self.extension_this.clone().unwrap_or(Ty::Dynamic);
                         let _ = (ext, fid);
-                        let (js, ty) = self.emit_method_call(&Js::prim("$this"), &t, &n, arguments, expected, false);
+                        let (js, ty) = self.emit_method_call(&Js::prim("$this"), &t, &n, arguments, expected, false, None);
                         (js, ty, vec![])
                     }
                     IdentTarget::ExtStatic(ext, _) => {
@@ -160,7 +160,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 if Some(*class) != self.ctx.function_
                     && self.ctx.lookup_member(fty, "call", false).is_some_and(|m| matches!(m.kind, MemberKind::Method(_))) =>
             {
-                self.emit_method_call(f, fty, "call", arguments, expected, false)
+                self.emit_method_call(f, fty, "call", arguments, expected, false, None)
             }
             _ => {
                 let (args, named, _) = self.emit_args_plain(arguments);
@@ -405,7 +405,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     /// Chamada de método de instância `recv.name(args)`.
-    pub fn emit_method_call(&mut self, recv: &Js, recv_ty: &Ty, name: &str, arguments: &ast::Arguments, expected: Option<&Ty>, is_super: bool) -> (Js, Ty) {
+    ///
+    /// `no` é o acesso `recv.name` na fonte, quando há: o membro é o que a
+    /// resolução comum registrou para ele ([`Self::membro_do_acesso`]).
+    pub fn emit_method_call(&mut self, recv: &Js, recv_ty: &Ty, name: &str, arguments: &ast::Arguments, expected: Option<&Ty>, is_super: bool, no: Option<ExprId>) -> (Js, Ty) {
         let recv_nn = recv_ty.non_null();
         // Membros de Object com helpers.
         let user = self.is_user_class_ty(&recv_nn) || is_super;
@@ -434,7 +437,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 return self.emit_fn_value_call(recv, &recv_nn, arguments, expected);
             }
         }
-        match self.ctx.lookup_member(&recv_nn, name, false) {
+        match self.membro_do_acesso(no, &recv_nn, name, false) {
             Some(m) => {
                 let mty = self.ctx.member_ty(&m);
                 let access = self.member_access(&recv_nn, name, false);

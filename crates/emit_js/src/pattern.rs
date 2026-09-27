@@ -78,7 +78,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 match op {
                     BinaryOp::Eq => self.emit_equals(&v, vty, &c, &cty).code,
                     BinaryOp::NotEq => format!("!{}", self.emit_equals(&v, vty, &c, &cty).paren().code),
-                    _ => self.emit_binop_values(*op, v, vty, c, &cty).0.code,
+                    _ => self.emit_binop_values(*op, v, vty, c, &cty, None).0.code,
                 }
             }
             PatternKind::Or(a, b) => {

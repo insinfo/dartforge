@@ -336,6 +336,44 @@ Com e sem a tradução (só `Element` de topo, como no §6), o JS dos 196
 programas é **idêntico byte a byte**: a troca de fonte não muda código onde
 as duas concordavam, que era todo o corpus.
 
+### Passo 2b: membro com receptor explícito (`FnEmitter::membro_do_acesso`, `expr.rs`)
+
+O acesso com receptor explícito escolhe o membro pelo `Resolved::Member` do
+nó, não mais pela busca do emissor sobre o tipo do receptor: leitura
+(`a.b`, também `?.`), chamada (`a.m(…)`, pelo nó `a.m`), escrita (`a.b = v`
+e o tipo de contexto do valor, `target_ty`), a escrita da composta
+(`a.b op= v`), índice (`a[i]`, também na leitura da composta), operadores
+unários (`-a`, `~a`) e binários (`a + b` e o contexto do operando direito),
+e o operador das compostas e de `++`/`--` (a comum o registra na
+atribuição). O dono é a declaração que a comum achou (a mais específica
+pela interface do receptor); a espécie é a do emissor
+(`declared_member`), aceita só quando é **a mesma declaração** (função, ou
+campo do acessor implícito); a substituição vem do supertipo do receptor
+no dono (`as_super`).
+
+A busca própria decide quando o nó não tem `Resolved::Member` traduzível:
+receptor `dynamic` (`Resolved::Dynamic`; o emissor ainda usa os membros de
+`Object` nele), membro de extensão ou de tipo de extensão (caminhos
+próprios, antes), `super` (`via_super`), nó sintético, a leitura da
+composta `a.b op= v` (o nó guarda uma resolução só, a do setter) e `a[i] = v`
+(a comum registra o `[]` da leitura no nó). Medido com a conferência sobre
+`corpus/js` e `corpus/moderno`: **5.442** acessos pela resolução comum,
+**327** pela busca própria; em **67** as duas acham declarações diferentes
+da mesma cadeia, e a comum é a mais específica (`Record.hashCode` em vez de
+`Object.hashCode`, `EfficientLengthIterable.length` em vez de
+`Iterable.length`, `SetBase.map`, `UnmodifiableListMixin.add`) — o nome JS é
+o mesmo. A conferência as registra como `membro` no `.tsv`
+(`declaração do membro`).
+
+JS dos dois corpora antes e depois: idêntico byte a byte, menos uma linha,
+que é correção: `7.clamp(1, 5).isOdd` (a regra de tipagem do `clamp` com
+argumentos `int` dá `int`) era `dart.dload(…, "isOdd")` porque o emissor via
+`num`; agora é o acesso direto `[$isOdd]`, como o DDC.
+
+Continua pela busca própria o nome JS de membro privado
+(`member_access`: a biblioteca do dono para o símbolo `_x`), que só
+consulta a biblioteca e não escolhe declaração.
+
 ### Passo 3: tipos
 
 1. **Instanciação por chamada** (`crates/types`): `UnitBodyTypes::instanciacoes`

@@ -147,6 +147,60 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
+    /// Membro de instância do acesso `e` com receptor explícito (`a.b`,
+    /// `a.m(…)`, `a.b = v`), cujo receptor tem o tipo `recv_ty`: a
+    /// declaração que a resolução comum registrou para o nó (a mais
+    /// específica pela interface do receptor, `Resolved::Member`), com a
+    /// espécie do emissor e a substituição do dono pelo supertipo do
+    /// receptor. Sem registro comum traduzível (nó sintético, receptor
+    /// `dynamic`, membro de extensão ou de tipo de extensão, `super`), a
+    /// busca própria ([`crate::ctx::Ctx::lookup_member`]) decide.
+    pub fn membro_do_acesso(&self, e: Option<ExprId>, recv_ty: &Ty, name: &str, setter: bool) -> Option<Member> {
+        let comum = e.and_then(|e| self.membro_da_resolucao(e, recv_ty, name, setter));
+        let proprio = || self.ctx.lookup_member(recv_ty, name, setter);
+        if let Some(e) = e {
+            self.conferir_membro(e, name, comum.as_ref(), proprio().as_ref());
+        }
+        comum.or_else(proprio)
+    }
+
+    fn membro_da_resolucao(&self, e: ExprId, recv_ty: &Ty, name: &str, setter: bool) -> Option<Member> {
+        let Resolved::Member { class: dono, member, via_super: false } = self.resolucao_comum(e)? else { return None };
+        let p = self.ctx.program;
+        let estatico = match *member {
+            MemberRef::Variable(v) => p.variable(v).static_,
+            MemberRef::Function(f) => p.function(f).static_,
+        };
+        if estatico {
+            return None;
+        }
+        let kind = self.ctx.declared_member(*dono, name, setter)?;
+        // A espécie do emissor tem de ser a mesma declaração: o nó alvo de
+        // uma escrita composta guarda uma resolução só (a do setter), e a
+        // leitura dele não a usa.
+        let mesma = match (kind, *member) {
+            (MemberKind::Method(f) | MemberKind::Getter(f) | MemberKind::Setter(f), MemberRef::Function(g)) => f == g,
+            (MemberKind::Field(v), MemberRef::Function(g)) => p.function(g).variable == Some(v),
+            (MemberKind::Field(v), MemberRef::Variable(w)) => v == w,
+            _ => false,
+        };
+        if !mesma {
+            return None;
+        }
+        let params = &self.ctx.class_params[dono.0 as usize];
+        let mut subst = HashMap::new();
+        if !params.is_empty() {
+            let sup = self.ctx.as_super(&recv_ty.non_null(), *dono)?;
+            for (q, a) in params.iter().zip(sup.args().iter()) {
+                subst.insert(q.id, a.clone());
+            }
+            for q in params.iter().skip(sup.args().len()) {
+                subst.insert(q.id, Ty::Dynamic);
+            }
+        }
+        Some(Member { class: *dono, kind, subst })
+    }
+
     /// Traduz a resolução comum `r` do identificador `sym` para o alvo do
     /// emissor; `None` quando não há tradução (a busca própria decide).
     fn alvo_da_resolucao(&self, sym: dartforge_intern::SymbolId, r: &Resolved) -> Option<IdentTarget> {
@@ -639,7 +693,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let (v, _) = self.emit_expr(*operand, None);
                 self.tipo_ext_operador(&v, Some(*operand), dono, f, &[])
             }
-            ExprKind::Unary { op, operand } => self.emit_unary(*op, *operand),
+            ExprKind::Unary { op, operand } => self.emit_unary(*op, *operand, e),
             ExprKind::Binary { op, left, right } if !matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::IfNull | BinaryOp::Eq | BinaryOp::NotEq) && self.membro_de_tipo_extensao(e).is_some() => {
                 // Operador declarado num tipo de extensão: a função de apoio.
                 let Some((dono, MemberRef::Function(f))) = self.membro_de_tipo_extensao(e) else { unreachable!() };
@@ -648,7 +702,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let (r, _) = self.emit_expr(*right, ctx_r.as_ref());
                 self.tipo_ext_operador(&l, Some(*left), dono, f, &[r])
             }
-            ExprKind::Binary { op, left, right } => self.emit_binary(*op, *left, *right, expected),
+            ExprKind::Binary { op, left, right } => self.emit_binary(*op, *left, *right, expected, e),
             ExprKind::Conditional { condition, then, else_ } => {
                 self.pending_promotions.clear();
                 self.negated_promotions.clear();
@@ -702,7 +756,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 (self.as_cast(&v, &t), t)
             }
-            ExprKind::Assign { op, target, value } => self.emit_assign(*op, *target, *value),
+            ExprKind::Assign { op, target, value } => self.emit_assign(*op, *target, *value, e),
             ExprKind::PatternAssign { pattern, value } => {
                 let (vjs, vty) = self.emit_expr(*value, None);
                 let t = self.temp();
@@ -2056,7 +2110,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 } else {
                     (tjs, tty)
                 };
-                let (js, ty) = self.emit_member_get(&recv, &recv_ty, &n, None);
+                let membro = self.membro_do_acesso(Some(e), &recv_ty, &n, false);
+                let (js, ty) = self.emit_member_get(&recv, &recv_ty, &n, membro);
                 let ty = if *null_aware { ty.with_nullable(true) } else { ty };
                 (js, ty, guards)
             }
@@ -2077,7 +2132,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     return (js, ty, guards);
                 }
                 let (ijs, _) = self.emit_expr(*index, None);
-                let (js, ty) = self.emit_index_get(&recv, &recv_ty, &ijs);
+                let (js, ty) = self.emit_index_get(&recv, &recv_ty, &ijs, Some(e));
                 let ty = if *null_aware { ty.with_nullable(true) } else { ty };
                 (js, ty, guards)
             }
@@ -2299,12 +2354,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         None
     }
 
-    /// `recv[i]`.
-    pub fn emit_index_get(&mut self, recv: &Js, recv_ty: &Ty, idx: &Js) -> (Js, Ty) {
+    /// `recv[i]`; `no` é o índice na fonte, quando há (o operador é o que a
+    /// resolução comum registrou para ele, [`Self::membro_do_acesso`]).
+    pub fn emit_index_get(&mut self, recv: &Js, recv_ty: &Ty, idx: &Js, no: Option<ExprId>) -> (Js, Ty) {
         if recv_ty.is_dynamic() {
             return (Js::prim(format!("dart.dsend({}, '_get', [{}])", recv.code, idx.code)), Ty::Dynamic);
         }
-        match self.ctx.lookup_member(recv_ty, "[]", false) {
+        match self.membro_do_acesso(no, recv_ty, "[]", false) {
             Some(m) => {
                 let ty = match self.ctx.member_ty(&m) {
                     Ty::Fn { ret, .. } => (*ret).clone(),
@@ -2336,7 +2392,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     // Operadores
     // -----------------------------------------------------------------------
 
-    fn emit_unary(&mut self, op: UnaryOp, operand: ExprId) -> (Js, Ty) {
+    fn emit_unary(&mut self, op: UnaryOp, operand: ExprId, e: ExprId) -> (Js, Ty) {
         match op {
             UnaryOp::Not => {
                 let (c, _) = self.emit_cond(operand);
@@ -2355,7 +2411,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 if vty.is_dynamic() {
                     return (Js::prim(format!("dart.dsend({}, '_negate', [])", v.code)), Ty::Dynamic);
                 }
-                match self.ctx.lookup_member(&vty, "unary-", false) {
+                match self.membro_do_acesso(Some(e), &vty, "unary-", false) {
                     Some(m) => {
                         let ret = match self.ctx.member_ty(&m) {
                             Ty::Fn { ret, .. } => (*ret).clone(),
@@ -2390,7 +2446,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 if vty.is_dynamic() {
                     return (Js::prim(format!("dart.dsend({}, '~', [])", v.code)), Ty::Dynamic);
                 }
-                match self.ctx.lookup_member(&vty, "~", false) {
+                match self.membro_do_acesso(Some(e), &vty, "~", false) {
                     Some(m) => {
                         let ret = match self.ctx.member_ty(&m) {
                             Ty::Fn { ret, .. } => (*ret).clone(),
@@ -2413,7 +2469,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let is_inc = matches!(op, UnaryOp::PrefixInc | UnaryOp::PostfixInc);
                 let prefix = matches!(op, UnaryOp::PrefixInc | UnaryOp::PrefixDec);
                 let bop = if is_inc { BinaryOp::Add } else { BinaryOp::Sub };
-                self.emit_compound(operand, bop, None, Some(1), prefix)
+                self.emit_compound(operand, bop, None, Some(1), prefix, e)
             }
         }
     }
@@ -2427,7 +2483,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     /// Operador binário aplicado a valores já emitidos, com tipos.
-    pub fn emit_binop_values(&mut self, op: BinaryOp, l: Js, lt: &Ty, r: Js, rt: &Ty) -> (Js, Ty) {
+    /// `no` é a expressão do operador na fonte, quando há: o membro é o que a
+    /// resolução comum registrou para ela ([`Self::membro_do_acesso`]).
+    pub fn emit_binop_values(&mut self, op: BinaryOp, l: Js, lt: &Ty, r: Js, rt: &Ty, no: Option<ExprId>) -> (Js, Ty) {
         let ctx = self.ctx;
         let num_l = ctx.is_num_like_nullable(lt);
         let num_r = ctx.is_num_like_nullable(rt) || matches!(rt, Ty::Dynamic);
@@ -2481,7 +2539,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 if lt.is_dynamic() {
                     return (Js::prim(format!("dart.dsend({}, {}, [{}])", l.code, js::string_literal(&crate::body::js_member_name(name)), r.code)), Ty::Dynamic);
                 }
-                match ctx.lookup_member(lt, name, false) {
+                match self.membro_do_acesso(no, lt, name, false) {
                     Some(m) => {
                         let ret = match ctx.member_ty(&m) {
                             Ty::Fn { ret, .. } => (*ret).clone(),
@@ -2539,7 +2597,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         Js::prim(format!("dart.equals({}, {})", l.code, r.code))
     }
 
-    fn emit_binary(&mut self, op: BinaryOp, left: ExprId, right: ExprId, expected: Option<&Ty>) -> (Js, Ty) {
+    fn emit_binary(&mut self, op: BinaryOp, left: ExprId, right: ExprId, expected: Option<&Ty>, e: ExprId) -> (Js, Ty) {
         match op {
             BinaryOp::And => {
                 let (l, _) = self.emit_cond(left);
@@ -2609,7 +2667,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let r_expected: Option<Ty> = if self.ctx.is_num_like_nullable(&lt) || matches!(op, BinaryOp::Eq | BinaryOp::NotEq) {
             None
         } else {
-            self.ctx.lookup_member(&lt.non_null(), binop_name(op), false).and_then(|m| match self.ctx.member_ty(&m) {
+            self.membro_do_acesso(Some(e), &lt.non_null(), binop_name(op), false).and_then(|m| match self.ctx.member_ty(&m) {
                 Ty::Fn { pos, .. } => pos.first().cloned(),
                 _ => None,
             })
@@ -2621,14 +2679,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         } else {
             self.emit_expr(right, r_expected.as_ref())
         };
-        self.emit_binop_values(op, l, &lt, r, &rt)
+        self.emit_binop_values(op, l, &lt, r, &rt, Some(e))
     }
 
     // -----------------------------------------------------------------------
     // Atribuições
     // -----------------------------------------------------------------------
 
-    fn emit_assign(&mut self, op: AssignOp, target: ExprId, value: ExprId) -> (Js, Ty) {
+    fn emit_assign(&mut self, op: AssignOp, target: ExprId, value: ExprId, e: ExprId) -> (Js, Ty) {
         match op {
             AssignOp::Assign => {
                 let tty = self.target_ty(target);
@@ -2637,8 +2695,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let (js, _) = self.emit_assign_to(target, &v, &vty);
                 (js, vty)
             }
-            AssignOp::Compound(BinaryOp::IfNull) => self.emit_compound(target, BinaryOp::IfNull, Some(value), None, true),
-            AssignOp::Compound(bop) => self.emit_compound(target, bop, Some(value), None, true),
+            AssignOp::Compound(BinaryOp::IfNull) => self.emit_compound(target, BinaryOp::IfNull, Some(value), None, true, e),
+            AssignOp::Compound(bop) => self.emit_compound(target, bop, Some(value), None, true, e),
         }
     }
 
@@ -2679,7 +2737,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             ExprKind::Property { target: recv, name, .. } => {
                 let n = self.name(name.sym).to_string();
                 let rty = self.type_of(*recv);
-                let m = self.ctx.lookup_member(&rty.non_null(), &n, true)?;
+                let m = self.membro_do_acesso(Some(target), &rty.non_null(), &n, true)?;
                 Some(self.ctx.member_ty(&m))
             }
             ExprKind::Index { target: recv, .. } => {
@@ -2819,7 +2877,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 } else {
                     (rjs, rty)
                 };
-                let js = if recv_ty.is_dynamic() || self.ctx.lookup_member(&recv_ty, &n, true).is_none() {
+                let setter = self.membro_do_acesso(Some(target), &recv_ty, &n, true);
+                let js = if recv_ty.is_dynamic() || setter.is_none() {
                     if let Some((ext, fid, subst)) = self.find_extension_member(&recv_ty, &n, true) {
                         let e = self.ctx.program.extension(ext);
                         let lib_var = self.lib_var(e.library);
@@ -2836,7 +2895,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     }
                 } else {
                     let access = self.member_access(&recv_ty, &n, true);
-                    let interop = self.ctx.lookup_member(&recv_ty, &n, true).is_some_and(|m| self.ctx.is_js_member_kind(&m.kind));
+                    let interop = setter.is_some_and(|m| self.ctx.is_js_member_kind(&m.kind));
                     let v = if interop { self.assert_interop(v.clone(), vty) } else { v.clone() };
                     Js::new(format!("{}{access} = {}", recv_js.at(P_PRIMARY), v.at(P_ASSIGN)), P_ASSIGN)
                 };
@@ -3002,7 +3061,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     /// `x op= v`, `++x`, `x++`.
-    fn emit_compound(&mut self, target: ExprId, bop: BinaryOp, value: Option<ExprId>, literal: Option<i64>, prefix: bool) -> (Js, Ty) {
+    /// `no` é a atribuição composta ou o `++`/`--`: a resolução comum do
+    /// operador fica nele.
+    fn emit_compound(&mut self, target: ExprId, bop: BinaryOp, value: Option<ExprId>, literal: Option<i64>, prefix: bool, no: ExprId) -> (Js, Ty) {
         // Lê o alvo uma vez com temps para receptores/índices.
         let t = self.expr(target);
         let (read, read_ty, write): (Js, Ty, Box<dyn Fn(&mut Self, &Js) -> Js>) = match &t.kind {
@@ -3095,11 +3156,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         tmp
                     };
                     let _ = guards;
+                    // A resolução comum do alvo de `a.b op= v` é a do setter
+                    // (uma por nó): a leitura acha o getter pela busca
+                    // própria, sobre o mesmo tipo de receptor.
                     let (r, rt) = self.emit_member_get(&Js::prim(recv_js.clone()), &rty, &n, None);
                     let recv_ty2 = rty.clone();
                     let n2 = n.clone();
                     (r, rt, Box::new(move |s: &mut Self, v: &Js| {
-                        if recv_ty2.is_dynamic() || s.ctx.lookup_member(&recv_ty2, &n2, true).is_none() {
+                        if recv_ty2.is_dynamic() || s.membro_do_acesso(Some(target), &recv_ty2, &n2, true).is_none() {
                             // O setter de uma extensão (a leitura já foi pelo
                             // getter dela, `emit_member_get`), como na
                             // atribuição simples.
@@ -3137,7 +3201,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     self.pending_prefix.push(format!("{tmp} = {}", ijs.code));
                     tmp
                 };
-                let (r, rt) = self.emit_index_get(&Js::prim(recv_js.clone()), &rty, &Js::prim(idx_js.clone()));
+                let (r, rt) = self.emit_index_get(&Js::prim(recv_js.clone()), &rty, &Js::prim(idx_js.clone()), Some(target));
                 let rty2 = rty.clone();
                 (r, rt, Box::new(move |s: &mut Self, v: &Js| s.emit_index_set(&Js::prim(recv_js.clone()), &rty2, &Js::prim(idx_js.clone()), v)))
             }
@@ -3166,7 +3230,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             _ => (Js::prim("1"), self.ctx.t_int()),
         };
         if prefix {
-            let (res, rty) = self.emit_binop_values(bop, read, &read_ty, v, &vty);
+            let (res, rty) = self.emit_binop_values(bop, read, &read_ty, v, &vty, Some(no));
             let assign = write(self, &res);
             let code = if prefix_parts.is_empty() {
                 assign.code
@@ -3178,7 +3242,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         } else {
             // Pós-incremento: valor antigo.
             let old = self.temp();
-            let (res, _) = self.emit_binop_values(bop, Js::prim(old.clone()), &read_ty, v, &vty);
+            let (res, _) = self.emit_binop_values(bop, Js::prim(old.clone()), &read_ty, v, &vty, Some(no));
             let assign = write(self, &res);
             let mut parts = prefix_parts;
             parts.push(format!("{old} = {}", read.code));
