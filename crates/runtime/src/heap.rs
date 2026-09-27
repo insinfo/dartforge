@@ -1222,6 +1222,9 @@ pub struct Heap {
     /// Campos `late` já escritos, por handle e índice físico. A marca fica
     /// fora do valor: zero e null são atribuições válidas do programa.
     pub campos_late_inicializados: crate::hash::HashSet<(i64, i64)>,
+    /// A época de layout (`EPOCA_DE_LAYOUT`) dos objetos deste heap: a de
+    /// quando ele nasceu, e a de cada migração aplicada depois (J03).
+    pub epoca_de_layout: u64,
     /// Listas de tamanho fixo (`_List` do SDK da fonte, P5c).
     pub fixas: crate::hash::HashSet<i64>,
     /// `_GrowableList` criada por `_withData(data)` (P5c): o vetor tem os
@@ -1330,6 +1333,7 @@ impl Heap {
             raizes_do_runtime: [0, 0],
             imutaveis: crate::hash::HashSet::default(),
             campos_late_inicializados: crate::hash::HashSet::default(),
+            epoca_de_layout: EPOCA_DE_LAYOUT.load(std::sync::atomic::Ordering::Acquire),
             fixas: crate::hash::HashSet::default(),
             campos_livres: Vec::new(),
             iteracoes_ativas: crate::hash::HashSet::default(),
@@ -1752,6 +1756,34 @@ impl Heap {
         }
     }
     /// Obtém valor vivo; o protocolo ABI não permite handles obsoletos.
+    /// Migra os objetos das classes de `plano` para o layout novo (J03):
+    /// cada posição nova recebe o valor da antiga indicada (`-1`: zero, que
+    /// é `null` para o campo anulável e "não inicializado" para o `late`), e
+    /// as marcas de `late` inicializado seguem o campo.
+    pub fn migrar_instancias(&mut self, plano: &crate::hash::HashMap<i64, Vec<i64>>) {
+        for slot in self.slots.iter_mut() {
+            if let Some(Value::Object { class_id, fields }) = slot
+                && let Some(origem) = plano.get(class_id)
+            {
+                let antigos = std::mem::take(fields);
+                *fields = origem
+                    .iter()
+                    .map(|&o| usize::try_from(o).ok().and_then(|o| antigos.get(o).copied()).unwrap_or((0, false)))
+                    .collect();
+            }
+        }
+        let marcas: Vec<(i64, i64)> = self.campos_late_inicializados.iter().copied().filter(|&(_, i)| i >= 0).collect();
+        for (h, i) in marcas {
+            let Some(Value::Object { class_id, .. }) = self.try_get(h) else { continue };
+            let Some(origem) = plano.get(class_id) else { continue };
+            let nova = origem.iter().position(|&o| o == i);
+            self.campos_late_inicializados.remove(&(h, i));
+            if let Some(j) = nova {
+                self.campos_late_inicializados.insert((h, j as i64));
+            }
+        }
+    }
+
     pub fn get(&self, handle: i64) -> &Value {
         let index = self.indice_vivo(handle);
         self.slots[index].as_ref().expect("slot vivo verificado")
@@ -3205,3 +3237,7 @@ mod captures_and_lists {
         assert_eq!(heap.stats().estimated_bytes, 0);
     }
 }
+
+/// A época dos layouts de objeto do processo (J03): cresce a cada migração
+/// que uma recarga do JIT define (`dartforge_definir_migracao`).
+pub static EPOCA_DE_LAYOUT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);

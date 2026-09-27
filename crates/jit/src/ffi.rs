@@ -1269,6 +1269,8 @@ pub(crate) struct RuntimeDaRecarga {
     /// `dartforge_parar_isolados` e `dartforge_liberar_isolados`.
     parar: usize,
     liberar: usize,
+    /// `dartforge_definir_migracao` (J03); 0 numa biblioteca do SDK antiga.
+    migrar: usize,
 }
 
 /// O pedido entregue ao runtime: a tarefa (tomada por quem a roda) e a
@@ -1306,6 +1308,7 @@ impl RuntimeDaRecarga {
             publicar: dartforge_runtime::abi::dartforge_publicar_geracao as *const () as usize,
             parar: dartforge_runtime::abi::dartforge_parar_isolados as *const () as usize,
             liberar: dartforge_runtime::abi::dartforge_liberar_isolados as *const () as usize,
+            migrar: dartforge_runtime::abi::dartforge_definir_migracao as *const () as usize,
         }
     }
 
@@ -1326,7 +1329,32 @@ impl RuntimeDaRecarga {
                 dll.display()
             ));
         }
-        Ok(Self { pedir: pedir as usize, publicar: publicar as usize, parar: parar as usize, liberar: liberar as usize })
+        let migrar = endereco_na_biblioteca(modulo, c"dartforge_definir_migracao");
+        Ok(Self {
+            pedir: pedir as usize,
+            publicar: publicar as usize,
+            parar: parar as usize,
+            liberar: liberar as usize,
+            migrar: migrar as usize,
+        })
+    }
+
+    /// O runtime sabe migrar as instâncias vivas (J03)?
+    pub(crate) fn migra(&self) -> bool {
+        self.migrar != 0
+    }
+
+    /// `dartforge_definir_migracao`: o plano da publicação em curso, que
+    /// cada isolado aplica ao seu heap ao publicar (`migracao.rs`).
+    pub(crate) fn definir_migracao(&self, dados: &[i64]) {
+        if self.migrar == 0 {
+            return;
+        }
+        // SAFETY: `migrar` é `dartforge_definir_migracao` (`seletores.rs`),
+        // que copia as `dados.len()` palavras.
+        unsafe {
+            std::mem::transmute::<usize, unsafe extern "C" fn(*const i64, i64)>(self.migrar)(dados.as_ptr(), dados.len() as i64);
+        }
     }
 
     /// Roda `tarefa` no ponto seguro do isolado principal, na thread dele, e

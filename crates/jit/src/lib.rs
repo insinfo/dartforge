@@ -52,6 +52,7 @@
 //!
 //! [`docs/JIT.md`]: https://github.com/insinfo/dartforge/blob/main/docs/JIT.md
 mod ffi;
+mod migracao;
 mod reload;
 mod vivo;
 
@@ -237,6 +238,8 @@ struct Module {
     layouts: Vec<(i64, i64)>,
     /// Nomes das classes que ele registra: `(class_id, nome)`.
     class_names: Vec<(i64, String)>,
+    /// Os campos de cada classe, pelo nome (`; df.campos`, J03).
+    campos: Vec<migracao::Layout>,
     /// Globais mutáveis (estáticos preguiçosos) zeradas antes de cada execução.
     globals: Vec<ffi::MutableGlobal>,
 }
@@ -515,6 +518,7 @@ impl JitSession {
             signatures,
             layouts,
             class_names,
+            campos: migracao::layouts_do_ir(ir),
             globals,
         });
         Ok(ModuleReport {
@@ -573,6 +577,7 @@ impl JitSession {
             // O objeto compilado não guarda os nomes: a comparação por nome
             // começa na primeira recarga.
             class_names: Vec::new(),
+            campos: Vec::new(),
             globals: parts.globals.clone(),
         });
         Ok(ModuleReport {

@@ -159,6 +159,8 @@ pub(crate) struct Reloadable {
     layouts: Vec<(i64, i64)>,
     /// Nomes das classes registradas pela versão viva: `(class_id, nome)`.
     class_names: Vec<(i64, String)>,
+    /// Os campos de cada classe da versão viva, pelo nome (J03).
+    campos: Vec<crate::migracao::Layout>,
     /// Globais mutáveis da geração ativa, reiniciadas em `run_entry`/`run_main`.
     pub(crate) globals: Vec<ffi::MutableGlobal>,
     /// Rastreadores das gerações ainda alcançáveis, com o número de cada:
@@ -520,6 +522,7 @@ impl JitSession {
         let signatures = parsed.signatures();
         let layouts = parsed.class_layouts();
         let class_names = parsed.class_names();
+        let campos = crate::migracao::layouts_do_ir(ir);
         let references = parsed.declarations();
         let existing = self.reloadables.iter().position(|m| m.name == name);
         let plain = self.plain_module_index(name, existing.is_some());
@@ -566,13 +569,34 @@ impl JitSession {
             (None, Some(index)) => &self.modules[index].class_names,
             (None, None) => &[],
         };
-        check_contract(&previous, previous_layouts, &signatures, &layouts).map_err(|message| {
+        let previous_campos: &[crate::migracao::Layout] = match (existing, plain) {
+            (Some(index), _) => &self.reloadables[index].campos,
+            (None, Some(index)) => &self.modules[index].campos,
+            (None, None) => &[],
+        };
+        // J03: a classe cujos campos as duas versões descrevem pelo nome migra
+        // (ou é recusada com o motivo); as outras ficam com a contagem.
+        let migradas: HashSet<i64> = previous_campos
+            .iter()
+            .filter(|l| campos.iter().any(|n| n.classe == l.classe))
+            .map(|l| l.classe)
+            .collect();
+        check_contract(&previous, previous_layouts, &signatures, &layouts, &migradas).map_err(|message| {
             JitError {
                 stage: "contract",
                 message,
             }
         })?;
         check_class_names(previous_names, &class_names).map_err(|message| JitError { stage: "contract", message })?;
+        let nome_da_classe = |id: i64| {
+            class_names
+                .iter()
+                .find(|(c, _)| *c == id)
+                .map_or_else(|| format!("a classe de id {id}"), |(_, n)| format!("a classe {n}"))
+        };
+        let plano = crate::migracao::planejar(previous_campos, &campos, &nome_da_classe)
+            .map_err(|message| JitError { stage: "contract", message })?;
+        let plano_codificado = (!plano.is_empty()).then(|| crate::migracao::codificar(&plano));
         // A publicação refaz os registros do programa (tabelas de métodos,
         // regras da RTI) quando já houve uma geração: o programa em execução
         // tem os da anterior. As funções de registro são entradas da própria
@@ -582,12 +606,20 @@ impl JitSession {
             let area = tem(PREPARO_DA_AREA);
             let registrar = tem(REGISTRO_DO_PROGRAMA);
             let rti = tem(INICIO_DA_RTI);
-            if area || registrar || rti {
+            if area || registrar || rti || plano_codificado.is_some() {
                 let runtime = match &self.sdk_dll {
                     Some(dll) => ffi::RuntimeDaRecarga::da_biblioteca(dll)
                         .map_err(|detail| JitError::new("contract", "o runtime da sessão não publica gerações", detail))?,
                     None => ffi::RuntimeDaRecarga::embutido(),
                 };
+                if plano_codificado.is_some() && !runtime.migra() {
+                    return Err(JitError {
+                        stage: "contract",
+                        message: "os campos de uma classe mudaram e o runtime da sessão não migra instâncias \
+                                  (biblioteca do SDK anterior a J03); a recarga é recusada — reinicie a sessão"
+                            .to_owned(),
+                    });
+                }
                 Some((runtime, area, registrar, rti))
             } else {
                 None
@@ -870,6 +902,11 @@ impl JitSession {
                 celula.publicar(implementacao);
             }
             if let Some((runtime, area, registrar, rti)) = registros {
+                // J03: os objetos vivos de cada isolado passam ao layout novo
+                // ao publicar (o deste agora; os parados, ao serem liberados).
+                if let Some(plano) = &plano_codificado {
+                    runtime.definir_migracao(plano);
+                }
                 runtime.publicar_registros(area, registrar, rti);
                 if let Some((_, p)) = parada {
                     runtime.liberar_isolados(p, area, registrar, rti);
@@ -896,6 +933,7 @@ impl JitSession {
         module.generation = generation;
         module.layouts = layouts;
         module.class_names = class_names;
+        module.campos = campos;
         module.globals = globals;
         module.generations.push((generation, tracker));
         if let Some(created) = stub_tracker {
@@ -961,6 +999,7 @@ impl JitSession {
             entries: BTreeMap::new(),
             layouts: Vec::new(),
             class_names: Vec::new(),
+            campos: Vec::new(),
             globals: Vec::new(),
             generations: Vec::new(),
             stubs: Vec::new(),
@@ -1056,6 +1095,7 @@ fn check_contract(
     previous_layouts: &[(i64, i64)],
     new: &[FunctionSignature],
     layouts: &[(i64, i64)],
+    migradas: &HashSet<i64>,
 ) -> Result<(), String> {
     if let Some(variadic) = new.iter().find(|signature| signature.var_arg) {
         return Err(format!(
@@ -1081,7 +1121,9 @@ fn check_contract(
             Some(_) => {}
         }
     }
-    for (class, fields) in previous_layouts {
+    // Uma classe descrita pelo nome dos campos nas duas versões migra
+    // (`migracao.rs`); só a contagem não diz o que corresponde a quê.
+    for (class, fields) in previous_layouts.iter().filter(|(c, _)| !migradas.contains(c)) {
         if let Some((_, novos)) = layouts
             .iter()
             .find(|(candidate, novos)| candidate == class && novos != fields)
@@ -1233,7 +1275,7 @@ mod tests {
     fn contract_rejects_a_changed_signature() {
         let antes = vec![signature("df_fn_0", "i64", &[])];
         let depois = vec![signature("df_fn_0", "i64", &["i64"])];
-        let erro = check_contract(&antes, &[], &depois, &[]).unwrap_err();
+        let erro = check_contract(&antes, &[], &depois, &[], &HashSet::new()).unwrap_err();
         assert!(
             erro.contains("a assinatura de df_fn_0 mudou de i64 () para i64 (i64)"),
             "{erro}"
@@ -1245,7 +1287,7 @@ mod tests {
     #[test]
     fn contract_keeps_a_vanished_function() {
         let antes = vec![signature("df_fn_0", "i64", &[])];
-        assert!(check_contract(&antes, &[], &[], &[]).is_ok());
+        assert!(check_contract(&antes, &[], &[], &[], &HashSet::new()).is_ok());
     }
 
     /// Um id de classe que passa a ser de outra classe é recusado.
@@ -1260,12 +1302,12 @@ mod tests {
     /// Mudança no número de campos de uma classe já construída é recusada.
     #[test]
     fn contract_rejects_a_changed_class_layout() {
-        let erro = check_contract(&[], &[(0, 1)], &[], &[(0, 2)]).unwrap_err();
+        let erro = check_contract(&[], &[(0, 1)], &[], &[(0, 2)], &HashSet::new()).unwrap_err();
         assert!(
             erro.contains("a classe de id 0 tinha 1 campos e passou a ter 2"),
             "{erro}"
         );
-        let mesmo = check_contract(&[], &[(0, 1)], &[], &[(0, 1), (1, 3)]);
+        let mesmo = check_contract(&[], &[(0, 1)], &[], &[(0, 1), (1, 3)], &HashSet::new());
         assert!(mesmo.is_ok());
     }
 
@@ -1277,7 +1319,7 @@ mod tests {
             signature("dartforge_entry", "void", &[]),
         ];
         let depois = antes.clone();
-        assert!(check_contract(&antes, &[(0, 2)], &depois, &[(0, 2)]).is_ok());
+        assert!(check_contract(&antes, &[(0, 2)], &depois, &[(0, 2)], &HashSet::new()).is_ok());
     }
 
     /// Referência externa desconhecida é recusada antes de qualquer efeito.
@@ -1331,6 +1373,7 @@ mod tests {
             entries,
             layouts: Vec::new(),
             class_names: Vec::new(),
+            campos: Vec::new(),
             globals: Vec::new(),
             generations: Vec::new(),
             stubs: Vec::new(),
@@ -1427,7 +1470,7 @@ mod tests {
     fn contract_rejects_variadics() {
         let mut variadica = signature("df_fn_0", "i64", &["i64"]);
         variadica.var_arg = true;
-        let erro = check_contract(&[], &[], &[variadica], &[]).unwrap_err();
+        let erro = check_contract(&[], &[], &[variadica], &[], &HashSet::new()).unwrap_err();
         assert!(erro.contains("variádica"), "{erro}");
     }
 }

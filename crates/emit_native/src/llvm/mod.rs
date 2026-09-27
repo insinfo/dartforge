@@ -220,6 +220,18 @@ impl<'a> LlvmEmitter<'a> {
         for (id, lib, classe) in &self.module.ids_do_programa {
             writeln!(self.out, "; df.classe {id} {} {}", crate::context::escapar(lib), crate::context::escapar(classe)).unwrap();
         }
+        // O layout dos objetos, para migrar as instâncias vivas (J03):
+        // `nome:flags:tipo`, com `a` anulável e `l` late.
+        for (id, base, campos) in &self.module.campos_do_programa {
+            let lista: Vec<String> = campos
+                .iter()
+                .map(|c| {
+                    let flags = format!("{}{}", if c.anulavel { "a" } else { "" }, if c.late { "l" } else { "" });
+                    format!("{}:{flags}:{}", crate::context::escapar(&c.nome), crate::context::escapar(&c.tipo))
+                })
+                .collect();
+            writeln!(self.out, "; df.campos {id} {base} {}", lista.join(",")).unwrap();
+        }
     }
 
     fn emit_runtime_decls(&mut self) {

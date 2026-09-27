@@ -673,6 +673,17 @@ pub struct FfiCallback {
     pub params: Vec<TipoNativo>,
 }
 
+/// Um campo do layout de uma classe do programa (J03).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CampoDoLayout {
+    pub nome: String,
+    /// `null` é um valor do tipo declarado (`T?`, `dynamic`, `Object?`…).
+    pub anulavel: bool,
+    pub late: bool,
+    /// O tipo declarado, como texto (uma mudança dele não migra).
+    pub tipo: String,
+}
+
 /// Módulo HIR completo representando um programa Dart compilável.
 #[derive(Debug, Default)]
 pub struct Module {
@@ -728,6 +739,11 @@ pub struct Module {
     /// no IR (`; df.classe …`) para que a geração seguinte de uma recarga do
     /// JIT dê o mesmo id à mesma classe (J03, `Context::com_ids_anteriores`).
     pub ids_do_programa: Vec<(u32, String, String)>,
+    /// O layout dos objetos de cada classe do programa, para a migração das
+    /// instâncias vivas numa recarga do JIT (J03): `(id, campos antes dos
+    /// declarados — os de enum —, campos)`, escrito no IR como
+    /// `; df.campos …`.
+    pub campos_do_programa: Vec<(u32, usize, Vec<CampoDoLayout>)>,
     /// Programa com o SDK da fonte: os ids de classe dos valores que o
     /// runtime representa (`Null`, `_Smi`, `_Mint`, `_Double`, `bool`,
     /// `_OneByteString`, `_TwoByteString`, `_GrowableList`, `_List`,

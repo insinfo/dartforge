@@ -256,6 +256,7 @@ fn emitir_ir_interno(
     let t_hir = Instant::now();
     let mut hir_module = lower::lower_program(&ctx);
     hir_module.ids_do_programa = ctx.ids_do_programa();
+    hir_module.campos_do_programa = ctx.campos_do_programa();
     if da_fonte {
         hir_module.registros_do_sdk = sdk_modulo::registros_do_sdk();
         hir_module.cids_do_runtime = sdk_modulo::cids_do_runtime(&ctx);

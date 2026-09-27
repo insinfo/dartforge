@@ -253,6 +253,34 @@ impl<'a> Context<'a> {
             .collect()
     }
 
+    /// O layout dos objetos de cada classe do programa (J03, ver
+    /// `hir::Module::campos_do_programa`).
+    pub fn campos_do_programa(&self) -> Vec<(u32, usize, Vec<crate::hir::CampoDoLayout>)> {
+        (0..self.program.classes.len() as u32)
+            .map(dartforge_elements::model::ClassId)
+            .filter(|&c| !self.program.library(self.program.class(c).library).is_sdk)
+            .filter_map(|c| {
+                let id = self.id_de_classe(c)?;
+                let campos = crate::lower::membros::layout(self, c)
+                    .into_iter()
+                    .map(|v| {
+                        let var = &self.program.variables[v.0 as usize];
+                        let t = crate::lower::membros::tipo_da_variavel(self, v);
+                        let anulavel = matches!(self.table.get(t), Type::Dynamic | Type::Void | Type::Null)
+                            || self.table.get(t).is_declared_nullable();
+                        crate::hir::CampoDoLayout {
+                            nome: self.symbol_name(var.name).to_string(),
+                            anulavel,
+                            late: var.late,
+                            tipo: self.table.format(t, self.interner, self.program),
+                        }
+                    })
+                    .collect();
+                Some((id, crate::lower::enums::base_do_layout(self, c), campos))
+            })
+            .collect()
+    }
+
     /// O corpo das funções da biblioteca é compilado?
     pub fn biblioteca_compilada(&self, lib: LibraryId) -> bool {
         self.compiladas[lib.0 as usize]

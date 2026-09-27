@@ -174,6 +174,8 @@ pub extern "C" fn dartforge_publicar_geracao(
     registrar: Option<extern "C" fn()>,
     rti: Option<extern "C" fn()>,
 ) {
+    // Os objetos vivos deste isolado passam ao layout da geração nova (J03).
+    aplicar_migracao_pendente();
     if let Some(f) = area {
         f();
     }
@@ -507,5 +509,56 @@ fn mostrar_rastro() {
             let b = unsafe { std::slice::from_raw_parts(p as *const u8, n) };
             eprintln!("    em {}", String::from_utf8_lossy(b));
         }
+    });
+}
+
+/// A migração dos layouts de objeto da última recarga estrutural (J03), com a
+/// época dela: por classe, a posição antiga de cada campo novo (`-1`: nenhuma).
+fn migracao_pendente() -> &'static std::sync::Mutex<Option<(u64, std::sync::Arc<HashMap<i64, Vec<i64>>>)>> {
+    static M: std::sync::OnceLock<std::sync::Mutex<Option<(u64, std::sync::Arc<HashMap<i64, Vec<i64>>>)>>> =
+        std::sync::OnceLock::new();
+    M.get_or_init(Default::default)
+}
+
+/// Define a migração da publicação em curso (J03): `dados` é
+/// `[n, (classe, novo_len, origem…)…]`. Chamada pelo JIT no ponto seguro do
+/// isolado principal, com os demais parados; cada isolado a aplica ao seu
+/// heap em [`dartforge_publicar_geracao`].
+///
+/// # Safety
+/// `dados` aponta para `n` palavras legíveis.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_definir_migracao(dados: *const i64, n: i64) {
+    // SAFETY: garantido por quem chama; copiado aqui.
+    let v = unsafe { std::slice::from_raw_parts(dados, usize::try_from(n).unwrap_or(0)) };
+    let mut plano: HashMap<i64, Vec<i64>> = HashMap::default();
+    let mut i = 1;
+    for _ in 0..v.first().copied().unwrap_or(0) {
+        let (Some(&classe), Some(&len)) = (v.get(i), v.get(i + 1)) else { break };
+        let len = usize::try_from(len).unwrap_or(0);
+        let Some(origem) = v.get(i + 2..i + 2 + len) else { break };
+        plano.insert(classe, origem.to_vec());
+        i += 2 + len;
+    }
+    let epoca = crate::heap::EPOCA_DE_LAYOUT.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1;
+    *migracao_pendente().lock().unwrap_or_else(|e| e.into_inner()) = Some((epoca, std::sync::Arc::new(plano)));
+}
+
+/// Aplica ao heap deste isolado a migração pendente, se ele ainda não está na
+/// época dela. Um heap criado depois da migração já nasce na época nova.
+fn aplicar_migracao_pendente() {
+    let atual = crate::heap::EPOCA_DE_LAYOUT.load(std::sync::atomic::Ordering::Acquire);
+    let plano = migracao_pendente().lock().unwrap_or_else(|e| e.into_inner()).clone();
+    HEAP.with(|h| {
+        let mut h = h.borrow_mut();
+        if h.epoca_de_layout >= atual {
+            return;
+        }
+        if let Some((epoca, plano)) = plano
+            && epoca == atual
+        {
+            h.migrar_instancias(&plano);
+        }
+        h.epoca_de_layout = atual;
     });
 }
