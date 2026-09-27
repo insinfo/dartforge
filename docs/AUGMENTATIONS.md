@@ -74,17 +74,45 @@ augmentation: o estilo clássico (`json_serializable`) é o que serve aí
 * **Erros**, com a posição na unidade da augmentation: `augment` sem
   declaração introdutória antes; tipo de declaração diferente; membro novo
   com nome já declarado; `extends` repetido; aplicação de mixin aumentada.
+* **Enum** (2026-09-27): `augment enum` segue a regra da classe (cadeia,
+  `with`/`implements`, membros novos e `augment` de membros); os valores
+  novos entram em `enum_constants` depois dos da declaração, na ordem de
+  aplicação, e o `emit_js` os emite (e o `values`) nessa ordem. Valor com
+  nome repetido é erro. Oráculo só estático: o `dart analyze` 3.13.4
+  (`augmentations`, `enhanced-parts`) aceita e tipa como nós
+  (`types/tests/bodies.rs`, `augmentation_de_enum_acrescenta_valores_e_membros`);
+  nenhum CFE executa (ver §4).
 * **Ainda não suportado** (diagnóstico claro, não silêncio): augmentation de
-  `enum`, `extension`, `extension type`, variável de topo e campo.
-* **Escopo**: cada unidade deveria resolver nomes no seu próprio escopo de
-  imports (`parts-with-imports`). Hoje os imports de todas as unidades entram
-  no escopo da biblioteca (era o que o carregador já fazia com diretivas em
-  *part*): só diverge com nomes em conflito entre imports de unidades
-  diferentes. O escopo por unidade exige que `crates/types` consulte o escopo
-  da unidade do nó (pedido ao dono de `types`).
-* **Assinatura** (`:837-924`): os tipos de uma augmentation valem como
-  escritos; herdar o tipo omitido da declaração anterior também é de `types`
-  (a saída das macros repete os tipos, então não depende disso).
+  `extension` e `extension type` (a augmentation omite o `on` e a
+  representação, e o nosso parser ainda os exige; o analyzer 3.13.4 aceita
+  as duas formas sem eles, e o CFE 3.13.4 recusa `on`/representação na
+  augmentation e quebra sem o `on` — `SimpleIdentifier` não é
+  `NominalParameters?`; o CFE 3.6.2 com `macros` quebra nos dois), de enum
+  com construtor primário, de
+  variável de topo e de campo (o analyzer 3.13.4 relata
+  `declaration_already_complete` para `augment int x = 5;` sobre variável
+  com inicializador; o CFE 3.13.4 quebra com `LateInitializationError` na
+  augmentation de campo).
+* **Escopo** (2026-09-27): cada unidade resolve nomes no seu próprio escopo
+  de imports (`parts-with-imports`, "Scopes"). Quando alguma parte da
+  biblioteca tem imports, `Library::escopos_de_unidade` guarda o escopo de
+  cada unidade, calculado pela árvore de partes (`Library::pais`): os imports
+  de um arquivo valem nele e nas partes dele e escondem os do arquivo que o
+  incluiu (nome solto e prefixo); as declarações da biblioteca escondem todo
+  import; o `dart:core` implícito fica por último. Sem imports em partes,
+  nada muda. `Program::lookup_na_unidade`/`lookup_prefixed_na_unidade`/
+  `prefixos_na_unidade` são usados por `types`, pela resolução de
+  supertipos (`elements`), pelo `emit_js` e pelo `analise`; o LSP, o
+  gerador ngdart e o hospedeiro de macros ainda consultam o escopo da
+  biblioteca (a união dos imports de todas as unidades), assim como a lista
+  de extensões aplicáveis de `types`. Aceite: `406_partes_imports_313`.
+* **Assinatura** (2026-09-27, `:837-924`): os tipos omitidos numa
+  augmentation de função, método, getter ou setter vêm da declaração
+  aumentada (posicionais pela posição, nomeados pelo nome, o retorno)
+  — `types::resolve`, `herdar_assinatura`. Função genérica (de qualquer
+  lado) e construtor ainda ficam com os tipos como escritos. Igual ao
+  analyzer 3.13.4 (`augmentation_herda_tipos_omitidos`); o CFE 3.13.4 não
+  herda (§4).
 
 ## 3. O que os emissores veem
 
@@ -115,6 +143,13 @@ agente): ele já segue `patched_by` para os patches do SDK.
   aplica cada fase numa biblioteca própria. O 3.13.4 aceita o texto fundido
   como *part*.
 * O 3.13.4 não liga `augment mixin` à declaração de origem.
+* Tipos omitidos numa augmentation (`augment f(x) => …` depois de
+  `String f(int x);`): o analyzer 3.13.4 os herda da declaração aumentada
+  (e relata `int a = C().f(3)` como `invalid_assignment`); o CFE 3.13.4 os
+  deixa `dynamic`, compila e falha em execução. Seguimos a spec e o analyzer.
+* Augmentation de enum: o analyzer 3.13.4 aceita; o CFE 3.13.4 e o 3.6.2
+  (`macros`) recusam ("'E' is already declared", "conflicts with an existing
+  class"). A execução segue a spec, sem oráculo.
 
 ## 5. Aceite
 
@@ -128,6 +163,7 @@ agente): ele já segue `patched_by` para os patches do SDK.
 | `403_aug_ordem` | 3.6 | augmentation que importa augmentation; mixin aumentado por duas bibliotecas |
 | `404_aug_sem_introdutoria_erro` | 3.6 | negativo: `augment` sem declaração antes |
 | `405_aug_partes_313` | atual | *part* com imports, parte dentro de parte (ordem dos inicializadores), o texto fundido do `@JsonCodable` numa *part* |
+| `406_partes_imports_313` | atual | escopo de imports por unidade: parte, neta sem imports, neta com import próprio, prefixo repetido, declaração da biblioteca contra import da parte |
 
 Todos batem com o oráculo no perfil de desenvolvimento (conferido à mão com
 o binário desta rodada; o CI roda desenvolvimento e produção). Testes do

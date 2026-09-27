@@ -713,7 +713,7 @@ fn registrar_referencia(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId) {
     let tt = inf.core.type_;
     match &a.expr(e).kind {
         ExprKind::Identifier(n) => {
-            if let Some(el) = inf.program.lookup(cx.lib, n.sym).and_then(|b| b.getter) {
+            if let Some(el) = inf.program.lookup_na_unidade(cx.unit, n.sym).and_then(|b| b.getter) {
                 resolver(inf, cx, e, Resolved::Element(el));
             }
             registrar(inf, cx, e, tt);
@@ -722,7 +722,7 @@ fn registrar_referencia(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId) {
             let (target, name) = (*target, *name);
             if let ExprKind::Identifier(p) = &a.expr(target).kind {
                 resolver(inf, cx, target, Resolved::Prefix(cx.lib));
-                if let Some(el) = inf.program.lookup_prefixed(cx.lib, p.sym, name.sym).and_then(|b| b.getter) {
+                if let Some(el) = inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.getter) {
                     resolver(inf, cx, e, Resolved::Element(el));
                 }
             }
@@ -896,10 +896,9 @@ fn criacao_sem_classe(inf: &mut BodyInferrer<'_>, cx: &Corpo, name: &[ast::Name]
     let (Some(primeiro), Some(ultimo)) = (name.first(), name.last()) else { return };
     let mut prefixo = false;
     if name.len() == 2 {
-        let lib = inf.program.library(cx.lib);
-        if lib.prefixes.contains_key(&primeiro.sym) {
+        if inf.program.prefixos_na_unidade(cx.unit).contains_key(&primeiro.sym) {
             prefixo = true;
-        } else if inf.program.lookup(cx.lib, primeiro.sym).is_some_and(|b| {
+        } else if inf.program.lookup_na_unidade(cx.unit, primeiro.sym).is_some_and(|b| {
             !matches!(b.getter, Some(Element::Class(_)))
         }) || prefixo_de_import_nao_resolvido(inf, cx, primeiro.sym)
         {
@@ -919,7 +918,7 @@ fn criacao_sem_classe(inf: &mut BodyInferrer<'_>, cx: &Corpo, name: &[ast::Name]
 /// não chegou ao escopo (o alvo do import não existe).
 fn prefixo_de_import_nao_resolvido(inf: &BodyInferrer<'_>, cx: &Corpo, p: dartforge_intern::SymbolId) -> bool {
     let lib = inf.program.library(cx.lib);
-    !lib.prefixes.contains_key(&p)
+    !inf.program.prefixos_na_unidade(cx.unit).contains_key(&p)
         && lib.units.iter().any(|u| {
             inf.program.unit(*u).unit.directives.iter().any(|d| {
                 matches!(&d.kind, ast::DirectiveKind::Import { prefix: Some(n), .. } if n.sym == p)
@@ -940,13 +939,13 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
         return inf.core.dynamic_;
     };
     let binding = if name.len() == 2 {
-        inf.program.lookup_prefixed(cx.lib, name[0].sym, name[1].sym)
+        inf.program.lookup_prefixed_na_unidade(cx.unit, name[0].sym, name[1].sym)
     } else {
-        inf.program.lookup(cx.lib, name[0].sym)
+        inf.program.lookup_na_unidade(cx.unit, name[0].sym)
     };
     // `new C.nome()` chega como tipo de duas partes quando `C` não é prefixo.
     let (binding, constructor) = match (binding, name.len()) {
-        (None, 2) => match inf.program.lookup(cx.lib, name[0].sym) {
+        (None, 2) => match inf.program.lookup_na_unidade(cx.unit, name[0].sym) {
             Some(b) if matches!(b.getter, Some(Element::Class(_))) && constructor.is_none() => (Some(b), Some(name[1])),
             _ => (binding, constructor),
         },

@@ -568,7 +568,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         return Some((Js::prim(format!("async.Future.value({rti}, null)")), t));
                     }
                     let sym = self.ctx.sym(name)?;
-                    let b = self.ctx.program.lookup_prefixed(self.lib, p, sym)?;
+                    let b = self.ctx.program.lookup_prefixed_na_unidade(self.unit, p, sym)?;
                     let el = b.getter?;
                     Some(self.emit_element_call(el, arguments, expected))
                 }
@@ -587,7 +587,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 if let ExprKind::Identifier(id) = &self.expr(*t2).kind {
                     if let IdentTarget::Prefix(p) = self.alvo_do_identificador(id.sym, *t2) {
                         let sym = self.ctx.sym(self.name(n2.sym))?;
-                        let b = self.ctx.program.lookup_prefixed(self.lib, p, sym)?;
+                        let b = self.ctx.program.lookup_prefixed_na_unidade(self.unit, p, sym)?;
                         if let Some(Element::Class(c)) = b.getter {
                             return self.static_call_on_class(c, name, arguments, expected);
                         }
@@ -601,7 +601,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     if let ExprKind::Identifier(id) = &self.expr(*t3).kind {
                         if let IdentTarget::Prefix(p) = self.alvo_do_identificador(id.sym, *t3) {
                             let sym = self.ctx.sym(self.name(n3.sym))?;
-                            let b = self.ctx.program.lookup_prefixed(self.lib, p, sym)?;
+                            let b = self.ctx.program.lookup_prefixed_na_unidade(self.unit, p, sym)?;
                             if let Some(Element::Class(c)) = b.getter {
                                 let targs: Vec<Ty> = type_args.iter().map(|t| self.resolve_type(*t)).collect();
                                 let cname = if name == "new" { "" } else { name };

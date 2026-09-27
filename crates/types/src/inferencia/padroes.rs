@@ -276,9 +276,9 @@ fn tipo_do_padrao_objeto(inf: &mut BodyInferrer<'_>, cx: &Corpo, ty: ast::TypeId
     if let ast::TypeKind::Named { name, args } = &node.kind {
         if args.is_empty() {
             let binding = if name.len() == 2 {
-                inf.program.lookup_prefixed(cx.lib, name[0].sym, name[1].sym)
+                inf.program.lookup_prefixed_na_unidade(cx.unit, name[0].sym, name[1].sym)
             } else {
-                inf.program.lookup(cx.lib, name[0].sym)
+                inf.program.lookup_na_unidade(cx.unit, name[0].sym)
             };
             if let Some(Element::Class(c)) = binding.and_then(|b| b.getter) {
                 let params = inf.outline.classes[c.0 as usize].type_params.clone();

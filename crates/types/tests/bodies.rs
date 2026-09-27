@@ -1948,3 +1948,145 @@ void f(bool b, Never n) {
     assert_eq!(tipo_de(&t, "falha().hashCode", 0), "int");
     assert_eq!(tipo_de(&t, "n.x", 0), "Never");
 }
+
+/// Os trechos de `dead_code` como o `NullSafetyDeadCodeVerifier` do analyzer
+/// os relata: do primeiro nó inalcançável ao fim do bloco básico (a última
+/// instrução; num construtor, o fim dele), o ramo inalcançável inteiro
+/// (`if (false) { … }`, corpo de `while (false)`), e as atualizações do
+/// `for` cujo corpo é inalcançável. Conferido com o `dart analyze` 3.6.2.
+#[test]
+fn trechos_de_codigo_morto_como_o_analyzer() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let proj_dir = tmp.path().join("proj");
+    fs::create_dir_all(&proj_dir).unwrap();
+    let main_dart = proj_dir.join("main.dart");
+    let codigo = "void h() { for (int i = 0; false; i++) { print(i); } print(2); }\n\
+        void k() { return; print(1); if (true) { print(2); } }\n\
+        class A { A() { return; print(3); } }\n\
+        void m(bool b) { if (false) { print(4); } else { print(5); } while (false) {} }\n\
+        void print(Object? o) {}\n";
+    let fonte = format!("library test_neg;\nimport 'dart:core';\n{codigo}");
+    fs::write(&main_dart, &fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+    let mut trechos: Vec<&str> = diags
+        .iter()
+        .filter(|d| d.message.contains(DEAD_CODE.template) || d.code.is_some_and(|c| c.info().nome == "dead_code"))
+        .map(|d| &fonte[d.span.start..d.span.end])
+        .collect();
+    trechos.sort();
+    let mut esperado = vec![
+        "i++",
+        "{ print(i); }",
+        "print(1); if (true) { print(2); }",
+        "print(3); }",
+        "{ print(4); }",
+        "{}",
+    ];
+    esperado.sort();
+    assert_eq!(trechos, esperado, "{diags:?}");
+}
+
+/// Assinatura omitida numa augmentation: os tipos vêm da declaração
+/// aumentada. O analyzer 3.13.4 (`augmentations`, `enhanced-parts`) relata
+/// exatamente estes quatro erros; sem a herança, `f`, `g` e `topo` ficariam
+/// `dynamic` e nada seria relatado. (O CFE 3.13.4 não herda: compila e
+/// falha em execução — divergência registrada em docs/AUGMENTATIONS.md.)
+#[test]
+fn augmentation_herda_tipos_omitidos() {
+    let tmp = tempdir().unwrap();
+    let mut sdk = mock_sdk(tmp.path());
+    sdk.experimentos.push(dartforge_frontend::features::Feature::Augmentations);
+    sdk.experimentos.push(dartforge_frontend::features::Feature::EnhancedParts);
+    let mut interner = Interner::new();
+    let proj = tmp.path().join("proj");
+    fs::create_dir_all(&proj).unwrap();
+    let principal = "part 'p.dart';\n\
+        class C {\n  String f(int x);\n  int get g;\n}\n\
+        List<int> topo(int n);\n\
+        void main() {\n  int a = C().f(3);\n  C().f('x');\n  String b = C().g;\n  String c = topo(1);\n}\n";
+    fs::write(proj.join("main.dart"), principal).unwrap();
+    fs::write(
+        proj.join("p.dart"),
+        "part of 'main.dart';\naugment class C {\n  augment f(x) => 'v';\n  augment get g => 41;\n}\naugment topo(n) => <int>[];\n",
+    )
+    .unwrap();
+    let (prog, diags_carga) = load_lenient(&proj.join("main.dart"), &sdk, None, &mut interner);
+    assert!(diags_carga.iter().all(|d| !d.message.contains("augment")), "{diags_carga:?}");
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+    let trecho = |d: &dartforge_diagnostics::Diagnostic| principal.get(d.span.start..d.span.end).unwrap_or("").to_string();
+    // O código do analyzer, ou o molde de `types::codes` (a ponte da
+    // paridade converte um no outro).
+    let codigo = |d: &dartforge_diagnostics::Diagnostic| match d.code.map(|c| c.info().nome) {
+        Some(n) => n,
+        None if d.message.starts_with(INVALID_ASSIGNMENT.template) => "invalid_assignment",
+        None if d.message.starts_with(ARGUMENT_TYPE_NOT_ASSIGNABLE.template) => "argument_type_not_assignable",
+        None => "",
+    };
+    let mut achados: Vec<(String, String)> = diags
+        .iter()
+        .filter(|d| matches!(codigo(d), "invalid_assignment" | "argument_type_not_assignable"))
+        .map(|d| (codigo(d).to_string(), trecho(d)))
+        .collect();
+    achados.sort();
+    assert_eq!(
+        achados,
+        vec![
+            ("argument_type_not_assignable".to_string(), "'x'".to_string()),
+            ("invalid_assignment".to_string(), "C().f(3)".to_string()),
+            ("invalid_assignment".to_string(), "C().g".to_string()),
+            ("invalid_assignment".to_string(), "topo(1)".to_string()),
+        ],
+        "{diags:?}"
+    );
+}
+
+/// Augmentation de enum: valores novos (depois dos da declaração), membros
+/// de instância e estáticos. O `dart analyze` 3.13.4 (`augmentations`,
+/// `enhanced-parts`) não relata nada neste programa; aqui também não, e os
+/// tipos saem como os dele (`int n = Cor.values.length` sem erro; `String s
+/// = Cor.azul.index` é `invalid_assignment`, como lá). O CFE 3.13.4 recusa
+/// augmentation de enum ("already declared"): sem oráculo de execução.
+#[test]
+fn augmentation_de_enum_acrescenta_valores_e_membros() {
+    let tmp = tempdir().unwrap();
+    let mut sdk = mock_sdk(tmp.path());
+    sdk.experimentos.push(dartforge_frontend::features::Feature::Augmentations);
+    sdk.experimentos.push(dartforge_frontend::features::Feature::EnhancedParts);
+    let mut interner = Interner::new();
+    let proj = tmp.path().join("proj");
+    fs::create_dir_all(&proj).unwrap();
+    let principal = "part 'p.dart';\n\
+        enum Cor {\n  vermelho('v'),\n  verde('g');\n  const Cor(this.sigla);\n  final String sigla;\n}\n\
+        void main() {\n  int n = Cor.values.length;\n  String m = Cor.azul.maiuscula;\n  Cor c = Cor.porSigla('g');\n  String s = Cor.azul.index;\n}\n";
+    fs::write(proj.join("main.dart"), principal).unwrap();
+    fs::write(
+        proj.join("p.dart"),
+        "part of 'main.dart';\naugment enum Cor {\n  azul('b');\n  String get maiuscula => sigla;\n  static Cor porSigla(String s) => Cor.verde;\n}\n",
+    )
+    .unwrap();
+    let (prog, diags_carga) = load_lenient(&proj.join("main.dart"), &sdk, None, &mut interner);
+    assert!(diags_carga.iter().all(|d| !d.message.contains("augment")), "{diags_carga:?}");
+    let cor = prog.classes.iter().find(|c| interner.resolve(c.name) == "Cor").expect("Cor");
+    let valores: Vec<&str> = cor.enum_constants.iter().map(|v| interner.resolve(prog.variable(*v).name)).collect();
+    assert_eq!(valores, vec!["vermelho", "verde", "azul"]);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+    let erros: Vec<String> = diags
+        .iter()
+        .filter(|d| d.severity == dartforge_diagnostics::Severidade::Error)
+        .map(|d| format!("{} @ {}", d.message, principal.get(d.span.start..d.span.end).unwrap_or("?")))
+        .collect();
+    assert_eq!(erros.len(), 1, "{erros:?}");
+    assert!(erros[0].starts_with(INVALID_ASSIGNMENT.template) && erros[0].ends_with("@ Cor.azul.index"), "{erros:?}");
+}

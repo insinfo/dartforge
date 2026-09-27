@@ -76,7 +76,7 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             let ctx_ret = inf.contexto_de_retorno_declarado(ret, af.modifier);
             let executavel = inf.executavel_declarado(f);
             cx.funcoes.push(CtxFuncao { modificador: af.modifier, retorno: Some(ret), contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, executavel });
-            corpo_de_funcao(inf, &mut cx, &af.body, af.modifier, ret);
+            corpo_de_funcao(inf, &mut cx, &af.body, af.modifier, ret, None);
             cx.funcoes.pop();
         }
         FunctionRef::Constructor { unit, member } => {
@@ -126,7 +126,10 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             // Construtor gerador: `return e;` é `return_in_generative_constructor`.
             let executavel = if fe.factory { inf.executavel_declarado(f) } else { None };
             cx2.funcoes.push(CtxFuncao { modificador: AsyncModifier::None, retorno: Some(ret), contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, executavel });
-            corpo_de_funcao(inf, &mut cx2, &ctor.body, AsyncModifier::None, ret);
+            // `flowEnd(ConstructorDeclaration)`: o analyzer não apara o
+            // construtor na última instrução; o trecho vai até o fim dele.
+            let fim = inf.program.unit(unit).ast.member(member).span.end;
+            corpo_de_funcao(inf, &mut cx2, &ctor.body, AsyncModifier::None, ret, Some(fim));
         }
         FunctionRef::None => {}
     }
@@ -189,8 +192,8 @@ fn alvo_de_factory_redirecionadora(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, r
     let Some((alvo, ctor)): Option<(ClassId, Option<dartforge_intern::SymbolId>)> = (|| {
         match partes.as_slice() {
             [a] => Some((resolver_classe_alvo(inf, cx, *a)?, escrito.map(|n| n.sym))),
-            [a, b] if inf.program.library(cx.lib).prefixes.contains_key(a) => {
-                let el = inf.program.lookup_prefixed(cx.lib, *a, *b)?.getter?;
+            [a, b] if inf.program.prefixos_na_unidade(cx.unit).contains_key(a) => {
+                let el = inf.program.lookup_prefixed_na_unidade(cx.unit, *a, *b)?.getter?;
                 Some((classe_de_elemento(inf, el)?, escrito.map(|n| n.sym)))
             }
             [a, b] => {
@@ -296,7 +299,16 @@ fn sem_parametros_super(inf: &mut BodyInferrer<'_>, sig: TypeId, args: &ast::Arg
 }
 
 /// Infere um corpo (bloco ou expressão) com o retorno já no contexto.
-fn corpo_de_funcao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, body: &FunctionBody, m: AsyncModifier, ret: TypeId) {
+/// `fim`: onde termina o trecho morto do corpo (o padrão é a última
+/// instrução do bloco).
+fn corpo_de_funcao(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Corpo,
+    body: &FunctionBody,
+    m: AsyncModifier,
+    ret: TypeId,
+    fim: Option<usize>,
+) {
     let _ = (m, ret);
     match body {
         FunctionBody::Expression(e) => {
@@ -307,7 +319,10 @@ fn corpo_de_funcao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, body: &FunctionBo
             }
         }
         FunctionBody::Block(s) => {
+            let fim = fim.unwrap_or_else(|| instrucoes::fim_de_fluxo(inf, cx, *s));
+            instrucoes::entrar_fluxo(cx, fim);
             instrucoes::inferir_instrucao(inf, cx, *s);
+            instrucoes::sair_fluxo(cx);
         }
         _ => {}
     }
@@ -579,7 +594,10 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
             (Some(t), false)
         }
         FunctionBody::Block(s) => {
+            let fim = instrucoes::fim_de_fluxo(inf, cx, *s);
+            instrucoes::entrar_fluxo(cx, fim);
             instrucoes::inferir_instrucao(inf, cx, *s);
+            instrucoes::sair_fluxo(cx);
             (None, cx.fluxo.alcancavel)
         }
         _ => (None, false),
@@ -806,17 +824,16 @@ fn classe_da_decl(inf: &BodyInferrer<'_>, unit: UnitId, d: &ast::Decl) -> (Optio
 /// Uma anotação: `@x`, `@C(args)`, `@C.nome(args)`, `@p.C(args)`.
 fn anotacao(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option<ClassId>, _ext: Option<dartforge_elements::model::ExtensionId>, m: &ast::Annotation) {
     let Some(args) = &m.arguments else { return };
-    let lib = inf.program.unit(unit).library;
     let mut cx = Corpo::novo(inf, unit, classe, None, true);
     let nomes: Vec<dartforge_intern::SymbolId> = m.name.iter().map(|n| n.sym).collect();
     // Classe e construtor.
     let (c, ctor) = match nomes.as_slice() {
-        [c] => (inf.program.lookup(lib, *c).and_then(|b| b.getter), None),
-        [a, b] => match inf.program.lookup(lib, *a).and_then(|x| x.getter) {
+        [c] => (inf.program.lookup_na_unidade(unit, *c).and_then(|b| b.getter), None),
+        [a, b] => match inf.program.lookup_na_unidade(unit, *a).and_then(|x| x.getter) {
             Some(el @ Element::Class(_)) => (Some(el), Some(*b)),
-            _ => (inf.program.lookup_prefixed(lib, *a, *b).and_then(|x| x.getter), None),
+            _ => (inf.program.lookup_prefixed_na_unidade(unit, *a, *b).and_then(|x| x.getter), None),
         },
-        [p, c, n] => (inf.program.lookup_prefixed(lib, *p, *c).and_then(|x| x.getter), Some(*n)),
+        [p, c, n] => (inf.program.lookup_prefixed_na_unidade(unit, *p, *c).and_then(|x| x.getter), Some(*n)),
         _ => (None, None),
     };
     let u = inf.core.unknown;

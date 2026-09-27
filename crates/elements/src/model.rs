@@ -240,6 +240,24 @@ pub struct Library {
     /// senão a versão corrente; `dart:*` no piso 3.6. Resolvida uma vez, na
     /// carga, antes do parse.
     pub features: LibraryFeatures,
+    /// O arquivo que incluiu cada parte (ou augmentation) da biblioteca: a
+    /// árvore de partes (`part` dentro de `part`, `parts-with-imports`).
+    pub pais: HashMap<UnitId, UnitId>,
+    /// O escopo de cada unidade quando alguma parte tem imports próprios
+    /// (`parts-with-imports`): os imports de um arquivo valem nele e nas
+    /// partes dele, e os de dentro escondem os de fora. Vazio quando só o
+    /// arquivo da biblioteca importa — aí vale [`Library::scope`] para
+    /// todas. Consulte por [`Program::lookup_na_unidade`].
+    pub escopos_de_unidade: HashMap<UnitId, EscopoDeUnidade>,
+}
+
+/// Escopo de nomes de topo de uma unidade (ver [`Library::escopos_de_unidade`]).
+#[derive(Debug, Clone, Default)]
+pub struct EscopoDeUnidade {
+    /// Como [`Library::scope`], com os imports da cadeia da unidade.
+    pub scope: Namespace,
+    /// Como [`Library::prefixes`], com os prefixos da cadeia da unidade.
+    pub prefixes: HashMap<SymbolId, Namespace>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -476,6 +494,32 @@ impl Program {
     /// Resolve um nome de topo no escopo de uma biblioteca (sem prefixo).
     pub fn lookup(&self, library: LibraryId, name: SymbolId) -> Option<Binding> {
         self.library(library).scope.get(&name).copied()
+    }
+
+    /// Resolve um nome de topo no escopo de uma **unidade**: com
+    /// `parts-with-imports`, cada arquivo vê os próprios imports (e os dos
+    /// arquivos que o incluíram, que os de dentro escondem); sem imports em
+    /// partes, é [`Program::lookup`] da biblioteca.
+    pub fn lookup_na_unidade(&self, unit: UnitId, name: SymbolId) -> Option<Binding> {
+        let lib = self.library(self.unit(unit).library);
+        match lib.escopos_de_unidade.get(&unit) {
+            Some(e) => e.scope.get(&name).copied(),
+            None => lib.scope.get(&name).copied(),
+        }
+    }
+
+    /// `prefixo.nome` no escopo de uma unidade (ver [`Program::lookup_na_unidade`]).
+    pub fn lookup_prefixed_na_unidade(&self, unit: UnitId, prefix: SymbolId, name: SymbolId) -> Option<Binding> {
+        self.prefixos_na_unidade(unit).get(&prefix).and_then(|ns| ns.get(&name).copied())
+    }
+
+    /// Os prefixos de import visíveis numa unidade.
+    pub fn prefixos_na_unidade(&self, unit: UnitId) -> &HashMap<SymbolId, Namespace> {
+        let lib = self.library(self.unit(unit).library);
+        match lib.escopos_de_unidade.get(&unit) {
+            Some(e) => &e.prefixes,
+            None => &lib.prefixes,
+        }
     }
 
     /// Resolve `prefixo.nome`.

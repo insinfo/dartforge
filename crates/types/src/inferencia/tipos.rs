@@ -330,7 +330,7 @@ impl<'a> BodyInferrer<'a> {
             ast::TypeKind::Void => return self.core.void_,
             ast::TypeKind::Named { name, args } => {
                 let binding = if name.len() == 2 {
-                    self.program.lookup_prefixed(lib, name[0].sym, name[1].sym)
+                    self.program.lookup_prefixed_na_unidade(unit, name[0].sym, name[1].sym)
                 } else {
                     let sym = name[0].sym;
                     if let Some(&pid) = escopo.get(&sym) {
@@ -338,14 +338,14 @@ impl<'a> BodyInferrer<'a> {
                         return if anulavel { self.anulavel(tp) } else { tp };
                     }
                     match self.interner.resolve(sym) {
-                        "dynamic" if self.program.lookup(lib, sym).is_none() => return self.core.dynamic_,
+                        "dynamic" if self.program.lookup_na_unidade(unit, sym).is_none() => return self.core.dynamic_,
                         "void" => return self.core.void_,
-                        "Never" if self.program.lookup(lib, sym).and_then(|b| b.getter).is_none() => {
+                        "Never" if self.program.lookup_na_unidade(unit, sym).and_then(|b| b.getter).is_none() => {
                             return if anulavel { self.core.null } else { self.core.never };
                         }
                         _ => {}
                     }
-                    self.program.lookup(lib, sym)
+                    self.program.lookup_na_unidade(unit, sym)
                 };
                 let args: Vec<ast::TypeId> = args.to_vec();
                 let resolvidos: Vec<TypeId> = args.iter().map(|&a| self.resolver_anotacao(unit, lib, a, escopo)).collect();

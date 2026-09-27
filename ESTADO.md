@@ -1,5 +1,22 @@
 # Estado do DartForge — 2026-09-26
 
+## Analisador: A01–A04 (2026-09-27)
+
+**Placar agora: 12.241/23.030 na posição exata (53,2%)**, 11.849 com a
+mensagem igual; FP 1.086, FN 10.502, posição errada 287 (de 11.758, FP
+1.212, medidos no mesmo oráculo em `f5080479`). Cláusulas de herança e a
+porta do `ErrorVerifier` (`analise::clausulas`: dez códigos novos sem erro
+emitido, `class_used_as_mixin` FP 91 → 0, `extends Enum` sem FP), privados
+não usados (`analise::privados`: `unused_element` 88 → 165, `unused_field`
+0 → 34, 0 FP) e os trechos de `dead_code` do `NullSafetyDeadCodeVerifier`
+(16 → 74, posição errada 43 → 7). Dois FP publicados do limitless_ui
+(V01): `// ignore` agora vale para erro (com `cannot-ignore`) e os gerados
+do `build_runner` fora de `lib/` são vistos. Augmentations: escopo de
+imports por unidade (`parts-with-imports`; antes o `compile-js` escolhia o
+import errado em silêncio), tipos omitidos herdados da declaração
+aumentada, `augment enum`. Detalhes, evidência e o que falta: docs/PENDENCIAS.md
+(A01–A04) e docs/AUGMENTATIONS.md.
+
 ## Paridade do analyzer sobre a inferência comum (2026-09-26)
 
 **Oráculo.** Regravado com o Dart 3.6.2 do Linux (`dartforge-paridade
@@ -56,12 +73,10 @@ classe entre bibliotecas (`analise/modificadores.rs`), padrões `int? x?` e
 `a--` e `required (…)? t` no parser, locais antes de erro de sintaxe.
 
 **Pendente:** exibir o alias de `typedef` nas mensagens (161 mensagens
-diferentes de `type_argument_not_matching_bounds`); `extends Enum` (2 FP
-de `invalid_use_of_type_outside_library`, o analyzer não relata) e
-`typedef` como supertipo; `dead_code` (43 posições erradas);
-`invalid_override`; `unused_field`/`unused_element` de privados;
-`class_used_as_mixin` (91 FP); o LSP ainda não roda `types`, então só
-publica os códigos verificados que não dependem de tipos.
+diferentes de `type_argument_not_matching_bounds`); `invalid_override`; o
+LSP ainda não roda `types`, então só publica os códigos verificados que não
+dependem de tipos. (`extends Enum`, `dead_code`, privados não usados e
+`class_used_as_mixin`: ver a seção de 2026-09-27 acima.)
 
 ## Fechamento do dia 2026-09-25
 ## Fechamento do dia 2026-09-25

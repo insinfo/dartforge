@@ -90,15 +90,17 @@ fn gerado(uri: &str) -> bool {
         .any(|s| uri.ends_with(s))
 }
 
-/// O arquivo `alvo` (de um `lib/` de pacote) existe como saída do `build_runner`
-/// (`.dart_tool/build/generated/<pacote>/lib/<rel>`)? O analyzer os enxerga.
+/// O arquivo `alvo` existe como saída do `build_runner`
+/// (`.dart_tool/build/generated/<pacote>/<rel>`, de `lib/` ou de qualquer
+/// outra pasta do pacote)? O analyzer os enxerga.
 fn gerado_pelo_build(c: &dartforge_elements::PackageConfig, alvo: &Path) -> bool {
-    c.package_dirs.iter().any(|(nome, dir)| {
-        alvo.strip_prefix(dir)
-            .ok()
-            .and_then(|rel| c.generated_path(nome, &rel.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/")))
-            .is_some()
-    })
+    c.gerado_no_lugar_de(alvo).is_some()
+        || c.package_dirs.iter().any(|(nome, dir)| {
+            alvo.strip_prefix(dir)
+                .ok()
+                .and_then(|rel| c.generated_path(nome, &rel.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/")))
+                .is_some()
+        })
 }
 
 impl Motor {
@@ -311,6 +313,11 @@ impl Motor {
                 achados.extend(dartforge_analise::externos::inicializadores(*u).into_iter().map(|d| (i, d)));
                 achados.extend(dartforge_analise::operadores::aridade(*u, &interner).into_iter().map(|d| (i, d)));
             }
+            // Privados não usados: pela biblioteca inteira, sem erro de sintaxe.
+            let com_erro = ids.iter().any(|u| {
+                program.unit(*u).path.as_ref().and_then(|p| analise.arquivos.get(&chave(p))).is_none_or(|a| a.sintaticos > 0)
+            });
+            achados.extend(dartforge_analise::privados::nao_usados(&unidades, &interner, com_erro));
             for (i, d) in achados {
                 if let Some(p) = &program.unit(ids[i]).path {
                     if let Some(a) = analise.arquivos.get_mut(&chave(p)) {
@@ -332,7 +339,7 @@ impl Motor {
                     }
                 }
             }
-            for (u, d) in dartforge_analise::heranca::classe_usada_como_mixin(&program, *lib, &interner) {
+            for (u, d) in dartforge_analise::clausulas::verificar(&program, *lib, &interner) {
                 if let Some(p) = &program.unit(u).path {
                     if let Some(a) = analise.arquivos.get_mut(&chave(p)) {
                         a.diags.push(d);

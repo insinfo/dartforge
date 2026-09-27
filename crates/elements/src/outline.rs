@@ -470,6 +470,8 @@ pub fn build_outline(
 
         program.libraries[lib_idx].scope = scope;
         program.libraries[lib_idx].prefixes = prefixes;
+        let escopos = escopos_de_unidade(program, LibraryId(lib_idx as u32));
+        program.libraries[lib_idx].escopos_de_unidade = escopos;
     }
 
     // -----------------------------------------------------------------------
@@ -496,7 +498,7 @@ pub fn build_outline(
         } else if class_kind == ClassKind::Class || class_kind == ClassKind::MixinApplication {
             // Se omitido e não for a classe Object: default é Object de dart:core
             if class_name != object_sym {
-                resolve_name_to_class(program, lib_id, object_sym, core_id)
+                resolve_name_to_class(program, lib_id, None, object_sym, core_id)
             } else {
                 None
             }
@@ -556,6 +558,94 @@ pub fn build_outline(
         }
     }
     program.tempos.outline_supertipos += t_fase.elapsed();
+}
+
+/// Os escopos por unidade de uma biblioteca com imports em partes
+/// (`accepted/future-releases/parts-with-imports`, "Scopes"): o escopo de
+/// imports de um arquivo são os imports dele, cujo pai é o escopo de imports
+/// do arquivo que o incluiu; os de dentro escondem os de fora (nome solto e
+/// prefixo). As declarações da biblioteca escondem todo import, e o
+/// `dart:core` implícito tem a menor precedência. Conferido com o CFE e o
+/// analyzer 3.13.4 (`--enable-experiment=enhanced-parts`): numa parte que
+/// importa `b.dart`, `nome()` é o de `b` mesmo com o arquivo da biblioteca
+/// importando outro `nome` de `a.dart`.
+///
+/// Vazio quando só o arquivo da biblioteca importa: aí o escopo da
+/// biblioteca vale para todas as unidades.
+fn escopos_de_unidade(program: &Program, lib_id: LibraryId) -> HashMap<UnitId, EscopoDeUnidade> {
+    let lib = &program.libraries[lib_id.0 as usize];
+    let mut saida = HashMap::new();
+    let com_imports_em_parte = lib
+        .imports
+        .iter()
+        .any(|i| program.units[i.unit.0 as usize].role != UnitRole::Library);
+    if lib.is_sdk || !com_imports_em_parte {
+        return saida;
+    }
+    // Os imports de cada arquivo, filtrados pelos combinadores.
+    let mut sem_prefixo: HashMap<UnitId, Namespace> = HashMap::new();
+    let mut com_prefixo: HashMap<UnitId, HashMap<SymbolId, (Namespace, LibraryId)>> = HashMap::new();
+    for import in &lib.imports {
+        let exportado = &program.libraries[import.library.0 as usize].exported;
+        let filtrado = filter_namespace(exportado, &import.combinators);
+        match import.prefix {
+            Some(p) => {
+                let (ns, dono) = com_prefixo.entry(import.unit).or_default().entry(p).or_insert_with(|| (Namespace::new(), import.library));
+                *dono = import.library;
+                for (sym, b) in filtrado {
+                    merge_binding_com(ns.entry(sym).or_default(), b, &|e| elemento_do_sdk(program, e));
+                }
+            }
+            None => {
+                let ns = sem_prefixo.entry(import.unit).or_default();
+                for (sym, b) in filtrado {
+                    merge_binding_com(ns.entry(sym).or_default(), b, &|e| elemento_do_sdk(program, e));
+                }
+            }
+        }
+    }
+    for &unidade in &lib.units {
+        if program.units[unidade.0 as usize].role == UnitRole::Patch {
+            continue;
+        }
+        // A cadeia do arquivo até o da biblioteca, de fora para dentro.
+        let mut cadeia = vec![unidade];
+        let mut atual = unidade;
+        while let Some(&pai) = lib.pais.get(&atual) {
+            if cadeia.contains(&pai) {
+                break;
+            }
+            cadeia.push(pai);
+            atual = pai;
+        }
+        cadeia.reverse();
+        let mut escopo = EscopoDeUnidade { scope: lib.declared.clone(), prefixes: HashMap::new() };
+        for arquivo in &cadeia {
+            if let Some(ns) = sem_prefixo.get(arquivo) {
+                for (sym, b) in ns {
+                    if lib.declared.contains_key(sym) {
+                        continue;
+                    }
+                    escopo.scope.insert(*sym, *b);
+                }
+            }
+            if let Some(ps) = com_prefixo.get(arquivo) {
+                for (p, (ns, dono)) in ps {
+                    escopo.prefixes.insert(*p, ns.clone());
+                    escopo.scope.insert(*p, Binding { getter: Some(Element::Prefix(*dono, *p)), setter: None, ambiguous: false });
+                }
+            }
+        }
+        if let Some(core_id) = program.core {
+            if lib_id != core_id {
+                for (sym, b) in &program.libraries[core_id.0 as usize].exported {
+                    escopo.scope.entry(*sym).or_insert(*b);
+                }
+            }
+        }
+        saida.insert(unidade, escopo);
+    }
+    saida
 }
 
 // ---------------------------------------------------------------------------
@@ -1460,12 +1550,12 @@ fn resolve_type_to_class(
                 return None;
             }
             if name.len() == 1 {
-                resolve_name_to_class(program, lib_id, name[0].sym, program.core)
+                resolve_name_to_class(program, lib_id, Some(unit_id), name[0].sym, program.core)
             } else if name.len() == 2 {
                 let prefix_sym = name[0].sym;
                 let target_sym = name[1].sym;
                 program
-                    .lookup_prefixed(lib_id, prefix_sym, target_sym)
+                    .lookup_prefixed_na_unidade(unit_id, prefix_sym, target_sym)
                     .and_then(|b| {
                         if b.ambiguous {
                             diagnostics.push(Diagnostic::new(
@@ -1504,8 +1594,8 @@ fn classe_do_typedef(program: &Program, tid: TypedefId, profundidade: u32) -> Op
     let ast::TypedefKind::Alias(ty) = d.kind else { return None };
     let ast::TypeKind::Named { name, .. } = &ast.ty(ty).kind else { return None };
     let b = match &name[..] {
-        [n] => program.lookup(t.library, n.sym),
-        [p, n] => program.lookup_prefixed(t.library, p.sym, n.sym),
+        [n] => program.lookup_na_unidade(t.decl.unit, n.sym),
+        [p, n] => program.lookup_prefixed_na_unidade(t.decl.unit, p.sym, n.sym),
         _ => None,
     }?;
     match b.getter {
@@ -1515,13 +1605,20 @@ fn classe_do_typedef(program: &Program, tid: TypedefId, profundidade: u32) -> Op
     }
 }
 
+/// `unit`: a unidade onde o nome está escrito (o escopo dela, com
+/// `parts-with-imports`); `None` usa o da biblioteca.
 fn resolve_name_to_class(
     program: &Program,
     lib_id: LibraryId,
+    unit: Option<UnitId>,
     name_sym: SymbolId,
     core_id: Option<LibraryId>,
 ) -> Option<ClassId> {
-    if let Some(b) = program.lookup(lib_id, name_sym) {
+    let achado = match unit {
+        Some(u) => program.lookup_na_unidade(u, name_sym),
+        None => program.lookup(lib_id, name_sym),
+    };
+    if let Some(b) = achado {
         if !b.ambiguous {
             if let Some(Element::Class(cid)) = b.getter {
                 return Some(cid);

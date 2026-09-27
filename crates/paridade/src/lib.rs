@@ -66,7 +66,7 @@ pub fn publicaveis(a: &analise::Arquivo, opcoes: &filtros::Opcoes, so_publicados
         }
         let Some(d) = opcoes.processar(d.clone()) else { continue };
         let linha = linhas.ponto(d.span.start).line;
-        if ignorados.ignora(&d, linha) {
+        if opcoes.ignoravel(&d) && ignorados.ignora(&d, linha) {
             continue;
         }
         out.push((d, sintaxe));
