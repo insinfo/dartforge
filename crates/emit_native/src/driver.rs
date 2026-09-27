@@ -299,9 +299,9 @@ fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &
                 Sistema::Windows => {
                     // `/OPT:REF` liga também o `/OPT:ICF` do `lld-link`, que
                     // funde funções de corpo idêntico num endereço só; o
-                    // tear-off de função de topo se compara pelo endereço
+                    // `/OPT:NOICF` vai logo abaixo, para todo perfil
                     // (`left == right` daria `true`, corpus/js 147 e 184).
-                    cmd.args(["-Wl,/NODEFAULTLIB:libcmt", "-lmsvcrt", "-Wl,/OPT:REF", "-Wl,/OPT:NOICF"]);
+                    cmd.args(["-Wl,/NODEFAULTLIB:libcmt", "-lmsvcrt", "-Wl,/OPT:REF"]);
                     cmd.arg(format!("-Wl,/opt:lldltopartitions={particoes}"));
                 }
                 // Sem a tabela de símbolos, como o `.exe` do Windows (que a
@@ -321,6 +321,12 @@ fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &
         Ligacao::Runtime(_) => {
             cmd.args(crate::alvo::argumentos_de_ligacao());
         }
+    }
+    if sistema == Sistema::Windows {
+        // Sem ICF em nenhum perfil: o `link.exe` sem `/DEBUG` (e o `lld-link`
+        // com `/OPT:REF`) funde funções de corpo idêntico, e o tear-off de
+        // função de topo se compara pelo endereço.
+        cmd.arg("-Wl,/OPT:NOICF");
     }
     let saida = cmd
         .arg("-o")
