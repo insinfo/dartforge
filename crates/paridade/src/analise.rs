@@ -144,11 +144,38 @@ impl Motor {
     /// Analisa `arquivos` (absolutos, dentro de `raiz`), cada um como a sua
     /// biblioteca. `packages` é o `package_config.json`.
     pub fn analisar(&self, raiz: &Path, arquivos: &[PathBuf], packages: Option<&Path>) -> Analise {
+        self.analisar_com(raiz, arquivos, packages, &HashMap::new(), &|| false)
+            .expect("sem cancelamento, a análise sempre conclui")
+    }
+
+    /// Como [`Motor::analisar`], com textos em memória e cancelamento.
+    ///
+    /// `textos` (pela [`chave`] do caminho) vale mais que o disco, tanto
+    /// para os `arquivos` quanto para qualquer arquivo que a carga alcance:
+    /// é o que o LSP passa com os documentos abertos ainda não salvos.
+    /// `cancelado` é consultado entre as fases (carga, verificadores, cada
+    /// biblioteca na inferência de corpos); quando responde verdadeiro, a
+    /// análise para ali e devolve `None` — o LSP a descarta porque o texto
+    /// mudou. Nada é retido pelo motor entre chamadas.
+    pub fn analisar_com(
+        &self,
+        raiz: &Path,
+        arquivos: &[PathBuf],
+        packages: Option<&Path>,
+        textos: &HashMap<PathBuf, String>,
+        cancelado: &dyn Fn() -> bool,
+    ) -> Option<Analise> {
         let mut analise = Analise::default();
         let mut proprios: BTreeMap<PathBuf, String> = BTreeMap::new();
         let mut imports = String::new();
         for (i, a) in arquivos.iter().enumerate() {
-            let Ok(texto) = std::fs::read_to_string(a) else { continue };
+            let texto = match textos.get(&chave(a)) {
+                Some(t) => t.clone(),
+                None => {
+                    let Ok(t) = std::fs::read_to_string(a) else { continue };
+                    t
+                }
+            };
             if !e_parte(&texto) {
                 let rel = a.strip_prefix(raiz).unwrap_or(a).to_string_lossy().replace('\\', "/");
                 let rel: String = rel
@@ -163,10 +190,13 @@ impl Motor {
             analise.arquivos.insert(p.clone(), Arquivo { texto: t.clone(), diags: Vec::new(), sintaticos: 0 });
         }
         if imports.is_empty() {
-            return analise;
+            return Some(analise);
         }
         let entrada = raiz.join(ENTRADA);
         let mut c = dartforge_elements::gerado::Construtor::nova();
+        for (caminho, texto) in textos {
+            c.por(caminho.clone(), texto.clone(), "lsp", vec![]);
+        }
         c.por(entrada.clone(), imports, "paridade", vec![]);
         let geracao = c.concluir(1).ok();
         let cache = dartforge_elements::SdkCache::abrir_ou_construir(&self.sdk, "dartdevc").ok().map(|(c, _)| c);
@@ -180,6 +210,9 @@ impl Motor {
             None,
             geracao,
         );
+        if cancelado() {
+            return None;
+        }
 
         // Unidades do lote.
         let mut unidade_de: HashMap<PathBuf, UnitId> = HashMap::new();
@@ -236,6 +269,10 @@ impl Motor {
                     _ => continue,
                 };
                 let Some(texto) = dartforge_elements::load::string_lit_value(lit) else { continue };
+                if textos.contains_key(&chave(&base.join(&texto))) {
+                    // Documento aberto ainda não salvo: existe para o editor.
+                    continue;
+                }
                 if let Some(d) = self.diretiva_sem_alvo(&texto, &base, config.as_ref(), lit.span, parte) {
                     analise.arquivos.get_mut(k).expect("próprio").diags.push(d);
                 }
@@ -304,6 +341,10 @@ impl Motor {
             }
         }
 
+        if cancelado() {
+            return None;
+        }
+
         // 4. Tipos.
         let mut table = dartforge_types::TypeTable::new();
         let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
@@ -318,6 +359,9 @@ impl Motor {
         let mut atribuidos: Vec<(UnitId, Diagnostic)> = Vec::new();
         // Corpos: uma passada por biblioteca do lote.
         for lib in &libs_proprias {
+            if cancelado() {
+                return None;
+            }
             let (_, ds) = dartforge_types::infer_bodies_das_bibliotecas(
                 &program,
                 &interner,
@@ -426,7 +470,7 @@ impl Motor {
                 });
             }
         }
-        analise
+        Some(analise)
     }
 
     /// `URI_DOES_NOT_EXIST` / `URI_HAS_NOT_BEEN_GENERATED`
@@ -614,6 +658,34 @@ mod testes {
         assert!(e_parte("// c\n/* x\n y */\npart of 'a.dart';\n"));
         assert!(!e_parte("library a;\npart 'b.dart';\n"));
         assert!(!e_parte("void main() {}\n"));
+    }
+
+    #[test]
+    fn textos_em_memoria_e_cancelamento() {
+        let raiz = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("../../target/tmp-agent/motor-memoria-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&raiz);
+        std::fs::create_dir_all(raiz.join("sdk/lib/core")).unwrap();
+        std::fs::write(raiz.join("sdk/lib/libraries.json"), r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#).unwrap();
+        std::fs::write(raiz.join("sdk/lib/core/core.dart"), "class Object {} class bool {} class num {} class int extends num {} class Null {}").unwrap();
+        let a = raiz.join("a.dart");
+        let b = raiz.join("b.dart");
+        // No disco, tudo certo; em memória, `b.dart` muda o tipo de `x`.
+        std::fs::write(&a, "import 'b.dart';\nvoid f() { if (x) {} }\n").unwrap();
+        std::fs::write(&b, "bool x = true;\n").unwrap();
+        let motor = Motor::novo(&raiz.join("sdk/lib")).unwrap();
+        let nao_bool = |r: &Analise| {
+            r.arquivos[&chave(&a)].diags.iter().filter(|d| d.code == Some(codigos::compile_time_error::NON_BOOL_CONDITION)).count()
+        };
+        let disco = motor.analisar(&raiz, std::slice::from_ref(&a), None);
+        assert_eq!(nao_bool(&disco), 0);
+        let textos = HashMap::from([(chave(&b), "int x = 0;\n".to_string())]);
+        let memoria = motor.analisar_com(&raiz, std::slice::from_ref(&a), None, &textos, &|| false).unwrap();
+        assert_eq!(nao_bool(&memoria), 1, "{:?}", memoria.arquivos[&chave(&a)].diags);
+        assert!(motor.analisar_com(&raiz, std::slice::from_ref(&a), None, &textos, &|| true).is_none());
+        let sdk = SdkLayout::load(&raiz.join("sdk/lib"), "dartdevc").unwrap();
+        let _ = std::fs::remove_file(dartforge_elements::SdkCache::caminho(&sdk, "dartdevc"));
+        std::fs::remove_dir_all(&raiz).unwrap();
     }
 
     #[test]
