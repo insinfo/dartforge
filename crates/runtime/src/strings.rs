@@ -79,7 +79,28 @@ pub unsafe extern "C" fn dartforge_string_new(ptr: *const u8, len: i64) -> i64 {
         // SAFETY: única leitura de ponteiro estrangeiro; contrato da constante LLVM.
         unsafe { std::slice::from_raw_parts(ptr, len) }
     };
-    HEAP.with(|heap| heap.borrow_mut().string_literal(Texto::de_wtf8(bytes)))
+    // O literal já visto por esta thread (isolado): pelo endereço da
+    // constante, conferido pelos bytes guardados — outra constante pode
+    // ocupar o mesmo endereço depois de uma recarga do JIT. Sem isto, cada
+    // avaliação convertia os bytes para UTF-16 e procurava no mapa dos
+    // literais do heap.
+    let chave = (ptr as usize, bytes.len());
+    let achado = LITERAIS_POR_ENDERECO.with(|m| {
+        m.borrow().get(&chave).and_then(|(b, h)| (**b == *bytes).then_some(*h))
+    });
+    if let Some(h) = achado {
+        return h;
+    }
+    let h = HEAP.with(|heap| heap.borrow_mut().string_literal(Texto::de_wtf8(bytes)));
+    LITERAIS_POR_ENDERECO.with(|m| m.borrow_mut().insert(chave, (bytes.into(), h)));
+    h
+}
+
+thread_local! {
+    /// `dartforge_string_new`: (endereço, comprimento) da constante → os
+    /// bytes e o handle do literal (permanente no heap desta thread).
+    static LITERAIS_POR_ENDERECO: RefCell<crate::hash::HashMap<(usize, usize), (Box<[u8]>, i64)>> =
+        RefCell::new(crate::hash::HashMap::default());
 }
 /// Concatena strings não nulas; argumentos devem estar enraizados pelo emissor.
 #[unsafe(no_mangle)]

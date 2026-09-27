@@ -411,6 +411,13 @@ pub extern "C" fn dartforge_nativo_DartForge_imprimir(linha: i64) {
     dartforge_print_string(linha);
 }
 
+/// `_StringBase._iguais(outro)` da sobreposição (`string_patch.dart`): as
+/// mesmas unidades UTF-16 (o laço do `==` da VM, feito aqui).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_string_iguais(this: i64, outro: i64) -> u8 {
+    HEAP.with(|heap| u8::from(heap.borrow().string_equal(this, outro)))
+}
+
 /// `_StringBase.codeUnitAt(i)` (intrínseco da VM), com a conferência de
 /// índice.
 #[unsafe(no_mangle)]

@@ -249,6 +249,7 @@ pub const NATIVOS: &[Nativo] = &[
     runtime("DartForge_regexp_n_nomes"),
     runtime("DartForge_regexp_nome"),
     runtime("DartForge_scheduleImmediate"),
+    runtime("DartForge_string_iguais"),
     runtime("DartForge_tls_contexto_alpn"),
     runtime("DartForge_tls_contexto_autoridades"),
     runtime("DartForge_tls_contexto_cadeia"),

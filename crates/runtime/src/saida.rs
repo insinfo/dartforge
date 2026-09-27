@@ -545,7 +545,29 @@ pub extern "C" fn dartforge_tagged_to_string(bits: i64, tag: u8) -> i64 {
 /// Converte um inteiro para string gerenciada no heap.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_to_string_i64(value: i64) -> i64 {
-    HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(Texto::de_str(&value.to_string()))))
+    // Os dígitos direto num buffer da pilha (sem a maquinaria do `fmt` e
+    // sem a `String` intermediária).
+    let mut buf = [0u8; 20];
+    let mut i = buf.len();
+    let mut n = value.unsigned_abs();
+    loop {
+        i -= 1;
+        buf[i] = b'0' + (n % 10) as u8;
+        n /= 10;
+        if n == 0 {
+            break;
+        }
+    }
+    let mut texto = [0u8; 21];
+    let mut k = 0;
+    if value < 0 {
+        texto[0] = b'-';
+        k = 1;
+    }
+    let d = buf.len() - i;
+    texto[k..k + d].copy_from_slice(&buf[i..]);
+    let s = std::str::from_utf8(&texto[..k + d]).expect("dígitos ASCII");
+    HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(Texto::de_str(s))))
 }
 
 /// Converte um double para string gerenciada no heap.
