@@ -335,7 +335,8 @@ pub enum Instruction {
     /// os nomeados na ordem de `nomes` (ordenados); o resultado é `Ref`. O
     /// emissor monta o vetor de argumentos e o descritor
     /// (`[n_posicionais, n_nomeados, hash(nome)…]`) e chama a entrada
-    /// uniforme da closure pela tabela de código (`@df_code_table`).
+    /// uniforme da closure pelo endereço guardado nela (`@df_clo_invalido`
+    /// quando o valor não é closure).
     CallClosure {
         closure: Operand,
         args: Vec<Operand>,

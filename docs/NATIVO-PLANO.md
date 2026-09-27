@@ -930,15 +930,23 @@ hash(nome)…]` (FNV-1a de 64 bits do nome, com os nomes ordenados: o mesmo
 em qualquer módulo). A entrada confere a aridade contra a assinatura da
 função (`dartforge_args_casam`), preenche os padrões dos opcionais ausentes e
 chama o **corpo** `i64 @<símbolo>(i64 env, i64 p0, …)`. O código de uma
-closure é o índice da entrada em `@df_code_table` (o índice 0 é a entrada que
-só retorna: `dartforge_closure_entry` deixa `NoSuchMethodError` pendente
-quando o valor não é closure). O tear-off de função de topo ou estática é
+closure é o endereço da entrada uniforme (`ptrtoint`, emissão de
+`AllocClosure` em `crates/emit_native/src/llvm/mod.rs`), para que uma closure
+criada no módulo do SDK seja chamada do módulo do programa
+(`docs/NATIVO-PEDIDOS.md`); quando o valor não é closure,
+`dartforge_closure_entry` deixa `NoSuchMethodError` pendente e devolve 0, que
+o ponto de chamada troca pela entrada `@df_clo_invalido`. *Histórico (até
+2026-09-27):* o código era o índice na `@df_code_table`, com o índice 0 como
+entrada que só retorna. O tear-off de função de topo ou estática é
 canônico (`TearOff`, `identical(f, f)`); o de método de instância é uma
 closure nova com o receptor no ambiente, e a entrada dele chama o membro com
-o despacho do receptor. Os corpos de closure ainda não são inferidos
-(`crates/types`, pedido em `docs/NATIVO-PEDIDOS.md`): neles tudo é `dynamic`,
-e os nomes são refeitos pelo escopo léxico no lowering (`resolver_por_nome`:
-local, membro da classe envolvente pela linearização, topo da biblioteca).
+o despacho do receptor. Os corpos de closure são inferidos pelo motor de
+`crates/types/src/inferencia` (resposta ao pedido em `docs/NATIVO-PEDIDOS.md`,
+«De α (P1–P4) para a inferência»); o `resolver_por_nome` do lowering
+(`lower/closures.rs:791`: local, membro da classe envolvente pela
+linearização, topo da biblioteca) continua como apoio para o nome sem
+resolução gravada. *Histórico (até 2026-09-27):* aqui se lia que os corpos
+de closure ainda não eram inferidos e que neles tudo era `dynamic`.
 
 **Símbolos estáveis (P2).** O símbolo vem do **caminho** da declaração, nunca
 de índices do `crates/elements`: `df.<biblioteca>.<dono>.<membro>`, cada
@@ -1430,10 +1438,23 @@ assinatura a cada chamada:
   conferência de limites). `DynamicLibrary` usa `dlopen`/`dlsym` (Linux,
   macOS) e `LoadLibraryW`/`GetProcAddress` com busca nos módulos do
   processo (Windows).
-* **Pendente** (recusado com o motivo, nunca com a ABI errada): structs e
-  unions por valor (classificação de ABI por alvo), `Pointer.fromFunction`,
-  `NativeCallable`, `@Native`, `asTypedList`, `NativeFinalizer`, `Handle` e
-  funções variádicas.
+* **Também baixados** (cada um com programa em `corpus/nativo/`, comparado
+  com a VM pelo `pesado.yml`): layout de `Struct`/`Union` e `asTypedList`
+  (`12_ffi_structs.dart`), `Pointer.fromFunction` e `NativeCallable`
+  (`13_ffi_callbacks.dart`; redirecionamento em `lower/ffi.rs:390-409`),
+  `NativeFinalizer` (`14_finalizadores.dart`), structs e unions por valor
+  (`16_ffi_structs_por_valor.dart`), funções variádicas com `VarArgs`
+  (`17_ffi_varargs.dart`), `Handle` (`18_ffi_handle.dart`) e `@Native` de
+  função e de variável (`19_ffi_native_variaveis.dart`;
+  `lower/ffi.rs:1283-1284`). O que continua recusado com o motivo, nunca com
+  a ABI errada: inteiro específico da ABI sem mapeamento para o alvo, struct
+  por valor dentro de `VarArgs`, struct vazia por valor e assinatura nativa
+  com parâmetros opcionais, nomeados ou genéricos (`lower/ffi.rs:104-190`).
+
+  > **Histórico (até 2026-09-27).** Este item listava como pendentes structs
+  > e unions por valor, `Pointer.fromFunction`, `NativeCallable`, `@Native`,
+  > `asTypedList`, `NativeFinalizer`, `Handle` e funções variádicas; todos
+  > entraram depois (evidências acima).
 
 **Extensões genéricas.** Um membro de instância de extensão recebe a tupla
 de argumentos de tipo `[os da extensão…, os do membro…]`: os da extensão

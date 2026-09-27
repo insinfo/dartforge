@@ -155,9 +155,10 @@ pub extern "C" fn dartforge_env_get_ref(handle: i64, index: i64) -> i64 {
     valor_como_ref(v)
 }
 
-/// O índice da entrada uniforme de uma closure na `@df_code_table`. Um
-/// valor que não é closure (null, ou outro objeto chamado como função) deixa
-/// `NoSuchMethodError` pendente e devolve 0, a entrada que só retorna.
+/// O endereço da entrada uniforme de uma closure (o código gravado por
+/// `dartforge_closure_new`). Um valor que não é closure (null, ou outro
+/// objeto chamado como função) deixa `NoSuchMethodError` pendente e devolve
+/// 0, que o ponto de chamada troca pela entrada `@df_clo_invalido`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_closure_entry(handle: i64) -> i64 {
     let codigo = HEAP.with(|heap| match heap.borrow().try_get(handle) {

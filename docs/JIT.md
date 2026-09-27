@@ -2,7 +2,7 @@
 
 O DartForge passa a ter dois perfis de execução nativa sobre **o mesmo LLVM IR**:
 
-| | Desenvolvimento (`crates/jit`) | Produção (`crates/native`) |
+| | Desenvolvimento (`crates/jit`) | Produção (`crates/emit_native`, feature `nativo`) |
 | --- | --- | --- |
 | Comando | `dartforge run <entrada.dart>`, `dartforge reload <entrada.dart> [--reiniciar]` | `dartforge aot <entrada.dart> <saida.exe>` |
 | Geração de código | ORCv2 (`LLJIT`), em memória | Clang, em processo separado |
@@ -27,10 +27,11 @@ divergir em resultado é defeito.
 > `--jit-aot`.
 > Runtime de fonte única (`dartforge_runtime::abi`) e sessão persistente com
 > cache de módulos (executor de macros), ver as seções abaixo. As seções «O que
-> executa» e «Hot reload» abaixo descrevem a trilha velha; o mecanismo de
-> `src/reload.rs` continua, mas os testes dele esperam migração em
-> `crates/jit/testes-pendentes/`. O plano completo está no plano do JIT
-> (passos 1–13).
+> executa» e «Hot reload» abaixo nasceram na trilha velha; o mecanismo de
+> `src/reload.rs` continua, e os cenários dele já foram migrados para o IR do
+> `emit_native` em `crates/jit/tests/hot_reload.rs` (a cópia antiga em
+> `crates/jit/testes-pendentes/` ficou como registro). O plano completo está
+> no plano do JIT (passos 1–13).
 >
 > **O caminho de execução (`run_ir`, `dartforge-executar-ir`, `dartforge run` e
 > `dartforge reload` R0) não passa por `src/reload.rs`.** O módulo entra
@@ -43,15 +44,21 @@ divergir em resultado é defeito.
 
 ## O que executa
 
-Exatamente o subconjunto que `dartforge_compiler::compile_llvm_with_options`
-aceita — nem mais, nem menos. O JIT não tem emissor próprio: ele recebe o IR
-textual pronto. Na prática isso cobre `int`/`bool`/`String`, classes com campos,
-métodos e despacho virtual, enums, controle de fluxo e `print`, com o coletor
-preciso de `crates/runtime` participando por frames de raízes explícitas.
+Exatamente o que o `crates/emit_native` aceita — nem mais, nem menos. O JIT não
+tem emissor próprio: recebe o IR textual pronto de `emitir_ir`, o mesmo que o
+AOT entrega ao Clang, e com o SDK da fonte carrega a biblioteca do SDK
+compilado (`sdk_modulo::dll_do_sdk_da_fonte`,
+`crates/emit_native/src/sdk_modulo.rs:458-464`). O que o emissor nativo recusa
+continua recusado, com a mesma mensagem; o que ele baixa está em
+`docs/NATIVO.md` §1. O job `jit` do `pesado.yml` exige saída idêntica JIT × AOT
+no corpus inteiro (ver «JIT × AOT no corpus inteiro» abaixo e `ESTADO.md` §1.5).
 
-O que o emissor nativo recusa continua recusado, com a mesma mensagem: `double` e
-`num`, coleções, genéricos reificados, funções como valores, records, `Duration`
-e `Timer`. Isso é limite de `crates/llvm`, não deste crate.
+> **Histórico (até 2026-09-27).** Esta seção descrevia o JIT sobre
+> `dartforge_compiler::compile_llvm_with_options`, da trilha velha: só
+> `int`/`bool`/`String`, classes, enums, controle de fluxo e `print`, e
+> recusava `double`/`num`, coleções, genéricos reificados, funções como
+> valores, records, `Duration` e `Timer` («limite de `crates/llvm`»). O
+> `crates/jit` foi rebaseado no IR do `emit_native` em 2026-09-23 (nota acima).
 
 ## O que não executa
 
@@ -528,7 +535,8 @@ Só mudança de corpo com contrato compatível. O resto é recusado na etapa
 | Situação | Mensagem (etapa `contract`) |
 | --- | --- |
 | Assinatura alterada | `a assinatura de df_fn_0 mudou de i64 () para i64 (i64); mudança de contrato de chamada exige reiniciar a sessão` |
-| Função que desaparece | `a função df_fn_0 existe na versão em execução e não existe no código novo; a entrada estável dela ficaria presa no corpo antigo, então a recarga é recusada — reinicie a sessão` |
+| Função que desaparece | aceita: a função some do código novo e conserva o corpo antigo, que só uma closure ou um tear-off antigo ainda alcança, como na VM (`crates/jit/src/reload.rs:1035-1039`). *Histórico (até 2026-09-27):* era recusada com `a função df_fn_0 existe na versão em execução e não existe no código novo; …` |
+| Classe renumerada | `a classe de id 7 era A e passou a ser B (classes inseridas ou reordenadas); os objetos já vivos no heap têm o id antigo, então a recarga é recusada — reinicie a sessão` |
 | Campos de classe | `a classe de id 0 tinha 1 campos e passou a ter 2; os objetos já vivos no heap gerenciado mantêm o layout antigo, então a recarga é recusada — reinicie a sessão` |
 | Referência não resolvível | `o código novo chama sqlite3_open, que esta sessão não define; o JIT publica apenas os 18 símbolos de runtime e as entradas estáveis já criadas` |
 | Variádica | `a função df_fn_0 é variádica, e o contrato do emissor nativo não prevê variádicas` |
@@ -536,19 +544,25 @@ Só mudança de corpo com contrato compatível. O resto é recusado na etapa
 
 Limites adicionais, e explícitos:
 
-* **A identidade é o nome do símbolo emitido, e os nomes de `crates/llvm` são
-  posicionais** (`df_fn_0`, `df_method_0_0`, `df_new_0`). Inserir ou reordenar
-  declarações no Dart renumera os símbolos, e a recarga passa a comparar
-  contratos de funções diferentes: `df_fn_0` na geração nova pode ser outra função
-  Dart. A recarga continua com contrato compatível e portanto é aceita — o que
-  muda de corpo é outra coisa. Identidade estável por *declaração Dart* exige o
-  front-end incremental do plano, e não este crate.
+* **A identidade é o nome do símbolo emitido.** O `emit_native` dá a cada
+  declaração um símbolo pelo caminho dela (`df.<biblioteca>.<dono>.<membro>`),
+  e inserir uma função ou uma classe não muda o símbolo de nenhuma outra (teste
+  `t_id_simbolos_estaveis`, `crates/emit_native/src/lib.rs:429-460`). Os ids de
+  **classe** continuam posicionais: classe inserida ou reordenada é recusada
+  (`check_class_names`, `crates/jit/src/reload.rs:1074-1089`).
+  *Histórico (até 2026-09-27):* com os nomes posicionais de `crates/llvm`
+  (`df_fn_0`, `df_method_0_0`, `df_new_0`), reordenar declarações fazia a
+  recarga comparar funções diferentes.
 * **Layout de classe só é conferido para classes que o código novo constrói.** A
   impressão digital vem das chamadas a `@dartforge_object_new(i64 id, i64 campos)`
   com argumentos constantes, que é a forma que `crates/llvm` emite em `@df_new_*`.
   Uma classe que o código novo não instancia não aparece, e não é verificada.
-* **Ambiente de closure não é verificado** porque o emissor nativo ainda não tem
-  funções como valores; quando tiver, a impressão digital precisa crescer.
+* **Ambiente de closure não é verificado.** O emissor nativo tem closures
+  (`crates/emit_native/src/lower/closures.rs`), e a impressão digital do
+  contrato (`check_contract`, `crates/jit/src/reload.rs:1023-1066`) ainda não
+  inclui o layout do ambiente: uma closure viva criada pela geração antiga
+  continua com o ambiente e o corpo dela. *Histórico (até 2026-09-27):* a
+  razão dada aqui era que o emissor «ainda não tem funções como valores».
 * **Métodos de instância não são recarregáveis individualmente.** O que se
   recarrega é o módulo inteiro do programa; o despacho continua passando por
   `@df_dispatch_*`, e o corpo novo do método chega porque `@df_method_*` também é
@@ -859,9 +873,19 @@ de Clang/`rustc` para construir o lado AOT da comparação.
 
 ### Integração contínua
 
-O workflow atual instala apenas o Clang do ambiente e **não** provisiona a
-distribuição completa do LLVM nem define `LLVM_SYS_221_PREFIX`. Enquanto isso não
-for ajustado, `cargo build --workspace` falhará na CI por falta de `llvm-config`.
+O CI provisiona o LLVM do JIT. No Windows, a ação `.github/actions/llvm-windows`
+com `desenvolvimento: 'true'` (`.github/workflows/ci.yml:67-72`) traz
+`llvm-config`, `LLVM-C.dll`/`.lib` e os cabeçalhos da API C e exporta
+`LLVM_SYS_221_PREFIX` (`.github/actions/llvm-windows/action.yml`); o job roda
+`cargo test --workspace` e a recarga pela CLI com `--features jit`. No Linux e
+no macOS, o job `nativo-unix` instala o LLVM 22 (no Linux, a `libLLVM-22.so` do
+apt.llvm.org com `DARTFORGE_LLVM_LINK=shared`) e roda os testes do
+`emit_native`, do `jit` e da CLI com `--features nativo,jit`
+(`.github/workflows/ci.yml:162-250`).
+
+> **Histórico (até 2026-09-27).** Aqui se lia que o workflow instalava só o
+> Clang, sem `llvm-config` nem `LLVM_SYS_221_PREFIX`, e que
+> `cargo build --workspace` falharia no CI por isso.
 
 ## Referências oficiais consultadas
 

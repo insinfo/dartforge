@@ -209,12 +209,16 @@ O que a tabela diz, mais do que o número:
 
 ### 2.3 O que isso diz da nossa escolha
 
-O nosso desenho (`docs/NATIVO-PLANO.md` §6.5, na branch `ci/nativo-contrato`;
-em `main` o emissor **declara** `dartforge_gc_push_frame`/`set_root`/`pop_frame`
-— `crates/emit_native/src/llvm/mod.rs:133-136` — mas ainda não os chama) é
-**raízes explícitas**: um quadro de raízes por função, um slot fixo por valor
-SSA `Ref` e por `alloca` `Ref`, `set_root` depois de cada definição, e o
-runtime varre os quadros (`crates/runtime/src/heap.rs:316-372`).
+O nosso desenho (`docs/NATIVO-PLANO.md` §6.5) é **raízes explícitas**: um
+quadro de raízes por função, um slot fixo por valor SSA `Ref` e por `alloca`
+`Ref`, a raiz gravada depois de cada definição, e o runtime varre os quadros.
+Hoje o emissor aloca o quadro na pilha da função e o encadeia na pilha-sombra
+do `Contexto` da thread; cada raiz é um `store` no slot dela
+(`crates/emit_native/src/llvm/mod.rs:387-408` e `1038-1046`, slots em
+`crates/emit_native/src/llvm/raizes.rs`). *Histórico (até 2026-09-27):* aqui
+se lia que o contrato estava na branch `ci/nativo-contrato` e que em `main` o
+emissor só declarava `dartforge_gc_push_frame`/`set_root`/`pop_frame`, sem
+chamá-los.
 
 | eixo | statepoints (linzj, Dartino) | raízes explícitas (DartForge) |
 | --- | --- | --- |
@@ -447,8 +451,11 @@ inlining (`:1747-1753`, "Is often inlined by LLVM").
 
 O nosso emissor **já é** um módulo por programa (ESTADO.md §1.5). Então, hoje,
 nós estamos no desenho que a equipe da VM recomendou — com duas ressalvas: o
-SDK ainda não está no IR (0% do IR é corpo do SDK, ESTADO.md §2.5), e o
-Clang a `-O2` num módulo só não paraleliza.
+SDK da fonte é um módulo à parte (a biblioteca `dfsdk_<chave>` no
+desenvolvimento; bitcode ThinLTO ligado ao programa na produção,
+`docs/NATIVO.md` §1.1), e o Clang a `-O2` num módulo só não paraleliza.
+*Histórico (até 2026-09-27):* a primeira ressalva era «o SDK ainda não está
+no IR (0% do IR é corpo do SDK)».
 
 ### 5.3 A tensão: o cache de objeto e o hot reload pedem módulos separados
 

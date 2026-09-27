@@ -13,13 +13,15 @@
 //! ausentes e chama o **corpo** com os parâmetros na ordem da declaração.
 //!
 //! O corpo de uma closure é `i64 @<símbolo>(i64 env, i64 p0, …)`, com todos
-//! os parâmetros e o retorno `Ref` (o corpo de uma closure ainda não é
-//! inferido: tudo nele é `dynamic`). O ambiente guarda, nesta ordem, `this`
+//! os parâmetros e o retorno `Ref` (a convenção uniforme; o corpo é inferido
+//! por `crates/types`, e [`FnBuilder::resolver_por_nome`] cobre o nome sem
+//! resolução gravada). O ambiente guarda, nesta ordem, `this`
 //! (quando a closure nasce num membro de instância) e as variáveis livres —
 //! o handle da célula das que moram numa (`captura.rs`), ou a cópia do valor.
 //!
-//! A closure é `AllocClosure { código, env }`; o código é o índice da entrada
-//! em `@df_code_table`, que o emissor monta. O tear-off de função de topo ou
+//! A closure é `AllocClosure { código, env }`; o código é o endereço da
+//! entrada uniforme (`ptrtoint`, no emissor), válido entre o módulo do SDK e
+//! o do programa. O tear-off de função de topo ou
 //! estática é canônico (`TearOff`: o mesmo handle sempre, `identical(f, f)`);
 //! o de método de instância é uma closure nova com o receptor no ambiente, e
 //! a entrada dele chama o membro com o despacho do receptor.
