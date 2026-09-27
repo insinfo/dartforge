@@ -278,6 +278,14 @@ pelo conteúdo), i77 (filho que injeta provedor do próprio nó), i78
 diretiva) e i85 (`@ViewChild` de `<template>`). b06, i24, i30, i72 e i73
 passaram a ser gerados.
 
+Rodada dos itens NG04–NG10 da auditoria (sondas `i86`…`i99`, `j01`…`j10`,
+oráculo regenerado por `scripts/corpus-ngdart.sh`, que faz o roteiro do
+`.ps1` sem PowerShell e copia também os `.css.dart`): 219 arquivos
+conferidos, 0 diferentes, 5 recusados — i76, i77, i78 (provedores do
+filho, fora destes itens) e as sondas de recusa i94 (`#f="ngForm"` com
+`ngControl`: o `@SkipSelf` do `NgControlName`) e i95 (`#ref` repetido ou
+sombreado por `let`). i84 e i85 passaram a ser gerados.
+
 ### Diretivas estruturais
 
 | forma | estado | casos |
@@ -293,8 +301,11 @@ passaram a ser gerados.
 | `<template #t>` sem diretiva (dentro de elemento, sem `#ref`, lido de visão aninhada) | gerado (âncora, `ViewContainer` fora da detecção, `TemplateRef` 7: campo com `#ref`, local sem) | i30, i82, i83 |
 | `*ngTemplateOutlet="t"`, com `context:` | gerado (`NgTemplateOutlet(this._appEl_n)`, `ngDoCheck`) | i30, i82, i83 |
 | `<ng-container *x>` vazio | gerado (`initRootNodesAndSubscriptions(unsafeCast(const <Object>[]), null)`) | i82 |
-| `<template ngFor let-x [ngForOf]>` e outro `<template>` com diretiva, `<template>` no conteúdo projetado | recusado (`<template> escrito no template`) | i84 |
-| `@ViewChild('t')` de `<template #t>` | recusado (o valor é o `TemplateRef`) | i85 |
+| `<template dir let-x let-y="k" [dirX]="e">` escrito (diretiva estrutural conhecida) | gerado (reescrito como o `*dir` equivalente; `REF` de cada ligação escrita; entradas na ordem de declaração da diretiva, `_orderingOf`) | i84, i86 |
+| `<template>` com diretiva fora dessa forma (dois atributos, evento, `#ref`, `;` na expressão, `[dir]` sem atributo), `<template>` no conteúdo projetado | recusado (`<template> escrito no template`, `<template> no conteúdo projetado`) | — |
+| entrada de `*` que a diretiva não declara | recusado (erro no oficial) | — |
+| `@ViewChild('t') TemplateRef` de `<template #t>` na própria visão | gerado (`_ctx.x = this._TemplateRef_n_7;` no `build()`) | i85, i87 |
+| `@ViewChild` de `<template>` em lista, em `*` ou em campo que não é `TemplateRef` | recusado | — |
 
 ### Ligações e eventos
 
@@ -303,7 +314,7 @@ passaram a ser gerados.
 | `[prop]`, `[attr.x]`, `[class.x]`, `[class]`, `[style.x]` | gerado | a14, i28 |
 | `[style.x.px]`/`[style.x.%]`, `[style.x]` que não é `String` | gerado (`visitStyleBinding`) | i05, i38 |
 | `[innerHtml]`, `[href]`, `[src]`, `href="/p/{{id}}"` | gerado (`sanitizeHtml`/`Url`/`ResourceUrl` pela tabela do esquema) | i14, i57 |
-| `[style]`/`[attr.x]` com contexto de segurança | recusado | — |
+| `[attr.x]` com contexto de segurança, `[style]` | gerado (saneador pelo nome de propriedade mapeado: `updateAttribute(el, 'href', sanitizeUrl(v))`, `setProperty(el, 'style', sanitizeStyle(v))`) | i92 |
 | `bind-x`, `on-x` | gerado (antes viravam atributo: **saída errada**) | i36 |
 | `(evento)` com `$event`, `(keyup.enter)`, atribuição | gerado | c04, c12, c14, i27 |
 | `[(ngModel)]` | gerado | g01, h03 |
@@ -317,13 +328,18 @@ passaram a ser gerados.
 |---|---|---|
 | `#ref` lido em expressão (elemento, filho, conteúdo projetado) | gerado (`final local_x = this._el_n;`, nó promovido a campo) | a15, i06, i07, i32, i48 |
 | `#ref` lido numa visão embutida (dela ou de ancestral) | gerado (`unsafeCast<_ViewX1>((this.parentView!))._el_n`) | i44, i45 |
-| `#ref` repetido, com membro ou `let` de mesmo nome, `#f="ngForm"` | recusado | — |
+| `#d="x"` com a diretiva do nó de `exportAs: 'x'` | gerado (o local vale a instância, `this._X_n_m`; o elemento não vira campo por isso) | i93 |
+| `#f="ngForm"` num `<form>` sem controles | gerado | j03 |
+| `#f="ngForm"` com `ngControl` dentro | recusado (o `@SkipSelf` do `NgControlName`) | i94 |
+| `#ref` repetido em visões diferentes ou sombreado por `let` | recusado (`#ref repetido ou sombreado por let`: escopo por visão) | i95 |
+| `#ref` com membro de mesmo nome, `@ViewChild` de `#ref` com valor | recusado | — |
 | `@ViewChild('ref')` de elemento, de filho, no conteúdo projetado | gerado | b03, b20, i46 |
 | `@ViewChild` de `#ref` repetido (o primeiro) | gerado | i49 |
 | `@ViewChildren('ref')` estático, sem resultado (`[]`) | gerado | i15, i49 |
 | `@ViewChild(Tipo)`/`@ViewChildren(Tipo)` de componente filho | gerado | i16, i50 |
-| `@ViewChild`/`@ViewChildren` com o resultado em `*ngIf`/`*ngFor` (um nível) | gerado (`_viewQuery_x_N_isDirty`, `mapNestedViewsWithSingleResult`, `dirtyParentQueriesInternal`) | i47, i51 |
-| consulta com vários resultados em `*`, dois níveis, `read:` | recusado | — |
+| `@ViewChild`/`@ViewChildren` com o resultado em `*ngIf`/`*ngFor`, em qualquer profundidade (`*` na raiz de `*`), elemento ou componente filho não `onPush`, por `#ref` ou por tipo | gerado (`_viewQuery_x_N_isDirty`, `mapNestedViews` em cada nível e `mapNestedViewsWithSingleResult` no último, `dirtyParentQueriesInternal` subindo um `parentView` por nível) | i47, i51, i96, i97, j06, j09, j10 |
+| `@ViewChild(.., read: ElementRef)`, `read: Element`/`HtmlElement`, e campo que não é `Element` (sem `read:`) de elemento estático | gerado (`ElementRef(_el_n)` ou o nó) | i98 |
+| consulta dinâmica com filho `onPush`, `read:`, mistura com estáticos; `read:` de outro token | recusado | — |
 | `@ContentChild`/`@ContentChildren` no próprio componente (campo ou setter, `descendants:`, `read:`, por tipo ou `'ref'`) | gerado (na hospedeira, sem conteúdo: `this.component.x = [];` para cada lista logo depois da construção, setters antes dos campos; o único não recebe nada) | d09, h01, i68, i69 |
 | consulta de conteúdo do componente que acharia o próprio nó (o componente, um provedor dele, tipo do ngdart) | recusado | — |
 | `@ContentChild(.., read:)` de filho usado no template, `read:` do elemento (`HtmlElement`/`Element`) ou de outra diretiva do nó achado | gerado (o nó, local ou campo; o campo da diretiva) | i73, i81 |
@@ -346,9 +362,13 @@ passaram a ser gerados.
 | `@Input`, `@Output`, ciclo de vida, `OnPush` | gerado | a16, b01…b14, d05…d07, i25 |
 | `@HostListener` em componente | gerado | b04, b17, b21, i18 |
 | `@HostBinding('class.x'/'attr.x')` em componente (campo, `final`, getter) | gerado (`detectHostChanges(firstCheck)`, chamado pela hospedeira e por quem usa o filho) | b05, i17, i55, i56 |
-| `@HostBinding` de propriedade, `style.x`, sem argumento, com herança | recusado | — |
+| `@HostBinding` de propriedade, `attr.x` com contexto de segurança, `style.x`/`style.x.unidade`, sem argumento, herdado (também só da base) em componente | gerado (as formas de `createElementPropertyAst` com o elemento `div`; herdados pelos metadados do programa e `Resolucao::membro_final`) | i89, i90, i91, j02 |
+| `@HostBinding` de diretiva com `attr.x`, propriedade, sem argumento | gerado (no `XNgCd`) | j05 |
+| `@HostBinding('class')`, `attr.x.if`, namespace, `style.x` em campo `final` ou de tipo desconhecido, `style.x` em diretiva | recusado | — |
 | `@i18n`, `@i18n:attr`, `.meaning`, `.locale`, `.skip` (texto puro) | gerado (`static final String _message_N = Intl.message(..)`; antes: **saída errada**) | i20, i35 |
-| `@i18n` com HTML dentro, em filho, em `*` ou com filho/diretiva na visão | recusado | — |
+| `@i18n` com HTML dentro (tags aninhadas sem atributo, elemento vazio) | gerado (método `static String _message_N(String startTag0, ..)` com `name:`, `args:`, `examples:`; `createTrustedHtml` e `append`) | i99, j04 |
+| `@i18n` num elemento com `*` | gerado (a mensagem fica na visão embutida) | j01 |
+| `@i18n` em filho, com tag com atributo/ligação dentro, entidade HTML, junto de handler de evento na visão, ou com filho/diretiva na visão | recusado | — |
 | `providers:` no componente: `ClassProvider`, `Provider(X, useClass:)`, classe solta, `ExistingProvider`/`useExisting:` (apelido local, apelido de apelido, do próprio componente, de token de fora), `ValueProvider`/`useValue:` (texto, inteiro, booleano, objeto `const`), `FactoryProvider`/`useFactory:` com `deps:` ou pelos parâmetros, `.forToken` de `OpaqueToken` (`T` do `dart:core`) e de `MultiToken` (`T` do `dart:core` ou genérico), listas aninhadas e constantes, sobrescrita de token | gerado (na hospedeira: preguiçoso `late T _X_0_n = ..;`, ou `late final` criado no `build()` antes do componente quando ele depende; campos com inicializador primeiro; `debugInjectorWrap` com dependência do injetor; `injectorGetInternal` do nó 0; o componente montado com `this._X_0_n`) | b02, h02, i19, i60…i67, i69…i71 |
 | `multi: true` | não existe no ngdart 8 (multi é o `MultiToken`) | — |
 | `providers:` com `useValue:` de lista, mapa, enum, `null` ou objeto aninhado; `useFactory:` de método estático; classe genérica ou abstrata; token de subclasse de `OpaqueToken`, `OpaqueToken` sem nome ou com `T` de fora do `dart:core`, `MultiToken` com `T` de fora do `dart:core` sem argumentos; dependência `@Self`/`@Host`/`@SkipSelf` ou de embutido (`ElementRef`, `Injector`…) num serviço; `viewProviders:` | recusado | — |
@@ -357,7 +377,9 @@ passaram a ser gerados.
 | filho que injeta um provedor do próprio nó ou de um elemento acima | recusado (o provedor sai antes do filho; o serviço não vem do injetor de fora) | i77 |
 | provedor do filho com dependência de fora do nó, apelido de token que o nó não provê | recusado | i78 |
 | `encapsulation: ViewEncapsulation.emulated`/`.none` sem folha de estilo | gerado (sem folha o oficial já desliga o encapsulamento) | b06 |
-| `encapsulation: ViewEncapsulation.none` com `styleUrls`/`styles`, `encapsulation:` que não é `ViewEncapsulation.x` | recusado | — |
+| `encapsulation: ViewEncapsulation.none` com `styleUrls` (`.css` escrito) | gerado (import do `.css.dart` sem shim, também gerado; `unscoped`; sem `addShimC`) | i88 |
+| `styles: [..]` na anotação, emulado ou `none` | gerado (depois das folhas de `styleUrls`, com shim ou literal) | j07, j08 |
+| `none` com folha Sass, folha ou `styles:` com `@import`, item de `styleUrls`/`styles` que não é texto literal, `encapsulation:` que não é `ViewEncapsulation.x` | recusado | — |
 | vários `@Component` no mesmo arquivo (o que usa antes ou depois do usado) | gerado (uma tabela de imports, trechos na ordem do fonte, filho ao lado sem import nem prefixo) | i24, i79 |
 | vários `@Component` no arquivo com folha de estilo | recusado | — |
 | ligação em `template:` escrito na anotação | gerado quando o literal é string simples (`REF` com o `asset:` do `.dart` e as posições dele, em UTF-16); com escape, `$`, `r'..'` ou aspas triplas, recusado | i24, i79 |
@@ -369,14 +391,16 @@ passaram a ser gerados.
    no oráculo do i76), a dependência de fora do nó (elementos acima e
    `parentView!.injectorGet(.., this.parentIndex)`, i78) e o filho que
    injeta o próprio provedor (i77).
-2. `<template>` com diretiva (i84) e `@ViewChild` de `<template>` (i85:
-   `_ctx.x = this._TemplateRef_n_7` no `build()`).
-3. Consultas dinâmicas além de um nível e um resultado.
+2. Escopo de `#ref` por visão (repetido, sombreado por `let`: i95) e a
+   dependência `@SkipSelf` do `NgControlName` (i94).
+3. Consultas dinâmicas com filho `onPush` ou misturadas com estáticas.
 
 O oráculo das sondas se regenera como os outros casos
 (`scripts/corpus-ngdart.ps1`): criar o `.dart` e o `.html` em
-`corpus/ngdart/lib/src/` e rodar o script. (Sem `pwsh`, o mesmo roteiro — gerar o
+`corpus/ngdart/lib/src/` e rodar o script. Sem `pwsh`,
+`scripts/corpus-ngdart.sh [--limpar]` faz o mesmo roteiro — gerar o
 `web/main.dart` e o `lib/corpus_ngdart.dart`, `dart pub get --offline`,
 `dart run build_runner build --delete-conflicting-outputs` e copiar os
-`.template.dart` de `.dart_tool/build/generated/corpus_ngdart/lib/src/`
-para `oraculo/` — dá o mesmo oráculo.)
+`.template.dart`, `.css.shim.dart` e `.css.dart` de
+`.dart_tool/build/generated/corpus_ngdart/lib/src/` para `oraculo/` — e dá
+o mesmo oráculo (conferido: a regeneração não mudou nenhum oráculo antigo).
