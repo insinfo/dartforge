@@ -294,6 +294,28 @@ pub fn e_erro_de_linguagem(mensagem: &str) -> bool {
     mensagem.starts_with(ERRO_DE_LINGUAGEM)
 }
 
+/// O diagnóstico de `types` recusa o programa: um erro de linguagem
+/// ([`e_erro_de_linguagem`]) ou a leitura de um local não anulável (ou
+/// `final`) que não está definitivamente atribuído
+/// ([`DEFINITELY_UNASSIGNED_VARIABLE`]: o
+/// `NOT_ASSIGNED_POTENTIALLY_NON_NULLABLE_LOCAL_VARIABLE` /
+/// `READ_POTENTIALLY_UNASSIGNED_FINAL` do analyzer, que o CFE também recusa).
+///
+/// A atribuição definitiva sai do mesmo modelo de fluxo que promove tipos
+/// (`inferencia/fluxo.rs`), e é o que separa os programas que a versão de
+/// linguagem aceita dos que ela recusa no fluxo sólido (3.9,
+/// docs/VERSOES-LINGUAGEM.md §4.6). Os demais diagnósticos continuam avisos.
+///
+/// ```
+/// use dartforge_types::codes::{e_erro_de_compilacao, DEFINITELY_UNASSIGNED_VARIABLE, ERRO_DE_LINGUAGEM};
+/// assert!(e_erro_de_compilacao(&format!("{}: 'y'", DEFINITELY_UNASSIGNED_VARIABLE.template)));
+/// assert!(e_erro_de_compilacao(&format!("{ERRO_DE_LINGUAGEM}a.dart:3: x")));
+/// assert!(!e_erro_de_compilacao("O tipo 'int' não pode ser atribuído a 'String'."));
+/// ```
+pub fn e_erro_de_compilacao(mensagem: &str) -> bool {
+    e_erro_de_linguagem(mensagem) || mensagem.starts_with(DEFINITELY_UNASSIGNED_VARIABLE.template)
+}
+
 pub const WILDCARD_NAO_LIGA: DiagnosticCode = DiagnosticCode::new(
     "undefined_identifier",
     "nenhum '_' visível: numa biblioteca 3.7+, local e parâmetro chamados '_' são curingas e não ligam nome",

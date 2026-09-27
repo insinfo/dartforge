@@ -372,6 +372,37 @@ impl GenericInferrer {
         Some(substitute(b, &mapa, env.table))
     }
 
+    /// Inferência usando bounds (3.7, `inference-using-bounds`): para cada
+    /// parâmetro cuja restrição inferior fundida `L` (sem `_`) não satisfaz o
+    /// limite declarado `B`, acrescenta as restrições de `L <: B` com os
+    /// parâmetros de `B` como incógnitas. Em `f<X extends A<X>>(C())`, com
+    /// `C <: B <: A<B>`, `C <# A<X>` dá `B <: X`, e a solução passa a ser
+    /// `UP(C, B) = B` (antes da 3.7, `X = C` e o limite era violado).
+    pub fn restringir_pelos_limites(&mut self, env: &mut SubtypeEnv) {
+        for i in 0..self.params.len() {
+            if self.fixados[i].is_some() {
+                continue;
+            }
+            let b = env.table.param(self.params[i]).bound;
+            if b == env.core.object_nullable || matches!(env.table.get(b), Type::Dynamic) {
+                continue;
+            }
+            let (lower, _) = self.fundir(i, env);
+            if has_unknown(lower, env) {
+                continue;
+            }
+            let atuais: Vec<TypeId> = (0..self.params.len()).map(|j| self.fundir(j, env).0).collect();
+            let limite = self.limite(i, &atuais, env);
+            if limite.is_some_and(|l| !has_unknown(l, env) && is_subtype(lower, l, env)) {
+                continue;
+            }
+            let mark = self.restricoes.len();
+            if !self.try_match(lower, b, false, env) {
+                self.restricoes.truncate(mark);
+            }
+        }
+    }
+
     /// Inferência parcial (para baixo ou horizontal): esquemas que podem conter `_`.
     pub fn choose_preliminary(&mut self, env: &mut SubtypeEnv) -> Vec<TypeId> {
         let n = self.params.len();

@@ -12,6 +12,7 @@ pub mod filtro;
 pub mod js;
 pub mod module;
 pub mod pattern;
+pub mod tipo_extensao;
 pub mod ty;
 
 /// Opções de linguagem (`--versao-linguagem`, `--enable-experiment`) de quem chama
@@ -469,17 +470,18 @@ pub fn compilar_com_gerador<R>(
         dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
     rel.fase("inferência de corpos", t);
     // Erros de linguagem dos recursos 3.7–3.13 (docs/VERSOES-LINGUAGEM.md
-    // §3) abortam como os de carga; o resto de `types` é aviso.
+    // §3) e leitura de local não definitivamente atribuído abortam como os
+    // de carga (`codes::e_erro_de_compilacao`); o resto de `types` é aviso.
     let erros: Vec<&dartforge_diagnostics::Diagnostic> = outline_diags
         .iter()
         .chain(body_diags.iter())
-        .filter(|d| dartforge_types::codes::e_erro_de_linguagem(&d.message))
+        .filter(|d| dartforge_types::codes::e_erro_de_compilacao(&d.message))
         .collect();
     if !erros.is_empty() {
         for d in &erros {
             eprintln!("erro: {d}");
         }
-        return Err(format!("{} erro(s) de linguagem", erros.len()));
+        return Err(format!("{} erro(s) de compilação", erros.len()));
     }
     rel.avisos_outline = outline_diags.len();
     rel.avisos_corpos = body_diags.len();

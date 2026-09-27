@@ -214,12 +214,13 @@ fn emitir_ir_interno(
     let (mut outline, outline_diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
     let (bodies, body_diags) =
         dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
-    // Erros de linguagem dos recursos 3.7–3.13 abortam (docs/VERSOES-LINGUAGEM.md §3);
-    // o resto de `types` é aviso e não aparece aqui.
+    // Erros de linguagem dos recursos 3.7–3.13 (docs/VERSOES-LINGUAGEM.md §3) e
+    // leitura de local não definitivamente atribuído abortam
+    // (`codes::e_erro_de_compilacao`); o resto de `types` é aviso e não aparece aqui.
     let mut erros = outline_diags
         .iter()
         .chain(body_diags.iter())
-        .filter(|d| dartforge_types::codes::e_erro_de_linguagem(&d.message));
+        .filter(|d| dartforge_types::codes::e_erro_de_compilacao(&d.message));
     if let Some(primeiro) = erros.next() {
         let mut msg = format!("erro: {primeiro}");
         for d in erros {

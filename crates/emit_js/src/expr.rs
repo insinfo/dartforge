@@ -6,7 +6,7 @@ use crate::js::{self, Js, P_ADD, P_AND, P_ASSIGN, P_BITAND, P_BITOR, P_BITXOR, P
 use crate::ty::Ty;
 use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionKind, LibraryId};
 use dartforge_frontend::ast::{self, AssignOp, BinaryOp, CollectionElement, ExprId, ExprKind, UnaryOp};
-use dartforge_types::resolved::Resolved;
+use dartforge_types::resolved::{MemberRef, Resolved};
 use std::collections::HashMap;
 
 /// Guarda de null-shorting: `temp` recebe `init`; se for nulo, a cadeia vale `null`.
@@ -74,6 +74,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             if self.find_extension_member(&t, n, false).is_some() {
                 return IdentTarget::ExtThisMember(Member { class: self.ctx.object.unwrap_or(ClassId(0)), kind: MemberKind::Field(dartforge_elements::model::VariableId(0)), subst: HashMap::new() });
+            }
+        }
+        // Estáticos do tipo de extensão cujo membro está em emissão (os de
+        // instância chegam pela resolução comum, `crate::tipo_extensao`).
+        if let Some(c) = self.tipo_extensao {
+            if let Some(mk) = self.ctx.declared_static(c, n, false).or_else(|| self.ctx.declared_static(c, n, true)) {
+                return IdentTarget::Static(c, mk);
             }
         }
         if let Some(c) = self.class {
@@ -457,7 +464,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 };
                 (Js::prim(format!("dart.gbind({}, {})", fjs.code, rtis.join(", "))), ret_ty)
             }
+            ExprKind::Unary { op: op @ (UnaryOp::Neg | UnaryOp::BitNot), operand } if self.membro_de_tipo_extensao(e).is_some() => {
+                let _ = op;
+                let Some((dono, MemberRef::Function(f))) = self.membro_de_tipo_extensao(e) else { unreachable!() };
+                let (v, _) = self.emit_expr(*operand, None);
+                self.tipo_ext_operador(&v, Some(*operand), dono, f, &[])
+            }
             ExprKind::Unary { op, operand } => self.emit_unary(*op, *operand),
+            ExprKind::Binary { op, left, right } if !matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::IfNull | BinaryOp::Eq | BinaryOp::NotEq) && self.membro_de_tipo_extensao(e).is_some() => {
+                // Operador declarado num tipo de extensão: a função de apoio.
+                let Some((dono, MemberRef::Function(f))) = self.membro_de_tipo_extensao(e) else { unreachable!() };
+                let (l, _) = self.emit_expr(*left, None);
+                let ctx_r = self.tipo_ext_parametro(Some(*left), dono, f, 0);
+                let (r, _) = self.emit_expr(*right, ctx_r.as_ref());
+                self.tipo_ext_operador(&l, Some(*left), dono, f, &[r])
+            }
             ExprKind::Binary { op, left, right } => self.emit_binary(*op, *left, *right, expected),
             ExprKind::Conditional { condition, then, else_ } => {
                 self.pending_promotions.clear();
@@ -1331,6 +1352,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if self.ctx.conferencia.is_some() {
             self.conferir_alvo(e, &self.resolve_ident(sym));
         }
+        // Membro de instância de tipo de extensão pelo `this` implícito.
+        if let Some((dono, membro)) = self.membro_de_tipo_extensao(e) {
+            return self.tipo_ext_ler(&Js::prim("$this"), None, dono, membro);
+        }
         match self.alvo_do_identificador(sym, e) {
             IdentTarget::Local(js, ty) => {
                 if let Some(l) = self.lookup_local(sym).cloned() {
@@ -1789,6 +1814,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         match &expr.kind {
             ExprKind::Property { target, name, null_aware } => {
                 let n = self.name(name.sym).to_string();
+                if let Some((dono, membro)) = self.membro_de_tipo_extensao(e) {
+                    let (tjs, _, mut guards) = self.emit_target(*target);
+                    let recv = if *null_aware {
+                        let t = self.temp();
+                        guards.push(Guard { temp: t.clone(), init: tjs.code });
+                        Js::prim(t)
+                    } else {
+                        tjs
+                    };
+                    let (js, ty) = self.tipo_ext_ler(&recv, Some(*target), dono, membro);
+                    let ty = if *null_aware { ty.with_nullable(true) } else { ty };
+                    return (js, ty, guards);
+                }
                 // Casos estáticos: prefixo, classe, enum.
                 if let Some(r) = self.try_static_property(*target, &n) {
                     return (r.0, r.1, vec![]);
@@ -1821,6 +1859,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 } else {
                     (tjs, tty)
                 };
+                if let Some((dono, MemberRef::Function(f))) = self.membro_de_tipo_extensao(e) {
+                    let ctx_i = self.tipo_ext_parametro(Some(*target), dono, f, 0);
+                    let (ijs, _) = self.emit_expr(*index, ctx_i.as_ref());
+                    let (js, ty) = self.tipo_ext_operador(&recv, Some(*target), dono, f, &[ijs]);
+                    let ty = if *null_aware { ty.with_nullable(true) } else { ty };
+                    return (js, ty, guards);
+                }
                 let (ijs, _) = self.emit_expr(*index, None);
                 let (js, ty) = self.emit_index_get(&recv, &recv_ty, &ijs);
                 let ty = if *null_aware { ty.with_nullable(true) } else { ty };
@@ -1944,6 +1989,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// Tearoff de construtor `C<args>.name` como closure.
     pub fn ctor_tearoff(&mut self, c: ClassId, targs: Vec<Ty>, name: &str) -> Option<(Js, Ty)> {
+        if crate::tipo_extensao::e_tipo_extensao_apagado(self.ctx, c) {
+            return self.tipo_ext_tearoff_construtor(c, targs, name);
+        }
         let class = self.ctx.program.class(c);
         let key = if name == "new" { self.ctx.empty_sym } else { self.ctx.sym(name) };
         let fid = *class.constructors.get(&key?)?;
@@ -2004,7 +2052,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
             }
         }
-        // Construtor como tearoff: `C.new`/`C.named`.
+        // Construtor como tearoff: `C.new`/`C.named` (num tipo de extensão,
+        // o primário também, que não é elemento).
+        if crate::tipo_extensao::e_tipo_extensao_apagado(self.ctx, c) {
+            if !crate::tipo_extensao::tem_construtor(self.ctx, c, if name == "new" { "" } else { name }) {
+                return None;
+            }
+            let targs: Vec<Ty> = self.ctx.class_params[c.0 as usize].iter().map(|_| Ty::Dynamic).collect();
+            return self.tipo_ext_tearoff_construtor(c, targs, name);
+        }
         let class = self.ctx.program.class(c);
         let key = if name == "new" { self.ctx.empty_sym } else { self.ctx.sym(name) };
         if let Some(sym) = key {
@@ -2373,6 +2429,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// Tipo estático do alvo de atribuição (sem emitir).
     pub fn target_ty(&mut self, target: ExprId) -> Option<Ty> {
+        if let Some((dono, MemberRef::Function(f))) = self.membro_de_tipo_extensao(target) {
+            let fe = self.ctx.program.function(f);
+            let nome = self.name(fe.name).trim_end_matches("_=").to_string();
+            return match &self.expr(target).kind {
+                ExprKind::Index { target: recv, .. } => self.tipo_ext_parametro(Some(*recv), dono, f, 1),
+                kind => {
+                    let recv = match kind {
+                        ExprKind::Property { target: recv, .. } => Some(*recv),
+                        _ => None,
+                    };
+                    let setter = if fe.kind == FunctionKind::Setter { f } else { self.setter_de_tipo_extensao(dono, &nome)? };
+                    self.tipo_ext_parametro(recv, dono, setter, 0)
+                }
+            };
+        }
         let t = self.expr(target);
         match &t.kind {
             ExprKind::Identifier(n) => match self.resolve_ident(n.sym) {
@@ -2410,6 +2481,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// Atribui `v` ao alvo. Devolve a expressão (cujo valor é `v`).
     pub fn emit_assign_to(&mut self, target: ExprId, v: &Js, vty: &Ty) -> (Js, Ty) {
+        if let Some(r) = self.atribuir_a_tipo_extensao(target, v, vty) {
+            return r;
+        }
         let t = self.expr(target);
         match &t.kind {
             ExprKind::Identifier(n) => {
@@ -2575,6 +2649,51 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
+    /// Escrita num membro de instância de tipo de extensão (`x.s = v`, `s = v`
+    /// no corpo, `x[i] = v`), quando a resolução comum do alvo aponta um.
+    fn atribuir_a_tipo_extensao(&mut self, target: ExprId, v: &Js, vty: &Ty) -> Option<(Js, Ty)> {
+        let (dono, MemberRef::Function(f)) = self.membro_de_tipo_extensao(target)? else { return None };
+        let fe = self.ctx.program.function(f);
+        let nome = self.name(fe.name).trim_end_matches("_=").to_string();
+        match &self.expr(target).kind {
+            ExprKind::Identifier(_) => {
+                let setter = if fe.kind == FunctionKind::Setter { f } else { self.setter_de_tipo_extensao(dono, &nome)? };
+                Some(self.tipo_ext_escrever(&Js::prim("$this"), None, dono, setter, v, vty))
+            }
+            ExprKind::Property { target: recv, null_aware, .. } => {
+                let setter = if fe.kind == FunctionKind::Setter { f } else { self.setter_de_tipo_extensao(dono, &nome)? };
+                let (rjs, _, mut guards) = self.emit_target(*recv);
+                let recv_js = if *null_aware {
+                    let t = self.temp();
+                    guards.push(Guard { temp: t.clone(), init: rjs.code });
+                    Js::prim(t)
+                } else {
+                    rjs
+                };
+                let (js, ty) = self.tipo_ext_escrever(&recv_js, Some(*recv), dono, setter, v, vty);
+                Some((self.wrap_guards(js, guards), ty))
+            }
+            ExprKind::Index { target: recv, index, null_aware } if nome == "[]=" => {
+                let (rjs, _, mut guards) = self.emit_target(*recv);
+                let recv_js = if *null_aware {
+                    let t = self.temp();
+                    guards.push(Guard { temp: t.clone(), init: rjs.code });
+                    Js::prim(t)
+                } else {
+                    rjs
+                };
+                let ctx_i = self.tipo_ext_parametro(Some(*recv), dono, f, 0);
+                let (ijs, _) = self.emit_expr(*index, ctx_i.as_ref());
+                let t = self.temp();
+                let atrib = Js::new(format!("{t} = {}", v.at(P_ASSIGN)), P_ASSIGN);
+                let (call, _) = self.tipo_ext_operador(&recv_js, Some(*recv), dono, f, &[ijs, atrib]);
+                let js = Js::new(format!("({}, {t})", call.code), P_PRIMARY);
+                Some((self.wrap_guards(js, guards), vty.clone()))
+            }
+            _ => None,
+        }
+    }
+
     fn try_static_lvalue(&mut self, recv: ExprId, name: &str) -> Option<(String, bool)> {
         let t = self.expr(recv);
         match &t.kind {
@@ -2676,6 +2795,63 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let (r, rt) = self.emit_expr(target, None);
                 let tgt = target;
                 (r, rt, Box::new(move |s: &mut Self, v: &Js| s.emit_assign_to(tgt, v, &Ty::Dynamic).0))
+            }
+            ExprKind::Property { target: recv, name, .. } if self.membro_de_tipo_extensao(target).is_some() => {
+                // Getter e setter de tipo de extensão: receptor avaliado uma vez.
+                let Some((dono, membro)) = self.membro_de_tipo_extensao(target) else { unreachable!() };
+                let n = self.name(name.sym).to_string();
+                let recv_e = *recv;
+                let (rjs, _, _guards) = self.emit_target(recv_e);
+                let recv_js = if is_simple(&rjs.code) {
+                    rjs.code.clone()
+                } else {
+                    let tmp = self.temp();
+                    self.pending_prefix.push(format!("{tmp} = {}", rjs.code));
+                    tmp
+                };
+                let (r, rt) = self.tipo_ext_ler(&Js::prim(recv_js.clone()), Some(recv_e), dono, membro);
+                let setter = self.setter_de_tipo_extensao(dono, &n);
+                (r, rt, Box::new(move |s: &mut Self, v: &Js| match setter {
+                    Some(f) => s.tipo_ext_escrever(&Js::prim(recv_js.clone()), Some(recv_e), dono, f, v, &Ty::Dynamic).0,
+                    None => v.clone(),
+                }))
+            }
+            ExprKind::Index { target: recv, index, .. } if self.membro_de_tipo_extensao(target).is_some() => {
+                // `x[i] op= v` com `[]`/`[]=` de tipo de extensão.
+                let Some((dono, _)) = self.membro_de_tipo_extensao(target) else { unreachable!() };
+                let recv_e = *recv;
+                let (rjs, _, _guards) = self.emit_target(recv_e);
+                let recv_js = if is_simple(&rjs.code) {
+                    rjs.code.clone()
+                } else {
+                    let tmp = self.temp();
+                    self.pending_prefix.push(format!("{tmp} = {}", rjs.code));
+                    tmp
+                };
+                let ler = self.operador_de_tipo_extensao(dono, "[]");
+                let escrever = self.operador_de_tipo_extensao(dono, "[]=");
+                let ctx_i = ler.and_then(|f| self.tipo_ext_parametro(Some(recv_e), dono, f, 0));
+                let (ijs, _) = self.emit_expr(*index, ctx_i.as_ref());
+                let idx_js = if is_simple(&ijs.code) {
+                    ijs.code.clone()
+                } else {
+                    let tmp = self.temp();
+                    self.pending_prefix.push(format!("{tmp} = {}", ijs.code));
+                    tmp
+                };
+                let (r, rt) = match ler {
+                    Some(f) => self.tipo_ext_operador(&Js::prim(recv_js.clone()), Some(recv_e), dono, f, &[Js::prim(idx_js.clone())]),
+                    None => (Js::prim("null"), Ty::Dynamic),
+                };
+                (r, rt, Box::new(move |s: &mut Self, v: &Js| match escrever {
+                    Some(f) => {
+                        let t = s.temp();
+                        let atrib = Js::new(format!("{t} = {}", v.at(P_ASSIGN)), P_ASSIGN);
+                        let (call, _) = s.tipo_ext_operador(&Js::prim(recv_js.clone()), Some(recv_e), dono, f, &[Js::prim(idx_js.clone()), atrib]);
+                        Js::new(format!("({}, {t})", call.code), P_PRIMARY)
+                    }
+                    None => v.clone(),
+                }))
             }
             ExprKind::Property { target: recv, name, null_aware } => {
                 let n = self.name(name.sym).to_string();
@@ -2906,6 +3082,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             // Sem `-D` na linha de comando, nenhuma variável está declarada.
             return (Js::prim("false"), self.ctx.t_bool());
         }
+        if crate::tipo_extensao::e_tipo_extensao_apagado(self.ctx, class) {
+            let _ = is_const;
+            return self.tipo_ext_construir(class, class_args, explicit_args, ctor_name, arguments, expected);
+        }
         let cls = self.ctx.program.class(class);
         let key = if ctor_name.is_empty() { self.ctx.empty_sym } else { self.ctx.sym(ctor_name) };
         let fid = key.and_then(|k| cls.constructors.get(&k).copied());
@@ -2949,6 +3129,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             self.interop_args = fid.is_some_and(|f| self.ctx.is_js_member(f));
             let (arg_js, _arg_tys) = self.emit_args_infer(&ctor_fn, arguments, &free, &mut subst, expected);
             self.interop_args = saved_interop;
+            self.restringir_pelos_limites(params, &free, &mut subst);
             for p in params {
                 let t = subst.get(&p.id).cloned().unwrap_or_else(|| self.default_type_arg(&p.bound));
                 targs.push(t.clone());
