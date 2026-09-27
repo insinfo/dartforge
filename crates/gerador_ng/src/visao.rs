@@ -2313,6 +2313,14 @@ struct Corpo<'a> {
     campos_expr: Vec<String>,
     /// Campos `late final T _el_n` dos elementos com ligação.
     campos_el: Vec<String>,
+    /// Campos dos nós desta visão embutida que são resultado de consulta
+    /// dinâmica da visão do componente, com a posição da consulta em
+    /// [`Corpo::refs_consultados`]: o oficial os promove a campo quando a
+    /// visão do componente escreve o `mapNestedViews`
+    /// (`replaceReadClassMemberInExpression`), antes de promover os nós que
+    /// as ligações desta visão leem — vêm antes de [`Corpo::campos_el`],
+    /// na ordem das consultas.
+    campos_el_consultados: Vec<(usize, String)>,
     /// Campos dos nós que uma visão embutida lê (`#ref` desta visão lido de
     /// dentro de um `*`), com o nome: vão entre os `_expr_k`, na posição
     /// de [`Corpo::posicao_de_embutida`] ([`citado_em_embutidas`]).
@@ -2687,8 +2695,29 @@ impl Corpo<'_> {
     }
 
     /// Converte uma expressão das ligações da detecção; os locais que ela lê
-    /// entram na lista da raiz, na ordem do primeiro uso.
+    /// entram na lista da raiz, na ordem do primeiro uso. A chamada com
+    /// argumento nomeado, que o formatador quebra em linhas
+    /// ([`crate::expr::QUEBRA`]), fica para quem sabe onde ela cai
+    /// ([`Self::converter_quebravel`]).
     fn converter(
+        &mut self,
+        texto: &str,
+        motivo: Motivo,
+    ) -> Result<crate::expr::Convertida, Recusa> {
+        let c = self.converter_quebravel(texto, motivo)?;
+        if c.texto.contains(crate::expr::QUEBRA) {
+            return Err(recusa(
+                motivo,
+                "chamada com argumento nomeado fora de `final currVal`, evento ou interpolação",
+            ));
+        }
+        Ok(c)
+    }
+
+    /// Como [`Self::converter`], mas aceita a chamada que quebra: para
+    /// quem a escreve sozinha numa instrução (`final currVal_k = …;`) ou
+    /// trata a indentação dela.
+    fn converter_quebravel(
         &mut self,
         texto: &str,
         motivo: Motivo,
@@ -2816,7 +2845,9 @@ impl Corpo<'_> {
     /// para a mensagem de "expressão mudou depois da checagem".
     fn propriedade(&mut self, l: &crate::html::Ligacao, alvo: &str) -> Result<Ligada, Recusa> {
         let url = self.url(Motivo::Ligacao)?;
-        let convertida = self.converter(&l.valor, Motivo::Ligacao)?;
+        // A chamada (que pode quebrar) nunca é imutável: sai sozinha no
+        // `final currVal_k = …;`.
+        let convertida = self.converter_quebravel(&l.valor, Motivo::Ligacao)?;
         // O texto que vai no `checkBinding` é a fonte da ligação como
         // escrita (`ASTWithSource.source`), num literal Dart.
         let expr = literal(&l.valor);
@@ -3909,7 +3940,11 @@ impl Corpo<'_> {
                         (literal(&l.valor), false)
                     }
                 } else {
-                    let c = self.converter(&l.valor, motivo)?;
+                    // Só a dinâmica (`final currVal_k = …;`) pode quebrar.
+                    let c = self.converter_quebravel(&l.valor, motivo)?;
+                    if c.imutavel && c.texto.contains(crate::expr::QUEBRA) {
+                        return Err(recusa(motivo, "chamada com argumento nomeado imutável"));
+                    }
                     if !c.imutavel {
                         let expr = literal(&l.valor);
                         let chk = tardio(CHECK_BINDING);
@@ -4628,7 +4663,8 @@ impl Corpo<'_> {
         if pai.is_empty() && !raiz_embutida {
             return Err(recusa(Motivo::Projecao, "interpolação projetada solta"));
         }
-        let convertida = self.converter(expr, Motivo::Interpolacao)?;
+        let convertida = self.converter_quebravel(expr, Motivo::Interpolacao)?;
+        let quebra = convertida.texto.contains(crate::expr::QUEBRA);
         if raiz_embutida && convertida.imutavel {
             return Err(recusa(
                 Motivo::Interpolacao,
@@ -4689,6 +4725,16 @@ impl Corpo<'_> {
                 .push(format!("    {pai}.append(this._textBinding_{n}.element);"));
         }
         let acesso = convertida.texto;
+        // A chamada que quebra dentro de `interpolateString0(..)` ganha a
+        // indentação de continuação do formatador (+4, caso j21); dentro de
+        // `updateTextWithPrimitive(..)`, sem caso.
+        if quebra && (primitivo_mutavel || convertida.imutavel) {
+            return Err(recusa(
+                Motivo::Interpolacao,
+                "chamada com argumento nomeado em interpolação primitiva",
+            ));
+        }
+        let acesso = crate::expr::recuar(&acesso, 4);
         let atualizacao = if primitivo_mutavel {
             format!("updateTextWithPrimitive({acesso})")
         } else {
@@ -5190,9 +5236,16 @@ impl Corpo<'_> {
         } else {
             let html = self.html.clone();
             let campo = format!("  late final {html}.{tipo} _el_{n};");
-            match lido_de_embutida {
-                Some(nome) => self.campos_el_de_embutidas.push((nome, campo)),
-                None => self.campos_el.push(campo),
+            let consultado = e
+                .referencias
+                .iter()
+                .filter(|r| r.valor.is_empty())
+                .filter_map(|r| self.refs_consultados.iter().position(|(n, _, _)| *n == r.nome))
+                .min();
+            match (lido_de_embutida, consultado) {
+                (Some(nome), _) => self.campos_el_de_embutidas.push((nome, campo)),
+                (None, Some(k)) => self.campos_el_consultados.push((k, campo)),
+                (None, None) => self.campos_el.push(campo),
             }
             self.linhas.push(format!("    this._el_{n} = {criacao};"));
             format!("this._el_{n}")
@@ -6310,6 +6363,7 @@ impl<'a> Contexto<'a> {
             vistas_hospedeiras: Default::default(),
             campos_expr: Vec::new(),
             campos_el: Vec::new(),
+            campos_el_consultados: Vec::new(),
             campos_el_de_embutidas: Vec::new(),
             refs_de_embutidas: Default::default(),
             posicao_de_embutida: Default::default(),
@@ -6587,7 +6641,8 @@ fn corpo_da_embutida(
         .collect::<Vec<_>>()
         .join("\n");
     // Mesma ordem da visão de topo: ligações de texto, visões-filhas e
-    // âncoras, valores anteriores, elementos.
+    // âncoras, valores anteriores, elementos (os resultados de consulta
+    // antes dos ligados).
     let mut todos = dentro.campos.clone();
     todos.extend(dentro.campos_filho.clone());
     todos.extend(campos_da_deteccao(
@@ -6596,6 +6651,9 @@ fn corpo_da_embutida(
         &dentro.posicao_de_embutida,
     ));
     todos.extend(ctx.pipes.campos(espec.indice, dentro.imp));
+    let mut consultados = dentro.campos_el_consultados.clone();
+    consultados.sort_by_key(|(k, _)| *k);
+    todos.extend(consultados.into_iter().map(|(_, c)| c));
     todos.extend(dentro.campos_el.clone());
     let campos = if todos.is_empty() {
         String::new()
@@ -7533,7 +7591,7 @@ pub fn montar_arquivo(arquivo: &str, imp: &Importacoes, trechos: &[String]) -> S
     for t in trechos {
         s.push_str(t);
     }
-    s
+    crate::expr::resolver_quebras(&s)
 }
 
 /// Todas as recusas deste componente, não só a primeira: roda a mesma
@@ -7829,7 +7887,7 @@ fn gerar_componente(
             continue;
         }
         match crate::css::shim(texto) {
-            Ok(t) => em_linha.push(format!("'{t}'")),
+            Ok(t) => em_linha.push(literal(&t)),
             Err(_) => anotar(
                 coleta,
                 recusa(Motivo::Estilos, "Sass ou CSS fora do subconjunto"),

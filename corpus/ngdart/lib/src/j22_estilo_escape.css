@@ -1,0 +1,7 @@
+.icone::after {
+  content: "\e939";
+}
+
+.aspas::before {
+  content: 'a';
+}

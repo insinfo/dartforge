@@ -1,0 +1,1 @@
+final List<Object> styles = ['.icone::after {\n  content: "\\e939";\n}\n\n.aspas::before {\n  content: \'a\';\n}\n'];

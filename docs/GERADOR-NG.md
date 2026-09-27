@@ -306,6 +306,37 @@ com o nome de um membro: o local é o nó, tipado pelo membro, como o
 construção (o código gerado é o dele); o e2e em navegador segue sendo o
 do limitless_ui no Pesado.
 
+NG05 (j14–j16): `read: ElementRef` em consulta dinâmica, filho `onPush`
+em `*` (o `View.queryChangeDetectorRefs` antes do `return` do
+`mapNestedViews`) e consultas estáticas e dinâmicas no mesmo componente:
+227 conferidos.
+
+Placar do `limitless_ui/example` (2026-09-27, `dartforge build --comparar`
+contra o `build_runner` oficial da revisão `9e38173`): 427 `.template.dart`
+iguais, 103 recusados e **2 diferentes**, mais 1 `.css.shim.dart`
+diferente. Os quatro defeitos achados viraram sondas (j18–j22, oráculo
+oficial) e foram corrigidos:
+
+- o `\` e a aspa simples da folha não eram escapados na string Dart do
+  `.css.shim.dart` (`content:"\e939"` perdia o ícone: **comportamento**
+  errado) — agora é o `escapeSingleQuoteString` do emissor (j22);
+- o `REF` de um atributo sem valor seguido de quebra de linha incluía o
+  espaço até o próximo atributo (j20);
+- o nó de uma visão embutida que é resultado de `@ViewChild` dinâmico vira
+  campo antes dos nós que só as ligações leem: o oficial o promove
+  (`promoteToClassMember`) quando a visão do componente escreve o
+  `mapNestedViews` (j18);
+- a chamada com argumento nomeado sai quebrada como o `DartFormatter`
+  (dart_style 2.3.8, página de 1.000.000 colunas) do builder a deixa: o
+  emissor põe vírgula depois de cada nomeado e a vírgula final quebra a
+  lista, um argumento por linha; dentro de `interpolateString0(..)` com a
+  indentação de continuação (+4). Em outros lugares (operador, acesso,
+  argumento de chamada sem nomeado, entrada direta do `NgIf`) é recusada
+  (j21).
+
+Depois: 429 `.template.dart` e 13 `.css.shim.dart` iguais, **0
+diferentes**; 233 conferidos no corpus.
+
 ### Diretivas estruturais
 
 | forma | estado | casos |
@@ -341,6 +372,9 @@ do limitless_ui no Pesado.
 | `[(x)]` em componente filho (`@Input x` + `@Output xChange`) | gerado (desfeito como o `DesugarVisitor`) | i59 |
 | `[ngClass]`, `[ngStyle]` (diretivas com `DoCheck`) | gerado | i11, i12, i41 |
 | `?.`, `??`, ternário, getters | gerado | i13, i23, i34 |
+| chamada com argumento nomeado (evento, `final currVal_k`, `interpolateString0`, aninhada em outra com nomeado) | gerado (quebrada como o `DartFormatter` do builder: um argumento por linha, vírgula final) | j21 |
+| chamada com argumento nomeado dentro de operador, acesso, argumento de chamada sem nomeado ou entrada direta | recusado (indentação do formatador sem caso) | — |
+| atributo sem valor que casa entrada de diretiva | gerado (`REF` só do nome) | j20 |
 
 ### Referências e consultas
 
@@ -415,7 +449,8 @@ do limitless_ui no Pesado.
    no oráculo do i76), a dependência de fora do nó (elementos acima e
    `parentView!.injectorGet(.., this.parentIndex)`, i78) e o filho que
    injeta o próprio provedor (i77).
-3. Consultas dinâmicas com filho `onPush` ou misturadas com estáticas.
+3. Consultas dinâmicas com resultados em visões diferentes (a árvore
+   `_NestedQueryValues` do `compile_query.dart`: j17).
 
 O oráculo das sondas se regenera como os outros casos
 (`scripts/corpus-ngdart.ps1`): criar o `.dart` e o `.html` em

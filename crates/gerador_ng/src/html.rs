@@ -408,8 +408,12 @@ impl<'a> Parser<'a> {
             return None;
         }
         let nome = self.fonte[inicio..self.i].to_string();
+        let fim_do_nome = self.i;
         self.pular_espacos();
         if self.fim() || self.olhar(0) != b'=' {
+            // Sem valor, o intervalo do atributo (o do `REF`) é só o nome:
+            // o espaço até o próximo fica fora.
+            self.i = fim_do_nome;
             return Some((nome, String::new()));
         }
         self.i += 1;

@@ -1308,7 +1308,9 @@ fn trecho_do_componente(
         ));
         folhas.push((
             destino,
-            format!("final List<Object> styles = ['{shim}'];"),
+            // `escapeSingleQuoteString` do emissor: o `\e939` de um
+            // `content:` sai `\\e939`, a aspa simples `\'` e o `$` `\$`.
+            format!("final List<Object> styles = [{}];", visao::literal(&shim)),
             entrada,
         ));
     }

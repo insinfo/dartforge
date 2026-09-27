@@ -92,6 +92,52 @@ impl Convertida {
     }
 }
 
+/// Quebra de linha do `DartFormatter` (dart_style 2.3.8, página de
+/// 1.000.000 colunas) que o builder do ngdart roda sobre a saída: com a
+/// página infinita, só a vírgula final de uma lista de argumentos a quebra,
+/// e o emissor escreve vírgula depois de cada argumento nomeado
+/// (`visitAllNamedExpressions`). A marca é [`QUEBRA`] seguida de um
+/// [`RECUO`] por espaço além da indentação da linha onde a expressão está,
+/// que só se conhece quando o arquivo está montado
+/// ([`resolver_quebras`]).
+pub const QUEBRA: char = '\u{10}';
+pub const RECUO: char = '\u{11}';
+
+/// Soma `n` espaços a cada [`QUEBRA`] de `t`.
+pub fn recuar(t: &str, n: usize) -> String {
+    let mais: String = std::iter::repeat_n(RECUO, n).collect();
+    t.replace(QUEBRA, &format!("{QUEBRA}{mais}"))
+}
+
+/// Troca cada [`QUEBRA`] pela quebra de linha com a indentação da linha
+/// em que está mais os [`RECUO`]s dela.
+pub fn resolver_quebras(texto: &str) -> String {
+    if !texto.contains(QUEBRA) {
+        return texto.to_string();
+    }
+    let mut saida = String::with_capacity(texto.len() + texto.len() / 8);
+    for (k, linha) in texto.split('\n').enumerate() {
+        if k > 0 {
+            saida.push('\n');
+        }
+        let base = linha.len() - linha.trim_start_matches(' ').len();
+        let mut chars = linha.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c != QUEBRA {
+                saida.push(c);
+                continue;
+            }
+            let mut n = base;
+            while chars.next_if_eq(&RECUO).is_some() {
+                n += 1;
+            }
+            saida.push('\n');
+            saida.extend(std::iter::repeat_n(' ', n));
+        }
+    }
+    saida
+}
+
 /// Junta listas de locais mantendo a primeira ocorrência de cada um.
 fn juntar(partes: &[&[String]]) -> Vec<String> {
     let mut saida: Vec<String> = Vec::new();
@@ -429,6 +475,19 @@ impl Conversor<'_> {
     /// `raiz` diz se este nó é o receptor implícito — só aí um identificador
     /// vira `_ctx.nome`; em `a.b`, o `b` é membro de `a`.
     fn expr(&self, id: ast::ExprId, raiz: bool) -> Result<Convertida, Recusa> {
+        let v = self.expr_do_no(id, raiz)?;
+        // A chamada que quebra ([`QUEBRA`]) só como a expressão inteira ou
+        // argumento de outra chamada: dentro de operador, acesso ou
+        // condicional o formatador a indenta de outro jeito, sem caso.
+        if v.texto.contains(QUEBRA)
+            && !matches!(self.ast.expr(id).kind, ast::ExprKind::Call { .. })
+        {
+            return Err(fora("chamada com argumento nomeado dentro de expressão"));
+        }
+        Ok(v)
+    }
+
+    fn expr_do_no(&self, id: ast::ExprId, raiz: bool) -> Result<Convertida, Recusa> {
         let e = self.ast.expr(id);
         match &e.kind {
             // `LiteralPrimitive`: imutável e nunca nulo (`canBeNull`). O tipo
@@ -605,6 +664,25 @@ impl Conversor<'_> {
                         None => args.push(v.texto),
                     }
                 }
+                // Com argumento nomeado a lista termina em vírgula e o
+                // formatador põe um argumento por linha, dois espaços para
+                // dentro (e o que já quebrava dentro deles, junto). Numa
+                // lista sem nomeado, um argumento que quebra ganharia a
+                // indentação de continuação — forma sem caso no corpus.
+                let nomeado = arguments.args.iter().any(|a| a.name.is_some());
+                if !nomeado && args.iter().any(|a| a.contains(QUEBRA)) {
+                    return Err(fora("chamada com argumento nomeado dentro de argumento"));
+                }
+                let lista = if nomeado {
+                    let mut l: String = args
+                        .iter()
+                        .map(|a| format!("{QUEBRA}{RECUO}{RECUO}{},", recuar(a, 2)))
+                        .collect();
+                    l.push(QUEBRA);
+                    l
+                } else {
+                    args.join(", ")
+                };
                 // O alvo de uma chamada pode ser um método da classe, que não
                 // vale como valor solto. O tipo é o do `_TypeResolver`: o
                 // retorno do método (`visitMethodCall`); campo ou local
@@ -648,7 +726,7 @@ impl Conversor<'_> {
                 Ok(Convertida {
                     tipo: retorno,
                     locais: juntar(&[&locais_args, &locais_alvo]),
-                    ..Convertida::nova(format!("{alvo}({})", args.join(", ")), "chamada")
+                    ..Convertida::nova(format!("{alvo}({lista})"), "chamada")
                 })
             }
             ast::ExprKind::Unary { op, operand } => {

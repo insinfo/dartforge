@@ -1,0 +1,1 @@
+final List<Object> styles = ['.icone._ngcontent-%ID%::after{content:"\\e939"}.aspas._ngcontent-%ID%::before{content:\'a\'}'];

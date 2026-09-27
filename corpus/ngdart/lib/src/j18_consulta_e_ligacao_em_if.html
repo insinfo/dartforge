@@ -1,0 +1,8 @@
+<div *ngIf="a" class="topo">
+    <div #area class="cor" [class.ativa]="marcado" (mousedown)="descer($event)">
+        <div class="ponto" [class.oculto]="marcado"></div>
+    </div>
+    <div #matiz class="matiz" (mousedown)="descer($event)">
+        <div class="barra" [class.oculto]="!marcado"></div>
+    </div>
+</div>
