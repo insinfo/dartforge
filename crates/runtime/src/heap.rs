@@ -1016,7 +1016,7 @@ pub struct QuadroDeRaizes {
 /// chamada (`llvm/mod.rs`): a exceção pendente (espelho de
 /// `excecoes::EXCEPTION`, conferido depois de cada chamada) e o topo da
 /// pilha-sombra desta thread (do isolado dela). O endereço vem de
-/// [`dartforge_contexto`], uma vez por ativação; não muda enquanto a
+/// `dartforge_contexto`, uma vez por ativação; não muda enquanto a
 /// thread vive. Os deslocamentos são contrato com o emissor.
 #[repr(C)]
 pub struct Contexto {

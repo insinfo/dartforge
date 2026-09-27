@@ -7,7 +7,7 @@
 //! substituídos (*regular-bounded*). Se não for, e o lugar aceita tipo
 //! *super-bounded* (não é `extends`/`with`/`implements`/`on`, criação de
 //! instância, corpo de `typedef` nem tipo de extensão), o tipo invertido
-//! ([`invertido`]: topo por `Never` nas posições não contravariantes, fundo
+//! (`invertido`: topo por `Never` nas posições não contravariantes, fundo
 //! por `Object?` nas contravariantes) é conferido do mesmo jeito, e são os
 //! argumentos e limites invertidos que o diagnóstico mostra.
 //!

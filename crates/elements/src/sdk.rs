@@ -321,7 +321,12 @@ mod tests {
         };
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sdk_nativo");
         let sdk = SdkLayout::load_com_sobreposicao(&lib, &dir, "dartforge_nativo").unwrap();
-        assert_eq!(sdk.substituicoes.len(), 20);
+        // Uma substituição por entrada de `substitui` no libraries.json.
+        let json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("libraries.json")).unwrap()).unwrap();
+        let esperadas = json["dartforge_nativo"]["substitui"].as_object().unwrap().len();
+        assert_eq!(sdk.substituicoes.len(), esperadas);
+        assert!(esperadas >= 20);
         let async_patch = &sdk.library("async").unwrap().patches[0];
         let novo = sdk.substituto(async_patch).expect("async_patch trocado");
         assert!(novo.ends_with("async_patch.dart") && novo.starts_with(crate::load::normalizar(&dir)));
