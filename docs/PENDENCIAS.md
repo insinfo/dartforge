@@ -23,7 +23,7 @@ definição de escopo do produto antes de implementar).
 | N09 compostos em VarArgs | feito | structs na parte variádica pela regra do alvo (`abi_c::argumento_variadico`: igual ao fixo, exceto a HFA no arm64 da Apple, que vai como inteiros, como no clang); as peças não entram no tipo `ret (fixos, ...)`. `corpus/nativo/17`: par de `Int32` e par de `Double` num `snprintf`, iguais à VM no AOT, no JIT e com --gc-stress. |
 | N10 closures tipadas | feito | corpo tipado + entrada uniforme, ABI conferida no cabeçalho da closure (`corpus/nativo/28`); `closures` 110 → 40 ms. |
 | N11 especialização contextual | parcial | `sort` de `List<int>`, despacho de poucos alvos (P2) e `add` sem caixa; falta especializar consumidores genéricos do SDK pelo chamador. |
-| N12 inlining com exceção | aberto | o inliner ainda aceita só funções que não lançam. |
+| N12 inlining com exceção | feito | o inliner copia também as funções que lançam: a saída excepcional da cópia é um `return` que vira desvio para a continuação, onde a conferência que seguia a chamada leva a exceção ao tratador de quem chama (`otimizar/inline.rs`, NATIVO-PLANO §8.1). Corpus nativo, --gc-stress e JIT 233/233; try/catch/finally em volta de funções copiadas (lançando em construtor, getter, `!`, `~/`) iguais à VM; `mapa` 1,09–1,17×, `arvores` 1,03–1,11× mais rápidos. |
 | N13 provas de intervalo | parcial | comprimento/dados pelo cabeçalho fixo (sem chamada por acesso); falta retirar as conferências repetidas sob prova. |
 | N14 listas escalares compactas | aberto | elementos continuam `TaggedValue` de 16 bytes. |
 | N15 Windows sem MSVC | aberto | |

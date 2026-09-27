@@ -1672,9 +1672,17 @@ produção e JIT); `DARTFORGE_OTIMIZAR_HIR=0` desliga para comparar.
    nome, conferidas no fim do comando, desligam isso na função). As
    alocações simples do runtime estão marcadas sem lançar
    (`ALOCA_SEM_LANCAR`, conferidas no código de cada uma).
-3. **Inlining** (`inline.rs`) das funções pequenas do módulo que não lançam:
-   construtores, getters, operadores. Sem caminho de exceção no corpo
-   copiado, não há o que religar aos `catch`/`finally` de quem chama.
+3. **Inlining** (`inline.rs`) das funções pequenas do módulo (até 40
+   instruções): construtores, getters, operadores, **também as que lançam**
+   (N12). Quem lança deixa a exceção pendente e retorna; a saída excepcional
+   do corpo copiado é um `return` como os outros, que vira desvio para a
+   continuação, e a conferência que seguia a chamada — que fica lá — leva a
+   exceção ao `catch`/`finally` de quem chama, como antes; nada a religar.
+   A cópia de quem pode lançar mantém o `dartforge_exception_clear` dos
+   retornos (o do `finally`); o terminador `Throw` não é copiado. Medido
+   contra o inlining só de quem não lança (AOT `--optimize`, duas rodadas
+   alternadas): `mapa` 1,09–1,17×, `arvores` 1,03–1,11×, `conjunto_str`,
+   `construir` e `lista_sort` ~1,05×; o resto no ruído.
 4. **Substituição escalar** (`escape.rs`): um objeto criado na função cujo
    único uso é ler e gravar os próprios campos por índice constante não
    escapa — ninguém observa a identidade dele (nem `==`, nem `is`, nem o
