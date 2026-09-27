@@ -589,7 +589,12 @@ fn membros(rel: &mut Relato<'_>, ast: &Ast, ctx: &mut Contexto) {
             MemberKind::Method(f) => {
                 let f = ast.function(*f);
                 let Some(n) = f.name else { continue };
-                let nome = rel.nome(n);
+                let mut nome = rel.nome(n);
+                // `operator -()` é o `unary-` do analyzer, outro nome que o
+                // `operator -(x)` binário: os dois convivem.
+                if f.kind == FunctionKind::Operator && nome == "-" && f.parameters.as_ref().is_some_and(|p| p.is_empty()) {
+                    nome = "unary-".to_string();
+                }
                 let tipo = tipo_da_funcao(f.kind);
                 let (g, s) = if f.static_ { (&mut ctx.sg, &mut ctx.ss) } else { (&mut ctx.ig, &mut ctx.is) };
                 rel.conferir(g, Some(s), &nome, n.span, Elem { tipo, ..OUTRO });
@@ -685,5 +690,12 @@ mod testes {
         assert!(rodar("int get g => 1;\nset g(int v) {}\nclass C { int get x => 1; set x(int v) {} }\n").is_empty());
         let r = rodar("class C { int x = 0; set x(int v) {} }\n");
         assert_eq!(r.len(), 1, "{r:?}");
+    }
+
+    #[test]
+    fn menos_unario_e_binario_convivem() {
+        // pointycastle `ECFieldElement`: `operator -(b)` e `operator -()`.
+        assert!(rodar("abstract class E { E operator -(E b); E operator -(); }\n").is_empty());
+        assert_eq!(rodar("abstract class E { E operator -(); E operator -(); }\n").len(), 1);
     }
 }

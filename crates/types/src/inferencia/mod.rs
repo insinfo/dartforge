@@ -336,8 +336,7 @@ impl<'a> BodyInferrer<'a> {
         if let Some((unit, init)) = self.inicializador(vid) {
             let mut cx = Corpo::para_variavel(self, vid, unit);
             let t = expr::inferir(self, &mut cx, init, declarado);
-            let span = self.span_expr(unit, init);
-            self.verificar_atribuivel(t, declarado, span, crate::codes::INVALID_ASSIGNMENT.template);
+            expr::verificar_atribuivel_expr(self, &cx, init, t, declarado, crate::codes::INVALID_ASSIGNMENT.template);
         }
     }
 
@@ -357,7 +356,12 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// Extensões acessíveis numa biblioteca: as declaradas nela (inclusive as
-    /// sem nome) e as importadas, com ou sem prefixo.
+    /// sem nome) e as que um import não adiado traz no seu espaço de nomes
+    /// (com ou sem prefixo, depois de `show`/`hide`). Como na especificação
+    /// de extensões, o nome não precisa estar visível no escopo: duas
+    /// `IterableExtension` importadas (a do `package:collection` e a do
+    /// próprio analyzer) conflitam como nome, mas as duas continuam
+    /// aplicáveis implicitamente.
     pub(crate) fn extensoes_acessiveis(&mut self, lib: LibraryId) -> Rc<[ExtensionId]> {
         if let Some(e) = self.extensoes.get(&lib.0) {
             return e.clone();
@@ -374,6 +378,7 @@ impl<'a> BodyInferrer<'a> {
                 empurrar(ExtensionId(i as u32), &mut v);
             }
         }
+        // O escopo traz também o `dart:core` implícito (que não é diretiva).
         let mut nomes: Vec<(&SymbolId, &dartforge_elements::model::Binding)> = l.scope.iter().collect();
         nomes.sort_by_key(|(s, _)| s.as_u32());
         for (_, b) in nomes {
@@ -381,10 +386,17 @@ impl<'a> BodyInferrer<'a> {
                 empurrar(e, &mut v);
             }
         }
-        let mut prefixos: Vec<_> = l.prefixes.iter().collect();
-        prefixos.sort_by_key(|(s, _)| s.as_u32());
-        for (_, ns) in prefixos {
-            let mut nomes: Vec<_> = ns.iter().collect();
+        for import in l.imports.iter().filter(|i| !i.deferred) {
+            let exportados = &self.program.library(import.library).exported;
+            let mut nomes: Vec<_> = exportados
+                .iter()
+                .filter(|(s, _)| {
+                    import.combinators.iter().all(|c| match c {
+                        ast::Combinator::Show(ns) => ns.iter().any(|n| n.sym == **s),
+                        ast::Combinator::Hide(ns) => !ns.iter().any(|n| n.sym == **s),
+                    })
+                })
+                .collect();
             nomes.sort_by_key(|(s, _)| s.as_u32());
             for (_, b) in nomes {
                 if let Some(dartforge_elements::model::Element::Extension(e)) = b.getter {
@@ -404,6 +416,18 @@ impl<'a> BodyInferrer<'a> {
     pub(crate) fn aviso(&mut self, msg: String, span: Span) {
         self.diagnostics.push(Diagnostic::new(msg, span));
         self.unidades_dos_avisos.push(self.unidade_corrente);
+    }
+
+    /// Uso sem checagem de nulo de um receptor potencialmente anulável
+    /// (`codigo`, um dos `UNCHECKED_…_OF_NULLABLE_VALUE`); com o receptor do
+    /// tipo `Null`, é o `INVALID_USE_OF_NULL_VALUE` (sem argumentos), no
+    /// mesmo lugar.
+    pub(crate) fn aviso_de_nulo(&mut self, recv: TypeId, codigo: dartforge_diagnostics::Codigo, span: Span, args: &[&str]) {
+        if matches!(self.table.get(recv), crate::table::Type::Null) {
+            self.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::INVALID_USE_OF_NULL_VALUE, span, &[]);
+        } else {
+            self.aviso_com_codigo(codigo, span, args);
+        }
     }
 
     /// Aviso já com o código do analyzer, a mensagem oficial e os

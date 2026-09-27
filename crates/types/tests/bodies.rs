@@ -216,7 +216,12 @@ fn verificar_diagnostico(codigo_dart: &str, diagnostic_esperado: DiagnosticCode)
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
 
-    let encontrou = diags.iter().any(|d| d.message.contains(diagnostic_esperado.template));
+    // O diagnóstico pode sair com o molde de `types::codes` ou já com o
+    // código do analyzer (mensagem oficial em inglês).
+    let encontrou = diags.iter().any(|d| {
+        d.message.contains(diagnostic_esperado.template)
+            || d.code.is_some_and(|c| c.info().nome == diagnostic_esperado.name)
+    });
     assert!(
         encontrou,
         "Esperava diagnóstico '{}', mas obteve:\n{:?}",
@@ -1363,10 +1368,11 @@ fn negativos_do_analyzer_40_casos() {
         CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE,
     );
 
-    // 35. INVALID_NULL_AWARE_OPERATOR: bang (!) em tipo garantidamente não-nulo
+    // 35. UNNECESSARY_NON_NULL_ASSERTION: bang (!) em tipo garantidamente não-nulo
+    // (o analyzer não usa `invalid_null_aware_operator` para o `!`).
     verificar_diagnostico(
         "void main() { int x = 1; var y = x!; }",
-        INVALID_NULL_AWARE_OPERATOR,
+        UNNECESSARY_NON_NULL_ASSERTION,
     );
 
     // 36. INVALID_NULL_AWARE_OPERATOR: ?. em int não-nulo
@@ -1558,4 +1564,204 @@ fn new_sali_tipa() {
         );
         assert!(total_exprs > 0, "new_sali {label} deve conter expressões em corpos");
     }
+}
+
+/// Diagnósticos de corpo de uma fonte sobre o SDK simulado.
+fn diagnosticos_de(fonte: &str) -> Vec<dartforge_diagnostics::Diagnostic> {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline).1
+}
+
+#[test]
+fn membro_herdado_usa_a_declaracao_mais_especifica() {
+    // `CompilationUnitElement implements UriReferencedElement implements
+    // _ExistingElement implements Element`: o `library` não anulável de
+    // `_ExistingElement` sobrescreve o anulável de `Element`, declarado antes.
+    let fonte = "library test; import 'dart:core';
+        class Lib { int get n => 0; }
+        abstract class Elem { Lib? get library; }
+        abstract class Existe implements Elem { Lib get library; }
+        abstract class Uri implements Existe {}
+        abstract class Unit implements Uri, Elem {}
+        int f(Unit u) => u.library.n;";
+    let diags = diagnosticos_de(fonte);
+    assert!(diags.is_empty(), "{diags:?}");
+}
+
+#[test]
+fn criacao_de_nome_que_nao_e_classe() {
+    let fonte = "library test; import 'dart:core'; class C<T> { m() => new T(); } void f() { new A(); const B.x(); }";
+    let diags = diagnosticos_de(fonte);
+    let criacoes: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code.is_some_and(|c| c.info().nome == "creation_with_non_type"))
+        .map(|d| (&fonte[d.span.start..d.span.end], d.message.as_str()))
+        .collect();
+    assert_eq!(
+        criacoes,
+        vec![
+            ("T", "The name 'T' isn't a class."),
+            ("A", "The name 'A' isn't a class."),
+            ("B.x", "The name 'x' isn't a class."),
+        ],
+        "{diags:?}"
+    );
+}
+
+#[test]
+fn extensoes_homonimas_importadas_continuam_aplicaveis() {
+    // `package:collection` e o analyzer declaram, cada um, uma
+    // `IterableExtension`: o nome conflita, os membros continuam acessíveis.
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    fs::write(tmp.path().join("a.dart"), "library a; extension E on String { int get primeiro => 0; }").unwrap();
+    fs::write(tmp.path().join("b.dart"), "library b; extension E on String { int get segundo => 0; }").unwrap();
+    let main_dart = tmp.path().join("main.dart");
+    fs::write(
+        &main_dart,
+        "library test; import 'dart:core'; import 'a.dart'; import 'b.dart'; int f(String s) => s.primeiro + s.segundo;",
+    )
+    .unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+    assert!(diags.is_empty(), "{diags:?}");
+}
+
+#[test]
+fn casos_que_dividem_o_corpo_e_caso_irrefutavel_atribuem() {
+    // Variável de junção de `case`s que dividem o corpo (dart_style), e
+    // `case _:` que torna inalcançável a saída sem casamento.
+    let fonte = "library test; import 'dart:core';
+        class A { int? i; int? j; }
+        int f(Object o) {
+          switch (o) {
+            case A a when a.i != null:
+            case A a when a.j != null:
+              return a.i ?? 0;
+          }
+          return 0;
+        }
+        int g(Object o) {
+          int x;
+          switch (o) {
+            case int _:
+              x = 1;
+            case _:
+              x = 0;
+          }
+          return x;
+        }";
+    let diags = diagnosticos_de(fonte);
+    assert!(diags.is_empty(), "{diags:?}");
+}
+
+#[test]
+fn membro_estatico_por_instancia() {
+    let fonte = "library test; import 'dart:core'; class C { static void a() {} static int get g => 0; } void f(C c) { c.a(); c.g; }";
+    let diags = diagnosticos_de(fonte);
+    let v: Vec<_> = diags.iter().map(|d| (&fonte[d.span.start..d.span.end], d.message.as_str())).collect();
+    assert_eq!(
+        v,
+        vec![
+            ("a", "The static method 'a' can't be accessed through an instance."),
+            ("g", "The static getter 'g' can't be accessed through an instance."),
+        ],
+        "{diags:?}"
+    );
+}
+
+#[test]
+fn constante_em_case_e_promocao_no_lado_direito_de_se_nulo() {
+    // `case _k:` lê a constante (não declara `_k` sem valor); `o ??= a!`
+    // não promove `a` depois do comando (o lado direito pode não rodar).
+    let fonte = "library test; import 'dart:core';
+        const _k = 1;
+        int g(int t) {
+          switch (t) {
+            case _k:
+              return _k;
+          }
+          return t;
+        }
+        int? h(int? a) {
+          int? o;
+          o ??= a!;
+          return a!;
+        }";
+    let diags = diagnosticos_de(fonte);
+    assert!(diags.is_empty(), "{diags:?}");
+}
+
+#[test]
+fn argumentos_de_tipo_fora_dos_limites() {
+    // `C<Object>` e o alias `F<Object>` violam `X extends num`; `C<dynamic>`
+    // é super-bounded (o invertido `C<Never>` cabe); `C<int>` cabe; o
+    // `extends` não aceita super-bounded. O limite do parâmetro do typedef
+    // precisa estar resolvido no outline.
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = "library test; import 'dart:core';
+        class C<X extends num> {}
+        typedef F<X extends num> = X Function();
+        class D extends C<dynamic> {}
+        void f() { C<Object> a; F<Object> b; C<int> c; C<dynamic> d; }";
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let unit = prog.library(prog.entry.unwrap()).units[0];
+    let diags = dartforge_types::limites::argumentos_fora_dos_limites(&prog, &interner, &mut table, &core, &outline, unit);
+    let v: Vec<(&str, &str)> = diags.iter().map(|d| (&fonte[d.span.start..d.span.end], d.message.as_str())).collect();
+    assert_eq!(
+        v,
+        vec![
+            ("dynamic", "'dynamic' doesn't conform to the bound 'num' of the type parameter 'X'."),
+            ("Object", "'Object' doesn't conform to the bound 'num' of the type parameter 'X'."),
+            ("Object", "'Object' doesn't conform to the bound 'num' of the type parameter 'X'."),
+        ],
+        "{diags:?}"
+    );
+}
+
+#[test]
+fn uso_de_resultado_void() {
+    // Argumento, inicializador e condição com valor `void`: o analyzer relata
+    // `use_of_void_result` (no nome, numa invocação de função), não
+    // `argument_type_not_assignable`/`invalid_assignment`. `void v = f();`
+    // e `f();` como comando são permitidos.
+    let fonte = "library test; import 'dart:core';
+        void f() {}
+        void g(Object? o) {}
+        void h(void x) {
+          g(f());
+          Object? y = f();
+          void v = f();
+          f();
+          if (x) {}
+        }";
+    let diags = diagnosticos_de(fonte);
+    let v: Vec<(&str, &str)> = diags
+        .iter()
+        .map(|d| (&fonte[d.span.start..d.span.end], d.code.map_or("", |c| c.info().nome)))
+        .collect();
+    assert_eq!(
+        v,
+        vec![("f", "use_of_void_result"), ("f", "use_of_void_result"), ("x", "use_of_void_result")],
+        "{diags:?}"
+    );
 }

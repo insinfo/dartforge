@@ -290,10 +290,13 @@ descarta). Teste: `cargo test -p dartforge-lsp --test renomear --locked`.
   o arquivo está fora de `lib/` e o alvo dentro. A diretiva entra na ordem
   (`dart:`, `package:`, relativas), depois de `library`, ou no topo.
 
-Dos códigos semânticos publicados (`crates/analise/verificados.txt`:
-`enum_constant_same_name_as_enclosing`, `enum_with_name_values`,
-`values_declaration_in_enum`), o `dart language-server` 3.6.2 não oferece
-correção rápida para nenhum (conferido), e este servidor também não. Teste:
+Dos códigos semânticos publicados (`crates/analise/verificados.txt`), os
+três de enum (`enum_constant_same_name_as_enclosing`, `enum_with_name_values`,
+`values_declaration_in_enum`) não têm correção rápida no `dart
+language-server` 3.6.2 (conferido), e este servidor também não. A lista
+cresceu para 50 códigos em 2026-09-26 (entre eles `unused_local_variable` e
+`unused_element`, que o LSP calcula sem tipos); as correções que o servidor
+oficial oferece para eles ainda não existem aqui. Teste:
 `cargo test -p dartforge-lsp --test acoes --locked`.
 
 Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,

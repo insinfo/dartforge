@@ -552,7 +552,8 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
         ExprKind::String(lit) => {
             for p in lit.parts.iter() {
                 if let ast::StringPart::Interpolation(i) = p {
-                    inferir_livre(inf, cx, *i);
+                    let t = inferir_livre(inf, cx, *i);
+                    uso_de_void(inf, cx, *i, t);
                 }
             }
             inf.core.string
@@ -670,6 +671,7 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
         ExprKind::PatternAssign { pattern, value } => padroes::atribuicao_de_padrao(inf, cx, *pattern, *value),
         ExprKind::Cascade { target, sections, null_aware } => {
             let t = inferir(inf, cx, *target, ctx);
+            uso_de_void(inf, cx, *target, t);
             let r = if *null_aware { inf.nao_nulo(t) } else { t };
             cx.cascatas.push(r);
             let secs = sections.to_vec();
@@ -683,10 +685,12 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
         ExprKind::Await(i) => {
             let k1 = contexto_de_await(inf, ctx);
             let t1 = inferir(inf, cx, *i, k1);
+            uso_de_void(inf, cx, *i, t1);
             inf.flatten(t1)
         }
         ExprKind::Throw(i) => {
-            inferir_livre(inf, cx, *i);
+            let t = inferir_livre(inf, cx, *i);
+            uso_de_void(inf, cx, *i, t);
             cx.fluxo.alcancavel = false;
             inf.core.never
         }
@@ -746,16 +750,109 @@ pub(crate) fn limite_superior_em_contexto(inf: &mut BodyInferrer<'_>, t1: TypeId
     }
 }
 
+/// `checkForUseOfVoidResult`: uma expressão de tipo `void` usada onde se
+/// espera um valor. O intervalo é o nome do método numa invocação de método
+/// (`f()` com `f` função ou método, `a.m()`); senão, a expressão inteira.
+/// Devolve se relatou.
+pub(crate) fn uso_de_void(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, t: TypeId) -> bool {
+    if !matches!(inf.table.get(t), Type::Void) {
+        return false;
+    }
+    let a = ast(inf, cx);
+    let tipos = &inf.body_types.units[cx.unit.0 as usize];
+    let metodo = |x: ExprId| -> bool {
+        match tipos.get_resolved(x) {
+            Some(Resolved::Element(dartforge_elements::model::Element::Function(_))) => true,
+            Some(Resolved::Member { member: crate::resolved::MemberRef::Function(f), .. })
+            | Some(Resolved::ExtensionMember { member: f, .. }) => {
+                !matches!(inf.program.function(*f).kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor)
+            }
+            Some(Resolved::Local(id)) => cx.funcoes_locais.contains(id),
+            _ => false,
+        }
+    };
+    let sp = match &a.expr(e).kind {
+        ExprKind::Call { target, .. } => match &a.expr(*target).kind {
+            ExprKind::Property { name, .. } if metodo(*target) => name.span,
+            ExprKind::Identifier(n) if metodo(*target) => n.span,
+            _ => a.expr(e).span,
+        },
+        _ => a.expr(e).span,
+    };
+    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, sp, &[]);
+    true
+}
+
+/// `checkForAssignableExpressionAtType`: com o alvo não `void`, valor `void`
+/// é `use_of_void_result`; senão, a atribuibilidade.
+pub(crate) fn verificar_atribuivel_expr(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, de: TypeId, para: TypeId, template: &str) {
+    if !matches!(inf.table.get(para), Type::Void) && uso_de_void(inf, cx, e, de) {
+        return;
+    }
+    let sp = inf.span_expr(cx.unit, e);
+    inf.verificar_atribuivel(de, para, sp, template);
+}
+
+/// `t` é estritamente não anulável (`isStrictlyNonNullable`): nem `dynamic`,
+/// `void`, `Null` ou anulável; parâmetro de tipo pelo limite; tipo de
+/// extensão só com `implements` (aqui, nunca: pelo lado seguro).
+pub(crate) fn estritamente_nao_anulavel(inf: &mut BodyInferrer<'_>, t: TypeId) -> bool {
+    if matches!(inf.table.get(t), Type::ExtensionType { .. } | Type::Dynamic | Type::Void) {
+        return false;
+    }
+    let o = inf.core.object;
+    inf.sub(t, o)
+}
+
+/// `_checkForUnnecessaryNullAware` para `?.` e `?[`: receptor estritamente
+/// não anulável. O intervalo é o operador (`?.`, ou `?[` inteiro); com um
+/// `?.`/`?[` anterior na mesma cadeia, é o `…_AFTER_SHORT_CIRCUIT`.
+fn operador_nulo_desnecessario(inf: &mut BodyInferrer<'_>, cx: &Corpo, r: ExprId, t: TypeId) {
+    use dartforge_diagnostics::codigos::static_warning as w;
+    if matches!(ast(inf, cx).expr(r).kind, ExprKind::Super) || !estritamente_nao_anulavel(inf, t) {
+        return;
+    }
+    let fim = inf.span_expr(cx.unit, r).end;
+    let fonte = &inf.program.unit(cx.unit).source;
+    let resto = fonte.get(fim..).unwrap_or("");
+    let pos = fim + pular_espacos_e_comentarios(resto);
+    let depois = fonte.get(pos..).unwrap_or("");
+    let (tamanho, args): (usize, [&str; 2]) = if depois.starts_with("?.") && !depois.starts_with("?..") {
+        (2, ["?.", "."])
+    } else if depois.starts_with('?') {
+        // `?[`: do `?` ao `[` (com o que houver entre eles).
+        let Some(i) = depois.find('[') else { return };
+        (i + 1, ["?[", "["])
+    } else {
+        return;
+    };
+    let sp = dartforge_diagnostics::Span { start: pos, end: pos + tamanho };
+    let codigo = if curto_anterior(inf, cx, r) { w::INVALID_NULL_AWARE_OPERATOR_AFTER_SHORT_CIRCUIT } else { w::INVALID_NULL_AWARE_OPERATOR };
+    inf.aviso_com_codigo(codigo, sp, &args);
+}
+
+/// `previousShortCircuitingOperator`: o receptor é ele mesmo um acesso
+/// `?.`/`?[` (ou tem um, pelos alvos à esquerda).
+fn curto_anterior(inf: &BodyInferrer<'_>, cx: &Corpo, r: ExprId) -> bool {
+    match &ast(inf, cx).expr(r).kind {
+        ExprKind::Property { target, null_aware, .. } | ExprKind::Index { target, null_aware, .. } => {
+            *null_aware || curto_anterior(inf, cx, *target)
+        }
+        ExprKind::Call { target, .. } => match &ast(inf, cx).expr(*target).kind {
+            ExprKind::Property { target: t2, null_aware, .. } => *null_aware || curto_anterior(inf, cx, *t2),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
 /// Infere o receptor de um acesso (`r.x`, `r[i]`, `r.m()`), tratando `?.` e
 /// o *null-shorting*. Devolve o tipo do receptor para a busca e se há curto.
 pub(crate) fn receptor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, r: ExprId, null_aware: bool) -> (TypeId, bool) {
     let u = inf.core.unknown;
     let (t, c) = inferir_no(inf, cx, r, u, true);
     if null_aware {
-        if !inf.e_anulavel(t) && !inf.e_dynamic(t) {
-            let sp = inf.span_expr(cx.unit, r);
-            inf.aviso(INVALID_NULL_AWARE_OPERATOR.template.to_string(), sp);
-        }
+        operador_nulo_desnecessario(inf, cx, r, t);
         // Promove o receptor dentro da cadeia; `fechar_cadeia` desfaz no fim.
         cx.cadeias.push(cx.fluxo.clone());
         if let Some(id) = alvo_de_promocao(inf, cx, r) {
@@ -837,7 +934,10 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
     };
     // `void`: o valor não pode ser usado (analyzer: `use_of_void_result`, no nome).
     if matches!(inf.table.get(recv), Type::Void) {
-        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, name.span, &[]);
+        // Em `x..p`, o relato é no alvo da cascata (feito lá).
+        if !matches!(a.expr(target).kind, ExprKind::CascadeTarget) {
+            inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, name.span, &[]);
+        }
         return (inf.core.dynamic_, curto);
     }
     // Receptor potencialmente anulável sem o membro em `Object` nem numa
@@ -846,7 +946,8 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
     let checar_nulo = !cx.sobreposicoes.contains_key(&target) && inf.exige_checagem_de_nulo(cx.lib, recv, name.sym, false);
     if checar_nulo {
         let nome = inf.interner.resolve(name.sym).to_string();
-        inf.aviso_com_codigo(
+        inf.aviso_de_nulo(
+            recv,
             dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE,
             name.span,
             &[&nome],
@@ -878,13 +979,15 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
                 inf.aviso(msg, name.span);
                 return (inf.core.dynamic_, curto);
             }
-            let msg = format!(
-                "{}: getter '{}' não definido para o tipo '{}'",
-                UNDEFINED_GETTER.template,
-                inf.interner.resolve(name.sym),
-                inf.table.format(recv, inf.interner, inf.program)
-            );
-            inf.aviso(msg, name.span);
+            if !inf.acesso_de_instancia_a_estatico(recv, name.sym, false, name.span) {
+                let msg = format!(
+                    "{}: getter '{}' não definido para o tipo '{}'",
+                    UNDEFINED_GETTER.template,
+                    inf.interner.resolve(name.sym),
+                    inf.table.format(recv, inf.interner, inf.program)
+                );
+                inf.aviso(msg, name.span);
+            }
             inf.core.dynamic_
         }
     };
@@ -1172,8 +1275,43 @@ fn ler_indice(
         avisar_operador_de_extensao(inf, x, "[]", span);
         return (inf.core.dynamic_, curto);
     }
-    let span = inf.span_expr(cx.unit, alvo);
-    (operador_binario(inf, cx, recv, op, index, ctx, span, Some(alvo)).0, curto)
+    let indefinido = span_indice(inf, cx, alvo, target);
+    let token = dartforge_diagnostics::Span { start: indefinido.start, end: indefinido.start + 1 };
+    let super_ = matches!(ast(inf, cx).expr(target).kind, ExprKind::Super);
+    let posicoes = PosicoesDeOperador { token, indefinido, composta: false, super_ };
+    (operador_binario(inf, cx, recv, op, index, ctx, posicoes, Some(alvo)).0, curto)
+}
+
+/// Onde o analyzer relata os erros de um operador: `token` para o uso sem
+/// checagem de nulo (o operador; em `a[i]`, o `[`), `indefinido` para o
+/// `undefined_operator` (o operador; em `a[i]`, o `[i]`).
+#[derive(Clone, Copy)]
+pub(crate) struct PosicoesDeOperador {
+    pub token: dartforge_diagnostics::Span,
+    pub indefinido: dartforge_diagnostics::Span,
+    /// Atribuição composta (`x += 1`): o analyzer fala em "method '+'", e
+    /// o operador que falta não é relatado aqui quando o alvo é um método
+    /// (`assignment_to_method`) ou `void` (`use_of_void_result`).
+    pub composta: bool,
+    /// O receptor é `super` (`undefined_super_operator`, outra regra).
+    pub super_: bool,
+}
+
+/// Operadores de Dart, do mais longo para o mais curto.
+const OPERADORES: &[&str] = &[
+    ">>>=", "~/=", ">>=", "<<=", "??=", ">>>", "~/", ">>", "<<", "<=", ">=", "==", "!=", "&&", "||", "++", "--", "+=", "-=",
+    "*=", "/=", "%=", "&=", "|=", "^=", "??", "+", "-", "*", "/", "%", "<", ">", "&", "|", "^", "~",
+];
+
+/// O token de operador logo depois de `depois_de` (pulando espaços e
+/// comentários).
+fn token_de_operador(inf: &BodyInferrer<'_>, cx: &Corpo, depois_de: usize) -> dartforge_diagnostics::Span {
+    let fonte = &inf.program.unit(cx.unit).source;
+    let resto = fonte.get(depois_de..).unwrap_or("");
+    let pos = depois_de + pular_espacos_e_comentarios(resto);
+    let texto = fonte.get(pos..).unwrap_or("");
+    let n = OPERADORES.iter().find(|o| texto.starts_with(**o)).map_or(0, |o| o.len());
+    dartforge_diagnostics::Span { start: pos, end: pos + n }
 }
 
 /// Invocação de um operador de um argumento (`a + b`, `a[i]`): busca o
@@ -1186,7 +1324,7 @@ pub(crate) fn operador_binario(
     op: Option<SymbolId>,
     arg: ExprId,
     ctx: TypeId,
-    span: dartforge_diagnostics::Span,
+    posicoes: PosicoesDeOperador,
     no: Option<ExprId>,
 ) -> (TypeId, Option<Membro>) {
     let Some(op) = op else {
@@ -1198,12 +1336,12 @@ pub(crate) fn operador_binario(
     let checar_nulo = inf.exige_checagem_de_nulo(cx.lib, recv, op, false);
     if checar_nulo {
         let texto = inf.interner.resolve(op).to_string();
-        let codigo = if texto == "[]" || texto == "[]=" {
+        let codigo = if texto == "[]" || texto == "[]=" || posicoes.composta {
             dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE
         } else {
             dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_OPERATOR_INVOCATION_OF_NULLABLE_VALUE
         };
-        inf.aviso_com_codigo(codigo, span, &[&texto]);
+        inf.aviso_de_nulo(recv, codigo, posicoes.token, &[&texto]);
     }
     match inf.buscar_membro(cx.lib, recv, op, false) {
         Busca::Achado(m) => operador_binario_com_membro(inf, cx, recv, op, arg, ctx, no, m),
@@ -1221,13 +1359,16 @@ pub(crate) fn operador_binario(
         }
         Busca::Ausente => {
             inferir_livre(inf, cx, arg);
-            let msg = format!(
-                "{}: operador '{}' para o tipo '{}'",
-                UNDEFINED_METHOD.template,
-                inf.interner.resolve(op),
-                inf.table.format(recv, inf.interner, inf.program)
+            if posicoes.super_ || matches!(inf.table.get(recv), Type::Void | Type::Function { .. }) {
+                return (inf.core.dynamic_, None);
+            }
+            let texto = inf.interner.resolve(op).to_string();
+            let tipo = inf.table.format(recv, inf.interner, inf.program);
+            inf.aviso_com_codigo(
+                dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_OPERATOR,
+                posicoes.indefinido,
+                &[&texto, &tipo],
             );
-            inf.aviso(msg, span);
             (inf.core.dynamic_, None)
         }
     }
@@ -1250,8 +1391,7 @@ fn operador_binario_com_membro(
     };
     let ta = inferir(inf, cx, arg, ctx_arg);
     if let Some(p) = param {
-        let sp = inf.span_expr(cx.unit, arg);
-        inf.verificar_atribuivel(ta, p, sp, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
+        verificar_atribuivel_expr(inf, cx, arg, ta, p, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
     }
     let t = refinar_numerico(inf, recv, &m, op, &[ta], ret);
     (t, Some(m))
@@ -1336,6 +1476,7 @@ fn binario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: BinaryOp, 
         BinaryOp::IfNull => {
             let k_q = if inf.e_desconhecido(ctx) { ctx } else { inf.anulavel(ctx) };
             let t1 = inferir(inf, cx, left, k_q);
+            uso_de_void(inf, cx, left, t1);
             let j = if inf.e_desconhecido(ctx) || inf.e_dynamic(ctx) { t1 } else { ctx };
             let antes = cx.fluxo.clone();
             if let Some(id) = alvo_de_promocao(inf, cx, left) {
@@ -1351,6 +1492,7 @@ fn binario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: BinaryOp, 
         _ => {
             let u = inf.core.unknown;
             let l = inferir(inf, cx, left, u);
+            uso_de_void(inf, cx, left, l);
             if matches!(inf.program.unit(cx.unit).ast.expr(left).kind, ExprKind::Super) {
                 let this = cx.tipo_this.unwrap_or(inf.core.dynamic_);
                 registrar(inf, cx, left, this);
@@ -1375,27 +1517,38 @@ fn binario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: BinaryOp, 
                 inferir_livre(inf, cx, right);
                 return inf.core.dynamic_;
             }
-            let (t, _) = operador_binario(inf, cx, l, sym, right, ctx, span, Some(e));
+            let token = token_de_operador(inf, cx, inf.span_expr(cx.unit, left).end);
+            let _ = span;
+            let super_ = matches!(ast(inf, cx).expr(left).kind, ExprKind::Super);
+            let posicoes = PosicoesDeOperador { token, indefinido: token, composta: false, super_ };
+            let (t, _) = operador_binario(inf, cx, l, sym, right, ctx, posicoes, Some(e));
             t
         }
     }
 }
 
 /// Unários (`!`, `-`, `~`, `++`, `--`, `!` pós-fixo).
-fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, operand: ExprId, _ctx: TypeId, curto: &mut bool) -> TypeId {
+fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, operand: ExprId, ctx: TypeId, curto: &mut bool) -> TypeId {
     let span = inf.span_expr(cx.unit, e);
     match op {
         UnaryOp::Not => {
             let (vf, ff) = condicao(inf, cx, operand);
+            // Fora de condição, `!e` também exige `bool` (e não `void`).
+            verificar_bool(inf, cx, operand, UsoBool::Negacao);
             cx.fluxo = inf.juntar(&vf, &ff);
             inf.core.bool_
         }
         UnaryOp::NullAssert => {
-            let u = inf.core.unknown;
-            let (t, c) = inferir_no(inf, cx, operand, u, true);
+            // O operando de `e!` recebe o contexto anulável (`K?`): em
+            // `_name = _becomeParentOf(name)!`, `T` sai `IdentifierImpl?`.
+            let k = if inf.e_desconhecido(ctx) { ctx } else { inf.anulavel(ctx) };
+            let (t, c) = inferir_no(inf, cx, operand, k, true);
             *curto = c;
-            if !inf.e_anulavel(t) && !inf.e_dynamic(t) && !c {
-                inf.aviso(INVALID_NULL_AWARE_OPERATOR.template.to_string(), span);
+            // `unnecessary_non_null_assertion` (no `!`): só com o operando
+            // certamente não anulável (`T extends Object?` não é).
+            if !c && estritamente_nao_anulavel(inf, t) {
+                let sp = dartforge_diagnostics::Span { start: span.end.saturating_sub(1), end: span.end };
+                inf.aviso_com_codigo(dartforge_diagnostics::codigos::static_warning::UNNECESSARY_NON_NULL_ASSERTION, sp, &[]);
             }
             if let Some(id) = alvo_de_promocao(inf, cx, operand) {
                 let decl = cx.local(id).tipo;
@@ -1408,8 +1561,9 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
         UnaryOp::Neg | UnaryOp::BitNot => {
             // `-1` com literal: o literal recebe o contexto (`double x = -1`).
             let literal = op == UnaryOp::Neg && matches!(inf.program.unit(cx.unit).ast.expr(operand).kind, ExprKind::Int(_));
-            let c = if literal { _ctx } else { inf.core.unknown };
+            let c = if literal { ctx } else { inf.core.unknown };
             let t = inferir(inf, cx, operand, c);
+            uso_de_void(inf, cx, operand, t);
             let sym = if op == UnaryOp::Neg { inf.sym.menos_unario } else { inf.sym.til };
             if let Some((x, args)) = cx.sobreposicoes.get(&operand).cloned() {
                 if let Some(m) = sym.and_then(|s| inf.membro_de_extensao_explicita(x, &args, s, false)) {
@@ -1758,15 +1912,30 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                 cx.esquecer_campos_de(id);
             }
             if !inf.e_dynamic(escrita) {
-                let sp = inf.span_expr(cx.unit, valor);
-                inf.verificar_atribuivel(tv, escrita, sp, INVALID_ASSIGNMENT.template);
+                verificar_atribuivel_expr(inf, cx, valor, tv, escrita, INVALID_ASSIGNMENT.template);
+            } else {
+                uso_de_void(inf, cx, valor, tv);
             }
             tv
         }
         AssignOp::Compound(bop) => {
             let (leitura, escrita, local) = ler_para_escrita(inf, cx, alvo, curto);
+            // `x += 1` / `x ??= 3` com `x` de tipo `void`: no operador.
+            if matches!(inf.table.get(leitura), Type::Void) {
+                let token = token_de_operador(inf, cx, inf.span_expr(cx.unit, alvo).end);
+                inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, token, &[]);
+            }
             if bop == BinaryOp::IfNull {
+                // O lado direito só roda se o alvo for nulo: o que ele promove
+                // ou atribui não vale depois (`origin ??= element!.library;`
+                // não promove `element`).
+                let antes = cx.fluxo.clone();
                 let tv = inferir(inf, cx, valor, escrita);
+                if !matches!(inf.table.get(escrita), Type::Void) {
+                    uso_de_void(inf, cx, valor, tv);
+                }
+                let depois = cx.fluxo.clone();
+                cx.fluxo = inf.juntar(&antes, &depois);
                 let nn = inf.nao_nulo(leitura);
                 let t = inf.up(nn, tv);
                 if let Some(id) = local {
@@ -1779,7 +1948,9 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
             }
             let sym = simbolo_operador(inf, bop);
             let u = inf.core.unknown;
-            let (t, _) = operador_binario(inf, cx, leitura, sym, valor, u, span, Some(e));
+            let token = token_de_operador(inf, cx, inf.span_expr(cx.unit, alvo).end);
+            let posicoes = PosicoesDeOperador { token, indefinido: token, composta: true, super_: false };
+            let (t, _) = operador_binario(inf, cx, leitura, sym, valor, u, posicoes, Some(e));
             if let Some(id) = local {
                 let decl = cx.local(id).tipo;
                 let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());
@@ -2007,8 +2178,7 @@ fn escrita_indice(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, recv
             let u = inf.core.unknown;
             let ti = inferir(inf, cx, index, pi.unwrap_or(u));
             if let Some(p) = pi {
-                let sp = inf.span_expr(cx.unit, index);
-                inf.verificar_atribuivel(ti, p, sp, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
+                verificar_atribuivel_expr(inf, cx, index, ti, p, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
             }
             pv.unwrap_or(inf.core.dynamic_)
         }
@@ -2057,7 +2227,7 @@ pub(crate) fn condicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId) ->
         ExprKind::Unary { op: UnaryOp::Not, operand } => {
             let o = *operand;
             let (v, f) = condicao(inf, cx, o);
-            verificar_bool(inf, cx, o, NON_BOOL_NEGATION_EXPRESSION.template);
+            verificar_bool(inf, cx, o, UsoBool::Negacao);
             let t = inf.core.bool_;
             registrar(inf, cx, e, t);
             (f, v)
@@ -2107,19 +2277,59 @@ pub(crate) fn e_forma_de_condicao(inf: &BodyInferrer<'_>, cx: &Corpo, e: ExprId)
     }
 }
 
-/// Condição de `if`/`while`/`?:`/`assert`, com o diagnóstico de não-`bool`.
+/// Condição de `if`/`while`/`?:`/`for`/`when`, com o diagnóstico de não-`bool`.
 pub(crate) fn condicao_verificada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId) -> (Fluxo, Fluxo) {
     let r = condicao(inf, cx, e);
-    verificar_bool(inf, cx, e, NON_BOOL_CONDITION.template);
+    verificar_bool(inf, cx, e, UsoBool::Condicao);
     r
 }
 
-fn verificar_bool(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, template: &str) {
+/// Condição de `assert` (comando ou inicializador).
+pub(crate) fn condicao_de_assert(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId) -> (Fluxo, Fluxo) {
+    let r = condicao(inf, cx, e);
+    verificar_bool(inf, cx, e, UsoBool::Assert);
+    r
+}
+
+/// Onde uma expressão precisa ser `bool` (o `BoolExpressionVerifier` do
+/// analyzer escolhe o código por aí).
+#[derive(Clone, Copy)]
+enum UsoBool {
+    /// `if`, `while`, `do`, `for`, `?:`, `when`: `NON_BOOL_CONDITION`.
+    Condicao,
+    /// `assert`: `NON_BOOL_EXPRESSION`.
+    Assert,
+    /// Operando de `&&`/`||`: `NON_BOOL_OPERAND`.
+    Operando(&'static str),
+    /// Operando de `!`: `NON_BOOL_NEGATION_EXPRESSION`.
+    Negacao,
+}
+
+/// `checkForNonBoolExpression`: tipo não atribuível a `bool`. Com o próprio
+/// `bool` anulável (`bool?`), o erro é de uso de valor anulável como
+/// condição, em qualquer dos usos. Com `void`, o analyzer relata o uso do
+/// resultado `void` no lugar (fora daqui); nada sai.
+fn verificar_bool(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, uso: UsoBool) {
+    use dartforge_diagnostics::codigos::compile_time_error as c;
     let t = inf.body_types.units[cx.unit.0 as usize].get_type(e).unwrap_or(inf.core.bool_);
     let b = inf.core.bool_;
-    if !inf.atribuivel(t, b) {
-        let sp = inf.span_expr(cx.unit, e);
-        inf.aviso(template.to_string(), sp);
+    if uso_de_void(inf, cx, e, t) || inf.atribuivel(t, b) {
+        return;
+    }
+    let sp = inf.span_expr(cx.unit, e);
+    let e_bool = match (inf.table.get(t), inf.table.get(b)) {
+        (Type::Interface { class: c1, .. }, Type::Interface { class: c2, .. }) => c1 == c2,
+        _ => false,
+    };
+    if e_bool {
+        inf.aviso_com_codigo(c::UNCHECKED_USE_OF_NULLABLE_VALUE_AS_CONDITION, sp, &[]);
+        return;
+    }
+    match uso {
+        UsoBool::Condicao => inf.aviso(NON_BOOL_CONDITION.template.to_string(), sp),
+        UsoBool::Negacao => inf.aviso(NON_BOOL_NEGATION_EXPRESSION.template.to_string(), sp),
+        UsoBool::Assert => inf.aviso_com_codigo(c::NON_BOOL_EXPRESSION, sp, &[]),
+        UsoBool::Operando(op) => inf.aviso_com_codigo(c::NON_BOOL_OPERAND, sp, &[op]),
     }
 }
 
@@ -2127,11 +2337,12 @@ fn condicao_binaria(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: B
     match op {
         BinaryOp::And | BinaryOp::Or => {
             let antes = cx.fluxo.clone();
+            let simbolo = if op == BinaryOp::And { "&&" } else { "||" };
             let (lv, lf) = condicao(inf, cx, left);
-            verificar_bool(inf, cx, left, NON_BOOL_CONDITION.template);
+            verificar_bool(inf, cx, left, UsoBool::Operando(simbolo));
             cx.fluxo = if op == BinaryOp::And { lv.clone() } else { lf.clone() };
             let (rv, rf) = condicao(inf, cx, right);
-            verificar_bool(inf, cx, right, NON_BOOL_CONDITION.template);
+            verificar_bool(inf, cx, right, UsoBool::Operando(simbolo));
             cx.fluxo = antes;
             if op == BinaryOp::And {
                 let falso = inf.juntar(&lf, &rf);
@@ -2145,9 +2356,12 @@ fn condicao_binaria(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: B
             // `==` / `!=`
             let u = inf.core.unknown;
             let tl = inferir(inf, cx, left, u);
+            uso_de_void(inf, cx, left, tl);
             // `e == .x`: o atalho à direita usa o tipo de `e` (3.10).
             atalhos::registrar_igualdade(inf, cx, right, tl);
             let tr = inferir(inf, cx, right, u);
+            // O lado direito é o argumento de `operator ==(Object)`.
+            uso_de_void(inf, cx, right, tr);
             if matches!(inf.program.unit(cx.unit).ast.expr(left).kind, ExprKind::Super) {
                 let this = cx.tipo_this.unwrap_or(inf.core.dynamic_);
                 registrar(inf, cx, left, this);
@@ -2197,6 +2411,7 @@ fn condicao_binaria(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: B
 /// `e is T` / `e is! T`: `(true, false)` com promoção.
 fn teste_de_tipo(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, value: ExprId, ty: ast::TypeId, negado: bool, span: dartforge_diagnostics::Span) -> (Fluxo, Fluxo) {
     let v = inferir_livre(inf, cx, value);
+    uso_de_void(inf, cx, value, v);
     let t = inf.tipo_de_anotacao(cx, ty);
     if t == inf.core.object && !inf.e_dynamic(v) && inf.sub(v, t) && !negado {
         inf.aviso(UNNECESSARY_TYPE_CHECK_TRUE.template.to_string(), span);

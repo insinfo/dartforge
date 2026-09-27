@@ -631,7 +631,13 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// O token após um possível `required`/`covariant` inicia mesmo um
     /// parâmetro (identificador, `this`, `super`, `final`, `var`, `void`…).
     fn modifier_precedes_declaration(&self) -> bool {
-        matches!(self.kind_at(1), Kind::Ident | Kind::Keyword(_))
+        match self.kind_at(1) {
+            Kind::Ident | Kind::Keyword(_) => true,
+            // `required ({int a})? t`, `covariant (int, int) p`: tipo de
+            // registro seguido do nome.
+            Kind::Op(Op::LParen) => self.looks_like_type_then_name(self.pos + 1),
+            _ => false,
+        }
     }
 
     /// `this.` ou `super.` em `pos`.
@@ -1577,6 +1583,20 @@ mod tests {
         assert_eq!(skip("List<int"), Some(1));
         assert_eq!(skip("a < b"), Some(1));
         assert_eq!(skip("a.b.c x"), Some(3));
+    }
+
+    #[test]
+    fn required_com_tipo_de_registro() {
+        // `_fe_analyzer_shared` (`analyzeMapPattern`): `required ({…})? nome`.
+        for src in [
+            "void f({required ({int a, int b})? t, required List<int> e}) {}",
+            "void g({required (int, int)? t}) {}",
+            "class C { C({covariant (int,) p = (1,)}); }",
+        ] {
+            let mut names = Interner::new();
+            let p = crate::parser::parse(src, &mut names);
+            assert!(p.diagnostics.is_empty(), "{src}: {:?}", p.diagnostics);
+        }
     }
 
     #[test]

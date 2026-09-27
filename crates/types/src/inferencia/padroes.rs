@@ -117,8 +117,13 @@ fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, fi
     let u = inf.core.unknown;
     match &a.pattern(p).kind {
         PatternKind::Wildcard { .. } => {}
-        PatternKind::Variable { final_: f2, ty, name, .. } => {
+        PatternKind::Variable { final_: f2, var_, ty, name } => {
             let (f2, ty, name) = (*f2, *ty, *name);
+            if cx.padrao_refutavel && !*var_ && !f2 && ty.is_none() {
+                // `case limite:`: constante (o nome de uma const), não uma
+                // variável que esconde a constante e fica sem valor.
+                return;
+            }
             if atribuicao {
                 if let Some(Nome::Local(id)) = cx.buscar(name.sym) {
                     let decl = cx.local(id).tipo;
@@ -342,7 +347,9 @@ pub(crate) fn caso(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: 
     // padrão sombreia o escrutinado, e é o escrutinado (não a variável nova,
     // do tipo do campo) que o caso promove.
     let alvo = escrutinio.and_then(|e| expr::alvo_de_promocao(inf, cx, e));
+    let refutavel_antes = std::mem::replace(&mut cx.padrao_refutavel, true);
     tipar(inf, cx, p, t, false, false);
+    cx.padrao_refutavel = refutavel_antes;
     let mut sim = cx.fluxo.clone();
     if let Some(id) = alvo
         && let Some(tc) = tipo_casado(inf, cx, p, t)
@@ -351,7 +358,10 @@ pub(crate) fn caso(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: 
         inf.promover(&mut sim, id, decl, tc);
         cx.fluxo = sim.clone();
     }
-    let mut nao = antes;
+    // Padrão que casa com qualquer valor do tipo (`case _:`, `case var x:`,
+    // `case Object o:` sobre `Object`): a falha do casamento é inalcançável,
+    // como na análise de fluxo do analyzer.
+    let mut nao = if irrefutavel(inf, cx, p, t) { antes.inalcancavel() } else { antes };
     if let Some(g) = guarda {
         let (gv, gf) = expr::condicao_verificada(inf, cx, g);
         sim = gv;
@@ -359,6 +369,42 @@ pub(crate) fn caso(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: 
     }
     cx.fluxo = sim.clone();
     (sim, nao)
+}
+
+/// O padrão (num `case`) casa com todo valor de tipo `t`? Só as formas
+/// simples: curinga e variável (com tipo que `t` satisfaz), `as`, `!`,
+/// parênteses, `&&` e `||`. O identificador solto de um `case` é constante,
+/// não variável.
+fn irrefutavel(inf: &mut BodyInferrer<'_>, cx: &Corpo, p: PatternId, t: TypeId) -> bool {
+    let kind = &inf.program.unit(cx.unit).ast.pattern(p).kind;
+    match kind {
+        PatternKind::Wildcard { ty: None } => true,
+        PatternKind::Variable { ty: None, var_, final_, .. } => *var_ || *final_,
+        PatternKind::Wildcard { ty: Some(a) } | PatternKind::Variable { ty: Some(a), .. } => {
+            let a = *a;
+            let tt = inf.tipo_de_anotacao(cx, a);
+            inf.sub(t, tt)
+        }
+        PatternKind::Cast { .. } => true,
+        PatternKind::Parenthesized(q) => {
+            let q = *q;
+            irrefutavel(inf, cx, q, t)
+        }
+        PatternKind::NullAssert(q) => {
+            let q = *q;
+            let nn = inf.nao_nulo(t);
+            irrefutavel(inf, cx, q, nn)
+        }
+        PatternKind::And(a, b) => {
+            let (a, b) = (*a, *b);
+            irrefutavel(inf, cx, a, t) && irrefutavel(inf, cx, b, t)
+        }
+        PatternKind::Or(a, b) => {
+            let (a, b) = (*a, *b);
+            irrefutavel(inf, cx, a, t) || irrefutavel(inf, cx, b, t)
+        }
+        _ => false,
+    }
 }
 
 /// `var (a, b) = e;` / `final [x] = e;`
@@ -409,6 +455,7 @@ fn esquema_de_atribuicao(inf: &mut BodyInferrer<'_>, cx: &Corpo, p: PatternId) -
 /// `switch (v) { p => e, ... }` como expressão.
 pub(crate) fn expressao_switch(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, valor: ExprId, casos: &[ast::SwitchExprCase], ctx: TypeId) -> TypeId {
     let t = inferir_livre(inf, cx, valor);
+    expr::uso_de_void(inf, cx, valor, t);
     let antes = cx.fluxo.clone();
     let mut nao_casou = antes.clone();
     let mut tipos: Vec<TypeId> = Vec::new();

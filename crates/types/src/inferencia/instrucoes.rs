@@ -169,6 +169,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
         StmtKind::Switch { value, cases } => {
             let rotulos = rotulos_pendentes(cx);
             let t = inferir_livre(inf, cx, *value);
+            expr::uso_de_void(inf, cx, *value, t);
             let depois_valor = cx.fluxo.clone();
             let mut nao_casou = depois_valor.clone();
             cx.saltos.push(AlvoSalto { rotulos, laco: false, e_switch: true, breaks: Vec::new(), continues: Vec::new() });
@@ -181,6 +182,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                 let mut j = i;
                 let mut entradas: Vec<Fluxo> = Vec::new();
                 cx.empurrar_escopo();
+                let primeiro_local = cx.locais.len();
                 loop {
                     let c = &cases[j];
                     cx.fluxo = nao_casou.clone();
@@ -203,6 +205,19 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                 }
                 let base = depois_valor.clone();
                 cx.fluxo = inf.juntar_todos(&base, &entradas);
+                // Casos que dividem o corpo: as variáveis dos padrões são
+                // variáveis de junção, atribuídas em qualquer caminho que
+                // chegue ao corpo (cada `case` declarou a sua cópia; a
+                // junção dos fluxos, sozinha, as via como não atribuídas).
+                if j > i {
+                    for id in primeiro_local..cx.locais.len() {
+                        let id = LocalId(id as u32);
+                        if cx.fluxo.modelo(id).is_none() {
+                            cx.fluxo.declarar(id);
+                        }
+                        cx.fluxo.inicializar(id);
+                    }
+                }
                 let corpo: Vec<StmtId> = cases[j].body.to_vec();
                 let mut avisou = false;
                 for s in corpo {
@@ -250,6 +265,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
             if *star {
                 let ctx = if m == AsyncModifier::AsyncStar { inf.fluxo_de(k) } else { inf.iteravel(k) };
                 let t = inferir(inf, cx, *value, ctx);
+                expr::uso_de_void(inf, cx, *value, t);
                 let classe = if m == AsyncModifier::AsyncStar { inf.core.stream_class } else { inf.core.iterable_class };
                 let el = if inf.e_dynamic(t) { inf.core.dynamic_ } else { inf.como_instancia_de(t, classe).map(|a| a[0]).unwrap_or(inf.core.dynamic_) };
                 if let Some(f) = cx.funcoes.last_mut() {
@@ -257,6 +273,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                 }
             } else {
                 let t = inferir(inf, cx, *value, k);
+                expr::uso_de_void(inf, cx, *value, t);
                 if let Some(f) = cx.funcoes.last_mut() {
                     f.retornados.push(t);
                 }
@@ -326,7 +343,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
         }
         StmtKind::Assert { condition, message } => {
             let antes = cx.fluxo.clone();
-            expr::condicao_verificada(inf, cx, *condition);
+            expr::condicao_de_assert(inf, cx, *condition);
             if let Some(m) = message {
                 inferir_livre(inf, cx, *m);
             }
@@ -412,8 +429,7 @@ pub(crate) fn declaracao_de_variaveis(inf: &mut BodyInferrer<'_>, cx: &mut Corpo
             };
             escrito = Some(t);
             if let Some(d) = declarado {
-                let sp = inf.span_expr(cx.unit, init);
-                inf.verificar_atribuivel(t, d, sp, INVALID_ASSIGNMENT.template);
+                expr::verificar_atribuivel_expr(inf, cx, init, t, d, INVALID_ASSIGNMENT.template);
             } else {
                 tipo = Some(if matches!(inf.table.get(t), Type::Null) { inf.core.dynamic_ } else { t });
             }
@@ -489,6 +505,7 @@ pub(crate) fn cabecalho_for_in(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, targe
         None => u,
     };
     let t = inferir(inf, cx, iterable, ctx);
+    expr::uso_de_void(inf, cx, iterable, t);
     let el = if inf.e_dynamic(t) {
         inf.core.dynamic_
     } else {
@@ -533,25 +550,9 @@ fn retorno(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: Option<ExprId>, span: 
         Some(e) => {
             let t = inferir(inf, cx, e, fc.contexto_retorno);
             match fc.retorno {
-                Some(r) => {
-                    let (valor, esperado) = match fc.modificador {
-                        AsyncModifier::Async => {
-                            let fv = inf.tipo_valor_futuro_esquema(r);
-                            let ft = inf.flatten(t);
-                            (ft, fv)
-                        }
-                        _ => (t, r),
-                    };
-                    if !matches!(inf.table.get(esperado), Type::Void | Type::Dynamic) && !inf.atribuivel(valor, esperado) {
-                        // `return v` em função `void`/`dynamic` não se checa; `Future<void>` também não.
-                        let msg = format!(
-                            "{}: retorno '{}' incompatível com '{}'",
-                            RETURN_OF_INVALID_TYPE.template,
-                            inf.table.format(valor, inf.interner, inf.program),
-                            inf.table.format(esperado, inf.interner, inf.program)
-                        );
-                        inf.aviso(msg, span);
-                    }
+                Some(_) => {
+                    let _ = span;
+                    super::funcoes::verificar_retorno(inf, cx, &fc, e, t);
                 }
                 None => {
                     let t = if fc.modificador == AsyncModifier::Async { inf.flatten(t) } else { t };

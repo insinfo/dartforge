@@ -1,5 +1,69 @@
-# Estado do DartForge — 2026-09-25 (fechamento)
+# Estado do DartForge — 2026-09-26
 
+## Paridade do analyzer sobre a inferência comum (2026-09-26)
+
+**Oráculo.** Regravado com o Dart 3.6.2 do Linux (`dartforge-paridade
+oraculo`): os mesmos registros de antes, com os caminhos absolutos da raiz
+trocados por `<raiz>` nas mensagens, para o oráculo não depender da
+máquina. A regravação agora limpa o cache do `dart analyze` (o cache morno
+omitia 7 registros) e mantém os 566 arquivos de `sintaxe-nova.json` quando
+o 3.13.4 não está disponível. Placar de partida, com o oráculo novo:
+**9.293/23.030 (40,4%)**, FP 1.780, FN 13.269, posição errada 468.
+
+**Placar agora: 11.758/23.030 na posição exata (51,1%)**, 11.366 com a
+mensagem igual; FP 1.233, FN 10.949, posição errada 323. O que mais subiu
+(acertos, antes → depois):
+
+| código | antes | depois | oráculo | FP depois |
+|---|---:|---:|---:|---:|
+| `type_argument_not_matching_bounds` | 0 | 1.068 | 1.175 | 2 |
+| `use_of_void_result` | 71 | 439 | 479 | 4 |
+| `invalid_use_of_type_outside_library` | 0 | 330 | 350 | 2 |
+| `subtype_of_base_or_final_is_not_base_final_or_sealed` | 0 | 329 | 329 | 0 |
+| `return_of_invalid_type` | 30 | 154 | 167 | 0 |
+| `unchecked_use_of_nullable_value` | 144 | 214 | 384 | 12 |
+| `creation_with_non_type` | 0 | 48 | 66 | 16 |
+| `invalid_null_aware_operator` | 0 | 42 | 135 | 0 |
+| `non_bool_operand` | 0 | 35 | 35 | 0 |
+| `undefined_operator` | 0 | 32 | 62 | 10 |
+
+FP que caíram sem perder acertos relevantes: `non_bool_condition` 157 → 0,
+`undefined_method` 146 → 9, `argument_type_not_assignable` 57 → 5,
+`undefined_identifier` 185 → 112, `undefined_class` 104 → 49,
+`not_assigned_potentially_non_nullable_local_variable` 40 → 8,
+`unused_local_variable` 9 FP + 3 posições → 0.
+
+**Publicação.** A regra passou de "100% no corpus" para **"nada emitido
+errado"**: zero FP, zero posição errada e zero mensagem errada no corpus e
+nos projetos reais; FN é permitido. O placar reprova um código listado que
+emita algo errado e lista os candidatos. `crates/analise/verificados.txt`
+foi de 3 para **50 códigos** (3.711 acertos publicados, antes 17). Os
+projetos reais desta máquina são 60 pacotes do pub-cache (2.150 arquivos):
+nenhum FP de código publicado, 21 FP no total (antes 328). Os três projetos
+do proprietário não existem aqui — conferir `projetos` lá antes do corte.
+
+**O que mudou na inferência (`crates/types`), cada um com teste:** a
+interface mais específica vence o membro sobrescrito; `Null <: FutureOr<S>?`;
+extensões visíveis por todo import não adiado; `return_of_invalid_type` pelo
+`ReturnTypeVerifier` (funções, métodos, construtores, `async`, geradores);
+verificações de `bool` do `BoolExpressionVerifier`; `e!` com contexto `K?`
+e `unnecessary_non_null_assertion`; `invalid_null_aware_operator` no
+operador; `use_of_void_result` onde o `checkForUseOfVoidResult` o relata;
+os limites dos argumentos de tipo escritos (`limites.rs`, com
+super-bounded e variância de alias); fluxo de `switch` com cases que
+dividem o corpo, `??=` e padrão constante. Fora de `types`: modificadores de
+classe entre bibliotecas (`analise/modificadores.rs`), padrões `int? x?` e
+`a--` e `required (…)? t` no parser, locais antes de erro de sintaxe.
+
+**Pendente:** exibir o alias de `typedef` nas mensagens (161 mensagens
+diferentes de `type_argument_not_matching_bounds`); `extends Enum` (2 FP
+de `invalid_use_of_type_outside_library`, o analyzer não relata) e
+`typedef` como supertipo; `dead_code` (43 posições erradas);
+`invalid_override`; `unused_field`/`unused_element` de privados;
+`class_used_as_mixin` (91 FP); o LSP ainda não roda `types`, então só
+publica os códigos verificados que não dependem de tipos.
+
+## Fechamento do dia 2026-09-25
 ## Fechamento do dia 2026-09-25
 
 **Estado:** um ramo só (`main`, mais `exploracao-inicial`), histórico sem
@@ -1388,8 +1452,10 @@ As versões de linguagem em cache são descartadas ao fechar ou reabrir o
 documento; o teste dirigido cobre mudança do `package_config.json` entre
 as duas aberturas.
 
-Diagnósticos (ver §1.4): o editor recebe a sintaxe e 3 códigos
-verificados. O caminho até os demais:
+Diagnósticos (ver §1.4): o `dartforge analyze` publica a sintaxe e 50
+códigos verificados (2026-09-26); o editor recebe a sintaxe e, desses, os
+que não dependem de tipos (o LSP ainda não roda `types`). O caminho até os
+demais:
 
 1. **T1 em `types`** (agente da inferência): código, argumentos e unidade
    de cada diagnóstico; ele apaga a `paridade/src/ponte.rs`.

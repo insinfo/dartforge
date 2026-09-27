@@ -19,7 +19,7 @@
 use dartforge_diagnostics::codigos::{compile_time_error as c, warning as w};
 use dartforge_diagnostics::Diagnostic;
 use dartforge_elements::model::{Element, LibraryId, Program, UnitRole};
-use dartforge_frontend::ast::{Combinator, DirectiveKind, ExprKind, TypeKind};
+use dartforge_frontend::ast::{Combinator, DirectiveKind, ExprKind, PatternKind, TypeKind};
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::HashSet;
 
@@ -78,6 +78,14 @@ pub fn nao_usados(
                     }
                 }
                 _ => {}
+            }
+        }
+        // `case nome:`: num padrão refutável, o identificador solto é uma
+        // constante (o parser o guarda como variável sem tipo). Contá-lo
+        // sempre como citado é pelo lado seguro.
+        for p in &ast.patterns {
+            if let PatternKind::Variable { name, ty: None, final_: false, var_: false } = &p.kind {
+                soltos.insert(name.sym);
             }
         }
         for t in &ast.types {

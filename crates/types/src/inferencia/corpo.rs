@@ -50,6 +50,29 @@ pub(crate) struct CtxFuncao {
     pub retornados: Vec<TypeId>,
     /// Há `return;` sem valor.
     pub retorno_vazio: bool,
+    /// O executável que declara o retorno, para `return_of_invalid_type`;
+    /// `None` em closures e construtores geradores (outras regras).
+    pub executavel: Option<Executavel>,
+}
+
+/// Espécie e nome de exibição do executável (`EnclosingExecutableContext`
+/// do analyzer): o `return_of_invalid_type` diz "function", "method" ou
+/// "constructor" e o nome.
+#[derive(Debug, Clone)]
+pub(crate) struct Executavel {
+    pub especie: EspecieExecutavel,
+    pub nome: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EspecieExecutavel {
+    /// Função de topo ou local com nome, e getters/setters (de topo ou de
+    /// classe): `PropertyAccessorElement` conta como função.
+    Funcao,
+    /// Método ou operador de classe ou extensão.
+    Metodo,
+    /// Construtor factory.
+    Construtor,
 }
 
 /// Estado de inferência de um corpo.
@@ -67,6 +90,9 @@ pub(crate) struct Corpo {
     pub fluxo: Fluxo,
     pub funcoes: Vec<CtxFuncao>,
     pub cascatas: Vec<TypeId>,
+    /// Tipando o padrão de um `case`/`if-case` (refutável): o identificador
+    /// solto é uma constante (`case _padrao:`), não uma variável nova.
+    pub padrao_refutavel: bool,
     /// Pilha de alvos de `break`/`continue` (rótulos e laços): modelos de
     /// fluxo acumulados nos saltos.
     pub saltos: Vec<AlvoSalto>,
@@ -144,6 +170,7 @@ impl Corpo {
             fluxo: Fluxo::alcancavel(),
             funcoes: Vec::new(),
             cascatas: Vec::new(),
+            padrao_refutavel: false,
             saltos: Vec::new(),
             tipo_this: None,
             escritos_em_closure: Vec::new(),

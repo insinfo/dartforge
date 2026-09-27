@@ -275,7 +275,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.object_pattern_paren(pos).is_some() {
             return self.parse_object_pattern(start);
         }
-        if matches!(next, Kind::Op(Op::Dot | Op::Lt)) {
+        // `a--`/`a++`: o fasta lê a `unaryExpression` inteira como padrão
+        // constante (e o analyzer a recusa como não constante).
+        if matches!(next, Kind::Op(Op::Dot | Op::Lt | Op::PlusPlus | Op::MinusMinus)) {
             return self.parse_constant_pattern(start);
         }
         let name = self.identifier();
@@ -506,6 +508,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         let candidate = match self.kind_of(pos) {
             Kind::Ident => match self.kind_of(pos + 1) {
                 Kind::Ident => pos + 1,
+                // `int? x`: num padrão não há condicional (a constante é uma
+                // `unaryExpression`), então `T? nome` é sempre tipo e
+                // variável, qualquer que seja o que vem depois — inclusive
+                // outro `?` (`int? x?`, verificação de nulo).
+                Kind::Op(Op::Question) if self.kind_of(pos + 2) == Kind::Ident => pos + 2,
                 Kind::Op(Op::Dot | Op::Lt | Op::Question) => {
                     if !self.looks_like_type_then_identifier(pos) {
                         return None;
@@ -641,6 +648,26 @@ mod tests {
     }
 
     // -- Independentes de outros módulos ------------------------------------
+
+    #[test]
+    fn variavel_anulavel_com_verificacao_de_nulo() {
+        // `case (1, int? x?)` (tests/language/patterns/flow_analysis).
+        let out = ok("int? x?");
+        let PatternKind::NullCheck(dentro) = out.kind() else { panic!("{:?}", out.kind()) };
+        assert_eq!(out.var_name(*dentro), "x");
+        let out = ok("(0, int? x?)");
+        assert!(matches!(out.kind(), PatternKind::Record { .. }), "{:?}", out.kind());
+        let out = ok("int? x!");
+        assert!(matches!(out.kind(), PatternKind::NullAssert(_)));
+    }
+
+    #[test]
+    fn incremento_pos_fixo_e_padrao_constante() {
+        // `if (x case a--)`: constante (não constante), não variável `a`.
+        let out = ok("a--");
+        assert!(matches!(out.kind(), PatternKind::Constant(_)), "{:?}", out.kind());
+    }
+
 
     #[test]
     fn curinga_e_variaveis() {

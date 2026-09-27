@@ -258,23 +258,34 @@ fn placar(a: &Args, trabalhadores: usize) -> (String, bool) {
     s.push_str(&corpo);
     s.push('\n');
     s.push_str(&total.tabela("corpus inteiro"));
-    // Regra de publicação: um verificado com divergência no corpus é erro.
+    // Regra de publicação: um verificado que emite algo errado no corpus
+    // (falso positivo, posição ou mensagem) é erro. Falso negativo não é.
     let ver = dartforge_paridade::verificados();
     let mut quebrados = Vec::new();
     for c in &ver {
-        match total.por_codigo.get(*c) {
-            Some(k) if k.perfeito() => {}
-            Some(_) => quebrados.push(*c),
-            None => {}
+        if let Some(k) = total.por_codigo.get(*c) {
+            if k.falsos_positivos > 0 || k.posicao_errada > 0 || k.mensagem_errada > 0 {
+                quebrados.push(*c);
+            }
         }
     }
     let _ = writeln!(s, "\npublicados: sintaxe + {} códigos verificados {:?}", ver.len(), ver);
     if !quebrados.is_empty() {
-        let _ = writeln!(s, "VERIFICADOS COM DIVERGÊNCIA NO CORPUS: {quebrados:?}");
+        let _ = writeln!(s, "VERIFICADOS COM ERRO EMITIDO NO CORPUS: {quebrados:?}");
         ok = false;
     }
-    let candidatos: Vec<&String> = total.por_codigo.iter().filter(|(k, c)| c.perfeito() && !ver.contains(&k.as_str())).map(|(k, _)| k).collect();
-    let _ = writeln!(s, "100% no corpus e fora da lista (candidatos, falta 0 FP nos projetos): {candidatos:?}");
+    // Códigos sintáticos são publicados sempre: não são candidatos.
+    let sintatico = |k: &str| {
+        dartforge_diagnostics::Codigo::por_nome(k)
+            .is_some_and(|c| c.info().tipo == dartforge_diagnostics::TipoErro::SyntacticError)
+    };
+    let candidatos: Vec<&String> = total
+        .por_codigo
+        .iter()
+        .filter(|(k, c)| c.sem_erro_emitido() && !ver.contains(&k.as_str()) && !sintatico(k))
+        .map(|(k, _)| k)
+        .collect();
+    let _ = writeln!(s, "sem erro emitido no corpus e fora da lista (candidatos, falta 0 FP nos projetos): {candidatos:?}");
     let _ = writeln!(s, "pânicos: {}{}", panicos.len(), if panicos.is_empty() { String::new() } else { format!(" {:?}", &panicos[..panicos.len().min(20)]) });
     let _ = writeln!(s, "atribuição ambígua (diagnóstico sem unidade, mais de uma candidata): {ambiguos}");
     if a.detalhes {
@@ -314,6 +325,10 @@ fn cache_oraculo() -> PathBuf {
 }
 
 fn regravar_oraculo(a: &Args) -> ExitCode {
+    // Cache limpo: com o cache de uma rodada anterior, o 3.6.2 omitiu os
+    // `unexpected_separator_in_number` de `number/separators_error_no_experiment_test.dart`
+    // (7 registros a menos que a rodada a frio). A gravação parte sempre do zero.
+    let _ = std::fs::remove_dir_all(cache_oraculo());
     let mut falhou = false;
     for (nome, g) in grupos_escolhidos(a) {
         let dir = a.corpus.join(&nome);
@@ -331,8 +346,15 @@ fn regravar_oraculo(a: &Args) -> ExitCode {
         for alvo in &fatias {
             bissectar(g.sdk, &dir, alvo.clone(), &mut regs, &mut excluidos);
         }
+        let novos_excluidos = excluidos.clone();
+        // Os retirados em gravações anteriores continuam fora do grupo (o
+        // arquivo já foi apagado); a lista registra o motivo da ausência.
+        if let Ok((_, anterior)) = oraculo::ler(&dir) {
+            excluidos.extend(anterior.excluidos.into_iter().filter(|e| !dir.join(e).exists()));
+        }
         excluidos.sort();
-        for e in &excluidos {
+        excluidos.dedup();
+        for e in &novos_excluidos {
             eprintln!("  derruba o oráculo, retirado do grupo: {e}");
             let _ = std::fs::remove_file(dir.join(e));
         }
@@ -341,9 +363,21 @@ fn regravar_oraculo(a: &Args) -> ExitCode {
         // Arquivos com sintaxe que o 3.6.2 não conhece: registro do 3.13.4.
         let lista = oraculo::ler_sintaxe_nova(&a.corpus).remove(&nome).unwrap_or_default();
         if g.sdk == oraculo::SdkOraculo::V362 && !lista.is_empty() {
-            eprintln!("oráculo 3.13.4 em {nome} ({} arquivo(s) com sintaxe nova)…", lista.len());
-            let novos = oraculo_313_do_grupo(&dir);
-            substituir_arquivos(&mut regs, novos, &lista);
+            if oraculo::SdkOraculo::V3134.disponivel() {
+                eprintln!("oráculo 3.13.4 em {nome} ({} arquivo(s) com sintaxe nova)…", lista.len());
+                let novos = oraculo_313_do_grupo(&dir);
+                substituir_arquivos(&mut regs, novos, &lista);
+            } else {
+                // Sem o 3.13.4 nesta máquina: os arquivos com sintaxe nova
+                // mantêm o registro 3.13.4 gravado antes, em vez de ficarem
+                // com a cascata do 3.6.2 ou sem registro nenhum.
+                eprintln!(
+                    "SDK 3.13.4 ausente: {} arquivo(s) com sintaxe nova em {nome} mantêm o registro anterior",
+                    lista.len()
+                );
+                let anteriores = oraculo::ler(&dir).map(|(r, _)| r).unwrap_or_default();
+                substituir_arquivos(&mut regs, anteriores, &lista);
+            }
         }
         regs.sort();
         regs.dedup();

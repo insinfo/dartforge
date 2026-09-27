@@ -48,6 +48,11 @@ impl SdkOraculo {
         }
     }
 
+    /// O executável `dart` deste SDK existe nesta máquina?
+    pub fn disponivel(self) -> bool {
+        self.raiz().join("bin").join(if cfg!(windows) { "dart.exe" } else { "dart" }).is_file()
+    }
+
     /// Onde o SDK está nesta máquina (`DARTFORGE_ORACULO_3_6`/`_3_13` mudam).
     pub fn raiz(self) -> PathBuf {
         let (var, padrao) = match self {
@@ -94,10 +99,49 @@ impl Registro {
             tipo: d.tipo.clone(),
             line: r.start.line,
             column: r.start.column,
-            problem_message: d.problem_message.clone(),
-            correction_message: d.correction_message.clone(),
+            problem_message: sem_raiz(&d.problem_message, raiz),
+            correction_message: d.correction_message.as_deref().map(|m| sem_raiz(m, raiz)),
         })
     }
+}
+
+/// Troca, numa mensagem, o caminho absoluto da raiz (como caminho nativo ou
+/// URI `file:`) por `<raiz>`, com `/` como separador no resto do caminho.
+/// Mensagens como "Target of URI doesn't exist: 'file:///…/a.dart'" ou
+/// "'C (where C is defined in …)'" dependem da máquina onde o oráculo rodou;
+/// normalizadas dos dois lados, o registro vale em qualquer máquina.
+///
+/// ```
+/// use dartforge_paridade::oraculo::sem_raiz;
+/// use std::path::Path;
+/// let m = sem_raiz("Target of URI doesn't exist: 'file:///g/x/a.dart'.", Path::new("/g/x"));
+/// assert_eq!(m, "Target of URI doesn't exist: '<raiz>/a.dart'.");
+/// ```
+pub fn sem_raiz(msg: &str, raiz: &Path) -> String {
+    let barra = crate::analise::chave(raiz).to_string_lossy().replace('\\', "/");
+    let barra = barra.trim_end_matches('/');
+    if barra.is_empty() {
+        return msg.to_string();
+    }
+    let invertida = barra.replace('/', "\\");
+    let uri = format!("file://{}{barra}", if barra.starts_with('/') { "" } else { "/" });
+    let mut out = msg.to_string();
+    for forma in [uri.as_str(), barra, invertida.as_str()] {
+        let mut s = String::with_capacity(out.len());
+        let mut resto = out.as_str();
+        while let Some(i) = resto.find(forma) {
+            s.push_str(&resto[..i]);
+            s.push_str("<raiz>");
+            resto = &resto[i + forma.len()..];
+            // O resto do caminho vai até aspas, parêntese ou espaço.
+            let fim = resto.find(['\'', ')', ' ', '"']).unwrap_or(resto.len());
+            s.push_str(&resto[..fim].replace('\\', "/"));
+            resto = &resto[fim..];
+        }
+        s.push_str(resto);
+        out = s;
+    }
+    out
 }
 
 /// Caminho relativo com `/`, sem diferenciar maiúsculas na raiz (Windows).

@@ -434,6 +434,12 @@ impl Analisador for AnalisadorSintatico {
         let mut nomes = dartforge_intern::Interner::new();
         let parsed = dartforge_frontend::parser::parse_com(texto, &mut nomes, features);
         let mut saida = parsed.diagnostics;
+        // `experiment_not_enabled` não desmonta a árvore (o recurso é lido inteiro).
+        let erros_sintaticos: Vec<dartforge_diagnostics::Span> = saida
+            .iter()
+            .filter(|d| !d.code.is_some_and(|c| c.info().nome == "experiment_not_enabled"))
+            .map(|d| d.span)
+            .collect();
         let unidade = dartforge_analise::Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: texto };
         let curinga = features.tem(dartforge_frontend::features::Feature::WildcardVariables);
         let semanticos = dartforge_analise::duplicatas::duplicatas(&[unidade], &nomes, curinga)
@@ -441,7 +447,7 @@ impl Analisador for AnalisadorSintatico {
             .map(|(_, d)| d)
             .chain(dartforge_analise::enums::sem_constantes(&[unidade]).into_iter().map(|(_, d)| d))
             .chain(dartforge_analise::inicializacao::finais_nao_inicializados(&[unidade], &nomes).into_iter().map(|(_, d)| d))
-            .chain(dartforge_analise::locais::nao_usados(unidade, &nomes, curinga))
+            .chain(dartforge_analise::locais::nao_usados(unidade, &nomes, curinga, &erros_sintaticos))
             .chain(dartforge_analise::externos::inicializadores(unidade))
             .chain(dartforge_analise::operadores::aridade(unidade, &nomes));
         saida.extend(semanticos.filter(|d| dartforge_analise::publicacao::publicado(d, false)));

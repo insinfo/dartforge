@@ -166,8 +166,7 @@ pub(crate) fn invocar(
             };
             let t = inferir(inf, cx, a.value, c);
             if let Some(p) = p {
-                let sp = inf.span_expr(cx.unit, a.value);
-                inf.verificar_atribuivel(t, *p, sp, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
+                expr::verificar_atribuivel_expr(inf, cx, a.value, t, *p, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
             }
         }
         return (ret, f);
@@ -222,8 +221,7 @@ pub(crate) fn invocar(
         let ips = parametros_dos_argumentos(inf, &ip, &io, &inm, args);
         for (i, a) in args.args.iter().enumerate() {
             if let Some(p) = ips[i] {
-                let sp = inf.span_expr(cx.unit, a.value);
-                inf.verificar_atribuivel(tipos[i], p, sp, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
+                expr::verificar_atribuivel_expr(inf, cx, a.value, tipos[i], p, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
             }
         }
         return (iret, inst);
@@ -234,6 +232,13 @@ pub(crate) fn invocar(
 /// Invoca um valor de tipo `t` (função, objeto com `call`, `dynamic`).
 fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, t: TypeId, args: &ast::Arguments, ctx: TypeId, explicitos: Option<Vec<TypeId>>, span: Span) -> (TypeId, TypeId) {
     let t_nn = inf.nao_nulo(t);
+    // `x(3)` com `x` de tipo `void`: `use_of_void_result` na função.
+    if matches!(inf.table.get(t_nn), Type::Void) {
+        if let ExprKind::Call { target, .. } = &inf.program.unit(cx.unit).ast.expr(e).kind {
+            let alvo = *target;
+            expr::uso_de_void(inf, cx, alvo, t_nn);
+        }
+    }
     match inf.table.get(t_nn).clone() {
         Type::Function { .. } => invocar(inf, cx, t_nn, args, ctx, explicitos),
         Type::Dynamic => {
@@ -273,12 +278,32 @@ fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, t: TypeI
             for a in args.args.iter() {
                 inferir_livre(inf, cx, a.value);
             }
-            let msg = format!(
-                "{}: expressão de tipo '{}' não é invocável",
-                UNDEFINED_METHOD.template,
-                inf.table.format(t, inf.interner, inf.program)
-            );
-            inf.aviso(msg, span);
+            // `o()`, `x.campo()`, `3(5)`: o analyzer relata
+            // `invocation_of_non_function_expression` no alvo da chamada. Um
+            // literal de tipo (`T<Null>()` com `T` alias de `dynamic`) é outro
+            // código (`invocation_of_non_function`), fora daqui.
+            // Ficam de fora (outros códigos ou nada): receptor anulável
+            // (`unchecked_…`), `void` (`use_of_void_result`), parâmetro de
+            // tipo (a chamada vai pelo limite) e nome solto que não é local
+            // (`foo()` com só `set foo`: `undefined_method`).
+            let _ = span;
+            let a = &inf.program.unit(cx.unit).ast;
+            let alvo = match &a.expr(e).kind {
+                ExprKind::Call { target, .. } => Some(*target),
+                _ => None,
+            };
+            let nome_nao_local = alvo.is_some_and(|x| match &a.expr(x).kind {
+                ExprKind::Identifier(n) => !matches!(cx.buscar(n.sym), Some(super::corpo::Nome::Local(_))),
+                _ => false,
+            });
+            let fora = t_nn == inf.core.type_
+                || t != t_nn
+                || nome_nao_local
+                || matches!(inf.table.get(t_nn), Type::Void | Type::TypeParameter { .. } | Type::Intersection { .. });
+            if let (false, Some(alvo)) = (fora, alvo) {
+                let sp = inf.span_expr(cx.unit, alvo);
+                inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::INVOCATION_OF_NON_FUNCTION_EXPRESSION, sp, &[]);
+            }
             (inf.core.dynamic_, t)
         }
     }
@@ -410,8 +435,12 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             if matches!(inf.table.get(r_ty), crate::table::Type::Void) {
                 // Na invocação, o analyzer relata no receptor (`this` em
                 // `this.m()`); no acesso a propriedade, no nome.
-                let sp = inf.span_expr(cx.unit, recv);
-                inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, sp, &[]);
+                // Numa seção de cascata (`x..m()`), o relato é no alvo da
+                // cascata, feito lá.
+                if !matches!(inf.program.unit(cx.unit).ast.expr(recv).kind, ExprKind::CascadeTarget) {
+                    let sp = inf.span_expr(cx.unit, recv);
+                    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, sp, &[]);
+                }
                 let d = inf.core.dynamic_;
                 registrar(inf, cx, target, d);
                 for x in args.args.iter() {
@@ -423,7 +452,8 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 !cx.sobreposicoes.contains_key(&recv) && inf.exige_checagem_de_nulo(cx.lib, r_ty, name.sym, false);
             if checar_nulo {
                 let nome = inf.interner.resolve(name.sym).to_string();
-                inf.aviso_com_codigo(
+                inf.aviso_de_nulo(
+                    r_ty,
                     dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE,
                     name.span,
                     &[&nome],
@@ -525,13 +555,15 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                         }
                         return (d, curto);
                     }
-                    let msg = format!(
-                        "{}: '{}' para o tipo '{}'",
-                        UNDEFINED_METHOD.template,
-                        inf.interner.resolve(name.sym),
-                        inf.table.format(r_ty, inf.interner, inf.program)
-                    );
-                    inf.aviso(msg, name.span);
+                    if !inf.acesso_de_instancia_a_estatico(r_ty, name.sym, false, name.span) {
+                        let msg = format!(
+                            "{}: '{}' para o tipo '{}'",
+                            UNDEFINED_METHOD.template,
+                            inf.interner.resolve(name.sym),
+                            inf.table.format(r_ty, inf.interner, inf.program)
+                        );
+                        inf.aviso(msg, name.span);
+                    }
                     let d = inf.core.dynamic_;
                     registrar(inf, cx, target, d);
                     for x in args.args.iter() {
@@ -789,6 +821,51 @@ pub(crate) fn construir(
     r
 }
 
+/// `CREATION_WITH_NON_TYPE` (`new X()`, `const X()`, `X<T>.nome()`): o nome
+/// escrito como tipo da criação não é classe — indefinido, local, parâmetro
+/// de tipo, função. O intervalo é o nome escrito; com `p.X` e `p` prefixo de
+/// import, só o `X`. O argumento é a última parte do nome (`new A.foo()` com
+/// `A` indefinido: `'foo'`).
+///
+/// Ficam de fora (o analyzer relata outro código ou nada):
+/// * `p.X` com `p` declarado mas não prefixo (`void p() {}`):
+///   `prefix_shadowed_by_local_declaration`;
+/// * `p.X` com `p` prefixo de um import que não resolveu: nada.
+fn criacao_sem_classe(inf: &mut BodyInferrer<'_>, cx: &Corpo, name: &[ast::Name]) {
+    let (Some(primeiro), Some(ultimo)) = (name.first(), name.last()) else { return };
+    let mut prefixo = false;
+    if name.len() == 2 {
+        let lib = inf.program.library(cx.lib);
+        if lib.prefixes.contains_key(&primeiro.sym) {
+            prefixo = true;
+        } else if inf.program.lookup(cx.lib, primeiro.sym).is_some_and(|b| {
+            !matches!(b.getter, Some(Element::Class(_)))
+        }) || prefixo_de_import_nao_resolvido(inf, cx, primeiro.sym)
+        {
+            return;
+        }
+    }
+    let inicio = if prefixo { ultimo.span.start } else { primeiro.span.start };
+    let texto = inf.interner.resolve(ultimo.sym).to_string();
+    inf.aviso_com_codigo(
+        dartforge_diagnostics::codigos::compile_time_error::NEW_WITH_NON_TYPE,
+        Span { start: inicio, end: ultimo.span.end },
+        &[&texto],
+    );
+}
+
+/// `p` é o prefixo de alguma diretiva `import … as p` da biblioteca, mas
+/// não chegou ao escopo (o alvo do import não existe).
+fn prefixo_de_import_nao_resolvido(inf: &BodyInferrer<'_>, cx: &Corpo, p: dartforge_intern::SymbolId) -> bool {
+    let lib = inf.program.library(cx.lib);
+    !lib.prefixes.contains_key(&p)
+        && lib.units.iter().any(|u| {
+            inf.program.unit(*u).unit.directives.iter().any(|d| {
+                matches!(&d.kind, ast::DirectiveKind::Import { prefix: Some(n), .. } if n.sym == p)
+            })
+        })
+}
+
 /// `new C<T>.nome(args)` / `const C(args)`.
 pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx: TypeId) -> TypeId {
     let a = &inf.program.unit(cx.unit).ast;
@@ -823,7 +900,14 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
             let t = inf.tipo_de_anotacao(cx, ty);
             match inf.table.get(t).clone() {
                 Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } => (class, Some(args.to_vec())),
-                _ => {
+                ref outro => {
+                    // `typedef F = void Function()`: o alias não nomeia
+                    // classe. Outros alvos (`typedef T = dynamic`, `typedef
+                    // A<X> = X`, que é `instantiate_type_alias_expands_…`)
+                    // ficam mudos.
+                    if matches!(outro, Type::Function { .. }) {
+                        criacao_sem_classe(inf, cx, name);
+                    }
                     for x in args.args.iter() {
                         inferir_livre(inf, cx, x.value);
                     }
@@ -832,6 +916,9 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
             }
         }
         _ => {
+            if !binding.is_some_and(|b| b.ambiguous) {
+                criacao_sem_classe(inf, cx, name);
+            }
             for x in args.args.iter() {
                 inferir_livre(inf, cx, x.value);
             }

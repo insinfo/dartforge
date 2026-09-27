@@ -68,19 +68,33 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// Declaração do membro `chave` em `classe` ou nos seus supertipos, na
-    /// ordem de busca (superclasses e mixins, depois interfaces).
+    /// Declaração do membro `chave` em `classe` ou nos seus supertipos.
+    ///
+    /// Das declarações herdadas, a de um supertipo que outro candidato
+    /// estende ou implementa foi sobrescrita por ele no caminho e não conta
+    /// (a interface de `CompilationUnitElement` tem o `library` não anulável
+    /// de `_ExistingElement`, não o anulável de `Element`, que ele
+    /// sobrescreve). Entre as que sobram, vale a ordem de busca
+    /// (superclasses e mixins, depois interfaces).
     fn declaracao_em_classe(&self, classe: ClassId, chave: SymbolId) -> Option<(ClassId, FunctionElementId)> {
         let c = self.program.class(classe);
         if let Some(&f) = c.instance_members.get(&chave) {
             return Some((classe, f));
         }
-        for (sup, _) in crate::scope::supertipos_ordenados(self.program, &self.outline.hierarchy, classe) {
-            if let Some(&f) = self.program.class(sup).instance_members.get(&chave) {
-                return Some((sup, f));
-            }
+        let candidatos: Vec<(ClassId, FunctionElementId)> =
+            crate::scope::supertipos_ordenados(self.program, &self.outline.hierarchy, classe)
+                .into_iter()
+                .filter_map(|(sup, _)| self.program.class(sup).instance_members.get(&chave).map(|&f| (sup, f)))
+                .collect();
+        if candidatos.len() <= 1 {
+            return candidatos.first().copied();
         }
-        None
+        let sobrescrito = |a: ClassId| {
+            candidatos.iter().any(|&(b, _)| {
+                b != a && self.outline.hierarchy.get(b).is_some_and(|d| d.supertypes.contains_key(&a))
+            })
+        };
+        candidatos.iter().copied().find(|&(a, _)| !sobrescrito(a)).or_else(|| candidatos.first().copied())
     }
 
     /// Membro de instância pela interface do receptor (sem extensões).
@@ -383,6 +397,38 @@ impl<'a> BodyInferrer<'a> {
 
     /// Membro estático de uma classe (literal de classe como receptor):
     /// estáticos declarados, constantes de enum e tear-off de construtor.
+    /// `INSTANCE_ACCESS_TO_STATIC_MEMBER`: o membro que não existe na
+    /// interface do receptor é estático na própria classe (ou mixin) dele
+    /// (`c.a()` com `static a()`). Emite o diagnóstico em `span` e diz se
+    /// emitiu; o analyzer relata isso em vez de `undefined_*`.
+    pub(crate) fn acesso_de_instancia_a_estatico(&mut self, recv: TypeId, nome: SymbolId, setter: bool, span: dartforge_diagnostics::Span) -> bool {
+        let recv = self.nao_nulo(recv);
+        let Type::Interface { class, .. } = self.table.get(recv).clone() else { return false };
+        let c = self.program.class(class);
+        let chave = if setter { self.chave_setter(nome) } else { Some(nome) };
+        let Some(&f) = chave.and_then(|k| c.static_members.get(&k)) else { return false };
+        let especie = match self.program.function(f).kind {
+            _ if setter => "setter",
+            FunctionKind::Getter | FunctionKind::ImplicitAccessor => "getter",
+            FunctionKind::Setter => "setter",
+            _ => "method",
+        };
+        let dono = match c.kind {
+            dartforge_elements::model::ClassKind::Mixin => "mixin",
+            dartforge_elements::model::ClassKind::Enum => "enum",
+            dartforge_elements::model::ClassKind::ExtensionType => "extension type",
+            _ => "class",
+        };
+        let texto = self.interner.resolve(nome).to_string();
+        let classe = self.interner.resolve(c.name).to_string();
+        self.aviso_com_codigo(
+            dartforge_diagnostics::codigos::compile_time_error::INSTANCE_ACCESS_TO_STATIC_MEMBER,
+            span,
+            &[&texto, especie, &classe, dono],
+        );
+        true
+    }
+
     pub(crate) fn membro_estatico(&mut self, classe: ClassId, nome: SymbolId, setter: bool) -> Option<Membro> {
         let c = self.program.class(classe);
         if !setter {

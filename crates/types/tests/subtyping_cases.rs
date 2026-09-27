@@ -346,6 +346,7 @@ fn test_tabela_60_casos_subtipagem_normativa() {
     let _fut_num = h.future_type(num_ty, false);
     let fut_or_int = h.future_or_type(int_ty, false);
     let fut_or_int_null = h.future_or_type(int_null, false);
+    let fut_or_int_anulavel = h.future_or_type(int_ty, true);
     let fut_or_num = h.future_or_type(num_ty, false);
 
     let list_int = h.class_type("List", &[int_ty], false);
@@ -431,6 +432,8 @@ fn test_tabela_60_casos_subtipagem_normativa() {
         (null_ty, int_ty, false, "Null <: int"),
         (null_ty, fut_or_int_null, true, "Null <: FutureOr<int?>"),
         (null_ty, fut_or_int, false, "Null <: FutureOr<int>"),
+        (null_ty, fut_or_int_anulavel, true, "Null <: FutureOr<int>?"),
+        (int_null, fut_or_int_anulavel, true, "int? <: FutureOr<int>?"),
         (int_null, int_ty, false, "int? <: int"),
         (int_ty, int_null, true, "int <: int?"),
         (int_null, num_null, true, "int? <: num?"),

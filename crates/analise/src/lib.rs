@@ -10,6 +10,8 @@
 //!   (`ErrorVerifier`).
 //! * [`operadores`]: aridade de métodos `operator` (`ErrorVerifier`).
 //! * [`enums`]: enum sem constantes após augmentations (`ErrorVerifier`).
+//! * [`modificadores`]: `base`/`final`/`interface`/`sealed` usados fora da
+//!   biblioteca (`ErrorVerifier` e `BaseOrFinalTypeVerifier`).
 
 pub mod duplicatas;
 pub mod enums;
@@ -18,6 +20,7 @@ pub mod heranca;
 pub mod importacoes;
 pub mod inicializacao;
 pub mod locais;
+pub mod modificadores;
 pub mod operadores;
 pub mod publicacao;
 

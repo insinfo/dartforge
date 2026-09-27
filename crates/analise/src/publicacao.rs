@@ -1,8 +1,10 @@
 //! A regra de publicação (plano §2.3), comum ao `dartforge analyze` e ao LSP:
 //! diagnóstico sintático é publicado sempre; um código semântico só é
-//! publicado se estiver em `verificados.txt` — 100% de acerto (posição e
-//! mensagem) nos casos dele no corpus de paridade e 0 falso positivo nos três
-//! projetos reais. O resto existe internamente e vai só para o placar.
+//! publicado se estiver em `verificados.txt` — nada do que ele emite está
+//! errado (zero falso positivo, zero posição errada, zero mensagem errada) no
+//! corpus de paridade e nos projetos reais. Falso negativo é permitido: o que
+//! o usuário vê está certo, ainda que falte algo. O resto existe internamente
+//! e vai só para o placar.
 
 use dartforge_diagnostics::{Diagnostic, TipoErro};
 

@@ -359,6 +359,11 @@ impl<'a> BodyInferrer<'a> {
                 let args: Vec<ast::TypeId> = args.to_vec();
                 let resolvidos: Vec<TypeId> = args.iter().map(|&a| self.resolver_anotacao(unit, lib, a, escopo)).collect();
                 match binding.and_then(|b| b.getter) {
+                    // `Null` do `dart:core` é uma classe, mas o tipo é o `Null`
+                    // da tabela (como no outline): senão `flatten(Future<Null>)`
+                    // não era `Null` e `return Future<Null>…` em
+                    // `Future<void> f() async` virava erro.
+                    Some(Element::Class(cid)) if Some(cid) == self.core.null_class => self.core.null,
                     Some(Element::Class(cid)) => self.tipo_de_classe_com_args(cid, resolvidos),
                     Some(Element::Typedef(tid)) => {
                         let data = self.outline.typedefs[tid.0 as usize].clone();
