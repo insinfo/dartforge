@@ -151,6 +151,17 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 all.extend(args);
                 (Js::prim(format!("{}({})", f.at(P_PRIMARY), all.join(", "))), ret)
             }
+            // Objeto com método `call` (classe chamável): `o(args)` é
+            // `o.call(args)`, despachado pelo tipo do receptor como qualquer
+            // método (a CFE insere o `.call` e o DDC o emite direto); só o
+            // valor de tipo `Function`, `dynamic` ou anulável fica em
+            // `dart.dcall`.
+            Ty::Iface { class, nullable: false, .. }
+                if Some(*class) != self.ctx.function_
+                    && self.ctx.lookup_member(fty, "call", false).is_some_and(|m| matches!(m.kind, MemberKind::Method(_))) =>
+            {
+                self.emit_method_call(f, fty, "call", arguments, expected, false)
+            }
             _ => {
                 let (args, named, _) = self.emit_args_plain(arguments);
                 let named_js = named.map(|n| format!(", {n}")).unwrap_or_default();
@@ -196,6 +207,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             Ty::Fn { ret, pos, opt, named, nullable, .. } => Ty::Fn { type_params: vec![], ret: ret.clone(), pos: pos.clone(), opt: opt.clone(), named: named.clone(), nullable: *nullable },
             t => t.clone(),
         };
+        // A instanciação que a inferência comum escolheu (explícita ou
+        // inferida, com o contexto descendente e os estágios de closures da
+        // especificação): os argumentos são emitidos já contra a assinatura
+        // instanciada, e os argumentos de tipo reificados são esses.
+        if !type_params.is_empty() {
+            if let Some(inst) = self.instanciacao_comum(arguments, type_params.len()) {
+                let mapa: HashMap<u32, Ty> = free.iter().copied().zip(inst.iter().cloned()).collect();
+                let (args, _) = self.emit_args_infer(&inner.subst(&mapa), arguments, &[], &mut HashMap::new(), expected);
+                let targs = inst.iter().map(|t| self.rti(t)).collect();
+                return (args, ret.subst(&mapa), targs);
+            }
+        }
         let (args, _) = self.emit_args_infer(&inner, arguments, &free, &mut subst, expected);
         if arguments.type_args.is_empty() {
             self.restringir_pelos_limites(type_params, &free, &mut subst);
@@ -493,8 +516,22 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     t => (vec![], t.clone()),
                 };
                 let mut free: Vec<u32> = ext_tps.clone();
-                free.extend(mtps.iter().map(|p| p.id));
                 let mut s = subst.clone();
+                // Os parâmetros do próprio método pela instanciação comum,
+                // quando há; os da extensão continuam pela aplicação achada.
+                let comum = if mtps.is_empty() { None } else { self.instanciacao_comum(arguments, mtps.len()) };
+                let inner = match comum {
+                    Some(inst) => {
+                        for (p, t) in mtps.iter().zip(inst) {
+                            s.insert(p.id, t);
+                        }
+                        inner.subst(&s)
+                    }
+                    None => {
+                        free.extend(mtps.iter().map(|p| p.id));
+                        inner
+                    }
+                };
                 let (args, _) = self.emit_args_infer(&inner, arguments, &free, &mut s, expected);
                 let mut all: Vec<String> = ext_tps.iter().map(|p| self.rti(s.get(p).unwrap_or(&Ty::Dynamic))).collect();
                 for p in &mtps {
@@ -522,7 +559,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     fn try_static_call(&mut self, recv: ExprId, name: &str, arguments: &ast::Arguments, expected: Option<&Ty>) -> Option<(Js, Ty)> {
         let t = self.expr(recv);
         match &t.kind {
-            ExprKind::Identifier(id) => match self.resolve_ident(id.sym) {
+            ExprKind::Identifier(id) => match self.alvo_do_identificador(id.sym, recv) {
                 IdentTarget::Prefix(p) => {
                     if name == "loadLibrary" {
                         self.m.use_sdk("async");
@@ -548,7 +585,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             },
             ExprKind::Property { target: t2, name: n2, .. } => {
                 if let ExprKind::Identifier(id) = &self.expr(*t2).kind {
-                    if let IdentTarget::Prefix(p) = self.resolve_ident(id.sym) {
+                    if let IdentTarget::Prefix(p) = self.alvo_do_identificador(id.sym, *t2) {
                         let sym = self.ctx.sym(self.name(n2.sym))?;
                         let b = self.ctx.program.lookup_prefixed(self.lib, p, sym)?;
                         if let Some(Element::Class(c)) = b.getter {
@@ -562,7 +599,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 // `p.C<int>.named(args)`
                 if let ExprKind::Property { target: t3, name: n3, .. } = &self.expr(*t2).kind {
                     if let ExprKind::Identifier(id) = &self.expr(*t3).kind {
-                        if let IdentTarget::Prefix(p) = self.resolve_ident(id.sym) {
+                        if let IdentTarget::Prefix(p) = self.alvo_do_identificador(id.sym, *t3) {
                             let sym = self.ctx.sym(self.name(n3.sym))?;
                             let b = self.ctx.program.lookup_prefixed(self.lib, p, sym)?;
                             if let Some(Element::Class(c)) = b.getter {
@@ -579,7 +616,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             ExprKind::TypeArguments { target: t2, type_args } => {
                 // `C<int>.named(args)`
                 if let ExprKind::Identifier(id) = &self.expr(*t2).kind {
-                    if let IdentTarget::Element(Element::Class(c)) = self.resolve_ident(id.sym) {
+                    if let IdentTarget::Element(Element::Class(c)) = self.alvo_do_identificador(id.sym, *t2) {
                         let targs: Vec<Ty> = type_args.iter().map(|t| self.resolve_type(*t)).collect();
                         let cname = if name == "new" { "" } else { name };
                         let is_const = self.in_const;
@@ -746,7 +783,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// Emite uma expressão de função (closure ou função local). Devolve
     /// `dart.fn(...)`/`dart.gFn(...)` e o tipo.
-    pub fn emit_function_expr(&mut self, fid: ast::FunctionId, expected: Option<&Ty>, _closure: bool) -> (Js, Ty) {
+    ///
+    /// `comum` é o tipo que a inferência comum deu à função: os parâmetros
+    /// sem anotação e o retorno sem anotação vêm dele (o retorno inferido do
+    /// corpo, `Null` de corpo sem `return`, `Never` de corpo que só lança, o
+    /// contexto descendente), e os parâmetros de tipo da `TypeTable` que ele
+    /// liga são traduzidos para os do emissor enquanto o corpo é emitido.
+    pub fn emit_function_expr(&mut self, fid: ast::FunctionId, expected: Option<&Ty>, comum: Option<dartforge_types::table::TypeId>) -> (Js, Ty) {
         let f = self.ast().function(fid);
         // Parâmetros de tipo próprios.
         let mut tps: Vec<TyParam> = Vec::new();
@@ -761,6 +804,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let mut new_tps = scope_params.clone();
         new_tps.extend(saved_tps.iter().cloned());
         self.fn_type_params = new_tps;
+        let saved_comuns = self.params_comuns.clone();
+        if let Some(dartforge_types::table::Type::Function { type_params: da_tabela, .. }) = comum.map(|id| self.ctx.table.get(id)) {
+            if da_tabela.len() == tps.len() {
+                for (t, p) in da_tabela.iter().zip(tps.iter()) {
+                    self.params_comuns.insert(t.0, Ty::Param { id: p.id, name: p.name.clone(), nullable: false });
+                }
+            }
+        }
         for (tp, p) in f.type_params.iter().zip(tps.iter_mut()) {
             if let Some(b) = tp.bound {
                 let bt = self.resolve_type(b);
@@ -768,8 +819,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 p.bound = Box::new(bt);
             }
         }
-        let expected_fn = match expected {
-            Some(Ty::Fn { .. }) => expected.cloned(),
+        // Assinatura comum, só de função não genérica (a genérica liga
+        // parâmetros próprios, que a tradução acima cobre no corpo).
+        let comum_fn = match comum {
+            Some(id) if tps.is_empty() => self.ty_comum_em_escopo(id).filter(|t| matches!(t, Ty::Fn { type_params, nullable: false, .. } if type_params.is_empty())),
+            _ => None,
+        };
+        let expected_fn = match (&comum_fn, expected) {
+            (Some(c), _) => Some(c.clone()),
+            (None, Some(Ty::Fn { .. })) => expected.cloned(),
+            _ => None,
+        };
+        let ret_comum = match (&comum_fn, f.return_type) {
+            (Some(Ty::Fn { ret, .. }), None) => Some((**ret).clone()),
             _ => None,
         };
         let declared_ret = f.return_type.map(|r| self.resolve_type(r));
@@ -783,7 +845,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             Some(Ty::Fn { ret, .. }) => Some((**ret).clone()),
             _ => None,
         };
-        let ret_for_body = declared_ret.clone().or(expected_ret.clone()).unwrap_or(Ty::Dynamic);
+        let ret_for_body = declared_ret.clone().or(ret_comum.clone()).or(expected_ret.clone()).unwrap_or(Ty::Dynamic);
         let saved = self.enter_fn(kind, ret_for_body.clone(), self.is_static);
         self.is_closure_body = true;
         let params: &[ast::Parameter] = f.parameters.as_deref().unwrap_or(&[]);
@@ -823,7 +885,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             (None, None) => expected_ret.clone().unwrap_or(Ty::Dynamic),
         };
+        // O retorno comum vale quando tem a forma que a espécie do corpo
+        // exige (`Future`/`Stream`/`Iterable` de `async`/`async*`/`sync*`).
+        let ret_comum = ret_comum.filter(|r| match kind {
+            AsyncKind::None => true,
+            AsyncKind::Async => r.is_class(self.ctx.future_),
+            AsyncKind::AsyncStar => r.is_class(self.ctx.stream_),
+            AsyncKind::SyncStar => r.is_class(self.ctx.iterable_),
+        });
         let ret_ty = match kind {
+            _ if ret_comum.is_some() => ret_comum.unwrap_or(Ty::Dynamic),
             AsyncKind::None => inner_ret,
             AsyncKind::Async => match &inner_ret {
                 Ty::Iface { class, .. } if Some(*class) == self.ctx.future_ && declared_ret.is_some() => inner_ret.clone(),
@@ -842,6 +913,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let head = format!("({}) => {{", all_params.join(", "));
         let text = self.wrap_async_head(kind, &head, &prologue, &body, &ret_ty);
         self.fn_type_params = saved_tps;
+        self.params_comuns = saved_comuns;
         let rti = self.rti(&fn_ty);
         if tps.is_empty() {
             (Js::prim(format!("dart.fn({text}, {rti})")), fn_ty)

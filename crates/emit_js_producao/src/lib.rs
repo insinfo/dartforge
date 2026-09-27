@@ -16,7 +16,9 @@
 
 pub mod alcance;
 pub mod bundle;
+pub mod cache;
 pub mod filtro;
+pub mod minificar;
 pub mod sdk;
 pub mod varredura;
 pub mod verificar;
@@ -40,8 +42,15 @@ pub struct Producao {
     pub sdk_vivas: usize,
     /// Bytes dos módulos do usuário e dos pacotes que entraram no arquivo.
     pub usuario: usize,
+    /// Tamanho do arquivo antes da compactação (igual a `js.len()` sem ela).
+    pub antes_de_compactar: usize,
     /// O mundo fechado do usuário, quando calculado.
     pub mundo: Option<RelatorioMundo>,
+    /// De onde veio o índice do `dart_sdk.js` (`cache.rs`) e quanto custou
+    /// obtê-lo; `None` quando a montagem o construiu por conta própria.
+    pub indice: Option<(cache::Origem, Duration)>,
+    /// Ponto fixo e reemissão do `dart_sdk.js` sobre o índice.
+    pub tempo_poda: Duration,
 }
 
 /// Números do mundo fechado do usuário (`docs/PESQUISA-OTIMIZACAO.md` §10:
@@ -80,12 +89,15 @@ pub struct Opcoes {
     /// Modo verificador: o que o mundo diz morto é emitido como *stub* que
     /// denuncia a chamada (`DARTFORGE-PODADO: …` no stderr, saída 97).
     pub stub: bool,
+    /// Compactar o arquivo (comentários e espaço que não separa tokens;
+    /// `minificar.rs`), etapa 7 do plano.
+    pub minificar: bool,
 }
 
 impl Default for Opcoes {
     fn default() -> Self {
         let stub = std::env::var("DARTFORGE_JSPROD_VERIFICAR").is_ok_and(|v| v == "stub");
-        Opcoes { podar_sdk: true, por_membro: true, podar_usuario: true, stub }
+        Opcoes { podar_sdk: true, por_membro: true, podar_usuario: true, stub, minificar: true }
     }
 }
 
@@ -102,15 +114,22 @@ pub fn compilar(
     linguagem: &dartforge_elements::sdk::Linguagem,
 ) -> Result<Producao, String> {
     let sdk_texto = std::fs::read_to_string(dart_sdk_js).map_err(|e| format!("{}: {e}", dart_sdk_js.display()))?;
-    let ((emitido, rel), _) = dartforge_emit_js::compilar_com(entrada, sdk_lib, packages, linguagem, |a| emitir_com_mundo(a, &sdk_texto, op))?;
-    let mut p = montar(&emitido, &sdk_texto, op);
+    // O índice do runtime depende só do texto e da granularidade: vem do
+    // cache em disco quando há um válido (`cache.rs`).
+    let t = Instant::now();
+    let (indice, origem) = cache::obter(&sdk_texto, op.por_membro);
+    let tempo_indice = t.elapsed();
+    let ((emitido, rel), _) = dartforge_emit_js::compilar_com(entrada, sdk_lib, packages, linguagem, |a| emitir_com_mundo(a, &indice, op))?;
+    let mut p = montar_com_indice(&emitido, &sdk_texto, op, &indice);
     p.mundo = rel;
+    p.indice = Some((origem, tempo_indice));
     Ok(p)
 }
 
 /// Raízes do mundo do usuário vistas do JS: `main` e os nomes que o
-/// `dart_sdk.js` chama por string (`sdk::seletores_dinamicos`).
-fn raizes(a: &dartforge_emit_js::Analise<'_>, sdk_texto: &str) -> dartforge_mundo::Raizes {
+/// `dart_sdk.js` chama por string (`sdk::seletores_dinamicos`, guardados no
+/// índice).
+fn raizes(a: &dartforge_emit_js::Analise<'_>, indice: &sdk::IndiceSdk) -> dartforge_mundo::Raizes {
     use dartforge_elements::model::Element;
     let mut r = dartforge_mundo::Raizes::default();
     if let (Some(lib), Some(sym)) = (a.program.entry, a.interner.lookup("main")) {
@@ -118,19 +137,19 @@ fn raizes(a: &dartforge_emit_js::Analise<'_>, sdk_texto: &str) -> dartforge_mund
             r.funcoes.push(f);
         }
     }
-    r.seletores = sdk::seletores_dinamicos(sdk_texto);
+    r.seletores = indice.seletores_dinamicos();
     r
 }
 
 /// Mundo fechado → emissão filtrada → verificação do texto, até o ponto fixo.
-pub fn emitir_com_mundo(a: &dartforge_emit_js::Analise<'_>, sdk_texto: &str, op: Opcoes) -> Result<(dartforge_emit_js::Emitido, Option<RelatorioMundo>), String> {
+pub fn emitir_com_mundo(a: &dartforge_emit_js::Analise<'_>, indice: &sdk::IndiceSdk, op: Opcoes) -> Result<(dartforge_emit_js::Emitido, Option<RelatorioMundo>), String> {
     if !op.podar_usuario {
         return Ok((a.emitir(None)?, None));
     }
     let entrada = dartforge_mundo::Entrada { program: a.program, interner: a.interner, table: a.table, outline: a.outline, bodies: a.bodies };
     let mut rel = RelatorioMundo::default();
     let t = Instant::now();
-    let mut raizes = raizes(a, sdk_texto);
+    let mut raizes = raizes(a, indice);
     rel.tempo_mundo += t.elapsed();
     // `DARTFORGE_JSPROD_RODADAS=1` mostra as lacunas da análise sem curá-las.
     let max_rodadas: usize = std::env::var("DARTFORGE_JSPROD_RODADAS").ok().and_then(|v| v.parse().ok()).unwrap_or(8).max(1);
@@ -230,8 +249,14 @@ fn explicar(a: &dartforge_emit_js::Analise<'_>, mundo: &dartforge_mundo::Mundo, 
 }
 
 /// Como [`compilar`], a partir de uma emissão de desenvolvimento já feita.
-/// Separado para que o teste não precise de disco nem de SDK.
+/// Separado para que o teste não precise de disco nem de SDK; o índice do
+/// runtime é construído aqui, sem cache.
 pub fn montar(emitido: &dartforge_emit_js::Emitido, sdk_texto: &str, op: Opcoes) -> Producao {
+    montar_com_indice(emitido, sdk_texto, op, &sdk::indexar(sdk_texto, op.por_membro))
+}
+
+/// Como [`montar`], com o índice de `sdk_texto` já obtido (do cache).
+pub fn montar_com_indice(emitido: &dartforge_emit_js::Emitido, sdk_texto: &str, op: Opcoes, indice: &sdk::IndiceSdk) -> Producao {
     let modulos: Vec<bundle::Modulo> = emitido
         .modulos
         .iter()
@@ -245,12 +270,14 @@ pub fn montar(emitido: &dartforge_emit_js::Emitido, sdk_texto: &str, op: Opcoes)
         .unwrap_or_else(|| "L$main".to_string());
 
     let sdk_antes = sdk_texto.len();
+    let t = Instant::now();
     let (sdk_podado, unidades, vivas) = if op.podar_sdk {
         let raizes = sdk::raizes_do_usuario(&modulos);
-        sdk::podar(sdk_texto, &raizes, op.por_membro)
+        sdk::podar_com_indice(sdk_texto, indice, &raizes)
     } else {
         (bundle::sdk_sem_export(sdk_texto), 0, 0)
     };
+    let tempo_poda = t.elapsed();
     let sdk_depois = sdk_podado.len();
     let usuario = modulos.iter().map(|m| m.corpo.len() + m.namespaces.iter().map(|n| n.len() + 1).sum::<usize>()).sum();
 
@@ -264,6 +291,8 @@ pub fn montar(emitido: &dartforge_emit_js::Emitido, sdk_texto: &str, op: Opcoes)
         bundle::montar(&sdk_podado, &modulos, &entrada, preambulo) == js,
         "a montagem não é determinística"
     );
+    let antes_de_compactar = js.len();
+    let js = if op.minificar { minificar::compactar(&js) } else { js };
     Producao {
         js,
         modulos: modulos.len(),
@@ -273,7 +302,10 @@ pub fn montar(emitido: &dartforge_emit_js::Emitido, sdk_texto: &str, op: Opcoes)
         sdk_unidades: unidades,
         sdk_vivas: vivas,
         usuario,
+        antes_de_compactar,
         mundo: None,
+        indice: None,
+        tempo_poda,
     }
 }
 
@@ -320,7 +352,7 @@ mod testes {
 
     #[test]
     fn monta_um_arquivo_na_ordem_topologica() {
-        let p = montar(&emitido(), SDK, Opcoes { podar_sdk: false, por_membro: false, podar_usuario: false, stub: false });
+        let p = montar(&emitido(), SDK, Opcoes { podar_sdk: false, por_membro: false, podar_usuario: false, stub: false, minificar: false });
         assert!(p.ciclos.is_empty());
         assert_eq!(p.modulos, 2);
         // `util.js` não importa ninguém, então vem antes de `main.js`.
@@ -341,7 +373,7 @@ mod testes {
     /// sim; unificar identidade de biblioteca, não).
     #[test]
     fn empacotar_nao_funde_bibliotecas() {
-        let p = montar(&emitido(), SDK, Opcoes { podar_sdk: false, por_membro: false, podar_usuario: false, stub: false });
+        let p = montar(&emitido(), SDK, Opcoes { podar_sdk: false, por_membro: false, podar_usuario: false, stub: false, minificar: false });
         assert_eq!(p.js.matches("Object.create(dart.library)").count(), 3, "core + as duas do usuário");
     }
 
@@ -360,8 +392,8 @@ mod testes {
     /// alcança — no arquivo único, não num `dart_sdk.js` ao lado.
     #[test]
     fn poda_o_runtime_embutido() {
-        let com = montar(&emitido(), SDK, Opcoes { podar_sdk: true, por_membro: false, podar_usuario: false, stub: false });
-        let sem = montar(&emitido(), SDK, Opcoes { podar_sdk: false, por_membro: false, podar_usuario: false, stub: false });
+        let com = montar(&emitido(), SDK, Opcoes { podar_sdk: true, por_membro: false, podar_usuario: false, stub: false, minificar: false });
+        let sem = montar(&emitido(), SDK, Opcoes { podar_sdk: false, por_membro: false, podar_usuario: false, stub: false, minificar: false });
         assert!(com.js.contains("core.print = function"), "o que o programa usa fica");
         assert!(!com.js.contains("core.Morta"), "o que ele não usa sai");
         assert!(com.sdk_depois < sem.sdk_depois);

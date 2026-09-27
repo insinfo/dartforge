@@ -126,30 +126,126 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         IdentTarget::Unknown
     }
 
-    /// Alvo do identificador `e` (de nome `sym`). O elemento de topo
-    /// (função, variável, classe, typedef, extensão) vem da resolução da
-    /// inferência comum (`BodyTypes`, a mesma que o backend nativo consome),
-    /// que segue o escopo léxico do Dart; locais, membros, parâmetros de tipo
-    /// e prefixos ainda pela busca própria ([`Self::resolve_ident`]). É o
-    /// passo 2 da fonte única de inferência (docs/INFERENCIA-JS-ALINHAMENTO.md);
-    /// sem resolução comum (nó não visitado, `e` sintético), a busca própria.
+    /// Alvo do identificador `e` (de nome `sym`), lido, chamado, escrito ou
+    /// usado como receptor, pela resolução da inferência comum
+    /// (`BodyTypes`, a mesma que o backend nativo consome), que segue o
+    /// escopo léxico do Dart: elemento de topo, local e parâmetro, parâmetro
+    /// de tipo, prefixo, membro da classe por `this` implícito (instância ou
+    /// estático, herdado ou não, constante de enum), membro da própria
+    /// extensão e de outra extensão aplicável a `this`, campo estático de
+    /// extensão. A busca própria ([`Self::resolve_ident`]) só decide o que a
+    /// resolução comum não registrou (nó sintético, `this` de extensão, que o
+    /// parser dá como identificador) ou o que o emissor não sabe acessar pela
+    /// identidade comum (receptor de extensão sem classe, membro dinâmico).
+    /// Passo 2 da fonte única de inferência (docs/INFERENCIA-JS-ALINHAMENTO.md).
     pub fn alvo_do_identificador(&self, sym: dartforge_intern::SymbolId, e: ExprId) -> IdentTarget {
-        if let Some(Resolved::Element(el)) = self.resolucao_comum(e) {
-            // A inferência comum também dá `Element` a campo estático de
-            // extensão lido no corpo dela; o emissor o acessa pela extensão
-            // (`IdentTarget::ExtField`). Só o que é de topo de fato vem daqui.
-            let p = self.ctx.program;
-            let de_topo = match *el {
-                Element::Prefix(..) => false,
-                Element::Variable(v) => p.variable(v).class.is_none() && p.variable(v).extension.is_none(),
-                Element::Function(f) => p.function(f).class.is_none() && p.function(f).extension.is_none(),
-                Element::Class(_) | Element::Typedef(_) | Element::Extension(_) => true,
-            };
-            if de_topo {
-                return IdentTarget::Element(*el);
-            }
+        let comum = self.resolucao_comum(e).and_then(|r| self.alvo_da_resolucao(sym, r));
+        self.contar_origem_do_alvo(e, comum.is_some());
+        match comum {
+            Some(alvo) => alvo,
+            None => self.resolve_ident(sym),
         }
-        self.resolve_ident(sym)
+    }
+
+    /// Traduz a resolução comum `r` do identificador `sym` para o alvo do
+    /// emissor; `None` quando não há tradução (a busca própria decide).
+    fn alvo_da_resolucao(&self, sym: dartforge_intern::SymbolId, r: &Resolved) -> Option<IdentTarget> {
+        let p = self.ctx.program;
+        let n = self.name(sym);
+        match r {
+            // A identidade é a declaração que a resolução comum achou; o nome
+            // JS e o tipo declarado vêm do escopo do emissor, que declarou o
+            // local com o mesmo escopo léxico.
+            Resolved::Local(_) | Resolved::Parameter { .. } => {
+                let l = self.lookup_local(sym)?;
+                Some(IdentTarget::Local(l.js.clone(), l.ty.clone()))
+            }
+            Resolved::TypeParameter(tp) => {
+                let t = self.ty_do_parametro_comum(*tp)?;
+                Some(IdentTarget::TypeParam(t))
+            }
+            Resolved::Prefix(_) => Some(IdentTarget::Prefix(sym)),
+            Resolved::Element(el) => match *el {
+                Element::Prefix(..) => None,
+                // Campo estático da própria extensão, lido no corpo dela: o
+                // emissor o acessa pela extensão.
+                Element::Variable(v) if p.variable(v).extension.is_some() => {
+                    let x = p.variable(v).extension?;
+                    (self.current_extension == Some(x)).then_some(IdentTarget::ExtField(x))
+                }
+                Element::Variable(v) if p.variable(v).class.is_some() => None,
+                Element::Function(f) if p.function(f).class.is_some() || p.function(f).extension.is_some() => None,
+                el => Some(IdentTarget::Element(el)),
+            },
+            Resolved::Member { class: dono, member, via_super: false } => {
+                let (estatico, constante_de_enum) = match *member {
+                    MemberRef::Variable(v) => {
+                        let var = p.variable(v);
+                        let de_enum = var.class.is_some_and(|c| p.class(c).enum_constants.contains(&v));
+                        (var.static_ || de_enum, de_enum.then_some(v))
+                    }
+                    MemberRef::Function(f) => {
+                        let fe = p.function(f);
+                        let estatico = fe.static_ || fe.variable.is_some_and(|v| p.variable(v).static_);
+                        (estatico, None)
+                    }
+                };
+                if estatico {
+                    if let Some(v) = constante_de_enum {
+                        return Some(IdentTarget::Static(*dono, MemberKind::Field(v)));
+                    }
+                    let mk = self.ctx.declared_static(*dono, n, false).or_else(|| self.ctx.declared_static(*dono, n, true))?;
+                    return Some(IdentTarget::Static(*dono, mk));
+                }
+                if let Some(t) = &self.extension_this {
+                    // `this` implícito de extensão: o receptor é `$this`, e o
+                    // acesso vai pelo tipo `on` (a classe que declara o membro
+                    // na busca do emissor pode ser a implementação, não a
+                    // interface que a resolução comum registra).
+                    let m = self.ctx.lookup_member(t, n, false).or_else(|| self.ctx.lookup_member(t, n, true))?;
+                    return Some(IdentTarget::ExtThisMember(m));
+                }
+                if self.is_static {
+                    return None;
+                }
+                let c = self.class?;
+                let kind = self.ctx.declared_member(*dono, n, false).or_else(|| self.ctx.declared_member(*dono, n, true))?;
+                let sup = self.ctx.as_super(&self.ctx.this_ty(c), *dono)?;
+                let subst = self.ctx.class_params[dono.0 as usize].iter().map(|q| q.id).zip(sup.args().iter().cloned()).collect();
+                Some(IdentTarget::ThisMember(Member { class: *dono, kind, subst }))
+            }
+            Resolved::ExtensionMember { extension, .. } => {
+                // O elemento é o do nome na extensão (getter e setter de mesmo
+                // nome dividem a entrada), como na busca própria.
+                let x = p.extension(*extension);
+                if self.current_extension == Some(*extension) {
+                    if let Some(&f) = x.instance_members.get(&sym) {
+                        return Some(IdentTarget::ExtMember(*extension, f));
+                    }
+                    return x.static_members.get(&sym).map(|&f| IdentTarget::ExtStatic(*extension, f));
+                }
+                // Outra extensão aplicável ao `this` da classe: o emissor
+                // despacha pelo receptor `this` e acha a mesma extensão.
+                (self.class.is_some() && !self.is_static && self.extension_this.is_none()).then_some(IdentTarget::ThisExt)
+            }
+            Resolved::Member { via_super: true, .. } | Resolved::Dynamic | Resolved::Constructor(_) => None,
+        }
+    }
+
+    /// `Ty` de um parâmetro de tipo da `TypeTable` em escopo nesta emissão
+    /// (da classe, de uma função envolvente, ou de função genérica local
+    /// traduzido por [`FnEmitter::params_comuns`]).
+    fn ty_do_parametro_comum(&self, tp: dartforge_types::table::TypeParamId) -> Option<Ty> {
+        if let Some(t) = self.params_comuns.get(&tp.0) {
+            return Some(t.clone());
+        }
+        let em_fn = self.fn_type_params.iter().any(|(id, _)| *id == tp.0);
+        let na_classe = self.class.is_some_and(|c| self.ctx.class_params[c.0 as usize].iter().any(|q| q.id == tp.0));
+        if !(em_fn || na_classe) {
+            return None;
+        }
+        let name = self.name(self.ctx.table.param(tp).name).to_string();
+        Some(Ty::Param { id: tp.0, name, nullable: false })
     }
 
     /// O alvo que a inferência comum registrou para `e`, se registrou.
@@ -158,6 +254,69 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             return None;
         }
         self.ctx.bodies.units.get(self.unit.0 as usize)?.get_resolved(e)
+    }
+
+    /// Tipo estático que a inferência comum registrou para `e`, em `Ty`, se
+    /// ele pode ser reificado aqui (ver [`Self::ty_comum_em_escopo`]).
+    pub fn tipo_comum(&self, e: ExprId) -> Option<Ty> {
+        if e.0 == u32::MAX {
+            return None;
+        }
+        let id = self.ctx.bodies.units.get(self.unit.0 as usize)?.get_type(e)?;
+        self.ty_comum_em_escopo(id)
+    }
+
+    /// Argumentos de tipo que a inferência comum escolheu para a chamada
+    /// genérica cuja lista de argumentos é `arguments`, se todos podem ser
+    /// reificados aqui.
+    /// `n` é o número de parâmetros de tipo que o emissor espera; outra
+    /// aridade não é usada.
+    pub fn instanciacao_comum(&self, arguments: &ast::Arguments, n: usize) -> Option<Vec<Ty>> {
+        let inst = (|| {
+            let ids = self.ctx.bodies.units.get(self.unit.0 as usize)?.instanciacao(arguments.span.start)?;
+            let tys: Option<Vec<Ty>> = ids.iter().map(|&t| self.ty_comum_em_escopo(t)).collect();
+            tys.filter(|t| t.len() == n)
+        })();
+        self.contar_origem_da_instanciacao(arguments.span.start, inst.is_some());
+        inst
+    }
+
+    /// Converte um tipo da inferência comum para `Ty` quando todo parâmetro
+    /// de tipo livre nele está em escopo nesta emissão (da classe
+    /// envolvente ou de uma função envolvente), isto é, quando a receita rti
+    /// consegue achá-lo no ambiente. Parâmetros de funções genéricas locais
+    /// (o emissor lhes dá ids próprios, [`crate::ctx::Ctx::fresh_param`]) são traduzidos
+    /// pelo mapa [`FnEmitter::params_comuns`]; o que sobrar fora de escopo (o
+    /// desconhecido `_`, parâmetro de outra função) faz a conversão falhar,
+    /// e quem chama fica com a dedução própria.
+    pub fn ty_comum_em_escopo(&self, id: dartforge_types::table::TypeId) -> Option<Ty> {
+        // A porta de entrada do contexto: limites registrados, extension
+        // types apagados e aridade completa, como os tipos do outline.
+        let t = self.ctx.ty_of(id).subst_prop(&self.params_comuns);
+        let mut livres = Vec::new();
+        t.collect_params(&mut livres);
+        let da_classe = |id: u32| self.class.is_some_and(|c| self.ctx.class_params[c.0 as usize].iter().any(|p| p.id == id));
+        let em_escopo = livres.iter().all(|&id| self.fn_type_params.iter().any(|(p, _)| *p == id) || da_classe(id));
+        em_escopo.then_some(t)
+    }
+
+    /// O tipo de `e` que a emissão segue: o deduzido pelo emissor, trocado
+    /// pelo da inferência comum quando este é um **refinamento** dele (um
+    /// subtipo próprio, que não é `dynamic`): `15.clamp(0, 10)` é `int` e não
+    /// `num`, `await null` é `Null`, `soma5(10)` com `call` é `int`, a
+    /// leitura promovida é o tipo promovido. Nunca alarga o tipo do emissor
+    /// nem o troca por outro não relacionado; nó que a inferência comum não
+    /// visitou tem `dynamic` e fica como está. O alvo de atribuição composta
+    /// e de `++`/`--` não tem tipo comum próprio
+    /// ([`crate::ctx::Ctx::e_alvo_de_escrita`]).
+    fn refinar_pelo_comum(&self, e: ExprId, ty: Ty) -> Ty {
+        if e.0 == u32::MAX || self.ctx.e_alvo_de_escrita(self.unit, e) {
+            return ty;
+        }
+        match self.tipo_comum(e) {
+            Some(c) if !c.is_dynamic() && c != ty && self.ctx.is_subtype(&c, &ty) => c,
+            _ => ty,
+        }
     }
 
     /// Emite uma expressão; `expected` é o tipo de contexto (inferência descendente).
@@ -171,6 +330,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             _ => self.emit_expr_inner(e, expected),
         };
+        let ty = self.refinar_pelo_comum(e, ty);
         if self.ctx.conferencia.is_some() {
             self.conferir_tipo(e, &ty);
         }
@@ -418,8 +578,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let (js, ty) = self.emit_expr(*inner, expected);
                 (js.paren(), ty)
             }
-            ExprKind::List { const_, type_args, elements } => self.emit_list_literal(*const_, type_args, elements, expected),
-            ExprKind::SetOrMap { const_, type_args, elements } => self.emit_set_or_map(*const_, type_args, elements, expected),
+            ExprKind::List { const_, type_args, elements } => {
+                let comum = if type_args.is_empty() { self.tipo_comum(e) } else { None };
+                self.emit_list_literal(*const_, type_args, elements, expected, comum.as_ref())
+            }
+            ExprKind::SetOrMap { const_, type_args, elements } => {
+                let comum = if type_args.is_empty() { self.tipo_comum(e) } else { None };
+                self.emit_set_or_map(*const_, type_args, elements, expected, comum.as_ref())
+            }
             ExprKind::Record { positional, named, const_ } if *const_ && positional.len() == 1 && named.is_empty() => {
                 let saved = self.in_const;
                 self.in_const = true;
@@ -434,14 +600,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             ExprKind::FunctionExpression(fid) => {
                 let saved_const = self.in_const;
                 self.in_const = false;
-                let r = self.emit_function_expr(*fid, expected, true);
+                let comum = self.ctx.bodies.units.get(self.unit.0 as usize).and_then(|u| u.get_type(e));
+                let r = self.emit_function_expr(*fid, expected, comum);
                 self.in_const = saved_const;
                 r
             }
             ExprKind::TypeArguments { target, type_args } => {
                 let tys: Vec<Ty> = type_args.iter().map(|t| self.resolve_type(*t)).collect();
                 if let ExprKind::Identifier(id) = &self.expr(*target).kind {
-                    if let IdentTarget::Element(Element::Class(c)) = self.resolve_ident(id.sym) {
+                    if let IdentTarget::Element(Element::Class(c)) = self.alvo_do_identificador(id.sym, *target) {
                         let t = Ty::Iface { class: c, args: tys, nullable: false };
                         let rti = self.rti(&t);
                         return (Js::prim(format!("dart_rti.createRuntimeType({rti})")), self.ctx.t_type());
@@ -646,20 +813,27 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         sup.args().get(idx).cloned()
     }
 
-    fn emit_list_literal(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>) -> (Js, Ty) {
+    /// Literal de lista. `comum` é o tipo que a inferência comum deu ao
+    /// literal sem argumentos de tipo escritos: o tipo do elemento vem dele
+    /// (com o contexto e o limite superior da especificação); sem ele, do
+    /// contexto e dos elementos pela dedução própria.
+    fn emit_list_literal(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>, comum: Option<&Ty>) -> (Js, Ty) {
         let const_ = const_ || self.in_const;
         let saved_const = self.in_const;
         if const_ {
             self.in_const = true;
         }
-        let r = self.emit_list_literal_inner(const_, type_args, elements, expected);
+        let comum = comum.filter(|t| t.is_class(self.ctx.list_)).and_then(|t| t.args().first().cloned());
+        let r = self.emit_list_literal_inner(const_, type_args, elements, expected, comum);
         self.in_const = saved_const;
         r
     }
 
-    fn emit_list_literal_inner(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>) -> (Js, Ty) {
+    fn emit_list_literal_inner(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>, comum: Option<Ty>) -> (Js, Ty) {
         let elem_ty = if let Some(t) = type_args.first() {
             self.resolve_type(*t)
+        } else if let Some(t) = comum {
+            t
         } else if let Some(t) = self.expected_arg(expected, self.ctx.list_, 0).or_else(|| self.expected_arg(expected, self.ctx.iterable_, 0)) {
             t
         } else {
@@ -984,22 +1158,27 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    fn emit_set_or_map(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>) -> (Js, Ty) {
+    /// Literal de conjunto ou mapa; `comum` como em [`Self::emit_list_literal`]
+    /// (decide também entre conjunto e mapa, em `{}` com contexto).
+    fn emit_set_or_map(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>, comum: Option<&Ty>) -> (Js, Ty) {
         let const_ = const_ || self.in_const;
         let saved_const = self.in_const;
         if const_ {
             self.in_const = true;
         }
-        let r = self.emit_set_or_map_inner(const_, type_args, elements, expected);
+        let comum = comum.filter(|t| t.is_class(self.ctx.map_) || t.is_class(self.ctx.set_)).cloned();
+        let r = self.emit_set_or_map_inner(const_, type_args, elements, expected, comum);
         self.in_const = saved_const;
         r
     }
 
-    fn emit_set_or_map_inner(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>) -> (Js, Ty) {
+    fn emit_set_or_map_inner(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>, comum: Option<Ty>) -> (Js, Ty) {
         let is_map = if type_args.len() == 2 {
             true
         } else if type_args.len() == 1 {
             false
+        } else if let Some(c) = &comum {
+            c.is_class(self.ctx.map_)
         } else if elements.is_empty() {
             !expected.is_some_and(|t| t.non_null().class() == self.ctx.set_ || self.ctx.set_.is_some_and(|s| self.ctx.as_super(&t.non_null(), s).is_some() && t.non_null().class() != self.ctx.map_))
         } else {
@@ -1013,6 +1192,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if is_map {
             let (kt, vt) = if type_args.len() == 2 {
                 (self.resolve_type(type_args[0]), self.resolve_type(type_args[1]))
+            } else if let Some([k, v]) = comum.as_ref().map(|c| c.args()) {
+                (k.clone(), v.clone())
             } else if let (Some(k), Some(v)) = (self.expected_arg(expected, self.ctx.map_, 0), self.expected_arg(expected, self.ctx.map_, 1)) {
                 (k, v)
             } else {
@@ -1072,6 +1253,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         // Set
         let et = if let Some(t) = type_args.first() {
             self.resolve_type(*t)
+        } else if let Some([t]) = comum.as_ref().map(|c| c.args()) {
+            t.clone()
         } else if let Some(t) = self.expected_arg(expected, self.ctx.set_, 0).or_else(|| self.expected_arg(expected, self.ctx.iterable_, 0)) {
             t
         } else {
@@ -1358,6 +1541,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
         match self.alvo_do_identificador(sym, e) {
             IdentTarget::Local(js, ty) => {
+                // O tipo da leitura é o da inferência comum: o declarado com
+                // as promoções e rebaixamentos do fluxo da especificação
+                // (`int? v = 3; v` é `int`; o padrão, o `catch` e o `as`
+                // promovem; a atribuição num laço desfaz). O escopo do emissor
+                // guarda só o declarado. Só nó que a inferência visitou (a
+                // resolução é de local) e que não é alvo de escrita composta
+                // (cujo tipo de leitura fica no nó da atribuição), para não
+                // trocar tipo por `dynamic`.
+                let ty = match self.resolucao_comum(e) {
+                    Some(Resolved::Local(_) | Resolved::Parameter { .. }) if !self.ctx.e_alvo_de_escrita(self.unit, e) => self.tipo_comum(e).unwrap_or(ty),
+                    _ => ty,
+                };
                 if let Some(l) = self.lookup_local(sym).cloned() {
                     if let Some(init) = &l.lazy_init {
                         return (Js::new(format!("{js} === void 0 ? {js} = {init} : {js}", ), P_COND).paren(), ty);
@@ -1905,7 +2100,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         // `Ext(x).membro`: aplicação explícita de extensão.
         if let ExprKind::Call { target: ct, arguments } = &t.kind {
             if let ExprKind::Identifier(id) = &self.expr(*ct).kind {
-                if let IdentTarget::Element(Element::Extension(ext)) = self.resolve_ident(id.sym) {
+                if let IdentTarget::Element(Element::Extension(ext)) = self.alvo_do_identificador(id.sym, *ct) {
                     if let Some(a) = arguments.args.first() {
                         let (js, ty) = self.emit_expr(a.value, None);
                         self.forced_ext = Some(ext);
@@ -1927,7 +2122,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     pub fn try_static_property(&mut self, target: ExprId, name: &str) -> Option<(Js, Ty)> {
         let t = self.expr(target);
         match &t.kind {
-            ExprKind::Identifier(id) => match self.resolve_ident(id.sym) {
+            ExprKind::Identifier(id) => match self.alvo_do_identificador(id.sym, target) {
                 IdentTarget::Prefix(p) => {
                     if name == "loadLibrary" {
                         return None;
@@ -1963,7 +2158,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             ExprKind::Property { target: t2, name: n2, .. } => {
                 // prefix.Class.member
                 if let ExprKind::Identifier(id) = &self.expr(*t2).kind {
-                    if let IdentTarget::Prefix(p) = self.resolve_ident(id.sym) {
+                    if let IdentTarget::Prefix(p) = self.alvo_do_identificador(id.sym, *t2) {
                         let sym = self.ctx.sym(self.name(n2.sym))?;
                         let b = self.ctx.program.lookup_prefixed(self.lib, p, sym)?;
                         if let Some(Element::Class(c)) = b.getter {
@@ -1976,7 +2171,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             ExprKind::TypeArguments { target: t2, type_args } => {
                 // `C<T>.new` / `C<T>.named`: tearoff de construtor instanciado.
                 if let ExprKind::Identifier(id) = &self.expr(*t2).kind {
-                    if let IdentTarget::Element(Element::Class(c)) = self.resolve_ident(id.sym) {
+                    if let IdentTarget::Element(Element::Class(c)) = self.alvo_do_identificador(id.sym, *t2) {
                         let targs: Vec<Ty> = type_args.iter().map(|t| self.resolve_type(*t)).collect();
                         return self.ctor_tearoff(c, targs, name);
                     }
@@ -2446,7 +2641,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
         let t = self.expr(target);
         match &t.kind {
-            ExprKind::Identifier(n) => match self.resolve_ident(n.sym) {
+            ExprKind::Identifier(n) => match self.alvo_do_identificador(n.sym, target) {
                 IdentTarget::Local(_, ty) => Some(ty),
                 IdentTarget::ThisMember(m) => {
                     let name = self.name(n.sym).to_string();
@@ -2488,7 +2683,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         match &t.kind {
             ExprKind::Identifier(n) => {
                 let name = self.name(n.sym).to_string();
-                match self.resolve_ident(n.sym) {
+                match self.alvo_do_identificador(n.sym, target) {
                     IdentTarget::Local(js, lty) => {
                         if let Some(l) = self.lookup_local(n.sym).cloned() {
                             if l.late_final {
@@ -2697,7 +2892,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     fn try_static_lvalue(&mut self, recv: ExprId, name: &str) -> Option<(String, bool)> {
         let t = self.expr(recv);
         match &t.kind {
-            ExprKind::Identifier(id) => match self.resolve_ident(id.sym) {
+            ExprKind::Identifier(id) => match self.alvo_do_identificador(id.sym, recv) {
                 IdentTarget::Prefix(p) => {
                     let sym = self.ctx.sym(name)?;
                     let b = self.ctx.program.lookup_prefixed(self.lib, p, sym)?;
@@ -3102,7 +3297,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let _ = ctor_tps;
         let mut subst: HashMap<u32, Ty> = HashMap::new();
         let mut targs: Vec<Ty> = Vec::new();
-        if explicit_args || params.is_empty() {
+        // Sem argumentos escritos, a instanciação que a inferência comum
+        // escolheu para a classe (o construtor é inferido como função
+        // genérica sobre os parâmetros dela).
+        let comum = if explicit_args || params.is_empty() { None } else { self.instanciacao_comum(arguments, params.len()) };
+        if let Some(inst) = comum {
+            for (p, a) in params.iter().zip(inst) {
+                subst.insert(p.id, a.clone());
+                targs.push(a);
+            }
+        } else if explicit_args || params.is_empty() {
             for (p, a) in params.iter().zip(class_args.iter()) {
                 subst.insert(p.id, a.clone());
                 targs.push(a.clone());

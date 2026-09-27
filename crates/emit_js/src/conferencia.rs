@@ -33,7 +33,7 @@ use crate::ctx::{Ctx, MemberKind};
 use crate::expr::IdentTarget;
 use crate::ty::{Ty, TyParam};
 use dartforge_elements::model::{Element, UnitId};
-use dartforge_frontend::ast::{AssignOp, ExprId, ExprKind, UnaryOp};
+use dartforge_frontend::ast::{ExprId, ExprKind};
 use dartforge_intern::SymbolId;
 use dartforge_types::resolved::{MemberRef, Resolved};
 use dartforge_types::table::{Type, TypeId};
@@ -71,16 +71,23 @@ pub struct Conferencia {
     /// (contextos diferentes, reemissões); vale a primeira emissão real.
     tipos_vistos: HashSet<(u32, u32)>,
     alvos_vistos: HashSet<(u32, u32)>,
-    /// Por unidade, os alvos de atribuição composta e de `++`/`--`: a
-    /// inferência comum registra o tipo de leitura deles no nó da
-    /// atribuição, não no alvo (como o analyzer, que dá `readType` à
-    /// atribuição e nenhum `staticType` ao alvo). O emissor lê o alvo com
-    /// `emit_expr`; esses nós são contados à parte, não conferidos.
-    alvos_de_escrita: HashMap<u32, HashSet<u32>>,
-    /// Alvos de escrita emitidos (não conferidos).
+    /// Alvos de atribuição composta e de `++`/`--` emitidos, não
+    /// conferidos ([`Ctx::e_alvo_de_escrita`]).
     pub alvos_de_escrita_pulados: usize,
     pub tipos_conferidos: usize,
     pub alvos_conferidos: usize,
+    /// Identificadores cujo alvo veio da resolução comum
+    /// ([`FnEmitter::alvo_do_identificador`]) e os que ficaram com a busca
+    /// própria, contados uma vez por nó.
+    origem_vista: HashSet<(u32, u32)>,
+    pub alvos_pela_comum: usize,
+    pub alvos_pela_busca_propria: usize,
+    /// Chamadas genéricas (e construtores de classe genérica sem argumentos
+    /// de tipo escritos) instanciadas pela inferência comum e pela dedução
+    /// própria (`emit_args_infer`), uma vez por lista de argumentos.
+    instanciacao_vista: HashSet<(u32, usize)>,
+    pub instanciacoes_pela_comum: usize,
+    pub instanciacoes_proprias: usize,
     pub divergencias: Vec<Divergencia>,
     /// Caminho do `.tsv` pedido na variável, se houver.
     saida: Option<std::path::PathBuf>,
@@ -99,33 +106,6 @@ impl Conferencia {
         })
     }
 
-    /// Se `e` é alvo de atribuição composta ou de incremento/decremento.
-    fn e_alvo_de_escrita(&mut self, ctx: &Ctx, unit: UnitId, e: ExprId) -> bool {
-        let alvos = self.alvos_de_escrita.entry(unit.0).or_insert_with(|| {
-            let mut v = HashSet::new();
-            for x in &ctx.program.unit(unit).ast.exprs {
-                match &x.kind {
-                    ExprKind::Assign { op, target, .. } if *op != AssignOp::Assign => {
-                        v.insert(target.0);
-                    }
-                    ExprKind::Unary {
-                        op:
-                            UnaryOp::PrefixInc
-                            | UnaryOp::PrefixDec
-                            | UnaryOp::PostfixInc
-                            | UnaryOp::PostfixDec,
-                        operand,
-                    } => {
-                        v.insert(operand.0);
-                    }
-                    _ => {}
-                }
-            }
-            v
-        });
-        alvos.contains(&e.0)
-    }
-
     /// Resumo por categoria em `stderr` e, se pedido, as divergências no `.tsv`.
     pub fn relatar(&self) {
         let (mut tipos, mut alvos) = (0usize, 0usize);
@@ -141,8 +121,14 @@ impl Conferencia {
                 .or_default() += 1;
         }
         eprintln!(
-            "conferência de tipos: {} expressões, {tipos} divergem ({} alvos de escrita não conferidos); {} identificadores, {alvos} com alvo divergente",
-            self.tipos_conferidos, self.alvos_de_escrita_pulados, self.alvos_conferidos
+            "conferência de tipos: {} expressões, {tipos} divergem ({} alvos de escrita não conferidos); {} identificadores, {alvos} com alvo divergente; alvo pela resolução comum em {}, pela busca própria em {}; instanciação genérica pela comum em {}, própria em {}",
+            self.tipos_conferidos,
+            self.alvos_de_escrita_pulados,
+            self.alvos_conferidos,
+            self.alvos_pela_comum,
+            self.alvos_pela_busca_propria,
+            self.instanciacoes_pela_comum,
+            self.instanciacoes_proprias
         );
         let mut v: Vec<_> = por_categoria.into_iter().collect();
         v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
@@ -159,8 +145,14 @@ impl Conferencia {
                 let mut texto = String::new();
                 // Linha de totais, para quem soma vários programas.
                 texto.push_str(&format!(
-                    "#totais\t{}\t{}\t{}\n",
-                    self.tipos_conferidos, self.alvos_conferidos, self.alvos_de_escrita_pulados
+                    "#totais\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                    self.tipos_conferidos,
+                    self.alvos_conferidos,
+                    self.alvos_de_escrita_pulados,
+                    self.alvos_pela_comum,
+                    self.alvos_pela_busca_propria,
+                    self.instanciacoes_pela_comum,
+                    self.instanciacoes_proprias
                 ));
                 for d in &self.divergencias {
                     texto.push_str(&format!(
@@ -187,8 +179,49 @@ impl Conferencia {
 }
 
 impl<'m, 'a> FnEmitter<'m, 'a> {
-    /// Confere o tipo `ty` que o emissor deduziu para `e` (antes das
-    /// coerções de contexto) com o tipo estático comum.
+    /// Conta de onde veio o alvo do identificador `e` (resolução comum ou
+    /// busca própria), uma vez por nó, fora da emissão especulativa.
+    pub(crate) fn contar_origem_do_alvo(&self, e: ExprId, pela_comum: bool) {
+        let Some(c) = &self.ctx.conferencia else {
+            return;
+        };
+        if self.especulando > 0 || e.0 == u32::MAX {
+            return;
+        }
+        let mut c = c.borrow_mut();
+        if !c.origem_vista.insert((self.unit.0, e.0)) {
+            return;
+        }
+        if pela_comum {
+            c.alvos_pela_comum += 1;
+        } else {
+            c.alvos_pela_busca_propria += 1;
+        }
+    }
+
+    /// Conta de onde veio a instanciação da chamada genérica cuja lista de
+    /// argumentos começa em `offset`, uma vez por chamada.
+    pub(crate) fn contar_origem_da_instanciacao(&self, offset: usize, pela_comum: bool) {
+        let Some(c) = &self.ctx.conferencia else {
+            return;
+        };
+        if self.especulando > 0 {
+            return;
+        }
+        let mut c = c.borrow_mut();
+        if !c.instanciacao_vista.insert((self.unit.0, offset)) {
+            return;
+        }
+        if pela_comum {
+            c.instanciacoes_pela_comum += 1;
+        } else {
+            c.instanciacoes_proprias += 1;
+        }
+    }
+
+    /// Confere o tipo `ty` que a emissão segue para `e` (o deduzido pelo
+    /// emissor já refinado pelo comum, `FnEmitter::refinar_pelo_comum`, antes
+    /// das coerções de contexto) com o tipo estático comum.
     pub(crate) fn conferir_tipo(&self, e: ExprId, ty: &Ty) {
         let Some(c) = &self.ctx.conferencia else {
             return;
@@ -199,7 +232,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if !c.borrow_mut().tipos_vistos.insert((self.unit.0, e.0)) {
             return;
         }
-        if c.borrow_mut().e_alvo_de_escrita(self.ctx, self.unit, e) {
+        if self.ctx.e_alvo_de_escrita(self.unit, e) {
             c.borrow_mut().alvos_de_escrita_pulados += 1;
             return;
         }

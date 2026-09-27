@@ -624,7 +624,8 @@ impl<'a> Motor<'a> {
     }
 
     /// A classe do tipo estático `t`, quando ela existe e é nominal: `C`,
-    /// `C?`, tipo de extensão. `dynamic`, lacuna de inferência, função,
+    /// `C?`, tipo de extensão, variável de tipo (pelo limite) e variável
+    /// promovida `X & B` (por `B`). `dynamic`, lacuna de inferência, função,
     /// record, `FutureOr`, variável de tipo sem classe no limite e `Null`/
     /// `Never`/`void` dão `None` — receptor desconhecido, seletor irrestrito.
     pub(crate) fn classe_do_tipo(&self, t: dartforge_types::table::TypeId) -> Option<ClassId> {
@@ -639,7 +640,9 @@ impl<'a> Motor<'a> {
                 Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => return Some(*class),
                 Type::Function { .. } | Type::Record { .. } => return None,
                 Type::TypeParameter { param, .. } => cur = self.e.table.param(*param).bound,
-                Type::FutureOr { .. } | Type::Intersection { .. } => return None,
+                // `X & B` (variável de tipo promovida): o valor é um `B`.
+                Type::Intersection { bound, .. } => cur = *bound,
+                Type::FutureOr { .. } => return None,
             }
         }
         None

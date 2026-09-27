@@ -1,6 +1,7 @@
 # Alinhamento da inferência do emit_js com a inferência comum
 
-Estado de 2026-09-26. O emissor JS (`crates/emit_js`) recebe de
+Estado de 2026-09-26; os passos 2 e 3 de 2026-09-27 estão no §9, que
+substitui as pendências e recomendações dos §7–§8 onde divergem. O emissor JS (`crates/emit_js`) recebe de
 `dartforge_types::infer_program_bodies` o `BodyTypes` — tipo estático e
 elemento resolvido de cada expressão, o mesmo que o backend nativo consome
 (`get_type`/`get_resolved`, `crates/emit_native/src/context.rs`) — e, até
@@ -286,3 +287,110 @@ Sugestões:
   troca, com o diferencial;
 - manter a conferência ligada no CI do corpus (resumo em stderr) enquanto as
   duas inferências coexistirem, com catraca sobre o número de divergências.
+
+## 9. Passos 2 e 3 (2026-09-27): o emissor lê `BodyTypes`
+
+Medido com a conferência ligada sobre os 196 programas do `corpus/js`
+(`emitir_corpus`, `DARTFORGE_JS_CONFERIR_TIPOS=…tsv`; os totais saem na
+linha `#totais` e no resumo em stderr):
+
+| | antes (§ Resumo) | agora |
+|---|---:|---:|
+| Expressões com tipo divergente (de 44.221) | 336 | **18** |
+| Identificadores com alvo divergente (de 18.449) | 2 | 2 (`this` de extensão) |
+| Alvo de identificador pela resolução comum | ~metade (só topo) | **19.662** |
+| Alvo pela busca própria do emissor | ~metade | **28** |
+| Chamadas genéricas instanciadas pela inferência comum | 0 | **805** |
+| Instanciadas pela dedução própria (`emit_args_infer`) | todas | **0** |
+
+As 18 divergências de tipo que restam são as de representação (R1 tear-off
+genérico, 12; R3 fim de cadeia `?.`, 1) e as dos §7 (X1 `const (e)`, 1; X2
+constante de enum genérico, 4 — onde a comum também erra e o tipo vazado
+`T` não está em escopo, então o emissor não o usa).
+
+### Passo 2: resolução (`FnEmitter::alvo_do_identificador`, `expr.rs`)
+
+Toda forma de identificador passa pela resolução comum: lido, chamado,
+escrito (`=`, composto, `++`), receptor estático (`C.m`, `p.x`, `p.C.m`,
+`C<T>.nome`, `Ext(x).m`) e alvo de atribuição. `alvo_da_resolucao` traduz
+o `Resolved` para o alvo do emissor:
+
+| `Resolved` | alvo do emissor |
+|---|---|
+| `Local`, `Parameter` | o local do escopo do emissor (nome JS e tipo declarado) |
+| `TypeParameter` | `Ty::Param` em escopo (da classe, de função envolvente ou de função genérica local, por `params_comuns`) |
+| `Prefix` | o prefixo |
+| `Element` de topo | o elemento; campo estático da própria extensão vira `ExtField` |
+| `Member` estático, constante de enum | `Static(dono, espécie)` |
+| `Member` de instância, `this` implícito | `ThisMember` com a substituição pelo supertipo do dono; em extensão, `ExtThisMember` |
+| `ExtensionMember` | da própria extensão: `ExtMember`/`ExtStatic`; de outra aplicável a `this`: `ThisExt` |
+
+A busca própria (`resolve_ident`) só decide quando a resolução comum não
+tem o nó ou não tem tradução: `this` de extensão (o parser o dá como
+identificador), campo posicional de record por `this` implícito
+(`Resolved::Dynamic`), `dynamic`/`Never` como valor, nomes que a comum não
+registra (nome de extensão em sobreposição, nome inválido). São os 28.
+Padrões (`case x`) não têm `ExprId` e continuam pela busca própria.
+
+Com e sem a tradução (só `Element` de topo, como no §6), o JS dos 196
+programas é **idêntico byte a byte**: a troca de fonte não muda código onde
+as duas concordavam, que era todo o corpus.
+
+### Passo 3: tipos
+
+1. **Instanciação por chamada** (`crates/types`): `UnitBodyTypes::instanciacoes`
+   guarda os argumentos de tipo de cada chamada genérica — explícitos ou
+   escolhidos por `GenericInferrer` com o contexto e os estágios de closures —,
+   pelo início da lista de argumentos (`Arguments::span.start`), em
+   `chamadas::invocar` e, para os explícitos de construtor, em `construir`.
+   É o que nenhum nó carrega (`id(5)` tem tipo `Object?`; `<Object?>` só aí).
+2. **Chamadas** (`call.rs`, `emit_args_for`/`try_extension_call`;
+   `expr.rs`, `emit_constructor_call`): com a instanciação comum, os
+   argumentos são emitidos contra a assinatura já instanciada e os
+   argumentos de tipo reificados são esses; a dedução própria
+   (`emit_args_infer` com parâmetros livres) só roda sem ela.
+3. **Literais** de lista, conjunto e mapa sem argumentos escritos: o tipo
+   do elemento (e a escolha conjunto × mapa de `{}`) vem do tipo comum do
+   literal.
+4. **Closures**: parâmetros sem anotação e retorno sem anotação vêm do tipo
+   comum da função (`Future<Null>` de corpo sem `return`, `Future<Never>` de
+   corpo que só lança, o contexto descendente); os parâmetros de tipo da
+   `TypeTable` que ela liga são traduzidos para os do emissor
+   (`params_comuns`) enquanto o corpo é emitido.
+5. **Leitura de local**: o tipo é o comum (declarado mais promoções e
+   rebaixamentos do fluxo), fora de alvo de escrita composta
+   (`Ctx::e_alvo_de_escrita`: o tipo de leitura desses fica no nó da
+   atribuição).
+6. **Refinamento** (`FnEmitter::refinar_pelo_comum`): em qualquer nó, o tipo
+   comum substitui o deduzido quando é subtipo próprio dele e não é
+   `dynamic` (`15.clamp(0, 10)`: `int`; `await null`: `Null`; `soma5(10)`
+   com `call`: `int`). Nunca alarga nem troca por tipo não relacionado, e
+   nó não visitado (tipo `dynamic`) fica como está.
+7. **Tipo cru** (`resolve_type`, E1): o argumento omitido é `dynamic` para
+   limite implícito e o limite escrito para limite explícito
+   (`TypeParameterData::explicito`), a instanciação para os limites.
+
+Todo tipo comum passa por `ty_comum_em_escopo`: só é usado quando cada
+parâmetro de tipo livre nele está em escopo nesta emissão (a receita rti o
+acha no ambiente); senão fica a dedução própria.
+
+Efeito observável: `crates/emit_js/tests/programas/p10_tipos_reificados.dart`
+(os casos do §4 e mais) — 12 linhas divergiam da VM, agora nenhuma.
+`corpus/js` 229/229 nos perfis de desenvolvimento e produção e
+`corpus/moderno` 22/26 com os 4 de `PENDENTES`, como antes.
+
+### O que ainda é do emissor
+
+- A dedução própria continua como **recuo** quando o dado comum falta ou
+  menciona parâmetro fora de escopo: `emit_args_infer` com parâmetros
+  livres, `infer_elements_ty`, o retorno inferido de closure pelos
+  `return`, o `lub` do emissor. No corpus nenhuma chamada genérica chega a
+  ela; nos projetos reais, com as lacunas de inferência que ainda existem
+  (`docs/JS-PRODUCAO.md` §2), chega, e retirá-la sem medir lá trocaria tipo
+  deduzido por `dynamic`. Retirar é o passo seguinte, com a conferência
+  sobre `new_sali` e `limitless_ui`.
+- O escopo de locais do emissor guarda o tipo **declarado** (para a
+  representação), não o comum de `tipos_de_locais`; a leitura já usa o
+  comum.
+- Tear-off genérico instanciado (R1): o emissor instancia na coerção, a
+  comum no nó; mesmo JS.

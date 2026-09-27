@@ -13,6 +13,8 @@ dartforge-emit-js = { path = "../emit_js" }
 dartforge-mundo = { path = "../mundo" }
 dartforge-elements = { path = "../elements" }
 dartforge-intern = { path = "../intern" }
+serde = { version = "1", features = ["derive"] }
+postcard = { version = "1", default-features = false, features = ["use-std"] }
 
 [lib]
 path = "src/lib.rs"

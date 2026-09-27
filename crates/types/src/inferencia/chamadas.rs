@@ -206,6 +206,7 @@ pub(crate) fn invocar(
                 let mut env = inf.env();
                 let inst = instanciar_funcao(f, &ex, &mut env);
                 drop(env);
+                inf.body_types.units[cx.unit.0 as usize].set_instanciacao(args.span.start, ex.into_boxed_slice());
                 return invocar(inf, cx, inst, args, ctx, None);
             }
         }
@@ -274,6 +275,7 @@ pub(crate) fn invocar(
     let finais = gi.choose_final(&mut env);
     let inst = instanciar_funcao(f, &finais, &mut env);
     drop(env);
+    inf.body_types.units[cx.unit.0 as usize].set_instanciacao(args.span.start, finais.clone().into_boxed_slice());
     // Checagem com os parâmetros instanciados.
     if let Type::Function { positional: ip, optional: io, named: inm, ret: iret, .. } = inf.table.get(inst).clone() {
         let ips = parametros_dos_argumentos(inf, &ip, &io, &inm, args);
@@ -856,6 +858,7 @@ pub(crate) fn construir(
         return r;
     }
     if let Some(ex) = explicitos.filter(|x| x.len() == originais.len()) {
+        inf.body_types.units[cx.unit.0 as usize].set_instanciacao(args.span.start, ex.clone().into_boxed_slice());
         let mapa = inf.mapa(&originais, &ex);
         let s = inf.subst(sig, &mapa);
         let (r, _) = invocar(inf, cx, s, args, ctx, None);

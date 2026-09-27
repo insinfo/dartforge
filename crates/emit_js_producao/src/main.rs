@@ -10,7 +10,7 @@ use dartforge_emit_js_producao::{Opcoes, compilar};
 
 const USO: &str = "uso: dartforge-jsprod <entrada.dart> -o <saida.js> \
 [--sdk <lib>] [--packages <package_config.json>] [--dart-sdk-js <arquivo>] \
-[--sem-poda] [--sem-membros] [--sem-poda-usuario] [--verificar-stub] \
+[--sem-poda] [--sem-membros] [--sem-poda-usuario] [--sem-minificar] [--verificar-stub] \
 [--versao-linguagem x.y] [--enable-experiment=a,b]";
 
 fn main() {
@@ -43,6 +43,7 @@ fn executar() -> Result<(), String> {
             "--sem-poda" => op.podar_sdk = false,
             "--sem-membros" => op.por_membro = false,
             "--sem-poda-usuario" => op.podar_usuario = false,
+            "--sem-minificar" => op.minificar = false,
             "--verificar-stub" => op.stub = true,
             "-h" | "--help" => {
                 println!("{USO}");
@@ -93,6 +94,20 @@ fn executar() -> Result<(), String> {
         prod.sdk_vivas,
         prod.sdk_unidades,
     );
+    if prod.antes_de_compactar != prod.js.len() {
+        println!("compactação: {:.0} -> {:.0} KB", kb(prod.antes_de_compactar), kb(prod.js.len()));
+    }
+    if let Some((origem, t)) = prod.indice {
+        let de = match origem {
+            dartforge_emit_js_producao::cache::Origem::Cache => "do cache",
+            dartforge_emit_js_producao::cache::Origem::Construido => "construído",
+        };
+        println!(
+            "runtime: índice {de} em {:.0} ms; poda {:.0} ms",
+            t.as_secs_f64() * 1000.0,
+            prod.tempo_poda.as_secs_f64() * 1000.0
+        );
+    }
     if let Some(m) = &prod.mundo {
         let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
         let e = &m.estat;

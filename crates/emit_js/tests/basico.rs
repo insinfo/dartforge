@@ -102,3 +102,12 @@ fn p8_nosuchmethod_ordem() {
 fn p9_escopo_lexico() {
     verifica("p9_escopo_lexico");
 }
+
+/// Argumentos de tipo reificados vindos da inferência comum: instanciação de
+/// chamadas genéricas, literais de coleção, construtores e closures, vistos
+/// por `is`, `as`, `runtimeType` e pelo `T` impresso
+/// (docs/INFERENCIA-JS-ALINHAMENTO.md §4). Antes, 12 linhas divergiam da VM.
+#[test]
+fn p10_tipos_reificados() {
+    verifica("p10_tipos_reificados");
+}

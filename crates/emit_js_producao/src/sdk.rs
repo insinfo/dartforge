@@ -909,8 +909,48 @@ pub fn seletores_dinamicos_por_especie(src: &str) -> (Vec<String>, Vec<String>) 
     (leituras, escritas)
 }
 
-/// Poda o `dart_sdk.js`: devolve o texto podado, o total de unidades e as vivas.
-pub fn podar(src: &str, raizes: &[String], por_membro: bool) -> (String, usize, usize) {
+/// Índice do `dart_sdk.js`: a classificação em fatias, as unidades do
+/// alcance (condições, referências e seletores já internados), as raízes que
+/// o próprio arquivo impõe, os aliases exportados e os seletores que o
+/// runtime chama por string. Depende **só** do texto e de `por_membro` — não
+/// do programa —, então é construído uma vez e guardado
+/// (`crate::cache`, `docs/JS-PRODUCAO.md` §1.6); o ponto fixo e a reemissão
+/// por programa correm por cima dele ([`podar_com_indice`]).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct IndiceSdk {
+    /// `(início, fim, grupo)` de cada fatia, na ordem do arquivo; o grupo
+    /// diz quais precisam de vírgula entre as vivas.
+    fatias: Vec<(usize, usize, Option<u32>)>,
+    unidades: Vec<Unidade>,
+    /// Nomes dos símbolos, na ordem dos `Sym`.
+    simbolos: Vec<String>,
+    raizes_do_runtime: Vec<alcance::Sym>,
+    aliases: Vec<(String, String)>,
+    /// Nomes que o runtime chama por string, por espécie
+    /// ([`seletores_dinamicos_por_especie`]).
+    pub seletores_leitura: Vec<String>,
+    pub seletores_escrita: Vec<String>,
+}
+
+impl IndiceSdk {
+    /// Unidades do arquivo (o total do relatório).
+    pub fn total_unidades(&self) -> usize {
+        self.unidades.len()
+    }
+
+    /// Os nomes chamados por string, sem espécie ([`seletores_dinamicos`]).
+    pub fn seletores_dinamicos(&self) -> Vec<String> {
+        let mut todos = self.seletores_leitura.clone();
+        todos.extend(self.seletores_escrita.iter().cloned());
+        todos.sort();
+        todos.dedup();
+        todos
+    }
+}
+
+/// Constrói o [`IndiceSdk`] de `src` (a parte cara da poda: varredura,
+/// classificação e extração de referências das ~45 mil unidades).
+pub fn indexar(src: &str, por_membro: bool) -> IndiceSdk {
     let aliases = crate::bundle::aliases_exportados(src);
     let (fatias, raizes_do_runtime) = classificar(src, por_membro);
     let mut simbolos = Simbolos::default();
@@ -946,25 +986,57 @@ pub fn podar(src: &str, raizes: &[String], por_membro: bool) -> (String, usize, 
         }
         unidades.push(u);
     }
-    let raizes: Vec<u32> = raizes.iter().chain(raizes_do_runtime.iter())
+    let raizes_do_runtime = raizes_do_runtime
+        .iter()
         // As variáveis locais exportadas sob outro nome precisam existir
         // mesmo quando o programa só cita o alias da biblioteca.
         .chain(aliases.iter().map(|(original, _)| original))
-        .map(|r| simbolos.interna(r)).collect();
-    let viva = alcance::resolver(&unidades, &raizes, simbolos.total());
+        .map(|r| simbolos.interna(r))
+        .collect();
+    let (seletores_leitura, seletores_escrita) = seletores_dinamicos_por_especie(src);
+    IndiceSdk {
+        fatias: fatias.iter().map(|f| (f.ini, f.fim, f.grupo)).collect(),
+        unidades,
+        simbolos: simbolos.nomes(),
+        raizes_do_runtime,
+        aliases,
+        seletores_leitura,
+        seletores_escrita,
+    }
+}
+
+/// Poda o `dart_sdk.js`: devolve o texto podado, o total de unidades e as vivas.
+pub fn podar(src: &str, raizes: &[String], por_membro: bool) -> (String, usize, usize) {
+    podar_com_indice(src, &indexar(src, por_membro), raizes)
+}
+
+/// Como [`podar`], sobre um índice já construído de `src` (o mesmo texto:
+/// as fatias são intervalos dele).
+pub fn podar_com_indice(src: &str, indice: &IndiceSdk, raizes: &[String]) -> (String, usize, usize) {
+    let mut simbolos = Simbolos::de_nomes(indice.simbolos.clone());
+    let unidades = &indice.unidades;
+    let fatias = &indice.fatias;
+    let aliases = &indice.aliases;
+    let raizes: Vec<u32> = raizes.iter().map(|r| simbolos.interna(r)).chain(indice.raizes_do_runtime.iter().copied()).collect();
+    let viva = alcance::resolver(unidades, &raizes, simbolos.total());
     let vivas = viva.iter().filter(|v| **v).count();
+    // A chave de uma fatia nos diagnósticos: o primeiro gatilho, senão o
+    // primeiro requisito.
+    let chave_de = |i: usize| -> &str {
+        let u = &unidades[i];
+        u.gatilhos.first().or(u.requisitos.first()).map(|&s| indice.simbolos[s as usize].as_str()).unwrap_or("(sempre)")
+    };
 
     // `DARTFORGE_JSPROD_DEBUG=1` diz **quem** está ocupando o arquivo. É por
     // onde se acha o símbolo que puxa o mundo (foi assim que se descobriu que
     // `dart.applyMixin` estava sendo lido como declaração, e não como chamada).
     if std::env::var("DARTFORGE_JSPROD_DEBUG").is_ok_and(|v| v != "0") {
         let mut por_simbolo: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-        for (i, f) in fatias.iter().enumerate() {
+        for (i, &(ini, fim, _)) in fatias.iter().enumerate() {
             if !viva[i] {
                 continue;
             }
-            let chave = f.gatilhos.first().or(f.requisitos.first()).map(String::as_str).unwrap_or("(sempre)");
-            *por_simbolo.entry(chave).or_default() += f.fim - f.ini;
+            *por_simbolo.entry(chave_de(i)).or_default() += fim - ini;
         }
         let mut v: Vec<(&str, usize)> = por_simbolo.into_iter().collect();
         // Empate no tamanho desempata pelo símbolo (o `HashMap` não tem ordem).
@@ -977,10 +1049,11 @@ pub fn podar(src: &str, raizes: &[String], por_membro: bool) -> (String, usize, 
     // `DARTFORGE_JSPROD_GATILHO=html$` lista as unidades vivas presas a um símbolo.
     if let Ok(alvo) = std::env::var("DARTFORGE_JSPROD_GATILHO") {
         for alvo in alvo.split(',') {
-            for (i, f) in fatias.iter().enumerate() {
-                if viva[i] && (f.gatilhos.iter().any(|g| g == alvo) || f.requisitos.iter().any(|g| g == alvo)) {
-                    let t = &src[f.ini..f.fim];
-                    eprintln!("[jsprod] [{alvo}] {:>7}B {:?}", f.fim - f.ini, &t[..t.len().min(100)]);
+            let Some(d) = simbolos.procura(alvo) else { continue };
+            for (i, &(ini, fim, _)) in fatias.iter().enumerate() {
+                if viva[i] && (unidades[i].gatilhos.contains(&d) || unidades[i].requisitos.contains(&d)) {
+                    let t = &src[ini..fim];
+                    eprintln!("[jsprod] [{alvo}] {:>7}B {:?}", fim - ini, &t[..t.len().min(100)]);
                 }
             }
         }
@@ -996,8 +1069,8 @@ pub fn podar(src: &str, raizes: &[String], por_membro: bool) -> (String, usize, 
             let mut n = 0;
             for (i, u) in unidades.iter().enumerate() {
                 if viva[i] && u.refs.contains(&d) && n < 6 {
-                    let t = &src[fatias[i].ini..fatias[i].fim];
-                    let chave = fatias[i].gatilhos.first().or(fatias[i].requisitos.first()).map(String::as_str).unwrap_or("(sempre)");
+                    let t = &src[fatias[i].0..fatias[i].1];
+                    let chave = chave_de(i);
                     eprintln!("[jsprod] {alvo} citado por [{chave}] {:?}", &t[..t.len().min(110)]);
                     n += 1;
                 }
@@ -1007,7 +1080,7 @@ pub fn podar(src: &str, raizes: &[String], por_membro: bool) -> (String, usize, 
     // `DARTFORGE_JSPROD_CAMINHO=core._BigIntImpl` responde quem o puxou.
     if let Ok(alvo) = std::env::var("DARTFORGE_JSPROD_CAMINHO") {
         for alvo in alvo.split(',') {
-            match simbolos.procura(alvo).and_then(|d| alcance::caminho(&unidades, &raizes, simbolos.total(), d)) {
+            match simbolos.procura(alvo).and_then(|d| alcance::caminho(unidades, &raizes, simbolos.total(), d)) {
                 Some(c) => eprintln!("[jsprod] {alvo} <- {}", c.iter().rev().map(|&s| simbolos.nome(s)).collect::<Vec<_>>().join(" <- ")),
                 None => eprintln!("[jsprod] {alvo}: não alcançado"),
             }
@@ -1019,11 +1092,11 @@ pub fn podar(src: &str, raizes: &[String], por_membro: bool) -> (String, usize, 
     // de sintaxe, não tolerância.
     let mut out = String::with_capacity(src.len() / 2);
     let mut grupo_aberto: Option<u32> = None;
-    for (i, f) in fatias.iter().enumerate() {
+    for (i, &(ini, fim, grupo)) in fatias.iter().enumerate() {
         if !viva[i] {
             continue;
         }
-        match f.grupo {
+        match grupo {
             Some(g) => {
                 if grupo_aberto == Some(g) {
                     out.push(',');
@@ -1032,7 +1105,7 @@ pub fn podar(src: &str, raizes: &[String], por_membro: bool) -> (String, usize, 
             }
             None => grupo_aberto = None,
         }
-        let t = &src[f.ini..f.fim];
+        let t = &src[ini..fim];
         if t.starts_with("export {") {
             continue;
         }

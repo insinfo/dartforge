@@ -80,6 +80,12 @@ pub struct UnitBodyTypes {
     /// ao gerador sem nenhum; o CFE ignora o `return;` e dá `Null`. Pela
     /// função (`ast::FunctionId`).
     pub tipos_de_execucao_de_funcoes: std::collections::HashMap<ast::FunctionId, TypeId>,
+    /// Argumentos de tipo escolhidos para cada chamada genérica (função,
+    /// método, estático, `call`), explícitos ou inferidos, pelo offset do
+    /// início da lista de argumentos (`ast::Arguments::span`). Fica fora do
+    /// tipo de qualquer nó (`id(5)` tem tipo `Object?`, mas a instanciação
+    /// `<Object?>` só aparece aqui) e é o que o backend reifica.
+    pub instanciacoes: std::collections::HashMap<usize, Box<[TypeId]>>,
 }
 
 impl UnitBodyTypes {
@@ -92,7 +98,20 @@ impl UnitBodyTypes {
             declaracoes_de_locais: std::collections::HashMap::new(),
             tipos_invalidos: std::collections::HashSet::new(),
             tipos_de_execucao_de_funcoes: std::collections::HashMap::new(),
+            instanciacoes: std::collections::HashMap::new(),
         }
+    }
+
+    /// Registra os argumentos de tipo da chamada genérica cuja lista de
+    /// argumentos começa em `offset`.
+    pub fn set_instanciacao(&mut self, offset: usize, args: Box<[TypeId]>) {
+        self.instanciacoes.insert(offset, args);
+    }
+
+    /// Argumentos de tipo da chamada genérica cuja lista de argumentos
+    /// começa em `offset` (ver [`UnitBodyTypes::instanciacoes`]).
+    pub fn instanciacao(&self, offset: usize) -> Option<&[TypeId]> {
+        self.instanciacoes.get(&offset).map(|a| &**a)
     }
 
     /// Registra o tipo de uma variável local declarada em `offset`.
