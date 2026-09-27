@@ -731,8 +731,16 @@ subconjunto.
 
 ### O que a meta implica na arquitetura, medido no código de hoje
 
-O front-end atual é um compilador de subconjunto, e as representações centrais
-foram desenhadas para isso:
+> **Histórico (até 2026-09-23).** Os itens abaixo descrevem a trilha velha
+> (`crates/parser`, `crates/semantic`, `dartforge_syntax`), que saiu do
+> workspace e está na branch `exploracao-inicial`; nenhum desses caminhos
+> existe hoje. A trilha nova que eles motivaram é a atual: `crates/frontend`
+> (parser sem resolução), `crates/elements`/`crates/types` (tipos, inferência
+> e o SDK carregado da fonte, inclusive `dart:core`). Ver `README.md`
+> («Workspace») e `ESTADO.md` §1.1.
+
+O front-end de então era um compilador de subconjunto, e as representações
+centrais foram desenhadas para isso:
 
 * o parser **resolve tipos durante a análise sintática** (`type_at` em
   `crates/parser/src/lib.rs`): exige um ambiente de nomes de classe, apaga os
@@ -918,7 +926,8 @@ O alvo dominante é o `package:analyzer` — 438 arquivos, 227.252 linhas,
 usando `dart:io`, `dart:isolate`, `dart:ffi`, `dart:typed_data`,
 `dart:collection`, `dart:async`, `dart:convert` e `dart:_internal`.
 Compilá-lo e rodá-lo é o teste de maturidade da implementação, e é o que
-ordena as prioridades do `crates/emit_native` (hoje ~6/202 do corpus).
+ordena as prioridades do `crates/emit_native` (~6/202 do corpus quando
+isto foi escrito; o placar atual está em `ESTADO.md` §2.5).
 
 É a mesma regra da meta governante da linguagem ("qualquer projeto Dart
 3.6 válido"), estendida às ferramentas, e ela tem três consequências
@@ -1069,6 +1078,12 @@ minificado (`.c { color: red; }` vira `.c._ngcontent-%ID%{color:red}`), com
 elemento.
 
 ## As cinco frentes — onde cada uma está (2026-09-22)
+
+> **Histórico (instantâneo de 2026-09-22).** A linha do AOT nativo abaixo
+> («7/214»; faltam `async`, genéricos reificados, `dart:core` da seção `vm`,
+> `dart:io`, isolates) e a do JIT não valem mais: os itens entraram nas
+> rodadas seguintes (`docs/NATIVO-PLANO.md` §7.5–§7.13; `ESTADO.md` §1.5 e
+> §2.5), e o JIT faz recarga com estado pela CLI (`ESTADO.md` §1.5.1).
 
 Consolidação do que existe e do que falta, para não confundir frente
 madura com frente parada. Números medidos, não estimados; detalhe em
@@ -1300,8 +1315,12 @@ Duas lacunas concretas a atacar antes de qualquer transporte JSON-RPC:
    LSP (o do parser foi cumprido). Sem ela o editor mostra um erro
    semântico por arquivo.
 
-`crates/lsp` tem 22 linhas e documenta honestamente que não tem transporte,
-JSON-RPC nem sincronização de documentos. Não existe extensão de editor ainda.
+*Histórico (até 2026-09-22):* `crates/lsp` tinha 22 linhas, sem transporte,
+JSON-RPC nem sincronização de documentos, e não havia extensão de editor.
+Hoje há transporte JSON-RPC (`crates/lsp/src/transporte.rs`), `didChange`
+incremental com posições UTF-16 (`crates/lsp/src/utf16.rs`,
+`crates/lsp/src/lib.rs:48`), `$/cancelRequest` (`crates/lsp/src/servidor.rs:1-15`)
+e a extensão em `editors/vscode/`.
 
 ### Evidência de campo: o crescimento é monotônico, não um pico
 
@@ -1489,7 +1508,9 @@ arquivo inteiro a cada tecla reintroduz o custo que se quer evitar.
 
 Estado em 2026-09-21: `crates/lsp` tem `diagnose()` multi-erro + `DocumentStore`
 (ver item 3); transporte JSON-RPC, `didChange` incremental com UTF-16 correto e
-cancelamento continuam inexistentes.
+cancelamento continuam inexistentes. *Histórico:* os três existem hoje —
+`crates/lsp/src/transporte.rs`, `crates/lsp/src/utf16.rs` e o
+`$/cancelRequest` da fila de `crates/lsp/src/servidor.rs:1-15`.
 
 Estado em 2026-09-22: transporte pronto — `crates/lsp/src/` tem
 `transporte.rs` (quadros `Content-Length` por stdio, leitora + despacho,
