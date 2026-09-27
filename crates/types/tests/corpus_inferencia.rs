@@ -5,7 +5,9 @@
 //! As divergências e os avisos conhecidos ficam em
 //! `corpus/inferencia/divergencias.txt` (catraca): o teste falha com
 //! divergência ou aviso novo, e também com item da lista que deixou de
-//! acontecer (a lista só encolhe). `ATUALIZAR_DIVERGENCIAS=1` regrava a lista.
+//! acontecer (a lista só encolhe). `ATUALIZAR_DIVERGENCIAS=1` regrava a lista,
+//! preservando as notas do cabeçalho (linhas `#> `), que explicam as
+//! divergências mantidas de propósito.
 
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_types::despejo::{bloco_de_esperado, bloco_de_linhas, comparar_bloco, despejar};
@@ -93,6 +95,11 @@ fn corpus_inferencia_contra_o_oraculo() {
              # (catraca de crates/types/tests/corpus_inferencia.rs; só encolhe).\n",
         );
         s.push_str(&format!("# {resumo}\n"));
+        // Notas (`#> `) sobre divergências mantidas de propósito: preservadas.
+        for l in std::fs::read_to_string(&lista_path).unwrap_or_default().lines().filter(|l| l.starts_with("#>")) {
+            s.push_str(l);
+            s.push('\n');
+        }
         for l in &atual {
             s.push_str(l);
             s.push('\n');

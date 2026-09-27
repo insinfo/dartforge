@@ -49,6 +49,9 @@ pub struct TypeParameterData {
     pub owner: TypeParamOwner,
     pub bound: TypeId,
     pub variance: Variance,
+    /// O limite foi escrito (`T extends Object?`), e não é o `Object?`
+    /// implícito: a instanciação para os limites e a exibição distinguem.
+    pub explicito: bool,
 }
 
 /// Representação semântica de um tipo em Dart 3.
@@ -189,14 +192,20 @@ impl TypeTable {
             owner,
             bound,
             variance,
+            explicito: false,
         });
         self.payload_bytes += std::mem::size_of::<TypeParameterData>();
         id
     }
 
     /// Atualiza o limite (*bound*) de um parâmetro de tipo (útil em recursão mútua / F-bounds).
+    ///
+    /// Marca o limite como escrito ([`TypeParameterData::explicito`]); cópias
+    /// de parâmetros restauram a marca do original.
     pub fn set_type_param_bound(&mut self, id: TypeParamId, bound: TypeId) {
-        self.type_params[id.0 as usize].bound = bound;
+        let d = &mut self.type_params[id.0 as usize];
+        d.bound = bound;
+        d.explicito = true;
     }
 
     /// Interna um tipo estrutural na tabela, garantindo unicidade por hash-consing.
@@ -320,7 +329,7 @@ impl TypeTable {
                                 let nome = interner.resolve(d.name);
                                 match self.get(d.bound) {
                                     Type::Interface { nullable: true, class, .. }
-                                        if interner.resolve(program.classes[class.0 as usize].name) == "Object" =>
+                                        if !d.explicito && interner.resolve(program.classes[class.0 as usize].name) == "Object" =>
                                     {
                                         nome.to_string()
                                     }

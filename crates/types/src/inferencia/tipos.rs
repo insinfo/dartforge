@@ -268,17 +268,7 @@ impl<'a> BodyInferrer<'a> {
     /// Instanciação para os limites (`instantiate to bounds`) dos parâmetros
     /// de uma classe usada crua (`List` → `List<dynamic>`).
     pub(crate) fn instanciar_para_limites(&mut self, params: &[TypeParamId]) -> Vec<TypeId> {
-        let mut args: Vec<TypeId> = Vec::with_capacity(params.len());
-        for &p in params {
-            let b = self.table.param(p).bound;
-            args.push(if b == self.core.object_nullable { self.core.dynamic_ } else { b });
-        }
-        // Limites que mencionam outros parâmetros: substitui e fecha.
-        let mapa: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().map(|_| self.core.dynamic_)).collect();
-        for a in args.iter_mut() {
-            *a = substitute(*a, &mapa, self.table);
-        }
-        args
+        crate::ops::instanciar_para_limites(params, &[], self.table, self.core)
     }
 
     /// Cópias frescas (reusadas por lista) de parâmetros de tipo, com os
@@ -299,10 +289,11 @@ impl<'a> BodyInferrer<'a> {
             .collect();
         let tipos: Vec<TypeId> = novos.iter().map(|&p| self.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
         let mapa = self.mapa(originais, &tipos);
-        for &p in &novos {
+        for (&p, &o) in novos.iter().zip(originais) {
             let b = self.table.param(p).bound;
             let b = self.subst(b, &mapa);
             self.table.set_type_param_bound(p, b);
+            self.table.param_mut(p).explicito = self.table.param(o).explicito;
         }
         self.params_construtor.insert(originais[0].0, novos.clone());
         novos

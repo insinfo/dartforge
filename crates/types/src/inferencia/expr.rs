@@ -971,7 +971,26 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
                 None => inf.core.dynamic_,
             }
         }
-        Busca::Nunca => inf.core.never,
+        // Receptor `Never` (analyzer 3.6.2): na forma `id.x`
+        // (`PrefixedIdentifier`) o resultado é `Never`; nas outras
+        // (`PropertyAccess`, `falha().x`) valem só os membros de `Object`, e
+        // um nome que não é de `Object` fica com o tipo de recuperação
+        // (`InvalidType`, que se comporta como `dynamic`).
+        Busca::Nunca => {
+            let prefixado = !null_aware && matches!(a.expr(target).kind, ExprKind::Identifier(_));
+            let o = inf.core.object;
+            match inf.membro_de_interface(o, name.sym, false) {
+                _ if prefixado => inf.core.never,
+                Some(m) => {
+                    resolver(inf, cx, e, m.resolved.clone());
+                    m.tipo
+                }
+                None => {
+                    inf.body_types.units[cx.unit.0 as usize].tipos_invalidos.insert(e);
+                    inf.core.dynamic_
+                }
+            }
+        }
         Busca::Ausente => {
             if let Some((x, _)) = cx.sobreposicoes.get(&target).cloned() {
                 let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
@@ -1156,10 +1175,11 @@ fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
             let tipos: Vec<TypeId> = novos.iter().map(|&p| inf.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
             let mapa = inf.mapa(&params, &tipos);
             let s = inf.subst(sig, &mapa);
-            for &p in &novos {
+            for (&p, &o) in novos.iter().zip(params.iter()) {
                 let b = inf.table.param(p).bound;
                 let b = inf.subst(b, &mapa);
                 inf.table.set_type_param_bound(p, b);
+                inf.table.param_mut(p).explicito = inf.table.param(o).explicito;
             }
             match inf.table.get(s).clone() {
                 Type::Function { ret, positional, optional, named, nullable, .. } => inf.table.intern(Type::Function {
@@ -1478,10 +1498,13 @@ fn binario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: BinaryOp, 
             let t1 = inferir(inf, cx, left, k_q);
             uso_de_void(inf, cx, left, t1);
             let j = if inf.e_desconhecido(ctx) || inf.e_dynamic(ctx) { t1 } else { ctx };
-            let antes = cx.fluxo.clone();
+            // Ramo em que `e1` não é nulo: `e1` promove a não nulo; no outro
+            // nada se promove. A junção dos dois vale depois, então
+            // `y ?? (throw 0)` deixa `y` promovido.
+            let mut antes = cx.fluxo.clone();
             if let Some(id) = alvo_de_promocao(inf, cx, left) {
-                // No ramo em que `e1` é nulo nada se promove; depois, `e1` é não nulo.
-                let _ = id;
+                let decl = cx.local(id).tipo;
+                inf.promover_nao_nulo(&mut antes, id, decl);
             }
             let t2 = inferir(inf, cx, right, j);
             let depois = cx.fluxo.clone();

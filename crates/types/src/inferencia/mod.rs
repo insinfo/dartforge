@@ -214,6 +214,7 @@ impl<'a> BodyInferrer<'a> {
                 }
             }
         }
+        self.completar_sobrescritas_de_campo();
         for v in 0..self.program.variables.len() {
             let vid = VariableId(v as u32);
             // Sessão residente: variáveis de bibliotecas que não serão
@@ -286,6 +287,49 @@ impl<'a> BodyInferrer<'a> {
         self.inicializador_visitado[vid.0 as usize] = true;
         self.sincronizar_acessores(vid, t);
         t
+    }
+
+    /// Override inference sobre campo sem tipo escrito: o getter (retorno) ou
+    /// o setter (parâmetro) sobrescritor que omitiu o tipo herda o tipo
+    /// inferido do campo sobreposto, instanciado na classe do sobrescritor.
+    fn completar_sobrescritas_de_campo(&mut self) {
+        let pendentes = std::mem::take(&mut self.outline.sobrescritas_de_campo);
+        for p in &pendentes {
+            let t = self.tipo_variavel(p.campo);
+            let subst: HashMap<_, _> = p.subst.iter().copied().collect();
+            let t = crate::ops::substitute(t, &subst, self.table);
+            let fd = &mut self.outline.functions[p.funcao.0 as usize];
+            match p.parametro {
+                None => fd.return_type = t,
+                Some(i) => match fd.parameters.get_mut(i) {
+                    Some(par) => par.ty = t,
+                    None => continue,
+                },
+            }
+            let fd = &self.outline.functions[p.funcao.0 as usize];
+            let (mut pos, mut opt, mut nom) = (Vec::new(), Vec::new(), Vec::new());
+            for par in fd.parameters.iter() {
+                match par.kind {
+                    ast::ParameterKind::Required => pos.push(par.ty),
+                    ast::ParameterKind::Optional => opt.push(par.ty),
+                    ast::ParameterKind::Named => {
+                        if let Some(n) = par.externo {
+                            nom.push((n, par.ty, par.required));
+                        }
+                    }
+                }
+            }
+            let sig = self.table.intern(crate::table::Type::Function {
+                type_params: fd.type_params.clone(),
+                ret: fd.return_type,
+                positional: pos.into_boxed_slice(),
+                optional: opt.into_boxed_slice(),
+                named: nom.into_boxed_slice(),
+                nullable: false,
+            });
+            self.outline.functions[p.funcao.0 as usize].signature = sig;
+        }
+        self.outline.sobrescritas_de_campo = pendentes;
     }
 
     /// Os acessores implícitos da variável passam a ter o tipo inferido.

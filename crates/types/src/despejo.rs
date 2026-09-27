@@ -100,7 +100,13 @@ pub fn linhas_da_unidade(prog: &Program, bodies: &BodyTypes, table: &TypeTable, 
         .enumerate()
         .map(|(i, e)| {
             let ty = bt.static_types.get(i).copied().unwrap_or(NAO_VISITADA);
-            let tipo = if ty == NAO_VISITADA { "?".to_string() } else { formatar(table, ty, interner, prog) };
+            let tipo = if ty == NAO_VISITADA {
+                "?".to_string()
+            } else if bt.tipos_invalidos.contains(&dartforge_frontend::ast::ExprId(i as u32)) {
+                "InvalidType".to_string()
+            } else {
+                formatar(table, ty, interner, prog)
+            };
             let resolucao = bt
                 .resolved
                 .get(i)
@@ -230,7 +236,7 @@ pub fn formatar(t: &TypeTable, ty: TypeId, i: &Interner, p: &Program) -> String 
                         let d = t.param(tp);
                         let nome = i.resolve(d.name).to_string();
                         match t.get(d.bound) {
-                            Type::Interface { nullable: true, class, .. } if i.resolve(p.class(*class).name) == "Object" => nome,
+                            Type::Interface { nullable: true, class, .. } if !d.explicito && i.resolve(p.class(*class).name) == "Object" => nome,
                             Type::Dynamic => nome,
                             _ => format!("{nome} extends {}", formatar(t, d.bound, i, p)),
                         }

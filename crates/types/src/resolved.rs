@@ -69,6 +69,10 @@ pub struct UnitBodyTypes {
     /// [`crate::BodyInferrer::registrar_locais`] está ligado (o LSP, para
     /// renomear e achar referências); o compilador não paga por ela.
     pub declaracoes_de_locais: std::collections::HashMap<ast::ExprId, usize>,
+    /// Expressões cujo tipo é o de recuperação do analyzer (`InvalidType`,
+    /// uma leitura que não resolve): em `static_types` ficam `dynamic`, que
+    /// é como o `InvalidType` se comporta; a marca só distingue na exibição.
+    pub tipos_invalidos: std::collections::HashSet<ast::ExprId>,
 }
 
 impl UnitBodyTypes {
@@ -79,6 +83,7 @@ impl UnitBodyTypes {
             resolved: vec![None; num_exprs],
             tipos_de_locais: std::collections::HashMap::new(),
             declaracoes_de_locais: std::collections::HashMap::new(),
+            tipos_invalidos: std::collections::HashSet::new(),
         }
     }
 

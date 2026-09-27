@@ -106,6 +106,62 @@ fn menciona(inf: &BodyInferrer<'_>, t: TypeId, params: &[TypeParamId]) -> bool {
     }
 }
 
+/// Ordem da inferência horizontal (`inference-update-1`): os argumentos não
+/// adiados formam o estágio 0; os literais de função adiados seguem as
+/// dependências entre si — um literal cujos tipos de parâmetro mencionam uma
+/// variável que o retorno de outro literal adiado ainda fornece espera por
+/// ele. Os que só dependem de variáveis já fornecidas formam o estágio
+/// seguinte (na ordem do texto); num ciclo, os restantes vão juntos.
+/// Devolve `(estágio, índice do argumento)` na ordem de inferência.
+fn estagios_horizontais(
+    inf: &BodyInferrer<'_>,
+    type_params: &[TypeParamId],
+    params: &[Option<TypeId>],
+    adiados: &[bool],
+) -> Vec<(usize, usize)> {
+    let mut ordem: Vec<(usize, usize)> = (0..adiados.len()).filter(|&i| !adiados[i]).map(|i| (0, i)).collect();
+    // Para cada adiado: variáveis de que depende (nos tipos dos parâmetros
+    // do formal) e as que fornece (no retorno do formal).
+    let mut restantes: Vec<(usize, Vec<TypeParamId>, Vec<TypeParamId>)> = Vec::new();
+    for i in (0..adiados.len()).filter(|&i| adiados[i]) {
+        let Some(p) = params[i] else { continue };
+        let (entradas, saida): (Vec<TypeId>, Option<TypeId>) = match inf.table.get(p) {
+            Type::Function { ret, positional, optional, named, .. } => (
+                positional.iter().chain(optional.iter()).copied().chain(named.iter().map(|(_, t, _)| *t)).collect(),
+                Some(*ret),
+            ),
+            _ => (vec![p], None),
+        };
+        let depende: Vec<TypeParamId> =
+            type_params.iter().copied().filter(|&v| entradas.iter().any(|&t| menciona(inf, t, &[v]))).collect();
+        let fornece: Vec<TypeParamId> =
+            type_params.iter().copied().filter(|&v| saida.is_some_and(|t| menciona(inf, t, &[v]))).collect();
+        restantes.push((i, depende, fornece));
+    }
+    let mut estagio = 1;
+    while !restantes.is_empty() {
+        let prontos: Vec<usize> = (0..restantes.len())
+            .filter(|&k| {
+                restantes[k].1.iter().all(|v| {
+                    !restantes.iter().enumerate().any(|(j, (_, _, fornece))| j != k && fornece.contains(v))
+                })
+            })
+            .collect();
+        let prontos = if prontos.is_empty() { (0..restantes.len()).collect() } else { prontos };
+        for &k in &prontos {
+            ordem.push((estagio, restantes[k].0));
+        }
+        let mut k = 0;
+        restantes.retain(|_| {
+            let fica = !prontos.contains(&k);
+            k += 1;
+            fica
+        });
+        estagio += 1;
+    }
+    ordem
+}
+
 /// Invoca um tipo de função com os argumentos; devolve `(retorno, função instanciada)`.
 pub(crate) fn invocar(
     inf: &mut BodyInferrer<'_>,
@@ -187,12 +243,10 @@ pub(crate) fn invocar(
         .map(|(a, p)| p.is_some_and(|p| menciona(inf, p, &type_params)) && literal_de_funcao_adiavel(inf, cx, a.value))
         .collect();
     let mut tipos: Vec<TypeId> = vec![inf.core.dynamic_; args.args.len()];
-    for estagio in [false, true] {
-        for (i, a) in args.args.iter().enumerate() {
-            if adiados[i] != estagio {
-                continue;
-            }
-            if estagio {
+    for (estagio, i) in estagios_horizontais(inf, &type_params, &params, &adiados) {
+        let a = &args.args[i];
+        {
+            if estagio > 0 {
                 let mut env = inf.env();
                 prelim = gi.choose_preliminary(&mut env);
             }

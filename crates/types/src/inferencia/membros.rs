@@ -97,6 +97,55 @@ impl<'a> BodyInferrer<'a> {
         candidatos.iter().copied().find(|&(a, _)| !sobrescrito(a)).or_else(|| candidatos.first().copied())
     }
 
+    /// Como [`Self::declaracao_em_classe`], com a assinatura combinada
+    /// (*combined member signature*) quando sobram vários candidatos não
+    /// sobrescritos: vale o primeiro, na ordem de busca, cujo tipo (vista a
+    /// classe de dentro) é subtipo do de todos os outros — `J implements I1,
+    /// I2` com `num get v` e `int get v` tem `J.v` de `I2`. Setter compara o
+    /// parâmetro no sentido contrário. Sem um mais específico, fica a ordem
+    /// de busca.
+    fn declaracao_mais_especifica(&mut self, classe: ClassId, chave: SymbolId, setter: bool) -> Option<(ClassId, FunctionElementId)> {
+        let primeira = self.declaracao_em_classe(classe, chave)?;
+        if primeira.0 == classe || self.program.class(classe).kind == dartforge_elements::model::ClassKind::ExtensionType {
+            return Some(primeira);
+        }
+        let candidatos: Vec<(ClassId, FunctionElementId)> =
+            crate::scope::supertipos_ordenados(self.program, &self.outline.hierarchy, classe)
+                .into_iter()
+                .filter_map(|(sup, _)| self.program.class(sup).instance_members.get(&chave).map(|&f| (sup, f)))
+                .collect();
+        let hier = &self.outline.hierarchy;
+        let fronteira: Vec<(ClassId, FunctionElementId)> = candidatos
+            .iter()
+            .copied()
+            .filter(|&(a, _)| !candidatos.iter().any(|&(b, _)| b != a && hier.get(b).is_some_and(|d| d.supertypes.contains_key(&a))))
+            .collect();
+        if fronteira.len() <= 1 {
+            return Some(primeira);
+        }
+        let params = self.outline.classes[classe.0 as usize].type_params.clone();
+        let args: Box<[TypeId]> = params.iter().map(|&p| self.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
+        let this = self.table.intern(Type::Interface { class: classe, args, nullable: false });
+        let mut tipos = Vec::with_capacity(fronteira.len());
+        for &(dono, f) in &fronteira {
+            let (t, metodo) = self.tipo_do_membro_declarado(f, setter);
+            let t = self.substituir_do_dono(this, classe, dono, t);
+            tipos.push((t, metodo));
+        }
+        if tipos.iter().any(|&(_, m)| m != tipos[0].1) {
+            return Some(primeira);
+        }
+        for i in 0..fronteira.len() {
+            let ok = (0..fronteira.len()).all(|j| {
+                i == j || if setter { self.sub(tipos[j].0, tipos[i].0) } else { self.sub(tipos[i].0, tipos[j].0) }
+            });
+            if ok {
+                return Some(fronteira[i]);
+            }
+        }
+        Some(primeira)
+    }
+
     /// Membro de instância pela interface do receptor (sem extensões).
     pub(crate) fn membro_de_interface(&mut self, recv: TypeId, nome: SymbolId, setter: bool) -> Option<Membro> {
         // `Null` só tem os membros de `Object` (`null.hashCode`).
@@ -132,7 +181,7 @@ impl<'a> BodyInferrer<'a> {
                 {
                     return Some(m);
                 }
-                let (dono, f) = self.declaracao_em_classe(class, chave)?;
+                let (dono, f) = self.declaracao_mais_especifica(class, chave, setter)?;
                 let (t, metodo) = self.tipo_do_membro_declarado(f, setter);
                 let t = self.substituir_do_dono(recv, class, dono, t);
                 // Membros de instância (inclusive o getter implícito de um
