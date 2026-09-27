@@ -364,6 +364,13 @@ pub fn gerar_em(
                 };
                 let tokens = dartforge_frontend::lexer::lex(&fonte);
                 let analisada = dartforge_frontend::parser::parse_lexed(&fonte, tokens, interner);
+                // Uma parte (`part of`) não é biblioteca: o oficial não gera
+                // nada para ela (`resolver.isLibrary`), e o que ela declara
+                // entra no `.template.dart` da biblioteca dona.
+                if e_parte(&analisada.unit) {
+                    placar.examinados -= 1;
+                    continue;
+                }
                 let achados = achar(&analisada.ast, &analisada.unit, &fonte, interner);
                 arquivos.push((p, nome, achados));
             }
@@ -399,6 +406,11 @@ pub fn gerar_em(
         }
         placar.gerados += 1;
     }
+}
+
+/// A unidade é uma parte (`part of`), não uma biblioteca.
+pub fn e_parte(unit: &dartforge_frontend::ast::CompilationUnit) -> bool {
+    unit.directives.iter().any(|d| matches!(d.kind, dartforge_frontend::ast::DirectiveKind::PartOf { .. }))
 }
 
 /// Os componentes e diretivas do pacote, por biblioteca e classe.

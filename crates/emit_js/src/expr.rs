@@ -563,13 +563,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             ExprKind::Identifier(name) => self.emit_identifier(name.sym, e),
             ExprKind::DotShorthand { .. } => self.emit_atalho(e, expected),
-            ExprKind::This => {
-                if let Some(t) = &self.extension_this {
-                    return (Js::prim("$this"), t.clone());
-                }
-                let ty = self.class.map(|c| self.ctx.this_ty(c)).unwrap_or(Ty::Dynamic);
-                (Js::prim("this"), ty)
-            }
+            ExprKind::This => self.emit_this(),
             ExprKind::Super => {
                 let ty = self.super_ty();
                 (Js::prim("super"), ty)
@@ -1538,8 +1532,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         self.emit_identifier(sym, ExprId(u32::MAX))
     }
 
+    /// `this` (o receptor da extensão, `$this`, dentro de uma).
+    fn emit_this(&mut self) -> (Js, Ty) {
+        if let Some(t) = &self.extension_this {
+            return (Js::prim("$this"), t.clone());
+        }
+        let ty = self.class.map(|c| self.ctx.this_ty(c)).unwrap_or(Ty::Dynamic);
+        (Js::prim("this"), ty)
+    }
+
     fn emit_identifier(&mut self, sym: dartforge_intern::SymbolId, e: ExprId) -> (Js, Ty) {
         let n = self.name(sym).to_string();
+        // `$this` numa interpolação simples chega como identificador.
+        if n == "this" {
+            return self.emit_this();
+        }
         if self.ctx.conferencia.is_some() {
             self.conferir_alvo(e, &self.resolve_ident(sym));
         }
@@ -2556,7 +2563,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 return (Js::new(format!("{} || {}", Js::new(l, P_PRIMARY).at(P_OR), Js::new(r, P_PRIMARY).at(P_OR + 1)), P_OR), self.ctx.t_bool());
             }
             BinaryOp::IfNull => {
-                let (l, lt) = self.emit_expr(left, expected);
+                // O contexto do operando esquerdo é o anulável do contexto
+                // (`K?`): um `dynamic` nulo não pode passar pelo teste de
+                // `K` antes do `??`; o do resultado vale para a expressão
+                // inteira.
+                let contexto = expected.map(|t| t.with_nullable(true));
+                let (l, lt) = self.emit_expr(left, contexto.as_ref());
                 let (r, rt) = self.emit_expr(right, expected.or(Some(&lt.non_null())));
                 let t = self.temp();
                 let ty = self.ctx.lub(&lt.non_null(), &rt);
