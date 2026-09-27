@@ -703,7 +703,10 @@ impl Value {
             .expect("payload excede usize")
     }
     /// Igualdade de chaves de `Map`/`Set` segundo `==` observável de Dart.
-    fn trace(&self, pending: &mut Vec<i64>) {
+    /// Empilha as arestas e devolve quantas posições percorreu: o trabalho
+    /// da marcação neste objeto, que não depende de quantas são referências
+    /// (uma lista de um milhão de `int` custa um milhão de passos).
+    fn trace(&self, pending: &mut Vec<i64>) -> usize {
         match self {
             Self::String(_)
             | Self::StringBuffer(_)
@@ -712,29 +715,45 @@ impl Value {
             | Self::BoxedInt(_)
             | Self::BoxedDouble(_)
             | Self::BoxedBool(_)
-            | Self::TypedData { .. } => {}
-            Self::TypedView { base, .. } => pending.push(*base),
-            Self::Object { fields, .. } => pending.extend(
-                fields
-                    .iter()
-                    .filter_map(|(bits, is_ref)| is_ref.then_some(*bits)),
-            ),
+            | Self::TypedData { .. } => 0,
+            Self::TypedView { base, .. } => {
+                pending.push(*base);
+                1
+            }
+            Self::Object { fields, .. } => {
+                pending.extend(
+                    fields
+                        .iter()
+                        .filter_map(|(bits, is_ref)| is_ref.then_some(*bits)),
+                );
+                fields.len()
+            }
             Self::Cell(value) => {
                 if value.is_ref {
                     pending.push(value.bits);
                 }
+                1
             }
-            Self::Environment(values) | Self::List(values) | Self::Set(values) | Self::Record(values) => pending.extend(
-                values
-                    .iter()
-                    .filter_map(|value| value.is_ref.then_some(value.bits)),
-            ),
-            Self::Map(entries) => pending.extend(entries.iter().flat_map(|(key, value)| {
-                [key, value]
-                    .into_iter()
-                    .filter_map(|part| part.is_ref.then_some(part.bits))
-            })),
-            Self::Closure { environment, .. } => pending.push(*environment),
+            Self::Environment(values) | Self::List(values) | Self::Set(values) | Self::Record(values) => {
+                pending.extend(
+                    values
+                        .iter()
+                        .filter_map(|value| value.is_ref.then_some(value.bits)),
+                );
+                values.len()
+            }
+            Self::Map(entries) => {
+                pending.extend(entries.iter().flat_map(|(key, value)| {
+                    [key, value]
+                        .into_iter()
+                        .filter_map(|part| part.is_ref.then_some(part.bits))
+                }));
+                entries.len() * 2
+            }
+            Self::Closure { environment, .. } => {
+                pending.push(*environment);
+                1
+            }
         }
     }
 }
@@ -911,6 +930,8 @@ pub struct Heap {
     stress: bool,
     stats: HeapStats,
     marks: Vec<bool>,
+    /// Posições percorridas pela última marcação (`Value::trace`).
+    trabalho_da_marcacao: usize,
     pending: Vec<i64>,
     byte_threshold: usize,
     /// Teto DURO do heap, em bytes.
@@ -1062,6 +1083,7 @@ impl Heap {
             stress,
             stats: HeapStats::default(),
             marks: Vec::new(),
+            trabalho_da_marcacao: 0,
             pending: Vec::new(),
             byte_threshold: 1024 * 1024,
             limite_bytes: Self::limite_do_ambiente(),
@@ -1853,7 +1875,7 @@ impl Heap {
             }
             self.marks[index] = true;
             live += 1;
-            self.slots[index]
+            self.trabalho_da_marcacao += self.slots[index]
                 .as_ref()
                 .expect("slot vivo verificado")
                 .trace(&mut self.pending);
@@ -1874,6 +1896,7 @@ impl Heap {
         self.stats.slots_scanned += self.slots.len() as u64;
         self.marks.resize(self.slots.len(), false);
         self.marks.fill(false);
+        self.trabalho_da_marcacao = 0;
         self.pending.clear();
         self.pending.extend(self.enum_values.values().copied());
         self.pending.extend(self.tearoffs.values().copied());
@@ -2025,7 +2048,16 @@ impl Heap {
         // depois de montar um texto grande) e poucos vivos coletava a cada
         // 256 alocações, varrendo tudo a cada vez. As alocações até lá
         // reusam os slots livres, sem crescer a tabela.
-        let por_contagem = vivos.saturating_mul(2).max(self.slots.len() / 2).max(256);
+        //
+        // Pelo mesmo motivo acompanha o trabalho da marcação: poucos objetos
+        // vivos com uma lista grande (um `sort` de 100 mil `int` que
+        // encaixota alguns `_Mint`) percorriam a lista inteira a cada 256
+        // alocações — 212 coletas e 28% do tempo num `sort` de 100 mil.
+        let por_contagem = vivos
+            .saturating_mul(2)
+            .max(self.slots.len() / 2)
+            .max(self.trabalho_da_marcacao / 2)
+            .max(256);
         self.threshold = if self.limite_bytes == usize::MAX {
             por_contagem
         } else {
