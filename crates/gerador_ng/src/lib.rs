@@ -1236,6 +1236,22 @@ fn trecho_do_componente(
             .parent()
             .ok_or_else(|| folha("folha fora de lib/"))?
             .join(url);
+        // `ViewEncapsulation.none`: o componente importa o `.css.dart`, a
+        // folha como escrita, sem shim (`compileStylesheet(.., false)`).
+        if comp.sem_encapsulamento {
+            let texto =
+                folha_sem_shim(fonte, url).map_err(|f| recusa(visao::Motivo::Encapsulamento, f))?;
+            let destino = css.with_file_name(format!(
+                "{}.dart",
+                css.file_name().unwrap_or_default().to_string_lossy()
+            ));
+            folhas.push((
+                destino,
+                format!("final List<Object> styles = [{}];", visao::literal(&texto)),
+                css.clone(),
+            ));
+            continue;
+        }
         // O `.css` do `styleUrls` quase nunca existe no disco: quem o produz
         // é o `sass_builder`, a partir do `.scss` ao lado. Fazemos os dois.
         let (texto_css, entrada) = match std::fs::read_to_string(&css) {
@@ -1284,6 +1300,28 @@ fn url_do_template(pacote: &Pacote, fonte: &Path, comp: &componente::Componente)
 
 /// A folha de um componente compila (Sass e shim)? É a mesma conta que o
 /// gerador faz; o placar usa para não marcar como pendente o que já sai.
+/// O texto da folha de um componente com `ViewEncapsulation.none`, que vai
+/// sem shim no `.css.dart`: o `.css` escrito, tal qual — o `compileStylesheet`
+/// do ngcompiler só tira os `@import` (`extractStyleUrls`) e escapa a
+/// string.
+///
+/// # Erros
+///
+/// A forma recusada, quando o texto não é conhecido byte a byte: a folha
+/// vem do `sass_builder` (o `.css` não existe; a formatação da saída dele
+/// não é a nossa), tem `@import` (vira outra entrada na lista) ou não se lê.
+pub(crate) fn folha_sem_shim(fonte: &Path, url: &str) -> Result<String, &'static str> {
+    let css = fonte.parent().ok_or("folha fora de lib/")?.join(url);
+    if !css.is_file() && css.with_extension("scss").is_file() {
+        return Err("ViewEncapsulation.none com folha Sass");
+    }
+    let texto = std::fs::read_to_string(&css).map_err(|_| "folha não encontrada")?;
+    if texto.contains("@import") {
+        return Err("ViewEncapsulation.none com @import na folha");
+    }
+    Ok(texto)
+}
+
 pub(crate) fn estilo_compila(fonte: &Path, url: &str) -> bool {
     let Some(dir) = fonte.parent() else {
         return false;
@@ -1392,6 +1430,30 @@ pub fn gerar_com_apoio(
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    /// A folha sem shim do `ViewEncapsulation.none` é o `.css` tal qual;
+    /// Sass e `@import` são recusados (caso i88).
+    #[test]
+    fn folha_sem_shim_so_do_css_escrito() {
+        let dir = tempfile::tempdir().expect("temporário");
+        let fonte = dir.path().join("x.dart");
+        std::fs::write(dir.path().join("a.css"), ".a { color: red; }\n").unwrap();
+        std::fs::write(dir.path().join("b.css"), "@import 'c.css';\n").unwrap();
+        std::fs::write(dir.path().join("s.scss"), ".a { b: c; }").unwrap();
+        assert_eq!(
+            folha_sem_shim(&fonte, "a.css").as_deref(),
+            Ok(".a { color: red; }\n")
+        );
+        assert_eq!(
+            folha_sem_shim(&fonte, "b.css"),
+            Err("ViewEncapsulation.none com @import na folha")
+        );
+        assert_eq!(
+            folha_sem_shim(&fonte, "s.css"),
+            Err("ViewEncapsulation.none com folha Sass")
+        );
+        assert_eq!(folha_sem_shim(&fonte, "z.css"), Err("folha não encontrada"));
+    }
 
     fn achados_de(fonte: &str) -> Achados {
         let mut i = Interner::new();

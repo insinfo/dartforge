@@ -1605,8 +1605,10 @@ pub struct Local<'a> {
 }
 
 impl Local<'_> {
-    /// URI `package:` do `.css.shim.dart` de uma folha do `styleUrls`.
-    pub(crate) fn uri_do_estilo(&self, url: &str) -> Option<String> {
+    /// URI `package:` da folha compilada de um `styleUrls`: o
+    /// `.css.shim.dart` (com shim) ou, com `ViewEncapsulation.none`, o
+    /// `.css.dart` (`stylesModuleUrl(url, shim)` do ngcompiler).
+    pub(crate) fn uri_do_estilo(&self, url: &str, shim: bool) -> Option<String> {
         let dentro = self.relativo.strip_prefix("lib/")?;
         let dir = dentro.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
         let caminho = if dir.is_empty() {
@@ -1614,7 +1616,8 @@ impl Local<'_> {
         } else {
             format!("{dir}/{url}")
         };
-        Some(format!("package:{}/{caminho}.shim.dart", self.pacote))
+        let sufixo = if shim { ".shim.dart" } else { ".dart" };
+        Some(format!("package:{}/{caminho}{sufixo}", self.pacote))
     }
 
     /// URI `asset:` deste arquivo — o espaço em que o emissor oficial calcula
@@ -6685,8 +6688,12 @@ pub fn coletar(
     // diagnóstico roda a mesma conta aqui.
     if c.style_urls.len() == 1 {
         let url = &c.style_urls[0];
-        if local.uri_do_estilo(url).is_none() {
+        if local.uri_do_estilo(url, !c.sem_encapsulamento).is_none() {
             fora.insert(recusa(Motivo::Estilos, "folha fora de lib/"));
+        } else if c.sem_encapsulamento {
+            if let Err(f) = crate::folha_sem_shim(local.caminho, url) {
+                fora.insert(recusa(Motivo::Encapsulamento, f));
+            }
         } else if !crate::estilo_compila(local.caminho, url) {
             fora.insert(recusa(Motivo::Estilos, "Sass ou CSS fora do subconjunto"));
         }
@@ -6736,17 +6743,15 @@ fn gerar_componente(
         // `styles: ['…']` escrito na anotação ainda não.
         anotar(coleta, recusa(Motivo::Estilos, "styles: [..] na anotação"))?;
     }
-    // `ViewEncapsulation.none` com folha: estilo sem shim (`.css.dart`),
-    // `ComponentStyles.unscoped` e sem `addShimC`. Sem caso ainda; sem folha
-    // o oficial desliga o encapsulamento de qualquer jeito e nada muda.
-    if c.sem_encapsulamento && (!c.style_urls.is_empty() || !c.styles.is_empty()) {
-        anotar(
-            coleta,
-            recusa(
-                Motivo::Encapsulamento,
-                "encapsulation: ViewEncapsulation.none com folha de estilo",
-            ),
-        )?;
+    // `ViewEncapsulation.none` com folha: a folha sem shim (`.css.dart`,
+    // escrita por `gerar_interno`), `ComponentStyles.unscoped` e nenhum
+    // `addShimC` (caso i88). Só a folha `.css` escrita, sem `@import`: a
+    // saída do `sass_builder` e as folhas importadas mudam o texto.
+    if c.sem_encapsulamento
+        && let [url] = c.style_urls.as_slice()
+        && let Err(f) = crate::folha_sem_shim(local.caminho, url)
+    {
+        anotar(coleta, recusa(Motivo::Encapsulamento, f))?;
     }
     // A construção sai depois dos imports fixos, porque a injeção aloca os
     // seus (o `errors.dart` e o de cada tipo injetado) no fim da tabela.
@@ -6785,7 +6790,7 @@ fn gerar_componente(
             // A folha entra pela URI `package:` mesmo estando ao lado: é
             // assim que o oficial escreve (o resolvedor de `styleUrls` é
             // outro, e não passa pelo caminho relativo).
-            match local.uri_do_estilo(&c.style_urls[0]) {
+            match local.uri_do_estilo(&c.style_urls[0], !c.sem_encapsulamento) {
                 Some(uri) => Some(imp.alias(&uri)),
                 None => {
                     anotar(coleta, recusa(Motivo::Estilos, "folha fora de lib/"))?;
@@ -6856,7 +6861,7 @@ fn gerar_componente(
         usadas,
         asset: local.asset(),
         tipos: resolvedor.map(|r| (r, local.caminho)),
-        com_estilo: !c.style_urls.is_empty(),
+        com_estilo: !c.style_urls.is_empty() && !c.sem_encapsulamento,
         url_do_template: local.url_do_template.clone(),
         classe_da_visao: format!("View{}", c.classe),
         tipo_do_contexto: format!("{proprio}.{}", c.classe),
@@ -7348,6 +7353,7 @@ fn gerar_componente(
     };
     // Sem folha, a lista é constante e o estilo não é encapsulado.
     let (lista_de_estilos, encapsulamento) = match &estilo {
+        Some(a) if c.sem_encapsulamento => (format!("[{a}.styles]"), "unscoped"),
         Some(a) => (format!("[{a}.styles]"), "scoped"),
         None => ("const []".to_string(), "unscoped"),
     };
