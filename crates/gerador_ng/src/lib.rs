@@ -33,10 +33,10 @@ pub mod visao;
 use dartforge_elements::gerado::{Construtor, Geracao};
 use dartforge_frontend::ast;
 use dartforge_intern::Interner;
+pub use incremental::{ConsultaNg, SaidaArquivo, analisar_arquivo, gerar_arquivo};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use visao::{Motivo, Recusa, recusa};
-pub use incremental::{ConsultaNg, SaidaArquivo, analisar_arquivo, gerar_arquivo};
 
 /// Cabeçalho que o compilador oficial escreve em todo arquivo gerado.
 pub const CABECALHO: &str = "// **************************************************************************\n// Generator: AngularDart Compiler\n// **************************************************************************\n\n";
@@ -553,7 +553,9 @@ impl Indice {
                     .and_then(|id| crate::metadados::ler(r, id))
                 && let Some(f) = self.por_classe.get_mut(&k)
             {
-                if m.fora.is_empty() {
+                // Só `ExistingProvider` um nó de template sabe criar; os
+                // outros provedores só a hospedeira do próprio componente.
+                if m.fora.is_empty() && m.so_apelidos() {
                     f.pendencias.retain(|p| p.forma != "filho com providers");
                 }
                 f.metadados = Some(std::sync::Arc::new(m));
@@ -738,8 +740,11 @@ impl Indice {
             None => {
                 // Sem resposta do banco semântico: só um componente de nome
                 // único no pacote (o caminho de antes, sem programa).
-                let por_nome: Vec<&visao::Filho> =
-                    self.por_classe.values().filter(|f| f.classe == simples).collect();
+                let por_nome: Vec<&visao::Filho> = self
+                    .por_classe
+                    .values()
+                    .filter(|f| f.classe == simples)
+                    .collect();
                 match por_nome.as_slice() {
                     [f] if !nome.contains('.') => {
                         let chave = (f.uri_dart.clone(), f.classe.clone());
@@ -749,7 +754,7 @@ impl Indice {
                                 uri: f.uri_dart.clone(),
                                 seletores: seletor::Seletor::analisar(&f.seletor),
                                 filho: Some((*f).clone()),
-                        diretiva: None,
+                                diretiva: None,
                             });
                         }
                     }
@@ -880,13 +885,18 @@ fn indexar(
         None => pendencias.push(em_filho("filho com @ContentChild fora da forma")),
         Some(lidas) => {
             for q in lidas {
+                // `read:` troca o valor lido: no conteúdo, ainda não.
+                if q.leitura {
+                    pendencias.push(em_filho("filho com @ContentChild(.., read:)"));
+                    break;
+                }
                 if q.referencia {
                     consultas.push(visao::ConsultaDoFilho {
                         campo: q.campo.clone(),
                         lista: q.lista,
                         alvo: visao::AlvoDeConsulta::Referencia(q.alvo.clone()),
                         descendentes: q.descendentes,
-                        });
+                    });
                     continue;
                 }
                 let uri = match (caminho, resolvedor) {
@@ -901,7 +911,7 @@ fn indexar(
                             lista: q.lista,
                             alvo: visao::AlvoDeConsulta::Classe(u, simples.to_string()),
                             descendentes: q.descendentes,
-                            });
+                        });
                     }
                     _ => {
                         pendencias.push(em_filho("filho com @ContentChild de tipo não resolvido"));
@@ -1084,6 +1094,12 @@ pub(crate) fn gerar_interno(
         caminho: fonte,
         raiz: &pacote.raiz,
         url_do_template: url_do_template(pacote, fonte, comp),
+        metadados: uri_de_biblioteca(pacote, fonte).and_then(|uri| {
+            indice
+                .por_classe
+                .get(&(uri, comp.classe.clone()))
+                .and_then(|f| f.metadados.clone())
+        }),
     };
     let nos = html::analisar(&template);
     let (usadas, fora) = indice.diretivas_de(comp, fonte, resolvedor);
@@ -1210,6 +1226,12 @@ fn motivos_do_arquivo(
         caminho: fonte,
         raiz: &pacote.raiz,
         url_do_template: url_do_template(pacote, fonte, comp),
+        metadados: uri_de_biblioteca(pacote, fonte).and_then(|uri| {
+            indice
+                .por_classe
+                .get(&(uri, comp.classe.clone()))
+                .and_then(|f| f.metadados.clone())
+        }),
     };
     let (usadas, fora_da_lista) = indice.diretivas_de(comp, fonte, resolvedor);
     fora.extend(fora_da_lista);

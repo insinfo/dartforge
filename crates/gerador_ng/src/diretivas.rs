@@ -46,6 +46,8 @@ pub enum Token {
     Classe { uri: String, classe: String },
     /// `const MultiToken<T>('nome')`.
     Multi { nome: String, tipo: TipoDeToken },
+    /// `const OpaqueToken<T>('nome')`.
+    Opaco { nome: String, tipo: TipoDeToken },
     /// `HtmlElement`/`Element`: o próprio nó (embutido do elemento).
     Elemento,
     /// `ChangeDetectorRef`: numa diretiva, a própria visão (`o.thisExpr`).
@@ -53,24 +55,113 @@ pub enum Token {
 }
 
 impl Token {
-    /// O nome que vai no campo (`_NgModel_3_9`, `_NgValidators_3_6`).
-    pub fn nome(&self) -> &str {
+    /// O nome que vai no campo (`_NgModel_3_9`, `_NgValidators_3_6`): o
+    /// `CompileTokenMetadata.name`, que num token de texto troca por `_` o
+    /// que não é letra, dígito ou `_`.
+    pub fn nome(&self) -> String {
         match self {
-            Token::Classe { classe, .. } => classe,
-            Token::Multi { nome, .. } => nome,
-            Token::Elemento => "HtmlElement",
-            Token::Detector => "ChangeDetectorRef",
+            Token::Classe { classe, .. } => classe.clone(),
+            Token::Multi { nome, .. } | Token::Opaco { nome, .. } => nome
+                .chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || c == '_' {
+                        c
+                    } else {
+                        '_'
+                    }
+                })
+                .collect(),
+            Token::Elemento => "HtmlElement".into(),
+            Token::Detector => "ChangeDetectorRef".into(),
+        }
+    }
+
+    /// Um dos embutidos do elemento (`ElementRef`, `Injector`,
+    /// `ViewContainerRef`…), que um serviço não recebe como os outros.
+    pub fn embutido(&self) -> bool {
+        match self {
+            Token::Elemento | Token::Detector => true,
+            Token::Classe { uri, classe } => {
+                uri.starts_with("package:ngdart/")
+                    && matches!(
+                        classe.as_str(),
+                        "ElementRef"
+                            | "Injector"
+                            | "ViewContainerRef"
+                            | "TemplateRef"
+                            | "ComponentLoader"
+                            | "NgContentRef"
+                            | "ChangeDetectorRef"
+                    )
+            }
+            _ => false,
         }
     }
 }
 
-/// Um item de `providers:` da diretiva: `ExistingProvider(token, existente)`
-/// ou `ExistingProvider.forToken(multi, existente)`.
+/// Um valor constante de `useValue:` na parte que o emissor escreve
+/// (`_useValueExpression`): texto, inteiro, booleano, e objeto constante com
+/// argumentos desses.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ValorConst {
+    Texto(String),
+    Inteiro(i64),
+    Booleano(bool),
+    /// `const C(..)`/`const C.nome(..)`, de classe sem parâmetro de tipo.
+    Objeto {
+        uri: String,
+        classe: String,
+        construtor: Option<String>,
+        posicionais: Vec<ValorConst>,
+        nomeados: Vec<(String, ValorConst)>,
+    },
+}
+
+/// De onde vem o valor de um provedor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Fornece {
+    /// `useExisting:` — outro token.
+    Existente(Token),
+    /// `useClass:` (ou o próprio token), com as dependências do construtor.
+    Classe {
+        uri: String,
+        classe: String,
+        deps: Vec<Dependencia>,
+    },
+    /// `useValue:`.
+    Valor(ValorConst),
+    /// `useFactory:` de uma função de topo, com `deps:` (ou os parâmetros).
+    Fabrica {
+        uri: String,
+        nome: String,
+        deps: Vec<Dependencia>,
+    },
+}
+
+/// Um item de `providers:`, já achatado (`ModuleReader`,
+/// `_normalizeProviders`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Provedor {
     pub token: Token,
-    pub existente: Token,
+    pub fonte: Fornece,
     pub multi: bool,
+    /// O `T` do `Provider<T>` (`inferProviderType`): o tipo do campo quando
+    /// não é o da própria expressão. `None` quando a inferência não acha (e
+    /// o campo leva o tipo do valor, ou `dynamic`).
+    pub tipo: Option<TipoDeToken>,
+}
+
+impl Provedor {
+    /// `ExistingProvider(token, alvo)` sem tipo inferido — a única forma que
+    /// um nó de template sabe criar.
+    pub fn apelido(token: Token, alvo: Token, multi: bool) -> Self {
+        Provedor {
+            token,
+            fonte: Fornece::Existente(alvo),
+            multi,
+            tipo: None,
+        }
+    }
 }
 
 /// Um parâmetro posicional do construtor (`_getCompileDiDependencyMetadata`
@@ -145,6 +236,16 @@ impl Diretiva {
         }
     }
 
+    /// Todos os `providers:` são `ExistingProvider` de token de classe ou
+    /// `MultiToken` — o que um nó de template sabe criar. (Os outros só a
+    /// visão-hospedeira do próprio componente escreve.)
+    pub fn so_apelidos(&self) -> bool {
+        self.provedores.iter().all(|p| {
+            matches!(&p.fonte, Fornece::Existente(Token::Classe { .. }))
+                && matches!(p.token, Token::Classe { .. } | Token::Multi { .. })
+        })
+    }
+
     pub fn entrada(&self, nome: &str) -> Option<&Entrada> {
         self.entradas.iter().find(|e| e.nome == nome)
     }
@@ -195,6 +296,16 @@ impl Diretiva {
             {
                 return Some("MultiToken de tipo não genérico".into());
             }
+        }
+        if !self.so_apelidos() {
+            return Some("provedor que não é ExistingProvider".into());
+        }
+        if self
+            .dependencias
+            .iter()
+            .any(|d| matches!(d.token, Token::Opaco { .. }))
+        {
+            return Some("dependência de OpaqueToken".into());
         }
         for p in &self.provedores {
             if let Token::Multi { tipo, .. } = &p.token
@@ -253,6 +364,53 @@ pub enum Criacao {
     },
     /// `[a, b]`: os campos que o multi-provedor junta.
     Lista(Vec<String>),
+    /// Só na visão-hospedeira: um provedor de `providers:` que não é
+    /// diretiva nem apelido local (`ClassProviderSource`,
+    /// `FactoryProviderSource`, `ExpressionProviderSource` e o
+    /// `injectorGet` de um apelido de fora).
+    Expressao(Expr),
+    /// Só na visão-hospedeira: o multi-provedor com itens de qualquer forma.
+    Multi(Vec<Expr>),
+}
+
+/// O valor de um provedor da visão-hospedeira, como o `ProviderSource.build`
+/// o escreve.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Expr {
+    /// `this.campo` — outro provedor do nó (`component` é o componente).
+    Campo(String),
+    /// `this.injectorGet(token, this.parentIndex)` (ou `injectorGetOptional`):
+    /// o que o nó não provê vem do injetor de fora.
+    Injetor {
+        token: Token,
+        opcional: bool,
+    },
+    /// `Classe(args)`.
+    Classe {
+        uri: String,
+        classe: String,
+        args: Vec<Expr>,
+    },
+    /// `funcao(args)`.
+    Fabrica {
+        uri: String,
+        nome: String,
+        args: Vec<Expr>,
+    },
+    Valor(ValorConst),
+}
+
+impl Expr {
+    /// Alguma dependência vem do injetor (`hasDynamicDependencies`): a
+    /// criação sai embrulhada em `debugInjectorWrap`.
+    pub fn dinamica(&self) -> bool {
+        match self {
+            Expr::Classe { args, .. } | Expr::Fabrica { args, .. } => {
+                args.iter().any(|a| matches!(a, Expr::Injetor { .. }))
+            }
+            _ => false,
+        }
+    }
 }
 
 /// Um provedor do nó que vira campo da visão.
@@ -275,6 +433,8 @@ pub struct Instancia {
     /// Como a instância é lida: o campo, ou `campo.instance` quando a
     /// diretiva tem `@HostBinding` e o campo guarda o `XNgCd` dela.
     pub leitura: String,
+    /// O `T` inferido do provedor (o `typeArgument`), que tipa o campo.
+    pub tipo: Option<TipoDeToken>,
 }
 
 /// Os provedores de diretivas de um nó, resolvidos.
@@ -292,6 +452,8 @@ pub struct NoResolvido {
 enum Fonte {
     Diretiva(Arc<Diretiva>),
     Existente(Token),
+    /// `useClass`/`useValue`/`useFactory` de `providers:`.
+    Provedor(Fornece),
 }
 
 #[derive(Debug)]
@@ -301,6 +463,7 @@ struct Resolvido {
     multi: bool,
     eager: bool,
     visivel: bool,
+    tipo: Option<TipoDeToken>,
 }
 
 /// Resolve os provedores das diretivas `casadas` (na ordem de
@@ -312,6 +475,23 @@ pub fn resolver(
     n: u32,
     acima: Option<Acima>,
 ) -> Result<NoResolvido, &'static str> {
+    resolver_em(casadas, n, acima, false)
+}
+
+/// Os provedores do nó da visão-hospedeira (`_ViewXHost0`, nó 0): o
+/// componente e os `providers:` dele. O que o nó não provê vem do injetor
+/// de fora (`injectFromViewParentInjector`), e a instância do componente é
+/// o campo `component` do `HostView` (`hostViewComponentFieldName`).
+pub fn resolver_hospedeira(componente: Arc<Diretiva>) -> Result<NoResolvido, &'static str> {
+    resolver_em(&[componente], 0, None, true)
+}
+
+fn resolver_em(
+    casadas: &[Arc<Diretiva>],
+    n: u32,
+    acima: Option<Acima>,
+    hospedeira: bool,
+) -> Result<NoResolvido, &'static str> {
     // `_ProviderResolver.resolve`: as diretivas (ansiosas), depois os
     // `providers:` de cada uma; o mesmo token multi acumula.
     let mut todos: Vec<Resolvido> = Vec::new();
@@ -322,26 +502,39 @@ pub fn resolver(
             multi: false,
             eager: true,
             visivel: d.visivel,
+            tipo: None,
         });
     }
     for d in casadas {
         for p in &d.provedores {
+            let fonte = match &p.fonte {
+                Fornece::Existente(t) => Fonte::Existente(t.clone()),
+                f if hospedeira => Fonte::Provedor(f.clone()),
+                _ => return Err("provedor que não é ExistingProvider num nó de template"),
+            };
             match todos.iter_mut().find(|r| r.token == p.token) {
                 Some(r) => {
                     if r.multi != p.multi {
                         return Err("provedor multi e não multi no mesmo token");
                     }
+                    if hospedeira && r.eager {
+                        // O token do componente sobrescrito por `providers:`:
+                        // ainda sem caso.
+                        return Err("provedor com o token do componente");
+                    }
                     if !p.multi {
                         r.fontes.clear();
+                        r.tipo = p.tipo.clone();
                     }
-                    r.fontes.push(Fonte::Existente(p.existente.clone()));
+                    r.fontes.push(fonte);
                 }
                 None => todos.push(Resolvido {
                     token: p.token.clone(),
-                    fontes: vec![Fonte::Existente(p.existente.clone())],
+                    fontes: vec![fonte],
                     multi: p.multi,
                     eager: false,
                     visivel: true,
+                    tipo: p.tipo.clone(),
                 }),
             }
         }
@@ -352,6 +545,7 @@ pub fn resolver(
         i: usize,
         ordem: &mut Vec<usize>,
         vistos: &mut Vec<usize>,
+        hospedeira: bool,
     ) -> Result<(), &'static str> {
         if ordem.contains(&i) {
             return Ok(());
@@ -360,27 +554,35 @@ pub fn resolver(
             return Err("dependência cíclica entre diretivas");
         }
         vistos.push(i);
+        let pedir = |t: &Token, ordem: &mut Vec<usize>, vistos: &mut Vec<usize>| match todos
+            .iter()
+            .position(|r| r.token == *t)
+        {
+            Some(j) => criar(todos, j, ordem, vistos, hospedeira),
+            None => Ok(()),
+        };
         for f in &todos[i].fontes {
             match f {
-                Fonte::Existente(t) => {
-                    let j = todos
-                        .iter()
-                        .position(|r| r.token == *t)
-                        .ok_or("provedor apelido de token de fora do nó")?;
-                    criar(todos, j, ordem, vistos)?;
-                }
+                Fonte::Existente(t) => match todos.iter().position(|r| r.token == *t) {
+                    Some(j) => criar(todos, j, ordem, vistos, hospedeira)?,
+                    // Na hospedeira, o apelido de fora lê o injetor.
+                    None if hospedeira => {}
+                    None => return Err("provedor apelido de token de fora do nó"),
+                },
                 Fonte::Diretiva(d) => {
                     for dep in &d.dependencias {
                         match &dep.token {
                             Token::Elemento | Token::Detector => {}
-                            t => {
-                                if let Some(j) = todos.iter().position(|r| r.token == *t) {
-                                    criar(todos, j, ordem, vistos)?;
-                                }
-                            }
+                            t => pedir(t, ordem, vistos)?,
                         }
                     }
                 }
+                Fonte::Provedor(Fornece::Classe { deps, .. } | Fornece::Fabrica { deps, .. }) => {
+                    for dep in deps {
+                        pedir(&dep.token, ordem, vistos)?;
+                    }
+                }
+                Fonte::Provedor(_) => {}
             }
         }
         ordem.push(i);
@@ -390,13 +592,13 @@ pub fn resolver(
     let mut vistos = Vec::new();
     for i in 0..todos.len() {
         if todos[i].eager {
-            criar(&todos, i, &mut ordem, &mut vistos)?;
+            criar(&todos, i, &mut ordem, &mut vistos, hospedeira)?;
         }
     }
     let ansiosos = ordem.len();
     // `afterElement`: o que sobrou (os apelidos, em geral).
     for i in 0..todos.len() {
-        criar(&todos, i, &mut ordem, &mut vistos)?;
+        criar(&todos, i, &mut ordem, &mut vistos, hospedeira)?;
     }
 
     // `addDirectiveProviders`: o `uniqueId` é o tamanho da tabela, que já
@@ -424,11 +626,19 @@ pub fn resolver(
             tamanho += 1;
             continue;
         }
-        let campo = format!("_{}_{n}_{tamanho}", r.token.nome());
+        let componente_da_hospedeira =
+            hospedeira && matches!(r.fontes.as_slice(), [Fonte::Diretiva(d)] if d.e_componente);
+        let campo = if componente_da_hospedeira {
+            "component".to_string()
+        } else {
+            format!("_{}_{n}_{tamanho}", r.token.nome())
+        };
         // Diretiva com `@HostBinding`: o campo é o `XNgCd` que a embrulha
         // (`createProvider`, `providerHasChangeDetector`).
         let leitura = match r.fontes.as_slice() {
-            [Fonte::Diretiva(d)] if !d.ligacoes_do_hospedeiro.is_empty() => {
+            [Fonte::Diretiva(d)]
+                if !d.ligacoes_do_hospedeiro.is_empty() && !componente_da_hospedeira =>
+            {
                 format!("{campo}.instance")
             }
             _ => campo.clone(),
@@ -440,6 +650,46 @@ pub fn resolver(
                 .map(|(_, real)| real)
                 .unwrap_or(t);
             campos.iter().find(|(x, _)| x == t).map(|(_, c)| c.clone())
+        };
+        // Uma dependência de serviço (`_getDependency` na hospedeira): o
+        // campo local, ou o injetor de fora.
+        let dependencia = |dep: &Dependencia| -> Result<Expr, &'static str> {
+            if dep.proprio || dep.hospedeiro || dep.pular {
+                return Err("dependência @Self/@Host/@SkipSelf de provedor");
+            }
+            if dep.token.embutido() {
+                return Err("provedor que depende de embutido do elemento");
+            }
+            Ok(match campo_de(&dep.token) {
+                Some(c) => Expr::Campo(c),
+                None => Expr::Injetor {
+                    token: dep.token.clone(),
+                    opcional: dep.opcional,
+                },
+            })
+        };
+        let expr_de = |f: &Fornece| -> Result<Expr, &'static str> {
+            Ok(match f {
+                Fornece::Existente(t) => match campo_de(t) {
+                    Some(c) => Expr::Campo(c),
+                    None if t.embutido() => return Err("apelido de embutido do elemento"),
+                    None => Expr::Injetor {
+                        token: t.clone(),
+                        opcional: false,
+                    },
+                },
+                Fornece::Classe { uri, classe, deps } => Expr::Classe {
+                    uri: uri.clone(),
+                    classe: classe.clone(),
+                    args: deps.iter().map(dependencia).collect::<Result<_, _>>()?,
+                },
+                Fornece::Fabrica { uri, nome, deps } => Expr::Fabrica {
+                    uri: uri.clone(),
+                    nome: nome.clone(),
+                    args: deps.iter().map(dependencia).collect::<Result<_, _>>()?,
+                },
+                Fornece::Valor(v) => Expr::Valor(v.clone()),
+            })
         };
         let criacao = match r.fontes.as_slice() {
             [Fonte::Diretiva(d)] => {
@@ -454,11 +704,24 @@ pub fn resolver(
                         },
                     });
                 }
-                saida.diretivas.push((d.clone(), leitura.clone()));
+                if !componente_da_hospedeira {
+                    saida.diretivas.push((d.clone(), leitura.clone()));
+                }
                 Criacao::Diretiva {
                     diretiva: d.clone(),
                     args,
                 }
+            }
+            fontes if r.multi && hospedeira => {
+                let mut itens = Vec::new();
+                for f in fontes {
+                    itens.push(match f {
+                        Fonte::Existente(t) => expr_de(&Fornece::Existente(t.clone()))?,
+                        Fonte::Provedor(p) => expr_de(p)?,
+                        Fonte::Diretiva(_) => return Err("multi-provedor de diretiva"),
+                    });
+                }
+                Criacao::Multi(itens)
             }
             fontes if r.multi => {
                 let mut itens = Vec::new();
@@ -470,6 +733,10 @@ pub fn resolver(
                 }
                 Criacao::Lista(itens)
             }
+            [Fonte::Existente(t)] if hospedeira => {
+                Criacao::Expressao(expr_de(&Fornece::Existente(t.clone()))?)
+            }
+            [Fonte::Provedor(p)] if hospedeira => Criacao::Expressao(expr_de(p)?),
             _ => return Err("provedor apelido de token de fora do nó"),
         };
         saida.instancias.push(Instancia {
@@ -484,6 +751,7 @@ pub fn resolver(
             apelidos: Vec::new(),
             preguicosa,
             leitura: leitura.clone(),
+            tipo: r.tipo.clone(),
         });
         campos.push((r.token.clone(), leitura));
         tamanho += 1;
@@ -570,15 +838,12 @@ mod testes {
             classe: "NgModel".into(),
             uri: "m".into(),
             visivel: true,
-            provedores: vec![Provedor {
-                token: classe("c", "NgControl"),
-                existente: classe("m", "NgModel"),
-                multi: false,
-            }],
-            dependencias: vec![
-                dep(validadores(), true, true),
-                dep(acessores(), true, true),
-            ],
+            provedores: vec![Provedor::apelido(
+                classe("c", "NgControl"),
+                classe("m", "NgModel"),
+                false,
+            )],
+            dependencias: vec![dep(validadores(), true, true), dep(acessores(), true, true)],
             ..Default::default()
         })
     }
@@ -587,11 +852,11 @@ mod testes {
         Arc::new(Diretiva {
             classe: "DefaultValueAccessor".into(),
             uri: "d".into(),
-            provedores: vec![Provedor {
-                token: acessores(),
-                existente: classe("d", "DefaultValueAccessor"),
-                multi: true,
-            }],
+            provedores: vec![Provedor::apelido(
+                acessores(),
+                classe("d", "DefaultValueAccessor"),
+                true,
+            )],
             dependencias: vec![dep(Token::Elemento, false, false)],
             ..Default::default()
         })
@@ -601,11 +866,11 @@ mod testes {
         Arc::new(Diretiva {
             classe: "RequiredValidator".into(),
             uri: "v".into(),
-            provedores: vec![Provedor {
-                token: validadores(),
-                existente: classe("v", "RequiredValidator"),
-                multi: true,
-            }],
+            provedores: vec![Provedor::apelido(
+                validadores(),
+                classe("v", "RequiredValidator"),
+                true,
+            )],
             ..Default::default()
         })
     }
@@ -651,11 +916,11 @@ mod testes {
             classe: "NgForm".into(),
             uri: "f".into(),
             visivel: true,
-            provedores: vec![Provedor {
-                token: classe("cc", "ControlContainer"),
-                existente: classe("f", "NgForm"),
-                multi: false,
-            }],
+            provedores: vec![Provedor::apelido(
+                classe("cc", "ControlContainer"),
+                classe("f", "NgForm"),
+                false,
+            )],
             dependencias: vec![
                 dep(validadores(), true, true),
                 dep(Token::Detector, false, false),
@@ -673,5 +938,83 @@ mod testes {
             }
         );
         assert_eq!(r.instancias[0].injetavel_por.len(), 2);
+    }
+
+    fn servico(c: &str, deps: &[&str]) -> Provedor {
+        Provedor {
+            token: classe("s", c),
+            fonte: Fornece::Classe {
+                uri: "s".into(),
+                classe: c.into(),
+                deps: deps
+                    .iter()
+                    .map(|d| dep(classe("s", d), false, false))
+                    .collect(),
+            },
+            multi: false,
+            tipo: None,
+        }
+    }
+
+    /// A numeração do `i66_provider_dependencias.template.dart`: o que o
+    /// componente pede (e o que isso pede) sai antes dele, ansioso; o resto
+    /// fica preguiçoso, depois, na ordem de `providers:`.
+    #[test]
+    fn hospedeira_com_provedores_ansiosos_e_preguicosos() {
+        let comp = Arc::new(Diretiva {
+            classe: "Comp".into(),
+            uri: "s".into(),
+            e_componente: true,
+            provedores: vec![
+                servico("Cache", &["Repo"]),
+                servico("Solto", &[]),
+                servico("Repo", &["Api"]),
+                servico("Api", &[]),
+                Provedor::apelido(classe("s", "Base"), classe("s", "Comp"), false),
+            ],
+            dependencias: vec![dep(classe("s", "Repo"), false, false)],
+            ..Default::default()
+        });
+        let r = resolver_hospedeira(comp).unwrap();
+        let campos: Vec<(&str, bool)> = r
+            .instancias
+            .iter()
+            .map(|i| (i.campo.as_str(), i.preguicosa))
+            .collect();
+        assert_eq!(
+            campos,
+            [
+                ("_Api_0_5", false),
+                ("_Repo_0_6", false),
+                ("component", false),
+                ("_Cache_0_8", true),
+                ("_Solto_0_9", true),
+            ]
+        );
+        // O apelido do componente: sem campo, injetável por `this.component`.
+        assert_eq!(r.instancias[2].injetavel_por, vec![classe("s", "Base")]);
+        assert_eq!(
+            r.instancias[3].criacao,
+            Criacao::Expressao(Expr::Classe {
+                uri: "s".into(),
+                classe: "Cache".into(),
+                args: vec![Expr::Campo("_Repo_0_6".into())],
+            })
+        );
+        assert!(r.diretivas.is_empty());
+    }
+
+    /// Num nó de template, só `ExistingProvider` é criado; o resto é
+    /// recusado (a hospedeira do próprio componente é quem o escreve).
+    #[test]
+    fn no_de_template_recusa_provedor_de_classe() {
+        let comp = Arc::new(Diretiva {
+            classe: "Comp".into(),
+            uri: "s".into(),
+            e_componente: true,
+            provedores: vec![servico("Api", &[])],
+            ..Default::default()
+        });
+        assert!(resolver(&[comp], 3, None).is_err());
     }
 }

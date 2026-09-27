@@ -154,6 +154,20 @@ import 'package:corpus_ngdart/src/i57_seguranca.template.dart' as i57;
 import 'package:corpus_ngdart/src/i58_async_formas.template.dart' as i58;
 import 'package:corpus_ngdart/src/i59_contador.template.dart' as i59;
 import 'package:corpus_ngdart/src/i59_usa_contador.template.dart' as i59;
+import 'package:corpus_ngdart/src/i60_provider_use_class.template.dart' as i60;
+import 'package:corpus_ngdart/src/i61_provider_use_value.template.dart' as i61;
+import 'package:corpus_ngdart/src/i62_provider_use_factory.template.dart' as i62;
+import 'package:corpus_ngdart/src/i63_provider_use_existing.template.dart' as i63;
+import 'package:corpus_ngdart/src/i64_provider_multi.template.dart' as i64;
+import 'package:corpus_ngdart/src/i65_provider_listas.template.dart' as i65;
+import 'package:corpus_ngdart/src/i66_provider_dependencias.template.dart' as i66;
+import 'package:corpus_ngdart/src/i67_provider_externo.template.dart' as i67;
+import 'package:corpus_ngdart/src/i68_content_child_formas.template.dart' as i68;
+import 'package:corpus_ngdart/src/i69_providers_e_consulta.template.dart' as i69;
+import 'package:corpus_ngdart/src/i70_provider_ansioso_externo.template.dart' as i70;
+import 'package:corpus_ngdart/src/i71_provider_valores.template.dart' as i71;
+import 'package:corpus_ngdart/src/i72_usa_provider.template.dart' as i72;
+import 'package:corpus_ngdart/src/i73_usa_consulta_read.template.dart' as i73;
 
 void main() {
   print([
@@ -310,5 +324,19 @@ void main() {
     i58.I58AsyncFormasNgFactory,
     i59.I59ContadorNgFactory,
     i59.I59UsaContadorNgFactory,
+    i60.I60ProviderUseClassNgFactory,
+    i61.I61ProviderUseValueNgFactory,
+    i62.I62ProviderUseFactoryNgFactory,
+    i63.I63ProviderUseExistingNgFactory,
+    i64.I64ProviderMultiNgFactory,
+    i65.I65ProviderListasNgFactory,
+    i66.I66ProviderDependenciasNgFactory,
+    i67.I67ProviderExternoNgFactory,
+    i68.I68ContentChildFormasNgFactory,
+    i69.I69ProvidersEConsultaNgFactory,
+    i70.I70ProviderAnsiosoExternoNgFactory,
+    i71.I71ProviderValoresNgFactory,
+    i72.I72UsaProviderNgFactory,
+    i73.I73UsaConsultaReadNgFactory,
   ].length);
 }

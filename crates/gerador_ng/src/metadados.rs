@@ -22,10 +22,13 @@
 //! a diretiva recusa.
 use crate::componente::Ganchos;
 use crate::diretivas::{
-    DI_TOKENS, Dependencia, Diretiva, Entrada, Ouvinte, Provedor, TipoDeToken, Token,
+    DI_TOKENS, Dependencia, Diretiva, Entrada, Fornece, Ouvinte, Provedor, TipoDeToken, Token,
+    ValorConst,
 };
 use crate::resolucao::Resolvedor;
-use dartforge_elements::model::{ClassId, ClassKind, Element, LibraryId, UnitId, VariableRef};
+use dartforge_elements::model::{
+    ClassId, ClassKind, Element, FunctionElementId, LibraryId, UnitId, VariableRef,
+};
 use dartforge_frontend::ast;
 
 const DIRECTIVES: &str = "package:ngdart/src/meta/directives.dart";
@@ -63,7 +66,15 @@ struct Tipo {
 #[derive(Debug, Clone)]
 enum Valor {
     Texto(String),
+    Inteiro(i64),
+    Booleano(bool),
     Nulo,
+    /// Uma função de topo (`useFactory:`), pela biblioteca que a declara.
+    Funcao {
+        uri: String,
+        nome: String,
+        id: FunctionElementId,
+    },
     Lista(Vec<Valor>),
     /// Um literal de tipo (`NgModel` numa lista de provedores).
     Tipo(Classe),
@@ -76,7 +87,10 @@ enum Valor {
         nomeados: Vec<(String, Valor)>,
     },
     /// `C.nome`: constante de enum ou campo estático.
-    Membro { classe: Classe, nome: String },
+    Membro {
+        classe: Classe,
+        nome: String,
+    },
 }
 
 /// Lê os metadados da classe `id`, se ela tem `@Directive` ou `@Component`.
@@ -111,12 +125,13 @@ impl<'r, 'a> Leitor<'r, 'a> {
         let d = c.decl?;
         let u = p.unit(d.unit);
         let decl = u.ast.decl(d.decl);
-        let (membros, tps, abstrata): (&[ast::MemberId], &[ast::TypeParameter], bool) =
-            match &decl.kind {
-                ast::DeclKind::Class(k) => (&k.members[..], &k.type_params[..], k.modifiers.abstract_),
-                ast::DeclKind::Mixin(m) => (&m.members[..], &m.type_params[..], true),
-                _ => return None,
-            };
+        let (membros, tps, abstrata): (&[ast::MemberId], &[ast::TypeParameter], bool) = match &decl
+            .kind
+        {
+            ast::DeclKind::Class(k) => (&k.members[..], &k.type_params[..], k.modifiers.abstract_),
+            ast::DeclKind::Mixin(m) => (&m.members[..], &m.type_params[..], true),
+            _ => return None,
+        };
         Some(Declaracao {
             unidade: d.unit,
             lib: u.library,
@@ -243,7 +258,12 @@ impl<'r, 'a> Leitor<'r, 'a> {
         ordem.push(id);
         let mut entradas: Vec<(String, Entrada)> = Vec::new();
         for &c in &ordem {
-            if self.r.programa().library(self.r.programa().class(c).library).is_sdk {
+            if self
+                .r
+                .programa()
+                .library(self.r.programa().class(c).library)
+                .is_sdk
+            {
                 continue;
             }
             let Some(dc) = self.declaracao(c) else {
@@ -283,9 +303,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                     _ => d.fora.push("exportAs: que não é texto constante".into()),
                 },
                 "visibility" => match valor() {
-                    Ok(Valor::Membro { classe, nome })
-                        if classe.e(VISIBILITY, "Visibility") =>
-                    {
+                    Ok(Valor::Membro { classe, nome }) if classe.e(VISIBILITY, "Visibility") => {
                         d.visivel = nome == "all";
                     }
                     _ => d.fora.push("visibility: ilegível".into()),
@@ -304,7 +322,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
     }
 
     /// `ModuleReader.extractProviderObjects`: listas achatadas; cada item um
-    /// provedor. Só `ExistingProvider` tem caso no corpus.
+    /// provedor (`createProviderMetadata`). O que não se lê vai para `fora`.
     fn provedores(&self, v: Valor, d: &mut Diretiva) {
         match v {
             Valor::Lista(itens) => {
@@ -313,55 +331,339 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 }
             }
             Valor::Nulo => {}
-            Valor::Objeto {
-                classe,
-                construtor,
-                posicionais,
-                nomeados,
-                ..
-            } if classe.e(DI_PROVIDERS, "ExistingProvider")
-                && matches!(construtor.as_deref(), None | Some("forToken")) =>
-            {
-                if !nomeados.is_empty() {
-                    d.fora.push("ExistingProvider com argumento nomeado".into());
-                    return;
-                }
-                let (Some(t), Some(e)) = (posicionais.first(), posicionais.get(1)) else {
-                    d.fora.push("ExistingProvider sem argumentos".into());
-                    return;
-                };
-                let token = match self.token_do_valor(t) {
-                    Ok(t) => t,
-                    Err(f) => {
-                        d.fora.push(f);
-                        return;
-                    }
-                };
-                let existente = match e {
-                    Valor::Tipo(c) => Token::Classe {
-                        uri: c.uri.clone(),
-                        classe: c.nome.clone(),
-                    },
-                    _ => {
-                        d.fora.push("ExistingProvider de algo que não é classe".into());
-                        return;
-                    }
-                };
-                d.provedores.push(Provedor {
-                    multi: matches!(token, Token::Multi { .. }),
-                    token,
-                    existente,
-                });
-            }
-            Valor::Objeto { classe, .. } => {
-                d.fora.push(format!("provedor {}", classe.nome));
-            }
-            Valor::Tipo(c) => d.fora.push(format!("provedor de classe ({})", c.nome)),
-            _ => d.fora.push("provedor ilegível".into()),
+            outro => match self.provedor(outro) {
+                Ok(p) => d.provedores.push(p),
+                Err(f) => d.fora.push(f),
+            },
         }
     }
 
-    /// O token de um valor constante: uma classe ou um `MultiToken`.
+    /// Um provedor: um literal de tipo (`useClass` do próprio tipo) ou um
+    /// `Provider`/`ClassProvider`/`ExistingProvider`/`FactoryProvider`/
+    /// `ValueProvider` (e o `.forToken` de cada).
+    fn provedor(&self, v: Valor) -> Result<Provedor, String> {
+        let (classe, construtor, tipos, posicionais, nomeados) = match v {
+            Valor::Tipo(c) => {
+                return Ok(Provedor {
+                    token: Token::Classe {
+                        uri: c.uri.clone(),
+                        classe: c.nome.clone(),
+                    },
+                    fonte: self.fonte_de_classe(&c)?,
+                    multi: false,
+                    tipo: None,
+                });
+            }
+            Valor::Objeto {
+                classe,
+                construtor,
+                tipos,
+                posicionais,
+                nomeados,
+            } if classe.uri == DI_PROVIDERS => (classe, construtor, tipos, posicionais, nomeados),
+            Valor::Objeto { classe, .. } => return Err(format!("provedor {}", classe.nome)),
+            _ => return Err("provedor ilegível".into()),
+        };
+        let tipo_do_provedor = classe.nome.as_str();
+        let por_token = match construtor.as_deref() {
+            None => false,
+            Some("forToken") if tipo_do_provedor != "Provider" => true,
+            Some(c) => return Err(format!("{tipo_do_provedor}.{c}")),
+        };
+        // Os campos do `Provider`, pelo construtor usado.
+        let mut pos = posicionais.into_iter();
+        let token_v = pos.next().ok_or("provedor sem token")?;
+        let mut use_class = None;
+        let mut use_value = None;
+        let mut use_existing = None;
+        let mut use_factory = None;
+        let mut deps = None;
+        match tipo_do_provedor {
+            "Provider" | "ClassProvider" => {}
+            "ExistingProvider" => use_existing = pos.next(),
+            "FactoryProvider" => use_factory = pos.next(),
+            "ValueProvider" => use_value = pos.next(),
+            outro => return Err(format!("provedor {outro}")),
+        }
+        if pos.next().is_some() {
+            return Err(format!("{tipo_do_provedor} com argumentos demais"));
+        }
+        for (n, x) in nomeados {
+            let alvo = match (tipo_do_provedor, n.as_str()) {
+                ("Provider" | "ClassProvider", "useClass") => &mut use_class,
+                ("Provider", "useValue") => &mut use_value,
+                ("Provider", "useExisting") => &mut use_existing,
+                ("Provider", "useFactory") => &mut use_factory,
+                ("Provider" | "FactoryProvider", "deps") => &mut deps,
+                (_, outro) => return Err(format!("{tipo_do_provedor}(.., {outro}:)")),
+            };
+            *alvo = Some(x);
+        }
+        let token = self.token_do_valor(&token_v)?;
+        let multi = matches!(token, Token::Multi { .. });
+        // `useValue: null` não se distingue da falta dele daqui.
+        if matches!(use_value, Some(Valor::Nulo)) {
+            return Err("useValue: null".into());
+        }
+        let quantos = [&use_class, &use_value, &use_existing, &use_factory]
+            .iter()
+            .filter(|x| x.is_some())
+            .count();
+        if quantos > 1 {
+            return Err("provedor com mais de um use*".into());
+        }
+        if deps.is_some() && use_factory.is_none() {
+            return Err("deps: sem useFactory".into());
+        }
+        let fonte = if let Some(e) = use_existing {
+            Fornece::Existente(self.token_do_valor(&e)?)
+        } else if let Some(f) = use_factory {
+            self.fonte_de_fabrica(f, deps)?
+        } else if let Some(v) = use_value.clone() {
+            Fornece::Valor(self.valor_const(v, 0)?)
+        } else {
+            let c = match use_class.unwrap_or(token_v) {
+                Valor::Tipo(c) => c,
+                _ => return Err("useClass de algo que não é classe".into()),
+            };
+            self.fonte_de_classe(&c)?
+        };
+        // `inferProviderType`: o `T` do `MultiToken`; senão o `T` do
+        // provedor (escrito ou inferido pelo analyzer), a não ser `dynamic`
+        // ou `Object`.
+        let tipo = if let Token::Multi { tipo, .. } = &token {
+            Some(tipo.clone())
+        } else if let Some(t) = tipos.first() {
+            let Some(c) = &t.classe else {
+                return Err("provedor com argumento de tipo dynamic".into());
+            };
+            if c.e("dart:core", "Object") {
+                None
+            } else {
+                Some(self.tipo_sem_argumentos(c, t)?)
+            }
+        } else if por_token {
+            match &token {
+                Token::Opaco { tipo, .. } if !tipo.e_object() => Some(tipo.clone()),
+                _ => None,
+            }
+        } else if tipo_do_provedor == "ValueProvider" {
+            // `ValueProvider(Tipo, valor)`: o `T` sai do valor.
+            match use_value {
+                Some(Valor::Texto(_)) => Some(Self::do_core("String")),
+                Some(Valor::Inteiro(_)) => Some(Self::do_core("int")),
+                Some(Valor::Booleano(_)) => Some(Self::do_core("bool")),
+                Some(Valor::Objeto { classe, .. }) => Some(TipoDeToken {
+                    uri: classe.uri.clone(),
+                    classe: classe.nome.clone(),
+                    genericos: 0,
+                }),
+                _ => return Err("ValueProvider de valor sem tipo conhecido".into()),
+            }
+        } else {
+            None
+        };
+        Ok(Provedor {
+            token,
+            fonte,
+            multi,
+            tipo,
+        })
+    }
+
+    fn do_core(nome: &str) -> TipoDeToken {
+        TipoDeToken {
+            uri: "dart:core".into(),
+            classe: nome.into(),
+            genericos: 0,
+        }
+    }
+
+    /// Um tipo sem argumentos (ou só com `dynamic`), como o `fromDartType`
+    /// o escreve.
+    fn tipo_sem_argumentos(&self, c: &Classe, t: &Tipo) -> Result<TipoDeToken, String> {
+        let parametros = self.r.programa().class(c.id).type_params.len();
+        if !t.args.is_empty()
+            && (t.args.len() != parametros || t.args.iter().any(|a| a.classe.is_some()))
+        {
+            return Err("tipo de provedor com argumentos".into());
+        }
+        Ok(TipoDeToken {
+            uri: c.uri.clone(),
+            classe: c.nome.clone(),
+            genericos: parametros,
+        })
+    }
+
+    /// `useClass:` (`_getUseClass`, `enforceClassCanBeCreated`): a classe e
+    /// as dependências do construtor sem nome.
+    fn fonte_de_classe(&self, c: &Classe) -> Result<Fornece, String> {
+        let decl = self
+            .declaracao(c.id)
+            .ok_or_else(|| format!("classe de provedor sem declaração ({})", c.nome))?;
+        if !decl.parametros_de_tipo.is_empty() {
+            return Err("provedor de classe genérica".into());
+        }
+        if decl.abstrata {
+            return Err("provedor de classe abstrata".into());
+        }
+        let mut d = Diretiva::default();
+        self.dependencias(&decl, &mut d);
+        if let Some(f) = d.fora.into_iter().next() {
+            return Err(f);
+        }
+        Ok(Fornece::Classe {
+            uri: c.uri.clone(),
+            classe: c.nome.clone(),
+            deps: d.dependencias,
+        })
+    }
+
+    /// `useFactory:` de uma função de topo, com `deps:` (se não vazio) ou os
+    /// parâmetros dela (`_factoryForFunction`).
+    fn fonte_de_fabrica(&self, f: Valor, deps: Option<Valor>) -> Result<Fornece, String> {
+        let Valor::Funcao { uri, nome, id } = f else {
+            return Err("useFactory que não é função de topo".into());
+        };
+        let lista = match deps {
+            None | Some(Valor::Nulo) => Vec::new(),
+            Some(Valor::Lista(l)) => l,
+            Some(_) => return Err("deps: ilegível".into()),
+        };
+        let mut saida = Vec::new();
+        if !lista.is_empty() {
+            for item in lista {
+                saida.push(self.dependencia_de_deps(item)?);
+            }
+        } else {
+            let p = self.r.programa();
+            let fe = p.function(id);
+            let dartforge_elements::model::FunctionRef::Function { unit, function } = fe.node
+            else {
+                return Err("useFactory sem declaração".into());
+            };
+            let u = p.unit(unit);
+            let decl = Declaracao {
+                unidade: unit,
+                lib: u.library,
+                ast: &u.ast,
+                metadados: &[],
+                membros: &[],
+                parametros_de_tipo: Vec::new(),
+                abstrata: false,
+            };
+            let funcao = u.ast.function(function);
+            if !funcao.type_params.is_empty() {
+                return Err("useFactory genérica".into());
+            }
+            for par in funcao.parameters.iter().flat_map(|ps| ps.iter()) {
+                if matches!(par.kind, ast::ParameterKind::Named) {
+                    continue;
+                }
+                saida.push(self.dependencia(&decl, par)?);
+            }
+        }
+        Ok(Fornece::Fabrica {
+            uri,
+            nome,
+            deps: saida,
+        })
+    }
+
+    /// Um item de `deps:` (`_factoryDiDep`): um tipo, um token, ou a lista
+    /// `[token, Optional(), ..]`.
+    fn dependencia_de_deps(&self, v: Valor) -> Result<Dependencia, String> {
+        let mut dep = Dependencia {
+            token: Token::Elemento,
+            opcional: false,
+            proprio: false,
+            hospedeiro: false,
+            pular: false,
+        };
+        match v {
+            Valor::Lista(itens) => {
+                let mut it = itens.into_iter();
+                let primeiro = it.next().ok_or("deps: com lista vazia")?;
+                dep.token = self.token_de_dependencia(&primeiro)?;
+                for m in it {
+                    match m {
+                        Valor::Objeto { classe, .. } if classe.uri == DI_ARGUMENTS => {
+                            match classe.nome.as_str() {
+                                "Optional" => dep.opcional = true,
+                                "Self" => dep.proprio = true,
+                                "Host" => dep.hospedeiro = true,
+                                "SkipSelf" => dep.pular = true,
+                                _ => {}
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            outro => dep.token = self.token_de_dependencia(&outro)?,
+        }
+        Ok(dep)
+    }
+
+    /// O token de uma dependência escrita como valor: `HtmlElement` e
+    /// `ChangeDetectorRef` viram os embutidos, como no parâmetro.
+    fn token_de_dependencia(&self, v: &Valor) -> Result<Token, String> {
+        match v {
+            Valor::Tipo(c)
+                if c.uri == "dart:html" && (c.nome == "HtmlElement" || c.nome == "Element") =>
+            {
+                Ok(Token::Elemento)
+            }
+            Valor::Tipo(c)
+                if c.uri.starts_with("package:ngdart/") && c.nome == "ChangeDetectorRef" =>
+            {
+                Ok(Token::Detector)
+            }
+            outro => self.token_do_valor(outro),
+        }
+    }
+
+    /// O `_useValueExpression` na parte que o emissor escreve: texto,
+    /// inteiro, booleano e objeto constante de classe não genérica com
+    /// argumentos desses.
+    fn valor_const(&self, v: Valor, profundidade: u32) -> Result<ValorConst, String> {
+        Ok(match v {
+            Valor::Texto(s) => ValorConst::Texto(s),
+            Valor::Inteiro(i) => ValorConst::Inteiro(i),
+            Valor::Booleano(b) => ValorConst::Booleano(b),
+            Valor::Objeto {
+                classe,
+                construtor,
+                tipos,
+                posicionais,
+                nomeados,
+            } if profundidade == 0 => {
+                if !tipos.is_empty() || !self.r.programa().class(classe.id).type_params.is_empty() {
+                    return Err("useValue de classe genérica".into());
+                }
+                if construtor.as_deref().is_some_and(|c| c.starts_with('_')) {
+                    return Err("useValue com construtor privado".into());
+                }
+                ValorConst::Objeto {
+                    uri: classe.uri.clone(),
+                    classe: classe.nome.clone(),
+                    construtor,
+                    posicionais: posicionais
+                        .into_iter()
+                        .map(|x| self.valor_const(x, profundidade + 1))
+                        .collect::<Result<_, _>>()?,
+                    nomeados: nomeados
+                        .into_iter()
+                        .map(|(n, x)| Ok((n, self.valor_const(x, profundidade + 1)?)))
+                        .collect::<Result<_, String>>()?,
+                }
+            }
+            _ => return Err("useValue fora de texto, inteiro, booleano ou objeto simples".into()),
+        })
+    }
+
+    /// O token de um valor constante: uma classe, um `MultiToken` ou um
+    /// `OpaqueToken`.
     fn token_do_valor(&self, v: &Valor) -> Result<Token, String> {
         match v {
             Valor::Tipo(c) => Ok(Token::Classe {
@@ -374,30 +676,34 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 tipos,
                 posicionais,
                 ..
-            } if classe.e(DI_TOKENS, "MultiToken") => {
+            } if classe.e(DI_TOKENS, "MultiToken") || classe.e(DI_TOKENS, "OpaqueToken") => {
+                let multi = classe.nome == "MultiToken";
                 let nome = match posicionais.first() {
                     Some(Valor::Texto(s)) => s.clone(),
-                    None => String::new(),
-                    _ => return Err("MultiToken de nome ilegível".into()),
+                    None if multi => String::new(),
+                    None => return Err("OpaqueToken sem nome".into()),
+                    _ => return Err("token de nome ilegível".into()),
                 };
                 let [t] = tipos.as_slice() else {
-                    return Err("MultiToken sem argumento de tipo".into());
+                    return Err(format!("{} sem argumento de tipo", classe.nome));
                 };
                 let Some(c) = &t.classe else {
-                    return Err("MultiToken<dynamic>".into());
+                    return Err(format!("{}<dynamic>", classe.nome));
                 };
                 let parametros = self.r.programa().class(c.id).type_params.len();
                 // `fromDartType` escreve os argumentos; só `dynamic` tem caso.
                 if t.args.len() != parametros || t.args.iter().any(|a| a.classe.is_some()) {
-                    return Err("MultiToken de tipo com argumentos".into());
+                    return Err(format!("{} de tipo com argumentos", classe.nome));
                 }
-                Ok(Token::Multi {
-                    nome,
-                    tipo: TipoDeToken {
-                        uri: c.uri.clone(),
-                        classe: c.nome.clone(),
-                        genericos: parametros,
-                    },
+                let tipo = TipoDeToken {
+                    uri: c.uri.clone(),
+                    classe: c.nome.clone(),
+                    genericos: parametros,
+                };
+                Ok(if multi {
+                    Token::Multi { nome, tipo }
+                } else {
+                    Token::Opaco { nome, tipo }
                 })
             }
             Valor::Objeto { classe, .. } => Err(format!("token {}", classe.nome)),
@@ -482,7 +788,8 @@ impl<'r, 'a> Leitor<'r, 'a> {
                             if nome.starts_with('_') {
                                 continue;
                             }
-                            saidas_campo.push((apelido.clone().unwrap_or_else(|| nome.clone()), nome));
+                            saidas_campo
+                                .push((apelido.clone().unwrap_or_else(|| nome.clone()), nome));
                         }
                     }
                     ("Output", ast::MemberKind::Method(f)) => {
@@ -520,7 +827,10 @@ impl<'r, 'a> Leitor<'r, 'a> {
                             _ => None,
                         }
                         .unwrap_or_default();
-                        let ligacao = (apelido.clone().unwrap_or_else(|| membro_nome.clone()), membro_nome);
+                        let ligacao = (
+                            apelido.clone().unwrap_or_else(|| membro_nome.clone()),
+                            membro_nome,
+                        );
                         match k {
                             ast::MemberKind::Field(_) => ligacoes_campo.push(ligacao),
                             ast::MemberKind::Method(f)
@@ -560,7 +870,11 @@ impl<'r, 'a> Leitor<'r, 'a> {
             .chain(ligacoes_metodo)
             .chain(ligacoes_campo)
         {
-            match d.ligacoes_do_hospedeiro.iter_mut().find(|(n, _)| *n == nome) {
+            match d
+                .ligacoes_do_hospedeiro
+                .iter_mut()
+                .find(|(n, _)| *n == nome)
+            {
                 Some(x) => x.1 = membro,
                 None => d.ligacoes_do_hospedeiro.push((nome, membro)),
             }
@@ -714,7 +1028,11 @@ impl<'r, 'a> Leitor<'r, 'a> {
         }
     }
 
-    fn dependencia(&self, decl: &Declaracao<'a>, p: &ast::Parameter) -> Result<Dependencia, String> {
+    fn dependencia(
+        &self,
+        decl: &Declaracao<'a>,
+        p: &ast::Parameter,
+    ) -> Result<Dependencia, String> {
         let mut dep = Dependencia {
             token: Token::Elemento,
             opcional: matches!(p.kind, ast::ParameterKind::Optional),
@@ -875,6 +1193,23 @@ impl<'r, 'a> Leitor<'r, 'a> {
             match el {
                 Element::Class(id) => Ok(Valor::Tipo(self.classe(id))),
                 Element::Variable(v) => self.variavel(v, profundidade),
+                Element::Function(f) => {
+                    let fe = p.function(f);
+                    if fe.class.is_some()
+                        || fe.extension.is_some()
+                        || !matches!(
+                            fe.node,
+                            dartforge_elements::model::FunctionRef::Function { .. }
+                        )
+                    {
+                        return Err("função que não é de topo".into());
+                    }
+                    Ok(Valor::Funcao {
+                        uri: p.library(fe.library).uri.clone(),
+                        nome: self.r.interner().resolve(fe.name).to_string(),
+                        id: f,
+                    })
+                }
                 _ => Err("nome que não é classe nem constante".into()),
             }
         };
@@ -884,6 +1219,23 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 .map(|t| Valor::Texto(t.to_string_lossy()))
                 .ok_or_else(|| "texto com interpolação".into()),
             ast::ExprKind::Null => Ok(Valor::Nulo),
+            ast::ExprKind::Bool(b) => Ok(Valor::Booleano(*b)),
+            ast::ExprKind::Int(span) => {
+                let texto = u
+                    .source
+                    .get(span.start..span.end)
+                    .unwrap_or("")
+                    .replace('_', "");
+                let n = match texto
+                    .strip_prefix("0x")
+                    .or_else(|| texto.strip_prefix("0X"))
+                {
+                    Some(h) => i64::from_str_radix(h, 16).ok(),
+                    None => texto.parse::<i64>().ok(),
+                };
+                n.map(Valor::Inteiro)
+                    .ok_or_else(|| "inteiro ilegível".into())
+            }
             ast::ExprKind::Parenthesized(x) => self.valor(unidade, *x, profundidade),
             ast::ExprKind::List { elements, .. } => {
                 let mut itens = Vec::new();
@@ -969,7 +1321,9 @@ impl<'r, 'a> Leitor<'r, 'a> {
             _ => Err("chamada que não é construtor".to_string()),
         };
         match &arvore.expr(alvo).kind {
-            ast::ExprKind::Identifier(n) => Ok((classe(self.r.elemento_em(lib, None, self.nome(n)))?, None)),
+            ast::ExprKind::Identifier(n) => {
+                Ok((classe(self.r.elemento_em(lib, None, self.nome(n)))?, None))
+            }
             ast::ExprKind::Property {
                 target,
                 name,
@@ -988,10 +1342,12 @@ impl<'r, 'a> Leitor<'r, 'a> {
                     name: c,
                     null_aware: false,
                 } => match &arvore.expr(*p).kind {
-                    ast::ExprKind::Identifier(pre) if self.r.e_prefixo(lib, self.nome(pre)) => Ok((
-                        classe(self.r.elemento_em(lib, Some(self.nome(pre)), self.nome(c)))?,
-                        Some(self.nome(name).to_string()),
-                    )),
+                    ast::ExprKind::Identifier(pre) if self.r.e_prefixo(lib, self.nome(pre)) => {
+                        Ok((
+                            classe(self.r.elemento_em(lib, Some(self.nome(pre)), self.nome(c)))?,
+                            Some(self.nome(name).to_string()),
+                        ))
+                    }
                     _ => Err("chamada que não é construtor".into()),
                 },
                 _ => Err("chamada que não é construtor".into()),
@@ -1027,5 +1383,3 @@ impl<'r, 'a> Leitor<'r, 'a> {
         })
     }
 }
-
-
