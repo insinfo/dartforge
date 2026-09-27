@@ -1,0 +1,11 @@
+.a {
+  width: 50%;
+}
+@media (max-width: 600px) {
+  .a {
+    width: 100%;
+  }
+  .a .b {
+    top: 0;
+  }
+}

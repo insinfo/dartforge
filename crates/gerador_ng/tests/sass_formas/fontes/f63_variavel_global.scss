@@ -1,0 +1,7 @@
+$c: red;
+.a {
+  $c: blue !global;
+}
+.b {
+  color: $c;
+}

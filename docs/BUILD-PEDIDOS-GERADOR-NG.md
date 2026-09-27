@@ -182,3 +182,18 @@ Atendido, público, sem mudar a saída (new_sali: 162 gerados, 166 iguais,
    recusado** por ora: os casos do `corpus/builders/sass_builder` usam
    namespace, `@mixin` e funções de cor, fora do subconjunto; não há caso
    aceito para conferir.
+
+   **Atualização (B05, 2026-09-27)**: oráculo por forma e por opção
+   (`crates/gerador_ng/tests/sass_formas`, gravado pelo `sass_builder` 2.2.1
+   de verdade com `scripts/sass-formas.sh`). Ele achou onze formas em que o
+   `compressed` "verificado" saía diferente do oficial (cor com nome e
+   hexadecimal, números, BOM, módulos, ordem de listas aninhadas, `@media`
+   com lista, propriedade customizada, variável local); corrigidas ou
+   recusadas. O **`expanded`** passou a ser gerado (grupos com linha em
+   branco como o `isGroupEnd` do dart-sass, quebra de linha de seletor,
+   `@charset`, cor como escrita, números com zero à esquerda). Placar: 73
+   formas; `compressed` 57 iguais e 16 recusadas, `expanded` 54 iguais e 19
+   recusadas; **0 diferentes**. O `.css.map` continua recusado com motivo
+   (o `dev` o liga por padrão, e a ação vai ao executor Dart ou ao apoio): o
+   mapa do dart-sass depende de cada trecho do CSS apontar para o intervalo
+   exato do fonte, e não há gerador de mapa aqui.

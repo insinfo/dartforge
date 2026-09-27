@@ -1,0 +1,15 @@
+@media screen {
+  .a {
+    top: 0;
+  }
+}
+.b {
+  left: 0;
+}
+
+@media (min-width: 2px) {
+  .c,
+  .d {
+    right: 0;
+  }
+}

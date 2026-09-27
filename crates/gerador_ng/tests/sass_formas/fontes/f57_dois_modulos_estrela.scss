@@ -1,0 +1,6 @@
+@use 'formas_base' as *;
+@use 'formas_outra_var' as *;
+.a {
+  color: $base;
+  top: $outra;
+}
