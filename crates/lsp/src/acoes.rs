@@ -19,13 +19,13 @@
 //! não oferece; nenhuma é inventada.
 
 use crate::consulta::Consulta;
-use crate::projeto::{Projeto, arquivos_do_projeto, eh_parte, raiz_do_projeto};
+use crate::indice::{IndiceProjeto, IndiceSdk, nome_do_pacote, uri_de_import};
+use crate::projeto::{Projeto, raiz_do_projeto};
 use crate::{DocumentStore, Edicao};
 use dartforge_diagnostics::{Diagnostic, Span};
-use dartforge_elements::sdk::SdkLayout;
 use dartforge_frontend::ast::{self, DeclKind, DirectiveKind, ExprKind};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::path::{Component, Path, PathBuf};
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 use url::Url;
 
 /// Uma ação de código oferecida ao editor.
@@ -40,11 +40,6 @@ pub struct AcaoDeCodigo {
     /// Diagnóstico corrigido, quando a ação responde a um publicado.
     pub diagnostico: Option<Diagnostic>,
 }
-
-/// Índice dos nomes públicos de topo das bibliotecas do SDK: nome →
-/// URIs `dart:` que o declaram. Montado uma vez por SDK; o tamanho é o do
-/// SDK, não cresce com as edições.
-pub(crate) type IndiceSdk = HashMap<String, BTreeSet<String>>;
 
 /// Correções dos diagnósticos sintáticos que tocam `inicio..fim`.
 pub(crate) fn corrigir_sintaxe(
@@ -77,106 +72,6 @@ pub(crate) fn corrigir_sintaxe(
     saida
 }
 
-/// Nomes públicos de topo declarados numa unidade analisada.
-fn nomes_de_topo(
-    ast: &ast::Ast,
-    unit: &ast::CompilationUnit,
-    nomes: &dartforge_intern::Interner,
-) -> Vec<String> {
-    let mut saida = Vec::new();
-    for &d in &unit.declarations {
-        let decl = ast.decl(d);
-        let mut empurrar = |n: Option<ast::Name>| {
-            if let Some(n) = n {
-                let s = nomes.resolve(n.sym);
-                if !s.starts_with('_') {
-                    saida.push(s.to_string());
-                }
-            }
-        };
-        match &decl.kind {
-            DeclKind::Class(c) => empurrar(Some(c.name)),
-            DeclKind::Mixin(m) => empurrar(Some(m.name)),
-            DeclKind::Enum(e) => empurrar(Some(e.name)),
-            DeclKind::ExtensionType(e) => empurrar(Some(e.name)),
-            DeclKind::Typedef(t) => empurrar(Some(t.name)),
-            DeclKind::Extension(x) => empurrar(x.name),
-            DeclKind::Function(f) => empurrar(ast.function(*f).name),
-            DeclKind::Variables(vl) => {
-                for v in vl.variables.iter() {
-                    empurrar(Some(v.name));
-                }
-            }
-        }
-    }
-    saida
-}
-
-/// Monta o índice de nomes do SDK: cada biblioteca pública (sem `_`) com as
-/// suas partes.
-pub(crate) fn indexar_sdk(sdk: &SdkLayout) -> IndiceSdk {
-    let mut indice: IndiceSdk = HashMap::new();
-    let mut bibliotecas: Vec<_> = sdk
-        .libraries
-        .values()
-        .filter(|l| !l.name.starts_with('_') && l.supported)
-        .collect();
-    bibliotecas.sort_by(|a, b| a.name.cmp(&b.name));
-    for lib in bibliotecas {
-        let uri = format!("dart:{}", lib.name);
-        let mut pendentes = vec![lib.path.clone()];
-        let mut vistos = BTreeSet::new();
-        while let Some(caminho) = pendentes.pop() {
-            if !vistos.insert(caminho.clone()) {
-                continue;
-            }
-            let Ok(texto) = std::fs::read_to_string(&caminho) else {
-                continue;
-            };
-            let mut nomes = dartforge_intern::Interner::new();
-            let analisado = dartforge_frontend::parser::parse(&texto, &mut nomes);
-            for nome in nomes_de_topo(&analisado.ast, &analisado.unit, &nomes) {
-                indice.entry(nome).or_default().insert(uri.clone());
-            }
-            for d in &analisado.unit.directives {
-                if let DirectiveKind::Part { uri } = &d.kind
-                    && let Some(relativo) = dartforge_elements::load::string_lit_value(uri)
-                    && let Some(dir) = caminho.parent()
-                {
-                    pendentes.push(dir.join(relativo));
-                }
-            }
-        }
-    }
-    indice
-}
-
-/// Caminho de `destino` relativo ao diretório `base`, com `/`.
-fn relativo(destino: &Path, base: &Path) -> Option<String> {
-    let d: Vec<Component> = destino.components().collect();
-    let b: Vec<Component> = base.components().collect();
-    let comum = d.iter().zip(&b).take_while(|(x, y)| x == y).count();
-    if comum == 0 {
-        return None;
-    }
-    let mut partes: Vec<String> = b[comum..].iter().map(|_| "..".to_string()).collect();
-    partes.extend(
-        d[comum..]
-            .iter()
-            .map(|c| c.as_os_str().to_string_lossy().into_owned()),
-    );
-    Some(partes.join("/"))
-}
-
-/// Nome do pacote no `pubspec.yaml` da raiz.
-fn nome_do_pacote(raiz: &Path) -> Option<String> {
-    let texto = std::fs::read_to_string(raiz.join("pubspec.yaml")).ok()?;
-    texto.lines().find_map(|l| {
-        l.strip_prefix("name:")
-            .map(|n| n.trim().trim_matches(['\'', '"']).to_string())
-    })
-}
-
 /// Grupo de ordenação das diretivas (`dart:`, `package:`, relativas).
 fn grupo_de_uri(uri: &str) -> u8 {
     if uri.starts_with("dart:") {
@@ -189,7 +84,7 @@ fn grupo_de_uri(uri: &str) -> u8 {
 }
 
 /// Edição que acrescenta `import 'uri';` na ordem das diretivas existentes.
-fn inserir_import(texto: &str, unit: &ast::CompilationUnit, uri_novo: &str) -> (Span, String) {
+pub(crate) fn inserir_import(texto: &str, unit: &ast::CompilationUnit, uri_novo: &str) -> (Span, String) {
     let chave_nova = (grupo_de_uri(uri_novo), uri_novo.to_string());
     let imports: Vec<(&ast::Directive, String)> = unit
         .directives
@@ -311,10 +206,13 @@ fn tipo_param(ast: &ast::Ast, n: &ast::Name) -> bool {
 }
 
 /// Ações de importar biblioteca para os nomes indefinidos em `inicio..fim`,
-/// sobre a biblioteca do documento já carregada (`projeto`, da sessão).
+/// sobre a biblioteca do documento já carregada (`projeto`, da sessão):
+/// as bibliotecas do SDK (`indice`) e as do projeto (`indice_projeto`) que
+/// declaram o nome e ainda não são importadas.
 pub(crate) fn importar(
     projeto: &Projeto,
     indice: &IndiceSdk,
+    indice_projeto: &mut IndiceProjeto,
     documentos: &DocumentStore,
     uri: &str,
     inicio: usize,
@@ -340,18 +238,15 @@ pub(crate) fn importar(
         .map(|i| consulta.programa.library(i.library).uri.clone())
         .collect();
     let unit = &consulta.programa.unit(unidade).unit;
-    let Some(arquivo) = Url::parse(uri).ok().and_then(|u| u.to_file_path().ok()) else {
+    let Some(arquivo) = crate::projeto::arquivo_da_uri(uri) else {
         return Vec::new();
     };
-    let arquivo = dartforge_elements::config::sem_verbatim(
-        std::fs::canonicalize(&arquivo).unwrap_or(arquivo),
-    );
     let mut saida = Vec::new();
 
     // SDK.
     let mut do_sdk: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for nome in &faltando {
-        for l in indice.get(nome).into_iter().flatten() {
+        for l in indice.por_nome.get(nome).into_iter().flat_map(|m| m.keys()) {
             if l != "dart:core" && !importadas.contains(l) {
                 do_sdk.entry(nome.clone()).or_default().insert(l.clone());
             }
@@ -376,43 +271,20 @@ pub(crate) fn importar(
     // Projeto.
     let raiz = raiz_do_projeto(&arquivo);
     let pacote = nome_do_pacote(&raiz);
-    let lib_dir = raiz.join("lib");
-    let mut do_projeto: BTreeSet<(String, PathBuf)> = BTreeSet::new();
-    for caminho in arquivos_do_projeto(&raiz) {
-        if caminho == arquivo {
-            continue;
-        }
-        let aberto = Url::from_file_path(&caminho)
-            .ok()
-            .and_then(|u| documentos.get(u.as_str()).map(str::to_string));
-        let Some(fonte) = aberto.or_else(|| std::fs::read_to_string(&caminho).ok()) else {
-            continue;
-        };
-        if eh_parte(&fonte) {
-            continue;
-        }
-        let mut nomes = dartforge_intern::Interner::new();
-        let analisado = dartforge_frontend::parser::parse(&fonte, &mut nomes);
-        for nome in nomes_de_topo(&analisado.ast, &analisado.unit, &nomes) {
-            if faltando.contains(&nome) {
-                do_projeto.insert((nome, caminho.clone()));
-            }
+    let mut do_projeto: BTreeSet<PathBuf> = BTreeSet::new();
+    for (caminho, nomes) in indice_projeto.atualizar(&raiz, documentos) {
+        if caminho != arquivo && nomes.iter().any(|d| faltando.contains(&d.nome)) {
+            do_projeto.insert(caminho.to_path_buf());
         }
     }
-    for (_, caminho) in do_projeto {
-        let em_lib = caminho.starts_with(&lib_dir);
-        let uri_import = match (&pacote, em_lib && !arquivo.starts_with(&lib_dir)) {
-            (Some(p), true) => relativo(&caminho, &lib_dir).map(|r| format!("package:{p}/{r}")),
-            _ => arquivo.parent().and_then(|dir| relativo(&caminho, dir)),
-        };
-        let Some(uri_import) = uri_import else {
+    for caminho in do_projeto {
+        let Some(uri_import) = uri_de_import(&arquivo, &caminho, &raiz, pacote.as_deref()) else {
             continue;
         };
         let absoluto = Url::from_file_path(&caminho)
             .map(|u| u.to_string())
             .unwrap_or_default();
-        let ja = importadas.contains(&uri_import) || importadas.contains(&absoluto);
-        if ja {
+        if importadas.contains(&uri_import) || importadas.contains(&absoluto) {
             continue;
         }
         let (span, novo) = inserir_import(texto, unit, &uri_import);

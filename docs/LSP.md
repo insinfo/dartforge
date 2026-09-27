@@ -326,6 +326,20 @@ diagnósticos. Então:
   topo, importados sem prefixo, os prefixos e palavras-chave pelo contexto
   (comando, expressão, membro de classe, topo). Numa lista de argumentos,
   os parâmetros nomeados ainda não passados (`nome: `) vêm primeiro.
+* posição de tipo (`Str▮ x`, `List<▮>`, `void f(▮ a)`, `p.▮ x`) — só
+  tipos: classes, mixins, enums, extension types e typedefs do escopo (ou
+  do prefixo), parâmetros de tipo em escopo, prefixos, `dynamic`/`void`, e
+  as palavras-chave de declaração quando o tipo abre uma declaração ou um
+  comando; nunca valores (locais, variáveis, funções, `null`…);
+* nomes públicos de bibliotecas **ainda não importadas** que casam com o
+  digitado (não com a lista vazia): do SDK (índice das bibliotecas públicas,
+  `dart:core` fora) e do projeto (índice incremental por arquivo em
+  `crates/lsp/src/indice.rs`, um projeto por vez, só nomes e offsets), com
+  `detail` `Auto import from 'dart:math'` e `additionalTextEdits` com a
+  diretiva no lugar certo (a mesma regra da ação de importar: `dart:`,
+  `package:`, relativas; relativo ou `package:` conforme `lib/`). Em posição
+  de tipo, só tipos. Numa parte não há (o `import` iria para a dona). Acima
+  de 200 desses itens, a lista sai com `isIncomplete: true`;
 * privado de outra biblioteca nunca aparece; nada em comentário, texto de
   string ou número (interpolação é código).
 
@@ -333,11 +347,29 @@ Os itens seguem o formato do servidor do Dart: `label` `met(…)`/`met()`
 para funções, `detail` `(int x, {String? nome}) → void` ou o tipo, `kind`
 (2 método, 3 função, 4 construtor, 5 campo, 6 variável, 7 classe, 9
 prefixo, 10 getter, 13 enum, 14 palavra-chave, 20 constante de enum, 25
-parâmetro de tipo), `textEdit` sobre o prefixo digitado. A ordem é estável
-— grupo (nomeados, locais, membros, biblioteca, importados, prefixos,
-palavras-chave) e nome — e `sortText` a repete; o filtro é pelo prefixo,
-sem diferenciar maiúsculas de minúsculas. Teste: `cargo test -p
-dartforge-lsp --test completar --locked`.
+parâmetro de tipo), `textEdit` sobre o prefixo digitado. O filtro é aproximado
+(`crates/lsp/src/aproximado.rs`): prefixo, contém, iniciais de palavras
+(`vt` acha `valorTotal`) e subsequência que abre como o nome. A ordem é por
+relevância e estável, e `sortText` a repete: o que começa com o digitado
+(sem diferenciar maiúsculas) antes do que só casa por aproximação; depois o
+grupo (nomeados, locais, membros — os herdados de `Object` por último —,
+biblioteca, importados, prefixos, não importados, palavras-chave) e o nome.
+
+`completionItem/resolve` (`resolveProvider: true`): cada item com declaração
+conhecida leva `data` (`arquivo`, `inicio`); o resolve lê o comentário de
+documentação da declaração (texto aberto ou disco; `///` ou `/** */`) e o
+devolve em `documentation`, em Markdown se o cliente anuncia
+`documentationFormat: ["markdown"]`. Sem `data`, o item volta como veio.
+
+Snippets: quando o cliente anuncia `completionItem.snippetSupport` (e não
+passa `completeFunctionCalls: false` nas `initializationOptions`), funções,
+métodos e construtores entram com os parênteses e os parâmetros
+obrigatórios como marcadores (`met(${1:x})$0`, nomeados obrigatórios como
+`req(n: ${1:n})$0`, sem parâmetros `nada()$0`, parâmetros desconhecidos de
+um nome não importado `f($0)`), com `insertTextFormat: 2`; se já há `(`
+depois do nome, só o nome. Campos, getters e variáveis nunca levam
+parênteses. Teste: `cargo test -p dartforge-lsp --test completar
+--locked`.
 
 `textDocument/prepareRename` e `textDocument/rename` (`renameProvider:
 {prepareProvider: true}` quando o cliente anuncia `prepareSupport`). O
@@ -440,13 +472,10 @@ Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
 `textDocument/rename`, `textDocument/codeAction`, `dartforge/dormir`
 (gancho de teste do cancelamento em execução; clientes reais nunca enviam).
 
-Pendentes no completar: sugestões de nomes ainda não importados (o Dart as
-oferece com import automático), `completionItem/resolve` com documentação,
-snippets, ordenação por relevância (o Dart pondera por uso), filtro
-aproximado (só prefixo aqui) e contexto de tipo (em posição de tipo a lista
-traz também valores). Nas ações: as demais correções e assistências do
-Dart (criar classe, remover variável não usada…), que dependem de
-diagnósticos ainda não publicados.
+Pendentes no completar: a relevância não pondera pelo tipo esperado nem
+pelo uso (o Dart usa as duas coisas). Nas ações: as demais correções e
+assistências do Dart (criar classe, remover variável não usada…), que
+dependem de diagnósticos ainda não publicados.
 
 Explicitamente fora deste brief: formatação e `diagnosticProvider` por
 requisição (o servidor empurra diagnósticos; não atende pull). Os

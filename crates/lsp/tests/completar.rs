@@ -196,13 +196,15 @@ fn escopo_locais_parametros_membros_topo_e_palavras() {
     assert!(pos("global") < pos("dobro(…)"));
     assert!(pos("dobro(…)") < pos("return"));
 
-    // Com prefixo, só o que começa com ele (sem diferenciar maiúsculas).
+    // Com prefixo, primeiro o que começa com ele (sem diferenciar
+    // maiúsculas); depois o que só casa por aproximação (`Comparable`
+    // contém `para`).
     let r = completar(
         &mut p,
         "lib/b.dart",
         &texto.replace("    ▮\n", "    var z = para▮\n"),
     );
-    assert_eq!(rotulos(&r), vec!["parametro"]);
+    assert_eq!(rotulos(&r), vec!["parametro", "Comparable"]);
 }
 
 #[test]
@@ -271,7 +273,8 @@ fn nada_em_comentarios_e_strings() {
 fn topo_oferece_palavras_de_declaracao_e_tipos() {
     let mut p = Projeto::novo("completar-topo");
     let r = completar(&mut p, "lib/a.dart", &format!("{CLASSES}cl▮\n"));
-    assert_eq!(rotulos(&r), vec!["class"]);
+    // O prefixo primeiro; `Comparable` casa por aproximação (`c…l`).
+    assert_eq!(rotulos(&r), vec!["class", "Comparable"]);
     let r = completar(&mut p, "lib/b.dart", &format!("{CLASSES}▮\n"));
     let r_rotulos = rotulos(&r);
     assert!(r_rotulos.contains(&"A".to_string()) && r_rotulos.contains(&"import".to_string()));
@@ -317,4 +320,161 @@ fn arquivo_parte_usa_a_biblioteca_dona() {
         "part of 'a.dart';\nvoid h() {\n  glo▮\n}\n",
     );
     assert_eq!(r["result"]["items"], json!([]));
+}
+
+/// O item de rótulo `rotulo` cujo `detail` é `detalhe`.
+fn item_com<'a>(r: &'a serde_json::Value, rotulo: &str, detalhe: &str) -> &'a serde_json::Value {
+    r["result"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["label"] == rotulo && i["detail"] == detalhe)
+        .unwrap_or_else(|| panic!("sem {rotulo} ({detalhe}) em {:?}", rotulos(r)))
+}
+
+#[test]
+fn importacao_automatica_do_sdk_e_do_projeto() {
+    let mut p = Projeto::novo("completar-autoimport");
+    p.gravar(
+        "lib/util.dart",
+        "/// Soma dois.\nint somar(int a, int b) => a + b;\nclass Utilitario {}\n",
+    );
+    let r = completar(&mut p, "lib/a.dart", "void f() {\n  Rand▮\n}\n");
+    let random = item_com(&r, "Random", "Auto import from 'dart:math'");
+    assert_eq!(random["kind"], 7);
+    assert_eq!(
+        random["additionalTextEdits"],
+        json!([{"range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "newText": "import 'dart:math';\n\n"}])
+    );
+    assert_eq!(random["textEdit"]["newText"], "Random");
+    // A biblioteca privada do SDK (`dart:_interna`) não é oferecida.
+    assert!(!r.to_string().contains("dart:_interna"));
+    // Do projeto, com import relativo e depois dos imports existentes.
+    let r = completar(&mut p, "lib/b.dart", "import 'dart:math';\nvoid f() {\n  som▮\n}\n");
+    let somar = item_com(&r, "somar(…)", "Auto import from 'util.dart'");
+    assert_eq!(
+        somar["additionalTextEdits"][0]["newText"],
+        "\nimport 'util.dart';"
+    );
+    assert_eq!(somar["additionalTextEdits"][0]["range"]["start"], json!({"line": 0, "character": 19}));
+    // Já importado: o item é o do escopo, sem edição adicional.
+    let r = completar(&mut p, "lib/c.dart", "import 'dart:math';\nvoid f() {\n  Rand▮\n}\n");
+    let random = item(&r, "Random");
+    assert!(random.get("additionalTextEdits").is_none(), "{random}");
+    assert_eq!(rotulos(&r).iter().filter(|x| *x == "Random").count(), 1);
+    // Numa parte, o import iria para outro arquivo: não oferece.
+    p.gravar("lib/dona.dart", "part 'parte.dart';\n");
+    let r = completar(&mut p, "lib/parte.dart", "part of 'dona.dart';\nvoid g() {\n  Rand▮\n}\n");
+    assert!(!rotulos(&r).contains(&"Random".to_string()), "{r}");
+    // Sem nada digitado, não há não importados.
+    let r = completar(&mut p, "lib/d.dart", "void f() {\n  ▮\n}\n");
+    assert!(!r.to_string().contains("Auto import"));
+}
+
+#[test]
+fn resolve_traz_a_documentacao() {
+    let mut p = Projeto::novo("completar-resolve");
+    let r = p.requisitar("initialize", json!({"capabilities": {}}));
+    assert_eq!(r["result"]["capabilities"]["completionProvider"]["resolveProvider"], true);
+    p.gravar("lib/util.dart", "/// Soma dois.\nint somar(int a, int b) => a + b;\n");
+    let r = completar(
+        &mut p,
+        "lib/a.dart",
+        "class A {\n  /// O campo guardado.\n  int campo = 1;\n}\nvoid f(A a) {\n  a.ca▮\n  som▮\n}\n".replacen("  som▮\n", "", 1).as_str(),
+    );
+    let campo = item(&r, "campo").clone();
+    let resolvido = p.requisitar("completionItem/resolve", campo);
+    assert_eq!(resolvido["result"]["documentation"], "O campo guardado.");
+    assert_eq!(resolvido["result"]["label"], "campo");
+    // Item de biblioteca não importada: a documentação vem do arquivo dele.
+    let r = completar(&mut p, "lib/b.dart", "void f() {\n  som▮\n}\n");
+    let somar = item(&r, "somar(…)").clone();
+    p.requisitar(
+        "initialize",
+        json!({"capabilities": {"textDocument": {"completion": {"completionItem": {"documentationFormat": ["markdown"]}}}}}),
+    );
+    let resolvido = p.requisitar("completionItem/resolve", somar);
+    assert_eq!(resolvido["result"]["documentation"], json!({"kind": "markdown", "value": "Soma dois."}));
+    // Sem `data`, o item volta como veio.
+    let resolvido = p.requisitar("completionItem/resolve", json!({"label": "x"}));
+    assert_eq!(resolvido["result"], json!({"label": "x"}));
+}
+
+#[test]
+fn snippets_de_chamada_quando_o_cliente_aceita() {
+    let mut p = Projeto::novo("completar-snippet");
+    let classe = "class A {\n  void met(int x, {String? nome, int? idade}) {}\n  void req({required int n}) {}\n  void nada() {}\n  int campo = 0;\n}\n";
+    // Sem suporte a snippets: só o nome.
+    let r = completar(&mut p, "lib/a.dart", &format!("{classe}void f(A a) {{\n  a.me▮\n}}\n"));
+    assert_eq!(item(&r, "met(…)")["textEdit"]["newText"], "met");
+    assert!(item(&r, "met(…)").get("insertTextFormat").is_none());
+    p.requisitar(
+        "initialize",
+        json!({"capabilities": {"textDocument": {"completion": {"completionItem": {"snippetSupport": true}}}}}),
+    );
+    let r = completar(&mut p, "lib/b.dart", &format!("{classe}void f(A a) {{\n  a.▮\n}}\n"));
+    assert_eq!(item(&r, "met(…)")["textEdit"]["newText"], "met(${1:x})$0");
+    assert_eq!(item(&r, "met(…)")["insertTextFormat"], 2);
+    assert_eq!(item(&r, "req(…)")["textEdit"]["newText"], "req(n: ${1:n})$0");
+    assert_eq!(item(&r, "nada()")["textEdit"]["newText"], "nada()$0");
+    // Campo não é chamada.
+    assert_eq!(item(&r, "campo")["textEdit"]["newText"], "campo");
+    assert!(item(&r, "campo").get("insertTextFormat").is_none());
+    // Parênteses já escritos: só o nome.
+    let r = completar(&mut p, "lib/c.dart", &format!("{classe}void f(A a) {{\n  a.me▮(1);\n}}\n"));
+    assert_eq!(item(&r, "met(…)")["textEdit"]["newText"], "met");
+    // `completeFunctionCalls: false` desliga.
+    p.requisitar(
+        "initialize",
+        json!({"capabilities": {"textDocument": {"completion": {"completionItem": {"snippetSupport": true}}}},
+               "initializationOptions": {"completeFunctionCalls": false}}),
+    );
+    let r = completar(&mut p, "lib/d.dart", &format!("{classe}void f(A a) {{\n  a.me▮\n}}\n"));
+    assert_eq!(item(&r, "met(…)")["textEdit"]["newText"], "met");
+}
+
+#[test]
+fn posicao_de_tipo_so_oferece_tipos() {
+    let mut p = Projeto::novo("completar-tipos");
+    let base = "import 'dart:math' as m;\nclass Caixa<T> {\n  List<▮> itens = [];\n}\nint valor = 0;\nint dobro(int x) => x;\n";
+    let r = completar(&mut p, "lib/a.dart", base);
+    let r_rotulos = rotulos(&r);
+    for esperado in ["T", "Caixa", "int", "String", "m", "dynamic"] {
+        assert!(r_rotulos.contains(&esperado.to_string()), "{esperado} em {r_rotulos:?}");
+    }
+    for proibido in ["valor", "dobro(…)", "print(…)", "itens", "true", "null"] {
+        assert!(!r_rotulos.contains(&proibido.to_string()), "{proibido} em {r_rotulos:?}");
+    }
+    // Parâmetro de função: o `T` da classe não está em escopo.
+    let r = completar(&mut p, "lib/b.dart", "int valor = 0;\nvoid f(▮ x) {}\n");
+    let r_rotulos = rotulos(&r);
+    assert!(r_rotulos.contains(&"int".to_string()) && !r_rotulos.contains(&"valor".to_string()) && !r_rotulos.contains(&"T".to_string()), "{r_rotulos:?}");
+    // Pelo prefixo: só os tipos do espaço dele (`pi` é valor).
+    let r = completar(&mut p, "lib/c.dart", "import 'dart:math' as m;\nm.▮ aleatorio;\n");
+    assert_eq!(rotulos(&r), vec!["Random"]);
+    // Tipo de local no corpo: tipos e palavras de comando, sem locais.
+    let r = completar(&mut p, "lib/d.dart", "void g(int local) {\n  Str▮ s = '';\n}\n");
+    let r_rotulos = rotulos(&r);
+    assert!(r_rotulos.contains(&"String".to_string()) && !r_rotulos.contains(&"local".to_string()), "{r_rotulos:?}");
+    // Não importado em posição de tipo: só tipos (a classe, não a função).
+    p.gravar("lib/util.dart", "class Utilitario {}\nint utilidade() => 0;\n");
+    let r = completar(&mut p, "lib/e.dart", "void f(Uti▮ u) {}\n");
+    let r_rotulos = rotulos(&r);
+    assert!(r_rotulos.contains(&"Utilitario".to_string()) && !r_rotulos.iter().any(|x| x.starts_with("utilidade")), "{r_rotulos:?}");
+}
+
+#[test]
+fn aproximado_e_relevancia() {
+    let mut p = Projeto::novo("completar-relevancia");
+    let classe = "class X {\n  int vtabela = 0;\n  int valorTotal = 0;\n  int total = 0;\n}\n";
+    let r = completar(&mut p, "lib/a.dart", &format!("{classe}void f(X x) {{\n  x.vt▮\n}}\n"));
+    // Prefixo antes de iniciais de palavras; `total` não casa.
+    assert_eq!(rotulos(&r), vec!["vtabela", "valorTotal"]);
+    let r = completar(&mut p, "lib/b.dart", &format!("{CLASSES}void f(A a) {{\n  a.rtl▮\n}}\n"));
+    assert_eq!(rotulos(&r), vec!["rotulo"]);
+    // Membros próprios antes dos herdados de `Object`.
+    let r = completar(&mut p, "lib/c.dart", &format!("{CLASSES}void f(B b) {{\n  b.▮\n}}\n"));
+    let r_rotulos = rotulos(&r);
+    let pos = |n: &str| r_rotulos.iter().position(|x| x == n).unwrap();
+    assert!(pos("marcado") < pos("toString()") && pos("campo") < pos("hashCode"), "{r_rotulos:?}");
 }

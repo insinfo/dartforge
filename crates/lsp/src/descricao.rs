@@ -11,8 +11,7 @@ use crate::Hover;
 use crate::dartdoc;
 use crate::projeto::{Alvo, Concreto, Denotado, Projeto, nome_base, palavra};
 use dartforge_elements::model::{
-    ClassId, ClassKind, Element, FunctionElementId, FunctionKind, FunctionRef, UnitId, VariableId,
-    VariableRef,
+    ClassId, ClassKind, Element, FunctionElementId, FunctionKind, FunctionRef, UnitId,
 };
 use dartforge_frontend::ast::{self, DeclKind, MemberKind, ParameterKind};
 use dartforge_types::{Type, TypeId};
@@ -49,7 +48,11 @@ impl Projeto {
                     FunctionKind::Constructor | FunctionKind::SyntheticConstructor
                 ) =>
             {
-                (self.descrever_funcao(f), None, self.inicio_da_funcao(f))
+                (
+                    self.descrever_funcao(f),
+                    None,
+                    self.consulta.inicio_da_funcao(f),
+                )
             }
             (_, Some(Concreto::Funcao(f))) => {
                 let fe = self.programa().function(f);
@@ -59,7 +62,11 @@ impl Projeto {
                             .unwrap_or(self.consulta.outline.functions[f.0 as usize].return_type)
                     })
                     .map(|t| self.consulta.formatar(t));
-                (self.descrever_funcao(f), tipo, self.inicio_da_funcao(f))
+                (
+                    self.descrever_funcao(f),
+                    tipo,
+                    self.consulta.inicio_da_funcao(f),
+                )
             }
             (_, Some(Concreto::Variavel(v))) => {
                 let declarado = self.consulta.tipo_da_variavel(v);
@@ -71,17 +78,19 @@ impl Projeto {
                 (
                     format!("{declarado} {nome}"),
                     Some(texto_tipo),
-                    self.inicio_da_variavel(v),
+                    self.consulta.inicio_da_variavel(v),
                 )
             }
             (Alvo::Topo(el), None) => (
                 self.descrever_tipo(*el)?,
                 None,
-                self.inicio_do_elemento(*el),
+                self.consulta.inicio_do_elemento(*el),
             ),
-            (Alvo::Construtor(f), None) => {
-                (self.descrever_funcao(*f), None, self.inicio_da_funcao(*f))
-            }
+            (Alvo::Construtor(f), None) => (
+                self.descrever_funcao(*f),
+                None,
+                self.consulta.inicio_da_funcao(*f),
+            ),
             (Alvo::Membro { .. }, None) => return None,
         };
         let documentacao = inicio_doc
@@ -462,68 +471,6 @@ impl Projeto {
         Some(unidade.source[span.start..span.end].to_string())
     }
 
-    /// Unidade e início (com metadados) da declaração de um elemento de topo.
-    fn inicio_do_elemento(&self, el: Element) -> Option<(UnitId, usize)> {
-        let p = self.programa();
-        let d = match el {
-            Element::Class(c) => p.class(c).decl?,
-            Element::Extension(x) => p.extension(x).decl,
-            Element::Typedef(t) => p.typedef(t).decl,
-            Element::Function(f) => return self.inicio_da_funcao(f),
-            Element::Variable(v) => return self.inicio_da_variavel(v),
-            Element::Prefix(..) => return None,
-        };
-        Some((d.unit, p.unit(d.unit).ast.decl(d.decl).span.start))
-    }
-
-    fn inicio_da_funcao(&self, f: FunctionElementId) -> Option<(UnitId, usize)> {
-        let p = self.programa();
-        match p.function(f).node {
-            FunctionRef::Function { unit, function } => {
-                let ast = &p.unit(unit).ast;
-                let inicio = ast
-                    .decls
-                    .iter()
-                    .find(|d| matches!(d.kind, DeclKind::Function(x) if x == function))
-                    .map(|d| d.span.start)
-                    .or_else(|| {
-                        ast.members
-                            .iter()
-                            .find(|m| matches!(m.kind, MemberKind::Method(x) if x == function))
-                            .map(|m| m.span.start)
-                    })
-                    .unwrap_or(ast.function(function).span.start);
-                Some((unit, inicio))
-            }
-            FunctionRef::Constructor { unit, member } => {
-                Some((unit, p.unit(unit).ast.member(member).span.start))
-            }
-            FunctionRef::None => p
-                .function(f)
-                .variable
-                .and_then(|v| self.inicio_da_variavel(v)),
-        }
-    }
-
-    fn inicio_da_variavel(&self, v: VariableId) -> Option<(UnitId, usize)> {
-        let p = self.programa();
-        match p.variable(v).node {
-            VariableRef::TopLevel { unit, decl, .. } => {
-                Some((unit, p.unit(unit).ast.decl(decl).span.start))
-            }
-            VariableRef::Field { unit, member, .. } => {
-                Some((unit, p.unit(unit).ast.member(member).span.start))
-            }
-            VariableRef::EnumConstant { unit, decl, index } => {
-                match &p.unit(unit).ast.decl(decl).kind {
-                    DeclKind::Enum(e) => Some((unit, e.constants.get(index)?.span.start)),
-                    _ => None,
-                }
-            }
-            _ => None,
-        }
-    }
-
     /// Membro de instância sem documentação própria: a do primeiro membro
     /// sobrescrito que a tem (como o analyzer faz no hover).
     fn documentacao_herdada(&self, d: &Denotado) -> Option<String> {
@@ -543,7 +490,7 @@ impl Projeto {
         supers.sort();
         supers.into_iter().find_map(|s| {
             self.declarados(s, nome, false).into_iter().find_map(|f| {
-                let (u, inicio) = self.inicio_da_funcao(f)?;
+                let (u, inicio) = self.consulta.inicio_da_funcao(f)?;
                 dartdoc::documentacao(&self.programa().unit(u).source, inicio)
             })
         })

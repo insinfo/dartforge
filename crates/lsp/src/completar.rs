@@ -12,22 +12,37 @@
 //! `get_type` do alvo, e o escopo léxico é capturado pela sonda da inferência
 //! no identificador sentinela.
 //!
-//! A ordem dos itens é estável: grupo (argumentos nomeados, locais, membros
-//! da classe, declarações da biblioteca, importados, prefixos, palavras-chave)
-//! e depois o nome. O filtro é pelo prefixo digitado, sem distinguir
-//! maiúsculas de minúsculas.
+//! Em posição de tipo (`Str▮ x`, `List<▮>`, `void f(p.▮ a)`), só tipos:
+//! classes, mixins, enums, extension types, typedefs, parâmetros de tipo em
+//! escopo, prefixos e `dynamic`/`void` — nunca valores.
+//!
+//! Nomes públicos de bibliotecas ainda não importadas (SDK e projeto,
+//! pelos índices de [`crate::indice`]) entram com a edição que acrescenta o
+//! `import` (`additionalTextEdits`), como a importação automática do Dart;
+//! não em partes (o `import` iria para outro arquivo).
+//!
+//! O filtro é aproximado ([`crate::aproximado`]): prefixo, contém,
+//! iniciais de palavras e subsequência que abre como o nome. A ordem é por
+//! relevância e estável: o que começa com o digitado vem antes do que só
+//! casa por aproximação; depois o grupo (argumentos nomeados, locais,
+//! membros da classe — os herdados de `Object` por último —, declarações da
+//! biblioteca, importados, prefixos, não importados, palavras-chave) e o
+//! nome.
 
 use crate::DocumentStore;
 use crate::consulta::Consulta;
-use crate::semantica::AnalisadorSemantico;
+use crate::indice::{IndiceProjeto, IndiceSdk};
+use dartforge_diagnostics::Span;
 use dartforge_elements::model::{
     ClassId, ClassKind, Element, FunctionElementId, FunctionKind, LibraryId, Namespace,
 };
+use dartforge_elements::sdk::SdkLayout;
 use dartforge_frontend::LibraryFeatures;
 use dartforge_frontend::ast::{self, ExprId, ExprKind, StmtKind};
 use dartforge_intern::{Interner, SymbolId};
 use dartforge_types::{MemberRef, Resolved, Type, TypeId};
 use std::collections::HashSet;
+use std::path::PathBuf;
 
 /// Identificador que ocupa o lugar do nome sob o cursor na análise.
 const SENTINELA: &str = "dartforge__completar";
@@ -51,6 +66,27 @@ pub(crate) mod especie {
     pub const PARAMETRO_DE_TIPO: u32 = 25;
 }
 
+/// Como completar uma chamada, quando o cliente aceita snippets.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Chamada {
+    /// Os parâmetros obrigatórios, na ordem (`x`, e `nome: ` para nomeados):
+    /// viram os marcadores `${1:x}` do snippet.
+    Parametros(Vec<String>),
+    /// Função com parâmetros de nomes desconhecidos (índice de nomes): o
+    /// cursor fica entre os parênteses.
+    Desconhecida,
+}
+
+/// Um `import` a acrescentar junto com o item (importação automática).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportAutomatico {
+    /// A URI importada (`dart:math`, `util.dart`).
+    pub uri: String,
+    /// Onde a diretiva entra no documento (bytes) e o texto dela.
+    pub span: Span,
+    pub texto: String,
+}
+
 /// Um item oferecido ao editor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ItemCompletar {
@@ -62,8 +98,17 @@ pub struct ItemCompletar {
     pub detalhe: Option<String>,
     /// Texto que substitui o prefixo digitado.
     pub inserir: String,
+    /// Forma de chamada, para funções, métodos e construtores.
+    pub chamada: Option<Chamada>,
+    /// Arquivo e início da declaração, para a documentação do
+    /// `completionItem/resolve`.
+    pub origem: Option<(PathBuf, usize)>,
+    /// A diretiva que o item acrescenta (nome ainda não importado).
+    pub importar: Option<ImportAutomatico>,
     /// Grupo de ordenação (menor vem antes).
     grupo: u8,
+    /// Qualidade do casamento com o digitado (0: prefixo; 1: aproximado).
+    qualidade: u8,
 }
 
 /// Resultado do completar: o intervalo do prefixo (bytes) e os itens em ordem.
@@ -72,17 +117,45 @@ pub struct Completar {
     pub inicio: usize,
     pub fim: usize,
     pub itens: Vec<ItemCompletar>,
+    /// A lista foi cortada (nomes não importados acima do teto).
+    pub incompleta: bool,
+}
+
+/// Onde o sentinela caiu na análise.
+enum Sentinela {
+    /// Numa expressão; com o alvo quando é `alvo.▮`.
+    Expr(ExprId, Option<ExprId>),
+    /// Num nome de tipo; com o prefixo quando é `p.▮`, e se o tipo abre a
+    /// declaração (de topo, membro ou comando), onde palavras-chave também
+    /// cabem.
+    Tipo {
+        prefixo: Option<SymbolId>,
+        lider: Option<&'static [&'static str]>,
+    },
+}
+
+/// O que o completar consulta além do programa.
+pub(crate) struct Indices<'a> {
+    pub sdk: &'a IndiceSdk,
+    pub projeto: &'a mut IndiceProjeto,
 }
 
 mod grupo {
     pub const NOMEADO: u8 = 0;
     pub const LOCAL: u8 = 1;
     pub const MEMBRO: u8 = 2;
-    pub const BIBLIOTECA: u8 = 3;
-    pub const IMPORTADO: u8 = 4;
-    pub const PREFIXO: u8 = 5;
-    pub const PALAVRA: u8 = 6;
+    /// Membros herdados de `Object` (`toString`, `hashCode`…).
+    pub const MEMBRO_DE_OBJECT: u8 = 3;
+    pub const BIBLIOTECA: u8 = 4;
+    pub const IMPORTADO: u8 = 5;
+    pub const PREFIXO: u8 = 6;
+    pub const NAO_IMPORTADO: u8 = 7;
+    pub const PALAVRA: u8 = 8;
 }
+
+/// Teto de itens de bibliotecas não importadas numa resposta; acima dele a
+/// lista sai com `isIncomplete` e o editor pede de novo a cada tecla.
+const TETO_NAO_IMPORTADOS: usize = 200;
 
 const PALAVRAS_DE_EXPRESSAO: &[&str] = &["const", "false", "new", "null", "true"];
 const PALAVRAS_DE_COMANDO: &[&str] = &[
@@ -132,11 +205,12 @@ fn eh_ident(b: u8) -> bool {
 
 /// Completa na posição `offset` (bytes) de `texto`, o conteúdo vigente de `uri`.
 ///
-/// `None` quando o arquivo não pode ser carregado (sem SDK, URI que não é de
+/// `None` quando o arquivo não pode ser carregado (URI que não é de
 /// arquivo). Dentro de comentário, de texto de string ou de número, a lista
 /// é vazia.
 pub(crate) fn completar(
-    semantico: &AnalisadorSemantico,
+    sdk: &SdkLayout,
+    indices: Indices<'_>,
     documentos: &DocumentStore,
     uri: &str,
     texto: &str,
@@ -157,16 +231,18 @@ pub(crate) fn completar(
         inicio,
         fim: offset,
         itens: Vec::new(),
+        incompleta: false,
     };
     if bytes.get(inicio).is_some_and(u8::is_ascii_digit) && inicio < offset
         || fora_de_codigo(texto, offset)
     {
         return Some(vazio);
     }
-    let prefixo = texto[inicio..offset].to_ascii_lowercase();
+    let digitado = &texto[inicio..offset];
     let preparado = preparar(texto, inicio, fim, features);
     let texto_analisado = preparado.as_deref().unwrap_or(texto);
-    let (programa, nomes, unidade) = semantico.carregar(uri, texto_analisado, Some(documentos))?;
+    let (programa, nomes, unidade) =
+        crate::semantica::carregar(sdk, uri, texto_analisado, Some(documentos))?;
     let biblioteca = programa.unit(unidade).library;
     let sonda = preparado.as_ref().map(|_| (unidade, inicio));
     let mut consulta = Consulta::inferir(programa, nomes, &[biblioteca], false, sonda);
@@ -178,9 +254,13 @@ pub(crate) fn completar(
     let sentinela = preparado
         .as_ref()
         .and_then(|_| achar_sentinela(&consulta.programa.unit(unidade).ast, inicio));
+    // Nomes de bibliotecas não importadas cabem onde um nome solto cabe.
+    let mut nao_importados: Option<bool> = None;
     match sentinela {
-        Some((expr, Some(alvo))) => coletor.membros_do_alvo(&mut consulta, unidade, expr, alvo),
-        Some((expr, None)) => {
+        Some(Sentinela::Expr(expr, Some(alvo))) => {
+            coletor.membros_do_alvo(&mut consulta, unidade, expr, alvo)
+        }
+        Some(Sentinela::Expr(expr, None)) => {
             coletor.argumentos_nomeados(&consulta, unidade, expr);
             coletor.escopo(&mut consulta);
             let ast = &consulta.programa.unit(unidade).ast;
@@ -198,6 +278,16 @@ pub(crate) fn completar(
                 palavras.extend(["this", "super"]);
             }
             coletor.palavras(&palavras);
+            nao_importados = Some(false);
+        }
+        Some(Sentinela::Tipo { prefixo, lider }) => {
+            coletor.tipos(&consulta, unidade, inicio, prefixo);
+            if let Some(palavras) = lider {
+                coletor.palavras(palavras);
+            }
+            if prefixo.is_none() {
+                nao_importados = Some(true);
+            }
         }
         None => {
             coletor.biblioteca(&consulta);
@@ -232,23 +322,65 @@ pub(crate) fn completar(
             coletor.palavras(palavras);
         }
     }
+    let mut incompleta = false;
+    // Numa parte, o `import` iria para a biblioteca dona (outro arquivo).
+    let parte = consulta
+        .programa
+        .unit(unidade)
+        .unit
+        .directives
+        .iter()
+        .any(|d| matches!(d.kind, ast::DirectiveKind::PartOf { .. }));
+    if let Some(so_tipos) = nao_importados
+        && !digitado.is_empty()
+        && !parte
+    {
+        incompleta = coletor.nao_importados(
+            &consulta, unidade, texto, digitado, so_tipos, indices, documentos,
+        );
+    }
 
     let mut itens = coletor.itens;
-    itens
-        .retain(|i| i.inserir != SENTINELA && i.inserir.to_ascii_lowercase().starts_with(&prefixo));
+    itens.retain_mut(|i| {
+        if i.inserir == SENTINELA {
+            return false;
+        }
+        match crate::aproximado::pontuar(digitado, i.inserir.trim_end_matches([':', ' '])) {
+            Some(q) => {
+                i.qualidade = u8::from(q > 1);
+                true
+            }
+            None => false,
+        }
+    });
     itens.sort_by(|a, b| {
-        (a.grupo, a.inserir.to_ascii_lowercase(), &a.inserir).cmp(&(
-            b.grupo,
-            b.inserir.to_ascii_lowercase(),
-            &b.inserir,
+        (
+            a.qualidade,
+            a.grupo,
+            a.inserir.to_ascii_lowercase(),
+            &a.inserir,
+        )
+            .cmp(&(
+                b.qualidade,
+                b.grupo,
+                b.inserir.to_ascii_lowercase(),
+                &b.inserir,
+            ))
+    });
+    // Um nome aparece uma vez; o não importado de bibliotecas diferentes,
+    // uma vez por biblioteca.
+    let mut vistos = HashSet::new();
+    itens.retain(|i| {
+        vistos.insert((
+            i.inserir.clone(),
+            i.importar.as_ref().map(|x| x.uri.clone()),
         ))
     });
-    let mut vistos = HashSet::new();
-    itens.retain(|i| vistos.insert(i.inserir.clone()));
     Some(Completar {
         inicio,
         fim: offset,
         itens,
+        incompleta,
     })
 }
 
@@ -282,7 +414,8 @@ fn fora_de_codigo(texto: &str, offset: usize) -> bool {
 
 /// Texto com o nome sob o cursor trocado pelo sentinela (e o fecho que o
 /// faz analisar); `None` quando nenhuma variante põe o sentinela numa
-/// expressão.
+/// expressão ou num nome de tipo. Vale a variante com menos diagnósticos
+/// (a primeira, entre iguais).
 fn preparar(texto: &str, inicio: usize, fim: usize, features: LibraryFeatures) -> Option<String> {
     let mut melhor: Option<(usize, String)> = None;
     for fecho in FECHOS {
@@ -304,24 +437,44 @@ fn preparar(texto: &str, inicio: usize, fim: usize, features: LibraryFeatures) -
     melhor.map(|(_, t)| t)
 }
 
-/// A expressão do sentinela em `inicio` e, se é acesso a membro, o alvo.
-fn achar_sentinela(ast: &ast::Ast, inicio: usize) -> Option<(ExprId, Option<ExprId>)> {
-    ast.exprs
+/// Onde está o sentinela em `inicio`: numa expressão (com o alvo, se é
+/// acesso a membro) ou num nome de tipo.
+fn achar_sentinela(ast: &ast::Ast, inicio: usize) -> Option<Sentinela> {
+    let eh = |n: &ast::Name| n.span.start == inicio && n.span.end == inicio + SENTINELA.len();
+    let expr = ast
+        .exprs
         .iter()
         .enumerate()
         .find_map(|(i, e)| match &e.kind {
-            ExprKind::Identifier(n)
-                if n.span.start == inicio && n.span.end == inicio + SENTINELA.len() =>
-            {
-                Some((ExprId(i as u32), None))
-            }
-            ExprKind::Property { target, name, .. }
-                if name.span.start == inicio && name.span.end == inicio + SENTINELA.len() =>
-            {
-                Some((ExprId(i as u32), Some(*target)))
+            ExprKind::Identifier(n) if eh(n) => Some(Sentinela::Expr(ExprId(i as u32), None)),
+            ExprKind::Property { target, name, .. } if eh(name) => {
+                Some(Sentinela::Expr(ExprId(i as u32), Some(*target)))
             }
             _ => None,
-        })
+        });
+    if expr.is_some() {
+        return expr;
+    }
+    let (tipo, nome) = ast.types.iter().find_map(|t| match &t.kind {
+        ast::TypeKind::Named { name, .. } if name.last().is_some_and(eh) => Some((t, name)),
+        _ => None,
+    })?;
+    let prefixo = (nome.len() == 2).then(|| nome[0].sym);
+    // O tipo abre uma declaração de topo, de membro ou um comando: ali as
+    // palavras-chave de declaração também cabem.
+    let abre = |s: dartforge_diagnostics::Span| s.start == tipo.span.start;
+    let lider: Option<&'static [&'static str]> = if prefixo.is_some() {
+        None
+    } else if ast.decls.iter().any(|d| abre(d.span)) {
+        Some(PALAVRAS_DE_TOPO)
+    } else if ast.members.iter().any(|m| abre(m.span)) {
+        Some(PALAVRAS_DE_MEMBRO)
+    } else if ast.stmts.iter().any(|s| abre(s.span)) {
+        Some(PALAVRAS_DE_COMANDO)
+    } else {
+        None
+    };
+    Some(Sentinela::Tipo { prefixo, lider })
 }
 
 struct Coletor {
@@ -337,14 +490,19 @@ impl Coletor {
         rotulo: String,
         inserir: String,
         detalhe: Option<String>,
-    ) {
+    ) -> &mut ItemCompletar {
         self.itens.push(ItemCompletar {
             rotulo,
             especie,
             detalhe,
             inserir,
+            chamada: None,
+            origem: None,
+            importar: None,
             grupo,
+            qualidade: 0,
         });
+        self.itens.last_mut().expect("item recém-empurrado")
     }
 
     fn palavras(&mut self, palavras: &[&str]) {
@@ -392,13 +550,15 @@ impl Coletor {
                 } else {
                     especie::VARIAVEL
                 };
+                let origem = consulta.origem(consulta.inicio_da_funcao(f));
                 self.empurrar(
                     grupo,
                     especie,
                     nome.clone(),
                     nome,
                     Some(consulta.formatar(tipo)),
-                );
+                )
+                .origem = origem;
             }
             FunctionKind::Getter | FunctionKind::Setter => {
                 let especie = if fe.class.is_some() || fe.extension.is_some() {
@@ -406,13 +566,15 @@ impl Coletor {
                 } else {
                     especie::VARIAVEL
                 };
+                let origem = consulta.origem(consulta.inicio_da_funcao(f));
                 self.empurrar(
                     grupo,
                     especie,
                     nome.clone(),
                     nome,
                     Some(consulta.formatar(tipo)),
-                );
+                )
+                .origem = origem;
             }
             FunctionKind::Function
             | FunctionKind::Constructor
@@ -431,13 +593,30 @@ impl Coletor {
                 } else {
                     format!("{nome}(…)")
                 };
-                self.empurrar(
+                // Os obrigatórios viram marcadores do snippet: posicionais
+                // pelo nome e nomeados como `nome: `.
+                let parametros: Vec<String> = consulta.outline.functions[f.0 as usize]
+                    .parameters
+                    .iter()
+                    .filter_map(|p| {
+                        let n = consulta.nome(p.externo.or(p.name)?).to_string();
+                        match p.kind {
+                            ast::ParameterKind::Required => Some(n),
+                            ast::ParameterKind::Named if p.required => Some(format!("{n}: ")),
+                            _ => None,
+                        }
+                    })
+                    .collect();
+                let origem = consulta.origem(consulta.inicio_da_funcao(f));
+                let item = self.empurrar(
                     grupo,
                     especie,
                     rotulo,
                     nome,
                     Some(consulta.detalhe_de_funcao(f, tipo)),
                 );
+                item.chamada = Some(Chamada::Parametros(parametros));
+                item.origem = origem;
             }
             FunctionKind::Operator => {}
         }
@@ -460,12 +639,16 @@ impl Coletor {
                 } else {
                     especie::CLASSE
                 };
-                self.empurrar(grupo, especie, nome.clone(), nome, None);
+                let origem = consulta.origem(consulta.inicio_do_elemento(elemento));
+                self.empurrar(grupo, especie, nome.clone(), nome, None)
+                    .origem = origem;
             }
             Element::Typedef(t) => {
                 let nome = consulta.nome(programa.typedef(t).name).to_string();
                 if !self.invisivel(consulta, &nome, programa.typedef(t).library) {
-                    self.empurrar(grupo, especie::CLASSE, nome.clone(), nome, None);
+                    let origem = consulta.origem(consulta.inicio_do_elemento(elemento));
+                    self.empurrar(grupo, especie::CLASSE, nome.clone(), nome, None)
+                        .origem = origem;
                 }
             }
             Element::Extension(x) => {
@@ -474,7 +657,9 @@ impl Coletor {
                 };
                 let nome = consulta.nome(n).to_string();
                 if !self.invisivel(consulta, &nome, programa.extension(x).library) {
-                    self.empurrar(grupo, especie::CLASSE, nome.clone(), nome, None);
+                    let origem = consulta.origem(consulta.inicio_do_elemento(elemento));
+                    self.empurrar(grupo, especie::CLASSE, nome.clone(), nome, None)
+                        .origem = origem;
                 }
             }
             Element::Function(f) => {
@@ -502,7 +687,9 @@ impl Coletor {
                 let nome = consulta.nome(ve.name).to_string();
                 if !self.invisivel(consulta, &nome, ve.library) {
                     let detalhe = consulta.tipo_da_variavel(v).map(|t| consulta.formatar(t));
-                    self.empurrar(grupo, especie::VARIAVEL, nome.clone(), nome, detalhe);
+                    let origem = consulta.origem(consulta.inicio_da_variavel(v));
+                    self.empurrar(grupo, especie::VARIAVEL, nome.clone(), nome, detalhe)
+                        .origem = origem;
                 }
             }
             Element::Prefix(_, p) => {
@@ -553,6 +740,173 @@ impl Coletor {
         for p in prefixos {
             self.empurrar(grupo::PREFIXO, especie::MODULO, p.clone(), p, None);
         }
+    }
+
+    /// Posição de tipo: só nomes de tipo (do escopo da biblioteca ou do
+    /// prefixo), os parâmetros de tipo em escopo, os prefixos e
+    /// `dynamic`/`void`.
+    fn tipos(
+        &mut self,
+        consulta: &Consulta,
+        unidade: dartforge_elements::model::UnitId,
+        inicio: usize,
+        prefixo: Option<SymbolId>,
+    ) {
+        let lib = consulta.programa.library(self.biblioteca);
+        let espaco = match prefixo {
+            Some(p) => match lib.prefixes.get(&p) {
+                Some(e) => e,
+                None => return,
+            },
+            None => &lib.scope,
+        };
+        let mut entradas: Vec<(&SymbolId, &dartforge_elements::model::Binding)> =
+            espaco.iter().collect();
+        entradas.sort_by_key(|(s, _)| consulta.nome(**s).to_string());
+        let propria = self.biblioteca;
+        for (_, vinculo) in entradas {
+            if vinculo.ambiguous {
+                continue;
+            }
+            if let Some(el @ (Element::Class(_) | Element::Typedef(_))) = vinculo.getter {
+                let dona = biblioteca_do_elemento(consulta, el);
+                let g = if dona == propria {
+                    grupo::BIBLIOTECA
+                } else {
+                    grupo::IMPORTADO
+                };
+                self.elemento(consulta, g, el);
+            }
+        }
+        if prefixo.is_some() {
+            return;
+        }
+        let ast = &consulta.programa.unit(unidade).ast;
+        for nome in parametros_de_tipo_em(ast, inicio) {
+            let nome = consulta.nome(nome).to_string();
+            self.empurrar(
+                grupo::LOCAL,
+                especie::PARAMETRO_DE_TIPO,
+                nome.clone(),
+                nome,
+                None,
+            );
+        }
+        let mut prefixos: Vec<String> = lib
+            .prefixes
+            .keys()
+            .map(|p| consulta.nome(*p).to_string())
+            .collect();
+        prefixos.sort();
+        for p in prefixos {
+            self.empurrar(grupo::PREFIXO, especie::MODULO, p.clone(), p, None);
+        }
+        self.palavras(&["dynamic", "void"]);
+    }
+
+    /// Nomes públicos de bibliotecas ainda não importadas (SDK e projeto)
+    /// que casam com o digitado e não estão visíveis, cada um com o `import`
+    /// que o torna visível. Devolve se a lista foi cortada no teto.
+    #[allow(clippy::too_many_arguments)]
+    fn nao_importados(
+        &mut self,
+        consulta: &Consulta,
+        unidade: dartforge_elements::model::UnitId,
+        texto: &str,
+        digitado: &str,
+        so_tipos: bool,
+        indices: Indices<'_>,
+        documentos: &DocumentStore,
+    ) -> bool {
+        let programa = &consulta.programa;
+        let lib = programa.library(self.biblioteca);
+        let Some(arquivo) = programa.unit(unidade).path.clone() else {
+            return false;
+        };
+        let visivel = |nome: &str| lib.scope.keys().any(|s| consulta.nome(*s) == nome);
+        let importadas: HashSet<String> = lib
+            .imports
+            .iter()
+            .map(|i| programa.library(i.library).uri.clone())
+            .collect();
+        let mut candidatos: Vec<(u8, String, crate::indice::Declarado)> = Vec::new();
+        for (nome, por_uri) in &indices.sdk.por_nome {
+            let Some(q) = crate::aproximado::pontuar(digitado, nome) else {
+                continue;
+            };
+            if visivel(nome) {
+                continue;
+            }
+            for (uri, d) in por_uri {
+                if uri != "dart:core" && !importadas.contains(uri) && (!so_tipos || d.tipo) {
+                    candidatos.push((q, uri.clone(), d.clone()));
+                }
+            }
+        }
+        let raiz = crate::projeto::raiz_do_projeto(&arquivo);
+        let pacote = crate::indice::nome_do_pacote(&raiz);
+        let proprias: HashSet<PathBuf> = lib
+            .units
+            .iter()
+            .filter_map(|u| programa.unit(*u).path.clone())
+            .collect();
+        for (caminho, nomes) in indices.projeto.atualizar(&raiz, documentos) {
+            if proprias.contains(caminho) {
+                continue;
+            }
+            let Some(uri) =
+                crate::indice::uri_de_import(&arquivo, caminho, &raiz, pacote.as_deref())
+            else {
+                continue;
+            };
+            let absoluto = url::Url::from_file_path(caminho)
+                .map(|u| u.to_string())
+                .unwrap_or_default();
+            if importadas.contains(&uri) || importadas.contains(&absoluto) {
+                continue;
+            }
+            for d in nomes {
+                if let Some(q) = crate::aproximado::pontuar(digitado, &d.nome)
+                    && !visivel(&d.nome)
+                    && (!so_tipos || d.tipo)
+                {
+                    candidatos.push((q, uri.clone(), d.clone()));
+                }
+            }
+        }
+        candidatos.sort_by(|a, b| (a.0, &a.2.nome, &a.1).cmp(&(b.0, &b.2.nome, &b.1)));
+        let incompleta = candidatos.len() > TETO_NAO_IMPORTADOS;
+        let unit = &programa.unit(unidade).unit;
+        for (_, uri, d) in candidatos.into_iter().take(TETO_NAO_IMPORTADOS) {
+            let (span, novo) = crate::acoes::inserir_import(texto, unit, &uri);
+            let funcao = d.especie == especie::FUNCAO;
+            let rotulo = match (funcao, d.sem_parametros) {
+                (true, true) => format!("{}()", d.nome),
+                (true, false) => format!("{}(…)", d.nome),
+                _ => d.nome.clone(),
+            };
+            let item = self.empurrar(
+                grupo::NAO_IMPORTADO,
+                d.especie,
+                rotulo,
+                d.nome.clone(),
+                Some(format!("Auto import from '{uri}'")),
+            );
+            item.importar = Some(ImportAutomatico {
+                uri,
+                span,
+                texto: novo,
+            });
+            item.origem = Some((d.arquivo.clone(), d.inicio));
+            if funcao {
+                item.chamada = Some(if d.sem_parametros {
+                    Chamada::Parametros(Vec::new())
+                } else {
+                    Chamada::Desconhecida
+                });
+            }
+        }
+        incompleta
     }
 
     /// Nomes visíveis no identificador sondado.
@@ -748,7 +1102,14 @@ impl Coletor {
                 },
                 _ => continue,
             };
-            self.funcao(consulta, grupo::MEMBRO, funcao, tipo);
+            let de_object = consulta.core.object_class.is_some()
+                && consulta.programa.function(funcao).class == consulta.core.object_class;
+            let grupo = if de_object {
+                grupo::MEMBRO_DE_OBJECT
+            } else {
+                grupo::MEMBRO
+            };
+            self.funcao(consulta, grupo, funcao, tipo);
         }
     }
 
@@ -904,4 +1265,44 @@ fn biblioteca_do_elemento(consulta: &Consulta, elemento: Element) -> LibraryId {
         Element::Variable(v) => p.variable(v).library,
         Element::Prefix(l, _) => l,
     }
+}
+
+/// Os parâmetros de tipo em escopo em `offset`: os das declarações, funções
+/// e tipos de função que o contêm, do mais interno para o mais externo.
+fn parametros_de_tipo_em(ast: &ast::Ast, offset: usize) -> Vec<SymbolId> {
+    let dentro = |s: Span| s.start <= offset && offset < s.end;
+    let mut escopos: Vec<(usize, &[ast::TypeParameter])> = Vec::new();
+    for d in &ast.decls {
+        let ps: &[ast::TypeParameter] = match &d.kind {
+            ast::DeclKind::Class(c) => &c.type_params,
+            ast::DeclKind::Mixin(m) => &m.type_params,
+            ast::DeclKind::Enum(e) => &e.type_params,
+            ast::DeclKind::Extension(x) => &x.type_params,
+            ast::DeclKind::ExtensionType(x) => &x.type_params,
+            ast::DeclKind::Typedef(t) => &t.type_params,
+            _ => continue,
+        };
+        if dentro(d.span) {
+            escopos.push((d.span.end - d.span.start, ps));
+        }
+    }
+    for f in &ast.functions {
+        if dentro(f.span) {
+            escopos.push((f.span.end - f.span.start, &f.type_params));
+        }
+    }
+    for t in &ast.types {
+        if let ast::TypeKind::Function { type_params, .. } = &t.kind
+            && dentro(t.span)
+        {
+            escopos.push((t.span.end - t.span.start, type_params));
+        }
+    }
+    escopos.sort_by_key(|(tam, _)| *tam);
+    let mut vistos = HashSet::new();
+    escopos
+        .into_iter()
+        .flat_map(|(_, ps)| ps.iter().map(|t| t.name.sym))
+        .filter(|s| vistos.insert(*s))
+        .collect()
 }

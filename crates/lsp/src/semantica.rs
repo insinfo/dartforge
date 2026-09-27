@@ -18,14 +18,17 @@ pub struct AnalisadorSemantico {
     sdk: Option<SdkLayout>,
     /// Nomes públicos de topo do SDK (importar biblioteca), montado na
     /// primeira vez que um nome indefinido pede. Tamanho fixo pelo SDK.
-    indice_sdk: Option<crate::acoes::IndiceSdk>,
+    indice_sdk: Option<crate::indice::IndiceSdk>,
+    /// Nomes públicos de topo do projeto do último documento consultado,
+    /// atualizado por arquivo (importação automática e ação de importar).
+    indice_projeto: crate::indice::IndiceProjeto,
     /// O último programa carregado, reaproveitado enquanto nada mudou.
     sessao: crate::sessao::Sessao,
 }
 
 impl AnalisadorSemantico {
     pub fn novo(sdk: Option<SdkLayout>) -> Self {
-        Self { sintatico: AnalisadorSintatico::new(), sdk, indice_sdk: None, sessao: crate::sessao::Sessao::nova() }
+        Self { sintatico: AnalisadorSintatico::new(), sdk, indice_sdk: None, indice_projeto: crate::indice::IndiceProjeto::default(), sessao: crate::sessao::Sessao::nova() }
     }
 
     /// Troca o orçamento da sessão semântica (MiB de fonte retida; `0`
@@ -71,16 +74,10 @@ impl AnalisadorSemantico {
         Self::novo(sdk)
     }
 
-    /// Carrega o programa de `uri` com `texto` e os demais documentos abertos
-    /// nos textos vigentes (os outros arquivos vêm do disco).
-    pub(crate) fn carregar(&self, uri: &str, texto: &str, documentos: Option<&DocumentStore>) -> Option<(Program, Interner, UnitId)> {
-        carregar(self.sdk.as_ref()?, uri, texto, documentos)
-    }
-
     /// Índice dos nomes públicos do SDK, montado na primeira chamada.
-    pub(crate) fn indice_sdk(&mut self) -> &crate::acoes::IndiceSdk {
+    pub(crate) fn indice_sdk(&mut self) -> &crate::indice::IndiceSdk {
         let sdk = self.sdk.as_ref();
-        self.indice_sdk.get_or_insert_with(|| sdk.map(crate::acoes::indexar_sdk).unwrap_or_default())
+        self.indice_sdk.get_or_insert_with(|| sdk.map(crate::indice::indexar_sdk).unwrap_or_default())
     }
 
     /// Geração em memória com os textos vigentes dos documentos `.dart`
@@ -296,11 +293,11 @@ impl Analisador for AnalisadorSemantico {
         }
         self.indice_sdk();
         let Some(arquivo) = crate::projeto::arquivo_da_uri(uri) else { return saida };
-        let AnalisadorSemantico { sessao, sdk: Some(sdk), indice_sdk: Some(indice), .. } = self else { return saida };
+        let AnalisadorSemantico { sessao, sdk: Some(sdk), indice_sdk: Some(indice), indice_projeto, .. } = self else { return saida };
         if let Some(projeto) = sessao.obter(crate::sessao::Escopo::Biblioteca(arquivo), documentos, || {
             crate::projeto::carregar_biblioteca(sdk, documentos, uri)
         }) {
-            saida.extend(crate::acoes::importar(&projeto, indice, documentos, uri, inicio, fim));
+            saida.extend(crate::acoes::importar(&projeto, indice, indice_projeto, documentos, uri, inicio, fim));
         }
         saida
     }
@@ -308,6 +305,12 @@ impl Analisador for AnalisadorSemantico {
     fn completar(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<crate::Completar> {
         let texto = documentos.get(uri)?;
         let features = self.sintatico.features(uri, texto);
-        crate::completar::completar(self, documentos, uri, texto, offset, features)
+        self.sdk.as_ref()?;
+        self.indice_sdk();
+        let AnalisadorSemantico { sdk: Some(sdk), indice_sdk: Some(indice), indice_projeto, .. } = self else {
+            return None;
+        };
+        let indices = crate::completar::Indices { sdk: indice, projeto: indice_projeto };
+        crate::completar::completar(sdk, indices, documentos, uri, texto, offset, features)
     }
 }

@@ -20,6 +20,7 @@ mod completar;
 mod consulta;
 mod dartdoc;
 mod descricao;
+mod indice;
 mod navegacao;
 mod projeto;
 mod renomear;
@@ -36,7 +37,7 @@ use utf16::TabelaLinhas;
 
 pub use servidor::Servidor;
 pub use semantica::AnalisadorSemantico;
-pub use completar::{Completar, ItemCompletar};
+pub use completar::{Chamada, Completar, ImportAutomatico, ItemCompletar};
 pub use renomear::{Edicao, RenomearArquivo, Renomeacao};
 
 pub use acoes::AcaoDeCodigo;

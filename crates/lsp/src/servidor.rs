@@ -104,6 +104,12 @@ pub struct Servidor<A = AnalisadorSintatico> {
     /// O cliente aceita a operação de recurso `rename` e pediu
     /// `renameFilesWithClasses: "always"` nas opções de inicialização.
     renomear_arquivos: bool,
+    /// O cliente aceita snippets no completar e não pediu
+    /// `completeFunctionCalls: false`: chamadas saem com os parênteses e os
+    /// parâmetros obrigatórios como marcadores.
+    completar_chamadas: bool,
+    /// O cliente aceita Markdown na documentação dos itens.
+    documentacao_markdown: bool,
     /// Raízes do workspace anunciadas no `initialize` (`rootUri`,
     /// `workspaceFolders`), para o `workspace/symbol` varrer o disco.
     raizes: Vec<std::path::PathBuf>,
@@ -148,6 +154,8 @@ impl<A: Analisador> Servidor<A> {
             preparar_renomeacao: false,
             mudancas_versionadas: false,
             renomear_arquivos: false,
+            completar_chamadas: false,
+            documentacao_markdown: false,
             raizes: Vec::new(),
             tipado: None,
             tipado_tentado: false,
@@ -420,6 +428,15 @@ impl<A: Analisador> Servidor<A> {
                     && aceita_renomear_arquivo
                     && mensagem.pointer("/params/initializationOptions/renameFilesWithClasses").and_then(Value::as_str) == Some("always");
                 self.raizes = raizes_do_initialize(mensagem.get("params"));
+                self.completar_chamadas = mensagem
+                    .pointer("/params/capabilities/textDocument/completion/completionItem/snippetSupport")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                    && mensagem.pointer("/params/initializationOptions/completeFunctionCalls").and_then(Value::as_bool) != Some(false);
+                self.documentacao_markdown = mensagem
+                    .pointer("/params/capabilities/textDocument/completion/completionItem/documentationFormat")
+                    .and_then(Value::as_array)
+                    .is_some_and(|f| f.iter().any(|x| x.as_str() == Some("markdown")));
                 let renomear = if self.preparar_renomeacao { json!({"prepareProvider": true}) } else { json!(true) };
                 resposta(&id, json!({
                     "capabilities": {
@@ -434,7 +451,7 @@ impl<A: Analisador> Servidor<A> {
                         "codeActionProvider": {"codeActionKinds": ["quickfix"]},
                         "completionProvider": {
                             "triggerCharacters": ["."],
-                            "resolveProvider": false,
+                            "resolveProvider": true,
                         },
                     },
                     "serverInfo": {
@@ -591,27 +608,58 @@ impl<A: Analisador> Servidor<A> {
                     let texto = self.documentos.get(&u)?;
                     let tabela = self.documentos.linhas(&u)?;
                     let range = intervalo_lsp(texto, tabela, completar.inicio, completar.fim);
+                    // Já há parênteses depois do nome: só o nome entra.
+                    let depois = texto[completar.fim.min(texto.len())..]
+                        .trim_start_matches(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+                    let com_parenteses = depois.starts_with('(');
                     let itens: Vec<Value> = completar
                         .itens
                         .iter()
                         .enumerate()
                         .map(|(i, item)| {
+                            let snippet = match (&item.chamada, self.completar_chamadas && !com_parenteses) {
+                                (Some(chamada), true) => Some(snippet_de_chamada(&item.inserir, chamada)),
+                                _ => None,
+                            };
                             let mut valor = json!({
                                 "label": item.rotulo,
                                 "kind": item.especie,
                                 "sortText": format!("{i:05}"),
                                 "filterText": item.inserir.trim_end(),
-                                "textEdit": {"range": range, "newText": item.inserir},
+                                "textEdit": {"range": range, "newText": snippet.as_deref().unwrap_or(&item.inserir)},
                             });
+                            if snippet.is_some() {
+                                valor["insertTextFormat"] = json!(2);
+                            }
                             if let Some(detalhe) = &item.detalhe {
                                 valor["detail"] = json!(detalhe);
+                            }
+                            if let Some(imp) = &item.importar {
+                                valor["additionalTextEdits"] = json!([{
+                                    "range": intervalo_lsp(texto, tabela, imp.span.start, imp.span.end),
+                                    "newText": imp.texto,
+                                }]);
+                            }
+                            if let Some((arquivo, inicio)) = &item.origem {
+                                valor["data"] = json!({"arquivo": arquivo, "inicio": inicio});
                             }
                             valor
                         })
                         .collect();
-                    Some(json!({"isIncomplete": false, "items": itens}))
+                    Some(json!({"isIncomplete": completar.incompleta, "items": itens}))
                 });
                 resposta(&id, resultado.unwrap_or(Value::Null))
+            }
+            "completionItem/resolve" => {
+                let mut item = mensagem.get("params").cloned().unwrap_or(Value::Null);
+                if let Some(doc) = self.documentacao_do_item(&item) {
+                    item["documentation"] = if self.documentacao_markdown {
+                        json!({"kind": "markdown", "value": doc})
+                    } else {
+                        json!(doc)
+                    };
+                }
+                resposta(&id, item)
             }
             "textDocument/codeAction" => {
                 let params = mensagem.get("params");
@@ -713,6 +761,21 @@ impl<A: Analisador> Servidor<A> {
                 )
             }
         }
+    }
+
+    /// A documentação da declaração que o item aponta (`data.arquivo`,
+    /// `data.inicio`), lida do texto aberto ou do disco.
+    fn documentacao_do_item(&self, item: &Value) -> Option<String> {
+        let arquivo = std::path::PathBuf::from(item.pointer("/data/arquivo")?.as_str()?);
+        let inicio = item.pointer("/data/inicio")?.as_u64()? as usize;
+        let aberto = url::Url::from_file_path(&arquivo)
+            .ok()
+            .and_then(|u| self.documentos.get(u.as_str()).map(str::to_string));
+        let texto = aberto.or_else(|| std::fs::read_to_string(&arquivo).ok())?;
+        if inicio > texto.len() || !texto.is_char_boundary(inicio) {
+            return None;
+        }
+        crate::dartdoc::documentacao(&texto, inicio)
     }
 
     /// `WorkspaceEdit` das edições: `documentChanges` (cada documento com a
@@ -845,6 +908,27 @@ impl<A: Analisador> Servidor<A> {
             "method": "textDocument/publishDiagnostics",
             "params": {"uri": uri, "version": versao, "diagnostics": itens},
         })
+    }
+}
+
+/// O snippet de uma chamada: `nome(${1:a}, ${2:b})$0`, com os nomeados
+/// como `nome: ${n:nome}`; sem parâmetros, `nome()$0`; desconhecidos,
+/// `nome($0)`. `$`, `}` e `\` do texto são escapados.
+fn snippet_de_chamada(nome: &str, chamada: &crate::completar::Chamada) -> String {
+    let escapar = |t: &str| t.replace('\\', "\\\\").replace('$', "\\$").replace('}', "\\}");
+    match chamada {
+        crate::completar::Chamada::Desconhecida => format!("{}($0)", escapar(nome)),
+        crate::completar::Chamada::Parametros(ps) => {
+            let marcadores: Vec<String> = ps
+                .iter()
+                .enumerate()
+                .map(|(i, p)| match p.strip_suffix(": ") {
+                    Some(n) => format!("{}: ${{{}:{}}}", escapar(n), i + 1, escapar(n)),
+                    None => format!("${{{}:{}}}", i + 1, escapar(p)),
+                })
+                .collect();
+            format!("{}({})$0", escapar(nome), marcadores.join(", "))
+        }
     }
 }
 

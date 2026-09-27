@@ -172,6 +172,16 @@ fn plato_pelo_protocolo() {
     let docs = coletar_corpus();
     let docs_reais = docs.len() == K;
     let docs = if docs_reais { docs } else { sinteticos() };
+    // Aquecimento: um servidor descartável faz o ciclo inteiro uma vez, para
+    // que alocações únicas do processo (estado preguiçoso da biblioteca
+    // padrão e do harness, como o buffer de captura da saída do teste)
+    // fiquem fora da base. O que se mede é retenção por documento e por
+    // edição, não inicialização do processo.
+    {
+        let mut aquecimento = Servidor::new();
+        editar(&mut aquecimento, &docs[..1]);
+        fechar(&mut aquecimento, &docs[..1]);
+    }
     let mut servidor = Servidor::new();
     let antes = dartforge_instrument::live_bytes();
 
