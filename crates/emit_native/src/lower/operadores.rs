@@ -231,6 +231,92 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         )
     }
 
+    /// O operador de `int` que o caminho do `Smi` calcula em linha.
+    fn op_de_smi(op: BinaryOp) -> bool {
+        matches!(
+            op,
+            BinaryOp::Add
+                | BinaryOp::Sub
+                | BinaryOp::Mul
+                | BinaryOp::Lt
+                | BinaryOp::LtEq
+                | BinaryOp::Gt
+                | BinaryOp::GtEq
+                | BinaryOp::BitAnd
+                | BinaryOp::BitOr
+                | BinaryOp::BitXor
+        )
+    }
+
+    /// `a op b` com algum lado `Ref` (`num`, `dynamic`, `Object`…): se os
+    /// dois são `int` pequenos — só um `int` pode ser `Smi` (R10), então o
+    /// operador é o de `int`, qualquer que seja o tipo estático —, a conta
+    /// em linha, com o estouro de 64 bits do Dart; senão o despacho de
+    /// sempre. É o `this < other` do `int.compareTo(num other)` do SDK.
+    fn operar_smi(&mut self, op: BinaryOp, lop: Operand, rop: Operand, span: dartforge_diagnostics::Span) -> Operand {
+        let um = Operand::Constant(Constant::Int(1));
+        let mut conds = Vec::new();
+        for x in [&lop, &rop] {
+            if self.operand_type(x) == Type::Ref {
+                let b = self.emit(Instruction::And(x.clone(), um.clone()), Type::I64);
+                conds.push(b);
+            }
+        }
+        let bits = match conds.len() {
+            1 => conds.pop().expect("um"),
+            _ => {
+                let (a, b) = (conds[0].clone(), conds[1].clone());
+                self.emit(Instruction::And(a, b), Type::I64)
+            }
+        };
+        let smi = self.emit(Instruction::ICmp(ICmpOp::Ne, bits, Operand::Constant(Constant::Int(0))), Type::I1);
+        let rapido = self.new_block();
+        let lento = self.new_block();
+        let juncao = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: smi, then_block: rapido, else_block: lento });
+
+        self.set_block(rapido);
+        let valor = |s: &mut Self, x: &Operand| {
+            if s.operand_type(x) == Type::Ref {
+                s.emit(Instruction::AShr(x.clone(), um.clone()), Type::I64)
+            } else {
+                x.clone()
+            }
+        };
+        let (a, b) = (valor(self, &lop), valor(self, &rop));
+        let comparacao = matches!(op, BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq);
+        let r = match op {
+            BinaryOp::Add => self.emit(Instruction::Add(a, b), Type::I64),
+            BinaryOp::Sub => self.emit(Instruction::Sub(a, b), Type::I64),
+            BinaryOp::Mul => self.emit(Instruction::Mul(a, b), Type::I64),
+            BinaryOp::BitAnd => self.emit(Instruction::And(a, b), Type::I64),
+            BinaryOp::BitOr => self.emit(Instruction::Or(a, b), Type::I64),
+            BinaryOp::BitXor => self.emit(Instruction::Xor(a, b), Type::I64),
+            BinaryOp::Lt => self.emit(Instruction::ICmp(ICmpOp::Slt, a, b), Type::I1),
+            BinaryOp::LtEq => self.emit(Instruction::ICmp(ICmpOp::Sle, a, b), Type::I1),
+            BinaryOp::Gt => self.emit(Instruction::ICmp(ICmpOp::Sgt, a, b), Type::I1),
+            _ => self.emit(Instruction::ICmp(ICmpOp::Sge, a, b), Type::I1),
+        };
+        // O resultado do despacho é `Ref` (a soma de `num` pode ser
+        // `double`); a comparação, `bool`.
+        let ty = if comparacao { Type::I1 } else { Type::Ref };
+        let r = self.coagir(r, ty);
+        let fim_rapido = self.current_block;
+        self.terminate(Terminator::Branch(juncao));
+
+        self.set_block(lento);
+        let s = self.operar_dinamico(op, lop, rop, span);
+        let s = self.coagir(s, ty);
+        let fim_lento = self.current_block;
+        if self.is_terminated() {
+            self.set_block(juncao);
+            return r;
+        }
+        self.terminate(Terminator::Branch(juncao));
+        self.set_block(juncao);
+        self.emit(Instruction::Phi { incoming: vec![(fim_rapido, r), (fim_lento, s)], ty }, ty)
+    }
+
     /// Operador binário (não curto-circuito). `texto`: algum lado é
     /// `String` pelo tipo estático — `+` concatena, `*` repete.
     pub fn operar(
@@ -276,6 +362,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let (ta, tb) = (self.operand_type(&lop), self.operand_type(&rop));
         if !Self::e_escalar_numerico(ta) || !Self::e_escalar_numerico(tb) {
+            if Self::op_de_smi(op) && matches!(ta, Type::I64 | Type::Ref) && matches!(tb, Type::I64 | Type::Ref) {
+                return self.operar_smi(op, lop, rop, span);
+            }
             return self.operar_dinamico(op, lop, rop, span);
         }
         let em_double = ta == Type::F64 || tb == Type::F64 || matches!(op, BinaryOp::Div);

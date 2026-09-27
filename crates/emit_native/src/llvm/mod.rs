@@ -224,6 +224,7 @@ impl<'a> LlvmEmitter<'a> {
             f.blocks.iter().any(|b| b.instructions.iter().any(|(_, i, _)| matches!(i, Instruction::ChamadaNativaComposta { .. })))
         });
         self.out.push_str(simd::DECLARACOES);
+        self.out.push_str(CAIXA_DE_INT);
         if compostas || !self.module.ffi_callbacks.is_empty() {
             self.out.push_str(
                 "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n\
@@ -944,7 +945,7 @@ impl<'a> LlvmEmitter<'a> {
                             }
                             _ => {
                                 let so = self.coagir(op, Type::I64);
-                                writeln!(self.out, "  %v{v} = call i64 @dartforge_box_int(i64 {so})").unwrap();
+                                writeln!(self.out, "  %v{v} = call i64 @df.caixa_int(i64 {so})").unwrap();
                             }
                         }
                     }
@@ -959,7 +960,7 @@ impl<'a> LlvmEmitter<'a> {
                                 writeln!(self.out, "  %v{v} = trunc i8 %u{v} to i1").unwrap();
                             }
                             _ => {
-                                writeln!(self.out, "  %v{v} = call i64 @dartforge_unbox_int(i64 {so})").unwrap();
+                                writeln!(self.out, "  %v{v} = call i64 @df.desencaixa_int(i64 {so})").unwrap();
                             }
                         }
                     }
@@ -2300,3 +2301,33 @@ fn hash_de_slot(nome: &str) -> i64 {
     }
     (if h == 0 { 1 } else { h }) as i64
 }
+
+/// A caixa e o desencaixe de `int` em linha (R10, `runtime/src/heap.rs`,
+/// `smi`): um `int` em `[-2^62, 2^62)` numa posição `Ref` é o `Smi`
+/// `(v << 1) | 1`, sem alocação; fora da faixa, e para desencaixar uma
+/// referência que não é `Smi` (o `_Mint`, ou o `TypeError`), o runtime.
+/// `internal` em cada módulo e `alwaysinline`: o caminho comum vira três
+/// instruções no lugar da chamada.
+const CAIXA_DE_INT: &str = "define internal i64 @df.caixa_int(i64 %v) alwaysinline {\n\
+  %a = add i64 %v, 4611686018427387904\n\
+  %ok = icmp ult i64 %a, -9223372036854775808\n\
+  br i1 %ok, label %smi, label %heap\n\
+smi:\n\
+  %s = shl i64 %v, 1\n\
+  %r = or i64 %s, 1\n\
+  ret i64 %r\n\
+heap:\n\
+  %h = call i64 @dartforge_box_int(i64 %v)\n\
+  ret i64 %h\n\
+}\n\
+define internal i64 @df.desencaixa_int(i64 %r) alwaysinline {\n\
+  %b = and i64 %r, 1\n\
+  %e = icmp ne i64 %b, 0\n\
+  br i1 %e, label %smi, label %heap\n\
+smi:\n\
+  %v = ashr i64 %r, 1\n\
+  ret i64 %v\n\
+heap:\n\
+  %h = call i64 @dartforge_unbox_int(i64 %r)\n\
+  ret i64 %h\n\
+}\n";

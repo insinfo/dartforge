@@ -313,6 +313,9 @@ pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path) -> Result<Vec<BibliotecaDoSdk>,
         if let Some(e) = module.erros.first() {
             return Err(format!("{uri}: o módulo do SDK tem diagnóstico fora de membro: {e}"));
         }
+        // O otimizador da HIR (`otimizar/`) também no SDK: é onde fica o
+        // código de `List`, `Map`, `String`… que os programas mais chamam.
+        crate::otimizar::otimizar(&mut module);
         let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
         saida.push(BibliotecaDoSdk { uri, ir, recusados: std::mem::take(&mut module.recusados) });
     }
