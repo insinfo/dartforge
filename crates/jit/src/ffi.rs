@@ -1930,14 +1930,19 @@ mod tests {
         assert!(!RUNTIME_SYMBOLS.contains(&"dartforge_entry"));
     }
     /// A função `linkonce_odr` num `comdat` (entrada de tear-off do SDK da
-    /// fonte) versionada pela recarga continua gerando objeto COFF: o
-    /// `comdat` acompanha o nome novo. Antes, o nome `f$g1` num `comdat` `f`
+    /// fonte) versionada pela recarga continua gerando objeto COFF (o do
+    /// Windows na arquitetura do host, a única que a LLVM inicializa aqui):
+    /// o `comdat` acompanha o nome novo. Antes, o nome `f$g1` num `comdat` `f`
     /// sem chave abortava o LLVM no Windows ("Associative COMDAT symbol
     /// 'f$g1' is not a key for its COMDAT"), e o ELF não acusava nada.
     #[test]
     fn versao_de_funcao_em_comdat_gera_objeto_coff() {
-        let ir = "target triple = \"x86_64-pc-windows-msvc\"\n\
-                  $\"C.m$tearm\" = comdat any\n\
+        let (triple, cpu) = if cfg!(target_arch = "x86_64") {
+            (c"x86_64-pc-windows-msvc", c"x86-64")
+        } else {
+            (c"aarch64-pc-windows-msvc", c"generic")
+        };
+        let ir = "$\"C.m$tearm\" = comdat any\n\
                   define linkonce_odr i64 @\"C.m$tearm\"(i64 %x) comdat {\n  ret i64 %x\n}\n\
                   define i64 @usa(i64 %x) {\n  %r = call i64 @\"C.m$tearm\"(i64 %x)\n  ret i64 %r\n}\n";
         let parsed = parse_module("comdat", ir).expect("IR");
@@ -1947,14 +1952,14 @@ mod tests {
         // SAFETY: triple, máquina e buffer são criados e liberados aqui; o
         // módulo pertence a `parsed`, vivo durante a emissão.
         unsafe {
-            let triple = c"x86_64-pc-windows-msvc";
             let mut target = ptr::null_mut();
             let mut message = ptr::null_mut();
-            assert_eq!(LLVMGetTargetFromTriple(triple.as_ptr(), &mut target, &mut message), 0, "sem o alvo x86-64");
+            assert_eq!(LLVMGetTargetFromTriple(triple.as_ptr(), &mut target, &mut message), 0, "sem o alvo {triple:?}");
+            llvm_sys::core::LLVMSetTarget(parsed.module, triple.as_ptr());
             let machine = LLVMCreateTargetMachine(
                 target,
                 triple.as_ptr(),
-                c"x86-64".as_ptr(),
+                cpu.as_ptr(),
                 c"".as_ptr(),
                 LLVMCodeGenOptLevel::LLVMCodeGenLevelNone,
                 LLVMRelocMode::LLVMRelocDefault,

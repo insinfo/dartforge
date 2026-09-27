@@ -44,6 +44,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     pub fn lower_stmt(&mut self, ast: &ast::Ast, stmt_id: StmtId) {
+        // J05: as instruções do comando levam a posição dele; ao sair, volta
+        // a do comando de fora (a atualização e a condição de um laço são
+        // dele, não do último comando do corpo).
+        let anterior = self.posicao;
+        if !matches!(ast.stmt(stmt_id).kind, StmtKind::Block(_)) {
+            self.marcar_posicao(ast, ast.stmt(stmt_id).span.start);
+        }
+        self.lower_stmt_no_lugar(ast, stmt_id);
+        self.posicao = anterior;
+    }
+
+    fn lower_stmt_no_lugar(&mut self, ast: &ast::Ast, stmt_id: StmtId) {
         let stmt = ast.stmt(stmt_id);
         match &stmt.kind {
             StmtKind::Block(stmts) => {

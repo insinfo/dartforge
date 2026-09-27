@@ -628,6 +628,26 @@ pub struct Function {
     pub params: Vec<(ValueId, String, Type)>,
     pub return_ty: Type,
     pub blocks: Vec<BasicBlock>,
+    /// As posições na fonte, quando a compilação pede informação de
+    /// depuração (`CompileOptions::depuracao`, J05).
+    pub depuracao: Option<Box<DepuracaoDaFuncao>>,
+}
+
+/// A fonte de uma função e a posição de cada instrução (a do comando que a
+/// gerou), para as tabelas de linha do depurador (`llvm/depuracao.rs`).
+/// Instrução sem posição (criada por um passo de otimização) herda a da
+/// anterior no bloco.
+#[derive(Debug, Clone)]
+pub struct DepuracaoDaFuncao {
+    /// O caminho absoluto do arquivo `.dart` (ou o URI, sem arquivo).
+    pub arquivo: String,
+    /// A linha do primeiro comando com posição (a do `DISubprogram`).
+    pub linha: u32,
+    /// `(linha, coluna)` de cada instrução, a partir de 1.
+    pub posicoes: std::collections::HashMap<ValueId, (u32, u32)>,
+    /// A do terminador de cada bloco (o `return` e o `break` não emitem
+    /// instrução).
+    pub saidas: std::collections::HashMap<BlockId, (u32, u32)>,
 }
 
 /// Definição de classe na HIR.

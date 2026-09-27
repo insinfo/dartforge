@@ -12,6 +12,7 @@ fn funcao(
     Function {
         symbol: symbol.to_string(),
         name: symbol.to_string(),
+        depuracao: None,
         params,
         return_ty,
         blocks,

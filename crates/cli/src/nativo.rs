@@ -65,13 +65,14 @@ pub fn abi_info(args: &[std::ffi::OsString]) -> Resultado {
 /// aceitas e ignoradas, porque silenciosamente não fazer o que a bandeira diz
 /// é pior do que não ter a bandeira.
 pub fn aot(args: &[std::ffi::OsString]) -> Resultado {
-    let usage = "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--timings] [--sdk <lib>] [--packages <package_config.json>]";
+    let usage = "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--depuracao] [--timings] [--sdk <lib>] [--packages <package_config.json>]";
     if args.len() < 3 {
         return Err(usage.into());
     }
     let input = PathBuf::from(&args[1]);
     let output = PathBuf::from(&args[2]);
     let mut optimize = false;
+    let mut depuracao = false;
     let mut timings = false;
     let mut sdk: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
@@ -79,6 +80,7 @@ pub fn aot(args: &[std::ffi::OsString]) -> Resultado {
     while let Some(flag) = flags.next() {
         match flag.to_str() {
             Some("--optimize") => optimize = true,
+            Some("--depuracao") => depuracao = true,
             Some("--timings") => timings = true,
             Some("--sdk") => sdk = Some(PathBuf::from(flags.next().ok_or("--sdk exige caminho")?)),
             Some("--packages") => {
@@ -111,6 +113,7 @@ pub fn aot(args: &[std::ffi::OsString]) -> Resultado {
                 optimize,
                 versao_linguagem: None,
                 experimentos: Vec::new(),
+                depuracao,
             };
             dartforge_emit_native::compilar(&input, &output, &options)
         })
@@ -123,9 +126,10 @@ pub fn aot(args: &[std::ffi::OsString]) -> Resultado {
 #[cfg(feature = "nativo")]
 pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
     use dartforge_elements::sdk::Linguagem;
-    let usage = "usage: dartforge compile-native <input.dart> -o <output.exe> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--optimize] [--versao-linguagem x.y] [--enable-experiment=a,b]
+    let usage = "usage: dartforge compile-native <input.dart> -o <output.exe> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--optimize] [--depuracao] [--versao-linguagem x.y] [--enable-experiment=a,b]
        dartforge compile-native <input.dart> --emit-ir -o <saida.ll> [--resumo] [...]
        dartforge compile-native <input.dart> --resumo [...]
+  --depuracao  tabelas de linha para o depurador nativo (gdb, lldb, Visual Studio)
   --emit-ir  grava o LLVM IR em -o, sem Clang nem ligação
   --resumo   imprime `<hash de 32 dígitos>  <bytes>` do LLVM IR (o mesmo resumo
              do `dartforge-diferencial determinismo --nativo`), sem Clang";
@@ -135,6 +139,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
     let mut packages: Option<PathBuf> = None;
     let mut timings = false;
     let mut optimize = false;
+    let mut depuracao = false;
     let mut emit_ir = false;
     let mut resumo = false;
     let mut linguagem = Linguagem::default();
@@ -147,6 +152,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
             Some("--packages") => packages = Some(PathBuf::from(it.next().ok_or(usage)?)),
             Some("--timings") => timings = true,
             Some("--optimize") => optimize = true,
+            Some("--depuracao") => depuracao = true,
             Some("--emit-ir") => emit_ir = true,
             Some("--resumo") => resumo = true,
             Some("--versao-linguagem" | "--enable-experiment") => {
@@ -168,7 +174,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
         if emit_ir && out.is_none() {
             return Err(usage.into());
         }
-        return emitir_ir_nativo(input, out.filter(|_| emit_ir), sdk, packages, timings, resumo, linguagem);
+        return emitir_ir_nativo(input, out.filter(|_| emit_ir), sdk, packages, timings, resumo, linguagem, depuracao);
     }
     let Some(out) = out else {
         return Err(usage.into());
@@ -187,6 +193,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
                 optimize,
                 versao_linguagem: linguagem.versao_corrente,
                 experimentos: linguagem.experimentos,
+                depuracao,
             };
             dartforge_emit_native::compilar(&i2, &o2, &options)
         })
@@ -209,6 +216,7 @@ fn emitir_ir_nativo(
     timings: bool,
     resumo: bool,
     linguagem: dartforge_elements::sdk::Linguagem,
+    depuracao: bool,
 ) -> Resultado {
     let ir = std::thread::Builder::new()
         .stack_size(1 << 30)
@@ -220,6 +228,7 @@ fn emitir_ir_nativo(
                 optimize: false,
                 versao_linguagem: linguagem.versao_corrente,
                 experimentos: linguagem.experimentos,
+                depuracao,
             };
             dartforge_emit_native::emitir_ir(&input, &options)
         })

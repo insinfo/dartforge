@@ -24,9 +24,11 @@ Future<T> etapa<T>(String nome, Duration prazo, Future<T> f) =>
 class EtapaSemResposta implements Exception {
   final String etapa;
   final Duration prazo;
-  EtapaSemResposta(this.etapa, this.prazo);
+  /// O que ajuda a entender a etapa parada (o stderr do `openssl`).
+  final String detalhe;
+  EtapaSemResposta(this.etapa, this.prazo, [this.detalhe = '']);
   @override
-  String toString() => 'etapa $etapa: sem resposta em ${prazo.inSeconds}s';
+  String toString() => 'etapa $etapa: sem resposta em ${prazo.inSeconds}s${detalhe.isEmpty ? '' : ' ($detalhe)'}';
 }
 
 /// Uma rodada: o servidor manda `R` (renegociar) ou só uma linha; o que o
@@ -46,17 +48,31 @@ Future<String> rodada(String dir, {required bool permitir, required bool renegoc
   int? saiu;
   servidor.exitCode.then((c) => saiu = c);
   // O `s_server` não avisa quando escuta: tenta até conectar, com prazo (no
-  // Windows cada conexão recusada leva ~2 s) e parando se ele já saiu.
-  SecureSocket? s;
+  // Windows cada conexão recusada leva ~2 s) e parando se ele já saiu. A
+  // conexão TCP e o aperto de mão TLS são etapas separadas: o `timeout` do
+  // `connect` só vale para a primeira.
   final c = SecurityContext()..setTrustedCertificates('$dir/ca.pem');
   c.allowLegacyUnsafeRenegotiation = permitir;
+  Socket? tcp;
   final prazo = DateTime.now().add(const Duration(seconds: 20));
-  while (s == null && saiu == null && DateTime.now().isBefore(prazo)) {
+  while (tcp == null && saiu == null && DateTime.now().isBefore(prazo)) {
     try {
-      s = await etapa('SecureSocket.connect', const Duration(seconds: 15),
-          SecureSocket.connect('localhost', porta, context: c, timeout: const Duration(seconds: 5)));
+      tcp = await etapa('Socket.connect', const Duration(seconds: 15),
+          Socket.connect('localhost', porta, timeout: const Duration(seconds: 5)));
     } on SocketException {
       await Future.delayed(const Duration(milliseconds: 50));
+    }
+  }
+  SecureSocket? s;
+  if (tcp != null) {
+    try {
+      s = await etapa('SecureSocket.secure', const Duration(seconds: 15),
+          SecureSocket.secure(tcp, host: 'localhost', context: c));
+    } on EtapaSemResposta catch (e) {
+      tcp.destroy();
+      servidor.kill();
+      await servidor.exitCode.timeout(const Duration(seconds: 10), onTimeout: () => -1);
+      throw EtapaSemResposta(e.etapa, e.prazo, 'openssl: ${erros.toString().trim()} ${saida.toString().trim()}');
     }
   }
   if (s == null) {

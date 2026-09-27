@@ -37,6 +37,8 @@ pub struct CompileOptions<'a> {
     pub versao_linguagem: Option<dartforge_frontend::LanguageVersion>,
     /// Experimentos pedidos explicitamente para bibliotecas na versão corrente.
     pub experimentos: Vec<dartforge_frontend::Feature>,
+    /// J05: tabelas de linha para o depurador nativo (`llvm/depuracao.rs`).
+    pub depuracao: bool,
 }
 
 /// Tempo de cada fase da emissão (tudo antes do Clang).
@@ -236,6 +238,9 @@ fn emitir_ir_interno(
     let te = apagamento::calcular(&program, &outline, &mut table);
     let mut ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
     ctx.te = te;
+    if options.depuracao {
+        ctx.ligar_depuracao();
+    }
     ctx.da_fonte = bibliotecas_da_fonte.into_iter().collect();
     ctx.usa_dart_async = usa_dart_async;
     // Um programa sem `main` na biblioteca de entrada não executa: a VM
@@ -354,6 +359,7 @@ pub fn compilar_com(
         clang: driver::NativeDriverOptions::default().clang,
         optimize: options.optimize,
         timings: options.timings,
+        depuracao: options.depuracao,
     };
 
     let ligacao = driver::compile_and_link(&ir.texto, saida, &driver_opts)?;
@@ -381,7 +387,7 @@ mod testes {
     const SDK: &str = "C:/tools/dartsdk-3.6.2/lib";
 
     fn emitir(entrada: &Path) -> IrEmitido {
-        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new() };
+        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false };
         emitir_ir(entrada, &options).expect("emitir IR")
     }
 
@@ -428,7 +434,7 @@ mod testes {
         let dir = tempfile::tempdir().unwrap();
         let entrada = dir.path().join("main.dart");
         std::fs::write(&entrada, "void main() {\n  int? k = 1;\n  var a = {?k: 1};\n  var b = {?k: 2};\n  print(a.length + b.length);\n}\n").unwrap();
-        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new() };
+        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false };
         let erro = std::thread::Builder::new()
             .stack_size(64 << 20)
             .spawn(move || emitir_ir(&entrada, &options).map(|ir| ir.texto))

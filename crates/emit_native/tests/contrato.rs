@@ -27,6 +27,7 @@ fn ir_de(fonte: &str) -> Option<String> {
                 optimize: false,
                 versao_linguagem: None,
                 experimentos: Vec::new(),
+                depuracao: false,
             };
             // O contrato do runtime por nome (sem o SDK da fonte), fixo:
             // não depende do padrão nem de `DARTFORGE_SDK_DA_FONTE`.
@@ -55,7 +56,7 @@ fn ir_de_fonte(fonte: &str) -> Option<String> {
     let entrada = dir.path().join("main.dart");
     std::fs::write(&entrada, fonte).unwrap();
     Some(std::thread::Builder::new().stack_size(64 << 20).spawn(move || {
-        let options = CompileOptions { sdk: Some(Path::new(&sdk)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new() };
+        let options = CompileOptions { sdk: Some(Path::new(&sdk)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false };
         emitir_ir_com(&entrada, &options, true).unwrap_or_else(|e| panic!("não compilou:\n{e}")).texto
     }).unwrap().join().unwrap())
 }
@@ -98,7 +99,7 @@ fn aridade_closure_lanca_no_such_method_error_da_fonte() {
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
         };
         dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
@@ -124,7 +125,7 @@ fn getter_estatico_que_retorna_funcao_e_chamado_como_valor() {
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
         };
         dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
@@ -151,7 +152,7 @@ fn factory_redirecionadora_preserva_rti_do_destino() {
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
         };
         dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
@@ -178,7 +179,7 @@ fn getter_de_interface_despacha_campo_e_getter() {
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
         };
         dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
@@ -205,7 +206,7 @@ fn escrita_covariante_em_colecoes_lanca_type_error_sem_mutar() {
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
         };
         dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
@@ -232,7 +233,7 @@ fn argumento_dinamico_errado_do_sdk_lanca_type_error() {
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
         };
         dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
@@ -258,7 +259,7 @@ fn iterable_generate_testa_assinatura_generica_no_sdk() {
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
         };
         dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
@@ -303,7 +304,7 @@ fn enum_name_index_implicito_no_sdk() {
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
         };
         dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
@@ -344,7 +345,7 @@ fn enum_values_implicito_no_sdk() {    let sdk = std::env::var("DARTFORGE_TEST_S
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
         };
         dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
@@ -372,7 +373,7 @@ fn classe_generica_tostring_padrao_no_sdk() {
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
         };
         dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
@@ -414,7 +415,7 @@ fn nsm_encaminhador_metodo_no_sdk() {
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
         };
         dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
@@ -455,7 +456,7 @@ fn nsm_encaminhador_getter_no_sdk() {
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
         };
         dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
@@ -481,7 +482,7 @@ fn enum_e_subtipo_de_enum_no_sdk() {    let sdk = std::env::var("DARTFORGE_TEST_
     std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         let options = CompileOptions {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, versao_linguagem: None, experimentos: Vec::new(),
+            optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
         };
         dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));

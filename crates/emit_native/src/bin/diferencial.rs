@@ -65,6 +65,7 @@ fn main() {
                     // O corpus é o `corpus/js`, escrito para a 3.6.
                     versao_linguagem: Some(dartforge_frontend::LanguageVersion::PISO),
                     experimentos: Vec::new(),
+                    depuracao: false,
                 };
                 dartforge_emit_native::compilar(&i2, &o2, &options)
             })

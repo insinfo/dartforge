@@ -2,6 +2,7 @@
 
 pub mod abi_c;
 pub mod externs;
+mod depuracao;
 mod raizes;
 mod simd;
 
@@ -80,6 +81,8 @@ pub struct LlvmEmitter<'a> {
     /// O layout da área da geração em execução (hot reload): os slots que
     /// continuam mantêm o índice, os novos vêm depois (`emit_globais`).
     area_anterior: Option<Vec<i64>>,
+    /// J05: os metadados de depuração, quando alguma função tem posições.
+    depuracao: Option<depuracao::Depuracao>,
 }
 
 impl<'a> LlvmEmitter<'a> {
@@ -112,6 +115,7 @@ impl<'a> LlvmEmitter<'a> {
             slots_de_global: std::collections::HashMap::new(),
             hashes_de_slot: Vec::new(),
             area_anterior: None,
+            depuracao: module.functions.iter().any(|f| f.depuracao.is_some()).then(depuracao::Depuracao::nova),
         }
     }
 
@@ -166,6 +170,9 @@ impl<'a> LlvmEmitter<'a> {
             self.emitir_descritor_da_area();
             self.out.push_str(OBTER_AREA);
             self.emitir_declaracoes_externas();
+            if let Some(d) = self.depuracao.take() {
+                d.finalizar(&mut self.out);
+            }
             return self.out;
         }
 
@@ -192,6 +199,9 @@ impl<'a> LlvmEmitter<'a> {
         // ausente vai ao runtime, que a preenche (e dá o id na primeira vez).
         self.out.push_str(OBTER_AREA);
         self.emitir_declaracoes_externas();
+        if let Some(d) = self.depuracao.take() {
+            d.finalizar(&mut self.out);
+        }
         self.out
     }
 
@@ -371,6 +381,8 @@ impl<'a> LlvmEmitter<'a> {
         let params_str = params.join(", ");
 
         let (ligacao, comdat) = self.ligacao_de(&func.symbol);
+        let inicio_da_funcao = self.out.len();
+        let mut posicao_escrita: Option<(u32, u32)> = None;
         writeln!(self.out, "define {ligacao}{ret_ty} @{}({}){comdat} {{", func.symbol, params_str).unwrap();
 
         // G1/G2 (docs/NATIVO-PLANO.md §6.5): um slot por `alloca` de tipo
@@ -443,6 +455,13 @@ impl<'a> LlvmEmitter<'a> {
 
             for (vid, inst, ty) in &block.instructions {
                 let v = vid.0;
+                // J05: a posição do comando, quando muda (`llvm/depuracao.rs`).
+                if let Some(p) = func.depuracao.as_ref().and_then(|d| d.posicoes.get(vid))
+                    && posicao_escrita != Some(*p)
+                {
+                    writeln!(self.out, "{}{} {}", depuracao::MARCADOR, p.0, p.1).unwrap();
+                    posicao_escrita = Some(*p);
+                }
                 if !matches!(inst, Instruction::Phi { .. }) && !raizes_de_phi.is_empty() {
                     for (slot, pv) in std::mem::take(&mut raizes_de_phi) {
                         writeln!(self.out, "  store i64 %v{pv}, ptr %gcs{slot}").unwrap();
@@ -1098,6 +1117,12 @@ impl<'a> LlvmEmitter<'a> {
                 }
             }
 
+            if let Some(p) = func.depuracao.as_ref().and_then(|d| d.saidas.get(&block.id))
+                && posicao_escrita != Some(*p)
+            {
+                writeln!(self.out, "{}{} {}", depuracao::MARCADOR, p.0, p.1).unwrap();
+                posicao_escrita = Some(*p);
+            }
             if self.rastro.is_some() && matches!(block.terminator, Terminator::Return(_)) {
                 writeln!(self.out, "  call void @dartforge_rastro_saida()").unwrap();
             }
@@ -1161,6 +1186,14 @@ impl<'a> LlvmEmitter<'a> {
         }
 
         writeln!(self.out, "}}\n").unwrap();
+        if let Some(d) = func.depuracao.as_deref()
+            && let Some(mut dep) = self.depuracao.take()
+        {
+            let texto = self.out.split_off(inicio_da_funcao);
+            let anotado = dep.anotar(&texto, func, d);
+            self.out.push_str(&anotado);
+            self.depuracao = Some(dep);
+        }
     }
 
     /// `%cf<v>`: o ponteiro da entrada uniforme da closure `c` — o código

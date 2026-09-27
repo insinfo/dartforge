@@ -68,7 +68,10 @@ pub fn otimizar(module: &mut Module) {
         let copias: HashMap<String, (Function, bool)> = module
             .functions
             .iter()
-            .filter(|f| inline::copiavel(f))
+            // J05: a função compilada com informação de depuração não é
+            // embutida — o corpo copiado perderia a posição, e o breakpoint
+            // nela nunca pararia.
+            .filter(|f| f.depuracao.is_none() && inline::copiavel(f))
             .map(|f| (f.symbol.clone(), (f.clone(), !nao_lancam.contains(&f.symbol))))
             .collect();
         let mut mudou = false;

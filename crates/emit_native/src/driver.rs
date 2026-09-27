@@ -13,6 +13,9 @@ pub struct NativeDriverOptions {
     pub clang: PathBuf,
     pub optimize: bool,
     pub timings: bool,
+    /// J05: o objeto leva as tabelas de linha; no Windows a ligação gera o
+    /// PDB (`/DEBUG`), que é onde o depurador as procura.
+    pub depuracao: bool,
 }
 
 impl Default for NativeDriverOptions {
@@ -21,6 +24,7 @@ impl Default for NativeDriverOptions {
             clang: std::env::var_os("DARTFORGE_CLANG").map_or_else(clang_padrao, PathBuf::from),
             optimize: false,
             timings: false,
+            depuracao: false,
         }
     }
 }
@@ -153,7 +157,7 @@ pub fn compile_and_link(
 
     // Fase 2: Link do objeto com o runtime estático
     let t_link = Instant::now();
-    let mut ligou = ligar(&options.clang, &obj_file, &sdk_objetos, &ligar_com, output);
+    let mut ligou = ligar(&options.clang, &obj_file, &sdk_objetos, &ligar_com, output, options.depuracao);
     if ligou.is_err()
         && let Some((c, chave, true)) = do_cache
     {
@@ -163,7 +167,7 @@ pub fn compile_and_link(
         obj_file = obj_staging()?;
         gerador.gerar(llvm_ir, geracao, &obj_file)?;
         do_cache = None;
-        ligou = ligar(&options.clang, &obj_file, &sdk_objetos, &ligar_com, output);
+        ligou = ligar(&options.clang, &obj_file, &sdk_objetos, &ligar_com, output, options.depuracao);
     }
     ligou?;
     if let Some(s) = sdk.as_ref().filter(|_| !producao) {
@@ -214,7 +218,7 @@ impl Ligacao {
 
 /// A ligação no Linux: o `ld.lld` direto, com o sysroot de ligação
 /// (`ligador.rs`) — sem o driver do Clang nem o GCC na máquina.
-fn ligar_no_linux(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &Path) -> Result<(), String> {
+fn ligar_no_linux(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &Path, depuracao: bool) -> Result<(), String> {
     use crate::ligador;
     let sysroot = ligador::SysrootLinux::localizar(clang)?;
     let mut entradas = vec![obj.to_path_buf()];
@@ -230,14 +234,15 @@ fn ligar_no_linux(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, 
             rpath_origem: matches!(ligacao, Ligacao::SdkCompartilhado(_)),
             lto: producao,
             podar: producao,
+            manter_depuracao: depuracao,
             saida: output,
         },
     )
 }
 
-fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &Path) -> Result<(), String> {
+fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &Path, depuracao: bool) -> Result<(), String> {
     if crate::alvo::sistema() == Sistema::Linux {
-        return ligar_no_linux(clang, obj, sdk, ligacao, output);
+        return ligar_no_linux(clang, obj, sdk, ligacao, output, depuracao);
     }
     let mut cmd = Command::new(clang);
     cmd.arg(obj).args(sdk).arg(ligacao.biblioteca());
@@ -308,19 +313,28 @@ fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &
                 // deixa no PDB): metade do tamanho no ELF (medido: 9,4 → 4,4 MB).
                 Sistema::Linux => {
                     cmd.arg("-Wl,--gc-sections");
-                    if !crate::ligador::manter_simbolos() {
+                    if !crate::ligador::manter_simbolos() && !depuracao {
                         cmd.arg("-Wl,--strip-all");
                     }
                     cmd.arg(format!("-Wl,--lto-partitions={particoes}"));
                 }
                 Sistema::MacOs => {
-                    cmd.args(["-Wl,-dead_strip", "-Wl,-S", "-Wl,-x"]);
+                    cmd.arg("-Wl,-dead_strip");
+                    // `-S` tira o mapa de depuração (J05).
+                    if !depuracao {
+                        cmd.args(["-Wl,-S", "-Wl,-x"]);
+                    }
                 }
             }
         }
         Ligacao::Runtime(_) => {
             cmd.args(crate::alvo::argumentos_de_ligacao());
         }
+    }
+    if sistema == Sistema::Windows && depuracao {
+        // O `-g` na ligação vira o `/DEBUG` do ligador: o PDB ao lado do
+        // executável, com as tabelas CodeView do objeto.
+        cmd.arg("-g");
     }
     if sistema == Sistema::Windows {
         // Sem ICF em nenhum perfil: o `link.exe` sem `/DEBUG` (e o `lld-link`

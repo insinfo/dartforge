@@ -1644,6 +1644,50 @@ em `dartforge run`, entregues também ao runtime da biblioteca do SDK).
   225/225 por ele e 99/225 pelo runtime por nome de antes, que fica atrás de
   `DARTFORGE_SDK_DA_FONTE=0`.
 
+### 7.14 Depuração nativa (J05)
+
+`dartforge compile-native <entrada.dart> -o <exe> --depuracao` (também
+`aot … --depuracao`) gera as tabelas de linha para o depurador nativo:
+DWARF 5 no Linux, DWARF 4 no macOS, CodeView no Windows.
+
+* **Posições.** Com `CompileOptions::depuracao`, o contexto indexa as linhas
+  das unidades; cada comando baixado marca a posição dele
+  (`FnBuilder::marcar_posicao`, a de fora volta ao sair), e toda instrução
+  emitida a registra por `ValueId` (`hir::DepuracaoDaFuncao`), assim como o
+  terminador de cada bloco (o `return` e o `break` não emitem instrução). Os
+  passos da HIR não mudam: a instrução que um passo cria herda a posição da
+  anterior.
+* **Emissão** (`llvm/depuracao.rs`). A função com posições ganha um
+  `DISubprogram` com o nome Dart qualificado (`dobro`, `Conta.depositar`,
+  `main`) e cada linha de instrução do texto dela um `!dbg` com a
+  `DILocation` do comando — anotado no texto já emitido, a partir de
+  marcadores `; df.pos`, o que cobre também as instruções auxiliares
+  (coerções, quadro de raízes, conferência de exceção); o LLVM exige o
+  `!dbg` em toda chamada de função com subprograma. Unidade `FullDebug` (só
+  nela o LLVM emite o `DW_TAG_subprogram`); variáveis e tipos Dart não são
+  descritos.
+* **HIR.** Função com posições não é embutida pelo inliner da HIR (o corpo
+  copiado perderia a posição e o breakpoint nela não pararia).
+* **Ligação.** No Linux a ligação de desenvolvimento mantém as seções; a de
+  produção (`--optimize`) não tira os símbolos com `--depuracao`. No
+  Windows, `-g` na ligação (o `/DEBUG` do ligador: o PDB ao lado do
+  executável). No macOS o mapa de depuração do executável aponta para o
+  objeto do programa, que fica no cache de objetos.
+* **Medido.** `crates/cli/tests/depuracao.rs` (CI do Linux, com o `gdb`):
+  `break main.dart:3` para no `return` de `dobro` com a pilha
+  `dobro main.dart:3 ← main main.dart:17`, e `break main.dart:9` em
+  `Conta.depositar main.dart:9 ← main main.dart:20`; a saída do programa não
+  muda. `crates/emit_native/tests/depuracao.rs` confere o IR (todo `!dbg`, o
+  `ret` com a linha do `return`, nada sem a opção). CodeView conferido no
+  objeto COFF do mesmo IR (`llvm-readobj --codeview`: `DisplayName`
+  `dobro`/`Conta.depositar`/`main`, linhas de `main.dart`); o PDB e o macOS
+  não têm teste no CI.
+* **Fora deste passo** (decisão do proprietário sobre o escopo do perfil de
+  desenvolvimento): o protocolo de serviço da VM (DevTools, breakpoints pelo
+  IDE Dart), inspeção de variáveis Dart, `dart:developer`
+  (`log`/`postEvent`/extensões de serviço continuam no estilo PRODUCT) e o
+  registro do código do JIT no depurador (a interface GDB JIT do LLVM).
+
 ## 8. Eliminar trabalho antes do LLVM (otimizador da HIR)
 
 O LLVM só otimiza o que recebe. Um objeto criado pelo runtime

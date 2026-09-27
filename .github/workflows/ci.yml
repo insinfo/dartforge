@@ -85,10 +85,13 @@ jobs:
       - name: test
         run: cargo test --locked --workspace --no-fail-fast
       # O teste de recarga pela CLI é gated por `--features jit`; o workspace
-      # padrão compila o binário sem LLVM-C e não executa esta fixture.
+      # padrão compila o binário sem LLVM-C e não executa esta fixture. Em
+      # release, como nos jobs do Linux e do macOS (e o mesmo build do passo
+      # seguinte): os seis testes sobem seis sessões ao mesmo tempo, e a CLI
+      # de debug levava ~60 s até a primeira linha de cada uma, o prazo do teste.
       - name: recarga JIT com estado pela CLI
         if: success() || failure()
-        run: cargo test --locked -p dartforge-cli --features jit --test reload_estado
+        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test reload_estado
       - name: regressões do dart:io nativo (escuta compartilhada, rajada de sinais)
         if: success() || failure()
         run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test io_regressao -- --include-ignored
@@ -223,6 +226,11 @@ jobs:
         run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test reload_estado --test jit_programa -- --include-ignored
       - name: Regressões do dart:io nativo (escuta compartilhada, rajada de sinais)
         run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test io_regressao -- --include-ignored
+      - name: gdb (depuração nativa, J05)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y -qq gdb
+      - name: Depuração nativa — o gdb para em arquivo.dart:linha
+        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test depuracao -- --include-ignored
       - name: Olá, mundo — AOT de desenvolvimento, produção e JIT
         shell: bash
         env:

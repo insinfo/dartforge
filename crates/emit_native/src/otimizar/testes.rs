@@ -12,6 +12,7 @@ fn objeto_temporario_some() {
     let novo = Function {
         symbol: "Ponto.new".into(),
         name: "Ponto".into(),
+        depuracao: None,
         params: vec![(v(0), "this".into(), Type::Ref), (v(1), "x".into(), Type::F64), (v(2), "y".into(), Type::F64)],
         return_ty: Type::Void,
         blocks: vec![BasicBlock {
@@ -55,6 +56,7 @@ fn objeto_temporario_some() {
     let soma = Function {
         symbol: "soma".into(),
         name: "soma".into(),
+        depuracao: None,
         params: vec![(v(0), "a".into(), Type::F64), (v(1), "b".into(), Type::F64)],
         return_ty: Type::F64,
         blocks: vec![
@@ -114,6 +116,7 @@ fn objeto_que_escapa_fica() {
     let f = Function {
         symbol: "f".into(),
         name: "f".into(),
+        depuracao: None,
         params: vec![],
         return_ty: Type::Ref,
         blocks: vec![BasicBlock {
@@ -138,6 +141,7 @@ fn local_vira_phi() {
     let f = Function {
         symbol: "g".into(),
         name: "g".into(),
+        depuracao: None,
         params: vec![(v(0), "c".into(), Type::I1)],
         return_ty: Type::I64,
         blocks: vec![

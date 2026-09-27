@@ -579,6 +579,7 @@ pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk
                 rpath_origem: false,
                 lto: false,
                 podar: false,
+                manter_depuracao: false,
                 saida: &tmp.join(&arquivo_dll),
             },
         )
@@ -870,7 +871,7 @@ mod testes {
             .spawn(move || {
 
                 let otimizar = std::env::var("DARTFORGE_OTIMIZAR").is_ok_and(|v| v == "1");
-                let opcoes = crate::CompileOptions { sdk: Some(Path::new(SDK_DIR.as_str())), packages: None, timings: true, optimize: otimizar, versao_linguagem: None, experimentos: Vec::new() };
+                let opcoes = crate::CompileOptions { sdk: Some(Path::new(SDK_DIR.as_str())), packages: None, timings: true, optimize: otimizar, versao_linguagem: None, experimentos: Vec::new(), depuracao: false };
                 crate::compilar(&entrada, &saida, &opcoes).map(|_| saida)
             })
             .unwrap()
@@ -907,7 +908,7 @@ mod testes {
             .stack_size(256 << 20)
             .spawn(move || {
 
-                let opcoes = crate::CompileOptions { sdk: Some(&sdk_dir), packages: None, timings: false, optimize: true, versao_linguagem: None, experimentos: Vec::new() };
+                let opcoes = crate::CompileOptions { sdk: Some(&sdk_dir), packages: None, timings: false, optimize: true, versao_linguagem: None, experimentos: Vec::new(), depuracao: false };
                 crate::compilar_com(&e2, &x2, &opcoes, true)
             })
             .unwrap()

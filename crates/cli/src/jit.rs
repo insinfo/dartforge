@@ -61,6 +61,7 @@ fn emitir_geracao(
                 optimize: false,
                 versao_linguagem: None,
                 experimentos: Vec::new(),
+                depuracao: false,
             };
             dartforge_emit_native::emitir_ir_recarregavel(&entrada, &opcoes, anterior.as_deref().map(String::as_str))
         })

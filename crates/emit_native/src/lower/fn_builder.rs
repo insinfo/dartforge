@@ -149,6 +149,9 @@ pub struct FnBuilder<'a, 'c> {
     /// Quantos `Pointer.fromFunction` a função já baixou: com o símbolo, o
     /// sítio de cada um (o trampolim é um por sítio, como na VM).
     pub sitios_de_callback: u32,
+    /// J05: `(linha, coluna)` do comando que está sendo baixado, com a
+    /// depuração ligada; cada instrução emitida a registra.
+    pub posicao: Option<(u32, u32)>,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
@@ -199,6 +202,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let func = Function {
             symbol,
             name,
+            depuracao: None,
             params: Vec::new(),
             return_ty,
             blocks: vec![BasicBlock {
@@ -266,7 +270,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             fixa_do_acesso: None,
             classe_do_membro: None,
             sitios_de_callback: 0,
+            posicao: None,
         }
+    }
+
+    /// J05: a posição corrente passa a ser a do byte `offset` de `ast`, se é
+    /// a árvore da unidade desta função (a posição é dela) e a depuração
+    /// está ligada.
+    pub fn marcar_posicao(&mut self, ast: &ast::Ast, offset: usize) {
+        if self.ctx.depuracao.is_none() || !std::ptr::eq(ast, &self.ctx.program.unit(self.unit_id).ast) {
+            return;
+        }
+        self.posicao = self.ctx.linha_e_coluna(self.unit_id, offset);
     }
 
     /// Declara `this` (quando `com_this`) e os parâmetros do outline de `fid`.
@@ -606,7 +621,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .position(|b| b.id == self.current_block)
             .unwrap();
         self.func.blocks[idx].instructions.push((vid, inst, ty));
+        if let Some((pos, d)) = self.depuracao_da_funcao() {
+            d.posicoes.insert(vid, pos);
+        }
         Operand::Val(vid)
+    }
+
+    /// J05: a posição corrente e as posições da função (criadas na primeira
+    /// instrução com posição), com a depuração ligada.
+    fn depuracao_da_funcao(&mut self) -> Option<((u32, u32), &mut crate::hir::DepuracaoDaFuncao)> {
+        let pos = self.posicao?;
+        let unidade = self.ctx.program.unit(self.unit_id);
+        let d = self.func.depuracao.get_or_insert_with(|| {
+            Box::new(crate::hir::DepuracaoDaFuncao {
+                arquivo: unidade.path.as_ref().map_or_else(|| unidade.uri.clone(), |p| p.display().to_string()),
+                linha: pos.0,
+                posicoes: HashMap::new(),
+                saidas: HashMap::new(),
+            })
+        });
+        Some((pos, d))
     }
 
     pub fn terminate(&mut self, term: Terminator) {
@@ -642,6 +676,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             t => t,
         };
         self.terminated_blocks.insert(self.current_block);
+        let bloco = self.current_block;
+        if let Some((pos, d)) = self.depuracao_da_funcao() {
+            d.saidas.insert(bloco, pos);
+        }
         let idx = self
             .func
             .blocks

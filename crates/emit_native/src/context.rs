@@ -64,6 +64,9 @@ pub struct Context<'a> {
     /// Os tipos de extensão apagados (`apagamento.rs`), calculados antes do
     /// contexto; vazio sem tipo de extensão.
     pub te: crate::apagamento::TiposDeExtensao,
+    /// J05: com informação de depuração, o início de cada linha de cada
+    /// unidade (pelo índice da unidade), para as posições das instruções.
+    pub depuracao: Option<Vec<Vec<u32>>>,
     /// Recarga do JIT (J03): os ids que a geração viva deu às classes do
     /// programa, por `(biblioteca, classe)`. A mesma classe fica com o mesmo
     /// id; uma classe nova ganha um id acima de todos eles (os objetos vivos
@@ -106,6 +109,31 @@ pub fn escapar(parte: &str) -> String {
 }
 
 impl<'a> Context<'a> {
+    /// Liga a informação de depuração (J05): indexa as linhas das unidades.
+    pub fn ligar_depuracao(&mut self) {
+        let linhas = self
+            .program
+            .units
+            .iter()
+            .map(|u| {
+                std::iter::once(0)
+                    .chain(u.source.bytes().enumerate().filter(|&(_, b)| b == b'\n').map(|(i, _)| i as u32 + 1))
+                    .collect()
+            })
+            .collect();
+        self.depuracao = Some(linhas);
+    }
+
+    /// `(linha, coluna)`, a partir de 1, do byte `offset` da unidade `unit`,
+    /// com a depuração ligada.
+    pub fn linha_e_coluna(&self, unit: dartforge_elements::model::UnitId, offset: usize) -> Option<(u32, u32)> {
+        let inicios = self.depuracao.as_ref()?.get(unit.0 as usize)?;
+        let offset = u32::try_from(offset).ok()?;
+        let linha = inicios.partition_point(|&i| i <= offset);
+        let inicio = inicios[linha.checked_sub(1)?];
+        Some((linha as u32, offset - inicio + 1))
+    }
+
     pub fn new(
         program: &'a Program,
         interner: &'a Interner,
@@ -141,6 +169,7 @@ impl<'a> Context<'a> {
             compostos_ffi: std::cell::OnceCell::new(),
             te: crate::apagamento::TiposDeExtensao::default(),
             ids_anteriores: None,
+            depuracao: None,
         };
         // Formas de record com campo nomeado: literais, padrões e tipos de
         // todas as unidades do programa (o conjunto inteiro, antes do

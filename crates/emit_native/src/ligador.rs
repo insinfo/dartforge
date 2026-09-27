@@ -138,6 +138,8 @@ pub struct Ligacao<'a> {
     pub lto: bool,
     /// Tirar as seções que nada alcança e a tabela de símbolos (produção).
     pub podar: bool,
+    /// Manter os símbolos e as seções de depuração mesmo podando (J05).
+    pub manter_depuracao: bool,
     pub saida: &'a Path,
 }
 
@@ -189,7 +191,7 @@ pub fn ligar(ld: &Path, sysroot: &SysrootLinux, l: &Ligacao<'_>) -> Result<(), S
     if l.podar {
         cmd.arg("--gc-sections");
         // `DARTFORGE_MANTER_SIMBOLOS=1`: a tabela de símbolos fica (perfis).
-        if !manter_simbolos() {
+        if !manter_simbolos() && !l.manter_depuracao {
             cmd.arg("--strip-all");
         }
     }

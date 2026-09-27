@@ -523,6 +523,7 @@ pub fn dartforge_nativo(amb: &Ambiente, programa: &Programa, dir: &Path) -> Said
                 optimize: false,
                 versao_linguagem: Some(versao),
                 experimentos: Vec::new(),
+                depuracao: false,
             };
             dartforge_emit_native::compilar(&entrada, &saida, &options)
         })
@@ -573,6 +574,7 @@ pub fn dartforge_nativo_ir(programa: &Programa) -> Result<String, String> {
                 optimize: false,
                 versao_linguagem: Some(versao),
                 experimentos: Vec::new(),
+                depuracao: false,
             };
             dartforge_emit_native::emitir_ir(&entrada, &options).map(|ir| ir.texto)
         })
