@@ -213,6 +213,9 @@ pub struct Consulta {
     pub lista: bool,
     /// `@ViewChild(Tipo)`: `referencia` é o nome do tipo procurado.
     pub por_tipo: bool,
+    /// `read: T`, como escrito: o token do provedor do nó achado que vira o
+    /// valor (`queryWithRead.read` em `compile_element.dart`).
+    pub leitura: Option<String>,
 }
 
 /// Um `@ContentChild`/`@ContentChildren`, como quem usa o componente precisa
@@ -986,25 +989,29 @@ fn consulta_simples(
         .arguments
         .as_ref()
         .ok_or_else(|| recusa(Motivo::NaoEntendido, "@ViewChild sem argumento"))?;
-    let [unico] = &args.args[..] else {
-        // `read:` troca o valor por um provedor do nó; `first:`,
-        // `descendants:` não fazem sentido aqui. Todos ainda não.
-        let tem_read = args
-            .args
-            .iter()
-            .any(|x| x.name.is_some_and(|n| interner.resolve(n.sym) == "read"));
-        return Err(if tem_read {
-            recusa(Motivo::ViewChildEmFilho, "@ViewChild(.., read: T)")
-        } else {
-            recusa(Motivo::NaoEntendido, "@ViewChild com opções")
-        });
-    };
-    if unico.name.is_some() {
+    // `read: T` troca o valor por um provedor do nó: guardado como o nome
+    // escrito, que a visão resolve (`ElementRef`, `Element`/`HtmlElement`).
+    // `first:`, `descendants:` e `read:` que não é nome simples ainda não.
+    let mut leitura = None;
+    let mut posicionais = Vec::new();
+    for x in args.args.iter() {
+        match x.name.map(|n| interner.resolve(n.sym)) {
+            None => posicionais.push(x),
+            Some("read") => match &arvore.expr(x.value).kind {
+                ast::ExprKind::Identifier(n) if leitura.is_none() => {
+                    leitura = Some(interner.resolve(n.sym).to_string());
+                }
+                _ => return Err(recusa(Motivo::ViewChildEmFilho, "@ViewChild(.., read: T)")),
+            },
+            Some(_) => return Err(recusa(Motivo::NaoEntendido, "@ViewChild com opções")),
+        }
+    }
+    let [unico] = posicionais[..] else {
         return Err(recusa(
             Motivo::NaoEntendido,
             "@ViewChild só com argumento nomeado",
         ));
-    }
+    };
     // Seletor de tipo (`@ViewChild(OutroComp)`) consulta um componente ou
     // diretiva, não um elemento: só o nome simples, resolvido depois.
     let (referencia, por_tipo) = match texto_do_argumento(arvore, unico.value) {
@@ -1055,6 +1062,7 @@ fn consulta_simples(
         tipo,
         lista: eh_lista,
         por_tipo,
+        leitura,
     })
 }
 

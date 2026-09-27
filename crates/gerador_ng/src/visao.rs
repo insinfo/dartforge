@@ -101,6 +101,7 @@ const CHECK_BINDING: &str = "package:ngdart/src/runtime/check_binding.dart";
 const DEVTOOLS: &str = "package:ngdart/src/devtools.dart";
 const VIEW_CONTAINER: &str = "package:ngdart/src/core/linker/view_container.dart";
 const TEMPLATE_REF: &str = "package:ngdart/src/core/linker/template_ref.dart";
+const ELEMENT_REF: &str = "package:ngdart/src/core/linker/element_ref.dart";
 const NG_IF: &str = "package:ngdart/src/common/directives/ng_if.dart";
 const NG_FOR: &str = "package:ngdart/src/common/directives/ng_for.dart";
 const NG_SWITCH: &str = "package:ngdart/src/common/directives/ng_switch.dart";
@@ -120,7 +121,7 @@ const DIRECTIVE_CHANGE_DETECTOR: &str =
 const SEM_PREFIXO: &[&str] = &[
     ANGULAR,
     "dart:core",
-    "package:ngdart/src/core/linker/element_ref.dart",
+    ELEMENT_REF,
     VIEW_CONTAINER,
     TEMPLATE_REF,
     "package:ngdart/src/core/change_detection/change_detection.dart",
@@ -518,6 +519,20 @@ fn formas_contra_o_template(
     let moldes = referencias_de_moldes(nos);
     for consulta in &c.consultas {
         let mut lugares = Vec::new();
+        // `read:` só na consulta estática de um elemento da visão (abaixo):
+        // por tipo, lista, `<template>` ou resultado em `*` ainda não.
+        if consulta.leitura.is_some()
+            && (consulta.por_tipo
+                || consulta.lista
+                || moldes.contains(&consulta.referencia)
+                || consulta_em_embutida(nos, consulta, filhos, local, resolvedor))
+        {
+            fora.push(recusa(
+                Motivo::ViewChildEmFilho,
+                "@ViewChild(.., read: T) fora de elemento estático",
+            ));
+            continue;
+        }
         if consulta.por_tipo {
             // `@ViewChild(Tipo)`: as instâncias dos filhos dessa classe. A
             // diretiva de atributo do mesmo tipo também seria resultado:
@@ -600,23 +615,27 @@ fn formas_contra_o_template(
             continue;
         }
         let r = match lugares.as_slice() {
-            // `isElementType`: campo `Element` (ou subtipo) recebe o nó;
-            // qualquer outro, um `ElementRef`. O primeiro caso é o estático,
-            // que sai no `build()`.
+            // O nó ou `ElementRef(nó)`, pela leitura ([`valor_de_elemento`]):
+            // a consulta estática, que sai no `build()`.
             [Lugar::Raiz | Lugar::Projetado]
-                if e_tipo_de_elemento(&consulta.tipo, local, resolvedor) =>
+                if valor_de_elemento(consulta, local, resolvedor).is_some() =>
             {
                 continue;
             }
             [Lugar::Raiz | Lugar::Projetado] => recusa(
                 Motivo::ViewChildEmFilho,
-                "@ViewChild de elemento com tipo que não é Element",
+                "@ViewChild(.., read: T) de token que o elemento não provê",
             ),
             // A instância do filho: o campo tem de ser do tipo dele (não um
             // `Element`) e o filho não pode ser `onPush`, que registra o
             // `ChangeDetectorRef` da consulta (`queryChangeDetectorRefs`).
             [Lugar::NoFilho | Lugar::NoFilhoProjetado] => {
-                if e_tipo_de_elemento(&consulta.tipo, local, resolvedor) {
+                if consulta.leitura.is_some() {
+                    recusa(
+                        Motivo::ViewChildEmFilho,
+                        "@ViewChild(.., read: T) de #ref de filho",
+                    )
+                } else if e_tipo_de_elemento(&consulta.tipo, local, resolvedor) {
                     recusa(
                         Motivo::ViewChildEmFilho,
                         "@ViewChild de tipo Element em #ref de filho",
@@ -673,7 +692,10 @@ fn consulta_em_embutida(
             }
         }
     }
-    if consulta.por_tipo || !e_tipo_de_elemento(&consulta.tipo, local, resolvedor) {
+    if consulta.por_tipo
+        || consulta.leitura.is_some()
+        || !e_tipo_de_elemento(&consulta.tipo, local, resolvedor)
+    {
         return false;
     }
     let nome = consulta.referencia.as_str();
@@ -988,6 +1010,41 @@ fn e_tipo_de_elemento(tipo: &str, local: &Local, resolvedor: Option<&dyn Resoluc
             .and_then(|r| r.uri_do_tipo(local.caminho, tipo))
             .as_deref()
             == Some("dart:html")
+}
+
+/// O valor de uma consulta de visão cujo resultado é um elemento HTML.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ValorDeElemento {
+    /// O próprio nó (`_el_n`).
+    No,
+    /// `ElementRef(_el_n)`.
+    ElementRef,
+}
+
+/// O que um elemento dá a uma consulta (`compile_element.dart`, laço de
+/// `queriesWithReads`): com `read: ElementRef`, o `ElementRef` do nó; com
+/// `read: Element`/`HtmlElement` (do `dart:html`), o nó; sem `read:`, o nó
+/// se o campo é `Element` (`isElementType`), senão o `ElementRef`. `None`
+/// para `read:` de outro token (diretiva, `ViewContainerRef`…), que ainda
+/// não se escreve.
+fn valor_de_elemento(
+    consulta: &crate::componente::Consulta,
+    local: &Local,
+    resolvedor: Option<&dyn Resolucao>,
+) -> Option<ValorDeElemento> {
+    let Some(t) = consulta.leitura.as_deref() else {
+        return Some(if e_tipo_de_elemento(&consulta.tipo, local, resolvedor) {
+            ValorDeElemento::No
+        } else {
+            ValorDeElemento::ElementRef
+        });
+    };
+    let uri = resolvedor.and_then(|r| r.uri_do_tipo(local.caminho, t))?;
+    match (t, uri.as_str()) {
+        ("ElementRef", ELEMENT_REF) => Some(ValorDeElemento::ElementRef),
+        ("Element" | "HtmlElement", "dart:html") => Some(ValorDeElemento::No),
+        _ => None,
+    }
 }
 
 /// O tipo do campo é o `TemplateRef` do ngdart (`TemplateRef` ou
@@ -7083,6 +7140,7 @@ fn gerar_componente(
     // (`updateQueryAtStartup`, `createImmediateUpdates` em
     // `compile_query.dart`). `formas_contra_o_template` já garantiu que cada
     // `#ref` está uma vez só, num elemento HTML da própria visão.
+    let moldes = referencias_de_moldes(nos);
     let mut consultas = Vec::new();
     for (i, q) in c.consultas.iter().enumerate() {
         // A dinâmica sai na detecção.
@@ -7158,6 +7216,20 @@ fn gerar_componente(
                         "    {v}.View.queryChangeDetectorRefs[{alvo}] = this.{cv};"
                     ));
                 }
+                // `ElementRef(nó)` para o elemento lido assim; o import sai
+                // na ordem do texto, depois dos ouvintes e dos pipes.
+                let mut lugares = Vec::new();
+                onde_esta(nos, &q.referencia, filhos, false, &mut lugares);
+                let elemento = matches!(lugares.first(), Some(Lugar::Raiz | Lugar::Projetado));
+                let alvo = if !q.por_tipo
+                    && elemento
+                    && !moldes.contains(&q.referencia)
+                    && valor_de_elemento(q, local, resolvedor) == Some(ValorDeElemento::ElementRef)
+                {
+                    format!("{}ElementRef({alvo})", tardio_q(ELEMENT_REF))
+                } else {
+                    alvo
+                };
                 consultas.push(format!("    _ctx.{} = {alvo};", q.propriedade));
             }
             // Na coleta a recusa já veio de `formas_contra_o_template`.
@@ -7181,6 +7253,10 @@ fn gerar_componente(
     // Os pipes: instância e proxies, no `afterNodes`, antes das consultas.
     let criacao_pipes: Vec<String> = tabela
         .criacao(0, "this", corpo.imp)
+        .iter()
+        .map(|l| resolver_tardios(corpo.imp, l))
+        .collect();
+    let consultas: Vec<String> = consultas
         .iter()
         .map(|l| resolver_tardios(corpo.imp, l))
         .collect();
