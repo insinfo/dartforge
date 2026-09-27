@@ -8,7 +8,7 @@
 //! isso `#[ignore]`, no grupo que o `ci.yml` satisfaz.
 use dartforge_build::consulta::SemBanco;
 use dartforge_build::{Contexto, Demanda, Motor, OpcoesMotor};
-use dartforge_elements::config::PackageConfig;
+use dartforge_elements::config::{sem_verbatim, PackageConfig};
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_intern::Interner;
 use std::path::{Path, PathBuf};
@@ -222,11 +222,15 @@ fn ng_edicao_dart_em_cada_arquivo_igual_ao_do_zero() {
 fn ng_dependencia_pelo_motor_igual_ao_oraculo() {
     let origem = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/ngdart_dependente");
     let tmp = tempfile::tempdir().unwrap();
+    // As chaves da geração partem das raízes canônicas do `package_config`
+    // (no Windows, o nome longo: o temporário do runner vem como
+    // `C:\Users\RUNNER~1\…`, e a raiz do pacote como `…\runneradmin\…`).
+    let base = sem_verbatim(std::fs::canonicalize(tmp.path()).unwrap());
     for d in ["app", "dep"] {
-        copiar(&origem.join(d), &tmp.path().join(d));
+        copiar(&origem.join(d), &base.join(d));
     }
-    let app = tmp.path().join("app");
-    let dep = tmp.path().join("dep");
+    let app = base.join("app");
+    let dep = base.join("dep");
     let programa = |app: &Path| {
         let mut nomes = Interner::new();
         let cfg = app.join(".dart_tool/package_config.json");

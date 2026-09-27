@@ -24,22 +24,28 @@ Future<String> rodada(String dir, {required bool permitir, required bool renegoc
     '-tls1_2', '-legacy_renegotiation',
   ]);
   final saida = StringBuffer();
+  final erros = StringBuffer();
   servidor.stdout.transform(utf8.decoder).listen(saida.write);
-  servidor.stderr.transform(utf8.decoder).listen((_) {});
-  // O `s_server` não avisa quando escuta: tenta até conectar.
+  servidor.stderr.transform(utf8.decoder).listen(erros.write);
+  int? saiu;
+  servidor.exitCode.then((c) => saiu = c);
+  // O `s_server` não avisa quando escuta: tenta até conectar, com prazo (no
+  // Windows cada conexão recusada leva ~2 s) e parando se ele já saiu.
   SecureSocket? s;
   final c = SecurityContext()..setTrustedCertificates('$dir/ca.pem');
   c.allowLegacyUnsafeRenegotiation = permitir;
-  for (var i = 0; i < 100 && s == null; i++) {
+  final prazo = DateTime.now().add(const Duration(seconds: 20));
+  while (s == null && saiu == null && DateTime.now().isBefore(prazo)) {
     try {
-      s = await SecureSocket.connect('localhost', porta, context: c);
+      s = await SecureSocket.connect('localhost', porta, context: c, timeout: const Duration(seconds: 5));
     } on SocketException {
       await Future.delayed(const Duration(milliseconds: 50));
     }
   }
   if (s == null) {
     servidor.kill();
-    return 'sem conexão';
+    await servidor.exitCode;
+    return 'sem conexão (openssl ${saiu == null ? 'não escutou' : 'saiu com $saiu'}): ${erros.toString().trim()}';
   }
   final recebido = StringBuffer();
   String? erro;

@@ -142,8 +142,13 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'modelo do analyzer não reproduziu a fase de declarações CFE' }
           }
           finally { Pop-Location }
+      # O executor nativo de macros (`executor_nativo_bate_com_o_cfe`) compila
+      # o bootstrap com um `dartforge` que tenha a feature `nativo`: o release
+      # que o passo das regressões do dart:io acabou de compilar.
       - name: test (ignorados que o runner satisfaz)
         if: success() || failure()
+        env:
+          DARTFORGE_COMPILADOR_NATIVO: ${{ github.workspace }}\target\release\dartforge.exe
         run: >-
           cargo test --locked --workspace --tests --no-fail-fast --
           --ignored --skip corpus_pub --skip new_sali_tipa --skip corpus_roda_no_dart_run
