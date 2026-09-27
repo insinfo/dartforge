@@ -1727,3 +1727,52 @@ já recebe. O mapa e o conjunto ainda pagam o despacho das funções de
 igualdade e hash (`_equals`/`_hashCode` dos mixins) e a conferência de RTI
 na entrada uniforme do `add`/`[]=`; os objetos, duas alocações cada (o
 `Value` e o vetor de campos).
+
+### 8.4 Os quatro executores (medido em 2026-09-27)
+
+`scripts/comparar-desempenho.py --repeticoes 3`: o JIT e o AOT do DartForge
+contra a VM (`dart run`) e o `dart compile exe`. O JIT do DartForge gera
+código sem otimização (`CodeGenLevelNone`, o par do `clang -O0`: partida
+rápida para o ciclo de edição e recarga); a VM otimiza as funções quentes em
+segundo plano. A diferença nos laços apertados (`produto_f64`,
+`lista_leitura`) é essa, e o que a fecha é um JIT em camadas (recompilar o
+que esquenta com o nível do AOT), não o código gerado.
+
+Máquina: Linux-6.18.44-fc-v37-x86_64-with-glibc2.39, 4 CPUs; Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on "linux_x64"; 3 repetições alternadas.
+
+Tempo estável por núcleo (ms): mediana das rodadas depois da primeira, e entre colchetes a faixa (mínimo–máximo) de todas as repetições; menor é melhor. `esgotou` = passou do prazo. Razão = DartForge AOT / Dart AOT.
+
+| núcleo | DartForge JIT | DartForge AOT | Dart VM (JIT) | Dart AOT | razão |
+|---|---:|---:|---:|---:|---:|
+| chamadas/formas | 58.2 [56.5–60.6] | 11.2 [11.0–11.8] | 2.5 [1.9–18.0] | 5.7 [5.7–5.9] | 1.95x |
+| chamadas/closures | 206.8 [201.1–227.1] | 40.4 [40.1–46.2] | 14.9 [14.3–17.7] | 20.5 [19.3–21.3] | 1.97x |
+| chamadas/fib | 6.6 [6.5–6.8] | 2.7 [2.7–5.0] | 7.3 [7.1–7.7] | 6.5 [6.4–7.1] | 0.42x |
+| colecoes/crivo | 114.5 [102.2–136.7] | 27.4 [26.8–48.2] | 33.2 [29.8–49.5] | 32.2 [31.0–35.8] | 0.85x |
+| colecoes/lista_add | 37.2 [34.9–39.7] | 30.2 [29.2–37.4] | 18.1 [17.1–37.9] | 18.7 [17.4–33.6] | 1.61x |
+| colecoes/lista_leitura | 174.6 [170.4–183.4] | 12.3 [11.8–13.2] | 10.2 [9.0–16.6] | 10.8 [10.4–13.2] | 1.14x |
+| colecoes/lista_sort | 672.1 [649.4–735.3] | 237.4 [233.1–259.4] | 210.6 [206.1–246.2] | 423.8 [401.6–461.3] | 0.56x |
+| colecoes/mapa | 1251.4 [1193.9–1334.5] | 598.8 [569.0–710.4] | 84.5 [62.6–100.6] | 86.8 [78.7–104.1] | 6.90x |
+| colecoes/conjunto_str | 316.3 [292.1–360.5] | 188.2 [178.3–265.6] | 23.8 [21.1–27.5] | 23.0 [22.5–26.3] | 8.18x |
+| numerico/mandelbrot | 34.2 [33.3–36.5] | 12.0 [11.8–14.5] | 14.4 [14.0–19.4] | 13.9 [13.8–16.0] | 0.86x |
+| numerico/collatz | 133.9 [129.9–183.7] | 52.2 [51.9–53.8] | 96.8 [96.0–107.8] | 84.5 [83.8–116.2] | 0.62x |
+| objetos_escapam/arvores | 369.6 [364.0–418.9] | 244.8 [223.5–266.5] | 55.9 [54.8–63.7] | 49.6 [46.8–59.6] | 4.93x |
+| objetos_escapam/lista_ligada | 127.8 [104.6–189.1] | 90.6 [72.3–148.1] | 14.6 [12.8–17.4] | 14.9 [13.9–19.0] | 6.09x |
+| objetos_temporarios/pontos | 86.2 [84.5–95.4] | 57.3 [55.0–62.8] | 10.0 [8.5–19.0] | 13.3 [12.8–14.2] | 4.30x |
+| objetos_temporarios/soma_ponto | 26.1 [26.0–26.4] | 4.1 [4.0–4.9] | 4.8 [4.5–18.0] | 26.4 [25.9–27.7] | 0.15x |
+| textos/construir | 971.6 [914.4–1097.2] | 708.4 [660.6–807.1] | 91.2 [76.1–110.1] | 103.9 [79.7–126.1] | 6.82x |
+| textos/hashes | 283.4 [278.3–336.4] | 249.5 [237.1–292.3] | 36.8 [33.5–57.3] | 38.9 [36.6–44.4] | 6.42x |
+| tipados/produto_f64 | 178.9 [177.2–189.0] | 3.7 [3.6–4.7] | 3.7 [3.6–19.8] | 3.8 [3.8–4.1] | 0.97x |
+| tipados/fnv_bytes | 196.4 [191.6–224.3] | 14.9 [14.8–15.0] | 19.4 [19.3–20.8] | 22.2 [22.2–22.5] | 0.67x |
+
+Tempo total do processo (s, mediana; inclui início e, nos JITs, compilação):
+
+| programa | DartForge JIT | DartForge AOT | Dart VM (JIT) | Dart AOT |
+|---|---:|---:|---:|---:|
+| chamadas | 1.81 | 0.34 | 0.57 | 0.20 |
+| colecoes | 19.74 | 8.91 | 3.06 | 3.99 |
+| numerico | 1.21 | 0.40 | 1.03 | 0.60 |
+| objetos_escapam | 3.36 | 2.14 | 0.84 | 0.43 |
+| objetos_temporarios | 0.87 | 0.37 | 0.48 | 0.25 |
+| textos | 7.95 | 5.78 | 1.20 | 0.88 |
+| tipados | 2.46 | 0.12 | 0.53 | 0.17 |
+
