@@ -1667,6 +1667,38 @@ heap, nenhuma raiz, nenhuma conferência de exceção.
   lança o `TypeError` da VM (`corpus/nativo/27`). Antes, a gravação direta
   de `int`/`double` não conferia a covariância.
 
+* **Cabeçalho fixo de lista** (`runtime/src/heap.rs`, `Elementos` e
+  `CabecalhoDeLista`): os elementos de `Value::List` ficam atrás de um
+  `#[repr(C)]` num `Box` (endereço dos dados, comprimento lógico, bits de
+  gravação conferida) que não muda de endereço enquanto a lista vive.
+  `dartforge_lista_cabecalho` é pura do handle (`memory(none)`) e sai dos
+  laços; o comprimento e os dados são lidos em linha a cada uso. Toda
+  mudança de estrutura passa pela guarda de `Elementos::vetor_mut`, que
+  ressincroniza o cabeçalho. A gravação direta é conferida uma vez por
+  lista (modificável, `E` aceita o escalar) e marcada no cabeçalho;
+  `set_metadado` e `marcar_imutavel` apagam a marca.
+* **`List.filled` e `add`**: `_List.filled`/`_GrowableList.filled`
+  (sobreposição de `array.dart`/`growable_array.dart`) preenchem no
+  runtime; `lista.add(v)` de `List<int|double|bool>` com `v` do tipo exato
+  acrescenta o escalar sem caixa (`dartforge_lista_add_escalar`, conferido
+  uma vez por lista).
+* **`sort()` de `List<int>`** (sobreposição de `internal/sort.dart` e
+  `collection/list.dart`): o mesmo dual-pivot do SDK com `int` estático.
+* **Despacho de poucos alvos** (`lower/sdk_fonte.rs`,
+  `despacho_por_classe`): um membro fechado do SDK com 2 a 4
+  implementações vira um `switch` pela classe com a chamada direta ou o
+  acesso ao campo de cada uma; o seletor fica no `default`.
+* **Closures**: o cabeçalho imutável (`CabecalhoDeClosure`, num `Box`) vem
+  de uma chamada pura e a chamada tipada lê a ABI, o corpo e o ambiente em
+  linha; as capturas são lidas em linha do vetor do ambiente
+  (`dartforge_env_dados`, que não muda de tamanho).
+* **Strings**: o `==` de `_StringBase` compara no runtime (sobreposição de
+  `string_patch.dart`); o literal é achado pelo endereço da constante,
+  conferido pelos bytes.
+* **GC**: o gatilho por contagem acompanha também as posições percorridas
+  pela última marcação (uma lista grande com poucos objetos vivos não
+  coleta a cada 256 alocações).
+
 ### 8.3 Medido (Linux x86-64, AOT `--optimize`, `bench/desempenho`)
 
 Tempo estável por núcleo, ms (mediana das rodadas depois da primeira):
@@ -1676,13 +1708,22 @@ Tempo estável por núcleo, ms (mediana das rodadas depois da primeira):
 | `objetos_temporarios/soma_ponto` | 555 | 4 |
 | `objetos_temporarios/pontos` | 350 | 57 |
 | `numerico/collatz` | 4600 | 55 |
-| `chamadas/formas` | 700 | 39 |
+| `chamadas/formas` | 700 | 15 (Dart AOT 6,3) |
 | `chamadas/fib` | 11,6 | 2,3 |
-| `colecoes/crivo` | 1041 | 330 |
+| `colecoes/crivo` | 1041 | 26 (Dart AOT 31) |
+| `colecoes/lista_leitura` | 122 | 12 (Dart AOT 10,5) |
+| `colecoes/lista_add` | 135 | 29 (Dart AOT 17) |
+| `colecoes/lista_sort` (1 milhão, com `_Mint`) | 84 000 | 240 (Dart AOT 410) |
+| `colecoes/mapa` | 1437 | 560 (Dart AOT 92) |
+| `colecoes/conjunto_str` | 540 | 185 (Dart AOT 23) |
+| `chamadas/closures` | 291 | 40 (Dart AOT 21) |
 
 A comparação com a VM e o `dart compile exe` é
 `scripts/comparar-desempenho.py`. O que ainda pesa, pelo perfil: o código do
 SDK compilado à parte (`List.filled`, `add`, `sort`, `Map`) passa pelo
 despacho por seletor com a convenção uniforme e pelas conferências de RTI
 (`dartforge_rti_como`), sem o inlining nem a especialização que o programa
-já recebe.
+já recebe. O mapa e o conjunto ainda pagam o despacho das funções de
+igualdade e hash (`_equals`/`_hashCode` dos mixins) e a conferência de RTI
+na entrada uniforme do `add`/`[]=`; os objetos, duas alocações cada (o
+`Value` e o vetor de campos).

@@ -1892,7 +1892,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::Branch(cabeca));
 
         self.set_block(cabeca);
-        let n = comprimento(self);
+        // Dentro do laço, o comprimento vem do cabeçalho da lista (chamada
+        // pura, fora do laço; a leitura em linha a cada volta).
+        let cab = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_lista_cabecalho".to_string(),
+                args: vec![(lista.clone(), Type::Ref)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        let n = self.emit(
+            Instruction::CargaNativa { endereco: cab, indice: Operand::Constant(Constant::Int(1)), tipo: TipoC::I64 },
+            Type::I64,
+        );
         let igual = self.emit(Instruction::ICmp(ICmpOp::Eq, n.clone(), n0), Type::I1);
         self.terminate(Terminator::CondBranch { cond: igual, then_block: confere, else_block: mudou });
 
