@@ -298,7 +298,9 @@ base class _SecurityContext extends NativeFieldWrapperClass1
   }
 
   set allowLegacyUnsafeRenegotiation(bool allow) {
-    // O rustls não renegocia; o valor só é guardado.
+    // O rustls não renegocia; o valor só é guardado. Um pedido de
+    // renegociação do servidor é recusado com ou sem a opção (sem ela, como a
+    // VM); `tls_renegociacao.dart` em crates/cli/tests.
     _allowLegacyUnsafeRenegotiation = allow;
   }
 
