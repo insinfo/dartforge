@@ -400,7 +400,7 @@ mod testes {
         let diags = fora_da_biblioteca(&programa, programa.entry.unwrap(), &nomes);
         let v: Vec<(&str, &str, &str)> = diags
             .iter()
-            .map(|(_, d)| (d.code.map_or("", |c| c.info().nome), &fonte[d.span.start as usize..d.span.end as usize], d.message.as_str()))
+            .map(|(_, d)| (d.code.map_or("", |c| c.info().nome), &fonte[d.span.start..d.span.end], d.message.as_str()))
             .collect();
         assert_eq!(
             v,
