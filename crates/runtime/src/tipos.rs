@@ -202,6 +202,20 @@ impl Universo {
         }
     }
 
+    /// `v is t` quando a resposta não depende do tipo do valor: `t` é um
+    /// tipo topo, ou `Object` e `v` não é null. O caso de todo `as E` com
+    /// `E` = `Object?`/`dynamic` nas coleções do SDK; poupa montar o tipo
+    /// do valor (o heap, o metadado, o universo) e o cache de subtipos.
+    fn teste_sem_o_valor(&self, v: i64, t: i64) -> Option<bool> {
+        if self.e_topo(t) {
+            return Some(true);
+        }
+        if v != 0 && self.e_object(t) {
+            return Some(true);
+        }
+        None
+    }
+
     fn e_object(&self, id: i64) -> bool {
         matches!(self.tipo(id), Tipo::Interface(c, a) if *c == self.rt.object && a.is_empty())
     }
@@ -1028,6 +1042,9 @@ pub extern "C" fn dartforge_rti_do_valor(v: i64) -> i64 {
 pub extern "C" fn dartforge_rti_e(v: i64, t: i64) -> u8 {
     RTI.with(|u| {
         let mut u = u.borrow_mut();
+        if let Some(r) = u.teste_sem_o_valor(v, t) {
+            return u8::from(r);
+        }
         let s = tipo_do_ref(&mut u, v);
         let r = u.sub(s, t);
         if depurar() {
@@ -1049,6 +1066,9 @@ pub extern "C" fn dartforge_rti_subtipo(s: i64, t: i64) -> u8 {
 pub extern "C" fn dartforge_rti_como(v: i64, t: i64) {
     let falha = RTI.with(|u| {
         let mut u = u.borrow_mut();
+        if u.teste_sem_o_valor(v, t) == Some(true) {
+            return None;
+        }
         let s = tipo_do_ref(&mut u, v);
         if u.sub(s, t) {
             None

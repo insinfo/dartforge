@@ -514,6 +514,24 @@ fn valor_como_ref(v: TaggedValue) -> i64 {
 /// são lançáveis pelo subconjunto e devolvem -1.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_value_class(handle: i64) -> i64 {
+    // O caso comum (o receptor de todo despacho): um objeto Dart, cuja
+    // classe está no próprio valor. Uma consulta ao slot, sem os
+    // empréstimos e a segunda busca do caminho geral.
+    if crate::heap::smi::e_handle(handle) && handle > 0 {
+        let cid = HEAP.with(|heap| {
+            // SAFETY: leitura imediata, sem guardar a referência; ninguém
+            // tem o heap emprestado para escrita durante uma chamada do
+            // código gerado ou do runtime que pergunta a classe.
+            let heap = unsafe { heap.try_borrow_unguarded() }.ok()?;
+            match heap.try_get(handle)? {
+                Value::Object { class_id, .. } => Some(*class_id),
+                _ => None,
+            }
+        });
+        if let Some(cid) = cid {
+            return cid;
+        }
+    }
     // Com o SDK da fonte (P5c), os valores do runtime têm a classe do SDK
     // que representam (`_Smi`, `_OneByteString`, `_GrowableList`…).
     if let Some(cid) = cid_do_runtime(handle) {
