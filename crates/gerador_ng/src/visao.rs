@@ -771,13 +771,13 @@ fn formas_contra_o_template(
     fora
 }
 
-/// A consulta de visão cujo único resultado está numa visão embutida filha
-/// direta da do componente (`*` na raiz, fora do conteúdo projetado): um
-/// elemento HTML com o `#ref` (uma vez só no template), na raiz dessa
-/// visão, e campo `Element`. É a forma de `mapNestedViewsWithSingleResult`
-/// com um nível, a mais comum (`@ViewChild` dentro de `*ngIf`); as outras
-/// (vários resultados, dois níveis, filho, mistura com estáticos) ainda
-/// não.
+/// A consulta de visão cujo único `#ref` (declarado uma vez no template)
+/// está num elemento HTML de uma visão embutida alcançada de `*` em `*` —
+/// cada um na raiz da visão de cima, fora do conteúdo projetado — e campo
+/// `Element`. É a forma de `mapNestedViews`/`mapNestedViewsWithSingleResult`
+/// (`@ViewChild` dentro de `*ngIf`, `@ViewChildren` em `*ngFor`, em
+/// qualquer profundidade: i47, i96, i97, j06); filho, `read:` e mistura
+/// com estáticos ainda não.
 fn consulta_em_embutida(
     nos: &[No],
     consulta: &crate::componente::Consulta,
@@ -813,30 +813,114 @@ fn consulta_em_embutida(
     if todos.len() != 1 {
         return false;
     }
-    let mut estrelas = Vec::new();
-    estrelas_da_raiz(nos, filhos, &mut estrelas);
-    let com_ref: Vec<&&crate::html::Elemento> = estrelas
-        .iter()
-        .filter(|e| {
-            let mut l = Vec::new();
-            onde_esta(
-                std::slice::from_ref(&No::Elemento((**e).clone())),
-                nome,
-                filhos,
-                false,
-                &mut l,
-            );
-            !l.is_empty()
-        })
-        .collect();
-    let [e] = com_ref.as_slice() else {
-        return false;
-    };
-    let mut sem = (**e).clone();
-    sem.estrela = None;
-    let mut l = Vec::new();
-    onde_esta(&[No::Elemento(sem)], nome, filhos, false, &mut l);
-    l == [Lugar::Raiz]
+    // Desce de `*` em `*`: em cada visão, um só `*` na raiz dela (fora de
+    // filho e de `<template>` escrito) contém o `#ref`; para quando ele
+    // está na própria visão.
+    let mut atuais: Vec<No> = nos.to_vec();
+    loop {
+        let mut estrelas = Vec::new();
+        estrelas_da_raiz(&atuais, filhos, &mut estrelas);
+        let com_ref: Vec<&&crate::html::Elemento> = estrelas
+            .iter()
+            .filter(|e| {
+                let mut l = Vec::new();
+                onde_esta(
+                    std::slice::from_ref(&No::Elemento((**e).clone())),
+                    nome,
+                    filhos,
+                    false,
+                    &mut l,
+                );
+                !l.is_empty()
+            })
+            .collect();
+        let [e] = com_ref.as_slice() else {
+            return false;
+        };
+        if e.estrela.as_ref().is_some_and(|l| l.nome == MARCA_DE_MOLDE) {
+            return false;
+        }
+        let mut sem = (**e).clone();
+        sem.estrela = None;
+        let mut l = Vec::new();
+        onde_esta(
+            std::slice::from_ref(&No::Elemento(sem.clone())),
+            nome,
+            filhos,
+            false,
+            &mut l,
+        );
+        match l.as_slice() {
+            [Lugar::Raiz] => return true,
+            [Lugar::Embutida] => atuais = vec![No::Elemento(sem)],
+            _ => return false,
+        }
+    }
+}
+
+/// Marca do valor de uma consulta de visão dinâmica na visão do componente:
+/// `\u{e}campo\u{f}`, trocada por [`mapa_da_consulta`] quando a cadeia
+/// inteira é conhecida ([`resolver_consultas`]).
+const MARCA_DE_CONSULTA: char = '\u{e}';
+const FIM_DE_CONSULTA: char = '\u{f}';
+
+/// `mapNestedViews` em cada nível da cadeia e
+/// `mapNestedViewsWithSingleResult` no último, que devolve o nó do `#ref`
+/// (`createDynamicUpdates` e `_mapNestedViews` em `compile_query.dart`):
+///
+/// ```text
+/// this._appEl_0.mapNestedViews((_ViewX1 nestedView) {
+///   return nestedView._appEl_1.mapNestedViewsWithSingleResult((_ViewX2 nestedView) {
+///     return nestedView._el_1;
+///   });
+/// })
+/// ```
+///
+/// Com a indentação de quem o escreve dentro do `if` do campo sujo.
+fn mapa_da_consulta(cadeia: &[(String, String)], referencia: &str) -> String {
+    let mut saida = String::new();
+    let ultimo = cadeia.len().saturating_sub(1);
+    for (k, (ancora, classe)) in cadeia.iter().enumerate() {
+        let receptor = if k == 0 { "this" } else { "nestedView" };
+        let metodo = if k == ultimo {
+            "mapNestedViewsWithSingleResult"
+        } else {
+            "mapNestedViews"
+        };
+        let _ = write!(
+            saida,
+            "{receptor}.{ancora}.{metodo}(({classe} nestedView) {{\n"
+        );
+        let _ = write!(saida, "{}return ", " ".repeat(6 + 2 * k));
+    }
+    let _ = write!(saida, "nestedView{MARCA_DE_REF}.{referencia}{FIM_DE_REF};");
+    for k in (0..cadeia.len()).rev() {
+        let _ = write!(saida, "\n{}}})", " ".repeat(4 + 2 * k));
+        if k > 0 {
+            saida.push(';');
+        }
+    }
+    saida
+}
+
+/// Troca cada [`MARCA_DE_CONSULTA`] pelo [`mapa_da_consulta`] da cadeia
+/// dela, com a indentação do lugar (o `if` do campo sujo, dentro do
+/// `if (!debugThrowIfChanged)`).
+fn resolver_consultas(
+    texto: &str,
+    consultas: &[(String, String)],
+    cadeias: &std::collections::HashMap<String, Vec<(String, String)>>,
+) -> String {
+    let mut saida = texto.to_string();
+    for (campo, referencia) in consultas {
+        let Some(cadeia) = cadeias.get(campo) else {
+            continue;
+        };
+        let marca = format!("{MARCA_DE_CONSULTA}{campo}{FIM_DE_CONSULTA}");
+        let mapa = indentar(&mapa_da_consulta(cadeia, referencia), 4);
+        saida = saida.replace(&marca, mapa.trim_start());
+    }
+    saida
 }
 
 /// Uma consulta de visão atualizada na detecção (`createDynamicUpdates`):
@@ -1873,9 +1957,14 @@ struct Corpo<'a> {
     /// Na visão do componente: as consultas de visão atualizadas na
     /// detecção ([`consulta_em_embutida`]).
     consultas_dinamicas: Vec<ConsultaDinamica>,
+    /// As consultas dinâmicas cujo resultado está abaixo desta visão
+    /// embutida: (`#ref`, campo sujo, níveis até a visão do componente).
+    consultas_em_transito: Vec<(String, String, u32)>,
+    /// As cadeias do [`Contexto`].
+    cadeias: &'a std::cell::RefCell<std::collections::HashMap<String, Vec<(String, String)>>>,
     /// Na embutida: os `#ref` resultado de consulta da visão do componente
     /// (o nó vira campo) e o campo "sujo" de cada uma.
-    refs_consultados: Vec<(String, String)>,
+    refs_consultados: Vec<(String, String, u32)>,
     /// Cada `#ref` visto, com a expressão do nó (`_el_3` ou `this._el_3`) —
     /// é o valor que o `@ViewChild` recebe.
     refs: std::collections::HashMap<String, String>,
@@ -3922,9 +4011,12 @@ impl Corpo<'_> {
         } else {
             self.profundidade + 1
         };
-        // Consulta de visão com o resultado aqui dentro: a embutida marca o
-        // campo sujo no `dirtyParentQueriesInternal`.
-        let mut refs_consultados = Vec::new();
+        // Consulta de visão com o resultado aqui dentro: a âncora e a classe
+        // entram na cadeia dela; se o resultado está na visão nova, ela marca
+        // o campo sujo no `dirtyParentQueriesInternal`; se está mais abaixo,
+        // a consulta segue em trânsito para as aninhadas.
+        let classe_nova = format!("_{}{indice}", self.classe_da_visao);
+        let mut pendentes: Vec<(String, String, u32)> = Vec::new();
         for q in &mut self.consultas_dinamicas {
             let mut l = Vec::new();
             onde_esta(
@@ -3937,15 +4029,42 @@ impl Corpo<'_> {
             if l.is_empty() || q.origem.is_some() {
                 continue;
             }
-            q.origem = Some((
-                format!("_appEl_{n}"),
-                format!("_{}{indice}", self.classe_da_visao),
-            ));
-            refs_consultados.push((q.referencia.clone(), q.campo.clone()));
+            q.origem = Some((format!("_appEl_{n}"), classe_nova.clone()));
+            pendentes.push((q.referencia.clone(), q.campo.clone(), 1));
+        }
+        for (r, campo, niveis) in &self.consultas_em_transito {
+            let mut l = Vec::new();
+            onde_esta(
+                std::slice::from_ref(&No::Elemento(e.clone())),
+                r,
+                self.filhos,
+                false,
+                &mut l,
+            );
+            if !l.is_empty() {
+                pendentes.push((r.clone(), campo.clone(), niveis + 1));
+            }
+        }
+        let mut refs_consultados = Vec::new();
+        let mut consultas_em_transito = Vec::new();
+        for (r, campo, niveis) in pendentes {
+            self.cadeias
+                .borrow_mut()
+                .entry(campo.clone())
+                .or_default()
+                .push((format!("_appEl_{n}"), classe_nova.clone()));
+            let mut l = Vec::new();
+            onde_esta(&nos, &r, self.filhos, false, &mut l);
+            if l == [Lugar::Raiz] {
+                refs_consultados.push((r, campo, niveis));
+            } else {
+                consultas_em_transito.push((r, campo, niveis));
+            }
         }
         self.embutidas.push(EspecEmbutida {
             indice,
             refs_consultados,
+            consultas_em_transito,
             profundidade: self.profundidade + 1,
             nivel_do_topo,
             classe: format!("_{}{indice}", self.classe_da_visao),
@@ -4623,7 +4742,7 @@ impl Corpo<'_> {
             (!r.valor.is_empty() && exportada(r).is_none())
                 || !(self.refs_livres.contains(&r.nome)
                     || self.refs_locais.contains(&r.nome)
-                    || self.refs_consultados.iter().any(|(n, _)| *n == r.nome))
+                    || self.refs_consultados.iter().any(|(n, _, _)| *n == r.nome))
         }) {
             self.anotar(recusa(
                 Motivo::Ligacao,
@@ -4688,7 +4807,7 @@ impl Corpo<'_> {
         let lido_como_local = e.referencias.iter().any(|r| {
             r.valor.is_empty()
                 && (self.refs_locais.contains(&r.nome)
-                    || self.refs_consultados.iter().any(|(n, _)| *n == r.nome))
+                    || self.refs_consultados.iter().any(|(n, _, _)| *n == r.nome))
         });
         let alvo = if !liga_no_elemento(e, &casadas) && !lido_como_local {
             self.linhas.push(format!("    final _el_{n} = {criacao};"));
@@ -5727,8 +5846,11 @@ struct EspecEmbutida {
     /// Os `#ref` lidos como local declarados em visões ancestrais: (nome,
     /// classe da visão que o declara, quantos `parentView` até ela).
     refs_ancestrais: Vec<(String, String, u32)>,
-    /// Os resultados de consulta de visão nesta visão: (`#ref`, campo sujo).
-    refs_consultados: Vec<(String, String)>,
+    /// Os resultados de consulta de visão nesta visão: (`#ref`, campo sujo,
+    /// quantos `parentView` até a visão do componente).
+    refs_consultados: Vec<(String, String, u32)>,
+    /// As consultas com resultado mais abaixo ([`Corpo::consultas_em_transito`]).
+    consultas_em_transito: Vec<(String, String, u32)>,
     /// Os provedores acima da âncora, vistos da visão nova.
     acima: Vec<(crate::diretivas::Token, String, Option<(String, u32)>)>,
     componentes_acima: u32,
@@ -5767,6 +5889,11 @@ struct Contexto<'a> {
     /// O nó de cada `#ref` visto, de todas as visões já percorridas: a visão
     /// aninhada é emitida depois da que a contém, e lê dela o campo.
     refs_resolvidos: std::cell::RefCell<std::collections::HashMap<String, String>>,
+    /// A cadeia de cada consulta de visão dinâmica (pelo campo sujo): a
+    /// âncora `_appEl_n` e a classe da visão embutida em cada nível, da do
+    /// componente para baixo. Os níveis de baixo só se conhecem ao emitir
+    /// as visões aninhadas.
+    cadeias: std::cell::RefCell<std::collections::HashMap<String, Vec<(String, String)>>>,
 }
 
 impl<'a> Contexto<'a> {
@@ -5789,6 +5916,8 @@ impl<'a> Contexto<'a> {
             refs_ambiguos: self.refs_ambiguos.clone(),
             refs_ancestrais: Vec::new(),
             consultas_dinamicas: Vec::new(),
+            consultas_em_transito: Vec::new(),
+            cadeias: &self.cadeias,
             refs_consultados: Vec::new(),
             refs: Default::default(),
             refs_em_ordem: Vec::new(),
@@ -5932,8 +6061,9 @@ fn corpo_da_embutida(
     }
     let refs_locais = referencias_locais(&espec.nos, ctx.filhos, &ctx.refs_unicos);
     let mut promovidos = refs_locais.clone();
-    promovidos.extend(espec.refs_consultados.iter().map(|(n, _)| n.clone()));
+    promovidos.extend(espec.refs_consultados.iter().map(|(n, _, _)| n.clone()));
     dentro.refs_consultados = espec.refs_consultados.clone();
+    dentro.consultas_em_transito = espec.consultas_em_transito.clone();
     if let Err(r) = alocar_imports_dos_campos(
         dentro.imp,
         &espec.nos,
@@ -6118,9 +6248,13 @@ fn corpo_da_embutida(
         let linhas: Vec<String> = espec
             .refs_consultados
             .iter()
-            .map(|(_, campo)| {
+            .map(|(_, campo, niveis)| {
+                let mut vista = "this".to_string();
+                for _ in 0..*niveis {
+                    vista = format!("({vista}.parentView!)");
+                }
                 format!(
-                    "    {util}.unsafeCast<{}0>((this.parentView!)).{campo} = true;",
+                    "    {util}.unsafeCast<{}0>({vista}).{campo} = true;",
                     ctx.classe_da_visao
                 )
             })
@@ -7438,6 +7572,7 @@ fn gerar_componente(
         refs_ambiguos: referencias_ambiguas(nos),
         refs_unicos,
         refs_resolvidos: Default::default(),
+        cadeias: Default::default(),
     };
     let mut corpo = ctx.corpo(imp, nomes, coleta.take(), false);
     corpo.refs_livres = referencias_livres(nos);
@@ -7711,14 +7846,13 @@ fn gerar_componente(
     // na ordem das consultas.
     let mut apos_conteudo = Vec::new();
     for d in &corpo.consultas_dinamicas {
-        let Some((ancora, classe)) = &d.origem else {
+        if d.origem.is_none() {
             continue;
-        };
+        }
         let q = tardio(QUERIES);
-        let mapa = format!(
-            "this.{ancora}.mapNestedViewsWithSingleResult(({classe} nestedView) {{\n      return nestedView{MARCA_DE_REF}.{}{FIM_DE_REF};\n    }})",
-            d.referencia
-        );
+        // Os níveis de baixo da cadeia só se conhecem depois de emitidas as
+        // aninhadas: [`mapa_da_consulta`] entra no lugar da marca.
+        let mapa = format!("{MARCA_DE_CONSULTA}{}{FIM_DE_CONSULTA}", d.campo);
         let valor = if d.lista {
             mapa
         } else {
@@ -7732,6 +7866,11 @@ fn gerar_componente(
         ));
     }
     apos_conteudo.extend(corpo.apos_conteudo.iter().cloned());
+    let corpo_consultas: Vec<(String, String)> = corpo
+        .consultas_dinamicas
+        .iter()
+        .map(|d| (d.campo.clone(), d.referencia.clone()))
+        .collect();
     // A detecção na ordem de `writeChangeDetectionStatements`: entradas de
     // diretivas e filhos, visões aninhadas, ligações de propriedade e texto,
     // visões-filhas. `_ctx` e `firstCheck` só são declarados se alguém os
@@ -8016,8 +8155,10 @@ class _View{x}Host0 extends {hosp}.HostView<{proprio}.{x}> {{
 }}
 "
     );
-    // O nó que uma visão lê de uma aninhada (o resultado de consulta) só é
-    // conhecido depois de emitida a aninhada.
+    // As cadeias das consultas dinâmicas e o nó que uma visão lê de uma
+    // aninhada (o resultado de consulta) só são conhecidos depois de
+    // emitidas as aninhadas.
+    let s = resolver_consultas(&s, &corpo_consultas, &ctx.cadeias.borrow());
     let s = resolver_refs(&s, &ctx.refs_resolvidos.borrow());
     if s.contains(MARCA_DE_REF) && coleta.is_none() {
         return Err(recusa(Motivo::Ligacao, "#ref sem nó no template"));
