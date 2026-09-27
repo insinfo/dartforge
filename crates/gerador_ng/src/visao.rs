@@ -433,9 +433,8 @@ fn referencias_unicas(nos: &[No], c: &Componente) -> std::collections::HashSet<S
     let (mut refs, mut lets) = (Vec::new(), Vec::new());
     todas(nos, &mut refs, &mut lets);
     refs.iter()
-        .filter(|(nome, valor)| {
-            valor.is_empty()
-                && refs.iter().filter(|(n, _)| n == nome).count() == 1
+        .filter(|(nome, _)| {
+            refs.iter().filter(|(n, _)| n == nome).count() == 1
                 && !lets.contains(nome)
                 && !c.membros.contains_key(nome.as_str())
                 && !c.metodos.contains_key(nome.as_str())
@@ -568,6 +567,15 @@ fn formas_contra_o_template(
             continue;
         }
         onde_esta(nos, &consulta.referencia, filhos, false, &mut lugares);
+        // `#ref="x"`: o valor seria a diretiva exportada, forma ainda sem
+        // caso na consulta.
+        if referencia_com_valor(nos, &consulta.referencia) {
+            fora.push(recusa(
+                Motivo::ViewChildEmFilho,
+                "@ViewChild de #ref com valor (exportAs)",
+            ));
+            continue;
+        }
         // `@ViewChild('t')` de um `<template #t>` escrito ([`Corpo::molde`]):
         // o valor lido é o `TemplateRef` do nó (o `read` implícito de um
         // `<template>`), atribuído no `build()` como o de um elemento
@@ -888,6 +896,43 @@ fn molde_com_diretiva(
         },
         e.propriedades.clone(),
     ))
+}
+
+/// Todos os nomes de `#ref` escritos no template.
+fn todas_as_referencias(nos: &[No]) -> std::collections::HashSet<String> {
+    let mut saida = std::collections::HashSet::new();
+    for n in nos {
+        if let No::Elemento(e) = n {
+            saida.extend(e.referencias.iter().map(|r| r.nome.clone()));
+            saida.extend(todas_as_referencias(&e.filhos));
+        }
+    }
+    saida
+}
+
+/// Os `#ref` lidos como local cujo nó vira campo: os sem valor. Com valor
+/// (`#d="x"`), o local é a diretiva exportada, e o elemento fica como está.
+fn nos_promovidos(
+    nos: &[No],
+    refs: &std::collections::HashSet<String>,
+) -> std::collections::HashSet<String> {
+    refs.iter()
+        .filter(|n| !referencia_com_valor(nos, n))
+        .cloned()
+        .collect()
+}
+
+/// Algum `#nome="valor"` (com valor) no template, em qualquer profundidade?
+fn referencia_com_valor(nos: &[No], nome: &str) -> bool {
+    nos.iter().any(|n| match n {
+        No::Elemento(e) => {
+            e.referencias
+                .iter()
+                .any(|r| r.nome == nome && !r.valor.is_empty())
+                || referencia_com_valor(&e.filhos, nome)
+        }
+        _ => false,
+    })
 }
 
 /// Os `#ref` dos `<template>` escritos ([`MARCA_DE_MOLDE`]), em qualquer
@@ -1706,6 +1751,10 @@ struct Corpo<'a> {
     /// ([`referencias_locais`]): o nó vira campo e o nome, local
     /// (`final local_x = this._el_n;`).
     refs_locais: std::collections::HashSet<String>,
+    /// Os `#ref` fora de [`referencias_unicas`] (repetidos, sombreados por
+    /// `let` ou por membro): o escopo por visão deles ainda não é
+    /// traduzido, e a recusa diz isso.
+    refs_ambiguos: std::collections::HashSet<String>,
     /// Os `#ref` locais das visões ancestrais (ver [`EspecEmbutida`]).
     refs_ancestrais: Vec<(String, String, u32)>,
     /// Na visão do componente: as consultas de visão atualizadas na
@@ -4369,10 +4418,23 @@ impl Corpo<'_> {
                 format!("atributo interpolado em entrada de diretiva ({})", a.nome),
             ))?;
         }
+        // `#ref="x"`: a diretiva do nó com `exportAs: 'x'` (uma só; mais de
+        // uma é erro no oficial). O local vale a instância dela
+        // (`referenceTokens` em `compile_element.dart`).
+        let exportada = |r: &crate::html::Ligacao| {
+            let achadas: Vec<_> = casadas
+                .iter()
+                .filter(|d| d.export_as.as_deref() == Some(r.valor.as_str()))
+                .collect();
+            match achadas.as_slice() {
+                [d] => Some(std::sync::Arc::clone(d)),
+                _ => None,
+            }
+        };
         // `#ref` só na forma que não muda nada no nó; o valor dele é
         // registrado adiante, para o `@ViewChild`.
         if let Some(r) = e.referencias.iter().find(|r| {
-            !r.valor.is_empty()
+            (!r.valor.is_empty() && exportada(r).is_none())
                 || !(self.refs_livres.contains(&r.nome)
                     || self.refs_locais.contains(&r.nome)
                     || self.refs_consultados.iter().any(|(n, _)| *n == r.nome))
@@ -4380,7 +4442,9 @@ impl Corpo<'_> {
             self.anotar(recusa(
                 Motivo::Ligacao,
                 if !r.valor.is_empty() {
-                    "#ref com valor (`#f=\"ngForm\"`)"
+                    "#ref com valor sem uma diretiva do nó que o exporte"
+                } else if self.refs_ambiguos.contains(&r.nome) {
+                    "#ref repetido ou sombreado (por outro #ref, `let` ou membro)"
                 } else if self.embutida {
                     "#ref em visão embutida"
                 } else {
@@ -4436,8 +4500,9 @@ impl Corpo<'_> {
         // `build()`. Evento sozinho não exige campo.
         let tipo = dom::tipo_da_tag(&tag);
         let lido_como_local = e.referencias.iter().any(|r| {
-            self.refs_locais.contains(&r.nome)
-                || self.refs_consultados.iter().any(|(n, _)| *n == r.nome)
+            r.valor.is_empty()
+                && (self.refs_locais.contains(&r.nome)
+                    || self.refs_consultados.iter().any(|(n, _)| *n == r.nome))
         });
         let alvo = if !liga_no_elemento(e, &casadas) && !lido_como_local {
             self.linhas.push(format!("    final _el_{n} = {criacao};"));
@@ -4455,8 +4520,21 @@ impl Corpo<'_> {
         // `renderNode.toReadExpr()`: o local ou o campo, como o
         // nó tiver sido declarado.
         for r in &e.referencias {
-            self.refs.insert(r.nome.clone(), alvo.clone());
-            self.refs_em_ordem.push((r.nome.clone(), alvo.clone()));
+            // Com valor, a instância da diretiva exportada.
+            let leitura = match (r.valor.is_empty(), exportada(r), &resolvido) {
+                (true, _, _) => alvo.clone(),
+                (false, Some(d), Some(res)) => match res
+                    .diretivas
+                    .iter()
+                    .find(|(x, _)| std::sync::Arc::ptr_eq(x, &d))
+                {
+                    Some((_, campo)) => format!("this.{campo}"),
+                    None => continue,
+                },
+                _ => continue,
+            };
+            self.refs.insert(r.nome.clone(), leitura.clone());
+            self.refs_em_ordem.push((r.nome.clone(), leitura));
         }
         // As mensagens `@i18n` do nó: a dos atributos sai no lugar do
         // literal, a dos filhos no lugar do texto.
@@ -5496,6 +5574,8 @@ struct Contexto<'a> {
     pipes: &'a PipesDoTemplate,
     /// Os nomes de `#ref` que podem virar local ([`referencias_unicas`]).
     refs_unicos: std::collections::HashSet<String>,
+    /// Os nomes de `#ref` escritos que não estão em `refs_unicos`.
+    refs_ambiguos: std::collections::HashSet<String>,
     /// O nó de cada `#ref` visto, de todas as visões já percorridas: a visão
     /// aninhada é emitida depois da que a contém, e lê dela o campo.
     refs_resolvidos: std::cell::RefCell<std::collections::HashMap<String, String>>,
@@ -5518,6 +5598,7 @@ impl<'a> Contexto<'a> {
             ouvintes: Vec::new(),
             refs_livres: Default::default(),
             refs_locais: Default::default(),
+            refs_ambiguos: self.refs_ambiguos.clone(),
             refs_ancestrais: Vec::new(),
             consultas_dinamicas: Vec::new(),
             refs_consultados: Vec::new(),
@@ -5649,7 +5730,7 @@ fn corpo_da_embutida(
         ctx.usadas,
         &ctx.asset,
         &ctx.pipes.imports_dos_campos(espec.indice),
-        &promovidos,
+        &nos_promovidos(&espec.nos, &promovidos),
     ) {
         dentro.anotar(r)?;
     }
@@ -7071,7 +7152,7 @@ fn gerar_componente(
         usadas,
         &local.asset(),
         &tabela.imports_dos_campos(0),
-        &refs_locais,
+        &nos_promovidos(nos, &refs_locais),
     ) {
         anotar(coleta, r)?;
     }
@@ -7097,6 +7178,10 @@ fn gerar_componente(
         tipo_do_contexto: format!("{proprio}.{}", c.classe),
         html: html.clone(),
         pipes: &tabela,
+        refs_ambiguos: todas_as_referencias(nos)
+            .difference(&refs_unicos)
+            .cloned()
+            .collect(),
         refs_unicos,
         refs_resolvidos: Default::default(),
     };
