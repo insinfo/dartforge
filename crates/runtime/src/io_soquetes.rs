@@ -429,6 +429,83 @@ pub extern "C" fn dartforge_nativo_Socket_SetRawOption(this: i64, nivel: i64, op
     }
 }
 
+/// `Socket_JoinMulticast(addr, interfaceAddr, interfaceIndex)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Socket_JoinMulticast(this: i64, addr: i64, iface: i64, indice: i64) {
+    multicast(this, addr, iface, indice, true);
+}
+
+/// `Socket_LeaveMulticast(addr, interfaceAddr, interfaceIndex)`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Socket_LeaveMulticast(this: i64, addr: i64, iface: i64, indice: i64) {
+    multicast(this, addr, iface, indice, false);
+}
+
+/// Entra (`entrar`) ou sai de um grupo multicast, como a VM em cada sistema
+/// (`socket_base_{linux,macos,win}.cc`): no Linux, `MCAST_JOIN_GROUP` com o
+/// `group_req` (o índice da interface e o endereço do grupo); no macOS e no
+/// Windows, `ip_mreq` (IPv4, pelo endereço da interface) ou `ipv6_mreq`
+/// (IPv6, pelo índice). O endereço do grupo são os 4 ou 16 bytes do
+/// `_InternetAddress._in_addr`.
+fn multicast(this: i64, addr: i64, iface: i64, indice: i64, entrar: bool) {
+    let Some(s) = soquete_do_objeto(this) else { return };
+    let Some(grupo) = bytes_da_lista_tipada(addr).filter(|b| b.len() == 4 || b.len() == 16) else {
+        lancar_erro_de_argumento("Invalid multicast address");
+        return;
+    };
+    let iface = if iface == 0 { None } else { bytes_da_lista_tipada(iface) };
+    let v4 = grupo.len() == 4;
+    let (nivel, opcao, dados) = opcao_de_multicast(&grupo, iface.as_deref(), indice, v4, entrar);
+    if !definir_opcao_bruta(s.descritor(), nivel, opcao, &dados) {
+        lancar_os_error(&ultimo_erro());
+    }
+}
+
+/// `IPPROTO_IP` e `IPPROTO_IPV6` (os mesmos nos três sistemas).
+const NIVEL_IP: i64 = 0;
+const NIVEL_IPV6: i64 = 41;
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn opcao_de_multicast(grupo: &[u8], _iface: Option<&[u8]>, indice: i64, v4: bool, entrar: bool) -> (i64, i64, Vec<u8>) {
+    // `struct group_req { uint32_t gr_interface; struct sockaddr_storage
+    // gr_group; }`: o `sockaddr_storage` alinhado em 8 (136 bytes).
+    const MCAST_JOIN_GROUP: i64 = 42;
+    const MCAST_LEAVE_GROUP: i64 = 45;
+    let mut r = vec![0u8; 8 + 128];
+    r[0..4].copy_from_slice(&(indice as u32).to_ne_bytes());
+    if v4 {
+        r[8..10].copy_from_slice(&2u16.to_ne_bytes()); // AF_INET
+        r[12..16].copy_from_slice(grupo);
+    } else {
+        r[8..10].copy_from_slice(&10u16.to_ne_bytes()); // AF_INET6
+        r[16..32].copy_from_slice(grupo);
+    }
+    let opcao = if entrar { MCAST_JOIN_GROUP } else { MCAST_LEAVE_GROUP };
+    (if v4 { NIVEL_IP } else { NIVEL_IPV6 }, opcao, r)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn opcao_de_multicast(grupo: &[u8], iface: Option<&[u8]>, indice: i64, v4: bool, entrar: bool) -> (i64, i64, Vec<u8>) {
+    // `IP_ADD_MEMBERSHIP`/`IP_DROP_MEMBERSHIP` e `IPV6_JOIN_GROUP`/
+    // `IPV6_LEAVE_GROUP` valem 12 e 13 no macOS e no Windows.
+    let opcao = if entrar { 12 } else { 13 };
+    if v4 {
+        // `struct ip_mreq { in_addr imr_multiaddr; in_addr imr_interface; }`
+        let mut r = vec![0u8; 8];
+        r[0..4].copy_from_slice(grupo);
+        if let Some(i) = iface.filter(|i| i.len() == 4) {
+            r[4..8].copy_from_slice(i);
+        }
+        (NIVEL_IP, opcao, r)
+    } else {
+        // `struct ipv6_mreq { in6_addr ipv6mr_multiaddr; unsigned int ipv6mr_interface; }`
+        let mut r = vec![0u8; 20];
+        r[0..16].copy_from_slice(grupo);
+        r[16..20].copy_from_slice(&(indice as u32).to_ne_bytes());
+        (NIVEL_IPV6, opcao, r)
+    }
+}
+
 /// `Socket_GetRawOption(level, option, data)`: grava o valor em `data`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Socket_GetRawOption(this: i64, nivel: i64, opcao: i64, dados: i64) {
@@ -600,4 +677,230 @@ fn pedido_de_resolucao_reversa(d: &[Portavel]) -> Portavel {
         return argumento_invalido();
     };
     resposta(nome_do_endereco(&e), Portavel::Str)
+}
+
+// ---------------------------------------------------------------------------
+// `RawSynchronousSocket` (`sync_socket.cc` da VM): um TCP bloqueante, sem o
+// manipulador de eventos. O `std::net::TcpStream` do Rust é o mesmo soquete
+// bloqueante nos três sistemas; ele mora numa caixa no campo nativo do
+// `_NativeSynchronousSocket` e é fechado no `closeSync` ou na coleta.
+
+/// O soquete síncrono do objeto (`None` depois do `closeSync`).
+type SoqueteSincrono = Option<std::net::TcpStream>;
+
+fn soquete_sincrono<'a>(objeto: i64) -> Option<&'a mut SoqueteSincrono> {
+    let p = campo_nativo(objeto);
+    if p == 0 {
+        lancar_erro_interno("No native peer");
+        return None;
+    }
+    // SAFETY: a caixa criada em `CreateConnectSync`, viva até a coleta do
+    // objeto (o finalizador a solta); o isolado é uma thread só.
+    Some(unsafe { &mut *(p as *mut SoqueteSincrono) })
+}
+
+fn finalizar_soquete_sincrono(p: usize) {
+    // SAFETY: a caixa de `CreateConnectSync`, solta só aqui.
+    drop(unsafe { Box::from_raw(p as *mut SoqueteSincrono) });
+}
+
+/// O `OSError` de um erro do sistema do `std`.
+fn erro_de_io(e: &std::io::Error) -> i64 {
+    ErroDoSo::do_codigo(e.raw_os_error().unwrap_or(0)).para_dart()
+}
+
+/// `[tipo, texto, bytes]` de um IP.
+fn dart_endereco_ip(ip: std::net::IpAddr) -> i64 {
+    let (tipo, bytes) = match ip {
+        std::net::IpAddr::V4(a) => (TIPO_IPV4, a.octets().to_vec()),
+        std::net::IpAddr::V6(a) => (TIPO_IPV6, a.octets().to_vec()),
+    };
+    let texto = alocar_str(&ip.to_string());
+    com_raizes(&[texto], || {
+        let b = dart_bytes(bytes);
+        com_raizes(&[b], || dart_lista_fixa(&[dart_int(tipo), texto, b]))
+    })
+}
+
+/// `SynchronousSocket_LookupRequest(host, type)`: `[[tipo, texto, bytes]…]`
+/// ou o `OSError`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_SynchronousSocket_LookupRequest(host: i64, tipo: i64) -> i64 {
+    let host = String::from_utf8_lossy(&utf8_de_texto(host)).into_owned();
+    match resolver_nome(&host, tipo) {
+        Ok(v) => {
+            let mut itens = Vec::with_capacity(v.len());
+            let quadro = HEAP.with(|h| h.borrow_mut().push_frame_with_slots(v.len().max(1)));
+            for (i, e) in v.iter().enumerate() {
+                let texto = alocar_str(&e.texto());
+                let item = com_raizes(&[texto], || {
+                    let b = dart_bytes(e.ip());
+                    com_raizes(&[b], || dart_lista_fixa(&[dart_int(e.tipo()), texto, b]))
+                });
+                HEAP.with(|h| h.borrow_mut().set_root(quadro, i, item));
+                itens.push(item);
+            }
+            let r = dart_lista_fixa(&itens);
+            HEAP.with(|h| h.borrow_mut().pop_frame(quadro));
+            r
+        }
+        Err(e) => e.para_dart(),
+    }
+}
+
+/// `SynchronousSocket_CreateConnectSync(addr, port)`: `null` conectado, ou
+/// o `OSError`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_SynchronousSocket_CreateConnectSync(this: i64, addr: i64, porta: i64) -> i64 {
+    let ip = match bytes_da_lista_tipada(addr).as_deref() {
+        Some(&[a, b, c, d]) => std::net::IpAddr::from([a, b, c, d]),
+        Some(b) if b.len() == 16 => {
+            let mut o = [0u8; 16];
+            o.copy_from_slice(b);
+            std::net::IpAddr::from(o)
+        }
+        _ => {
+            lancar_endereco_invalido();
+            return 0;
+        }
+    };
+    match std::net::TcpStream::connect((ip, porta as u16)) {
+        Ok(s) => {
+            let p = Box::into_raw(Box::new(Some(s))) as i64;
+            gravar_campo_nativo(this, p);
+            anexar_finalizador(this, finalizar_soquete_sincrono, p as usize);
+            0
+        }
+        Err(e) => erro_de_io(&e),
+    }
+}
+
+/// `SynchronousSocket_Available`: os bytes já recebidos e não lidos.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_SynchronousSocket_Available(this: i64) -> i64 {
+    let Some(Some(s)) = soquete_sincrono(this) else { return dart_int(0) };
+    dart_int(bytes_prontos(s).max(0))
+}
+
+#[cfg(unix)]
+fn bytes_prontos(s: &std::net::TcpStream) -> i64 {
+    use std::os::fd::AsRawFd;
+    bytes_disponiveis(i64::from(s.as_raw_fd()))
+}
+
+#[cfg(windows)]
+fn bytes_prontos(s: &std::net::TcpStream) -> i64 {
+    use std::os::windows::io::AsRawSocket;
+    #[link(name = "ws2_32")]
+    unsafe extern "system" {
+        fn ioctlsocket(s: usize, cmd: i32, argp: *mut u32) -> i32;
+    }
+    const FIONREAD: i32 = 0x4004_667F;
+    let mut n: u32 = 0;
+    // SAFETY: o soquete do `TcpStream`, vivo durante a chamada.
+    if unsafe { ioctlsocket(s.as_raw_socket() as usize, FIONREAD, &mut n) } != 0 {
+        return -1;
+    }
+    i64::from(n)
+}
+
+/// `SynchronousSocket_CloseSync`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_SynchronousSocket_CloseSync(this: i64) {
+    if let Some(s) = soquete_sincrono(this) {
+        s.take();
+    }
+}
+
+/// `SynchronousSocket_GetPort`: a porta local ou o `OSError`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_SynchronousSocket_GetPort(this: i64) -> i64 {
+    let Some(Some(s)) = soquete_sincrono(this) else { return 0 };
+    match s.local_addr() {
+        Ok(a) => dart_int(i64::from(a.port())),
+        Err(e) => erro_de_io(&e),
+    }
+}
+
+/// `SynchronousSocket_GetRemotePeer`: `[[tipo, texto, bytes], porta]` ou o
+/// `OSError`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_SynchronousSocket_GetRemotePeer(this: i64) -> i64 {
+    let Some(Some(s)) = soquete_sincrono(this) else { return 0 };
+    match s.peer_addr() {
+        Ok(a) => {
+            let e = dart_endereco_ip(a.ip());
+            com_raizes(&[e], || dart_lista_fixa(&[e, dart_int(i64::from(a.port()))]))
+        }
+        Err(e) => erro_de_io(&e),
+    }
+}
+
+/// `SynchronousSocket_Read(len)`: até `len` bytes (bloqueia até chegar
+/// algum); `null` no fim do fluxo; ou o `OSError`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_SynchronousSocket_Read(this: i64, len: i64) -> i64 {
+    use std::io::Read;
+    let Some(Some(s)) = soquete_sincrono(this) else { return 0 };
+    let len = len.max(0) as usize;
+    let mut buf = vec![0u8; len];
+    match s.read(&mut buf) {
+        Ok(0) => 0,
+        Ok(n) => {
+            buf.truncate(n);
+            dart_bytes(buf)
+        }
+        Err(e) => erro_de_io(&e),
+    }
+}
+
+/// `SynchronousSocket_ReadList(buffer, offset, bytes)`: grava em `buffer`
+/// e devolve quantos leu (0 no fim do fluxo), ou o `OSError`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_SynchronousSocket_ReadList(this: i64, buffer: i64, inicio: i64, n: i64) -> i64 {
+    use std::io::Read;
+    let Some(Some(s)) = soquete_sincrono(this) else { return 0 };
+    let inicio = inicio.max(0) as usize;
+    let n = n.max(0) as usize;
+    let mut buf = vec![0u8; n];
+    match s.read(&mut buf) {
+        Ok(lidos) => {
+            gravar_bytes_na_lista(buffer, inicio, &buf[..lidos]);
+            dart_int(lidos as i64)
+        }
+        Err(e) => erro_de_io(&e),
+    }
+}
+
+/// `SynchronousSocket_WriteList(buffer, offset, bytes)`: escreve tudo e
+/// devolve quantos, ou o `OSError`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_SynchronousSocket_WriteList(this: i64, buffer: i64, inicio: i64, n: i64) -> i64 {
+    use std::io::Write;
+    let Some(Some(s)) = soquete_sincrono(this) else { return 0 };
+    let inicio = inicio.max(0) as usize;
+    let n = n.max(0) as usize;
+    let bytes = bytes_da_lista_tipada(buffer).unwrap_or_default();
+    let inicio = inicio.min(bytes.len());
+    let fim = (inicio + n).min(bytes.len());
+    match s.write_all(&bytes[inicio..fim]) {
+        Ok(()) => dart_int((fim - inicio) as i64),
+        Err(e) => erro_de_io(&e),
+    }
+}
+
+/// `SynchronousSocket_ShutdownRead`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_SynchronousSocket_ShutdownRead(this: i64) {
+    if let Some(Some(s)) = soquete_sincrono(this) {
+        let _ = s.shutdown(std::net::Shutdown::Read);
+    }
+}
+
+/// `SynchronousSocket_ShutdownWrite`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_SynchronousSocket_ShutdownWrite(this: i64) {
+    if let Some(Some(s)) = soquete_sincrono(this) {
+        let _ = s.shutdown(std::net::Shutdown::Write);
+    }
 }
