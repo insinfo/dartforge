@@ -1,17 +1,16 @@
 //! Consultas semânticas transitórias. A árvore, o programa e a tabela de tipos
 //! pertencem a uma única requisição e caem antes da próxima versão do texto.
 
-use crate::{Analisador, AnalisadorSintatico, DocumentStore, navegacao};
+use crate::{Analisador, AnalisadorSintatico, DocumentStore, Hover, Referencias};
 use dartforge_diagnostics::{Diagnostic, Span};
-use dartforge_elements::{gerado::Construtor, load::load_lenient_gerados, model::{Element, FunctionKind, FunctionRef, Program, UnitId, VariableRef}, sdk::SdkLayout};
-use dartforge_frontend::ast::{ExprKind, ParameterKind, TypeKind};
+use dartforge_elements::{gerado::Construtor, load::load_lenient_gerados, model::{Program, UnitId}, sdk::SdkLayout};
 use dartforge_intern::Interner;
-use dartforge_types::{CoreTypes, TypeTable, resolve_outline};
 use url::Url;
 
-/// Analisador sintático com resolução de variáveis e funções de topo importadas.
-/// O SDK é configuração pequena; nenhum `Program`, AST ou `TypeTable` fica
-/// retido entre chamadas. Na falta do SDK, mantém as respostas sintáticas.
+/// Analisador com a resolução e os tipos da inferência comum: definição,
+/// hover e referências pela identidade da declaração (`crate::projeto`),
+/// completar, renomear e ações. Na falta do SDK, mantém as respostas
+/// sintáticas.
 pub struct AnalisadorSemantico {
     sintatico: AnalisadorSintatico,
     sdk: Option<SdkLayout>,
@@ -82,116 +81,63 @@ impl AnalisadorSemantico {
         gerador
     }
 
-    fn elemento_importado(programa: &Program, unidade: UnitId, offset: usize) -> Option<(Span, Element)> {
-        let u = programa.unit(unidade);
-        if !u.ast.patterns.is_empty() { return None; }
-        let qualificada = u.ast.exprs.iter().find_map(|e| {
-            let ExprKind::Property { target, name, null_aware: false } = &e.kind else { return None };
-            if !(name.span.start <= offset && offset < name.span.end) { return None; }
-            let ExprKind::Identifier(prefixo) = &u.ast.expr(*target).kind else { return None };
-            Some((*prefixo, *name))
-        });
-        let (referencia, binding) = if let Some((prefixo, nome)) = qualificada {
-            if navegacao::sombreado(&u.ast, prefixo.sym)
-                || programa.library(u.library).declared.contains_key(&prefixo.sym)
-            { return None; }
-            (nome.span, programa.lookup_prefixed(u.library, prefixo.sym, nome.sym)?)
-        } else {
-            let nome = navegacao::referencia_expr(&u.ast, offset)?;
-            if navegacao::sombreado(&u.ast, nome.sym) { return None; }
-            (nome.span, programa.lookup(u.library, nome.sym)?)
-        };
-        if binding.ambiguous { return None; }
-        let elemento = binding.getter?;
-        let biblioteca = match elemento {
-            Element::Variable(id) => programa.variable(id).library,
-            Element::Function(id) if matches!(programa.function(id).kind, FunctionKind::Function | FunctionKind::Getter) => programa.function(id).library,
-            _ => return None,
-        };
-        if biblioteca == u.library { return None; }
-        Some((referencia, elemento))
+    /// Um [`DocumentStore`] só com `uri`, para as chamadas da trait que
+    /// recebem o texto sem a coleção de abertos.
+    fn so_este(uri: &str, texto: &str) -> DocumentStore {
+        let mut docs = DocumentStore::new();
+        docs.open(uri.to_string(), 0, texto.to_string());
+        docs
     }
 
-    fn destino_variavel(programa: &Program, variavel: &dartforge_elements::model::VariableElement) -> Option<(String, Span)> {
-        let VariableRef::TopLevel { unit, decl, index } = variavel.node else { return None };
-        let u = programa.unit(unit);
-        let dartforge_frontend::ast::DeclKind::Variables(lista) = &u.ast.decl(decl).kind else { return None };
-        let nome = lista.variables.get(index)?.name.span;
-        let uri = Url::from_file_path(u.path.as_ref()?).ok()?.to_string();
-        Some((uri, nome))
-    }
-
-    fn destino_funcao(programa: &Program, funcao: &dartforge_elements::model::FunctionElement) -> Option<(String, Span)> {
-        let FunctionRef::Function { unit, function } = funcao.node else { return None };
-        let u = programa.unit(unit);
-        let span = u.ast.function(function).name?.span;
-        let uri = Url::from_file_path(u.path.as_ref()?).ok()?.to_string();
-        Some((uri, span))
-    }
-
-    fn definir(&mut self, uri: &str, texto: &str, offset: usize, documentos: Option<&DocumentStore>) -> Option<(String, Option<Span>)> {
-        if let Some(alvo) = self.sintatico.definicao(uri, texto, offset) { return Some(alvo) }
-        let (programa, _, unidade) = self.carregar(uri, texto, documentos)?;
-        let (_, elemento) = Self::elemento_importado(&programa, unidade, offset)?;
-        let (uri, span) = match elemento {
-            Element::Variable(id) => Self::destino_variavel(&programa, programa.variable(id))?,
-            Element::Function(id) => Self::destino_funcao(&programa, programa.function(id))?,
-            _ => return None,
-        };
-        Some((uri, Some(span)))
-    }
-
-    fn passar_hover(&mut self, uri: &str, texto: &str, offset: usize, documentos: Option<&DocumentStore>) -> Option<(Span, String, Option<String>)> {
-        if let Some(descricao) = self.sintatico.hover(uri, texto, offset) { return Some(descricao) }
-        let (programa, nomes, unidade) = self.carregar(uri, texto, documentos)?;
-        let (referencia, elemento) = Self::elemento_importado(&programa, unidade, offset)?;
-        let mut tabela = TypeTable::new();
-        let core = CoreTypes::init(&mut tabela, &programa, &nomes);
-        let (outline, _) = resolve_outline(&programa, &nomes, &mut tabela, &core);
-        match elemento {
-            Element::Variable(id) => {
-                let tipo = outline.variables[id.0 as usize].declared_type?;
-                let texto_tipo = tabela.format(tipo, &nomes, &programa);
-                if texto_tipo == "dynamic" { return None; }
-                let nome = nomes.resolve(programa.variable(id).name);
-                Some((referencia, format!("{texto_tipo} {nome}"), Some(texto_tipo)))
-            }
-            Element::Function(id) => {
-                let FunctionRef::Function { unit, function } = programa.function(id).node else { return None };
-                let ast = &programa.unit(unit).ast;
-                let declaracao = ast.function(function);
-                if !declaracao.type_params.is_empty() { return None; }
-                let retorno_escrito = declaracao.return_type?;
-                if !matches!(&ast.ty(retorno_escrito).kind, TypeKind::Void)
-                    && navegacao::tipo_primitivo(ast, &nomes, retorno_escrito).is_none()
-                { return None; }
-                let dados = &outline.functions[id.0 as usize];
-                let retorno = tabela.format(dados.return_type, &nomes, &programa);
-                let nome = nomes.resolve(programa.function(id).name);
-                if programa.function(id).kind == FunctionKind::Getter {
-                    if declaracao.parameters.is_some() { return None; }
-                    return Some((referencia, format!("{retorno} get {nome}"), Some(retorno)));
-                }
-                let parametros_escritos = declaracao.parameters.as_ref()?;
-                if parametros_escritos.len() > 2 { return None; }
-                for p in parametros_escritos.iter() {
-                    if p.kind != ParameterKind::Required || p.covariant || p.final_ || p.var_
-                        || p.const_ || p.this_ || p.super_ || p.default_value.is_some()
-                        || !p.function_type_params.is_empty() || p.function_parameters.is_some()
-                        || navegacao::tipo_primitivo(ast, &nomes, p.ty?).is_none()
-                    { return None; }
-                }
-                if dados.parameters.len() != parametros_escritos.len() { return None; }
-                let mut params = Vec::new();
-                for p in dados.parameters.iter() {
-                    if p.kind != ParameterKind::Required { return None; }
-                    let nome = nomes.resolve(p.name?);
-                    params.push(format!("{} {nome}", tabela.format(p.ty, &nomes, &programa)));
-                }
-                Some((referencia, format!("{retorno} {nome}({})", params.join(", ")), None))
-            }
-            _ => None,
+    /// Definição pela identidade semântica (`crate::projeto`): o literal de
+    /// diretiva continua sintático (o arquivo apontado); nomes vêm da
+    /// resolução da inferência comum. Sem SDK, ou se a biblioteca não
+    /// carrega, valem as respostas sintáticas conservadoras.
+    fn definir(&mut self, uri: &str, texto: &str, offset: usize, documentos: &DocumentStore) -> Option<(String, Option<Span>)> {
+        if let Some((destino, None)) = self.sintatico.definicao(uri, texto, offset) {
+            return Some((destino, None));
         }
+        if let Some(projeto) = crate::projeto::carregar_biblioteca(self, documentos, uri)
+            && let Some(unidade) = projeto.unidade_do_uri(uri)
+            && let Ok(Some(d)) = projeto.identificar(unidade, offset)
+            && let Some((u, span)) = projeto.declaracao(&d)
+        {
+            return Some((projeto.uri_da_unidade(u)?, Some(span)));
+        }
+        self.sintatico.definicao_no_workspace(uri, texto, offset, documentos)
+    }
+
+    fn passar_hover(&mut self, uri: &str, texto: &str, offset: usize, documentos: &DocumentStore) -> Option<Hover> {
+        if let Some(projeto) = crate::projeto::carregar_biblioteca(self, documentos, uri)
+            && let Some(unidade) = projeto.unidade_do_uri(uri)
+            && let Ok(Some(d)) = projeto.identificar(unidade, offset)
+            && let Some(h) = projeto.hover(unidade, &d)
+        {
+            return Some(h);
+        }
+        self.sintatico.hover_no_workspace(uri, texto, offset, documentos)
+    }
+
+    /// Referências pela identidade da declaração, em todas as bibliotecas
+    /// do projeto (abertas ou só no disco). Declarações de dependências (SDK,
+    /// pacotes) entram como declaração, mas os usos só são procurados no
+    /// projeto.
+    fn referencias_semanticas(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<Referencias> {
+        let projeto = crate::projeto::carregar_projeto(self, documentos, uri)?;
+        let unidade = projeto.unidade_do_uri(uri)?;
+        let d = projeto.identificar(unidade, offset).ok()??;
+        let declaracao = projeto.declaracao(&d);
+        let declaracoes = projeto.declaracoes(&d.alvo);
+        let mut usos: Vec<(String, Span)> = Vec::new();
+        for (u, de, ate) in projeto.ocorrencias(&d.alvo, false).ok()? {
+            if declaracoes.contains(&(u, de, ate)) {
+                continue;
+            }
+            usos.push((projeto.uri_da_unidade(u)?, Span { start: de, end: ate }));
+        }
+        usos.sort_by(|a, b| (a.0.as_str(), a.1.start).cmp(&(b.0.as_str(), b.1.start)));
+        let declaracao = declaracao.and_then(|(u, s)| Some((projeto.uri_da_unidade(u)?, s)));
+        Some(Referencias { declaracao, usos })
     }
 }
 
@@ -218,8 +164,8 @@ pub(crate) fn biblioteca_dona(caminho: &std::path::Path, texto: &str, documentos
         return Some(chave(&caminho.parent()?.join(uri)));
     }
     let alvo = chave(caminho);
-    let raiz = crate::renomear::raiz_do_projeto(caminho);
-    crate::renomear::arquivos_do_projeto(&raiz).into_iter().find(|candidato| {
+    let raiz = crate::projeto::raiz_do_projeto(caminho);
+    crate::projeto::arquivos_do_projeto(&raiz).into_iter().find(|candidato| {
         let aberto = documentos
             .and_then(|d| Url::from_file_path(candidato).ok().and_then(|u| d.get(u.as_str()).map(str::to_string)));
         let Some(fonte) = aberto.or_else(|| std::fs::read_to_string(candidato).ok()) else { return false };
@@ -247,29 +193,32 @@ impl Analisador for AnalisadorSemantico {
     }
 
     fn definicao(&mut self, uri: &str, texto: &str, offset: usize) -> Option<(String, Option<Span>)> {
-        self.definir(uri, texto, offset, None)
+        let so_este = Self::so_este(uri, texto);
+        self.definir(uri, texto, offset, &so_este)
     }
 
     fn definicao_no_workspace(&mut self, uri: &str, texto: &str, offset: usize, documentos: &DocumentStore) -> Option<(String, Option<Span>)> {
-        self.sintatico.definicao_no_workspace(uri, texto, offset, documentos)
-            .or_else(|| self.definir(uri, texto, offset, Some(documentos)))
+        self.definir(uri, texto, offset, documentos)
     }
 
     fn referencias(&mut self, uri: &str, texto: &str, offset: usize) -> Option<Vec<Span>> {
         self.sintatico.referencias(uri, texto, offset)
     }
 
-    fn referencias_em(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<Vec<(String, Span)>> {
+    fn referencias_em(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<Referencias> {
+        if self.sdk.is_some() && documentos.get(uri).is_some() {
+            return self.referencias_semanticas(documentos, uri, offset);
+        }
         self.sintatico.referencias_em(documentos, uri, offset)
     }
 
-    fn hover(&mut self, uri: &str, texto: &str, offset: usize) -> Option<(Span, String, Option<String>)> {
-        self.passar_hover(uri, texto, offset, None)
+    fn hover(&mut self, uri: &str, texto: &str, offset: usize) -> Option<Hover> {
+        let so_este = Self::so_este(uri, texto);
+        self.passar_hover(uri, texto, offset, &so_este)
     }
 
-    fn hover_no_workspace(&mut self, uri: &str, texto: &str, offset: usize, documentos: &DocumentStore) -> Option<(Span, String, Option<String>)> {
-        self.sintatico.hover_no_workspace(uri, texto, offset, documentos)
-            .or_else(|| self.passar_hover(uri, texto, offset, Some(documentos)))
+    fn hover_no_workspace(&mut self, uri: &str, texto: &str, offset: usize, documentos: &DocumentStore) -> Option<Hover> {
+        self.passar_hover(uri, texto, offset, documentos)
     }
 
     fn documento_fechado(&mut self, uri: &str) {
@@ -281,12 +230,12 @@ impl Analisador for AnalisadorSemantico {
     }
 
     fn preparar_renomeacao(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Result<Option<(Span, String)>, String> {
-        let Some(projeto) = crate::renomear::carregar_projeto(self, documentos, uri) else { return Ok(None) };
+        let Some(projeto) = crate::projeto::carregar_projeto(self, documentos, uri) else { return Ok(None) };
         crate::renomear::preparar(&projeto, uri, offset)
     }
 
-    fn renomear(&mut self, documentos: &DocumentStore, uri: &str, offset: usize, novo: &str) -> Result<Vec<crate::Edicao>, String> {
-        let projeto = crate::renomear::carregar_projeto(self, documentos, uri)
+    fn renomear(&mut self, documentos: &DocumentStore, uri: &str, offset: usize, novo: &str) -> Result<crate::Renomeacao, String> {
+        let projeto = crate::projeto::carregar_projeto(self, documentos, uri)
             .ok_or_else(|| "O projeto do arquivo não pôde ser carregado (SDK ausente ou URI que não é de arquivo).".to_string())?;
         crate::renomear::renomear(&projeto, uri, offset, novo)
     }

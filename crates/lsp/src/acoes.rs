@@ -19,7 +19,7 @@
 //! não oferece; nenhuma é inventada.
 
 use crate::consulta::Consulta;
-use crate::renomear::{arquivos_do_projeto, eh_parte, raiz_do_projeto};
+use crate::projeto::{arquivos_do_projeto, eh_parte, raiz_do_projeto};
 use crate::semantica::AnalisadorSemantico;
 use crate::{DocumentStore, Edicao};
 use dartforge_diagnostics::{Diagnostic, Span};

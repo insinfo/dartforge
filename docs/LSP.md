@@ -174,97 +174,67 @@ memória por edição. Edições `didChange` com versão antiga são ignoradas s
 republicar diagnósticos. Testes direcionados: `cargo test -p dartforge-lsp
 --test simbolos --locked`.
 
-`workspace/symbol` busca nos **documentos abertos** (sem índice em disco),
-com comparação sem distinguir maiúsculas e minúsculas. As URIs são ordenadas
-antes da análise, e cada AST é liberada antes da próxima: uma consulta não
-mantém cópias das versões já substituídas. O resultado é sempre
-`SymbolInformation[]`, no intervalo do nome.
+`workspace/symbol` busca nos documentos abertos **e** nos arquivos `.dart`
+dos projetos do workspace: as raízes do `initialize` (`workspaceFolders`,
+senão `rootUri`/`rootPath`) e o projeto (diretório com `pubspec.yaml`) de
+cada documento aberto, sem diretórios ocultos, `build` nem subpacotes. O
+texto aberto vale mais que o disco; cada árvore é descartada antes da
+próxima (nada fica indexado entre pedidos). O casamento é aproximado
+(`crates/lsp/src/aproximado.rs`, no espírito do `FuzzyMatcher` do Dart):
+prefixo, contém e iniciais de palavras (`cR` acha `CarregadorRemoto`); os
+que contêm a consulta vêm antes das subsequências, e entre iguais a ordem é
+(URI, posição). O resultado é `SymbolInformation[]`, no intervalo do nome.
 
-`textDocument/definition` navega do literal de URI em `import`, `export`,
-`part`, `part of` e `import augment` para um **arquivo relativo existente**.
-Também resolve literais `package:` pelo `package_config.json` descoberto a
-partir do arquivo aberto, somente se o pacote estiver mapeado e o destino
-existir. Não usa o fallback de pacotes de referência do compilador.
-Também navega de uma anotação de tipo sem prefixo (`Caixa x`) para uma única
-declaração de tipo homônima no mesmo arquivo. Para esse segundo caso, só
-responde quando não há diretivas que tragam outros nomes nem parâmetro de
-tipo homônimo em qualquer escopo da unidade; assim evita apontar para uma
-classe sombreada. A posição de entrada e o intervalo de destino são UTF-16.
-Referências de expressão a uma variável de topo única também navegam quando
-nenhum parâmetro, variável local, membro ou padrão pode sombrear o nome.
-O mesmo vale para uma função de topo única; uma função local homônima impede
-a navegação até haver resolução por escopo. Entre documentos abertos, o nome
-resolve para o documento que o declara quando o arquivo só tem imports
-relativos simples e um único aberto declara o nome sozinho num espaço (tipo
-ou valor); prefixo, `show`/`hide`, `export`, `part`, `part of`, augmentations,
-`dart:`/`package:`, padrões, sombras e dono fora dos abertos devolvem vazio
-em vez de destino errado.
-URIs `dart:` e os demais nomes importados aguardam cobertura de navegação.
-A regra de ativação do literal segue a navegação de diretivas do
-analyzer (`analyzer_plugin/.../navigation_dart.dart`): só existe alvo quando
-o arquivo existe. Teste: `cargo test -p dartforge-lsp --test navegacao
---locked`.
+### Definição, hover e referências pela identidade da declaração
 
-`textDocument/hover` mostra a descrição sintática de um tipo local resolvido
-pela regra conservadora da definição acima: `class C`, `enum E`, `mixin M`
-ou `extension type X`, quando não genérico. Usa Markdown se o cliente o
-anuncia; caso contrário devolve texto simples. O intervalo cobre apenas o
-nome sob o cursor. Tipos genéricos e typedefs aguardam a formatação de
-assinatura do modelo de elementos. Para uma variável de topo única com tipo primitivo
-escrito (`int`, `double`, `num`, `bool`, `String`, `Object`, `dynamic`), mostra
-`tipo nome` e `Type: tipo`, como a descrição do `VariableElement` no analyzer.
-Nomes locais homônimos desligam esse hover até existir resolução por escopo.
-Funções de topo com até dois parâmetros posicionais obrigatórios, todos com
-tipos primitivos escritos, e retorno primitivo/`void` escrito recebem hover
-com assinatura `tipo nome(tipo parâmetro, ...)`. Getters de topo com retorno
-primitivo escrito mostram `tipo get nome` e `Type: tipo`, seguindo o formato
-dos testes de hover do servidor Dart. A navegação para a declaração funciona
-mesmo quando a assinatura não pode ser mostrada; nesses casos o hover fica
-vazio. Funções genéricas, parâmetros opcionais/nomeados e retorno inferido
-aguardam a formatação completa da assinatura. Entre documentos abertos, o
-hover resolve como a definição (só import relativo simples, sem prefixo,
-`show`/`hide`, `export`, `part`, `dart:`/`package:`) e formata a descrição a
-partir do documento dono, com as mesmas regras do hover local; o intervalo
-continua no arquivo do cursor. Dono não-aberto, símbolo ambíguo ou
-assinatura sem formato fiel devolvem hover vazio (null), nunca texto errado.
-Teste: `cargo test -p dartforge-lsp --test hover --locked`.
+Com SDK, `textDocument/definition`, `textDocument/hover` e
+`textDocument/references` saem do mesmo modelo do renomear
+(`crates/lsp/src/projeto.rs`): o que a posição denota vem das tabelas da
+inferência comum (`get_resolved`, `declaracao_local`, `tipos_de_locais`) e
+dos namespaces de `crates/elements` (`lookup`, `lookup_prefixed`), nunca de
+uma resolução paralela por nome. Formas cobertas (matriz em
+`tests/navegacao_semantica.rs`):
 
-O binário também carrega o SDK descoberto por `SdkLayout::discover` e resolve
-variáveis, funções e getters de topo importados em `definition` e `hover`,
-com nome simples ou prefixo explícito (`p.nome`).
-`elements` escolhe o vínculo no namespace da biblioteca, e `types` resolve a
-anotação explícita para o hover (`int resposta`, `Type: int`) e a assinatura
-de funções com até dois parâmetros posicionais obrigatórios de tipos primitivos
-escritos (`int soma(int a, int b)`) ou getters de topo com retorno primitivo
-escrito (`int get resposta`, `Type: int`). A referência
-precisa ser uma expressão identificadora, sem declaração local ou parâmetro
-homônimo em qualquer escopo da unidade. Vínculos ambíguos, aliases,
-funções genéricas ou com parâmetros opcionais/nomeados, tipos inferidos de
-inicializador e prefixos sombreados por nomes locais ainda não geram esse
-resultado. Sem SDK, permanecem as respostas sintáticas anteriores. Cada
-requisição carrega o texto vigente do editor por geração em memória;
-`Program`, `Interner`, AST e `TypeTable` são descartados ao responder.
-Documentos importados também abertos entram na mesma geração com seus textos
-vigentes; as outras dependências são lidas do disco. Nenhuma cópia dessas
-fontes fica retida depois da consulta.
-`didChange` antigo e `didClose` preservam as garantias de versão. O intervalo
-de definição em outro arquivo é convertido com as linhas **desse arquivo**.
-Teste: `cargo test -p dartforge-lsp --test semantica --locked`.
+| Forma | Definição | Hover |
+| --- | --- | --- |
+| local, parâmetro (promovido) | a declaração | `num n` + `Type: int` (tipo da referência, com promoção) |
+| função local | a declaração | `int dobro(int v)` |
+| membro por instância, `this` implícito, `super`, cascata | o membro resolvido para o receptor (a sobrescrita, não a família) | assinatura completa (`void met(int x, {int y = 0, required String nome})`); campo e getter com `Type:` já substituído (`T valor` + `Type: int`) |
+| construtor nomeado (`A.nome()`, `new A.nome()`) e sem nome escrito (`A()`) | o construtor; sem construtor escrito, a classe | `Caixa<T> Caixa.vazia(T v)` |
+| classe, mixin, enum, extension type, extensão, typedef | a declaração | `abstract class B<T> extends A with M implements I` (modificadores, parâmetros de tipo, supertipos como no `ElementDisplayStringBuilder`) |
+| variável, função, getter de topo; importados com ou sem prefixo | a declaração (outro arquivo, aberto ou no disco, ou o SDK) | `int x` + `Type: int`; `int soma([int a = 0])`; `int get g` + `Type: int` |
+| constante de enum, membro de extensão | a declaração | `Cor azul` + `Type: Cor` |
+| prefixo de import | o `as p` da diretiva | — (o Dart também não mostra) |
+| parâmetro de tipo | o parâmetro mais interno com o nome | `T extends Bound` |
+| referência `[nome]`, `[A.b]` num comentário de documentação | resolvida no escopo da declaração documentada (parâmetros, parâmetros de tipo, membros da classe, biblioteca) | como a declaração |
 
-`textDocument/references` devolve a declaração primeiro e depois os usos em
-ordem de (URI, offset), honrando `context.includeDeclaration`. No próprio
-documento valem os mesmos casos seguros da definição acima (tipo, variável,
-função ou getter de topo únicos, sem diretivas que tragam outros nomes, sem
-padrões e sem sombras). Entre documentos abertos, o símbolo resolve para o
-único dono importado por import relativo simples, sem prefixo, `show`/`hide`,
-`deferred`, condição, `export`, `part` ou `dart:`/`package:`; cada aberto
-contribui com os usos só quando nada mais pode trazer o nome — arquivo em
-dúvida (diretiva complexa, padrão, sombra, declaração local homônima, import
-simples para fora dos abertos ou outro aberto que declare o nome) é pulado,
-e dono zero ou duplo devolve vazio. Cada árvore é temporária por pedido e
-liberada antes da próxima, como em `workspace/symbol`: só os documentos
-abertos são lidos, nunca o disco por tecla, mantendo o platô de memória por
-edição. Teste: `cargo test -p dartforge-lsp --test referencias --locked`.
+O hover inclui a documentação (`///` ou `/** */`, limpa, depois de `---` em
+Markdown); um membro sobrescrito sem documentação própria mostra a do
+primeiro membro sobrescrito que a tem, como o analyzer. Partes entram pela
+biblioteca dona e a definição cruza parte ↔ dona; o texto aberto vale mais
+que o disco (inclusive para o dono da declaração). Definição e hover
+carregam só a biblioteca do documento (e o que ela importa) e inferem só os
+corpos dela; o literal de URI de diretiva continua pela regra sintática
+(arquivo existente). Prefixo que colide com declaração de topo
+(`prefix_collides_with_top_level_member`) não é resolvido. Sem SDK, ou se a
+posição não resolve, valem as respostas sintáticas conservadoras descritas
+acima. Testes: `cargo test -p dartforge-lsp --test navegacao_semantica
+--test semantica --locked`.
+
+`textDocument/references` carrega o projeto inteiro (como o renomear) e
+devolve a declaração (se `context.includeDeclaration`) e os usos do mesmo
+elemento em **todas** as bibliotecas do projeto, abertas ou só no disco,
+ordenados por (URI, offset); intervalos de arquivo fechado vêm do texto do
+disco. A identidade é a da declaração: homônimos de outras bibliotecas,
+locais que sombreiam, e parâmetros ou membros de mesmo nome não entram; um
+membro de instância abrange a família ligada por sobrescrita (como o
+`getHierarchyMembers` do analyzer), e as declarações dos outros membros da
+família não contam como usos. Entram também `show`/`hide`, metadados,
+rótulos `nome:` de parâmetros nomeados e referências `[nome]` de
+documentação. Política de dependências: um elemento do SDK ou de pacote tem
+a declaração devolvida (no arquivo do SDK/pacote), mas os usos só são
+procurados no projeto. Sem SDK, vale a regra conservadora dos documentos
+abertos descrita acima.
 
 ### Consultas semânticas por requisição (completar, renomear, ações)
 
@@ -330,12 +300,14 @@ arquivo); todos os `.dart` dele (sem ocultos, `build` nem subpacotes), menos
 as partes, entram como bibliotecas de entrada de uma só carga
 (`load_lenient_entradas` em `crates/elements`), para que as bibliotecas que
 *importam* a declaração também sejam vistas; os corpos do projeto são
-inferidos com `registrar_locais`. O que o cursor denota vem de
-`get_resolved`/`declaracao_local`:
+inferidos com `registrar_locais`. O que o cursor denota e as ocorrências vêm
+do modelo comum (`crates/lsp/src/projeto.rs`, o mesmo das referências):
 
 * local, parâmetro ou função local — a declaração e as expressões que a
   referem (inclusive em interpolação e como alvo de atribuição); num
-  parâmetro nomeado, também os rótulos `nome:` nas chamadas da função;
+  parâmetro nomeado, os rótulos `nome:` nas chamadas e, num método de
+  instância, o parâmetro homônimo de todas as sobrescritas (com os usos e
+  rótulos delas);
 * membro de classe — a família ligada por sobrescrita na hierarquia (sobe e
   desce por `extends`, `with`, `implements` e `on` até fechar), getter e
   setter juntos, cada uso resolvido para um membro da família (por
@@ -346,21 +318,46 @@ inferidos com `registrar_locais`. O que o cursor denota vem de
   usos resolvidos com ou sem prefixo, as anotações de tipo (resolvidas pelo
   escopo da biblioteca, respeitando parâmetros de tipo homônimos), os
   construtores escritos com o nome da classe, `show`/`hide` e metadados
-  `@nome`.
+  `@nome`;
+* construtor nomeado — a declaração, `A.nome()`, `new A.nome()`,
+  `this.nome()`, `super.nome()` (pela superclasse), `factory … = A.nome`,
+  constantes de enum `a.nome()` e metadados `@A.nome()`;
+* prefixo de import — o `as p` de cada import com ele na biblioteca e cada
+  `p.` escrito nela (expressões, tipos, metadados);
+* parâmetro de tipo — a declaração e os usos cujo parâmetro mais interno
+  com o nome é ele (um `<T>` de método sombreia o da classe);
+* em todos os casos, as referências `[nome]`/`[A.nome]` dos comentários de
+  documentação que resolvem para o elemento.
+
+Com `renameFilesWithClasses: "always"` nas `initializationOptions` e o
+cliente aceitando `documentChanges` com a operação `rename`, renomear uma
+classe cujo arquivo segue o nome dela (`MinhaClasse` em `minha_classe.dart`)
+renomeia o arquivo (operação depois das edições de texto) e corrige as
+diretivas `import`/`export`/`part`/`part of` do projeto que o citam
+(relativas ou `package:`); destino existente deixa o arquivo como está.
 
 Recusa com o código `-32010` (o `RenameNotValid` do servidor do Dart):
 identificador malformado, palavra reservada, identificador embutido como
-nome de tipo, elemento do SDK ou de pacote fora da raiz (inclusive a
-sobrescrita de um membro deles, como `toString`), local que colidiria com
-outro do mesmo corpo ou sombrearia um uso, membro já existente na família,
-nome já declarado na biblioteca (ou numa que usa o elemento) e nome
-público que viraria privado com usos em outra biblioteca. Construtores
-nomeados, prefixos de import e parâmetros de tipo ainda são recusados.
-`prepareRename` em espaço, palavra-chave ou literal devolve `null`. As
-edições saem como `WorkspaceEdit.changes`, convertidas com as linhas do
-texto aberto ou, para arquivo fechado, do arquivo no disco. Uso dentro de
-um comando que não analisa não é visto (a recuperação do parser o
-descarta). Teste: `cargo test -p dartforge-lsp --test renomear --locked`.
+nome de tipo ou prefixo, elemento do SDK ou de pacote fora da raiz
+(inclusive a sobrescrita de um membro deles, como `toString`), e conflitos
+por escopo léxico (bloco, `for`, `catch`, função; o bloco do corpo é o
+escopo dos parâmetros): local duplicado no mesmo escopo, referência que
+ficaria no escopo de outro local aninhado com o nome novo, uso de `novo`
+(identificador ou tipo) no escopo que passaria a denotar o local, uso solto
+de um topo ou membro que cairia no escopo de um local `novo`, uso de topo
+dentro de uma classe com membro `novo`, `novo` solto no corpo da família que
+passaria a denotar o membro, membro já existente na família, nome já
+declarado na biblioteca (ou numa que usa o elemento), construtor ou estático
+homônimo, prefixo que colidiria com nome visível, parâmetro de tipo irmão
+ou tipo usado no escopo, e nome público que viraria privado com usos em
+outra biblioteca. `prepareRename` em espaço, palavra-chave ou literal
+devolve `null`. As edições saem como `WorkspaceEdit.documentChanges` (cada
+documento com a versão vigente; fechado, `version: null`) quando o cliente
+anuncia `workspace.workspaceEdit.documentChanges`, senão como `changes`,
+convertidas com as linhas do texto aberto ou, para arquivo fechado, do
+arquivo no disco. Uso dentro de um comando que não analisa não é visto (a
+recuperação do parser o descarta). Teste: `cargo test -p dartforge-lsp
+--test renomear --locked`.
 
 `textDocument/codeAction` (`codeActionKinds: ["quickfix"]`, honra
 `context.only`):
@@ -401,16 +398,11 @@ Pendentes no completar: sugestões de nomes ainda não importados (o Dart as
 oferece com import automático), `completionItem/resolve` com documentação,
 snippets, ordenação por relevância (o Dart pondera por uso), filtro
 aproximado (só prefixo aqui) e contexto de tipo (em posição de tipo a lista
-traz também valores). No renomear: construtores nomeados, prefixos de
-import, parâmetros de tipo, rótulos de parâmetros nomeados de sobrescritas,
-comentários de documentação (`[nome]`), renomear o arquivo junto com a
-classe e a detecção completa de conflitos por escopo (a de hoje é
-conservadora por corpo). Nas ações: as demais correções e assistências do
+traz também valores). Nas ações: as demais correções e assistências do
 Dart (criar classe, remover variável não usada…), que dependem de
 diagnósticos ainda não publicados.
 
-Explicitamente fora deste brief: definição de variáveis/funções locais e demais nomes importados,
-formatação e `diagnosticProvider` por
+Explicitamente fora deste brief: formatação e `diagnosticProvider` por
 requisição (o servidor empurra diagnósticos; não atende pull). Os
 diagnósticos semânticos publicados (os códigos de `verificados.txt`,
 inclusive os que dependem de tipos) chegam pelo fluxo tipado descrito em

@@ -94,7 +94,7 @@ impl std::fmt::Debug for Tipado {
 /// A raiz do pacote: o diretório mais próximo, subindo, com `pubspec.yaml`
 /// (a mesma regra do `dartforge analyze`).
 fn raiz_do_pacote(arquivo: &Path) -> PathBuf {
-    crate::renomear::raiz_do_projeto(arquivo)
+    crate::projeto::raiz_do_projeto(arquivo)
 }
 
 impl Tipado {

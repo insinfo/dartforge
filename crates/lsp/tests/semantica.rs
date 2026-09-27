@@ -102,8 +102,10 @@ fn importado_usa_tipos_e_texto_vigente_sem_reter_versoes() {
         "textDocument":{"uri":uri,"version":3},"contentChanges":[{"text":"import 'lib.dart';\nvoid f(int answer) => answer;\n"}]
     }}));
     servidor.bombear();
-    assert_eq!(requisitar(&mut servidor, 7, "textDocument/hover", &uri, 24), Value::Null);
-    assert_eq!(requisitar(&mut servidor, 8, "textDocument/definition", &uri, 24), Value::Null);
+    // O parâmetro homônimo sombreia o importado: hover e definição são dele
+    // (antes da resolução por escopo, a resposta era vazia).
+    assert_eq!(requisitar(&mut servidor, 7, "textDocument/hover", &uri, 24)["contents"], "int answer\nType: int");
+    assert_eq!(requisitar(&mut servidor, 8, "textDocument/definition", &uri, 24)["range"]["start"], json!({"line":1,"character":11}));
 
     servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didClose","params":{"textDocument":{"uri":uri}}}));
     servidor.bombear();
@@ -157,7 +159,8 @@ fn importado_usa_tipos_e_texto_vigente_sem_reter_versoes() {
     }}));
     servidor.bombear();
     assert_eq!(requisitar(&mut servidor, 85, "textDocument/definition", &uri_fn, 9)["range"]["start"], json!({"line":0,"character":4}));
-    assert_eq!(requisitar(&mut servidor, 86, "textDocument/hover", &uri_fn, 9), Value::Null);
+    // Parâmetro opcional com valor padrão: a assinatura completa.
+    assert_eq!(requisitar(&mut servidor, 86, "textDocument/hover", &uri_fn, 9)["contents"], "int soma([int a = 0])");
 
     let biblioteca_getter = raiz.join("getter.dart");
     let entrada_getter = raiz.join("main_getter.dart");
