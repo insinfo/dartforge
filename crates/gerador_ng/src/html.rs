@@ -10,7 +10,7 @@
 //! lidas do próprio pacote, não adivinhadas.
 
 /// Elementos que o HTML fecha sozinho.
-const VAZIOS: &[&str] = &[
+pub(crate) const VAZIOS: &[&str] = &[
     "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source",
     "track", "wbr",
 ];
@@ -25,7 +25,7 @@ const EM_LINHA: &[&str] = &[
 
 /// `&ngsp;` vira este caractere no scanner do ngast e volta a ser espaço no
 /// fim, escapando da redução.
-const NGSP: char = '\u{E500}';
+pub(crate) const NGSP: char = '\u{E500}';
 const NBSP: char = '\u{00A0}';
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -388,7 +388,12 @@ fn i18n_antes_da_interpolacao(nos: &[No]) -> Option<bool> {
                 No::Elemento(e) if e.estrela.is_some() => {}
                 No::Elemento(e) => {
                     if !e.anotacoes.is_empty() {
-                        return Some(!*interpolou);
+                        // Mensagem com HTML é método, não campo: o import
+                        // sai com o método, depois do `build()`.
+                        if mensagem_em_campo(e) {
+                            return Some(!*interpolou);
+                        }
+                        continue;
                     }
                     if let Some(r) = andar(&e.filhos, interpolou) {
                         return Some(r);
@@ -400,6 +405,102 @@ fn i18n_antes_da_interpolacao(nos: &[No]) -> Option<bool> {
         None
     }
     andar(nos, &mut false)
+}
+
+/// Algum elemento com anotação (`@i18n`) nesta visão (fora de `*`)?
+fn contem_anotacao(nos: &[No]) -> bool {
+    nos.iter().any(|n| match n {
+        No::Elemento(e) if e.estrela.is_some() => false,
+        No::Elemento(e) => !e.anotacoes.is_empty() || contem_anotacao(&e.filhos),
+        _ => false,
+    })
+}
+
+/// O `@i18n` do elemento gera algum campo `static final String
+/// _message_N`? Os de atributo (`@i18n:x`) e o dos filhos quando eles são
+/// um texto só (`_isText` do `i18n.dart`); com HTML, a mensagem dos filhos é
+/// um método estático.
+fn mensagem_em_campo(e: &crate::html::Elemento) -> bool {
+    let de_atributo = e.anotacoes.iter().any(|a| a.nome.contains(':'));
+    de_atributo || matches!(e.filhos.as_slice(), [No::Texto(_)])
+}
+
+/// A mensagem `@i18n` de filhos com HTML, como o `I18nBuilder` a monta: o
+/// texto (escapado à mão: `\n`, `\r`, `'`, `$`, `\`) com `${startTagK}`,
+/// `${endTagK}` e `${voidElementK}` no lugar das tags, e os argumentos na
+/// ordem em que aparecem. Só elemento HTML sem atributo, ligação, evento,
+/// `#ref`, anotação ou `*`, e texto sem `&` (a entidade seria decodificada e
+/// escapada de novo); interpolação e `<ng-content>` são erro no oficial.
+///
+/// # Erros
+///
+/// A forma que ainda não se escreve.
+fn mensagem_com_html(
+    nos: &[No],
+    filhos: &std::collections::HashMap<String, Filho>,
+    texto: &mut String,
+    args: &mut Vec<(String, String)>,
+    tags: &mut usize,
+) -> Result<bool, &'static str> {
+    let mut tem_texto = false;
+    for n in nos {
+        match n {
+            No::Comentario(_) => {}
+            No::Texto(t) => {
+                if t.contains('&') || t.contains(crate::html::NGSP) {
+                    return Err("mensagem @i18n com entidade HTML");
+                }
+                tem_texto |= !t.trim().is_empty();
+                for c in t.chars() {
+                    match c {
+                        '\n' => texto.push_str("\\n"),
+                        '\r' => texto.push_str("\\r"),
+                        '\'' | '$' | '\\' => {
+                            texto.push('\\');
+                            texto.push(c);
+                        }
+                        c => texto.push(c),
+                    }
+                }
+            }
+            No::Elemento(e) => {
+                let simples = e.atributos.is_empty()
+                    && e.propriedades.is_empty()
+                    && e.eventos.is_empty()
+                    && e.bananas.is_empty()
+                    && e.referencias.is_empty()
+                    && e.anotacoes.is_empty()
+                    && e.estrela.is_none()
+                    && !filhos.contains_key(&e.nome)
+                    && dom::tag_html(&e.nome)
+                    && !matches!(e.nome.as_str(), "template" | "ng-container");
+                if !simples {
+                    return Err("mensagem @i18n com elemento que não é HTML simples");
+                }
+                let k = *tags;
+                *tags += 1;
+                let mut arg = |nome: String, valor: String, texto: &mut String| {
+                    let _ = write!(texto, "${{{nome}}}");
+                    args.push((nome, valor));
+                };
+                if crate::html::VAZIOS.contains(&e.nome.as_str()) {
+                    if !e.filhos.is_empty() {
+                        return Err("mensagem @i18n com elemento vazio com filhos");
+                    }
+                    arg(format!("voidElement{k}"), format!("<{}>", e.nome), texto);
+                } else {
+                    arg(format!("startTag{k}"), format!("<{}>", e.nome), texto);
+                    tem_texto |= mensagem_com_html(&e.filhos, filhos, texto, args, tags)?;
+                    let _ = write!(texto, "${{endTag{k}}}");
+                    args.push((format!("endTag{k}"), format!("</{}>", e.nome)));
+                }
+            }
+            No::Interpolacao { .. } | No::Conteudo { .. } => {
+                return Err("mensagem @i18n com interpolação ou <ng-content>");
+            }
+        }
+    }
+    Ok(tem_texto)
 }
 
 /// Marca do nó de um `#ref` lido como local: `\u{5}nome\u{6}`. A
@@ -898,16 +999,28 @@ fn molde_com_diretiva(
     ))
 }
 
-/// Todos os nomes de `#ref` escritos no template.
-fn todas_as_referencias(nos: &[No]) -> std::collections::HashSet<String> {
-    let mut saida = std::collections::HashSet::new();
-    for n in nos {
-        if let No::Elemento(e) = n {
-            saida.extend(e.referencias.iter().map(|r| r.nome.clone()));
-            saida.extend(todas_as_referencias(&e.filhos));
+/// Os nomes de `#ref` declarados mais de uma vez no template, ou com o
+/// nome de um `let` de algum `*`: cada visão resolve o nome pelo escopo
+/// dela (o mais próximo vence), o que ainda não é traduzido.
+fn referencias_ambiguas(nos: &[No]) -> std::collections::HashSet<String> {
+    fn andar(nos: &[No], refs: &mut Vec<String>, lets: &mut Vec<String>) {
+        for n in nos {
+            if let No::Elemento(e) = n {
+                refs.extend(e.referencias.iter().map(|r| r.nome.clone()));
+                if let Some(estrela) = &e.estrela {
+                    let micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
+                    lets.extend(micro.locais.into_iter().map(|(nome, _)| nome));
+                }
+                andar(&e.filhos, refs, lets);
+            }
         }
     }
-    saida
+    let (mut refs, mut lets) = (Vec::new(), Vec::new());
+    andar(nos, &mut refs, &mut lets);
+    refs.iter()
+        .filter(|n| refs.iter().filter(|x| x == n).count() > 1 || lets.contains(n))
+        .cloned()
+        .collect()
 }
 
 /// Os `#ref` lidos como local cujo nó vira campo: os sem valor. Com valor
@@ -1751,8 +1864,8 @@ struct Corpo<'a> {
     /// ([`referencias_locais`]): o nó vira campo e o nome, local
     /// (`final local_x = this._el_n;`).
     refs_locais: std::collections::HashSet<String>,
-    /// Os `#ref` fora de [`referencias_unicas`] (repetidos, sombreados por
-    /// `let` ou por membro): o escopo por visão deles ainda não é
+    /// Os `#ref` repetidos ou sombreados por `let`
+    /// ([`referencias_ambiguas`]): o escopo por visão deles ainda não é
     /// traduzido, e a recusa diz isso.
     refs_ambiguos: std::collections::HashSet<String>,
     /// Os `#ref` locais das visões ancestrais (ver [`EspecEmbutida`]).
@@ -1804,6 +1917,9 @@ struct Corpo<'a> {
     /// Os métodos `_handleEvent_N` desta visão, na ordem em que foram
     /// criados (`createEventHandler`); saem depois do `destroyInternal`.
     metodos_evento: Vec<String>,
+    /// Os métodos `static String _message_N(..)` das mensagens `@i18n` com
+    /// HTML, que abrem os métodos da visão.
+    metodos_i18n: Vec<String>,
     /// Declaração (`final local_x = …;`) de cada local **desta** visão, ou
     /// por que ele não pode ser declarado. Local de visão ancestral não está
     /// aqui: ele é lido pela cadeia de `parentView`, forma ainda recusada.
@@ -2011,7 +2127,7 @@ impl Corpo<'_> {
     /// `static final String _message_N = Intl.message(texto, desc: ..)`,
     /// reaproveitado quando texto e metadados se repetem.
     fn mensagem(&mut self, texto: &str, m: &MetaI18n) -> Result<String, Recusa> {
-        let Some(intl) = self.intl.clone() else {
+        let Some(intl) = self.intl.clone().filter(|i| !i.is_empty()) else {
             return Err(recusa(Motivo::I18n, "@i18n fora da visão do componente"));
         };
         let mut chamada = format!(
@@ -2037,6 +2153,77 @@ impl Corpo<'_> {
             .push(format!("  static final String {campo} = {chamada};"));
         self.mensagens.push((chamada, campo.clone()));
         Ok(campo)
+    }
+
+    /// Os filhos com HTML de um elemento com `@i18n` ([`Corpo::filhos_i18n`]).
+    fn filhos_i18n_html(
+        &mut self,
+        e: &crate::html::Elemento,
+        m: &MetaI18n,
+        alvo: &str,
+    ) -> Result<(), Recusa> {
+        if self.intl.is_none() {
+            return self.anotar(recusa(Motivo::I18n, "@i18n fora da visão do componente"));
+        }
+        let mut texto = String::new();
+        let mut args = Vec::new();
+        match mensagem_com_html(&e.filhos, self.filhos, &mut texto, &mut args, &mut 0) {
+            Ok(true) if !args.is_empty() => {}
+            Ok(_) => {
+                return self.anotar(recusa(Motivo::I18n, "mensagem @i18n sem texto"));
+            }
+            Err(f) => return self.anotar(recusa(Motivo::I18n, f)),
+        }
+        // `HtmlEscape(HtmlEscapeMode.element)` do texto já escapado.
+        let texto = texto
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
+        let intl = tardio(INTL);
+        let mut chamada = format!(
+            "{intl}.Intl.message('{texto}', desc: {}",
+            literal(m.descricao.as_deref().unwrap_or_default())
+        );
+        if let Some(l) = &m.locale {
+            let _ = write!(chamada, ", locale: {}", literal(l));
+        }
+        if let Some(s) = &m.meaning {
+            let _ = write!(chamada, ", meaning: {}", literal(s));
+        }
+        if m.skip {
+            chamada.push_str(", skip: true");
+        }
+        let valores: Vec<String> = args.iter().map(|(_, v)| literal(v)).collect();
+        let invocacao = |campo: &str| format!("{campo}({})", valores.join(", "));
+        let campo = match self.mensagens.iter().find(|(c, _)| *c == chamada) {
+            Some((_, campo)) => campo.clone(),
+            None => {
+                let campo = format!("_message_{}", self.mensagens.len());
+                let nomes: Vec<&str> = args.iter().map(|(n, _)| n.as_str()).collect();
+                let exemplos: Vec<String> = args
+                    .iter()
+                    .map(|(n, v)| format!("{}: {}", literal(n), literal(v)))
+                    .collect();
+                let parametros: Vec<String> = nomes.iter().map(|n| format!("String {n}")).collect();
+                self.metodos_i18n.push(format!(
+                    "\n  static String {campo}({}) {{\n    return {chamada}, name: '{}_{campo}', args: [{}], examples: const {{{}}});\n  }}\n",
+                    parametros.join(", "),
+                    self.classe_desta_visao(),
+                    nomes.join(", "),
+                    exemplos.join(", ")
+                ));
+                self.mensagens.push((chamada, campo.clone()));
+                campo
+            }
+        };
+        let n = self.proximo;
+        self.proximo += 1;
+        let avu = self.imp.q(APP_VIEW_UTILS);
+        self.linhas.push(format!(
+            "    final _html_{n} = {avu}createTrustedHtml({});\n    {alvo}.append(_html_{n});",
+            invocacao(&campo)
+        ));
+        Ok(())
     }
 
     /// Anota uma recusa. Fora do modo de coleta ela interrompe a emissão
@@ -4285,11 +4472,10 @@ impl Corpo<'_> {
                     self.guarda_do_elemento(e)?;
                 }
                 // `@i18n` só em elemento HTML: no filho ele mexe no conteúdo
-                // projetado, e no `*` vai para o `<template>`.
-                if !e.anotacoes.is_empty()
-                    && (e.estrela.is_some() || self.filhos.contains_key(&e.nome))
-                {
-                    return Err(recusa(Motivo::I18n, "@i18n em componente filho ou em `*`"));
+                // projetado. No `*` a anotação fica no elemento, que vai para
+                // a visão embutida (caso j01).
+                if !e.anotacoes.is_empty() && self.filhos.contains_key(&e.nome) {
+                    return Err(recusa(Motivo::I18n, "@i18n em componente filho"));
                 }
                 // `*` num filho: o filho vai para a visão embutida, como
                 // qualquer elemento.
@@ -4444,7 +4630,7 @@ impl Corpo<'_> {
                 if !r.valor.is_empty() {
                     "#ref com valor sem uma diretiva do nó que o exporte"
                 } else if self.refs_ambiguos.contains(&r.nome) {
-                    "#ref repetido ou sombreado (por outro #ref, `let` ou membro)"
+                    "#ref repetido ou sombreado por `let`"
                 } else if self.embutida {
                     "#ref em visão embutida"
                 } else {
@@ -4773,8 +4959,10 @@ impl Corpo<'_> {
 
     /// Os filhos de um elemento com `@i18n`: um texto só vira uma mensagem
     /// (`internationalize`, `_textMessage`) e um nó de texto com ela. Com
-    /// HTML dentro a mensagem é um método estático com argumentos, forma
-    /// ainda recusada.
+    /// HTML dentro ([`mensagem_com_html`]) a mensagem é um método estático
+    /// com um parâmetro por tag (`createI18nMessage`), e o nó é um
+    /// `DocumentFragment` (`createHtml`): `final _html_n =
+    /// createTrustedHtml(_message_K('<b>', '</b>'));` e `pai.append(_html_n)`.
     fn filhos_i18n(
         &mut self,
         e: &crate::html::Elemento,
@@ -4782,7 +4970,7 @@ impl Corpo<'_> {
         alvo: &str,
     ) -> Result<(), Recusa> {
         let [No::Texto(t)] = e.filhos.as_slice() else {
-            return self.anotar(recusa(Motivo::I18n, "mensagem @i18n com HTML ou vazia"));
+            return self.filhos_i18n_html(e, m, alvo);
         };
         if t.trim().is_empty() {
             return self.anotar(recusa(Motivo::I18n, "mensagem @i18n com HTML ou vazia"));
@@ -5574,7 +5762,7 @@ struct Contexto<'a> {
     pipes: &'a PipesDoTemplate,
     /// Os nomes de `#ref` que podem virar local ([`referencias_unicas`]).
     refs_unicos: std::collections::HashSet<String>,
-    /// Os nomes de `#ref` escritos que não estão em `refs_unicos`.
+    /// Os nomes de `#ref` repetidos ou sombreados por `let`.
     refs_ambiguos: std::collections::HashSet<String>,
     /// O nó de cada `#ref` visto, de todas as visões já percorridas: a visão
     /// aninhada é emitida depois da que a contém, e lê dela o campo.
@@ -5624,6 +5812,7 @@ impl<'a> Contexto<'a> {
             metodos: self.metodos,
             aridades: self.aridades,
             metodos_evento: Vec::new(),
+            metodos_i18n: Vec::new(),
             decl_locais: Default::default(),
             locais_raiz: Vec::new(),
             classe_desta: String::new(),
@@ -5715,9 +5904,31 @@ fn corpo_da_embutida(
     fabrica: &str,
 ) -> Result<(String, Vec<EspecEmbutida>), Recusa> {
     // O campo de ligação de texto é declarado antes do construtor, então o
-    // import dele entra aqui.
+    // import dele entra aqui — e o do `package:intl`, antes ou depois dele
+    // conforme a ordem de documento, quando a visão tem `@i18n` (caso j01).
+    let ordem_i18n = i18n_antes_da_interpolacao(&espec.nos);
+    if ordem_i18n == Some(true) {
+        dentro.intl = Some(dentro.imp.alias(INTL));
+    }
     if tem_interpolacao(&espec.nos) {
         dentro.tb = Some(dentro.imp.alias(TEXT_BINDING));
+    }
+    if ordem_i18n == Some(false) {
+        dentro.intl = Some(dentro.imp.alias(INTL));
+    }
+    // Com filho, diretiva ou `*` na visão, a ordem dos campos entre eles
+    // ainda não tem caso; sem mensagem em campo, a de HTML usa o `intl`
+    // só no método.
+    if contem_anotacao(&espec.nos) {
+        if ordem_i18n.is_some()
+            && !campos_em_ordem(&espec.nos, ctx.filhos, ctx.usadas, &ctx.asset).is_empty()
+        {
+            dentro.anotar(recusa(
+                Motivo::I18n,
+                "@i18n com filho, diretiva ou `*` na visão",
+            ))?;
+        }
+        dentro.intl.get_or_insert_with(String::new);
     }
     let refs_locais = referencias_locais(&espec.nos, ctx.filhos, &ctx.refs_unicos);
     let mut promovidos = refs_locais.clone();
@@ -5954,9 +6165,16 @@ fn corpo_da_embutida(
     };
     let aninhadas = std::mem::take(&mut dentro.embutidas);
     // Os `_handleEvent_N`, depois do `destroyInternal`.
+    if !dentro.metodos_i18n.is_empty() && !dentro.metodos_evento.is_empty() {
+        return Err(recusa(
+            Motivo::I18n,
+            "@i18n com HTML e handler de evento na mesma visão",
+        ));
+    }
     let metodos: String = dentro
-        .metodos_evento
+        .metodos_i18n
         .iter()
+        .chain(&dentro.metodos_evento)
         .map(|m| {
             resolver_refs(
                 &resolver_tardios(dentro.imp, m),
@@ -7178,10 +7396,7 @@ fn gerar_componente(
         tipo_do_contexto: format!("{proprio}.{}", c.classe),
         html: html.clone(),
         pipes: &tabela,
-        refs_ambiguos: todas_as_referencias(nos)
-            .difference(&refs_unicos)
-            .cloned()
-            .collect(),
+        refs_ambiguos: referencias_ambiguas(nos),
         refs_unicos,
         refs_resolvidos: Default::default(),
     };
@@ -7206,7 +7421,8 @@ fn gerar_componente(
     for d in &corpo.consultas_dinamicas {
         corpo.campos.push(format!("  bool {} = true;", d.campo));
     }
-    corpo.intl = intl;
+    // Só mensagens com HTML: o `intl` é pedido pelo método, mais tarde.
+    corpo.intl = intl.or_else(|| contem_anotacao(nos).then(String::new));
     corpo.tb = tb;
     let r = corpo
         .nos(nos, "parentRenderNode")
@@ -7557,9 +7773,18 @@ fn gerar_componente(
         )
     };
     // Os `_handleEvent_N`, depois do `destroyInternal`.
+    if !corpo.metodos_i18n.is_empty() && !corpo.metodos_evento.is_empty() {
+        let r = recusa(
+            Motivo::I18n,
+            "@i18n com HTML e handler de evento na mesma visão",
+        );
+        *coleta = corpo.coleta.take();
+        return Err(r);
+    }
     let metodos: String = corpo
-        .metodos_evento
+        .metodos_i18n
         .iter()
+        .chain(&corpo.metodos_evento)
         .map(|m| {
             resolver_refs(
                 &resolver_tardios(corpo.imp, m),
