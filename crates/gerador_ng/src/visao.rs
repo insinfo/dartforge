@@ -871,6 +871,10 @@ fn consulta_em_embutida(
     }
 }
 
+/// A cadeia de cada consulta de visão dinâmica, pelo campo sujo: (âncora
+/// `_appEl_n`, classe da visão embutida) em cada nível, de cima para baixo.
+type Cadeias = std::collections::HashMap<String, Vec<(String, String)>>;
+
 /// Marca do valor de uma consulta de visão dinâmica na visão do componente:
 /// `\u{e}campo\u{f}`, trocada por [`mapa_da_consulta`] quando a cadeia
 /// inteira é conhecida ([`resolver_consultas`]).
@@ -900,9 +904,9 @@ fn mapa_da_consulta(cadeia: &[(String, String)], referencia: &str) -> String {
         } else {
             "mapNestedViews"
         };
-        let _ = write!(
+        let _ = writeln!(
             saida,
-            "{receptor}.{ancora}.{metodo}(({classe} nestedView) {{\n"
+            "{receptor}.{ancora}.{metodo}(({classe} nestedView) {{"
         );
         let _ = write!(saida, "{}return ", " ".repeat(6 + 2 * k));
     }
@@ -919,11 +923,7 @@ fn mapa_da_consulta(cadeia: &[(String, String)], referencia: &str) -> String {
 /// Troca cada [`MARCA_DE_CONSULTA`] pelo [`mapa_da_consulta`] da cadeia
 /// dela, com a indentação do lugar (o `if` do campo sujo, dentro do
 /// `if (!debugThrowIfChanged)`).
-fn resolver_consultas(
-    texto: &str,
-    consultas: &[(String, String)],
-    cadeias: &std::collections::HashMap<String, Vec<(String, String)>>,
-) -> String {
+fn resolver_consultas(texto: &str, consultas: &[(String, String)], cadeias: &Cadeias) -> String {
     let mut saida = texto.to_string();
     for (campo, referencia) in consultas {
         let Some(cadeia) = cadeias.get(campo) else {
@@ -2033,7 +2033,7 @@ struct Corpo<'a> {
     /// embutida: (`#ref`, campo sujo, níveis até a visão do componente).
     consultas_em_transito: Vec<(String, String, u32)>,
     /// As cadeias do [`Contexto`].
-    cadeias: &'a std::cell::RefCell<std::collections::HashMap<String, Vec<(String, String)>>>,
+    cadeias: &'a std::cell::RefCell<Cadeias>,
     /// Na embutida: os `#ref` resultado de consulta da visão do componente
     /// (o nó vira campo) e o campo "sujo" de cada uma.
     refs_consultados: Vec<(String, String, u32)>,
@@ -5971,7 +5971,7 @@ struct Contexto<'a> {
     /// âncora `_appEl_n` e a classe da visão embutida em cada nível, da do
     /// componente para baixo. Os níveis de baixo só se conhecem ao emitir
     /// as visões aninhadas.
-    cadeias: std::cell::RefCell<std::collections::HashMap<String, Vec<(String, String)>>>,
+    cadeias: std::cell::RefCell<Cadeias>,
 }
 
 impl<'a> Contexto<'a> {
