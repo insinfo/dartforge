@@ -18,9 +18,16 @@
 //!   pedem ao runtime a closure com o trampolim da assinatura (a chave é a
 //!   mesma dos dois lados: [`chave_da_assinatura`]).
 //!
-//! Structs e unions por valor, funções variádicas e `Handle` ainda não
-//! baixam: a assinatura é recusada (a chamada vira erro do runtime com o
-//! motivo), nunca uma chamada com a ABI errada.
+//! * **Compostos, variádicas e `Handle`.** Structs e unions por valor
+//!   ([`TipoNativo::Composto`], com o layout C do alvo), a parte variádica de
+//!   `VarArgs` e `Handle` (o objeto Dart na fronteira) também baixam
+//!   (`corpus/nativo/16_ffi_structs_por_valor.dart`, `17_ffi_varargs.dart`,
+//!   `18_ffi_handle.dart`).
+//!
+//! O que continua recusado — inteiro específico da ABI sem mapeamento para o
+//! alvo, struct por valor dentro de `VarArgs`, struct vazia por valor,
+//! assinatura com parâmetros opcionais, nomeados ou genéricos — vira erro do
+//! runtime com o motivo, nunca uma chamada com a ABI errada.
 
 use super::closures::{Padrao, ParamEntrada};
 use super::fn_builder::FnBuilder;

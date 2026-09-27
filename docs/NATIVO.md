@@ -19,22 +19,43 @@ O compilador nativo consome os artefatos semânticos da trilha nova:
 Etapas (`crates/emit_native/src/lib.rs`, `emitir_ir` e `compilar`):
 
 1. **Carregamento e inferência.** O programa e o SDK (seção `vm` do
-   `libraries.json`, com os patches) viram um `Program`; os corpos **do
-   programa** são inferidos. Os corpos do SDK não são compilados: os membros do
-   SDK que o programa usa são casados pelo nome no lowering (ver §3).
+   `libraries.json`, com os patches e a sobreposição `sdk_nativo/`) viram um
+   `Program`; os corpos **do programa** são inferidos. O SDK da fonte é o
+   padrão (`sdk_modulo::sdk_da_fonte_pedido`,
+   `crates/emit_native/src/sdk_modulo.rs:121-127`): as
+   `BIBLIOTECAS_DA_FONTE` (`sdk_modulo.rs:25`) são compiladas uma vez por
+   conteúdo num módulo próprio (a biblioteca `dfsdk_<chave>` de §1.1, ou
+   bitcode ThinLTO na produção), com ids de classe fixados pela tabela do SDK
+   compilado (`Context::com_sdk_da_fonte_e_ids`, `crates/emit_native/src/lib.rs:233-238`).
+   O casamento por nome de §3 só volta com `DARTFORGE_SDK_DA_FONTE=0`.
 2. **Lowering para a HIR própria** (`crates/emit_native/src/hir.rs`,
    `crates/emit_native/src/lower/`). Chamada a função do usuário é direta; a
    método de instância do usuário é um `switch` sobre a classe dinâmica
    (`dartforge_value_class`) entre as implementações (`lower/membros.rs`). Não
-   há vtable, seletor nem `CallInterface`/`CallDynamic` emitidos. `??`, `??=`,
-   `?.`, `for-in` sobre lista, `try`/`catch`/`finally` e `assert` são baixados;
-   **não** são: closures, cascatas, `switch`, padrões, `async`/`await`,
-   geradores, extensões, `super.m()` (a lista completa e a contagem por
-   programa saem do relatório do harness, §4).
-3. **Construto não suportado** vira diagnóstico com posição (N1). Se o módulo
-   tem algum, `emitir_ir` e `compilar` devolvem `Err` com **todos** os
-   diagnósticos (a primeira linha é a do primeiro, sem posição, para agrupar),
-   e nenhum IR é emitido.
+   há vtable; `CallInterface`/`CallDynamic` continuam sem emissão (o
+   verificador da HIR as recusa, `lower/verificador.rs:234-241`), e o despacho
+   por seletor (`CallSeletor`, tabela de métodos da classe com cache por
+   ponto de chamada, `hir.rs:405-417`) atende o receptor sem tipo e o código
+   do SDK. Além de `??`, `??=`, `?.`, `for-in`,
+   `try`/`catch`/`finally` e `assert`, são baixados: closures e tear-offs
+   (`lower/closures.rs`, `lower/captura.rs`), cascatas (`lower/cascata.rs`),
+   `switch` e padrões (`lower/comandos.rs`, `lower/padroes.rs`),
+   `async`/`await`, `sync*` e `async*` (`lower/async_sm.rs`), extensões
+   (`lower/extensoes.rs`) e `super.m()` (`lower/chamadas.rs`). O que ainda
+   falta aparece no relatório do harness (§4).
+
+   > **Histórico (até 2026-09-27).** Este passo dizia que closures,
+   > cascatas, `switch`, padrões, `async`/`await`, geradores, extensões e
+   > `super.m()` **não** eram baixados. Era o estado da rodada 1; entraram em
+   > P1–P4 e P6 (`docs/NATIVO-PLANO.md` §7.5 e §7.7).
+3. **Construto não suportado** no código **do programa** vira diagnóstico
+   com posição (N1). Se o módulo tem algum, `emitir_ir` e `compilar`
+   devolvem `Err` com **todos** os diagnósticos (a primeira linha é a do
+   primeiro, sem posição, para agrupar), e nenhum IR é emitido. No código
+   **do SDK da fonte** o mesmo construto vira `UnsupportedError` em tempo de
+   execução, com o mesmo texto (`FnBuilder::nao_suportado`,
+   `crates/emit_native/src/lower/fn_builder.rs:316-343`); é o caso dos
+   natives pendentes (`docs/NATIVOS-PENDENTES.md`).
 4. **Emissão de LLVM IR** textual (`crates/emit_native/src/llvm/`), ponteiros
    opacos.
 5. **Clang e ligação** (`crates/emit_native/src/driver.rs`), com cache de
@@ -97,26 +118,43 @@ ordem de `FRAGMENTOS` (`crates/runtime/build.rs`) — o mesmo texto para o AOT
 - **Listas, mapas, conjuntos:** valores do runtime com slots etiquetados
   `(bits, tag)`; os membros são externs `dartforge_list_*`, `dartforge_map_*`,
   `dartforge_set_*`.
-- **Closures:** o runtime tem `Value::Closure`/`Environment`/`Cell`, mas o
-  lowering **ainda não** produz closures (P1).
+- **Closures:** `Value::Closure`/`Environment`/`Cell` do runtime, produzidas
+  pelo lowering (`lower/closures.rs`): o código da closure é o endereço da
+  entrada uniforme (`ptrtoint`, `crates/emit_native/src/llvm/mod.rs`, emissão
+  de `AllocClosure`), o ambiente guarda as variáveis livres ou as células
+  delas (`lower/captura.rs`). Teste: `corpus/nativo/28_closures_tipadas.dart`.
+  *Histórico (até 2026-09-27):* aqui se lia que o lowering "ainda não"
+  produzia closures (P1); P1 entrou (`docs/NATIVO-PLANO.md` §7.5).
 - **Exceções:** modelo por valor — exceção pendente no runtime e verificação
   depois de cada chamada (NATIVO-PLANO §1), com `try`/`on T`/`catch (e, s)`/
   `finally` e `rethrow`.
 - **Estado:** heap, nomes de classe e exceção pendente em `thread_local!` do
-  runtime; os globais Dart são `@dfg_<id>` do módulo LLVM (passam para a
-  tabela do isolado em P8).
+  runtime; os globais Dart (`@dfg_<id>` e a bandeira `$ok`) são slots da
+  **área de globais do isolado** — cada isolado é uma thread com a sua área,
+  como a *field table* da VM (`crates/emit_native/src/llvm/mod.rs:65-72` e
+  `1397-1405`; runtime em `crates/runtime/src/gc_raizes.rs`).
+  *Histórico (até 2026-09-27):* aqui se lia que os globais eram `@dfg_<id>`
+  do módulo e só passariam à tabela do isolado em P8.
 
 ---
 
 ## 3. Membros do SDK
 
-O runtime escrito à mão cobre **só** os membros do SDK que
-`crates/emit_native/src/lower/sdk_por_nome.rs` casa **pelo nome**, sem olhar o
-tipo do receptor (`length`, `add`, `substring`, `join`, `Exception(…)`,
-`StringBuffer()`…). Esse mecanismo está **congelado**: nenhum caso novo; ele é
-apagado em P5, quando `dart:core`, `dart:async`, `dart:collection`,
-`dart:convert`, `dart:math` e `dart:_internal` vêm da fonte do SDK 3.6.2 com
-uma camada fina de patches nossos e natives em Rust (NATIVO-PLANO §7).
+Os membros do SDK vêm da **fonte do SDK 3.6.2** com a sobreposição
+`sdk_nativo/` (`sdk_nativo/libraries.json`) e os natives em Rust da tabela
+`crates/emit_native/src/nativos.rs`; o que cada native pendente significa
+para a API pública está em `docs/NATIVOS-PENDENTES.md`. Esse é o padrão
+desde P5d (`docs/NATIVO-PLANO.md` §7.13).
+
+O runtime escrito à mão que casa membros **pelo nome**
+(`crates/emit_native/src/lower/sdk_por_nome.rs`: `length`, `add`,
+`substring`, `join`, `Exception(…)`, `StringBuffer()`…) continua **congelado**
+e só é usado com `DARTFORGE_SDK_DA_FONTE=0`, para comparação.
+
+> **Histórico (até 2026-09-27).** Esta seção dizia que o runtime por nome
+> cobria "só" os membros do SDK e que seria apagado em P5. P5c/P5d entraram
+> (`docs/NATIVO-PLANO.md` §7.9 e §7.13); o caminho por nome não foi apagado,
+> ficou atrás da variável de ambiente.
 
 ---
 
