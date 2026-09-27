@@ -1224,6 +1224,27 @@ pub(crate) fn definir_argumentos_na_biblioteca(dll: &std::path::Path, dados: &[u
     Ok(())
 }
 
+/// Chama `dartforge_definir_script_do_programa` do runtime da biblioteca do
+/// SDK (o `Platform.script`). Uma biblioteca sem o runtime inteiro (as dos
+/// testes) não tem o símbolo, e o script fica o do processo.
+pub(crate) fn definir_script_na_biblioteca(dll: &std::path::Path, caminho: &[u8]) -> Result<(), String> {
+    let modulo = carregar_biblioteca(dll);
+    if modulo.is_null() {
+        return Err(format!("não foi possível carregar a biblioteca do SDK {}", dll.display()));
+    }
+    let p = endereco_na_biblioteca(modulo, c"dartforge_definir_script_do_programa");
+    if p.is_null() {
+        return Ok(());
+    }
+    // SAFETY: o símbolo é a função do runtime com esta assinatura
+    // (`io_plataforma.rs`); `caminho` vive durante a chamada, que o copia.
+    unsafe {
+        let f: unsafe extern "C" fn(*const u8, usize) = std::mem::transmute(p);
+        f(caminho.as_ptr(), caminho.len());
+    }
+    Ok(())
+}
+
 // ─── Recarga ao vivo ───────────────────────────────────────────────────────
 //
 // O programa roda numa thread própria enquanto o observador compila a

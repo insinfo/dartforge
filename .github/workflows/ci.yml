@@ -212,7 +212,7 @@ jobs:
       - name: Testes do JIT (com os ignorados)
         run: cargo test --locked --release -p dartforge-jit -- --include-ignored
       - name: Recarga JIT da CLI (com e sem o SDK da fonte)
-        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test reload_estado -- --include-ignored
+        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test reload_estado --test jit_programa -- --include-ignored
       - name: Regressões do dart:io nativo (escuta compartilhada, rajada de sinais)
         run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test io_regressao -- --include-ignored
       - name: Olá, mundo — AOT de desenvolvimento, produção e JIT

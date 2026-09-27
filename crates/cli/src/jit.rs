@@ -125,6 +125,9 @@ pub fn run(args: &[std::ffi::OsString]) -> Resultado {
         }
     }
     dartforge_jit::definir_argumentos(do_programa);
+    if let Some(entrada) = &entrada {
+        dartforge_jit::definir_script(entrada);
+    }
     let (ir, emissao) = match (entrada, ir_pronto) {
         (Some(entrada), None) => {
             let ir = emitir(&entrada, sdk.as_deref(), packages.as_deref())?;
@@ -293,6 +296,7 @@ pub fn reload(args: &[std::ffi::OsString]) -> Resultado {
         }
     }
     let entrada = entrada.ok_or(usage)?;
+    dartforge_jit::definir_script(&entrada);
     if !reiniciar {
         if filho {
             if let Some(porta) = supervisor {

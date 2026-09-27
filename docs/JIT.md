@@ -70,6 +70,19 @@ no corpus inteiro (ver «JIT × AOT no corpus inteiro» abaixo e `ESTADO.md` §1
   `@dartforge_entry`, e cada nome existe uma única vez na `JITDylib`. O segundo
   `add_ir_module` devolve erro na etapa `add-module`. Um programa por sessão, ou
   módulos com símbolos distintos — como no teste `two_modules_share_one_session`.
+* **`Isolate.spawnUri`.** Um processo do JIT roda um programa só (as tabelas
+  de classes e o RTI são do processo); `spawnUri` responde com
+  `IsolateSpawnException` "… is not supported by the DartForge JIT: a
+  process runs a single program". A matriz por operação:
+
+  | Operação | AOT (`dartforge aot`) | JIT (`dartforge run`/`reload`) | VM (`dart run`) | VM AOT (`dart compile exe`) |
+  |---|---|---|---|---|
+  | `Isolate.spawn` (do mesmo programa) | sim | sim | sim | sim |
+  | `Isolate.spawnUri` | recusado | recusado | sim | só um snapshot AOT |
+  | `Platform.script` | o executável | o `.dart` | o `.dart` | o executável |
+
+  O URI relativo do `spawnUri` resolve contra o script, como na VM
+  (`crates/cli/tests/jit_programa.rs`).
 * **Execução em outra thread.** O heap gerenciado é `thread_local`, como no
   harness AOT. `JitSession` contém ponteiros crus e por isso não é `Send` nem
   `Sync`: o compilador impede o engano em vez de deixá-lo virar heap vazio em

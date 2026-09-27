@@ -427,8 +427,9 @@ pub extern "C" fn dartforge_nativo_Isolate_spawnFunction(
     }
 }
 
-/// `Isolate_spawnUri`: o executável nativo não carrega outro programa (como
-/// o runtime AOT da VM com um `.dart`); a porta de pronto recebe o erro.
+/// `Isolate_spawnUri`: nem o executável nativo nem o JIT carregam outro
+/// programa (o runtime AOT da VM só aceita um snapshot AOT, e com um `.dart`
+/// também falha); a porta de pronto recebe o erro.
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
 pub extern "C" fn dartforge_nativo_Isolate_spawnUri(
@@ -447,10 +448,15 @@ pub extern "C" fn dartforge_nativo_Isolate_spawnUri(
 ) {
     let Some(pronto) = id_do_objeto(pronto) else { return };
     let uri = HEAP.with(|h| h.borrow().texto(uri).para_string());
-    postar(
-        pronto,
-        Portavel::Str(format!("Isolate.spawnUri({uri}) is not supported in a program compiled ahead of time")).para_grafo(),
-    );
+    // O JIT (o hospedeiro definiu o script) roda um programa por processo:
+    // as tabelas de classes e o RTI são do processo. Ver docs/JIT.md.
+    let jit = script_do_programa().lock().unwrap_or_else(|e| e.into_inner()).is_some();
+    let texto = if jit {
+        format!("Isolate.spawnUri({uri}) is not supported by the DartForge JIT: a process runs a single program")
+    } else {
+        format!("Isolate.spawnUri({uri}) is not supported in a program compiled ahead of time")
+    };
+    postar(pronto, Portavel::Str(texto).para_grafo());
 }
 
 /// `Isolate_getPortAndCapabilitiesOfCurrentIsolate`: `[porta de controle,
@@ -472,11 +478,15 @@ pub extern "C" fn dartforge_nativo_Isolate_getDebugName(porta: i64) -> i64 {
     nome.map_or(0, |n| alocar_str(&n))
 }
 
-/// `Isolate_getCurrentRootUriStr`: o URI `file:` do executável (o script,
-/// para o embedder da VM).
+/// `Isolate_getCurrentRootUriStr`: o URI `file:` do script (o `.dart` que
+/// o JIT roda, como no `dart run`; no AOT, o executável, como na VM).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Isolate_getCurrentRootUriStr() -> i64 {
-    let caminho = std::env::current_exe().ok().or_else(|| std::env::args_os().next().map(std::path::PathBuf::from)).unwrap_or_default();
+    let definido = script_do_programa().lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let caminho = match definido {
+        Some(b) => caminho_de_bytes(&b),
+        None => std::env::current_exe().ok().or_else(|| std::env::args_os().next().map(std::path::PathBuf::from)).unwrap_or_default(),
+    };
     let absoluto = if caminho.is_absolute() { caminho } else { std::env::current_dir().unwrap_or_default().join(caminho) };
     alocar_str(&uri_de_arquivo(&absoluto))
 }

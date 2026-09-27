@@ -38,7 +38,7 @@ definição de escopo do produto antes de implementar).
 | J03 recarga estrutural | aberto | |
 | J04 granularidade | aberto | |
 | J05 depuração | decisão | |
-| J06 spawnUri | aberto | |
+| J06 spawnUri | feito | matriz AOT × JIT × VM em docs/JIT.md ("O que não executa"): `spawnUri` recusado nos dois perfis (um programa por processo; a VM AOT também só aceita snapshot AOT), com mensagem própria no JIT; `Platform.script` do JIT passou a ser o `.dart` (era o executável do `dartforge`), e o URI relativo resolve contra ele; `crates/cli/tests/jit_programa.rs`. |
 
 ## JavaScript
 

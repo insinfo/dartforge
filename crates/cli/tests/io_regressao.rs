@@ -152,12 +152,15 @@ rsa cifrada: /C=BR/O=DartForge/CN=localhost -> ola rsa cifrada
 /// O contrato de `allowLegacyUnsafeRenegotiation` (o rustls não renegocia):
 /// sem a opção, a recusa é a da VM; com ela, a VM renegociaria e aqui o
 /// pedido é recusado igual (documentado em NATIVO-PLANO). Precisa do
-/// `openssl` (o `s_server` pede a renegociação); sem ele, o teste não roda.
+/// `openssl` do OpenSSL (o `s_server` pede a renegociação); sem ele, o teste
+/// não roda.
 #[test]
 #[ignore = "compila com o SDK da fonte e liga com o Clang; roda no CI de cada sistema"]
 fn renegociacao_legada_e_recusada() {
-    if Command::new("openssl").arg("version").output().is_err() {
-        eprintln!("sem openssl: teste de renegociação não roda");
+    // O OpenSSL (o LibreSSL do macOS não tem `-legacy_renegotiation`).
+    let versao = Command::new("openssl").arg("version").output().map(|s| String::from_utf8_lossy(&s.stdout).into_owned()).unwrap_or_default();
+    if !versao.starts_with("OpenSSL") {
+        eprintln!("sem o openssl do OpenSSL ({}): teste de renegociação não roda", versao.trim());
         return;
     }
     let certificados = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tls");

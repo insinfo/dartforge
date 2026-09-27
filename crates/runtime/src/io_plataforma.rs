@@ -74,7 +74,10 @@ pub extern "C" fn dartforge_preparar_embedder() {
     // SAFETY: registrada pela biblioteca `dart:io` da sobreposição com a
     // assinatura (`String`) → `Object`.
     let iniciar: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(iniciar) };
-    let script = std::env::args_os().next().map(|a| bytes_de_caminho(std::path::Path::new(&a))).unwrap_or_default();
+    // O script: o que o hospedeiro definiu (o `.dart` que o JIT roda, como o
+    // `dart run`), senão o `argv[0]` do executável (o AOT, como a VM).
+    let definido = script_do_programa().lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let script = definido.unwrap_or_else(|| std::env::args_os().next().map(|a| bytes_de_caminho(std::path::Path::new(&a))).unwrap_or_default());
     let script = dart_texto_de_bytes(&script);
     let gancho = com_raizes(&[script], || iniciar(script));
     if dartforge_exception_pending() != 0 {
@@ -481,6 +484,34 @@ pub extern "C" fn dartforge_nativo_Platform_ExecutableArguments() -> i64 {
 fn argumentos_do_main() -> &'static std::sync::Mutex<Option<Vec<String>>> {
     static A: std::sync::Mutex<Option<Vec<String>>> = std::sync::Mutex::new(None);
     &A
+}
+
+/// O `Platform.script` quando o processo não é o próprio programa (o JIT):
+/// os bytes do caminho do `.dart`.
+fn script_do_programa() -> &'static std::sync::Mutex<Option<Vec<u8>>> {
+    static S: std::sync::Mutex<Option<Vec<u8>>> = std::sync::Mutex::new(None);
+    &S
+}
+
+/// Define o `Platform.script` do programa (antes do `main`).
+pub fn definir_script_do_programa(caminho: Vec<u8>) {
+    *script_do_programa().lock().unwrap_or_else(|e| e.into_inner()) = Some(caminho);
+}
+
+/// [`definir_script_do_programa`] pela fronteira C (o runtime da biblioteca
+/// do SDK da fonte): o caminho em UTF-8.
+///
+/// # Safety
+/// `dados` aponta `tamanho` bytes legíveis (ou `tamanho` é 0).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_definir_script_do_programa(dados: *const u8, tamanho: usize) {
+    let bytes = if tamanho == 0 {
+        Vec::new()
+    } else {
+        // SAFETY: garantido pelo chamador.
+        unsafe { std::slice::from_raw_parts(dados, tamanho) }.to_vec()
+    };
+    definir_script_do_programa(bytes);
 }
 
 /// Os argumentos que o `main(List<String> args)` recebe quando o processo

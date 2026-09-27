@@ -313,6 +313,10 @@ impl JitSession {
         }
         ffi::definir_argumentos_na_biblioteca(dll, &argumentos)
             .map_err(|detail| JitError::new("sdk", "não foi possível entregar os argumentos do main à DLL do SDK", detail))?;
+        if let Some(script) = script_do_programa().lock().unwrap_or_else(|e| e.into_inner()).as_deref() {
+            ffi::definir_script_na_biblioteca(dll, script)
+                .map_err(|detail| JitError::new("sdk", "não foi possível entregar o script à DLL do SDK", detail))?;
+        }
         static NEXT_ID: AtomicU64 = AtomicU64::new(1_000_000);
         Ok(Self {
             modules: Vec::new(),
@@ -789,6 +793,22 @@ pub fn compile_module(name: &str, ir: &str) -> Result<CompiledModule, JitError> 
 pub fn definir_argumentos(argumentos: Vec<String>) {
     *argumentos_do_programa().lock().unwrap_or_else(|e| e.into_inner()) = argumentos.clone();
     dartforge_runtime::abi::definir_argumentos_do_main(argumentos);
+}
+
+/// O `Platform.script` do programa: o `.dart` que o JIT roda (como o `dart
+/// run`), não o executável do processo.
+pub fn definir_script(caminho: &std::path::Path) {
+    let absoluto = std::path::absolute(caminho).unwrap_or_else(|_| caminho.to_path_buf());
+    let bytes = absoluto.as_os_str().as_encoded_bytes().to_vec();
+    *script_do_programa().lock().unwrap_or_else(|e| e.into_inner()) = Some(bytes.clone());
+    dartforge_runtime::abi::definir_script_do_programa(bytes);
+}
+
+/// O script de [`definir_script`], que uma sessão com o SDK da fonte repassa
+/// ao runtime da biblioteca dela.
+fn script_do_programa() -> &'static std::sync::Mutex<Option<Vec<u8>>> {
+    static S: std::sync::Mutex<Option<Vec<u8>>> = std::sync::Mutex::new(None);
+    &S
 }
 
 /// Os argumentos de [`definir_argumentos`], que uma sessão com o SDK da fonte
