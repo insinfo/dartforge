@@ -5,6 +5,7 @@
 
 pub mod contrato;
 pub mod corpus;
+pub mod matriz;
 pub mod oraculos;
 pub mod processo;
 pub mod relatorio;

@@ -29,6 +29,10 @@ const USO: &str = "uso:
       lado deste binário ou em DARTFORGE_EXECUTAR_IR) em vez do AOT; --jit-aot
       executa também o AOT do MESMO IR, lista todo programa em que os dois
       divergem (JIT≠AOT) e mede o tempo de cada perfil (docs/JIT.md)
+      --matriz ARQUIVO acrescenta ao ARQUIVO (TSV) o estado de cada programa no
+      perfil — suportado, recusado, divergente, não medido; o perfil é
+      `--perfil NOME`, senão aot, aot-gc-stress, jit ou js-dev (e js-prod com
+      --producao). scripts/matriz.py junta os arquivos em docs/MATRIZ.md (V02)
   dartforge-diferencial contrato [--corpus DIR] [-o ARQUIVO]
       compila cada programa com o dartdevc e escreve docs/CONTRATO-DDC.md
   dartforge-diferencial verificar [--corpus DIR] [--filtro TEXTO]
@@ -181,6 +185,8 @@ fn main() {
     let mut modo = "relatorio";
     let mut trabalhadores: Vec<usize> = vec![1, 4, 8];
     let mut executar = false;
+    let mut matriz: Option<PathBuf> = None;
+    let mut perfil: Option<String> = None;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -212,6 +218,14 @@ fn main() {
                     eprintln!("{e}");
                     std::process::exit(2)
                 }));
+            }
+            "--matriz" => {
+                i += 1;
+                matriz = Some(PathBuf::from(&args[i]));
+            }
+            "--perfil" => {
+                i += 1;
+                perfil = Some(args[i].clone());
             }
             "-o" => {
                 i += 1;
@@ -365,6 +379,24 @@ fn main() {
             });
             print!("{}", relatorio(&resultados));
             println!("({} programas em {:.1} s)", resultados.len(), inicio.elapsed().as_secs_f64());
+            if let Some(arquivo) = &matriz {
+                let nome = perfil.clone().unwrap_or_else(|| {
+                    match (op.nativo, op.jit, amb.gc_stress) {
+                        (true, true, _) => "jit",
+                        (true, false, true) => "aot-gc-stress",
+                        (true, false, false) => "aot",
+                        (false, ..) => "js-dev",
+                    }
+                    .to_string()
+                });
+                let linhas = dartforge_diferencial::matriz::tsv(&resultados, &nome);
+                let mut f = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(arquivo)
+                    .unwrap_or_else(|e| panic!("{}: {e}", arquivo.display()));
+                std::io::Write::write_all(&mut f, linhas.as_bytes()).expect("escrever a matriz");
+            }
             let todos_ok = if op.com_forge {
                 // Pendente (`PENDENTES`) tem de falhar; os demais, passar.
                 resultados.iter().all(|r| r.ok() != r.programa.pendente)
