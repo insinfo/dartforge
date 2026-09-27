@@ -43,6 +43,11 @@ pub struct Componente {
     pub styles: Vec<String>,
     /// `changeDetection: ChangeDetectionStrategy.OnPush`.
     pub on_push: bool,
+    /// `encapsulation: ViewEncapsulation.none`. Sem folha de estilo o
+    /// oficial já desliga o encapsulamento (`ast_directive_normalizer.dart`),
+    /// então só pesa com `styleUrls`/`styles` — forma ainda recusada pela
+    /// visão.
+    pub sem_encapsulamento: bool,
     /// Nomes escritos em `directives:`, na ordem, como escritos (`A`,
     /// `li.B`). Listas constantes (`coreDirectives`) entram pelo nome e são
     /// expandidas pelo banco semântico.
@@ -303,6 +308,22 @@ fn e_on_push(arvore: &ast::Ast, fonte: &str, id: ast::ExprId) -> bool {
         .is_some_and(|t| t.rsplit('.').next().map(str::trim) == Some("onPush"))
 }
 
+/// O valor de `encapsulation:` quando escrito como `ViewEncapsulation.x`
+/// (com ou sem prefixo de import): `emulated` ou `none`, os dois do ngdart 8.
+/// Qualquer outra forma (constante, expressão) dá `None`.
+fn valor_de_encapsulamento<'a>(
+    arvore: &ast::Ast,
+    fonte: &'a str,
+    id: ast::ExprId,
+) -> Option<&'a str> {
+    let span = arvore.expr(id).span;
+    let texto = fonte.get(span.start..span.end)?.trim();
+    let (antes, valor) = texto.rsplit_once('.')?;
+    let tipo = antes.rsplit('.').next()?.trim();
+    (tipo == "ViewEncapsulation" && matches!(valor.trim(), "emulated" | "none"))
+        .then(|| valor.trim())
+}
+
 /// Extrai o `@Component` de uma classe anotada.
 pub fn ler_componente(
     arvore: &ast::Ast,
@@ -466,6 +487,10 @@ fn ler(
                 "styleUrls" => c.style_urls = lista_de_textos(arvore, a.value),
                 "styles" => c.styles = lista_de_textos(arvore, a.value),
                 "changeDetection" => c.on_push = e_on_push(arvore, fonte, a.value),
+                "encapsulation" => {
+                    c.sem_encapsulamento =
+                        valor_de_encapsulamento(arvore, fonte, a.value) == Some("none")
+                }
                 "directives" => {
                     (c.diretivas, c.diretivas_ilegiveis) = nomes_da_lista(arvore, interner, a.value)
                 }
@@ -492,7 +517,8 @@ fn ler(
     c.entradas = entradas_da_classe(arvore, interner, classe);
     c.saidas = saidas_da_classe(arvore, interner, classe);
     c.ganchos = ganchos_da_classe(arvore, fonte, classe);
-    c.nao_entendidos = o_que_nao_entendemos(arvore, interner, classe, anotacao, e_componente);
+    c.nao_entendidos =
+        o_que_nao_entendemos(arvore, fonte, interner, classe, anotacao, e_componente);
     c.liga_hospedeiro = tem_anotacao(arvore, interner, classe, &["HostBinding"]);
     c.consulta_conteudo = tem_anotacao(
         arvore,
@@ -667,6 +693,7 @@ fn ganchos_da_classe(arvore: &ast::Ast, fonte: &str, classe: &ast::ClassDecl) ->
 /// que não souber.
 fn o_que_nao_entendemos(
     arvore: &ast::Ast,
+    fonte: &str,
     interner: &Interner,
     classe: &ast::ClassDecl,
     anotacao: &ast::Annotation,
@@ -698,6 +725,11 @@ fn o_que_nao_entendemos(
                     Motivo::Providers,
                     format!("{anot}(.., providers: [..])"),
                 )),
+                // `ViewEncapsulation.emulated`/`.none` escritos: o efeito é
+                // conhecido (ver [`Componente::sem_encapsulamento`]).
+                "encapsulation"
+                    if e_componente
+                        && valor_de_encapsulamento(arvore, fonte, a.value).is_some() => {}
                 "encapsulation" => fora.push(recusa(
                     Motivo::Encapsulamento,
                     "@Component(.., encapsulation: ..)",

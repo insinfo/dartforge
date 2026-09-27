@@ -6188,6 +6188,18 @@ fn gerar_componente(
         // `styles: ['…']` escrito na anotação ainda não.
         anotar(coleta, recusa(Motivo::Estilos, "styles: [..] na anotação"))?;
     }
+    // `ViewEncapsulation.none` com folha: estilo sem shim (`.css.dart`),
+    // `ComponentStyles.unscoped` e sem `addShimC`. Sem caso ainda; sem folha
+    // o oficial desliga o encapsulamento de qualquer jeito e nada muda.
+    if c.sem_encapsulamento && (!c.style_urls.is_empty() || !c.styles.is_empty()) {
+        anotar(
+            coleta,
+            recusa(
+                Motivo::Encapsulamento,
+                "encapsulation: ViewEncapsulation.none com folha de estilo",
+            ),
+        )?;
+    }
     // A construção sai depois dos imports fixos, porque a injeção aloca os
     // seus (o `errors.dart` e o de cada tipo injetado) no fim da tabela.
     if let Some(r) = falta_para_construir(c, local, resolvedor) {
