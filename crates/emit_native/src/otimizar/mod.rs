@@ -7,8 +7,9 @@
 //! 1. `mem2reg`: locais viram valores SSA;
 //! 2. resumo de exceções (`efeitos`) e a conferência depois de uma chamada
 //!    que não lança dobrada (`simplificar`);
-//! 3. inlining das funções pequenas que não lançam (`inline`) —
-//!    construtores, getters, operadores;
+//! 3. inlining das funções pequenas (`inline`) — construtores, getters,
+//!    operadores —, também das que lançam (a conferência depois da chamada
+//!    leva a exceção ao tratador de quem chama);
 //! 4. substituição escalar dos objetos que não escapam (`escape`), e de
 //!    novo `mem2reg` e as limpezas.
 //!
@@ -64,11 +65,11 @@ pub fn otimizar(module: &mut Module) {
         for f in module.functions.iter_mut().filter(|f| validas(f)) {
             limpar(f, &nao_lancam);
         }
-        let copias: HashMap<String, Function> = module
+        let copias: HashMap<String, (Function, bool)> = module
             .functions
             .iter()
-            .filter(|f| inline::copiavel(f, &nao_lancam))
-            .map(|f| (f.symbol.clone(), f.clone()))
+            .filter(|f| inline::copiavel(f))
+            .map(|f| (f.symbol.clone(), (f.clone(), !nao_lancam.contains(&f.symbol))))
             .collect();
         let mut mudou = false;
         for f in module.functions.iter_mut().filter(|f| validas(f)) {

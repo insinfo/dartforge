@@ -1,18 +1,26 @@
-//! Inlining de funções pequenas do módulo que não lançam.
+//! Inlining de funções pequenas do módulo.
 //!
-//! Só funções que não lançam: o corpo copiado não tem caminho de exceção a
-//! religar aos `catch`/`finally` de quem chama, e a conferência depois da
-//! chamada já foi dobrada (`simplificar::conferencias_mortas`). Os
-//! argumentos entram no lugar dos parâmetros; cada `return` vira um desvio
-//! para a continuação, com um `phi` se houver mais de um. O
+//! Uma exceção é um estado pendente do runtime que quem chama confere logo
+//! depois da chamada (`FnBuilder::emit_call_with_check`): quem lança deixa a
+//! exceção pendente e **retorna**. Por isso o corpo copiado não precisa ser
+//! religado aos `catch`/`finally` de quem chama: a saída excepcional da
+//! cópia é um `return` como os outros, que vira desvio para a continuação,
+//! e a conferência que seguia a chamada — que fica na continuação — leva a
+//! exceção ao tratador de quem chama, como antes. O corpo roda igual, com o
+//! mesmo estado do runtime; só a fronteira da chamada some.
+//!
+//! Os argumentos entram no lugar dos parâmetros; cada `return` vira um
+//! desvio para a continuação, com um `phi` se houver mais de um. O
 //! `dartforge_exception_clear` do `return` (que descarta uma exceção
-//! pendente ao sair de um `finally`) some da cópia: sem lançar, não há o
-//! que descartar.
+//! pendente ao sair de um `finally`) fica na cópia de quem pode lançar; na
+//! de quem não lança some (não há o que descartar), e a conferência depois
+//! da chamada já foi dobrada (`simplificar::conferencias_mortas`). O
+//! terminador `Throw` (lança e não volta) não é copiado.
 
 use super::mem2reg::compativel;
 use super::operandos::*;
 use crate::hir::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// Instruções de uma função que se copia.
 pub const LIMITE_DO_CORPO: usize = 40;
@@ -24,9 +32,8 @@ fn tamanho(f: &Function) -> usize {
 }
 
 /// A função pode ser copiada no lugar da chamada?
-pub fn copiavel(f: &Function, nao_lancam: &HashSet<String>) -> bool {
-    nao_lancam.contains(&f.symbol)
-        && tamanho(f) <= LIMITE_DO_CORPO
+pub fn copiavel(f: &Function) -> bool {
+    tamanho(f) <= LIMITE_DO_CORPO
         && f.blocks.first().is_some_and(|b| b.id.0 == 0)
         && f.blocks.iter().all(|b| {
             !matches!(b.terminator, Terminator::Throw(_))
@@ -43,8 +50,9 @@ pub fn copiavel(f: &Function, nao_lancam: &HashSet<String>) -> bool {
         })
 }
 
-/// Copia, em `func`, as chamadas a funções de `copias`. Devolve se mudou.
-pub fn inlining(func: &mut Function, copias: &HashMap<String, Function>) -> bool {
+/// Copia, em `func`, as chamadas a funções de `copias` (com se a função
+/// pode lançar). Devolve se mudou.
+pub fn inlining(func: &mut Function, copias: &HashMap<String, (Function, bool)>) -> bool {
     let mut mudou = false;
     let mut orcamento = 64;
     while orcamento > 0 && tamanho(func) < LIMITE_DE_QUEM_CHAMA {
@@ -52,7 +60,7 @@ pub fn inlining(func: &mut Function, copias: &HashMap<String, Function>) -> bool
         let achado = func.blocks.iter().enumerate().find_map(|(bi, b)| {
             b.instructions.iter().enumerate().find_map(|(ii, (_, inst, ty))| {
                 let Instruction::CallStatic { symbol, args, .. } = inst else { return None };
-                let alvo = copias.get(symbol)?;
+                let (alvo, _) = copias.get(symbol)?;
                 if *symbol == func.symbol || alvo.params.len() != args.len() {
                     return None;
                 }
@@ -78,14 +86,15 @@ pub fn inlining(func: &mut Function, copias: &HashMap<String, Function>) -> bool
     mudou
 }
 
-fn copiar(func: &mut Function, bi: usize, ii: usize, copias: &HashMap<String, Function>) {
+fn copiar(func: &mut Function, bi: usize, ii: usize, copias: &HashMap<String, (Function, bool)>) {
     let (mut prox_v, mut prox_b) = maiores_ids(func);
     let (chamada, args, ty) = match &func.blocks[bi].instructions[ii] {
         (v, Instruction::CallStatic { symbol, args, .. }, ty) => (*v, (symbol.clone(), args.clone()), *ty),
         _ => unreachable!("chamada estática esperada"),
     };
     let (simbolo, args) = args;
-    let alvo = &copias[&simbolo];
+    let (alvo, lanca) = &copias[&simbolo];
+    let lanca = *lanca;
 
     // Novos ids para os valores e blocos da cópia.
     let mut valores: HashMap<ValueId, Operand> = HashMap::new();
@@ -132,7 +141,7 @@ fn copiar(func: &mut Function, bi: usize, ii: usize, copias: &HashMap<String, Fu
         let id = blocos[&b.id];
         let mut instrucoes = Vec::with_capacity(b.instructions.len());
         for (v, inst, t) in &b.instructions {
-            if matches!(inst, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_clear") {
+            if !lanca && matches!(inst, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_clear") {
                 continue;
             }
             let mut inst = inst.clone();
