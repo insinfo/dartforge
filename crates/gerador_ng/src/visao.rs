@@ -2180,12 +2180,21 @@ impl Corpo<'_> {
                     "[attr.x.if] ou atributo com namespace",
                 ));
             }
-            if com_seguranca(attr) {
-                return Err(recusa(
-                    Motivo::Ligacao,
-                    "[attr.x] com contexto de segurança",
-                ));
-            }
+            // Com contexto de segurança o valor passa pelo saneador do
+            // contexto, achado pelo nome de propriedade mapeado
+            // (`securityContext(tag, getMappedPropName(x))` em
+            // `createElementPropertyAst`); o atributo escrito fica como está.
+            let saneado = match saneador(
+                &self.tag_atual.to_ascii_lowercase(),
+                propriedade_mapeada(attr),
+            ) {
+                Some(f) => {
+                    let s = tardio(SAFE_HTML);
+                    format!("{s}.{f}({valor})")
+                }
+                None => valor.to_string(),
+            };
+            let valor = saneado.as_str();
             // `canBeNull` (`analyzed_class.dart`): só o literal não pode ser
             // nulo, e só ele vai por `setAttribute`. `a ?? b` tem regra
             // própria, ainda sem caso no corpus.
@@ -2240,20 +2249,15 @@ impl Corpo<'_> {
             } else {
                 l.nome.as_str()
             };
-            if matches!(prop, "readonly" | "tabindex" | "tabIndex" | "style") {
+            if matches!(prop, "readonly" | "tabindex" | "tabIndex") {
                 return Err(recusa(
                     Motivo::Ligacao,
                     "[propriedade] renomeada pelo esquema",
                 ));
             }
-            // `_sanitizedValue`: o valor passa pelo saneador do contexto.
+            // `_sanitizedValue`: o valor passa pelo saneador do contexto
+            // (`[style]` é `*|style`: `sanitizeStyle`, caso i92).
             match saneador(&self.tag_atual.to_ascii_lowercase(), prop) {
-                Some("sanitizeStyle") => {
-                    return Err(recusa(
-                        Motivo::Ligacao,
-                        "[propriedade] com contexto de segurança de estilo",
-                    ));
-                }
                 Some(f) => {
                     let s = tardio(SAFE_HTML);
                     format!("{dom}.setProperty({alvo}, '{prop}', {s}.{f}({valor}))")
@@ -6315,6 +6319,18 @@ fn saneador(tag: &str, prop: &str) -> Option<&'static str> {
         }
     };
     contexto(&format!("{tag}|{prop}")).or_else(|| contexto(&format!("*|{prop}")))
+}
+
+/// `getMappedPropName` do `DomElementSchemaRegistry`: o nome de
+/// propriedade de um atributo, usado para achar o contexto de segurança.
+fn propriedade_mapeada(atributo: &str) -> &str {
+    match atributo {
+        "class" => "className",
+        "innerHtml" => "innerHTML",
+        "readonly" => "readOnly",
+        "tabindex" => "tabIndex",
+        outro => outro,
+    }
 }
 
 pub(crate) fn com_seguranca(nome: &str) -> bool {
