@@ -490,9 +490,11 @@ fn campo_late_auto_referente_emite_getter_com_guarda() {
     assert!(ir.contains("@dartforge_late_field_mark_initialized"), "{ir}");
 }
 
-/// (1) `for` cuja variável é reatribuída no corpo: a variável mora num
-/// `alloca` (R6) e a condição relê o valor dela a cada volta — antes ela era
-/// um valor SSA no mapa por nome, e a condição via para sempre o inicial.
+/// (1) `for` cuja variável é reatribuída no corpo: a condição relê o valor
+/// dela a cada volta — antes ela era um valor SSA no mapa por nome, e a
+/// condição via para sempre o inicial. O local mora num `alloca` (R6), que o
+/// `mem2reg` do otimizador da HIR promove: a leitura é um `phi` que junta o
+/// valor de antes do `if` e o `i = 7`, e é ele que o `print` e o `i++` usam.
 #[test]
 fn for_com_variavel_reatribuida_le_o_local() {
     let Some(main) = main_de(
@@ -500,15 +502,9 @@ fn for_com_variavel_reatribuida_le_o_local() {
     ) else {
         return;
     };
-    assert!(main.contains("alloca i64"), "{main}");
-    assert!(
-        main.matches("load i64, ptr").count() >= 3,
-        "a condição, o `if` e o `print` leem o local:\n{main}"
-    );
-    assert!(
-        main.matches("store i64").count() >= 3,
-        "inicial, `i = 7` e `i++` gravam:\n{main}"
-    );
+    assert!(main.matches("= phi i64").count() >= 2, "a volta do laço e o `if` juntam o valor do local:\n{main}");
+    assert!(main.contains("add i64 0, 7"), "o `i = 7` chega ao `phi`:\n{main}");
+    assert!(main.contains("@dartforge_print_i64(i64 %v"), "{main}");
 }
 
 /// (2) `c.dobro()`: chamada do método pelo elemento resolvido (N1) — antes
@@ -520,7 +516,9 @@ fn chamada_de_metodo_com_retorno() {
     ) else {
         return;
     };
-    assert!(main.contains(".dobro(i64"), "{main}");
+    // O método (e o objeto, que não escapa) some pelo otimizador da HIR:
+    // sobra `v * 2` com o `v` do construtor.
+    assert!(main.contains(".dobro(i64") || main.contains("mul i64"), "{main}");
     assert!(!main.contains("@dartforge_print_i64(i64 0)"), "{main}");
 }
 
@@ -533,7 +531,8 @@ fn funcao_de_topo_com_retorno_int_imprime_o_escalar() {
     else {
         return;
     };
-    assert!(main.contains("= call i64 @df."), "{main}");
+    // A chamada, ou o corpo dela embutido pelo otimizador da HIR.
+    assert!(main.contains("= call i64 @df.") || main.contains("add i64 %v"), "{main}");
     assert!(main.contains("@dartforge_print_i64(i64 %v"), "{main}");
     assert!(!main.contains("@dartforge_print_handle"), "{main}");
 }
