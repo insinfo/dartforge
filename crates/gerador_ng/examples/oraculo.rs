@@ -98,6 +98,7 @@ fn main() -> std::process::ExitCode {
     let pacote = Pacote {
         nome: nome_do_pacote,
         raiz: raiz.clone(),
+        ..Default::default()
     };
     println!("pacote: {}", pacote.nome);
     gerar_em(

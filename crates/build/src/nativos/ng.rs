@@ -46,6 +46,32 @@ fn marca_angular(texto: &str) -> bool {
 
 const EXTENSOES: &[&str] = &["dart", "html", "scss", "sass", "css"];
 
+/// As folhas `.css` que o `sass_builder` desta build gerou para os `.scss`
+/// do pacote (na memória do motor): o shim do ngdart parte delas, como no
+/// oficial, no `outputStyle` do projeto. Uma folha `.css` no disco fica com
+/// o disco.
+fn folhas_geradas(ctx: &mut CtxGerador<'_>, raiz: &Path) -> HashMap<PathBuf, String> {
+    let mut fontes = Vec::new();
+    for d in ["lib", "web", "test"] {
+        arquivos(&raiz.join(d), &mut fontes);
+    }
+    let mut folhas = HashMap::new();
+    for scss in fontes {
+        let parcial = scss.file_name().is_some_and(|n| n.to_string_lossy().starts_with('_'));
+        if parcial || scss.extension().is_none_or(|e| e != "scss") {
+            continue;
+        }
+        let css = scss.with_extension("css");
+        if css.is_file() {
+            continue;
+        }
+        if let Some(b) = ctx.ler(&css) {
+            folhas.insert(css, String::from_utf8_lossy(&b).into_owned());
+        }
+    }
+    folhas
+}
+
 fn arquivos(dir: &std::path::Path, v: &mut Vec<PathBuf>) {
     let Ok(ls) = std::fs::read_dir(dir) else { return };
     let mut es: Vec<_> = ls.flatten().collect();
@@ -155,7 +181,11 @@ impl GeradorNativo for NgEstagioA {
             }
         }
         let t_consultas = t.elapsed();
-        let pacote = dartforge_gerador_ng::Pacote { nome: pedido.pacote.clone(), raiz: raiz.clone() };
+        let pacote = dartforge_gerador_ng::Pacote {
+            nome: pedido.pacote.clone(),
+            raiz: raiz.clone(),
+            folhas_geradas: folhas_geradas(ctx, &raiz),
+        };
         let resolvedor = dartforge_gerador_ng::resolucao::Resolvedor::novo(programa, nomes_programa);
         let mut nomes = dartforge_intern::Interner::new();
         let (g, placar) = dartforge_gerador_ng::gerar_com_apoio(&pacote, &mut nomes, None, Some(&resolvedor));
@@ -295,7 +325,11 @@ impl NgEstagioA {
         fecho.sort();
         let mut cache = self.cache.lock().ok()?;
         let cache = cache.get_mut(&pedido.pacote)?;
-        let pacote = dartforge_gerador_ng::Pacote { nome: pedido.pacote.clone(), raiz: raiz.clone() };
+        let pacote = dartforge_gerador_ng::Pacote {
+            nome: pedido.pacote.clone(),
+            raiz: raiz.clone(),
+            folhas_geradas: folhas_geradas(ctx, &raiz),
+        };
         let resolvedor = dartforge_gerador_ng::resolucao::Resolvedor::novo(programa, nomes_programa);
         for fonte in &fecho {
             let destino = dartforge_gerador_ng::caminho_do_template(fonte);
@@ -394,7 +428,11 @@ impl NgEstagioA {
         let cache = cache.get_mut(&pedido.pacote)?;
         let fontes = cache.fontes_do_recurso.get(recurso)?.clone();
         let (programa, nomes_programa) = ctx.programa?;
-        let pacote = dartforge_gerador_ng::Pacote { nome: pedido.pacote.clone(), raiz: pedido.raiz_do_pacote.clone() };
+        let pacote = dartforge_gerador_ng::Pacote {
+            nome: pedido.pacote.clone(),
+            raiz: pedido.raiz_do_pacote.clone(),
+            folhas_geradas: folhas_geradas(ctx, &pedido.raiz_do_pacote),
+        };
         let resolvedor = dartforge_gerador_ng::resolucao::Resolvedor::novo(programa, nomes_programa);
         if cache.indice.is_none() {
             cache.indice = Some(indice_do_pacote(&pacote, &resolvedor));

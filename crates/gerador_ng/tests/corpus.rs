@@ -110,6 +110,7 @@ fn o_que_geramos_e_igual_ao_oficial() {
     let pacote = Pacote {
         nome: "corpus_ngdart".into(),
         raiz: raiz.clone(),
+        ..Default::default()
     };
     // O teste roda o mesmo caminho da produção: carrega o projeto e gera com
     // banco semântico. Sem ele, casos como `{{ item.nome }}` — que precisam do

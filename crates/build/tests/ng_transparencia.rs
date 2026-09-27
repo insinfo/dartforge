@@ -47,7 +47,7 @@ fn ng_pelo_motor_igual_ao_gerador_direto_e_ao_oraculo() {
     // Direto, pela API pública do gerador_ng.
     let resolvedor = dartforge_gerador_ng::resolucao::Resolvedor::novo(&p, &nomes);
     let mut i = Interner::new();
-    let pacote = dartforge_gerador_ng::Pacote { nome: "corpus_ngdart".into(), raiz: raiz.clone() };
+    let pacote = dartforge_gerador_ng::Pacote { nome: "corpus_ngdart".into(), raiz: raiz.clone(), ..Default::default() };
     let (direta, _) = dartforge_gerador_ng::gerar_com_apoio(&pacote, &mut i, None, Some(&resolvedor));
     let esperadas: std::collections::HashSet<&PathBuf> = m.naturais.values().collect();
     let mut iguais = 0;

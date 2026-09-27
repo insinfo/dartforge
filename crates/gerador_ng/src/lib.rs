@@ -306,9 +306,15 @@ pub fn caminho_do_template(fonte: &Path) -> PathBuf {
 
 /// O pacote sendo gerado: o nome vale para as URIs `asset:` que o ngdart usa
 /// nas mensagens de modo de desenvolvimento.
+#[derive(Default)]
 pub struct Pacote {
     pub nome: String,
     pub raiz: PathBuf,
+    /// As folhas `.css` que o `sass_builder` gerou nesta build (o motor as
+    /// lê da saída dele), pelo caminho: é delas que o shim do ngdart parte,
+    /// como no oficial — no estilo (`outputStyle`) que o projeto pediu. Sem
+    /// ela, o shim compila o `.scss` ao lado por conta própria.
+    pub folhas_geradas: std::collections::HashMap<PathBuf, String>,
 }
 
 impl Pacote {
@@ -1279,10 +1285,12 @@ fn trecho_do_componente(
             continue;
         }
         // O `.css` do `styleUrls` quase nunca existe no disco: quem o produz
-        // é o `sass_builder`, a partir do `.scss` ao lado. Fazemos os dois.
-        let (texto_css, entrada) = match std::fs::read_to_string(&css) {
-            Ok(t) => (t, css.clone()),
-            Err(_) => {
+        // é o `sass_builder`, a partir do `.scss` ao lado — a saída dele nesta
+        // build, quando o motor a tem; senão, compilamos o `.scss` aqui.
+        let gerada = pacote.folhas_geradas.get(&css).cloned().map(|t| (t, css.with_extension("scss")));
+        let (texto_css, entrada) = match std::fs::read_to_string(&css).ok().map(|t| (t, css.clone())).or(gerada) {
+            Some(x) => x,
+            None => {
                 let scss = css.with_extension("scss");
                 let fonte_scss =
                     std::fs::read_to_string(&scss).map_err(|_| folha("folha não encontrada"))?;
@@ -1541,6 +1549,7 @@ final InjectorFactory injector = self.injector$Injector;
     #[test]
     fn indice_incremental() {
         let pacote = Pacote {
+            folhas_geradas: Default::default(),
             nome: "p".into(),
             raiz: PathBuf::from("/r"),
         };

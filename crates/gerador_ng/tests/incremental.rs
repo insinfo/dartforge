@@ -52,6 +52,7 @@ fn um_arquivo_por_vez_da_o_mesmo_que_o_pacote() {
     let pacote = Pacote {
         nome: "corpus_ngdart".into(),
         raiz: raiz.clone(),
+        ..Default::default()
     };
 
     // O pacote inteiro, pelo caminho de sempre.
