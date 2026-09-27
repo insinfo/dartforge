@@ -222,3 +222,5 @@ export 'src/j08_estilos_none.dart';
 export 'src/j09_view_child_filho_em_if.dart';
 export 'src/j10_view_child_tipo_em_if.dart';
 export 'src/j11_ref_escopo.dart';
+export 'src/j12_view_child_ref_exportado.dart';
+export 'src/j13_ref_com_membro.dart';

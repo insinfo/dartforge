@@ -286,9 +286,6 @@ impl Diretiva {
         {
             return Some("@HostListener de evento não nativo".into());
         }
-        if self.dependencias.iter().any(|d| d.pular) {
-            return Some("dependência @SkipSelf".into());
-        }
         for d in &self.dependencias {
             if let Token::Multi { tipo, .. } = &d.token
                 && !tipo.e_object()
@@ -753,9 +750,15 @@ fn resolver_com(
                 let mut args = Vec::new();
                 for dep in &d.dependencias {
                     args.push(match &dep.token {
+                        Token::Elemento | Token::Detector if dep.pular => {
+                            return Err("dependência @SkipSelf de embutido do elemento");
+                        }
                         Token::Elemento => Argumento::Elemento,
                         Token::Detector => Argumento::Detector,
-                        t => match campo_de(t) {
+                        // `@SkipSelf()`: o `_getDependency` começa no pai
+                        // (o `ControlContainer` do `NgControlName` é o
+                        // `NgForm` do `<form>` de cima).
+                        t => match campo_de(t).filter(|_| !dep.pular) {
                             Some(c) => Argumento::Campo(c),
                             None => fora_do_no(dep, acima)?,
                         },

@@ -546,9 +546,11 @@ const MARCA_DE_REF: char = '\u{5}';
 const FIM_DE_REF: char = '\u{6}';
 
 /// Os nomes de `#ref` do template que podem virar local de alguma visão:
-/// sem membro do componente com o mesmo nome (o `_TypeResolver` do oficial
-/// tiparia a leitura pelo membro). A unicidade e o sombreamento por `let`
-/// são de cada visão ([`referencias_locais`]).
+/// sem método do componente com o mesmo nome, e sem membro cujo tipo não se
+/// sabe daqui (com o mesmo nome de um membro, o local é o nó, mas o
+/// `_TypeResolver` do oficial tipa a leitura pelo membro:
+/// [`Corpo::declarar_refs`]). A unicidade e o sombreamento por `let` são de
+/// cada visão ([`referencias_locais`]).
 fn referencias_candidatas(nos: &[No], c: &Componente) -> std::collections::HashSet<String> {
     fn todas(nos: &[No], refs: &mut Vec<String>) {
         for n in nos {
@@ -561,7 +563,10 @@ fn referencias_candidatas(nos: &[No], c: &Componente) -> std::collections::HashS
     let mut refs = Vec::new();
     todas(nos, &mut refs);
     refs.into_iter()
-        .filter(|nome| !c.membros.contains_key(nome.as_str()) && !c.metodos.contains_key(nome.as_str()))
+        .filter(|nome| {
+            !c.metodos.contains_key(nome.as_str())
+                && c.membros.get(nome.as_str()).is_none_or(|m| !m.tipo.trim().is_empty())
+        })
         .collect()
 }
 
@@ -813,13 +818,17 @@ fn formas_contra_o_template(
             continue;
         }
         onde_esta(nos, &consulta.referencia, filhos, false, &mut lugares);
-        // `#ref="x"`: o valor seria a diretiva exportada, forma ainda sem
-        // caso na consulta.
+        // `#ref="x"`: o valor é a instância da diretiva exportada (o que o
+        // `#ref` lê no mapa dos refs, `this._X_n_m`), atribuída como a de
+        // um elemento — só na forma estática: um `#ref` só, na própria
+        // visão, `@ViewChild` (não lista).
         if referencia_com_valor(nos, &consulta.referencia) {
-            fora.push(recusa(
-                Motivo::ViewChildEmFilho,
-                "@ViewChild de #ref com valor (exportAs)",
-            ));
+            if !(matches!(lugares.as_slice(), [Lugar::Raiz]) && !consulta.lista) {
+                fora.push(recusa(
+                    Motivo::ViewChildEmFilho,
+                    "@ViewChild de #ref com valor (exportAs) fora da forma estática",
+                ));
+            }
             continue;
         }
         // `@ViewChild('t')` de um `<template #t>` escrito ([`Corpo::molde`]):
@@ -2418,11 +2427,20 @@ impl Corpo<'_> {
     fn declarar_refs(&mut self, refs: std::collections::HashSet<String>) {
         let classe = self.classe_desta_visao();
         for nome in &refs {
+            // O tipo da leitura é `dynamic` (a referência não entra nos
+            // `locals` do `AnalyzedClass`), ou o do membro de mesmo nome, que
+            // o `_TypeResolver` acha antes.
+            let tipo = self
+                .membros
+                .get(nome.as_str())
+                .map(|m| m.tipo.trim().to_string())
+                .filter(|t| !t.is_empty())
+                .unwrap_or_else(|| "dynamic".into());
             self.locais.insert(
                 nome.clone(),
                 crate::expr::Local {
                     dart: format!("local_{nome}"),
-                    tipo: "dynamic".into(),
+                    tipo,
                     escopo: None,
                 },
             );
@@ -4982,12 +5000,15 @@ impl Corpo<'_> {
             }
         };
         // `#ref` só na forma que não muda nada no nó; o valor dele é
-        // registrado adiante, para o `@ViewChild`.
+        // registrado adiante, para o `@ViewChild`. Com valor e a diretiva
+        // exportada no nó, o nome não lido por expressão também é só um nome
+        // (para a instância dela).
         if let Some(r) = e.referencias.iter().find(|r| {
             (!r.valor.is_empty() && exportada(r).is_none())
                 || !(self.refs_livres.contains(&r.nome)
                     || self.refs_locais.contains(&r.nome)
-                    || self.refs_consultados.iter().any(|(n, _, _)| *n == r.nome))
+                    || self.refs_consultados.iter().any(|(n, _, _)| *n == r.nome)
+                    || !r.valor.is_empty())
         }) {
             self.anotar(recusa(
                 Motivo::Ligacao,
@@ -7957,9 +7978,11 @@ fn gerar_componente(
                 let mut lugares = Vec::new();
                 onde_esta(nos, &q.referencia, filhos, false, &mut lugares);
                 let elemento = matches!(lugares.first(), Some(Lugar::Raiz | Lugar::Projetado));
+                // Com `#ref="x"`, o valor é a instância exportada, não o nó.
                 let alvo = if !q.por_tipo
                     && elemento
                     && !moldes.contains(&q.referencia)
+                    && !referencia_com_valor(nos, &q.referencia)
                     && valor_de_elemento(q, local, resolvedor) == Some(ValorDeElemento::ElementRef)
                 {
                     format!("{}ElementRef({alvo})", tardio_q(ELEMENT_REF))

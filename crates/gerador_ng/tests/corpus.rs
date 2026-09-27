@@ -82,12 +82,6 @@ const RECUSADOS: &[(&str, &str)] = &[
         "i78_usa_provider_externo.dart",
         "provedor apelido de token de fora do nó",
     ),
-    // `#f="ngForm"` com `ngControl` dentro do `<form>`: o `NgControlName`
-    // depende de `@SkipSelf() ControlContainer` (o `NgForm` do nó de cima).
-    (
-        "i94_ref_ng_form.dart",
-        "diretiva NgControlName (dependência @SkipSelf)",
-    ),
 ];
 
 #[test]

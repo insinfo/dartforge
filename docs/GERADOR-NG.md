@@ -298,7 +298,11 @@ a embutida — depois das entradas do molde, entre os `_expr_k` já criados e
 os seguintes — e o lido só na própria visão, no fim. i95 e j11 (o mesmo
 nome em três níveis, o de fora lido duas visões abaixo, um só na
 embutida, `let` que esconde o de fora num evento) iguais ao oficial byte a
-byte: 221 conferidos, 0 diferentes. O comportamento é o do oficial por
+byte. Depois, i94 (`NgControlName` com `@SkipSelf() ControlContainer`:
+a dependência começa no pai, o `NgForm` do `<form>`), j12 (`@ViewChild`
+de `#f="ngForm"`: a instância exportada, na forma estática) e j13 (`#ref`
+com o nome de um membro: o local é o nó, tipado pelo membro, como o
+`_TypeResolver`): 224 conferidos, 0 diferentes. O comportamento é o do oficial por
 construção (o código gerado é o dele); o e2e em navegador segue sendo o
 do limitless_ui no Pesado.
 
@@ -346,9 +350,11 @@ do limitless_ui no Pesado.
 | `#ref` lido numa visão embutida (dela ou de ancestral) | gerado (`unsafeCast<_ViewX1>((this.parentView!))._el_n`) | i44, i45 |
 | `#d="x"` com a diretiva do nó de `exportAs: 'x'` | gerado (o local vale a instância, `this._X_n_m`; o elemento não vira campo por isso) | i93 |
 | `#f="ngForm"` num `<form>` sem controles | gerado | j03 |
-| `#f="ngForm"` com `ngControl` dentro | recusado (o `@SkipSelf` do `NgControlName`) | i94 |
+| `#f="ngForm"` com `ngControl` dentro | gerado (o `@SkipSelf` começa no pai) | i94 |
 | `#ref` repetido em visões diferentes ou sombreado por `let` | gerado (escopo por visão, o mais próximo vence) | i95, j11 |
-| `#ref` com membro de mesmo nome, `@ViewChild` de `#ref` com valor | recusado | — |
+| `#ref` com membro de mesmo nome | gerado (o local é o nó, tipado pelo membro) | j13 |
+| `@ViewChild` de `#ref` com valor, forma estática | gerado (a instância exportada) | j12 |
+| `@ViewChild` de `#ref` com valor em `*`, lista ou repetido | recusado | — |
 | `@ViewChild('ref')` de elemento, de filho, no conteúdo projetado | gerado | b03, b20, i46 |
 | `@ViewChild` de `#ref` repetido (o primeiro) | gerado | i49 |
 | `@ViewChildren('ref')` estático, sem resultado (`[]`) | gerado | i15, i49 |
@@ -407,7 +413,6 @@ do limitless_ui no Pesado.
    no oráculo do i76), a dependência de fora do nó (elementos acima e
    `parentView!.injectorGet(.., this.parentIndex)`, i78) e o filho que
    injeta o próprio provedor (i77).
-2. A dependência `@SkipSelf` do `NgControlName` (i94).
 3. Consultas dinâmicas com filho `onPush` ou misturadas com estáticas.
 
 O oráculo das sondas se regenera como os outros casos
