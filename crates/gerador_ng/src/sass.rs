@@ -318,7 +318,10 @@ fn declaracoes_comprimidas(corpo: &str) -> Result<String, Motivo> {
             saida.push(format!("{prop}:{valor}"));
             continue;
         }
-        saida.push(format!("{prop}:{}", lista_comprimida(&espacos_colapsados(valor))));
+        saida.push(format!(
+            "{prop}:{}",
+            lista_comprimida(&espacos_colapsados(valor))
+        ));
     }
     Ok(saida.join(";"))
 }

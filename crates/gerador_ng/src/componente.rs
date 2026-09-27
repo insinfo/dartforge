@@ -36,6 +36,11 @@ pub struct Componente {
     pub com_provedores: bool,
     /// `template: '...'` quando o template está na própria anotação.
     pub template: Option<String>,
+    /// Onde o conteúdo do `template:` começa no `.dart`, em unidades UTF-16
+    /// — o que o oficial soma às posições do comentário `REF`. Só quando o
+    /// literal é uma string simples, sem escape nem interpolação (o texto do
+    /// template é o do fonte, e as posições dentro dele valem nos dois).
+    pub deslocamento_do_template: Option<usize>,
     /// `templateUrl: 'x.html'`.
     pub template_url: Option<String>,
     pub style_urls: Vec<String>,
@@ -43,6 +48,11 @@ pub struct Componente {
     pub styles: Vec<String>,
     /// `changeDetection: ChangeDetectionStrategy.OnPush`.
     pub on_push: bool,
+    /// `encapsulation: ViewEncapsulation.none`. Sem folha de estilo o
+    /// oficial já desliga o encapsulamento (`ast_directive_normalizer.dart`),
+    /// então só pesa com `styleUrls`/`styles` — forma ainda recusada pela
+    /// visão.
+    pub sem_encapsulamento: bool,
     /// Nomes escritos em `directives:`, na ordem, como escritos (`A`,
     /// `li.B`). Listas constantes (`coreDirectives`) entram pelo nome e são
     /// expandidas pelo banco semântico.
@@ -221,8 +231,9 @@ pub struct ConsultaDeConteudo {
     /// `descendants:` — sem ele, só casa o conteúdo a uma diretiva de
     /// distância (`_getQueriesFor`).
     pub descendentes: bool,
-    /// `read:` — o valor lido é outro token do nó achado.
-    pub leitura: bool,
+    /// `read:` — o valor lido é outro token do nó achado: o nome do tipo,
+    /// como escrito.
+    pub leitura: Option<String>,
 }
 
 /// Um `@HostListener` do componente: o evento e o texto do handler que o
@@ -256,6 +267,25 @@ fn texto_do_argumento(arvore: &ast::Ast, id: ast::ExprId) -> Option<String> {
         ast::ExprKind::Parenthesized(inner) => texto_do_argumento(arvore, *inner),
         _ => None,
     }
+}
+
+/// Onde começa, no fonte, o conteúdo de um `template:` escrito como string
+/// simples (`'..'` ou `".."`, sem `r`, aspas triplas, escape ou `$`): o
+/// deslocamento em unidades UTF-16, como o analyzer conta.
+fn deslocamento_do_template(
+    arvore: &ast::Ast,
+    fonte: &str,
+    id: ast::ExprId,
+    valor: &str,
+) -> Option<usize> {
+    let span = arvore.expr(id).span;
+    let bruto = fonte.get(span.start..span.end)?;
+    let aspa = bruto.chars().next().filter(|c| *c == '\'' || *c == '"')?;
+    let dentro = bruto.strip_prefix(aspa)?.strip_suffix(aspa)?;
+    if dentro.starts_with(aspa) || dentro.contains(['\\', '$']) || dentro != valor {
+        return None;
+    }
+    Some(fonte.get(..span.start + 1)?.encode_utf16().count())
 }
 
 /// Lista de strings literais (`styleUrls: ['a.css', 'b.css']`).
@@ -301,6 +331,22 @@ fn e_on_push(arvore: &ast::Ast, fonte: &str, id: ast::ExprId) -> bool {
     fonte
         .get(span.start..span.end)
         .is_some_and(|t| t.rsplit('.').next().map(str::trim) == Some("onPush"))
+}
+
+/// O valor de `encapsulation:` quando escrito como `ViewEncapsulation.x`
+/// (com ou sem prefixo de import): `emulated` ou `none`, os dois do ngdart 8.
+/// Qualquer outra forma (constante, expressão) dá `None`.
+fn valor_de_encapsulamento<'a>(
+    arvore: &ast::Ast,
+    fonte: &'a str,
+    id: ast::ExprId,
+) -> Option<&'a str> {
+    let span = arvore.expr(id).span;
+    let texto = fonte.get(span.start..span.end)?.trim();
+    let (antes, valor) = texto.rsplit_once('.')?;
+    let tipo = antes.rsplit('.').next()?.trim();
+    (tipo == "ViewEncapsulation" && matches!(valor.trim(), "emulated" | "none"))
+        .then(|| valor.trim())
 }
 
 /// Extrai o `@Component` de uma classe anotada.
@@ -461,11 +507,21 @@ fn ler(
             match nome {
                 "selector" => c.seletor = texto_do_argumento(arvore, a.value).unwrap_or_default(),
                 "exportAs" => c.export_as = texto_do_argumento(arvore, a.value),
-                "template" => c.template = texto_do_argumento(arvore, a.value),
+                "template" => {
+                    c.template = texto_do_argumento(arvore, a.value);
+                    c.deslocamento_do_template = c
+                        .template
+                        .as_deref()
+                        .and_then(|t| deslocamento_do_template(arvore, fonte, a.value, t));
+                }
                 "templateUrl" => c.template_url = texto_do_argumento(arvore, a.value),
                 "styleUrls" => c.style_urls = lista_de_textos(arvore, a.value),
                 "styles" => c.styles = lista_de_textos(arvore, a.value),
                 "changeDetection" => c.on_push = e_on_push(arvore, fonte, a.value),
+                "encapsulation" => {
+                    c.sem_encapsulamento =
+                        valor_de_encapsulamento(arvore, fonte, a.value) == Some("none")
+                }
                 "directives" => {
                     (c.diretivas, c.diretivas_ilegiveis) = nomes_da_lista(arvore, interner, a.value)
                 }
@@ -492,7 +548,8 @@ fn ler(
     c.entradas = entradas_da_classe(arvore, interner, classe);
     c.saidas = saidas_da_classe(arvore, interner, classe);
     c.ganchos = ganchos_da_classe(arvore, fonte, classe);
-    c.nao_entendidos = o_que_nao_entendemos(arvore, interner, classe, anotacao, e_componente);
+    c.nao_entendidos =
+        o_que_nao_entendemos(arvore, fonte, interner, classe, anotacao, e_componente);
     c.liga_hospedeiro = tem_anotacao(arvore, interner, classe, &["HostBinding"]);
     c.consulta_conteudo = tem_anotacao(
         arvore,
@@ -553,7 +610,7 @@ fn consultas_de_conteudo(
             // `ContentChildren(descendants: true)` por omissão no ngdart 8;
             // `ContentChild` sempre. `read:` troca o valor lido.
             let mut descendentes = true;
-            let mut leitura = false;
+            let mut leitura = None;
             for x in a.arguments.as_ref().map(|g| &g.args[..]).unwrap_or(&[]) {
                 match x.name.map(|n| interner.resolve(n.sym)) {
                     None => {}
@@ -561,7 +618,11 @@ fn consultas_de_conteudo(
                         ast::ExprKind::Bool(b) => descendentes = *b,
                         _ => return None,
                     },
-                    Some("read") => leitura = true,
+                    Some("read") => {
+                        leitura = Some(crate::resolucao::nome_qualificado(
+                            arvore, interner, x.value,
+                        )?)
+                    }
                     _ => return None,
                 }
             }
@@ -573,7 +634,7 @@ fn consultas_de_conteudo(
                         alvo,
                         referencia,
                         descendentes,
-                        leitura,
+                        leitura: leitura.clone(),
                     });
                 }
                 ast::MemberKind::Method(f) => {
@@ -586,7 +647,7 @@ fn consultas_de_conteudo(
                                 alvo,
                                 referencia,
                                 descendentes,
-                                leitura,
+                                leitura: leitura.clone(),
                             })
                         }
                         _ => return None,
@@ -667,6 +728,7 @@ fn ganchos_da_classe(arvore: &ast::Ast, fonte: &str, classe: &ast::ClassDecl) ->
 /// que não souber.
 fn o_que_nao_entendemos(
     arvore: &ast::Ast,
+    fonte: &str,
     interner: &Interner,
     classe: &ast::ClassDecl,
     anotacao: &ast::Annotation,
@@ -698,6 +760,11 @@ fn o_que_nao_entendemos(
                     Motivo::Providers,
                     format!("{anot}(.., providers: [..])"),
                 )),
+                // `ViewEncapsulation.emulated`/`.none` escritos: o efeito é
+                // conhecido (ver [`Componente::sem_encapsulamento`]).
+                "encapsulation"
+                    if e_componente
+                        && valor_de_encapsulamento(arvore, fonte, a.value).is_some() => {}
                 "encapsulation" => fora.push(recusa(
                     Motivo::Encapsulamento,
                     "@Component(.., encapsulation: ..)",

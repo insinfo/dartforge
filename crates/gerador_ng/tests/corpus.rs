@@ -54,21 +54,39 @@ fn raiz_do_corpus() -> PathBuf {
 /// `NgSelectOption` é instanciado com o `@Host` do acessor do `<select>`.
 /// O b02, o h02 e o i19 — `providers:` no componente — e o d09 e o h01 —
 /// `@ContentChild(ren)` no componente — saíram quando a hospedeira passou a
-/// escrever os provedores e o resultado vazio das consultas.)
+/// escrever os provedores e o resultado vazio das consultas. O b06
+/// — `encapsulation:` —, o i24 — vários componentes no arquivo —, o i30 —
+/// `<template #t>` e `*ngTemplateOutlet` —, o i72 — filho com `providers:`
+/// — e o i73 — `@ContentChild(.., read:)` de filho — saíram na rodada
+/// seguinte; as recusas de agora são sondas que guardam a saída oficial.)
 /// São as formas ainda sem tradução (docs/GERADOR-NG.md §9): gerar
 /// qualquer uma ignorando o que falta daria saída errada.
 const RECUSADOS: &[(&str, &str)] = &[
+    // Filho que injeta um provedor do próprio nó: o provedor sairia antes
+    // dele, no `build()`.
     (
-        "b06_encapsulation.dart",
-        "@Component(.., encapsulation: ..)",
+        "i77_usa_provider_ansioso.dart",
+        "filho que injeta um provedor do próprio nó",
     ),
-    ("i24_two_way_filho.dart", "vários componentes no arquivo"),
-    // Filho com `providers:` de classe: os provedores entram no nó de quem
-    // o usa — a hospedeira do próprio filho já os escreve, o nó de
-    // template ainda não.
-    ("i72_usa_provider.dart", "filho com providers"),
-    ("i73_usa_consulta_read.dart", "filho com @ContentChild(.., read:)"),
-    ("i30_template_outlet.dart", "<template> escrito no template"),
+    // Provedor preguiçoso do filho pedido por um nó do conteúdo: o oficial
+    // o cria no `build()`, logo depois do filho.
+    (
+        "i76_usa_provider_projeta.dart",
+        "provedor do filho pedido por um nó do conteúdo",
+    ),
+    // Provedor do filho que depende de fora do nó (elementos acima ou o
+    // injetor de fora) e apelido de token que o nó não provê.
+    (
+        "i78_usa_provider_externo.dart",
+        "provedor apelido de token de fora do nó",
+    ),
+    // `<template>` com diretiva (`ngFor` escrito à mão): só o sem diretiva
+    // é traduzido.
+    (
+        "i84_template_com_diretiva.dart",
+        "<template> escrito no template",
+    ),
+    ("i85_template_view_child.dart", "@ViewChild de <template>"),
 ];
 
 #[test]

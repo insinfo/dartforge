@@ -196,7 +196,12 @@ impl Resolucao for Gravador<'_> {
         r
     }
 
-    fn tipo_do_membro(&self, arquivo: &Path, tipo: &str, membro: &str) -> Option<(String, PathBuf)> {
+    fn tipo_do_membro(
+        &self,
+        arquivo: &Path,
+        tipo: &str,
+        membro: &str,
+    ) -> Option<(String, PathBuf)> {
         if let Some(uri) = self.dentro.uri_do_tipo(arquivo, tipo) {
             self.anotar(&uri, tipo);
         }

@@ -133,7 +133,12 @@ impl<'a> Resolvedor<'a> {
 
     /// O que `nome` (sem prefixo) ou `prefixo.nome` designa no escopo da
     /// biblioteca `lib`. Nome ambíguo não designa nada.
-    pub fn elemento_em(&self, lib: LibraryId, prefixo: Option<&str>, nome: &str) -> Option<Element> {
+    pub fn elemento_em(
+        &self,
+        lib: LibraryId,
+        prefixo: Option<&str>,
+        nome: &str,
+    ) -> Option<Element> {
         let biblioteca = self.program.library(lib);
         let sym = self.interner.lookup(nome)?;
         let espaco = match prefixo {

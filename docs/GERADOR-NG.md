@@ -270,6 +270,14 @@ Rodada de 2026-09-27 (`providers:` e consultas de conteúdo no componente,
 sondas `i60`…`i73`): 178 arquivos conferidos, 0 diferentes, 5 recusados
 (b06, i24, i30 e as sondas de recusa i72 e i73).
 
+Rodada seguinte (os cinco pendentes, sondas `i74`…`i85`): 192 arquivos
+conferidos, 0 diferentes, 5 recusados — todos sondas de recusa que fixam a
+saída oficial de formas ainda sem tradução: i76 (provedor do filho pedido
+pelo conteúdo), i77 (filho que injeta provedor do próprio nó), i78
+(provedor do filho com dependência de fora do nó), i84 (`<template>` com
+diretiva) e i85 (`@ViewChild` de `<template>`). b06, i24, i30, i72 e i73
+passaram a ser gerados.
+
 ### Diretivas estruturais
 
 | forma | estado | casos |
@@ -282,7 +290,11 @@ sondas `i60`…`i73`): 178 arquivos conferidos, 0 diferentes, 5 recusados
 | `[ngSwitch]` + `*ngSwitchCase`/`*ngSwitchWhen`/`*ngSwitchDefault` | gerado (`@Host() NgSwitch` lido do nó acima) | i04, i42 |
 | `<ng-container>` com e sem `*` (raízes de texto, interpolação, várias) | gerado | i09, i21, i39, i40 |
 | `<template [ngIf]>`, `<template [ngSwitchCase]>`, `<template ngSwitchDefault>` | gerado (reescrito como `<ng-container *…>`) | i10, i53 |
-| `<template #t>` + `*ngTemplateOutlet`, `<template ngFor let-x>` | **recusado** (`<template> escrito no template`) | i30 |
+| `<template #t>` sem diretiva (dentro de elemento, sem `#ref`, lido de visão aninhada) | gerado (âncora, `ViewContainer` fora da detecção, `TemplateRef` 7: campo com `#ref`, local sem) | i30, i82, i83 |
+| `*ngTemplateOutlet="t"`, com `context:` | gerado (`NgTemplateOutlet(this._appEl_n)`, `ngDoCheck`) | i30, i82, i83 |
+| `<ng-container *x>` vazio | gerado (`initRootNodesAndSubscriptions(unsafeCast(const <Object>[]), null)`) | i82 |
+| `<template ngFor let-x [ngForOf]>` e outro `<template>` com diretiva, `<template>` no conteúdo projetado | recusado (`<template> escrito no template`) | i84 |
+| `@ViewChild('t')` de `<template #t>` | recusado (o valor é o `TemplateRef`) | i85 |
 
 ### Ligações e eventos
 
@@ -314,7 +326,9 @@ sondas `i60`…`i73`): 178 arquivos conferidos, 0 diferentes, 5 recusados
 | consulta com vários resultados em `*`, dois níveis, `read:` | recusado | — |
 | `@ContentChild`/`@ContentChildren` no próprio componente (campo ou setter, `descendants:`, `read:`, por tipo ou `'ref'`) | gerado (na hospedeira, sem conteúdo: `this.component.x = [];` para cada lista logo depois da construção, setters antes dos campos; o único não recebe nada) | d09, h01, i68, i69 |
 | consulta de conteúdo do componente que acharia o próprio nó (o componente, um provedor dele, tipo do ngdart) | recusado | — |
-| `@ContentChild(.., read:)` de filho usado no template | recusado | i73 |
+| `@ContentChild(.., read:)` de filho usado no template, `read:` do elemento (`HtmlElement`/`Element`) ou de outra diretiva do nó achado | gerado (o nó, local ou campo; o campo da diretiva) | i73, i81 |
+| `@ContentChild` único de filho com resultado no conteúdo | gerado (o primeiro, em pré-ordem) | i73, i81 |
+| `read:` de tipo do ngdart (`ViewContainerRef`, `TemplateRef`) ou de token que o nó achado não tem | recusado | — |
 
 ### Pipes
 
@@ -338,18 +352,25 @@ sondas `i60`…`i73`): 178 arquivos conferidos, 0 diferentes, 5 recusados
 | `providers:` no componente: `ClassProvider`, `Provider(X, useClass:)`, classe solta, `ExistingProvider`/`useExisting:` (apelido local, apelido de apelido, do próprio componente, de token de fora), `ValueProvider`/`useValue:` (texto, inteiro, booleano, objeto `const`), `FactoryProvider`/`useFactory:` com `deps:` ou pelos parâmetros, `.forToken` de `OpaqueToken` (`T` do `dart:core`) e de `MultiToken` (`T` do `dart:core` ou genérico), listas aninhadas e constantes, sobrescrita de token | gerado (na hospedeira: preguiçoso `late T _X_0_n = ..;`, ou `late final` criado no `build()` antes do componente quando ele depende; campos com inicializador primeiro; `debugInjectorWrap` com dependência do injetor; `injectorGetInternal` do nó 0; o componente montado com `this._X_0_n`) | b02, h02, i19, i60…i67, i69…i71 |
 | `multi: true` | não existe no ngdart 8 (multi é o `MultiToken`) | — |
 | `providers:` com `useValue:` de lista, mapa, enum, `null` ou objeto aninhado; `useFactory:` de método estático; classe genérica ou abstrata; token de subclasse de `OpaqueToken`, `OpaqueToken` sem nome ou com `T` de fora do `dart:core`, `MultiToken` com `T` de fora do `dart:core` sem argumentos; dependência `@Self`/`@Host`/`@SkipSelf` ou de embutido (`ElementRef`, `Injector`…) num serviço; `viewProviders:` | recusado | — |
-| componente com `providers:` além de `ExistingProvider` usado como filho no template | recusado (`filho com providers`: os provedores entram no nó de quem usa) | i72 |
-| `encapsulation:` | **recusado** | b06 |
-| vários `@Component` no mesmo arquivo | **recusado** (imports compartilhados, filho do mesmo arquivo sem prefixo) | i24 |
+| componente com `providers:` (as formas da hospedeira) usado como filho no template, também dentro de `*` e recebendo conteúdo | gerado (no nó de quem usa: preguiçosos `late T _X_n_m = ..;` antes dos outros campos, dependências dos campos do nó; o filho primeiro no `injectorGetInternal` pelos apelidos dele) | i72, i74 |
+| provedor do filho pedido por um nó do conteúdo | recusado (o oficial o cria no `build()`, logo depois do filho) | i76 |
+| filho que injeta um provedor do próprio nó ou de um elemento acima | recusado (o provedor sai antes do filho; o serviço não vem do injetor de fora) | i77 |
+| provedor do filho com dependência de fora do nó, apelido de token que o nó não provê | recusado | i78 |
+| `encapsulation: ViewEncapsulation.emulated`/`.none` sem folha de estilo | gerado (sem folha o oficial já desliga o encapsulamento) | b06 |
+| `encapsulation: ViewEncapsulation.none` com `styleUrls`/`styles`, `encapsulation:` que não é `ViewEncapsulation.x` | recusado | — |
+| vários `@Component` no mesmo arquivo (o que usa antes ou depois do usado) | gerado (uma tabela de imports, trechos na ordem do fonte, filho ao lado sem import nem prefixo) | i24, i79 |
+| vários `@Component` no arquivo com folha de estilo | recusado | — |
+| ligação em `template:` escrito na anotação | gerado quando o literal é string simples (`REF` com o `asset:` do `.dart` e as posições dele, em UTF-16); com escape, `$`, `r'..'` ou aspas triplas, recusado | i24, i79 |
 
 ### O que falta, pela frequência
 
-1. Componente com `providers:` (fora `ExistingProvider`) usado como filho:
-   os provedores dele entram no nó de quem o usa, com as dependências
-   subindo pelos elementos acima e pelo injetor de fora. A hospedeira
-   já escreve essas formas; falta levá-las ao nó de template
-   (`diretivas_do_no`, `campos_em_ordem`).
-2. Vários componentes num arquivo e `ngTemplateOutlet`/`<template #t>`.
+1. Provedores do filho no nó de template além do preguiçoso local: o
+   pedido pelo conteúdo (ansioso, criado depois do filho — a saída está
+   no oráculo do i76), a dependência de fora do nó (elementos acima e
+   `parentView!.injectorGet(.., this.parentIndex)`, i78) e o filho que
+   injeta o próprio provedor (i77).
+2. `<template>` com diretiva (i84) e `@ViewChild` de `<template>` (i85:
+   `_ctx.x = this._TemplateRef_n_7` no `build()`).
 3. Consultas dinâmicas além de um nível e um resultado.
 
 O oráculo das sondas se regenera como os outros casos

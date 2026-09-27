@@ -486,11 +486,68 @@ pub fn resolver_hospedeira(componente: Arc<Diretiva>) -> Result<NoResolvido, &'s
     resolver_em(&[componente], 0, None, true)
 }
 
+/// Os provedores do nó de um componente filho num template: o filho
+/// (`casadas[0]`, sem as dependências do construtor, que se resolvem à
+/// parte) com os `providers:` dele de qualquer forma, e as diretivas do nó
+/// (`casadas[1..]`), que continuam só com `ExistingProvider`. Os provedores
+/// do filho são escritos como na hospedeira (`ProviderSource.build`), mas
+/// uma dependência que o nó não satisfaz iria para os elementos acima ou
+/// para o injetor de fora (`parentView.injectorGet`): ainda sem caso, é
+/// recusada.
+pub fn resolver_no_do_filho(
+    casadas: &[Arc<Diretiva>],
+    n: u32,
+    acima: Option<Acima>,
+) -> Result<NoResolvido, &'static str> {
+    let r = resolver_com(casadas, n, acima, false, casadas.len().min(1))?;
+    for i in &r.instancias {
+        let depende_de_fora = match &i.criacao {
+            Criacao::Expressao(e) => fora_do_no_de_filho(e),
+            Criacao::Multi(itens) => itens.iter().any(fora_do_no_de_filho),
+            _ => false,
+        };
+        if depende_de_fora {
+            return Err("provedor do filho com dependência de fora do nó");
+        }
+    }
+    Ok(r)
+}
+
+/// A expressão lê o injetor (dependência que o nó não satisfaz)?
+fn fora_do_no_de_filho(e: &Expr) -> bool {
+    match e {
+        Expr::Injetor { .. } => true,
+        Expr::Classe { args, .. } | Expr::Fabrica { args, .. } => {
+            args.iter().any(fora_do_no_de_filho)
+        }
+        Expr::Campo(_) | Expr::Valor(_) => false,
+    }
+}
+
 fn resolver_em(
     casadas: &[Arc<Diretiva>],
     n: u32,
     acima: Option<Acima>,
     hospedeira: bool,
+) -> Result<NoResolvido, &'static str> {
+    resolver_com(
+        casadas,
+        n,
+        acima,
+        hospedeira,
+        if hospedeira { casadas.len() } else { 0 },
+    )
+}
+
+/// `completas`: quantas das primeiras `casadas` têm os `providers:` de
+/// qualquer forma escritos (na hospedeira, todas; no nó de um filho, o
+/// filho); as outras só com `ExistingProvider`.
+fn resolver_com(
+    casadas: &[Arc<Diretiva>],
+    n: u32,
+    acima: Option<Acima>,
+    hospedeira: bool,
+    completas: usize,
 ) -> Result<NoResolvido, &'static str> {
     // `_ProviderResolver.resolve`: as diretivas (ansiosas), depois os
     // `providers:` de cada uma; o mesmo token multi acumula.
@@ -505,11 +562,11 @@ fn resolver_em(
             tipo: None,
         });
     }
-    for d in casadas {
+    for (k, d) in casadas.iter().enumerate() {
         for p in &d.provedores {
             let fonte = match &p.fonte {
                 Fornece::Existente(t) => Fonte::Existente(t.clone()),
-                f if hospedeira => Fonte::Provedor(f.clone()),
+                f if k < completas => Fonte::Provedor(f.clone()),
                 _ => return Err("provedor que não é ExistingProvider num nó de template"),
             };
             match todos.iter_mut().find(|r| r.token == p.token) {
@@ -517,7 +574,7 @@ fn resolver_em(
                     if r.multi != p.multi {
                         return Err("provedor multi e não multi no mesmo token");
                     }
-                    if hospedeira && r.eager {
+                    if (hospedeira || k < completas) && r.eager {
                         // O token do componente sobrescrito por `providers:`:
                         // ainda sem caso.
                         return Err("provedor com o token do componente");
@@ -712,7 +769,10 @@ fn resolver_em(
                     args,
                 }
             }
-            fontes if r.multi && hospedeira => {
+            fontes
+                if r.multi
+                    && (hospedeira || fontes.iter().any(|f| matches!(f, Fonte::Provedor(_)))) =>
+            {
                 let mut itens = Vec::new();
                 for f in fontes {
                     itens.push(match f {
@@ -736,7 +796,7 @@ fn resolver_em(
             [Fonte::Existente(t)] if hospedeira => {
                 Criacao::Expressao(expr_de(&Fornece::Existente(t.clone()))?)
             }
-            [Fonte::Provedor(p)] if hospedeira => Criacao::Expressao(expr_de(p)?),
+            [Fonte::Provedor(p)] => Criacao::Expressao(expr_de(p)?),
             _ => return Err("provedor apelido de token de fora do nó"),
         };
         saida.instancias.push(Instancia {

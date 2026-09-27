@@ -49,9 +49,9 @@ pub fn analisar(dir: &str, valor: &str) -> Micro {
         if let Some(resto) = parte.strip_prefix("let ") {
             let resto = resto.trim();
             match resto.split_once('=') {
-                Some((nome, chave)) => {
-                    m.locais.push((nome.trim().to_string(), chave.trim().to_string()))
-                }
+                Some((nome, chave)) => m
+                    .locais
+                    .push((nome.trim().to_string(), chave.trim().to_string())),
                 None => {
                     // Sem valor, o local é o item implícito do laço. Mas
                     // `let x of xs` traz o `of` na mesma parte: o que vem
@@ -70,7 +70,8 @@ pub fn analisar(dir: &str, valor: &str) -> Micro {
             continue;
         }
         if let Some((nome, expr)) = parte.split_once(':') {
-            m.propriedades.push((propriedade(dir, nome.trim()), expr.trim().to_string()));
+            m.propriedades
+                .push((propriedade(dir, nome.trim()), expr.trim().to_string()));
             continue;
         }
         if i == 0 {
@@ -136,7 +137,10 @@ mod testes {
     #[test]
     fn ng_for_com_item_implicito() {
         let m = analisar("ngFor", "let item of itens");
-        assert_eq!(m.locais, vec![("item".to_string(), "$implicit".to_string())]);
+        assert_eq!(
+            m.locais,
+            vec![("item".to_string(), "$implicit".to_string())]
+        );
         assert_eq!(m.propriedades, vec![("ngForOf".into(), "itens".into())]);
     }
 
