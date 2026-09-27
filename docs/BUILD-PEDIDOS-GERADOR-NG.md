@@ -109,6 +109,36 @@ o `.css` servido pelo `dartforge serve` passa a sair do nativo. O `.css.map`
 de desenvolvimento (D-B3: o mesmo que o oficial, em memória) precisa também
 do mapa de fontes; pode vir num segundo passo.
 
+## Estágio B no motor (B03, 2026-09-27)
+
+Com a API acima, o adaptador (`crates/build/src/nativos/ng.rs`) já regenera
+por arquivo, dentro da ação de pacote:
+
+* **recurso** (`.html`/`.css`/`.scss` já lido): só os componentes que o
+  leram;
+* **`.dart` do pacote** (`tentar_dart`): o arquivo e o **fecho de quem o
+  alcança por `import`/`export`** no programa novo, reindexados antes de
+  gerar. Tudo o que a geração de um arquivo lê de outra biblioteca (filho de
+  `directives:`, tipo resolvido, metadados herdados de superclasse, seletor)
+  vem de biblioteca alcançável pelos imports dele; o fecho cobre com folga as
+  `ConsultaNg` que o `gerar_arquivo` anota. Medido no `corpus/ngdart`: uma
+  declaração nova em cada um dos 219 `.dart` do corpus, uma de cada vez —
+  **incremental = do zero nas 219**, e 209 sem regenerar o pacote inteiro (o
+  `a02`, filho de 13 casos, regenera 15 arquivos; um filho com `@Input` novo,
+  3); `ng_edicao_dart_em_cada_arquivo_igual_ao_do_zero` e
+  `ng_incremental_igual_ao_do_zero` (corpo, `@Input` novo em filho, seletor,
+  import novo).
+* Volta ao estágio A (pacote inteiro): arquivo novo ou apagado, parte,
+  arquivo recusado antes ou agora, `.dart` de outro pacote.
+
+**Pacote dependente** (decisão): o nativo continua gerando só o pacote da
+entrada; os `.template.dart` de uma dependência com componentes (o
+`limitless_ui` do `example`) vêm do executor Dart ou do apoio. O `gerador_ng`
+nunca foi conferido contra o oráculo numa dependência (a visibilidade `lib/**`,
+as URIs `package:` no lugar de `asset:` e os arquivos que o programa da entrada
+não carrega mudam o que ele vê); ligar sem esse oráculo seria publicar saída
+não verificada.
+
 ## O que não é pedido
 
 Nada muda em `gerar_com_apoio`, `gerar_em`, `sass::compilar_em`,

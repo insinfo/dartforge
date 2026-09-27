@@ -1311,8 +1311,11 @@ quando está mais velho que a fonte; erro com `dartforge build --estrito`).
   Um primeiro corte do estágio B passou na [CI 36004370714](https://github.com/insinfo/dartforge/actions/runs/36004370714):
   HTML e CSS direto conhecidos regeneram somente os componentes que os
   consultaram; o teste incremental compara a sessão viva com uma geração do
-  zero após editar ambos. Ainda falta a invalidação fina de Dart e de
-  recursos SCSS encadeados para cumprir a meta de latência geral.
+  zero após editar ambos. Edição de `.dart` do pacote (B03): regenera o
+  arquivo e o fecho de quem o importa/exporta (no `corpus/ngdart`, 209 das
+  219 edições sem regenerar o pacote; incremental = do zero nas 219;
+  `docs/BUILD-PEDIDOS-GERADOR-NG.md`, "Estágio B no motor"). Falta medir a
+  latência no `new_sali` e os recursos SCSS encadeados.
 * **Custo zero** (regra governante, PLANO.md): portão estrutural
   `crates/dev/tests/custo_zero.rs` verde — num projeto sem `build_runner`,
   nenhum motor construído (`instancias() == 0`), relatório sem motor e a
