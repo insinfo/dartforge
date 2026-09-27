@@ -1099,8 +1099,18 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     }
     let generic = ctx.requires_rti(c);
     let d = ctx.program.unit(unit).ast.decl(decl.decl);
-    let enum_constants: Vec<&ast::EnumConstant> = match &d.kind {
-        DeclKind::Enum(ed) => ed.constants.iter().collect(),
+    // Os valores do enum, cada um com a sua unidade: os da declaração e,
+    // depois, os das augmentations, na ordem de aplicação (docs/AUGMENTATIONS.md).
+    let enum_constants: Vec<(UnitId, &ast::EnumConstant)> = match &d.kind {
+        DeclKind::Enum(ed) => {
+            let mut v: Vec<(UnitId, &ast::EnumConstant)> = ed.constants.iter().map(|k| (unit, k)).collect();
+            for a in ctx.program.augmentacoes.get(&c).into_iter().flatten() {
+                if let DeclKind::Enum(ea) = &ctx.program.unit(a.unit).ast.decl(a.decl).kind {
+                    v.extend(ea.constants.iter().map(|k| (a.unit, k)));
+                }
+            }
+            v
+        }
         _ => vec![],
     };
     // Os membros da declaração e das augmentations dela (docs/AUGMENTATIONS.md),
@@ -1607,7 +1617,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     let mut static_names: Vec<String> = static_fields.iter().map(|v| ctx.name(ctx.program.variable(*v).name).to_string()).collect();
     if is_enum {
         static_names.insert(0, "values".into());
-        for ec in &enum_constants {
+        for (_, ec) in &enum_constants {
             static_names.push(ctx.name(ec.name.sym).to_string());
         }
     }
@@ -1634,7 +1644,14 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         let mut e = FnEmitter::new(ctx, m, unit, Some(c), true);
         e.in_const = true;
         let mut names = Vec::new();
-        for (i, ec) in enum_constants.iter().enumerate() {
+        for (i, &(unidade_k, ec)) in enum_constants.iter().enumerate() {
+            // Os argumentos de um valor aumentado se leem na unidade dele.
+            let mut e_k = (unidade_k != unit).then(|| {
+                let mut x = FnEmitter::new(ctx, m, unidade_k, Some(c), true);
+                x.in_const = true;
+                x
+            });
+            let e = e_k.as_mut().unwrap_or(&mut e);
             let n = ctx.name(ec.name.sym).to_string();
             names.push(format!("{cref}{}", js::prop_access(&static_member_name(&n))));
             let ctor_name = ec.constructor.map(|c| ctx.name(c.sym).to_string()).unwrap_or_default();

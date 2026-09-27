@@ -2048,3 +2048,45 @@ fn augmentation_herda_tipos_omitidos() {
         "{diags:?}"
     );
 }
+
+/// Augmentation de enum: valores novos (depois dos da declaração), membros
+/// de instância e estáticos. O `dart analyze` 3.13.4 (`augmentations`,
+/// `enhanced-parts`) não relata nada neste programa; aqui também não, e os
+/// tipos saem como os dele (`int n = Cor.values.length` sem erro; `String s
+/// = Cor.azul.index` é `invalid_assignment`, como lá). O CFE 3.13.4 recusa
+/// augmentation de enum ("already declared"): sem oráculo de execução.
+#[test]
+fn augmentation_de_enum_acrescenta_valores_e_membros() {
+    let tmp = tempdir().unwrap();
+    let mut sdk = mock_sdk(tmp.path());
+    sdk.experimentos.push(dartforge_frontend::features::Feature::Augmentations);
+    sdk.experimentos.push(dartforge_frontend::features::Feature::EnhancedParts);
+    let mut interner = Interner::new();
+    let proj = tmp.path().join("proj");
+    fs::create_dir_all(&proj).unwrap();
+    let principal = "part 'p.dart';\n\
+        enum Cor {\n  vermelho('v'),\n  verde('g');\n  const Cor(this.sigla);\n  final String sigla;\n}\n\
+        void main() {\n  int n = Cor.values.length;\n  String m = Cor.azul.maiuscula;\n  Cor c = Cor.porSigla('g');\n  String s = Cor.azul.index;\n}\n";
+    fs::write(proj.join("main.dart"), principal).unwrap();
+    fs::write(
+        proj.join("p.dart"),
+        "part of 'main.dart';\naugment enum Cor {\n  azul('b');\n  String get maiuscula => sigla;\n  static Cor porSigla(String s) => Cor.verde;\n}\n",
+    )
+    .unwrap();
+    let (prog, diags_carga) = load_lenient(&proj.join("main.dart"), &sdk, None, &mut interner);
+    assert!(diags_carga.iter().all(|d| !d.message.contains("augment")), "{diags_carga:?}");
+    let cor = prog.classes.iter().find(|c| interner.resolve(c.name) == "Cor").expect("Cor");
+    let valores: Vec<&str> = cor.enum_constants.iter().map(|v| interner.resolve(prog.variable(*v).name)).collect();
+    assert_eq!(valores, vec!["vermelho", "verde", "azul"]);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+    let erros: Vec<String> = diags
+        .iter()
+        .filter(|d| d.severity == dartforge_diagnostics::Severidade::Error)
+        .map(|d| format!("{} @ {}", d.message, principal.get(d.span.start..d.span.end).unwrap_or("?")))
+        .collect();
+    assert_eq!(erros.len(), 1, "{erros:?}");
+    assert!(erros[0].starts_with(INVALID_ASSIGNMENT.template) && erros[0].ends_with("@ Cor.azul.index"), "{erros:?}");
+}

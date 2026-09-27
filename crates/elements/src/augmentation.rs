@@ -124,8 +124,50 @@ pub(crate) fn aplicar(f: &mut Fusao<'_>, pools: &mut ElementPools, unit_id: Unit
                 }
             }
         }
-        DeclKind::Enum(_) | DeclKind::Extension(_) | DeclKind::ExtensionType(_) => {
-            f.erro(unit_id, "augmentation de enum, extension e extension type ainda não é suportada", span);
+        DeclKind::Enum(e) => {
+            if e.primary_constructor.is_some() {
+                f.erro(unit_id, "augmentation de enum com construtor primário ainda não é suportada", span);
+                return;
+            }
+            let Some(cid) = classe_introdutoria(f, pools, unit_id, e.name, ClassKind::Enum) else { return };
+            let classe = &mut pools.classes[cid.0 as usize];
+            classe.mixins.extend(e.with.iter().map(|t| (unit_id, *t)));
+            classe.interfaces.extend(e.implements.iter().map(|t| (unit_id, *t)));
+            // Valores novos entram depois dos que já existem, na ordem de
+            // aplicação (spec, "Augmenting enum declarations": `values` na
+            // ordem da cadeia).
+            for (idx, k) in e.constants.iter().enumerate() {
+                let c = &pools.classes[cid.0 as usize];
+                let repetido = c.enum_constants.iter().any(|v| pools.variables[v.0 as usize].name == k.name.sym)
+                    || c.instance_members.contains_key(&k.name.sym)
+                    || c.static_members.contains_key(&k.name.sym);
+                if repetido {
+                    let n = nome(f, k.name.sym);
+                    f.erro(unit_id, format!("'{n}' já está declarado; para aumentá-lo, use 'augment'"), k.name.span);
+                    continue;
+                }
+                let id = VariableId(pools.variables.len() as u32);
+                pools.variables.push(VariableElement {
+                    name: k.name.sym,
+                    library: f.lib_id,
+                    class: Some(cid),
+                    extension: None,
+                    static_: true,
+                    final_: true,
+                    const_: true,
+                    late: false,
+                    external: false,
+                    node: VariableRef::EnumConstant { unit: unit_id, decl: decl_id, index: idx },
+                    getter: None,
+                    setter: None,
+                });
+                pools.classes[cid.0 as usize].enum_constants.push(id);
+            }
+            f.cadeias.push((cid, DeclRef { unit: unit_id, decl: decl_id }));
+            aplicar_membros(f, pools, cid, unit_id, &e.members);
+        }
+        DeclKind::Extension(_) | DeclKind::ExtensionType(_) => {
+            f.erro(unit_id, "augmentation de extension e extension type ainda não é suportada", span);
         }
         DeclKind::Variables(_) => {
             f.erro(unit_id, "augmentation de variável de topo ainda não é suportada", span);
