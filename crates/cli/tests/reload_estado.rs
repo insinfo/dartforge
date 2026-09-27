@@ -208,6 +208,64 @@ fn cli_recarrega_com_classe_inserida() {
     assert!(stderr.contains("geração 2: publicada no programa em execução"), "{stderr}");
 }
 
+/// Uma classe que some numa geração e volta na seguinte fica com o mesmo id
+/// (J03): o objeto vivo dela, guardado num global, continua sendo dela
+/// (`z is Zeta`). A geração do meio não tem a classe nem o global.
+#[test]
+fn cli_classe_que_some_e_volta_mantem_o_id() {
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(format!("../../target/tmp-reload-volta-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("diretório da fixture");
+    let entrada = dir.join("main.dart");
+    editar(&fixtures.join("reload_classe_v1.dart"), &entrada);
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_dartforge"))
+        .arg("reload").arg(&entrada)
+        .arg("--intervalo").arg("50")
+        .stdout(Stdio::piped()).stderr(Stdio::piped())
+        .spawn().expect("CLI");
+    let (tx, rx) = mpsc::channel();
+    let stdout = child.stdout.take().expect("stdout");
+    let reader = std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            let _ = tx.send(line.expect("linha"));
+        }
+    });
+
+    let mut linhas = Vec::new();
+    let mut fase = 0;
+    let mut primeira_v2 = None;
+    while let Ok(linha) = rx.recv_timeout(Duration::from_secs(60)) {
+        linhas.push(linha.clone());
+        let partes: Vec<&str> = linha.split(' ').collect();
+        match partes.as_slice() {
+            ["v1", "3", "z"] if fase == 0 => {
+                fase = 1;
+                editar(&fixtures.join("reload_classe_sem.dart"), &entrada);
+            }
+            ["vb", ..] if fase == 1 => {
+                fase = 2;
+                editar(&fixtures.join("reload_classe_v2.dart"), &entrada);
+            }
+            ["v2", ..] => {
+                primeira_v2 = Some(linha.clone());
+                break;
+            }
+            _ => {}
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    reader.join().expect("leitor");
+    let mut stderr = String::new();
+    child.stderr.take().expect("stderr").read_to_string(&mut stderr).expect("diagnósticos");
+    std::fs::remove_dir_all(&dir).expect("limpeza da fixture");
+
+    let v2 = primeira_v2.unwrap_or_else(|| panic!("sem a v2 na saída: {linhas:?}\n{stderr}"));
+    assert!(v2.ends_with(" zz alfa true"), "o objeto vivo deixou de ser Zeta: {v2}\n{linhas:?}\n{stderr}");
+}
+
 /// Recarga estrutural (J03): campo removido, campo anulável novo (antes de
 /// um existente) e `late` novo com inicializador. O objeto vivo migra pelo
 /// nome: `valor` continua, `rotulo` é `null` e `dobro` roda o inicializador

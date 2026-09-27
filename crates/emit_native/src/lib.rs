@@ -238,6 +238,22 @@ fn emitir_ir_interno(
     ctx.te = te;
     ctx.da_fonte = bibliotecas_da_fonte.into_iter().collect();
     ctx.usa_dart_async = usa_dart_async;
+    // Um programa sem `main` na biblioteca de entrada não executa: a VM
+    // recusa ("Invoked Dart programs must have a 'main' function defined").
+    // Na recarga, é o arquivo lido no meio de uma gravação (vazio), que não
+    // pode virar uma geração.
+    let tem_main = program.functions.iter().any(|f| {
+        f.class.is_none()
+            && f.extension.is_none()
+            && f.kind == dartforge_elements::model::FunctionKind::Function
+            && Some(f.library) == ctx.entry_lib
+            && interner.resolve(f.name) == "main"
+    });
+    if !tem_main {
+        return Err("erro de compilação: o programa não define a função `main` \
+                    (Invoked Dart programs must have a 'main' function defined)"
+            .to_string());
+    }
     let ctx = if da_fonte {
         // Os ids das classes do SDK são os do SDK compilado, não os do que
         // este programa carregou (`context::TabelaDeIds`).

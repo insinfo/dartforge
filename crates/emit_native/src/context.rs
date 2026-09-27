@@ -239,9 +239,13 @@ impl<'a> Context<'a> {
         self
     }
 
-    /// Os ids das classes do programa, `(id, biblioteca, classe)`.
+    /// Os ids das classes do programa, `(id, biblioteca, classe)`. Numa
+    /// recarga, também os da geração viva cuja classe não está nesta (J03):
+    /// um objeto dela pode estar vivo, e a classe pode voltar — o id fica
+    /// reservado para ela de geração em geração.
     pub fn ids_do_programa(&self) -> Vec<(u32, String, String)> {
-        self.program
+        let mut ids: Vec<(u32, String, String)> = self
+            .program
             .classes
             .iter()
             .enumerate()
@@ -250,7 +254,19 @@ impl<'a> Context<'a> {
                 let id = self.ids_de_classe.get(i).copied().flatten()?;
                 Some((id, self.nome_da_biblioteca(c.library), self.interner.resolve(c.name).to_string()))
             })
-            .collect()
+            .collect();
+        if let Some(anteriores) = &self.ids_anteriores {
+            let presentes: std::collections::HashSet<(String, String)> =
+                ids.iter().map(|(_, l, c)| (l.clone(), c.clone())).collect();
+            let mut reservados: Vec<(u32, String, String)> = anteriores
+                .iter()
+                .filter(|(chave, _)| !presentes.contains(*chave))
+                .map(|((l, c), id)| (*id, l.clone(), c.clone()))
+                .collect();
+            reservados.sort();
+            ids.extend(reservados);
+        }
+        ids
     }
 
     /// O layout dos objetos de cada classe do programa (J03, ver
