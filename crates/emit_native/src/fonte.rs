@@ -96,6 +96,15 @@ pub fn separar_partes_do_core(program: &mut Program) -> Option<LibraryId> {
         is_sdk: false,
         // A versão de linguagem e os recursos por biblioteca (Dart moderno, P2).
         features: origem.features,
+        // O escopo de cada unidade (A04) e a parte que a incluiu seguem as
+        // unidades que vêm para a biblioteca nova.
+        pais: origem.pais.iter().filter(|(u, _)| unidades.contains(u)).map(|(u, p)| (*u, *p)).collect(),
+        escopos_de_unidade: origem
+            .escopos_de_unidade
+            .iter()
+            .filter(|(u, _)| unidades.contains(u))
+            .map(|(u, e)| (*u, e.clone()))
+            .collect(),
     };
     let id = LibraryId(program.libraries.len() as u32);
     program.libraries.push(nova);
