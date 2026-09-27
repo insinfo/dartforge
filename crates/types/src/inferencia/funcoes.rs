@@ -604,16 +604,22 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
                     }
                 }
             };
+            let gerador = matches!(m, AsyncModifier::SyncStar | AsyncModifier::AsyncStar);
             if corpo_t.is_none() {
                 for &r in &fc.retornados {
                     t = inf.up(r, t);
                 }
-                if fc.retorno_vazio && !matches!(m, AsyncModifier::SyncStar | AsyncModifier::AsyncStar) {
+                // `return;` contribui `Null`, também em gerador: o analyzer
+                // 3.6.2 (oráculo) junta os `return` aos `yield` do gerador
+                // (a regra que ignora `return;` em gerador é posterior).
+                if fc.retorno_vazio {
                     let n = inf.core.null;
                     t = inf.up(n, t);
                 }
-                if completa && matches!(m, AsyncModifier::SyncStar | AsyncModifier::AsyncStar) && fc.retornados.is_empty() {
-                    // Gerador sem `yield`: elemento `Never`.
+                // Gerador sem `yield` nem `return`: elemento `dynamic`
+                // (analyzer 3.6.2), não `Never`.
+                if gerador && fc.retornados.is_empty() && !fc.retorno_vazio {
+                    t = inf.core.dynamic_;
                 }
             } else if m == AsyncModifier::Async {
                 t = inf.flatten(t);

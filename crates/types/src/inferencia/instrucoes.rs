@@ -309,12 +309,26 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
             if let Some(fin) = finally_ {
                 let mut f = inf.juntar(&apos_catches, &antes);
                 f.juncao_conservadora(&escritas, &capturadas);
+                let inicio_fin = f.clone();
                 cx.fluxo = f;
                 ramo(inf, cx, *fin);
                 if cx.fluxo.alcancavel {
-                    // O `finally` completa: vale o estado depois do `try`.
+                    // O `finally` completa (`attachFinally`): vale o estado
+                    // depois do `try`/`catch`, com as promoções do `finally`
+                    // reaplicadas (`o as int;` no `finally` promove depois),
+                    // e o estado do `finally` para o que ele escreveu.
+                    let fim = cx.fluxo.clone();
                     let alcanca = apos_catches.alcancavel;
-                    let mut r = apos_catches;
+                    let mut r = inf.reaplicar(&apos_catches, &fim);
+                    for (i, m) in fim.vars.iter().enumerate() {
+                        let v0 = inicio_fin.vars.get(i).and_then(|m| m.as_ref()).map(|m| m.versao);
+                        if m.is_some() && m.as_ref().map(|m| m.versao) != v0 {
+                            if r.vars.len() <= i {
+                                r.vars.resize(i + 1, None);
+                            }
+                            r.vars[i] = m.clone();
+                        }
+                    }
                     r.alcancavel = alcanca;
                     cx.fluxo = r;
                 }

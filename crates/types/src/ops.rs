@@ -149,6 +149,83 @@ pub fn non_nullable(ty: TypeId, table: &mut TypeTable) -> TypeId {
     }
 }
 
+/// Se `t` menciona algum dos parâmetros `params`.
+pub fn menciona_parametros(t: TypeId, params: &[TypeParamId], table: &TypeTable) -> bool {
+    match table.get(t) {
+        Type::TypeParameter { param, .. } => params.contains(param),
+        Type::Intersection { param, bound } => params.contains(param) || menciona_parametros(*bound, params, table),
+        Type::Interface { args, .. } | Type::ExtensionType { args, .. } => {
+            args.iter().any(|a| menciona_parametros(*a, params, table))
+        }
+        Type::FutureOr { arg, .. } => menciona_parametros(*arg, params, table),
+        Type::Function { ret, positional, optional, named, type_params, .. } => {
+            type_params.iter().any(|p| menciona_parametros(table.param(*p).bound, params, table))
+                || menciona_parametros(*ret, params, table)
+                || positional.iter().chain(optional.iter()).any(|a| menciona_parametros(*a, params, table))
+                || named.iter().any(|(_, a, _)| menciona_parametros(*a, params, table))
+        }
+        Type::Record { positional, named, .. } => {
+            positional.iter().any(|a| menciona_parametros(*a, params, table))
+                || named.iter().any(|(_, a)| menciona_parametros(*a, params, table))
+        }
+        _ => false,
+    }
+}
+
+/// Instanciação para os limites (*instantiate to bounds*) de `params`, com os
+/// já conhecidos em `fixos`: parâmetro sem limite escrito vai a `dynamic`;
+/// com limite, ao limite com os parâmetros já instanciados substituídos, na
+/// ordem das dependências (`A<T extends U, U extends num>` é
+/// `A<num, num>`). Os que restam num ciclo de limites (F-limites,
+/// `T extends Comparable<T>`) têm os parâmetros do ciclo trocados por
+/// `dynamic`.
+pub fn instanciar_para_limites(
+    params: &[TypeParamId],
+    fixos: &[Option<TypeId>],
+    table: &mut TypeTable,
+    core: &CoreTypes,
+) -> Vec<TypeId> {
+    let n = params.len();
+    let mut args: Vec<Option<TypeId>> = (0..n).map(|i| fixos.get(i).copied().flatten()).collect();
+    for i in 0..n {
+        let d = table.param(params[i]);
+        if args[i].is_none() && (!d.explicito || matches!(table.get(d.bound), Type::Dynamic)) {
+            args[i] = Some(core.dynamic_);
+        }
+    }
+    loop {
+        let pendentes: Vec<TypeParamId> = (0..n).filter(|&i| args[i].is_none()).map(|i| params[i]).collect();
+        if pendentes.is_empty() {
+            break;
+        }
+        let mapa: HashMap<TypeParamId, TypeId> =
+            (0..n).filter_map(|i| args[i].map(|a| (params[i], a))).collect();
+        let mut progresso = false;
+        for i in 0..n {
+            if args[i].is_some() {
+                continue;
+            }
+            let b = table.param(params[i]).bound;
+            if !menciona_parametros(b, &pendentes, table) {
+                args[i] = Some(substitute(b, &mapa, table));
+                progresso = true;
+            }
+        }
+        if !progresso {
+            let mapa: HashMap<TypeParamId, TypeId> =
+                (0..n).map(|i| (params[i], args[i].unwrap_or(core.dynamic_))).collect();
+            for i in 0..n {
+                if args[i].is_none() {
+                    let b = table.param(params[i]).bound;
+                    args[i] = Some(substitute(b, &mapa, table));
+                }
+            }
+            break;
+        }
+    }
+    args.into_iter().map(|a| a.unwrap_or(core.dynamic_)).collect()
+}
+
 /// Realiza substituição simultânea de parâmetros de tipo por argumentos.
 ///
 /// `T[A0/X0, ..., An/Xn]`

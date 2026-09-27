@@ -1765,3 +1765,186 @@ fn uso_de_resultado_void() {
         "{diags:?}"
     );
 }
+
+// ===========================================================================
+// Regras de inferência medidas contra o oráculo (analyzer 3.6.2), com o SDK
+// real: o tipo exibido de uma expressão, como no despejo do corpus.
+// ===========================================================================
+
+/// `(trecho, tipo)` de cada expressão de `fonte`, na ordem do código (com o
+/// SDK real; `None` sem ele). Os tipos saem como no despejo do corpus.
+fn tipos_com_sdk(fonte: &str) -> Option<Vec<(String, String)>> {
+    let (_, sdk) = get_real_sdk()?;
+    let tmp = tempdir().unwrap();
+    let main = tmp.path().join("main.dart");
+    fs::write(&main, fonte).unwrap();
+    let linhas = std::thread::Builder::new()
+        .stack_size(1 << 28)
+        .spawn(move || {
+            let d = dartforge_types::despejo::despejar(&main, &sdk, None);
+            d.unidades.into_iter().next().expect("unidade despejada").linhas
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+    // Fonte ASCII: offsets UTF-16 = offsets em bytes.
+    Some(linhas.into_iter().map(|l| (fonte[l.offset..l.offset + l.comprimento].to_string(), l.tipo)).collect())
+}
+
+/// Tipo da `n`-ésima (a partir de 0) expressão cujo texto é `trecho`.
+fn tipo_de<'a>(tipos: &'a [(String, String)], trecho: &str, n: usize) -> &'a str {
+    tipos
+        .iter()
+        .filter(|(t, _)| t == trecho)
+        .nth(n)
+        .map(|(_, ty)| ty.as_str())
+        .unwrap_or_else(|| panic!("expressão `{trecho}` #{n} não encontrada em {tipos:?}"))
+}
+
+#[test]
+fn sobrescrita_herda_o_tipo_inferido_de_campo_sem_tipo() {
+    // Override inference sobre campo sem tipo escrito: o tipo do campo só
+    // existe depois da inferência do inicializador, e o getter e o setter
+    // sobrescritores o herdam (também como contexto do corpo).
+    let Some(t) = tipos_com_sdk(
+        "class A { var lista = [1.5]; var n = 1; }
+class B extends A {
+  @override get lista => [];
+  @override set n(v) { print(v); }
+}
+void f(B b) { print(b.lista); }",
+    ) else {
+        return;
+    };
+    assert_eq!(tipo_de(&t, "[]", 0), "List<double>");
+    assert_eq!(tipo_de(&t, "v", 0), "int");
+    assert_eq!(tipo_de(&t, "b.lista", 0), "List<double>");
+}
+
+#[test]
+fn instanciacao_para_os_limites_segue_as_dependencias_e_limite_escrito() {
+    // `A<T extends U, U extends num>` cru é `A<num, num>`; `Object?` escrito
+    // é limite (não o implícito, que vira `dynamic`) e aparece na exibição.
+    let Some(t) = tipos_com_sdk(
+        "class A<T extends U, U extends num> {}
+class O<T extends Object?> {}
+class P<T> {}
+void g<T, U extends Object?>(T t, U u) {}
+void f() { A a = A(); var o = O(); var p = P(); print([a, o, p, g]); }",
+    ) else {
+        return;
+    };
+    assert_eq!(tipo_de(&t, "A()", 0), "A<num, num>");
+    assert_eq!(tipo_de(&t, "O()", 0), "O<Object?>");
+    assert_eq!(tipo_de(&t, "P()", 0), "P<dynamic>");
+    assert_eq!(tipo_de(&t, "g", 0), "void Function<T, U extends Object?>(T, U)");
+}
+
+#[test]
+fn inferencia_horizontal_segue_as_dependencias_entre_closures() {
+    // `c` fixa T; `b` depende de T e fixa U; `a` depende de U: a ordem é
+    // c, b, a, não a do texto.
+    let Some(t) = tipos_com_sdk(
+        "V h<T, U, V>(V Function(U) a, U Function(T) b, T c) => a(b(c));
+void f() { var r = h((u) => u.isEven, (t) => t * 2, 1); print(r); }",
+    ) else {
+        return;
+    };
+    assert_eq!(tipo_de(&t, "(u) => u.isEven", 0), "bool Function(int)");
+    assert_eq!(tipo_de(&t, "(t) => t * 2", 0), "int Function(int)");
+    assert_eq!(tipo_de(&t, "r", 0), "bool");
+}
+
+#[test]
+fn gerador_sem_yield_e_return_vazio_como_no_analyzer_3_6_2() {
+    // Gerador sem `yield` nem `return`: elemento `dynamic`; `return;` num
+    // gerador contribui `Null` (regra da 3.6.2, anterior à mudança de 2024-12).
+    let Some(t) = tipos_com_sdk(
+        "void f() {
+  var c = () sync* {};
+  var d = () sync* { yield 1; return; };
+  var e = () async* { yield 1; };
+  print([c, d, e]);
+}",
+    ) else {
+        return;
+    };
+    assert_eq!(tipo_de(&t, "() sync* {}", 0), "Iterable<dynamic> Function()");
+    assert_eq!(tipo_de(&t, "() sync* { yield 1; return; }", 0), "Iterable<int?> Function()");
+    assert_eq!(tipo_de(&t, "() async* { yield 1; }", 0), "Stream<int> Function()");
+}
+
+#[test]
+fn se_nulo_com_lado_direito_que_nao_completa_promove_o_esquerdo() {
+    // `y ?? (throw 0)`: no ramo em que `y` não é nulo ele é promovido; o
+    // outro não completa, então `y` segue promovido depois. Com lado direito
+    // que completa, nada se promove.
+    let Some(t) = tipos_com_sdk(
+        "void f(int? y, int? w) {
+  var z = y ?? (throw 0);
+  print([z, y]);
+  var k = w ?? 0;
+  print([k, w]);
+}",
+    ) else {
+        return;
+    };
+    assert_eq!(tipo_de(&t, "y", 1), "int");
+    assert_eq!(tipo_de(&t, "[z, y]", 0), "List<int>");
+    assert_eq!(tipo_de(&t, "w", 1), "int?");
+}
+
+#[test]
+fn finally_que_completa_leva_as_promocoes_para_depois_do_try() {
+    // `attachFinally`: as promoções do `finally` valem depois do `try`, e o
+    // que o `finally` escreve fica com o estado dele.
+    let Some(t) = tipos_com_sdk(
+        "void f(Object o, int? x) {
+  try { print(0); } finally { o as int; }
+  print(o);
+  try { print(1); } finally { x = 1; }
+  print(x);
+}",
+    ) else {
+        return;
+    };
+    assert_eq!(tipo_de(&t, "o", 1), "int");
+    assert_eq!(tipo_de(&t, "x", 1), "int");
+}
+
+#[test]
+fn membro_de_interfaces_diferentes_usa_a_assinatura_mais_especifica() {
+    // Combined member signature: entre `num get v` (I1) e `int get v` (I2),
+    // vale a de tipo subtipo de todas as outras, não a primeira na busca.
+    let Some(t) = tipos_com_sdk(
+        "abstract class I1 { num get v; }
+abstract class I2 { int get v; }
+abstract class J implements I1, I2 {}
+abstract class K implements I2, I1 {}
+void f(J j, K k) { print([j.v, k.v]); }",
+    ) else {
+        return;
+    };
+    assert_eq!(tipo_de(&t, "j.v", 0), "int");
+    assert_eq!(tipo_de(&t, "k.v", 0), "int");
+}
+
+#[test]
+fn acesso_a_propriedade_de_receptor_never() {
+    // analyzer 3.6.2: `id.x` (PrefixedIdentifier) com `id: Never` é `Never`;
+    // `falha().x` (PropertyAccess) busca só em `Object`: membro de `Object`
+    // tem o seu tipo, outro nome fica com o tipo de recuperação `InvalidType`.
+    let Some(t) = tipos_com_sdk(
+        "Never falha() => throw 0;
+void f(bool b, Never n) {
+  if (b) print(falha().x);
+  if (b) print(falha().hashCode);
+  if (b) print(n.x);
+}",
+    ) else {
+        return;
+    };
+    assert_eq!(tipo_de(&t, "falha().x", 0), "InvalidType");
+    assert_eq!(tipo_de(&t, "falha().hashCode", 0), "int");
+    assert_eq!(tipo_de(&t, "n.x", 0), "Never");
+}

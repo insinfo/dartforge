@@ -424,23 +424,15 @@ impl GenericInferrer {
             tipos[i] = t;
             conhecidos[i] = !has_unknown(t, env);
         }
-        // Instanciar para os limites os que não foram inferidos.
+        // Instanciar para os limites os que não foram inferidos (na ordem
+        // das dependências entre os limites; limite escrito `Object?` fica).
+        let fixos: Vec<Option<TypeId>> = (0..n).map(|i| conhecidos[i].then_some(tipos[i])).collect();
+        let instanciados = crate::ops::instanciar_para_limites(&self.params, &fixos, env.table, env.core);
         for i in 0..n {
             if conhecidos[i] {
                 continue;
             }
-            let b = env.table.param(self.params[i]).bound;
-            tipos[i] = if b == env.core.object_nullable {
-                env.core.dynamic_
-            } else {
-                let mapa: HashMap<TypeParamId, TypeId> = self
-                    .params
-                    .iter()
-                    .copied()
-                    .zip(tipos.iter().enumerate().map(|(j, t)| if conhecidos[j] { *t } else { env.core.dynamic_ }))
-                    .collect();
-                substitute(b, &mapa, env.table)
-            };
+            tipos[i] = instanciados[i];
             // Um limite F (`T extends Comparable<T>`) substituído pode ainda
             // mencionar parâmetros: fecha para cima.
             let params = self.params.clone();

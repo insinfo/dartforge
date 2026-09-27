@@ -90,6 +90,25 @@ pub struct OutlineTypes {
     pub extensions: Vec<ExtensionTypeData>,
     pub typedefs: Vec<TypedefTypeData>,
     pub hierarchy: ClassHierarchy,
+    /// Sobrescritas cujo tipo herdado vem de um campo sem tipo escrito
+    /// (`var lista = [1.5];`): o tipo do campo só existe depois da inferência
+    /// do inicializador, e a dos corpos completa a assinatura antes de tudo.
+    pub sobrescritas_de_campo: Vec<SobrescritaDeCampo>,
+}
+
+/// Parte omitida de uma sobrescrita que herda o tipo de um campo sem tipo
+/// escrito no supertipo (override inference sobre tipo inferido).
+#[derive(Debug, Clone)]
+pub struct SobrescritaDeCampo {
+    /// O membro sobrescritor (getter, setter ou método).
+    pub funcao: FunctionElementId,
+    /// O campo sobrescrito.
+    pub campo: dartforge_elements::model::VariableId,
+    /// Parâmetros de tipo da classe do campo -> argumentos vistos da classe
+    /// do sobrescritor.
+    pub subst: Vec<(TypeParamId, TypeId)>,
+    /// `None`: o retorno; `Some(i)`: o i-ésimo parâmetro.
+    pub parametro: Option<usize>,
 }
 
 /// Contexto de resolução com acesso ao programa e acumuladores de estado.
@@ -107,6 +126,8 @@ pub struct OutlineResolver<'a> {
     pub extension_type_params: Vec<Box<[TypeParamId]>>,
     /// Tipos alvo expandidos de typedefs: `[TypedefId] -> Option<TypeId>`
     pub typedef_targets: Vec<Option<TypeId>>,
+    /// Ver [`OutlineTypes::sobrescritas_de_campo`].
+    pub sobrescritas_de_campo: Vec<SobrescritaDeCampo>,
 }
 
 impl<'a> OutlineResolver<'a> {
@@ -130,6 +151,7 @@ impl<'a> OutlineResolver<'a> {
             typedef_type_params: vec![Box::new([]); num_typedefs],
             extension_type_params: vec![Box::new([]); num_extensions],
             typedef_targets: vec![None; num_typedefs],
+            sobrescritas_de_campo: Vec::new(),
         }
     }
 
@@ -170,6 +192,7 @@ impl<'a> OutlineResolver<'a> {
             extensions: extension_type_data,
             typedefs: typedef_type_data,
             hierarchy,
+            sobrescritas_de_campo: std::mem::take(&mut self.sobrescritas_de_campo),
         };
 
         (outline, self.diagnostics)
@@ -577,7 +600,12 @@ impl<'a> OutlineResolver<'a> {
                         } else {
                             // Tenta override inference se for método de instância
                             self.infer_override_parameter_type(func, p_name, p.kind, pos_atual, hierarchy, 0)
-                                .unwrap_or(self.core.dynamic_)
+                                .unwrap_or_else(|| {
+                                    if func.kind == FunctionKind::Setter {
+                                        self.adiar_sobrescrita_de_campo(func_id, func, Some(param_types.len()), hierarchy);
+                                    }
+                                    self.core.dynamic_
+                                })
                         };
 
                         param_types.push(ParameterTypeData {
@@ -607,8 +635,12 @@ impl<'a> OutlineResolver<'a> {
                     self.core.void_
                 } else {
                     // Tenta override inference para retorno
-                    self.infer_override_return_type(func, hierarchy, 0)
-                        .unwrap_or(self.core.dynamic_)
+                    self.infer_override_return_type(func, hierarchy, 0).unwrap_or_else(|| {
+                        if func.kind == FunctionKind::Getter {
+                            self.adiar_sobrescrita_de_campo(func_id, func, None, hierarchy);
+                        }
+                        self.core.dynamic_
+                    })
                 };
 
                 let sig = self.table.intern(Type::Function {
@@ -781,18 +813,7 @@ impl<'a> OutlineResolver<'a> {
     /// escrito, ou `dynamic`; limites que mencionam os próprios parâmetros
     /// (F-limites) têm esses parâmetros trocados por `dynamic`.
     fn instanciar_para_limites(&mut self, formals: &[TypeParamId]) -> Vec<TypeId> {
-        let dinamicos: HashMap<TypeParamId, TypeId> = formals.iter().map(|&p| (p, self.core.dynamic_)).collect();
-        formals
-            .iter()
-            .map(|&p| {
-                let b = self.table.param(p).bound;
-                if b == self.core.object_nullable {
-                    self.core.dynamic_
-                } else {
-                    substitute(b, &dinamicos, self.table)
-                }
-            })
-            .collect()
+        crate::ops::instanciar_para_limites(formals, &[], self.table, self.core)
     }
 
     fn instantiate_self_class(&mut self, class_opt: Option<ClassId>) -> TypeId {
@@ -873,6 +894,37 @@ impl<'a> OutlineResolver<'a> {
         let lib = self.program.variable(v).library;
         let scope = self.get_enclosing_type_param_scope(Some(sup), None);
         Some(self.resolve_annotation(unit, ast_ty, lib, &scope))
+    }
+
+    /// Registra a sobrescrita cujo membro sobreposto é o acessor implícito de
+    /// um campo sem tipo escrito: o tipo sai da inferência do inicializador
+    /// ([`OutlineTypes::sobrescritas_de_campo`]).
+    fn adiar_sobrescrita_de_campo(
+        &mut self,
+        func_id: FunctionElementId,
+        func: &FunctionElement,
+        parametro: Option<usize>,
+        hierarchy: &ClassHierarchy,
+    ) {
+        let Some((sup, sf)) = self.membro_sobreposto(func, hierarchy) else { return };
+        let super_func = self.program.function(sf);
+        if !matches!(super_func.node, FunctionRef::None) {
+            return;
+        }
+        let Some(v) = super_func.variable else { return };
+        if !matches!(self.program.variable(v).node, VariableRef::Field { .. }) {
+            return;
+        }
+        let Some(class_id) = func.class else { return };
+        let this = self.instantiate_self_class(Some(class_id));
+        let Some(super_ty) = hierarchy.supertype_of(this, sup, self.table, self.core) else { return };
+        let args = match self.table.get(super_ty) {
+            Type::Interface { args, .. } | Type::ExtensionType { args, .. } => args.clone(),
+            _ => return,
+        };
+        let params = self.class_type_params[sup.0 as usize].clone();
+        let subst = params.iter().copied().zip(args.iter().copied()).collect();
+        self.sobrescritas_de_campo.push(SobrescritaDeCampo { funcao: func_id, campo: v, subst, parametro });
     }
 
     /// Tipo de retorno herdado (override inference): o do membro sobreposto,
