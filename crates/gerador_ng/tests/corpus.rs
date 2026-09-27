@@ -54,7 +54,11 @@ fn raiz_do_corpus() -> PathBuf {
 /// `NgSelectOption` é instanciado com o `@Host` do acessor do `<select>`.
 /// O b02, o h02 e o i19 — `providers:` no componente — e o d09 e o h01 —
 /// `@ContentChild(ren)` no componente — saíram quando a hospedeira passou a
-/// escrever os provedores e o resultado vazio das consultas.)
+/// escrever os provedores e o resultado vazio das consultas. O b06
+/// — `encapsulation:` —, o i24 — vários componentes no arquivo —, o i30 —
+/// `<template #t>` e `*ngTemplateOutlet` —, o i72 — filho com `providers:`
+/// — e o i73 — `@ContentChild(.., read:)` de filho — saíram na rodada
+/// seguinte; as recusas de agora são sondas que guardam a saída oficial.)
 /// São as formas ainda sem tradução (docs/GERADOR-NG.md §9): gerar
 /// qualquer uma ignorando o que falta daria saída errada.
 const RECUSADOS: &[(&str, &str)] = &[
