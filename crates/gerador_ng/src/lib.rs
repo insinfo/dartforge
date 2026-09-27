@@ -67,11 +67,12 @@ pub struct Achados {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Hospedeira {
     pub classe: String,
-    /// `(classe CSS, membro)` de cada `@HostBinding('class.x')`, na ordem em
-    /// que o oficial os coleta (`DirectiveVisitor`, em
+    /// `(nome da ligação, membro)` de cada `@HostBinding` — `class.x`,
+    /// `attr.x`, propriedade ou, sem argumento, o nome do membro —, na ordem
+    /// em que o oficial os coleta (`DirectiveVisitor`, em
     /// `angular_compiler/analyzer/view/directive.dart`): acessores, depois
     /// métodos, depois campos — cada grupo em ordem de declaração.
-    pub classes: Vec<(String, String)>,
+    pub ligacoes: Vec<(String, String)>,
     /// Alguma ligação fora do que sabemos traduzir.
     pub recusada: bool,
 }
@@ -93,20 +94,29 @@ fn hospedeira(
                 continue;
             }
             alguma = true;
-            // Sem argumento, o nome da ligação é o do próprio membro — uma
-            // ligação de propriedade, fora do subconjunto.
-            let nome = a.arguments.as_ref().and_then(|args| match &args.args[..] {
-                [x] if x.name.is_none() => match &arvore.expr(x.value).kind {
-                    ast::ExprKind::String(lit) => lit.constant_value().map(|s| s.to_string_lossy()),
+            // Sem argumento (`Some(None)`), o nome da ligação é o do próprio
+            // membro (`bindingName ?? memberName`).
+            let nome = match a.arguments.as_ref().map(|args| &args.args[..]) {
+                None | Some([]) => Some(None),
+                Some([x]) if x.name.is_none() => match &arvore.expr(x.value).kind {
+                    ast::ExprKind::String(lit) => {
+                        lit.constant_value().map(|s| Some(s.to_string_lossy()))
+                    }
                     _ => None,
                 },
                 _ => None,
-            });
-            // Só `class.x`. `attr.`, `style.` e propriedade têm cada um a sua
-            // chamada e ficam de fora até terem caso no corpus.
-            let Some(classe_css) = nome.as_deref().and_then(|n| n.strip_prefix("class.")) else {
+            };
+            let Some(nome) = nome else {
                 recusada = true;
                 continue;
+            };
+            // `class.x`, `attr.x` e propriedade ([`visao::forma_do_hospedeiro`]);
+            // `style.x` depende do tipo do membro, que daqui não se lê.
+            let aceita = |n: &str| {
+                matches!(
+                    visao::forma_do_hospedeiro(n),
+                    Ok(f) if !matches!(f, visao::FormaDoHospedeiro::Estilo { .. })
+                )
             };
             match &membro.kind {
                 // Campo `final` é imutável e seria escrito uma vez, na
@@ -116,14 +126,18 @@ fn hospedeira(
                     if !l.static_ && !l.final_ && !l.const_ && l.variables.len() == 1 =>
                 {
                     let membro = interner.resolve(l.variables[0].name.sym).to_string();
-                    campos.push((classe_css.to_string(), membro));
+                    let nome = nome.unwrap_or_else(|| membro.clone());
+                    recusada |= !aceita(&nome);
+                    campos.push((nome, membro));
                 }
                 ast::MemberKind::Method(f) => {
                     let funcao = arvore.function(*f);
                     match (funcao.kind, funcao.name) {
                         (ast::FunctionKind::Getter, Some(n)) if !funcao.static_ => {
                             let membro = interner.resolve(n.sym).to_string();
-                            acessores.push((classe_css.to_string(), membro));
+                            let nome = nome.unwrap_or_else(|| membro.clone());
+                            recusada |= !aceita(&nome);
+                            acessores.push((nome, membro));
                         }
                         _ => recusada = true,
                     }
@@ -148,7 +162,7 @@ fn hospedeira(
     }
     Some(Hospedeira {
         classe: interner.resolve(classe.name.sym).to_string(),
-        classes: acessores,
+        ligacoes: acessores,
         recusada,
     })
 }
@@ -1054,7 +1068,7 @@ pub(crate) fn gerar_interno(
                     .hospedeiras
                     .iter()
                     .filter(|h| h.classe == d.classe)
-                    .flat_map(|h| h.classes.iter().map(|(c, _)| format!("class.{c}")))
+                    .flat_map(|h| h.ligacoes.iter().map(|(n, _)| n.clone()))
                     .collect();
                 m.fora.is_empty()
                     && m.ligacoes_do_hospedeiro.len() == proprias.len()
@@ -1085,7 +1099,7 @@ pub(crate) fn gerar_interno(
             )),
             _ => Err(recusa(
                 Motivo::HostBindingEmDiretiva,
-                "@HostBinding fora de `class.x` ou várias diretivas no arquivo",
+                "@HostBinding fora de class.x/attr.x/propriedade ou várias diretivas no arquivo",
             )),
         };
     }

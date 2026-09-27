@@ -6903,21 +6903,26 @@ pub fn detector_de_diretiva(h: &crate::Hospedeira, arquivo: &str) -> String {
     let mut imp = Importacoes::default();
     // A ordem dos imports é a da escrita da classe: a superclasse, o campo
     // `instance`, os parâmetros de `detectHostChanges` e, no corpo,
-    // `checkBinding` e o `dom_helpers`.
+    // `checkBinding` e, pela ação de cada ligação, o `dom_helpers` (e o
+    // saneador, quando há).
     let cd = imp.alias(DIRECTIVE_CHANGE_DETECTOR);
     let proprio = imp.alias(arquivo);
     let rv = imp.alias(RENDER_VIEW);
     let html = imp.alias("dart:html");
     let chk = imp.alias(CHECK_BINDING);
-    let dom = imp.alias(DOM_HELPERS);
     let x = &h.classe;
     let mut campos = String::new();
     let mut corpo = String::new();
-    for (k, (classe_css, membro)) in h.classes.iter().enumerate() {
+    for (k, (nome, membro)) in h.ligacoes.iter().enumerate() {
+        // `hospedeira` (lib.rs) só deixa passar as formas conhecidas.
+        let Ok(forma) = forma_do_hospedeiro(nome) else {
+            continue;
+        };
+        let acao = resolver_tardios(&mut imp, &forma.acao("el", &format!("currVal_{k}")));
         let _ = writeln!(campos, "  Object? _expr_{k};");
         let _ = write!(
             corpo,
-            "    final currVal_{k} = this.instance.{membro};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, null, null)) {{\n      {dom}.updateClassBindingNonHtml(el, '{classe_css}', currVal_{k});\n      this._expr_{k} = currVal_{k};\n    }}\n"
+            "    final currVal_{k} = this.instance.{membro};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, null, null)) {{\n      {acao};\n      this._expr_{k} = currVal_{k};\n    }}\n"
         );
     }
     let mut s = String::with_capacity(1024);
@@ -7054,7 +7059,7 @@ pub fn coletar(
 /// (`_securityContextElementName` do `DirectiveConverter`), escritas por
 /// `bindAndWriteToRenderer` com `isHtmlElement` falso.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum FormaDoHospedeiro {
+pub(crate) enum FormaDoHospedeiro {
     /// `class.x`: `updateClassBindingNonHtml`.
     Classe(String),
     /// `attr.x`, com o saneador do contexto de segurança: `updateAttribute`.
@@ -7084,21 +7089,29 @@ struct LigacaoDoHospedeiro {
 impl LigacaoDoHospedeiro {
     /// A instrução que escreve o valor `v` no elemento hospedeiro.
     fn acao(&self, v: &str) -> String {
+        self.forma.acao("this.rootElement", v)
+    }
+}
+
+impl FormaDoHospedeiro {
+    /// A instrução que escreve o valor `v` no elemento `el` (o
+    /// `this.rootElement` do componente, o `el` do `XNgCd` da diretiva). Os
+    /// imports vão como marcas de [`tardio`], na ordem do texto.
+    pub(crate) fn acao(&self, el: &str, v: &str) -> String {
         let dom = tardio(DOM_HELPERS);
         let saneado = |s: &Option<&'static str>| match s {
             Some(f) => format!("{}.{f}({v})", tardio(SAFE_HTML)),
             None => v.to_string(),
         };
-        match &self.forma {
+        match self {
             FormaDoHospedeiro::Classe(x) => {
-                format!("{dom}.updateClassBindingNonHtml(this.rootElement, '{x}', {v})")
+                format!("{dom}.updateClassBindingNonHtml({el}, '{x}', {v})")
             }
-            FormaDoHospedeiro::Atributo(x, s) => format!(
-                "{dom}.updateAttribute(this.rootElement, '{x}', {})",
-                saneado(s)
-            ),
+            FormaDoHospedeiro::Atributo(x, s) => {
+                format!("{dom}.updateAttribute({el}, '{x}', {})", saneado(s))
+            }
             FormaDoHospedeiro::Propriedade(x, s) => {
-                format!("{dom}.setProperty(this.rootElement, '{x}', {})", saneado(s))
+                format!("{dom}.setProperty({el}, '{x}', {})", saneado(s))
             }
             FormaDoHospedeiro::Estilo {
                 nome,
@@ -7119,7 +7132,7 @@ impl LigacaoDoHospedeiro {
                     None if *nulo => format!("{v}?.toString()"),
                     None => format!("{v}.toString()"),
                 };
-                format!("this.rootElement.style.setProperty('{nome}', {valor})")
+                format!("{el}.style.setProperty('{nome}', {valor})")
             }
         }
     }
@@ -7129,7 +7142,7 @@ impl LigacaoDoHospedeiro {
 /// não é `class.x`, `attr.x`, `style.x[.unidade]` ou propriedade simples é
 /// recusado — `class`/`className` (a classe inteira), `attr.x.if`,
 /// namespace e prefixo desconhecido ainda não têm caso.
-fn forma_do_hospedeiro(nome: &str) -> Result<FormaDoHospedeiro, String> {
+pub(crate) fn forma_do_hospedeiro(nome: &str) -> Result<FormaDoHospedeiro, String> {
     let simples = |n: &str| !n.is_empty() && !n.contains(['.', ':']);
     let fora = || format!("@HostBinding('{nome}') fora de class.x, attr.x, style.x e propriedade");
     let partes: Vec<&str> = nome.split('.').collect();

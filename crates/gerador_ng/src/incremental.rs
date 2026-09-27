@@ -208,6 +208,13 @@ impl Resolucao for Gravador<'_> {
         self.dentro.tipo_do_membro(arquivo, tipo, membro)
     }
 
+    fn membro_final(&self, arquivo: &Path, tipo: &str, membro: &str) -> Option<bool> {
+        if let Some(uri) = self.dentro.uri_do_tipo(arquivo, tipo) {
+            self.anotar(&uri, tipo);
+        }
+        self.dentro.membro_final(arquivo, tipo, membro)
+    }
+
     fn designado(&self, arquivo: &Path, nome: &str) -> Option<Designado> {
         let r = self.dentro.designado(arquivo, nome);
         if let Some(Designado::Classe { uri }) = &r {
