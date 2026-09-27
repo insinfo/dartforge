@@ -998,7 +998,8 @@ service (`CompileToKernel`, `:851-873`). Dispensaria o `frontend_server`.
   VM, não do texto do teste.
 
 **Casos síncronos, antes de `async`.** Os testes do SDK usam `async main` e
-`await hotReload()`, e o nativo ainda não tem `async`. A primeira leva do corpus
+`await hotReload()`, e o nativo ainda não tinha `async` quando isto foi escrito
+(hoje tem: `crates/emit_native/src/lower/async_sm.rs`). A primeira leva do corpus
 vem dos **testes unitários da VM**:
 
 - são 172, em `runtime/vm/isolate_reload_test.cc`;
