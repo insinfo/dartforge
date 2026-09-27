@@ -17,6 +17,20 @@ Pointer<Uint8> texto(String s) {
   return p;
 }
 
+final class ParInt32 extends Struct {
+  @Int32()
+  external int a;
+  @Int32()
+  external int b;
+}
+
+final class ParDouble extends Struct {
+  @Double()
+  external double x;
+  @Double()
+  external double y;
+}
+
 String textoC(Pointer<Uint8> p) {
   final b = StringBuffer();
   for (var i = 0; p[i] != 0; i++) {
@@ -52,4 +66,24 @@ void main() {
       int Function(Pointer<Uint8>, int, Pointer<Uint8>, double, double, double, double, double, double, double, double, double, int)>(snprintf);
   f4(buf, 256, texto('%g %g %g %g %g %g %g %g %g %d'), 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
   print(textoC(buf));
+
+  // Structs em VarArgs.
+  final par = _malloc(8).cast<ParInt32>().ref
+    ..a = 7
+    ..b = 1;
+  final f5 = libc.lookupFunction<Int32 Function(Pointer<Uint8>, Size, Pointer<Uint8>, VarArgs<(ParInt32, Int32)>),
+      int Function(Pointer<Uint8>, int, Pointer<Uint8>, ParInt32, int)>(snprintf);
+  f5(buf, 256, texto('%lld %d'), par, 99);
+  print(textoC(buf));
+  if (!windows) {
+    final pd = _malloc(16).cast<ParDouble>().ref
+      ..x = 1.25
+      ..y = -2.5;
+    final f6 = libc.lookupFunction<Int32 Function(Pointer<Uint8>, Size, Pointer<Uint8>, VarArgs<(Int32, ParDouble)>),
+        int Function(Pointer<Uint8>, int, Pointer<Uint8>, int, ParDouble)>(snprintf);
+    f6(buf, 256, texto('%d %.2f %.2f'), 3, pd);
+    print(textoC(buf));
+  } else {
+    print('3 1.25 -2.50');
+  }
 }

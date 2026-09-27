@@ -20,12 +20,13 @@
 //!
 //! * **Compostos, variádicas e `Handle`.** Structs e unions por valor
 //!   ([`TipoNativo::Composto`], com o layout C do alvo), a parte variádica de
-//!   `VarArgs` e `Handle` (o objeto Dart na fronteira) também baixam
+//!   `VarArgs` (inclusive com structs, pela regra variádica do alvo) e
+//!   `Handle` (o objeto Dart na fronteira) também baixam
 //!   (`corpus/nativo/16_ffi_structs_por_valor.dart`, `17_ffi_varargs.dart`,
 //!   `18_ffi_handle.dart`).
 //!
 //! O que continua recusado — inteiro específico da ABI sem mapeamento para o
-//! alvo, struct por valor dentro de `VarArgs`, struct vazia por valor,
+//! alvo, struct vazia por valor,
 //! assinatura com parâmetros opcionais, nomeados ou genéricos — vira erro do
 //! runtime com o motivo, nunca uma chamada com a ABI errada.
 
@@ -189,9 +190,6 @@ impl TiposNativos {
                     for v in variadicos {
                         match self.tipo_nativo(ctx, v)? {
                             (TipoNativo::Prim(TipoC::Void), _) => return Err("parâmetro nativo `Void`".to_string()),
-                            (TipoNativo::Composto(_), _) if variadica.is_some() => {
-                                return Err("struct por valor em VarArgs ainda não é suportado no backend nativo".to_string());
-                            }
                             (t, c) => {
                                 ps.push(t);
                                 cs.push(c);

@@ -184,6 +184,22 @@ pub fn argumento(conv: Convencao, l: &LayoutC, regs: &mut Registradores) -> Pass
     }
 }
 
+/// Como vai um composto na parte variádica de uma chamada: como um fixo,
+/// exceto no arm64 da Apple, onde tudo o que é variádico vai na pilha e a
+/// HFA não tem tratamento próprio (o clang a passa como os inteiros do
+/// tamanho dela; `AArch64ABIInfo::classifyArgumentType` com `IsVariadic`).
+pub fn argumento_variadico(conv: Convencao, l: &LayoutC, regs: &mut Registradores) -> PassagemArg {
+    match conv {
+        Convencao::AArch64 { apple: true } => match l.tamanho {
+            0..=8 => PassagemArg::Direta(vec![Peca { deslocamento: 0, tipo: "i64".to_string(), atributos: "" }]),
+            9..=16 if l.alinhamento >= 16 => PassagemArg::Direta(vec![Peca { deslocamento: 0, tipo: "i128".to_string(), atributos: "" }]),
+            9..=16 => PassagemArg::Direta(vec![Peca { deslocamento: 0, tipo: "[2 x i64]".to_string(), atributos: "" }]),
+            _ => PassagemArg::Indireta,
+        },
+        _ => argumento(conv, l, regs),
+    }
+}
+
 /// Como volta um retorno composto (um `sret` consome um registrador
 /// inteiro no System V).
 pub fn retorno(conv: Convencao, l: &LayoutC, regs: &mut Registradores) -> PassagemRet {

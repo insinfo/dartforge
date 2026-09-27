@@ -1443,12 +1443,11 @@ assinatura a cada chamada:
   (`12_ffi_structs.dart`), `Pointer.fromFunction` e `NativeCallable`
   (`13_ffi_callbacks.dart`; redirecionamento em `lower/ffi.rs:390-409`),
   `NativeFinalizer` (`14_finalizadores.dart`), structs e unions por valor
-  (`16_ffi_structs_por_valor.dart`), funções variádicas com `VarArgs`
-  (`17_ffi_varargs.dart`), `Handle` (`18_ffi_handle.dart`) e `@Native` de
+  (`16_ffi_structs_por_valor.dart`), funções variádicas com `VarArgs`,
+  inclusive com structs na parte variádica (`17_ffi_varargs.dart`), `Handle` (`18_ffi_handle.dart`) e `@Native` de
   função e de variável (`19_ffi_native_variaveis.dart`;
   `lower/ffi.rs:1283-1284`). O que continua recusado com o motivo, nunca com
-  a ABI errada: inteiro específico da ABI sem mapeamento para o alvo, struct
-  por valor dentro de `VarArgs`, struct vazia por valor e assinatura nativa
+  a ABI errada: inteiro específico da ABI sem mapeamento para o alvo, struct vazia por valor e assinatura nativa
   com parâmetros opcionais, nomeados ou genéricos (`lower/ffi.rs:104-190`).
 
   > **Histórico (até 2026-09-27).** Este item listava como pendentes structs

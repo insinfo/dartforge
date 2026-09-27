@@ -1743,22 +1743,34 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  %tmp{v}_{i} = alloca [{tam} x i8], align {al}").unwrap();
                     writeln!(self.out, "  call void @llvm.memset.p0.i64(ptr %tmp{v}_{i}, i8 0, i64 {tam}, i1 false)").unwrap();
                     writeln!(self.out, "  call void @llvm.memcpy.p0.p0.i64(ptr %tmp{v}_{i}, ptr %src{v}_{i}, i64 {}, i1 false)", l.tamanho).unwrap();
-                    match abi_c::argumento(conv, l, &mut regs) {
+                    // Na parte variádica as peças não entram no tipo da
+                    // chamada (`ret (fixos, ...)`).
+                    let passagem = if variadico {
+                        abi_c::argumento_variadico(conv, l, &mut regs)
+                    } else {
+                        abi_c::argumento(conv, l, &mut regs)
+                    };
+                    let mut fixo = |t: String| {
+                        if !variadico {
+                            tipos_fixos.push(t);
+                        }
+                    };
+                    match passagem {
                         PassagemArg::Direta(pecas) => {
                             for (k, p) in pecas.iter().enumerate() {
                                 writeln!(self.out, "  %pp{v}_{i}_{k} = getelementptr i8, ptr %tmp{v}_{i}, i64 {}", p.deslocamento).unwrap();
                                 writeln!(self.out, "  %pc{v}_{i}_{k} = load {}, ptr %pp{v}_{i}_{k}, align 1", p.tipo).unwrap();
                                 partes.push(format!("{} {}%pc{v}_{i}_{k}", p.tipo, p.atributos));
-                                tipos_fixos.push(p.tipo.clone());
+                                fixo(p.tipo.clone());
                             }
                         }
                         PassagemArg::Byval { alinhamento } => {
                             partes.push(format!("ptr byval([{} x i8]) align {alinhamento} %tmp{v}_{i}", l.tamanho));
-                            tipos_fixos.push("ptr".to_string());
+                            fixo("ptr".to_string());
                         }
                         PassagemArg::Indireta => {
                             partes.push(format!("ptr %tmp{v}_{i}"));
-                            tipos_fixos.push("ptr".to_string());
+                            fixo("ptr".to_string());
                         }
                     }
                 }
