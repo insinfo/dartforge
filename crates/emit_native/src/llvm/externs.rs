@@ -947,6 +947,10 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
+        decl: "declare ptr @dartforge_area_de_globais_id(ptr, ptr)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
         decl: "declare i32 @dartforge_iniciar(ptr, ptr)",
         efeitos: CONSERVADOR,
     },

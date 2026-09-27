@@ -115,6 +115,56 @@ thread_local! {
     static AREAS_APOSENTADAS: RefCell<Vec<Vec<i64>>> = const { RefCell::new(Vec::new()) };
     /// O último descritor pedido e a área dele (o caminho rápido).
     static ULTIMA_AREA: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) };
+    /// A tabela por id de módulo que o `Contexto` aponta (`areas`,
+    /// `n_areas`).
+    static TABELA_DE_AREAS: RefCell<Vec<*mut i64>> = const { RefCell::new(Vec::new()) };
+}
+
+/// O próximo id de módulo (`@df.area_id`), o mesmo em todas as threads.
+static PROXIMO_ID_DE_AREA: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
+
+/// Uma área mudou de endereço (recarga): a tabela desta thread se esvazia
+/// e cada módulo passa uma vez pelo runtime de novo.
+fn esquecer_tabela_de_areas() {
+    TABELA_DE_AREAS.with(|t| t.borrow_mut().iter_mut().for_each(|p| *p = std::ptr::null_mut()));
+    ULTIMA_AREA.with(|u| u.set((0, 0)));
+}
+
+/// O caminho lento de `@df.obter_area`: a área (`dartforge_area_de_globais`)
+/// e, na tabela desta thread, a entrada do id do módulo (dado agora, se
+/// ainda não tem).
+///
+/// # Safety
+/// `descritor` como em [`dartforge_area_de_globais`]; `id` aponta o
+/// `@df.area_id` do mesmo módulo.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_area_de_globais_id(descritor: *const i64, id: *const std::sync::atomic::AtomicI64) -> *mut i64 {
+    use std::sync::atomic::Ordering;
+    // SAFETY: garantido por quem chama.
+    let p = unsafe { dartforge_area_de_globais(descritor) };
+    // SAFETY: o global do módulo, vivo durante todo o processo.
+    let id = unsafe { &*id };
+    let mut k = id.load(Ordering::Relaxed);
+    if k == 0 {
+        let novo = PROXIMO_ID_DE_AREA.fetch_add(1, Ordering::Relaxed);
+        k = match id.compare_exchange(0, novo, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => novo,
+            Err(atual) => atual,
+        };
+    }
+    let k = k as usize;
+    TABELA_DE_AREAS.with(|t| {
+        let mut t = t.borrow_mut();
+        if t.len() <= k {
+            t.resize(k + 16, std::ptr::null_mut());
+        }
+        t[k] = p;
+        CONTEXTO.with(|c| {
+            c.areas.set(t.as_ptr());
+            c.n_areas.set(t.len());
+        });
+    });
+    p
 }
 
 /// Slots zerados para `n` nomes, com folga para as gerações seguintes
@@ -159,6 +209,7 @@ pub unsafe extern "C" fn dartforge_area_de_globais(descritor: *const i64) -> *mu
             migrar_area(&antiga, &mut nova);
             AREAS_APOSENTADAS.with(|x| x.borrow_mut().push(antiga.slots));
             areas.push(nova);
+            esquecer_tabela_de_areas();
         } else {
             areas.push(AreaDeGlobais { descritores: vec![d], chave, nomes: nomes.to_vec(), slots: slots_novos(nomes.len()) });
         }
@@ -183,6 +234,7 @@ fn estender_area(a: &mut AreaDeGlobais, nomes: &[i64]) {
         });
         let antiga = std::mem::replace(&mut a.slots, maior);
         AREAS_APOSENTADAS.with(|x| x.borrow_mut().push(antiga));
+        esquecer_tabela_de_areas();
     } else {
         a.slots.resize(nomes.len(), 0);
     }

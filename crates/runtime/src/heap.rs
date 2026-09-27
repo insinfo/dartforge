@@ -1044,16 +1044,29 @@ pub struct Contexto {
     pub pendente: std::cell::Cell<u8>,
     /// O quadro do topo da pilha-sombra (deslocamento 8).
     pub topo: std::cell::Cell<*const QuadroDeRaizes>,
+    /// A área de globais de cada módulo neste isolado, pelo id do módulo
+    /// (`@df.area_id`; 0 = sem id): o caminho rápido do prólogo das
+    /// funções (`@df.obter_area`). Endereço dos elementos (deslocamento 16)
+    /// e comprimento (24); uma entrada nula vai ao runtime.
+    pub areas: std::cell::Cell<*const *mut i64>,
+    pub n_areas: std::cell::Cell<usize>,
 }
 
 const _: () = {
     assert!(std::mem::offset_of!(Contexto, pendente) == 0);
     assert!(std::mem::offset_of!(Contexto, topo) == 8);
+    assert!(std::mem::offset_of!(Contexto, areas) == 16);
+    assert!(std::mem::offset_of!(Contexto, n_areas) == 24);
 };
 
 thread_local! {
     pub static CONTEXTO: Contexto = const {
-        Contexto { pendente: std::cell::Cell::new(0), topo: std::cell::Cell::new(std::ptr::null()) }
+        Contexto {
+            pendente: std::cell::Cell::new(0),
+            topo: std::cell::Cell::new(std::ptr::null()),
+            areas: std::cell::Cell::new(std::ptr::null()),
+            n_areas: std::cell::Cell::new(0),
+        }
     };
 }
 

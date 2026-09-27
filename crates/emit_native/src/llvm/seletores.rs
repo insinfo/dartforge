@@ -197,7 +197,7 @@ impl LlvmEmitter<'_> {
             self.out,
             "define i64 @dartforge_dispatch_toString(i64 %obj) {{\nb0:\n  %a = alloca [1 x i64]\n  \
              store i64 0, ptr %a\n  \
-             %area = call ptr @dartforge_area_de_globais(ptr @df.area)\n  \
+             %area = call ptr @df.obter_area()\n  \
              %ic = getelementptr i64, ptr %area, i64 {slot}\n  \
              %f = call ptr @dartforge_seletor(ptr %ic, i64 %obj, i64 {h}, ptr @df.seln.{nome}, i64 {})\n  \
              %r = call i64 %f(i64 %obj, ptr %a, ptr @df.arr.{k})\n  ret i64 %r\n}}\n",

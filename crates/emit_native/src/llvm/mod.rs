@@ -154,6 +154,7 @@ impl<'a> LlvmEmitter<'a> {
             self.emitir_registro(&reg);
             self.emitir_globais_de_seletores();
             self.emitir_descritor_da_area();
+            self.out.push_str(OBTER_AREA);
             self.emitir_declaracoes_externas();
             return self.out;
         }
@@ -176,6 +177,10 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str(
             "define void @df.preparar_area() {\n  %a = call ptr @dartforge_area_de_globais(ptr @df.area)\n  ret void\n}\n",
         );
+        // A área no prólogo de cada função: o id do módulo indexa a tabela
+        // desta thread no `Contexto` (deslocamentos 16 e 24); uma entrada
+        // ausente vai ao runtime, que a preenche (e dá o id na primeira vez).
+        self.out.push_str(OBTER_AREA);
         self.emitir_declaracoes_externas();
         self.out
     }
@@ -362,7 +367,7 @@ impl<'a> LlvmEmitter<'a> {
             if block.id.0 == 0 {
                 self.emit_buffers_de_closure(func);
                 if Self::usa_area(func) {
-                    writeln!(self.out, "  %area = call ptr @dartforge_area_de_globais(ptr @df.area)").unwrap();
+                    writeln!(self.out, "  %area = call ptr @df.obter_area()").unwrap();
                 }
             }
             if block.id.0 == 0
@@ -2352,6 +2357,28 @@ fn hash_de_slot(nome: &str) -> i64 {
 /// referência que não é `Smi` (o `_Mint`, ou o `TypeError`), o runtime.
 /// `internal` em cada módulo e `alwaysinline`: o caminho comum vira três
 /// instruções no lugar da chamada.
+const OBTER_AREA: &str = "@df.area_id = internal global i64 0, align 8\n\
+define internal ptr @df.obter_area() alwaysinline {\n\
+  %ctx = call ptr @dartforge_contexto()\n\
+  %id = load atomic i64, ptr @df.area_id monotonic, align 8\n\
+  %tp = getelementptr inbounds i8, ptr %ctx, i64 16\n\
+  %t = load ptr, ptr %tp, align 8\n\
+  %np = getelementptr inbounds i8, ptr %ctx, i64 24\n\
+  %n = load i64, ptr %np, align 8\n\
+  %dentro = icmp ult i64 %id, %n\n\
+  br i1 %dentro, label %ler, label %lenta\n\
+ler:\n\
+  %e = getelementptr ptr, ptr %t, i64 %id\n\
+  %p = load ptr, ptr %e, align 8\n\
+  %tem = icmp ne ptr %p, null\n\
+  br i1 %tem, label %pronto, label %lenta\n\
+pronto:\n\
+  ret ptr %p\n\
+lenta:\n\
+  %q = call ptr @dartforge_area_de_globais_id(ptr @df.area, ptr @df.area_id)\n\
+  ret ptr %q\n\
+}\n";
+
 const CAIXA_DE_INT: &str = "define internal i64 @df.caixa_int(i64 %v) alwaysinline {\n\
   %a = add i64 %v, 4611686018427387904\n\
   %ok = icmp ult i64 %a, -9223372036854775808\n\
