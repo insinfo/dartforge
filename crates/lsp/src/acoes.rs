@@ -19,8 +19,7 @@
 //! não oferece; nenhuma é inventada.
 
 use crate::consulta::Consulta;
-use crate::projeto::{arquivos_do_projeto, eh_parte, raiz_do_projeto};
-use crate::semantica::AnalisadorSemantico;
+use crate::projeto::{Projeto, arquivos_do_projeto, eh_parte, raiz_do_projeto};
 use crate::{DocumentStore, Edicao};
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::sdk::SdkLayout;
@@ -311,9 +310,11 @@ fn tipo_param(ast: &ast::Ast, n: &ast::Name) -> bool {
         .any(|f| dentro(f.span) && tem(&f.type_params))
 }
 
-/// Ações de importar biblioteca para os nomes indefinidos em `inicio..fim`.
+/// Ações de importar biblioteca para os nomes indefinidos em `inicio..fim`,
+/// sobre a biblioteca do documento já carregada (`projeto`, da sessão).
 pub(crate) fn importar(
-    semantico: &mut AnalisadorSemantico,
+    projeto: &Projeto,
+    indice: &IndiceSdk,
     documentos: &DocumentStore,
     uri: &str,
     inicio: usize,
@@ -322,12 +323,12 @@ pub(crate) fn importar(
     let Some(texto) = documentos.get(uri) else {
         return Vec::new();
     };
-    let Some((programa, nomes, unidade)) = semantico.carregar(uri, texto, Some(documentos)) else {
+    let Some(unidade) = projeto.unidade_do_uri(uri) else {
         return Vec::new();
     };
-    let lib = programa.unit(unidade).library;
-    let consulta = Consulta::inferir(programa, nomes, &[lib], false, None);
-    let faltando = indefinidos(&consulta, unidade, inicio, fim);
+    let consulta = &projeto.consulta;
+    let lib = consulta.programa.unit(unidade).library;
+    let faltando = indefinidos(consulta, unidade, inicio, fim);
     if faltando.is_empty() {
         return Vec::new();
     }
@@ -348,7 +349,6 @@ pub(crate) fn importar(
     let mut saida = Vec::new();
 
     // SDK.
-    let indice = semantico.indice_sdk();
     let mut do_sdk: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for nome in &faltando {
         for l in indice.get(nome).into_iter().flatten() {

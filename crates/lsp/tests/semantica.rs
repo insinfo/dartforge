@@ -64,12 +64,17 @@ fn importado_usa_tipos_e_texto_vigente_sem_reter_versoes() {
     for id in 10..20 {
         assert_ne!(requisitar(&mut servidor, id, "textDocument/hover", &uri, 10), Value::Null);
     }
+    // A análise tipada dos 25 abertos roda em segundo plano: a medição
+    // começa e termina com ela ociosa, para contar só o que as consultas
+    // retêm (a sessão semântica já está montada pelas 10 anteriores).
+    servidor.aguardar_diagnosticos(std::time::Duration::from_secs(120));
     let vivos_antes = dartforge_instrument::live_bytes();
     let inicio = Instant::now();
     for id in 20..60 {
         assert_ne!(requisitar(&mut servidor, id, "textDocument/hover", &uri, 10), Value::Null);
     }
     let latencia_media = inicio.elapsed() / 40;
+    servidor.aguardar_diagnosticos(std::time::Duration::from_secs(120));
     let crescimento = dartforge_instrument::live_bytes().saturating_sub(vivos_antes);
     println!("LSP semântico: 25 buffers (~384 KiB extra), 40 hovers, média {latencia_media:?}, crescimento vivo {crescimento} bytes");
     assert!(crescimento < 256 * 1024, "consultas retiveram {crescimento} bytes");

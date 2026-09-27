@@ -24,6 +24,7 @@ mod navegacao;
 mod projeto;
 mod renomear;
 mod semantica;
+mod sessao;
 mod simbolos;
 mod tipado;
 pub mod transporte;
@@ -39,6 +40,7 @@ pub use completar::{Completar, ItemCompletar};
 pub use renomear::{Edicao, RenomearArquivo, Renomeacao};
 
 pub use acoes::AcaoDeCodigo;
+pub use sessao::EstatisticasSessao;
 
 
 /// Posição LSP: linha e coluna em **unidades UTF-16** (ambas a partir de 0).
@@ -380,6 +382,10 @@ pub trait Analisador {
 
     /// Descarta estado associado ao documento quando ele sai do editor.
     fn documento_fechado(&mut self, _uri: &str) {}
+
+    /// O texto de `uri` mudou (`didOpen` ou `didChange` aceito): o que o
+    /// analisador retém de consultas anteriores deixa de valer e cai aqui.
+    fn documento_alterado(&mut self, _uri: &str) {}
 
     /// O `lib/` do SDK com que o servidor roda, em segundo plano, a análise
     /// tipada do `dartforge analyze` sobre os documentos abertos

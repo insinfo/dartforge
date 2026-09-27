@@ -241,10 +241,12 @@ abertos descrita acima.
 As três capacidades abaixo leem tipos e resoluções da **inferência comum**
 de `crates/types` (`BodyInferrer`, tabelas `BodyTypes`: `get_type`,
 `get_resolved`), nunca de uma inferência paralela no LSP. Cada requisição
-monta uma `Consulta` transitória (`crates/lsp/src/consulta.rs`): programa
-carregado com os textos vigentes dos documentos abertos (os demais arquivos
-vêm do disco), outline, tabela de tipos e corpos inferidos só das bibliotecas
-necessárias; tudo é descartado ao responder. Um arquivo `part of` entra
+usa uma `Consulta` (`crates/lsp/src/consulta.rs`): programa carregado com os
+textos vigentes dos documentos abertos (os demais arquivos vêm do disco),
+outline, tabela de tipos e corpos inferidos só das bibliotecas necessárias.
+A do completar (texto com sentinela) é descartada ao responder; a de
+definição, hover, referências, renomear e ações fica na sessão limitada
+descrita abaixo. Um arquivo `part of` entra
 pela biblioteca dona (URI escrita, ou o arquivo do projeto que declara o
 `part` na forma `part of nome;`), o que vale também para `definition` e
 `hover` semânticos; parte que a dona não declara entra sozinha. Dois ganchos da inferência,
@@ -257,6 +259,50 @@ sintáticas. Custo medido (binário release, projeto pequeno com o SDK 3.6.2
 real, processo novo por medida): completar ~70–100 ms, renomear ~70–100 ms,
 ação de importar ~135 ms na primeira vez (inclui o índice de nomes do SDK);
 o tempo é dominado pela carga das bibliotecas `dart:`.
+
+### Sessão semântica limitada
+
+`crates/lsp/src/sessao.rs` guarda **um** programa carregado (com outline,
+tipos e corpos) e o reaproveita nas consultas seguintes enquanto nada do
+que ele leu mudou: `hover` e `definition` (escopo da biblioteca),
+`references`, `prepareRename` e `rename` (projeto inteiro, que também serve a
+uma consulta de biblioteca do mesmo projeto) e as ações. A política de
+memória é explícita:
+
+* no máximo uma entrada (não há cache por arquivo nem por versão);
+* `didOpen`, `didChange` e `didClose` descartam a entrada na hora (o `drop`
+  acontece no despacho da notificação) — nenhuma árvore de versão velha
+  fica presa;
+* antes de reaproveitar, a chave é conferida: versão e tamanho de cada
+  documento aberto, data e tamanho de cada arquivo lido do disco (SDK
+  incluído) e a lista de `.dart` do projeto (arquivo novo pode satisfazer um
+  import); disco alterado por outra ferramenta recarrega;
+* só retém programa cuja fonte somada cabe no orçamento
+  `DARTFORGE_LSP_SESSAO_MIB` (MiB de fonte; padrão 8; `0` desliga). Acima
+  dele, o programa vale só para a consulta e cai com a resposta.
+
+Medida (2026-09-27, Linux, release, SDK 3.6.2 real; `cargo run --release -p
+dartforge-lsp --example sessao_semantica -- <arquivo> 20`: 20 posições de
+identificador com `hover` + `definition`, 3 `references`, uma edição e a
+primeira consulta depois dela; latência e memória viva do alocador
+contador, juntas):
+
+| Arquivo (pub-cache) | Modo | hover (mediana; máx) | definition | references | 1ª após edição | fonte retida | vivo retido | vivo após edição | cargas / reusos |
+|---|---|---|---|---|---|---|---|---|---|
+| `args-2.7.0/lib/src/arg_parser.dart` (15 KB) | sem sessão | 81,6; 102,6 ms | 72,6 ms | 73,0 ms | 124,1 ms | 0 | 0 | 0 | 44 / 0 |
+| | com sessão | 0,3; 97,9 ms | 0,5 ms | 0,4 ms | 82,2 ms | 2,5 MiB | 21,1 MiB | 0,0 MiB | 3 / 41 |
+| `collection-1.19.1/lib/src/iterable_extensions.dart` (32 KB) | sem sessão | 58,1; 80,3 ms | 57,5 ms | 120,1 ms | 69,2 ms | 0 | 0 | 0 | 44 / 0 |
+| | com sessão | 0,9; 87,8 ms | 1,5 ms | 0,7 ms | 112,0 ms | 2,7 MiB | 25,9 MiB | 0,0 MiB | 3 / 41 |
+
+Leitura: a sessão troca ~60–120 ms por consulta por ~1 ms enquanto o texto
+não muda, ao custo de ~8–10× a fonte carregada em memória viva **enquanto**
+a versão vale (o orçamento padrão de 8 MiB de fonte limita isso a algumas
+dezenas de MiB); a primeira consulta depois de uma edição paga a carga
+inteira de novo, e o vivo volta à base (0,0 MiB) a cada edição. Os três
+"máximos" altos são as três cargas (biblioteca, projeto, após a edição).
+Testes: `cargo test -p dartforge-lsp --test sessao --test sessao_memoria
+--locked` (reuso, invalidação por edição, por arquivo alterado e por
+arquivo novo, orçamento zero; retenção e volta à base em 20 edições).
 
 `textDocument/completion` (`triggerCharacters: ["."]`). O ponto de
 digitação quase nunca analisa (`a.` sem nome, `a.ca` sem `;`), e o parser

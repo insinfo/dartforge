@@ -253,6 +253,11 @@ impl<A: Analisador> Servidor<A> {
         self.codigo
     }
 
+    /// O analisador (medição e testes: estatísticas da sessão semântica).
+    pub fn analisador(&self) -> &A {
+        &self.analisador
+    }
+
     /// Documentos abertos retidos (uso em testes e medição).
     pub fn documentos_abertos(&self) -> usize {
         self.documentos.len()
@@ -346,6 +351,7 @@ impl<A: Analisador> Servidor<A> {
                 }
                 self.documentos
                     .open(uri.to_string(), versao, texto.to_string());
+                self.analisador.documento_alterado(uri);
                 self.pedir_tipado(uri);
                 Some(self.publicar(uri))
             }
@@ -358,6 +364,7 @@ impl<A: Analisador> Servidor<A> {
                 if !self.documentos.apply(uri, versao, &mudancas) {
                     return None;
                 }
+                self.analisador.documento_alterado(uri);
                 self.pedir_tipado(uri);
                 Some(self.publicar(uri))
             }

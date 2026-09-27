@@ -123,7 +123,7 @@ fn referencias_em(fonte: &str, span: Span) -> Vec<Vec<(Span, String)>> {
     let mut em_cerca = false;
     let mut em_codigo = false;
     while i < span.end {
-        if fonte[i..span.end].starts_with("```") {
+        if b[i..span.end].starts_with(b"```") {
             em_cerca = !em_cerca;
             i += 3;
             continue;
@@ -254,6 +254,19 @@ mod testes {
         // Link Markdown não é referência.
         let cs = comentarios("/// [texto](http://x) e [ref][r].\nvar x;\n");
         assert!(cs[0].referencias.is_empty());
+    }
+
+    #[test]
+    fn texto_com_caracteres_de_varios_bytes() {
+        // Bandeiras e acentos (vários bytes) antes e depois das referências.
+        let fonte = "/// Região 🇵🇹 usa [ação] e `código 🇧🇷` [b].\nvar b;\n";
+        let cs = comentarios(fonte);
+        let refs: Vec<&str> = cs[0].referencias.iter().map(|r| r[0].1.as_str()).collect();
+        assert_eq!(refs, vec!["b"]);
+        assert_eq!(
+            documentacao(fonte, fonte.find("var").unwrap()).as_deref(),
+            Some("Região 🇵🇹 usa [ação] e `código 🇧🇷` [b].")
+        );
     }
 
     #[test]

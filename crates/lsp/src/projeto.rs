@@ -30,6 +30,7 @@ use dartforge_elements::model::{
     ClassId, Element, ExtensionId, FunctionElementId, FunctionKind, FunctionRef, LibraryId,
     Program, UnitId, VariableId, VariableRef,
 };
+use dartforge_elements::sdk::SdkLayout;
 use dartforge_frontend::ast::{self, Ast, DeclKind, ExprKind, MemberKind, Parameter, StmtKind};
 use dartforge_intern::SymbolId;
 use dartforge_types::{MemberRef, Resolved};
@@ -172,11 +173,10 @@ pub(crate) fn arquivo_da_uri(uri: &str) -> Option<PathBuf> {
 /// entradas de uma só carga), com os documentos abertos nos textos vigentes,
 /// e infere os corpos das bibliotecas do projeto com o registro de locais.
 pub(crate) fn carregar_projeto(
-    semantico: &AnalisadorSemantico,
+    sdk: &SdkLayout,
     documentos: &DocumentStore,
     uri: &str,
 ) -> Option<Projeto> {
-    let sdk = semantico.sdk()?;
     let arquivo = arquivo_da_uri(uri)?;
     let raiz = raiz_do_projeto(&arquivo);
     let gerador = AnalisadorSemantico::abertos(documentos);
@@ -246,13 +246,13 @@ pub(crate) fn carregar_projeto(
 /// Carrega só a biblioteca de `uri` (e o que ela importa), inferindo os
 /// corpos dela: basta para definição e hover, que olham um arquivo.
 pub(crate) fn carregar_biblioteca(
-    semantico: &AnalisadorSemantico,
+    sdk: &SdkLayout,
     documentos: &DocumentStore,
     uri: &str,
 ) -> Option<Projeto> {
     let texto = documentos.get(uri)?;
     let arquivo = arquivo_da_uri(uri)?;
-    let (programa, nomes, unidade) = semantico.carregar(uri, texto, Some(documentos))?;
+    let (programa, nomes, unidade) = crate::semantica::carregar(sdk, uri, texto, Some(documentos))?;
     let lib = programa.unit(unidade).library;
     let consulta = Consulta::inferir(programa, nomes, &[lib], true, None);
     Some(Projeto {
