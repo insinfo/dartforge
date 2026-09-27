@@ -363,19 +363,21 @@ pub trait Analisador {
         Err("Renomear exige a análise semântica (SDK do Dart).".into())
     }
 
-    /// `codeAction`: correções para o intervalo `inicio..fim` (bytes) do
-    /// documento aberto. O padrão oferece as correções dos diagnósticos
+    /// `codeAction`: correções e assistências para o intervalo `inicio..fim`
+    /// (bytes) do documento aberto. `publicados` são os diagnósticos tipados
+    /// já publicados para a versão vigente (o servidor não passa os de uma
+    /// versão velha). O padrão oferece as correções dos diagnósticos
     /// sintáticos (inserir `;`).
     ///
     /// ```
     /// use dartforge_lsp::{Analisador, AnalisadorSintatico, DocumentStore};
     /// let mut docs = DocumentStore::new();
     /// docs.open("file:///a.dart".into(), 1, "void f() { var x = 1 }".into());
-    /// let acoes = AnalisadorSintatico::new().acoes(&docs, "file:///a.dart", 19, 19);
+    /// let acoes = AnalisadorSintatico::new().acoes(&docs, "file:///a.dart", 19, 19, &[]);
     /// assert_eq!(acoes[0].titulo, "Insert ';'");
     /// assert_eq!(acoes[0].edicoes[0].texto, ";");
     /// ```
-    fn acoes(&mut self, documentos: &DocumentStore, uri: &str, inicio: usize, fim: usize) -> Vec<AcaoDeCodigo> {
+    fn acoes(&mut self, documentos: &DocumentStore, uri: &str, inicio: usize, fim: usize, _publicados: &[Diagnostic]) -> Vec<AcaoDeCodigo> {
         let Some(texto) = documentos.get(uri) else { return Vec::new() };
         let diagnosticos = self.diagnosticar(uri, texto);
         acoes::corrigir_sintaxe(uri, &diagnosticos, inicio, fim)

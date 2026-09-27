@@ -437,8 +437,15 @@ arquivo no disco. Uso dentro de um comando que não analisa não é visto (a
 recuperação do parser o descarta). Teste: `cargo test -p dartforge-lsp
 --test renomear --locked`.
 
-`textDocument/codeAction` (`codeActionKinds: ["quickfix"]`, honra
-`context.only`):
+`textDocument/codeAction` (`codeActionKinds: ["quickfix", "refactor"]`,
+honra `context.only`). As correções respondem aos diagnósticos **publicados**
+da versão vigente: os imediatos (recalculados no pedido) e os tipados que o
+fluxo contínuo publicou para essa versão — o servidor guarda a última
+publicação tipada de cada documento aberto (substituída a cada publicação,
+removida no `didClose`) e não a usa se a versão mudou. As edições saem em
+`documentChanges` com a versão do documento quando o cliente anuncia
+`workspace.workspaceEdit.documentChanges`, senão em `changes`; cada ação de
+correção leva o diagnóstico que corrige.
 
 * `Insert ';'` (`quickfix.insertSemicolon`) para o `expected_token`
   "Expected to find ';'." publicado, inserindo no fim do intervalo do
@@ -453,14 +460,35 @@ recuperação do parser o descarta). Teste: `cargo test -p dartforge-lsp
   o arquivo está fora de `lib/` e o alvo dentro. A diretiva entra na ordem
   (`dart:`, `package:`, relativas), depois de `library`, ou no topo.
 
+* Correções dos códigos semânticos publicados, com os títulos e espécies do
+  servidor do Dart 3.6.2 (títulos e ids conferidos no
+  `analysis_server.dart.snapshot` do SDK):
+
+  | Código publicado | Ação | Espécie |
+  | --- | --- | --- |
+  | `unused_local_variable` | `Remove unused local variable` (a declaração, ou só a variável numa lista, e os comandos que só atribuem a ela) | `quickfix.remove.unusedLocalVariable` |
+  | `unused_element` (função local) | `Remove unused element` | `quickfix.remove.unusedElement` |
+  | `unnecessary_cast` | `Remove unnecessary cast` (e o parêntese que sobraria em volta de uma primária) | `quickfix.remove.unnecessaryCast` |
+  | `unnecessary_non_null_assertion` | `Remove the '!'` | `quickfix.remove.nonNullAssertion` |
+  | `invalid_null_aware_operator` | `Replace with '.'` / `Replace with '['` | `quickfix.replace.withNotNullAware` |
+  | `instance_access_to_static_member` | `Change access to static using 'C'` (`p.C` se a classe é vista por prefixo) | `quickfix.change.toStaticAccess` |
+  | `record_literal_one_positional_no_trailing_comma` | `Add trailing comma` | `quickfix.add.trailingComma` |
+
+  Cada edição é conferida contra a árvore do texto vigente: diagnóstico que
+  não corresponde ao nó esperado não gera ação.
+* Assistência `Add type annotation` (`refactor.add.typeAnnotation`) num
+  local `var x = e;` ou `final x = e;` (cursor na palavra-chave ou no nome),
+  com o tipo da inferência comum; não quando o tipo é `dynamic` nem quando
+  algum nome do tipo não é visível na biblioteca (a anotação não
+  compilaria).
+
 Dos códigos semânticos publicados (`crates/analise/verificados.txt`), os
 três de enum (`enum_constant_same_name_as_enclosing`, `enum_with_name_values`,
 `values_declaration_in_enum`) não têm correção rápida no `dart
-language-server` 3.6.2 (conferido), e este servidor também não. A lista
-cresceu para 50 códigos em 2026-09-26 (entre eles `unused_local_variable` e
-`unused_element`, que o LSP calcula sem tipos); as correções que o servidor
-oficial oferece para eles ainda não existem aqui. Teste:
-`cargo test -p dartforge-lsp --test acoes --locked`.
+language-server` 3.6.2 (conferido), e este servidor também não. Teste:
+`cargo test -p dartforge-lsp --test acoes --locked` (inclui os negativos:
+fora do intervalo, variável usada, publicação tipada de versão velha,
+`dynamic`, cursor no inicializador, `context.only`).
 
 Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
 `exit` (0 após `shutdown`, 1 sem), `$/cancelRequest`,
@@ -469,13 +497,15 @@ Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
 `version`), `textDocument/documentSymbol`, `workspace/symbol`,
 `textDocument/definition`, `textDocument/references`, `textDocument/hover`,
 `textDocument/completion`, `textDocument/prepareRename`,
-`textDocument/rename`, `textDocument/codeAction`, `dartforge/dormir`
+`textDocument/rename`, `textDocument/codeAction`, `completionItem/resolve`,
+`dartforge/dormir`
 (gancho de teste do cancelamento em execução; clientes reais nunca enviam).
 
 Pendentes no completar: a relevância não pondera pelo tipo esperado nem
-pelo uso (o Dart usa as duas coisas). Nas ações: as demais correções e
-assistências do Dart (criar classe, remover variável não usada…), que
-dependem de diagnósticos ainda não publicados.
+pelo uso (o Dart usa as duas coisas). Nas ações: as correções de códigos
+que ainda não são publicados (criar classe ou método para nome indefinido,
+remover import não usado…) esperam a publicação deles; das assistências do
+Dart, só a anotação de tipo de local existe.
 
 Explicitamente fora deste brief: formatação e `diagnosticProvider` por
 requisição (o servidor empurra diagnósticos; não atende pull). Os

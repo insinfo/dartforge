@@ -284,9 +284,15 @@ impl Analisador for AnalisadorSemantico {
         crate::renomear::renomear(&projeto, uri, offset, novo)
     }
 
-    fn acoes(&mut self, documentos: &DocumentStore, uri: &str, inicio: usize, fim: usize) -> Vec<crate::AcaoDeCodigo> {
+    fn acoes(&mut self, documentos: &DocumentStore, uri: &str, inicio: usize, fim: usize, publicados: &[Diagnostic]) -> Vec<crate::AcaoDeCodigo> {
         let Some(texto) = documentos.get(uri) else { return Vec::new() };
-        let diagnosticos = self.diagnosticar(uri, texto);
+        // Os imediatos da versão vigente e os tipados já publicados para ela.
+        let mut diagnosticos = self.diagnosticar(uri, texto);
+        for d in publicados {
+            if !diagnosticos.iter().any(|x| x.code == d.code && x.span == d.span) {
+                diagnosticos.push(d.clone());
+            }
+        }
         let mut saida = crate::acoes::corrigir_sintaxe(uri, &diagnosticos, inicio, fim);
         if self.sdk.is_none() {
             return saida;
@@ -297,7 +303,9 @@ impl Analisador for AnalisadorSemantico {
         if let Some(projeto) = sessao.obter(crate::sessao::Escopo::Biblioteca(arquivo), documentos, || {
             crate::projeto::carregar_biblioteca(sdk, documentos, uri)
         }) {
+            saida.extend(crate::acoes::corrigir_publicados(&projeto, uri, &diagnosticos, inicio, fim));
             saida.extend(crate::acoes::importar(&projeto, indice, indice_projeto, documentos, uri, inicio, fim));
+            saida.extend(crate::acoes::assistencias(&projeto, uri, inicio, fim));
         }
         saida
     }

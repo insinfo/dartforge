@@ -122,6 +122,10 @@ pub struct Servidor<A = AnalisadorSintatico> {
     despertar: Option<crate::tipado::Despertar>,
     /// Resultados tipados descartados por versão velha ou documento fechado.
     tipados_descartados: usize,
+    /// A última publicação tipada de cada documento aberto, com a versão:
+    /// as ações de código corrigem o que o editor mostra. Uma entrada por
+    /// documento, substituída a cada publicação e removida no `didClose`.
+    tipados_publicados: HashMap<String, (i32, Vec<dartforge_diagnostics::Diagnostic>)>,
 }
 
 impl Servidor<AnalisadorSintatico> {
@@ -161,6 +165,7 @@ impl<A: Analisador> Servidor<A> {
             tipado_tentado: false,
             despertar: None,
             tipados_descartados: 0,
+            tipados_publicados: HashMap::new(),
         }
     }
 
@@ -235,6 +240,7 @@ impl<A: Analisador> Servidor<A> {
                 continue;
             }
             saidas.push(self.publicacao(&r.uri, &r.diagnosticos));
+            self.tipados_publicados.insert(r.uri, (r.versao, r.diagnosticos));
         }
         saidas
     }
@@ -380,6 +386,7 @@ impl<A: Analisador> Servidor<A> {
                 let params = mensagem.get("params")?;
                 let uri = params.get("textDocument")?.get("uri")?.as_str()?;
                 if self.documentos.close(uri) {
+                    self.tipados_publicados.remove(uri);
                     self.analisador.documento_fechado(uri);
                     if let Some(t) = &self.tipado {
                         t.fechado(uri);
@@ -448,7 +455,7 @@ impl<A: Analisador> Servidor<A> {
                         "referencesProvider": true,
                         "hoverProvider": true,
                         "renameProvider": renomear,
-                        "codeActionProvider": {"codeActionKinds": ["quickfix"]},
+                        "codeActionProvider": {"codeActionKinds": ["quickfix", "refactor"]},
                         "completionProvider": {
                             "triggerCharacters": ["."],
                             "resolveProvider": true,
@@ -678,7 +685,13 @@ impl<A: Analisador> Servidor<A> {
                     .and_then(|p| p.pointer("/context/only"))
                     .and_then(Value::as_array)
                     .map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect());
-                let acoes = self.analisador.acoes(&self.documentos, &u, inicio, fim);
+                // Só os tipados publicados para a versão vigente.
+                let vazio = Vec::new();
+                let publicados = match self.tipados_publicados.get(&u) {
+                    Some((v, d)) if Some(*v) == self.documentos.version(&u) => d,
+                    _ => &vazio,
+                };
+                let acoes = self.analisador.acoes(&self.documentos, &u, inicio, fim, publicados);
                 let mut saida = Vec::new();
                 for acao in acoes {
                     let permitida = apenas.as_ref().is_none_or(|l| {
@@ -687,15 +700,8 @@ impl<A: Analisador> Servidor<A> {
                     if !permitida {
                         continue;
                     }
-                    let mut mudancas = serde_json::Map::new();
-                    for e in &acao.edicoes {
-                        let Some(range) = self.faixa(&e.uri, e.span) else { continue };
-                        let lista = mudancas.entry(e.uri.clone()).or_insert_with(|| json!([]));
-                        if let Value::Array(itens) = lista {
-                            itens.push(json!({"range": range, "newText": e.texto}));
-                        }
-                    }
-                    let mut valor = json!({"title": acao.titulo, "kind": acao.especie, "edit": {"changes": mudancas}});
+                    let edicao = self.edicao_de_workspace(&acao.edicoes, None);
+                    let mut valor = json!({"title": acao.titulo, "kind": acao.especie, "edit": edicao});
                     if let (Some(d), Some(texto), Some(tabela)) =
                         (&acao.diagnostico, self.documentos.get(&u), self.documentos.linhas(&u))
                     {
