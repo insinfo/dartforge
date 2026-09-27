@@ -45,7 +45,7 @@ enum Ultimo {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Espaco {
     Nenhum,
-    Espaco,
+    Simples,
     Quebra,
 }
 
@@ -68,7 +68,7 @@ pub fn compactar(src: &str) -> String {
         let c = b[i];
         // Espaço e quebras.
         if c == b' ' || c == b'\t' || c == b'\n' || c == b'\r' || c == 0x0b || c == 0x0c {
-            let q = if c == b'\n' || c == b'\r' { Espaco::Quebra } else { Espaco::Espaco };
+            let q = if c == b'\n' || c == b'\r' { Espaco::Quebra } else { Espaco::Simples };
             pendente = pendente.max(q);
             i += 1;
             continue;
@@ -78,13 +78,13 @@ pub fn compactar(src: &str) -> String {
             while i < b.len() && b[i] != b'\n' && b[i] != b'\r' {
                 i += 1;
             }
-            pendente = pendente.max(Espaco::Espaco);
+            pendente = pendente.max(Espaco::Simples);
             continue;
         }
         if c == b'/' && b.get(i + 1) == Some(&b'*') {
             let fim = src[i + 2..].find("*/").map(|k| i + 2 + k + 2).unwrap_or(b.len());
             let com_quebra = b[i..fim].iter().any(|&x| x == b'\n' || x == b'\r');
-            pendente = pendente.max(if com_quebra { Espaco::Quebra } else { Espaco::Espaco });
+            pendente = pendente.max(if com_quebra { Espaco::Quebra } else { Espaco::Simples });
             i = fim;
             continue;
         }
@@ -111,7 +111,7 @@ pub fn compactar(src: &str) -> String {
         };
         match pendente {
             Espaco::Quebra if !out.is_empty() => out.push(b'\n'),
-            Espaco::Espaco if precisa_de_espaco(ultimo, out.last().copied(), b[i]) => out.push(b' '),
+            Espaco::Simples if precisa_de_espaco(ultimo, out.last().copied(), b[i]) => out.push(b' '),
             _ => {}
         }
         out.extend_from_slice(&b[i..fim]);
@@ -163,9 +163,9 @@ fn fim_de_numero(b: &[u8], mut i: usize) -> usize {
     let hex = b.get(i) == Some(&b'0') && matches!(b.get(i + 1), Some(b'x' | b'X'));
     while i < b.len() {
         let c = b[i];
-        if c.is_ascii_alphanumeric() || c == b'_' || c == b'.' {
-            i += 1;
-        } else if (c == b'+' || c == b'-') && !hex && i > 0 && matches!(b[i - 1], b'e' | b'E') {
+        // O sinal só é do número logo depois do expoente (`1e-5`).
+        let sinal_de_expoente = (c == b'+' || c == b'-') && !hex && i > 0 && matches!(b[i - 1], b'e' | b'E');
+        if c.is_ascii_alphanumeric() || c == b'_' || c == b'.' || sinal_de_expoente {
             i += 1;
         } else {
             break;

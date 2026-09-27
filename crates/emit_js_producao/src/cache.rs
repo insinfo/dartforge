@@ -168,16 +168,16 @@ fn descartar_antigos(dir: &Path, manter: &Path) {
 /// O índice de `texto`: do cache em `dir` quando há um válido, senão
 /// construído (e gravado). `dir` `None` desliga o cache.
 pub fn obter_em(dir: Option<&Path>, texto: &str, por_membro: bool) -> (IndiceSdk, Origem) {
-    if let Some(d) = dir {
-        if let Some(i) = ler(&caminho(d, texto, por_membro), texto, por_membro) {
-            return (i, Origem::Cache);
-        }
+    if let Some(d) = dir
+        && let Some(i) = ler(&caminho(d, texto, por_membro), texto, por_membro)
+    {
+        return (i, Origem::Cache);
     }
     let indice = indexar(texto, por_membro);
-    if let Some(d) = dir {
-        if let Err(e) = gravar(d, texto, por_membro, &indice) {
-            eprintln!("aviso: cache do índice do runtime: {e}");
-        }
+    if let Some(d) = dir
+        && let Err(e) = gravar(d, texto, por_membro, &indice)
+    {
+        eprintln!("aviso: cache do índice do runtime: {e}");
     }
     (indice, Origem::Construido)
 }

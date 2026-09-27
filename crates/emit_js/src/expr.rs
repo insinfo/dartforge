@@ -278,7 +278,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// de tipo livre nele está em escopo nesta emissão (da classe
     /// envolvente ou de uma função envolvente), isto é, quando a receita rti
     /// consegue achá-lo no ambiente. Parâmetros de funções genéricas locais
-    /// (o emissor lhes dá ids próprios, [`Ctx::fresh_param`]) são traduzidos
+    /// (o emissor lhes dá ids próprios, [`crate::ctx::Ctx::fresh_param`]) são traduzidos
     /// pelo mapa [`FnEmitter::params_comuns`]; o que sobrar fora de escopo (o
     /// desconhecido `_`, parâmetro de outra função) faz a conversão falhar,
     /// e quem chama fica com a dedução própria.
@@ -301,7 +301,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// nem o troca por outro não relacionado; nó que a inferência comum não
     /// visitou tem `dynamic` e fica como está. O alvo de atribuição composta
     /// e de `++`/`--` não tem tipo comum próprio
-    /// ([`Ctx::e_alvo_de_escrita`]).
+    /// ([`crate::ctx::Ctx::e_alvo_de_escrita`]).
     fn refinar_pelo_comum(&self, e: ExprId, ty: Ty) -> Ty {
         if e.0 == u32::MAX || self.ctx.e_alvo_de_escrita(self.unit, e) {
             return ty;
