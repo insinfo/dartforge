@@ -559,17 +559,80 @@ Uma geração é descarregada (o `ResourceTracker` dela removido) na fase
   para as da geração nova antes da troca;
 * **nenhuma entrada estável** a implementa: uma função que sumiu do código
   novo continua chamando o corpo antigo (um tear-off antigo a alcança), e a
-  geração dela fica até outra voltar a implementá-la.
+  geração dela fica até outra voltar a implementá-la; o mesmo vale para a
+  função que a recarga **manteve** porque o código não mudou (J04, abaixo).
 
-A memória de código fica na geração publicada mais as das funções sumidas, e
-não cresce com o número de recargas: `HotReloadReport::retained_generations`
+A memória de código fica na geração publicada mais as que ainda implementam
+alguma entrada (funções sumidas ou mantidas), e não cresce com o número de
+recargas — no máximo uma geração por versão viva de alguma função: `HotReloadReport::retained_generations`
 relata quantas ficaram, e `retire` o tempo do descarregamento
 (`tests/hot_reload.rs`: `cinco_recargas_preservam_entrada_estavel` fica em 1;
-`geracao_de_funcao_que_sumiu_fica_retida`). Uma geração que falhou antes de
+`geracao_de_funcao_que_sumiu_fica_retida`;
+`funcao_que_nao_mudou_fica_na_implementacao_viva`). Uma geração que falhou antes de
 ser publicada também é removida: nenhum endereço dela chegou a nenhuma célula.
 
 *Histórico (até 2026-09-27):* nenhuma geração era liberada antes do fim da
 sessão; o custo era linear no número de recargas.
+
+### Recarga proporcional à edição (J04)
+
+O emissor escreve o programa inteiro a cada edição, mas a geração nova
+**compila só as funções que mudaram** (`crates/jit/src/delta.rs`). Como toda
+chamada entre funções do programa passa pela entrada estável, uma função
+cujo código é o da implementação publicada pode continuar nela: o IR que vai
+para a análise e a ligação a traz como `declare`, e o trampolim dela continua
+apontando para a implementação viva.
+
+* **O mesmo código** é textual e conservador: a impressão digital de uma
+  função é o texto dela mais o de tudo o que ela alcança de local à geração
+  (funções `internal`/`private` e globais, transitivamente); uma função do
+  programa alcançada entra só pelo nome, porque a chamada vai ao trampolim.
+  O contexto que o texto não carrega é estável por construção: ids de classe
+  (J03), deslocamentos de campo (no texto), o runtime e os índices da área de
+  globais.
+* **A área de globais** só cresce entre gerações, e os caches dos pontos de
+  chamada por seletor moram nela com um nome por ponto de chamada (função e
+  posição), no mesmo índice enquanto a função existir. A publicação zera
+  todos os caches (`esvaziar_caches_das_areas`), depois de refazer as
+  tabelas de métodos: o próximo uso de cada um busca a entrada vigente — do
+  código novo e do que continua de uma geração anterior. O runtime aceita o
+  descritor de área de uma geração anterior como prefixo do layout vigente e
+  devolve a mesma área, então o `df.obter_area` de uma função mantida lê os
+  mesmos estáticos. O descritor e o id da área (`@df.area`, `@df.area_id`)
+  são infraestrutura da geração e não entram na impressão digital.
+* **É compilada de novo** a função que alcança uma global mutável do módulo,
+  a que chama uma função do programa cuja assinatura no IR novo não é a da
+  entrada publicada (J03: o nome passa a ser outra entrada), as funções de
+  registro (área, tabelas, RTI) e a que não tem implementação publicada com a
+  mesma impressão digital. Os layouts das classes que só as mantidas alocam
+  vêm da geração viva (o texto é o mesmo).
+
+`HotReloadReport::kept` conta as mantidas e `entries` as compiladas;
+`dartforge reload --timings` mostra as duas, e a emissão por fase (front-end,
+HIR, IR). Medição (Linux x86-64, release, 200 classes em 10 bibliotecas com
+um `Timer` que chama todas; 12,2 MB de IR; editar o corpo de um método):
+
+| | antes | com o delta |
+| --- | --- | --- |
+| funções compiladas / mantidas | 4.084 / 0 | 8 / 4.076 |
+| análise do IR | 550 ms | 25–35 ms |
+| ligação em memória | 2.070 ms | 48–57 ms |
+| recarga (sem a emissão) | 2.716 ms | 128–156 ms |
+| emissão (front-end + HIR + IR) | 430 ms | 377–419 ms |
+
+A recarga passou a ser proporcional à edição; a **emissão** ainda não: o
+front-end analisa, baixa e emite o programa inteiro a cada edição (~400 ms
+aqui), e é agora a maior parte do ciclo. Torná-la incremental é trabalho do
+front-end (análise por biblioteca com invalidação pelos dependentes), fora
+deste item. As 8 compiladas são o método editado, as entradas dinâmicas dele
+(`$c`, `$tearm`), a função de topo e o `calcular` que o incluíam por
+*inlining*, e os registros da geração.
+
+Testes: `delta::testes` (a impressão digital, o fecho local, a assinatura
+mudada de quem é chamado, as excluídas) e
+`hot_reload::funcao_que_nao_mudou_fica_na_implementacao_viva` (o chamador
+mantido chega ao corpo novo pelo trampolim; a local mudada recompila quem a
+usa; recarga sem mudança compila nada; a retenção das gerações).
 
 ### Escopo da versão 1 e as mensagens exatas
 

@@ -63,7 +63,7 @@
 //! Uma geração é descarregada na publicação seguinte, quando nenhuma entrada
 //! estável a alcança mais (J02). Ver [`JitSession::hot_reload`].
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::CString;
 use std::sync::atomic::AtomicUsize;
 use std::time::{Duration, Instant};
@@ -121,6 +121,9 @@ pub struct HotReloadReport {
     pub entries: usize,
     /// Entradas estáveis criadas agora, que não existiam antes.
     pub new_entries: usize,
+    /// J04: funções do programa cujo código é o da implementação publicada e
+    /// que por isso esta geração não compilou (continuam nela).
+    pub kept: usize,
     /// Gerações retidas em memória depois desta recarga, incluindo ela: a
     /// publicada e as de funções que sumiram do código novo.
     pub retained_generations: usize,
@@ -174,6 +177,10 @@ pub(crate) struct Reloadable {
     generations: Vec<(u32, ffi::ResourceTracker)>,
     /// Rastreadores dos módulos de trampolim; nunca descarregados.
     stubs: Vec<ffi::ResourceTracker>,
+    /// J04: a impressão digital e a assinatura da implementação publicada de
+    /// cada entrada estável; a geração seguinte declara, em vez de compilar,
+    /// a função cujo código é o mesmo (`crate::delta`).
+    publicadas: HashMap<String, crate::delta::Publicada>,
 }
 
 /// Endereço de uma entrada estável, com a assinatura que a sessão registrou.
@@ -516,8 +523,19 @@ impl JitSession {
         }
 
         // ── Fase 1: preparar, sem tocar no que está executando ──────────────
+        // J04: só o que mudou é compilado. A função cujo código é o da
+        // implementação publicada vira declaração, e as chamadas a ela caem no
+        // trampolim, que continua apontando para a implementação viva; os
+        // registros da geração são sempre dela.
+        let vazias = HashMap::new();
+        let vivas = self.reloadables.iter().find(|m| m.name == name).map_or(&vazias, |m| &m.publicadas);
+        let (ir_da_geracao, mantidas, mut novas) =
+            match crate::delta::delta(ir, vivas, &[PREPARO_DA_AREA, REGISTRO_DO_PROGRAMA, INICIO_DA_RTI]) {
+                Some(d) => (std::borrow::Cow::Owned(d.ir), d.mantidas, d.novas),
+                None => (std::borrow::Cow::Borrowed(ir), Vec::new(), HashMap::new()),
+            };
         let phase = Instant::now();
-        let parsed = ffi::parse_module(name, ir)
+        let parsed = ffi::parse_module(name, &ir_da_geracao)
             .map_err(|detail| JitError::new("parse-ir", "IR inválido", detail))?;
         self.check_target(&parsed)?;
         let parse_ir = phase.elapsed();
@@ -530,6 +548,7 @@ impl JitSession {
         // uma função que sumiu. Renomear a definição leva junto todos os usos
         // dela no módulo novo (tabelas de métodos, closures, chamadas).
         let mut apelidos_novos: Vec<((String, String), String)> = Vec::new();
+        let mut renomeadas: Vec<(String, String)> = Vec::new();
         if let Some(index) = self.reloadables.iter().position(|m| m.name == name) {
             let modulo = &self.reloadables[index];
             let mut renomes = Vec::new();
@@ -565,8 +584,25 @@ impl JitSession {
             if !renomes.is_empty() {
                 signatures = parsed.signatures();
             }
+            renomeadas = renomes;
         }
-        let layouts = parsed.class_layouts();
+        let mut layouts = parsed.class_layouts();
+        // As alocações das funções mantidas não estão no módulo; o texto delas
+        // é o da geração viva, então o layout que alocam é o registrado.
+        if !mantidas.is_empty()
+            && let Some(viva) = self.reloadables.iter().find(|m| m.name == name)
+        {
+            for &(classe, n) in &viva.layouts {
+                if !layouts.iter().any(|&(c, _)| c == classe) {
+                    layouts.push((classe, n));
+                }
+            }
+        }
+        for (de, para) in &renomeadas {
+            if let Some(p) = novas.remove(de) {
+                novas.insert(para.clone(), p);
+            }
+        }
         let class_names = parsed.class_names();
         let campos = crate::migracao::layouts_do_ir(ir);
         let references = parsed.declarations();
@@ -981,6 +1017,7 @@ impl JitSession {
         module.class_names = class_names;
         module.campos = campos;
         module.apelidos.extend(apelidos_novos);
+        module.publicadas.extend(novas);
         module.globals = globals;
         module.generations.push((generation, tracker));
         if let Some(created) = stub_tracker {
@@ -1027,9 +1064,10 @@ impl JitSession {
             retire,
             safepoint_wait,
             total: started.elapsed(),
-            ir_bytes: ir.len(),
+            ir_bytes: ir_da_geracao.len(),
             entries: published.len(),
             new_entries: fresh.len(),
+            kept: mantidas.len(),
             retained_generations: self.retained_generations(),
             promoted,
         })
@@ -1051,6 +1089,7 @@ impl JitSession {
             globals: Vec::new(),
             generations: Vec::new(),
             stubs: Vec::new(),
+            publicadas: HashMap::new(),
         });
         self.reloadables.len() - 1
     }
@@ -1426,6 +1465,7 @@ mod tests {
             globals: Vec::new(),
             generations: Vec::new(),
             stubs: Vec::new(),
+            publicadas: HashMap::new(),
         }];
         let reference = ["df_fn_1".to_owned()];
         let erro = check_references(&reference, &[], &modules, &HashSet::new(), true).unwrap_err();

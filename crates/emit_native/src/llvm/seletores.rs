@@ -63,7 +63,6 @@ impl LlvmEmitter<'_> {
         writeln!(self.out, "  %sat{v} = getelementptr [{n} x i64], ptr %sargs{v}, i64 0, i64 {}", args.len()).unwrap();
         writeln!(self.out, "  store i64 {tupla}, ptr %sat{v}").unwrap();
         let r = self.coagir(recv, Type::Ref);
-        let ic = self.caches_de_seletor;
         let nome = match self.nomes_de_seletor.iter().position(|s| s == seletor) {
             Some(j) => j,
             None => {
@@ -73,7 +72,7 @@ impl LlvmEmitter<'_> {
         };
         self.caches_de_seletor += 1;
         let h = hash_seletor(seletor);
-        let slot = self.slot_do_cache(ic);
+        let slot = self.slot_de_cache();
         writeln!(self.out, "  %sic{v} = getelementptr i64, ptr %area, i64 {slot}").unwrap();
         writeln!(
             self.out,
@@ -188,11 +187,12 @@ impl LlvmEmitter<'_> {
                 self.nomes_de_seletor.len() - 1
             }
         };
-        let ic = self.caches_de_seletor;
         self.caches_de_seletor += 1;
         let k = self.vetor_de[&vec![0, 0]];
         let h = hash_seletor(s);
-        let slot = self.slot_do_cache(ic);
+        self.funcao_atual = "dartforge_dispatch_toString".to_string();
+        self.cache_na_funcao = 0;
+        let slot = self.slot_de_cache();
         writeln!(
             self.out,
             "define i64 @dartforge_dispatch_toString(i64 %obj) {{\nb0:\n  %a = alloca [1 x i64]\n  \

@@ -472,3 +472,54 @@ fn assinatura_mudada_ganha_entrada_nova() {
     assert_eq!(usa.call(&sessao).unwrap(), 1);
     assert_eq!(antiga.call(&sessao).unwrap(), 1);
 }
+
+/// J04: a geração nova compila só o que mudou. Uma função cujo código (texto
+/// e o que ela alcança de local à geração) é o da implementação publicada
+/// fica nela; as chamadas a ela, e as dela, passam pelos trampolins, então o
+/// chamador mantido já chega ao corpo novo do que mudou.
+#[test]
+#[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+fn funcao_que_nao_mudou_fica_na_implementacao_viva() {
+    let ir = |valor: i64, auxiliar: i64| {
+        format!(
+            "define i64 @df_fn_0() {{\n  %r = call i64 @df_fn_1()\n  ret i64 %r\n}}\n\
+             define i64 @df_fn_1() {{\n  ret i64 {valor}\n}}\n\
+             define i64 @df_fn_2() {{\n  %s = call i64 @auxiliar()\n  ret i64 %s\n}}\n\
+             define internal i64 @auxiliar() {{\n  ret i64 {auxiliar}\n}}\n"
+        )
+    };
+    let mut sessao = JitSession::new().expect("sessão");
+    sessao.add_reloadable_module("app", &ir(1, 7)).expect("geração 1");
+    let chamador = sessao.stable_entry("df_fn_0").expect("entrada");
+    let usa_local = sessao.stable_entry("df_fn_2").expect("entrada");
+    assert_eq!(chamador.call(&sessao).unwrap(), 1);
+
+    // Só `df_fn_1` muda: é a única compilada; o chamador mantido chega a ela.
+    let r = sessao.hot_reload("app", &ir(2, 7)).expect("geração 2");
+    assert_eq!((r.entries, r.kept), (1, 2), "{r:?}");
+    assert_eq!(chamador.call(&sessao).unwrap(), 2);
+    assert_eq!(usa_local.call(&sessao).unwrap(), 7);
+    // A geração 1 fica: ainda implementa `df_fn_0` e `df_fn_2`.
+    assert_eq!(r.retained_generations, 2);
+
+    // A função local muda: quem a alcança é compilado de novo.
+    let r = sessao.hot_reload("app", &ir(2, 8)).expect("geração 3");
+    assert_eq!((r.entries, r.kept), (1, 2), "{r:?}");
+    assert_eq!(usa_local.call(&sessao).unwrap(), 8);
+    assert_eq!(chamador.call(&sessao).unwrap(), 2);
+    assert_eq!(r.retained_generations, 3);
+
+    // Nada mudou: nada é compilado, e tudo continua respondendo.
+    let r = sessao.hot_reload("app", &ir(2, 8)).expect("geração 4");
+    assert_eq!((r.entries, r.kept), (0, 3), "{r:?}");
+    assert_eq!(chamador.call(&sessao).unwrap(), 2);
+    assert_eq!(usa_local.call(&sessao).unwrap(), 8);
+    // A 4 não implementa nada; ficam as que implementam alguma entrada.
+    assert_eq!(r.retained_generations, 4);
+
+    // Tudo volta a mudar: as gerações antigas saem.
+    let r = sessao.hot_reload("app", &ir(3, 9).replace("%r = call", "%q = add i64 0, 0\n  %r = call")).expect("geração 5");
+    assert_eq!((r.entries, r.kept), (3, 0), "{r:?}");
+    assert_eq!(chamador.call(&sessao).unwrap(), 3);
+    assert_eq!(r.retained_generations, 1);
+}

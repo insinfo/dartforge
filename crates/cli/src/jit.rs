@@ -533,6 +533,7 @@ fn reload_ao_vivo(
                     }
                 };
                 let emissao = inicio.elapsed();
+                let tempos = ir.tempos;
                 if dartforge_jit::ir_usa_sdk_da_fonte(&ir.texto) != da_fonte {
                     eprintln!("[reload] a edição mudou o perfil de runtime do programa");
                     pedir_reinicio();
@@ -551,10 +552,16 @@ fn reload_ao_vivo(
                         }
                         if timings {
                             eprintln!(
-                                "[reload] geração {}: emissão {:.1} ms; recarga {:.1} ms (análise {:.1}, contrato {:.1}, módulo {:.1}, \
-                                 trampolins {:.1}, ligação {:.1}, publicação {:.1}, espera do ponto seguro {:.1}); gerações retidas {}",
+                                "[reload] geração {}: emissão {:.1} ms (front-end {:.1}, HIR {:.1}, IR {:.1}; {} bytes de IR); \
+                                 recarga {:.1} ms (análise {:.1}, contrato {:.1}, módulo {:.1}, \
+                                 trampolins {:.1}, ligação {:.1}, publicação {:.1}, espera do ponto seguro {:.1}); \
+                                 funções compiladas {}, mantidas {}; gerações retidas {}",
                                 relatorio.generation,
                                 ms(emissao),
+                                ms(tempos.frontend),
+                                ms(tempos.hir),
+                                ms(tempos.llvm_ir),
+                                vivo_ir.len(),
                                 ms(relatorio.total),
                                 ms(relatorio.parse_ir),
                                 ms(relatorio.contract),
@@ -563,6 +570,8 @@ fn reload_ao_vivo(
                                 ms(relatorio.link),
                                 ms(relatorio.publish),
                                 ms(relatorio.safepoint_wait),
+                                relatorio.entries,
+                                relatorio.kept,
                                 relatorio.retained_generations
                             );
                         }

@@ -93,7 +93,9 @@ pub extern "C" fn dartforge_gc_collect() {
 // `async` suspenso, uma closure criada antes) vê os mesmos estáticos que o
 // novo. Um descritor que não estende o layout (um módulo emitido sem o
 // layout anterior) recebe uma área nova, com os valores dos slots que
-// continuam, pelo nome; os caches de seletor (nome 0) recomeçam zerados.
+// continuam, pelo nome; os caches de seletor (nome com `BIT_DE_CACHE`, um
+// par por ponto de chamada, nomeado pela função e pela posição) recomeçam
+// zerados, e toda publicação os zera (`esvaziar_caches_das_areas`).
 //
 // Memória de uma área nunca é liberada enquanto o isolado vive: um quadro
 // pode guardar o endereço dela (o `%area` do começo da função). Crescer
@@ -223,6 +225,14 @@ pub unsafe extern "C" fn dartforge_area_de_globais(descritor: *const i64) -> *mu
                 a.descritores.push(d);
                 return a.slots.as_mut_ptr();
             }
+            // O descritor de uma geração anterior (o layout só cresce): o
+            // código dela que continua em uso — uma função que a recarga
+            // manteve (J04) — só conhece slots que existem com o mesmo nome
+            // no mesmo índice.
+            if nomes.len() < a.nomes.len() && a.nomes[..nomes.len()] == *nomes {
+                a.descritores.push(d);
+                return a.slots.as_mut_ptr();
+            }
             let antiga = areas.remove(i);
             let mut nova = AreaDeGlobais { descritores: vec![d], chave, nomes: nomes.to_vec(), slots: slots_novos(nomes.len()) };
             migrar_area(&antiga, &mut nova);
@@ -260,14 +270,41 @@ fn estender_area(a: &mut AreaDeGlobais, nomes: &[i64]) {
     a.nomes = nomes.to_vec();
 }
 
+/// O bit que marca, no descritor, o nome de um slot de cache de seletor
+/// (`BIT_DE_CACHE` do emissor, `llvm/mod.rs`); 0 é o nome de cache de um
+/// descritor anterior a esta marca.
+const BIT_DE_CACHE: i64 = 1 << 62;
+
+fn e_cache(nome: i64) -> bool {
+    nome == 0 || nome & BIT_DE_CACHE != 0
+}
+
+/// Zera os caches de seletor de todas as áreas deste isolado. A publicação
+/// de uma geração o faz sem quadro Dart na pilha, depois de refazer as
+/// tabelas de métodos: o próximo uso de cada cache busca a entrada na tabela
+/// nova (a regra de visibilidade: chamadas novas, também do código de uma
+/// geração anterior, chegam à implementação nova). Um cache guarda id de
+/// classe e endereço de código, nunca referência do heap.
+pub fn esvaziar_caches_das_areas() {
+    AREAS.with(|areas| {
+        for a in areas.borrow_mut().iter_mut() {
+            for (i, &nome) in a.nomes.iter().enumerate() {
+                if e_cache(nome) && i < a.slots.len() {
+                    a.slots[i] = 0;
+                }
+            }
+        }
+    });
+}
+
 /// Copia para `nova` os slots de `antiga` com o mesmo nome e move as raízes
-/// deles; as dos slots que sumiram são soltas.
+/// deles; as dos slots que sumiram são soltas. Os caches não migram.
 fn migrar_area(antiga: &AreaDeGlobais, nova: &mut AreaDeGlobais) {
     let endereco = |slots: &[i64], i: usize| (&slots[i] as *const i64) as i64;
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         for (i, &nome) in antiga.nomes.iter().enumerate() {
-            let destino = if nome == 0 { None } else { nova.nomes.iter().position(|&n| n == nome) };
+            let destino = if e_cache(nome) { None } else { nova.nomes.iter().position(|&n| n == nome) };
             match destino {
                 Some(j) => {
                     nova.slots[j] = antiga.slots[i];

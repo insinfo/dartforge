@@ -191,6 +191,10 @@ pub extern "C" fn dartforge_publicar_geracao(
     if area.is_some() {
         esquecer_geracoes_anteriores_das_areas();
     }
+    // As tabelas de métodos mudaram: os caches dos pontos de chamada (os do
+    // código novo e os do que continua de gerações anteriores, J04) buscam
+    // de novo.
+    esvaziar_caches_das_areas();
 }
 
 /// `dartforge_object_new` que registra a tabela de métodos da classe na

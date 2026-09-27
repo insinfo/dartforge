@@ -51,6 +51,7 @@
 //! `scripts/env.ps1` cuida disso. Veja [`docs/JIT.md`].
 //!
 //! [`docs/JIT.md`]: https://github.com/insinfo/dartforge/blob/main/docs/JIT.md
+mod delta;
 mod ffi;
 mod migracao;
 mod reload;

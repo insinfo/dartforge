@@ -50,6 +50,13 @@ pub struct LlvmEmitter<'a> {
     // --- P5c (SDK da fonte, δ; `seletores.rs`) ---
     /// Pontos de chamada por seletor já emitidos (um cache cada).
     caches_de_seletor: usize,
+    /// O símbolo da função em emissão e quantos caches de seletor ela já
+    /// abriu: o nome do slot de um cache é `(função, posição)`, estável
+    /// entre gerações de uma recarga (J04).
+    funcao_atual: String,
+    cache_na_funcao: usize,
+    /// O índice de cada nome de slot do layout da geração viva (recarga).
+    indice_de_slot: std::collections::HashMap<i64, usize>,
     /// Textos dos seletores, na ordem do primeiro uso.
     nomes_de_seletor: Vec<String>,
     /// Assinatura de cada símbolo chamado, para declarar o que o módulo não
@@ -94,6 +101,9 @@ impl<'a> LlvmEmitter<'a> {
             vetor_de: std::collections::HashMap::new(),
             nomes_de_argumento: std::collections::BTreeSet::new(),
             caches_de_seletor: 0,
+            funcao_atual: String::new(),
+            cache_na_funcao: 0,
+            indice_de_slot: std::collections::HashMap::new(),
             nomes_de_seletor: Vec::new(),
             externos: std::collections::BTreeMap::new(),
             comdats: Vec::new(),
@@ -295,6 +305,8 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     fn emit_function(&mut self, func: &Function) {
+        self.funcao_atual.clone_from(&func.symbol);
+        self.cache_na_funcao = 0;
         // Tabela de tipos da funcao: sem ela o emissor nao sabe se %v8 e um
         // i1 (resultado de icmp) ou um i64, e imprime "ret i64 %v8" para um
         // valor i1 — modulo inteiro recusado pelo Clang.
@@ -1440,6 +1452,7 @@ impl<'a> LlvmEmitter<'a> {
             }
             None => std::collections::HashMap::new(),
         };
+        self.indice_de_slot.clone_from(&anterior);
         for (_, _, simbolo) in &self.module.globais {
             for nome in [simbolo.clone(), format!("{simbolo}$ok")] {
                 let h = hash_de_slot(&nome);
@@ -1456,25 +1469,38 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     /// O descritor da área de globais do módulo: `[chave, n, nome_0…]`, com
-    /// a chave estável do módulo e o hash do nome de cada slot (0 = não
-    /// migra numa recarga: os caches de seletor guardam endereços de código).
+    /// a chave estável do módulo e o hash do nome de cada slot. Os slots de
+    /// cache de seletor têm [`BIT_DE_CACHE`] no nome: não migram para uma
+    /// área nova e a publicação de uma recarga os zera (guardam endereços de
+    /// código, e as tabelas de métodos acabaram de mudar).
     fn emitir_descritor_da_area(&mut self) {
         let chave = self.module.registro.clone().unwrap_or_else(|| "df.programa".to_string());
         let mut valores = vec![hash_de_slot(&chave).to_string(), String::new()];
         for h in &self.hashes_de_slot {
             valores.push(h.to_string());
         }
-        for _ in 0..self.caches_de_seletor * 2 {
-            valores.push("0".to_string());
-        }
         valores[1] = (valores.len() - 2).to_string();
         let itens: Vec<String> = valores.iter().map(|v| format!("i64 {v}")).collect();
         writeln!(self.out, "@df.area = private unnamed_addr constant [{} x i64] [{}]", itens.len(), itens.join(", ")).unwrap();
     }
 
-    /// O slot de um cache de seletor na área.
-    pub(super) fn slot_do_cache(&self, ic: usize) -> usize {
-        self.hashes_de_slot.len() + 2 * ic
+    /// O slot do próximo cache de seletor da função em emissão: as duas
+    /// palavras (id de classe, entrada) com o nome `(função, posição)`, no
+    /// mesmo índice da geração viva quando ela já o tinha — o código de uma
+    /// função que não mudou é o mesmo texto nas duas gerações (J04).
+    pub(super) fn slot_de_cache(&mut self) -> usize {
+        let nome = format!("{}#{}", self.funcao_atual, self.cache_na_funcao);
+        self.cache_na_funcao += 1;
+        let (h0, h1) = (hash_de_cache(&nome, 0), hash_de_cache(&nome, 1));
+        if let Some(&i) = self.indice_de_slot.get(&h0)
+            && self.hashes_de_slot.get(i + 1) == Some(&h1)
+        {
+            return i;
+        }
+        let i = self.hashes_de_slot.len();
+        self.hashes_de_slot.push(h0);
+        self.hashes_de_slot.push(h1);
+        i
     }
 
     /// A função usa a área de globais (global, bandeira ou cache de seletor)?
@@ -2383,12 +2409,27 @@ impl<'a> LlvmEmitter<'a> {
 /// O hash (FNV-1a de 64 bits) do nome de um slot ou da chave do módulo na
 /// área de globais; nunca 0, que marca o slot que não migra.
 fn hash_de_slot(nome: &str) -> i64 {
+    let h = fnv(nome.bytes()) & !(BIT_DE_CACHE as u64);
+    (if h == 0 { 1 } else { h }) as i64
+}
+
+/// O bit que marca, no descritor da área, o nome de um slot de cache de
+/// seletor (o runtime tem a mesma constante, `gc_raizes.rs`).
+pub(crate) const BIT_DE_CACHE: i64 = 1 << 62;
+
+/// O nome da palavra `palavra` (0 ou 1) do cache `nome`, com [`BIT_DE_CACHE`].
+fn hash_de_cache(nome: &str, palavra: u8) -> i64 {
+    (fnv(nome.bytes().chain([0, palavra])) | BIT_DE_CACHE as u64) as i64
+}
+
+/// FNV-1a de 64 bits.
+fn fnv(bytes: impl Iterator<Item = u8>) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in nome.bytes() {
+    for b in bytes {
         h ^= u64::from(b);
         h = h.wrapping_mul(0x0000_0100_0000_01b3);
     }
-    (if h == 0 { 1 } else { h }) as i64
+    h
 }
 
 /// A caixa e o desencaixe de `int` em linha (R10, `runtime/src/heap.rs`,
