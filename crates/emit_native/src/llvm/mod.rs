@@ -215,6 +215,11 @@ impl<'a> LlvmEmitter<'a> {
 
     fn emit_header(&mut self) {
         self.out.push_str(crate::alvo::cabecalho_ir());
+        // Os ids das classes do programa, para a geração seguinte de uma
+        // recarga do JIT (J03, `context::ids_do_ir`).
+        for (id, lib, classe) in &self.module.ids_do_programa {
+            writeln!(self.out, "; df.classe {id} {} {}", crate::context::escapar(lib), crate::context::escapar(classe)).unwrap();
+        }
     }
 
     fn emit_runtime_decls(&mut self) {

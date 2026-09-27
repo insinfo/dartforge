@@ -580,7 +580,7 @@ Só mudança de corpo com contrato compatível. O resto é recusado na etapa
 | --- | --- |
 | Assinatura alterada | `a assinatura de df_fn_0 mudou de i64 () para i64 (i64); mudança de contrato de chamada exige reiniciar a sessão` |
 | Função que desaparece | aceita: a função some do código novo e conserva o corpo antigo, que só uma closure ou um tear-off antigo ainda alcança, como na VM (`crates/jit/src/reload.rs:1035-1039`). *Histórico (até 2026-09-27):* era recusada com `a função df_fn_0 existe na versão em execução e não existe no código novo; …` |
-| Classe renumerada | `a classe de id 7 era A e passou a ser B (classes inseridas ou reordenadas); os objetos já vivos no heap têm o id antigo, então a recarga é recusada — reinicie a sessão` |
+| Classe inserida, removida ou reordenada | aceita (J03): a geração nova dá o mesmo id à mesma classe (`; df.classe <id> <biblioteca> <classe>` no IR da geração viva, `Context::com_ids_anteriores`) e ids novos às classes novas; os objetos vivos continuam com o id deles (`cli_recarrega_com_classe_inserida`). A mensagem `a classe de id 7 era A e passou a ser B …` só aparece se a numeração divergir. *Histórico (até 2026-09-27):* recusada, porque os ids eram a ordem dos nomes. |
 | Campos de classe | `a classe de id 0 tinha 1 campos e passou a ter 2; os objetos já vivos no heap gerenciado mantêm o layout antigo, então a recarga é recusada — reinicie a sessão` |
 | Referência não resolvível | `o código novo chama sqlite3_open, que esta sessão não define; o JIT publica apenas os 18 símbolos de runtime e as entradas estáveis já criadas` |
 | Variádica | `a função df_fn_0 é variádica, e o contrato do emissor nativo não prevê variádicas` |

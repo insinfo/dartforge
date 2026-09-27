@@ -64,6 +64,11 @@ pub struct Context<'a> {
     /// Os tipos de extensão apagados (`apagamento.rs`), calculados antes do
     /// contexto; vazio sem tipo de extensão.
     pub te: crate::apagamento::TiposDeExtensao,
+    /// Recarga do JIT (J03): os ids que a geração viva deu às classes do
+    /// programa, por `(biblioteca, classe)`. A mesma classe fica com o mesmo
+    /// id; uma classe nova ganha um id acima de todos eles (os objetos vivos
+    /// no heap guardam o id).
+    ids_anteriores: Option<std::collections::HashMap<(String, String), u32>>,
 }
 
 /// O nome da variável de um padrão `:x`/`:var x`/`:x?`/`:x as T`.
@@ -135,6 +140,7 @@ impl<'a> Context<'a> {
             com_corpo_da_fonte: std::cell::OnceCell::new(),
             compostos_ffi: std::cell::OnceCell::new(),
             te: crate::apagamento::TiposDeExtensao::default(),
+            ids_anteriores: None,
         };
         // Formas de record com campo nomeado: literais, padrões e tipos de
         // todas as unidades do programa (o conjunto inteiro, antes do
@@ -225,6 +231,28 @@ impl<'a> Context<'a> {
         self
     }
 
+    /// Recarga do JIT (J03): numera as classes do programa mantendo os ids
+    /// da geração viva (`ids`, de [`ids_do_ir`]).
+    pub fn com_ids_anteriores(mut self, ids: std::collections::HashMap<(String, String), u32>) -> Self {
+        self.ids_anteriores = Some(ids);
+        self.numerar_classes();
+        self
+    }
+
+    /// Os ids das classes do programa, `(id, biblioteca, classe)`.
+    pub fn ids_do_programa(&self) -> Vec<(u32, String, String)> {
+        self.program
+            .classes
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| !self.program.library(c.library).is_sdk)
+            .filter_map(|(i, c)| {
+                let id = self.ids_de_classe.get(i).copied().flatten()?;
+                Some((id, self.nome_da_biblioteca(c.library), self.interner.resolve(c.name).to_string()))
+            })
+            .collect()
+    }
+
     /// O corpo das funções da biblioteca é compilado?
     pub fn biblioteca_compilada(&self, lib: LibraryId) -> bool {
         self.compiladas[lib.0 as usize]
@@ -297,6 +325,21 @@ impl<'a> Context<'a> {
             }
         }
         chaves.sort();
+        // Recarga (J03): a classe que a geração viva já numerou fica com o
+        // id dela; as novas vêm depois do maior (nunca o de uma que sumiu:
+        // um objeto dela pode estar vivo).
+        if let Some(anteriores) = &self.ids_anteriores {
+            if let Some(&maior) = anteriores.values().max() {
+                prox = prox.max(maior + 1);
+            }
+            chaves.retain(|(lib, nome, i)| match anteriores.get(&(lib.clone(), nome.clone())) {
+                Some(&id) => {
+                    ids[*i] = Some(id);
+                    false
+                }
+                None => true,
+            });
+        }
         for (_, _, i) in chaves {
             if (1000..=1012).contains(&prox) {
                 prox = 1013;
@@ -568,4 +611,34 @@ pub fn ids_das_classes_do_sdk(program: &Program, interner: &Interner, compiladas
     }
     tabela.proximo = prox;
     tabela
+}
+
+/// Os ids das classes do programa escritos no IR por uma geração
+/// (`; df.classe <id> <biblioteca> <classe>`, com as partes escapadas por
+/// [`escapar`]), por `(biblioteca, classe)`.
+pub fn ids_do_ir(ir: &str) -> std::collections::HashMap<(String, String), u32> {
+    ir.lines()
+        .filter_map(|l| {
+            let mut p = l.strip_prefix("; df.classe ")?.split(' ');
+            let id = p.next()?.parse().ok()?;
+            Some(((desescapar(p.next()?)?, desescapar(p.next()?)?), id))
+        })
+        .collect()
+}
+
+/// O inverso de [`escapar`].
+pub fn desescapar(parte: &str) -> Option<String> {
+    let b = parte.as_bytes();
+    let mut v = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'$' {
+            v.push(u8::from_str_radix(parte.get(i + 1..i + 3)?, 16).ok()?);
+            i += 3;
+        } else {
+            v.push(b[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(v).ok()
 }

@@ -133,7 +133,7 @@ pub fn sdk_do_dart() -> Result<PathBuf, String> {
 /// [`emitir_ir`] escolhendo o SDK: da fonte (P5c/P5d, `sdk_modulo`) ou o
 /// runtime por nome de antes.
 pub fn emitir_ir_com(entrada: &Path, options: &CompileOptions, da_fonte: bool) -> Result<IrEmitido, String> {
-    emitir_ir_interno(entrada, options, da_fonte, None)
+    emitir_ir_interno(entrada, options, da_fonte, None, None)
 }
 
 /// [`emitir_ir`] de uma geração nova de um programa em execução (o hot
@@ -141,7 +141,9 @@ pub fn emitir_ir_com(entrada: &Path, options: &CompileOptions, da_fonte: bool) -
 /// da área de globais que a geração nova estende ([`area_do_ir`]).
 pub fn emitir_ir_recarregavel(entrada: &Path, options: &CompileOptions, ir_anterior: Option<&str>) -> Result<IrEmitido, String> {
     let area = ir_anterior.and_then(area_do_ir);
-    emitir_ir_interno(entrada, options, sdk_modulo::sdk_da_fonte_pedido(), area)
+    // J03: a mesma classe com o mesmo id da geração viva.
+    let ids = ir_anterior.map(context::ids_do_ir);
+    emitir_ir_interno(entrada, options, sdk_modulo::sdk_da_fonte_pedido(), area, ids)
 }
 
 /// Os nomes (hashes) dos slots da área de globais do programa no IR `ir`:
@@ -162,6 +164,7 @@ fn emitir_ir_interno(
     options: &CompileOptions,
     da_fonte: bool,
     area_anterior: Option<Vec<i64>>,
+    ids_anteriores: Option<std::collections::HashMap<(String, String), u32>>,
 ) -> Result<IrEmitido, String> {
     // 1. Carregamento e Inferência (Front-end)
     let t_front = Instant::now();
@@ -243,11 +246,16 @@ fn emitir_ir_interno(
     } else {
         ctx
     };
+    let ctx = match ids_anteriores {
+        Some(ids) => ctx.com_ids_anteriores(ids),
+        None => ctx,
+    };
     let front_duration = t_front.elapsed();
 
     // 2. Lowering para HIR
     let t_hir = Instant::now();
     let mut hir_module = lower::lower_program(&ctx);
+    hir_module.ids_do_programa = ctx.ids_do_programa();
     if da_fonte {
         hir_module.registros_do_sdk = sdk_modulo::registros_do_sdk();
         hir_module.cids_do_runtime = sdk_modulo::cids_do_runtime(&ctx);

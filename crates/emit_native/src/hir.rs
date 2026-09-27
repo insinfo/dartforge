@@ -724,6 +724,10 @@ pub struct Module {
     /// Programa com o SDK da fonte: as funções de registro das bibliotecas
     /// do SDK, chamadas por `dartforge_entry` antes das do programa.
     pub registros_do_sdk: Vec<String>,
+    /// Os ids das classes do programa, `(id, biblioteca, classe)`: escritos
+    /// no IR (`; df.classe …`) para que a geração seguinte de uma recarga do
+    /// JIT dê o mesmo id à mesma classe (J03, `Context::com_ids_anteriores`).
+    pub ids_do_programa: Vec<(u32, String, String)>,
     /// Programa com o SDK da fonte: os ids de classe dos valores que o
     /// runtime representa (`Null`, `_Smi`, `_Mint`, `_Double`, `bool`,
     /// `_OneByteString`, `_TwoByteString`, `_GrowableList`, `_List`,

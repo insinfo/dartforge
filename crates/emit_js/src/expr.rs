@@ -600,7 +600,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             ExprKind::FunctionExpression(fid) => {
                 let saved_const = self.in_const;
                 self.in_const = false;
-                let comum = self.ctx.bodies.units.get(self.unit.0 as usize).and_then(|u| u.get_type(e));
+                // O tipo de execução de um gerador sem retorno escrito (a regra
+                // do CFE, que dá o `runtimeType`) vale sobre o estático, que
+                // segue o analyzer (`tipos_de_execucao_de_funcoes`).
+                let comum = self
+                    .ctx
+                    .bodies
+                    .units
+                    .get(self.unit.0 as usize)
+                    .and_then(|u| u.tipo_de_execucao_de_funcao(*fid).or_else(|| u.get_type(e)));
                 let r = self.emit_function_expr(*fid, expected, comum);
                 self.in_const = saved_const;
                 r
