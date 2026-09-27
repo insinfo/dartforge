@@ -104,36 +104,6 @@ impl ContextoTls {
     }
 }
 
-/// Os certificados de `bytes`: PEM (um ou mais), senão um DER. Senha: a VM
-/// aceita PKCS#12 protegido; aqui é recusado com a mensagem.
-fn certificados_de(bytes: &[u8]) -> Result<Vec<rustls::pki_types::CertificateDer<'static>>, String> {
-    use rustls::pki_types::pem::PemObject;
-    let pem: Vec<_> = rustls::pki_types::CertificateDer::pem_slice_iter(bytes).collect();
-    if pem.is_empty() {
-        if bytes.first() == Some(&0x30) {
-            return Ok(vec![rustls::pki_types::CertificateDer::from(bytes.to_vec())]);
-        }
-        return Err("NO_START_LINE(pem_lib.c:631)".to_string());
-    }
-    pem.into_iter().collect::<Result<Vec<_>, _>>().map_err(|e| format!("BAD_BASE64_DECODE({e})"))
-}
-
-/// A chave privada de `bytes`: PEM (PKCS#8, PKCS#1 ou SEC1) ou DER.
-fn chave_de(bytes: &[u8], senha: &str) -> Result<rustls::pki_types::PrivateKeyDer<'static>, String> {
-    use rustls::pki_types::pem::PemObject;
-    if bytes.windows(9).any(|j| j == b"ENCRYPTED") {
-        return Err(if senha.is_empty() {
-            "BAD_DECRYPT(pem_lib.c:420)".to_string()
-        } else {
-            "UNSUPPORTED_ENCRYPTION: chave privada cifrada ainda não suportada".to_string()
-        });
-    }
-    match rustls::pki_types::PrivateKeyDer::from_pem_slice(bytes) {
-        Ok(k) => Ok(k),
-        Err(_) => rustls::pki_types::PrivateKeyDer::try_from(bytes.to_vec()).map_err(|_| "NO_START_LINE(pem_lib.c:631)".to_string()),
-    }
-}
-
 /// Os protocolos do ALPN na codificação por comprimento
 /// (`SecurityContext._protocolsToLengthEncoding`).
 fn protocolos_de(bytes: &[u8]) -> Vec<Vec<u8>> {
@@ -188,22 +158,30 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_novo(this: i64) {
     gravar_campo_nativo(this, p);
 }
 
-/// `usePrivateKeyBytes`: `null`, ou o texto do erro (o Dart lança a
-/// `TlsException`).
+/// `usePrivateKeyBytes`: se havia chave (formatos em `tls_formatos.rs`); sem
+/// ela, o Dart lança a `ArgumentError` da VM.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_chave(this: i64, bytes: i64, senha: i64) -> i64 {
+pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_chave(this: i64, bytes: i64, senha: i64) -> u8 {
     let b = bytes_da_lista_tipada(bytes).unwrap_or_default();
     let senha = String::from_utf8_lossy(&utf8_de_texto(senha)).into_owned();
-    let r = chave_de(&b, &senha).map(|k| {
-        com_contexto(this, |c| c.chave = Some(k));
-    });
-    texto_ou_nulo(r)
+    match chave_de(&b, &senha) {
+        Ok(k) => {
+            com_contexto(this, |c| c.chave = Some(k));
+            1
+        }
+        Err(()) => 0,
+    }
+}
+
+/// A senha de um native de certificados (PKCS#12).
+fn senha_de(senha: i64) -> String {
+    String::from_utf8_lossy(&utf8_de_texto(senha)).into_owned()
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_confiaveis(this: i64, bytes: i64, _senha: i64) -> i64 {
+pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_confiaveis(this: i64, bytes: i64, senha: i64) -> i64 {
     let b = bytes_da_lista_tipada(bytes).unwrap_or_default();
-    texto_ou_nulo(certificados_de(&b).map(|certs| {
+    texto_ou_nulo(certificados_de(&b, &senha_de(senha)).map(|certs| {
         com_contexto(this, |c| {
             c.confiaveis.extend(certs);
             c.raizes = None;
@@ -212,17 +190,17 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_confiaveis(this: i64, 
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_cadeia(this: i64, bytes: i64, _senha: i64) -> i64 {
+pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_cadeia(this: i64, bytes: i64, senha: i64) -> i64 {
     let b = bytes_da_lista_tipada(bytes).unwrap_or_default();
-    texto_ou_nulo(certificados_de(&b).map(|certs| {
+    texto_ou_nulo(certificados_de(&b, &senha_de(senha)).map(|certs| {
         com_contexto(this, |c| c.cadeia = certs);
     }))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_autoridades(this: i64, bytes: i64, _senha: i64) -> i64 {
+pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_autoridades(this: i64, bytes: i64, senha: i64) -> i64 {
     let b = bytes_da_lista_tipada(bytes).unwrap_or_default();
-    texto_ou_nulo(certificados_de(&b).map(|certs| {
+    texto_ou_nulo(certificados_de(&b, &senha_de(senha)).map(|certs| {
         com_contexto(this, |c| c.autoridades.extend(certs));
     }))
 }

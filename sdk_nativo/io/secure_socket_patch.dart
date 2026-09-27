@@ -329,8 +329,11 @@ base class _SecurityContext extends NativeFieldWrapperClass1
   }
 
   void usePrivateKeyBytes(List<int> keyBytes, {String? password}) {
-    _verificar(
-        "usePrivateKeyBytes", _usarChave(_bytes(keyBytes), password ?? ""));
+    // Como a VM: sem chave nos bytes (PEM, PEM cifrado, PKCS#12, senha
+    // errada), `ArgumentError`, não `TlsException`.
+    if (!_usarChave(_bytes(keyBytes), password ?? "")) {
+      throw new ArgumentError("Expected private key, but none was found");
+    }
   }
 
   void setTrustedCertificates(String file, {String? password}) {
@@ -339,8 +342,12 @@ base class _SecurityContext extends NativeFieldWrapperClass1
   }
 
   void setTrustedCertificatesBytes(List<int> certBytes, {String? password}) {
-    _verificar("setTrustedCertificatesBytes",
-        _confiar(_bytes(certBytes), password ?? ""));
+    // A mensagem é a da VM (`security_context.cc` usa o texto das raízes
+    // embutidas também aqui).
+    final erro = _confiar(_bytes(certBytes), password ?? "");
+    if (erro != null) {
+      throw new TlsException("Failure trusting builtin roots", new OSError(erro));
+    }
   }
 
   void useCertificateChain(String file, {String? password}) {
@@ -372,7 +379,7 @@ base class _SecurityContext extends NativeFieldWrapperClass1
   @pragma("vm:external-name", "DartForge_tls_contexto_novo")
   external void _createNativeContext();
   @pragma("vm:external-name", "DartForge_tls_contexto_chave")
-  external String? _usarChave(Uint8List bytes, String senha);
+  external bool _usarChave(Uint8List bytes, String senha);
   @pragma("vm:external-name", "DartForge_tls_contexto_confiaveis")
   external String? _confiar(Uint8List bytes, String senha);
   @pragma("vm:external-name", "DartForge_tls_contexto_cadeia")

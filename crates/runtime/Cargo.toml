@@ -21,6 +21,16 @@ webpki-roots = "1"
 # e nada de zlib na máquina de quem usa o dartforge.
 flate2 = { version = "1", default-features = false, features = ["zlib"] }
 libz-sys = { version = "1", default-features = false, features = ["libc", "static"] }
+# Os formatos de chave e certificado do `SecurityContext` que o rustls não lê
+# (fragmento `tls_formatos`): PKCS#12 e chaves privadas cifradas (PBES2,
+# as PBE do PKCS#12 e o PEM cifrado legado do OpenSSL). O HMAC, o PBKDF2 e
+# os resumos vêm do `ring`; aqui só as cifras de bloco e o MD5 do
+# `EVP_BytesToKey`.
+aes = "0.8"
+cbc = "0.1"
+des = "0.8"
+rc2 = "0.8"
+md-5 = "0.10"
 
 [features]
 # O perfil do módulo `abi` (ver o build.rs): nenhuma feature é o JIT; `aot` e

@@ -88,6 +88,9 @@ const FRAGMENTOS: &[&str] = &[
     "io_windows_processos",
     // A TLS do `dart:io` (`SecureSocket`, `SecurityContext`), sobre o rustls.
     "tls",
+    // Os formatos de chave e certificado do `SecurityContext` (PKCS#12,
+    // chaves cifradas).
+    "tls_formatos",
     // Os filtros zlib/gzip do `dart:io` (`ZLibEncoder`, `GZipCodec`).
     "zlib",
     // `dart:developer` e a timeline no perfil de produção.

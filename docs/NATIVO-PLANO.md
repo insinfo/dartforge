@@ -1545,10 +1545,13 @@ IOService (`io_service_patch.dart`).
   e bindgen (libclang), e o BoringSSL não tem ABI estável; o rustls com
   `ring` compila com o Cargo nos três sistemas e vai pré-compilado no
   runtime da distribuição. Diferenças documentadas em relação à VM:
-  sem renegociação (`allowLegacyUnsafeRenegotiation` só é guardado), e
-  chaves cifradas/PKCS#12 são recusadas com a `TlsException` da operação.
-  O resto — PEM e DER, cadeia e chave, autoridades de cliente, ALPN, versão
-  mínima 1.2/1.3, `keyLog`, `peerCertificate`, `selectedProtocol` — segue a
+  sem renegociação (`allowLegacyUnsafeRenegotiation` só é guardado).
+  Os formatos de chave e certificado seguem a VM
+  (`crates/runtime/src/tls_formatos.rs`): PEM, PEM cifrado legado, PKCS#8
+  cifrado e PKCS#12 (PBES2 e as PBE legadas), com a mesma ordem de decisão
+  (PKCS#12 só sem linha de início PEM; DER solto recusado) e os mesmos erros
+  (`tls_formatos.dart` em `io_regressao.rs`). O resto — cadeia e chave,
+  autoridades de cliente, ALPN, versão mínima 1.2/1.3, `keyLog`, `peerCertificate`, `selectedProtocol` — segue a
   VM.
 * **Verificado** (`crates/cli/tests/io_regressao.rs`, `tls_e_https_como_a_vm`,
   saída idêntica à do `dart run`, também no JIT e com

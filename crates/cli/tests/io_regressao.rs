@@ -97,6 +97,58 @@ recusado: CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate(hand
     );
 }
 
+/// Os formatos de chave e certificado (PKCS#12, chaves cifradas) e as recusas
+/// com os textos da VM; a saída é a do `dart run` 3.6.2.
+#[test]
+#[ignore = "compila com o SDK da fonte e liga com o Clang; roda no CI de cada sistema"]
+fn formatos_de_chave_e_certificado_como_a_vm() {
+    let certificados = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tls");
+    compilar_e_rodar(
+        "tls_formatos",
+        &[certificados.as_os_str()],
+        "pkcs8 cifrada: ok
+pkcs8 senha errada: ArgumentError Invalid argument(s): Expected private key, but none was found
+pkcs8 sem senha: ArgumentError Invalid argument(s): Expected private key, but none was found
+rsa cifrada: ok
+rsa senha errada: ArgumentError Invalid argument(s): Expected private key, but none was found
+p12 chave: ok
+p12 cadeia: ok
+p12 confiaveis: ok
+p12 autoridades: ok
+p12 senha errada: ArgumentError Invalid argument(s): Expected private key, but none was found
+p12 sem senha: ArgumentError Invalid argument(s): Expected private key, but none was found
+p12 legado: ok
+p12 cadeia senha errada: TlsException Failure in useCertificateChainBytes | 
+\tINCORRECT_PASSWORD(pkcs8_x509.c:710)
+p12 confiaveis senha errada: TlsException Failure trusting builtin roots | 
+\tINCORRECT_PASSWORD(pkcs8_x509.c:710)
+cadeia lixo: TlsException Failure in useCertificateChainBytes | 
+\tBAD_PKCS12_DATA(pkcs8_x509.c:599)
+confiaveis lixo: TlsException Failure trusting builtin roots | 
+\tBAD_PKCS12_DATA(pkcs8_x509.c:599)
+lixo: ArgumentError Invalid argument(s): Expected private key, but none was found
+autoridades lixo: TlsException Failure in setClientAuthoritiesBytes | 
+\tBAD_PKCS12_DATA(pkcs8_x509.c:599)
+autoridades p12 senha errada: TlsException Failure in setClientAuthoritiesBytes | 
+\tINCORRECT_PASSWORD(pkcs8_x509.c:710)
+cadeia der: TlsException Failure in useCertificateChainBytes | 
+\tBAD_PKCS12_DATA(pkcs8_x509.c:611)
+confiaveis der: TlsException Failure trusting builtin roots | 
+\tBAD_PKCS12_DATA(pkcs8_x509.c:611)
+pem quebrado: TlsException Failure trusting builtin roots | 
+\tBAD_BASE64_DECODE(pem_lib.c:752)
+chave der: ArgumentError Invalid argument(s): Expected private key, but none was found
+chave em pem de certificado: ArgumentError Invalid argument(s): Expected private key, but none was found
+p12 vazio sem senha: ok
+p12 vazio cadeia: ok
+p12: /C=BR/O=DartForge/CN=localhost -> ola p12
+pkcs8 cifrada: /C=BR/O=DartForge/CN=localhost -> ola pkcs8 cifrada
+rsa cifrada: /C=BR/O=DartForge/CN=localhost -> ola rsa cifrada
+",
+        Duration::from_secs(120),
+    );
+}
+
 #[test]
 #[ignore = "compila com o SDK da fonte e liga com o Clang; roda no CI de cada sistema"]
 fn main_recebe_os_argumentos() {
