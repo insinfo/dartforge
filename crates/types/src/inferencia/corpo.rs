@@ -127,6 +127,18 @@ pub(crate) struct Corpo {
     /// Sobreposições explícitas de extensão (`E(x)`, R-EXT-02): a chamada
     /// `E(x)` → a extensão e os argumentos de tipo dela.
     pub sobreposicoes: HashMap<ast::ExprId, (ExtensionId, Vec<TypeId>)>,
+    /// Fins dos blocos básicos em curso (o `flowEnd` do
+    /// `NullSafetyDeadCodeVerifier`: corpo de função, ramo de `if`, corpo de
+    /// laço, `try`/`catch`), já aparados na última instrução do bloco.
+    pub fins_de_fluxo: Vec<usize>,
+    /// Profundidade em `fins_de_fluxo` onde começou o trecho morto em curso
+    /// (`_firstDeadNode`): enquanto houver um, outro nó inalcançável é parte
+    /// do mesmo trecho.
+    pub trecho_morto: Option<usize>,
+    /// Onde o trecho morto em curso começou: a própria instrução (ramo
+    /// inalcançável) ou o bloco que a contém. O `for` relata as
+    /// atualizações quando é o corpo dele (`_reportForUpdaters`).
+    pub origem_do_morto: Option<ast::StmtId>,
 }
 
 /// Base de uma referência a campo promovível.
@@ -183,6 +195,9 @@ impl Corpo {
             cadeias: Vec::new(),
             condicoes: HashMap::new(),
             sobreposicoes: HashMap::new(),
+            fins_de_fluxo: Vec::new(),
+            trecho_morto: None,
+            origem_do_morto: None,
         };
         if inf.program.library(lib).features.tem(dartforge_frontend::Feature::WildcardVariables) {
             cx.curinga = inf.interner.lookup("_");

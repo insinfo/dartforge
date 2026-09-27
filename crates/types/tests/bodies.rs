@@ -1948,3 +1948,46 @@ void f(bool b, Never n) {
     assert_eq!(tipo_de(&t, "falha().hashCode", 0), "int");
     assert_eq!(tipo_de(&t, "n.x", 0), "Never");
 }
+
+/// Os trechos de `dead_code` como o `NullSafetyDeadCodeVerifier` do analyzer
+/// os relata: do primeiro nó inalcançável ao fim do bloco básico (a última
+/// instrução; num construtor, o fim dele), o ramo inalcançável inteiro
+/// (`if (false) { … }`, corpo de `while (false)`), e as atualizações do
+/// `for` cujo corpo é inalcançável. Conferido com o `dart analyze` 3.6.2.
+#[test]
+fn trechos_de_codigo_morto_como_o_analyzer() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let proj_dir = tmp.path().join("proj");
+    fs::create_dir_all(&proj_dir).unwrap();
+    let main_dart = proj_dir.join("main.dart");
+    let codigo = "void h() { for (int i = 0; false; i++) { print(i); } print(2); }\n\
+        void k() { return; print(1); if (true) { print(2); } }\n\
+        class A { A() { return; print(3); } }\n\
+        void m(bool b) { if (false) { print(4); } else { print(5); } while (false) {} }\n\
+        void print(Object? o) {}\n";
+    let fonte = format!("library test_neg;\nimport 'dart:core';\n{codigo}");
+    fs::write(&main_dart, &fonte).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+    let mut trechos: Vec<&str> = diags
+        .iter()
+        .filter(|d| d.message.contains(DEAD_CODE.template) || d.code.is_some_and(|c| c.info().nome == "dead_code"))
+        .map(|d| &fonte[d.span.start..d.span.end])
+        .collect();
+    trechos.sort();
+    let mut esperado = vec![
+        "i++",
+        "{ print(i); }",
+        "print(1); if (true) { print(2); }",
+        "print(3); }",
+        "{ print(4); }",
+        "{}",
+    ];
+    esperado.sort();
+    assert_eq!(trechos, esperado, "{diags:?}");
+}

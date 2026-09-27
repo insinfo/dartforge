@@ -11,6 +11,7 @@ use super::BodyInferrer;
 use crate::codes::*;
 use crate::resolved::LocalId;
 use crate::table::{Type, TypeId};
+use dartforge_diagnostics::Span;
 use dartforge_elements::model::UnitId;
 use dartforge_frontend::ast::{self, AsyncModifier, ExprId, ExprKind, StmtId, StmtKind, UnaryOp};
 use dartforge_intern::SymbolId;
@@ -39,12 +40,16 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                     _ => {}
                 }
             }
-            let mut avisou = false;
+            // Sem bloco básico em curso, o trecho vai até a última instrução
+            // deste bloco.
+            let fim_do_bloco = stmts.last().map(|&x| inf.program.unit(cx.unit).ast.stmt(x).span.end).unwrap_or(span.end);
             for &x in stmts.iter() {
-                if !cx.fluxo.alcancavel && !avisou {
+                if !cx.fluxo.alcancavel && cx.trecho_morto.is_none() {
                     let sx = inf.program.unit(cx.unit).ast.stmt(x).span;
-                    inf.aviso(DEAD_CODE.template.to_string(), sx);
-                    avisou = true;
+                    let fim = cx.fins_de_fluxo.last().copied().unwrap_or(fim_do_bloco);
+                    inf.aviso(DEAD_CODE.template.to_string(), Span { start: sx.start, end: fim.max(sx.end) });
+                    cx.trecho_morto = Some(cx.fins_de_fluxo.len());
+                    cx.origem_do_morto = Some(s);
                 }
                 inferir_instrucao(inf, cx, x);
             }
@@ -67,13 +72,13 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                 None => expr::condicao_verificada(inf, cx, *condition),
             };
             cx.fluxo = vf;
-            ramo(inf, cx, *then);
+            ramo_de_fluxo(inf, cx, *then);
             if case_pattern.is_some() {
                 cx.tirar_escopo();
             }
             let depois_then = std::mem::replace(&mut cx.fluxo, ff);
             if let Some(e) = else_ {
-                ramo(inf, cx, *e);
+                ramo_de_fluxo(inf, cx, *e);
             }
             let depois_else = std::mem::replace(&mut cx.fluxo, antes);
             cx.fluxo = inf.juntar(&depois_then, &depois_else);
@@ -85,7 +90,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
             let (vf, ff) = expr::condicao_verificada(inf, cx, *condition);
             cx.saltos.push(AlvoSalto { rotulos, laco: true, e_switch: false, breaks: Vec::new(), continues: Vec::new() });
             cx.fluxo = vf;
-            ramo(inf, cx, *body);
+            ramo_de_fluxo(inf, cx, *body);
             let alvo = cx.saltos.pop().unwrap();
             let mut saidas = vec![ff];
             saidas.extend(alvo.breaks);
@@ -133,7 +138,19 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
             };
             cx.saltos.push(AlvoSalto { rotulos, laco: true, e_switch: false, breaks: Vec::new(), continues: Vec::new() });
             cx.fluxo = vf;
-            ramo(inf, cx, *body);
+            let morto_antes = cx.trecho_morto.is_some();
+            cx.origem_do_morto = None;
+            ramo_de_fluxo(inf, cx, *body);
+            // `_reportForUpdaters`: o trecho morto começou no corpo (ou numa
+            // instrução direta dele) e terminou nele — as atualizações também
+            // são código morto.
+            if !morto_antes && cx.trecho_morto.is_none() && cx.origem_do_morto == Some(*body) {
+                let a = &inf.program.unit(cx.unit).ast;
+                if let (Some(p), Some(u)) = (updates.first(), updates.last()) {
+                    let sp = Span { start: a.expr(*p).span.start, end: a.expr(*u).span.end };
+                    inf.aviso(DEAD_CODE.template.to_string(), sp);
+                }
+            }
             let alvo = cx.saltos.pop().unwrap();
             let mut conts = vec![cx.fluxo.clone()];
             conts.extend(alvo.continues);
@@ -157,7 +174,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                 cx.fluxo.clone()
             };
             cx.saltos.push(AlvoSalto { rotulos, laco: true, e_switch: false, breaks: Vec::new(), continues: Vec::new() });
-            ramo(inf, cx, *body);
+            ramo_de_fluxo(inf, cx, *body);
             let alvo = cx.saltos.pop().unwrap();
             let depois = cx.fluxo.clone();
             let mut saidas = vec![antes_do_corpo, depois];
@@ -282,7 +299,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
         StmtKind::Try { body, catches, finally_ } => {
             let antes = cx.fluxo.clone();
             let (escritas, capturadas) = escritas_em(inf, cx, &[Parte::Stmt(*body)]);
-            ramo(inf, cx, *body);
+            ramo_de_fluxo(inf, cx, *body);
             let depois_try = cx.fluxo.clone();
             let mut saidas = vec![depois_try];
             for c in catches.iter() {
@@ -301,7 +318,10 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                     let st = stack_trace(inf);
                     declarar_local(inf, cx, Local { nome: n.sym, tipo: st, final_: true, late: false, const_: false, offset: n.span.start, funcao_local: false }, true);
                 }
+                let fim = fim_de_fluxo(inf, cx, c.body);
+                entrar_fluxo(cx, fim);
                 inferir_instrucao(inf, cx, c.body);
+                sair_fluxo(cx);
                 cx.tirar_escopo();
                 saidas.push(cx.fluxo.clone());
             }
@@ -372,6 +392,47 @@ fn ramo(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: StmtId) {
     cx.empurrar_escopo();
     inferir_instrucao(inf, cx, s);
     cx.tirar_escopo();
+}
+
+/// Um ramo que fecha um bloco básico (`flowEnd` do analyzer: `then`/`else`,
+/// corpo de `while`/`for`/`for-in`, corpo do `try`): se ele mesmo é
+/// inalcançável, o trecho morto é a instrução inteira (`if (false) { … }`
+/// relata do `{` ao `}`).
+fn ramo_de_fluxo(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: StmtId) {
+    let span = inf.program.unit(cx.unit).ast.stmt(s).span;
+    if !cx.fluxo.alcancavel && cx.trecho_morto.is_none() {
+        inf.aviso(DEAD_CODE.template.to_string(), span);
+        cx.trecho_morto = Some(cx.fins_de_fluxo.len() + 1);
+        cx.origem_do_morto = Some(s);
+    }
+    let fim = fim_de_fluxo(inf, cx, s);
+    entrar_fluxo(cx, fim);
+    ramo(inf, cx, s);
+    sair_fluxo(cx);
+}
+
+/// O fim de um bloco básico que termina em `s`, aparado como o analyzer:
+/// num bloco com instruções, o fim da última.
+pub(crate) fn fim_de_fluxo(inf: &BodyInferrer<'_>, cx: &Corpo, s: StmtId) -> usize {
+    let a = &inf.program.unit(cx.unit).ast;
+    match &a.stmt(s).kind {
+        StmtKind::Block(stmts) if !stmts.is_empty() => a.stmt(*stmts.last().unwrap()).span.end,
+        _ => a.stmt(s).span.end,
+    }
+}
+
+/// Entra num bloco básico que termina em `fim`.
+pub(crate) fn entrar_fluxo(cx: &mut Corpo, fim: usize) {
+    cx.fins_de_fluxo.push(fim);
+}
+
+/// Sai do bloco básico: um trecho morto começado nele termina aqui.
+pub(crate) fn sair_fluxo(cx: &mut Corpo) {
+    let profundidade = cx.fins_de_fluxo.len();
+    cx.fins_de_fluxo.pop();
+    if cx.trecho_morto.is_some_and(|p| p >= profundidade) {
+        cx.trecho_morto = None;
+    }
 }
 
 fn rotulos_pendentes(cx: &mut Corpo) -> Vec<SymbolId> {
