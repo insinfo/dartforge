@@ -1,0 +1,6 @@
+name: dep_ng
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dependencies:
+  ngdart: 8.0.0-dev.4

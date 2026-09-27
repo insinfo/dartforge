@@ -131,13 +131,22 @@ por arquivo, dentro da ação de pacote:
 * Volta ao estágio A (pacote inteiro): arquivo novo ou apagado, parte,
   arquivo recusado antes ou agora, `.dart` de outro pacote.
 
-**Pacote dependente** (decisão): o nativo continua gerando só o pacote da
-entrada; os `.template.dart` de uma dependência com componentes (o
-`limitless_ui` do `example`) vêm do executor Dart ou do apoio. O `gerador_ng`
-nunca foi conferido contra o oráculo numa dependência (a visibilidade `lib/**`,
-as URIs `package:` no lugar de `asset:` e os arquivos que o programa da entrada
-não carrega mudam o que ele vê); ligar sem esse oráculo seria publicar saída
-não verificada.
+**Pacote dependente**: o nativo gera também as dependências a que o ngdart
+se aplica (`toDependentsOf(ngdart)`: uma dependência `path` com componentes,
+como o `limitless_ui` do `example`, e os `hosted` ngdart/ngcompiler, cujos
+`.template.dart` o DDC pede), cada pacote com a sua rodada e o seu cache. As
+consultas `FonteBiblioteca` de uma rodada ficam só nas bibliotecas que as do
+pacote alcançam por `import`/`export`: editar a aplicação não acorda a rodada
+de uma dependência. Conferido contra o `build_runner` oficial
+(`corpus/ngdart_dependente`, oráculo por `scripts/corpus-ngdart-dependente.sh`):
+os 5 `.template.dart` da aplicação e da dependência iguais, e incremental = do
+zero depois de editar o HTML e um `@Input` da dependência e o `.dart` da
+aplicação (`ng_dependencia_pelo_motor_igual_ao_oraculo`). Na mesma rodada de
+medição, os 219 `.template.dart` que o oficial gerou para `ngdart` e
+`ngcompiler` saíram iguais do `gerador_ng` (0 diferentes; 18 arquivos que o
+oficial não gera por serem opcionais não pedidos). Um componente da
+dependência que o programa da entrada não carrega é recusado com motivo, e a
+saída vem do executor Dart ou do apoio.
 
 ## O que não é pedido
 

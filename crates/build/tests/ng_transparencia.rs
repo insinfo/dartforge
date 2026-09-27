@@ -210,3 +210,79 @@ fn ng_edicao_dart_em_cada_arquivo_igual_ao_do_zero() {
     }
     println!("estágio B em .dart: {seletivas} de {total} edições sem regenerar o pacote inteiro");
 }
+
+/// Pacote dependente (B03): `corpus/ngdart_dependente`, uma aplicação que usa
+/// o componente de uma dependência `path`. Os `.template.dart` dos dois
+/// pacotes saem do nativo iguais ao oráculo do `build_runner`, e edições na
+/// dependência e na aplicação dão o estado de um motor do zero.
+///
+/// Exige `dart pub get` em `corpus/ngdart_dependente/app`.
+#[test]
+#[ignore = "exige `dart pub get` em corpus/ngdart_dependente/app"]
+fn ng_dependencia_pelo_motor_igual_ao_oraculo() {
+    let origem = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/ngdart_dependente");
+    let tmp = tempfile::tempdir().unwrap();
+    for d in ["app", "dep"] {
+        copiar(&origem.join(d), &tmp.path().join(d));
+    }
+    let app = tmp.path().join("app");
+    let dep = tmp.path().join("dep");
+    let programa = |app: &Path| {
+        let mut nomes = Interner::new();
+        let cfg = app.join(".dart_tool/package_config.json");
+        // A biblioteca do componente alcança a dependência; o `web/main.dart`
+        // só importa o `.template.dart`, que ainda não existe.
+        let (p, _) = dartforge_elements::load::load_lenient(&app.join("lib/app.dart"), &sdk(), Some(&cfg), &mut nomes);
+        (p, nomes)
+    };
+    let novo = |app: &Path, p: &dartforge_elements::model::Program, nomes: &Interner| {
+        let cfg = PackageConfig::load(&app.join(".dart_tool/package_config.json")).expect("package_config.json (dart pub get)");
+        let mut m = Motor::novo(app, &cfg, OpcoesMotor::default()).expect("motor");
+        m.atualizar(&Contexto { banco: &SemBanco, programa: Some((p, nomes)) }, &[], Demanda::Tudo).expect("atualizar");
+        m
+    };
+    let (p, nomes) = programa(&app);
+    let mut vivo = novo(&app, &p, &nomes);
+    let g = vivo.geracao();
+    let mut conferidos = 0;
+    for (pacote, raiz) in [("app_ng", &app), ("dep_ng", &dep)] {
+        let dir = origem.join("oraculo").join(pacote);
+        let mut arquivos = Vec::new();
+        let mut pilha = vec![dir.clone()];
+        while let Some(d) = pilha.pop() {
+            for e in std::fs::read_dir(&d).unwrap().flatten() {
+                if e.path().is_dir() {
+                    pilha.push(e.path());
+                } else {
+                    arquivos.push(e.path());
+                }
+            }
+        }
+        for o in arquivos {
+            let rel = o.strip_prefix(&dir).unwrap();
+            let k = dartforge_elements::gerado::chave(&raiz.join(rel));
+            let gerado = g.obter(&k).unwrap_or_else(|| panic!("{}: ausente na geração", k.display()));
+            let esperado = std::fs::read_to_string(&o).unwrap();
+            assert_eq!(*gerado.conteudo, esperado, "{pacote}/{}: nativo ≠ oráculo", rel.display());
+            conferidos += 1;
+        }
+    }
+    assert_eq!(conferidos, 5);
+    drop((p, nomes));
+    // Edições: recurso e `@Input` na dependência, corpo na aplicação.
+    let passos: [(PathBuf, &str, &str); 3] = [
+        (dep.join("lib/src/botao.html"), "</button>", "</button><span>editado</span>"),
+        (dep.join("lib/src/botao.dart"), "  String rotulo = '';", "  String rotulo = '';\n\n  @Input()\n  bool ativo = false;"),
+        (app.join("lib/app.dart"), "  String texto = 'ok';", "  String texto = 'ok';\n  int contador = 0;"),
+    ];
+    for (arq, trecho, texto) in passos {
+        let atual = std::fs::read_to_string(&arq).unwrap();
+        assert!(atual.contains(trecho), "{}: trecho ausente", arq.display());
+        std::fs::write(&arq, atual.replacen(trecho, texto, 1)).unwrap();
+        let (p, nomes) = programa(&app);
+        vivo.atualizar(&Contexto { banco: &SemBanco, programa: Some((&p, &nomes)) }, &[arq.clone()], Demanda::Tudo)
+            .expect("atualizar");
+        let zero = novo(&app, &p, &nomes);
+        assert_eq!(vivo.estado_canonico(), zero.estado_canonico(), "incremental ≠ do zero depois de {}", arq.display());
+    }
+}

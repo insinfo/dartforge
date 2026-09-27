@@ -3,8 +3,10 @@
 //! sessão (o `Resolvedor` é o `BuildStep.resolver` sem carga extra), com
 //! consultas conservadoras — qualquer `.dart`/`.html`/`.scss`/`.css` do
 //! pacote, a lista de arquivos de `lib/`, `web/` e `test/`, e o texto de toda
-//! biblioteca de fora do pacote. O motor faz o corte pela saída: só os
-//! `.template.dart`/`.css.shim.dart` com texto novo invalidam unidades.
+//! biblioteca de fora do pacote que as dele alcançam. O motor faz o corte pela
+//! saída: só os `.template.dart`/`.css.shim.dart` com texto novo invalidam
+//! unidades. Vale para o pacote da entrada e para cada dependência a que o
+//! ngdart se aplica, cada um com a sua rodada.
 //!
 //! Estágio B, por dentro da ação de pacote: uma edição de HTML ou folha de
 //! estilo já conhecida regenera apenas os componentes que a leram; uma edição
@@ -20,7 +22,9 @@ use std::sync::Mutex;
 
 #[derive(Default)]
 pub struct NgEstagioA {
-    cache: Mutex<Option<CacheNg>>,
+    /// Por pacote: a entrada e cada dependência com componentes têm a sua
+    /// rodada.
+    cache: Mutex<HashMap<String, CacheNg>>,
 }
 
 struct CacheNg {
@@ -77,17 +81,14 @@ impl GeradorNativo for NgEstagioA {
 
     fn gerar(&self, ctx: &mut CtxGerador<'_>, pedido: &PedidoNativo) -> Result<SaidaNativa, String> {
         let raiz = &pedido.raiz_do_pacote;
-        // Estágio A cobre o pacote raiz (como o `DARTFORGE_GERADOS=ng`); os
-        // outros vêm do apoio.
+        // Qualquer pacote a que o ngdart se aplica: o da entrada e as
+        // dependências com componentes (um `path` como o `limitless_ui` do
+        // `example`, e os `hosted` ngdart/ngcompiler, cujos `.template.dart`
+        // o DDC pede). Os arquivos que o programa da entrada não carrega o
+        // gerador recusa com motivo.
         let Some((programa, nomes_programa)) = ctx.programa else {
             return Err("ngdart (estágio A): sem programa carregado".into());
         };
-        let e_raiz = programa.entry.is_some_and(|l| {
-            programa.library(l).units.first().and_then(|&u| programa.unit(u).path.as_ref()).is_some_and(|p| p.starts_with(raiz))
-        });
-        if !e_raiz {
-            return Err("ngdart (estágio A): só o pacote da entrada".into());
-        }
         // Num recurso existente, a lista de consultas conservadoras do pacote
         // não ganha termos novos. O motor conserva as respostas anteriores e
         // substitui apenas o digest deste arquivo.
@@ -132,17 +133,24 @@ impl GeradorNativo for NgEstagioA {
                 _ => ctx.registrar(Consulta::Arquivo(k)),
             }
         }
-        // O que o `Resolvedor` pode perguntar de fora do pacote.
-        for l in &programa.libraries {
-            if l.is_sdk {
+        // O que o `Resolvedor` pode perguntar de fora do pacote: as
+        // bibliotecas que as do pacote alcançam por `import`/`export` (a
+        // geração de um arquivo só enxerga o escopo dele). Numa dependência,
+        // editar a aplicação não acorda a rodada dela.
+        let do_pacote = |l: &dartforge_elements::model::Library| match l.uri.strip_prefix("package:") {
+            Some(r) => r.split('/').next() == Some(pedido.pacote.as_str()),
+            None => l.units.first().and_then(|&u| programa.unit(u).path.as_ref()).is_some_and(|p| p.starts_with(raiz)),
+        };
+        let mut vistos = vec![false; programa.libraries.len()];
+        let mut fila: Vec<usize> =
+            (0..programa.libraries.len()).filter(|&i| !programa.libraries[i].is_sdk && do_pacote(&programa.libraries[i])).collect();
+        while let Some(i) = fila.pop() {
+            if std::mem::replace(&mut vistos[i], true) {
                 continue;
             }
-            let de_fora = l
-                .units
-                .first()
-                .and_then(|&u| programa.unit(u).path.as_ref())
-                .is_none_or(|p| !p.starts_with(raiz));
-            if de_fora {
+            let l = &programa.libraries[i];
+            fila.extend(l.imports.iter().map(|x| x.library.0 as usize).chain(l.exports.iter().map(|x| x.library.0 as usize)));
+            if !l.is_sdk && !do_pacote(l) {
                 ctx.registrar(Consulta::FonteBiblioteca(l.uri.clone()));
             }
         }
@@ -185,11 +193,10 @@ impl GeradorNativo for NgEstagioA {
             s.recusas.insert(p.clone(), m);
         }
         s.unidades_geradas = placar.gerados;
-        *self.cache.lock().map_err(|_| "ngdart: cache envenenado")? = Some(CacheNg {
-            saida: clone_saida(&s),
-            fontes_do_recurso,
-            indice: None,
-        });
+        self.cache.lock().map_err(|_| "ngdart: cache envenenado")?.insert(
+            pedido.pacote.clone(),
+            CacheNg { saida: clone_saida(&s), fontes_do_recurso, indice: None },
+        );
         Ok(s)
     }
 }
@@ -287,7 +294,7 @@ impl NgEstagioA {
         }
         fecho.sort();
         let mut cache = self.cache.lock().ok()?;
-        let cache = cache.as_mut()?;
+        let cache = cache.get_mut(&pedido.pacote)?;
         let pacote = dartforge_gerador_ng::Pacote { nome: pedido.pacote.clone(), raiz: raiz.clone() };
         let resolvedor = dartforge_gerador_ng::resolucao::Resolvedor::novo(programa, nomes_programa);
         for fonte in &fecho {
@@ -384,7 +391,7 @@ impl NgEstagioA {
             return None;
         }
         let mut cache = self.cache.lock().ok()?;
-        let cache = cache.as_mut()?;
+        let cache = cache.get_mut(&pedido.pacote)?;
         let fontes = cache.fontes_do_recurso.get(recurso)?.clone();
         let (programa, nomes_programa) = ctx.programa?;
         let pacote = dartforge_gerador_ng::Pacote { nome: pedido.pacote.clone(), raiz: pedido.raiz_do_pacote.clone() };
