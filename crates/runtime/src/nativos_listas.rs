@@ -310,14 +310,38 @@ pub extern "C" fn dartforge_nativo_GrowableList_setLength(this: i64, n: i64) {
 pub extern "C" fn dartforge_nativo_GrowableList_setData(this: i64, dados: i64) {
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
+        let pendente = heap.pendentes.remove(&this);
+        let Value::List(itens) = heap.get(this) else { return };
+        let n_atual = pendente.unwrap_or(itens.len());
+        // Uma cópia só: os `n` primeiros de `dados`, com a capacidade dele
+        // (antes, um clone de `dados` inteiro e depois a cópia).
         let Value::List(novos) = heap.get(dados) else { return };
-        let novos = novos.clone();
+        let n = n_atual.min(novos.len());
+        let mut v = Vec::with_capacity(novos.len());
+        v.extend_from_slice(&novos[..n]);
+        if let Value::List(itens) = heap.get_mut(this) {
+            *itens = v;
+        }
+    });
+}
+
+/// `_GrowableList._grow(capacidade)` da sobreposição
+/// (`sdk_nativo/core/growable_array.dart`): a capacidade reservada no
+/// vetor da lista, onde os elementos já estão. Uma lista de `_withData`
+/// ainda com o tamanho lógico pendente fica com os `n` primeiros.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_GrowableList_reservar(this: i64, capacidade: i64) {
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
         let pendente = heap.pendentes.remove(&this);
         if let Value::List(itens) = heap.get_mut(this) {
-            let n = pendente.unwrap_or(itens.len()).min(novos.len());
-            let mut v = Vec::with_capacity(novos.len());
-            v.extend_from_slice(&novos[..n]);
-            *itens = v;
+            if let Some(n) = pendente {
+                itens.truncate(n);
+            }
+            let cap = usize::try_from(capacidade).unwrap_or(0);
+            if cap > itens.len() {
+                itens.reserve_exact(cap - itens.len());
+            }
         }
     });
 }
@@ -357,12 +381,14 @@ pub extern "C" fn dartforge_nativo_DartForge_imprimir(linha: i64) {
 /// índice.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_string_codeUnitAt(this: i64, indice: i64) -> i64 {
-    let t = texto_de(this);
-    if indice < 0 || indice as usize >= t.len() {
-        lancar_indice(indice, this, t.len() as i64);
-        return 0;
+    let r = com_texto(this, |t| usize::try_from(indice).ok().filter(|&i| i < t.len()).map(|i| t.unidade(i)).ok_or(t.len()));
+    match r {
+        Ok(u) => i64::from(u),
+        Err(n) => {
+            lancar_indice(indice, this, n as i64);
+            0
+        }
     }
-    i64::from(t.unidade(indice as usize))
 }
 
 /// `_StringBase._concatRangeNative(strings, start, end)`: a concatenação
@@ -626,7 +652,7 @@ pub extern "C" fn dartforge_nativo_Closure_equals(this: i64, outro: i64) -> u8 {
     HEAP.with(|heap| {
         let heap = heap.borrow();
         match (heap.try_get(this), heap.try_get(outro)) {
-            (Some(Value::Closure { code_id: a, environment: ea }), Some(Value::Closure { code_id: b, environment: eb }))
+            (Some(Value::Closure { code_id: a, environment: ea, .. }), Some(Value::Closure { code_id: b, environment: eb, .. }))
                 if a == b =>
             {
                 match (heap.try_get(*ea), heap.try_get(*eb)) {
@@ -828,7 +854,7 @@ pub extern "C" fn dartforge_nativo_WeakProperty_setValue(this: i64, valor: i64) 
 pub extern "C" fn dartforge_nativo_Closure_computeHash(this: i64) -> i64 {
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        let Some(Value::Closure { code_id, environment }) = heap.try_get(this) else { return 0 };
+        let Some(Value::Closure { code_id, environment, .. }) = heap.try_get(this) else { return 0 };
         let mut h = (*code_id as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
         if let Some(Value::Environment(x)) = heap.try_get(*environment)
             && x.len() == 1

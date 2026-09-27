@@ -21,7 +21,11 @@ LINHA = re.compile(r"^(\w+): ([\d ]+) us \| (.*)$")
 
 def rodar(cmd, prazo=600):
     t0 = time.perf_counter()
-    p = subprocess.run(cmd, capture_output=True, text=True, timeout=prazo)
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=prazo)
+    except subprocess.TimeoutExpired:
+        # Registrado como tempo esgotado; a comparação segue.
+        return None, float(prazo)
     total = time.perf_counter() - t0
     if p.returncode != 0:
         raise RuntimeError(f"{' '.join(cmd)}: saída {p.returncode}\n{p.stderr[-2000:]}")
@@ -30,11 +34,14 @@ def rodar(cmd, prazo=600):
 
 def ler(saida):
     r = {}
+    if saida is None:
+        return r
     for l in saida.splitlines():
         m = LINHA.match(l.strip())
         if m:
             tempos = [int(x) for x in m.group(2).split()]
-            r[m.group(1)] = (statistics.median(tempos[1:] or tempos), m.group(3))
+            estaveis = tempos[1:] or tempos
+            r[m.group(1)] = (statistics.median(estaveis), m.group(3), min(estaveis), max(estaveis))
     return r
 
 
@@ -42,6 +49,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--repeticoes", type=int, default=3)
     ap.add_argument("--saida")
+    ap.add_argument("--prazo", type=int, default=600, help="segundos por execução")
     ap.add_argument("filtro", nargs="*")
     a = ap.parse_args()
     progs = sorted(f[:-5] for f in os.listdir(BENCH) if f.endswith(".dart") and f != "comum.dart")
@@ -61,27 +69,39 @@ def main():
         tot = [[] for _ in cmds]
         for _ in range(a.repeticoes):
             for i, c in enumerate(cmds):
-                s, t = rodar(c)
+                s, t = rodar(c, a.prazo)
                 por[i].append(ler(s))
                 tot[i].append(t)
         totais.append((prog, [statistics.median(t) for t in tot]))
         for nucleo in por[3][0]:
-            resultados = {p[0].get(nucleo, (0, "?"))[1] for p in por}
+            resultados = {r[nucleo][1] for p in por for r in p if nucleo in r}
             if len(resultados) != 1:
                 erros.append(f"{prog}/{nucleo}: resultados diferentes {resultados}")
-            med = [statistics.median(r[nucleo][0] for r in p if nucleo in r) / 1000 for p in por]
-            linhas.append((f"{prog}/{nucleo}", med))
-            print(f"{prog}/{nucleo}: " + "  ".join(f"{n} {m:.1f}" for n, m in zip(nomes, med)), flush=True)
+            med, faixa = [], []
+            for p in por:
+                vals = [r[nucleo] for r in p if nucleo in r]
+                if not vals:
+                    med.append(None)
+                    faixa.append(None)
+                    continue
+                med.append(statistics.median(v[0] for v in vals) / 1000)
+                faixa.append((min(v[2] for v in vals) / 1000, max(v[3] for v in vals) / 1000))
+            linhas.append((f"{prog}/{nucleo}", med, faixa))
+            print(f"{prog}/{nucleo}: " + "  ".join(f"{n} {'esgotou' if m is None else f'{m:.1f}'}" for n, m in zip(nomes, med)), flush=True)
     shutil.rmtree(tmp, ignore_errors=True)
 
     versao = subprocess.run(["dart", "--version"], capture_output=True, text=True)
     out = [f"Máquina: {platform.platform()}, {os.cpu_count()} CPUs; {(versao.stdout or versao.stderr).strip()}; "
            f"{a.repeticoes} repetições alternadas.", "",
-           "Tempo estável por núcleo (ms, mediana; menor é melhor). Razão = DartForge AOT / Dart AOT.", "",
+           "Tempo estável por núcleo (ms): mediana das rodadas depois da primeira, e entre colchetes a faixa "
+           "(mínimo–máximo) de todas as repetições; menor é melhor. `esgotou` = passou do prazo. "
+           "Razão = DartForge AOT / Dart AOT.", "",
            "| núcleo | " + " | ".join(nomes) + " | razão |", "|---|" + "---:|" * (len(nomes) + 1)]
-    for n, m in linhas:
-        razao = m[1] / m[3] if m[3] else float("inf")
-        out.append(f"| {n} | " + " | ".join(f"{x:.1f}" for x in m) + f" | {razao:.2f}x |")
+    def celula(m, f):
+        return "esgotou" if m is None else f"{m:.1f} [{f[0]:.1f}–{f[1]:.1f}]"
+    for n, m, f in linhas:
+        razao = f"{m[1] / m[3]:.2f}x" if m[1] is not None and m[3] else "—"
+        out.append(f"| {n} | " + " | ".join(celula(x, y) for x, y in zip(m, f)) + f" | {razao} |")
     out += ["", "Tempo total do processo (s, mediana; inclui início e, nos JITs, compilação):", "",
             "| programa | " + " | ".join(nomes) + " |", "|---|" + "---:|" * len(nomes)]
     for p, t in totais:

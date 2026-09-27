@@ -570,6 +570,10 @@ pub enum Value {
     Closure {
         code_id: i64,
         environment: i64,
+        /// O corpo com a ABI tipada (`closure_tipada`, `lower/closures.rs`),
+        /// ou 0: chamado direto quando a ABI de quem chama é `abi`.
+        tipado: i64,
+        abi: i64,
     },
     /// Lista expansível de payloads tipados para tracing, sem generics Dart ainda.
     List(Vec<TaggedValue>),
@@ -1603,6 +1607,8 @@ impl Heap {
         self.allocate_linked(Value::Closure {
             code_id,
             environment,
+            tipado: 0,
+            abi: 0,
         })
     }
     /// Retorna código simbólico e ambiente, preservando a identidade do handle.
@@ -1611,6 +1617,7 @@ impl Heap {
             Value::Closure {
                 code_id,
                 environment,
+                ..
             } => (*code_id, *environment),
             _ => panic!("closure esperada"),
         }
@@ -2012,7 +2019,13 @@ impl Heap {
         };
         // O gatilho por contagem acompanha: com teto, no máximo tantos
         // objetos quanto a folga comporta pelo tamanho mínimo de um slot.
-        let por_contagem = vivos.saturating_mul(2).max(256);
+        // A coleta percorre a tabela de slots inteira (marcas e varredura):
+        // o gatilho acompanha o tamanho dela, para o custo por alocação ser
+        // constante. Só com os vivos, uma tabela que cresceu (550 mil slots
+        // depois de montar um texto grande) e poucos vivos coletava a cada
+        // 256 alocações, varrendo tudo a cada vez. As alocações até lá
+        // reusam os slots livres, sem crescer a tabela.
+        let por_contagem = vivos.saturating_mul(2).max(self.slots.len() / 2).max(256);
         self.threshold = if self.limite_bytes == usize::MAX {
             por_contagem
         } else {

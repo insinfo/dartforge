@@ -1161,7 +1161,11 @@ pub(crate) fn usos_de(inst: &Instruction) -> Vec<ValueId> {
         }),
         Instruction::AllocCell { value } => op(value),
         Instruction::AllocEnv { values } => values.iter().for_each(&mut op),
-        Instruction::AllocClosure { env, .. } => op(env),
+        Instruction::AllocClosure { env, .. } | Instruction::AllocClosureTipada { env, .. } => op(env),
+        Instruction::ChamadaTipada { alvo, args, .. } => {
+            op(alvo);
+            args.iter().for_each(|(a, _)| op(a));
+        }
         Instruction::Load { ptr, .. } => op(ptr),
         Instruction::Store { ptr, val } => {
             op(ptr);
@@ -1290,7 +1294,11 @@ fn trocar_usos(inst: &mut Instruction, troca: &dyn Fn(ValueId) -> Option<ValueId
         }),
         Instruction::AllocCell { value } => t(value),
         Instruction::AllocEnv { values } => values.iter_mut().for_each(t),
-        Instruction::AllocClosure { env, .. } => t(env),
+        Instruction::AllocClosure { env, .. } | Instruction::AllocClosureTipada { env, .. } => t(env),
+        Instruction::ChamadaTipada { alvo, args, .. } => {
+            t(alvo);
+            args.iter_mut().for_each(|(a, _)| t(a));
+        }
         Instruction::Load { ptr, .. } => t(ptr),
         Instruction::Store { ptr, val } => {
             t(ptr);

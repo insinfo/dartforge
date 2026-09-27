@@ -243,6 +243,25 @@ pub enum Instruction {
         code_symbol: String,
         env: Operand,
     },
+    /// Closure cujo corpo tem ABI tipada (`lower/closures.rs`): além da
+    /// entrada uniforme `code_symbol`, o corpo `tipado`
+    /// `(env, p0…) -> r` nas representações da HIR, com o código `abi`
+    /// delas, que a chamada tipada confere.
+    AllocClosureTipada {
+        code_symbol: String,
+        env: Operand,
+        tipado: String,
+        abi: i64,
+    },
+    /// Chamada do corpo tipado de uma closure: `alvo` é o endereço (`I64`,
+    /// de `dartforge_closure_tipada`), os argumentos vão nas representações
+    /// da HIR (o primeiro é o ambiente) e o resultado volta em `ret`. A
+    /// exceção sai pela pendência, como numa chamada Dart.
+    ChamadaTipada {
+        alvo: Operand,
+        args: Vec<(Operand, Type)>,
+        ret: Type,
+    },
 
     // Memória local e ponteiros de pilha
     Alloca(Type),

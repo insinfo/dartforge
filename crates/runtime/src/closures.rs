@@ -62,6 +62,33 @@ pub extern "C" fn dartforge_closure_new(code_id: i64, env: i64) -> i64 {
     HEAP.with(|heap| heap.borrow_mut().create_closure(code_id, env))
 }
 
+/// Uma closure com corpo de ABI tipada (`lower/closures.rs`): `tipado` é o
+/// endereço do corpo `(env, p0…) -> r` nas representações da HIR, e `abi` o
+/// código delas.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_closure_new_tipada(code_id: i64, env: i64, tipado: i64, abi: i64) -> i64 {
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let h = heap.create_closure(code_id, env);
+        if let Value::Closure { tipado: t, abi: a, .. } = heap.get_mut(h) {
+            *t = tipado;
+            *a = abi;
+        }
+        h
+    })
+}
+
+/// O corpo tipado de `h` se ela é uma closure com a ABI `abi` (a que quem
+/// chama espera), senão 0 — e quem chama segue pela entrada uniforme. Só
+/// lê o heap.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_closure_tipada(h: i64, abi: i64) -> i64 {
+    heap_sem_emprestimo(|heap| match heap.try_get(h) {
+        Some(Value::Closure { tipado, abi: a, .. }) if *a == abi && abi != 0 => *tipado,
+        _ => 0,
+    })
+}
+
 /// Devolve o tear-off canônico de uma função top-level (mesmo handle sempre).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_tearoff(code_id: i64) -> i64 {

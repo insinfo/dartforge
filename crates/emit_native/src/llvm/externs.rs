@@ -338,6 +338,15 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
+        decl: "declare i64 @dartforge_closure_new_tipada(i64, i64, i64, i64)",
+        efeitos: ALOCA_SEM_LANCAR,
+    },
+    // A ABI de quem chama conferida contra a da closure (`closures.rs`).
+    Extern {
+        decl: "declare i64 @dartforge_closure_tipada(i64, i64) memory(inaccessiblemem: read) nounwind willreturn",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
         decl: "declare i64 @dartforge_lista_len_gravavel(i64, i64) memory(inaccessiblemem: read) nounwind willreturn speculatable",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },

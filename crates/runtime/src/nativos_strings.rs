@@ -16,12 +16,16 @@ pub extern "C" fn dartforge_nativo_String_getLength(this: i64) -> i64 {
 /// `RangeError.range(i, 0, length - 1, "index")` (`StringValueAt`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_String_charAt(this: i64, indice: i64) -> i64 {
-    let t = texto_de(this);
-    if indice < 0 || indice as usize >= t.len() {
-        lancar_range(indice, 0, t.len() as i64 - 1, "index");
-        return 0;
+    let r = com_texto(this, |t| {
+        usize::try_from(indice).ok().filter(|&i| i < t.len()).map(|i| t.fatia(i, i + 1)).ok_or(t.len())
+    });
+    match r {
+        Ok(f) => alocar_texto(f),
+        Err(n) => {
+            lancar_range(indice, 0, n as i64 - 1, "index");
+            0
+        }
     }
-    alocar_texto(t.fatia(indice as usize, indice as usize + 1))
 }
 
 /// `String_concat` (`+`).
@@ -51,8 +55,8 @@ pub extern "C" fn dartforge_nativo_String_toLowerCase(this: i64) -> i64 {
 /// `[start, end)` sem conferência (o Dart já conferiu), na forma canônica.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_StringBase_substringUnchecked(this: i64, inicio: i64, fim: i64) -> i64 {
-    let t = texto_de(this);
-    alocar_texto(t.fatia(inicio as usize, fim as usize))
+    let f = com_texto(this, |t| t.fatia(inicio as usize, fim as usize));
+    alocar_texto(f)
 }
 
 #[unsafe(no_mangle)]

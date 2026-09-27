@@ -24,6 +24,14 @@ fn texto_de(handle: i64) -> Texto {
     HEAP.with(|heap| heap.borrow().texto(handle).clone())
 }
 
+/// Empresta o texto de uma string, sem copiar: para as operações que leem
+/// uma parte dele (`codeUnitAt`, `substring`), que com a cópia custavam o
+/// comprimento inteiro da string. `f` não pode alocar no heap (o empréstimo
+/// está aberto); quem aloca o resultado faz isso depois.
+fn com_texto<R>(handle: i64, f: impl FnOnce(&Texto) -> R) -> R {
+    HEAP.with(|heap| f(heap.borrow().texto(handle)))
+}
+
 /// Texto de um valor que pode ser string, `StringBuffer` ou `Match`
 /// (o lowering por nome chama `length` e `codeUnitAt` sobre os três).
 fn texto_de_qualquer(handle: i64) -> Option<Texto> {

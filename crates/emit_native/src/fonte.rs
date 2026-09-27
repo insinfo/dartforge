@@ -280,6 +280,10 @@ pub fn podar(module: &mut Module) {
                     Instruction::AllocClosure { code_symbol, .. } | Instruction::TearOff { code_symbol } => {
                         marcar(code_symbol, &mut vivo, &mut pilha)
                     }
+                    Instruction::AllocClosureTipada { code_symbol, tipado, .. } => {
+                        marcar(code_symbol, &mut vivo, &mut pilha);
+                        marcar(tipado, &mut vivo, &mut pilha);
+                    }
                     Instruction::LoadGlobal { simbolo, .. } | Instruction::StoreGlobal { simbolo, .. } => {
                         marcar(simbolo, &mut vivo, &mut pilha)
                     }

@@ -114,6 +114,16 @@ fn executar() -> Result<(), String> {
         if let Some(n) = m.inconsistencias {
             println!("conferência do mundo: {n} inconsistência(s)");
         }
+        if m.poda_desligada {
+            eprintln!(
+                "aviso: a análise de alcance não convergiu em {} rodada(s): o arquivo saiu sem a poda do código do usuário",
+                m.rodadas
+            );
+            // `DARTFORGE_JSPROD_ESTRITO=1`: não convergir é erro (o CI de produção).
+            if std::env::var("DARTFORGE_JSPROD_ESTRITO").is_ok_and(|v| v == "1") {
+                return Err("a análise de alcance não convergiu (DARTFORGE_JSPROD_ESTRITO=1)".into());
+            }
+        }
     }
     Ok(())
 }

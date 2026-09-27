@@ -25,6 +25,7 @@ pub fn instrucao_lanca(inst: &Instruction, nao_lancam: &HashSet<String>) -> bool
         | Instruction::CallSeletor { .. }
         | Instruction::CallClosureRepasse { .. }
         | Instruction::ChamadaNativa { .. }
+        | Instruction::ChamadaTipada { .. }
         | Instruction::ChamadaNativaComposta { .. } => true,
         // Caixa de tipo errado ou nula, null, divisão por zero, `toInt` de
         // NaN ou infinito.

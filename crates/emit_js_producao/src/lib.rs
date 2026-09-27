@@ -57,6 +57,9 @@ pub struct RelatorioMundo {
     pub tempo_verificacao: Duration,
     /// Rodadas mundo→emissão→verificação até o ponto fixo (1 = nada faltou).
     pub rodadas: usize,
+    /// A análise não convergiu e o arquivo saiu sem a poda do código do
+    /// usuário (a emissão completa).
+    pub poda_desligada: bool,
     /// O que o verificador achou faltando (lacunas da análise).
     pub curas: Vec<String>,
     /// Referências pendentes sem elemento correspondente (deveria ser vazio).
@@ -147,9 +150,18 @@ pub fn emitir_com_mundo(a: &dartforge_emit_js::Analise<'_>, sdk_texto: &str, op:
         rel.rodadas = rodada;
         rel.sem_elemento = faltas.sem_elemento.clone();
         if faltas.vazia() || rodada == max_rodadas {
+            let mut emitido = emitido;
             if !faltas.vazia() {
                 rel.curas.extend(faltas.descricao.iter().cloned());
                 rel.curas.push(format!("ponto fixo não atingido em {max_rodadas} rodada(s)"));
+                // Sem o ponto fixo, a poda não foi validada: o arquivo sai com
+                // o código do usuário inteiro (o superconjunto seguro), nunca
+                // com a versão podada que ainda referencia o que tirou.
+                let t = Instant::now();
+                emitido = a.emitir(None)?;
+                rel.tempo_emissao += t.elapsed();
+                rel.poda_desligada = true;
+                rel.curas.push("poda do código do usuário desligada: a análise não convergiu".to_string());
             }
             rel.estat = mundo.estat.clone();
             if std::env::var("DARTFORGE_JSPROD_CONFERIR").is_ok_and(|v| v != "0") {

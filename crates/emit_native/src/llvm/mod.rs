@@ -1271,6 +1271,29 @@ impl<'a> LlvmEmitter<'a> {
                 )
                 .unwrap();
             }
+            Instruction::AllocClosureTipada { code_symbol, env, tipado, abi } => {
+                self.anotar_externo(code_symbol, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
+                let e = self.coagir(env, Type::Ref);
+                writeln!(
+                    self.out,
+                    "  %v{v} = call i64 @dartforge_closure_new_tipada(i64 ptrtoint (ptr @{code_symbol} to i64), i64 {e}, i64 ptrtoint (ptr @{tipado} to i64), i64 {abi})"
+                )
+                .unwrap();
+            }
+            Instruction::ChamadaTipada { alvo, args, ret } => {
+                let a = self.coagir(alvo, Type::I64);
+                let mut partes = Vec::with_capacity(args.len());
+                for (x, t) in args {
+                    let s = self.coagir(x, *t);
+                    partes.push(format!("{} {s}", t.llvm_ir()));
+                }
+                writeln!(self.out, "  %ct{v} = inttoptr i64 {a} to ptr").unwrap();
+                if *ret == Type::Void {
+                    writeln!(self.out, "  call void %ct{v}({})", partes.join(", ")).unwrap();
+                } else {
+                    writeln!(self.out, "  %v{v} = call {} %ct{v}({})", ret.llvm_ir(), partes.join(", ")).unwrap();
+                }
+            }
             Instruction::TearOff { code_symbol } => {
                 self.anotar_externo(code_symbol, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
                 writeln!(self.out, "  %v{v} = call i64 @dartforge_tearoff(i64 ptrtoint (ptr @{code_symbol} to i64))").unwrap();
@@ -2035,11 +2058,13 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::AllocCell { .. }
             | Instruction::AllocEnv { .. }
             | Instruction::AllocClosure { .. }
+            | Instruction::AllocClosureTipada { .. }
             | Instruction::TearOff { .. }
             | Instruction::CallClosure { .. }
             | Instruction::CallSeletor { .. }
             | Instruction::CallClosureRepasse { .. } => Type::Ref,
             Instruction::ChamadaNativa { ret, .. } => ret.tipo_hir(),
+            Instruction::ChamadaTipada { ret, .. } => *ret,
             Instruction::CargaNativa { tipo, .. } => tipo.tipo_hir(),
             Instruction::GravacaoNativa { .. } => Type::Void,
             Instruction::ChamadaNativaComposta { ret, destino, .. } => {

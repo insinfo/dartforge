@@ -55,7 +55,11 @@ macro_rules! visitar {
                 }),
                 Instruction::AllocCell { value } => f(value),
                 Instruction::AllocEnv { values } => values.$nome_t().for_each(|a| f(a)),
-                Instruction::AllocClosure { env, .. } => f(env),
+                Instruction::AllocClosure { env, .. } | Instruction::AllocClosureTipada { env, .. } => f(env),
+                Instruction::ChamadaTipada { alvo, args, .. } => {
+                    f(alvo);
+                    args.$nome_t().for_each(|(a, _)| f(a));
+                }
                 Instruction::Load { ptr, .. } => f(ptr),
                 Instruction::Store { ptr, val } => {
                     f(ptr);

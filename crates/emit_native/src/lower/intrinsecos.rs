@@ -38,10 +38,45 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
+    /// `ClassID.cidX` (`dart:_internal`): na VM, campos `static final` que o
+    /// runtime preenche com o id de classe de `_List`, `_OneByteString`…; o
+    /// SDK compara `ClassID.getID(x)` com eles para tomar os atalhos (o
+    /// `split` de um caractere, os laços de `_List`). Aqui o id de cada
+    /// classe é o que `dartforge_value_class` devolve (a tabela de
+    /// `sdk_modulo::cids_do_runtime`), conhecido ao compilar; sem esta
+    /// troca, os campos ficavam 0 e o SDK nunca tomava os atalhos. Um campo
+    /// sem classe correspondente no runtime fica como está.
+    fn id_de_classe_do_runtime(&self, ast: &ast::Ast, e: ExprId) -> Option<i64> {
+        let ExprKind::Property { name, null_aware: false, .. } = &ast.expr(e).kind else { return None };
+        let Some(dartforge_types::resolved::Resolved::Member { class, .. }) = self.ctx.get_resolved(self.unit_id, e) else {
+            return None;
+        };
+        if Some(*class) != self.ctx.classe_do_sdk("_internal", "ClassID") {
+            return None;
+        }
+        let (lib, classe) = match self.ctx.symbol_name(name.sym) {
+            "cidArray" => ("core", "_List"),
+            "cidGrowableObjectArray" => ("core", "_GrowableList"),
+            "cidImmutableArray" => ("core", "_ImmutableList"),
+            "cidOneByteString" => ("core", "_OneByteString"),
+            "cidTwoByteString" => ("core", "_TwoByteString"),
+            "cidUint8ArrayView" => ("typed_data", "_Uint8ArrayView"),
+            "cidUint8Array" => ("typed_data", "_Uint8List"),
+            "cidInt8Array" => ("typed_data", "_Int8List"),
+            "cidUint8ClampedArray" => ("typed_data", "_Uint8ClampedList"),
+            _ => return None,
+        };
+        let c = self.ctx.classe_do_sdk(lib, classe)?;
+        self.ctx.id_de_classe(c).map(i64::from)
+    }
+
     /// O membro de `int`/`double` em linha, ou `None` (o caminho de sempre).
     pub(super) fn expressao_intrinseca(&mut self, ast: &ast::Ast, e: ExprId) -> Option<Operand> {
         if !self.ctx.sdk_da_fonte {
             return None;
+        }
+        if let Some(id) = self.id_de_classe_do_runtime(ast, e) {
+            return Some(self.emit(Instruction::Const(Constant::Int(id)), Type::I64));
         }
         let (recv, nome, chamada) = match &ast.expr(e).kind {
             ExprKind::Property { target, name, null_aware: false } => (*target, name.sym, false),

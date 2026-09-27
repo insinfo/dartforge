@@ -49,7 +49,7 @@ enum NoG {
     Object { class_id: i64, fields: Vec<ValG> },
     Cell(ValG),
     Environment(Vec<ValG>),
-    Closure { code_id: i64, environment: ValG },
+    Closure { code_id: i64, environment: ValG, tipado: i64, abi: i64 },
     List { itens: Vec<ValG>, fixa: bool, imutavel: bool, pendente: Option<usize> },
     Map(Vec<(ValG, ValG)>, bool),
     Set(Vec<ValG>, bool),
@@ -201,9 +201,12 @@ fn copiar_para_grafo(raiz: i64, compartilhar: bool) -> Result<Grafo, MensagemIle
                 }
                 Value::Cell(t) => NoG::Cell(v(t)),
                 Value::Environment(vs) => NoG::Environment(vs.iter().map(&mut v).collect()),
-                Value::Closure { code_id, environment } => {
-                    NoG::Closure { code_id: *code_id, environment: v(&TaggedValue::reference(*environment)) }
-                }
+                Value::Closure { code_id, environment, tipado, abi } => NoG::Closure {
+                    code_id: *code_id,
+                    environment: v(&TaggedValue::reference(*environment)),
+                    tipado: *tipado,
+                    abi: *abi,
+                },
                 Value::List(vs) => NoG::List { itens: vs.iter().map(&mut v).collect(), fixa, imutavel, pendente },
                 Value::Map(es) => NoG::Map(es.iter().map(|(a, b)| (v(a), v(b))).collect(), imutavel),
                 Value::Set(vs) => NoG::Set(vs.iter().map(&mut v).collect(), imutavel),
@@ -534,7 +537,9 @@ fn materializar(g: &Grafo) -> i64 {
                 NoG::Object { class_id, fields } => Value::Object { class_id: *class_id, fields: vec![(0, false); fields.len()] },
                 NoG::Cell(_) => Value::Cell(TaggedValue::scalar(0)),
                 NoG::Environment(v) => Value::Environment(vec![TaggedValue::scalar(0); v.len()]),
-                NoG::Closure { code_id, .. } => Value::Closure { code_id: *code_id, environment: 0 },
+                NoG::Closure { code_id, tipado, abi, .. } => {
+                    Value::Closure { code_id: *code_id, environment: 0, tipado: *tipado, abi: *abi }
+                }
                 NoG::List { itens, .. } => Value::List(vec![TaggedValue::scalar(0); itens.len()]),
                 NoG::Map(es, _) => Value::Map(Vec::with_capacity(es.len())),
                 NoG::Set(v, _) => Value::Set(Vec::with_capacity(v.len())),
@@ -604,9 +609,9 @@ fn materializar(g: &Grafo) -> i64 {
                     let x: Vec<TaggedValue> = vs.iter().map(t).collect();
                     *heap.get_mut(h) = Value::Environment(x);
                 }
-                NoG::Closure { code_id, environment } => {
+                NoG::Closure { code_id, environment, tipado, abi } => {
                     let e = t(environment).bits;
-                    *heap.get_mut(h) = Value::Closure { code_id: *code_id, environment: e };
+                    *heap.get_mut(h) = Value::Closure { code_id: *code_id, environment: e, tipado: *tipado, abi: *abi };
                 }
                 NoG::List { itens, fixa, imutavel, pendente } => {
                     let x: Vec<TaggedValue> = itens.iter().map(t).collect();
