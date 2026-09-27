@@ -195,6 +195,13 @@ import 'package:corpus_ngdart/src/i97_view_child_dois_niveis.template.dart' as i
 import 'package:corpus_ngdart/src/i98_view_child_read.template.dart' as i98;
 import 'package:corpus_ngdart/src/i99_i18n_html.template.dart' as i99;
 import 'package:corpus_ngdart/src/j01_i18n_em_estrela.template.dart' as j01;
+import 'package:corpus_ngdart/src/j02_host_binding_so_herdado.template.dart' as j02;
+import 'package:corpus_ngdart/src/j03_ref_ng_form.template.dart' as j03;
+import 'package:corpus_ngdart/src/j04_i18n_html_formas.template.dart' as j04;
+import 'package:corpus_ngdart/src/j05_usa_host_formas.template.dart' as j05;
+import 'package:corpus_ngdart/src/j06_view_children_dois_niveis.template.dart' as j06;
+import 'package:corpus_ngdart/src/j07_estilos_na_anotacao.template.dart' as j07;
+import 'package:corpus_ngdart/src/j08_estilos_none.template.dart' as j08;
 
 void main() {
   print([
@@ -392,5 +399,12 @@ void main() {
     i98.I98ViewChildReadNgFactory,
     i99.I99I18nHtmlNgFactory,
     j01.J01I18nEmEstrelaNgFactory,
+    j02.J02HostBindingSoHerdadoNgFactory,
+    j03.J03RefNgFormNgFactory,
+    j04.J04I18nHtmlFormasNgFactory,
+    j05.J05UsaHostFormasNgFactory,
+    j06.J06ViewChildrenDoisNiveisNgFactory,
+    j07.J07EstilosNaAnotacaoNgFactory,
+    j08.J08EstilosNoneNgFactory,
   ].length);
 }
