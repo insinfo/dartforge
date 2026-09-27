@@ -28,7 +28,7 @@ pub fn gerar_uma_vez(
     programa: &dartforge_elements::model::Program,
     nomes: &dartforge_intern::Interner,
 ) -> Result<(Arc<Geracao>, String), String> {
-    let mut m = Motor::novo(raiz, cfg, OpcoesMotor::default())?;
+    let mut m = Motor::novo(raiz, cfg, OpcoesMotor { persistir: dartforge_build::persistencia::pedido_no_ambiente(), ..OpcoesMotor::default() })?;
     // Builders Dart pela VM só quando pedidos (DARTFORGE_BUILD_DART).
     dartforge_build::vm::ligar_do_ambiente(&mut m, caminho_cfg);
     let at = m.atualizar(&Contexto { banco: &SemBanco, programa: Some((programa, nomes)) }, &[], Demanda::Carregador)?;
@@ -45,7 +45,10 @@ pub fn gerar_uma_vez(
 
 /// `dartforge build [<entrada.dart>] [--raiz <dir>] [--packages <cfg>] [--plano]
 /// [--comparar] [--release] [--estrito] [--trabalhadores N]
-/// [--escrever-cache <dir>] [--dart <exe>]`. Com `--dart` (ou
+/// [--escrever-cache <dir>] [--dart <exe>] [--estado]`. Com `--estado` (ou
+/// `DARTFORGE_BUILD_ESTADO=1`) o estado do motor é salvo em
+/// `.dart_tool/dartforge/build/estado` e reaproveitado no próximo processo;
+/// sem pedido, nada vai ao disco (regra governante 6). Com `--dart` (ou
 /// `DARTFORGE_BUILD_DART`) os builders sem gerador nativo executam pela VM
 /// Dart (`dartforge_build::vm`); sem ele, vale o apoio do `build_runner`.
 pub fn run_build(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
@@ -60,10 +63,11 @@ pub fn run_build(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::
 }
 
 fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
-    let uso = "uso: dartforge build [<entrada.dart>] [--raiz <dir>] [--packages <cfg>] [--sdk <lib>] [--plano] [--comparar] [--release] [--estrito] [--trabalhadores N] [--escrever-cache <dir>] [--dart <exe>]";
+    let uso = "uso: dartforge build [<entrada.dart>] [--raiz <dir>] [--packages <cfg>] [--sdk <lib>] [--plano] [--comparar] [--release] [--estrito] [--trabalhadores N] [--escrever-cache <dir>] [--dart <exe>] [--estado]";
     let (mut entrada, mut raiz, mut packages, mut sdk, mut cache) = (None, None, None, None, None);
     let mut dart = dartforge_build::vm::dart_do_ambiente();
     let (mut plano, mut comparar, mut release, mut estrito) = (false, false, false, false);
+    let mut persistir = dartforge_build::persistencia::pedido_no_ambiente();
     let mut trabalhadores = OpcoesMotor::default().trabalhadores;
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -78,6 +82,7 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
             Some("--comparar") => comparar = true,
             Some("--release") => release = true,
             Some("--estrito") => estrito = true,
+            Some("--estado") => persistir = true,
             Some("--trabalhadores") => {
                 trabalhadores = it
                     .next()
@@ -113,7 +118,7 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
         }
         return Ok(());
     }
-    let opcoes = OpcoesMotor { release, trabalhadores, estrito, medir_nao_verificados: comparar };
+    let opcoes = OpcoesMotor { release, trabalhadores, estrito, medir_nao_verificados: comparar, persistir };
     let mut motor = Motor::novo(&raiz, &cfg, opcoes)?;
     if let Some(d) = dart {
         dartforge_build::vm::ligar(&mut motor, d, &caminho_cfg);

@@ -428,6 +428,13 @@ pub trait ExecutorDart: Send {
     /// sobre a entrada da âncora. `saidas_permitidas` vem vazia; as escritas
     /// passam pelo [`ServicoBuildStep::escrever`], que aplica a regra do
     /// `addAsset`.
+    /// Os arquivos de que o código dos builders depende (o depfile do
+    /// bootstrap), para o estado salvo entre processos saber quando uma ação
+    /// Dart deixou de valer sem que nenhuma consulta dela mude. `None`
+    /// quando o executor não sabe: as ações Dart não são salvas.
+    fn codigo(&self) -> Option<Vec<PathBuf>> {
+        None
+    }
     fn pos_processar(&mut self, _pedido: &PedidoAcao, _servico: &mut dyn ServicoBuildStep)
         -> Result<ResultadoAcao, ErroExecutor> {
         Err(ErroExecutor("este executor não roda pós-processadores".into()))

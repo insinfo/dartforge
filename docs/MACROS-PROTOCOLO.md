@@ -245,7 +245,8 @@ revalidação só delas, corte pela saída.
 * **Poda**: depois de uma compilação sem erro, saem os registros das
   aplicações que não existem mais.
 * **Onde vive**: em memória, com quem compila várias vezes no mesmo processo.
-  Nada em disco: o motor de build também não grava registro (D-B1) e a regra
+  Nada em disco: o motor de build só grava o estado das próprias ações
+  quando o usuário pede (`BUILD-MOTOR.md` §4.1), e a regra
   governante 6 proíbe contabilidade em disco. O `compile-js` é uma passada
   só e usa `aplicar_incremental` sem cache (só a recarga por diferença).
 * **Aceite** (`tests/cache.rs`, executor falso em Rust com três macros que

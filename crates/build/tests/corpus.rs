@@ -63,7 +63,13 @@ fn motor(dir: &Path, trabalhadores: usize) -> Result<Motor, String> {
     Ok(m)
 }
 
-struct DartFalso { preparos: Arc<AtomicUsize>, chamadas: Arc<AtomicUsize>, fechamentos: Arc<AtomicUsize> }
+struct DartFalso {
+    preparos: Arc<AtomicUsize>,
+    chamadas: Arc<AtomicUsize>,
+    fechamentos: Arc<AtomicUsize>,
+    /// O "código dos builders" que o executor declara (o depfile do real).
+    codigo: Option<Vec<PathBuf>>,
+}
 
 impl ExecutorDart for DartFalso {
     fn disponibilidade(&self) -> Disponibilidade { Disponibilidade::Disponivel }
@@ -80,6 +86,7 @@ impl ExecutorDart for DartFalso {
         }
         Ok(ResultadoAcao::default())
     }
+    fn codigo(&self) -> Option<Vec<PathBuf>> { self.codigo.clone() }
     fn encerrar(&mut self) { self.fechamentos.fetch_add(1, Ordering::SeqCst); }
 }
 
@@ -92,7 +99,12 @@ fn executor_dart_injetado_roda_e_reusa_acoes() {
     let preparos = Arc::new(AtomicUsize::new(0));
     let chamadas = Arc::new(AtomicUsize::new(0));
     let fechamentos = Arc::new(AtomicUsize::new(0));
-    m.definir_executor_dart(Box::new(DartFalso { preparos: preparos.clone(), chamadas: chamadas.clone(), fechamentos: fechamentos.clone() }));
+    m.definir_executor_dart(Box::new(DartFalso {
+        preparos: preparos.clone(),
+        chamadas: chamadas.clone(),
+        fechamentos: fechamentos.clone(),
+        codigo: None,
+    }));
     let ctx = Contexto { banco: &SemBanco, programa: None };
     m.atualizar(&ctx, &[], Demanda::Tudo).unwrap();
     let feitas = chamadas.load(Ordering::SeqCst);
@@ -103,6 +115,105 @@ fn executor_dart_injetado_roda_e_reusa_acoes() {
     assert_eq!(preparos.load(Ordering::SeqCst), 1, "script de builders recompilado na sessão");
     drop(m);
     assert_eq!(fechamentos.load(Ordering::SeqCst), 1, "executor não foi encerrado ao fim da sessão");
+}
+
+/// Um processo do motor (como o `dartforge build`): motor novo, executor
+/// falso novo, uma atualização, saídas `source` no disco.
+/// Devolve o estado canônico e quantas ações o executor Dart recebeu.
+fn processo(dir: &Path, persistir: bool) -> (String, usize, Motor) {
+    let cfg = cfg_de(dir).expect("package_config.json");
+    let mut m = Motor::novo(dir, &cfg, OpcoesMotor { persistir, ..Default::default() }).unwrap();
+    let chamadas = Arc::new(AtomicUsize::new(0));
+    m.definir_executor_dart(Box::new(DartFalso {
+        preparos: Arc::new(AtomicUsize::new(0)),
+        chamadas: chamadas.clone(),
+        fechamentos: Arc::new(AtomicUsize::new(0)),
+        codigo: Some(vec![dir.join("tool/builders.dart")]),
+    }));
+    let at = m.atualizar(&Contexto { banco: &SemBanco, programa: None }, &[], Demanda::Tudo).unwrap();
+    assert!(at.avisos.iter().all(|a| !a.contains("não gravado")), "{:?}", at.avisos);
+    // Como a CLI: as saídas `source` que mudaram vão ao disco.
+    for (p, c) in m.saidas_source_nativas(&at.alterados) {
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, &c[..]).unwrap();
+    }
+    (m.estado_canonico(), chamadas.load(Ordering::SeqCst), m)
+}
+
+/// Estado salvo entre processos (B04, `docs/BUILD-MOTOR.md` §4.1): um
+/// processo novo reaproveita as ações válidas e o estado é o de um motor que
+/// começou do zero; entrada editada, opção alterada e código do builder
+/// alterado (entrada que nenhuma consulta vê) invalidam o necessário.
+#[test]
+#[ignore = "exige `dart pub get` em corpus/builders/cadeia_configuracao"]
+fn estado_salvo_entre_processos() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("cadeia_configuracao");
+    copiar(&raiz_do_corpus().join("cadeia_configuracao"), &dir);
+    let estado = dir.join(".dart_tool/dartforge/build/estado");
+
+    // Sem `persistir`, nada é gravado.
+    let (do_zero, todas, _) = processo(&dir, false);
+    assert!(todas > 0);
+    assert!(!estado.exists(), "motor sem persistir gravou estado");
+
+    // Primeiro processo grava; o segundo não executa nada e chega ao mesmo
+    // estado.
+    let (primeiro, n, _) = processo(&dir, true);
+    assert_eq!((primeiro.as_str(), n), (do_zero.as_str(), todas));
+    assert!(estado.join("estado.json").is_file());
+    let (segundo, n, _) = processo(&dir, true);
+    assert_eq!(n, 0, "processo novo reexecutou ações válidas");
+    assert_eq!(segundo, do_zero, "estado restaurado ≠ do zero");
+
+    // Entrada editada: só o que a leu reexecuta.
+    let alfa = dir.join("lib/entrada/alfa.txt");
+    let mut texto = std::fs::read_to_string(&alfa).unwrap();
+    texto.push_str("linha nova\n");
+    std::fs::write(&alfa, &texto).unwrap();
+    let (depois, n, _) = processo(&dir, true);
+    let (zero, n_zero, _) = processo(&dir, false);
+    assert_eq!(depois, zero, "entrada editada: restaurado ≠ do zero");
+    assert!(n > 0 && n < n_zero, "reexecutou {n} de {n_zero}");
+
+    // Opção alterada (global_options do build.yaml): a fase muda de
+    // identidade e as ações dela reexecutam.
+    let yaml = dir.join("build.yaml");
+    let original = std::fs::read_to_string(&yaml).unwrap();
+    std::fs::write(&yaml, original.replace("      nivel: 3", "      nivel: 4")).unwrap();
+    let (depois, n, _) = processo(&dir, true);
+    let (zero, n_zero, _) = processo(&dir, false);
+    assert_eq!(depois, zero, "opção alterada: restaurado ≠ do zero");
+    assert!(n > 0 && n < n_zero, "reexecutou {n} de {n_zero}");
+
+    // Código do builder alterado: nenhuma consulta o vê, mas as ações Dart
+    // deixam de valer.
+    let tool = dir.join("tool/builders.dart");
+    let mut codigo = std::fs::read_to_string(&tool).unwrap();
+    codigo.push_str("\n// alteração que só o código do builder vê\n");
+    std::fs::write(&tool, codigo).unwrap();
+    let (depois, n, _) = processo(&dir, true);
+    assert_eq!(depois, zero);
+    assert_eq!(n, n_zero, "código do builder mudou e ações Dart foram reaproveitadas");
+
+    // Saída `source` apagada do disco entre processos: a ação reexecuta.
+    let (_, _, m) = processo(&dir, true);
+    let source = m
+        .grafo
+        .gerados
+        .iter()
+        .find(|(_, g)| !g.oculto)
+        .map(|(id, _)| dir.join(id.caminho.as_ref()))
+        .expect("saída source no caso");
+    drop(m);
+    let _ = std::fs::remove_file(&source);
+    let (_, n, _) = processo(&dir, true);
+    assert!(n >= 1, "saída source apagada e nada reexecutou");
+
+    // Estado corrompido é ignorado: tudo executa.
+    std::fs::write(estado.join("estado.json"), b"{corrompido").unwrap();
+    let (depois, n, _) = processo(&dir, true);
+    assert_eq!((depois, n), (zero, n_zero));
 }
 
 fn resumo(linhas: &[String]) {

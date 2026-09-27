@@ -331,6 +331,77 @@ fn corpus_builders_pela_vm() {
     assert!(diferentes.is_empty(), "{}", diferentes.join("\n"));
 }
 
+/// Estado salvo entre processos com o executor real (B04): o segundo processo
+/// não executa nenhum builder, chega ao estado de um motor do zero e o
+/// código dos builders vem do depfile do bootstrap.
+#[test]
+#[ignore = "exige a VM Dart e `dart pub get` em corpus/builders/json_serializable"]
+fn estado_salvo_pela_vm() {
+    let origem = raiz_do_corpus().join("json_serializable");
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("json_serializable");
+    copiar(&origem, &dir);
+    let processo = |persistir: bool| {
+        let cfg = PackageConfig::load(&dir.join(".dart_tool/package_config.json")).unwrap();
+        let opcoes = OpcoesMotor {
+            persistir,
+            ..OpcoesMotor::default()
+        };
+        let mut m = Motor::novo(&dir, &cfg, opcoes).unwrap();
+        m.definir_executor_dart(Box::new(ExecutorVm::novo(ConfigDaVm::do_projeto(
+            dart(),
+            &dir,
+        ))));
+        let t0 = Instant::now();
+        let at = m
+            .atualizar(
+                &Contexto {
+                    banco: &SemBanco,
+                    programa: None,
+                },
+                &[],
+                Demanda::Tudo,
+            )
+            .expect("atualizar");
+        // Como a CLI: as saídas `source` que mudaram vão ao disco.
+        for (p, c) in m.saidas_source_nativas(&at.alterados) {
+            std::fs::write(&p, &c[..]).unwrap();
+        }
+        let ms = t0.elapsed().as_secs_f64() * 1000.0;
+        (m.estado_canonico(), at.rel, ms)
+    };
+    let (primeiro, rel, ms) = processo(true);
+    println!("primeiro processo: {ms:.0} ms — {}", rel.texto());
+    assert!(rel.dart > 0);
+    let estado = std::fs::read_to_string(dir.join(".dart_tool/dartforge/build/estado/estado.json"))
+        .expect("estado gravado");
+    assert!(
+        estado.contains("builders.dart") || estado.contains("\"codigo_dart\":["),
+        "código dos builders registrado"
+    );
+    let (segundo, rel, ms) = processo(true);
+    println!("segundo processo: {ms:.0} ms — {}", rel.texto());
+    assert_eq!(rel.acoes_executadas, 0, "{}", rel.texto());
+    let (zero, _, _) = processo(false);
+    assert_eq!(primeiro, zero);
+    assert_eq!(segundo, zero, "restaurado ≠ do zero");
+    assert_eq!(m_placar_iguais(&dir, &origem), 2);
+}
+
+/// Iguais ao oráculo num processo novo que restaura o estado.
+fn m_placar_iguais(dir: &Path, origem: &Path) -> usize {
+    let cfg = PackageConfig::load(&dir.join(".dart_tool/package_config.json")).unwrap();
+    let opcoes = OpcoesMotor {
+        persistir: true,
+        ..OpcoesMotor::default()
+    };
+    let mut m = Motor::novo(dir, &cfg, opcoes).unwrap();
+    atualizar(&mut m, &[]);
+    let p = m.placar(&referencias(origem));
+    assert!(p.diferentes.is_empty(), "{:?}", p.diferentes);
+    p.iguais.len()
+}
+
 /// A saída de pós-processador `notas.rascunho.resumo` no registro da âncora.
 fn resumo(m: &Motor) -> Option<std::sync::Arc<[u8]>> {
     (0..m.grafo.acoes.len())

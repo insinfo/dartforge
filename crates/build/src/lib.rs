@@ -22,6 +22,7 @@ pub mod motor;
 pub mod nativos;
 pub mod oraculo;
 pub mod pacotes;
+pub mod persistencia;
 pub mod plano;
 pub mod valor;
 pub mod vm;

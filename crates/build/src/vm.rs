@@ -480,6 +480,13 @@ impl ExecutorDart for ExecutorVm {
         self.acao(pedido, servico, false)
     }
 
+    fn codigo(&self) -> Option<Vec<PathBuf>> {
+        let chave = self.chave.as_ref()?;
+        let texto = std::fs::read_to_string(self.cfg.trabalho.join(format!("bootstrap-{chave}.d"))).ok()?;
+        let deps = deps_do_depfile(&texto);
+        (!deps.is_empty()).then_some(deps)
+    }
+
     fn entradas_pos(&mut self, pedido: &PedidoExtensoes) -> Result<Option<Vec<String>>, ErroExecutor> {
         match self.cliente.as_mut() {
             Some(c) => c.entradas_pos(pedido),
