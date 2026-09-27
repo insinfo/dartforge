@@ -68,6 +68,15 @@ runs:
       with:
         name: binarios
         path: ${{ github.workspace }}
+    # O runtime pré-compilado que o job `compilar` pôs no artefato: o
+    # dartforge o procura em DARTFORGE_LIB (o OUT_DIR do build dele não veio).
+    - name: Runtime pré-compilado (DARTFORGE_LIB)
+      if: inputs.nativo == 'true'
+      shell: pwsh
+      run: |
+        $d = Join-Path $env:GITHUB_WORKSPACE 'runtime-pre'
+        if (!(Get-ChildItem $d -Filter 'dartforge_runtime_*.lib' -EA SilentlyContinue)) { Write-Host '::error::o artefato binarios não trouxe o runtime pré-compilado'; exit 1 }
+        "DARTFORGE_LIB=$d" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
     - name: Oráculos (cache gravado pelo job compilar)
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:

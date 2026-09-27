@@ -379,8 +379,47 @@ impl<'a> BodyInferrer<'a> {
         let Some(declarado) = self.outline.variables[vid.0 as usize].declared_type else { return };
         if let Some((unit, init)) = self.inicializador(vid) {
             let mut cx = Corpo::para_variavel(self, vid, unit);
+            if !v.static_ && !v.late
+                && let Some(c) = v.class
+            {
+                self.declarar_parametros_do_primario(&mut cx, c);
+            }
             let t = expr::inferir(self, &mut cx, init, declarado);
             expr::verificar_atribuivel_expr(self, &cx, init, t, declarado, crate::codes::INVALID_ASSIGNMENT.template);
+        }
+    }
+
+    /// Os inicializadores de campo não-`late` de uma classe com construtor
+    /// primário (Dart 3.13) são avaliados no escopo dos parâmetros dele
+    /// (spec, "primary initializer scope"): um parâmetro sombreia o que
+    /// estiver fora da classe. Os valores padrão já foram inferidos no
+    /// próprio construtor.
+    fn declarar_parametros_do_primario(&mut self, cx: &mut Corpo, c: dartforge_elements::model::ClassId) {
+        let Some(d) = self.program.class(c).decl else { return };
+        let ast_unit = &self.program.unit(d.unit).ast;
+        let primario = match &ast_unit.decl(d.decl).kind {
+            ast::DeclKind::Class(cd) => cd.primary_constructor,
+            ast::DeclKind::Enum(ed) => ed.primary_constructor,
+            _ => None,
+        };
+        let Some(membro) = primario else { return };
+        let ast::MemberKind::Constructor(k) = &ast_unit.member(membro).kind else { return };
+        let Some(f) = self.program.functions.iter().position(|f| {
+            matches!(f.node, dartforge_elements::model::FunctionRef::Constructor { unit, member } if unit == d.unit && member == membro)
+        }) else {
+            return;
+        };
+        let tipos: Vec<TypeId> = self.outline.functions[f].parameters.iter().map(|p| p.ty).collect();
+        cx.empurrar_escopo();
+        for (i, p) in k.parameters.iter().enumerate() {
+            let Some(n) = &p.name else { continue };
+            let tipo = tipos.get(i).copied().unwrap_or(self.core.dynamic_);
+            expr::declarar_local(
+                self,
+                cx,
+                corpo::Local { nome: n.sym, tipo, final_: p.final_, late: false, const_: false, offset: n.span.start, funcao_local: false },
+                true,
+            );
         }
     }
 

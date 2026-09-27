@@ -2709,6 +2709,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     let n2 = n.clone();
                     (r, rt, Box::new(move |s: &mut Self, v: &Js| {
                         if recv_ty2.is_dynamic() || s.ctx.lookup_member(&recv_ty2, &n2, true).is_none() {
+                            // O setter de uma extensão (a leitura já foi pelo
+                            // getter dela, `emit_member_get`), como na
+                            // atribuição simples.
+                            if let Some((ext, _, subst)) = s.find_extension_member(&recv_ty2, &n2, true) {
+                                let e = s.ctx.program.extension(ext);
+                                let lib_var = s.lib_var(e.library);
+                                let ext_name = s.extension_js_name(ext);
+                                let mut args = s.ext_type_args(ext, &subst);
+                                args.push(recv_js.clone());
+                                args.push(v.code.clone());
+                                return Js::prim(format!("{lib_var}[{}]({})", js::string_literal(&format!("{ext_name}|set#{n2}")), args.join(", ")));
+                            }
                             Js::prim(format!("dart.dput({recv_js}, {}, {})", js::string_literal(&n2), v.code))
                         } else {
                             let access = s.member_access(&recv_ty2, &n2, true);

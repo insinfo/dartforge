@@ -965,10 +965,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             FunctionBody::Block(s) => {
                 let stmt = self.ast().stmt(*s);
                 if let StmtKind::Block(stmts) = &stmt.kind {
+                    // O bloco do corpo é um escopo dentro do dos parâmetros
+                    // (um local pode sombrear um parâmetro, como na VM); no
+                    // JS continua o mesmo corpo de função.
+                    self.push_scope();
                     self.hoist_locals(stmts);
                     for &st in stmts.iter() {
                         self.emit_stmt(st);
                     }
+                    self.pop_scope();
                 } else {
                     self.emit_stmt(*s);
                 }
