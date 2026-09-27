@@ -419,6 +419,34 @@ recuou para despacho dinâmico (`docs/EMISSAO-DDC.md`, "Pedido ao
 `crates/types`"). O maior ganho de despacho do perfil de produção não vem
 da desvirtualização — vem de fechar essas lacunas de inferência.
 
+**Estado em 2026-09-27 (etapa 6, parcial).** O despacho segue o tipo do
+receptor, e o tipo agora é o da inferência comum
+(`docs/INFERENCIA-JS-ALINHAMENTO.md` §9): leitura promovida, instanciação de
+chamadas genéricas e refinamento de nós deixaram de cair em `dynamic`, e a
+classe chamável (`soma5(10)`) sai como `soma5.call(10)` em vez de
+`dart.dcall`. Chamadas genéricas do DDC (`dsend`, `dgsend`, `dload`,
+`dput`, `dcall`) no JS do `corpus/js`: **214 → 198**. As que restam têm
+receptor de tipo estático `dynamic` ou `Function` pela especificação
+(`Iterable.generate(20)` é `Iterable<dynamic>`, `Map.fromIterable` dá
+`dynamic` aos parâmetros das closures, os programas `dynamic_*`).
+
+A troca de `dart.dsend(o, "foo", a)` por `o.foo(a)` com alvo único **não**
+foi feita, e não é só questão de prova de alcance: no contrato do DDC a
+chamada dinâmica confere aridade, nomeados e o **tipo de cada argumento**
+contra a assinatura do alvo (`dart.dsend` → `_checkAndCall` →
+`_argumentErrors`, que faz `requiredRti[_as](passedValue)` para cada
+argumento), e o corpo do
+método chamado direto não confere o que a chamada tipada já provou. Com
+receptor `dynamic`, os argumentos também costumam ser `dynamic`: a troca
+tiraria a conferência que lança `TypeError`, e um valor de outra classe (ou
+`null`) sairia como `TypeError` do JS em vez de `NoSuchMethodError`. Fazê-la
+exige as três guardas de `locateSingleMember` **mais** argumentos
+estaticamente atribuíveis aos parâmetros do alvo único e um receptor
+provado não nulo e da classe — nada disso existe no corpus hoje (os 198
+sítios são dinâmicos de propósito). No mundo fechado, o receptor `X & B`
+(variável de tipo promovida) passou a restringir o seletor pelo cone de
+`B`.
+
 ---
 
 ## 3. Nomes
@@ -494,6 +522,34 @@ hierarquia e a lista de fugas) e injetado via `ManglePropertyCache`; o
 idempotente — exatamente uma aplicação por programa) e como impressor. O
 mangler de escopo (`oxc_mangler`) cuida dos locais, onde não há fuga
 possível.
+
+**Estado em 2026-09-27 (etapa 7, parcial): compactação sem renomear.**
+`crates/emit_js_producao/src/minificar.rs`, ligada por padrão
+(`--sem-minificar` desliga): tira comentários e o espaço que não separa
+tokens, mantém toda quebra de linha (a inserção automática de ponto e
+vírgula depende dela) e copia cadeias, *template literals* e regex byte a
+byte. Não muda nome nenhum, então nenhuma fuga da §3.2 entra em jogo. Medido
+(`gzip -9`):
+
+| programa | bruto | gzip |
+| --- | ---: | ---: |
+| `01_print` | 1.564.373 → 1.369.664 (−12,4%) | 189.750 → 176.422 (−7,0%) |
+| `40_classes_basico` | 1.574.696 → 1.379.359 (−12,4%) | 191.208 → 177.852 (−7,0%) |
+| `120_convert_json` | 1.769.753 → 1.551.514 (−12,3%) | 215.465 → 200.550 (−6,9%) |
+| runtime inteiro (`--sem-poda`) | 7.089.142 → 6.264.543 (−11,6%) | 838.855 → 786.993 (−6,2%) |
+
+Mesma saída no Node com e sem compactação; o runtime inteiro compactado
+passa no `node --check` e executa; `corpus/js` 229/229 e `corpus/moderno`
+22/26 (+4 pendentes) no perfil de produção com ela ligada, e o
+`determinismo --producao` idêntico com 1, 4 e 8 trabalhadores.
+
+A renomeação (locais pelo escopo, propriedades pelo mapeamento com a lista
+de fugas) **não** foi feita: exige um analisador de JS com escopos sobre o
+`dart_sdk.js` do DDC (o `oxc` da decisão acima não é dependência do
+projeto, e a varredura de `varredura.rs` não é parser), e o que ela mexe é
+justamente onde o erro é invisível — um nome de membro que escapa por
+`dsend`/`dload`, `noSuchMethod`, interop ou pelas regras rti por nome. Fica
+com a decisão acima e com o verificador em modo *stub* como rede.
 
 ---
 
@@ -867,6 +923,8 @@ acrescentou o filtro opcional: `filtro.rs`, o campo `Ctx::filtro`,
 | `bundle.rs` | separa cada módulo em namespaces içáveis, dependências e corpo; ordena topologicamente pelo grafo de `import` lido do próprio texto; monta o arquivo único com uma IIFE por módulo. |
 | `sdk.rs` | classifica as 14.735 declarações do `dart_sdk.js`, extrai referências (inclusive as das receitas rti) e seletores, e reemite as unidades vivas na ordem do arquivo, recolocando as vírgulas dos grupos. |
 | `alcance.rs` | o ponto fixo: uma unidade acende quando **algum** gatilho está vivo e **todos** os requisitos estão. A conjunção é o que dá granularidade de membro. |
+| `cache.rs` | o índice do `dart_sdk.js` em disco, com chave pelo texto, pela granularidade e pelo código da classificação, conferência ao ler e descarte (§1.6). |
+| `minificar.rs` | a compactação do arquivo final: comentários e espaço, sem renomear (§3, etapa 7 parcial). |
 
 Três defeitos que a medição pegou — e que o diagnóstico embutido
 (`DARTFORGE_JSPROD_QUEM`, `_CAMINHO`, `_GATILHO`) localizou em vez de

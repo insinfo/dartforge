@@ -18,6 +18,7 @@ pub mod alcance;
 pub mod bundle;
 pub mod cache;
 pub mod filtro;
+pub mod minificar;
 pub mod sdk;
 pub mod varredura;
 pub mod verificar;
@@ -41,6 +42,8 @@ pub struct Producao {
     pub sdk_vivas: usize,
     /// Bytes dos módulos do usuário e dos pacotes que entraram no arquivo.
     pub usuario: usize,
+    /// Tamanho do arquivo antes da compactação (igual a `js.len()` sem ela).
+    pub antes_de_compactar: usize,
     /// O mundo fechado do usuário, quando calculado.
     pub mundo: Option<RelatorioMundo>,
     /// De onde veio o índice do `dart_sdk.js` (`cache.rs`) e quanto custou
@@ -86,12 +89,15 @@ pub struct Opcoes {
     /// Modo verificador: o que o mundo diz morto é emitido como *stub* que
     /// denuncia a chamada (`DARTFORGE-PODADO: …` no stderr, saída 97).
     pub stub: bool,
+    /// Compactar o arquivo (comentários e espaço que não separa tokens;
+    /// `minificar.rs`), etapa 7 do plano.
+    pub minificar: bool,
 }
 
 impl Default for Opcoes {
     fn default() -> Self {
         let stub = std::env::var("DARTFORGE_JSPROD_VERIFICAR").is_ok_and(|v| v == "stub");
-        Opcoes { podar_sdk: true, por_membro: true, podar_usuario: true, stub }
+        Opcoes { podar_sdk: true, por_membro: true, podar_usuario: true, stub, minificar: true }
     }
 }
 
@@ -285,6 +291,8 @@ pub fn montar_com_indice(emitido: &dartforge_emit_js::Emitido, sdk_texto: &str, 
         bundle::montar(&sdk_podado, &modulos, &entrada, preambulo) == js,
         "a montagem não é determinística"
     );
+    let antes_de_compactar = js.len();
+    let js = if op.minificar { minificar::compactar(&js) } else { js };
     Producao {
         js,
         modulos: modulos.len(),
@@ -294,6 +302,7 @@ pub fn montar_com_indice(emitido: &dartforge_emit_js::Emitido, sdk_texto: &str, 
         sdk_unidades: unidades,
         sdk_vivas: vivas,
         usuario,
+        antes_de_compactar,
         mundo: None,
         indice: None,
         tempo_poda,
@@ -343,7 +352,7 @@ mod testes {
 
     #[test]
     fn monta_um_arquivo_na_ordem_topologica() {
-        let p = montar(&emitido(), SDK, Opcoes { podar_sdk: false, por_membro: false, podar_usuario: false, stub: false });
+        let p = montar(&emitido(), SDK, Opcoes { podar_sdk: false, por_membro: false, podar_usuario: false, stub: false, minificar: false });
         assert!(p.ciclos.is_empty());
         assert_eq!(p.modulos, 2);
         // `util.js` não importa ninguém, então vem antes de `main.js`.
@@ -364,7 +373,7 @@ mod testes {
     /// sim; unificar identidade de biblioteca, não).
     #[test]
     fn empacotar_nao_funde_bibliotecas() {
-        let p = montar(&emitido(), SDK, Opcoes { podar_sdk: false, por_membro: false, podar_usuario: false, stub: false });
+        let p = montar(&emitido(), SDK, Opcoes { podar_sdk: false, por_membro: false, podar_usuario: false, stub: false, minificar: false });
         assert_eq!(p.js.matches("Object.create(dart.library)").count(), 3, "core + as duas do usuário");
     }
 
@@ -383,8 +392,8 @@ mod testes {
     /// alcança — no arquivo único, não num `dart_sdk.js` ao lado.
     #[test]
     fn poda_o_runtime_embutido() {
-        let com = montar(&emitido(), SDK, Opcoes { podar_sdk: true, por_membro: false, podar_usuario: false, stub: false });
-        let sem = montar(&emitido(), SDK, Opcoes { podar_sdk: false, por_membro: false, podar_usuario: false, stub: false });
+        let com = montar(&emitido(), SDK, Opcoes { podar_sdk: true, por_membro: false, podar_usuario: false, stub: false, minificar: false });
+        let sem = montar(&emitido(), SDK, Opcoes { podar_sdk: false, por_membro: false, podar_usuario: false, stub: false, minificar: false });
         assert!(com.js.contains("core.print = function"), "o que o programa usa fica");
         assert!(!com.js.contains("core.Morta"), "o que ele não usa sai");
         assert!(com.sdk_depois < sem.sdk_depois);
