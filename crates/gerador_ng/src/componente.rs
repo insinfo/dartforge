@@ -559,14 +559,9 @@ fn ler(
     );
     c.consultas = consultas_da_classe(arvore, fonte, interner, classe, &mut c.nao_entendidos);
     c.ouvintes = ouvintes_da_classe(arvore, interner, classe, &mut c.nao_entendidos);
+    // Os herdados entram na lista do oficial e não se veem daqui: a visão
+    // completa a lista pelos metadados lidos do programa, ou recusa.
     if e_componente && c.liga_hospedeiro {
-        if c.herda {
-            // Os herdados entram na lista do oficial e não se veem daqui.
-            c.nao_entendidos.push(recusa(
-                Motivo::HostBindingEmComponente,
-                "@HostBinding em componente que herda",
-            ));
-        }
         c.ligacoes_do_hospedeiro =
             ligacoes_do_hospedeiro(arvore, interner, classe, &mut c.nao_entendidos);
     }
@@ -825,10 +820,12 @@ fn consultas_da_classe(
     saida
 }
 
-/// Os `@HostBinding` de um componente, na ordem do `DirectiveVisitor`:
-/// acessores, depois campos. Só `class.x` e `attr.x` (sem contexto de
-/// segurança) com texto literal, num getter ou num campo de instância; o
-/// resto é recusado aqui.
+/// Os `@HostBinding` declarados na própria classe de um componente, na
+/// ordem do `DirectiveVisitor`: acessores, depois campos. O nome é o texto
+/// literal do argumento ou, sem argumento, o do membro
+/// (`hostProperties[bindingName ?? memberName]`); só getter ou campo de
+/// instância. A forma de cada nome (`class.x`, `attr.x`, `style.x`,
+/// propriedade) é conferida pela visão, que também junta os herdados.
 fn ligacoes_do_hospedeiro(
     arvore: &ast::Ast,
     interner: &Interner,
@@ -840,7 +837,7 @@ fn ligacoes_do_hospedeiro(
     let fora_da_forma = || {
         recusa(
             Motivo::HostBindingEmComponente,
-            "@HostBinding fora de class.x/attr.x em campo ou getter",
+            "@HostBinding fora de campo ou getter, ou de nome ilegível",
         )
     };
     for &id in &classe.members {
@@ -849,29 +846,22 @@ fn ligacoes_do_hospedeiro(
             if crate::nome_da_anotacao(a, interner) != "HostBinding" {
                 continue;
             }
-            let nome = a.arguments.as_ref().and_then(|args| match &args.args[..] {
-                [x] if x.name.is_none() => texto_do_argumento(arvore, x.value),
+            // `Some(None)`: sem argumento — o nome é o do membro.
+            let nome = match a.arguments.as_ref().map(|args| &args.args[..]) {
+                None | Some([]) => Some(None),
+                Some([x]) if x.name.is_none() => texto_do_argumento(arvore, x.value).map(Some),
                 _ => None,
-            });
+            };
             let Some(nome) = nome else {
                 fora.push(fora_da_forma());
                 continue;
             };
-            let simples = |n: &str| !n.is_empty() && !n.contains(['.', ':']);
-            let aceito = match (nome.strip_prefix("class."), nome.strip_prefix("attr.")) {
-                (Some(c), _) => simples(c),
-                (_, Some(a)) => simples(a) && !crate::visao::com_seguranca(a),
-                _ => false,
-            };
-            if !aceito {
-                fora.push(fora_da_forma());
-                continue;
-            }
             match &membro.kind {
                 ast::MemberKind::Field(l) if !l.static_ && !l.const_ && l.variables.len() == 1 => {
+                    let m = interner.resolve(l.variables[0].name.sym).to_string();
                     campos.push(LigacaoDoHospedeiro {
-                        nome,
-                        membro: interner.resolve(l.variables[0].name.sym).to_string(),
+                        nome: nome.unwrap_or_else(|| m.clone()),
+                        membro: m,
                         imutavel: l.final_,
                     });
                 }
@@ -879,9 +869,10 @@ fn ligacoes_do_hospedeiro(
                     let funcao = arvore.function(*f);
                     match (funcao.kind, funcao.name) {
                         (ast::FunctionKind::Getter, Some(n)) if !funcao.static_ => {
+                            let m = interner.resolve(n.sym).to_string();
                             acessores.push(LigacaoDoHospedeiro {
-                                nome,
-                                membro: interner.resolve(n.sym).to_string(),
+                                nome: nome.unwrap_or_else(|| m.clone()),
+                                membro: m,
                                 imutavel: false,
                             });
                         }

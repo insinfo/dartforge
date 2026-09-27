@@ -6333,30 +6333,6 @@ fn propriedade_mapeada(atributo: &str) -> &str {
     }
 }
 
-pub(crate) fn com_seguranca(nome: &str) -> bool {
-    matches!(
-        nome,
-        "srcdoc"
-            | "innerHTML"
-            | "outerHTML"
-            | "style"
-            | "formAction"
-            | "href"
-            | "ping"
-            | "src"
-            | "cite"
-            | "background"
-            | "action"
-            | "srcset"
-            | "poster"
-            | "code"
-            | "codebase"
-            | "profile"
-            | "manifest"
-            | "data"
-    )
-}
-
 /// `isNativeHtmlEvent` do ngcompiler (`html_events.dart`): só estes vão
 /// direto para `addEventListener`.
 pub(crate) fn evento_nativo(nome: &str) -> bool {
@@ -6717,6 +6693,179 @@ pub fn coletar(
     fora
 }
 
+/// O que um `@HostBinding` de componente escreve no elemento hospedeiro:
+/// as ligações de `createElementPropertyAst` com o elemento `div`
+/// (`_securityContextElementName` do `DirectiveConverter`), escritas por
+/// `bindAndWriteToRenderer` com `isHtmlElement` falso.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum FormaDoHospedeiro {
+    /// `class.x`: `updateClassBindingNonHtml`.
+    Classe(String),
+    /// `attr.x`, com o saneador do contexto de segurança: `updateAttribute`.
+    Atributo(String, Option<&'static str>),
+    /// `style.x` e `style.x.unidade`, com o texto do valor decidido pelo
+    /// tipo do membro (`visitStyleBinding`: `isString`, `isNullable`).
+    Estilo {
+        nome: String,
+        unidade: Option<String>,
+        texto: bool,
+        nulo: bool,
+    },
+    /// Propriedade (nome mapeado por `getMappedPropName`), com o saneador:
+    /// `setProperty`.
+    Propriedade(String, Option<&'static str>),
+}
+
+/// Um `@HostBinding` do componente, resolvido: o membro lido, se é
+/// imutável (`isImmutable`: campo `final`) e a forma.
+#[derive(Debug, Clone)]
+struct LigacaoDoHospedeiro {
+    membro: String,
+    imutavel: bool,
+    forma: FormaDoHospedeiro,
+}
+
+impl LigacaoDoHospedeiro {
+    /// A instrução que escreve o valor `v` no elemento hospedeiro.
+    fn acao(&self, v: &str) -> String {
+        let dom = tardio(DOM_HELPERS);
+        let saneado = |s: &Option<&'static str>| match s {
+            Some(f) => format!("{}.{f}({v})", tardio(SAFE_HTML)),
+            None => v.to_string(),
+        };
+        match &self.forma {
+            FormaDoHospedeiro::Classe(x) => {
+                format!("{dom}.updateClassBindingNonHtml(this.rootElement, '{x}', {v})")
+            }
+            FormaDoHospedeiro::Atributo(x, s) => format!(
+                "{dom}.updateAttribute(this.rootElement, '{x}', {})",
+                saneado(s)
+            ),
+            FormaDoHospedeiro::Propriedade(x, s) => {
+                format!("{dom}.setProperty(this.rootElement, '{x}', {})", saneado(s))
+            }
+            FormaDoHospedeiro::Estilo {
+                nome,
+                unidade,
+                texto,
+                nulo,
+            } => {
+                let valor = match unidade {
+                    Some(u) => {
+                        let t = if *texto {
+                            v.to_string()
+                        } else {
+                            format!("{v}.toString()")
+                        };
+                        format!("(({v} == null) ? null : ({t} + {}))", literal(u))
+                    }
+                    None if *texto => v.to_string(),
+                    None if *nulo => format!("{v}?.toString()"),
+                    None => format!("{v}.toString()"),
+                };
+                format!("this.rootElement.style.setProperty('{nome}', {valor})")
+            }
+        }
+    }
+}
+
+/// A forma de um nome de `@HostBinding` (`createElementPropertyAst`): o que
+/// não é `class.x`, `attr.x`, `style.x[.unidade]` ou propriedade simples é
+/// recusado — `class`/`className` (a classe inteira), `attr.x.if`,
+/// namespace e prefixo desconhecido ainda não têm caso.
+fn forma_do_hospedeiro(nome: &str) -> Result<FormaDoHospedeiro, String> {
+    let simples = |n: &str| !n.is_empty() && !n.contains(['.', ':']);
+    let fora = || format!("@HostBinding('{nome}') fora de class.x, attr.x, style.x e propriedade");
+    let partes: Vec<&str> = nome.split('.').collect();
+    Ok(match partes.as_slice() {
+        ["class", x] if simples(x) => FormaDoHospedeiro::Classe(x.to_string()),
+        ["attr", x] if simples(x) => {
+            FormaDoHospedeiro::Atributo(x.to_string(), saneador("div", propriedade_mapeada(x)))
+        }
+        ["style", x] | ["style", x, _] if simples(x) => FormaDoHospedeiro::Estilo {
+            nome: x.to_string(),
+            unidade: partes.get(2).map(|u| u.to_string()),
+            texto: false,
+            nulo: false,
+        },
+        [p] if simples(p) => {
+            let mapeada = propriedade_mapeada(p);
+            if mapeada == "className" {
+                return Err(fora());
+            }
+            FormaDoHospedeiro::Propriedade(mapeada.to_string(), saneador("div", mapeada))
+        }
+        _ => return Err(fora()),
+    })
+}
+
+/// Os `@HostBinding` do componente na ordem do mapa `hostProperties` do
+/// oficial. Sem herança, os da própria classe ([`Componente`]); com
+/// herança, os dos metadados lidos do programa (`metadados.rs`: supertipos
+/// primeiro, a chave é o nome e o último vence na posição do primeiro), com
+/// a imutabilidade dos membros herdados perguntada ao resolvedor.
+/// `style.x` precisa do tipo do membro (`isString`, `isNullable`).
+///
+/// # Erros
+///
+/// A recusa da forma que ainda não se escreve: nome fora das formas
+/// conhecidas, herança sem os metadados do programa, membro herdado
+/// ilegível, `style.x` em campo `final` ou de tipo desconhecido.
+fn ligacoes_do_componente(
+    c: &Componente,
+    local: &Local,
+    resolvedor: Option<&dyn Resolucao>,
+) -> Result<Vec<LigacaoDoHospedeiro>, Recusa> {
+    let fora = |f: &str| recusa(Motivo::HostBindingEmComponente, f.to_string());
+    let lista: Vec<(String, String)> = if c.herda {
+        match local.metadados.as_deref() {
+            Some(m) if m.fora.is_empty() => m.ligacoes_do_hospedeiro.clone(),
+            _ if c.liga_hospedeiro => {
+                return Err(fora("@HostBinding em componente que herda"));
+            }
+            _ => Vec::new(),
+        }
+    } else {
+        c.ligacoes_do_hospedeiro
+            .iter()
+            .map(|l| (l.nome.clone(), l.membro.clone()))
+            .collect()
+    };
+    let mut saida = Vec::new();
+    for (nome, membro) in lista {
+        let mut forma = forma_do_hospedeiro(&nome).map_err(|f| fora(&f))?;
+        let proprio = c.ligacoes_do_hospedeiro.iter().find(|l| l.membro == membro);
+        let imutavel = match proprio {
+            Some(l) => l.imutavel,
+            None => resolvedor
+                .and_then(|r| r.membro_final(local.caminho, &c.classe, &membro))
+                .ok_or_else(|| fora("@HostBinding herdado sem declaração legível"))?,
+        };
+        if let FormaDoHospedeiro::Estilo { texto, nulo, .. } = &mut forma {
+            if imutavel {
+                return Err(fora("@HostBinding('style.x') em campo final"));
+            }
+            let tipo = resolvedor
+                .and_then(|r| r.tipo_do_membro(local.caminho, &c.classe, &membro))
+                .map(|(t, _)| t)
+                .or_else(|| c.membros.get(&membro).map(|m| m.tipo.clone()))
+                .unwrap_or_default();
+            let base = tipo.trim().trim_end_matches('?');
+            if base.is_empty() || matches!(base, "dynamic" | "var" | "Object" | "Never") {
+                return Err(fora("@HostBinding('style.x') de tipo desconhecido"));
+            }
+            *texto = base == "String";
+            *nulo = tipo.trim().ends_with('?');
+        }
+        saida.push(LigacaoDoHospedeiro {
+            membro,
+            imutavel,
+            forma,
+        });
+    }
+    Ok(saida)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn gerar_componente(
     c: &Componente,
@@ -6769,6 +6918,14 @@ fn gerar_componente(
     {
         anotar(coleta, recusa(Motivo::Encapsulamento, f))?;
     }
+    // Os `@HostBinding` do componente, com os herdados.
+    let do_hospedeiro = match ligacoes_do_componente(c, local, resolvedor) {
+        Ok(l) => l,
+        Err(r) => {
+            anotar(coleta, r)?;
+            Vec::new()
+        }
+    };
     // A construção sai depois dos imports fixos, porque a injeção aloca os
     // seus (o `errors.dart` e o de cada tipo injetado) no fim da tabela.
     if let Some(r) = falta_para_construir(c, local, resolvedor) {
@@ -7084,35 +7241,26 @@ fn gerar_componente(
     // `updateClassBindingNonHtml`), com os índices de ligação depois dos do
     // template e as imutáveis antes, no `if (firstCheck)`. O `checkBinding`
     // leva `null, null`: a ligação não tem texto de template.
-    let host_changes = if c.ligacoes_do_hospedeiro.is_empty() {
+    let host_changes = if do_hospedeiro.is_empty() {
         String::new()
     } else {
-        let dom = tardio(DOM_HELPERS);
         let chk = tardio(CHECK_BINDING);
         let mut constantes = Vec::new();
         let mut dinamicas = Vec::new();
-        for l in &c.ligacoes_do_hospedeiro {
+        for l in &do_hospedeiro {
             let k = corpo.proxima_ligacao;
             corpo.proxima_ligacao += 1;
-            let acao = |v: &str| match (l.nome.strip_prefix("class."), l.nome.strip_prefix("attr."))
-            {
-                (Some(x), _) => {
-                    format!("{dom}.updateClassBindingNonHtml(this.rootElement, '{x}', {v})")
-                }
-                (_, Some(x)) => format!("{dom}.updateAttribute(this.rootElement, '{x}', {v})"),
-                _ => String::new(),
-            };
             let m = &l.membro;
             if l.imutavel {
                 constantes.push(format!(
                     "      if ((_ctx.{m} != null)) {{\n        {};\n      }}",
-                    acao(&format!("_ctx.{m}"))
+                    l.acao(&format!("_ctx.{m}"))
                 ));
             } else {
                 corpo.campos_expr.push(format!("  Object? _expr_{k};"));
                 dinamicas.push(format!(
                     "    final currVal_{k} = _ctx.{m};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, null, null)) {{\n      {};\n      this._expr_{k} = currVal_{k};\n    }}",
-                    acao(&format!("currVal_{k}"))
+                    l.acao(&format!("currVal_{k}"))
                 ));
             }
         }
@@ -7342,7 +7490,7 @@ fn gerar_componente(
     // Com `@HostBinding`, a hospedeira chama o `detectHostChanges` antes de
     // detectar a visão do componente. Junto de ganchos de ciclo de vida,
     // a ordem ainda não tem caso.
-    if !c.ligacoes_do_hospedeiro.is_empty() {
+    if !do_hospedeiro.is_empty() {
         if ciclo.is_empty() {
             ciclo = "\n  @override\n  void detectChangesInternal() {\n    bool firstCheck = this.firstCheck;\n    this.componentView.detectHostChanges(firstCheck);\n    this.componentView.detectChanges();\n  }\n".to_string();
         } else if coleta.is_none() {
