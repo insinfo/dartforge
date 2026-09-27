@@ -73,6 +73,12 @@ pub struct UnitBodyTypes {
     /// uma leitura que não resolve): em `static_types` ficam `dynamic`, que
     /// é como o `InvalidType` se comporta; a marca só distingue na exibição.
     pub tipos_invalidos: std::collections::HashSet<ast::ExprId>,
+    /// Argumentos de tipo escolhidos para cada chamada genérica (função,
+    /// método, estático, `call`), explícitos ou inferidos, pelo offset do
+    /// início da lista de argumentos (`ast::Arguments::span`). Fica fora do
+    /// tipo de qualquer nó (`id(5)` tem tipo `Object?`, mas a instanciação
+    /// `<Object?>` só aparece aqui) e é o que o backend reifica.
+    pub instanciacoes: std::collections::HashMap<usize, Box<[TypeId]>>,
 }
 
 impl UnitBodyTypes {
@@ -84,7 +90,20 @@ impl UnitBodyTypes {
             tipos_de_locais: std::collections::HashMap::new(),
             declaracoes_de_locais: std::collections::HashMap::new(),
             tipos_invalidos: std::collections::HashSet::new(),
+            instanciacoes: std::collections::HashMap::new(),
         }
+    }
+
+    /// Registra os argumentos de tipo da chamada genérica cuja lista de
+    /// argumentos começa em `offset`.
+    pub fn set_instanciacao(&mut self, offset: usize, args: Box<[TypeId]>) {
+        self.instanciacoes.insert(offset, args);
+    }
+
+    /// Argumentos de tipo da chamada genérica cuja lista de argumentos
+    /// começa em `offset` (ver [`UnitBodyTypes::instanciacoes`]).
+    pub fn instanciacao(&self, offset: usize) -> Option<&[TypeId]> {
+        self.instanciacoes.get(&offset).map(|a| &**a)
     }
 
     /// Registra o tipo de uma variável local declarada em `offset`.

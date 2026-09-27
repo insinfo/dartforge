@@ -128,6 +128,9 @@ pub struct Ctx<'a> {
     /// expressão não dependem do ambiente em execução. 132 mil chamadas,
     /// 1,78 M alocações.
     pub rti_memo: RefCell<HashMap<Ty, String>>,
+    /// Por unidade, os nós que são alvo de atribuição composta ou de
+    /// `++`/`--` ([`Ctx::e_alvo_de_escrita`]).
+    alvos_de_escrita: RefCell<HashMap<u32, std::rc::Rc<HashSet<u32>>>>,
     /// Memória de `as_super`: `(classe, alvo)` → o alvo escrito em função
     /// dos parâmetros da classe. 78 mil chamadas, 525 mil alocações.
     super_memo: RefCell<HashMap<(ClassId, ClassId), Option<Ty>>>,
@@ -235,6 +238,7 @@ impl<'a> Ctx<'a> {
             js_names: HashMap::new(),
             membro_memo: RefCell::new(HashMap::new()),
             rti_memo: RefCell::new(HashMap::new()),
+            alvos_de_escrita: RefCell::new(HashMap::new()),
             super_memo: RefCell::new(HashMap::new()),
             erros: RefCell::new(Vec::new()),
             filtro: None,
@@ -2006,6 +2010,39 @@ impl<'a> Ctx<'a> {
     /// `dartdevc` emite `raw|Caixa<@>` e nunca `raw|Caixa` (o nome sem
     /// argumentos só aparece como **chave** de `addRules`/`addRtiResources`, que
     /// é outra coisa).
+    /// Se `e` (da unidade `unit`) é alvo de atribuição composta (`+=`,
+    /// `??=`…) ou de `++`/`--`. A inferência comum registra o tipo de
+    /// leitura desses alvos no nó da atribuição e não no alvo (como o
+    /// analyzer, que dá `readType` à `AssignmentExpression`), então o tipo
+    /// estático do alvo não vale como tipo da leitura. Calculado uma vez por
+    /// unidade.
+    pub fn e_alvo_de_escrita(&self, unit: dartforge_elements::model::UnitId, e: ast::ExprId) -> bool {
+        let conjunto = self
+            .alvos_de_escrita
+            .borrow_mut()
+            .entry(unit.0)
+            .or_insert_with(|| {
+                let mut v = HashSet::new();
+                for x in &self.program.unit(unit).ast.exprs {
+                    match &x.kind {
+                        ast::ExprKind::Assign { op, target, .. } if *op != ast::AssignOp::Assign => {
+                            v.insert(target.0);
+                        }
+                        ast::ExprKind::Unary {
+                            op: ast::UnaryOp::PrefixInc | ast::UnaryOp::PrefixDec | ast::UnaryOp::PostfixInc | ast::UnaryOp::PostfixDec,
+                            operand,
+                        } => {
+                            v.insert(operand.0);
+                        }
+                        _ => {}
+                    }
+                }
+                std::rc::Rc::new(v)
+            })
+            .clone();
+        conjunto.contains(&e.0)
+    }
+
     pub fn args_na_aridade<'t>(&self, class: ClassId, args: &'t [Ty]) -> std::borrow::Cow<'t, [Ty]> {
         let n = self.class_arity(class);
         if args.len() >= n {

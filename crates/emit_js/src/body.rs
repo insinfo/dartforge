@@ -107,6 +107,11 @@ pub struct FnEmitter<'m, 'a> {
     /// Profundidade de emissão especulativa (`type_of`): erros de linguagem
     /// só contam fora dela.
     pub especulando: u32,
+    /// Parâmetros de tipo de funções genéricas locais em escopo, da
+    /// `TypeTable` (os que a inferência comum usa) para o `Ty::Param` de id
+    /// próprio que o emissor criou ([`Ctx::fresh_param`]): traduz os tipos
+    /// comuns que os mencionam ([`FnEmitter::ty_comum_em_escopo`]).
+    pub params_comuns: HashMap<u32, Ty>,
 }
 
 impl<'m, 'a> FnEmitter<'m, 'a> {
@@ -158,6 +163,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             atalhos: ctx.program.library(lib).features.tem(dartforge_frontend::Feature::DotShorthands),
             contextos_atalho: HashMap::new(),
             especulando: 0,
+            params_comuns: HashMap::new(),
         }
     }
 
@@ -512,8 +518,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         let nparams = self.ctx.class_params[c.0 as usize].len();
                         let mut args = args;
                         while args.len() < nparams {
+                            // Tipo cru: instanciação para os limites. O limite
+                            // implícito (`class C<T>`) dá `dynamic`, não o
+                            // `Object?` que o outline registra; o escrito, ele
+                            // mesmo (`instanciar_para_limites` da inferência
+                            // comum).
                             let p = &self.ctx.class_params[c.0 as usize][args.len()];
-                            args.push(if p.bound.is_dynamic() { Ty::Dynamic } else { (*p.bound).clone() });
+                            let explicito = self.ctx.table.param(dartforge_types::table::TypeParamId(p.id)).explicito;
+                            args.push(if p.bound.is_dynamic() || !explicito { Ty::Dynamic } else { (*p.bound).clone() });
                         }
                         Ty::Iface { class: c, args, nullable }
                     }
@@ -1422,7 +1434,9 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
         let name = f.name.expect("função local com nome");
         let ty = self.local_fn_ty(f);
         let jsn = self.declare(name.sym, ty.clone());
-        let (fn_js, _) = self.emit_function_expr(fid, Some(&ty), false);
+        // A assinatura é a de `local_fn_ty` (a do escopo, que as chamadas
+        // já leram); o tipo comum da função local não entra.
+        let (fn_js, _) = self.emit_function_expr(fid, Some(&ty), None);
         crate::linha!(self.w, "let {jsn} = {};", fn_js.code);
     }
 
