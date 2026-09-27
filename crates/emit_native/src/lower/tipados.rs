@@ -13,17 +13,22 @@
 //! visão não modificável na escrita ou um tipo de elemento inesperado caem
 //! no despacho de sempre, com os mesmos erros da VM.
 //!
-//! `List` não é `final`: uma classe do usuário pode implementá-la. O runtime
-//! responde o comprimento só das listas dele (`_List`, `_GrowableList`,
-//! `_ImmutableList`; na escrita, só das modificáveis) e 0 para as outras,
-//! que ficam com o despacho. Os elementos saem sem caixa na representação
+//! `List` não é `final`: uma classe do usuário pode implementá-la. As
+//! listas do runtime (`_List`, `_GrowableList`, `_ImmutableList`) têm um
+//! cabeçalho de endereço fixo (`heap::CabecalhoDeLista`), que
+//! `dartforge_lista_cabecalho` dá (função pura do handle, fora dos laços):
+//! o endereço dos elementos e o comprimento são lidos dele em linha, a cada
+//! uso; as outras recebem um cabeçalho de comprimento 0 e ficam com o
+//! despacho. Na escrita, o runtime confere uma vez por lista que ela é
+//! modificável e que o `E` aceita o escalar, e marca um bit no cabeçalho;
+//! depois o código gerado só testa o bit. Os elementos saem sem caixa na representação
 //! do resultado (`int`, `double`); gravar direto só com `E` igual a `int`
 //! ou `double`, que nenhuma classe estende — com outro `E`, a lista pode
 //! ser de um subtipo e o `[]=` do SDK confere o valor (covariância).
 //!
 //! O elemento de `List` é um `TaggedValue` do runtime (16 bytes: os bits, e
 //! `is_ref` e a tag nos bytes 8 e 9), lido e gravado em linha no endereço
-//! que `dartforge_lista_dados` dá. A leitura confere a tag: um elemento
+//! dos dados do cabeçalho. A leitura confere a tag: um elemento
 //! guardado de outra forma (uma caixa) sai por `dartforge_lista_ref`.
 
 use super::fn_builder::FnBuilder;
@@ -124,26 +129,78 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// O comprimento para o caminho rápido, ou 0 se ele não serve
-    /// (`dartforge_typed_len`/`dartforge_lista_len_rapido`).
+    /// (`dartforge_typed_len`, ou o cabeçalho da lista do runtime).
     fn comprimento_rapido(&mut self, lista: &Operand, ix: Indexavel, escrita: bool) -> Operand {
-        let escrita = (Operand::Constant(Constant::Int(i64::from(escrita))), Type::I64);
-        let (name, args) = match ix {
-            Indexavel::Tipada(ListaTipada { tipo, .. }) | Indexavel::Simd { tipo, .. } => (
-                "dartforge_typed_len",
-                vec![(lista.clone(), Type::Ref), (Operand::Constant(Constant::Int(tipo)), Type::I64), escrita],
-            ),
-            // Gravação: o `E` reificado tem de aceitar o valor (covariância).
-            Indexavel::Nucleo { gravacao: Some(t) } if escrita.0 == Operand::Constant(Constant::Int(1)) => {
-                let codigo = match t {
-                    Type::I64 => 1,
-                    Type::F64 => 2,
-                    _ => 3,
-                };
-                ("dartforge_lista_len_gravavel", vec![(lista.clone(), Type::Ref), (Operand::Constant(Constant::Int(codigo)), Type::I64)])
+        let (tipo, gravacao) = match ix {
+            Indexavel::Tipada(ListaTipada { tipo, .. }) | Indexavel::Simd { tipo, .. } => {
+                let args = vec![
+                    (lista.clone(), Type::Ref),
+                    (Operand::Constant(Constant::Int(tipo)), Type::I64),
+                    (Operand::Constant(Constant::Int(i64::from(escrita))), Type::I64),
+                ];
+                return self.emit(
+                    Instruction::CallRuntime { name: "dartforge_typed_len".to_string(), args, ret_ty: Type::I64 },
+                    Type::I64,
+                );
             }
-            Indexavel::Nucleo { .. } => ("dartforge_lista_len_rapido", vec![(lista.clone(), Type::Ref), escrita]),
+            Indexavel::Nucleo { gravacao } => (0, gravacao),
         };
-        self.emit(Instruction::CallRuntime { name: name.to_string(), args, ret_ty: Type::I64 }, Type::I64)
+        debug_assert_eq!(tipo, 0);
+        // O comprimento lógico, em linha (0 para quem não é lista do
+        // runtime: o `CABECALHO_VAZIO`).
+        let cab = self.cabecalho_da_lista(lista);
+        let len = self.campo_do_cabecalho(&cab, 1);
+        let Some(t) = gravacao.filter(|_| escrita) else { return len };
+        // Gravação: o `E` reificado tem de aceitar o valor (covariância) e a
+        // lista, ser modificável. Conferido uma vez por lista pelo runtime,
+        // que marca o bit no cabeçalho; depois, só o bit.
+        let codigo = match t {
+            Type::I64 => 1,
+            Type::F64 => 2,
+            _ => 3,
+        };
+        let gravavel = self.campo_do_cabecalho(&cab, 2);
+        let bit = self.emit(Instruction::And(gravavel, Operand::Constant(Constant::Int(1 << codigo))), Type::I64);
+        let conferida = self.emit(Instruction::ICmp(ICmpOp::Ne, bit, Operand::Constant(Constant::Int(0))), Type::I1);
+        let direto = self.new_block();
+        let conferir = self.new_block();
+        let juncao = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: conferida, then_block: direto, else_block: conferir });
+        self.set_block(direto);
+        self.terminate(Terminator::Branch(juncao));
+        self.set_block(conferir);
+        let n = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_lista_len_gravavel".to_string(),
+                args: vec![(lista.clone(), Type::Ref), (Operand::Constant(Constant::Int(codigo)), Type::I64)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        self.terminate(Terminator::Branch(juncao));
+        self.set_block(juncao);
+        self.emit(Instruction::Phi { incoming: vec![(direto, len), (conferir, n)], ty: Type::I64 }, Type::I64)
+    }
+
+    /// O cabeçalho de uma lista do runtime (`heap::CabecalhoDeLista`).
+    fn cabecalho_da_lista(&mut self, lista: &Operand) -> Operand {
+        self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_lista_cabecalho".to_string(),
+                args: vec![(lista.clone(), Type::Ref)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        )
+    }
+
+    /// A palavra `i` do cabeçalho: 0 os dados, 1 o comprimento, 2 as
+    /// gravações conferidas.
+    fn campo_do_cabecalho(&mut self, cab: &Operand, i: i64) -> Operand {
+        self.emit(
+            Instruction::CargaNativa { endereco: cab.clone(), indice: Operand::Constant(Constant::Int(i)), tipo: TipoC::I64 },
+            Type::I64,
+        )
     }
 
     /// `lista.length`.
@@ -308,16 +365,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         true
     }
 
-    /// O endereço dos elementos de uma lista do runtime apta.
+    /// O endereço dos elementos de uma lista do runtime apta, do cabeçalho.
     fn dados_da_lista(&mut self, lista: &Operand) -> Operand {
-        self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_lista_dados".to_string(),
-                args: vec![(lista.clone(), Type::Ref)],
-                ret_ty: Type::I64,
-            },
-            Type::I64,
-        )
+        let cab = self.cabecalho_da_lista(lista);
+        self.campo_do_cabecalho(&cab, 0)
     }
 
     /// `indice * k + d`, em `int`.

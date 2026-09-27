@@ -159,7 +159,7 @@ fn describe_texto(heap: &Heap, handle: i64) -> Texto {
                     output.0.extend_from_slice(v);
                 }
                 Value::List(items) => {
-                    let items: Vec<TaggedValue> = items.clone();
+                    let items: Vec<TaggedValue> = items.to_vec();
                     output.push('[');
                     for (index, item) in items.iter().take(101).enumerate() {
                         if index > 0 {

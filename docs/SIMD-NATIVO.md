@@ -99,10 +99,12 @@ laço sobre lista tipada escapa da chamada genérica, SIMD ou não.
   puras do handle (`memory(none) speculatable`) que o LLVM tira dos laços;
   índice fora dos limites, visão não modificável e `Uint8ClampedList` caem
   no `typed_data_patch.dart`, com os erros da VM (`corpus/nativo/20`).
-* **`List<E>`**: o runtime dá o comprimento e o endereço dos elementos
-  (`dartforge_lista_len_rapido`/`dartforge_lista_dados`, que leem só o
-  cabeçalho do vetor e os conjuntos de listas especiais —
-  `memory(inaccessiblemem: read)`, sem tocar o contador do `RefCell`); o
+* **`List<E>`**: o runtime dá o cabeçalho da lista
+  (`dartforge_lista_cabecalho`, `heap::CabecalhoDeLista`: endereço fixo
+  enquanto a lista vive, `memory(none) speculatable`, fora dos laços), e o
+  comprimento e o endereço dos elementos são lidos dele em linha; na
+  escrita, um bit do cabeçalho diz que a lista é modificável e o `E` aceita
+  o escalar (conferido uma vez por `dartforge_lista_len_gravavel`); o
   código gerado lê e grava o elemento em linha pela ABI de `TaggedValue`
   (`#[repr(C)]`, 16 bytes: `bits` no 0, `is_ref` no 8, a tag no 9,
   conferidos em tempo de compilação no runtime). A leitura confere a tag e

@@ -1,7 +1,8 @@
 // Substitui `_internal/vm/lib/growable_array.dart` (sobreposição
 // `sdk_nativo/`). Igual ao da VM 3.6.2, fora o `_grow` (marcado
 // "DartForge:"), que reserva a capacidade no vetor do runtime em vez de
-// copiar os elementos para um `_List` novo.
+// copiar os elementos para um `_List` novo, e o `filled`, que preenche no
+// runtime.
 // Copyright (c) 2012, the Dart project authors.  Please see the AUTHORS file
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
@@ -124,9 +125,8 @@ class _GrowableList<T> extends ListBase<T> {
   factory _GrowableList.filled(int length, T fill) {
     final result = _GrowableList<T>(length);
     if (fill != null) {
-      for (int i = 0; i < result.length; i++) {
-        result[i] = fill;
-      }
+      // DartForge: como no `_List.filled` (`array.dart`).
+      _preencherLista(result, fill);
     }
     return result;
   }

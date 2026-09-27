@@ -483,14 +483,14 @@ pub extern "C" fn dartforge_generic_len(handle: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_list_reversed(handle: i64) -> i64 {
     if handle == 0 {
-        return HEAP.with(|heap| heap.borrow_mut().allocate(Value::List(Vec::new())));
+        return HEAP.with(|heap| heap.borrow_mut().allocate(Value::List(Vec::new().into())));
     }
     let rev_items: Vec<TaggedValue> = HEAP.with(|heap| {
         let heap = heap.borrow();
         let Value::List(items) = heap.get(handle) else { return Vec::new(); };
         items.iter().rev().copied().collect()
     });
-    HEAP.with(|heap| heap.borrow_mut().allocate(Value::List(rev_items)))
+    HEAP.with(|heap| heap.borrow_mut().allocate(Value::List(rev_items.into())))
 }
 
 /// Concatena os elementos de uma lista usando um separador em string
@@ -529,7 +529,7 @@ pub extern "C" fn dartforge_list_join(handle: i64, sep_handle: i64) -> i64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_collection_mark_unmodifiable(handle: i64) -> i64 {
-    HEAP.with(|h| h.borrow_mut().imutaveis.insert(handle));
+    HEAP.with(|h| h.borrow_mut().marcar_imutavel(handle));
     handle
 }
 
@@ -593,7 +593,7 @@ pub extern "C" fn dartforge_list_sublist(handle: i64, start: i64, end: i64) -> i
         let Value::List(items) = h.get(handle) else { return 0; };
         let slice: Vec<TaggedValue> = items[start as usize..end_idx as usize].to_vec();
         drop(h);
-        heap.borrow_mut().allocate(Value::List(slice))
+        heap.borrow_mut().allocate(Value::List(slice.into()))
     })
 }
 
@@ -614,6 +614,6 @@ pub extern "C" fn dartforge_list_remove_at(handle: i64, index: i64) -> i64 {
         }
         let mut h = heap.borrow_mut();
         let Value::List(items) = h.get_mut(handle) else { return 0; };
-        items.remove(index as usize).bits
+        items.vetor_mut().remove(index as usize).bits
     })
 }

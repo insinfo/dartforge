@@ -530,7 +530,7 @@ pub unsafe extern "C" fn dartforge_ffi_callback_postar(ctx: *const ContextoCallb
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_args(mensagem: i64) -> i64 {
     let itens: Vec<TaggedValue> = HEAP.with(|h| match h.borrow().try_get(mensagem) {
-        Some(Value::List(v)) => v.clone(),
+        Some(Value::List(v)) => v.to_vec(),
         _ => Vec::new(),
     });
     let inteiro = |v: &TaggedValue| if v.is_ref { HEAP.with(|h| h.borrow().int_de_ref(v.bits)).unwrap_or(0) } else { v.bits };

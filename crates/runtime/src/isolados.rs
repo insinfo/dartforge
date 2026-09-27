@@ -161,7 +161,7 @@ fn tratar_mensagem_de_controle(msg: i64) {
     let itens: Vec<TaggedValue> = HEAP.with(|h| {
         let h = h.borrow();
         match h.try_get(msg) {
-            Some(Value::List(v)) => v.clone(),
+            Some(Value::List(v)) => v.to_vec(),
             _ => Vec::new(),
         }
     });

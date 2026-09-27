@@ -146,13 +146,13 @@ pub extern "C" fn dartforge_dyn_op(op: i64, a: i64, b: i64) -> i64 {
     }
     if op == OP_ADD {
         // `List.+` devolve uma lista nova e expansível. Algumas listas do SDK
-        // reservam capacidade antes de publicar o comprimento em `pendentes`.
+        // reservam capacidade antes de publicar o comprimento (`Elementos::logico`).
         let lista = HEAP.with(|heap| {
             let heap = heap.borrow();
             let (Some(Value::List(esquerda)), Some(Value::List(direita))) =
                 (heap.try_get(a), heap.try_get(b)) else { return None };
-            let len_a = heap.pendentes.get(&a).copied().unwrap_or(esquerda.len());
-            let len_b = heap.pendentes.get(&b).copied().unwrap_or(direita.len());
+            let len_a = esquerda.len_logico();
+            let len_b = direita.len_logico();
             let mut itens = Vec::with_capacity(len_a + len_b);
             itens.extend_from_slice(&esquerda[..len_a]);
             itens.extend_from_slice(&direita[..len_b]);
@@ -273,7 +273,8 @@ fn elemento_iteravel(h: i64, i: i64) -> Option<TaggedValue> {
         let heap = heap.borrow();
         let i = usize::try_from(i).ok()?;
         match heap.try_get(h)? {
-            Value::List(v) | Value::Set(v) => v.get(i).copied(),
+            Value::List(v) => v.get(i).copied(),
+            Value::Set(v) => v.get(i).copied(),
             _ => None,
         }
     })

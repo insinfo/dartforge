@@ -55,37 +55,23 @@ fn lancar_indice(indice: i64, alvo: i64, tamanho: i64) {
     dartforge_exception_throw(err, 3);
 }
 
-fn lista_len(this: i64) -> i64 {
-    HEAP.with(|heap| {
-        let heap = heap.borrow();
-        match heap.pendentes.get(&this) {
-            Some(&n) => n as i64,
-            None => heap.list_len(this) as i64,
-        }
-    })
+/// A conferência de limites de `[]` (`nome` "length") e do `_setIndexed`
+/// das listas ("index") na VM: `RangeError.range(indice, 0, tamanho - 1,
+/// nome)`, não `IndexError` (ex.: "RangeError (length): Invalid value: Not
+/// in inclusive range 0..2: 10").
+fn lancar_faixa(indice: i64, tamanho: i64, nome: &str) {
+    let n = HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(Texto::de_str(nome))));
+    let erro = com_raizes(&[n], || dartforge_range_error_range(indice, 0, tamanho - 1, n, 0));
+    if dartforge_exception_pending() != 0 {
+        return;
+    }
+    com_raizes(&[erro], || dartforge_exception_throw(erro, 3));
 }
 
-/// O caminho rápido de `[]`, `[]=` e `length` das listas do núcleo
-/// (`_List`, `_GrowableList`, `_ImmutableList`) quando o tipo estático é
-/// `List<E>` (`lower/tipados.rs`): o comprimento de `h` se ela é uma lista
-/// do runtime e, para `escrita != 0`, modificável; senão 0 — nenhum índice
-/// passa no teste `i u< n`, e o código gerado despacha pela classe (uma
-/// classe do usuário que implementa `List`, os erros da VM). Só lê o heap
-/// do runtime: o emissor a declara `memory(inaccessiblemem: read)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_lista_len_rapido(h: i64, escrita: i64) -> i64 {
-    heap_sem_emprestimo(|heap| {
-        match heap.try_get(h) {
-            // Os conjuntos quase sempre estão vazios: sem o hash no caso comum.
-            Some(Value::List(itens)) if escrita == 0 || heap.imutaveis.is_empty() || !heap.imutaveis.contains(&h) => {
-                if heap.pendentes.is_empty() {
-                    itens.len() as i64
-                } else {
-                    heap.pendentes.get(&h).map_or(itens.len(), |&n| n) as i64
-                }
-            }
-            _ => 0,
-        }
+fn lista_len(this: i64) -> i64 {
+    HEAP.with(|heap| match heap.borrow().get(this) {
+        Value::List(e) => e.len_logico() as i64,
+        _ => panic!("lista esperada"),
     })
 }
 
@@ -96,19 +82,73 @@ pub extern "C" fn dartforge_lista_len_rapido(h: i64, escrita: i64) -> i64 {
 /// `List<Never>` vista como `List<int>` cai aqui. Só lê o heap e os tipos.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_lista_len_gravavel(h: i64, codigo: i64) -> i64 {
-    heap_sem_emprestimo(|heap| match heap.try_get(h) {
-        Some(Value::List(itens)) if heap.imutaveis.is_empty() || !heap.imutaveis.contains(&h) => {
+    heap_sem_emprestimo(|heap| {
+        let imutavel = !heap.imutaveis.is_empty() && heap.imutaveis.contains(&h);
+        let meta = match heap.try_get(h) {
+            Some(Value::List(_)) if !imutavel => heap.metadado(h),
+            _ => return 0,
+        };
+        if meta != 0 && !lista_aceita_escalar(meta - 1, codigo) {
+            return 0;
+        }
+        let Value::List(itens) = heap.get_mut(h) else { unreachable!() };
+        // Conferido: o código gerado passa a gravar direto, pelo cabeçalho,
+        // até o `E` ou a imutabilidade mudarem (`Heap::set_metadado`,
+        // `Heap::marcar_imutavel`).
+        itens.conferir_gravacao(codigo);
+        itens.len_logico() as i64
+    })
+}
+
+/// `lista.add(v)` direto (`lower/intrinsecos.rs`) com `v` `int` (`codigo`
+/// 1), `double` (2) ou `bool` (3) sem caixa, nos bits: 1 se acrescentou,
+/// 0 se o caminho não serve e o código gerado chama o `add` do SDK (uma
+/// classe do usuário, lista de tamanho fixo ou não modificável, `E` que não
+/// aceita o valor, a reserva pendente de `_withData`). Conferido uma vez por
+/// lista (o bit `1 << (codigo + 4)` do cabeçalho). O mesmo efeito do
+/// `_GrowableList.add` da VM: o elemento no fim, o comprimento mais um; a
+/// capacidade cresce pelo vetor. Pode coletar (como `list_push`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_lista_add_escalar(h: i64, bits: i64, codigo: i64) -> i64 {
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let Some(Value::List(itens)) = heap.try_get(h) else { return 0 };
+        if itens.logico().is_some() {
+            return 0;
+        }
+        let bit = codigo + 4;
+        if !itens.gravacao_conferida(bit) {
+            if heap.fixas.contains(&h) || heap.imutaveis.contains(&h) {
+                return 0;
+            }
             let meta = heap.metadado(h);
             if meta != 0 && !lista_aceita_escalar(meta - 1, codigo) {
                 return 0;
             }
-            if heap.pendentes.is_empty() {
-                itens.len() as i64
-            } else {
-                heap.pendentes.get(&h).map_or(itens.len(), |&n| n) as i64
-            }
+            let Value::List(itens) = heap.get_mut(h) else { unreachable!() };
+            itens.conferir_gravacao(bit);
         }
-        _ => 0,
+        let v = match codigo {
+            1 => TaggedValue::scalar(bits),
+            2 => TaggedValue::double(f64::from_bits(bits as u64)),
+            _ => TaggedValue::boolean(bits != 0),
+        };
+        heap.list_push(h, v);
+        1
+    })
+}
+
+/// O cabeçalho de `h` (`heap::CabecalhoDeLista`: endereço dos elementos,
+/// comprimento lógico e gravações conferidas) se ela é uma lista do
+/// runtime, senão o `CABECALHO_VAZIO` (comprimento 0). O endereço não muda
+/// enquanto a lista vive: para o código gerado é uma função pura do handle
+/// (`memory(none)`), e sai dos laços. Não entra em pânico com null, `Smi`
+/// ou escalar.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_lista_cabecalho(h: i64) -> i64 {
+    heap_sem_emprestimo(|heap| match heap.try_get(h) {
+        Some(Value::List(itens)) => itens.cabecalho() as i64,
+        _ => std::ptr::addr_of!(crate::heap::CABECALHO_VAZIO) as i64,
     })
 }
 
@@ -120,35 +160,9 @@ pub extern "C" fn dartforge_lista_len_gravavel(h: i64, codigo: i64) -> i64 {
 pub extern "C" fn dartforge_lista_len_ou_menos1(h: i64) -> i64 {
     heap_sem_emprestimo(|heap| match heap.try_get(h) {
         Some(Value::List(itens)) => {
-            if heap.pendentes.is_empty() {
-                itens.len() as i64
-            } else {
-                heap.pendentes.get(&h).map_or(itens.len(), |&n| n) as i64
-            }
+            itens.len_logico() as i64
         }
         _ => -1,
-    })
-}
-
-/// O endereço dos elementos (`TaggedValue`, 16 bytes cada) de `h` se ela
-/// é uma lista do runtime, senão 0. O código gerado lê e grava o elemento
-/// em linha (`lower/tipados.rs`): o buffer é memória que o módulo acessa;
-/// esta função lê só o cabeçalho do vetor, que muda apenas por chamadas sem
-/// atributo (crescer, encolher, `_setData`) — o endereço vale até a próxima
-/// delas, e o LLVM não o reaproveita depois de uma. Daí `memory(inaccessiblemem: read)`: uma
-/// gravação de elemento em linha não invalida o endereço, e qualquer
-/// chamada que possa realocar o vetor invalida.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_lista_dados(h: i64) -> i64 {
-    heap_sem_emprestimo(|heap| {
-        if heap.try_get(h).is_none() {
-            return 0;
-        }
-        // O ponteiro mutável: o código gerado grava por ele.
-        match heap.get_mut(h) {
-            Value::List(itens) => itens.as_mut_ptr() as i64,
-            _ => 0,
-        }
     })
 }
 
@@ -171,7 +185,7 @@ pub extern "C" fn dartforge_nativo_List_allocate(length: i64, tupla: i64) -> i64
     let n = HEAP.with(|heap| heap.borrow().int_de_ref(length)).unwrap_or(0).max(0) as usize;
     let h = HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        let h = heap.allocate(Value::List(vec![TaggedValue::reference(0); n]));
+        let h = heap.allocate(Value::List(vec![TaggedValue::reference(0); n].into()));
         heap.fixas.insert(h);
         h
     });
@@ -196,7 +210,7 @@ pub extern "C" fn dartforge_nativo_List_setIndexed(this: i64, indice: i64, valor
 fn gravar_indice(this: i64, indice: i64, valor: i64) {
     let n = lista_len(this);
     if indice < 0 || indice >= n {
-        lancar_indice(indice, this, n);
+        lancar_faixa(indice, n, "index");
         return;
     }
     HEAP.with(|heap| {
@@ -212,7 +226,7 @@ fn gravar_indice(this: i64, indice: i64, valor: i64) {
 pub extern "C" fn dartforge_nativo_DartForge_lista_get(this: i64, indice: i64) -> i64 {
     let n = lista_len(this);
     if indice < 0 || indice >= n {
-        lancar_indice(indice, this, n);
+        lancar_faixa(indice, n, "length");
         return 0;
     }
     let v = HEAP.with(|heap| heap.borrow().list_get(this, indice as usize));
@@ -226,7 +240,7 @@ pub extern "C" fn dartforge_nativo_List_slice(this: i64, inicio: i64, quantos: i
         let mut heap = heap.borrow_mut();
         let Value::List(itens) = heap.get(this) else { return 0 };
         let fatia: Vec<TaggedValue> = itens[inicio as usize..(inicio + quantos) as usize].to_vec();
-        let h = heap.allocate(Value::List(fatia));
+        let h = heap.allocate(Value::List(fatia.into()));
         heap.fixas.insert(h);
         h
     });
@@ -243,8 +257,8 @@ pub extern "C" fn dartforge_nativo_ImmutableList_from(de: i64, inicio: i64, quan
         let mut heap = heap.borrow_mut();
         let Value::List(itens) = heap.get(de) else { return 0 };
         let fatia: Vec<TaggedValue> = itens[inicio as usize..(inicio + quantos) as usize].to_vec();
-        let h = heap.allocate(Value::List(fatia));
-        heap.imutaveis.insert(h);
+        let h = heap.allocate(Value::List(fatia.into()));
+        heap.marcar_imutavel(h);
         h
     });
     if h != 0 && let Some(tipo) = tipo_lista_da_tupla(tupla, cid_do_runtime(h)) {
@@ -262,9 +276,9 @@ pub extern "C" fn dartforge_nativo_GrowableList_allocate(dados: i64, tupla: i64)
         let mut heap = heap.borrow_mut();
         let Value::List(itens) = heap.get(dados) else { return 0 };
         let itens = itens.clone();
-        let h = heap.allocate(Value::List(itens));
-        heap.pendentes.insert(h, 0);
-        h
+        let mut itens = itens;
+        itens.definir_logico(Some(0));
+        heap.allocate(Value::List(itens))
     });
     if h != 0 && let Some(tipo) = tipo_lista_da_tupla(tupla, cid_do_runtime(h)) {
         HEAP.with(|heap| heap.borrow_mut().set_metadado(h, tipo + 1));
@@ -278,7 +292,7 @@ pub extern "C" fn dartforge_nativo_GrowableList_getCapacity(this: i64) -> i64 {
     HEAP.with(|heap| {
         let heap = heap.borrow();
         match heap.get(this) {
-            Value::List(itens) if heap.pendentes.contains_key(&this) => itens.len() as i64,
+            Value::List(itens) if itens.logico().is_some() => itens.len() as i64,
             Value::List(itens) => itens.capacity() as i64,
             _ => 0,
         }
@@ -297,9 +311,9 @@ pub extern "C" fn dartforge_nativo_GrowableList_setLength(this: i64, n: i64) {
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         // A reserva de `_withData` vira os elementos até `n`.
-        heap.pendentes.remove(&this);
         if let Value::List(itens) = heap.get_mut(this) {
-            itens.resize(n.max(0) as usize, TaggedValue::reference(0));
+            itens.definir_logico(None);
+            itens.vetor_mut().resize(n.max(0) as usize, TaggedValue::reference(0));
         }
     });
 }
@@ -310,9 +324,8 @@ pub extern "C" fn dartforge_nativo_GrowableList_setLength(this: i64, n: i64) {
 pub extern "C" fn dartforge_nativo_GrowableList_setData(this: i64, dados: i64) {
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        let pendente = heap.pendentes.remove(&this);
         let Value::List(itens) = heap.get(this) else { return };
-        let n_atual = pendente.unwrap_or(itens.len());
+        let n_atual = itens.len_logico();
         // Uma cópia só: os `n` primeiros de `dados`, com a capacidade dele
         // (antes, um clone de `dados` inteiro e depois a cópia).
         let Value::List(novos) = heap.get(dados) else { return };
@@ -320,7 +333,25 @@ pub extern "C" fn dartforge_nativo_GrowableList_setData(this: i64, dados: i64) {
         let mut v = Vec::with_capacity(novos.len());
         v.extend_from_slice(&novos[..n]);
         if let Value::List(itens) = heap.get_mut(this) {
-            *itens = v;
+            // No mesmo `Elementos`: o cabeçalho não muda de endereço.
+            itens.definir_logico(None);
+            *itens.vetor_mut() = v;
+        }
+    });
+}
+
+/// `_preencherLista(lista, valor)` da sobreposição (`array.dart`):
+/// os elementos de `_List.filled`/`_GrowableList.filled`, de uma vez.
+/// `valor` já é do `E` da lista (o parâmetro da fábrica); entra normalizado
+/// (um `int`, `double` ou `bool` sem caixa), como pelo `[]=`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_List_preencher(lista: i64, valor: i64) {
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let v = heap.normalizar(TaggedValue::reference(valor));
+        if let Value::List(itens) = heap.get_mut(lista) {
+            let n = itens.len_logico();
+            itens.fatia_mut()[..n].fill(v);
         }
     });
 }
@@ -333,14 +364,17 @@ pub extern "C" fn dartforge_nativo_GrowableList_setData(this: i64, dados: i64) {
 pub extern "C" fn dartforge_nativo_DartForge_GrowableList_reservar(this: i64, capacidade: i64) {
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        let pendente = heap.pendentes.remove(&this);
         if let Value::List(itens) = heap.get_mut(this) {
+            let pendente = itens.logico();
+            itens.definir_logico(None);
+            let mut v = itens.vetor_mut();
             if let Some(n) = pendente {
-                itens.truncate(n);
+                v.truncate(n);
             }
             let cap = usize::try_from(capacidade).unwrap_or(0);
-            if cap > itens.len() {
-                itens.reserve_exact(cap - itens.len());
+            let len = v.len();
+            if cap > len {
+                v.reserve_exact(cap - len);
             }
         }
     });
@@ -385,7 +419,7 @@ pub extern "C" fn dartforge_nativo_DartForge_string_codeUnitAt(this: i64, indice
     match r {
         Ok(u) => i64::from(u),
         Err(n) => {
-            lancar_indice(indice, this, n as i64);
+            lancar_faixa(indice, n as i64, "length");
             0
         }
     }
@@ -497,7 +531,7 @@ pub extern "C" fn dartforge_nativo_Internal_makeFixedListUnmodifiable(lista: i64
         let Value::List(itens) = heap.get(lista) else { return 0 };
         let itens = itens.clone();
         let h = heap.allocate(Value::List(itens));
-        heap.imutaveis.insert(h);
+        heap.marcar_imutavel(h);
         h
     });
     if h != 0 && let Some(tipo) = tipo_lista_copiada(lista, cid_do_runtime(h)) {
@@ -763,8 +797,8 @@ pub extern "C" fn dartforge_nativo_DartForge_record_shape(this: i64) -> i64 {
 pub extern "C" fn dartforge_nativo_DartForge_record_fieldNames(_this: i64) -> i64 {
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        let h = heap.allocate(Value::List(Vec::new()));
-        heap.imutaveis.insert(h);
+        let h = heap.allocate(Value::List(Vec::new().into()));
+        heap.marcar_imutavel(h);
         h
     })
 }

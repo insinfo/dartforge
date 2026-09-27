@@ -328,14 +328,20 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_typed_ptr(i64) memory(none) nounwind willreturn speculatable",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
-    // O caminho rápido das listas do núcleo (`lower/tipados.rs`): o
-    // comprimento e o endereço dos elementos vêm do cabeçalho do vetor no
-    // heap do runtime, que o código gerado não vê (`inaccessiblemem`) e que
-    // só muda por chamadas sem atributo; os elementos são lidos e gravados
-    // em linha (memória acessível ao módulo, que nenhuma destas lê).
+    // O caminho rápido das listas do núcleo (`lower/tipados.rs`). O
+    // cabeçalho (`heap::CabecalhoDeLista`) não muda de endereço enquanto a
+    // lista vive: uma função pura do handle, que sai dos laços. O
+    // comprimento e o endereço dos elementos são lidos dele em linha, a cada
+    // uso (uma chamada que cresce a lista os muda no cabeçalho).
     Extern {
-        decl: "declare i64 @dartforge_lista_len_rapido(i64, i64) memory(inaccessiblemem: read) nounwind willreturn speculatable",
+        decl: "declare i64 @dartforge_lista_cabecalho(i64) memory(none) nounwind willreturn speculatable",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    // `lista.add(v)` de um escalar sem caixa: acrescenta ou devolve 0 (o
+    // `add` do SDK); pode coletar.
+    Extern {
+        decl: "declare i64 @dartforge_lista_add_escalar(i64, i64, i64) nounwind",
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare i64 @dartforge_closure_new_tipada(i64, i64, i64, i64)",
@@ -347,15 +353,12 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_lista_len_gravavel(i64, i64) memory(inaccessiblemem: read) nounwind willreturn speculatable",
+        // Marca o bit de gravação no cabeçalho (memória que o módulo lê).
+        decl: "declare i64 @dartforge_lista_len_gravavel(i64, i64) nounwind willreturn",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare i64 @dartforge_lista_len_ou_menos1(i64) memory(inaccessiblemem: read) nounwind willreturn speculatable",
-        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
-    },
-    Extern {
-        decl: "declare i64 @dartforge_lista_dados(i64) memory(inaccessiblemem: read) nounwind willreturn speculatable",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {

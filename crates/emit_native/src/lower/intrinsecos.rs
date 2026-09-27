@@ -1,5 +1,6 @@
 //! Membros de `int` e `double` em linha, quando o tipo estático do
-//! receptor é exatamente `int` ou `double` (não anulável).
+//! receptor é exatamente `int` ou `double` (não anulável), e o `add` de
+//! `List<int>`/`List<double>`/`List<bool>` sem caixa.
 //!
 //! As duas classes não podem ser estendidas nem implementadas fora do
 //! núcleo: o valor é sempre o número, e o membro é o do SDK. Sem isto, um
@@ -78,6 +79,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(id) = self.id_de_classe_do_runtime(ast, e) {
             return Some(self.emit(Instruction::Const(Constant::Int(id)), Type::I64));
         }
+        if let Some(r) = self.lista_add_escalar(ast, e) {
+            return Some(r);
+        }
         let (recv, nome, chamada) = match &ast.expr(e).kind {
             ExprKind::Property { target, name, null_aware: false } => (*target, name.sym, false),
             ExprKind::Call { target, arguments } if arguments.args.is_empty() && arguments.type_args.is_empty() => {
@@ -105,6 +109,80 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Primitivo::Int => self.intrinseco_int(v, forma),
             Primitivo::Double => self.intrinseco_double(v, forma),
         })
+    }
+
+    /// `lista.add(v)` com a lista de tipo estático `List<int>`,
+    /// `List<double>` ou `List<bool>` e `v` exatamente desse tipo (sem caixa):
+    /// `dartforge_lista_add_escalar` acrescenta o escalar numa lista
+    /// crescível do runtime; qualquer outra (uma classe do usuário, tamanho
+    /// fixo, não modificável, `E` que não aceita o valor) chama o `add` de
+    /// sempre. Sem isto, cada `add` passava pelo despacho, conferia o `E`
+    /// duas vezes pela RTI (na entrada uniforme e no `[]=` dentro do `add`)
+    /// e gravava o valor encaixotado.
+    fn lista_add_escalar(&mut self, ast: &ast::Ast, e: ExprId) -> Option<Operand> {
+        let ExprKind::Call { target, arguments } = &ast.expr(e).kind else { return None };
+        if arguments.args.len() != 1 || arguments.args[0].name.is_some() || !arguments.type_args.is_empty() {
+            return None;
+        }
+        let ExprKind::Property { target: recv, name, null_aware: false } = &ast.expr(*target).kind else {
+            return None;
+        };
+        if self.ctx.symbol_name(name.sym) != "add" {
+            return None;
+        }
+        let Some(super::tipados::Indexavel::Nucleo { gravacao: Some(t) }) =
+            self.indexavel(self.ctx.get_type(self.unit_id, *recv))
+        else {
+            return None;
+        };
+        // O argumento tem de ser do tipo do elemento, não anulável: um
+        // `dynamic` ou `num` precisaria da conversão implícita conferida.
+        let arg = arguments.args[0].value;
+        let T::Interface { class, nullable: false, .. } = self.ctx.table.get(self.ctx.get_type(self.unit_id, arg)?) else {
+            return None;
+        };
+        let (esperada, codigo) = match t {
+            Type::I64 => (self.ctx.core.int_class, 1),
+            Type::F64 => (self.ctx.core.double_class, 2),
+            _ => (self.ctx.core.bool_class, 3),
+        };
+        if Some(*class) != esperada {
+            return None;
+        }
+        let lista = self.lower_expr(ast, *recv);
+        if self.is_terminated() {
+            return Some(Operand::Constant(Constant::Null));
+        }
+        let lista = self.coagir(lista, Type::Ref);
+        let v = self.lower_expr(ast, arg);
+        if self.is_terminated() {
+            return Some(Operand::Constant(Constant::Null));
+        }
+        let v = self.coagir(v, t);
+        let bits = match t {
+            Type::I64 => v.clone(),
+            Type::F64 => self.emit(Instruction::Bitcast { op: v.clone(), to: Type::I64 }, Type::I64),
+            _ => self.emit(Instruction::ZExt { op: v.clone(), from: Type::I1, to: Type::I64 }, Type::I64),
+        };
+        let feito = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_lista_add_escalar".to_string(),
+                args: vec![(lista.clone(), Type::Ref), (bits, Type::I64), (c(codigo), Type::I64)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        let ok = self.emit(Instruction::ICmp(ICmpOp::Ne, feito, c(0)), Type::I1);
+        let lento = self.new_block();
+        let juncao = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: ok, then_block: juncao, else_block: lento });
+        self.set_block(lento);
+        self.chamar_por_nome(lista, super::sdk_fonte::Tipo::Chamar, "add", &[(None, v)]);
+        if !self.is_terminated() {
+            self.terminate(Terminator::Branch(juncao));
+        }
+        self.set_block(juncao);
+        Some(Operand::Constant(Constant::Null))
     }
 
     fn intrinseco_int(&mut self, v: Operand, forma: &str) -> Operand {

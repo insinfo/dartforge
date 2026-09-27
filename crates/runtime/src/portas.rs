@@ -170,7 +170,10 @@ fn copiar_para_grafo(raiz: i64, compartilhar: bool) -> Result<Grafo, MensagemIle
             let meta = heap.metadado(h);
             let fixa = heap.fixas.contains(&h);
             let imutavel = heap.imutaveis.contains(&h);
-            let pendente = heap.pendentes.get(&h).copied();
+            let pendente = match heap.get(h) {
+                Value::List(e) => e.logico(),
+                _ => None,
+            };
             let mut v = |t: &TaggedValue| val_de_tagged(*t, &mut mapa, &mut pilha, &mut nos, compartilhar);
             let no = match heap.get(h) {
                 Value::String(t) => NoG::String(t.clone()),
@@ -540,7 +543,7 @@ fn materializar(g: &Grafo) -> i64 {
                 NoG::Closure { code_id, tipado, abi, .. } => {
                     Value::Closure { code_id: *code_id, environment: 0, tipado: *tipado, abi: *abi }
                 }
-                NoG::List { itens, .. } => Value::List(vec![TaggedValue::scalar(0); itens.len()]),
+                NoG::List { itens, .. } => Value::List(vec![TaggedValue::scalar(0); itens.len()].into()),
                 NoG::Map(es, _) => Value::Map(Vec::with_capacity(es.len())),
                 NoG::Set(v, _) => Value::Set(Vec::with_capacity(v.len())),
                 NoG::Record(v) => Value::Record(vec![TaggedValue::scalar(0); v.len()]),
@@ -615,29 +618,30 @@ fn materializar(g: &Grafo) -> i64 {
                 }
                 NoG::List { itens, fixa, imutavel, pendente } => {
                     let x: Vec<TaggedValue> = itens.iter().map(t).collect();
-                    *heap.get_mut(h) = Value::List(x);
+                    // O mesmo `Elementos` (o cabeçalho não muda de endereço).
+                    if let Value::List(e) = heap.get_mut(h) {
+                        *e.vetor_mut() = x;
+                        e.definir_logico(*pendente);
+                    }
                     if *fixa {
                         heap.fixas.insert(h);
                     }
                     if *imutavel {
-                        heap.imutaveis.insert(h);
-                    }
-                    if let Some(n) = pendente {
-                        heap.pendentes.insert(h, *n);
+                        heap.marcar_imutavel(h);
                     }
                 }
                 NoG::Map(es, imutavel) => {
                     let x: Vec<(TaggedValue, TaggedValue)> = es.iter().map(|(a, b)| (t(a), t(b))).collect();
                     *heap.get_mut(h) = Value::Map(x);
                     if *imutavel {
-                        heap.imutaveis.insert(h);
+                        heap.marcar_imutavel(h);
                     }
                 }
                 NoG::Set(vs, imutavel) => {
                     let x: Vec<TaggedValue> = vs.iter().map(t).collect();
                     *heap.get_mut(h) = Value::Set(x);
                     if *imutavel {
-                        heap.imutaveis.insert(h);
+                        heap.marcar_imutavel(h);
                     }
                 }
                 NoG::Record(vs) => {

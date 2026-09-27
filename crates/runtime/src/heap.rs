@@ -547,6 +547,185 @@ impl TextoMut {
     }
 }
 
+/// Os elementos de uma `Value::List` atrás de um cabeçalho de endereço fixo.
+///
+/// O código gerado lê o cabeçalho em linha (`lower/tipados.rs`): o endereço
+/// dos elementos no deslocamento 0, o comprimento lógico no 8 e, no 16, as
+/// gravações diretas já conferidas. O cabeçalho mora num `Box` e não muda
+/// de endereço enquanto a lista vive (o slot pode mover o `Value`, o `Box`
+/// não): `dartforge_lista_cabecalho` é uma função pura do handle, que o
+/// LLVM tira dos laços. Toda mudança de estrutura passa por
+/// [`Elementos::vetor_mut`], cuja guarda ressincroniza o cabeçalho ao sair;
+/// gravar um elemento no lugar ([`Elementos::fatia_mut`]) não o muda.
+pub struct Elementos(Box<CabecalhoDeLista>);
+
+/// O cabeçalho lido pelo código gerado; ver [`Elementos`].
+#[repr(C)]
+pub struct CabecalhoDeLista {
+    /// `vetor.as_mut_ptr()`.
+    dados: *mut TaggedValue,
+    /// O comprimento lógico: `logico`, ou `vetor.len()`.
+    len: i64,
+    /// Bit `1 << codigo` (1 `int`, 2 `double`, 3 `bool`): a lista é
+    /// modificável e o `E` reificado aceita o escalar, conferido por
+    /// `dartforge_lista_len_gravavel`; bit `1 << (codigo + 4)`: além disso
+    /// ela cresce (`dartforge_lista_add_escalar`). Zerado quando o `E` ou a
+    /// imutabilidade mudam ([`Elementos::esquecer_gravacoes`]).
+    gravavel: i64,
+    vetor: Vec<TaggedValue>,
+    /// `_GrowableList._withData(data)` (P5c): o vetor tem os elementos de
+    /// `data` (a reserva) e o tamanho lógico é este, até o primeiro
+    /// `_setLength`/`_setData` — na VM a lista aponta para o `_List` e o
+    /// tamanho é outro campo.
+    logico: Option<usize>,
+}
+
+const _: () = {
+    assert!(std::mem::offset_of!(CabecalhoDeLista, dados) == 0);
+    assert!(std::mem::offset_of!(CabecalhoDeLista, len) == 8);
+    assert!(std::mem::offset_of!(CabecalhoDeLista, gravavel) == 16);
+};
+
+/// O cabeçalho de quem não é lista do runtime: comprimento 0 (nenhum índice
+/// passa no teste de limites) e nenhuma gravação conferida.
+pub static CABECALHO_VAZIO: CabecalhoDeLista = CabecalhoDeLista {
+    dados: std::ptr::null_mut(),
+    len: 0,
+    gravavel: 0,
+    vetor: Vec::new(),
+    logico: None,
+};
+
+// SAFETY: `dados` aponta para o buffer do próprio `vetor` (ou é nulo no
+// `CABECALHO_VAZIO`, que nunca é gravado): mover ou compartilhar o cabeçalho
+// entre threads é mover o `Vec`, que é `Send`/`Sync`.
+#[allow(unsafe_code)]
+unsafe impl Send for CabecalhoDeLista {}
+#[allow(unsafe_code)]
+unsafe impl Sync for CabecalhoDeLista {}
+
+impl Elementos {
+    pub fn new(vetor: Vec<TaggedValue>) -> Self {
+        let mut e = Self(Box::new(CabecalhoDeLista {
+            dados: std::ptr::null_mut(),
+            len: 0,
+            gravavel: 0,
+            vetor,
+            logico: None,
+        }));
+        e.sincronizar();
+        e
+    }
+
+    fn sincronizar(&mut self) {
+        let c = &mut *self.0;
+        c.dados = c.vetor.as_mut_ptr();
+        c.len = c.logico.unwrap_or(c.vetor.len()) as i64;
+    }
+
+    /// Muda a estrutura (comprimento, capacidade): a guarda ressincroniza o
+    /// cabeçalho quando sai de escopo.
+    pub fn vetor_mut(&mut self) -> GuardaDeElementos<'_> {
+        GuardaDeElementos(self)
+    }
+
+    /// Os elementos para gravar no lugar, sem mudar a estrutura.
+    pub fn fatia_mut(&mut self) -> &mut [TaggedValue] {
+        &mut self.0.vetor
+    }
+
+    /// O tamanho lógico de `_withData`, se ainda pendente.
+    pub fn logico(&self) -> Option<usize> {
+        self.0.logico
+    }
+
+    pub fn definir_logico(&mut self, n: Option<usize>) {
+        self.0.logico = n;
+        self.sincronizar();
+    }
+
+    /// O comprimento que o Dart vê.
+    pub fn len_logico(&self) -> usize {
+        self.0.logico.unwrap_or(self.0.vetor.len())
+    }
+
+    pub fn cabecalho(&self) -> *const CabecalhoDeLista {
+        &*self.0
+    }
+
+    pub fn gravacao_conferida(&self, codigo: i64) -> bool {
+        self.0.gravavel & (1 << codigo) != 0
+    }
+
+    pub fn conferir_gravacao(&mut self, codigo: i64) {
+        self.0.gravavel |= 1 << codigo;
+    }
+
+    pub fn esquecer_gravacoes(&mut self) {
+        self.0.gravavel = 0;
+    }
+
+    pub fn into_vec(self) -> Vec<TaggedValue> {
+        self.0.vetor
+    }
+}
+
+impl std::ops::Deref for Elementos {
+    type Target = Vec<TaggedValue>;
+    fn deref(&self) -> &Vec<TaggedValue> {
+        &self.0.vetor
+    }
+}
+
+impl FromIterator<TaggedValue> for Elementos {
+    fn from_iter<I: IntoIterator<Item = TaggedValue>>(iter: I) -> Self {
+        Self::new(iter.into_iter().collect())
+    }
+}
+
+impl From<Vec<TaggedValue>> for Elementos {
+    fn from(vetor: Vec<TaggedValue>) -> Self {
+        Self::new(vetor)
+    }
+}
+
+impl Clone for Elementos {
+    /// Outra lista: cabeçalho próprio, gravações a conferir de novo.
+    fn clone(&self) -> Self {
+        let mut e = Self::new(self.0.vetor.clone());
+        e.definir_logico(self.0.logico);
+        e
+    }
+}
+
+impl std::fmt::Debug for Elementos {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(self.0.vetor.iter()).finish()
+    }
+}
+
+/// Acesso de estrutura a [`Elementos`]; ressincroniza o cabeçalho ao sair.
+pub struct GuardaDeElementos<'a>(&'a mut Elementos);
+
+impl std::ops::Deref for GuardaDeElementos<'_> {
+    type Target = Vec<TaggedValue>;
+    fn deref(&self) -> &Vec<TaggedValue> {
+        &self.0.0.vetor
+    }
+}
+
+impl std::ops::DerefMut for GuardaDeElementos<'_> {
+    fn deref_mut(&mut self) -> &mut Vec<TaggedValue> {
+        &mut self.0.0.vetor
+    }
+}
+
+impl Drop for GuardaDeElementos<'_> {
+    fn drop(&mut self) {
+        self.0.sincronizar();
+    }
+}
+
 /// Valor gerenciado; somente campos marcados como referência participam do tracing.
 #[derive(Debug)]
 pub enum Value {
@@ -576,7 +755,7 @@ pub enum Value {
         abi: i64,
     },
     /// Lista expansível de payloads tipados para tracing, sem generics Dart ainda.
-    List(Vec<TaggedValue>),
+    List(Elementos),
     /// Mapa de inserção ordenada, como o `LinkedHashMap` padrão de Dart.
     ///
     /// Chaves seguem `==` observável: escalares distinguem int de bool pelos
@@ -689,7 +868,12 @@ impl Value {
             Self::Cell(_) | Self::Closure { .. } | Self::BoxedInt(_) | Self::BoxedDouble(_) | Self::BoxedBool(_) => 0,
             Self::TypedData { bytes, .. } => bytes.capacity(),
             Self::TypedView { .. } => 0,
-            Self::Environment(values) | Self::List(values) | Self::Set(values) | Self::Record(values) => values
+            Self::List(values) => values
+                .capacity()
+                .checked_mul(std::mem::size_of::<TaggedValue>())
+                .and_then(|n| n.checked_add(std::mem::size_of::<CabecalhoDeLista>()))
+                .expect("payload excede usize"),
+            Self::Environment(values) | Self::Set(values) | Self::Record(values) => values
                 .capacity()
                 .checked_mul(std::mem::size_of::<TaggedValue>())
                 .expect("payload excede usize"),
@@ -734,7 +918,15 @@ impl Value {
                 }
                 1
             }
-            Self::Environment(values) | Self::List(values) | Self::Set(values) | Self::Record(values) => {
+            Self::List(values) => {
+                pending.extend(
+                    values
+                        .iter()
+                        .filter_map(|value| value.is_ref.then_some(value.bits)),
+                );
+                values.len()
+            }
+            Self::Environment(values) | Self::Set(values) | Self::Record(values) => {
                 pending.extend(
                     values
                         .iter()
@@ -1001,7 +1193,6 @@ pub struct Heap {
     /// de pedir memória ao alocador — criar e descartar objetos pequenos
     /// custava um `calloc` e um `free` por objeto.
     campos_livres: Vec<Vec<Vec<(i64, bool)>>>,
-    pub pendentes: crate::hash::HashMap<i64, usize>,
     pub iteracoes_ativas: crate::hash::HashSet<i64>,
     /// Lista de chaves → mapa de origem (para acusar modificação do mapa
     /// durante a iteração das chaves).
@@ -1101,7 +1292,6 @@ impl Heap {
             campos_late_inicializados: crate::hash::HashSet::default(),
             fixas: crate::hash::HashSet::default(),
             campos_livres: Vec::new(),
-            pendentes: crate::hash::HashMap::default(),
             iteracoes_ativas: crate::hash::HashSet::default(),
             origens: crate::hash::HashMap::default(),
             finalizaveis: crate::hash::HashMap::default(),
@@ -1454,6 +1644,22 @@ impl Heap {
     pub fn set_metadado(&mut self, handle: i64, valor: i64) {
         let i = self.indice_vivo(handle);
         self.metadados[i] = valor;
+        // O `E` de uma lista mudou: as gravações diretas se conferem de novo.
+        if let Some(Value::List(e)) = self.slots[i].as_mut() {
+            e.esquecer_gravacoes();
+        }
+    }
+    /// Marca `handle` como não modificável; uma lista esquece as gravações
+    /// diretas conferidas (`CabecalhoDeLista::gravavel`).
+    pub fn marcar_imutavel(&mut self, handle: i64) {
+        self.imutaveis.insert(handle);
+        if let Some(Value::List(e)) = smi::e_handle(handle)
+            .then(|| self.slots.get_mut(Self::indice_de(handle)))
+            .flatten()
+            .and_then(Option::as_mut)
+        {
+            e.esquecer_gravacoes();
+        }
     }
     /// O handle (par) do slot `index` (R10).
     fn handle_de_indice(index: usize) -> i64 {
@@ -1670,7 +1876,7 @@ impl Heap {
         let Value::List(values) = self.get_mut(handle) else {
             panic!("lista esperada")
         };
-        values[index] = value;
+        values.fatia_mut()[index] = value;
     }
     /// Acrescenta elemento e contabiliza capacidade real do buffer na política de GC.
     /// A lista permanece protegida durante eventual coleta causada pelo crescimento.
@@ -1681,7 +1887,7 @@ impl Heap {
         let Value::List(values) = self.get_mut(handle) else {
             panic!("lista esperada")
         };
-        values.push(value);
+        values.vetor_mut().push(value);
         let added = self.get(handle).estimated_bytes() - previous;
         self.stats.estimated_bytes = self
             .stats
@@ -1961,7 +2167,6 @@ impl Heap {
         self.imutaveis.retain(|h| vivo(h));
         self.campos_late_inicializados.retain(|(h, _)| vivo(h));
         self.fixas.retain(|h| vivo(h));
-        self.pendentes.retain(|h, _| vivo(h));
         self.iteracoes_ativas.retain(|h| vivo(h));
         self.origens.retain(|k, v| vivo(k) && vivo(v));
         let mut prontas = Vec::new();
@@ -2532,7 +2737,7 @@ mod raizes_do_runtime {
     fn tabela_lateral_purgada_quando_o_slot_e_reutilizado() {
         let mut heap = Heap::new(false);
         let lista = heap.create_list(Vec::new());
-        heap.imutaveis.insert(lista);
+        heap.marcar_imutavel(lista);
         heap.iteracoes_ativas.insert(lista);
         heap.campos_late_inicializados.insert((lista, 0));
         heap.campos_late_inicializados.insert((lista, -1));

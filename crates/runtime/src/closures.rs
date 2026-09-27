@@ -281,8 +281,8 @@ mod function_apply_tests {
                     TaggedValue::reference(value),
                     TaggedValue::reference(0),
                     TaggedValue::reference(0),
-                ]));
-                let names = heap.allocate(Value::List(vec![TaggedValue::reference(c), TaggedValue::reference(b)]));
+                ].into()));
+                let names = heap.allocate(Value::List(vec![TaggedValue::reference(c), TaggedValue::reference(b)].into()));
                 (arguments, names)
             });
             assert_eq!(dartforge_nativo_Function_apply(arguments, names), 1);

@@ -190,6 +190,7 @@ pub const NATIVOS: &[Nativo] = &[
     runtime("DartApiDLMajorVersion"),
     runtime("DartApiDLMinorVersion"),
     runtime("DartForge_GrowableList_reservar"),
+    runtime("DartForge_List_preencher"),
     runtime("DartForge_Timer_cancelar"),
     runtime("DartForge_Timer_novo"),
     runtime("DartForge_capacidade_nova"),
