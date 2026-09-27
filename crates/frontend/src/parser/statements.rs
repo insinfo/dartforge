@@ -933,6 +933,12 @@ impl<'s, 'i> Parser<'s, 'i> {
                         None => false,
                     },
                     Kind::Op(Op::Question) => {
+                        // `T? Function(…) nome`: depois da cauda de tipo de
+                        // função vem um nome, o que nenhuma condicional
+                        // admite — é declaração, mesmo com `? … :` adiante.
+                        if self.at_function_tail(pos + 2) && self.looks_like_type_then_identifier(pos) {
+                            return true;
+                        }
                         if could_be_expression && self.conditional_after_question(pos + 1) {
                             return false;
                         }
@@ -1111,6 +1117,21 @@ mod tests {
     }
 
     // -- Independentes de outros módulos ------------------------------------
+
+    /// `int? Function(int) f = … ? … : …;` é declaração (o `?` é do tipo
+    /// anulável, não uma condicional, mesmo com `? :` no inicializador); uma
+    /// condicional de verdade continua expressão.
+    #[test]
+    fn tipo_de_funcao_depois_de_tipo_anulavel() {
+        let out = ok("int? Function(int) talvez = (x) => x > 0 ? x : null;");
+        assert!(matches!(out.kind(), StmtKind::Variables(_)), "{:?}", out.kind());
+        let out = ok("String? Function<T>(T) g = h;");
+        assert!(matches!(out.kind(), StmtKind::Variables(_)), "{:?}", out.kind());
+        let out = ok("a ? b : c;");
+        assert!(matches!(out.kind(), StmtKind::Expression(_)), "{:?}", out.kind());
+        let out = ok("a ? Function : c;");
+        assert!(matches!(out.kind(), StmtKind::Expression(_)), "{:?}", out.kind());
+    }
 
     #[test]
     fn bloco_vazio_e_statement_vazio() {

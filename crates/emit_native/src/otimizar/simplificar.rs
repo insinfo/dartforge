@@ -48,6 +48,16 @@ fn inteiro(o: &Operand) -> Option<i64> {
 pub fn dobrar_constantes(func: &mut Function) -> bool {
     let mut mudou = false;
     loop {
+        let mut caixas: HashMap<ValueId, (Operand, Type)> = HashMap::new();
+        for b in &func.blocks {
+            for (v, inst, _) in &b.instructions {
+                if let Instruction::Box { op, from } = inst
+                    && matches!(from, Type::I64 | Type::F64 | Type::I1)
+                {
+                    caixas.insert(*v, (op.clone(), *from));
+                }
+            }
+        }
         let mut valores: HashMap<ValueId, Operand> = HashMap::new();
         for b in &func.blocks {
             for (v, inst, _) in &b.instructions {
@@ -68,6 +78,14 @@ pub fn dobrar_constantes(func: &mut Function) -> bool {
                     Instruction::ZExt { op, from: Type::I1 | Type::I8, .. } => {
                         inteiro(op).map(|n| Operand::Constant(Constant::Int(n & 0xFF)))
                     }
+                    // A caixa desfeita: `Unbox(Box(x))` é `x` (o `int`, o
+                    // `double` e o `bool` voltam exatos; nada lança).
+                    Instruction::Unbox { op: Operand::Val(b), to } => match caixas.get(b) {
+                        Some((x, de)) if de == to || (matches!(de, Type::I1 | Type::I8) && matches!(to, Type::I1)) => {
+                            Some(x.clone())
+                        }
+                        _ => None,
+                    },
                     _ => None,
                 };
                 if let Some(r) = r {

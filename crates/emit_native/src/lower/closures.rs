@@ -116,6 +116,52 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .collect()
     }
 
+    /// A ABI tipada de um tipo de função: as representações dos posicionais
+    /// e do retorno (`void` volta como `Ref`, o null), e o código delas. Só
+    /// para tipos sem parâmetros de tipo, opcionais nem nomeados, até 12
+    /// posicionais.
+    pub(super) fn abi_do_tipo(&self, t: TypeId) -> Option<(Vec<Type>, Type, i64)> {
+        let dartforge_types::table::Type::Function { type_params, ret, positional, optional, named, nullable: false } =
+            self.ctx.table.get(t)
+        else {
+            return None;
+        };
+        if !type_params.is_empty() || !optional.is_empty() || !named.is_empty() || positional.len() > 12 {
+            return None;
+        }
+        let repr = |t: TypeId| match self.ctx.to_hir_type(t) {
+            r @ (Type::I64 | Type::F64 | Type::I1) => r,
+            _ => Type::Ref,
+        };
+        let params: Vec<Type> = positional.iter().map(|&p| repr(p)).collect();
+        let ret = repr(*ret);
+        let digito = |t: Type| match t {
+            Type::I64 => 2,
+            Type::F64 => 3,
+            Type::I1 => 4,
+            _ => 1,
+        };
+        let mut abi: i64 = 1;
+        for &t in params.iter().chain(std::iter::once(&ret)) {
+            abi = abi * 5 + digito(t);
+        }
+        Some((params, ret, abi))
+    }
+
+    /// A ABI tipada de uma closure síncrona só com posicionais obrigatórios,
+    /// pelo tipo estático dela (o do contexto, já inferido).
+    fn abi_da_closure(&self, f: &ast::Function, tipo: Option<TypeId>) -> Option<(Vec<Type>, Type, i64)> {
+        let params = f.parameters.as_deref().unwrap_or(&[]);
+        if f.modifier != AsyncModifier::None
+            || !f.type_params.is_empty()
+            || params.iter().any(|p| p.kind != ParameterKind::Required)
+        {
+            return None;
+        }
+        let abi = self.abi_do_tipo(tipo?)?;
+        (abi.0.len() == params.len()).then_some(abi)
+    }
+
     /// `(params) => e`, `(params) { … }` ou o valor de uma função local.
     /// `tipo`: o tipo estático da expressão da closure (o de contexto), de
     /// onde sai o tipo do valor de um corpo `async`/gerador.
@@ -146,6 +192,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let nome = p.name.map_or("", |n| self.ctx.symbol_name(n.sym));
             forma.push_str(&format!("{nome}:{:?}:{};", p.kind, p.required));
         }
+        // A ABI tipada do corpo: parâmetros e retorno nas representações do
+        // tipo da closure; entra na impressão digital, e uma closure viva
+        // segue no corpo da ABI em que nasceu.
+        let abi = self.abi_da_closure(f, tipo);
+        if let Some((ps, r, codigo)) = &abi {
+            forma.push_str(&format!("abi:{codigo}:{ps:?}:{r:?};"));
+        }
+        let (reprs, ret_repr) = match &abi {
+            Some((ps, r, _)) => (Some(ps.clone()), *r),
+            None => (None, Type::Ref),
+        };
         let simbolo = format!(
             "{}$e{:08x}",
             self.nome_de_closure(f.name.map(|n| n.sym)),
@@ -156,7 +213,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .map_or_else(|| "<closure>".to_string(), |n| self.ctx.symbol_name(n.sym).to_string());
 
         // --- corpo ---------------------------------------------------------
-        let mut b = FnBuilder::new(self.ctx, self.unit_id, simbolo.clone(), legivel.clone(), Type::Ref);
+        let mut b = FnBuilder::new(self.ctx, self.unit_id, simbolo.clone(), legivel.clone(), ret_repr);
         let env_b = Operand::Val(b.add_param("env".to_string(), Type::Ref));
         if com_this {
             let t = b.emit(
@@ -206,13 +263,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
         );
         b.abrir_escopo();
-        for p in params {
+        for (i, p) in params.iter().enumerate() {
             let nome = p
                 .name
                 .map_or_else(|| "arg".to_string(), |n| self.ctx.symbol_name(n.sym).to_string());
-            let vid = b.add_param(nome, Type::Ref);
+            let ty = reprs.as_ref().map_or(Type::Ref, |r| r[i]);
+            let vid = b.add_param(nome, ty);
             if let Some(n) = p.name {
-                b.declarar_variavel(n.sym, n.span.start as usize, Type::Ref, Operand::Val(vid));
+                b.declarar_variavel(n.sym, n.span.start as usize, ty, Operand::Val(vid));
             }
         }
         if f.modifier != AsyncModifier::None {
@@ -232,7 +290,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 FunctionBody::Block(s) => b.lower_stmt(ast, *s),
                 FunctionBody::Expression(e) => {
                     let r = b.lower_expr(ast, *e);
-                    b.terminate(Terminator::Return(Some(r)));
+                    if !b.is_terminated() {
+                        let r = b.coagir(r, ret_repr);
+                        b.terminate(Terminator::Return(Some(r)));
+                    }
                 }
                 _ => {}
             }
@@ -256,16 +317,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
         if let Some(vals) = e.desempacotar(&infos, args, desc) {
             let mut todos = vec![env_e];
-            todos.extend(vals);
-            let r = e.emit_call_with_check(
-                Instruction::CallStatic {
-                    symbol: simbolo,
-                    args: todos,
-                    ret_ty: Type::Ref,
-                },
-                Type::Ref,
-            );
-            e.terminate(Terminator::Return(Some(r)));
+            // O corpo tipado recebe cada argumento na representação dele (o
+            // desencaixe confere o tipo, como a entrada dinâmica da VM).
+            for (i, v) in vals.into_iter().enumerate() {
+                let ty = reprs.as_ref().map_or(Type::Ref, |r| r[i]);
+                let v = e.coagir(v, ty);
+                todos.push(v);
+            }
+            if !e.is_terminated() {
+                let r = e.emit_call_with_check(
+                    Instruction::CallStatic {
+                        symbol: simbolo.clone(),
+                        args: todos,
+                        ret_ty: ret_repr,
+                    },
+                    ret_repr,
+                );
+                let r = e.coagir(r, Type::Ref);
+                if !e.is_terminated() {
+                    e.terminate(Terminator::Return(Some(r)));
+                }
+            }
         }
         self.absorver(e);
 
@@ -285,13 +357,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             valores.push(t);
         }
         let env = self.emit(Instruction::AllocEnv { values: valores }, Type::Ref);
-        self.emit(
-            Instruction::AllocClosure {
-                code_symbol: simbolo_ent,
-                env,
-            },
-            Type::Ref,
-        )
+        match abi {
+            Some((_, _, codigo)) => self.emit(
+                Instruction::AllocClosureTipada { code_symbol: simbolo_ent, env, tipado: simbolo, abi: codigo },
+                Type::Ref,
+            ),
+            None => self.emit(
+                Instruction::AllocClosure {
+                    code_symbol: simbolo_ent,
+                    env,
+                },
+                Type::Ref,
+            ),
+        }
     }
 
     /// Entrega ao módulo (pelas `extra_functions` desta função) uma função
@@ -477,7 +555,85 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Chama um valor função (closure, tear-off) com argumentos já
     /// avaliados, pela convenção uniforme. Devolve `Ref`.
     pub fn chamar_valor_funcao(&mut self, callee: Operand, avaliados: &[Avaliado]) -> Operand {
+        // O tipo estático do valor chamado (`lower_chamada`): com uma ABI
+        // tipada, a chamada tenta primeiro o corpo tipado da closure.
+        let tipo = self.tipo_chamado.take();
         let callee = self.coagir(callee, Type::Ref);
+        if let Some((reprs, ret, abi)) = tipo.and_then(|t| self.abi_do_tipo(t))
+            && reprs.len() == avaliados.len()
+            && avaliados.iter().all(|(n, _)| n.is_none())
+        {
+            return self.chamar_closure_tipada(callee, avaliados, &reprs, ret, abi);
+        }
+        self.chamar_closure_uniforme(callee, avaliados)
+    }
+
+    /// A chamada pelo corpo tipado quando a closure tem a ABI `abi`, conferida
+    /// em tempo de execução (outra closure, uma classe chamável ou um subtipo
+    /// com outra representação seguem pela entrada uniforme): sem vetor de
+    /// argumentos, descritor, conferência de aridade nem caixas.
+    fn chamar_closure_tipada(&mut self, callee: Operand, avaliados: &[Avaliado], reprs: &[Type], ret: Type, abi: i64) -> Operand {
+        // Devolve `Ref`, como a chamada uniforme.
+        let alvo = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_closure_tipada".to_string(),
+                args: vec![(callee.clone(), Type::Ref), (Operand::Constant(Constant::Int(abi)), Type::I64)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        let tem = self.emit(Instruction::ICmp(ICmpOp::Ne, alvo.clone(), Operand::Constant(Constant::Int(0))), Type::I1);
+        let rapido = self.new_block();
+        let lento = self.new_block();
+        let juncao = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: tem, then_block: rapido, else_block: lento });
+
+        self.set_block(rapido);
+        let env = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_closure_env".to_string(),
+                args: vec![(callee.clone(), Type::Ref)],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        );
+        let mut args = vec![(env, Type::Ref)];
+        for ((_, v), &t) in avaliados.iter().zip(reprs) {
+            let v = self.coagir(v.clone(), t);
+            args.push((v, t));
+        }
+        let r = self.emit_call_with_check(Instruction::ChamadaTipada { alvo, args, ret }, ret);
+        // O contrato de `chamar_valor_funcao` é `Ref` (quem chama junta com
+        // outros caminhos); o otimizador desfaz a caixa quando quem usa quer
+        // o escalar (`Unbox(Box(x))`).
+        let r = self.coagir(r, Type::Ref);
+        let fim_rapido = self.current_block;
+        let rapido_chega = !self.is_terminated();
+        if rapido_chega {
+            self.terminate(Terminator::Branch(juncao));
+        }
+
+        self.set_block(lento);
+        let s = self.chamar_closure_uniforme(callee, avaliados);
+        let fim_lento = self.current_block;
+        let lento_chega = !self.is_terminated();
+        if lento_chega {
+            self.terminate(Terminator::Branch(juncao));
+        }
+        self.set_block(juncao);
+        match (rapido_chega, lento_chega) {
+            (true, true) => self.emit(Instruction::Phi { incoming: vec![(fim_rapido, r), (fim_lento, s)], ty: Type::Ref }, Type::Ref),
+            (true, false) => r,
+            (false, true) => s,
+            (false, false) => {
+                self.terminate(Terminator::Unreachable);
+                Operand::Constant(Constant::Null)
+            }
+        }
+    }
+
+    /// A chamada pela convenção uniforme (a entrada `$ent` da closure).
+    fn chamar_closure_uniforme(&mut self, callee: Operand, avaliados: &[Avaliado]) -> Operand {
         let mut args = Vec::with_capacity(avaliados.len());
         for (n, v) in avaliados {
             if n.is_none() {

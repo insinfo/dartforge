@@ -423,14 +423,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let ajuste = self.emit(Instruction::And(sinal, Operand::Constant(Constant::Int(c.abs()))), Type::I64);
                 self.emit(Instruction::Add(r, ajuste), Type::I64)
             }
-            BinaryOp::Rem => self.emit(
+            BinaryOp::Rem => {
+                // O native não confere o divisor (o Dart confere antes).
+                self.exigir_divisor(&rop);
+                self.emit(
                 Instruction::CallRuntime {
                     name: "dartforge_nativo_Integer_moduloFromInteger".to_string(),
                     args: vec![(rop, Type::I64), (lop, Type::I64)],
                     ret_ty: Type::I64,
                 },
                 Type::I64,
-            ),
+                )
+            }
             BinaryOp::Shl => self.emit(Instruction::Shl(lop, rop), Type::I64),
             BinaryOp::Shr => self.emit(Instruction::AShr(lop, rop), Type::I64),
             BinaryOp::UShr => self.emit(Instruction::LShr(lop, rop), Type::I64),

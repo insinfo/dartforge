@@ -56,6 +56,9 @@ pub struct FnBuilder<'a, 'c> {
     pub labeled_break_targets: HashMap<SymbolId, BlockId>,
     pub labeled_continue_targets: HashMap<SymbolId, BlockId>,
     pub pending_labels: Vec<SymbolId>,
+    /// O tipo estático do valor função que a chamada em curso vai chamar
+    /// (`lower_chamada`, lido por `chamar_valor_funcao`).
+    pub tipo_chamado: Option<dartforge_types::TypeId>,
     pub current_cascade_target: Option<Operand>,
     /// Um receptor já avaliado: quando `lower_expr` chega à expressão, usa o
     /// valor em vez de avaliá-la de novo (a atribuição `a?.b = v` avalia `a`
@@ -213,6 +216,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             labeled_break_targets: HashMap::new(),
             labeled_continue_targets: HashMap::new(),
             pending_labels: Vec::new(),
+            tipo_chamado: None,
             current_cascade_target: None,
             receptor_pronto: None,
             null_aware_tratado: None,
@@ -644,6 +648,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     pub fn route_return(&mut self, ret_val: Option<Operand>) {
+        // O valor na representação do retorno da função (o corpo de uma
+        // closure tipada devolve `int` sem caixa, por exemplo).
+        let ret_val = match ret_val {
+            Some(r) if !matches!(self.func.return_ty, Type::Void) && self.finally_scopes.is_empty() => {
+                Some(self.coagir(r, self.func.return_ty))
+            }
+            outro => outro,
+        };
         self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_exception_clear".to_string(),
@@ -1043,6 +1055,34 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     pub fn emit_trunc_div(&mut self, lop: Operand, rop: Operand) -> Operand {
+        match rop {
+            // Divisor constante: nem zero a conferir, nem o -1.
+            Operand::Constant(Constant::Int(-1)) => return self.emit(Instruction::Neg(lop), Type::I64),
+            Operand::Constant(Constant::Int(c)) if c != 0 => return self.emit(Instruction::SDiv(lop, rop), Type::I64),
+            _ => {}
+        }
+        self.exigir_divisor(&rop);
+        // `x ~/ -1` é `-x` com o estouro de 64 bits (`-2^63 ~/ -1 == -2^63`);
+        // o `sdiv` do LLVM não define esse caso (o `idiv` do x86 dá SIGFPE).
+        let menos_um = self.emit(Instruction::ICmp(ICmpOp::Eq, rop.clone(), Operand::Constant(Constant::Int(-1))), Type::I1);
+        let negar = self.new_block();
+        let dividir = self.new_block();
+        let juncao = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: menos_um, then_block: negar, else_block: dividir });
+        self.set_block(negar);
+        let n = self.emit(Instruction::Neg(lop.clone()), Type::I64);
+        self.terminate(Terminator::Branch(juncao));
+        self.set_block(dividir);
+        let q = self.emit(Instruction::SDiv(lop, rop), Type::I64);
+        self.terminate(Terminator::Branch(juncao));
+        self.set_block(juncao);
+        self.emit(Instruction::Phi { incoming: vec![(negar, n), (dividir, q)], ty: Type::I64 }, Type::I64)
+    }
+
+    /// Divisor inteiro zero (`~/` e `%` de `int`) lança
+    /// `IntegerDivisionByZeroException`; o bloco corrente segue no caminho do
+    /// divisor válido.
+    pub fn exigir_divisor(&mut self, rop: &Operand) {
         let is_zero = self.emit(
             Instruction::ICmp(ICmpOp::Eq, rop.clone(), Operand::Constant(Constant::Int(0))),
             Type::I1,
@@ -1056,6 +1096,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         });
 
         self.set_block(div_zero_block);
+        // SDK da fonte: o `IntegerDivisionByZeroException` do `dart:core`, o
+        // que a VM lança (e o que `on IntegerDivisionByZeroException` pega).
+        if self.ctx.sdk_da_fonte
+            && let Some(classe) = self.ctx.classe_do_sdk("core", "IntegerDivisionByZeroException")
+            && let Some(vazio) = self.ctx.interner.lookup("")
+            && let Some(&ctor) = self.ctx.program.classes[classe.0 as usize].constructors.get(&vazio)
+        {
+            let erro = self.instanciar_avaliados(ctor, &[], dartforge_diagnostics::Span { start: 0, end: 0 });
+            if !self.is_terminated() {
+                self.emit_throw_op(erro);
+            }
+            self.set_block(normal_div_block);
+            return;
+        }
         let msg = self.emit(
             Instruction::Const(Constant::String(
                 "IntegerDivisionByZeroException".to_string(),
@@ -1094,7 +1148,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
 
         self.set_block(normal_div_block);
-        self.emit(Instruction::SDiv(lop, rop), Type::I64)
     }
 
     /// Operador de uma atribuição composta (`a op= b`).

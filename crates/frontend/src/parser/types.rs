@@ -256,7 +256,7 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// Token corrente é `Function` seguido de `<` ou `(` — início de uma
     /// cauda de tipo de função (`isGeneralizedFunctionType` do SDK).
-    fn at_function_tail(&self, pos: usize) -> bool {
+    pub(crate) fn at_function_tail(&self, pos: usize) -> bool {
         self.kind_of(pos) == Kind::Ident
             && self.text_of(pos) == "Function"
             && matches!(
