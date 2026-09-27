@@ -79,6 +79,8 @@ const FRAGMENTOS: &[&str] = &[
     "io_eventos",
     "io_soquetes",
     "io_soquetes_unix",
+    // A observação de arquivos (`FileSystemEntity.watch`).
+    "io_observador",
     "io_processos",
     // O mesmo no Windows: a porta de conclusão, o Winsock e os processos.
     "io_windows_eventos",

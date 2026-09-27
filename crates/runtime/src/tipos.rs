@@ -690,6 +690,11 @@ fn tipo_do_valor(u: &mut Universo, v: TaggedValue) -> i64 {
     enum Forma {
         Pronto(i64),
         Cru(i64),
+        /// Lista sem tipo gravado (literal de `E` dinâmico, lista do
+        /// runtime): a classe concreta do SDK (`_GrowableList`, `_List`,
+        /// `_ImmutableList`), como na VM — `List` cru não é subtipo de
+        /// `ListBase`, e o `addAll` do SDK converte para ele.
+        Lista,
         Registro(Vec<TaggedValue>),
     }
     let forma = HEAP.with(|heap| {
@@ -706,7 +711,7 @@ fn tipo_do_valor(u: &mut Universo, v: TaggedValue) -> i64 {
             Value::StringBuffer(_) => Forma::Cru(u.rt.string_buffer),
             Value::RegExp(_) => Forma::Cru(u.rt.regexp),
             Value::Match(_) => Forma::Cru(u.rt.matchc),
-            Value::List(_) => Forma::Cru(u.rt.list),
+            Value::List(_) => Forma::Lista,
             Value::Map(_) => Forma::Cru(u.rt.map),
             Value::Set(_) => Forma::Cru(u.rt.set),
             Value::Closure(_) => Forma::Cru(u.rt.function),
@@ -720,6 +725,10 @@ fn tipo_do_valor(u: &mut Universo, v: TaggedValue) -> i64 {
     match forma {
         Forma::Pronto(t) => t,
         Forma::Cru(c) => u.cru(c),
+        Forma::Lista => {
+            let c = cid_do_runtime(h).unwrap_or(u.rt.list);
+            u.cru(c)
+        }
         Forma::Registro(campos) => {
             let pos = campos.into_iter().map(|c| tipo_do_valor(u, c)).collect();
             u.internar(Tipo::Registro { pos, nomeados: Vec::new() })

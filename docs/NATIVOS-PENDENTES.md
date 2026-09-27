@@ -3,7 +3,8 @@
 Levantamento de 2026-09-27 sobre `crates/emit_native/src/nativos.rs` e o SDK
 3.6.2 (`/opt/tc/dart-3.6.2/lib`). A tabela `NATIVOS` tinha **66** entradas
 `pendente(...)`; depois do multicast, do `RawSynchronousSocket` e das
-mensagens de controle (§1.2–1.4, agora implementados) restam **45**. Esse número **não** mede o que falta: a maior parte das
+mensagens de controle (§1.2–1.4, agora implementados) e da observação de
+arquivos (§1.1, implementada no Linux) restam **38**. Esse número **não** mede o que falta: a maior parte das
 entradas é de natives que continuam declarados no SDK com a sobreposição
 `sdk_nativo/`, mas que nenhum caminho de um programa Dart válido alcança,
 porque o recurso público é servido pela sobreposição ou pelo próprio
@@ -59,34 +60,12 @@ Natives: `FileSystemWatcher_CloseWatcher`, `_GetSocketId`, `_InitWatcher`,
 * APIs públicas: `FileSystemEntity.watch()` (e portanto `File.watch`,
   `Directory.watch`, `Link.watch`) em `io/file_system_entity.dart:450-459`,
   e `FileSystemEntity.isWatchSupported` em `io/file_system_entity.dart:638-644`.
-* `watch()` chama `_FileSystemWatcher._watch` → construtor
-  `_FileSystemWatcher._` (`file_patch.dart:163-168`), que lê `isSupported`
-  → native pendente. No nativo, **`watch()` lança `UnsupportedError`
-  síncrono** e `isWatchSupported` também lança, em vez de devolver `true`
-  (Linux/Windows/macOS) como a VM.
-* Único desvio que funciona: com `IOOverrides` instalado, `watch`/
-  `isWatchSupported` vão para `overrides.fsWatch`/`fsWatchIsSupported` e não
-  tocam o native.
-* Não há programa no corpus que use `watch()` de arquivo
-  (`corpus/nativo/05_udp_sinais.dart:22` usa `ProcessSignal.watch`, que é
-  outra coisa e tem native no runtime).
-
-Exemplo de documentação (não faz parte de corpus de teste). Na VM 3.6.2
-(`dart run`, Linux) imprime `true`, `true`, `false`, `false`; no nativo a
-primeira linha já lança `UnsupportedError` (native pendente
-`FileSystemWatcher_IsSupported`):
-
-```dart
-import 'dart:io';
-
-void main() async {
-  print(FileSystemEntity.isWatchSupported);
-  final s = Directory.systemTemp.watch();
-  print(s is Stream<FileSystemEvent>);
-  print(const bool.fromEnvironment('dart.vm.product'));
-  print(const bool.hasEnvironment('X'));
-}
-```
+* Estado: **implementado no Linux** (inotify, como a VM:
+  `crates/runtime/src/io_observador.rs`; o descritor vai ao laço de eventos
+  como soquete interno pelo `_NativeSocket.watch` do patch);
+  `corpus/nativo/34_observar_arquivos.dart`. No macOS (FSEvents) e no
+  Windows (`ReadDirectoryChangesW`) falta: `isWatchSupported` é falso e
+  `watch()` lança a `FileSystemException` "not supported" do patch.
 
 ### 1.2 `dart:io` — multicast de UDP
 
@@ -310,7 +289,7 @@ lança `UnsupportedError`. Para programas válidos, são inalcançáveis.
 
 | API pública | Natives pendentes | Estado | Evidência |
 |---|---|---|---|
-| `FileSystemEntity.watch`, `isWatchSupported` (`dart:io`) | 7 `FileSystemWatcher_*` | ausente | `file_patch.dart:163-168`, `380-395`; `io/file_system_entity.dart:450-459`, `638-644` |
+| `FileSystemEntity.watch`, `isWatchSupported` (`dart:io`) | 7 `FileSystemWatcher_*` | implementado no Linux; ausente no macOS e no Windows | `file_patch.dart:163-168`, `380-395`; `io/file_system_entity.dart:450-459`, `638-644` |
 | `RawDatagramSocket.joinMulticast`/`leaveMulticast` | `Socket_JoinMulticast`, `Socket_LeaveMulticast` | implementado | `socket_patch.dart:1713-1728`, `1797-1802` |
 | `RawSocket.readMessage`/`sendMessage`, `SocketControlMessage.fromHandles`/`extractHandles`, `ResourceHandle.to*` | `Socket_ReceiveMessage`, `Socket_SendMessage`, 2 `SocketControlMessage*`, 4 `ResourceHandleImpl_*` | implementado (Unix) | `socket_patch.dart:1155-1165`, `1295-1316`, `1744-1757`, `2740-2833` |
 | `RawSynchronousSocket` | 11 `SynchronousSocket_*` | implementado | `sync_socket_patch.dart:303-323` |
@@ -332,7 +311,9 @@ Contagem dos 66 pendentes do levantamento:
 * **implementados depois — 21:** 2 de multicast + 8 de mensagens de
   controle e `ResourceHandle` + 11 `SynchronousSocket_*` (saíram da tabela
   de pendentes);
-* **ausente — 8:** 7 `FileSystemWatcher_*` + 1 `writeHeapSnapshotToFile`;
+* **implementados depois (só Linux) — 7:** `FileSystemWatcher_*` (inotify; no
+  macOS e no Windows `isWatchSupported` é falso);
+* **ausente — 1:** `writeHeapSnapshotToFile`;
 * **servido por sobreposição — 6:** `FinalizerEntry_allocate` + 5 de
   callbacks FFI;
 * **servido pelo lowering — 18:** 4 de ambiente + `Ffi_GetFfiNativeResolver`

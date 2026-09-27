@@ -13,7 +13,7 @@ definição de escopo do produto antes de implementar).
 | Item | Estado | Evidência / o que falta |
 | --- | --- | --- |
 | N01 cópia de strings | feito | `com_texto` empresta o texto sem clonar (`charAt`, `substringUnchecked`, `codeUnitAt`, `split`); `bench/desempenho/textos.dart` termina (antes: >300 s); corpus nativo sob GC stress. |
-| N02 FileSystemWatcher | aberto | natives `FileSystemWatcher_*` pendentes. |
+| N02 FileSystemWatcher | parcial | Linux: inotify como a VM (`crates/runtime/src/io_observador.rs`), o descritor entregue ao laço de eventos como soquete interno; `corpus/nativo/34`: criação, modificação, mudança de nome, subdiretório, filtro de eventos, arquivo só, remoção do próprio diretório (fim do fluxo) e caminho inexistente, iguais à VM, também com --gc-stress. Falta macOS (FSEvents) e Windows (`ReadDirectoryChangesW` na porta de conclusão): lá `isWatchSupported` é falso e `watch` lança `FileSystemException`. |
 | N03 Multicast | feito | `joinMulticast`/`leaveMulticast` como a VM em cada sistema (Linux `MCAST_JOIN_GROUP`; macOS/Windows `ip_mreq`/`ipv6_mreq`); `corpus/nativo/31`: entrada, datagrama pelo laço de multicast, saída e os `OSError` iguais aos da VM. No runner, o harness compara com a VM do mesmo sistema. |
 | N04 mensagens de controle | feito | `sendmsg`/`recvmsg` com `SCM_RIGHTS` no Unix; `toSocket`/`toRawDatagramSocket` lançam como na VM (que não os suporta); `corpus/nativo/33`. |
 | N05 SynchronousSocket | feito | os 11 natives sobre o `TcpStream` bloqueante do Rust; `corpus/nativo/32`: dados, fim do fluxo (`null`), `available`, `shutdown`, `closeSync`, conexão recusada e resolução falha, iguais à VM. |
