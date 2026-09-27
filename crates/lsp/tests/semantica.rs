@@ -204,5 +204,9 @@ fn importado_usa_tipos_e_texto_vigente_sem_reter_versoes() {
     servidor.bombear();
     assert_eq!(requisitar(&mut servidor, 94, "textDocument/definition", &uri_funcao_prefixada, 11)["range"]["start"], json!({"line":0,"character":4}));
     assert_eq!(requisitar(&mut servidor, 95, "textDocument/hover", &uri_funcao_prefixada, 11)["contents"], "int soma(int a, int b)");
+    // A análise tipada em segundo plano gravou o cache deste SDK mínimo.
+    servidor.aguardar_diagnosticos(std::time::Duration::from_secs(120));
+    let layout = SdkLayout::load(&raiz.join("sdk/lib"), "dartdevc").unwrap();
+    let _ = fs::remove_file(dartforge_elements::SdkCache::caminho(&layout, "dartdevc"));
     fs::remove_dir_all(&raiz).unwrap();
 }

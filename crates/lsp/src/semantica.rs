@@ -198,7 +198,7 @@ impl AnalisadorSemantico {
 /// A biblioteca dona de `caminho` quando o texto é uma parte (`part of`):
 /// pela URI escrita (relativa ou `package:`), ou, na forma antiga
 /// `part of nome;`, pelo arquivo do projeto que declara `part` para ela.
-fn biblioteca_dona(caminho: &std::path::Path, texto: &str, documentos: Option<&DocumentStore>) -> Option<std::path::PathBuf> {
+pub(crate) fn biblioteca_dona(caminho: &std::path::Path, texto: &str, documentos: Option<&DocumentStore>) -> Option<std::path::PathBuf> {
     use dartforge_elements::gerado::chave;
     use dartforge_frontend::ast::DirectiveKind;
     if !texto.contains("part") {
@@ -274,6 +274,10 @@ impl Analisador for AnalisadorSemantico {
 
     fn documento_fechado(&mut self, uri: &str) {
         self.sintatico.documento_fechado(uri);
+    }
+
+    fn sdk_para_diagnosticos(&self) -> Option<std::path::PathBuf> {
+        self.sdk.as_ref().map(|s| s.root.clone())
     }
 
     fn preparar_renomeacao(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Result<Option<(Span, String)>, String> {

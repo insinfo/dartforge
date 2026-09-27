@@ -22,9 +22,14 @@ processo.
               │  │ fila      │  │  VecDeque de mensagens em ordem
               │  │ docs      │  │  DocumentStore: 1 entrada por documento
               │  │ cancel.   │  │  ids na fila (teto 4096, limpa ao responder)
-              │  │analisador │  │  trait Analisador (sintático hoje)
+              │  │analisador │  │  trait Analisador (parser + verificadores locais)
               │  └───────────┘  │
-              └────────┬────────┘
+              └──┬─────────▲────┘
+                 │ pedido  │ resultado (uri, versão, diagnósticos)
+              ┌──▼─────────┴────┐
+              │     tipado      │  thread 3: análise do `dartforge analyze`
+              └────────┬────────┘  por pacote (ver "Diagnósticos tipados")
+                       │
                        │ respostas e publishDiagnostics,
                        │ uma mensagem inteira por vez sob Mutex
                  ┌─────▼──────┐
@@ -72,8 +77,91 @@ substituto trunca para a borda.
 Sem debounce: medido, não chutado. A medição abaixo dá ~0,35 ms por
 diagnose (transporte + análise + publicação, média em 2.516 mudanças sobre
 o `new_sali`); um debounce de 50 ms só adicionaria latência sem economizar
-trabalho relevante. A decisão será revista quando a análise semântica
-entre — o custo por tecla será remedido então.
+trabalho relevante. A análise tipada (seção seguinte) também não usa
+debounce: roda noutra thread, coalesce as edições que chegam enquanto está
+ocupada e para no próximo ponto de cancelamento quando o texto muda.
+
+## Diagnósticos tipados (fluxo contínuo)
+
+Cada `didOpen`/`didChange` produz **duas** publicações para o documento:
+
+1. **Imediata**, no próprio `bombear`: o parser na versão de linguagem do
+   arquivo mais os verificadores de `crates/analise` que olham só o arquivo
+   (duplicatas, locais não usados, `external`, aridade de operador…), já
+   pela regra de publicação e pelos `// ignore:`. Custa milissegundos.
+2. **Tipada**, em segundo plano (`crates/lsp/src/tipado.rs`): a mesma
+   análise do `dartforge analyze` — `dartforge_paridade::analise::Motor`
+   (carga, outline, inferência de `crates/types`, todos os verificadores de
+   `crates/analise`, imports não usados, diretivas sem alvo) seguida de
+   `dartforge_paridade::publicaveis` (sintaxe sempre; semântica só com
+   código em `crates/analise/verificados.txt`; `analysis_options.yaml` e
+   `// ignore:`). Nenhuma regra é reescrita no LSP: a publicação tipada é a
+   sintaxe do parser mais a semântica publicada do motor. Conferido com o
+   exemplo de medição abaixo: nos arquivos medidos, a lista publicada é
+   idêntica (código, linha, coluna) à do `Motor` + `diagnosticos_json`,
+   que é o caminho do `dartforge analyze`.
+
+Regras do fluxo:
+
+* **Um programa por pacote.** O pedido marca o pacote do documento (a raiz
+  com `pubspec.yaml`, como no `analyze`). A análise inclui **todos** os
+  documentos abertos daquele pacote (e a biblioteca dona de cada parte
+  aberta) num único `Motor::analisar_com`, com o texto aberto valendo mais
+  que o disco — inclusive para arquivos só importados. Por isso editar um
+  arquivo importado (aberto, sem salvar) republica os diagnósticos de quem o
+  importa, direta ou transitivamente, se estiver aberto. Fechar um documento
+  reanalisa os outros abertos do pacote com o texto do disco.
+* **Versão.** Cada resultado leva a versão do texto analisado. O servidor só
+  publica se ela ainda é a vigente; senão descarta
+  (`Servidor::tipados_descartados`). Os resultados são drenados depois das
+  notificações do mesmo `bombear`, então uma mudança já recebida descarta o
+  resultado que ela tornou velho antes de ele chegar ao editor. Documento
+  fechado também descarta.
+* **Edições rápidas.** Marcar um pacote já marcado não enfileira outra
+  análise: uma rajada vira uma análise da última versão. A análise em curso
+  consulta, entre as fases do motor (depois da carga, antes dos tipos e
+  antes de cada biblioteca na inferência de corpos), se o pacote foi marcado
+  de novo; se foi, para e recomeça com o texto novo.
+* **Memória.** O trabalhador retém o `Motor` (layout do SDK e nomes das
+  bibliotecas) e uma cópia do texto vigente de cada documento aberto (a
+  cópia sai no `didClose`). Programa, árvores e tabela de tipos vivem uma
+  análise. O motor usa o cache do SDK em disco (`SdkCache`, o mesmo do
+  `analyze`, em `DARTFORGE_CACHE_DIR` ou `target/dartforge`).
+* **Sem SDK** (`AnalisadorSemantico::novo(None)`, ou SDK não descoberto) ou
+  com `DARTFORGE_LSP_TIPADO=0`, só a publicação imediata existe. Pânico na
+  análise tipada é contido: fica a imediata.
+* O laço do binário acorda pelo gancho `Servidor::ao_ter_diagnosticos`;
+  testes e medições usam `Servidor::aguardar_diagnosticos(limite)`.
+
+Latência medida (2026-09-27, Linux, release, SDK 3.6.2, cache do SDK
+quente; `cargo run --release -p dartforge-lsp --example
+latencia_diagnosticos -- <arquivos>`: pelo protocolo, abre o arquivo,
+espera a publicação tipada, aplica 10 edições incrementais esperando cada
+uma e uma rajada de 20 sem esperar):
+
+| Arquivo (corpus) | Tamanho | Imediata (mediana) | Tipada após edição (mediana; mín–máx) | Rajada de 20 |
+|---|---|---|---|---|
+| `linguagem/mixin/superclass_test.dart` | 6,5 KB, 218 linhas | 0,4 ms | 28 ms (28–35) | 1 publicação tipada, 48 ms |
+| `pacotes/expect/lib/expect.dart` | 36 KB, 1.027 linhas | 2,2 ms | 34 ms (32–40) | 1 publicação tipada, 80 ms |
+| `linguagem/void/void_type_usage_test.dart` | 74 KB, 2.256 linhas | 2,0 ms | 35 ms (34–47) | 1 publicação tipada, 106 ms |
+| `linguagem/generic/super_bounded_types_error_test.dart` | 196 KB, 3.186 linhas | 11 ms | 56 ms (54–63) | 1 publicação tipada, 297 ms |
+
+A primeira análise da sessão com o cache do SDK frio (construído na hora)
+levou 227 ms no arquivo de 6,5 KB. Depois de fechar os documentos, o vivo
+acima da base ficou em 0,03 MiB (alocador contador). Na rajada, o tempo é
+dominado pelas 20 publicações imediatas (o parser do arquivo inteiro a cada
+tecla), não pela tipada. Os arquivos do corpus não importam pacotes
+grandes; num projeto com muitas dependências a carga cresce com elas.
+
+Limitações: o custo de cada análise cresce com o número de documentos
+abertos do pacote (todos entram no programa, e cada biblioteca aberta tem
+os corpos inferidos); dependentes **fechados** não são analisados (não há
+publicação para eles); um arquivo importado de outro pacote (dependência
+por caminho) editado sem salvar vale para a carga, mas não marca o pacote
+dos que o importam; a publicação imediata de uma nova versão substitui a
+tipada anterior até a nova tipada chegar (os códigos que dependem de tipos
+somem por algumas dezenas de ms a cada edição); as ações de código usam só
+os diagnósticos imediatos.
 
 ## Capacidades
 
@@ -323,10 +411,10 @@ diagnósticos ainda não publicados.
 
 Explicitamente fora deste brief: definição de variáveis/funções locais e demais nomes importados,
 formatação e `diagnosticProvider` por
-requisição (o servidor empurra diagnósticos; não atende pull). Diagnósticos
-semânticos (nomes não resolvidos, erros de tipo) chegam depois via `crates/types`,
-pela costura `trait Analisador { fn diagnosticar(&mut self, uri, texto) }`
-— o transporte não muda.
+requisição (o servidor empurra diagnósticos; não atende pull). Os
+diagnósticos semânticos publicados (os códigos de `verificados.txt`,
+inclusive os que dependem de tipos) chegam pelo fluxo tipado descrito em
+"Diagnósticos tipados"; os não verificados continuam fora do editor.
 
 ## Testes
 
@@ -344,6 +432,12 @@ JSON-RPC com o `Servidor` semântico sobre um projeto temporário
 (`pubspec.yaml`, `package_config.json`) e um SDK mínimo em disco
 (`tests/comum`), sem depender do Dart instalado; cobrem código incompleto
 (`a.` solto, `a.ca` sem `;`, chamada sem `)`, comando quebrado no corpo).
+`tests/tipados.rs` usa o mesmo apoio para o fluxo tipado: código publicado
+que depende de tipos (`non_bool_condition`) só na publicação tipada, só
+códigos publicados e `// ignore:` respeitado, resultado de versão velha
+descartado, rajada de edições coalescida numa análise, arquivo importado
+editado republicando quem o importa, e `didClose` descartando resultado
+pendente.
 
 ## Medição D.2 — mesmo projeto, mesma sequência
 

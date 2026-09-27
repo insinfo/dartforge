@@ -207,6 +207,11 @@ impl Projeto {
 
 impl Drop for Projeto {
     fn drop(&mut self) {
+        // A análise tipada grava o cache do SDK mínimo (um por projeto, pelo
+        // caminho): some com ele, para não acumular entre execuções.
+        if let Ok(sdk) = SdkLayout::load(&self.raiz.join("sdk/lib"), "dartdevc") {
+            let _ = fs::remove_file(dartforge_elements::SdkCache::caminho(&sdk, "dartdevc"));
+        }
         let _ = fs::remove_dir_all(&self.raiz);
     }
 }
