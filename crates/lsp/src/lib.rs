@@ -15,11 +15,17 @@
 
 pub mod servidor;
 mod acoes;
+mod aproximado;
 mod completar;
 mod consulta;
+mod dartdoc;
+mod descricao;
+mod indice;
 mod navegacao;
+mod projeto;
 mod renomear;
 mod semantica;
+mod sessao;
 mod simbolos;
 mod tipado;
 pub mod transporte;
@@ -31,9 +37,11 @@ use utf16::TabelaLinhas;
 
 pub use servidor::Servidor;
 pub use semantica::AnalisadorSemantico;
-pub use completar::{Completar, ItemCompletar};
-pub use renomear::Edicao;
+pub use completar::{Chamada, Completar, ImportAutomatico, ItemCompletar};
+pub use renomear::{Edicao, RenomearArquivo, Renomeacao};
+
 pub use acoes::AcaoDeCodigo;
+pub use sessao::EstatisticasSessao;
 
 
 /// Posição LSP: linha e coluna em **unidades UTF-16** (ambas a partir de 0).
@@ -55,6 +63,42 @@ pub struct MudancaConteudo {
     pub intervalo: Option<(Posicao, Posicao)>,
     /// Texto de substituição.
     pub texto: String,
+}
+
+/// Resposta de `textDocument/hover`: o intervalo (bytes) da referência sob
+/// o cursor, a descrição do elemento (`int soma(int a, int b)`), o tipo
+/// estático quando é variável ou getter, e o comentário de documentação.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hover {
+    /// Intervalo do nome sob o cursor, em bytes do texto vigente.
+    pub intervalo: dartforge_diagnostics::Span,
+    /// Descrição do elemento, como o servidor do Dart a escreve.
+    pub descricao: String,
+    /// Tipo estático (variáveis e getters), já formatado.
+    pub tipo: Option<String>,
+    /// Documentação (`///` ou `/** */`), já sem os marcadores.
+    pub documentacao: Option<String>,
+}
+
+/// Resposta de `textDocument/references`: a declaração (quando se sabe onde
+/// está) e os usos, cada um com a URI do arquivo e o span em bytes do texto
+/// que o servidor enxerga (aberto, ou o do disco para arquivo fechado).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Referencias {
+    /// Onde o elemento é declarado; pode estar fora do projeto (SDK).
+    pub declaracao: Option<(String, dartforge_diagnostics::Span)>,
+    /// Usos, em ordem de (URI, offset).
+    pub usos: Vec<(String, dartforge_diagnostics::Span)>,
+}
+
+impl Referencias {
+    /// A forma sintática (declaração primeiro, depois os usos, tudo no
+    /// mesmo documento) como [`Referencias`].
+    fn de_lista(uri: &str, spans: Vec<dartforge_diagnostics::Span>) -> Self {
+        let mut spans = spans.into_iter().map(|s| (uri.to_string(), s));
+        let declaracao = spans.next();
+        Self { declaracao, usos: spans.collect() }
+    }
 }
 
 /// Texto vigente de um documento aberto no editor.
@@ -258,12 +302,13 @@ pub trait Analisador {
         self.definicao(uri, texto, offset)
     }
 
-    /// Descrição sintática segura e intervalo da referência sob o cursor.
-    fn hover(&mut self, _uri: &str, _texto: &str, _offset: usize) -> Option<(dartforge_diagnostics::Span, String, Option<String>)> {
+    /// Descrição, tipo e documentação do que está sob o cursor.
+    fn hover(&mut self, _uri: &str, _texto: &str, _offset: usize) -> Option<Hover> {
         None
     }
 
-    fn hover_no_workspace(&mut self, uri: &str, texto: &str, offset: usize, _documentos: &DocumentStore) -> Option<(dartforge_diagnostics::Span, String, Option<String>)> {
+    /// Variante com os buffers abertos (textos ainda não salvos).
+    fn hover_no_workspace(&mut self, uri: &str, texto: &str, offset: usize, _documentos: &DocumentStore) -> Option<Hover> {
         self.hover(uri, texto, offset)
     }
 
@@ -314,23 +359,25 @@ pub trait Analisador {
     ///
     /// Nome inválido, elemento não renomeável ou conflito, com a mensagem
     /// para o usuário.
-    fn renomear(&mut self, _documentos: &DocumentStore, _uri: &str, _offset: usize, _novo: &str) -> Result<Vec<Edicao>, String> {
+    fn renomear(&mut self, _documentos: &DocumentStore, _uri: &str, _offset: usize, _novo: &str) -> Result<Renomeacao, String> {
         Err("Renomear exige a análise semântica (SDK do Dart).".into())
     }
 
-    /// `codeAction`: correções para o intervalo `inicio..fim` (bytes) do
-    /// documento aberto. O padrão oferece as correções dos diagnósticos
+    /// `codeAction`: correções e assistências para o intervalo `inicio..fim`
+    /// (bytes) do documento aberto. `publicados` são os diagnósticos tipados
+    /// já publicados para a versão vigente (o servidor não passa os de uma
+    /// versão velha). O padrão oferece as correções dos diagnósticos
     /// sintáticos (inserir `;`).
     ///
     /// ```
     /// use dartforge_lsp::{Analisador, AnalisadorSintatico, DocumentStore};
     /// let mut docs = DocumentStore::new();
     /// docs.open("file:///a.dart".into(), 1, "void f() { var x = 1 }".into());
-    /// let acoes = AnalisadorSintatico::new().acoes(&docs, "file:///a.dart", 19, 19);
+    /// let acoes = AnalisadorSintatico::new().acoes(&docs, "file:///a.dart", 19, 19, &[]);
     /// assert_eq!(acoes[0].titulo, "Insert ';'");
     /// assert_eq!(acoes[0].edicoes[0].texto, ";");
     /// ```
-    fn acoes(&mut self, documentos: &DocumentStore, uri: &str, inicio: usize, fim: usize) -> Vec<AcaoDeCodigo> {
+    fn acoes(&mut self, documentos: &DocumentStore, uri: &str, inicio: usize, fim: usize, _publicados: &[Diagnostic]) -> Vec<AcaoDeCodigo> {
         let Some(texto) = documentos.get(uri) else { return Vec::new() };
         let diagnosticos = self.diagnosticar(uri, texto);
         acoes::corrigir_sintaxe(uri, &diagnosticos, inicio, fim)
@@ -338,6 +385,10 @@ pub trait Analisador {
 
     /// Descarta estado associado ao documento quando ele sai do editor.
     fn documento_fechado(&mut self, _uri: &str) {}
+
+    /// O texto de `uri` mudou (`didOpen` ou `didChange` aceito): o que o
+    /// analisador retém de consultas anteriores deixa de valer e cai aqui.
+    fn documento_alterado(&mut self, _uri: &str) {}
 
     /// O `lib/` do SDK com que o servidor roda, em segundo plano, a análise
     /// tipada do `dartforge analyze` sobre os documentos abertos
@@ -358,15 +409,13 @@ pub trait Analisador {
         None
     }
 
-    /// Referências entre os documentos abertos: declaração primeiro, depois
-    /// os usos, cada par com a URI do documento. O padrão delega ao próprio
-    /// documento. Cada arquivo é analisado e liberado antes do próximo;
-    /// nada é retido entre pedidos, mantendo o platô de memória por edição.
-    fn referencias_em(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<Vec<(String, dartforge_diagnostics::Span)>> {
+    /// Referências no workspace: a declaração e os usos, cada um com a URI
+    /// do arquivo. O padrão delega ao próprio documento. Nada é retido entre
+    /// pedidos além do que a política de sessão do analisador permite.
+    fn referencias_em(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<Referencias> {
         let texto = documentos.get(uri)?;
-        self.referencias(uri, texto, offset).map(|spans| {
-            spans.into_iter().map(|span| (uri.to_string(), span)).collect()
-        })
+        let spans = self.referencias(uri, texto, offset)?;
+        Some(Referencias::de_lista(uri, spans))
     }
 }
 
@@ -496,11 +545,16 @@ impl Analisador for AnalisadorSintatico {
         }
     }
 
-    fn hover(&mut self, uri: &str, texto: &str, offset: usize) -> Option<(dartforge_diagnostics::Span, String, Option<String>)> {
+    fn hover(&mut self, uri: &str, texto: &str, offset: usize) -> Option<Hover> {
         let features = self.features(uri, texto);
         match navegacao::destino(uri, texto, features, offset)? {
             navegacao::Alvo::Arquivo(_) => None,
-            navegacao::Alvo::NomeLocal(tipo) => Some((tipo.referencia, tipo.descricao?, tipo.tipo_estatico)),
+            navegacao::Alvo::NomeLocal(tipo) => Some(Hover {
+                intervalo: tipo.referencia,
+                descricao: tipo.descricao?,
+                tipo: tipo.tipo_estatico,
+                documentacao: None,
+            }),
         }
     }
 
@@ -521,11 +575,14 @@ impl Analisador for AnalisadorSintatico {
         navegacao::definicao_em(documentos, uri, offset, self)
     }
 
-    fn hover_no_workspace(&mut self, uri: &str, _texto: &str, offset: usize, documentos: &DocumentStore) -> Option<(dartforge_diagnostics::Span, String, Option<String>)> {
-        navegacao::hover_em(documentos, uri, offset, self)
+    fn hover_no_workspace(&mut self, uri: &str, _texto: &str, offset: usize, documentos: &DocumentStore) -> Option<Hover> {
+        let (intervalo, descricao, tipo) = navegacao::hover_em(documentos, uri, offset, self)?;
+        Some(Hover { intervalo, descricao, tipo, documentacao: None })
     }
 
-    fn referencias_em(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<Vec<(String, dartforge_diagnostics::Span)>> {
-        navegacao::referencias_em(documentos, uri, offset, self)
+    fn referencias_em(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<Referencias> {
+        let mut achados = navegacao::referencias_em(documentos, uri, offset, self)?.into_iter();
+        let declaracao = achados.next();
+        Some(Referencias { declaracao, usos: achados.collect() })
     }
 }

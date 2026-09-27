@@ -280,3 +280,185 @@ fn enum_extensao_getter_e_setter() {
         "{r}"
     );
 }
+
+/// Linha e coluna UTF-16 do início da `n`-ésima ocorrência de `agulha`.
+fn onde(texto: &str, agulha: &str, n: usize) -> (u32, u32) {
+    let i = texto.match_indices(agulha).nth(n).unwrap_or_else(|| panic!("sem {agulha:?}")).0;
+    let antes = &texto[..i];
+    (
+        antes.matches('\n').count() as u32,
+        antes.rsplit('\n').next().unwrap().encode_utf16().count() as u32,
+    )
+}
+
+fn renomear_em(p: &mut Projeto, rel: &str, texto: &str, agulha: &str, n: usize, novo: &str) -> Value {
+    let (l, c) = onde(texto, agulha, n);
+    renomear(p, rel, l, c, novo)
+}
+
+#[test]
+fn construtor_nomeado() {
+    let mut p = Projeto::novo("renomear-construtor");
+    let a = "/// Crie com [Caixa.vazia].\nclass Caixa {\n  final int v;\n  Caixa(this.v);\n  Caixa.vazia() : this(0);\n  Caixa.outra() : this.vazia();\n  factory Caixa.fab() = Caixa.vazia;\n}\nclass Sub extends Caixa {\n  Sub() : super.vazia();\n}\nvoid f() {\n  var x = Caixa.vazia();\n  var y = new Caixa.vazia();\n  print([x, y, Caixa(1)]);\n}\n";
+    p.abrir("lib/a.dart", a);
+    let uri = p.uri("lib/a.dart");
+    let prep = {
+        let (l, c) = onde(a, "vazia() :", 0);
+        p.na_posicao("textDocument/prepareRename", "lib/a.dart", l, c, json!({}))
+    };
+    assert_eq!(prep["result"]["placeholder"], "vazia", "{prep}");
+    let r = renomear_em(&mut p, "lib/a.dart", a, "vazia() :", 0, "nova");
+    assert_eq!(aplicar(&r["result"], &uri, a), a.replace("vazia", "nova"), "{r}");
+    // A partir de um uso, o mesmo resultado.
+    let r2 = renomear_em(&mut p, "lib/a.dart", a, "vazia();\n  var y", 0, "nova");
+    assert_eq!(r2["result"], r["result"]);
+    // Conflito com outro construtor.
+    assert!(erro(&renomear_em(&mut p, "lib/a.dart", a, "vazia() :", 0, "outra")).contains("construtor chamado 'outra'"));
+}
+
+#[test]
+fn prefixo_de_import() {
+    let mut p = Projeto::novo("renomear-prefixo");
+    p.gravar("lib/a.dart", "const anot = 0;\nclass Caixa {}\nCaixa criar() => Caixa();\n");
+    let b = "import 'a.dart' as pa;\n@pa.anot\npa.Caixa f(pa.Caixa c) => pa.criar();\nint pb = 0;\n";
+    p.abrir("lib/b.dart", b);
+    let uri = p.uri("lib/b.dart");
+    let r = renomear_em(&mut p, "lib/b.dart", b, "pa.Caixa f", 0, "q");
+    assert_eq!(aplicar(&r["result"], &uri, b), b.replace("pa", "q").replace("qb", "pb"), "{r}");
+    // A partir da diretiva.
+    let r2 = renomear_em(&mut p, "lib/b.dart", b, "pa;", 0, "q");
+    assert_eq!(r2["result"], r["result"]);
+    // O nome novo colidiria com uma declaração da biblioteca.
+    assert!(erro(&renomear_em(&mut p, "lib/b.dart", b, "pa;", 0, "pb")).contains("colidiria"));
+    assert!(erro(&renomear_em(&mut p, "lib/b.dart", b, "pa;", 0, "dynamic")).contains("embutido"));
+}
+
+#[test]
+fn parametro_de_tipo_respeita_sombra() {
+    let mut p = Projeto::novo("renomear-tipo");
+    let a = "class Caixa<T> {\n  T v;\n  Caixa(this.v);\n  S pegar<S, T>(T x, S s) => s;\n  List<T> lista() => [v];\n}\n";
+    p.abrir("lib/a.dart", a);
+    let uri = p.uri("lib/a.dart");
+    let r = renomear_em(&mut p, "lib/a.dart", a, "T v", 0, "E");
+    assert_eq!(
+        aplicar(&r["result"], &uri, a),
+        "class Caixa<E> {\n  E v;\n  Caixa(this.v);\n  S pegar<S, T>(T x, S s) => s;\n  List<E> lista() => [v];\n}\n",
+        "{r}"
+    );
+    // O `T` do método é outro parâmetro.
+    let r = renomear_em(&mut p, "lib/a.dart", a, "T x", 0, "U");
+    assert_eq!(
+        aplicar(&r["result"], &uri, a),
+        "class Caixa<T> {\n  T v;\n  Caixa(this.v);\n  S pegar<S, U>(U x, S s) => s;\n  List<T> lista() => [v];\n}\n"
+    );
+    // Conflitos: irmão na mesma lista e tipo usado no escopo.
+    assert!(erro(&renomear_em(&mut p, "lib/a.dart", a, "T x", 0, "S")).contains("Já existe"));
+    assert!(erro(&renomear_em(&mut p, "lib/a.dart", a, "T v", 0, "List")).contains("passaria a denotar"));
+}
+
+#[test]
+fn nomeado_de_sobrescritas_e_documentacao() {
+    let mut p = Projeto::novo("renomear-sobrescrita");
+    let a = "class A {\n  /// Usa [n] e [valor].\n  void f({int? n}) {}\n  int valor = 0;\n}\nclass B extends A {\n  @override\n  void f({int? n}) { print(n); }\n}\nvoid g(A a, B b) { a.f(n: 1); b.f(n: 2); print(a.valor); }\n";
+    p.abrir("lib/a.dart", a);
+    let uri = p.uri("lib/a.dart");
+    let r = renomear_em(&mut p, "lib/a.dart", a, "n})", 0, "m");
+    assert_eq!(
+        aplicar(&r["result"], &uri, a),
+        "class A {\n  /// Usa [m] e [valor].\n  void f({int? m}) {}\n  int valor = 0;\n}\nclass B extends A {\n  @override\n  void f({int? m}) { print(m); }\n}\nvoid g(A a, B b) { a.f(m: 1); b.f(m: 2); print(a.valor); }\n",
+        "{r}"
+    );
+    // Campo citado na documentação.
+    let r = renomear_em(&mut p, "lib/a.dart", a, "valor = 0", 0, "total");
+    let novo = aplicar(&r["result"], &uri, a);
+    assert!(novo.contains("/// Usa [n] e [total].") && novo.contains("print(a.total)"), "{novo}");
+}
+
+#[test]
+fn arquivo_da_classe_com_documentchanges_versionado() {
+    let mut p = Projeto::novo("renomear-arquivo");
+    let classe = "class MinhaClasse {}\n";
+    let usa = "import 'minha_classe.dart';\nMinhaClasse? x;\n";
+    let main = "import 'package:projeto/minha_classe.dart';\nvoid main() { MinhaClasse(); }\n";
+    p.gravar("lib/minha_classe.dart", classe);
+    p.gravar("bin/main.dart", main);
+    p.abrir("lib/usa.dart", usa);
+    let capacidades = json!({"workspace": {"workspaceEdit": {"documentChanges": true, "resourceOperations": ["create", "rename"]}}});
+    p.requisitar(
+        "initialize",
+        json!({"capabilities": capacidades, "initializationOptions": {"renameFilesWithClasses": "always"}}),
+    );
+    let r = renomear_em(&mut p, "lib/usa.dart", usa, "MinhaClasse?", 0, "OutraClasse");
+    let mudancas = r["result"]["documentChanges"].as_array().unwrap_or_else(|| panic!("{r}")).clone();
+    // A operação de arquivo vem depois das edições de texto.
+    let ultima = mudancas.last().unwrap();
+    assert_eq!(ultima["kind"], "rename");
+    assert_eq!(ultima["oldUri"], p.uri("lib/minha_classe.dart"));
+    assert_eq!(ultima["newUri"], p.uri("lib/outra_classe.dart"));
+    let edicoes = |uri: &str| -> (Value, Value) {
+        let d = mudancas.iter().find(|d| d["textDocument"]["uri"] == uri).unwrap_or_else(|| panic!("sem {uri}"));
+        (d["textDocument"]["version"].clone(), d["edits"].clone())
+    };
+    // Aberto leva a versão vigente; fechado, `null`.
+    let uri_usa = p.uri("lib/usa.dart");
+    let (versao, e) = edicoes(&uri_usa);
+    assert_eq!(versao, json!(1));
+    let mut mapa = serde_json::Map::new();
+    mapa.insert(uri_usa.clone(), e);
+    assert_eq!(
+        aplicar(&json!({"changes": mapa}), &uri_usa, usa),
+        "import 'outra_classe.dart';\nOutraClasse? x;\n"
+    );
+    let uri_main = p.uri("bin/main.dart");
+    let (versao, e) = edicoes(&uri_main);
+    assert_eq!(versao, Value::Null);
+    let mut mapa = serde_json::Map::new();
+    mapa.insert(uri_main.clone(), e);
+    assert_eq!(
+        aplicar(&json!({"changes": mapa}), &uri_main, main),
+        "import 'package:projeto/outra_classe.dart';\nvoid main() { OutraClasse(); }\n"
+    );
+    // Sem a opção, a classe muda e o arquivo fica.
+    p.requisitar("initialize", json!({"capabilities": capacidades}));
+    let r = renomear_em(&mut p, "lib/usa.dart", usa, "MinhaClasse?", 0, "OutraClasse");
+    let mudancas = r["result"]["documentChanges"].as_array().unwrap();
+    assert!(mudancas.iter().all(|m| m.get("kind").is_none()), "{r}");
+    let texto_usa = mudancas.iter().find(|d| d["textDocument"]["uri"] == uri_usa).unwrap();
+    assert_eq!(texto_usa["edits"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn conflitos_por_escopo() {
+    let mut p = Projeto::novo("renomear-escopo");
+    let a = "int topo = 0;\nint valor = 0;\nvoid f() {\n  { var a = 1; print(a); }\n  { var b = 2; print(b); }\n}\nvoid g() { var x = 1; print(topo + x); }\nvoid h() { var c = 1; { var d = 2; print(c + d); } }\nclass K {\n  int campo = 1;\n  int soma() => campo + valor;\n}\n";
+    p.abrir("lib/a.dart", a);
+    let uri = p.uri("lib/a.dart");
+    // Blocos disjuntos: permitido.
+    let r = renomear_em(&mut p, "lib/a.dart", a, "b = 2", 0, "a");
+    assert!(aplicar(&r["result"], &uri, a).contains("{ var a = 2; print(a); }"), "{r}");
+    // Local que sombrearia o uso do topo.
+    assert!(erro(&renomear_em(&mut p, "lib/a.dart", a, "x = 1", 0, "topo")).contains("sombreado"));
+    // Topo que passaria a ser sombreado pelo local.
+    assert!(erro(&renomear_em(&mut p, "lib/a.dart", a, "topo = 0", 0, "x")).contains("sombreado pelo local 'x'"));
+    // Referência que ficaria dentro do escopo de outro local aninhado.
+    assert!(erro(&renomear_em(&mut p, "lib/a.dart", a, "c = 1", 0, "d")).contains("sombrear"));
+    // Membro que capturaria o uso de um topo no corpo da classe.
+    assert!(erro(&renomear_em(&mut p, "lib/a.dart", a, "campo = 1", 0, "valor")).contains("passaria a denotar"));
+    // Topo que passaria a ser o membro dentro da classe.
+    assert!(erro(&renomear_em(&mut p, "lib/a.dart", a, "valor = 0", 0, "campo")).contains("passaria a denotar o membro"));
+}
+
+#[test]
+fn homonimo_de_outra_biblioteca_fica_intacto() {
+    let mut p = Projeto::novo("renomear-homonimo");
+    let a = "int f() => 1;\n";
+    let b = "import 'a.dart';\nint g() => f();\n";
+    let c = "int f() => 2;\nint h() => f();\n";
+    p.gravar("lib/b.dart", b);
+    p.gravar("lib/c.dart", c);
+    p.abrir("lib/a.dart", a);
+    let r = renomear(&mut p, "lib/a.dart", 0, 4, "um");
+    assert_eq!(aplicar(&r["result"], &p.uri("lib/a.dart"), a), "int um() => 1;\n");
+    assert_eq!(aplicar(&r["result"], &p.uri("lib/b.dart"), b), "import 'a.dart';\nint g() => um();\n");
+    assert!(r["result"]["changes"].get(p.uri("lib/c.dart")).is_none(), "{r}");
+}

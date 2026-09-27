@@ -7,8 +7,9 @@
 //! nada dela sobrevive à próxima versão do texto (o platô de memória do LSP).
 
 use dartforge_elements::model::{
-    Element, FunctionElementId, LibraryId, Program, UnitId, VariableId,
+    Element, FunctionElementId, FunctionRef, LibraryId, Program, UnitId, VariableId, VariableRef,
 };
+use dartforge_frontend::ast::{DeclKind, MemberKind};
 use dartforge_intern::{Interner, SymbolId};
 use dartforge_types::scope::MemberResolver;
 use dartforge_types::{
@@ -184,5 +185,77 @@ impl Consulta {
             Element::Variable(v) => self.programa.variable(v).name,
             Element::Prefix(_, p) => p,
         })
+    }
+
+    /// Unidade e início (com metadados) da declaração de um elemento de topo.
+    pub fn inicio_do_elemento(&self, el: Element) -> Option<(UnitId, usize)> {
+        let p = &self.programa;
+        let d = match el {
+            Element::Class(c) => p.class(c).decl?,
+            Element::Extension(x) => p.extension(x).decl,
+            Element::Typedef(t) => p.typedef(t).decl,
+            Element::Function(f) => return self.inicio_da_funcao(f),
+            Element::Variable(v) => return self.inicio_da_variavel(v),
+            Element::Prefix(..) => return None,
+        };
+        Some((d.unit, p.unit(d.unit).ast.decl(d.decl).span.start))
+    }
+
+    /// Unidade e início (com metadados) de uma função, método ou construtor.
+    pub fn inicio_da_funcao(&self, f: FunctionElementId) -> Option<(UnitId, usize)> {
+        let p = &self.programa;
+        match p.function(f).node {
+            FunctionRef::Function { unit, function } => {
+                let ast = &p.unit(unit).ast;
+                let inicio = ast
+                    .decls
+                    .iter()
+                    .find(|d| matches!(d.kind, DeclKind::Function(x) if x == function))
+                    .map(|d| d.span.start)
+                    .or_else(|| {
+                        ast.members
+                            .iter()
+                            .find(|m| matches!(m.kind, MemberKind::Method(x) if x == function))
+                            .map(|m| m.span.start)
+                    })
+                    .unwrap_or(ast.function(function).span.start);
+                Some((unit, inicio))
+            }
+            FunctionRef::Constructor { unit, member } => {
+                Some((unit, p.unit(unit).ast.member(member).span.start))
+            }
+            FunctionRef::None => p
+                .function(f)
+                .variable
+                .and_then(|v| self.inicio_da_variavel(v)),
+        }
+    }
+
+    /// Unidade e início (com metadados) de uma variável de topo, campo ou
+    /// constante de enum.
+    pub fn inicio_da_variavel(&self, v: VariableId) -> Option<(UnitId, usize)> {
+        let p = &self.programa;
+        match p.variable(v).node {
+            VariableRef::TopLevel { unit, decl, .. } => {
+                Some((unit, p.unit(unit).ast.decl(decl).span.start))
+            }
+            VariableRef::Field { unit, member, .. } => {
+                Some((unit, p.unit(unit).ast.member(member).span.start))
+            }
+            VariableRef::EnumConstant { unit, decl, index } => {
+                match &p.unit(unit).ast.decl(decl).kind {
+                    DeclKind::Enum(e) => Some((unit, e.constants.get(index)?.span.start)),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Arquivo e início (com metadados) de uma declaração, para a
+    /// documentação que o `completionItem/resolve` busca depois.
+    pub fn origem(&self, local: Option<(UnitId, usize)>) -> Option<(std::path::PathBuf, usize)> {
+        let (u, inicio) = local?;
+        Some((self.programa.unit(u).path.clone()?, inicio))
     }
 }

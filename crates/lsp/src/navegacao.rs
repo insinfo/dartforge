@@ -754,10 +754,10 @@ fn resolver_simbolo(
     }
     let mut candidatos = Vec::new();
     for caminho in &simples {
-        if let Some(uri) = resolver_aberto(uri_atual, caminho) {
-            if !candidatos.contains(&uri) {
-                candidatos.push(uri);
-            }
+        if let Some(uri) = resolver_aberto(uri_atual, caminho)
+            && !candidatos.contains(&uri)
+        {
+            candidatos.push(uri);
         }
     }
     dono_unico(documentos, analisador, &candidatos, &nome).map(|s| (s, referencia))
@@ -906,9 +906,7 @@ fn usos_se_importa(
         match classificar(diretiva) {
             ClasseDiretiva::Biblioteca => {}
             ClasseDiretiva::ImportSimples(caminho) => {
-                let Some(alvo) = resolver_aberto(uri, &caminho) else {
-                    return None;
-                };
+                let alvo = resolver_aberto(uri, &caminho)?;
                 if alvo == simbolo.dono {
                     importa_dono = true;
                 } else if documentos.get(&alvo).is_some() {

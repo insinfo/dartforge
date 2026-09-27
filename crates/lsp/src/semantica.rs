@@ -1,28 +1,77 @@
-//! Consultas semânticas transitórias. A árvore, o programa e a tabela de tipos
-//! pertencem a uma única requisição e caem antes da próxima versão do texto.
+//! O analisador semântico do LSP. O programa, as árvores e a tabela de tipos
+//! de uma consulta ficam, no máximo, na sessão limitada de [`crate::sessao`]
+//! (uma entrada, descartada a cada mudança de texto); o completar, que
+//! analisa um texto com sentinela, é sempre transitório.
 
-use crate::{Analisador, AnalisadorSintatico, DocumentStore, navegacao};
+use crate::{Analisador, AnalisadorSintatico, DocumentStore, Hover, Referencias};
 use dartforge_diagnostics::{Diagnostic, Span};
-use dartforge_elements::{gerado::Construtor, load::load_lenient_gerados, model::{Element, FunctionKind, FunctionRef, Program, UnitId, VariableRef}, sdk::SdkLayout};
-use dartforge_frontend::ast::{ExprKind, ParameterKind, TypeKind};
+use dartforge_elements::{gerado::Construtor, load::load_lenient_gerados, model::{Program, UnitId}, sdk::SdkLayout};
 use dartforge_intern::Interner;
-use dartforge_types::{CoreTypes, TypeTable, resolve_outline};
 use url::Url;
 
-/// Analisador sintático com resolução de variáveis e funções de topo importadas.
-/// O SDK é configuração pequena; nenhum `Program`, AST ou `TypeTable` fica
-/// retido entre chamadas. Na falta do SDK, mantém as respostas sintáticas.
+/// Analisador com a resolução e os tipos da inferência comum: definição,
+/// hover e referências pela identidade da declaração (`crate::projeto`),
+/// completar, renomear e ações. Na falta do SDK, mantém as respostas
+/// sintáticas.
 pub struct AnalisadorSemantico {
     sintatico: AnalisadorSintatico,
     sdk: Option<SdkLayout>,
     /// Nomes públicos de topo do SDK (importar biblioteca), montado na
     /// primeira vez que um nome indefinido pede. Tamanho fixo pelo SDK.
-    indice_sdk: Option<crate::acoes::IndiceSdk>,
+    indice_sdk: Option<crate::indice::IndiceSdk>,
+    /// Nomes públicos de topo do projeto do último documento consultado,
+    /// atualizado por arquivo (importação automática e ação de importar).
+    indice_projeto: crate::indice::IndiceProjeto,
+    /// O último programa carregado, reaproveitado enquanto nada mudou.
+    sessao: crate::sessao::Sessao,
 }
 
 impl AnalisadorSemantico {
+    /// Analisador com o SDK dado; sem SDK, só as respostas sintáticas.
+    ///
+    /// ```
+    /// let a = dartforge_lsp::AnalisadorSemantico::novo(None);
+    /// assert_eq!(a.estatisticas_da_sessao().carregadas, 0);
+    /// ```
     pub fn novo(sdk: Option<SdkLayout>) -> Self {
-        Self { sintatico: AnalisadorSintatico::new(), sdk, indice_sdk: None }
+        Self { sintatico: AnalisadorSintatico::new(), sdk, indice_sdk: None, indice_projeto: crate::indice::IndiceProjeto::default(), sessao: crate::sessao::Sessao::nova() }
+    }
+
+    /// Troca o orçamento da sessão semântica (MiB de fonte retida; `0`
+    /// desliga a retenção). O padrão vem de `DARTFORGE_LSP_SESSAO_MIB`.
+    ///
+    /// ```
+    /// use dartforge_lsp::AnalisadorSemantico;
+    /// let a = AnalisadorSemantico::novo(None).com_orcamento_de_sessao(0);
+    /// assert_eq!(a.estatisticas_da_sessao().fonte_retida, 0);
+    /// ```
+    pub fn com_orcamento_de_sessao(mut self, mib: usize) -> Self {
+        self.sessao = crate::sessao::Sessao::com_orcamento(mib);
+        self
+    }
+
+    /// Contadores da sessão semântica (reaproveitamentos, cargas,
+    /// invalidações, fonte retida).
+    pub fn estatisticas_da_sessao(&self) -> crate::sessao::EstatisticasSessao {
+        self.sessao.estatisticas
+    }
+
+    /// A biblioteca de `uri` (definição, hover, ações), da sessão ou carregada.
+    pub(crate) fn biblioteca(&mut self, documentos: &DocumentStore, uri: &str) -> Option<crate::sessao::Uso<'_>> {
+        let sdk = self.sdk.as_ref()?;
+        let arquivo = crate::projeto::arquivo_da_uri(uri)?;
+        self.sessao.obter(crate::sessao::Escopo::Biblioteca(arquivo), documentos, || {
+            crate::projeto::carregar_biblioteca(sdk, documentos, uri)
+        })
+    }
+
+    /// O projeto inteiro de `uri` (referências, renomear), da sessão ou carregado.
+    pub(crate) fn projeto(&mut self, documentos: &DocumentStore, uri: &str) -> Option<crate::sessao::Uso<'_>> {
+        let sdk = self.sdk.as_ref()?;
+        let raiz = crate::projeto::raiz_do_projeto(&crate::projeto::arquivo_da_uri(uri)?);
+        self.sessao.obter(crate::sessao::Escopo::Projeto(raiz), documentos, || {
+            crate::projeto::carregar_projeto(sdk, documentos, uri)
+        })
     }
 
     /// Descobre o SDK pelos mesmos caminhos usados pelo compilador.
@@ -31,41 +80,10 @@ impl AnalisadorSemantico {
         Self::novo(sdk)
     }
 
-    /// Carrega o programa de `uri` com `texto` e os demais documentos abertos
-    /// nos textos vigentes (os outros arquivos vêm do disco).
-    pub(crate) fn carregar(&self, uri: &str, texto: &str, documentos: Option<&DocumentStore>) -> Option<(Program, Interner, UnitId)> {
-        let sdk = self.sdk.as_ref()?;
-        let caminho = Url::parse(uri).ok()?.to_file_path().ok()?;
-        if caminho.extension().is_none_or(|e| e != "dart") { return None; }
-        let mut gerador = documentos.map_or_else(Construtor::nova, Self::abertos);
-        // A chamada direta da trait também usa o texto recebido, mesmo sem
-        // DocumentStore. O arquivo da requisição prevalece sobre a coleção.
-        gerador.por(caminho.clone(), texto.to_owned(), "lsp", vec![]);
-        // Uma parte não é biblioteca: a carga entra pela dona, que a inclui.
-        // Se a dona não a declara (`part` ausente), a parte entra sozinha.
-        let dona = biblioteca_dona(&caminho, texto, documentos);
-        let geracao = gerador.concluir(1).ok()?;
-        let chave = dartforge_elements::gerado::chave(&caminho);
-        for entrada in dona.iter().chain([&caminho]) {
-            let mut nomes = Interner::new();
-            let (programa, _) = load_lenient_gerados(entrada, sdk, None, &mut nomes, None, None, Some(geracao.clone()));
-            let unidade = programa.units.iter().position(|u| u.path.as_deref().map(dartforge_elements::gerado::chave).as_ref() == Some(&chave));
-            if let Some(unidade) = unidade {
-                return Some((programa, nomes, UnitId(unidade as u32)));
-            }
-        }
-        None
-    }
-
     /// Índice dos nomes públicos do SDK, montado na primeira chamada.
-    pub(crate) fn indice_sdk(&mut self) -> &crate::acoes::IndiceSdk {
+    pub(crate) fn indice_sdk(&mut self) -> &crate::indice::IndiceSdk {
         let sdk = self.sdk.as_ref();
-        self.indice_sdk.get_or_insert_with(|| sdk.map(crate::acoes::indexar_sdk).unwrap_or_default())
-    }
-
-    /// SDK carregado, quando há.
-    pub(crate) fn sdk(&self) -> Option<&SdkLayout> {
-        self.sdk.as_ref()
+        self.indice_sdk.get_or_insert_with(|| sdk.map(crate::indice::indexar_sdk).unwrap_or_default())
     }
 
     /// Geração em memória com os textos vigentes dos documentos `.dart`
@@ -82,117 +100,91 @@ impl AnalisadorSemantico {
         gerador
     }
 
-    fn elemento_importado(programa: &Program, unidade: UnitId, offset: usize) -> Option<(Span, Element)> {
-        let u = programa.unit(unidade);
-        if !u.ast.patterns.is_empty() { return None; }
-        let qualificada = u.ast.exprs.iter().find_map(|e| {
-            let ExprKind::Property { target, name, null_aware: false } = &e.kind else { return None };
-            if !(name.span.start <= offset && offset < name.span.end) { return None; }
-            let ExprKind::Identifier(prefixo) = &u.ast.expr(*target).kind else { return None };
-            Some((*prefixo, *name))
-        });
-        let (referencia, binding) = if let Some((prefixo, nome)) = qualificada {
-            if navegacao::sombreado(&u.ast, prefixo.sym)
-                || programa.library(u.library).declared.contains_key(&prefixo.sym)
-            { return None; }
-            (nome.span, programa.lookup_prefixed(u.library, prefixo.sym, nome.sym)?)
-        } else {
-            let nome = navegacao::referencia_expr(&u.ast, offset)?;
-            if navegacao::sombreado(&u.ast, nome.sym) { return None; }
-            (nome.span, programa.lookup(u.library, nome.sym)?)
-        };
-        if binding.ambiguous { return None; }
-        let elemento = binding.getter?;
-        let biblioteca = match elemento {
-            Element::Variable(id) => programa.variable(id).library,
-            Element::Function(id) if matches!(programa.function(id).kind, FunctionKind::Function | FunctionKind::Getter) => programa.function(id).library,
-            _ => return None,
-        };
-        if biblioteca == u.library { return None; }
-        Some((referencia, elemento))
+    /// Um [`DocumentStore`] só com `uri`, para as chamadas da trait que
+    /// recebem o texto sem a coleção de abertos.
+    fn so_este(uri: &str, texto: &str) -> DocumentStore {
+        let mut docs = DocumentStore::new();
+        docs.open(uri.to_string(), 0, texto.to_string());
+        docs
     }
 
-    fn destino_variavel(programa: &Program, variavel: &dartforge_elements::model::VariableElement) -> Option<(String, Span)> {
-        let VariableRef::TopLevel { unit, decl, index } = variavel.node else { return None };
-        let u = programa.unit(unit);
-        let dartforge_frontend::ast::DeclKind::Variables(lista) = &u.ast.decl(decl).kind else { return None };
-        let nome = lista.variables.get(index)?.name.span;
-        let uri = Url::from_file_path(u.path.as_ref()?).ok()?.to_string();
-        Some((uri, nome))
+    /// Definição pela identidade semântica (`crate::projeto`): o literal de
+    /// diretiva continua sintático (o arquivo apontado); nomes vêm da
+    /// resolução da inferência comum. Sem SDK, ou se a biblioteca não
+    /// carrega, valem as respostas sintáticas conservadoras.
+    fn definir(&mut self, uri: &str, texto: &str, offset: usize, documentos: &DocumentStore) -> Option<(String, Option<Span>)> {
+        if let Some((destino, None)) = self.sintatico.definicao(uri, texto, offset) {
+            return Some((destino, None));
+        }
+        if let Some(projeto) = self.biblioteca(documentos, uri)
+            && let Some(unidade) = projeto.unidade_do_uri(uri)
+            && let Ok(Some(d)) = projeto.identificar(unidade, offset)
+            && let Some((u, span)) = projeto.declaracao(&d)
+        {
+            return Some((projeto.uri_da_unidade(u)?, Some(span)));
+        }
+        self.sintatico.definicao_no_workspace(uri, texto, offset, documentos)
     }
 
-    fn destino_funcao(programa: &Program, funcao: &dartforge_elements::model::FunctionElement) -> Option<(String, Span)> {
-        let FunctionRef::Function { unit, function } = funcao.node else { return None };
-        let u = programa.unit(unit);
-        let span = u.ast.function(function).name?.span;
-        let uri = Url::from_file_path(u.path.as_ref()?).ok()?.to_string();
-        Some((uri, span))
+    /// Hover pela identidade semântica; sem ela, o sintático conservador.
+    fn passar_hover(&mut self, uri: &str, texto: &str, offset: usize, documentos: &DocumentStore) -> Option<Hover> {
+        if let Some(projeto) = self.biblioteca(documentos, uri)
+            && let Some(unidade) = projeto.unidade_do_uri(uri)
+            && let Ok(Some(d)) = projeto.identificar(unidade, offset)
+            && let Some(h) = projeto.hover(unidade, &d)
+        {
+            return Some(h);
+        }
+        self.sintatico.hover_no_workspace(uri, texto, offset, documentos)
     }
 
-    fn definir(&mut self, uri: &str, texto: &str, offset: usize, documentos: Option<&DocumentStore>) -> Option<(String, Option<Span>)> {
-        if let Some(alvo) = self.sintatico.definicao(uri, texto, offset) { return Some(alvo) }
-        let (programa, _, unidade) = self.carregar(uri, texto, documentos)?;
-        let (_, elemento) = Self::elemento_importado(&programa, unidade, offset)?;
-        let (uri, span) = match elemento {
-            Element::Variable(id) => Self::destino_variavel(&programa, programa.variable(id))?,
-            Element::Function(id) => Self::destino_funcao(&programa, programa.function(id))?,
-            _ => return None,
-        };
-        Some((uri, Some(span)))
-    }
-
-    fn passar_hover(&mut self, uri: &str, texto: &str, offset: usize, documentos: Option<&DocumentStore>) -> Option<(Span, String, Option<String>)> {
-        if let Some(descricao) = self.sintatico.hover(uri, texto, offset) { return Some(descricao) }
-        let (programa, nomes, unidade) = self.carregar(uri, texto, documentos)?;
-        let (referencia, elemento) = Self::elemento_importado(&programa, unidade, offset)?;
-        let mut tabela = TypeTable::new();
-        let core = CoreTypes::init(&mut tabela, &programa, &nomes);
-        let (outline, _) = resolve_outline(&programa, &nomes, &mut tabela, &core);
-        match elemento {
-            Element::Variable(id) => {
-                let tipo = outline.variables[id.0 as usize].declared_type?;
-                let texto_tipo = tabela.format(tipo, &nomes, &programa);
-                if texto_tipo == "dynamic" { return None; }
-                let nome = nomes.resolve(programa.variable(id).name);
-                Some((referencia, format!("{texto_tipo} {nome}"), Some(texto_tipo)))
+    /// Referências pela identidade da declaração, em todas as bibliotecas
+    /// do projeto (abertas ou só no disco). Declarações de dependências (SDK,
+    /// pacotes) entram como declaração, mas os usos só são procurados no
+    /// projeto.
+    fn referencias_semanticas(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<Referencias> {
+        let projeto = self.projeto(documentos, uri)?;
+        let unidade = projeto.unidade_do_uri(uri)?;
+        let d = projeto.identificar(unidade, offset).ok()??;
+        let declaracao = projeto.declaracao(&d);
+        let declaracoes = projeto.declaracoes(&d.alvo);
+        let mut usos: Vec<(String, Span)> = Vec::new();
+        for (u, de, ate) in projeto.ocorrencias(&d.alvo, false).ok()? {
+            if declaracoes.contains(&(u, de, ate)) {
+                continue;
             }
-            Element::Function(id) => {
-                let FunctionRef::Function { unit, function } = programa.function(id).node else { return None };
-                let ast = &programa.unit(unit).ast;
-                let declaracao = ast.function(function);
-                if !declaracao.type_params.is_empty() { return None; }
-                let retorno_escrito = declaracao.return_type?;
-                if !matches!(&ast.ty(retorno_escrito).kind, TypeKind::Void)
-                    && navegacao::tipo_primitivo(ast, &nomes, retorno_escrito).is_none()
-                { return None; }
-                let dados = &outline.functions[id.0 as usize];
-                let retorno = tabela.format(dados.return_type, &nomes, &programa);
-                let nome = nomes.resolve(programa.function(id).name);
-                if programa.function(id).kind == FunctionKind::Getter {
-                    if declaracao.parameters.is_some() { return None; }
-                    return Some((referencia, format!("{retorno} get {nome}"), Some(retorno)));
-                }
-                let parametros_escritos = declaracao.parameters.as_ref()?;
-                if parametros_escritos.len() > 2 { return None; }
-                for p in parametros_escritos.iter() {
-                    if p.kind != ParameterKind::Required || p.covariant || p.final_ || p.var_
-                        || p.const_ || p.this_ || p.super_ || p.default_value.is_some()
-                        || !p.function_type_params.is_empty() || p.function_parameters.is_some()
-                        || navegacao::tipo_primitivo(ast, &nomes, p.ty?).is_none()
-                    { return None; }
-                }
-                if dados.parameters.len() != parametros_escritos.len() { return None; }
-                let mut params = Vec::new();
-                for p in dados.parameters.iter() {
-                    if p.kind != ParameterKind::Required { return None; }
-                    let nome = nomes.resolve(p.name?);
-                    params.push(format!("{} {nome}", tabela.format(p.ty, &nomes, &programa)));
-                }
-                Some((referencia, format!("{retorno} {nome}({})", params.join(", ")), None))
-            }
-            _ => None,
+            usos.push((projeto.uri_da_unidade(u)?, Span { start: de, end: ate }));
+        }
+        usos.sort_by(|a, b| (a.0.as_str(), a.1.start).cmp(&(b.0.as_str(), b.1.start)));
+        let declaracao = declaracao.and_then(|(u, s)| Some((projeto.uri_da_unidade(u)?, s)));
+        Some(Referencias { declaracao, usos })
+    }
+}
+
+/// Carrega o programa de `uri` com `texto` e os demais documentos abertos
+/// nos textos vigentes (os outros arquivos vêm do disco). Uma parte entra
+/// pela biblioteca dona.
+pub(crate) fn carregar(sdk: &SdkLayout, uri: &str, texto: &str, documentos: Option<&DocumentStore>) -> Option<(Program, Interner, UnitId)> {
+    let caminho = Url::parse(uri).ok()?.to_file_path().ok()?;
+    if caminho.extension().is_none_or(|e| e != "dart") { return None; }
+    let mut gerador = documentos.map_or_else(Construtor::nova, AnalisadorSemantico::abertos);
+    // A chamada direta da trait também usa o texto recebido, mesmo sem
+    // DocumentStore. O arquivo da requisição prevalece sobre a coleção.
+    gerador.por(caminho.clone(), texto.to_owned(), "lsp", vec![]);
+    // Uma parte não é biblioteca: a carga entra pela dona, que a inclui.
+    // Se a dona não a declara (`part` ausente), a parte entra sozinha.
+    let dona = biblioteca_dona(&caminho, texto, documentos);
+    let geracao = gerador.concluir(1).ok()?;
+    let chave = dartforge_elements::gerado::chave(&caminho);
+    for entrada in dona.iter().chain([&caminho]) {
+        let mut nomes = Interner::new();
+        let (programa, _) = load_lenient_gerados(entrada, sdk, None, &mut nomes, None, None, Some(geracao.clone()));
+        let unidade = programa.units.iter().position(|u| u.path.as_deref().map(dartforge_elements::gerado::chave).as_ref() == Some(&chave));
+        if let Some(unidade) = unidade {
+            return Some((programa, nomes, UnitId(unidade as u32)));
         }
     }
+    None
 }
 
 /// A biblioteca dona de `caminho` quando o texto é uma parte (`part of`):
@@ -218,8 +210,8 @@ pub(crate) fn biblioteca_dona(caminho: &std::path::Path, texto: &str, documentos
         return Some(chave(&caminho.parent()?.join(uri)));
     }
     let alvo = chave(caminho);
-    let raiz = crate::renomear::raiz_do_projeto(caminho);
-    crate::renomear::arquivos_do_projeto(&raiz).into_iter().find(|candidato| {
+    let raiz = crate::projeto::raiz_do_projeto(caminho);
+    crate::projeto::arquivos_do_projeto(&raiz).into_iter().find(|candidato| {
         let aberto = documentos
             .and_then(|d| Url::from_file_path(candidato).ok().and_then(|u| d.get(u.as_str()).map(str::to_string)));
         let Some(fonte) = aberto.or_else(|| std::fs::read_to_string(candidato).ok()) else { return false };
@@ -247,33 +239,41 @@ impl Analisador for AnalisadorSemantico {
     }
 
     fn definicao(&mut self, uri: &str, texto: &str, offset: usize) -> Option<(String, Option<Span>)> {
-        self.definir(uri, texto, offset, None)
+        let so_este = Self::so_este(uri, texto);
+        self.definir(uri, texto, offset, &so_este)
     }
 
     fn definicao_no_workspace(&mut self, uri: &str, texto: &str, offset: usize, documentos: &DocumentStore) -> Option<(String, Option<Span>)> {
-        self.sintatico.definicao_no_workspace(uri, texto, offset, documentos)
-            .or_else(|| self.definir(uri, texto, offset, Some(documentos)))
+        self.definir(uri, texto, offset, documentos)
     }
 
     fn referencias(&mut self, uri: &str, texto: &str, offset: usize) -> Option<Vec<Span>> {
         self.sintatico.referencias(uri, texto, offset)
     }
 
-    fn referencias_em(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<Vec<(String, Span)>> {
+    fn referencias_em(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<Referencias> {
+        if self.sdk.is_some() && documentos.get(uri).is_some() {
+            return self.referencias_semanticas(documentos, uri, offset);
+        }
         self.sintatico.referencias_em(documentos, uri, offset)
     }
 
-    fn hover(&mut self, uri: &str, texto: &str, offset: usize) -> Option<(Span, String, Option<String>)> {
-        self.passar_hover(uri, texto, offset, None)
+    fn hover(&mut self, uri: &str, texto: &str, offset: usize) -> Option<Hover> {
+        let so_este = Self::so_este(uri, texto);
+        self.passar_hover(uri, texto, offset, &so_este)
     }
 
-    fn hover_no_workspace(&mut self, uri: &str, texto: &str, offset: usize, documentos: &DocumentStore) -> Option<(Span, String, Option<String>)> {
-        self.sintatico.hover_no_workspace(uri, texto, offset, documentos)
-            .or_else(|| self.passar_hover(uri, texto, offset, Some(documentos)))
+    fn hover_no_workspace(&mut self, uri: &str, texto: &str, offset: usize, documentos: &DocumentStore) -> Option<Hover> {
+        self.passar_hover(uri, texto, offset, documentos)
     }
 
     fn documento_fechado(&mut self, uri: &str) {
         self.sintatico.documento_fechado(uri);
+        self.sessao.invalidar();
+    }
+
+    fn documento_alterado(&mut self, _uri: &str) {
+        self.sessao.invalidar();
     }
 
     fn sdk_para_diagnosticos(&self) -> Option<std::path::PathBuf> {
@@ -281,27 +281,51 @@ impl Analisador for AnalisadorSemantico {
     }
 
     fn preparar_renomeacao(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Result<Option<(Span, String)>, String> {
-        let Some(projeto) = crate::renomear::carregar_projeto(self, documentos, uri) else { return Ok(None) };
+        let Some(projeto) = self.projeto(documentos, uri) else { return Ok(None) };
         crate::renomear::preparar(&projeto, uri, offset)
     }
 
-    fn renomear(&mut self, documentos: &DocumentStore, uri: &str, offset: usize, novo: &str) -> Result<Vec<crate::Edicao>, String> {
-        let projeto = crate::renomear::carregar_projeto(self, documentos, uri)
+    fn renomear(&mut self, documentos: &DocumentStore, uri: &str, offset: usize, novo: &str) -> Result<crate::Renomeacao, String> {
+        let projeto = self.projeto(documentos, uri)
             .ok_or_else(|| "O projeto do arquivo não pôde ser carregado (SDK ausente ou URI que não é de arquivo).".to_string())?;
         crate::renomear::renomear(&projeto, uri, offset, novo)
     }
 
-    fn acoes(&mut self, documentos: &DocumentStore, uri: &str, inicio: usize, fim: usize) -> Vec<crate::AcaoDeCodigo> {
+    fn acoes(&mut self, documentos: &DocumentStore, uri: &str, inicio: usize, fim: usize, publicados: &[Diagnostic]) -> Vec<crate::AcaoDeCodigo> {
         let Some(texto) = documentos.get(uri) else { return Vec::new() };
-        let diagnosticos = self.diagnosticar(uri, texto);
+        // Os imediatos da versão vigente e os tipados já publicados para ela.
+        let mut diagnosticos = self.diagnosticar(uri, texto);
+        for d in publicados {
+            if !diagnosticos.iter().any(|x| x.code == d.code && x.span == d.span) {
+                diagnosticos.push(d.clone());
+            }
+        }
         let mut saida = crate::acoes::corrigir_sintaxe(uri, &diagnosticos, inicio, fim);
-        saida.extend(crate::acoes::importar(self, documentos, uri, inicio, fim));
+        if self.sdk.is_none() {
+            return saida;
+        }
+        self.indice_sdk();
+        let Some(arquivo) = crate::projeto::arquivo_da_uri(uri) else { return saida };
+        let AnalisadorSemantico { sessao, sdk: Some(sdk), indice_sdk: Some(indice), indice_projeto, .. } = self else { return saida };
+        if let Some(projeto) = sessao.obter(crate::sessao::Escopo::Biblioteca(arquivo), documentos, || {
+            crate::projeto::carregar_biblioteca(sdk, documentos, uri)
+        }) {
+            saida.extend(crate::acoes::corrigir_publicados(&projeto, uri, &diagnosticos, inicio, fim));
+            saida.extend(crate::acoes::importar(&projeto, indice, indice_projeto, documentos, uri, inicio, fim));
+            saida.extend(crate::acoes::assistencias(&projeto, uri, inicio, fim));
+        }
         saida
     }
 
     fn completar(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<crate::Completar> {
         let texto = documentos.get(uri)?;
         let features = self.sintatico.features(uri, texto);
-        crate::completar::completar(self, documentos, uri, texto, offset, features)
+        self.sdk.as_ref()?;
+        self.indice_sdk();
+        let AnalisadorSemantico { sdk: Some(sdk), indice_sdk: Some(indice), indice_projeto, .. } = self else {
+            return None;
+        };
+        let indices = crate::completar::Indices { sdk: indice, projeto: indice_projeto };
+        crate::completar::completar(sdk, indices, documentos, uri, texto, offset, features)
     }
 }

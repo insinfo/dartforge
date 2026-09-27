@@ -98,6 +98,21 @@ pub struct Servidor<A = AnalisadorSintatico> {
     hover_markdown: bool,
     /// O cliente aceita `prepareRename` (`rename.prepareSupport`).
     preparar_renomeacao: bool,
+    /// O cliente aceita `WorkspaceEdit.documentChanges` (edições com a
+    /// versão do documento): as edições saem nessa forma.
+    mudancas_versionadas: bool,
+    /// O cliente aceita a operação de recurso `rename` e pediu
+    /// `renameFilesWithClasses: "always"` nas opções de inicialização.
+    renomear_arquivos: bool,
+    /// O cliente aceita snippets no completar e não pediu
+    /// `completeFunctionCalls: false`: chamadas saem com os parênteses e os
+    /// parâmetros obrigatórios como marcadores.
+    completar_chamadas: bool,
+    /// O cliente aceita Markdown na documentação dos itens.
+    documentacao_markdown: bool,
+    /// Raízes do workspace anunciadas no `initialize` (`rootUri`,
+    /// `workspaceFolders`), para o `workspace/symbol` varrer o disco.
+    raizes: Vec<std::path::PathBuf>,
     /// Trabalhador dos diagnósticos tipados (`crate::tipado`), iniciado no
     /// primeiro documento aberto quando o analisador tem SDK.
     tipado: Option<crate::tipado::Tipado>,
@@ -107,6 +122,10 @@ pub struct Servidor<A = AnalisadorSintatico> {
     despertar: Option<crate::tipado::Despertar>,
     /// Resultados tipados descartados por versão velha ou documento fechado.
     tipados_descartados: usize,
+    /// A última publicação tipada de cada documento aberto, com a versão:
+    /// as ações de código corrigem o que o editor mostra. Uma entrada por
+    /// documento, substituída a cada publicação e removida no `didClose`.
+    tipados_publicados: HashMap<String, (i32, Vec<dartforge_diagnostics::Diagnostic>)>,
 }
 
 impl Servidor<AnalisadorSintatico> {
@@ -137,10 +156,16 @@ impl<A: Analisador> Servidor<A> {
             simbolos_hierarquicos: false,
             hover_markdown: false,
             preparar_renomeacao: false,
+            mudancas_versionadas: false,
+            renomear_arquivos: false,
+            completar_chamadas: false,
+            documentacao_markdown: false,
+            raizes: Vec::new(),
             tipado: None,
             tipado_tentado: false,
             despertar: None,
             tipados_descartados: 0,
+            tipados_publicados: HashMap::new(),
         }
     }
 
@@ -215,6 +240,7 @@ impl<A: Analisador> Servidor<A> {
                 continue;
             }
             saidas.push(self.publicacao(&r.uri, &r.diagnosticos));
+            self.tipados_publicados.insert(r.uri, (r.versao, r.diagnosticos));
         }
         saidas
     }
@@ -239,6 +265,11 @@ impl<A: Analisador> Servidor<A> {
     /// Código de saída: 0 após `shutdown`, 1 sem.
     pub fn codigo_saida(&self) -> i32 {
         self.codigo
+    }
+
+    /// O analisador (medição e testes: estatísticas da sessão semântica).
+    pub fn analisador(&self) -> &A {
+        &self.analisador
     }
 
     /// Documentos abertos retidos (uso em testes e medição).
@@ -334,6 +365,7 @@ impl<A: Analisador> Servidor<A> {
                 }
                 self.documentos
                     .open(uri.to_string(), versao, texto.to_string());
+                self.analisador.documento_alterado(uri);
                 self.pedir_tipado(uri);
                 Some(self.publicar(uri))
             }
@@ -346,6 +378,7 @@ impl<A: Analisador> Servidor<A> {
                 if !self.documentos.apply(uri, versao, &mudancas) {
                     return None;
                 }
+                self.analisador.documento_alterado(uri);
                 self.pedir_tipado(uri);
                 Some(self.publicar(uri))
             }
@@ -353,6 +386,7 @@ impl<A: Analisador> Servidor<A> {
                 let params = mensagem.get("params")?;
                 let uri = params.get("textDocument")?.get("uri")?.as_str()?;
                 if self.documentos.close(uri) {
+                    self.tipados_publicados.remove(uri);
                     self.analisador.documento_fechado(uri);
                     if let Some(t) = &self.tipado {
                         t.fechado(uri);
@@ -389,6 +423,27 @@ impl<A: Analisador> Servidor<A> {
                     .pointer("/params/capabilities/textDocument/rename/prepareSupport")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
+                self.mudancas_versionadas = mensagem
+                    .pointer("/params/capabilities/workspace/workspaceEdit/documentChanges")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let aceita_renomear_arquivo = mensagem
+                    .pointer("/params/capabilities/workspace/workspaceEdit/resourceOperations")
+                    .and_then(Value::as_array)
+                    .is_some_and(|l| l.iter().any(|o| o.as_str() == Some("rename")));
+                self.renomear_arquivos = self.mudancas_versionadas
+                    && aceita_renomear_arquivo
+                    && mensagem.pointer("/params/initializationOptions/renameFilesWithClasses").and_then(Value::as_str) == Some("always");
+                self.raizes = raizes_do_initialize(mensagem.get("params"));
+                self.completar_chamadas = mensagem
+                    .pointer("/params/capabilities/textDocument/completion/completionItem/snippetSupport")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                    && mensagem.pointer("/params/initializationOptions/completeFunctionCalls").and_then(Value::as_bool) != Some(false);
+                self.documentacao_markdown = mensagem
+                    .pointer("/params/capabilities/textDocument/completion/completionItem/documentationFormat")
+                    .and_then(Value::as_array)
+                    .is_some_and(|f| f.iter().any(|x| x.as_str() == Some("markdown")));
                 let renomear = if self.preparar_renomeacao { json!({"prepareProvider": true}) } else { json!(true) };
                 resposta(&id, json!({
                     "capabilities": {
@@ -400,10 +455,10 @@ impl<A: Analisador> Servidor<A> {
                         "referencesProvider": true,
                         "hoverProvider": true,
                         "renameProvider": renomear,
-                        "codeActionProvider": {"codeActionKinds": ["quickfix"]},
+                        "codeActionProvider": {"codeActionKinds": ["quickfix", "refactor"]},
                         "completionProvider": {
                             "triggerCharacters": ["."],
-                            "resolveProvider": false,
+                            "resolveProvider": true,
                         },
                     },
                     "serverInfo": {
@@ -440,20 +495,8 @@ impl<A: Analisador> Servidor<A> {
                     .and_then(|p| p.get("query"))
                     .and_then(Value::as_str)
                     .unwrap_or("")
-                    .to_lowercase();
-                let mut uris: Vec<String> = self.documentos.uris().map(str::to_string).collect();
-                uris.sort_unstable();
-                let mut resultado = Vec::new();
-                for uri in uris {
-                    let Some(texto) = self.documentos.get(&uri).map(str::to_string) else {
-                        continue;
-                    };
-                    for simbolo in self.analisador.simbolos(&uri, &texto) {
-                        achatar_simbolos(&simbolo, &uri, None, &mut resultado);
-                    }
-                }
-                resultado.retain(|s| s["name"].as_str().is_some_and(|n| n.to_lowercase().contains(&consulta)));
-                resposta(&id, json!(resultado))
+                    .to_string();
+                resposta(&id, json!(self.simbolos_do_workspace(&consulta)))
             }
             "textDocument/definition" => {
                 let params = mensagem.get("params");
@@ -509,26 +552,12 @@ impl<A: Analisador> Servidor<A> {
                     let tabela = self.documentos.linhas(u)?;
                     let offset = tabela.offset_de_posicao(&texto, p.linha, p.coluna);
                     let achados = self.analisador.referencias_em(&self.documentos, u, offset)?;
-                    let inicio = usize::from(!incluir_declaracao).min(achados.len());
-                    let locais: Vec<Value> = achados[inicio..]
+                    let declaracao = achados.declaracao.filter(|_| incluir_declaracao);
+                    let locais: Vec<Value> = declaracao
                         .iter()
+                        .chain(achados.usos.iter())
                         .filter_map(|(alvo, s)| {
-                            let texto_alvo = self.documentos.get(alvo)?;
-                            let tabela_alvo = self.documentos.linhas(alvo)?;
-                            let de = s.start.min(texto_alvo.len());
-                            let mut ate = s.end.min(texto_alvo.len());
-                            if ate < de {
-                                ate = de;
-                            }
-                            let (l0, c0) = tabela_alvo.posicao_de_offset(texto_alvo, de);
-                            let (l1, c1) = tabela_alvo.posicao_de_offset(texto_alvo, ate);
-                            Some(json!({
-                                "uri": alvo,
-                                "range": {
-                                    "start": {"line": l0, "character": c0},
-                                    "end": {"line": l1, "character": c1},
-                                },
-                            }))
+                            Some(json!({"uri": alvo, "range": self.faixa(alvo, *s)?}))
                         })
                         .collect();
                     Some(json!(locais))
@@ -546,17 +575,28 @@ impl<A: Analisador> Servidor<A> {
                     let texto = self.documentos.get(u)?.to_string();
                     let tabela = self.documentos.linhas(u)?;
                     let offset = tabela.offset_de_posicao(&texto, p.linha, p.coluna);
-                    let (span, descricao, tipo) = self.analisador.hover_no_workspace(u, &texto, offset, &self.documentos)?;
-                    let (l0, c0) = tabela.posicao_de_offset(&texto, span.start);
-                    let (l1, c1) = tabela.posicao_de_offset(&texto, span.end);
+                    let hover = self.analisador.hover_no_workspace(u, &texto, offset, &self.documentos)?;
+                    let (l0, c0) = tabela.posicao_de_offset(&texto, hover.intervalo.start);
+                    let (l1, c1) = tabela.posicao_de_offset(&texto, hover.intervalo.end);
+                    // O formato do servidor do Dart: a descrição em bloco de
+                    // código, o tipo e, separada por `---`, a documentação.
                     let conteudo = if self.hover_markdown {
-                        let mut valor = format!("```dart\n{descricao}\n```");
-                        if let Some(ref t) = tipo {
+                        let mut valor = format!("```dart\n{}\n```", hover.descricao);
+                        if let Some(t) = &hover.tipo {
                             valor.push_str(&format!("\nType: `{t}`"));
+                        }
+                        if let Some(d) = &hover.documentacao {
+                            valor.push_str(&format!("\n\n---\n{d}"));
                         }
                         json!({"kind": "markdown", "value": valor})
                     } else {
-                        let valor = tipo.map_or(descricao.clone(), |t| format!("{descricao}\nType: {t}"));
+                        let mut valor = hover.descricao.clone();
+                        if let Some(t) = &hover.tipo {
+                            valor.push_str(&format!("\nType: {t}"));
+                        }
+                        if let Some(d) = &hover.documentacao {
+                            valor.push_str(&format!("\n\n{d}"));
+                        }
                         json!(valor)
                     };
                     Some(json!({
@@ -575,27 +615,58 @@ impl<A: Analisador> Servidor<A> {
                     let texto = self.documentos.get(&u)?;
                     let tabela = self.documentos.linhas(&u)?;
                     let range = intervalo_lsp(texto, tabela, completar.inicio, completar.fim);
+                    // Já há parênteses depois do nome: só o nome entra.
+                    let depois = texto[completar.fim.min(texto.len())..]
+                        .trim_start_matches(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+                    let com_parenteses = depois.starts_with('(');
                     let itens: Vec<Value> = completar
                         .itens
                         .iter()
                         .enumerate()
                         .map(|(i, item)| {
+                            let snippet = match (&item.chamada, self.completar_chamadas && !com_parenteses) {
+                                (Some(chamada), true) => Some(snippet_de_chamada(&item.inserir, chamada)),
+                                _ => None,
+                            };
                             let mut valor = json!({
                                 "label": item.rotulo,
                                 "kind": item.especie,
                                 "sortText": format!("{i:05}"),
                                 "filterText": item.inserir.trim_end(),
-                                "textEdit": {"range": range, "newText": item.inserir},
+                                "textEdit": {"range": range, "newText": snippet.as_deref().unwrap_or(&item.inserir)},
                             });
+                            if snippet.is_some() {
+                                valor["insertTextFormat"] = json!(2);
+                            }
                             if let Some(detalhe) = &item.detalhe {
                                 valor["detail"] = json!(detalhe);
+                            }
+                            if let Some(imp) = &item.importar {
+                                valor["additionalTextEdits"] = json!([{
+                                    "range": intervalo_lsp(texto, tabela, imp.span.start, imp.span.end),
+                                    "newText": imp.texto,
+                                }]);
+                            }
+                            if let Some((arquivo, inicio)) = &item.origem {
+                                valor["data"] = json!({"arquivo": arquivo, "inicio": inicio});
                             }
                             valor
                         })
                         .collect();
-                    Some(json!({"isIncomplete": false, "items": itens}))
+                    Some(json!({"isIncomplete": completar.incompleta, "items": itens}))
                 });
                 resposta(&id, resultado.unwrap_or(Value::Null))
+            }
+            "completionItem/resolve" => {
+                let mut item = mensagem.get("params").cloned().unwrap_or(Value::Null);
+                if let Some(doc) = self.documentacao_do_item(&item) {
+                    item["documentation"] = if self.documentacao_markdown {
+                        json!({"kind": "markdown", "value": doc})
+                    } else {
+                        json!(doc)
+                    };
+                }
+                resposta(&id, item)
             }
             "textDocument/codeAction" => {
                 let params = mensagem.get("params");
@@ -614,7 +685,13 @@ impl<A: Analisador> Servidor<A> {
                     .and_then(|p| p.pointer("/context/only"))
                     .and_then(Value::as_array)
                     .map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect());
-                let acoes = self.analisador.acoes(&self.documentos, &u, inicio, fim);
+                // Só os tipados publicados para a versão vigente.
+                let vazio = Vec::new();
+                let publicados = match self.tipados_publicados.get(&u) {
+                    Some((v, d)) if Some(*v) == self.documentos.version(&u) => d,
+                    _ => &vazio,
+                };
+                let acoes = self.analisador.acoes(&self.documentos, &u, inicio, fim, publicados);
                 let mut saida = Vec::new();
                 for acao in acoes {
                     let permitida = apenas.as_ref().is_none_or(|l| {
@@ -623,15 +700,8 @@ impl<A: Analisador> Servidor<A> {
                     if !permitida {
                         continue;
                     }
-                    let mut mudancas = serde_json::Map::new();
-                    for e in &acao.edicoes {
-                        let Some(range) = self.faixa(&e.uri, e.span) else { continue };
-                        let lista = mudancas.entry(e.uri.clone()).or_insert_with(|| json!([]));
-                        if let Value::Array(itens) = lista {
-                            itens.push(json!({"range": range, "newText": e.texto}));
-                        }
-                    }
-                    let mut valor = json!({"title": acao.titulo, "kind": acao.especie, "edit": {"changes": mudancas}});
+                    let edicao = self.edicao_de_workspace(&acao.edicoes, None);
+                    let mut valor = json!({"title": acao.titulo, "kind": acao.especie, "edit": edicao});
                     if let (Some(d), Some(texto), Some(tabela)) =
                         (&acao.diagnostico, self.documentos.get(&u), self.documentos.linhas(&u))
                     {
@@ -661,16 +731,16 @@ impl<A: Analisador> Servidor<A> {
                     return resposta(&id, Value::Null);
                 };
                 match self.analisador.renomear(&self.documentos, &u, offset, &novo) {
-                    Ok(edicoes) => {
-                        let mut mudancas = serde_json::Map::new();
-                        for e in edicoes {
-                            let Some(range) = self.faixa(&e.uri, e.span) else { continue };
-                            let lista = mudancas.entry(e.uri.clone()).or_insert_with(|| json!([]));
-                            if let Value::Array(itens) = lista {
-                                itens.push(json!({"range": range, "newText": e.texto}));
-                            }
+                    Ok(renomeacao) => {
+                        let mut edicoes = renomeacao.edicoes;
+                        let mut recurso = None;
+                        if self.renomear_arquivos
+                            && let Some(arquivo) = renomeacao.arquivo
+                        {
+                            edicoes.extend(arquivo.diretivas);
+                            recurso = Some(json!({"kind": "rename", "oldUri": arquivo.de, "newUri": arquivo.para}));
                         }
-                        resposta(&id, json!({"changes": mudancas}))
+                        resposta(&id, self.edicao_de_workspace(&edicoes, recurso))
                     }
                     Err(motivo) => erro(&id, RENOMEAR_INVALIDO, motivo),
                 }
@@ -697,6 +767,104 @@ impl<A: Analisador> Servidor<A> {
                 )
             }
         }
+    }
+
+    /// A documentação da declaração que o item aponta (`data.arquivo`,
+    /// `data.inicio`), lida do texto aberto ou do disco.
+    fn documentacao_do_item(&self, item: &Value) -> Option<String> {
+        let arquivo = std::path::PathBuf::from(item.pointer("/data/arquivo")?.as_str()?);
+        let inicio = item.pointer("/data/inicio")?.as_u64()? as usize;
+        let aberto = url::Url::from_file_path(&arquivo)
+            .ok()
+            .and_then(|u| self.documentos.get(u.as_str()).map(str::to_string));
+        let texto = aberto.or_else(|| std::fs::read_to_string(&arquivo).ok())?;
+        if inicio > texto.len() || !texto.is_char_boundary(inicio) {
+            return None;
+        }
+        crate::dartdoc::documentacao(&texto, inicio)
+    }
+
+    /// `WorkspaceEdit` das edições: `documentChanges` (cada documento com a
+    /// versão vigente, `null` se fechado) quando o cliente aceita, senão
+    /// `changes`. Uma operação de recurso (renomear arquivo) vai depois das
+    /// edições de texto, que valem para o texto antes dela.
+    fn edicao_de_workspace(&self, edicoes: &[crate::Edicao], recurso: Option<Value>) -> Value {
+        let mut por_uri: Vec<(String, Vec<Value>)> = Vec::new();
+        for e in edicoes {
+            let Some(range) = self.faixa(&e.uri, e.span) else { continue };
+            let item = json!({"range": range, "newText": e.texto});
+            match por_uri.iter_mut().find(|(u, _)| *u == e.uri) {
+                Some((_, l)) => l.push(item),
+                None => por_uri.push((e.uri.clone(), vec![item])),
+            }
+        }
+        if self.mudancas_versionadas || recurso.is_some() {
+            let mut mudancas: Vec<Value> = por_uri
+                .into_iter()
+                .map(|(uri, edits)| {
+                    let versao = self.documentos.version(&uri).map_or(Value::Null, |v| json!(v));
+                    json!({"textDocument": {"uri": uri, "version": versao}, "edits": edits})
+                })
+                .collect();
+            mudancas.extend(recurso);
+            return json!({"documentChanges": mudancas});
+        }
+        let mut mudancas = serde_json::Map::new();
+        for (uri, edits) in por_uri {
+            mudancas.insert(uri, json!(edits));
+        }
+        json!({"changes": mudancas})
+    }
+
+    /// `workspace/symbol`: os símbolos dos documentos abertos e dos arquivos
+    /// `.dart` dos projetos do workspace (raízes do `initialize` e o projeto,
+    /// com `pubspec.yaml`, de cada documento aberto). O texto aberto vale
+    /// mais que o disco; cada árvore é descartada antes da próxima. Casa por
+    /// aproximação (`crate::aproximado`): os que contêm a consulta primeiro,
+    /// depois as subsequências; entre iguais, a ordem de (URI, posição).
+    fn simbolos_do_workspace(&mut self, consulta: &str) -> Vec<Value> {
+        let mut uris: std::collections::BTreeSet<String> = self.documentos.uris().map(str::to_string).collect();
+        let mut raizes = self.raizes.clone();
+        for aberto in self.documentos.uris() {
+            if let Some(arquivo) = url::Url::parse(aberto).ok().and_then(|u| u.to_file_path().ok()) {
+                let raiz = crate::projeto::raiz_do_projeto(&arquivo);
+                if raiz.join("pubspec.yaml").is_file() && !raizes.contains(&raiz) {
+                    raizes.push(raiz);
+                }
+            }
+        }
+        for raiz in &raizes {
+            for arquivo in crate::projeto::arquivos_do_projeto(raiz) {
+                if let Ok(u) = url::Url::from_file_path(&arquivo) {
+                    uris.insert(u.to_string());
+                }
+            }
+        }
+        let mut achados: Vec<(u8, usize, Value)> = Vec::new();
+        for uri in uris {
+            let texto = match self.documentos.get(&uri) {
+                Some(t) => t.to_string(),
+                None => {
+                    let Some(caminho) = url::Url::parse(&uri).ok().and_then(|u| u.to_file_path().ok()) else { continue };
+                    let Ok(t) = std::fs::read_to_string(caminho) else { continue };
+                    t
+                }
+            };
+            let mut planos = Vec::new();
+            for simbolo in self.analisador.simbolos(&uri, &texto) {
+                achatar_simbolos(&simbolo, &uri, None, &mut planos);
+            }
+            for s in planos {
+                // Subsequência solta (qualidade 4) é ruído numa busca global.
+                let Some(q) = s["name"].as_str().and_then(|n| crate::aproximado::pontuar(consulta, n)).filter(|q| *q <= 3) else {
+                    continue;
+                };
+                let ordem = achados.len();
+                achados.push((if q <= 2 { 0 } else { 1 }, ordem, s));
+            }
+        }
+        achados.sort_by_key(|(q, ordem, _)| (*q, *ordem));
+        achados.into_iter().map(|(_, _, s)| s).collect()
     }
 
     /// URI e offset (bytes) de `params.textDocument` + `params.position`,
@@ -747,6 +915,51 @@ impl<A: Analisador> Servidor<A> {
             "params": {"uri": uri, "version": versao, "diagnostics": itens},
         })
     }
+}
+
+/// O snippet de uma chamada: `nome(${1:a}, ${2:b})$0`, com os nomeados
+/// como `nome: ${n:nome}`; sem parâmetros, `nome()$0`; desconhecidos,
+/// `nome($0)`. `$`, `}` e `\` do texto são escapados.
+fn snippet_de_chamada(nome: &str, chamada: &crate::completar::Chamada) -> String {
+    let escapar = |t: &str| t.replace('\\', "\\\\").replace('$', "\\$").replace('}', "\\}");
+    match chamada {
+        crate::completar::Chamada::Desconhecida => format!("{}($0)", escapar(nome)),
+        crate::completar::Chamada::Parametros(ps) => {
+            let marcadores: Vec<String> = ps
+                .iter()
+                .enumerate()
+                .map(|(i, p)| match p.strip_suffix(": ") {
+                    Some(n) => format!("{}: ${{{}:{}}}", escapar(n), i + 1, escapar(n)),
+                    None => format!("${{{}:{}}}", i + 1, escapar(p)),
+                })
+                .collect();
+            format!("{}({})$0", escapar(nome), marcadores.join(", "))
+        }
+    }
+}
+
+/// Raízes do workspace no `initialize`: `workspaceFolders`, senão
+/// `rootUri`, senão `rootPath`; só diretórios existentes.
+fn raizes_do_initialize(params: Option<&Value>) -> Vec<std::path::PathBuf> {
+    let Some(params) = params else { return Vec::new() };
+    let de_uri = |v: &Value| {
+        v.as_str()
+            .and_then(|u| url::Url::parse(u).ok())
+            .and_then(|u| u.to_file_path().ok())
+    };
+    let mut raizes: Vec<std::path::PathBuf> = params
+        .get("workspaceFolders")
+        .and_then(Value::as_array)
+        .map(|l| l.iter().filter_map(|f| de_uri(&f["uri"])).collect())
+        .unwrap_or_default();
+    if raizes.is_empty() {
+        raizes.extend(params.get("rootUri").and_then(de_uri));
+    }
+    if raizes.is_empty() {
+        raizes.extend(params.get("rootPath").and_then(Value::as_str).map(std::path::PathBuf::from));
+    }
+    raizes.retain(|r| r.is_dir());
+    raizes
 }
 
 /// Dorme até `ms` em fatias de 10 ms; verdadeiro quando cancelado no meio.

@@ -64,12 +64,17 @@ fn importado_usa_tipos_e_texto_vigente_sem_reter_versoes() {
     for id in 10..20 {
         assert_ne!(requisitar(&mut servidor, id, "textDocument/hover", &uri, 10), Value::Null);
     }
+    // A análise tipada dos 25 abertos roda em segundo plano: a medição
+    // começa e termina com ela ociosa, para contar só o que as consultas
+    // retêm (a sessão semântica já está montada pelas 10 anteriores).
+    servidor.aguardar_diagnosticos(std::time::Duration::from_secs(120));
     let vivos_antes = dartforge_instrument::live_bytes();
     let inicio = Instant::now();
     for id in 20..60 {
         assert_ne!(requisitar(&mut servidor, id, "textDocument/hover", &uri, 10), Value::Null);
     }
     let latencia_media = inicio.elapsed() / 40;
+    servidor.aguardar_diagnosticos(std::time::Duration::from_secs(120));
     let crescimento = dartforge_instrument::live_bytes().saturating_sub(vivos_antes);
     println!("LSP semântico: 25 buffers (~384 KiB extra), 40 hovers, média {latencia_media:?}, crescimento vivo {crescimento} bytes");
     assert!(crescimento < 256 * 1024, "consultas retiveram {crescimento} bytes");
@@ -102,8 +107,10 @@ fn importado_usa_tipos_e_texto_vigente_sem_reter_versoes() {
         "textDocument":{"uri":uri,"version":3},"contentChanges":[{"text":"import 'lib.dart';\nvoid f(int answer) => answer;\n"}]
     }}));
     servidor.bombear();
-    assert_eq!(requisitar(&mut servidor, 7, "textDocument/hover", &uri, 24), Value::Null);
-    assert_eq!(requisitar(&mut servidor, 8, "textDocument/definition", &uri, 24), Value::Null);
+    // O parâmetro homônimo sombreia o importado: hover e definição são dele
+    // (antes da resolução por escopo, a resposta era vazia).
+    assert_eq!(requisitar(&mut servidor, 7, "textDocument/hover", &uri, 24)["contents"], "int answer\nType: int");
+    assert_eq!(requisitar(&mut servidor, 8, "textDocument/definition", &uri, 24)["range"]["start"], json!({"line":1,"character":11}));
 
     servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didClose","params":{"textDocument":{"uri":uri}}}));
     servidor.bombear();
@@ -157,7 +164,8 @@ fn importado_usa_tipos_e_texto_vigente_sem_reter_versoes() {
     }}));
     servidor.bombear();
     assert_eq!(requisitar(&mut servidor, 85, "textDocument/definition", &uri_fn, 9)["range"]["start"], json!({"line":0,"character":4}));
-    assert_eq!(requisitar(&mut servidor, 86, "textDocument/hover", &uri_fn, 9), Value::Null);
+    // Parâmetro opcional com valor padrão: a assinatura completa.
+    assert_eq!(requisitar(&mut servidor, 86, "textDocument/hover", &uri_fn, 9)["contents"], "int soma([int a = 0])");
 
     let biblioteca_getter = raiz.join("getter.dart");
     let entrada_getter = raiz.join("main_getter.dart");
