@@ -133,6 +133,17 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 all.extend(args);
                 (Js::prim(format!("{}({})", f.at(P_PRIMARY), all.join(", "))), ret)
             }
+            // Objeto com método `call` (classe chamável): `o(args)` é
+            // `o.call(args)`, despachado pelo tipo do receptor como qualquer
+            // método (a CFE insere o `.call` e o DDC o emite direto); só o
+            // valor de tipo `Function`, `dynamic` ou anulável fica em
+            // `dart.dcall`.
+            Ty::Iface { class, nullable: false, .. }
+                if Some(*class) != self.ctx.function_
+                    && self.ctx.lookup_member(fty, "call", false).is_some_and(|m| matches!(m.kind, MemberKind::Method(_))) =>
+            {
+                self.emit_method_call(f, fty, "call", arguments, expected, false)
+            }
             _ => {
                 let (args, named, _) = self.emit_args_plain(arguments);
                 let named_js = named.map(|n| format!(", {n}")).unwrap_or_default();
