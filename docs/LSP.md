@@ -294,7 +294,7 @@ Dos códigos semânticos publicados (`crates/analise/verificados.txt`), os
 três de enum (`enum_constant_same_name_as_enclosing`, `enum_with_name_values`,
 `values_declaration_in_enum`) não têm correção rápida no `dart
 language-server` 3.6.2 (conferido), e este servidor também não. A lista
-cresceu para 49 códigos em 2026-09-26 (entre eles `unused_local_variable` e
+cresceu para 50 códigos em 2026-09-26 (entre eles `unused_local_variable` e
 `unused_element`, que o LSP calcula sem tipos); as correções que o servidor
 oficial oferece para eles ainda não existem aqui. Teste:
 `cargo test -p dartforge-lsp --test acoes --locked`.
