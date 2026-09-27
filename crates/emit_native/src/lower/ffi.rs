@@ -80,6 +80,8 @@ pub struct TiposNativos {
     compostas: std::collections::HashSet<ClassId>,
     /// `VarArgs` (o último parâmetro de uma função variádica).
     varargs: Option<ClassId>,
+    /// `Array` (vetor C de tamanho fixo: campo ou variável `@Array`).
+    array: Option<ClassId>,
 }
 
 impl TiposNativos {
@@ -90,6 +92,7 @@ impl TiposNativos {
         let mut recusadas = std::collections::HashMap::new();
         let mut compostas = std::collections::HashSet::new();
         let mut varargs = None;
+        let mut array = None;
         let abi_especifico = ctx.classe_do_sdk("ffi", "AbiSpecificInteger");
         let struct_ = ctx.classe_do_sdk("ffi", "Struct");
         let union_ = ctx.classe_do_sdk("ffi", "Union");
@@ -106,6 +109,7 @@ impl TiposNativos {
                         classes.insert(id, TipoC::Handle);
                     }
                     "VarArgs" => varargs = Some(id),
+                    "Array" => array = Some(id),
                     _ => {}
                 }
             }
@@ -122,7 +126,7 @@ impl TiposNativos {
                 compostas.insert(id);
             }
         }
-        Some(TiposNativos { classes, recusadas, compostas, varargs })
+        Some(TiposNativos { classes, recusadas, compostas, varargs, array })
     }
 
     /// O tipo C de um tipo nativo (argumento ou retorno de uma assinatura).
@@ -774,6 +778,22 @@ impl Calculo<'_, '_> {
     }
 }
 
+/// O elemento mais interno de `Array<Array<…<E>>>` com `n` níveis (as
+/// dimensões da anotação): um tipo nativo primitivo, ponteiro ou composto.
+fn elemento_de_array_nativo(ctx: &Context, tipos: &TiposNativos, t: TypeId, n: usize) -> Option<TipoCampo> {
+    let T::Interface { class, args, .. } = ctx.table.get(t) else { return None };
+    if n > 0 {
+        if Some(*class) != tipos.array {
+            return None;
+        }
+        return elemento_de_array_nativo(ctx, tipos, *args.first()?, n - 1);
+    }
+    if let Some(tc) = tipos.classes.get(class) {
+        return (*tc != TipoC::Void).then_some(TipoCampo::Prim(*tc));
+    }
+    tipos.compostas.contains(class).then_some(TipoCampo::Composto(*class))
+}
+
 /// As dimensões de `@Array(2, 3)` ou `@Array.multi([2, 3])`.
 fn dimensoes_do_array(fonte: &str, ast: &ast::Ast, an: &ast::Annotation) -> Option<Vec<usize>> {
     let args = &an.arguments.as_ref()?.args;
@@ -1043,6 +1063,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .iter()
             .find(|an| an.name.last().map(|n| self.ctx.interner.resolve(n.sym)) == Some("Native"))?;
         let Some(tipos) = TiposNativos::do_programa(self.ctx) else { return Some(Err("@Native sem dart:ffi".to_string())) };
+        let simbolo = simbolo_da_anotacao(self.ctx, &u.ast, an).unwrap_or_else(|| self.ctx.symbol_name(v.name).as_bytes().to_vec());
+        // `@Array(d0, d1…)` na variável: o dado é o vetor C, com os
+        // elementos do tipo declarado (`Array<Array<…<E>>>`), como um campo
+        // `@Array` de struct.
+        if let Some(arr) = u.ast.decls[decl.0 as usize]
+            .metadata
+            .iter()
+            .find(|an| an.name.first().map(|n| self.ctx.interner.resolve(n.sym)) == Some("Array"))
+        {
+            let Some(dims) = dimensoes_do_array(&u.source, &u.ast, arr).filter(|d| !d.is_empty()) else {
+                return Some(Err("@Array de variável @Native sem dimensões constantes".to_string()));
+            };
+            let declarado = super::membros::tipo_da_variavel(self.ctx, vid);
+            let Some(elem) = elemento_de_array_nativo(self.ctx, &tipos, declarado, dims.len()) else {
+                return Some(Err("@Native de `Array` com elemento que não é tipo nativo".to_string()));
+            };
+            return Some(Ok((simbolo, TipoCampo::Array { elem: Box::new(elem), dims })));
+        }
         let Some(&t) = an.type_args.first() else {
             return Some(Err("@Native de variável sem o argumento de tipo".to_string()));
         };
@@ -1053,7 +1091,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Ok(_) => return Some(Err("tipo de variável @Native".to_string())),
             Err(m) => return Some(Err(m)),
         };
-        let simbolo = simbolo_da_anotacao(self.ctx, &u.ast, an).unwrap_or_else(|| self.ctx.symbol_name(v.name).as_bytes().to_vec());
         Some(Ok((simbolo, tipo)))
     }
 

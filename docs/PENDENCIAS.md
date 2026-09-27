@@ -19,7 +19,7 @@ definição de escopo do produto antes de implementar).
 | N05 SynchronousSocket | feito | os 11 natives sobre o `TcpStream` bloqueante do Rust; `corpus/nativo/32`: dados, fim do fluxo (`null`), `available`, `shutdown`, `closeSync`, conexão recusada e resolução falha, iguais à VM. |
 | N06 formatos TLS | aberto | PKCS#12 e chave criptografada recusados. |
 | N07 renegociação TLS | aberto | contrato da opção a definir e testar. |
-| N08 @Native de variável | parcial | variáveis de tipo primitivo e ponteiro lidas e gravadas (`corpus/nativo/19`); struct/array como variável nativa continua recusado. |
+| N08 @Native de variável | feito | primitivo, ponteiro, struct e `@Array` (uma e várias dimensões, elemento primitivo/ponteiro/composto) como variável nativa, com `Native.addressOf`; `corpus/nativo/19` (`in6addr_loopback`/`in6addr_any` da libc como struct, vetor e matriz), igual à VM no AOT, no JIT e com --gc-stress. |
 | N09 compostos em VarArgs | feito | structs na parte variádica pela regra do alvo (`abi_c::argumento_variadico`: igual ao fixo, exceto a HFA no arm64 da Apple, que vai como inteiros, como no clang); as peças não entram no tipo `ret (fixos, ...)`. `corpus/nativo/17`: par de `Int32` e par de `Double` num `snprintf`, iguais à VM no AOT, no JIT e com --gc-stress. |
 | N10 closures tipadas | feito | corpo tipado + entrada uniforme, ABI conferida no cabeçalho da closure (`corpus/nativo/28`); `closures` 110 → 40 ms. |
 | N11 especialização contextual | parcial | `sort` de `List<int>`, despacho de poucos alvos (P2) e `add` sem caixa; falta especializar consumidores genéricos do SDK pelo chamador. |
