@@ -99,6 +99,8 @@ jobs:
       #   corpus_roda_no_dart_run, ddc_bate_com_dart_run
       #                     o corpus diferencial inteiro — é o pesado.yml
       #   microbenchmark    medição de desempenho do heap, não correção
+      #   ng_edicao_dart_em_cada_arquivo
+      #                     varredura de 219 edições (≈ 5 min em debug), sob demanda
       # Os corpora do motor de build (corpus/builders, oráculo do build_runner
       # oficial), das macros (corpus/macros, o package:json) e do ngdart
       # precisam do package_config.json de cada caso:
@@ -110,7 +112,7 @@ jobs:
         if: success() || failure()
         shell: pwsh
         run: |
-          $casos = @(Get-ChildItem corpus/builders, corpus/macros -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'pubspec.lock') }) + @(Get-Item corpus/ngdart)
+          $casos = @(Get-ChildItem corpus/builders, corpus/macros -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'pubspec.lock') }) + @(Get-Item corpus/ngdart, corpus/ngdart_dependente/app)
           foreach ($c in $casos) {
             Push-Location $c.FullName
             dart pub get --enforce-lockfile | Out-Null
@@ -146,6 +148,7 @@ jobs:
           cargo test --locked --workspace --tests --no-fail-fast --
           --ignored --skip corpus_pub --skip new_sali_tipa --skip corpus_roda_no_dart_run
           --skip ddc_bate_com_dart_run --skip microbenchmark
+          --skip ng_edicao_dart_em_cada_arquivo
       # `private_intra_doc_links` fica permitido: com --document-private-items
       # os itens privados SÃO documentados e os links resolvem (o frontend
       # tem 13 desses, todos para métodos privados do Parser).
