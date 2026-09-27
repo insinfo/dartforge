@@ -42,8 +42,8 @@ reescrita):
   `package_config` e `logging` já estão lá, nas versões do lock — o executor
   não traz dependência própria;
 * `bootstrap.dart`: os imports das fábricas como o `build.dart` do oficial os
-  escreve e o mapa chave → fábrica, só das aplicações que podem virar ação
-  (sem pós-processadores nem substituídos);
+  escreve e o mapa chave → fábrica, das aplicações que podem virar ação
+  (builders e pós-processadores; sem os substituídos);
 * `bootstrap-<chave>.dill` e `.d`: o kernel de `dart compile kernel
   --depfile`, reaproveitado entre sessões enquanto nenhum arquivo do depfile
   for mais novo que ele. A chave é blake3 da chave do plano (plano, versões
@@ -115,6 +115,17 @@ executor fica `Indisponivel(motivo)` para a sessão.
   `print` do builder como aviso, como o `scopeLogAsync` faz) e `falhou` é
   verdadeiro quando houve registro severo ou exceção. Uma ação que falha não
   publica saída: o motor cai no apoio com o erro como motivo.
+* `build.entradas_pos {id, chave, fabrica, opcoes, isRoot}` — as
+  `inputExtensions` do `PostProcessBuilder` que a fábrica devolve. Resposta
+  `build.entradas_pos {id, entradas: [...]}` ou `erro`. O motor pergunta uma
+  vez por plano e monta as âncoras com elas (`docs/BUILD-MOTOR.md` §6.1).
+* `build.posprocessar {id, fase, chave, fabrica, opcoes, isRoot, entrada,
+  saidas_permitidas: []}` — uma âncora: o `runPostProcessBuilder` do
+  `package:build` sobre `entrada`. As escritas vão pelo `build.escrever`; o
+  hospedeiro recusa (`SaidaNaoPermitida`) o asset que o grafo já tem, como o
+  `addAsset` do oficial, e o executor recusa o mesmo asset duas vezes. A
+  resposta é o `build.resultado` com `apagados: [asset]`, as entradas
+  marcadas por `deletePrimaryInput`.
 
 ### Executor → hospedeiro (durante um `build.executar`)
 

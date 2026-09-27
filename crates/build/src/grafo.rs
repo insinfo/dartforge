@@ -63,12 +63,23 @@ pub const FONTES_DA_RAIZ: &[&str] = &[
 pub const SINTETICOS: &[&str] = &["lib/$lib$", "test/$test$", "web/$web$", "$package$"];
 
 /// Uma ação: uma fase aplicada a uma entrada primária. Sem saídas = ação
-/// removida (a entrada deixou de ser fonte).
+/// removida (a entrada deixou de ser fonte), exceto numa âncora de
+/// pós-processador (`pos`), cujas saídas só se conhecem ao executar
+/// (`PostProcessAnchorNode`).
 #[derive(Debug, Clone)]
 pub struct Acao {
     pub fase: usize,
     pub entrada: AssetId,
     pub saidas: Vec<AssetId>,
+    pub pos: bool,
+}
+
+impl Acao {
+    /// A ação existe no grafo atual (não foi removida por
+    /// `_removeRecursive`).
+    pub fn viva(&self) -> bool {
+        self.pos || !self.saidas.is_empty()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -217,6 +228,10 @@ impl Grafo {
         // `allInputs`: fontes + sintéticos, e as saídas acumuladas.
         let mut entradas: BTreeMap<Arc<str>, BTreeSet<Arc<str>>> = g.fontes.clone();
         for (fi, fase) in fases.iter().enumerate() {
+            if fase.pos {
+                g.ancoras(fi, fase, grafo, &entradas);
+                continue;
+            }
             let Some(ext) = &fase.extensoes else { continue };
             let pacote: Arc<str> = grafo.nos[fase.pacote].nome.as_str().into();
             let candidatas: Vec<Arc<str>> = entradas
@@ -262,12 +277,34 @@ impl Grafo {
                     g.gerados.insert(s.clone(), NoGerado { acao: ai, fase: fi, oculto: fase.oculta });
                     novas.push(s.caminho.clone());
                 }
-                g.acoes.push(Acao { fase: fi, entrada: id, saidas });
+                g.acoes.push(Acao { fase: fi, entrada: id, saidas, pos: false });
             }
             let e = entradas.entry(pacote).or_default();
             e.extend(novas);
         }
         Ok(g)
+    }
+
+    /// `_addPostBuildPhaseAnchors` com o `_actionMatches` de uma
+    /// `PostBuildAction`: uma âncora por entrada do pacote (fontes e todas as
+    /// saídas das fases de build) que termina numa das `inputExtensions`,
+    /// casa o `generate_for` e cuja fonte original está nos `sources` do alvo.
+    /// Sem `inputExtensions` conhecidas (nenhum executor Dart respondeu) a
+    /// fase não tem âncoras.
+    fn ancoras(&mut self, fi: usize, fase: &Fase, grafo: &GrafoPacotes, entradas: &BTreeMap<Arc<str>, BTreeSet<Arc<str>>>) {
+        let Some(ext) = &fase.entradas_pos else { return };
+        let pacote: Arc<str> = grafo.nos[fase.pacote].nome.as_str().into();
+        let Some(candidatas) = entradas.get(&pacote) else { return };
+        for c in candidatas {
+            if !fase.generate_for.casa(c) || !ext.iter().any(|e| c.ends_with(e.as_str())) {
+                continue;
+            }
+            let id = AssetId { pacote: pacote.clone(), caminho: c.clone() };
+            if !fase.fontes_alvo.casa(&self.origem(&id).caminho) {
+                continue;
+            }
+            self.acoes.push(Acao { fase: fi, entrada: id, saidas: Vec::new(), pos: true });
+        }
     }
 
     /// `_removeRecursive`: tira o nó e, recursivamente, as saídas das ações
@@ -288,7 +325,7 @@ impl Grafo {
         novas.retain(|c| *c != id.caminho);
         self.gerados.remove(id);
         let dependentes: Vec<usize> =
-            (0..self.acoes.len()).filter(|&a| self.acoes[a].entrada == *id && !self.acoes[a].saidas.is_empty()).collect();
+            (0..self.acoes.len()).filter(|&a| self.acoes[a].entrada == *id && self.acoes[a].viva()).collect();
         for a in dependentes {
             let saidas = std::mem::take(&mut self.acoes[a].saidas);
             for s in saidas {

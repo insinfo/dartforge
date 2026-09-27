@@ -174,9 +174,9 @@ Por ação, na ordem, o primeiro que aceita:
    `dartforge build --dart <exe>` ou `DARTFORGE_BUILD_DART`. Sem ele, o padrão
    é `Indisponivel(motivo)`, até existir o processo auto-hospedado. A sessão
    encerra o executor ao terminar ou quando ele é substituído. No
-   `corpus/builders` pela VM: **56 iguais / 1 pendente / 0 diferentes**
-   (`crates/build/tests/executor_vm.rs`; o pendente é a saída de um
-   pós-processador), e incremental = do zero nas 12 edições.
+   `corpus/builders` pela VM: **57 iguais / 0 pendentes / 0 diferentes**
+   (`crates/build/tests/executor_vm.rs`, com a saída do pós-processador do
+   `cadeia_configuracao`), e incremental = do zero nas 12 edições.
 3. **Apoio**: o que o `build_runner` deixou no disco — saída `source` na
    árvore, saída `cache` em `.dart_tool/build/generated/<pkg>/<caminho>`.
    Se a entrada primária é mais nova que o apoio: **aviso** único no
@@ -192,8 +192,38 @@ os motivos.
 execução a partir das opções, versões imitadas, gerador nativo.
 **Substituídos** (ficam no plano, não geram ação): `build_web_compilers:*`,
 `build_modules:*`, `build_resolvers:*`, `build_test:*` (fora de
-`dartforge test`). Pós-processadores só apagam arquivos de um diretório
-mesclado (`build -o`): no motor são no-op declarados.
+`dartforge test`).
+
+**Pós-processadores** (`post_process_builders`, §6.1): executados pelo
+executor Dart, como o `build_runner_core` 8.0.0 os executa.
+
+### 6.1 Pós-processadores
+
+* **Âncoras** — `_addPostBuildPhaseAnchors` (`graph.dart:465-482`): na fase
+  de pós-processamento (a última), uma ação por entrada do pacote — fontes e
+  todas as saídas das fases de build — que termina numa das
+  `inputExtensions`, casa o `generate_for` e cuja fonte original está nos
+  `sources` do alvo (`_actionMatches`). As `inputExtensions` são as do
+  **objeto** `PostProcessBuilder` (o oficial ignora o `input_extensions` do
+  `build.yaml`), perguntadas ao executor por `build.entradas_pos`; sem
+  executor Dart a fase não tem âncoras e a saída fica pendente no placar.
+* **Execução** — `build.posprocessar`: o `runPostProcessBuilder` do
+  `package:build` com o leitor e o escritor do motor. Uma entrada gerada que
+  não foi escrita não executa a âncora (`wasOutput`, origem `Omitida`). A
+  âncora depende do digest da entrada primária mesmo que o pós-processador não
+  a leia (`_postProcessBuildShouldRun`: o `part_cleanup` só apaga).
+* **Saídas** — o grafo não as prevê: ficam no registro da âncora, ocultas,
+  publicadas na geração e contadas no placar. O `addAsset` do oficial recusa
+  o que o grafo já tem; aqui a escrita é recusada se o asset é fonte, saída
+  prevista, saída de outra âncora ou já foi escrito pela mesma ação. Uma
+  reexecução que não escreve mais uma saída a retira (`_cleanUpStaleOutputs`).
+* **`deletePrimaryInput`** — o `deletedBy` do nó; só o `FinalizedReader` do
+  oficial (o `serve` e o diretório mesclado `build -o`) deixa de enxergar a
+  entrada, os builders continuam lendo. Numa entrada **gerada** o efeito é o
+  mesmo aqui: ela sai da geração publicada (a `.g.part` que o
+  `source_gen:part_cleanup` apaga). Numa **fonte** o DartForge não tem como
+  escondê-la (o `serve` lê o disco e não há `build -o`): aviso, e erro com
+  `--estrito`. Teste: `pos_processador_pela_vm`.
 
 ## 7. Sessão, `serve`, `compile-js`, `build`
 

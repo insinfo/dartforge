@@ -20,7 +20,8 @@ Números medidos no ESTADO.md §1.8. Em uma linha por passo do plano:
   `new_sali/frontend` e no `limitless_ui/example` (lidos, nunca gerados).
 * **B3** — grafo de saídas, consultas, impressão digital, agenda
   determinística, executores (nativo, Dart pelo `dfexec/1`, apoio): toda saída
-  dos manifestos é prevista pelo plano (menos a de um pós-processador), 0
+  dos manifestos é prevista pelo plano ou escrita por uma âncora de
+  pós-processador, 0
   diferentes, determinismo 1/4/8 e incremental = do zero nas edições.
 * **B4** — sessão, `serve`, `compile-js` (o `emit_js` não depende mais do
   `gerador_ng`), `dartforge build`, custo zero com os três portões.
@@ -40,7 +41,7 @@ Números medidos no ESTADO.md §1.8. Em uma linha por passo do plano:
   `DARTFORGE_BUILD_DART`. `corpus/builders` pela VM: json_serializable,
   built_value, freezed, drift, mockito, riverpod_generator, sass_builder
   (dev e compressed) e os builders locais do `cadeia_configuracao` —
-  **56 iguais / 1 pendente / 0 diferentes** contra o oráculo do
+  **57 iguais / 0 pendentes / 0 diferentes** contra o oráculo do
   `build_runner`, byte a byte; incremental = do zero nas 12 edições.
 
 Números do B7 no caso `json_serializable` (Linux, VM 3.6.2, motor em

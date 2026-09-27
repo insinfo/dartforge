@@ -29,7 +29,7 @@ import 'canal.dart';
 const protocolo = 'dfexec/1';
 
 /// Versão do executor de builders; muda quando o comportamento muda.
-const versaoDoExecutor = 'dartforge-build-executor/0.1.0';
+const versaoDoExecutor = 'dartforge-build-executor/0.2.0';
 
 /// Uma fábrica de builder como o `build.yaml` a declara:
 /// `Builder Function(BuilderOptions)` (ou `PostProcessBuilder`).
@@ -69,6 +69,9 @@ final class _Servico {
   /// Builders já instanciados, por aplicação, fábrica e opções (o
   /// `build_runner` instancia um por fase e o reusa em todas as entradas).
   final _builders = <String, Builder>{};
+
+  /// Pós-processadores já instanciados, pela mesma chave.
+  final _posProcessadores = <String, PostProcessBuilder>{};
   final _pendentes = <int, Completer<Map<String, Object?>>>{};
   var _proximoPedido = 1;
 
@@ -125,8 +128,22 @@ final class _Servico {
         } catch (e) {
           _erro(id, '$e');
         }
+      case 'build.entradas_pos':
+        // As `inputExtensions` do objeto `PostProcessBuilder`: é o que o
+        // `_actionMatches` do `build_runner_core` usa para as âncoras.
+        try {
+          final opcoes = ((m['opcoes'] as Map?) ?? const {}).cast<String, Object?>();
+          final b = _posProcessador(m['chave'] as String, m['fabrica'] as String, opcoes, m['isRoot'] == true);
+          canal.enviar({'t': 'build.entradas_pos', 'id': id, 'entradas': b.inputExtensions.toList()});
+        } catch (e) {
+          _erro(id, '$e');
+        }
       case 'build.executar':
         final acao = _executar(id, m);
+        _emCurso = acao;
+        unawaited(acao);
+      case 'build.posprocessar':
+        final acao = _posprocessar(id, m);
         _emCurso = acao;
         unawaited(acao);
       case 'build.resposta':
@@ -187,6 +204,68 @@ final class _Servico {
             'pós-processadores não geram ação no motor');
       }
       return b;
+    });
+  }
+
+  PostProcessBuilder _posProcessador(String chave, String fabrica, Map<String, Object?> opcoes, bool raiz) {
+    final k = jsonEncode([chave, fabrica, opcoes, raiz]);
+    return _posProcessadores.putIfAbsent(k, () {
+      final f = fabricas[chave]?[fabrica];
+      if (f == null) throw StateError('fábrica desconhecida: $chave#$fabrica');
+      final b = f(BuilderOptions(opcoes, isRoot: raiz));
+      if (b is! PostProcessBuilder) {
+        throw StateError('$chave#$fabrica não é um PostProcessBuilder (${b.runtimeType})');
+      }
+      return b;
+    });
+  }
+
+  /// Uma âncora de pós-processamento (`_runPostProcessBuilderForAnchor` do
+  /// `build_runner_core`): o `runPostProcessBuilder` do `package:build` com o
+  /// leitor e o escritor do hospedeiro. O `addAsset` recusa o mesmo asset
+  /// duas vezes; o hospedeiro recusa o que o grafo já tem. O
+  /// `deletePrimaryInput` volta em `apagados`.
+  Future<void> _posprocessar(Object? id, Map<String, Object?> m) async {
+    final logs = <Map<String, Object?>>[];
+    final apagados = <String>[];
+    var falhou = false;
+    try {
+      final chave = m['chave'] as String;
+      final entrada = AssetId.parse(m['entrada'] as String);
+      final opcoes = ((m['opcoes'] as Map?) ?? const {}).cast<String, Object?>();
+      final builder = _posProcessador(chave, m['fabrica'] as String, opcoes, m['isRoot'] == true);
+      final logger = Logger.detached('$builder on $entrada')..level = Level.ALL;
+      final assinatura = logger.onRecord.listen((r) {
+        if (r.level >= Level.SEVERE) falhou = true;
+        logs.add({'nivel': _nivel(r.level), 'mensagem': _texto(r)});
+      });
+      final adicionados = <AssetId>{};
+      try {
+        await runPostProcessBuilder(builder, entrada, _Leitor(this), _Escritor(this), logger,
+            addAsset: (a) {
+          if (!adicionados.add(a)) throw InvalidOutputException(a, 'Asset already exists');
+        }, deleteAsset: (a) {
+          if (a != entrada) throw InvalidOutputException(a, 'Can only delete primary input');
+          if (!apagados.contains('$a')) apagados.add('$a');
+        });
+      } catch (e, s) {
+        // O `scopeLogAsync` já registrou o erro como severo no logger.
+        if (!falhou) logs.add({'nivel': 'severo', 'mensagem': '$e\n$s'});
+        falhou = true;
+      } finally {
+        await assinatura.cancel();
+      }
+    } catch (e, s) {
+      logs.add({'nivel': 'severo', 'mensagem': '$e\n$s'});
+      falhou = true;
+    }
+    canal.enviar({
+      't': 'build.resultado',
+      'id': id,
+      'saidas': const [],
+      'logs': logs,
+      'falhou': falhou,
+      'apagados': apagados,
     });
   }
 

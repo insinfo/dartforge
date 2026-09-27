@@ -61,6 +61,9 @@ pub enum Origem {
     Dart,
     Apoio,
     Pendente,
+    /// Âncora de pós-processador cuja entrada gerada não foi escrita: o
+    /// oficial não a executa (`_runPostProcessAction`, `wasOutput`).
+    Omitida,
 }
 
 /// O que se sabe de uma ação executada.
@@ -79,6 +82,8 @@ pub struct Registro {
     /// apoio (o `.css.dart` que o ngdart oficial escreve ao lado do
     /// `.css.shim.dart`): contam como pendentes, não como iguais.
     pub do_apoio: Vec<AssetId>,
+    /// Pós-processador: entradas marcadas por `deletePrimaryInput`.
+    pub apagados: Vec<AssetId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -199,6 +204,10 @@ pub struct Motor {
     geracao: Arc<Geracao>,
     avisados: HashSet<PathBuf>,
     rotulos: HashMap<String, &'static str>,
+    /// Saídas que a reconstrução do grafo tirou da memória (a ação ou a
+    /// âncora deixou de existir): entram nos alterados da atualização, para
+    /// que a geração seja republicada sem elas.
+    retirados: Vec<PathBuf>,
 }
 
 impl Drop for Motor {
@@ -223,7 +232,7 @@ struct Indices {
 fn indices(gp: &GrafoPacotes, grafo: &Grafo, n_fases: usize) -> Indices {
     let mut por_fase = vec![Vec::new(); n_fases];
     for (i, a) in grafo.acoes.iter().enumerate() {
-        if !a.saidas.is_empty() {
+        if a.viva() {
             por_fase[a.fase].push(i);
         }
     }
@@ -334,6 +343,7 @@ impl Motor {
             geracao: Arc::new(Geracao::default()),
             avisados: HashSet::new(),
             rotulos: HashMap::new(),
+            retirados: Vec::new(),
         };
         for c in m.configuracao.iter().chain(&m.dirs) {
             m.marcas.insert(c.clone(), Marca::ler(c));
@@ -537,13 +547,21 @@ impl Motor {
         self.registros = grafo
             .acoes
             .iter()
-            .map(|a| if a.saidas.is_empty() { None } else { antigos.remove(&(a.fase, a.entrada.clone())) })
+            .map(|a| if a.viva() { antigos.remove(&(a.fase, a.entrada.clone())) } else { None })
             .collect();
-        // Saídas que deixaram de existir saem da memória.
-        let validas: HashSet<&PathBuf> = naturais.values().collect();
+        // Saídas que deixaram de existir saem da memória. As de um
+        // pós-processador não estão no grafo: valem as das âncoras que
+        // continuam existindo.
+        let dinamicas: Vec<PathBuf> = grafo.acoes.iter().zip(&self.registros)
+            .filter(|(a, _)| a.pos)
+            .filter_map(|(_, r)| r.as_ref())
+            .flat_map(|r| r.saidas.iter().map(|(s, _)| natural(&self.grafo_pacotes, s)))
+            .collect();
+        let validas: HashSet<&PathBuf> = naturais.values().chain(&dinamicas).collect();
         let sumiram: Vec<PathBuf> = self.memoria.keys().filter(|k| !validas.contains(k)).cloned().collect();
         for k in sumiram {
             self.memoria.remove(&k);
+            self.retirados.push(k.clone());
             mudados.insert(k);
         }
         for d in &dirs {
@@ -603,7 +621,7 @@ impl Motor {
         }
         let mut rel = RelMotor::default();
         let mut avisos = Vec::new();
-        let mut alterados: BTreeSet<PathBuf> = BTreeSet::new();
+        let mut alterados: BTreeSet<PathBuf> = self.retirados.drain(..).collect();
         let dart_mudou = mudados.iter().any(|p| p.to_string_lossy().ends_with(".dart"));
         let mut pacotes_feitos: HashSet<(usize, Arc<str>)> = HashSet::new();
         let mut pacotes_rodaram: HashSet<(usize, Arc<str>)> = HashSet::new();
@@ -695,18 +713,21 @@ impl Motor {
                     }
                     v
                 }
+                None if motivo_dart.is_none() && self.fases[fi].pos => self.pos_em_serie(&executar),
                 None if motivo_dart.is_none() => executar.iter().map(|&a| {
                     self.dart_por_acao(a).unwrap_or_else(|e| self.apoio(a, Some(&e)))
                 }).collect(),
                 None => self.apoio_em_paralelo(&executar, motivo_dart.as_deref()),
             };
             for (a, mut r) in executar.into_iter().zip(novos) {
-                rel.acoes_executadas += 1;
+                if r.origem != Origem::Omitida {
+                    rel.acoes_executadas += 1;
+                }
                 match r.origem {
                     Origem::Nativo(_) => rel.nativas += 1,
                     Origem::Dart => rel.dart += 1,
                     Origem::Apoio => rel.apoio += 1,
-                    Origem::Pendente => {}
+                    Origem::Pendente | Origem::Omitida => {}
                 }
                 if let Some(m) = &r.motivo {
                     if r.origem == Origem::Pendente {
@@ -732,9 +753,50 @@ impl Motor {
                         }
                     }
                 }
+                // Saídas de um pós-processador que a nova execução não
+                // escreveu somem (`_cleanUpStaleOutputs` da âncora).
+                if let Some(antigo) = &self.registros[a]
+                    && self.grafo.acoes[a].pos
+                {
+                    for (s, _) in &antigo.saidas {
+                        if !r.saidas.iter().any(|(x, _)| x == s) {
+                            let n = self.natural_de(s);
+                            if self.memoria.remove(&n).is_some() {
+                                alterados.insert(n.clone());
+                                mudados.insert(n);
+                            }
+                        }
+                    }
+                }
+                // `deletePrimaryInput` (`deletedBy`): o `FinalizedReader` do
+                // oficial — o `serve` e o diretório mesclado — deixa de
+                // enxergar a entrada; os builders continuam lendo. Numa
+                // entrada gerada o efeito é o mesmo aqui: ela sai da geração
+                // publicada (`publicar`). Uma fonte apagada continuaria no
+                // disco servido pelo DartForge: aviso, e erro no estrito.
+                let antes: Vec<AssetId> = self.registros[a].as_ref().map(|x| x.apagados.clone()).unwrap_or_default();
+                if antes != r.apagados {
+                    for id in antes.iter().chain(&r.apagados) {
+                        if self.grafo.gerados.contains_key(id) {
+                            let n = self.natural_de(id);
+                            alterados.insert(n);
+                        }
+                    }
+                }
+                for apagado in r.apagados.iter().filter(|x| !self.grafo.gerados.contains_key(*x)) {
+                    let msg = format!(
+                        "{}: a fonte {} foi marcada por deletePrimaryInput; o DartForge não tem o diretório mesclado (`build -o`) nem esconde fontes no `serve`, então ela continua visível",
+                        self.plano.aplicacoes[self.fases[fi].aplicacao].chave,
+                        apagado.texto()
+                    );
+                    if self.opcoes.estrito {
+                        return Err(msg);
+                    }
+                    avisos.push(msg);
+                }
                 // Corte pela saída: só o que mudou de conteúdo segue adiante.
                 for (s, c) in &r.saidas {
-                    let n = self.naturais[s].clone();
+                    let n = self.natural_de(s);
                     let antes = self.memoria.get(&n).cloned();
                     let igual = match (&antes, c) {
                         (Some(x), Some(y)) => x == y,
@@ -780,11 +842,27 @@ impl Motor {
         let candidatas: Vec<usize> = (0..self.fases.len())
             .filter(|&fi| self.fases[fi].extensoes.is_some() && self.nativo_da_fase(fi).is_none())
             .collect();
+        let pos: Vec<usize> = (0..self.fases.len())
+            .filter(|&fi| self.fases[fi].pos && self.fases[fi].substituido.is_none())
+            .collect();
         let disponivel = self.dart.lock().is_ok_and(|d| d.disponibilidade() == Disponibilidade::Disponivel);
-        if candidatas.is_empty() || !disponivel || self.preparar_dart().is_some() {
+        if (candidatas.is_empty() && pos.is_empty()) || !disponivel || self.preparar_dart().is_some() {
             return Ok(());
         }
         let mut mudou = false;
+        // Pós-processadores: as `inputExtensions` do objeto decidem as
+        // âncoras (`_actionMatches` de uma `PostBuildAction`).
+        for fi in pos {
+            let f = &self.fases[fi];
+            let chave = self.plano.aplicacoes[f.aplicacao].chave.clone();
+            let pedido = PedidoExtensoes { chave, fabrica: f.fabrica.clone(), opcoes: f.opcoes.clone(), raiz: f.raiz };
+            let resposta = self.dart.lock().map_err(|_| "executor Dart envenenado")?.entradas_pos(&pedido);
+            let Ok(Some(v)) = resposta else { continue };
+            if self.fases[fi].entradas_pos.as_ref() != Some(&v) {
+                self.fases[fi].entradas_pos = Some(v);
+                mudou = true;
+            }
+        }
         for fi in candidatas {
             let f = &self.fases[fi];
             let chave = self.plano.aplicacoes[f.aplicacao].chave.clone();
@@ -804,6 +882,133 @@ impl Motor {
         Ok(())
     }
 
+    /// Caminho natural de uma saída: a prevista pelo grafo ou, numa saída de
+    /// pós-processador, o caminho do asset no pacote.
+    fn natural_de(&self, s: &AssetId) -> PathBuf {
+        self.naturais.get(s).cloned().unwrap_or_else(|| natural(&self.grafo_pacotes, s))
+    }
+
+    /// As âncoras de pós-processamento de uma fase, em série e na ordem do
+    /// grafo: cada uma enxerga, como "já existentes", as saídas das outras
+    /// (o `addAsset` do oficial recusa um asset que o grafo já tem).
+    fn pos_em_serie(&self, executar: &[usize]) -> Vec<Registro> {
+        let mut donos: BTreeMap<AssetId, usize> = BTreeMap::new();
+        for (a, (acao, r)) in self.grafo.acoes.iter().zip(&self.registros).enumerate() {
+            if let (true, Some(r)) = (acao.pos, r) {
+                for (s, _) in &r.saidas {
+                    donos.insert(s.clone(), a);
+                }
+            }
+        }
+        let mut v = Vec::with_capacity(executar.len());
+        for &a in executar {
+            let ocupadas = donos.iter().filter(|(_, d)| **d != a).map(|(s, _)| s.clone()).collect();
+            let r = self.pos_por_acao(a, ocupadas).unwrap_or_else(|e| Registro {
+                impressao: [0; 32],
+                consultas: Vec::new(),
+                saidas: Vec::new(),
+                origem: Origem::Pendente,
+                motivo: Some(e),
+                medido: Vec::new(),
+                do_apoio: Vec::new(),
+                apagados: Vec::new(),
+            });
+            donos.retain(|_, d| *d != a);
+            for (s, _) in &r.saidas {
+                donos.insert(s.clone(), a);
+            }
+            v.push(r);
+        }
+        v
+    }
+
+    /// `_runPostProcessBuilderForAnchor`: uma entrada gerada só é processada
+    /// se foi escrita (`wasOutput`, sem falha); então o pós-processador roda
+    /// pelo executor Dart com o `PostProcessBuildStep` servido pelo motor.
+    fn pos_por_acao(&self, a: usize, ocupadas: BTreeSet<AssetId>) -> Result<Registro, String> {
+        let acao = self.grafo.acoes.get(a).ok_or("âncora inexistente")?;
+        if self.grafo.gerados.contains_key(&acao.entrada) {
+            let n = self.natural_de(&acao.entrada);
+            if !self.memoria.contains_key(&n) {
+                // A consulta negativa acorda a âncora quando a entrada for
+                // escrita.
+                return Ok(Registro {
+                    impressao: [0; 32],
+                    consultas: vec![(Consulta::Arquivo(n), None)],
+                    saidas: Vec::new(),
+                    origem: Origem::Omitida,
+                    motivo: None,
+                    medido: Vec::new(),
+                    do_apoio: Vec::new(),
+                    apagados: Vec::new(),
+                });
+            }
+        }
+        if let Some(e) = self.preparar_dart() {
+            return Err(e);
+        }
+        let fase = &self.fases[acao.fase];
+        let memoria = |id: &AssetId| self.naturais.get(id).and_then(|p| self.memoria.get(p)).cloned();
+        let mut servico = ServicoAcao::novo(&self.grafo, &self.grafo_pacotes, a, &memoria);
+        servico.ocupadas = ocupadas;
+        let pedido = PedidoAcao {
+            fase: acao.fase,
+            chave: self.plano.aplicacoes[fase.aplicacao].chave.clone(),
+            fabrica: fase.fabrica.clone(),
+            opcoes: fase.opcoes.clone(),
+            raiz: fase.raiz,
+            entrada: acao.entrada.clone(),
+            saidas_permitidas: Vec::new(),
+        };
+        let mut dart = self.dart.lock().map_err(|_| "executor Dart envenenado")?;
+        let resultado = dart.pos_processar(&pedido, &mut servico).map_err(|e| e.0)?;
+        if resultado.falhou {
+            let detalhes = resultado
+                .logs
+                .iter()
+                .filter(|(nivel, _)| nivel == "severo" || nivel == "erro")
+                .map(|(_, mensagem)| mensagem.as_str())
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(if detalhes.is_empty() {
+                format!("{}: pós-processador Dart falhou", pedido.chave)
+            } else {
+                format!("{}: {detalhes}", pedido.chave)
+            });
+        }
+        for (id, bytes) in resultado.saidas {
+            if servico.escritas.get(&id).is_some_and(|b| b.as_ref() != bytes.as_ref()) {
+                return Err(format!("pós-processador Dart retornou bytes diferentes para {}", id.texto()));
+            }
+            if !servico.escritas.contains_key(&id) {
+                servico
+                    .escrever(&id, bytes)
+                    .map_err(|e| format!("pós-processador escreveu asset já existente: {}", e.0.texto()))?;
+            }
+        }
+        if let Some(x) = resultado.apagados.iter().find(|x| **x != acao.entrada) {
+            return Err(format!("pós-processador apagou {}, que não é a entrada primária", x.texto()));
+        }
+        let saidas = servico.escritas.into_iter().map(|(id, b)| (id, Some(b))).collect();
+        // A âncora depende do digest da entrada primária mesmo que o
+        // pós-processador não a leia (`_postProcessBuildShouldRun` compara o
+        // `previousInputsDigest`): o `part_cleanup` só a apaga.
+        let n = self.natural_de(&acao.entrada);
+        let d = self.memoria.get(&n).map(|b| digest_bytes(b)).or_else(|| crate::consulta::digest_arquivo(&n));
+        let mut consultas = vec![(Consulta::Arquivo(n), d)];
+        consultas.extend(servico.consultas);
+        Ok(Registro {
+            impressao: [0; 32],
+            consultas,
+            saidas,
+            origem: Origem::Dart,
+            motivo: None,
+            medido: Vec::new(),
+            do_apoio: Vec::new(),
+            apagados: resultado.apagados,
+        })
+    }
+
     fn naturais_de_entrada(&self, a: usize) -> PathBuf {
         natural(&self.grafo_pacotes, &self.grafo.acoes[a].entrada)
     }
@@ -815,11 +1020,11 @@ impl Motor {
             Disponibilidade::Disponivel if self.dart_preparado.load(Ordering::Acquire) => return None,
             Disponibilidade::Disponivel => {}
         }
-        // Só o que pode virar ação Dart: pós-processadores são no-op no motor
-        // e os substituídos nunca executam (§6 do BUILD-MOTOR.md); importá-los
-        // só aumentaria a compilação do script.
+        // Só o que pode virar ação Dart (builders e pós-processadores): os
+        // substituídos nunca executam (§6 do BUILD-MOTOR.md); importá-los só
+        // aumentaria a compilação do script.
         let aplicacoes = self.plano.aplicacoes.iter()
-            .filter(|a| !a.pos && crate::descritor::substituido(&a.chave).is_none())
+            .filter(|a| crate::descritor::substituido(&a.chave).is_none())
             .map(|a| (a.chave.clone(), a.import.clone(), a.fabricas.clone())).collect();
         let mut h = blake3::Hasher::new();
         h.update(crate::VERSAO.as_bytes());
@@ -881,6 +1086,7 @@ impl Motor {
             motivo: None,
             medido: Vec::new(),
             do_apoio: Vec::new(),
+            apagados: Vec::new(),
         })
     }
 
@@ -1050,6 +1256,7 @@ impl Motor {
                 motivo: None,
                 medido: Vec::new(),
                 do_apoio,
+                apagados: Vec::new(),
             };
         }
         // O apoio de uma ação que já vinha dele não é relido: o disco do
@@ -1117,6 +1324,7 @@ impl Motor {
                 motivo: None,
                 medido: Vec::new(),
                 do_apoio: Vec::new(),
+            apagados: Vec::new(),
             },
             Ok(s) => {
                 if motivo_dart.is_none() {
@@ -1211,6 +1419,7 @@ impl Motor {
                 motivo: Some(m),
                 medido: Vec::new(),
                 do_apoio: Vec::new(),
+            apagados: Vec::new(),
             };
         }
         Registro {
@@ -1221,6 +1430,7 @@ impl Motor {
             motivo: motivo_dart.map(|m| format!("apoio do build_runner: {m}")),
             medido: Vec::new(),
             do_apoio: Vec::new(),
+            apagados: Vec::new(),
         }
     }
 
@@ -1228,6 +1438,10 @@ impl Motor {
     /// memória — as `cache`, e as `source` de gerador nativo (as de apoio já
     /// estão no disco, no caminho natural).
     fn publicar(&mut self) {
+        // Saídas marcadas por `deletePrimaryInput`: fora da geração, como o
+        // `FinalizedReader` do oficial (`finalized_reader.dart:44`).
+        let apagados: HashSet<&AssetId> = self.registros.iter().flatten().flat_map(|r| r.apagados.iter()).collect();
+        let apagados: HashSet<AssetId> = apagados.into_iter().cloned().collect();
         let mut c = Construtor::nova();
         let mut h = blake3::Hasher::new();
         let mut itens: Vec<(PathBuf, Arc<[u8]>, &'static str, PathBuf)> = Vec::new();
@@ -1241,12 +1455,15 @@ impl Motor {
             }
             for (s, conteudo) in &r.saidas {
                 let Some(conteudo) = conteudo else { continue };
+                if apagados.contains(s) {
+                    continue;
+                }
                 let rotulo = match r.origem {
                     Origem::Nativo(_) | Origem::Dart => self.plano.aplicacoes[f.aplicacao].chave.clone(),
                     _ => "build_runner".to_string(),
                 };
                 rotulos.push((a, rotulo));
-                itens.push((self.naturais[s].clone(), conteudo.clone(), "", natural(&self.grafo_pacotes, &acao.entrada)));
+                itens.push((self.natural_de(s), conteudo.clone(), "", natural(&self.grafo_pacotes, &acao.entrada)));
             }
         }
         let rotulos: Vec<&'static str> = rotulos.into_iter().map(|(_, k)| self.rotulo(&k)).collect();
@@ -1345,7 +1562,7 @@ impl Motor {
     pub fn estado_canonico(&self) -> String {
         let mut linhas: Vec<String> = Vec::new();
         for (i, a) in self.grafo.acoes.iter().enumerate() {
-            if a.saidas.is_empty() {
+            if !a.viva() {
                 continue;
             }
             let f = &self.fases[a.fase];
@@ -1361,7 +1578,14 @@ impl Motor {
                             format!("{}={}", s.caminho, &d[..d.len().min(16)])
                         })
                         .collect();
-                    linhas.push(format!("{cab} {:?} {} [{}]", r.origem, r.motivo.as_deref().unwrap_or(""), saidas.join(" ")));
+                    let apagados: Vec<String> = r.apagados.iter().map(AssetId::texto).collect();
+                    linhas.push(format!(
+                        "{cab} {:?} {} [{}]{}",
+                        r.origem,
+                        r.motivo.as_deref().unwrap_or(""),
+                        saidas.join(" "),
+                        if apagados.is_empty() { String::new() } else { format!(" apagados=[{}]", apagados.join(" ")) }
+                    ));
                 }
             }
         }
@@ -1385,8 +1609,19 @@ impl Motor {
         let mut p = Placar::default();
         for (id, esperado) in referencia {
             let Some(g) = self.grafo.gerados.get(id) else {
-                // Um pós-processador pode escrever saídas que o grafo não
-                // prevê (`PostProcessBuildStep`): só o executor Dart as faz.
+                // Um pós-processador escreve saídas que o grafo não prevê
+                // (`PostProcessBuildStep`): estão no registro da âncora.
+                let da_ancora = self.grafo.acoes.iter().zip(&self.registros)
+                    .filter(|(a, _)| a.pos)
+                    .filter_map(|(_, r)| r.as_ref())
+                    .find_map(|r| r.saidas.iter().find(|(s, _)| s == id).map(|(_, c)| (r, c.clone())));
+                if let Some((r, c)) = da_ancora {
+                    match (&r.origem, c) {
+                        (Origem::Dart, Some(c)) if c.as_ref() == esperado.as_slice() => p.iguais.push(id.clone()),
+                        _ => p.diferentes.push((id.clone(), "pós-processador: difere do oficial".into())),
+                    }
+                    continue;
+                }
                 let tem_pos = self.fases.iter().any(|f| f.pos && self.grafo_pacotes.nos[f.pacote].nome == *id.pacote);
                 if tem_pos {
                     p.pendentes.push((id.clone(), "pós-processador: saída só com o executor Dart".into()));
