@@ -317,6 +317,22 @@ impl ParsedModule {
             .collect()
     }
 
+    /// Dá à função definida `de` o nome `para` (J03: a assinatura mudou e a
+    /// entrada estável nova tem outro nome). Os usos dela no módulo seguem o
+    /// valor, então passam a chamar `para`. `false` se `de` não é definida
+    /// aqui ou `para` já existe.
+    pub(crate) fn renomear_funcao(&self, de: &str, para: &str) -> bool {
+        // SAFETY: as definições são valores vivos deste módulo; o nome novo é
+        // copiado pelo LLVM.
+        unsafe {
+            let definicao = self.definitions().into_iter().find(|&f| value_name(f) == de);
+            let ocupado = self.definitions().into_iter().any(|f| value_name(f) == para);
+            let Some(funcao) = definicao.filter(|_| !ocupado) else { return false };
+            LLVMSetValueName2(funcao, para.as_ptr().cast::<c_char>(), para.len());
+            value_name(funcao) == para
+        }
+    }
+
     /// Nomes que o módulo **declara sem definir**, isto é, o que ele consome.
     ///
     /// Numa sessão JIT esse conjunto precisa estar contido na tabela do runtime,

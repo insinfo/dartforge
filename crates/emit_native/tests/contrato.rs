@@ -65,7 +65,19 @@ fn literal_symbol_usa_classe_do_sdk_e_constante_canonica() {
     let Some(ir) = ir_de_fonte("void main() { final a = #foo; final b = #foo; print(identical(a, b)); print(a); print(const Symbol('foo') == a); print(#_privado); }\n") else { return };
     let main = ir.split("define void @dart_main(").nth(1).expect("main");
     let main = main.split("\n}\n").next().expect("fim de main");
-    assert!(main.matches(".get()").count() >= 2, "literal não canonizado:\n{main}");
+    // As duas ocorrências de `#foo` passam pelo mesmo getter da constante
+    // canônica `@dfc.<hash>.get`: chamado, ou copiado em `main` pelo inliner
+    // (a cópia guarda o objeto com `dartforge_marcar_constante` e a chave do
+    // getter).
+    let getters: Vec<&str> = main
+        .match_indices("@dfc.")
+        .map(|(i, _)| {
+            let resto = &main[i..];
+            &resto[..resto.find(".get").expect("getter da constante") + 4]
+        })
+        .collect();
+    let foo = getters.first().copied().expect("constante de #foo");
+    assert!(getters.iter().filter(|g| **g == foo).count() >= 2, "literal não canonizado:\n{main}");
     assert!(ir.contains("@dartforge_object_new"), "Symbol não alocado como objeto do SDK");
 }
 

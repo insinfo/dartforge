@@ -434,3 +434,41 @@ define i64 @df_fn_0() {{
     assert_eq!(sessao.generation("app"), Some(2));
     assert_eq!(entrada.call(&sessao).unwrap(), i64::from(std::process::id()));
 }
+
+/// Recarga estrutural (J03): a assinatura de uma função muda. A função ganha
+/// outra entrada estável (`nome$sig1`) e quem a chama no código novo usa a
+/// nova; a entrada original fica com o corpo antigo (um tear-off antigo). A
+/// mesma assinatura reusa a mesma entrada, e voltar à original reusa a
+/// original.
+#[test]
+#[ignore = "requer LLVM-C.dll alcançável pelo carregador; use scripts/env.ps1"]
+fn assinatura_mudada_ganha_entrada_nova() {
+    let v1 = "define i64 @df_fn_0() {\n  ret i64 1\n}\n\
+              define i64 @df_usa() {\n  %r = call i64 @df_fn_0()\n  ret i64 %r\n}\n";
+    let v2 = |k: i64| {
+        format!(
+            "define i64 @df_fn_0(i64 %a) {{\n  %r = add i64 %a, {k}\n  ret i64 %r\n}}\n\
+             define i64 @df_usa() {{\n  %r = call i64 @df_fn_0(i64 5)\n  ret i64 %r\n}}\n"
+        )
+    };
+    let mut sessao = JitSession::new().expect("sessão");
+    sessao.add_reloadable_module("app", v1).expect("geração 1");
+    let usa = sessao.stable_entry("df_usa").expect("entrada");
+    let antiga = sessao.stable_entry("df_fn_0").expect("entrada");
+    assert_eq!(usa.call(&sessao).unwrap(), 1);
+
+    sessao.hot_reload("app", &v2(0)).expect("assinatura nova aceita");
+    assert_eq!(usa.call(&sessao).unwrap(), 5);
+    assert_eq!(antiga.call(&sessao).unwrap(), 1, "a entrada original fica com o corpo antigo");
+    let nova = sessao.stable_entry("df_fn_0$sig1").expect("entrada nova");
+    assert_eq!(nova.call_with(&sessao, 9).unwrap(), 9);
+
+    sessao.hot_reload("app", &v2(100)).expect("mesma assinatura, corpo novo");
+    assert_eq!(usa.call(&sessao).unwrap(), 105);
+    assert_eq!(nova.call_with(&sessao, 9).unwrap(), 109);
+    assert!(sessao.stable_entry("df_fn_0$sig2").is_err(), "a mesma assinatura reusa a entrada");
+
+    sessao.hot_reload("app", v1).expect("volta à assinatura original");
+    assert_eq!(usa.call(&sessao).unwrap(), 1);
+    assert_eq!(antiga.call(&sessao).unwrap(), 1);
+}

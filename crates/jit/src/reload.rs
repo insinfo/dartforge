@@ -161,6 +161,10 @@ pub(crate) struct Reloadable {
     class_names: Vec<(i64, String)>,
     /// Os campos de cada classe da versão viva, pelo nome (J03).
     campos: Vec<crate::migracao::Layout>,
+    /// J03: a entrada estável de uma função cuja assinatura mudou —
+    /// `(nome do emissor, assinatura)` → `nome$sigK`. A entrada com o nome
+    /// original fica com o corpo antigo (os tear-offs antigos a chamam).
+    apelidos: BTreeMap<(String, String), String>,
     /// Globais mutáveis da geração ativa, reiniciadas em `run_entry`/`run_main`.
     pub(crate) globals: Vec<ffi::MutableGlobal>,
     /// Rastreadores das gerações ainda alcançáveis, com o número de cada:
@@ -519,7 +523,49 @@ impl JitSession {
         let parse_ir = phase.elapsed();
 
         let phase = Instant::now();
-        let signatures = parsed.signatures();
+        let mut signatures = parsed.signatures();
+        // J03: uma função cuja assinatura mudou ganha outra entrada estável
+        // (`nome$sigK`, a mesma para a mesma assinatura nas gerações
+        // seguintes); a entrada original continua com o corpo antigo, como
+        // uma função que sumiu. Renomear a definição leva junto todos os usos
+        // dela no módulo novo (tabelas de métodos, closures, chamadas).
+        let mut apelidos_novos: Vec<((String, String), String)> = Vec::new();
+        if let Some(index) = self.reloadables.iter().position(|m| m.name == name) {
+            let modulo = &self.reloadables[index];
+            let mut renomes = Vec::new();
+            for s in &signatures {
+                let texto = s.text();
+                let Some(atual) = modulo.entries.get(&s.name).filter(|e| e.generation > 0) else { continue };
+                if atual.signature.text() == texto {
+                    continue;
+                }
+                let chave = (s.name.clone(), texto);
+                let alvo = match modulo.apelidos.get(&chave) {
+                    Some(a) => a.clone(),
+                    None => {
+                        let k = modulo.apelidos.keys().filter(|(n, _)| *n == s.name).count() + 1;
+                        let a = format!("{}$sig{k}", s.name);
+                        apelidos_novos.push((chave, a.clone()));
+                        a
+                    }
+                };
+                renomes.push((s.name.clone(), alvo));
+            }
+            for (de, para) in &renomes {
+                if !parsed.renomear_funcao(de, para) {
+                    return Err(JitError {
+                        stage: "contract",
+                        message: format!(
+                            "a assinatura de {de} mudou e a entrada nova {para} não pôde ser criada; \
+                             a recarga é recusada — reinicie a sessão"
+                        ),
+                    });
+                }
+            }
+            if !renomes.is_empty() {
+                signatures = parsed.signatures();
+            }
+        }
         let layouts = parsed.class_layouts();
         let class_names = parsed.class_names();
         let campos = crate::migracao::layouts_do_ir(ir);
@@ -934,6 +980,7 @@ impl JitSession {
         module.layouts = layouts;
         module.class_names = class_names;
         module.campos = campos;
+        module.apelidos.extend(apelidos_novos);
         module.globals = globals;
         module.generations.push((generation, tracker));
         if let Some(created) = stub_tracker {
@@ -1000,6 +1047,7 @@ impl JitSession {
             layouts: Vec::new(),
             class_names: Vec::new(),
             campos: Vec::new(),
+            apelidos: BTreeMap::new(),
             globals: Vec::new(),
             generations: Vec::new(),
             stubs: Vec::new(),
@@ -1374,6 +1422,7 @@ mod tests {
             layouts: Vec::new(),
             class_names: Vec::new(),
             campos: Vec::new(),
+            apelidos: BTreeMap::new(),
             globals: Vec::new(),
             generations: Vec::new(),
             stubs: Vec::new(),
