@@ -202,6 +202,8 @@ import 'package:corpus_ngdart/src/j05_usa_host_formas.template.dart' as j05;
 import 'package:corpus_ngdart/src/j06_view_children_dois_niveis.template.dart' as j06;
 import 'package:corpus_ngdart/src/j07_estilos_na_anotacao.template.dart' as j07;
 import 'package:corpus_ngdart/src/j08_estilos_none.template.dart' as j08;
+import 'package:corpus_ngdart/src/j09_view_child_filho_em_if.template.dart' as j09;
+import 'package:corpus_ngdart/src/j10_view_child_tipo_em_if.template.dart' as j10;
 
 void main() {
   print([
@@ -406,5 +408,7 @@ void main() {
     j06.J06ViewChildrenDoisNiveisNgFactory,
     j07.J07EstilosNaAnotacaoNgFactory,
     j08.J08EstilosNoneNgFactory,
+    j09.J09ViewChildFilhoEmIfNgFactory,
+    j10.J10ViewChildTipoEmIfNgFactory,
   ].length);
 }
