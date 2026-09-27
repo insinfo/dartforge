@@ -59,11 +59,12 @@ impl Leitor<'_> {
         self.nomes.resolve(s)
     }
 
-    /// O elemento que `nome` (ou `prefixo.nome`) designa em `lib`.
-    fn elemento(&self, lib: LibraryId, nome: &[ast::Name]) -> Option<Element> {
+    /// O elemento que `nome` (ou `prefixo.nome`) designa no escopo da
+    /// unidade `u` (com `parts-with-imports`, o dela).
+    fn elemento(&self, u: UnitId, nome: &[ast::Name]) -> Option<Element> {
         let b = match nome {
-            [n] => self.programa.lookup(lib, n.sym),
-            [p, n] => self.programa.lookup_prefixed(lib, p.sym, n.sym),
+            [n] => self.programa.lookup_na_unidade(u, n.sym),
+            [p, n] => self.programa.lookup_prefixed_na_unidade(u, p.sym, n.sym),
             _ => None,
         }?;
         if b.ambiguous {
@@ -72,9 +73,9 @@ impl Leitor<'_> {
         b.getter
     }
 
-    /// O alvo do tipo `t` (da árvore `ast`, escrito na biblioteca `lib`),
+    /// O alvo do tipo `t` (da árvore `ast`, escrito na unidade `u`),
     /// seguindo aliases de tipo até a classe que eles nomeiam.
-    fn alvo(&self, lib: LibraryId, ast_: &ast::Ast, t: ast::TypeId, profundidade: u32) -> Alvo {
+    fn alvo(&self, u: UnitId, ast_: &ast::Ast, t: ast::TypeId, profundidade: u32) -> Alvo {
         if profundidade > 8 {
             return Alvo::Desconhecido;
         }
@@ -82,7 +83,7 @@ impl Leitor<'_> {
         let TypeKind::Named { name, .. } = &no.kind else {
             return Alvo::NaoInterface;
         };
-        let Some(e) = self.elemento(lib, name) else {
+        let Some(e) = self.elemento(u, name) else {
             return match name.last().map(|n| self.nome(n.sym)) {
                 Some("dynamic") if name.len() == 1 => Alvo::NaoInterface,
                 _ => Alvo::Desconhecido,
@@ -108,7 +109,7 @@ impl Leitor<'_> {
                     // verificador) e não confere a cláusula.
                     return Alvo::Desconhecido;
                 }
-                self.alvo(td.library, ast_td, corpo, profundidade + 1)
+                self.alvo(td.decl.unit, ast_td, corpo, profundidade + 1)
             }
             _ => Alvo::Desconhecido,
         }
@@ -119,7 +120,7 @@ impl Leitor<'_> {
     /// exibição dependeria de tipos que aqui não se calculam.
     fn exibir(
         &self,
-        lib: LibraryId,
+        u: UnitId,
         ast_: &ast::Ast,
         t: ast::TypeId,
         params: &[SymbolId],
@@ -130,7 +131,7 @@ impl Leitor<'_> {
             TypeKind::Named { name, args } => {
                 let ultimo = name.last()?;
                 let texto = self.nome(ultimo.sym).to_string();
-                let parametros: Vec<bool> = match self.elemento(lib, name) {
+                let parametros: Vec<bool> = match self.elemento(u, name) {
                     Some(Element::Class(id)) => self
                         .programa
                         .class(id)
@@ -167,7 +168,7 @@ impl Leitor<'_> {
                 } else if args.len() == parametros.len() {
                     let partes: Option<Vec<String>> = args
                         .iter()
-                        .map(|&a| self.exibir(lib, ast_, a, params))
+                        .map(|&a| self.exibir(u, ast_, a, params))
                         .collect();
                     format!("{texto}<{}>", partes?.join(", "))
                 } else {
@@ -184,13 +185,13 @@ impl Leitor<'_> {
     }
 
     /// `namedType.isDeferred`: o prefixo do tipo vem de um import `deferred`.
-    fn adiado(&self, lib: LibraryId, ast_: &ast::Ast, t: ast::TypeId) -> bool {
+    fn adiado(&self, u: UnitId, ast_: &ast::Ast, t: ast::TypeId) -> bool {
         let TypeKind::Named { name, .. } = &ast_.ty(t).kind else {
             return false;
         };
         let [p, _] = &name[..] else { return false };
         self.programa
-            .library(lib)
+            .library(self.programa.unit(u).library)
             .imports
             .iter()
             .any(|i| i.deferred && i.prefix == Some(p.sym))
@@ -284,14 +285,15 @@ struct Resultado {
 fn avaliar(l: &Leitor<'_>, lib: LibraryId, id: ClassId) -> Option<Resultado> {
     let classe = l.programa.class(id);
     let decl = classe.decl?;
-    let ast_ = &l.programa.unit(decl.unit).ast;
+    let u = decl.unit;
+    let ast_ = &l.programa.unit(u).ast;
     let k = &ast_.decl(decl.decl).kind;
     let cl = clausulas(k)?;
     let sdk = l.programa.library(lib).is_sdk;
     let mut relatos = Vec::new();
     let mut fechada = false;
     let mut incerta = false;
-    let alvo = |t: ast::TypeId| l.alvo(lib, ast_, t, 0);
+    let alvo = |t: ast::TypeId| l.alvo(u, ast_, t, 0);
     // `_checkForExtendsOrImplementsDisallowedClass`: nunca numa biblioteca `dart:`.
     let proibido = |a: Alvo| !sdk && matches!(a, Alvo::Classe(c) if l.proibida(c));
 
@@ -301,7 +303,7 @@ fn avaliar(l: &Leitor<'_>, lib: LibraryId, id: ClassId) -> Option<Resultado> {
             match alvo(t) {
                 a if proibido(a) => fechada = true,
                 Alvo::Classe(_) => {
-                    if l.adiado(lib, ast_, t) {
+                    if l.adiado(u, ast_, t) {
                         relatos.push(Diagnostic::com_codigo(
                             c::MIXIN_SUPER_CLASS_CONSTRAINT_DEFERRED_CLASS,
                             ast_.ty(t).span,
@@ -316,7 +318,7 @@ fn avaliar(l: &Leitor<'_>, lib: LibraryId, id: ClassId) -> Option<Resultado> {
         }
         implements(
             l,
-            lib,
+            u,
             ast_,
             cl.implements,
             &mut relatos,
@@ -337,7 +339,7 @@ fn avaliar(l: &Leitor<'_>, lib: LibraryId, id: ClassId) -> Option<Resultado> {
         if !fechada {
             implements(
                 l,
-                lib,
+                u,
                 ast_,
                 cl.implements,
                 &mut relatos,
@@ -349,7 +351,7 @@ fn avaliar(l: &Leitor<'_>, lib: LibraryId, id: ClassId) -> Option<Resultado> {
         if !fechada {
             mixins(
                 l,
-                lib,
+                u,
                 id,
                 ast_,
                 cl.with,
@@ -391,7 +393,7 @@ fn avaliar(l: &Leitor<'_>, lib: LibraryId, id: ClassId) -> Option<Resultado> {
 #[allow(clippy::too_many_arguments)]
 fn implements(
     l: &Leitor<'_>,
-    lib: LibraryId,
+    u: UnitId,
     ast_: &ast::Ast,
     tipos: &[ast::TypeId],
     relatos: &mut Vec<Diagnostic>,
@@ -400,11 +402,11 @@ fn implements(
     sdk: bool,
 ) {
     for &t in tipos {
-        match l.alvo(lib, ast_, t, 0) {
+        match l.alvo(u, ast_, t, 0) {
             Alvo::Classe(c) if !sdk && l.proibida(c) => *fechada = true,
             Alvo::Desconhecido => *incerta = true,
             _ => {
-                if l.adiado(lib, ast_, t) {
+                if l.adiado(u, ast_, t) {
                     relatos.push(Diagnostic::com_codigo(
                         c::IMPLEMENTS_DEFERRED_CLASS,
                         ast_.ty(t).span,
@@ -421,7 +423,7 @@ fn implements(
 #[allow(clippy::too_many_arguments)]
 fn mixins(
     l: &Leitor<'_>,
-    lib: LibraryId,
+    u: UnitId,
     id: ClassId,
     ast_: &ast::Ast,
     tipos: &[ast::TypeId],
@@ -432,7 +434,7 @@ fn mixins(
 ) {
     let mut anteriores: Vec<ClassId> = Vec::new();
     for &t in tipos {
-        let m = match l.alvo(lib, ast_, t, 0) {
+        let m = match l.alvo(u, ast_, t, 0) {
             Alvo::Classe(m) => m,
             Alvo::NaoInterface => continue,
             Alvo::Desconhecido => {
@@ -448,7 +450,7 @@ fn mixins(
         let anteriores_aqui = anteriores.clone();
         anteriores.push(m);
         let anteriores = anteriores_aqui;
-        if l.adiado(lib, ast_, t) {
+        if l.adiado(u, ast_, t) {
             relatos.push(Diagnostic::com_codigo(
                 c::MIXIN_DEFERRED_CLASS,
                 span,
@@ -477,9 +479,9 @@ fn mixins(
                 // Restrições `on` e membros invocados por `super` dependem
                 // de tipos: só um mixin sem `on` e sem `super` é seguro.
                 let decl = el.decl.map(|d| {
-                    let u = l.programa.unit(d.unit);
-                    let sp = u.ast.decl(d.decl).span;
-                    u.source
+                    let unidade = l.programa.unit(d.unit);
+                    let sp = unidade.ast.decl(d.decl).span;
+                    unidade.source
                         .get(sp.start..sp.end)
                         .unwrap_or("")
                         .contains("super")
@@ -543,7 +545,7 @@ fn mixins(
 /// `Object` (pelo `extends` ou pela cláusula `with`).
 fn classe_mixin(
     l: &Leitor<'_>,
-    lib: LibraryId,
+    u: UnitId,
     id: ClassId,
     ast_: &ast::Ast,
     fonte: &str,
@@ -589,7 +591,7 @@ fn classe_mixin(
     // resolve aqui não é decidido.
     let estende_outra = match d.extends {
         None => Some(false),
-        Some(t) => match l.alvo(lib, ast_, t, 0) {
+        Some(t) => match l.alvo(u, ast_, t, 0) {
             Alvo::Classe(s) => Some(
                 !(l.programa.class(s).supertype_class.is_none()
                     && l.programa.library(l.programa.class(s).library).uri == "dart:core"),
@@ -707,7 +709,8 @@ pub fn verificar(
         }
         let Some(decl) = classe.decl else { continue };
         let id = ClassId(i as u32);
-        let ast_ = &programa.unit(decl.unit).ast;
+        let u = decl.unit;
+        let ast_ = &programa.unit(u).ast;
         let Some(cl) = clausulas(&ast_.decl(decl.decl).kind) else {
             continue;
         };
@@ -727,7 +730,7 @@ pub fn verificar(
             ];
             for (tipos, codigo) in grupos {
                 for &t in tipos {
-                    let Alvo::Classe(alvo) = l.alvo(lib, ast_, t, 0) else {
+                    let Alvo::Classe(alvo) = l.alvo(u, ast_, t, 0) else {
                         continue;
                     };
                     let span = ast_.ty(t).span;
@@ -745,7 +748,7 @@ pub fn verificar(
                         continue;
                     }
                     if l.proibida(alvo)
-                        && let Some(texto) = l.exibir(lib, ast_, t, &cl.params)
+                        && let Some(texto) = l.exibir(u, ast_, t, &cl.params)
                     {
                         saida.push((
                             decl.unit,
@@ -761,7 +764,7 @@ pub fn verificar(
             && classe.modifiers.mixin
         {
             saida.extend(
-                classe_mixin(&l, lib, id, ast_, &programa.unit(decl.unit).source)
+                classe_mixin(&l, u, id, ast_, &programa.unit(decl.unit).source)
                     .into_iter()
                     .map(|d| (decl.unit, d)),
             );
@@ -784,7 +787,7 @@ pub fn verificar(
         }
         // Depois da porta: `extends` adiado e `class_used_as_mixin`.
         if let Some(t) = cl.extends
-            && l.adiado(lib, ast_, t)
+            && l.adiado(u, ast_, t)
         {
             saida.push((
                 decl.unit,
@@ -792,7 +795,7 @@ pub fn verificar(
             ));
         }
         for &t in cl.with {
-            let Alvo::Classe(m) = l.alvo(lib, ast_, t, 0) else {
+            let Alvo::Classe(m) = l.alvo(u, ast_, t, 0) else {
                 continue;
             };
             let alvo = programa.class(m);

@@ -118,15 +118,14 @@ impl Verificador<'_> {
         self.table.format(t, self.interner, self.program)
     }
 
-    /// O elemento que o nome escrito designa na biblioteca.
+    /// O elemento que o nome escrito designa no escopo da unidade.
     fn elemento(&self, name: &[ast::Name]) -> Option<Element> {
-        let lib = self.program.unit(self.unit).library;
         if name.iter().any(|n| self.nomes_de_parametros.contains(&n.sym)) {
             return None;
         }
         let b = match name {
-            [n] => self.program.lookup(lib, n.sym),
-            [p, n] => self.program.lookup_prefixed(lib, p.sym, n.sym),
+            [n] => self.program.lookup_na_unidade(self.unit, n.sym),
+            [p, n] => self.program.lookup_prefixed_na_unidade(self.unit, p.sym, n.sym),
             _ => None,
         }?;
         if b.ambiguous {

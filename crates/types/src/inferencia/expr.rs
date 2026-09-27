@@ -126,7 +126,7 @@ pub(crate) fn resolver_nome(inf: &mut BodyInferrer<'_>, cx: &Corpo, nome: Symbol
             }
         }
     }
-    if let Some(b) = inf.program.lookup(cx.lib, nome) {
+    if let Some(b) = inf.program.lookup_na_unidade(cx.unit, nome) {
         let el = if setter { b.setter.or(b.getter) } else { b.getter.or(b.setter) };
         if let Some(el) = el {
             if let Element::Prefix(..) = el {
@@ -135,7 +135,7 @@ pub(crate) fn resolver_nome(inf: &mut BodyInferrer<'_>, cx: &Corpo, nome: Symbol
             return RefNome::Elemento(el);
         }
     }
-    if inf.program.library(cx.lib).prefixes.contains_key(&nome) {
+    if inf.program.prefixos_na_unidade(cx.unit).contains_key(&nome) {
         return RefNome::Prefixo;
     }
     if matches!(inf.interner.resolve(nome), "dynamic" | "Never") {
@@ -172,7 +172,7 @@ pub(crate) fn referencia_a_tipo(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprI
             if !matches!(resolver_nome(inf, cx, p.sym, false), RefNome::Prefixo) {
                 return None;
             }
-            inf.program.lookup_prefixed(cx.lib, p.sym, name.sym)?.getter?
+            inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym)?.getter?
         }
         ExprKind::TypeArguments { target, type_args } => {
             let targs = type_args.to_vec();
@@ -231,7 +231,7 @@ fn registrar_ref_tipo(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId) {
     let tt = inf.core.type_;
     match &a.expr(e).kind {
         ExprKind::Identifier(n) => {
-            if let Some(b) = inf.program.lookup(cx.lib, n.sym) {
+            if let Some(b) = inf.program.lookup_na_unidade(cx.unit, n.sym) {
                 if let Some(el) = b.getter {
                     resolver(inf, cx, e, Resolved::Element(el));
                 }
@@ -241,7 +241,7 @@ fn registrar_ref_tipo(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId) {
         ExprKind::Property { target, name, .. } => {
             if let ExprKind::Identifier(p) = &a.expr(*target).kind {
                 resolver(inf, cx, *target, Resolved::Prefix(cx.lib));
-                if let Some(el) = inf.program.lookup_prefixed(cx.lib, p.sym, name.sym).and_then(|b| b.getter) {
+                if let Some(el) = inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.getter) {
                     resolver(inf, cx, e, Resolved::Element(el));
                 }
             }
@@ -887,7 +887,7 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
     if let ExprKind::Identifier(p) = &a.expr(target).kind {
         if matches!(resolver_nome(inf, cx, p.sym, false), RefNome::Prefixo) {
             resolver(inf, cx, target, Resolved::Prefix(cx.lib));
-            match inf.program.lookup_prefixed(cx.lib, p.sym, name.sym).and_then(|b| b.getter.or(b.setter)) {
+            match inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.getter.or(b.setter)) {
                 Some(el) => {
                     resolver(inf, cx, e, Resolved::Element(el));
                     return (ler_elemento(inf, el), false);
@@ -1993,7 +1993,7 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
     if let ExprKind::Identifier(p) = &a.expr(target).kind {
         if matches!(resolver_nome(inf, cx, p.sym, false), RefNome::Prefixo) {
             resolver(inf, cx, target, Resolved::Prefix(cx.lib));
-            if let Some(el) = inf.program.lookup_prefixed(cx.lib, p.sym, name.sym).and_then(|b| b.setter.or(b.getter)) {
+            if let Some(el) = inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.setter.or(b.getter)) {
                 resolver(inf, cx, alvo, Resolved::Element(el));
                 return match el {
                     Element::Variable(v) => inf.tipo_variavel(v),

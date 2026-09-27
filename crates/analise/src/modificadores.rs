@@ -148,7 +148,7 @@ pub fn fora_da_biblioteca(programa: &Program, lib: LibraryId, nomes: &Interner) 
         let Some(decl) = classe.decl else { continue };
         let id = ClassId(i as u32);
         let ast = &programa.unit(decl.unit).ast;
-        let Some(cl) = clausulas(programa, lib, ast, &ast.decl(decl.decl).kind) else { continue };
+        let Some(cl) = clausulas(programa, decl.unit, ast, &ast.decl(decl.decl).kind) else { continue };
         let span = |t: ast::TypeId| ast.ty(t).span;
         // O analyzer descarta o erro repetido (mesmo código, intervalo e
         // mensagem): o `ErrorVerifier` e o `BaseOrFinalTypeVerifier` relatam
@@ -313,8 +313,8 @@ fn nome_da_declaracao(k: &DeclKind) -> Option<Span> {
     }
 }
 
-fn clausulas(programa: &Program, lib: LibraryId, ast: &ast::Ast, k: &DeclKind) -> Option<Clausulas> {
-    let r = |t: ast::TypeId| (t, classe_do_tipo(programa, lib, ast, t));
+fn clausulas(programa: &Program, u: UnitId, ast: &ast::Ast, k: &DeclKind) -> Option<Clausulas> {
+    let r = |t: ast::TypeId| (t, classe_do_tipo(programa, u, ast, t));
     match k {
         DeclKind::Class(x) => Some(Clausulas {
             extends: x.extends.map(r),
@@ -338,12 +338,12 @@ fn clausulas(programa: &Program, lib: LibraryId, ast: &ast::Ast, k: &DeclKind) -
     }
 }
 
-/// A classe (ou mixin) que o tipo escrito nomeia no escopo da biblioteca.
-fn classe_do_tipo(programa: &Program, lib: LibraryId, ast: &ast::Ast, t: ast::TypeId) -> Option<ClassId> {
+/// A classe (ou mixin) que o tipo escrito nomeia no escopo da unidade `u`.
+fn classe_do_tipo(programa: &Program, u: UnitId, ast: &ast::Ast, t: ast::TypeId) -> Option<ClassId> {
     let TypeKind::Named { name, .. } = &ast.ty(t).kind else { return None };
     let b = match &name[..] {
-        [n] => programa.lookup(lib, n.sym),
-        [p, n] => programa.lookup_prefixed(lib, p.sym, n.sym),
+        [n] => programa.lookup_na_unidade(u, n.sym),
+        [p, n] => programa.lookup_prefixed_na_unidade(u, p.sym, n.sym),
         _ => None,
     }?;
     if b.ambiguous {

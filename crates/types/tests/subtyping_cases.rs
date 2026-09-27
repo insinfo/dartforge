@@ -36,6 +36,8 @@ impl TestHarness {
             exported: HashMap::new(),
             scope: HashMap::new(),
             prefixes: HashMap::new(),
+            pais: HashMap::new(),
+            escopos_de_unidade: HashMap::new(),
             is_sdk: true,
             features: dartforge_frontend::LibraryFeatures::piso(),
         };
@@ -118,6 +120,8 @@ impl TestHarness {
             exported: HashMap::new(),
             scope: HashMap::new(),
             prefixes: HashMap::new(),
+            pais: HashMap::new(),
+            escopos_de_unidade: HashMap::new(),
             is_sdk: true,
             features: dartforge_frontend::LibraryFeatures::piso(),
         };

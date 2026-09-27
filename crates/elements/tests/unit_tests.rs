@@ -451,3 +451,58 @@ fn gerado_do_build_runner_fora_de_lib() {
     let alvo = gerado.imports.iter().find(|i| i.prefix == Some(orig)).expect("import do gerado");
     assert!(prog.library(alvo.library).uri.ends_with("/proj/test/x_test.dart"), "{}", prog.library(alvo.library).uri);
 }
+
+/// `parts-with-imports`: os imports de uma parte valem nela e nas partes
+/// dela e escondem os do arquivo que a incluiu (nome solto e prefixo); as
+/// declarações da biblioteca escondem todo import. Mesmo resultado do CFE
+/// 3.13.4 (`corpus/macros/406_partes_imports_313`).
+#[test]
+fn escopo_de_imports_por_unidade() {
+    let tmp = tempdir().unwrap();
+    let mut sdk = empty_sdk(tmp.path());
+    sdk.experimentos.push(dartforge_frontend::features::Feature::EnhancedParts);
+    let mut interner = Interner::new();
+    let proj = tmp.path().join("proj");
+    fs::create_dir_all(&proj).unwrap();
+    fs::write(proj.join("a.dart"), "int nome() => 1;\n").unwrap();
+    fs::write(proj.join("b.dart"), "int nome() => 2;\nint local() => 2;\n").unwrap();
+    fs::write(proj.join("c.dart"), "int nome() => 3;\n").unwrap();
+    fs::write(proj.join("main.dart"), "import 'a.dart';\nimport 'a.dart' as p;\npart 'parte.dart';\nint local() => 0;\n").unwrap();
+    fs::write(proj.join("parte.dart"), "part of 'main.dart';\nimport 'b.dart';\nimport 'b.dart' as p;\npart 'neta.dart';\npart 'outra.dart';\n").unwrap();
+    fs::write(proj.join("neta.dart"), "part of 'parte.dart';\n").unwrap();
+    fs::write(proj.join("outra.dart"), "part of 'parte.dart';\nimport 'c.dart';\n").unwrap();
+    let prog = load(&proj.join("main.dart"), &sdk, None, &mut interner).expect("carregamento falhou");
+    let lib = prog.libraries.iter().position(|l| l.uri.ends_with("/main.dart")).map(|i| LibraryId(i as u32)).unwrap();
+    let unidade = |sufixo: &str| {
+        *prog.library(lib).units.iter().find(|u| prog.unit(**u).uri.ends_with(sufixo)).expect(sufixo)
+    };
+    let de = |u: UnitId, nome: &str| -> String {
+        let b = prog.lookup_na_unidade(u, interner.lookup(nome).unwrap()).expect(nome);
+        assert!(!b.ambiguous, "{nome}");
+        match b.getter {
+            Some(Element::Function(f)) => prog.library(prog.function(f).library).uri.rsplit('/').next().unwrap().to_string(),
+            outro => format!("{outro:?}"),
+        }
+    };
+    let prefixado = |u: UnitId| -> String {
+        let (p, n) = (interner.lookup("p").unwrap(), interner.lookup("nome").unwrap());
+        let b = prog.lookup_prefixed_na_unidade(u, p, n).expect("p.nome");
+        match b.getter {
+            Some(Element::Function(f)) => prog.library(prog.function(f).library).uri.rsplit('/').next().unwrap().to_string(),
+            outro => format!("{outro:?}"),
+        }
+    };
+    let (m, pa, ne, ou) = (unidade("/main.dart"), unidade("/parte.dart"), unidade("/neta.dart"), unidade("/outra.dart"));
+    assert_eq!((de(m, "nome"), de(pa, "nome"), de(ne, "nome"), de(ou, "nome")), ("a.dart".into(), "b.dart".into(), "b.dart".into(), "c.dart".into()));
+    assert_eq!((prefixado(m), prefixado(pa), prefixado(ne), prefixado(ou)), ("a.dart".into(), "b.dart".into(), "b.dart".into(), "b.dart".into()));
+    // A declaração da biblioteca vence o import da parte.
+    assert_eq!(de(pa, "local"), "main.dart");
+    // Sem imports em partes, nada muda: o escopo da biblioteca vale para todas.
+    let proj2 = tmp.path().join("proj2");
+    fs::create_dir_all(&proj2).unwrap();
+    fs::write(proj2.join("main.dart"), "import 'a.dart';\npart 'parte.dart';\n").unwrap();
+    fs::write(proj2.join("a.dart"), "int nome() => 1;\n").unwrap();
+    fs::write(proj2.join("parte.dart"), "part of 'main.dart';\n").unwrap();
+    let prog2 = load(&proj2.join("main.dart"), &sdk, None, &mut interner).expect("carregamento falhou");
+    assert!(prog2.libraries.iter().all(|l| l.escopos_de_unidade.is_empty()));
+}

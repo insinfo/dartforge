@@ -192,8 +192,8 @@ fn alvo_de_factory_redirecionadora(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, r
     let Some((alvo, ctor)): Option<(ClassId, Option<dartforge_intern::SymbolId>)> = (|| {
         match partes.as_slice() {
             [a] => Some((resolver_classe_alvo(inf, cx, *a)?, escrito.map(|n| n.sym))),
-            [a, b] if inf.program.library(cx.lib).prefixes.contains_key(a) => {
-                let el = inf.program.lookup_prefixed(cx.lib, *a, *b)?.getter?;
+            [a, b] if inf.program.prefixos_na_unidade(cx.unit).contains_key(a) => {
+                let el = inf.program.lookup_prefixed_na_unidade(cx.unit, *a, *b)?.getter?;
                 Some((classe_de_elemento(inf, el)?, escrito.map(|n| n.sym)))
             }
             [a, b] => {
@@ -780,17 +780,16 @@ fn classe_da_decl(inf: &BodyInferrer<'_>, unit: UnitId, d: &ast::Decl) -> (Optio
 /// Uma anotação: `@x`, `@C(args)`, `@C.nome(args)`, `@p.C(args)`.
 fn anotacao(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option<ClassId>, _ext: Option<dartforge_elements::model::ExtensionId>, m: &ast::Annotation) {
     let Some(args) = &m.arguments else { return };
-    let lib = inf.program.unit(unit).library;
     let mut cx = Corpo::novo(inf, unit, classe, None, true);
     let nomes: Vec<dartforge_intern::SymbolId> = m.name.iter().map(|n| n.sym).collect();
     // Classe e construtor.
     let (c, ctor) = match nomes.as_slice() {
-        [c] => (inf.program.lookup(lib, *c).and_then(|b| b.getter), None),
-        [a, b] => match inf.program.lookup(lib, *a).and_then(|x| x.getter) {
+        [c] => (inf.program.lookup_na_unidade(unit, *c).and_then(|b| b.getter), None),
+        [a, b] => match inf.program.lookup_na_unidade(unit, *a).and_then(|x| x.getter) {
             Some(el @ Element::Class(_)) => (Some(el), Some(*b)),
-            _ => (inf.program.lookup_prefixed(lib, *a, *b).and_then(|x| x.getter), None),
+            _ => (inf.program.lookup_prefixed_na_unidade(unit, *a, *b).and_then(|x| x.getter), None),
         },
-        [p, c, n] => (inf.program.lookup_prefixed(lib, *p, *c).and_then(|x| x.getter), Some(*n)),
+        [p, c, n] => (inf.program.lookup_prefixed_na_unidade(unit, *p, *c).and_then(|x| x.getter), Some(*n)),
         _ => (None, None),
     };
     let u = inf.core.unknown;

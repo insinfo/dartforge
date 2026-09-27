@@ -489,8 +489,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     }
                 }
                 let binding = match lib {
-                    Some(p) => self.ctx.program.lookup_prefixed(self.lib, p, sym),
-                    None => self.ctx.program.lookup(self.lib, sym),
+                    Some(p) => self.ctx.program.lookup_prefixed_na_unidade(self.unit, p, sym),
+                    None => self.ctx.program.lookup_na_unidade(self.unit, sym),
                 };
                 match binding.and_then(|b| b.getter) {
                     Some(Element::Class(c)) => {

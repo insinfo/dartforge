@@ -519,12 +519,19 @@ impl<'a> OutlineResolver<'a> {
         hierarchy: &ClassHierarchy,
         variables: &mut [VariableTypeData],
     ) -> Vec<FunctionTypeData> {
-        let mut data = Vec::with_capacity(self.program.functions.len());
+        let mut data: Vec<FunctionTypeData> = Vec::with_capacity(self.program.functions.len());
+        let augmentadas = self.declaracoes_augmentadas();
 
         for (i, func) in self.program.functions.iter().enumerate() {
             let func_id = FunctionElementId(i as u32);
-            let (sig, ret, params, tparams) =
+            let (mut sig, mut ret, mut params, tparams) =
                 self.resolve_function_signature(func_id, func, hierarchy, variables);
+            if let Some(&anterior) = augmentadas.get(&func_id)
+                && let Some(herdado) = data.get(anterior.0 as usize)
+                && let Some((s2, r2, p2)) = self.herdar_assinatura(func, herdado, &params, ret, &tparams)
+            {
+                (sig, ret, params) = (s2, r2, p2);
+            }
 
             // Se for acessor implícito de variável, sincronizar se necessário
             if let Some(var_id) = func.variable {
@@ -543,6 +550,104 @@ impl<'a> OutlineResolver<'a> {
         }
 
         data
+    }
+
+    /// Para cada função de uma augmentation de código do usuário (não os
+    /// patches do SDK), a declaração que ela aumenta: a primeira da cadeia
+    /// (docs/AUGMENTATIONS.md §2 — os elementos anteriores apontam, por
+    /// `patched_by`, para o efetivo).
+    fn declaracoes_augmentadas(&self) -> HashMap<FunctionElementId, FunctionElementId> {
+        let mut m: HashMap<FunctionElementId, FunctionElementId> = HashMap::new();
+        for (i, f) in self.program.functions.iter().enumerate() {
+            let Some(efetivo) = f.patched_by else { continue };
+            if self.program.library(f.library).is_sdk {
+                continue;
+            }
+            let atual = FunctionElementId(i as u32);
+            m.entry(efetivo)
+                .and_modify(|x| {
+                    if atual.0 < x.0 {
+                        *x = atual;
+                    }
+                })
+                .or_insert(atual);
+        }
+        m
+    }
+
+    /// Os tipos omitidos numa augmentation vêm da declaração aumentada
+    /// (spec de augmentations, "Augmenting functions": a assinatura pode
+    /// omitir tipos, que valem os da declaração anterior). Parâmetros
+    /// posicionais pela posição, nomeados pelo nome; o retorno, se omitido.
+    /// Funções genéricas (dos dois lados) ficam como estão: herdar exigiria
+    /// substituir os parâmetros de tipo. Conferido com o CFE e o analyzer
+    /// 3.13.4 (`augment f(x) => …` com `String f(int x);` antes).
+    fn herdar_assinatura(
+        &mut self,
+        func: &FunctionElement,
+        anterior: &FunctionTypeData,
+        params: &[ParameterTypeData],
+        ret: TypeId,
+        tparams: &[TypeParamId],
+    ) -> Option<(TypeId, TypeId, Box<[ParameterTypeData]>)> {
+        let FunctionRef::Function { unit, function } = func.node else { return None };
+        if !tparams.is_empty() || !anterior.type_params.is_empty() {
+            return None;
+        }
+        let ast_func = &self.program.unit(unit).ast.functions[function.0 as usize];
+        let escritos: Vec<bool> = match &ast_func.parameters {
+            Some(ps) => ps.iter().map(|p| p.ty.is_some() || p.function_parameters.is_some()).collect(),
+            None => Vec::new(),
+        };
+        if escritos.len() != params.len() {
+            return None;
+        }
+        let mut novos: Vec<ParameterTypeData> = params.to_vec();
+        let posicionais_antes: Vec<&ParameterTypeData> =
+            anterior.parameters.iter().filter(|p| p.kind != ParameterKind::Named).collect();
+        let mut posicao = 0usize;
+        for (i, p) in novos.iter_mut().enumerate() {
+            let correspondente = if p.kind == ParameterKind::Named {
+                anterior.parameters.iter().find(|q| q.kind == ParameterKind::Named && q.externo == p.externo)
+            } else {
+                let q = posicionais_antes.get(posicao).copied();
+                posicao += 1;
+                q
+            };
+            if !escritos[i]
+                && let Some(q) = correspondente
+            {
+                p.ty = q.ty;
+            }
+        }
+        let novo_ret = if ast_func.return_type.is_none() && func.kind != FunctionKind::Setter {
+            anterior.return_type
+        } else {
+            ret
+        };
+        let mut positional = Vec::new();
+        let mut optional = Vec::new();
+        let mut named = Vec::new();
+        for p in &novos {
+            match p.kind {
+                ParameterKind::Required => positional.push(p.ty),
+                ParameterKind::Optional => optional.push(p.ty),
+                ParameterKind::Named => {
+                    if let Some(n) = p.externo {
+                        named.push((n, p.ty, p.required));
+                    }
+                }
+            }
+        }
+        let sig = self.table.intern(Type::Function {
+            type_params: Box::new([]),
+            ret: novo_ret,
+            positional: positional.into_boxed_slice(),
+            optional: optional.into_boxed_slice(),
+            named: named.into_boxed_slice(),
+            nullable: false,
+        });
+        Some((sig, novo_ret, novos.into_boxed_slice()))
     }
 
     fn resolve_function_signature(
@@ -1107,7 +1212,7 @@ impl<'a> OutlineResolver<'a> {
                     }
 
                     // 3. Resolução no escopo da biblioteca
-                    let binding = self.program.lookup(library, sym);
+                    let binding = self.program.lookup_na_unidade(unit_id, sym);
                     match binding {
                         Some(b) => {
                             if b.ambiguous {
@@ -1197,7 +1302,7 @@ impl<'a> OutlineResolver<'a> {
                 } else if name.len() == 2 {
                     let prefix = name[0].sym;
                     let member = name[1].sym;
-                    let binding = self.program.lookup_prefixed(library, prefix, member);
+                    let binding = self.program.lookup_prefixed_na_unidade(unit_id, prefix, member);
                     match binding {
                         Some(b) => match b.getter {
                             Some(Element::Class(cid)) => {

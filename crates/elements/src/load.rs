@@ -174,6 +174,8 @@ pub fn load_lenient_entradas(
             exported: HashMap::new(),
             scope: HashMap::new(),
             prefixes: HashMap::new(),
+            pais: HashMap::new(),
+            escopos_de_unidade: HashMap::new(),
             is_sdk: true,
             features: LibraryFeatures::piso(),
         });
@@ -211,6 +213,8 @@ pub fn load_lenient_entradas(
                 exported: HashMap::new(),
                 scope: HashMap::new(),
                 prefixes: HashMap::new(),
+                pais: HashMap::new(),
+                escopos_de_unidade: HashMap::new(),
                 is_sdk,
                 features: if is_sdk { LibraryFeatures::piso() } else { LibraryFeatures::atual() },
             });
@@ -523,6 +527,7 @@ pub fn load_lenient_entradas(
                             // O SDK fica na ordem de descoberta de sempre (a
                             // mesma do cache do SDK): lá não há augmentation.
                             let libr = &mut program.libraries[lib_id.0 as usize];
+                            libr.pais.insert(p_uid, unit_id);
                             if libr.is_sdk {
                                 libr.units.push(p_uid);
                             } else {
@@ -983,6 +988,8 @@ fn get_or_create_library(
             exported: HashMap::new(),
             scope: HashMap::new(),
             prefixes: HashMap::new(),
+            pais: HashMap::new(),
+            escopos_de_unidade: HashMap::new(),
             is_sdk,
             features: if is_sdk { LibraryFeatures::piso() } else { LibraryFeatures::atual() },
         });
