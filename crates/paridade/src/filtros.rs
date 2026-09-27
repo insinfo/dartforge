@@ -23,6 +23,9 @@ pub struct Opcoes {
     pub exclude: Vec<String>,
     /// `analyzer: errors:` — código → `None` (ignore) ou a nova severidade.
     pub errors: BTreeMap<String, Option<Severidade>>,
+    /// `analyzer: cannot-ignore:` — códigos (minúsculos) e severidades
+    /// (`error`, `warning`, `info`) que um `// ignore:` não cala.
+    pub nao_ignoraveis: BTreeSet<String>,
 }
 
 impl Opcoes {
@@ -56,6 +59,8 @@ impl Opcoes {
             if let Some(item) = t.strip_prefix("- ") {
                 if chaves == ["analyzer", "exclude"] {
                     o.exclude.push(sem_aspas(item).to_string());
+                } else if chaves == ["analyzer", "cannot-ignore"] {
+                    o.nao_ignoraveis.insert(sem_aspas(item).to_lowercase());
                 }
                 continue;
             }
@@ -82,6 +87,30 @@ impl Opcoes {
             }
         }
         o
+    }
+
+    /// Um `// ignore:` pode calar `d`? Não, se o código estiver em
+    /// `cannot-ignore`, ou a severidade dele (a de `errors:`, se mudada ali;
+    /// senão a padrão) estiver (`AnalysisOptionsImpl.unignorableNames`).
+    pub fn ignoravel(&self, d: &Diagnostic) -> bool {
+        if self.nao_ignoraveis.is_empty() {
+            return true;
+        }
+        let Some(c) = d.code else { return true };
+        let info = c.info();
+        if self.nao_ignoraveis.contains(info.nome) {
+            return false;
+        }
+        let severidade = match self.errors.get(info.nome) {
+            Some(Some(s)) => *s,
+            _ => info.severidade,
+        };
+        let nome = match severidade {
+            Severidade::Error => "error",
+            Severidade::Warning => "warning",
+            Severidade::Info => "info",
+        };
+        !self.nao_ignoraveis.contains(nome)
     }
 
     /// `rel` (relativo à raiz, com `/`) casa algum `exclude`?
@@ -166,13 +195,15 @@ impl Ignorados {
     }
 
     /// O diagnóstico na `linha` é ignorado por comentário?
+    ///
+    /// Qualquer severidade: o `LibraryAnalyzer._filterIgnoredErrors` do
+    /// analyzer 6.11.0 não consulta `ErrorCode.isIgnorable` (que nega
+    /// `ERROR`); só o `cannot-ignore` das opções impede
+    /// ([`Opcoes::ignoravel`]). Conferido no `dart analyze` 3.6.2 e 3.13.4:
+    /// `// ignore_for_file: uri_has_not_been_generated` cala o erro.
     pub fn ignora(&self, d: &Diagnostic, linha: usize) -> bool {
         let Some(c) = d.code else { return false };
         let info = c.info();
-        // `ErrorCode.isIgnorable`: pela severidade do código, não a efetiva.
-        if info.severidade == Severidade::Error {
-            return false;
-        }
         let tipo = format!("type={}", info.tipo.nome().to_lowercase());
         let casa = |s: &BTreeSet<String>| s.contains(info.nome) || s.contains(&tipo);
         casa(&self.arquivo) || self.por_linha.get(&linha).is_some_and(casa)
@@ -194,6 +225,27 @@ mod testes {
         assert!(o.excluido("build/x/y.dart"));
         assert!(o.excluido("lib/a/b.g.dart"));
         assert!(!o.excluido("lib/a/b.dart"));
+    }
+
+    /// `// ignore:` e `// ignore_for_file:` valem para erro também
+    /// (`v01/min/ignora`: o `dart analyze` 3.6.2 e o 3.13.4 dão "No issues
+    /// found!"), salvo o que `cannot-ignore` lista.
+    #[test]
+    fn ignore_vale_para_erro_salvo_cannot_ignore() {
+        use dartforge_diagnostics::codigos::compile_time_error as c;
+        let d = Diagnostic::com_codigo(c::URI_HAS_NOT_BEEN_GENERATED, dartforge_diagnostics::Span { start: 0, end: 1 }, ["a.template.dart"]);
+        let arquivo = Ignorados::de_texto("// ignore_for_file: uri_has_not_been_generated\nimport 'a.template.dart';\n");
+        assert!(arquivo.ignora(&d, 2));
+        let linha = Ignorados::de_texto("// ignore: uri_has_not_been_generated\nimport 'a.template.dart';\n");
+        assert!(linha.ignora(&d, 2));
+        assert!(!linha.ignora(&d, 3));
+        assert!(Opcoes::default().ignoravel(&d));
+        let por_nome = Opcoes::de_texto("analyzer:\n  cannot-ignore:\n    - uri_has_not_been_generated\n");
+        assert!(!por_nome.ignoravel(&d));
+        let por_severidade = Opcoes::de_texto("analyzer:\n  cannot-ignore:\n    - error\n");
+        assert!(!por_severidade.ignoravel(&d));
+        let rebaixado = Opcoes::de_texto("analyzer:\n  errors:\n    uri_has_not_been_generated: warning\n  cannot-ignore:\n    - error\n");
+        assert!(rebaixado.ignoravel(&d));
     }
 
     #[test]
