@@ -180,6 +180,21 @@ import 'package:corpus_ngdart/src/i82_template_formas.template.dart' as i82;
 import 'package:corpus_ngdart/src/i83_template_contexto.template.dart' as i83;
 import 'package:corpus_ngdart/src/i84_template_com_diretiva.template.dart' as i84;
 import 'package:corpus_ngdart/src/i85_template_view_child.template.dart' as i85;
+import 'package:corpus_ngdart/src/i86_template_ng_for_formas.template.dart' as i86;
+import 'package:corpus_ngdart/src/i87_template_view_child_formas.template.dart' as i87;
+import 'package:corpus_ngdart/src/i88_encapsulation_none_estilo.template.dart' as i88;
+import 'package:corpus_ngdart/src/i89_host_binding_propriedade.template.dart' as i89;
+import 'package:corpus_ngdart/src/i90_host_binding_estilo.template.dart' as i90;
+import 'package:corpus_ngdart/src/i91_host_binding_heranca.template.dart' as i91;
+import 'package:corpus_ngdart/src/i92_seguranca_attr_estilo.template.dart' as i92;
+import 'package:corpus_ngdart/src/i93_ref_export_as.template.dart' as i93;
+import 'package:corpus_ngdart/src/i94_ref_ng_form.template.dart' as i94;
+import 'package:corpus_ngdart/src/i95_ref_sombreado.template.dart' as i95;
+import 'package:corpus_ngdart/src/i96_view_children_em_for.template.dart' as i96;
+import 'package:corpus_ngdart/src/i97_view_child_dois_niveis.template.dart' as i97;
+import 'package:corpus_ngdart/src/i98_view_child_read.template.dart' as i98;
+import 'package:corpus_ngdart/src/i99_i18n_html.template.dart' as i99;
+import 'package:corpus_ngdart/src/j01_i18n_em_estrela.template.dart' as j01;
 
 void main() {
   print([
@@ -362,5 +377,20 @@ void main() {
     i83.I83TemplateContextoNgFactory,
     i84.I84TemplateComDiretivaNgFactory,
     i85.I85TemplateViewChildNgFactory,
+    i86.I86TemplateNgForFormasNgFactory,
+    i87.I87TemplateViewChildFormasNgFactory,
+    i88.I88EncapsulationNoneEstiloNgFactory,
+    i89.I89HostBindingPropriedadeNgFactory,
+    i90.I90HostBindingEstiloNgFactory,
+    i91.I91HostBindingHerancaNgFactory,
+    i92.I92SegurancaAttrEstiloNgFactory,
+    i93.I93RefExportAsNgFactory,
+    i94.I94RefNgFormNgFactory,
+    i95.I95RefSombreadoNgFactory,
+    i96.I96ViewChildrenEmForNgFactory,
+    i97.I97ViewChildDoisNiveisNgFactory,
+    i98.I98ViewChildReadNgFactory,
+    i99.I99I18nHtmlNgFactory,
+    j01.J01I18nEmEstrelaNgFactory,
   ].length);
 }

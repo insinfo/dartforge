@@ -1,0 +1,1 @@
+final List<Object> styles = [':host { display: block; }\n/* comentário */\n.a .b, span:hover { color: red; content: \'x\'; }\n@media (max-width: 600px) {\n  .a { margin: 0 auto; }\n}\n'];

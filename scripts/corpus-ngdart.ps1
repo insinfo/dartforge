@@ -67,6 +67,11 @@ try {
     if (Test-Path (Join-Path $gerado '*.css.shim.dart')) {
         Copy-Item (Join-Path $gerado '*.css.shim.dart') $destino -Force
     }
+    # A folha sem shim (`.css.dart`) é a que o componente com
+    # `ViewEncapsulation.none` importa.
+    if (Test-Path (Join-Path $gerado '*.css.dart')) {
+        Copy-Item (Join-Path $gerado '*.css.dart') $destino -Force
+    }
     Write-Host "oráculo atualizado: $((Get-ChildItem $destino).Count) arquivos"
     if ($Limpar) { Remove-Item -Recurse -Force (Join-Path $raiz '.dart_tool') }
 } finally {

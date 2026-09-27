@@ -1,0 +1,6 @@
+:host { display: block; }
+/* comentário */
+.a .b, span:hover { color: red; content: 'x'; }
+@media (max-width: 600px) {
+  .a { margin: 0 auto; }
+}

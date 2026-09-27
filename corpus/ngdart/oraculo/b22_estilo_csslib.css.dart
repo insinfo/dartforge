@@ -1,0 +1,1 @@
+final List<Object> styles = ['.a { background: rgba(var(--x), 0.14); color: light-dark(#ffffff, #2b2d33); }\n.b { border: 1px solid grey; margin: var(--m,#fff); width: calc(100% - 2px); }\n.c { color: #000; outline-color: #aabbcc; font-family: "A, B", sans-serif; }\n.d { background: url(x.png) no-repeat; list-style-image: url(\'y.png\'); }\n'];

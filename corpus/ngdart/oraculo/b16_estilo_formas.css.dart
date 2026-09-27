@@ -1,0 +1,1 @@
+final List<Object> styles = ['.a::before {\n  content: "x";\n}\n\n:host(.tema-escuro) .b {\n  color: white;\n}\n\n:host-context(.pai) .c {\n  color: red;\n}\n\n::ng-deep .d {\n  color: blue;\n}\n\n.e > .f {\n  margin: 0;\n}\n\ninput[type="text"] {\n  border: 0;\n}\n\n@keyframes girar {\n  from { opacity: 0; }\n  to { opacity: 1; }\n}\n\n.g {\n  animation: girar 1s;\n}\n'];

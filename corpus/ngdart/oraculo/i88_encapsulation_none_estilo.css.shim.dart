@@ -1,0 +1,1 @@
+final List<Object> styles = ['._nghost-%ID%{display:block}.a._ngcontent-%ID% .b._ngcontent-%ID%,span:hover._ngcontent-%ID%{color:red;content:\'x\'}@media (max-width:600px){.a._ngcontent-%ID%{margin:0 auto}}'];
