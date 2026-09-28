@@ -311,6 +311,7 @@ import 'package:corpus_ngdart/src/j124_atributo_condicional.template.dart' as j1
 import 'package:corpus_ngdart/src/j125_local_ancestral.template.dart' as j125;
 import 'package:corpus_ngdart/src/j126_tipos_de_diretiva.template.dart' as j126;
 import 'package:corpus_ngdart/src/j128_conteudo_dinamico.template.dart' as j128;
+import 'package:corpus_ngdart/src/j129_campo_inferido.template.dart' as j129;
 
 void main() {
   print([
@@ -629,5 +630,6 @@ void main() {
     j125.J125UsaNgFactory,
     j126.J126UsaNgFactory,
     j128.J128UsaNgFactory,
+    j129.J129UsaNgFactory,
   ].length);
 }

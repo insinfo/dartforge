@@ -1530,7 +1530,7 @@ fn tipos_dos_metodos(
 /// interpolação, `Classe(..)`, `prefixo.Classe(..)` e `new`/`const T(..)`
 /// (com `T` como escrito). `Classe.nome(..)` pode ser método estático, e
 /// fica de fora.
-fn tipo_inferido(
+pub(crate) fn tipo_inferido(
     arvore: &ast::Ast,
     fonte: &str,
     interner: &Interner,

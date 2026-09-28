@@ -982,6 +982,16 @@ impl<'a> Resolvedor<'a> {
     /// O tipo que um acessor devolve: de um campo, o tipo escrito no campo;
     /// de um getter, o retorno declarado. Junto, o arquivo em que esse texto
     /// foi escrito, que é o escopo em que ele se resolve.
+    /// Algum supertipo de `classe` (sem ela) declara o membro `nome`?
+    fn sobrescreve(&self, classe: ClassId, nome: dartforge_intern::SymbolId) -> bool {
+        let c = self.program.class(classe);
+        c.mixin_classes
+            .iter()
+            .chain(c.supertype_class.iter())
+            .chain(c.interface_classes.iter())
+            .any(|&k| self.membro_de_instancia(k, nome, 0).is_some())
+    }
+
     fn tipo_da_funcao(
         &self,
         fid: dartforge_elements::model::FunctionElementId,
@@ -995,7 +1005,28 @@ impl<'a> Resolvedor<'a> {
                 else {
                     return None;
                 };
-                let t = lista.ty?;
+                let Some(t) = lista.ty else {
+                    // Sem tipo escrito, o que o analyzer infere do
+                    // inicializador (`final itemsRole = 'menuitem';`), nas
+                    // formas certas ([`crate::componente::tipo_inferido`]).
+                    // Sobrescrevendo um membro de cima, o tipo viria dele
+                    // (inferência pela sobrescrita): sem resposta.
+                    if self.sobrescreve(v.class?, v.name) {
+                        return None;
+                    }
+                    let inicial = lista
+                        .variables
+                        .iter()
+                        .find(|x| x.name.sym == v.name)?
+                        .initializer?;
+                    let tipo = crate::componente::tipo_inferido(
+                        &u.ast,
+                        u.source.as_str(),
+                        self.interner,
+                        inicial,
+                    )?;
+                    return Some((tipo, u.path.clone()?));
+                };
                 let s = u.ast.ty(t).span;
                 let texto = u.source.get(s.start..s.end)?;
                 return Some((texto.to_string(), u.path.clone()?));

@@ -343,3 +343,4 @@ export 'src/j125_local_ancestral.dart';
 export 'src/j126_tipos_de_diretiva.dart';
 export 'src/j127_parametro_do_componente.dart';
 export 'src/j128_conteudo_dinamico.dart';
+export 'src/j129_campo_inferido.dart';
