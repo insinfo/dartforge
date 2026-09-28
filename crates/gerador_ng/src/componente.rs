@@ -886,7 +886,10 @@ fn consultas_da_classe(
     classe: &ast::ClassDecl,
     fora: &mut Vec<Recusa>,
 ) -> Vec<Consulta> {
-    let mut saida = Vec::new();
+    // Como o `_queries` do oficial: os acessores (setters), depois os
+    // campos, cada grupo em ordem de declaração.
+    let mut setters = Vec::new();
+    let mut campos = Vec::new();
     for &id in &classe.members {
         let membro = arvore.member(id);
         for a in membro.metadata.iter() {
@@ -896,12 +899,14 @@ fn consultas_da_classe(
                 _ => continue,
             };
             match consulta_simples(arvore, fonte, interner, membro, a, lista) {
-                Ok(c) => saida.push(c),
+                Ok(c) if matches!(membro.kind, ast::MemberKind::Method(_)) => setters.push(c),
+                Ok(c) => campos.push(c),
                 Err(r) => fora.push(r),
             }
         }
     }
-    saida
+    setters.extend(campos);
+    setters
 }
 
 /// Os `@HostBinding` declarados na própria classe de um componente, na
@@ -1106,19 +1111,55 @@ fn consulta_simples(
     if referencia.contains(',') || referencia.trim() != referencia || referencia.is_empty() {
         return Err(recusa(Motivo::NaoEntendido, "@ViewChild('a,b')"));
     }
-    // Só campo de instância com tipo escrito; setter tem outra regra de tipo
-    // (o do parâmetro) e não aparece nos projetos.
-    let ast::MemberKind::Field(lista) = &membro.kind else {
-        return Err(recusa(Motivo::NaoEntendido, "@ViewChild em setter"));
-    };
-    if lista.static_ || lista.final_ || lista.const_ || lista.late || lista.variables.len() != 1 {
-        return Err(recusa(
-            Motivo::NaoEntendido,
-            "@ViewChild em campo final/late/estático",
-        ));
-    }
-    let Some(t) = lista.ty else {
-        return Err(recusa(Motivo::NaoEntendido, "@ViewChild em campo sem tipo"));
+    // Campo de instância com tipo escrito, ou setter de instância com o
+    // tipo escrito no parâmetro (o `_ctx.x = v` é o mesmo, caso j81).
+    let (propriedade, t) = match &membro.kind {
+        ast::MemberKind::Field(lista) => {
+            if lista.static_
+                || lista.final_
+                || lista.const_
+                || lista.late
+                || lista.variables.len() != 1
+            {
+                return Err(recusa(
+                    Motivo::NaoEntendido,
+                    "@ViewChild em campo final/late/estático",
+                ));
+            }
+            let Some(t) = lista.ty else {
+                return Err(recusa(Motivo::NaoEntendido, "@ViewChild em campo sem tipo"));
+            };
+            (interner.resolve(lista.variables[0].name.sym).to_string(), t)
+        }
+        ast::MemberKind::Method(f) => {
+            let funcao = arvore.function(*f);
+            let (ast::FunctionKind::Setter, Some(nome), false) =
+                (funcao.kind, funcao.name, funcao.static_)
+            else {
+                return Err(recusa(
+                    Motivo::NaoEntendido,
+                    "@ViewChild em método que não é setter",
+                ));
+            };
+            let Some(t) = funcao
+                .parameters
+                .as_deref()
+                .and_then(|ps| ps.first())
+                .and_then(|p| p.ty)
+            else {
+                return Err(recusa(
+                    Motivo::NaoEntendido,
+                    "@ViewChild em setter sem tipo",
+                ));
+            };
+            (interner.resolve(nome.sym).to_string(), t)
+        }
+        _ => {
+            return Err(recusa(
+                Motivo::NaoEntendido,
+                "@ViewChild fora de campo ou setter",
+            ));
+        }
     };
     let tipo = texto_do_tipo(arvore, fonte, t);
     // `@ViewChildren`: `List<T>` (ou `List<T>?`); o `isElementType` olha o
@@ -1138,7 +1179,7 @@ fn consulta_simples(
         tipo
     };
     Ok(Consulta {
-        propriedade: interner.resolve(lista.variables[0].name.sym).to_string(),
+        propriedade,
         referencia,
         tipo,
         lista: eh_lista,

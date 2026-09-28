@@ -294,3 +294,4 @@ export 'src/j77_consulta_em_projetado.dart';
 export 'src/j78_consulta_em_template_ngif.dart';
 export 'src/j79_host_e_self.dart';
 export 'src/j80_host_binding_class.dart';
+export 'src/j81_view_child_em_setter.dart';

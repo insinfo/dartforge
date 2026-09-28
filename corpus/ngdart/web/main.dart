@@ -269,6 +269,7 @@ import 'package:corpus_ngdart/src/j77_consulta_em_projetado.template.dart' as j7
 import 'package:corpus_ngdart/src/j78_consulta_em_template_ngif.template.dart' as j78;
 import 'package:corpus_ngdart/src/j79_host_e_self.template.dart' as j79;
 import 'package:corpus_ngdart/src/j80_host_binding_class.template.dart' as j80;
+import 'package:corpus_ngdart/src/j81_view_child_em_setter.template.dart' as j81;
 
 void main() {
   print([
@@ -542,5 +543,6 @@ void main() {
     j78.J78ConsultaEmTemplateNgifNgFactory,
     j79.J79HostESelfNgFactory,
     j80.J80HostBindingClassNgFactory,
+    j81.J81ViewChildEmSetterNgFactory,
   ].length);
 }
