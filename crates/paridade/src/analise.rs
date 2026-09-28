@@ -339,7 +339,10 @@ impl Motor {
                     }
                 }
             }
-            for (u, d) in dartforge_analise::clausulas::verificar(&program, *lib, &interner) {
+            for (u, d) in dartforge_analise::clausulas::verificar(&program, *lib, &interner)
+                .into_iter()
+                .chain(dartforge_analise::membros::verificar(&program, *lib, &interner))
+            {
                 if let Some(p) = &program.unit(u).path {
                     if let Some(a) = analise.arquivos.get_mut(&chave(p)) {
                         a.diags.push(d);

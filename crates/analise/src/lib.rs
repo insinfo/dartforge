@@ -10,13 +10,18 @@
 //!   (`ErrorVerifier`).
 //! * [`privados`]: declarações privadas nunca referenciadas
 //!   (`UnusedLocalElementsVerifier`, a parte de biblioteca).
-//! * [`operadores`]: aridade de métodos `operator` (`ErrorVerifier`).
+//! * [`operadores`]: aridade, parâmetros opcionais e retorno de `[]=` em
+//!   métodos `operator` (`ErrorVerifier`).
 //! * [`enums`]: enum sem constantes após augmentations (`ErrorVerifier`).
 //! * [`clausulas`]: cláusulas de herança (`subtype_of_disallowed_type`,
 //!   erros de mixin, `class_used_as_mixin`) e a porta do `ErrorVerifier`
 //!   que desliga as verificações seguintes.
 //! * [`modificadores`]: `base`/`final`/`interface`/`sealed` usados fora da
 //!   biblioteca (`ErrorVerifier` e `BaseOrFinalTypeVerifier`).
+//! * [`membros`]: verificações locais de declarações e membros do
+//!   `ErrorVerifier` (parâmetros de tipo em conflito, campos de enum e de
+//!   tipo de extensão, setters, `this.x` fora de construtor, lista de
+//!   inicializadores, `return` em construtor gerador).
 
 pub mod clausulas;
 pub mod duplicatas;
@@ -26,6 +31,7 @@ pub mod heranca;
 pub mod importacoes;
 pub mod inicializacao;
 pub mod locais;
+pub mod membros;
 pub mod modificadores;
 pub mod operadores;
 pub mod privados;
