@@ -217,11 +217,11 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
         }
         let mut motivos: Vec<(String, usize)> = p.motivos().into_iter().collect();
         motivos.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-        for (m, n) in motivos.iter().take(15) {
+        for (m, n) in &motivos {
             println!("  {n:>6}× {m}");
         }
         // Cada pendente com o motivo dele, para achar o arquivo de uma recusa.
-        for (id, m) in p.pendentes.iter().take(60) {
+        for (id, m) in &p.pendentes {
             println!("  pendente: {} ({m})", id.texto());
         }
         if !p.diferentes.is_empty() {

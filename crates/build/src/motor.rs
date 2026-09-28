@@ -2033,17 +2033,44 @@ impl Motor {
                 }
             }
         }
-        // Saída nativa a mais (que a referência não tem).
-        for r in self.registros.iter().flatten() {
-            if let Origem::Nativo(n) = r.origem {
-                for (s, c) in &r.saidas {
-                    if c.is_some() && !referencia.contains_key(s) {
-                        p.diferentes.push((s.clone(), format!("{n}: saída a mais")));
-                    }
+        // Saída nativa a mais (que a referência não tem). A de um builder
+        // opcional (`is_optional`) só existe no oficial se alguém a pediu: sem
+        // falha dele naquela entrada (`error_cache`), é uma saída que ele não
+        // chegou a construir, não uma que ele recusa.
+        for (i, r) in self.registros.iter().enumerate() {
+            let Some(r) = r else { continue };
+            let Origem::Nativo(n) = r.origem else { continue };
+            let acao = &self.grafo.acoes[i];
+            let opcional = self.fases[acao.fase].opcional;
+            for (s, c) in &r.saidas {
+                if c.is_none() || referencia.contains_key(s) {
+                    continue;
+                }
+                if opcional && !self.falhou_no_oficial(&acao.entrada) {
+                    p.pendentes.push((s.clone(), format!("{n}: saída opcional que o oficial não pediu")));
+                } else {
+                    p.diferentes.push((s.clone(), format!("{n}: saída a mais")));
                 }
             }
         }
         p
+    }
+
+    /// O `build_runner` oficial registrou erro de algum builder nesta
+    /// entrada (`.dart_tool/build/<hash>/error_cache/<pacote>/<fase>/<caminho>`).
+    fn falhou_no_oficial(&self, entrada: &AssetId) -> bool {
+        let base = self.grafo_pacotes.dir_raiz.join(".dart_tool/build");
+        let Ok(hashes) = std::fs::read_dir(&base) else { return false };
+        for h in hashes.flatten() {
+            let pacote = h.path().join("error_cache").join(entrada.pacote.as_ref());
+            let Ok(fases) = std::fs::read_dir(&pacote) else { continue };
+            for f in fases.flatten() {
+                if f.path().join(entrada.caminho.as_ref()).is_file() {
+                    return true;
+                }
+            }
+        }
+        false
     }
 }
 

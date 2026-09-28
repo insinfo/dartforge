@@ -1350,6 +1350,37 @@ pub(crate) fn gerar_interno(
     nomes: &mut Interner,
     indice: &Indice,
 ) -> Result<Gerado, Recusa> {
+    // Uma anotação do arquivo com nome que não se resolve não é constante:
+    // o oficial falha ao compilá-la ("Arguments of a constant creation must
+    // be constant expressions") e não gera nada.
+    if let Some(uri) = uri_de_biblioteca(pacote, fonte) {
+        let metadados = achados
+            .diretivas
+            .iter()
+            .filter_map(|d| {
+                indice
+                    .metadados
+                    .get(&(uri.clone(), d.classe.clone()))
+                    .cloned()
+            })
+            .chain(achados.componentes.iter().filter_map(|c| {
+                indice
+                    .por_classe
+                    .get(&(uri.clone(), c.classe.clone()))
+                    .and_then(|f| f.metadados.clone())
+            }));
+        for m in metadados {
+            if let Some(f) = m.fora.iter().find(|f| f.contains("nome não resolvido")) {
+                return Err(recusa(
+                    Motivo::NaoEntendido,
+                    format!(
+                        "anotação de {} com nome não resolvido ({f}): o oficial falha",
+                        m.classe
+                    ),
+                ));
+            }
+        }
+    }
     if achados.injetores.is_empty() {
         return gerar_visoes(
             pacote,
