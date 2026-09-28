@@ -468,12 +468,16 @@ e `ngOnDestroy` depois dos filhos do nó, diretiva por diretiva
 (`bindDirectiveAfterChildrenCallbacks`), também no nó de um filho, depois
 dos do componente — caso j65. O nó de um filho resolve as diretivas na
 ordem de `directives:` (`_matchDirectives`), com os `providers:` do
-componente antes dos das diretivas (`_ProviderResolver`); uma diretiva que
-o oficial cria antes do componente ainda é recusada. `directives:` e as
+componente antes dos das diretivas (`_ProviderResolver`), e cada provedor
+ansioso depois das dependências: uma diretiva que vem antes do componente
+em `directives:` é criada antes dele, com o `registerDirective` de todas
+depois das instâncias, as entradas e as saídas dela antes das do
+componente (os eventos do elemento primeiro) e os ganchos antes dos dele —
+caso j67 (o `RequiredValidator` do `li-password-input`). `directives:` e as
 listas constantes aceitam `...outraLista`. O `dirtyParentQueriesInternal`
 segue o primeiro resultado de cada consulta na visão, em pré-ordem
 (`_setParentQueryAsDirty` no `addQueryResult`), e os campos dos nós
-consultados seguem as consultas — caso j66. Corpus: 297 conferidos.
+consultados seguem as consultas — caso j66. Corpus: 298 conferidos.
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada
 pendente com o motivo): **928 iguais / 22 pendentes / 0 diferentes** —
 `.template.dart` 512/20/0, `.css` e `.css.map` do Sass 102/102 cada,

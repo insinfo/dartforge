@@ -255,6 +255,7 @@ import 'package:corpus_ngdart/src/j63_template_concatenado.template.dart' as j63
 import 'package:corpus_ngdart/src/j64_attr_se_nulo.template.dart' as j64;
 import 'package:corpus_ngdart/src/j65_ganchos_de_diretiva.template.dart' as j65;
 import 'package:corpus_ngdart/src/j66_sujas_em_ordem.template.dart' as j66;
+import 'package:corpus_ngdart/src/j67_diretiva_antes_do_filho.template.dart' as j67;
 
 void main() {
   print([
@@ -514,5 +515,6 @@ void main() {
     j64.J64AttrSeNuloNgFactory,
     j65.J65GanchosDeDiretivaNgFactory,
     j66.J66SujasEmOrdemNgFactory,
+    j67.J67DiretivaAntesDoFilhoNgFactory,
   ].length);
 }

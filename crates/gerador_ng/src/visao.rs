@@ -3733,21 +3733,20 @@ impl Corpo<'_> {
             .iter()
             .any(|p| matches!(p, Injetado::Container))
             || extras.iter().any(|d| crate::diretivas::pede_container(d));
-        // Os provedores do nó que o filho injeta (`_getOrCreateLocalProvider`
-        // cria as dependências de um provedor ansioso antes dele): campos
-        // antes da instância, que fica com o índice seguinte (caso j61).
-        // A posição não depende do que está acima; a resolução definitiva
-        // (com as leituras de cima) vem depois das entradas do filho.
-        let mut antes_do_filho: Vec<crate::diretivas::Instancia> = Vec::new();
-        let campo_inst = match &no_resolvido {
-            Some(casadas) => {
-                let provedores = self.provedores_acima_com("");
+        // Os provedores do nó, na ordem do oficial: as diretivas na ordem de
+        // `directives:` com o filho no lugar dele (`_matchDirectives`), cada
+        // provedor ansioso depois das dependências (`_getOrCreateLocalProvider`)
+        // — o que o filho injeta do próprio nó e as diretivas que vêm antes
+        // dele saem antes da instância (casos j61, j67). As leituras de cima
+        // levam o import do `unsafeCast` tardio, alocado onde o texto sai.
+        let resolvido = match &no_resolvido {
+            Some((indice, casadas)) => {
+                let provedores = self.provedores_acima_com(&tardio(UTILITIES));
                 let acima = crate::diretivas::Acima {
                     provedores: &provedores,
                     incerto: self.incertos_acima > 0,
                 };
-                let (indice, casadas) = casadas;
-                let previa = crate::diretivas::resolver_no_do_filho(
+                let r = crate::diretivas::resolver_no_do_filho(
                     casadas,
                     *indice,
                     n,
@@ -3756,23 +3755,31 @@ impl Corpo<'_> {
                 )
                 .map_err(|f| recusa(Motivo::DiretivaPorSeletor, f))?;
                 let token = casadas[*indice].token();
-                let pos = previa
+                let pos = r
                     .instancias
                     .iter()
                     .position(|i| i.token == token)
                     .ok_or_else(|| em_filho("nó do filho sem a instância do filho"))?;
-                for i in &previa.instancias[..pos] {
-                    match &i.criacao {
-                        crate::diretivas::Criacao::Expressao(_)
-                        | crate::diretivas::Criacao::Multi(_)
-                            if !i.preguicosa => {}
-                        _ => return Err(em_filho("diretiva do nó criada antes do filho")),
-                    }
-                }
-                antes_do_filho = previa.instancias[..pos].to_vec();
-                previa.instancias[pos].campo.clone()
+                Some((r, pos))
             }
+            None => None,
+        };
+        let campo_inst = match &resolvido {
+            Some((r, pos)) => r.instancias[*pos].campo.clone(),
             None => format!("_{classe}_{n}_{}", if container { 8 } else { 5 }),
+        };
+        // As diretivas do nó antes e depois do filho, na ordem das ligações
+        // e dos ganchos (`transformedDirectiveAsts`).
+        let (dir_antes, dir_depois) = match &resolvido {
+            Some((r, _)) => {
+                let k = r
+                    .diretivas
+                    .iter()
+                    .position(|(_, c)| *c == campo_inst)
+                    .ok_or_else(|| em_filho("nó do filho sem a diretiva do filho"))?;
+                (r.diretivas[..k].to_vec(), r.diretivas[k + 1..].to_vec())
+            }
+            None => (Vec::new(), Vec::new()),
         };
         self.campos_filho
             .push(format!("  late final {vt}View{classe}0 {campo_vista};"));
@@ -3781,31 +3788,6 @@ impl Corpo<'_> {
             self.campos_filho
                 .push(format!("  late final {vc}ViewContainer _appEl_{n};"));
         }
-        // O tipo e o valor com imports tardios, nesta ordem (a do oficial).
-        let mut criacoes_antes = Vec::new();
-        for i in &antes_do_filho {
-            let tipo = resolver_tardios(self.imp, &tipo_do_provedor(i, &self.asset)?);
-            let valor = match &i.criacao {
-                crate::diretivas::Criacao::Expressao(x) => {
-                    texto_da_expr(x, &i.token, &self.asset, "", 4)
-                }
-                crate::diretivas::Criacao::Multi(itens) => format!(
-                    "[{}]",
-                    itens
-                        .iter()
-                        .map(|x| texto_da_expr(x, &i.token, &self.asset, "", 4))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
-                _ => unreachable!("recusado acima"),
-            };
-            let valor = resolver_tardios(self.imp, &valor);
-            self.campos_filho
-                .push(format!("  late final {tipo} {};", i.campo));
-            criacoes_antes.push(format!("    this.{} = {valor};", i.campo));
-        }
-        self.campos_filho
-            .push(format!("  late final {vd}.{classe} {campo_inst};"));
         self.vistas_filhas.push(campo_vista.clone());
         if filho.hospedeiro {
             self.usa_primeira_checagem = true;
@@ -3871,7 +3853,12 @@ impl Corpo<'_> {
             ));
             self.ancoras.push(format!("_appEl_{n}"));
         }
-        self.linhas.extend(criacoes_antes);
+        let antes_do_filho = resolvido
+            .as_ref()
+            .map_or(&[][..], |(r, pos)| &r.instancias[..*pos]);
+        self.criar_instancias(e, antes_do_filho, &format!("_el_{n}"))?;
+        self.campos_filho
+            .push(format!("  late final {vd}.{classe} {campo_inst};"));
         let do_no: Vec<(crate::diretivas::Token, String)> = antes_do_filho
             .iter()
             .flat_map(|i| {
@@ -3918,6 +3905,18 @@ impl Corpo<'_> {
                 self.detectores.insert(r.nome.clone(), campo_vista.clone());
             }
         }
+        if let Some((r, _)) = &resolvido {
+            self.ligar_diretivas(
+                e,
+                &r.instancias,
+                &dir_antes,
+                &format!("_el_{n}"),
+                &props_dir,
+                &eventos_dir,
+                true,
+                false,
+            )?;
+        }
         self.entradas_do_filho(&ligadas, filho, &campo_inst, &campo_vista)?;
         // `bindDirectiveHostProps` do componente: com as ligações de
         // propriedade, na ordem de documento, logo depois das entradas dele
@@ -3931,33 +3930,29 @@ impl Corpo<'_> {
         sem_as_da_diretiva
             .eventos
             .retain(|l| !consome_saida(&extras, &l.nome));
-        self.saidas_do_filho(&sem_as_da_diretiva, filho, n, &campo_inst)?;
+        // `bindRenderOutputs` (os eventos do elemento) antes das saídas das
+        // diretivas, que seguem a ordem delas.
+        self.eventos_do_elemento_do_filho(&sem_as_da_diretiva, filho, n)?;
+        if let Some((r, _)) = &resolvido {
+            self.ligar_diretivas(
+                e,
+                &r.instancias,
+                &dir_antes,
+                &format!("_el_{n}"),
+                &props_dir,
+                &eventos_dir,
+                false,
+                true,
+            )?;
+        }
+        self.saidas_do_filho(&sem_as_da_diretiva, filho, &campo_inst)?;
         // Os outros provedores do nó (acessor de valor por `providers:` do
         // filho, `NgModel`): campos depois da instância, entradas e saídas
         // depois das do filho (`transformedDirectiveAsts`).
         let mut injetor_do_filho = None;
-        // As outras diretivas do nó: os ganchos delas vêm depois dos do
-        // filho, depois do conteúdo (`bindDirectiveAfterChildrenCallbacks`).
-        let mut diretivas_do_no = Vec::new();
         let antes_acima = self.acima.len();
-        if let Some((indice, casadas)) = &no_resolvido {
-            let provedores = self.provedores_acima();
-            let acima = crate::diretivas::Acima {
-                provedores: &provedores,
-                incerto: self.incertos_acima > 0,
-            };
-            let r =
-                crate::diretivas::resolver_no_do_filho(casadas, *indice, n, Some(acima), container)
-                    .map_err(|f| recusa(Motivo::DiretivaPorSeletor, f))?;
-            let pos = antes_do_filho.len();
-            if r.instancias.get(pos).is_none_or(|i| i.campo != campo_inst)
-                || r.instancias[..pos]
-                    .iter()
-                    .zip(&antes_do_filho)
-                    .any(|(a, b)| a.campo != b.campo)
-            {
-                return Err(em_filho("provedores do nó do filho fora da ordem prevista"));
-            }
+        if let Some((r, pos)) = &resolvido {
+            let pos = *pos;
             // Provedor preguiçoso do filho pedido por um nó do conteúdo: o
             // oficial o cria no `build()`, logo depois do filho (caso i76).
             // Ainda sem tradução.
@@ -3978,17 +3973,23 @@ impl Corpo<'_> {
             {
                 return Err(em_filho("provedor do filho pedido por um nó do conteúdo"));
             }
-            let resto = crate::diretivas::NoResolvido {
-                instancias: r.instancias[pos + 1..].to_vec(),
-                diretivas: r
-                    .diretivas
-                    .iter()
-                    .filter(|(_, c)| *c != campo_inst)
-                    .cloned()
-                    .collect(),
-                container: r.container,
-            };
-            self.diretivas_do_no(e, &resto, &format!("_el_{n}"), &props_dir, &eventos_dir)?;
+            // Os provedores depois do filho, o `registerDirective` de todas
+            // as diretivas do nó (menos o componente) e as ligações das que
+            // vêm depois dele.
+            let alvo = format!("_el_{n}");
+            self.criar_instancias(e, &r.instancias[pos + 1..], &alvo)?;
+            let todas: Vec<_> = dir_antes.iter().chain(&dir_depois).cloned().collect();
+            self.registrar_diretivas(&todas, &alvo);
+            self.ligar_diretivas(
+                e,
+                &r.instancias,
+                &dir_depois,
+                &alvo,
+                &props_dir,
+                &eventos_dir,
+                true,
+                true,
+            )?;
             // O filho entra primeiro no `injectorGetInternal`, pelos
             // apelidos dele (`ExistingProvider(X, OFilho)`) e, visível, pela
             // classe.
@@ -4013,7 +4014,6 @@ impl Corpo<'_> {
                     self.acima.push((t.clone(), i.leitura.clone(), None));
                 }
             }
-            diretivas_do_no = resto.diretivas.clone();
             let mut acima_reg = self.pilha.clone();
             acima_reg.push((n, true));
             // O token do filho já está no registro dele; os apelidos dele,
@@ -4041,8 +4041,9 @@ impl Corpo<'_> {
         }
         if filho.projecoes.is_empty() && e.filhos.is_empty() {
             self.consultas_do_filho(e, filho, &campo_inst, n)?;
+            self.ganchos_depois_dos_filhos(&dir_antes);
             self.depois_dos_filhos(filho, &campo_inst);
-            self.ganchos_depois_dos_filhos(&diretivas_do_no);
+            self.ganchos_depois_dos_filhos(&dir_depois);
             self.linhas
                 .push(format!("    this.{campo_vista}.create(this.{campo_inst});"));
             self.acima.truncate(antes_acima);
@@ -4126,8 +4127,9 @@ impl Corpo<'_> {
         }
         r?;
         self.consultas_do_filho(e, filho, &campo_inst, n)?;
+        self.ganchos_depois_dos_filhos(&dir_antes);
         self.depois_dos_filhos(filho, &campo_inst);
-        self.ganchos_depois_dos_filhos(&diretivas_do_no);
+        self.ganchos_depois_dos_filhos(&dir_depois);
         // Sem projeções: `create`, como o filho sem conteúdo. Todas vazias:
         // uma linha só, constantes. Senão, uma lista por linha (o `dart
         // format` quebra a lista que tem outra não vazia).
@@ -4704,21 +4706,30 @@ impl Corpo<'_> {
         Ok(())
     }
 
-    /// Os eventos escritos no elemento do filho: os que casam um `@Output`
-    /// viram `subscription_N` (`bindDirectiveOutputs`, depois dos do
-    /// elemento); os outros são eventos do elemento (`bindRenderOutputs`).
-    fn saidas_do_filho(
+    /// Os eventos escritos no elemento do filho que não casam um `@Output`
+    /// dele: eventos do elemento (`bindRenderOutputs`), antes das saídas
+    /// das diretivas do nó ([`Self::saidas_do_filho`]).
+    fn eventos_do_elemento_do_filho(
         &mut self,
         e: &crate::html::Elemento,
         filho: &Filho,
         n: u32,
-        campo_inst: &str,
     ) -> Result<(), Recusa> {
         let mut do_elemento = e.clone();
         do_elemento
             .eventos
             .retain(|l| filho.saida(&l.nome).is_none());
-        self.eventos(&do_elemento, &format!("_el_{n}"))?;
+        self.eventos(&do_elemento, &format!("_el_{n}"))
+    }
+
+    /// As `@Output` do filho ligadas no template: `subscription_N`
+    /// (`bindDirectiveOutputs`), na vez do filho entre as diretivas do nó.
+    fn saidas_do_filho(
+        &mut self,
+        e: &crate::html::Elemento,
+        filho: &Filho,
+        campo_inst: &str,
+    ) -> Result<(), Recusa> {
         let mut vistos: Vec<&str> = Vec::new();
         for l in e.eventos.iter().filter(|l| filho.saida(&l.nome).is_some()) {
             if vistos.contains(&l.nome.as_str()) {
@@ -6478,22 +6489,59 @@ impl Corpo<'_> {
         propriedades: &[crate::html::Ligacao],
         eventos: &[crate::html::Ligacao],
     ) -> Result<(), Recusa> {
+        self.criar_instancias(e, &r.instancias, alvo)?;
+        self.registrar_diretivas(&r.diretivas, alvo);
+        self.ligar_diretivas(
+            e,
+            &r.instancias,
+            &r.diretivas,
+            alvo,
+            propriedades,
+            eventos,
+            true,
+            true,
+        )
+    }
+
+    /// Os campos dos provedores do nó e a criação deles no `build()`, na
+    /// ordem dada (`addDirectiveProviders`).
+    fn criar_instancias(
+        &mut self,
+        e: &crate::html::Elemento,
+        instancias: &[crate::diretivas::Instancia],
+        alvo: &str,
+    ) -> Result<(), Recusa> {
         use crate::diretivas::{Argumento, Criacao, Token};
-        for inst in &r.instancias {
+        for inst in instancias {
             // Um `providers:` do filho que não é apelido: escrito como na
-            // hospedeira (`ProviderSource.build`), só preguiçoso — o que o
-            // filho ou uma diretiva do nó pede sairia no `build()`, forma
-            // ainda sem caso.
+            // hospedeira (`ProviderSource.build`). O preguiçoso é campo com
+            // inicializador; o que o filho ou uma diretiva do nó pede sai no
+            // `build()`, na ordem dos provedores (casos j61, j67).
             if let Criacao::Expressao(_) | Criacao::Multi(_) = &inst.criacao {
-                if !inst.preguicosa {
-                    return Err(recusa(
-                        Motivo::LigacaoEmFilho,
-                        "provedor do filho pedido no próprio nó",
-                    ));
+                if inst.preguicosa {
+                    let texto = texto_de_provedor_preguicoso(inst, &self.asset)?;
+                    let texto = resolver_tardios(self.imp, &texto);
+                    self.campos_preguicosos.push(texto);
+                    continue;
                 }
-                let texto = texto_de_provedor_preguicoso(inst, &self.asset)?;
-                let texto = resolver_tardios(self.imp, &texto);
-                self.campos_preguicosos.push(texto);
+                let tipo = resolver_tardios(self.imp, &tipo_do_provedor(inst, &self.asset)?);
+                let valor = match &inst.criacao {
+                    Criacao::Expressao(x) => texto_da_expr(x, &inst.token, &self.asset, "", 4),
+                    Criacao::Multi(itens) => format!(
+                        "[{}]",
+                        itens
+                            .iter()
+                            .map(|x| texto_da_expr(x, &inst.token, &self.asset, "", 4))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                    _ => unreachable!(),
+                };
+                let valor = resolver_tardios(self.imp, &valor);
+                self.campos_filho
+                    .push(format!("  late final {tipo} {};", inst.campo));
+                self.linhas
+                    .push(format!("    this.{} = {valor};", inst.campo));
                 continue;
             }
             let tipo = match (&inst.criacao, &inst.token) {
@@ -6603,6 +6651,9 @@ impl Corpo<'_> {
                     ));
                 }
             };
+            // As leituras de cima podem trazer o import do `unsafeCast`
+            // tardio (nó de um filho): alocado aqui, onde o texto sai.
+            let valor = resolver_tardios(self.imp, &valor);
             if inst.preguicosa {
                 // `late` sem `final`, com o valor no inicializador.
                 self.campos_preguicosos
@@ -6614,12 +6665,19 @@ impl Corpo<'_> {
                     .push(format!("    this.{} = {valor};", inst.campo));
             }
         }
-        // `registerDirectives`: as instâncias das diretivas, na ordem.
-        // (Só o componente no nó, sem diretiva: nada a registrar.)
-        if !r.diretivas.is_empty() {
+        Ok(())
+    }
+
+    /// `registerDirectives`: as instâncias das diretivas, na ordem.
+    /// (Só o componente no nó, sem diretiva: nada a registrar.)
+    fn registrar_diretivas(
+        &mut self,
+        diretivas: &[(std::sync::Arc<crate::diretivas::Diretiva>, String)],
+        alvo: &str,
+    ) {
+        if !diretivas.is_empty() {
             let dev = self.imp.alias(DEVTOOLS);
-            let registros: Vec<String> = r
-                .diretivas
+            let registros: Vec<String> = diretivas
                 .iter()
                 .map(|(_, c)| {
                     format!("      {dev}.Inspector.instance.registerDirective({alvo}, this.{c});")
@@ -6630,11 +6688,30 @@ impl Corpo<'_> {
                 registros.join("\n")
             ));
         }
+    }
+
+    /// As ligações das `diretivas` do nó: o `detectHostChanges` das que têm
+    /// `@HostBinding` e as entradas (`entradas`), e as saídas (`saidas`),
+    /// diretiva por diretiva, na ordem dada (`transformedDirectiveAsts`).
+    #[allow(clippy::too_many_arguments)]
+    fn ligar_diretivas(
+        &mut self,
+        e: &crate::html::Elemento,
+        instancias: &[crate::diretivas::Instancia],
+        diretivas: &[(std::sync::Arc<crate::diretivas::Diretiva>, String)],
+        alvo: &str,
+        propriedades: &[crate::html::Ligacao],
+        eventos: &[crate::html::Ligacao],
+        entradas: bool,
+        saidas: bool,
+    ) -> Result<(), Recusa> {
+        use crate::diretivas::Criacao;
         // `detectHostChanges` das diretivas com `@HostBinding`, com as
         // ligações de propriedade do nó (`bindDirectiveHostProps`).
-        for inst in &r.instancias {
+        for inst in instancias.iter().filter(|_| entradas) {
             if let Criacao::Diretiva { diretiva, .. } = &inst.criacao
                 && !diretiva.ligacoes_do_hospedeiro.is_empty()
+                && diretivas.iter().any(|(_, c)| *c == inst.leitura)
             {
                 self.deteccao.push(format!(
                     "    this.{}.detectHostChanges(this, {alvo});",
@@ -6644,7 +6721,11 @@ impl Corpo<'_> {
         }
         // Entradas e saídas, diretiva por diretiva, na ordem dos provedores
         // (`transformedDirectiveAsts`).
-        for (d, campo) in &r.diretivas {
+        for (d, campo) in diretivas {
+            if !entradas {
+                self.saidas_da_diretiva(d, campo, eventos)?;
+                continue;
+            }
             let mut ligadas: Vec<(&crate::html::Ligacao, bool)> = e
                 .atributos
                 .iter()
@@ -6679,6 +6760,22 @@ impl Corpo<'_> {
                 &ganchos,
                 Motivo::DiretivaPorSeletor,
             )?;
+            if saidas {
+                self.saidas_da_diretiva(d, campo, eventos)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// As `@Output` de uma diretiva do nó ligadas no template
+    /// (`bindDirectiveOutputs`).
+    fn saidas_da_diretiva(
+        &mut self,
+        d: &crate::diretivas::Diretiva,
+        campo: &str,
+        eventos: &[crate::html::Ligacao],
+    ) -> Result<(), Recusa> {
+        {
             let mut vistos: Vec<&str> = Vec::new();
             for l in eventos.iter().filter(|l| d.saida(&l.nome).is_some()) {
                 if vistos.contains(&l.nome.as_str()) {
