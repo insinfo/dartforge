@@ -268,6 +268,7 @@ import 'package:corpus_ngdart/src/j76_ref_de_filho_em_embutida.template.dart' as
 import 'package:corpus_ngdart/src/j77_consulta_em_projetado.template.dart' as j77;
 import 'package:corpus_ngdart/src/j78_consulta_em_template_ngif.template.dart' as j78;
 import 'package:corpus_ngdart/src/j79_host_e_self.template.dart' as j79;
+import 'package:corpus_ngdart/src/j80_host_binding_class.template.dart' as j80;
 
 void main() {
   print([
@@ -540,5 +541,6 @@ void main() {
     j77.J77ConsultaEmProjetadoNgFactory,
     j78.J78ConsultaEmTemplateNgifNgFactory,
     j79.J79HostESelfNgFactory,
+    j80.J80HostBindingClassNgFactory,
   ].length);
 }

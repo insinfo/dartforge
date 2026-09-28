@@ -9170,6 +9170,10 @@ pub fn coletar(
 pub(crate) enum FormaDoHospedeiro {
     /// `class.x`: `updateClassBindingNonHtml`.
     Classe(String),
+    /// `class`, `className`, `attr.class` num componente: a classe inteira,
+    /// `this.updateChildClassNonHtml(this.rootElement, v)` (o `ClassBinding`
+    /// sem nome, caso j80).
+    ClasseInteira,
     /// `attr.x`, com o saneador do contexto de segurança: `updateAttribute`.
     Atributo(String, Option<&'static str>),
     /// `style.x` e `style.x.unidade`, com o texto do valor decidido pelo
@@ -9214,6 +9218,11 @@ impl FormaDoHospedeiro {
         match self {
             FormaDoHospedeiro::Classe(x) => {
                 format!("{dom}.updateClassBindingNonHtml({el}, '{x}', {v})")
+            }
+            // Só o componente chega aqui ([`forma_do_hospedeiro_de_componente`]):
+            // o receptor é a visão dele.
+            FormaDoHospedeiro::ClasseInteira => {
+                format!("this.updateChildClassNonHtml({el}, {v})")
             }
             FormaDoHospedeiro::Atributo(x, s) => {
                 format!("{dom}.updateAttribute({el}, '{x}', {})", saneado(s))
@@ -9276,6 +9285,15 @@ pub(crate) fn forma_do_hospedeiro(nome: &str) -> Result<FormaDoHospedeiro, Strin
     })
 }
 
+/// [`forma_do_hospedeiro`] no componente, que também escreve a classe
+/// inteira (`class`, `className`, `attr.class`) pela visão dele.
+fn forma_do_hospedeiro_de_componente(nome: &str) -> Result<FormaDoHospedeiro, String> {
+    if matches!(nome, "class" | "className" | "attr.class") {
+        return Ok(FormaDoHospedeiro::ClasseInteira);
+    }
+    forma_do_hospedeiro(nome)
+}
+
 /// Os `@HostBinding` do componente na ordem do mapa `hostProperties` do
 /// oficial. Sem herança, os da própria classe ([`Componente`]); com
 /// herança, os dos metadados lidos do programa (`metadados.rs`: supertipos
@@ -9310,7 +9328,7 @@ fn ligacoes_do_componente(
     };
     let mut saida = Vec::new();
     for (nome, membro) in lista {
-        let mut forma = forma_do_hospedeiro(&nome).map_err(|f| fora(&f))?;
+        let mut forma = forma_do_hospedeiro_de_componente(&nome).map_err(|f| fora(&f))?;
         let proprio = c.ligacoes_do_hospedeiro.iter().find(|l| l.membro == membro);
         let imutavel = match proprio {
             Some(l) => l.imutavel,
