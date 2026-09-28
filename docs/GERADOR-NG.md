@@ -545,10 +545,25 @@ resultado dentro de um `<template>` escrito: a visão embutida dele é
 mapeada como a de um `*` (`_appEl_n.mapNestedViews`, a âncora identificada
 pela posição do `<template>`), também no conteúdo projetado e seguida de
 `*ngIf`; o `final _ctx` da detecção conta a atribuição da consulta — caso
-j86. Corpus: 318 conferidos.
+j86. `@GenerateInjector` (`injetor.rs`, lido por
+`metadados::ler_injetores`): o `InjectorReader` — módulos achatados com os
+incluídos antes dos diretos (`Module(include:, provide:)` e listas),
+repetições tiradas pelo `deduplicateProviders` (o último de cada token, na
+ordem inversa, e os multi no fim), o construtor do `findConstructor`, as
+dependências do `_parseDependencies` (opcional é só `@Optional`; o
+posicional opcional sem token fica de fora; `@Self`/`@Host`/`@SkipSelf`
+viram `injectFromSelf*`/`injectFromParent*`/`injectFromAncestry*`), o tipo
+do `_actualProviderType` (o `T` do token opaco, o do valor no
+`ValueProvider`, senão `Object`) e o valor pelo `revive` do `source_gen`
+(campo `const` da classe, da biblioteca, a chamada ou a constante de topo);
+e o `InjectorEmitter` com a tabela `_iN` do `Allocator.simplePrefixing` e a
+quebra do `DartFormatter` nas vírgulas finais do `code_builder`. No arquivo
+com componentes, os imports dos injetores vêm logo depois do import do
+próprio arquivo e o código deles no fim — casos j87 e j88. Corpus: 320
+conferidos.
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada
-pendente com o motivo): **947 iguais / 3 pendentes / 0 diferentes** —
-`.template.dart` 531/1/0 (resta `@GenerateInjector`), `.css` e `.css.map` do Sass 102/102 cada,
+pendente com o motivo): **948 iguais / 2 pendentes / 0 diferentes** —
+`.template.dart` **532/0/0**, `.css` e `.css.map` do Sass 102/102 cada,
 `.css.dart` e `.css.shim.dart` 104 cada.
 
 ### Diretivas estruturais

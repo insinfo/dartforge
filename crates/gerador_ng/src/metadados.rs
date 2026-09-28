@@ -670,6 +670,13 @@ impl<'r, 'a> Leitor<'r, 'a> {
     /// O token de um valor constante: uma classe, um `MultiToken` ou um
     /// `OpaqueToken`.
     fn token_do_valor(&self, v: &Valor) -> Result<Token, String> {
+        self.token_lido(v, false)
+    }
+
+    /// O token de um valor; `sem_nome`: `const OpaqueToken<T>()` vale (no
+    /// injetor gerado ele vira `const OpaqueToken<T>()`; nas visões ainda
+    /// não tem caso).
+    fn token_lido(&self, v: &Valor, sem_nome: bool) -> Result<Token, String> {
         match v {
             Valor::Tipo(c) => Ok(Token::Classe {
                 uri: c.uri.clone(),
@@ -685,7 +692,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 let multi = classe.nome == "MultiToken";
                 let nome = match posicionais.first() {
                     Some(Valor::Texto(s)) => s.clone(),
-                    None if multi => String::new(),
+                    None if multi || sem_nome => String::new(),
                     None => return Err("OpaqueToken sem nome".into()),
                     _ => return Err("token de nome ilegível".into()),
                 };
@@ -1324,7 +1331,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
         })
     }
 
-    /// O valor de uma variável de topo `const`.
+    /// O valor de uma variável de topo ou de um campo estático `const`.
     fn variavel(
         &self,
         v: dartforge_elements::model::VariableId,
@@ -1335,12 +1342,25 @@ impl<'r, 'a> Leitor<'r, 'a> {
         if !var.const_ {
             return Err("variável que não é const".into());
         }
-        let VariableRef::TopLevel { unit, decl, index } = var.node else {
-            return Err("constante que não é de topo".into());
-        };
-        let u = p.unit(unit);
-        let ast::DeclKind::Variables(l) = &u.ast.decl(decl).kind else {
-            return Err("constante ilegível".into());
+        let (unit, l, index) = match var.node {
+            VariableRef::TopLevel { unit, decl, index } => {
+                let ast::DeclKind::Variables(l) = &p.unit(unit).ast.decl(decl).kind else {
+                    return Err("constante ilegível".into());
+                };
+                (unit, l, index)
+            }
+            // Campo `static const` (o `useValue:` de `C.campo`).
+            VariableRef::Field {
+                unit,
+                member,
+                index,
+            } if var.static_ => {
+                let ast::MemberKind::Field(l) = &p.unit(unit).ast.member(member).kind else {
+                    return Err("constante ilegível".into());
+                };
+                (unit, l, index)
+            }
+            _ => return Err("constante que não é de topo".into()),
         };
         let e = l
             .variables
@@ -1551,5 +1571,868 @@ impl<'r, 'a> Leitor<'r, 'a> {
             posicionais,
             nomeados,
         })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// `@GenerateInjector`
+// ---------------------------------------------------------------------------
+
+const DI_MODULES: &str = "package:ngdart/src/meta/di_modules.dart";
+const DI_GENERATE_INJECTOR: &str = "package:ngdart/src/meta/di_generate_injector.dart";
+
+/// Um tipo como o `linkTypeOf` o escreve: a classe, pela biblioteca que a
+/// declara, e os argumentos. `uri` vazio é `dynamic`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TipoEscrito {
+    pub uri: String,
+    pub simbolo: String,
+    pub args: Vec<TipoEscrito>,
+}
+
+impl TipoEscrito {
+    fn da_classe(uri: &str, simbolo: &str) -> Self {
+        TipoEscrito {
+            uri: uri.into(),
+            simbolo: simbolo.into(),
+            args: Vec::new(),
+        }
+    }
+
+    fn object() -> Self {
+        Self::da_classe("dart:core", "Object")
+    }
+}
+
+/// Um valor de `useValue:` como o `_reviveAny` do `InjectorReader` o
+/// reconstrói (`ConstantReader.revive`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Revivido {
+    Nulo,
+    Texto(String),
+    Inteiro(i64),
+    Booleano(bool),
+    Lista(Vec<Revivido>),
+    /// `C.campo`, `Enum.valor` ou uma constante de topo, pela biblioteca.
+    Acesso {
+        uri: String,
+        nome: String,
+    },
+    /// `const C(..)`/`const C.nome(..)`.
+    Objeto {
+        uri: String,
+        classe: String,
+        construtor: Option<String>,
+        posicionais: Vec<Revivido>,
+        nomeados: Vec<(String, Revivido)>,
+    },
+}
+
+/// De onde um provedor do injetor gerado tira o valor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FonteDoInjetor {
+    /// A classe, o construtor (`findConstructor`: `None` é o sem nome) e as
+    /// dependências dele.
+    Classe {
+        uri: String,
+        classe: String,
+        construtor: Option<String>,
+        deps: Vec<Dependencia>,
+    },
+    Existente(Token),
+    Fabrica {
+        uri: String,
+        nome: String,
+        deps: Vec<Dependencia>,
+    },
+    Valor(Revivido),
+}
+
+/// Um provedor do injetor (`ProviderElement`), com o tipo que o emissor
+/// escreve (`providerType`, ou a classe do `useClass`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProvedorDoInjetor {
+    pub token: Token,
+    pub multi: bool,
+    pub tipo: TipoEscrito,
+    pub fonte: FonteDoInjetor,
+}
+
+/// Um `@GenerateInjector` lido (`InjectorReader`): o nome da variável e os
+/// provedores já achatados e sem repetição (`deduplicateProviders`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Injetor {
+    pub nome: String,
+    pub provedores: Vec<ProvedorDoInjetor>,
+}
+
+/// Os argumentos posicionais e nomeados de uma chamada `const`.
+type ArgumentosConst = (Vec<Valor>, Vec<(String, Valor)>);
+
+/// Um módulo (`ModuleElement`): os provedores diretos e os incluídos.
+struct Modulo {
+    provide: Vec<ProvedorDoInjetor>,
+    include: Vec<Modulo>,
+}
+
+impl Modulo {
+    /// `ModuleElement.flatten`: os incluídos antes dos diretos.
+    fn achatar(self, saida: &mut Vec<ProvedorDoInjetor>) {
+        for m in self.include {
+            m.achatar(saida);
+        }
+        saida.extend(self.provide);
+    }
+}
+
+/// Os `@GenerateInjector` da unidade principal da biblioteca `uri`
+/// (`InjectorReader.findInjectors`), na ordem das variáveis de topo.
+pub fn ler_injetores(r: &Resolvedor, uri: &str) -> Vec<(String, Result<Injetor, String>)> {
+    let p = r.programa();
+    let Some(i) = p.libraries.iter().position(|l| l.uri == uri) else {
+        return Vec::new();
+    };
+    let lib = LibraryId(i as u32);
+    let Some(&unidade) = p.library(lib).units.first() else {
+        return Vec::new();
+    };
+    let leitor = Leitor { r };
+    let u = p.unit(unidade);
+    let mut saida = Vec::new();
+    for &d in &u.unit.declarations {
+        let decl = u.ast.decl(d);
+        let ast::DeclKind::Variables(l) = &decl.kind else {
+            continue;
+        };
+        let anotacao = decl.metadata.iter().find(|a| {
+            leitor
+                .classe_da_anotacao(lib, a)
+                .is_some_and(|c| c.e(DI_GENERATE_INJECTOR, "GenerateInjector"))
+        });
+        let Some(a) = anotacao else {
+            continue;
+        };
+        let lido = leitor.injetor(unidade, a);
+        for v in l.variables.iter() {
+            let nome = leitor.nome(&v.name).to_string();
+            saida.push((
+                nome.clone(),
+                lido.clone().map(|provedores| Injetor { nome, provedores }),
+            ));
+        }
+    }
+    saida
+}
+
+impl<'r, 'a> Leitor<'r, 'a> {
+    /// `_computeProviders`: o argumento da anotação como módulo, achatado,
+    /// sem os serviços globais e sem repetição.
+    fn injetor(
+        &self,
+        unidade: UnitId,
+        a: &ast::Annotation,
+    ) -> Result<Vec<ProvedorDoInjetor>, String> {
+        let arg = a
+            .arguments
+            .as_ref()
+            .and_then(|args| args.args.first())
+            .ok_or("@GenerateInjector sem provedores")?;
+        let v = self.valor(unidade, arg.value, 0)?;
+        let mut todos = Vec::new();
+        self.modulo(v, 0)?.achatar(&mut todos);
+        for p in &todos {
+            if let Token::Classe { uri, classe } = &p.token
+                && uri.starts_with("package:ngdart/")
+                && matches!(
+                    classe.as_str(),
+                    "ApplicationRef" | "AppViewUtils" | "NgZone" | "Testability"
+                )
+            {
+                return Err(format!("serviço global {classe} no injetor"));
+            }
+        }
+        // `deduplicateProviders`: dos não-multi, o último de cada token, na
+        // ordem inversa; depois os multi, na ordem.
+        let mut unicos: Vec<ProvedorDoInjetor> = Vec::new();
+        for p in todos.iter().rev().filter(|p| !p.multi) {
+            if !unicos.iter().any(|u| u.token == p.token) {
+                unicos.push(p.clone());
+            }
+        }
+        unicos.extend(todos.into_iter().filter(|p| p.multi));
+        Ok(unicos)
+    }
+
+    /// `ModuleReader.parseModule`.
+    fn modulo(&self, v: Valor, profundidade: u32) -> Result<Modulo, String> {
+        if profundidade > PROFUNDIDADE {
+            return Err("módulo profundo demais".into());
+        }
+        match v {
+            // `_parseList`: listas e `Module` incluídos, o resto provedores.
+            Valor::Lista(itens) => {
+                let mut include = Vec::new();
+                let mut provide = Vec::new();
+                for i in itens {
+                    if Self::e_modulo(&i) {
+                        include.push(self.modulo(i, profundidade + 1)?);
+                    } else {
+                        provide.push(self.provedor_do_injetor(i)?);
+                    }
+                }
+                Ok(Modulo { provide, include })
+            }
+            Valor::Objeto {
+                classe,
+                construtor: None,
+                posicionais,
+                nomeados,
+                ..
+            } if classe.e(DI_MODULES, "Module") && posicionais.is_empty() => {
+                let mut include = Vec::new();
+                let mut provide = Vec::new();
+                for (n, x) in nomeados {
+                    let Valor::Lista(itens) = x else {
+                        return Err(format!("Module({n}:) que não é lista"));
+                    };
+                    match n.as_str() {
+                        "include" => {
+                            for i in itens {
+                                include.push(self.modulo(i, profundidade + 1)?);
+                            }
+                        }
+                        "provide" => {
+                            for i in itens {
+                                provide.push(self.provedor_do_injetor(i)?);
+                            }
+                        }
+                        outro => return Err(format!("Module({outro}:)")),
+                    }
+                }
+                Ok(Modulo { provide, include })
+            }
+            _ => Err("módulo que não é lista nem Module".into()),
+        }
+    }
+
+    fn e_modulo(v: &Valor) -> bool {
+        match v {
+            Valor::Lista(_) => true,
+            Valor::Objeto { classe, .. } => classe.e(DI_MODULES, "Module"),
+            _ => false,
+        }
+    }
+
+    /// `ProviderReader.parseProvider`, com os campos do `Provider` tirados
+    /// do construtor escrito.
+    fn provedor_do_injetor(&self, v: Valor) -> Result<ProvedorDoInjetor, String> {
+        let (classe, construtor, tipos, posicionais, nomeados) = match v {
+            // `Foo` é `ClassProvider(Foo)` (`_parseTypeAsImplicitClassProvider`).
+            Valor::Tipo(c) => {
+                return Ok(ProvedorDoInjetor {
+                    token: Token::Classe {
+                        uri: c.uri.clone(),
+                        classe: c.nome.clone(),
+                    },
+                    multi: false,
+                    tipo: TipoEscrito::da_classe(&c.uri, &c.nome),
+                    fonte: self.classe_do_injetor(&c)?,
+                });
+            }
+            Valor::Objeto {
+                classe,
+                construtor,
+                tipos,
+                posicionais,
+                nomeados,
+            } if classe.uri == DI_PROVIDERS => (classe, construtor, tipos, posicionais, nomeados),
+            Valor::Objeto { classe, .. } => {
+                return Err(format!("provedor {} no injetor", classe.nome));
+            }
+            _ => return Err("provedor ilegível no injetor".into()),
+        };
+        let exato = classe.nome == "Provider";
+        match construtor.as_deref() {
+            None => {}
+            Some("forToken") if !exato => {}
+            Some(c) => return Err(format!("{}.{c}", classe.nome)),
+        }
+        let mut pos = posicionais.into_iter();
+        let token_v = pos.next().ok_or("provedor sem token")?;
+        let (mut use_class, mut use_value, mut use_existing, mut use_factory, mut deps) =
+            (None, None, None, None, None);
+        match classe.nome.as_str() {
+            "Provider" | "ClassProvider" => {}
+            "ExistingProvider" => use_existing = pos.next(),
+            "FactoryProvider" => use_factory = pos.next(),
+            "ValueProvider" => use_value = pos.next(),
+            outro => return Err(format!("provedor {outro}")),
+        }
+        if pos.next().is_some() {
+            return Err(format!("{} com argumentos demais", classe.nome));
+        }
+        for (n, x) in nomeados {
+            let alvo = match (classe.nome.as_str(), n.as_str()) {
+                ("Provider" | "ClassProvider", "useClass") => &mut use_class,
+                ("Provider", "useValue") => &mut use_value,
+                ("Provider", "useExisting") => &mut use_existing,
+                ("Provider", "useFactory") => &mut use_factory,
+                ("Provider" | "FactoryProvider", "deps") => &mut deps,
+                (_, outro) => return Err(format!("{}(.., {outro}:)", classe.nome)),
+            };
+            *alvo = Some(x);
+        }
+        // `ClassProvider._`: `useClass ?? token`.
+        if classe.nome == "ClassProvider" && use_class.is_none() {
+            use_class = Some(token_v.clone());
+        }
+        let token = self.token_lido(&token_v, true)?;
+        let multi = matches!(token, Token::Multi { .. });
+        // `_actualProviderType`: fora do `Provider` exato, o `T` do token
+        // opaco; senão o `T` do provedor — escrito, ou inferido (o do valor
+        // no `ValueProvider`; `Object`, o limite, no resto).
+        let tipo_do_provedor = |use_value: Option<&Valor>| -> Result<TipoEscrito, String> {
+            if !exato && let Token::Multi { tipo, .. } | Token::Opaco { tipo, .. } = &token {
+                return Ok(Self::tipo_do_token(tipo));
+            }
+            if let Some(t) = tipos.first() {
+                return self.tipo_escrito(t);
+            }
+            if classe.nome == "ValueProvider" {
+                return self.tipo_do_valor(use_value.ok_or("ValueProvider sem valor")?);
+            }
+            Ok(TipoEscrito::object())
+        };
+        if let Some(c) = use_class {
+            let Valor::Tipo(c) = c else {
+                return Err("useClass de algo que não é classe".into());
+            };
+            return Ok(ProvedorDoInjetor {
+                tipo: TipoEscrito::da_classe(&c.uri, &c.nome),
+                fonte: self.classe_do_injetor(&c)?,
+                token,
+                multi,
+            });
+        }
+        if let Some(f) = use_factory {
+            let tipo = tipo_do_provedor(None)?;
+            return Ok(ProvedorDoInjetor {
+                fonte: self.fabrica_do_injetor(f, deps)?,
+                token,
+                multi,
+                tipo,
+            });
+        }
+        if let Some(v) = use_value {
+            let tipo = tipo_do_provedor(Some(&v))?;
+            return Ok(ProvedorDoInjetor {
+                fonte: FonteDoInjetor::Valor(self.reviver(v, 0)?),
+                token,
+                multi,
+                tipo,
+            });
+        }
+        if let Some(e) = use_existing {
+            let tipo = tipo_do_provedor(None)?;
+            return Ok(ProvedorDoInjetor {
+                fonte: FonteDoInjetor::Existente(self.token_lido(&e, true)?),
+                token,
+                multi,
+                tipo,
+            });
+        }
+        // `Provider(Foo)` sem nada: `useClass: Foo`.
+        match (&token_v, exato) {
+            (Valor::Tipo(c), true) => Ok(ProvedorDoInjetor {
+                tipo: TipoEscrito::da_classe(&c.uri, &c.nome),
+                fonte: self.classe_do_injetor(c)?,
+                token,
+                multi,
+            }),
+            _ => Err("provedor sem use*".into()),
+        }
+    }
+
+    fn tipo_do_token(t: &TipoDeToken) -> TipoEscrito {
+        TipoEscrito {
+            uri: t.uri.clone(),
+            simbolo: t.classe.clone(),
+            args: (0..t.genericos)
+                .map(|_| TipoEscrito::da_classe("", "dynamic"))
+                .collect(),
+        }
+    }
+
+    /// Um argumento de tipo escrito, como o `linkTypeOf` o escreve.
+    fn tipo_escrito(&self, t: &Tipo) -> Result<TipoEscrito, String> {
+        let Some(c) = &t.classe else {
+            return Ok(TipoEscrito::da_classe("", "dynamic"));
+        };
+        let parametros = self.r.programa().class(c.id).type_params.len();
+        let args = if t.args.is_empty() {
+            (0..parametros)
+                .map(|_| TipoEscrito::da_classe("", "dynamic"))
+                .collect()
+        } else {
+            t.args
+                .iter()
+                .map(|a| self.tipo_escrito(a))
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        Ok(TipoEscrito {
+            uri: c.uri.clone(),
+            simbolo: c.nome.clone(),
+            args,
+        })
+    }
+
+    /// O tipo estático de um valor de `ValueProvider(Tipo, valor)`, que
+    /// infere o `T`.
+    fn tipo_do_valor(&self, v: &Valor) -> Result<TipoEscrito, String> {
+        Ok(match v {
+            Valor::Texto(_) => TipoEscrito::da_classe("dart:core", "String"),
+            Valor::Inteiro(_) => TipoEscrito::da_classe("dart:core", "int"),
+            Valor::Booleano(_) => TipoEscrito::da_classe("dart:core", "bool"),
+            Valor::Objeto { classe, tipos, .. }
+                if tipos.is_empty()
+                    && self.r.programa().class(classe.id).type_params.is_empty() =>
+            {
+                TipoEscrito::da_classe(&classe.uri, &classe.nome)
+            }
+            Valor::Membro { classe, .. }
+                if self.r.programa().class(classe.id).kind == ClassKind::Enum =>
+            {
+                TipoEscrito::da_classe(&classe.uri, &classe.nome)
+            }
+            _ => return Err("ValueProvider de valor sem tipo conhecido".into()),
+        })
+    }
+
+    /// `DependencyReader.findConstructor` e `_parseDependencies` de uma
+    /// classe: o construtor sem nome (se a classe não é abstrata), senão o
+    /// primeiro público de classe concreta ou `factory`.
+    fn classe_do_injetor(&self, c: &Classe) -> Result<FonteDoInjetor, String> {
+        let decl = self
+            .declaracao(c.id)
+            .ok_or_else(|| format!("classe de provedor sem declaração ({})", c.nome))?;
+        if !decl.parametros_de_tipo.is_empty() {
+            return Err("provedor de classe genérica no injetor".into());
+        }
+        let mut construtores = Vec::new();
+        for &m in decl.membros {
+            if let ast::MemberKind::Constructor(k) = &decl.ast.member(m).kind {
+                construtores.push(k);
+            }
+        }
+        let sem_nome = construtores.iter().find(|k| k.name.is_none()).copied();
+        let escolhido = if !decl.abstrata && (sem_nome.is_some() || construtores.is_empty()) {
+            sem_nome
+        } else {
+            match construtores.iter().find(|k| {
+                let publico = k.name.is_none_or(|n| !self.nome(&n).starts_with('_'));
+                publico && !decl.abstrata || k.factory
+            }) {
+                Some(k) => Some(*k),
+                None => return Err(format!("{} sem construtor para o injetor", c.nome)),
+            }
+        };
+        let mut deps = Vec::new();
+        if let Some(k) = escolhido {
+            for par in k.parameters.iter() {
+                if let Some(d) = self.dependencia_do_injetor(&decl, par)? {
+                    deps.push(d);
+                }
+            }
+        }
+        Ok(FonteDoInjetor::Classe {
+            uri: c.uri.clone(),
+            classe: c.nome.clone(),
+            construtor: escolhido.and_then(|k| k.name.map(|n| self.nome(&n).to_string())),
+            deps,
+        })
+    }
+
+    /// Um parâmetro como dependência do injetor (`_parseDependencies`): o
+    /// nomeado opcional e o posicional opcional sem `@Optional` nem token
+    /// ficam de fora; opcional é só o `@Optional()`.
+    fn dependencia_do_injetor(
+        &self,
+        decl: &Declaracao<'a>,
+        p: &ast::Parameter,
+    ) -> Result<Option<Dependencia>, String> {
+        let mut optional = false;
+        let mut com_token = false;
+        for a in p.metadata.iter() {
+            match self.classe_da_anotacao(decl.lib, a) {
+                Some(c) if c.e(DI_ARGUMENTS, "Optional") => optional = true,
+                Some(c) if c.e(DI_ARGUMENTS, "Inject") => com_token = true,
+                Some(_) => {}
+                None => com_token = true,
+            }
+        }
+        match p.kind {
+            ast::ParameterKind::Named if !p.required => return Ok(None),
+            ast::ParameterKind::Named => {
+                return Err("parâmetro nomeado obrigatório no injetor".into());
+            }
+            ast::ParameterKind::Optional if !optional && !com_token => return Ok(None),
+            _ => {}
+        }
+        let tipo_super = (p.super_ && p.ty.is_none())
+            .then(|| {
+                let ctor = decl
+                    .membros
+                    .iter()
+                    .find_map(|&m| match &decl.ast.member(m).kind {
+                        ast::MemberKind::Constructor(k)
+                            if k.parameters.iter().any(|q| std::ptr::eq(q, p)) =>
+                        {
+                            Some(k)
+                        }
+                        _ => None,
+                    })?;
+                self.tipo_do_super(decl, ctor, p, 0)
+            })
+            .flatten();
+        let mut d = self.dependencia(decl, p, tipo_super)?;
+        if d.atributo.is_some() {
+            return Err("@Attribute no injetor".into());
+        }
+        if matches!(d.token, Token::Elemento | Token::Detector) {
+            return Err("HtmlElement/ChangeDetectorRef no injetor".into());
+        }
+        d.opcional = optional;
+        Ok(Some(d))
+    }
+
+    /// `useFactory:` com `deps:` escrito (`parseDependenciesList`) ou os
+    /// parâmetros da função.
+    fn fabrica_do_injetor(&self, f: Valor, deps: Option<Valor>) -> Result<FonteDoInjetor, String> {
+        let Valor::Funcao { uri, nome, id } = f else {
+            return Err("useFactory que não é função de topo".into());
+        };
+        let mut saida = Vec::new();
+        match deps {
+            Some(Valor::Lista(itens)) => {
+                for item in itens {
+                    let d = self.dependencia_de_deps(item)?;
+                    if matches!(d.token, Token::Elemento | Token::Detector) {
+                        return Err("HtmlElement/ChangeDetectorRef no injetor".into());
+                    }
+                    saida.push(d);
+                }
+            }
+            None | Some(Valor::Nulo) => {
+                let p = self.r.programa();
+                let dartforge_elements::model::FunctionRef::Function { unit, function } =
+                    p.function(id).node
+                else {
+                    return Err("useFactory sem declaração".into());
+                };
+                let u = p.unit(unit);
+                let decl = Declaracao {
+                    id: None,
+                    unidade: unit,
+                    lib: u.library,
+                    ast: &u.ast,
+                    metadados: &[],
+                    membros: &[],
+                    parametros_de_tipo: Vec::new(),
+                    abstrata: false,
+                };
+                let funcao = u.ast.function(function);
+                if !funcao.type_params.is_empty() {
+                    return Err("useFactory genérica".into());
+                }
+                for par in funcao.parameters.iter().flat_map(|ps| ps.iter()) {
+                    if let Some(d) = self.dependencia_do_injetor(&decl, par)? {
+                        saida.push(d);
+                    }
+                }
+            }
+            Some(_) => return Err("deps: ilegível".into()),
+        }
+        Ok(FonteDoInjetor::Fabrica {
+            uri,
+            nome,
+            deps: saida,
+        })
+    }
+
+    /// `_reviveAny`: o valor constante como o `ConstantReader.revive` o
+    /// reconstrói.
+    fn reviver(&self, v: Valor, profundidade: u32) -> Result<Revivido, String> {
+        if profundidade > PROFUNDIDADE {
+            return Err("valor profundo demais".into());
+        }
+        Ok(match v {
+            Valor::Nulo => Revivido::Nulo,
+            Valor::Texto(s) => Revivido::Texto(s),
+            Valor::Inteiro(i) => Revivido::Inteiro(i),
+            Valor::Booleano(b) => Revivido::Booleano(b),
+            Valor::Lista(itens) => Revivido::Lista(
+                itens
+                    .into_iter()
+                    .map(|i| self.reviver(i, profundidade + 1))
+                    .collect::<Result<_, _>>()?,
+            ),
+            Valor::Membro { classe, nome } => {
+                if self.r.programa().class(classe.id).kind != ClassKind::Enum {
+                    // O valor do campo estático, revivido pela classe dele.
+                    let v = self.campo_estatico(classe.id, &nome, profundidade)?;
+                    return self.reviver(v, profundidade + 1);
+                }
+                Revivido::Acesso {
+                    uri: classe.uri.clone(),
+                    nome: format!("{}.{nome}", classe.nome),
+                }
+            }
+            objeto @ Valor::Objeto { .. } => self.reviver_objeto(objeto, profundidade)?,
+            Valor::Tipo(_) => return Err("valor de tipo no injetor (Type)".into()),
+            Valor::Funcao { .. } => return Err("valor de função no injetor".into()),
+        })
+    }
+
+    /// `reviveInstance`: um campo `const` público da própria classe com o
+    /// mesmo valor; senão um campo `const` de uma classe da biblioteca dela;
+    /// senão a chamada do construtor; senão uma constante de topo da
+    /// biblioteca.
+    fn reviver_objeto(&self, v: Valor, profundidade: u32) -> Result<Revivido, String> {
+        let Valor::Objeto {
+            classe,
+            construtor,
+            tipos,
+            posicionais,
+            nomeados,
+        } = &v
+        else {
+            unreachable!()
+        };
+        if !tipos.is_empty() || !self.r.programa().class(classe.id).type_params.is_empty() {
+            return Err("valor constante de classe genérica no injetor".into());
+        }
+        let p = self.r.programa();
+        let publico = |n: &str| !n.starts_with('_');
+        // 1. Os campos `const` públicos da própria classe.
+        for &f in &p.class(classe.id).fields {
+            let var = p.variable(f);
+            let nome = self.r.interner().resolve(var.name);
+            if var.const_
+                && var.static_
+                && publico(nome)
+                && let Ok(x) = self.variavel(f, profundidade)
+                && self.mesmo_objeto(&x, &v)
+            {
+                return Ok(Revivido::Acesso {
+                    uri: classe.uri.clone(),
+                    nome: format!("{}.{nome}", classe.nome),
+                });
+            }
+        }
+        // 2. Os campos `const` das classes da unidade principal da biblioteca.
+        let lib = p.class(classe.id).library;
+        let mut candidatos: Vec<Revivido> = Vec::new();
+        let unidade = *p
+            .library(lib)
+            .units
+            .first()
+            .ok_or("biblioteca sem unidade")?;
+        let u = p.unit(unidade);
+        for &d in &u.unit.declarations {
+            let ast::DeclKind::Class(k) = &u.ast.decl(d).kind else {
+                continue;
+            };
+            let dono = self.nome(&k.name);
+            let Some(Element::Class(cid)) = self.r.elemento_em(lib, None, dono) else {
+                continue;
+            };
+            for &f in &p.class(cid).fields {
+                let var = p.variable(f);
+                if !(var.const_ && var.static_) {
+                    continue;
+                }
+                let nome = self.r.interner().resolve(var.name);
+                if let Ok(x) = self.variavel(f, profundidade)
+                    && self.mesmo_objeto(&x, &v)
+                {
+                    let r = Revivido::Acesso {
+                        uri: classe.uri.clone(),
+                        nome: format!("{dono}.{nome}"),
+                    };
+                    if publico(nome) {
+                        return Ok(r);
+                    }
+                    candidatos.push(r);
+                }
+            }
+        }
+        // 3. A chamada do construtor.
+        let privado = !publico(&classe.nome) || construtor.as_deref().is_some_and(|c| !publico(c));
+        if !privado {
+            return Ok(Revivido::Objeto {
+                uri: classe.uri.clone(),
+                classe: classe.nome.clone(),
+                construtor: construtor.clone(),
+                posicionais: posicionais
+                    .iter()
+                    .map(|x| self.reviver(x.clone(), profundidade + 1))
+                    .collect::<Result<_, _>>()?,
+                nomeados: nomeados
+                    .iter()
+                    .map(|(n, x)| Ok((n.clone(), self.reviver(x.clone(), profundidade + 1)?)))
+                    .collect::<Result<_, String>>()?,
+            });
+        }
+        // 4. As constantes de topo da biblioteca.
+        for &d in &u.unit.declarations {
+            let ast::DeclKind::Variables(l) = &u.ast.decl(d).kind else {
+                continue;
+            };
+            if !l.const_ {
+                continue;
+            }
+            for x in l.variables.iter() {
+                let nome = self.nome(&x.name);
+                if let Some(e) = x.initializer
+                    && let Ok(val) = self.valor(unidade, e, profundidade + 1)
+                    && self.mesmo_objeto(&val, &v)
+                    && publico(nome)
+                {
+                    return Ok(Revivido::Acesso {
+                        uri: p.library(lib).uri.clone(),
+                        nome: nome.to_string(),
+                    });
+                }
+            }
+        }
+        candidatos
+            .into_iter()
+            .next()
+            .ok_or_else(|| format!("valor de {} sem acesso público", classe.nome))
+    }
+
+    /// O valor de um campo estático `const` da classe.
+    fn campo_estatico(&self, c: ClassId, nome: &str, profundidade: u32) -> Result<Valor, String> {
+        let p = self.r.programa();
+        for &f in &p.class(c).fields {
+            let var = p.variable(f);
+            if var.static_ && self.r.interner().resolve(var.name) == nome {
+                return self.variavel(f, profundidade);
+            }
+        }
+        Err(format!("campo estático {nome} não achado"))
+    }
+
+    /// Dois valores constantes são o mesmo objeto (o `==` do `DartObject`):
+    /// primitivos pelo valor; objetos pela classe, pelo construtor e pelos
+    /// argumentos com os padrões preenchidos.
+    fn mesmo_objeto(&self, a: &Valor, b: &Valor) -> bool {
+        match (a, b) {
+            (Valor::Nulo, Valor::Nulo) => true,
+            (Valor::Texto(x), Valor::Texto(y)) => x == y,
+            (Valor::Inteiro(x), Valor::Inteiro(y)) => x == y,
+            (Valor::Booleano(x), Valor::Booleano(y)) => x == y,
+            (Valor::Tipo(x), Valor::Tipo(y)) => x.id == y.id,
+            (Valor::Funcao { id: x, .. }, Valor::Funcao { id: y, .. }) => x == y,
+            (
+                Valor::Membro {
+                    classe: c1,
+                    nome: n1,
+                },
+                Valor::Membro {
+                    classe: c2,
+                    nome: n2,
+                },
+            ) => c1.id == c2.id && n1 == n2,
+            (Valor::Lista(x), Valor::Lista(y)) => {
+                x.len() == y.len() && x.iter().zip(y).all(|(i, j)| self.mesmo_objeto(i, j))
+            }
+            (
+                Valor::Objeto {
+                    classe: c1,
+                    construtor: k1,
+                    ..
+                },
+                Valor::Objeto {
+                    classe: c2,
+                    construtor: k2,
+                    ..
+                },
+            ) => {
+                if c1.id != c2.id || k1 != k2 {
+                    return false;
+                }
+                match (self.com_padroes(a), self.com_padroes(b)) {
+                    (Some((p1, n1)), Some((p2, n2))) => {
+                        p1.len() == p2.len()
+                            && p1.iter().zip(&p2).all(|(i, j)| self.mesmo_objeto(i, j))
+                            && n1.len() == n2.len()
+                            && n1.iter().all(|(n, x)| {
+                                n2.iter().any(|(m, y)| m == n && self.mesmo_objeto(x, y))
+                            })
+                    }
+                    _ => false,
+                }
+            }
+            // Um campo estático de enum contra o mesmo campo lido.
+            _ => false,
+        }
+    }
+
+    /// Os argumentos de uma chamada `const` com os padrões do construtor
+    /// preenchidos (o que falta e não tem padrão é `null`).
+    fn com_padroes(&self, v: &Valor) -> Option<ArgumentosConst> {
+        let Valor::Objeto {
+            classe,
+            construtor,
+            posicionais,
+            nomeados,
+            ..
+        } = v
+        else {
+            return None;
+        };
+        let decl = self.declaracao(classe.id)?;
+        let k = decl
+            .membros
+            .iter()
+            .find_map(|&m| match &decl.ast.member(m).kind {
+                ast::MemberKind::Constructor(k)
+                    if k.name.map(|n| self.nome(&n).to_string()) == *construtor =>
+                {
+                    Some(k)
+                }
+                _ => None,
+            })?;
+        let padrao = |par: &ast::Parameter| -> Option<Valor> {
+            match par.default_value {
+                Some(e) => self.valor(decl.unidade, e, 1).ok(),
+                None => Some(Valor::Nulo),
+            }
+        };
+        let mut pos = Vec::new();
+        let mut nom = Vec::new();
+        let mut i = 0;
+        for par in k.parameters.iter() {
+            match par.kind {
+                ast::ParameterKind::Named => {
+                    let n = self.nome(par.name.as_ref()?).to_string();
+                    let x = match nomeados.iter().find(|(m, _)| *m == n) {
+                        Some((_, x)) => x.clone(),
+                        None => padrao(par)?,
+                    };
+                    nom.push((n, x));
+                }
+                _ => {
+                    let x = match posicionais.get(i) {
+                        Some(x) => x.clone(),
+                        None => padrao(par)?,
+                    };
+                    pos.push(x);
+                    i += 1;
+                }
+            }
+        }
+        Some((pos, nom))
     }
 }

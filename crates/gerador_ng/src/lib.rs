@@ -25,6 +25,7 @@ mod entidades;
 pub mod expr;
 pub mod html;
 pub mod incremental;
+mod injetor;
 pub mod metadados;
 pub mod micro;
 pub mod resolucao;
@@ -54,7 +55,7 @@ pub struct Achados {
     pub diretivas: Vec<componente::Componente>,
     /// `@Pipe`, com o que quem o usa precisa saber dele.
     pub pipes: Vec<componente::Pipe>,
-    /// `@GenerateInjector` em qualquer declaração de topo.
+    /// As variáveis de topo com `@GenerateInjector`, na ordem do fonte.
     pub injetores: Vec<String>,
     /// `@Directive` com `@HostBinding`: cada uma ganha um
     /// `DirectiveChangeDetector` no arquivo gerado.
@@ -279,7 +280,17 @@ pub fn achar(
                             .push(componente::ler_pipe(arvore, fonte, interner, classe, a));
                     }
                 }
-                "GenerateInjector" => achados.injetores.push(alvo.clone()),
+                "GenerateInjector" => {
+                    if let ast::DeclKind::Variables(l) = &decl.kind {
+                        achados.injetores.extend(
+                            l.variables
+                                .iter()
+                                .map(|v| interner.resolve(v.name.sym).to_string()),
+                        );
+                    } else {
+                        achados.injetores.push(alvo.clone());
+                    }
+                }
                 _ => {}
             }
         }
@@ -530,6 +541,12 @@ pub struct Indice {
     /// (`metadados.rs`): é por eles que o emissor instancia a diretiva num
     /// nó. Sem programa, vazio — e toda diretiva casada é recusada.
     metadados: std::collections::HashMap<(String, String), std::sync::Arc<diretivas::Diretiva>>,
+    /// Os `@GenerateInjector` por (URI da biblioteca, variável), lidos do
+    /// programa (`metadados::ler_injetores`), ou o motivo de não se lerem.
+    injetores: std::collections::HashMap<
+        (String, String),
+        Result<std::sync::Arc<metadados::Injetor>, String>,
+    >,
     /// As chaves que cada arquivo pôs, para `remover`/`atualizar`.
     por_arquivo: std::collections::HashMap<PathBuf, Vec<(String, String)>>,
 }
@@ -606,6 +623,7 @@ impl Indice {
             self.diretivas.remove(&k);
             self.pipes.remove(&k);
             self.metadados.remove(&k);
+            self.injetores.remove(&k);
         }
     }
 
@@ -700,6 +718,16 @@ impl Indice {
                 self.diretivas.entry(k.clone()).or_insert_with(|| d.clone());
             }
             chaves.push(k);
+        }
+        if !achados.injetores.is_empty()
+            && let Some(r) = programa
+        {
+            for (nome, lido) in crate::metadados::ler_injetores(r, uri) {
+                let k = (uri.to_string(), nome);
+                self.injetores
+                    .insert(k.clone(), lido.map(std::sync::Arc::new));
+                chaves.push(k);
+            }
         }
         for p in &achados.pipes {
             let k = (uri.to_string(), p.classe.clone());
@@ -1248,15 +1276,68 @@ pub(crate) fn gerar_interno(
     nomes: &mut Interner,
     indice: &Indice,
 ) -> Result<Gerado, Recusa> {
-    if achados.trivial() {
+    if achados.injetores.is_empty() {
+        return gerar_visoes(
+            pacote,
+            fonte,
+            nome_do_arquivo,
+            achados,
+            resolvedor,
+            nomes,
+            indice,
+        );
+    }
+    // `buildGeneratedCode`: os imports dos injetores logo depois do import
+    // do próprio arquivo, antes dos das visões; o código deles no fim.
+    let uri = uri_de_biblioteca(pacote, fonte)
+        .ok_or_else(|| recusa(Motivo::Injetor, "@GenerateInjector fora de um pacote"))?;
+    let mut injetores = Vec::new();
+    for nome in &achados.injetores {
+        match indice.injetores.get(&(uri.clone(), nome.clone())) {
+            Some(Ok(i)) => injetores.push(i.clone()),
+            Some(Err(f)) => return Err(recusa(Motivo::Injetor, f.clone())),
+            None => return Err(recusa(Motivo::Injetor, "@GenerateInjector sem programa")),
+        }
+    }
+    let (mut texto, entradas, extras) = gerar_visoes(
+        pacote,
+        fonte,
+        nome_do_arquivo,
+        achados,
+        resolvedor,
+        nomes,
+        indice,
+    )?;
+    let refs: Vec<&metadados::Injetor> = injetores.iter().map(|i| i.as_ref()).collect();
+    let (imports, corpo) = injetor::emitir(&refs).map_err(|f| recusa(Motivo::Injetor, f))?;
+    let marca = format!("import '{nome_do_arquivo}';\n");
+    let depois = texto
+        .find(&marca)
+        .map(|i| i + marca.len())
+        .ok_or_else(|| recusa(Motivo::Injetor, "arquivo gerado sem o import de si mesmo"))?;
+    texto.insert_str(depois, &imports);
+    texto.push('\n');
+    texto.push_str(&corpo);
+    Ok((texto, entradas, extras))
+}
+
+/// O `.template.dart` das visões (e dos `XNgCd`) de um arquivo, sem os
+/// injetores.
+fn gerar_visoes(
+    pacote: &Pacote,
+    fonte: &Path,
+    nome_do_arquivo: &str,
+    achados: &Achados,
+    resolvedor: Option<&dyn resolucao::Resolucao>,
+    nomes: &mut Interner,
+    indice: &Indice,
+) -> Result<Gerado, Recusa> {
+    if achados.componentes.is_empty() && achados.diretivas.is_empty() && achados.pipes.is_empty() {
         return Ok((
             template_trivial(nome_do_arquivo),
             vec![fonte.to_path_buf()],
             Vec::new(),
         ));
-    }
-    if !achados.injetores.is_empty() {
-        return Err(recusa(Motivo::Injetor, "@GenerateInjector"));
     }
     // Diretiva e pipe não geram visão: o arquivo deles é o trivial, a não
     // ser que uma diretiva tenha `@HostBinding` — aí o oficial gera o

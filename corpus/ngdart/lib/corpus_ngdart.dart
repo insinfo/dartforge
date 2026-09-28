@@ -300,3 +300,5 @@ export 'src/j83_ngfor_local_sem_tipo.dart';
 export 'src/j84_host_binding_herdado.dart';
 export 'src/j85_diretivas_de_template.dart';
 export 'src/j86_consulta_em_molde.dart';
+export 'src/j87_injetor.dart';
+export 'src/j88_injetor_e_componente.dart';

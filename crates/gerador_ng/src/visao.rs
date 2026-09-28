@@ -10059,13 +10059,12 @@ fn gerar_componente(
     } else {
         // A consulta dinâmica escreve `_ctx.x = ...` quando é resolvida
         // ([`resolver_consultas`]), depois desta conta.
-        let ctx_det = if cita_ctx(&linhas_deteccao)
-            || corpo.consultas_dinamicas.iter().any(|d| d.vista)
-        {
-            "    final _ctx = this.ctx;\n"
-        } else {
-            ""
-        };
+        let ctx_det =
+            if cita_ctx(&linhas_deteccao) || corpo.consultas_dinamicas.iter().any(|d| d.vista) {
+                "    final _ctx = this.ctx;\n"
+            } else {
+                ""
+            };
         let primeira = if corpo.usa_primeira_checagem {
             "    bool firstCheck = this.firstCheck;\n"
         } else {
