@@ -2517,6 +2517,7 @@ struct Corpo<'a> {
     url_do_template: Option<String>,
     /// Tipos dos membros do componente, para escolher `interpolateString`.
     membros: &'a std::collections::HashMap<String, crate::componente::Membro>,
+    exportados: &'a Exportados,
     /// Métodos da classe, válidos só como alvo de chamada.
     metodos: &'a std::collections::HashMap<String, String>,
     /// Parâmetros posicionais de cada método, para o tear-off de evento.
@@ -2914,6 +2915,7 @@ impl Corpo<'_> {
             locais: &locais,
             tipos: self.tipos,
             classe: Some(&self.classe_qualificada),
+            exportados: Some(self.exportados),
         };
         let mut c = crate::expr::converter_no_escopo(texto, &escopo, self.nomes)
             .map_err(|r| r.em(motivo))?;
@@ -3270,6 +3272,7 @@ impl Corpo<'_> {
             locais: &escopo_locais,
             tipos: self.tipos,
             classe: Some(&self.classe_qualificada),
+            exportados: Some(self.exportados),
         };
         let mut acoes = Vec::new();
         for t in textos {
@@ -5117,6 +5120,9 @@ impl Corpo<'_> {
                 let alias = self.imp.alias(INTERPOLATE);
                 format!("{alias}.{f}({})", convertida.texto)
             };
+            // No `build()` o import de um nome de `exports:` entra agora,
+            // depois do `interpolate` (caso j51).
+            let valor = resolver_tardios(self.imp, &valor);
             if cita_ctx(std::slice::from_ref(&valor)) {
                 self.usa_ctx_no_build = true;
             }
@@ -6810,10 +6816,17 @@ struct Origem {
     niveis: u32,
 }
 
+/// Os nomes de `exports:` do componente: o qualificador (import tardio) e o
+/// que cada um designa.
+pub(crate) type Exportados =
+    std::collections::HashMap<String, (String, crate::resolucao::Exportado)>;
+
 /// O que toda visão do arquivo compartilha: o componente, as diretivas que
 /// ele usa e onde o arquivo mora.
 struct Contexto<'a> {
     membros: &'a std::collections::HashMap<String, crate::componente::Membro>,
+    /// Os nomes de `exports:` resolvidos ([`Exportados`]).
+    exportados: &'a Exportados,
     metodos: &'a std::collections::HashMap<String, String>,
     aridades: &'a std::collections::HashMap<String, usize>,
     filhos: &'a std::collections::HashMap<String, Filho>,
@@ -6889,6 +6902,7 @@ impl<'a> Contexto<'a> {
             tb: None,
             url_do_template: self.url_do_template.clone(),
             membros: self.membros,
+            exportados: self.exportados,
             metodos: self.metodos,
             aridades: self.aridades,
             metodos_evento: Vec::new(),
@@ -8098,7 +8112,7 @@ pub fn trecho_de_componente(
     imp: &mut Importacoes,
 ) -> Result<String, Recusa> {
     let mut coleta = None;
-    gerar_componente(
+    let texto = gerar_componente(
         c,
         local,
         nos,
@@ -8109,7 +8123,13 @@ pub fn trecho_de_componente(
         pipes,
         &mut coleta,
         imp,
-    )
+    )?;
+    // Uma marca de import tardio que nenhum passo resolveu sairia no arquivo:
+    // é uma forma que o emissor ainda não escreve.
+    if texto.contains(['\u{1}', '\u{2}']) {
+        return Err(recusa(Motivo::NaoEntendido, "import tardio sem resolver na saída"));
+    }
+    Ok(texto)
 }
 
 /// O `.template.dart` de um arquivo com um componente só:
@@ -8571,8 +8591,25 @@ fn gerar_componente(
     // sempre entra antes do corpo do `build()`.
     let html = imp.alias("dart:html");
 
+    // `exports:`: cada nome pelo import da biblioteca que o declara, alocado
+    // quando a expressão é escrita (caso j51).
+    let mut exportados = Exportados::new();
+    if let Some(r) = resolvedor {
+        for nome in c.exportados.iter().filter(|n| !n.contains('.')) {
+            let Some((uri, o_que)) = r.exportado(local.caminho, nome) else {
+                continue;
+            };
+            let Some(caminho) = asset_de_uri(&uri, local.pacote, local.raiz)
+                .and_then(|a| caminho_do_import(&local.asset(), &a))
+            else {
+                continue;
+            };
+            exportados.insert(nome.clone(), (tardio_q(&caminho), o_que));
+        }
+    }
     let ctx = Contexto {
         membros: &c.membros,
+        exportados: &exportados,
         metodos: &c.metodos,
         aridades: &c.aridades,
         filhos,

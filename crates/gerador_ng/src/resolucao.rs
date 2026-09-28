@@ -61,6 +61,42 @@ pub trait Resolucao {
         self.uri_do_tipo(arquivo, nome)
             .map(|uri| Designado::Classe { uri })
     }
+
+    /// Um nome de `exports:` no escopo de `arquivo`: a URI da biblioteca que
+    /// o declara e o que ele é.
+    fn exportado(&self, _arquivo: &Path, _nome: &str) -> Option<(String, Exportado)> {
+        None
+    }
+
+    /// O membro estático `membro` da classe `tipo` (no escopo de
+    /// `arquivo`).
+    fn membro_estatico(&self, _arquivo: &Path, _tipo: &str, _membro: &str) -> Option<Estatico> {
+        None
+    }
+}
+
+/// O que um nome de `exports:` designa no escopo do componente
+/// (`_matchExport`: o oficial o escreve pelo import da biblioteca que o
+/// declara, com tipo `dynamic`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Exportado {
+    /// Classe, enum ou mixin: vale como receptor de membro estático.
+    Classe,
+    /// Variável de topo: imutável quando `const`/`final` (`isImmutable`).
+    Variavel { imutavel: bool },
+    /// Getter de topo.
+    Getter,
+    /// Função de topo: vale como alvo de chamada.
+    Funcao,
+}
+
+/// Um membro estático lido por `Classe.nome`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Estatico {
+    /// Campo (ou valor de enum): imutável quando `const`/`final`.
+    Campo { imutavel: bool },
+    Getter,
+    Metodo,
 }
 
 /// Um item de `directives: [...]`.
@@ -363,6 +399,59 @@ impl Resolucao for Resolvedor<'_> {
             atual = c.supertype_class;
         }
         None
+    }
+
+    fn exportado(&self, arquivo: &Path, nome: &str) -> Option<(String, Exportado)> {
+        let lib = self.biblioteca(arquivo)?;
+        let sym = self.interner.lookup(nome)?;
+        let ligacao = self.program.library(lib).scope.get(&sym)?;
+        if ligacao.ambiguous {
+            return None;
+        }
+        let (dona, o_que) = match ligacao.getter? {
+            Element::Class(id) => (self.program.class(id).library, Exportado::Classe),
+            Element::Variable(vid) => {
+                let v = self.program.variable(vid);
+                (v.library, Exportado::Variavel { imutavel: v.const_ || v.final_ })
+            }
+            Element::Function(fid) => {
+                let f = self.program.function(fid);
+                let o_que = match f.kind {
+                    dartforge_elements::model::FunctionKind::Function => Exportado::Funcao,
+                    dartforge_elements::model::FunctionKind::Getter => Exportado::Getter,
+                    _ => return None,
+                };
+                (f.library, o_que)
+            }
+            _ => return None,
+        };
+        Some((self.program.library(dona).uri.clone(), o_que))
+    }
+
+    fn membro_estatico(&self, arquivo: &Path, tipo: &str, membro: &str) -> Option<Estatico> {
+        let id = self.classe(arquivo, tipo)?;
+        let sym = self.interner.lookup(membro)?;
+        let c = self.program.class(id);
+        // Valor de enum: constante (fica em `enum_constants`, não entre os
+        // membros estáticos).
+        if c
+            .enum_constants
+            .iter()
+            .any(|&v| self.program.variable(v).name == sym)
+        {
+            return Some(Estatico::Campo { imutavel: true });
+        }
+        let fid = *c.static_members.get(&sym)?;
+        let f = self.program.function(fid);
+        match (f.variable, f.kind) {
+            (Some(vid), _) => {
+                let v = self.program.variable(vid);
+                Some(Estatico::Campo { imutavel: v.const_ || v.final_ })
+            }
+            (None, dartforge_elements::model::FunctionKind::Getter) => Some(Estatico::Getter),
+            (None, dartforge_elements::model::FunctionKind::Function) => Some(Estatico::Metodo),
+            _ => None,
+        }
     }
 
     fn designado(&self, arquivo: &Path, nome: &str) -> Option<Designado> {

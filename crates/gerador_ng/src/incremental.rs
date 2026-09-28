@@ -222,4 +222,35 @@ impl Resolucao for Gravador<'_> {
         }
         r
     }
+
+    // O tipo ausente do escopo depende das bibliotecas que o arquivo
+    // importa, que o fecho de imports da invalidação (`NgEstagioA`) já
+    // cobre; não há biblioteca que o declare para anotar.
+    fn tipo_inexistente(&self, arquivo: &Path, tipo: &str) -> bool {
+        self.dentro.tipo_inexistente(arquivo, tipo)
+    }
+
+    fn exportado(
+        &self,
+        arquivo: &Path,
+        nome: &str,
+    ) -> Option<(String, crate::resolucao::Exportado)> {
+        let r = self.dentro.exportado(arquivo, nome);
+        if let Some((uri, _)) = &r {
+            self.anotar(uri, nome);
+        }
+        r
+    }
+
+    fn membro_estatico(
+        &self,
+        arquivo: &Path,
+        tipo: &str,
+        membro: &str,
+    ) -> Option<crate::resolucao::Estatico> {
+        if let Some(uri) = self.dentro.uri_do_tipo(arquivo, tipo) {
+            self.anotar(&uri, tipo);
+        }
+        self.dentro.membro_estatico(arquivo, tipo, membro)
+    }
 }

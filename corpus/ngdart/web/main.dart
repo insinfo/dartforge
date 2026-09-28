@@ -238,6 +238,9 @@ import 'package:corpus_ngdart/src/j45_componente_e_ngcd.template.dart' as j45;
 import 'package:corpus_ngdart/src/j47_container_no_hospedeiro.template.dart' as j47;
 import 'package:corpus_ngdart/src/j48_usa_container.template.dart' as j48;
 import 'package:corpus_ngdart/src/j49_diretiva_com_container.template.dart' as j49;
+import 'package:corpus_ngdart/src/j50_parametro_super.template.dart' as j50;
+import 'package:corpus_ngdart/src/j51_exports.template.dart' as j51;
+import 'package:corpus_ngdart/src/j52_let_em_molde.template.dart' as j52;
 
 void main() {
   print([
@@ -479,5 +482,8 @@ void main() {
     j47.J47UsaNgFactory,
     j48.J48UsaContainerNgFactory,
     j49.J49DiretivaComContainerNgFactory,
+    j50.J50ParametroSuperNgFactory,
+    j51.J51ExportsNgFactory,
+    j52.J52LetEmMoldeNgFactory,
   ].length);
 }

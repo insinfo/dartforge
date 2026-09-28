@@ -261,3 +261,7 @@ export 'src/j46_varias_ngcd.dart';
 export 'src/j47_container_no_hospedeiro.dart';
 export 'src/j48_usa_container.dart';
 export 'src/j49_diretiva_com_container.dart';
+export 'src/j50_parametro_super.dart';
+export 'src/j51_exports.dart';
+export 'src/j52_filho.dart';
+export 'src/j52_let_em_molde.dart';

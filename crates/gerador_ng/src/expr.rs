@@ -75,6 +75,9 @@ pub struct Convertida {
     /// oficial os pede ao `ViewNameResolver` — é a ordem em que as
     /// declarações `final local_x = …` saem no método.
     pub locais: Vec<String>,
+    /// Uma classe de `exports:` (o nome simples): só vale como receptor de
+    /// membro estático (`Classe.nome`).
+    pub estatica: Option<String>,
 }
 
 impl Convertida {
@@ -88,6 +91,7 @@ impl Convertida {
             forma,
             literal: false,
             locais: Vec::new(),
+            estatica: None,
         }
     }
 }
@@ -165,6 +169,8 @@ pub struct Escopo<'a> {
     /// (`import1.Classe`), para os membros estáticos; `None` quando não se
     /// sabe, e o estático é recusado.
     pub classe: Option<&'a str>,
+    /// Os nomes de `exports:` (`_matchExport`), com o qualificador tardio.
+    pub exportados: Option<&'a crate::visao::Exportados>,
 }
 
 /// Converte uma expressão escrita no template.
@@ -218,6 +224,7 @@ pub fn converter_com_locais(
         locais,
         tipos,
         classe: None,
+        exportados: None,
     };
     converter_no_escopo(expressao, &escopo, interner)
 }
@@ -586,6 +593,30 @@ impl Conversor<'_> {
                         ..Convertida::nova(l.dart.clone(), "local")
                     });
                 }
+                // Nome de `exports:` (`_matchExport`, antes dos membros): pelo
+                // import da biblioteca que o declara, tipo `dynamic`; a
+                // variável `const`/`final` é imutável (caso j51).
+                if let Some((q, o_que)) = self.escopo.exportados.and_then(|e| e.get(nome)) {
+                    use crate::resolucao::Exportado;
+                    let texto = format!("{q}{nome}");
+                    return match o_que {
+                        Exportado::Classe => Ok(Convertida {
+                            tipo: Some("dynamic".into()),
+                            estatica: Some(nome.to_string()),
+                            ..Convertida::nova(texto, "classe de exports:")
+                        }),
+                        Exportado::Variavel { imutavel } => Ok(Convertida {
+                            imutavel: *imutavel,
+                            tipo: Some("dynamic".into()),
+                            ..Convertida::nova(texto, "variável de exports:")
+                        }),
+                        Exportado::Getter => Ok(Convertida {
+                            tipo: Some("dynamic".into()),
+                            ..Convertida::nova(texto, "getter de exports:")
+                        }),
+                        Exportado::Funcao => Err(fora("função de exports: como valor")),
+                    };
+                }
                 // Método lido como valor (o `trackBy: rastrear` do `*ngFor`,
                 // um callback passado a um filho): `isImmutable` diz que
                 // "methods are immutable"; `canBeNull` não o isenta; e o
@@ -631,6 +662,26 @@ impl Conversor<'_> {
                 let alvo = self.expr(*target, raiz)?;
                 let nome = self.interner.resolve(name.sym);
                 let ponto = if *null_aware { "?." } else { "." };
+                // `Classe.nome` de uma classe de `exports:`: o campo
+                // `const`/`final` (e o valor de enum) é imutável; getter e
+                // método, não. Tipo `dynamic` (caso j51).
+                if let Some(classe) = &alvo.estatica {
+                    use crate::resolucao::Estatico;
+                    let Some((r, arquivo)) = self.escopo.tipos else {
+                        return Err(fora("membro estático de exports: sem o banco semântico"));
+                    };
+                    let imutavel = match r.membro_estatico(arquivo, classe, nome) {
+                        Some(Estatico::Campo { imutavel }) => imutavel,
+                        Some(Estatico::Getter | Estatico::Metodo) => false,
+                        None => return Err(fora("membro estático de exports: desconhecido")),
+                    };
+                    return Ok(Convertida {
+                        imutavel,
+                        tipo: Some("dynamic".into()),
+                        locais: alvo.locais,
+                        ..Convertida::nova(format!("{}{ponto}{nome}", alvo.texto), "membro estático")
+                    });
+                }
                 // O tipo do fim da cadeia está noutra classe: é o banco
                 // semântico que responde, como o analyzer responde ao oficial.
                 // Receptor `dynamic` (o `#ref`, `$event`): o
@@ -730,7 +781,18 @@ impl Conversor<'_> {
                                 .contains_key(self.interner.resolve(n.sym)) =>
                     {
                         let nome = self.interner.resolve(n.sym);
+                        let exportada = self
+                            .escopo
+                            .exportados
+                            .and_then(|e| e.get(nome))
+                            .filter(|(_, o)| *o == crate::resolucao::Exportado::Funcao);
                         match self.escopo.metodos.get(nome) {
+                            // Função de `exports:`: pelo import, `dynamic`.
+                            _ if exportada.is_some() => (
+                                format!("{}{nome}", exportada.map(|(q, _)| q.as_str()).unwrap_or_default()),
+                                Some("dynamic".to_string()),
+                                Vec::new(),
+                            ),
                             Some(t) => (format!("_ctx.{nome}"), Some(t.clone()), Vec::new()),
                             None => {
                                 let t = self.expr(*target, raiz)?;
@@ -1117,6 +1179,7 @@ mod testes {
             locais: &locais,
             tipos: None,
             classe: None,
+            exportados: None,
         };
         converter_acao(e, &escopo, &mut Interner::new()).expect("converte")
     }

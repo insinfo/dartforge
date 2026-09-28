@@ -1,0 +1,8 @@
+<div>
+  <template #modelo let-ctx>
+    <span>{{ ctx.titulo }}</span>
+    <small>{{ rotulo(ctx) }}</small>
+    <button *ngIf="ctx.anterior" [class]="ctx.classe" (click)="ctx.voltar()">{{ ctx.rotulo }}</button>
+  </template>
+</div>
+<j52-filho [modelo]="modelo"></j52-filho>

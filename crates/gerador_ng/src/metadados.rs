@@ -105,6 +105,8 @@ struct Leitor<'r, 'a> {
 /// Onde uma classe está declarada: a unidade, a biblioteca, os membros e os
 /// nomes dos parâmetros de tipo.
 struct Declaracao<'a> {
+    /// A classe declarada (`None` na função de `useFactory:`).
+    id: Option<ClassId>,
     unidade: UnitId,
     lib: LibraryId,
     ast: &'a ast::Ast,
@@ -133,6 +135,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
             _ => return None,
         };
         Some(Declaracao {
+            id: Some(id),
             unidade: d.unit,
             lib: u.library,
             ast: &u.ast,
@@ -544,6 +547,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
             };
             let u = p.unit(unit);
             let decl = Declaracao {
+                id: None,
                 unidade: unit,
                 lib: u.library,
                 ast: &u.ast,
@@ -560,7 +564,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 if matches!(par.kind, ast::ParameterKind::Named) {
                     continue;
                 }
-                saida.push(self.dependencia(&decl, par)?);
+                saida.push(self.dependencia(&decl, par, None)?);
             }
         }
         Ok(Fornece::Fabrica {
@@ -1019,7 +1023,11 @@ impl<'r, 'a> Leitor<'r, 'a> {
             if matches!(p.kind, ast::ParameterKind::Named) {
                 continue;
             }
-            match self.dependencia(decl, p) {
+            // `super.x` sem tipo: o do parâmetro que ele repassa.
+            let tipo_super = (p.super_ && p.ty.is_none())
+                .then(|| self.tipo_do_super(decl, ctor, p, 0))
+                .flatten();
+            match self.dependencia(decl, p, tipo_super) {
                 Ok(x) => d.dependencias.push(x),
                 Err(f) => {
                     d.fora.push(f);
@@ -1033,6 +1041,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
         &self,
         decl: &Declaracao<'a>,
         p: &ast::Parameter,
+        tipo_super: Option<(ast::TypeId, &'a ast::Ast, LibraryId)>,
     ) -> Result<Dependencia, String> {
         let mut dep = Dependencia {
             token: Token::Elemento,
@@ -1091,13 +1100,14 @@ impl<'r, 'a> Leitor<'r, 'a> {
             Some(t) => t,
             None => {
                 let t = match p.ty {
-                    Some(t) => Some((t, decl.ast)),
-                    None if p.this_ => self.tipo_do_campo(decl, p),
+                    Some(t) => Some((t, decl.ast, decl.lib)),
+                    None if p.this_ => self.tipo_do_campo(decl, p).map(|(t, a)| (t, a, decl.lib)),
+                    None if p.super_ => tipo_super,
                     None => None,
                 }
                 .ok_or("parâmetro sem tipo no construtor da diretiva")?;
                 let tipo = self
-                    .tipo(decl.lib, t.0, t.1)
+                    .tipo(t.2, t.0, t.1)
                     .ok_or("tipo não resolvido no construtor da diretiva")?;
                 let c = tipo
                     .classe
@@ -1115,6 +1125,63 @@ impl<'r, 'a> Leitor<'r, 'a> {
             }
         };
         Ok(dep)
+    }
+
+    /// O tipo de um parâmetro `super.x` sem tipo escrito
+    /// (`SuperFormalParameterElement`): o do parâmetro que ele repassa no
+    /// construtor da superclasse chamado — o do `super.nome(..)` do
+    /// inicializador, ou o sem nome —, pela posição entre os `super.`
+    /// posicionais ou pelo nome; lá, o tipo escrito, o do campo (`this.x`)
+    /// ou, outro `super.x`, o da superclasse seguinte. Com a biblioteca em
+    /// que o tipo está escrito.
+    fn tipo_do_super(
+        &self,
+        decl: &Declaracao<'a>,
+        ctor: &ast::Constructor,
+        p: &ast::Parameter,
+        profundidade: u32,
+    ) -> Option<(ast::TypeId, &'a ast::Ast, LibraryId)> {
+        if profundidade > 16 {
+            return None;
+        }
+        let sup = self.r.programa().class(decl.id?).supertype_class?;
+        let sdecl = self.declaracao(sup)?;
+        let chamado = ctor.initializers.iter().find_map(|i| match i {
+            ast::Initializer::Super { constructor, .. } => Some(constructor.as_ref().map(|n| self.nome(n))),
+            _ => None,
+        });
+        let chamado: Option<&str> = chamado.flatten();
+        let sctor = sdecl.membros.iter().find_map(|&m| match &sdecl.ast.member(m).kind {
+            ast::MemberKind::Constructor(c)
+                if !c.factory && c.name.as_ref().map(|n| self.nome(n)) == chamado =>
+            {
+                Some(c)
+            }
+            _ => None,
+        })?;
+        let nomeado = |q: &ast::Parameter| matches!(q.kind, ast::ParameterKind::Named);
+        let alvo = if nomeado(p) {
+            let nome = self.nome(p.name.as_ref()?);
+            sctor
+                .parameters
+                .iter()
+                .find(|q| nomeado(q) && q.name.as_ref().map(|n| self.nome(n)) == Some(nome))?
+        } else {
+            let k = ctor
+                .parameters
+                .iter()
+                .filter(|q| q.super_ && !nomeado(q))
+                .position(|q| std::ptr::eq(q, p))?;
+            sctor.parameters.iter().filter(|q| !nomeado(q)).nth(k)?
+        };
+        match alvo.ty {
+            Some(t) => Some((t, sdecl.ast, sdecl.lib)),
+            None if alvo.this_ => self
+                .tipo_do_campo(&sdecl, alvo)
+                .map(|(t, a)| (t, a, sdecl.lib)),
+            None if alvo.super_ => self.tipo_do_super(&sdecl, sctor, alvo, profundidade + 1),
+            None => None,
+        }
     }
 
     /// O tipo escrito do campo de um parâmetro `this.x`.

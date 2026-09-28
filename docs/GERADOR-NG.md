@@ -423,9 +423,18 @@ diretiva de elemento comum que injeta `ViewContainerRef`: o mesmo
 (que começam no `_8`) — caso j49. Outro embutido do elemento (`ElementRef`,
 `TemplateRef` fora de `<template>`, `ComponentLoader`) e diretiva de
 `<template>` com `ViewContainerRef`, entradas ou ganchos continuam
-recusados, nunca do injetor de fora. Corpus: 276 conferidos.
-limitless_ui/example (Linux, `build --comparar`): **909 iguais / 41
-pendentes / 0 diferentes** — `.template.dart` 493/39/0, `.css` e `.css.map` do Sass 102/102 cada,
+recusados, nunca do injetor de fora; parâmetro `super.x` no construtor
+de diretiva (o tipo do parâmetro repassado no construtor da superclasse),
+e diretiva que herda só `@HostListener` no arquivo de componente — caso
+j50; nomes de `exports:` pelo import da biblioteca que os declara, tipo
+`dynamic`, imutável a variável `const`/`final` e o campo estático
+`const`/`final` (e o valor de enum), mutáveis getter, método, função e
+cadeia além do campo — caso j51; `<template #t let-x>` lido em `*` aninhado
+e em evento — caso j52. O `Gravador` do incremental passa a repassar
+`tipo_inexistente`, `exportado` e `membro_estatico` (a regeração de um
+arquivo sozinho dava outro texto que a do pacote). Corpus: 281 conferidos.
+limitless_ui/example (Linux, `build --comparar`): **912 iguais / 38
+pendentes / 0 diferentes** — `.template.dart` 496/36/0, `.css` e `.css.map` do Sass 102/102 cada,
 `.css.dart` e `.css.shim.dart` 104 cada.
 
 ### Diretivas estruturais

@@ -1138,29 +1138,29 @@ pub(crate) fn gerar_interno(
     // Diretiva e pipe não geram visão: o arquivo deles é o trivial, a não
     // ser que uma diretiva tenha `@HostBinding` — aí o oficial gera o
     // `DirectiveChangeDetector` dela.
-    if achados.componentes.is_empty() {
-        // Diretiva que herda e tem `@HostBinding`/`@HostListener`: o
-        // `XNgCd` depende também das ligações herdadas. Os metadados lidos
-        // do programa as veem; se nenhuma diretiva do arquivo tem ligação
-        // além das que a própria classe declara, o arquivo é o de sempre.
-        let so_as_proprias = uri_de_biblioteca(pacote, fonte).is_some_and(|uri| {
-            achados.diretivas.iter().all(|d| {
-                let Some(m) = indice.metadados.get(&(uri.clone(), d.classe.clone())) else {
-                    return false;
-                };
-                let proprias: Vec<String> = achados
-                    .hospedeiras
+    // Diretiva que herda e tem `@HostBinding`/`@HostListener`: o `XNgCd`
+    // depende também das ligações herdadas. Os metadados lidos do programa
+    // as veem; se nenhuma diretiva do arquivo tem ligação além das que a
+    // própria classe declara, o que ela gera é o de sempre (casos j45, j50).
+    let so_as_proprias = uri_de_biblioteca(pacote, fonte).is_some_and(|uri| {
+        achados.diretivas.iter().all(|d| {
+            let Some(m) = indice.metadados.get(&(uri.clone(), d.classe.clone())) else {
+                return false;
+            };
+            let proprias: Vec<String> = achados
+                .hospedeiras
+                .iter()
+                .filter(|h| h.classe == d.classe)
+                .flat_map(|h| h.ligacoes.iter().map(|(n, _)| n.clone()))
+                .collect();
+            m.fora.is_empty()
+                && m.ligacoes_do_hospedeiro.len() == proprias.len()
+                && m.ligacoes_do_hospedeiro
                     .iter()
-                    .filter(|h| h.classe == d.classe)
-                    .flat_map(|h| h.ligacoes.iter().map(|(n, _)| n.clone()))
-                    .collect();
-                m.fora.is_empty()
-                    && m.ligacoes_do_hospedeiro.len() == proprias.len()
-                    && m.ligacoes_do_hospedeiro
-                        .iter()
-                        .all(|(n, _)| proprias.contains(n))
-            })
-        });
+                    .all(|(n, _)| proprias.contains(n))
+        })
+    });
+    if achados.componentes.is_empty() {
         if achados.hospedeiro_herdado && !so_as_proprias {
             return Err(recusa(
                 Motivo::HostBindingEmDiretiva,
@@ -1192,7 +1192,7 @@ pub(crate) fn gerar_interno(
     // Diretiva sem `@HostBinding`/`@HostListener` e pipe não geram nada no
     // arquivo (caso j29); a com `@HostBinding` ganha a classe `XNgCd` depois
     // dos componentes (caso j45). Herdado, ainda sem caso.
-    if achados.hospedeiro_herdado {
+    if achados.hospedeiro_herdado && !so_as_proprias {
         return Err(recusa(
             Motivo::DiretivaOuPipe,
             "componente com diretiva de @HostBinding herdado no arquivo",

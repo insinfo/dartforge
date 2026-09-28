@@ -34,6 +34,9 @@ pub struct Componente {
     /// `providers:`/`viewProviders:` com provedores: entram no nó de quem usa
     /// e mudam a numeração dos provedores dele.
     pub com_provedores: bool,
+    /// Os nomes de `exports:`, na ordem escrita: entram no escopo das
+    /// expressões (`_matchExport`) antes dos membros.
+    pub exportados: Vec<String>,
     /// `visibility:` escrito: o valor vem dos metadados do programa
     /// (`metadados.rs`), sem eles não se sabe a hospedeira.
     pub visibilidade_escrita: bool,
@@ -570,6 +573,7 @@ fn ler(
         c.metodos.remove(simples);
         c.aridades.remove(simples);
     }
+    c.exportados = exportados;
     c.entradas = entradas_da_classe(arvore, interner, classe);
     c.saidas = saidas_da_classe(arvore, interner, classe);
     c.ganchos = ganchos_da_classe(arvore, fonte, classe);
