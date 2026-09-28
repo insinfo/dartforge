@@ -343,6 +343,18 @@ impl Conversor<'_> {
         })
     }
 
+    /// Um setter de instância (`set nome(..)`) da classe ou de cima dela:
+    /// alvo de escrita que não é campo nem getter ([`Resolucao::tem_setter`]).
+    fn setter(&self, nome: &str) -> bool {
+        if nome.starts_with('_') {
+            return false;
+        }
+        let (Some((r, arquivo)), Some(classe)) = (self.escopo.tipos, self.escopo.classe) else {
+            return false;
+        };
+        r.tem_setter(arquivo, classe.rsplit('.').next().unwrap_or(classe), nome)
+    }
+
     /// Um método de instância herdado ([`Resolucao::metodo`]), procurado só
     /// quando o nome não é da própria classe nem privado.
     fn metodo_herdado(&self, nome: &str) -> Option<crate::resolucao::Metodo> {
@@ -503,6 +515,11 @@ impl Conversor<'_> {
                     return Err(fora("atribuição a local"));
                 }
                 match self.escopo.membros.get(nome) {
+                    // Campo herdado: a escrita também sobe a hierarquia
+                    // (`PropertyWrite` com receptor implícito vira `_ctx.x`).
+                    None if self.membro_herdado(nome).is_some() || self.setter(nome) => {
+                        (format!("_ctx.{nome}"), Vec::new())
+                    }
                     None => return Err(fora("atribuição a nome fora do componente")),
                     Some(m) if m.estatico => match self.escopo.classe {
                         Some(classe) => (format!("{classe}.{nome}"), Vec::new()),

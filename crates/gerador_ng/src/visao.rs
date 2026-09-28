@@ -1945,14 +1945,31 @@ enum ListaPlana {
     Literal(Vec<String>),
     /// Qualquer outra expressão (uma lista projetada, ou a concatenação).
     Expressao(String),
+    /// Duas ou mais seções `..addAll(x)`: o `dart format` põe cada uma na
+    /// sua linha, dois espaços além do início da expressão.
+    Cascata { cabeca: String, secoes: Vec<String> },
 }
 
 impl ListaPlana {
     fn texto(&self) -> String {
+        self.texto_em(0)
+    }
+
+    /// O texto com a expressão começando na coluna `coluna` (a das seções
+    /// da cascata é `coluna + 2`).
+    fn texto_em(&self, coluna: usize) -> String {
         match self {
             ListaPlana::Vazia => "const <Object>[]".to_string(),
             ListaPlana::Literal(itens) => format!("<Object>[{}]", itens.join(", ")),
             ListaPlana::Expressao(e) => e.clone(),
+            ListaPlana::Cascata { cabeca, secoes } => {
+                let recuo = " ".repeat(coluna + 2);
+                let mut t = cabeca.clone();
+                for x in secoes {
+                    t.push_str(&format!("\n{recuo}..addAll({x})"));
+                }
+                t
+            }
         }
     }
 }
@@ -1979,23 +1996,20 @@ fn lista_plana(itens: &[String], util: &str) -> Result<ListaPlana, Recusa> {
         return Ok(ListaPlana::Literal(itens.to_vec()));
     }
     let mut soltos: Vec<String> = Vec::new();
+    // A cabeça (o primeiro literal) e cada seção `..addAll(..)`.
     let mut resultado: Option<String> = None;
-    let mut concatenacoes = 0;
-    let juntar = |resultado: &mut Option<String>, parte: String, concatenacoes: &mut u32| {
-        *resultado = Some(match resultado.take() {
-            None => parte,
-            Some(r) => {
-                *concatenacoes += 1;
-                format!("{r}..addAll({parte})")
-            }
-        });
-    };
+    let mut secoes: Vec<String> = Vec::new();
+    let juntar =
+        |resultado: &mut Option<String>, parte: String, secoes: &mut Vec<String>| match resultado {
+            None => *resultado = Some(parte),
+            Some(_) => secoes.push(parte),
+        };
     for x in itens {
         match lista(x) {
             Some(l) => {
                 if !soltos.is_empty() {
                     let parte = format!("<Object>[{}]", soltos.join(", "));
-                    juntar(&mut resultado, parte, &mut concatenacoes);
+                    juntar(&mut resultado, parte, &mut secoes);
                     soltos.clear();
                 }
                 let parte = if resultado.is_none() {
@@ -2003,22 +2017,23 @@ fn lista_plana(itens: &[String], util: &str) -> Result<ListaPlana, Recusa> {
                 } else {
                     format!("{util}.unsafeCast({l})")
                 };
-                juntar(&mut resultado, parte, &mut concatenacoes);
+                juntar(&mut resultado, parte, &mut secoes);
             }
             None => soltos.push(x.clone()),
         }
     }
     if !soltos.is_empty() {
         let parte = format!("<Object>[{}]", soltos.join(", "));
-        juntar(&mut resultado, parte, &mut concatenacoes);
+        juntar(&mut resultado, parte, &mut secoes);
     }
-    if concatenacoes > 1 {
-        return Err(recusa(
-            Motivo::Projecao,
-            "lista de nós com mais de uma lista projetada concatenada",
-        ));
-    }
-    Ok(ListaPlana::Expressao(resultado.unwrap_or_default()))
+    let cabeca = resultado.unwrap_or_default();
+    // Uma seção fica na linha (`a..addAll(b)`); duas ou mais, o `dart
+    // format` quebra (o `icon_tooltip`, o `modal`).
+    Ok(match secoes.as_slice() {
+        [] => ListaPlana::Expressao(cabeca),
+        [x] => ListaPlana::Expressao(format!("{cabeca}..addAll({x})")),
+        _ => ListaPlana::Cascata { cabeca, secoes },
+    })
 }
 
 /// Quantos `<ng-content>` há em `nos`, em qualquer profundidade.
@@ -4222,7 +4237,12 @@ impl Corpo<'_> {
         let antes_do_filho = resolvido
             .as_ref()
             .map_or(&[][..], |(r, pos)| &r.instancias[..*pos]);
-        self.criar_instancias(e, antes_do_filho, &el.clone())?;
+        self.criar_instancias(
+            e,
+            antes_do_filho,
+            &el.clone(),
+            &format!("this.{campo_vista}"),
+        )?;
         self.campos_filho
             .push(format!("  late final {vd}.{classe} {campo_inst};"));
         let do_no: Vec<(crate::diretivas::Token, String)> = antes_do_filho
@@ -4407,7 +4427,7 @@ impl Corpo<'_> {
             // as diretivas do nó (menos o componente) e as ligações das que
             // vêm depois dele.
             let alvo = el.clone();
-            self.criar_instancias(e, &depois, &alvo)?;
+            self.criar_instancias(e, &depois, &alvo, &format!("this.{campo_vista}"))?;
             let todas: Vec<_> = dir_antes.iter().chain(&dir_depois).cloned().collect();
             self.registrar_diretivas(&todas, &alvo);
             self.vista_do_hospedeiro = Some(format!("this.{campo_vista}"));
@@ -4591,9 +4611,10 @@ impl Corpo<'_> {
             } else {
                 String::new()
             };
+            // Na lista quebrada, cada item começa na coluna 6.
             let mut itens: Vec<String> = Vec::new();
             for l in &listas {
-                itens.push(lista_plana(l, &util)?.texto());
+                itens.push(lista_plana(l, &util)?.texto_em(6));
             }
             // O `dart format` quebra a lista de fora só quando um item é uma
             // coleção literal não vazia (a lista reprojetada sozinha não é).
@@ -5814,7 +5835,7 @@ impl Corpo<'_> {
                 self.ancoras.push(format!("_appEl_{n}"));
             }
             let alvo = format!("_anchor_{n}");
-            self.criar_instancias(&sem, &r.instancias, &alvo)?;
+            self.criar_instancias(&sem, &r.instancias, &alvo, "this")?;
             self.registrar_diretivas(&r.diretivas, &alvo);
             self.ligar_diretivas(
                 &sem,
@@ -7262,7 +7283,7 @@ impl Corpo<'_> {
         propriedades: &[crate::html::Ligacao],
         eventos: &[crate::html::Ligacao],
     ) -> Result<(), Recusa> {
-        self.criar_instancias(e, &r.instancias, alvo)?;
+        self.criar_instancias(e, &r.instancias, alvo, "this")?;
         self.registrar_diretivas(&r.diretivas, alvo);
         self.ligar_diretivas(
             e,
@@ -7281,6 +7302,9 @@ impl Corpo<'_> {
         e: &crate::html::Elemento,
         instancias: &[crate::diretivas::Instancia],
         alvo: &str,
+        // `ChangeDetectorRef` no nó: a `componentView` do filho, ou a
+        // própria visão (`compile_element.dart:199`).
+        detector: &str,
     ) -> Result<(), Recusa> {
         use crate::diretivas::{Argumento, Criacao, Token};
         for inst in instancias {
@@ -7378,7 +7402,7 @@ impl Corpo<'_> {
                     for a in args {
                         textos.push(match a {
                             Argumento::Elemento => alvo.to_string(),
-                            Argumento::Detector => "this".to_string(),
+                            Argumento::Detector => detector.to_string(),
                             Argumento::Nulo => "null".to_string(),
                             Argumento::Campo(c) => format!("this.{c}"),
                             Argumento::Acima(leitura) => leitura.clone(),
@@ -8926,10 +8950,18 @@ fn corpo_da_embutida(
                     .collect();
                 format!("[{}]", lista.join(", "))
             };
-            format!(
-                "this.initRootNodesAndSubscriptions({util}.unsafeCast({}), {subs});",
-                plana.texto()
-            )
+            match &plana {
+                // Com a cascata quebrada, os argumentos vão um por linha
+                // (recuo de continuação, coluna 8).
+                ListaPlana::Cascata { .. } => format!(
+                    "this.initRootNodesAndSubscriptions(\n        {util}.unsafeCast({}),\n        {subs});",
+                    plana.texto_em(8)
+                ),
+                _ => format!(
+                    "this.initRootNodesAndSubscriptions({util}.unsafeCast({}), {subs});",
+                    plana.texto()
+                ),
+            }
         }
     };
     // Sem nó criado (a raiz é só um `TextBinding`), o `build()` é só o
@@ -10981,21 +11013,22 @@ fn gerar_componente_com(
         .parametros
         .iter()
         .any(|p| e_container(p, local, resolvedor));
-    let mut campos_hosp = String::new();
+    let mut campo_do_container = String::new();
     let mut antes_do_componente = String::new();
     if container {
         let vc = imp.q(VIEW_CONTAINER);
-        campos_hosp.push_str(&format!("  late final {vc}ViewContainer _appEl_0;\n"));
+        campo_do_container = format!("  late final {vc}ViewContainer _appEl_0;\n");
         antes_do_componente.push_str(&format!(
             "    this._appEl_0 = {vc}ViewContainer(0, null, this, _el_0);\n"
         ));
     }
-    campos_hosp.push_str(
-        &provedores
-            .as_ref()
-            .map(|p| resolver_tardios(imp, &p.campos))
-            .unwrap_or_default(),
-    );
+    // O emissor escreve os campos com inicializador (os preguiçosos) antes
+    // dos outros (`dart_emitter.dart:198-205`).
+    let mut campos_hosp = provedores
+        .as_ref()
+        .map(|p| resolver_tardios(imp, &p.campos))
+        .unwrap_or_default();
+    campos_hosp.push_str(&campo_do_container);
     antes_do_componente.push_str(
         &provedores
             .as_ref()

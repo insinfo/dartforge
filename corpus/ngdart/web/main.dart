@@ -303,6 +303,7 @@ import 'package:corpus_ngdart/src/j115_preserva_espacos.template.dart' as j115;
 import 'package:corpus_ngdart/src/j116_pedido_do_conteudo.template.dart' as j116;
 import 'package:corpus_ngdart/src/j117_view_child_diretiva.template.dart' as j117;
 import 'package:corpus_ngdart/src/j119_export_as_e_classe_com_unidade.template.dart' as j119;
+import 'package:corpus_ngdart/src/j120_projecao_concatenada.template.dart' as j120;
 
 void main() {
   print([
@@ -611,5 +612,7 @@ void main() {
     j116.J116UsaNgFactory,
     j117.J117ViewChildDiretivaNgFactory,
     j119.J119UsaNgFactory,
+    j120.J120UsaNgFactory,
+    j120.J120RaizNgFactory,
   ].length);
 }

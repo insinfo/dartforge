@@ -62,6 +62,14 @@ pub trait Resolucao {
         None
     }
 
+    /// A classe `tipo` (ou algo acima dela, na ordem do Dart) tem um setter
+    /// de instância `membro` — de um campo não final ou um `set membro(..)`?
+    /// É o que a escrita `membro = x` de um evento precisa: o `PropertyWrite`
+    /// de receptor implícito vira `_ctx.membro`. `false` quando não se sabe.
+    fn tem_setter(&self, _arquivo: &Path, _tipo: &str, _membro: &str) -> bool {
+        false
+    }
+
     /// O nome-base do tipo `tipo` (sem `?` e sem argumentos de tipo) não
     /// está declarado no escopo de `arquivo` — nem importado, nem no
     /// `dart:core`. Para o analyzer é um `InvalidType`, e o `_TypeResolver`
@@ -355,6 +363,15 @@ impl Resolucao for Resolvedor<'_> {
     ) -> Option<(String, PathBuf)> {
         let classe = self.classe(arquivo, tipo)?;
         self.membro_da_classe(classe, membro)
+    }
+
+    fn tem_setter(&self, arquivo: &Path, tipo: &str, membro: &str) -> bool {
+        let Some(sym) = self.interner.lookup(&format!("{membro}_=")) else {
+            return false;
+        };
+        self.classe(arquivo, tipo)
+            .and_then(|c| self.membro_de_instancia(c, sym, 0))
+            .is_some()
     }
 
     fn metodo(&self, arquivo: &Path, tipo: &str, nome: &str) -> Option<Metodo> {

@@ -119,6 +119,24 @@ casos que apareceram no ngcomponents.
 - `class.x.y` (host e template): a classe é `parts[1]`, o resto some
   (`template_parser.dart:100-102`).
 
+## Projeção concatenada, escrita em setter, `ChangeDetectorRef` do filho — j120
+
+- **Projeção:** `createFlatArrayForProjectNodes` concatena as listas com
+  `..addAll(..)` quantas vezes for preciso; o dart_style quebra a cascata uma
+  seção por linha, recuada dois espaços além do literal da cabeça, no
+  `createAndProject` e no `initRootNodesAndSubscriptions` (que então quebra os
+  dois argumentos) — `modal`, `dropdown_menu`, `icon_tooltip`.
+- **Escrita:** o `PropertyWrite` de receptor implícito vira `_ctx.x` para campo
+  herdado e para `set x(..)` sem getter (`material_popup`,
+  `(focus)="visible = false"`). O porte procura `x_=` na hierarquia
+  (`Resolucao::tem_setter`).
+- **`ChangeDetectorRef`:** `beforeChildren` registra
+  `componentView ?? o.thisExpr` (`compile_element.dart:199`): uma diretiva no
+  elemento de um filho recebe `this._compView_n`. Porte: `criar_instancias(.., detector)`.
+- **Ordem dos campos:** o emissor escreve primeiro os campos com inicializador
+  (`dart_emitter.dart:198-205`): na hospedeira, os provedores preguiçosos antes
+  do `_appEl_0`.
+
 ## Pendentes com regra já levantada
 
 - **Local de `*` ancestral / tipo do local de `*ngFor`:** o tipo do `$implicit`
