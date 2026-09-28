@@ -1,0 +1,21 @@
+geral:
+  titulo: Exemplo brasileiro
+  vazio: ""
+  numero: 42
+  ligado: true
+  descricaoLonga: Um texto comprido o bastante para passar das oitenta colunas no getter gerado.
+  com espacos: Chave com espaços
+  com-hifen: Chave com hífen
+  saudacao(String nome): "Olá, $nome!"
+  contagem(int n): "Você tem $n itens na lista de compras que ainda não foram conferidos."
+  preco: "Custa \\$5"
+  exemplo: |
+    // Uso
+    final m = Mensagens();
+
+    print(m.geral.titulo);
+menu:
+  abrir: Abrir
+  subMenu:
+    fechar: Fechar
+    detalheMuitoLongoDoSubmenuQueQuebra: Outro texto comprido para testar a quebra do mapa gerado.

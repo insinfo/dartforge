@@ -587,8 +587,9 @@ comum: os eventos do template com o do mesmo evento no handler deles
 (`mergeEvents`), depois os agrupados das diretivas — caso j93. Corpus:
 **326 conferidos, 0 pendentes**.
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada
-pendente com o motivo): **948 iguais / 2 pendentes / 0 diferentes** —
-`.template.dart` **532/0/0**, `.css` e `.css.map` do Sass 102/102 cada,
+pendente com o motivo): **950 iguais / 0 pendentes / 0 diferentes** —
+`.template.dart` **532/0/0**, os 2 `.i18n.dart` (gerador nativo do
+`i18n`), `.css` e `.css.map` do Sass 102/102 cada,
 `.css.dart` e `.css.shim.dart` 104 cada.
 
 ### Diretivas estruturais

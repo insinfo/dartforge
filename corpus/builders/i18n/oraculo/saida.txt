@@ -1,0 +1,26 @@
+en Exemplo de mensagens Olá, Ana!
+42 true Custa $5
+Fechar Chave com espaços Chave com hífen
+Você tem 3 itens na lista de compras que ainda não foram conferidos.
+// Uso
+final m = Mensagens();
+
+print(m.geral.titulo);
+en Sample messages Hello, Ana!
+42 true Custa $5
+Close Key with spaces Key with hyphen
+Você tem 3 itens na lista de compras que ainda não foram conferidos.
+// Uso
+final m = Mensagens();
+
+print(m.geral.titulo);
+pt_BR Exemplo brasileiro Olá, Ana!
+42 true Custa $5
+Fechar Chave com espaços Chave com hífen
+Você tem 3 itens na lista de compras que ainda não foram conferidos.
+// Uso
+final m = Mensagens();
+
+print(m.geral.titulo);
+10
+Open

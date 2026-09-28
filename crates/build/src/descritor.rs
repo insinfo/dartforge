@@ -29,6 +29,7 @@ pub fn imita(chave: &str) -> &'static [(&'static str, &'static str)] {
     match chave {
         "ngdart:ngdart" => &[("ngdart", "8.0.0-dev.4")],
         "sass_builder:sass_builder" => &[("sass_builder", "2.2.1")],
+        "i18n:yamlBasedBuilder" => &[("i18n", "4.2.1")],
         _ => &[],
     }
 }

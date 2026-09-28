@@ -1,0 +1,20 @@
+{
+  "dart": "3.6.2",
+  "pacotes": {
+    "analyzer": "6.11.0",
+    "build": "2.4.2",
+    "build_config": "1.1.2",
+    "build_resolvers": "2.4.4",
+    "build_runner": "2.4.15",
+    "build_runner_core": "8.0.0",
+    "dart_style": "2.3.8",
+    "i18n": "4.2.1"
+  },
+  "saidas": [
+    { "asset": "corpus_i18n|lib/mensagens.i18n.dart", "build_to": "source", "sha256": "2064e198fd122810625db10bd240c2d531a29a1892ebe316389c6a74e99b5b62" },
+    { "asset": "corpus_i18n|lib/mensagens_en.i18n.dart", "build_to": "source", "sha256": "bffa4224e7084fbdd9d5a1fad41646d0b54be6f3e4ed3b68231465aa339d8dc1" },
+    { "asset": "corpus_i18n|lib/mensagens_pt_BR.i18n.dart", "build_to": "source", "sha256": "0b7689cb6e3a9bfe600ecf1e06a1980d9d0481a18ef88a5ab7a6709993567240" }
+  ],
+  "excluidos": 0,
+  "executavel": true
+}

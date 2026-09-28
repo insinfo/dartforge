@@ -30,7 +30,7 @@ $pacotesInfra = @(
 )
 $pacotesDiretos = @(
     'built_value', 'built_value_generator', 'drift', 'drift_dev', 'freezed',
-    'freezed_annotation', 'json_annotation', 'json_serializable', 'mockito',
+    'freezed_annotation', 'i18n', 'json_annotation', 'json_serializable', 'mockito',
     'riverpod', 'riverpod_annotation', 'riverpod_generator', 'sass_builder'
 )
 

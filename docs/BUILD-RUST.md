@@ -299,7 +299,11 @@ saída byte a byte, como já fazemos com `dart run` no compilador JS.
 2. Fase 1 (motor + worker), medida nos dois projetos reais **e** verde no
    corpus de compatibilidade.
 3. `sass_builder` nativo (prova o desenho de gerador, sem tocar no
-   ecossistema).
+   ecossistema). Também o `i18n:yamlBasedBuilder` (`package:i18n` 4.2.1,
+   `crates/build/src/nativos/i18n.rs`): YAML para Dart com as quebras do
+   `DartFormatter` de 80 colunas nas formas que ele produz (o resto é
+   recusado), igual byte a byte no caso `corpus/builders/i18n` e nos dois
+   `.i18n.dart` do `limitless_ui/example`.
 4. `ngdart` nativo = Fase 5 do PLANO, com o e2e do `limitless_ui` (26/26)
    como critério.
 5. `json_serializable` nativo, com igualdade byte a byte no corpus.

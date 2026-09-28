@@ -67,6 +67,7 @@ ordinal de `asset`):
 | `built_value` | built_value_generator → `.built_value.g.part` → combining_builder | sim |
 | `drift` | drift_dev: builder de três fábricas, preparing_builder (`.drift`), cleanup | não (sqlite3 por FFI) |
 | `riverpod_generator` | riverpod_generator 2.6 em Dart puro | sim |
+| `i18n` | i18n 4.2.1 (`yamlBasedBuilder`, `build_to: source`): o arquivo padrão e dois idiomas (`_en`, `_pt_BR`), mapas aninhados, chave com espaço, hífen e `(argumentos)`, `$` escapado e não, texto de várias linhas, vazio, inteiro e booleano, getters e entradas do mapa longos que o `DartFormatter` quebra | sim |
 | `sass_builder` | sass_builder 2.2.1 em dev (sourceMaps → `.css` e `.css.map` no cache), parciais, `@use`, `@import`, `@media`, `.sass` | não |
 | `sass_builder_compressed` | o mesmo com `outputStyle: compressed` nas opções do alvo (forma do new_sali/frontend) | não |
 | `cadeia_configuracao` | builders locais (`import: 'tool/builders.dart'`) e um pacote de apoio por caminho: `runs_before`, `required_inputs`, `applies_builders`, `enabled: false`, `generate_for` include/exclude, `global_options` (options, dev_options, runs_before), build_to source/cache, builder com duas fábricas, extensões `{{}}` e `^`, `auto_apply` none/dependents/all_packages/root_package, `defaults` com generate_for/options/dev_options/release_options, post_process_builder. Cada saída traz `options.config` (JSON, chaves ordenadas) e `options.isRoot` | sim |
