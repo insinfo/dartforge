@@ -10803,7 +10803,6 @@ mod testes {
         for t in [
             r#"<template foo [fooOf]="xs"></template>"#,
             r#"<template ngFor ngIf [ngForOf]="xs"></template>"#,
-            r#"<template ngFor [ngForOf]="f(';')"></template>"#,
             r#"<template ngFor [ngForOf]="xs" (x)="y()"></template>"#,
             r#"<template ngFor let-x></template>"#,
         ] {
@@ -10814,6 +10813,19 @@ mod testes {
             assert_eq!(e.nome, "template", "{t}");
             assert!(e.ligacoes_do_molde.is_empty(), "{t}");
         }
+        // `;` dentro de texto não atrapalha: a microssintaxe vai decomposta,
+        // sem voltar ao texto (caso j75).
+        let nos = template_como_container(&crate::html::analisar(
+            r#"<template ngFor [ngForOf]="f(';')"></template>"#,
+        ));
+        let [No::Elemento(e)] = nos.as_slice() else {
+            panic!("um elemento");
+        };
+        assert_eq!(e.nome, "ng-container");
+        assert_eq!(
+            e.micro_da_estrela().expect("micro").propriedades,
+            vec![("ngForOf".to_string(), "f(';')".to_string())]
+        );
     }
 
     fn local() -> Local<'static> {
