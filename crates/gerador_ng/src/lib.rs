@@ -909,6 +909,12 @@ impl Indice {
         let mut saida = Vec::new();
         let mut vistos = std::collections::HashSet::new();
         let mut fora = Vec::new();
+        if comp.tipos_de_diretiva_ilegiveis {
+            fora.push(recusa(
+                Motivo::NaoEntendido,
+                "directiveTypes: numa forma que não se lê",
+            ));
+        }
         if comp.diretivas_ilegiveis {
             fora.push(recusa(
                 Motivo::DiretivaPorSeletor,

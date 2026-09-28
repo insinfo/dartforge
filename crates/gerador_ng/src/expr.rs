@@ -171,6 +171,9 @@ pub struct Escopo<'a> {
     pub classe: Option<&'a str>,
     /// Os nomes de `exports:` (`_matchExport`), com o qualificador tardio.
     pub exportados: Option<&'a crate::visao::Exportados>,
+    /// Os parâmetros de tipo do componente (`T` de `Classe<T>`): em escopo em
+    /// toda visão dele, entram como estão na substituição dos tipos herdados.
+    pub genericos: &'a [String],
 }
 
 /// Converte uma expressão escrita no template.
@@ -225,6 +228,7 @@ pub fn converter_com_locais(
         tipos,
         classe: None,
         exportados: None,
+        genericos: &[],
     };
     converter_no_escopo(expressao, &escopo, interner)
 }
@@ -333,7 +337,8 @@ impl Conversor<'_> {
         }
         let (r, arquivo) = self.escopo.tipos?;
         let classe = self.escopo.classe?.rsplit('.').next()?;
-        let (tipo, escopo) = r.tipo_do_membro(arquivo, classe, nome)?;
+        let (tipo, escopo) =
+            r.tipo_do_membro_livre(arquivo, &self.receptor(classe), nome, self.escopo.genericos)?;
         let imutavel = r.membro_final(arquivo, classe, nome)?;
         Some(Convertida {
             imutavel,
@@ -363,7 +368,17 @@ impl Conversor<'_> {
         }
         let (r, arquivo) = self.escopo.tipos?;
         let classe = self.escopo.classe?.rsplit('.').next()?;
-        r.metodo(arquivo, classe, nome)
+        r.metodo_livre(arquivo, &self.receptor(classe), nome, self.escopo.genericos)
+    }
+
+    /// O receptor implícito como tipo: a classe com os próprios parâmetros
+    /// (`Classe<T>`), que a busca pela hierarquia substitui como livres.
+    fn receptor(&self, classe: &str) -> String {
+        if self.escopo.genericos.is_empty() {
+            classe.to_string()
+        } else {
+            format!("{classe}<{}>", self.escopo.genericos.join(", "))
+        }
     }
 
     /// O handler inteiro: classifica (simples × complexo) e converte.
@@ -767,9 +782,12 @@ impl Conversor<'_> {
                 // `_lookupGetterReturnType` só olha `InterfaceType`, e o
                 // resto dá `dynamic`.
                 let achado = match (&alvo.tipo, self.escopo.tipos) {
-                    (Some(t), Some((r, arquivo))) if t != "dynamic" => {
-                        r.tipo_do_membro(alvo.escopo.as_deref().unwrap_or(arquivo), t, nome)
-                    }
+                    (Some(t), Some((r, arquivo))) if t != "dynamic" => r.tipo_do_membro_livre(
+                        alvo.escopo.as_deref().unwrap_or(arquivo),
+                        t,
+                        nome,
+                        self.escopo.genericos,
+                    ),
                     _ => None,
                 };
                 // Receptor de tipo que não existe no escopo (`InvalidType`:
@@ -1281,6 +1299,7 @@ mod testes {
             tipos: None,
             classe: None,
             exportados: None,
+            genericos: &[],
         };
         converter_acao(e, &escopo, &mut Interner::new()).expect("converte")
     }

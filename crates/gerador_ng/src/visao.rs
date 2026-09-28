@@ -3034,6 +3034,8 @@ struct Corpo<'a> {
     refs_so_por_provedor: &'a std::collections::HashSet<String>,
     /// [`Contexto::moldes_com_container`].
     moldes_com_container: &'a std::collections::HashSet<String>,
+    /// [`Contexto::tipos_de_diretiva`].
+    tipos_de_diretiva: &'a [TipoDeDiretivaResolvido],
     refs_em_ordem: Vec<(String, String)>,
     /// A tag do elemento cujas ligações estão sendo escritas: o contexto de
     /// segurança de uma propriedade depende dela ([`saneador`]).
@@ -3101,6 +3103,8 @@ struct Corpo<'a> {
     /// Tipos dos membros do componente, para escolher `interpolateString`.
     membros: &'a std::collections::HashMap<String, crate::componente::Membro>,
     exportados: &'a Exportados,
+    /// [`Contexto::nomes_genericos`].
+    nomes_genericos: &'a [String],
     /// Métodos da classe, válidos só como alvo de chamada.
     metodos: &'a std::collections::HashMap<String, String>,
     /// Parâmetros posicionais de cada método, para o tear-off de evento.
@@ -3281,6 +3285,39 @@ struct Registro {
 
 impl Corpo<'_> {
     /// A classe desta visão, para o `unsafeCast` de quem a lê de baixo.
+    /// Os argumentos de tipo de `directiveTypes:` para a diretiva `classe`
+    /// (de `uri`) no nó `e` (`lookupTypeArgumentsOf`, `compile_view.dart:
+    /// 1523-1569`): o `Typed` com `on:` igual a um `#ref` do nó vence; senão o
+    /// primeiro sem `on:`. Vazio sem nenhum.
+    fn argumentos_de_tipo(&mut self, uri: &str, classe: &str, e: &crate::html::Elemento) -> String {
+        let texto = self.argumentos_escritos(uri, classe, e);
+        resolver_tardios(self.imp, &texto)
+    }
+
+    fn argumentos_escritos(&self, uri: &str, classe: &str, e: &crate::html::Elemento) -> String {
+        let mut primeiro = None;
+        for t in self.tipos_de_diretiva {
+            if t.uri != uri || t.classe != classe {
+                continue;
+            }
+            match &t.em {
+                Some(r) => {
+                    if e.referencias.iter().any(|x| x.nome == *r) {
+                        return t.argumentos.clone();
+                    }
+                }
+                None if primeiro.is_none() => {
+                    if e.referencias.is_empty() {
+                        return t.argumentos.clone();
+                    }
+                    primeiro = Some(t.argumentos.clone());
+                }
+                None => {}
+            }
+        }
+        primeiro.unwrap_or_default()
+    }
+
     fn classe_desta_visao(&self) -> String {
         if self.classe_desta.is_empty() {
             format!("{}0", self.classe_da_visao)
@@ -3527,6 +3564,7 @@ impl Corpo<'_> {
             tipos: self.tipos,
             classe: Some(&self.classe_qualificada),
             exportados: Some(self.exportados),
+            genericos: self.nomes_genericos,
         };
         let mut c = crate::expr::converter_no_escopo(texto, &escopo, self.nomes)
             .map_err(|r| r.em(motivo))?;
@@ -3937,6 +3975,7 @@ impl Corpo<'_> {
             tipos: self.tipos,
             classe: Some(&self.classe_qualificada),
             exportados: Some(self.exportados),
+            genericos: self.nomes_genericos,
         };
         let mut acoes = Vec::new();
         for t in textos {
@@ -4263,8 +4302,12 @@ impl Corpo<'_> {
             }
             None => (Vec::new(), Vec::new()),
         };
-        self.campos_filho
-            .push(format!("  late final {vt}View{classe}0 {campo_vista};"));
+        // `directiveTypes:` tipa os campos (a visão e a instância), não a
+        // criação (`lookupTypeArgumentsOf`, `compile_view.dart:891-905`).
+        let argumentos = self.argumentos_de_tipo(&filho.uri_dart, &filho.classe, e);
+        self.campos_filho.push(format!(
+            "  late final {vt}View{classe}0{argumentos} {campo_vista};"
+        ));
         if container {
             let vc = self.imp.q(VIEW_CONTAINER);
             self.campos_filho
@@ -4383,8 +4426,9 @@ impl Corpo<'_> {
             &el.clone(),
             &format!("this.{campo_vista}"),
         )?;
-        self.campos_filho
-            .push(format!("  late final {vd}.{classe} {campo_inst};"));
+        self.campos_filho.push(format!(
+            "  late final {vd}.{classe}{argumentos} {campo_inst};"
+        ));
         let do_no: Vec<(crate::diretivas::Token, String)> = antes_do_filho
             .iter()
             .flat_map(|i| {
@@ -5139,13 +5183,23 @@ impl Corpo<'_> {
             let dentro = dentro || (x.estrela.is_some() && !molde);
             let mut sem = x.clone();
             sem.estrela = None;
-            let casa = self
-                .filhos
-                .get(&x.nome)
-                .is_some_and(|f| f.uri_dart == uri && f.classe == classe)
-                || diretivas_casadas(self.usadas, &sem)
-                    .iter()
-                    .any(|d| d.uri == uri && d.classe == classe);
+            // O token também casa pelos `providers:` do nó (`ExistingProvider`
+            // de uma diretiva, o `FocusableItem` do `FocusItemDirective`):
+            // o `_getQueriesFor` olha todos os provedores resolvidos do nó.
+            let token = crate::diretivas::Token::Classe {
+                uri: uri.to_string(),
+                classe: classe.to_string(),
+            };
+            let fornece = |d: &crate::diretivas::Diretiva| {
+                (d.uri == uri && d.classe == classe)
+                    || d.provedores.iter().any(|p| p.token == token)
+            };
+            let casa = self.filhos.get(&x.nome).is_some_and(|f| {
+                (f.uri_dart == uri && f.classe == classe)
+                    || f.metadados.as_deref().is_some_and(fornece)
+            }) || diretivas_casadas(self.usadas, &sem)
+                .iter()
+                .any(|d| (d.uri == uri && d.classe == classe) || fornece(d));
             (dentro && casa) || self.classe_em_embutida(&x.filhos, uri, classe, abaixo)
         })
     }
@@ -5695,10 +5749,25 @@ impl Corpo<'_> {
                 // cujos locais são só os que têm tipo: um local sem tipo
                 // (`let-x` de `<template>`, item de coleção `dynamic`) não
                 // entra, e o nome cai no membro do componente (caso j83).
+                // Sem membro de mesmo nome, o `_lookupGetterReturnType` do
+                // receptor implícito dá `dynamic`, o mesmo que o local sem
+                // tipo: só sai do escopo o local que um membro substitui (e
+                // os argumentos de uma chamada não pesam no tipo dela).
+                let e_membro = |nome: &str| {
+                    self.membros.contains_key(nome)
+                        || self.metodos.contains_key(nome)
+                        || self.tipos.is_some_and(|(r, arquivo)| {
+                            let classe = self.classe_qualificada.rsplit('.').next().unwrap_or("");
+                            r.tipo_do_membro(arquivo, classe, nome).is_some()
+                                || r.metodo(arquivo, classe, nome).is_some()
+                        })
+                };
                 let sem_tipo: Vec<String> = self
                     .locais
                     .iter()
-                    .filter(|(nome, l)| l.tipo == "dynamic" && cita_na_raiz(expr, nome))
+                    .filter(|(nome, l)| {
+                        l.tipo == "dynamic" && cita_na_raiz(expr, nome) && e_membro(nome)
+                    })
                     .map(|(nome, _)| nome.clone())
                     .collect();
                 if !sem_tipo.is_empty() {
@@ -7531,18 +7600,14 @@ impl Corpo<'_> {
                 (Criacao::Diretiva { diretiva, .. }, _)
                     if !diretiva.ligacoes_do_hospedeiro.is_empty() =>
                 {
-                    format!(
-                        "{}{}NgCd",
-                        prefixo_do_ngcd(self.imp, &diretiva.uri, &self.asset),
-                        diretiva.classe
-                    )
+                    let prefixo = prefixo_do_ngcd(self.imp, &diretiva.uri, &self.asset);
+                    let args = self.argumentos_de_tipo(&diretiva.uri, &diretiva.classe, e);
+                    format!("{prefixo}{}NgCd{args}", diretiva.classe)
                 }
                 (Criacao::Diretiva { diretiva, .. }, _) => {
-                    format!(
-                        "{}{}",
-                        self.imp.q(&import_de(&diretiva.uri, &self.asset)),
-                        diretiva.classe
-                    )
+                    let prefixo = self.imp.q(&import_de(&diretiva.uri, &self.asset));
+                    let args = self.argumentos_de_tipo(&diretiva.uri, &diretiva.classe, e);
+                    format!("{prefixo}{}{args}", diretiva.classe)
                 }
                 (Criacao::Lista(_), Token::Multi { tipo, .. }) if tipo.e_object() => {
                     format!("List<{}Object>", self.imp.q("dart:core"))
@@ -8560,10 +8625,22 @@ pub(crate) type Exportados =
 
 /// O que toda visão do arquivo compartilha: o componente, as diretivas que
 /// ele usa e onde o arquivo mora.
+/// Um `Typed` de `directiveTypes:` com a classe resolvida e os argumentos
+/// já escritos (`<T>`, `<import3.X>`).
+#[derive(Debug, Clone)]
+struct TipoDeDiretivaResolvido {
+    uri: String,
+    classe: String,
+    argumentos: String,
+    em: Option<String>,
+}
+
 struct Contexto<'a> {
     membros: &'a std::collections::HashMap<String, crate::componente::Membro>,
     /// Os nomes de `exports:` resolvidos ([`Exportados`]).
     exportados: &'a Exportados,
+    /// Os parâmetros de tipo do componente (`T`, `U`), livres nas visões.
+    nomes_genericos: Vec<String>,
     metodos: &'a std::collections::HashMap<String, String>,
     aridades: &'a std::collections::HashMap<String, usize>,
     filhos: &'a std::collections::HashMap<String, Filho>,
@@ -8595,6 +8672,8 @@ struct Contexto<'a> {
     moldes_com_container: std::collections::HashSet<String>,
     /// `@changeDetectionLink` no componente.
     link_de_deteccao: bool,
+    /// `directiveTypes:` resolvido ([`TipoDeDiretivaResolvido`]).
+    tipos_de_diretiva: Vec<TipoDeDiretivaResolvido>,
     /// Os nomes de `#ref` repetidos ou sombreados por `let`.
     refs_ambiguos: std::collections::HashSet<String>,
     /// O nó de cada `#ref` visto, de todas as visões já percorridas: a visão
@@ -8628,6 +8707,7 @@ impl<'a> Contexto<'a> {
             leituras: &self.leituras,
             refs_so_por_provedor: &self.refs_so_por_provedor,
             moldes_com_container: &self.moldes_com_container,
+            tipos_de_diretiva: &self.tipos_de_diretiva,
             refs_ancestrais: Vec::new(),
             consultas_dinamicas: Vec::new(),
             consultas_em_transito: Vec::new(),
@@ -8665,6 +8745,7 @@ impl<'a> Contexto<'a> {
             url_do_template: self.url_do_template.clone(),
             membros: self.membros,
             exportados: self.exportados,
+            nomes_genericos: &self.nomes_genericos,
             metodos: self.metodos,
             aridades: self.aridades,
             metodos_evento: Vec::new(),
@@ -8825,6 +8906,7 @@ fn corpo_da_embutida(
         &ctx.asset,
         &ctx.pipes.imports_dos_campos(espec.indice),
         &nos_promovidos(&espec.nos, &promovidos),
+        &ctx.tipos_de_diretiva,
     ) {
         dentro.anotar(r)?;
     }
@@ -9221,7 +9303,8 @@ fn declaracao_de_local(
         let (r, arquivo) = ctx.tipos.ok_or_else(sem_import)?;
         let escopo = l.escopo.as_deref().unwrap_or(arquivo);
         let cheio = instanciar_crus(&l.tipo, escopo, r).ok_or_else(sem_import)?;
-        tipo_qualificado(&cheio, escopo, r, &ctx.asset, &[]).ok_or_else(sem_import)?
+        let livres: Vec<&str> = ctx.nomes_genericos.iter().map(String::as_str).collect();
+        tipo_qualificado(&cheio, escopo, r, &ctx.asset, &livres).ok_or_else(sem_import)?
     };
     Ok(format!(
         "final {d} = {util}.unsafeCast<{tipo}>({locals}[{chave}]);"
@@ -9304,8 +9387,20 @@ fn alocar_imports_dos_campos(
     asset: &str,
     pipes: &[String],
     refs: &std::collections::HashSet<String>,
+    tipos: &[TipoDeDiretivaResolvido],
 ) -> Result<(), Recusa> {
     let sem_caminho = || recusa(Motivo::ComponenteNoTemplate, "filho sem caminho de import");
+    // Os argumentos de `directiveTypes:` saem no tipo do campo, logo depois
+    // do nome da classe: os imports deles vêm em seguida ao dela.
+    let argumentos_de = |imp: &mut Importacoes, texto_do_import: &str| {
+        for t in tipos {
+            let da_classe = tardio(&import_de(&t.uri, asset));
+            let do_ngcd = tardio(&import_de(&t.uri.replace(".dart", ".template.dart"), asset));
+            if texto_do_import == da_classe || texto_do_import == do_ngcd {
+                resolver_tardios(imp, &t.argumentos);
+            }
+        }
+    };
     let campos = campos_em_ordem(nos, filhos, usadas, asset);
     for campo in campos {
         match campo {
@@ -9331,6 +9426,11 @@ fn alocar_imports_dos_campos(
                     if !e_o_proprio_template(asset, &caminho) {
                         imp.alias(&caminho);
                     }
+                    for t in tipos {
+                        if t.uri == f.uri_dart && t.classe == f.classe {
+                            resolver_tardios(imp, &t.argumentos);
+                        }
+                    }
                 }
             }
             CampoDaVisao::Estrutural(uri) => {
@@ -9344,11 +9444,13 @@ fn alocar_imports_dos_campos(
                 }
                 for t in campos {
                     resolver_tardios(imp, &t);
+                    argumentos_de(imp, &t);
                 }
             }
             CampoDaVisao::Diretivas(textos) => {
                 for t in textos {
                     resolver_tardios(imp, &t);
+                    argumentos_de(imp, &t);
                 }
             }
         }
@@ -10629,6 +10731,51 @@ fn gerar_componente_com(
             )
         })
         .collect();
+    // `directiveTypes:`: a classe no escopo do componente e os argumentos
+    // escritos como o `fromTypeLink` (`#T` é o parâmetro do componente).
+    let tipos_de_diretiva = {
+        let livres: Vec<&str> = c
+            .parametros_de_tipo
+            .iter()
+            .map(|(n, _)| n.as_str())
+            .collect();
+        let mut v = Vec::new();
+        for t in &c.tipos_de_diretiva {
+            let falha = || {
+                recusa(
+                    Motivo::NaoEntendido,
+                    format!("directiveTypes: Typed<{}> sem resolução", t.classe),
+                )
+            };
+            let r = resolvedor.ok_or_else(falha)?;
+            let uri = r.uri_do_tipo(local.caminho, &t.classe).ok_or_else(falha)?;
+            let simples = t.classe.rsplit('.').next().unwrap_or(&t.classe).to_string();
+            if !usadas.iter().any(|u| u.uri == uri && u.classe == simples) {
+                return Err(recusa(
+                    Motivo::NaoEntendido,
+                    "directiveTypes: com diretiva fora de directives: (erro no oficial)",
+                ));
+            }
+            let mut escritos = Vec::new();
+            for a in &t.argumentos {
+                escritos.push(
+                    tipo_qualificado(a, local.caminho, r, &local.asset(), &livres)
+                        .ok_or_else(falha)?,
+                );
+            }
+            v.push(TipoDeDiretivaResolvido {
+                uri,
+                classe: simples,
+                argumentos: if escritos.is_empty() {
+                    String::new()
+                } else {
+                    format!("<{}>", escritos.join(", "))
+                },
+                em: t.em.clone(),
+            });
+        }
+        v
+    };
     let mut promovidos = refs_locais.clone();
     promovidos.extend(consultados_da_raiz.iter().map(|(n, _, _)| n.clone()));
     if let Err(r) = alocar_imports_dos_campos(
@@ -10639,6 +10786,7 @@ fn gerar_componente_com(
         &local.asset(),
         &tabela.imports_dos_campos(0),
         &nos_promovidos(nos, &promovidos),
+        &tipos_de_diretiva,
     ) {
         anotar(coleta, r)?;
     }
@@ -10679,6 +10827,11 @@ fn gerar_componente_com(
     let ctx = Contexto {
         membros: &c.membros,
         exportados: &exportados,
+        nomes_genericos: c
+            .parametros_de_tipo
+            .iter()
+            .map(|(n, _)| n.clone())
+            .collect(),
         metodos: &c.metodos,
         aridades: &c.aridades,
         filhos,
@@ -10732,6 +10885,7 @@ fn gerar_componente_com(
                 .collect()
         },
         link_de_deteccao: c.link_de_deteccao,
+        tipos_de_diretiva,
         refs_resolvidos: Default::default(),
         ancoras_de_consulta: Default::default(),
     };

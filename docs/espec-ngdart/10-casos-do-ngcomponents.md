@@ -196,6 +196,33 @@ casos que apareceram no ngcomponents.
   `locais_proprios`, o que mostrou as causas reais dos pendentes que citavam
   "local ancestral".
 
+## `directiveTypes:`, o `T` do componente e o `_TypeResolver` — j126, j127
+
+- **`directiveTypes:`** (`Typed<X>.of([#T])`, `Typed<X<A>>(on: 'ref')`): o
+  `lookupTypeArgumentsOf` (`compile_view.dart:1523-1569`) tipa só os campos —
+  `_compView_n` (`ViewX0<T>`), a instância e o campo da diretiva (ou o
+  `XNgCd`) —, nunca a criação. `on:` vale só no nó com aquele `#ref`; sem
+  `on:`, o primeiro. `#T` é o parâmetro do componente (`fromTypeLink`). Os
+  imports dos argumentos vêm logo depois do da classe, na ordem do campo.
+- **O `T` do componente é livre:** as visões são genéricas, então um
+  argumento que é parâmetro do próprio componente entra como está na
+  substituição pela hierarquia (`J127ComOpcoes<T>` → `J127Opcoes<T>` →
+  `J127Grupo<T>`; `extends J127No<T?>` → `J127Grupo<T?>`). O receptor
+  implícito é `Classe<T>`.
+- **`_TypeResolver`** (`analyzed_class.dart:232-370`): o tipo de `m(args)` é
+  o retorno de `m` no receptor, sem olhar os argumentos; um nome fora das
+  `_variables` cai no membro, ou em `dynamic`. Na retipagem da coleção do
+  `NgFor` só sai do escopo o local sem tipo que um membro de mesmo nome
+  substitui (antes, a conversão falhava no argumento e o tipo virava
+  `dynamic` em silêncio, no `material_tree_group`).
+- **Retorno que cita parâmetro não resolvido:** `Metodo::incerto`, tipo
+  desconhecido — nunca `dynamic`.
+- **Consulta de conteúdo com token fornecido por outra diretiva** (o
+  `FocusableItem` do `FocusItemDirective`, por `ExistingProvider`): a checagem
+  de resultado em `*` olha os `providers:` do nó (`_getQueriesFor`), o que
+  impediu um `listItems = []` errado no `material_select` (a consulta
+  dinâmica de conteúdo ainda é recusada).
+
 ## Pendentes com regra já levantada
 
 - **`@ContentChild` de filho com resultado em `*`:** cria

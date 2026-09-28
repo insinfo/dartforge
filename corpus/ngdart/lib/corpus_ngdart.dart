@@ -340,3 +340,5 @@ export 'src/j122_ordem_dos_nos_promovidos.dart';
 export 'src/j123_embutidos_no_filho.dart';
 export 'src/j124_atributo_condicional.dart';
 export 'src/j125_local_ancestral.dart';
+export 'src/j126_tipos_de_diretiva.dart';
+export 'src/j127_parametro_do_componente.dart';

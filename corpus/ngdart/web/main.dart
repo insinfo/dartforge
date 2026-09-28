@@ -309,6 +309,7 @@ import 'package:corpus_ngdart/src/j122_ordem_dos_nos_promovidos.template.dart' a
 import 'package:corpus_ngdart/src/j123_embutidos_no_filho.template.dart' as j123;
 import 'package:corpus_ngdart/src/j124_atributo_condicional.template.dart' as j124;
 import 'package:corpus_ngdart/src/j125_local_ancestral.template.dart' as j125;
+import 'package:corpus_ngdart/src/j126_tipos_de_diretiva.template.dart' as j126;
 
 void main() {
   print([
@@ -625,5 +626,6 @@ void main() {
     j123.J123UsaNgFactory,
     j124.J124UsaNgFactory,
     j125.J125UsaNgFactory,
+    j126.J126UsaNgFactory,
   ].length);
 }

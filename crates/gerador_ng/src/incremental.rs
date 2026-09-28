@@ -229,6 +229,33 @@ impl Resolucao for Gravador<'_> {
         self.dentro.tem_setter(arquivo, tipo, membro)
     }
 
+    fn tipo_do_membro_livre(
+        &self,
+        arquivo: &Path,
+        tipo: &str,
+        membro: &str,
+        livres: &[String],
+    ) -> Option<(String, PathBuf)> {
+        if let Some(uri) = self.dentro.uri_do_tipo(arquivo, tipo) {
+            self.anotar(&uri, tipo);
+        }
+        self.dentro
+            .tipo_do_membro_livre(arquivo, tipo, membro, livres)
+    }
+
+    fn metodo_livre(
+        &self,
+        arquivo: &Path,
+        tipo: &str,
+        nome: &str,
+        livres: &[String],
+    ) -> Option<crate::resolucao::Metodo> {
+        if let Some(uri) = self.dentro.uri_do_tipo(arquivo, tipo) {
+            self.anotar(&uri, tipo);
+        }
+        self.dentro.metodo_livre(arquivo, tipo, nome, livres)
+    }
+
     fn membro_final(&self, arquivo: &Path, tipo: &str, membro: &str) -> Option<bool> {
         if let Some(uri) = self.dentro.uri_do_tipo(arquivo, tipo) {
             self.anotar(&uri, tipo);

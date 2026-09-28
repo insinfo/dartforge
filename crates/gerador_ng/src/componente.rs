@@ -61,6 +61,11 @@ pub struct Componente {
     pub estilos_ilegiveis: bool,
     /// `changeDetection: ChangeDetectionStrategy.OnPush`.
     pub on_push: bool,
+    /// `directiveTypes: [Typed<X>.of([#T]), ..]`: os argumentos de tipo das
+    /// diretivas genéricas desta visão (`CompileTypedMetadata`).
+    pub tipos_de_diretiva: Vec<TipoDeDiretiva>,
+    /// `directiveTypes:` numa forma que não se lê daqui.
+    pub tipos_de_diretiva_ilegiveis: bool,
     /// `@changeDetectionLink` (`package:ngdart/experimental.dart`): as
     /// visões ganham `detectChangesInCheckAlwaysViews` (`view_builder.dart:522`).
     pub link_de_deteccao: bool,
@@ -632,6 +637,13 @@ fn ler(
                 "directives" => {
                     (c.diretivas, c.diretivas_ilegiveis) = nomes_da_lista(arvore, interner, a.value)
                 }
+                "directiveTypes" => {
+                    let sp = arvore.expr(a.value).span;
+                    match fonte.get(sp.start..sp.end).and_then(ler_tipos_de_diretiva) {
+                        Some(v) => c.tipos_de_diretiva = v,
+                        None => c.tipos_de_diretiva_ilegiveis = true,
+                    }
+                }
                 "pipes" => (c.pipes, c.pipes_ilegiveis) = nomes_da_lista(arvore, interner, a.value),
                 "exports" => exportados = nomes_da_lista(arvore, interner, a.value).0,
                 "providers" | "viewProviders" => c.com_provedores |= !lista_vazia(arvore, a.value),
@@ -796,6 +808,7 @@ const ARGUMENTOS_CONHECIDOS: &[&str] = &[
     "styles",
     "changeDetection",
     "directives",
+    "directiveTypes",
     "exports",
     "pipes",
     // Só decide o `injectorGetInternal`; lida dos metadados do programa
@@ -1573,4 +1586,128 @@ fn tipos_dos_campos(
         }
     }
     saida
+}
+
+/// Um `Typed<X>.of([..], on: 'ref')` de `directiveTypes:`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TipoDeDiretiva {
+    /// A classe como escrita (`MaterialSelectItemComponent`, `p.X`).
+    pub classe: String,
+    /// Os argumentos: o texto de cada tipo, e `#T` como `T` (o parâmetro de
+    /// tipo do componente, `fromTypeLink`).
+    pub argumentos: Vec<String>,
+    /// `on:`: só no nó com esse `#ref`.
+    pub em: Option<String>,
+}
+
+/// Lê `[Typed<X>.of([#T, String], on: 'a'), Typed<Y<int>>()]` pelo texto
+/// (`TypedReader`). `None` para o que não tem essa forma.
+fn ler_tipos_de_diretiva(texto: &str) -> Option<Vec<TipoDeDiretiva>> {
+    let t = texto.trim();
+    let t = t.strip_prefix("const").unwrap_or(t).trim();
+    let t = t.strip_prefix('[')?.strip_suffix(']')?;
+    let mut saida = Vec::new();
+    for item in partir_no_topo(t, ',') {
+        let item = item.trim();
+        if item.is_empty() {
+            continue;
+        }
+        let item = item.strip_prefix("const").unwrap_or(item).trim();
+        let resto = item.strip_prefix("Typed")?.trim_start();
+        let resto = resto.strip_prefix('<')?;
+        // O argumento de `Typed<..>`, até o `>` que fecha.
+        let mut nivel = 1i32;
+        let mut fim = None;
+        for (i, ch) in resto.char_indices() {
+            match ch {
+                '<' => nivel += 1,
+                '>' => {
+                    nivel -= 1;
+                    if nivel == 0 {
+                        fim = Some(i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let fim = fim?;
+        let tipo = resto[..fim].trim();
+        let depois = resto[fim + 1..].trim();
+        let (classe, mut argumentos) = match tipo.find('<') {
+            Some(i) => (
+                tipo[..i].trim().to_string(),
+                partir_no_topo(tipo[i + 1..].strip_suffix('>')?, ',')
+                    .into_iter()
+                    .map(|a| a.trim().to_string())
+                    .collect::<Vec<_>>(),
+            ),
+            None => (tipo.to_string(), Vec::new()),
+        };
+        let (eh_of, chamada) = match depois.strip_prefix(".of") {
+            Some(r) => (true, r.trim()),
+            None => (false, depois),
+        };
+        let dentro = chamada.strip_prefix('(')?.strip_suffix(')')?;
+        let mut em = None;
+        for (k, parte) in partir_no_topo(dentro, ',').into_iter().enumerate() {
+            let parte = parte.trim();
+            if parte.is_empty() {
+                continue;
+            }
+            if let Some(v) = parte.strip_prefix("on:") {
+                let v = v.trim();
+                let v = v
+                    .strip_prefix('\'')
+                    .and_then(|v| v.strip_suffix('\''))
+                    .or_else(|| v.strip_prefix('"').and_then(|v| v.strip_suffix('"')))?;
+                em = Some(v.to_string());
+            } else if eh_of && k == 0 {
+                if !argumentos.is_empty() {
+                    return None;
+                }
+                let lista = parte.strip_prefix('[')?.strip_suffix(']')?;
+                for a in partir_no_topo(lista, ',') {
+                    let a = a.trim();
+                    if a.is_empty() {
+                        continue;
+                    }
+                    argumentos.push(match a.strip_prefix('#') {
+                        Some(simbolo) => simbolo.trim().to_string(),
+                        // `Typed<..>` aninhado como argumento: ainda não.
+                        None if a.starts_with("Typed") => return None,
+                        None => a.to_string(),
+                    });
+                }
+            } else {
+                return None;
+            }
+        }
+        saida.push(TipoDeDiretiva {
+            classe,
+            argumentos,
+            em,
+        });
+    }
+    Some(saida)
+}
+
+/// Parte `texto` em `sep` fora de `<>`, `()`, `[]` e `{}`.
+fn partir_no_topo(texto: &str, sep: char) -> Vec<&str> {
+    let mut partes = Vec::new();
+    let mut nivel = 0i32;
+    let mut inicio = 0;
+    for (i, ch) in texto.char_indices() {
+        match ch {
+            '<' | '(' | '[' | '{' => nivel += 1,
+            '>' | ')' | ']' | '}' => nivel -= 1,
+            c if c == sep && nivel == 0 => {
+                partes.push(&texto[inicio..i]);
+                inicio = i + c.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    partes.push(&texto[inicio..]);
+    partes
 }
