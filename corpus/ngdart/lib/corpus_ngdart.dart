@@ -298,3 +298,4 @@ export 'src/j81_view_child_em_setter.dart';
 export 'src/j82_consulta_sem_resultado.dart';
 export 'src/j83_ngfor_local_sem_tipo.dart';
 export 'src/j84_host_binding_herdado.dart';
+export 'src/j85_diretivas_de_template.dart';

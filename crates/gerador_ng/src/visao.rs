@@ -1445,21 +1445,16 @@ fn template_como_container(nos: &[No]) -> Vec<No> {
                     e.nome = "ng-container".into();
                 } else if e.nome == "template"
                     && e.estrela.is_none()
-                    && e.atributos
-                        .iter()
-                        .all(|a| a.nome.starts_with("let-") || a.valor.is_empty())
-                    && e.propriedades.is_empty()
-                    && e.eventos.is_empty()
                     && e.bananas.is_empty()
                     && e.anotacoes.is_empty()
                     && e.referencias.len() <= 1
                     && e.referencias.iter().all(|r| r.valor.is_empty())
                 {
-                    // `<template>` só com (no máximo) um `#ref`, `let-x` e
-                    // atributos sem valor (os de uma diretiva de `<template>`):
-                    // âncora, `ViewContainer` e `TemplateRef`, com o conteúdo
-                    // numa visão embutida ([`Corpo::molde`], que confere a
-                    // diretiva).
+                    // `<template>` com (no máximo) um `#ref`, `let-x`, e os
+                    // atributos, `[x]` e `(x)` das diretivas dele: âncora,
+                    // `ViewContainer` e `TemplateRef`, com o conteúdo numa
+                    // visão embutida ([`Corpo::molde`], que resolve as
+                    // diretivas e recusa o que nenhuma recebe).
                     e.estrela = Some(crate::html::Ligacao {
                         nome: MARCA_DE_MOLDE.into(),
                         valor: String::new(),
@@ -5261,46 +5256,42 @@ impl Corpo<'_> {
                 format!("diretiva {} em <template> sem metadados", u.classe),
             ));
         }
-        let diretiva = match diretivas_casadas(self.usadas, &sem).as_slice() {
-            [] if atributos.is_empty() => None,
-            [] => {
-                return Err(recusa(
-                    Motivo::Ligacao,
-                    "atributo em <template> sem diretiva",
-                ));
-            }
-            [d] => Some(d.clone()),
-            _ => {
-                return Err(recusa(
-                    Motivo::DiretivaPorSeletor,
-                    "mais de uma diretiva no mesmo <template>",
-                ));
-            }
-        };
-        if let Some(d) = &diretiva {
-            let so_template_ref = d.dependencias.iter().all(|dep| {
-                matches!(&dep.token, crate::diretivas::Token::Classe { uri, classe }
-                    if uri == TEMPLATE_REF && classe == "TemplateRef")
-                    && !dep.opcional
-                    && !dep.proprio
-                    && !dep.hospedeiro
-                    && !dep.pular
-            });
-            let entrada = atributos.iter().any(|a| d.entrada(&a.nome).is_some());
-            if !so_template_ref
-                || entrada
-                || d.ganchos != Default::default()
-                || !d.saidas.is_empty()
-                || !d.ouvintes.is_empty()
-                || !d.ligacoes_do_hospedeiro.is_empty()
-                || !d.provedores.is_empty()
-                || d.consultas
-                || !d.consultas_de_conteudo.is_empty()
-            {
+        // As diretivas do `<template>` na ordem de `directives:`
+        // (`_matchTemplateDirectives`), resolvidas como as de um elemento:
+        // o `TemplateRef` e o `ViewContainerRef` do nó, dependências de cima,
+        // entradas, saídas e ganchos (caso j85). O `@HostBinding` de uma
+        // delas não se escreve no `<template>` (`visitEmbeddedTemplate` não
+        // chama `bindDirectiveHostProps`).
+        let casadas = diretivas_casadas(self.usadas, &sem);
+        if casadas.is_empty() && !atributos.is_empty() {
+            return Err(recusa(
+                Motivo::Ligacao,
+                "atributo em <template> sem diretiva",
+            ));
+        }
+        // `[x]` e `(x)` no `<template>` só existem como entrada ou saída de
+        // uma diretiva dele (o resto é erro no oficial).
+        if let Some(l) = sem
+            .propriedades
+            .iter()
+            .find(|l| !consome_entrada(&casadas, &l.nome))
+            .or_else(|| {
+                sem.eventos
+                    .iter()
+                    .find(|l| !consome_saida(&casadas, &l.nome))
+            })
+        {
+            return Err(recusa(
+                Motivo::Ligacao,
+                format!("[{}] em <template> que nenhuma diretiva recebe", l.nome),
+            ));
+        }
+        for d in &casadas {
+            if !d.ouvintes.is_empty() || d.consultas || !d.consultas_de_conteudo.is_empty() {
                 return Err(recusa(
                     Motivo::DiretivaPorSeletor,
                     format!(
-                        "diretiva {} em <template> além do construtor com TemplateRef",
+                        "diretiva {} em <template> com @HostListener ou consulta",
                         d.classe
                     ),
                 ));
@@ -5332,30 +5323,43 @@ impl Corpo<'_> {
         self.campos_filho
             .push(format!("  late final {vc}ViewContainer _appEl_{n};"));
         let referencia = e.referencias.first().map(|r| r.nome.clone());
-        if referencia.is_some() {
-            self.campos_filho
-                .push(format!("  late final {tr}TemplateRef _TemplateRef_{n}_7;"));
-        }
-        let campo_da_diretiva = match &diretiva {
-            Some(d) => {
-                let caminho = asset_de_uri(&d.uri, "", Path::new(""))
-                    .and_then(|alvo| caminho_do_import(&self.asset, &alvo))
-                    .ok_or_else(|| {
-                        recusa(
-                            Motivo::DiretivaPorSeletor,
-                            "diretiva de <template> sem caminho de import",
-                        )
-                    })?;
-                let qd = self.imp.q(&caminho);
-                let campo = format!("_{}_{n}_8", d.classe);
-                self.campos_filho
-                    .push(format!("  late final {qd}{} {campo};", d.classe));
-                Some((qd, campo))
+        // O `TemplateRef` é campo quando lido fora do `build()` (`#ref`); a
+        // leitura sai pelo índice que o resolvedor dá a ele.
+        let com_ref = referencia.is_some();
+        let leitura_do_tr = |k: u32| {
+            if com_ref {
+                format!("this._TemplateRef_{n}_{k}")
+            } else {
+                format!("_TemplateRef_{n}_{k}")
             }
-            None => None,
         };
+        let (resolvido, k_tr) = if casadas.is_empty() {
+            (None, 7)
+        } else {
+            let provedores = self.provedores_acima_com(&tardio(UTILITIES));
+            let acima = crate::diretivas::Acima {
+                provedores: &provedores,
+                incerto: self.incertos_acima > 0,
+            };
+            let (r, k) =
+                crate::diretivas::resolver_de_molde(&casadas, n, Some(acima), &leitura_do_tr)
+                    .map_err(|f| recusa(Motivo::DiretivaPorSeletor, f))?;
+            (Some(r), k)
+        };
+        if com_ref {
+            self.campos_filho.push(format!(
+                "  late final {tr}TemplateRef _TemplateRef_{n}_{k_tr};"
+            ));
+        }
         let pai_indice = if pai.is_empty() {
-            self.raizes.push(format!("_anchor_{n}"));
+            // Com `ViewContainer` não privado, a raiz é ele (`vcAppEl ??
+            // renderNode`, caso j85).
+            let container = resolvido.as_ref().is_some_and(|r| r.container);
+            self.raizes.push(if container {
+                format!("this._appEl_{n}")
+            } else {
+                format!("_anchor_{n}")
+            });
             self.linhas
                 .push(format!("    final _anchor_{n} = {dom}.createAnchor();"));
             self.pai_projetado
@@ -5369,38 +5373,80 @@ impl Corpo<'_> {
         self.linhas.push(format!(
             "    this._appEl_{n} = {vc}ViewContainer({n}, {pai_indice}, this, _anchor_{n});"
         ));
-        let template_ref = match &referencia {
+        match &referencia {
             Some(nome) => {
                 self.linhas.push(format!(
-                    "    this._TemplateRef_{n}_7 = {tr}TemplateRef(this._appEl_{n}, {nome_fabrica});"
+                    "    this._TemplateRef_{n}_{k_tr} = {tr}TemplateRef(this._appEl_{n}, {nome_fabrica});"
                 ));
-                let leitura = format!("this._TemplateRef_{n}_7");
+                let leitura = format!("this._TemplateRef_{n}_{k_tr}");
                 self.refs.insert(nome.clone(), leitura.clone());
                 self.refs_em_ordem.push((nome.clone(), leitura.clone()));
-                leitura
             }
             None => {
                 self.linhas.push(format!(
-                    "    var _TemplateRef_{n}_7 = {tr}TemplateRef(this._appEl_{n}, {nome_fabrica});"
+                    "    var _TemplateRef_{n}_{k_tr} = {tr}TemplateRef(this._appEl_{n}, {nome_fabrica});"
                 ));
-                format!("_TemplateRef_{n}_7")
             }
-        };
-        if let (Some(d), Some((qd, campo))) = (&diretiva, &campo_da_diretiva) {
-            let args = vec![template_ref.as_str(); d.dependencias.len()].join(", ");
-            self.linhas
-                .push(format!("    this.{campo} = {qd}{}({args});", d.classe));
-            let dev = self.imp.alias(DEVTOOLS);
-            self.linhas.push(format!(
-                "    if ({dev}.isDevToolsEnabled) {{\n      {dev}.Inspector.instance.registerDirective(_anchor_{n}, this.{campo});\n    }}"
-            ));
+        }
+        // As diretivas: criação, `registerDirective` na âncora, entradas e
+        // saídas (sem `@HostBinding`: nenhuma instância para o
+        // `detectHostChanges`) e os ganchos, que no `<template>` saem logo
+        // (`bindDirectiveAfterChildrenCallbacks` no `visitEmbeddedTemplate`).
+        let antes_acima = self.acima.len();
+        if let Some(r) = &resolvido {
+            // Com `ViewContainerRef` pedido, o `ViewContainer` não é privado
+            // (`createViewContainer(.., !hasViewContainer, ..)`): as visões
+            // dele são detectadas e destruídas por esta (caso j85).
+            if r.container {
+                self.ancoras.push(format!("_appEl_{n}"));
+            }
+            let alvo = format!("_anchor_{n}");
+            self.criar_instancias(&sem, &r.instancias, &alvo)?;
+            self.registrar_diretivas(&r.diretivas, &alvo);
+            self.ligar_diretivas(
+                &sem,
+                &[],
+                &r.diretivas,
+                &alvo,
+                &sem.propriedades,
+                &sem.eventos,
+                true,
+                true,
+            )?;
+            self.ganchos_depois_dos_filhos(&r.diretivas);
+            let injetaveis: Vec<(Vec<crate::diretivas::Token>, String)> = r
+                .instancias
+                .iter()
+                .filter(|i| !i.injetavel_por.is_empty())
+                .map(|i| (i.injetavel_por.clone(), i.leitura.clone()))
+                .collect();
+            if !injetaveis.is_empty() {
+                self.injetores.push((n, n, injetaveis));
+            }
             let mut acima = self.pilha.clone();
             acima.push((n, true));
             self.registros.push(Registro {
                 acima,
-                provedores: vec![(d.token(), campo.clone(), None)],
-                elemento: format!("_anchor_{n}"),
+                provedores: r
+                    .instancias
+                    .iter()
+                    .flat_map(|i| {
+                        std::iter::once(&i.token)
+                            .chain(&i.apelidos)
+                            .map(|t| (t.clone(), i.leitura.clone(), None))
+                    })
+                    .collect(),
+                elemento: alvo,
             });
+            // Os provedores do `<template>` ficam acima do conteúdo dele.
+            for i in &r.instancias {
+                if i.injetavel_por.is_empty() {
+                    self.acima.push((i.token.clone(), i.leitura.clone(), None));
+                }
+                for t in &i.injetavel_por {
+                    self.acima.push((t.clone(), i.leitura.clone(), None));
+                }
+            }
         }
         // Quem cria a visão (a diretiva do filho, com `ngTemplateOutlet`)
         // é que dá o contexto: o local não tem tipo (`dynamic`, sem cast).
@@ -5428,6 +5474,7 @@ impl Corpo<'_> {
                 locais: locais_do_molde,
             },
         );
+        self.acima.truncate(antes_acima);
         Ok(())
     }
 
@@ -7487,9 +7534,9 @@ enum CampoDaVisao<'a> {
     /// Diretiva estrutural, com a URI da classe dela.
     Estrutural(&'static str),
     /// `<template>` escrito: o `ViewContainer`, com `#ref` o campo do
-    /// `TemplateRef` e, com diretiva de `<template>`, o campo dela (o texto
-    /// com o import tardio, [`uri_do_campo`]).
-    Molde(bool, Option<String>),
+    /// `TemplateRef` e os campos das diretivas dele (o texto com o import
+    /// tardio, [`uri_do_campo`]), na ordem.
+    Molde(bool, Vec<String>),
     /// Provedores de diretivas num nó: o texto com os imports tardios do
     /// campo de cada um ([`uri_do_campo`]), na ordem.
     Diretivas(Vec<String>),
@@ -7529,11 +7576,20 @@ fn campos_em_ordem<'a>(
             if estrela.nome == MARCA_DE_MOLDE {
                 let mut sem = e.clone();
                 sem.estrela = None;
-                let diretiva = match diretivas_casadas(usadas, &sem).as_slice() {
-                    [d] => Some(tardio(&import_de(&d.uri, asset))),
-                    _ => None,
+                let casadas = diretivas_casadas(usadas, &sem);
+                let campos = if casadas.is_empty() {
+                    Vec::new()
+                } else {
+                    crate::diretivas::resolver_de_molde(&casadas, 0, None, &|_| String::new())
+                        .map(|(r, _)| {
+                            r.instancias
+                                .iter()
+                                .map(|i| uri_do_campo(i, asset))
+                                .collect()
+                        })
+                        .unwrap_or_default()
                 };
-                saida.push(CampoDaVisao::Molde(!e.referencias.is_empty(), diretiva));
+                saida.push(CampoDaVisao::Molde(!e.referencias.is_empty(), campos));
             } else if let Some(d) = Estrutural::conhecida(&estrela.nome) {
                 saida.push(CampoDaVisao::Estrutural(d.uri));
             }
@@ -8412,12 +8468,12 @@ fn alocar_imports_dos_campos(
                 imp.alias(VIEW_CONTAINER);
                 imp.alias(uri);
             }
-            CampoDaVisao::Molde(com_ref, diretiva) => {
+            CampoDaVisao::Molde(com_ref, campos) => {
                 imp.alias(VIEW_CONTAINER);
                 if com_ref {
                     imp.alias(TEMPLATE_REF);
                 }
-                if let Some(t) = diretiva {
+                for t in campos {
                     resolver_tardios(imp, &t);
                 }
             }
@@ -8449,6 +8505,7 @@ fn cita_ctx(linhas: &[String]) -> bool {
 /// Índice do elemento que serve de pai, ou `null` se for a raiz da visão.
 fn indice_do_elemento(pai: &str) -> String {
     pai.rsplit_once("_el_")
+        .or_else(|| pai.rsplit_once("_anchor_"))
         .map(|(_, n)| n.to_string())
         .unwrap_or_else(|| "null".to_string())
 }

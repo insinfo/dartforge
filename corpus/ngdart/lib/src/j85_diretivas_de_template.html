@@ -1,0 +1,9 @@
+<div j85-grupo>
+  <template j85-saida="a" [valor]="total" (pronto)="avisar($event)">
+    <b>{{ total }}</b>
+  </template>
+  <template j85-simples #simples><i></i></template>
+  <p *ngIf="mostrar">
+    <template j85-saida="b"><span></span></template>
+  </p>
+</div>

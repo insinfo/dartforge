@@ -493,6 +493,40 @@ pub fn resolver(
     resolver_em(casadas, n, acima, false)
 }
 
+/// Os provedores de um `<template>` escrito (`EmbeddedTemplateAst`): os
+/// embutidos (`ElementRef`, `Element`, `HtmlElement`, `Injector`,
+/// `ViewContainer`; `ViewContainerRef` se alguma diretiva o pede;
+/// `ChangeDetectorRef`, `ComponentLoader`), o `TemplateRef` — o primeiro
+/// dos resolvidos (`setEmbeddedView`), no índice seguinte — e as diretivas
+/// depois dele. `template_ref` dá a leitura do `TemplateRef` do nó pelo
+/// índice dele, que volta junto (caso j85).
+pub fn resolver_de_molde(
+    casadas: &[Arc<Diretiva>],
+    n: u32,
+    acima: Option<Acima>,
+    template_ref: &dyn Fn(u32) -> String,
+) -> Result<(NoResolvido, u32), &'static str> {
+    let container = casadas.iter().any(|d| pede_container(d));
+    let indice = if container { 8 } else { 7 };
+    let leitura = template_ref(indice);
+    let r = resolver_com(
+        casadas,
+        n,
+        acima,
+        false,
+        None,
+        container,
+        Some((&leitura, indice)),
+    )?;
+    Ok((r, indice))
+}
+
+/// O `TemplateRef` do ngdart.
+pub fn e_template_ref(t: &Token) -> bool {
+    matches!(t, Token::Classe { uri, classe }
+        if uri == "package:ngdart/src/core/linker/template_ref.dart" && classe == "TemplateRef")
+}
+
 /// Os provedores do nó da visão-hospedeira (`_ViewXHost0`, nó 0): o
 /// componente e os `providers:` dele. O que o nó não provê vem do injetor
 /// de fora (`injectFromViewParentInjector`), e a instância do componente é
@@ -520,7 +554,7 @@ pub fn resolver_no_do_filho(
     acima: Option<Acima>,
     container: bool,
 ) -> Result<NoResolvido, &'static str> {
-    resolver_com(casadas, n, acima, false, Some(filho), container)
+    resolver_com(casadas, n, acima, false, Some(filho), container, None)
 }
 
 fn resolver_em(
@@ -529,7 +563,7 @@ fn resolver_em(
     acima: Option<Acima>,
     hospedeira: bool,
 ) -> Result<NoResolvido, &'static str> {
-    resolver_com(casadas, n, acima, hospedeira, None, false)
+    resolver_com(casadas, n, acima, hospedeira, None, false, None)
 }
 
 /// `componente`: o índice do componente filho em `casadas` (no nó de um
@@ -542,6 +576,7 @@ fn resolver_com(
     hospedeira: bool,
     componente: Option<usize>,
     container: bool,
+    molde: Option<(&str, u32)>,
 ) -> Result<NoResolvido, &'static str> {
     let completa = |k: usize| hospedeira || componente == Some(k);
     // `requiresViewContainer`: com `ViewContainer` o nó ganha três embutidos
@@ -665,7 +700,12 @@ fn resolver_com(
 
     // `addDirectiveProviders`: o `uniqueId` é o tamanho da tabela, que já
     // tem as cinco embutidas do elemento.
-    let mut tamanho = if container { 8 } else { 5 };
+    // No `<template>`, as diretivas vêm depois do `TemplateRef`.
+    let mut tamanho = match molde {
+        Some((_, indice)) => indice + 1,
+        None if container => 8,
+        None => 5,
+    };
     let mut campos: Vec<(Token, String)> = Vec::new();
     let mut apelidos: Vec<(Token, Token)> = Vec::new();
     let mut saida = NoResolvido {
@@ -789,6 +829,10 @@ fn resolver_com(
                         Token::Elemento => Argumento::Elemento,
                         Token::Detector => Argumento::Detector,
                         t if e_view_container_ref(t) && !dep.pular => Argumento::Container,
+                        // O `TemplateRef` do próprio `<template>`.
+                        t if e_template_ref(t) && !dep.pular && molde.is_some() => {
+                            Argumento::Acima(molde.map(|(l, _)| l.to_string()).unwrap_or_default())
+                        }
                         Token::Classe { uri, classe }
                             if uri == INJECTOR && classe == "Injector" =>
                         {
