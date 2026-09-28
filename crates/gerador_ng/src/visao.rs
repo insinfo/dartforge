@@ -3690,11 +3690,6 @@ impl Corpo<'_> {
                     "style=\"...\" com [style.x] no mesmo nó",
                 ));
             }
-            // Sem valor (`<x disabled>`) o oficial liga um `EmptyExpr`, e
-            // `x=""` não se distingue daqui: nenhum dos dois ainda.
-            if filho.entrada(&a.nome).is_some() && a.valor.is_empty() {
-                return Err(em_filho("atributo sem valor em @Input do filho"));
-            }
         }
         // O que chega a um `@Input`: atributo estático (literal) e `[x]`. Um
         // nome ligado duas vezes some no oficial (`_removeExisting`).
@@ -4590,10 +4585,19 @@ impl Corpo<'_> {
         campo_inst: &str,
         campo_vista: &str,
     ) -> Result<(), Recusa> {
+        // O tipo `bool` da entrada (`_isBoolType`), dos metadados do filho:
+        // o atributo sem valor liga `true` nele, `''` nos outros (caso j73).
+        let booleana = |nome: &str| {
+            filho
+                .metadados
+                .as_ref()
+                .and_then(|m| m.entrada(nome))
+                .and_then(|x| x.booleana)
+        };
         let spec: Vec<(String, String, Option<bool>)> = filho
             .entradas
             .iter()
-            .map(|e| (e.nome.clone(), e.campo.clone(), None))
+            .map(|e| (e.nome.clone(), e.campo.clone(), booleana(&e.nome)))
             .collect();
         let vista = filho.on_push.then_some(campo_vista);
         self.entradas_de(
