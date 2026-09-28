@@ -271,8 +271,17 @@ pub struct Parametro {
     pub nomeado: bool,
     /// `@Optional`, `@Inject(...)`, `@Self`… mudam a injeção.
     pub anotado: bool,
-    /// A única anotação é `@Optional()`: `injectorGetOptional`.
+    /// `@Optional()`: `injectorGetOptional`, ou `null` onde não há provedor.
     pub opcional: bool,
+    /// `@Self()`: só o próprio nó.
+    pub proprio: bool,
+    /// `@Host()`: não sai da visão do componente (`_getDependency`).
+    pub hospedeiro: bool,
+    /// `@SkipSelf()`: começa no nó de cima.
+    pub pular: bool,
+    /// Outra anotação (`@Inject`, `@Attribute`, desconhecida): ainda sem
+    /// tradução.
+    pub outra_anotacao: bool,
 }
 
 /// Valor de um argumento nomeado, quando é uma string literal sem
@@ -1171,13 +1180,24 @@ fn parametros_do_construtor(
                     None if p.this_ || p.super_ => campos.get(&nome).cloned(),
                     None => None,
                 };
+                let nomes: Vec<String> = p
+                    .metadata
+                    .iter()
+                    .map(|a| crate::nome_da_anotacao(a, interner))
+                    .collect();
+                let tem = |n: &str| nomes.iter().any(|x| x == n);
                 Parametro {
                     tipo,
                     nome,
                     nomeado: matches!(p.kind, ast::ParameterKind::Named),
                     anotado: !p.metadata.is_empty(),
-                    opcional: p.metadata.len() == 1
-                        && crate::nome_da_anotacao(&p.metadata[0], interner) == "Optional",
+                    opcional: tem("Optional"),
+                    proprio: tem("Self"),
+                    hospedeiro: tem("Host"),
+                    pular: tem("SkipSelf"),
+                    outra_anotacao: nomes
+                        .iter()
+                        .any(|n| !matches!(n.as_str(), "Optional" | "Self" | "Host" | "SkipSelf")),
                 }
             })
             .collect();

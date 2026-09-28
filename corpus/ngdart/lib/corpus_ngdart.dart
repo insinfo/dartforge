@@ -292,3 +292,4 @@ export 'src/j75_molde_com_ternario.dart';
 export 'src/j76_ref_de_filho_em_embutida.dart';
 export 'src/j77_consulta_em_projetado.dart';
 export 'src/j78_consulta_em_template_ngif.dart';
+export 'src/j79_host_e_self.dart';

@@ -2549,7 +2549,23 @@ pub enum Injetado {
         uri: String,
         classe: String,
         opcional: bool,
+        /// `@Self()`, `@Host()`, `@SkipSelf()` (`_getDependency`).
+        proprio: bool,
+        hospedeiro: bool,
+        pular: bool,
     },
+}
+
+/// De onde vem um serviço que o filho injeta (`_getDependency`).
+enum OrigemDoServico {
+    /// Um provedor do próprio nó, criado antes do filho.
+    Local(String),
+    /// Um elemento acima provê: a leitura dele.
+    Cima(String),
+    /// `@Optional()` que não acha (`@Self`, ou `@Host` fora da hospedeira).
+    Nulo,
+    /// O injetor de fora da visão.
+    Injetor,
 }
 
 /// Um `@ContentChild`/`@ContentChildren` de um filho.
@@ -4334,13 +4350,80 @@ impl Corpo<'_> {
                 .then_some(p.leitura.as_str())
             })
         };
+        // A classe do componente desta visão: o `@Host()` a acha no injetor
+        // (`identifierToken(component.type).equalsTo(dep.token)`).
+        let proprio_componente = |uri: &str, tipo: &str| {
+            self.classe_qualificada.rsplit('.').next() == Some(tipo)
+                && asset_de_uri(uri, "", Path::new("")).as_deref() == Some(self.asset.as_str())
+        };
+        // `_getDependency`: o próprio nó (sem `@SkipSelf`); com `@Self`, só
+        // ele; senão os elementos acima; e, não achando, o injetor de fora —
+        // menos com `@Host` numa visão de componente (a não ser que o token
+        // seja o próprio componente), onde fica `null` se `@Optional`.
+        let mut origens = Vec::new();
+        for p in &filho.parametros {
+            let Injetado::Servico {
+                uri,
+                classe: tipo,
+                opcional,
+                proprio,
+                hospedeiro,
+                pular,
+            } = p
+            else {
+                origens.push(None);
+                continue;
+            };
+            if !pular && let Some(c) = do_proprio_no(uri, tipo) {
+                origens.push(Some(OrigemDoServico::Local(c.clone())));
+                continue;
+            }
+            if *proprio {
+                if !opcional {
+                    return Err(em_filho("@Self() sem provedor no nó do filho"));
+                }
+                origens.push(Some(OrigemDoServico::Nulo));
+                continue;
+            }
+            // Embutido do elemento: o oficial o acha no nó, nunca no
+            // injetor de fora (ainda sem caso no nó do filho).
+            if crate::diretivas::embutido_do_elemento(&crate::diretivas::Token::Classe {
+                uri: uri.clone(),
+                classe: tipo.clone(),
+            }) {
+                return Err(em_filho(
+                    "filho que injeta embutido do elemento (ViewContainerRef…)",
+                ));
+            }
+            // Um elemento acima provê o serviço (também um componente acima,
+            // cujo conteúdo contém o filho): o oficial o lê de lá — o campo,
+            // ou `.instance` do `XNgCd` (casos j68, j79).
+            if let Some(leitura) = de_cima(uri, tipo) {
+                origens.push(Some(OrigemDoServico::Cima(leitura.to_string())));
+                continue;
+            }
+            // Um componente acima sem metadados poderia prover o serviço:
+            // não achar não prova que vem de fora.
+            if self.incertos_acima > 0 {
+                return Err(em_filho(
+                    "filho que injeta serviço sob componente sem metadados",
+                ));
+            }
+            if *hospedeiro && !proprio_componente(uri, tipo) {
+                if !opcional {
+                    return Err(em_filho("@Host() sem provedor na visão do filho"));
+                }
+                origens.push(Some(OrigemDoServico::Nulo));
+                continue;
+            }
+            origens.push(Some(OrigemDoServico::Injetor));
+        }
         // Só a dependência do injetor é dinâmica (`hasDynamicDependencies`):
         // a que o próprio nó ou um elemento acima provê não embrulha a
         // criação.
-        let injeta = filho.parametros.iter().any(|p| {
-            matches!(p, Injetado::Servico { uri, classe, .. }
-                if do_proprio_no(uri, classe).is_none() && de_cima(uri, classe).is_none())
-        });
+        let injeta = origens
+            .iter()
+            .any(|o| matches!(o, Some(OrigemDoServico::Injetor)));
         // A ordem dos imports é a da escrita: `isDevMode`, `errors.dart`, a
         // classe e os tipos injetados.
         let prefixo = if injeta {
@@ -4355,7 +4438,7 @@ impl Corpo<'_> {
         // injetores: `parentView.injectorGet(T, parentIndex)` visto de lá.
         let visao_do_componente = self.visao_do_injetor();
         let mut args = Vec::new();
-        for p in &filho.parametros {
+        for (p, origem) in filho.parametros.iter().zip(&origens) {
             match p {
                 Injetado::Elemento => args.push(el.to_string()),
                 Injetado::Detector => args.push(format!("this.{campo_vista}")),
@@ -4364,38 +4447,22 @@ impl Corpo<'_> {
                     uri,
                     classe: tipo,
                     opcional,
+                    ..
                 } => {
-                    // Provedor do próprio nó, criado antes do filho.
-                    if let Some(c) = do_proprio_no(uri, tipo) {
-                        args.push(format!("this.{c}"));
-                        continue;
-                    }
-                    if self.filhos_acima.iter().any(|(u, c)| u == uri && c == tipo) {
-                        return Err(em_filho("filho que injeta um componente acima dele"));
-                    }
-                    // Embutido do elemento: o oficial o acha no nó, nunca no
-                    // injetor de fora (ainda sem caso no nó do filho).
-                    if crate::diretivas::embutido_do_elemento(&crate::diretivas::Token::Classe {
-                        uri: uri.clone(),
-                        classe: tipo.clone(),
-                    }) {
-                        return Err(em_filho(
-                            "filho que injeta embutido do elemento (ViewContainerRef…)",
-                        ));
-                    }
-                    // Um elemento acima provê o serviço: o oficial o lê de lá
-                    // (`_getDependency`), não do injetor de fora — o campo
-                    // dele, ou `.instance` do `XNgCd` (caso j68).
-                    if let Some(leitura) = de_cima(uri, tipo) {
-                        args.push(leitura.to_string());
-                        continue;
-                    }
-                    // Um componente acima sem metadados poderia prover o
-                    // serviço: não achar não prova que vem de fora.
-                    if self.incertos_acima > 0 {
-                        return Err(em_filho(
-                            "filho que injeta serviço sob componente sem metadados",
-                        ));
+                    match origem {
+                        Some(OrigemDoServico::Local(c)) => {
+                            args.push(format!("this.{c}"));
+                            continue;
+                        }
+                        Some(OrigemDoServico::Cima(l)) => {
+                            args.push(l.clone());
+                            continue;
+                        }
+                        Some(OrigemDoServico::Nulo) => {
+                            args.push("null".to_string());
+                            continue;
+                        }
+                        _ => {}
                     }
                     let caminho = asset_de_uri(uri, "", Path::new(""))
                         .and_then(|alvo| caminho_do_import(&self.asset, &alvo))
@@ -10600,11 +10667,15 @@ fn construcao_do_componente(
             .find(|(t, _)| *t == token)
             .map(|(_, c)| format!("this.{c}"))
     };
+    // Na hospedeira (`component.type.isHost`), o que o nó não provê vem
+    // do injetor, com ou sem `@Host()`; `@Self()` fica no nó (ou `null`,
+    // opcional); `@SkipSelf()` pula o nó (`_getDependency`, caso j79).
     let injeta = c.parametros.iter().any(|p| {
         !e_elemento(p.tipo.as_deref())
             && !e_detector(p, local, resolvedor)
             && !e_container(p, local, resolvedor)
-            && do_no(p).is_none()
+            && !p.proprio
+            && (p.pular || do_no(p).is_none())
     });
     // O `errors.dart` entra antes dos tipos injetados, como no oficial.
     let erros = injeta.then(|| imp.alias(DI_ERRORS));
@@ -10625,12 +10696,17 @@ fn construcao_do_componente(
             continue;
         }
         if !p.nomeado
+            && !p.pular
             && let Some(campo) = do_no(p)
         {
             args.push(campo);
             continue;
         }
-        if (p.anotado && !p.opcional) || p.nomeado {
+        if p.proprio && p.opcional && !p.nomeado && !p.outra_anotacao {
+            args.push("null".to_string());
+            continue;
+        }
+        if p.outra_anotacao || p.proprio || p.nomeado {
             return None; // `@Inject(...)`, `@Self`, nomeado: ainda não
         }
         // O token é o tipo sem o `?` (`@Optional() X? x`).
@@ -10725,10 +10801,10 @@ fn falta_para_construir(
         if e_elemento(p.tipo.as_deref()) {
             continue;
         }
-        if p.anotado && !p.opcional {
+        if p.outra_anotacao || (p.proprio && !p.opcional) {
             return Some(recusa(
                 Motivo::InjecaoAnotada,
-                "@Optional/@Inject/@Attribute no construtor",
+                "@Inject/@Attribute/@Self no construtor",
             ));
         }
         if p.nomeado {
@@ -10861,6 +10937,10 @@ mod testes {
             nomeado: false,
             anotado: false,
             opcional: false,
+            proprio: false,
+            hospedeiro: false,
+            pular: false,
+            outra_anotacao: false,
         }
     }
 

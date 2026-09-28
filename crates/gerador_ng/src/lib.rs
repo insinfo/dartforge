@@ -926,8 +926,8 @@ fn injetado(
     if p.nomeado {
         return Err("parâmetro nomeado no construtor do filho");
     }
-    if p.anotado && !p.opcional {
-        return Err("@Inject/@Self/@Attribute no construtor do filho");
+    if p.outra_anotacao {
+        return Err("@Inject/@Attribute no construtor do filho");
     }
     if tipo.contains('<') {
         return Err("token genérico no construtor do filho");
@@ -939,6 +939,13 @@ fn injetado(
     }
     .ok_or("tipo injetado no filho sem resolução")?;
     let simples = tipo.rsplit('.').next().unwrap_or(tipo).to_string();
+    // Os embutidos do elemento (o nó, a visão, o `ViewContainer`) com
+    // `@Self`/`@Host`/`@SkipSelf`/`@Optional`: ainda sem caso.
+    let embutido = (uri == "dart:html" && matches!(simples.as_str(), "Element" | "HtmlElement"))
+        || uri.starts_with("package:ngdart/");
+    if embutido && p.anotado {
+        return Err("embutido do elemento anotado no construtor do filho");
+    }
     if uri == "dart:html" && matches!(simples.as_str(), "Element" | "HtmlElement") {
         return Ok(visao::Injetado::Elemento);
     }
@@ -958,6 +965,9 @@ fn injetado(
         uri,
         classe: simples,
         opcional: p.opcional,
+        proprio: p.proprio,
+        hospedeiro: p.hospedeiro,
+        pular: p.pular,
     })
 }
 

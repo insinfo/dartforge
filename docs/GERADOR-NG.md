@@ -510,14 +510,20 @@ caso j75. `@ViewChild` de filho dentro de `*ngIf` (com `onPush`, o
 no conteúdo projetado de outro filho: a âncora é desta visão, e a consulta
 mapeia a embutida do mesmo jeito — caso j77. `<ng-container>` (também o
 `<template [ngIf]>` reescrito) é transparente na busca dos resultados — caso
-j78. `directives:` e as
+j78. `@Host()`, `@Self()`, `@SkipSelf()` e `@Optional()` no construtor de um
+componente seguem o `_getDependency`: o próprio nó (sem `@SkipSelf`); com
+`@Self`, só ele (`null` se opcional); senão os elementos acima — também o
+componente de cima que projeta o filho — e o injetor de fora, menos `@Host`
+numa visão de componente (`null` se opcional); na hospedeira o `@Host` não
+barra o injetor — caso j79. `@Inject` e `@Attribute` no construtor do
+componente ainda são recusados. `directives:` e as
 listas constantes aceitam `...outraLista`. O `dirtyParentQueriesInternal`
 segue o primeiro resultado de cada consulta na visão, em pré-ordem
 (`_setParentQueryAsDirty` no `addQueryResult`), e os campos dos nós
-consultados seguem as consultas — caso j66. Corpus: 310 conferidos.
+consultados seguem as consultas — caso j66. Corpus: 311 conferidos.
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada
-pendente com o motivo): **939 iguais / 11 pendentes / 0 diferentes** —
-`.template.dart` 523/9/0, `.css` e `.css.map` do Sass 102/102 cada,
+pendente com o motivo): **940 iguais / 10 pendentes / 0 diferentes** —
+`.template.dart` 524/8/0, `.css` e `.css.map` do Sass 102/102 cada,
 `.css.dart` e `.css.shim.dart` 104 cada.
 
 ### Diretivas estruturais

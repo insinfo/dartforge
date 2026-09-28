@@ -267,6 +267,7 @@ import 'package:corpus_ngdart/src/j75_molde_com_ternario.template.dart' as j75;
 import 'package:corpus_ngdart/src/j76_ref_de_filho_em_embutida.template.dart' as j76;
 import 'package:corpus_ngdart/src/j77_consulta_em_projetado.template.dart' as j77;
 import 'package:corpus_ngdart/src/j78_consulta_em_template_ngif.template.dart' as j78;
+import 'package:corpus_ngdart/src/j79_host_e_self.template.dart' as j79;
 
 void main() {
   print([
@@ -538,5 +539,6 @@ void main() {
     j76.J76RefDeFilhoEmEmbutidaNgFactory,
     j77.J77ConsultaEmProjetadoNgFactory,
     j78.J78ConsultaEmTemplateNgifNgFactory,
+    j79.J79HostESelfNgFactory,
   ].length);
 }
