@@ -429,6 +429,13 @@ impl Motor {
                 atribuidos.push((u, d));
             }
         }
+        // Nos tipos de `extends`/`implements`/`with` o analyzer não relata
+        // nome indefinido nem nome que não é tipo: o erro é o `*_non_class`
+        // de `analise::clausulas`.
+        let clausulas: BTreeSet<(UnitId, usize)> = libs_proprias
+            .iter()
+            .flat_map(|lib| dartforge_analise::clausulas::nomes_de_clausulas(&program, *lib))
+            .collect();
         let mut vistos: BTreeSet<(UnitId, usize, usize, String)> = BTreeSet::new();
         for (unidade, d) in &atribuidos {
             let unidade = *unidade;
@@ -438,6 +445,11 @@ impl Motor {
             let fonte = &program.unit(unidade).source;
             let trecho = fonte.get(d.span.start..d.span.end).unwrap_or("");
             let cod = ponte::codificar_tipos(d, trecho);
+            if cod.code.is_some_and(|c| matches!(c.info().nome, "undefined_class" | "not_a_type"))
+                && clausulas.contains(&(unidade, cod.span.start))
+            {
+                continue;
+            }
             if !vistos.insert((unidade, cod.span.start, cod.span.end, cod.message.clone())) {
                 continue;
             }

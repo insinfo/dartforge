@@ -48,6 +48,18 @@ enum Alvo {
     Desconhecido,
 }
 
+/// O elemento de um tipo de cláusula para o `ResolutionVisitor`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Resolvido {
+    /// Classe, mixin, enum ou tipo de extensão.
+    Classe(ClassId),
+    /// Outro elemento de tipo: parâmetro de tipo, `dynamic`, `Never`, alias
+    /// de função, de registro ou de `void`.
+    NaoClasse,
+    /// Já relatado pela resolução do nome, ou não decidido aqui.
+    Ignorar,
+}
+
 /// Leitor das cláusulas no escopo de uma biblioteca.
 struct Leitor<'a> {
     programa: &'a Program,
@@ -211,6 +223,214 @@ impl Leitor<'_> {
             "dart:typed_data" => false,
             _ => false,
         }
+    }
+
+    /// A classe `nome` do `dart:core`.
+    fn do_core(&self, nome: &str) -> Option<ClassId> {
+        self.programa.classes.iter().position(|c| {
+            c.decl.is_some() && self.programa.library(c.library).uri == "dart:core" && self.nome(c.name) == nome
+        })
+        .map(|i| ClassId(i as u32))
+    }
+
+    /// O que o `ResolutionVisitor._resolveType` vê num tipo de cláusula:
+    /// o elemento do tipo, seguindo aliases; [`Resolvido::Ignorar`] quando a
+    /// resolução do nome já relatou erro (nome indefinido, não é tipo) ou
+    /// aqui não se decide.
+    fn resolver(
+        &self,
+        u: UnitId,
+        ast_: &ast::Ast,
+        t: ast::TypeId,
+        params: &[SymbolId],
+        prof: u32,
+        ignora_nao_tipo: bool,
+    ) -> Resolvido {
+        if prof > 8 {
+            return Resolvido::Ignorar;
+        }
+        let TypeKind::Named { name, .. } = &ast_.ty(t).kind else {
+            return Resolvido::Ignorar;
+        };
+        if let [n] = &name[..]
+            && params.contains(&n.sym)
+        {
+            return Resolvido::NaoClasse;
+        }
+        // Nome ambíguo (`ambiguous_import`): não se decide.
+        let ligacao = match &name[..] {
+            [n] => self.programa.lookup_na_unidade(u, n.sym),
+            [p, n] => self.programa.lookup_prefixed_na_unidade(u, p.sym, n.sym),
+            _ => None,
+        };
+        if ligacao.is_some_and(|b| b.ambiguous) {
+            return Resolvido::Ignorar;
+        }
+        match self.elemento(u, name) {
+            Some(Element::Class(id)) => Resolvido::Classe(id),
+            Some(Element::Typedef(tid)) => {
+                let td = self.programa.typedef(tid);
+                let ast_td = &self.programa.unit(td.decl.unit).ast;
+                let DeclKind::Typedef(d) = &ast_td.decl(td.decl.decl).kind else {
+                    return Resolvido::Ignorar;
+                };
+                let TypedefKind::Alias(corpo) = d.kind else {
+                    return Resolvido::NaoClasse;
+                };
+                let ps: Vec<SymbolId> = d.type_params.iter().map(|p| p.name.sym).collect();
+                match &ast_td.ty(corpo).kind {
+                    TypeKind::Named { name: n2, .. } => {
+                        if let [unico] = &n2[..]
+                            && ps.contains(&unico.sym)
+                        {
+                            // `supertype_expands_to_type_parameter`, outro verificador.
+                            return Resolvido::Ignorar;
+                        }
+                        self.resolver(td.decl.unit, ast_td, corpo, &[], prof + 1, ignora_nao_tipo)
+                    }
+                    _ => Resolvido::NaoClasse,
+                }
+            }
+            // Um nome que não é tipo, ou que não existe: em `extends`,
+            // `implements` e `with` o `NamedTypeResolver` não relata nada
+            // (`reportNullOrNonTypeElement`), e o erro é o daqui.
+            Some(_) => {
+                if ignora_nao_tipo {
+                    Resolvido::NaoClasse
+                } else {
+                    Resolvido::Ignorar
+                }
+            }
+            None => match &name[..] {
+                [n] if matches!(self.nome(n.sym), "dynamic" | "Never")
+                    && self.programa.lookup_na_unidade(u, n.sym).is_none() =>
+                {
+                    Resolvido::NaoClasse
+                }
+                [.., n] if ignora_nao_tipo && prof == 0 => {
+                    let prefixo = if name.len() == 2 { Some(name[0].sym) } else { None };
+                    if self.ignora_indefinido(u, prefixo, n.sym) {
+                        Resolvido::Ignorar
+                    } else {
+                        Resolvido::NaoClasse
+                    }
+                }
+                _ => Resolvido::Ignorar,
+            },
+        }
+    }
+
+    /// `CompilationUnitElementImpl.shouldIgnoreUndefined`: o nome pode vir de
+    /// um import que não existe (com o prefixo, ou num `show`), ou, se começa
+    /// com `_$`, de uma parte gerada que ainda não existe.
+    fn ignora_indefinido(&self, u: UnitId, prefixo: Option<SymbolId>, nome: SymbolId) -> bool {
+        let lib_id = self.programa.unit(u).library;
+        let lib = self.programa.library(lib_id);
+        for &uid in &lib.units {
+            let unidade = self.programa.unit(uid);
+            for (i, d) in unidade.unit.directives.iter().enumerate() {
+                match &d.kind {
+                    ast::DirectiveKind::Import { prefix, combinators, .. } => {
+                        if prefix.map(|p| p.sym) != prefixo {
+                            continue;
+                        }
+                        let sintetica = !lib
+                            .imports
+                            .iter()
+                            .any(|im| im.unit == uid && im.directive == i && !self.programa.library(im.library).units.is_empty());
+                        if !sintetica {
+                            continue;
+                        }
+                        let shows: Vec<&Vec<ast::Name>> = combinators
+                            .iter()
+                            .filter_map(|c| match c {
+                                ast::Combinator::Show(v) => Some(v),
+                                ast::Combinator::Hide(_) => None,
+                            })
+                            .collect();
+                        if prefixo.is_some() && shows.is_empty() {
+                            return true;
+                        }
+                        if shows.iter().any(|v| v.iter().any(|n| n.sym == nome)) {
+                            return true;
+                        }
+                    }
+                    ast::DirectiveKind::Part { uri } if prefixo.is_none() && self.nome(nome).starts_with("_$") => {
+                        let Some(texto) = dartforge_elements::load::string_lit_value(uri) else { continue };
+                        let gerado = [".g.dart", ".pb.dart", ".pbenum.dart", ".pbserver.dart", ".pbjson.dart", ".template.dart"]
+                            .iter()
+                            .any(|s| texto.ends_with(s));
+                        let existe = texto.contains(':')
+                            || unidade.path.as_ref().and_then(|p| p.parent()).is_none_or(|d| d.join(&texto).is_file());
+                        if gerado && !existe {
+                            return true;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        false
+    }
+
+    /// O elemento como o analyzer o exibe (`ElementDisplayStringBuilder.writeClassElement`):
+    /// modificadores, nome, parâmetros de tipo e cláusulas; `None` onde a
+    /// exibição dependeria de tipos que aqui não se calculam.
+    fn exibir_classe(&self, id: ClassId) -> Option<String> {
+        let c = self.programa.class(id);
+        if !matches!(c.kind, ClassKind::Class | ClassKind::MixinApplication) {
+            return None;
+        }
+        let decl = c.decl?;
+        let ast_ = &self.programa.unit(decl.unit).ast;
+        let DeclKind::Class(d) = &ast_.decl(decl.decl).kind else { return None };
+        let m = c.modifiers;
+        let mut s = String::new();
+        if m.sealed {
+            s.push_str("sealed ");
+        } else if m.abstract_ {
+            s.push_str("abstract ");
+        }
+        if m.base {
+            s.push_str("base ");
+        } else if m.interface {
+            s.push_str("interface ");
+        } else if m.final_ {
+            s.push_str("final ");
+        }
+        if m.mixin {
+            s.push_str("mixin ");
+        }
+        s.push_str("class ");
+        s.push_str(self.nome(c.name));
+        let params: Vec<SymbolId> = d.type_params.iter().map(|p| p.name.sym).collect();
+        if !d.type_params.is_empty() {
+            let mut ps = Vec::new();
+            for p in d.type_params.iter() {
+                let mut x = self.nome(p.name.sym).to_string();
+                if let Some(b) = p.bound {
+                    x.push_str(" extends ");
+                    x.push_str(&self.exibir(decl.unit, ast_, b, &params)?);
+                }
+                ps.push(x);
+            }
+            s.push_str(&format!("<{}>", ps.join(", ")));
+        }
+        if let Some(t) = d.extends {
+            let e = self.exibir(decl.unit, ast_, t, &params)?;
+            if e != "Object" {
+                s.push_str(" extends ");
+                s.push_str(&e);
+            }
+        }
+        for (palavra, tipos) in [(" with ", &d.with), (" implements ", &d.implements)] {
+            if !tipos.is_empty() {
+                let v: Option<Vec<String>> = tipos.iter().map(|&t| self.exibir(decl.unit, ast_, t, &params)).collect();
+                s.push_str(palavra);
+                s.push_str(&v?.join(", "));
+            }
+        }
+        Some(s)
     }
 
     fn e_enum_do_core(&self, id: ClassId) -> bool {
@@ -686,6 +906,54 @@ fn restricoes_satisfeitas(
     Some(mixin.on_classes.iter().all(|c| conhecidos.contains(c)))
 }
 
+/// Onde começam os tipos de `extends`, `implements` e `with` de classes,
+/// aliases, enums e mixins da biblioteca `lib`. Ali o `NamedTypeResolver`
+/// não relata nome indefinido nem nome que não é tipo (o
+/// `ResolutionVisitor` relata `*_non_class`, [`verificar`]): quem junta os
+/// diagnósticos de `types` descarta `undefined_class`/`not_a_type` nesses
+/// pontos.
+pub fn nomes_de_clausulas(programa: &Program, lib: LibraryId) -> Vec<(UnitId, usize)> {
+    let mut v = Vec::new();
+    for classe in &programa.classes {
+        if classe.library != lib {
+            continue;
+        }
+        let Some(decl) = classe.decl else { continue };
+        let ast_ = &programa.unit(decl.unit).ast;
+        let Some(cl) = clausulas(&ast_.decl(decl.decl).kind) else { continue };
+        for &t in cl.extends.iter().chain(cl.with).chain(cl.implements) {
+            if let TypeKind::Named { name, .. } = &ast_.ty(t).kind
+                && let Some(p) = name.first()
+            {
+                v.push((decl.unit, p.span.start));
+            }
+        }
+    }
+    v
+}
+
+/// `_checkForRepeatedType`: o segundo tipo de interface com o mesmo elemento.
+fn repetidos(
+    l: &Leitor<'_>,
+    u: UnitId,
+    ast_: &ast::Ast,
+    tipos: &[ast::TypeId],
+    codigo: Codigo,
+    saida: &mut Vec<(UnitId, Diagnostic)>,
+) {
+    let mut vistos: Vec<ClassId> = Vec::new();
+    for &t in tipos {
+        if let Alvo::Classe(x) = l.alvo(u, ast_, t, 0) {
+            if vistos.contains(&x) {
+                let nome = l.nome(l.programa.class(x).name);
+                saida.push((u, Diagnostic::com_codigo(codigo, ast_.ty(t).span, [nome])));
+            } else {
+                vistos.push(x);
+            }
+        }
+    }
+}
+
 /// A porta do `ErrorVerifier` para a classe `id`: [`Porta::Aberta`] quando
 /// as verificações de cláusula seguintes (modificadores fora da biblioteca,
 /// `class_used_as_mixin`) rodariam no analyzer.
@@ -711,9 +979,53 @@ pub fn verificar(
         let id = ClassId(i as u32);
         let u = decl.unit;
         let ast_ = &programa.unit(u).ast;
+        if let DeclKind::ExtensionType(x) = &ast_.decl(decl.decl).kind {
+            // `visitExtensionTypeDeclaration`: `implements` repetido, sem porta.
+            repetidos(&l, u, ast_, &x.implements, c::IMPLEMENTS_REPEATED, &mut saida);
+            continue;
+        }
         let Some(cl) = clausulas(&ast_.decl(decl.decl).kind) else {
             continue;
         };
+
+        // `ResolutionVisitor._resolveType`: cada tipo de cláusula precisa
+        // nomear uma classe (ou mixin, fora do `extends`).
+        let mixin_application = matches!(&ast_.decl(decl.decl).kind, DeclKind::Class(d) if d.mixin_application);
+        let grupos_de_resolucao: [(&[ast::TypeId], Codigo, bool); 4] = [
+            (
+                cl.extends.as_slice(),
+                if mixin_application || !cl.with.is_empty() {
+                    c::MIXIN_WITH_NON_CLASS_SUPERCLASS
+                } else {
+                    c::EXTENDS_NON_CLASS
+                },
+                false,
+            ),
+            (cl.with, c::MIXIN_OF_NON_CLASS, true),
+            (cl.implements, c::IMPLEMENTS_NON_CLASS, true),
+            (cl.on, c::MIXIN_SUPER_CLASS_CONSTRAINT_NON_INTERFACE, true),
+        ];
+        for (tipos, codigo, aceita_mixin) in grupos_de_resolucao {
+            let fora_do_on = codigo != c::MIXIN_SUPER_CLASS_CONSTRAINT_NON_INTERFACE;
+            for &t in tipos {
+                let erro = match l.resolver(u, ast_, t, &cl.params, 0, fora_do_on) {
+                    Resolvido::Ignorar => false,
+                    Resolvido::NaoClasse => true,
+                    Resolvido::Classe(x) => match programa.class(x).kind {
+                        ClassKind::Class | ClassKind::MixinApplication => false,
+                        ClassKind::Mixin => !aceita_mixin,
+                        ClassKind::Enum | ClassKind::ExtensionType => true,
+                    },
+                };
+                if erro
+                    && let TypeKind::Named { name, .. } = &ast_.ty(t).kind
+                    && let (Some(p), Some(n)) = (name.first(), name.last())
+                {
+                    let span = dartforge_diagnostics::Span { start: p.span.start, end: n.span.end };
+                    saida.push((decl.unit, Diagnostic::com_codigo(codigo, span, [] as [&str; 0])));
+                }
+            }
+        }
 
         // `InheritanceOverrideVerifier._checkDirectSuperTypes`.
         if !consumidora.is_sdk {
@@ -782,8 +1094,36 @@ pub fn verificar(
             continue;
         };
         saida.extend(r.relatos.into_iter().map(|d| (decl.unit, d)));
-        if r.porta != Porta::Aberta || classe.kind == ClassKind::Mixin {
+        if r.porta != Porta::Aberta {
             continue;
+        }
+        if classe.kind == ClassKind::Mixin {
+            // `_checkMixinInheritance`, depois da porta.
+            repetidos(&l, u, ast_, cl.on, c::ON_REPEATED, &mut saida);
+            repetidos(&l, u, ast_, cl.implements, c::IMPLEMENTS_REPEATED, &mut saida);
+            continue;
+        }
+        // `_checkClassInheritance`, depois da porta: `implements` repetido,
+        // e a superclasse de novo em `implements` ou `with`.
+        repetidos(&l, u, ast_, cl.implements, c::IMPLEMENTS_REPEATED, &mut saida);
+        let superclasse = match (classe.kind, cl.extends) {
+            (ClassKind::Enum, _) => l.do_core("Enum"),
+            (_, None) => l.do_core("Object"),
+            (_, Some(t)) => match l.alvo(u, ast_, t, 0) {
+                Alvo::Classe(s) => Some(s),
+                _ => None,
+            },
+        };
+        if let Some(s) = superclasse {
+            for (tipos, codigo) in [(cl.implements, c::IMPLEMENTS_SUPER_CLASS), (cl.with, c::MIXINS_SUPER_CLASS)] {
+                for &t in tipos {
+                    if l.alvo(u, ast_, t, 0) == Alvo::Classe(s)
+                        && let Some(texto) = l.exibir_classe(s)
+                    {
+                        saida.push((decl.unit, Diagnostic::com_codigo(codigo, ast_.ty(t).span, [texto.as_str()])));
+                    }
+                }
+            }
         }
         // Depois da porta: `extends` adiado e `class_used_as_mixin`.
         if let Some(t) = cl.extends
@@ -1119,5 +1459,55 @@ mod testes {
                 ("no_generative_constructors_in_superclass", "F"),
             ]
         );
+    }
+
+    /// Cláusulas repetidas e a superclasse de novo em `implements`/`with`
+    /// (`implements_repeated`, `on_repeated`, `implements_super_class`), nas
+    /// formas do corpus (oráculo 3.6.2): o nome da classe e o elemento
+    /// exibido (`class A`, `mixin class A`, `class Object`).
+    #[test]
+    fn repetidos_e_superclasse() {
+        let v = rodar(
+            "repetidos",
+            "class A {}\nmixin class B {}\ntypedef TA = A;\nclass C extends A implements A, TA {}\nclass D extends B with B {}\nclass E implements Object {}\nmixin M on A, A implements B, B {}\nenum F implements A, A { v }\nextension type X(int it) implements int, int {}\n",
+        );
+        let esperado = [
+            ("implements_repeated", "A", "'A' can only be implemented once."),
+            ("implements_repeated", "B", "'B' can only be implemented once."),
+            ("implements_repeated", "TA", "'A' can only be implemented once."),
+            ("implements_repeated", "int", "'int' can only be implemented once."),
+            ("implements_super_class", "A", "'class A' can't be used in both the 'extends' and 'implements' clauses."),
+            ("implements_super_class", "B", "'mixin class B' can't be used in both the 'extends' and 'with' clauses."),
+            ("implements_super_class", "Object", "'class Object' can't be used in both the 'extends' and 'implements' clauses."),
+            ("implements_super_class", "TA", "'class A' can't be used in both the 'extends' and 'implements' clauses."),
+            ("on_repeated", "A", "The type 'A' can be included in the superclass constraints only once."),
+        ];
+        let esperado: Vec<(String, String, String)> =
+            esperado.iter().map(|(a, b, c)| (a.to_string(), b.to_string(), c.to_string())).collect();
+        assert_eq!(v, esperado);
+    }
+
+    /// Tipos de cláusula que não nomeiam classe (`ResolutionVisitor._resolveType`):
+    /// variável, nome indefinido, enum, parâmetro de tipo, `dynamic`; um nome
+    /// de import inexistente com prefixo é ignorado (`shouldIgnoreUndefined`).
+    #[test]
+    fn clausula_que_nao_nomeia_classe() {
+        let v = rodar(
+            "nao-classe",
+            "import 'nao_existe.dart' as p;\nint v = 0;\nenum En { a }\nmixin M {}\nclass A extends v {}\nclass B extends Indefinida {}\nclass C<T> implements T, En {}\nclass D extends M {}\nclass E with dynamic {}\nclass F extends p.X {}\nclass G = v with M;\nclass H extends v with M {}\n",
+        );
+        let esperado = [
+            ("extends_non_class", "Indefinida", "Classes can only extend other classes."),
+            ("extends_non_class", "M", "Classes can only extend other classes."),
+            ("extends_non_class", "v", "Classes can only extend other classes."),
+            ("implements_non_class", "En", "Classes and mixins can only implement other classes and mixins."),
+            ("implements_non_class", "T", "Classes and mixins can only implement other classes and mixins."),
+            ("mixin_of_non_class", "dynamic", "Classes can only mix in mixins and classes."),
+            ("mixin_with_non_class_superclass", "v", "Mixin can only be applied to class."),
+            ("mixin_with_non_class_superclass", "v", "Mixin can only be applied to class."),
+        ];
+        let esperado: Vec<(String, String, String)> =
+            esperado.iter().map(|(a, b, c)| (a.to_string(), b.to_string(), c.to_string())).collect();
+        assert_eq!(v, esperado);
     }
 }
