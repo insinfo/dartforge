@@ -1289,6 +1289,12 @@ fn hospedeiras_efetivas(
         let Some(m) = metadados(&d.classe) else {
             continue;
         };
+        if m.hospedeiro_estatico {
+            return Err(recusa(
+                Motivo::HostBindingEmDiretiva,
+                "@HostBinding em membro estático de diretiva",
+            ));
+        }
         if m.ligacoes_do_hospedeiro.is_empty() {
             continue;
         }

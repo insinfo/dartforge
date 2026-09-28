@@ -226,6 +226,10 @@ pub struct Diretiva {
     pub ouvintes: Vec<Ouvinte>,
     /// `@HostBinding`: (nome da ligação, membro).
     pub ligacoes_do_hospedeiro: Vec<(String, String)>,
+    /// Algum `@HostBinding` num membro estático (fora de
+    /// `ligacoes_do_hospedeiro`): o oficial o escreve uma vez, no construtor
+    /// da visão — no componente, pelo leitor dele (caso j96); aqui, sem caso.
+    pub hospedeiro_estatico: bool,
     pub ganchos: Ganchos,
     /// Algum `@ViewChild(ren)` (uma diretiva não tem visão).
     pub consultas: bool,
@@ -272,6 +276,9 @@ impl Diretiva {
     pub fn pendencia(&self) -> Option<String> {
         if let Some(f) = self.fora.first() {
             return Some(f.clone());
+        }
+        if self.hospedeiro_estatico {
+            return Some("@HostBinding em membro estático".into());
         }
         if self.e_componente {
             return Some("componente como diretiva".into());

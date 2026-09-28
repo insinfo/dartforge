@@ -9704,6 +9704,11 @@ pub(crate) enum FormaDoHospedeiro {
     ClasseInteira,
     /// `attr.x`, com o saneador do contexto de segurança: `updateAttribute`.
     Atributo(String, Option<&'static str>),
+    /// `attr.tabindex` estático: a propriedade `tabIndex` do elemento
+    /// (`TabIndexBinding` do `binding_converter.dart`, que só o construtor
+    /// da visão usa; a ligação dinâmica continua `updateAttribute`, caso
+    /// j96).
+    TabIndex,
     /// `style.x` e `style.x.unidade`, com o texto do valor decidido pelo
     /// tipo do membro (`visitStyleBinding`: `isString`, `isNullable`).
     Estilo {
@@ -9723,6 +9728,9 @@ pub(crate) enum FormaDoHospedeiro {
 struct LigacaoDoHospedeiro {
     membro: String,
     imutavel: bool,
+    /// Membro estático: escrito no construtor da visão, com o valor lido da
+    /// classe (`X.membro`), e fora do `detectHostChanges` (caso j96).
+    estatico: bool,
     forma: FormaDoHospedeiro,
 }
 
@@ -9755,6 +9763,7 @@ impl FormaDoHospedeiro {
             FormaDoHospedeiro::Atributo(x, s) => {
                 format!("{dom}.updateAttribute({el}, '{x}', {})", saneado(s))
             }
+            FormaDoHospedeiro::TabIndex => format!("{el}.tabIndex = {v}"),
             FormaDoHospedeiro::Propriedade(x, s) => {
                 format!("{dom}.setProperty({el}, '{x}', {})", saneado(s))
             }
@@ -9842,6 +9851,9 @@ fn ligacoes_do_componente(
     let fora = |f: &str| recusa(Motivo::HostBindingEmComponente, f.to_string());
     let lista: Vec<(String, String)> = if c.herda {
         match local.metadados.as_deref() {
+            Some(m) if m.fora.is_empty() && m.hospedeiro_estatico => {
+                return Err(fora("@HostBinding estático em componente que herda"));
+            }
             Some(m) if m.fora.is_empty() => m.ligacoes_do_hospedeiro.clone(),
             _ if c.liga_hospedeiro => {
                 return Err(fora("@HostBinding em componente que herda"));
@@ -9883,7 +9895,16 @@ fn ligacoes_do_componente(
         saida.push(LigacaoDoHospedeiro {
             membro,
             imutavel,
-            forma,
+            estatico: proprio.is_some_and(|l| l.estatico),
+            forma: match forma {
+                FormaDoHospedeiro::Atributo(x, _)
+                    if proprio.is_some_and(|l| l.estatico)
+                        && matches!(x.as_str(), "tabindex" | "tabIndex") =>
+                {
+                    FormaDoHospedeiro::TabIndex
+                }
+                f => f,
+            },
         });
     }
     Ok(saida)
@@ -10128,6 +10149,16 @@ fn gerar_componente_com(
     // O construtor da visão usa `document.createElement`, então `dart:html`
     // sempre entra antes do corpo do `build()`.
     let html = imp.alias("dart:html");
+    // Os `@HostBinding` estáticos saem no construtor, logo depois do
+    // `rootElement`: os imports deles vêm antes dos do `build()`.
+    let estaticos_no_construtor: String = do_hospedeiro
+        .iter()
+        .filter(|l| l.estatico)
+        .map(|l| {
+            let valor = format!("{proprio}.{}.{}", c.classe, l.membro);
+            format!("\n    {};", resolver_tardios(imp, &l.acao(&valor)))
+        })
+        .collect();
 
     // `exports:`: cada nome pelo import da biblioteca que o declara, alocado
     // quando a expressão é escrita (caso j51).
@@ -10471,13 +10502,13 @@ fn gerar_componente_com(
     // `updateClassBindingNonHtml`), com os índices de ligação depois dos do
     // template e as imutáveis antes, no `if (firstCheck)`. O `checkBinding`
     // leva `null, null`: a ligação não tem texto de template.
-    let host_changes = if do_hospedeiro.is_empty() {
+    let host_changes = if !do_hospedeiro.iter().any(|l| !l.estatico) {
         String::new()
     } else {
         let chk = tardio(CHECK_BINDING);
         let mut constantes = Vec::new();
         let mut dinamicas = Vec::new();
-        for l in &do_hospedeiro {
+        for l in do_hospedeiro.iter().filter(|l| !l.estatico) {
             let k = corpo.proxima_ligacao;
             corpo.proxima_ligacao += 1;
             let m = &l.membro;
@@ -10764,7 +10795,12 @@ fn gerar_componente_com(
     // detectar a visão do componente (`ciclo_de_vida`).
     let ciclo = resolver_tardios(
         imp,
-        &ciclo_de_vida(&c.ganchos, marca, !do_hospedeiro.is_empty(), container),
+        &ciclo_de_vida(
+            &c.ganchos,
+            marca,
+            do_hospedeiro.iter().any(|l| !l.estatico),
+            container,
+        ),
     );
 
     let x = &c.classe;
@@ -10804,7 +10840,7 @@ class View{x}0 extends {vista}.ComponentView<{proprio}.{x}> {{
 {campos}  static {estilos}.ComponentStyles? _componentStyles;
   View{x}0({view}.View parentView, int parentIndex) : super(parentView, parentIndex, {cd}.ChangeDetectionCheckedState.{estado}) {{
     this.initComponentStyles();
-    this.rootElement = {util}.unsafeCast({html}.document.createElement('{tag}'));
+    this.rootElement = {util}.unsafeCast({html}.document.createElement('{tag}'));{estaticos_no_construtor}
   }}
   static String? get _debugComponentUrl {{
     return ({util}.isDevMode ? '{asset}' : null);

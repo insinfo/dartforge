@@ -831,6 +831,18 @@ impl<'r, 'a> Leitor<'r, 'a> {
                     }
                     ("HostListener", _) => d.fora.push("@HostListener fora de método".into()),
                     ("HostBinding", k) => {
+                        // Membro estático: o oficial o escreve uma vez, no
+                        // construtor da visão (caso j96); por estes metadados
+                        // (diretiva, componente que herda) ainda não.
+                        let estatico = match k {
+                            ast::MemberKind::Field(l) => l.static_,
+                            ast::MemberKind::Method(f) => dc.ast.function(*f).static_,
+                            _ => false,
+                        };
+                        if estatico {
+                            d.hospedeiro_estatico = true;
+                            continue;
+                        }
                         let membro_nome = match k {
                             ast::MemberKind::Field(l) => {
                                 l.variables.first().map(|v| self.nome(&v.name).to_string())

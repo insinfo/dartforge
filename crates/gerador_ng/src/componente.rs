@@ -208,6 +208,8 @@ pub struct LigacaoDoHospedeiro {
     pub membro: String,
     /// Campo `final`: escrito uma vez, na primeira checagem (`isImmutable`).
     pub imutavel: bool,
+    /// Membro estático: escrito uma vez, no construtor da visão (caso j96).
+    pub estatico: bool,
 }
 
 /// Um `@ViewChild('ref') T? campo;`.
@@ -912,8 +914,8 @@ fn consultas_da_classe(
 /// Os `@HostBinding` declarados na própria classe de um componente, na
 /// ordem do `DirectiveVisitor`: acessores, depois campos. O nome é o texto
 /// literal do argumento ou, sem argumento, o do membro
-/// (`hostProperties[bindingName ?? memberName]`); só getter ou campo de
-/// instância. A forma de cada nome (`class.x`, `attr.x`, `style.x`,
+/// (`hostProperties[bindingName ?? memberName]`); getter ou campo, de
+/// instância ou estático. A forma de cada nome (`class.x`, `attr.x`, `style.x`,
 /// propriedade) é conferida pela visão, que também junta os herdados.
 fn ligacoes_do_hospedeiro(
     arvore: &ast::Ast,
@@ -946,23 +948,25 @@ fn ligacoes_do_hospedeiro(
                 continue;
             };
             match &membro.kind {
-                ast::MemberKind::Field(l) if !l.static_ && !l.const_ && l.variables.len() == 1 => {
+                ast::MemberKind::Field(l) if l.variables.len() == 1 && (l.static_ || !l.const_) => {
                     let m = interner.resolve(l.variables[0].name.sym).to_string();
                     campos.push(LigacaoDoHospedeiro {
                         nome: nome.unwrap_or_else(|| m.clone()),
                         membro: m,
-                        imutavel: l.final_,
+                        imutavel: l.final_ || l.const_,
+                        estatico: l.static_,
                     });
                 }
                 ast::MemberKind::Method(f) => {
                     let funcao = arvore.function(*f);
                     match (funcao.kind, funcao.name) {
-                        (ast::FunctionKind::Getter, Some(n)) if !funcao.static_ => {
+                        (ast::FunctionKind::Getter, Some(n)) => {
                             let m = interner.resolve(n.sym).to_string();
                             acessores.push(LigacaoDoHospedeiro {
                                 nome: nome.unwrap_or_else(|| m.clone()),
                                 membro: m,
                                 imutavel: false,
+                                estatico: funcao.static_,
                             });
                         }
                         _ => fora.push(fora_da_forma()),
