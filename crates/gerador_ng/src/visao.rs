@@ -4053,7 +4053,9 @@ impl Corpo<'_> {
             self.acima.push((meta.token(), campo_inst.clone(), None));
         }
         if filho.projecoes.is_empty() && e.filhos.is_empty() {
+            self.consultas_das_diretivas(e, &dir_antes, n)?;
             self.consultas_do_filho(e, filho, &campo_inst, n)?;
+            self.consultas_das_diretivas(e, &dir_depois, n)?;
             self.ganchos_depois_dos_filhos(&dir_antes);
             self.depois_dos_filhos(filho, &campo_inst);
             self.ganchos_depois_dos_filhos(&dir_depois);
@@ -4139,7 +4141,9 @@ impl Corpo<'_> {
             self.incertos_acima -= 1;
         }
         r?;
+        self.consultas_das_diretivas(e, &dir_antes, n)?;
         self.consultas_do_filho(e, filho, &campo_inst, n)?;
+        self.consultas_das_diretivas(e, &dir_depois, n)?;
         self.ganchos_depois_dos_filhos(&dir_antes);
         self.depois_dos_filhos(filho, &campo_inst);
         self.ganchos_depois_dos_filhos(&dir_depois);
@@ -4345,8 +4349,37 @@ impl Corpo<'_> {
         campo_inst: &str,
         n: u32,
     ) -> Result<(), Recusa> {
+        self.consultas_de_conteudo_no(e, &filho.consultas, campo_inst, n)
+    }
+
+    /// `updateQueryAtStartup` das consultas de conteúdo das `diretivas` do
+    /// nó `n`, no `afterChildren` dele, na ordem delas.
+    fn consultas_das_diretivas(
+        &mut self,
+        e: &crate::html::Elemento,
+        diretivas: &[(std::sync::Arc<crate::diretivas::Diretiva>, String)],
+        n: u32,
+    ) -> Result<(), Recusa> {
+        for (d, campo) in diretivas {
+            if !d.consultas_de_conteudo.is_empty() {
+                self.consultas_de_conteudo_no(e, &d.consultas_de_conteudo, campo, n)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// As consultas de conteúdo de uma diretiva ou de um filho no nó `n`,
+    /// com a instância lida por `campo_inst` ([`Self::consultas_do_filho`];
+    /// a diretiva, caso j72).
+    fn consultas_de_conteudo_no(
+        &mut self,
+        e: &crate::html::Elemento,
+        consultas: &[ConsultaDoFilho],
+        campo_inst: &str,
+        n: u32,
+    ) -> Result<(), Recusa> {
         let fora = |f: &str| recusa(Motivo::LigacaoEmFilho, f);
-        for q in &filho.consultas {
+        for q in consultas {
             let (uri, classe) = match &q.alvo {
                 AlvoDeConsulta::Referencia(r) => {
                     if referencia_no_conteudo(&e.filhos, r) {
@@ -4468,9 +4501,6 @@ impl Corpo<'_> {
         })
     }
 
-    /// Os ganchos que o oficial liga depois de visitar o conteúdo do filho
-    /// (`bindDirectiveAfterChildrenCallbacks`): `ngAfterContent*`,
-    /// `ngAfterView*` e `ngOnDestroy`.
     /// `bindDirectiveAfterChildrenCallbacks` de cada diretiva do nó, na
     /// ordem delas, depois dos filhos (de baixo para cima): `ngAfterContent*`
     /// e `ngAfterView*` (o `Init` num `if (firstCheck)`, `addStmtsIfFirstCheck`)
@@ -4510,6 +4540,9 @@ impl Corpo<'_> {
         }
     }
 
+    /// Os ganchos que o oficial liga depois de visitar o conteúdo do filho
+    /// (`bindDirectiveAfterChildrenCallbacks`): `ngAfterContent*`,
+    /// `ngAfterView*` e `ngOnDestroy`.
     fn depois_dos_filhos(&mut self, filho: &Filho, campo_inst: &str) {
         let g = &filho.ganchos;
         if g.after_content_init {
@@ -5074,6 +5107,7 @@ impl Corpo<'_> {
                 || !d.ligacoes_do_hospedeiro.is_empty()
                 || !d.provedores.is_empty()
                 || d.consultas
+                || !d.consultas_de_conteudo.is_empty()
             {
                 return Err(recusa(
                     Motivo::DiretivaPorSeletor,
@@ -6454,6 +6488,7 @@ impl Corpo<'_> {
         self.pilha.pop();
         self.acima.truncate(antes_acima);
         if let Some(res) = &resolvido {
+            self.consultas_das_diretivas(e, &res.diretivas, n)?;
             self.ganchos_depois_dos_filhos(&res.diretivas);
         }
         // `ProviderNode(nodeIndex, nodeIndex + childNodeCount)`.

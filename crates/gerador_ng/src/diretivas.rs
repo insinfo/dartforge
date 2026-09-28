@@ -227,8 +227,11 @@ pub struct Diretiva {
     /// `@HostBinding`: (nome da ligação, membro).
     pub ligacoes_do_hospedeiro: Vec<(String, String)>,
     pub ganchos: Ganchos,
-    /// Algum `@ContentChild(ren)`/`@ViewChild(ren)`.
+    /// Algum `@ViewChild(ren)` (uma diretiva não tem visão).
     pub consultas: bool,
+    /// Os `@ContentChild(ren)`, com os tipos resolvidos na biblioteca da
+    /// diretiva: setters, depois campos, cada grupo em ordem de declaração.
+    pub consultas_de_conteudo: Vec<crate::visao::ConsultaDoFilho>,
     /// O que a leitura não conseguiu entender: com qualquer coisa aqui, os
     /// metadados estão incompletos e a diretiva não é usada.
     pub fora: Vec<String>,

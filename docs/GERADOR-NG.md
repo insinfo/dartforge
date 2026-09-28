@@ -487,14 +487,18 @@ de token de fora): o que a diretiva injeta sai antes dela, o resto fica
 preguiçoso (`late` com inicializador); a dependência que o nó não provê é
 lida do elemento acima ou, sem ele, do injetor de fora da visão
 (`(v.parentView!).injectorGet(T, v.parentIndex)`, com `debugInjectorWrap` e
-campo `dynamic`) — casos j71 e i78 (este antes recusado). `directives:` e as
+campo `dynamic`) — casos j71 e i78 (este antes recusado). `@ContentChild(ren)`
+de diretiva (em elemento comum ou no nó de um filho): lidos do programa com
+o alvo resolvido na biblioteca da diretiva (setters, depois campos) e
+escritos no `afterChildren` do nó como os de um componente
+(`descendants:`, `read:`, lista vazia) — caso j72. `directives:` e as
 listas constantes aceitam `...outraLista`. O `dirtyParentQueriesInternal`
 segue o primeiro resultado de cada consulta na visão, em pré-ordem
 (`_setParentQueryAsDirty` no `addQueryResult`), e os campos dos nós
-consultados seguem as consultas — caso j66. Corpus: 303 conferidos.
+consultados seguem as consultas — caso j66. Corpus: 304 conferidos.
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada
-pendente com o motivo): **930 iguais / 20 pendentes / 0 diferentes** —
-`.template.dart` 514/18/0, `.css` e `.css.map` do Sass 102/102 cada,
+pendente com o motivo): **933 iguais / 17 pendentes / 0 diferentes** —
+`.template.dart` 517/15/0, `.css` e `.css.map` do Sass 102/102 cada,
 `.css.dart` e `.css.shim.dart` 104 cada.
 
 ### Diretivas estruturais

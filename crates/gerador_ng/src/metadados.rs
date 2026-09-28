@@ -725,6 +725,8 @@ impl<'r, 'a> Leitor<'r, 'a> {
         let mut ligacoes_acessor = Vec::new();
         let mut ligacoes_metodo = Vec::new();
         let mut ligacoes_campo = Vec::new();
+        let mut consultas_setter = Vec::new();
+        let mut consultas_campo = Vec::new();
         for &m in dc.membros {
             let membro = dc.ast.member(m);
             for a in membro.metadata.iter() {
@@ -849,13 +851,42 @@ impl<'r, 'a> Leitor<'r, 'a> {
                             _ => ligacoes_metodo.push(ligacao),
                         }
                     }
-                    ("ContentChild" | "ContentChildren" | "ViewChild" | "ViewChildren", _) => {
+                    ("ContentChild" | "ContentChildren", k) => {
+                        let nome = match k {
+                            ast::MemberKind::Field(l) if !l.static_ && l.variables.len() == 1 => {
+                                Some((self.nome(&l.variables[0].name).to_string(), false))
+                            }
+                            ast::MemberKind::Method(f) => {
+                                let funcao = dc.ast.function(*f);
+                                match (funcao.kind, funcao.name, funcao.static_) {
+                                    (ast::FunctionKind::Setter, Some(n), false) => {
+                                        Some((self.nome(&n).to_string(), true))
+                                    }
+                                    _ => None,
+                                }
+                            }
+                            _ => None,
+                        };
+                        let Some((campo, setter)) = nome else {
+                            d.fora.push("@ContentChild fora de campo ou setter".into());
+                            continue;
+                        };
+                        match self.consulta_de_conteudo(dc, a, qual == "ContentChildren", campo) {
+                            Ok(q) if setter => consultas_setter.push(q),
+                            Ok(q) => consultas_campo.push(q),
+                            Err(e) => d.fora.push(e),
+                        }
+                    }
+                    ("ViewChild" | "ViewChildren", _) => {
                         d.consultas = true;
                     }
                     _ => {}
                 }
             }
         }
+        // Como o `_queries` do oficial: setters, depois campos.
+        d.consultas_de_conteudo = consultas_setter;
+        d.consultas_de_conteudo.extend(consultas_campo);
         // `_inputs..addAll(_fieldInputs)..addAll(_setterInputs)`: a chave é o
         // membro; repetir a chave troca o valor e mantém a posição.
         for (chave, e) in de_campo.into_iter().chain(de_setter) {
@@ -884,6 +915,63 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 None => d.ligacoes_do_hospedeiro.push((nome, membro)),
             }
         }
+    }
+
+    /// Um `@ContentChild`/`@ContentChildren`: o alvo (`#ref` em texto ou
+    /// tipo, resolvido na biblioteca da diretiva), `descendants:` (a lista
+    /// é `true` por omissão no ngdart 8; a única, sempre) e `read:`.
+    fn consulta_de_conteudo(
+        &self,
+        dc: &Declaracao,
+        a: &ast::Annotation,
+        lista: bool,
+        campo: String,
+    ) -> Result<crate::visao::ConsultaDoFilho, String> {
+        use crate::visao::{AlvoDeConsulta, ConsultaDoFilho, LeituraDaConsulta};
+        let args = a.arguments.as_ref().ok_or("@ContentChild sem argumentos")?;
+        let primeiro = args
+            .args
+            .iter()
+            .find(|x| x.name.is_none())
+            .ok_or("@ContentChild sem alvo")?;
+        let do_pacote =
+            |c: &Classe| !c.uri.starts_with("package:ngdart/") && !c.uri.starts_with("dart:");
+        let alvo = match self.valor(dc.unidade, primeiro.value, 0)? {
+            Valor::Texto(r) => AlvoDeConsulta::Referencia(r),
+            Valor::Tipo(c) if do_pacote(&c) => AlvoDeConsulta::Classe(c.uri, c.nome),
+            _ => return Err("@ContentChild de tipo do ngdart ou de forma desconhecida".into()),
+        };
+        let mut descendentes = true;
+        let mut leitura = None;
+        for x in args.args.iter() {
+            match x.name.as_ref().map(|n| self.nome(n)) {
+                None => {}
+                Some("descendants") if lista => match self.valor(dc.unidade, x.value, 0)? {
+                    Valor::Booleano(b) => descendentes = b,
+                    _ => return Err("@ContentChildren(descendants:) que não é literal".into()),
+                },
+                Some("read") => {
+                    leitura = Some(match self.valor(dc.unidade, x.value, 0)? {
+                        Valor::Tipo(c)
+                            if c.uri == "dart:html"
+                                && matches!(c.nome.as_str(), "HtmlElement" | "Element") =>
+                        {
+                            LeituraDaConsulta::Elemento
+                        }
+                        Valor::Tipo(c) if do_pacote(&c) => LeituraDaConsulta::Classe(c.uri, c.nome),
+                        _ => return Err("@ContentChild(.., read:) de tipo do ngdart".into()),
+                    })
+                }
+                _ => return Err("@ContentChild com argumento desconhecido".into()),
+            }
+        }
+        Ok(ConsultaDoFilho {
+            campo,
+            lista,
+            alvo,
+            descendentes,
+            leitura,
+        })
     }
 
     /// O primeiro argumento posicional de uma anotação, se é texto.

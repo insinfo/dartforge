@@ -285,3 +285,4 @@ export 'src/j68_filho_injeta_de_cima.dart';
 export 'src/j69_export_as_projetado.dart';
 export 'src/j70_evento_e_host_listener.dart';
 export 'src/j71_provedores_de_diretiva.dart';
+export 'src/j72_consultas_de_diretiva.dart';
