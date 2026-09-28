@@ -273,6 +273,7 @@ import 'package:corpus_ngdart/src/j81_view_child_em_setter.template.dart' as j81
 import 'package:corpus_ngdart/src/j82_consulta_sem_resultado.template.dart' as j82;
 import 'package:corpus_ngdart/src/j83_ngfor_local_sem_tipo.template.dart' as j83;
 import 'package:corpus_ngdart/src/j85_diretivas_de_template.template.dart' as j85;
+import 'package:corpus_ngdart/src/j86_consulta_em_molde.template.dart' as j86;
 
 void main() {
   print([
@@ -550,5 +551,6 @@ void main() {
     j82.J82ConsultaSemResultadoNgFactory,
     j83.J83NgforLocalSemTipoNgFactory,
     j85.J85DiretivasDeTemplateNgFactory,
+    j86.J86ConsultaEmMoldeNgFactory,
   ].length);
 }

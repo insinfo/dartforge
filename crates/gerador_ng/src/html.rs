@@ -89,6 +89,10 @@ pub struct Elemento {
     /// ligações e os `let-` escritos à parte, sem voltar ao texto (que o
     /// `isMicroExpression` nem sempre reconheceria, caso j75).
     pub micro_do_molde: Option<crate::micro::Micro>,
+    /// Posição do `<` que abre o elemento no template (em bytes): identifica
+    /// o nó, como o início da `estrela` identifica o `*` (a âncora de um
+    /// `<template>` escrito nas consultas de visão).
+    pub inicio: usize,
 }
 
 impl Elemento {
@@ -347,6 +351,7 @@ impl<'a> Parser<'a> {
     }
 
     fn ler_elemento(&mut self) -> Option<No> {
+        let abertura = self.i;
         self.i += 1;
         let inicio = self.i;
         while !self.fim()
@@ -358,6 +363,7 @@ impl<'a> Parser<'a> {
         let nome = self.fonte[inicio..self.i].to_string();
         let mut el = Elemento {
             nome,
+            inicio: abertura,
             ..Default::default()
         };
         let mut seletor_do_conteudo = None;

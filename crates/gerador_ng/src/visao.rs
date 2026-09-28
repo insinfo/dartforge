@@ -1056,12 +1056,19 @@ fn arvore_da_consulta(
             if let Some(estrela) = &e.estrela {
                 let mut dentro = Vec::new();
                 if estrela.nome == MARCA_DE_MOLDE {
-                    // O `<template>` escrito é desta visão; o conteúdo, de
-                    // uma visão que ninguém cria aqui.
-                    let mut l = Vec::new();
-                    onde_esta(&e.filhos, chave, filhos, false, &mut l);
-                    if !l.is_empty() || casa_a_chave(e, chave, filhos) {
+                    // O `<template>` escrito é desta visão; o conteúdo, da
+                    // visão embutida dele, mapeada como a de um `*`
+                    // (`_appEl_n.mapNestedViews`, caso j86). O próprio
+                    // `<template>` como resultado ainda não se traduz.
+                    if casa_a_chave(e, chave, filhos) {
                         return Err("resultado de consulta em <template> escrito");
+                    }
+                    andar(&e.filhos, chave, filhos, false, &mut dentro)?;
+                    if !dentro.is_empty() {
+                        saida.push(ItemDeConsulta::Aninhada {
+                            estrela: estrela.inicio,
+                            itens: dentro,
+                        });
                     }
                     continue;
                 }
@@ -1455,11 +1462,13 @@ fn template_como_container(nos: &[No]) -> Vec<No> {
                     // `ViewContainer` e `TemplateRef`, com o conteúdo numa
                     // visão embutida ([`Corpo::molde`], que resolve as
                     // diretivas e recusa o que nenhuma recebe).
+                    // O início é o do `<template>`: identifica a âncora
+                    // dele nas consultas de visão, como o de um `*`.
                     e.estrela = Some(crate::html::Ligacao {
                         nome: MARCA_DE_MOLDE.into(),
                         valor: String::new(),
-                        inicio: 0,
-                        fim: 0,
+                        inicio: e.inicio,
+                        fim: e.inicio,
                     });
                 }
                 No::Elemento(e)
@@ -5297,20 +5306,15 @@ impl Corpo<'_> {
                 ));
             }
         }
-        // `@ViewChild` com o resultado no `<template>` ou dentro dele: o
-        // valor seria o `TemplateRef` ou uma visão que ninguém cria.
-        for q in &self.consultas_dinamicas {
-            let mut l = Vec::new();
-            onde_esta(
-                std::slice::from_ref(&No::Elemento(e.clone())),
-                &q.chave,
-                self.filhos,
-                false,
-                &mut l,
-            );
-            if !l.is_empty() {
-                return Err(recusa(Motivo::Ligacao, "@ViewChild em <template>"));
-            }
+        // `@ViewChild` com o resultado no próprio `<template>`: o valor
+        // seria o `TemplateRef` dele. Dentro, a consulta mapeia a visão
+        // embutida ([`arvore_da_consulta`]).
+        if self
+            .consultas_dinamicas
+            .iter()
+            .any(|q| casa_a_chave(e, &q.chave, self.filhos))
+        {
+            return Err(recusa(Motivo::Ligacao, "@ViewChild em <template>"));
         }
         let n = self.proximo;
         self.proximo += 1;
@@ -5579,11 +5583,7 @@ impl Corpo<'_> {
         // nova, a consulta com resultado nela marca o campo sujo, e a com
         // resultado mais abaixo segue em trânsito (as duas coisas podem
         // valer ao mesmo tempo).
-        let estrela = e
-            .estrela
-            .as_ref()
-            .filter(|l| l.nome != MARCA_DE_MOLDE)
-            .map(|l| l.inicio);
+        let estrela = e.estrela.as_ref().map(|l| l.inicio);
         let mut refs_consultados = Vec::new();
         let mut consultas_em_transito = Vec::new();
         for (r, campo, niveis) in pendentes {
@@ -10057,7 +10057,11 @@ fn gerar_componente(
     let deteccao = if linhas_deteccao.is_empty() {
         String::new()
     } else {
-        let ctx_det = if cita_ctx(&linhas_deteccao) {
+        // A consulta dinâmica escreve `_ctx.x = ...` quando é resolvida
+        // ([`resolver_consultas`]), depois desta conta.
+        let ctx_det = if cita_ctx(&linhas_deteccao)
+            || corpo.consultas_dinamicas.iter().any(|d| d.vista)
+        {
             "    final _ctx = this.ctx;\n"
         } else {
             ""

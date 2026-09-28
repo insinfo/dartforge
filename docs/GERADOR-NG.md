@@ -540,10 +540,15 @@ pela visão e raiz da embutida em que está — caso j85. `directives:` e as
 listas constantes aceitam `...outraLista`. O `dirtyParentQueriesInternal`
 segue o primeiro resultado de cada consulta na visão, em pré-ordem
 (`_setParentQueryAsDirty` no `addQueryResult`), e os campos dos nós
-consultados seguem as consultas — caso j66. Corpus: 317 conferidos.
+consultados seguem as consultas — caso j66. Consulta de visão com o
+resultado dentro de um `<template>` escrito: a visão embutida dele é
+mapeada como a de um `*` (`_appEl_n.mapNestedViews`, a âncora identificada
+pela posição do `<template>`), também no conteúdo projetado e seguida de
+`*ngIf`; o `final _ctx` da detecção conta a atribuição da consulta — caso
+j86. Corpus: 318 conferidos.
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada
-pendente com o motivo): **946 iguais / 4 pendentes / 0 diferentes** —
-`.template.dart` 530/2/0, `.css` e `.css.map` do Sass 102/102 cada,
+pendente com o motivo): **947 iguais / 3 pendentes / 0 diferentes** —
+`.template.dart` 531/1/0 (resta `@GenerateInjector`), `.css` e `.css.map` do Sass 102/102 cada,
 `.css.dart` e `.css.shim.dart` 104 cada.
 
 ### Diretivas estruturais
