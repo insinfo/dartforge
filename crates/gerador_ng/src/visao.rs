@@ -10968,17 +10968,26 @@ pub fn classe_ngcd(h: &crate::Hospedeira, arquivo: &str, imp: &mut Importacoes) 
         let Ok(mut forma) = forma_do_hospedeiro(nome) else {
             continue;
         };
+        let estatico = h.estaticos.contains(membro);
         if let FormaDoHospedeiro::Estilo { texto, nulo, .. } = &mut forma {
-            let tipo = h
-                .tipos_de_estilo
-                .get(membro)
-                .map(String::as_str)
-                .unwrap_or_default();
+            // O estático é `dynamic` para o `_TypeResolver`: `?.toString()`.
+            let tipo = if estatico {
+                "dynamic"
+            } else {
+                h.tipos_de_estilo
+                    .get(membro)
+                    .map(String::as_str)
+                    .unwrap_or_default()
+            };
             *texto = tipo.trim_end_matches('?') == "String";
-            *nulo = tipo.ends_with('?');
+            *nulo = tipo.ends_with('?') || tipo == "dynamic";
         }
-        if h.imutaveis.contains(membro) {
-            let valor = format!("this.instance.{membro}");
+        if h.imutaveis.contains(membro) || estatico {
+            let valor = if estatico {
+                format!("{proprio}.{x}.{membro}")
+            } else {
+                format!("this.instance.{membro}")
+            };
             let acao = forma.acao("el", &valor);
             let _ = write!(
                 constantes,

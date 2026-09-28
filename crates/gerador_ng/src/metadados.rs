@@ -926,6 +926,9 @@ impl<'r, 'a> Leitor<'r, 'a> {
                             continue;
                         }
                         d.hospedeiro_estatico |= estatico;
+                        if estatico {
+                            d.estaticos_do_hospedeiro.push(ligacao.1.clone());
+                        }
                         match k {
                             ast::MemberKind::Field(_) => ligacoes_campo.push(ligacao),
                             ast::MemberKind::Method(f)

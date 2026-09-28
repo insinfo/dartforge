@@ -246,6 +246,9 @@ pub struct Diretiva {
     /// `ligacoes_do_hospedeiro`): o oficial o escreve uma vez, no construtor
     /// da visão — no componente, pelo leitor dele (caso j96); aqui, sem caso.
     pub hospedeiro_estatico: bool,
+    /// Os membros estáticos entre as `ligacoes_do_hospedeiro` (`StaticRead`,
+    /// imutável, `dynamic` para o `_TypeResolver`).
+    pub estaticos_do_hospedeiro: Vec<String>,
     /// `hostAttributes` de uma diretiva: `@HostBinding` em estático
     /// imutável fora de `class.x`/`style.x` (nome sem `attr.`, membro). Fora
     /// da `XNgCd`; quem usa a diretiva os escreve no elemento.
@@ -296,9 +299,6 @@ impl Diretiva {
     pub fn pendencia(&self) -> Option<String> {
         if let Some(f) = self.fora.first() {
             return Some(f.clone());
-        }
-        if self.hospedeiro_estatico {
-            return Some("@HostBinding em membro estático".into());
         }
         if !self.atributos_do_hospedeiro.is_empty() {
             return Some("hostAttributes de diretiva (mescla no elemento)".into());

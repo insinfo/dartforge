@@ -86,6 +86,9 @@ pub struct Hospedeira {
     /// Os membros `final` (`isImmutable`): escritos uma vez, no
     /// `if (firstCheck)`, sem campo `_expr_N`.
     pub imutaveis: std::collections::HashSet<String>,
+    /// Os membros estáticos da própria classe: lidos pela classe
+    /// (`StaticRead`), sempre imutáveis e `dynamic` (caso j134).
+    pub estaticos: std::collections::HashSet<String>,
 }
 
 /// Lê os `@HostBinding` de uma classe `@Directive`; `None` se não há.
@@ -228,6 +231,7 @@ fn hospedeira(
         tipos_de_estilo,
         recusada,
         imutaveis,
+        estaticos: Default::default(),
     })
 }
 
@@ -1413,18 +1417,15 @@ fn hospedeiras_efetivas(
         let Some(m) = metadados(&d.classe) else {
             continue;
         };
-        if m.hospedeiro_estatico {
-            return Err(recusa(
-                Motivo::HostBindingEmDiretiva,
-                "@HostBinding em membro estático de diretiva",
-            ));
-        }
         if m.ligacoes_do_hospedeiro.is_empty() {
             continue;
         }
+        let estaticos: std::collections::HashSet<String> =
+            m.estaticos_do_hospedeiro.iter().cloned().collect();
         let propria = achados.hospedeiras.iter().find(|h| h.classe == d.classe);
         if let Some(h) = propria
             && h.ligacoes == m.ligacoes_do_hospedeiro
+            && estaticos.is_empty()
         {
             saida.push(h.clone());
             continue;
@@ -1435,9 +1436,16 @@ fn hospedeiras_efetivas(
             tipos_de_estilo: std::collections::HashMap::new(),
             recusada: None,
             imutaveis: std::collections::HashSet::new(),
+            estaticos: estaticos.clone(),
         };
         for (nome, membro) in &m.ligacoes_do_hospedeiro {
             let forma = visao::forma_do_hospedeiro(nome);
+            if estaticos.contains(membro) {
+                if let Err(f) = forma {
+                    h.recusada.get_or_insert(f);
+                }
+                continue;
+            }
             let final_ = resolvedor.and_then(|r| r.membro_final(fonte, &d.classe, membro));
             if final_ == Some(true) {
                 h.imutaveis.insert(membro.clone());

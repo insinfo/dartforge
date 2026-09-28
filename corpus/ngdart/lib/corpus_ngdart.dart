@@ -348,3 +348,4 @@ export 'src/j130_pedido_atraves_de_template.dart';
 export 'src/j131_projetado_e_pedidos.dart';
 export 'src/j132_consulta_de_visao_por_token.dart';
 export 'src/j133_svg.dart';
+export 'src/j134_hostbinding_estatico_de_diretiva.dart';
