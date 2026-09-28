@@ -17,6 +17,14 @@ use std::path::{Path, PathBuf};
 
 /// O que o emissor precisa perguntar sobre nomes. É um traço para que o
 /// teste possa responder sem carregar um programa inteiro.
+/// Um método de instância achado na hierarquia ([`Resolucao::metodo`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Metodo {
+    pub posicionais: usize,
+    /// O retorno escrito e o arquivo do escopo dele; `None` sem tipo escrito.
+    pub retorno: Option<(String, PathBuf)>,
+}
+
 pub trait Resolucao {
     /// URI da biblioteca que declara `nome` no escopo de `arquivo`.
     fn uri_do_tipo(&self, arquivo: &Path, nome: &str) -> Option<String>;
@@ -34,6 +42,15 @@ pub trait Resolucao {
         _tipo: &str,
         _membro: &str,
     ) -> Option<(String, PathBuf)> {
+        None
+    }
+
+    /// O método de instância `nome` da classe `tipo` (nomeada no escopo de
+    /// `arquivo`, subindo pelas superclasses): quantos parâmetros
+    /// posicionais ele tem (`rewriteTearOff`) e o retorno escrito, com o
+    /// arquivo em cujo escopo ele se resolve. `None` quando não é método
+    /// (campo, getter, estático) ou quando o retorno cita parâmetro de tipo.
+    fn metodo(&self, _arquivo: &Path, _tipo: &str, _nome: &str) -> Option<Metodo> {
         None
     }
 
@@ -338,6 +355,65 @@ impl Resolucao for Resolvedor<'_> {
     ) -> Option<(String, PathBuf)> {
         let classe = self.classe(arquivo, tipo)?;
         self.membro_da_classe(classe, membro)
+    }
+
+    fn metodo(&self, arquivo: &Path, tipo: &str, nome: &str) -> Option<Metodo> {
+        let sym = self.interner.lookup(nome)?;
+        let mut atual = self.classe(arquivo, tipo);
+        while let Some(id) = atual {
+            let c = self.program.class(id);
+            if let Some(&fid) = c.instance_members.get(&sym) {
+                let dartforge_elements::model::FunctionRef::Function { unit, function } =
+                    self.program.function(fid).node
+                else {
+                    return None;
+                };
+                let u = self.program.unit(unit);
+                let f = u.ast.function(function);
+                if f.static_ || !matches!(f.kind, dartforge_frontend::ast::FunctionKind::Function) {
+                    return None;
+                }
+                let posicionais = f.parameters.as_ref().map_or(0, |ps| {
+                    ps.iter()
+                        .filter(|p| {
+                            !matches!(p.kind, dartforge_frontend::ast::ParameterKind::Named)
+                        })
+                        .count()
+                });
+                let retorno = match f.return_type {
+                    None => None,
+                    Some(t) => {
+                        let sp = u.ast.ty(t).span;
+                        let texto = u.source.get(sp.start..sp.end)?.to_string();
+                        // Como em `membro_da_classe`: o texto não substitui
+                        // o parâmetro de tipo pelo argumento do receptor.
+                        let parametros: Vec<&str> = c
+                            .type_params
+                            .iter()
+                            .map(|p| self.interner.resolve(p.name))
+                            .chain(
+                                f.type_params
+                                    .iter()
+                                    .map(|p| self.interner.resolve(p.name.sym)),
+                            )
+                            .collect();
+                        if texto
+                            .split(|ch: char| !ch.is_alphanumeric() && ch != '_' && ch != '$')
+                            .any(|t| parametros.contains(&t))
+                        {
+                            return None;
+                        }
+                        Some((texto, u.path.clone()?))
+                    }
+                };
+                return Some(Metodo {
+                    posicionais,
+                    retorno,
+                });
+            }
+            atual = c.supertype_class;
+        }
+        None
     }
 
     fn tipo_inexistente(&self, arquivo: &Path, tipo: &str) -> bool {

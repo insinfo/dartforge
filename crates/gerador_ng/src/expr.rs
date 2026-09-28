@@ -322,6 +322,38 @@ fn fora(forma: &'static str) -> Recusa {
 }
 
 impl Conversor<'_> {
+    /// Um campo ou getter de instância que a classe do componente herda
+    /// (`lookUpGetter` do analyzer sobe a hierarquia): o tipo e o escopo
+    /// vêm de quem o declara, e a imutabilidade é a do campo de lá. Sem
+    /// tipo escrito, com tipo que cita parâmetro de tipo ou privado de outra
+    /// biblioteca: `None`, e o nome é recusado.
+    fn membro_herdado(&self, nome: &str) -> Option<Convertida> {
+        if nome.starts_with('_') {
+            return None;
+        }
+        let (r, arquivo) = self.escopo.tipos?;
+        let classe = self.escopo.classe?.rsplit('.').next()?;
+        let (tipo, escopo) = r.tipo_do_membro(arquivo, classe, nome)?;
+        let imutavel = r.membro_final(arquivo, classe, nome)?;
+        Some(Convertida {
+            imutavel,
+            tipo: Some(tipo),
+            escopo: Some(escopo),
+            ..Convertida::nova(format!("_ctx.{nome}"), "membro herdado")
+        })
+    }
+
+    /// Um método de instância herdado ([`Resolucao::metodo`]), procurado só
+    /// quando o nome não é da própria classe nem privado.
+    fn metodo_herdado(&self, nome: &str) -> Option<crate::resolucao::Metodo> {
+        if nome.starts_with('_') {
+            return None;
+        }
+        let (r, arquivo) = self.escopo.tipos?;
+        let classe = self.escopo.classe?.rsplit('.').next()?;
+        r.metodo(arquivo, classe, nome)
+    }
+
     /// O handler inteiro: classifica (simples × complexo) e converte.
     fn acao(&self, id: ast::ExprId) -> Result<Acao, Recusa> {
         let id = self.sem_parenteses(id);
@@ -337,6 +369,11 @@ impl Conversor<'_> {
                 }
                 if self.escopo.metodos.contains_key(nome) {
                     return Err(fora("tear-off de método sem aridade conhecida"));
+                }
+                if !self.escopo.membros.contains_key(nome)
+                    && let Some(m) = self.metodo_herdado(nome)
+                {
+                    return self.simples(nome, u8::from(m.posicionais > 0));
                 }
             }
         }
@@ -374,7 +411,11 @@ impl Conversor<'_> {
     /// Um handler simples: o método tem de ser do componente (ou um campo,
     /// que o tear-off lê do mesmo jeito).
     fn simples(&self, nome: &str, aridade: u8) -> Result<Acao, Recusa> {
-        if !self.escopo.metodos.contains_key(nome) && !self.escopo.membros.contains_key(nome) {
+        if !self.escopo.metodos.contains_key(nome)
+            && !self.escopo.membros.contains_key(nome)
+            && self.metodo_herdado(nome).is_none()
+            && self.membro_herdado(nome).is_none()
+        {
             return Err(fora("handler que não é membro do componente"));
         }
         if self.escopo.membros.get(nome).is_some_and(|m| m.estatico) {
@@ -630,7 +671,9 @@ impl Conversor<'_> {
                     });
                 }
                 let Some(m) = self.escopo.membros.get(nome) else {
-                    return Err(fora("nome fora do componente"));
+                    return self
+                        .membro_herdado(nome)
+                        .ok_or_else(|| fora("nome fora do componente"));
                 };
                 // Estático: `importExpr` da classe e o nome; `isImmutable`
                 // pelo campo (`final`/`const`), tipo `dynamic` e, fora do
@@ -774,6 +817,7 @@ impl Conversor<'_> {
                 // vale como valor solto. O tipo é o do `_TypeResolver`: o
                 // retorno do método (`visitMethodCall`); campo ou local
                 // chamado como função não é método, e dá `dynamic`.
+                let mut escopo_do_retorno = None;
                 let (alvo, retorno, locais_alvo) = match &self.ast.expr(*target).kind {
                     ast::ExprKind::Identifier(n)
                         if raiz
@@ -799,6 +843,15 @@ impl Conversor<'_> {
                                 Vec::new(),
                             ),
                             Some(t) => (format!("_ctx.{nome}"), Some(t.clone()), Vec::new()),
+                            // Método herdado: o retorno no escopo de quem o
+                            // declara; sem tipo escrito, não se sabe.
+                            None if !self.escopo.membros.contains_key(nome)
+                                && let Some(m) = self.metodo_herdado(nome) =>
+                            {
+                                let (t, e) = m.retorno.unzip();
+                                escopo_do_retorno = e;
+                                (format!("_ctx.{nome}"), t, Vec::new())
+                            }
                             None => {
                                 let t = self.expr(*target, raiz)?;
                                 (t.texto, Some("dynamic".to_string()), t.locais)
@@ -826,6 +879,7 @@ impl Conversor<'_> {
                 };
                 Ok(Convertida {
                     tipo: retorno,
+                    escopo: escopo_do_retorno,
                     locais: juntar(&[&locais_args, &locais_alvo]),
                     ..Convertida::nova(format!("{alvo}({lista})"), "chamada")
                 })

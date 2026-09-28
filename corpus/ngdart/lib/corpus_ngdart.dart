@@ -311,3 +311,7 @@ export 'src/j94_estrutural_propria.dart';
 export 'src/j95_campo_do_elemento_do_filho.dart';
 export 'src/j96_host_binding_estatico.dart';
 export 'src/j97_token_sem_tipo.dart';
+export 'src/j98_estatico_herdado.dart';
+export 'src/j99_filho_que_herda.dart';
+export 'src/j100_ngsp_e_ouvinte_herdado.dart';
+export 'src/j101_classe_estatica_mesclada.dart';

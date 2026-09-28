@@ -711,6 +711,32 @@ impl Indice {
                     }
                     f.parametros = ps;
                 }
+                // O filho que herda: `@Input`, `@Output`, `@HostBinding` e
+                // ganchos pelos metadados, que sobem os supertipos como o
+                // `_collectInheritableMetadata` do oficial. A consulta de
+                // conteúdo herdada ainda não se escreve.
+                if comp.herda && m.fora.is_empty() {
+                    f.entradas = m
+                        .entradas
+                        .iter()
+                        .map(|e| componente::Entrada {
+                            nome: e.nome.clone(),
+                            campo: e.membro.clone(),
+                        })
+                        .collect();
+                    f.saidas = m.saidas.clone();
+                    f.ganchos = m.ganchos;
+                    f.hospedeiro = m.ligacoes_do_hospedeiro.iter().any(|(_, membro)| {
+                        !comp
+                            .ligacoes_do_hospedeiro
+                            .iter()
+                            .any(|l| l.estatico && l.membro == *membro)
+                    });
+                    if m.consultas_de_conteudo.is_empty() {
+                        f.pendencias
+                            .retain(|p| p.forma != "filho que herda (extends/with)");
+                    }
+                }
                 f.metadados = Some(std::sync::Arc::new(m));
             }
             chaves.push(k);
@@ -1207,8 +1233,22 @@ fn indexar(
             entradas: comp.entradas.clone(),
             ganchos: comp.ganchos,
             on_push: comp.on_push,
-            hospedeiro: comp.liga_hospedeiro,
+            // O estático sai no construtor da visão do filho: sem outro, o
+            // filho não tem `detectHostChanges` (caso j101).
+            hospedeiro: comp.liga_hospedeiro
+                && (comp.ligacoes_do_hospedeiro.is_empty()
+                    || comp.ligacoes_do_hospedeiro.iter().any(|l| !l.estatico)),
             saidas: comp.saidas.clone(),
+            atributos_do_hospedeiro: comp
+                .ligacoes_do_hospedeiro
+                .iter()
+                .filter(|l| l.estatico && l.imutavel)
+                .filter(|l| !l.nome.starts_with("class.") && !l.nome.starts_with("style."))
+                .map(|l| {
+                    let nome = l.nome.strip_prefix("attr.").unwrap_or(&l.nome);
+                    (nome.to_string(), l.membro.clone())
+                })
+                .collect(),
             parametros,
             consultas,
             pendencias,
@@ -1381,6 +1421,31 @@ pub(crate) fn gerar_interno(
                     Motivo::NaoEntendido,
                     format!(
                         "anotação de {} com nome não resolvido ({f}): o oficial falha",
+                        m.classe
+                    ),
+                ));
+            }
+        }
+    }
+    // O mesmo vale para quem lista essa classe em `directives:`: o oficial
+    // lê os metadados de cada diretiva usada ao compilar o componente, e a
+    // falha dela é a dele (o `material_date_time_picker` com o
+    // `MaterialInputComponent` de `NG_VALIDATORS` inexistente).
+    for comp in &achados.componentes {
+        let (usadas, _) = indice.diretivas_de(comp, fonte, resolvedor);
+        for u in &usadas {
+            let m = u
+                .filho
+                .as_ref()
+                .and_then(|f| f.metadados.clone())
+                .or_else(|| u.diretiva.clone());
+            if let Some(m) = m
+                && let Some(f) = m.fora.iter().find(|f| f.contains("nome não resolvido"))
+            {
+                return Err(recusa(
+                    Motivo::NaoEntendido,
+                    format!(
+                        "directives: {} tem anotação com nome não resolvido ({f}): o oficial falha",
                         m.classe
                     ),
                 ));

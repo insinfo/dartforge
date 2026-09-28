@@ -283,6 +283,10 @@ import 'package:corpus_ngdart/src/j94_estrutural_propria.template.dart' as j94;
 import 'package:corpus_ngdart/src/j95_campo_do_elemento_do_filho.template.dart' as j95;
 import 'package:corpus_ngdart/src/j96_host_binding_estatico.template.dart' as j96;
 import 'package:corpus_ngdart/src/j97_token_sem_tipo.template.dart' as j97;
+import 'package:corpus_ngdart/src/j98_estatico_herdado.template.dart' as j98;
+import 'package:corpus_ngdart/src/j99_filho_que_herda.template.dart' as j99;
+import 'package:corpus_ngdart/src/j100_ngsp_e_ouvinte_herdado.template.dart' as j100;
+import 'package:corpus_ngdart/src/j101_classe_estatica_mesclada.template.dart' as j101;
 
 void main() {
   print([
@@ -570,5 +574,9 @@ void main() {
     j95.J95CampoDoElementoDoFilhoNgFactory,
     j96.J96UsaNgFactory,
     j97.J97UsaNgFactory,
+    j98.J98UsaNgFactory,
+    j99.J99UsaNgFactory,
+    j100.J100NgspNgFactory,
+    j101.J101UsaNgFactory,
   ].length);
 }

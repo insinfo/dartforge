@@ -698,13 +698,17 @@ fn colapsar(texto: &str, apara_esq: bool, apara_dir: bool) -> Option<String> {
         v.push(c);
     }
     fechar(&mut bloco, &mut v);
-    let mut v = v.replace(NGSP, " ");
+    // O `&ngsp;` só vira espaço depois de aparar as pontas (o `visitText`
+    // do `MinimizeWhitespaceVisitor` roda sobre o texto já colapsado): um
+    // `\n  &ngsp;` depois de elemento de bloco fica `' '`.
+    let mut v = v;
     if apara_esq {
         v = v.trim_start().to_string();
     }
     if apara_dir {
         v = v.trim_end().to_string();
     }
+    let v = v.replace(NGSP, " ");
     if v.is_empty() { None } else { Some(v) }
 }
 

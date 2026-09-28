@@ -2665,6 +2665,11 @@ pub struct Filho {
     pub hospedeiro: bool,
     /// `@Output`s (nome no template, membro), na ordem do mapa `outputs`.
     pub saidas: Vec<(String, String)>,
+    /// Os `hostAttributes` do filho: `@HostBinding` em membro estático
+    /// imutável fora de `class.x`/`style.x` (`_computeHostBindingImmutability`),
+    /// pelo nome do atributo (sem `attr.`) e o membro. Quem o usa os mescla
+    /// com o atributo escrito de mesmo nome (`_mergeHtmlAndDirectiveAttrs`).
+    pub atributos_do_hospedeiro: Vec<(String, String)>,
     /// O que o construtor do filho recebe, na ordem.
     pub parametros: Vec<Injetado>,
     /// `@ContentChild`/`@ContentChildren` do filho, com o alvo resolvido:
@@ -4099,7 +4104,31 @@ impl Corpo<'_> {
             .collect();
         atributos.sort_by(|a, b| a.nome.cmp(&b.nome));
         for a in &atributos {
-            let valor = literal(&a.valor);
+            let mut valor = literal(&a.valor);
+            // `_mergeHtmlAndDirectiveAttrs`: o `class` estático do componente
+            // só é escrito aqui quando o elemento também tem `class`; os dois
+            // viram uma interpolação (o do componente continua no construtor
+            // da visão dele, e este sobrescreve em tempo de execução). O
+            // `style` mesclado ainda não tem caso; os demais ficam com o
+            // atributo escrito.
+            if let Some((_, membro)) = filho
+                .atributos_do_hospedeiro
+                .iter()
+                .find(|(nome, _)| *nome == a.nome)
+            {
+                match a.nome.as_str() {
+                    "class" => {
+                        let interp = self.imp.q(INTERPOLATE);
+                        valor = format!(
+                            "{interp}interpolate2('', {valor}, ' ', {vd}.{classe}.{membro}, '')"
+                        );
+                    }
+                    "style" => {
+                        return Err(em_filho("style estático do filho mesclado com o escrito"));
+                    }
+                    _ => {}
+                }
+            }
             if a.nome == "class" {
                 self.linhas
                     .push(format!("    this.updateChildClassNonHtml({el}, {valor});"));
@@ -9883,9 +9912,6 @@ fn ligacoes_do_componente(
     let fora = |f: &str| recusa(Motivo::HostBindingEmComponente, f.to_string());
     let lista: Vec<(String, String)> = if c.herda {
         match local.metadados.as_deref() {
-            Some(m) if m.fora.is_empty() && m.hospedeiro_estatico => {
-                return Err(fora("@HostBinding estático em componente que herda"));
-            }
             Some(m) if m.fora.is_empty() => m.ligacoes_do_hospedeiro.clone(),
             _ if c.liga_hospedeiro => {
                 return Err(fora("@HostBinding em componente que herda"));
@@ -10495,8 +10521,38 @@ fn gerar_componente_com(
     // `writeBuildStatements` em `_generateBuildMethod`). O handler passa
     // pelo mesmo conversor dos eventos do template, e um complexo ganha o
     // próximo `_handleEvent_N`.
+    // Quem herda: os dos supertipos também, pelos metadados (supertipos
+    // primeiro; o mesmo evento fica com o último, no lugar do primeiro).
+    let ouvintes_do_hospedeiro: Vec<crate::componente::Ouvinte> = if c.herda {
+        match local.metadados.as_deref() {
+            Some(m) if m.fora.is_empty() => {
+                if m.ouvintes.iter().any(|o| !evento_nativo(&o.evento)) {
+                    corpo.anotar(recusa(
+                        Motivo::HostListenerEmComponente,
+                        "@HostListener herdado de evento não nativo",
+                    ))?;
+                }
+                m.ouvintes
+                    .iter()
+                    .map(|o| crate::componente::Ouvinte {
+                        evento: o.evento.clone(),
+                        handler: format!("{}({})", o.metodo, o.args),
+                    })
+                    .collect()
+            }
+            _ => {
+                corpo.anotar(recusa(
+                    Motivo::HostListenerEmComponente,
+                    "@HostListener de componente que herda sem os metadados",
+                ))?;
+                c.ouvintes.clone()
+            }
+        }
+    } else {
+        c.ouvintes.clone()
+    };
     let mut hospedeiro = Vec::new();
-    for o in &c.ouvintes {
+    for o in &ouvintes_do_hospedeiro {
         match corpo.handler(&[&o.handler]) {
             Ok(h) => hospedeiro.push(format!(
                 "    parentRenderNode.addEventListener('{}', {h});",
@@ -10836,12 +10892,31 @@ fn gerar_componente_com(
         ),
         _ => String::new(),
     };
+    // Os ganchos de quem herda sobem os supertipos (a classe que implementa
+    // `OnInit` pode ser a base): vêm dos metadados do programa.
+    let ganchos = if c.herda {
+        match local.metadados.as_deref() {
+            Some(m) if m.fora.is_empty() => m.ganchos,
+            _ => {
+                anotar(
+                    coleta,
+                    recusa(
+                        Motivo::NaoEntendido,
+                        "ganchos de componente que herda sem os metadados",
+                    ),
+                )?;
+                c.ganchos
+            }
+        }
+    } else {
+        c.ganchos
+    };
     // Com `@HostBinding`, a hospedeira chama o `detectHostChanges` antes de
     // detectar a visão do componente (`ciclo_de_vida`).
     let ciclo = resolver_tardios(
         imp,
         &ciclo_de_vida(
-            &c.ganchos,
+            &ganchos,
             marca,
             do_hospedeiro.iter().any(|l| !l.estatico),
             container,

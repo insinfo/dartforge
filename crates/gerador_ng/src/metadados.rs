@@ -272,7 +272,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
             let Some(dc) = self.declaracao(c) else {
                 continue;
             };
-            self.membros(&dc, &mut d, &mut entradas);
+            self.membros(&dc, c == id, &mut d, &mut entradas);
         }
         d.entradas = entradas.into_iter().map(|(_, e)| e).collect();
         // Diretiva genérica com `@HostBinding`: o `XNgCd<T>` leva argumentos
@@ -741,8 +741,15 @@ impl<'r, 'a> Leitor<'r, 'a> {
         }
     }
 
-    /// Os membros anotados de uma classe da hierarquia.
-    fn membros(&self, dc: &Declaracao, d: &mut Diretiva, entradas: &mut Vec<(String, Entrada)>) {
+    /// Os membros anotados de uma classe da hierarquia; `propria` quando é a
+    /// classe da diretiva (e não um supertipo).
+    fn membros(
+        &self,
+        dc: &Declaracao,
+        propria: bool,
+        d: &mut Diretiva,
+        entradas: &mut Vec<(String, Entrada)>,
+    ) {
         let mut de_campo: Vec<(String, Entrada)> = Vec::new();
         let mut de_setter: Vec<(String, Entrada)> = Vec::new();
         let mut saidas_acessor: Vec<(String, String)> = Vec::new();
@@ -849,18 +856,20 @@ impl<'r, 'a> Leitor<'r, 'a> {
                     }
                     ("HostListener", _) => d.fora.push("@HostListener fora de método".into()),
                     ("HostBinding", k) => {
-                        // Membro estático: o oficial o escreve uma vez, no
-                        // construtor da visão (caso j96); por estes metadados
-                        // (diretiva, componente que herda) ainda não.
+                        // Membro estático (`_addHostBinding`): o de um
+                        // supertipo não é herdado; o da própria classe é lido
+                        // dela (`StaticRead`) e o oficial o escreve uma vez,
+                        // no construtor da visão (caso j96). Numa diretiva
+                        // ainda não se escreve (`hospedeiro_estatico`).
                         let estatico = match k {
                             ast::MemberKind::Field(l) => l.static_,
                             ast::MemberKind::Method(f) => dc.ast.function(*f).static_,
                             _ => false,
                         };
-                        if estatico {
-                            d.hospedeiro_estatico = true;
+                        if estatico && !propria {
                             continue;
                         }
+                        d.hospedeiro_estatico |= estatico;
                         let membro_nome = match k {
                             ast::MemberKind::Field(l) => {
                                 l.variables.first().map(|v| self.nome(&v.name).to_string())

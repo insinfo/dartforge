@@ -608,15 +608,30 @@ extends ComponentView<X<T, U>>`, `createXFactory<T extends num, U>()`, o
 U>(parentView, parentIndex)`), com o import do limite alocado no cabeçalho
 da classe da visão, antes do `ComponentView`; a fábrica constante e quem
 usa o componente continuam crus (`ComponentFactory<X>`, `ViewX0(this,
-0)`) — caso j97. Corpus: **330 conferidos, 0 pendentes**.
+0)`) — caso j97. Herança (casos j98–j101): o `@HostBinding` estático da
+própria classe entra na lista dos metadados (`StaticRead` da classe) e o
+de um supertipo é ignorado, como no `_addHostBinding`; membro, método e
+`@HostListener` herdados vêm do programa (o tipo no escopo de quem declara,
+a aridade para o *tear-off*, os ouvintes com supertipos primeiro); os
+ganchos de quem herda sobem os supertipos; o filho que herda leva
+`@Input`, `@Output`, ganchos e `@HostBinding` dos metadados (a consulta de
+conteúdo herdada ainda é recusada). `&ngsp;` só vira espaço depois de
+aparar as pontas (o `visitText` do `MinimizeWhitespaceVisitor`). O `class`
+estático de um componente filho é mesclado com o `class` escrito no
+elemento (`_mergeHtmlAndDirectiveAttrs`: `interpolate2('', 'a b', ' ',
+X.hostClass, '')`), e um filho só com `@HostBinding` estático não tem
+`detectHostChanges`. Quem lista em `directives:` uma classe cuja anotação
+não compila no oficial (nome não resolvido) também falha, como ele.
+Corpus: **334 conferidos, 0 pendentes**.
 
 ngcomponents 3.0.0-dev.1 (o port do angular_components, num projeto de
-sonda com o `build_runner` oficial de referência): 468 `.template.dart` e
+sonda com o `build_runner` oficial de referência): 474 `.template.dart` e
 as 140 folhas `.scss.css.dart`/`.scss.css.shim.dart` iguais, **0
 diferentes**; as folhas `.scss.css` (do `SassBuilder` do próprio
 ngcomponents, com o sass 1.66.0) vêm do apoio, e o estágio A do ngdart as
-lê da memória do motor. Os 56 `.template.dart` pendentes são a próxima
-fila (formas de `@HostBinding`, injeção anotada, filho que herda…).
+lê da memória do motor. Os 50 `.template.dart` pendentes são a próxima
+fila (formas de `@HostBinding` de diretiva, injeção anotada, atributo
+interpolado renomeado…).
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada
 pendente com o motivo): **950 iguais / 0 pendentes / 0 diferentes** —
 `.template.dart` **532/0/0**, os 2 `.i18n.dart` (gerador nativo do
