@@ -10,8 +10,13 @@ use std::sync::Arc;
 
 /// O projeto da entrada usa builders? Custa ler o `package_config.json`
 /// (que o carregador também lê) e os `build.yaml` dos pacotes resolvidos.
-pub fn detectar(entrada: &Path, packages: Option<&Path>) -> Option<(PathBuf, PackageConfig, PathBuf)> {
-    let caminho = packages.map(Path::to_path_buf).or_else(|| PackageConfig::discover(entrada))?;
+pub fn detectar(
+    entrada: &Path,
+    packages: Option<&Path>,
+) -> Option<(PathBuf, PackageConfig, PathBuf)> {
+    let caminho = packages
+        .map(Path::to_path_buf)
+        .or_else(|| PackageConfig::discover(entrada))?;
     let cfg = PackageConfig::load(&caminho).ok()?;
     if !dartforge_build::detectar(&cfg) {
         return None;
@@ -28,17 +33,34 @@ pub fn gerar_uma_vez(
     programa: &dartforge_elements::model::Program,
     nomes: &dartforge_intern::Interner,
 ) -> Result<(Arc<Geracao>, String), String> {
-    let mut m = Motor::novo(raiz, cfg, OpcoesMotor { persistir: dartforge_build::persistencia::pedido_no_ambiente(), ..OpcoesMotor::default() })?;
+    let mut m = Motor::novo(
+        raiz,
+        cfg,
+        OpcoesMotor {
+            persistir: dartforge_build::persistencia::pedido_no_ambiente(),
+            ..OpcoesMotor::default()
+        },
+    )?;
     // Builders Dart pela VM só quando pedidos (DARTFORGE_BUILD_DART).
     dartforge_build::vm::ligar_do_ambiente(&mut m, caminho_cfg);
-    let at = m.atualizar(&Contexto { banco: &SemBanco, programa: Some((programa, nomes)) }, &[], Demanda::Carregador)?;
+    let at = m.atualizar(
+        &Contexto {
+            banco: &SemBanco,
+            programa: Some((programa, nomes)),
+        },
+        &[],
+        Demanda::Carregador,
+    )?;
     let mut texto = at.rel.texto();
     let n = at.avisos.len();
     for a in at.avisos.iter().take(5) {
         texto.push_str(&format!("\naviso: {a}"));
     }
     if n > 5 {
-        texto.push_str(&format!("\n({} avisos de apoio possivelmente desatualizado)", n));
+        texto.push_str(&format!(
+            "\n({} avisos de apoio possivelmente desatualizado)",
+            n
+        ));
     }
     Ok((at.geracao, texto))
 }
@@ -63,15 +85,18 @@ pub fn run_build(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::
 }
 
 fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
-    let uso = "uso: dartforge build [<entrada.dart>] [--raiz <dir>] [--packages <cfg>] [--sdk <lib>] [--plano] [--comparar] [--release] [--estrito] [--trabalhadores N] [--escrever-cache <dir>] [--dart <exe>] [--estado]";
+    let uso = "uso: dartforge build [<entrada.dart>] [--raiz <dir>] [--packages <cfg>] [--sdk <lib>] [--plano] [--comparar] [--release] [--estrito] [--aceitar-pendentes] [--trabalhadores N] [--escrever-cache <dir>] [--dart <exe>] [--estado]";
     let (mut entrada, mut raiz, mut packages, mut sdk, mut cache) = (None, None, None, None, None);
     let mut dart = dartforge_build::vm::dart_do_ambiente();
     let (mut plano, mut comparar, mut release, mut estrito) = (false, false, false, false);
+    let mut aceitar_pendentes = false;
     let mut persistir = dartforge_build::persistencia::pedido_no_ambiente();
     let mut trabalhadores = OpcoesMotor::default().trabalhadores;
     let mut it = args.iter();
     while let Some(a) = it.next() {
-        let proximo = |it: &mut std::slice::Iter<'_, std::ffi::OsString>| it.next().map(PathBuf::from).ok_or(uso);
+        let proximo = |it: &mut std::slice::Iter<'_, std::ffi::OsString>| {
+            it.next().map(PathBuf::from).ok_or(uso)
+        };
         match a.to_str() {
             Some("--raiz") => raiz = Some(proximo(&mut it)?),
             Some("--packages") => packages = Some(proximo(&mut it)?),
@@ -82,6 +107,9 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
             Some("--comparar") => comparar = true,
             Some("--release") => release = true,
             Some("--estrito") => estrito = true,
+            // Termina com sucesso mesmo com saídas que o DartForge não
+            // produziu (placar, transição); sem ela, é falha (DF-BUILD-007).
+            Some("--aceitar-pendentes") => aceitar_pendentes = true,
             Some("--estado") => persistir = true,
             Some("--trabalhadores") => {
                 trabalhadores = it
@@ -91,16 +119,28 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
                     .filter(|&n: &usize| n >= 1)
                     .ok_or("--trabalhadores exige um número ≥ 1")?;
             }
-            _ if entrada.is_none() && !a.to_string_lossy().starts_with("--") => entrada = Some(PathBuf::from(a)),
+            _ if entrada.is_none() && !a.to_string_lossy().starts_with("--") => {
+                entrada = Some(PathBuf::from(a))
+            }
             _ => return Err(uso.into()),
         }
     }
-    let base = entrada.clone().or_else(|| std::env::current_dir().ok()).ok_or(uso)?;
-    let raiz = raiz.or_else(|| dartforge_build::raiz_do_pacote(&base)).ok_or("pubspec.yaml não encontrado")?;
-    let caminho_cfg = packages.clone().unwrap_or_else(|| raiz.join(".dart_tool/package_config.json"));
+    let base = entrada
+        .clone()
+        .or_else(|| std::env::current_dir().ok())
+        .ok_or(uso)?;
+    let raiz = raiz
+        .or_else(|| dartforge_build::raiz_do_pacote(&base))
+        .ok_or("pubspec.yaml não encontrado")?;
+    let caminho_cfg = packages
+        .clone()
+        .unwrap_or_else(|| raiz.join(".dart_tool/package_config.json"));
     let cfg = PackageConfig::load(&caminho_cfg)?;
     if !dartforge_build::detectar(&cfg) {
-        println!("{}: o projeto não usa builders (nenhum pacote resolvido define builders)", raiz.display());
+        println!(
+            "{}: o projeto não usa builders (nenhum pacote resolvido define builders)",
+            raiz.display()
+        );
         return Ok(());
     }
     if plano {
@@ -112,13 +152,29 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
         let bd = raiz.join(".dart_tool/build/entrypoint/build.dart");
         if let Ok(texto) = std::fs::read_to_string(&bd) {
             match dartforge_build::oraculo::comparar(&p.aplicacoes, &texto)? {
-                Ok(()) => println!("plano igual ao {} ({} aplicações)", bd.display(), p.aplicacoes.len()),
-                Err(d) => return Err(format!("plano diferente do {}:\n{}", bd.display(), d.join("\n"))),
+                Ok(()) => println!(
+                    "plano igual ao {} ({} aplicações)",
+                    bd.display(),
+                    p.aplicacoes.len()
+                ),
+                Err(d) => {
+                    return Err(format!(
+                        "plano diferente do {}:\n{}",
+                        bd.display(),
+                        d.join("\n")
+                    ));
+                }
             }
         }
         return Ok(());
     }
-    let opcoes = OpcoesMotor { release, trabalhadores, estrito, medir_nao_verificados: comparar, persistir };
+    let opcoes = OpcoesMotor {
+        release,
+        trabalhadores,
+        estrito,
+        medir_nao_verificados: comparar,
+        persistir,
+    };
     let mut motor = Motor::novo(&raiz, &cfg, opcoes)?;
     if let Some(d) = dart {
         dartforge_build::vm::ligar(&mut motor, d, &caminho_cfg);
@@ -140,7 +196,12 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
             // componente que ninguém importa também ganha `.template.dart`).
             let extras = motor.entradas_de("ngdart:ngdart");
             let mut raizes: Vec<&std::path::Path> = vec![e.as_path()];
-            raizes.extend(extras.iter().filter(|p| !ocultos.contains(*p)).map(|p| p.as_path()));
+            raizes.extend(
+                extras
+                    .iter()
+                    .filter(|p| !ocultos.contains(*p))
+                    .map(|p| p.as_path()),
+            );
             Some(
                 dartforge_elements::load::load_lenient_entradas_ocultando(
                     &raizes,
@@ -155,7 +216,10 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
         None => None,
     };
     let at = motor.atualizar(
-        &Contexto { banco: &SemBanco, programa: programa.as_ref().map(|p| (p, &nomes)) },
+        &Contexto {
+            banco: &SemBanco,
+            programa: programa.as_ref().map(|p| (p, &nomes)),
+        },
         &[],
         Demanda::Tudo,
     )?;
@@ -169,13 +233,44 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
     for a in &at.avisos {
         eprintln!("aviso: {a}");
     }
+    // Builder que falhou: a geração falhou, com ou sem saída antiga no disco
+    // (DF-BUILD-005).
+    if !at.rel.falhas.is_empty() {
+        return Err(format!(
+            "{} ação(ões) de builder falharam:\n  {}",
+            at.rel.falhas.len(),
+            at.rel.falhas.join("\n  ")
+        ));
+    }
+    // Saídas que nenhum executor do DartForge produziu — pendentes, ou
+    // lidas do que o `build_runner` deixou no disco (apoio): sem
+    // `--aceitar-pendentes`, o comando falha em vez de anunciar sucesso
+    // (DF-BUILD-006/007). No `--comparar`, o placar sai antes.
+    // O apoio sem conteúdo (o oficial não escreveu nada naquela entrada)
+    // não entrega saída de fora, e só sai no relatório.
+    let pendentes: usize =
+        at.rel.pendentes_por_motivo.values().sum::<usize>() + at.rel.apoio_com_saida;
+    let falha_pendentes = (pendentes > 0 && !aceitar_pendentes).then(|| {
+        format!(
+            "{pendentes} ação(ões) sem produtor do DartForge ({} com saída lida do apoio do build_runner); use --aceitar-pendentes para aceitar",
+            at.rel.apoio_com_saida
+        )
+    });
+    if let Some(e) = &falha_pendentes
+        && !comparar
+    {
+        return Err(e.clone());
+    }
     if let Some(dir) = cache {
         let mut n = 0;
         for (id, g) in &motor.grafo.gerados {
             if !g.oculto {
                 continue;
             }
-            let Some(c) = motor.registro(g.acao).and_then(|r| r.saidas.iter().find(|(s, _)| s == id)).and_then(|(_, c)| c.clone())
+            let Some(c) = motor
+                .registro(g.acao)
+                .and_then(|r| r.saidas.iter().find(|(s, _)| s == id))
+                .and_then(|(_, c)| c.clone())
             else {
                 continue;
             };
@@ -201,7 +296,9 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
         let mut por_ext: BTreeMap<String, [usize; 3]> = BTreeMap::new();
         let ext = |c: &str| {
             let nome = c.rsplit('/').next().unwrap_or(c);
-            nome.find('.').map(|i| nome[i..].to_string()).unwrap_or_default()
+            nome.find('.')
+                .map(|i| nome[i..].to_string())
+                .unwrap_or_default()
         };
         for id in &p.iguais {
             por_ext.entry(ext(&id.caminho)).or_default()[0] += 1;
@@ -231,7 +328,13 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
             for (id, m) in p.diferentes.iter().take(20) {
                 eprintln!("diferente: {} ({m})", id.texto());
             }
-            return Err(format!("{} saídas diferentes do oficial", p.diferentes.len()));
+            return Err(format!(
+                "{} saídas diferentes do oficial",
+                p.diferentes.len()
+            ));
+        }
+        if let Some(e) = falha_pendentes {
+            return Err(e);
         }
     }
     Ok(())

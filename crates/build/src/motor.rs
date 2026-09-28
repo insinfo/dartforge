@@ -71,9 +71,21 @@ pub enum Origem {
     Dart,
     Apoio,
     Pendente,
+    /// O builder (ou o executor, no meio da ação) falhou: sem saídas, e a
+    /// geração inteira falha (DF-BUILD-005).
+    Falha,
     /// Âncora de pós-processador cuja entrada gerada não foi escrita: o
     /// oficial não a executa (`_runPostProcessAction`, `wasOutput`).
     Omitida,
+}
+
+/// Por que uma ação não saiu do executor Dart.
+#[derive(Debug, Clone)]
+enum FalhaDart {
+    /// Não há executor (desligado, não sobe): vale a política de apoio.
+    Indisponivel(String),
+    /// O builder falhou, ou o executor caiu no meio da ação.
+    Builder(String),
 }
 
 /// O que se sabe de uma ação executada.
@@ -122,7 +134,12 @@ pub struct RelMotor {
     /// Consultas registradas por geradores nesta atualização.
     pub consultas_gerador: usize,
     pub apoio: usize,
+    /// Das ações de apoio, as que deram conteúdo lido do disco do
+    /// `build_runner` (as outras: o oficial não escreveu nada ali).
+    pub apoio_com_saida: usize,
     pub pendentes_por_motivo: BTreeMap<String, usize>,
+    /// Ações cujo builder falhou nesta atualização: a geração falhou.
+    pub falhas: Vec<String>,
     pub tempo: Duration,
     /// Revalidação das rodadas por pacote (digests das consultas afetadas).
     pub tempo_revalidar: Duration,
@@ -149,6 +166,9 @@ impl RelMotor {
         );
         for (m, n) in &self.pendentes_por_motivo {
             s.push_str(&format!("\n  pendentes ({n}): {m}"));
+        }
+        for f in &self.falhas {
+            s.push_str(&format!("\n  falha: {f}"));
         }
         s
     }
@@ -180,7 +200,6 @@ struct RodadaPacote {
 
 pub struct Motor {
     pub raiz: PathBuf,
-    cfg: PackageConfig,
     pub grafo_pacotes: GrafoPacotes,
     pub configs: Configs,
     pub plano: Plano,
@@ -374,7 +393,6 @@ impl Motor {
         let n_acoes = grafo.acoes.len();
         let mut m = Motor {
             raiz: raiz.to_path_buf(),
-            cfg: cfg.clone(),
             grafo_pacotes,
             configs,
             plano,
@@ -789,7 +807,11 @@ impl Motor {
             // `path` pode ter mudado de lugar ou de versão): o guardado é o
             // do começo da sessão. Ilegível agora, a atualização falha, como
             // num processo novo.
-            let arquivo = self.grafo_pacotes.dir_raiz.join(".dart_tool").join("package_config.json");
+            let arquivo = self
+                .grafo_pacotes
+                .dir_raiz
+                .join(".dart_tool")
+                .join("package_config.json");
             let cfg = PackageConfig::load(&arquivo)?;
             *self = Motor::novo(&self.raiz.clone(), &cfg, opcoes)?;
             self.nativos = nativos;
@@ -971,13 +993,9 @@ impl Motor {
                     v
                 }
                 None if motivo_dart.is_none() && self.fases[fi].pos => self.pos_em_serie(&executar),
-                None if motivo_dart.is_none() => executar
-                    .iter()
-                    .map(|&a| {
-                        self.dart_por_acao(a)
-                            .unwrap_or_else(|e| self.apoio(a, Some(&e)))
-                    })
-                    .collect(),
+                None if motivo_dart.is_none() => {
+                    executar.iter().map(|&a| self.dart_ou_apoio(a)).collect()
+                }
                 None => self.apoio_em_paralelo(&executar, motivo_dart.as_deref()),
             };
             for (a, mut r) in executar.into_iter().zip(novos) {
@@ -987,7 +1005,13 @@ impl Motor {
                 match r.origem {
                     Origem::Nativo(_) => rel.nativas += 1,
                     Origem::Dart => rel.dart += 1,
-                    Origem::Apoio => rel.apoio += 1,
+                    Origem::Apoio => {
+                        rel.apoio += 1;
+                        if r.saidas.iter().any(|(_, c)| c.is_some()) {
+                            rel.apoio_com_saida += 1;
+                        }
+                    }
+                    Origem::Falha => rel.falhas.push(r.motivo.clone().unwrap_or_default()),
                     Origem::Pendente | Origem::Omitida => {}
                 }
                 if let Some(m) = &r.motivo {
@@ -1321,7 +1345,7 @@ impl Motor {
                 Origem::Dart if codigo_dart.is_some() => crate::persistencia::OrigemSalva::Dart,
                 Origem::Apoio => crate::persistencia::OrigemSalva::Apoio,
                 Origem::Omitida => crate::persistencia::OrigemSalva::Omitida,
-                Origem::Dart | Origem::Pendente => continue,
+                Origem::Dart | Origem::Pendente | Origem::Falha => continue,
             };
             let saidas = r
                 .saidas
@@ -1711,11 +1735,50 @@ impl Motor {
         }
     }
 
-    fn dart_por_acao(&self, a: usize) -> Result<Registro, String> {
-        if let Some(e) = self.preparar_dart() {
-            return Err(e);
+    /// A ação pelo executor Dart; sem executor, o apoio. A falha do builder
+    /// (exceção, erro severo, saída não permitida) ou do executor no meio da
+    /// ação é falha da geração, nunca o resultado antigo do `build_runner`
+    /// (DF-BUILD-005).
+    fn dart_ou_apoio(&self, a: usize) -> Registro {
+        match self.dart_por_acao(a) {
+            Ok(r) => r,
+            Err(FalhaDart::Builder(e)) => self.falha(a, e),
+            Err(FalhaDart::Indisponivel(e)) => self.apoio(a, Some(&e)),
         }
-        let acao = self.grafo.acoes.get(a).ok_or("ação Dart inexistente")?;
+    }
+
+    /// O registro de uma ação que falhou: nenhuma saída (a antiga, do disco
+    /// ou da memória, não vale), a falha como motivo.
+    fn falha(&self, a: usize, e: String) -> Registro {
+        let acao = &self.grafo.acoes[a];
+        let entrada = natural(&self.grafo_pacotes, &acao.entrada);
+        let d = self
+            .memoria
+            .get(&entrada)
+            .map(|b| digest_bytes(b))
+            .or_else(|| crate::consulta::digest_arquivo(&entrada));
+        Registro {
+            impressao: [0; 32],
+            consultas: vec![(Consulta::Arquivo(entrada), d)],
+            saidas: acao.saidas.iter().map(|s| (s.clone(), None)).collect(),
+            origem: Origem::Falha,
+            motivo: Some(e),
+            medido: Vec::new(),
+            do_apoio: Vec::new(),
+            apagados: Vec::new(),
+            restaurado: false,
+        }
+    }
+
+    fn dart_por_acao(&self, a: usize) -> Result<Registro, FalhaDart> {
+        if let Some(e) = self.preparar_dart() {
+            return Err(FalhaDart::Indisponivel(e));
+        }
+        let acao = self
+            .grafo
+            .acoes
+            .get(a)
+            .ok_or(FalhaDart::Indisponivel("ação Dart inexistente".into()))?;
         let fase = &self.fases[acao.fase];
         let memoria = |id: &AssetId| {
             self.naturais
@@ -1733,8 +1796,14 @@ impl Motor {
             entrada: acao.entrada.clone(),
             saidas_permitidas: acao.saidas.clone(),
         };
-        let mut dart = self.dart.lock().map_err(|_| "executor Dart envenenado")?;
-        let resultado = dart.executar(&pedido, &mut servico).map_err(|e| e.0)?;
+        let mut dart = self
+            .dart
+            .lock()
+            .map_err(|_| FalhaDart::Indisponivel("executor Dart envenenado".into()))?;
+        // O executor caiu no meio da ação: falha, não ausência de executor.
+        let resultado = dart.executar(&pedido, &mut servico).map_err(|e| {
+            FalhaDart::Builder(format!("{}: falha do executor: {}", pedido.chave, e.0))
+        })?;
         if resultado.falhou {
             let detalhes = resultado
                 .logs
@@ -1750,23 +1819,26 @@ impl Motor {
                 )
                 .collect::<Vec<_>>()
                 .join("; ");
-            return Err(if detalhes.is_empty() {
+            return Err(FalhaDart::Builder(if detalhes.is_empty() {
                 format!("{}: builder Dart falhou", pedido.chave)
             } else {
                 format!("{}: {detalhes}", pedido.chave)
-            });
+            }));
         }
         for (id, bytes) in resultado.saidas {
             if let Some(ja_escritos) = servico.escritas.get(&id) {
                 if ja_escritos.as_ref() != bytes.as_ref() {
-                    return Err(format!(
+                    return Err(FalhaDart::Builder(format!(
                         "builder Dart retornou bytes diferentes para {} após escrever via BuildStep",
                         id.texto()
-                    ));
+                    )));
                 }
             }
             servico.escrever(&id, bytes).map_err(|e| {
-                format!("builder Dart escreveu saída não permitida: {}", e.0.texto())
+                FalhaDart::Builder(format!(
+                    "builder Dart escreveu saída não permitida: {}",
+                    e.0.texto()
+                ))
             })?;
         }
         let saidas = acao
@@ -1967,8 +2039,10 @@ impl Motor {
         let gerou_algo = saidas.iter().any(|(_, c)| c.is_some());
         if gerador.verificado() && recusa.is_none() && gerou_algo {
             if saidas.iter().any(|(_, c)| c.is_none()) && motivo_dart.is_none() {
-                if let Ok(r) = self.dart_por_acao(a) {
-                    return r;
+                match self.dart_por_acao(a) {
+                    Ok(r) => return r,
+                    Err(FalhaDart::Builder(e)) => return self.falha(a, e),
+                    Err(FalhaDart::Indisponivel(_)) => {}
                 }
             }
             // Saída que o nativo não escreve e o oficial sim (o `.css.dart`
@@ -2000,8 +2074,10 @@ impl Motor {
         // `build_runner` não muda sob a sessão (limitação declarada: rodá-lo
         // à parte pede reiniciar a sessão).
         if motivo_dart.is_none() {
-            if let Ok(r) = self.dart_por_acao(a) {
-                return r;
+            match self.dart_por_acao(a) {
+                Ok(r) => return r,
+                Err(FalhaDart::Builder(e)) => return self.falha(a, e),
+                Err(FalhaDart::Indisponivel(_)) => {}
             }
         }
         let mut r = match &self.registros[a] {
@@ -2104,8 +2180,10 @@ impl Motor {
             }
             Ok(s) => {
                 if motivo_dart.is_none() {
-                    if let Ok(r) = self.dart_por_acao(a) {
-                        return r;
+                    match self.dart_por_acao(a) {
+                        Ok(r) => return r,
+                        Err(FalhaDart::Builder(e)) => return self.falha(a, e),
+                        Err(FalhaDart::Indisponivel(_)) => {}
                     }
                 }
                 let mut r = self.apoio(a, motivo_dart);
@@ -2132,8 +2210,10 @@ impl Motor {
             }
             Err(m) => {
                 if motivo_dart.is_none() {
-                    if let Ok(r) = self.dart_por_acao(a) {
-                        return r;
+                    match self.dart_por_acao(a) {
+                        Ok(r) => return r,
+                        Err(FalhaDart::Builder(e)) => return self.falha(a, e),
+                        Err(FalhaDart::Indisponivel(_)) => {}
                     }
                 }
                 let mut r = self.apoio(a, motivo_dart);
@@ -2350,9 +2430,7 @@ impl Motor {
                 Some(n) if !self.nativos[n].por_pacote() => {
                     self.nativo_por_acao(ctx, &HashSet::new(), n, a, motivo_dart.as_deref())
                 }
-                _ if motivo_dart.is_none() => self
-                    .dart_por_acao(a)
-                    .unwrap_or_else(|e| self.apoio(a, Some(&e))),
+                _ if motivo_dart.is_none() => self.dart_ou_apoio(a),
                 _ => self.apoio(a, motivo_dart.as_deref()),
             };
             r.impressao = self.impressao(a, &r.consultas);
