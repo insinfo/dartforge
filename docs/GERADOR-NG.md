@@ -494,14 +494,20 @@ escritos no `afterChildren` do nó como os de um componente
 (`descendants:`, `read:`, lista vazia) — caso j72. Atributo vazio
 (`x=""`) num `@Input` do filho liga `''`; sem valor (`<x ativo>`), `true` na
 entrada `bool` (o tipo vem dos metadados do filho) e `''` nas outras — caso
-j73. `directives:` e as
+j73. `style="..."` junto de `[style.x]` (o atributo no `build()`, a ligação na
+detecção); `[class.x]`, `[style.x]`, `[attr.x]` e `[class]` no elemento de um
+filho são ligações do elemento (`bindRenderInputs`, antes das das diretivas),
+que vira campo `HtmlElement`; as variantes `NonHtml` fora do HTML, e o
+`[class]` do elemento de um componente pela visão dele
+(`this._compView_n.updateChildClassNonHtml`) — caso j74. Antes, um filho sem
+`@Input` descartava essas ligações em silêncio. `directives:` e as
 listas constantes aceitam `...outraLista`. O `dirtyParentQueriesInternal`
 segue o primeiro resultado de cada consulta na visão, em pré-ordem
 (`_setParentQueryAsDirty` no `addQueryResult`), e os campos dos nós
-consultados seguem as consultas — caso j66. Corpus: 305 conferidos.
+consultados seguem as consultas — caso j66. Corpus: 306 conferidos.
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada
-pendente com o motivo): **934 iguais / 16 pendentes / 0 diferentes** —
-`.template.dart` 518/14/0, `.css` e `.css.map` do Sass 102/102 cada,
+pendente com o motivo): **936 iguais / 14 pendentes / 0 diferentes** —
+`.template.dart` 520/12/0, `.css` e `.css.map` do Sass 102/102 cada,
 `.css.dart` e `.css.shim.dart` 104 cada.
 
 ### Diretivas estruturais

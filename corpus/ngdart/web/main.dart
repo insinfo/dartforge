@@ -262,6 +262,7 @@ import 'package:corpus_ngdart/src/j70_evento_e_host_listener.template.dart' as j
 import 'package:corpus_ngdart/src/j71_provedores_de_diretiva.template.dart' as j71;
 import 'package:corpus_ngdart/src/j72_consultas_de_diretiva.template.dart' as j72;
 import 'package:corpus_ngdart/src/j73_atributo_vazio_no_filho.template.dart' as j73;
+import 'package:corpus_ngdart/src/j74_style_com_ligacao.template.dart' as j74;
 
 void main() {
   print([
@@ -528,5 +529,6 @@ void main() {
     j71.J71ProvedoresDeDiretivaNgFactory,
     j72.J72ConsultasDeDiretivaNgFactory,
     j73.J73AtributoVazioNoFilhoNgFactory,
+    j74.J74StyleComLigacaoNgFactory,
   ].length);
 }

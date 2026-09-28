@@ -2691,6 +2691,10 @@ struct Corpo<'a> {
     /// A tag do elemento cujas ligações estão sendo escritas: o contexto de
     /// segurança de uma propriedade depende dela ([`saneador`]).
     tag_atual: String,
+    /// O `appViewInstance` do nó cujas ligações se escrevem: `this`, ou a
+    /// visão do componente no elemento dele (`this._compView_n`, o
+    /// `[class]` do elemento de um filho, caso j74).
+    instancia_da_visao: Option<String>,
     /// Campos `TextBinding` e `_message_N`, que saem primeiro na classe, na
     /// ordem em que o `build()` os aloca.
     campos: Vec<String>,
@@ -3346,13 +3350,26 @@ impl Corpo<'_> {
         // `ClassBinding` sem nome (`_propertyToIr` do `binding_converter`):
         // o `updateChildClass`, que mantém as classes do escopo da folha.
         Ok(
+            // Elemento que não é HTML (componente, tag desconhecida com
+            // diretiva): as variantes `NonHtml` (`isHtmlElement`).
             if matches!(l.nome.as_str(), "class" | "className" | "attr.class") {
-                format!("this.updateChildClass({alvo}, {valor})")
+                let metodo = if dom::tag_html(&self.tag_atual) {
+                    "updateChildClass"
+                } else {
+                    "updateChildClassNonHtml"
+                };
+                let instancia = self.instancia_da_visao.as_deref().unwrap_or("this");
+                format!("{instancia}.{metodo}({alvo}, {valor})")
             } else if let Some(classe) = l.nome.strip_prefix("class.") {
                 if classe.contains('.') {
                     return Err(recusa(Motivo::Ligacao, "[class.x.y]"));
                 }
-                format!("{dom}.updateClassBinding({alvo}, '{classe}', {valor})")
+                let metodo = if dom::tag_html(&self.tag_atual) {
+                    "updateClassBinding"
+                } else {
+                    "updateClassBindingNonHtml"
+                };
+                format!("{dom}.{metodo}({alvo}, '{classe}', {valor})")
             } else if let Some(attr) = l.nome.strip_prefix("attr.") {
                 if attr.contains('.') || attr.contains(':') {
                     return Err(recusa(
@@ -3684,12 +3701,6 @@ impl Corpo<'_> {
             if a.nome.eq_ignore_ascii_case("tabindex") {
                 return Err(em_filho("tabindex no filho"));
             }
-            if a.nome == "style" && e.propriedades.iter().any(|p| p.nome.starts_with("style")) {
-                return Err(recusa(
-                    Motivo::EstiloEmLinha,
-                    "style=\"...\" com [style.x] no mesmo nó",
-                ));
-            }
         }
         // O que chega a um `@Input`: atributo estático (literal) e `[x]`. Um
         // nome ligado duas vezes some no oficial (`_removeExisting`).
@@ -3699,13 +3710,35 @@ impl Corpo<'_> {
             .filter(|a| filho.entrada(&a.nome).is_some())
             .map(|a| (a, true))
             .collect();
-        // A `[x]` que só uma diretiva do nó recebe não é do filho.
+        // A `[x]` que só uma diretiva do nó recebe não é do filho; as de
+        // elemento (`[class.x]`, `[style.x]`, `[attr.x]`, `[class]`) que
+        // ninguém recebe vão para o elemento do filho (`bindRenderInputs`,
+        // caso j74); o resto sem dono é erro de esquema no oficial.
+        let de_elemento = |nome: &str| {
+            matches!(nome, "class" | "className")
+                || ["class.", "style.", "attr."]
+                    .iter()
+                    .any(|p| nome.starts_with(p))
+        };
         ligadas.extend(
             e.propriedades
                 .iter()
-                .filter(|l| filho.entrada(&l.nome).is_some() || !consome_entrada(&extras, &l.nome))
+                .filter(|l| {
+                    filho.entrada(&l.nome).is_some()
+                        || (!consome_entrada(&extras, &l.nome) && !de_elemento(&l.nome))
+                })
                 .map(|l| (l, false)),
         );
+        let props_elemento: Vec<crate::html::Ligacao> = e
+            .propriedades
+            .iter()
+            .filter(|l| {
+                filho.entrada(&l.nome).is_none()
+                    && !consome_entrada(&extras, &l.nome)
+                    && de_elemento(&l.nome)
+            })
+            .cloned()
+            .collect();
         for (i, (l, _)) in ligadas.iter().enumerate() {
             if ligadas[..i].iter().any(|(x, _)| x.nome == l.nome) {
                 return Err(em_filho("@Input do filho ligado duas vezes"));
@@ -3713,6 +3746,15 @@ impl Corpo<'_> {
         }
         let n = self.proximo;
         self.proximo += 1;
+        // Com ligação própria, o nó do filho vira campo (a detecção o lê).
+        let el = if props_elemento.is_empty() {
+            format!("_el_{n}")
+        } else {
+            let html = self.html.clone();
+            self.campos_el
+                .push(format!("  late final {html}.HtmlElement _el_{n};"));
+            format!("this._el_{n}")
+        };
         let fora_de_lib = || recusa(Motivo::ComponenteNoTemplate, "filho sem caminho de import");
         let cam_template = caminho_do_import(
             &self.asset,
@@ -3804,7 +3846,12 @@ impl Corpo<'_> {
             "    this.{campo_vista} = {vt}View{classe}0(this, {n});"
         ));
         self.linhas.push(format!(
-            "    final _el_{n} = this.{campo_vista}.rootElement;"
+            "    {} = this.{campo_vista}.rootElement;",
+            if el.starts_with("this.") {
+                el.clone()
+            } else {
+                format!("final {el}")
+            }
         ));
         // Na raiz da visão embutida, ou projetado, o nó não tem pai aqui (com
         // `ViewContainer`, a raiz é ele: `vcAppEl ?? renderNode`).
@@ -3812,10 +3859,10 @@ impl Corpo<'_> {
             self.raizes.push(if container {
                 format!("this._appEl_{n}")
             } else {
-                format!("_el_{n}")
+                el.clone()
             });
         } else {
-            self.linhas.push(format!("    {pai}.append(_el_{n});"));
+            self.linhas.push(format!("    {pai}.append({el});"));
         }
         // Os atributos escritos, em ordem alfabética (`_toSortedBindings`),
         // todos — também os que alimentam um `@Input` —, e o `class` pelo
@@ -3832,19 +3879,18 @@ impl Corpo<'_> {
         for a in &atributos {
             let valor = literal(&a.valor);
             if a.nome == "class" {
-                self.linhas.push(format!(
-                    "    this.updateChildClassNonHtml(_el_{n}, {valor});"
-                ));
+                self.linhas
+                    .push(format!("    this.updateChildClassNonHtml({el}, {valor});"));
             } else {
                 let dom = self.dom();
                 self.linhas.push(format!(
-                    "    {dom}.setAttribute(_el_{n}, '{}', {valor});",
+                    "    {dom}.setAttribute({el}, '{}', {valor});",
                     a.nome
                 ));
             }
         }
         if self.com_estilo {
-            self.linhas.push(format!("    this.addShimC(_el_{n});"));
+            self.linhas.push(format!("    this.addShimC({el});"));
         }
         // O `ViewContainer` nasce com o `CompileElement`, antes dos
         // provedores; o segundo argumento é o pai (`null` na raiz).
@@ -3857,14 +3903,14 @@ impl Corpo<'_> {
                 indice_do_elemento(pai)
             };
             self.linhas.push(format!(
-                "    this._appEl_{n} = {vc}ViewContainer({n}, {pai_indice}, this, _el_{n});"
+                "    this._appEl_{n} = {vc}ViewContainer({n}, {pai_indice}, this, {el});"
             ));
             self.ancoras.push(format!("_appEl_{n}"));
         }
         let antes_do_filho = resolvido
             .as_ref()
             .map_or(&[][..], |(r, pos)| &r.instancias[..*pos]);
-        self.criar_instancias(e, antes_do_filho, &format!("_el_{n}"))?;
+        self.criar_instancias(e, antes_do_filho, &el.clone())?;
         self.campos_filho
             .push(format!("  late final {vd}.{classe} {campo_inst};"));
         let do_no: Vec<(crate::diretivas::Token, String)> = antes_do_filho
@@ -3875,7 +3921,7 @@ impl Corpo<'_> {
                     .map(|t| (t.clone(), i.leitura.clone()))
             })
             .collect();
-        let construcao = self.construcao_do_filho(filho, n, &vd, &campo_vista, &do_no)?;
+        let construcao = self.construcao_do_filho(filho, n, &el, &vd, &campo_vista, &do_no)?;
         self.linhas
             .push(format!("    this.{campo_inst} = {construcao};"));
         let mut acima = self.pilha.clone();
@@ -3890,7 +3936,7 @@ impl Corpo<'_> {
                 campo_inst.clone(),
                 filho.on_push.then(|| campo_vista.clone()),
             )],
-            elemento: format!("_el_{n}"),
+            elemento: el.clone(),
         });
         for r in &e.referencias {
             self.refs
@@ -3913,12 +3959,34 @@ impl Corpo<'_> {
                 self.detectores.insert(r.nome.clone(), campo_vista.clone());
             }
         }
+        // `bindRenderInputs`: as ligações do próprio elemento do filho,
+        // antes das das diretivas (caso j74).
+        if !props_elemento.is_empty() {
+            self.tag_atual = e.nome.clone();
+            self.instancia_da_visao = Some(format!("this.{campo_vista}"));
+            let mut ligadas_el = Vec::new();
+            let mut falha = None;
+            for l in &props_elemento {
+                match self.propriedade(l, &el) {
+                    Ok(x) => ligadas_el.push(x),
+                    Err(r) => {
+                        falha = Some(r);
+                        break;
+                    }
+                }
+            }
+            self.instancia_da_visao = None;
+            if let Some(r) = falha {
+                self.anotar(r)?;
+            }
+            self.escrever_ligacoes(ligadas_el);
+        }
         if let Some((r, _)) = &resolvido {
             self.ligar_diretivas(
                 e,
                 &r.instancias,
                 &dir_antes,
-                &format!("_el_{n}"),
+                &el.clone(),
                 &props_dir,
                 &eventos_dir,
                 true,
@@ -3940,13 +4008,13 @@ impl Corpo<'_> {
             .retain(|l| !consome_saida(&extras, &l.nome));
         // `bindRenderOutputs` (os eventos do elemento) antes das saídas das
         // diretivas, que seguem a ordem delas.
-        self.eventos_do_elemento_do_filho(&sem_as_da_diretiva, filho, n)?;
+        self.eventos_do_elemento_do_filho(&sem_as_da_diretiva, filho, &el)?;
         if let Some((r, _)) = &resolvido {
             self.ligar_diretivas(
                 e,
                 &r.instancias,
                 &dir_antes,
-                &format!("_el_{n}"),
+                &el.clone(),
                 &props_dir,
                 &eventos_dir,
                 false,
@@ -3984,7 +4052,7 @@ impl Corpo<'_> {
             // Os provedores depois do filho, o `registerDirective` de todas
             // as diretivas do nó (menos o componente) e as ligações das que
             // vêm depois dele.
-            let alvo = format!("_el_{n}");
+            let alvo = el.clone();
             self.criar_instancias(e, &r.instancias[pos + 1..], &alvo)?;
             let todas: Vec<_> = dir_antes.iter().chain(&dir_depois).cloned().collect();
             self.registrar_diretivas(&todas, &alvo);
@@ -4040,7 +4108,7 @@ impl Corpo<'_> {
             self.registros.push(Registro {
                 acima: acima_reg,
                 provedores,
-                elemento: format!("_el_{n}"),
+                elemento: el.clone(),
             });
         } else if let Some(meta) = &filho.metadados {
             // Sem `providers:`, outra diretiva nem `Visibility.all`, o nó do
@@ -4085,12 +4153,12 @@ impl Corpo<'_> {
                 No::Elemento(x) => {
                     let mut sem_estrela = x.clone();
                     sem_estrela.estrela = None;
-                    let el = crate::seletor::Elemento::do_template(&sem_estrela);
+                    let desc = crate::seletor::Elemento::do_template(&sem_estrela);
                     seletores
                         .iter()
                         .position(|s| {
                             s.as_ref()
-                                .is_some_and(|s| crate::seletor::casa_algum(s, &el))
+                                .is_some_and(|s| crate::seletor::casa_algum(s, &desc))
                         })
                         .or(curinga)
                 }
@@ -4218,6 +4286,7 @@ impl Corpo<'_> {
         &mut self,
         filho: &Filho,
         n: u32,
+        el: &str,
         vd: &str,
         campo_vista: &str,
         do_no: &[(crate::diretivas::Token, String)],
@@ -4264,7 +4333,7 @@ impl Corpo<'_> {
         let mut args = Vec::new();
         for p in &filho.parametros {
             match p {
-                Injetado::Elemento => args.push(format!("_el_{n}")),
+                Injetado::Elemento => args.push(el.to_string()),
                 Injetado::Detector => args.push(format!("this.{campo_vista}")),
                 Injetado::Container => args.push(format!("this._appEl_{n}")),
                 Injetado::Servico {
@@ -4779,13 +4848,13 @@ impl Corpo<'_> {
         &mut self,
         e: &crate::html::Elemento,
         filho: &Filho,
-        n: u32,
+        el: &str,
     ) -> Result<(), Recusa> {
         let mut do_elemento = e.clone();
         do_elemento
             .eventos
             .retain(|l| filho.saida(&l.nome).is_none());
-        self.eventos(&do_elemento, &format!("_el_{n}"))
+        self.eventos(&do_elemento, el)
     }
 
     /// As `@Output` do filho ligadas no template: `subscription_N`
@@ -6280,8 +6349,14 @@ impl Corpo<'_> {
                 None => literal(&a.valor),
             };
             if a.nome == "class" {
+                // `writeLiteralAttributeValues`: `NonHtml` fora do HTML.
+                let metodo = if dom::tag_html(&tag) {
+                    "updateChildClass"
+                } else {
+                    "updateChildClassNonHtml"
+                };
                 self.linhas
-                    .push(format!("    this.updateChildClass({alvo}, {valor});"));
+                    .push(format!("    this.{metodo}({alvo}, {valor});"));
             } else if a.nome == "tabindex" || a.nome == "tabIndex" {
                 // `TabIndexBinding` (`binding_converter.dart`): o literal vira
                 // `el.tabIndex = N` (`visitTabIndexBinding`); não inteiro é
@@ -6292,17 +6367,10 @@ impl Corpo<'_> {
                     }
                     _ => self.anotar(recusa(Motivo::Ligacao, "tabindex que não é inteiro"))?,
                 }
-            } else if a.nome == "style"
-                && e.propriedades.iter().any(|p| p.nome.starts_with("style"))
-            {
-                // `style` escrito é um atributo como outro qualquer
-                // (`setAttribute`); junto de `[style.x]` a ordem das duas
-                // escritas ainda não tem caso.
-                self.anotar(recusa(
-                    Motivo::EstiloEmLinha,
-                    "style=\"...\" com [style.x] no mesmo nó",
-                ))?;
             } else {
+                // `style` escrito é um atributo como outro qualquer
+                // (`setAttribute` no `build()`), também junto de `[style.x]`,
+                // que só escreve na detecção (caso j74).
                 let dom = self.dom();
                 let nome = &a.nome;
                 self.linhas.push(format!(
@@ -7591,6 +7659,7 @@ impl<'a> Contexto<'a> {
             intl: None,
             mensagens: Vec::new(),
             tag_atual: String::new(),
+            instancia_da_visao: None,
             campos_preguicosos: Vec::new(),
             campos_filho: Vec::new(),
             vistas_filhas: Vec::new(),

@@ -287,3 +287,4 @@ export 'src/j70_evento_e_host_listener.dart';
 export 'src/j71_provedores_de_diretiva.dart';
 export 'src/j72_consultas_de_diretiva.dart';
 export 'src/j73_atributo_vazio_no_filho.dart';
+export 'src/j74_style_com_ligacao.dart';
