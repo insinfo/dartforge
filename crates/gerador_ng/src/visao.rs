@@ -9609,10 +9609,15 @@ pub fn classe_ngcd(h: &crate::Hospedeira, arquivo: &str, imp: &mut Importacoes) 
     let proprio = imp.alias(arquivo);
     let rv = imp.alias(RENDER_VIEW);
     let html = imp.alias("dart:html");
-    let chk = imp.alias(CHECK_BINDING);
+    // Os imports do corpo são alocados na ordem do texto, que só se conhece
+    // montado (as imutáveis vêm antes): marcas tardias, resolvidas no fim.
+    let chk = tardio(CHECK_BINDING);
     let x = &h.classe;
     let mut campos = String::new();
     let mut corpo = String::new();
+    // As imutáveis (`isImmutable`: campo `final`) saem antes, no
+    // `if (firstCheck)`, sem campo, mas com o índice delas (caso j103).
+    let mut constantes = String::new();
     for (k, (nome, membro)) in h.ligacoes.iter().enumerate() {
         // `hospedeira` (lib.rs) só deixa passar as formas conhecidas.
         let Ok(mut forma) = forma_do_hospedeiro(nome) else {
@@ -9627,13 +9632,28 @@ pub fn classe_ngcd(h: &crate::Hospedeira, arquivo: &str, imp: &mut Importacoes) 
             *texto = tipo.trim_end_matches('?') == "String";
             *nulo = tipo.ends_with('?');
         }
-        let acao = resolver_tardios(imp, &forma.acao("el", &format!("currVal_{k}")));
+        if h.imutaveis.contains(membro) {
+            let valor = format!("this.instance.{membro}");
+            let acao = forma.acao("el", &valor);
+            let _ = write!(
+                constantes,
+                "      if (({valor} != null)) {{\n        {acao};\n      }}\n"
+            );
+            continue;
+        }
+        let acao = forma.acao("el", &format!("currVal_{k}"));
         let _ = writeln!(campos, "  Object? _expr_{k};");
         let _ = write!(
             corpo,
             "    final currVal_{k} = this.instance.{membro};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, null, null)) {{\n      {acao};\n      this._expr_{k} = currVal_{k};\n    }}\n"
         );
     }
+    if !constantes.is_empty() {
+        corpo = format!(
+            "    bool firstCheck = view.firstCheck;\n    if (firstCheck) {{\n{constantes}    }}\n{corpo}"
+        );
+    }
+    let corpo = resolver_tardios(imp, &corpo);
     format!(
         "\nclass {x}NgCd extends {cd}.DirectiveChangeDetector {{\n  final {proprio}.{x} instance;\n{campos}  {x}NgCd(this.instance);\n  void detectHostChanges({rv}.RenderView view, {html}.Element el) {{\n{corpo}  }}\n}}\n"
     )

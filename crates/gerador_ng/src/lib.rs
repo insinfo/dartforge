@@ -83,6 +83,9 @@ pub struct Hospedeira {
     pub tipos_de_estilo: std::collections::HashMap<String, String>,
     /// Alguma ligação fora do que sabemos traduzir: o motivo.
     pub recusada: Option<String>,
+    /// Os membros `final` (`isImmutable`): escritos uma vez, no
+    /// `if (firstCheck)`, sem campo `_expr_N`.
+    pub imutaveis: std::collections::HashSet<String>,
 }
 
 /// Lê os `@HostBinding` de uma classe `@Directive`; `None` se não há.
@@ -96,6 +99,7 @@ fn hospedeira(
     let mut tipos_de_estilo = std::collections::HashMap::new();
     let mut acessores = Vec::new();
     let mut campos = Vec::new();
+    let mut imutaveis = std::collections::HashSet::new();
     let mut recusada: Option<String> = None;
     let recusar = |motivo: String, recusada: &mut Option<String>| {
         recusada.get_or_insert(motivo);
@@ -146,15 +150,17 @@ fn hospedeira(
                 Err(_) => false,
             };
             match &membro.kind {
-                // Campo `final` é imutável e seria escrito uma vez, na
-                // primeira checagem (`isImmutable`); estático lê pela classe.
-                // Nenhum dos dois ainda.
-                ast::MemberKind::Field(l)
-                    if !l.static_ && !l.final_ && !l.const_ && l.variables.len() == 1 =>
-                {
+                // Campo `final` é imutável e é escrito uma vez, na primeira
+                // checagem (`isImmutable`); estático lê pela classe, ainda
+                // não.
+                ast::MemberKind::Field(l) if !l.static_ && l.variables.len() == 1 => {
                     let membro = interner.resolve(l.variables[0].name.sym).to_string();
                     let nome = nome.unwrap_or_else(|| membro.clone());
-                    if !aceita(&nome, &membro, true) {
+                    let imutavel = l.final_ || l.const_;
+                    if imutavel {
+                        imutaveis.insert(membro.clone());
+                    }
+                    if !aceita(&nome, &membro, !imutavel) {
                         recusar(
                             format!("@HostBinding('{nome}') fora das formas"),
                             &mut recusada,
@@ -188,9 +194,6 @@ fn hospedeira(
                 ast::MemberKind::Field(l) if l.static_ => {
                     recusar("@HostBinding em campo estático".into(), &mut recusada)
                 }
-                ast::MemberKind::Field(l) if l.final_ || l.const_ => {
-                    recusar("@HostBinding em campo final".into(), &mut recusada)
-                }
                 _ => recusar("@HostBinding em membro fora da forma".into(), &mut recusada),
             }
         }
@@ -214,6 +217,7 @@ fn hospedeira(
         ligacoes: acessores,
         tipos_de_estilo,
         recusada,
+        imutaveis,
     })
 }
 
@@ -1375,20 +1379,26 @@ fn hospedeiras_efetivas(
             ligacoes: m.ligacoes_do_hospedeiro.clone(),
             tipos_de_estilo: std::collections::HashMap::new(),
             recusada: None,
+            imutaveis: std::collections::HashSet::new(),
         };
         for (nome, membro) in &m.ligacoes_do_hospedeiro {
             let forma = visao::forma_do_hospedeiro(nome);
-            let mutavel = resolvedor
-                .and_then(|r| r.membro_final(fonte, &d.classe, membro))
-                .is_some_and(|f| !f);
+            let final_ = resolvedor.and_then(|r| r.membro_final(fonte, &d.classe, membro));
+            if final_ == Some(true) {
+                h.imutaveis.insert(membro.clone());
+            }
             match forma {
                 Err(f) => {
                     h.recusada.get_or_insert(f);
                 }
-                Ok(_) if !mutavel => {
+                Ok(_) if final_.is_none() => {
                     h.recusada.get_or_insert(format!(
-                        "@HostBinding('{nome}') herdado em membro final ou ilegível"
+                        "@HostBinding('{nome}') herdado sem declaração legível"
                     ));
+                }
+                Ok(visao::FormaDoHospedeiro::Estilo { .. }) if final_ == Some(true) => {
+                    h.recusada
+                        .get_or_insert(format!("@HostBinding('{nome}') em campo final"));
                 }
                 Ok(visao::FormaDoHospedeiro::Estilo { .. }) => {
                     // O tipo escrito, pelo programa (que sobe até a classe
