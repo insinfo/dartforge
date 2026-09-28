@@ -258,6 +258,7 @@ import 'package:corpus_ngdart/src/j66_sujas_em_ordem.template.dart' as j66;
 import 'package:corpus_ngdart/src/j67_diretiva_antes_do_filho.template.dart' as j67;
 import 'package:corpus_ngdart/src/j68_filho_injeta_de_cima.template.dart' as j68;
 import 'package:corpus_ngdart/src/j69_export_as_projetado.template.dart' as j69;
+import 'package:corpus_ngdart/src/j70_evento_e_host_listener.template.dart' as j70;
 
 void main() {
   print([
@@ -520,5 +521,6 @@ void main() {
     j67.J67DiretivaAntesDoFilhoNgFactory,
     j68.J68FilhoInjetaDeCimaNgFactory,
     j69.J69ExportAsProjetadoNgFactory,
+    j70.J70EventoEHostListenerNgFactory,
   ].length);
 }

@@ -3492,6 +3492,13 @@ impl Corpo<'_> {
     /// resto — atribuição, argumentos, vários handlers fundidos — vira o
     /// método `_handleEvent_N` desta visão, com `eventHandler1`.
     fn handler(&mut self, textos: &[&str]) -> Result<String, Recusa> {
+        self.handler_com(textos, &[])
+    }
+
+    /// [`Self::handler`] com `extras`: as chamadas dos `@HostListener` das
+    /// diretivas do nó para o mesmo evento, depois das ações do template
+    /// (`mergeEvents`) — o handler é sempre o método (caso j70).
+    fn handler_com(&mut self, textos: &[&str], extras: &[String]) -> Result<String, Recusa> {
         let escopo_locais = self.locais.clone();
         let escopo = crate::expr::Escopo {
             membros: self.membros,
@@ -3509,11 +3516,14 @@ impl Corpo<'_> {
                     .map_err(|r| r.em(Motivo::Evento))?,
             );
         }
-        if let [
-            crate::expr::Acao::Simples {
-                metodo, aridade, ..
-            },
-        ] = acoes.as_slice()
+        if let (
+            [
+                crate::expr::Acao::Simples {
+                    metodo, aridade, ..
+                },
+            ],
+            [],
+        ) = (acoes.as_slice(), extras)
         {
             self.usa_ctx_no_build = true;
             return Ok(format!("this.eventHandler{aridade}(_ctx.{metodo})"));
@@ -3553,6 +3563,7 @@ impl Corpo<'_> {
             corpo.push("    final _ctx = this.ctx;".to_string());
         }
         corpo.extend(instrucoes.iter().map(|i| format!("    {i};")));
+        corpo.extend(extras.iter().map(|i| format!("    {i};")));
         let n = self.metodos_evento.len();
         self.metodos_evento.push(format!(
             "\n  void _handleEvent_{n}($event) {{\n{}\n  }}\n",
@@ -6303,17 +6314,6 @@ impl Corpo<'_> {
             .cloned()
             .collect();
         if let Some(r) = &resolvido {
-            for d in &casadas {
-                for o in &d.ouvintes {
-                    if do_no.eventos.iter().any(|l| l.nome == o.evento) {
-                        self.anotar(recusa(
-                            Motivo::Evento,
-                            "evento do template e @HostListener de diretiva no mesmo nó",
-                        ))?;
-                    }
-                }
-            }
-            self.eventos(&do_no, &alvo)?;
             // Os `@HostListener` na ordem das diretivas em `directives:`
             // (`_collectHostListeners`), agrupados por evento na ordem em
             // que cada um aparece primeiro: dois ouvintes do mesmo evento
@@ -6334,7 +6334,35 @@ impl Corpo<'_> {
                     }
                 }
             }
+            // Os eventos do template vêm antes, e o `@HostListener` do mesmo
+            // evento entra no handler dele, depois da ação escrita
+            // (`mergeEvents` sobre as saídas do elemento, caso j70).
+            let mut do_template: Vec<&str> = Vec::new();
+            for l in &do_no.eventos {
+                if do_template.contains(&l.nome.as_str()) {
+                    return Err(recusa(
+                        Motivo::Evento,
+                        "dois handlers do mesmo evento no template",
+                    ));
+                }
+                do_template.push(&l.nome);
+            }
+            for l in &do_no.eventos {
+                let extras: Vec<String> = grupos
+                    .iter()
+                    .filter(|(ev, _)| *ev == l.nome)
+                    .flat_map(|(_, lista)| lista)
+                    .map(|(campo, o)| format!("this.{campo}.{}({})", o.metodo, o.args))
+                    .collect();
+                match self.handler_com(&[&l.valor], &extras) {
+                    Ok(h) => self.ouvinte(&l.nome, &alvo, &h),
+                    Err(r) => self.anotar(r)?,
+                }
+            }
             for (evento, lista) in &grupos {
+                if do_template.contains(&evento.as_str()) {
+                    continue;
+                }
                 let h = match lista.as_slice() {
                     [(campo, o)] => self.handler_de_hospedeiro(campo, o),
                     varios => self.handler_de_grupo(varios),
