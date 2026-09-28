@@ -634,13 +634,25 @@ impl Motor {
             g.chave() == chave
                 && g.cobre(&f.fabrica)
                 && (g.verificado() || self.opcoes.medir_nao_verificados)
-                && crate::descritor::imita(chave).iter().all(|(p, v)| {
+                && crate::descritor::imita(chave).iter().all(|(p, vs)| {
                     self.grafo_pacotes
                         .lock
                         .get(*p)
-                        .is_some_and(|t| t.versao == *v)
+                        .is_some_and(|t| vs.contains(&t.versao.as_str()))
                 })
         })
+    }
+
+    /// As versões do `pubspec.lock` dos pacotes que o gerador nativo `chave`
+    /// imita (as que escolhem o modo dele; ver [`crate::descritor::imita`]).
+    fn versoes_imitadas(&self, chave: &str) -> BTreeMap<String, String> {
+        crate::descritor::imita(chave)
+            .iter()
+            .filter_map(|(p, _)| {
+                let t = self.grafo_pacotes.lock.get(*p)?;
+                Some(((*p).to_owned(), t.versao.clone()))
+            })
+            .collect()
     }
 
     /// A configuração mudou (pubspec, lock, build.yaml)? Então o plano é
@@ -773,7 +785,13 @@ impl Motor {
                 &mut self.dart,
                 std::sync::Mutex::new(Box::new(Indisponivel::default())),
             );
-            *self = Motor::novo(&self.raiz.clone(), &self.cfg.clone(), opcoes)?;
+            // O `package_config.json` relido do disco (uma dependência
+            // `path` pode ter mudado de lugar ou de versão): o guardado é o
+            // do começo da sessão. Ilegível agora, a atualização falha, como
+            // num processo novo.
+            let arquivo = self.grafo_pacotes.dir_raiz.join(".dart_tool").join("package_config.json");
+            let cfg = PackageConfig::load(&arquivo)?;
+            *self = Motor::novo(&self.raiz.clone(), &cfg, opcoes)?;
             self.nativos = nativos;
             self.dart = dart;
             self.dart_preparado.store(false, Ordering::Release);
@@ -1779,7 +1797,7 @@ impl Motor {
         h.update(crate::VERSAO.as_bytes());
         h.update(ap.chave.as_bytes());
         h.update(f.fabrica.as_bytes());
-        for (p, v) in crate::descritor::imita(&ap.chave) {
+        for (p, v) in self.versoes_imitadas(&ap.chave) {
             h.update(p.as_bytes());
             h.update(v.as_bytes());
         }
@@ -1866,6 +1884,7 @@ impl Motor {
             raiz_do_pacote: no.raiz.clone(),
             acoes,
             raizes: self.raizes_dos_pacotes(),
+            versoes: self.versoes_imitadas(gerador.chave()),
         };
         let (resultado, consultas) = {
             let memoria = |p: &Path| self.memoria.get(p).cloned();
@@ -2043,6 +2062,7 @@ impl Motor {
                 opcoes: f.opcoes.clone(),
             }],
             raizes: self.raizes_dos_pacotes(),
+            versoes: self.versoes_imitadas(gerador.chave()),
         };
         let memoria = |p: &Path| self.memoria.get(p).cloned();
         let mut c = CtxGerador::novo(ctx.programa, mudados, ctx.banco, &memoria);

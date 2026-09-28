@@ -3,8 +3,8 @@
 //! compilação sem reabrir o `Sessao::compilar`.
 //!
 //! **Custo zero para quem não usa** (PLANO.md, regra governante): a sessão
-//! só cria uma etapa se [`etapa_de_build`] detectar `build_runner` no
-//! `package_config.json` — uma consulta a um `HashMap`, uma vez por sessão.
+//! só cria uma etapa se [`etapa_de_build`] detectar builders definidos
+//! nos pacotes resolvidos — uma vez por sessão.
 //! Sem etapa, `Sessao.etapas` é vazio e o custo por edição é o de iterar um
 //! `Vec` vazio.
 use dartforge_build::consulta::{BancoSemantico, Consulta, Digest};

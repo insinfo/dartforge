@@ -7,7 +7,7 @@
 //! `Geracao` em memória (`dartforge_elements::gerado`).
 //!
 //! **Custo zero para quem não usa** (PLANO.md, regra governante): nada deste
-//! crate é construído se o `package_config.json` não tem `build_runner`
+//! crate é construído se nenhum pacote resolvido define builders
 //! ([`detectar`]); [`instancias`] conta os motores criados, para o portão.
 pub mod cliente;
 pub mod config;
@@ -49,11 +49,30 @@ pub(crate) fn contar_instancia() {
     INSTANCIAS.fetch_add(1, Ordering::Relaxed);
 }
 
-/// O projeto usa builders? Exatamente a condição em que a toolchain oficial
-/// roda algum: `build_runner` resolvido no `package_config.json`. Custa uma
-/// busca num `HashMap` já carregado.
+/// O projeto usa builders? Algum pacote resolvido define builders no
+/// `build.yaml` dele (`builders:`/`post_process_builders:`), ou o
+/// `build_runner` está resolvido. O nome do orquestrador oficial não é prova
+/// de ausência (DF-BUILD-001): um builder local com `package:build`, sem o
+/// `build_runner`, também gera. Custa um `stat` por pacote e a leitura dos
+/// poucos `build.yaml` que existem; sem nenhum, nada é criado.
 pub fn detectar(cfg: &PackageConfig) -> bool {
     cfg.packages.contains_key("build_runner")
+        || cfg
+            .root_dirs
+            .iter()
+            .any(|(_, dir)| define_builders(&dir.join("build.yaml")))
+}
+
+/// O `build.yaml` declara builders? Pelas chaves de topo do YAML (sem recuo),
+/// sem montar a configuração inteira.
+fn define_builders(build_yaml: &Path) -> bool {
+    let Ok(texto) = std::fs::read_to_string(build_yaml) else {
+        return false;
+    };
+    texto.lines().any(|l| {
+        let chave = l.split('#').next().unwrap_or_default().trim_end();
+        matches!(chave, "builders:" | "post_process_builders:")
+    })
 }
 
 /// Diretório do pacote raiz: o do `pubspec.yaml` mais próximo acima de

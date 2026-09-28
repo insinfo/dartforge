@@ -295,7 +295,12 @@ impl BuildConfig {
             Ok(texto) => {
                 Self::de_texto(pacote, dependencias, &texto, &caminho.display().to_string())
             }
-            Err(_) => Ok(Self::padrao(pacote, dependencias)),
+            // Só a ausência vale o padrão (`fromBuildConfigDir` testa
+            // `exists`); um `build.yaml` que existe e não se lê (permissão,
+            // bytes que não são UTF-8, diretório com esse nome) é erro, não
+            // configuração vazia (DF-BUILD-017).
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::padrao(pacote, dependencias)),
+            Err(e) => Err(format!("não foi possível ler {}: {e}", caminho.display())),
         }
     }
 
@@ -785,6 +790,21 @@ mod testes {
         assert_eq!(chave_alvo_definicao("$default", "p"), "p:p");
         assert_eq!(chave_alvo_uso(":$default", "p"), "p:p");
         assert_eq!(chave_alvo_uso("dep", "p"), "dep:dep");
+    }
+
+    #[test]
+    fn build_yaml_ilegivel_e_erro() {
+        let dir = std::env::temp_dir().join(format!("dartforge-build-yaml-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("build.yaml"), [0xff, 0xfe, 0x00]).unwrap();
+        let r = BuildConfig::do_diretorio("p", &[], &dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(r.is_err(), "build.yaml ilegível virou configuração padrão");
+        let vazio = std::env::temp_dir().join(format!("dartforge-build-yaml-ausente-{}", std::process::id()));
+        std::fs::create_dir_all(&vazio).unwrap();
+        let r = BuildConfig::do_diretorio("p", &[], &vazio);
+        std::fs::remove_dir_all(&vazio).unwrap();
+        assert!(r.is_ok());
     }
 
     #[test]

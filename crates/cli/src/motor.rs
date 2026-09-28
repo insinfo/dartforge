@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// O projeto da entrada usa builders? Custa ler o `package_config.json`
-/// (que o carregador também lê) e uma busca num `HashMap`.
+/// (que o carregador também lê) e os `build.yaml` dos pacotes resolvidos.
 pub fn detectar(entrada: &Path, packages: Option<&Path>) -> Option<(PathBuf, PackageConfig, PathBuf)> {
     let caminho = packages.map(Path::to_path_buf).or_else(|| PackageConfig::discover(entrada))?;
     let cfg = PackageConfig::load(&caminho).ok()?;
@@ -100,7 +100,7 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
     let caminho_cfg = packages.clone().unwrap_or_else(|| raiz.join(".dart_tool/package_config.json"));
     let cfg = PackageConfig::load(&caminho_cfg)?;
     if !dartforge_build::detectar(&cfg) {
-        println!("{}: o projeto não usa builders (sem build_runner no package_config.json)", raiz.display());
+        println!("{}: o projeto não usa builders (nenhum pacote resolvido define builders)", raiz.display());
         return Ok(());
     }
     if plano {
