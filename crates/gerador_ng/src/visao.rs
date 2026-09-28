@@ -1952,7 +1952,9 @@ fn onde_casa(
             } else {
                 Lugar::NoFilho
             }
-        } else if !dom::tag_html(&e.nome) {
+        } else if !dom::tag_html(&e.nome) && e.nome != "ng-container" {
+            // `<ng-container>` (também o `<template [ngIf]>` reescrito) não
+            // é nó: os filhos dele ficam onde ele está (caso j78).
             Lugar::Filho
         } else if em_filho {
             Lugar::Projetado

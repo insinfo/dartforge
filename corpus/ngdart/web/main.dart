@@ -266,6 +266,7 @@ import 'package:corpus_ngdart/src/j74_style_com_ligacao.template.dart' as j74;
 import 'package:corpus_ngdart/src/j75_molde_com_ternario.template.dart' as j75;
 import 'package:corpus_ngdart/src/j76_ref_de_filho_em_embutida.template.dart' as j76;
 import 'package:corpus_ngdart/src/j77_consulta_em_projetado.template.dart' as j77;
+import 'package:corpus_ngdart/src/j78_consulta_em_template_ngif.template.dart' as j78;
 
 void main() {
   print([
@@ -536,5 +537,6 @@ void main() {
     j75.J75MoldeComTernarioNgFactory,
     j76.J76RefDeFilhoEmEmbutidaNgFactory,
     j77.J77ConsultaEmProjetadoNgFactory,
+    j78.J78ConsultaEmTemplateNgifNgFactory,
   ].length);
 }
