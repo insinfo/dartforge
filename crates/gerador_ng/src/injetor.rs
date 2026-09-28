@@ -147,17 +147,7 @@ impl Emissor<'_> {
                     "OpaqueToken"
                 };
                 let c = self.al.r(DI_TOKENS, classe);
-                let t = self.al.tipo(&TipoEscrito {
-                    uri: tipo.uri.clone(),
-                    simbolo: tipo.classe.clone(),
-                    args: (0..tipo.genericos)
-                        .map(|_| TipoEscrito {
-                            uri: String::new(),
-                            simbolo: "dynamic".into(),
-                            args: Vec::new(),
-                        })
-                        .collect(),
-                });
+                let t = self.al.tipo(&crate::metadados::tipo_escrito_do_token(tipo));
                 let args = if nome.is_empty() {
                     Vec::new()
                 } else {

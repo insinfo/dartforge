@@ -7989,22 +7989,36 @@ fn expr_do_token(t: &crate::diretivas::Token) -> String {
         Token::Opaco { nome, tipo } => ("OpaqueToken", nome, tipo),
         Token::Elemento | Token::Detector => return String::new(),
     };
-    let arg = if tipo.uri == "dart:core" {
-        format!("{}{}", tardio_q("dart:core"), tipo.classe)
-    } else {
-        let (uri, classe) = (&tipo.uri, &tipo.classe);
-        let args = if tipo.genericos > 0 {
-            format!("<{}>", vec!["dynamic"; tipo.genericos].join(", "))
-        } else {
-            String::new()
-        };
-        format!("\u{1}k:{uri}#token|{uri}\u{2}{classe}{args}")
-    };
+    let arg = texto_do_tipo_de_token(tipo);
     format!(
         "const {}{classe_do_token}<{arg}>({})",
         tardio_q(crate::diretivas::DI_TOKENS),
         literal(nome)
     )
+}
+
+/// O `T` de um token como o `fromDartType` o escreve: o de `dart:core` sem
+/// prefixo (mas com o import alocado), o de outra biblioteca com import
+/// próprio pela URI (`q_chave`), e os argumentos concretos recursivamente
+/// (`List<import29.RelativePosition>`, pelo URI `package:` do tipo).
+fn texto_do_tipo_de_token(tipo: &crate::diretivas::TipoDeToken) -> String {
+    if tipo.e_dinamico() {
+        return "dynamic".into();
+    }
+    let args = if !tipo.args.is_empty() {
+        let dentro: Vec<String> = tipo.args.iter().map(texto_do_tipo_de_token).collect();
+        format!("<{}>", dentro.join(", "))
+    } else if tipo.genericos > 0 {
+        format!("<{}>", vec!["dynamic"; tipo.genericos].join(", "))
+    } else {
+        String::new()
+    };
+    let (uri, classe) = (&tipo.uri, &tipo.classe);
+    if uri == "dart:core" {
+        format!("{}{classe}{args}", tardio_q("dart:core"))
+    } else {
+        format!("\u{1}k:{uri}#token|{uri}\u{2}{classe}{args}")
+    }
 }
 
 /// O que gera campo na classe da visão, na ordem em que aparece.
@@ -11114,7 +11128,14 @@ pub(crate) fn provedores_escreviveis(meta: &crate::diretivas::Diretiva) -> Resul
         Token::Opaco { tipo, .. } => tipo.uri == "dart:core",
         _ => true,
     };
+    let com_argumentos = |t: &Token| match t {
+        Token::Multi { tipo, .. } | Token::Opaco { tipo, .. } => !tipo.args.is_empty(),
+        _ => false,
+    };
     for p in &meta.provedores {
+        if com_argumentos(&p.token) || p.tipo.as_ref().is_some_and(|t| !t.args.is_empty()) {
+            return Err("token de tipo com argumentos concretos".into());
+        }
         let alvo = match &p.fonte {
             crate::diretivas::Fornece::Existente(t) => Some(t),
             _ => None,

@@ -629,15 +629,22 @@ membro herdado é procurado na ordem do Dart — a classe, os mixins do
 de uma diretiva, o `@HostBinding` em campo `final` (próprio ou herdado) é
 escrito uma vez, no `if (firstCheck)` com `!= null`, antes dos dinâmicos,
 sem campo `_expr_N` mas com o índice dele; os imports do corpo saem na
-ordem do texto (casos j103, j104). Corpus: **337 conferidos, 0
-pendentes**.
+ordem do texto (casos j103, j104). O `T` de um token com argumentos
+concretos (`OpaqueToken<List<RelativePosition>>`) sai como o `fromDartType`:
+o `List` sem prefixo (alocando o `dart:core`) e a classe pelo URI
+`package:` com import próprio (caso j105); provedor com token assim ainda
+é recusado. No construtor de um filho, só os embutidos do
+`_getLocalDependency` (`ElementRef`, `ChangeDetectorRef`, `NgContentRef`,
+`TemplateRef`, `ViewContainerRef`, `ComponentLoader`, `Injector`) são do
+nó; outra classe do ngdart (`NgZone`, `ApplicationRef`) é serviço comum
+(caso j106). Corpus: **340 conferidos, 0 pendentes**.
 
 ngcomponents 3.0.0-dev.1 (o port do angular_components, num projeto de
-sonda com o `build_runner` oficial de referência): 481 `.template.dart` e
+sonda com o `build_runner` oficial de referência): 482 `.template.dart` e
 as 140 folhas `.scss.css.dart`/`.scss.css.shim.dart` iguais, **0
 diferentes**; as folhas `.scss.css` (do `SassBuilder` do próprio
 ngcomponents, com o sass 1.66.0) vêm do apoio, e o estágio A do ngdart as
-lê da memória do motor. Os 43 `.template.dart` pendentes são a próxima
+lê da memória do motor. Os 42 `.template.dart` pendentes são a próxima
 fila (formas de `@HostBinding` de diretiva, injeção anotada, atributo
 interpolado renomeado…).
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada

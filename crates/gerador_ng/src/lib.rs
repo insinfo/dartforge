@@ -731,14 +731,26 @@ impl Indice {
                 // Os parâmetros do construtor pelos metadados (`@Inject`,
                 // `@Attribute`, tokens opacos): trocam os lidos do texto e a
                 // recusa que eles deram.
-                if let Ok(ps) = parametros_dos_metadados(comp, &m) {
-                    let recusa_do_texto = comp.parametros.iter().find_map(|p| {
-                        injetado(p, caminho, Some(r as &dyn resolucao::Resolucao)).err()
-                    });
-                    if let Some(forma) = recusa_do_texto {
-                        f.pendencias.retain(|p| p.forma != forma);
+                let recusa_do_texto = comp
+                    .parametros
+                    .iter()
+                    .find_map(|p| injetado(p, caminho, Some(r as &dyn resolucao::Resolucao)).err());
+                match parametros_dos_metadados(comp, &m) {
+                    Ok(ps) => {
+                        if let Some(forma) = recusa_do_texto {
+                            f.pendencias.retain(|p| p.forma != forma);
+                        }
+                        f.parametros = ps;
                     }
-                    f.parametros = ps;
+                    // Os metadados dizem melhor o que falta: o motivo deles
+                    // troca o do texto.
+                    Err(motivo) => {
+                        if let Some(forma) = recusa_do_texto {
+                            for p in f.pendencias.iter_mut().filter(|p| p.forma == forma) {
+                                p.forma = motivo.to_string();
+                            }
+                        }
+                    }
                 }
                 // O filho que herda: `@Input`, `@Output`, `@HostBinding` e
                 // ganchos pelos metadados, que sobem os supertipos como o
@@ -1014,20 +1026,20 @@ fn filhos_por_tag(usadas: &[visao::Usada]) -> std::collections::HashMap<String, 
 fn parametros_dos_metadados(
     comp: &componente::Componente,
     meta: &diretivas::Diretiva,
-) -> Result<Vec<visao::Injetado>, &'static str> {
+) -> Result<Vec<visao::Injetado>, String> {
     use diretivas::Token;
-    if !meta.fora.is_empty() {
-        return Err("metadados do filho incompletos");
+    if let Some(f) = meta.fora.first() {
+        return Err(format!("metadados do filho incompletos: {f}"));
     }
     let textuais: Vec<&componente::Parametro> =
         comp.parametros.iter().filter(|p| !p.nomeado).collect();
     if textuais.len() != meta.dependencias.len() {
-        return Err("parâmetros do filho sem os metadados");
+        return Err("parâmetros do filho sem os metadados".into());
     }
     let mut saida = Vec::new();
     for (p, d) in textuais.iter().zip(&meta.dependencias) {
         if !p.outra_anotacao && p.tipo.as_deref().is_some_and(|t| t.contains('<')) {
-            return Err("token genérico no construtor do filho");
+            return Err("token genérico no construtor do filho".into());
         }
         if let Some(nome) = &d.atributo {
             saida.push(visao::Injetado::Atributo(nome.clone()));
@@ -1036,23 +1048,23 @@ fn parametros_dos_metadados(
         let anotado = d.opcional || d.proprio || d.hospedeiro || d.pular;
         let embutido = match &d.token {
             Token::Elemento | Token::Detector => true,
-            Token::Classe { uri, .. } => uri.starts_with("package:ngdart/"),
+            Token::Classe { uri, classe } => embutido_do_ngdart(uri, classe),
             _ => false,
         };
         if embutido && anotado {
-            return Err("embutido do elemento anotado no construtor do filho");
+            return Err("embutido do elemento anotado no construtor do filho".into());
         }
         saida.push(match &d.token {
             Token::Elemento => visao::Injetado::Elemento,
             Token::Detector => visao::Injetado::Detector,
-            Token::Classe { uri, classe } if uri.starts_with("package:ngdart/") => {
+            Token::Classe { uri, classe } if embutido_do_ngdart(uri, classe) => {
                 match classe.as_str() {
                     "ViewContainerRef" => visao::Injetado::Container,
-                    _ => return Err("token do ngdart no construtor do filho"),
+                    _ => return Err("token do ngdart no construtor do filho".into()),
                 }
             }
             Token::Classe { uri, .. } if uri.starts_with("dart:") => {
-                return Err("tipo do SDK no construtor do filho");
+                return Err("tipo do SDK no construtor do filho".into());
             }
             t => visao::Injetado::Servico {
                 token: t.clone(),
@@ -1064,6 +1076,24 @@ fn parametros_dos_metadados(
         });
     }
     Ok(saida)
+}
+
+/// Os embutidos do nó que o `_getLocalDependency` do oficial devolve sem
+/// procurar provedor (`ElementRef`, `ChangeDetectorRef`, `NgContentRef`,
+/// `TemplateRef`, `ViewContainerRef`, `ComponentLoader`, `Injector`); outra
+/// classe do ngdart (`NgZone`, …) é serviço como qualquer outro.
+fn embutido_do_ngdart(uri: &str, classe: &str) -> bool {
+    uri.starts_with("package:ngdart/")
+        && matches!(
+            classe,
+            "ElementRef"
+                | "ChangeDetectorRef"
+                | "NgContentRef"
+                | "TemplateRef"
+                | "ViewContainerRef"
+                | "ComponentLoader"
+                | "Injector"
+        )
 }
 
 /// Como o oficial resolve um parâmetro do construtor de um filho no nó dele:
@@ -1097,14 +1127,14 @@ fn injetado(
     // Os embutidos do elemento (o nó, a visão, o `ViewContainer`) com
     // `@Self`/`@Host`/`@SkipSelf`/`@Optional`: ainda sem caso.
     let embutido = (uri == "dart:html" && matches!(simples.as_str(), "Element" | "HtmlElement"))
-        || uri.starts_with("package:ngdart/");
+        || embutido_do_ngdart(&uri, &simples);
     if embutido && p.anotado {
         return Err("embutido do elemento anotado no construtor do filho");
     }
     if uri == "dart:html" && matches!(simples.as_str(), "Element" | "HtmlElement") {
         return Ok(visao::Injetado::Elemento);
     }
-    if uri.starts_with("package:ngdart/") {
+    if embutido_do_ngdart(&uri, &simples) {
         return match simples.as_str() {
             "ChangeDetectorRef" if !p.opcional => Ok(visao::Injetado::Detector),
             // O nó ganha um `ViewContainer` (`requiresViewContainer`), que o

@@ -23,19 +23,35 @@ use std::sync::Arc;
 /// `package:ngdart/src/meta/di_tokens.dart`, onde está o `MultiToken`.
 pub const DI_TOKENS: &str = "package:ngdart/src/meta/di_tokens.dart";
 
-/// O `T` de um `MultiToken<T>`: a classe e quantos argumentos de tipo ela
-/// tem (todos `dynamic`, como o `fromDartType` os escreve).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// O `T` de um `MultiToken<T>`/`OpaqueToken<T>`: a classe e quantos
+/// argumentos de tipo ela tem. Com `args` vazio, todos `dynamic`, como o
+/// `fromDartType` os escreve; senão, os argumentos concretos
+/// (`List<RelativePosition>`), cada um com a mesma forma (`dynamic` é a
+/// classe `dynamic` sem URI).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct TipoDeToken {
     pub uri: String,
     pub classe: String,
     pub genericos: usize,
+    pub args: Vec<TipoDeToken>,
 }
 
 impl TipoDeToken {
     /// `Object` do `dart:core`, o `T` do `ngValidators`.
     pub fn e_object(&self) -> bool {
         self.uri == "dart:core" && self.classe == "Object" && self.genericos == 0
+    }
+
+    /// `dynamic` como argumento de tipo.
+    pub fn dinamico() -> Self {
+        TipoDeToken {
+            classe: "dynamic".into(),
+            ..Default::default()
+        }
+    }
+
+    pub fn e_dinamico(&self) -> bool {
+        self.uri.is_empty() && self.classe == "dynamic"
     }
 }
 
@@ -1028,6 +1044,7 @@ mod testes {
                 uri: "dart:core".into(),
                 classe: "Object".into(),
                 genericos: 0,
+                args: Vec::new(),
             },
         }
     }
@@ -1039,6 +1056,7 @@ mod testes {
                 uri: "cva".into(),
                 classe: "ControlValueAccessor".into(),
                 genericos: 1,
+                args: Vec::new(),
             },
         }
     }

@@ -289,6 +289,8 @@ import 'package:corpus_ngdart/src/j100_ngsp_e_ouvinte_herdado.template.dart' as 
 import 'package:corpus_ngdart/src/j101_classe_estatica_mesclada.template.dart' as j101;
 import 'package:corpus_ngdart/src/j102_mixin_com_host_binding.template.dart' as j102;
 import 'package:corpus_ngdart/src/j103_ngcd_imutavel.template.dart' as j103;
+import 'package:corpus_ngdart/src/j105_token_lista.template.dart' as j105;
+import 'package:corpus_ngdart/src/j106_ngzone_no_filho.template.dart' as j106;
 
 void main() {
   print([
@@ -582,5 +584,7 @@ void main() {
     j101.J101UsaNgFactory,
     j102.J102UsaNgFactory,
     j103.J103UsaNgFactory,
+    j105.J105UsaNgFactory,
+    j106.J106UsaNgFactory,
   ].length);
 }

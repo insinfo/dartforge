@@ -318,3 +318,6 @@ export 'src/j101_classe_estatica_mesclada.dart';
 export 'src/j102_mixin_com_host_binding.dart';
 export 'src/j103_ngcd_imutavel.dart';
 export 'src/j104_ngcd_so_diretiva.dart';
+export 'src/j105_posicao.dart';
+export 'src/j105_token_lista.dart';
+export 'src/j106_ngzone_no_filho.dart';

@@ -463,6 +463,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                     uri: classe.uri.clone(),
                     classe: classe.nome.clone(),
                     genericos: 0,
+                    args: Vec::new(),
                 }),
                 _ => return Err("ValueProvider de valor sem tipo conhecido".into()),
             }
@@ -477,11 +478,43 @@ impl<'r, 'a> Leitor<'r, 'a> {
         })
     }
 
+    /// O `T` de um token como o `fromDartType` o escreve: a classe e os
+    /// argumentos, recursivamente; argumentos todos `dynamic` ficam na forma
+    /// curta (`args` vazio).
+    fn tipo_de_token(&self, t: &Tipo, profundidade: u32) -> Result<TipoDeToken, String> {
+        let Some(c) = &t.classe else {
+            return Ok(TipoDeToken::dinamico());
+        };
+        if profundidade > 16 {
+            return Err("tipo de token aninhado demais".into());
+        }
+        let parametros = self.r.programa().class(c.id).type_params.len();
+        if t.args.len() != parametros {
+            return Err("tipo de token sem todos os argumentos".into());
+        }
+        let args: Vec<TipoDeToken> = t
+            .args
+            .iter()
+            .map(|a| self.tipo_de_token(a, profundidade + 1))
+            .collect::<Result<_, _>>()?;
+        Ok(TipoDeToken {
+            uri: c.uri.clone(),
+            classe: c.nome.clone(),
+            genericos: parametros,
+            args: if args.iter().all(TipoDeToken::e_dinamico) {
+                Vec::new()
+            } else {
+                args
+            },
+        })
+    }
+
     fn do_core(nome: &str) -> TipoDeToken {
         TipoDeToken {
             uri: "dart:core".into(),
             classe: nome.into(),
             genericos: 0,
+            args: Vec::new(),
         }
     }
 
@@ -498,6 +531,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
             uri: c.uri.clone(),
             classe: c.nome.clone(),
             genericos: parametros,
+            args: Vec::new(),
         })
     }
 
@@ -717,19 +751,10 @@ impl<'r, 'a> Leitor<'r, 'a> {
                     }
                     _ => return Err(format!("{} com argumentos de tipo demais", classe.nome)),
                 };
-                let Some(c) = &t.classe else {
+                if t.classe.is_none() {
                     return Err(format!("{}<dynamic>", classe.nome));
-                };
-                let parametros = self.r.programa().class(c.id).type_params.len();
-                // `fromDartType` escreve os argumentos; só `dynamic` tem caso.
-                if t.args.len() != parametros || t.args.iter().any(|a| a.classe.is_some()) {
-                    return Err(format!("{} de tipo com argumentos", classe.nome));
                 }
-                let tipo = TipoDeToken {
-                    uri: c.uri.clone(),
-                    classe: c.nome.clone(),
-                    genericos: parametros,
-                };
+                let tipo = self.tipo_de_token(t, 0)?;
                 Ok(if multi {
                     Token::Multi { nome, tipo }
                 } else {
@@ -2006,13 +2031,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
     }
 
     fn tipo_do_token(t: &TipoDeToken) -> TipoEscrito {
-        TipoEscrito {
-            uri: t.uri.clone(),
-            simbolo: t.classe.clone(),
-            args: (0..t.genericos)
-                .map(|_| TipoEscrito::da_classe("", "dynamic"))
-                .collect(),
-        }
+        tipo_escrito_do_token(t)
     }
 
     /// Um argumento de tipo escrito, como o `linkTypeOf` o escreve.
@@ -2486,5 +2505,24 @@ impl<'r, 'a> Leitor<'r, 'a> {
             }
         }
         Some((pos, nom))
+    }
+}
+
+/// O [`TipoEscrito`] do `T` de um token, com os argumentos concretos ou,
+/// sem eles, `dynamic` em cada parâmetro.
+pub(crate) fn tipo_escrito_do_token(t: &TipoDeToken) -> TipoEscrito {
+    if t.e_dinamico() {
+        return TipoEscrito::da_classe("", "dynamic");
+    }
+    TipoEscrito {
+        uri: t.uri.clone(),
+        simbolo: t.classe.clone(),
+        args: if t.args.is_empty() {
+            (0..t.genericos)
+                .map(|_| TipoEscrito::da_classe("", "dynamic"))
+                .collect()
+        } else {
+            t.args.iter().map(tipo_escrito_do_token).collect()
+        },
     }
 }
