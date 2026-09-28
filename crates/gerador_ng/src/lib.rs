@@ -121,7 +121,10 @@ fn hospedeira(
                 _ => None,
             };
             let Some(nome) = nome else {
-                recusar("@HostBinding com nome que não é texto".into(), &mut recusada);
+                recusar(
+                    "@HostBinding com nome que não é texto".into(),
+                    &mut recusada,
+                );
                 continue;
             };
             // `class.x`, `attr.x`, propriedade e `style.x`
@@ -152,7 +155,10 @@ fn hospedeira(
                     let membro = interner.resolve(l.variables[0].name.sym).to_string();
                     let nome = nome.unwrap_or_else(|| membro.clone());
                     if !aceita(&nome, &membro, true) {
-                        recusar(format!("@HostBinding('{nome}') fora das formas"), &mut recusada);
+                        recusar(
+                            format!("@HostBinding('{nome}') fora das formas"),
+                            &mut recusada,
+                        );
                     }
                     if let Some(m) = membros.get(&membro) {
                         tipos_de_estilo.insert(membro.clone(), m.tipo.trim().to_string());
