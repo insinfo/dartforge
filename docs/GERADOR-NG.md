@@ -460,7 +460,9 @@ nome dele é qualificado pelo import que o declara (`dart:core` sem
 prefixo, mas com o import alocado) — caso j62. `template:` na anotação em
 strings adjacentes, com escape ou cru: uma string só conta o `REF` do
 conteúdo (`contentsOffset`), adjacentes contam do começo do nó, sempre com
-as posições do valor decodificado — caso j63. Corpus: 294 conferidos.
+as posições do valor decodificado — caso j63. `[attr.x]` vai por
+`setAttribute` quando a fonte não pode ser nula (`canBeNull`: literal
+primitivo, `a ?? b` com um lado assim) — caso j64. Corpus: 295 conferidos.
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada
 pendente com o motivo): **926 iguais / 24 pendentes / 0 diferentes** —
 `.template.dart` 510/22/0, `.css` e `.css.map` do Sass 102/102 cada,

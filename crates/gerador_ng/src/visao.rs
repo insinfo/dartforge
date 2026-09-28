@@ -3328,15 +3328,11 @@ impl Corpo<'_> {
                     None => valor.to_string(),
                 };
                 let valor = saneado.as_str();
-                // `canBeNull` (`analyzed_class.dart`): só o literal não pode ser
-                // nulo, e só ele vai por `setAttribute`. `a ?? b` tem regra
-                // própria, ainda sem caso no corpus.
-                if l.valor.contains("??") {
-                    return Err(recusa(Motivo::Ligacao, "[attr.x] com `??`"));
-                }
-                let literal = c.texto.starts_with(['\'', '"'])
-                    || matches!(c.texto.as_str(), "true" | "false");
-                let f = if literal {
+                // `visitAttributeBinding`: `setAttribute` quando a fonte não
+                // pode ser nula (`isNullable` é o `canBeNull` de
+                // `analyzed_class.dart`: literal primitivo, e `a ?? b` com um
+                // dos lados assim — caso j64).
+                let f = if !c.pode_ser_nulo {
                     "setAttribute"
                 } else {
                     "updateAttribute"
