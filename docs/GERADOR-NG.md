@@ -417,12 +417,15 @@ escrito do campo — casos j45, j46; componente que injeta
 `ViewContainerRef`: na hospedeira e no nó de quem o usa, o `ViewContainer`
 nasce com o elemento (campo entre a visão e a instância, três embutidos a
 mais que levam a instância ao `_8`, `detectChangesInNestedViews` depois de
-`ngOnInit`/`ngDoCheck`, raiz e projeção pelo `_appEl_n`) — casos j47, j48.
-Embutido do elemento (`ElementRef`, `ViewContainerRef`, `TemplateRef`…)
-pedido por diretiva de elemento comum continua recusado, nunca do injetor
-de fora. Corpus: 275 conferidos. limitless_ui/example (Linux,
-`build --comparar`): **907 iguais / 43 pendentes / 0 diferentes** —
-`.template.dart` 491/41/0, `.css` e `.css.map` do Sass 102/102 cada,
+`ngOnInit`/`ngDoCheck`, raiz e projeção pelo `_appEl_n`) — casos j47, j48;
+diretiva de elemento comum que injeta `ViewContainerRef`: o mesmo
+`ViewContainer` no nó, criado depois dos atributos e antes das diretivas
+(que começam no `_8`) — caso j49. Outro embutido do elemento (`ElementRef`,
+`TemplateRef` fora de `<template>`, `ComponentLoader`) e diretiva de
+`<template>` com `ViewContainerRef`, entradas ou ganchos continuam
+recusados, nunca do injetor de fora. Corpus: 276 conferidos.
+limitless_ui/example (Linux, `build --comparar`): **909 iguais / 41
+pendentes / 0 diferentes** — `.template.dart` 493/39/0, `.css` e `.css.map` do Sass 102/102 cada,
 `.css.dart` e `.css.shim.dart` 104 cada.
 
 ### Diretivas estruturais

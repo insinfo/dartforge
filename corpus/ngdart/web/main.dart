@@ -237,6 +237,7 @@ import 'package:corpus_ngdart/src/j44_varios_com_folha.template.dart' as j44;
 import 'package:corpus_ngdart/src/j45_componente_e_ngcd.template.dart' as j45;
 import 'package:corpus_ngdart/src/j47_container_no_hospedeiro.template.dart' as j47;
 import 'package:corpus_ngdart/src/j48_usa_container.template.dart' as j48;
+import 'package:corpus_ngdart/src/j49_diretiva_com_container.template.dart' as j49;
 
 void main() {
   print([
@@ -477,5 +478,6 @@ void main() {
     j47.J47CompletoNgFactory,
     j47.J47UsaNgFactory,
     j48.J48UsaContainerNgFactory,
+    j49.J49DiretivaComContainerNgFactory,
   ].length);
 }

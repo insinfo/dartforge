@@ -3509,7 +3509,8 @@ impl Corpo<'_> {
         // Filho que injeta `ViewContainerRef`: o nó ganha um `ViewContainer`
         // (campo entre a visão e a instância) e três embutidos a mais, que
         // levam a instância ao 8 (caso j47).
-        let container = filho.parametros.iter().any(|p| matches!(p, Injetado::Container));
+        let container = filho.parametros.iter().any(|p| matches!(p, Injetado::Container))
+            || extras.iter().any(|d| crate::diretivas::pede_container(d));
         let campo_inst = format!("_{classe}_{n}_{}", if container { 8 } else { 5 });
         self.campos_filho
             .push(format!("  late final {vt}View{classe}0 {campo_vista};"));
@@ -3672,6 +3673,7 @@ impl Corpo<'_> {
             let resto = crate::diretivas::NoResolvido {
                 instancias: r.instancias[1..].to_vec(),
                 diretivas: r.diretivas[1..].to_vec(),
+                container: r.container,
             };
             self.diretivas_do_no(e, &resto, &format!("_el_{n}"), &props_dir, &eventos_dir)?;
             // O filho entra primeiro no `injectorGetInternal`, pelos
@@ -5661,8 +5663,15 @@ impl Corpo<'_> {
             self.linhas.push(format!("    this._el_{n} = {criacao};"));
             format!("this._el_{n}")
         };
+        // Com `ViewContainer` (diretiva que injeta `ViewContainerRef`), a
+        // raiz é ele (`vcAppEl ?? renderNode`, caso j49).
+        let container = resolvido.as_ref().is_some_and(|r| r.container);
         if pai.is_empty() {
-            self.raizes.push(alvo.clone());
+            self.raizes.push(if container {
+                format!("this._appEl_{n}")
+            } else {
+                alvo.clone()
+            });
         }
         // `renderNode.toReadExpr()`: o local ou o campo, como o
         // nó tiver sido declarado.
@@ -5856,6 +5865,23 @@ impl Corpo<'_> {
         }
         let mut injetor = None;
         if let Some(r) = &resolvido {
+            // O `ViewContainer` nasce com o `CompileElement`, antes dos
+            // provedores (o campo antes dos das diretivas).
+            if r.container {
+                let vc = self.imp.q(VIEW_CONTAINER);
+                let pai_indice = if pai.is_empty() {
+                    self.pai_projetado
+                        .map_or_else(|| "null".to_string(), |k| k.to_string())
+                } else {
+                    indice_do_elemento(pai)
+                };
+                self.campos_filho
+                    .push(format!("  late final {vc}ViewContainer _appEl_{n};"));
+                self.linhas.push(format!(
+                    "    this._appEl_{n} = {vc}ViewContainer({n}, {pai_indice}, this, {alvo});"
+                ));
+                self.ancoras.push(format!("_appEl_{n}"));
+            }
             self.diretivas_do_no(e, r, &alvo, &propriedades, &eventos)?;
             let injetaveis: Vec<(Vec<crate::diretivas::Token>, String)> = r
                 .instancias
@@ -6074,6 +6100,9 @@ impl Corpo<'_> {
                             Argumento::Campo(c) => format!("this.{c}"),
                             Argumento::Acima(leitura) => leitura.clone(),
                             Argumento::Injetor(n) => format!("this.injector({n})"),
+                            Argumento::Container => {
+                                format!("this._appEl_{}", indice_do_elemento(alvo))
+                            }
                             // O atributo escrito no elemento (`attrs`),
                             // sem ligação; ausente, `null`.
                             Argumento::Atributo(nome) => e
@@ -6618,7 +6647,11 @@ fn expr_do_token(t: &crate::diretivas::Token) -> String {
 
 /// O que gera campo na classe da visão, na ordem em que aparece.
 enum CampoDaVisao<'a> {
-    Filho(&'a Filho),
+    /// O filho e se o nó dele tem `ViewContainer`.
+    Filho(&'a Filho, bool),
+    /// O `ViewContainer` de um elemento comum (diretiva que injeta
+    /// `ViewContainerRef`), antes das diretivas.
+    Container,
     /// Diretiva estrutural, com a URI da classe dela.
     Estrutural(&'static str),
     /// `<template>` escrito: o `ViewContainer`, com `#ref` o campo do
@@ -6675,9 +6708,11 @@ fn campos_em_ordem<'a>(
             continue;
         }
         if let Some(f) = filhos.get(&e.nome) {
-            saida.push(CampoDaVisao::Filho(f));
             // Os outros provedores do nó do filho, depois da instância.
             let extras = diretivas_casadas(usadas, e);
+            let container = f.parametros.iter().any(|p| matches!(p, Injetado::Container))
+                || extras.iter().any(|d| crate::diretivas::pede_container(d));
+            saida.push(CampoDaVisao::Filho(f, container));
             if let Some(meta) = &f.metadados
                 && (!extras.is_empty() || !meta.provedores.is_empty())
             {
@@ -6685,7 +6720,6 @@ fn campos_em_ordem<'a>(
                 so_provedores.dependencias.clear();
                 let mut casadas = vec![std::sync::Arc::new(so_provedores)];
                 casadas.extend(extras);
-                let container = f.parametros.iter().any(|p| matches!(p, Injetado::Container));
                 if let Ok(r) = crate::diretivas::resolver_no_do_filho(&casadas, 0, None, container) {
                     separar(&r.instancias[1..], &mut saida);
                 }
@@ -6696,6 +6730,9 @@ fn campos_em_ordem<'a>(
                 casadas.is_empty(),
                 crate::diretivas::resolver(&casadas, 0, None),
             ) {
+                if r.container {
+                    saida.push(CampoDaVisao::Container);
+                }
                 separar(&r.instancias, &mut saida);
             }
         }
@@ -7432,11 +7469,14 @@ fn alocar_imports_dos_campos(
     for campo in campos {
         match campo {
             CampoDaVisao::Preguicosos(_) => {}
-            CampoDaVisao::Filho(f) => {
+            CampoDaVisao::Container => {
+                imp.alias(VIEW_CONTAINER);
+            }
+            CampoDaVisao::Filho(f, container) => {
                 for (k, uri) in [&f.uri_template, &f.uri_dart].into_iter().enumerate() {
-                    // O `ViewContainer` do nó (filho que injeta
-                    // `ViewContainerRef`) entre a visão e a instância.
-                    if k == 1 && f.parametros.iter().any(|p| matches!(p, Injetado::Container)) {
+                    // O `ViewContainer` do nó (filho ou diretiva dele que
+                    // injeta `ViewContainerRef`) entre a visão e a instância.
+                    if k == 1 && container {
                         imp.alias(VIEW_CONTAINER);
                     }
                     let alvo = asset_de_uri(uri, "", Path::new("")).ok_or_else(sem_caminho)?;

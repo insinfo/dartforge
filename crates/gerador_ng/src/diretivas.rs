@@ -338,6 +338,8 @@ pub enum Argumento {
     /// Um provedor de um elemento acima (`_getDependency` sobe pelos
     /// pais): a expressão que o lê desta visão.
     Acima(String),
+    /// `ViewContainerRef`: o `ViewContainer` do nó (`this._appEl_n`).
+    Container,
     /// `@Attribute('nome')`: o literal do atributo estático do elemento, ou
     /// `null`.
     Atributo(String),
@@ -461,6 +463,9 @@ pub struct NoResolvido {
     /// (`transformedDirectiveAsts`: a dos provedores), com a leitura da
     /// instância de cada (o campo, ou `campo.instance` com `XNgCd`).
     pub diretivas: Vec<(Arc<Diretiva>, String)>,
+    /// O nó tem `ViewContainer` (`requiresViewContainer`): uma diretiva ou
+    /// o componente dele injeta `ViewContainerRef` (casos j47–j49).
+    pub container: bool,
 }
 
 #[derive(Debug)]
@@ -519,8 +524,7 @@ pub fn resolver_no_do_filho(
     acima: Option<Acima>,
     container: bool,
 ) -> Result<NoResolvido, &'static str> {
-    let base = if container { 8 } else { 5 };
-    let r = resolver_com(casadas, n, acima, false, casadas.len().min(1), base)?;
+    let r = resolver_com(casadas, n, acima, false, casadas.len().min(1), container)?;
     for i in &r.instancias {
         let depende_de_fora = match &i.criacao {
             Criacao::Expressao(e) => fora_do_no_de_filho(e),
@@ -557,7 +561,7 @@ fn resolver_em(
         acima,
         hospedeira,
         if hospedeira { casadas.len() } else { 0 },
-        5,
+        false,
     )
 }
 
@@ -570,8 +574,12 @@ fn resolver_com(
     acima: Option<Acima>,
     hospedeira: bool,
     completas: usize,
-    base: usize,
+    container: bool,
 ) -> Result<NoResolvido, &'static str> {
+    // `requiresViewContainer`: com `ViewContainer` o nó ganha três embutidos
+    // (`ViewContainer`, `ViewContainerRef`, `ComponentLoader`) antes dos
+    // provedores, e os campos começam no 8.
+    let container = container || casadas.iter().any(|d| pede_container(d));
     // `_ProviderResolver.resolve`: as diretivas (ansiosas), depois os
     // `providers:` de cada uma; o mesmo token multi acumula.
     let mut todos: Vec<Resolvido> = Vec::new();
@@ -683,10 +691,13 @@ fn resolver_com(
 
     // `addDirectiveProviders`: o `uniqueId` é o tamanho da tabela, que já
     // tem as cinco embutidas do elemento.
-    let mut tamanho = base;
+    let mut tamanho = if container { 8 } else { 5 };
     let mut campos: Vec<(Token, String)> = Vec::new();
     let mut apelidos: Vec<(Token, Token)> = Vec::new();
-    let mut saida = NoResolvido::default();
+    let mut saida = NoResolvido {
+        container,
+        ..NoResolvido::default()
+    };
     for (posicao, &i) in ordem.iter().enumerate() {
         let r = &todos[i];
         let preguicosa = posicao >= ansiosos;
@@ -792,6 +803,7 @@ fn resolver_com(
                         }
                         Token::Elemento => Argumento::Elemento,
                         Token::Detector => Argumento::Detector,
+                        t if e_view_container_ref(t) && !dep.pular => Argumento::Container,
                         Token::Classe { uri, classe } if uri == INJECTOR && classe == "Injector" => {
                             // `@SkipSelf()` leria o injetor do elemento de
                             // cima (`injector(pai)`): ainda sem caso.
@@ -871,6 +883,18 @@ fn resolver_com(
         }
     }
     Ok(saida)
+}
+
+/// O `ViewContainerRef` do ngdart.
+pub fn e_view_container_ref(t: &Token) -> bool {
+    matches!(t, Token::Classe { uri, classe }
+        if uri.starts_with("package:ngdart/") && classe == "ViewContainerRef")
+}
+
+/// A diretiva injeta `ViewContainerRef` e o nó dela ganha um
+/// `ViewContainer` (`_requiresViewContainer`, em `provider_parser.dart`).
+pub fn pede_container(d: &Diretiva) -> bool {
+    d.dependencias.iter().any(|dep| e_view_container_ref(&dep.token))
 }
 
 /// Os provedores embutidos de um elemento além de `Element`/`HtmlElement`,

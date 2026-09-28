@@ -260,3 +260,4 @@ export 'src/j45_componente_e_ngcd.dart';
 export 'src/j46_varias_ngcd.dart';
 export 'src/j47_container_no_hospedeiro.dart';
 export 'src/j48_usa_container.dart';
+export 'src/j49_diretiva_com_container.dart';
