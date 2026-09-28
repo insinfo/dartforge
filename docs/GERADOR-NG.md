@@ -432,9 +432,17 @@ j50; nomes de `exports:` pelo import da biblioteca que os declara, tipo
 cadeia além do campo — caso j51; `<template #t let-x>` lido em `*` aninhado
 e em evento — caso j52. O `Gravador` do incremental passa a repassar
 `tipo_inexistente`, `exportado` e `membro_estatico` (a regeração de um
-arquivo sozinho dava outro texto que a do pacote). Corpus: 281 conferidos.
-limitless_ui/example (Linux, `build --comparar`): **912 iguais / 38
-pendentes / 0 diferentes** — `.template.dart` 496/36/0, `.css` e `.css.map` do Sass 102/102 cada,
+arquivo sozinho dava outro texto que a do pacote). Template em aspas
+triplas na anotação (a linha inicial em branco fora do valor, o `REF` com
+as posições do `.dart`) — caso j53; `<template>` sem conteúdo é visão sem
+raiz (`const <Object>[]`) — caso j54; referências de caractere no texto
+como o `_unEscapeText` do ngast (decimal e hexadecimal de 2 a 4 dígitos,
+a tabela `namedEntities` inteira, nome fora dela vira o próprio nome;
+atributo fica cru) — caso j55. O programa da CLI passa a ter como raízes
+todas as entradas das ações do ngdart (menos as partes): um componente que
+nenhum arquivo importa também é gerado, como no `build_runner`. Corpus:
+284 conferidos. limitless_ui/example (Linux, `build --comparar`): **918
+iguais / 32 pendentes / 0 diferentes** — `.template.dart` 502/30/0, `.css` e `.css.map` do Sass 102/102 cada,
 `.css.dart` e `.css.shim.dart` 104 cada.
 
 ### Diretivas estruturais

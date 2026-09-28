@@ -513,20 +513,77 @@ fn classificar(
     }
 }
 
-/// Entidades que aparecem em template de aplicação. O conjunto completo do
-/// HTML não cabe aqui e nem o ngast o traz inteiro.
+/// O `_unEscapeText` do tokenizador do ngast (`simple_tokenizer.dart`),
+/// aplicado só ao texto (valor de atributo fica cru): cada casamento de
+/// `&#([0-9]{2,4});|&#x([0-9A-Fa-f]{2,4});|&([a-zA-Z]+);`, da esquerda para
+/// a direita, vira o caractere do código (`String.fromCharCode`) ou o da
+/// tabela [`crate::entidades::ENTIDADES`] — e o nome que não está nela, o
+/// próprio nome. Um código na faixa dos substitutos (`&#xD800;`) seria um
+/// substituto solto na string do Dart, que o arquivo gravado em UTF-8 leva
+/// como U+FFFD.
 fn decodificar(t: &str) -> String {
     if !t.contains('&') {
         return t.to_string();
     }
-    t.replace("&ngsp;", &NGSP.to_string())
-        .replace("&nbsp;", &NBSP.to_string())
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&apos;", "'")
+    let b = t.as_bytes();
+    let mut saida = String::with_capacity(t.len());
+    let mut i = 0;
+    let mut copiado = 0;
+    while i < b.len() {
+        if b[i] != b'&' {
+            i += 1;
+            continue;
+        }
+        if let Some((fim, valor)) = entidade_em(t, i) {
+            saida.push_str(&t[copiado..i]);
+            saida.push_str(&valor);
+            i = fim;
+            copiado = fim;
+        } else {
+            i += 1;
+        }
+    }
+    saida.push_str(&t[copiado..]);
+    saida
+}
+
+/// A referência de caractere que começa em `i` (no `&`): onde ela termina
+/// (depois do `;`) e o texto que a substitui.
+fn entidade_em(t: &str, i: usize) -> Option<(usize, String)> {
+    let b = t.as_bytes();
+    let codigo = |n: u32| -> String {
+        char::from_u32(n).map_or('\u{FFFD}'.to_string(), |c| c.to_string())
+    };
+    // `&#` + 2 a 4 dígitos + `;`
+    if b.get(i + 1) == Some(&b'#') {
+        let inicio = i + 2;
+        let n = b[inicio..].iter().take(4).take_while(|c| c.is_ascii_digit()).count();
+        if n >= 2 && b.get(inicio + n) == Some(&b';') {
+            let v: u32 = t[inicio..inicio + n].parse().ok()?;
+            return Some((inicio + n + 1, codigo(v)));
+        }
+        // `&#x` + 2 a 4 hexadecimais + `;`
+        if b.get(i + 2) == Some(&b'x') {
+            let inicio = i + 3;
+            let n = b[inicio..].iter().take(4).take_while(|c| c.is_ascii_hexdigit()).count();
+            if n >= 2 && b.get(inicio + n) == Some(&b';') {
+                let v = u32::from_str_radix(&t[inicio..inicio + n], 16).ok()?;
+                return Some((inicio + n + 1, codigo(v)));
+            }
+        }
+        return None;
+    }
+    // `&` + letras + `;`
+    let inicio = i + 1;
+    let n = b[inicio..].iter().take_while(|c| c.is_ascii_alphabetic()).count();
+    if n >= 1 && b.get(inicio + n) == Some(&b';') {
+        let nome = &t[inicio..inicio + n];
+        let valor = crate::entidades::ENTIDADES
+            .binary_search_by(|(k, _)| k.cmp(&nome))
+            .map_or(nome, |k| crate::entidades::ENTIDADES[k].1);
+        return Some((inicio + n + 1, valor.to_string()));
+    }
+    None
 }
 
 /// `MinimizeWhitespaceVisitor` do ngast: some com o nó de texto só de espaços

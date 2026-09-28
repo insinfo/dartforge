@@ -135,9 +135,21 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
             // O resolvedor do ngdart não vê as saídas de fases que rodam
             // depois dele (`Motor::saidas_invisiveis_a`).
             let ocultos = std::sync::Arc::new(motor.saidas_invisiveis_a("ngdart:ngdart"));
+            // Todo arquivo que o ngdart gera entra como raiz: o `build_runner`
+            // resolve cada um, alcançável a partir do `main` ou não (um
+            // componente que ninguém importa também ganha `.template.dart`).
+            let extras = motor.entradas_de("ngdart:ngdart");
+            let mut raizes: Vec<&std::path::Path> = vec![e.as_path()];
+            raizes.extend(extras.iter().filter(|p| !ocultos.contains(*p)).map(|p| p.as_path()));
             Some(
-                dartforge_elements::load::load_lenient_ocultando(e, &layout, packages.as_deref(), &mut nomes, ocultos)
-                    .0,
+                dartforge_elements::load::load_lenient_entradas_ocultando(
+                    &raizes,
+                    &layout,
+                    packages.as_deref(),
+                    &mut nomes,
+                    ocultos.clone(),
+                )
+                .0,
             )
         }
         None => None,

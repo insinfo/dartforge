@@ -19,6 +19,7 @@
 pub mod componente;
 pub mod css;
 pub mod csslib;
+mod entidades;
 pub mod diretivas;
 pub mod dom;
 pub mod expr;

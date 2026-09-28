@@ -265,3 +265,6 @@ export 'src/j50_parametro_super.dart';
 export 'src/j51_exports.dart';
 export 'src/j52_filho.dart';
 export 'src/j52_let_em_molde.dart';
+export 'src/j53_template_triplo.dart';
+export 'src/j54_molde_vazio.dart';
+export 'src/j55_entidades.dart';

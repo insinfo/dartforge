@@ -541,6 +541,26 @@ impl Motor {
             .collect()
     }
 
+    /// As entradas `.dart` das ações do builder `chave` (ex. `ngdart:ngdart`),
+    /// pelo caminho natural: os arquivos que ele gera — alcançáveis ou não
+    /// a partir do `main`. O `build_runner` resolve cada um; o programa dos
+    /// geradores nativos precisa tê-los todos (um componente que ninguém
+    /// importa também ganha `.template.dart`).
+    pub fn entradas_de(&self, chave: &str) -> Vec<PathBuf> {
+        let mut saida: Vec<PathBuf> = self
+            .grafo
+            .acoes
+            .iter()
+            .filter(|a| a.viva())
+            .filter(|a| self.plano.aplicacoes[self.fases[a.fase].aplicacao].chave == chave)
+            .filter(|a| a.entrada.caminho.ends_with(".dart"))
+            .map(|a| natural(&self.grafo_pacotes, &a.entrada))
+            .collect();
+        saida.sort();
+        saida.dedup();
+        saida
+    }
+
     /// O gerador nativo que cobre a fase, se a versão do lock é a imitada.
     fn nativo_da_fase(&self, fi: usize) -> Option<usize> {
         let f = &self.fases[fi];

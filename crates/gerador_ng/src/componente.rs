@@ -296,12 +296,35 @@ fn deslocamento_do_template(
 ) -> Option<usize> {
     let span = arvore.expr(id).span;
     let bruto = fonte.get(span.start..span.end)?;
-    let aspa = bruto.chars().next().filter(|c| *c == '\'' || *c == '"')?;
-    let dentro = bruto.strip_prefix(aspa)?.strip_suffix(aspa)?;
-    if dentro.starts_with(aspa) || dentro.contains(['\\', '$']) || dentro != valor {
+    // Aspas triplas: a primeira linha só de brancos, com a quebra, não entra
+    // no valor (regra do Dart para string de várias linhas); o conteúdo
+    // começa depois dela (caso j53).
+    let (inicio, dentro) = match ["'''", "\"\"\""].into_iter().find(|q| bruto.starts_with(q)) {
+        Some(q) => {
+            let d = bruto.strip_prefix(q)?.strip_suffix(q)?;
+            let sem_brancos = d.trim_start_matches([' ', '\t']);
+            let pular = match sem_brancos
+                .strip_prefix("\r\n")
+                .or_else(|| sem_brancos.strip_prefix('\n'))
+            {
+                Some(resto) => d.len() - resto.len(),
+                None => 0,
+            };
+            (q.len() + pular, &d[pular..])
+        }
+        None => {
+            let aspa = bruto.chars().next().filter(|c| *c == '\'' || *c == '"')?;
+            let d = bruto.strip_prefix(aspa)?.strip_suffix(aspa)?;
+            if d.starts_with(aspa) {
+                return None;
+            }
+            (1, d)
+        }
+    };
+    if dentro.contains(['\\', '$']) || dentro != valor {
         return None;
     }
-    Some(fonte.get(..span.start + 1)?.encode_utf16().count())
+    Some(fonte.get(..span.start + inicio)?.encode_utf16().count())
 }
 
 /// Lista de strings literais (`styleUrls: ['a.css', 'b.css']`).

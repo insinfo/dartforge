@@ -152,6 +152,40 @@ pub fn load_lenient_ocultando(
     carregar_leniente(&[entry], sdk, package_config_path, interner, None, None, None, Some(ocultos))
 }
 
+/// Como [`load_lenient_ocultando`], com várias raízes: a primeira é a
+/// entrada do programa; as outras entram na fila como bibliotecas. Uma raiz
+/// que é parte (`part of`) é descartada — ela entra pela biblioteca dona, e
+/// carregá-la também como biblioteca a duplicaria.
+pub fn load_lenient_entradas_ocultando(
+    entries: &[&Path],
+    sdk: &SdkLayout,
+    package_config_path: Option<&Path>,
+    interner: &mut Interner,
+    ocultos: std::sync::Arc<std::collections::HashSet<PathBuf>>,
+) -> (Program, Vec<Diagnostic>) {
+    let mut raizes: Vec<&Path> = Vec::with_capacity(entries.len());
+    for (i, e) in entries.iter().enumerate() {
+        if i == 0 || !e_parte_no_disco(e, interner) {
+            raizes.push(e);
+        }
+    }
+    carregar_leniente(&raizes, sdk, package_config_path, interner, None, None, None, Some(ocultos))
+}
+
+/// O arquivo tem a diretiva `part of`? Ilegível conta como não.
+fn e_parte_no_disco(caminho: &Path, interner: &mut Interner) -> bool {
+    let Ok(texto) = std::fs::read_to_string(caminho) else {
+        return false;
+    };
+    let tokens = dartforge_frontend::lexer::lex(&texto);
+    let analisada = dartforge_frontend::parser::parse_lexed(&texto, tokens, interner);
+    analisada
+        .unit
+        .directives
+        .iter()
+        .any(|d| matches!(d.kind, DirectiveKind::PartOf { .. }))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn carregar_leniente(
     entries: &[&Path],

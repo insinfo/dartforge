@@ -7115,9 +7115,11 @@ fn corpo_da_embutida(
     );
     dentro.destruir.extend(ctx.pipes.destruicao(espec.indice));
     // Na coleta, um nó recusado não consome índice: a visão parece vazia
-    // sem estar. O `<ng-container *x>` vazio é vazio de fato: a visão não
-    // tem raiz nenhuma (`const <Object>[]`).
-    let vazia = matches!(espec.nos.as_slice(), [No::Elemento(x)]
+    // sem estar. O `<ng-container *x>` vazio e o `<template>` sem conteúdo
+    // (só comentários, ou nada) são vazios de fato: a visão não tem raiz
+    // nenhuma (`const <Object>[]`, casos i82, j54).
+    let vazia = espec.nos.iter().all(|n| matches!(n, No::Comentario(_)))
+        || matches!(espec.nos.as_slice(), [No::Elemento(x)]
         if x.nome == "ng-container"
             && x.filhos.is_empty()
             && x.estrela.is_none()
