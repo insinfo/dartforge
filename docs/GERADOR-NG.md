@@ -578,7 +578,11 @@ os parâmetros vêm dos metadados do programa
 elemento ou `null`, o token vai ao injetor como `const OpaqueToken<T>('x')`);
 na hospedeira, o atributo é `null`. Uma visão cujas interpolações são todas
 imutáveis não tem `TextBinding`, e o import dele não é alocado — caso j91.
-Corpus: **324 conferidos, 0 pendentes**.
+No elemento de um componente filho, o atributo interpolado que nem o filho
+nem uma diretiva recebe é propriedade do elemento (depois das `[x]` dele), e
+a diretiva com `@HostBinding` chama `detectHostChanges` com a visão do
+filho (`this._compView_n`, o nó como campo) — caso j92. Corpus: **325
+conferidos, 0 pendentes**.
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada
 pendente com o motivo): **948 iguais / 2 pendentes / 0 diferentes** —
 `.template.dart` **532/0/0**, `.css` e `.css.map` do Sass 102/102 cada,

@@ -2832,6 +2832,10 @@ struct Corpo<'a> {
     /// visão do componente no elemento dele (`this._compView_n`, o
     /// `[class]` do elemento de um filho, caso j74).
     instancia_da_visao: Option<String>,
+    /// A visão passada ao `detectHostChanges` de uma diretiva com
+    /// `@HostBinding` no nó: a do componente filho, no nó dele (caso j92);
+    /// `None` é a própria visão (`this`).
+    vista_do_hospedeiro: Option<String>,
     /// Campos `TextBinding` e `_message_N`, que saem primeiro na classe, na
     /// ordem em que o `build()` os aloca.
     campos: Vec<String>,
@@ -3837,9 +3841,6 @@ impl Corpo<'_> {
             // No `@Input` a interpolação vai para a entrada
             // ([`Self::entradas_de`]); fora dele seria propriedade do
             // elemento do filho, forma ainda sem caso.
-            if a.valor.contains("{{") && filho.entrada(&a.nome).is_none() {
-                return Err(em_filho("atributo interpolado no filho fora de @Input"));
-            }
             if a.nome.eq_ignore_ascii_case("tabindex") {
                 return Err(em_filho("tabindex no filho"));
             }
@@ -3881,6 +3882,19 @@ impl Corpo<'_> {
             })
             .cloned()
             .collect();
+        // O atributo interpolado que nem o filho nem uma diretiva do nó
+        // recebe é propriedade do elemento do filho, depois das `[x]` dele
+        // (`_visitProperties`, caso j92).
+        let interpolados_do_elemento: Vec<crate::html::Ligacao> = e
+            .atributos
+            .iter()
+            .filter(|a| {
+                a.valor.contains("{{")
+                    && filho.entrada(&a.nome).is_none()
+                    && !consome_entrada(&extras, &a.nome)
+            })
+            .cloned()
+            .collect();
         for (i, (l, _)) in ligadas.iter().enumerate() {
             if ligadas[..i].iter().any(|(x, _)| x.nome == l.nome) {
                 return Err(em_filho("@Input do filho ligado duas vezes"));
@@ -3889,7 +3903,13 @@ impl Corpo<'_> {
         let n = self.proximo;
         self.proximo += 1;
         // Com ligação própria, o nó do filho vira campo (a detecção o lê).
-        let el = if props_elemento.is_empty() {
+        // `detectHostChanges(visão, el)` de diretiva com `@HostBinding` lê o
+        // nó na detecção.
+        let com_hospedeiro = extras.iter().any(|d| !d.ligacoes_do_hospedeiro.is_empty());
+        let el = if props_elemento.is_empty()
+            && interpolados_do_elemento.is_empty()
+            && !com_hospedeiro
+        {
             format!("_el_{n}")
         } else {
             let html = self.html.clone();
@@ -4107,7 +4127,7 @@ impl Corpo<'_> {
         }
         // `bindRenderInputs`: as ligações do próprio elemento do filho,
         // antes das das diretivas (caso j74).
-        if !props_elemento.is_empty() {
+        if !props_elemento.is_empty() || !interpolados_do_elemento.is_empty() {
             self.tag_atual = e.nome.clone();
             self.instancia_da_visao = Some(format!("this.{campo_vista}"));
             let mut ligadas_el = Vec::new();
@@ -4121,12 +4141,24 @@ impl Corpo<'_> {
                     }
                 }
             }
+            if falha.is_none() {
+                for a in &interpolados_do_elemento {
+                    match self.atributo_interpolado(a, &el) {
+                        Ok(x) => ligadas_el.push(x),
+                        Err(r) => {
+                            falha = Some(r);
+                            break;
+                        }
+                    }
+                }
+            }
             self.instancia_da_visao = None;
             if let Some(r) = falha {
                 self.anotar(r)?;
             }
             self.escrever_ligacoes(ligadas_el);
         }
+        self.vista_do_hospedeiro = Some(format!("this.{campo_vista}"));
         if let Some((r, _)) = &resolvido {
             self.ligar_diretivas(
                 e,
@@ -4139,6 +4171,7 @@ impl Corpo<'_> {
                 false,
             )?;
         }
+        self.vista_do_hospedeiro = None;
         self.entradas_do_filho(&ligadas, filho, &campo_inst, &campo_vista)?;
         // `bindDirectiveHostProps` do componente: com as ligações de
         // propriedade, na ordem de documento, logo depois das entradas dele
@@ -4189,7 +4222,8 @@ impl Corpo<'_> {
             self.criar_instancias(e, &depois, &alvo)?;
             let todas: Vec<_> = dir_antes.iter().chain(&dir_depois).cloned().collect();
             self.registrar_diretivas(&todas, &alvo);
-            self.ligar_diretivas(
+            self.vista_do_hospedeiro = Some(format!("this.{campo_vista}"));
+            let ligadas = self.ligar_diretivas(
                 e,
                 &r.instancias,
                 &dir_depois,
@@ -4198,7 +4232,9 @@ impl Corpo<'_> {
                 &eventos_dir,
                 true,
                 true,
-            )?;
+            );
+            self.vista_do_hospedeiro = None;
+            ligadas?;
             // O filho entra primeiro no `injectorGetInternal`, pelos
             // apelidos dele (`ExistingProvider(X, OFilho)`) e, visível, pela
             // classe.
@@ -5872,9 +5908,8 @@ impl Corpo<'_> {
             let pendencia = match &u.diretiva {
                 None => Some("sem metadados".to_string()),
                 Some(d) => d.pendencia().or_else(|| {
-                    (filho.is_some()
-                        && (!d.ouvintes.is_empty() || !d.ligacoes_do_hospedeiro.is_empty()))
-                    .then(|| "@HostListener/@HostBinding no elemento de um componente".to_string())
+                    (filho.is_some() && !d.ouvintes.is_empty())
+                        .then(|| "@HostListener no elemento de um componente".to_string())
                 }),
             };
             if let Some(p) = pendencia {
@@ -7163,8 +7198,9 @@ impl Corpo<'_> {
                 && !diretiva.ligacoes_do_hospedeiro.is_empty()
                 && diretivas.iter().any(|(_, c)| *c == inst.leitura)
             {
+                let vista = self.vista_do_hospedeiro.as_deref().unwrap_or("this");
                 self.deteccao.push(format!(
-                    "    this.{}.detectHostChanges(this, {alvo});",
+                    "    this.{}.detectHostChanges({vista}, {alvo});",
                     inst.campo
                 ));
             }
@@ -8118,6 +8154,7 @@ impl<'a> Contexto<'a> {
             mensagens: Vec::new(),
             tag_atual: String::new(),
             instancia_da_visao: None,
+            vista_do_hospedeiro: None,
             campos_preguicosos: Vec::new(),
             campos_filho: Vec::new(),
             vistas_filhas: Vec::new(),
