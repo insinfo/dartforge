@@ -3903,11 +3903,11 @@ impl Corpo<'_> {
             }
         }
         for a in &e.atributos {
-            // No `@Input` a interpolação vai para a entrada
-            // ([`Self::entradas_de`]); fora dele seria propriedade do
-            // elemento do filho, forma ainda sem caso.
-            if a.nome.eq_ignore_ascii_case("tabindex") {
-                return Err(em_filho("tabindex no filho"));
+            // O literal é o `TabIndexBinding` do elemento (escrito com os
+            // atributos); o interpolado seria propriedade do elemento do
+            // filho, forma ainda sem caso.
+            if a.nome.eq_ignore_ascii_case("tabindex") && a.valor.contains("{{") {
+                return Err(em_filho("tabindex interpolado no filho"));
             }
         }
         // O que chega a um `@Input`: atributo estático (literal) e `[x]`. Um
@@ -4132,6 +4132,14 @@ impl Corpo<'_> {
             if a.nome == "class" {
                 self.linhas
                     .push(format!("    this.updateChildClassNonHtml({el}, {valor});"));
+            } else if a.nome == "tabindex" || a.nome == "tabIndex" {
+                // `TabIndexBinding`, como no elemento HTML (caso j102).
+                match a.valor.trim().parse::<i64>() {
+                    Ok(n) if a.valor.trim() == a.valor => {
+                        self.linhas.push(format!("    {el}.tabIndex = {n};"));
+                    }
+                    _ => return Err(em_filho("tabindex que não é inteiro no filho")),
+                }
             } else {
                 let dom = self.dom();
                 self.linhas.push(format!(

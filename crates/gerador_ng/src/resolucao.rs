@@ -359,61 +359,53 @@ impl Resolucao for Resolvedor<'_> {
 
     fn metodo(&self, arquivo: &Path, tipo: &str, nome: &str) -> Option<Metodo> {
         let sym = self.interner.lookup(nome)?;
-        let mut atual = self.classe(arquivo, tipo);
-        while let Some(id) = atual {
-            let c = self.program.class(id);
-            if let Some(&fid) = c.instance_members.get(&sym) {
-                let dartforge_elements::model::FunctionRef::Function { unit, function } =
-                    self.program.function(fid).node
-                else {
-                    return None;
-                };
-                let u = self.program.unit(unit);
-                let f = u.ast.function(function);
-                if f.static_ || !matches!(f.kind, dartforge_frontend::ast::FunctionKind::Function) {
+        let (id, fid) = self.membro_de_instancia(self.classe(arquivo, tipo)?, sym, 0)?;
+        let c = self.program.class(id);
+        let dartforge_elements::model::FunctionRef::Function { unit, function } =
+            self.program.function(fid).node
+        else {
+            return None;
+        };
+        let u = self.program.unit(unit);
+        let f = u.ast.function(function);
+        if f.static_ || !matches!(f.kind, dartforge_frontend::ast::FunctionKind::Function) {
+            return None;
+        }
+        let posicionais = f.parameters.as_ref().map_or(0, |ps| {
+            ps.iter()
+                .filter(|p| !matches!(p.kind, dartforge_frontend::ast::ParameterKind::Named))
+                .count()
+        });
+        let retorno = match f.return_type {
+            None => None,
+            Some(t) => {
+                let sp = u.ast.ty(t).span;
+                let texto = u.source.get(sp.start..sp.end)?.to_string();
+                // Como em `membro_da_classe`: o texto não substitui
+                // o parâmetro de tipo pelo argumento do receptor.
+                let parametros: Vec<&str> = c
+                    .type_params
+                    .iter()
+                    .map(|p| self.interner.resolve(p.name))
+                    .chain(
+                        f.type_params
+                            .iter()
+                            .map(|p| self.interner.resolve(p.name.sym)),
+                    )
+                    .collect();
+                if texto
+                    .split(|ch: char| !ch.is_alphanumeric() && ch != '_' && ch != '$')
+                    .any(|t| parametros.contains(&t))
+                {
                     return None;
                 }
-                let posicionais = f.parameters.as_ref().map_or(0, |ps| {
-                    ps.iter()
-                        .filter(|p| {
-                            !matches!(p.kind, dartforge_frontend::ast::ParameterKind::Named)
-                        })
-                        .count()
-                });
-                let retorno = match f.return_type {
-                    None => None,
-                    Some(t) => {
-                        let sp = u.ast.ty(t).span;
-                        let texto = u.source.get(sp.start..sp.end)?.to_string();
-                        // Como em `membro_da_classe`: o texto não substitui
-                        // o parâmetro de tipo pelo argumento do receptor.
-                        let parametros: Vec<&str> = c
-                            .type_params
-                            .iter()
-                            .map(|p| self.interner.resolve(p.name))
-                            .chain(
-                                f.type_params
-                                    .iter()
-                                    .map(|p| self.interner.resolve(p.name.sym)),
-                            )
-                            .collect();
-                        if texto
-                            .split(|ch: char| !ch.is_alphanumeric() && ch != '_' && ch != '$')
-                            .any(|t| parametros.contains(&t))
-                        {
-                            return None;
-                        }
-                        Some((texto, u.path.clone()?))
-                    }
-                };
-                return Some(Metodo {
-                    posicionais,
-                    retorno,
-                });
+                Some((texto, u.path.clone()?))
             }
-            atual = c.supertype_class;
-        }
-        None
+        };
+        Some(Metodo {
+            posicionais,
+            retorno,
+        })
     }
 
     fn tipo_inexistente(&self, arquivo: &Path, tipo: &str) -> bool {
@@ -455,34 +447,26 @@ impl Resolucao for Resolvedor<'_> {
 
     fn membro_final(&self, arquivo: &Path, tipo: &str, membro: &str) -> Option<bool> {
         let sym = self.interner.lookup(membro)?;
-        let mut atual = self.classe(arquivo, tipo);
-        while let Some(id) = atual {
-            let c = self.program.class(id);
-            if let Some(&fid) = c.instance_members.get(&sym) {
-                let f = self.program.function(fid);
-                let Some(vid) = f.variable else {
-                    // Getter escrito: nunca imutável.
-                    return matches!(
-                        f.node,
-                        dartforge_elements::model::FunctionRef::Function { .. }
-                    )
-                    .then_some(false);
-                };
-                let dartforge_elements::model::VariableRef::Field { unit, member, .. } =
-                    self.program.variable(vid).node
-                else {
-                    return None;
-                };
-                let u = self.program.unit(unit);
-                let dartforge_frontend::ast::MemberKind::Field(lista) = &u.ast.member(member).kind
-                else {
-                    return None;
-                };
-                return Some(lista.final_ || lista.const_);
-            }
-            atual = c.supertype_class;
-        }
-        None
+        let (_, fid) = self.membro_de_instancia(self.classe(arquivo, tipo)?, sym, 0)?;
+        let f = self.program.function(fid);
+        let Some(vid) = f.variable else {
+            // Getter escrito: nunca imutável.
+            return matches!(
+                f.node,
+                dartforge_elements::model::FunctionRef::Function { .. }
+            )
+            .then_some(false);
+        };
+        let dartforge_elements::model::VariableRef::Field { unit, member, .. } =
+            self.program.variable(vid).node
+        else {
+            return None;
+        };
+        let u = self.program.unit(unit);
+        let dartforge_frontend::ast::MemberKind::Field(lista) = &u.ast.member(member).kind else {
+            return None;
+        };
+        Some(lista.final_ || lista.const_)
     }
 
     fn exportado(&self, arquivo: &Path, nome: &str) -> Option<(String, Exportado)> {
@@ -634,42 +618,61 @@ impl<'a> Resolvedor<'a> {
 
     /// Tipo declarado de um membro de instância, subindo pela superclasse
     /// quando a classe não o declara — que é onde ficam os campos herdados.
+    /// O membro de instância `sym` visto de `classe` e a classe que o
+    /// declara, na ordem de busca do Dart: a própria classe, os mixins do
+    /// último ao primeiro (`with A, B` põe `B` por cima de `A`) e, por fim,
+    /// a superclasse, recursivamente.
+    fn membro_de_instancia(
+        &self,
+        classe: ClassId,
+        sym: dartforge_intern::SymbolId,
+        profundidade: u32,
+    ) -> Option<(ClassId, dartforge_elements::model::FunctionElementId)> {
+        if profundidade > 64 {
+            return None;
+        }
+        let c = self.program.class(classe);
+        if let Some(&fid) = c.instance_members.get(&sym) {
+            return Some((classe, fid));
+        }
+        for &m in c.mixin_classes.iter().rev() {
+            if let Some(achado) = self.membro_de_instancia(m, sym, profundidade + 1) {
+                return Some(achado);
+            }
+        }
+        self.membro_de_instancia(c.supertype_class?, sym, profundidade + 1)
+    }
+
     fn membro_da_classe(&self, classe: ClassId, membro: &str) -> Option<(String, PathBuf)> {
         let sym = self.interner.lookup(membro)?;
-        let mut atual = Some(classe);
-        while let Some(id) = atual {
-            let c = self.program.class(id);
-            if let Some(&fid) = c.instance_members.get(&sym) {
-                let (tipo, escopo) = self.tipo_da_funcao(fid)?;
-                // Tipo que cita um parâmetro de tipo (`E first` de `List<E>`,
-                // `T m<T>()`): o analyzer o substitui pelo argumento do
-                // receptor; o texto não. Sem resposta, quem pergunta recusa.
-                let mut parametros: Vec<&str> = c
-                    .type_params
+        let (id, fid) = self.membro_de_instancia(classe, sym, 0)?;
+        let c = self.program.class(id);
+        let (tipo, escopo) = self.tipo_da_funcao(fid)?;
+        // Tipo que cita um parâmetro de tipo (`E first` de `List<E>`,
+        // `T m<T>()`): o analyzer o substitui pelo argumento do
+        // receptor; o texto não. Sem resposta, quem pergunta recusa.
+        let mut parametros: Vec<&str> = c
+            .type_params
+            .iter()
+            .map(|p| self.interner.resolve(p.name))
+            .collect();
+        if let dartforge_elements::model::FunctionRef::Function { unit, function } =
+            self.program.function(fid).node
+        {
+            let f = self.program.unit(unit).ast.function(function);
+            parametros.extend(
+                f.type_params
                     .iter()
-                    .map(|p| self.interner.resolve(p.name))
-                    .collect();
-                if let dartforge_elements::model::FunctionRef::Function { unit, function } =
-                    self.program.function(fid).node
-                {
-                    let f = self.program.unit(unit).ast.function(function);
-                    parametros.extend(
-                        f.type_params
-                            .iter()
-                            .map(|p| self.interner.resolve(p.name.sym)),
-                    );
-                }
-                let cita = tipo
-                    .split(|ch: char| !ch.is_alphanumeric() && ch != '_' && ch != '$')
-                    .any(|t| parametros.contains(&t));
-                if cita {
-                    return None;
-                }
-                return Some((tipo, escopo));
-            }
-            atual = c.supertype_class;
+                    .map(|p| self.interner.resolve(p.name.sym)),
+            );
         }
-        None
+        let cita = tipo
+            .split(|ch: char| !ch.is_alphanumeric() && ch != '_' && ch != '$')
+            .any(|t| parametros.contains(&t));
+        if cita {
+            return None;
+        }
+        Some((tipo, escopo))
     }
 
     /// O tipo que um acessor devolve: de um campo, o tipo escrito no campo;

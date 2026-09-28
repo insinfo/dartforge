@@ -287,6 +287,7 @@ import 'package:corpus_ngdart/src/j98_estatico_herdado.template.dart' as j98;
 import 'package:corpus_ngdart/src/j99_filho_que_herda.template.dart' as j99;
 import 'package:corpus_ngdart/src/j100_ngsp_e_ouvinte_herdado.template.dart' as j100;
 import 'package:corpus_ngdart/src/j101_classe_estatica_mesclada.template.dart' as j101;
+import 'package:corpus_ngdart/src/j102_mixin_com_host_binding.template.dart' as j102;
 
 void main() {
   print([
@@ -578,5 +579,6 @@ void main() {
     j99.J99UsaNgFactory,
     j100.J100NgspNgFactory,
     j101.J101UsaNgFactory,
+    j102.J102UsaNgFactory,
   ].length);
 }

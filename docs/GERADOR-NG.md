@@ -621,15 +621,19 @@ estático de um componente filho é mesclado com o `class` escrito no
 elemento (`_mergeHtmlAndDirectiveAttrs`: `interpolate2('', 'a b', ' ',
 X.hostClass, '')`), e um filho só com `@HostBinding` estático não tem
 `detectHostChanges`. Quem lista em `directives:` uma classe cuja anotação
-não compila no oficial (nome não resolvido) também falha, como ele.
-Corpus: **334 conferidos, 0 pendentes**.
+não compila no oficial (nome não resolvido) também falha, como ele. O
+membro herdado é procurado na ordem do Dart — a classe, os mixins do
+último ao primeiro, a superclasse (caso j102, o `HasTabIndex` usado em
+`with`) —, e `tabindex="3"` escrito no elemento de um filho é o
+`TabIndexBinding` (`el.tabIndex = 3`), como no elemento HTML. Corpus:
+**335 conferidos, 0 pendentes**.
 
 ngcomponents 3.0.0-dev.1 (o port do angular_components, num projeto de
-sonda com o `build_runner` oficial de referência): 474 `.template.dart` e
+sonda com o `build_runner` oficial de referência): 478 `.template.dart` e
 as 140 folhas `.scss.css.dart`/`.scss.css.shim.dart` iguais, **0
 diferentes**; as folhas `.scss.css` (do `SassBuilder` do próprio
 ngcomponents, com o sass 1.66.0) vêm do apoio, e o estágio A do ngdart as
-lê da memória do motor. Os 50 `.template.dart` pendentes são a próxima
+lê da memória do motor. Os 46 `.template.dart` pendentes são a próxima
 fila (formas de `@HostBinding` de diretiva, injeção anotada, atributo
 interpolado renomeado…).
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada

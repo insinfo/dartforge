@@ -81,8 +81,8 @@ pub struct Hospedeira {
     /// decide entre `toString()`, `?.toString()` e o valor direto
     /// (`visitStyleBinding`).
     pub tipos_de_estilo: std::collections::HashMap<String, String>,
-    /// Alguma ligação fora do que sabemos traduzir.
-    pub recusada: bool,
+    /// Alguma ligação fora do que sabemos traduzir: o motivo.
+    pub recusada: Option<String>,
 }
 
 /// Lê os `@HostBinding` de uma classe `@Directive`; `None` se não há.
@@ -96,7 +96,10 @@ fn hospedeira(
     let mut tipos_de_estilo = std::collections::HashMap::new();
     let mut acessores = Vec::new();
     let mut campos = Vec::new();
-    let mut recusada = false;
+    let mut recusada: Option<String> = None;
+    let recusar = |motivo: String, recusada: &mut Option<String>| {
+        recusada.get_or_insert(motivo);
+    };
     let mut alguma = false;
     for &m in &classe.members {
         let membro = arvore.member(m);
@@ -118,7 +121,7 @@ fn hospedeira(
                 _ => None,
             };
             let Some(nome) = nome else {
-                recusada = true;
+                recusar("@HostBinding com nome que não é texto".into(), &mut recusada);
                 continue;
             };
             // `class.x`, `attr.x`, propriedade e `style.x`
@@ -148,7 +151,9 @@ fn hospedeira(
                 {
                     let membro = interner.resolve(l.variables[0].name.sym).to_string();
                     let nome = nome.unwrap_or_else(|| membro.clone());
-                    recusada |= !aceita(&nome, &membro, true);
+                    if !aceita(&nome, &membro, true) {
+                        recusar(format!("@HostBinding('{nome}') fora das formas"), &mut recusada);
+                    }
                     if let Some(m) = membros.get(&membro) {
                         tipos_de_estilo.insert(membro.clone(), m.tipo.trim().to_string());
                     }
@@ -160,13 +165,27 @@ fn hospedeira(
                         (ast::FunctionKind::Getter, Some(n)) if !funcao.static_ => {
                             let membro = interner.resolve(n.sym).to_string();
                             let nome = nome.unwrap_or_else(|| membro.clone());
-                            recusada |= !aceita(&nome, &membro, false);
+                            if !aceita(&nome, &membro, false) {
+                                recusar(
+                                    format!("@HostBinding('{nome}') fora das formas"),
+                                    &mut recusada,
+                                );
+                            }
                             acessores.push((nome, membro));
                         }
-                        _ => recusada = true,
+                        _ => recusar(
+                            "@HostBinding em método, setter ou getter estático".into(),
+                            &mut recusada,
+                        ),
                     }
                 }
-                _ => recusada = true,
+                ast::MemberKind::Field(l) if l.static_ => {
+                    recusar("@HostBinding em campo estático".into(), &mut recusada)
+                }
+                ast::MemberKind::Field(l) if l.final_ || l.const_ => {
+                    recusar("@HostBinding em campo final".into(), &mut recusada)
+                }
+                _ => recusar("@HostBinding em membro fora da forma".into(), &mut recusada),
             }
         }
     }
@@ -178,11 +197,11 @@ fn hospedeira(
     // valor e mantém a posição do primeiro.
     let mut vistos = std::collections::HashSet::new();
     if !acessores.iter().all(|(c, _)| vistos.insert(c.clone())) {
-        recusada = true;
+        recusar("@HostBinding com nome repetido".into(), &mut recusada);
     }
     // Tipo genérico muda a declaração da classe (`XNgCd<T>`); ainda não.
     if !classe.type_params.is_empty() {
-        recusada = true;
+        recusar("@HostBinding em diretiva genérica".into(), &mut recusada);
     }
     Some(Hospedeira {
         classe: interner.resolve(classe.name.sym).to_string(),
@@ -1349,7 +1368,7 @@ fn hospedeiras_efetivas(
             classe: d.classe.clone(),
             ligacoes: m.ligacoes_do_hospedeiro.clone(),
             tipos_de_estilo: std::collections::HashMap::new(),
-            recusada: false,
+            recusada: None,
         };
         for (nome, membro) in &m.ligacoes_do_hospedeiro {
             let forma = visao::forma_do_hospedeiro(nome);
@@ -1357,8 +1376,14 @@ fn hospedeiras_efetivas(
                 .and_then(|r| r.membro_final(fonte, &d.classe, membro))
                 .is_some_and(|f| !f);
             match forma {
-                Err(_) => h.recusada = true,
-                Ok(_) if !mutavel => h.recusada = true,
+                Err(f) => {
+                    h.recusada.get_or_insert(f);
+                }
+                Ok(_) if !mutavel => {
+                    h.recusada.get_or_insert(format!(
+                        "@HostBinding('{nome}') herdado em membro final ou ilegível"
+                    ));
+                }
                 Ok(visao::FormaDoHospedeiro::Estilo { .. }) => {
                     // O tipo escrito, pelo programa (que sobe até a classe
                     // que declara o membro), senão o da própria classe.
@@ -1374,7 +1399,11 @@ fn hospedeiras_efetivas(
                         {
                             h.tipos_de_estilo.insert(membro.clone(), t);
                         }
-                        _ => h.recusada = true,
+                        _ => {
+                            h.recusada.get_or_insert(format!(
+                                "@HostBinding('{nome}') de tipo desconhecido"
+                            ));
+                        }
                     }
                 }
                 Ok(_) => {}
@@ -1531,11 +1560,8 @@ fn gerar_visoes(
         }
         // As classes `XNgCd` na ordem do fonte, com a tabela de imports
         // compartilhada; diretiva sem `@HostBinding` e pipe não geram nada.
-        if hospedeiras.iter().any(|h| h.recusada) {
-            return Err(recusa(
-                Motivo::HostBindingEmDiretiva,
-                "@HostBinding fora de class.x/attr.x/propriedade",
-            ));
+        if let Some(m) = hospedeiras.iter().find_map(|h| h.recusada.clone()) {
+            return Err(recusa(Motivo::HostBindingEmDiretiva, m));
         }
         let hs: Vec<&Hospedeira> = hospedeiras.iter().collect();
         return Ok((
@@ -1547,11 +1573,8 @@ fn gerar_visoes(
     // Diretiva sem `@HostBinding`/`@HostListener` e pipe não geram nada no
     // arquivo (caso j29); a com `@HostBinding` ganha a classe `XNgCd` depois
     // dos componentes (caso j45).
-    if hospedeiras.iter().any(|h| h.recusada) {
-        return Err(recusa(
-            Motivo::HostBindingEmDiretiva,
-            "@HostBinding fora de class.x/attr.x/propriedade",
-        ));
+    if let Some(m) = hospedeiras.iter().find_map(|h| h.recusada.clone()) {
+        return Err(recusa(Motivo::HostBindingEmDiretiva, m));
     }
     // Vários componentes: a tabela de imports é uma só e os trechos saem na
     // ordem do fonte (caso i24); o import da folha de cada um é alocado

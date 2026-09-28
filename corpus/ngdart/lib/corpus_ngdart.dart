@@ -315,3 +315,4 @@ export 'src/j98_estatico_herdado.dart';
 export 'src/j99_filho_que_herda.dart';
 export 'src/j100_ngsp_e_ouvinte_herdado.dart';
 export 'src/j101_classe_estatica_mesclada.dart';
+export 'src/j102_mixin_com_host_binding.dart';
