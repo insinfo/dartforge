@@ -211,6 +211,7 @@ dependencies = [
  "blake3",
  "dartforge-dfexec",
  "dartforge-elements",
+ "dartforge-frontend",
  "dartforge-gerador-ng",
  "dartforge-intern",
  "serde_json",

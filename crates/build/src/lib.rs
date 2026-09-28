@@ -9,10 +9,11 @@
 //! **Custo zero para quem não usa** (PLANO.md, regra governante): nada deste
 //! crate é construído se o `package_config.json` não tem `build_runner`
 //! ([`detectar`]); [`instancias`] conta os motores criados, para o portão.
-pub mod config;
 pub mod cliente;
+pub mod config;
 pub mod consulta;
 pub mod descritor;
+pub mod equivalente;
 pub mod executor;
 pub mod extensoes;
 pub mod glob;
@@ -58,8 +59,15 @@ pub fn detectar(cfg: &PackageConfig) -> bool {
 /// Diretório do pacote raiz: o do `pubspec.yaml` mais próximo acima de
 /// `caminho` (arquivo ou diretório).
 pub fn raiz_do_pacote(caminho: &Path) -> Option<PathBuf> {
-    let inicio = if caminho.is_dir() { caminho } else { caminho.parent()? };
-    inicio.ancestors().find(|d| d.join("pubspec.yaml").is_file()).map(Path::to_path_buf)
+    let inicio = if caminho.is_dir() {
+        caminho
+    } else {
+        caminho.parent()?
+    };
+    inicio
+        .ancestors()
+        .find(|d| d.join("pubspec.yaml").is_file())
+        .map(Path::to_path_buf)
 }
 
 /// O plano do `build.dart` de um projeto (a lista de aplicações), com o

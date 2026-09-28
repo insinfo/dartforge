@@ -14,7 +14,11 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 enum Expr {
-    Chamada { alvo: String, pos: Vec<Expr>, nom: Vec<(String, Expr)> },
+    Chamada {
+        alvo: String,
+        pos: Vec<Expr>,
+        nom: Vec<(String, Expr)>,
+    },
     Lista(Vec<Expr>),
     Mapa(Vec<(Expr, Expr)>),
     Texto(String),
@@ -73,7 +77,10 @@ impl Lx<'_> {
     fn ident(&mut self) -> Option<String> {
         self.espacos();
         let ini = self.i;
-        while self.i < self.s.len() && (self.s[self.i].is_ascii_alphanumeric() || self.s[self.i] == b'_' || self.s[self.i] == b'$')
+        while self.i < self.s.len()
+            && (self.s[self.i].is_ascii_alphanumeric()
+                || self.s[self.i] == b'_'
+                || self.s[self.i] == b'$')
         {
             self.i += 1;
         }
@@ -107,7 +114,9 @@ impl Lx<'_> {
         if cru {
             self.i += 1;
         }
-        let Some(&q) = self.s.get(self.i) else { return Ok(None) };
+        let Some(&q) = self.s.get(self.i) else {
+            return Ok(None);
+        };
         if q != b'\'' && q != b'"' {
             if cru {
                 self.i -= 1;
@@ -181,13 +190,18 @@ impl Lx<'_> {
             let ini = self.i;
             self.i += 1;
             while self.i < self.s.len()
-                && (self.s[self.i].is_ascii_alphanumeric() || matches!(self.s[self.i], b'.' | b'+' | b'-'))
+                && (self.s[self.i].is_ascii_alphanumeric()
+                    || matches!(self.s[self.i], b'.' | b'+' | b'-'))
             {
                 self.i += 1;
             }
-            return Ok(Expr::Num(String::from_utf8_lossy(&self.s[ini..self.i]).to_string()));
+            return Ok(Expr::Num(
+                String::from_utf8_lossy(&self.s[ini..self.i]).to_string(),
+            ));
         }
-        let mut nome = self.ident().ok_or_else(|| format!("build.dart: expressão inesperada na posição {}", self.i))?;
+        let mut nome = self
+            .ident()
+            .ok_or_else(|| format!("build.dart: expressão inesperada na posição {}", self.i))?;
         match nome.as_str() {
             "true" => return Ok(Expr::Bool(true)),
             "false" => return Ok(Expr::Bool(false)),
@@ -218,7 +232,11 @@ impl Lx<'_> {
                 break;
             }
         }
-        Ok(Expr::Chamada { alvo: nome, pos, nom })
+        Ok(Expr::Chamada {
+            alvo: nome,
+            pos,
+            nom,
+        })
     }
 }
 
@@ -262,7 +280,9 @@ fn opcoes(e: &Expr) -> Result<Mapa, String> {
             Valor::Mapa(m) => Ok(m),
             o => Err(format!("build.dart: BuilderOptions sem mapa: {o:?}")),
         },
-        o => Err(format!("build.dart: esperava BuilderOptions(...), veio {o:?}")),
+        o => Err(format!(
+            "build.dart: esperava BuilderOptions(...), veio {o:?}"
+        )),
     }
 }
 
@@ -273,7 +293,10 @@ fn metodo(alvo: &str) -> &str {
 /// As aplicações do `build.dart`, na ordem, como `Aplicacao` (os campos que
 /// o script não traz ficam vazios).
 pub fn ler_build_dart(texto: &str) -> Result<Vec<Aplicacao>, String> {
-    let mut lx = Lx { s: texto.as_bytes(), i: 0 };
+    let mut lx = Lx {
+        s: texto.as_bytes(),
+        i: 0,
+    };
     // Imports: `import 'uri' as _iN;`
     let mut prefixos: HashMap<String, String> = HashMap::new();
     loop {
@@ -296,7 +319,10 @@ pub fn ler_build_dart(texto: &str) -> Result<Vec<Aplicacao>, String> {
     };
     let resolver = |r: &str| -> String {
         match r.split_once('.') {
-            Some((p, n)) => format!("{}#{n}", prefixos.get(p).cloned().unwrap_or_else(|| p.to_string())),
+            Some((p, n)) => format!(
+                "{}#{n}",
+                prefixos.get(p).cloned().unwrap_or_else(|| p.to_string())
+            ),
             None => r.to_string(),
         }
     };
@@ -325,8 +351,15 @@ pub fn ler_build_dart(texto: &str) -> Result<Vec<Aplicacao>, String> {
             Some(Expr::Ref(r)) => vec![resolver(r)],
             _ => return Err(format!("build.dart: `{chave}` sem fábricas")),
         };
-        let import = refs.first().and_then(|r| r.split_once('#')).map(|(i, _)| i.to_string()).unwrap_or_default();
-        let fabricas: Vec<String> = refs.iter().map(|r| r.split_once('#').map(|(_, n)| n).unwrap_or(r).to_string()).collect();
+        let import = refs
+            .first()
+            .and_then(|r| r.split_once('#'))
+            .map(|(i, _)| i.to_string())
+            .unwrap_or_default();
+        let fabricas: Vec<String> = refs
+            .iter()
+            .map(|r| r.split_once('#').map(|(_, n)| n).unwrap_or(r).to_string())
+            .collect();
         let filtro = if e_pos {
             Filtro::Nenhum
         } else {
@@ -393,7 +426,10 @@ pub fn ler_build_dart(texto: &str) -> Result<Vec<Aplicacao>, String> {
 /// Compara o plano com o `build.dart`: `Ok(())` se iguais, senão a lista
 /// das diferenças por linha (`-` oráculo, `+` motor).
 pub fn comparar(plano: &[Aplicacao], build_dart: &str) -> Result<Result<(), Vec<String>>, String> {
-    let oraculo: Vec<String> = ler_build_dart(build_dart)?.iter().map(Aplicacao::texto_canonico).collect();
+    let oraculo: Vec<String> = ler_build_dart(build_dart)?
+        .iter()
+        .map(Aplicacao::texto_canonico)
+        .collect();
     let nosso: Vec<String> = plano.iter().map(Aplicacao::texto_canonico).collect();
     if oraculo == nosso {
         return Ok(Ok(()));

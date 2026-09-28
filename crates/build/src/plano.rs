@@ -4,7 +4,7 @@
 use crate::config::{AutoApply, BuildConfig, BuildTo, InputSet};
 use crate::extensoes::Extensoes;
 use crate::glob::Glob;
-use crate::pacotes::{scc, GrafoPacotes, SDK};
+use crate::pacotes::{GrafoPacotes, SDK, scc};
 use crate::valor::Mapa;
 use std::collections::HashMap;
 
@@ -20,7 +20,9 @@ impl Filtro {
     fn texto(&self) -> String {
         match self {
             Filtro::Nenhum => "toNoneByDefault()".into(),
-            Filtro::DependentesDe(p) => format!("toDependentsOf({})", serde_json::Value::String(p.clone())),
+            Filtro::DependentesDe(p) => {
+                format!("toDependentsOf({})", serde_json::Value::String(p.clone()))
+            }
             Filtro::Todos => "toAllPackages()".into(),
             Filtro::Raiz => "toRoot()".into(),
         }
@@ -54,10 +56,23 @@ impl Aplicacao {
     /// Forma canônica, comparável com a que se lê do `build.dart`.
     pub fn texto_canonico(&self) -> String {
         let l = |v: &[String]| {
-            crate::valor::Valor::Lista(v.iter().map(|s| crate::valor::Valor::Texto(s.clone())).collect()).texto_canonico()
+            crate::valor::Valor::Lista(
+                v.iter()
+                    .map(|s| crate::valor::Valor::Texto(s.clone()))
+                    .collect(),
+            )
+            .texto_canonico()
         };
-        let fabricas: Vec<String> = self.fabricas.iter().map(|f| format!("{}#{f}", self.import)).collect();
-        let gf = self.generate_for_padrao.as_ref().map(|g| g.texto_canonico()).unwrap_or_else(|| "-".into());
+        let fabricas: Vec<String> = self
+            .fabricas
+            .iter()
+            .map(|f| format!("{}#{f}", self.import))
+            .collect();
+        let gf = self
+            .generate_for_padrao
+            .as_ref()
+            .map(|g| g.texto_canonico())
+            .unwrap_or_else(|| "-".into());
         if self.pos {
             format!(
                 "applyPostProcess {} {} defaultGenerateFor={gf} defaultOptions={} defaultDevOptions={} defaultReleaseOptions={}",
@@ -133,21 +148,32 @@ pub struct Configs {
 fn overrides(grafo: &GrafoPacotes) -> Result<HashMap<String, BuildConfig>, String> {
     let raiz = &grafo.nos[grafo.raiz];
     let mut m = HashMap::new();
-    let Ok(ls) = std::fs::read_dir(&raiz.raiz) else { return Ok(m) };
+    let Ok(ls) = std::fs::read_dir(&raiz.raiz) else {
+        return Ok(m);
+    };
     let glob = Glob::novo("*.build.yaml")?;
-    let mut nomes: Vec<String> =
-        ls.flatten().filter(|e| e.path().is_file()).map(|e| e.file_name().to_string_lossy().to_string()).collect();
+    let mut nomes: Vec<String> = ls
+        .flatten()
+        .filter(|e| e.path().is_file())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
     nomes.sort();
     for nome in nomes {
         if !glob.casa(&nome) {
             continue;
         }
         let pacote = nome.split('.').next().unwrap_or_default().to_string();
-        let Some(no) = grafo.no(&pacote) else { continue };
+        let Some(no) = grafo.no(&pacote) else {
+            continue;
+        };
         let deps: Vec<String> = no.deps.iter().map(|&d| grafo.nos[d].nome.clone()).collect();
         let caminho = raiz.raiz.join(&nome);
-        let texto = std::fs::read_to_string(&caminho).map_err(|e| format!("{}: {e}", caminho.display()))?;
-        m.insert(pacote.clone(), BuildConfig::de_texto(&pacote, &deps, &texto, &caminho.display().to_string())?);
+        let texto =
+            std::fs::read_to_string(&caminho).map_err(|e| format!("{}: {e}", caminho.display()))?;
+        m.insert(
+            pacote.clone(),
+            BuildConfig::de_texto(&pacote, &deps, &texto, &caminho.display().to_string())?,
+        );
     }
     Ok(m)
 }
@@ -171,7 +197,9 @@ impl Configs {
             }
             match BuildConfig::do_diretorio(&no.nome, &deps, &no.raiz) {
                 Ok(c) => por_pacote.push(c),
-                Err(e) if estrito => return Err(format!("Failed to parse `build.yaml` for {}: {e}", no.nome)),
+                Err(e) if estrito => {
+                    return Err(format!("Failed to parse `build.yaml` for {}: {e}", no.nome));
+                }
                 Err(e) => {
                     avisos.push(e);
                     por_pacote.push(BuildConfig::padrao(&no.nome, &deps));
@@ -191,7 +219,10 @@ pub struct Plano {
 
 impl Plano {
     pub fn texto_canonico(&self) -> String {
-        self.aplicacoes.iter().map(|a| a.texto_canonico() + "\n").collect()
+        self.aplicacoes
+            .iter()
+            .map(|a| a.texto_canonico() + "\n")
+            .collect()
     }
 
     pub fn aplicacao(&self, chave: &str) -> Option<&Aplicacao> {
@@ -218,7 +249,10 @@ impl Plano {
                 if valido(&b.import, &b.pacote) {
                     defs.push(b.clone());
                 } else {
-                    avisos.push(format!("Could not load imported package for definition \"{}\".", b.chave));
+                    avisos.push(format!(
+                        "Could not load imported package for definition \"{}\".",
+                        b.chave
+                    ));
                 }
             }
             for p in &c.pos {
@@ -231,22 +265,29 @@ impl Plano {
         // `findBuilderOrder` (`builder_ordering.dart`).
         defs.sort_by(|a, b| a.chave.cmp(&b.chave));
         let n = defs.len();
-        let saidas: Vec<Vec<&String>> = defs.iter().map(|d| d.extensoes.iter().flat_map(|(_, s)| s).collect()).collect();
+        let saidas: Vec<Vec<&String>> = defs
+            .iter()
+            .map(|d| d.extensoes.iter().flat_map(|(_, s)| s).collect())
+            .collect();
         let deve_antes = |filho: usize, pai: usize| -> bool {
             defs[filho].runs_before.contains(&defs[pai].chave)
-                || cfg_raiz.global_de(&defs[filho].chave).is_some_and(|g| g.runs_before.contains(&defs[pai].chave))
+                || cfg_raiz
+                    .global_de(&defs[filho].chave)
+                    .is_some_and(|g| g.runs_before.contains(&defs[pai].chave))
         };
-        let arestas: Vec<Vec<usize>> = (0..n)
-            .map(|pai| {
-                (0..n)
-                    .filter(|&filho| {
-                        pai != filho
-                            && (defs[pai].required_inputs.iter().any(|ri| saidas[filho].iter().any(|s| s.ends_with(ri.as_str())))
-                                || deve_antes(filho, pai))
-                    })
-                    .collect()
-            })
-            .collect();
+        let arestas: Vec<Vec<usize>> =
+            (0..n)
+                .map(|pai| {
+                    (0..n)
+                        .filter(|&filho| {
+                            pai != filho
+                                && (defs[pai].required_inputs.iter().any(|ri| {
+                                    saidas[filho].iter().any(|s| s.ends_with(ri.as_str()))
+                                }) || deve_antes(filho, pai))
+                        })
+                        .collect()
+                })
+                .collect();
         // Kahn com fila de prioridade pela chave (`_topologicalSortWithSecondary`).
         let mut entrada = vec![0usize; n];
         for a in &arestas {
@@ -254,8 +295,10 @@ impl Plano {
                 entrada[f] += 1;
             }
         }
-        let mut prontos: std::collections::BTreeSet<(String, usize)> =
-            (0..n).filter(|&i| entrada[i] == 0).map(|i| (defs[i].chave.clone(), i)).collect();
+        let mut prontos: std::collections::BTreeSet<(String, usize)> = (0..n)
+            .filter(|&i| entrada[i] == 0)
+            .map(|i| (defs[i].chave.clone(), i))
+            .collect();
         let mut kahn = Vec::with_capacity(n);
         while let Some(primeiro) = prontos.iter().next().cloned() {
             prontos.remove(&primeiro);
@@ -268,7 +311,10 @@ impl Plano {
             }
         }
         if kahn.len() < n {
-            let ciclo: Vec<&str> = (0..n).filter(|&i| entrada[i] > 0).map(|i| defs[i].chave.as_str()).collect();
+            let ciclo: Vec<&str> = (0..n)
+                .filter(|&i| entrada[i] > 0)
+                .map(|i| defs[i].chave.as_str())
+                .collect();
             return Err(format!("Required input cycle for [{}]", ciclo.join(", ")));
         }
         kahn.reverse();
@@ -341,8 +387,14 @@ impl Casador {
     pub fn novo(s: &InputSet, padrao_include: Option<&[String]>) -> Result<Casador, String> {
         let inc = s.include.as_deref().or(padrao_include);
         Ok(Casador {
-            include: inc.map(|v| v.iter().map(|g| Glob::novo(g)).collect::<Result<_, _>>()).transpose()?,
-            exclude: s.exclude.as_ref().map(|v| v.iter().map(|g| Glob::novo(g)).collect::<Result<_, _>>()).transpose()?,
+            include: inc
+                .map(|v| v.iter().map(|g| Glob::novo(g)).collect::<Result<_, _>>())
+                .transpose()?,
+            exclude: s
+                .exclude
+                .as_ref()
+                .map(|v| v.iter().map(|g| Glob::novo(g)).collect::<Result<_, _>>())
+                .transpose()?,
         })
     }
 
@@ -354,7 +406,9 @@ impl Casador {
     }
 
     pub fn exclui(&self, caminho: &str) -> bool {
-        self.exclude.as_ref().is_some_and(|v| !v.is_empty() && v.iter().any(|g| g.casa(caminho)))
+        self.exclude
+            .as_ref()
+            .is_some_and(|v| !v.is_empty() && v.iter().any(|g| g.casa(caminho)))
     }
 
     pub fn casa(&self, caminho: &str) -> bool {
@@ -364,7 +418,11 @@ impl Casador {
     pub fn texto(&self) -> String {
         let l = |v: &Option<Vec<Glob>>| match v {
             None => "-".to_string(),
-            Some(v) => v.iter().map(|g| g.padrao.as_str()).collect::<Vec<_>>().join(","),
+            Some(v) => v
+                .iter()
+                .map(|g| g.padrao.as_str())
+                .collect::<Vec<_>>()
+                .join(","),
         };
         format!("[{}]-[{}]", l(&self.include), l(&self.exclude))
     }
@@ -392,6 +450,10 @@ pub struct Fase {
     /// fase não tem âncoras (`_addPostBuildPhaseAnchors`).
     pub entradas_pos: Option<Vec<String>>,
     pub substituido: Option<&'static str>,
+    /// A fábrica é um builder conhecido com opções fixas
+    /// ([`crate::equivalente`]): a chave dele, e `opcoes` já são as do
+    /// construtor.
+    pub equivalente: Option<&'static str>,
 }
 
 impl Fase {
@@ -435,7 +497,11 @@ pub fn fases(
     for (p, c) in configs.por_pacote.iter().enumerate() {
         for (a, alvo) in c.alvos.iter().enumerate() {
             por_chave.insert(alvo.chave.as_str(), nos.len());
-            nos.push(NoAlvo { pacote: p, config: p, alvo: a });
+            nos.push(NoAlvo {
+                pacote: p,
+                config: p,
+                alvo: a,
+            });
         }
     }
     let alvo = |n: &NoAlvo| &configs.por_pacote[n.config].alvos[n.alvo];
@@ -445,7 +511,10 @@ pub fn fases(
         let mut v = Vec::new();
         for d in &a.dependencias {
             let Some(&i) = por_chave.get(d.as_str()) else {
-                return Err(format!("{} declares a dependency on {d} but it does not exist", a.chave));
+                return Err(format!(
+                    "{} declares a dependency on {d} but it does not exist",
+                    a.chave
+                ));
             };
             v.push(i);
         }
@@ -458,10 +527,23 @@ pub fn fases(
     let global: HashMap<&str, Mapa> = cfg_raiz
         .global
         .iter()
-        .map(|(k, g)| (k.as_str(), g.options.sobrepor(if release { &g.release_options } else { &g.dev_options })))
+        .map(|(k, g)| {
+            (
+                k.as_str(),
+                g.options.sobrepor(if release {
+                    &g.release_options
+                } else {
+                    &g.dev_options
+                }),
+            )
+        })
         .collect();
-    let por_aplicacao: HashMap<&str, usize> =
-        plano.aplicacoes.iter().enumerate().map(|(i, a)| (a.chave.as_str(), i)).collect();
+    let por_aplicacao: HashMap<&str, usize> = plano
+        .aplicacoes
+        .iter()
+        .enumerate()
+        .map(|(i, a)| (a.chave.as_str(), i))
+        .collect();
     let mut aplica_com: HashMap<&str, Vec<usize>> = HashMap::new();
     for (i, a) in plano.aplicacoes.iter().enumerate() {
         for b in &a.aplica {
@@ -484,7 +566,11 @@ pub fn fases(
         let ap = &plano.aplicacoes[a];
         let no = &nos[n];
         let pacote = &grafo.nos[no.pacote];
-        let todas_ocultas = ap.aplica.iter().all(|b| por_aplicacao.get(b.as_str()).is_none_or(|&i| plano.aplicacoes[i].oculta));
+        let todas_ocultas = ap.aplica.iter().all(|b| {
+            por_aplicacao
+                .get(b.as_str())
+                .is_none_or(|&i| plano.aplicacoes[i].oculta)
+        });
         if !(ap.oculta && todas_ocultas) && !pacote.e_raiz {
             return false;
         }
@@ -500,18 +586,40 @@ pub fn fases(
         }
         aplica_com.get(ap.chave.as_str()).is_some_and(|ancoras| {
             ancoras.iter().any(|&anc| {
-                deve_aplicar(anc, n, grafo, plano, nos, configs, por_aplicacao, aplica_com, profundidade + 1)
+                deve_aplicar(
+                    anc,
+                    n,
+                    grafo,
+                    plano,
+                    nos,
+                    configs,
+                    por_aplicacao,
+                    aplica_com,
+                    profundidade + 1,
+                )
             })
         })
     }
 
+    let mut equivalentes: HashMap<(usize, String), Option<crate::equivalente::Equivalente>> =
+        HashMap::new();
     let mut em_build = Vec::new();
     let mut pos = Vec::new();
     for ciclo in &ciclos {
         for (ia, ap) in plano.aplicacoes.iter().enumerate() {
             for fab in &ap.fabricas {
                 for &n in ciclo {
-                    if !deve_aplicar(ia, n, grafo, plano, &nos, configs, &por_aplicacao, &aplica_com, 0) {
+                    if !deve_aplicar(
+                        ia,
+                        n,
+                        grafo,
+                        plano,
+                        &nos,
+                        configs,
+                        &por_aplicacao,
+                        &aplica_com,
+                        0,
+                    ) {
                         continue;
                     }
                     let no = &nos[n];
@@ -519,21 +627,57 @@ pub fn fases(
                     let cfg = a.cfg(&ap.chave);
                     let vazio = Mapa::default();
                     let opcoes_alvo = cfg
-                        .map(|c| c.options.sobrepor(if release { &c.release_options } else { &c.dev_options }))
+                        .map(|c| {
+                            c.options.sobrepor(if release {
+                                &c.release_options
+                            } else {
+                                &c.dev_options
+                            })
+                        })
                         .unwrap_or_default()
                         .sobrepor(global.get(ap.chave.as_str()).unwrap_or(&vazio));
                     let opcoes = ap
                         .opcoes_padrao
-                        .sobrepor(if release { &ap.opcoes_release } else { &ap.opcoes_dev })
+                        .sobrepor(if release {
+                            &ap.opcoes_release
+                        } else {
+                            &ap.opcoes_dev
+                        })
                         .sobrepor(&opcoes_alvo);
-                    let generate_for =
-                        cfg.and_then(|c| c.generate_for.clone()).or_else(|| ap.generate_for_padrao.clone()).unwrap_or_default();
+                    let generate_for = cfg
+                        .and_then(|c| c.generate_for.clone())
+                        .or_else(|| ap.generate_for_padrao.clone())
+                        .unwrap_or_default();
                     let substituido = crate::descritor::substituido(&ap.chave);
+                    let equivalente = if ap.pos || substituido.is_some() {
+                        None
+                    } else {
+                        equivalentes
+                            .entry((ia, fab.clone()))
+                            .or_insert_with(|| {
+                                crate::equivalente::equivalente(
+                                    grafo,
+                                    &ap.import,
+                                    fab,
+                                    &ap.extensoes_declaradas,
+                                )
+                            })
+                            .clone()
+                    };
+                    let opcoes = match &equivalente {
+                        Some(e) => e.opcoes.clone(),
+                        None => opcoes,
+                    };
                     let extensoes = if ap.pos || substituido.is_some() {
                         None
                     } else {
-                        let decl =
-                            crate::descritor::extensoes_de_execucao(&ap.chave, fab, &ap.fabricas, &opcoes, &ap.extensoes_declaradas)?;
+                        let decl = crate::descritor::extensoes_de_execucao(
+                            &ap.chave,
+                            fab,
+                            &ap.fabricas,
+                            &opcoes,
+                            &ap.extensoes_declaradas,
+                        )?;
                         Some(Extensoes::novas(&decl, &ap.chave)?)
                     };
                     let f = Fase {
@@ -551,6 +695,7 @@ pub fn fases(
                         extensoes,
                         entradas_pos: None,
                         substituido,
+                        equivalente: equivalente.map(|e| e.chave),
                     };
                     if ap.pos {
                         pos.push(f);
@@ -572,7 +717,13 @@ mod testes {
     #[test]
     fn import_relativo_do_script() {
         assert_eq!(import_do_script("package:a/b.dart"), "package:a/b.dart");
-        assert_eq!(import_do_script("tool/builders.dart"), "../../../tool/builders.dart");
-        assert_eq!(import_do_script("./tool/builders.dart"), "../../../tool/builders.dart");
+        assert_eq!(
+            import_do_script("tool/builders.dart"),
+            "../../../tool/builders.dart"
+        );
+        assert_eq!(
+            import_do_script("./tool/builders.dart"),
+            "../../../tool/builders.dart"
+        );
     }
 }

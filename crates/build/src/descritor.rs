@@ -14,9 +14,9 @@ use crate::valor::{Mapa, Valor};
 pub fn substituido(chave: &str) -> Option<&'static str> {
     let pacote = chave.split(':').next().unwrap_or_default();
     match pacote {
-        "build_web_compilers" | "build_modules" => {
-            Some("compilação para JavaScript: é o compilador que o DartForge substitui (BUILD-RUST.md §4)")
-        }
+        "build_web_compilers" | "build_modules" => Some(
+            "compilação para JavaScript: é o compilador que o DartForge substitui (BUILD-RUST.md §4)",
+        ),
         "build_resolvers" => Some("cache do analyzer: substituído pelo banco semântico"),
         "build_test" => Some("bootstrap de teste: só em `dartforge test`"),
         _ => None,
@@ -36,7 +36,10 @@ pub fn imita(chave: &str) -> &'static [(&'static str, &'static str)] {
     }
 }
 
-fn mapa_de_extensoes(v: &Valor, lista_ou_texto: bool) -> Result<Vec<(String, Vec<String>)>, String> {
+fn mapa_de_extensoes(
+    v: &Valor,
+    lista_ou_texto: bool,
+) -> Result<Vec<(String, Vec<String>)>, String> {
     let Valor::Mapa(m) = v else {
         return Err("build_extensions should be a map from inputs to outputs".into());
     };
@@ -47,9 +50,11 @@ fn mapa_de_extensoes(v: &Valor, lista_ou_texto: bool) -> Result<Vec<(String, Vec
         };
         let saidas: Vec<String> = match s {
             Valor::Texto(t) => vec![t.clone()],
-            Valor::Lista(l) if lista_ou_texto => {
-                l.iter().map(|x| x.como_texto().map(str::to_string)).collect::<Option<_>>().ok_or("saída não é texto")?
-            }
+            Valor::Lista(l) if lista_ou_texto => l
+                .iter()
+                .map(|x| x.como_texto().map(str::to_string))
+                .collect::<Option<_>>()
+                .ok_or("saída não é texto")?,
             _ => return Err(format!("valor inválido em build_extensions para `{k}`")),
         };
         r.push((k.to_string(), saidas));
@@ -70,7 +75,10 @@ pub fn extensoes_de_execucao(
     declaradas: &[(String, Vec<String>)],
 ) -> Result<Vec<(String, Vec<String>)>, String> {
     let e = |pares: &[(&str, &[&str])]| -> Vec<(String, Vec<String>)> {
-        pares.iter().map(|(a, b)| (a.to_string(), b.iter().map(|s| s.to_string()).collect())).collect()
+        pares
+            .iter()
+            .map(|(a, b)| (a.to_string(), b.iter().map(|s| s.to_string()).collect()))
+            .collect()
     };
     Ok(match (chave, fabrica) {
         // `ngdart-8.0.0-dev.4/lib/src/build.dart:33-76`,
@@ -86,7 +94,10 @@ pub fn extensoes_de_execucao(
         }
         ("ngdart:ngdart", "stylesheetCompiler") => e(&[(".css", &[".css.shim.dart", ".css.dart"])]),
         // `sass_builder-2.2.1/lib/sass_builder.dart:130-132`.
-        ("sass_builder:sass_builder", _) => e(&[(".scss", &[".css", ".css.map"]), (".sass", &[".css", ".css.map"])]),
+        ("sass_builder:sass_builder", _) => e(&[
+            (".scss", &[".css", ".css.map"]),
+            (".sass", &[".css", ".css.map"]),
+        ]),
         // `source_gen-2.0.0/lib/builder.dart` (`validatedBuildExtensionsFrom`).
         ("source_gen:combining_builder", _) => match opcoes.obter("build_extensions") {
             Some(v) => mapa_de_extensoes(v, true)?,
@@ -99,17 +110,27 @@ pub fn extensoes_de_execucao(
         },
         // `SharedPartBuilder(…, 'json_serializable')` escreve
         // `.json_serializable.g.part`; o `build.yaml` 6.9.5 declara sem o ponto.
-        ("json_serializable:json_serializable", _) => e(&[(".dart", &[".json_serializable.g.part"])]),
+        ("json_serializable:json_serializable", _) => {
+            e(&[(".dart", &[".json_serializable.g.part"])])
+        }
         // `drift_dev-2.28.0/lib/src/backends/build/*.dart`.
-        ("drift_dev:preparing_builder", _) => {
-            e(&[(".moor", &[".expr.temp.dart", ".drift_prep.json"]), (".drift", &[".expr.temp.dart", ".drift_prep.json"])])
-        }
-        ("drift_dev:drift_dev" | "drift_dev:analyzer", "discover") => {
-            e(&[(".drift", &[".drift.drift_elements.json"]), (".dart", &[".dart.drift_elements.json"])])
-        }
+        ("drift_dev:preparing_builder", _) => e(&[
+            (".moor", &[".expr.temp.dart", ".drift_prep.json"]),
+            (".drift", &[".expr.temp.dart", ".drift_prep.json"]),
+        ]),
+        ("drift_dev:drift_dev" | "drift_dev:analyzer", "discover") => e(&[
+            (".drift", &[".drift.drift_elements.json"]),
+            (".dart", &[".dart.drift_elements.json"]),
+        ]),
         ("drift_dev:drift_dev" | "drift_dev:analyzer", "analyzer") => e(&[
-            (".drift", &[".drift.drift_module.json", ".drift.types.temp.dart"]),
-            (".dart", &[".dart.drift_module.json", ".dart.types.temp.dart"]),
+            (
+                ".drift",
+                &[".drift.drift_module.json", ".drift.types.temp.dart"],
+            ),
+            (
+                ".dart",
+                &[".dart.drift_module.json", ".dart.types.temp.dart"],
+            ),
         ]),
         ("drift_dev:drift_dev", "driftBuilder") => e(&[(".dart", &[".drift.g.part"])]),
         ("drift_dev:not_shared", _) => e(&[(".dart", &[".drift.dart"])]),
@@ -117,7 +138,9 @@ pub fn extensoes_de_execucao(
         // Sem descritor e com várias fábricas: cada fábrica é um `Builder`
         // com extensões próprias, que só o executor Dart revela. As saídas
         // declaradas ficam com a primeira fábrica (limitação declarada).
-        _ if fabricas.len() > 1 && fabricas.first().map(String::as_str) != Some(fabrica) => Vec::new(),
+        _ if fabricas.len() > 1 && fabricas.first().map(String::as_str) != Some(fabrica) => {
+            Vec::new()
+        }
         _ => declaradas.to_vec(),
     })
 }

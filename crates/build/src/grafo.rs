@@ -21,7 +21,10 @@ pub struct AssetId {
 
 impl AssetId {
     pub fn novo(pacote: &str, caminho: &str) -> AssetId {
-        AssetId { pacote: pacote.into(), caminho: caminho.into() }
+        AssetId {
+            pacote: pacote.into(),
+            caminho: caminho.into(),
+        }
     }
 
     /// `pacote|caminho`, como o `build` escreve.
@@ -37,7 +40,14 @@ impl AssetId {
 
 /// Os padrões visíveis de um pacote que não é a raiz
 /// (`options.dart`, `defaultNonRootVisibleAssets`).
-pub const VISIVEIS_FORA_DA_RAIZ: &[&str] = &["CHANGELOG*", "lib/**", "bin/**", "LICENSE*", "pubspec.yaml", "README*"];
+pub const VISIVEIS_FORA_DA_RAIZ: &[&str] = &[
+    "CHANGELOG*",
+    "lib/**",
+    "bin/**",
+    "LICENSE*",
+    "pubspec.yaml",
+    "README*",
+];
 
 /// Fontes padrão do pacote raiz (`options.dart`, `defaultRootPackageSources`).
 pub const FONTES_DA_RAIZ: &[&str] = &[
@@ -112,8 +122,13 @@ pub struct FiltroFontes {
 
 impl FiltroFontes {
     pub fn admite(&self, caminho: &str) -> bool {
-        self.visiveis.as_ref().is_none_or(|g| g.iter().any(|x| x.casa(caminho)))
-            && self.alvos.iter().any(|c| c.include.as_ref().is_some_and(|i| !i.is_empty()) && c.casa(caminho))
+        self.visiveis
+            .as_ref()
+            .is_none_or(|g| g.iter().any(|x| x.casa(caminho)))
+            && self
+                .alvos
+                .iter()
+                .any(|c| c.include.as_ref().is_some_and(|i| !i.is_empty()) && c.casa(caminho))
     }
 }
 
@@ -123,10 +138,16 @@ pub fn listar(raiz: &Path, globs: &[Glob]) -> BTreeSet<String> {
     let mut v = BTreeSet::new();
     let mut pilha: Vec<(PathBuf, String)> = vec![(raiz.to_path_buf(), String::new())];
     while let Some((dir, rel)) = pilha.pop() {
-        let Ok(ls) = std::fs::read_dir(&dir) else { continue };
+        let Ok(ls) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for e in ls.flatten() {
             let nome = e.file_name().to_string_lossy().to_string();
-            let r = if rel.is_empty() { nome.clone() } else { format!("{rel}/{nome}") };
+            let r = if rel.is_empty() {
+                nome.clone()
+            } else {
+                format!("{rel}/{nome}")
+            };
             let Ok(tipo) = e.file_type() else { continue };
             let eh_dir = tipo.is_dir() || (tipo.is_symlink() && e.path().is_dir());
             if eh_dir {
@@ -147,7 +168,9 @@ fn globs(padroes: &[String]) -> Result<Vec<Glob>, String> {
 
 impl Grafo {
     pub fn tem_fonte(&self, id: &AssetId) -> bool {
-        self.fontes.get(&id.pacote).is_some_and(|s| s.contains(&id.caminho))
+        self.fontes
+            .get(&id.pacote)
+            .is_some_and(|s| s.contains(&id.caminho))
     }
 
     pub fn existe(&self, id: &AssetId) -> bool {
@@ -166,23 +189,49 @@ impl Grafo {
     /// O filtro de fontes de um pacote (`_listAssetIds`): os `sources` de
     /// cada alvo sobre os padrões, e a visibilidade fora da raiz. `None` para
     /// o `$sdk` e pacotes sem diretório.
-    fn filtro_do_pacote(grafo: &GrafoPacotes, configs: &Configs, pacote: usize) -> Result<Option<FiltroFontes>, String> {
+    fn filtro_do_pacote(
+        grafo: &GrafoPacotes,
+        configs: &Configs,
+        pacote: usize,
+    ) -> Result<Option<FiltroFontes>, String> {
         let no = &grafo.nos[pacote];
         let cfg = &configs.por_pacote[pacote];
         if no.nome == SDK || no.raiz.as_os_str().is_empty() {
             return Ok(None);
         }
-        let base: &[&str] = if no.e_raiz { FONTES_DA_RAIZ } else { VISIVEIS_FORA_DA_RAIZ };
-        let padrao: Vec<String> = base.iter().map(|s| s.to_string()).chain(cfg.publicos_adicionais.iter().cloned()).collect();
-        let visiveis = if no.e_raiz { None } else { Some(globs(&padrao)?) };
-        let alvos = cfg.alvos.iter().map(|alvo| Casador::novo(&alvo.sources, Some(&padrao))).collect::<Result<_, _>>()?;
+        let base: &[&str] = if no.e_raiz {
+            FONTES_DA_RAIZ
+        } else {
+            VISIVEIS_FORA_DA_RAIZ
+        };
+        let padrao: Vec<String> = base
+            .iter()
+            .map(|s| s.to_string())
+            .chain(cfg.publicos_adicionais.iter().cloned())
+            .collect();
+        let visiveis = if no.e_raiz {
+            None
+        } else {
+            Some(globs(&padrao)?)
+        };
+        let alvos = cfg
+            .alvos
+            .iter()
+            .map(|alvo| Casador::novo(&alvo.sources, Some(&padrao)))
+            .collect::<Result<_, _>>()?;
         Ok(Some(FiltroFontes { alvos, visiveis }))
     }
 
     /// Fontes de um pacote, pelos alvos (`_listAssetIds`).
-    fn fontes_do_pacote(grafo: &GrafoPacotes, configs: &Configs, pacote: usize) -> Result<BTreeSet<String>, String> {
+    fn fontes_do_pacote(
+        grafo: &GrafoPacotes,
+        configs: &Configs,
+        pacote: usize,
+    ) -> Result<BTreeSet<String>, String> {
         let mut v = BTreeSet::new();
-        let Some(filtro) = Self::filtro_do_pacote(grafo, configs, pacote)? else { return Ok(v) };
+        let Some(filtro) = Self::filtro_do_pacote(grafo, configs, pacote)? else {
+            return Ok(v);
+        };
         for casador in &filtro.alvos {
             let inc = casador.include.clone().unwrap_or_default();
             if inc.is_empty() {
@@ -202,15 +251,27 @@ impl Grafo {
     /// `build_runner` responde a um builder que lê uma dependência — o
     /// `BuildStep.resolver` lê assim cada biblioteca importada.
     pub fn fonte_externa(&self, id: &AssetId) -> bool {
-        !id.caminho.contains('$') && self.externos.get(&id.pacote).is_some_and(|f| f.admite(&id.caminho))
+        !id.caminho.contains('$')
+            && self
+                .externos
+                .get(&id.pacote)
+                .is_some_and(|f| f.admite(&id.caminho))
     }
 
     /// Monta o grafo: fontes dos pacotes com fases que geram, sintéticos de
     /// todos, e as saídas esperadas fase a fase.
-    pub fn montar(grafo: &GrafoPacotes, configs: &Configs, fases: &[Fase], _alvos: &[NoAlvo]) -> Result<Grafo, String> {
+    pub fn montar(
+        grafo: &GrafoPacotes,
+        configs: &Configs,
+        fases: &[Fase],
+        _alvos: &[NoAlvo],
+    ) -> Result<Grafo, String> {
         let mut g = Grafo::default();
-        let pacotes_com_fase: BTreeSet<usize> =
-            fases.iter().filter(|f| f.extensoes.is_some()).map(|f| f.pacote).collect();
+        let pacotes_com_fase: BTreeSet<usize> = fases
+            .iter()
+            .filter(|f| f.extensoes.is_some())
+            .map(|f| f.pacote)
+            .collect();
         for (i, no) in grafo.nos.iter().enumerate() {
             let conj = g.fontes.entry(no.nome.as_str().into()).or_default();
             for s in SINTETICOS {
@@ -249,14 +310,20 @@ impl Grafo {
                 if !entradas.get(&pacote).is_some_and(|s| s.contains(&c)) {
                     continue;
                 }
-                let id = AssetId { pacote: pacote.clone(), caminho: c.clone() };
+                let id = AssetId {
+                    pacote: pacote.clone(),
+                    caminho: c.clone(),
+                };
                 if !fase.fontes_alvo.casa(&g.origem(&id).caminho) {
                     continue;
                 }
                 let saidas: Vec<AssetId> = ext
                     .saidas(&c)?
                     .into_iter()
-                    .map(|s| AssetId { pacote: pacote.clone(), caminho: s.into() })
+                    .map(|s| AssetId {
+                        pacote: pacote.clone(),
+                        caminho: s.into(),
+                    })
                     .collect();
                 let ai = g.acoes.len();
                 for s in &saidas {
@@ -274,10 +341,22 @@ impl Grafo {
                     if g.tem_fonte(s) {
                         g.remover_recursivo(s, &mut entradas, &mut novas);
                     }
-                    g.gerados.insert(s.clone(), NoGerado { acao: ai, fase: fi, oculto: fase.oculta });
+                    g.gerados.insert(
+                        s.clone(),
+                        NoGerado {
+                            acao: ai,
+                            fase: fi,
+                            oculto: fase.oculta,
+                        },
+                    );
                     novas.push(s.caminho.clone());
                 }
-                g.acoes.push(Acao { fase: fi, entrada: id, saidas, pos: false });
+                g.acoes.push(Acao {
+                    fase: fi,
+                    entrada: id,
+                    saidas,
+                    pos: false,
+                });
             }
             let e = entradas.entry(pacote).or_default();
             e.extend(novas);
@@ -291,19 +370,37 @@ impl Grafo {
     /// casa o `generate_for` e cuja fonte original está nos `sources` do alvo.
     /// Sem `inputExtensions` conhecidas (nenhum executor Dart respondeu) a
     /// fase não tem âncoras.
-    fn ancoras(&mut self, fi: usize, fase: &Fase, grafo: &GrafoPacotes, entradas: &BTreeMap<Arc<str>, BTreeSet<Arc<str>>>) {
-        let Some(ext) = &fase.entradas_pos else { return };
+    fn ancoras(
+        &mut self,
+        fi: usize,
+        fase: &Fase,
+        grafo: &GrafoPacotes,
+        entradas: &BTreeMap<Arc<str>, BTreeSet<Arc<str>>>,
+    ) {
+        let Some(ext) = &fase.entradas_pos else {
+            return;
+        };
         let pacote: Arc<str> = grafo.nos[fase.pacote].nome.as_str().into();
-        let Some(candidatas) = entradas.get(&pacote) else { return };
+        let Some(candidatas) = entradas.get(&pacote) else {
+            return;
+        };
         for c in candidatas {
             if !fase.generate_for.casa(c) || !ext.iter().any(|e| c.ends_with(e.as_str())) {
                 continue;
             }
-            let id = AssetId { pacote: pacote.clone(), caminho: c.clone() };
+            let id = AssetId {
+                pacote: pacote.clone(),
+                caminho: c.clone(),
+            };
             if !fase.fontes_alvo.casa(&self.origem(&id).caminho) {
                 continue;
             }
-            self.acoes.push(Acao { fase: fi, entrada: id, saidas: Vec::new(), pos: true });
+            self.acoes.push(Acao {
+                fase: fi,
+                entrada: id,
+                saidas: Vec::new(),
+                pos: true,
+            });
         }
     }
 
@@ -324,8 +421,9 @@ impl Grafo {
         // Saídas são sempre do pacote da entrada: `novas` é da mesma fase.
         novas.retain(|c| *c != id.caminho);
         self.gerados.remove(id);
-        let dependentes: Vec<usize> =
-            (0..self.acoes.len()).filter(|&a| self.acoes[a].entrada == *id && self.acoes[a].viva()).collect();
+        let dependentes: Vec<usize> = (0..self.acoes.len())
+            .filter(|&a| self.acoes[a].entrada == *id && self.acoes[a].viva())
+            .collect();
         for a in dependentes {
             let saidas = std::mem::take(&mut self.acoes[a].saidas);
             for s in saidas {

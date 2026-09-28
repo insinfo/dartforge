@@ -1,7 +1,7 @@
 //! O grafo de pacotes do `build_runner_core` 8.0.0
 //! (`package_graph/package_graph.dart`, `PackageGraph.forPath`) e os SCCs do
 //! `graphs` 2.3.2, que decidem a ordem dos pacotes e dos alvos.
-use crate::config::{ler_lock, Pubspec, TipoDependencia, Travado};
+use crate::config::{Pubspec, TipoDependencia, Travado, ler_lock};
 use dartforge_elements::config::PackageConfig;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -39,7 +39,11 @@ impl GrafoPacotes {
 
     /// `PackageGraph.forPath(dir)`: `dir` tem o `pubspec.yaml` da raiz; o
     /// `package_config.json` é o que `cfg` já leu.
-    pub fn montar(dir: &Path, cfg: &PackageConfig, sdk: Option<&Path>) -> Result<GrafoPacotes, String> {
+    pub fn montar(
+        dir: &Path,
+        cfg: &PackageConfig,
+        sdk: Option<&Path>,
+    ) -> Result<GrafoPacotes, String> {
         let pubspec = Pubspec::ler(dir)?;
         let nome_raiz = pubspec
             .nome
@@ -57,7 +61,9 @@ impl GrafoPacotes {
             "Unable to generate package graph, no `pubspec.lock` found. This program must be ran from the root directory of your package.".to_string()
         })?;
         let lock: HashMap<String, Travado> =
-            ler_lock(&texto_lock, &caminho_lock.display().to_string())?.into_iter().collect();
+            ler_lock(&texto_lock, &caminho_lock.display().to_string())?
+                .into_iter()
+                .collect();
 
         let mut nomes: Vec<&String> = cfg.packages.keys().collect();
         nomes.sort();
@@ -74,7 +80,10 @@ impl GrafoPacotes {
             nos.push(No {
                 nome: nome.clone(),
                 raiz,
-                tipo: lock.get(nome).map(|t| t.tipo).unwrap_or(TipoDependencia::Path),
+                tipo: lock
+                    .get(nome)
+                    .map(|t| t.tipo)
+                    .unwrap_or(TipoDependencia::Path),
                 e_raiz: *nome == nome_raiz,
                 deps: Vec::new(),
             });
@@ -95,7 +104,10 @@ impl GrafoPacotes {
             }
         }
         d.sort();
-        nos[raiz].deps = d.iter().map(|n| achar(n, &nome_raiz, &por_nome)).collect::<Result<_, _>>()?;
+        nos[raiz].deps = d
+            .iter()
+            .map(|n| achar(n, &nome_raiz, &por_nome))
+            .collect::<Result<_, _>>()?;
         for i in 0..nos.len() {
             if i == raiz {
                 continue;
@@ -105,7 +117,10 @@ impl GrafoPacotes {
             d.sort();
             d.dedup();
             let nome = nos[i].nome.clone();
-            nos[i].deps = d.iter().map(|n| achar(n, &nome, &por_nome)).collect::<Result<_, _>>()?;
+            nos[i].deps = d
+                .iter()
+                .map(|n| achar(n, &nome, &por_nome))
+                .collect::<Result<_, _>>()?;
         }
         por_nome.insert(SDK.to_string(), nos.len());
         nos.push(No {
@@ -115,13 +130,22 @@ impl GrafoPacotes {
             e_raiz: false,
             deps: Vec::new(),
         });
-        Ok(GrafoPacotes { nos, raiz, por_nome, lock, dir_raiz })
+        Ok(GrafoPacotes {
+            nos,
+            raiz,
+            por_nome,
+            lock,
+            dir_raiz,
+        })
     }
 
     /// Ordem dos pacotes para o script de build: SCCs a partir da raiz,
     /// dependências primeiro (`build_script_generate.dart:86-92`).
     pub fn ordem_do_script(&self) -> Vec<usize> {
-        scc(&[self.raiz], |n| self.nos[n].deps.clone()).into_iter().flatten().collect()
+        scc(&[self.raiz], |n| self.nos[n].deps.clone())
+            .into_iter()
+            .flatten()
+            .collect()
     }
 }
 
@@ -137,7 +161,8 @@ pub fn scc(inicio: &[usize], arestas: impl Fn(usize) -> Vec<usize>) -> Vec<Vec<u
     // (nó, iterador: arestas e posição corrente), `None` = ainda não iniciado.
     // O Dart monta `[for (node in nodes) _StackState(node)]` e tira do fim:
     // o último nó é visitado primeiro. Reproduz exatamente isso.
-    let mut pilha: Vec<(usize, Option<(Vec<usize>, usize)>)> = inicio.iter().map(|&n| (n, None)).collect();
+    let mut pilha: Vec<(usize, Option<(Vec<usize>, usize)>)> =
+        inicio.iter().map(|&n| (n, None)).collect();
     'externo: while let Some((no, it)) = pilha.pop() {
         let (mut it, mut low) = match it {
             None => {

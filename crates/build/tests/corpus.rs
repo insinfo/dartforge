@@ -10,14 +10,20 @@
 //! * **incremental = do zero**: aplicadas as `edicoes/` em sequência, o motor
 //!   vivo e um motor novo dão o mesmo estado.
 use dartforge_build::consulta::SemBanco;
+use dartforge_build::executor::{
+    Disponibilidade, ErroExecutor, ExecutorDart, PedidoAcao, ResultadoAcao, ScriptDeBuilders,
+    ServicoBuildStep,
+};
 use dartforge_build::grafo::AssetId;
-use dartforge_build::executor::{Disponibilidade, ErroExecutor, ExecutorDart, PedidoAcao, ResultadoAcao, ScriptDeBuilders, ServicoBuildStep};
 use dartforge_build::motor::Origem;
 use dartforge_build::{Contexto, Demanda, Motor, OpcoesMotor};
 use dartforge_elements::config::PackageConfig;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 fn raiz_do_corpus() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/builders")
@@ -48,18 +54,35 @@ fn referencias(dir: &Path) -> BTreeMap<AssetId, Vec<u8>> {
         let id = AssetId::de_texto(asset).expect("pacote|caminho");
         let arq = match s["build_to"].as_str() {
             Some("source") => dir.join("oraculo/source").join(id.caminho.as_ref()),
-            _ => dir.join("oraculo/cache").join(id.pacote.as_ref()).join(id.caminho.as_ref()),
+            _ => dir
+                .join("oraculo/cache")
+                .join(id.pacote.as_ref())
+                .join(id.caminho.as_ref()),
         };
-        r.insert(id, std::fs::read(&arq).unwrap_or_else(|e| panic!("{}: {e}", arq.display())));
+        r.insert(
+            id,
+            std::fs::read(&arq).unwrap_or_else(|e| panic!("{}: {e}", arq.display())),
+        );
     }
     r
 }
 
 fn motor(dir: &Path, trabalhadores: usize) -> Result<Motor, String> {
     let cfg = cfg_de(dir).ok_or("sem package_config.json (rode dart pub get)")?;
-    let opcoes = OpcoesMotor { trabalhadores, medir_nao_verificados: true, ..Default::default() };
+    let opcoes = OpcoesMotor {
+        trabalhadores,
+        medir_nao_verificados: true,
+        ..Default::default()
+    };
     let mut m = Motor::novo(dir, &cfg, opcoes)?;
-    m.atualizar(&Contexto { banco: &SemBanco, programa: None }, &[], Demanda::Tudo)?;
+    m.atualizar(
+        &Contexto {
+            banco: &SemBanco,
+            programa: None,
+        },
+        &[],
+        Demanda::Tudo,
+    )?;
     Ok(m)
 }
 
@@ -72,22 +95,35 @@ struct DartFalso {
 }
 
 impl ExecutorDart for DartFalso {
-    fn disponibilidade(&self) -> Disponibilidade { Disponibilidade::Disponivel }
+    fn disponibilidade(&self) -> Disponibilidade {
+        Disponibilidade::Disponivel
+    }
     fn preparar(&mut self, _: &ScriptDeBuilders) -> Result<(), ErroExecutor> {
         self.preparos.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
-    fn executar(&mut self, p: &PedidoAcao, s: &mut dyn ServicoBuildStep) -> Result<ResultadoAcao, ErroExecutor> {
+    fn executar(
+        &mut self,
+        p: &PedidoAcao,
+        s: &mut dyn ServicoBuildStep,
+    ) -> Result<ResultadoAcao, ErroExecutor> {
         self.chamadas.fetch_add(1, Ordering::SeqCst);
         let _ = s.ler(&p.entrada);
         for id in &p.saidas_permitidas {
-            let bytes: Arc<[u8]> = format!("{}:{}\n", p.chave, p.entrada.texto()).into_bytes().into();
-            s.escrever(id, bytes).map_err(|e| ErroExecutor(format!("saída recusada: {}", e.0.texto())))?;
+            let bytes: Arc<[u8]> = format!("{}:{}\n", p.chave, p.entrada.texto())
+                .into_bytes()
+                .into();
+            s.escrever(id, bytes)
+                .map_err(|e| ErroExecutor(format!("saída recusada: {}", e.0.texto())))?;
         }
         Ok(ResultadoAcao::default())
     }
-    fn codigo(&self) -> Option<Vec<PathBuf>> { self.codigo.clone() }
-    fn encerrar(&mut self) { self.fechamentos.fetch_add(1, Ordering::SeqCst); }
+    fn codigo(&self) -> Option<Vec<PathBuf>> {
+        self.codigo.clone()
+    }
+    fn encerrar(&mut self) {
+        self.fechamentos.fetch_add(1, Ordering::SeqCst);
+    }
 }
 
 #[test]
@@ -105,16 +141,40 @@ fn executor_dart_injetado_roda_e_reusa_acoes() {
         fechamentos: fechamentos.clone(),
         codigo: None,
     }));
-    let ctx = Contexto { banco: &SemBanco, programa: None };
+    let ctx = Contexto {
+        banco: &SemBanco,
+        programa: None,
+    };
     m.atualizar(&ctx, &[], Demanda::Tudo).unwrap();
     let feitas = chamadas.load(Ordering::SeqCst);
-    assert!(feitas > 0, "o executor Dart disponível não recebeu nenhuma ação");
-    assert!(m.grafo.acoes.iter().enumerate().any(|(i, _)| m.registro(i).is_some_and(|r| r.origem == Origem::Dart)));
+    assert!(
+        feitas > 0,
+        "o executor Dart disponível não recebeu nenhuma ação"
+    );
+    assert!(
+        m.grafo
+            .acoes
+            .iter()
+            .enumerate()
+            .any(|(i, _)| m.registro(i).is_some_and(|r| r.origem == Origem::Dart))
+    );
     m.atualizar(&ctx, &[], Demanda::Tudo).unwrap();
-    assert_eq!(chamadas.load(Ordering::SeqCst), feitas, "ação limpa foi reexecutada");
-    assert_eq!(preparos.load(Ordering::SeqCst), 1, "script de builders recompilado na sessão");
+    assert_eq!(
+        chamadas.load(Ordering::SeqCst),
+        feitas,
+        "ação limpa foi reexecutada"
+    );
+    assert_eq!(
+        preparos.load(Ordering::SeqCst),
+        1,
+        "script de builders recompilado na sessão"
+    );
     drop(m);
-    assert_eq!(fechamentos.load(Ordering::SeqCst), 1, "executor não foi encerrado ao fim da sessão");
+    assert_eq!(
+        fechamentos.load(Ordering::SeqCst),
+        1,
+        "executor não foi encerrado ao fim da sessão"
+    );
 }
 
 /// Um processo do motor (como o `dartforge build`): motor novo, executor
@@ -122,7 +182,15 @@ fn executor_dart_injetado_roda_e_reusa_acoes() {
 /// Devolve o estado canônico e quantas ações o executor Dart recebeu.
 fn processo(dir: &Path, persistir: bool) -> (String, usize, Motor) {
     let cfg = cfg_de(dir).expect("package_config.json");
-    let mut m = Motor::novo(dir, &cfg, OpcoesMotor { persistir, ..Default::default() }).unwrap();
+    let mut m = Motor::novo(
+        dir,
+        &cfg,
+        OpcoesMotor {
+            persistir,
+            ..Default::default()
+        },
+    )
+    .unwrap();
     let chamadas = Arc::new(AtomicUsize::new(0));
     m.definir_executor_dart(Box::new(DartFalso {
         preparos: Arc::new(AtomicUsize::new(0)),
@@ -130,8 +198,21 @@ fn processo(dir: &Path, persistir: bool) -> (String, usize, Motor) {
         fechamentos: Arc::new(AtomicUsize::new(0)),
         codigo: Some(vec![dir.join("tool/builders.dart")]),
     }));
-    let at = m.atualizar(&Contexto { banco: &SemBanco, programa: None }, &[], Demanda::Tudo).unwrap();
-    assert!(at.avisos.iter().all(|a| !a.contains("não gravado")), "{:?}", at.avisos);
+    let at = m
+        .atualizar(
+            &Contexto {
+                banco: &SemBanco,
+                programa: None,
+            },
+            &[],
+            Demanda::Tudo,
+        )
+        .unwrap();
+    assert!(
+        at.avisos.iter().all(|a| !a.contains("não gravado")),
+        "{:?}",
+        at.avisos
+    );
     // Como a CLI: as saídas `source` que mudaram vão ao disco.
     for (p, c) in m.saidas_source_nativas(&at.alterados) {
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
@@ -194,7 +275,10 @@ fn estado_salvo_entre_processos() {
     std::fs::write(&tool, codigo).unwrap();
     let (depois, n, _) = processo(&dir, true);
     assert_eq!(depois, zero);
-    assert_eq!(n, n_zero, "código do builder mudou e ações Dart foram reaproveitadas");
+    assert_eq!(
+        n, n_zero,
+        "código do builder mudou e ações Dart foram reaproveitadas"
+    );
 
     // Saída `source` apagada do disco entre processos: a ação reexecuta.
     let (_, _, m) = processo(&dir, true);
@@ -230,7 +314,10 @@ fn resumo(linhas: &[String]) {
 #[test]
 #[ignore = "exige `dart pub get` em cada caso de corpus/builders"]
 fn corpus_builders_plano_e_placar() {
-    let mut linhas = vec!["### corpus/builders — plano e placar (iguais/pendentes/diferentes)".to_string(), String::new()];
+    let mut linhas = vec![
+        "### corpus/builders — plano e placar (iguais/pendentes/diferentes)".to_string(),
+        String::new(),
+    ];
     linhas.push("| caso | plano | iguais | pendentes | diferentes | motivos |".into());
     linhas.push("|---|---|---|---|---|---|".into());
     let mut falhas = Vec::new();
@@ -242,14 +329,21 @@ fn corpus_builders_plano_e_placar() {
         };
         if !dartforge_build::detectar(&cfg) {
             // Controle do custo zero: sem build_runner, nada de motor.
-            assert!(!dir.join("oraculo/plano.dart").exists(), "{nome}: sem build_runner mas com plano.dart");
-            linhas.push(format!("| {nome} | sem builders (motor não construído) | 0 | 0 | 0 | |"));
+            assert!(
+                !dir.join("oraculo/plano.dart").exists(),
+                "{nome}: sem build_runner mas com plano.dart"
+            );
+            linhas.push(format!(
+                "| {nome} | sem builders (motor não construído) | 0 | 0 | 0 | |"
+            ));
             continue;
         }
         let plano = match std::fs::read_to_string(dir.join("oraculo/plano.dart")) {
             Ok(texto) => {
                 let (_, _, p) = dartforge_build::plano_do_projeto(&dir, &cfg).expect("plano");
-                match dartforge_build::oraculo::comparar(&p.aplicacoes, &texto).expect("plano.dart legível") {
+                match dartforge_build::oraculo::comparar(&p.aplicacoes, &texto)
+                    .expect("plano.dart legível")
+                {
                     Ok(()) => format!("igual ({})", p.aplicacoes.len()),
                     Err(d) => {
                         falhas.push(format!("{nome}: plano diferente:\n{}", d.join("\n")));
@@ -267,7 +361,11 @@ fn corpus_builders_plano_e_placar() {
             }
         };
         let p = m.placar(&referencias(&dir));
-        let motivos: Vec<String> = p.motivos().into_iter().map(|(k, n)| format!("{n}× {k}")).collect();
+        let motivos: Vec<String> = p
+            .motivos()
+            .into_iter()
+            .map(|(k, n)| format!("{n}× {k}"))
+            .collect();
         linhas.push(format!(
             "| {nome} | {plano} | {} | {} | {} | {} |",
             p.iguais.len(),
@@ -296,10 +394,22 @@ fn corpus_builders_determinismo() {
         if !dartforge_build::detectar(&cfg) {
             continue;
         }
-        let estados: Vec<String> =
-            [1, 4, 8].iter().map(|&n| motor(&dir, n).expect("motor").estado_canonico()).collect();
-        assert_eq!(estados[0], estados[1], "{}: 1 ≠ 4 trabalhadores", dir.display());
-        assert_eq!(estados[0], estados[2], "{}: 1 ≠ 8 trabalhadores", dir.display());
+        let estados: Vec<String> = [1, 4, 8]
+            .iter()
+            .map(|&n| motor(&dir, n).expect("motor").estado_canonico())
+            .collect();
+        assert_eq!(
+            estados[0],
+            estados[1],
+            "{}: 1 ≠ 4 trabalhadores",
+            dir.display()
+        );
+        assert_eq!(
+            estados[0],
+            estados[2],
+            "{}: 1 ≠ 8 trabalhadores",
+            dir.display()
+        );
     }
 }
 
@@ -315,7 +425,11 @@ fn copiar(de: &Path, para: &Path) {
         if p.is_dir() {
             if nome == ".dart_tool" {
                 std::fs::create_dir_all(&alvo).unwrap();
-                std::fs::copy(p.join("package_config.json"), alvo.join("package_config.json")).unwrap();
+                std::fs::copy(
+                    p.join("package_config.json"),
+                    alvo.join("package_config.json"),
+                )
+                .unwrap();
                 continue;
             }
             copiar(&p, &alvo);
@@ -336,17 +450,33 @@ fn sass_release_css_sob_demanda_sem_apoio() {
     let scss = dir.join("web/principal.scss");
     std::fs::write(&scss, ".a { color: red; }\n").unwrap();
     let cfg = cfg_de(&dir).expect("package_config.json");
-    let mut m = Motor::novo(&dir, &cfg, OpcoesMotor { release: true, ..Default::default() }).unwrap();
-    let ctx = Contexto { banco: &SemBanco, programa: None };
+    let mut m = Motor::novo(
+        &dir,
+        &cfg,
+        OpcoesMotor {
+            release: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let ctx = Contexto {
+        banco: &SemBanco,
+        programa: None,
+    };
     m.atualizar(&ctx, &[], Demanda::Carregador).unwrap();
     let destino = dartforge_elements::gerado::chave(&dir.join("web/principal.css"));
     assert!(
-        m.naturais.keys().any(|id| id.caminho.as_ref() == "web/principal.css"),
+        m.naturais
+            .keys()
+            .any(|id| id.caminho.as_ref() == "web/principal.css"),
         "CSS fora do grafo: {destino:?}"
     );
     let css = m.materializar(&ctx, &destino).unwrap_or_else(|| {
         let estado_completo = m.estado_canonico();
-        let estado: Vec<_> = estado_completo.lines().filter(|l| l.contains("principal.scss")).collect();
+        let estado: Vec<_> = estado_completo
+            .lines()
+            .filter(|l| l.contains("principal.scss"))
+            .collect();
         panic!("CSS nativo sob demanda: {estado:?}")
     });
     assert_eq!(&*css, b".a{color:red}\n");
@@ -376,7 +506,11 @@ fn corpus_builders_incremental_igual_ao_do_zero() {
         let copia = tmp.path().join(dir.file_name().unwrap());
         copiar(&dir, &copia);
         let mut vivo = motor(&copia, 4).expect("motor vivo");
-        let mut passos: Vec<PathBuf> = std::fs::read_dir(&edicoes).unwrap().flatten().map(|e| e.path()).collect();
+        let mut passos: Vec<PathBuf> = std::fs::read_dir(&edicoes)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .collect();
         passos.sort();
         for passo in passos {
             let mut rel = Vec::new();
@@ -388,7 +522,15 @@ fn corpus_builders_incremental_igual_ao_do_zero() {
                 std::fs::copy(passo.join(&r), &alvo).unwrap();
                 mudados.push(alvo);
             }
-            vivo.atualizar(&Contexto { banco: &SemBanco, programa: None }, &mudados, Demanda::Tudo).expect("atualizar");
+            vivo.atualizar(
+                &Contexto {
+                    banco: &SemBanco,
+                    programa: None,
+                },
+                &mudados,
+                Demanda::Tudo,
+            )
+            .expect("atualizar");
             let novo = motor(&copia, 4).expect("motor novo");
             assert_eq!(
                 vivo.estado_canonico(),

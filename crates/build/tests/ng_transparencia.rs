@@ -8,7 +8,7 @@
 //! isso `#[ignore]`, no grupo que o `ci.yml` satisfaz.
 use dartforge_build::consulta::SemBanco;
 use dartforge_build::{Contexto, Demanda, Motor, OpcoesMotor};
-use dartforge_elements::config::{sem_verbatim, PackageConfig};
+use dartforge_elements::config::{PackageConfig, sem_verbatim};
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_intern::Interner;
 use std::path::{Path, PathBuf};
@@ -25,14 +25,28 @@ fn sdk() -> SdkLayout {
 fn programa(raiz: &Path) -> (dartforge_elements::model::Program, Interner) {
     let mut nomes = Interner::new();
     let cfg = raiz.join(".dart_tool/package_config.json");
-    let (p, _) = dartforge_elements::load::load_lenient(&raiz.join("lib/corpus_ngdart.dart"), &sdk(), Some(&cfg), &mut nomes);
+    let (p, _) = dartforge_elements::load::load_lenient(
+        &raiz.join("lib/corpus_ngdart.dart"),
+        &sdk(),
+        Some(&cfg),
+        &mut nomes,
+    );
     (p, nomes)
 }
 
 fn motor(raiz: &Path, p: &dartforge_elements::model::Program, nomes: &Interner) -> Motor {
-    let cfg = PackageConfig::load(&raiz.join(".dart_tool/package_config.json")).expect("package_config.json (dart pub get)");
+    let cfg = PackageConfig::load(&raiz.join(".dart_tool/package_config.json"))
+        .expect("package_config.json (dart pub get)");
     let mut m = Motor::novo(raiz, &cfg, OpcoesMotor::default()).expect("motor");
-    m.atualizar(&Contexto { banco: &SemBanco, programa: Some((p, nomes)) }, &[], Demanda::Tudo).expect("atualizar");
+    m.atualizar(
+        &Contexto {
+            banco: &SemBanco,
+            programa: Some((p, nomes)),
+        },
+        &[],
+        Demanda::Tudo,
+    )
+    .expect("atualizar");
     m
 }
 
@@ -47,8 +61,13 @@ fn ng_pelo_motor_igual_ao_gerador_direto_e_ao_oraculo() {
     // Direto, pela API pública do gerador_ng.
     let resolvedor = dartforge_gerador_ng::resolucao::Resolvedor::novo(&p, &nomes);
     let mut i = Interner::new();
-    let pacote = dartforge_gerador_ng::Pacote { nome: "corpus_ngdart".into(), raiz: raiz.clone(), ..Default::default() };
-    let (direta, _) = dartforge_gerador_ng::gerar_com_apoio(&pacote, &mut i, None, Some(&resolvedor));
+    let pacote = dartforge_gerador_ng::Pacote {
+        nome: "corpus_ngdart".into(),
+        raiz: raiz.clone(),
+        ..Default::default()
+    };
+    let (direta, _) =
+        dartforge_gerador_ng::gerar_com_apoio(&pacote, &mut i, None, Some(&resolvedor));
     let esperadas: std::collections::HashSet<&PathBuf> = m.naturais.values().collect();
     let mut iguais = 0;
     for (caminho, f) in direta.iter().filter(|(_, f)| f.gerador == "ngdart") {
@@ -56,8 +75,15 @@ fn ng_pelo_motor_igual_ao_gerador_direto_e_ao_oraculo() {
         if !esperadas.contains(&k) {
             continue; // fora do plano (o build_runner também não o geraria)
         }
-        let pelo_motor = g.obter(&k).unwrap_or_else(|| panic!("{}: gerado direto e ausente no motor", k.display()));
-        assert_eq!(pelo_motor.conteudo, f.conteudo, "{}: motor ≠ gerador direto", k.display());
+        let pelo_motor = g
+            .obter(&k)
+            .unwrap_or_else(|| panic!("{}: gerado direto e ausente no motor", k.display()));
+        assert_eq!(
+            pelo_motor.conteudo,
+            f.conteudo,
+            "{}: motor ≠ gerador direto",
+            k.display()
+        );
         iguais += 1;
     }
     assert!(iguais > 0, "nenhuma saída nativa conferida");
@@ -67,15 +93,25 @@ fn ng_pelo_motor_igual_ao_gerador_direto_e_ao_oraculo() {
     let mut conferidos = 0;
     let mut diferentes = Vec::new();
     for (caminho, f) in g.iter().filter(|(_, f)| f.gerador == "ngdart:ngdart") {
-        let Some(nome) = caminho.file_name() else { continue };
-        let Ok(esperado) = std::fs::read_to_string(oraculo.join(nome)) else { continue };
+        let Some(nome) = caminho.file_name() else {
+            continue;
+        };
+        let Ok(esperado) = std::fs::read_to_string(oraculo.join(nome)) else {
+            continue;
+        };
         conferidos += 1;
         if esperado.replace("\r\n", "\n") != *f.conteudo {
             diferentes.push(caminho.display().to_string());
         }
     }
-    println!("ngdart pelo motor: {iguais} iguais ao gerador direto; {conferidos} conferidos com o oráculo, {} diferentes", diferentes.len());
-    assert!(diferentes.is_empty(), "diferentes do oráculo: {diferentes:?}");
+    println!(
+        "ngdart pelo motor: {iguais} iguais ao gerador direto; {conferidos} conferidos com o oráculo, {} diferentes",
+        diferentes.len()
+    );
+    assert!(
+        diferentes.is_empty(),
+        "diferentes do oráculo: {diferentes:?}"
+    );
     assert!(conferidos >= 2);
 }
 
@@ -87,7 +123,11 @@ fn copiar(de: &Path, para: &Path) {
         if p.is_dir() {
             if nome == ".dart_tool" {
                 std::fs::create_dir_all(&alvo).unwrap();
-                std::fs::copy(p.join("package_config.json"), alvo.join("package_config.json")).unwrap();
+                std::fs::copy(
+                    p.join("package_config.json"),
+                    alvo.join("package_config.json"),
+                )
+                .unwrap();
             } else if nome != "oraculo" && nome != "build" {
                 copiar(&p, &alvo);
             }
@@ -118,12 +158,35 @@ fn ng_incremental_igual_ao_do_zero() {
         .take(2)
         .collect();
     let src = raiz.join("lib/src");
-    let mut passos: Vec<(PathBuf, &str, &str)> = htmls.iter().map(|h| (h.clone(), "", "\n<span>editado</span>\n")).collect();
-    passos.push((src.join("b07_estilo.css"), "", "\n.b07-editado { color: red; }\n"));
-    passos.push((src.join("a02_texto_estatico.dart"), "", "\nint extraA02() => 1;\n"));
-    passos.push((src.join("a16_entrada_e_saida.dart"), "  String titulo = '';", "  String titulo = '';\n\n  @Input()\n  String subtitulo = '';"));
-    passos.push((src.join("a13_componente_filho.dart"), "selector: 'a13-componente-filho'", "selector: 'a13-filho-renomeado'"));
-    passos.push((src.join("a13_componente_filho.dart"), "import 'a02_texto_estatico.dart';", "import 'a02_texto_estatico.dart';\nimport 'a01_interpolacao.dart';"));
+    let mut passos: Vec<(PathBuf, &str, &str)> = htmls
+        .iter()
+        .map(|h| (h.clone(), "", "\n<span>editado</span>\n"))
+        .collect();
+    passos.push((
+        src.join("b07_estilo.css"),
+        "",
+        "\n.b07-editado { color: red; }\n",
+    ));
+    passos.push((
+        src.join("a02_texto_estatico.dart"),
+        "",
+        "\nint extraA02() => 1;\n",
+    ));
+    passos.push((
+        src.join("a16_entrada_e_saida.dart"),
+        "  String titulo = '';",
+        "  String titulo = '';\n\n  @Input()\n  String subtitulo = '';",
+    ));
+    passos.push((
+        src.join("a13_componente_filho.dart"),
+        "selector: 'a13-componente-filho'",
+        "selector: 'a13-filho-renomeado'",
+    ));
+    passos.push((
+        src.join("a13_componente_filho.dart"),
+        "import 'a02_texto_estatico.dart';",
+        "import 'a02_texto_estatico.dart';\nimport 'a01_interpolacao.dart';",
+    ));
     passos.push((src.join("z_novo.dart"), "", "class ZNovo {}\n"));
     for (arq, trecho, texto) in passos {
         let mut atual = std::fs::read_to_string(&arq).unwrap_or_default();
@@ -146,14 +209,24 @@ fn ng_incremental_igual_ao_do_zero() {
             )
             .expect("atualizar");
         if arq.extension().is_some_and(|e| e == "html" || e == "css") {
-            assert_eq!(atual.rel.unidades_nativas, 1, "a edição de um recurso deve regenerar só seu componente");
-            assert_eq!(atual.rel.consultas_gerador, 1, "só o digest do recurso mudado deve ser registrado novamente");
+            assert_eq!(
+                atual.rel.unidades_nativas, 1,
+                "a edição de um recurso deve regenerar só seu componente"
+            );
+            assert_eq!(
+                atual.rel.consultas_gerador, 1,
+                "só o digest do recurso mudado deve ser registrado novamente"
+            );
         }
         // `.dart` existente: só o arquivo e quem o alcança por import/export
         // (o fecho; o `a02` é filho de 13 casos), não o pacote inteiro (221
         // arquivos).
         if arq.extension().is_some_and(|e| e == "dart") && !arq.ends_with("z_novo.dart") {
-            println!("{}: {} unidades regeneradas", arq.display(), atual.rel.unidades_nativas);
+            println!(
+                "{}: {} unidades regeneradas",
+                arq.display(),
+                atual.rel.unidades_nativas
+            );
             assert!(
                 (1..=20).contains(&atual.rel.unidades_nativas),
                 "{}: {} unidades regeneradas",
@@ -162,7 +235,12 @@ fn ng_incremental_igual_ao_do_zero() {
             );
         }
         let novo = motor(&raiz, &p, &nomes);
-        assert_eq!(vivo.estado_canonico(), novo.estado_canonico(), "incremental ≠ do zero depois de {}", arq.display());
+        assert_eq!(
+            vivo.estado_canonico(),
+            novo.estado_canonico(),
+            "incremental ≠ do zero depois de {}",
+            arq.display()
+        );
     }
 }
 
@@ -206,7 +284,12 @@ fn ng_edicao_dart_em_cada_arquivo_igual_ao_do_zero() {
             seletivas += 1;
         }
         let novo = motor(&raiz, &p, &nomes);
-        assert_eq!(vivo.estado_canonico(), novo.estado_canonico(), "incremental ≠ do zero depois de {}", arq.display());
+        assert_eq!(
+            vivo.estado_canonico(),
+            novo.estado_canonico(),
+            "incremental ≠ do zero depois de {}",
+            arq.display()
+        );
     }
     println!("estágio B em .dart: {seletivas} de {total} edições sem regenerar o pacote inteiro");
 }
@@ -236,13 +319,27 @@ fn ng_dependencia_pelo_motor_igual_ao_oraculo() {
         let cfg = app.join(".dart_tool/package_config.json");
         // A biblioteca do componente alcança a dependência; o `web/main.dart`
         // só importa o `.template.dart`, que ainda não existe.
-        let (p, _) = dartforge_elements::load::load_lenient(&app.join("lib/app.dart"), &sdk(), Some(&cfg), &mut nomes);
+        let (p, _) = dartforge_elements::load::load_lenient(
+            &app.join("lib/app.dart"),
+            &sdk(),
+            Some(&cfg),
+            &mut nomes,
+        );
         (p, nomes)
     };
     let novo = |app: &Path, p: &dartforge_elements::model::Program, nomes: &Interner| {
-        let cfg = PackageConfig::load(&app.join(".dart_tool/package_config.json")).expect("package_config.json (dart pub get)");
+        let cfg = PackageConfig::load(&app.join(".dart_tool/package_config.json"))
+            .expect("package_config.json (dart pub get)");
         let mut m = Motor::novo(app, &cfg, OpcoesMotor::default()).expect("motor");
-        m.atualizar(&Contexto { banco: &SemBanco, programa: Some((p, nomes)) }, &[], Demanda::Tudo).expect("atualizar");
+        m.atualizar(
+            &Contexto {
+                banco: &SemBanco,
+                programa: Some((p, nomes)),
+            },
+            &[],
+            Demanda::Tudo,
+        )
+        .expect("atualizar");
         m
     };
     let (p, nomes) = programa(&app);
@@ -265,9 +362,16 @@ fn ng_dependencia_pelo_motor_igual_ao_oraculo() {
         for o in arquivos {
             let rel = o.strip_prefix(&dir).unwrap();
             let k = dartforge_elements::gerado::chave(&raiz.join(rel));
-            let gerado = g.obter(&k).unwrap_or_else(|| panic!("{}: ausente na geração", k.display()));
+            let gerado = g
+                .obter(&k)
+                .unwrap_or_else(|| panic!("{}: ausente na geração", k.display()));
             let esperado = std::fs::read_to_string(&o).unwrap();
-            assert_eq!(*gerado.conteudo, esperado, "{pacote}/{}: nativo ≠ oráculo", rel.display());
+            assert_eq!(
+                *gerado.conteudo,
+                esperado,
+                "{pacote}/{}: nativo ≠ oráculo",
+                rel.display()
+            );
             conferidos += 1;
         }
     }
@@ -275,18 +379,42 @@ fn ng_dependencia_pelo_motor_igual_ao_oraculo() {
     drop((p, nomes));
     // Edições: recurso e `@Input` na dependência, corpo na aplicação.
     let passos: [(PathBuf, &str, &str); 3] = [
-        (dep.join("lib/src/botao.html"), "</button>", "</button><span>editado</span>"),
-        (dep.join("lib/src/botao.dart"), "  String rotulo = '';", "  String rotulo = '';\n\n  @Input()\n  bool ativo = false;"),
-        (app.join("lib/app.dart"), "  String texto = 'ok';", "  String texto = 'ok';\n  int contador = 0;"),
+        (
+            dep.join("lib/src/botao.html"),
+            "</button>",
+            "</button><span>editado</span>",
+        ),
+        (
+            dep.join("lib/src/botao.dart"),
+            "  String rotulo = '';",
+            "  String rotulo = '';\n\n  @Input()\n  bool ativo = false;",
+        ),
+        (
+            app.join("lib/app.dart"),
+            "  String texto = 'ok';",
+            "  String texto = 'ok';\n  int contador = 0;",
+        ),
     ];
     for (arq, trecho, texto) in passos {
         let atual = std::fs::read_to_string(&arq).unwrap();
         assert!(atual.contains(trecho), "{}: trecho ausente", arq.display());
         std::fs::write(&arq, atual.replacen(trecho, texto, 1)).unwrap();
         let (p, nomes) = programa(&app);
-        vivo.atualizar(&Contexto { banco: &SemBanco, programa: Some((&p, &nomes)) }, &[arq.clone()], Demanda::Tudo)
-            .expect("atualizar");
+        vivo.atualizar(
+            &Contexto {
+                banco: &SemBanco,
+                programa: Some((&p, &nomes)),
+            },
+            &[arq.clone()],
+            Demanda::Tudo,
+        )
+        .expect("atualizar");
         let zero = novo(&app, &p, &nomes);
-        assert_eq!(vivo.estado_canonico(), zero.estado_canonico(), "incremental ≠ do zero depois de {}", arq.display());
+        assert_eq!(
+            vivo.estado_canonico(),
+            zero.estado_canonico(),
+            "incremental ≠ do zero depois de {}",
+            arq.display()
+        );
     }
 }

@@ -16,6 +16,7 @@ nativos = ["dep:dartforge-gerador-ng"]
 
 [dependencies]
 dartforge-elements = { path = "../elements" }
+dartforge-frontend = { path = "../frontend" }
 dartforge-intern = { path = "../intern" }
 dartforge-dfexec = { path = "../dfexec" }
 dartforge-gerador-ng = { path = "../gerador_ng", optional = true }

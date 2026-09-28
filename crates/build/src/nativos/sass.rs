@@ -11,7 +11,7 @@
 use crate::consulta::Consulta;
 use crate::executor::{CtxGerador, GeradorNativo, PedidoNativo, SaidaNativa};
 use crate::valor::Valor;
-use dartforge_gerador_ng::sass::{compilar_ativo, Estilo, Leitor};
+use dartforge_gerador_ng::sass::{Estilo, Leitor, compilar_ativo};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -54,7 +54,11 @@ impl GeradorNativo for SassNativo {
         true
     }
 
-    fn gerar(&self, ctx: &mut CtxGerador<'_>, pedido: &PedidoNativo) -> Result<SaidaNativa, String> {
+    fn gerar(
+        &self,
+        ctx: &mut CtxGerador<'_>,
+        pedido: &PedidoNativo,
+    ) -> Result<SaidaNativa, String> {
         let mut s = SaidaNativa::default();
         for a in &pedido.acoes {
             let nome = a.entrada.caminho.rsplit('/').next().unwrap_or_default();
@@ -68,17 +72,23 @@ impl GeradorNativo for SassNativo {
                 Some(Valor::Texto(v)) if v == "expanded" => Estilo::Expandido,
                 Some(Valor::Texto(v)) if v == "compressed" => Estilo::Comprimido,
                 Some(_) => {
-                    s.recusas.insert(a.entrada_natural.clone(), "sass: outputStyle desconhecido (o oficial avisa)".into());
+                    s.recusas.insert(
+                        a.entrada_natural.clone(),
+                        "sass: outputStyle desconhecido (o oficial avisa)".into(),
+                    );
                     continue;
                 }
             };
             let Some(fonte) = ctx.ler(&a.entrada_natural) else {
-                s.recusas.insert(a.entrada_natural.clone(), "sass: entrada ilegível".into());
+                s.recusas
+                    .insert(a.entrada_natural.clone(), "sass: entrada ilegível".into());
                 continue;
             };
             let texto = String::from_utf8_lossy(&fonte);
             let mapa = a.opcoes.obter("sourceMaps") == Some(&Valor::Bool(true));
-            let leitor = LeitorDoPasso { memoria: ctx.memoria };
+            let leitor = LeitorDoPasso {
+                memoria: ctx.memoria,
+            };
             let folha = match compilar_ativo(
                 &texto,
                 &a.entrada.pacote,
@@ -91,18 +101,26 @@ impl GeradorNativo for SassNativo {
                 Ok(f) => f,
                 Err(m) => {
                     let primeira = m.lines().next().unwrap_or_default().to_owned();
-                    s.recusas.insert(a.entrada_natural.clone(), format!("sass: o dart-sass recusa: {primeira}"));
+                    s.recusas.insert(
+                        a.entrada_natural.clone(),
+                        format!("sass: o dart-sass recusa: {primeira}"),
+                    );
                     continue;
                 }
             };
             for arquivo in folha.lidos.iter().chain(&folha.sondados) {
-                ctx.registrar(Consulta::Arquivo(dartforge_elements::gerado::chave(arquivo)));
+                ctx.registrar(Consulta::Arquivo(dartforge_elements::gerado::chave(
+                    arquivo,
+                )));
             }
             if let Some((_, n)) = a.saidas.iter().find(|(id, _)| id.caminho.ends_with(".css")) {
                 s.saidas.insert(n.clone(), folha.css.into_bytes());
             }
             if let Some(m) = folha.mapa
-                && let Some((_, n)) = a.saidas.iter().find(|(id, _)| id.caminho.ends_with(".css.map"))
+                && let Some((_, n)) = a
+                    .saidas
+                    .iter()
+                    .find(|(id, _)| id.caminho.ends_with(".css.map"))
             {
                 s.saidas.insert(n.clone(), m.into_bytes());
             }

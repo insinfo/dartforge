@@ -446,7 +446,8 @@ fn pos_processador_pela_vm() {
         .collect();
     assert_eq!(ancoras.len(), 1, "uma âncora: a única entrada .rascunho");
     assert!(
-        m.registro(ancoras[0]).is_some_and(|r| r.apagados.is_empty()),
+        m.registro(ancoras[0])
+            .is_some_and(|r| r.apagados.is_empty()),
         "apagar: false no dev"
     );
     assert!(publicado(&m, saida), "saída publicada na geração");
@@ -476,10 +477,18 @@ fn pos_processador_pela_vm() {
         rel.texto()
     );
     let texto = resumo(&m).unwrap();
-    assert!(std::str::from_utf8(&texto).unwrap().ends_with("---\nnota nova\n"));
+    assert!(
+        std::str::from_utf8(&texto)
+            .unwrap()
+            .ends_with("---\nnota nova\n")
+    );
     let mut novo = motor_vm(&dir);
     atualizar(&mut novo, &[]);
-    assert_eq!(m.estado_canonico(), novo.estado_canonico(), "incremental ≠ do zero");
+    assert_eq!(
+        m.estado_canonico(),
+        novo.estado_canonico(),
+        "incremental ≠ do zero"
+    );
 
     // Entrada apagada: a âncora e a saída somem.
     std::fs::remove_file(&notas).unwrap();
@@ -489,7 +498,11 @@ fn pos_processador_pela_vm() {
     assert!(!publicado(&m, saida), "saída retirada da geração");
     let mut novo = motor_vm(&dir);
     atualizar(&mut novo, &[]);
-    assert_eq!(m.estado_canonico(), novo.estado_canonico(), "incremental ≠ do zero");
+    assert_eq!(
+        m.estado_canonico(),
+        novo.estado_canonico(),
+        "incremental ≠ do zero"
+    );
 
     // Release: `apagar: true` chama `deletePrimaryInput`.
     std::fs::write(&notas, "nota do post_process_builder limpeza\n").unwrap();

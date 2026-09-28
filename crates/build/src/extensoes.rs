@@ -13,9 +13,20 @@
 
 #[derive(Debug, Clone, PartialEq)]
 enum Regra {
-    Sufixo { entrada: String, saidas: Vec<String> },
-    Exata { caminho: String, saidas: Vec<String> },
-    Captura { ancorada: bool, literais: Vec<String>, nomes: Vec<String>, saidas: Vec<String> },
+    Sufixo {
+        entrada: String,
+        saidas: Vec<String>,
+    },
+    Exata {
+        caminho: String,
+        saidas: Vec<String>,
+    },
+    Captura {
+        ancorada: bool,
+        literais: Vec<String>,
+        nomes: Vec<String>,
+        saidas: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -85,7 +96,12 @@ impl Extensoes {
                         ));
                     }
                 }
-                regras.push(Regra::Captura { ancorada, literais, nomes, saidas: saidas.clone() });
+                regras.push(Regra::Captura {
+                    ancorada,
+                    literais,
+                    nomes,
+                    saidas: saidas.clone(),
+                });
                 continue;
             }
             for s in saidas {
@@ -96,19 +112,30 @@ impl Extensoes {
                 }
             }
             if let Some(c) = entrada.strip_prefix('^') {
-                regras.push(Regra::Exata { caminho: c.to_string(), saidas: saidas.clone() });
+                regras.push(Regra::Exata {
+                    caminho: c.to_string(),
+                    saidas: saidas.clone(),
+                });
             } else {
-                regras.push(Regra::Sufixo { entrada: entrada.clone(), saidas: saidas.clone() });
+                regras.push(Regra::Sufixo {
+                    entrada: entrada.clone(),
+                    saidas: saidas.clone(),
+                });
             }
         }
-        Ok(Extensoes { regras, declaradas: declaradas.to_vec() })
+        Ok(Extensoes {
+            regras,
+            declaradas: declaradas.to_vec(),
+        })
     }
 
     pub fn tem_saida(&self, caminho: &str) -> bool {
         self.regras.iter().any(|r| match r {
             Regra::Sufixo { entrada, .. } => caminho.ends_with(entrada.as_str()),
             Regra::Exata { caminho: c, .. } => c == caminho,
-            Regra::Captura { ancorada, literais, .. } => primeiro_casamento(caminho, *ancorada, literais).is_some(),
+            Regra::Captura {
+                ancorada, literais, ..
+            } => primeiro_casamento(caminho, *ancorada, literais).is_some(),
         })
     }
 
@@ -128,7 +155,12 @@ impl Extensoes {
                         v.extend(saidas.iter().cloned());
                     }
                 }
-                Regra::Captura { ancorada, literais, nomes, saidas } => {
+                Regra::Captura {
+                    ancorada,
+                    literais,
+                    nomes,
+                    saidas,
+                } => {
                     if let Some((ini, caps)) = primeiro_casamento(caminho, *ancorada, literais) {
                         for s in saidas {
                             let mut r = String::new();
@@ -147,7 +179,9 @@ impl Extensoes {
             }
         }
         if v.iter().any(|s| s == caminho) {
-            return Err(format!("a saída \"{caminho}\" é igual à entrada, o que não é permitido"));
+            return Err(format!(
+                "a saída \"{caminho}\" é igual à entrada, o que não é permitido"
+            ));
         }
         Ok(v)
     }
@@ -160,9 +194,21 @@ impl Extensoes {
 
 /// Primeiro casamento de `lit0(.+)lit1(.+)…litN$` (com `^` se ancorada):
 /// o início mais à esquerda, grupos gulosos. Devolve o início e os grupos.
-fn primeiro_casamento(t: &str, ancorada: bool, literais: &[String]) -> Option<(usize, Vec<String>)> {
-    let fronteiras: Vec<usize> = t.char_indices().map(|(i, _)| i).chain(std::iter::once(t.len())).collect();
-    let inicios: Vec<usize> = if ancorada { vec![0] } else { fronteiras.clone() };
+fn primeiro_casamento(
+    t: &str,
+    ancorada: bool,
+    literais: &[String],
+) -> Option<(usize, Vec<String>)> {
+    let fronteiras: Vec<usize> = t
+        .char_indices()
+        .map(|(i, _)| i)
+        .chain(std::iter::once(t.len()))
+        .collect();
+    let inicios: Vec<usize> = if ancorada {
+        vec![0]
+    } else {
+        fronteiras.clone()
+    };
     for ini in inicios {
         let mut caps = Vec::new();
         if casar(t, &fronteiras, ini, literais, 0, &mut caps) {
@@ -172,7 +218,14 @@ fn primeiro_casamento(t: &str, ancorada: bool, literais: &[String]) -> Option<(u
     None
 }
 
-fn casar(t: &str, fr: &[usize], pos: usize, lits: &[String], k: usize, caps: &mut Vec<String>) -> bool {
+fn casar(
+    t: &str,
+    fr: &[usize],
+    pos: usize,
+    lits: &[String],
+    k: usize,
+    caps: &mut Vec<String>,
+) -> bool {
     let lit = &lits[k];
     if !t[pos..].starts_with(lit.as_str()) {
         return false;
@@ -200,8 +253,10 @@ mod testes {
     use super::*;
 
     fn ext(pares: &[(&str, &[&str])]) -> Result<Extensoes, String> {
-        let v: Vec<(String, Vec<String>)> =
-            pares.iter().map(|(a, b)| (a.to_string(), b.iter().map(|s| s.to_string()).collect())).collect();
+        let v: Vec<(String, Vec<String>)> = pares
+            .iter()
+            .map(|(a, b)| (a.to_string(), b.iter().map(|s| s.to_string()).collect()))
+            .collect();
         Extensoes::novas(&v, "teste")
     }
 
@@ -209,7 +264,10 @@ mod testes {
     #[test]
     fn sufixo() {
         let e = ext(&[(".dart", &[".g.dart", ".json"])]).unwrap();
-        assert_eq!(e.saidas("lib/a.dart").unwrap(), vec!["lib/a.g.dart", "lib/a.json"]);
+        assert_eq!(
+            e.saidas("lib/a.dart").unwrap(),
+            vec!["lib/a.g.dart", "lib/a.json"]
+        );
         assert!(e.saidas("lib/a.txt").unwrap().is_empty());
         assert!(e.tem_saida("lib/a.dart"));
     }
@@ -226,10 +284,20 @@ mod testes {
         let e = ext(&[("{{}}.dart", &["{{}}.g.dart"])]).unwrap();
         assert_eq!(e.saidas("lib/a.dart").unwrap(), vec!["lib/a.g.dart"]);
         let e = ext(&[("^lib/{{}}.dart", &["lib/generated/{{}}.dart"])]).unwrap();
-        assert_eq!(e.saidas("lib/a/b.dart").unwrap(), vec!["lib/generated/a/b.dart"]);
+        assert_eq!(
+            e.saidas("lib/a/b.dart").unwrap(),
+            vec!["lib/generated/a/b.dart"]
+        );
         assert!(e.saidas("test/a.dart").unwrap().is_empty());
-        let e = ext(&[("{{dir}}/models/{{file}}.dart", &["{{dir}}/gen/{{file}}.g.dart"])]).unwrap();
-        assert_eq!(e.saidas("lib/src/models/p.dart").unwrap(), vec!["lib/src/gen/p.g.dart"]);
+        let e = ext(&[(
+            "{{dir}}/models/{{file}}.dart",
+            &["{{dir}}/gen/{{file}}.g.dart"],
+        )])
+        .unwrap();
+        assert_eq!(
+            e.saidas("lib/src/models/p.dart").unwrap(),
+            vec!["lib/src/gen/p.g.dart"]
+        );
     }
 
     #[test]

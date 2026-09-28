@@ -16,7 +16,10 @@ enum No {
     Estrela,
     DuplaEstrela,
     Qualquer,
-    Faixa { faixas: Vec<(char, char)>, negada: bool },
+    Faixa {
+        faixas: Vec<(char, char)>,
+        negada: bool,
+    },
     Opcoes(Vec<Vec<No>>),
 }
 
@@ -55,10 +58,16 @@ impl Leitor<'_> {
         }
     }
     fn erro(&self, msg: &str) -> String {
-        format!("glob inválido '{}': {msg} (posição {})", self.padrao, self.i)
+        format!(
+            "glob inválido '{}': {msg} (posição {})",
+            self.padrao, self.i
+        )
     }
     fn le(&mut self) -> Result<char, String> {
-        let ch = *self.c.get(self.i).ok_or_else(|| self.erro("fim inesperado"))?;
+        let ch = *self
+            .c
+            .get(self.i)
+            .ok_or_else(|| self.erro("fim inesperado"))?;
         self.i += 1;
         Ok(ch)
     }
@@ -79,7 +88,11 @@ impl Leitor<'_> {
 
     fn no(&mut self, em_opcoes: bool) -> Result<No, String> {
         if self.toma('*') {
-            return Ok(if self.toma('*') { No::DuplaEstrela } else { No::Estrela });
+            return Ok(if self.toma('*') {
+                No::DuplaEstrela
+            } else {
+                No::Estrela
+            });
         }
         if self.toma('?') {
             return Ok(No::Qualquer);
@@ -154,7 +167,8 @@ impl Leitor<'_> {
 
     fn literal(&mut self, em_opcoes: bool) -> Result<No, String> {
         let para = |ch: char| {
-            matches!(ch, '*' | '{' | '[' | '?' | '\\' | '}' | ']' | '(' | ')') || (em_opcoes && ch == ',')
+            matches!(ch, '*' | '{' | '[' | '?' | '\\' | '}' | ']' | '(' | ')')
+                || (em_opcoes && ch == ',')
         };
         let mut t = Vec::new();
         loop {
@@ -204,9 +218,17 @@ impl Glob {
     }
 
     pub fn com_sensibilidade(padrao: &str, sensivel: bool) -> Result<Glob, String> {
-        let mut l = Leitor { c: padrao.chars().collect(), i: 0, padrao };
+        let mut l = Leitor {
+            c: padrao.chars().collect(),
+            i: 0,
+            padrao,
+        };
         let nos = l.sequencia(false)?;
-        Ok(Glob { padrao: padrao.to_string(), nos, sensivel })
+        Ok(Glob {
+            padrao: padrao.to_string(),
+            nos,
+            sensivel,
+        })
     }
 
     /// O caminho inteiro (POSIX, relativo ao pacote) casa com o padrão.
@@ -243,7 +265,10 @@ fn casar(
         }
         No::Qualquer => j < t.len() && t[j] != '/' && casar(nos, i + 1, t, j + 1, s, k),
         No::Faixa { faixas, negada } => {
-            j < t.len() && t[j] != '/' && (na_faixa(t[j], faixas, s) != *negada) && casar(nos, i + 1, t, j + 1, s, k)
+            j < t.len()
+                && t[j] != '/'
+                && (na_faixa(t[j], faixas, s) != *negada)
+                && casar(nos, i + 1, t, j + 1, s, k)
         }
         No::Estrela => {
             // Guloso, com retrocesso: o maior trecho sem `/` primeiro.
@@ -271,7 +296,11 @@ fn casar_prefixo(nos: &[No], i: usize, t: &[char], j: usize, s: bool) -> bool {
     match no {
         No::Literal(l) => {
             let n = l.len().min(t.len() - j);
-            if !l[..n].iter().zip(&t[j..j + n]).all(|(a, b)| igual(*a, *b, s)) {
+            if !l[..n]
+                .iter()
+                .zip(&t[j..j + n])
+                .all(|(a, b)| igual(*a, *b, s))
+            {
                 return false;
             }
             if n < l.len() {
@@ -281,7 +310,9 @@ fn casar_prefixo(nos: &[No], i: usize, t: &[char], j: usize, s: bool) -> bool {
         }
         No::Qualquer => t[j] != '/' && casar_prefixo(nos, i + 1, t, j + 1, s),
         No::Faixa { faixas, negada } => {
-            t[j] != '/' && (na_faixa(t[j], faixas, s) != *negada) && casar_prefixo(nos, i + 1, t, j + 1, s)
+            t[j] != '/'
+                && (na_faixa(t[j], faixas, s) != *negada)
+                && casar_prefixo(nos, i + 1, t, j + 1, s)
         }
         No::Estrela => {
             let mut fim = j;

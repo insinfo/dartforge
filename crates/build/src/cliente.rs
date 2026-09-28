@@ -1,6 +1,9 @@
 //! Cliente do serviço `build.*` do `dfexec/1`. O canal e o enquadramento são
 //! os mesmos usados pelas macros; o executor real pode atender ambos.
-use crate::executor::{Disponibilidade, ErroExecutor, ExecutorDart, ExtensoesDeExecucao, Nivel, PedidoAcao, PedidoExtensoes, ResultadoAcao, ScriptDeBuilders, ServicoBuildStep};
+use crate::executor::{
+    Disponibilidade, ErroExecutor, ExecutorDart, ExtensoesDeExecucao, Nivel, PedidoAcao,
+    PedidoExtensoes, ResultadoAcao, ScriptDeBuilders, ServicoBuildStep,
+};
 use crate::grafo::AssetId;
 use crate::valor::{Mapa, Valor};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -27,10 +30,18 @@ impl ClienteBuild<CanalDeProcesso> {
 
 impl<C: Canal> ClienteBuild<C> {
     pub fn novo(canal: C) -> Self {
-        Self { canal, proximo: 1, iniciado: false, carregado: false, falha_de_preparo: None }
+        Self {
+            canal,
+            proximo: 1,
+            iniciado: false,
+            carregado: false,
+            falha_de_preparo: None,
+        }
     }
 
-    pub fn canal(&self) -> &C { &self.canal }
+    pub fn canal(&self) -> &C {
+        &self.canal
+    }
 
     fn id(&mut self) -> u64 {
         let id = self.proximo;
@@ -38,17 +49,33 @@ impl<C: Canal> ClienteBuild<C> {
         id
     }
 
-    fn receber(&mut self, id: u64, esperado: &str, servico: &mut dyn ServicoBuildStep) -> Result<Value, ErroExecutor> {
+    fn receber(
+        &mut self,
+        id: u64,
+        esperado: &str,
+        servico: &mut dyn ServicoBuildStep,
+    ) -> Result<Value, ErroExecutor> {
         loop {
             let mensagem = self.canal.receber().map_err(ErroExecutor)?;
             let tipo = mensagem.get("t").and_then(Value::as_str).unwrap_or("");
-            if matches!(tipo, "build.ler" | "build.existe" | "build.glob" | "build.digest" |
-                "build.escrever" | "build.log" | "build.resolver") || tipo.starts_with("build.resolver.") {
+            if matches!(
+                tipo,
+                "build.ler"
+                    | "build.existe"
+                    | "build.glob"
+                    | "build.digest"
+                    | "build.escrever"
+                    | "build.log"
+                    | "build.resolver"
+            ) || tipo.starts_with("build.resolver.")
+            {
                 let resposta = match self.servir(&mensagem, servico) {
                     Ok(resposta) => resposta,
                     Err(erro) => {
-                        let pedido = mensagem.get("id").and_then(Value::as_u64)
-                            .ok_or_else(|| ErroExecutor(format!("consulta build sem id: {mensagem}")))?;
+                        let pedido =
+                            mensagem.get("id").and_then(Value::as_u64).ok_or_else(|| {
+                                ErroExecutor(format!("consulta build sem id: {mensagem}"))
+                            })?;
                         json!({"t":"build.resposta","id":pedido,"erro":erro.0})
                     }
                 };
@@ -56,13 +83,23 @@ impl<C: Canal> ClienteBuild<C> {
                 continue;
             }
             if mensagem.get("id").and_then(Value::as_u64) != Some(id) {
-                return Err(ErroExecutor(format!("resposta fora de ordem do executor: {mensagem}")));
+                return Err(ErroExecutor(format!(
+                    "resposta fora de ordem do executor: {mensagem}"
+                )));
             }
             if tipo == "erro" {
-                return Err(ErroExecutor(mensagem.get("mensagem").and_then(Value::as_str).unwrap_or("erro sem mensagem").into()));
+                return Err(ErroExecutor(
+                    mensagem
+                        .get("mensagem")
+                        .and_then(Value::as_str)
+                        .unwrap_or("erro sem mensagem")
+                        .into(),
+                ));
             }
             if tipo != esperado {
-                return Err(ErroExecutor(format!("esperava {esperado}, veio {mensagem}")));
+                return Err(ErroExecutor(format!(
+                    "esperava {esperado}, veio {mensagem}"
+                )));
             }
             return Ok(mensagem);
         }
@@ -70,9 +107,16 @@ impl<C: Canal> ClienteBuild<C> {
 
     fn servir(&self, m: &Value, s: &mut dyn ServicoBuildStep) -> Result<Value, ErroExecutor> {
         let tipo = m.get("t").and_then(Value::as_str).unwrap_or("");
-        let id = m.get("id").and_then(Value::as_u64).ok_or_else(|| ErroExecutor("consulta build sem id".into()))?;
-        let asset = || m.get("asset").and_then(Value::as_str).and_then(AssetId::de_texto)
-            .ok_or_else(|| ErroExecutor(format!("{tipo}: AssetId inválido")));
+        let id = m
+            .get("id")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| ErroExecutor("consulta build sem id".into()))?;
+        let asset = || {
+            m.get("asset")
+                .and_then(Value::as_str)
+                .and_then(AssetId::de_texto)
+                .ok_or_else(|| ErroExecutor(format!("{tipo}: AssetId inválido")))
+        };
         let mut resposta = json!({"t":"build.resposta","id":id});
         match tipo {
             "build.ler" => {
@@ -84,23 +128,48 @@ impl<C: Canal> ClienteBuild<C> {
             }
             "build.existe" => resposta["sim"] = json!(s.can_read(&asset()?)),
             "build.glob" => {
-                let padrao = m.get("padrao").and_then(Value::as_str).ok_or_else(|| ErroExecutor("glob sem padrão".into()))?;
-                resposta["assets"] = json!(s.find_assets(padrao).into_iter().map(|a| a.texto()).collect::<Vec<_>>());
+                let padrao = m
+                    .get("padrao")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| ErroExecutor("glob sem padrão".into()))?;
+                resposta["assets"] = json!(
+                    s.find_assets(padrao)
+                        .into_iter()
+                        .map(|a| a.texto())
+                        .collect::<Vec<_>>()
+                );
             }
             "build.digest" => {
-                resposta["hex"] = s.digest(&asset()?).map(|d| d.iter().map(|b| format!("{b:02x}")).collect::<String>()).map_or(Value::Null, Value::String);
+                resposta["hex"] = s
+                    .digest(&asset()?)
+                    .map(|d| d.iter().map(|b| format!("{b:02x}")).collect::<String>())
+                    .map_or(Value::Null, Value::String);
             }
             "build.escrever" => {
                 let asset = asset()?;
-                let bytes = m.get("bytes_base64").and_then(Value::as_str).ok_or_else(|| ErroExecutor("escrever sem bytes".into()))?;
-                let bytes: Arc<[u8]> = STANDARD.decode(bytes).map_err(|e| ErroExecutor(format!("base64 inválido: {e}")))?.into();
-                if s.escrever(&asset, bytes).is_err() { resposta["erro"] = json!("SaidaNaoPermitida"); }
+                let bytes = m
+                    .get("bytes_base64")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| ErroExecutor("escrever sem bytes".into()))?;
+                let bytes: Arc<[u8]> = STANDARD
+                    .decode(bytes)
+                    .map_err(|e| ErroExecutor(format!("base64 inválido: {e}")))?
+                    .into();
+                if s.escrever(&asset, bytes).is_err() {
+                    resposta["erro"] = json!("SaidaNaoPermitida");
+                }
             }
             "build.log" => {
                 let nivel = match m.get("nivel").and_then(Value::as_str).unwrap_or("info") {
-                    "fino" => Nivel::Fino, "aviso" => Nivel::Aviso, "severo" => Nivel::Severo, _ => Nivel::Info,
+                    "fino" => Nivel::Fino,
+                    "aviso" => Nivel::Aviso,
+                    "severo" => Nivel::Severo,
+                    _ => Nivel::Info,
                 };
-                s.log(nivel, m.get("mensagem").and_then(Value::as_str).unwrap_or(""));
+                s.log(
+                    nivel,
+                    m.get("mensagem").and_then(Value::as_str).unwrap_or(""),
+                );
             }
             "build.resolver" => resposta["erro"] = json!("indisponivel"),
             t if t.starts_with("build.resolver.") => resposta["erro"] = json!("indisponivel"),
@@ -111,8 +180,15 @@ impl<C: Canal> ClienteBuild<C> {
 
     /// `build.executar` e `build.posprocessar`: o mesmo pedido e a mesma
     /// resposta `build.resultado`; o pós-processador acrescenta `apagados`.
-    fn acao(&mut self, tipo: &str, p: &PedidoAcao, servico: &mut dyn ServicoBuildStep) -> Result<ResultadoAcao, ErroExecutor> {
-        if !self.carregado { return Err(ErroExecutor(format!("{tipo} antes de build.carregar"))); }
+    fn acao(
+        &mut self,
+        tipo: &str,
+        p: &PedidoAcao,
+        servico: &mut dyn ServicoBuildStep,
+    ) -> Result<ResultadoAcao, ErroExecutor> {
+        if !self.carregado {
+            return Err(ErroExecutor(format!("{tipo} antes de build.carregar")));
+        }
         let id = self.id();
         self.canal.enviar(&json!({"t":tipo,"id":id,"fase":p.fase,"chave":p.chave,
             "fabrica":p.fabrica,"opcoes":mapa_json(&p.opcoes),"isRoot":p.raiz,"entrada":p.entrada.texto(),
@@ -120,26 +196,70 @@ impl<C: Canal> ClienteBuild<C> {
         })).map_err(ErroExecutor)?;
         let resposta = self.receber(id, "build.resultado", servico)?;
         let mut saidas = Vec::new();
-        let lista = resposta.get("saidas").and_then(Value::as_array)
+        let lista = resposta
+            .get("saidas")
+            .and_then(Value::as_array)
             .ok_or_else(|| ErroExecutor("build.resultado sem lista de saídas".into()))?;
         for saida in lista {
-            let asset = saida.get("asset").and_then(Value::as_str).and_then(AssetId::de_texto)
+            let asset = saida
+                .get("asset")
+                .and_then(Value::as_str)
+                .and_then(AssetId::de_texto)
                 .ok_or_else(|| ErroExecutor("resultado com AssetId inválido".into()))?;
-            let bytes = saida.get("bytes_base64").and_then(Value::as_str)
+            let bytes = saida
+                .get("bytes_base64")
+                .and_then(Value::as_str)
                 .ok_or_else(|| ErroExecutor("resultado sem bytes".into()))?;
-            saidas.push((asset, Arc::from(STANDARD.decode(bytes).map_err(|e| ErroExecutor(e.to_string()))?)));
+            saidas.push((
+                asset,
+                Arc::from(
+                    STANDARD
+                        .decode(bytes)
+                        .map_err(|e| ErroExecutor(e.to_string()))?,
+                ),
+            ));
         }
-        let logs = resposta.get("logs").and_then(Value::as_array).into_iter().flatten().map(|log|
-            (log.get("nivel").and_then(Value::as_str).unwrap_or("info").to_string(),
-             log.get("mensagem").and_then(Value::as_str).unwrap_or("").to_string())).collect();
-        let falhou = resposta.get("falhou").and_then(Value::as_bool)
+        let logs = resposta
+            .get("logs")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|log| {
+                (
+                    log.get("nivel")
+                        .and_then(Value::as_str)
+                        .unwrap_or("info")
+                        .to_string(),
+                    log.get("mensagem")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                )
+            })
+            .collect();
+        let falhou = resposta
+            .get("falhou")
+            .and_then(Value::as_bool)
             .ok_or_else(|| ErroExecutor("build.resultado sem indicador falhou".into()))?;
         let mut apagados = Vec::new();
-        for a in resposta.get("apagados").and_then(Value::as_array).into_iter().flatten() {
-            apagados.push(a.as_str().and_then(AssetId::de_texto)
-                .ok_or_else(|| ErroExecutor("resultado com AssetId apagado inválido".into()))?);
+        for a in resposta
+            .get("apagados")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            apagados.push(
+                a.as_str()
+                    .and_then(AssetId::de_texto)
+                    .ok_or_else(|| ErroExecutor("resultado com AssetId apagado inválido".into()))?,
+            );
         }
-        Ok(ResultadoAcao { saidas, logs, falhou, apagados })
+        Ok(ResultadoAcao {
+            saidas,
+            logs,
+            falhou,
+            apagados,
+        })
     }
 
     fn handshake(&mut self) -> Result<(), ErroExecutor> {
@@ -148,8 +268,11 @@ impl<C: Canal> ClienteBuild<C> {
         let servicos = resposta.get("servicos").and_then(Value::as_array);
         if resposta.get("t").and_then(Value::as_str) != Some("ola")
             || resposta.get("protocolo").and_then(Value::as_str) != Some(PROTOCOLO)
-            || !servicos.is_some_and(|s| s.iter().any(|v| v.as_str() == Some("build"))) {
-            return Err(ErroExecutor(format!("handshake build incompatível: {resposta}")));
+            || !servicos.is_some_and(|s| s.iter().any(|v| v.as_str() == Some("build")))
+        {
+            return Err(ErroExecutor(format!(
+                "handshake build incompatível: {resposta}"
+            )));
         }
         self.iniciado = true;
         Ok(())
@@ -158,25 +281,48 @@ impl<C: Canal> ClienteBuild<C> {
 
 struct SemServico;
 impl ServicoBuildStep for SemServico {
-    fn can_read(&mut self, _: &AssetId) -> bool { false }
-    fn ler(&mut self, _: &AssetId) -> Option<Arc<[u8]>> { None }
-    fn find_assets(&mut self, _: &str) -> Vec<AssetId> { Vec::new() }
-    fn digest(&mut self, _: &AssetId) -> Option<[u8; 32]> { None }
-    fn escrever(&mut self, id: &AssetId, _: Arc<[u8]>) -> Result<(), crate::executor::SaidaNaoPermitida> { Err(crate::executor::SaidaNaoPermitida(id.clone())) }
-    fn resolver(&mut self) -> Option<&mut dyn crate::executor::ServicoResolver> { None }
+    fn can_read(&mut self, _: &AssetId) -> bool {
+        false
+    }
+    fn ler(&mut self, _: &AssetId) -> Option<Arc<[u8]>> {
+        None
+    }
+    fn find_assets(&mut self, _: &str) -> Vec<AssetId> {
+        Vec::new()
+    }
+    fn digest(&mut self, _: &AssetId) -> Option<[u8; 32]> {
+        None
+    }
+    fn escrever(
+        &mut self,
+        id: &AssetId,
+        _: Arc<[u8]>,
+    ) -> Result<(), crate::executor::SaidaNaoPermitida> {
+        Err(crate::executor::SaidaNaoPermitida(id.clone()))
+    }
+    fn resolver(&mut self) -> Option<&mut dyn crate::executor::ServicoResolver> {
+        None
+    }
     fn log(&mut self, _: Nivel, _: &str) {}
 }
 
 impl<C: Canal> ExecutorDart for ClienteBuild<C> {
     fn disponibilidade(&self) -> Disponibilidade {
-        self.falha_de_preparo.as_ref().map_or(Disponibilidade::Disponivel,
-            |e| Disponibilidade::Indisponivel(e.clone()))
+        self.falha_de_preparo
+            .as_ref()
+            .map_or(Disponibilidade::Disponivel, |e| {
+                Disponibilidade::Indisponivel(e.clone())
+            })
     }
 
     fn preparar(&mut self, script: &ScriptDeBuilders) -> Result<(), ErroExecutor> {
-        if let Some(erro) = &self.falha_de_preparo { return Err(ErroExecutor(erro.clone())); }
+        if let Some(erro) = &self.falha_de_preparo {
+            return Err(ErroExecutor(erro.clone()));
+        }
         let resultado: Result<(), ErroExecutor> = (|| {
-            if !self.iniciado { self.handshake()?; }
+            if !self.iniciado {
+                self.handshake()?;
+            }
             let id = self.id();
             let aplicacoes: Vec<_> = script.aplicacoes.iter().map(|(chave, import, fabricas)|
                 json!({"chave":chave,"import":import,"fabricas":fabricas})).collect();
@@ -185,7 +331,9 @@ impl<C: Canal> ExecutorDart for ClienteBuild<C> {
             self.carregado = true;
             Ok(())
         })();
-        if let Err(e) = &resultado { self.falha_de_preparo = Some(e.0.clone()); }
+        if let Err(e) = &resultado {
+            self.falha_de_preparo = Some(e.0.clone());
+        }
         resultado
     }
 
@@ -200,41 +348,83 @@ impl<C: Canal> ExecutorDart for ClienteBuild<C> {
         }
     }
 
-    fn extensoes(&mut self, p: &PedidoExtensoes) -> Result<Option<ExtensoesDeExecucao>, ErroExecutor> {
-        if !self.carregado { return Err(ErroExecutor("build.extensoes antes de build.carregar".into())); }
+    fn extensoes(
+        &mut self,
+        p: &PedidoExtensoes,
+    ) -> Result<Option<ExtensoesDeExecucao>, ErroExecutor> {
+        if !self.carregado {
+            return Err(ErroExecutor(
+                "build.extensoes antes de build.carregar".into(),
+            ));
+        }
         let id = self.id();
-        self.canal.enviar(&json!({"t":"build.extensoes","id":id,"chave":p.chave,"fabrica":p.fabrica,
-            "opcoes":mapa_json(&p.opcoes),"isRoot":p.raiz})).map_err(ErroExecutor)?;
+        self.canal
+            .enviar(
+                &json!({"t":"build.extensoes","id":id,"chave":p.chave,"fabrica":p.fabrica,
+            "opcoes":mapa_json(&p.opcoes),"isRoot":p.raiz}),
+            )
+            .map_err(ErroExecutor)?;
         let resposta = self.receber(id, "build.extensoes", &mut SemServico)?;
         let invalida = || ErroExecutor(format!("build.extensoes inválido: {resposta}"));
-        let pares = resposta.get("extensoes").and_then(Value::as_array).ok_or_else(invalida)?;
+        let pares = resposta
+            .get("extensoes")
+            .and_then(Value::as_array)
+            .ok_or_else(invalida)?;
         let mut v = Vec::with_capacity(pares.len());
         for par in pares {
             let entrada = par.get(0).and_then(Value::as_str).ok_or_else(invalida)?;
-            let saidas = par.get(1).and_then(Value::as_array).ok_or_else(invalida)?
-                .iter().map(|s| s.as_str().map(str::to_string)).collect::<Option<Vec<_>>>().ok_or_else(invalida)?;
+            let saidas = par
+                .get(1)
+                .and_then(Value::as_array)
+                .ok_or_else(invalida)?
+                .iter()
+                .map(|s| s.as_str().map(str::to_string))
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(invalida)?;
             v.push((entrada.to_string(), saidas));
         }
         Ok(Some(v))
     }
 
-    fn executar(&mut self, p: &PedidoAcao, servico: &mut dyn ServicoBuildStep) -> Result<ResultadoAcao, ErroExecutor> {
+    fn executar(
+        &mut self,
+        p: &PedidoAcao,
+        servico: &mut dyn ServicoBuildStep,
+    ) -> Result<ResultadoAcao, ErroExecutor> {
         self.acao("build.executar", p, servico)
     }
 
     fn entradas_pos(&mut self, p: &PedidoExtensoes) -> Result<Option<Vec<String>>, ErroExecutor> {
-        if !self.carregado { return Err(ErroExecutor("build.entradas_pos antes de build.carregar".into())); }
+        if !self.carregado {
+            return Err(ErroExecutor(
+                "build.entradas_pos antes de build.carregar".into(),
+            ));
+        }
         let id = self.id();
-        self.canal.enviar(&json!({"t":"build.entradas_pos","id":id,"chave":p.chave,"fabrica":p.fabrica,
-            "opcoes":mapa_json(&p.opcoes),"isRoot":p.raiz})).map_err(ErroExecutor)?;
+        self.canal
+            .enviar(
+                &json!({"t":"build.entradas_pos","id":id,"chave":p.chave,"fabrica":p.fabrica,
+            "opcoes":mapa_json(&p.opcoes),"isRoot":p.raiz}),
+            )
+            .map_err(ErroExecutor)?;
         let resposta = self.receber(id, "build.entradas_pos", &mut SemServico)?;
         let invalida = || ErroExecutor(format!("build.entradas_pos inválido: {resposta}"));
-        let v = resposta.get("entradas").and_then(Value::as_array).ok_or_else(invalida)?
-            .iter().map(|s| s.as_str().map(str::to_string)).collect::<Option<Vec<_>>>().ok_or_else(invalida)?;
+        let v = resposta
+            .get("entradas")
+            .and_then(Value::as_array)
+            .ok_or_else(invalida)?
+            .iter()
+            .map(|s| s.as_str().map(str::to_string))
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(invalida)?;
         Ok(Some(v))
     }
 
-    fn pos_processar(&mut self, p: &PedidoAcao, servico: &mut dyn ServicoBuildStep) -> Result<ResultadoAcao, ErroExecutor> {
+    fn pos_processar(
+        &mut self,
+        p: &PedidoAcao,
+        servico: &mut dyn ServicoBuildStep,
+    ) -> Result<ResultadoAcao, ErroExecutor> {
         self.acao("build.posprocessar", p, servico)
     }
 
@@ -249,7 +439,9 @@ impl<C: Canal> ExecutorDart for ClienteBuild<C> {
     }
 }
 
-fn mapa_json(mapa: &Mapa) -> Value { valor_json(&Valor::Mapa(mapa.clone())) }
+fn mapa_json(mapa: &Mapa) -> Value {
+    valor_json(&Valor::Mapa(mapa.clone()))
+}
 
 fn valor_json(valor: &Valor) -> Value {
     match valor {
@@ -259,8 +451,11 @@ fn valor_json(valor: &Valor) -> Value {
         Valor::Real(v) => serde_json::from_str(v).unwrap_or_else(|_| json!(v)),
         Valor::Texto(v) => json!(v),
         Valor::Lista(v) => Value::Array(v.iter().map(valor_json).collect()),
-        Valor::Mapa(v) => Value::Object(v.0.iter().filter_map(|(k, v)|
-            k.como_texto().map(|k| (k.to_string(), valor_json(v)))).collect()),
+        Valor::Mapa(v) => Value::Object(
+            v.0.iter()
+                .filter_map(|(k, v)| k.como_texto().map(|k| (k.to_string(), valor_json(v))))
+                .collect(),
+        ),
     }
 }
 
@@ -271,31 +466,52 @@ mod testes {
     use std::collections::VecDeque;
     use std::sync::Mutex;
 
-    struct CanalFalso { recebidas: VecDeque<Value>, enviadas: Arc<Mutex<Vec<Value>>> }
+    struct CanalFalso {
+        recebidas: VecDeque<Value>,
+        enviadas: Arc<Mutex<Vec<Value>>>,
+    }
     impl Canal for CanalFalso {
         fn enviar(&mut self, m: &Value) -> Result<(), String> {
             self.enviadas.lock().unwrap().push(m.clone());
             Ok(())
         }
         fn receber(&mut self) -> Result<Value, String> {
-            self.recebidas.pop_front().ok_or_else(|| "executor falso terminou".into())
+            self.recebidas
+                .pop_front()
+                .ok_or_else(|| "executor falso terminou".into())
         }
     }
 
-    struct ServicoFalso { escritas: Vec<(AssetId, Arc<[u8]>)> }
+    struct ServicoFalso {
+        escritas: Vec<(AssetId, Arc<[u8]>)>,
+    }
     impl ServicoBuildStep for ServicoFalso {
-        fn can_read(&mut self, id: &AssetId) -> bool { id.texto() == "p|lib/a.dart" }
+        fn can_read(&mut self, id: &AssetId) -> bool {
+            id.texto() == "p|lib/a.dart"
+        }
         fn ler(&mut self, id: &AssetId) -> Option<Arc<[u8]>> {
             self.can_read(id).then(|| Arc::from(&b"fonte"[..]))
         }
-        fn find_assets(&mut self, _: &str) -> Vec<AssetId> { vec![AssetId::novo("p", "lib/a.dart")] }
-        fn digest(&mut self, _: &AssetId) -> Option<[u8; 32]> { None }
-        fn escrever(&mut self, id: &AssetId, bytes: Arc<[u8]>) -> Result<(), crate::executor::SaidaNaoPermitida> {
-            if id.texto() != "p|lib/a.g.dart" { return Err(crate::executor::SaidaNaoPermitida(id.clone())); }
+        fn find_assets(&mut self, _: &str) -> Vec<AssetId> {
+            vec![AssetId::novo("p", "lib/a.dart")]
+        }
+        fn digest(&mut self, _: &AssetId) -> Option<[u8; 32]> {
+            None
+        }
+        fn escrever(
+            &mut self,
+            id: &AssetId,
+            bytes: Arc<[u8]>,
+        ) -> Result<(), crate::executor::SaidaNaoPermitida> {
+            if id.texto() != "p|lib/a.g.dart" {
+                return Err(crate::executor::SaidaNaoPermitida(id.clone()));
+            }
             self.escritas.push((id.clone(), bytes));
             Ok(())
         }
-        fn resolver(&mut self) -> Option<&mut dyn crate::executor::ServicoResolver> { None }
+        fn resolver(&mut self) -> Option<&mut dyn crate::executor::ServicoResolver> {
+            None
+        }
         fn log(&mut self, _: Nivel, _: &str) {}
     }
 
@@ -310,11 +526,28 @@ mod testes {
             json!({"t":"build.escrever","id":11,"asset":"p|lib/outro.dart","bytes_base64":STANDARD.encode(b"indevido")}),
             json!({"t":"build.resultado","id":2,"saidas":[],"falhou":false}),
         ].into();
-        let mut cliente = ClienteBuild::novo(CanalFalso { recebidas, enviadas: enviadas.clone() });
-        cliente.preparar(&ScriptDeBuilders { aplicacoes: vec![("p:b".into(), "package:p/b.dart".into(), vec!["b".into()])], chave_de_cache: "digest".into() }).unwrap();
-        let mut servico = ServicoFalso { escritas: Vec::new() };
-        let pedido = PedidoAcao { fase: 0, chave: "p:b".into(), fabrica: "b".into(), opcoes: Mapa::default(),
-            raiz: true, entrada: AssetId::novo("p", "lib/a.dart"), saidas_permitidas: vec![AssetId::novo("p", "lib/a.g.dart")] };
+        let mut cliente = ClienteBuild::novo(CanalFalso {
+            recebidas,
+            enviadas: enviadas.clone(),
+        });
+        cliente
+            .preparar(&ScriptDeBuilders {
+                aplicacoes: vec![("p:b".into(), "package:p/b.dart".into(), vec!["b".into()])],
+                chave_de_cache: "digest".into(),
+            })
+            .unwrap();
+        let mut servico = ServicoFalso {
+            escritas: Vec::new(),
+        };
+        let pedido = PedidoAcao {
+            fase: 0,
+            chave: "p:b".into(),
+            fabrica: "b".into(),
+            opcoes: Mapa::default(),
+            raiz: true,
+            entrada: AssetId::novo("p", "lib/a.dart"),
+            saidas_permitidas: vec![AssetId::novo("p", "lib/a.g.dart")],
+        };
         let resultado = cliente.executar(&pedido, &mut servico).unwrap();
         assert!(!resultado.falhou);
         assert_eq!(servico.escritas[0].1.as_ref(), b"gerado");
@@ -339,15 +572,31 @@ mod testes {
             enviadas: enviadas.clone(),
         };
         let mut cliente = ClienteBuild::novo(canal);
-        let pedido = PedidoExtensoes { chave: "p:b".into(), fabrica: "b".into(), opcoes: Mapa::default(), raiz: true };
-        assert!(cliente.extensoes(&pedido).is_err(), "extensões antes de carregar");
-        cliente.preparar(&ScriptDeBuilders { aplicacoes: vec![], chave_de_cache: "x".into() }).unwrap();
+        let pedido = PedidoExtensoes {
+            chave: "p:b".into(),
+            fabrica: "b".into(),
+            opcoes: Mapa::default(),
+            raiz: true,
+        };
+        assert!(
+            cliente.extensoes(&pedido).is_err(),
+            "extensões antes de carregar"
+        );
+        cliente
+            .preparar(&ScriptDeBuilders {
+                aplicacoes: vec![],
+                chave_de_cache: "x".into(),
+            })
+            .unwrap();
         cliente.nova_rodada();
         // A ordem do mapa `buildExtensions` é preservada (o primeiro casamento vale).
-        assert_eq!(cliente.extensoes(&pedido).unwrap(), Some(vec![
-            (".b".to_string(), vec![".c".to_string(), ".d".to_string()]),
-            (".a".to_string(), vec![".e".to_string()]),
-        ]));
+        assert_eq!(
+            cliente.extensoes(&pedido).unwrap(),
+            Some(vec![
+                (".b".to_string(), vec![".c".to_string(), ".d".to_string()]),
+                (".a".to_string(), vec![".e".to_string()]),
+            ])
+        );
         let enviadas = enviadas.lock().unwrap();
         assert_eq!(enviadas[2], json!({"t":"build.rodada"}));
         assert_eq!(enviadas[3]["t"], "build.extensoes");
@@ -368,12 +617,34 @@ mod testes {
             enviadas: enviadas.clone(),
         };
         let mut cliente = ClienteBuild::novo(canal);
-        cliente.preparar(&ScriptDeBuilders { aplicacoes: vec![], chave_de_cache: "x".into() }).unwrap();
-        let pe = PedidoExtensoes { chave: "p:limpeza".into(), fabrica: "limpeza".into(), opcoes: Mapa::default(), raiz: true };
-        assert_eq!(cliente.entradas_pos(&pe).unwrap(), Some(vec![".rascunho".to_string()]));
-        let pedido = PedidoAcao { fase: 1, chave: "p:limpeza".into(), fabrica: "limpeza".into(), opcoes: Mapa::default(),
-            raiz: true, entrada: AssetId::novo("p", "lib/a.dart"), saidas_permitidas: Vec::new() };
-        let mut servico = ServicoFalso { escritas: Vec::new() };
+        cliente
+            .preparar(&ScriptDeBuilders {
+                aplicacoes: vec![],
+                chave_de_cache: "x".into(),
+            })
+            .unwrap();
+        let pe = PedidoExtensoes {
+            chave: "p:limpeza".into(),
+            fabrica: "limpeza".into(),
+            opcoes: Mapa::default(),
+            raiz: true,
+        };
+        assert_eq!(
+            cliente.entradas_pos(&pe).unwrap(),
+            Some(vec![".rascunho".to_string()])
+        );
+        let pedido = PedidoAcao {
+            fase: 1,
+            chave: "p:limpeza".into(),
+            fabrica: "limpeza".into(),
+            opcoes: Mapa::default(),
+            raiz: true,
+            entrada: AssetId::novo("p", "lib/a.dart"),
+            saidas_permitidas: Vec::new(),
+        };
+        let mut servico = ServicoFalso {
+            escritas: Vec::new(),
+        };
         let r = cliente.pos_processar(&pedido, &mut servico).unwrap();
         assert_eq!(r.apagados, vec![AssetId::novo("p", "lib/a.dart")]);
         assert_eq!(servico.escritas.len(), 1);
@@ -389,10 +660,23 @@ mod testes {
             json!({"t":"ola","protocolo":"dfexec/2","servicos":["build"]}),
             json!({"t":"ola","protocolo":"dfexec/1","servicos":["macro"]}),
         ] {
-            let canal = CanalFalso { recebidas: [resposta].into(), enviadas: Arc::new(Mutex::new(Vec::new())) };
+            let canal = CanalFalso {
+                recebidas: [resposta].into(),
+                enviadas: Arc::new(Mutex::new(Vec::new())),
+            };
             let mut cliente = ClienteBuild::novo(canal);
-            assert!(cliente.preparar(&ScriptDeBuilders { aplicacoes: vec![], chave_de_cache: "x".into() }).is_err());
-            assert!(matches!(cliente.disponibilidade(), Disponibilidade::Indisponivel(_)));
+            assert!(
+                cliente
+                    .preparar(&ScriptDeBuilders {
+                        aplicacoes: vec![],
+                        chave_de_cache: "x".into()
+                    })
+                    .is_err()
+            );
+            assert!(matches!(
+                cliente.disponibilidade(),
+                Disponibilidade::Indisponivel(_)
+            ));
         }
     }
 
@@ -403,14 +687,29 @@ mod testes {
                 json!({"t":"ola","protocolo":"dfexec/1","servicos":["build"]}),
                 json!({"t":"build.carregado","id":1}),
                 json!({"t":"build.resultado","id":2,"falhou":false}),
-            ].into(),
+            ]
+            .into(),
             enviadas: Arc::new(Mutex::new(Vec::new())),
         };
         let mut cliente = ClienteBuild::novo(canal);
-        cliente.preparar(&ScriptDeBuilders { aplicacoes: vec![], chave_de_cache: "x".into() }).unwrap();
-        let pedido = PedidoAcao { fase: 0, chave: "p:b".into(), fabrica: "b".into(), opcoes: Mapa::default(),
-            raiz: true, entrada: AssetId::novo("p", "lib/a.dart"), saidas_permitidas: Vec::new() };
-        let mut servico = ServicoFalso { escritas: Vec::new() };
+        cliente
+            .preparar(&ScriptDeBuilders {
+                aplicacoes: vec![],
+                chave_de_cache: "x".into(),
+            })
+            .unwrap();
+        let pedido = PedidoAcao {
+            fase: 0,
+            chave: "p:b".into(),
+            fabrica: "b".into(),
+            opcoes: Mapa::default(),
+            raiz: true,
+            entrada: AssetId::novo("p", "lib/a.dart"),
+            saidas_permitidas: Vec::new(),
+        };
+        let mut servico = ServicoFalso {
+            escritas: Vec::new(),
+        };
         assert!(cliente.executar(&pedido, &mut servico).is_err());
     }
 
@@ -425,21 +724,39 @@ mod testes {
                 json!({"t":"build.escrever","id":10,"asset":"p|lib/a.g.dart","bytes_base64":"?"}),
                 json!({"t":"build.existe","id":11,"asset":"p|lib/a.dart"}),
                 json!({"t":"build.resultado","id":2,"saidas":[],"falhou":false}),
-            ].into(),
+            ]
+            .into(),
             enviadas: enviadas.clone(),
         };
         let mut cliente = ClienteBuild::novo(canal);
-        cliente.preparar(&ScriptDeBuilders { aplicacoes: vec![], chave_de_cache: "x".into() }).unwrap();
-        let pedido = PedidoAcao { fase: 0, chave: "p:b".into(), fabrica: "b".into(), opcoes: Mapa::default(),
-            raiz: true, entrada: AssetId::novo("p", "lib/a.dart"), saidas_permitidas: Vec::new() };
-        let mut servico = ServicoFalso { escritas: Vec::new() };
+        cliente
+            .preparar(&ScriptDeBuilders {
+                aplicacoes: vec![],
+                chave_de_cache: "x".into(),
+            })
+            .unwrap();
+        let pedido = PedidoAcao {
+            fase: 0,
+            chave: "p:b".into(),
+            fabrica: "b".into(),
+            opcoes: Mapa::default(),
+            raiz: true,
+            entrada: AssetId::novo("p", "lib/a.dart"),
+            saidas_permitidas: Vec::new(),
+        };
+        let mut servico = ServicoFalso {
+            escritas: Vec::new(),
+        };
         assert!(!cliente.executar(&pedido, &mut servico).unwrap().falhou);
         let enviadas = enviadas.lock().unwrap();
         assert_eq!(enviadas[3]["id"], 9);
         assert!(enviadas[3]["erro"].as_str().unwrap().contains("AssetId"));
         assert_eq!(enviadas[4]["id"], 10);
         assert!(enviadas[4]["erro"].as_str().unwrap().contains("base64"));
-        assert_eq!(enviadas[5], json!({"t":"build.resposta","id":11,"sim":true}));
+        assert_eq!(
+            enviadas[5],
+            json!({"t":"build.resposta","id":11,"sim":true})
+        );
         assert!(servico.escritas.is_empty());
     }
 }

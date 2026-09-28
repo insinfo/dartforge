@@ -45,7 +45,11 @@ const FORMATO: u64 = 1;
 
 /// Diretório do estado de um projeto.
 pub fn diretorio(dir_raiz: &Path) -> PathBuf {
-    dir_raiz.join(".dart_tool").join("dartforge").join("build").join("estado")
+    dir_raiz
+        .join(".dart_tool")
+        .join("dartforge")
+        .join("build")
+        .join("estado")
 }
 
 /// Quem produziu a ação salva.
@@ -83,7 +87,9 @@ pub struct Estado {
 /// Identidade do executável que roda o motor: o código dos geradores
 /// nativos não está em nenhuma consulta. Caminho, tamanho e data do arquivo.
 pub fn identidade_do_executavel() -> String {
-    let Ok(exe) = std::env::current_exe() else { return "?".into() };
+    let Ok(exe) = std::env::current_exe() else {
+        return "?".into();
+    };
     let meta = std::fs::metadata(&exe).ok();
     let tamanho = meta.as_ref().map(|m| m.len()).unwrap_or(0);
     let data = meta
@@ -119,7 +125,11 @@ fn consulta_json(c: &Consulta) -> Option<Value> {
         Consulta::Arquivo(p) => json!({"t": "arquivo", "p": texto(p)?}),
         Consulta::Existe(p) => json!({"t": "existe", "p": texto(p)?}),
         Consulta::Glob { dir, padrao } => json!({"t": "glob", "p": texto(dir)?, "padrao": padrao}),
-        Consulta::GlobAtivos { dir, padrao, candidatos } => {
+        Consulta::GlobAtivos {
+            dir,
+            padrao,
+            candidatos,
+        } => {
             json!({"t": "glob_ativos", "p": texto(dir)?, "padrao": padrao, "candidatos": candidatos})
         }
         _ => return None,
@@ -132,13 +142,20 @@ fn consulta_de_json(v: &Value) -> Option<Consulta> {
     Some(match v.get("t")?.as_str()? {
         "arquivo" => Consulta::Arquivo(p()?),
         "existe" => Consulta::Existe(p()?),
-        "glob" => Consulta::Glob { dir: p()?, padrao: padrao()? },
+        "glob" => Consulta::Glob {
+            dir: p()?,
+            padrao: padrao()?,
+        },
         "glob_ativos" => {
             let mut candidatos = Vec::new();
             for c in v.get("candidatos")?.as_array()? {
                 candidatos.push((c.get(0)?.as_str()?.to_string(), c.get(1)?.as_bool()?));
             }
-            Consulta::GlobAtivos { dir: p()?, padrao: padrao()?, candidatos }
+            Consulta::GlobAtivos {
+                dir: p()?,
+                padrao: padrao()?,
+                candidatos,
+            }
         }
         _ => return None,
     })
@@ -154,7 +171,10 @@ fn ids(v: &[AssetId]) -> Value {
 }
 
 fn ids_de(v: Option<&Value>) -> Option<Vec<AssetId>> {
-    v?.as_array()?.iter().map(|x| AssetId::de_texto(x.as_str()?)).collect()
+    v?.as_array()?
+        .iter()
+        .map(|x| AssetId::de_texto(x.as_str()?))
+        .collect()
 }
 
 fn acao_json(a: &AcaoSalva) -> Option<Value> {
@@ -167,7 +187,10 @@ fn acao_json(a: &AcaoSalva) -> Option<Value> {
     let mut consultas = Vec::with_capacity(a.consultas.len());
     for (c, d) in &a.consultas {
         let mut v = consulta_json(c)?;
-        v["d"] = d.as_ref().map(|d| Value::String(hex(d))).unwrap_or(Value::Null);
+        v["d"] = d
+            .as_ref()
+            .map(|d| Value::String(hex(d)))
+            .unwrap_or(Value::Null);
         consultas.push(v);
     }
     let saidas: Vec<Value> = a
@@ -234,13 +257,25 @@ pub fn ler(dir: &Path) -> Option<Estado> {
         c => {
             let mut l = Vec::new();
             for par in c.as_array()? {
-                l.push((PathBuf::from(par.get(0)?.as_str()?), de_hex(par.get(1)?.as_str()?)?));
+                l.push((
+                    PathBuf::from(par.get(0)?.as_str()?),
+                    de_hex(par.get(1)?.as_str()?)?,
+                ));
             }
             Some(l)
         }
     };
-    let acoes = v.get("acoes")?.as_array()?.iter().map(acao_de_json).collect::<Option<Vec<_>>>()?;
-    Some(Estado { chave: v.get("chave")?.as_str()?.to_string(), codigo_dart, acoes })
+    let acoes = v
+        .get("acoes")?
+        .as_array()?
+        .iter()
+        .map(acao_de_json)
+        .collect::<Option<Vec<_>>>()?;
+    Some(Estado {
+        chave: v.get("chave")?.as_str()?.to_string(),
+        codigo_dart,
+        acoes,
+    })
 }
 
 /// Conteúdo de uma saída salva, conferido pelo digest.
@@ -256,7 +291,11 @@ pub fn ler_blob(dir: &Path, d: &Digest) -> Option<Arc<[u8]>> {
 /// # Erros
 ///
 /// Falha de escrita no diretório do estado.
-pub fn gravar(dir: &Path, estado: &Estado, conteudos: &[(Digest, Arc<[u8]>)]) -> Result<(), String> {
+pub fn gravar(
+    dir: &Path,
+    estado: &Estado,
+    conteudos: &[(Digest, Arc<[u8]>)],
+) -> Result<(), String> {
     let blobs = dir.join("blobs");
     std::fs::create_dir_all(&blobs).map_err(|e| format!("{}: {e}", blobs.display()))?;
     let mut vivos = std::collections::HashSet::new();
@@ -272,7 +311,11 @@ pub fn gravar(dir: &Path, estado: &Estado, conteudos: &[(Digest, Arc<[u8]>)]) ->
     }
     let acoes: Vec<Value> = estado.acoes.iter().filter_map(acao_json).collect();
     let codigo = estado.codigo_dart.as_ref().map(|l| {
-        Value::Array(l.iter().filter_map(|(p, d)| Some(json!([texto(p)?, hex(d)]))).collect())
+        Value::Array(
+            l.iter()
+                .filter_map(|(p, d)| Some(json!([texto(p)?, hex(d)])))
+                .collect(),
+        )
     });
     let v = json!({
         "formato": FORMATO,
@@ -313,15 +356,26 @@ mod testes {
                 (Consulta::Arquivo("/p/lib/a.scss".into()), Some(d)),
                 (Consulta::Existe("/p/lib/b.scss".into()), None),
                 (
-                    Consulta::GlobAtivos { dir: "/p".into(), padrao: "lib/**".into(), candidatos: vec![("lib/a.g.dart".into(), true)] },
+                    Consulta::GlobAtivos {
+                        dir: "/p".into(),
+                        padrao: "lib/**".into(),
+                        candidatos: vec![("lib/a.g.dart".into(), true)],
+                    },
                     Some(d),
                 ),
             ],
-            saidas: vec![(AssetId::novo("p", "lib/a.css"), Some(d)), (AssetId::novo("p", "lib/a.css.map"), None)],
+            saidas: vec![
+                (AssetId::novo("p", "lib/a.css"), Some(d)),
+                (AssetId::novo("p", "lib/a.css.map"), None),
+            ],
             do_apoio: vec![],
             apagados: vec![AssetId::novo("p", "lib/a.scss")],
         };
-        let e = Estado { chave: "c".into(), codigo_dart: Some(vec![("/p/tool/b.dart".into(), d)]), acoes: vec![acao] };
+        let e = Estado {
+            chave: "c".into(),
+            codigo_dart: Some(vec![("/p/tool/b.dart".into(), d)]),
+            acoes: vec![acao],
+        };
         gravar(dir.path(), &e, &[(d, conteudo.clone())]).unwrap();
         let lido = ler(dir.path()).unwrap();
         assert_eq!(lido.chave, "c");
@@ -335,9 +389,19 @@ mod testes {
         std::fs::write(dir.path().join("blobs").join(hex(&d)), b"outro").unwrap();
         assert!(ler_blob(dir.path(), &d).is_none());
         // Consulta semântica não é persistível.
-        assert!(!persistivel(&Consulta::ApiBiblioteca("package:p/a.dart".into())));
+        assert!(!persistivel(&Consulta::ApiBiblioteca(
+            "package:p/a.dart".into()
+        )));
         // Blob sem referência sai na próxima gravação.
-        gravar(dir.path(), &Estado { chave: "c".into(), ..Default::default() }, &[]).unwrap();
+        gravar(
+            dir.path(),
+            &Estado {
+                chave: "c".into(),
+                ..Default::default()
+            },
+            &[],
+        )
+        .unwrap();
         assert!(!dir.path().join("blobs").join(hex(&d)).exists());
     }
 }

@@ -62,7 +62,10 @@ pub fn dart_do_ambiente() -> Option<PathBuf> {
 /// motor leu).
 pub fn ligar(motor: &mut crate::Motor, dart: PathBuf, package_config: &Path) {
     let raiz = motor.grafo_pacotes.dir_raiz.clone();
-    let cfg = ConfigDaVm { package_config: package_config.to_path_buf(), ..ConfigDaVm::do_projeto(dart, &raiz) };
+    let cfg = ConfigDaVm {
+        package_config: package_config.to_path_buf(),
+        ..ConfigDaVm::do_projeto(dart, &raiz)
+    };
     motor.definir_executor_dart(Box::new(ExecutorVm::novo(cfg)));
 }
 
@@ -413,7 +416,11 @@ impl ExecutorVm {
             .cliente
             .as_mut()
             .ok_or_else(|| ErroExecutor("build.executar antes de build.carregar".into()))?;
-        let r = if pos { cliente.pos_processar(pedido, servico) } else { cliente.executar(pedido, servico) };
+        let r = if pos {
+            cliente.pos_processar(pedido, servico)
+        } else {
+            cliente.executar(pedido, servico)
+        };
         if let Err(e) = &r {
             // Canal quebrado (processo morreu, protocolo violado): a sessão
             // não usa mais este processo.
@@ -482,12 +489,16 @@ impl ExecutorDart for ExecutorVm {
 
     fn codigo(&self) -> Option<Vec<PathBuf>> {
         let chave = self.chave.as_ref()?;
-        let texto = std::fs::read_to_string(self.cfg.trabalho.join(format!("bootstrap-{chave}.d"))).ok()?;
+        let texto =
+            std::fs::read_to_string(self.cfg.trabalho.join(format!("bootstrap-{chave}.d"))).ok()?;
         let deps = deps_do_depfile(&texto);
         (!deps.is_empty()).then_some(deps)
     }
 
-    fn entradas_pos(&mut self, pedido: &PedidoExtensoes) -> Result<Option<Vec<String>>, ErroExecutor> {
+    fn entradas_pos(
+        &mut self,
+        pedido: &PedidoExtensoes,
+    ) -> Result<Option<Vec<String>>, ErroExecutor> {
         match self.cliente.as_mut() {
             Some(c) => c.entradas_pos(pedido),
             None => Ok(None),

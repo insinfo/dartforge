@@ -18,7 +18,11 @@ pub enum Consulta {
     /// `BuildStep.findAssets`: candidatos do grafo no pacote da entrada.
     /// `bool` indica saída gerada, cuja presença vem da memória, não de um
     /// arquivo de apoio antigo no disco.
-    GlobAtivos { dir: PathBuf, padrao: String, candidatos: Vec<(String, bool)> },
+    GlobAtivos {
+        dir: PathBuf,
+        padrao: String,
+        candidatos: Vec<(String, bool)>,
+    },
     /// API pública de uma biblioteca (mais as anotações).
     ApiBiblioteca(String),
     /// Superfície de uma declaração: assinatura, anotações, membros públicos.
@@ -43,7 +47,10 @@ impl Consulta {
     pub fn semantica(&self) -> bool {
         matches!(
             self,
-            Consulta::ApiBiblioteca(_) | Consulta::Declaracao { .. } | Consulta::Indice { .. } | Consulta::FonteBiblioteca(_)
+            Consulta::ApiBiblioteca(_)
+                | Consulta::Declaracao { .. }
+                | Consulta::Indice { .. }
+                | Consulta::FonteBiblioteca(_)
         )
     }
 }

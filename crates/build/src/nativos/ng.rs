@@ -38,8 +38,22 @@ struct CacheNg {
 /// ngdart, às anotações ou a injetor).
 fn marca_angular(texto: &str) -> bool {
     const MARCAS: &[&str] = &[
-        "ngdart", "angular", "@Component", "@Directive", "@Pipe", "@Injectable", "GenerateInjector", "Injector",
-        "@Input", "@Output", "@HostBinding", "@HostListener", "@View", "@Content", "OpaqueToken", "Provider",
+        "ngdart",
+        "angular",
+        "@Component",
+        "@Directive",
+        "@Pipe",
+        "@Injectable",
+        "GenerateInjector",
+        "Injector",
+        "@Input",
+        "@Output",
+        "@HostBinding",
+        "@HostListener",
+        "@View",
+        "@Content",
+        "OpaqueToken",
+        "Provider",
     ];
     MARCAS.iter().any(|m| texto.contains(m))
 }
@@ -57,7 +71,9 @@ fn folhas_geradas(ctx: &mut CtxGerador<'_>, raiz: &Path) -> HashMap<PathBuf, Str
     }
     let mut folhas = HashMap::new();
     for scss in fontes {
-        let parcial = scss.file_name().is_some_and(|n| n.to_string_lossy().starts_with('_'));
+        let parcial = scss
+            .file_name()
+            .is_some_and(|n| n.to_string_lossy().starts_with('_'));
         if parcial || scss.extension().is_none_or(|e| e != "scss" && e != "sass") {
             continue;
         }
@@ -78,14 +94,19 @@ fn folhas_geradas(ctx: &mut CtxGerador<'_>, raiz: &Path) -> HashMap<PathBuf, Str
 }
 
 fn arquivos(dir: &std::path::Path, v: &mut Vec<PathBuf>) {
-    let Ok(ls) = std::fs::read_dir(dir) else { return };
+    let Ok(ls) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut es: Vec<_> = ls.flatten().collect();
     es.sort_by_key(|e| e.file_name());
     for e in es {
         let p = e.path();
         if p.is_dir() {
             arquivos(&p, v);
-        } else if p.extension().is_some_and(|x| EXTENSOES.iter().any(|e| x == *e)) {
+        } else if p
+            .extension()
+            .is_some_and(|x| EXTENSOES.iter().any(|e| x == *e))
+        {
             v.push(p);
         }
     }
@@ -110,7 +131,11 @@ impl GeradorNativo for NgEstagioA {
         true
     }
 
-    fn gerar(&self, ctx: &mut CtxGerador<'_>, pedido: &PedidoNativo) -> Result<SaidaNativa, String> {
+    fn gerar(
+        &self,
+        ctx: &mut CtxGerador<'_>,
+        pedido: &PedidoNativo,
+    ) -> Result<SaidaNativa, String> {
         let raiz = &pedido.raiz_do_pacote;
         // Qualquer pacote a que o ngdart se aplica: o da entrada e as
         // dependências com componentes (um `path` como o `limitless_ui` do
@@ -133,7 +158,10 @@ impl GeradorNativo for NgEstagioA {
         let mut v = Vec::new();
         for d in ["lib", "web", "test"] {
             let dir = raiz.join(d);
-            ctx.registrar(Consulta::Glob { dir: dartforge_elements::gerado::chave(&dir), padrao: "**".into() });
+            ctx.registrar(Consulta::Glob {
+                dir: dartforge_elements::gerado::chave(&dir),
+                padrao: "**".into(),
+            });
             arquivos(&dir, &mut v);
         }
         // Um `.dart` sem nenhuma marca de Angular só entra na geração pela
@@ -147,7 +175,10 @@ impl GeradorNativo for NgEstagioA {
             .iter()
             .filter_map(|u| {
                 let p = u.path.as_ref()?;
-                Some((dartforge_elements::gerado::chave(p), programa.library(u.library).uri.as_str()))
+                Some((
+                    dartforge_elements::gerado::chave(p),
+                    programa.library(u.library).uri.as_str(),
+                ))
             })
             .collect();
         for p in &v {
@@ -155,7 +186,9 @@ impl GeradorNativo for NgEstagioA {
             let dart = p.extension().is_some_and(|x| x == "dart");
             let uri = biblioteca_de.get(&k).copied();
             match (dart, uri) {
-                (true, Some(uri)) if !marca_angular(&std::fs::read_to_string(p).unwrap_or_default()) => {
+                (true, Some(uri))
+                    if !marca_angular(&std::fs::read_to_string(p).unwrap_or_default()) =>
+                {
                     ctx.registrar(Consulta::ApiBiblioteca(uri.to_string()));
                     // O nome do arquivo decide o template trivial: a
                     // existência dele também é consulta.
@@ -168,19 +201,30 @@ impl GeradorNativo for NgEstagioA {
         // bibliotecas que as do pacote alcançam por `import`/`export` (a
         // geração de um arquivo só enxerga o escopo dele). Numa dependência,
         // editar a aplicação não acorda a rodada dela.
-        let do_pacote = |l: &dartforge_elements::model::Library| match l.uri.strip_prefix("package:") {
-            Some(r) => r.split('/').next() == Some(pedido.pacote.as_str()),
-            None => l.units.first().and_then(|&u| programa.unit(u).path.as_ref()).is_some_and(|p| p.starts_with(raiz)),
-        };
+        let do_pacote =
+            |l: &dartforge_elements::model::Library| match l.uri.strip_prefix("package:") {
+                Some(r) => r.split('/').next() == Some(pedido.pacote.as_str()),
+                None => l
+                    .units
+                    .first()
+                    .and_then(|&u| programa.unit(u).path.as_ref())
+                    .is_some_and(|p| p.starts_with(raiz)),
+            };
         let mut vistos = vec![false; programa.libraries.len()];
-        let mut fila: Vec<usize> =
-            (0..programa.libraries.len()).filter(|&i| !programa.libraries[i].is_sdk && do_pacote(&programa.libraries[i])).collect();
+        let mut fila: Vec<usize> = (0..programa.libraries.len())
+            .filter(|&i| !programa.libraries[i].is_sdk && do_pacote(&programa.libraries[i]))
+            .collect();
         while let Some(i) = fila.pop() {
             if std::mem::replace(&mut vistos[i], true) {
                 continue;
             }
             let l = &programa.libraries[i];
-            fila.extend(l.imports.iter().map(|x| x.library.0 as usize).chain(l.exports.iter().map(|x| x.library.0 as usize)));
+            fila.extend(
+                l.imports
+                    .iter()
+                    .map(|x| x.library.0 as usize)
+                    .chain(l.exports.iter().map(|x| x.library.0 as usize)),
+            );
             if !l.is_sdk && !do_pacote(l) {
                 ctx.registrar(Consulta::FonteBiblioteca(l.uri.clone()));
             }
@@ -191,9 +235,11 @@ impl GeradorNativo for NgEstagioA {
             raiz: raiz.clone(),
             folhas_geradas: folhas_geradas(ctx, &raiz),
         };
-        let resolvedor = dartforge_gerador_ng::resolucao::Resolvedor::novo(programa, nomes_programa);
+        let resolvedor =
+            dartforge_gerador_ng::resolucao::Resolvedor::novo(programa, nomes_programa);
         let mut nomes = dartforge_intern::Interner::new();
-        let (g, placar) = dartforge_gerador_ng::gerar_com_apoio(&pacote, &mut nomes, None, Some(&resolvedor));
+        let (g, placar) =
+            dartforge_gerador_ng::gerar_com_apoio(&pacote, &mut nomes, None, Some(&resolvedor));
         if std::env::var_os("DARTFORGE_MOTOR_TEMPOS").is_some() {
             eprintln!(
                 "ngdart (estágio A): consultas {:.1} ms ({} arquivos), gerar_com_apoio {:.1} ms",
@@ -214,9 +260,14 @@ impl GeradorNativo for NgEstagioA {
                 if p.to_string_lossy().ends_with(".template.dart") {
                     if let Some(fonte) = f.entradas.first() {
                         for recurso in f.entradas.iter().filter(|e| {
-                            e.extension().is_some_and(|x| matches!(x.to_str(), Some("html" | "css" | "scss" | "sass")))
+                            e.extension().is_some_and(|x| {
+                                matches!(x.to_str(), Some("html" | "css" | "scss" | "sass"))
+                            })
                         }) {
-                            fontes_do_recurso.entry(dartforge_elements::gerado::chave(recurso)).or_default().push(fonte.clone());
+                            fontes_do_recurso
+                                .entry(dartforge_elements::gerado::chave(recurso))
+                                .or_default()
+                                .push(fonte.clone());
                         }
                     }
                 }
@@ -234,10 +285,17 @@ impl GeradorNativo for NgEstagioA {
             s.recusas.insert(p.clone(), m);
         }
         s.unidades_geradas = placar.gerados;
-        self.cache.lock().map_err(|_| "ngdart: cache envenenado")?.insert(
-            pedido.pacote.clone(),
-            CacheNg { saida: clone_saida(&s), fontes_do_recurso, indice: None },
-        );
+        self.cache
+            .lock()
+            .map_err(|_| "ngdart: cache envenenado")?
+            .insert(
+                pedido.pacote.clone(),
+                CacheNg {
+                    saida: clone_saida(&s),
+                    fontes_do_recurso,
+                    indice: None,
+                },
+            );
         Ok(s)
     }
 }
@@ -247,14 +305,20 @@ fn planejadas(pedido: &PedidoNativo) -> std::collections::HashSet<PathBuf> {
     pedido
         .acoes
         .iter()
-        .flat_map(|a| a.saidas.iter().map(|(_, p)| dartforge_elements::gerado::chave(p)))
+        .flat_map(|a| {
+            a.saidas
+                .iter()
+                .map(|(_, p)| dartforge_elements::gerado::chave(p))
+        })
         .collect()
 }
 
 /// A folha `x.css` de uma saída `x.css.dart`/`x.css.shim.dart`.
 fn folha_de_destino(p: &Path) -> Option<PathBuf> {
     let nome = p.file_name()?.to_string_lossy();
-    let base = nome.strip_suffix(".shim.dart").or_else(|| nome.strip_suffix(".dart"))?;
+    let base = nome
+        .strip_suffix(".shim.dart")
+        .or_else(|| nome.strip_suffix(".dart"))?;
     base.ends_with(".css").then(|| p.with_file_name(base))
 }
 
@@ -306,14 +370,23 @@ impl NgEstagioA {
         let mut biblioteca_da_unidade: HashMap<PathBuf, usize> = HashMap::new();
         for (i, l) in programa.libraries.iter().enumerate() {
             for &u in &l.units {
-                if let Some(p) = programa.unit(u).path.as_ref().and_then(|p| std::fs::canonicalize(p).ok()) {
+                if let Some(p) = programa
+                    .unit(u)
+                    .path
+                    .as_ref()
+                    .and_then(|p| std::fs::canonicalize(p).ok())
+                {
                     biblioteca_da_unidade.insert(p, i);
                 }
             }
         }
         let mut dependentes: Vec<Vec<usize>> = vec![Vec::new(); programa.libraries.len()];
         for (i, l) in programa.libraries.iter().enumerate() {
-            let alvos = l.imports.iter().map(|x| x.library).chain(l.exports.iter().map(|x| x.library));
+            let alvos = l
+                .imports
+                .iter()
+                .map(|x| x.library)
+                .chain(l.exports.iter().map(|x| x.library));
             for alvo in alvos {
                 if let Some(d) = dependentes.get_mut(alvo.0 as usize) {
                     d.push(i);
@@ -325,8 +398,15 @@ impl NgEstagioA {
             let &l = biblioteca_da_unidade.get(p)?;
             // Só a unidade principal: uma parte muda a biblioteca inteira, e
             // o estágio A cuida disso.
-            let principal = programa.libraries[l].units.first().and_then(|&u| programa.unit(u).path.as_ref());
-            if principal.and_then(|x| std::fs::canonicalize(x).ok()).as_ref() != Some(p) {
+            let principal = programa.libraries[l]
+                .units
+                .first()
+                .and_then(|&u| programa.unit(u).path.as_ref());
+            if principal
+                .and_then(|x| std::fs::canonicalize(x).ok())
+                .as_ref()
+                != Some(p)
+            {
                 return None;
             }
             fila.push(l);
@@ -342,8 +422,16 @@ impl NgEstagioA {
             if lib.is_sdk {
                 continue;
             }
-            let Some(p) = lib.units.first().and_then(|&u| programa.unit(u).path.as_ref()) else { continue };
-            let Ok(c) = std::fs::canonicalize(p) else { continue };
+            let Some(p) = lib
+                .units
+                .first()
+                .and_then(|&u| programa.unit(u).path.as_ref())
+            else {
+                continue;
+            };
+            let Ok(c) = std::fs::canonicalize(p) else {
+                continue;
+            };
             let gerado = c.to_string_lossy().ends_with(".template.dart");
             if c.starts_with(&canon_raiz) && !gerado {
                 fecho.push(dartforge_elements::gerado::chave(p));
@@ -357,10 +445,12 @@ impl NgEstagioA {
             raiz: raiz.clone(),
             folhas_geradas: folhas_geradas(ctx, &raiz),
         };
-        let resolvedor = dartforge_gerador_ng::resolucao::Resolvedor::novo(programa, nomes_programa);
+        let resolvedor =
+            dartforge_gerador_ng::resolucao::Resolvedor::novo(programa, nomes_programa);
         for fonte in &fecho {
             let destino = dartforge_gerador_ng::caminho_do_template(fonte);
-            if !cache.saida.saidas.contains_key(&destino) || cache.saida.recusas.contains_key(fonte) {
+            if !cache.saida.saidas.contains_key(&destino) || cache.saida.recusas.contains_key(fonte)
+            {
                 return None;
             }
         }
@@ -385,7 +475,15 @@ impl NgEstagioA {
         let mut novas = Vec::new();
         let mut recursos: Vec<(PathBuf, Vec<PathBuf>)> = Vec::new();
         for (fonte, achados) in fecho.iter().zip(&textos) {
-            let saida = dartforge_gerador_ng::gerar_arquivo(&pacote, fonte, achados, Some(&resolvedor), &mut nomes, indice).ok()?;
+            let saida = dartforge_gerador_ng::gerar_arquivo(
+                &pacote,
+                fonte,
+                achados,
+                Some(&resolvedor),
+                &mut nomes,
+                indice,
+            )
+            .ok()?;
             let destino = dartforge_gerador_ng::caminho_do_template(fonte);
             novas.push((destino, saida.template.into_bytes()));
             for (destino, texto) in saida.extras {
@@ -397,7 +495,11 @@ impl NgEstagioA {
             let lidos = saida
                 .entradas
                 .iter()
-                .filter(|e| e.extension().is_some_and(|x| matches!(x.to_str(), Some("html" | "css" | "scss" | "sass"))))
+                .filter(|e| {
+                    e.extension().is_some_and(|x| {
+                        matches!(x.to_str(), Some("html" | "css" | "scss" | "sass"))
+                    })
+                })
                 .map(|e| dartforge_elements::gerado::chave(e))
                 .collect();
             recursos.push((fonte.clone(), lidos));
@@ -411,12 +513,20 @@ impl NgEstagioA {
                 leitores.retain(|f| *f != fonte);
             }
             for r in lidos {
-                cache.fontes_do_recurso.entry(r).or_default().push(fonte.clone());
+                cache
+                    .fontes_do_recurso
+                    .entry(r)
+                    .or_default()
+                    .push(fonte.clone());
             }
         }
         cache.fontes_do_recurso.retain(|_, v| !v.is_empty());
         if std::env::var_os("DARTFORGE_MOTOR_TEMPOS").is_some() {
-            eprintln!("ngdart (estágio B): {} arquivo(s) no fecho de {} edição(ões) .dart", fecho.len(), mudados.len());
+            eprintln!(
+                "ngdart (estágio B): {} arquivo(s) no fecho de {} edição(ões) .dart",
+                fecho.len(),
+                mudados.len()
+            );
         }
         let mut saida = clone_saida(&cache.saida);
         saida.unidades_geradas = fecho.len();
@@ -426,7 +536,12 @@ impl NgEstagioA {
         let biblioteca_de: HashMap<PathBuf, &str> = programa
             .units
             .iter()
-            .filter_map(|u| Some((dartforge_elements::gerado::chave(u.path.as_ref()?), programa.library(u.library).uri.as_str())))
+            .filter_map(|u| {
+                Some((
+                    dartforge_elements::gerado::chave(u.path.as_ref()?),
+                    programa.library(u.library).uri.as_str(),
+                ))
+            })
             .collect();
         for p in ctx.mudados.clone().iter() {
             let k = dartforge_elements::gerado::chave(p);
@@ -439,23 +554,35 @@ impl NgEstagioA {
         Some(saida)
     }
 
-    fn tentar_recurso(&self, ctx: &mut CtxGerador<'_>, pedido: &PedidoNativo) -> Option<SaidaNativa> {
+    fn tentar_recurso(
+        &self,
+        ctx: &mut CtxGerador<'_>,
+        pedido: &PedidoNativo,
+    ) -> Option<SaidaNativa> {
         let recurso = ctx.mudados.iter().find(|p| {
             p.starts_with(&pedido.raiz_do_pacote)
-                && p.extension().is_some_and(|e| matches!(e.to_str(), Some("html" | "css" | "scss" | "sass")))
+                && p.extension()
+                    .is_some_and(|e| matches!(e.to_str(), Some("html" | "css" | "scss" | "sass")))
         })?;
         // O motor inclui a forma lexical e a forma canônica do mesmo evento;
         // no Windows elas podem ter raízes distintas (links/nomes curtos).
         // Só permitimos o atalho quando *todos* os eventos são esse arquivo.
         let canon_recurso = std::fs::canonicalize(recurso).ok()?;
-        if ctx.mudados.iter().any(|p| std::fs::canonicalize(p).ok().as_ref() != Some(&canon_recurso)) {
+        if ctx
+            .mudados
+            .iter()
+            .any(|p| std::fs::canonicalize(p).ok().as_ref() != Some(&canon_recurso))
+        {
             return None;
         }
         let mut cache = self.cache.lock().ok()?;
         let cache = cache.get_mut(&pedido.pacote)?;
         // Uma folha (o `.css`, ou o `.scss` que o `sass_builder` compila):
         // só as saídas dela, que não dependem de nenhum componente.
-        if recurso.extension().is_some_and(|e| matches!(e.to_str(), Some("css" | "scss" | "sass"))) {
+        if recurso
+            .extension()
+            .is_some_and(|e| matches!(e.to_str(), Some("css" | "scss" | "sass")))
+        {
             let pacote = dartforge_gerador_ng::Pacote {
                 nome: pedido.pacote.clone(),
                 raiz: pedido.raiz_do_pacote.clone(),
@@ -488,7 +615,8 @@ impl NgEstagioA {
             raiz: pedido.raiz_do_pacote.clone(),
             folhas_geradas: folhas_geradas(ctx, &pedido.raiz_do_pacote),
         };
-        let resolvedor = dartforge_gerador_ng::resolucao::Resolvedor::novo(programa, nomes_programa);
+        let resolvedor =
+            dartforge_gerador_ng::resolucao::Resolvedor::novo(programa, nomes_programa);
         if cache.indice.is_none() {
             cache.indice = Some(indice_do_pacote(&pacote, &resolvedor));
         }
@@ -500,8 +628,14 @@ impl NgEstagioA {
             let mut nomes = dartforge_intern::Interner::new();
             let achados = dartforge_gerador_ng::analisar_arquivo(&fonte, &texto, &mut nomes);
             let saida = dartforge_gerador_ng::gerar_arquivo(
-                &pacote, &fonte, &achados, Some(&resolvedor), &mut nomes, indice,
-            ).ok()?;
+                &pacote,
+                &fonte,
+                &achados,
+                Some(&resolvedor),
+                &mut nomes,
+                indice,
+            )
+            .ok()?;
             let destino = dartforge_gerador_ng::caminho_do_template(&fonte);
             if !cache.saida.saidas.contains_key(&destino) {
                 return None;
@@ -518,7 +652,11 @@ impl NgEstagioA {
             cache.saida.saidas.insert(destino, bytes);
         }
         if std::env::var_os("DARTFORGE_MOTOR_TEMPOS").is_some() {
-            eprintln!("ngdart (estágio B): {} componente(s) para {}", cache.fontes_do_recurso[recurso].len(), recurso.display());
+            eprintln!(
+                "ngdart (estágio B): {} componente(s) para {}",
+                cache.fontes_do_recurso[recurso].len(),
+                recurso.display()
+            );
         }
         let mut saida = clone_saida(&cache.saida);
         saida.unidades_geradas = componentes;
@@ -539,11 +677,14 @@ fn indice_do_pacote(
     }
     let mut nomes = dartforge_intern::Interner::new();
     for fonte in arquivos_dart {
-        if fonte.extension().is_none_or(|e| e != "dart") || fonte.to_string_lossy().ends_with(".template.dart") {
+        if fonte.extension().is_none_or(|e| e != "dart")
+            || fonte.to_string_lossy().ends_with(".template.dart")
+        {
             continue;
         }
         if let Ok(texto) = std::fs::read_to_string(&fonte) {
-            let achados = dartforge_gerador_ng::analisar_arquivo(Path::new(&fonte), &texto, &mut nomes);
+            let achados =
+                dartforge_gerador_ng::analisar_arquivo(Path::new(&fonte), &texto, &mut nomes);
             indice.atualizar(pacote, &fonte, &achados, Some(resolvedor));
         }
     }

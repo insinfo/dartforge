@@ -28,7 +28,10 @@ impl Mapa {
     }
 
     pub fn obter(&self, chave: &str) -> Option<&Valor> {
-        self.0.iter().find(|(k, _)| matches!(k, Valor::Texto(t) if t == chave)).map(|(_, v)| v)
+        self.0
+            .iter()
+            .find(|(k, _)| matches!(k, Valor::Texto(t) if t == chave))
+            .map(|(_, v)| v)
     }
 
     pub fn inserir(&mut self, chave: Valor, valor: Valor) {
@@ -60,7 +63,11 @@ pub fn real_dart(v: f64) -> String {
         return "NaN".into();
     }
     if v.is_infinite() {
-        return if v > 0.0 { "Infinity".into() } else { "-Infinity".into() };
+        return if v > 0.0 {
+            "Infinity".into()
+        } else {
+            "-Infinity".into()
+        };
     }
     let a = v.abs();
     if v.fract() == 0.0 && a < 1e21 {
@@ -170,6 +177,9 @@ mod testes {
         let t = |s: &str| Valor::Texto(s.into());
         let a = Mapa(vec![(t("a"), Valor::Int(1)), (t("b"), Valor::Int(2))]);
         let b = Mapa(vec![(t("b"), Valor::Int(3)), (t("c"), Valor::Int(4))]);
-        assert_eq!(a.sobrepor(&b).texto_canonico(), r#"{"a": 1, "b": 3, "c": 4}"#);
+        assert_eq!(
+            a.sobrepor(&b).texto_canonico(),
+            r#"{"a": 1, "b": 3, "c": 4}"#
+        );
     }
 }
