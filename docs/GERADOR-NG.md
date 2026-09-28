@@ -525,14 +525,17 @@ existe no template: a única não recebe nada, a lista recebe `[]` — caso j82.
 O tipo da coleção do `*ngFor` segue o `_typeNgForLocals`: o `analyzedClass`
 só tem os locais com tipo, e um local sem tipo (`let-x` de `<template>`,
 item de coleção `dynamic`) não entra — o nome cai no membro do componente
-de mesmo nome — caso j83. `directives:` e as
+de mesmo nome — caso j83. O `XNgCd` de cada diretiva usa as ligações dos
+metadados do programa (supertipos primeiro), também as herdadas, com a
+imutabilidade e o tipo do `style.x` pelo resolvedor; a diretiva que só herda
+ligações também ganha o seu — caso j84. `directives:` e as
 listas constantes aceitam `...outraLista`. O `dirtyParentQueriesInternal`
 segue o primeiro resultado de cada consulta na visão, em pré-ordem
 (`_setParentQueryAsDirty` no `addQueryResult`), e os campos dos nós
-consultados seguem as consultas — caso j66. Corpus: 315 conferidos.
+consultados seguem as consultas — caso j66. Corpus: 316 conferidos.
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada
-pendente com o motivo): **943 iguais / 7 pendentes / 0 diferentes** —
-`.template.dart` 527/5/0, `.css` e `.css.map` do Sass 102/102 cada,
+pendente com o motivo): **944 iguais / 6 pendentes / 0 diferentes** —
+`.template.dart` 528/4/0, `.css` e `.css.map` do Sass 102/102 cada,
 `.css.dart` e `.css.shim.dart` 104 cada.
 
 ### Diretivas estruturais

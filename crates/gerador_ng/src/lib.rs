@@ -67,7 +67,7 @@ pub struct Achados {
 
 /// Uma `@Directive` com `@HostBinding`: o oficial gera para ela a classe
 /// `XNgCd` (`requiresDirectiveChangeDetector`, em `compile_metadata.dart`).
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Hospedeira {
     pub classe: String,
     /// `(nome da ligação, membro)` de cada `@HostBinding` — `class.x`,
@@ -1149,6 +1149,94 @@ fn uri_de_biblioteca(pacote: &Pacote, caminho: &Path) -> Option<String> {
 /// e os gerados à parte (o `.css.shim.dart` de cada folha).
 pub(crate) type Gerado = (String, Vec<PathBuf>, Vec<(PathBuf, String)>);
 
+/// As diretivas do arquivo que ganham `XNgCd`, na ordem do fonte: as
+/// ligações são as dos metadados lidos do programa (`hostProperties` do
+/// oficial, supertipos primeiro), também as herdadas — e a diretiva que só
+/// herda ligações também ganha o seu (caso j84). O membro herdado tem a
+/// imutabilidade (campo `final` seria escrito uma vez) e, no `style.x`, o
+/// tipo perguntados ao resolvedor. Sem os metadados, só as ligações da
+/// própria classe, e a diretiva que herda é recusada.
+fn hospedeiras_efetivas(
+    pacote: &Pacote,
+    fonte: &Path,
+    achados: &Achados,
+    resolvedor: Option<&dyn resolucao::Resolucao>,
+    indice: &Indice,
+) -> Result<Vec<Hospedeira>, Recusa> {
+    let uri = uri_de_biblioteca(pacote, fonte);
+    let metadados = |classe: &str| {
+        uri.as_ref()
+            .and_then(|u| indice.metadados.get(&(u.clone(), classe.to_string())))
+            .filter(|m| m.fora.is_empty())
+    };
+    let tem_todos = achados
+        .diretivas
+        .iter()
+        .all(|d| metadados(&d.classe).is_some());
+    if !tem_todos {
+        if achados.hospedeiro_herdado {
+            return Err(recusa(
+                Motivo::HostBindingEmDiretiva,
+                "@HostBinding/@HostListener em diretiva que herda",
+            ));
+        }
+        return Ok(achados.hospedeiras.clone());
+    }
+    let mut saida = Vec::new();
+    for d in &achados.diretivas {
+        let Some(m) = metadados(&d.classe) else {
+            continue;
+        };
+        if m.ligacoes_do_hospedeiro.is_empty() {
+            continue;
+        }
+        let propria = achados.hospedeiras.iter().find(|h| h.classe == d.classe);
+        if let Some(h) = propria
+            && h.ligacoes == m.ligacoes_do_hospedeiro
+        {
+            saida.push(h.clone());
+            continue;
+        }
+        let mut h = Hospedeira {
+            classe: d.classe.clone(),
+            ligacoes: m.ligacoes_do_hospedeiro.clone(),
+            tipos_de_estilo: std::collections::HashMap::new(),
+            recusada: false,
+        };
+        for (nome, membro) in &m.ligacoes_do_hospedeiro {
+            let forma = visao::forma_do_hospedeiro(nome);
+            let mutavel = resolvedor
+                .and_then(|r| r.membro_final(fonte, &d.classe, membro))
+                .is_some_and(|f| !f);
+            match forma {
+                Err(_) => h.recusada = true,
+                Ok(_) if !mutavel => h.recusada = true,
+                Ok(visao::FormaDoHospedeiro::Estilo { .. }) => {
+                    // O tipo escrito, pelo programa (que sobe até a classe
+                    // que declara o membro), senão o da própria classe.
+                    let tipo = resolvedor
+                        .and_then(|r| r.tipo_do_membro(fonte, &d.classe, membro))
+                        .map(|(t, _)| t)
+                        .or_else(|| propria.and_then(|x| x.tipos_de_estilo.get(membro).cloned()));
+                    let base = tipo.as_deref().map(|t| t.trim().trim_end_matches('?'));
+                    match (tipo.clone(), base) {
+                        (Some(t), Some(b))
+                            if !b.is_empty()
+                                && !matches!(b, "dynamic" | "var" | "Object" | "Never") =>
+                        {
+                            h.tipos_de_estilo.insert(membro.clone(), t);
+                        }
+                        _ => h.recusada = true,
+                    }
+                }
+                Ok(_) => {}
+            }
+        }
+        saida.push(h);
+    }
+    Ok(saida)
+}
+
 /// Conteúdo do `.template.dart` de um arquivo, quando sabemos gerá-lo, com os
 /// arquivos que o alimentam (o `.dart` e o `.html` do template).
 pub(crate) fn gerar_interno(
@@ -1173,36 +1261,11 @@ pub(crate) fn gerar_interno(
     // Diretiva e pipe não geram visão: o arquivo deles é o trivial, a não
     // ser que uma diretiva tenha `@HostBinding` — aí o oficial gera o
     // `DirectiveChangeDetector` dela.
-    // Diretiva que herda e tem `@HostBinding`/`@HostListener`: o `XNgCd`
-    // depende também das ligações herdadas. Os metadados lidos do programa
-    // as veem; se nenhuma diretiva do arquivo tem ligação além das que a
-    // própria classe declara, o que ela gera é o de sempre (casos j45, j50).
-    let so_as_proprias = uri_de_biblioteca(pacote, fonte).is_some_and(|uri| {
-        achados.diretivas.iter().all(|d| {
-            let Some(m) = indice.metadados.get(&(uri.clone(), d.classe.clone())) else {
-                return false;
-            };
-            let proprias: Vec<String> = achados
-                .hospedeiras
-                .iter()
-                .filter(|h| h.classe == d.classe)
-                .flat_map(|h| h.ligacoes.iter().map(|(n, _)| n.clone()))
-                .collect();
-            m.fora.is_empty()
-                && m.ligacoes_do_hospedeiro.len() == proprias.len()
-                && m.ligacoes_do_hospedeiro
-                    .iter()
-                    .all(|(n, _)| proprias.contains(n))
-        })
-    });
+    // O `XNgCd` de cada diretiva do arquivo, com as ligações herdadas
+    // (caso j84).
+    let hospedeiras = hospedeiras_efetivas(pacote, fonte, achados, resolvedor, indice)?;
     if achados.componentes.is_empty() {
-        if achados.hospedeiro_herdado && !so_as_proprias {
-            return Err(recusa(
-                Motivo::HostBindingEmDiretiva,
-                "@HostBinding/@HostListener em diretiva que herda",
-            ));
-        }
-        if achados.hospedeiras.is_empty() {
+        if hospedeiras.is_empty() {
             return Ok((
                 template_trivial(nome_do_arquivo),
                 vec![fonte.to_path_buf()],
@@ -1211,13 +1274,13 @@ pub(crate) fn gerar_interno(
         }
         // As classes `XNgCd` na ordem do fonte, com a tabela de imports
         // compartilhada; diretiva sem `@HostBinding` e pipe não geram nada.
-        if achados.hospedeiras.iter().any(|h| h.recusada) {
+        if hospedeiras.iter().any(|h| h.recusada) {
             return Err(recusa(
                 Motivo::HostBindingEmDiretiva,
                 "@HostBinding fora de class.x/attr.x/propriedade",
             ));
         }
-        let hs: Vec<&Hospedeira> = achados.hospedeiras.iter().collect();
+        let hs: Vec<&Hospedeira> = hospedeiras.iter().collect();
         return Ok((
             visao::detector_de_diretivas(&hs, nome_do_arquivo),
             vec![fonte.to_path_buf()],
@@ -1226,14 +1289,8 @@ pub(crate) fn gerar_interno(
     }
     // Diretiva sem `@HostBinding`/`@HostListener` e pipe não geram nada no
     // arquivo (caso j29); a com `@HostBinding` ganha a classe `XNgCd` depois
-    // dos componentes (caso j45). Herdado, ainda sem caso.
-    if achados.hospedeiro_herdado && !so_as_proprias {
-        return Err(recusa(
-            Motivo::DiretivaOuPipe,
-            "componente com diretiva de @HostBinding herdado no arquivo",
-        ));
-    }
-    if achados.hospedeiras.iter().any(|h| h.recusada) {
+    // dos componentes (caso j45).
+    if hospedeiras.iter().any(|h| h.recusada) {
         return Err(recusa(
             Motivo::HostBindingEmDiretiva,
             "@HostBinding fora de class.x/attr.x/propriedade",
@@ -1259,7 +1316,7 @@ pub(crate) fn gerar_interno(
         trechos.push(trecho);
         entradas.extend(html);
     }
-    for h in &achados.hospedeiras {
+    for h in &hospedeiras {
         trechos.push(visao::classe_ngcd(h, nome_do_arquivo, &mut imp));
     }
     Ok((
