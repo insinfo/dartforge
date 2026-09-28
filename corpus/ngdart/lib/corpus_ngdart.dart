@@ -350,3 +350,4 @@ export 'src/j132_consulta_de_visao_por_token.dart';
 export 'src/j133_svg.dart';
 export 'src/j134_hostbinding_estatico_de_diretiva.dart';
 export 'src/j135_propriedade_do_elemento_do_filho.dart';
+export 'src/j136_construtor_anotado.dart';
