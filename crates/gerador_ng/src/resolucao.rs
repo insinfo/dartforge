@@ -94,7 +94,9 @@ pub enum Exportado {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Estatico {
     /// Campo (ou valor de enum): imutável quando `const`/`final`.
-    Campo { imutavel: bool },
+    Campo {
+        imutavel: bool,
+    },
     Getter,
     Metodo,
 }
@@ -346,7 +348,9 @@ impl Resolucao for Resolvedor<'_> {
         let base = base.split('<').next().unwrap_or(base).trim();
         // Tipo de função, registro ou palavra reservada: não é nome a achar.
         if base.is_empty()
-            || !base.chars().all(|c| c.is_alphanumeric() || matches!(c, '_' | '$' | '.'))
+            || !base
+                .chars()
+                .all(|c| c.is_alphanumeric() || matches!(c, '_' | '$' | '.'))
             || matches!(base, "dynamic" | "void" | "Never" | "Function" | "Null")
         {
             return false;
@@ -358,7 +362,11 @@ impl Resolucao for Resolvedor<'_> {
         };
         let espaco = match prefixo {
             None => &biblioteca.scope,
-            Some(p) => match self.interner.lookup(p).and_then(|ps| biblioteca.prefixes.get(&ps)) {
+            Some(p) => match self
+                .interner
+                .lookup(p)
+                .and_then(|ps| biblioteca.prefixes.get(&ps))
+            {
                 Some(e) => e,
                 None => return true,
             },
@@ -412,7 +420,12 @@ impl Resolucao for Resolvedor<'_> {
             Element::Class(id) => (self.program.class(id).library, Exportado::Classe),
             Element::Variable(vid) => {
                 let v = self.program.variable(vid);
-                (v.library, Exportado::Variavel { imutavel: v.const_ || v.final_ })
+                (
+                    v.library,
+                    Exportado::Variavel {
+                        imutavel: v.const_ || v.final_,
+                    },
+                )
             }
             Element::Function(fid) => {
                 let f = self.program.function(fid);
@@ -434,8 +447,7 @@ impl Resolucao for Resolvedor<'_> {
         let c = self.program.class(id);
         // Valor de enum: constante (fica em `enum_constants`, não entre os
         // membros estáticos).
-        if c
-            .enum_constants
+        if c.enum_constants
             .iter()
             .any(|&v| self.program.variable(v).name == sym)
         {
@@ -446,7 +458,9 @@ impl Resolucao for Resolvedor<'_> {
         match (f.variable, f.kind) {
             (Some(vid), _) => {
                 let v = self.program.variable(vid);
-                Some(Estatico::Campo { imutavel: v.const_ || v.final_ })
+                Some(Estatico::Campo {
+                    imutavel: v.const_ || v.final_,
+                })
             }
             (None, dartforge_elements::model::FunctionKind::Getter) => Some(Estatico::Getter),
             (None, dartforge_elements::model::FunctionKind::Function) => Some(Estatico::Metodo),

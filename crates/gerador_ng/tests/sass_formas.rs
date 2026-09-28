@@ -6,7 +6,7 @@
 //! bytes que o builder escreveu. Uma forma que o oficial rejeita (`.erro`)
 //! tem de ser recusada. Nem recusa onde o oficial compila, nem saída
 //! aproximada.
-use dartforge_gerador_ng::sass::{compilar_com, Estilo};
+use dartforge_gerador_ng::sass::{Estilo, compilar_com};
 use std::path::Path;
 
 #[test]
@@ -17,27 +17,38 @@ fn formas_sass_iguais_ao_sass_builder() {
         .unwrap()
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with('f')))
+        .filter(|p| {
+            p.file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with('f'))
+        })
         .collect();
     formas.sort();
     assert!(formas.len() >= 40, "formas: {}", formas.len());
     let mut linhas = Vec::new();
     let mut diferentes = Vec::new();
-    for (estilo, nome) in [(Estilo::Comprimido, "compressed"), (Estilo::Expandido, "expanded")] {
+    for (estilo, nome) in [
+        (Estilo::Comprimido, "compressed"),
+        (Estilo::Expandido, "expanded"),
+    ] {
         let (mut iguais, mut recusadas) = (0, Vec::new());
         for f in &formas {
             let forma = f.file_stem().unwrap().to_string_lossy().to_string();
             let texto = std::fs::read_to_string(f).unwrap();
-            let esperado = std::fs::read(base.join("esperado").join(format!("{forma}.{nome}.css"))).ok();
+            let esperado =
+                std::fs::read(base.join("esperado").join(format!("{forma}.{nome}.css"))).ok();
             match (compilar_com(&texto, Some(&fontes), estilo), esperado) {
                 (Ok((css, _)), Some(e)) if css.as_bytes() == e.as_slice() => iguais += 1,
                 (Ok((css, _)), Some(e)) => diferentes.push(format!(
                     "{forma} ({nome}): nativo {css:?} ≠ oficial {:?}",
                     String::from_utf8_lossy(&e)
                 )),
-                (Ok(_), None) => diferentes.push(format!("{forma} ({nome}): o oficial rejeita e o nativo gerou")),
+                (Ok(_), None) => diferentes.push(format!(
+                    "{forma} ({nome}): o oficial rejeita e o nativo gerou"
+                )),
                 (Err(_), None) => recusadas.push(forma),
-                (Err(_), Some(_)) => diferentes.push(format!("{forma} ({nome}): o oficial compila e o nativo recusou")),
+                (Err(_), Some(_)) => diferentes.push(format!(
+                    "{forma} ({nome}): o oficial compila e o nativo recusou"
+                )),
             }
         }
         linhas.push(format!(

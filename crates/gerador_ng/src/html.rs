@@ -551,13 +551,16 @@ fn decodificar(t: &str) -> String {
 /// (depois do `;`) e o texto que a substitui.
 fn entidade_em(t: &str, i: usize) -> Option<(usize, String)> {
     let b = t.as_bytes();
-    let codigo = |n: u32| -> String {
-        char::from_u32(n).map_or('\u{FFFD}'.to_string(), |c| c.to_string())
-    };
+    let codigo =
+        |n: u32| -> String { char::from_u32(n).map_or('\u{FFFD}'.to_string(), |c| c.to_string()) };
     // `&#` + 2 a 4 dígitos + `;`
     if b.get(i + 1) == Some(&b'#') {
         let inicio = i + 2;
-        let n = b[inicio..].iter().take(4).take_while(|c| c.is_ascii_digit()).count();
+        let n = b[inicio..]
+            .iter()
+            .take(4)
+            .take_while(|c| c.is_ascii_digit())
+            .count();
         if n >= 2 && b.get(inicio + n) == Some(&b';') {
             let v: u32 = t[inicio..inicio + n].parse().ok()?;
             return Some((inicio + n + 1, codigo(v)));
@@ -565,7 +568,11 @@ fn entidade_em(t: &str, i: usize) -> Option<(usize, String)> {
         // `&#x` + 2 a 4 hexadecimais + `;`
         if b.get(i + 2) == Some(&b'x') {
             let inicio = i + 3;
-            let n = b[inicio..].iter().take(4).take_while(|c| c.is_ascii_hexdigit()).count();
+            let n = b[inicio..]
+                .iter()
+                .take(4)
+                .take_while(|c| c.is_ascii_hexdigit())
+                .count();
             if n >= 2 && b.get(inicio + n) == Some(&b';') {
                 let v = u32::from_str_radix(&t[inicio..inicio + n], 16).ok()?;
                 return Some((inicio + n + 1, codigo(v)));
@@ -575,7 +582,10 @@ fn entidade_em(t: &str, i: usize) -> Option<(usize, String)> {
     }
     // `&` + letras + `;`
     let inicio = i + 1;
-    let n = b[inicio..].iter().take_while(|c| c.is_ascii_alphabetic()).count();
+    let n = b[inicio..]
+        .iter()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .count();
     if n >= 1 && b.get(inicio + n) == Some(&b';') {
         let nome = &t[inicio..inicio + n];
         let valor = crate::entidades::ENTIDADES
@@ -598,8 +608,8 @@ fn minimizar_espacos(nos: Vec<No>) -> Vec<No> {
         .into_iter()
         .map(|n| match n {
             No::Elemento(mut e) => {
-                let preserva = e.nome == "pre"
-                    || e.anotacoes.iter().any(|a| a.nome == "preserveWhitespace");
+                let preserva =
+                    e.nome == "pre" || e.anotacoes.iter().any(|a| a.nome == "preserveWhitespace");
                 if !preserva && !e.filhos.is_empty() {
                     e.filhos = minimizar_espacos(std::mem::take(&mut e.filhos));
                 }

@@ -498,8 +498,7 @@ impl Conversor<'_> {
         // A chamada que quebra ([`QUEBRA`]) só como a expressão inteira ou
         // argumento de outra chamada: dentro de operador, acesso ou
         // condicional o formatador a indenta de outro jeito, sem caso.
-        if v.texto.contains(QUEBRA)
-            && !matches!(self.ast.expr(id).kind, ast::ExprKind::Call { .. })
+        if v.texto.contains(QUEBRA) && !matches!(self.ast.expr(id).kind, ast::ExprKind::Call { .. })
         {
             return Err(fora("chamada com argumento nomeado dentro de expressão"));
         }
@@ -679,7 +678,10 @@ impl Conversor<'_> {
                         imutavel,
                         tipo: Some("dynamic".into()),
                         locais: alvo.locais,
-                        ..Convertida::nova(format!("{}{ponto}{nome}", alvo.texto), "membro estático")
+                        ..Convertida::nova(
+                            format!("{}{ponto}{nome}", alvo.texto),
+                            "membro estático",
+                        )
                     });
                 }
                 // O tipo do fim da cadeia está noutra classe: é o banco
@@ -789,7 +791,10 @@ impl Conversor<'_> {
                         match self.escopo.metodos.get(nome) {
                             // Função de `exports:`: pelo import, `dynamic`.
                             _ if exportada.is_some() => (
-                                format!("{}{nome}", exportada.map(|(q, _)| q.as_str()).unwrap_or_default()),
+                                format!(
+                                    "{}{nome}",
+                                    exportada.map(|(q, _)| q.as_str()).unwrap_or_default()
+                                ),
                                 Some("dynamic".to_string()),
                                 Vec::new(),
                             ),

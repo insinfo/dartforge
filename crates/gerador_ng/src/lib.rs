@@ -19,9 +19,9 @@
 pub mod componente;
 pub mod css;
 pub mod csslib;
-mod entidades;
 pub mod diretivas;
 pub mod dom;
+mod entidades;
 pub mod expr;
 pub mod html;
 pub mod incremental;
@@ -126,7 +126,10 @@ fn hospedeira(
             // no componente.
             let aceita = |n: &str, membro: &str, campo: bool| match visao::forma_do_hospedeiro(n) {
                 Ok(visao::FormaDoHospedeiro::Estilo { .. }) => {
-                    let tipo = membros.get(membro).map(|m| m.tipo.trim()).unwrap_or_default();
+                    let tipo = membros
+                        .get(membro)
+                        .map(|m| m.tipo.trim())
+                        .unwrap_or_default();
                     let base = tipo.trim_end_matches('?');
                     campo
                         && !base.is_empty()
@@ -438,7 +441,11 @@ pub fn gerar_em(
     // diretórios — o escrito, o que o `sass_builder` gerou nesta build e,
     // fora do motor, o de cada `.scss` que não é parcial.
     for css in folhas_de(pacote, diretorios) {
-        let entrada = if css.is_file() { css.clone() } else { css.with_extension("scss") };
+        let entrada = if css.is_file() {
+            css.clone()
+        } else {
+            css.with_extension("scss")
+        };
         for (destino, r) in gerar_folha(pacote, &css) {
             match r {
                 Ok(conteudo) => c.por(destino, conteudo, "ngdart", vec![entrada.clone()]),
@@ -459,14 +466,20 @@ fn folhas_de(pacote: &Pacote, diretorios: &[PathBuf]) -> Vec<PathBuf> {
     for dir in diretorios {
         let mut pilha = vec![dir.clone()];
         while let Some(d) = pilha.pop() {
-            let Ok(entradas) = std::fs::read_dir(&d) else { continue };
+            let Ok(entradas) = std::fs::read_dir(&d) else {
+                continue;
+            };
             for e in entradas.flatten() {
                 let p = e.path();
                 if p.is_dir() {
                     pilha.push(p);
                     continue;
                 }
-                let nome = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+                let nome = p
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
                 if nome.ends_with(".css") {
                     v.insert(p);
                 } else if nome.ends_with(".scss") && !nome.starts_with('_') {
@@ -474,14 +487,25 @@ fn folhas_de(pacote: &Pacote, diretorios: &[PathBuf]) -> Vec<PathBuf> {
                 }
             }
         }
-        v.extend(pacote.folhas_geradas.keys().filter(|k| k.starts_with(dir)).cloned());
+        v.extend(
+            pacote
+                .folhas_geradas
+                .keys()
+                .filter(|k| k.starts_with(dir))
+                .cloned(),
+        );
     }
     v.into_iter().collect()
 }
 
 /// A unidade é uma parte (`part of`), não uma biblioteca.
 pub fn e_parte(unit: &dartforge_frontend::ast::CompilationUnit) -> bool {
-    unit.directives.iter().any(|d| matches!(d.kind, dartforge_frontend::ast::DirectiveKind::PartOf { .. }))
+    unit.directives.iter().any(|d| {
+        matches!(
+            d.kind,
+            dartforge_frontend::ast::DirectiveKind::PartOf { .. }
+        )
+    })
 }
 
 /// Os componentes e diretivas do pacote, por biblioteca e classe.
@@ -1401,7 +1425,10 @@ pub fn gerar_folha(pacote: &Pacote, css: &Path) -> Vec<(PathBuf, Result<String, 
     };
     let texto = match texto_da_folha(pacote, css) {
         Some(Ok(t)) => Ok(t),
-        Some(Err(_)) => Err(recusa(Motivo::Estilos, "Sass que o compilador nativo não traduz")),
+        Some(Err(_)) => Err(recusa(
+            Motivo::Estilos,
+            "Sass que o compilador nativo não traduz",
+        )),
         None => Err(recusa(Motivo::Estilos, "folha não encontrada")),
     };
     let asset = format!("asset:{}/{}", pacote.nome, pacote.relativo(css));
@@ -1416,7 +1443,9 @@ pub fn gerar_folha(pacote: &Pacote, css: &Path) -> Vec<(PathBuf, Result<String, 
                 let caminho = resolucao::asset_de_uri(&importado, "", Path::new(""))
                     .or_else(|| importado.starts_with("asset:").then(|| importado.clone()))
                     .and_then(|alvo| resolucao::caminho_do_import(&modulo, &alvo))
-                    .ok_or_else(|| recusa(Motivo::Estilos, "@import de folha sem caminho de import"))?;
+                    .ok_or_else(|| {
+                        recusa(Motivo::Estilos, "@import de folha sem caminho de import")
+                    })?;
                 cabeca.push_str(&format!("import '{caminho}' as import{k};\n"));
                 itens.push(format!("import{k}.styles"));
             }
@@ -1428,7 +1457,12 @@ pub fn gerar_folha(pacote: &Pacote, css: &Path) -> Vec<(PathBuf, Result<String, 
         (
             destino(".shim.dart"),
             saida(".shim.dart", &|t| {
-                css::shim(t).map_err(|_| recusa(Motivo::Estilos, "CSS que o shim do ngdart recusa (o oficial lança)"))
+                css::shim(t).map_err(|_| {
+                    recusa(
+                        Motivo::Estilos,
+                        "CSS que o shim do ngdart recusa (o oficial lança)",
+                    )
+                })
             }),
         ),
         (destino(".dart"), saida(".dart", &|t| Ok(t.to_string()))),

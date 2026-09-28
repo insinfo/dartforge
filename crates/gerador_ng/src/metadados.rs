@@ -1147,18 +1147,23 @@ impl<'r, 'a> Leitor<'r, 'a> {
         let sup = self.r.programa().class(decl.id?).supertype_class?;
         let sdecl = self.declaracao(sup)?;
         let chamado = ctor.initializers.iter().find_map(|i| match i {
-            ast::Initializer::Super { constructor, .. } => Some(constructor.as_ref().map(|n| self.nome(n))),
+            ast::Initializer::Super { constructor, .. } => {
+                Some(constructor.as_ref().map(|n| self.nome(n)))
+            }
             _ => None,
         });
         let chamado: Option<&str> = chamado.flatten();
-        let sctor = sdecl.membros.iter().find_map(|&m| match &sdecl.ast.member(m).kind {
-            ast::MemberKind::Constructor(c)
-                if !c.factory && c.name.as_ref().map(|n| self.nome(n)) == chamado =>
-            {
-                Some(c)
-            }
-            _ => None,
-        })?;
+        let sctor = sdecl
+            .membros
+            .iter()
+            .find_map(|&m| match &sdecl.ast.member(m).kind {
+                ast::MemberKind::Constructor(c)
+                    if !c.factory && c.name.as_ref().map(|n| self.nome(n)) == chamado =>
+                {
+                    Some(c)
+                }
+                _ => None,
+            })?;
         let nomeado = |q: &ast::Parameter| matches!(q.kind, ast::ParameterKind::Named);
         let alvo = if nomeado(p) {
             let nome = self.nome(p.name.as_ref()?);

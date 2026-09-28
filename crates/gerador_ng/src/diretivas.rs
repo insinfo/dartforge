@@ -804,7 +804,9 @@ fn resolver_com(
                         Token::Elemento => Argumento::Elemento,
                         Token::Detector => Argumento::Detector,
                         t if e_view_container_ref(t) && !dep.pular => Argumento::Container,
-                        Token::Classe { uri, classe } if uri == INJECTOR && classe == "Injector" => {
+                        Token::Classe { uri, classe }
+                            if uri == INJECTOR && classe == "Injector" =>
+                        {
                             // `@SkipSelf()` leria o injetor do elemento de
                             // cima (`injector(pai)`): ainda sem caso.
                             if dep.pular {
@@ -894,7 +896,9 @@ pub fn e_view_container_ref(t: &Token) -> bool {
 /// A diretiva injeta `ViewContainerRef` e o nó dela ganha um
 /// `ViewContainer` (`_requiresViewContainer`, em `provider_parser.dart`).
 pub fn pede_container(d: &Diretiva) -> bool {
-    d.dependencias.iter().any(|dep| e_view_container_ref(&dep.token))
+    d.dependencias
+        .iter()
+        .any(|dep| e_view_container_ref(&dep.token))
 }
 
 /// Os provedores embutidos de um elemento além de `Element`/`HtmlElement`,
@@ -903,11 +907,11 @@ pub fn pede_container(d: &Diretiva) -> bool {
 /// `ComponentLoader` e `TemplateRef`.
 pub fn embutido_do_elemento(t: &Token) -> bool {
     matches!(t, Token::Classe { uri, classe }
-        if uri.starts_with("package:ngdart/")
-            && matches!(
-                classe.as_str(),
-                "ElementRef" | "ViewContainerRef" | "ViewContainer" | "ComponentLoader" | "TemplateRef"
-            ))
+    if uri.starts_with("package:ngdart/")
+        && matches!(
+            classe.as_str(),
+            "ElementRef" | "ViewContainerRef" | "ViewContainer" | "ComponentLoader" | "TemplateRef"
+        ))
 }
 
 /// Uma dependência que o próprio nó não satisfaz (`_getDependency`):
@@ -931,7 +935,9 @@ fn fora_do_no(dep: &Dependencia, acima: Option<Acima>) -> Result<Argumento, &'st
     // acha no próprio nó ou num de cima (`CompileElement`), forma ainda sem
     // caso.
     if embutido_do_elemento(&dep.token) {
-        return Err("dependência de embutido do elemento (ElementRef/ViewContainerRef/TemplateRef)");
+        return Err(
+            "dependência de embutido do elemento (ElementRef/ViewContainerRef/TemplateRef)",
+        );
     }
     match (dep.opcional, dep.proprio, dep.hospedeiro) {
         (true, true, _) => Ok(Argumento::Nulo),
