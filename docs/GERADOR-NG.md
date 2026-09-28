@@ -500,11 +500,16 @@ filho são ligações do elemento (`bindRenderInputs`, antes das das diretivas),
 que vira campo `HtmlElement`; as variantes `NonHtml` fora do HTML, e o
 `[class]` do elemento de um componente pela visão dele
 (`this._compView_n.updateChildClassNonHtml`) — caso j74. Antes, um filho sem
-`@Input` descartava essas ligações em silêncio. `directives:` e as
+`@Input` descartava essas ligações em silêncio. O `<template>` escrito com
+diretiva leva a microssintaxe já decomposta (as ligações e os `let-` à
+parte), sem voltar ao texto — `a == null ? null : b; value: c` nem passaria
+no `isMicroExpression` —, e a microssintaxe do `*` separa as partes fora de
+texto e parênteses (`;` e `:` de um literal ou de um ternário não contam) —
+caso j75. `directives:` e as
 listas constantes aceitam `...outraLista`. O `dirtyParentQueriesInternal`
 segue o primeiro resultado de cada consulta na visão, em pré-ordem
 (`_setParentQueryAsDirty` no `addQueryResult`), e os campos dos nós
-consultados seguem as consultas — caso j66. Corpus: 306 conferidos.
+consultados seguem as consultas — caso j66. Corpus: 307 conferidos.
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada
 pendente com o motivo): **936 iguais / 14 pendentes / 0 diferentes** —
 `.template.dart` 520/12/0, `.css` e `.css.map` do Sass 102/102 cada,

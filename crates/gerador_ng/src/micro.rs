@@ -23,7 +23,7 @@
 //! mesmo com `:` dentro (`a ? b : c`, `x == 'a:b'`).
 
 /// O que um `*dir="..."` declara.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Micro {
     /// `(nome da propriedade, expressão)`, já com o prefixo da diretiva.
     pub propriedades: Vec<(String, String)>,
@@ -41,7 +41,7 @@ pub fn analisar(dir: &str, valor: &str) -> Micro {
         }
         return m;
     }
-    for (i, parte) in valor.split(';').enumerate() {
+    for (i, parte) in partes(valor).into_iter().enumerate() {
         let parte = parte.trim();
         if parte.is_empty() {
             continue;
@@ -69,7 +69,11 @@ pub fn analisar(dir: &str, valor: &str) -> Micro {
             }
             continue;
         }
-        if let Some((nome, expr)) = parte.split_once(':') {
+        // `chave: expr` — a chave é um identificador (o `:` de um ternário
+        // ou de um texto não conta).
+        if let Some((nome, expr)) = parte.split_once(':')
+            && e_identificador(nome.trim())
+        {
             m.propriedades
                 .push((propriedade(dir, nome.trim()), expr.trim().to_string()));
             continue;
@@ -81,6 +85,47 @@ pub fn analisar(dir: &str, valor: &str) -> Micro {
         }
     }
     m
+}
+
+/// As partes separadas por `;` no nível de cima: fora de texto entre aspas
+/// e de parênteses, colchetes e chaves (o `;` de um literal não separa).
+fn partes(valor: &str) -> Vec<&str> {
+    let mut saida = Vec::new();
+    let mut nivel = 0i32;
+    let mut aspa: Option<char> = None;
+    let mut escape = false;
+    let mut inicio = 0;
+    for (i, c) in valor.char_indices() {
+        if let Some(q) = aspa {
+            if escape {
+                escape = false;
+            } else if c == '\\' {
+                escape = true;
+            } else if c == q {
+                aspa = None;
+            }
+            continue;
+        }
+        match c {
+            '\'' | '"' => aspa = Some(c),
+            '(' | '[' | '{' => nivel += 1,
+            ')' | ']' | '}' => nivel -= 1,
+            ';' if nivel == 0 => {
+                saida.push(&valor[inicio..i]);
+                inicio = i + 1;
+            }
+            _ => {}
+        }
+    }
+    saida.push(&valor[inicio..]);
+    saida
+}
+
+fn e_identificador(s: &str) -> bool {
+    let mut cs = s.chars();
+    cs.next()
+        .is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$')
+        && cs.all(|c| c.is_alphanumeric() || c == '_' || c == '$')
 }
 
 /// `isMicroExpression` do ngast: começa com `let` ou casa `\S+[:;]` no

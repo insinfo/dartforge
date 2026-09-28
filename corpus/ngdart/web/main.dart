@@ -263,6 +263,7 @@ import 'package:corpus_ngdart/src/j71_provedores_de_diretiva.template.dart' as j
 import 'package:corpus_ngdart/src/j72_consultas_de_diretiva.template.dart' as j72;
 import 'package:corpus_ngdart/src/j73_atributo_vazio_no_filho.template.dart' as j73;
 import 'package:corpus_ngdart/src/j74_style_com_ligacao.template.dart' as j74;
+import 'package:corpus_ngdart/src/j75_molde_com_ternario.template.dart' as j75;
 
 void main() {
   print([
@@ -530,5 +531,6 @@ void main() {
     j72.J72ConsultasDeDiretivaNgFactory,
     j73.J73AtributoVazioNoFilhoNgFactory,
     j74.J74StyleComLigacaoNgFactory,
+    j75.J75MoldeComTernarioNgFactory,
   ].length);
 }

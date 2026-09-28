@@ -634,7 +634,7 @@ fn citado_no_escopo(
         No::Interpolacao { expr, .. } => cita(expr),
         No::Elemento(e) => match &e.estrela {
             Some(estrela) if estrela.nome != MARCA_DE_MOLDE => {
-                let micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
+                let micro = e.micro_da_estrela().unwrap_or_default();
                 micro.propriedades.iter().any(|(_, expr)| cita(expr))
                     || citado_na_embutida(e, nome, filhos)
             }
@@ -662,7 +662,7 @@ fn lido_na_deteccao(nos: &[No], nome: &str) -> bool {
         No::Interpolacao { expr, .. } => cita(expr),
         No::Elemento(e) => match &e.estrela {
             Some(estrela) if estrela.nome != MARCA_DE_MOLDE => {
-                let micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
+                let micro = e.micro_da_estrela().unwrap_or_default();
                 micro.propriedades.iter().any(|(_, expr)| cita(expr))
             }
             Some(_) => no_elemento(e),
@@ -696,7 +696,7 @@ fn citado_na_embutida(
     let mut lugares = Vec::new();
     match &e.estrela {
         Some(estrela) if estrela.nome != MARCA_DE_MOLDE => {
-            let micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
+            let micro = e.micro_da_estrela().unwrap_or_default();
             // O elemento do `*` e o que está abaixo dele são da visão
             // embutida.
             onde_casa(
@@ -1433,11 +1433,12 @@ fn template_como_container(nos: &[No]) -> Vec<No> {
                     e.propriedades.clear();
                     e.atributos.clear();
                     e.nome = "ng-container".into();
-                } else if let (true, "template", Some((estrela, ligacoes))) =
+                } else if let (true, "template", Some((estrela, ligacoes, micro))) =
                     (limpo, e.nome.as_str(), molde_com_diretiva(&e))
                 {
                     e.estrela = Some(estrela);
                     e.ligacoes_do_molde = ligacoes;
+                    e.micro_do_molde = Some(micro);
                     e.propriedades.clear();
                     e.atributos.clear();
                     e.nome = "ng-container".into();
@@ -1491,10 +1492,18 @@ fn template_como_container(nos: &[No]) -> Vec<No> {
 /// resto continua `<template>` e é recusado.
 fn molde_com_diretiva(
     e: &crate::html::Elemento,
-) -> Option<(crate::html::Ligacao, Vec<crate::html::Ligacao>)> {
+) -> Option<(
+    crate::html::Ligacao,
+    Vec<crate::html::Ligacao>,
+    crate::micro::Micro,
+)> {
     let (lets, outros): (Vec<_>, Vec<_>) =
         e.atributos.iter().partition(|a| a.nome.starts_with("let-"));
     let mut partes = Vec::new();
+    // A microssintaxe equivalente, já decomposta: o texto (`partes`) só
+    // serve de descrição, porque `a ? b : c; value: x` nem passaria no
+    // `isMicroExpression` (caso j75).
+    let mut micro = crate::micro::Micro::default();
     let (dir, propriedades) = match outros.as_slice() {
         [dir] if dir.valor.is_empty() && Estrutural::conhecida(&dir.nome).is_some() => {
             if e.propriedades.is_empty() {
@@ -1510,10 +1519,13 @@ fn molde_com_diretiva(
             let [dir] = casadas.as_slice() else {
                 return None;
             };
-            if dir.valor.contains(';') || dir.valor.trim().is_empty() {
+            if dir.valor.trim().is_empty() {
                 return None;
             }
             partes.push(dir.valor.trim().to_string());
+            micro
+                .propriedades
+                .push((dir.nome.clone(), dir.valor.trim().to_string()));
             ((*dir).clone(), resto)
         }
         _ => return None,
@@ -1536,12 +1548,20 @@ fn molde_com_diretiva(
         } else {
             format!("let {nome} = {chave}")
         });
+        micro.locais.push((
+            nome.to_string(),
+            if chave.is_empty() {
+                "$implicit".to_string()
+            } else {
+                chave.to_string()
+            },
+        ));
     }
     for p in &propriedades {
         let sufixo = p.nome.strip_prefix(dir.nome.as_str())?;
         let mut cs = sufixo.chars();
         let primeira = cs.next()?;
-        if !primeira.is_ascii_uppercase() || p.valor.contains(';') || p.valor.trim().is_empty() {
+        if !primeira.is_ascii_uppercase() || p.valor.trim().is_empty() {
             return None;
         }
         partes.push(format!(
@@ -1550,6 +1570,9 @@ fn molde_com_diretiva(
             cs.as_str(),
             p.valor.trim()
         ));
+        micro
+            .propriedades
+            .push((p.nome.clone(), p.valor.trim().to_string()));
     }
     Some((
         crate::html::Ligacao {
@@ -1559,6 +1582,7 @@ fn molde_com_diretiva(
             fim: dir.fim,
         },
         e.propriedades.clone(),
+        micro,
     ))
 }
 
@@ -1570,8 +1594,7 @@ fn referencias_ambiguas(nos: &[No]) -> std::collections::HashSet<String> {
         for n in nos {
             if let No::Elemento(e) = n {
                 refs.extend(e.referencias.iter().map(|r| r.nome.clone()));
-                if let Some(estrela) = &e.estrela {
-                    let micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
+                if let Some(micro) = e.micro_da_estrela() {
                     lets.extend(micro.locais.into_iter().map(|(nome, _)| nome));
                 }
                 andar(&e.filhos, refs, lets);
@@ -4935,7 +4958,7 @@ impl Corpo<'_> {
                 }
             }
         };
-        let mut micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
+        let mut micro = e.micro_da_estrela().unwrap_or_default();
         // As ligações saem na ordem das entradas da diretiva, não na escrita
         // (`_orderingOf(directive.inputs)`). Entrada que a diretiva não
         // declara é erro no oficial ("Can't bind to ..."): não há saída.
@@ -5928,8 +5951,7 @@ impl Corpo<'_> {
         );
         // A ligação de texto é alocada por visão; aqui a saída é descartada.
         self.tb.get_or_insert_with(|| "_coleta".into());
-        if let Some(estrela) = &e.estrela {
-            let micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
+        if let Some(micro) = e.micro_da_estrela() {
             // O tipo da coleção, se a expressão dela converte; senão os
             // locais ficam `dynamic`.
             let colecao = micro
@@ -10758,7 +10780,7 @@ mod testes {
         let estrela = e.estrela.as_ref().expect("estrela");
         assert_eq!(estrela.nome, "ngFor");
         assert_eq!(estrela.valor, "let item; let i = index; trackBy: f; of: xs");
-        let micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
+        let micro = e.micro_da_estrela().unwrap_or_default();
         assert_eq!(
             micro.propriedades,
             vec![

@@ -85,9 +85,23 @@ pub struct Elemento {
     /// intervalo da ligação escrita, não o da `estrela` inteira. Vazio no
     /// resto.
     pub ligacoes_do_molde: Vec<Ligacao>,
+    /// A microssintaxe já decomposta desse `<template>` reescrito: as
+    /// ligações e os `let-` escritos à parte, sem voltar ao texto (que o
+    /// `isMicroExpression` nem sempre reconheceria, caso j75).
+    pub micro_do_molde: Option<crate::micro::Micro>,
 }
 
 impl Elemento {
+    /// A microssintaxe do `*` do elemento: a do `<template>` reescrito, ou a
+    /// do texto da `estrela`.
+    pub fn micro_da_estrela(&self) -> Option<crate::micro::Micro> {
+        let estrela = self.estrela.as_ref()?;
+        Some(match &self.micro_do_molde {
+            Some(m) => m.clone(),
+            None => crate::micro::analisar(&estrela.nome, &estrela.valor),
+        })
+    }
+
     /// Tem ligação de propriedade: `[x]` ou atributo com `{{ }}` — o que
     /// faz o elemento virar campo da visão.
     pub fn liga_propriedade(&self) -> bool {

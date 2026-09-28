@@ -288,3 +288,4 @@ export 'src/j71_provedores_de_diretiva.dart';
 export 'src/j72_consultas_de_diretiva.dart';
 export 'src/j73_atributo_vazio_no_filho.dart';
 export 'src/j74_style_com_ligacao.dart';
+export 'src/j75_molde_com_ternario.dart';

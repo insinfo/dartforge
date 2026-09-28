@@ -1,0 +1,2 @@
+<template [ngTemplateOutlet]="modelo == null ? null : outro" [ngTemplateOutletValue]="contexto"></template>
+<p *ngFor="let x of itens; let i = index">{{ rotulo(x + ';' + i.toString()) }}</p>
