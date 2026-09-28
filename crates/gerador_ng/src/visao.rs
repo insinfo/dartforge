@@ -4717,33 +4717,21 @@ impl Corpo<'_> {
             .filter(|a| filho.entrada(&a.nome).is_some())
             .map(|a| (a, true))
             .collect();
-        // A `[x]` que só uma diretiva do nó recebe não é do filho; as de
-        // elemento (`[class.x]`, `[style.x]`, `[attr.x]`, `[class]`) que
-        // ninguém recebe vão para o elemento do filho (`bindRenderInputs`,
-        // caso j74); o resto sem dono é erro de esquema no oficial.
-        let de_elemento = |nome: &str| {
-            matches!(nome, "class" | "className")
-                || ["class.", "style.", "attr."]
-                    .iter()
-                    .any(|p| nome.starts_with(p))
-        };
+        // A `[x]` que só uma diretiva do nó recebe não é do filho; a que
+        // ninguém recebe é propriedade do elemento do filho
+        // (`_visitProperties`: `[class.x]`, `[attr.x]`, `[id]`…; o esquema
+        // aceita qualquer propriedade num elemento customizado), escrita em
+        // `bindRenderInputs` (casos j74, j135).
         ligadas.extend(
             e.propriedades
                 .iter()
-                .filter(|l| {
-                    filho.entrada(&l.nome).is_some()
-                        || (!consome_entrada(&extras, &l.nome) && !de_elemento(&l.nome))
-                })
+                .filter(|l| filho.entrada(&l.nome).is_some())
                 .map(|l| (l, false)),
         );
         let props_elemento: Vec<crate::html::Ligacao> = e
             .propriedades
             .iter()
-            .filter(|l| {
-                filho.entrada(&l.nome).is_none()
-                    && !consome_entrada(&extras, &l.nome)
-                    && de_elemento(&l.nome)
-            })
+            .filter(|l| filho.entrada(&l.nome).is_none() && !consome_entrada(&extras, &l.nome))
             .cloned()
             .collect();
         // O atributo interpolado que nem o filho nem uma diretiva do nó
@@ -8707,21 +8695,15 @@ fn elemento_do_filho_ligado(
     filho: &Filho,
     extras: &[std::sync::Arc<crate::diretivas::Diretiva>],
 ) -> bool {
-    let de_elemento = |nome: &str| {
-        matches!(nome, "class" | "className")
-            || ["class.", "style.", "attr."]
-                .iter()
-                .any(|p| nome.starts_with(p))
-    };
-    e.propriedades.iter().any(|l| {
-        filho.entrada(&l.nome).is_none()
-            && !consome_entrada(extras, &l.nome)
-            && de_elemento(&l.nome)
-    }) || e.atributos.iter().any(|a| {
-        a.valor.contains("{{")
-            && filho.entrada(&a.nome).is_none()
-            && !consome_entrada(extras, &a.nome)
-    }) || extras.iter().any(|d| !d.ligacoes_do_hospedeiro.is_empty())
+    e.propriedades
+        .iter()
+        .any(|l| filho.entrada(&l.nome).is_none() && !consome_entrada(extras, &l.nome))
+        || e.atributos.iter().any(|a| {
+            a.valor.contains("{{")
+                && filho.entrada(&a.nome).is_none()
+                && !consome_entrada(extras, &a.nome)
+        })
+        || extras.iter().any(|d| !d.ligacoes_do_hospedeiro.is_empty())
 }
 
 /// As diretivas que casam um elemento HTML, com os metadados lidos do

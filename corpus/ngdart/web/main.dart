@@ -316,6 +316,7 @@ import 'package:corpus_ngdart/src/j130_pedido_atraves_de_template.template.dart'
 import 'package:corpus_ngdart/src/j131_projetado_e_pedidos.template.dart' as j131;
 import 'package:corpus_ngdart/src/j132_consulta_de_visao_por_token.template.dart' as j132;
 import 'package:corpus_ngdart/src/j133_svg.template.dart' as j133;
+import 'package:corpus_ngdart/src/j135_propriedade_do_elemento_do_filho.template.dart' as j135;
 
 void main() {
   print([
@@ -639,5 +640,6 @@ void main() {
     j131.J131UsaNgFactory,
     j132.J132UsaNgFactory,
     j133.J133UsaNgFactory,
+    j135.J135UsaNgFactory,
   ].length);
 }
