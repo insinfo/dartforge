@@ -1003,7 +1003,9 @@ fn formas_contra_o_template(
             ),
             // Dentro de `*` a consulta passa por `mapNestedViews`; sem
             // resultado, ou com dois, a regra é outra — nada disso ainda.
-            [] => recusa(Motivo::ViewChildDinamico, "@ViewChild sem #ref no template"),
+            // Sem resultado, a única não recebe nada (`_createUpdates`,
+            // caso j82).
+            [] => continue,
             [_] => recusa(
                 Motivo::ViewChildDinamico,
                 "@ViewChild de #ref em visão embutida",
@@ -5117,6 +5119,28 @@ impl Corpo<'_> {
             let c = self.converter(expr, Motivo::Ligacao)?;
             if prop.ends_with("Of") {
                 tipo_da_colecao = c.tipo.clone().map(|t| (t, c.escopo.clone()));
+                // `_typeNgForLocals` tipa a coleção com o `analyzedClass`,
+                // cujos locais são só os que têm tipo: um local sem tipo
+                // (`let-x` de `<template>`, item de coleção `dynamic`) não
+                // entra, e o nome cai no membro do componente (caso j83).
+                let sem_tipo: Vec<String> = self
+                    .locais
+                    .iter()
+                    .filter(|(nome, l)| l.tipo == "dynamic" && cita_na_raiz(expr, nome))
+                    .map(|(nome, _)| nome.clone())
+                    .collect();
+                if !sem_tipo.is_empty() {
+                    let salvos = self.locais.clone();
+                    for nome in &sem_tipo {
+                        self.locais.remove(nome);
+                    }
+                    let so_tipo = self.converter(expr, Motivo::Ligacao);
+                    self.locais = salvos;
+                    tipo_da_colecao = so_tipo
+                        .ok()
+                        .and_then(|x| x.tipo.map(|t| (t, x.escopo)))
+                        .or_else(|| Some(("dynamic".to_string(), None)));
+                }
             }
             // Entrada imutável (`final List<X> itens`, `*ngIf="fixo"`) é
             // escrita uma vez, no `if (firstCheck)` das entradas: direto no
@@ -9780,6 +9804,13 @@ fn gerar_componente(
             }
             // Na coleta a recusa já veio de `formas_contra_o_template`.
             None if corpo.coletando() => {}
+            // Nenhum `#ref` com o nome no template: a única não recebe nada
+            // (caso j82).
+            None if !q.por_tipo && {
+                let mut l = Vec::new();
+                onde_esta(nos, &q.referencia, filhos, false, &mut l);
+                l.is_empty()
+            } => {}
             None => {
                 return Err(recusa(
                     Motivo::ViewChildDinamico,

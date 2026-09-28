@@ -1,0 +1,7 @@
+<template #arvore let-lista>
+  <p *ngFor="let item of lista">{{ item.rotulo }}</p>
+</template>
+<template [ngTemplateOutlet]="arvore" [ngTemplateOutletContext]="contexto"></template>
+<div *ngFor="let s of soltos">
+  <span *ngFor="let t of s.itens">{{ t }}</span>
+</div>

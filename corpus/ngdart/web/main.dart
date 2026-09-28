@@ -270,6 +270,8 @@ import 'package:corpus_ngdart/src/j78_consulta_em_template_ngif.template.dart' a
 import 'package:corpus_ngdart/src/j79_host_e_self.template.dart' as j79;
 import 'package:corpus_ngdart/src/j80_host_binding_class.template.dart' as j80;
 import 'package:corpus_ngdart/src/j81_view_child_em_setter.template.dart' as j81;
+import 'package:corpus_ngdart/src/j82_consulta_sem_resultado.template.dart' as j82;
+import 'package:corpus_ngdart/src/j83_ngfor_local_sem_tipo.template.dart' as j83;
 
 void main() {
   print([
@@ -544,5 +546,7 @@ void main() {
     j79.J79HostESelfNgFactory,
     j80.J80HostBindingClassNgFactory,
     j81.J81ViewChildEmSetterNgFactory,
+    j82.J82ConsultaSemResultadoNgFactory,
+    j83.J83NgforLocalSemTipoNgFactory,
   ].length);
 }
