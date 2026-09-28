@@ -233,6 +233,7 @@ import 'package:corpus_ngdart/src/j40_dependencia_de_fora.template.dart' as j40;
 import 'package:corpus_ngdart/src/j41_injecao_no_conteudo.template.dart' as j41;
 import 'package:corpus_ngdart/src/j42_atributo_injetado.template.dart' as j42;
 import 'package:corpus_ngdart/src/j43_projecao_em_embutida.template.dart' as j43;
+import 'package:corpus_ngdart/src/j44_varios_com_folha.template.dart' as j44;
 
 void main() {
   print([
@@ -468,5 +469,6 @@ void main() {
     j41.J41InjecaoNoConteudoNgFactory,
     j42.J42AtributoInjetadoNgFactory,
     j43.J43ProjecaoEmEmbutidaNgFactory,
+    j44.J44TerceiroNgFactory,
   ].length);
 }

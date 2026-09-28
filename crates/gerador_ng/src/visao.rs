@@ -8070,8 +8070,10 @@ pub fn coletar(
         fora.insert(r);
     }
     // A folha é outra saída (`gerar_folha`): o template só a importa.
-    if c.style_urls.len() == 1
-        && local.uri_do_estilo(&c.style_urls[0], !c.sem_encapsulamento).is_none()
+    if c
+        .style_urls
+        .iter()
+        .any(|u| local.uri_do_estilo(u, !c.sem_encapsulamento).is_none())
     {
         fora.insert(recusa(Motivo::Estilos, "folha fora de lib/"));
     }
@@ -8376,30 +8378,20 @@ fn gerar_componente(
         }
     };
 
-    // A folha compilada é o primeiro import do arquivo, antes de tudo.
-    let estilo = match c.style_urls.len() {
-        0 => None,
-        1 => {
-            // A folha entra pela URI `package:` mesmo estando ao lado: é
-            // assim que o oficial escreve (o resolvedor de `styleUrls` é
-            // outro, e não passa pelo caminho relativo).
-            match local.uri_do_estilo(&c.style_urls[0], !c.sem_encapsulamento) {
-                Some(uri) => Some(imp.alias(&uri)),
-                None => {
-                    anotar(coleta, recusa(Motivo::Estilos, "folha fora de lib/"))?;
-                    None
-                }
-            }
+    // As folhas compiladas, na ordem de `styleUrls`: cada uma aloca o import
+    // dela quando a lista `styles$X` é escrita — a primeira do arquivo é o
+    // primeiro import; num arquivo com vários componentes, a de um
+    // componente seguinte entra no meio da tabela, e a repetida reaproveita
+    // o import (caso j44). A folha entra pela URI `package:` mesmo estando
+    // ao lado: é assim que o oficial escreve (o resolvedor de `styleUrls` é
+    // outro, e não passa pelo caminho relativo).
+    let mut estilo = Vec::new();
+    for url in &c.style_urls {
+        match local.uri_do_estilo(url, !c.sem_encapsulamento) {
+            Some(uri) => estilo.push(imp.alias(&uri)),
+            None => anotar(coleta, recusa(Motivo::Estilos, "folha fora de lib/"))?,
         }
-        // Mais de uma folha muda a lista de `styles$X`; uma de cada vez.
-        _ => {
-            anotar(
-                coleta,
-                recusa(Motivo::Estilos, "mais de uma folha em styleUrls"),
-            )?;
-            None
-        }
-    };
+    }
     let vista = imp.alias(COMPONENT_VIEW);
     let proprio = imp.alias(local.arquivo);
     // Os campos da visão saem antes de tudo na classe — ligações de texto,

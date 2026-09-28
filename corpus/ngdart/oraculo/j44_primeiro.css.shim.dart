@@ -1,0 +1,1 @@
+final List<Object> styles = ['b._ngcontent-%ID%{font-weight:bold}'];

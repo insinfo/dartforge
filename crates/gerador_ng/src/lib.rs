@@ -1177,19 +1177,8 @@ pub(crate) fn gerar_interno(
         ));
     }
     // Vários componentes: a tabela de imports é uma só e os trechos saem na
-    // ordem do fonte (caso i24). Folha de estilo em mais de um ainda não tem
-    // caso (o import da folha é alocado no meio do arquivo).
-    if achados.componentes.len() > 1
-        && achados
-            .componentes
-            .iter()
-            .any(|c| !c.style_urls.is_empty() || !c.styles.is_empty())
-    {
-        return Err(recusa(
-            Motivo::VariosComponentes,
-            "vários componentes no arquivo com folha de estilo",
-        ));
-    }
+    // ordem do fonte (caso i24); o import da folha de cada um é alocado
+    // quando a lista `styles$X` dele é escrita (caso j44).
     let mut imp = visao::Importacoes::default();
     let mut trechos = Vec::new();
     let mut entradas = vec![fonte.to_path_buf()];

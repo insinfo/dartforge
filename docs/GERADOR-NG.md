@@ -407,9 +407,12 @@ hospedeira), e filho conhecido pelos metadados deixa de tornar a busca
 incerta — caso j41; `@Attribute('x')` no construtor da diretiva (o
 `RouterLink` do ngrouter) é o literal do atributo escrito no elemento, sem
 decodificar entidades, ou `null` — caso j42; o índice do `<ng-content>` é o
-ordinal no template inteiro, também dentro de visões embutidas — caso j43.
-Corpus: 266 conferidos. limitless_ui/example (Linux, `build --comparar`):
-**900 iguais / 50 pendentes / 0 diferentes** — `.template.dart` 484/48/0, `.css` e `.css.map` do Sass 102/102 cada,
+ordinal no template inteiro, também dentro de visões embutidas — caso j43;
+vários componentes com folha no mesmo arquivo e várias folhas em
+`styleUrls` (cada import alocado quando a lista `styles$X` é escrita, o
+repetido reaproveitado) — caso j44. Corpus: 271 conferidos.
+limitless_ui/example (Linux, `build --comparar`): **901 iguais / 49
+pendentes / 0 diferentes** — `.template.dart` 485/47/0, `.css` e `.css.map` do Sass 102/102 cada,
 `.css.dart` e `.css.shim.dart` 104 cada.
 
 ### Diretivas estruturais
