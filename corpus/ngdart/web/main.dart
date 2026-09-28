@@ -253,6 +253,8 @@ import 'package:corpus_ngdart/src/j61_provedor_do_proprio_no.template.dart' as j
 import 'package:corpus_ngdart/src/j62_ngfor_generico.template.dart' as j62;
 import 'package:corpus_ngdart/src/j63_template_concatenado.template.dart' as j63;
 import 'package:corpus_ngdart/src/j64_attr_se_nulo.template.dart' as j64;
+import 'package:corpus_ngdart/src/j65_ganchos_de_diretiva.template.dart' as j65;
+import 'package:corpus_ngdart/src/j66_sujas_em_ordem.template.dart' as j66;
 
 void main() {
   print([
@@ -510,5 +512,7 @@ void main() {
     j62.J62NgforGenericoNgFactory,
     j63.J63TemplateConcatenadoNgFactory,
     j64.J64AttrSeNuloNgFactory,
+    j65.J65GanchosDeDiretivaNgFactory,
+    j66.J66SujasEmOrdemNgFactory,
   ].length);
 }

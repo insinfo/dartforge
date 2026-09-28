@@ -462,10 +462,21 @@ strings adjacentes, com escape ou cru: uma string só conta o `REF` do
 conteúdo (`contentsOffset`), adjacentes contam do começo do nó, sempre com
 as posições do valor decodificado — caso j63. `[attr.x]` vai por
 `setAttribute` quando a fonte não pode ser nula (`canBeNull`: literal
-primitivo, `a ?? b` com um lado assim) — caso j64. Corpus: 295 conferidos.
+primitivo, `a ?? b` com um lado assim) — caso j64. Ganchos de conteúdo e
+de visão em diretiva (`ngAfterContentInit/Checked`, `ngAfterViewInit/Checked`)
+e `ngOnDestroy` depois dos filhos do nó, diretiva por diretiva
+(`bindDirectiveAfterChildrenCallbacks`), também no nó de um filho, depois
+dos do componente — caso j65. O nó de um filho resolve as diretivas na
+ordem de `directives:` (`_matchDirectives`), com os `providers:` do
+componente antes dos das diretivas (`_ProviderResolver`); uma diretiva que
+o oficial cria antes do componente ainda é recusada. `directives:` e as
+listas constantes aceitam `...outraLista`. O `dirtyParentQueriesInternal`
+segue o primeiro resultado de cada consulta na visão, em pré-ordem
+(`_setParentQueryAsDirty` no `addQueryResult`), e os campos dos nós
+consultados seguem as consultas — caso j66. Corpus: 297 conferidos.
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada
-pendente com o motivo): **926 iguais / 24 pendentes / 0 diferentes** —
-`.template.dart` 510/22/0, `.css` e `.css.map` do Sass 102/102 cada,
+pendente com o motivo): **928 iguais / 22 pendentes / 0 diferentes** —
+`.template.dart` 512/20/0, `.css` e `.css.map` do Sass 102/102 cada,
 `.css.dart` e `.css.shim.dart` 104 cada.
 
 ### Diretivas estruturais

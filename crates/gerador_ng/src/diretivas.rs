@@ -277,14 +277,6 @@ impl Diretiva {
         if self.consultas {
             return Some("consulta de conteúdo ou de visão".into());
         }
-        let g = &self.ganchos;
-        if g.after_content_init
-            || g.after_content_checked
-            || g.after_view_init
-            || g.after_view_checked
-        {
-            return Some("gancho de ciclo de vida além de OnInit/AfterChanges/DoCheck".into());
-        }
         if self
             .ouvintes
             .iter()
@@ -520,11 +512,12 @@ pub fn resolver_hospedeira(componente: Arc<Diretiva>) -> Result<NoResolvido, &'s
 /// `ViewContainerRef`, `ComponentLoader`) antes dos provedores (caso j47).
 pub fn resolver_no_do_filho(
     casadas: &[Arc<Diretiva>],
+    filho: usize,
     n: u32,
     acima: Option<Acima>,
     container: bool,
 ) -> Result<NoResolvido, &'static str> {
-    let r = resolver_com(casadas, n, acima, false, casadas.len().min(1), container)?;
+    let r = resolver_com(casadas, n, acima, false, Some(filho), container)?;
     for i in &r.instancias {
         let depende_de_fora = match &i.criacao {
             Criacao::Expressao(e) => fora_do_no_de_filho(e),
@@ -555,27 +548,21 @@ fn resolver_em(
     acima: Option<Acima>,
     hospedeira: bool,
 ) -> Result<NoResolvido, &'static str> {
-    resolver_com(
-        casadas,
-        n,
-        acima,
-        hospedeira,
-        if hospedeira { casadas.len() } else { 0 },
-        false,
-    )
+    resolver_com(casadas, n, acima, hospedeira, None, false)
 }
 
-/// `completas`: quantas das primeiras `casadas` têm os `providers:` de
-/// qualquer forma escritos (na hospedeira, todas; no nó de um filho, o
-/// filho); as outras só com `ExistingProvider`.
+/// `componente`: o índice do componente filho em `casadas` (no nó de um
+/// filho), que tem os `providers:` de qualquer forma escritos, como todas
+/// na hospedeira; as outras só com `ExistingProvider`.
 fn resolver_com(
     casadas: &[Arc<Diretiva>],
     n: u32,
     acima: Option<Acima>,
     hospedeira: bool,
-    completas: usize,
+    componente: Option<usize>,
     container: bool,
 ) -> Result<NoResolvido, &'static str> {
+    let completa = |k: usize| hospedeira || componente == Some(k);
     // `requiresViewContainer`: com `ViewContainer` o nó ganha três embutidos
     // (`ViewContainer`, `ViewContainerRef`, `ComponentLoader`) antes dos
     // provedores, e os campos começam no 8.
@@ -593,11 +580,17 @@ fn resolver_com(
             tipo: None,
         });
     }
-    for (k, d) in casadas.iter().enumerate() {
+    // Os `providers:` com o componente antes das diretivas ("directives
+    // are able to overwrite providers of a component").
+    let em_ordem = componente
+        .into_iter()
+        .chain((0..casadas.len()).filter(|k| Some(*k) != componente));
+    for k in em_ordem {
+        let d = &casadas[k];
         for p in &d.provedores {
             let fonte = match &p.fonte {
                 Fornece::Existente(t) => Fonte::Existente(t.clone()),
-                f if k < completas => Fonte::Provedor(f.clone()),
+                f if completa(k) => Fonte::Provedor(f.clone()),
                 _ => return Err("provedor que não é ExistingProvider num nó de template"),
             };
             match todos.iter_mut().find(|r| r.token == p.token) {
@@ -605,7 +598,7 @@ fn resolver_com(
                     if r.multi != p.multi {
                         return Err("provedor multi e não multi no mesmo token");
                     }
-                    if (hospedeira || k < completas) && r.eager {
+                    if completa(k) && r.eager {
                         // O token do componente sobrescrito por `providers:`:
                         // ainda sem caso.
                         return Err("provedor com o token do componente");

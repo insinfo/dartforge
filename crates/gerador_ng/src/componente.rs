@@ -368,7 +368,10 @@ fn nomes_da_lista(arvore: &ast::Ast, interner: &Interner, id: ast::ExprId) -> (V
     let mut ilegivel = false;
     for e in elements.iter() {
         match e {
-            ast::CollectionElement::Expression(x) => {
+            // `...lista`: o valor constante do oficial é a lista achatada;
+            // o nome dela é expandido no lugar (`Designado::Lista`).
+            ast::CollectionElement::Expression(x)
+            | ast::CollectionElement::Spread { value: x, .. } => {
                 match crate::resolucao::nome_qualificado(arvore, interner, *x) {
                     Some(n) => nomes.push(n),
                     None => ilegivel = true,

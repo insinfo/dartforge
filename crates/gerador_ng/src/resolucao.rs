@@ -519,9 +519,9 @@ impl<'a> Resolvedor<'a> {
     }
 
     /// Os itens de uma variável de topo `const` cuja inicialização é uma
-    /// lista literal de nomes (`const coreDirectives = [NgClass, NgFor]`).
-    /// Qualquer outra forma (espalhamento, `if`, expressão) fica sem
-    /// resposta — e quem pergunta recusa.
+    /// lista literal de nomes (`const coreDirectives = [NgClass, NgFor]`),
+    /// também espalhados (`...outra`). Qualquer outra forma (`if`, `for`,
+    /// expressão) fica sem resposta — e quem pergunta recusa.
     fn lista_constante(&self, vid: dartforge_elements::model::VariableId) -> Option<Designado> {
         use dartforge_frontend::ast;
         let v = self.program.variable(vid);
@@ -541,7 +541,11 @@ impl<'a> Resolvedor<'a> {
         };
         let mut itens = Vec::new();
         for e in elements.iter() {
-            let ast::CollectionElement::Expression(x) = e else {
+            // `...outraLista`: o valor constante é a lista achatada, na
+            // ordem — o mesmo que o nome dela no lugar.
+            let (ast::CollectionElement::Expression(x)
+            | ast::CollectionElement::Spread { value: x, .. }) = e
+            else {
                 return None;
             };
             itens.push(nome_qualificado(&u.ast, self.interner, *x)?);

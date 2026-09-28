@@ -1864,6 +1864,51 @@ fn uri_da_consulta(
 }
 
 /// Onde estão, em ordem de documento, os elementos que casam `casa`.
+/// Onde está, em pré-ordem, o primeiro resultado da consulta `chave` que é
+/// desta visão (fora de `*` e do conteúdo de `<template>`): o ordinal do
+/// elemento e, dentro dele, a ordem do `_QueryWithRead` — as consultas por
+/// tipo (provedores do nó) antes das de `#ref`, estas na ordem dos `#ref`.
+/// `None` quando não há (vai para o fim).
+fn primeiro_resultado(
+    nos: &[No],
+    chave: &str,
+    filhos: &std::collections::HashMap<String, Filho>,
+) -> Option<(usize, usize)> {
+    fn andar(
+        nos: &[No],
+        chave: &str,
+        filhos: &std::collections::HashMap<String, Filho>,
+        ordinal: &mut usize,
+    ) -> Option<(usize, usize)> {
+        for no in nos {
+            let No::Elemento(e) = no else { continue };
+            *ordinal += 1;
+            let molde = e.estrela.as_ref().is_some_and(|l| l.nome == MARCA_DE_MOLDE);
+            if e.estrela.is_some() && !molde {
+                continue;
+            }
+            if casa_a_chave(e, chave, filhos) {
+                let dentro = if chave.starts_with('\u{7}') {
+                    0
+                } else {
+                    1 + e
+                        .referencias
+                        .iter()
+                        .position(|r| r.nome == chave)
+                        .unwrap_or(0)
+                };
+                return Some((*ordinal, dentro));
+            }
+            if !molde && let Some(p) = andar(&e.filhos, chave, filhos, ordinal) {
+                return Some(p);
+            }
+        }
+        None
+    }
+    let mut ordinal = 0;
+    andar(nos, chave, filhos, &mut ordinal)
+}
+
 fn onde_casa(
     nos: &[No],
     casa: &dyn Fn(&crate::html::Elemento) -> bool,
@@ -3591,7 +3636,7 @@ impl Corpo<'_> {
                 .metadados
                 .clone()
                 .ok_or_else(|| em_filho("filho com providers ou diretiva sem metadados"))?;
-            let casadas = casadas_do_no_do_filho(&meta, &extras);
+            let casadas = casadas_do_no_do_filho(&meta, &extras, self.usadas);
             if let Err(f) = provedores_escreviveis(&meta) {
                 return Err(em_filho(&format!("filho com providers: {f}")));
             }
@@ -3701,10 +3746,16 @@ impl Corpo<'_> {
                     provedores: &provedores,
                     incerto: self.incertos_acima > 0,
                 };
-                let previa =
-                    crate::diretivas::resolver_no_do_filho(casadas, n, Some(acima), container)
-                        .map_err(|f| recusa(Motivo::DiretivaPorSeletor, f))?;
-                let token = casadas[0].token();
+                let (indice, casadas) = casadas;
+                let previa = crate::diretivas::resolver_no_do_filho(
+                    casadas,
+                    *indice,
+                    n,
+                    Some(acima),
+                    container,
+                )
+                .map_err(|f| recusa(Motivo::DiretivaPorSeletor, f))?;
+                let token = casadas[*indice].token();
                 let pos = previa
                     .instancias
                     .iter()
@@ -3885,15 +3936,19 @@ impl Corpo<'_> {
         // filho, `NgModel`): campos depois da instância, entradas e saídas
         // depois das do filho (`transformedDirectiveAsts`).
         let mut injetor_do_filho = None;
+        // As outras diretivas do nó: os ganchos delas vêm depois dos do
+        // filho, depois do conteúdo (`bindDirectiveAfterChildrenCallbacks`).
+        let mut diretivas_do_no = Vec::new();
         let antes_acima = self.acima.len();
-        if let Some(casadas) = &no_resolvido {
+        if let Some((indice, casadas)) = &no_resolvido {
             let provedores = self.provedores_acima();
             let acima = crate::diretivas::Acima {
                 provedores: &provedores,
                 incerto: self.incertos_acima > 0,
             };
-            let r = crate::diretivas::resolver_no_do_filho(casadas, n, Some(acima), container)
-                .map_err(|f| recusa(Motivo::DiretivaPorSeletor, f))?;
+            let r =
+                crate::diretivas::resolver_no_do_filho(casadas, *indice, n, Some(acima), container)
+                    .map_err(|f| recusa(Motivo::DiretivaPorSeletor, f))?;
             let pos = antes_do_filho.len();
             if r.instancias.get(pos).is_none_or(|i| i.campo != campo_inst)
                 || r.instancias[..pos]
@@ -3925,7 +3980,12 @@ impl Corpo<'_> {
             }
             let resto = crate::diretivas::NoResolvido {
                 instancias: r.instancias[pos + 1..].to_vec(),
-                diretivas: r.diretivas[1..].to_vec(),
+                diretivas: r
+                    .diretivas
+                    .iter()
+                    .filter(|(_, c)| *c != campo_inst)
+                    .cloned()
+                    .collect(),
                 container: r.container,
             };
             self.diretivas_do_no(e, &resto, &format!("_el_{n}"), &props_dir, &eventos_dir)?;
@@ -3953,11 +4013,7 @@ impl Corpo<'_> {
                     self.acima.push((t.clone(), i.leitura.clone(), None));
                 }
             }
-            for (d, c) in &resto.diretivas {
-                if d.ganchos.on_destroy {
-                    self.destruir.push(format!("    this.{c}.ngOnDestroy();"));
-                }
-            }
+            diretivas_do_no = resto.diretivas.clone();
             let mut acima_reg = self.pilha.clone();
             acima_reg.push((n, true));
             // O token do filho já está no registro dele; os apelidos dele,
@@ -3986,6 +4042,7 @@ impl Corpo<'_> {
         if filho.projecoes.is_empty() && e.filhos.is_empty() {
             self.consultas_do_filho(e, filho, &campo_inst, n)?;
             self.depois_dos_filhos(filho, &campo_inst);
+            self.ganchos_depois_dos_filhos(&diretivas_do_no);
             self.linhas
                 .push(format!("    this.{campo_vista}.create(this.{campo_inst});"));
             self.acima.truncate(antes_acima);
@@ -4070,6 +4127,7 @@ impl Corpo<'_> {
         r?;
         self.consultas_do_filho(e, filho, &campo_inst, n)?;
         self.depois_dos_filhos(filho, &campo_inst);
+        self.ganchos_depois_dos_filhos(&diretivas_do_no);
         // Sem projeções: `create`, como o filho sem conteúdo. Todas vazias:
         // uma linha só, constantes. Senão, uma lista por linha (o `dart
         // format` quebra a lista que tem outra não vazia).
@@ -4382,6 +4440,45 @@ impl Corpo<'_> {
     /// Os ganchos que o oficial liga depois de visitar o conteúdo do filho
     /// (`bindDirectiveAfterChildrenCallbacks`): `ngAfterContent*`,
     /// `ngAfterView*` e `ngOnDestroy`.
+    /// `bindDirectiveAfterChildrenCallbacks` de cada diretiva do nó, na
+    /// ordem delas, depois dos filhos (de baixo para cima): `ngAfterContent*`
+    /// e `ngAfterView*` (o `Init` num `if (firstCheck)`, `addStmtsIfFirstCheck`)
+    /// e `ngOnDestroy` (caso j65).
+    fn ganchos_depois_dos_filhos(
+        &mut self,
+        diretivas: &[(std::sync::Arc<crate::diretivas::Diretiva>, String)],
+    ) {
+        for (d, campo) in diretivas {
+            let g = &d.ganchos;
+            if g.after_content_init {
+                self.usa_primeira_checagem = true;
+                na_primeira_checagem(
+                    &mut self.apos_conteudo,
+                    &[format!("      this.{campo}.ngAfterContentInit();")],
+                );
+            }
+            if g.after_content_checked {
+                self.apos_conteudo
+                    .push(format!("    this.{campo}.ngAfterContentChecked();"));
+            }
+            if g.after_view_init {
+                self.usa_primeira_checagem = true;
+                na_primeira_checagem(
+                    &mut self.apos_visao,
+                    &[format!("      this.{campo}.ngAfterViewInit();")],
+                );
+            }
+            if g.after_view_checked {
+                self.apos_visao
+                    .push(format!("    this.{campo}.ngAfterViewChecked();"));
+            }
+            if g.on_destroy {
+                self.destruir
+                    .push(format!("    this.{campo}.ngOnDestroy();"));
+            }
+        }
+    }
+
     fn depois_dos_filhos(&mut self, filho: &Filho, campo_inst: &str) {
         let g = &filho.ganchos;
         if g.after_content_init {
@@ -5195,6 +5292,12 @@ impl Corpo<'_> {
                 consultas_em_transito.push((r, campo, niveis));
             }
         }
+        // O `dirtyParentQueriesInternal` marca cada consulta quando o
+        // primeiro resultado dela na visão nova é registrado
+        // (`_setParentQueryAsDirty`, no `addQueryResult` de cada elemento, em
+        // pré-ordem): a ordem é a dos resultados, não a das consultas.
+        let mut sujas = refs_consultados.clone();
+        sujas.sort_by_key(|(r, _, _)| primeiro_resultado(&nos, r, self.filhos));
         // O índice do `<ng-content>` é o ordinal dele no template inteiro
         // (`ngContentSelectors`, em pré-ordem): a embutida continua a
         // contagem daqui, e esta visão pula os que ficam lá dentro.
@@ -5204,6 +5307,7 @@ impl Corpo<'_> {
             indice,
             proxima_projecao,
             refs_consultados,
+            sujas,
             consultas_em_transito,
             profundidade: self.profundidade + 1,
             nivel_do_topo,
@@ -6292,15 +6396,8 @@ impl Corpo<'_> {
         };
         self.pilha.pop();
         self.acima.truncate(antes_acima);
-        // `ngOnDestroy` das diretivas do nó, depois dos filhos
-        // (`bindDirectiveAfterChildrenCallbacks`), na ordem delas.
         if let Some(res) = &resolvido {
-            for (d, campo) in &res.diretivas {
-                if d.ganchos.on_destroy {
-                    self.destruir
-                        .push(format!("    this.{campo}.ngOnDestroy();"));
-                }
-            }
+            self.ganchos_depois_dos_filhos(&res.diretivas);
         }
         // `ProviderNode(nodeIndex, nodeIndex + childNodeCount)`.
         if let Some(i) = injetor {
@@ -7084,10 +7181,12 @@ fn campos_em_ordem<'a>(
                 .as_ref()
                 .filter(|meta| !extras.is_empty() || !meta.provedores.is_empty())
                 .and_then(|meta| {
-                    let casadas = casadas_do_no_do_filho(meta, &extras);
-                    let r = crate::diretivas::resolver_no_do_filho(&casadas, 0, None, container)
-                        .ok()?;
-                    let token = casadas[0].token();
+                    let (indice, casadas) = casadas_do_no_do_filho(meta, &extras, usadas);
+                    let r = crate::diretivas::resolver_no_do_filho(
+                        &casadas, indice, 0, None, container,
+                    )
+                    .ok()?;
+                    let token = casadas[indice].token();
                     let pos = r.instancias.iter().position(|i| i.token == token)?;
                     Some((r, pos))
                 });
@@ -7124,11 +7223,13 @@ fn campos_em_ordem<'a>(
 /// resto se resolve à parte, em [`Corpo::construcao_do_filho`]) — elas
 /// decidem a ordem dos campos, porque o `_getOrCreateLocalProvider` do
 /// oficial cria as dependências de um provedor ansioso antes dele (caso
-/// j61) —, e as diretivas do nó.
+/// j61) —, e as diretivas do nó. A ordem é a de `directives:`, com o filho
+/// no lugar dele (`_matchDirectives`); volta com o índice dele.
 fn casadas_do_no_do_filho(
     meta: &crate::diretivas::Diretiva,
     extras: &[std::sync::Arc<crate::diretivas::Diretiva>],
-) -> Vec<std::sync::Arc<crate::diretivas::Diretiva>> {
+    usadas: &[Usada],
+) -> (usize, Vec<std::sync::Arc<crate::diretivas::Diretiva>>) {
     let providos: Vec<crate::diretivas::Token> = std::iter::once(meta)
         .chain(extras.iter().map(|d| &**d))
         .flat_map(|d| d.provedores.iter().map(|p| p.token.clone()))
@@ -7138,9 +7239,19 @@ fn casadas_do_no_do_filho(
     so_provedores
         .dependencias
         .retain(|d| !d.pular && d.atributo.is_none() && providos.contains(&d.token));
-    let mut casadas = vec![std::sync::Arc::new(so_provedores)];
-    casadas.extend(extras.iter().cloned());
-    casadas
+    let posicao = |classe: &str, uri: &str| {
+        usadas
+            .iter()
+            .position(|u| u.classe == classe && u.uri == uri)
+    };
+    let do_filho = posicao(&meta.classe, &meta.uri);
+    let indice = extras
+        .iter()
+        .filter(|d| posicao(&d.classe, &d.uri) < do_filho)
+        .count();
+    let mut casadas: Vec<_> = extras.to_vec();
+    casadas.insert(indice, std::sync::Arc::new(so_provedores));
+    (indice, casadas)
 }
 
 /// O campo de um provedor do nó, com os imports tardios na ordem em que o
@@ -7192,6 +7303,9 @@ struct EspecEmbutida {
     /// Os resultados de consulta de visão nesta visão: (`#ref`, campo sujo,
     /// quantos `parentView` até a visão do componente).
     refs_consultados: Vec<(String, String, u32)>,
+    /// As mesmas, na ordem das linhas do `dirtyParentQueriesInternal` (a do
+    /// primeiro resultado de cada uma, [`primeiro_resultado`]).
+    sujas: Vec<(String, String, u32)>,
     /// As consultas com resultado mais abaixo ([`Corpo::consultas_em_transito`]).
     consultas_em_transito: Vec<(String, String, u32)>,
     /// Os provedores acima da âncora, vistos da visão nova.
@@ -7646,7 +7760,7 @@ fn corpo_da_embutida(
         String::new()
     } else {
         let linhas: Vec<String> = espec
-            .refs_consultados
+            .sujas
             .iter()
             .map(|(_, campo, niveis)| {
                 let mut vista = "this".to_string();
