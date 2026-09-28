@@ -28,7 +28,9 @@ pub fn substituido(chave: &str) -> Option<&'static str> {
 pub fn imita(chave: &str) -> &'static [(&'static str, &'static str)] {
     match chave {
         "ngdart:ngdart" => &[("ngdart", "8.0.0-dev.4")],
-        "sass_builder:sass_builder" => &[("sass_builder", "2.2.1")],
+        // O Sass é o do `dartforge-sass`, igual ao dart-sass 1.102.0: outra
+        // versão do `sass` no lock muda a saída.
+        "sass_builder:sass_builder" => &[("sass_builder", "2.2.1"), ("sass", "1.102.0")],
         "i18n:yamlBasedBuilder" => &[("i18n", "4.2.1")],
         _ => &[],
     }
