@@ -215,6 +215,13 @@ impl Resolucao for Gravador<'_> {
         self.dentro.metodo(arquivo, tipo, nome)
     }
 
+    fn limites_de_tipo(&self, arquivo: &Path, tipo: &str) -> Option<Vec<bool>> {
+        if let Some(uri) = self.dentro.uri_do_tipo(arquivo, tipo) {
+            self.anotar(&uri, tipo);
+        }
+        self.dentro.limites_de_tipo(arquivo, tipo)
+    }
+
     fn tem_setter(&self, arquivo: &Path, tipo: &str, membro: &str) -> bool {
         if let Some(uri) = self.dentro.uri_do_tipo(arquivo, tipo) {
             self.anotar(&uri, tipo);

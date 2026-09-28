@@ -308,6 +308,7 @@ import 'package:corpus_ngdart/src/j121_leitura_de_container.template.dart' as j1
 import 'package:corpus_ngdart/src/j122_ordem_dos_nos_promovidos.template.dart' as j122;
 import 'package:corpus_ngdart/src/j123_embutidos_no_filho.template.dart' as j123;
 import 'package:corpus_ngdart/src/j124_atributo_condicional.template.dart' as j124;
+import 'package:corpus_ngdart/src/j125_local_ancestral.template.dart' as j125;
 
 void main() {
   print([
@@ -623,5 +624,6 @@ void main() {
     j122.J122UsaNgFactory,
     j123.J123UsaNgFactory,
     j124.J124UsaNgFactory,
+    j125.J125UsaNgFactory,
   ].length);
 }

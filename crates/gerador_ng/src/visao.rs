@@ -6273,9 +6273,20 @@ impl Corpo<'_> {
                     ("dynamic".to_string(), None)
                 }
                 "$implicit" => {
-                    let Some((t, escopo)) = tipo_da_colecao
-                        .and_then(|(t, e)| tipo_do_elemento(t).map(|x| (x, e.clone())))
-                    else {
+                    // `List`/`Iterable`/`Set` pelo texto; senão o retorno do
+                    // getter `single` no tipo da coleção
+                    // (`getIterableElementType`, `analyzed_class.dart:39-42`).
+                    let pelo_single = |t: &str, e: &Option<std::path::PathBuf>| {
+                        let (r, arquivo) = self.tipos?;
+                        let (x, escopo) =
+                            r.tipo_do_membro(e.as_deref().unwrap_or(arquivo), t, "single")?;
+                        Some((x, Some(escopo)))
+                    };
+                    let Some((t, escopo)) = tipo_da_colecao.and_then(|(t, e)| {
+                        tipo_do_elemento(t)
+                            .map(|x| (x, e.clone()))
+                            .or_else(|| pelo_single(t, e))
+                    }) else {
                         return Err(recusa(
                             Motivo::Ligacao,
                             "local de `*ngFor` sem o tipo do elemento",
@@ -6723,6 +6734,7 @@ impl Corpo<'_> {
             self.tb.clone(),
             self.decl_locais.clone(),
             self.locais_raiz.clone(),
+            self.locais_proprios.clone(),
         );
         // A ligação de texto é alocada por visão; aqui a saída é descartada.
         self.tb.get_or_insert_with(|| "_coleta".into());
@@ -6755,6 +6767,9 @@ impl Corpo<'_> {
             for (nome, _) in &micro.locais {
                 self.decl_locais.insert(nome.clone(), Ok(String::new()));
             }
+            // Uma visão embutida emitida mais abaixo herda estes locais como
+            // ancestrais (a coleta só junta recusas: a origem não importa).
+            self.locais_proprios.extend(micro.locais.iter().cloned());
             self.embutida = true;
         }
         let _ = self.nos(&e.filhos, "_el_coleta");
@@ -6764,6 +6779,7 @@ impl Corpo<'_> {
             self.tb,
             self.decl_locais,
             self.locais_raiz,
+            self.locais_proprios,
         ) = guardados;
     }
 
@@ -8819,8 +8835,7 @@ fn corpo_da_embutida(
     // A declaração de cada local desta visão, pronta para quem a pedir (a
     // detecção ou um `_handleEvent_N`). Local de visão *ancestral* é lido
     // pela cadeia de `parentView` (`unsafeCast<_ViewX2>((this.parentView!))
-    // .locals['$implicit']`), mecanismo ainda sem caso no corpus: fica fora
-    // do mapa e quem o lê recusa.
+    // .locals['$implicit']`, `getLocal` do `ViewNameResolver`, caso j125).
     dentro.classe_desta = espec.classe.clone();
     dentro.locais_proprios = espec.micro.locais.clone();
     dentro.ancestrais = espec.ancestrais.clone();
@@ -9205,7 +9220,8 @@ fn declaracao_de_local(
         let sem_import = || recusa(Motivo::Ligacao, "tipo do local de `*ngFor` sem import");
         let (r, arquivo) = ctx.tipos.ok_or_else(sem_import)?;
         let escopo = l.escopo.as_deref().unwrap_or(arquivo);
-        tipo_qualificado(&l.tipo, escopo, r, &ctx.asset, &[]).ok_or_else(sem_import)?
+        let cheio = instanciar_crus(&l.tipo, escopo, r).ok_or_else(sem_import)?;
+        tipo_qualificado(&cheio, escopo, r, &ctx.asset, &[]).ok_or_else(sem_import)?
     };
     Ok(format!(
         "final {d} = {util}.unsafeCast<{tipo}>({locals}[{chave}]);"
@@ -9547,6 +9563,46 @@ fn tipo_do_elemento(tipo: &str) -> Option<String> {
         }
     }
     (nivel == 0).then(|| dentro.trim().to_string())
+}
+
+/// O tipo que o analyzer dá a um nome de classe genérica escrito cru
+/// (`Grupo` em `List<Grupo>`): a instanciação pelos limites, que o
+/// `fromDartType` escreve com os argumentos (`Grupo<dynamic>`). Sem limite o
+/// argumento é `dynamic`; com limite ainda não há caso (`None`).
+fn instanciar_crus(texto: &str, escopo: &Path, r: &dyn Resolucao) -> Option<String> {
+    let mut saida = String::new();
+    let chars: Vec<char> = texto.trim().chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c.is_alphanumeric() || c == '_' || c == '$' {
+            let mut nome = String::new();
+            while i < chars.len()
+                && (chars[i].is_alphanumeric() || matches!(chars[i], '_' | '$' | '.'))
+            {
+                nome.push(chars[i]);
+                i += 1;
+            }
+            saida.push_str(&nome);
+            let seguido_de_args = chars[i..].iter().find(|c| !c.is_whitespace()) == Some(&'<');
+            if !seguido_de_args && !matches!(nome.as_str(), "dynamic" | "void" | "Function") {
+                if let Some(limites) = r.limites_de_tipo(escopo, &nome) {
+                    if !limites.is_empty() {
+                        if limites.iter().any(|&l| l) {
+                            return None;
+                        }
+                        saida.push('<');
+                        saida.push_str(&vec!["dynamic"; limites.len()].join(", "));
+                        saida.push('>');
+                    }
+                }
+            }
+            continue;
+        }
+        saida.push(c);
+        i += 1;
+    }
+    Some(saida)
 }
 
 /// O texto de um tipo com cada nome qualificado pelo import da biblioteca

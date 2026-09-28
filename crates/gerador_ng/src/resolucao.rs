@@ -70,6 +70,12 @@ pub trait Resolucao {
         false
     }
 
+    /// Os parâmetros de tipo da classe `tipo` (no escopo de `arquivo`): para
+    /// cada um, se tem limite escrito. `None` quando não se acha a classe.
+    fn limites_de_tipo(&self, _arquivo: &Path, _tipo: &str) -> Option<Vec<bool>> {
+        None
+    }
+
     /// O nome-base do tipo `tipo` (sem `?` e sem argumentos de tipo) não
     /// está declarado no escopo de `arquivo` — nem importado, nem no
     /// `dart:core`. Para o analyzer é um `InvalidType`, e o `_TypeResolver`
@@ -362,7 +368,13 @@ impl Resolucao for Resolvedor<'_> {
         membro: &str,
     ) -> Option<(String, PathBuf)> {
         let classe = self.classe(arquivo, tipo)?;
-        self.membro_da_classe(classe, membro)
+        let (_, args) = separar_argumentos(tipo.trim().trim_end_matches('?'));
+        self.membro_da_classe_com(classe, membro, Some(&args))
+    }
+
+    fn limites_de_tipo(&self, arquivo: &Path, tipo: &str) -> Option<Vec<bool>> {
+        let c = self.program.class(self.classe(arquivo, tipo)?);
+        Some(c.type_params.iter().map(|p| p.bound.is_some()).collect())
     }
 
     fn tem_setter(&self, arquivo: &Path, tipo: &str, membro: &str) -> bool {
@@ -579,7 +591,7 @@ impl<'a> Resolvedor<'a> {
     fn classe(&self, arquivo: &Path, tipo: &str) -> Option<ClassId> {
         let lib = self.biblioteca(arquivo)?;
         let biblioteca = self.program.library(lib);
-        let simples = tipo.trim_end_matches('?');
+        let simples = separar_argumentos(tipo.trim().trim_end_matches('?')).0;
         let (prefixo, simples) = match simples.split_once('.') {
             Some((p, t)) => (Some(p), t),
             None => (None, simples),
@@ -660,36 +672,215 @@ impl<'a> Resolvedor<'a> {
         self.membro_de_instancia(c.supertype_class?, sym, profundidade + 1)
     }
 
-    fn membro_da_classe(&self, classe: ClassId, membro: &str) -> Option<(String, PathBuf)> {
+    /// O tipo do membro `membro` de `classe` visto de um receptor com os
+    /// argumentos de tipo `args` (`Grupo<dynamic>` dá `["dynamic"]`; `Grupo`
+    /// cru, nenhum). O analyzer instancia o receptor e sobe pela hierarquia
+    /// substituindo os parâmetros de cada supertipo (`MenuItemGroup<T>` →
+    /// `LabeledList<T>` → `DelegatingList<T>`, onde mora o `single`), e o
+    /// `fromDartType` escreve o resultado. Aqui a troca é textual: um
+    /// argumento só é conhecido quando se escreve igual em qualquer escopo
+    /// (`dynamic` e os tipos do `dart:core`), e o tipo que precisa de um
+    /// desconhecido fica sem resposta. Sem `args` (receptor implícito, a
+    /// própria classe), tipo que cita parâmetro também fica sem resposta.
+    fn membro_da_classe_com(
+        &self,
+        classe: ClassId,
+        membro: &str,
+        args: Option<&[String]>,
+    ) -> Option<(String, PathBuf)> {
         let sym = self.interner.lookup(membro)?;
-        let (id, fid) = self.membro_de_instancia(classe, sym, 0)?;
+        let (id, fid, args_de_quem_declara) = match args {
+            None => {
+                let (id, fid) = self.membro_de_instancia(classe, sym, 0)?;
+                (id, fid, None)
+            }
+            Some(a) => {
+                let iniciais = self.instanciar(classe, a)?;
+                let (id, fid, v) = self.membro_com_argumentos(classe, iniciais, sym, 0)?;
+                (id, fid, Some(v))
+            }
+        };
         let c = self.program.class(id);
         let (tipo, escopo) = self.tipo_da_funcao(fid)?;
-        // Tipo que cita um parâmetro de tipo (`E first` de `List<E>`,
-        // `T m<T>()`): o analyzer o substitui pelo argumento do
-        // receptor; o texto não. Sem resposta, quem pergunta recusa.
-        let mut parametros: Vec<&str> = c
+        let proprios: Vec<&str> = c
             .type_params
             .iter()
             .map(|p| self.interner.resolve(p.name))
             .collect();
+        let mut do_metodo: Vec<&str> = Vec::new();
         if let dartforge_elements::model::FunctionRef::Function { unit, function } =
             self.program.function(fid).node
         {
             let f = self.program.unit(unit).ast.function(function);
-            parametros.extend(
+            do_metodo.extend(
                 f.type_params
                     .iter()
                     .map(|p| self.interner.resolve(p.name.sym)),
             );
         }
-        let cita = tipo
+        let palavras: Vec<&str> = tipo
             .split(|ch: char| !ch.is_alphanumeric() && ch != '_' && ch != '$')
-            .any(|t| parametros.contains(&t));
-        if cita {
+            .collect();
+        // Parâmetro do método: o analyzer o infere na chamada; aqui não.
+        if palavras.iter().any(|t| do_metodo.contains(t)) {
             return None;
         }
-        Some((tipo, escopo))
+        if !palavras.iter().any(|t| proprios.contains(t)) {
+            return Some((tipo, escopo));
+        }
+        let args = args_de_quem_declara?;
+        let troca: Vec<(&str, String)> = proprios
+            .iter()
+            .zip(&args)
+            .filter_map(|(n, a)| a.clone().map(|a| (*n, a)))
+            .collect();
+        // Um parâmetro citado cujo argumento não se conhece: sem resposta.
+        if palavras
+            .iter()
+            .any(|t| proprios.contains(t) && !troca.iter().any(|(n, _)| n == t))
+        {
+            return None;
+        }
+        Some((substituir_palavras(&tipo, &troca), escopo))
+    }
+
+    /// Os argumentos de `classe` a partir dos escritos no receptor: cada um
+    /// conhecido se se escreve igual em qualquer escopo; cru, a instanciação
+    /// pelos limites (sem limite, `dynamic`).
+    fn instanciar(&self, classe: ClassId, args: &[String]) -> Option<Vec<Option<String>>> {
+        let c = self.program.class(classe);
+        if args.is_empty() {
+            return Some(
+                c.type_params
+                    .iter()
+                    .map(|p| p.bound.is_none().then(|| "dynamic".to_string()))
+                    .collect(),
+            );
+        }
+        if args.len() != c.type_params.len() {
+            return None;
+        }
+        Some(
+            args.iter()
+                .map(|a| escrito_igual_em_todo_escopo(a).then(|| a.trim().to_string()))
+                .collect(),
+        )
+    }
+
+    /// Os argumentos de um supertipo escrito (`extends LabeledList<T>`),
+    /// com os parâmetros da classe de baixo trocados pelos argumentos dela.
+    fn argumentos_do_supertipo(
+        &self,
+        escrito: (
+            dartforge_elements::model::UnitId,
+            dartforge_frontend::ast::TypeId,
+        ),
+        superclasse: ClassId,
+        troca: &[(&str, Option<String>)],
+    ) -> Vec<Option<String>> {
+        let n = self.program.class(superclasse).type_params.len();
+        let u = self.program.unit(escrito.0);
+        let sp = u.ast.ty(escrito.1).span;
+        let Some(texto) = u.source.get(sp.start..sp.end) else {
+            return vec![None; n];
+        };
+        let (_, escritos) = separar_argumentos(texto.trim().trim_end_matches('?'));
+        if escritos.is_empty() {
+            return self
+                .instanciar(superclasse, &[])
+                .unwrap_or_else(|| vec![None; n]);
+        }
+        if escritos.len() != n {
+            return vec![None; n];
+        }
+        escritos
+            .iter()
+            .map(|a| {
+                let palavras: Vec<&str> = a
+                    .split(|ch: char| !ch.is_alphanumeric() && ch != '_' && ch != '$')
+                    .filter(|p| !p.is_empty())
+                    .collect();
+                let mut pares = Vec::new();
+                for p in &palavras {
+                    if let Some((n, v)) = troca.iter().find(|(n, _)| n == p) {
+                        pares.push((*n, v.clone()?));
+                    }
+                }
+                let novo = substituir_palavras(a, &pares);
+                escrito_igual_em_todo_escopo(&novo).then_some(novo)
+            })
+            .collect()
+    }
+
+    /// O membro `sym` visto de `classe` com os argumentos `args`, na ordem
+    /// de busca do Dart (a classe, os mixins do último ao primeiro, a
+    /// superclasse e, por fim, as interfaces — o `lookUpGetter2` do
+    /// analyzer também acha membro abstrato), com os argumentos da classe
+    /// que o declara.
+    #[allow(clippy::type_complexity)]
+    fn membro_com_argumentos(
+        &self,
+        classe: ClassId,
+        args: Vec<Option<String>>,
+        sym: dartforge_intern::SymbolId,
+        profundidade: u32,
+    ) -> Option<(
+        ClassId,
+        dartforge_elements::model::FunctionElementId,
+        Vec<Option<String>>,
+    )> {
+        if profundidade > 64 {
+            return None;
+        }
+        let c = self.program.class(classe);
+        if let Some(&fid) = c.instance_members.get(&sym) {
+            return Some((classe, fid, args));
+        }
+        let troca: Vec<(&str, Option<String>)> = c
+            .type_params
+            .iter()
+            .map(|p| self.interner.resolve(p.name))
+            .zip(args.iter().cloned())
+            .collect();
+        // Um supertipo escrito que não resolveu deixa as listas de tamanhos
+        // diferentes: sem o par, os argumentos ficam desconhecidos.
+        let pareados = |classes: &[ClassId], escritos: &[_]| -> Vec<(ClassId, Option<_>)> {
+            if classes.len() == escritos.len() {
+                classes
+                    .iter()
+                    .copied()
+                    .zip(escritos.iter().copied().map(Some))
+                    .collect()
+            } else {
+                classes.iter().map(|&k| (k, None)).collect()
+            }
+        };
+        let argumentos = |k: ClassId, escrito: Option<_>| match escrito {
+            Some(e) => self.argumentos_do_supertipo(e, k, &troca),
+            None => vec![None; self.program.class(k).type_params.len()],
+        };
+        for (m, escrito) in pareados(&c.mixin_classes, &c.mixins).into_iter().rev() {
+            let a = argumentos(m, escrito);
+            if let Some(achado) = self.membro_com_argumentos(m, a, sym, profundidade + 1) {
+                return Some(achado);
+            }
+        }
+        if let Some(sc) = c.supertype_class {
+            let a = match c.supertype {
+                Some(escrito) => self.argumentos_do_supertipo(escrito, sc, &troca),
+                None => Vec::new(),
+            };
+            if let Some(achado) = self.membro_com_argumentos(sc, a, sym, profundidade + 1) {
+                return Some(achado);
+            }
+        }
+        for (i, escrito) in pareados(&c.interface_classes, &c.interfaces) {
+            let a = argumentos(i, escrito);
+            if let Some(achado) = self.membro_com_argumentos(i, a, sym, profundidade + 1) {
+                return Some(achado);
+            }
+        }
+        None
     }
 
     /// O tipo que um acessor devolve: de um campo, o tipo escrito no campo;
@@ -792,4 +983,83 @@ mod testes {
             "asset:ngrouter/lib/src/router/router.dart"
         );
     }
+}
+
+/// `Grupo<A, B<C>>` em `("Grupo", ["A", "B<C>"])`; sem `<`, lista vazia.
+pub(crate) fn separar_argumentos(tipo: &str) -> (&str, Vec<String>) {
+    let Some(i) = tipo.find('<') else {
+        return (tipo, Vec::new());
+    };
+    let dentro = tipo[i + 1..]
+        .trim_end()
+        .strip_suffix('>')
+        .unwrap_or(&tipo[i + 1..]);
+    let mut args = Vec::new();
+    let mut nivel = 0i32;
+    let mut atual = String::new();
+    for ch in dentro.chars() {
+        match ch {
+            '<' | '(' => nivel += 1,
+            '>' | ')' => nivel -= 1,
+            ',' if nivel == 0 => {
+                args.push(atual.trim().to_string());
+                atual.clear();
+                continue;
+            }
+            _ => {}
+        }
+        atual.push(ch);
+    }
+    if !atual.trim().is_empty() {
+        args.push(atual.trim().to_string());
+    }
+    (tipo[..i].trim(), args)
+}
+
+/// Um argumento de tipo que se escreve igual em qualquer arquivo:
+/// `dynamic`, `void` e os tipos do `dart:core` sem prefixo (com `?` ou
+/// argumentos também assim).
+fn escrito_igual_em_todo_escopo(tipo: &str) -> bool {
+    let t = tipo.trim().trim_end_matches('?');
+    let (base, args) = separar_argumentos(t);
+    matches!(
+        base,
+        "dynamic"
+            | "void"
+            | "Object"
+            | "int"
+            | "double"
+            | "num"
+            | "String"
+            | "bool"
+            | "List"
+            | "Map"
+            | "Set"
+            | "Iterable"
+            | "Null"
+            | "Never"
+    ) && args.iter().all(|a| escrito_igual_em_todo_escopo(a))
+}
+
+/// Troca cada palavra de `texto` que é um dos nomes de `troca` pelo valor.
+fn substituir_palavras(texto: &str, troca: &[(&str, String)]) -> String {
+    let mut saida = String::with_capacity(texto.len());
+    let mut palavra = String::new();
+    let fechar = |palavra: &mut String, saida: &mut String| {
+        match troca.iter().find(|(n, _)| *n == palavra.as_str()) {
+            Some((_, v)) => saida.push_str(v),
+            None => saida.push_str(palavra),
+        }
+        palavra.clear();
+    };
+    for ch in texto.chars() {
+        if ch.is_alphanumeric() || ch == '_' || ch == '$' {
+            palavra.push(ch);
+        } else {
+            fechar(&mut palavra, &mut saida);
+            saida.push(ch);
+        }
+    }
+    fechar(&mut palavra, &mut saida);
+    saida
 }

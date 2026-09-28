@@ -178,15 +178,26 @@ casos que apareceram no ngcomponents.
   `xhtml`, `view_compiler_utils.dart:21-25`) e sai `updateAttributeNS`; fora
   da tabela, `null`, e o atributo sai sem namespace (`ir/model.dart:396`).
 
+## Locais de `*ngFor` em visões aninhadas e o tipo do `$implicit` — j125
+
+- **Leitura:** o `getLocal` do `ViewNameResolver` sobe pelas
+  `declarationElement.view` e lê
+  `unsafeCast<_ViewX1>((this.parentView!)).locals['\$implicit']`, com o
+  `unsafeCast<T>` do tipo do local (`view_name_resolver.dart:42-70`).
+- **Tipo:** o retorno do getter `single` no tipo da coleção
+  (`getIterableElementType`, `analyzed_class.dart:39-42`): o analyzer
+  instancia o receptor e substitui os parâmetros subindo pela hierarquia
+  (`MenuItemGroup<T>` → `LabeledList<T>` → `DelegatingList<T>`;
+  `ListBase<E>` → `ListMixin<E>`). Tipo cru é instanciado pelos limites e o
+  `fromDartType` escreve os argumentos (`J125Grupo<dynamic>`).
+- **Porte:** `Resolvedor::membro_da_classe_com`/`membro_com_argumentos`
+  (substituição textual, só com argumentos que se escrevem igual em qualquer
+  escopo), `instanciar_crus`. A coleta (`coletar_abaixo`) passou a estender os
+  `locais_proprios`, o que mostrou as causas reais dos pendentes que citavam
+  "local ancestral".
+
 ## Pendentes com regra já levantada
 
-- **Local de `*` ancestral / tipo do local de `*ngFor`:** o tipo do `$implicit`
-  é o `single` do tipo da coleção com os argumentos substituídos pela
-  hierarquia (`analyzed_class.dart:39-42`, `template_optimize.dart:17-94`),
-  escrito por `fromDartType(resolveBounds: false)` (parâmetro de tipo sem
-  import, `dynamic` sem cast). `<template ngFor>` também é tipado. A recusa
-  "ancestral lido" é efeito da coleta (`coletar_abaixo` não estende
-  `locais_proprios`).
 - **`@ContentChild` de filho com resultado em `*`:** cria
   `_query_<Sel>_<nó>_<i>_isDirty`, escreve a atualização no
   `if (!debugThrowIfChanged)` antes das consultas de visão e põe as linhas
