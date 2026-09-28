@@ -108,6 +108,17 @@ casos que apareceram no ngcomponents.
   seletor em elemento da própria visão; o nó registra cada diretiva sob a
   `chave_de_tipo`, antes dos `#ref`.
 
+## `hostAttributes` de diretiva, `exportAs` de componente, `class.x.y` — j118, j119
+
+- `_computeHostBindingImmutability` (`compile_metadata.dart:570-600`): o
+  `@HostBinding` em estático imutável fora de `class.x`/`style.x` é
+  `hostAttribute` e fica fora da `XNgCd` (sem consumir índice). Sem
+  `hostProperties`, não há `XNgCd`. Quem usa a diretiva ainda é recusado (a
+  mescla no elemento, `mergeHtmlAndDirectiveAttributes`, falta para diretivas).
+- `exportAs:` em `@Component` só decide a quem aponta o `#x="nome"`.
+- `class.x.y` (host e template): a classe é `parts[1]`, o resto some
+  (`template_parser.dart:100-102`).
+
 ## Pendentes com regra já levantada
 
 - **Local de `*` ancestral / tipo do local de `*ngFor`:** o tipo do `$implicit`

@@ -894,7 +894,6 @@ impl<'r, 'a> Leitor<'r, 'a> {
                         if estatico && !propria {
                             continue;
                         }
-                        d.hospedeiro_estatico |= estatico;
                         let membro_nome = match k {
                             ast::MemberKind::Field(l) => {
                                 l.variables.first().map(|v| self.nome(&v.name).to_string())
@@ -909,6 +908,24 @@ impl<'r, 'a> Leitor<'r, 'a> {
                             apelido.clone().unwrap_or_else(|| membro_nome.clone()),
                             membro_nome,
                         );
+                        // `_computeHostBindingImmutability`
+                        // (`compile_metadata.dart:570-600`): o estático
+                        // imutável fora de `class.x`/`style.x` é
+                        // `hostAttribute` — não entra na `XNgCd` de uma
+                        // diretiva; quem a usa o escreve no elemento
+                        // (`mergeHtmlAndDirectiveAttributes`, ainda recusado
+                        // lá). No componente fica na lista (caso j96).
+                        let imutavel =
+                            matches!(k, ast::MemberKind::Field(l) if l.final_ || l.const_);
+                        let de_classe_ou_estilo =
+                            ligacao.0.starts_with("class.") || ligacao.0.starts_with("style.");
+                        if estatico && imutavel && !de_classe_ou_estilo && !d.e_componente {
+                            let nome = ligacao.0.strip_prefix("attr.").unwrap_or(&ligacao.0);
+                            d.atributos_do_hospedeiro
+                                .push((nome.to_string(), ligacao.1.clone()));
+                            continue;
+                        }
+                        d.hospedeiro_estatico |= estatico;
                         match k {
                             ast::MemberKind::Field(_) => ligacoes_campo.push(ligacao),
                             ast::MemberKind::Method(f)

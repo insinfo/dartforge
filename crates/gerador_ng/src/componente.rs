@@ -784,6 +784,9 @@ fn tem_anotacao(
 /// das expressões (ver [`ler`]).
 const ARGUMENTOS_CONHECIDOS: &[&str] = &[
     "selector",
+    // Só decide a que classe um `#ref="nome"` de quem usa aponta
+    // (`identifierForReference`); lido em [`Componente::export_as`].
+    "exportAs",
     "template",
     "templateUrl",
     "styleUrls",

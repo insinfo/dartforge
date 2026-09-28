@@ -332,3 +332,5 @@ export 'src/j114_propriedade_do_esquema.dart';
 export 'src/j115_preserva_espacos.dart';
 export 'src/j116_pedido_do_conteudo.dart';
 export 'src/j117_view_child_diretiva.dart';
+export 'src/j118_atributos_de_diretiva.dart';
+export 'src/j119_export_as_e_classe_com_unidade.dart';

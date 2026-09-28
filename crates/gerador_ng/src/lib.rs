@@ -191,6 +191,14 @@ fn hospedeira(
                         ),
                     }
                 }
+                // Estático imutável fora de `class.x`/`style.x`: `hostAttribute`,
+                // que não entra na `XNgCd` (`_computeHostBindingImmutability`).
+                ast::MemberKind::Field(l)
+                    if l.static_
+                        && (l.final_ || l.const_)
+                        && !nome.as_deref().is_some_and(|n| {
+                            n.starts_with("class.") || n.starts_with("style.")
+                        }) => {}
                 ast::MemberKind::Field(l) if l.static_ => {
                     recusar("@HostBinding em campo estático".into(), &mut recusada)
                 }
@@ -198,10 +206,12 @@ fn hospedeira(
             }
         }
     }
-    if !alguma {
+    acessores.extend(campos);
+    // Sem `hostProperties` (só `hostAttributes`, ou nada) não há `XNgCd`
+    // (`requiresDirectiveChangeDetector`).
+    if !alguma || (acessores.is_empty() && recusada.is_none()) {
         return None;
     }
-    acessores.extend(campos);
     // O mapa do oficial é por nome de ligação: repetir o nome sobrescreve o
     // valor e mantém a posição do primeiro.
     let mut vistos = std::collections::HashSet::new();

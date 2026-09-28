@@ -246,6 +246,10 @@ pub struct Diretiva {
     /// `ligacoes_do_hospedeiro`): o oficial o escreve uma vez, no construtor
     /// da visão — no componente, pelo leitor dele (caso j96); aqui, sem caso.
     pub hospedeiro_estatico: bool,
+    /// `hostAttributes` de uma diretiva: `@HostBinding` em estático
+    /// imutável fora de `class.x`/`style.x` (nome sem `attr.`, membro). Fora
+    /// da `XNgCd`; quem usa a diretiva os escreve no elemento.
+    pub atributos_do_hospedeiro: Vec<(String, String)>,
     pub ganchos: Ganchos,
     /// Algum `@ViewChild(ren)` (uma diretiva não tem visão).
     pub consultas: bool,
@@ -295,6 +299,9 @@ impl Diretiva {
         }
         if self.hospedeiro_estatico {
             return Some("@HostBinding em membro estático".into());
+        }
+        if !self.atributos_do_hospedeiro.is_empty() {
+            return Some("hostAttributes de diretiva (mescla no elemento)".into());
         }
         if self.e_componente {
             return Some("componente como diretiva".into());

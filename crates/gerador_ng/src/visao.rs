@@ -3629,9 +3629,8 @@ impl Corpo<'_> {
                 let instancia = self.instancia_da_visao.as_deref().unwrap_or("this");
                 format!("{instancia}.{metodo}({alvo}, {valor})")
             } else if let Some(classe) = l.nome.strip_prefix("class.") {
-                if classe.contains('.') {
-                    return Err(recusa(Motivo::Ligacao, "[class.x.y]"));
-                }
+                // `[class.x.y]`: a classe é `x` (`parts[1]`), o resto some.
+                let classe = classe.split('.').next().unwrap_or(classe);
                 let metodo = if dom::tag_html(&self.tag_atual) {
                     "updateClassBinding"
                 } else {
@@ -10016,7 +10015,10 @@ pub(crate) fn forma_do_hospedeiro(nome: &str) -> Result<FormaDoHospedeiro, Strin
     let fora = || format!("@HostBinding('{nome}') fora de class.x, attr.x, style.x e propriedade");
     let partes: Vec<&str> = nome.split('.').collect();
     Ok(match partes.as_slice() {
-        ["class", x] if simples(x) => FormaDoHospedeiro::Classe(x.to_string()),
+        // `class.x.y`: só a segunda parte conta (`boundPropertyName =
+        // parts[1]`, `template_parser.dart:100-102`), o resto é ignorado
+        // (o `class.basic-icon.if` do `material_icon_toggle`).
+        ["class", x, ..] if simples(x) => FormaDoHospedeiro::Classe(x.to_string()),
         ["attr", x] if simples(x) => {
             FormaDoHospedeiro::Atributo(x.to_string(), saneador("div", propriedade_mapeada(x)))
         }
