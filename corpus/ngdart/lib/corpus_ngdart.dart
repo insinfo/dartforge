@@ -249,3 +249,4 @@ export 'src/j35_consulta_e_ligacao_na_raiz.dart';
 export 'src/j36_estilo_importa.dart';
 export 'src/j37_filho_sem_projecao.dart';
 export 'src/j38_preguicoso_e_texto.dart';
+export 'src/j39_ordem_dos_sujos.dart';

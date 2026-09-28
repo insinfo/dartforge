@@ -228,6 +228,7 @@ import 'package:corpus_ngdart/src/j35_consulta_e_ligacao_na_raiz.template.dart' 
 import 'package:corpus_ngdart/src/j36_estilo_importa.template.dart' as j36;
 import 'package:corpus_ngdart/src/j37_filho_sem_projecao.template.dart' as j37;
 import 'package:corpus_ngdart/src/j38_preguicoso_e_texto.template.dart' as j38;
+import 'package:corpus_ngdart/src/j39_ordem_dos_sujos.template.dart' as j39;
 
 void main() {
   print([
@@ -458,5 +459,6 @@ void main() {
     j36.J36EstiloImportaNgFactory,
     j37.J37FilhoSemProjecaoNgFactory,
     j38.J38PreguicosoETextoNgFactory,
+    j39.J39OrdemDosSujosNgFactory,
   ].length);
 }

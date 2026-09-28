@@ -391,7 +391,14 @@ interpolação projetados (`createText` do `dom_helpers`, `TextBinding.element`
 na lista) — caso j37; provedor preguiçoso numa visão com ligação de texto (o
 `ViewStorage` aloca o campo `late` ao construir a visão, antes de promover
 nós e ligações de texto, então ele abre a classe e o import dele vem antes
-do `text_binding.dart`) — caso j38. Corpus: 260 conferidos.
+do `text_binding.dart`) — caso j38; os campos `_viewQuery_*_isDirty` na
+ordem em que o `ViewBuilder` acha o primeiro resultado dinâmico de cada
+consulta (pré-ordem, `_setParentQueryAsDirty`), e `[attr.class]`/
+`[className]` como o `ClassBinding` do `[class]` (`updateChildClass`) —
+caso j39. Corpus: 261 conferidos. limitless_ui/example (Linux,
+`build --comparar`): **896 iguais / 54 pendentes / 0 diferentes** —
+`.template.dart` 480/52/0, `.css` e `.css.map` do Sass 102/102 cada,
+`.css.dart` e `.css.shim.dart` 104 cada.
 
 ### Diretivas estruturais
 

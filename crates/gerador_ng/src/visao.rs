@@ -1624,6 +1624,49 @@ fn casa_a_chave(
     }
 }
 
+/// Onde o `ViewBuilder` acha o primeiro resultado de `chave` dentro de um
+/// `*`: é aí que a consulta ganha o campo `_isDirty`
+/// (`_setParentQueryAsDirty`, alocado na primeira vez), e o `ViewStorage`
+/// escreve os campos na ordem de alocação. O `ViewBuilder` desce nas visões
+/// embutidas na hora (`visitEmbeddedTemplate`) e o resultado entra no
+/// `beforeChildren` do elemento: pré-ordem do template inteiro. No mesmo
+/// elemento, os provedores (consulta por tipo) vêm antes das referências,
+/// e as referências na ordem em que estão escritas. `None`: nenhum
+/// resultado dinâmico.
+fn primeiro_resultado_dinamico(
+    nos: &[No],
+    chave: &str,
+    filhos: &std::collections::HashMap<String, Filho>,
+) -> Option<(usize, usize)> {
+    fn andar(
+        nos: &[No],
+        chave: &str,
+        filhos: &std::collections::HashMap<String, Filho>,
+        dinamico: bool,
+        ordinal: &mut usize,
+    ) -> Option<(usize, usize)> {
+        for n in nos {
+            let No::Elemento(e) = n else { continue };
+            let aqui = *ordinal;
+            *ordinal += 1;
+            let dinamico = dinamico || e.estrela.is_some();
+            if dinamico && casa_a_chave(e, chave, filhos) {
+                let lugar = if chave.starts_with('\u{7}') {
+                    0
+                } else {
+                    1 + e.referencias.iter().position(|r| r.nome == chave).unwrap_or(0)
+                };
+                return Some((aqui, lugar));
+            }
+            if let Some(r) = andar(&e.filhos, chave, filhos, dinamico, ordinal) {
+                return Some(r);
+            }
+        }
+        None
+    }
+    andar(nos, chave, filhos, false, &mut 0)
+}
+
 /// A chave dos resultados de um `@ViewChild(Tipo)` entre os `#ref` vistos
 /// (`Corpo::refs_em_ordem`): não colide com nome de referência.
 fn chave_de_tipo(uri: &str, classe: &str) -> String {
@@ -3051,7 +3094,10 @@ impl Corpo<'_> {
         // A ação vai para o `detectChangesInternal`: o import é alocado
         // quando a detecção é escrita, não agora.
         let dom = tardio(DOM_HELPERS);
-        Ok(if l.nome == "class" {
+        // `[class]`, `[className]` e `[attr.class]` são o mesmo
+        // `ClassBinding` sem nome (`_propertyToIr` do `binding_converter`):
+        // o `updateChildClass`, que mantém as classes do escopo da folha.
+        Ok(if matches!(l.nome.as_str(), "class" | "className" | "attr.class") {
             format!("this.updateChildClass({alvo}, {valor})")
         } else if let Some(classe) = l.nome.strip_prefix("class.") {
             if classe.contains('.') {
@@ -8378,10 +8424,19 @@ fn gerar_componente(
             vista: false,
         })
         .collect();
-    // Os campos "sujos" abrem a classe, na ordem das consultas.
-    for d in &corpo.consultas_dinamicas {
-        corpo.campos.push(format!("  bool {} = true;", d.campo));
-    }
+    // Os campos "sujos" abrem a classe, na ordem em que o oficial os aloca
+    // ([`primeiro_resultado_dinamico`]; empate, a ordem das consultas).
+    let mut sujos: Vec<(Option<(usize, usize)>, usize, &str)> = corpo
+        .consultas_dinamicas
+        .iter()
+        .map(|d| (primeiro_resultado_dinamico(nos, &d.chave, filhos), d.indice, d.campo.as_str()))
+        .collect();
+    sujos.sort_by_key(|(posicao, indice, _)| (posicao.is_none(), *posicao, *indice));
+    let sujos: Vec<String> = sujos
+        .into_iter()
+        .map(|(_, _, campo)| format!("  bool {campo} = true;"))
+        .collect();
+    corpo.campos.extend(sujos);
     // Só mensagens com HTML: o `intl` é pedido pelo método, mais tarde.
     corpo.intl = intl.or_else(|| contem_anotacao(nos).then(String::new));
     corpo.tb = tb;
