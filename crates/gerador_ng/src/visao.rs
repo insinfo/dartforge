@@ -3317,6 +3317,12 @@ impl Local<'_> {
     /// `.css.shim.dart` (com shim) ou, com `ViewEncapsulation.none`, o
     /// `.css.dart` (`stylesModuleUrl(url, shim)` do ngcompiler).
     pub(crate) fn uri_do_estilo(&self, url: &str, shim: bool) -> Option<String> {
+        let sufixo = if shim { ".shim.dart" } else { ".dart" };
+        // URI `package:` escrita: já é a da folha (`button_decorator.scss.css`
+        // do `dropdown_button`).
+        if url.starts_with("package:") {
+            return Some(format!("{url}{sufixo}"));
+        }
         let dentro = self.relativo.strip_prefix("lib/")?;
         let dir = dentro.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
         let caminho = if dir.is_empty() {
@@ -3324,8 +3330,22 @@ impl Local<'_> {
         } else {
             format!("{dir}/{url}")
         };
-        let sufixo = if shim { ".shim.dart" } else { ".dart" };
-        Some(format!("package:{}/{caminho}{sufixo}", self.pacote))
+        // Resolvido como URI: `.` e `..` somem.
+        let mut partes: Vec<&str> = Vec::new();
+        for p in caminho.split('/') {
+            match p {
+                "." | "" => {}
+                ".." => {
+                    partes.pop()?;
+                }
+                _ => partes.push(p),
+            }
+        }
+        Some(format!(
+            "package:{}/{}{sufixo}",
+            self.pacote,
+            partes.join("/")
+        ))
     }
 
     /// URI `asset:` deste arquivo — o espaço em que o emissor oficial calcula

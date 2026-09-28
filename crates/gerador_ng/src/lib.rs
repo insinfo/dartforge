@@ -1777,10 +1777,16 @@ fn trecho_do_componente(
     // `StylesheetCompiler` do oficial): o template só importa o módulo
     // dela, e o conteúdo não o muda. Aqui só se confere que ela existe.
     for url in &comp.style_urls {
-        let css = fonte
-            .parent()
-            .ok_or_else(|| recusa(Motivo::Estilos, "folha fora de lib/"))?
-            .join(url);
+        // `package:este/x.css` é `lib/x.css`; a de outro pacote é saída da
+        // build dele, que o template só importa pelo URI.
+        let css = match url.strip_prefix("package:").and_then(|r| r.split_once('/')) {
+            Some((p, resto)) if p == pacote.nome => pacote.raiz.join("lib").join(resto),
+            Some(_) => continue,
+            None => fonte
+                .parent()
+                .ok_or_else(|| recusa(Motivo::Estilos, "folha fora de lib/"))?
+                .join(url),
+        };
         if texto_da_folha(pacote, &css).is_none() {
             return Err(recusa(Motivo::Estilos, "folha não encontrada"));
         }

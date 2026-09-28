@@ -1255,9 +1255,12 @@ fn parametros_do_construtor(
             continue; // construtor nomeado não é o que a visão usa
         }
         let campos = tipos_dos_campos(arvore, fonte, interner, classe);
+        // Parâmetro nomeado não entra na injeção
+        // (`_getCompileDiDependencyMetadata`, `compile_metadata.dart:298-302`).
         return ctor
             .parameters
             .iter()
+            .filter(|p| !matches!(p.kind, ast::ParameterKind::Named))
             .map(|p| {
                 let nome = p
                     .name
