@@ -3409,6 +3409,9 @@ struct Corpo<'a> {
     /// A tag do elemento cujas ligações estão sendo escritas: o contexto de
     /// segurança de uma propriedade depende dela ([`saneador`]).
     tag_atual: String,
+    /// O prefixo de namespace herdado (`svg`, `math`): o `_NamespaceVisitor`
+    /// passa o do pai aos descendentes (`ast_template_parser.dart:1331-1352`).
+    ns_atual: Option<String>,
     /// O `appViewInstance` do nó cujas ligações se escrevem: `this`, ou a
     /// visão do componente no elemento dele (`this._compView_n`, o
     /// `[class]` do elemento de um filho, caso j74).
@@ -3827,6 +3830,23 @@ impl Corpo<'_> {
                 .push((posicao, format!("  bool {campo} = true;")));
             self.atualizacoes_de_conteudo.push(atualizacao);
         }
+    }
+
+    /// O namespace do elemento e o nome sem prefixo: `ns:tag` escrito, o
+    /// implícito da tag (`svg`, `math`, `html_tags.dart`) ou o herdado.
+    fn namespace_de(&self, e: &crate::html::Elemento) -> Option<(String, String)> {
+        if let Some((ns, nome)) = e.nome.split_once(':') {
+            return Some((ns.to_string(), nome.to_string()));
+        }
+        let implicito = match e.nome.to_ascii_lowercase().as_str() {
+            "svg" => Some("svg"),
+            "math" => Some("math"),
+            _ => None,
+        };
+        implicito
+            .map(str::to_string)
+            .or_else(|| self.ns_atual.clone())
+            .map(|ns| (ns, e.nome.clone()))
     }
 
     fn classe_desta_visao(&self) -> String {
@@ -6854,6 +6874,7 @@ impl Corpo<'_> {
         self.embutidas.push(EspecEmbutida {
             indice,
             estrela,
+            ns: self.ns_atual.clone(),
             proxima_projecao,
             refs_consultados,
             sujas,
@@ -7484,6 +7505,7 @@ impl Corpo<'_> {
                 // um elemento tipado `Element` (`identifierFromTagName`).
                 if !dom::tag_html(&e.nome)
                     && e.nome != "ng-container"
+                    && self.namespace_de(e).is_none()
                     && diretivas_casadas(self.usadas, e).is_empty()
                 {
                     return Err(recusa(
@@ -7690,11 +7712,52 @@ impl Corpo<'_> {
                 .push(format!("    final doc = {html}.document;"));
         }
         let dom = self.dom();
-        let tag = e.nome.to_ascii_lowercase();
+        // Com namespace, o nome vira `@ns:tag` (`mergeNsAndName`): não é
+        // HTML (`Element`, as variantes `NonHtml`) e sai com
+        // `createElementNS` e o `append` à parte (`createElementNs`,
+        // `_initializeAndAppendNode`).
+        let namespace = self.namespace_de(e);
+        if let Some((ns, _)) = &namespace {
+            if !casadas.is_empty() || self.filhos.contains_key(&e.nome) {
+                return Err(recusa(
+                    Motivo::ComponenteNoTemplate,
+                    "diretiva em elemento com namespace",
+                ));
+            }
+            if e.atributos.iter().any(|a| a.nome.contains(':')) {
+                return Err(recusa(
+                    Motivo::Ligacao,
+                    "atributo com namespace em elemento SVG",
+                ));
+            }
+            if propriedades.iter().any(|l| {
+                !["attr.", "class.", "style."]
+                    .iter()
+                    .any(|p| l.nome.starts_with(p))
+            }) {
+                return Err(recusa(
+                    Motivo::Ligacao,
+                    "[propriedade] em elemento com namespace",
+                ));
+            }
+            let _ = ns;
+        }
+        let tag = match &namespace {
+            Some((ns, nome)) => format!("@{ns}:{nome}"),
+            None => e.nome.to_ascii_lowercase(),
+        };
+        let uri_do_ns = namespace.as_ref().map(|(ns, _)| match ns.as_str() {
+            "xlink" => "'http://www.w3.org/1999/xlink'".to_string(),
+            "svg" => "'http://www.w3.org/2000/svg'".to_string(),
+            "xhtml" => "'http://www.w3.org/1999/xhtml'".to_string(),
+            _ => "null".to_string(),
+        });
         // Nó projetado não tem pai: o oficial cria solto, com
         // `document.createElement`, e entrega ao filho
         // (`_createElementAndAppend`, com `parent == null`).
-        let criacao = if pai.is_empty() {
+        let criacao = if let (Some((_, nome)), Some(uri)) = (&namespace, &uri_do_ns) {
+            format!("doc.createElementNS({uri}, '{nome}')")
+        } else if pai.is_empty() {
             let util = self.imp.alias(UTILITIES);
             format!("{util}.unsafeCast(doc.createElement('{tag}'))")
         } else {
@@ -7711,7 +7774,11 @@ impl Corpo<'_> {
         // Elemento com ligação de propriedade vira campo da
         // visão: o `detectChangesInternal` precisa dele depois do
         // `build()`. Evento sozinho não exige campo.
-        let tipo = dom::tipo_da_tag(&tag);
+        let tipo = if namespace.is_some() {
+            "Element"
+        } else {
+            dom::tipo_da_tag(&tag)
+        };
         // O `#ref` que só consultas com `read:` de provedor procuram não
         // lê o nó.
         let consulta_o_no = |nome: &String| {
@@ -7769,6 +7836,9 @@ impl Corpo<'_> {
             self.linhas.push(format!("    this._el_{n} = {criacao};"));
             format!("this._el_{n}")
         };
+        if namespace.is_some() && !pai.is_empty() {
+            self.linhas.push(format!("    {pai}.append({alvo});"));
+        }
         // Com `ViewContainer` (diretiva que injeta `ViewContainerRef`), a
         // raiz é ele (`vcAppEl ?? renderNode`, caso j49).
         let container = resolvido.as_ref().is_some_and(|r| r.container);
@@ -8023,7 +8093,16 @@ impl Corpo<'_> {
         self.pilha.push((n, resolvido.is_some()));
         let r = match &i18n_filhos {
             Some(m) => self.filhos_i18n(e, m, &alvo),
-            None => self.nos(&e.filhos, &alvo),
+            None => {
+                // Os descendentes herdam o namespace.
+                let salvo = std::mem::replace(
+                    &mut self.ns_atual,
+                    namespace.as_ref().map(|(ns, _)| ns.clone()),
+                );
+                let r = self.nos(&e.filhos, &alvo);
+                self.ns_atual = salvo;
+                r
+            }
         };
         self.pilha.pop();
         self.acima.truncate(antes_acima);
@@ -9260,6 +9339,8 @@ struct EspecEmbutida {
     indice: u32,
     /// O início da estrela que a cria (chave de [`Contexto::sujas_de_conteudo`]).
     estrela: Option<usize>,
+    /// O namespace herdado ([`Corpo::ns_atual`]).
+    ns: Option<String>,
     /// Quantas `parentView` até a visão do componente.
     profundidade: u32,
     /// Ver [`Corpo::nivel_do_topo`] (em `EspecEmbutida`).
@@ -9421,6 +9502,7 @@ impl<'a> Contexto<'a> {
             intl: None,
             mensagens: Vec::new(),
             tag_atual: String::new(),
+            ns_atual: None,
             instancia_da_visao: None,
             vista_do_hospedeiro: None,
             campos_preguicosos: Vec::new(),
@@ -9628,6 +9710,7 @@ fn corpo_da_embutida(
     dentro.ancestrais = espec.ancestrais.clone();
     dentro.acima = espec.acima.clone();
     dentro.preguicosos_acima = espec.preguicosos_acima.clone();
+    dentro.ns_atual = espec.ns.clone();
     dentro.preguicosos_com_pedidos = espec.preguicosos_com_pedidos.clone();
     dentro.componentes_acima = espec.componentes_acima;
     dentro.incertos_acima = espec.incertos_acima;

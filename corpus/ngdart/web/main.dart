@@ -315,6 +315,7 @@ import 'package:corpus_ngdart/src/j129_campo_inferido.template.dart' as j129;
 import 'package:corpus_ngdart/src/j130_pedido_atraves_de_template.template.dart' as j130;
 import 'package:corpus_ngdart/src/j131_projetado_e_pedidos.template.dart' as j131;
 import 'package:corpus_ngdart/src/j132_consulta_de_visao_por_token.template.dart' as j132;
+import 'package:corpus_ngdart/src/j133_svg.template.dart' as j133;
 
 void main() {
   print([
@@ -637,5 +638,6 @@ void main() {
     j130.J130UsaNgFactory,
     j131.J131UsaNgFactory,
     j132.J132UsaNgFactory,
+    j133.J133UsaNgFactory,
   ].length);
 }
