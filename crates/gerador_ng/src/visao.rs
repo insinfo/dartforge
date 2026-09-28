@@ -1469,6 +1469,17 @@ struct ConsultaDinamica {
 fn template_como_container(nos: &[No]) -> Vec<No> {
     nos.iter()
         .map(|n| match n {
+            No::Elemento(e)
+                if e.estrela.as_ref().is_some_and(|l| {
+                    l.nome != MARCA_DE_MOLDE && Estrutural::conhecida(&l.nome).is_none()
+                }) =>
+            {
+                // `*dir` de outra diretiva: o `<template>` que a
+                // microssintaxe produz, com o elemento dentro, pelo caminho
+                // do `<template>` escrito.
+                template_como_container(std::slice::from_ref(&No::Elemento(template_da_estrela(e))))
+                    .remove(0)
+            }
             No::Elemento(e) => {
                 let mut e = e.clone();
                 e.filhos = template_como_container(&e.filhos);
@@ -1531,6 +1542,52 @@ fn template_como_container(nos: &[No]) -> Vec<No> {
             outro => outro.clone(),
         })
         .collect()
+}
+
+/// O `<template>` de um `*dir="..."` (`micro/parser.dart` do ngast):
+/// `[dir]="expr"` e `[dirChave]="expr"` para as ligações, `let-x="chave"`
+/// para os locais, e o atributo `dir` vazio quando a primeira ligação não é
+/// a da própria diretiva (`*dir` sozinho, `*dir="let x of xs"`). Toda ligação
+/// tem o intervalo do atributo `*dir` inteiro, que é o do `REF` (caso j94).
+/// O elemento vai dentro, sem a estrela; o `<template>` começa onde a
+/// estrela começa (a âncora dele nas consultas).
+fn template_da_estrela(e: &crate::html::Elemento) -> crate::html::Elemento {
+    let estrela = e.estrela.clone().unwrap_or_default();
+    let micro = e.micro_da_estrela().unwrap_or_default();
+    let ligacao = |nome: &str, valor: &str| crate::html::Ligacao {
+        nome: nome.to_string(),
+        valor: valor.to_string(),
+        inicio: estrela.inicio,
+        fim: estrela.fim,
+    };
+    let mut t = crate::html::Elemento {
+        nome: "template".into(),
+        inicio: estrela.inicio,
+        ..Default::default()
+    };
+    if micro
+        .propriedades
+        .first()
+        .is_none_or(|(p, _)| *p != estrela.nome)
+    {
+        t.atributos.push(ligacao(&estrela.nome, ""));
+    }
+    for (nome, chave) in &micro.locais {
+        let valor = if chave == "$implicit" {
+            ""
+        } else {
+            chave.as_str()
+        };
+        t.atributos.push(ligacao(&format!("let-{nome}"), valor));
+    }
+    for (nome, expr) in &micro.propriedades {
+        t.propriedades.push(ligacao(nome, expr));
+    }
+    let mut dentro = e.clone();
+    dentro.estrela = None;
+    dentro.micro_do_molde = None;
+    t.filhos = vec![No::Elemento(dentro)];
+    t
 }
 
 /// `<template dir let-x let-y="chave" [dirA]="a" [dirB]="b">` escrito à
@@ -7698,7 +7755,10 @@ fn liga_no_elemento(
 /// Atributo escrito sem valor (`<input required>`): o intervalo dele é só o
 /// nome.
 fn sem_valor(a: &crate::html::Ligacao) -> bool {
-    a.valor.is_empty() && a.fim - a.inicio == a.nome.encode_utf16().count()
+    // O intervalo é o do nome sozinho (`x`), ou o do `*x` que o
+    // [`template_da_estrela`] desfaz (um a mais, o `*`); `x=""` é mais longo.
+    let n = a.nome.encode_utf16().count();
+    a.valor.is_empty() && (a.fim - a.inicio == n || a.fim - a.inicio == n + 1)
 }
 
 /// O `injectorGetInternal` de uma visão (`writeInjectorGetMethod`,

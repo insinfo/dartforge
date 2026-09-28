@@ -48,7 +48,7 @@ pub enum No {
 }
 
 /// Uma ligação escrita no elemento.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Ligacao {
     /// `hidden` em `[hidden]`, `click` em `(click)`.
     pub nome: String,

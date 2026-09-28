@@ -584,8 +584,12 @@ a diretiva com `@HostBinding` chama `detectHostChanges` com a visão do
 filho (`this._compView_n`, o nó como campo) — caso j92. Os
 `@HostListener` de diretiva no elemento de um filho saem como no elemento
 comum: os eventos do template com o do mesmo evento no handler deles
-(`mergeEvents`), depois os agrupados das diretivas — caso j93. Corpus:
-**326 conferidos, 0 pendentes**.
+(`mergeEvents`), depois os agrupados das diretivas — caso j93. `*dir` de
+diretiva estrutural própria (a `deferredContent` do ngcomponents) é
+desfeito no `<template>` da microssintaxe (`[dir]`, `[dirChave]`,
+`let-x`, e o atributo `dir` vazio quando a primeira ligação não é a dela,
+com o intervalo do `*dir` inteiro em cada `REF`) e segue o caminho do
+`<template>` escrito — caso j94. Corpus: **327 conferidos, 0 pendentes**.
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada
 pendente com o motivo): **950 iguais / 0 pendentes / 0 diferentes** —
 `.template.dart` **532/0/0**, os 2 `.i18n.dart` (gerador nativo do
