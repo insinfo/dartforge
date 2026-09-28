@@ -386,6 +386,11 @@ pub struct ProvedorAcima {
     /// `afterElement` do dono (`provider_parser.dart:318-366`), o que muda o
     /// índice e a forma dele lá — ainda não modelado (lacuna L1).
     pub preguicoso: bool,
+    /// Visto de outra visão (atravessou `<template>`): o `_getDependency`
+    /// pede com `eager: false` (`_isViewRoot`), o provedor segue preguiçoso
+    /// e é lido pelo campo — quando o dono modelou esse pedido
+    /// ([`resolver_no_do_filho`]).
+    pub leitura_preguicosa: bool,
 }
 
 /// O que há acima do nó para as dependências que ele não satisfaz.
@@ -618,7 +623,7 @@ pub fn resolver_no_do_filho(
     n: u32,
     acima: Option<Acima>,
     container: bool,
-    pedidos: &[Token],
+    pedidos: &[(Token, bool)],
 ) -> Result<NoResolvido, &'static str> {
     resolver_com(
         casadas,
@@ -655,7 +660,7 @@ fn resolver_com(
     container: bool,
     molde: Option<(&str, u32)>,
     consultados: &[Token],
-    pedidos: &[Token],
+    pedidos: &[(Token, bool)],
 ) -> Result<NoResolvido, &'static str> {
     let completa = |k: usize| hospedeira || componente == Some(k);
     // `requiresViewContainer`: com `ViewContainer` o nó ganha três embutidos
@@ -783,15 +788,22 @@ fn resolver_com(
             criar(&todos, i, &mut ordem, &mut vistos, hospedeira)?;
         }
     }
+    // Os ansiosos até aqui; os pedidos seguintes marcam os que criam.
+    let mut ansiosos_idx: Vec<usize> = ordem.clone();
     // Os pedidos dos nós de baixo, na visita deles (antes do `afterElement`
-    // deste): cada um transformado ansioso, com as dependências antes
-    // (`_getLocalDependency` com o `eager` de quem pede).
-    for t in pedidos {
+    // deste): cada um transformado na hora, com as dependências antes
+    // (`_getLocalDependency` com o `eager` de quem pede); o que atravessou
+    // `<template>` pede com `eager: false` e fica preguiçoso, mas na posição
+    // da visita. Já transformado, fica como está.
+    for (t, ansioso) in pedidos {
         if let Some(i) = todos.iter().position(|r| r.token == *t) {
+            let antes = ordem.len();
             criar(&todos, i, &mut ordem, &mut vistos, hospedeira)?;
+            if *ansioso {
+                ansiosos_idx.extend_from_slice(&ordem[antes..]);
+            }
         }
     }
-    let ansiosos = ordem.len();
     // `afterElement`: o que sobrou (os apelidos, em geral).
     for i in 0..todos.len() {
         criar(&todos, i, &mut ordem, &mut vistos, hospedeira)?;
@@ -813,7 +825,8 @@ fn resolver_com(
     };
     for (posicao, &i) in ordem.iter().enumerate() {
         let r = &todos[i];
-        let preguicosa = posicao >= ansiosos;
+        let _ = posicao;
+        let preguicosa = !ansiosos_idx.contains(&i);
         if let (false, [Fonte::Existente(alvo)]) = (r.multi, r.fontes.as_slice())
             && let Some(real) = campos
                 .iter()
@@ -1067,7 +1080,7 @@ fn fora_do_no(dep: &Dependencia, acima: Option<Acima>) -> Result<Argumento, &'st
     if !dep.proprio
         && let Some(p) = acima.provedores.iter().find(|p| p.token == dep.token)
     {
-        if p.preguicoso {
+        if p.preguicoso && !p.leitura_preguicosa {
             return Err("provedor preguiçoso de um elemento acima pedido abaixo (L1)");
         }
         return Ok(Argumento::Acima(p.leitura.clone()));
@@ -1333,6 +1346,7 @@ mod testes {
             token: classe("s", "Grupo"),
             leitura: "this._Grupo_0_5".into(),
             preguicoso: false,
+            leitura_preguicosa: false,
         }];
         let r = resolver(
             &[dir],

@@ -312,6 +312,8 @@ import 'package:corpus_ngdart/src/j125_local_ancestral.template.dart' as j125;
 import 'package:corpus_ngdart/src/j126_tipos_de_diretiva.template.dart' as j126;
 import 'package:corpus_ngdart/src/j128_conteudo_dinamico.template.dart' as j128;
 import 'package:corpus_ngdart/src/j129_campo_inferido.template.dart' as j129;
+import 'package:corpus_ngdart/src/j130_pedido_atraves_de_template.template.dart' as j130;
+import 'package:corpus_ngdart/src/j131_projetado_e_pedidos.template.dart' as j131;
 
 void main() {
   print([
@@ -631,5 +633,7 @@ void main() {
     j126.J126UsaNgFactory,
     j128.J128UsaNgFactory,
     j129.J129UsaNgFactory,
+    j130.J130UsaNgFactory,
+    j131.J131UsaNgFactory,
   ].length);
 }

@@ -1289,7 +1289,9 @@ fn consulta_em_embutida(
                     || token_de_leitura(consulta, local, resolvedor).is_some())
         }
         Lugar::Raiz => elemento && !consulta.por_tipo,
-        Lugar::NoFilho => !leitura && !elemento,
+        // O filho no conteúdo projetado noutro também é criado nesta visão
+        // (a instância, como a do filho no próprio nó).
+        Lugar::NoFilho | Lugar::NoFilhoProjetado => !leitura && !elemento,
         _ => false,
     };
     fn valida(itens: &[ItemDeConsulta], terminal: &dyn Fn(Lugar) -> bool) -> bool {
@@ -3370,6 +3372,9 @@ struct Corpo<'a> {
     /// dono (campo, classe da visão dele): um nó abaixo que os pede os
     /// transformaria antes do `afterElement` do dono (lacuna L1 da seção 05).
     preguicosos_acima: std::collections::HashSet<(String, String)>,
+    /// Os deles cujo dono modelou os pedidos do conteúdo (nó de filho): de
+    /// outra visão, lidos pelo campo preguiçoso.
+    preguicosos_com_pedidos: std::collections::HashSet<(String, String)>,
     /// Quantos elementos de componente há acima (provedores que o emissor
     /// não modela).
     componentes_acima: u32,
@@ -3766,6 +3771,12 @@ impl Corpo<'_> {
                         Some((classe, _)) => classe.clone(),
                     },
                 )),
+                leitura_preguicosa: match v {
+                    None => false,
+                    Some((classe, _)) => self
+                        .preguicosos_com_pedidos
+                        .contains(&(campo.clone(), classe.clone())),
+                },
                 token: t.clone(),
                 leitura: match v {
                     None => format!("this.{campo}"),
@@ -5072,6 +5083,8 @@ impl Corpo<'_> {
                 // provedor local pelo token dele (caso j41).
                 if i.preguicosa {
                     self.preguicosos_acima
+                        .insert((i.leitura.clone(), self.classe_desta_visao()));
+                    self.preguicosos_com_pedidos
                         .insert((i.leitura.clone(), self.classe_desta_visao()));
                 }
                 if i.injetavel_por.is_empty() {
@@ -6730,7 +6743,9 @@ impl Corpo<'_> {
             }
             let mut l = Vec::new();
             onde_esta(&nos, &r, self.filhos, false, &mut l);
-            if l.iter().any(|x| matches!(x, Lugar::Raiz | Lugar::NoFilho)) {
+            if l.iter()
+                .any(|x| matches!(x, Lugar::Raiz | Lugar::NoFilho | Lugar::NoFilhoProjetado))
+            {
                 refs_consultados.push((r.clone(), campo.clone(), niveis));
             }
             if l.contains(&Lugar::Embutida) {
@@ -6785,6 +6800,7 @@ impl Corpo<'_> {
                 })
                 .collect(),
             preguicosos_acima: self.preguicosos_acima.clone(),
+            preguicosos_com_pedidos: self.preguicosos_com_pedidos.clone(),
             componentes_acima: self.componentes_acima,
             incertos_acima: self.incertos_acima,
         });
@@ -8548,13 +8564,13 @@ fn pedidos_ao_no_do_filho(
     casadas: &[std::sync::Arc<crate::diretivas::Diretiva>],
     filhos: &std::collections::HashMap<String, Filho>,
     usadas: &[Usada],
-) -> Result<Vec<crate::diretivas::Token>, Recusa> {
+) -> Result<Vec<(crate::diretivas::Token, bool)>, Recusa> {
     let tokens: Vec<crate::diretivas::Token> = casadas
         .iter()
         .flat_map(|d| d.provedores.iter().map(|p| p.token.clone()))
         .collect();
     let mut pedidos = Vec::new();
-    pedidos_do_conteudo(&e.filhos, filhos, usadas, &tokens, &mut pedidos)?;
+    pedidos_do_conteudo(&e.filhos, filhos, usadas, &tokens, true, &mut pedidos)?;
     Ok(pedidos)
 }
 
@@ -8572,12 +8588,54 @@ fn pedidos_do_conteudo(
     filhos: &std::collections::HashMap<String, Filho>,
     usadas: &[Usada],
     tokens: &[crate::diretivas::Token],
-    saida: &mut Vec<crate::diretivas::Token>,
+    ansioso: bool,
+    saida: &mut Vec<(crate::diretivas::Token, bool)>,
 ) -> Result<(), Recusa> {
     use crate::diretivas::Token;
     for n in nos {
         let No::Elemento(e) = n else { continue };
-        if e.estrela.is_some() {
+        // O `*` leva o nó para a visão embutida: o pedido que sai de lá
+        // atravessa a raiz dela (`_isViewRoot`) e é preguiçoso. O
+        // `<template>` escrito fica aqui; só o conteúdo atravessa.
+        if let Some(estrela) = &e.estrela {
+            let mut sem = e.clone();
+            sem.estrela = None;
+            if estrela.nome == MARCA_DE_MOLDE {
+                // As diretivas do `<template>` pedem daqui; o conteúdo, de
+                // dentro da embutida, com o que elas proveem já atendido.
+                let mut so_o_no = sem.clone();
+                so_o_no.filhos.clear();
+                pedidos_do_conteudo(
+                    std::slice::from_ref(&No::Elemento(so_o_no)),
+                    filhos,
+                    usadas,
+                    tokens,
+                    ansioso,
+                    saida,
+                )?;
+                let proprios: Vec<Token> = diretivas_casadas(usadas, &sem)
+                    .iter()
+                    .flat_map(|d| {
+                        std::iter::once(d.token())
+                            .chain(d.provedores.iter().map(|p| p.token.clone()))
+                    })
+                    .collect();
+                let abaixo: Vec<Token> = tokens
+                    .iter()
+                    .filter(|t| !proprios.contains(t))
+                    .cloned()
+                    .collect();
+                pedidos_do_conteudo(&e.filhos, filhos, usadas, &abaixo, false, saida)?;
+            } else {
+                pedidos_do_conteudo(
+                    std::slice::from_ref(&No::Elemento(sem)),
+                    filhos,
+                    usadas,
+                    tokens,
+                    false,
+                    saida,
+                )?;
+            }
             continue;
         }
         let filho = filhos.get(&e.nome);
@@ -8620,15 +8678,30 @@ fn pedidos_do_conteudo(
                 deste_no.push(t);
             }
         }
-        if deste_no.iter().filter(|t| !saida.contains(t)).count() > 1 {
-            return Err(recusa(
-                Motivo::Ligacao,
-                "nó do conteúdo pedindo vários provedores preguiçosos do filho",
-            ));
+        let ja = |t: &Token, saida: &Vec<(Token, bool)>| saida.iter().any(|(x, _)| x == t);
+        // Vários tokens: a ordem é a da criação dos provedores deste nó (cada
+        // um pede as dependências em ordem, `_getOrCreateLocalProvider`).
+        if deste_no.iter().filter(|t| !ja(t, saida)).count() > 1 {
+            let Some(ordem) = ordem_dos_pedidos_do_no(e, filho, &casadas, usadas) else {
+                return Err(recusa(
+                    Motivo::Ligacao,
+                    "nó do conteúdo pedindo vários provedores preguiçosos do filho",
+                ));
+            };
+            let mut ordenados: Vec<Token> =
+                ordem.into_iter().filter(|t| deste_no.contains(t)).collect();
+            ordenados.dedup();
+            if ordenados.len() != deste_no.len() {
+                return Err(recusa(
+                    Motivo::Ligacao,
+                    "nó do conteúdo pedindo vários provedores preguiçosos do filho",
+                ));
+            }
+            deste_no = ordenados;
         }
         for t in deste_no {
-            if !saida.contains(&t) {
-                saida.push(t);
+            if !ja(&t, saida) {
+                saida.push((t, ansioso));
             }
         }
         let abaixo: Vec<Token> = tokens
@@ -8636,9 +8709,48 @@ fn pedidos_do_conteudo(
             .filter(|t| !proprios.contains(t))
             .cloned()
             .collect();
-        pedidos_do_conteudo(&e.filhos, filhos, usadas, &abaixo, saida)?;
+        pedidos_do_conteudo(&e.filhos, filhos, usadas, &abaixo, ansioso, saida)?;
     }
     Ok(())
+}
+
+/// Os tokens que os provedores de um nó do conteúdo pedem, na ordem em que
+/// o `ProviderElementContext` dele os cria (cada diretiva ansiosa depois das
+/// dependências, e as dependências dela em ordem). `None` quando o nó não se
+/// resolve ou tem provedor que não é diretiva.
+fn ordem_dos_pedidos_do_no(
+    e: &crate::html::Elemento,
+    filho: Option<&Filho>,
+    casadas: &[std::sync::Arc<crate::diretivas::Diretiva>],
+    usadas: &[Usada],
+) -> Option<Vec<crate::diretivas::Token>> {
+    use crate::diretivas::Criacao;
+    let _ = e;
+    let r = match filho {
+        Some(f) => {
+            let meta = f.metadados.as_ref()?;
+            let (indice, cas) = casadas_do_no_do_filho(meta, casadas, usadas);
+            let container = f
+                .parametros
+                .iter()
+                .any(|p| matches!(p, Injetado::Container))
+                || casadas.iter().any(|d| crate::diretivas::pede_container(d));
+            crate::diretivas::resolver_no_do_filho(&cas, indice, 0, None, container, &[]).ok()?
+        }
+        None => crate::diretivas::resolver(casadas, 0, None).ok()?,
+    };
+    let mut saida = Vec::new();
+    for i in &r.instancias {
+        match &i.criacao {
+            Criacao::Diretiva { diretiva, .. } => {
+                saida.extend(diretiva.dependencias.iter().map(|d| d.token.clone()));
+            }
+            // O preguiçoso só pede no `afterElement`, depois do conteúdo.
+            _ if i.preguicosa => {}
+            _ => return None,
+        }
+    }
+    Some(saida)
 }
 
 /// Algum `@Input` das diretivas tem este nome?
@@ -9079,6 +9191,9 @@ struct EspecEmbutida {
     /// dono (campo, classe da visão dele): um nó abaixo que os pede os
     /// transformaria antes do `afterElement` do dono (lacuna L1 da seção 05).
     preguicosos_acima: std::collections::HashSet<(String, String)>,
+    /// Os deles cujo dono modelou os pedidos do conteúdo (nó de filho): de
+    /// outra visão, lidos pelo campo preguiçoso.
+    preguicosos_com_pedidos: std::collections::HashSet<(String, String)>,
     componentes_acima: u32,
     incertos_acima: u32,
     /// O índice do primeiro `<ng-content>` da embutida no template.
@@ -9247,6 +9362,7 @@ impl<'a> Contexto<'a> {
             ancestrais: Default::default(),
             acima: Vec::new(),
             preguicosos_acima: Default::default(),
+            preguicosos_com_pedidos: Default::default(),
             componentes_acima: 0,
             incertos_acima: 0,
             filhos: self.filhos,
@@ -9413,6 +9529,7 @@ fn corpo_da_embutida(
     dentro.ancestrais = espec.ancestrais.clone();
     dentro.acima = espec.acima.clone();
     dentro.preguicosos_acima = espec.preguicosos_acima.clone();
+    dentro.preguicosos_com_pedidos = espec.preguicosos_com_pedidos.clone();
     dentro.componentes_acima = espec.componentes_acima;
     dentro.incertos_acima = espec.incertos_acima;
     dentro.proxima_projecao = espec.proxima_projecao;

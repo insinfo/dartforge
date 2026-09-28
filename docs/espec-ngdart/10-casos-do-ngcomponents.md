@@ -250,4 +250,23 @@ casos que apareceram no ngcomponents.
   `resolver_conteudo_dinamico`, `campos_com_inicializador`; cada nó registra
   pela posição (`chave_de_no`) os tokens que fornece.
 
+## Pedido que atravessa `<template>` e filho projetado em consulta — j130, j131
+
+- **Regra** (`provider_parser.dart:318-345`): ao subir de um nó que é raiz de
+  visão embutida (`_isViewRoot`), `currEager` vira `false`: o provedor do nó
+  de cima é transformado na visita de quem pede (muda de posição — logo de
+  índice), mas segue preguiçoso (`late dynamic _X_n_m = ..`), e quem pede lê
+  o campo pela cadeia de `parentView`. Um nó que pede vários tokens pede na
+  ordem em que cria os próprios provedores (cada diretiva ansiosa, as
+  dependências dela em ordem). As diretivas de um `<template>` escrito pedem
+  desta visão; o conteúdo dele atravessa.
+- **Porte:** `pedidos_do_conteudo(.., ansioso)`, `resolver_com` com pedidos
+  `(token, ansioso)` (a preguiça é por provedor, a posição é a da visita),
+  `ProvedorAcima::leitura_preguicosa` (só para dono de nó de filho, cujos
+  pedidos o porte modela), `ordem_dos_pedidos_do_no`.
+- **Consulta de visão/conteúdo com filho no conteúdo projetado de outro**
+  (`NoFilhoProjetado`): também é resultado (a instância, criada nesta
+  visão), com o `ChangeDetectorRef` do `onPush` e a marca no
+  `dirtyParentQueriesInternal` da embutida.
+
 ## Pendentes com regra já levantada
