@@ -404,9 +404,12 @@ há `@HostBinding`; dependência de `OpaqueToken`), e `Injector` é o
 provedor local (`Visibility.local`, o padrão) é achado pelo nó de baixo, a
 visibilidade só decide o `injectorGetInternal` (`Visibility.all` também na
 hospedeira), e filho conhecido pelos metadados deixa de tornar a busca
-incerta — caso j41. Corpus: 264 conferidos. limitless_ui/example (Linux,
-`build --comparar`): **898 iguais / 52 pendentes / 0 diferentes** —
-`.template.dart` 482/50/0, `.css` e `.css.map` do Sass 102/102 cada,
+incerta — caso j41; `@Attribute('x')` no construtor da diretiva (o
+`RouterLink` do ngrouter) é o literal do atributo escrito no elemento, sem
+decodificar entidades, ou `null` — caso j42; o índice do `<ng-content>` é o
+ordinal no template inteiro, também dentro de visões embutidas — caso j43.
+Corpus: 266 conferidos. limitless_ui/example (Linux, `build --comparar`):
+**900 iguais / 50 pendentes / 0 diferentes** — `.template.dart` 484/48/0, `.css` e `.css.map` do Sass 102/102 cada,
 `.css.dart` e `.css.shim.dart` 104 cada.
 
 ### Diretivas estruturais

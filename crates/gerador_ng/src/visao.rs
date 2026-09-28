@@ -1667,6 +1667,17 @@ fn primeiro_resultado_dinamico(
     andar(nos, chave, filhos, false, &mut 0)
 }
 
+/// Quantos `<ng-content>` há em `nos`, em qualquer profundidade.
+fn conteudos_em(nos: &[No]) -> u32 {
+    nos.iter()
+        .map(|n| match n {
+            No::Conteudo { .. } => 1,
+            No::Elemento(e) => conteudos_em(&e.filhos),
+            _ => 0,
+        })
+        .sum()
+}
+
 /// A chave dos resultados de um `@ViewChild(Tipo)` entre os `#ref` vistos
 /// (`Corpo::refs_em_ordem`): não colide com nome de referência.
 fn chave_de_tipo(uri: &str, classe: &str) -> String {
@@ -4821,8 +4832,14 @@ impl Corpo<'_> {
                 consultas_em_transito.push((r, campo, niveis));
             }
         }
+        // O índice do `<ng-content>` é o ordinal dele no template inteiro
+        // (`ngContentSelectors`, em pré-ordem): a embutida continua a
+        // contagem daqui, e esta visão pula os que ficam lá dentro.
+        let proxima_projecao = self.proxima_projecao;
+        self.proxima_projecao += conteudos_em(&nos);
         self.embutidas.push(EspecEmbutida {
             indice,
+            proxima_projecao,
             refs_consultados,
             consultas_em_transito,
             profundidade: self.profundidade + 1,
@@ -6019,6 +6036,13 @@ impl Corpo<'_> {
                             Argumento::Campo(c) => format!("this.{c}"),
                             Argumento::Acima(leitura) => leitura.clone(),
                             Argumento::Injetor(n) => format!("this.injector({n})"),
+                            // O atributo escrito no elemento (`attrs`),
+                            // sem ligação; ausente, `null`.
+                            Argumento::Atributo(nome) => e
+                                .atributos
+                                .iter()
+                                .find(|a| a.nome == *nome)
+                                .map_or_else(|| "null".to_string(), |a| literal(&a.valor)),
                             Argumento::DeFora { token, opcional } => {
                                 let metodo = if *opcional {
                                     "injectorGetOptional"
@@ -6680,6 +6704,8 @@ struct EspecEmbutida {
     acima: Vec<(crate::diretivas::Token, String, Option<(String, u32)>)>,
     componentes_acima: u32,
     incertos_acima: u32,
+    /// O índice do primeiro `<ng-content>` da embutida no template.
+    proxima_projecao: u32,
 }
 
 /// De onde vem um local de visão ancestral: a chave em `locals`, a classe
@@ -6927,6 +6953,7 @@ fn corpo_da_embutida(
     dentro.acima = espec.acima.clone();
     dentro.componentes_acima = espec.componentes_acima;
     dentro.incertos_acima = espec.incertos_acima;
+    dentro.proxima_projecao = espec.proxima_projecao;
     // Os `#ref` das visões ancestrais: o campo do nó na visão que o
     // declara (`getPropertyInView`, sem cast do valor: a referência não tem
     // tipo).

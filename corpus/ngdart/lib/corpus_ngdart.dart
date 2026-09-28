@@ -253,3 +253,5 @@ export 'src/j39_ordem_dos_sujos.dart';
 export 'src/j40_com_host.dart';
 export 'src/j40_dependencia_de_fora.dart';
 export 'src/j41_injecao_no_conteudo.dart';
+export 'src/j42_atributo_injetado.dart';
+export 'src/j43_projecao_em_embutida.dart';

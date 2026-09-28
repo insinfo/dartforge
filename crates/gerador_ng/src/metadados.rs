@@ -579,6 +579,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
             proprio: false,
             hospedeiro: false,
             pular: false,
+            atributo: None,
         };
         match v {
             Valor::Lista(itens) => {
@@ -1039,6 +1040,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
             proprio: false,
             hospedeiro: false,
             pular: false,
+            atributo: None,
         };
         let mut injetado = None;
         for a in p.metadata.iter() {
@@ -1060,7 +1062,15 @@ impl<'r, 'a> Leitor<'r, 'a> {
                     outro => return Err(format!("@{outro} no construtor da diretiva")),
                 },
                 Some(c) if c.uri == DIRECTIVES && c.nome == "Attribute" => {
-                    return Err("@Attribute no construtor da diretiva".into());
+                    let x = a
+                        .arguments
+                        .as_ref()
+                        .and_then(|args| args.args.first())
+                        .ok_or("@Attribute sem nome")?;
+                    match self.valor(decl.unidade, x.value, 0)? {
+                        Valor::Texto(nome) => dep.atributo = Some(nome),
+                        _ => return Err("@Attribute com nome que não é texto".into()),
+                    }
                 }
                 Some(_) => {}
                 None => {

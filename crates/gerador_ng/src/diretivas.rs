@@ -180,6 +180,9 @@ pub struct Dependencia {
     pub hospedeiro: bool,
     /// `@SkipSelf()`.
     pub pular: bool,
+    /// `@Attribute('nome')`: o valor do atributo estático do elemento, ou
+    /// `null` (`_getLocalDependency`).
+    pub atributo: Option<String>,
 }
 
 /// Um `@Input`: nome no template, membro, e se o tipo é `bool` (atributo
@@ -335,6 +338,9 @@ pub enum Argumento {
     /// Um provedor de um elemento acima (`_getDependency` sobe pelos
     /// pais): a expressão que o lê desta visão.
     Acima(String),
+    /// `@Attribute('nome')`: o literal do atributo estático do elemento, ou
+    /// `null`.
+    Atributo(String),
     /// `Injector`: o injetor do próprio elemento, `this.injector(n)` (um
     /// dos embutidos do `CompileElement`, como o `ElementRef`).
     Injetor(u32),
@@ -727,6 +733,9 @@ fn resolver_com(
             if dep.proprio || dep.hospedeiro || dep.pular {
                 return Err("dependência @Self/@Host/@SkipSelf de provedor");
             }
+            if dep.atributo.is_some() {
+                return Err("dependência @Attribute de provedor");
+            }
             if dep.token.embutido() {
                 return Err("provedor que depende de embutido do elemento");
             }
@@ -765,6 +774,10 @@ fn resolver_com(
             [Fonte::Diretiva(d)] => {
                 let mut args = Vec::new();
                 for dep in &d.dependencias {
+                    if let Some(nome) = &dep.atributo {
+                        args.push(Argumento::Atributo(nome.clone()));
+                        continue;
+                    }
                     args.push(match &dep.token {
                         Token::Elemento | Token::Detector if dep.pular => {
                             return Err("dependência @SkipSelf de embutido do elemento");
@@ -922,6 +935,7 @@ mod testes {
             proprio,
             hospedeiro: false,
             pular: false,
+            atributo: None,
         }
     }
 
