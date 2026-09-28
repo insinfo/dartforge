@@ -329,3 +329,4 @@ export 'src/j111_regras_da_espec.dart';
 export 'src/j112_export_e_imutabilidade.dart';
 export 'src/j113_interpolacao_n.dart';
 export 'src/j114_propriedade_do_esquema.dart';
+export 'src/j115_preserva_espacos.dart';

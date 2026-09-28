@@ -2992,6 +2992,10 @@ struct Corpo<'a> {
     /// primeiro: (token, campo, e a visão ancestral que o tem — classe e
     /// quantos `parentView` até ela — ou nada, se é desta).
     acima: Vec<(crate::diretivas::Token, String, Option<(String, u32)>)>,
+    /// Os campos de `acima` que são provedores preguiçosos do elemento
+    /// dono (campo, classe da visão dele): um nó abaixo que os pede os
+    /// transformaria antes do `afterElement` do dono (lacuna L1 da seção 05).
+    preguicosos_acima: std::collections::HashSet<(String, String)>,
     /// Quantos elementos de componente há acima (provedores que o emissor
     /// não modela).
     componentes_acima: u32,
@@ -3034,6 +3038,9 @@ struct Corpo<'a> {
     /// Os argumentos de tipo de um componente genérico (`<T, U>`), vazio
     /// no resto: a fábrica de cada embutida é chamada com eles.
     genericos: String,
+    /// `preserveWhitespace: true`: as pontas das interpolações não são
+    /// comprimidas (`_compressWhitespace*`).
+    preservar_espacos: bool,
     /// `_appEl_n` de cada `ViewContainer`, para a detecção e a destruição.
     ancoras: Vec<String>,
     /// Esta visão é embutida: a raiz é registrada com `initRootNode`.
@@ -3157,6 +3164,13 @@ impl Corpo<'_> {
             .iter()
             .rev()
             .map(|(t, campo, v)| crate::diretivas::ProvedorAcima {
+                preguicoso: self.preguicosos_acima.contains(&(
+                    campo.clone(),
+                    match v {
+                        None => self.classe_desta_visao(),
+                        Some((classe, _)) => classe.clone(),
+                    },
+                )),
                 token: t.clone(),
                 leitura: match v {
                     None => format!("this.{campo}"),
@@ -4399,6 +4413,10 @@ impl Corpo<'_> {
                 // A visibilidade só decide o `injectorGetInternal` (outras
                 // visões); no mesmo template o nó de baixo acha até o
                 // provedor local pelo token dele (caso j41).
+                if i.preguicosa {
+                    self.preguicosos_acima
+                        .insert((i.leitura.clone(), self.classe_desta_visao()));
+                }
                 if i.injetavel_por.is_empty() {
                     self.acima.push((i.token.clone(), i.leitura.clone(), None));
                 }
@@ -4616,11 +4634,8 @@ impl Corpo<'_> {
         // Os provedores dos elementos acima (`_getDependency` sobe por eles
         // antes do injetor de fora), com o import do `unsafeCast` tardio.
         let provedores_acima = self.provedores_acima_com(&tardio(UTILITIES));
-        let de_cima = |token: &crate::diretivas::Token| {
-            provedores_acima
-                .iter()
-                .find_map(|p| (p.token == *token).then_some(p.leitura.as_str()))
-        };
+        let de_cima =
+            |token: &crate::diretivas::Token| provedores_acima.iter().find(|p| p.token == *token);
         // A classe do componente desta visão: o `@Host()` a acha no injetor
         // (`identifierToken(component.type).equalsTo(dep.token)`).
         let proprio_componente = |token: &crate::diretivas::Token| match token {
@@ -4668,8 +4683,15 @@ impl Corpo<'_> {
             // Um elemento acima provê o serviço (também um componente acima,
             // cujo conteúdo contém o filho): o oficial o lê de lá — o campo,
             // ou `.instance` do `XNgCd` (casos j68, j79).
-            if let Some(leitura) = de_cima(token) {
-                origens.push(Some(OrigemDoServico::Cima(leitura.to_string())));
+            if let Some(p) = de_cima(token) {
+                // Provedor preguiçoso do elemento acima: o oficial o
+                // transformaria agora, mudando índice e forma lá (L1).
+                if p.preguicoso {
+                    return Err(em_filho(
+                        "provedor preguiçoso de um elemento acima pedido abaixo (L1)",
+                    ));
+                }
+                origens.push(Some(OrigemDoServico::Cima(p.leitura.clone())));
                 continue;
             }
             // Um componente acima sem metadados poderia prover o serviço:
@@ -5804,6 +5826,10 @@ impl Corpo<'_> {
             });
             // Os provedores do `<template>` ficam acima do conteúdo dele.
             for i in &r.instancias {
+                if i.preguicosa {
+                    self.preguicosos_acima
+                        .insert((i.leitura.clone(), self.classe_desta_visao()));
+                }
                 if i.injetavel_por.is_empty() {
                     self.acima.push((i.token.clone(), i.leitura.clone(), None));
                 }
@@ -6020,6 +6046,7 @@ impl Corpo<'_> {
                     (t.clone(), c.clone(), Some(v))
                 })
                 .collect(),
+            preguicosos_acima: self.preguicosos_acima.clone(),
             componentes_acima: self.componentes_acima,
             incertos_acima: self.incertos_acima,
         });
@@ -6306,7 +6333,9 @@ impl Corpo<'_> {
             .iter()
             .enumerate()
             .map(|(i, t)| {
-                let t = if i == 0 {
+                let t = if self.preservar_espacos {
+                    t.replace(NGSP, " ")
+                } else if i == 0 {
                     comprimir_antes(t)
                 } else if i == n_textos - 1 {
                     comprimir_depois(t)
@@ -7090,6 +7119,10 @@ impl Corpo<'_> {
                 // A visibilidade só decide o `injectorGetInternal` (outras
                 // visões); no mesmo template o nó de baixo acha até o
                 // provedor local pelo token dele (caso j41).
+                if i.preguicosa {
+                    self.preguicosos_acima
+                        .insert((i.leitura.clone(), self.classe_desta_visao()));
+                }
                 if i.injetavel_por.is_empty() {
                     self.acima.push((i.token.clone(), i.leitura.clone(), None));
                 }
@@ -8324,6 +8357,10 @@ struct EspecEmbutida {
     consultas_em_transito: Vec<(String, String, u32)>,
     /// Os provedores acima da âncora, vistos da visão nova.
     acima: Vec<(crate::diretivas::Token, String, Option<(String, u32)>)>,
+    /// Os campos de `acima` que são provedores preguiçosos do elemento
+    /// dono (campo, classe da visão dele): um nó abaixo que os pede os
+    /// transformaria antes do `afterElement` do dono (lacuna L1 da seção 05).
+    preguicosos_acima: std::collections::HashSet<(String, String)>,
     componentes_acima: u32,
     incertos_acima: u32,
     /// O índice do primeiro `<ng-content>` da embutida no template.
@@ -8366,6 +8403,7 @@ struct Contexto<'a> {
     /// declaração deles (`<T extends num, U>`); vazios no resto.
     genericos: String,
     genericos_decl: String,
+    preservar_espacos: bool,
     html: String,
     pipes: &'a PipesDoTemplate,
     /// Os nomes de `#ref` que podem virar local ([`referencias_candidatas`]).
@@ -8453,6 +8491,7 @@ impl<'a> Contexto<'a> {
             locais_proprios: Vec::new(),
             ancestrais: Default::default(),
             acima: Vec::new(),
+            preguicosos_acima: Default::default(),
             componentes_acima: 0,
             incertos_acima: 0,
             filhos: self.filhos,
@@ -8465,6 +8504,7 @@ impl<'a> Contexto<'a> {
             embutidas: Vec::new(),
             classe_da_visao: self.classe_da_visao.clone(),
             genericos: self.genericos.clone(),
+            preservar_espacos: self.preservar_espacos,
             ancoras: Vec::new(),
             embutida,
             locais: Default::default(),
@@ -8617,6 +8657,7 @@ fn corpo_da_embutida(
     dentro.locais_proprios = espec.micro.locais.clone();
     dentro.ancestrais = espec.ancestrais.clone();
     dentro.acima = espec.acima.clone();
+    dentro.preguicosos_acima = espec.preguicosos_acima.clone();
     dentro.componentes_acima = espec.componentes_acima;
     dentro.incertos_acima = espec.incertos_acima;
     dentro.proxima_projecao = espec.proxima_projecao;
@@ -10404,6 +10445,7 @@ fn gerar_componente_com(
         tipo_do_contexto: format!("{proprio}.{}{genericos}", c.classe),
         genericos,
         genericos_decl,
+        preservar_espacos: c.preservar_espacos,
         html: html.clone(),
         pipes: &tabela,
         refs_ambiguos: referencias_ambiguas(nos),

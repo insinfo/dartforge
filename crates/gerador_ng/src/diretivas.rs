@@ -374,6 +374,11 @@ pub struct ProvedorAcima {
     pub token: Token,
     /// A expressão que o lê da visão em que o nó está.
     pub leitura: String,
+    /// Provedor preguiçoso do elemento dono: pedido de um nó abaixo, o
+    /// oficial o transforma durante a visita do filho, antes do
+    /// `afterElement` do dono (`provider_parser.dart:318-366`), o que muda o
+    /// índice e a forma dele lá — ainda não modelado (lacuna L1).
+    pub preguicoso: bool,
 }
 
 /// O que há acima do nó para as dependências que ele não satisfaz.
@@ -817,6 +822,9 @@ fn resolver_com(
         let de_fora = |t: &Token, opcional: bool| -> Result<Expr, &'static str> {
             if !hospedeira && let Some(a) = acima {
                 if let Some(p) = a.provedores.iter().find(|p| p.token == *t) {
+                    if p.preguicoso {
+                        return Err("provedor preguiçoso de um elemento acima pedido abaixo (L1)");
+                    }
                     return Ok(Expr::Leitura(p.leitura.clone()));
                 }
                 if a.incerto {
@@ -1011,6 +1019,9 @@ fn fora_do_no(dep: &Dependencia, acima: Option<Acima>) -> Result<Argumento, &'st
     if !dep.proprio
         && let Some(p) = acima.provedores.iter().find(|p| p.token == dep.token)
     {
+        if p.preguicoso {
+            return Err("provedor preguiçoso de um elemento acima pedido abaixo (L1)");
+        }
         return Ok(Argumento::Acima(p.leitura.clone()));
     }
     // Um embutido do elemento (`ElementRef`, `ViewContainerRef`,
@@ -1273,6 +1284,7 @@ mod testes {
         let acima = [ProvedorAcima {
             token: classe("s", "Grupo"),
             leitura: "this._Grupo_0_5".into(),
+            preguicoso: false,
         }];
         let r = resolver(
             &[dir],

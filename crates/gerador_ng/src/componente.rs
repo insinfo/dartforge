@@ -66,6 +66,11 @@ pub struct Componente {
     /// então só pesa com `styleUrls`/`styles` — forma ainda recusada pela
     /// visão.
     pub sem_encapsulamento: bool,
+    /// `preserveWhitespace: true`: o template não passa pelo
+    /// `MinimizeWhitespaceVisitor` (só o `&ngsp;` vira espaço) e as pontas
+    /// das interpolações não são comprimidas (`ast_template_parser.dart:155-164`,
+    /// `expression_converter.dart:151,161`).
+    pub preservar_espacos: bool,
     /// Nomes escritos em `directives:`, na ordem, como escritos (`A`,
     /// `li.B`). Listas constantes (`coreDirectives`) entram pelo nome e são
     /// expandidas pelo banco semântico.
@@ -617,6 +622,10 @@ fn ler(
                     c.sem_encapsulamento =
                         valor_de_encapsulamento(arvore, fonte, a.value) == Some("none")
                 }
+                "preserveWhitespace" => {
+                    c.preservar_espacos =
+                        matches!(arvore.expr(a.value).kind, ast::ExprKind::Bool(true))
+                }
                 "directives" => {
                     (c.diretivas, c.diretivas_ilegiveis) = nomes_da_lista(arvore, interner, a.value)
                 }
@@ -864,6 +873,10 @@ fn o_que_nao_entendemos(
                     Motivo::Encapsulamento,
                     "@Component(.., encapsulation: ..)",
                 )),
+                // Literal `true`/`false`: o modo de espaços do template.
+                "preserveWhitespace"
+                    if e_componente
+                        && matches!(arvore.expr(a.value).kind, ast::ExprKind::Bool(_)) => {}
                 n if e_componente && ARGUMENTOS_CONHECIDOS.contains(&n) => {}
                 n if !e_componente && ARGUMENTOS_DE_DIRETIVA.contains(&n) => {}
                 n => fora.push(recusa(Motivo::NaoEntendido, format!("{anot}(.., {n}: ..)"))),

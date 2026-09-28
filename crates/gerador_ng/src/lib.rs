@@ -1692,7 +1692,7 @@ fn template_do_componente(
     let ausente = || recusa(Motivo::TemplateAusente, "templateUrl não encontrado");
     Ok(match (&comp.template, &comp.template_url) {
         (Some(t), _) => {
-            let (mut nos, erro) = html::analisar_com_erro(t);
+            let (mut nos, erro) = html::analisar_no_modo(t, comp.preservar_espacos);
             if let Some(e) = erro {
                 return Err(recusa(
                     Motivo::NaoEntendido,
@@ -1707,7 +1707,7 @@ fn template_do_componente(
         (None, Some(url)) => {
             let caminho = fonte.parent().ok_or_else(ausente)?.join(url);
             let texto = std::fs::read_to_string(&caminho).map_err(|_| ausente())?;
-            let (nos, erro) = html::analisar_com_erro(&texto);
+            let (nos, erro) = html::analisar_no_modo(&texto, comp.preservar_espacos);
             if let Some(e) = erro {
                 return Err(recusa(
                     Motivo::NaoEntendido,

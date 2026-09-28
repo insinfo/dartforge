@@ -159,17 +159,44 @@ pub fn analisar(fonte: &str) -> Vec<No> {
 /// Como [`analisar`], com o primeiro erro de forma que o ngast rejeita:
 /// com ele, o oficial falha ao compilar o template.
 pub fn analisar_com_erro(fonte: &str) -> (Vec<No>, Option<String>) {
+    analisar_no_modo(fonte, false)
+}
+
+/// `preservar`: o `_PreserveWhitespaceVisitor` do oficial
+/// (`ast_template_parser.dart:1610-1657`) no lugar do
+/// `MinimizeWhitespaceVisitor` — nenhum texto some nem é aparado; só o
+/// `&ngsp;` vira espaço, em todo texto.
+pub fn analisar_no_modo(fonte: &str, preservar: bool) -> (Vec<No>, Option<String>) {
     let mut p = Parser {
         b: fonte.as_bytes(),
         i: 0,
         fonte,
         erro: None,
     };
-    let mut nos = minimizar_espacos(p.nos(None));
+    let crus = p.nos(None);
+    let mut nos = if preservar {
+        trocar_ngsp(crus)
+    } else {
+        minimizar_espacos(crus)
+    };
     if !fonte.is_ascii() {
         em_utf16(&mut nos, fonte);
     }
     (nos, p.erro)
+}
+
+/// O `&ngsp;` vira espaço em todo texto da árvore.
+fn trocar_ngsp(nos: Vec<No>) -> Vec<No> {
+    nos.into_iter()
+        .map(|n| match n {
+            No::Texto(t) => No::Texto(t.replace(NGSP, " ")),
+            No::Elemento(mut e) => {
+                e.filhos = trocar_ngsp(std::mem::take(&mut e.filhos));
+                No::Elemento(e)
+            }
+            outro => outro,
+        })
+        .collect()
 }
 
 /// Soma `k` às posições de todas as ligações e interpolações: o template

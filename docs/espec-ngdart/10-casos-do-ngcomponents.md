@@ -76,6 +76,17 @@ casos que apareceram no ngcomponents.
 - A visão embutida refaz a emissão sem o `TextBinding` quando nenhuma
   interpolação dela é mutável, como a do componente.
 
+## `preserveWhitespace: true` — j115
+
+- **Regra:** `ast_template_parser.dart:155-164` troca o `MinimizeWhitespaceVisitor`
+  pelo `_PreserveWhitespaceVisitor` (só `&ngsp;` → espaço, em todo texto), e
+  `expression_converter.dart:151,161` não comprime as pontas das interpolações.
+- **Porte:** `componente.rs` (`preservar_espacos`), `html::analisar_no_modo`,
+  `Corpo::preservar_espacos` em `valor_interpolado`.
+- Ao sair a recusa, apareceu no `paper_tooltip` a lacuna L1 da seção 05 (provedor
+  preguiçoso do pai pedido por um nó abaixo). Ela é recusada exatamente
+  (`ProvedorAcima::preguicoso`) até a simulação do `ProviderElementContext`.
+
 ## Pendentes com regra já levantada
 
 - **Local de `*` ancestral / tipo do local de `*ngFor`:** o tipo do `$implicit`
