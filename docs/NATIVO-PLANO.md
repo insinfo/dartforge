@@ -1572,7 +1572,9 @@ IOService (`io_service_patch.dart`).
   opção — sem ela a conexão termina com `TlsException`, como na VM (o texto
   do erro é o do rustls, não o `NO_RENEGOTIATION` do BoringSSL); com ela a VM
   renegociaria (`tls_renegociacao.dart` em `io_regressao.rs`, contra o
-  `openssl s_server`).
+  `openssl s_server -www`, que pede a renegociação ao receber `GET /reneg`:
+  a entrada padrão do `s_server` não serve, porque no Windows ele bloqueia
+  nela antes de atender o soquete).
   Os formatos de chave e certificado seguem a VM
   (`crates/runtime/src/tls_formatos.rs`): PEM, PEM cifrado legado, PKCS#8
   cifrado e PKCS#12 (PBES2 e as PBE legadas), com a mesma ordem de decisão

@@ -5,9 +5,15 @@
 //
 // * Sem a opção (o padrão), como a VM: o pedido é recusado e a conexão
 //   termina com `TlsException`.
-// * Com a opção: a VM renegocia; aqui o pedido é recusado do mesmo jeito (a
-//   opção só é guardada) — o comportamento documentado em NATIVO-PLANO.
-// * Controle: `GET /`, sem pedido de renegociação; a resposta chega.
+// * Com a opção: a VM renegocia e recebe a página; aqui o pedido é recusado
+//   do mesmo jeito (a opção só é guardada) — o comportamento documentado em
+//   NATIVO-PLANO.
+// * Controle: `GET /`, sem pedido de renegociação; a página chega.
+//
+// Vai só a linha do pedido, sem a linha em branco: o `s_server -www` responde
+// à linha `GET` e, depois do HelloRequest, lê a conexão uma vez para receber
+// o ClientHello da renegociação; uma linha em branco já no buffer dele seria
+// lida no lugar, e a página iria no meio da renegociação.
 //
 // O pedido vai pela própria conexão TLS, não pela entrada padrão do
 // `s_server`: no Windows o `s_server` não espera pela entrada e pelo soquete
@@ -108,8 +114,8 @@ Future<String> rodada(String dir, {required bool permitir, required bool renegoc
     });
     // O aperto de mão terminou (o `secure` voltou): o pedido. O `s_server`
     // responde com a página; com `/reneg`, antes manda o HelloRequest, e a
-    // recusa do cliente derruba a conexão.
-    conexao.write(renegociar ? 'GET /reneg HTTP/1.0\r\n\r\n' : 'GET / HTTP/1.0\r\n\r\n');
+    // recusa do cliente (o alerta `no_renegotiation`) derruba a conexão.
+    conexao.write(renegociar ? 'GET /reneg HTTP/1.0\r\n' : 'GET / HTTP/1.0\r\n');
     try {
       await etapa('flush do pedido', const Duration(seconds: 5), conexao.flush());
     } on TlsException {
