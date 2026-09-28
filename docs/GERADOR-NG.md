@@ -445,9 +445,15 @@ nenhum arquivo importa também é gerado, como no `build_runner`.
 filho: a lista `this.projectedNodes[i]` entra inteira nas raízes e nas
 listas do `createAndProject`, montadas pelo `createFlatArrayForProjectNodes`
 (itens soltos num `<Object>[..]`, listas com `..addAll(unsafeCast(..))`) —
-casos j56, j57. Corpus: 286 conferidos. limitless_ui/example (Linux,
-`build --comparar`): **921 iguais / 29 pendentes / 0 diferentes** —
-`.template.dart` 505/27/0, `.css` e `.css.map` do Sass 102/102 cada,
+casos j56, j57. `class="a {{x}}"` e `value="{{i}}"` que alimentam `@Input`
+de filho ou de diretiva (`interpolateString`/`interpolate`; primitiva crua
+com `interpolate0` na ação; o elemento não repete o atributo consumido) —
+casos j58, j59. Campo de elemento cujo `#ref` só é lido em handler de
+evento entra na classe depois dos elementos ligados na detecção (o
+`NodeReferenceStorageVisitor` o promove ao compilar o handler) — caso j60.
+Corpus: 290 conferidos. limitless_ui/example (Linux,
+`build --comparar`): **923 iguais / 27 pendentes / 0 diferentes** —
+`.template.dart` 507/25/0, `.css` e `.css.map` do Sass 102/102 cada,
 `.css.dart` e `.css.shim.dart` 104 cada.
 
 ### Diretivas estruturais

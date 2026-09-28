@@ -1,0 +1,7 @@
+<div [title]="titulo">
+  <select #campo (change)="escolher(campo.value)">
+    <option value="1">um</option>
+  </select>
+  <span [class.ativo]="ativo == 'a'">{{ escolhido }}</span>
+  <input [value]="titulo">
+</div>

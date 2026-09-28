@@ -270,3 +270,7 @@ export 'src/j54_molde_vazio.dart';
 export 'src/j55_entidades.dart';
 export 'src/j56_projecao_na_raiz_embutida.dart';
 export 'src/j57_reprojecao.dart';
+export 'src/j58_filho_rotulo.dart';
+export 'src/j58_atributo_interpolado_no_filho.dart';
+export 'src/j59_interpolado_em_diretiva.dart';
+export 'src/j60_ref_so_em_evento.dart';

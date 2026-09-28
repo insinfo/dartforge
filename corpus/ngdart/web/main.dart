@@ -246,6 +246,9 @@ import 'package:corpus_ngdart/src/j54_molde_vazio.template.dart' as j54;
 import 'package:corpus_ngdart/src/j55_entidades.template.dart' as j55;
 import 'package:corpus_ngdart/src/j56_projecao_na_raiz_embutida.template.dart' as j56;
 import 'package:corpus_ngdart/src/j57_reprojecao.template.dart' as j57;
+import 'package:corpus_ngdart/src/j58_atributo_interpolado_no_filho.template.dart' as j58;
+import 'package:corpus_ngdart/src/j59_interpolado_em_diretiva.template.dart' as j59;
+import 'package:corpus_ngdart/src/j60_ref_so_em_evento.template.dart' as j60;
 
 void main() {
   print([
@@ -496,5 +499,8 @@ void main() {
     j55.J55EntidadesNgFactory,
     j56.J56ProjecaoNaRaizEmbutidaNgFactory,
     j57.J57ReprojecaoNgFactory,
+    j58.J58AtributoInterpoladoNoFilhoNgFactory,
+    j59.J59InterpoladoEmDiretivaNgFactory,
+    j60.J60RefSoEmEventoNgFactory,
   ].length);
 }

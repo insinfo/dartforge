@@ -645,6 +645,33 @@ fn citado_no_escopo(
     })
 }
 
+/// `nome` é lido na detecção desta visão — ligação, interpolação, o `*`
+/// de um elemento dela —, sem contar eventos nem as visões embutidas.
+fn lido_na_deteccao(nos: &[No], nome: &str) -> bool {
+    let cita = |texto: &str| cita_na_raiz(texto, nome);
+    let no_elemento = |e: &crate::html::Elemento| {
+        e.propriedades
+            .iter()
+            .chain(e.bananas.iter())
+            .any(|l| cita(&l.valor))
+            || e.atributos
+                .iter()
+                .any(|a| a.valor.contains("{{") && cita(&a.valor))
+    };
+    nos.iter().any(|n| match n {
+        No::Interpolacao { expr, .. } => cita(expr),
+        No::Elemento(e) => match &e.estrela {
+            Some(estrela) if estrela.nome != MARCA_DE_MOLDE => {
+                let micro = crate::micro::analisar(&estrela.nome, &estrela.valor);
+                micro.propriedades.iter().any(|(_, expr)| cita(expr))
+            }
+            Some(_) => no_elemento(e),
+            None => no_elemento(e) || lido_na_deteccao(&e.filhos, nome),
+        },
+        _ => false,
+    })
+}
+
 /// Alguma ligação do próprio elemento lê `nome` com o receptor implícito?
 fn elemento_cita(e: &crate::html::Elemento, nome: &str) -> bool {
     let cita = |texto: &str| cita_na_raiz(texto, nome);
@@ -1671,6 +1698,20 @@ fn primeiro_resultado_dinamico(
 /// lista (`this.projectedNodes[i]`, `o.ArrayType`).
 const RAIZ_LISTA: char = '\u{11}';
 
+/// Um texto com `{{ }}` convertido ([`Corpo::valor_interpolado`]).
+struct Interpolada {
+    convertidas: Vec<crate::expr::Convertida>,
+    imutavel: bool,
+    /// O número da ligação (`_expr_k`, `currVal_k`).
+    k: u32,
+    /// O valor calculado uma vez, quando imutável.
+    constante: String,
+    /// O `currVal_k` conferido.
+    checagem: String,
+    /// O valor onde ele é usado (`currVal_k`, ou interpolado ali).
+    na_acao: String,
+}
+
 /// Uma lista de nós como o `createFlatArrayForProjectNodes` a escreve.
 enum ListaPlana {
     /// `const <Object>[]`.
@@ -2576,6 +2617,14 @@ struct Corpo<'a> {
     campos_expr: Vec<String>,
     /// Campos `late final T _el_n` dos elementos com ligação.
     campos_el: Vec<String>,
+    /// Os `#ref` desta visão lidos só em handler de evento: o nó vira campo
+    /// quando o `NodeReferenceStorageVisitor` chega ao `_handleEvent_N` que o
+    /// lê — depois dos promovidos na detecção (caso j60).
+    refs_so_em_eventos: std::collections::HashSet<String>,
+    /// Os campos desses nós à espera do primeiro handler que os lê.
+    campos_el_de_eventos: Vec<(String, String)>,
+    /// Os mesmos, na ordem em que os handlers os leem.
+    campos_el_por_evento: Vec<String>,
     /// Campos dos nós desta visão embutida que são resultado de consulta
     /// dinâmica da visão do componente, com a posição da consulta em
     /// [`Corpo::refs_consultados`]: o oficial os promove a campo quando a
@@ -3396,6 +3445,13 @@ impl Corpo<'_> {
             }
         }
         let mut corpo = Vec::new();
+        // O nó de um `#ref` lido só em evento vira campo agora (caso j60).
+        for l in &locais {
+            if let Some(k) = self.campos_el_de_eventos.iter().position(|(n, _)| n == l) {
+                let (_, campo) = self.campos_el_de_eventos.remove(k);
+                self.campos_el_por_evento.push(campo);
+            }
+        }
         for l in &locais {
             corpo.push(format!(
                 "    {}",
@@ -3537,8 +3593,11 @@ impl Corpo<'_> {
             }
         }
         for a in &e.atributos {
-            if a.valor.contains("{{") {
-                return Err(em_filho("atributo interpolado no filho"));
+            // No `@Input` a interpolação vai para a entrada
+            // ([`Self::entradas_de`]); fora dele seria propriedade do
+            // elemento do filho, forma ainda sem caso.
+            if a.valor.contains("{{") && filho.entrada(&a.nome).is_none() {
+                return Err(em_filho("atributo interpolado no filho fora de @Input"));
             }
             if a.nome.eq_ignore_ascii_case("tabindex") {
                 return Err(em_filho("tabindex no filho"));
@@ -3637,7 +3696,13 @@ impl Corpo<'_> {
         // todos — também os que alimentam um `@Input` —, e o `class` pelo
         // `updateChildClassNonHtml`: o elemento do filho não é HTML
         // (`writeLiteralAttributeValues`).
-        let mut atributos = e.atributos.clone();
+        // O interpolado é ligação, não atributo escrito (caso j58).
+        let mut atributos: Vec<_> = e
+            .atributos
+            .iter()
+            .filter(|a| !a.valor.contains("{{"))
+            .cloned()
+            .collect();
         atributos.sort_by(|a, b| a.nome.cmp(&b.nome));
         for a in &atributos {
             let valor = literal(&a.valor);
@@ -4311,9 +4376,38 @@ impl Corpo<'_> {
                 };
                 let nome = &l.nome;
                 let (ini, fim) = (l.inicio, l.fim);
+                let mudou = if calcula { "\nchanged = true;" } else { "" };
+                // Atributo com `{{ }}` num `@Input` (`x="a {{b}}"`): a
+                // interpolação vai para a entrada — mutável, conferida e
+                // atribuída (a primitiva sozinha, crua e interpolada na
+                // atribuição); imutável, na primeira checagem (caso j58).
+                if *estatico && l.valor.contains("{{") {
+                    let v = self.valor_interpolado(&l.valor, motivo)?;
+                    if v.imutavel {
+                        let valor = v.constante;
+                        let bloco = format!(
+                            "if ({dev}.isDevToolsEnabled) {{\n  {dev}.Inspector.instance.recordInput(this.{campo_inst}, '{nome}', {valor});\n}}\nthis.{campo_inst}.{campo} = {valor} /* REF:{url}:{ini}:{fim} */;{mudou}"
+                        );
+                        constantes.push(indentar(&bloco, 6));
+                        continue;
+                    }
+                    let k = v.k;
+                    let expr = literal(&l.valor);
+                    let chk = tardio(CHECK_BINDING);
+                    let (checagem, na_acao) = (v.checagem, v.na_acao);
+                    let mudou = if calcula {
+                        "\n      changed = true;"
+                    } else {
+                        ""
+                    };
+                    self.campos_expr.push(format!("  Object? _expr_{k};"));
+                    dinamicas.push(format!(
+                        "    final currVal_{k} = {checagem};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, {expr}, '{url}')) {{\n      if ({dev}.isDevToolsEnabled) {{\n        {dev}.Inspector.instance.recordInput(this.{campo_inst}, '{nome}', {na_acao});\n      }}\n      this.{campo_inst}.{campo} = {na_acao} /* REF:{url}:{ini}:{fim} */;{mudou}\n      this._expr_{k} = currVal_{k};\n    }}"
+                    ));
+                    continue;
+                }
                 let k = self.proxima_ligacao;
                 self.proxima_ligacao += 1;
-                let mudou = if calcula { "\nchanged = true;" } else { "" };
                 // Atributo estático: `LiteralPrimitive` do texto; sem valor,
                 // `EmptyExpr` (`true` numa entrada `bool`, senão `''`).
                 // Expressão imutável: a mesma forma (`_bindLiteral`).
@@ -5269,55 +5363,33 @@ impl Corpo<'_> {
         Ok(())
     }
 
-    /// Um atributo com `{{ }}` (`title="a {{b}}"`): o oficial o trata como
-    /// ligação de propriedade (`_createPropertyForAttribute`), com o nome
-    /// passado pelo esquema (`class` → `className`, que vira
-    /// `updateChildClass`) e o valor `Interpolation(strings, exprs)`. Sai
-    /// depois das ligações `[x]` do elemento.
-    fn atributo_interpolado(
-        &mut self,
-        a: &crate::html::Ligacao,
-        alvo: &str,
-    ) -> Result<Ligada, Recusa> {
-        let url = self.url(Motivo::Interpolacao)?;
-        let nome = a.nome.as_str();
-        // Nome que o esquema renomeia ou protege (`readonly`, `href`…), ou
-        // que nem é propriedade do DOM (`data-x`, `aria-x`: o oficial acusa
-        // erro), fica de fora.
-        if nome != "class"
-            && (!nome.chars().all(|c| c.is_ascii_lowercase())
-                || matches!(nome, "style" | "readonly" | "tabindex" | "for"))
-        {
-            return Err(recusa(
-                Motivo::Interpolacao,
-                "atributo interpolado renomeado, protegido ou fora do esquema",
-            ));
+    /// O valor de um texto com `{{ }}` (`title="a {{b}}"`, `x="{{y}}"`), como
+    /// o `_createPropertyForAttribute`/`convertInterpolation` o escrevem:
+    /// `interpolateStringN` quando tudo é `String`, `interpolateN` senão; o
+    /// literal puro é o próprio texto; imutável, calculado uma vez. A
+    /// expressão primitiva mutável sozinha (`_maybeOptimizeInterpolation`) é
+    /// conferida crua e interpolada só onde o valor é usado (`na_acao`).
+    /// Aloca o número da ligação (`k`).
+    fn valor_interpolado(&mut self, texto: &str, motivo: Motivo) -> Result<Interpolada, Recusa> {
+        if texto.contains('&') {
+            return Err(recusa(motivo, "atributo interpolado com entidade HTML"));
         }
-        if a.valor.contains('&') {
-            return Err(recusa(
-                Motivo::Interpolacao,
-                "atributo interpolado com entidade HTML",
-            ));
-        }
-        let (textos, exprs) = partes_da_interpolacao(&a.valor)
-            .ok_or_else(|| recusa(Motivo::Interpolacao, "atributo interpolado mal formado"))?;
+        let (textos, exprs) = partes_da_interpolacao(texto)
+            .ok_or_else(|| recusa(motivo, "atributo interpolado mal formado"))?;
         if exprs.len() > 2 {
             return Err(recusa(
-                Motivo::Interpolacao,
+                motivo,
                 "atributo com 3+ interpolações (`interpolateFallback`)",
             ));
         }
         let mut convertidas = Vec::new();
         for e in &exprs {
-            convertidas.push(self.converter(e, Motivo::Interpolacao)?);
+            convertidas.push(self.converter(e, motivo)?);
         }
         let mut tipos = Vec::new();
         for c in &convertidas {
             let Some(t) = &c.tipo else {
-                return Err(recusa(
-                    Motivo::Interpolacao,
-                    format!("tipo desconhecido de {}", c.forma),
-                ));
+                return Err(recusa(motivo, format!("tipo desconhecido de {}", c.forma)));
             };
             tipos.push(t.trim_end_matches('?').to_string());
         }
@@ -5363,32 +5435,16 @@ impl Corpo<'_> {
             }
         };
         let textos_expr: Vec<String> = convertidas.iter().map(|c| c.texto.clone()).collect();
-        let simulada = crate::html::Ligacao {
-            nome: a.nome.clone(),
-            valor: a.valor.clone(),
-            inicio: a.inicio,
-            fim: a.fim,
-        };
-        let (ini, fim) = (a.inicio, a.fim);
         // Uma expressão literal com as pontas vazias é o próprio texto.
         let literal_puro = convertidas.len() == 1
             && convertidas[0].literal
             && textos[0] == "''"
             && textos[1] == "''";
-        if imutavel {
-            let valor = if literal_puro {
-                valor_de_literal(&convertidas[0].texto)
-            } else {
-                valor_com(&textos_expr, familia)
-            };
-            let acao = self.acao(&simulada, alvo, &valor, &convertidas[0])?;
-            return Ok(Ligada::Constante(format!(
-                "      {acao} /* REF:{url}:{ini}:{fim} */;"
-            )));
-        }
-        // `_maybeOptimizeInterpolation`: uma expressão primitiva mutável é
-        // conferida crua e interpolada só na ação (a variável tem tipo
-        // `dynamic`, daí `interpolate`).
+        let constante = if literal_puro {
+            valor_de_literal(&convertidas[0].texto)
+        } else {
+            valor_com(&textos_expr, familia)
+        };
         let primitiva = convertidas.len() == 1 && !convertidas[0].imutavel && primitivo(&tipos[0]);
         let (checagem, na_acao) = if primitiva {
             (
@@ -5398,6 +5454,63 @@ impl Corpo<'_> {
         } else {
             (valor_com(&textos_expr, familia), format!("currVal_{k}"))
         };
+        Ok(Interpolada {
+            convertidas,
+            imutavel,
+            k,
+            constante,
+            checagem,
+            na_acao,
+        })
+    }
+
+    /// Um atributo com `{{ }}` (`title="a {{b}}"`): o oficial o trata como
+    /// ligação de propriedade (`_createPropertyForAttribute`), com o nome
+    /// passado pelo esquema (`class` → `className`, que vira
+    /// `updateChildClass`) e o valor `Interpolation(strings, exprs)`. Sai
+    /// depois das ligações `[x]` do elemento.
+    fn atributo_interpolado(
+        &mut self,
+        a: &crate::html::Ligacao,
+        alvo: &str,
+    ) -> Result<Ligada, Recusa> {
+        let url = self.url(Motivo::Interpolacao)?;
+        let nome = a.nome.as_str();
+        // Nome que o esquema renomeia ou protege (`readonly`, `href`…), ou
+        // que nem é propriedade do DOM (`data-x`, `aria-x`: o oficial acusa
+        // erro), fica de fora.
+        if nome != "class"
+            && (!nome.chars().all(|c| c.is_ascii_lowercase())
+                || matches!(nome, "style" | "readonly" | "tabindex" | "for"))
+        {
+            return Err(recusa(
+                Motivo::Interpolacao,
+                "atributo interpolado renomeado, protegido ou fora do esquema",
+            ));
+        }
+        if a.valor.contains('&') {
+            return Err(recusa(
+                Motivo::Interpolacao,
+                "atributo interpolado com entidade HTML",
+            ));
+        }
+        let v = self.valor_interpolado(&a.valor, Motivo::Interpolacao)?;
+        let convertidas = v.convertidas;
+        let k = v.k;
+        let simulada = crate::html::Ligacao {
+            nome: a.nome.clone(),
+            valor: a.valor.clone(),
+            inicio: a.inicio,
+            fim: a.fim,
+        };
+        let (ini, fim) = (a.inicio, a.fim);
+        if v.imutavel {
+            let acao = self.acao(&simulada, alvo, &v.constante, &convertidas[0])?;
+            return Ok(Ligada::Constante(format!(
+                "      {acao} /* REF:{url}:{ini}:{fim} */;"
+            )));
+        }
+        let (checagem, na_acao) = (v.checagem, v.na_acao);
         self.campos_expr.push(format!("  Object? _expr_{k};"));
         let acao = self.acao(&simulada, alvo, &na_acao, &convertidas[0])?;
         let chk = tardio(CHECK_BINDING);
@@ -5652,16 +5765,6 @@ impl Corpo<'_> {
                 ..b.clone()
             });
         }
-        if let Some(a) = e
-            .atributos
-            .iter()
-            .find(|a| a.valor.contains("{{") && consome_entrada(&casadas, &a.nome))
-        {
-            self.anotar(recusa(
-                Motivo::DiretivaPorSeletor,
-                format!("atributo interpolado em entrada de diretiva ({})", a.nome),
-            ))?;
-        }
         // `#ref="x"`: a diretiva do nó com `exportAs: 'x'` (uma só; mais de
         // uma é erro no oficial). O local vale a instância dela
         // (`referenceTokens` em `compile_element.dart`).
@@ -5768,10 +5871,19 @@ impl Corpo<'_> {
                 .filter(|r| r.valor.is_empty())
                 .filter_map(|r| self.refs_consultados.iter().position(|(n, _, _)| *n == r.nome))
                 .min();
-            match (lido_de_embutida, consultado) {
-                (Some(nome), _) => self.campos_el_de_embutidas.push((nome, campo)),
-                (None, Some(k)) => self.campos_el_consultados.push((k, campo)),
-                (None, None) => self.campos_el.push(campo),
+            let so_em_evento = (!liga_no_elemento(e, &casadas))
+                .then(|| {
+                    e.referencias
+                        .iter()
+                        .find(|r| r.valor.is_empty() && self.refs_so_em_eventos.contains(&r.nome))
+                        .map(|r| r.nome.clone())
+                })
+                .flatten();
+            match (lido_de_embutida, consultado, so_em_evento) {
+                (Some(nome), _, _) => self.campos_el_de_embutidas.push((nome, campo)),
+                (None, Some(k), _) => self.campos_el_consultados.push((k, campo)),
+                (None, None, Some(nome)) => self.campos_el_de_eventos.push((nome, campo)),
+                (None, None, None) => self.campos_el.push(campo),
             }
             self.linhas.push(format!("    this._el_{n} = {criacao};"));
             format!("this._el_{n}")
@@ -5906,7 +6018,12 @@ impl Corpo<'_> {
         }
         // Os atributos interpolados vêm depois das `[x]`, na ordem escrita
         // (`_visitProperties`).
-        for a in e.atributos.iter().filter(|a| a.valor.contains("{{")) {
+        // O que uma diretiva do nó recebe como entrada é dela (caso j59).
+        for a in e
+            .atributos
+            .iter()
+            .filter(|a| a.valor.contains("{{") && !consome_entrada(&casadas, &a.nome))
+        {
             match self.atributo_interpolado(a, &alvo) {
                 Ok(x) => ligadas.push(x),
                 Err(r) => self.anotar(r)?,
@@ -6304,7 +6421,7 @@ impl Corpo<'_> {
             let mut ligadas: Vec<(&crate::html::Ligacao, bool)> = e
                 .atributos
                 .iter()
-                .filter(|a| !a.valor.contains("{{") && d.entrada(&a.nome).is_some())
+                .filter(|a| d.entrada(&a.nome).is_some())
                 .map(|a| (a, true))
                 .collect();
             ligadas.extend(
@@ -6588,7 +6705,10 @@ fn liga_no_elemento(
     e.propriedades
         .iter()
         .any(|p| !consome_entrada(casadas, &p.nome))
-        || e.atributos.iter().any(|a| a.valor.contains("{{"))
+        || e
+            .atributos
+            .iter()
+            .any(|a| a.valor.contains("{{") && !consome_entrada(casadas, &a.nome))
         // `detectHostChanges(this, el)` lê o nó na detecção.
         || casadas.iter().any(|d| !d.ligacoes_do_hospedeiro.is_empty())
 }
@@ -6997,6 +7117,9 @@ impl<'a> Contexto<'a> {
             vistas_filhas: Vec::new(),
             campos_expr: Vec::new(),
             campos_el: Vec::new(),
+            refs_so_em_eventos: Default::default(),
+            campos_el_de_eventos: Vec::new(),
+            campos_el_por_evento: Vec::new(),
             campos_el_consultados: Vec::new(),
             campos_el_de_embutidas: Vec::new(),
             refs_de_embutidas: Default::default(),
@@ -7191,6 +7314,11 @@ fn corpo_da_embutida(
         .filter(|n| citado_em_embutidas(&espec.nos, n, ctx.filhos))
         .cloned()
         .collect();
+    dentro.refs_so_em_eventos = refs_locais
+        .iter()
+        .filter(|n| !lido_na_deteccao(&espec.nos, n))
+        .cloned()
+        .collect();
     dentro.declarar_refs(refs_locais);
     for (nome, origem) in &espec.ancestrais {
         let Some(l) = espec.locais.get(nome.as_str()) else {
@@ -7302,6 +7430,8 @@ fn corpo_da_embutida(
     consultados.sort_by_key(|(k, _)| *k);
     todos.extend(consultados.into_iter().map(|(_, c)| c));
     todos.extend(dentro.campos_el.clone());
+    todos.extend(dentro.campos_el_por_evento.clone());
+    todos.extend(dentro.campos_el_de_eventos.iter().map(|(_, c)| c.clone()));
     let campos = if todos.is_empty() {
         String::new()
     } else {
@@ -8757,6 +8887,11 @@ fn gerar_componente(
         .filter(|n| citado_em_embutidas(nos, n, filhos))
         .cloned()
         .collect();
+    corpo.refs_so_em_eventos = refs_locais
+        .iter()
+        .filter(|n| !lido_na_deteccao(nos, n))
+        .cloned()
+        .collect();
     corpo.declarar_refs(refs_locais);
     corpo.refs_consultados = consultados_da_raiz;
     corpo.consultas_dinamicas = c
@@ -9045,6 +9180,8 @@ fn gerar_componente(
     consultados.sort_by_key(|(k, _)| *k);
     todos.extend(consultados.into_iter().map(|(_, c)| c));
     todos.extend(corpo.campos_el.clone());
+    todos.extend(corpo.campos_el_por_evento.clone());
+    todos.extend(corpo.campos_el_de_eventos.iter().map(|(_, c)| c.clone()));
     let campos = if todos.is_empty() {
         String::new()
     } else {
