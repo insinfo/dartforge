@@ -1151,7 +1151,7 @@ fn texto_do_tipo(arvore: &ast::Ast, fonte: &str, t: ast::TypeId) -> String {
 /// `lookUpGetter(n).variable`, e só um campo de verdade (`!isSynthetic`)
 /// `final`/`const` é imutável. Num getter escrito à mão a `variable` é
 /// sintética: **mutável**.
-fn tipos_dos_membros(
+pub(crate) fn tipos_dos_membros(
     arvore: &ast::Ast,
     fonte: &str,
     interner: &Interner,

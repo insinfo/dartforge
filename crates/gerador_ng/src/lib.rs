@@ -75,6 +75,10 @@ pub struct Hospedeira {
     /// `angular_compiler/analyzer/view/directive.dart`): acessores, depois
     /// métodos, depois campos — cada grupo em ordem de declaração.
     pub ligacoes: Vec<(String, String)>,
+    /// `style.x`: o tipo do membro como escrito (`String`, `int?`…), que
+    /// decide entre `toString()`, `?.toString()` e o valor direto
+    /// (`visitStyleBinding`).
+    pub tipos_de_estilo: std::collections::HashMap<String, String>,
     /// Alguma ligação fora do que sabemos traduzir.
     pub recusada: bool,
 }
@@ -82,9 +86,12 @@ pub struct Hospedeira {
 /// Lê os `@HostBinding` de uma classe `@Directive`; `None` se não há.
 fn hospedeira(
     arvore: &ast::Ast,
+    fonte: &str,
     interner: &Interner,
     classe: &ast::ClassDecl,
 ) -> Option<Hospedeira> {
+    let membros = componente::tipos_dos_membros(arvore, fonte, interner, classe);
+    let mut tipos_de_estilo = std::collections::HashMap::new();
     let mut acessores = Vec::new();
     let mut campos = Vec::new();
     let mut recusada = false;
@@ -112,13 +119,20 @@ fn hospedeira(
                 recusada = true;
                 continue;
             };
-            // `class.x`, `attr.x` e propriedade ([`visao::forma_do_hospedeiro`]);
-            // `style.x` depende do tipo do membro, que daqui não se lê.
-            let aceita = |n: &str| {
-                matches!(
-                    visao::forma_do_hospedeiro(n),
-                    Ok(f) if !matches!(f, visao::FormaDoHospedeiro::Estilo { .. })
-                )
+            // `class.x`, `attr.x`, propriedade e `style.x`
+            // ([`visao::forma_do_hospedeiro`]); o `style.x` pelo tipo escrito
+            // do campo (não `final`: o imutável seria escrito uma vez), como
+            // no componente.
+            let aceita = |n: &str, membro: &str, campo: bool| match visao::forma_do_hospedeiro(n) {
+                Ok(visao::FormaDoHospedeiro::Estilo { .. }) => {
+                    let tipo = membros.get(membro).map(|m| m.tipo.trim()).unwrap_or_default();
+                    let base = tipo.trim_end_matches('?');
+                    campo
+                        && !base.is_empty()
+                        && !matches!(base, "dynamic" | "var" | "Object" | "Never")
+                }
+                Ok(_) => true,
+                Err(_) => false,
             };
             match &membro.kind {
                 // Campo `final` é imutável e seria escrito uma vez, na
@@ -129,7 +143,10 @@ fn hospedeira(
                 {
                     let membro = interner.resolve(l.variables[0].name.sym).to_string();
                     let nome = nome.unwrap_or_else(|| membro.clone());
-                    recusada |= !aceita(&nome);
+                    recusada |= !aceita(&nome, &membro, true);
+                    if let Some(m) = membros.get(&membro) {
+                        tipos_de_estilo.insert(membro.clone(), m.tipo.trim().to_string());
+                    }
                     campos.push((nome, membro));
                 }
                 ast::MemberKind::Method(f) => {
@@ -138,7 +155,7 @@ fn hospedeira(
                         (ast::FunctionKind::Getter, Some(n)) if !funcao.static_ => {
                             let membro = interner.resolve(n.sym).to_string();
                             let nome = nome.unwrap_or_else(|| membro.clone());
-                            recusada |= !aceita(&nome);
+                            recusada |= !aceita(&nome, &membro, false);
                             acessores.push((nome, membro));
                         }
                         _ => recusada = true,
@@ -165,6 +182,7 @@ fn hospedeira(
     Some(Hospedeira {
         classe: interner.resolve(classe.name.sym).to_string(),
         ligacoes: acessores,
+        tipos_de_estilo,
         recusada,
     })
 }
@@ -247,7 +265,7 @@ pub fn achar(
                         achados.hospedeiro_herdado |= herda && anotada;
                         achados
                             .hospedeiras
-                            .extend(hospedeira(arvore, interner, classe));
+                            .extend(hospedeira(arvore, fonte, interner, classe));
                     }
                 }
                 "Pipe" => {
@@ -900,10 +918,12 @@ fn injetado(
         return Ok(visao::Injetado::Elemento);
     }
     if uri.starts_with("package:ngdart/") {
-        return if simples == "ChangeDetectorRef" && !p.opcional {
-            Ok(visao::Injetado::Detector)
-        } else {
-            Err("token do ngdart no construtor do filho")
+        return match simples.as_str() {
+            "ChangeDetectorRef" if !p.opcional => Ok(visao::Injetado::Detector),
+            // O nó ganha um `ViewContainer` (`requiresViewContainer`), que o
+            // filho recebe (caso j47).
+            "ViewContainerRef" => Ok(visao::Injetado::Container),
+            _ => Err("token do ngdart no construtor do filho"),
         };
     }
     if uri.starts_with("dart:") {
@@ -1147,33 +1167,41 @@ pub(crate) fn gerar_interno(
                 "@HostBinding/@HostListener em diretiva que herda",
             ));
         }
-        return match achados.hospedeiras.as_slice() {
-            [] => Ok((
+        if achados.hospedeiras.is_empty() {
+            return Ok((
                 template_trivial(nome_do_arquivo),
                 vec![fonte.to_path_buf()],
                 Vec::new(),
-            )),
-            // Uma diretiva só no arquivo: com mais de uma classe gerada a
-            // numeração dos imports passa a ser compartilhada, e isso ainda
-            // não tem caso no corpus.
-            [h] if !h.recusada && achados.diretivas.len() == 1 && achados.pipes.is_empty() => Ok((
-                visao::detector_de_diretiva(h, nome_do_arquivo),
-                vec![fonte.to_path_buf()],
-                Vec::new(),
-            )),
-            _ => Err(recusa(
+            ));
+        }
+        // As classes `XNgCd` na ordem do fonte, com a tabela de imports
+        // compartilhada; diretiva sem `@HostBinding` e pipe não geram nada.
+        if achados.hospedeiras.iter().any(|h| h.recusada) {
+            return Err(recusa(
                 Motivo::HostBindingEmDiretiva,
-                "@HostBinding fora de class.x/attr.x/propriedade ou várias diretivas no arquivo",
-            )),
-        };
+                "@HostBinding fora de class.x/attr.x/propriedade",
+            ));
+        }
+        let hs: Vec<&Hospedeira> = achados.hospedeiras.iter().collect();
+        return Ok((
+            visao::detector_de_diretivas(&hs, nome_do_arquivo),
+            vec![fonte.to_path_buf()],
+            Vec::new(),
+        ));
     }
     // Diretiva sem `@HostBinding`/`@HostListener` e pipe não geram nada no
-    // arquivo (caso j29): só a diretiva com classe `XNgCd` junto de
-    // componente divide a numeração dos imports — forma ainda sem caso.
-    if !achados.hospedeiras.is_empty() || achados.hospedeiro_herdado {
+    // arquivo (caso j29); a com `@HostBinding` ganha a classe `XNgCd` depois
+    // dos componentes (caso j45). Herdado, ainda sem caso.
+    if achados.hospedeiro_herdado {
         return Err(recusa(
             Motivo::DiretivaOuPipe,
-            "componente com diretiva de @HostBinding no arquivo",
+            "componente com diretiva de @HostBinding herdado no arquivo",
+        ));
+    }
+    if achados.hospedeiras.iter().any(|h| h.recusada) {
+        return Err(recusa(
+            Motivo::HostBindingEmDiretiva,
+            "@HostBinding fora de class.x/attr.x/propriedade",
         ));
     }
     // Vários componentes: a tabela de imports é uma só e os trechos saem na
@@ -1195,6 +1223,9 @@ pub(crate) fn gerar_interno(
         )?;
         trechos.push(trecho);
         entradas.extend(html);
+    }
+    for h in &achados.hospedeiras {
+        trechos.push(visao::classe_ngcd(h, nome_do_arquivo, &mut imp));
     }
     Ok((
         visao::montar_arquivo(nome_do_arquivo, &imp, &trechos),

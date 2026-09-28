@@ -2300,6 +2300,8 @@ pub enum Injetado {
     Elemento,
     /// `ChangeDetectorRef`: a visão do filho.
     Detector,
+    /// `ViewContainerRef`: o `ViewContainer` do nó do filho (`_appEl_n`).
+    Container,
     /// Serviço de fora da visão: `injectorGet` pela visão de cima
     /// (`injectFromViewParentInjector`), `injectorGetOptional` com
     /// `@Optional()`.
@@ -3504,9 +3506,18 @@ impl Corpo<'_> {
         let vd = self.imp.alias(&cam_dart);
         let classe = &filho.classe;
         let campo_vista = format!("_compView_{n}");
-        let campo_inst = format!("_{classe}_{n}_5");
+        // Filho que injeta `ViewContainerRef`: o nó ganha um `ViewContainer`
+        // (campo entre a visão e a instância) e três embutidos a mais, que
+        // levam a instância ao 8 (caso j47).
+        let container = filho.parametros.iter().any(|p| matches!(p, Injetado::Container));
+        let campo_inst = format!("_{classe}_{n}_{}", if container { 8 } else { 5 });
         self.campos_filho
             .push(format!("  late final {vt}View{classe}0 {campo_vista};"));
+        if container {
+            let vc = self.imp.q(VIEW_CONTAINER);
+            self.campos_filho
+                .push(format!("  late final {vc}ViewContainer _appEl_{n};"));
+        }
         self.campos_filho
             .push(format!("  late final {vd}.{classe} {campo_inst};"));
         self.vistas_filhas.push(campo_vista.clone());
@@ -3519,9 +3530,14 @@ impl Corpo<'_> {
         self.linhas.push(format!(
             "    final _el_{n} = this.{campo_vista}.rootElement;"
         ));
-        // Na raiz da visão embutida, ou projetado, o nó não tem pai aqui.
+        // Na raiz da visão embutida, ou projetado, o nó não tem pai aqui (com
+        // `ViewContainer`, a raiz é ele: `vcAppEl ?? renderNode`).
         if pai.is_empty() {
-            self.raizes.push(format!("_el_{n}"));
+            self.raizes.push(if container {
+                format!("this._appEl_{n}")
+            } else {
+                format!("_el_{n}")
+            });
         } else {
             self.linhas.push(format!("    {pai}.append(_el_{n});"));
         }
@@ -3547,6 +3563,21 @@ impl Corpo<'_> {
         }
         if self.com_estilo {
             self.linhas.push(format!("    this.addShimC(_el_{n});"));
+        }
+        // O `ViewContainer` nasce com o `CompileElement`, antes dos
+        // provedores; o segundo argumento é o pai (`null` na raiz).
+        if container {
+            let vc = self.imp.q(VIEW_CONTAINER);
+            let pai_indice = if pai.is_empty() {
+                self.pai_projetado
+                    .map_or_else(|| "null".to_string(), |k| k.to_string())
+            } else {
+                indice_do_elemento(pai)
+            };
+            self.linhas.push(format!(
+                "    this._appEl_{n} = {vc}ViewContainer({n}, {pai_indice}, this, _el_{n});"
+            ));
+            self.ancoras.push(format!("_appEl_{n}"));
         }
         let construcao = self.construcao_do_filho(filho, n, &vd, &campo_vista)?;
         self.linhas
@@ -3610,7 +3641,7 @@ impl Corpo<'_> {
                 provedores: &provedores,
                 incerto: self.incertos_acima > 0,
             };
-            let r = crate::diretivas::resolver_no_do_filho(casadas, n, Some(acima))
+            let r = crate::diretivas::resolver_no_do_filho(casadas, n, Some(acima), container)
                 .map_err(|f| recusa(Motivo::DiretivaPorSeletor, f))?;
             let Some(primeira) = r.instancias.first() else {
                 return Err(em_filho("nó do filho sem a instância do filho"));
@@ -3873,6 +3904,7 @@ impl Corpo<'_> {
             match p {
                 Injetado::Elemento => args.push(format!("_el_{n}")),
                 Injetado::Detector => args.push(format!("this.{campo_vista}")),
+                Injetado::Container => args.push(format!("this._appEl_{n}")),
                 Injetado::Servico {
                     uri,
                     classe: tipo,
@@ -3880,6 +3912,14 @@ impl Corpo<'_> {
                 } => {
                     if self.filhos_acima.iter().any(|(u, c)| u == uri && c == tipo) {
                         return Err(em_filho("filho que injeta um componente acima dele"));
+                    }
+                    // Embutido do elemento: o oficial o acha no nó, nunca no
+                    // injetor de fora (ainda sem caso no nó do filho).
+                    if crate::diretivas::embutido_do_elemento(&crate::diretivas::Token::Classe {
+                        uri: uri.clone(),
+                        classe: tipo.clone(),
+                    }) {
+                        return Err(em_filho("filho que injeta embutido do elemento (ViewContainerRef…)"));
                     }
                     // Um elemento acima provê o serviço: o oficial o leria
                     // de lá (`_getDependency`), não do injetor de fora.
@@ -5978,10 +6018,9 @@ impl Corpo<'_> {
                 (Criacao::Diretiva { diretiva, .. }, _)
                     if !diretiva.ligacoes_do_hospedeiro.is_empty() =>
                 {
-                    let tpl = diretiva.uri.replace(".dart", ".template.dart");
                     format!(
                         "{}{}NgCd",
-                        self.imp.q(&import_de(&tpl, &self.asset)),
+                        prefixo_do_ngcd(self.imp, &diretiva.uri, &self.asset),
                         diretiva.classe
                     )
                 }
@@ -6012,8 +6051,7 @@ impl Corpo<'_> {
                     let cd = if diretiva.ligacoes_do_hospedeiro.is_empty() {
                         None
                     } else {
-                        let tpl = diretiva.uri.replace(".dart", ".template.dart");
-                        Some(self.imp.q(&import_de(&tpl, &self.asset)))
+                        Some(prefixo_do_ngcd(self.imp, &diretiva.uri, &self.asset))
                     };
                     // Dependência do injetor de fora: a criação vai
                     // embrulhada em `debugInjectorWrap` sob `isDevMode`, e o
@@ -6194,10 +6232,15 @@ impl Corpo<'_> {
 /// Com `@HostBinding` (`hospedeiro`), o `detectHostChanges(firstCheck)` da
 /// visão do componente vem logo antes do `detectChanges` dela, depois dos
 /// ganchos de conteúdo (caso j32).
-fn ciclo_de_vida(g: &crate::componente::Ganchos, marca: bool, hospedeiro: bool) -> String {
+fn ciclo_de_vida(
+    g: &crate::componente::Ganchos,
+    marca: bool,
+    hospedeiro: bool,
+    aninhadas: bool,
+) -> String {
     let dbg = tardio(CHECK_BINDING);
     let mut s = String::new();
-    if g.tem_deteccao() || marca || hospedeiro {
+    if g.tem_deteccao() || marca || hospedeiro || aninhadas {
         s.push_str(
             "
   @override
@@ -6231,6 +6274,12 @@ fn ciclo_de_vida(g: &crate::componente::Ganchos, marca: bool, hospedeiro: bool) 
     }}
 "
             ));
+        }
+        // O `ViewContainer` do elemento hospedeiro (componente que injeta
+        // `ViewContainerRef`): depois de `ngOnInit`/`ngDoCheck`, antes dos
+        // ganchos de conteúdo (caso j47).
+        if aninhadas {
+            s.push_str("    this._appEl_0.detectChangesInNestedViews();\n");
         }
         if g.after_content_init || g.after_content_checked {
             s.push_str(&format!(
@@ -6292,15 +6341,15 @@ fn ciclo_de_vida(g: &crate::componente::Ganchos, marca: bool, hospedeiro: bool) 
 ",
         );
     }
-    if g.on_destroy {
-        s.push_str(
-            "
-  @override
-  void destroyInternal() {
-    this.component.ngOnDestroy();
-  }
-",
-        );
+    if g.on_destroy || aninhadas {
+        s.push_str("\n  @override\n  void destroyInternal() {\n");
+        if aninhadas {
+            s.push_str("    this._appEl_0.destroyNestedViews();\n");
+        }
+        if g.on_destroy {
+            s.push_str("    this.component.ngOnDestroy();\n");
+        }
+        s.push_str("  }\n");
     }
     s
 }
@@ -6636,7 +6685,8 @@ fn campos_em_ordem<'a>(
                 so_provedores.dependencias.clear();
                 let mut casadas = vec![std::sync::Arc::new(so_provedores)];
                 casadas.extend(extras);
-                if let Ok(r) = crate::diretivas::resolver_no_do_filho(&casadas, 0, None) {
+                let container = f.parametros.iter().any(|p| matches!(p, Injetado::Container));
+                if let Ok(r) = crate::diretivas::resolver_no_do_filho(&casadas, 0, None, container) {
                     separar(&r.instancias[1..], &mut saida);
                 }
             }
@@ -6667,7 +6717,12 @@ fn uri_do_campo(i: &crate::diretivas::Instancia, asset: &str) -> String {
         (Criacao::Diretiva { diretiva, .. }, _)
             if !diretiva.ligacoes_do_hospedeiro.is_empty() && !diretiva.e_componente =>
         {
-            diretiva.uri.replace(".dart", ".template.dart")
+            let tpl = import_de(&diretiva.uri.replace(".dart", ".template.dart"), asset);
+            // O `XNgCd` declarado neste mesmo arquivo não tem import (j45).
+            if e_o_proprio_template(asset, &tpl) {
+                return String::new();
+            }
+            return tardio(&tpl);
         }
         (Criacao::Diretiva { diretiva, .. }, _) => diretiva.uri.clone(),
         (_, Token::Multi { tipo, .. }) => tipo.uri.clone(),
@@ -7378,7 +7433,12 @@ fn alocar_imports_dos_campos(
         match campo {
             CampoDaVisao::Preguicosos(_) => {}
             CampoDaVisao::Filho(f) => {
-                for uri in [&f.uri_template, &f.uri_dart] {
+                for (k, uri) in [&f.uri_template, &f.uri_dart].into_iter().enumerate() {
+                    // O `ViewContainer` do nó (filho que injeta
+                    // `ViewContainerRef`) entre a visão e a instância.
+                    if k == 1 && f.parametros.iter().any(|p| matches!(p, Injetado::Container)) {
+                        imp.alias(VIEW_CONTAINER);
+                    }
                     let alvo = asset_de_uri(uri, "", Path::new("")).ok_or_else(sem_caminho)?;
                     let caminho = caminho_do_import(asset, &alvo).ok_or_else(sem_caminho)?;
                     if !e_o_proprio_template(asset, &caminho) {
@@ -7925,18 +7985,29 @@ pub(crate) fn literal(t: &str) -> String {
     s
 }
 
-/// O arquivo de uma `@Directive` com `@HostBinding`: a classe `XNgCd`, que o
-/// oficial gera para tirar de cada ponto de uso a detecção das ligações do
-/// hospedeiro (emissão em `directive_compiler.dart`, ligações por
-/// `bindAndWriteToRenderer` com `isHtmlElement` falso — daí o
-/// `updateClassBindingNonHtml`). O `checkBinding` leva `null, null` porque a
-/// ligação de hospedeiro não tem texto de template.
-pub fn detector_de_diretiva(h: &crate::Hospedeira, arquivo: &str) -> String {
+/// O `.template.dart` de um arquivo só de diretivas com `@HostBinding`: as
+/// classes `XNgCd` na ordem do fonte, com a tabela de imports compartilhada
+/// ([`classe_ngcd`]).
+pub fn detector_de_diretivas(hs: &[&crate::Hospedeira], arquivo: &str) -> String {
     let mut imp = Importacoes::default();
-    // A ordem dos imports é a da escrita da classe: a superclasse, o campo
-    // `instance`, os parâmetros de `detectHostChanges` e, no corpo,
-    // `checkBinding` e, pela ação de cada ligação, o `dom_helpers` (e o
-    // saneador, quando há).
+    let classes: Vec<String> = hs.iter().map(|h| classe_ngcd(h, arquivo, &mut imp)).collect();
+    let mut s = String::with_capacity(1024 * classes.len().max(1));
+    s.push_str(crate::CABECALHO);
+    let _ = writeln!(s, "import '{arquivo}';");
+    imp.escrever(&mut s);
+    for c in &classes {
+        s.push_str(c);
+    }
+    s
+}
+
+/// A classe `XNgCd` de uma diretiva com `@HostBinding`
+/// (`DirectiveChangeDetector`), com os imports alocados em `imp` na ordem
+/// da escrita: a superclasse, o campo `instance`, os parâmetros de
+/// `detectHostChanges` e, no corpo, `checkBinding` e, pela ação de cada
+/// ligação, o `dom_helpers` (e o saneador, quando há). Num arquivo com
+/// componente, ela sai depois dos trechos dos componentes (caso j45).
+pub fn classe_ngcd(h: &crate::Hospedeira, arquivo: &str, imp: &mut Importacoes) -> String {
     let cd = imp.alias(DIRECTIVE_CHANGE_DETECTOR);
     let proprio = imp.alias(arquivo);
     let rv = imp.alias(RENDER_VIEW);
@@ -7947,25 +8018,24 @@ pub fn detector_de_diretiva(h: &crate::Hospedeira, arquivo: &str) -> String {
     let mut corpo = String::new();
     for (k, (nome, membro)) in h.ligacoes.iter().enumerate() {
         // `hospedeira` (lib.rs) só deixa passar as formas conhecidas.
-        let Ok(forma) = forma_do_hospedeiro(nome) else {
+        let Ok(mut forma) = forma_do_hospedeiro(nome) else {
             continue;
         };
-        let acao = resolver_tardios(&mut imp, &forma.acao("el", &format!("currVal_{k}")));
+        if let FormaDoHospedeiro::Estilo { texto, nulo, .. } = &mut forma {
+            let tipo = h.tipos_de_estilo.get(membro).map(String::as_str).unwrap_or_default();
+            *texto = tipo.trim_end_matches('?') == "String";
+            *nulo = tipo.ends_with('?');
+        }
+        let acao = resolver_tardios(imp, &forma.acao("el", &format!("currVal_{k}")));
         let _ = writeln!(campos, "  Object? _expr_{k};");
         let _ = write!(
             corpo,
             "    final currVal_{k} = this.instance.{membro};\n    if ({chk}.checkBinding(this._expr_{k}, currVal_{k}, null, null)) {{\n      {acao};\n      this._expr_{k} = currVal_{k};\n    }}\n"
         );
     }
-    let mut s = String::with_capacity(1024);
-    s.push_str(crate::CABECALHO);
-    let _ = writeln!(s, "import '{arquivo}';");
-    imp.escrever(&mut s);
-    let _ = write!(
-        s,
+    format!(
         "\nclass {x}NgCd extends {cd}.DirectiveChangeDetector {{\n  final {proprio}.{x} instance;\n{campos}  {x}NgCd(this.instance);\n  void detectHostChanges({rv}.RenderView view, {html}.Element el) {{\n{corpo}  }}\n}}\n"
-    );
-    s
+    )
 }
 
 /// Gera o trecho de um componente no `.template.dart` — do `styles$X` à
@@ -8943,14 +9013,31 @@ fn gerar_componente(
         },
         None => None,
     };
-    let campos_hosp = provedores
-        .as_ref()
-        .map(|p| resolver_tardios(imp, &p.campos))
-        .unwrap_or_default();
-    let antes_do_componente = provedores
-        .as_ref()
-        .map(|p| resolver_tardios(imp, &p.antes_do_componente))
-        .unwrap_or_default();
+    // `ViewContainerRef` no construtor: o elemento hospedeiro ganha um
+    // `ViewContainer`, criado no `CompileElement` antes dos provedores (o
+    // campo e o import vêm primeiro) e passado ao componente (caso j47).
+    let container = c.parametros.iter().any(|p| e_container(p, local, resolvedor));
+    let mut campos_hosp = String::new();
+    let mut antes_do_componente = String::new();
+    if container {
+        let vc = imp.q(VIEW_CONTAINER);
+        campos_hosp.push_str(&format!("  late final {vc}ViewContainer _appEl_0;\n"));
+        antes_do_componente
+            .push_str(&format!("    this._appEl_0 = {vc}ViewContainer(0, null, this, _el_0);\n"));
+    }
+    campos_hosp.push_str(
+        &provedores
+            .as_ref()
+            .map(|p| resolver_tardios(imp, &p.campos))
+            .unwrap_or_default(),
+    );
+    antes_do_componente.push_str(
+        &provedores
+            .as_ref()
+            .map(|p| resolver_tardios(imp, &p.antes_do_componente))
+            .unwrap_or_default(),
+    );
+    let raiz_hosp = if container { "this._appEl_0" } else { "_el_0" };
     let locais: Vec<(crate::diretivas::Token, String)> = no_hospedeiro
         .iter()
         .flat_map(|r| &r.instancias)
@@ -8997,7 +9084,7 @@ fn gerar_componente(
     // detectar a visão do componente (`ciclo_de_vida`).
     let ciclo = resolver_tardios(
         imp,
-        &ciclo_de_vida(&c.ganchos, marca, !do_hospedeiro.is_empty()),
+        &ciclo_de_vida(&c.ganchos, marca, !do_hospedeiro.is_empty(), container),
     );
 
     let x = &c.classe;
@@ -9081,7 +9168,7 @@ class _View{x}Host0 extends {hosp}.HostView<{proprio}.{x}> {{
     this.componentView = View{x}0(this, 0);
     final _el_0 = this.componentView.rootElement;
 {antes_do_componente}    this.component = {construcao}
-{consultas_hosp}    this.initRootNode(_el_0);
+{consultas_hosp}    this.initRootNode({raiz_hosp});
   }}
 {injetor_hosp}{ciclo}}}
 
@@ -9518,7 +9605,10 @@ fn construcao_do_componente(
             .map(|(_, c)| format!("this.{c}"))
     };
     let injeta = c.parametros.iter().any(|p| {
-        !e_elemento(p.tipo.as_deref()) && !e_detector(p, local, resolvedor) && do_no(p).is_none()
+        !e_elemento(p.tipo.as_deref())
+            && !e_detector(p, local, resolvedor)
+            && !e_container(p, local, resolvedor)
+            && do_no(p).is_none()
     });
     // O `errors.dart` entra antes dos tipos injetados, como no oficial.
     let erros = injeta.then(|| imp.alias(DI_ERRORS));
@@ -9531,6 +9621,11 @@ fn construcao_do_componente(
         // `ChangeDetectorRef`: a visão do componente.
         if e_detector(p, local, resolvedor) {
             args.push("this.componentView".to_string());
+            continue;
+        }
+        // `ViewContainerRef`: o `ViewContainer` do elemento hospedeiro.
+        if e_container(p, local, resolvedor) {
+            args.push("this._appEl_0".to_string());
             continue;
         }
         if !p.nomeado
@@ -9549,6 +9644,14 @@ fn construcao_do_componente(
         }
         let simples = tipo.rsplit('.').next()?;
         let uri = resolvedor?.uri_do_tipo(local.caminho, tipo)?;
+        // Outro embutido do elemento hospedeiro (`ElementRef`,
+        // `TemplateRef`…): não vem do injetor; ainda sem caso.
+        if crate::diretivas::embutido_do_elemento(&crate::diretivas::Token::Classe {
+            uri: uri.clone(),
+            classe: simples.to_string(),
+        }) {
+            return None;
+        }
         let asset = asset_de_uri(&uri, local.pacote, local.raiz)?;
         let caminho = caminho_do_import(&local.asset(), &asset)?;
         let alias = imp.alias(&caminho);
@@ -9587,6 +9690,22 @@ fn e_detector(
     };
     !p.anotado
         && tipo.rsplit('.').next() == Some("ChangeDetectorRef")
+        && resolvedor
+            .and_then(|r| r.uri_do_tipo(local.caminho, tipo))
+            .is_some_and(|u| u.starts_with("package:ngdart/"))
+}
+
+/// O parâmetro é o `ViewContainerRef` do ngdart (sem anotação)?
+fn e_container(
+    p: &crate::componente::Parametro,
+    local: &Local,
+    resolvedor: Option<&dyn Resolucao>,
+) -> bool {
+    let Some(tipo) = p.tipo.as_deref() else {
+        return false;
+    };
+    !p.anotado
+        && tipo.rsplit('.').next() == Some("ViewContainerRef")
         && resolvedor
             .and_then(|r| r.uri_do_tipo(local.caminho, tipo))
             .is_some_and(|u| u.starts_with("package:ngdart/"))
@@ -9928,6 +10047,18 @@ mod testes {
 
 /// `caminho` (visto de `asset`) é o `.template.dart` do próprio arquivo — o
 /// de um filho declarado ao lado, cuja visão não leva prefixo.
+/// O prefixo do `XNgCd` de uma diretiva com `@HostBinding`: o import do
+/// `.template.dart` dela, ou nada quando a classe é deste mesmo arquivo
+/// (caso j45).
+fn prefixo_do_ngcd(imp: &mut Importacoes, uri: &str, asset: &str) -> String {
+    let tpl = import_de(&uri.replace(".dart", ".template.dart"), asset);
+    if e_o_proprio_template(asset, &tpl) {
+        String::new()
+    } else {
+        imp.q(&tpl)
+    }
+}
+
 fn e_o_proprio_template(asset: &str, caminho: &str) -> bool {
     let nome = asset.rsplit('/').next().unwrap_or(asset);
     nome.strip_suffix(".dart")

@@ -256,3 +256,7 @@ export 'src/j41_injecao_no_conteudo.dart';
 export 'src/j42_atributo_injetado.dart';
 export 'src/j43_projecao_em_embutida.dart';
 export 'src/j44_varios_com_folha.dart';
+export 'src/j45_componente_e_ngcd.dart';
+export 'src/j46_varias_ngcd.dart';
+export 'src/j47_container_no_hospedeiro.dart';
+export 'src/j48_usa_container.dart';

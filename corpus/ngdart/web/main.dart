@@ -234,6 +234,9 @@ import 'package:corpus_ngdart/src/j41_injecao_no_conteudo.template.dart' as j41;
 import 'package:corpus_ngdart/src/j42_atributo_injetado.template.dart' as j42;
 import 'package:corpus_ngdart/src/j43_projecao_em_embutida.template.dart' as j43;
 import 'package:corpus_ngdart/src/j44_varios_com_folha.template.dart' as j44;
+import 'package:corpus_ngdart/src/j45_componente_e_ngcd.template.dart' as j45;
+import 'package:corpus_ngdart/src/j47_container_no_hospedeiro.template.dart' as j47;
+import 'package:corpus_ngdart/src/j48_usa_container.template.dart' as j48;
 
 void main() {
   print([
@@ -470,5 +473,9 @@ void main() {
     j42.J42AtributoInjetadoNgFactory,
     j43.J43ProjecaoEmEmbutidaNgFactory,
     j44.J44TerceiroNgFactory,
+    j45.J45ComponenteENgcdNgFactory,
+    j47.J47CompletoNgFactory,
+    j47.J47UsaNgFactory,
+    j48.J48UsaContainerNgFactory,
   ].length);
 }

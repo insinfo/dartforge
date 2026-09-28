@@ -410,9 +410,19 @@ decodificar entidades, ou `null` — caso j42; o índice do `<ng-content>` é o
 ordinal no template inteiro, também dentro de visões embutidas — caso j43;
 vários componentes com folha no mesmo arquivo e várias folhas em
 `styleUrls` (cada import alocado quando a lista `styles$X` é escrita, o
-repetido reaproveitado) — caso j44. Corpus: 271 conferidos.
-limitless_ui/example (Linux, `build --comparar`): **901 iguais / 49
-pendentes / 0 diferentes** — `.template.dart` 485/47/0, `.css` e `.css.map` do Sass 102/102 cada,
+repetido reaproveitado) — caso j44; diretiva com `@HostBinding` no arquivo
+de componente (as classes `XNgCd` depois dos componentes, citadas sem
+prefixo) e várias no arquivo só de diretivas, com `style.x` pelo tipo
+escrito do campo — casos j45, j46; componente que injeta
+`ViewContainerRef`: na hospedeira e no nó de quem o usa, o `ViewContainer`
+nasce com o elemento (campo entre a visão e a instância, três embutidos a
+mais que levam a instância ao `_8`, `detectChangesInNestedViews` depois de
+`ngOnInit`/`ngDoCheck`, raiz e projeção pelo `_appEl_n`) — casos j47, j48.
+Embutido do elemento (`ElementRef`, `ViewContainerRef`, `TemplateRef`…)
+pedido por diretiva de elemento comum continua recusado, nunca do injetor
+de fora. Corpus: 275 conferidos. limitless_ui/example (Linux,
+`build --comparar`): **907 iguais / 43 pendentes / 0 diferentes** —
+`.template.dart` 491/41/0, `.css` e `.css.map` do Sass 102/102 cada,
 `.css.dart` e `.css.shim.dart` 104 cada.
 
 ### Diretivas estruturais

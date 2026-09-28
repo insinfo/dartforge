@@ -509,12 +509,18 @@ pub fn resolver_hospedeira(componente: Arc<Diretiva>) -> Result<NoResolvido, &'s
 /// uma dependência que o nó não satisfaz iria para os elementos acima ou
 /// para o injetor de fora (`parentView.injectorGet`): ainda sem caso, é
 /// recusada.
+///
+/// `container`: o filho injeta `ViewContainerRef` e o nó ganha um
+/// `ViewContainer`, com mais três embutidos (`ViewContainer`,
+/// `ViewContainerRef`, `ComponentLoader`) antes dos provedores (caso j47).
 pub fn resolver_no_do_filho(
     casadas: &[Arc<Diretiva>],
     n: u32,
     acima: Option<Acima>,
+    container: bool,
 ) -> Result<NoResolvido, &'static str> {
-    let r = resolver_com(casadas, n, acima, false, casadas.len().min(1))?;
+    let base = if container { 8 } else { 5 };
+    let r = resolver_com(casadas, n, acima, false, casadas.len().min(1), base)?;
     for i in &r.instancias {
         let depende_de_fora = match &i.criacao {
             Criacao::Expressao(e) => fora_do_no_de_filho(e),
@@ -551,6 +557,7 @@ fn resolver_em(
         acima,
         hospedeira,
         if hospedeira { casadas.len() } else { 0 },
+        5,
     )
 }
 
@@ -563,6 +570,7 @@ fn resolver_com(
     acima: Option<Acima>,
     hospedeira: bool,
     completas: usize,
+    base: usize,
 ) -> Result<NoResolvido, &'static str> {
     // `_ProviderResolver.resolve`: as diretivas (ansiosas), depois os
     // `providers:` de cada uma; o mesmo token multi acumula.
@@ -675,7 +683,7 @@ fn resolver_com(
 
     // `addDirectiveProviders`: o `uniqueId` é o tamanho da tabela, que já
     // tem as cinco embutidas do elemento.
-    let mut tamanho = 5usize;
+    let mut tamanho = base;
     let mut campos: Vec<(Token, String)> = Vec::new();
     let mut apelidos: Vec<(Token, Token)> = Vec::new();
     let mut saida = NoResolvido::default();
@@ -865,6 +873,19 @@ fn resolver_com(
     Ok(saida)
 }
 
+/// Os provedores embutidos de um elemento além de `Element`/`HtmlElement`,
+/// `Injector` e `ChangeDetectorRef` (`CompileElement`): `ElementRef`, e com
+/// `ViewContainer` também `ViewContainer`, `ViewContainerRef`,
+/// `ComponentLoader` e `TemplateRef`.
+pub fn embutido_do_elemento(t: &Token) -> bool {
+    matches!(t, Token::Classe { uri, classe }
+        if uri.starts_with("package:ngdart/")
+            && matches!(
+                classe.as_str(),
+                "ElementRef" | "ViewContainerRef" | "ViewContainer" | "ComponentLoader" | "TemplateRef"
+            ))
+}
+
 /// Uma dependência que o próprio nó não satisfaz (`_getDependency`):
 /// `@Self` para no nó; senão sobe pelos elementos acima (`@Host` até o
 /// hospedeiro, que aqui é a raiz da visão do componente). Sem resultado e
@@ -880,6 +901,13 @@ fn fora_do_no(dep: &Dependencia, acima: Option<Acima>) -> Result<Argumento, &'st
         && let Some(p) = acima.provedores.iter().find(|p| p.token == dep.token)
     {
         return Ok(Argumento::Acima(p.leitura.clone()));
+    }
+    // Um embutido do elemento (`ElementRef`, `ViewContainerRef`,
+    // `TemplateRef`…) nunca é nulo nem vem do injetor de fora: o oficial o
+    // acha no próprio nó ou num de cima (`CompileElement`), forma ainda sem
+    // caso.
+    if embutido_do_elemento(&dep.token) {
+        return Err("dependência de embutido do elemento (ElementRef/ViewContainerRef/TemplateRef)");
     }
     match (dep.opcional, dep.proprio, dep.hospedeiro) {
         (true, true, _) => Ok(Argumento::Nulo),
