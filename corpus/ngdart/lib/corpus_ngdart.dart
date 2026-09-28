@@ -306,3 +306,4 @@ export 'src/j89_consultas_na_mesma_embutida.dart';
 export 'src/j90_leitura_de_provedor.dart';
 export 'src/j91_filho_com_inject.dart';
 export 'src/j92_filho_com_ligacoes_do_elemento.dart';
+export 'src/j93_ouvinte_no_filho.dart';

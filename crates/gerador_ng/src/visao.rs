@@ -4187,7 +4187,12 @@ impl Corpo<'_> {
             .retain(|l| !consome_saida(&extras, &l.nome));
         // `bindRenderOutputs` (os eventos do elemento) antes das saídas das
         // diretivas, que seguem a ordem delas.
-        self.eventos_do_elemento_do_filho(&sem_as_da_diretiva, filho, &el)?;
+        self.eventos_do_elemento_do_filho(
+            &sem_as_da_diretiva,
+            filho,
+            &el,
+            resolvido.as_ref().map(|(r, _)| (extras.as_slice(), r)),
+        )?;
         if let Some((r, _)) = &resolvido {
             self.ligar_diretivas(
                 e,
@@ -5069,6 +5074,75 @@ impl Corpo<'_> {
         Ok(())
     }
 
+    /// Os ouvintes de um nó com diretivas: os eventos do template, com o
+    /// `@HostListener` do mesmo evento no handler deles (`mergeEvents`), e
+    /// depois os `@HostListener` das diretivas (`_visitHostListeners`),
+    /// agrupados por evento.
+    fn ouvintes_com_hospedeiro(
+        &mut self,
+        do_no: &crate::html::Elemento,
+        casadas: &[std::sync::Arc<crate::diretivas::Diretiva>],
+        r: &crate::diretivas::NoResolvido,
+        alvo: &str,
+    ) -> Result<(), Recusa> {
+        // Os `@HostListener` na ordem das diretivas em `directives:`
+        // (`_collectHostListeners`), agrupados por evento na ordem em
+        // que cada um aparece primeiro: dois ouvintes do mesmo evento
+        // viram um `_handleEvent_N` que chama os dois.
+        let mut grupos: Vec<(String, Vec<(String, crate::diretivas::Ouvinte)>)> = Vec::new();
+        for d in casadas {
+            let Some((_, campo)) = r
+                .diretivas
+                .iter()
+                .find(|(x, _)| std::sync::Arc::ptr_eq(x, d))
+            else {
+                continue;
+            };
+            for o in &d.ouvintes {
+                match grupos.iter_mut().find(|(ev, _)| *ev == o.evento) {
+                    Some((_, l)) => l.push((campo.clone(), o.clone())),
+                    None => grupos.push((o.evento.clone(), vec![(campo.clone(), o.clone())])),
+                }
+            }
+        }
+        // Os eventos do template vêm antes, e o `@HostListener` do mesmo
+        // evento entra no handler dele, depois da ação escrita
+        // (`mergeEvents` sobre as saídas do elemento, caso j70).
+        let mut do_template: Vec<&str> = Vec::new();
+        for l in &do_no.eventos {
+            if do_template.contains(&l.nome.as_str()) {
+                return Err(recusa(
+                    Motivo::Evento,
+                    "dois handlers do mesmo evento no template",
+                ));
+            }
+            do_template.push(&l.nome);
+        }
+        for l in &do_no.eventos {
+            let extras: Vec<String> = grupos
+                .iter()
+                .filter(|(ev, _)| *ev == l.nome)
+                .flat_map(|(_, lista)| lista)
+                .map(|(campo, o)| format!("this.{campo}.{}({})", o.metodo, o.args))
+                .collect();
+            match self.handler_com(&[&l.valor], &extras) {
+                Ok(h) => self.ouvinte(&l.nome, alvo, &h),
+                Err(r) => self.anotar(r)?,
+            }
+        }
+        for (evento, lista) in &grupos {
+            if do_template.contains(&evento.as_str()) {
+                continue;
+            }
+            let h = match lista.as_slice() {
+                [(campo, o)] => self.handler_de_hospedeiro(campo, o),
+                varios => self.handler_de_grupo(varios),
+            };
+            self.ouvinte(evento, alvo, &h);
+        }
+        Ok(())
+    }
+
     /// Os eventos escritos no elemento do filho que não casam um `@Output`
     /// dele: eventos do elemento (`bindRenderOutputs`), antes das saídas
     /// das diretivas do nó ([`Self::saidas_do_filho`]).
@@ -5077,12 +5151,22 @@ impl Corpo<'_> {
         e: &crate::html::Elemento,
         filho: &Filho,
         el: &str,
+        diretivas: Option<(
+            &[std::sync::Arc<crate::diretivas::Diretiva>],
+            &crate::diretivas::NoResolvido,
+        )>,
     ) -> Result<(), Recusa> {
         let mut do_elemento = e.clone();
         do_elemento
             .eventos
             .retain(|l| filho.saida(&l.nome).is_none());
-        self.eventos(&do_elemento, el)
+        // Com diretivas no nó, os `@HostListener` delas (caso j93).
+        match diretivas {
+            Some((casadas, r)) if casadas.iter().any(|d| !d.ouvintes.is_empty()) => {
+                self.ouvintes_com_hospedeiro(&do_elemento, casadas, r, el)
+            }
+            _ => self.eventos(&do_elemento, el),
+        }
     }
 
     /// As `@Output` do filho ligadas no template: `subscription_N`
@@ -5907,10 +5991,7 @@ impl Corpo<'_> {
             // `@HostListener`: os ouvintes de diretiva ali ainda não saem.
             let pendencia = match &u.diretiva {
                 None => Some("sem metadados".to_string()),
-                Some(d) => d.pendencia().or_else(|| {
-                    (filho.is_some() && !d.ouvintes.is_empty())
-                        .then(|| "@HostListener no elemento de um componente".to_string())
-                }),
+                Some(d) => d.pendencia(),
             };
             if let Some(p) = pendencia {
                 return Err(recusa(
@@ -6747,61 +6828,7 @@ impl Corpo<'_> {
             .cloned()
             .collect();
         if let Some(r) = &resolvido {
-            // Os `@HostListener` na ordem das diretivas em `directives:`
-            // (`_collectHostListeners`), agrupados por evento na ordem em
-            // que cada um aparece primeiro: dois ouvintes do mesmo evento
-            // viram um `_handleEvent_N` que chama os dois.
-            let mut grupos: Vec<(String, Vec<(String, crate::diretivas::Ouvinte)>)> = Vec::new();
-            for d in &casadas {
-                let Some((_, campo)) = r
-                    .diretivas
-                    .iter()
-                    .find(|(x, _)| std::sync::Arc::ptr_eq(x, d))
-                else {
-                    continue;
-                };
-                for o in &d.ouvintes {
-                    match grupos.iter_mut().find(|(ev, _)| *ev == o.evento) {
-                        Some((_, l)) => l.push((campo.clone(), o.clone())),
-                        None => grupos.push((o.evento.clone(), vec![(campo.clone(), o.clone())])),
-                    }
-                }
-            }
-            // Os eventos do template vêm antes, e o `@HostListener` do mesmo
-            // evento entra no handler dele, depois da ação escrita
-            // (`mergeEvents` sobre as saídas do elemento, caso j70).
-            let mut do_template: Vec<&str> = Vec::new();
-            for l in &do_no.eventos {
-                if do_template.contains(&l.nome.as_str()) {
-                    return Err(recusa(
-                        Motivo::Evento,
-                        "dois handlers do mesmo evento no template",
-                    ));
-                }
-                do_template.push(&l.nome);
-            }
-            for l in &do_no.eventos {
-                let extras: Vec<String> = grupos
-                    .iter()
-                    .filter(|(ev, _)| *ev == l.nome)
-                    .flat_map(|(_, lista)| lista)
-                    .map(|(campo, o)| format!("this.{campo}.{}({})", o.metodo, o.args))
-                    .collect();
-                match self.handler_com(&[&l.valor], &extras) {
-                    Ok(h) => self.ouvinte(&l.nome, &alvo, &h),
-                    Err(r) => self.anotar(r)?,
-                }
-            }
-            for (evento, lista) in &grupos {
-                if do_template.contains(&evento.as_str()) {
-                    continue;
-                }
-                let h = match lista.as_slice() {
-                    [(campo, o)] => self.handler_de_hospedeiro(campo, o),
-                    varios => self.handler_de_grupo(varios),
-                };
-                self.ouvinte(evento, &alvo, &h);
-            }
+            self.ouvintes_com_hospedeiro(&do_no, &casadas, r, &alvo)?;
         } else {
             self.eventos(&do_no, &alvo)?;
         }
