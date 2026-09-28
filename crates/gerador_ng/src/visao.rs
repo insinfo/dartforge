@@ -3707,8 +3707,7 @@ impl Corpo<'_> {
     ///
     /// Regras de `_UpdateStatementsVisitor` (`update_statement_visitor.dart`)
     /// e de `createElementPropertyAst` (`template_parser.dart`). O que muda a
-    /// forma e ainda não tem caso no corpus é recusado: `[attr.x.if]`,
-    /// namespace, `[style.x.unidade]`, estilo de valor que não é `String`
+    /// forma e ainda não tem caso no corpus é recusado: `[style.x.unidade]`, estilo de valor que não é `String`
     /// (sairia `.toString()`), propriedade renomeada pelo esquema
     /// (`readonly` → `readOnly`, `tabindex`) e propriedade ou atributo com
     /// contexto de segurança (`href`, `src`, `innerHtml`…), que ganham o
@@ -3747,37 +3746,81 @@ impl Corpo<'_> {
                 };
                 format!("{dom}.{metodo}({alvo}, '{classe}', {valor})")
             } else if let Some(attr) = l.nome.strip_prefix("attr.") {
-                if attr.contains('.') || attr.contains(':') {
-                    return Err(recusa(
-                        Motivo::Ligacao,
-                        "[attr.x.if] ou atributo com namespace",
-                    ));
+                // `attr.x.if`: atributo condicional; `attr.ns:x`: com
+                // namespace (`template_parser.dart:73-99`). Outra unidade é
+                // erro no oficial.
+                let (attr, unidade) = match attr.split_once('.') {
+                    Some((a, u)) => (a, Some(u.split('.').next().unwrap_or(u))),
+                    None => (attr, None),
+                };
+                let condicional = match unidade {
+                    None => false,
+                    Some("if") => true,
+                    Some(_) => {
+                        return Err(recusa(Motivo::Ligacao, "[attr.x.unidade] inválido"));
+                    }
+                };
+                if condicional && attr == "class" {
+                    return Err(recusa(Motivo::Ligacao, "class.if (erro no oficial)"));
                 }
+                // O prefixo vira a URI de `namespaceUris`
+                // (`view_compiler_utils.dart:21-25`); fora dela, `null`, e o
+                // atributo sai sem namespace (`ir/model.dart:396`).
+                let (espaco, attr) = match attr.split_once(':') {
+                    Some((ns, a)) => (
+                        match ns {
+                            "xlink" => Some("http://www.w3.org/1999/xlink"),
+                            "svg" => Some("http://www.w3.org/2000/svg"),
+                            "xhtml" => Some("http://www.w3.org/1999/xhtml"),
+                            _ => None,
+                        },
+                        a,
+                    ),
+                    None => (None, attr),
+                };
                 // Com contexto de segurança o valor passa pelo saneador do
                 // contexto, achado pelo nome de propriedade mapeado
                 // (`securityContext(tag, getMappedPropName(x))` em
                 // `createElementPropertyAst`); o atributo escrito fica como está.
-                let saneado = match saneador(
+                let saneador_do_attr = saneador(
                     &self.tag_atual.to_ascii_lowercase(),
                     propriedade_mapeada(attr),
-                ) {
+                );
+                if saneador_do_attr.is_some() && (condicional || espaco.is_some()) {
+                    return Err(recusa(
+                        Motivo::Ligacao,
+                        "[attr.x.if] ou atributo com namespace saneado",
+                    ));
+                }
+                let saneado = match saneador_do_attr {
                     Some(f) => {
                         let s = tardio(SAFE_HTML);
                         format!("{s}.{f}({valor})")
                     }
                     None => valor.to_string(),
                 };
+                // Condicional: `(v ? '' : null)`, sempre `updateAttribute`
+                // (`visitAttributeBinding`, b/171226440).
+                let saneado = if condicional {
+                    format!("({saneado} ? '' : null)")
+                } else {
+                    saneado
+                };
                 let valor = saneado.as_str();
                 // `visitAttributeBinding`: `setAttribute` quando a fonte não
                 // pode ser nula (`isNullable` é o `canBeNull` de
                 // `analyzed_class.dart`: literal primitivo, e `a ?? b` com um
                 // dos lados assim — caso j64).
-                let f = if !c.pode_ser_nulo {
-                    "setAttribute"
+                if let Some(ns) = espaco {
+                    format!("{dom}.updateAttributeNS({alvo}, '{ns}', '{attr}', {valor})")
                 } else {
-                    "updateAttribute"
-                };
-                format!("{dom}.{f}({alvo}, '{attr}', {valor})")
+                    let f = if !c.pode_ser_nulo && !condicional {
+                        "setAttribute"
+                    } else {
+                        "updateAttribute"
+                    };
+                    format!("{dom}.{f}({alvo}, '{attr}', {valor})")
+                }
             } else if let Some(estilo) = l.nome.strip_prefix("style.") {
                 // `visitStyleBinding`: com unidade, `v == null ? null : v +
                 // 'px'` (`v.toString()` se não é `String`); sem, o próprio valor

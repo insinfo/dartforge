@@ -165,6 +165,19 @@ casos que apareceram no ngcomponents.
   (`_el_8` antes de `_el_1` no `material_stepper`).
 - **Porte:** `campos_el_em_ordem` (pelos `locais_raiz`).
 
+## Embutidos no nó de um filho, `[attr.x.if]`, `[attr.ns:x]` — j123, j124
+
+- Diretiva no elemento de um filho: `ViewContainerRef`/`ComponentLoader` são o
+  `_appEl_n` do nó, `ChangeDetectorRef` é a `_compView_n`, `HtmlElement` o nó
+  (j123, o `MaterialTooltipDirective` do `material_menu`).
+- **`attr.x.if`:** `unit == 'if'` (`template_parser.dart:83-88`) vira
+  `isConditional` (`binding_converter.dart:147`): o valor é `(v ? '' : null)`
+  e sai sempre `updateAttribute` (`update_statement_visitor.dart:63-94`).
+  Outra unidade é erro; `class.if` também.
+- **`attr.ns:x`:** o prefixo vira a URI de `namespaceUris` (`xlink`, `svg`,
+  `xhtml`, `view_compiler_utils.dart:21-25`) e sai `updateAttributeNS`; fora
+  da tabela, `null`, e o atributo sai sem namespace (`ir/model.dart:396`).
+
 ## Pendentes com regra já levantada
 
 - **Local de `*` ancestral / tipo do local de `*ngFor`:** o tipo do `$implicit`
