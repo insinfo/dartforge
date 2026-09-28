@@ -318,9 +318,14 @@ impl<'r, 'a> Leitor<'r, 'a> {
                     Ok(v) => self.provedores(v, d),
                     Err(f) => d.fora.push(format!("providers: {f}")),
                 },
+                // Lidos como os `providers:` e guardados à parte (privados).
                 "viewProviders" => match valor() {
-                    Ok(Valor::Lista(l)) if l.is_empty() => {}
-                    _ => d.fora.push("viewProviders:".into()),
+                    Ok(v) => {
+                        let publicos = std::mem::take(&mut d.provedores);
+                        self.provedores(v, d);
+                        d.provedores_de_visao = std::mem::replace(&mut d.provedores, publicos);
+                    }
+                    Err(f) => d.fora.push(format!("viewProviders: {f}")),
                 },
                 _ => {}
             }
@@ -1216,6 +1221,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 }
             }
         }
+        d.dependencias_lidas = true;
     }
 
     fn dependencia(

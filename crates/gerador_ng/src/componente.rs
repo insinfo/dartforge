@@ -814,6 +814,10 @@ const ARGUMENTOS_CONHECIDOS: &[&str] = &[
     // Só decide o `injectorGetInternal`; lida dos metadados do programa
     // (`metadados.rs`), caso j41.
     "visibility",
+    // Provedores privados do elemento do componente: lidos dos metadados do
+    // programa (`metadados.rs`) e escritos na hospedeira; no nó de quem usa
+    // o filho, ainda recusados (`visao.rs`).
+    "viewProviders",
 ];
 
 /// Argumentos de `@Directive` cujo efeito o gerador conhece.

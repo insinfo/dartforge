@@ -3497,6 +3497,8 @@ struct Corpo<'a> {
     exportados: &'a Exportados,
     /// [`Contexto::nomes_genericos`].
     nomes_genericos: &'a [String],
+    /// [`Contexto::tokens_de_visao`].
+    tokens_de_visao: &'a [crate::diretivas::Token],
     /// Métodos da classe, válidos só como alvo de chamada.
     metodos: &'a std::collections::HashMap<String, String>,
     /// Parâmetros posicionais de cada método, para o tear-off de evento.
@@ -4661,6 +4663,16 @@ impl Corpo<'_> {
                 .filter(|l| consome_saida(&extras, &l.nome))
                 .cloned(),
         );
+        // `viewProviders:` do filho: provedores privados do nó (num
+        // `ProviderNode` à parte quando ele tem filhos, `createProviderNode`),
+        // ainda sem caso fora da hospedeira.
+        if filho
+            .metadados
+            .as_ref()
+            .is_some_and(|m| !m.provedores_de_visao.is_empty())
+        {
+            return Err(em_filho("filho com viewProviders"));
+        }
         // Os provedores do nó: o componente primeiro, depois as diretivas.
         // `Visibility.all` põe o filho no `injectorGetInternal`: é o
         // caminho resolvido que o escreve.
@@ -4809,6 +4821,7 @@ impl Corpo<'_> {
                 let acima = crate::diretivas::Acima {
                     provedores: &provedores,
                     incerto: self.incertos_acima > 0,
+                    de_visao: self.tokens_de_visao,
                 };
                 let pedidos = pedidos_ao_no_do_filho(e, casadas, self.filhos, self.usadas)?;
                 let r = crate::diretivas::resolver_no_do_filho(
@@ -5487,7 +5500,7 @@ impl Corpo<'_> {
                     "filho que injeta serviço sob componente sem metadados",
                 ));
             }
-            if *hospedeiro && !proprio_componente(token) {
+            if *hospedeiro && !proprio_componente(token) && !self.tokens_de_visao.contains(token) {
                 if !opcional {
                     return Err(em_filho("@Host() sem provedor na visão do filho"));
                 }
@@ -6573,6 +6586,7 @@ impl Corpo<'_> {
             let acima = crate::diretivas::Acima {
                 provedores: &provedores,
                 incerto: self.incertos_acima > 0,
+                de_visao: self.tokens_de_visao,
             };
             let (r, k) = crate::diretivas::resolver_de_molde(
                 &casadas,
@@ -7673,6 +7687,7 @@ impl Corpo<'_> {
             let acima = crate::diretivas::Acima {
                 provedores: &provedores,
                 incerto: self.incertos_acima > 0,
+                de_visao: self.tokens_de_visao,
             };
             // O que as consultas com `read:` leem deste nó é ansioso.
             let consultados: Vec<crate::diretivas::Token> = self
@@ -9413,6 +9428,10 @@ struct Contexto<'a> {
     exportados: &'a Exportados,
     /// Os parâmetros de tipo do componente (`T`, `U`), livres nas visões.
     nomes_genericos: Vec<String>,
+    /// Os tokens dos `viewProviders:` do componente
+    /// (`ProviderViewContext.viewProviders`): um `@Host()` da visão dele que
+    /// pede um deles vai ao injetor em vez de ficar `null`.
+    tokens_de_visao: Vec<crate::diretivas::Token>,
     metodos: &'a std::collections::HashMap<String, String>,
     aridades: &'a std::collections::HashMap<String, usize>,
     filhos: &'a std::collections::HashMap<String, Filho>,
@@ -9534,6 +9553,7 @@ impl<'a> Contexto<'a> {
             membros: self.membros,
             exportados: self.exportados,
             nomes_genericos: &self.nomes_genericos,
+            tokens_de_visao: &self.tokens_de_visao,
             metodos: self.metodos,
             aridades: self.aridades,
             metodos_evento: Vec::new(),
@@ -11666,6 +11686,16 @@ fn gerar_componente_com(
             .iter()
             .map(|(n, _)| n.clone())
             .collect(),
+        tokens_de_visao: local
+            .metadados
+            .as_deref()
+            .map(|m| {
+                m.provedores_de_visao
+                    .iter()
+                    .map(|p| p.token.clone())
+                    .collect()
+            })
+            .unwrap_or_default(),
         metodos: &c.metodos,
         aridades: &c.aridades,
         filhos,
@@ -12598,7 +12628,7 @@ pub(crate) fn provedores_escreviveis(meta: &crate::diretivas::Diretiva) -> Resul
         Token::Multi { tipo, .. } | Token::Opaco { tipo, .. } => !tipo.args.is_empty(),
         _ => false,
     };
-    for p in &meta.provedores {
+    for p in meta.provedores.iter().chain(&meta.provedores_de_visao) {
         if com_argumentos(&p.token) || p.tipo.as_ref().is_some_and(|t| !t.args.is_empty()) {
             return Err("token de tipo com argumentos concretos".into());
         }
@@ -12608,10 +12638,6 @@ pub(crate) fn provedores_escreviveis(meta: &crate::diretivas::Diretiva) -> Resul
         };
         if !token_conhecido(&p.token) || alvo.is_some_and(|t| !token_conhecido(t)) {
             return Err("token de tipo fora do dart:core".into());
-        }
-        // O campo tipado pelo `T` com argumentos só tem caso no multi.
-        if !p.multi && p.tipo.as_ref().is_some_and(|t| t.genericos > 0) {
-            return Err("tipo de provedor com argumentos".into());
         }
     }
     Ok(())
@@ -13139,7 +13165,7 @@ fn dependencia_anotada<'m>(
         .filter(|q| !q.nomeado)
         .position(|q| std::ptr::eq(q, p))?;
     let meta = local.metadados.as_deref()?;
-    if !meta.fora.is_empty()
+    if !meta.dependencias_lidas
         || meta.dependencias.len() != c.parametros.iter().filter(|q| !q.nomeado).count()
     {
         return None;

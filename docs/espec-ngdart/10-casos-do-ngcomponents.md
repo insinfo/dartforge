@@ -280,4 +280,22 @@ casos que apareceram no ngcomponents.
   locais).
 - **Porte:** `consulta_de_token_dinamica`, `conteudo_dinamico_no(.., de_visao)`.
 
+## `@Inject`/`@Attribute` com metadados parciais e `viewProviders:` — j136, j137
+
+- **Regra** (`provider_parser.dart:36-49, 347-351, 470-481`,
+  `compile_element.dart:283-345`): os `viewProviders:` do componente entram no
+  elemento dele depois dos `providers:`, como `privateService`: só outro
+  provedor privado os acha localmente (`_getOrCreateLocalProvider`); a
+  diretiva e o serviço público, do nó ou de baixo, sobem. Na hospedeira viram
+  campo preguiçoso (`late X<dynamic> _X_0_n = fabrica(this.component)`) e
+  entram no `injectorGetInternal` do nó 0; num nó com filhos ganham um
+  `ProviderNode` à parte `[n, n]`. Na visão do componente, o `@Host()` de um
+  token deles vai ao injetor (`injectorGetOptional`) em vez de ficar `null`.
+- Um `viewProviders:` ilegível não invalida as dependências do construtor:
+  `Diretiva::dependencias_lidas` separa as duas coisas (o
+  `@Optional() @Inject(token)` do `MaterialDropdownSelectComponent`).
+- **Porte:** `Diretiva::provedores_de_visao`, `Resolvido::privado`,
+  `Contexto::tokens_de_visao`/`Acima::de_visao`; o filho com `viewProviders:`
+  num template segue recusado.
+
 ## Pendentes com regra já levantada

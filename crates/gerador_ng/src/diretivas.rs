@@ -262,6 +262,13 @@ pub struct Diretiva {
     /// O que a leitura não conseguiu entender: com qualquer coisa aqui, os
     /// metadados estão incompletos e a diretiva não é usada.
     pub fora: Vec<String>,
+    /// Os `viewProviders:` de um componente (`ProviderAstType.privateService`
+    /// no elemento dele), na ordem.
+    pub provedores_de_visao: Vec<Provedor>,
+    /// As dependências do construtor foram lidas por inteiro (o `fora` pode
+    /// ter outra coisa, como um `viewProviders:` ilegível, que não mexe
+    /// nelas).
+    pub dependencias_lidas: bool,
 }
 
 impl Diretiva {
@@ -401,6 +408,9 @@ pub struct Acima<'a> {
     /// Algum elemento acima tem provedor que o emissor não modela (um
     /// componente): não achar não prova que não há.
     pub incerto: bool,
+    /// Os tokens dos `viewProviders:` do componente desta visão: o `@Host()`
+    /// que pede um deles vai ao injetor de fora (`provider_parser.dart:347-351`).
+    pub de_visao: &'a [Token],
 }
 
 /// Como um campo de provedor é criado no `build()`.
@@ -519,6 +529,11 @@ struct Resolvido {
     eager: bool,
     visivel: bool,
     tipo: Option<TipoDeToken>,
+    /// Veio de `viewProviders:` (`ProviderAstType.privateService`): só um
+    /// outro provedor privado do nó o acha localmente
+    /// (`_getOrCreateLocalProvider`); diretivas e serviços públicos, do nó
+    /// ou de baixo, sobem para o injetor.
+    privado: bool,
 }
 
 /// Resolve os provedores das diretivas `casadas` (na ordem de
@@ -678,6 +693,7 @@ fn resolver_com(
             eager: true,
             visivel: d.visivel,
             tipo: None,
+            privado: false,
         });
     }
     // Os `providers:` com o componente antes das diretivas ("directives
@@ -687,13 +703,25 @@ fn resolver_com(
         .chain((0..casadas.len()).filter(|k| Some(*k) != componente));
     for k in em_ordem {
         let d = &casadas[k];
-        for p in &d.provedores {
+        // `viewProviders:` só de componente, e só escritos na hospedeira: no
+        // nó de quem usa o filho eles ganham um `ProviderNode` à parte
+        // quando o nó tem filhos (`createProviderNode`), ainda sem caso.
+        if !d.provedores_de_visao.is_empty() && !hospedeira {
+            return Err("filho com viewProviders");
+        }
+        let publicos = d.provedores.iter().map(|p| (p, false));
+        let privados = d.provedores_de_visao.iter().map(|p| (p, true));
+        for (p, privado) in publicos.chain(privados) {
             let fonte = match &p.fonte {
                 Fornece::Existente(t) => Fonte::Existente(t.clone()),
                 f => Fonte::Provedor(f.clone()),
             };
             match todos.iter_mut().find(|r| r.token == p.token) {
                 Some(r) => {
+                    if r.privado != privado {
+                        // O `providerType` de quem fica: ainda sem caso.
+                        return Err("provedor público e privado no mesmo token");
+                    }
                     if r.multi != p.multi {
                         return Err("provedor multi e não multi no mesmo token");
                     }
@@ -715,6 +743,7 @@ fn resolver_com(
                     eager: false,
                     visivel: true,
                     tipo: p.tipo.clone(),
+                    privado,
                 }),
             }
         }
@@ -749,9 +778,10 @@ fn resolver_com(
             return Err("dependência cíclica entre diretivas");
         }
         vistos.push(i);
+        let privado = todos[i].privado;
         let pedir = |t: &Token, ordem: &mut Vec<usize>, vistos: &mut Vec<usize>| match todos
             .iter()
-            .position(|r| r.token == *t)
+            .position(|r| r.token == *t && (privado || !r.privado))
         {
             Some(j) => criar(todos, j, ordem, vistos, hospedeira),
             None => Ok(()),
@@ -761,7 +791,10 @@ fn resolver_com(
                 Fonte::Existente(t) => {
                     // O apelido de fora do nó lê o injetor (hospedeira) ou o
                     // elemento acima / o injetor de fora (nó de template).
-                    if let Some(j) = todos.iter().position(|r| r.token == *t) {
+                    if let Some(j) = todos
+                        .iter()
+                        .position(|r| r.token == *t && (privado || !r.privado))
+                    {
                         criar(todos, j, ordem, vistos, hospedeira)?;
                     }
                 }
@@ -865,6 +898,10 @@ fn resolver_com(
             _ => campo.clone(),
         };
         let campo_de = |t: &Token| -> Option<String> {
+            // Um provedor privado só é visto por outro privado.
+            if !r.privado && todos.iter().any(|x| x.privado && x.token == *t) {
+                return None;
+            }
             let t = apelidos
                 .iter()
                 .find(|(a, _)| a == t)
@@ -1096,6 +1133,12 @@ fn fora_do_no(dep: &Dependencia, acima: Option<Acima>) -> Result<Argumento, &'st
     }
     match (dep.opcional, dep.proprio, dep.hospedeiro) {
         (true, true, _) => Ok(Argumento::Nulo),
+        (_, false, true) if !acima.incerto && acima.de_visao.contains(&dep.token) => {
+            Ok(Argumento::DeFora {
+                token: dep.token.clone(),
+                opcional: dep.opcional,
+            })
+        }
         (true, false, true) if !acima.incerto => Ok(Argumento::Nulo),
         (_, false, true) => Err("dependência @Host de diretiva sem provedor acima"),
         // Algum elemento acima tem provedor que o emissor não modela: ele
@@ -1354,6 +1397,7 @@ mod testes {
             Some(Acima {
                 provedores: &acima,
                 incerto: false,
+                de_visao: &[],
             }),
         )
         .unwrap();
@@ -1397,6 +1441,7 @@ mod testes {
                 Some(Acima {
                     provedores: &[],
                     incerto: true,
+                    de_visao: &[],
                 }),
             )
             .is_err()
