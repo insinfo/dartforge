@@ -63,6 +63,19 @@ casos que apareceram no ngcomponents.
 - **Porte:** `visao.rs` `gerar_componente_com` (`marca` conta as entradas dos
   metadados de quem herda).
 
+## Seção 03 aplicada — j112, j113, j114
+
+- `exports:` é resolvido no parse, antes do local de template de mesmo nome;
+  `StaticRead` é sempre imutável; `Classe.metodo` é imutável; `-x` é `(0 - x)`.
+- Três ou mais `{{ }}` num valor: `interpolateN([t0, e0, …, tn])`.
+- `_attrToPropMap`: `[tabindex]`/`[readonly]` e `tabindex="{{..}}"` são
+  `setProperty` com o nome mapeado; `style="{{..}}"` é a propriedade `style`.
+- A `Interpolation` é `String` para o `_TypeResolver`, exceto no atalho
+  primitivo, em que vale o tipo da expressão crua (`calc({{100-x}}%)` do
+  `material_slider` × `{{int}}` no j107).
+- A visão embutida refaz a emissão sem o `TextBinding` quando nenhuma
+  interpolação dela é mutável, como a do componente.
+
 ## Pendentes com regra já levantada
 
 - **Local de `*` ancestral / tipo do local de `*ngFor`:** o tipo do `$implicit`

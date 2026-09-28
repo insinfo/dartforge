@@ -624,18 +624,11 @@ impl Conversor<'_> {
                         ..Convertida::nova("$event".into(), "`$event`")
                     });
                 }
-                // O local do laço sombreia o membro do componente.
-                if let Some(l) = self.escopo.locais.get(nome) {
-                    return Ok(Convertida {
-                        tipo: Some(l.tipo.clone()),
-                        escopo: l.escopo.clone(),
-                        locais: vec![nome.to_string()],
-                        ..Convertida::nova(l.dart.clone(), "local")
-                    });
-                }
-                // Nome de `exports:` (`_matchExport`, antes dos membros): pelo
-                // import da biblioteca que o declara, tipo `dynamic`; a
-                // variável `const`/`final` é imutável (caso j51).
+                // Nome de `exports:` (`_matchExport`, no parse: antes dos
+                // locais e dos membros, `analyzer_parser.dart:435-455`): pelo
+                // import da biblioteca que o declara, tipo `dynamic`. Um
+                // `StaticRead` é sempre imutável (`analyzed_class.dart:116`),
+                // mesmo de variável mutável ou getter.
                 if let Some((q, o_que)) = self.escopo.exportados.and_then(|e| e.get(nome)) {
                     use crate::resolucao::Exportado;
                     let texto = format!("{q}{nome}");
@@ -645,17 +638,39 @@ impl Conversor<'_> {
                             estatica: Some(nome.to_string()),
                             ..Convertida::nova(texto, "classe de exports:")
                         }),
-                        Exportado::Variavel { imutavel } => Ok(Convertida {
-                            imutavel: *imutavel,
+                        Exportado::Variavel { .. } => Ok(Convertida {
+                            imutavel: true,
                             tipo: Some("dynamic".into()),
                             ..Convertida::nova(texto, "variável de exports:")
                         }),
                         Exportado::Getter => Ok(Convertida {
+                            imutavel: true,
                             tipo: Some("dynamic".into()),
                             ..Convertida::nova(texto, "getter de exports:")
                         }),
                         Exportado::Funcao => Err(fora("função de exports: como valor")),
                     };
+                }
+                // O local do laço sombreia o membro do componente (mas não o
+                // export, resolvido antes, no parse). O `isImmutable` não
+                // conhece locais: vale o campo do componente de mesmo nome
+                // (`lookUpGetter`), ou o método ("methods are immutable").
+                if let Some(l) = self.escopo.locais.get(nome) {
+                    let imutavel = match self.escopo.membros.get(nome) {
+                        Some(m) => m.imutavel,
+                        None => {
+                            self.escopo.metodos.contains_key(nome)
+                                || self.membro_herdado(nome).is_some_and(|c| c.imutavel)
+                                || self.metodo_herdado(nome).is_some()
+                        }
+                    };
+                    return Ok(Convertida {
+                        imutavel,
+                        tipo: Some(l.tipo.clone()),
+                        escopo: l.escopo.clone(),
+                        locais: vec![nome.to_string()],
+                        ..Convertida::nova(l.dart.clone(), "local")
+                    });
                 }
                 // Método lido como valor (o `trackBy: rastrear` do `*ngFor`,
                 // um callback passado a um filho): `isImmutable` diz que
@@ -705,8 +720,9 @@ impl Conversor<'_> {
                 let nome = self.interner.resolve(name.sym);
                 let ponto = if *null_aware { "?." } else { "." };
                 // `Classe.nome` de uma classe de `exports:`: o campo
-                // `const`/`final` (e o valor de enum) é imutável; getter e
-                // método, não. Tipo `dynamic` (caso j51).
+                // `const`/`final` (e o valor de enum) é imutável, o getter
+                // não, e o método é ("methods are immutable",
+                // `analyzed_class.dart:140-150`). Tipo `dynamic` (caso j51).
                 if let Some(classe) = &alvo.estatica {
                     use crate::resolucao::Estatico;
                     let Some((r, arquivo)) = self.escopo.tipos else {
@@ -714,7 +730,8 @@ impl Conversor<'_> {
                     };
                     let imutavel = match r.membro_estatico(arquivo, classe, nome) {
                         Some(Estatico::Campo { imutavel }) => imutavel,
-                        Some(Estatico::Getter | Estatico::Metodo) => false,
+                        Some(Estatico::Getter) => false,
+                        Some(Estatico::Metodo) => true,
                         None => return Err(fora("membro estático de exports: desconhecido")),
                     };
                     return Ok(Convertida {
@@ -885,9 +902,9 @@ impl Conversor<'_> {
                 })
             }
             ast::ExprKind::Unary { op, operand } => {
-                // Só `!`. O parser de expressões do ngcompiler lê `-x` como
-                // `0 - x` e sai `(0 - _ctx.x)`; `x!` sai como `(x!)`; `~` nem
-                // existe lá. Os dois primeiros ainda não têm caso no corpus.
+                // `!`, `-x` e `x!`. O parser de expressões do ngcompiler lê
+                // `-x` como `0 - x` (sai `(0 - _ctx.x)`) e `x!` como `(x!)`;
+                // `~` nem existe lá.
                 // `x!` é `PostfixNotNull`: `.notNull()`, que o emissor escreve
                 // `(x!)`; tipo `dynamic`, mutável.
                 if *op == ast::UnaryOp::NullAssert {
@@ -898,11 +915,20 @@ impl Conversor<'_> {
                         ..Convertida::nova(format!("({}!)", v.texto), "`x!`")
                     });
                 }
+                // `-x` é `Binary('-', 0, x)` (`analyzer_parser.dart:607-609`):
+                // sai `(0 - x)`, imutável se `x` é, "pode ser nulo" e
+                // `dynamic`, como qualquer binário.
+                if *op == ast::UnaryOp::Neg {
+                    let v = self.expr(*operand, raiz)?;
+                    return Ok(Convertida {
+                        imutavel: v.imutavel,
+                        tipo: Some("dynamic".into()),
+                        locais: v.locais,
+                        ..Convertida::nova(format!("(0 - {})", v.texto), "`-x`")
+                    });
+                }
                 if *op != ast::UnaryOp::Not {
-                    return Err(fora(match op {
-                        ast::UnaryOp::Neg => "`-x`",
-                        _ => "operador unário fora do template",
-                    }));
+                    return Err(fora("operador unário fora do template"));
                 }
                 let v = self.expr(*operand, raiz)?;
                 let op = self.operador_unario(id);
@@ -1197,14 +1223,13 @@ mod testes {
         );
     }
 
-    /// O que o parser do ngdart lê diferente do Dart fica de fora: `-x` é
-    /// `0 - x` lá, `&` não existe. `x!` sai `(x!)` e o índice sem
-    /// parênteses.
+    /// O que o parser do ngdart lê diferente do Dart: `-x` é `0 - x` lá,
+    /// `&` não existe. `x!` sai `(x!)` e o índice sem parênteses.
     #[test]
     fn operadores_fora_do_template_sao_recusados() {
         let m = &membros();
         let mut i = Interner::new();
-        assert!(converter("-fixo", m, &mut i).is_err());
+        assert_eq!(conv("-fixo").texto, "(0 - _ctx.fixo)");
         assert!(converter("fixo & 1", m, &mut i).is_err());
         assert_eq!(conv("nome!").texto, "(_ctx.nome!)");
         assert_eq!(conv("item[fixo]").texto, "_ctx.item[_ctx.fixo]");

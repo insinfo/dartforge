@@ -326,3 +326,6 @@ export 'src/j108_skip_self_no_proprio_no.dart';
 export 'src/j109_ref_exportado_no_filho.dart';
 export 'src/j110_onpush_herda_input.dart';
 export 'src/j111_regras_da_espec.dart';
+export 'src/j112_export_e_imutabilidade.dart';
+export 'src/j113_interpolacao_n.dart';
+export 'src/j114_propriedade_do_esquema.dart';

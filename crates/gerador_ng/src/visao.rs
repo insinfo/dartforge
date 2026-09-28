@@ -3659,19 +3659,12 @@ impl Corpo<'_> {
             } else if l.nome.contains('.') {
                 return Err(recusa(Motivo::Ligacao, "ligação com prefixo desconhecido"));
             } else {
-                // `getMappedPropName`: `innerHtml` é `innerHTML`; os outros
-                // nomes do mapa têm forma própria (`class`, `tabIndex`).
-                let prop = if l.nome == "innerHtml" {
-                    "innerHTML"
-                } else {
-                    l.nome.as_str()
-                };
-                if matches!(prop, "readonly" | "tabindex" | "tabIndex") {
-                    return Err(recusa(
-                        Motivo::Ligacao,
-                        "[propriedade] renomeada pelo esquema",
-                    ));
-                }
+                // `getMappedPropName` (`_attrToPropMap`,
+                // `dom_element_schema_registry.dart`): só quatro nomes mudam;
+                // `class` já saiu acima como `ClassBinding`. `[tabindex]`
+                // ligado é `PropertyBinding('tabIndex')`, não o
+                // `TabIndexBinding` do literal (`binding_converter.dart:131`).
+                let prop = propriedade_mapeada(&l.nome);
                 // `_sanitizedValue`: o valor passa pelo saneador do contexto
                 // (`[style]` é `*|style`: `sanitizeStyle`, caso i92).
                 match saneador(&self.tag_atual.to_ascii_lowercase(), prop) {
@@ -6290,22 +6283,21 @@ impl Corpo<'_> {
         }
         let (textos, exprs) = partes_da_interpolacao(texto)
             .ok_or_else(|| recusa(motivo, "atributo interpolado mal formado"))?;
-        if exprs.len() > 2 {
-            return Err(recusa(
-                motivo,
-                "atributo com 3+ interpolações (`interpolateFallback`)",
-            ));
-        }
         let mut convertidas = Vec::new();
         for e in &exprs {
             convertidas.push(self.converter(e, motivo)?);
         }
+        // O tipo só escolhe a família com 1 ou 2 expressões; com 3 ou mais é
+        // sempre o `interpolateN` (`interpolateFallback`).
         let mut tipos = Vec::new();
         for c in &convertidas {
-            let Some(t) = &c.tipo else {
-                return Err(recusa(motivo, format!("tipo desconhecido de {}", c.forma)));
-            };
-            tipos.push(t.trim_end_matches('?').to_string());
+            match &c.tipo {
+                Some(t) => tipos.push(t.trim_end_matches('?').to_string()),
+                None if convertidas.len() > 2 => tipos.push("dynamic".into()),
+                None => {
+                    return Err(recusa(motivo, format!("tipo desconhecido de {}", c.forma)));
+                }
+            }
         }
         // `_compressWhitespacePreceding`/`Following`: só as pontas, e só
         // quando há quebra de linha.
@@ -6345,7 +6337,17 @@ impl Corpo<'_> {
                     "{interp}.{familia}2({}, {e0}, {}, {e1}, {})",
                     textos[0], textos[1], textos[2]
                 ),
-                _ => String::new(),
+                // `interpolateFallback` (`expression_converter.dart:219-227`):
+                // os textos e as expressões intercalados numa lista.
+                _ => {
+                    let mut itens = Vec::new();
+                    for (t, e) in textos.iter().zip(exprs) {
+                        itens.push(t.clone());
+                        itens.push(e.clone());
+                    }
+                    itens.extend(textos.last().cloned());
+                    format!("{interp}.interpolateN([{}])", itens.join(", "))
+                }
             }
         };
         let textos_expr: Vec<String> = convertidas.iter().map(|c| c.texto.clone()).collect();
@@ -6402,10 +6404,9 @@ impl Corpo<'_> {
         if nome != "class"
             && !com_prefixo
             && (!nome.chars().all(|c| c.is_ascii_lowercase())
-                || matches!(
-                    nome,
-                    "style" | "readonly" | "tabindex" | "for" | "formaction"
-                ))
+                // `for` e `formaction` não são propriedades no esquema (o
+                // `_attrToPropMap` não os mapeia): erro no oficial.
+                || matches!(nome, "for" | "formaction"))
         {
             return Err(recusa(
                 Motivo::Interpolacao,
@@ -6421,12 +6422,18 @@ impl Corpo<'_> {
         let v = self.valor_interpolado(&a.valor, Motivo::Interpolacao)?;
         // O valor da ligação é a `Interpolation`, não a expressão de dentro:
         // nunca é nula (`canBeNull` dá `false`, daí o `setAttribute` do
-        // `visitAttributeBinding`), e o `_TypeResolver` não a tipa (`dynamic`:
-        // `[style.x]` ganha o `.toString()`).
+        // `visitAttributeBinding`) e o `_TypeResolver` a tipa `String`. No
+        // atalho primitivo (`_shouldInterpolateAfterCheck`) a checagem é a
+        // expressão crua, e o tipo que vale é o dela (`[style.x]` com um
+        // `int` ganha o `.toString()`, caso j107; `calc({{a - b}}%)` não,
+        // o `material_slider`).
+        let primitiva = v.convertidas.len() == 1 && v.checagem == v.convertidas[0].texto;
         let mut convertidas = v.convertidas;
         if let Some(c) = convertidas.first_mut() {
             c.pode_ser_nulo = false;
-            c.tipo = Some("dynamic".into());
+            if !primitiva {
+                c.tipo = Some("String".into());
+            }
             c.escopo = None;
         }
         let k = v.k;
@@ -8509,16 +8516,33 @@ fn emitir_embutida(
     let ev = imp.alias(EMBEDDED_VIEW);
     let classe = espec.classe.clone();
     let fabrica = espec.fabrica.clone();
-    let mut dentro = ctx.corpo(imp, nomes, coleta.take(), true);
-    dentro.locais = espec.locais.clone();
-    dentro.vista = espec.indice;
-    dentro.profundidade = espec.profundidade;
-    dentro.nivel_do_topo = espec.nivel_do_topo;
-    // A numeração continua de onde o pai parou.
-    dentro.proxima_embutida = espec.indice + 1;
-    let r = corpo_da_embutida(&mut dentro, &espec, ctx, &ev, &classe, &fabrica);
-    *coleta = dentro.coleta.take();
-    let (mut texto, aninhadas) = r?;
+    // Como na visão do componente (caso j91): o import do `text_binding` é
+    // alocado antes do corpo, na posição do primeiro campo `TextBinding`;
+    // quando nenhuma interpolação é mutável (todas escritas no `build()`,
+    // como a de um nome de `exports:`), não há campo e a emissão é refeita
+    // sem ele, da mesma tabela de imports (caso j112).
+    let (imp_antes, coleta_antes) = (imp.clone(), coleta.clone());
+    let mut com_tb = true;
+    let (mut texto, aninhadas) = loop {
+        let mut dentro = ctx.corpo(imp, nomes, coleta.take(), true);
+        dentro.locais = espec.locais.clone();
+        dentro.vista = espec.indice;
+        dentro.profundidade = espec.profundidade;
+        dentro.nivel_do_topo = espec.nivel_do_topo;
+        // A numeração continua de onde o pai parou.
+        dentro.proxima_embutida = espec.indice + 1;
+        let r = corpo_da_embutida(&mut dentro, &espec, ctx, &ev, &classe, &fabrica, com_tb);
+        let sobrando = dentro.tb.is_some() && !dentro.tb_usado && !dentro.coletando();
+        *coleta = dentro.coleta.take();
+        drop(dentro);
+        if com_tb && sobrando && r.is_ok() {
+            *imp = imp_antes.clone();
+            *coleta = coleta_antes.clone();
+            com_tb = false;
+            continue;
+        }
+        break r?;
+    };
     for a in aninhadas {
         texto.push_str(&emitir_embutida(a, ctx, imp, nomes, coleta)?);
     }
@@ -8533,6 +8557,7 @@ fn corpo_da_embutida(
     ev: &str,
     classe: &str,
     fabrica: &str,
+    com_tb: bool,
 ) -> Result<(String, Vec<EspecEmbutida>), Recusa> {
     // O campo de ligação de texto é declarado antes do construtor, então o
     // import dele entra aqui — e o do `package:intl`, antes ou depois dele
@@ -8542,7 +8567,7 @@ fn corpo_da_embutida(
     if ordem_i18n == Some(true) {
         dentro.intl = Some(dentro.imp.alias(INTL));
     }
-    if tem_interpolacao(&espec.nos) {
+    if com_tb && tem_interpolacao(&espec.nos) {
         dentro.tb = Some(dentro.imp.alias(TEXT_BINDING));
     }
     if ordem_i18n == Some(false) {
