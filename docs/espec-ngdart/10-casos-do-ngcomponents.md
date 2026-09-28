@@ -223,9 +223,31 @@ casos que apareceram no ngcomponents.
   impediu um `listItems = []` errado no `material_select` (a consulta
   dinâmica de conteúdo ainda é recusada).
 
-## Pendentes com regra já levantada
+## Consulta de conteúdo dinâmica — j128
 
-- **`@ContentChild` de filho com resultado em `*`:** cria
-  `_query_<Sel>_<nó>_<i>_isDirty`, escreve a atualização no
-  `if (!debugThrowIfChanged)` antes das consultas de visão e põe as linhas
-  no `dirtyParentQueriesInternal` da embutida.
+- **Regra** (`compile_query.dart`, `compile_element.dart:354-362, 442-460`):
+  `_getQueriesFor` sobe pelos elementos a partir do resultado (atravessando
+  as visões embutidas); sem `descendants`, só distância ≤ 1 — e o `<template>`
+  de um `*`, que tem diretiva, já soma 1. `@ContentChild` é sempre
+  `descendants: true`. O token casa pelos provedores resolvidos do nó (a
+  diretiva, o componente e os `providers:` deles, `ExistingProvider`).
+- **Com resultado em `*`** (`_shouldMapNestedViews`): campo
+  `bool _query_<Token>_<nó>_<i>_isDirty = true;` (`i` é o `_queryCount` do
+  nó); a atualização vai no `_updateContentQueriesMethod`, no `afterChildren`
+  do nó — antes das consultas de visão, que entram no `afterNodes`
+  (`compile_view.dart:502-511`), e dos ganchos de conteúdo; o valor é o
+  `_buildQueryResults`/`_mapNestedViews` (`nestedView._X_n_m.instance`,
+  `...` quando há mais de um item; a única pega `.first` ou `firstOrNull`).
+  Cada visão embutida com resultado marca o campo no
+  `dirtyParentQueriesInternal` (`unsafeCast<Visão da consulta>(cadeia)`), na
+  ordem do primeiro resultado de cada consulta naquela visão (no mesmo nó, a
+  de conteúdo antes da de visão).
+- **Campos com inicializador** (provedor preguiçoso, sujo de conteúdo, sujo
+  de visão): na ordem de alocação — a posição do nó do preguiçoso, a do
+  primeiro resultado em `*` do sujo (pré-ordem do template, as embutidas no
+  lugar).
+- **Porte:** `arvore_de_conteudo`, `conteudo_dinamico_no`,
+  `resolver_conteudo_dinamico`, `campos_com_inicializador`; cada nó registra
+  pela posição (`chave_de_no`) os tokens que fornece.
+
+## Pendentes com regra já levantada
