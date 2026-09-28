@@ -58,6 +58,10 @@ pub struct Ligacao {
     /// valor), que é o que vai no comentário `/* REF:url:inicio:fim */`.
     pub inicio: usize,
     pub fim: usize,
+    /// Escrito sem `=` (`<input required>`, e o `dir` que o desaçúcar de
+    /// `*dir="chave: x"` gera): `EmptyExpr`, que numa entrada `bool` vale
+    /// `true`. `x=""` não é isto.
+    pub sem_valor: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -149,16 +153,23 @@ pub fn projecoes(nos: &[No]) -> Vec<Option<String>> {
 /// segue, como o do ngast, para que um template quebrado não derrube a
 /// geração inteira.
 pub fn analisar(fonte: &str) -> Vec<No> {
+    analisar_com_erro(fonte).0
+}
+
+/// Como [`analisar`], com o primeiro erro de forma que o ngast rejeita:
+/// com ele, o oficial falha ao compilar o template.
+pub fn analisar_com_erro(fonte: &str) -> (Vec<No>, Option<String>) {
     let mut p = Parser {
         b: fonte.as_bytes(),
         i: 0,
         fonte,
+        erro: None,
     };
     let mut nos = minimizar_espacos(p.nos(None));
     if !fonte.is_ascii() {
         em_utf16(&mut nos, fonte);
     }
-    nos
+    (nos, p.erro)
 }
 
 /// Soma `k` às posições de todas as ligações e interpolações: o template
@@ -226,6 +237,8 @@ struct Parser<'a> {
     b: &'a [u8],
     i: usize,
     fonte: &'a str,
+    /// Erro de forma que o ngast não recupera (o oficial falha e não gera).
+    erro: Option<String>,
 }
 
 impl<'a> Parser<'a> {
@@ -318,7 +331,28 @@ impl<'a> Parser<'a> {
     /// Texto e interpolações até o próximo `<`.
     fn ler_texto(&mut self, saida: &mut Vec<No>) {
         let inicio = self.i;
-        while !self.fim() && self.olhar(0) != b'<' {
+        // `_allTextMatches` (`simple_tokenizer.dart:30`): o texto vai até o
+        // próximo `<`, mas dentro de `{{ }}` o estado é o de interpolação,
+        // onde `<` é só o operador (`a < b`). Fora dela, um `<` que não abre
+        // tag nem comentário é `openTagStart` sem nome: erro no ngast, e o
+        // oficial não gera nada; aqui ele é consumido (sem travar) e anotado.
+        while !self.fim() {
+            if self.comeca_com("{{") {
+                match self.fonte[self.i + 2..].find("}}") {
+                    Some(f) => self.i += 2 + f + 2,
+                    None => self.i = self.b.len(),
+                }
+                continue;
+            }
+            if self.olhar(0) == b'<' {
+                let abre =
+                    self.olhar(1).is_ascii_alphabetic() || matches!(self.olhar(1), b'/' | b'!');
+                if abre {
+                    break;
+                }
+                self.erro
+                    .get_or_insert_with(|| "`<` que não abre tag no texto".into());
+            }
             self.i += 1;
         }
         let bruto = &self.fonte[inicio..self.i];
@@ -383,7 +417,7 @@ impl<'a> Parser<'a> {
                 break;
             }
             let inicio = self.i;
-            let Some((nome, valor)) = self.ler_atributo() else {
+            let Some((nome, valor, sem_valor)) = self.ler_atributo() else {
                 break;
             };
             classificar(
@@ -391,8 +425,8 @@ impl<'a> Parser<'a> {
                 &mut seletor_do_conteudo,
                 nome,
                 valor,
-                inicio,
-                self.i,
+                (inicio, self.i),
+                sem_valor,
             );
         }
         let vazio = VAZIOS.contains(&el.nome.to_ascii_lowercase().as_str());
@@ -414,7 +448,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn ler_atributo(&mut self) -> Option<(String, String)> {
+    /// O nome, o valor e se foi escrito sem `=`.
+    fn ler_atributo(&mut self) -> Option<(String, String, bool)> {
         let inicio = self.i;
         while !self.fim()
             && !self.olhar(0).is_ascii_whitespace()
@@ -434,7 +469,7 @@ impl<'a> Parser<'a> {
             // Sem valor, o intervalo do atributo (o do `REF`) é só o nome:
             // o espaço até o próximo fica fora.
             self.i = fim_do_nome;
-            return Some((nome, String::new()));
+            return Some((nome, String::new(), true));
         }
         self.i += 1;
         self.pular_espacos();
@@ -449,7 +484,7 @@ impl<'a> Parser<'a> {
             if !self.fim() {
                 self.i += 1;
             }
-            Some((nome, valor))
+            Some((nome, valor, false))
         } else {
             let ini = self.i;
             while !self.fim()
@@ -458,7 +493,7 @@ impl<'a> Parser<'a> {
             {
                 self.i += 1;
             }
-            Some((nome, self.fonte[ini..self.i].to_string()))
+            Some((nome, self.fonte[ini..self.i].to_string(), false))
         }
     }
 }
@@ -469,14 +504,15 @@ fn classificar(
     conteudo: &mut Option<String>,
     nome: String,
     valor: String,
-    inicio: usize,
-    fim: usize,
+    (inicio, fim): (usize, usize),
+    sem_valor: bool,
 ) {
     let l = Ligacao {
         nome: String::new(),
         valor: valor.clone(),
         inicio,
         fim,
+        sem_valor,
     };
     if let Some(interno) = nome.strip_prefix("[(").and_then(|n| n.strip_suffix(")]")) {
         el.bananas.push(Ligacao {
@@ -529,6 +565,7 @@ fn classificar(
             valor,
             inicio,
             fim,
+            sem_valor,
         });
     }
 }
@@ -701,12 +738,15 @@ fn colapsar(texto: &str, apara_esq: bool, apara_dir: bool) -> Option<String> {
     // O `&ngsp;` só vira espaço depois de aparar as pontas (o `visitText`
     // do `MinimizeWhitespaceVisitor` roda sobre o texto já colapsado): um
     // `\n  &ngsp;` depois de elemento de bloco fica `' '`.
+    // O `&nbsp;` é protegido antes de aparar (`preserveNbsp`, `\uE501`):
+    // o `trim` do Rust o levaria junto.
+    let branco = |c: char| c.is_whitespace() && c != NBSP;
     let mut v = v;
     if apara_esq {
-        v = v.trim_start().to_string();
+        v = v.trim_start_matches(branco).to_string();
     }
     if apara_dir {
-        v = v.trim_end().to_string();
+        v = v.trim_end_matches(branco).to_string();
     }
     let v = v.replace(NGSP, " ");
     if v.is_empty() { None } else { Some(v) }
@@ -764,6 +804,20 @@ fn colapsa_envolvido(filhos: &[No], ultimo: bool) -> bool {
 
 #[cfg(test)]
 mod testes {
+
+    /// `<` solto no texto não trava o parser e é erro de forma (o ngast o
+    /// lê como `openTagStart`); dentro de `{{ }}` é o operador.
+    #[test]
+    fn menor_que_no_texto_e_na_interpolacao() {
+        let (nos, erro) = analisar_com_erro("<div>a < b</div><i><3</i>");
+        assert!(erro.is_some());
+        assert_eq!(nos.len(), 2);
+        let (nos, erro) = analisar_com_erro("<p>{{ x < 3 }}</p>");
+        assert!(erro.is_none());
+        let No::Elemento(p) = &nos[0] else { panic!() };
+        assert!(matches!(&p.filhos[..], [No::Interpolacao { expr, .. }] if expr == "x < 3"));
+    }
+
     use super::*;
 
     #[test]

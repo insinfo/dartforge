@@ -291,6 +291,11 @@ import 'package:corpus_ngdart/src/j102_mixin_com_host_binding.template.dart' as 
 import 'package:corpus_ngdart/src/j103_ngcd_imutavel.template.dart' as j103;
 import 'package:corpus_ngdart/src/j105_token_lista.template.dart' as j105;
 import 'package:corpus_ngdart/src/j106_ngzone_no_filho.template.dart' as j106;
+import 'package:corpus_ngdart/src/j107_atributo_interpolado_prefixo.template.dart' as j107;
+import 'package:corpus_ngdart/src/j108_skip_self_no_proprio_no.template.dart' as j108;
+import 'package:corpus_ngdart/src/j109_ref_exportado_no_filho.template.dart' as j109;
+import 'package:corpus_ngdart/src/j110_onpush_herda_input.template.dart' as j110;
+import 'package:corpus_ngdart/src/j111_regras_da_espec.template.dart' as j111;
 
 void main() {
   print([
@@ -586,5 +591,10 @@ void main() {
     j103.J103UsaNgFactory,
     j105.J105UsaNgFactory,
     j106.J106UsaNgFactory,
+    j107.J107AtributoInterpoladoPrefixoNgFactory,
+    j108.J108UsaNgFactory,
+    j109.J109UsaNgFactory,
+    j110.J110UsaNgFactory,
+    j111.J111UsaNgFactory,
   ].length);
 }

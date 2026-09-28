@@ -940,7 +940,12 @@ fn formas_contra_o_template(
         // visão (também no conteúdo projetado de um filho, caso j69),
         // `@ViewChild` (não lista).
         if referencia_com_valor(nos, &consulta.referencia) {
-            if !(matches!(lugares.as_slice(), [Lugar::Raiz | Lugar::Projetado]) && !consulta.lista)
+            // No elemento de um filho, a instância da diretiva exportada é
+            // lida do mesmo jeito (caso j109).
+            if !(matches!(
+                lugares.as_slice(),
+                [Lugar::Raiz | Lugar::Projetado | Lugar::NoFilho | Lugar::NoFilhoProjetado]
+            ) && !consulta.lista)
             {
                 fora.push(recusa(
                     Motivo::ViewChildEmFilho,
@@ -1535,6 +1540,7 @@ fn template_como_container(nos: &[No]) -> Vec<No> {
                         valor: String::new(),
                         inicio: e.inicio,
                         fim: e.inicio,
+                        sem_valor: true,
                     });
                 }
                 No::Elemento(e)
@@ -1559,6 +1565,7 @@ fn template_da_estrela(e: &crate::html::Elemento) -> crate::html::Elemento {
         valor: valor.to_string(),
         inicio: estrela.inicio,
         fim: estrela.fim,
+        sem_valor: false,
     };
     let mut t = crate::html::Elemento {
         nome: "template".into(),
@@ -1570,7 +1577,12 @@ fn template_da_estrela(e: &crate::html::Elemento) -> crate::html::Elemento {
         .first()
         .is_none_or(|(p, _)| *p != estrela.nome)
     {
-        t.atributos.push(ligacao(&estrela.nome, ""));
+        // O `dir` do desaçúcar não tem valor (`EmptyExpr`: `true` numa
+        // entrada `bool`, o `*deferredContent="forceContent: x"`).
+        t.atributos.push(crate::html::Ligacao {
+            sem_valor: true,
+            ..ligacao(&estrela.nome, "")
+        });
     }
     for (nome, chave) in &micro.locais {
         let valor = if chave == "$implicit" {
@@ -1697,6 +1709,7 @@ fn molde_com_diretiva(
             valor: partes.join("; "),
             inicio: dir.inicio,
             fim: dir.fim,
+            sem_valor: false,
         },
         e.propriedades.clone(),
         micro,
@@ -3885,11 +3898,13 @@ impl Corpo<'_> {
         } else {
             None
         };
-        // `#ref` no filho vale a instância (o campo dela): só sem valor, e
-        // lido por expressão só da própria visão ([`referencias_locais`]).
+        // `#ref` no filho vale a instância do componente; com valor, a da
+        // diretiva do nó com aquele `exportAs` (`identifierForReference`,
+        // `ast_template_parser.dart:854-868`), escolhida adiante. Com valor,
+        // o nome não lido é só um nome, como no elemento HTML.
         for r in &e.referencias {
             if !r.valor.is_empty() {
-                return Err(em_filho("#ref com valor no filho"));
+                continue;
             }
             if !self.refs_livres.contains(&r.nome)
                 && !self.refs_locais.contains(&r.nome)
@@ -4197,11 +4212,46 @@ impl Corpo<'_> {
             )],
             elemento: el.clone(),
         });
+        // O alvo de cada `#ref`: sem valor, o componente; com valor, a única
+        // diretiva do nó (o componente inclusive) com `exportAs` igual —
+        // o campo dela já traz o `.instance` de uma `XNgCd`.
+        let mut refs_ao_componente = Vec::new();
         for r in &e.referencias {
-            self.refs
-                .insert(r.nome.clone(), format!("this.{campo_inst}"));
-            self.refs_em_ordem
-                .push((r.nome.clone(), format!("this.{campo_inst}")));
+            let leitura = if r.valor.is_empty() {
+                refs_ao_componente.push(r.nome.clone());
+                format!("this.{campo_inst}")
+            } else {
+                let achadas: Vec<&String> = match &resolvido {
+                    Some((res, _)) => res
+                        .diretivas
+                        .iter()
+                        .filter(|(d, _)| d.export_as.as_deref() == Some(r.valor.as_str()))
+                        .map(|(_, c)| c)
+                        .collect(),
+                    None => filho
+                        .metadados
+                        .iter()
+                        .filter(|m| m.export_as.as_deref() == Some(r.valor.as_str()))
+                        .map(|_| &campo_inst)
+                        .collect(),
+                };
+                match achadas.as_slice() {
+                    [c] => {
+                        if **c == campo_inst {
+                            refs_ao_componente.push(r.nome.clone());
+                        }
+                        format!("this.{c}")
+                    }
+                    [] => return Err(em_filho("#ref com valor sem diretiva que o exporte")),
+                    _ => {
+                        return Err(em_filho(
+                            "#ref com valor exportado por mais de uma diretiva",
+                        ));
+                    }
+                }
+            };
+            self.refs.insert(r.nome.clone(), leitura.clone());
+            self.refs_em_ordem.push((r.nome.clone(), leitura));
         }
         // O resultado de um `@ViewChild(Tipo)` ([`chave_de_tipo`]), também
         // lido de uma visão de cima (consulta dinâmica).
@@ -4215,11 +4265,13 @@ impl Corpo<'_> {
                 .push((chave.clone(), campo_vista.clone()));
             self.detectores.insert(chave, campo_vista.clone());
         }
-        for r in &e.referencias {
+        // `buildChangeDetectorRef()` só existe para o componente `onPush`:
+        // o `#ref` que vale uma diretiva não registra detector.
+        for nome in &refs_ao_componente {
             if filho.on_push {
                 self.detectores_em_ordem
-                    .push((r.nome.clone(), campo_vista.clone()));
-                self.detectores.insert(r.nome.clone(), campo_vista.clone());
+                    .push((nome.clone(), campo_vista.clone()));
+                self.detectores.insert(nome.clone(), campo_vista.clone());
             }
         }
         // `bindRenderInputs`: as ligações do próprio elemento do filho,
@@ -6338,12 +6390,22 @@ impl Corpo<'_> {
     ) -> Result<Ligada, Recusa> {
         let url = self.url(Motivo::Interpolacao)?;
         let nome = a.nome.as_str();
-        // Nome que o esquema renomeia ou protege (`readonly`, `href`…), ou
-        // que nem é propriedade do DOM (`data-x`, `aria-x`: o oficial acusa
-        // erro), fica de fora.
+        // `_createPropertyForAttribute` passa o nome ao mesmo
+        // `createElementPropertyAst` de `[x]`: `attr.x`, `class.x` e
+        // `style.x` são as ligações de sempre (caso j107). Sem prefixo, o
+        // nome que o esquema renomeia (`readonly`, `tabindex`, `for`…) ainda
+        // não sai; o que nem é propriedade do DOM (`data-x`, `aria-x`) é
+        // erro no oficial.
+        let com_prefixo = ["attr.", "class.", "style."]
+            .iter()
+            .any(|p| nome.starts_with(p));
         if nome != "class"
+            && !com_prefixo
             && (!nome.chars().all(|c| c.is_ascii_lowercase())
-                || matches!(nome, "style" | "readonly" | "tabindex" | "for"))
+                || matches!(
+                    nome,
+                    "style" | "readonly" | "tabindex" | "for" | "formaction"
+                ))
         {
             return Err(recusa(
                 Motivo::Interpolacao,
@@ -6357,13 +6419,23 @@ impl Corpo<'_> {
             ));
         }
         let v = self.valor_interpolado(&a.valor, Motivo::Interpolacao)?;
-        let convertidas = v.convertidas;
+        // O valor da ligação é a `Interpolation`, não a expressão de dentro:
+        // nunca é nula (`canBeNull` dá `false`, daí o `setAttribute` do
+        // `visitAttributeBinding`), e o `_TypeResolver` não a tipa (`dynamic`:
+        // `[style.x]` ganha o `.toString()`).
+        let mut convertidas = v.convertidas;
+        if let Some(c) = convertidas.first_mut() {
+            c.pode_ser_nulo = false;
+            c.tipo = Some("dynamic".into());
+            c.escopo = None;
+        }
         let k = v.k;
         let simulada = crate::html::Ligacao {
             nome: a.nome.clone(),
             valor: a.valor.clone(),
             inicio: a.inicio,
             fim: a.fim,
+            sem_valor: a.sem_valor,
         };
         let (ini, fim) = (a.inicio, a.fim);
         if v.imutavel {
@@ -7842,10 +7914,7 @@ fn liga_no_elemento(
 /// Atributo escrito sem valor (`<input required>`): o intervalo dele é só o
 /// nome.
 fn sem_valor(a: &crate::html::Ligacao) -> bool {
-    // O intervalo é o do nome sozinho (`x`), ou o do `*x` que o
-    // [`template_da_estrela`] desfaz (um a mais, o `*`); `x=""` é mais longo.
-    let n = a.nome.encode_utf16().count();
-    a.valor.is_empty() && (a.fim - a.inicio == n || a.fim - a.inicio == n + 1)
+    a.sem_valor
 }
 
 /// O `injectorGetInternal` de uma visão (`writeInjectorGetMethod`,
@@ -8294,8 +8363,6 @@ struct Contexto<'a> {
     pipes: &'a PipesDoTemplate,
     /// Os nomes de `#ref` que podem virar local ([`referencias_candidatas`]).
     refs_candidatos: std::collections::HashSet<String>,
-    /// Os nomes que alguma consulta (`@ViewChild('x')`) procura.
-    refs_das_consultas: std::collections::HashSet<String>,
     /// (chave, token) das consultas com `read:` de um provedor do nó
     /// ([`token_de_leitura`]).
     leituras: Vec<(String, crate::diretivas::Token)>,
@@ -8545,8 +8612,17 @@ fn corpo_da_embutida(
         );
     }
     dentro.refs_ancestrais = espec.refs_ancestrais.clone();
-    dentro.refs_livres =
-        referencias_livres_da_visao(&espec.nos, ctx.filhos, &ctx.refs_das_consultas);
+    // Um `#ref` desta visão só pesa para as consultas que chegam a ela (as
+    // dinâmicas: `refs_consultados` e as em trânsito); a estática, com o
+    // primeiro resultado fora de `*`, nunca chega (`compile_query.dart:
+    // 128-150`, caso j109).
+    let consultados_aqui: std::collections::HashSet<String> = espec
+        .refs_consultados
+        .iter()
+        .chain(&espec.consultas_em_transito)
+        .map(|(r, _, _)| r.clone())
+        .collect();
+    dentro.refs_livres = referencias_livres_da_visao(&espec.nos, ctx.filhos, &consultados_aqui);
     dentro.refs_de_embutidas = refs_locais
         .iter()
         .filter(|n| citado_em_embutidas(&espec.nos, n, ctx.filhos))
@@ -10307,12 +10383,6 @@ fn gerar_componente_com(
         pipes: &tabela,
         refs_ambiguos: referencias_ambiguas(nos),
         refs_candidatos,
-        refs_das_consultas: c
-            .consultas
-            .iter()
-            .filter(|q| !q.por_tipo)
-            .map(|q| q.referencia.clone())
-            .collect(),
         leituras: c
             .consultas
             .iter()
@@ -10625,7 +10695,6 @@ fn gerar_componente_com(
         .chain(&ouvintes)
         .chain(&criacao_pipes)
         .chain(&consultas)
-        .chain(&hospedeiro)
         .cloned()
         .chain((corpo.subscricoes > 0).then(|| {
             let subs: Vec<String> = (0..corpo.subscricoes)
@@ -10633,6 +10702,9 @@ fn gerar_componente_com(
                 .collect();
             format!("    this.initSubscriptions([{}]);", subs.join(", "))
         }))
+        // Os `@HostListener` do componente depois do `initSubscriptions`
+        // (`_writeComponentHostEventListeners`, `view_builder.dart:840-852`).
+        .chain(hospedeiro.iter().cloned())
         .collect::<Vec<_>>()
         .join("\n");
     let corpo_build = if linhas.is_empty() {
@@ -10920,9 +10992,17 @@ fn gerar_componente_com(
     // `onPush` com `@Input`: a hospedeira marca a checagem
     // (`bindDirectiveInputs`, `hasInputs` conta os herdados — que daqui não
     // se veem: recusa).
-    let marca = c.on_push && !c.entradas.is_empty();
-    if c.on_push && c.entradas.is_empty() && c.herda {
-        let r = recusa(Motivo::NaoEntendido, "componente onPush que herda @Input");
+    // `hasInputs` (`matched_directive_converter.dart:72`) conta os `@Input`
+    // herdados, que os metadados coletam como o `_collectInheritableMetadata`.
+    let metadados_de_quem_herda = local.metadados.as_deref().filter(|m| m.fora.is_empty());
+    let entradas_herdadas =
+        c.herda && metadados_de_quem_herda.is_some_and(|m| !m.entradas.is_empty());
+    let marca = c.on_push && (!c.entradas.is_empty() || entradas_herdadas);
+    if c.on_push && c.entradas.is_empty() && c.herda && metadados_de_quem_herda.is_none() {
+        let r = recusa(
+            Motivo::NaoEntendido,
+            "componente onPush que herda, sem os metadados",
+        );
         if coleta.is_none() {
             return Err(r);
         }
@@ -10936,7 +11016,11 @@ fn gerar_componente_com(
     };
     // Os ganchos de quem herda sobem os supertipos (a classe que implementa
     // `OnInit` pode ser a base): vêm dos metadados do programa.
-    let ganchos = if c.herda {
+    // Também sem herança: `implements X` com `X extends OnInit` só se vê
+    // pelo programa (`allSupertypes`); o texto da classe não basta.
+    let ganchos = if let Some(m) = local.metadados.as_deref().filter(|m| m.fora.is_empty()) {
+        m.ganchos
+    } else if c.herda {
         match local.metadados.as_deref() {
             Some(m) if m.fora.is_empty() => m.ganchos,
             _ => {

@@ -955,8 +955,10 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 }
             }
         }
-        // Como o `_queries` do oficial: setters, depois campos.
-        d.consultas_de_conteudo = consultas_setter;
+        // Como o `_queries` do oficial: setters, depois campos, somados em
+        // cada classe da hierarquia (supertipos primeiro) — a lista cresce,
+        // não é trocada (`find_components.dart:374`).
+        d.consultas_de_conteudo.extend(consultas_setter);
         d.consultas_de_conteudo.extend(consultas_campo);
         // `_inputs..addAll(_fieldInputs)..addAll(_setterInputs)`: a chave é o
         // membro; repetir a chave troca o valor e mantém a posição.

@@ -321,3 +321,8 @@ export 'src/j104_ngcd_so_diretiva.dart';
 export 'src/j105_posicao.dart';
 export 'src/j105_token_lista.dart';
 export 'src/j106_ngzone_no_filho.dart';
+export 'src/j107_atributo_interpolado_prefixo.dart';
+export 'src/j108_skip_self_no_proprio_no.dart';
+export 'src/j109_ref_exportado_no_filho.dart';
+export 'src/j110_onpush_herda_input.dart';
+export 'src/j111_regras_da_espec.dart';

@@ -680,6 +680,14 @@ fn resolver_com(
         }
     }
     // `_getOrCreateLocalProvider`: em profundidade, as dependências antes.
+    // Só as dependências que o `_getDependency` procura no próprio nó viram
+    // aresta: `@SkipSelf` pula o nó (`provider_parser.dart:325`), e o
+    // `_getLocalDependency` devolve `@Attribute`, `Injector` e os embutidos
+    // do elemento sem criar provedor (`:270-301`). Sem isso, o
+    // `@Optional() @SkipSelf()` do token do próprio nó parecia ciclo.
+    fn local(dep: &Dependencia) -> bool {
+        !dep.pular && dep.atributo.is_none() && !dep.token.embutido()
+    }
     fn criar(
         todos: &[Resolvido],
         i: usize,
@@ -711,15 +719,12 @@ fn resolver_com(
                     }
                 }
                 Fonte::Diretiva(d) => {
-                    for dep in &d.dependencias {
-                        match &dep.token {
-                            Token::Elemento | Token::Detector => {}
-                            t => pedir(t, ordem, vistos)?,
-                        }
+                    for dep in d.dependencias.iter().filter(|d| local(d)) {
+                        pedir(&dep.token, ordem, vistos)?;
                     }
                 }
                 Fonte::Provedor(Fornece::Classe { deps, .. } | Fornece::Fabrica { deps, .. }) => {
-                    for dep in deps {
+                    for dep in deps.iter().filter(|d| local(d)) {
                         pedir(&dep.token, ordem, vistos)?;
                     }
                 }
@@ -824,14 +829,19 @@ fn resolver_com(
             })
         };
         let dependencia = |dep: &Dependencia| -> Result<Expr, &'static str> {
-            if dep.proprio || dep.hospedeiro || dep.pular {
-                return Err("dependência @Self/@Host/@SkipSelf de provedor");
+            if dep.proprio || dep.hospedeiro {
+                return Err("dependência @Self/@Host de provedor");
             }
             if dep.atributo.is_some() {
                 return Err("dependência @Attribute de provedor");
             }
             if dep.token.embutido() {
                 return Err("provedor que depende de embutido do elemento");
+            }
+            // `@SkipSelf`: o nó não é consultado (`provider_resolver.dart:189`);
+            // sobe pelos elementos acima e, sem eles, o injetor de fora.
+            if dep.pular {
+                return de_fora(&dep.token, dep.opcional);
             }
             match campo_de(&dep.token) {
                 Some(c) => Ok(Expr::Campo(c)),

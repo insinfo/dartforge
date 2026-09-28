@@ -756,6 +756,11 @@ impl Indice {
                 // ganchos pelos metadados, que sobem os supertipos como o
                 // `_collectInheritableMetadata` do oficial. A consulta de
                 // conteúdo herdada ainda não se escreve.
+                // Os ganchos sempre pelo programa (interface indireta:
+                // `implements X`, `X extends OnInit`).
+                if m.fora.is_empty() {
+                    f.ganchos = m.ganchos;
+                }
                 if comp.herda && m.fora.is_empty() {
                     f.entradas = m
                         .entradas
@@ -1687,7 +1692,13 @@ fn template_do_componente(
     let ausente = || recusa(Motivo::TemplateAusente, "templateUrl não encontrado");
     Ok(match (&comp.template, &comp.template_url) {
         (Some(t), _) => {
-            let mut nos = html::analisar(t);
+            let (mut nos, erro) = html::analisar_com_erro(t);
+            if let Some(e) = erro {
+                return Err(recusa(
+                    Motivo::NaoEntendido,
+                    format!("template inválido: {e}"),
+                ));
+            }
             if let Some(k) = comp.deslocamento_do_template {
                 html::deslocar(&mut nos, k);
             }
@@ -1696,7 +1707,14 @@ fn template_do_componente(
         (None, Some(url)) => {
             let caminho = fonte.parent().ok_or_else(ausente)?.join(url);
             let texto = std::fs::read_to_string(&caminho).map_err(|_| ausente())?;
-            (html::analisar(&texto), Some(caminho))
+            let (nos, erro) = html::analisar_com_erro(&texto);
+            if let Some(e) = erro {
+                return Err(recusa(
+                    Motivo::NaoEntendido,
+                    format!("template inválido: {e}"),
+                ));
+            }
+            (nos, Some(caminho))
         }
         (None, None) => (html::analisar(""), None),
     })
