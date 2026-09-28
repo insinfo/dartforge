@@ -34,6 +34,9 @@ pub struct Componente {
     /// `providers:`/`viewProviders:` com provedores: entram no nó de quem usa
     /// e mudam a numeração dos provedores dele.
     pub com_provedores: bool,
+    /// `visibility:` escrito: o valor vem dos metadados do programa
+    /// (`metadados.rs`), sem eles não se sabe a hospedeira.
+    pub visibilidade_escrita: bool,
     /// `template: '...'` quando o template está na própria anotação.
     pub template: Option<String>,
     /// Onde o conteúdo do `template:` começa no `.dart`, em unidades UTF-16
@@ -549,6 +552,7 @@ fn ler(
                 "pipes" => (c.pipes, c.pipes_ilegiveis) = nomes_da_lista(arvore, interner, a.value),
                 "exports" => exportados = nomes_da_lista(arvore, interner, a.value).0,
                 "providers" | "viewProviders" => c.com_provedores |= !lista_vazia(arvore, a.value),
+                "visibility" => c.visibilidade_escrita = true,
                 _ => {}
             }
         }
@@ -707,6 +711,9 @@ const ARGUMENTOS_CONHECIDOS: &[&str] = &[
     "directives",
     "exports",
     "pipes",
+    // Só decide o `injectorGetInternal`; lida dos metadados do programa
+    // (`metadados.rs`), caso j41.
+    "visibility",
 ];
 
 /// Argumentos de `@Directive` cujo efeito o gerador conhece.

@@ -250,3 +250,6 @@ export 'src/j36_estilo_importa.dart';
 export 'src/j37_filho_sem_projecao.dart';
 export 'src/j38_preguicoso_e_texto.dart';
 export 'src/j39_ordem_dos_sujos.dart';
+export 'src/j40_com_host.dart';
+export 'src/j40_dependencia_de_fora.dart';
+export 'src/j41_injecao_no_conteudo.dart';

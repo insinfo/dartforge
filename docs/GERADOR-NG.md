@@ -395,9 +395,18 @@ do `text_binding.dart`) — caso j38; os campos `_viewQuery_*_isDirty` na
 ordem em que o `ViewBuilder` acha o primeiro resultado dinâmico de cada
 consulta (pré-ordem, `_setParentQueryAsDirty`), e `[attr.class]`/
 `[className]` como o `ClassBinding` do `[class]` (`updateChildClass`) —
-caso j39. Corpus: 261 conferidos. limitless_ui/example (Linux,
-`build --comparar`): **896 iguais / 54 pendentes / 0 diferentes** —
-`.template.dart` 480/52/0, `.css` e `.css.map` do Sass 102/102 cada,
+caso j39; dependência de diretiva que nenhum elemento da cadeia provê vem
+do injetor de fora (`(v.parentView!).injectorGet(T, v.parentIndex)`,
+`injectorGetOptional` com `@Optional()`, `v` pelo `nivel_do_topo`, a
+criação no `debugInjectorWrap` sob `isDevMode`, dentro do `XNgCd` quando
+há `@HostBinding`; dependência de `OpaqueToken`), e `Injector` é o
+`this.injector(n)` do próprio elemento — caso j40; no mesmo template o
+provedor local (`Visibility.local`, o padrão) é achado pelo nó de baixo, a
+visibilidade só decide o `injectorGetInternal` (`Visibility.all` também na
+hospedeira), e filho conhecido pelos metadados deixa de tornar a busca
+incerta — caso j41. Corpus: 264 conferidos. limitless_ui/example (Linux,
+`build --comparar`): **898 iguais / 52 pendentes / 0 diferentes** —
+`.template.dart` 482/50/0, `.css` e `.css.map` do Sass 102/102 cada,
 `.css.dart` e `.css.shim.dart` 104 cada.
 
 ### Diretivas estruturais

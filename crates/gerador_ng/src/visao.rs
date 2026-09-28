@@ -2535,6 +2535,9 @@ struct Corpo<'a> {
     /// Quantos elementos de componente há acima (provedores que o emissor
     /// não modela).
     componentes_acima: u32,
+    /// Componentes acima cujos provedores não se sabem (sem metadados do
+    /// programa): o que o nó não acha acima pode estar neles.
+    incertos_acima: u32,
     /// Componentes que este template pode usar, por seletor.
     filhos: &'a std::collections::HashMap<String, Filho>,
     /// Todas as diretivas e componentes de `directives:`, para saber o que
@@ -3372,11 +3375,13 @@ impl Corpo<'_> {
                 .cloned(),
         );
         // Os provedores do nó: o componente primeiro, depois as diretivas.
+        // `Visibility.all` põe o filho no `injectorGetInternal`: é o
+        // caminho resolvido que o escreve.
         let com_provedores = !extras.is_empty()
             || filho
                 .metadados
                 .as_ref()
-                .is_some_and(|m| !m.provedores.is_empty());
+                .is_some_and(|m| !m.provedores.is_empty() || m.visivel);
         let no_resolvido =
             if com_provedores {
                 let meta = filho
@@ -3592,7 +3597,7 @@ impl Corpo<'_> {
             let provedores = self.provedores_acima();
             let acima = crate::diretivas::Acima {
                 provedores: &provedores,
-                incerto: self.componentes_acima > 0,
+                incerto: self.incertos_acima > 0,
             };
             let r = crate::diretivas::resolver_no_do_filho(casadas, n, Some(acima))
                 .map_err(|f| recusa(Motivo::DiretivaPorSeletor, f))?;
@@ -3641,6 +3646,12 @@ impl Corpo<'_> {
                 self.injetores.push((n, n, injetaveis));
             }
             for i in &r.instancias {
+                // A visibilidade só decide o `injectorGetInternal` (outras
+                // visões); no mesmo template o nó de baixo acha até o
+                // provedor local pelo token dele (caso j41).
+                if i.injetavel_por.is_empty() {
+                    self.acima.push((i.token.clone(), i.leitura.clone(), None));
+                }
                 for t in &i.injetavel_por {
                     self.acima.push((t.clone(), i.leitura.clone(), None));
                 }
@@ -3671,6 +3682,10 @@ impl Corpo<'_> {
                 provedores,
                 elemento: format!("_el_{n}"),
             });
+        } else if let Some(meta) = &filho.metadados {
+            // Sem `providers:`, outra diretiva nem `Visibility.all`, o nó do
+            // filho só provê a classe dele ao conteúdo do mesmo template.
+            self.acima.push((meta.token(), campo_inst.clone(), None));
         }
         if filho.projecoes.is_empty() && e.filhos.is_empty() {
             self.consultas_do_filho(e, filho, &campo_inst, n)?;
@@ -3695,6 +3710,10 @@ impl Corpo<'_> {
         let pai_antes = self.pai_projetado.replace(n);
         self.pilha.push((n, true));
         self.componentes_acima += 1;
+        let incerto = filho.metadados.is_none();
+        if incerto {
+            self.incertos_acima += 1;
+        }
         let mut r = Ok(());
         for no in &e.filhos {
             let indice = match no {
@@ -3749,6 +3768,9 @@ impl Corpo<'_> {
         self.filhos_acima.pop();
         self.pilha.pop();
         self.componentes_acima -= 1;
+        if incerto {
+            self.incertos_acima -= 1;
+        }
         r?;
         self.consultas_do_filho(e, filho, &campo_inst, n)?;
         self.depois_dos_filhos(filho, &campo_inst);
@@ -3788,6 +3810,23 @@ impl Corpo<'_> {
         Ok(())
     }
 
+    /// A visão de onde o injetor de fora é lido (`injectFromViewParentInjector`
+    /// escrito na visão do nó mais alto da cadeia de injetores e levado a
+    /// esta por `getPropertyInView`): `this`, ou a cadeia de `parentView`
+    /// até ela (casos i76, j40).
+    fn visao_do_injetor(&self) -> String {
+        let saltos = self.profundidade - self.nivel_do_topo;
+        let mut v = "this".to_string();
+        for k in 0..saltos {
+            v = if k == 0 {
+                "(this.parentView!)".to_string()
+            } else {
+                format!("({v}.parentView!)")
+            };
+        }
+        v
+    }
+
     /// A construção da instância do filho, texto depois de `this._X_n_5 = `
     /// (sem o `;`): o nó, a visão do filho e os serviços pela visão de cima.
     /// Com serviço, o oficial embrulha em `debugInjectorWrap` sob
@@ -3817,16 +3856,7 @@ impl Corpo<'_> {
         // `injectFromViewParentInjector` escrito na visão do nó e levado
         // (`getPropertyInView`) à visão do nó mais alto da cadeia de
         // injetores: `parentView.injectorGet(T, parentIndex)` visto de lá.
-        let saltos = self.profundidade - self.nivel_do_topo;
-        let visao_do_componente = if saltos == 0 {
-            "this".to_string()
-        } else {
-            let mut v = "(this.parentView!)".to_string();
-            for _ in 1..saltos {
-                v = format!("({v}.parentView!)");
-            }
-            v
-        };
+        let visao_do_componente = self.visao_do_injetor();
         let mut args = Vec::new();
         for p in &filho.parametros {
             match p {
@@ -4825,6 +4855,7 @@ impl Corpo<'_> {
                 })
                 .collect(),
             componentes_acima: self.componentes_acima,
+            incertos_acima: self.incertos_acima,
         });
     }
 
@@ -5504,7 +5535,7 @@ impl Corpo<'_> {
             let provedores = self.provedores_acima();
             let acima = crate::diretivas::Acima {
                 provedores: &provedores,
-                incerto: self.componentes_acima > 0,
+                incerto: self.incertos_acima > 0,
             };
             match crate::diretivas::resolver(&casadas, n, Some(acima)) {
                 Ok(r) => Some(r),
@@ -5801,6 +5832,12 @@ impl Corpo<'_> {
         let antes_acima = self.acima.len();
         if let Some(r) = &resolvido {
             for i in &r.instancias {
+                // A visibilidade só decide o `injectorGetInternal` (outras
+                // visões); no mesmo template o nó de baixo acha até o
+                // provedor local pelo token dele (caso j41).
+                if i.injetavel_por.is_empty() {
+                    self.acima.push((i.token.clone(), i.leitura.clone(), None));
+                }
                 for t in &i.injetavel_por {
                     self.acima.push((t.clone(), i.leitura.clone(), None));
                 }
@@ -5953,16 +5990,6 @@ impl Corpo<'_> {
             };
             let valor = match &inst.criacao {
                 Criacao::Diretiva { diretiva, args } => {
-                    let args: Vec<String> = args
-                        .iter()
-                        .map(|a| match a {
-                            Argumento::Elemento => alvo.to_string(),
-                            Argumento::Detector => "this".to_string(),
-                            Argumento::Nulo => "null".to_string(),
-                            Argumento::Campo(c) => format!("this.{c}"),
-                            Argumento::Acima(leitura) => leitura.clone(),
-                        })
-                        .collect();
                     // Com `@HostBinding`, o `XNgCd` do `.template.dart` da
                     // diretiva embrulha a instância.
                     let cd = if diretiva.ligacoes_do_hospedeiro.is_empty() {
@@ -5971,12 +5998,46 @@ impl Corpo<'_> {
                         let tpl = diretiva.uri.replace(".dart", ".template.dart");
                         Some(self.imp.q(&import_de(&tpl, &self.asset)))
                     };
-                    let criacao = format!(
-                        "{}{}({})",
+                    // Dependência do injetor de fora: a criação vai
+                    // embrulhada em `debugInjectorWrap` sob `isDevMode`, e o
+                    // emissor escreve `isDevMode` e o `debugInjectorWrap`
+                    // antes da classe e dos tokens (a ordem dos imports).
+                    let injeta = args.iter().any(|a| matches!(a, Argumento::DeFora { .. }));
+                    let envolto = injeta.then(|| (self.imp.alias(UTILITIES), self.imp.alias(DI_ERRORS)));
+                    let classe = format!(
+                        "{}{}",
                         self.imp.q(&import_de(&diretiva.uri, &self.asset)),
-                        diretiva.classe,
-                        args.join(", ")
+                        diretiva.classe
                     );
+                    let v = self.visao_do_injetor();
+                    let mut textos = Vec::new();
+                    for a in args {
+                        textos.push(match a {
+                            Argumento::Elemento => alvo.to_string(),
+                            Argumento::Detector => "this".to_string(),
+                            Argumento::Nulo => "null".to_string(),
+                            Argumento::Campo(c) => format!("this.{c}"),
+                            Argumento::Acima(leitura) => leitura.clone(),
+                            Argumento::Injetor(n) => format!("this.injector({n})"),
+                            Argumento::DeFora { token, opcional } => {
+                                let metodo = if *opcional {
+                                    "injectorGetOptional"
+                                } else {
+                                    "injectorGet"
+                                };
+                                let t = expr_do_token(&token_local(token, &self.asset));
+                                let t = resolver_tardios(self.imp, &t);
+                                format!("({v}.parentView!).{metodo}({t}, {v}.parentIndex)")
+                            }
+                        });
+                    }
+                    let chamada = format!("{classe}({})", textos.join(", "));
+                    let criacao = match envolto {
+                        None => chamada,
+                        Some((util, erros)) => format!(
+                            "({util}.isDevMode\n        ? {erros}.debugInjectorWrap({classe}, () {{\n            return {chamada};\n          }})\n        : {chamada})"
+                        ),
+                    };
                     match cd {
                         Some(q) => format!("{q}{}NgCd({criacao})", diretiva.classe),
                         None => criacao,
@@ -6618,6 +6679,7 @@ struct EspecEmbutida {
     /// Os provedores acima da âncora, vistos da visão nova.
     acima: Vec<(crate::diretivas::Token, String, Option<(String, u32)>)>,
     componentes_acima: u32,
+    incertos_acima: u32,
 }
 
 /// De onde vem um local de visão ancestral: a chave em `locals`, a classe
@@ -6720,6 +6782,7 @@ impl<'a> Contexto<'a> {
             ancestrais: Default::default(),
             acima: Vec::new(),
             componentes_acima: 0,
+            incertos_acima: 0,
             filhos: self.filhos,
             usadas: self.usadas,
             coleta,
@@ -6863,6 +6926,7 @@ fn corpo_da_embutida(
     dentro.ancestrais = espec.ancestrais.clone();
     dentro.acima = espec.acima.clone();
     dentro.componentes_acima = espec.componentes_acima;
+    dentro.incertos_acima = espec.incertos_acima;
     // Os `#ref` das visões ancestrais: o campo do nó na visão que o
     // declara (`getPropertyInView`, sem cast do valor: a referência não tem
     // tipo).
@@ -8252,8 +8316,16 @@ fn gerar_componente(
     if let Some(r) = falta_para_construir(c, local, resolvedor) {
         anotar(coleta, r)?;
     }
-    // `providers:` do componente: a visão-hospedeira os cria.
-    let no_hospedeiro = if c.com_provedores {
+    // `providers:` do componente: a visão-hospedeira os cria; com
+    // `Visibility.all`, ela também o entrega pelo `injectorGetInternal`.
+    if c.visibilidade_escrita && local.metadados.is_none() {
+        anotar(
+            coleta,
+            recusa(Motivo::Providers, "visibility: sem os metadados do programa"),
+        )?;
+    }
+    let visivel = local.metadados.as_ref().is_some_and(|m| m.visivel);
+    let no_hospedeiro = if c.com_provedores || visivel {
         match provedores_da_hospedeira(local) {
             Ok(r) => Some(r),
             Err(r) => {

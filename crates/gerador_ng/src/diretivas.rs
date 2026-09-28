@@ -39,6 +39,9 @@ impl TipoDeToken {
     }
 }
 
+/// A biblioteca do `Injector` do ngdart.
+const INJECTOR: &str = "package:ngdart/src/di/injector.dart";
+
 /// Um token de injeção.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Token {
@@ -297,12 +300,14 @@ impl Diretiva {
         if !self.so_apelidos() {
             return Some("provedor que não é ExistingProvider".into());
         }
+        // `OpaqueToken<T>` com `T` genérico: a forma do `T` na expressão do
+        // token (`createDiTokenExpression`) ainda não tem caso.
         if self
             .dependencias
             .iter()
-            .any(|d| matches!(d.token, Token::Opaco { .. }))
+            .any(|d| matches!(&d.token, Token::Opaco { tipo, .. } if tipo.genericos > 0))
         {
-            return Some("dependência de OpaqueToken".into());
+            return Some("dependência de OpaqueToken de tipo genérico".into());
         }
         for p in &self.provedores {
             if let Token::Multi { tipo, .. } = &p.token
@@ -330,6 +335,13 @@ pub enum Argumento {
     /// Um provedor de um elemento acima (`_getDependency` sobe pelos
     /// pais): a expressão que o lê desta visão.
     Acima(String),
+    /// `Injector`: o injetor do próprio elemento, `this.injector(n)` (um
+    /// dos embutidos do `CompileElement`, como o `ElementRef`).
+    Injetor(u32),
+    /// Nenhum elemento da cadeia provê: o injetor de fora da visão
+    /// (`injectFromViewParentInjector`), `injectorGetOptional` com
+    /// `@Optional()`.
+    DeFora { token: Token, opcional: bool },
 }
 
 /// Um provedor injetável de um elemento acima do nó, na visão dele ou numa
@@ -759,6 +771,14 @@ fn resolver_com(
                         }
                         Token::Elemento => Argumento::Elemento,
                         Token::Detector => Argumento::Detector,
+                        Token::Classe { uri, classe } if uri == INJECTOR && classe == "Injector" => {
+                            // `@SkipSelf()` leria o injetor do elemento de
+                            // cima (`injector(pai)`): ainda sem caso.
+                            if dep.pular {
+                                return Err("dependência @SkipSelf de Injector");
+                            }
+                            Argumento::Injetor(n)
+                        }
                         // `@SkipSelf()`: o `_getDependency` começa no pai
                         // (o `ControlContainer` do `NgControlName` é o
                         // `NgForm` do `<form>` de cima).
@@ -836,8 +856,8 @@ fn resolver_com(
 /// `@Self` para no nó; senão sobe pelos elementos acima (`@Host` até o
 /// hospedeiro, que aqui é a raiz da visão do componente). Sem resultado e
 /// `@Optional`, `null` — a não ser que haja acima algo que o emissor não
-/// modela. Sem `@Host`, depois dos elementos viria o injetor de fora: ainda
-/// não.
+/// modela. Sem `@Self` nem `@Host`, depois dos elementos vem o injetor de
+/// fora da visão (caso j40).
 fn fora_do_no(dep: &Dependencia, acima: Option<Acima>) -> Result<Argumento, &'static str> {
     // Sem contexto (só a ordem dos imports interessa): o valor não importa.
     let Some(acima) = acima else {
@@ -852,6 +872,12 @@ fn fora_do_no(dep: &Dependencia, acima: Option<Acima>) -> Result<Argumento, &'st
         (true, true, _) => Ok(Argumento::Nulo),
         (true, false, true) if !acima.incerto => Ok(Argumento::Nulo),
         (_, false, true) => Err("dependência @Host de diretiva sem provedor acima"),
+        // Algum elemento acima tem provedor que o emissor não modela: ele
+        // poderia ser o que o oficial acha antes do injetor de fora.
+        (_, false, false) if !acima.incerto => Ok(Argumento::DeFora {
+            token: dep.token.clone(),
+            opcional: dep.opcional,
+        }),
         _ => Err("dependência de diretiva de fora do nó"),
     }
 }
