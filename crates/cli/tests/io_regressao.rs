@@ -152,8 +152,10 @@ rsa cifrada: /C=BR/O=DartForge/CN=localhost -> ola rsa cifrada
 /// O contrato de `allowLegacyUnsafeRenegotiation` (o rustls não renegocia):
 /// sem a opção, a recusa é a da VM; com ela, a VM renegociaria e aqui o
 /// pedido é recusado igual (documentado em NATIVO-PLANO). Precisa do
-/// `openssl` do OpenSSL (o `s_server` pede a renegociação); sem ele, o teste
-/// não roda.
+/// `openssl` do OpenSSL (o `s_server -www` pede a renegociação ao receber
+/// `GET /reneg`; a entrada padrão dele não serve, porque no Windows o
+/// `s_server` bloqueia nela antes do aperto de mão); sem ele, o teste não
+/// roda.
 #[test]
 #[ignore = "compila com o SDK da fonte e liga com o Clang; roda no CI de cada sistema"]
 fn renegociacao_legada_e_recusada() {
@@ -167,7 +169,7 @@ fn renegociacao_legada_e_recusada() {
     compilar_e_rodar(
         "tls_renegociacao",
         &[certificados.as_os_str()],
-        "controle: recebido: linha do servidor\npadrão: erro: TlsException\ncom a opção: erro: TlsException\n",
+        "controle: recebido: HTTP/1.0 200 ok\npadrão: erro: TlsException\ncom a opção: erro: TlsException\n",
         // Cada etapa do programa tem prazo próprio (a soma no pior caso das
         // três rodadas fica abaixo disto): travar aqui é o laço de eventos.
         Duration::from_secs(300),

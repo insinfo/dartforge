@@ -1667,6 +1667,94 @@ fn primeiro_resultado_dinamico(
     andar(nos, chave, filhos, false, &mut 0)
 }
 
+/// Marca, no início de uma raiz ou item de projeção, de que ele já é uma
+/// lista (`this.projectedNodes[i]`, `o.ArrayType`).
+const RAIZ_LISTA: char = '\u{11}';
+
+/// Uma lista de nós como o `createFlatArrayForProjectNodes` a escreve.
+enum ListaPlana {
+    /// `const <Object>[]`.
+    Vazia,
+    /// `<Object>[a, b]`, com os itens.
+    Literal(Vec<String>),
+    /// Qualquer outra expressão (uma lista projetada, ou a concatenação).
+    Expressao(String),
+}
+
+impl ListaPlana {
+    fn texto(&self) -> String {
+        match self {
+            ListaPlana::Vazia => "const <Object>[]".to_string(),
+            ListaPlana::Literal(itens) => format!("<Object>[{}]", itens.join(", ")),
+            ListaPlana::Expressao(e) => e.clone(),
+        }
+    }
+}
+
+/// `createFlatArrayForProjectNodes` (`view_compiler_utils.dart`): os itens
+/// que não são lista vão juntos num `<Object>[..]`; cada lista projetada
+/// ([`RAIZ_LISTA`]) é concatenada com `..addAll(..)` — a que não abre a
+/// expressão, dentro de `unsafeCast`. Uma lista sozinha é ela mesma. Com
+/// mais de uma concatenação, o `dart format` do builder quebra a cascata em
+/// linhas, forma ainda sem caso.
+fn lista_plana(itens: &[String], util: &str) -> Result<ListaPlana, Recusa> {
+    let lista = |x: &String| x.strip_prefix(RAIZ_LISTA).map(str::to_string);
+    match itens {
+        [] => return Ok(ListaPlana::Vazia),
+        [x] => {
+            return Ok(match lista(x) {
+                Some(l) => ListaPlana::Expressao(l),
+                None => ListaPlana::Literal(vec![x.clone()]),
+            });
+        }
+        _ => {}
+    }
+    if !itens.iter().any(|x| x.starts_with(RAIZ_LISTA)) {
+        return Ok(ListaPlana::Literal(itens.to_vec()));
+    }
+    let mut soltos: Vec<String> = Vec::new();
+    let mut resultado: Option<String> = None;
+    let mut concatenacoes = 0;
+    let juntar = |resultado: &mut Option<String>, parte: String, concatenacoes: &mut u32| {
+        *resultado = Some(match resultado.take() {
+            None => parte,
+            Some(r) => {
+                *concatenacoes += 1;
+                format!("{r}..addAll({parte})")
+            }
+        });
+    };
+    for x in itens {
+        match lista(x) {
+            Some(l) => {
+                if !soltos.is_empty() {
+                    let parte = format!("<Object>[{}]", soltos.join(", "));
+                    juntar(&mut resultado, parte, &mut concatenacoes);
+                    soltos.clear();
+                }
+                let parte = if resultado.is_none() {
+                    format!("<Object>[{l}]")
+                } else {
+                    format!("{util}.unsafeCast({l})")
+                };
+                juntar(&mut resultado, parte, &mut concatenacoes);
+            }
+            None => soltos.push(x.clone()),
+        }
+    }
+    if !soltos.is_empty() {
+        let parte = format!("<Object>[{}]", soltos.join(", "));
+        juntar(&mut resultado, parte, &mut concatenacoes);
+    }
+    if concatenacoes > 1 {
+        return Err(recusa(
+            Motivo::Projecao,
+            "lista de nós com mais de uma lista projetada concatenada",
+        ));
+    }
+    Ok(ListaPlana::Expressao(resultado.unwrap_or_default()))
+}
+
 /// Quantos `<ng-content>` há em `nos`, em qualquer profundidade.
 fn conteudos_em(nos: &[No]) -> u32 {
     nos.iter()
@@ -3833,20 +3921,32 @@ impl Corpo<'_> {
                 vazias.join(", ")
             )
         } else {
-            let linhas: Vec<String> = listas
-                .iter()
-                .map(|l| {
-                    if l.is_empty() {
-                        "      const <Object>[]".to_string()
-                    } else {
-                        format!("      <Object>[{}]", l.join(", "))
-                    }
-                })
-                .collect();
-            format!(
-                "    this.{campo_vista}.createAndProject(this.{campo_inst}, [\n{}\n    ]);",
-                linhas.join(",\n")
-            )
+            // Cada lista pelo `createFlatArrayForProjectNodes` (um
+            // `<ng-content>` reprojetado é uma lista inteira, caso j57).
+            let reprojeta = listas.iter().flatten().any(|x| x.starts_with(RAIZ_LISTA));
+            let util = if reprojeta {
+                self.imp.alias(UTILITIES)
+            } else {
+                String::new()
+            };
+            let mut itens: Vec<String> = Vec::new();
+            for l in &listas {
+                itens.push(lista_plana(l, &util)?.texto());
+            }
+            // O `dart format` quebra a lista de fora só quando um item é uma
+            // coleção literal não vazia (a lista reprojetada sozinha não é).
+            if itens.iter().any(|t| t.starts_with("<Object>[") && t != "<Object>[]") {
+                let linhas: Vec<String> = itens.iter().map(|t| format!("      {t}")).collect();
+                format!(
+                    "    this.{campo_vista}.createAndProject(this.{campo_inst}, [\n{}\n    ]);",
+                    linhas.join(",\n")
+                )
+            } else {
+                format!(
+                    "    this.{campo_vista}.createAndProject(this.{campo_inst}, [{}]);",
+                    itens.join(", ")
+                )
+            }
         };
         self.linhas.push(texto);
         self.acima.truncate(antes_acima);
@@ -5490,7 +5590,14 @@ impl Corpo<'_> {
                 let _ = seletor;
                 let i = self.proxima_projecao;
                 self.proxima_projecao += 1;
-                self.linhas.push(format!("    this.project({pai}, {i});"));
+                // Sem pai (raiz de visão embutida, ou conteúdo que vai para
+                // outro filho): os nós projetados entram inteiros na lista
+                // de raízes (`ProjectedNodes`, uma lista), caso j56.
+                if pai.is_empty() {
+                    self.raizes.push(format!("{RAIZ_LISTA}this.projectedNodes[{i}]"));
+                } else {
+                    self.linhas.push(format!("    this.project({pai}, {i});"));
+                }
             }
         }
         Ok(())
@@ -7128,7 +7235,11 @@ fn corpo_da_embutida(
             && x.eventos.is_empty()
             && x.bananas.is_empty()
             && x.referencias.is_empty());
-    if !vazia && dentro.proximo == 0 && dentro.coleta.as_ref().map_or(0, Vec::len) == anotadas {
+    if !vazia
+        && dentro.proximo == 0
+        && dentro.raizes.is_empty()
+        && dentro.coleta.as_ref().map_or(0, Vec::len) == anotadas
+    {
         dentro.anotar(recusa(Motivo::Ligacao, "visão embutida sem nó"))?;
     }
     // Os locais lidos pela detecção, na ordem do primeiro uso.
@@ -7317,11 +7428,14 @@ fn corpo_da_embutida(
     };
     // `_generateInitStatement`: uma raiz só e nenhuma `subscription_N` é
     // `initRootNode`; o resto vai numa lista.
-    let inicio = match (raizes.as_slice(), dentro.subscricoes) {
+    let plana = lista_plana(&raizes, &util)?;
+    let inicio = match (&plana, dentro.subscricoes) {
         _ if vazia && dentro.raizes.is_empty() && dentro.subscricoes == 0 => format!(
             "this.initRootNodesAndSubscriptions({util}.unsafeCast(const <Object>[]), null);"
         ),
-        ([raiz], 0) => format!("this.initRootNode({raiz});"),
+        (ListaPlana::Literal(itens), 0) if itens.len() == 1 => {
+            format!("this.initRootNode({});", itens[0])
+        }
         (_, subscricoes) => {
             let subs = if subscricoes == 0 {
                 "null".to_string()
@@ -7332,8 +7446,8 @@ fn corpo_da_embutida(
                 format!("[{}]", lista.join(", "))
             };
             format!(
-                "this.initRootNodesAndSubscriptions({util}.unsafeCast(<Object>[{}]), {subs});",
-                raizes.join(", ")
+                "this.initRootNodesAndSubscriptions({util}.unsafeCast({}), {subs});",
+                plana.texto()
             )
         }
     };

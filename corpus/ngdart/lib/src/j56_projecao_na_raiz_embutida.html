@@ -1,0 +1,5 @@
+<template [ngIf]="a">
+  <ng-content select="[topo]"></ng-content>
+</template>
+<ng-container *ngIf="b"><ng-content select="[meio]"></ng-content><i>depois</i></ng-container>
+<div *ngIf="c"><ng-content></ng-content></div>

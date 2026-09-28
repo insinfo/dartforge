@@ -440,9 +440,14 @@ como o `_unEscapeText` do ngast (decimal e hexadecimal de 2 a 4 dígitos,
 a tabela `namedEntities` inteira, nome fora dela vira o próprio nome;
 atributo fica cru) — caso j55. O programa da CLI passa a ter como raízes
 todas as entradas das ações do ngdart (menos as partes): um componente que
-nenhum arquivo importa também é gerado, como no `build_runner`. Corpus:
-284 conferidos. limitless_ui/example (Linux, `build --comparar`): **918
-iguais / 32 pendentes / 0 diferentes** — `.template.dart` 502/30/0, `.css` e `.css.map` do Sass 102/102 cada,
+nenhum arquivo importa também é gerado, como no `build_runner`.
+`<ng-content>` na raiz de visão embutida e reprojetado no conteúdo de um
+filho: a lista `this.projectedNodes[i]` entra inteira nas raízes e nas
+listas do `createAndProject`, montadas pelo `createFlatArrayForProjectNodes`
+(itens soltos num `<Object>[..]`, listas com `..addAll(unsafeCast(..))`) —
+casos j56, j57. Corpus: 286 conferidos. limitless_ui/example (Linux,
+`build --comparar`): **921 iguais / 29 pendentes / 0 diferentes** —
+`.template.dart` 505/27/0, `.css` e `.css.map` do Sass 102/102 cada,
 `.css.dart` e `.css.shim.dart` 104 cada.
 
 ### Diretivas estruturais

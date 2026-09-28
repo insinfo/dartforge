@@ -268,3 +268,5 @@ export 'src/j52_let_em_molde.dart';
 export 'src/j53_template_triplo.dart';
 export 'src/j54_molde_vazio.dart';
 export 'src/j55_entidades.dart';
+export 'src/j56_projecao_na_raiz_embutida.dart';
+export 'src/j57_reprojecao.dart';

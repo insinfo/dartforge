@@ -244,6 +244,8 @@ import 'package:corpus_ngdart/src/j52_let_em_molde.template.dart' as j52;
 import 'package:corpus_ngdart/src/j53_template_triplo.template.dart' as j53;
 import 'package:corpus_ngdart/src/j54_molde_vazio.template.dart' as j54;
 import 'package:corpus_ngdart/src/j55_entidades.template.dart' as j55;
+import 'package:corpus_ngdart/src/j56_projecao_na_raiz_embutida.template.dart' as j56;
+import 'package:corpus_ngdart/src/j57_reprojecao.template.dart' as j57;
 
 void main() {
   print([
@@ -492,5 +494,7 @@ void main() {
     j53.J53SemQuebraNgFactory,
     j54.J54MoldeVazioNgFactory,
     j55.J55EntidadesNgFactory,
+    j56.J56ProjecaoNaRaizEmbutidaNgFactory,
+    j57.J57ReprojecaoNgFactory,
   ].length);
 }
