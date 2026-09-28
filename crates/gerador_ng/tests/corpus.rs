@@ -61,7 +61,8 @@ fn raiz_do_corpus() -> PathBuf {
 /// seguinte; as recusas de agora são sondas que guardam a saída oficial.
 /// O i84 — `<template>` com diretiva — e o i85 — `@ViewChild` de
 /// `<template>` — saíram na rodada dos itens NG04–NG10; o i77 — filho que
-/// injeta um provedor do próprio nó — com a sonda j61.)
+/// injeta um provedor do próprio nó — com a sonda j61; o i78 — provedor
+/// com dependência de fora do nó — com a j71.)
 /// São as formas ainda sem tradução (docs/GERADOR-NG.md §9): gerar
 /// qualquer uma ignorando o que falta daria saída errada.
 const RECUSADOS: &[(&str, &str)] = &[
@@ -70,12 +71,6 @@ const RECUSADOS: &[(&str, &str)] = &[
     (
         "i76_usa_provider_projeta.dart",
         "provedor do filho pedido por um nó do conteúdo",
-    ),
-    // Provedor do filho que depende de fora do nó (elementos acima ou o
-    // injetor de fora) e apelido de token que o nó não provê.
-    (
-        "i78_usa_provider_externo.dart",
-        "provedor apelido de token de fora do nó",
     ),
 ];
 

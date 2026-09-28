@@ -292,9 +292,6 @@ impl Diretiva {
                 return Some("MultiToken de tipo não genérico".into());
             }
         }
-        if !self.so_apelidos() {
-            return Some("provedor que não é ExistingProvider".into());
-        }
         // `OpaqueToken<T>` com `T` genérico: a forma do `T` na expressão do
         // token (`createDiTokenExpression`) ainda não tem caso.
         if self
@@ -388,6 +385,9 @@ pub enum Criacao {
 pub enum Expr {
     /// `this.campo` — outro provedor do nó (`component` é o componente).
     Campo(String),
+    /// Um provedor de um elemento acima, num nó de template: a expressão
+    /// que o lê desta visão (`_getDependency`).
+    Leitura(String),
     /// `this.injectorGet(token, this.parentIndex)` (ou `injectorGetOptional`):
     /// o que o nó não provê vem do injetor de fora.
     Injetor {
@@ -517,29 +517,7 @@ pub fn resolver_no_do_filho(
     acima: Option<Acima>,
     container: bool,
 ) -> Result<NoResolvido, &'static str> {
-    let r = resolver_com(casadas, n, acima, false, Some(filho), container)?;
-    for i in &r.instancias {
-        let depende_de_fora = match &i.criacao {
-            Criacao::Expressao(e) => fora_do_no_de_filho(e),
-            Criacao::Multi(itens) => itens.iter().any(fora_do_no_de_filho),
-            _ => false,
-        };
-        if depende_de_fora {
-            return Err("provedor do filho com dependência de fora do nó");
-        }
-    }
-    Ok(r)
-}
-
-/// A expressão lê o injetor (dependência que o nó não satisfaz)?
-fn fora_do_no_de_filho(e: &Expr) -> bool {
-    match e {
-        Expr::Injetor { .. } => true,
-        Expr::Classe { args, .. } | Expr::Fabrica { args, .. } => {
-            args.iter().any(fora_do_no_de_filho)
-        }
-        Expr::Campo(_) | Expr::Valor(_) => false,
-    }
+    resolver_com(casadas, n, acima, false, Some(filho), container)
 }
 
 fn resolver_em(
@@ -590,15 +568,14 @@ fn resolver_com(
         for p in &d.provedores {
             let fonte = match &p.fonte {
                 Fornece::Existente(t) => Fonte::Existente(t.clone()),
-                f if completa(k) => Fonte::Provedor(f.clone()),
-                _ => return Err("provedor que não é ExistingProvider num nó de template"),
+                f => Fonte::Provedor(f.clone()),
             };
             match todos.iter_mut().find(|r| r.token == p.token) {
                 Some(r) => {
                     if r.multi != p.multi {
                         return Err("provedor multi e não multi no mesmo token");
                     }
-                    if completa(k) && r.eager {
+                    if r.eager && (completa(k) || matches!(fonte, Fonte::Provedor(_))) {
                         // O token do componente sobrescrito por `providers:`:
                         // ainda sem caso.
                         return Err("provedor com o token do componente");
@@ -644,12 +621,13 @@ fn resolver_com(
         };
         for f in &todos[i].fontes {
             match f {
-                Fonte::Existente(t) => match todos.iter().position(|r| r.token == *t) {
-                    Some(j) => criar(todos, j, ordem, vistos, hospedeira)?,
-                    // Na hospedeira, o apelido de fora lê o injetor.
-                    None if hospedeira => {}
-                    None => return Err("provedor apelido de token de fora do nó"),
-                },
+                Fonte::Existente(t) => {
+                    // O apelido de fora do nó lê o injetor (hospedeira) ou o
+                    // elemento acima / o injetor de fora (nó de template).
+                    if let Some(j) = todos.iter().position(|r| r.token == *t) {
+                        criar(todos, j, ordem, vistos, hospedeira)?;
+                    }
+                }
                 Fonte::Diretiva(d) => {
                     for dep in &d.dependencias {
                         match &dep.token {
@@ -741,6 +719,23 @@ fn resolver_com(
         };
         // Uma dependência de serviço (`_getDependency` na hospedeira): o
         // campo local, ou o injetor de fora.
+        // O que o nó não provê: na hospedeira, o injetor; num nó de
+        // template, o elemento acima que provê (`_getDependency`) ou, sem
+        // ele, o injetor de fora da visão (caso j71).
+        let de_fora = |t: &Token, opcional: bool| -> Result<Expr, &'static str> {
+            if !hospedeira && let Some(a) = acima {
+                if let Some(p) = a.provedores.iter().find(|p| p.token == *t) {
+                    return Ok(Expr::Leitura(p.leitura.clone()));
+                }
+                if a.incerto {
+                    return Err("dependência de provedor sob componente sem metadados");
+                }
+            }
+            Ok(Expr::Injetor {
+                token: t.clone(),
+                opcional,
+            })
+        };
         let dependencia = |dep: &Dependencia| -> Result<Expr, &'static str> {
             if dep.proprio || dep.hospedeiro || dep.pular {
                 return Err("dependência @Self/@Host/@SkipSelf de provedor");
@@ -751,23 +746,17 @@ fn resolver_com(
             if dep.token.embutido() {
                 return Err("provedor que depende de embutido do elemento");
             }
-            Ok(match campo_de(&dep.token) {
-                Some(c) => Expr::Campo(c),
-                None => Expr::Injetor {
-                    token: dep.token.clone(),
-                    opcional: dep.opcional,
-                },
-            })
+            match campo_de(&dep.token) {
+                Some(c) => Ok(Expr::Campo(c)),
+                None => de_fora(&dep.token, dep.opcional),
+            }
         };
         let expr_de = |f: &Fornece| -> Result<Expr, &'static str> {
             Ok(match f {
                 Fornece::Existente(t) => match campo_de(t) {
                     Some(c) => Expr::Campo(c),
                     None if t.embutido() => return Err("apelido de embutido do elemento"),
-                    None => Expr::Injetor {
-                        token: t.clone(),
-                        opcional: false,
-                    },
+                    None => de_fora(t, false)?,
                 },
                 Fornece::Classe { uri, classe, deps } => Expr::Classe {
                     uri: uri.clone(),
@@ -848,9 +837,9 @@ fn resolver_com(
                 }
                 Criacao::Lista(itens)
             }
-            [Fonte::Existente(t)] if hospedeira => {
-                Criacao::Expressao(expr_de(&Fornece::Existente(t.clone()))?)
-            }
+            // Apelido de um token que o nó não provê: o injetor (hospedeira)
+            // ou o elemento acima / o injetor de fora (nó de template).
+            [Fonte::Existente(t)] => Criacao::Expressao(expr_de(&Fornece::Existente(t.clone()))?),
             [Fonte::Provedor(p)] => Criacao::Expressao(expr_de(p)?),
             _ => return Err("provedor apelido de token de fora do nó"),
         };
@@ -1162,17 +1151,78 @@ mod testes {
         assert!(r.diretivas.is_empty());
     }
 
-    /// Num nó de template, só `ExistingProvider` é criado; o resto é
-    /// recusado (a hospedeira do próprio componente é quem o escreve).
+    /// Num nó de template, os `providers:` de uma diretiva de qualquer
+    /// forma (caso j71): o que ela injeta sai antes dela, ansioso; o resto
+    /// fica preguiçoso; a dependência que o nó não provê vem de um elemento
+    /// acima ou, sem ele, do injetor de fora.
     #[test]
-    fn no_de_template_recusa_provedor_de_classe() {
-        let comp = Arc::new(Diretiva {
-            classe: "Comp".into(),
+    fn no_de_template_com_provedores_de_classe() {
+        let dir = Arc::new(Diretiva {
+            classe: "Espiao".into(),
             uri: "s".into(),
-            e_componente: true,
-            provedores: vec![servico("Api", &[])],
+            dependencias: vec![dep(classe("s", "Servico"), false, false)],
+            provedores: vec![
+                servico("Servico", &["Grupo", "Config"]),
+                servico("Solto", &[]),
+            ],
             ..Default::default()
         });
-        assert!(resolver(&[comp], 3, None).is_err());
+        let acima = [ProvedorAcima {
+            token: classe("s", "Grupo"),
+            leitura: "this._Grupo_0_5".into(),
+        }];
+        let r = resolver(
+            &[dir],
+            3,
+            Some(Acima {
+                provedores: &acima,
+                incerto: false,
+            }),
+        )
+        .unwrap();
+        let campos: Vec<(&str, bool)> = r
+            .instancias
+            .iter()
+            .map(|i| (i.campo.as_str(), i.preguicosa))
+            .collect();
+        assert_eq!(
+            campos,
+            [
+                ("_Servico_3_5", false),
+                ("_Espiao_3_6", false),
+                ("_Solto_3_7", true)
+            ]
+        );
+        let Criacao::Expressao(Expr::Classe { args, .. }) = &r.instancias[0].criacao else {
+            panic!("serviço sem criação por classe");
+        };
+        assert_eq!(
+            args,
+            &[
+                Expr::Leitura("this._Grupo_0_5".into()),
+                Expr::Injetor {
+                    token: classe("s", "Config"),
+                    opcional: false
+                }
+            ]
+        );
+        // Com componente sem metadados acima, não achar não prova nada.
+        let dir = Arc::new(Diretiva {
+            classe: "Espiao".into(),
+            uri: "s".into(),
+            provedores: vec![servico("Servico", &["Config"])],
+            ..Default::default()
+        });
+        assert!(
+            resolver(
+                &[dir],
+                3,
+                Some(Acima {
+                    provedores: &[],
+                    incerto: true,
+                }),
+            )
+            .is_err()
+        );
     }
 }

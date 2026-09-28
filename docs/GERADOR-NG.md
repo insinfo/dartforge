@@ -481,11 +481,17 @@ conteúdo projetado de um filho é estático como na própria visão — caso j6
 O `@HostListener` de diretiva no mesmo evento que o template escreve entra
 no handler dele, depois da ação escrita (`mergeEvents` sobre as saídas do
 elemento: os eventos do template primeiro, os das diretivas na ordem de
-`directives:`) — caso j70. `directives:` e as
+`directives:`) — caso j70. `providers:` de diretiva num nó de template de
+qualquer forma (`ClassProvider`, `FactoryProvider`, `ValueProvider`, apelido
+de token de fora): o que a diretiva injeta sai antes dela, o resto fica
+preguiçoso (`late` com inicializador); a dependência que o nó não provê é
+lida do elemento acima ou, sem ele, do injetor de fora da visão
+(`(v.parentView!).injectorGet(T, v.parentIndex)`, com `debugInjectorWrap` e
+campo `dynamic`) — casos j71 e i78 (este antes recusado). `directives:` e as
 listas constantes aceitam `...outraLista`. O `dirtyParentQueriesInternal`
 segue o primeiro resultado de cada consulta na visão, em pré-ordem
 (`_setParentQueryAsDirty` no `addQueryResult`), e os campos dos nós
-consultados seguem as consultas — caso j66. Corpus: 301 conferidos.
+consultados seguem as consultas — caso j66. Corpus: 303 conferidos.
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada
 pendente com o motivo): **930 iguais / 20 pendentes / 0 diferentes** —
 `.template.dart` 514/18/0, `.css` e `.css.map` do Sass 102/102 cada,

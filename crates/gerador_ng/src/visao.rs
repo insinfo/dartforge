@@ -6564,20 +6564,27 @@ impl Corpo<'_> {
             // inicializador; o que o filho ou uma diretiva do nó pede sai no
             // `build()`, na ordem dos provedores (casos j61, j67).
             if let Criacao::Expressao(_) | Criacao::Multi(_) = &inst.criacao {
+                let vista = self.visao_do_injetor();
                 if inst.preguicosa {
-                    let texto = texto_de_provedor_preguicoso(inst, &self.asset)?;
+                    let texto = texto_de_provedor_preguicoso(inst, &self.asset, Some(&vista))?;
                     let texto = resolver_tardios(self.imp, &texto);
                     self.campos_preguicosos.push(texto);
                     continue;
                 }
                 let tipo = resolver_tardios(self.imp, &tipo_do_provedor(inst, &self.asset)?);
+                // `isDevMode` e o `debugInjectorWrap` com imports tardios,
+                // na ordem do texto.
+                let util = tardio(UTILITIES);
+                let v = Some(vista.as_str());
                 let valor = match &inst.criacao {
-                    Criacao::Expressao(x) => texto_da_expr(x, &inst.token, &self.asset, "", 4),
+                    Criacao::Expressao(x) => {
+                        texto_da_expr(x, &inst.token, &self.asset, &util, 4, v)
+                    }
                     Criacao::Multi(itens) => format!(
                         "[{}]",
                         itens
                             .iter()
-                            .map(|x| texto_da_expr(x, &inst.token, &self.asset, "", 4))
+                            .map(|x| texto_da_expr(x, &inst.token, &self.asset, &util, 4, v))
                             .collect::<Vec<_>>()
                             .join(", ")
                     ),
@@ -7402,8 +7409,15 @@ fn casadas_do_no_do_filho(
 fn uri_do_campo(i: &crate::diretivas::Instancia, asset: &str) -> String {
     use crate::diretivas::{Criacao, Token};
     let uri = match (&i.criacao, &i.token) {
+        // O preguiçoso tem o valor no campo; o ansioso, só o tipo (o valor
+        // sai no `build()`).
         (Criacao::Expressao(_) | Criacao::Multi(_), _) => {
-            return texto_de_provedor_preguicoso(i, asset)
+            let texto = if i.preguicosa {
+                texto_de_provedor_preguicoso(i, asset, Some("this"))
+            } else {
+                Err(recusa(Motivo::Providers, ""))
+            };
+            return texto
                 .or_else(|_| tipo_do_provedor(i, asset))
                 .unwrap_or_default();
         }
@@ -10169,35 +10183,44 @@ fn texto_do_valor(v: &crate::diretivas::ValorConst, asset: &str) -> String {
     }
 }
 
-/// O valor de um provedor da hospedeira (`ProviderSource.build`). Com
-/// dependência do injetor, a criação vai embrulhada em `debugInjectorWrap`
-/// sob `isDevMode` (`recuo`: a coluna da instrução ou do campo).
+/// O valor de um provedor (`ProviderSource.build`). Com dependência do
+/// injetor, a criação vai embrulhada em `debugInjectorWrap` sob `isDevMode`
+/// (`recuo`: a coluna da instrução ou do campo). `vista`: na hospedeira
+/// (`None`), o injetor é o dela (`this.injectorGet(T, this.parentIndex)`);
+/// num nó de template, o de fora da visão que o lê
+/// (`injectFromViewParentInjector`: `(v.parentView!).injectorGet(T,
+/// v.parentIndex)`).
 fn texto_da_expr(
     e: &crate::diretivas::Expr,
     token: &crate::diretivas::Token,
     asset: &str,
     util: &str,
     recuo: usize,
+    vista: Option<&str>,
 ) -> String {
     use crate::diretivas::Expr;
     let simples = |e: &Expr| -> String {
         let args = |a: &[Expr]| -> String {
             a.iter()
-                .map(|x| texto_da_expr(x, token, asset, util, recuo))
+                .map(|x| texto_da_expr(x, token, asset, util, recuo, vista))
                 .collect::<Vec<_>>()
                 .join(", ")
         };
         match e {
             Expr::Campo(c) => format!("this.{c}"),
-            Expr::Injetor { token, opcional } => format!(
-                "this.{}({}, this.parentIndex)",
-                if *opcional {
+            Expr::Leitura(l) => l.clone(),
+            Expr::Injetor { token, opcional } => {
+                let metodo = if *opcional {
                     "injectorGetOptional"
                 } else {
                     "injectorGet"
-                },
-                expr_do_token(&token_local(token, asset))
-            ),
+                };
+                let t = expr_do_token(&token_local(token, asset));
+                match vista {
+                    None => format!("this.{metodo}({t}, this.parentIndex)"),
+                    Some(v) => format!("({v}.parentView!).{metodo}({t}, {v}.parentIndex)"),
+                }
+            }
             Expr::Classe {
                 uri,
                 classe,
@@ -10257,7 +10280,7 @@ fn tipo_do_provedor(i: &crate::diretivas::Instancia, asset: &str) -> Result<Stri
             format!("{}{classe}", tardio_q(&import_de(uri, asset)))
         }
         Expr::Classe { .. } | Expr::Fabrica { .. } | Expr::Injetor { .. } => "dynamic".into(),
-        Expr::Campo(_) => {
+        Expr::Campo(_) | Expr::Leitura(_) => {
             return Err(recusa(
                 Motivo::Providers,
                 "providers: provedor que lê outro campo",
@@ -10272,24 +10295,27 @@ fn tipo_do_provedor(i: &crate::diretivas::Instancia, asset: &str) -> Result<Stri
 fn texto_de_provedor_preguicoso(
     i: &crate::diretivas::Instancia,
     asset: &str,
+    vista: Option<&str>,
 ) -> Result<String, Recusa> {
-    use crate::diretivas::{Criacao, Expr};
+    use crate::diretivas::Criacao;
     let tipo = tipo_do_provedor(i, asset)?;
-    // Sem dependência do injetor, o `util` do `debugInjectorWrap` não entra.
+    // O `isDevMode` do `debugInjectorWrap` (só com dependência do injetor)
+    // com import tardio, na ordem do texto (caso i78).
+    let util = tardio(UTILITIES);
     let valor = match &i.criacao {
-        Criacao::Expressao(e) if !e.dinamica() => texto_da_expr(e, &i.token, asset, "", 2),
-        Criacao::Multi(itens) if !itens.iter().any(Expr::dinamica) => format!(
+        Criacao::Expressao(e) => texto_da_expr(e, &i.token, asset, &util, 2, vista),
+        Criacao::Multi(itens) => format!(
             "[{}]",
             itens
                 .iter()
-                .map(|x| texto_da_expr(x, &i.token, asset, "", 2))
+                .map(|x| texto_da_expr(x, &i.token, asset, &util, 2, vista))
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
         _ => {
             return Err(recusa(
                 Motivo::LigacaoEmFilho,
-                "provedor do filho com dependência de fora do nó",
+                "provedor preguiçoso que não é expressão",
             ));
         }
     };
@@ -10321,12 +10347,12 @@ fn escrever_provedores_da_hospedeira(
         }
         let tipo = tipo_do_provedor(i, asset)?;
         let valor = |recuo: usize| match &i.criacao {
-            Criacao::Expressao(e) => texto_da_expr(e, &i.token, asset, util, recuo),
+            Criacao::Expressao(e) => texto_da_expr(e, &i.token, asset, util, recuo, None),
             Criacao::Multi(itens) => format!(
                 "[{}]",
                 itens
                     .iter()
-                    .map(|x| texto_da_expr(x, &i.token, asset, util, recuo))
+                    .map(|x| texto_da_expr(x, &i.token, asset, util, recuo, None))
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
