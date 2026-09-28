@@ -927,6 +927,11 @@ fn formas_contra_o_template(
             if consulta_em_embutida(nos, consulta, filhos, local, resolvedor) {
                 continue;
             }
+            if consulta_de_token_dinamica(nos, consulta, filhos, usadas, local, resolvedor)
+                .is_some()
+            {
+                continue;
+            }
             // `@ViewChild(Diretiva)`: o token dela está no
             // `_resolvedProvidersArray` do elemento que ela casa, e o valor é
             // o campo dela (`_providers.get(tipo).build()`, com o
@@ -1311,7 +1316,7 @@ type Ancoras = std::collections::HashMap<usize, (String, String)>;
 /// Por visão embutida (o início da estrela), as consultas de conteúdo cujo
 /// resultado está nela: (posição do primeiro resultado, campo sujo, quantas
 /// `parentView` até a visão da consulta, classe dessa visão).
-type SujasDeConteudo = std::collections::HashMap<usize, Vec<(usize, String, u32, String)>>;
+type SujasDeConteudo = std::collections::HashMap<usize, Vec<(usize, u8, String, u32, String)>>;
 
 /// Um resultado de consulta de conteúdo: o nó que fornece o token (pela
 /// posição, [`chave_de_no`]) ou uma visão embutida com resultados.
@@ -1339,6 +1344,130 @@ struct ConteudoDinamico {
     alvo: String,
     /// A classe da visão da consulta.
     classe: String,
+}
+
+/// `@ViewChild(ren)(Token)` cujo token uma diretiva (ou os `providers:` dela)
+/// fornece, com resultado em `*` (`_shouldMapNestedViews`): a árvore dos
+/// resultados ([`arvore_de_token`]), para a máquina das consultas de
+/// conteúdo com a raiz na visão do componente. `None` para o resto (o filho
+/// da própria classe vai pela de sempre, [`consulta_em_embutida`]).
+fn consulta_de_token_dinamica(
+    nos: &[No],
+    consulta: &crate::componente::Consulta,
+    filhos: &std::collections::HashMap<String, Filho>,
+    usadas: &[Usada],
+    local: &Local,
+    resolvedor: Option<&dyn Resolucao>,
+) -> Option<Vec<ItemDeConteudo>> {
+    if !consulta.por_tipo || consulta.leitura.is_some() {
+        return None;
+    }
+    let uri = uri_da_consulta(consulta, local, resolvedor)?;
+    let classe = consulta.referencia.rsplit('.').next()?.to_string();
+    if filhos
+        .values()
+        .any(|f| f.uri_dart == uri && f.classe == classe)
+    {
+        return None;
+    }
+    let token = crate::diretivas::Token::Classe {
+        uri: uri.clone(),
+        classe: classe.clone(),
+    };
+    let fornece = |d: &crate::diretivas::Diretiva| {
+        (d.uri == uri && d.classe == classe) || d.provedores.iter().any(|p| p.token == token)
+    };
+    let alguem = usadas
+        .iter()
+        .any(|u| u.diretiva.as_deref().is_some_and(fornece))
+        || filhos
+            .values()
+            .any(|f| f.metadados.as_deref().is_some_and(fornece));
+    if !alguem {
+        return None;
+    }
+    let arvore = arvore_de_token(nos, &uri, &classe, filhos, usadas).ok()?;
+    let dinamica = if consulta.lista {
+        arvore
+            .iter()
+            .any(|i| matches!(i, ItemDeConteudo::Aninhada { .. }))
+    } else {
+        matches!(arvore.first(), Some(ItemDeConteudo::Aninhada { .. }))
+    };
+    dinamica.then_some(arvore)
+}
+
+fn arvore_de_token(
+    nos: &[No],
+    uri: &str,
+    classe: &str,
+    filhos: &std::collections::HashMap<String, Filho>,
+    usadas: &[Usada],
+) -> Result<Vec<ItemDeConteudo>, Recusa> {
+    let token = crate::diretivas::Token::Classe {
+        uri: uri.to_string(),
+        classe: classe.to_string(),
+    };
+    let fornece = |d: &crate::diretivas::Diretiva| {
+        (d.uri == uri && d.classe == classe) || d.provedores.iter().any(|p| p.token == token)
+    };
+    let mut saida = Vec::new();
+    for no in nos {
+        let No::Elemento(x) = no else { continue };
+        if let Some(estrela) = &x.estrela {
+            let mut sem = x.clone();
+            if estrela.nome != MARCA_DE_MOLDE {
+                sem.estrela = None;
+                let dentro = arvore_de_token(
+                    std::slice::from_ref(&No::Elemento(sem)),
+                    uri,
+                    classe,
+                    filhos,
+                    usadas,
+                )?;
+                if !dentro.is_empty() {
+                    saida.push(ItemDeConteudo::Aninhada {
+                        estrela: estrela.inicio,
+                        itens: dentro,
+                    });
+                }
+                continue;
+            }
+            // `<template>` escrito: o nó é desta visão; o conteúdo, da
+            // embutida dele.
+            sem.estrela = None;
+            if diretivas_casadas(usadas, &sem).iter().any(|d| fornece(d)) {
+                return Err(recusa(
+                    Motivo::LigacaoEmFilho,
+                    "@ContentChildren com resultado no próprio <template>",
+                ));
+            }
+            let dentro = arvore_de_token(&x.filhos, uri, classe, filhos, usadas)?;
+            if !dentro.is_empty() {
+                saida.push(ItemDeConteudo::Aninhada {
+                    estrela: estrela.inicio,
+                    itens: dentro,
+                });
+            }
+            continue;
+        }
+        let filho = filhos.get(&x.nome);
+        let casa = filho.is_some_and(|f| {
+            (f.uri_dart == uri && f.classe == classe)
+                || f.metadados.as_deref().is_some_and(|m| fornece(m))
+        }) || diretivas_casadas(usadas, x).iter().any(|d| fornece(d));
+        if casa {
+            if filho.is_some_and(|f| f.on_push && f.uri_dart == uri && f.classe == classe) {
+                return Err(recusa(
+                    Motivo::LigacaoEmFilho,
+                    "@ContentChildren dinâmico de componente onPush",
+                ));
+            }
+            saida.push(ItemDeConteudo::Valor { inicio: x.inicio });
+        }
+        saida.extend(arvore_de_token(&x.filhos, uri, classe, filhos, usadas)?);
+    }
+    Ok(saida)
 }
 
 /// A chave do nó em `inicio` que fornece o token de `chave`: o resultado de
@@ -3250,6 +3379,11 @@ struct Corpo<'a> {
     /// (`updateContentQuery`), no bloco dos ganchos de conteúdo, depois das
     /// de visão e antes dos ganchos, na ordem do `afterChildren` dos nós.
     atualizacoes_de_conteudo: Vec<String>,
+    /// As das consultas de visão por token ([`consulta_de_token_dinamica`]),
+    /// com o índice da consulta (a ordem no `afterNodes`).
+    atualizacoes_de_visao: Vec<(usize, String)>,
+    /// Os índices dessas consultas (fora da atribuição estática).
+    consultas_por_token: std::collections::HashSet<usize>,
     /// Os campos `bool _query_X_n_i_isDirty = true;` dessas consultas, com a
     /// posição do primeiro resultado em `*` (quando o campo é alocado).
     sujos_de_conteudo: Vec<(usize, String)>,
@@ -3594,71 +3728,7 @@ impl Corpo<'_> {
         uri: &str,
         classe: &str,
     ) -> Result<Vec<ItemDeConteudo>, Recusa> {
-        let token = crate::diretivas::Token::Classe {
-            uri: uri.to_string(),
-            classe: classe.to_string(),
-        };
-        let fornece = |d: &crate::diretivas::Diretiva| {
-            (d.uri == uri && d.classe == classe) || d.provedores.iter().any(|p| p.token == token)
-        };
-        let mut saida = Vec::new();
-        for no in nos {
-            let No::Elemento(x) = no else { continue };
-            if let Some(estrela) = &x.estrela {
-                let mut sem = x.clone();
-                if estrela.nome != MARCA_DE_MOLDE {
-                    sem.estrela = None;
-                    let dentro = self.arvore_de_conteudo(
-                        std::slice::from_ref(&No::Elemento(sem)),
-                        uri,
-                        classe,
-                    )?;
-                    if !dentro.is_empty() {
-                        saida.push(ItemDeConteudo::Aninhada {
-                            estrela: estrela.inicio,
-                            itens: dentro,
-                        });
-                    }
-                    continue;
-                }
-                // `<template>` escrito: o nó é desta visão; o conteúdo, da
-                // embutida dele.
-                sem.estrela = None;
-                if diretivas_casadas(self.usadas, &sem)
-                    .iter()
-                    .any(|d| fornece(d))
-                {
-                    return Err(recusa(
-                        Motivo::LigacaoEmFilho,
-                        "@ContentChildren com resultado no próprio <template>",
-                    ));
-                }
-                let dentro = self.arvore_de_conteudo(&x.filhos, uri, classe)?;
-                if !dentro.is_empty() {
-                    saida.push(ItemDeConteudo::Aninhada {
-                        estrela: estrela.inicio,
-                        itens: dentro,
-                    });
-                }
-                continue;
-            }
-            let filho = self.filhos.get(&x.nome);
-            let casa = filho.is_some_and(|f| {
-                (f.uri_dart == uri && f.classe == classe)
-                    || f.metadados.as_deref().is_some_and(|m| fornece(m))
-            }) || diretivas_casadas(self.usadas, x).iter().any(|d| fornece(d));
-            if casa {
-                if filho.is_some_and(|f| f.on_push && f.uri_dart == uri && f.classe == classe) {
-                    return Err(recusa(
-                        Motivo::LigacaoEmFilho,
-                        "@ContentChildren dinâmico de componente onPush",
-                    ));
-                }
-                saida.push(ItemDeConteudo::Valor { inicio: x.inicio });
-            }
-            saida.extend(self.arvore_de_conteudo(&x.filhos, uri, classe)?);
-        }
-        Ok(saida)
+        arvore_de_token(nos, uri, classe, self.filhos, self.usadas)
     }
 
     /// Registra a consulta de conteúdo dinâmica ([`ConteudoDinamico`]): o
@@ -3674,14 +3744,23 @@ impl Corpo<'_> {
         indice: usize,
         lista: bool,
         alvo: String,
+        de_visao: bool,
     ) {
         let classe = self.classe_desta_visao();
-        let campo = format!("_query_{seletor}_{n}_{indice}_isDirty");
+        // A de visão (`@ViewChild(ren)` por token, raiz na visão do
+        // componente): `_viewQuery_X_i_isDirty`, atualizada no `afterNodes`.
+        let campo = if de_visao {
+            format!("_viewQuery_{seletor}_{indice}_isDirty")
+        } else {
+            format!("_query_{seletor}_{n}_{indice}_isDirty")
+        };
+        let especie: u8 = if de_visao { 1 } else { 0 };
         fn sujas(
             itens: &[ItemDeConteudo],
             nivel: u32,
             campo: &str,
             classe: &str,
+            especie: u8,
             mapa: &mut SujasDeConteudo,
         ) {
             for i in itens {
@@ -3693,12 +3772,13 @@ impl Corpo<'_> {
                     if let Some(p) = primeiro {
                         mapa.entry(*estrela).or_default().push((
                             p,
+                            especie,
                             campo.to_string(),
                             nivel,
                             classe.to_string(),
                         ));
                     }
-                    sujas(itens, nivel + 1, campo, classe, mapa);
+                    sujas(itens, nivel + 1, campo, classe, especie, mapa);
                 }
             }
         }
@@ -3707,6 +3787,7 @@ impl Corpo<'_> {
             1,
             &campo,
             &classe,
+            especie,
             &mut self.sujas_de_conteudo.borrow_mut(),
         );
         let estatico = arvore
@@ -3735,11 +3816,17 @@ impl Corpo<'_> {
         }
         marca.push(FIM_DE_CONTEUDO);
         drop(consultas);
-        self.sujos_de_conteudo
-            .push((posicao, format!("  bool {campo} = true;")));
-        self.atualizacoes_de_conteudo.push(format!(
-            "    if (this.{campo}) {{\n      {marca}\n      this.{campo} = false;\n    }}"
-        ));
+        let atualizacao =
+            format!("    if (this.{campo}) {{\n      {marca}\n      this.{campo} = false;\n    }}");
+        if de_visao {
+            self.sujos_de_visao
+                .push((posicao, format!("  bool {campo} = true;")));
+            self.atualizacoes_de_visao.push((indice, atualizacao));
+        } else {
+            self.sujos_de_conteudo
+                .push((posicao, format!("  bool {campo} = true;")));
+            self.atualizacoes_de_conteudo.push(atualizacao);
+        }
     }
 
     fn classe_desta_visao(&self) -> String {
@@ -5558,6 +5645,7 @@ impl Corpo<'_> {
                         indice,
                         q.lista,
                         format!("this.{campo_inst}.{}", q.campo),
+                        false,
                     );
                     continue;
                 }
@@ -8739,11 +8827,20 @@ fn ordem_dos_pedidos_do_no(
         }
         None => crate::diretivas::resolver(casadas, 0, None).ok()?,
     };
+    // O componente entra na resolução só com as dependências do próprio nó
+    // ([`casadas_do_no_do_filho`]); aqui valem todas, na ordem do construtor.
+    let componente = filho.and_then(|f| f.metadados.clone());
     let mut saida = Vec::new();
     for i in &r.instancias {
         match &i.criacao {
             Criacao::Diretiva { diretiva, .. } => {
-                saida.extend(diretiva.dependencias.iter().map(|d| d.token.clone()));
+                let deps = match &componente {
+                    Some(m) if m.uri == diretiva.uri && m.classe == diretiva.classe => {
+                        &m.dependencias
+                    }
+                    _ => &diretiva.dependencias,
+                };
+                saida.extend(deps.iter().map(|d| d.token.clone()));
             }
             // O preguiçoso só pede no `afterElement`, depois do conteúdo.
             _ if i.preguicosa => {}
@@ -9313,6 +9410,8 @@ impl<'a> Contexto<'a> {
             conteudo_dinamico: &self.conteudo_dinamico,
             sujas_de_conteudo: &self.sujas_de_conteudo,
             atualizacoes_de_conteudo: Vec::new(),
+            atualizacoes_de_visao: Vec::new(),
+            consultas_por_token: Default::default(),
             sujos_de_conteudo: Vec::new(),
             consultas_por_no: Default::default(),
             refs_consultados: Vec::new(),
@@ -9739,7 +9838,7 @@ fn corpo_da_embutida(
         .estrela
         .and_then(|k| ctx.sujas_de_conteudo.borrow().get(&k).cloned())
         .unwrap_or_default();
-    de_conteudo.sort_by_key(|(p, _, _, _)| *p);
+    de_conteudo.sort_by_key(|(p, especie, _, _, _)| (*p, *especie));
     let sujas = if espec.refs_consultados.is_empty() && de_conteudo.is_empty() {
         String::new()
     } else {
@@ -9767,10 +9866,10 @@ fn corpo_da_embutida(
                 ),
             ));
         }
-        for (k, (posicao, campo, niveis, classe)) in de_conteudo.iter().enumerate() {
+        for (k, (posicao, especie, campo, niveis, classe)) in de_conteudo.iter().enumerate() {
             marcadas.push((
                 *posicao,
-                0,
+                *especie,
                 k,
                 format!(
                     "    {util}.unsafeCast<{classe}>({}).{campo} = true;",
@@ -11599,6 +11698,31 @@ fn gerar_componente_com(
         })
         .collect();
     corpo.sujos_de_visao = sujos;
+    // `@ViewChild(ren)(Token)` fornecido por diretiva, com resultado em `*`:
+    // pela máquina das consultas de conteúdo, com a raiz nesta visão.
+    for (i, q) in c.consultas.iter().enumerate() {
+        let Some(arvore) = consulta_de_token_dinamica(nos, q, filhos, usadas, local, resolvedor)
+        else {
+            continue;
+        };
+        let (Some(uri), Some(classe)) = (
+            uri_da_consulta(q, local, resolvedor),
+            q.referencia.rsplit('.').next().map(str::to_string),
+        ) else {
+            continue;
+        };
+        corpo.conteudo_dinamico_no(
+            arvore,
+            chave_de_tipo(&uri, &classe),
+            &classe,
+            0,
+            i,
+            q.lista,
+            format!("_ctx.{}", q.propriedade),
+            true,
+        );
+        corpo.consultas_por_token.insert(i);
+    }
     // Só mensagens com HTML: o `intl` é pedido pelo método, mais tarde.
     corpo.intl = intl.or_else(|| contem_anotacao(nos).then(String::new));
     corpo.tb = tb;
@@ -11630,7 +11754,9 @@ fn gerar_componente_com(
     let mut consultas = Vec::new();
     for (i, q) in c.consultas.iter().enumerate() {
         // A dinâmica sai na detecção.
-        if corpo.consultas_dinamicas.iter().any(|d| d.indice == i) {
+        if corpo.consultas_dinamicas.iter().any(|d| d.indice == i)
+            || corpo.consultas_por_token.contains(&i)
+        {
             continue;
         }
         // O que procurar entre os resultados: o `#ref`, ou a chave do tipo.
@@ -11924,6 +12050,7 @@ fn gerar_componente_com(
     // visão, no `afterNodes` (`compile_view.dart:502-511`), na ordem das
     // consultas; depois os ganchos.
     let mut apos_conteudo = corpo.atualizacoes_de_conteudo.clone();
+    let mut de_visao: Vec<(usize, String)> = corpo.atualizacoes_de_visao.clone();
     for d in &corpo.consultas_dinamicas {
         if !d.vista {
             continue;
@@ -11942,11 +12069,16 @@ fn gerar_componente_com(
             marca += &format!("|e{}", tardio_q(ELEMENT_REF));
         }
         marca.push(FIM_DE_CONSULTA);
-        apos_conteudo.push(format!(
-            "    if (this.{campo}) {{\n      {marca}\n      this.{campo} = false;\n    }}",
-            campo = d.campo
+        de_visao.push((
+            d.indice,
+            format!(
+                "    if (this.{campo}) {{\n      {marca}\n      this.{campo} = false;\n    }}",
+                campo = d.campo
+            ),
         ));
     }
+    de_visao.sort_by_key(|(i, _)| *i);
+    apos_conteudo.extend(de_visao.into_iter().map(|(_, l)| l));
     apos_conteudo.extend(corpo.apos_conteudo.iter().cloned());
     let corpo_consultas = corpo.consultas_dinamicas.clone();
     let classe_raiz = corpo.classe_desta_visao();
@@ -11969,12 +12101,14 @@ fn gerar_componente_com(
     } else {
         // A consulta dinâmica escreve `_ctx.x = ...` quando é resolvida
         // ([`resolver_consultas`]), depois desta conta.
-        let ctx_det =
-            if cita_ctx(&linhas_deteccao) || corpo.consultas_dinamicas.iter().any(|d| d.vista) {
-                "    final _ctx = this.ctx;\n"
-            } else {
-                ""
-            };
+        let ctx_det = if cita_ctx(&linhas_deteccao)
+            || (corpo.consultas_dinamicas.iter().any(|d| d.vista)
+                || !corpo.atualizacoes_de_visao.is_empty())
+        {
+            "    final _ctx = this.ctx;\n"
+        } else {
+            ""
+        };
         let primeira = if corpo.usa_primeira_checagem {
             "    bool firstCheck = this.firstCheck;\n"
         } else {

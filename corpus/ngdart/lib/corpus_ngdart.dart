@@ -346,3 +346,4 @@ export 'src/j128_conteudo_dinamico.dart';
 export 'src/j129_campo_inferido.dart';
 export 'src/j130_pedido_atraves_de_template.dart';
 export 'src/j131_projetado_e_pedidos.dart';
+export 'src/j132_consulta_de_visao_por_token.dart';

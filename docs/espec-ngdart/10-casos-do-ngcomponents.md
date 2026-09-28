@@ -269,4 +269,15 @@ casos que apareceram no ngcomponents.
   visão), com o `ChangeDetectorRef` do `onPush` e a marca no
   `dirtyParentQueriesInternal` da embutida.
 
+## `@ViewChild(ren)(Token)` de token fornecido por diretiva — j132
+
+- Mesma regra da consulta de conteúdo dinâmica, com a raiz na visão do
+  componente: `_viewQuery_<Token>_<i>_isDirty`, atualização no `afterNodes`
+  (depois das de conteúdo, na ordem das consultas, junto com as de visão por
+  `#ref`/filho) e marca no `dirtyParentQueriesInternal` (no mesmo nó, depois
+  da de conteúdo). Um nó que pede vários tokens ao filho de cima usa as
+  dependências originais do componente dele (a resolução do nó só guarda as
+  locais).
+- **Porte:** `consulta_de_token_dinamica`, `conteudo_dinamico_no(.., de_visao)`.
+
 ## Pendentes com regra já levantada
