@@ -277,7 +277,10 @@ impl<'r, 'a> Leitor<'r, 'a> {
         d.entradas = entradas.into_iter().map(|(_, e)| e).collect();
         // Diretiva genérica com `@HostBinding`: o `XNgCd<T>` leva argumentos
         // de tipo (`lookupTypeArgumentsOf`) — ainda sem caso.
-        if !d.ligacoes_do_hospedeiro.is_empty() && !decl.parametros_de_tipo.is_empty() {
+        if !d.ligacoes_do_hospedeiro.is_empty()
+            && !decl.parametros_de_tipo.is_empty()
+            && !e_componente
+        {
             d.fora.push("diretiva genérica com @HostBinding".into());
         }
         d.ganchos = self.ganchos(&ordem);
@@ -696,8 +699,23 @@ impl<'r, 'a> Leitor<'r, 'a> {
                     None => return Err("OpaqueToken sem nome".into()),
                     _ => return Err("token de nome ilegível".into()),
                 };
-                let [t] = tipos.as_slice() else {
-                    return Err(format!("{} sem argumento de tipo", classe.nome));
+                // Sem argumento de tipo escrito nem do contexto, a inferência
+                // dá o limite do `T` (`T extends Object`): `OpaqueToken<Object>`.
+                let objeto;
+                let t = match tipos.as_slice() {
+                    [t] => t,
+                    [] => {
+                        let id = self
+                            .r
+                            .classe_por_uri("dart:core", "Object")
+                            .ok_or("Object do dart:core não achado")?;
+                        objeto = Tipo {
+                            classe: Some(self.classe(id)),
+                            args: Vec::new(),
+                        };
+                        &objeto
+                    }
+                    _ => return Err(format!("{} com argumentos de tipo demais", classe.nome)),
                 };
                 let Some(c) = &t.classe else {
                     return Err(format!("{}<dynamic>", classe.nome));
@@ -1379,7 +1397,20 @@ impl<'r, 'a> Leitor<'r, 'a> {
             .get(index)
             .and_then(|x| x.initializer)
             .ok_or("constante sem valor")?;
-        self.valor(unit, e, profundidade + 1)
+        let mut v = self.valor(unit, e, profundidade + 1)?;
+        // `const OpaqueToken<T> t = OpaqueToken('x')`: sem argumento de tipo
+        // escrito, a inferência os tira do tipo declarado.
+        if let (Some(ty), Valor::Objeto { classe, tipos, .. }) = (l.ty, &mut v)
+            && tipos.is_empty()
+        {
+            let u = p.unit(unit);
+            if let Some(declarado) = self.tipo(u.library, ty, &u.ast)
+                && declarado.classe.as_ref().is_some_and(|c| c.id == classe.id)
+            {
+                *tipos = declarado.args;
+            }
+        }
+        Ok(v)
     }
 
     /// Avalia uma expressão constante escrita na unidade `unidade`.

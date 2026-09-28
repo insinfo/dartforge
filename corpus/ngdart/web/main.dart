@@ -282,6 +282,7 @@ import 'package:corpus_ngdart/src/j93_ouvinte_no_filho.template.dart' as j93;
 import 'package:corpus_ngdart/src/j94_estrutural_propria.template.dart' as j94;
 import 'package:corpus_ngdart/src/j95_campo_do_elemento_do_filho.template.dart' as j95;
 import 'package:corpus_ngdart/src/j96_host_binding_estatico.template.dart' as j96;
+import 'package:corpus_ngdart/src/j97_token_sem_tipo.template.dart' as j97;
 
 void main() {
   print([
@@ -568,5 +569,6 @@ void main() {
     j94.J94EstruturalPropriaNgFactory,
     j95.J95CampoDoElementoDoFilhoNgFactory,
     j96.J96UsaNgFactory,
+    j97.J97UsaNgFactory,
   ].length);
 }

@@ -598,15 +598,24 @@ do `rootElement`, com o valor lido da classe, e fora do
 `detectHostChanges`; o `attr.tabindex` estático é a propriedade
 `tabIndex` (`TabIndexBinding`), enquanto o dinâmico continua
 `updateAttribute` — caso j96. Por metadados (diretiva, componente que
-herda) o estático ainda é recusado. Corpus: **329 conferidos, 0
-pendentes**.
+herda) o estático ainda é recusado. `OpaqueToken('x')` sem argumento de
+tipo é `OpaqueToken<Object>` (ou o tipo da declaração, `const
+OpaqueToken<String> t = OpaqueToken('t')`), e componente genérico
+(`class X<T extends num, U>`) tem a visão, as embutidas, a hospedeira e
+as fábricas genéricas nos mesmos parâmetros (`ViewX0<T extends num, U>
+extends ComponentView<X<T, U>>`, `createXFactory<T extends num, U>()`, o
+`TemplateRef` de uma embutida num fecho que chama `viewFactory_X1<T,
+U>(parentView, parentIndex)`), com o import do limite alocado no cabeçalho
+da classe da visão, antes do `ComponentView`; a fábrica constante e quem
+usa o componente continuam crus (`ComponentFactory<X>`, `ViewX0(this,
+0)`) — caso j97. Corpus: **330 conferidos, 0 pendentes**.
 
 ngcomponents 3.0.0-dev.1 (o port do angular_components, num projeto de
-sonda com o `build_runner` oficial de referência): 466 `.template.dart` e
+sonda com o `build_runner` oficial de referência): 468 `.template.dart` e
 as 140 folhas `.scss.css.dart`/`.scss.css.shim.dart` iguais, **0
 diferentes**; as folhas `.scss.css` (do `SassBuilder` do próprio
 ngcomponents, com o sass 1.66.0) vêm do apoio, e o estágio A do ngdart as
-lê da memória do motor. Os 58 `.template.dart` pendentes são a próxima
+lê da memória do motor. Os 56 `.template.dart` pendentes são a próxima
 fila (formas de `@HostBinding`, injeção anotada, filho que herda…).
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada
 pendente com o motivo): **950 iguais / 0 pendentes / 0 diferentes** —

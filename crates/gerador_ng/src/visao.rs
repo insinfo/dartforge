@@ -3013,6 +3013,9 @@ struct Corpo<'a> {
     embutidas: Vec<EspecEmbutida>,
     /// Nome da classe da visão (`ViewX`), para numerar as embutidas.
     classe_da_visao: String,
+    /// Os argumentos de tipo de um componente genérico (`<T, U>`), vazio
+    /// no resto: a fábrica de cada embutida é chamada com eles.
+    genericos: String,
     /// `_appEl_n` de cada `ViewContainer`, para a detecção e a destruição.
     ancoras: Vec<String>,
     /// Esta visão é embutida: a raiz é registrada com `initRootNode`.
@@ -5371,7 +5374,8 @@ impl Corpo<'_> {
             "    this._appEl_{n} = {vc}ViewContainer({n}, {pai_indice}, this, _anchor_{n});"
         ));
         self.linhas.push(format!(
-            "    var _TemplateRef_{n}_8 = {tr}TemplateRef(this._appEl_{n}, {nome_fabrica});"
+            "    var _TemplateRef_{n}_8 = {tr}TemplateRef(this._appEl_{n}, {});",
+            self.fabrica_do_molde(&nome_fabrica)
         ));
         let extra = hospedeiro.map(|h| format!(", {h}")).unwrap_or_default();
         let molde = if dir.com_template {
@@ -5652,7 +5656,8 @@ impl Corpo<'_> {
         match &referencia {
             Some(nome) => {
                 self.linhas.push(format!(
-                    "    this._TemplateRef_{n}_{k_tr} = {tr}TemplateRef(this._appEl_{n}, {nome_fabrica});"
+                    "    this._TemplateRef_{n}_{k_tr} = {tr}TemplateRef(this._appEl_{n}, {});",
+                    self.fabrica_do_molde(&nome_fabrica)
                 ));
                 let leitura = format!("this._TemplateRef_{n}_{k_tr}");
                 self.refs.insert(nome.clone(), leitura.clone());
@@ -5660,7 +5665,8 @@ impl Corpo<'_> {
             }
             None => {
                 self.linhas.push(format!(
-                    "    var _TemplateRef_{n}_{k_tr} = {tr}TemplateRef(this._appEl_{n}, {nome_fabrica});"
+                    "    var _TemplateRef_{n}_{k_tr} = {tr}TemplateRef(this._appEl_{n}, {});",
+                    self.fabrica_do_molde(&nome_fabrica)
                 ));
             }
         }
@@ -5752,6 +5758,19 @@ impl Corpo<'_> {
         );
         self.acima.truncate(antes_acima);
         Ok(())
+    }
+
+    /// O segundo argumento do `TemplateRef`: a fábrica da embutida. Num
+    /// componente genérico o oficial a embrulha num fecho que passa os
+    /// argumentos de tipo (`viewFactory_X1<T>(parentView, parentIndex)`).
+    fn fabrica_do_molde(&self, nome: &str) -> String {
+        if self.genericos.is_empty() {
+            return nome.to_string();
+        }
+        format!(
+            "(parentView, parentIndex) {{\n      return {nome}{}(parentView, parentIndex);\n    }}",
+            self.genericos
+        )
     }
 
     /// Guarda a especificação da visão embutida de um `*` ou `<template>`
@@ -8216,6 +8235,10 @@ struct Contexto<'a> {
     url_do_template: Option<String>,
     classe_da_visao: String,
     tipo_do_contexto: String,
+    /// Os argumentos de tipo de um componente genérico (`<T, U>`) e a
+    /// declaração deles (`<T extends num, U>`); vazios no resto.
+    genericos: String,
+    genericos_decl: String,
     html: String,
     pipes: &'a PipesDoTemplate,
     /// Os nomes de `#ref` que podem virar local ([`referencias_candidatas`]).
@@ -8316,6 +8339,7 @@ impl<'a> Contexto<'a> {
             com_estilo: self.com_estilo,
             embutidas: Vec::new(),
             classe_da_visao: self.classe_da_visao.clone(),
+            genericos: self.genericos.clone(),
             ancoras: Vec::new(),
             embutida,
             locais: Default::default(),
@@ -8754,8 +8778,9 @@ fn corpo_da_embutida(
         format!("{corpo}\n")
     };
     let tipo_do_contexto = &ctx.tipo_do_contexto;
+    let (args, decl) = (&ctx.genericos, &ctx.genericos_decl);
     let texto = format!(
-        "\nclass {classe} extends {ev}.EmbeddedView<{tipo_do_contexto}> {{\n{campos}  {classe}({rv}.RenderView parentView, int parentIndex) : super(parentView, parentIndex);\n  @override\n  void build() {{\n{ctx_build}{corpo}    {inicio}\n  }}\n{injetor}{deteccao}{sujas}{destruicao}{metodos}}}\n\n{ev}.EmbeddedView<void> {fabrica}({rv}.RenderView parentView, int parentIndex) {{\n  return {classe}(parentView, parentIndex);\n}}\n"
+        "\nclass {classe}{decl} extends {ev}.EmbeddedView<{tipo_do_contexto}> {{\n{campos}  {classe}({rv}.RenderView parentView, int parentIndex) : super(parentView, parentIndex);\n  @override\n  void build() {{\n{ctx_build}{corpo}    {inicio}\n  }}\n{injetor}{deteccao}{sujas}{destruicao}{metodos}}}\n\n{ev}.EmbeddedView<void> {fabrica}{decl}({rv}.RenderView parentView, int parentIndex) {{\n  return {classe}{args}(parentView, parentIndex);\n}}\n"
     );
     Ok((texto, aninhadas))
 }
@@ -8799,7 +8824,7 @@ fn declaracao_de_local(
         let sem_import = || recusa(Motivo::Ligacao, "tipo do local de `*ngFor` sem import");
         let (r, arquivo) = ctx.tipos.ok_or_else(sem_import)?;
         let escopo = l.escopo.as_deref().unwrap_or(arquivo);
-        tipo_qualificado(&l.tipo, escopo, r, &ctx.asset).ok_or_else(sem_import)?
+        tipo_qualificado(&l.tipo, escopo, r, &ctx.asset, &[]).ok_or_else(sem_import)?
     };
     Ok(format!(
         "final {d} = {util}.unsafeCast<{tipo}>({locals}[{chave}]);"
@@ -9148,7 +9173,14 @@ fn tipo_do_elemento(tipo: &str) -> Option<String> {
 /// o `dart:core` sem prefixo, mas com o import alocado). Os imports ficam
 /// marcados ([`tardio_q`]). `None` para o que não é tipo nomeado (função,
 /// registro) ou nome que não se acha no `escopo`.
-fn tipo_qualificado(texto: &str, escopo: &Path, r: &dyn Resolucao, asset: &str) -> Option<String> {
+/// Os nomes em `livres` (parâmetros de tipo em escopo) saem como estão.
+fn tipo_qualificado(
+    texto: &str,
+    escopo: &Path,
+    r: &dyn Resolucao,
+    asset: &str,
+    livres: &[&str],
+) -> Option<String> {
     let mut saida = String::new();
     let mut chars = texto.trim().chars().peekable();
     while let Some(&c) = chars.peek() {
@@ -9162,7 +9194,7 @@ fn tipo_qualificado(texto: &str, escopo: &Path, r: &dyn Resolucao, asset: &str) 
                     break;
                 }
             }
-            if matches!(nome.as_str(), "dynamic" | "void") {
+            if matches!(nome.as_str(), "dynamic" | "void") || livres.contains(&nome.as_str()) {
                 saida.push_str(&nome);
                 continue;
             }
@@ -10082,6 +10114,17 @@ fn gerar_componente_com(
             None => anotar(coleta, recusa(Motivo::Estilos, "folha fora de lib/"))?,
         }
     }
+    // Componente genérico: a visão, a hospedeira, as embutidas e as
+    // fábricas levam os parâmetros de tipo da classe. O limite escrito
+    // (`T extends num`) é o primeiro tipo do cabeçalho da classe da visão:
+    // o import dele é alocado antes do `ComponentView`.
+    let (genericos, genericos_decl) = match parametros_de_tipo(c, local, resolvedor, imp) {
+        Ok(g) => g,
+        Err(r) => {
+            anotar(coleta, r)?;
+            Default::default()
+        }
+    };
     let vista = imp.alias(COMPONENT_VIEW);
     let proprio = imp.alias(local.arquivo);
     // Os campos da visão saem antes de tudo na classe — ligações de texto,
@@ -10189,7 +10232,9 @@ fn gerar_componente_com(
         com_estilo: (!c.style_urls.is_empty() || !c.styles.is_empty()) && !c.sem_encapsulamento,
         url_do_template: local.url_do_template.clone(),
         classe_da_visao: format!("View{}", c.classe),
-        tipo_do_contexto: format!("{proprio}.{}", c.classe),
+        tipo_do_contexto: format!("{proprio}.{}{genericos}", c.classe),
+        genericos,
+        genericos_decl,
         html: html.clone(),
         pipes: &tabela,
         refs_ambiguos: referencias_ambiguas(nos),
@@ -10804,6 +10849,7 @@ fn gerar_componente_com(
     );
 
     let x = &c.classe;
+    let (args, decl) = (&ctx.genericos, &ctx.genericos_decl);
     let seletor = &c.seletor;
     // `_tagNameFromComponentSelector`: o primeiro seletor com elemento.
     let tag = crate::seletor::Seletor::analisar(seletor)
@@ -10836,7 +10882,7 @@ fn gerar_componente_com(
         "
 final List<Object> styles${x} = {lista_de_estilos};
 
-class View{x}0 extends {vista}.ComponentView<{proprio}.{x}> {{
+class View{x}0{decl} extends {vista}.ComponentView<{proprio}.{x}{args}> {{
 {campos}  static {estilos}.ComponentStyles? _componentStyles;
   View{x}0({view}.View parentView, int parentIndex) : super(parentView, parentIndex, {cd}.ChangeDetectionCheckedState.{estado}) {{
     this.initComponentStyles();
@@ -10872,13 +10918,13 @@ ComponentFactory<{proprio}.{x}> get {x}NgFactory {{
   return _{x}NgFactory;
 }}
 
-ComponentFactory<{proprio}.{x}> create{x}Factory() {{
+ComponentFactory<{proprio}.{x}{args}> create{x}Factory{decl}() {{
   return ComponentFactory('{seletor}', viewFactory_{x}Host0);
 }}
 {embutidas}
 final List<Object> styles${x}Host = const [];
 
-class _View{x}Host0 extends {hosp}.HostView<{proprio}.{x}> {{
+class _View{x}Host0{decl} extends {hosp}.HostView<{proprio}.{x}{args}> {{
 {campos_hosp}  @override
   void build() {{
     this.componentView = View{x}0(this, 0);
@@ -10888,7 +10934,7 @@ class _View{x}Host0 extends {hosp}.HostView<{proprio}.{x}> {{
   }}
 {injetor_hosp}{ciclo}}}
 
-{hosp}.HostView<{proprio}.{x}> viewFactory_{x}Host0() {{
+{hosp}.HostView<{proprio}.{x}{args}> viewFactory_{x}Host0{decl}() {{
   return _View{x}Host0();
 }}
 "
@@ -10907,6 +10953,46 @@ class _View{x}Host0 extends {hosp}.HostView<{proprio}.{x}> {{
         return Err(recusa(Motivo::Ligacao, "#ref sem nó no template"));
     }
     Ok((s, tb_sobrando))
+}
+
+/// Os argumentos (`<T, U>`) e a declaração (`<T extends num, U>`) dos
+/// parâmetros de tipo de um componente genérico, com o limite qualificado
+/// pelo import de quem o declara; vazios num componente não genérico.
+fn parametros_de_tipo(
+    c: &Componente,
+    local: &Local,
+    resolvedor: Option<&dyn Resolucao>,
+    imp: &mut Importacoes,
+) -> Result<(String, String), Recusa> {
+    if c.parametros_de_tipo.is_empty() {
+        return Ok(Default::default());
+    }
+    let livres: Vec<&str> = c
+        .parametros_de_tipo
+        .iter()
+        .map(|(n, _)| n.as_str())
+        .collect();
+    let mut decl = Vec::new();
+    for (nome, limite) in &c.parametros_de_tipo {
+        match limite {
+            None => decl.push(nome.clone()),
+            Some(l) => {
+                let q = resolvedor
+                    .and_then(|r| tipo_qualificado(l, local.caminho, r, &local.asset(), &livres))
+                    .ok_or_else(|| {
+                        recusa(
+                            Motivo::NaoEntendido,
+                            format!("limite de parâmetro de tipo `{l}` sem import"),
+                        )
+                    })?;
+                decl.push(format!("{nome} extends {}", resolver_tardios(imp, &q)));
+            }
+        }
+    }
+    Ok((
+        format!("<{}>", livres.join(", ")),
+        format!("<{}>", decl.join(", ")),
+    ))
 }
 
 /// Os `providers:` de um componente estão na parte que o emissor escreve

@@ -20,6 +20,10 @@ pub struct Componente {
     /// A classe estende outra ou usa mixin: `@Input`, `@Output` e
     /// `@HostBinding` herdados não se veem daqui.
     pub herda: bool,
+    /// Os parâmetros de tipo da classe (`class X<T extends num, U>`): o nome
+    /// e o limite como escrito. A visão do componente é genérica nos mesmos
+    /// parâmetros (`ViewX0<T> extends ComponentView<X<T>>`).
+    pub parametros_de_tipo: Vec<(String, Option<String>)>,
     /// `exportAs:` — o nome pelo qual `#ref="nome"` chega à diretiva.
     pub export_as: Option<String>,
     /// `@Output`s: nome no template -> membro (um getter de `Stream`), na
@@ -566,6 +570,16 @@ fn ler(
         classe: interner.resolve(classe.name.sym).to_string(),
         e_componente,
         herda: classe.extends.is_some() || !classe.with.is_empty(),
+        parametros_de_tipo: classe
+            .type_params
+            .iter()
+            .map(|t| {
+                (
+                    interner.resolve(t.name.sym).to_string(),
+                    t.bound.map(|b| texto_do_tipo(arvore, fonte, b)),
+                )
+            })
+            .collect(),
         ..Default::default()
     };
     let mut exportados = Vec::new();
