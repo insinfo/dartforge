@@ -1034,10 +1034,9 @@ enum ItemDeConsulta {
 }
 
 /// A árvore dos resultados de `chave` em `nos` ([`ItemDeConsulta`]). O
-/// `*` é seguido pelo conteúdo de elementos HTML e de `<ng-container>`;
-/// resultado no conteúdo projetado num filho, numa diretiva de tag, dentro
-/// de `<template>` escrito ou num `*` que está nesses lugares ainda não se
-/// traduz.
+/// `*` é seguido pelo conteúdo de elementos HTML e de `<ng-container>`,
+/// também no conteúdo projetado de um filho; resultado numa diretiva de tag
+/// ou dentro de `<template>` escrito ainda não se traduz.
 fn arvore_da_consulta(
     nos: &[No],
     chave: &str,
@@ -1073,10 +1072,10 @@ fn arvore_da_consulta(
                     false,
                     &mut dentro,
                 )?;
+                // O `*` no conteúdo projetado de um filho é desta visão (a
+                // âncora é daqui; só o nó vai projetado): a consulta mapeia
+                // a visão embutida do mesmo jeito (caso j77).
                 if !dentro.is_empty() {
-                    if em_filho {
-                        return Err("resultado de consulta em * no conteúdo projetado");
-                    }
                     saida.push(ItemDeConsulta::Aninhada {
                         estrela: estrela.inicio,
                         itens: dentro,

@@ -289,3 +289,5 @@ export 'src/j72_consultas_de_diretiva.dart';
 export 'src/j73_atributo_vazio_no_filho.dart';
 export 'src/j74_style_com_ligacao.dart';
 export 'src/j75_molde_com_ternario.dart';
+export 'src/j76_ref_de_filho_em_embutida.dart';
+export 'src/j77_consulta_em_projetado.dart';
