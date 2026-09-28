@@ -14,7 +14,7 @@ use crate::builtin::builtin_imports::*;
 /// key, or if any key in $keys is missing from a map or references a
 /// value that is not a map.
 ///
-/// https://sass-lang.com/documentation/modules/map/
+/// <https://sass-lang.com/documentation/modules/map/>
 pub(crate) fn map_get(mut args: ArgumentResult, visitor: &mut Visitor) -> SassResult<Value> {
     let key = args.get_err(1, "key")?;
     let map = args

@@ -555,7 +555,7 @@ const FIM_DE_REF: char = '\u{6}';
 
 /// Prefixo, na chave de [`resolver_refs`], da visão de um filho `onPush`
 /// achado pela chave de uma consulta (`\u{5}.\u{8}f\u{6}` →
-/// `._compView_1`), lido de uma visão aninhada ([`mapa_da_consulta`]).
+/// `._compView_1`), lido de uma visão aninhada ([`MontagemDaConsulta::mapa`]).
 const MARCA_DE_DETECTOR: char = '\u{8}';
 
 /// Os nomes de `#ref` do template que podem virar local de alguma visão:

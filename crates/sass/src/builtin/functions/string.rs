@@ -115,7 +115,7 @@ pub(crate) fn str_slice(mut args: ArgumentResult, visitor: &mut Visitor) -> Sass
     }
 }
 
-/// https://sass-lang.com/documentation/modules/string/#split
+/// <https://sass-lang.com/documentation/modules/string/#split>
 ///
 /// Returns a bracketed, comma-separated list of substrings of $string
 /// that are separated by $separator. The $separators aren’t included

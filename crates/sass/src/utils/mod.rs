@@ -44,7 +44,7 @@ pub(crate) fn is_special_function(s: &str) -> bool {
 
 /// Trim ASCII whitespace from both sides of string.
 ///
-/// If [excludeEscape] is `true`, this doesn't trim whitespace included in a CSS
+/// If `excludeEscape` is `true`, this doesn't trim whitespace included in a CSS
 /// escape.
 pub(crate) fn trim_ascii(
     s: &str,

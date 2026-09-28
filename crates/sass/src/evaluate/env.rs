@@ -76,10 +76,10 @@ impl Environment {
         }
     }
 
-    /// Makes the members forwarded by [module] available in the current
+    /// Makes the members forwarded by `module` available in the current
     /// environment.
     ///
-    /// This is called when [module] is `@import`ed.
+    /// This is called when `module` is `@import`ed.
     pub fn import_forwards(&mut self, _env: Module) {
         if let Module::Environment { env, .. } = _env {
             let mut forwarded = env.forwarded_modules;

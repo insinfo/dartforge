@@ -189,7 +189,7 @@ impl<V: fmt::Debug + Clone, T: MapView<Value = V> + Clone> MapView for PrefixedM
 /// The underlying map's values may change independently of this view, but its
 /// set of keys may not.
 ///
-/// This is unmodifiable *except for the [remove] method*, which is used for
+/// This is unmodifiable *except for the `remove` method*, which is used for
 /// `@used with` to mark configured variables as used.
 #[derive(Debug, Clone)]
 pub(crate) struct LimitedMapView<V: fmt::Debug + Clone, T: MapView<Value = V> + Clone>(

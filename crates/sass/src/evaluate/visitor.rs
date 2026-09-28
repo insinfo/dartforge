@@ -388,8 +388,8 @@ impl<'a> Visitor<'a> {
         )))
     }
 
-    /// Remove configured values from [upstream] that have been removed from
-    /// [downstream], unless they match a name in [except].
+    /// Remove configured values from `upstream` that have been removed from
+    /// `downstream`, unless they match a name in `except`.
     fn remove_used_configuration(
         upstream: &Rc<RefCell<Configuration>>,
         downstream: &Rc<RefCell<Configuration>>,
