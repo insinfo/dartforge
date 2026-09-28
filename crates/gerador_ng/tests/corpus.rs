@@ -60,16 +60,11 @@ fn raiz_do_corpus() -> PathBuf {
 /// — e o i73 — `@ContentChild(.., read:)` de filho — saíram na rodada
 /// seguinte; as recusas de agora são sondas que guardam a saída oficial.
 /// O i84 — `<template>` com diretiva — e o i85 — `@ViewChild` de
-/// `<template>` — saíram na rodada dos itens NG04–NG10.)
+/// `<template>` — saíram na rodada dos itens NG04–NG10; o i77 — filho que
+/// injeta um provedor do próprio nó — com a sonda j61.)
 /// São as formas ainda sem tradução (docs/GERADOR-NG.md §9): gerar
 /// qualquer uma ignorando o que falta daria saída errada.
 const RECUSADOS: &[(&str, &str)] = &[
-    // Filho que injeta um provedor do próprio nó: o provedor sairia antes
-    // dele, no `build()`.
-    (
-        "i77_usa_provider_ansioso.dart",
-        "filho que injeta um provedor do próprio nó",
-    ),
     // Provedor preguiçoso do filho pedido por um nó do conteúdo: o oficial
     // o cria no `build()`, logo depois do filho.
     (

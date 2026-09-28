@@ -2872,6 +2872,12 @@ impl Corpo<'_> {
     /// vista desta visão (`getPropertyInView`).
     fn provedores_acima(&mut self) -> Vec<crate::diretivas::ProvedorAcima> {
         let util = self.imp.alias(UTILITIES);
+        self.provedores_acima_com(&util)
+    }
+
+    /// [`Self::provedores_acima`] com o prefixo do `unsafeCast` dado: uma
+    /// resolução prévia (a posição dos campos do nó) não aloca import.
+    fn provedores_acima_com(&self, util: &str) -> Vec<crate::diretivas::ProvedorAcima> {
         self.acima
             .iter()
             .rev()
@@ -3584,39 +3590,19 @@ impl Corpo<'_> {
                 .metadados
                 .as_ref()
                 .is_some_and(|m| !m.provedores.is_empty() || m.visivel);
-        let no_resolvido =
-            if com_provedores {
-                let meta = filho
-                    .metadados
-                    .clone()
-                    .ok_or_else(|| em_filho("filho com providers ou diretiva sem metadados"))?;
-                // As dependências do filho são resolvidas à parte
-                // (`construcao_do_filho`); aqui só pesa a posição dele.
-                let mut so_provedores = (*meta).clone();
-                so_provedores.dependencias.clear();
-                let mut casadas = vec![std::sync::Arc::new(so_provedores)];
-                casadas.extend(extras.iter().cloned());
-                // Serviço que o próprio nó provê: o filho seria criado depois
-                // dele, lendo o campo, e não pela visão de cima
-                // ([`Self::construcao_do_filho`]).
-                let do_no = |uri: &str, classe: &str| {
-                    casadas.iter().flat_map(|d| &d.provedores).any(|p| {
-                        matches!(&p.token, crate::diretivas::Token::Classe { uri: u, classe: c }
-                        if u == uri && c == classe)
-                    })
-                };
-                if filho.parametros.iter().any(
-                    |p| matches!(p, Injetado::Servico { uri, classe, .. } if do_no(uri, classe)),
-                ) {
-                    return Err(em_filho("filho que injeta um provedor do próprio nó"));
-                }
-                if let Err(f) = provedores_escreviveis(&meta) {
-                    return Err(em_filho(&format!("filho com providers: {f}")));
-                }
-                Some(casadas)
-            } else {
-                None
-            };
+        let no_resolvido = if com_provedores {
+            let meta = filho
+                .metadados
+                .clone()
+                .ok_or_else(|| em_filho("filho com providers ou diretiva sem metadados"))?;
+            let casadas = casadas_do_no_do_filho(&meta, &extras);
+            if let Err(f) = provedores_escreviveis(&meta) {
+                return Err(em_filho(&format!("filho com providers: {f}")));
+            }
+            Some(casadas)
+        } else {
+            None
+        };
         // `#ref` no filho vale a instância (o campo dela): só sem valor, e
         // lido por expressão só da própria visão ([`referencias_locais`]).
         for r in &e.referencias {
@@ -3706,13 +3692,70 @@ impl Corpo<'_> {
             .iter()
             .any(|p| matches!(p, Injetado::Container))
             || extras.iter().any(|d| crate::diretivas::pede_container(d));
-        let campo_inst = format!("_{classe}_{n}_{}", if container { 8 } else { 5 });
+        // Os provedores do nó que o filho injeta (`_getOrCreateLocalProvider`
+        // cria as dependências de um provedor ansioso antes dele): campos
+        // antes da instância, que fica com o índice seguinte (caso j61).
+        // A posição não depende do que está acima; a resolução definitiva
+        // (com as leituras de cima) vem depois das entradas do filho.
+        let mut antes_do_filho: Vec<crate::diretivas::Instancia> = Vec::new();
+        let campo_inst = match &no_resolvido {
+            Some(casadas) => {
+                let provedores = self.provedores_acima_com("");
+                let acima = crate::diretivas::Acima {
+                    provedores: &provedores,
+                    incerto: self.incertos_acima > 0,
+                };
+                let previa =
+                    crate::diretivas::resolver_no_do_filho(casadas, n, Some(acima), container)
+                        .map_err(|f| recusa(Motivo::DiretivaPorSeletor, f))?;
+                let token = casadas[0].token();
+                let pos = previa
+                    .instancias
+                    .iter()
+                    .position(|i| i.token == token)
+                    .ok_or_else(|| em_filho("nó do filho sem a instância do filho"))?;
+                for i in &previa.instancias[..pos] {
+                    match &i.criacao {
+                        crate::diretivas::Criacao::Expressao(_)
+                        | crate::diretivas::Criacao::Multi(_)
+                            if !i.preguicosa => {}
+                        _ => return Err(em_filho("diretiva do nó criada antes do filho")),
+                    }
+                }
+                antes_do_filho = previa.instancias[..pos].to_vec();
+                previa.instancias[pos].campo.clone()
+            }
+            None => format!("_{classe}_{n}_{}", if container { 8 } else { 5 }),
+        };
         self.campos_filho
             .push(format!("  late final {vt}View{classe}0 {campo_vista};"));
         if container {
             let vc = self.imp.q(VIEW_CONTAINER);
             self.campos_filho
                 .push(format!("  late final {vc}ViewContainer _appEl_{n};"));
+        }
+        // O tipo e o valor com imports tardios, nesta ordem (a do oficial).
+        let mut criacoes_antes = Vec::new();
+        for i in &antes_do_filho {
+            let tipo = resolver_tardios(self.imp, &tipo_do_provedor(i, &self.asset)?);
+            let valor = match &i.criacao {
+                crate::diretivas::Criacao::Expressao(x) => {
+                    texto_da_expr(x, &i.token, &self.asset, "", 4)
+                }
+                crate::diretivas::Criacao::Multi(itens) => format!(
+                    "[{}]",
+                    itens
+                        .iter()
+                        .map(|x| texto_da_expr(x, &i.token, &self.asset, "", 4))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                _ => unreachable!("recusado acima"),
+            };
+            let valor = resolver_tardios(self.imp, &valor);
+            self.campos_filho
+                .push(format!("  late final {tipo} {};", i.campo));
+            criacoes_antes.push(format!("    this.{} = {valor};", i.campo));
         }
         self.campos_filho
             .push(format!("  late final {vd}.{classe} {campo_inst};"));
@@ -3781,7 +3824,16 @@ impl Corpo<'_> {
             ));
             self.ancoras.push(format!("_appEl_{n}"));
         }
-        let construcao = self.construcao_do_filho(filho, n, &vd, &campo_vista)?;
+        self.linhas.extend(criacoes_antes);
+        let do_no: Vec<(crate::diretivas::Token, String)> = antes_do_filho
+            .iter()
+            .flat_map(|i| {
+                std::iter::once(&i.token)
+                    .chain(&i.apelidos)
+                    .map(|t| (t.clone(), i.leitura.clone()))
+            })
+            .collect();
+        let construcao = self.construcao_do_filho(filho, n, &vd, &campo_vista, &do_no)?;
         self.linhas
             .push(format!("    this.{campo_inst} = {construcao};"));
         let mut acima = self.pilha.clone();
@@ -3846,16 +3898,19 @@ impl Corpo<'_> {
             };
             let r = crate::diretivas::resolver_no_do_filho(casadas, n, Some(acima), container)
                 .map_err(|f| recusa(Motivo::DiretivaPorSeletor, f))?;
-            let Some(primeira) = r.instancias.first() else {
-                return Err(em_filho("nó do filho sem a instância do filho"));
-            };
-            if primeira.campo != campo_inst {
-                return Err(em_filho("provedor do nó antes do filho"));
+            let pos = antes_do_filho.len();
+            if r.instancias.get(pos).is_none_or(|i| i.campo != campo_inst)
+                || r.instancias[..pos]
+                    .iter()
+                    .zip(&antes_do_filho)
+                    .any(|(a, b)| a.campo != b.campo)
+            {
+                return Err(em_filho("provedores do nó do filho fora da ordem prevista"));
             }
             // Provedor preguiçoso do filho pedido por um nó do conteúdo: o
             // oficial o cria no `build()`, logo depois do filho (caso i76).
             // Ainda sem tradução.
-            let preguicosos: Vec<crate::diretivas::Token> = r.instancias[1..]
+            let preguicosos: Vec<crate::diretivas::Token> = r.instancias[pos + 1..]
                 .iter()
                 .filter(|i| {
                     i.preguicosa
@@ -3873,7 +3928,7 @@ impl Corpo<'_> {
                 return Err(em_filho("provedor do filho pedido por um nó do conteúdo"));
             }
             let resto = crate::diretivas::NoResolvido {
-                instancias: r.instancias[1..].to_vec(),
+                instancias: r.instancias[pos + 1..].to_vec(),
                 diretivas: r.diretivas[1..].to_vec(),
                 container: r.container,
             };
@@ -3914,9 +3969,8 @@ impl Corpo<'_> {
             let provedores = r
                 .instancias
                 .iter()
-                .enumerate()
-                .flat_map(|(k, i)| {
-                    (k > 0)
+                .flat_map(|i| {
+                    (i.campo != campo_inst)
                         .then_some(&i.token)
                         .into_iter()
                         .chain(&i.apelidos)
@@ -4098,13 +4152,23 @@ impl Corpo<'_> {
         n: u32,
         vd: &str,
         campo_vista: &str,
+        do_no: &[(crate::diretivas::Token, String)],
     ) -> Result<String, Recusa> {
         let em_filho = |f: &str| recusa(Motivo::LigacaoEmFilho, f);
         let classe = &filho.classe;
-        let injeta = filho
-            .parametros
-            .iter()
-            .any(|p| matches!(p, Injetado::Servico { .. }));
+        let do_proprio_no = |uri: &str, tipo: &str| {
+            do_no.iter().find_map(|(t, c)| {
+                matches!(t, crate::diretivas::Token::Classe { uri: u, classe: k }
+                    if u == uri && k == tipo)
+                .then_some(c)
+            })
+        };
+        // Só a dependência do injetor é dinâmica (`hasDynamicDependencies`):
+        // a que o próprio nó provê não embrulha a criação.
+        let injeta = filho.parametros.iter().any(|p| {
+            matches!(p, Injetado::Servico { uri, classe, .. }
+                if do_proprio_no(uri, classe).is_none())
+        });
         // A ordem dos imports é a da escrita: `isDevMode`, `errors.dart`, a
         // classe e os tipos injetados.
         let prefixo = if injeta {
@@ -4129,6 +4193,11 @@ impl Corpo<'_> {
                     classe: tipo,
                     opcional,
                 } => {
+                    // Provedor do próprio nó, criado antes do filho.
+                    if let Some(c) = do_proprio_no(uri, tipo) {
+                        args.push(format!("this.{c}"));
+                        continue;
+                    }
                     if self.filhos_acima.iter().any(|(u, c)| u == uri && c == tipo) {
                         return Err(em_filho("filho que injeta um componente acima dele"));
                     }
@@ -6945,8 +7014,9 @@ fn expr_do_token(t: &crate::diretivas::Token) -> String {
 
 /// O que gera campo na classe da visão, na ordem em que aparece.
 enum CampoDaVisao<'a> {
-    /// O filho e se o nó dele tem `ViewContainer`.
-    Filho(&'a Filho, bool),
+    /// O filho, se o nó dele tem `ViewContainer`, e os campos dos
+    /// provedores do nó criados antes dele ([`uri_do_campo`]).
+    Filho(&'a Filho, bool, Vec<String>),
     /// O `ViewContainer` de um elemento comum (diretiva que injeta
     /// `ViewContainerRef`), antes das diretivas.
     Container,
@@ -7013,18 +7083,28 @@ fn campos_em_ordem<'a>(
                 .iter()
                 .any(|p| matches!(p, Injetado::Container))
                 || extras.iter().any(|d| crate::diretivas::pede_container(d));
-            saida.push(CampoDaVisao::Filho(f, container));
-            if let Some(meta) = &f.metadados
-                && (!extras.is_empty() || !meta.provedores.is_empty())
-            {
-                let mut so_provedores = (**meta).clone();
-                so_provedores.dependencias.clear();
-                let mut casadas = vec![std::sync::Arc::new(so_provedores)];
-                casadas.extend(extras);
-                if let Ok(r) = crate::diretivas::resolver_no_do_filho(&casadas, 0, None, container)
-                {
-                    separar(&r.instancias[1..], &mut saida);
+            let resolvido = f
+                .metadados
+                .as_ref()
+                .filter(|meta| !extras.is_empty() || !meta.provedores.is_empty())
+                .and_then(|meta| {
+                    let casadas = casadas_do_no_do_filho(meta, &extras);
+                    let r = crate::diretivas::resolver_no_do_filho(&casadas, 0, None, container)
+                        .ok()?;
+                    let token = casadas[0].token();
+                    let pos = r.instancias.iter().position(|i| i.token == token)?;
+                    Some((r, pos))
+                });
+            match resolvido {
+                Some((r, pos)) => {
+                    let antes = r.instancias[..pos]
+                        .iter()
+                        .map(|i| uri_do_campo(i, asset))
+                        .collect();
+                    saida.push(CampoDaVisao::Filho(f, container, antes));
+                    separar(&r.instancias[pos + 1..], &mut saida);
                 }
+                None => saida.push(CampoDaVisao::Filho(f, container, Vec::new())),
             }
         } else {
             let casadas = diretivas_casadas(usadas, e);
@@ -7041,6 +7121,30 @@ fn campos_em_ordem<'a>(
         saida.extend(campos_em_ordem(&e.filhos, filhos, usadas, asset));
     }
     saida
+}
+
+/// As diretivas do nó de um componente filho, para o resolvedor: o filho
+/// com os `providers:` dele e só as dependências que o próprio nó provê (o
+/// resto se resolve à parte, em [`Corpo::construcao_do_filho`]) — elas
+/// decidem a ordem dos campos, porque o `_getOrCreateLocalProvider` do
+/// oficial cria as dependências de um provedor ansioso antes dele (caso
+/// j61) —, e as diretivas do nó.
+fn casadas_do_no_do_filho(
+    meta: &crate::diretivas::Diretiva,
+    extras: &[std::sync::Arc<crate::diretivas::Diretiva>],
+) -> Vec<std::sync::Arc<crate::diretivas::Diretiva>> {
+    let providos: Vec<crate::diretivas::Token> = std::iter::once(meta)
+        .chain(extras.iter().map(|d| &**d))
+        .flat_map(|d| d.provedores.iter().map(|p| p.token.clone()))
+        .chain(extras.iter().map(|d| d.token()))
+        .collect();
+    let mut so_provedores = meta.clone();
+    so_provedores
+        .dependencias
+        .retain(|d| !d.pular && d.atributo.is_none() && providos.contains(&d.token));
+    let mut casadas = vec![std::sync::Arc::new(so_provedores)];
+    casadas.extend(extras.iter().cloned());
+    casadas
 }
 
 /// O campo de um provedor do nó, com os imports tardios na ordem em que o
@@ -7801,12 +7905,18 @@ fn alocar_imports_dos_campos(
             CampoDaVisao::Container => {
                 imp.alias(VIEW_CONTAINER);
             }
-            CampoDaVisao::Filho(f, container) => {
+            CampoDaVisao::Filho(f, container, antes) => {
                 for (k, uri) in [&f.uri_template, &f.uri_dart].into_iter().enumerate() {
                     // O `ViewContainer` do nó (filho ou diretiva dele que
-                    // injeta `ViewContainerRef`) entre a visão e a instância.
-                    if k == 1 && container {
-                        imp.alias(VIEW_CONTAINER);
+                    // injeta `ViewContainerRef`) e os provedores que o filho
+                    // injeta entre a visão e a instância.
+                    if k == 1 {
+                        if container {
+                            imp.alias(VIEW_CONTAINER);
+                        }
+                        for t in &antes {
+                            resolver_tardios(imp, t);
+                        }
                     }
                     let alvo = asset_de_uri(uri, "", Path::new("")).ok_or_else(sem_caminho)?;
                     let caminho = caminho_do_import(asset, &alvo).ok_or_else(sem_caminho)?;

@@ -451,9 +451,12 @@ com `interpolate0` na ação; o elemento não repete o atributo consumido) —
 casos j58, j59. Campo de elemento cujo `#ref` só é lido em handler de
 evento entra na classe depois dos elementos ligados na detecção (o
 `NodeReferenceStorageVisitor` o promove ao compilar o handler) — caso j60.
-Corpus: 290 conferidos. limitless_ui/example (Linux,
-`build --comparar`): **923 iguais / 27 pendentes / 0 diferentes** —
-`.template.dart` 507/25/0, `.css` e `.css.map` do Sass 102/102 cada,
+Filho que injeta um provedor que ele mesmo declara (`providers:
+[ClassProvider(X)]` e `X` no construtor): o `_getOrCreateLocalProvider`
+cria a dependência antes, e o filho fica com o índice seguinte — casos
+i77, j61. Corpus: 292 conferidos. limitless_ui/example (Linux,
+`build --comparar`): **924 iguais / 26 pendentes / 0 diferentes** —
+`.template.dart` 508/24/0, `.css` e `.css.map` do Sass 102/102 cada,
 `.css.dart` e `.css.shim.dart` 104 cada.
 
 ### Diretivas estruturais
@@ -552,7 +555,8 @@ Corpus: 290 conferidos. limitless_ui/example (Linux,
 | `providers:` com `useValue:` de lista, mapa, enum, `null` ou objeto aninhado; `useFactory:` de método estático; classe genérica ou abstrata; token de subclasse de `OpaqueToken`, `OpaqueToken` sem nome ou com `T` de fora do `dart:core`, `MultiToken` com `T` de fora do `dart:core` sem argumentos; dependência `@Self`/`@Host`/`@SkipSelf` ou de embutido (`ElementRef`, `Injector`…) num serviço; `viewProviders:` | recusado | — |
 | componente com `providers:` (as formas da hospedeira) usado como filho no template, também dentro de `*` e recebendo conteúdo | gerado (no nó de quem usa: preguiçosos `late T _X_n_m = ..;` antes dos outros campos, dependências dos campos do nó; o filho primeiro no `injectorGetInternal` pelos apelidos dele) | i72, i74 |
 | provedor do filho pedido por um nó do conteúdo | recusado (o oficial o cria no `build()`, logo depois do filho) | i76 |
-| filho que injeta um provedor do próprio nó ou de um elemento acima | recusado (o provedor sai antes do filho; o serviço não vem do injetor de fora) | i77 |
+| filho que injeta um provedor do próprio nó | gerado (o provedor ansioso sai antes do filho, que fica com o índice seguinte; a dependência dele não embrulha a criação em `debugInjectorWrap`) | i77, j61 |
+| filho que injeta um provedor de um elemento acima | recusado (o serviço não vem do injetor de fora) | — |
 | provedor do filho com dependência de fora do nó, apelido de token que o nó não provê | recusado | i78 |
 | `encapsulation: ViewEncapsulation.emulated`/`.none` sem folha de estilo | gerado (sem folha o oficial já desliga o encapsulamento) | b06 |
 | `encapsulation: ViewEncapsulation.none` com `styleUrls` (`.css` escrito) | gerado (import do `.css.dart` sem shim, também gerado; `unscoped`; sem `addShimC`) | i88 |
@@ -567,8 +571,7 @@ Corpus: 290 conferidos. limitless_ui/example (Linux,
 1. Provedores do filho no nó de template além do preguiçoso local: o
    pedido pelo conteúdo (ansioso, criado depois do filho — a saída está
    no oráculo do i76), a dependência de fora do nó (elementos acima e
-   `parentView!.injectorGet(.., this.parentIndex)`, i78) e o filho que
-   injeta o próprio provedor (i77).
+   `parentView!.injectorGet(.., this.parentIndex)`, i78).
 
 O oráculo das sondas se regenera como os outros casos
 (`scripts/corpus-ngdart.ps1`): criar o `.dart` e o `.html` em
