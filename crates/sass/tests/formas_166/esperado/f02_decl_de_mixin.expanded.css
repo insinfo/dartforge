@@ -1,0 +1,19 @@
+:host {
+  display: block;
+  background: #fff;
+  margin: 0;
+  background: #000;
+}
+:host.escuro {
+  color: #fff;
+}
+:host .filho {
+  a: b;
+}
+:host.escuro {
+  color: #000;
+}
+
+:host.acx-theme-dark {
+  color: #fff;
+}

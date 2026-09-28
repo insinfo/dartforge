@@ -1,0 +1,4 @@
+.a:hover::before { x: y; }
+.b { @extend .a; }
+.c::after:hover { z: w; }
+.d:focus { @extend .c; }

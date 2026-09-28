@@ -96,7 +96,7 @@ pub use crate::error::{
 };
 pub use crate::fs::{Fs, NullFs, StdFs};
 pub use crate::logger::{Logger, NullLogger, StdLogger};
-pub use crate::options::{InputSyntax, Options, OutputStyle};
+pub use crate::options::{InputSyntax, Options, OutputStyle, VersaoDartSass};
 pub use crate::{builtin::Builtin, evaluate::Visitor};
 pub(crate) use crate::{context_flags::ContextFlags, lexer::Token};
 use crate::{lexer::Lexer, parse::ScssParser};
@@ -208,6 +208,7 @@ pub(crate) fn compilar_com_mapa(
     options: &Options,
     mapa: bool,
 ) -> Result<(String, Option<mapa::Mapa>)> {
+    let _versao = options::fixar_versao(options.versao);
     let mut map = CodeMap::new();
     let path = Path::new(file_name);
     let file = map.add_file(file_name.to_owned(), input);

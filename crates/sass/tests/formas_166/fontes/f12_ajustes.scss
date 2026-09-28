@@ -1,0 +1,10 @@
+a {
+  b: adjust-color(#336699, $red: 10, $alpha: -.2);
+  c: scale-color(#336699, $lightness: 30%);
+  d: change-color(#336699, $hue: 10);
+  e: adjust-color(#336699, $hue: 10deg, $saturation: -5%);
+  f: scale-color(#336699, $alpha: -40%);
+  g: change-color(#336699, $whiteness: 10%);
+  h: adjust-color(#336699);
+  i: scale-color(hsl(10, 20%, 30%), $red: 50%);
+}

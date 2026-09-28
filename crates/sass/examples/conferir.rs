@@ -2,7 +2,8 @@
 //! oráculo (o `SassBuilder` reproduzido num programa Dart).
 //!
 //! Uso: `cargo run --release -p dartforge-sass --example conferir --
-//! <manifesto> <dir do oráculo> [dir de diferenças]`.
+//! <manifesto> <dir do oráculo> [dir de diferenças]` (com `SASS_VERSAO=1.66.0`,
+//! o modo de compatibilidade com o dart-sass 1.66.0).
 //!
 //! O manifesto tem uma linha por `.scss`: `<arquivo>\t<raiz do pacote>\t
 //! <nome do pacote>\t<package_config.json ou ->`. O oráculo, para a linha
@@ -11,7 +12,15 @@
 //! comentário `sourceMappingURL`), ou `i.<estilo>.err` quando o dart-sass
 //! recusa.
 use dartforge_sass::sass_builder::{compilar, Ativo, Disco, Pacotes};
-use dartforge_sass::OutputStyle;
+use dartforge_sass::{OutputStyle, VersaoDartSass};
+
+/// A versão imitada: `SASS_VERSAO` (`1.66.0` ou `1.102.0`, o padrão).
+fn versao() -> VersaoDartSass {
+    std::env::var("SASS_VERSAO")
+        .ok()
+        .and_then(|v| VersaoDartSass::do_lock(&v))
+        .unwrap_or_default()
+}
 use std::path::{Path, PathBuf};
 
 fn main() {
@@ -65,7 +74,7 @@ fn main() {
                     .stack_size(256 << 20)
                     .spawn(move || {
                         let r = std::panic::catch_unwind(|| {
-                            compilar(&fonte, &entrada, &pacotes, &Disco, estilo, true)
+                            compilar(&fonte, &entrada, &pacotes, &Disco, estilo, true, versao())
                         })
                         .map(|r| r.map_err(|e| e.to_string()));
                         let _ = tx.send(r);

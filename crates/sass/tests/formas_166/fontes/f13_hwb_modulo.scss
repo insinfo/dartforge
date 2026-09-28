@@ -1,0 +1,10 @@
+@use "sass:color";
+a {
+  b: color.hwb(120, 20%, 30%);
+  c: color.whiteness(#336699);
+  d: color.blackness(#336699);
+  e: color.hwb(10 50% 60% / .5);
+  f: color.adjust(#336699, $blackness: 5%);
+  g: color.mix(#f00, #0f0);
+  h: color.red(#336699);
+}

@@ -1,0 +1,7 @@
+a {
+  b: darken(#fff, 0%) == #fff;
+  c: mix(#000, #fff, 12%) == #e0e0e0;
+  d: hsl(0, 0%, 50%) == #808080;
+  e: map-get((#e0e0e0: um), mix(#000, #fff, 12%));
+  f: rgba(1, 2, 3, .5) == rgba(1, 2, 3, .5);
+}

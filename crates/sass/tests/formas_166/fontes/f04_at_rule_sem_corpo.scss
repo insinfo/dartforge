@@ -1,0 +1,7 @@
+.a {
+  .b { x: y; }
+  @foo bar;
+  c: d;
+  @media (min-width: 10px) { e: f; }
+  g: h;
+}

@@ -1,0 +1,13 @@
+$c: #123456;
+a {
+  b: rgba($c, .5);
+  c: rgba(#123, var(--x));
+  d: transparentize(#336699, .25);
+  e: opacify(rgba(0, 0, 0, .1), .2);
+  f: fade-out(red, 1);
+  g: rgba(black, .87);
+  h: rgba(white, 1);
+  i: alpha(rgba(1, 2, 3, .3));
+  j: opacity(.5);
+  k: rgba(var(--c), .5);
+}

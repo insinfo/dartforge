@@ -118,10 +118,12 @@ pub(crate) struct Serializer<'a> {
     map: &'a CodeMap,
     /// O mapa de fontes em construção, quando pedido.
     mapa: Option<crate::mapa::BufferMapa>,
+    /// O `span` dos erros sem nó próprio (o do valor ou da folha).
+    span: Span,
 }
 
 impl<'a> Serializer<'a> {
-    pub fn new(options: &'a Options<'a>, map: &'a CodeMap, inspect: bool, _span: Span) -> Self {
+    pub fn new(options: &'a Options<'a>, map: &'a CodeMap, inspect: bool, span: Span) -> Self {
         Self {
             inspect,
             _quote: true,
@@ -131,6 +133,7 @@ impl<'a> Serializer<'a> {
             buffer: Vec::new(),
             map,
             mapa: None,
+            span,
         }
     }
 
@@ -599,6 +602,7 @@ impl<'a> Serializer<'a> {
     fn visit_value(&mut self, value: &Value, span: Span) -> SassResult<()> {
         match value {
             Value::Dimension(num) => self.visit_number(num)?,
+            Value::Color(color) if self.options.v166() => self.visit_color_166(color, span)?,
             Value::Color(color) => self.visit_color(color),
             Value::Calculation(calc) => self.visit_calculation(calc)?,
             Value::List(elems, sep, brackets) => self.visit_list(elems, *sep, *brackets, span)?,
@@ -1125,8 +1129,11 @@ impl<'a> Serializer<'a> {
     // ### Números
 
     /// `_asInt`.
+    ///
+    /// No modo 1.66, sempre o `fuzzyAsInt` (o `_writeNumber` do 1.66 não
+    /// distingue o `inspect`).
     fn as_int(&self, n: f64) -> Option<f64> {
-        if self.inspect {
+        if self.inspect || self.options.v166() {
             return crate::value::fuzzy_as_int(n).map(|i| i as f64);
         }
         let r = n.round();
@@ -1150,7 +1157,8 @@ impl<'a> Serializer<'a> {
         // O `{}` do Rust é o `_removeExponent(number.toString())` do Dart:
         // os mesmos dígitos mínimos, em notação posicional.
         let mut text = format!("{number}");
-        if self.inspect {
+        // Precisão total no `inspect` só a partir do dart-sass 1.91.0.
+        if self.inspect && !self.options.v166() {
             self.buffer.extend_from_slice(text.as_bytes());
             return;
         }
@@ -1254,10 +1262,51 @@ impl<'a> Serializer<'a> {
             return Ok(());
         }
         let (numer, denom) = unit_lists(&number.unit);
+        if !number.num.0.is_finite() && self.options.v166() {
+            // `_writeCalculationValue` do 1.66: só a primeira unidade do
+            // numerador; unidades complexas são erro fora do `inspect`.
+            if (numer.len() > 1 || !denom.is_empty()) && !self.inspect {
+                return Err((
+                    format!(
+                        "{} isn't a valid CSS value.",
+                        inspect_number(number, self.options, self.span)?
+                    ),
+                    self.span,
+                )
+                    .into());
+            }
+            self.buffer.extend_from_slice(b"calc(");
+            self.write_calculation_infinite(number.num.0, &numer[..numer.len().min(1)], &[]);
+            self.buffer.push(b')');
+            return Ok(());
+        }
         if !number.num.0.is_finite() {
             self.buffer.extend_from_slice(b"calc(");
             self.write_calculation_infinite(number.num.0, &numer, &denom);
             self.buffer.push(b')');
+            return Ok(());
+        }
+        if (numer.len() > 1 || !denom.is_empty()) && self.options.v166() {
+            // `visitNumber` do 1.66: unidades complexas não são CSS; o
+            // `inspect` escreve o `unitString`.
+            if !self.inspect {
+                return Err((
+                    format!(
+                        "{} isn't a valid CSS value.",
+                        inspect_number(number, self.options, self.span)?
+                    ),
+                    self.span,
+                )
+                    .into());
+            }
+            self.write_number(number.num.0);
+            let texto = match (numer.as_slice(), denom.as_slice()) {
+                ([], [d]) => format!("{d}^-1"),
+                ([], _) => format!("({})^-1", denom.join("*")),
+                (_, []) => numer.join("*"),
+                _ => format!("{}/{}", numer.join("*"), denom.join("*")),
+            };
+            self.buffer.extend_from_slice(texto.as_bytes());
             return Ok(());
         }
         if numer.len() > 1 || !denom.is_empty() {
@@ -1421,6 +1470,110 @@ impl<'a> Serializer<'a> {
         }
     }
 
+    /// `visitColor` do dart-sass 1.66.0 (modo de compatibilidade): o RGB
+    /// inteiro e os formatos do 1.66 (`rgbFunction`, `hslFunction` e o texto
+    /// original); sem formato, o nome, o hexadecimal ou `rgba()`. Cor que o
+    /// modelo do 1.66 não teria é recusada.
+    fn visit_color_166(&mut self, color: &Color, span: Span) -> SassResult<()> {
+        use crate::color::v166;
+        let Some([r, g, b]) = v166::rgb(color) else {
+            return Err((v166::nao_garantida(color), span).into());
+        };
+        let alpha = v166::alpha(color);
+        let (ri, gi, bi) = (r as u32, g as u32, b as u32);
+        // `namesByColor[value]`: a igualdade do `SassColor` compara o alfa
+        // exato; os nomes (fora `transparent`) são opacos.
+        let nome = if alpha == 1.0 {
+            NAMED_COLORS
+                .get_by_rgba([ri as u8, gi as u8, bi as u8])
+                .copied()
+        } else {
+            None
+        };
+        if self.options.is_compressed() {
+            if !fuzzy_equals(alpha, 1.0) {
+                self.write_rgb_166(color, [r, g, b], alpha);
+                return Ok(());
+            }
+            let curto = (ri & 0xF == ri >> 4) && (gi & 0xF == gi >> 4) && (bi & 0xF == bi >> 4);
+            match nome {
+                Some(n) if n.len() <= if curto { 4 } else { 7 } => {
+                    self.buffer.extend_from_slice(n.as_bytes());
+                }
+                _ if curto => {
+                    self.buffer.push(b'#');
+                    self.buffer.push(hex_char_for(ri & 0xF) as u8);
+                    self.buffer.push(hex_char_for(gi & 0xF) as u8);
+                    self.buffer.push(hex_char_for(bi & 0xF) as u8);
+                }
+                _ => {
+                    self.buffer.push(b'#');
+                    self.write_hex_component(ri);
+                    self.write_hex_component(gi);
+                    self.write_hex_component(bi);
+                }
+            }
+            return Ok(());
+        }
+        match &color.format {
+            ColorFormat::RgbFunction => self.write_rgb_166(color, [r, g, b], alpha),
+            ColorFormat::HslFunction => {
+                let Some([h, s, l]) = v166::hsl(color) else {
+                    return Err((v166::nao_garantida(color), span).into());
+                };
+                let opaque = fuzzy_equals(alpha, 1.0);
+                self.buffer
+                    .extend_from_slice(if opaque { b"hsl(" } else { b"hsla(" });
+                let sep = self.comma_separator();
+                self.write_number(h);
+                self.buffer.extend_from_slice(sep);
+                self.write_number(s);
+                self.buffer.push(b'%');
+                self.buffer.extend_from_slice(sep);
+                self.write_number(l);
+                self.buffer.push(b'%');
+                if !opaque {
+                    self.buffer.extend_from_slice(sep);
+                    self.write_number(alpha);
+                }
+                self.buffer.push(b')');
+            }
+            ColorFormat::Literal(text) => self.buffer.extend_from_slice(text.as_bytes()),
+            ColorFormat::Infer => {
+                if let Some(n) = nome {
+                    self.buffer.extend_from_slice(n.as_bytes());
+                } else if fuzzy_equals(alpha, 1.0) {
+                    self.buffer.push(b'#');
+                    self.write_hex_component(ri);
+                    self.write_hex_component(gi);
+                    self.write_hex_component(bi);
+                } else {
+                    self.write_rgb_166(color, [r, g, b], alpha);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// `_writeRgb` do 1.66: os inteiros, com vírgulas.
+    fn write_rgb_166(&mut self, _color: &Color, [r, g, b]: [f64; 3], alpha: f64) {
+        let opaque = fuzzy_equals(alpha, 1.0);
+        self.buffer
+            .extend_from_slice(if opaque { b"rgb(" } else { b"rgba(" });
+        let sep = self.comma_separator();
+        for (i, c) in [r, g, b].into_iter().enumerate() {
+            if i > 0 {
+                self.buffer.extend_from_slice(sep);
+            }
+            self.buffer.extend_from_slice(dart_int_text(c).as_bytes());
+        }
+        if !opaque {
+            self.buffer.extend_from_slice(sep);
+            self.write_number(alpha);
+        }
+        self.buffer.push(b')');
+    }
+
     /// `_writeColorFunction`.
     fn write_color_function(&mut self, color: &Color) {
         self.buffer.extend_from_slice(b"color(");
@@ -1498,7 +1651,7 @@ impl<'a> Serializer<'a> {
                 self.buffer.extend_from_slice(text.as_bytes());
                 return;
             }
-            ColorFormat::Infer => {}
+            ColorFormat::Infer | ColorFormat::HslFunction => {}
         }
         // Cor transparente gerada sai sempre como `rgba` (sass/sass#1782).
         if opaque {
@@ -1753,7 +1906,11 @@ impl<'a> Serializer<'a> {
                     buffer.push(b'"');
                 }
                 // Quebras de linha e ASCII não imprimível viram escape (a tabulação não).
-                '\u{0}'..='\u{8}' | '\u{A}'..='\u{1F}' | '\u{7F}' => {
+                // O U+007F só a partir do dart-sass 1.69.6.
+                '\u{0}'..='\u{8}' | '\u{A}'..='\u{1F}' => {
+                    Self::write_escape(&mut buffer, c as u32, chars.peek().copied());
+                }
+                '\u{7F}' if !self.options.v166() => {
                     Self::write_escape(&mut buffer, c as u32, chars.peek().copied());
                 }
                 '\\' => buffer.extend_from_slice(b"\\\\"),

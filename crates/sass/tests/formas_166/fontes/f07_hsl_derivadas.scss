@@ -1,0 +1,12 @@
+a {
+  b: darken(#336699, 10%);
+  c: lighten(#336699, 17.5%);
+  d: saturate(#336699, 20%);
+  e: desaturate(#336699, 20%);
+  f: adjust-hue(#336699, 45deg);
+  g: darken(darken(#abc, 7%), 7%);
+  h: grayscale(#123456);
+  i: complement(#123456);
+  j: darken(#fff, 100%);
+  k: lighten(rgba(#336699, .3), 10%);
+}

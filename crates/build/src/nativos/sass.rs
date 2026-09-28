@@ -1,6 +1,7 @@
 //! `sass_builder:sass_builder` pelo Sass do `gerador_ng`
 //! (`sass::compilar_ativo`, API pública), que é o dart-sass 1.102.0 byte a
-//! byte (o crate `dartforge-sass`).
+//! byte (o crate `dartforge-sass`) ou, quando o `pubspec.lock` traz o `sass`
+//! 1.66.0, o modo de compatibilidade com ele (`VersaoDartSass::V1_66_0`).
 //!
 //! Os dois estilos (`compressed` e `expanded`, o padrão do `sass_builder`)
 //! e o `.css.map` quando `sourceMaps` está ligado (o `dev` o liga por
@@ -11,7 +12,7 @@
 use crate::consulta::Consulta;
 use crate::executor::{CtxGerador, GeradorNativo, PedidoNativo, SaidaNativa};
 use crate::valor::Valor;
-use dartforge_gerador_ng::sass::{Estilo, Leitor, compilar_ativo};
+use dartforge_gerador_ng::sass::{Estilo, Leitor, VersaoDartSass, compilar_ativo};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -60,6 +61,14 @@ impl GeradorNativo for SassNativo {
         pedido: &PedidoNativo,
     ) -> Result<SaidaNativa, String> {
         let mut s = SaidaNativa::default();
+        // O dart-sass do lock (o motor só chama com uma versão imitada).
+        let versao = pedido.versoes.get("sass").map(String::as_str);
+        let Some(versao) = versao.and_then(VersaoDartSass::do_lock) else {
+            return Err(format!(
+                "sass: versão do dart-sass no lock não imitada: {}",
+                versao.unwrap_or("ausente")
+            ));
+        };
         for a in &pedido.acoes {
             let nome = a.entrada.caminho.rsplit('/').next().unwrap_or_default();
             if nome.starts_with('_') {
@@ -97,6 +106,7 @@ impl GeradorNativo for SassNativo {
                 &leitor,
                 estilo,
                 mapa,
+                versao,
             ) {
                 Ok(f) => f,
                 Err(m) => {

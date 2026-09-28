@@ -1,0 +1,12 @@
+$d: darken(#336699, 10%);
+a {
+  r: red($d);
+  g: green($d);
+  b: blue($d);
+  h: hue($d);
+  s: saturation($d);
+  l: lightness($d);
+  h2: hue(hsl(10.123456789012, 20%, 30%));
+  n: nth((a, b, c, d), red(#010203) + 1);
+  x: red(hsl(120, 33%, 44%));
+}

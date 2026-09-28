@@ -20,6 +20,7 @@ use crate::value::{fuzzy_equals, fuzzy_less_than, fuzzy_less_than_or_equals, Num
 
 mod matrizes;
 mod name;
+pub(crate) mod v166;
 
 use matrizes::*;
 
@@ -1072,6 +1073,9 @@ pub(crate) enum ColorFormat {
     Literal(String),
     /// Nenhum.
     Infer,
+    /// `hsl()`/`hsla()` do dart-sass 1.66 (`ColorFormat.hslFunction`), só
+    /// no modo 1.66: o 1.102 não tem este formato.
+    HslFunction,
 }
 
 /// Uma cor (`SassColor`).
@@ -1083,6 +1087,9 @@ pub struct Color {
     c2: Option<f64>,
     alpha: Option<f64>,
     pub(crate) format: ColorFormat,
+    /// Criada por uma função de cor do modo 1.66 ([`v166`]): compara e
+    /// serializa pelo modelo do dart-sass 1.66.
+    pub(crate) modelo_166: bool,
 }
 
 /// Métodos de interpolação de matiz.
@@ -1159,6 +1166,7 @@ impl Color {
             c2,
             alpha,
             format,
+            modelo_166: false,
         }
     }
 
@@ -1665,6 +1673,9 @@ fn delta_eok(color1: &Color, color2: &Color) -> f64 {
 impl PartialEq for Color {
     /// `SassColor.==`: legadas comparam em RGB; as outras, espaço e canais.
     fn eq(&self, other: &Self) -> bool {
+        if self.modelo_166 || other.modelo_166 {
+            return v166::iguais(self, other);
+        }
         if self.is_legacy() {
             if !other.is_legacy() {
                 return false;
@@ -1692,6 +1703,10 @@ impl Eq for Color {}
 impl std::hash::Hash for Color {
     /// `SassColor.hashCode` (com o `fuzzyHashCode`).
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        if let Some(h) = v166::hash(self) {
+            h.hash(state);
+            return;
+        }
         let fh = |x: f64| -> i64 {
             if x.is_finite() {
                 (x * 1e11).round() as i64

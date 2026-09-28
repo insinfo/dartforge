@@ -211,13 +211,33 @@ impl CompoundSelector {
     /// both `compound1` and `compound2`.
     ///
     /// If no such selector can be produced, returns `None`.
+    ///
+    /// `unifyCompound` do dart-sass 1.102 (1.79.5+): os simples de `other`
+    /// entram em `self`, e as pseudo-classes depois de um pseudo-elemento
+    /// são unificadas à parte, para manter a ordem relativa a ele. No modo
+    /// 1.66, o algoritmo antigo: os simples de `self` entram em `other`.
     pub fn unify(self, other: Self) -> Option<Self> {
-        let mut components = other.components;
-        for simple in self.components {
-            components = simple.unify(std::mem::take(&mut components))?;
+        if crate::options::versao_corrente() == crate::VersaoDartSass::V1_66_0 {
+            let mut components = other.components;
+            for simple in self.components {
+                components = simple.unify(std::mem::take(&mut components))?;
+            }
+            return Some(Self { components });
         }
-
-        Some(Self { components })
+        let mut result = self.components;
+        let mut pseudo_result: Vec<SimpleSelector> = Vec::new();
+        let mut pseudo_element_found = false;
+        for simple in other.components {
+            let e_pseudo = matches!(simple, SimpleSelector::Pseudo(..));
+            if pseudo_element_found && e_pseudo {
+                pseudo_result = simple.unify(std::mem::take(&mut pseudo_result))?;
+            } else {
+                pseudo_element_found |= matches!(&simple, SimpleSelector::Pseudo(p) if !p.is_class);
+                result = simple.unify(std::mem::take(&mut result))?;
+            }
+        }
+        result.extend(pseudo_result);
+        Some(Self { components: result })
     }
 
     /// Adds a `SimpleSelector::Parent` to the beginning of `compound`, or returns `None` if

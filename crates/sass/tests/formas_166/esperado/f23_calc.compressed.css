@@ -1,0 +1,1 @@
+a{b:calc(100% - 10px);c:3px;d:1px;e:max(10%,2px);f:clamp(1px,2vw,3px);g:calc(10px);h:calc(100% - (10px * 2));i:2px;j:3px}

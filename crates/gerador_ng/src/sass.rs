@@ -22,6 +22,9 @@ use std::path::{Path, PathBuf};
 /// motor de build passa o dele, que vê as saídas de builders anteriores.
 pub use dartforge_sass::sass_builder::Leitor;
 
+/// A versão do dart-sass imitada (a do `sass` no `pubspec.lock`).
+pub use dartforge_sass::VersaoDartSass;
+
 /// O estilo de saída do `sass_builder` (`outputStyle`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Estilo {
@@ -117,6 +120,7 @@ pub fn compilar_com(
         &Disco,
         estilo.do_dart_sass(),
         false,
+        VersaoDartSass::V1_102_0,
     )
     .map_err(|_| Motivo::Estilos)?;
     Ok((format!("{}\n", c.css), c.lidos))
@@ -154,6 +158,7 @@ pub fn compilar_arquivo(scss: &Path, estilo: Estilo, mapa: bool) -> Result<Folha
         &Disco,
         estilo.do_dart_sass(),
         mapa,
+        VersaoDartSass::V1_102_0,
     )
     .map_err(|_| Motivo::Estilos)?;
     Ok(Folha {
@@ -168,14 +173,15 @@ pub fn compilar_arquivo(scss: &Path, estilo: Estilo, mapa: bool) -> Result<Folha
 /// `pacote`, de texto `fonte`, como o `SassBuilder` do `sass_builder` 2.2.1:
 /// `raizes` são as raízes dos pacotes do `package_config.json` e `leitor`,
 /// o `BuildStep`. Com `mapa`, gera o `.css.map` e põe o comentário
-/// `sourceMappingURL` no `.css`.
+/// `sourceMappingURL` no `.css`. `versao` é o dart-sass imitado (o `sass`
+/// do `pubspec.lock`).
 ///
 /// # Erros
 ///
 /// A mensagem do dart-sass quando a folha é recusada.
 ///
 /// ```
-/// use dartforge_gerador_ng::sass::{compilar_ativo, Estilo, Leitor};
+/// use dartforge_gerador_ng::sass::{compilar_ativo, Estilo, Leitor, VersaoDartSass};
 /// use std::collections::BTreeMap;
 /// use std::path::Path;
 /// struct Nada;
@@ -183,7 +189,7 @@ pub fn compilar_arquivo(scss: &Path, estilo: Estilo, mapa: bool) -> Result<Folha
 ///     fn existe(&self, _: &Path) -> bool { false }
 ///     fn ler(&self, _: &Path) -> std::io::Result<String> { Err(std::io::ErrorKind::NotFound.into()) }
 /// }
-/// let f = compilar_ativo("a { b: c }", "app", "web/x.scss", &BTreeMap::new(), &Nada, Estilo::Comprimido, true).unwrap();
+/// let f = compilar_ativo("a { b: c }", "app", "web/x.scss", &BTreeMap::new(), &Nada, Estilo::Comprimido, true, VersaoDartSass::V1_102_0).unwrap();
 /// assert_eq!(f.css, "a{b:c}\n\n/*# sourceMappingURL=x.css.map */\n");
 /// assert_eq!(f.mapa.unwrap(), r#"{"version":3,"sourceRoot":"","sources":["x.scss"],"names":[],"mappings":"AAAA"}"#);
 /// ```
@@ -195,6 +201,7 @@ pub fn compilar_ativo(
     leitor: &dyn Leitor,
     estilo: Estilo,
     mapa: bool,
+    versao: VersaoDartSass,
 ) -> Result<Folha, String> {
     let mut pacotes = Pacotes::new();
     for (nome, raiz) in raizes {
@@ -211,6 +218,7 @@ pub fn compilar_ativo(
         leitor,
         estilo.do_dart_sass(),
         mapa,
+        versao,
     )
     .map_err(|e| e.to_string())?;
     Ok(Folha {

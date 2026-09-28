@@ -25,11 +25,19 @@ pub(crate) fn unify_complex(
         let base = complex.last()?;
 
         if let ComplexSelectorComponent::Compound(base) = base {
-            if let Some(mut some_unified_base) = unified_base.clone() {
-                for simple in base.components.clone() {
-                    some_unified_base = simple.unify(some_unified_base.clone())?;
-                }
-                unified_base = Some(some_unified_base);
+            if let Some(unificada) = unified_base.take() {
+                // 1.102: `unifyCompound(unifiedBase, base.selector)`; 1.66:
+                // cada simples da base entra na unificada (`simple.unify`),
+                // que é o `unifyCompound(base, unifiedBase)` antigo.
+                let unificada = CompoundSelector {
+                    components: unificada,
+                };
+                let r = if crate::options::versao_corrente() == crate::VersaoDartSass::V1_66_0 {
+                    base.clone().unify(unificada)
+                } else {
+                    unificada.unify(base.clone())
+                }?;
+                unified_base = Some(r.components);
             } else {
                 unified_base = Some(base.components.clone());
             }

@@ -1,0 +1,12 @@
+$x: 10px;
+a {
+  b: calc(100% - #{$x});
+  c: calc(1px + 2px);
+  d: min(1px, 2px);
+  e: max(10%, 2px);
+  f: clamp(1px, 2vw, 3px);
+  g: calc(#{$x});
+  h: calc(100% - (#{$x} * 2));
+  i: round(1.5px);
+  j: abs(-3px);
+}

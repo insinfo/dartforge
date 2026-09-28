@@ -1,0 +1,12 @@
+@mixin tema($c) {
+  &.escuro { color: $c; }
+  background: $c;
+}
+:host {
+  display: block;
+  @include tema(#fff);
+  .filho { a: b; }
+  margin: 0;
+  @include tema(#000);
+}
+:host.acx-theme-dark { color: #fff; }

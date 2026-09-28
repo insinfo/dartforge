@@ -505,7 +505,8 @@ impl Compilado {
     }
 }
 
-/// Compila `fonte`, o texto do ativo `entrada`, como o `SassBuilder`.
+/// Compila `fonte`, o texto do ativo `entrada`, como o `SassBuilder` com o
+/// dart-sass `versao`.
 ///
 /// # Erros
 ///
@@ -517,6 +518,7 @@ pub fn compilar(
     leitor: &dyn Leitor,
     estilo: OutputStyle,
     mapa: bool,
+    versao: crate::VersaoDartSass,
 ) -> Result<Compilado, Box<crate::Error>> {
     let importer = BuildImporter {
         entrada,
@@ -527,6 +529,7 @@ pub fn compilar(
     };
     let opcoes = Options::default()
         .style(estilo)
+        .versao(versao)
         .quiet(true)
         .importer(&importer)
         .input_syntax(InputSyntax::for_path(Path::new(&entrada.caminho)));

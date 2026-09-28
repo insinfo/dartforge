@@ -232,11 +232,21 @@ impl Value {
     /// que `rgba(var(--x), 0.5)` mantém `0.5` e `, ` no `compressed`. O
     /// grass usava o estilo da saída.
     pub fn to_css_string(&self, span: Span, _is_compressed: bool) -> SassResult<String> {
-        serialize_value(self, &Options::default().style(OutputStyle::Expanded), span)
+        serialize_value(
+            self,
+            &Options::default()
+                .style(OutputStyle::Expanded)
+                .versao(crate::options::versao_corrente()),
+            span,
+        )
     }
 
     pub fn inspect(&self, span: Span) -> SassResult<String> {
-        inspect_value(self, &Options::default(), span)
+        inspect_value(
+            self,
+            &Options::default().versao(crate::options::versao_corrente()),
+            span,
+        )
     }
 
     pub fn is_truthy(&self) -> bool {

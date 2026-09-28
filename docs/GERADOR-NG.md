@@ -642,9 +642,10 @@ nó; outra classe do ngdart (`NgZone`, `ApplicationRef`) é serviço comum
 ngcomponents 3.0.0-dev.1 (o port do angular_components, num projeto de
 sonda com o `build_runner` oficial de referência): 482 `.template.dart` e
 as 140 folhas `.scss.css.dart`/`.scss.css.shim.dart` iguais, **0
-diferentes**; as folhas `.scss.css` (do `SassBuilder` do próprio
-ngcomponents, com o sass 1.66.0) vêm do apoio, e o estágio A do ngdart as
-lê da memória do motor. Os 42 `.template.dart` pendentes são a próxima
+diferentes**; as 70 folhas `.scss.css` (do `SassBuilder` do próprio
+ngcomponents, com o sass 1.66.0 do lock) saem do `sass_builder` nativo no
+modo de compatibilidade com o dart-sass 1.66.0 (`crates/sass/README.md`),
+**70/70 iguais**, e o estágio A do ngdart as lê da memória do motor. Os 42 `.template.dart` pendentes são a próxima
 fila (formas de `@HostBinding` de diretiva, injeção anotada, atributo
 interpolado renomeado…).
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada

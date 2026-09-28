@@ -1,0 +1,11 @@
+a {
+  b: rgba(0, 0, 0, .5);
+  c: #ff0000;
+  d: hsl(120, 50%, 50%);
+  e: mix(#000, #fff, 12%);
+  f: white;
+  g: #aabbcc;
+  h: rgb(1, 2, 3);
+  i: transparent;
+  j: darken(hsla(120, 50%, 50%, .5), 10%);
+}

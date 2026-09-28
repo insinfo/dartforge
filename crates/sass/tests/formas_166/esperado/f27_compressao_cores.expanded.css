@@ -1,0 +1,11 @@
+a {
+  b: rgba(0, 0, 0, 0.5);
+  c: #ff0000;
+  d: hsl(120, 50%, 50%);
+  e: #e0e0e0;
+  f: white;
+  g: #aabbcc;
+  h: rgb(1, 2, 3);
+  i: transparent;
+  j: rgba(51, 153, 51, 0.5);
+}

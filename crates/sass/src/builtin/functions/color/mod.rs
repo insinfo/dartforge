@@ -199,6 +199,9 @@ macro_rules! assinatura {
     (@r $r:ident) => { true };
 }
 
+// O modo 1.66 usa as utilidades e o `assinatura!` daqui.
+mod v166;
+
 // ### Utilidades de valores
 
 fn erro<T>(msg: impl Into<String>, span: Span) -> SassResult<T> {
@@ -977,7 +980,10 @@ fn channel_fn(
 
 macro_rules! canal {
     ($f:ident, $space:expr, $canal:literal, $unit:expr, $arred:expr) => {
-        pub(crate) fn $f(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+        pub(crate) fn $f(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+            if v.options.v166() {
+                return v166::canal($canal, args);
+            }
             let span = args.span;
             let a = ligar(args, &assinatura!("color"))?;
             channel_fn(&a, $space, $canal, $unit, $arred, span)
@@ -1112,7 +1118,10 @@ fn interpolation_method(v: &Value, span: Span) -> SassResult<InterpolationMethod
     Ok(InterpolationMethod::new(space, Some(hue)))
 }
 
-pub(crate) fn mix(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn mix(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::mix(args);
+    }
     let span = args.span;
     let a = ligar(
         args,
@@ -1170,11 +1179,17 @@ fn rgb_like(nome: &'static str, args: ArgumentResult) -> SassResult<Value> {
     }
 }
 
-pub(crate) fn rgb(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn rgb(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::rgb(args);
+    }
     rgb_like("rgb", args)
 }
 
-pub(crate) fn rgba(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn rgba(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::rgba(args);
+    }
     rgb_like("rgba", args)
 }
 
@@ -1201,11 +1216,17 @@ fn hsl_like(nome: &'static str, args: ArgumentResult) -> SassResult<Value> {
     }
 }
 
-pub(crate) fn hsl(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn hsl(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::hsl(args);
+    }
     hsl_like("hsl", args)
 }
 
-pub(crate) fn hsla(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn hsla(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::hsla(args);
+    }
     hsl_like("hsla", args)
 }
 
@@ -1314,7 +1335,10 @@ fn invert_impl(a: &[Value], global: bool, span: Span) -> SassResult<Value> {
     }))
 }
 
-pub(crate) fn invert_global(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn invert_global(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::invert(args, true);
+    }
     let span = args.span;
     let a = ligar(
         args,
@@ -1327,7 +1351,10 @@ pub(crate) fn invert_global(args: ArgumentResult, _v: &mut Visitor) -> SassResul
     invert_impl(&a, true, span)
 }
 
-pub(crate) fn invert_module(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn invert_module(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::invert(args, false);
+    }
     let span = args.span;
     let a = ligar(
         args,
@@ -1366,7 +1393,10 @@ fn grayscale_impl(v: &Value, span: Span) -> SassResult<Value> {
     }))
 }
 
-pub(crate) fn grayscale_global(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn grayscale_global(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::grayscale(args, true);
+    }
     let span = args.span;
     let a = ligar(args, &assinatura!("color"))?;
     if matches!(a[0], Value::Dimension(..)) || is_special_number(&a[0]) {
@@ -1375,7 +1405,10 @@ pub(crate) fn grayscale_global(args: ArgumentResult, _v: &mut Visitor) -> SassRe
     grayscale_impl(&a[0], span)
 }
 
-pub(crate) fn grayscale_module(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn grayscale_module(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::grayscale(args, false);
+    }
     let span = args.span;
     let a = ligar(args, &assinatura!("color"))?;
     if matches!(a[0], Value::Dimension(..)) {
@@ -1397,7 +1430,10 @@ fn legado(c: &Color, nome: &str, span: Span) -> SassResult<()> {
     }
 }
 
-pub(crate) fn adjust_hue(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn adjust_hue(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::adjust_hue(args);
+    }
     let span = args.span;
     let a = ligar(args, &assinatura!("color", "degrees"))?;
     let c = cor(&a[0], "color", span)?;
@@ -1426,19 +1462,31 @@ fn mudar_hsl(args: ArgumentResult, nome: &str, canal: &str, sinal: f64) -> SassR
     }))
 }
 
-pub(crate) fn lighten(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn lighten(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::mudar(args, 2, 1.0);
+    }
     mudar_hsl(args, "lighten", "lightness", 1.0)
 }
 
-pub(crate) fn darken(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn darken(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::mudar(args, 2, -1.0);
+    }
     mudar_hsl(args, "darken", "lightness", -1.0)
 }
 
-pub(crate) fn desaturate(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn desaturate(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::mudar(args, 1, -1.0);
+    }
     mudar_hsl(args, "desaturate", "saturation", -1.0)
 }
 
-pub(crate) fn saturate(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn saturate(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::saturate(args);
+    }
     let span = args.span;
     let sobrecargas = [assinatura!("amount"), assinatura!("color", "amount")];
     let i = escolher(&sobrecargas, &args);
@@ -1468,19 +1516,31 @@ fn mudar_alpha(args: ArgumentResult, nome: &str, sinal: f64) -> SassResult<Value
     ))))
 }
 
-pub(crate) fn opacify(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn opacify(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::opacidade(args, 1.0);
+    }
     mudar_alpha(args, "opacify", 1.0)
 }
 
-pub(crate) fn fade_in(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn fade_in(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::opacidade(args, 1.0);
+    }
     mudar_alpha(args, "fade-in", 1.0)
 }
 
-pub(crate) fn transparentize(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn transparentize(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::opacidade(args, -1.0);
+    }
     mudar_alpha(args, "transparentize", -1.0)
 }
 
-pub(crate) fn fade_out(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn fade_out(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::opacidade(args, -1.0);
+    }
     mudar_alpha(args, "fade-out", -1.0)
 }
 
@@ -1543,15 +1603,24 @@ fn alpha_impl(args: ArgumentResult, modulo: bool) -> SassResult<Value> {
     )
 }
 
-pub(crate) fn alpha_global(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn alpha_global(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::alpha(args);
+    }
     alpha_impl(args, false)
 }
 
-pub(crate) fn alpha_module(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn alpha_module(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::alpha(args);
+    }
     alpha_impl(args, true)
 }
 
-pub(crate) fn opacity_global(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn opacity_global(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::opacity(args, true);
+    }
     let span = args.span;
     let a = ligar(args, &assinatura!("color"))?;
     if matches!(a[0], Value::Dimension(..)) || is_special_number(&a[0]) {
@@ -1560,7 +1629,10 @@ pub(crate) fn opacity_global(args: ArgumentResult, _v: &mut Visitor) -> SassResu
     Ok(num(cor(&a[0], "color", span)?.alpha_f64(), Unit::None))
 }
 
-pub(crate) fn opacity_module(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn opacity_module(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::opacity(args, false);
+    }
     let span = args.span;
     let a = ligar(args, &assinatura!("color"))?;
     if matches!(a[0], Value::Dimension(..)) {
@@ -1571,7 +1643,10 @@ pub(crate) fn opacity_module(args: ArgumentResult, _v: &mut Visitor) -> SassResu
 
 macro_rules! espaco_fn {
     ($f:ident, $nome:literal, $space:expr) => {
-        pub(crate) fn $f(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+        pub(crate) fn $f(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+            if v.options.v166() {
+                return v166::inexistente($nome, args.span);
+            }
             let span = args.span;
             let a = ligar(args, &assinatura!("channels"))?;
             parse_channels($nome, &a[0], $space, Some("channels"), span)
@@ -1585,13 +1660,19 @@ espaco_fn!(lch, "lch", Some(ColorSpace::Lch));
 espaco_fn!(oklab, "oklab", Some(ColorSpace::Oklab));
 espaco_fn!(oklch, "oklch", Some(ColorSpace::Oklch));
 
-pub(crate) fn color_fn(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn color_fn(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::inexistente("color", args.span);
+    }
     let span = args.span;
     let a = ligar(args, &assinatura!("description"))?;
     parse_channels("color", &a[0], None, Some("description"), span)
 }
 
-pub(crate) fn hwb_module(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn hwb_module(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::hwb(args);
+    }
     let span = args.span;
     let sobrecargas = [
         assinatura!("hue", "whiteness", "blackness", "alpha" = Padrao::Num(1.0)),
@@ -1895,7 +1976,10 @@ fn change_color(
 
 macro_rules! atualiza {
     ($f:ident, $modo:expr) => {
-        pub(crate) fn $f(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+        pub(crate) fn $f(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+            if v.options.v166() {
+                return v166::update_components(args, $modo);
+            }
             let span = args.span;
             let a = ligar(args, &assinatura!("color"; kwargs))?;
             update_components(&a, $modo, span)
@@ -1907,7 +1991,10 @@ atualiza!(adjust, Modo::Adjust);
 atualiza!(scale, Modo::Scale);
 atualiza!(change, Modo::Change);
 
-pub(crate) fn ie_hex_str(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn ie_hex_str(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::ie_hex_str(args);
+    }
     let span = args.span;
     let a = ligar(args, &assinatura!("color"))?;
     let c = cor(&a[0], "color", span)?
@@ -1926,7 +2013,10 @@ pub(crate) fn ie_hex_str(args: ArgumentResult, _v: &mut Visitor) -> SassResult<V
     ))
 }
 
-pub(crate) fn complement(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn complement(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::complement(args);
+    }
     let span = args.span;
     let a = ligar(args, &assinatura!("color", "space" = Padrao::Nulo))?;
     let c = cor(&a[0], "color", span)?;
@@ -1978,7 +2068,10 @@ fn color_in_space(v: &Value, space: &Value, legacy_missing: bool, span: Span) ->
     ))
 }
 
-pub(crate) fn space(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn space(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::inexistente("color.space", args.span);
+    }
     let span = args.span;
     let a = ligar(args, &assinatura!("color"))?;
     Ok(Value::String(
@@ -1987,13 +2080,19 @@ pub(crate) fn space(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value>
     ))
 }
 
-pub(crate) fn to_space(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn to_space(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::inexistente("color.to-space", args.span);
+    }
     let span = args.span;
     let a = ligar(args, &assinatura!("color", "space"))?;
     Ok(cor_valor(color_in_space(&a[0], &a[1], false, span)?))
 }
 
-pub(crate) fn is_legacy(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn is_legacy(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::inexistente("color.is-legacy", args.span);
+    }
     let span = args.span;
     let a = ligar(args, &assinatura!("color"))?;
     Ok(Value::bool(cor(&a[0], "color", span)?.is_legacy()))
@@ -2024,7 +2123,10 @@ fn sem_canal<T>(v: &Value, canal: &str, span: Span) -> SassResult<T> {
     )
 }
 
-pub(crate) fn is_missing(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn is_missing(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::inexistente("color.is-missing", args.span);
+    }
     let span = args.span;
     let a = ligar(args, &assinatura!("color", "channel"))?;
     let c = cor(&a[0], "color", span)?;
@@ -2035,7 +2137,10 @@ pub(crate) fn is_missing(args: ArgumentResult, _v: &mut Visitor) -> SassResult<V
     }
 }
 
-pub(crate) fn is_in_gamut(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn is_in_gamut(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::inexistente("color.is-in-gamut", args.span);
+    }
     let span = args.span;
     let a = ligar(args, &assinatura!("color", "space" = Padrao::Nulo))?;
     Ok(Value::bool(
@@ -2043,7 +2148,10 @@ pub(crate) fn is_in_gamut(args: ArgumentResult, _v: &mut Visitor) -> SassResult<
     ))
 }
 
-pub(crate) fn to_gamut(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn to_gamut(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::inexistente("color.to-gamut", args.span);
+    }
     let span = args.span;
     let a = ligar(
         args,
@@ -2076,7 +2184,10 @@ pub(crate) fn to_gamut(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Val
     ))
 }
 
-pub(crate) fn channel(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn channel(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::inexistente("color.channel", args.span);
+    }
     let span = args.span;
     let a = ligar(
         args,
@@ -2110,7 +2221,10 @@ pub(crate) fn channel(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Valu
     Ok(num(valor, unit))
 }
 
-pub(crate) fn same(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn same(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::inexistente("color.same", args.span);
+    }
     let span = args.span;
     let a = ligar(args, &assinatura!("color1", "color2"))?;
     let c1 = cor(&a[0], "color1", span)?;
@@ -2148,7 +2262,10 @@ pub(crate) fn same(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> 
     }))
 }
 
-pub(crate) fn is_powerless(args: ArgumentResult, _v: &mut Visitor) -> SassResult<Value> {
+pub(crate) fn is_powerless(args: ArgumentResult, v: &mut Visitor) -> SassResult<Value> {
+    if v.options.v166() {
+        return v166::inexistente("color.is-powerless", args.span);
+    }
     let span = args.span;
     let a = ligar(
         args,

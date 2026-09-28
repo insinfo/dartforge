@@ -24,14 +24,20 @@ pub fn substituido(chave: &str) -> Option<&'static str> {
 }
 
 /// Versões do pacote oficial que um gerador nativo imita (conferidas contra
-/// o `pubspec.lock`).
-pub fn imita(chave: &str) -> &'static [(&'static str, &'static str)] {
+/// o `pubspec.lock`): para cada pacote, as versões aceitas — o gerador só
+/// cobre a fase quando o lock traz uma delas, e escolhe o modo pela que
+/// veio ([`crate::executor::PedidoNativo::versoes`]).
+pub fn imita(chave: &str) -> &'static [(&'static str, &'static [&'static str])] {
     match chave {
-        "ngdart:ngdart" => &[("ngdart", "8.0.0-dev.4")],
-        // O Sass é o do `dartforge-sass`, igual ao dart-sass 1.102.0: outra
-        // versão do `sass` no lock muda a saída.
-        "sass_builder:sass_builder" => &[("sass_builder", "2.2.1"), ("sass", "1.102.0")],
-        "i18n:yamlBasedBuilder" => &[("i18n", "4.2.1")],
+        "ngdart:ngdart" => &[("ngdart", &["8.0.0-dev.4"])],
+        // O Sass é o do `dartforge-sass`: o port do dart-sass 1.102.0 e o
+        // modo de compatibilidade com o 1.66.0 (o do ngcomponents
+        // 3.0.0-dev.1). Outra versão do `sass` no lock muda a saída.
+        "sass_builder:sass_builder" => &[
+            ("sass_builder", &["2.2.1"]),
+            ("sass", &["1.102.0", "1.66.0"]),
+        ],
+        "i18n:yamlBasedBuilder" => &[("i18n", &["4.2.1"])],
         _ => &[],
     }
 }

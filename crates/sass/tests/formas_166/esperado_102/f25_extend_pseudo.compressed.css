@@ -1,0 +1,1 @@
+.a:hover::before,.b:hover::before{x:y}.c::after:hover,.d:focus::after:hover{z:w}

@@ -1,0 +1,20 @@
+$x: 10px;
+$y: 2;
+a {
+  b: calc(1px + (foo));
+  c: calc((var(--x)) * 2);
+  d: calc(100% - (#{$x} * $y));
+  e: min(#{$x}, 1px);
+  f: calc( #{$x} );
+  g: sin(1);
+  h: mod(5, 3);
+  i: clamp(1px, #{$x}, 3px);
+  j: calc(1px + calc(#{$x} * 2));
+  k: calc((#{$x}));
+  l: calc(#{$x} + (#{$x}));
+  m: max(1px, (#{$x}) - 1px);
+  n: round(2.5);
+  o: abs(-10%);
+  p: calc(1px + (2px + 3px));
+  q: calc(var(--a) + (var(--b)));
+}

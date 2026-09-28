@@ -1,0 +1,7 @@
+@use "sass:meta";
+a {
+  b: meta.inspect(1px * 1em);
+  c: meta.inspect(math-div(1px, 1s));
+  d: "#{meta.inspect(2px * 3px / 1s)}";
+}
+@function math-div($a, $b) { @return $a / $b; }

@@ -1,0 +1,9 @@
+a {
+  b: invert(#336699);
+  c: invert(#336699, 30%);
+  d: invert(50%);
+  e: grayscale(50%);
+  f: ie-hex-str(rgba(#336699, .5));
+  g: saturate(50%);
+  h: alpha(opacity=50);
+}

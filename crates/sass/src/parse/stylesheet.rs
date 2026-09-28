@@ -1860,7 +1860,8 @@ pub(crate) trait StylesheetParser<'a>: BaseParser + Sized {
         self.expect_char(':')?;
 
         if parse_custom_properties && name.initial_plain().starts_with("--") {
-            let interpolation = self.parse_interpolated_declaration_value(false, false, true)?;
+            let interpolation =
+                self.parse_interpolated_declaration_value_com(false, false, true, false)?;
             let value_span = self.toks_mut().span_from(start);
             let value = AstExpr::String(StringExpr(interpolation, QuoteKind::None), value_span)
                 .span(value_span);
@@ -2098,6 +2099,25 @@ pub(crate) trait StylesheetParser<'a>: BaseParser + Sized {
         // default=true
         allow_colon: bool,
     ) -> SassResult<Interpolation> {
+        let silent_comments = !self.options().v166();
+        self.parse_interpolated_declaration_value_com(
+            allow_semicolon,
+            allow_empty,
+            allow_colon,
+            silent_comments,
+        )
+    }
+
+    /// `_interpolatedDeclarationValue` com o `silentComments` do dart-sass
+    /// 1.77.7+: `//` é comentário silencioso (fora do valor de propriedade
+    /// customizada). O 1.66 o mantinha no texto.
+    fn parse_interpolated_declaration_value_com(
+        &mut self,
+        allow_semicolon: bool,
+        allow_empty: bool,
+        allow_colon: bool,
+        silent_comments: bool,
+    ) -> SassResult<Interpolation> {
         let mut buffer = Interpolation::new();
 
         let mut brackets = Vec::new();
@@ -2121,6 +2141,10 @@ pub(crate) trait StylesheetParser<'a>: BaseParser + Sized {
                     if matches!(self.toks().peek_n(1), Some(Token { kind: '*', .. })) {
                         let comment = self.fallible_raw_text(Self::skip_loud_comment)?;
                         buffer.add_string(comment);
+                    } else if silent_comments
+                        && matches!(self.toks().peek_n(1), Some(Token { kind: '/', .. }))
+                    {
+                        self.skip_silent_comment()?;
                     } else {
                         self.toks_mut().next();
                         buffer.add_char(tok.kind);
@@ -2431,7 +2455,7 @@ pub(crate) trait StylesheetParser<'a>: BaseParser + Sized {
         // Parse custom properties as declarations no matter what.
         if name_buffer.initial_plain().starts_with("--") {
             let value_start = self.toks().cursor();
-            let value = self.parse_interpolated_declaration_value(false, false, true)?;
+            let value = self.parse_interpolated_declaration_value_com(false, false, true, false)?;
             let value_span = self.toks_mut().span_from(value_start);
             self.expect_statement_separator(Some("custom property"))?;
             return Ok(DeclarationOrBuffer::Stmt(AstStmt::Style(AstStyle {

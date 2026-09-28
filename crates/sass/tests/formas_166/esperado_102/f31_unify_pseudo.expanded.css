@@ -1,0 +1,20 @@
+z {
+  a: .a:focus::before:hover;
+  b: .a:focus::before:hover;
+  c: .a:hover::before;
+  d: .a:hover::before;
+  e: .a.b:hover:focus;
+  f: a.b:focus::after:hover;
+  g: :focus::before;
+  h: :focus::before;
+  i: .a.b::before;
+  j: .b.a::before;
+}
+
+.q::before:hover, .r:focus::before:hover {
+  x: y;
+}
+
+.t::before:hover.u, .s:focus::before:hover.u {
+  x: y;
+}

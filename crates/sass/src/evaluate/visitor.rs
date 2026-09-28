@@ -1737,7 +1737,16 @@ impl<'a> Visitor<'a> {
     /// `_copyParentAfterSibling`: se o pai corrente não é o último filho do
     /// avô (uma regra aninhada já saiu depois dele), o que vier agora vai
     /// para uma cópia vazia do pai, posta depois — a ordem do dart-sass.
+    ///
+    /// No modo 1.66 não há cópia: o dart-sass anterior ao 1.92.0 (mudança
+    /// "mixed-decls") põe o nó no próprio pai, antes das regras aninhadas
+    /// que já saíram — `visitDeclaration`, `visitLoudComment`,
+    /// `visitAtRule` sem corpo e `visitImportRule` do 1.66 chamam
+    /// `_parent.addChild` direto.
     fn copy_parent_after_sibling(&mut self) {
+        if self.options.v166() {
+            return;
+        }
         let Some(parent) = self.parent else { return };
         if parent == CssTree::ROOT {
             return;
@@ -2613,7 +2622,16 @@ impl<'a> Visitor<'a> {
                 if func_call.namespace.is_none() && !self.is_plain_css {
                     let lower = name.as_str().to_ascii_lowercase();
                     let args = &func_call.arguments;
+                    // O dart-sass 1.66 só conhece `calc()`, `clamp()`, `min()` e
+                    // `max()` como cálculos (as do CSS Values 4 vieram no
+                    // 1.67): `round()`/`abs()` são as funções do Sass e o resto,
+                    // funções CSS puras.
+                    let v166 = self.options.v166();
                     match lower.as_str() {
+                        "round" | "abs" | "hypot" | "sin" | "cos" | "tan" | "asin" | "acos"
+                        | "atan" | "sqrt" | "exp" | "sign" | "mod" | "rem" | "atan2" | "pow"
+                        | "log" | "calc-size"
+                            if v166 => {}
                         "min" | "max" | "round" | "abs"
                             if args.named.is_empty()
                                 && args.rest.is_none()
@@ -2738,6 +2756,9 @@ impl<'a> Visitor<'a> {
             AstExpr::ParentSelector => self.visit_parent_selector(),
             AstExpr::UnaryOp(op, expr, span) => self.visit_unary_op(op, (*expr).clone(), span)?,
             AstExpr::Variable { name, namespace } => self.env.get_var(name, namespace)?,
+            AstExpr::CalcInterp166(text, _) => {
+                Value::String(self.perform_interpolation(text, false)?, QuoteKind::None)
+            }
             AstExpr::Supports(condition) => Value::String(
                 self.visit_supports_condition((*condition).clone())?,
                 QuoteKind::None,
@@ -2765,7 +2786,7 @@ impl<'a> Visitor<'a> {
                     && l.elems.len() > 1
                     && l.elems.iter().all(|e| Self::is_calculation_safe(&e.node))
             }
-            AstExpr::Number { .. } | AstExpr::Variable { .. } => true,
+            AstExpr::Number { .. } | AstExpr::Variable { .. } | AstExpr::CalcInterp166(..) => true,
             AstExpr::Paren(e) => Self::is_calculation_safe(e),
             AstExpr::String(StringExpr(text, QuoteKind::None), _) => {
                 let t = text.initial_plain().as_bytes();
@@ -2786,6 +2807,33 @@ impl<'a> Visitor<'a> {
         span: Span,
     ) -> SassResult<CalculationArg> {
         Ok(match expr {
+            // `_visitCalculationValue` do 1.66: o parêntese some do texto,
+            // exceto em `(var(...))`; a `CalculationInterpolation` sai crua
+            // (entre parênteses só como operando, abaixo).
+            AstExpr::CalcInterp166(text, _) => {
+                CalculationArg::String(self.perform_interpolation(text, false)?)
+            }
+            AstExpr::Paren(inner) if self.options.v166() => {
+                let e_var = matches!(&*inner, AstExpr::FunctionCall(f)
+                    if f.namespace.is_none() && f.name.as_str().eq_ignore_ascii_case("var"));
+                let result = self.visit_calculation_value((*inner).clone(), in_legacy, span)?;
+                match result {
+                    CalculationArg::String(text) if e_var => {
+                        CalculationArg::String(format!("({text})"))
+                    }
+                    r => r,
+                }
+            }
+            AstExpr::List(ref list) if self.options.v166() && list.elems.len() > 1 => {
+                // A gramática de cálculo do 1.66 não tem listas: erro de análise.
+                return Err((
+                    "dartforge-sass (modo dart-sass 1.66): lista separada por espaço dentro \
+                     de cálculo; o dart-sass 1.66 a recusa (\"+\", \"-\", \"*\", \"/\" ou \")\" \
+                     esperado)",
+                    span,
+                )
+                    .into());
+            }
             AstExpr::Paren(inner) => {
                 let result = self.visit_calculation_value((*inner).clone(), in_legacy, span)?;
                 match result {
@@ -2826,8 +2874,15 @@ impl<'a> Visitor<'a> {
                         )
                     }
                 };
-                let lhs = self.visit_calculation_value(binop.lhs.clone(), in_legacy, span)?;
-                let rhs = self.visit_calculation_value(binop.rhs.clone(), in_legacy, span)?;
+                let mut lhs = self.visit_calculation_value(binop.lhs.clone(), in_legacy, span)?;
+                let mut rhs = self.visit_calculation_value(binop.rhs.clone(), in_legacy, span)?;
+                // `CalculationInterpolation` do 1.66 como operando: entre
+                // parênteses (`parenthesizeLeft`/`parenthesizeRight`).
+                for (no, arg) in [(&binop.lhs, &mut lhs), (&binop.rhs, &mut rhs)] {
+                    if let (AstExpr::CalcInterp166(..), CalculationArg::String(t)) = (no, &*arg) {
+                        *arg = CalculationArg::String(format!("({t})"));
+                    }
+                }
                 SassCalculation::operate_internal(
                     op,
                     lhs,
@@ -3482,7 +3537,11 @@ impl<'a> Visitor<'a> {
             // will throw an error that we want the user to see.
             // dart-sass `visitDeclaration`: propriedade customizada pode ter
             // valor vazio ("per spec").
-            if !value.is_blank() || value.is_empty_list() || name.starts_with("--") {
+            // Até o dart-sass 1.88.0 (modo 1.66), vazia é erro (abaixo).
+            if !value.is_blank()
+                || value.is_empty_list()
+                || (name.starts_with("--") && !self.options.v166())
+            {
                 self.copy_parent_after_sibling();
                 // todo: superfluous clones?
                 self.css_tree.add_stmt(

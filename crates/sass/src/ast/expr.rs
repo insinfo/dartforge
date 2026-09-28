@@ -148,6 +148,11 @@ pub enum AstExpr {
     ParentSelector,
     String(StringExpr, Span),
     Supports(Arc<AstSupportsCondition>),
+    /// A `CalculationInterpolation` do dart-sass 1.66 (modo 1.66): o texto
+    /// cru, com as interpolações, de um argumento de cálculo ou de um grupo
+    /// entre parênteses dentro dele que tem `#{}` no nível de cima
+    /// (`_tryCalculationInterpolation`). Como operando sai entre parênteses.
+    CalcInterp166(Interpolation, Span),
     UnaryOp(UnaryOp, Arc<Self>, Span),
     Variable {
         name: Spanned<Identifier>,

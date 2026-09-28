@@ -722,6 +722,20 @@ impl<'a, 'c, P: StylesheetParser<'a>> ValueParser<'a, 'c, P> {
                 .into());
         }
 
+        // `_calculationValue` do 1.66: `(` com interpolação no nível de cima
+        // é o texto cru (`CalculationInterpolation`).
+        if parser.flags().in_calc_166() {
+            parser.expect_char('(')?;
+            if Self::contains_calculation_interpolation_166(parser)? {
+                let texto = parser.parse_interpolated_declaration_value(false, false, true)?;
+                parser.whitespace()?;
+                parser.expect_char(')')?;
+                let span = parser.toks_mut().span_from(start);
+                return Ok(AstExpr::CalcInterp166(texto, span).span(span));
+            }
+            parser.toks_mut().set_cursor(start);
+        }
+
         let was_in_parentheses = parser.flags().in_parens();
         parser.flags_mut().set(ContextFlags::IN_PARENS, true);
 
@@ -1252,8 +1266,17 @@ impl<'a, 'c, P: StylesheetParser<'a>> ValueParser<'a, 'c, P> {
             }
             Some(Token { kind: '(', .. }) => {
                 if let Some(plain) = plain {
-                    let arguments =
-                        parser.parse_argument_invocation(false, lower.as_deref() == Some("var"))?;
+                    let calc_166 = parser.options().v166()
+                        && matches!(lower.as_deref(), Some("calc" | "clamp" | "min" | "max"));
+                    let dentro = parser.flags().in_calc_166();
+                    parser.flags_mut().set(ContextFlags::IN_CALC_166, calc_166);
+                    let arguments = if calc_166 {
+                        Self::calculation_arguments_166(parser)
+                    } else {
+                        parser.parse_argument_invocation(false, lower.as_deref() == Some("var"))
+                    };
+                    parser.flags_mut().set(ContextFlags::IN_CALC_166, dentro);
+                    let arguments = arguments?;
 
                     Ok(AstExpr::FunctionCall(FunctionCallExpr {
                         namespace: None,
@@ -1263,7 +1286,11 @@ impl<'a, 'c, P: StylesheetParser<'a>> ValueParser<'a, 'c, P> {
                     })
                     .span(parser.toks_mut().span_from(start)))
                 } else {
-                    let arguments = parser.parse_argument_invocation(false, false)?;
+                    let dentro = parser.flags().in_calc_166();
+                    parser.flags_mut().set(ContextFlags::IN_CALC_166, false);
+                    let arguments = parser.parse_argument_invocation(false, false);
+                    parser.flags_mut().set(ContextFlags::IN_CALC_166, dentro);
+                    let arguments = arguments?;
                     Ok(
                         AstExpr::InterpolatedFunction(Arc::new(InterpolatedFunction {
                             name: identifier,
@@ -1280,6 +1307,91 @@ impl<'a, 'c, P: StylesheetParser<'a>> ValueParser<'a, 'c, P> {
             )
             .span(parser.toks_mut().span_from(start))),
         }
+    }
+
+    /// Os argumentos de `calc()`/`clamp()`/`min()`/`max()` no modo 1.66
+    /// (`_calculationArguments`): com interpolação no nível de cima, um só
+    /// argumento com o texto cru; senão, os argumentos comuns (com
+    /// [`ContextFlags::IN_CALC_166`] ligado pelo chamador).
+    fn calculation_arguments_166(parser: &mut P) -> SassResult<ArgumentInvocation> {
+        let start = parser.toks().cursor();
+        parser.expect_char('(')?;
+        if Self::contains_calculation_interpolation_166(parser)? {
+            let arg_start = parser.toks().cursor();
+            let texto = parser.parse_interpolated_declaration_value(false, false, true)?;
+            let arg_span = parser.toks_mut().span_from(arg_start);
+            parser.expect_char(')')?;
+            return Ok(ArgumentInvocation {
+                positional: vec![AstExpr::CalcInterp166(texto, arg_span)],
+                named: Default::default(),
+                rest: None,
+                keyword_rest: None,
+                span: parser.toks_mut().span_from(start),
+                positional_spans: vec![arg_span],
+                named_spans: Default::default(),
+            });
+        }
+        parser.toks_mut().set_cursor(start);
+        parser.parse_argument_invocation(false, false)
+    }
+
+    /// `_containsCalculationInterpolation` do 1.66: o texto até o próximo
+    /// `)`, `]` ou `}` sem par tem `#{` fora de parênteses internos (e fora
+    /// de strings e comentários)? Não consome nada.
+    fn contains_calculation_interpolation_166(parser: &mut P) -> SassResult<bool> {
+        let start = parser.toks().cursor();
+        let mut parens = 0i32;
+        let mut brackets: Vec<char> = Vec::new();
+        let resultado = loop {
+            let Some(next) = parser.toks().peek().map(|t| t.kind) else {
+                break false;
+            };
+            match next {
+                '\\' => {
+                    parser.toks_mut().next();
+                    parser.toks_mut().next();
+                }
+                '/' => {
+                    if !parser.scan_comment()? {
+                        parser.toks_mut().next();
+                    }
+                }
+                '\'' | '"' => {
+                    parser.parse_interpolated_string()?;
+                }
+                '#' => {
+                    if parens == 0 && parser.toks().peek_n(1).is_some_and(|t| t.kind == '{') {
+                        break true;
+                    }
+                    parser.toks_mut().next();
+                }
+                '(' | '{' | '[' => {
+                    if next == '(' {
+                        parens += 1;
+                    }
+                    brackets.push(match next {
+                        '(' => ')',
+                        '{' => '}',
+                        _ => ']',
+                    });
+                    parser.toks_mut().next();
+                }
+                ')' | '}' | ']' => {
+                    if next == ')' {
+                        parens -= 1;
+                    }
+                    if brackets.pop() != Some(next) {
+                        break false;
+                    }
+                    parser.toks_mut().next();
+                }
+                _ => {
+                    parser.toks_mut().next();
+                }
+            }
+        };
+        parser.toks_mut().set_cursor(start);
+        Ok(resultado)
     }
 
     fn namespaced_expression(

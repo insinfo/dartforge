@@ -1,0 +1,17 @@
+@use "sass:selector";
+z {
+  a: selector.unify("::before:hover", ".a:focus");
+  b: selector.unify(".a:focus", "::before:hover");
+  c: selector.unify(":hover::before", ".a");
+  d: selector.unify(".a", ":hover::before");
+  e: selector.unify(".a:hover", ".b:focus");
+  f: selector.unify("a::after:hover", ".b:focus");
+  g: selector.unify(":focus", "::before");
+  h: selector.unify("::before", ":focus");
+  i: selector.unify(".a::before", ".b");
+  j: selector.unify(".b", ".a::before");
+}
+.q::before:hover { x: y; }
+.r:focus { @extend .q; }
+.s:focus { @extend .t; }
+.t::before:hover.u { x: y; }

@@ -1,0 +1,1 @@
+a{b:calc(1px + (foo));c:calc((var(--x))*2);d:calc(100% - 10px*2);e:min(10px,1px);f:calc(10px);g:.8414709848;h:2;i:clamp(1px,10px,3px);j:calc(1px + 10px*2);k:calc((10px));l:calc(10px + (10px));m:max(1px,(10px) - 1px);n:3;o:10%;p:6px;q:calc(var(--a) + (var(--b)))}

@@ -1,0 +1,7 @@
+.a {
+  color: red;
+  .b { x: y; }
+  top: 0;
+  &:hover { z: 1; }
+  bottom: 1px;
+}

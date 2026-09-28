@@ -1,0 +1,8 @@
+a {
+  b: mix(#000, #fff, 12%);
+  c: mix(red, blue);
+  d: mix(rgba(255, 0, 0, .5), #00f, 30%);
+  e: mix(#123456, #abcdef, 100%);
+  f: mix(rgb(1, 2, 3), red, 100%);
+  g: mix(hsl(10, 50%, 50%), #fff, 33.3%);
+}

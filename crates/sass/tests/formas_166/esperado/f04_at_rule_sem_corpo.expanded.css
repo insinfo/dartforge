@@ -1,0 +1,13 @@
+.a {
+  @foo bar;
+  c: d;
+  g: h;
+}
+.a .b {
+  x: y;
+}
+@media (min-width: 10px) {
+  .a {
+    e: f;
+  }
+}

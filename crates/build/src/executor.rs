@@ -36,6 +36,10 @@ pub struct PedidoNativo {
     /// A raiz de cada pacote do `package_config.json` (o `package:` do Sass
     /// resolve por elas, como o `AssetId.resolve` do `build`).
     pub raizes: BTreeMap<String, PathBuf>,
+    /// A versão, no `pubspec.lock`, de cada pacote que o gerador imita
+    /// ([`crate::descritor::imita`]): o `sass_builder` escolhe por ela a
+    /// versão do dart-sass.
+    pub versoes: BTreeMap<String, String>,
 }
 
 /// O que um gerador nativo devolve: conteúdo por caminho natural de saída, e
