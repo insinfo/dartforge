@@ -298,4 +298,27 @@ casos que apareceram no ngcomponents.
   `Contexto::tokens_de_visao`/`Acima::de_visao`; o filho com `viewProviders:`
   num template segue recusado.
 
+## Filho com `viewProviders:`, token genérico e consulta de `onPush` — j138
+
+- **Quem vê o privado** (`_getOrCreateLocalProvider`): só pedidos do tipo
+  `component` e `privateService`; `directive` e `publicService` sobem. O
+  componente que pede um token dos próprios `viewProviders:` sem
+  `@SkipSelf()` acha o apelido dele mesmo (o oficial acusa ciclo).
+- **Nó do filho sem nós filhos** (`createProviderNode`, `childNodeCount ==
+  0`): os privados entram no mesmo `ProviderNode` dos públicos, no
+  `injectorGetInternal` do nó (`MaterialTreeComponent` em
+  `material_tree_dropdown`). Com nós filhos, o nó à parte `[n, n]` segue
+  recusado.
+- **Token pelo tipo** (`_tokenForType`/`_idFor`): a classe, sem argumentos de
+  tipo — `MaterialTreeRoot<T>` pede `MaterialTreeRoot`; o `T` da diretiva
+  genérica não impede a leitura das dependências (`classe_do_tipo`).
+- **Consulta de conteúdo dinâmica com componente `onPush`**
+  (`buildChangeDetectorRef`, `compile_element.dart:390-418`): antes do
+  `return` do fecho, `View.queryChangeDetectorRefs[valor] = compView`, como
+  na consulta de visão.
+- **`lib/builder.dart` do ngcomponents**: o `ngdart` é `is_optional` e o
+  alvo `scss_builder` não é alcançado pela aplicação; o oficial não pede a
+  saída. O gerador a produz (fica pendente no placar, não diferente) —
+  modelar a preguiça exigiria o grafo de módulos do `build_web_compilers`.
+
 ## Pendentes com regra já levantada

@@ -1324,6 +1324,10 @@ type SujasDeConteudo = std::collections::HashMap<usize, Vec<(usize, u8, String, 
 enum ItemDeConteudo {
     Valor {
         inicio: usize,
+        /// O componente `onPush` do nó é o resultado: o `ChangeDetectorRef`
+        /// dele vai para o `View.queryChangeDetectorRefs`
+        /// (`buildChangeDetectorRef`, `compile_element.dart:390-418`).
+        on_push: bool,
     },
     Aninhada {
         estrela: usize,
@@ -1457,13 +1461,12 @@ fn arvore_de_token(
                 || f.metadados.as_deref().is_some_and(|m| fornece(m))
         }) || diretivas_casadas(usadas, x).iter().any(|d| fornece(d));
         if casa {
-            if filho.is_some_and(|f| f.on_push && f.uri_dart == uri && f.classe == classe) {
-                return Err(recusa(
-                    Motivo::LigacaoEmFilho,
-                    "@ContentChildren dinâmico de componente onPush",
-                ));
-            }
-            saida.push(ItemDeConteudo::Valor { inicio: x.inicio });
+            let on_push =
+                filho.is_some_and(|f| f.on_push && f.uri_dart == uri && f.classe == classe);
+            saida.push(ItemDeConteudo::Valor {
+                inicio: x.inicio,
+                on_push,
+            });
         }
         saida.extend(arvore_de_token(&x.filhos, uri, classe, filhos, usadas)?);
     }
@@ -1669,23 +1672,37 @@ fn resolver_conteudo_dinamico(
     consultas: &[ConteudoDinamico],
     ancoras: &Ancoras,
 ) -> String {
+    /// Os valores e os registros de `ChangeDetectorRef` (`view`: o `View`
+    /// qualificado) de uma visão, como [`MontagemDaConsulta::resultados`].
     fn resultados(
         q: &ConteudoDinamico,
         itens: &[ItemDeConteudo],
         receptor: &str,
         classe: &str,
         ancoras: &Ancoras,
-    ) -> Option<Vec<String>> {
-        let mut valores = Vec::new();
+        view: Option<&str>,
+    ) -> Option<(Vec<String>, Vec<String>)> {
+        let (mut valores, mut registros) = (Vec::new(), Vec::new());
+        let ler = |marca: &str| {
+            if receptor == "this" {
+                format!("{MARCA_DE_REF}{marca}{FIM_DE_REF}")
+            } else {
+                format!("{receptor}{MARCA_DE_REF}.{marca}{FIM_DE_REF}")
+            }
+        };
         for i in itens {
             match i {
-                ItemDeConteudo::Valor { inicio } => {
+                ItemDeConteudo::Valor { inicio, on_push } => {
                     let chave = chave_de_ref(&chave_de_no(&q.chave, *inicio), classe);
-                    valores.push(if receptor == "this" {
-                        format!("{MARCA_DE_REF}{chave}{FIM_DE_REF}")
-                    } else {
-                        format!("{receptor}{MARCA_DE_REF}.{chave}{FIM_DE_REF}")
-                    });
+                    let valor = ler(&chave);
+                    if *on_push {
+                        let visao = ler(&format!("{MARCA_DE_DETECTOR}{chave}"));
+                        registros.push(format!(
+                            "{}View.queryChangeDetectorRefs[{valor}] = {visao};",
+                            view?
+                        ));
+                    }
+                    valores.push(valor);
                     // A única para no primeiro resultado estático da visão.
                     if !q.lista {
                         break;
@@ -1696,7 +1713,8 @@ fn resolver_conteudo_dinamico(
                     itens: dentro,
                 } => {
                     let (ancora, classe_w) = ancoras.get(estrela)?;
-                    let vals = resultados(q, dentro, "nestedView", classe_w, ancoras)?;
+                    let (vals, mut linhas) =
+                        resultados(q, dentro, "nestedView", classe_w, ancoras, view)?;
                     let varios = if q.lista {
                         dentro.len() > 1
                             || dentro
@@ -1715,9 +1733,10 @@ fn resolver_conteudo_dinamico(
                     } else {
                         vals.into_iter().next()?
                     };
+                    linhas.push(format!("return {corpo};"));
                     let mapa = format!(
                         "{receptor}.{ancora}.{metodo}(({classe_w} nestedView) {{\n{}\n}})",
-                        indentar(&format!("return {corpo};"), 2)
+                        indentar(&linhas.join("\n"), 2)
                     );
                     valores.push(if itens.len() > 1 {
                         format!("...{mapa}")
@@ -1727,7 +1746,7 @@ fn resolver_conteudo_dinamico(
                 }
             }
         }
-        Some(valores)
+        Some((valores, registros))
     }
     let mut saida = texto.to_string();
     for q in consultas {
@@ -1742,8 +1761,19 @@ fn resolver_conteudo_dinamico(
             if !(resto.is_empty() || resto.starts_with('|')) {
                 break;
             }
-            let queries = resto.strip_prefix("|q");
-            let Some(valores) = resultados(q, &q.arvore, "this", &q.classe, ancoras) else {
+            // `|q<queries>` e `|d<View>`, cada um só quando usado.
+            let mut qualificadores = std::collections::HashMap::new();
+            for parte in resto.split('|').skip(1) {
+                if !parte.is_empty() {
+                    let (k, v) = parte.split_at(1);
+                    qualificadores.insert(k, v);
+                }
+            }
+            let queries = qualificadores.get("q").copied();
+            let view = qualificadores.get("d").copied();
+            let Some((valores, registros)) =
+                resultados(q, &q.arvore, "this", &q.classe, ancoras, view)
+            else {
                 break;
             };
             let valor = if valores.len() == 1 {
@@ -1756,7 +1786,11 @@ fn resolver_conteudo_dinamico(
                 (false, Some(queries)) => format!("{queries}firstOrNull({valor})"),
                 (false, None) => format!("{valor}.first"),
             };
-            let texto = format!("{} = {valor};", q.alvo);
+            let mut texto = registros.join("\n");
+            if !texto.is_empty() {
+                texto.push('\n');
+            }
+            texto += &format!("{} = {valor};", q.alvo);
             let inicio_da_linha = saida[..i].rfind('\n').map_or(0, |k| k + 1);
             let recuo =
                 saida[inicio_da_linha..i].len() - saida[inicio_da_linha..i].trim_start().len();
@@ -3791,7 +3825,7 @@ impl Corpo<'_> {
             for i in itens {
                 if let ItemDeConteudo::Aninhada { estrela, itens } = i {
                     let primeiro = itens.iter().find_map(|x| match x {
-                        ItemDeConteudo::Valor { inicio } => Some(*inicio),
+                        ItemDeConteudo::Valor { inicio, .. } => Some(*inicio),
                         ItemDeConteudo::Aninhada { .. } => None,
                     });
                     if let Some(p) = primeiro {
@@ -3820,11 +3854,18 @@ impl Corpo<'_> {
             .any(|i| matches!(i, ItemDeConteudo::Valor { .. }));
         fn primeiro_aninhado(itens: &[ItemDeConteudo], dentro: bool) -> Option<usize> {
             itens.iter().find_map(|i| match i {
-                ItemDeConteudo::Valor { inicio } => dentro.then_some(*inicio),
+                ItemDeConteudo::Valor { inicio, .. } => dentro.then_some(*inicio),
                 ItemDeConteudo::Aninhada { itens, .. } => primeiro_aninhado(itens, true),
             })
         }
         let posicao = primeiro_aninhado(&arvore, false).unwrap_or(usize::MAX);
+        fn tem_on_push(itens: &[ItemDeConteudo]) -> bool {
+            itens.iter().any(|i| match i {
+                ItemDeConteudo::Valor { on_push, .. } => *on_push,
+                ItemDeConteudo::Aninhada { itens, .. } => tem_on_push(itens),
+            })
+        }
+        let com_on_push = tem_on_push(&arvore);
         let mut consultas = self.conteudo_dinamico.borrow_mut();
         let id = consultas.len();
         consultas.push(ConteudoDinamico {
@@ -3838,6 +3879,9 @@ impl Corpo<'_> {
         let mut marca = format!("{MARCA_DE_CONTEUDO}{id}");
         if !lista && !estatico {
             marca += &format!("|q{}", tardio_q(QUERIES));
+        }
+        if com_on_push {
+            marca += &format!("|d{}", tardio_q(VIEW));
         }
         marca.push(FIM_DE_CONTEUDO);
         drop(consultas);
@@ -4663,24 +4707,30 @@ impl Corpo<'_> {
                 .filter(|l| consome_saida(&extras, &l.nome))
                 .cloned(),
         );
-        // `viewProviders:` do filho: provedores privados do nó (num
-        // `ProviderNode` à parte quando ele tem filhos, `createProviderNode`),
-        // ainda sem caso fora da hospedeira.
-        if filho
-            .metadados
-            .as_ref()
-            .is_some_and(|m| !m.provedores_de_visao.is_empty())
+        // `viewProviders:` do filho: provedores privados do nó. Sem nós
+        // filhos, entram no mesmo `ProviderNode` que os outros
+        // (`createProviderNode`, `childNodeCount == 0`); com eles, num à
+        // parte (`[n, n]`), ainda sem caso.
+        let sem_nos_filhos = e.filhos.iter().all(|x| match x {
+            No::Texto(t) => !self.preservar_espacos && t.trim().is_empty(),
+            No::Comentario(_) => true,
+            _ => false,
+        });
+        if !sem_nos_filhos
+            && filho
+                .metadados
+                .as_ref()
+                .is_some_and(|m| !m.provedores_de_visao.is_empty())
         {
-            return Err(em_filho("filho com viewProviders"));
+            return Err(em_filho("filho com viewProviders e nós filhos"));
         }
         // Os provedores do nó: o componente primeiro, depois as diretivas.
         // `Visibility.all` põe o filho no `injectorGetInternal`: é o
         // caminho resolvido que o escreve.
         let com_provedores = !extras.is_empty()
-            || filho
-                .metadados
-                .as_ref()
-                .is_some_and(|m| !m.provedores.is_empty() || m.visivel);
+            || filho.metadados.as_ref().is_some_and(|m| {
+                !m.provedores.is_empty() || !m.provedores_de_visao.is_empty() || m.visivel
+            });
         let no_resolvido = if com_provedores {
             let meta = filho
                 .metadados
@@ -5068,6 +5118,9 @@ impl Corpo<'_> {
         self.refs_em_ordem
             .push((chave.clone(), format!("this.{campo_inst}")));
         if filho.on_push {
+            // O resultado de consulta de conteúdo dinâmica pela posição.
+            self.detectores
+                .insert(chave_de_no(&chave, e.inicio), campo_vista.clone());
             self.detectores_em_ordem
                 .push((chave.clone(), campo_vista.clone()));
             self.detectores.insert(chave, campo_vista.clone());
@@ -13106,11 +13159,7 @@ fn construcao_do_componente(
         if p.outra_anotacao || p.proprio || p.nomeado {
             return None; // `@Inject(...)`, `@Self`, nomeado: ainda não
         }
-        // O token é o tipo sem o `?` (`@Optional() X? x`).
-        let tipo = p.tipo.as_deref()?.trim_end_matches('?');
-        if tipo.contains('<') {
-            return None; // token genérico ainda não
-        }
+        let tipo = tipo_do_token(p.tipo.as_deref()?);
         let simples = tipo.rsplit('.').next()?;
         let uri = resolvedor?.uri_do_tipo(local.caminho, tipo)?;
         // Outro embutido do elemento hospedeiro (`ElementRef`,
@@ -13222,6 +13271,17 @@ fn e_elemento(tipo: Option<&str>) -> bool {
     )
 }
 
+/// O token de um parâmetro pelo tipo escrito (`_tokenForType`/`_idFor`): a
+/// classe, sem o `?` (`@Optional() X? x`) e sem os argumentos de tipo
+/// (`MaterialTreeRoot<T>` pede `MaterialTreeRoot`).
+pub(crate) fn tipo_do_token(tipo: &str) -> &str {
+    tipo.split('<')
+        .next()
+        .unwrap_or(tipo)
+        .trim()
+        .trim_end_matches('?')
+}
+
 /// O que impede a construção, se algo impede. A tabela de imports não é
 /// tocada aqui — isto só olha.
 fn falta_para_construir(
@@ -13254,13 +13314,7 @@ fn falta_para_construir(
                 "parâmetro sem tipo no construtor",
             ));
         };
-        if tipo.contains('<') {
-            return Some(recusa(
-                Motivo::InjecaoGenerica,
-                "token genérico no construtor",
-            ));
-        }
-        let tipo = tipo.trim_end_matches('?');
+        let tipo = tipo_do_token(tipo);
         if !resolvedor.is_some_and(|r| r.uri_do_tipo(local.caminho, tipo).is_some()) {
             return Some(recusa(
                 Motivo::InjecaoNaoResolvida,

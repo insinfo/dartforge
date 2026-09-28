@@ -352,3 +352,4 @@ export 'src/j134_hostbinding_estatico_de_diretiva.dart';
 export 'src/j135_propriedade_do_elemento_do_filho.dart';
 export 'src/j136_construtor_anotado.dart';
 export 'src/j137_view_providers.dart';
+export 'src/j138_filho_com_view_providers.dart';

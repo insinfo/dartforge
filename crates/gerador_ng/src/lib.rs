@@ -1065,10 +1065,7 @@ fn parametros_dos_metadados(
         return Err("parâmetros do filho sem os metadados".into());
     }
     let mut saida = Vec::new();
-    for (p, d) in textuais.iter().zip(&meta.dependencias) {
-        if !p.outra_anotacao && p.tipo.as_deref().is_some_and(|t| t.contains('<')) {
-            return Err("token genérico no construtor do filho".into());
-        }
+    for d in &meta.dependencias {
         if let Some(nome) = &d.atributo {
             saida.push(visao::Injetado::Atributo(nome.clone()));
             continue;
@@ -1142,10 +1139,7 @@ fn injetado(
     if p.outra_anotacao {
         return Err("@Inject/@Attribute no construtor do filho");
     }
-    if tipo.contains('<') {
-        return Err("token genérico no construtor do filho");
-    }
-    let tipo = tipo.trim_end_matches('?');
+    let tipo = visao::tipo_do_token(tipo);
     let uri = match (caminho, resolvedor) {
         (Some(c), Some(r)) => r.uri_do_tipo(c, tipo),
         _ => None,

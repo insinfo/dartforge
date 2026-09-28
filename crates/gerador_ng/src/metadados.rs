@@ -1293,11 +1293,11 @@ impl<'r, 'a> Leitor<'r, 'a> {
                     None => None,
                 }
                 .ok_or("parâmetro sem tipo no construtor da diretiva")?;
-                let tipo = self
-                    .tipo(t.2, t.0, t.1)
-                    .ok_or("tipo não resolvido no construtor da diretiva")?;
-                let c = tipo
-                    .classe
+                // O token é a classe (`_idFor`): os argumentos de tipo não
+                // entram, e um `T` da diretiva genérica não impede.
+                let c = self
+                    .classe_do_tipo(t.2, t.0, t.1)
+                    .ok_or("tipo não resolvido no construtor da diretiva")?
                     .ok_or("parâmetro dynamic no construtor da diretiva")?;
                 if c.uri == "dart:html" && (c.nome == "HtmlElement" || c.nome == "Element") {
                     Token::Elemento
@@ -1394,6 +1394,30 @@ impl<'r, 'a> Leitor<'r, 'a> {
     }
 
     /// Resolve um tipo escrito no escopo de `lib`.
+    /// A classe de um tipo escrito, sem olhar os argumentos; `Some(None)`
+    /// para `dynamic`.
+    fn classe_do_tipo(
+        &self,
+        lib: LibraryId,
+        t: ast::TypeId,
+        arvore: &ast::Ast,
+    ) -> Option<Option<Classe>> {
+        let ast::TypeKind::Named { name, .. } = &arvore.ty(t).kind else {
+            return None;
+        };
+        let partes: Vec<&str> = name.iter().map(|n| self.nome(n)).collect();
+        let el = match partes.as_slice() {
+            ["dynamic"] => return Some(None),
+            [n] => self.r.elemento_em(lib, None, n),
+            [p, n] => self.r.elemento_em(lib, Some(p), n),
+            _ => None,
+        }?;
+        let Element::Class(id) = el else {
+            return None;
+        };
+        Some(Some(self.classe(id)))
+    }
+
     fn tipo(&self, lib: LibraryId, t: ast::TypeId, arvore: &ast::Ast) -> Option<Tipo> {
         let ast::TypeKind::Named { name, args } = &arvore.ty(t).kind else {
             return None;

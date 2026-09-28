@@ -529,8 +529,8 @@ struct Resolvido {
     eager: bool,
     visivel: bool,
     tipo: Option<TipoDeToken>,
-    /// Veio de `viewProviders:` (`ProviderAstType.privateService`): só um
-    /// outro provedor privado do nó o acha localmente
+    /// Veio de `viewProviders:` (`ProviderAstType.privateService`): só o
+    /// componente e outro provedor privado do nó o acham localmente
     /// (`_getOrCreateLocalProvider`); diretivas e serviços públicos, do nó
     /// ou de baixo, sobem para o injetor.
     privado: bool,
@@ -703,11 +703,10 @@ fn resolver_com(
         .chain((0..casadas.len()).filter(|k| Some(*k) != componente));
     for k in em_ordem {
         let d = &casadas[k];
-        // `viewProviders:` só de componente, e só escritos na hospedeira: no
-        // nó de quem usa o filho eles ganham um `ProviderNode` à parte
-        // quando o nó tem filhos (`createProviderNode`), ainda sem caso.
-        if !d.provedores_de_visao.is_empty() && !hospedeira {
-            return Err("filho com viewProviders");
+        // `viewProviders:` só de componente (o nó de um filho com nós
+        // filhos, que os poria num `ProviderNode` à parte, é recusado antes).
+        if !d.provedores_de_visao.is_empty() && !completa(k) {
+            return Err("viewProviders de diretiva");
         }
         let publicos = d.provedores.iter().map(|p| (p, false));
         let privados = d.provedores_de_visao.iter().map(|p| (p, true));
@@ -764,6 +763,10 @@ fn resolver_com(
     fn local(dep: &Dependencia) -> bool {
         !dep.pular && dep.atributo.is_none() && !dep.token.embutido()
     }
+    /// Quem pede como `component` ou `privateService` acha os privados.
+    fn ve_privados(r: &Resolvido) -> bool {
+        r.privado || matches!(r.fontes.as_slice(), [Fonte::Diretiva(d)] if d.e_componente)
+    }
     fn criar(
         todos: &[Resolvido],
         i: usize,
@@ -778,7 +781,7 @@ fn resolver_com(
             return Err("dependência cíclica entre diretivas");
         }
         vistos.push(i);
-        let privado = todos[i].privado;
+        let privado = ve_privados(&todos[i]);
         let pedir = |t: &Token, ordem: &mut Vec<usize>, vistos: &mut Vec<usize>| match todos
             .iter()
             .position(|r| r.token == *t && (privado || !r.privado))
@@ -899,7 +902,7 @@ fn resolver_com(
         };
         let campo_de = |t: &Token| -> Option<String> {
             // Um provedor privado só é visto por outro privado.
-            if !r.privado && todos.iter().any(|x| x.privado && x.token == *t) {
+            if !ve_privados(r) && todos.iter().any(|x| x.privado && x.token == *t) {
                 return None;
             }
             let t = apelidos
