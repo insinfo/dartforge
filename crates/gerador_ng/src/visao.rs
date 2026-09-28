@@ -874,6 +874,7 @@ fn formas_contra_o_template(
     nos: &[No],
     resolvedor: Option<&dyn Resolucao>,
     filhos: &std::collections::HashMap<String, Filho>,
+    usadas: &[Usada],
 ) -> Vec<Recusa> {
     let mut fora = Vec::new();
     let moldes = referencias_de_moldes(nos);
@@ -908,6 +909,35 @@ fn formas_contra_o_template(
                 continue;
             };
             if consulta_em_embutida(nos, consulta, filhos, local, resolvedor) {
+                continue;
+            }
+            // `@ViewChild(Diretiva)`: o token dela está no
+            // `_resolvedProvidersArray` do elemento que ela casa, e o valor é
+            // o campo dela (`_providers.get(tipo).build()`, com o
+            // `.instance` de uma `XNgCd`), atribuído no fim do `build()`
+            // quando o resultado está na própria visão (caso j117).
+            if let Some(u) = usadas
+                .iter()
+                .find(|u| u.filho.is_none() && u.uri == uri && u.classe == consulta.referencia)
+            {
+                let casa = |e: &crate::html::Elemento| {
+                    !filhos.contains_key(&e.nome)
+                        && crate::seletor::casa_algum(
+                            &u.seletores,
+                            &crate::seletor::Elemento::do_template(e),
+                        )
+                };
+                onde_casa(nos, &casa, filhos, false, &mut lugares);
+                let na_visao = !lugares.is_empty()
+                    && lugares
+                        .iter()
+                        .all(|l| matches!(l, Lugar::Raiz | Lugar::Projetado));
+                if consulta.lista || !na_visao || u.diretiva.is_none() {
+                    fora.push(recusa(
+                        Motivo::ViewChildEmFilho,
+                        "@ViewChild(Diretiva) fora da forma estática",
+                    ));
+                }
                 continue;
             }
             let e_filho = |e: &crate::html::Elemento| {
@@ -6905,6 +6935,20 @@ impl Corpo<'_> {
                 alvo.clone()
             });
         }
+        // O resultado de um `@ViewChild(Diretiva)` ([`chave_de_tipo`]): o
+        // campo de cada diretiva do nó, antes dos `#ref` (a ordem do
+        // `_resolvedProvidersArray` no `beforeChildren`, caso j117).
+        if let Some(res) = &resolvido {
+            for (d, campo) in &res.diretivas {
+                if d.e_componente {
+                    continue;
+                }
+                let chave = chave_de_tipo(&d.uri, &d.classe);
+                let leitura = format!("this.{campo}");
+                self.refs.insert(chave.clone(), leitura.clone());
+                self.refs_em_ordem.push((chave, leitura));
+            }
+        }
         // `renderNode.toReadExpr()`: o local ou o campo, como o
         // nó tiver sido declarado.
         for r in &e.referencias {
@@ -10140,7 +10184,7 @@ fn gerar_componente_com(
     for r in &c.nao_entendidos {
         anotar(coleta, r.clone())?;
     }
-    for r in formas_contra_o_template(c, local, nos, resolvedor, filhos) {
+    for r in formas_contra_o_template(c, local, nos, resolvedor, filhos, usadas) {
         anotar(coleta, r)?;
     }
     // `pipes:` sem uso não muda a visão (caso b19).

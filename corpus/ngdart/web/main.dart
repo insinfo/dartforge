@@ -301,6 +301,7 @@ import 'package:corpus_ngdart/src/j113_interpolacao_n.template.dart' as j113;
 import 'package:corpus_ngdart/src/j114_propriedade_do_esquema.template.dart' as j114;
 import 'package:corpus_ngdart/src/j115_preserva_espacos.template.dart' as j115;
 import 'package:corpus_ngdart/src/j116_pedido_do_conteudo.template.dart' as j116;
+import 'package:corpus_ngdart/src/j117_view_child_diretiva.template.dart' as j117;
 
 void main() {
   print([
@@ -607,5 +608,6 @@ void main() {
     j115.J115PreservaNgFactory,
     j115.J115MinimizaNgFactory,
     j116.J116UsaNgFactory,
+    j117.J117ViewChildDiretivaNgFactory,
   ].length);
 }

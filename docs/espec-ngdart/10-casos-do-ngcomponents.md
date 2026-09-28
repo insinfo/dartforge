@@ -98,6 +98,16 @@ casos que apareceram no ngcomponents.
   reordenamento posterior (`ansiosos_pelo_conteudo`), que mantinha os nomes
   antigos, saiu.
 
+## `@ViewChild(Diretiva)` — j117
+
+- **Regra:** o token da diretiva está no `_resolvedProvidersArray` do elemento;
+  `_getQueriesFor` acha a consulta de visão, e o valor é
+  `_providers.get(tipo).build()` (o campo; `.instance` numa `XNgCd`), atribuído
+  no fim do `build()` quando a consulta é estática (`compile_element.dart:191-278`).
+- **Porte:** `formas_contra_o_template` aceita a diretiva de `usadas` casada por
+  seletor em elemento da própria visão; o nó registra cada diretiva sob a
+  `chave_de_tipo`, antes dos `#ref`.
+
 ## Pendentes com regra já levantada
 
 - **Local de `*` ancestral / tipo do local de `*ngFor`:** o tipo do `$implicit`
@@ -112,9 +122,6 @@ casos que apareceram no ngcomponents.
   (`detectChangesInNestedViews`/`destroyNestedViews`) e desloca o
   `TemplateRef` para o índice 8. O valor é `this._appEl_n`.
   `@changeDetectionLink` gera `detectChangesInCheckAlwaysViews`.
-- **`@ViewChild(Diretiva)`:** o valor é o campo da diretiva
-  (`_providers.get(tipo).build()`), atribuído no fim do `build()` quando é
-  estático.
 - **`@ContentChild` de filho com resultado em `*`:** cria
   `_query_<Sel>_<nó>_<i>_isDirty`, escreve a atualização no
   `if (!debugThrowIfChanged)` antes das consultas de visão e põe as linhas

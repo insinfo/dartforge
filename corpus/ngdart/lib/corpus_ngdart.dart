@@ -331,3 +331,4 @@ export 'src/j113_interpolacao_n.dart';
 export 'src/j114_propriedade_do_esquema.dart';
 export 'src/j115_preserva_espacos.dart';
 export 'src/j116_pedido_do_conteudo.dart';
+export 'src/j117_view_child_diretiva.dart';
