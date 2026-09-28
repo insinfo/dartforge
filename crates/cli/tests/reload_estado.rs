@@ -1,9 +1,46 @@
 #![cfg(feature = "jit")]
 
-use std::io::{BufRead, BufReader, Read};
-use std::process::{Command, Stdio};
+use std::io::{BufRead, BufReader};
+use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+/// Encerra a CLI e devolve o stderr dela. Com `esperado`, antes espera a
+/// linha que o contém (até 60 s): a CLI escreve o diagnóstico da geração
+/// logo depois de publicá-la, e o programa, que já roda o código novo, pode
+/// escrever a saída nova antes — matar a CLI ao ver a saída perderia o
+/// diagnóstico.
+fn encerrar(child: &mut Child, esperado: Option<&str>) -> String {
+    let stderr = child.stderr.take().expect("stderr");
+    let (tx, rx) = mpsc::channel::<String>();
+    let leitor = std::thread::spawn(move || {
+        for linha in BufReader::new(stderr).lines() {
+            let Ok(linha) = linha else { break };
+            if tx.send(linha).is_err() {
+                break;
+            }
+        }
+    });
+    let mut texto = String::new();
+    if let Some(esperado) = esperado {
+        let prazo = Instant::now() + Duration::from_secs(60);
+        while let Ok(linha) = rx.recv_timeout(prazo.saturating_duration_since(Instant::now())) {
+            texto.push_str(&linha);
+            texto.push('\n');
+            if linha.contains(esperado) {
+                break;
+            }
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    for linha in rx {
+        texto.push_str(&linha);
+        texto.push('\n');
+    }
+    leitor.join().expect("leitor do stderr");
+    texto
+}
 
 /// Grava a fixture como um editor grava: conteúdo novo no mesmo arquivo, com
 /// o mtime de agora. (`fs::copy` no Windows — `CopyFileW` — preserva o mtime
@@ -71,11 +108,8 @@ fn verificar_recarga(com_sdk_da_fonte: bool) {
     } else {
         Err(mpsc::RecvTimeoutError::Disconnected)
     };
-    let _ = child.kill();
-    let _ = child.wait();
+    let stderr = encerrar(&mut child, Some("geração 2: estado preservado"));
     reader.join().expect("leitor");
-    let mut stderr = String::new();
-    child.stderr.take().expect("stderr").read_to_string(&mut stderr).expect("diagnósticos");
     std::fs::remove_dir_all(&dir).expect("limpeza da fixture");
 
     assert_eq!(first.as_deref(), Ok("1"), "{stderr}");
@@ -129,11 +163,8 @@ fn cli_recarrega_o_programa_em_execucao() {
             break;
         }
     }
-    let _ = child.kill();
-    let _ = child.wait();
+    let stderr = encerrar(&mut child, Some("geração 2: publicada no programa em execução"));
     reader.join().expect("leitor");
-    let mut stderr = String::new();
-    child.stderr.take().expect("stderr").read_to_string(&mut stderr).expect("diagnósticos");
     std::fs::remove_dir_all(&dir).expect("limpeza da fixture");
 
     let (Some(v1), Some(v2)) = (ultimo_v1, primeiro_v2) else {
@@ -193,11 +224,8 @@ fn cli_recarrega_com_classe_inserida() {
             _ => {}
         }
     }
-    let _ = child.kill();
-    let _ = child.wait();
+    let stderr = encerrar(&mut child, Some("geração 2: publicada no programa em execução"));
     reader.join().expect("leitor");
-    let mut stderr = String::new();
-    child.stderr.take().expect("stderr").read_to_string(&mut stderr).expect("diagnósticos");
     std::fs::remove_dir_all(&dir).expect("limpeza da fixture");
 
     let (Some(v1), Some(v2)) = (ultimo_v1, primeira_v2) else {
@@ -255,11 +283,8 @@ fn cli_classe_que_some_e_volta_mantem_o_id() {
             _ => {}
         }
     }
-    let _ = child.kill();
-    let _ = child.wait();
+    let stderr = encerrar(&mut child, None);
     reader.join().expect("leitor");
-    let mut stderr = String::new();
-    child.stderr.take().expect("stderr").read_to_string(&mut stderr).expect("diagnósticos");
     std::fs::remove_dir_all(&dir).expect("limpeza da fixture");
 
     let v2 = primeira_v2.unwrap_or_else(|| panic!("sem a v2 na saída: {linhas:?}\n{stderr}"));
@@ -315,11 +340,8 @@ fn cli_recarrega_com_campos_mudados() {
             _ => {}
         }
     }
-    let _ = child.kill();
-    let _ = child.wait();
+    let stderr = encerrar(&mut child, Some("geração 2: publicada no programa em execução"));
     reader.join().expect("leitor");
-    let mut stderr = String::new();
-    child.stderr.take().expect("stderr").read_to_string(&mut stderr).expect("diagnósticos");
     std::fs::remove_dir_all(&dir).expect("limpeza da fixture");
 
     let (Some(v1), Some(v2)) = (ultimo_v1, primeira_v2) else {
@@ -378,11 +400,8 @@ fn cli_recarrega_com_assinatura_mudada() {
             _ => {}
         }
     }
-    let _ = child.kill();
-    let _ = child.wait();
+    let stderr = encerrar(&mut child, Some("geração 2: publicada no programa em execução"));
     reader.join().expect("leitor");
-    let mut stderr = String::new();
-    child.stderr.take().expect("stderr").read_to_string(&mut stderr).expect("diagnósticos");
     std::fs::remove_dir_all(&dir).expect("limpeza da fixture");
 
     let (Some(v1), Some(v2)) = (ultimo_v1, primeira_v2) else {
