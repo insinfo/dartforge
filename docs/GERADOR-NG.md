@@ -454,9 +454,16 @@ evento entra na classe depois dos elementos ligados na detecção (o
 Filho que injeta um provedor que ele mesmo declara (`providers:
 [ClassProvider(X)]` e `X` no construtor): o `_getOrCreateLocalProvider`
 cria a dependência antes, e o filho fica com o índice seguinte — casos
-i77, j61. Corpus: 292 conferidos. limitless_ui/example (Linux,
-`build --comparar`): **924 iguais / 26 pendentes / 0 diferentes** —
-`.template.dart` 508/24/0, `.css` e `.css.map` do Sass 102/102 cada,
+i77, j61. Local de `*ngFor` sobre coleção de tipo genérico aninhado
+(`List<List<X>>`, `List<Map<K, V>>`): o tipo do elemento vai inteiro e cada
+nome dele é qualificado pelo import que o declara (`dart:core` sem
+prefixo, mas com o import alocado) — caso j62. `template:` na anotação em
+strings adjacentes, com escape ou cru: uma string só conta o `REF` do
+conteúdo (`contentsOffset`), adjacentes contam do começo do nó, sempre com
+as posições do valor decodificado — caso j63. Corpus: 294 conferidos.
+limitless_ui/example (Linux, `build --comparar`, que agora lista cada
+pendente com o motivo): **926 iguais / 24 pendentes / 0 diferentes** —
+`.template.dart` 510/22/0, `.css` e `.css.map` do Sass 102/102 cada,
 `.css.dart` e `.css.shim.dart` 104 cada.
 
 ### Diretivas estruturais
@@ -564,7 +571,7 @@ i77, j61. Corpus: 292 conferidos. limitless_ui/example (Linux,
 | `none` com folha Sass, folha ou `styles:` com `@import`, item de `styleUrls`/`styles` que não é texto literal, `encapsulation:` que não é `ViewEncapsulation.x` | recusado | — |
 | vários `@Component` no mesmo arquivo (o que usa antes ou depois do usado) | gerado (uma tabela de imports, trechos na ordem do fonte, filho ao lado sem import nem prefixo) | i24, i79 |
 | vários `@Component` no arquivo com folha de estilo | recusado | — |
-| ligação em `template:` escrito na anotação | gerado quando o literal é string simples (`REF` com o `asset:` do `.dart` e as posições dele, em UTF-16); com escape, `$`, `r'..'` ou aspas triplas, recusado | i24, i79 |
+| ligação em `template:` escrito na anotação | gerado (`REF` com o `asset:` do `.dart`, em UTF-16: do conteúdo numa string só — simples, crua, com escape ou de aspas triplas —, do começo do nó em strings adjacentes; as posições são as do valor); string com interpolação não é constante e não chega aqui | i24, i79, j53, j63 |
 
 ### O que falta, pela frequência
 

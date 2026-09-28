@@ -250,6 +250,8 @@ import 'package:corpus_ngdart/src/j58_atributo_interpolado_no_filho.template.dar
 import 'package:corpus_ngdart/src/j59_interpolado_em_diretiva.template.dart' as j59;
 import 'package:corpus_ngdart/src/j60_ref_so_em_evento.template.dart' as j60;
 import 'package:corpus_ngdart/src/j61_provedor_do_proprio_no.template.dart' as j61;
+import 'package:corpus_ngdart/src/j62_ngfor_generico.template.dart' as j62;
+import 'package:corpus_ngdart/src/j63_template_concatenado.template.dart' as j63;
 
 void main() {
   print([
@@ -504,5 +506,7 @@ void main() {
     j59.J59InterpoladoEmDiretivaNgFactory,
     j60.J60RefSoEmEventoNgFactory,
     j61.J61ProvedorDoProprioNoNgFactory,
+    j62.J62NgforGenericoNgFactory,
+    j63.J63TemplateConcatenadoNgFactory,
   ].length);
 }

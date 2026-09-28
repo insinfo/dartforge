@@ -220,6 +220,10 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
         for (m, n) in motivos.iter().take(15) {
             println!("  {n:>6}× {m}");
         }
+        // Cada pendente com o motivo dele, para achar o arquivo de uma recusa.
+        for (id, m) in p.pendentes.iter().take(60) {
+            println!("  pendente: {} ({m})", id.texto());
+        }
         if !p.diferentes.is_empty() {
             for (id, m) in p.diferentes.iter().take(20) {
                 eprintln!("diferente: {} ({m})", id.texto());

@@ -285,46 +285,63 @@ fn texto_do_argumento(arvore: &ast::Ast, id: ast::ExprId) -> Option<String> {
     }
 }
 
-/// Onde começa, no fonte, o conteúdo de um `template:` escrito como string
-/// simples (`'..'` ou `".."`, sem `r`, aspas triplas, escape ou `$`): o
-/// deslocamento em unidades UTF-16, como o analyzer conta.
-fn deslocamento_do_template(
-    arvore: &ast::Ast,
-    fonte: &str,
-    id: ast::ExprId,
-    valor: &str,
-) -> Option<usize> {
+/// Onde começa, no fonte, o conteúdo de um `template:` (em unidades UTF-16,
+/// como o analyzer conta): as posições do `REF` são as do valor da string
+/// somadas a ele. Uma string só (simples, crua ou de aspas triplas, com
+/// escapes ou não) conta do conteúdo (`contentsOffset`); strings adjacentes
+/// contam do começo do nó (`offset`) — casos j53 e j63.
+fn deslocamento_do_template(arvore: &ast::Ast, fonte: &str, id: ast::ExprId) -> Option<usize> {
     let span = arvore.expr(id).span;
     let bruto = fonte.get(span.start..span.end)?;
-    // Aspas triplas: a primeira linha só de brancos, com a quebra, não entra
-    // no valor (regra do Dart para string de várias linhas); o conteúdo
-    // começa depois dela (caso j53).
-    let (inicio, dentro) = match ["'''", "\"\"\""].into_iter().find(|q| bruto.starts_with(q)) {
-        Some(q) => {
-            let d = bruto.strip_prefix(q)?.strip_suffix(q)?;
-            let sem_brancos = d.trim_start_matches([' ', '\t']);
-            let pular = match sem_brancos
-                .strip_prefix("\r\n")
-                .or_else(|| sem_brancos.strip_prefix('\n'))
-            {
-                Some(resto) => d.len() - resto.len(),
-                None => 0,
-            };
-            (q.len() + pular, &d[pular..])
-        }
-        None => {
-            let aspa = bruto.chars().next().filter(|c| *c == '\'' || *c == '"')?;
-            let d = bruto.strip_prefix(aspa)?.strip_suffix(aspa)?;
-            if d.starts_with(aspa) {
-                return None;
-            }
-            (1, d)
-        }
+    let (inicio, fim) = conteudo_do_literal(bruto)?;
+    let deslocamento = if fim == bruto.len() {
+        span.start + inicio
+    } else {
+        span.start
     };
-    if dentro.contains(['\\', '$']) || dentro != valor {
-        return None;
+    Some(fonte.get(..deslocamento)?.encode_utf16().count())
+}
+
+/// O primeiro literal de string de `bruto`: onde começa o conteúdo (depois
+/// do `r` e das aspas; nas aspas triplas, depois da primeira linha se ela
+/// só tem brancos — regra do Dart para string de várias linhas, caso j53) e
+/// onde o literal termina.
+fn conteudo_do_literal(bruto: &str) -> Option<(usize, usize)> {
+    let cru = bruto.starts_with(['r', 'R']);
+    let depois_do_r = usize::from(cru);
+    let resto = &bruto[depois_do_r..];
+    let aspa = ["'''", "\"\"\"", "'", "\""]
+        .into_iter()
+        .find(|q| resto.starts_with(q))?;
+    let mut inicio = depois_do_r + aspa.len();
+    let corpo = &bruto[inicio..];
+    // O fim: a próxima aspa igual que não esteja escapada (na crua, a
+    // barra não escapa nada).
+    let mut i = 0;
+    let bytes = corpo.as_bytes();
+    let fim = loop {
+        if i >= corpo.len() {
+            return None;
+        }
+        if !cru && bytes[i] == b'\\' {
+            i += 2;
+            continue;
+        }
+        if bytes[i..].starts_with(aspa.as_bytes()) {
+            break inicio + i + aspa.len();
+        }
+        i += 1;
+    };
+    if aspa.len() == 3 {
+        let sem_brancos = corpo.trim_start_matches([' ', '\t']);
+        if let Some(depois) = sem_brancos
+            .strip_prefix("\r\n")
+            .or_else(|| sem_brancos.strip_prefix('\n'))
+        {
+            inicio += corpo.len() - depois.len();
+        }
     }
-    Some(fonte.get(..span.start + inicio)?.encode_utf16().count())
+    Some((inicio, fim))
 }
 
 /// Lista de strings literais (`styleUrls: ['a.css', 'b.css']`).
@@ -551,7 +568,7 @@ fn ler(
                     c.deslocamento_do_template = c
                         .template
                         .as_deref()
-                        .and_then(|t| deslocamento_do_template(arvore, fonte, a.value, t));
+                        .and_then(|_| deslocamento_do_template(arvore, fonte, a.value));
                 }
                 "templateUrl" => c.template_url = texto_do_argumento(arvore, a.value),
                 "styleUrls" | "styles" => {

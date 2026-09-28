@@ -275,3 +275,5 @@ export 'src/j58_atributo_interpolado_no_filho.dart';
 export 'src/j59_interpolado_em_diretiva.dart';
 export 'src/j60_ref_so_em_evento.dart';
 export 'src/j61_provedor_do_proprio_no.dart';
+export 'src/j62_ngfor_generico.dart';
+export 'src/j63_template_concatenado.dart';

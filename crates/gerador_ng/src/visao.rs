@@ -7807,13 +7807,7 @@ fn declaracao_de_local(
         let sem_import = || recusa(Motivo::Ligacao, "tipo do local de `*ngFor` sem import");
         let (r, arquivo) = ctx.tipos.ok_or_else(sem_import)?;
         let escopo = l.escopo.as_deref().unwrap_or(arquivo);
-        let caminho = r
-            .uri_do_tipo(escopo, &l.tipo)
-            .and_then(|uri| asset_de_uri(&uri, "", Path::new("")))
-            .and_then(|alvo| caminho_do_import(&ctx.asset, &alvo))
-            .ok_or_else(sem_import)?;
-        let simples = l.tipo.rsplit('.').next().unwrap_or(&l.tipo);
-        format!("{}{simples}", tardio_q(&caminho))
+        tipo_qualificado(&l.tipo, escopo, r, &ctx.asset).ok_or_else(sem_import)?
     };
     Ok(format!(
         "final {d} = {util}.unsafeCast<{tipo}>({locals}[{chave}]);"
@@ -8134,15 +8128,74 @@ impl Estrutural {
 fn tipo_do_elemento(tipo: &str) -> Option<String> {
     let t = tipo.trim().trim_end_matches('?');
     let abre = t.find('<')?;
-    let base = &t[..abre];
+    let base = t[..abre].trim();
     if !matches!(base, "List" | "Iterable" | "Set") {
         return None;
     }
     let dentro = t[abre + 1..].strip_suffix('>')?;
-    if dentro.contains(',') || dentro.contains('<') {
-        return None;
+    // Um só argumento no nível de cima; os aninhados (`List<List<X>>`,
+    // `List<Map<K, V>>`) vão inteiros.
+    let mut nivel = 0i32;
+    for c in dentro.chars() {
+        match c {
+            '<' => nivel += 1,
+            '>' => nivel -= 1,
+            ',' if nivel == 0 => return None,
+            _ => {}
+        }
+        if nivel < 0 {
+            return None;
+        }
     }
-    Some(dentro.trim().to_string())
+    (nivel == 0).then(|| dentro.trim().to_string())
+}
+
+/// O texto de um tipo com cada nome qualificado pelo import da biblioteca
+/// que o declara, como o oficial escreve um `DartType` (`List<import2.X>`:
+/// o `dart:core` sem prefixo, mas com o import alocado). Os imports ficam
+/// marcados ([`tardio_q`]). `None` para o que não é tipo nomeado (função,
+/// registro) ou nome que não se acha no `escopo`.
+fn tipo_qualificado(texto: &str, escopo: &Path, r: &dyn Resolucao, asset: &str) -> Option<String> {
+    let mut saida = String::new();
+    let mut chars = texto.trim().chars().peekable();
+    while let Some(&c) = chars.peek() {
+        if c.is_alphanumeric() || c == '_' || c == '$' {
+            let mut nome = String::new();
+            while let Some(&c) = chars.peek() {
+                if c.is_alphanumeric() || matches!(c, '_' | '$' | '.') {
+                    nome.push(c);
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+            if matches!(nome.as_str(), "dynamic" | "void") {
+                saida.push_str(&nome);
+                continue;
+            }
+            if nome == "Function" {
+                return None;
+            }
+            let uri = r.uri_do_tipo(escopo, &nome)?;
+            let simples = nome.rsplit('.').next().unwrap_or(&nome);
+            let caminho = if uri.starts_with("dart:") {
+                uri
+            } else {
+                caminho_do_import(asset, &asset_de_uri(&uri, "", Path::new(""))?)?
+            };
+            saida.push_str(&tardio_q(&caminho));
+            saida.push_str(simples);
+            continue;
+        }
+        chars.next();
+        match c {
+            '<' | '>' | '?' => saida.push(c),
+            ',' => saida.push_str(", "),
+            c if c.is_whitespace() => {}
+            _ => return None,
+        }
+    }
+    Some(saida)
 }
 
 /// Prefixo de import alocado mais tarde. O oficial numera os imports na
