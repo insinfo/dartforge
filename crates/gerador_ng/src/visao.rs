@@ -4219,11 +4219,22 @@ impl Corpo<'_> {
                 .then_some(c)
             })
         };
+        // Os provedores dos elementos acima (`_getDependency` sobe por eles
+        // antes do injetor de fora), com o import do `unsafeCast` tardio.
+        let provedores_acima = self.provedores_acima_com(&tardio(UTILITIES));
+        let de_cima = |uri: &str, tipo: &str| {
+            provedores_acima.iter().find_map(|p| {
+                matches!(&p.token, crate::diretivas::Token::Classe { uri: u, classe: k }
+                    if u == uri && k == tipo)
+                .then_some(p.leitura.as_str())
+            })
+        };
         // Só a dependência do injetor é dinâmica (`hasDynamicDependencies`):
-        // a que o próprio nó provê não embrulha a criação.
+        // a que o próprio nó ou um elemento acima provê não embrulha a
+        // criação.
         let injeta = filho.parametros.iter().any(|p| {
             matches!(p, Injetado::Servico { uri, classe, .. }
-                if do_proprio_no(uri, classe).is_none())
+                if do_proprio_no(uri, classe).is_none() && de_cima(uri, classe).is_none())
         });
         // A ordem dos imports é a da escrita: `isDevMode`, `errors.dart`, a
         // classe e os tipos injetados.
@@ -4267,14 +4278,19 @@ impl Corpo<'_> {
                             "filho que injeta embutido do elemento (ViewContainerRef…)",
                         ));
                     }
-                    // Um elemento acima provê o serviço: o oficial o leria
-                    // de lá (`_getDependency`), não do injetor de fora.
-                    let token = crate::diretivas::Token::Classe {
-                        uri: uri.clone(),
-                        classe: tipo.clone(),
-                    };
-                    if self.acima.iter().any(|(t, _, _)| *t == token) {
-                        return Err(em_filho("filho que injeta um provedor de um nó acima"));
+                    // Um elemento acima provê o serviço: o oficial o lê de lá
+                    // (`_getDependency`), não do injetor de fora — o campo
+                    // dele, ou `.instance` do `XNgCd` (caso j68).
+                    if let Some(leitura) = de_cima(uri, tipo) {
+                        args.push(leitura.to_string());
+                        continue;
+                    }
+                    // Um componente acima sem metadados poderia prover o
+                    // serviço: não achar não prova que vem de fora.
+                    if self.incertos_acima > 0 {
+                        return Err(em_filho(
+                            "filho que injeta serviço sob componente sem metadados",
+                        ));
                     }
                     let caminho = asset_de_uri(uri, "", Path::new(""))
                         .and_then(|alvo| caminho_do_import(&self.asset, &alvo))
@@ -4292,7 +4308,7 @@ impl Corpo<'_> {
                 }
             }
         }
-        let chamada = format!("{vd}.{classe}({})", args.join(", "));
+        let chamada = resolver_tardios(self.imp, &format!("{vd}.{classe}({})", args.join(", ")));
         Ok(match prefixo {
             None => chamada,
             Some((util, erros)) => format!(

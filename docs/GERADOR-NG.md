@@ -473,11 +473,14 @@ ansioso depois das dependências: uma diretiva que vem antes do componente
 em `directives:` é criada antes dele, com o `registerDirective` de todas
 depois das instâncias, as entradas e as saídas dela antes das do
 componente (os eventos do elemento primeiro) e os ganchos antes dos dele —
-caso j67 (o `RequiredValidator` do `li-password-input`). `directives:` e as
+caso j67 (o `RequiredValidator` do `li-password-input`). O filho que
+injeta um serviço provido por um elemento acima o lê de lá (o campo, ou
+`.instance` do `XNgCd`, pela cadeia de `parentView` numa visão embutida),
+sem `debugInjectorWrap` — caso j68. `directives:` e as
 listas constantes aceitam `...outraLista`. O `dirtyParentQueriesInternal`
 segue o primeiro resultado de cada consulta na visão, em pré-ordem
 (`_setParentQueryAsDirty` no `addQueryResult`), e os campos dos nós
-consultados seguem as consultas — caso j66. Corpus: 298 conferidos.
+consultados seguem as consultas — caso j66. Corpus: 299 conferidos.
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada
 pendente com o motivo): **928 iguais / 22 pendentes / 0 diferentes** —
 `.template.dart` 512/20/0, `.css` e `.css.map` do Sass 102/102 cada,
@@ -580,7 +583,7 @@ pendente com o motivo): **928 iguais / 22 pendentes / 0 diferentes** —
 | componente com `providers:` (as formas da hospedeira) usado como filho no template, também dentro de `*` e recebendo conteúdo | gerado (no nó de quem usa: preguiçosos `late T _X_n_m = ..;` antes dos outros campos, dependências dos campos do nó; o filho primeiro no `injectorGetInternal` pelos apelidos dele) | i72, i74 |
 | provedor do filho pedido por um nó do conteúdo | recusado (o oficial o cria no `build()`, logo depois do filho) | i76 |
 | filho que injeta um provedor do próprio nó | gerado (o provedor ansioso sai antes do filho, que fica com o índice seguinte; a dependência dele não embrulha a criação em `debugInjectorWrap`) | i77, j61 |
-| filho que injeta um provedor de um elemento acima | recusado (o serviço não vem do injetor de fora) | — |
+| filho que injeta um provedor de um elemento acima | gerado (a leitura do provedor, não o injetor de fora) | j68 |
 | provedor do filho com dependência de fora do nó, apelido de token que o nó não provê | recusado | i78 |
 | `encapsulation: ViewEncapsulation.emulated`/`.none` sem folha de estilo | gerado (sem folha o oficial já desliga o encapsulamento) | b06 |
 | `encapsulation: ViewEncapsulation.none` com `styleUrls` (`.css` escrito) | gerado (import do `.css.dart` sem shim, também gerado; `unscoped`; sem `addShimC`) | i88 |
