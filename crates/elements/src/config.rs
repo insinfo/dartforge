@@ -45,6 +45,12 @@ pub struct PackageConfig {
     /// é a autoridade sobre o que ela mesma gera, e o disco nem é
     /// consultado.
     pub gerados: Option<Arc<Geracao>>,
+    /// Caminhos (pela [`crate::gerado::chave`]) que esta carga não enxerga,
+    /// estejam ou não no disco: as saídas de fases do `build_runner` que o
+    /// builder que carrega ainda não pode ler (um builder só vê as saídas das
+    /// fases anteriores à dele). Importar um deles fica sem resolução, como
+    /// no `BuildStep.resolver` do oficial.
+    pub ocultos: Option<Arc<std::collections::HashSet<PathBuf>>>,
 }
 
 /// Tira o prefixo verbatim `\\?\` que `canonicalize` devolve no Windows, para
@@ -57,6 +63,13 @@ pub fn sem_verbatim(p: PathBuf) -> PathBuf {
 }
 
 impl PackageConfig {
+    /// O caminho está entre os [`PackageConfig::ocultos`] desta carga?
+    pub fn oculto(&self, path: &Path) -> bool {
+        self.ocultos
+            .as_ref()
+            .is_some_and(|o| o.contains(&crate::gerado::chave(path)))
+    }
+
     /// O pacote a que pertence a biblioteca de URI `uri` (arquivo em `path`),
     /// pela regra de `accepted/2.8/language-versioning`: `package:x/…`
     /// pertence a `x`; um arquivo pertence ao pacote cuja raiz (`rootUri`) o
@@ -95,6 +108,9 @@ impl PackageConfig {
     /// assert!(PackageConfig::default().gerado_no_lugar_de(std::path::Path::new("/p/test/a.template.dart")).is_none());
     /// ```
     pub fn gerado_no_lugar_de(&self, path: &Path) -> Option<PathBuf> {
+        if self.oculto(path) {
+            return None;
+        }
         let raiz_gerados = self.generated_root.as_ref()?;
         let (nome, raiz) = self.root_dirs.iter().find(|(_, dir)| path.starts_with(dir))?;
         let rel = path.strip_prefix(raiz).ok()?;
@@ -241,6 +257,7 @@ impl PackageConfig {
             root_dirs,
             generated_root,
             gerados: None,
+            ocultos: None,
         })
     }
 

@@ -1,0 +1,5 @@
+<div class="caixa">
+  <div *ngIf="a" #gatilho class="um" (click)="abrir()">1</div>
+  <div *ngIf="b" #gatilho class="dois" (click)="abrir()">2</div>
+  <div *ngIf="!a && !b" #gatilho class="tres">3</div>
+</div>

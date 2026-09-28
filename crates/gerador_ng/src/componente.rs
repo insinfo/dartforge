@@ -187,6 +187,10 @@ pub struct Membro {
     /// `final` (ou getter): conta como imutável na regra `isImmutable` do
     /// ngcompiler, que decide se o valor primitivo vai pelo caminho rápido.
     pub imutavel: bool,
+    /// Membro `static`: o template o lê sem qualificação, e o oficial o
+    /// escreve pela classe (`import1.Classe.nome`), com tipo `dynamic` (o
+    /// `_TypeResolver` não resolve estático).
+    pub estatico: bool,
 }
 
 /// Um `@HostBinding('class.x')`/`@HostBinding('attr.x')` de componente.
@@ -1150,9 +1154,6 @@ fn tipos_dos_membros(
     for &id in &classe.members {
         match &arvore.member(id).kind {
             ast::MemberKind::Field(lista) => {
-                if lista.static_ {
-                    continue;
-                }
                 let imutavel = lista.final_ || lista.const_;
                 for v in lista.variables.iter() {
                     // Sem tipo escrito (`var x = Foo()`), o tipo é o que o
@@ -1169,13 +1170,17 @@ fn tipos_dos_membros(
                     };
                     saida.insert(
                         interner.resolve(v.name.sym).to_string(),
-                        Membro { tipo, imutavel },
+                        Membro {
+                            tipo,
+                            imutavel,
+                            estatico: lista.static_,
+                        },
                     );
                 }
             }
             ast::MemberKind::Method(f) => {
                 let funcao = arvore.function(*f);
-                if !matches!(funcao.kind, ast::FunctionKind::Getter) || funcao.static_ {
+                if !matches!(funcao.kind, ast::FunctionKind::Getter) {
                     continue;
                 }
                 let (Some(nome), Some(t)) = (funcao.name, funcao.return_type) else {
@@ -1186,6 +1191,7 @@ fn tipos_dos_membros(
                     Membro {
                         tipo: texto_do_tipo(arvore, fonte, t),
                         imutavel: false,
+                        estatico: funcao.static_,
                     },
                 );
             }

@@ -219,10 +219,12 @@ Duas etapas, as duas nossas:
 x.scss --(nosso Sass)--> x.css --(nosso shim)--> x.css.shim.dart
 ```
 
-O Sass cobre o que os projetos usam — aninhamento com `&`, `@use ... as *`,
-variáveis, comentários `//`, `@media` — e normaliza valores como o
-`sass_builder` (`0.5rem`→`.5rem`, `white`→`#fff`,
-`transparent`→`rgba(0,0,0,0)`, escapes de string). O shim aplica
+O Sass é o crate `dartforge-sass` (o `grass` 0.13.4 trazido e corrigido
+até o dart-sass 1.102.0: serializador, cores, cálculos, `if()` do CSS,
+`BuildImporter` e `.css.map`). No limitless_ui, os 102 `.scss` saem iguais
+byte a byte nos dois estilos, com o `.css.map`; na sass-spec, 95,7% do SCSS
+`expanded` (as divergências restantes, por causa, estão em
+`crates/sass/README.md`). O shim aplica
 `._ngcontent-%ID%` a cada composto, `._nghost-%ID%` no `:host`, duplica o
 seletor no `:host-context`, deixa o que vem depois de `::ng-deep` sem
 escopo e passa `@keyframes` inteiro.
@@ -337,6 +339,60 @@ oficial) e foram corrigidos:
 Depois: 429 `.template.dart` e 13 `.css.shim.dart` iguais, **0
 diferentes**; 233 conferidos no corpus.
 
+Segunda rodada no `limitless_ui/example` (sondas j23–j31, oráculo
+oficial), atacando as recusas mais frequentes:
+
+- **folhas por arquivo**: cada `.css` dá o `.css.dart` e o
+  `.css.shim.dart` à parte (`gerar_folha`, como o `StylesheetCompiler`),
+  e o componente não é mais recusado pelo conteúdo da folha — o template
+  só importa o módulo. O motor fica só com as saídas que o plano espera
+  (`generate_for` do `build.yaml`);
+- `@ContentChild(ren)` do filho que acha componente `onPush`:
+  `View.queryChangeDetectorRefs[x] = compView` antes da atribuição (a
+  única só do primeiro) (j23, j24);
+- membros `static` do componente lidos sem qualificação:
+  `import1.Classe.nome`, `const`/`final` imutáveis, tipo `dynamic`,
+  atribuição em evento (j25);
+- `<template [ngTemplateOutlet]="t" [ngTemplateOutletValue]="v">`: a
+  diretiva casada pela própria ligação é o `*ngTemplateOutlet="t; value:
+  v"` (j27);
+- `<template dir let-ctx>` com diretiva de `<template>` (a que recebe o
+  `TemplateRef`) projetado num filho que a acha por `@ContentChild`: a
+  âncora vai para a projeção (sem `hasViewContainer`), a diretiva é o
+  provedor 8, o `let-` é local `dynamic` (j26, j28);
+- diretiva sem `@HostBinding` e pipe no mesmo arquivo do componente não
+  geram nada (j29);
+- componente com `@HostBinding` que se provê como `ngValueAccessor`: o
+  campo é a instância, sem `.instance` (j30, j31);
+- o `detectHostChanges(firstCheck)` de um filho com `@HostBinding` sai
+  com as ligações de propriedade, na ordem de documento
+  (`bindDirectiveHostProps`), não junto do `detectChanges`;
+- espaços: o `MinimizeWhitespaceVisitor` do ngast de cima para baixo,
+  com o `_shouldCollapseWrapperNode` (`<template>`, `<ng-container>` e o
+  `*` decidem pelo filho da ponta) e o recuo para `<pre>` e
+  `@preserveWhitespace`;
+- visibilidade de fase: o programa que o ngdart resolve não enxerga as
+  saídas das fases do `build_runner` a partir da dele (o
+  `messages.i18n.dart` do `i18n`, gravado em `lib/`, não existe para o
+  resolvedor do ngdart), e membro de tipo que não existe no escopo
+  (`InvalidType`) dá `dynamic`. O programa é um só para todos os pacotes:
+  conta a primeira fase do ngdart.
+
+O shim de CSS passou a ser o porte do `shadow_css.dart` sobre o
+`csslib` 1.0.2, e o Sass o dart-sass 1.102.0 (crate `dartforge-sass`),
+sem subconjunto. Resultado: 446 `.template.dart`, 104 `.css.dart` e 104
+`.css.shim.dart` iguais ao oficial, **0 diferentes**; 248 conferidos no
+corpus.
+
+Depois: conteúdo passado a um filho que não projeta, ou que nenhum
+`<ng-content>` recebe (`_maybeSkipNode`: o texto, ligado ou não, só consome
+o índice do nó; o elemento e a âncora do `*` são criados soltos), texto e
+interpolação projetados (`createText` do `dom_helpers`, `TextBinding.element`
+na lista) — caso j37; provedor preguiçoso numa visão com ligação de texto (o
+`ViewStorage` aloca o campo `late` ao construir a visão, antes de promover
+nós e ligações de texto, então ele abre a classe e o import dele vem antes
+do `text_binding.dart`) — caso j38. Corpus: 260 conferidos.
+
 ### Diretivas estruturais
 
 | forma | estado | casos |
@@ -397,7 +453,8 @@ diferentes**; 233 conferidos no corpus.
 | consulta dinâmica com `read: ElementRef`/`Element` | gerado (`return ElementRef(nestedView._el_n);`) | j14 |
 | consulta dinâmica de filho `onPush` | gerado (`View.queryChangeDetectorRefs[nestedView._X_n] = nestedView._compView_n;` antes do `return`, como `_createAddQueryChangeDetectorRefs`) | j16 |
 | `@ViewChild(.., read: ElementRef)`, `read: Element`/`HtmlElement`, e campo que não é `Element` (sem `read:`) de elemento estático | gerado (`ElementRef(_el_n)` ou o nó) | i98 |
-| consulta dinâmica com resultados em visões diferentes; `read:` de outro token | recusado | — |
+| consulta com resultados em várias visões (`#ref` repetido em `*ngIf` diferentes, estático junto de `*`) | gerado (a árvore `_NestedQueryValues`: `[this._el_0, ...this._appEl_2.mapNested…]`, `firstOrNull([...])`, `.first` com estático; a única com o primeiro estático é estática) | j17, j34 |
+| dois resultados na mesma visão embutida, resultado no conteúdo projetado ou em `<template>`; `read:` de outro token | recusado | — |
 | `@ContentChild`/`@ContentChildren` no próprio componente (campo ou setter, `descendants:`, `read:`, por tipo ou `'ref'`) | gerado (na hospedeira, sem conteúdo: `this.component.x = [];` para cada lista logo depois da construção, setters antes dos campos; o único não recebe nada) | d09, h01, i68, i69 |
 | consulta de conteúdo do componente que acharia o próprio nó (o componente, um provedor dele, tipo do ngdart) | recusado | — |
 | `@ContentChild(.., read:)` de filho usado no template, `read:` do elemento (`HtmlElement`/`Element`) ou de outra diretiva do nó achado | gerado (o nó, local ou campo; o campo da diretiva) | i73, i81 |
@@ -449,8 +506,6 @@ diferentes**; 233 conferidos no corpus.
    no oráculo do i76), a dependência de fora do nó (elementos acima e
    `parentView!.injectorGet(.., this.parentIndex)`, i78) e o filho que
    injeta o próprio provedor (i77).
-3. Consultas dinâmicas com resultados em visões diferentes (a árvore
-   `_NestedQueryValues` do `compile_query.dart`: j17).
 
 O oráculo das sondas se regenera como os outros casos
 (`scripts/corpus-ngdart.ps1`): criar o `.dart` e o `.html` em

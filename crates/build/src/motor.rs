@@ -516,6 +516,31 @@ impl Motor {
             || (dart_ativo && !f.opcional && self.nativo_da_fase(fi).is_none())
     }
 
+    /// As saídas que o builder `chave` (ex. `ngdart:ngdart`) não enxerga ao
+    /// resolver o programa: as de todas as fases a partir da primeira dele,
+    /// pelo caminho natural ([`dartforge_elements::gerado::chave`]). No
+    /// `build_runner` uma ação só lê saídas de fases anteriores à dela; um
+    /// `build_to: source` que já está no disco (o `messages.i18n.dart` do
+    /// `i18n`, fase posterior ao ngdart no limitless_ui) não existe para o
+    /// resolver do ngdart, e o tipo que viria dele é `dynamic`.
+    ///
+    /// O programa é um só para todos os pacotes; conta a primeira fase do
+    /// builder, e uma saída de fase entre a do primeiro pacote e a de outro
+    /// fica oculta também para o segundo.
+    pub fn saidas_invisiveis_a(&self, chave: &str) -> HashSet<PathBuf> {
+        let Some(primeira) = (0..self.fases.len())
+            .find(|&fi| self.plano.aplicacoes[self.fases[fi].aplicacao].chave == chave)
+        else {
+            return HashSet::new();
+        };
+        self.grafo
+            .gerados
+            .iter()
+            .filter(|(_, g)| g.fase >= primeira)
+            .map(|(id, _)| dartforge_elements::gerado::chave(&natural(&self.grafo_pacotes, id)))
+            .collect()
+    }
+
     /// O gerador nativo que cobre a fase, se a versão do lock é a imitada.
     fn nativo_da_fase(&self, fi: usize) -> Option<usize> {
         let f = &self.fases[fi];
@@ -1473,7 +1498,12 @@ impl Motor {
             }
         }
         let no = self.grafo_pacotes.no(pacote).ok_or("pacote desconhecido")?;
-        let pedido = PedidoNativo { pacote: pacote.to_string(), raiz_do_pacote: no.raiz.clone(), acoes };
+        let pedido = PedidoNativo {
+            pacote: pacote.to_string(),
+            raiz_do_pacote: no.raiz.clone(),
+            acoes,
+            raizes: self.raizes_dos_pacotes(),
+        };
         let (resultado, consultas) = {
             let memoria = |p: &Path| self.memoria.get(p).cloned();
             let mut c = CtxGerador::novo(ctx.programa, mudados, ctx.banco, &memoria);
@@ -1589,6 +1619,11 @@ impl Motor {
         r
     }
 
+    /// Nome → raiz de cada pacote do grafo.
+    fn raizes_dos_pacotes(&self) -> BTreeMap<String, PathBuf> {
+        self.grafo_pacotes.nos.iter().map(|n| (n.nome.clone(), n.raiz.clone())).collect()
+    }
+
     fn nativo_por_acao(
         &self,
         ctx: &Contexto<'_>,
@@ -1610,6 +1645,7 @@ impl Motor {
                 saidas: acao.saidas.iter().map(|s| (s.clone(), self.naturais[s].clone())).collect(),
                 opcoes: f.opcoes.clone(),
             }],
+            raizes: self.raizes_dos_pacotes(),
         };
         let memoria = |p: &Path| self.memoria.get(p).cloned();
         let mut c = CtxGerador::novo(ctx.programa, mudados, ctx.banco, &memoria);

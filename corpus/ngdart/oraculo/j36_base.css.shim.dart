@@ -1,0 +1,1 @@
+final List<Object> styles = ['.base._ngcontent-%ID%{color:red}'];

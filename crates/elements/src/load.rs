@@ -133,8 +133,35 @@ pub fn load_lenient_entradas(
     package_config_path: Option<&Path>,
     interner: &mut Interner,
     cache: Option<crate::sdk_cache::SdkCache>,
+    unidades: Option<&mut crate::unidades::CacheUnidades>,
+    gerados: Option<std::sync::Arc<crate::gerado::Geracao>>,
+) -> (Program, Vec<Diagnostic>) {
+    carregar_leniente(entries, sdk, package_config_path, interner, cache, unidades, gerados, None)
+}
+
+/// Como [`load_lenient`], sem enxergar `ocultos` (chaves de
+/// [`crate::gerado::chave`]): a carga que um builder do `build_runner` faz
+/// do programa, sem as saídas das fases que ainda não rodaram para ele.
+pub fn load_lenient_ocultando(
+    entry: &Path,
+    sdk: &SdkLayout,
+    package_config_path: Option<&Path>,
+    interner: &mut Interner,
+    ocultos: std::sync::Arc<std::collections::HashSet<PathBuf>>,
+) -> (Program, Vec<Diagnostic>) {
+    carregar_leniente(&[entry], sdk, package_config_path, interner, None, None, None, Some(ocultos))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn carregar_leniente(
+    entries: &[&Path],
+    sdk: &SdkLayout,
+    package_config_path: Option<&Path>,
+    interner: &mut Interner,
+    cache: Option<crate::sdk_cache::SdkCache>,
     mut unidades: Option<&mut crate::unidades::CacheUnidades>,
     gerados: Option<std::sync::Arc<crate::gerado::Geracao>>,
+    ocultos: Option<std::sync::Arc<std::collections::HashSet<PathBuf>>>,
 ) -> (Program, Vec<Diagnostic>) {
     let entry = *entries.first().expect("ao menos uma entrada");
     if let Some(u) = unidades.as_deref_mut() {
@@ -155,6 +182,7 @@ pub fn load_lenient_entradas(
         PackageConfig::default()
     };
     package_config.gerados = gerados;
+    package_config.ocultos = ocultos;
 
     let mut program = Program::default();
     let mut uri_to_library: HashMap<String, LibraryId> = HashMap::new();
@@ -188,7 +216,11 @@ pub fn load_lenient_entradas(
     // da carga (corrige maiúsculas e links do caminho dado pelo usuário);
     // tudo o que deriva dele — partes e imports relativos — é resolvido
     // lexicalmente, como a `Uri.resolve` do Dart faz.
-    let mut prefetch = Prefetch { gerados: package_config.gerados.clone(), ..Default::default() };
+    let mut prefetch = Prefetch {
+        gerados: package_config.gerados.clone(),
+        ocultos: package_config.ocultos.clone(),
+        ..Default::default()
+    };
     let mut considerados = 0usize;
     // Unidades do SDK já decodificadas do cache pela onda, à espera da vez da
     // biblioteca na fila.
@@ -654,6 +686,9 @@ struct Prefetch {
     prontos: HashMap<PathBuf, Lido>,
     /// Geração corrente: fontes daqui nunca vêm do disco.
     gerados: Option<std::sync::Arc<crate::gerado::Geracao>>,
+    /// O que a carga não enxerga ([`PackageConfig::ocultos`]): lido como
+    /// arquivo inexistente.
+    ocultos: Option<std::sync::Arc<std::collections::HashSet<PathBuf>>>,
 }
 
 impl Prefetch {
@@ -679,6 +714,12 @@ impl Prefetch {
             Some(g) => caminhos.into_iter().filter(|p| !g.contem(p)).collect(),
             None => caminhos,
         };
+        let (ocultos, caminhos): (Vec<PathBuf>, Vec<PathBuf>) = caminhos.into_iter().partition(|p| {
+            self.ocultos.as_ref().is_some_and(|o| o.contains(&crate::gerado::chave(p)))
+        });
+        for p in ocultos {
+            self.prontos.insert(p, Err(std::io::ErrorKind::NotFound.into()));
+        }
         let ler = |p: &Path| -> Lido {
             let s = std::fs::read_to_string(p)?;
             let t = dartforge_frontend::lexer::lex(&s);

@@ -1,0 +1,1 @@
+final List<Object> styles = ['.base {\n  color: red;\n}\n'];

@@ -1,0 +1,27 @@
+[package]
+name = "dartforge-sass"
+version.workspace = true
+edition = "2021"
+license = "MIT"
+publish = false
+description = "Compilador Sass do DartForge: o grass_compiler 0.13.4 (MIT, Connor Skees) trazido para o repositório e mantido aqui para sair byte a byte igual ao dart-sass 1.102.0."
+
+[lib]
+name = "dartforge_sass"
+path = "src/lib.rs"
+bench = false
+
+[lints]
+workspace = true
+
+[features]
+default = ["random", "custom-builtin-fns"]
+custom-builtin-fns = []
+random = ["dep:rand"]
+
+[dependencies]
+codemap = "0.1.3"
+indexmap = "2"
+once_cell = "1.15.0"
+phf = { version = "0.11", features = ["macros"] }
+rand = { version = "0.8", optional = true }

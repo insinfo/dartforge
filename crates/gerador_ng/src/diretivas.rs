@@ -688,10 +688,14 @@ fn resolver_com(
             format!("_{}_{n}_{tamanho}", r.token.nome())
         };
         // Diretiva com `@HostBinding`: o campo é o `XNgCd` que a embrulha
-        // (`createProvider`, `providerHasChangeDetector`).
+        // (`createProvider`, `providerHasChangeDetector`). Componente não:
+        // o `@HostBinding` dele é o `detectHostChanges` da visão dele, e o
+        // campo é a instância (caso j30).
         let leitura = match r.fontes.as_slice() {
             [Fonte::Diretiva(d)]
-                if !d.ligacoes_do_hospedeiro.is_empty() && !componente_da_hospedeira =>
+                if !d.ligacoes_do_hospedeiro.is_empty()
+                    && !d.e_componente
+                    && !componente_da_hospedeira =>
             {
                 format!("{campo}.instance")
             }

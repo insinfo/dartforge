@@ -3,13 +3,14 @@
 //! gravado por `scripts/sass-formas.sh` com o dart-sass 1.102.0 do lock).
 //!
 //! Critério: para cada forma e estilo, o nativo devolve **exatamente** os
-//! bytes que o builder escreveu, ou recusa. Uma forma que o oficial rejeita
-//! (`.erro`) tem de ser recusada. Nunca uma saída aproximada.
+//! bytes que o builder escreveu. Uma forma que o oficial rejeita (`.erro`)
+//! tem de ser recusada. Nem recusa onde o oficial compila, nem saída
+//! aproximada.
 use dartforge_gerador_ng::sass::{compilar_com, Estilo};
 use std::path::Path;
 
 #[test]
-fn formas_sass_iguais_ao_sass_builder_ou_recusadas() {
+fn formas_sass_iguais_ao_sass_builder() {
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/sass_formas");
     let fontes = base.join("fontes");
     let mut formas: Vec<_> = std::fs::read_dir(&fontes)
@@ -35,11 +36,12 @@ fn formas_sass_iguais_ao_sass_builder_ou_recusadas() {
                     String::from_utf8_lossy(&e)
                 )),
                 (Ok(_), None) => diferentes.push(format!("{forma} ({nome}): o oficial rejeita e o nativo gerou")),
-                (Err(_), _) => recusadas.push(forma),
+                (Err(_), None) => recusadas.push(forma),
+                (Err(_), Some(_)) => diferentes.push(format!("{forma} ({nome}): o oficial compila e o nativo recusou")),
             }
         }
         linhas.push(format!(
-            "{nome}: {iguais} iguais, {} recusadas, de {} — recusadas: {}",
+            "{nome}: {iguais} iguais, {} recusadas como no oficial, de {} — recusadas: {}",
             recusadas.len(),
             formas.len(),
             recusadas.join(" ")

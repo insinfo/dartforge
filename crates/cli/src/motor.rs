@@ -132,7 +132,13 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
                 "SDK do Dart não encontrado: defina DARTFORGE_SDK_LIB (o lib/ do SDK) ou DART_SDK",
             )?;
             let layout = dartforge_elements::sdk::SdkLayout::load(&dir, "dartdevc")?;
-            Some(dartforge_elements::load::load_lenient(e, &layout, packages.as_deref(), &mut nomes).0)
+            // O resolvedor do ngdart não vê as saídas de fases que rodam
+            // depois dele (`Motor::saidas_invisiveis_a`).
+            let ocultos = std::sync::Arc::new(motor.saidas_invisiveis_a("ngdart:ngdart"));
+            Some(
+                dartforge_elements::load::load_lenient_ocultando(e, &layout, packages.as_deref(), &mut nomes, ocultos)
+                    .0,
+            )
         }
         None => None,
     };

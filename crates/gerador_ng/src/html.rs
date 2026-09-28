@@ -136,7 +136,7 @@ pub fn analisar(fonte: &str) -> Vec<No> {
         i: 0,
         fonte,
     };
-    let mut nos = reduzir_espacos(p.nos(None));
+    let mut nos = minimizar_espacos(p.nos(None));
     if !fonte.is_ascii() {
         em_utf16(&mut nos, fonte);
     }
@@ -378,7 +378,7 @@ impl<'a> Parser<'a> {
         let vazio = VAZIOS.contains(&el.nome.to_ascii_lowercase().as_str());
         if !sozinho && !vazio {
             let nome = el.nome.clone();
-            el.filhos = reduzir_espacos(self.nos(Some(&nome)));
+            el.filhos = self.nos(Some(&nome));
         }
         if el.nome.eq_ignore_ascii_case("ng-content") {
             return Some(No::Conteudo {
@@ -531,6 +531,28 @@ fn decodificar(t: &str) -> String {
 
 /// `MinimizeWhitespaceVisitor` do ngast: some com o nó de texto só de espaços
 /// entre nós que não são de linha, e colapsa o resto num espaço só.
+/// O `MinimizeWhitespaceVisitor` do ngast (`preserveWhitespace: false`), de
+/// cima para baixo como ele: cada lista de filhos é reduzida olhando os
+/// vizinhos **crus** (os filhos deles ainda sem redução) e só depois cada
+/// filho é visitado. `<pre>` e o que tem `@preserveWhitespace` ficam como
+/// estão, com tudo o que há dentro (`_bailOutToPreserveWhitespace`).
+fn minimizar_espacos(nos: Vec<No>) -> Vec<No> {
+    reduzir_espacos(nos)
+        .into_iter()
+        .map(|n| match n {
+            No::Elemento(mut e) => {
+                let preserva = e.nome == "pre"
+                    || e.anotacoes.iter().any(|a| a.nome == "preserveWhitespace");
+                if !preserva && !e.filhos.is_empty() {
+                    e.filhos = minimizar_espacos(std::mem::take(&mut e.filhos));
+                }
+                No::Elemento(e)
+            }
+            outro => outro,
+        })
+        .collect()
+}
+
 fn reduzir_espacos(nos: Vec<No>) -> Vec<No> {
     let mut saida: Vec<No> = Vec::with_capacity(nos.len());
     // `anterior` é o nó *já processado* — se o texto anterior sumiu, o vizinho
@@ -539,12 +561,12 @@ fn reduzir_espacos(nos: Vec<No>) -> Vec<No> {
     let mut anterior_e_colapsavel = true;
     for (i, no) in nos.iter().enumerate() {
         let No::Texto(texto) = no else {
-            anterior_e_colapsavel = colapsa_ao_lado(Some(no));
+            anterior_e_colapsavel = colapsa_ao_lado(Some(no), true);
             saida.push(no.clone());
             continue;
         };
         let colapsa_esq = anterior_e_colapsavel;
-        let colapsa_dir = colapsa_ao_lado(nos.get(i + 1));
+        let colapsa_dir = colapsa_ao_lado(nos.get(i + 1), false);
         if colapsa_esq && colapsa_dir && texto.trim().is_empty() && !texto.contains(NBSP) {
             // Texto só de espaços entre dois nós de bloco: some.
             anterior_e_colapsavel = true;
@@ -600,10 +622,21 @@ fn colapsar(texto: &str, apara_esq: bool, apara_dir: bool) -> Option<String> {
 }
 
 /// Regra do `_shouldCollapseAdjacentTo`: texto, interpolação e comentário não
-/// seguram espaço; elemento segura se for de linha.
-fn colapsa_ao_lado(no: Option<&No>) -> bool {
+/// seguram espaço; elemento segura se for de linha; `<template>`,
+/// `<ng-container>` e o elemento de um `*` (o `EmbeddedTemplateAst` que o
+/// envolve) decidem pelo filho da ponta que encosta no texto
+/// (`_shouldCollapseWrapperNode`; `ultimo`: o vizinho está à esquerda).
+fn colapsa_ao_lado(no: Option<&No>, ultimo: bool) -> bool {
     match no {
         None => true,
+        Some(No::Elemento(e)) if e.estrela.is_some() => {
+            let mut dentro = e.clone();
+            dentro.estrela = None;
+            colapsa_envolvido(&[No::Elemento(dentro)], ultimo)
+        }
+        Some(No::Elemento(e)) if e.nome == "template" || e.nome == "ng-container" => {
+            colapsa_envolvido(&e.filhos, ultimo)
+        }
         Some(No::Elemento(e)) => !e.em_linha(),
         Some(No::Interpolacao { .. }) => false,
         Some(No::Conteudo { .. }) => false,
@@ -612,6 +645,30 @@ fn colapsa_ao_lado(no: Option<&No>) -> bool {
         Some(No::Texto(_)) => false,
         Some(No::Comentario(_)) => false,
     }
+}
+
+/// `_shouldCollapseWrapperNode`: sem filhos, pode vir conteúdo em linha (não
+/// colapsa); o filho da ponta só de espaços cede a vez ao vizinho dele,
+/// exceto quando é o único. O filho é julgado com `lastNode` falso, como no
+/// ngast.
+fn colapsa_envolvido(filhos: &[No], ultimo: bool) -> bool {
+    let (Some(primeiro), Some(fim)) = (filhos.first(), filhos.last()) else {
+        return false;
+    };
+    let mut ponta = if ultimo { fim } else { primeiro };
+    if let No::Texto(t) = ponta
+        && t.trim().is_empty()
+    {
+        if filhos.len() == 1 {
+            return false;
+        }
+        ponta = if ultimo {
+            &filhos[filhos.len() - 2]
+        } else {
+            &filhos[1]
+        };
+    }
+    colapsa_ao_lado(Some(ponta), false)
 }
 
 #[cfg(test)]

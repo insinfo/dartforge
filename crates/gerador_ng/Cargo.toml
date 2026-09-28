@@ -12,6 +12,7 @@ workspace = true
 dartforge-frontend = { path = "../frontend" }
 dartforge-intern = { path = "../intern" }
 dartforge-elements = { path = "../elements" }
+dartforge-sass = { path = "../sass" }
 
 [dev-dependencies]
 tempfile = "3"

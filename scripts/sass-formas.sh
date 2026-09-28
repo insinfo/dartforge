@@ -21,7 +21,9 @@ for estilo in expanded compressed; do
   trap 'rm -rf "$tmp"' EXIT
   cp "$caso/pubspec.yaml" "$caso/pubspec.lock" "$tmp/"
   mkdir -p "$tmp/lib/formas"
-  cp "$formas"/fontes/*.scss "$tmp/lib/formas/"
+  # Os módulos em sintaxe indentada (`.sass`) também: sem eles a forma que
+  # os usa falha por arquivo ausente, não pelo Sass.
+  cp "$formas"/fontes/*.scss "$formas"/fontes/*.sass "$tmp/lib/formas/"
   printf 'targets:\n  $default:\n    builders:\n      sass_builder:\n        options:\n          outputStyle: %s\n          sourceMaps: false\n' "$estilo" > "$tmp/build.yaml"
   (cd "$tmp" && "$dart" pub get --offline --enforce-lockfile > pub.log 2>&1)
   # Uma forma inválida faz o build terminar com erro; as outras saem mesmo

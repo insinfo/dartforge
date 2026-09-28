@@ -18,6 +18,7 @@
 //! o placar diz exatamente onde estamos.
 pub mod componente;
 pub mod css;
+pub mod csslib;
 pub mod diretivas;
 pub mod dom;
 pub mod expr;
@@ -28,6 +29,7 @@ pub mod micro;
 pub mod resolucao;
 pub mod sass;
 pub mod seletor;
+pub mod shadow_css;
 pub mod visao;
 
 use dartforge_elements::gerado::{Construtor, Geracao};
@@ -412,6 +414,50 @@ pub fn gerar_em(
         }
         placar.gerados += 1;
     }
+
+    // As folhas, uma a uma, como o `StylesheetCompiler`: todo `.css` dos
+    // diretórios — o escrito, o que o `sass_builder` gerou nesta build e,
+    // fora do motor, o de cada `.scss` que não é parcial.
+    for css in folhas_de(pacote, diretorios) {
+        let entrada = if css.is_file() { css.clone() } else { css.with_extension("scss") };
+        for (destino, r) in gerar_folha(pacote, &css) {
+            match r {
+                Ok(conteudo) => c.por(destino, conteudo, "ngdart", vec![entrada.clone()]),
+                Err(recusa) => {
+                    *placar.motivos.entry(recusa.motivo).or_default() += 1;
+                    placar.conjuntos.push(std::iter::once(recusa).collect());
+                    placar.pendentes.push(destino);
+                }
+            }
+        }
+    }
+}
+
+/// Os `.css` de que o ngdart gera folhas, em ordem: os do disco, os que o
+/// `sass_builder` gerou nesta build e os dos `.scss` não parciais sem `.css`.
+fn folhas_de(pacote: &Pacote, diretorios: &[PathBuf]) -> Vec<PathBuf> {
+    let mut v = std::collections::BTreeSet::new();
+    for dir in diretorios {
+        let mut pilha = vec![dir.clone()];
+        while let Some(d) = pilha.pop() {
+            let Ok(entradas) = std::fs::read_dir(&d) else { continue };
+            for e in entradas.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    pilha.push(p);
+                    continue;
+                }
+                let nome = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+                if nome.ends_with(".css") {
+                    v.insert(p);
+                } else if nome.ends_with(".scss") && !nome.starts_with('_') {
+                    v.insert(p.with_extension("css"));
+                }
+            }
+        }
+        v.extend(pacote.folhas_geradas.keys().filter(|k| k.starts_with(dir)).cloned());
+    }
+    v.into_iter().collect()
 }
 
 /// A unidade é uma parte (`part of`), não uma biblioteca.
@@ -1121,10 +1167,13 @@ pub(crate) fn gerar_interno(
             )),
         };
     }
-    if !achados.diretivas.is_empty() || !achados.pipes.is_empty() {
+    // Diretiva sem `@HostBinding`/`@HostListener` e pipe não geram nada no
+    // arquivo (caso j29): só a diretiva com classe `XNgCd` junto de
+    // componente divide a numeração dos imports — forma ainda sem caso.
+    if !achados.hospedeiras.is_empty() || achados.hospedeiro_herdado {
         return Err(recusa(
             Motivo::DiretivaOuPipe,
-            "componente com diretiva ou pipe no arquivo",
+            "componente com diretiva de @HostBinding no arquivo",
         ));
     }
     // Vários componentes: a tabela de imports é uma só e os trechos saem na
@@ -1144,9 +1193,8 @@ pub(crate) fn gerar_interno(
     let mut imp = visao::Importacoes::default();
     let mut trechos = Vec::new();
     let mut entradas = vec![fonte.to_path_buf()];
-    let mut extras: Vec<(PathBuf, String)> = Vec::new();
     for comp in &achados.componentes {
-        let (trecho, html, folhas) = trecho_do_componente(
+        let (trecho, html) = trecho_do_componente(
             pacote,
             fonte,
             nome_do_arquivo,
@@ -1158,17 +1206,11 @@ pub(crate) fn gerar_interno(
         )?;
         trechos.push(trecho);
         entradas.extend(html);
-        for (destino, conteudo, entrada) in folhas {
-            if !extras.iter().any(|(d, _)| *d == destino) {
-                extras.push((destino, conteudo));
-                entradas.push(entrada);
-            }
-        }
     }
     Ok((
         visao::montar_arquivo(nome_do_arquivo, &imp, &trechos),
         entradas,
-        extras,
+        Vec::new(),
     ))
 }
 
@@ -1222,11 +1264,7 @@ fn template_do_componente(
     })
 }
 
-/// Uma folha gerada à parte: destino, conteúdo e o arquivo que a alimenta.
-type Folha = (PathBuf, String, PathBuf);
-
-/// O trecho de um componente no `.template.dart`, com o `.html` e as
-/// folhas compiladas dele.
+/// O trecho de um componente no `.template.dart`, com o `.html` dele.
 #[allow(clippy::too_many_arguments)]
 fn trecho_do_componente(
     pacote: &Pacote,
@@ -1237,7 +1275,7 @@ fn trecho_do_componente(
     nomes: &mut Interner,
     indice: &Indice,
     imp: &mut visao::Importacoes,
-) -> Result<(String, Option<PathBuf>, Vec<Folha>), Recusa> {
+) -> Result<(String, Option<PathBuf>), Recusa> {
     if let Some(r) = comp.nao_entendidos.first() {
         return Err(r.clone());
     }
@@ -1259,62 +1297,19 @@ fn trecho_do_componente(
     let texto = visao::trecho_de_componente(
         comp, &local, &nos, resolvedor, nomes, &filhos, &usadas, &pipes, imp,
     )?;
-    // A folha compilada é um arquivo à parte, como o oficial gera: o
-    // `<nome>.css.shim.dart` que o template importa.
-    let mut folhas = Vec::new();
-    let folha = |f: &str| recusa(Motivo::Estilos, f);
+    // A folha é outra saída ([`gerar_folha`], por `.css`, como o
+    // `StylesheetCompiler` do oficial): o template só importa o módulo
+    // dela, e o conteúdo não o muda. Aqui só se confere que ela existe.
     for url in &comp.style_urls {
         let css = fonte
             .parent()
-            .ok_or_else(|| folha("folha fora de lib/"))?
+            .ok_or_else(|| recusa(Motivo::Estilos, "folha fora de lib/"))?
             .join(url);
-        // `ViewEncapsulation.none`: o componente importa o `.css.dart`, a
-        // folha como escrita, sem shim (`compileStylesheet(.., false)`).
-        if comp.sem_encapsulamento {
-            let texto =
-                folha_sem_shim(fonte, url).map_err(|f| recusa(visao::Motivo::Encapsulamento, f))?;
-            let destino = css.with_file_name(format!(
-                "{}.dart",
-                css.file_name().unwrap_or_default().to_string_lossy()
-            ));
-            folhas.push((
-                destino,
-                format!("final List<Object> styles = [{}];", visao::literal(&texto)),
-                css.clone(),
-            ));
-            continue;
+        if texto_da_folha(pacote, &css).is_none() {
+            return Err(recusa(Motivo::Estilos, "folha não encontrada"));
         }
-        // O `.css` do `styleUrls` quase nunca existe no disco: quem o produz
-        // é o `sass_builder`, a partir do `.scss` ao lado — a saída dele nesta
-        // build, quando o motor a tem; senão, compilamos o `.scss` aqui.
-        let gerada = pacote.folhas_geradas.get(&css).cloned().map(|t| (t, css.with_extension("scss")));
-        let (texto_css, entrada) = match std::fs::read_to_string(&css).ok().map(|t| (t, css.clone())).or(gerada) {
-            Some(x) => x,
-            None => {
-                let scss = css.with_extension("scss");
-                let fonte_scss =
-                    std::fs::read_to_string(&scss).map_err(|_| folha("folha não encontrada"))?;
-                (
-                    sass::compilar(&fonte_scss)
-                        .map_err(|_| folha("Sass ou CSS fora do subconjunto"))?,
-                    scss,
-                )
-            }
-        };
-        let shim = css::shim(&texto_css).map_err(|_| folha("Sass ou CSS fora do subconjunto"))?;
-        let destino = css.with_file_name(format!(
-            "{}.shim.dart",
-            css.file_name().unwrap_or_default().to_string_lossy()
-        ));
-        folhas.push((
-            destino,
-            // `escapeSingleQuoteString` do emissor: o `\e939` de um
-            // `content:` sai `\\e939`, a aspa simples `\'` e o `$` `\$`.
-            format!("final List<Object> styles = [{}];", visao::literal(&shim)),
-            entrada,
-        ));
     }
-    Ok((texto, arquivo_html, folhas))
+    Ok((texto, arquivo_html))
 }
 
 /// URI `package:` do arquivo do template — o que o oficial escreve no
@@ -1346,37 +1341,197 @@ fn url_do_template(pacote: &Pacote, fonte: &Path, comp: &componente::Componente)
 /// A forma recusada, quando o texto não é conhecido byte a byte: a folha
 /// vem do `sass_builder` (o `.css` não existe; a formatação da saída dele
 /// não é a nossa), tem `@import` (vira outra entrada na lista) ou não se lê.
-pub(crate) fn folha_sem_shim(fonte: &Path, url: &str) -> Result<String, &'static str> {
-    let css = fonte.parent().ok_or("folha fora de lib/")?.join(url);
-    if !css.is_file() && css.with_extension("scss").is_file() {
-        return Err("ViewEncapsulation.none com folha Sass");
+/// O texto de uma folha `.css`, como o `StylesheetCompiler` do oficial o
+/// lê: a saída do `sass_builder` nesta build (o motor a passa em
+/// [`Pacote::folhas_geradas`]), o `.css` escrito, ou — fora do motor, sem o
+/// `sass_builder` — o `.scss` ao lado compilado aqui. `None` sem nenhum.
+pub(crate) fn texto_da_folha(pacote: &Pacote, css: &Path) -> Option<Result<String, visao::Motivo>> {
+    // `buildStep.readAsString` decodifica com `utf8.decode`, que tira o BOM
+    // do começo (a saída `compressed` do dart-sass com caractere não-ASCII
+    // começa com ele).
+    let sem_bom = |t: String| match t.strip_prefix('\u{FEFF}') {
+        Some(resto) => resto.to_string(),
+        None => t,
+    };
+    if let Some(t) = pacote.folhas_geradas.get(css) {
+        return Some(Ok(sem_bom(t.clone())));
     }
-    let texto = std::fs::read_to_string(&css).map_err(|_| "folha não encontrada")?;
-    if texto.contains("@import") {
-        return Err("ViewEncapsulation.none com @import na folha");
+    if let Ok(t) = std::fs::read_to_string(css) {
+        return Some(Ok(sem_bom(t)));
     }
-    Ok(texto)
+    let scss = css.with_extension("scss");
+    let fonte = std::fs::read_to_string(&scss).ok()?;
+    Some(sass::compilar_em(&fonte, scss.parent()).map(sem_bom))
 }
 
-pub(crate) fn estilo_compila(fonte: &Path, url: &str) -> bool {
-    let Some(dir) = fonte.parent() else {
-        return false;
+/// As saídas do `StylesheetCompiler` do ngdart para uma folha `.css`
+/// (`compileStylesheet`, `stylesheet_compiler/builder.dart`): o
+/// `.css.shim.dart`, com o CSS reescrito para o encapsulamento emulado, e o
+/// `.css.dart`, com ele como está. Cada `@import` resolúvel sai do texto e
+/// vira o módulo da folha importada, antes dele (`extractStyleUrls`,
+/// `_compileStyles`); o texto vai no `escapeSingleQuoteString` do emissor.
+/// Cada saída vem com o conteúdo ou o motivo de não gerá-la.
+pub fn gerar_folha(pacote: &Pacote, css: &Path) -> Vec<(PathBuf, Result<String, Recusa>)> {
+    let destino = |sufixo: &str| {
+        css.with_file_name(format!(
+            "{}{sufixo}",
+            css.file_name().unwrap_or_default().to_string_lossy()
+        ))
     };
-    let css = dir.join(url);
-    let texto = match std::fs::read_to_string(&css) {
-        Ok(t) => t,
-        Err(_) => {
-            let scss = css.with_extension("scss");
-            match std::fs::read_to_string(&scss)
-                .ok()
-                .map(|f| sass::compilar_em(&f, scss.parent()))
-            {
-                Some(Ok(c)) => c,
-                _ => return false,
+    let texto = match texto_da_folha(pacote, css) {
+        Some(Ok(t)) => Ok(t),
+        Some(Err(_)) => Err(recusa(Motivo::Estilos, "Sass que o compilador nativo não traduz")),
+        None => Err(recusa(Motivo::Estilos, "folha não encontrada")),
+    };
+    let asset = format!("asset:{}/{}", pacote.nome, pacote.relativo(css));
+    let texto = texto.map(|t| extrair_imports(&asset, &t));
+    let saida = |sufixo: &str, conteudo: &dyn Fn(&str) -> Result<String, Recusa>| {
+        texto.clone().and_then(|(estilo, urls)| {
+            let modulo = format!("{asset}{sufixo}");
+            let mut cabeca = String::new();
+            let mut itens = Vec::new();
+            for (k, url) in urls.iter().enumerate() {
+                let importado = format!("{url}{sufixo}");
+                let caminho = resolucao::asset_de_uri(&importado, "", Path::new(""))
+                    .or_else(|| importado.starts_with("asset:").then(|| importado.clone()))
+                    .and_then(|alvo| resolucao::caminho_do_import(&modulo, &alvo))
+                    .ok_or_else(|| recusa(Motivo::Estilos, "@import de folha sem caminho de import"))?;
+                cabeca.push_str(&format!("import '{caminho}' as import{k};\n"));
+                itens.push(format!("import{k}.styles"));
+            }
+            itens.push(visao::literal(&conteudo(&estilo)?));
+            Ok(format!("{cabeca}{}", lista_de_estilos(&itens)))
+        })
+    };
+    vec![
+        (
+            destino(".shim.dart"),
+            saida(".shim.dart", &|t| {
+                css::shim(t).map_err(|_| recusa(Motivo::Estilos, "CSS que o shim do ngdart recusa (o oficial lança)"))
+            }),
+        ),
+        (destino(".dart"), saida(".dart", &|t| Ok(t.to_string()))),
+    ]
+}
+
+/// `final List<Object> styles = [..];` como o emissor o escreve (o
+/// `.css.dart` não passa pelo `DartFormatter`): com um item, numa linha;
+/// com mais, `[` e os itens na linha seguinte, dois espaços para dentro,
+/// separados por `,` e quebrando quando a linha passa de 80
+/// (`visitAllObjects` com `keepOnSameLine`, `currentLineLength` = nível de
+/// indentação + caracteres), e `]` e `;` em linhas próprias.
+fn lista_de_estilos(itens: &[String]) -> String {
+    if let [item] = itens {
+        return format!("final List<Object> styles = [{item}];");
+    }
+    let mut linhas = vec!["final List<Object> styles = [".to_string()];
+    let mut linha = String::new();
+    for (k, item) in itens.iter().enumerate() {
+        linha.push_str(item);
+        if k + 1 < itens.len() {
+            // O teste vê a linha antes do separador (em unidades UTF-16,
+            // como o `String.length` do Dart); a vírgula vai de todo jeito.
+            let quebra = 1 + linha.encode_utf16().count() > 80;
+            linha.push(',');
+            if quebra {
+                linhas.push(format!("  {linha}"));
+                linha.clear();
             }
         }
-    };
-    css::shim(&texto).is_ok()
+    }
+    linhas.push(format!("  {linha}"));
+    linhas.push("]".to_string());
+    linhas.push(";".to_string());
+    linhas.join("\n")
+}
+
+/// `extractStyleUrls`: cada `@import` (a `_cssImportRe` do oficial,
+/// `@import\s+(?:url\()?\s*(?:(?:['"]([^'"]*))|([^;\)\s]*))[^;]*;?`) com
+/// URL resolúvel — relativa, `package:` ou `asset:` — sai do texto, e a URL
+/// resolvida contra a da folha entra na lista; a de outro esquema ou
+/// absoluta fica.
+fn extrair_imports(asset: &str, css: &str) -> (String, Vec<String>) {
+    let mut saida = String::with_capacity(css.len());
+    let mut urls = Vec::new();
+    let b = css.as_bytes();
+    let mut i = 0;
+    let mut copiado = 0;
+    while let Some(k) = css[i..].find("@import") {
+        let ini = i + k;
+        let mut j = ini + "@import".len();
+        // `\s+`
+        let espacos = css[j..].len() - css[j..].trim_start().len();
+        if espacos == 0 {
+            i = j;
+            continue;
+        }
+        j += espacos;
+        if css[j..].starts_with("url(") {
+            j += 4;
+        }
+        j += css[j..].len() - css[j..].trim_start().len();
+        let url = if j < b.len() && (b[j] == b'\'' || b[j] == b'"') {
+            j += 1;
+            let f = css[j..].find(['\'', '"']).map_or(css.len(), |f| j + f);
+            let u = css[j..f].to_string();
+            j = f;
+            u
+        } else {
+            let f = css[j..]
+                .find(|c: char| c == ';' || c == ')' || c.is_whitespace())
+                .map_or(css.len(), |f| j + f);
+            let u = css[j..f].to_string();
+            j = f;
+            u
+        };
+        // `[^;]*;?`
+        let fim = match css[j..].find(';') {
+            Some(f) => j + f + 1,
+            None => css.len(),
+        };
+        if resolvivel(&url) {
+            urls.push(resolver_url(asset, &url));
+            saida.push_str(&css[copiado..ini]);
+            copiado = fim;
+        }
+        i = fim.max(ini + 1);
+    }
+    saida.push_str(&css[copiado..]);
+    (saida, urls)
+}
+
+/// `isStyleUrlResolvable`.
+fn resolvivel(url: &str) -> bool {
+    if url.is_empty() || url.starts_with('/') {
+        return false;
+    }
+    match url.find(':') {
+        Some(k) if !url[..k].contains(['/', '?', '#']) && k > 0 => {
+            matches!(&url[..k], "package" | "asset")
+        }
+        _ => true,
+    }
+}
+
+/// `Uri.parse(base).resolve(url)` para as URLs de folha: com esquema, ela
+/// mesma; relativa, contra a pasta da base, sem `.` e `..`.
+fn resolver_url(base: &str, url: &str) -> String {
+    if url.starts_with("package:") || url.starts_with("asset:") {
+        return url.to_string();
+    }
+    let (esquema, caminho) = base.split_once(':').unwrap_or(("", base));
+    let pasta = caminho.rsplit_once('/').map_or("", |(p, _)| p);
+    let mut partes: Vec<&str> = pasta.split('/').filter(|p| !p.is_empty()).collect();
+    for p in url.split('/') {
+        match p {
+            "." | "" => {}
+            ".." => {
+                partes.pop();
+            }
+            p => partes.push(p),
+        }
+    }
+    format!("{esquema}:{}", partes.join("/"))
 }
 
 /// Conjunto de recusas de um arquivo pendente, para o placar: a primeira,
@@ -1467,28 +1622,32 @@ pub fn gerar_com_apoio(
 mod testes {
     use super::*;
 
-    /// A folha sem shim do `ViewEncapsulation.none` é o `.css` tal qual;
-    /// Sass e `@import` são recusados (caso i88).
+    /// Cada `.css` dá o `.css.shim.dart` e o `.css.dart` (o texto tal
+    /// qual); a folha da saída do `sass_builder` vale sobre o disco, e o
+    /// `@import` é recusado nas duas.
     #[test]
-    fn folha_sem_shim_so_do_css_escrito() {
+    fn gerar_folha_da_as_duas_saidas() {
         let dir = tempfile::tempdir().expect("temporário");
-        let fonte = dir.path().join("x.dart");
-        std::fs::write(dir.path().join("a.css"), ".a { color: red; }\n").unwrap();
-        std::fs::write(dir.path().join("b.css"), "@import 'c.css';\n").unwrap();
-        std::fs::write(dir.path().join("s.scss"), ".a { b: c; }").unwrap();
+        let a = dir.path().join("a.css");
+        std::fs::write(&a, ".a { content: '\\e939'; }\n").unwrap();
+        let b = dir.path().join("b.css");
+        std::fs::write(&b, "@import 'c.css';\n").unwrap();
+        let mut pacote = Pacote::default();
+        let saidas = gerar_folha(&pacote, &a);
+        assert_eq!(saidas[0].0, dir.path().join("a.css.shim.dart"));
+        assert_eq!(saidas[1].0, dir.path().join("a.css.dart"));
         assert_eq!(
-            folha_sem_shim(&fonte, "a.css").as_deref(),
-            Ok(".a { color: red; }\n")
+            saidas[1].1.as_deref(),
+            Ok("final List<Object> styles = ['.a { content: \\'\\\\e939\\'; }\\n'];")
         );
+        assert!(gerar_folha(&pacote, &b).iter().all(|(_, r)| r.is_err()));
+        pacote.folhas_geradas.insert(a.clone(), ".x{}".to_string());
         assert_eq!(
-            folha_sem_shim(&fonte, "b.css"),
-            Err("ViewEncapsulation.none com @import na folha")
+            gerar_folha(&pacote, &a)[1].1.as_deref(),
+            Ok("final List<Object> styles = ['.x{}'];")
         );
-        assert_eq!(
-            folha_sem_shim(&fonte, "s.css"),
-            Err("ViewEncapsulation.none com folha Sass")
-        );
-        assert_eq!(folha_sem_shim(&fonte, "z.css"), Err("folha não encontrada"));
+        let z = dir.path().join("z.css");
+        assert!(gerar_folha(&pacote, &z).iter().all(|(_, r)| r.is_err()));
     }
 
     fn achados_de(fonte: &str) -> Achados {

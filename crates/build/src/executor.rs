@@ -33,6 +33,9 @@ pub struct PedidoNativo {
     pub pacote: String,
     pub raiz_do_pacote: PathBuf,
     pub acoes: Vec<AcaoNativa>,
+    /// A raiz de cada pacote do `package_config.json` (o `package:` do Sass
+    /// resolve por elas, como o `AssetId.resolve` do `build`).
+    pub raizes: BTreeMap<String, PathBuf>,
 }
 
 /// O que um gerador nativo devolve: conteúdo por caminho natural de saída, e

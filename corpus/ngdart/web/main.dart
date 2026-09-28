@@ -210,10 +210,24 @@ import 'package:corpus_ngdart/src/j13_ref_com_membro.template.dart' as j13;
 import 'package:corpus_ngdart/src/j14_view_child_read_em_if.template.dart' as j14;
 import 'package:corpus_ngdart/src/j15_consultas_misturadas.template.dart' as j15;
 import 'package:corpus_ngdart/src/j16_filho_on_push_em_if.template.dart' as j16;
+import 'package:corpus_ngdart/src/j17_varios_resultados.template.dart' as j17;
 import 'package:corpus_ngdart/src/j18_consulta_e_ligacao_em_if.template.dart' as j18;
 import 'package:corpus_ngdart/src/j20_atributo_sem_valor.template.dart' as j20;
 import 'package:corpus_ngdart/src/j21_argumentos_nomeados.template.dart' as j21;
 import 'package:corpus_ngdart/src/j22_estilo_escape.template.dart' as j22;
+import 'package:corpus_ngdart/src/j24_usa_abas_on_push.template.dart' as j24;
+import 'package:corpus_ngdart/src/j25_membros_estaticos.template.dart' as j25;
+import 'package:corpus_ngdart/src/j27_caixa.template.dart' as j27;
+import 'package:corpus_ngdart/src/j28_usa_caixa.template.dart' as j28;
+import 'package:corpus_ngdart/src/j29_seletor_com_gatilho.template.dart' as j29;
+import 'package:corpus_ngdart/src/j31_usa_caixa.template.dart' as j31;
+import 'package:corpus_ngdart/src/j32_hospedeiro_com_ganchos.template.dart' as j32;
+import 'package:corpus_ngdart/src/j33_hospedeiro_so_init.template.dart' as j33;
+import 'package:corpus_ngdart/src/j34_gatilho_em_tres_ifs.template.dart' as j34;
+import 'package:corpus_ngdart/src/j35_consulta_e_ligacao_na_raiz.template.dart' as j35;
+import 'package:corpus_ngdart/src/j36_estilo_importa.template.dart' as j36;
+import 'package:corpus_ngdart/src/j37_filho_sem_projecao.template.dart' as j37;
+import 'package:corpus_ngdart/src/j38_preguicoso_e_texto.template.dart' as j38;
 
 void main() {
   print([
@@ -426,9 +440,23 @@ void main() {
     j14.J14ViewChildReadEmIfNgFactory,
     j15.J15ConsultasMisturadasNgFactory,
     j16.J16FilhoOnPushEmIfNgFactory,
+    j17.J17VariosResultadosNgFactory,
     j18.J18ConsultaELigacaoEmIfNgFactory,
     j20.J20AtributoSemValorNgFactory,
     j21.J21ArgumentosNomeadosNgFactory,
     j22.J22EstiloEscapeNgFactory,
+    j24.J24UsaAbasOnPushNgFactory,
+    j25.J25MembrosEstaticosNgFactory,
+    j27.J27CaixaNgFactory,
+    j28.J28UsaCaixaNgFactory,
+    j29.J29SeletorNgFactory,
+    j31.J31UsaCaixaNgFactory,
+    j32.J32HospedeiroComGanchosNgFactory,
+    j33.J33HospedeiroSoInitNgFactory,
+    j34.J34GatilhoEmTresIfsNgFactory,
+    j35.J35ConsultaELigacaoNaRaizNgFactory,
+    j36.J36EstiloImportaNgFactory,
+    j37.J37FilhoSemProjecaoNgFactory,
+    j38.J38PreguicosoETextoNgFactory,
   ].length);
 }

@@ -161,6 +161,10 @@ pub struct Escopo<'a> {
     pub aridades: &'a HashMap<String, usize>,
     pub locais: &'a HashMap<String, Local>,
     pub tipos: Option<(&'a dyn Resolucao, &'a Path)>,
+    /// A classe do componente como o arquivo gerado a escreve
+    /// (`import1.Classe`), para os membros estáticos; `None` quando não se
+    /// sabe, e o estático é recusado.
+    pub classe: Option<&'a str>,
 }
 
 /// Converte uma expressão escrita no template.
@@ -213,6 +217,7 @@ pub fn converter_com_locais(
         aridades: &aridades,
         locais,
         tipos,
+        classe: None,
     };
     converter_no_escopo(expressao, &escopo, interner)
 }
@@ -365,6 +370,9 @@ impl Conversor<'_> {
         if !self.escopo.metodos.contains_key(nome) && !self.escopo.membros.contains_key(nome) {
             return Err(fora("handler que não é membro do componente"));
         }
+        if self.escopo.membros.get(nome).is_some_and(|m| m.estatico) {
+            return Err(fora("handler em membro estático"));
+        }
         let arg = if aridade == 1 { "$event" } else { "" };
         Ok(Acao::Simples {
             metodo: nome.to_string(),
@@ -446,10 +454,14 @@ impl Conversor<'_> {
                 if self.escopo.locais.contains_key(nome) || nome == "$event" {
                     return Err(fora("atribuição a local"));
                 }
-                if !self.escopo.membros.contains_key(nome) {
-                    return Err(fora("atribuição a nome fora do componente"));
+                match self.escopo.membros.get(nome) {
+                    None => return Err(fora("atribuição a nome fora do componente")),
+                    Some(m) if m.estatico => match self.escopo.classe {
+                        Some(classe) => (format!("{classe}.{nome}"), Vec::new()),
+                        None => return Err(fora("membro estático sem a classe qualificada")),
+                    },
+                    Some(_) => (format!("_ctx.{nome}"), Vec::new()),
                 }
-                (format!("_ctx.{nome}"), Vec::new())
             }
             ast::ExprKind::Property {
                 target: t,
@@ -590,6 +602,19 @@ impl Conversor<'_> {
                 let Some(m) = self.escopo.membros.get(nome) else {
                     return Err(fora("nome fora do componente"));
                 };
+                // Estático: `importExpr` da classe e o nome; `isImmutable`
+                // pelo campo (`final`/`const`), tipo `dynamic` e, fora do
+                // literal, pode ser nulo (caso j25).
+                if m.estatico {
+                    let Some(classe) = self.escopo.classe else {
+                        return Err(fora("membro estático sem a classe qualificada"));
+                    };
+                    return Ok(Convertida {
+                        imutavel: m.imutavel,
+                        tipo: Some("dynamic".into()),
+                        ..Convertida::nova(format!("{classe}.{nome}"), "membro estático")
+                    });
+                }
                 // `isImmutable` de `PropertyRead` com receptor implícito:
                 // campo `final`/`const` (o getter já chega aqui mutável).
                 Ok(Convertida {
@@ -617,9 +642,18 @@ impl Conversor<'_> {
                     }
                     _ => None,
                 };
+                // Receptor de tipo que não existe no escopo (`InvalidType`:
+                // a classe de um arquivo que a fase do ngdart ainda não vê)
+                // também dá `dynamic`.
+                let inexistente = match (&alvo.tipo, self.escopo.tipos) {
+                    (Some(t), Some((r, arquivo))) => {
+                        r.tipo_inexistente(alvo.escopo.as_deref().unwrap_or(arquivo), t)
+                    }
+                    _ => false,
+                };
                 let (tipo, escopo) = match achado {
                     Some((t, e)) => (Some(t), Some(e)),
-                    None if alvo.tipo.as_deref() == Some("dynamic") => {
+                    None if alvo.tipo.as_deref() == Some("dynamic") || inexistente => {
                         (Some("dynamic".to_string()), None)
                     }
                     None => (None, None),
@@ -920,6 +954,7 @@ mod testes {
                 Membro {
                     tipo: "Item".into(),
                     imutavel: false,
+                    estatico: false,
                 },
             ),
             (
@@ -927,6 +962,7 @@ mod testes {
                 Membro {
                     tipo: "String".into(),
                     imutavel: false,
+                    estatico: false,
                 },
             ),
             (
@@ -934,6 +970,7 @@ mod testes {
                 Membro {
                     tipo: "int".into(),
                     imutavel: true,
+                    estatico: false,
                 },
             ),
             (
@@ -941,6 +978,7 @@ mod testes {
                 Membro {
                     tipo: "String".into(),
                     imutavel: true,
+                    estatico: false,
                 },
             ),
         ])
@@ -1078,6 +1116,7 @@ mod testes {
             aridades: &aridades,
             locais: &locais,
             tipos: None,
+            classe: None,
         };
         converter_acao(e, &escopo, &mut Interner::new()).expect("converte")
     }

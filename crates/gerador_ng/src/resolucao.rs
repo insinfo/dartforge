@@ -45,6 +45,16 @@ pub trait Resolucao {
         None
     }
 
+    /// O nome-base do tipo `tipo` (sem `?` e sem argumentos de tipo) não
+    /// está declarado no escopo de `arquivo` — nem importado, nem no
+    /// `dart:core`. Para o analyzer é um `InvalidType`, e o `_TypeResolver`
+    /// do oficial dá `dynamic` a qualquer membro lido dele (caso típico: a
+    /// classe vem de um arquivo gerado por uma fase posterior, que o
+    /// resolvedor do builder não enxerga). `false` quando não se sabe.
+    fn tipo_inexistente(&self, _arquivo: &Path, _tipo: &str) -> bool {
+        false
+    }
+
     /// O que um nome de `directives:` designa no escopo de `arquivo`: uma
     /// classe ou uma lista constante de outros nomes.
     fn designado(&self, arquivo: &Path, nome: &str) -> Option<Designado> {
@@ -290,6 +300,37 @@ impl Resolucao for Resolvedor<'_> {
     ) -> Option<(String, PathBuf)> {
         let classe = self.classe(arquivo, tipo)?;
         self.membro_da_classe(classe, membro)
+    }
+
+    fn tipo_inexistente(&self, arquivo: &Path, tipo: &str) -> bool {
+        let Some(lib) = self.biblioteca(arquivo) else {
+            return false;
+        };
+        let base = tipo.trim().trim_end_matches('?');
+        let base = base.split('<').next().unwrap_or(base).trim();
+        // Tipo de função, registro ou palavra reservada: não é nome a achar.
+        if base.is_empty()
+            || !base.chars().all(|c| c.is_alphanumeric() || matches!(c, '_' | '$' | '.'))
+            || matches!(base, "dynamic" | "void" | "Never" | "Function" | "Null")
+        {
+            return false;
+        }
+        let biblioteca = self.program.library(lib);
+        let (prefixo, simples) = match base.split_once('.') {
+            Some((p, t)) => (Some(p), t),
+            None => (None, base),
+        };
+        let espaco = match prefixo {
+            None => &biblioteca.scope,
+            Some(p) => match self.interner.lookup(p).and_then(|ps| biblioteca.prefixes.get(&ps)) {
+                Some(e) => e,
+                None => return true,
+            },
+        };
+        match self.interner.lookup(simples) {
+            None => true,
+            Some(sym) => espaco.get(&sym).is_none(),
+        }
     }
 
     fn membro_final(&self, arquivo: &Path, tipo: &str, membro: &str) -> Option<bool> {

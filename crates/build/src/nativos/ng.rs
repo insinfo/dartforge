@@ -199,8 +199,12 @@ impl GeradorNativo for NgEstagioA {
         }
         let mut s = SaidaNativa::default();
         let mut fontes_do_recurso: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
+        // O gerador escreve para todo arquivo dos diretórios; o motor fica só
+        // com as saídas que o plano espera (o `generate_for` do `build.yaml`
+        // tira, por exemplo, as folhas de `web/assets/`).
+        let planejadas = planejadas(pedido);
         for (p, f) in g.iter() {
-            if f.gerador == "ngdart" {
+            if f.gerador == "ngdart" && planejadas.contains(&dartforge_elements::gerado::chave(p)) {
                 s.saidas.insert(p.clone(), f.conteudo.as_bytes().to_vec());
                 if p.to_string_lossy().ends_with(".template.dart") {
                     if let Some(fonte) = f.entradas.first() {
@@ -214,6 +218,8 @@ impl GeradorNativo for NgEstagioA {
             }
         }
         for (i, p) in placar.pendentes.iter().enumerate() {
+            // A folha recusada vem pelo destino: a recusa é da entrada.
+            let p = &folha_de_destino(p).unwrap_or_else(|| p.clone());
             let m = placar
                 .conjuntos
                 .get(i)
@@ -229,6 +235,22 @@ impl GeradorNativo for NgEstagioA {
         );
         Ok(s)
     }
+}
+
+/// As saídas que o plano espera das ações do pedido, pela chave.
+fn planejadas(pedido: &PedidoNativo) -> std::collections::HashSet<PathBuf> {
+    pedido
+        .acoes
+        .iter()
+        .flat_map(|a| a.saidas.iter().map(|(_, p)| dartforge_elements::gerado::chave(p)))
+        .collect()
+}
+
+/// A folha `x.css` de uma saída `x.css.dart`/`x.css.shim.dart`.
+fn folha_de_destino(p: &Path) -> Option<PathBuf> {
+    let nome = p.file_name()?.to_string_lossy();
+    let base = nome.strip_suffix(".shim.dart").or_else(|| nome.strip_suffix(".dart"))?;
+    base.ends_with(".css").then(|| p.with_file_name(base))
 }
 
 fn clone_saida(s: &SaidaNativa) -> SaidaNativa {
@@ -426,6 +448,34 @@ impl NgEstagioA {
         }
         let mut cache = self.cache.lock().ok()?;
         let cache = cache.get_mut(&pedido.pacote)?;
+        // Uma folha (o `.css`, ou o `.scss` que o `sass_builder` compila):
+        // só as saídas dela, que não dependem de nenhum componente.
+        if recurso.extension().is_some_and(|e| matches!(e.to_str(), Some("css" | "scss" | "sass"))) {
+            let pacote = dartforge_gerador_ng::Pacote {
+                nome: pedido.pacote.clone(),
+                raiz: pedido.raiz_do_pacote.clone(),
+                folhas_geradas: folhas_geradas(ctx, &pedido.raiz_do_pacote),
+            };
+            let css = recurso.with_extension("css");
+            let mut novas = Vec::new();
+            for (destino, r) in dartforge_gerador_ng::gerar_folha(&pacote, &css) {
+                // Saída que não era nossa, ou que deixa de ser: o caminho
+                // completo decide.
+                let bytes = r.ok()?.into_bytes();
+                if !cache.saida.saidas.contains_key(&destino) {
+                    return None;
+                }
+                novas.push((destino, bytes));
+            }
+            for (destino, bytes) in novas {
+                cache.saida.saidas.insert(destino, bytes);
+            }
+            let mut saida = clone_saida(&cache.saida);
+            saida.unidades_geradas = 1;
+            saida.reutilizar_consultas = true;
+            ctx.registrar(Consulta::Arquivo(recurso.clone()));
+            return Some(saida);
+        }
         let fontes = cache.fontes_do_recurso.get(recurso)?.clone();
         let (programa, nomes_programa) = ctx.programa?;
         let pacote = dartforge_gerador_ng::Pacote {
