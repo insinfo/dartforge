@@ -571,8 +571,14 @@ do fecho sai numa linha (`return [a, b];`) — caso j89. `read:` de um
 provedor ou diretiva do nó (nem o nó, nem `ElementRef`): o token lido entra
 no resolvedor como ansioso (`queriedTokens` do `ProviderElementContext`) e a
 consulta recebe a instância, na forma estática e na dinâmica; o nó não vira
-campo só por isso — casos j89 e j90. Corpus: **323 conferidos, 0
-pendentes**.
+campo só por isso — casos j89 e j90. Construtor com `@Attribute('x')` e
+`@Inject(token)` (classe, `OpaqueToken`, `MultiToken`): no nó de um filho,
+os parâmetros vêm dos metadados do programa
+(`_getCompileDiDependencyMetadata`: o atributo é o valor literal do
+elemento ou `null`, o token vai ao injetor como `const OpaqueToken<T>('x')`);
+na hospedeira, o atributo é `null`. Uma visão cujas interpolações são todas
+imutáveis não tem `TextBinding`, e o import dele não é alocado — caso j91.
+Corpus: **324 conferidos, 0 pendentes**.
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada
 pendente com o motivo): **948 iguais / 2 pendentes / 0 diferentes** —
 `.template.dart` **532/0/0**, `.css` e `.css.map` do Sass 102/102 cada,

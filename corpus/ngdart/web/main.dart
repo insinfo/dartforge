@@ -276,6 +276,7 @@ import 'package:corpus_ngdart/src/j85_diretivas_de_template.template.dart' as j8
 import 'package:corpus_ngdart/src/j86_consulta_em_molde.template.dart' as j86;
 import 'package:corpus_ngdart/src/j89_consultas_na_mesma_embutida.template.dart' as j89;
 import 'package:corpus_ngdart/src/j90_leitura_de_provedor.template.dart' as j90;
+import 'package:corpus_ngdart/src/j91_filho_com_inject.template.dart' as j91;
 
 void main() {
   print([
@@ -556,5 +557,6 @@ void main() {
     j86.J86ConsultaEmMoldeNgFactory,
     j89.J89ConsultasNaMesmaEmbutidaNgFactory,
     j90.J90LeituraDeProvedorNgFactory,
+    j91.J91FilhoComInjectNgFactory,
   ].length);
 }

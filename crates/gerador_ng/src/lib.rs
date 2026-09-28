@@ -699,6 +699,18 @@ impl Indice {
                 if crate::visao::provedores_escreviveis(&m).is_ok() {
                     f.pendencias.retain(|p| p.forma != "filho com providers");
                 }
+                // Os parâmetros do construtor pelos metadados (`@Inject`,
+                // `@Attribute`, tokens opacos): trocam os lidos do texto e a
+                // recusa que eles deram.
+                if let Ok(ps) = parametros_dos_metadados(comp, &m) {
+                    let recusa_do_texto = comp.parametros.iter().find_map(|p| {
+                        injetado(p, caminho, Some(r as &dyn resolucao::Resolucao)).err()
+                    });
+                    if let Some(forma) = recusa_do_texto {
+                        f.pendencias.retain(|p| p.forma != forma);
+                    }
+                    f.parametros = ps;
+                }
                 f.metadados = Some(std::sync::Arc::new(m));
             }
             chaves.push(k);
@@ -939,6 +951,66 @@ fn filhos_por_tag(usadas: &[visao::Usada]) -> std::collections::HashMap<String, 
     saida
 }
 
+/// Os parâmetros do construtor de um filho pelos metadados lidos do
+/// programa (`_getCompileDiDependencyMetadata`: os nomeados ficam de fora;
+/// `@Inject(token)` e `@Attribute('nome')` resolvidos), como o oficial os
+/// resolve no nó dele. Um tipo genérico sem `@Inject` e os embutidos do
+/// elemento anotados ainda não se traduzem.
+fn parametros_dos_metadados(
+    comp: &componente::Componente,
+    meta: &diretivas::Diretiva,
+) -> Result<Vec<visao::Injetado>, &'static str> {
+    use diretivas::Token;
+    if !meta.fora.is_empty() {
+        return Err("metadados do filho incompletos");
+    }
+    let textuais: Vec<&componente::Parametro> =
+        comp.parametros.iter().filter(|p| !p.nomeado).collect();
+    if textuais.len() != meta.dependencias.len() {
+        return Err("parâmetros do filho sem os metadados");
+    }
+    let mut saida = Vec::new();
+    for (p, d) in textuais.iter().zip(&meta.dependencias) {
+        if !p.outra_anotacao && p.tipo.as_deref().is_some_and(|t| t.contains('<')) {
+            return Err("token genérico no construtor do filho");
+        }
+        if let Some(nome) = &d.atributo {
+            saida.push(visao::Injetado::Atributo(nome.clone()));
+            continue;
+        }
+        let anotado = d.opcional || d.proprio || d.hospedeiro || d.pular;
+        let embutido = match &d.token {
+            Token::Elemento | Token::Detector => true,
+            Token::Classe { uri, .. } => uri.starts_with("package:ngdart/"),
+            _ => false,
+        };
+        if embutido && anotado {
+            return Err("embutido do elemento anotado no construtor do filho");
+        }
+        saida.push(match &d.token {
+            Token::Elemento => visao::Injetado::Elemento,
+            Token::Detector => visao::Injetado::Detector,
+            Token::Classe { uri, classe } if uri.starts_with("package:ngdart/") => {
+                match classe.as_str() {
+                    "ViewContainerRef" => visao::Injetado::Container,
+                    _ => return Err("token do ngdart no construtor do filho"),
+                }
+            }
+            Token::Classe { uri, .. } if uri.starts_with("dart:") => {
+                return Err("tipo do SDK no construtor do filho");
+            }
+            t => visao::Injetado::Servico {
+                token: t.clone(),
+                opcional: d.opcional,
+                proprio: d.proprio,
+                hospedeiro: d.hospedeiro,
+                pular: d.pular,
+            },
+        });
+    }
+    Ok(saida)
+}
+
 /// Como o oficial resolve um parâmetro do construtor de um filho no nó dele:
 /// o nó, a visão do filho ou um serviço de fora da visão. O resto (outro
 /// token do ngdart, `@Inject`, `@Self`, genérico, nomeado) ainda não.
@@ -990,8 +1062,10 @@ fn injetado(
         return Err("tipo do SDK no construtor do filho");
     }
     Ok(visao::Injetado::Servico {
-        uri,
-        classe: simples,
+        token: diretivas::Token::Classe {
+            uri,
+            classe: simples,
+        },
         opcional: p.opcional,
         proprio: p.proprio,
         hospedeiro: p.hospedeiro,

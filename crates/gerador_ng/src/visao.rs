@@ -21,7 +21,7 @@ use std::fmt::Write;
 use std::path::Path;
 
 /// Tabela de imports do arquivo gerado.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Importacoes {
     /// (chave, URI, com prefixo). A chave é a URI, a não ser quando o
     /// oficial importa a mesma biblioteca duas vezes (ver [`Self::q_chave`]).
@@ -2636,14 +2636,17 @@ pub enum Injetado {
     /// (`injectFromViewParentInjector`), `injectorGetOptional` com
     /// `@Optional()`.
     Servico {
-        uri: String,
-        classe: String,
+        /// A classe, ou o `OpaqueToken`/`MultiToken` do `@Inject(..)`.
+        token: crate::diretivas::Token,
         opcional: bool,
         /// `@Self()`, `@Host()`, `@SkipSelf()` (`_getDependency`).
         proprio: bool,
         hospedeiro: bool,
         pular: bool,
     },
+    /// `@Attribute('nome')`: o valor literal do atributo no elemento do
+    /// filho, ou `null` (`_getLocalDependency`).
+    Atributo(String),
 }
 
 /// De onde vem um serviço que o filho injeta (`_getDependency`).
@@ -2874,6 +2877,8 @@ struct Corpo<'a> {
     /// Prefixo do `text_binding.dart`, alocado antes do resto quando o
     /// template tem interpolação (a ordem dos imports segue a ordem em que o
     /// oficial escreve o arquivo, e os campos vêm primeiro).
+    /// Algum campo `TextBinding` foi criado nesta visão.
+    tb_usado: bool,
     tb: Option<String>,
     /// URI `package:` do arquivo do template, para o comentário `REF`.
     url_do_template: Option<String>,
@@ -4058,7 +4063,7 @@ impl Corpo<'_> {
                     .map(|t| (t.clone(), i.leitura.clone()))
             })
             .collect();
-        let construcao = self.construcao_do_filho(filho, n, &el, &vd, &campo_vista, &do_no)?;
+        let construcao = self.construcao_do_filho(e, filho, n, &el, &vd, &campo_vista, &do_no)?;
         self.linhas
             .push(format!("    this.{campo_inst} = {construcao};"));
         let mut acima = self.pilha.clone();
@@ -4412,6 +4417,7 @@ impl Corpo<'_> {
     /// `isDevMode`, como na hospedeira.
     fn construcao_do_filho(
         &mut self,
+        e: &crate::html::Elemento,
         filho: &Filho,
         n: u32,
         el: &str,
@@ -4421,28 +4427,25 @@ impl Corpo<'_> {
     ) -> Result<String, Recusa> {
         let em_filho = |f: &str| recusa(Motivo::LigacaoEmFilho, f);
         let classe = &filho.classe;
-        let do_proprio_no = |uri: &str, tipo: &str| {
-            do_no.iter().find_map(|(t, c)| {
-                matches!(t, crate::diretivas::Token::Classe { uri: u, classe: k }
-                    if u == uri && k == tipo)
-                .then_some(c)
-            })
+        let do_proprio_no = |token: &crate::diretivas::Token| {
+            do_no.iter().find_map(|(t, c)| (t == token).then_some(c))
         };
         // Os provedores dos elementos acima (`_getDependency` sobe por eles
         // antes do injetor de fora), com o import do `unsafeCast` tardio.
         let provedores_acima = self.provedores_acima_com(&tardio(UTILITIES));
-        let de_cima = |uri: &str, tipo: &str| {
-            provedores_acima.iter().find_map(|p| {
-                matches!(&p.token, crate::diretivas::Token::Classe { uri: u, classe: k }
-                    if u == uri && k == tipo)
-                .then_some(p.leitura.as_str())
-            })
+        let de_cima = |token: &crate::diretivas::Token| {
+            provedores_acima
+                .iter()
+                .find_map(|p| (p.token == *token).then_some(p.leitura.as_str()))
         };
         // A classe do componente desta visão: o `@Host()` a acha no injetor
         // (`identifierToken(component.type).equalsTo(dep.token)`).
-        let proprio_componente = |uri: &str, tipo: &str| {
-            self.classe_qualificada.rsplit('.').next() == Some(tipo)
-                && asset_de_uri(uri, "", Path::new("")).as_deref() == Some(self.asset.as_str())
+        let proprio_componente = |token: &crate::diretivas::Token| match token {
+            crate::diretivas::Token::Classe { uri, classe: tipo } => {
+                self.classe_qualificada.rsplit('.').next() == Some(tipo.as_str())
+                    && asset_de_uri(uri, "", Path::new("")).as_deref() == Some(self.asset.as_str())
+            }
+            _ => false,
         };
         // `_getDependency`: o próprio nó (sem `@SkipSelf`); com `@Self`, só
         // ele; senão os elementos acima; e, não achando, o injetor de fora —
@@ -4451,8 +4454,7 @@ impl Corpo<'_> {
         let mut origens = Vec::new();
         for p in &filho.parametros {
             let Injetado::Servico {
-                uri,
-                classe: tipo,
+                token,
                 opcional,
                 proprio,
                 hospedeiro,
@@ -4462,7 +4464,7 @@ impl Corpo<'_> {
                 origens.push(None);
                 continue;
             };
-            if !pular && let Some(c) = do_proprio_no(uri, tipo) {
+            if !pular && let Some(c) = do_proprio_no(token) {
                 origens.push(Some(OrigemDoServico::Local(c.clone())));
                 continue;
             }
@@ -4475,10 +4477,7 @@ impl Corpo<'_> {
             }
             // Embutido do elemento: o oficial o acha no nó, nunca no
             // injetor de fora (ainda sem caso no nó do filho).
-            if crate::diretivas::embutido_do_elemento(&crate::diretivas::Token::Classe {
-                uri: uri.clone(),
-                classe: tipo.clone(),
-            }) {
+            if crate::diretivas::embutido_do_elemento(token) {
                 return Err(em_filho(
                     "filho que injeta embutido do elemento (ViewContainerRef…)",
                 ));
@@ -4486,7 +4485,7 @@ impl Corpo<'_> {
             // Um elemento acima provê o serviço (também um componente acima,
             // cujo conteúdo contém o filho): o oficial o lê de lá — o campo,
             // ou `.instance` do `XNgCd` (casos j68, j79).
-            if let Some(leitura) = de_cima(uri, tipo) {
+            if let Some(leitura) = de_cima(token) {
                 origens.push(Some(OrigemDoServico::Cima(leitura.to_string())));
                 continue;
             }
@@ -4497,7 +4496,7 @@ impl Corpo<'_> {
                     "filho que injeta serviço sob componente sem metadados",
                 ));
             }
-            if *hospedeiro && !proprio_componente(uri, tipo) {
+            if *hospedeiro && !proprio_componente(token) {
                 if !opcional {
                     return Err(em_filho("@Host() sem provedor na visão do filho"));
                 }
@@ -4531,11 +4530,16 @@ impl Corpo<'_> {
                 Injetado::Elemento => args.push(el.to_string()),
                 Injetado::Detector => args.push(format!("this.{campo_vista}")),
                 Injetado::Container => args.push(format!("this._appEl_{n}")),
+                // O valor literal do atributo no elemento (`_attrs[nome]`),
+                // ou `null`.
+                Injetado::Atributo(nome) => args.push(
+                    e.atributos
+                        .iter()
+                        .find(|a| a.nome == *nome && !a.valor.contains("{{"))
+                        .map_or_else(|| "null".to_string(), |a| literal(&a.valor)),
+                ),
                 Injetado::Servico {
-                    uri,
-                    classe: tipo,
-                    opcional,
-                    ..
+                    token, opcional, ..
                 } => {
                     match origem {
                         Some(OrigemDoServico::Local(c)) => {
@@ -4552,10 +4556,19 @@ impl Corpo<'_> {
                         }
                         _ => {}
                     }
-                    let caminho = asset_de_uri(uri, "", Path::new(""))
-                        .and_then(|alvo| caminho_do_import(&self.asset, &alvo))
-                        .ok_or_else(|| em_filho("tipo injetado no filho sem caminho de import"))?;
-                    let q = self.imp.q(&caminho);
+                    let expr = match token {
+                        crate::diretivas::Token::Classe { uri, classe: tipo } => {
+                            let caminho = asset_de_uri(uri, "", Path::new(""))
+                                .and_then(|alvo| caminho_do_import(&self.asset, &alvo))
+                                .ok_or_else(|| {
+                                    em_filho("tipo injetado no filho sem caminho de import")
+                                })?;
+                            format!("{}{tipo}", self.imp.q(&caminho))
+                        }
+                        // `const OpaqueToken<T>('x')`, com os imports na
+                        // ordem do texto.
+                        outro => resolver_tardios(self.imp, &expr_do_token(outro)),
+                    };
                     let metodo = if *opcional {
                         "injectorGetOptional"
                     } else {
@@ -4563,7 +4576,7 @@ impl Corpo<'_> {
                     };
                     let v = &visao_do_componente;
                     args.push(format!(
-                        "({v}.parentView!).{metodo}({q}{tipo}, {v}.parentIndex)"
+                        "({v}.parentView!).{metodo}({expr}, {v}.parentIndex)"
                     ));
                 }
             }
@@ -5884,12 +5897,6 @@ impl Corpo<'_> {
         pai: &str,
     ) -> Result<(), Recusa> {
         let url = self.url(Motivo::Interpolacao)?;
-        let Some(tb) = self.tb.clone() else {
-            return Err(recusa(
-                Motivo::Interpolacao,
-                "interpolação sem ligação de texto",
-            ));
-        };
         // Sem pai: raiz de uma visão embutida (o `*` num `<ng-container>`)
         // ou conteúdo projetado — o nó é o próprio `TextBinding.element`, ou
         // o `createText(valor)` quando imutável (`createTextBinding` sem
@@ -5950,6 +5957,13 @@ impl Corpo<'_> {
             }
             return Ok(());
         }
+        let Some(tb) = self.tb.clone() else {
+            return Err(recusa(
+                Motivo::Interpolacao,
+                "interpolação sem ligação de texto",
+            ));
+        };
+        self.tb_usado = true;
         self.campos.push(format!(
             "  final {tb}.TextBinding _textBinding_{n} = {tb}.TextBinding();"
         ));
@@ -7532,18 +7546,13 @@ fn pedidos_do_conteudo(
         if let Some(f) = filho {
             for p in &f.parametros {
                 if let Injetado::Servico {
-                    uri,
-                    classe,
+                    token,
                     proprio,
                     pular,
                     ..
                 } = p
                 {
-                    let t = Token::Classe {
-                        uri: uri.clone(),
-                        classe: classe.clone(),
-                    };
-                    deps.push((t, *proprio, *pular));
+                    deps.push((token.clone(), *proprio, *pular));
                 }
             }
         }
@@ -8127,6 +8136,7 @@ impl<'a> Contexto<'a> {
             usa_primeira_checagem: false,
             entradas: Vec::new(),
             tb: None,
+            tb_usado: false,
             url_do_template: self.url_do_template.clone(),
             membros: self.membros,
             exportados: self.exportados,
@@ -9725,6 +9735,12 @@ fn ligacoes_do_componente(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// A emissão de um componente. O import do `text_binding.dart` é alocado
+/// antes do corpo, na posição do primeiro campo `TextBinding` da classe;
+/// quando nenhuma interpolação da visão raiz é mutável (todas no `build()`,
+/// `isImmutable`), o campo não existe e a emissão é refeita sem ele, da
+/// mesma tabela de imports (caso j91).
+#[allow(clippy::too_many_arguments)]
 fn gerar_componente(
     c: &Componente,
     local: &Local,
@@ -9737,6 +9753,35 @@ fn gerar_componente(
     coleta: &mut Option<Vec<Recusa>>,
     imp: &mut Importacoes,
 ) -> Result<String, Recusa> {
+    let (imp_antes, coleta_antes) = (imp.clone(), coleta.clone());
+    let (texto, tb_sobrando) = gerar_componente_com(
+        c, local, nos, resolvedor, nomes, filhos, usadas, pipes, coleta, imp, true,
+    )?;
+    if !tb_sobrando {
+        return Ok(texto);
+    }
+    *imp = imp_antes;
+    *coleta = coleta_antes;
+    gerar_componente_com(
+        c, local, nos, resolvedor, nomes, filhos, usadas, pipes, coleta, imp, false,
+    )
+    .map(|(t, _)| t)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn gerar_componente_com(
+    c: &Componente,
+    local: &Local,
+    nos: &[No],
+    resolvedor: Option<&dyn Resolucao>,
+    nomes: &mut dartforge_intern::Interner,
+    filhos: &std::collections::HashMap<String, Filho>,
+    usadas: &[Usada],
+    pipes: &Result<Vec<PipeUsado>, Recusa>,
+    coleta: &mut Option<Vec<Recusa>>,
+    imp: &mut Importacoes,
+    com_tb: bool,
+) -> Result<(String, bool), Recusa> {
     let nos = &template_como_container(nos);
     // Anota na coleta ou interrompe.
     fn anotar(coleta: &mut Option<Vec<Recusa>>, r: Recusa) -> Result<(), Recusa> {
@@ -9877,7 +9922,7 @@ fn gerar_componente(
     if ordem_i18n == Some(true) {
         intl = Some(imp.alias(INTL));
     }
-    let tb = tem_interpolacao(nos).then(|| imp.alias(TEXT_BINDING));
+    let tb = (com_tb && tem_interpolacao(nos)).then(|| imp.alias(TEXT_BINDING));
     if ordem_i18n == Some(false) {
         intl = Some(imp.alias(INTL));
     }
@@ -10071,6 +10116,8 @@ fn gerar_componente(
         &corpo.detectores_em_ordem,
         &corpo.classe_desta_visao(),
     );
+    // O import do `text_binding.dart` pré-alocado sem campo que o use.
+    let tb_sobrando = corpo.tb.is_some() && !corpo.tb_usado && !corpo.coletando();
     // O `ngOnDestroy` dos pipes vem depois dos das diretivas.
     corpo.destruir.extend(tabela.destruicao(0));
     // `@ViewChild` estático: atribuição imediata, no `afterNodes` — depois
@@ -10668,7 +10715,7 @@ class _View{x}Host0 extends {hosp}.HostView<{proprio}.{x}> {{
     if s.contains(MARCA_DE_REF) && coleta.is_none() {
         return Err(recusa(Motivo::Ligacao, "#ref sem nó no template"));
     }
-    Ok(s)
+    Ok((s, tb_sobrando))
 }
 
 /// Os `providers:` de um componente estão na parte que o emissor escreve
@@ -11098,6 +11145,9 @@ fn construcao_do_componente(
     // do injetor, com ou sem `@Host()`; `@Self()` fica no nó (ou `null`,
     // opcional); `@SkipSelf()` pula o nó (`_getDependency`, caso j79).
     let injeta = c.parametros.iter().any(|p| {
+        if let Some(d) = dependencia_anotada(c, local, p) {
+            return d.atributo.is_none() && !locais.iter().any(|(t, _)| *t == d.token);
+        }
         !e_elemento(p.tipo.as_deref())
             && !e_detector(p, local, resolvedor)
             && !e_container(p, local, resolvedor)
@@ -11108,6 +11158,33 @@ fn construcao_do_componente(
     let erros = injeta.then(|| imp.alias(DI_ERRORS));
     let mut args = Vec::new();
     for p in &c.parametros {
+        // `@Attribute`: o elemento hospedeiro não tem atributos (`null`).
+        // `@Inject(token)`: o provedor do nó ou o injetor, pelo token.
+        if let Some(d) = dependencia_anotada(c, local, p) {
+            if d.atributo.is_some() {
+                args.push("null".to_string());
+                continue;
+            }
+            if let Some((_, campo)) = locais.iter().find(|(t, _)| *t == d.token) {
+                args.push(format!("this.{campo}"));
+                continue;
+            }
+            let expr = match &d.token {
+                crate::diretivas::Token::Classe { uri, classe } => {
+                    let asset = asset_de_uri(uri, local.pacote, local.raiz)?;
+                    let caminho = caminho_do_import(&local.asset(), &asset)?;
+                    format!("{}.{classe}", imp.alias(&caminho))
+                }
+                t => resolver_tardios(imp, &expr_do_token(t)),
+            };
+            let metodo = if d.opcional {
+                "injectorGetOptional"
+            } else {
+                "injectorGet"
+            };
+            args.push(format!("this.{metodo}({expr}, this.parentIndex)"));
+            continue;
+        }
         if e_elemento(p.tipo.as_deref()) {
             args.push("_el_0".to_string());
             continue;
@@ -11177,6 +11254,38 @@ fn construcao_do_componente(
     ))
 }
 
+/// A dependência (dos metadados do programa) de um parâmetro com `@Inject`
+/// ou `@Attribute`, pela posição dele entre os não nomeados; `None` sem os
+/// metadados, e também com `@Self`/`@Host`/`@SkipSelf` junto (ainda sem
+/// caso) ou num embutido do elemento.
+fn dependencia_anotada<'m>(
+    c: &Componente,
+    local: &'m Local,
+    p: &crate::componente::Parametro,
+) -> Option<&'m crate::diretivas::Dependencia> {
+    if !p.outra_anotacao || p.nomeado || p.proprio || p.hospedeiro || p.pular {
+        return None;
+    }
+    let k = c
+        .parametros
+        .iter()
+        .filter(|q| !q.nomeado)
+        .position(|q| std::ptr::eq(q, p))?;
+    let meta = local.metadados.as_deref()?;
+    if !meta.fora.is_empty()
+        || meta.dependencias.len() != c.parametros.iter().filter(|q| !q.nomeado).count()
+    {
+        return None;
+    }
+    let d = meta.dependencias.get(k)?;
+    match &d.token {
+        _ if d.atributo.is_some() => Some(d),
+        crate::diretivas::Token::Elemento | crate::diretivas::Token::Detector => None,
+        t if crate::diretivas::embutido_do_elemento(t) => None,
+        _ => Some(d),
+    }
+}
+
 /// O parâmetro é o elemento raiz do componente?
 /// O parâmetro é o `ChangeDetectorRef` do ngdart (sem anotação)?
 fn e_detector(
@@ -11226,6 +11335,9 @@ fn falta_para_construir(
 ) -> Option<Recusa> {
     for p in &c.parametros {
         if e_elemento(p.tipo.as_deref()) {
+            continue;
+        }
+        if dependencia_anotada(c, local, p).is_some() {
             continue;
         }
         if p.outra_anotacao || (p.proprio && !p.opcional) {
