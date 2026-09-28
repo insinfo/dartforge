@@ -4075,31 +4075,18 @@ impl Corpo<'_> {
         let antes_acima = self.acima.len();
         if let Some((r, pos)) = &resolvido {
             let pos = *pos;
-            // Provedor preguiçoso do filho pedido por um nó do conteúdo: o
-            // oficial o cria no `build()`, logo depois do filho (caso i76).
-            // Ainda sem tradução.
-            let preguicosos: Vec<crate::diretivas::Token> = r.instancias[pos + 1..]
-                .iter()
-                .filter(|i| {
-                    i.preguicosa
-                        && matches!(
-                            i.criacao,
-                            crate::diretivas::Criacao::Expressao(_)
-                                | crate::diretivas::Criacao::Multi(_)
-                        )
-                })
-                .flat_map(|i| std::iter::once(i.token.clone()).chain(i.apelidos.iter().cloned()))
-                .collect();
-            if !preguicosos.is_empty()
-                && pede_algum(&e.filhos, self.filhos, self.usadas, &preguicosos)
-            {
-                return Err(em_filho("provedor do filho pedido por um nó do conteúdo"));
-            }
+            // Provedor preguiçoso do filho pedido por um nó do conteúdo, na
+            // mesma visão: o `_getDependency` do nó de baixo o cria com
+            // `eager` (só um `*` no caminho o deixa preguiçoso), e ele sai no
+            // `build()` depois dos ansiosos do nó, na ordem dos pedidos, com
+            // as dependências dele antes (caso i76).
+            let depois =
+                ansiosos_pelo_conteudo(e, &r.instancias[pos + 1..], self.filhos, self.usadas)?;
             // Os provedores depois do filho, o `registerDirective` de todas
             // as diretivas do nó (menos o componente) e as ligações das que
             // vêm depois dele.
             let alvo = el.clone();
-            self.criar_instancias(e, &r.instancias[pos + 1..], &alvo)?;
+            self.criar_instancias(e, &depois, &alvo)?;
             let todas: Vec<_> = dir_antes.iter().chain(&dir_depois).cloned().collect();
             self.registrar_diretivas(&todas, &alvo);
             self.ligar_diretivas(
@@ -6817,8 +6804,6 @@ impl Corpo<'_> {
         )
     }
 
-    /// Os campos dos provedores do nó e a criação deles no `build()`, na
-    /// ordem dada (`addDirectiveProviders`).
     fn criar_instancias(
         &mut self,
         e: &crate::html::Elemento,
@@ -7305,30 +7290,180 @@ fn diretivas_casadas(
         .collect()
 }
 
-/// Alguma diretiva ou componente filho em `nos` (também dentro de `*`)
-/// depende de um destes tokens?
-fn pede_algum(
+/// Os provedores do nó do filho depois dele, com os preguiçosos que o
+/// conteúdo pede ([`pedidos_do_conteudo`]) já ansiosos: os ansiosos do
+/// nó, depois os pedidos (cada um depois dos provedores do nó que ele
+/// lê), depois os que continuam preguiçosos.
+fn ansiosos_pelo_conteudo(
+    e: &crate::html::Elemento,
+    instancias: &[crate::diretivas::Instancia],
+    filhos: &std::collections::HashMap<String, Filho>,
+    usadas: &[Usada],
+) -> Result<Vec<crate::diretivas::Instancia>, Recusa> {
+    use crate::diretivas::{Criacao, Instancia, Token};
+    let fornece = |i: &Instancia, t: &Token| i.token == *t || i.apelidos.contains(t);
+    let preguicosos: Vec<Token> = instancias
+        .iter()
+        .filter(|i| i.preguicosa && matches!(i.criacao, Criacao::Expressao(_) | Criacao::Multi(_)))
+        .flat_map(|i| std::iter::once(i.token.clone()).chain(i.apelidos.iter().cloned()))
+        .collect();
+    let mut pedidos = Vec::new();
+    pedidos_do_conteudo(&e.filhos, filhos, usadas, &preguicosos, &mut pedidos)?;
+    let mut ordem: Vec<usize> = (0..instancias.len())
+        .filter(|&k| !instancias[k].preguicosa)
+        .collect();
+    fn tornar_ansioso(
+        k: usize,
+        instancias: &[Instancia],
+        ordem: &mut Vec<usize>,
+        profundidade: u32,
+    ) -> Result<(), Recusa> {
+        if ordem.contains(&k) {
+            return Ok(());
+        }
+        if profundidade > 16 {
+            return Err(recusa(Motivo::Ligacao, "provedores do filho em ciclo"));
+        }
+        let mut lidos = Vec::new();
+        match &instancias[k].criacao {
+            crate::diretivas::Criacao::Expressao(x) => campos_da_expr(x, &mut lidos),
+            crate::diretivas::Criacao::Multi(xs) => {
+                for x in xs {
+                    campos_da_expr(x, &mut lidos);
+                }
+            }
+            _ => {}
+        }
+        for c in lidos {
+            if let Some(j) = instancias.iter().position(|i| i.campo == c && i.preguicosa) {
+                tornar_ansioso(j, instancias, ordem, profundidade + 1)?;
+            }
+        }
+        ordem.push(k);
+        Ok(())
+    }
+    for t in &pedidos {
+        if let Some(k) = instancias
+            .iter()
+            .position(|i| i.preguicosa && fornece(i, t))
+        {
+            tornar_ansioso(k, instancias, &mut ordem, 0)?;
+        }
+    }
+    let ansiosos = ordem.clone();
+    ordem.extend((0..instancias.len()).filter(|k| !ansiosos.contains(k)));
+    Ok(ordem
+        .into_iter()
+        .map(|k| {
+            let mut i = instancias[k].clone();
+            if ansiosos.contains(&k) {
+                i.preguicosa = false;
+            }
+            i
+        })
+        .collect())
+}
+
+/// Os campos dos provedores do nó e a criação deles no `build()`, na
+/// ordem dada (`addDirectiveProviders`).
+/// Os tokens de `tokens` que o conteúdo `nos` pede ao nó de cima
+/// (`_getDependency`: o nó de baixo procura primeiro em si, menos com
+/// `@SkipSelf`, e sobe; com `@Self` não sobe), na ordem dos pedidos: em
+/// pré-ordem, em cada nó o filho e depois as diretivas. Um `*` no caminho
+/// deixa o pedido preguiçoso (`_isViewRoot`), e um nó que provê o token
+/// atende os de baixo. Um nó com pedidos de mais de um token, cuja ordem
+/// depende da resolução dele, é recusado.
+fn pedidos_do_conteudo(
     nos: &[No],
     filhos: &std::collections::HashMap<String, Filho>,
     usadas: &[Usada],
     tokens: &[crate::diretivas::Token],
-) -> bool {
-    nos.iter().any(|n| {
-        let No::Elemento(e) = n else { return false };
-        let das_diretivas = diretivas_casadas(usadas, e)
+    saida: &mut Vec<crate::diretivas::Token>,
+) -> Result<(), Recusa> {
+    use crate::diretivas::Token;
+    for n in nos {
+        let No::Elemento(e) = n else { continue };
+        if e.estrela.is_some() {
+            continue;
+        }
+        let filho = filhos.get(&e.nome);
+        let casadas = diretivas_casadas(usadas, e);
+        // O que o próprio nó provê.
+        let mut proprios: Vec<Token> = Vec::new();
+        if let Some(m) = filho.and_then(|f| f.metadados.as_ref()) {
+            proprios.push(m.token());
+            proprios.extend(m.provedores.iter().map(|p| p.token.clone()));
+        }
+        for d in &casadas {
+            proprios.push(d.token());
+            proprios.extend(d.provedores.iter().map(|p| p.token.clone()));
+        }
+        let mut deps: Vec<(Token, bool, bool)> = Vec::new();
+        if let Some(f) = filho {
+            for p in &f.parametros {
+                if let Injetado::Servico {
+                    uri,
+                    classe,
+                    proprio,
+                    pular,
+                    ..
+                } = p
+                {
+                    let t = Token::Classe {
+                        uri: uri.clone(),
+                        classe: classe.clone(),
+                    };
+                    deps.push((t, *proprio, *pular));
+                }
+            }
+        }
+        for d in &casadas {
+            for x in &d.dependencias {
+                deps.push((x.token.clone(), x.proprio, x.pular));
+            }
+        }
+        let mut deste_no: Vec<Token> = Vec::new();
+        for (t, proprio, pular) in deps {
+            if proprio || !tokens.contains(&t) || (!pular && proprios.contains(&t)) {
+                continue;
+            }
+            if !deste_no.contains(&t) {
+                deste_no.push(t);
+            }
+        }
+        if deste_no.iter().filter(|t| !saida.contains(t)).count() > 1 {
+            return Err(recusa(
+                Motivo::Ligacao,
+                "nó do conteúdo pedindo vários provedores preguiçosos do filho",
+            ));
+        }
+        for t in deste_no {
+            if !saida.contains(&t) {
+                saida.push(t);
+            }
+        }
+        let abaixo: Vec<Token> = tokens
             .iter()
-            .any(|d| d.dependencias.iter().any(|x| tokens.contains(&x.token)));
-        let do_filho = filhos.get(&e.nome).is_some_and(|f| {
-            f.parametros.iter().any(|p| {
-                matches!(p, Injetado::Servico { uri, classe, .. }
-                if tokens.contains(&crate::diretivas::Token::Classe {
-                    uri: uri.clone(),
-                    classe: classe.clone(),
-                }))
-            })
-        });
-        das_diretivas || do_filho || pede_algum(&e.filhos, filhos, usadas, tokens)
-    })
+            .filter(|t| !proprios.contains(t))
+            .cloned()
+            .collect();
+        pedidos_do_conteudo(&e.filhos, filhos, usadas, &abaixo, saida)?;
+    }
+    Ok(())
+}
+
+/// Os campos do nó (`this.campo`) que a expressão de um provedor lê.
+fn campos_da_expr(x: &crate::diretivas::Expr, saida: &mut Vec<String>) {
+    use crate::diretivas::Expr;
+    match x {
+        Expr::Campo(c) => saida.push(c.clone()),
+        Expr::Classe { args, .. } | Expr::Fabrica { args, .. } => {
+            for a in args {
+                campos_da_expr(a, saida);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Algum `@Input` das diretivas tem este nome?
@@ -7624,7 +7759,13 @@ fn campos_em_ordem<'a>(
                         .map(|i| uri_do_campo(i, asset))
                         .collect();
                     saida.push(CampoDaVisao::Filho(f, container, antes));
-                    separar(&r.instancias[pos + 1..], &mut saida);
+                    // Os preguiçosos que o conteúdo pede já são ansiosos
+                    // (caso i76); se a ordem deles não se decide, a visão
+                    // recusa o nó.
+                    let depois =
+                        ansiosos_pelo_conteudo(e, &r.instancias[pos + 1..], filhos, usadas)
+                            .unwrap_or_else(|_| r.instancias[pos + 1..].to_vec());
+                    separar(&depois, &mut saida);
                 }
                 None => saida.push(CampoDaVisao::Filho(f, container, Vec::new())),
             }

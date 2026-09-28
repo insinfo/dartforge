@@ -62,17 +62,11 @@ fn raiz_do_corpus() -> PathBuf {
 /// O i84 — `<template>` com diretiva — e o i85 — `@ViewChild` de
 /// `<template>` — saíram na rodada dos itens NG04–NG10; o i77 — filho que
 /// injeta um provedor do próprio nó — com a sonda j61; o i78 — provedor
-/// com dependência de fora do nó — com a j71.)
+/// com dependência de fora do nó — com a j71; o i76 — provedor do filho
+/// pedido por um nó do conteúdo — com o `eager` do `_getDependency`.)
 /// São as formas ainda sem tradução (docs/GERADOR-NG.md §9): gerar
 /// qualquer uma ignorando o que falta daria saída errada.
-const RECUSADOS: &[(&str, &str)] = &[
-    // Provedor preguiçoso do filho pedido por um nó do conteúdo: o oficial
-    // o cria no `build()`, logo depois do filho.
-    (
-        "i76_usa_provider_projeta.dart",
-        "provedor do filho pedido por um nó do conteúdo",
-    ),
-];
+const RECUSADOS: &[(&str, &str)] = &[];
 
 #[test]
 fn o_que_geramos_e_igual_ao_oficial() {

@@ -559,8 +559,13 @@ do `_actualProviderType` (o `T` do token opaco, o do valor no
 e o `InjectorEmitter` com a tabela `_iN` do `Allocator.simplePrefixing` e a
 quebra do `DartFormatter` nas vírgulas finais do `code_builder`. No arquivo
 com componentes, os imports dos injetores vêm logo depois do import do
-próprio arquivo e o código deles no fim — casos j87 e j88. Corpus: 320
-conferidos.
+próprio arquivo e o código deles no fim — casos j87 e j88. Provedor
+preguiçoso do nó de um filho pedido por um nó do conteúdo, na mesma visão:
+o `_getDependency` do nó de baixo o cria com `eager` (um `*` no caminho o
+deixa preguiçoso, e um nó do caminho que provê o token atende os de baixo);
+ele sai no `build()` depois dos ansiosos do nó, com as dependências antes,
+e os imports seguem essa ordem — caso i76. Corpus: **321 conferidos, 0
+pendentes**.
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada
 pendente com o motivo): **948 iguais / 2 pendentes / 0 diferentes** —
 `.template.dart` **532/0/0**, `.css` e `.css.map` do Sass 102/102 cada,
