@@ -1,0 +1,13 @@
+<div *ngIf="mostrar">
+  <p #linha>a</p>
+  <j89-item></j89-item>
+  <p #linha>b</p>
+  <j89-item></j89-item>
+  <span j89-marca #marca></span>
+</div>
+<ul>
+  <li *ngFor="let i of itens">
+    <b #linha>{{ i }}</b>
+    <em #linha></em>
+  </li>
+</ul>

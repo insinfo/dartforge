@@ -274,6 +274,8 @@ import 'package:corpus_ngdart/src/j82_consulta_sem_resultado.template.dart' as j
 import 'package:corpus_ngdart/src/j83_ngfor_local_sem_tipo.template.dart' as j83;
 import 'package:corpus_ngdart/src/j85_diretivas_de_template.template.dart' as j85;
 import 'package:corpus_ngdart/src/j86_consulta_em_molde.template.dart' as j86;
+import 'package:corpus_ngdart/src/j89_consultas_na_mesma_embutida.template.dart' as j89;
+import 'package:corpus_ngdart/src/j90_leitura_de_provedor.template.dart' as j90;
 
 void main() {
   print([
@@ -552,5 +554,7 @@ void main() {
     j83.J83NgforLocalSemTipoNgFactory,
     j85.J85DiretivasDeTemplateNgFactory,
     j86.J86ConsultaEmMoldeNgFactory,
+    j89.J89ConsultasNaMesmaEmbutidaNgFactory,
+    j90.J90LeituraDeProvedorNgFactory,
   ].length);
 }

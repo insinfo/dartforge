@@ -773,6 +773,13 @@ fn chave_de_ref(nome: &str, classe_da_visao: &str) -> String {
     format!("{nome}@{classe_da_visao}")
 }
 
+/// O `k`-ésimo resultado de `chave` numa visão (os `#ref` repetidos, os
+/// filhos do mesmo tipo): a marca que [`exportar_refs`] registra pela ordem
+/// em que os nós foram vistos.
+fn chave_de_ordinal(chave: &str, k: usize) -> String {
+    format!("{chave}\u{3}{k}")
+}
+
 /// Os `#ref` de uma visão pronta no mapa dos resolvidos: pela chave com a
 /// visão ([`chave_de_ref`]) e pelo nome (o das consultas, que leem o nó de
 /// uma aninhada pelo nome).
@@ -780,12 +787,35 @@ fn exportar_refs(
     resolvidos: &std::cell::RefCell<std::collections::HashMap<String, String>>,
     refs: &std::collections::HashMap<String, String>,
     detectores: &std::collections::HashMap<String, String>,
+    em_ordem: &[(String, String)],
+    detectores_em_ordem: &[(String, String)],
     classe_da_visao: &str,
 ) {
     let mut r = resolvidos.borrow_mut();
     for (nome, leitura) in refs {
         r.insert(chave_de_ref(nome, classe_da_visao), leitura.clone());
         r.insert(nome.clone(), leitura.clone());
+    }
+    let mut vistos: std::collections::HashMap<&str, usize> = Default::default();
+    for (nome, leitura) in em_ordem {
+        let k = vistos.entry(nome.as_str()).or_default();
+        r.insert(
+            chave_de_ref(&chave_de_ordinal(nome, *k), classe_da_visao),
+            leitura.clone(),
+        );
+        *k += 1;
+    }
+    let mut vistos: std::collections::HashMap<&str, usize> = Default::default();
+    for (chave, visao) in detectores_em_ordem {
+        let k = vistos.entry(chave.as_str()).or_default();
+        r.insert(
+            format!(
+                "{MARCA_DE_DETECTOR}{}",
+                chave_de_ref(&chave_de_ordinal(chave, *k), classe_da_visao)
+            ),
+            format!("this.{visao}"),
+        );
+        *k += 1;
     }
     for (chave, visao) in detectores {
         r.insert(
@@ -852,7 +882,11 @@ fn formas_contra_o_template(
         // `read:` na consulta estática de um elemento da visão (abaixo) ou
         // na de um elemento em `*` ([`consulta_em_embutida`]): por tipo,
         // lista estática ou `<template>` ainda não.
+        let de_provedor = !consulta.por_tipo
+            && !moldes.contains(&consulta.referencia)
+            && token_de_leitura(consulta, local, resolvedor).is_some();
         if consulta.leitura.is_some()
+            && !de_provedor
             && !consulta_em_embutida(nos, consulta, filhos, local, resolvedor)
             && (consulta.por_tipo || consulta.lista || moldes.contains(&consulta.referencia))
         {
@@ -958,7 +992,9 @@ fn formas_contra_o_template(
             let todos_filhos = lugares
                 .iter()
                 .all(|l| matches!(l, Lugar::NoFilho | Lugar::NoFilhoProjetado));
-            let ok = (elemento && todos_nos) || (!elemento && todos_filhos);
+            let ok = (de_provedor && todos_nos)
+                || (!de_provedor && elemento && todos_nos)
+                || (!de_provedor && !elemento && todos_filhos);
             if !ok {
                 fora.push(recusa(
                     Motivo::ViewChildDinamico,
@@ -971,7 +1007,7 @@ fn formas_contra_o_template(
             // O nó ou `ElementRef(nó)`, pela leitura ([`valor_de_elemento`]):
             // a consulta estática, que sai no `build()`.
             [Lugar::Raiz | Lugar::Projetado]
-                if valor_de_elemento(consulta, local, resolvedor).is_some() =>
+                if valor_de_elemento(consulta, local, resolvedor).is_some() || de_provedor =>
             {
                 continue;
             }
@@ -1026,7 +1062,13 @@ fn formas_contra_o_template(
 enum ItemDeConsulta {
     /// O nó do `#ref` (elemento HTML) ou a instância do filho; `on_push`: o
     /// filho registra o `ChangeDetectorRef` (`buildChangeDetectorRef`).
-    Valor { lugar: Lugar, on_push: bool },
+    Valor {
+        lugar: Lugar,
+        on_push: bool,
+        /// Quantos resultados da mesma chave vêm antes dele na mesma visão
+        /// (o nó é lido por [`chave_de_ordinal`]).
+        ordinal: usize,
+    },
     /// Os resultados da visão embutida do `*` que começa em `estrela` (o
     /// início da ligação dele, que identifica o `*` no template).
     Aninhada {
@@ -1050,6 +1092,7 @@ fn arvore_da_consulta(
         filhos: &std::collections::HashMap<String, Filho>,
         em_filho: bool,
         saida: &mut Vec<ItemDeConsulta>,
+        vistos: &mut usize,
     ) -> Result<(), &'static str> {
         for n in nos {
             let No::Elemento(e) = n else { continue };
@@ -1063,7 +1106,7 @@ fn arvore_da_consulta(
                     if casa_a_chave(e, chave, filhos) {
                         return Err("resultado de consulta em <template> escrito");
                     }
-                    andar(&e.filhos, chave, filhos, false, &mut dentro)?;
+                    andar(&e.filhos, chave, filhos, false, &mut dentro, &mut 0)?;
                     if !dentro.is_empty() {
                         saida.push(ItemDeConsulta::Aninhada {
                             estrela: estrela.inicio,
@@ -1080,6 +1123,7 @@ fn arvore_da_consulta(
                     filhos,
                     false,
                     &mut dentro,
+                    &mut 0,
                 )?;
                 // O `*` no conteúdo projetado de um filho é desta visão (a
                 // âncora é daqui; só o nó vai projetado): a consulta mapeia
@@ -1102,7 +1146,9 @@ fn arvore_da_consulta(
                     saida.push(ItemDeConsulta::Valor {
                         lugar,
                         on_push: f.on_push,
+                        ordinal: *vistos,
                     });
+                    *vistos += 1;
                 }
                 (lugar, true)
             } else if e.nome == "ng-container" {
@@ -1118,14 +1164,16 @@ fn arvore_da_consulta(
                 saida.push(ItemDeConsulta::Valor {
                     lugar,
                     on_push: false,
+                    ordinal: *vistos,
                 });
+                *vistos += 1;
             }
-            andar(&e.filhos, chave, filhos, abaixo, saida)?;
+            andar(&e.filhos, chave, filhos, abaixo, saida, vistos)?;
         }
         Ok(())
     }
     let mut saida = Vec::new();
-    andar(nos, chave, filhos, false, &mut saida)?;
+    andar(nos, chave, filhos, false, &mut saida, &mut 0)?;
     Ok(saida)
 }
 
@@ -1185,22 +1233,19 @@ fn consulta_em_embutida(
     let leitura = consulta.leitura.is_some();
     let terminal = |l: Lugar| match l {
         Lugar::Raiz if leitura => {
-            !consulta.por_tipo && valor_de_elemento(consulta, local, resolvedor).is_some()
+            !consulta.por_tipo
+                && (valor_de_elemento(consulta, local, resolvedor).is_some()
+                    || token_de_leitura(consulta, local, resolvedor).is_some())
         }
         Lugar::Raiz => elemento && !consulta.por_tipo,
         Lugar::NoFilho => !leitura && !elemento,
         _ => false,
     };
     fn valida(itens: &[ItemDeConsulta], terminal: &dyn Fn(Lugar) -> bool) -> bool {
-        let valores = itens
-            .iter()
-            .filter(|i| matches!(i, ItemDeConsulta::Valor { .. }))
-            .count();
-        valores <= 1
-            && itens.iter().all(|i| match i {
-                ItemDeConsulta::Valor { lugar, .. } => terminal(*lugar),
-                ItemDeConsulta::Aninhada { itens, .. } => valida(itens, terminal),
-            })
+        itens.iter().all(|i| match i {
+            ItemDeConsulta::Valor { lugar, .. } => terminal(*lugar),
+            ItemDeConsulta::Aninhada { itens, .. } => valida(itens, terminal),
+        })
     }
     valida(&arvore, &terminal)
 }
@@ -1255,8 +1300,11 @@ impl MontagemDaConsulta<'_> {
         };
         for item in itens {
             match item {
-                ItemDeConsulta::Valor { on_push, .. } => {
-                    let no = ler(&chave_de_ref(self.chave, classe));
+                ItemDeConsulta::Valor {
+                    on_push, ordinal, ..
+                } => {
+                    let chave = chave_de_ordinal(self.chave, *ordinal);
+                    let no = ler(&chave_de_ref(&chave, classe));
                     let valor = match self.element_ref {
                         Some(q) => format!("{q}ElementRef({no})"),
                         None => no,
@@ -1265,7 +1313,7 @@ impl MontagemDaConsulta<'_> {
                         let v = self.view?;
                         let visao = ler(&format!(
                             "{MARCA_DE_DETECTOR}{}",
-                            chave_de_ref(self.chave, classe)
+                            chave_de_ref(&chave, classe)
                         ));
                         registros.push(format!(
                             "{v}View.queryChangeDetectorRefs[{valor}] = {visao};"
@@ -1321,8 +1369,12 @@ impl MontagemDaConsulta<'_> {
     }
 }
 
-/// `[a, b]` com um item por linha (o emissor quebra a lista de mais de um).
+/// `[a, b]`: numa linha, como o `DartFormatter` (página "infinita") a deixa,
+/// a não ser que algum item tenha quebra (um fecho) — aí um item por linha.
 fn lista_literal(valores: &[String]) -> String {
+    if !valores.iter().any(|v| v.contains('\n')) {
+        return format!("[{}]", valores.join(", "));
+    }
     let itens: Vec<String> = valores.iter().map(|v| indentar(v, 2)).collect();
     format!("[\n{}\n]", itens.join(",\n"))
 }
@@ -1351,7 +1403,7 @@ fn resolver_consultas(
             }
             let montagem = MontagemDaConsulta {
                 ancoras,
-                chave: &q.chave,
+                chave: &q.leitura,
                 lista: q.lista,
                 element_ref: qualificadores.get("e").map(String::as_str),
                 view: qualificadores.get("d").map(String::as_str),
@@ -1392,6 +1444,9 @@ struct ConsultaDinamica {
     lista: bool,
     /// O que procurar ([`chave_da_consulta`]).
     chave: String,
+    /// Como o resultado é lido no nó: a própria chave, ou a do provedor que
+    /// o `read:` pede ([`chave_de_leitura`]).
+    leitura: String,
     /// `_viewQuery_ref_N_isDirty`.
     campo: String,
     /// `read: ElementRef`: o resultado é `ElementRef(nó)`.
@@ -2031,6 +2086,35 @@ fn valor_de_elemento(
         ("ElementRef", ELEMENT_REF) => Some(ValorDeElemento::ElementRef),
         ("Element" | "HtmlElement", "dart:html") => Some(ValorDeElemento::No),
         _ => None,
+    }
+}
+
+/// O token que o `read:` de uma consulta pede a um provedor do nó (não o
+/// nó nem `ElementRef`, que [`valor_de_elemento`] lê, nem um embutido): a
+/// classe, pela biblioteca que a declara. O nó a cria ansiosa
+/// (`queriedTokens`) e a consulta recebe a instância.
+fn token_de_leitura(
+    consulta: &crate::componente::Consulta,
+    local: &Local,
+    resolvedor: Option<&dyn Resolucao>,
+) -> Option<crate::diretivas::Token> {
+    let t = consulta.leitura.as_deref()?;
+    if valor_de_elemento(consulta, local, resolvedor).is_some() {
+        return None;
+    }
+    let uri = resolvedor?.uri_do_tipo(local.caminho, t)?;
+    let token = crate::diretivas::Token::Classe {
+        uri,
+        classe: t.to_string(),
+    };
+    (!token.embutido()).then_some(token)
+}
+
+/// A marca do resultado de `chave` lido pelo provedor `t` do nó.
+fn chave_de_leitura(chave: &str, t: &crate::diretivas::Token) -> String {
+    match t {
+        crate::diretivas::Token::Classe { uri, classe } => format!("{chave}\u{4}{uri}#{classe}"),
+        outro => format!("{chave}\u{4}{}", outro.nome()),
     }
 }
 
@@ -2733,6 +2817,10 @@ struct Corpo<'a> {
     refs: std::collections::HashMap<String, String>,
     /// Os mesmos, em ordem de documento e com repetição: os resultados de
     /// um `@ViewChildren` (`addQueryResult`).
+    /// [`Contexto::leituras`].
+    leituras: &'a [(String, crate::diretivas::Token)],
+    /// [`Contexto::refs_so_por_provedor`].
+    refs_so_por_provedor: &'a std::collections::HashSet<String>,
     refs_em_ordem: Vec<(String, String)>,
     /// A tag do elemento cujas ligações estão sendo escritas: o contexto de
     /// segurança de uma propriedade depende dela ([`saneador`]).
@@ -2918,6 +3006,9 @@ struct Corpo<'a> {
     filhos_acima: Vec<(String, String)>,
     /// `#ref` de filho `onPush`, com a visão dele: o `@ViewChild` registra
     /// o `ChangeDetectorRef` (`queryChangeDetectorRefs`).
+    /// Os mesmos registros de [`Corpo::detectores`], na ordem dos nós (um
+    /// por resultado, também com `#ref` repetido).
+    detectores_em_ordem: Vec<(String, String)>,
     detectores: std::collections::HashMap<String, String>,
     /// Os nós criados sem pai (raiz da visão embutida, conteúdo projetado),
     /// como são lidos depois: `_el_3`, `this._el_3`, `this._appEl_4`.
@@ -3998,10 +4089,14 @@ impl Corpo<'_> {
         self.refs_em_ordem
             .push((chave.clone(), format!("this.{campo_inst}")));
         if filho.on_push {
+            self.detectores_em_ordem
+                .push((chave.clone(), campo_vista.clone()));
             self.detectores.insert(chave, campo_vista.clone());
         }
         for r in &e.referencias {
             if filho.on_push {
+                self.detectores_em_ordem
+                    .push((r.nome.clone(), campo_vista.clone()));
                 self.detectores.insert(r.nome.clone(), campo_vista.clone());
             }
         }
@@ -6336,7 +6431,14 @@ impl Corpo<'_> {
                 provedores: &provedores,
                 incerto: self.incertos_acima > 0,
             };
-            match crate::diretivas::resolver(&casadas, n, Some(acima)) {
+            // O que as consultas com `read:` leem deste nó é ansioso.
+            let consultados: Vec<crate::diretivas::Token> = self
+                .leituras
+                .iter()
+                .filter(|(chave, _)| casa_a_chave(e, chave, self.filhos))
+                .map(|(_, t)| t.clone())
+                .collect();
+            match crate::diretivas::resolver_consultado(&casadas, n, Some(acima), &consultados) {
                 Ok(r) => Some(r),
                 Err(f) => {
                     self.anotar(recusa(Motivo::DiretivaPorSeletor, f))?;
@@ -6344,6 +6446,30 @@ impl Corpo<'_> {
                 }
             }
         };
+        // O resultado de cada consulta com `read:` de provedor: a instância
+        // do token no nó ([`chave_de_leitura`]).
+        for (chave, t) in self.leituras {
+            if !casa_a_chave(e, chave, self.filhos) {
+                continue;
+            }
+            let instancia = resolvido.as_ref().and_then(|r| {
+                r.instancias
+                    .iter()
+                    .find(|i| i.token == *t || i.apelidos.contains(t))
+            });
+            match instancia {
+                Some(i) => {
+                    let leitura = format!("this.{}", i.leitura);
+                    let k = chave_de_leitura(chave, t);
+                    self.refs.insert(k.clone(), leitura.clone());
+                    self.refs_em_ordem.push((k, leitura));
+                }
+                None => self.anotar(recusa(
+                    Motivo::ViewChildEmFilho,
+                    "@ViewChild(.., read: T) de token que o elemento não provê",
+                ))?,
+            }
+        }
         if !self.tem_doc {
             self.tem_doc = true;
             let html = self.html.clone();
@@ -6373,10 +6499,14 @@ impl Corpo<'_> {
         // visão: o `detectChangesInternal` precisa dele depois do
         // `build()`. Evento sozinho não exige campo.
         let tipo = dom::tipo_da_tag(&tag);
+        // O `#ref` que só consultas com `read:` de provedor procuram não
+        // lê o nó.
+        let consulta_o_no = |nome: &String| {
+            self.refs_consultados.iter().any(|(n, _, _)| n == nome)
+                && !self.refs_so_por_provedor.contains(nome)
+        };
         let lido_como_local = e.referencias.iter().any(|r| {
-            r.valor.is_empty()
-                && (self.refs_locais.contains(&r.nome)
-                    || self.refs_consultados.iter().any(|(n, _, _)| *n == r.nome))
+            r.valor.is_empty() && (self.refs_locais.contains(&r.nome) || consulta_o_no(&r.nome))
         });
         let lido_de_embutida = e
             .referencias
@@ -6392,7 +6522,7 @@ impl Corpo<'_> {
             let consultado = e
                 .referencias
                 .iter()
-                .filter(|r| r.valor.is_empty())
+                .filter(|r| r.valor.is_empty() && !self.refs_so_por_provedor.contains(&r.nome))
                 .filter_map(|r| {
                     self.refs_consultados
                         .iter()
@@ -7929,6 +8059,12 @@ struct Contexto<'a> {
     refs_candidatos: std::collections::HashSet<String>,
     /// Os nomes que alguma consulta (`@ViewChild('x')`) procura.
     refs_das_consultas: std::collections::HashSet<String>,
+    /// (chave, token) das consultas com `read:` de um provedor do nó
+    /// ([`token_de_leitura`]).
+    leituras: Vec<(String, crate::diretivas::Token)>,
+    /// Os `#ref` que só consultas com `read:` de provedor procuram: o nó
+    /// não precisa virar campo.
+    refs_so_por_provedor: std::collections::HashSet<String>,
     /// Os nomes de `#ref` repetidos ou sombreados por `let`.
     refs_ambiguos: std::collections::HashSet<String>,
     /// O nó de cada `#ref` visto, de todas as visões já percorridas: a visão
@@ -7959,6 +8095,8 @@ impl<'a> Contexto<'a> {
             refs_livres: Default::default(),
             refs_locais: Default::default(),
             refs_ambiguos: self.refs_ambiguos.clone(),
+            leituras: &self.leituras,
+            refs_so_por_provedor: &self.refs_so_por_provedor,
             refs_ancestrais: Vec::new(),
             consultas_dinamicas: Vec::new(),
             consultas_em_transito: Vec::new(),
@@ -8034,6 +8172,7 @@ impl<'a> Contexto<'a> {
             subscricoes: 0,
             filhos_acima: Vec::new(),
             detectores: Default::default(),
+            detectores_em_ordem: Vec::new(),
             raizes: Vec::new(),
             pai_projetado: None,
             pilha: Vec::new(),
@@ -8205,6 +8344,8 @@ fn corpo_da_embutida(
         &ctx.refs_resolvidos,
         &dentro.refs,
         &dentro.detectores,
+        &dentro.refs_em_ordem,
+        &dentro.detectores_em_ordem,
         &espec.classe,
     );
     dentro.destruir.extend(ctx.pipes.destruicao(espec.indice));
@@ -9828,6 +9969,28 @@ fn gerar_componente(
             .filter(|q| !q.por_tipo)
             .map(|q| q.referencia.clone())
             .collect(),
+        leituras: c
+            .consultas
+            .iter()
+            .filter_map(|q| {
+                Some((
+                    chave_da_consulta(q, local, resolvedor)?,
+                    token_de_leitura(q, local, resolvedor)?,
+                ))
+            })
+            .collect(),
+        refs_so_por_provedor: c
+            .consultas
+            .iter()
+            .filter(|q| !q.por_tipo)
+            .map(|q| q.referencia.clone())
+            .filter(|r| {
+                c.consultas
+                    .iter()
+                    .filter(|q| !q.por_tipo && q.referencia == *r)
+                    .all(|q| token_de_leitura(q, local, resolvedor).is_some())
+            })
+            .collect(),
         refs_resolvidos: Default::default(),
         ancoras_de_consulta: Default::default(),
     };
@@ -9855,6 +10018,13 @@ fn gerar_componente(
             propriedade: q.propriedade.clone(),
             lista: q.lista,
             chave: chave_da_consulta(q, local, resolvedor).unwrap_or_default(),
+            leitura: {
+                let chave = chave_da_consulta(q, local, resolvedor).unwrap_or_default();
+                match token_de_leitura(q, local, resolvedor) {
+                    Some(t) => chave_de_leitura(&chave, &t),
+                    None => chave,
+                }
+            },
             campo: format!("_viewQuery_{}_{i}_isDirty", q.referencia),
             element_ref: q.leitura.is_some()
                 && valor_de_elemento(q, local, resolvedor) == Some(ValorDeElemento::ElementRef),
@@ -9897,6 +10067,8 @@ fn gerar_componente(
         &ctx.refs_resolvidos,
         &corpo.refs,
         &corpo.detectores,
+        &corpo.refs_em_ordem,
+        &corpo.detectores_em_ordem,
         &corpo.classe_desta_visao(),
     );
     // O `ngOnDestroy` dos pipes vem depois dos das diretivas.
@@ -9920,6 +10092,11 @@ fn gerar_componente(
                 .unwrap_or_default()
         } else {
             q.referencia.clone()
+        };
+        // Com `read:` de provedor, a instância dele em cada nó.
+        let chave = match token_de_leitura(q, local, resolvedor) {
+            Some(t) => chave_de_leitura(&chave, &t),
+            None => chave,
         };
         if q.lista {
             let valores: Vec<String> = corpo

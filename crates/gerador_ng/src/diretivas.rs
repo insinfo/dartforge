@@ -493,6 +493,17 @@ pub fn resolver(
     resolver_em(casadas, n, acima, false)
 }
 
+/// [`resolver`] com os tokens que as consultas de visão leem do nó
+/// (`read:`), que o oficial cria ansiosos (`queriedTokens`).
+pub fn resolver_consultado(
+    casadas: &[Arc<Diretiva>],
+    n: u32,
+    acima: Option<Acima>,
+    consultados: &[Token],
+) -> Result<NoResolvido, &'static str> {
+    resolver_com(casadas, n, acima, false, None, false, None, consultados)
+}
+
 /// Os provedores de um `<template>` escrito (`EmbeddedTemplateAst`): os
 /// embutidos (`ElementRef`, `Element`, `HtmlElement`, `Injector`,
 /// `ViewContainer`; `ViewContainerRef` se alguma diretiva o pede;
@@ -517,6 +528,7 @@ pub fn resolver_de_molde(
         None,
         container,
         Some((&leitura, indice)),
+        &[],
     )?;
     Ok((r, indice))
 }
@@ -554,7 +566,7 @@ pub fn resolver_no_do_filho(
     acima: Option<Acima>,
     container: bool,
 ) -> Result<NoResolvido, &'static str> {
-    resolver_com(casadas, n, acima, false, Some(filho), container, None)
+    resolver_com(casadas, n, acima, false, Some(filho), container, None, &[])
 }
 
 fn resolver_em(
@@ -563,12 +575,13 @@ fn resolver_em(
     acima: Option<Acima>,
     hospedeira: bool,
 ) -> Result<NoResolvido, &'static str> {
-    resolver_com(casadas, n, acima, hospedeira, None, false, None)
+    resolver_com(casadas, n, acima, hospedeira, None, false, None, &[])
 }
 
 /// `componente`: o índice do componente filho em `casadas` (no nó de um
 /// filho), que tem os `providers:` de qualquer forma escritos, como todas
 /// na hospedeira; as outras só com `ExistingProvider`.
+#[allow(clippy::too_many_arguments)]
 fn resolver_com(
     casadas: &[Arc<Diretiva>],
     n: u32,
@@ -577,6 +590,7 @@ fn resolver_com(
     componente: Option<usize>,
     container: bool,
     molde: Option<(&str, u32)>,
+    consultados: &[Token],
 ) -> Result<NoResolvido, &'static str> {
     let completa = |k: usize| hospedeira || componente == Some(k);
     // `requiresViewContainer`: com `ViewContainer` o nó ganha três embutidos
@@ -633,6 +647,13 @@ fn resolver_com(
                     tipo: p.tipo.clone(),
                 }),
             }
+        }
+    }
+    // O que uma consulta lê do nó (`queriedTokens`: o `read:` de cada
+    // consulta que casa com ele) também é ansioso.
+    for r in &mut todos {
+        if consultados.contains(&r.token) {
+            r.eager = true;
         }
     }
     // `_getOrCreateLocalProvider`: em profundidade, as dependências antes.

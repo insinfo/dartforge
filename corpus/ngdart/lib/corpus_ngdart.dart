@@ -302,3 +302,5 @@ export 'src/j85_diretivas_de_template.dart';
 export 'src/j86_consulta_em_molde.dart';
 export 'src/j87_injetor.dart';
 export 'src/j88_injetor_e_componente.dart';
+export 'src/j89_consultas_na_mesma_embutida.dart';
+export 'src/j90_leitura_de_provedor.dart';

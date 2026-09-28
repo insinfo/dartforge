@@ -564,7 +564,14 @@ preguiçoso do nó de um filho pedido por um nó do conteúdo, na mesma visão:
 o `_getDependency` do nó de baixo o cria com `eager` (um `*` no caminho o
 deixa preguiçoso, e um nó do caminho que provê o token atende os de baixo);
 ele sai no `build()` depois dos ansiosos do nó, com as dependências antes,
-e os imports seguem essa ordem — caso i76. Corpus: **321 conferidos, 0
+e os imports seguem essa ordem — caso i76. Consultas de visão com vários
+resultados na mesma visão embutida: cada resultado é lido pelo ordinal dele
+entre os da mesma chave naquela visão (`refs_em_ordem`), e a lista de dentro
+do fecho sai numa linha (`return [a, b];`) — caso j89. `read:` de um
+provedor ou diretiva do nó (nem o nó, nem `ElementRef`): o token lido entra
+no resolvedor como ansioso (`queriedTokens` do `ProviderElementContext`) e a
+consulta recebe a instância, na forma estática e na dinâmica; o nó não vira
+campo só por isso — casos j89 e j90. Corpus: **323 conferidos, 0
 pendentes**.
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada
 pendente com o motivo): **948 iguais / 2 pendentes / 0 diferentes** —
