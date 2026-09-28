@@ -76,6 +76,10 @@ impl Geracao {
     }
 }
 
+/// Se esta build tem o gerador embutido (e não precisa do Clang para gerar
+/// objetos).
+pub const GERADOR_EMBUTIDO: bool = cfg!(feature = "llvm-embutido");
+
 /// O gerador de uma compilação.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Gerador {

@@ -8,7 +8,8 @@
 //! <raiz>/lib/dart-sdk/lib/…                as bibliotecas do SDK do Dart (fonte)
 //! <raiz>/lib/sdk_nativo/…                  a sobreposição do backend nativo
 //! <raiz>/lib/runtime/…                     o runtime pré-compilado (staticlib)
-//! <raiz>/lib/llvm/bin/…                    o ligador (e o Clang, enquanto for o driver da ligação)
+//! <raiz>/lib/llvm/bin/…                    o ligador do LLVM (e o Clang, sem o gerador embutido)
+//! <raiz>/lib/sysroot/<triple>/…            o que a ligação exige do sistema
 //! ```
 //!
 //! Numa árvore de desenvolvimento não há marca, e cada consulta cai nas

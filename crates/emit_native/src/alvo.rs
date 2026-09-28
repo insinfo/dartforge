@@ -135,8 +135,10 @@ pub const fn bandeiras_objeto_compartilhado() -> &'static [&'static str] {
 /// ligação, no formato do driver do Clang.
 ///
 /// É a lista que o `rustc --print native-static-libs` imprime para cada
-/// hospedeiro, fixada aqui para a ligação não depender de reexecutar o
-/// `rustc`. No Windows o CRT é escolhido por quem liga (ver `driver.rs`).
+/// hospedeiro. A ligação do AOT não passa mais pelo driver do Clang (cada
+/// sistema tem o seu ligador: `ligador.rs`, `ligador_windows.rs`,
+/// `ligador_macos.rs`); a lista serve a quem liga pelo Clang numa árvore de
+/// desenvolvimento (os testes do JIT).
 pub const fn bibliotecas_do_sistema() -> &'static [&'static str] {
     match sistema() {
         // `crypt32`: o repositório de certificados do sistema (as raízes da
@@ -149,10 +151,10 @@ pub const fn bibliotecas_do_sistema() -> &'static [&'static str] {
     }
 }
 
-/// A raiz do SDK do macOS para o ligador: o `SDKROOT` do ambiente ou o SDK
-/// que o `xcrun` indica (consultado uma vez). O `ld` da Apple acha o SDK
-/// sozinho; o `ld64.lld` (ThinLTO) só acha `-lSystem` com o `-isysroot`
-/// que o Clang lhe repassa. `None` fora do macOS ou sem Xcode.
+/// A raiz do SDK do macOS numa árvore de desenvolvimento: o `SDKROOT` do
+/// ambiente ou o SDK que o `xcrun` indica (consultado uma vez). A
+/// distribuição não a usa: leva os `.tbd` no sysroot de ligação
+/// (`ligador_macos.rs`). `None` fora do macOS ou sem Xcode.
 pub fn raiz_do_sdk_macos() -> Option<&'static std::path::Path> {
     static RAIZ: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
     RAIZ.get_or_init(|| {

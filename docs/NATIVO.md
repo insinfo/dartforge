@@ -74,10 +74,83 @@ hospedeiro, e tudo o que muda entre eles está em
 | `comdat` | sim | sim | não (`linkonce_odr` já é fraco) |
 | SDK da fonte (desenvolvimento) | `dfsdk_<chave>.dll` + `.lib` de importação, `/DEF` | `libdfsdk_<chave>.so`, `-soname`, `rpath=$ORIGIN` | `libdfsdk_<chave>.dylib`, `@rpath`, `rpath=@executable_path` |
 | produção (ThinLTO) | `lld-link`, `/OPT:REF` | `ld.lld`, `--gc-sections`, sem símbolos | `ld64.lld`, `-dead_strip`, sem símbolos |
+| ligador (todo perfil) | `lld-link` direto (`ligador_windows.rs`) | `ld.lld` direto (`ligador.rs`) | `ld64.lld` direto (`ligador_macos.rs`) |
+| o que vem do sistema | nada: bibliotecas de importação e CRT mínima geradas pelo dartforge | glibc e libgcc copiadas (sysroot) | `.tbd` do SDK copiados (sysroot) |
 
 O IR e as bandeiras no Windows são os de antes do porte, então as chaves de
 cache e os resumos de determinismo não mudaram. O mesmo IR vai ao JIT
 (`docs/JIT.md`, «Linux e macOS»).
+
+### 1.2 Ligação sem o toolchain de C do sistema (N15, N16)
+
+Nenhum sistema usa mais o driver do Clang para ligar: o `driver.rs` e o
+`sdk_modulo.rs` chamam o ligador do LLVM (o da distribuição, `lib/llvm/bin`,
+ou o ao lado do Clang numa árvore de desenvolvimento) com tudo explícito na
+linha de comando. O que o sistema exigiria vem do **sysroot de ligação**,
+`lib/sysroot/<triple>/` na distribuição (`dartforge empacotar`); numa árvore
+de desenvolvimento, do sistema (Linux, macOS) ou do cache nativo (Windows).
+
+**Windows (N15): sem Visual Studio (MSVC) nem Windows SDK.** Duas saídas
+foram avaliadas:
+
+* (b) o alvo `x86_64-pc-windows-gnu` com os objetos MinGW que o Rust traz:
+  **descartada**. Mudaria o triple do IR (as chaves de cache, os resumos de
+  determinismo e o JIT, que exige o triple do processo `-msvc`), o
+  `long double`, o SEH do pânico do Rust e o CodeView (J05) viraria DWARF.
+  E já não resolve: o `rustlib/x86_64-pc-windows-gnu/lib/self-contained` do
+  Rust 1.98 só tem `crt2.o` e `dllcrt2.o` (conferido) — as bibliotecas de
+  importação do MinGW saíram de lá quando o `std` passou a `raw-dylib`.
+* (a) **adotada**: o mesmo alvo `x86_64-pc-windows-msvc`, os mesmos objetos
+  (o IR não mudou), e o `lld-link` com `/nodefaultlib /lldignoreenv` e só o
+  que o dartforge gera (`crates/emit_native/src/ligador_windows.rs`):
+  * **bibliotecas de importação** escritas em Rust: arquivos `ar` com
+    membros COFF *short import* (`IMPORT_OBJECT_HEADER`, PE/COFF §8), um por
+    função, a partir de listas (`IMPORTACOES`) com só os nomes que o runtime
+    (Rust, `ring`, zlib), o SDK e o código gerado usam — `kernel32`,
+    `ntdll`, `ws2_32`, `iphlpapi`, `advapi32`, `userenv`, `bcrypt`,
+    `crypt32` e a CRT universal `ucrtbase.dll` (parte do Windows 10 e
+    posteriores). Nada do MSVC nem do Windows SDK é copiado: as licenças
+    deles não permitem redistribuir as `.lib`, e uma lista de nomes de
+    funções é um fato de interface. O teste `importacoes_existem_no_sistema`
+    confere cada nome nas DLLs do `System32` do runner;
+  * a **CRT mínima**, em LLVM IR compilado pelo mesmo gerador: o diretório
+    de TLS (`_tls_used`, `_tls_index` e os marcadores `.tls`/`.CRT$XL*`,
+    entre os quais o Rust registra as *callbacks* de TLS), os
+    inicializadores `.CRT$XI*`/`.CRT$XC*`, as entradas `mainCRTStartup` e
+    `_DllMainCRTStartup`, o cookie do `/GS` (`__security_cookie`,
+    `__security_check_cookie`, `__GSHandlerCheck`: o C do `ring` e do zlib
+    vem do `cl.exe`), `__chkstk`, `_fltused`, `atexit` (global no
+    executável, pelo `_crt_atexit`; por DLL, percorrida na descarga) e a
+    vtable de `type_info` que o descritor de tipo do pânico do Rust aponta.
+  O SEH e o C++ EH continuam os do sistema (`__C_specific_handler`,
+  `__CxxFrameHandler3` e `_CxxThrowException` do `ucrtbase`), o CodeView e o
+  PDB (`/debug`, J05) são os do `lld-link`, e o executável deixa de depender
+  do `vcruntime140.dll`, que não faz parte do Windows. A DLL do SDK da fonte
+  é ligada igual (`/dll /def:`, a biblioteca de importação sai ao lado).
+  O teste `liga_e_executa_programa_c` liga (em qualquer sistema com Clang e
+  `lld-link`) um executável e uma DLL em C com TLS, inicializador,
+  `__chkstk`, `libm` e `atexit`, e os executa no Windows ou no Wine.
+
+**macOS (N16): sem Xcode nem Command Line Tools.** O `ld64.lld` direto
+(`ligador_macos.rs`) com `-syslibroot` no sysroot, `-platform_version` (o
+mínimo do `rustc` para o alvo e a versão do SDK de onde os `.tbd` vieram) e
+`-lSystem -liconv -framework CoreFoundation -framework Security`. Os `.tbd`
+(texto: nomes de símbolos e caminho de instalação) são copiados pelo
+`dartforge empacotar` do SDK da máquina que monta a distribuição, com as
+bibliotecas que eles reexportam sem trazer no mesmo arquivo, como o sysroot
+do Linux. **Ressalva legal (aberta):** os `.tbd` são arquivos do SDK da
+Apple, cuja licença (Xcode and Apple SDKs Agreement) não autoriza
+redistribuí-los; para uma distribuição pública, o caminho limpo é o do
+Windows — gerar os `.tbd` a partir da lista de símbolos que o runtime usa
+(um `.tbd` é YAML com nomes), sem copiar nada do SDK.
+
+**A prova** é o workflow `sem-toolchain.yml`: compila o dartforge, monta a
+distribuição, **esconde** o toolchain (no Windows renomeia as pastas do
+Visual Studio e dos Windows Kits e roda com `PATH` mínimo, sem vcvars,
+`LIB` nem `INCLUDE`; no macOS move o Xcode e as Command Line Tools e roda
+com `DEVELOPER_DIR` vazio, onde o `xcrun` falha), confere que ele sumiu e
+então liga e executa o olá mundo (desenvolvimento, produção e depuração) e
+o corpus nativo contra a VM pela distribuição (`DARTFORGE_HOME`).
 
 ---
 

@@ -10,8 +10,10 @@
 //! lib/runtime/                   as duas staticlib do runtime (build.rs do emit_native)
 //! lib/sdk_nativo/                a sobreposição do backend nativo
 //! lib/dart-sdk/{lib,version}     as bibliotecas do SDK do Dart
-//! lib/llvm/bin/                  o lld (e, fora do Linux, o Clang, driver da ligação)
-//! lib/sysroot/<triple>/          no Linux: a glibc e a libgcc para a ligação
+//! lib/llvm/bin/                  o lld (e o Clang, se a build não tem o gerador embutido)
+//! lib/sysroot/<triple>/          o que a ligação exige do sistema: no Linux, a glibc e a
+//!                                libgcc; no Windows, as bibliotecas de importação e a CRT
+//!                                mínima do dartforge; no macOS, os `.tbd` do SDK
 //! ```
 use std::path::{Path, PathBuf};
 
@@ -53,18 +55,34 @@ pub fn run(args: &[std::ffi::OsString]) -> Resultado {
         copiar(&raiz.join("version"), &lib.join("dart-sdk").join("version"))?;
     }
 
-    // O Clang (driver da ligação) e o lld do sistema-alvo, do mesmo LLVM.
+    // O lld do sistema-alvo (do mesmo LLVM do gerador) e o que a ligação
+    // exige do sistema, que não se pede a quem usa o dartforge: no Linux, a
+    // glibc e a libgcc desta máquina; no Windows, as bibliotecas de
+    // importação e a CRT mínima geradas pelo dartforge (sem nada do MSVC nem
+    // do Windows SDK); no macOS, os `.tbd` do SDK desta máquina (sem o Xcode
+    // nem as Command Line Tools). O Clang só vai quando esta build não tem o
+    // gerador embutido (é ele que compila o IR).
     let clang = dartforge_emit_native::driver::NativeDriverOptions::default().clang;
     let clang = localizar(&clang).ok_or_else(|| format!("Clang não encontrado ({})", clang.display()))?;
     let dir_llvm = clang.parent().ok_or("Clang sem diretório")?.to_path_buf();
     let llvm_bin = lib.join("llvm").join("bin");
-    let linux = dartforge_emit_native::alvo::sistema() == dartforge_emit_native::alvo::Sistema::Linux;
-    if linux {
-        // No Linux a ligação é o `ld.lld` direto: vai o sysroot de ligação
-        // (glibc e libgcc desta máquina), não o Clang.
-        let sysroot = dartforge_emit_native::ligador::SysrootLinux::do_sistema(&clang)?;
-        sysroot.copiar_para(&lib.join("sysroot").join(dartforge_emit_native::ligador::triple_do_sysroot()))?;
-    } else {
+    use dartforge_emit_native::alvo::{Sistema, sistema};
+    match sistema() {
+        Sistema::Linux => {
+            let sysroot = dartforge_emit_native::ligador::SysrootLinux::do_sistema(&clang)?;
+            sysroot.copiar_para(&lib.join("sysroot").join(dartforge_emit_native::ligador::triple_do_sysroot()))?;
+        }
+        Sistema::Windows => {
+            use dartforge_emit_native::ligador_windows as lw;
+            let gerador = dartforge_emit_native::gerador::Gerador::escolher(&clang);
+            lw::gerar(&lib.join("sysroot").join(lw::TRIPLE), &lw::CompiladorDaCrt::Gerador(&gerador))?;
+        }
+        Sistema::MacOs => {
+            use dartforge_emit_native::ligador_macos as lm;
+            lm::SysrootMacos::do_sistema()?.copiar_para(&lib.join("sysroot").join(lm::triple_do_sysroot()))?;
+        }
+    }
+    if !dartforge_emit_native::gerador::GERADOR_EMBUTIDO {
         copiar(&clang, &llvm_bin.join(dartforge_emit_native::alvo::nome_clang()))?;
     }
     let lld = if cfg!(windows) {

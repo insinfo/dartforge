@@ -1,0 +1,244 @@
+# A ligação nativa SEM o toolchain de C do sistema (docs/NATIVO.md §1.2;
+# PENDENCIAS N15 e N16): a distribuição do dartforge (`dartforge empacotar`)
+# liga e executa programas numa máquina sem o Visual Studio (MSVC) nem o
+# Windows SDK, e num Mac sem o Xcode nem as Command Line Tools.
+#
+# Cada job compila o dartforge normalmente (o Rust precisa do toolchain do
+# sistema para se compilar), monta a distribuição e então ESCONDE o
+# toolchain — no Windows renomeia as pastas do Visual Studio e dos Windows
+# Kits e roda com PATH mínimo, sem vcvars, LIB nem INCLUDE; no macOS move o
+# Xcode e as Command Line Tools e roda com DEVELOPER_DIR vazio (o `xcrun`
+# falha) —, confere que o toolchain sumiu e só então compila e roda: o olá
+# mundo nos perfis de desenvolvimento, produção e depuração, e o corpus
+# nativo pelo harness diferencial contra a VM, com a distribuição
+# (DARTFORGE_HOME).
+name: Sem toolchain do sistema
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/emit_native/**'
+      - 'crates/runtime/**'
+      - 'crates/cli/src/empacotar.rs'
+      - 'crates/elements/src/distribuicao.rs'
+      - 'corpus/nativo/**'
+      - '.github/workflows/sem-toolchain.yml'
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_RELEASE_LTO: 'false'
+  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+  DARTFORGE_HEAP_MAX_MB: '256'
+jobs:
+  windows:
+    name: Windows sem MSVC nem Windows SDK (N15)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/dart
+      - uses: ./.github/actions/llvm-windows
+        with:
+          desenvolvimento: 'true'
+      - name: Rust fixado (rust-toolchain.toml)
+        run: rustup toolchain install 1.98.1 --profile minimal
+      # O cache do job `compilar` do Pesado (mesmos pacotes e perfil).
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: pesado-release
+          save-if: false
+      - name: Compilar dartforge (nativo, jit) e o harness
+        run: cargo build --locked --release -p dartforge-cli --features nativo,jit -p dartforge-diferencial
+      # As importações contra as DLLs do System32 do runner, e programas C
+      # (executável e DLL) ligados só com o lld-link e executados.
+      - name: Testes do ligador do Windows
+        run: cargo test --locked --release -p dartforge-emit-native --lib ligador_windows -- --include-ignored
+      - name: Montar a distribuição
+        shell: pwsh
+        run: |
+          $dist = Join-Path $env:RUNNER_TEMP 'dist'
+          ./target/release/dartforge.exe empacotar $dist
+          if ($LASTEXITCODE -ne 0) { throw 'empacotar falhou' }
+          Get-ChildItem -Recurse (Join-Path $dist 'lib/sysroot'), (Join-Path $dist 'lib/llvm') | Select-Object FullName, Length | Format-Table -AutoSize
+          "DIST=$dist" >> $env:GITHUB_ENV
+      - name: Esconder o Visual Studio e o Windows SDK
+        shell: pwsh
+        run: |
+          # Processos do Visual Studio que prendem arquivos das pastas.
+          Get-Process | Where-Object { $_.Path -and ($_.Path -like '*Microsoft Visual Studio*' -or $_.Path -like '*Windows Kits*') } | Stop-Process -Force -ErrorAction SilentlyContinue
+          $pastas = @(
+            "${env:ProgramFiles}\Microsoft Visual Studio",
+            "${env:ProgramFiles(x86)}\Microsoft Visual Studio",
+            "${env:ProgramFiles(x86)}\Windows Kits",
+            "${env:ProgramFiles}\Windows Kits"
+          )
+          foreach ($p in $pastas) {
+            if (Test-Path $p) {
+              Rename-Item -LiteralPath $p -NewName ((Split-Path $p -Leaf) + '.escondido') -ErrorAction Stop
+              Write-Host "escondido: $p"
+            }
+          }
+      - name: Ligar e executar sem MSVC (olá mundo e corpus nativo)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dist = $env:DIST
+          # Ambiente mínimo: nada do Visual Studio, do Windows SDK nem do
+          # LLVM de desenvolvimento; só a distribuição, o Dart (o oráculo) e
+          # o sistema.
+          foreach ($v in 'LIB', 'LIBPATH', 'INCLUDE', 'VCINSTALLDIR', 'VSINSTALLDIR', 'VCToolsInstallDir', 'VCToolsVersion',
+                         'WindowsSdkDir', 'WindowsSDKVersion', 'UniversalCRTSdkDir', 'DevEnvDir', 'DARTFORGE_CLANG',
+                         'DARTFORGE_LLVM_DIR', 'LLVM_SYS_221_PREFIX', 'DARTFORGE_SDK_LIB', 'DARTFORGE_LIB') {
+            Remove-Item "env:$v" -ErrorAction SilentlyContinue
+          }
+          $pwshDir = Split-Path (Get-Process -Id $PID).Path
+          $env:PATH = "$dist\bin;$env:DART_SDK\bin;$env:SystemRoot\System32;$env:SystemRoot;$pwshDir"
+          foreach ($f in 'link.exe', 'cl.exe', 'clang.exe', 'lld-link.exe', 'vswhere.exe') {
+            if (Get-Command $f -ErrorAction SilentlyContinue) { throw "$f ainda está no PATH" }
+          }
+          if (Test-Path "${env:ProgramFiles(x86)}\Microsoft Visual Studio") { throw 'o Visual Studio não foi escondido' }
+          Write-Host 'sem link.exe, cl.exe, vswhere, Visual Studio nem Windows Kits'
+
+          $env:DARTFORGE_HOME = $dist
+          $d = Join-Path $env:RUNNER_TEMP 'ola'
+          New-Item -ItemType Directory -Force $d | Out-Null
+          Set-Content (Join-Path $d 'main.dart') "import 'dart:isolate';`nFuture<void> main(List<String> a) async {`n  print('oi `${a.join(',')}');`n  print(await Isolate.run(() => [1, 2, 3].map((x) => x * x).toList()));`n}`n"
+          $esperado = "oi x,y`n[1, 4, 9]"
+          Push-Location $d
+          $env:DARTFORGE_SDK_DA_FONTE = '1'
+          foreach ($perfil in @(@('dev'), @('prod', '--optimize'), @('dbg', '--depuracao'))) {
+            $bandeiras = @($perfil | Select-Object -Skip 1)
+            & "$dist\bin\dartforge.exe" aot main.dart "$($perfil[0]).exe" @bandeiras
+            if ($LASTEXITCODE -ne 0) { throw "aot $($perfil -join ' ') falhou" }
+            $saida = (& ".\$($perfil[0]).exe" x y) -join "`n"
+            if ($saida -ne $esperado) { throw "$($perfil[0]): saída inesperada: $saida" }
+            $bytes = [IO.File]::ReadAllBytes((Join-Path $d "$($perfil[0]).exe"))
+            $texto = [Text.Encoding]::ASCII.GetString($bytes)
+            if ($texto -match '(?i)vcruntime140|msvcp140') { throw "$($perfil[0]).exe importa a CRT do Visual C++" }
+            Write-Host "$($perfil[0]): ok, sem vcruntime140"
+          }
+          if (!(Test-Path (Join-Path $d 'dbg.pdb'))) { throw 'o perfil de depuração não gerou o PDB (J05)' }
+          Remove-Item env:DARTFORGE_SDK_DA_FONTE
+          Pop-Location
+
+          # O corpus nativo contra a VM, ligado pela distribuição.
+          $env:DARTFORGE_BIN = "$dist\bin\dartforge.exe"
+          New-Item -ItemType Directory -Force relatorios | Out-Null
+          $rodadas = @(
+            @('io', '--nativo --corpus corpus/nativo --jobs 2'),
+            @('io-gc-stress', '--nativo --corpus corpus/nativo --gc-stress --jobs 2 --limite-exec 120'),
+            @('corpus', '--nativo --jobs 4')
+          )
+          $falhou = $false
+          foreach ($r in $rodadas) {
+            $rel = "relatorios/$($r[0]).txt"
+            $p = Start-Process -FilePath target/release/dartforge-diferencial.exe -ArgumentList $r[1] -RedirectStandardOutput $rel -RedirectStandardError "relatorios/$($r[0]).err" -NoNewWindow -PassThru -Wait
+            $texto = Get-Content $rel -Encoding utf8
+            $placar = $texto | Where-Object { $_ -match '^DartForge Nativo: ' } | Select-Object -First 1
+            $falhas = @($texto | Where-Object { $_ -match '^FALHA ' })
+            Write-Host "$($r[0]): código $($p.ExitCode); $placar"
+            $falhas | ForEach-Object { Write-Host "  $_" }
+            Add-Content $env:GITHUB_STEP_SUMMARY "- Windows sem MSVC, $($r[0]): ``$placar``" -Encoding utf8
+            if (!$placar -or $falhas.Count -gt 0) { $falhou = $true }
+          }
+          if ($falhou) { throw 'programa do corpus falhando sem MSVC' }
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: sem-toolchain-windows
+          path: relatorios/
+          if-no-files-found: ignore
+
+  macos:
+    name: macOS sem Xcode nem Command Line Tools (N16, N02)
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/dart
+      - uses: ./.github/actions/llvm-unix
+      - name: Rust fixado (rust-toolchain.toml)
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: pesado-unix
+          save-if: false
+      - name: Compilar dartforge (nativo, jit) e o harness
+        run: cargo build --locked --release -p dartforge-cli --features nativo,jit -p dartforge-diferencial
+      - name: Testes dos ligadores
+        run: cargo test --locked --release -p dartforge-emit-native --lib ligador_ -- --include-ignored
+      - name: Montar a distribuição
+        run: |
+          set -euo pipefail
+          dist="$RUNNER_TEMP/dist"
+          ./target/release/dartforge empacotar "$dist"
+          find "$dist/lib/sysroot" "$dist/lib/llvm" -type f | xargs ls -la
+          echo "DIST=$dist" >> "$GITHUB_ENV"
+      # A referência: o corpus/nativo com o toolchain presente (a árvore de
+      # desenvolvimento), para comparar com a rodada sem ele.
+      - name: corpus/nativo com o Xcode (referência)
+        run: |
+          set -uo pipefail
+          mkdir -p relatorios
+          c=0; ./target/release/dartforge-diferencial --nativo --corpus corpus/nativo --jobs 2 > relatorios/io-com-xcode.txt 2>&1 || c=$?
+          grep -E '^(DartForge Nativo: |FALHA )' relatorios/io-com-xcode.txt || true
+          echo "código $c"
+      - name: Esconder o Xcode e as Command Line Tools
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /private/var/escondido
+          for p in /Library/Developer/CommandLineTools /Applications/Xcode*.app; do
+            if [ -e "$p" ] || [ -L "$p" ]; then sudo mv "$p" /private/var/escondido/; echo "escondido: $p"; fi
+          done
+      - name: Ligar e executar sem Xcode (olá mundo e corpus nativo)
+        run: |
+          set -uo pipefail
+          dist="$DIST"
+          ambiente=(env -i HOME="$HOME" PATH="$dist/bin:$DART_SDK/bin:/bin:/usr/bin:/usr/sbin" DEVELOPER_DIR=/nao/existe
+                    DARTFORGE_HOME="$dist" DARTFORGE_BIN="$dist/bin/dartforge" DARTFORGE_DART_SDK="$DARTFORGE_DART_SDK"
+                    DARTFORGE_HEAP_MAX_MB=256)
+          if "${ambiente[@]}" xcrun --sdk macosx --show-sdk-path; then echo '::error::o xcrun ainda acha o SDK'; exit 1; fi
+          for f in clang ld cc ld64.lld; do
+            if "${ambiente[@]}" sh -c "command -v $f >/dev/null && $f --version >/dev/null 2>&1"; then echo "::error::$f ainda funciona"; exit 1; fi
+          done
+          echo 'sem xcrun, SDK, clang nem ld'
+          d=$(mktemp -d)
+          printf "import 'dart:isolate';\nFuture<void> main(List<String> a) async {\n  print('oi \${a.join(\",\")}');\n  print(await Isolate.run(() => [1, 2, 3].map((x) => x * x).toList()));\n}\n" > "$d/main.dart"
+          esperado=$'oi x,y\n[1, 4, 9]'
+          for perfil in "dev" "prod --optimize" "dbg --depuracao"; do
+            set -- $perfil
+            (cd "$d" && "${ambiente[@]}" DARTFORGE_SDK_DA_FONTE=1 "$dist/bin/dartforge" aot main.dart "$@") || { echo "::error::aot $perfil falhou"; exit 1; }
+            [ "$("$d/$1" x y)" = "$esperado" ] || { echo "::error::$1: saída inesperada"; exit 1; }
+            echo "$1: ok"
+          done
+          falhou=0
+          for r in "io:--nativo --corpus corpus/nativo --jobs 2" "io-gc-stress:--nativo --corpus corpus/nativo --gc-stress --jobs 2 --limite-exec 120" "corpus:--nativo --jobs 3"; do
+            nome=${r%%:*}; args=${r#*:}
+            "${ambiente[@]}" ./target/release/dartforge-diferencial $args > "relatorios/$nome.txt" 2>&1
+            placar=$(grep -E '^DartForge Nativo: ' "relatorios/$nome.txt" || true)
+            echo "$nome: $placar"; grep -E '^FALHA ' "relatorios/$nome.txt" || true
+            echo "- macOS sem Xcode, $nome: \`$placar\`" >> "$GITHUB_STEP_SUMMARY"
+            [ -n "$placar" ] || falhou=1
+            # Nenhuma falha de ligação (o que o toolchain escondido causaria).
+            if grep -nE 'falhou na ligação|ld64.lld|xcrun|SDK do macOS não encontrado' "relatorios/$nome.txt"; then falhou=1; fi
+          done
+          # N02: a observação de arquivos igual à VM (FSEvents).
+          for p in 34_observar_arquivos 38_observar_arquivos_windows 39_observar_arquivos_macos; do
+            if grep -E "^FALHA +$p" relatorios/io.txt relatorios/io-gc-stress.txt; then echo "::error::$p diverge da VM"; falhou=1; fi
+          done
+          # Sem o Xcode, nada do corpus/nativo pode falhar que passava com ele.
+          ok() { sed -nE 's/^DartForge Nativo: +([0-9]+)\/.*/\1/p' "$1"; }
+          [ "$(ok relatorios/io.txt)" -ge "$(ok relatorios/io-com-xcode.txt)" ] || { echo '::error::corpus/nativo pior sem o Xcode'; falhou=1; }
+          exit $falhou
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: sem-toolchain-macos
+          path: relatorios/
+          if-no-files-found: ignore

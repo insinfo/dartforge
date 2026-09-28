@@ -562,8 +562,8 @@ pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk
     // A DLL (desenvolvimento): os objetos do SDK e o runtime (variante sem
     // `main`). Em produção, os objetos (bitcode) vão direto para o
     // executável.
-    let st = if perfil == PerfilDoSdk::Producao {
-        None
+    if perfil == PerfilDoSdk::Producao {
+        // Nada a ligar: o bitcode entra na ligação de cada executável.
     } else if crate::alvo::sistema() == crate::alvo::Sistema::Linux {
         // O `ld.lld` direto com o sysroot de ligação (`ligador.rs`).
         let exportados: Vec<String> =
@@ -584,59 +584,50 @@ pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk
             },
         )
         .map_err(|e| format!("a ligação da DLL do SDK da fonte falhou: {e}"))?;
-        None
-    } else {
-        let mut cmd = std::process::Command::new(clang);
-        cmd.current_dir(&tmp)
-            .arg("-shared")
-            .args(BIBLIOTECAS_DA_FONTE.iter().map(|b| format!("{b}.{ext_obj}")))
-            .arg(&runtime_dll.lib_path);
-        match crate::alvo::sistema() {
-            crate::alvo::Sistema::Windows => {
-                cmd.arg("-Wl,/DEF:exportados.def");
-            }
-            sistema => {
-                // Sem `.def`: cada nome do runtime entra como não definido,
-                // para o ligador trazer da `staticlib` também o que o SDK não
-                // usa (o programa usa), e o símbolo sai exportado.
-                let mac = sistema == crate::alvo::Sistema::MacOs;
-                let mut rsp = String::new();
-                for n in dartforge_runtime::simbolos::NOMES.iter().filter(|n| **n != "main") {
-                    if mac {
-                        rsp.push_str(&format!("-Wl,-u,_{n}\n"));
-                    } else {
-                        rsp.push_str(&format!("-Wl,--undefined={n}\n"));
-                    }
-                }
-                std::fs::write(tmp.join("runtime.rsp"), rsp).map_err(|e| e.to_string())?;
-                cmd.arg("@runtime.rsp");
-                if mac {
-                    cmd.arg(format!("-Wl,-install_name,@rpath/{arquivo_dll}"));
-                } else {
-                    cmd.arg(format!("-Wl,-soname,{arquivo_dll}"));
-                }
-            }
-        }
-        Some(
-            cmd.args(crate::alvo::argumentos_de_ligacao())
-                .arg("-o")
-                .arg(&arquivo_dll)
-                .output()
-                .map_err(|e| format!("Clang: {e}"))?,
+    } else if crate::alvo::sistema() == crate::alvo::Sistema::Windows {
+        // O `lld-link` direto, com as bibliotecas de importação e a CRT
+        // mínima do dartforge (`ligador_windows.rs`); o `.def` exporta o
+        // runtime e o SDK, e a biblioteca de importação sai ao lado da DLL.
+        use crate::ligador_windows as lw;
+        let mut entradas: Vec<PathBuf> = BIBLIOTECAS_DA_FONTE.iter().map(|b| tmp.join(format!("{b}.{ext_obj}"))).collect();
+        entradas.push(runtime_dll.lib_path.clone());
+        lw::ligar(
+            &lw::lld_link(clang),
+            lw::SysrootWindows::localizar(clang)?,
+            &lw::Ligacao {
+                produto: lw::Produto::Dll { def: &tmp.join("exportados.def") },
+                entradas,
+                lto: false,
+                podar: false,
+                depuracao: false,
+                saida: &tmp.join(&arquivo_dll),
+            },
         )
-    };
-    if let Some(saida) = st
-        && !saida.status.success()
-    {
-        // O erro leva o que o ligador disse (símbolos ausentes, biblioteca
-        // não achada): sem isso a falha no CI não tem diagnóstico.
-        let texto = String::from_utf8_lossy(&saida.stderr);
-        let linhas: Vec<&str> = texto.lines().filter(|l| !l.trim().is_empty()).take(40).collect();
-        return Err(format!(
-            "a ligação da DLL do SDK da fonte falhou ({}):\n{}",
-            saida.status,
-            linhas.join("\n")
-        ));
+        .map_err(|e| format!("a ligação da DLL do SDK da fonte falhou: {e}"))?;
+    } else {
+        // O `ld64.lld` direto com os `.tbd` do sysroot (`ligador_macos.rs`):
+        // cada nome do runtime entra como não definido, para o ligador trazer
+        // da `staticlib` também o que o SDK não usa (o programa usa).
+        use crate::ligador_macos as lm;
+        let exportados: Vec<String> =
+            dartforge_runtime::simbolos::NOMES.iter().filter(|n| **n != "main").map(|n| n.to_string()).collect();
+        let mut entradas: Vec<PathBuf> = BIBLIOTECAS_DA_FONTE.iter().map(|b| tmp.join(format!("{b}.{ext_obj}"))).collect();
+        entradas.push(runtime_dll.lib_path.clone());
+        let install_name = format!("@rpath/{arquivo_dll}");
+        lm::ligar(
+            &lm::ld64_lld(clang),
+            lm::SysrootMacos::localizar()?,
+            &lm::Ligacao {
+                produto: lm::Produto::Dinamica { install_name: &install_name, exportados: &exportados },
+                entradas,
+                rpath_executavel: false,
+                lto: false,
+                podar: false,
+                manter_depuracao: false,
+                saida: &tmp.join(&arquivo_dll),
+            },
+        )
+        .map_err(|e| format!("a ligação da DLL do SDK da fonte falhou: {e}"))?;
     }
     std::fs::write(tmp.join("pronto"), b"").map_err(|e| e.to_string())?;
     if std::fs::rename(&tmp, &dir).is_err() {
