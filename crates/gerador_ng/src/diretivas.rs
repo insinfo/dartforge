@@ -529,7 +529,17 @@ pub fn resolver_consultado(
     acima: Option<Acima>,
     consultados: &[Token],
 ) -> Result<NoResolvido, &'static str> {
-    resolver_com(casadas, n, acima, false, None, false, None, consultados)
+    resolver_com(
+        casadas,
+        n,
+        acima,
+        false,
+        None,
+        false,
+        None,
+        consultados,
+        &[],
+    )
 }
 
 /// Os provedores de um `<template>` escrito (`EmbeddedTemplateAst`): os
@@ -556,6 +566,7 @@ pub fn resolver_de_molde(
         None,
         container,
         Some((&leitura, indice)),
+        &[],
         &[],
     )?;
     Ok((r, indice))
@@ -587,14 +598,29 @@ pub fn resolver_hospedeira(componente: Arc<Diretiva>) -> Result<NoResolvido, &'s
 /// `container`: o filho injeta `ViewContainerRef` e o nó ganha um
 /// `ViewContainer`, com mais três embutidos (`ViewContainer`,
 /// `ViewContainerRef`, `ComponentLoader`) antes dos provedores (caso j47).
+///
+/// `pedidos`: os tokens que os nós do conteúdo pedem a este nó durante a
+/// visita deles (`_getDependency` sobe e acha aqui), na ordem, que o oficial
+/// transforma ansiosos antes do `afterElement` deste nó (caso i76).
 pub fn resolver_no_do_filho(
     casadas: &[Arc<Diretiva>],
     filho: usize,
     n: u32,
     acima: Option<Acima>,
     container: bool,
+    pedidos: &[Token],
 ) -> Result<NoResolvido, &'static str> {
-    resolver_com(casadas, n, acima, false, Some(filho), container, None, &[])
+    resolver_com(
+        casadas,
+        n,
+        acima,
+        false,
+        Some(filho),
+        container,
+        None,
+        &[],
+        pedidos,
+    )
 }
 
 fn resolver_em(
@@ -603,7 +629,7 @@ fn resolver_em(
     acima: Option<Acima>,
     hospedeira: bool,
 ) -> Result<NoResolvido, &'static str> {
-    resolver_com(casadas, n, acima, hospedeira, None, false, None, &[])
+    resolver_com(casadas, n, acima, hospedeira, None, false, None, &[], &[])
 }
 
 /// `componente`: o índice do componente filho em `casadas` (no nó de um
@@ -619,6 +645,7 @@ fn resolver_com(
     container: bool,
     molde: Option<(&str, u32)>,
     consultados: &[Token],
+    pedidos: &[Token],
 ) -> Result<NoResolvido, &'static str> {
     let completa = |k: usize| hospedeira || componente == Some(k);
     // `requiresViewContainer`: com `ViewContainer` o nó ganha três embutidos
@@ -743,6 +770,14 @@ fn resolver_com(
     let mut vistos = Vec::new();
     for i in 0..todos.len() {
         if todos[i].eager {
+            criar(&todos, i, &mut ordem, &mut vistos, hospedeira)?;
+        }
+    }
+    // Os pedidos dos nós de baixo, na visita deles (antes do `afterElement`
+    // deste): cada um transformado ansioso, com as dependências antes
+    // (`_getLocalDependency` com o `eager` de quem pede).
+    for t in pedidos {
+        if let Some(i) = todos.iter().position(|r| r.token == *t) {
             criar(&todos, i, &mut ordem, &mut vistos, hospedeira)?;
         }
     }

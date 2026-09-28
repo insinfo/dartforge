@@ -300,6 +300,7 @@ import 'package:corpus_ngdart/src/j112_export_e_imutabilidade.template.dart' as 
 import 'package:corpus_ngdart/src/j113_interpolacao_n.template.dart' as j113;
 import 'package:corpus_ngdart/src/j114_propriedade_do_esquema.template.dart' as j114;
 import 'package:corpus_ngdart/src/j115_preserva_espacos.template.dart' as j115;
+import 'package:corpus_ngdart/src/j116_pedido_do_conteudo.template.dart' as j116;
 
 void main() {
   print([
@@ -605,5 +606,6 @@ void main() {
     j114.J114PropriedadeDoEsquemaNgFactory,
     j115.J115PreservaNgFactory,
     j115.J115MinimizaNgFactory,
+    j116.J116UsaNgFactory,
   ].length);
 }

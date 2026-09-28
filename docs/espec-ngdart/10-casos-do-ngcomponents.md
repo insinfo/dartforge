@@ -87,6 +87,17 @@ casos que apareceram no ngcomponents.
   preguiçoso do pai pedido por um nó abaixo). Ela é recusada exatamente
   (`ProvedorAcima::preguicoso`) até a simulação do `ProviderElementContext`.
 
+## Provedor do filho pedido pelo conteúdo, com a numeração certa — j116
+
+- **Regra:** o `_getDependency` da diretiva do conteúdo sobe e transforma o
+  provedor preguiçoso do filho durante a visita dela, com o `eager` dela,
+  antes do `afterElement` do filho (`provider_parser.dart:318-366`). O índice
+  (`uniqueId`) é a posição nessa ordem (`_PopupRef_0_9`, e não `_0_12`).
+- **Porte:** `resolver_no_do_filho(.., pedidos)`: os pedidos do conteúdo
+  (`pedidos_ao_no_do_filho`) são criados logo depois da passada ansiosa. O
+  reordenamento posterior (`ansiosos_pelo_conteudo`), que mantinha os nomes
+  antigos, saiu.
+
 ## Pendentes com regra já levantada
 
 - **Local de `*` ancestral / tipo do local de `*ngFor`:** o tipo do `$implicit`

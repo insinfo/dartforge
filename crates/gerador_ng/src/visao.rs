@@ -4045,12 +4045,14 @@ impl Corpo<'_> {
                     provedores: &provedores,
                     incerto: self.incertos_acima > 0,
                 };
+                let pedidos = pedidos_ao_no_do_filho(e, casadas, self.filhos, self.usadas)?;
                 let r = crate::diretivas::resolver_no_do_filho(
                     casadas,
                     *indice,
                     n,
                     Some(acima),
                     container,
+                    &pedidos,
                 )
                 .map_err(|f| recusa(Motivo::DiretivaPorSeletor, f))?;
                 let token = casadas[*indice].token();
@@ -4369,13 +4371,9 @@ impl Corpo<'_> {
         let antes_acima = self.acima.len();
         if let Some((r, pos)) = &resolvido {
             let pos = *pos;
-            // Provedor preguiçoso do filho pedido por um nó do conteúdo, na
-            // mesma visão: o `_getDependency` do nó de baixo o cria com
-            // `eager` (só um `*` no caminho o deixa preguiçoso), e ele sai no
-            // `build()` depois dos ansiosos do nó, na ordem dos pedidos, com
-            // as dependências dele antes (caso i76).
-            let depois =
-                ansiosos_pelo_conteudo(e, &r.instancias[pos + 1..], self.filhos, self.usadas)?;
+            // Os preguiçosos que o conteúdo pede já vêm ansiosos e na
+            // posição certa do resolvedor ([`pedidos_ao_no_do_filho`]).
+            let depois = r.instancias[pos + 1..].to_vec();
             // Os provedores depois do filho, o `registerDirective` de todas
             // as diretivas do nó (menos o componente) e as ligações das que
             // vêm depois dele.
@@ -7753,78 +7751,23 @@ fn diretivas_casadas(
         .collect()
 }
 
-/// Os provedores do nó do filho depois dele, com os preguiçosos que o
-/// conteúdo pede ([`pedidos_do_conteudo`]) já ansiosos: os ansiosos do
-/// nó, depois os pedidos (cada um depois dos provedores do nó que ele
-/// lê), depois os que continuam preguiçosos.
-fn ansiosos_pelo_conteudo(
+/// Os tokens que o conteúdo do nó do filho pede aos provedores dele,
+/// ansiosos e na ordem da visita ([`pedidos_do_conteudo`]): o resolvedor os
+/// transforma logo depois dos ansiosos do nó, e a numeração dos campos sai
+/// na ordem certa (caso i76; o `PopupRef_0_9` do `paper_tooltip`).
+fn pedidos_ao_no_do_filho(
     e: &crate::html::Elemento,
-    instancias: &[crate::diretivas::Instancia],
+    casadas: &[std::sync::Arc<crate::diretivas::Diretiva>],
     filhos: &std::collections::HashMap<String, Filho>,
     usadas: &[Usada],
-) -> Result<Vec<crate::diretivas::Instancia>, Recusa> {
-    use crate::diretivas::{Criacao, Instancia, Token};
-    let fornece = |i: &Instancia, t: &Token| i.token == *t || i.apelidos.contains(t);
-    let preguicosos: Vec<Token> = instancias
+) -> Result<Vec<crate::diretivas::Token>, Recusa> {
+    let tokens: Vec<crate::diretivas::Token> = casadas
         .iter()
-        .filter(|i| i.preguicosa && matches!(i.criacao, Criacao::Expressao(_) | Criacao::Multi(_)))
-        .flat_map(|i| std::iter::once(i.token.clone()).chain(i.apelidos.iter().cloned()))
+        .flat_map(|d| d.provedores.iter().map(|p| p.token.clone()))
         .collect();
     let mut pedidos = Vec::new();
-    pedidos_do_conteudo(&e.filhos, filhos, usadas, &preguicosos, &mut pedidos)?;
-    let mut ordem: Vec<usize> = (0..instancias.len())
-        .filter(|&k| !instancias[k].preguicosa)
-        .collect();
-    fn tornar_ansioso(
-        k: usize,
-        instancias: &[Instancia],
-        ordem: &mut Vec<usize>,
-        profundidade: u32,
-    ) -> Result<(), Recusa> {
-        if ordem.contains(&k) {
-            return Ok(());
-        }
-        if profundidade > 16 {
-            return Err(recusa(Motivo::Ligacao, "provedores do filho em ciclo"));
-        }
-        let mut lidos = Vec::new();
-        match &instancias[k].criacao {
-            crate::diretivas::Criacao::Expressao(x) => campos_da_expr(x, &mut lidos),
-            crate::diretivas::Criacao::Multi(xs) => {
-                for x in xs {
-                    campos_da_expr(x, &mut lidos);
-                }
-            }
-            _ => {}
-        }
-        for c in lidos {
-            if let Some(j) = instancias.iter().position(|i| i.campo == c && i.preguicosa) {
-                tornar_ansioso(j, instancias, ordem, profundidade + 1)?;
-            }
-        }
-        ordem.push(k);
-        Ok(())
-    }
-    for t in &pedidos {
-        if let Some(k) = instancias
-            .iter()
-            .position(|i| i.preguicosa && fornece(i, t))
-        {
-            tornar_ansioso(k, instancias, &mut ordem, 0)?;
-        }
-    }
-    let ansiosos = ordem.clone();
-    ordem.extend((0..instancias.len()).filter(|k| !ansiosos.contains(k)));
-    Ok(ordem
-        .into_iter()
-        .map(|k| {
-            let mut i = instancias[k].clone();
-            if ansiosos.contains(&k) {
-                i.preguicosa = false;
-            }
-            i
-        })
-        .collect())
+    pedidos_do_conteudo(&e.filhos, filhos, usadas, &tokens, &mut pedidos)?;
+    Ok(pedidos)
 }
 
 /// Os campos dos provedores do nó e a criação deles no `build()`, na
@@ -7908,20 +7851,6 @@ fn pedidos_do_conteudo(
         pedidos_do_conteudo(&e.filhos, filhos, usadas, &abaixo, saida)?;
     }
     Ok(())
-}
-
-/// Os campos do nó (`this.campo`) que a expressão de um provedor lê.
-fn campos_da_expr(x: &crate::diretivas::Expr, saida: &mut Vec<String>) {
-    use crate::diretivas::Expr;
-    match x {
-        Expr::Campo(c) => saida.push(c.clone()),
-        Expr::Classe { args, .. } | Expr::Fabrica { args, .. } => {
-            for a in args {
-                campos_da_expr(a, saida);
-            }
-        }
-        _ => {}
-    }
 }
 
 /// Algum `@Input` das diretivas tem este nome?
@@ -8216,8 +8145,9 @@ fn campos_em_ordem<'a>(
                 .filter(|meta| !extras.is_empty() || !meta.provedores.is_empty())
                 .and_then(|meta| {
                     let (indice, casadas) = casadas_do_no_do_filho(meta, &extras, usadas);
+                    let pedidos = pedidos_ao_no_do_filho(e, &casadas, filhos, usadas).ok()?;
                     let r = crate::diretivas::resolver_no_do_filho(
-                        &casadas, indice, 0, None, container,
+                        &casadas, indice, 0, None, container, &pedidos,
                     )
                     .ok()?;
                     let token = casadas[indice].token();
@@ -8231,13 +8161,9 @@ fn campos_em_ordem<'a>(
                         .map(|i| uri_do_campo(i, asset))
                         .collect();
                     saida.push(CampoDaVisao::Filho(f, container, antes));
-                    // Os preguiçosos que o conteúdo pede já são ansiosos
-                    // (caso i76); se a ordem deles não se decide, a visão
-                    // recusa o nó.
-                    let depois =
-                        ansiosos_pelo_conteudo(e, &r.instancias[pos + 1..], filhos, usadas)
-                            .unwrap_or_else(|_| r.instancias[pos + 1..].to_vec());
-                    separar(&depois, &mut saida);
+                    // Os preguiçosos que o conteúdo pede já vêm ansiosos e
+                    // na posição certa (caso i76).
+                    separar(&r.instancias[pos + 1..], &mut saida);
                 }
                 None => saida.push(CampoDaVisao::Filho(f, container, Vec::new())),
             }
