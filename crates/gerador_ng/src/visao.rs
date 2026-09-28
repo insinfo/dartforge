@@ -7522,18 +7522,49 @@ fn tem_elemento_ligado(
     refs: &std::collections::HashSet<String>,
 ) -> bool {
     nos.iter().any(|n| match n {
-        // Componente filho não vira campo de elemento: quem guarda a raiz
-        // dele é a visão-filha.
         // Subárvore de `*` é da visão embutida.
         No::Elemento(e) if e.estrela.is_some() => false,
-        No::Elemento(e) if !filhos.contains_key(&e.nome) => {
-            liga_no_elemento(e, &diretivas_casadas(usadas, e))
-                || e.referencias.iter().any(|r| refs.contains(&r.nome))
-                || tem_elemento_ligado(&e.filhos, filhos, usadas, refs)
-        }
-        No::Elemento(e) => tem_elemento_ligado(&e.filhos, filhos, usadas, refs),
+        No::Elemento(e) => match filhos.get(&e.nome) {
+            None => {
+                liga_no_elemento(e, &diretivas_casadas(usadas, e))
+                    || e.referencias.iter().any(|r| refs.contains(&r.nome))
+                    || tem_elemento_ligado(&e.filhos, filhos, usadas, refs)
+            }
+            // O nó de um filho vira campo com ligação própria do elemento
+            // ([`Corpo::filho`]).
+            Some(f) => {
+                elemento_do_filho_ligado(e, f, &diretivas_casadas(usadas, e))
+                    || tem_elemento_ligado(&e.filhos, filhos, usadas, refs)
+            }
+        },
         _ => false,
     })
+}
+
+/// O elemento de um componente filho vira campo da visão: ligação do
+/// próprio elemento (`[class.x]`, `[style.x]`, `[attr.x]`, `[class]`) ou
+/// atributo interpolado que nem o filho nem uma diretiva do nó recebe, ou
+/// diretiva do nó com `@HostBinding` (o `detectHostChanges` lê o nó).
+fn elemento_do_filho_ligado(
+    e: &crate::html::Elemento,
+    filho: &Filho,
+    extras: &[std::sync::Arc<crate::diretivas::Diretiva>],
+) -> bool {
+    let de_elemento = |nome: &str| {
+        matches!(nome, "class" | "className")
+            || ["class.", "style.", "attr."]
+                .iter()
+                .any(|p| nome.starts_with(p))
+    };
+    e.propriedades.iter().any(|l| {
+        filho.entrada(&l.nome).is_none()
+            && !consome_entrada(extras, &l.nome)
+            && de_elemento(&l.nome)
+    }) || e.atributos.iter().any(|a| {
+        a.valor.contains("{{")
+            && filho.entrada(&a.nome).is_none()
+            && !consome_entrada(extras, &a.nome)
+    }) || extras.iter().any(|d| !d.ligacoes_do_hospedeiro.is_empty())
 }
 
 /// As diretivas que casam um elemento HTML, com os metadados lidos do

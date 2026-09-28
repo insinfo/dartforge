@@ -46,8 +46,8 @@ fn marca_angular(texto: &str) -> bool {
 
 const EXTENSOES: &[&str] = &["dart", "html", "scss", "sass", "css"];
 
-/// As folhas `.css` que o `sass_builder` desta build gerou para os `.scss`
-/// do pacote (na memória do motor): o shim do ngdart parte delas, como no
+/// As folhas `.css` que o `sass_builder` (ou outro `SassBuilder`) desta
+/// build gerou para os `.scss`/`.sass` do pacote (na memória do motor): o shim do ngdart parte delas, como no
 /// oficial, no `outputStyle` do projeto. Uma folha `.css` no disco fica com
 /// o disco.
 fn folhas_geradas(ctx: &mut CtxGerador<'_>, raiz: &Path) -> HashMap<PathBuf, String> {
@@ -58,15 +58,20 @@ fn folhas_geradas(ctx: &mut CtxGerador<'_>, raiz: &Path) -> HashMap<PathBuf, Str
     let mut folhas = HashMap::new();
     for scss in fontes {
         let parcial = scss.file_name().is_some_and(|n| n.to_string_lossy().starts_with('_'));
-        if parcial || scss.extension().is_none_or(|e| e != "scss") {
+        if parcial || scss.extension().is_none_or(|e| e != "scss" && e != "sass") {
             continue;
         }
-        let css = scss.with_extension("css");
-        if css.is_file() {
-            continue;
-        }
-        if let Some(b) = ctx.ler(&css) {
-            folhas.insert(css, String::from_utf8_lossy(&b).into_owned());
+        // `x.css` do `sass_builder`, ou `x.scss.css` de um `SassBuilder` com
+        // `outputExtension: '.scss.css'` (o `scss_builder` do ngcomponents).
+        let mut nome_scss_css = scss.clone().into_os_string();
+        nome_scss_css.push(".css");
+        for css in [scss.with_extension("css"), PathBuf::from(nome_scss_css)] {
+            if css.is_file() {
+                continue;
+            }
+            if let Some(b) = ctx.ler(&css) {
+                folhas.insert(css, String::from_utf8_lossy(&b).into_owned());
+            }
         }
     }
     folhas

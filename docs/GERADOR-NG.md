@@ -589,7 +589,18 @@ diretiva estrutural própria (a `deferredContent` do ngcomponents) é
 desfeito no `<template>` da microssintaxe (`[dir]`, `[dirChave]`,
 `let-x`, e o atributo `dir` vazio quando a primeira ligação não é a dela,
 com o intervalo do `*dir` inteiro em cada `REF`) e segue o caminho do
-`<template>` escrito — caso j94. Corpus: **327 conferidos, 0 pendentes**.
+`<template>` escrito — caso j94. O elemento de um filho que vira campo
+(ligação do elemento, interpolação, `@HostBinding` de diretiva) entra na
+pré-alocação do `dart:html`, na posição do primeiro campo de elemento —
+caso j95. Corpus: **328 conferidos, 0 pendentes**.
+
+ngcomponents 3.0.0-dev.1 (o port do angular_components, num projeto de
+sonda com o `build_runner` oficial de referência): 463 `.template.dart` e
+as 140 folhas `.scss.css.dart`/`.scss.css.shim.dart` iguais, **0
+diferentes**; as folhas `.scss.css` (do `SassBuilder` do próprio
+ngcomponents, com o sass 1.66.0) vêm do apoio, e o estágio A do ngdart as
+lê da memória do motor. Os 61 `.template.dart` pendentes são a próxima
+fila (formas de `@HostBinding`, injeção anotada, filho que herda…).
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada
 pendente com o motivo): **950 iguais / 0 pendentes / 0 diferentes** —
 `.template.dart` **532/0/0**, os 2 `.i18n.dart` (gerador nativo do

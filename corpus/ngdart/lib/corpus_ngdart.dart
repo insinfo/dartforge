@@ -308,3 +308,4 @@ export 'src/j91_filho_com_inject.dart';
 export 'src/j92_filho_com_ligacoes_do_elemento.dart';
 export 'src/j93_ouvinte_no_filho.dart';
 export 'src/j94_estrutural_propria.dart';
+export 'src/j95_campo_do_elemento_do_filho.dart';
