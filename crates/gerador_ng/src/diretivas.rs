@@ -560,9 +560,12 @@ pub fn resolver_de_molde(
     casadas: &[Arc<Diretiva>],
     n: u32,
     acima: Option<Acima>,
+    // Uma consulta lê um `#ref` do nó como `ViewContainerRef`
+    // (`_requiresViewContainer`, `provider_parser.dart:95-104`).
+    forcar_container: bool,
     template_ref: &dyn Fn(u32) -> String,
 ) -> Result<(NoResolvido, u32), &'static str> {
-    let container = casadas.iter().any(|d| pede_container(d));
+    let container = forcar_container || casadas.iter().any(|d| pede_container(d));
     let indice = if container { 8 } else { 7 };
     let leitura = template_ref(indice);
     let r = resolver_com(
@@ -1020,10 +1023,13 @@ fn resolver_com(
     Ok(saida)
 }
 
-/// O `ViewContainerRef` do ngdart.
+/// O `ViewContainerRef` do ngdart, ou o `ComponentLoader`, que é apelido do
+/// mesmo `ViewContainer` e também liga o `_requiresViewContainer`
+/// (`provider_parser.dart:290-295`, `compile_element.dart:204-206`).
 pub fn e_view_container_ref(t: &Token) -> bool {
     matches!(t, Token::Classe { uri, classe }
-        if uri.starts_with("package:ngdart/") && classe == "ViewContainerRef")
+        if uri.starts_with("package:ngdart/")
+            && matches!(classe.as_str(), "ViewContainerRef" | "ComponentLoader"))
 }
 
 /// A diretiva injeta `ViewContainerRef` e o nó dela ganha um

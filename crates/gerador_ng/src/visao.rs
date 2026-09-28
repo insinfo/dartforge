@@ -886,6 +886,22 @@ fn formas_contra_o_template(
         let de_provedor = !consulta.por_tipo
             && !moldes.contains(&consulta.referencia)
             && token_de_leitura(consulta, local, resolvedor).is_some();
+        // `read: ViewContainerRef` num `<template #x>`: o valor é o
+        // `ViewContainer` do nó, atribuído no `build()` — a forma estática
+        // (um `#x` só, na própria visão, `@ViewChild`).
+        if !consulta.por_tipo
+            && moldes.contains(&consulta.referencia)
+            && le_container(consulta, local, resolvedor)
+        {
+            onde_esta(nos, &consulta.referencia, filhos, false, &mut lugares);
+            if consulta.lista || lugares.as_slice() != [Lugar::Raiz] {
+                fora.push(recusa(
+                    Motivo::ViewChildDinamico,
+                    "@ViewChild(.., read: ViewContainerRef) de <template> fora da forma estática",
+                ));
+            }
+            continue;
+        }
         if consulta.leitura.is_some()
             && !de_provedor
             && !consulta_em_embutida(nos, consulta, filhos, local, resolvedor)
@@ -1769,6 +1785,33 @@ fn referencias_ambiguas(nos: &[No]) -> std::collections::HashSet<String> {
         .collect()
 }
 
+/// Os campos dos nós na ordem em que o `NodeReferenceStorageVisitor` os
+/// promove: pela primeira leitura fora do `build()`. No
+/// `detectChangesInternal` as declarações dos locais (`final local_x =
+/// this._el_n;`) vêm no topo, então os nós lidos por elas vêm antes dos que
+/// as ligações leem (em ordem de documento).
+fn campos_el_em_ordem(
+    campos_el: &[String],
+    refs_dos_campos: &std::collections::HashMap<String, Vec<String>>,
+    locais_raiz: &[String],
+) -> Vec<String> {
+    let mut saida: Vec<String> = Vec::new();
+    for nome in locais_raiz {
+        for c in campos_el {
+            let lido = refs_dos_campos.get(c).is_some_and(|r| r.contains(nome));
+            if lido && !saida.contains(c) {
+                saida.push(c.clone());
+            }
+        }
+    }
+    for c in campos_el {
+        if !saida.contains(c) {
+            saida.push(c.clone());
+        }
+    }
+    saida
+}
+
 /// Os `#ref` lidos como local cujo nó vira campo: os sem valor. Com valor
 /// (`#d="x"`), o local é a diretiva exportada, e o elemento fica como está.
 fn nos_promovidos(
@@ -2231,6 +2274,48 @@ fn chave_de_leitura(chave: &str, t: &crate::diretivas::Token) -> String {
         crate::diretivas::Token::Classe { uri, classe } => format!("{chave}\u{4}{uri}#{classe}"),
         outro => format!("{chave}\u{4}{}", outro.nome()),
     }
+}
+
+/// `detectChangesInCheckAlwaysViews` de uma visão (não hospedeira) de
+/// componente `@changeDetectionLink`: cada `ViewContainer` público, depois
+/// cada filho também ligado (`compile_view.dart:1383-1395`). Vazio, o método
+/// não sai.
+fn metodo_de_link(link: bool, ancoras: &[String], ligadas: &[String]) -> String {
+    if !link || (ancoras.is_empty() && ligadas.is_empty()) {
+        return String::new();
+    }
+    let linhas: Vec<String> = ancoras
+        .iter()
+        .chain(ligadas)
+        .map(|a| format!("    this.{a}.detectChangesInCheckAlwaysViews();"))
+        .collect();
+    format!(
+        "\n  @override\n  void detectChangesInCheckAlwaysViews() {{\n{}\n  }}\n",
+        linhas.join("\n")
+    )
+}
+
+/// A consulta lê o `ViewContainerRef` do ngdart (`read: ViewContainerRef`)?
+/// Num `#ref` do nó, isso liga o `_requiresViewContainer` dele
+/// (`provider_parser.dart:95-104`).
+fn le_container(
+    consulta: &crate::componente::Consulta,
+    local: &Local,
+    resolvedor: Option<&dyn Resolucao>,
+) -> bool {
+    let Some(t) = consulta.leitura.as_deref().map(str::trim) else {
+        return false;
+    };
+    t.rsplit('.').next() == Some("ViewContainerRef")
+        && resolvedor
+            .and_then(|r| r.uri_do_tipo(local.caminho, t))
+            .is_some_and(|u| u.starts_with("package:ngdart/"))
+}
+
+/// A chave do resultado de `#nome` num `<template>` lido como
+/// `ViewContainerRef`: o `ViewContainer` do nó (`this._appEl_n`).
+fn chave_de_container(nome: &str) -> String {
+    format!("{nome}\u{4}ViewContainerRef")
 }
 
 /// O tipo do campo é o `TemplateRef` do ngdart (`TemplateRef` ou
@@ -2718,6 +2803,9 @@ pub struct Filho {
     pub ganchos: crate::componente::Ganchos,
     /// `onPush`: quem muda uma entrada marca a checagem do filho.
     pub on_push: bool,
+    /// `@changeDetectionLink`: numa visão de componente também ligado, o
+    /// `detectChangesInCheckAlwaysViews` desce até a visão dele.
+    pub link_de_deteccao: bool,
     /// `@HostBinding`: quem o usa chama `detectHostChanges(firstCheck)`
     /// antes de detectar a visão dele (`bindDirectiveHostProps`).
     pub hospedeiro: bool,
@@ -2944,6 +3032,8 @@ struct Corpo<'a> {
     leituras: &'a [(String, crate::diretivas::Token)],
     /// [`Contexto::refs_so_por_provedor`].
     refs_so_por_provedor: &'a std::collections::HashSet<String>,
+    /// [`Contexto::moldes_com_container`].
+    moldes_com_container: &'a std::collections::HashSet<String>,
     refs_em_ordem: Vec<(String, String)>,
     /// A tag do elemento cujas ligações estão sendo escritas: o contexto de
     /// segurança de uma propriedade depende dela ([`saneador`]).
@@ -2969,6 +3059,8 @@ struct Corpo<'a> {
     campos_expr: Vec<String>,
     /// Campos `late final T _el_n` dos elementos com ligação.
     campos_el: Vec<String>,
+    /// Os `#ref` (sem valor) do nó de cada campo de [`Corpo::campos_el`].
+    refs_dos_campos_el: std::collections::HashMap<String, Vec<String>>,
     /// Os `#ref` desta visão lidos só em handler de evento: o nó vira campo
     /// quando o `NodeReferenceStorageVisitor` chega ao `_handleEvent_N` que o
     /// lê — depois dos promovidos na detecção (caso j60).
@@ -3065,6 +3157,8 @@ struct Corpo<'a> {
     campos_filho: Vec<String>,
     /// `_compView_n` de cada filho, para a detecção e a destruição.
     vistas_filhas: Vec<String>,
+    /// As dos filhos `@changeDetectionLink` ([`metodo_de_link`]).
+    vistas_ligadas: Vec<String>,
     /// Asset deste arquivo, para calcular os caminhos de import dos filhos.
     asset: String,
     /// Banco semântico e o arquivo, para tipar cadeias como `item.nome`.
@@ -4134,6 +4228,9 @@ impl Corpo<'_> {
                 .push(format!("  late final {vc}ViewContainer _appEl_{n};"));
         }
         self.vistas_filhas.push(campo_vista.clone());
+        if filho.link_de_deteccao {
+            self.vistas_ligadas.push(campo_vista.clone());
+        }
         if filho.hospedeiro {
             self.usa_primeira_checagem = true;
         }
@@ -5765,17 +5862,27 @@ impl Corpo<'_> {
                 format!("_TemplateRef_{n}_{k}")
             }
         };
+        // Uma consulta lê o `#ref` como `ViewContainerRef`: o `ViewContainer`
+        // não é privado e o `TemplateRef` vai para o índice 8.
+        let forcar_container = referencia
+            .as_ref()
+            .is_some_and(|r| self.moldes_com_container.contains(r));
         let (resolvido, k_tr) = if casadas.is_empty() {
-            (None, 7)
+            (None, if forcar_container { 8 } else { 7 })
         } else {
             let provedores = self.provedores_acima_com(&tardio(UTILITIES));
             let acima = crate::diretivas::Acima {
                 provedores: &provedores,
                 incerto: self.incertos_acima > 0,
             };
-            let (r, k) =
-                crate::diretivas::resolver_de_molde(&casadas, n, Some(acima), &leitura_do_tr)
-                    .map_err(|f| recusa(Motivo::DiretivaPorSeletor, f))?;
+            let (r, k) = crate::diretivas::resolver_de_molde(
+                &casadas,
+                n,
+                Some(acima),
+                forcar_container,
+                &leitura_do_tr,
+            )
+            .map_err(|f| recusa(Motivo::DiretivaPorSeletor, f))?;
             (Some(r), k)
         };
         if com_ref {
@@ -5786,7 +5893,7 @@ impl Corpo<'_> {
         let pai_indice = if pai.is_empty() {
             // Com `ViewContainer` não privado, a raiz é ele (`vcAppEl ??
             // renderNode`, caso j85).
-            let container = resolvido.as_ref().is_some_and(|r| r.container);
+            let container = forcar_container || resolvido.as_ref().is_some_and(|r| r.container);
             self.raizes.push(if container {
                 format!("this._appEl_{n}")
             } else {
@@ -5814,6 +5921,11 @@ impl Corpo<'_> {
                 let leitura = format!("this._TemplateRef_{n}_{k_tr}");
                 self.refs.insert(nome.clone(), leitura.clone());
                 self.refs_em_ordem.push((nome.clone(), leitura.clone()));
+                if forcar_container {
+                    let vc = format!("this._appEl_{n}");
+                    self.refs.insert(chave_de_container(nome), vc.clone());
+                    self.refs_em_ordem.push((chave_de_container(nome), vc));
+                }
             }
             None => {
                 self.linhas.push(format!(
@@ -5827,13 +5939,13 @@ impl Corpo<'_> {
         // `detectHostChanges`) e os ganchos, que no `<template>` saem logo
         // (`bindDirectiveAfterChildrenCallbacks` no `visitEmbeddedTemplate`).
         let antes_acima = self.acima.len();
+        // Com `ViewContainerRef` pedido, o `ViewContainer` não é privado
+        // (`createViewContainer(.., !hasViewContainer, ..)`): as visões
+        // dele são detectadas e destruídas por esta (caso j85).
+        if forcar_container || resolvido.as_ref().is_some_and(|r| r.container) {
+            self.ancoras.push(format!("_appEl_{n}"));
+        }
         if let Some(r) = &resolvido {
-            // Com `ViewContainerRef` pedido, o `ViewContainer` não é privado
-            // (`createViewContainer(.., !hasViewContainer, ..)`): as visões
-            // dele são detectadas e destruídas por esta (caso j85).
-            if r.container {
-                self.ancoras.push(format!("_appEl_{n}"));
-            }
             let alvo = format!("_anchor_{n}");
             self.criar_instancias(&sem, &r.instancias, &alvo, "this")?;
             self.registrar_diretivas(&r.diretivas, &alvo);
@@ -6940,7 +7052,17 @@ impl Corpo<'_> {
                 (Some(nome), _, _) => self.campos_el_de_embutidas.push((nome, campo)),
                 (None, Some(k), _) => self.campos_el_consultados.push((k, campo)),
                 (None, None, Some(nome)) => self.campos_el_de_eventos.push((nome, campo)),
-                (None, None, None) => self.campos_el.push(campo),
+                (None, None, None) => {
+                    self.refs_dos_campos_el.insert(
+                        campo.clone(),
+                        e.referencias
+                            .iter()
+                            .filter(|r| r.valor.is_empty())
+                            .map(|r| r.nome.clone())
+                            .collect(),
+                    );
+                    self.campos_el.push(campo);
+                }
             }
             self.linhas.push(format!("    this._el_{n} = {criacao};"));
             format!("this._el_{n}")
@@ -8183,14 +8305,16 @@ fn campos_em_ordem<'a>(
                 let campos = if casadas.is_empty() {
                     Vec::new()
                 } else {
-                    crate::diretivas::resolver_de_molde(&casadas, 0, None, &|_| String::new())
-                        .map(|(r, _)| {
-                            r.instancias
-                                .iter()
-                                .map(|i| uri_do_campo(i, asset))
-                                .collect()
-                        })
-                        .unwrap_or_default()
+                    crate::diretivas::resolver_de_molde(&casadas, 0, None, false, &|_| {
+                        String::new()
+                    })
+                    .map(|(r, _)| {
+                        r.instancias
+                            .iter()
+                            .map(|i| uri_do_campo(i, asset))
+                            .collect()
+                    })
+                    .unwrap_or_default()
                 };
                 saida.push(CampoDaVisao::Molde(!e.referencias.is_empty(), campos));
             } else if let Some(d) = Estrutural::conhecida(&estrela.nome) {
@@ -8407,6 +8531,11 @@ struct Contexto<'a> {
     /// Os `#ref` que só consultas com `read:` de provedor procuram: o nó
     /// não precisa virar campo.
     refs_so_por_provedor: std::collections::HashSet<String>,
+    /// Os `<template #x>` que uma consulta lê como `ViewContainerRef`: o
+    /// `ViewContainer` do nó deixa de ser privado ([`le_container`]).
+    moldes_com_container: std::collections::HashSet<String>,
+    /// `@changeDetectionLink` no componente.
+    link_de_deteccao: bool,
     /// Os nomes de `#ref` repetidos ou sombreados por `let`.
     refs_ambiguos: std::collections::HashSet<String>,
     /// O nó de cada `#ref` visto, de todas as visões já percorridas: a visão
@@ -8439,6 +8568,7 @@ impl<'a> Contexto<'a> {
             refs_ambiguos: self.refs_ambiguos.clone(),
             leituras: &self.leituras,
             refs_so_por_provedor: &self.refs_so_por_provedor,
+            moldes_com_container: &self.moldes_com_container,
             refs_ancestrais: Vec::new(),
             consultas_dinamicas: Vec::new(),
             consultas_em_transito: Vec::new(),
@@ -8455,8 +8585,10 @@ impl<'a> Contexto<'a> {
             campos_preguicosos: Vec::new(),
             campos_filho: Vec::new(),
             vistas_filhas: Vec::new(),
+            vistas_ligadas: Vec::new(),
             campos_expr: Vec::new(),
             campos_el: Vec::new(),
+            refs_dos_campos_el: Default::default(),
             refs_so_em_eventos: Default::default(),
             campos_el_de_eventos: Vec::new(),
             campos_el_por_evento: Vec::new(),
@@ -8804,7 +8936,11 @@ fn corpo_da_embutida(
     let mut consultados = dentro.campos_el_consultados.clone();
     consultados.sort_by_key(|(k, _)| *k);
     todos.extend(consultados.into_iter().map(|(_, c)| c));
-    todos.extend(dentro.campos_el.clone());
+    todos.extend(campos_el_em_ordem(
+        &dentro.campos_el,
+        &dentro.refs_dos_campos_el,
+        &dentro.locais_raiz,
+    ));
     todos.extend(dentro.campos_el_por_evento.clone());
     todos.extend(dentro.campos_el_de_eventos.iter().map(|(_, c)| c.clone()));
     let campos = if todos.is_empty() {
@@ -8878,6 +9014,14 @@ fn corpo_da_embutida(
     let deteccao = resolver_refs(
         &resolver_tardios(dentro.imp, &deteccao),
         &ctx.refs_resolvidos.borrow(),
+    );
+    let deteccao = format!(
+        "{}{deteccao}",
+        metodo_de_link(
+            ctx.link_de_deteccao,
+            &dentro.ancoras,
+            &dentro.vistas_ligadas
+        )
     );
     // Visão embutida também destrói o que pendurou nela.
     let destruicao = if dentro.ancoras.is_empty()
@@ -10476,6 +10620,19 @@ fn gerar_componente_com(
                     .all(|q| token_de_leitura(q, local, resolvedor).is_some())
             })
             .collect(),
+        moldes_com_container: {
+            let moldes = referencias_de_moldes(nos);
+            c.consultas
+                .iter()
+                .filter(|q| {
+                    !q.por_tipo
+                        && moldes.contains(&q.referencia)
+                        && le_container(q, local, resolvedor)
+                })
+                .map(|q| q.referencia.clone())
+                .collect()
+        },
+        link_de_deteccao: c.link_de_deteccao,
         refs_resolvidos: Default::default(),
         ancoras_de_consulta: Default::default(),
     };
@@ -10580,9 +10737,16 @@ fn gerar_componente_com(
         } else {
             q.referencia.clone()
         };
-        // Com `read:` de provedor, a instância dele em cada nó.
+        // Com `read:` de provedor, a instância dele em cada nó; com
+        // `read: ViewContainerRef` num `<template>`, o `ViewContainer` dele.
         let chave = match token_de_leitura(q, local, resolvedor) {
             Some(t) => chave_de_leitura(&chave, &t),
+            None if !q.por_tipo
+                && moldes.contains(&q.referencia)
+                && le_container(q, local, resolvedor) =>
+            {
+                chave_de_container(&chave)
+            }
             None => chave,
         };
         if q.lista {
@@ -10839,7 +11003,11 @@ fn gerar_componente_com(
     let mut consultados = corpo.campos_el_consultados.clone();
     consultados.sort_by_key(|(k, _)| *k);
     todos.extend(consultados.into_iter().map(|(_, c)| c));
-    todos.extend(corpo.campos_el.clone());
+    todos.extend(campos_el_em_ordem(
+        &corpo.campos_el,
+        &corpo.refs_dos_campos_el,
+        &corpo.locais_raiz,
+    ));
     todos.extend(corpo.campos_el_por_evento.clone());
     todos.extend(corpo.campos_el_de_eventos.iter().map(|(_, c)| c.clone()));
     let campos = if todos.is_empty() {
@@ -10932,6 +11100,10 @@ fn gerar_componente_com(
     let injetor = resolver_tardios(corpo.imp, &metodo_injetor(&corpo.injetores, &corpo.asset));
     // Os imports da detecção entram agora, depois dos do `build()`.
     let deteccao = resolver_tardios(corpo.imp, &deteccao);
+    let deteccao = format!(
+        "{}{deteccao}",
+        metodo_de_link(ctx.link_de_deteccao, &corpo.ancoras, &corpo.vistas_ligadas)
+    );
     // Visão-filha precisa ser destruída com a visão que a criou.
     let destruicao = if corpo.vistas_filhas.is_empty()
         && corpo.ancoras.is_empty()
@@ -11870,7 +12042,10 @@ fn e_container(
         return false;
     };
     !p.anotado
-        && tipo.rsplit('.').next() == Some("ViewContainerRef")
+        && matches!(
+            tipo.rsplit('.').next(),
+            Some("ViewContainerRef" | "ComponentLoader")
+        )
         && resolvedor
             .and_then(|r| r.uri_do_tipo(local.caminho, tipo))
             .is_some_and(|u| u.starts_with("package:ngdart/"))

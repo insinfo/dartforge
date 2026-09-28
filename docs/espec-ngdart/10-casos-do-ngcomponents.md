@@ -137,6 +137,34 @@ casos que apareceram no ngcomponents.
   (`dart_emitter.dart:198-205`): na hospedeira, os provedores preguiçosos antes
   do `_appEl_0`.
 
+## `read: ViewContainerRef` em `<template>`, `ComponentLoader`, `@changeDetectionLink` — j121
+
+- **Regra:** `_addQueryReadsTo` dos `#ref` do nó (`provider_parser.dart:95-104`):
+  uma consulta que lê `ViewContainerRef` liga o `_requiresViewContainer`. O
+  `ViewContainer` fica público (`detectChangesInNestedViews`/
+  `destroyNestedViews`), o `TemplateRef` passa ao índice 8 e o valor atribuído
+  no `build()` é `this._appEl_n`.
+- **`ComponentLoader`:** também liga o `_requiresViewContainer`
+  (`provider_parser.dart:290-295`) e é o mesmo `appViewContainer`
+  (`compile_element.dart:204-206`) — no construtor do componente, do filho ou
+  de diretiva.
+- **`@changeDetectionLink`:** toda visão não hospedeira do componente ganha
+  `detectChangesInCheckAlwaysViews` entre o `injectorGetInternal` e o
+  `detectChangesInternal`, com cada `ViewContainer` público e depois cada filho
+  também ligado (`view_builder.dart:522`, `compile_view.dart:1383-1395`); vazio,
+  o método não sai.
+- **Porte:** `le_container`, `Contexto::moldes_com_container`,
+  `resolver_de_molde(.., forcar_container, ..)`, `metodo_de_link`.
+
+## Ordem dos campos de nó — j122
+
+- **Regra:** os nós viram campo quando o `NodeReferenceStorageVisitor` os acha
+  fora do escopo do `build()`, método a método (`view_builder.dart:570-579`).
+  No `detectChangesInternal` as declarações dos locais vêm no topo, então o nó
+  de um `#ref` lido na detecção é promovido antes dos nós das ligações
+  (`_el_8` antes de `_el_1` no `material_stepper`).
+- **Porte:** `campos_el_em_ordem` (pelos `locais_raiz`).
+
 ## Pendentes com regra já levantada
 
 - **Local de `*` ancestral / tipo do local de `*ngFor`:** o tipo do `$implicit`
@@ -146,11 +174,6 @@ casos que apareceram no ngcomponents.
   import, `dynamic` sem cast). `<template ngFor>` também é tipado. A recusa
   "ancestral lido" é efeito da coleta (`coletar_abaixo` não estende
   `locais_proprios`).
-- **`@ViewChild(.., read: ViewContainerRef)` em `<template #x>`:** a leitura liga
-  `_requiresViewContainer`, o que torna o `ViewContainer` público
-  (`detectChangesInNestedViews`/`destroyNestedViews`) e desloca o
-  `TemplateRef` para o índice 8. O valor é `this._appEl_n`.
-  `@changeDetectionLink` gera `detectChangesInCheckAlwaysViews`.
 - **`@ContentChild` de filho com resultado em `*`:** cria
   `_query_<Sel>_<nó>_<i>_isDirty`, escreve a atualização no
   `if (!debugThrowIfChanged)` antes das consultas de visão e põe as linhas

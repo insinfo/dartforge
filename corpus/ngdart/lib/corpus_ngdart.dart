@@ -335,3 +335,5 @@ export 'src/j117_view_child_diretiva.dart';
 export 'src/j118_atributos_de_diretiva.dart';
 export 'src/j119_export_as_e_classe_com_unidade.dart';
 export 'src/j120_projecao_concatenada.dart';
+export 'src/j121_leitura_de_container.dart';
+export 'src/j122_ordem_dos_nos_promovidos.dart';

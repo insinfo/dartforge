@@ -282,9 +282,12 @@ pub fn achar(
             match nome_da_anotacao(a, interner).as_str() {
                 "Component" => {
                     if let ast::DeclKind::Class(classe) = &decl.kind {
-                        achados.componentes.push(componente::ler_componente(
-                            arvore, fonte, interner, classe, a,
-                        ));
+                        let mut c = componente::ler_componente(arvore, fonte, interner, classe, a);
+                        c.link_de_deteccao = decl.metadata.iter().any(|m| {
+                            m.name.last().map(|n| interner.resolve(n.sym))
+                                == Some("changeDetectionLink")
+                        });
+                        achados.componentes.push(c);
                     }
                 }
                 "Directive" => {
@@ -1074,7 +1077,7 @@ fn parametros_dos_metadados(
             Token::Detector => visao::Injetado::Detector,
             Token::Classe { uri, classe } if embutido_do_ngdart(uri, classe) => {
                 match classe.as_str() {
-                    "ViewContainerRef" => visao::Injetado::Container,
+                    "ViewContainerRef" | "ComponentLoader" => visao::Injetado::Container,
                     _ => return Err("token do ngdart no construtor do filho".into()),
                 }
             }
@@ -1154,7 +1157,7 @@ fn injetado(
             "ChangeDetectorRef" if !p.opcional => Ok(visao::Injetado::Detector),
             // O nó ganha um `ViewContainer` (`requiresViewContainer`), que o
             // filho recebe (caso j47).
-            "ViewContainerRef" => Ok(visao::Injetado::Container),
+            "ViewContainerRef" | "ComponentLoader" => Ok(visao::Injetado::Container),
             _ => Err("token do ngdart no construtor do filho"),
         };
     }
@@ -1307,6 +1310,7 @@ fn indexar(
             entradas: comp.entradas.clone(),
             ganchos: comp.ganchos,
             on_push: comp.on_push,
+            link_de_deteccao: comp.link_de_deteccao,
             // O estático sai no construtor da visão do filho: sem outro, o
             // filho não tem `detectHostChanges` (caso j101).
             hospedeiro: comp.liga_hospedeiro

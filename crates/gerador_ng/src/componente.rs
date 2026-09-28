@@ -61,6 +61,9 @@ pub struct Componente {
     pub estilos_ilegiveis: bool,
     /// `changeDetection: ChangeDetectionStrategy.OnPush`.
     pub on_push: bool,
+    /// `@changeDetectionLink` (`package:ngdart/experimental.dart`): as
+    /// visões ganham `detectChangesInCheckAlwaysViews` (`view_builder.dart:522`).
+    pub link_de_deteccao: bool,
     /// `encapsulation: ViewEncapsulation.none`. Sem folha de estilo o
     /// oficial já desliga o encapsulamento (`ast_directive_normalizer.dart`),
     /// então só pesa com `styleUrls`/`styles` — forma ainda recusada pela

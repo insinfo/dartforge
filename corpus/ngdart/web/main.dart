@@ -304,6 +304,8 @@ import 'package:corpus_ngdart/src/j116_pedido_do_conteudo.template.dart' as j116
 import 'package:corpus_ngdart/src/j117_view_child_diretiva.template.dart' as j117;
 import 'package:corpus_ngdart/src/j119_export_as_e_classe_com_unidade.template.dart' as j119;
 import 'package:corpus_ngdart/src/j120_projecao_concatenada.template.dart' as j120;
+import 'package:corpus_ngdart/src/j121_leitura_de_container.template.dart' as j121;
+import 'package:corpus_ngdart/src/j122_ordem_dos_nos_promovidos.template.dart' as j122;
 
 void main() {
   print([
@@ -614,5 +616,8 @@ void main() {
     j119.J119UsaNgFactory,
     j120.J120UsaNgFactory,
     j120.J120RaizNgFactory,
+    j121.J121LigadoNgFactory,
+    j121.J121ComumNgFactory,
+    j122.J122UsaNgFactory,
   ].length);
 }
