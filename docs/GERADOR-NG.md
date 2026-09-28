@@ -476,14 +476,15 @@ componente (os eventos do elemento primeiro) e os ganchos antes dos dele —
 caso j67 (o `RequiredValidator` do `li-password-input`). O filho que
 injeta um serviço provido por um elemento acima o lê de lá (o campo, ou
 `.instance` do `XNgCd`, pela cadeia de `parentView` numa visão embutida),
-sem `debugInjectorWrap` — caso j68. `directives:` e as
+sem `debugInjectorWrap` — caso j68. `@ViewChild` de `#ref="exportAs"` no
+conteúdo projetado de um filho é estático como na própria visão — caso j69. `directives:` e as
 listas constantes aceitam `...outraLista`. O `dirtyParentQueriesInternal`
 segue o primeiro resultado de cada consulta na visão, em pré-ordem
 (`_setParentQueryAsDirty` no `addQueryResult`), e os campos dos nós
-consultados seguem as consultas — caso j66. Corpus: 299 conferidos.
+consultados seguem as consultas — caso j66. Corpus: 300 conferidos.
 limitless_ui/example (Linux, `build --comparar`, que agora lista cada
-pendente com o motivo): **928 iguais / 22 pendentes / 0 diferentes** —
-`.template.dart` 512/20/0, `.css` e `.css.map` do Sass 102/102 cada,
+pendente com o motivo): **929 iguais / 21 pendentes / 0 diferentes** —
+`.template.dart` 513/19/0, `.css` e `.css.map` do Sass 102/102 cada,
 `.css.dart` e `.css.shim.dart` 104 cada.
 
 ### Diretivas estruturais

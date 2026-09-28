@@ -282,3 +282,4 @@ export 'src/j65_ganchos_de_diretiva.dart';
 export 'src/j66_sujas_em_ordem.dart';
 export 'src/j67_diretiva_antes_do_filho.dart';
 export 'src/j68_filho_injeta_de_cima.dart';
+export 'src/j69_export_as_projetado.dart';

@@ -903,9 +903,11 @@ fn formas_contra_o_template(
         // `#ref="x"`: o valor é a instância da diretiva exportada (o que o
         // `#ref` lê no mapa dos refs, `this._X_n_m`), atribuída como a de
         // um elemento — só na forma estática: um `#ref` só, na própria
-        // visão, `@ViewChild` (não lista).
+        // visão (também no conteúdo projetado de um filho, caso j69),
+        // `@ViewChild` (não lista).
         if referencia_com_valor(nos, &consulta.referencia) {
-            if !(matches!(lugares.as_slice(), [Lugar::Raiz]) && !consulta.lista) {
+            if !(matches!(lugares.as_slice(), [Lugar::Raiz | Lugar::Projetado]) && !consulta.lista)
+            {
                 fora.push(recusa(
                     Motivo::ViewChildEmFilho,
                     "@ViewChild de #ref com valor (exportAs) fora da forma estática",
