@@ -479,12 +479,17 @@ define void @df_crt_iniciar() {
 ;
 ; `__chkstk`: toca cada página de 4 KiB entre o `rsp` de quem chamou e
 ; `rsp - rax`, de cima para baixo (a página de guarda cresce uma por vez).
-; Só pode alterar r10, r11 e as bandeiras.
+; Preserva todos os registradores menos as bandeiras, como o `chkstk.asm` da
+; Microsoft: o código do `cl.exe` (e o do LLVM em `alloca` dinâmico) pode
+; ter valores vivos em r10 e r11 através da chamada.
 module asm ".text"
 module asm ".globl __chkstk"
 module asm ".def __chkstk; .scl 2; .type 32; .endef"
 module asm "__chkstk:"
-module asm "  leaq 8(%rsp), %r11"
+module asm "  subq $16, %rsp"
+module asm "  movq %r10, (%rsp)"
+module asm "  movq %r11, 8(%rsp)"
+module asm "  leaq 24(%rsp), %r11"
 module asm "  movq %r11, %r10"
 module asm "  subq %rax, %r10"
 module asm "  jb .Ldf_chkstk_fim"
@@ -495,6 +500,9 @@ module asm "  jb .Ldf_chkstk_fim"
 module asm "  testq %rax, (%r11)"
 module asm "  jmp .Ldf_chkstk_laco"
 module asm ".Ldf_chkstk_fim:"
+module asm "  movq (%rsp), %r10"
+module asm "  movq 8(%rsp), %r11"
+module asm "  addq $16, %rsp"
 module asm "  retq"
 ; `__security_check_cookie(rcx)`: preserva tudo menos rcx (o valor de
 ; retorno de quem chama está em rax); cookie errado encerra o processo
@@ -1037,11 +1045,18 @@ static void iniciar(void) { iniciado = 1; }
 #pragma section(".CRT$XCU", read)
 __declspec(allocate(".CRT$XCU")) void (*entrada_xcu)(void) = iniciar;
 static void no_fim(void) { escrever("fim\n"); }
+/* O `__chkstk` preserva r10 e r11 (o `cl.exe` conta com isso). */
+static int chkstk_preserva(void) {
+  long long r10, r11;
+  __asm__ volatile("movq $0x1234, %%r10\n\tmovq $0x5678, %%r11\n\tmovq $20000, %%rax\n\tcallq __chkstk\n\tmovq %%r10, %0\n\tmovq %%r11, %1"
+                   : "=r"(r10), "=r"(r11) : : "rax", "r10", "r11", "memory", "cc");
+  return r10 == 0x1234 && r11 == 0x5678;
+}
 int main(void) {
   volatile char grande[20000]; grande[0] = 1; grande[19999] = 2;
   por_thread++;
   atexit(no_fim);
-  if (iniciado && por_thread == 42 && pow(2.0, 10.0) == 1024.0 && grande[0] + grande[19999] == 3) escrever("ok\n");
+  if (iniciado && por_thread == 42 && pow(2.0, 10.0) == 1024.0 && grande[0] + grande[19999] == 3 && chkstk_preserva()) escrever("ok\n");
   return 3;
 }
 "#,
