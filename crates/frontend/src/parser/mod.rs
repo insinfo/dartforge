@@ -464,6 +464,15 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
+    /// `ensureSemicolon` do fasta: sem `;`, `EXPECTED_TOKEN` (`;`) no último
+    /// token lido e a análise segue como se ele estivesse ali (o fasta
+    /// insere um `;` sintético), sem pular nada.
+    pub(crate) fn garantir_ponto_e_virgula(&mut self) {
+        if !self.eat_op(Op::Semicolon) {
+            self.erro_esperado(";");
+        }
+    }
+
     /// `ensureCloseParen` do fasta: o `)` que fecha o `(` na posição absoluta
     /// `abre`. Se o token corrente não é ele, `EXPECTED_TOKEN` (`)`) no token
     /// corrente e o cursor pula para depois do `)` casado — o que fica no

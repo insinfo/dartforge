@@ -527,6 +527,25 @@ impl Motor {
                 });
             }
         }
+        // O analyzer não relata duas vezes o mesmo diagnóstico (código,
+        // intervalo e mensagem) — o `_checkDuplicateIdentifier` de uma
+        // variável mutável repetida pede o mesmo erro pelo getter e pelo
+        // setter, e o resultado tem um só.
+        for a in analise.arquivos.values_mut() {
+            let mut vistos: BTreeSet<(Option<&'static str>, usize, usize, String)> = BTreeSet::new();
+            let n = a.sintaticos;
+            let mut i = 0;
+            let mut removidos_sintaticos = 0;
+            a.diags.retain(|d| {
+                i += 1;
+                let novo = vistos.insert((d.code.map(|c| c.info().nome), d.span.start, d.span.end, d.message.clone()));
+                if !novo && i <= n {
+                    removidos_sintaticos += 1;
+                }
+                novo
+            });
+            a.sintaticos -= removidos_sintaticos;
+        }
         Some(analise)
     }
 

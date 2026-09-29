@@ -480,6 +480,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let a = a.clone();
         let b = self.coagir(b.clone(), Type::Ref);
+        // `String`: o `==` das duas classes concretas é o mesmo native
+        // (`_StringBase._igualA`, que já trata `null` e o outro lado que
+        // não é `String`): uma chamada, sem a regra do null nem o `switch`
+        // pela classe — o intrínseco `String_equality` da VM.
+        if self.ctx.core.string_class == Some(*class) {
+            let r = self.emit(
+                Instruction::CallRuntime {
+                    name: crate::nativos::simbolo("DartForge_string_igual_a"),
+                    args: vec![(a, Type::Ref), (b, Type::Ref)],
+                    ret_ty: Type::I8,
+                },
+                Type::I8,
+            );
+            let e = self.coagir(r, Type::I1);
+            return Some(if negar { self.emit(Instruction::LNot(e), Type::I1) } else { e });
+        }
         let zero = Operand::Constant(Constant::Int(0));
         let na = self.emit(Instruction::ICmp(ICmpOp::Eq, a.clone(), zero.clone()), Type::I1);
         let nb = self.emit(Instruction::ICmp(ICmpOp::Eq, b.clone(), zero), Type::I1);

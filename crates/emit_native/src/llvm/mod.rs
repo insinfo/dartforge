@@ -294,7 +294,8 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str("declare i8 @llvm.expect.i8(i8, i8)\n");
         self.out.push_str("declare i1 @llvm.expect.i1(i1, i1)\n");
         self.out.push_str(CAIXA_DE_INT);
-        self.out.push_str(CLASSE_DO_VALOR);
+        let classe_do_valor = classe_do_valor(&self.module.cids_do_runtime);
+        self.out.push_str(&classe_do_valor);
         if compostas || !self.module.ffi_callbacks.is_empty() {
             self.out.push_str(
                 "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n\
@@ -443,6 +444,8 @@ impl<'a> LlvmEmitter<'a> {
                         Some((b.id.0, format!("wb{v}.fim")))
                     } else if matches!(i, Instruction::Const(Constant::String(_) | Constant::StringWtf8(_))) {
                         Some((b.id.0, format!("ls{v}.fim")))
+                    } else if matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_clear") {
+                        Some((b.id.0, format!("xc{v}.fim")))
                     } else {
                         None
                     }
@@ -856,6 +859,22 @@ impl<'a> LlvmEmitter<'a> {
                     // A exceção pendente: o espelho no contexto da thread.
                     Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending" && self.tem_ctx => {
                         writeln!(self.out, "  %v{v} = load i8, ptr %ctx, align 8").unwrap();
+                    }
+                    // O `dartforge_exception_clear` de cada `return` e salto:
+                    // sem exceção pendente (o espelho no contexto), não há o
+                    // que limpar — a entrada do `catch` e o `finally` já
+                    // limparam o rastro junto com a exceção. Só a pendente
+                    // (o `finally` que sai por `return`) chama o runtime.
+                    Instruction::CallRuntime { name, .. } if name == "dartforge_exception_clear" && self.tem_ctx => {
+                        writeln!(self.out, "  %xcp{v} = load i8, ptr %ctx, align 8").unwrap();
+                        writeln!(self.out, "  %xcn{v} = icmp ne i8 %xcp{v}, 0").unwrap();
+                        writeln!(self.out, "  %xce{v} = call i1 @llvm.expect.i1(i1 %xcn{v}, i1 false)").unwrap();
+                        writeln!(self.out, "  br i1 %xce{v}, label %xc{v}.limpar, label %xc{v}.fim").unwrap();
+                        writeln!(self.out, "xc{v}.limpar:").unwrap();
+                        writeln!(self.out, "  call void @dartforge_exception_clear()").unwrap();
+                        writeln!(self.out, "  br label %xc{v}.fim").unwrap();
+                        writeln!(self.out, "xc{v}.fim:").unwrap();
+                        self.rotulo_atual = format!("xc{v}.fim");
                     }
                     // O pedido de interrupção (J01): o byte no contexto
                     // (deslocamento 32), lido atômico — outra thread o liga, e
@@ -2570,6 +2589,7 @@ impl<'a> LlvmEmitter<'a> {
             Instruction::AllocObject { fields, .. } => !fields.is_empty(),
             Instruction::CallRuntime { name, args, .. } => {
                 Self::alocacao_em_linha(inst).is_some()
+                    || name == "dartforge_exception_clear"
                     || ((name == "dartforge_object_get" || (name == "dartforge_object_set" && args.len() == 4))
                         && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..CAMPOS_EM_LINHA as i64).contains(i)))
             }
@@ -2864,8 +2884,33 @@ lenta:\n\
 /// isolado) é conferido aqui; só a falha chama `dartforge_seletor`, que
 /// busca na tabela da classe e regrava o cache — o *inline cache*
 /// monomórfico da VM (`ICData`), sem a chamada ao runtime no acerto.
+///
+/// Com o SDK da fonte, `null` e o `Smi` também saem sem o runtime: as
+/// classes deles (`Null`, `_Smi`) são as da tabela `cids` do módulo
+/// (`sdk_modulo::cids_do_runtime`, a que o runtime recebe na partida).
+fn classe_do_valor(cids: &[i64]) -> String {
+    let (nulo, smi) = match cids {
+        [n, s, ..] if *n >= 0 && *s >= 0 => (*n, *s),
+        _ => return CLASSE_DO_VALOR.replace("@@RAPIDOS@@", ""),
+    };
+    let rapidos = format!(
+        "  %z = icmp eq i64 %h, 0\n\
+  br i1 %z, label %nulo, label %s0\n\
+nulo:\n\
+  ret i64 {nulo}\n\
+s0:\n\
+  %b = and i64 %h, 1\n\
+  %i = icmp ne i64 %b, 0\n\
+  br i1 %i, label %smi, label %s1\n\
+smi:\n\
+  ret i64 {smi}\n\
+s1:\n"
+    );
+    CLASSE_DO_VALOR.replace("@@RAPIDOS@@", &rapidos)
+}
+
 const CLASSE_DO_VALOR: &str = "define internal i64 @df.classe(i64 %h) alwaysinline {\n\
-  %m = and i64 %h, -9223372036854775805\n\
+@@RAPIDOS@@  %m = and i64 %h, -9223372036854775805\n\
   %o = icmp eq i64 %m, 2\n\
   br i1 %o, label %obj, label %rt\n\
 obj:\n\

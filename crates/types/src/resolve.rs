@@ -1309,10 +1309,14 @@ impl<'a> OutlineResolver<'a> {
                             }
                         }
                         None => {
-                            self.diagnostics.push(Diagnostic::new(
-                                "Tipo não encontrado no escopo da biblioteca",
-                                span,
-                            ));
+                            // Nome sintético da recuperação do parser (vazio,
+                            // sem largura): o analyzer não o relata.
+                            if span.start != span.end {
+                                self.diagnostics.push(Diagnostic::new(
+                                    "Tipo não encontrado no escopo da biblioteca",
+                                    span,
+                                ));
+                            }
                             self.core.dynamic_
                         }
                     }

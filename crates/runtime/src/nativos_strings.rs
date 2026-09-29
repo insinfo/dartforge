@@ -12,10 +12,34 @@ pub extern "C" fn dartforge_nativo_String_getLength(this: i64) -> i64 {
     HEAP.with(|heap| heap.borrow().texto(this).len() as i64)
 }
 
+thread_local! {
+    /// As strings de um caractere Latin-1 já devolvidas por `String_charAt`
+    /// neste isolado: os literais canônicos (`Heap::string_literal`,
+    /// permanentes), 0 = ainda não pedida.
+    static UM_CARACTERE: std::cell::RefCell<[i64; 256]> = const { std::cell::RefCell::new([0; 256]) };
+}
+
 /// `String_charAt` (`s[i]`): a string de uma unidade; fora dos limites,
 /// `RangeError.range(i, 0, length - 1, "index")` (`StringValueAt`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_String_charAt(this: i64, indice: i64) -> i64 {
+    // A unidade Latin-1 volta como a string canônica de um caractere, sem
+    // alocar: a VM devolve o símbolo predefinido (`Symbols::FromCharCode`,
+    // `String_charAt`), então `identical(s[0], 'a')` também vale aqui.
+    let unidade = com_texto(this, |t| usize::try_from(indice).ok().filter(|&i| i < t.len()).map(|i| t.unidade(i)));
+    if let Some(u) = unidade.filter(|&u| u < 256) {
+        let cache = UM_CARACTERE.with(|c| c.borrow()[u as usize]);
+        if cache != 0 {
+            return cache;
+        }
+        let h = HEAP.with(|heap| {
+            let mut heap = heap.borrow_mut();
+            let t = heap.texto(this).fatia(indice as usize, indice as usize + 1);
+            heap.string_literal(t)
+        });
+        UM_CARACTERE.with(|c| c.borrow_mut()[u as usize] = h);
+        return h;
+    }
     let r = com_texto(this, |t| {
         usize::try_from(indice).ok().filter(|&i| i < t.len()).map(|i| t.fatia(i, i + 1)).ok_or(t.len())
     });

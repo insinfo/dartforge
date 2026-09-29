@@ -310,6 +310,8 @@ pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path) -> Result<Vec<BibliotecaDoSdk>,
         debug_assert_eq!(ctx.ids_de_classe, base.ids_de_classe);
         let mut module = crate::lower::lower_program(&ctx);
         module.biblioteca_sdk = true;
+        // As classes de `null` e do `Smi` em linha (`llvm/mod.rs`, `df.classe`).
+        module.cids_do_runtime = cids_do_runtime(&ctx);
         module.registro = Some(simbolo_de_registro(&uri));
         if let Some(e) = module.erros.first() {
             return Err(format!("{uri}: o módulo do SDK tem diagnóstico fora de membro: {e}"));

@@ -448,7 +448,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             let t = self.advance();
             self.exigir(Feature::Macros, t.span);
             let uri = self.parse_string_literal()?;
-            self.expect_op(Op::Semicolon)?;
+            self.garantir_ponto_e_virgula();
             return Ok(Some(DirectiveKind::ImportAugment { uri }));
         }
         if self.at_ident("augment") && self.at_ident_at(1, "library") && self.string_at(2) {
@@ -456,7 +456,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.exigir(Feature::Macros, t.span);
             self.advance();
             let uri = self.parse_string_literal()?;
-            self.expect_op(Op::Semicolon)?;
+            self.garantir_ponto_e_virgula();
             return Ok(Some(DirectiveKind::AugmentLibrary { uri }));
         }
         if self.at_ident("library") && (self.at_identifier_at(1) || self.at_op_at(1, Op::Semicolon))
@@ -467,7 +467,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             } else {
                 Vec::new()
             };
-            self.expect_op(Op::Semicolon)?;
+            self.garantir_ponto_e_virgula();
             return Ok(Some(DirectiveKind::Library { name }));
         }
         if self.at_ident("import") && self.string_at(1) {
@@ -481,7 +481,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 None
             };
             let combinators = self.parse_combinators()?;
-            self.expect_op(Op::Semicolon)?;
+            self.garantir_ponto_e_virgula();
             return Ok(Some(DirectiveKind::Import {
                 uri,
                 configurations,
@@ -495,7 +495,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             let uri = self.parse_string_literal()?;
             let configurations = self.parse_configurations()?;
             let combinators = self.parse_combinators()?;
-            self.expect_op(Op::Semicolon)?;
+            self.garantir_ponto_e_virgula();
             return Ok(Some(DirectiveKind::Export {
                 uri,
                 configurations,
@@ -506,7 +506,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             if self.string_at(1) {
                 self.advance();
                 let uri = self.parse_string_literal()?;
-                self.expect_op(Op::Semicolon)?;
+                self.garantir_ponto_e_virgula();
                 return Ok(Some(DirectiveKind::Part { uri }));
             }
             if self.at_ident_at(1, "of") && (self.string_at(2) || self.at_identifier_at(2)) {
@@ -517,7 +517,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 } else {
                     (None, self.parse_dotted_name()?)
                 };
-                self.expect_op(Op::Semicolon)?;
+                self.garantir_ponto_e_virgula();
                 return Ok(Some(DirectiveKind::PartOf { uri, name }));
             }
         }
@@ -741,7 +741,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.expect_kw(Keyword::With)?;
             let with = self.parse_type_list()?;
             let implements = self.parse_implements_opt()?;
-            self.expect_op(Op::Semicolon)?;
+            self.garantir_ponto_e_virgula();
             return Ok(ClassDecl {
                 modifiers,
                 name,
@@ -1381,7 +1381,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 let type_params = self.parse_type_parameters_opt()?;
                 self.expect_op(Op::Assign)?;
                 let ty = self.parse_type()?;
-                self.expect_op(Op::Semicolon)?;
+                self.garantir_ponto_e_virgula();
                 return Ok(TypedefDecl {
                     name,
                     type_params: type_params.into_boxed_slice(),
@@ -1392,7 +1392,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 let name = self.identifier();
                 let type_params = self.parse_type_parameters_opt()?;
                 let parameters = self.parse_formal_parameters()?;
-                self.expect_op(Op::Semicolon)?;
+                self.garantir_ponto_e_virgula();
                 return Ok(TypedefDecl {
                     name,
                     type_params: type_params.into_boxed_slice(),
@@ -1407,7 +1407,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let name = self.expect_identifier()?;
         let type_params = self.parse_type_parameters_opt()?;
         let parameters = self.parse_formal_parameters()?;
-        self.expect_op(Op::Semicolon)?;
+        self.garantir_ponto_e_virgula();
         Ok(TypedefDecl {
             name,
             type_params: type_params.into_boxed_slice(),
@@ -1757,7 +1757,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             name = self.expect_identifier()?;
         }
-        self.expect_op(Op::Semicolon)?;
+        self.garantir_ponto_e_virgula();
         Ok(variables)
     }
 
@@ -2174,7 +2174,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 ty,
                 constructor,
             });
-            self.expect_op(Op::Semicolon)?;
+            self.garantir_ponto_e_virgula();
             FunctionBody::Empty
         } else {
             if self.eat_op(Op::Colon) {
@@ -2409,7 +2409,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.eat_op(Op::Arrow) {
             let expr = self.parse_expression()?;
             if expect_semicolon {
-                self.expect_op(Op::Semicolon)?;
+                self.garantir_ponto_e_virgula();
             }
             return Ok(FunctionBody::Expression(expr));
         }
@@ -2422,7 +2422,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             } else {
                 None
             };
-            self.expect_op(Op::Semicolon)?;
+            self.garantir_ponto_e_virgula();
             return Ok(FunctionBody::Native(name));
         }
         Err(self.erro(codigos::parser::MISSING_FUNCTION_BODY, &[]))
