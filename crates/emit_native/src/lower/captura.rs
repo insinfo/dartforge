@@ -87,9 +87,6 @@ struct Percurso<'x, 'a> {
     /// parâmetro — a variável só precisa de célula se alguma função que
     /// escapa também a captura.
     diretas: Option<HashSet<FunctionId>>,
-    /// Declarações da profundidade 0 lidas ou gravadas só de dentro de
-    /// funções diretas (a cadeia inteira até a referência é direta).
-    capturadas_diretas: HashSet<usize>,
 }
 
 impl<'x, 'a> Percurso<'x, 'a> {
@@ -113,7 +110,6 @@ impl<'x, 'a> Percurso<'x, 'a> {
             lates_de_fora: HashSet::new(),
             alvo_de_chamada: None,
             diretas: None,
-            capturadas_diretas: HashSet::new(),
         }
     }
 
@@ -189,9 +185,9 @@ impl<'x, 'a> Percurso<'x, 'a> {
                 .diretas
                 .as_ref()
                 .is_some_and(|s| atravessadas.iter().all(|f| f.is_some_and(|f| s.contains(&f))));
-            if so_diretas {
-                self.capturadas_diretas.insert(d.offset);
-            } else {
+            // Só por funções diretas: a variável fica no quadro de quem a
+            // declara e vai pelo endereço (`funcoes_diretas.rs`).
+            if !so_diretas {
                 self.capturadas.insert(d.offset);
             }
         }
@@ -672,11 +668,6 @@ impl<'x, 'a> Percurso<'x, 'a> {
 pub struct Capturas {
     /// Offsets das declarações desta função que moram numa célula.
     pub celulas: HashSet<usize>,
-    /// Offsets das declarações desta função capturadas só por funções
-    /// diretas e atribuídas: moram numa célula só se o local é `Ref` (a
-    /// função direta recebe o endereço de um escalar, que o coletor não
-    /// precisa ver; o de um `Ref` fora do quadro de raízes não serve).
-    pub celulas_se_ref: HashSet<usize>,
     /// Offsets das declarações desta função gravadas em algum ponto.
     pub atribuidas: HashSet<usize>,
     /// As funções locais (em qualquer profundidade) chamadas só
@@ -744,9 +735,7 @@ pub fn analisar_com(
     p.diretas = Some(diretas.clone());
     p.percorrer(&raiz);
     let celulas: HashSet<usize> = p.capturadas.intersection(&p.atribuidas).copied().collect();
-    let celulas_se_ref =
-        p.capturadas_diretas.intersection(&p.atribuidas).copied().filter(|o| !celulas.contains(o)).collect();
-    Capturas { celulas, celulas_se_ref, atribuidas: p.atribuidas, diretas }
+    Capturas { celulas, atribuidas: p.atribuidas, diretas }
 }
 
 impl Percurso<'_, '_> {

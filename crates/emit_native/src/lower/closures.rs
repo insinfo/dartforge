@@ -86,7 +86,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .collect();
         let c = captura::analisar_com(self.ctx, self.unit_id, ast, raiz, !self.sem_diretas, &lates_de_fora);
         self.celulas = c.celulas;
-        self.celulas_se_ref = c.celulas_se_ref;
         self.atribuidos = c.atribuidas;
         self.diretas_permitidas = c.diretas;
     }

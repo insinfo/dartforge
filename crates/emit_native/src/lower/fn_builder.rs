@@ -127,9 +127,6 @@ pub struct FnBuilder<'a, 'c> {
     pub diretas_permitidas: std::collections::HashSet<dartforge_frontend::ast::FunctionId>,
     /// Offsets das declarações desta função gravadas em algum ponto.
     pub atribuidos: std::collections::HashSet<usize>,
-    /// Offsets das declarações capturadas só por funções diretas e
-    /// atribuídas: célula só se o local é `Ref`.
-    pub celulas_se_ref: std::collections::HashSet<usize>,
     /// Offsets das variáveis de fora que chegam a esta função direta pelo
     /// endereço (repassadas pelo endereço a outra direta).
     pub ponteiros: std::collections::HashSet<usize>,
@@ -304,7 +301,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             args_conferidos: std::collections::HashSet::new(),
             diretas_permitidas: std::collections::HashSet::new(),
             atribuidos: std::collections::HashSet::new(),
-            celulas_se_ref: std::collections::HashSet::new(),
             ponteiros: std::collections::HashSet::new(),
             funcoes_diretas: HashMap::new(),
             sem_diretas: false,

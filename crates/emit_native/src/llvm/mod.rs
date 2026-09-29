@@ -42,6 +42,11 @@ pub struct LlvmEmitter<'a> {
     /// tira dos laços e a junta com as iguais, como fazia com as chamadas
     /// puras `dartforge_typed_len`/`dartforge_typed_ptr` de antes.
     cabecalhos_invariantes: std::collections::HashSet<ValueId>,
+    /// Os `alloca` `Ref` cujo endereço sai da função (a captura por endereço
+    /// de uma função local direta, `lower/funcoes_diretas.rs`): moram no
+    /// próprio slot do quadro de raízes, e quem recebe o endereço grava
+    /// onde o coletor enxerga.
+    allocas_no_quadro: std::collections::HashSet<ValueId>,
     /// G: slot de raiz de cada valor `Ref` da função (SSA ou `alloca`).
     slots: std::collections::HashMap<ValueId, usize>,
     /// A função abriu um quadro de raízes (`%gcq`).
@@ -113,6 +118,7 @@ impl<'a> LlvmEmitter<'a> {
             conv_phi: Vec::new(),
             apontado: std::collections::HashMap::new(),
             cabecalhos_invariantes: std::collections::HashSet::new(),
+            allocas_no_quadro: std::collections::HashSet::new(),
             slots: std::collections::HashMap::new(),
             tem_frame: false,
             tem_ctx: false,
@@ -344,6 +350,7 @@ impl<'a> LlvmEmitter<'a> {
         self.tipos.clear();
         self.apontado.clear();
         self.cabecalhos_invariantes.clear();
+        self.allocas_no_quadro = Self::allocas_ref_que_escapam(func);
         for block in &func.blocks {
             for (vid, inst, _) in &block.instructions {
                 if let Instruction::Alloca(t) = inst {
@@ -494,6 +501,12 @@ impl<'a> LlvmEmitter<'a> {
                     if let Some(&slot) = self.slots.get(vid) {
                         writeln!(self.out, "  store i64 %v{}, ptr %gcs{slot}", vid.0).unwrap();
                     }
+                }
+                let mut no_quadro: Vec<ValueId> = self.allocas_no_quadro.iter().copied().collect();
+                no_quadro.sort_by_key(|v| v.0);
+                for vid in no_quadro {
+                    let slot = self.slots[&vid];
+                    writeln!(self.out, "  %v{} = getelementptr inbounds i8, ptr %gcs{slot}, i64 0", vid.0).unwrap();
                 }
             }
             // `phi` tem de ser a primeira instrução do bloco: as raízes dos
@@ -1040,6 +1053,7 @@ impl<'a> LlvmEmitter<'a> {
                         // G2: o local `Ref` tem slot próprio, atualizado a
                         // cada gravação — ele vive mais que o SSA que o gravou.
                         if let Operand::Val(pv) = ptr
+                            && !self.allocas_no_quadro.contains(pv)
                             && let Some(&slot) = self.slots.get(pv)
                         {
                             writeln!(self.out, "  store i64 {sv}, ptr %gcs{slot}").unwrap();
@@ -1525,6 +1539,7 @@ impl<'a> LlvmEmitter<'a> {
         for block in &func.blocks {
             for (vid, inst, _) in &block.instructions {
                 match inst {
+                    Instruction::Alloca(_) if self.allocas_no_quadro.contains(vid) => {}
                     Instruction::Alloca(ty) => {
                         writeln!(self.out, "  %v{} = alloca {}", vid.0, ty.llvm_ir()).unwrap();
                     }
@@ -1623,6 +1638,36 @@ impl<'a> LlvmEmitter<'a> {
         self.hashes_de_slot.push(h0);
         self.hashes_de_slot.push(h1);
         i
+    }
+
+    /// Os `alloca` `Ref` usados fora do `load`/`store` deles (o endereço
+    /// passado a uma função local direta): ver `allocas_no_quadro`.
+    fn allocas_ref_que_escapam(func: &Function) -> std::collections::HashSet<ValueId> {
+        let mut refs = std::collections::HashSet::new();
+        for b in &func.blocks {
+            for (vid, inst, _) in &b.instructions {
+                if matches!(inst, Instruction::Alloca(Type::Ref)) {
+                    refs.insert(*vid);
+                }
+            }
+        }
+        let mut escapam = std::collections::HashSet::new();
+        if refs.is_empty() {
+            return escapam;
+        }
+        for b in &func.blocks {
+            for (_, inst, _) in &b.instructions {
+                let usos = match inst {
+                    Instruction::Load { .. } => Vec::new(),
+                    Instruction::Store { val: Operand::Val(v), .. } => vec![*v],
+                    Instruction::Store { .. } => Vec::new(),
+                    outro => crate::lower::async_sm::usos_de(outro),
+                };
+                escapam.extend(usos.into_iter().filter(|v| refs.contains(v)));
+            }
+            escapam.extend(crate::lower::async_sm::usos_do_terminador(&b.terminator).into_iter().filter(|v| refs.contains(v)));
+        }
+        escapam
     }
 
     /// A função usa a área de globais (global, bandeira ou cache de seletor)?

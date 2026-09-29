@@ -156,9 +156,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.erro_de_linguagem(&format!("'{nome}' is already declared in this scope."), dartforge_diagnostics::Span { start: offset, end: fim });
         }
         let ty = Self::repr_de_local(ty);
-        // Capturada só por funções diretas e atribuída: o escalar vai pelo
-        // endereço do `alloca`; o `Ref`, pela célula (`funcoes_diretas.rs`).
-        let celula = self.celulas.contains(&offset) || (ty == Type::Ref && self.celulas_se_ref.contains(&offset));
+        // Capturada só por funções diretas e atribuída: vai pelo endereço do
+        // `alloca` (`funcoes_diretas.rs`); o de um `Ref` mora no slot do
+        // quadro de raízes (`llvm/mod.rs`, `allocas_no_quadro`), onde o
+        // coletor vê o que a função direta grava.
+        let celula = self.celulas.contains(&offset);
         if !celula {
             let ptr = self.alloca_na_entrada(ty);
             let v = self.coagir(valor, ty);

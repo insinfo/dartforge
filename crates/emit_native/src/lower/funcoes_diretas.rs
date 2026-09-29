@@ -30,14 +30,16 @@
 //!
 //! * **valor** — a variável nunca é atribuída (o parâmetro, o `final`, a
 //!   `var` só inicializada): o valor lido na hora da chamada;
-//! * **endereço** — atribuída, de representação escalar (`int`, `double`,
-//!   `bool`, SIMD), e nenhuma função que escapa a captura: o endereço do
-//!   `alloca` de quem declara, e a função lê e grava por ele (o `index` do
-//!   `_parse`). A função direta só roda enquanto o quadro de quem a declara
-//!   existe;
-//! * **célula** — atribuída e `Ref` (o endereço de um `Ref` fora do quadro
-//!   de raízes o esconderia do coletor), ou também capturada por uma
-//!   closure que escapa: o handle da célula de sempre.
+//! * **endereço** — atribuída, e nenhuma função que escapa a captura: o
+//!   endereço do `alloca` de quem declara, e a função lê e grava por ele (o
+//!   `index` do `_parse`). A função direta só roda enquanto o quadro de quem
+//!   a declara existe. O `alloca` de um `Ref` cujo endereço sai assim mora
+//!   no próprio slot do quadro de raízes (`llvm/mod.rs`,
+//!   `allocas_no_quadro`): o que a função direta grava fica enraizado, sem
+//!   célula (o `listenerValueOrError` e o `source` do
+//!   `_Future._propagateToListeners`);
+//! * **célula** — também capturada por uma closure que escapa: o handle da
+//!   célula de sempre.
 //!
 //! Uma função direta que chama outra declarada fora dela recebe também as
 //! capturas dela (e as repassa): a chamada nunca procura uma captura pelo

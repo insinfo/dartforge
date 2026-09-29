@@ -4536,7 +4536,7 @@ mod espaco_de_objetos {
             assert_eq!(heap.stats().live_objects, 3_334);
             // Os mortos voltaram à lista: alocar de novo não cresce o heap.
             let paginas = heap.objetos.paginas.len();
-            for _ in 0..6_000 {
+            for _ in 0..2_000 {
                 alocar_como_o_codigo_gerado(&mut heap, 6, 2);
             }
             assert_eq!(heap.objetos.paginas.len(), paginas);

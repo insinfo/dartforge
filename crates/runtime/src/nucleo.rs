@@ -423,6 +423,9 @@ pub extern "C" fn dartforge_equal(a: i64, b: i64) -> u8 {
 pub extern "C" fn dartforge_identical(a: i64, b: i64) -> u8 {
     if a == b { return 1; }
     if a == 0 || b == 0 { return 0; }
+    // Um objeto do espaço (`h & 3 == 2`) nunca é número: só a identidade
+    // do handle, já conferida (o `Object.==` padrão das classes do SDK).
+    if crate::heap::e_objeto(a) || crate::heap::e_objeto(b) { return 0; }
     HEAP.with(|heap| {
         let heap = heap.borrow();
         use crate::heap::ValueTag::{Double, Int};
