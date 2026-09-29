@@ -2235,8 +2235,8 @@ baixo no mesmo intervalo).
    −20% de instruções).
 3. ~~**Conferência de argumento na entrada uniforme** para chamadas de tipo
    estático conhecido~~: feito em §9.6 (entrada `$tc`, −5% de instruções).
-4. **`Uint8List` em linha**: `typed_len`/`typed_ptr` por acesso (31 mil
-   instruções/req) — um cabeçalho de endereço fixo como o das listas (N13).
+4. ~~**`Uint8List` em linha**~~: feito em §9.8 (cabeçalho de endereço
+   fixo, −3% de instruções).
 5. **Literais de string por ponto de uso**: o handle do literal num global
    do isolado, sem a busca por endereço (115 por requisição).
 
@@ -2369,3 +2369,52 @@ inclusivo 112 → 95 mil instruções/req e `dartforge_closure_new_tipada` 130
 `_AsyncCompleter`, as dos `_StreamController`). No `bench/desempenho` nenhum
 núcleo tem função local que não escapa: `chamadas/closures` (closures
 guardadas numa lista) fica igual (84 ms, 2,7× o Dart AOT, 5 repetições).
+
+### 9.8 Listas tipadas pelo cabeçalho de endereço fixo (item 4 de §9.5, medido em 2026-09-29)
+
+**O problema.** Cada `a[i]`, `a[i] = v` e `a.length` de uma lista de
+`dart:typed_data` chamava `dartforge_typed_len` e `dartforge_typed_ptr`, cada
+uma com a busca do slot e a resolução da visão (~100 instruções). Num laço
+cujo corpo não chama nada o LLVM as tirava do laço (são puras), mas o
+`_CopyingBytesBuilder.add` do `writeHeaders` relê `_buffer` (um campo) a
+cada volta e as pagava por byte copiado: 170 de cada por requisição.
+
+**O que entrou.** Os bytes de uma lista tipada interna moram atrás de um
+cabeçalho de endereço fixo, como o `CabecalhoDeLista` das listas (N13):
+`heap::Armazenamento` passou a ser um `Box<CabecalhoTipado>` com o endereço
+do primeiro byte (palavra 0) e o tamanho em bytes (palavra 1), além do `Vec`
+próprio ou da memória externa de `asTypedList`; nenhum `&mut Vec` sai dele
+(só a fatia), então o endereço não muda enquanto a lista vive. O código
+gerado (`lower/tipados.rs`, `dados_e_comprimento_tipados`) chama uma vez
+`dartforge_typed_cabecalho(h, tipo)` — pura do handle — e lê em linha o
+endereço e o tamanho (`>> log2` do elemento); as leituras levam
+`!invariant.load` (`llvm/mod.rs`), e o LLVM as tira dos laços e junta as
+iguais, como fazia com as duas chamadas puras. A visão não tem cabeçalho
+próprio: o runtime devolve o `CABECALHO_TIPADO_VAZIO` (endereço nulo), e o
+código volta a `dartforge_typed_len`/`dartforge_typed_ptr`, que resolvem a
+base, o deslocamento e a imutabilidade. O acesso guardado pelo teste de
+limites usa o endereço lido para ele, sem ler de novo.
+
+Correção: `corpus/nativo/55_listas_tipadas_cabecalho.dart` (os onze tipos
+numéricos com os extremos, `Uint8ClampedList`, a vazia, índices fora da
+faixa na leitura e na escrita, visões com deslocamento e de outro tipo,
+`sublistView`, as não modificáveis, `List<int>` estático sobre a lista
+tipada, a cópia byte a byte de `codeUnits` e o construtor que cresce com
+`setRange`, SIMD e visão SIMD, 2 000 listas com o coletor, `Isolate.run`,
+`ByteData`) igual à VM no AOT, no JIT e com `--gc-stress`; corpus nativo
+59/59 (com `--gc-stress`, o `40_listas_compactas` passa do prazo de 5 s sob a
+carga da máquina: 6,5 s com `--limite-exec 60`, igual à VM), `corpus/js` pelo
+nativo 235/235, testes de `dartforge-emit-native` e `dartforge-runtime`
+verdes.
+
+Instruções por requisição (callgrind, `/`, §9.1): **927 176 → 898 112**
+(−3,1%; o heap de N19 mudava na mesma janela — a parte desta mudança, pelas
+funções: `dartforge_typed_len` + `dartforge_typed_ptr` 50,8 mil
+instruções/req → `dartforge_typed_cabecalho` 12,6 mil + as visões 4,4 mil).
+`scripts/comparar-desempenho.py --sem-jit --repeticoes 5 tipados`:
+`produto_f64` 7,4 ms (Dart AOT 8,1; 0,91×, era 0,97× em §8.4) e `fnv_bytes`
+13,6 ms (Dart AOT 20,1; 0,68×, era 0,67×) — os laços continuam vetorizados
+(sem o `!invariant.load` o `produto_f64` ia a 16 ms: as leituras do cabeçalho
+não saíam do laço). A cópia de `codeUnits` do `writeHeaders` segue byte a
+byte pelo `CodeUnits.[]` (agora a `$tc`, §9.6): é a semântica do SDK
+(`_CopyingBytesBuilder.add` com uma `List<int>` que não é `Uint8List`).
