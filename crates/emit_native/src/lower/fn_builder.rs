@@ -139,6 +139,10 @@ pub struct FnBuilder<'a, 'c> {
     /// `comprimento_rapido` acabou de ler (a lista e o endereço): o acesso
     /// que ele guarda usa o mesmo, sem ler de novo (`tipados.rs`).
     pub dados_tipados: Option<(Operand, Operand)>,
+    /// O cache do cabeçalho de lista tipada lida de campo, por tipo de
+    /// elemento: os dois locais (handle, cabeçalho) que todos os acessos da
+    /// função compartilham (`tipados.rs`, `cabecalho_tipado`).
+    pub caches_de_cabecalho: std::collections::HashMap<i64, (Operand, Operand)>,
     // --- P6 (async, `async_sm.rs`) ---
     /// Corpo de uma função `async` em curso: o quadro, as retomadas.
     pub async_estado: Option<Box<super::async_sm::EstadoAsync>>,
@@ -305,6 +309,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             funcoes_diretas: HashMap::new(),
             sem_diretas: false,
             dados_tipados: None,
+            caches_de_cabecalho: std::collections::HashMap::new(),
             async_estado: None,
             params_de_tipo_da_funcao: Vec::new(),
             params_locais: Vec::new(),

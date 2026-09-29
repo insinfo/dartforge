@@ -371,8 +371,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ///
     /// A lista lida de um campo a cada acesso (`_buffer[_index++]` do
     /// `_HttpParser`, o `_buffer[...] = ...` do `_CopyingBytesBuilder`)
-    /// passa por um cache do ponto de acesso: o último handle e o cabeçalho
-    /// dele, em dois locais da função. O LLVM não tira a chamada pura do
+    /// passa por um cache: o último handle e o cabeçalho dele, em dois
+    /// locais da função, um par por tipo de elemento, que os acessos da
+    /// função compartilham (o `_buffer.length` e o `_buffer[i] = b` do
+    /// `addByte`). O LLVM não tira a chamada pura do
     /// laço quando o campo é relido depois de uma chamada; com o cache, o
     /// acerto é uma comparação. O handle guardado fica enraizado (local
     /// `Ref`), então a lista dele não morre e o handle não é reusado por
@@ -395,12 +397,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.async_estado.is_some() || !self.lido_de_campo(lista) {
             return chamada(self, "dartforge_typed_cabecalho");
         }
-        let cache_h = self.alloca_na_entrada(Type::Ref);
-        let cache_c = self.alloca_na_entrada(Type::I64);
-        // Vazio no começo: o cabeçalho 0 nunca acerta (o null também tem
-        // cabeçalho, o vazio do runtime).
-        self.gravar_na_entrada(&cache_h, Operand::Constant(Constant::Null));
-        self.gravar_na_entrada(&cache_c, int(0));
+        let (cache_h, cache_c) = match self.caches_de_cabecalho.get(&tipo) {
+            Some(c) => c.clone(),
+            None => {
+                let cache_h = self.alloca_na_entrada(Type::Ref);
+                let cache_c = self.alloca_na_entrada(Type::I64);
+                // Vazio no começo: o cabeçalho 0 nunca acerta (o null também
+                // tem cabeçalho, o vazio do runtime).
+                self.gravar_na_entrada(&cache_h, Operand::Constant(Constant::Null));
+                self.gravar_na_entrada(&cache_c, int(0));
+                self.caches_de_cabecalho.insert(tipo, (cache_h.clone(), cache_c.clone()));
+                (cache_h, cache_c)
+            }
+        };
         let h = self.emit(Instruction::Load { ptr: cache_h.clone(), ty: Type::Ref }, Type::Ref);
         let c = self.emit(Instruction::Load { ptr: cache_c.clone(), ty: Type::I64 }, Type::I64);
         let igual = self.emit(Instruction::ICmp(ICmpOp::Eq, lista.clone(), h), Type::I1);
