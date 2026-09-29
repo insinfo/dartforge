@@ -611,7 +611,6 @@ pub fn getters_e_setters(
 ) -> Vec<(UnitId, Diagnostic)> {
     let mut cx = Ctx { program, interner, table, core, outline };
     let mut saida = Vec::new();
-    let saida_sem_augment = Vec::new;
     // Acessores locais: `(recipiente, nome)` → getters e setters.
     #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
     enum Recipiente {
@@ -631,7 +630,8 @@ pub fn getters_e_setters(
                     MemberKind::Method(f) => {
                         aumentados.insert((u, f.0));
                     }
-                    MemberKind::Field(_) => return saida_sem_augment(),
+                    // Campo com `augment`: a biblioteca inteira fica de fora.
+                    MemberKind::Field(_) => return Vec::new(),
                     MemberKind::Constructor(_) => {}
                 }
             }
