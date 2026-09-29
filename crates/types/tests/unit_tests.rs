@@ -601,6 +601,39 @@ fn sobrescritas_invalidas_do_corpus() {
     );
 }
 
+/// `types::variancia`: posições de variância e supertipos (conferidos com o
+/// `dart analyze` 3.6.2, que guarda a variância escrita mesmo sem o
+/// experimento).
+#[test]
+fn variancia_dos_parametros_de_tipo() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = "class A<in T> {\n  T get g => throw 0;\n  void m(T x) {}\n  void c(covariant T x) {}\n}\nclass B<out T> {\n  final T f;\n  B(this.f);\n}\nclass K<X> {}\nclass C<X> extends K<void Function(X)> {}\nclass D<out X> extends K<void Function(X)> {}\n";
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = dartforge_elements::load::load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let lib = prog.entry.unwrap();
+    let v: Vec<(String, String)> = dartforge_types::variancia::variancia(&prog, &interner, &table, &outline, lib)
+        .into_iter()
+        .map(|(_, d)| (fonte[d.span.start..d.span.end].to_string(), d.message))
+        .collect();
+    assert_eq!(
+        v,
+        vec![
+            ("T".to_string(), "The 'in' type parameter 'T' can't be used in an 'out' position.".to_string()),
+            ("X".to_string(), "'X' can't be used contravariantly or invariantly in 'K<void Function(X)>'.".to_string()),
+            (
+                "X".to_string(),
+                "'X' is an 'out' type parameter and can't be used in an 'in' position in 'K<void Function(X)>'.".to_string()
+            ),
+        ]
+    );
+}
+
 /// `getter_not_subtype_setter_types` (`types::sobrescritas::getters_e_setters`):
 /// topo, estático e a interface (o getter herdado leva o nome da classe).
 #[test]

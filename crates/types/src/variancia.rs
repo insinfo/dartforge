@@ -56,7 +56,11 @@ impl V {
         if self == V::Invariant || o == V::Invariant {
             return V::Invariant;
         }
-        if self == o { V::Covariant } else { V::Contravariant }
+        if self == o {
+            V::Covariant
+        } else {
+            V::Contravariant
+        }
     }
 
     fn meet(self, o: V) -> V {
@@ -101,18 +105,36 @@ fn variancia_em(table: &TypeTable, outline: &OutlineTypes, x: TypeParamId, t: Ty
                 V::Unrelated
             }
         }
-        Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } => {
-            let params = outline.classes.get(class.0 as usize).map(|d| &d.type_params[..]).unwrap_or(&[]);
+        Type::Interface { class, args, .. }
+        | Type::ExtensionType {
+            decl: class, args, ..
+        } => {
+            let params = outline
+                .classes
+                .get(class.0 as usize)
+                .map(|d| &d.type_params[..])
+                .unwrap_or(&[]);
             let mut r = V::Unrelated;
             for (i, &a) in args.iter().enumerate() {
-                let pv = params.get(i).map_or(V::Covariant, |&p| V::do_parametro(table.param(p).variance));
+                let pv = params
+                    .get(i)
+                    .map_or(V::Covariant, |&p| V::do_parametro(table.param(p).variance));
                 r = r.meet(pv.combine(variancia_em(table, outline, x, a)));
             }
             r
         }
         // `FutureOr<T>` é uma interface de parâmetro covariante no analyzer.
-        Type::FutureOr { arg, .. } => V::Unrelated.meet(V::Covariant.combine(variancia_em(table, outline, x, *arg))),
-        Type::Function { type_params, ret, positional, optional, named, .. } => {
+        Type::FutureOr { arg, .. } => {
+            V::Unrelated.meet(V::Covariant.combine(variancia_em(table, outline, x, *arg)))
+        }
+        Type::Function {
+            type_params,
+            ret,
+            positional,
+            optional,
+            named,
+            ..
+        } => {
             let mut r = variancia_em(table, outline, x, *ret);
             for &tp in type_params.iter() {
                 let d = table.param(tp);
@@ -120,7 +142,11 @@ fn variancia_em(table: &TypeTable, outline: &OutlineTypes, x: TypeParamId, t: Ty
                     r = V::Invariant;
                 }
             }
-            for &p in positional.iter().chain(optional.iter()).chain(named.iter().map(|(_, t, _)| t)) {
+            for &p in positional
+                .iter()
+                .chain(optional.iter())
+                .chain(named.iter().map(|(_, t, _)| t))
+            {
                 r = r.meet(V::Contravariant.combine(variancia_em(table, outline, x, p)));
             }
             r
@@ -151,7 +177,11 @@ pub fn variancia(
     }
     let mut campos: HashMap<(UnitId, u32), usize> = HashMap::new();
     for (i, v) in program.variables.iter().enumerate() {
-        if let VariableRef::Field { unit, member, index: 0 } = v.node
+        if let VariableRef::Field {
+            unit,
+            member,
+            index: 0,
+        } = v.node
             && unidades.contains(&unit)
         {
             campos.insert((unit, member.0), i);
@@ -162,15 +192,18 @@ pub fn variancia(
             continue;
         }
         let Some(decl) = classe.decl else { continue };
-        let Some(dados) = outline.classes.get(i) else { continue };
-        let ast_ = &program.unit(decl.unit).ast;
-        let (tps, membros): (&[ast::TypeParameter], &[ast::MemberId]) = match &ast_.decl(decl.decl).kind {
-            DeclKind::Class(d) => (&d.type_params, &d.members),
-            DeclKind::Mixin(d) => (&d.type_params, &d.members),
-            DeclKind::Enum(d) => (&d.type_params, &d.members),
-            DeclKind::ExtensionType(d) => (&d.type_params, &d.members),
-            _ => continue,
+        let Some(dados) = outline.classes.get(i) else {
+            continue;
         };
+        let ast_ = &program.unit(decl.unit).ast;
+        let (tps, membros): (&[ast::TypeParameter], &[ast::MemberId]) =
+            match &ast_.decl(decl.decl).kind {
+                DeclKind::Class(d) => (&d.type_params, &d.members),
+                DeclKind::Mixin(d) => (&d.type_params, &d.members),
+                DeclKind::Enum(d) => (&d.type_params, &d.members),
+                DeclKind::ExtensionType(d) => (&d.type_params, &d.members),
+                _ => continue,
+            };
         if tps.len() != dados.type_params.len() {
             continue;
         }
@@ -179,17 +212,27 @@ pub fn variancia(
             let d = V::do_parametro(table.param(x).variance);
             if !v.maior_ou_igual(d) {
                 let nome = interner.resolve(table.param(x).name);
-                diags.push(Diagnostic::com_codigo(c::WRONG_TYPE_PARAMETER_VARIANCE_POSITION, span, [d.palavra(), nome, v.palavra()]));
+                diags.push(Diagnostic::com_codigo(
+                    c::WRONG_TYPE_PARAMETER_VARIANCE_POSITION,
+                    span,
+                    [d.palavra(), nome, v.palavra()],
+                ));
             }
         };
-        let explicitos: Vec<TypeParamId> =
-            dados.type_params.iter().copied().filter(|&p| table.param(p).variance != Declarada::Unspecified).collect();
+        let explicitos: Vec<TypeParamId> = dados
+            .type_params
+            .iter()
+            .copied()
+            .filter(|&p| table.param(p).variance != Declarada::Unspecified)
+            .collect();
         // Membros, na ordem da fonte.
         if !explicitos.is_empty() {
             for &m in membros {
                 match &ast_.member(m).kind {
                     MemberKind::Field(vl) => {
-                        let Some(primeira) = vl.variables.first() else { continue };
+                        let Some(primeira) = vl.variables.first() else {
+                            continue;
+                        };
                         let Some(tipo) = campos
                             .get(&(decl.unit, m.0))
                             .and_then(|&v| outline.variables.get(v))
@@ -201,20 +244,34 @@ pub fn variancia(
                             let v = variancia_em(table, outline, x, tipo);
                             relatar(primeira.name.span, x, v, &mut diags);
                             if !vl.final_ && !vl.covariant {
-                                relatar(primeira.name.span, x, V::Contravariant.combine(v), &mut diags);
+                                relatar(
+                                    primeira.name.span,
+                                    x,
+                                    V::Contravariant.combine(v),
+                                    &mut diags,
+                                );
                             }
                         }
                     }
                     MemberKind::Method(f) => {
-                        let Some(&fid) = funcoes.get(&(decl.unit, f.0)) else { continue };
-                        let Some(dados_f) = outline.functions.get(fid) else { continue };
+                        let Some(&fid) = funcoes.get(&(decl.unit, f.0)) else {
+                            continue;
+                        };
+                        let Some(dados_f) = outline.functions.get(fid) else {
+                            continue;
+                        };
                         let af = ast_.function(*f);
                         for &x in &explicitos {
                             for (tp, &p) in af.type_params.iter().zip(dados_f.type_params.iter()) {
                                 if tp.bound.is_none() {
                                     continue;
                                 }
-                                let v = V::Invariant.combine(variancia_em(table, outline, x, table.param(p).bound));
+                                let v = V::Invariant.combine(variancia_em(
+                                    table,
+                                    outline,
+                                    x,
+                                    table.param(p).bound,
+                                ));
                                 relatar(tp.span, x, v, &mut diags);
                             }
                             if let Some(ps) = &af.parameters {
@@ -222,7 +279,8 @@ pub fn variancia(
                                     if p.covariant {
                                         continue;
                                     }
-                                    let v = V::Contravariant.combine(variancia_em(table, outline, x, dp.ty));
+                                    let v = V::Contravariant
+                                        .combine(variancia_em(table, outline, x, dp.ty));
                                     relatar(p.span, x, v, &mut diags);
                                 }
                             }

@@ -1160,8 +1160,9 @@ pub const PAGINA: usize = 64 * 1024;
 pub const MAIOR_CLASSE: usize = 64;
 /// Os números de campos com alocação em linha (TLAB): `0..=TLAB_N`.
 pub const TLAB_N: usize = 16;
-/// Quantos blocos cada reabastecimento da TLAB entrega.
-const TLAB_BLOCOS: usize = 64;
+/// Até quantos blocos cada reabastecimento da TLAB entrega (uma faixa
+/// contígua da lista livre: menos, se a contiguidade acaba antes).
+const TLAB_BLOCOS: usize = 256;
 
 /// A coleta menor vem a cada `LIMITE_JOVEM` bytes alocados (o tamanho do
 /// *new space*; o semiespaço da VM começa menor e cresce até 8 MiB em 64
@@ -1520,9 +1521,13 @@ pub struct EspacoDeObjetos {
     pub vivos: usize,
     /// Blocos em todas as páginas.
     pub blocos: usize,
-    /// Os blocos entregues desde a última coleta (os jovens, e os da TLAB
-    /// ainda não usados): o que a coleta menor varre.
+    /// Os blocos entregues um a um pelo runtime desde a última coleta: com
+    /// [`EspacoDeObjetos::faixas`], o que a coleta menor varre.
     jovens: Vec<*mut Cabecalho>,
+    /// As faixas `(início, fim, n)` entregues às TLABs desde a última coleta
+    /// (os blocos que o código gerado alocou; o resto não usado já voltou à
+    /// lista livre e está livre).
+    faixas: Vec<(*mut u8, *mut u8, usize)>,
     /// Os velhos que a barreira de escrita marcou ([`LEMBRADO`]).
     lembrados: Vec<*mut Cabecalho>,
     /// Blocos entregues desde a última coleta, por número de campos: a
@@ -1555,6 +1560,7 @@ impl EspacoDeObjetos {
             vivos: 0,
             blocos: 0,
             jovens: Vec::new(),
+            faixas: Vec::new(),
             lembrados: Vec::new(),
             demanda: vec![0; MAIOR_CLASSE + 1],
             pico: vec![0; MAIOR_CLASSE + 1],
@@ -1652,42 +1658,35 @@ impl EspacoDeObjetos {
         b
     }
 
-    /// Tira os `k` primeiros blocos livres de `n ≤ MAIOR_CLASSE` campos,
-    /// encadeados pelo primeiro campo (o último aponta nulo), e os conta
-    /// como jovens: a TLAB.
-    fn tirar_varios(&mut self, n: usize, k: usize) -> *mut Cabecalho {
+    /// Tira do começo da lista livre de `n ≤ TLAB_N` campos uma faixa de
+    /// até `k` blocos contíguos (a lista está em ordem de endereço dentro
+    /// de cada página, e a página nova entra inteira nela): devolve o
+    /// início e quantos. Os blocos continuam encadeados ao seguinte pelo
+    /// primeiro campo (o que [`Heap::devolver_tlabs`] reaproveita).
+    fn tirar_faixa(&mut self, n: usize, k: usize) -> (*mut u8, usize) {
         debug_assert!(n <= MAIOR_CLASSE && k > 0);
-        let mut cabeca: *mut Cabecalho = std::ptr::null_mut();
-        let mut cauda: *mut Cabecalho = std::ptr::null_mut();
-        let mut falta = k;
-        while falta > 0 {
-            if self.livres[n].is_null() {
-                self.nova_pagina(n);
-            }
-            let inicio = self.livres[n];
-            let mut fim = inicio;
-            self.jovens.push(fim);
-            falta -= 1;
-            // SAFETY: blocos livres da lista de `n`, encadeados pelo primeiro
-            // campo.
-            unsafe {
-                while falta > 0 && !Self::proximo(fim).is_null() {
-                    fim = Self::proximo(fim);
-                    self.jovens.push(fim);
-                    falta -= 1;
-                }
-                self.livres[n] = Self::proximo(fim);
-                Self::encadear(fim, std::ptr::null_mut());
-                if cauda.is_null() {
-                    cabeca = inicio;
-                } else {
-                    Self::encadear(cauda, inicio);
-                }
-            }
-            cauda = fim;
+        if self.livres[n].is_null() {
+            self.nova_pagina(n);
         }
-        self.demanda[n] += k;
-        cabeca
+        let tamanho = tamanho_do_bloco(n);
+        let inicio = self.livres[n];
+        let mut fim = inicio;
+        let mut j = 1;
+        // SAFETY: blocos livres da lista de `n`, encadeados pelo primeiro
+        // campo.
+        unsafe {
+            let mut proximo = Self::proximo(fim);
+            while j < k && proximo == fim.cast::<u8>().wrapping_add(tamanho).cast() {
+                fim = proximo;
+                proximo = Self::proximo(fim);
+                j += 1;
+            }
+            self.livres[n] = proximo;
+        }
+        let inicio = inicio.cast::<u8>();
+        self.faixas.push((inicio, inicio.wrapping_add(j * tamanho), n));
+        self.demanda[n] += j;
+        (inicio, j)
     }
 
     /// Marca o velho `b` como [`LEMBRADO`] (a barreira de escrita).
@@ -1714,9 +1713,9 @@ impl EspacoDeObjetos {
         }
     }
 
-    /// A varredura da coleta menor: os jovens marcados viram velhos; os não
-    /// marcados (e os da TLAB não usados) voltam à lista livre; os lembrados
-    /// voltam a velhos. Devolve (mortos, bytes promovidos, bytes soltos).
+    /// A varredura da coleta menor: os jovens não marcados voltam à lista
+    /// livre (os marcados a marcação já fez velhos); os lembrados voltam a
+    /// velhos. Devolve (mortos, bytes promovidos, bytes soltos).
     fn varrer_jovens(&mut self) -> (usize, usize, usize) {
         let (mut mortos, mut promovidos, mut soltos) = (0, 0, 0);
         let jovens = std::mem::take(&mut self.jovens);
@@ -1727,8 +1726,8 @@ impl EspacoDeObjetos {
                 let classe = usize::from((*b).n);
                 let n = if classe > MAIOR_CLASSE { self.pagina_do_grande(b) } else { classe };
                 match (*b).estado {
-                    MARCADO => {
-                        (*b).estado = VELHO;
+                    VELHO => {
+                        // Promovido pela marcação.
                         promovidos += Self::bytes_do_objeto(b, n);
                     }
                     JOVEM => {
@@ -1744,17 +1743,45 @@ impl EspacoDeObjetos {
                             self.livres[n] = b;
                         }
                     }
-                    LIVRE if n <= MAIOR_CLASSE => {
-                        // Da TLAB, não usado.
-                        Self::encadear(b, self.livres[n]);
-                        self.livres[n] = b;
-                    }
                     _ => {}
                 }
             }
         }
         self.jovens = jovens;
         self.jovens.clear();
+        // As faixas das TLABs: o que o código gerado alocou é jovem (morto)
+        // ou já velho (a marcação da menor promove); o livre é o resto que
+        // `devolver_tlabs` já pôs de volta na lista. Os mortos voltam em
+        // ordem de endereço, na frente da lista (a próxima faixa sai
+        // contígua).
+        for (inicio, fim, n) in std::mem::take(&mut self.faixas) {
+            let tamanho = tamanho_do_bloco(n);
+            let (mut cabeca, mut cauda): (*mut Cabecalho, *mut Cabecalho) = (std::ptr::null_mut(), std::ptr::null_mut());
+            let mut p = inicio;
+            while p < fim {
+                let b = p.cast::<Cabecalho>();
+                // SAFETY: bloco da faixa, numa página viva.
+                unsafe {
+                    if (*b).estado == JOVEM {
+                        mortos += 1;
+                        soltos += Self::bytes_do_objeto(b, n);
+                        Self::soltar_objeto(b, n);
+                        if cauda.is_null() {
+                            cabeca = b;
+                        } else {
+                            Self::encadear(cauda, b);
+                        }
+                        cauda = b;
+                    }
+                }
+                p = p.wrapping_add(tamanho);
+            }
+            if !cauda.is_null() {
+                // SAFETY: a cauda é bloco livre da classe.
+                unsafe { Self::encadear(cauda, self.livres[n]) };
+                self.livres[n] = cabeca;
+            }
+        }
         for b in std::mem::take(&mut self.lembrados) {
             // SAFETY: bloco lembrado, velho.
             unsafe { (*b).estado = VELHO };
@@ -1927,6 +1954,7 @@ impl EspacoDeObjetos {
         }
         self.vivos = vivos;
         self.jovens.clear();
+        self.faixas.clear();
         self.lembrados.clear();
         for d in self.demanda.iter_mut() {
             *d = 0;
@@ -2373,11 +2401,13 @@ pub struct Contexto {
     pub registradas: std::cell::Cell<*const u8>,
     pub n_registradas: std::cell::Cell<usize>,
     /// A TLAB do isolado (deslocamento 64): para cada número de campos
-    /// `n ≤ TLAB_N`, uma lista de blocos livres do espaço de objetos já
-    /// contados como alocação (`Heap::reabastecer_tlab`), encadeados pelo
-    /// primeiro campo. O código gerado tira o primeiro (a alocação em linha,
-    /// `llvm/mod.rs`); lista vazia (nulo) vai ao runtime, que reabastece.
-    pub tlab: [std::cell::Cell<*mut Cabecalho>; TLAB_N + 1],
+    /// `n ≤ TLAB_N`, uma faixa `[cursor, fim)` de blocos livres contíguos do
+    /// espaço de objetos já contados como alocação
+    /// (`Heap::reabastecer_tlab`): o cursor em `64 + 16n`, o fim em
+    /// `72 + 16n`. O código gerado aloca avançando o cursor um bloco (o
+    /// *bump pointer* da VM, `llvm/mod.rs`); faixa esgotada vai ao runtime,
+    /// que reabastece.
+    pub tlab: [[std::cell::Cell<*mut u8>; 2]; TLAB_N + 1],
 }
 
 const _: () = {
@@ -2403,7 +2433,7 @@ thread_local! {
             vazios: &raw const OBJETO_VAZIO.cabecalho,
             registradas: std::cell::Cell::new(std::ptr::null()),
             n_registradas: std::cell::Cell::new(0),
-            tlab: [const { std::cell::Cell::new(std::ptr::null_mut()) }; TLAB_N + 1],
+            tlab: [const { [std::cell::Cell::new(std::ptr::null_mut()), std::cell::Cell::new(std::ptr::null_mut())] }; TLAB_N + 1],
         }
     };
 }
@@ -3099,19 +3129,20 @@ impl Heap {
         self.antes_de_alocar(tamanho_do_bloco(n));
         self.objetos.alocar(class_id, n)
     }
-    /// Reabastece a TLAB de `n` campos do [`Contexto`] (se vazia), com até
-    /// [`TLAB_BLOCOS`] blocos contados como alocados agora — sem coletar:
-    /// só o que cabe antes do próximo gatilho (o que passa dele fica para o
-    /// runtime, que coleta). Sem TLAB no `--gc-stress` (toda alocação
-    /// passa pelo runtime, que coleta antes) e nos heaps de teste.
+    /// Reabastece a TLAB de `n` campos do [`Contexto`] (se esgotada) com
+    /// uma faixa contígua de até [`TLAB_BLOCOS`] blocos livres, contados
+    /// como alocados agora — sem coletar: só o que cabe antes do próximo
+    /// gatilho (o que passa dele fica para o runtime, que coleta). Sem TLAB
+    /// no `--gc-stress` (toda alocação passa pelo runtime, que coleta antes)
+    /// e nos heaps de teste.
     pub fn reabastecer_tlab(&mut self, n: usize) {
         if !self.publica || self.stress || n > TLAB_N {
             return;
         }
-        if !CONTEXTO.with(|c| c.tlab[n].get().is_null()) {
+        let tamanho = tamanho_do_bloco(n);
+        if CONTEXTO.with(|c| (c.tlab[n][1].get() as usize).saturating_sub(c.tlab[n][0].get() as usize) >= tamanho) {
             return;
         }
-        let tamanho = tamanho_do_bloco(n);
         let mut k = TLAB_BLOCOS
             .min(CONTAGEM_JOVEM.saturating_sub(self.allocations))
             .min(LIMITE_JOVEM.saturating_sub(self.bytes_jovens) / tamanho)
@@ -3122,36 +3153,41 @@ impl Heap {
         if k == 0 {
             return;
         }
-        // Os `k` primeiros da lista livre, na ordem dela.
-        let cabeca = self.objetos.tirar_varios(n, k);
+        let (inicio, k) = self.objetos.tirar_faixa(n, k);
         self.objetos.vivos += k;
         self.contar_alocacao(k, k * tamanho);
-        CONTEXTO.with(|c| c.tlab[n].set(cabeca));
+        CONTEXTO.with(|c| {
+            c.tlab[n][0].set(inicio);
+            c.tlab[n][1].set(inicio.wrapping_add(k * tamanho));
+        });
     }
     /// Devolve as TLABs do [`Contexto`] (o que o código gerado não usou) antes
-    /// de uma coleta: os blocos voltam a ser só livres (a varredura refaz as
-    /// listas) e saem da contagem de alocações.
+    /// de uma coleta: o resto de cada faixa volta à frente da lista livre
+    /// (os blocos ainda estão encadeados em ordem) e sai da contagem de
+    /// alocações.
     fn devolver_tlabs(&mut self) {
         if !self.publica {
             return;
         }
         for n in 0..=TLAB_N {
-            let mut b = CONTEXTO.with(|c| c.tlab[n].replace(std::ptr::null_mut()));
-            let mut k = 0usize;
-            while !b.is_null() {
-                k += 1;
-                // SAFETY: bloco livre da TLAB, encadeado pelo primeiro campo.
+            let (cursor, fim) = CONTEXTO.with(|c| (c.tlab[n][0].replace(std::ptr::null_mut()), c.tlab[n][1].replace(std::ptr::null_mut())));
+            let tamanho = tamanho_do_bloco(n);
+            let k = (fim as usize).saturating_sub(cursor as usize) / tamanho;
+            if k > 0 {
+                // SAFETY: `[cursor, fim)` são blocos livres da faixa, cada um
+                // encadeado ao seguinte pelo primeiro campo.
                 #[allow(unsafe_code)]
                 unsafe {
-                    b = EspacoDeObjetos::proximo(b);
+                    let ultimo = fim.wrapping_sub(tamanho).cast::<Cabecalho>();
+                    EspacoDeObjetos::encadear(ultimo, self.objetos.livres[n]);
                 }
-            }
-            if k > 0 {
-                let bytes = k * tamanho_do_bloco(n);
+                self.objetos.livres[n] = cursor.cast();
+                let bytes = k * tamanho;
                 self.objetos.vivos -= k;
                 self.allocations = self.allocations.saturating_sub(k);
                 self.stats.allocations = self.stats.allocations.saturating_sub(k as u64);
                 self.stats.estimated_bytes = self.stats.estimated_bytes.saturating_sub(bytes);
+                self.bytes_jovens = self.bytes_jovens.saturating_sub(bytes);
             }
         }
     }
@@ -3842,7 +3878,9 @@ impl Heap {
                         if if menor { e != JOVEM } else { e == MARCADO } {
                             break;
                         }
-                        (*b).estado = MARCADO;
+                        // A menor promove já na marcação (o jovem alcançado
+                        // fica velho: a varredura só procura os mortos).
+                        (*b).estado = if menor { VELHO } else { MARCADO };
                         live += 1;
                         // Só os campos que o mapa diz referência: o que
                         // esta coleta não percorre (velho na menor, já
@@ -3852,7 +3890,7 @@ impl Heap {
                         let n = usize::from((*c).n);
                         self.trabalho_da_marcacao += n;
                         let campos = campos_de(c);
-                        let mut visitar = |bits: i64, proximo: &mut i64, pilha: &mut Vec<i64>| {
+                        let visitar = |bits: i64, proximo: &mut i64, pilha: &mut Vec<i64>| {
                             if !smi::e_handle(bits) {
                                 return;
                             }
@@ -4435,6 +4473,79 @@ mod espaco_de_objetos {
         assert_eq!(heap.hash_de_identidade(a), Some(ha));
         assert_ne!(heap.hash_de_identidade(b), Some(ha));
         assert!(ha > 0 && ha <= 0x3fff_ffff);
+    }
+
+    /// A alocação em linha do código gerado: avança o cursor da faixa da
+    /// TLAB e grava o cabeçalho (`llvm/mod.rs`).
+    #[allow(unsafe_code)]
+    fn alocar_como_o_codigo_gerado(heap: &mut Heap, class_id: i64, n: usize) -> i64 {
+        let tamanho = tamanho_do_bloco(n);
+        let b = CONTEXTO.with(|c| {
+            let (cursor, fim) = (c.tlab[n][0].get(), c.tlab[n][1].get());
+            if (fim as usize).saturating_sub(cursor as usize) < tamanho {
+                return None;
+            }
+            c.tlab[n][0].set(cursor.wrapping_add(tamanho));
+            Some(cursor)
+        });
+        let Some(b) = b else {
+            let h = heap.alocar_objeto(class_id, n);
+            heap.reabastecer_tlab(n);
+            return h;
+        };
+        // SAFETY: bloco livre da faixa.
+        unsafe {
+            *b.add(16).cast::<i64>() = 0;
+            *b.cast::<u64>() = 1 | (n as u64) << 16 | (class_id as u64) << 32;
+        }
+        b as i64 + DESLOCAMENTO_DO_HANDLE
+    }
+
+    #[test]
+    fn faixas_da_tlab_sobrevivem_e_voltam_a_lista() {
+        // Numa thread nova: o `Contexto` dela começa sem TLAB.
+        std::thread::spawn(|| {
+            let mut heap = Heap::do_isolado(false);
+            let frame = heap.push_frame_with_slots(1);
+            let mut cabeca = 0;
+            let mut lixo = Vec::new();
+            for i in 0..10_000 {
+                let elo = alocar_como_o_codigo_gerado(&mut heap, 5, 2);
+                heap.set(elo, 0, smi::de(i).unwrap(), false);
+                heap.set(elo, 1, cabeca, true);
+                if i % 3 == 0 {
+                    cabeca = elo;
+                    heap.set_root(frame, 0, cabeca);
+                } else {
+                    lixo.push(elo);
+                }
+                if i % 2_500 == 1_249 {
+                    heap.coletar(i % 5_000 != 1_249);
+                }
+            }
+            heap.coletar(true);
+            let mut n = 0;
+            let mut h = cabeca;
+            while h != 0 {
+                let o = heap.objeto(h).expect("elo vivo");
+                assert_eq!(o.class_id, 5);
+                n += 1;
+                h = o.campo(1).0;
+            }
+            assert_eq!(n, 3_334);
+            assert_eq!(heap.stats().live_objects, 3_334);
+            // Os mortos voltaram à lista: alocar de novo não cresce o heap.
+            let paginas = heap.objetos.paginas.len();
+            for _ in 0..6_000 {
+                alocar_como_o_codigo_gerado(&mut heap, 6, 2);
+            }
+            assert_eq!(heap.objetos.paginas.len(), paginas);
+            heap.set_root(frame, 0, 0);
+            heap.coletar(false);
+            assert_eq!(heap.stats().live_objects, 0);
+        })
+        .join()
+        .unwrap();
     }
 
     #[test]

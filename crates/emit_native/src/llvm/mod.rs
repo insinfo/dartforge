@@ -2399,11 +2399,12 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     /// A alocação em linha de um objeto de classe `c` e `n` campos, como o
-    /// `TryAllocateObject` da VM (`stub_code_compiler.cc`): tira o primeiro
-    /// bloco da TLAB de `n` campos do isolado (`Contexto::tlab`,
-    /// deslocamento `64 + 8n`; os blocos já foram contados como alocados e
-    /// têm cabeçalho e campos zerados), grava o cabeçalho (jovem, `n`, a
-    /// classe) e devolve o handle (`bloco + 2`). TLAB vazia — ou,
+    /// `TryAllocateObject` da VM (`stub_code_compiler.cc`): avança o cursor
+    /// da faixa da TLAB de `n` campos do isolado (`Contexto::tlab`: cursor
+    /// em `64 + 16n`, fim em `72 + 16n`; os blocos já foram contados como
+    /// alocados e têm cabeçalho e campos zerados, menos o encadeamento no
+    /// primeiro campo), grava o cabeçalho (jovem, `n`, a classe) e devolve o
+    /// handle (`bloco + 2`). Faixa esgotada — ou,
     /// para a classe que registra a tabela de métodos na primeira alocação
     /// (`dartforge_object_new_t`), classe ainda não registrada — vai ao
     /// runtime, que coleta se preciso e reabastece. O bloco da HIR termina
@@ -2414,9 +2415,13 @@ impl<'a> LlvmEmitter<'a> {
             self.anotar_externo(f, Type::Ptr, &[]);
         }
         let o = &mut self.out;
-        writeln!(o, "  %ta{v} = getelementptr inbounds i8, ptr %ctx, i64 {}", 64 + 8 * n).unwrap();
+        let tamanho = 16 + 8 * n.max(1);
+        writeln!(o, "  %ta{v} = getelementptr inbounds i8, ptr %ctx, i64 {}", 64 + 16 * n).unwrap();
         writeln!(o, "  %tb{v} = load ptr, ptr %ta{v}, align 8").unwrap();
-        writeln!(o, "  %tz{v} = icmp eq ptr %tb{v}, null").unwrap();
+        writeln!(o, "  %tfa{v} = getelementptr inbounds i8, ptr %ctx, i64 {}", 72 + 16 * n).unwrap();
+        writeln!(o, "  %tf{v} = load ptr, ptr %tfa{v}, align 8").unwrap();
+        writeln!(o, "  %tnx{v} = getelementptr i8, ptr %tb{v}, i64 {tamanho}").unwrap();
+        writeln!(o, "  %tz{v} = icmp ugt ptr %tnx{v}, %tf{v}").unwrap();
         if tabela.is_some() {
             writeln!(o, "  %tnp{v} = getelementptr inbounds i8, ptr %ctx, i64 56").unwrap();
             writeln!(o, "  %tn{v} = load i64, ptr %tnp{v}, align 8").unwrap();
@@ -2437,14 +2442,13 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(o, "  br i1 %tx{v}, label %ao{v}.lento, label %ao{v}.rapido").unwrap();
         }
         // O bloco livre tem o cabeçalho zerado (menos o número de campos),
-        // os campos zerados e o próximo da lista no primeiro campo: tira-se
-        // o próximo, zera-se o primeiro campo e grava-se a palavra do
+        // os campos zerados e o próximo da lista no primeiro campo: avança-se
+        // o cursor, zera-se o primeiro campo e grava-se a palavra do
         // cabeçalho (estado jovem, sem flags, `n`, a classe).
         let cabecalho = 1u64 | ((n as u64) << 16) | (u64::from(c as u32) << 32);
         writeln!(o, "ao{v}.rapido:").unwrap();
+        writeln!(o, "  store ptr %tnx{v}, ptr %ta{v}, align 8").unwrap();
         writeln!(o, "  %tpp{v} = getelementptr inbounds i8, ptr %tb{v}, i64 16").unwrap();
-        writeln!(o, "  %tp{v} = load i64, ptr %tpp{v}, align 8").unwrap();
-        writeln!(o, "  store i64 %tp{v}, ptr %ta{v}, align 8").unwrap();
         writeln!(o, "  store i64 0, ptr %tpp{v}, align 8").unwrap();
         writeln!(o, "  store i64 {}, ptr %tb{v}, align 8", cabecalho as i64).unwrap();
         writeln!(o, "  %thb{v} = ptrtoint ptr %tb{v} to i64").unwrap();
