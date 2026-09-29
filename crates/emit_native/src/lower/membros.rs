@@ -970,6 +970,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.em_contexto_const = salvo;
             return Some(v);
         }
+        // Factory redirecionadora (`factory C({x}) = D;`): o parâmetro dela
+        // não tem padrão próprio e vale o do parâmetro correspondente do
+        // alvo (especificação, "Redirecting Factory Constructors"; o CFE
+        // copia os padrões do alvo efetivo).
+        if let Some(alvo) = self.alvo_redirecionado(fid) {
+            let alvo_params = &self.ctx.outline.functions.get(alvo)?.parameters;
+            let j = if p.kind == ParameterKind::Named {
+                alvo_params.iter().position(|sp| sp.kind == ParameterKind::Named && sp.externo == p.name.map(|n| n.sym))?
+            } else {
+                // Os posicionais vêm antes dos nomeados, na mesma ordem.
+                i
+            };
+            return self.valor_padrao(alvo, j);
+        }
         if !p.super_ {
             return None;
         }
@@ -995,6 +1009,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             *posicionais.get(pos_explicitos + k)?
         };
         self.valor_padrao(sup_fid, alvo)
+    }
+
+    /// O construtor para o qual a factory `fid` redireciona
+    /// (`factory C(…) = D.nome;`), resolvido na unidade que a declara.
+    fn alvo_redirecionado(&mut self, fid: usize) -> Option<usize> {
+        let FunctionRef::Constructor { unit, member } = self.ctx.program.functions.get(fid)?.node else {
+            return None;
+        };
+        let ast = &self.ctx.program.unit(unit).ast;
+        let MemberKind::Constructor(c) = &ast.member(member).kind else { return None };
+        let r = c.redirect.as_ref()?;
+        let salvo = self.unit_id;
+        self.unit_id = unit;
+        let alvo = self.construtor_do_tipo(ast.ty(r.ty), r.constructor.map(|n| n.sym));
+        self.unit_id = salvo;
+        alvo.map(|f| f.0 as usize).filter(|&a| a != fid)
     }
 
     /// Construtor da superclasse chamado por um construtor (explícito na
