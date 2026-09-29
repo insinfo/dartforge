@@ -504,37 +504,41 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         for p in &nomeados {
             sig.push(i64::from(p.required));
         }
-        let sig = self.emit(Instruction::ConstArray(sig), Type::Ptr);
-        let ok = self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_args_casam".to_string(),
-                args: vec![(desc.clone(), Type::Ptr), (sig, Type::Ptr)],
-                ret_ty: Type::I8,
-            },
-            Type::I8,
-        );
-        let ok = self.emit(
-            Instruction::ICmp(ICmpOp::Ne, ok, Operand::Constant(Constant::Int(0))),
-            Type::I1,
-        );
-        let b_ok = self.new_block();
-        let b_erro = self.new_block();
-        self.terminate(Terminator::CondBranch {
-            cond: ok,
-            then_block: b_ok,
-            else_block: b_erro,
-        });
-        self.set_block(b_erro);
-        self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_nsm_chamada".to_string(),
-                args: Vec::new(),
-                ret_ty: Type::Void,
-            },
-            Type::Void,
-        );
-        self.terminate(Terminator::Return(Some(Operand::Constant(Constant::Null))));
-        self.set_block(b_ok);
+        // A entrada tipada (`entrada_tipada.rs`): a aridade e os nomes vêm
+        // garantidos pelo chamador estático.
+        if !self.aridade_garantida {
+            let sig = self.emit(Instruction::ConstArray(sig), Type::Ptr);
+            let ok = self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_args_casam".to_string(),
+                    args: vec![(desc.clone(), Type::Ptr), (sig, Type::Ptr)],
+                    ret_ty: Type::I8,
+                },
+                Type::I8,
+            );
+            let ok = self.emit(
+                Instruction::ICmp(ICmpOp::Ne, ok, Operand::Constant(Constant::Int(0))),
+                Type::I1,
+            );
+            let b_ok = self.new_block();
+            let b_erro = self.new_block();
+            self.terminate(Terminator::CondBranch {
+                cond: ok,
+                then_block: b_ok,
+                else_block: b_erro,
+            });
+            self.set_block(b_erro);
+            self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_nsm_chamada".to_string(),
+                    args: Vec::new(),
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            );
+            self.terminate(Terminator::Return(Some(Operand::Constant(Constant::Null))));
+            self.set_block(b_ok);
+        }
 
         let npos = self.emit(
             Instruction::LoadIndexed {

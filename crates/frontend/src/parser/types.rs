@@ -35,6 +35,7 @@
 use super::{MAX_DEPTH, PResult, Parser};
 use crate::ast::{
     Annotation, Name, Parameter, ParameterKind, TypeAnnotation, TypeId, TypeKind, TypeParameter,
+    Variance,
 };
 use crate::features::Feature;
 use crate::token::{Keyword, Kind, Op};
@@ -353,28 +354,70 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(args)
     }
 
-    /// `<@meta T extends B, U>` de parâmetros, ou lista vazia se não houver `<`.
-    ///
-    /// Dart 3.6 não tem variância explícita (`in`/`out` só sob experimento e
-    /// sem uso no SDK), então não é reconhecida.
+    /// `<@meta T extends B, U>` de parâmetros, ou lista vazia se não houver `<`,
+    /// sem modificadores de variância (funções, métodos, `typedef`,
+    /// extensões): `in`/`out` ali são nomes.
     pub(crate) fn parse_type_parameters_opt(&mut self) -> PResult<Vec<TypeParameter>> {
+        self.parse_type_parameters_com(false)
+    }
+
+    /// Como [`Parser::parse_type_parameters_opt`], onde o fasta aceita
+    /// variância (`allowsVariance`: classe, mixin, enum).
+    pub(crate) fn parse_type_parameters_opt_variancia(&mut self) -> PResult<Vec<TypeParameter>> {
+        self.parse_type_parameters_com(true)
+    }
+
+    fn parse_type_parameters_com(&mut self, variancia: bool) -> PResult<Vec<TypeParameter>> {
         if !self.at_op(Op::Lt) {
             return Ok(Vec::new());
         }
         self.in_type_args += 1;
-        let result = self.parse_type_parameters_inner();
+        let result = self.parse_type_parameters_inner(variancia);
         self.in_type_args -= 1;
         result
     }
 
-    fn parse_type_parameters_inner(&mut self) -> PResult<Vec<TypeParameter>> {
+    /// Porte de `ComplexTypeParamOrArgInfo.parseVariables`
+    /// (`type_info_impl.dart`): metadata, variância (com
+    /// `MULTIPLE_VARIANCE_MODIFIERS` para as sobras e o experimento
+    /// `variance` relatado no primeiro modificador, como o
+    /// `AstBuilder.endTypeVariable`), o nome pelo contexto
+    /// `typeVariableDeclaration`, o limite, e a recuperação: vírgula que
+    /// falta entre dois nomes (`parseMissingComma`) e fim inesperado
+    /// (`parseUnexpectedEnd`).
+    fn parse_type_parameters_inner(&mut self, variancia: bool) -> PResult<Vec<TypeParameter>> {
+        let abre = self.pos;
         self.expect_op(Op::Lt)?;
         let mut params = Vec::new();
+        // O último token consumido é sintético (nome inserido).
+        let mut sintetico;
         loop {
             let start = self.span();
             let metadata = self.parse_metadata_opt()?;
-            let name = self.expect_identifier()?;
+            let mut variance = None;
+            if variancia
+                && self.e_palavra_ou_identificador(self.pos)
+                && super::fasta::e_variancia(self.text())
+                && self.e_palavra_ou_identificador(self.pos + 1)
+            {
+                let primeira = self.peek();
+                while self.e_palavra_ou_identificador(self.pos + 1)
+                    && super::fasta::e_variancia(self.text_at(1))
+                    && self.e_palavra_ou_identificador(self.pos + 2)
+                {
+                    let sobra = self.peek_at(1).span;
+                    self.erro_em(codigos::parser::MULTIPLE_VARIANCE_MODIFIERS, sobra, &[]);
+                    self.advance();
+                }
+                self.advance();
+                let texto = self.token_text(primeira);
+                variance = Variance::do_texto(texto).map(|v| (v, primeira.span));
+                self.erro_em(codigos::parser::EXPERIMENT_NOT_ENABLED_OFF_BY_DEFAULT, primeira.span, &["variance"]);
+            }
+            let (name, s) = self.garantir_nome_de_variavel_de_tipo();
+            sintetico = s;
             let bound = if self.eat_kw(Keyword::Extends) {
+                sintetico = false;
                 Some(self.parse_type()?)
             } else {
                 None
@@ -384,13 +427,138 @@ impl<'s, 'i> Parser<'s, 'i> {
                 metadata: metadata.into_boxed_slice(),
                 name,
                 bound,
+                variance,
             });
-            if !self.eat_op(Op::Comma) {
+            if self.eat_op(Op::Comma) {
+                continue;
+            }
+            // `isCloser(token)`: o limite terminou num `>`.
+            let ultimo_fecha = self.pos > 0 && self.tokens[self.pos - 1].kind == Kind::Op(Op::Gt) && !sintetico;
+            if ultimo_fecha || !self.parece_param_ou_arg_de_tipo(true, self.pos) {
                 break;
             }
+            // `parseMissingComma`: `Expected to find ','.` no token seguinte.
+            self.erro(codigos::parser::EXPECTED_TOKEN, &[","]);
         }
-        self.expect_op(Op::Gt)?;
+        if self.eat_op(Op::Gt) {
+            return Ok(params);
+        }
+        self.fim_inesperado_de_parametros_de_tipo(abre, sintetico)?;
         Ok(params)
+    }
+
+    /// `ensureIdentifier` no contexto `typeVariableDeclaration`
+    /// (`TypeVariableDeclarationIdentifierContext`): pseudo-palavra e
+    /// identificador embutido servem de nome; um token que parece começar a
+    /// próxima declaração, membro ou comando, ou que segue um nome
+    /// (`<`, `>`, `;`, `}`, `extends`, `super`, `=`, fim), fica onde está e o
+    /// nome é sintético (`MISSING_IDENTIFIER`); palavra reservada vira o nome
+    /// (`EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD`); outro token é consumido no
+    /// lugar do nome. Devolve o nome e se ele é sintético.
+    fn garantir_nome_de_variavel_de_tipo(&mut self) -> (Name, bool) {
+        use super::fasta::Estilo;
+        let pos = self.pos;
+        if self.kind() == Kind::Ident {
+            // Identificador, pseudo-palavra ou embutido: o embutido é relatado
+            // por `analise` (`BUILT_IN_IDENTIFIER_IN_DECLARATION`)…
+            let segue = self.parece_inicio_de_topo(pos) || self.parece_inicio_de_membro(pos) || self.parece_inicio_de_comando(pos);
+            // …salvo quando parece começar outra coisa.
+            if !(segue && self.estilo_de(pos) == Some(Estilo::Embutida)) {
+                return (self.identifier(), false);
+            }
+        }
+        let segue_nome = matches!(
+            self.kind(),
+            Kind::Op(Op::Lt | Op::Gt | Op::Semicolon | Op::RBrace | Op::Assign) | Kind::Keyword(Keyword::Extends | Keyword::Super) | Kind::Eof
+        );
+        let span = self.span();
+        let sintetico = |p: &mut Self| {
+            let s = Span { start: span.start, end: span.start };
+            p.name_from("", s)
+        };
+        if self.parece_inicio_de_topo(pos) || self.parece_inicio_de_membro(pos) || self.parece_inicio_de_comando(pos) || segue_nome {
+            self.erro(codigos::parser::MISSING_IDENTIFIER, &[]);
+            return (sintetico(self), true);
+        }
+        if let Kind::Keyword(_) = self.kind() {
+            let texto = self.text().to_string();
+            self.erro(codigos::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, &[&texto]);
+            return (self.identifier(), false);
+        }
+        self.erro(codigos::parser::MISSING_IDENTIFIER, &[]);
+        self.advance();
+        (sintetico(self), true)
+    }
+
+    /// `parseUnexpectedEnd` de `type_info_impl.dart` para parâmetros de tipo:
+    /// `Expected to find '>'.` no último token lido (uma vez só), e o resto
+    /// pulado até o `>` que pode fechar a lista — depois de `extends` e de um
+    /// tipo, de uma lista `<…>` aninhada, de `(…)`, ou do `>` que o scanner
+    /// casou com o `<` de abertura. Sem `>` nenhum, a lista termina ali (o
+    /// fasta insere um `>` sintético).
+    fn fim_inesperado_de_parametros_de_tipo(&mut self, abre: usize, sintetico: bool) -> PResult<()> {
+        let ultimo = self.tokens[self.pos.saturating_sub(1)].span;
+        let mut relatado = sintetico;
+        let relatar = |p: &mut Self, relatado: &mut bool, onde: Span| {
+            if !*relatado {
+                p.erro_em(codigos::parser::EXPECTED_TOKEN, onde, &[">"]);
+                *relatado = true;
+            }
+        };
+        let mut depois_de_extends = false;
+        if self.at_kw(Keyword::Extends) {
+            relatar(self, &mut relatado, ultimo);
+            self.advance();
+            depois_de_extends = self.e_referencia_de_tipo_valida(self.pos);
+            if self.eat_op(Op::Gt) {
+                return Ok(());
+            }
+        }
+        let onde = self.tokens[self.pos.saturating_sub(1)].span;
+        if depois_de_extends || self.at_kw(Keyword::Void) || matches!(self.text(), "dynamic" | "Function") && self.kind() == Kind::Ident {
+            if self.skip_type(self.pos).is_some() {
+                relatar(self, &mut relatado, onde);
+                let n = self.diagnostics.len();
+                let _ = self.parse_type();
+                self.diagnostics.truncate(n);
+                if self.eat_op(Op::Gt) {
+                    return Ok(());
+                }
+            }
+        }
+        let onde = self.tokens[self.pos.saturating_sub(1)].span;
+        if self.at_op(Op::Lt) {
+            relatar(self, &mut relatado, onde);
+            let n = self.diagnostics.len();
+            let _ = self.parse_type_parameters_inner(false);
+            self.diagnostics.truncate(n);
+            if self.eat_op(Op::Gt) {
+                return Ok(());
+            }
+        }
+        let onde = self.tokens[self.pos.saturating_sub(1)].span;
+        if self.at_op(Op::LParen) {
+            if let Some(fecha) = self.matching_close(self.pos) {
+                relatar(self, &mut relatado, onde);
+                self.pos = fecha + 1;
+                if self.eat_op(Op::Gt) {
+                    return Ok(());
+                }
+            }
+        }
+        let onde = self.tokens[self.pos.saturating_sub(1)].span;
+        relatar(self, &mut relatado, onde);
+        if self.at_op_at(1, Op::Gt) {
+            self.advance();
+            self.advance();
+            return Ok(());
+        }
+        if let Some(fim) = self.fim_do_grupo_lt(abre) {
+            if fim >= self.pos {
+                self.pos = fim + 1;
+            }
+        }
+        Ok(())
     }
 
     // -- Parâmetros formais ------------------------------------------------
@@ -1387,6 +1555,52 @@ mod tests {
             assert!(p.parse_type_parameters_opt().is_err());
             assert_eq!(p.in_type_args, 0);
         });
+    }
+
+    /// `(código, linha:coluna)` dos diagnósticos de `src`, analisado na 3.6.
+    fn diagnosticos_36(src: &str) -> Vec<(String, usize, usize)> {
+        let mut nomes = Interner::new();
+        let out = crate::parser::parse_com(src, &mut nomes, crate::features::LibraryFeatures::piso());
+        out.diagnostics
+            .iter()
+            .map(|d| {
+                let antes = &src[..d.span.start];
+                let linha = antes.matches('\n').count() + 1;
+                let coluna = d.span.start - antes.rfind('\n').map_or(0, |i| i + 1) + 1;
+                (d.code.map(|c| c.info().nome.to_string()).unwrap_or_default(), linha, coluna)
+            })
+            .collect()
+    }
+
+    /// Casos conferidos com o `dart analyze` 3.6.2 (só os erros de sintaxe).
+    #[test]
+    fn variancia_e_recuperacao_de_parametros_de_tipo() {
+        let d = |c: &str, l, col| (c.to_string(), l, col);
+        let mut v = diagnosticos_36("class B<out X, in Y, inout Z> {}");
+        v.sort();
+        let exp = "experiment_not_enabled_off_by_default";
+        assert_eq!(v, [d(exp, 1, 9), d(exp, 1, 16), d(exp, 1, 22)]);
+        let mut v = diagnosticos_36("class C<in out X> {}");
+        v.sort();
+        assert_eq!(v, [d(exp, 1, 9), d("multiple_variance_modifiers", 1, 12)]);
+        // `out` seguido de `>` é o nome.
+        assert_eq!(diagnosticos_36("class G<out out> {}"), [d(exp, 1, 9)]);
+        // Fora de classe, mixin e enum não há variância: `out` é nome e
+        // falta a vírgula antes de `T`.
+        assert_eq!(diagnosticos_36("typedef E<out T> = T Function(T a);"), [d("expected_token", 1, 15)]);
+        assert_eq!(
+            diagnosticos_36("void f<in T>() {}"),
+            [d("expected_identifier_but_got_keyword", 1, 8), d("expected_token", 1, 11)]
+        );
+        assert_eq!(diagnosticos_36("class H<T extends int U> {}"), [d("expected_token", 1, 23)]);
+        assert_eq!(diagnosticos_36("class I<T U V> {}"), [d("expected_token", 1, 11), d("expected_token", 1, 13)]);
+        // A variância fica na árvore.
+        let mut nomes = Interner::new();
+        let out = crate::parser::parse_com("mixin M<inout T> {}", &mut nomes, crate::features::LibraryFeatures::piso());
+        let crate::ast::DeclKind::Mixin(m) = &out.ast.decls[out.unit.declarations[0].0 as usize].kind else {
+            panic!("mixin")
+        };
+        assert_eq!(m.type_params[0].variance.map(|v| v.0), Some(Variance::Inout));
     }
 
     // -- parâmetros formais -------------------------------------------------

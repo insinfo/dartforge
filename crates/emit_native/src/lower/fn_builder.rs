@@ -117,10 +117,11 @@ pub struct FnBuilder<'a, 'c> {
     /// confere cada argumento `dynamic` logo depois de avaliá-lo, como o
     /// cast implícito que o CFE põe em volta dele (`entrada_tipada.rs`).
     pub tipos_dos_args: Option<(usize, super::entrada_tipada::TiposDaInvocacao)>,
-    /// Argumentos `dynamic` (ou sem tipo estático) que chegaram à chamada
-    /// sem o cast implícito: a chamada deles fica com a entrada que confere
-    /// tudo (`c:`), não com a tipada.
-    pub args_sem_cast: std::collections::HashSet<ValueId>,
+    /// Valores de argumento cujo tipo o chamador estático garante (tipo
+    /// estático conhecido e não `dynamic`, ou conferido pelo cast
+    /// implícito): só com todos assim a chamada usa a entrada tipada; o
+    /// resto fica com a que confere tudo (`c:`).
+    pub args_conferidos: std::collections::HashSet<ValueId>,
     // --- P6 (async, `async_sm.rs`) ---
     /// Corpo de uma função `async` em curso: o quadro, as retomadas.
     pub async_estado: Option<Box<super::async_sm::EstadoAsync>>,
@@ -280,7 +281,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             em_adaptador: false,
             aridade_garantida: false,
             tipos_dos_args: None,
-            args_sem_cast: std::collections::HashSet::new(),
+            args_conferidos: std::collections::HashSet::new(),
             async_estado: None,
             params_de_tipo_da_funcao: Vec::new(),
             params_locais: Vec::new(),

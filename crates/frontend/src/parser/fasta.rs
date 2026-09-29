@@ -156,32 +156,27 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// DartForge separa `>=`, `>>` e `>>>`; o fasta os lê inteiros, e `>=`
     /// não fecha grupo — por isso um `>` colado a `=` não fecha aqui.
     pub(crate) fn fim_do_grupo_lt(&self, lt: usize) -> Option<usize> {
-        // Pilha de posições: `<` e os outros abridores (marcados pelo tipo).
-        #[derive(Clone, Copy, PartialEq)]
-        enum Abre {
-            Lt,
-            Paren,
-            Outro,
-        }
-        let mut pilha: Vec<(Abre, usize)> = Vec::new();
-        let descartar_lt = |p: &mut Vec<(Abre, usize)>| {
-            while p.last().is_some_and(|(a, _)| *a == Abre::Lt) {
+        // Pilha de abridores: `<`, `(`, `[`, `{`, com a posição.
+        let mut pilha: Vec<(Op, usize)> = Vec::new();
+        let descartar_lt = |p: &mut Vec<(Op, usize)>| {
+            while p.last().is_some_and(|(a, _)| *a == Op::Lt) {
                 p.pop();
             }
         };
         for i in 0..self.tokens.len() {
             let t = self.tokens[i];
             match t.kind {
-                Kind::Op(Op::Lt) => pilha.push((Abre::Lt, i)),
-                Kind::Op(Op::LParen) => pilha.push((Abre::Paren, i)),
-                Kind::Op(Op::LBrace | Op::LBracket) | Kind::StrBegin(_, Interp::Brace) | Kind::StrMid(_, Interp::Brace) => {
+                Kind::Op(Op::Lt) | Kind::Op(Op::LParen) => pilha.push((if t.kind == Kind::Op(Op::Lt) { Op::Lt } else { Op::LParen }, i)),
+                Kind::Op(o @ (Op::LBrace | Op::LBracket)) => {
                     descartar_lt(&mut pilha);
-                    pilha.push((Abre::Outro, i));
+                    pilha.push((o, i));
                 }
+                // `${`: a interpolação fecha dentro do próprio token de string.
+                Kind::StrBegin(_, Interp::Brace) | Kind::StrMid(_, Interp::Brace) => descartar_lt(&mut pilha),
                 Kind::Op(Op::Gt) => {
                     let ge = t.glued && self.kind_of(i + 1) == Kind::Op(Op::Assign);
                     if !ge {
-                        if let Some(&(Abre::Lt, abre)) = pilha.last() {
+                        if let Some(&(Op::Lt, abre)) = pilha.last() {
                             pilha.pop();
                             if abre == lt {
                                 return Some(i);
@@ -189,14 +184,16 @@ impl<'s, 'i> Parser<'s, 'i> {
                         }
                     }
                 }
-                Kind::Op(Op::RParen | Op::RBracket | Op::RBrace) | Kind::StrEnd(_) | Kind::StrMid(_, _) => {
-                    descartar_lt(&mut pilha);
-                    let quer = if t.kind == Kind::Op(Op::RParen) { Abre::Paren } else { Abre::Outro };
-                    if let Some(k) = pilha.iter().rposition(|(a, _)| *a == quer || (quer == Abre::Outro && *a == Abre::Outro)) {
+                Kind::Op(o @ (Op::RParen | Op::RBracket | Op::RBrace)) => {
+                    // `discardBeginGroupUntil`: sem abridor correspondente, o
+                    // fecho é ignorado e a pilha fica como estava.
+                    let quer = match o {
+                        Op::RParen => Op::LParen,
+                        Op::RBracket => Op::LBracket,
+                        _ => Op::LBrace,
+                    };
+                    if let Some(k) = pilha.iter().rposition(|(a, _)| *a == quer) {
                         pilha.truncate(k);
-                    }
-                    if let Kind::StrMid(_, Interp::Brace) = t.kind {
-                        pilha.push((Abre::Outro, i));
                     }
                 }
                 Kind::Op(Op::Semicolon | Op::Assign | Op::EqEq | Op::Arrow) => {
@@ -214,7 +211,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 Kind::Eof => break,
                 _ => {}
             }
-            if pilha.iter().all(|(_, p)| *p != lt) && i > lt {
+            if i >= lt && pilha.iter().all(|(_, p)| *p != lt) {
                 return None;
             }
         }

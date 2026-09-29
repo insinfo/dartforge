@@ -27,14 +27,16 @@
 //! O cast implícito dos argumentos `dynamic` (e a regra de quando a chamada
 //! pode ser tipada) é o de [`FnBuilder::avaliar_args`] com os tipos
 //! armados por [`FnBuilder::armar_tipos_dos_args`]: o tipo do parâmetro na
-//! invocação, sem variáveis de tipo livres. Sem ele, o argumento fica em
-//! `args_sem_cast` e a chamada volta ao seletor que confere tudo.
+//! invocação, sem variáveis de tipo livres. Só a chamada cujos argumentos
+//! têm todos o tipo garantido (`args_conferidos`) usa o seletor tipado; a
+//! outra volta ao que confere tudo.
 
 use super::fn_builder::FnBuilder;
 use super::membros::Avaliado;
 use crate::context::Context;
 use crate::hir::*;
-use dartforge_elements::model::{FunctionRef, MemberKind};
+use dartforge_elements::model::FunctionRef;
+use dartforge_frontend::ast::MemberKind;
 use dartforge_frontend::ast::{self, ParameterKind};
 use dartforge_intern::SymbolId;
 use dartforge_types::TypeId;
@@ -301,8 +303,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Depois de avaliar o argumento `valor` (expressão `expr`, nome
     /// `nome`, `i_pos`-ésimo posicional): se o tipo estático dele é
-    /// `dynamic` (ou desconhecido), o cast implícito para o tipo do
-    /// parâmetro na invocação armada, ou a marca de que ficou sem ele.
+    /// `dynamic`, o cast implícito para o tipo do parâmetro na invocação
+    /// armada; e a marca de conferido quando o tipo fica garantido.
     pub(super) fn cast_implicito_do_argumento(
         &mut self,
         tipos: Option<&TiposDaInvocacao>,
@@ -311,29 +313,45 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         i_pos: usize,
         valor: &Operand,
     ) {
-        let estatico = self.ctx.get_type(self.unit_id, expr);
-        if estatico.is_some_and(|t| t != self.ctx.core.dynamic_) {
+        let Some(estatico) = self.ctx.get_type(self.unit_id, expr) else { return };
+        if estatico != self.ctx.core.dynamic_ {
+            self.marcar_conferido(valor);
             return;
         }
-        let alvo = tipos.and_then(|t| t.do_argumento(nome, i_pos)).cloned();
-        match (estatico, alvo) {
-            (_, Some(p)) if topo(self.ctx, p.ty) => {}
-            (Some(_), Some(p)) if fechado(self.ctx, p.ty, p.subst.as_ref()) => {
-                let r = self.receita_de_tipo_substituida(p.ty, p.subst.as_ref());
-                let t = self.rti_da_receita(&r);
-                self.cast_rti_em(valor.clone(), t, super::rti::ContextoDoCast::Implicito);
-            }
-            _ => {
-                if let Operand::Val(id) = valor {
-                    self.args_sem_cast.insert(*id);
-                }
-            }
+        let Some(p) = tipos.and_then(|t| t.do_argumento(nome, i_pos)).cloned() else { return };
+        if topo(self.ctx, p.ty) {
+            self.marcar_conferido(valor);
+        } else if fechado(self.ctx, p.ty, p.subst.as_ref()) {
+            let r = self.receita_de_tipo_substituida(p.ty, p.subst.as_ref());
+            let t = self.rti_da_receita(&r);
+            self.cast_rti_em(valor.clone(), t, super::rti::ContextoDoCast::Implicito);
+            self.marcar_conferido(valor);
         }
     }
 
-    /// Algum dos argumentos avaliados ficou sem o cast implícito (ou sem
-    /// tipo estático): a chamada não pode usar a entrada tipada.
-    pub(super) fn algum_sem_cast(&self, avaliados: &[Avaliado]) -> bool {
-        avaliados.iter().any(|(_, v)| matches!(v, Operand::Val(id) if self.args_sem_cast.contains(id)))
+    /// O tipo de `valor` é garantido pelo estático (ver `args_conferidos`).
+    pub(super) fn marcar_conferido(&mut self, valor: &Operand) {
+        if let Operand::Val(id) = valor {
+            self.args_conferidos.insert(*id);
+        }
+    }
+
+    /// `valor`, resultado de `expr`, tem o tipo garantido pelo estático
+    /// quando a expressão não é `dynamic` (operandos de operador e de
+    /// índice, que não passam pelo `avaliar_args`).
+    pub(super) fn marcar_se_tipado(&mut self, expr: ast::ExprId, valor: &Operand) {
+        if self.ctx.get_type(self.unit_id, expr).is_some_and(|t| t != self.ctx.core.dynamic_) {
+            self.marcar_conferido(valor);
+        }
+    }
+
+    /// Todos os argumentos têm o tipo garantido (constantes ou marcados):
+    /// a chamada pode usar a entrada tipada.
+    pub(super) fn todos_conferidos(&self, avaliados: &[Avaliado]) -> bool {
+        // Um escalar sem caixa (`i64`, `double`, `bool`) já diz o tipo.
+        avaliados.iter().all(|(_, v)| match v {
+            Operand::Constant(_) => true,
+            Operand::Val(id) => self.args_conferidos.contains(id) || self.operand_type(v) != Type::Ref,
+        })
     }
 }

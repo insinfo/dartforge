@@ -455,7 +455,17 @@ pub unsafe extern "C" fn dartforge_seletor(cache: *mut i64, recv: i64, hash: i64
             return *cache.add(1) as usize;
         }
     }
-    let achado = metodo_da_classe(cid, hash);
+    let mut achado = metodo_da_classe(cid, hash);
+    // O seletor da chamada tipada (`tc:m`, `ts:x`; `lower/entrada_tipada.rs`)
+    // só está na tabela dos métodos que têm a entrada tipada: sem ela, a
+    // entrada de sempre (`c:m`, `s:x`), que também serve — confere mais.
+    // SAFETY: o nome é uma constante do módulo com `len` bytes.
+    let bytes = unsafe { std::slice::from_raw_parts(nome, len as usize) };
+    let tipado = bytes.first() == Some(&b't');
+    if achado.is_none() && tipado {
+        let sem_t = String::from_utf8_lossy(&bytes[1..]);
+        achado = metodo_da_classe(cid, hash_do_nome(&sem_t));
+    }
     match achado {
         Some(f) => {
             // SAFETY: ver acima.
@@ -466,9 +476,7 @@ pub unsafe extern "C" fn dartforge_seletor(cache: *mut i64, recv: i64, hash: i64
             f
         }
         None => {
-            // SAFETY: o nome é uma constante do módulo com `len` bytes.
-            let bytes = unsafe { std::slice::from_raw_parts(nome, len as usize) };
-            let texto = String::from_utf8_lossy(bytes).into_owned();
+            let texto = String::from_utf8_lossy(if tipado { &bytes[1..] } else { bytes }).into_owned();
             if depurar() {
                 let classe = CLASS_NAMES.with(|m| m.borrow().get(&cid).cloned()).unwrap_or_default();
                 eprintln!("[depurar] seletor ausente: {texto} na classe {cid} {classe}");

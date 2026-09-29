@@ -1116,6 +1116,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.desviar_se_nulo(&target_op);
                 }
                 let idx_op = self.lower_expr(ast, *index);
+                self.marcar_se_tipado(*index, &idx_op);
                 if let Some(fid) = self.operador_de_extensao(expr_id) {
                     let receptor = self.ctx.get_type_bruto(self.unit_id, *target);
                     let r = self.chamar_extensao(target_op, fid, &[(None, idx_op)], receptor, None, expr.span);
@@ -1139,7 +1140,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 if self.ctx.sdk_da_fonte {
                     // SDK da fonte: `[]` pela classe dinâmica.
-                    let r = self.chamar_por_nome(target_op, super::sdk_fonte::Tipo::Chamar, "[]", &[(None, idx_op)]);
+                    let r = self.chamar_por_nome_tipado(target_op, *target, super::sdk_fonte::Tipo::Chamar, "[]", &[(None, idx_op)]);
                     let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
                     return self.coagir(r, repr);
                 }

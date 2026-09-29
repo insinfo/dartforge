@@ -30,6 +30,15 @@ import 'canal.dart';
 /// Nome e versão do protocolo (o handshake recusa outros).
 const protocolo = 'dfexec/1';
 
+/// Com `DARTFORGE_BUILD_EXECUTOR_LOG=1`, o executor narra no stderr as
+/// mensagens do protocolo e os passos de cada ação (depuração de um
+/// executor que para: o stderr é herdado do hospedeiro).
+final bool _narrar = Platform.environment['DARTFORGE_BUILD_EXECUTOR_LOG'] == '1';
+
+void _log(String Function() texto) {
+  if (_narrar) stderr.writeln('[executor] ${texto()}');
+}
+
 /// Versão do executor de builders; muda quando o comportamento muda.
 const versaoDoExecutor = 'dartforge-build-executor/0.2.0';
 
@@ -92,6 +101,7 @@ final class _Servico {
   /// Trata uma mensagem do hospedeiro; `false` encerra.
   Future<bool> receber(Map<String, Object?> m) async {
     final id = m['id'];
+    _log(() => '<- ${m['t']} ${m['id'] ?? ''}');
     switch (m['t']) {
       case 'ola':
         if (m['protocolo'] != protocolo) {
@@ -188,6 +198,7 @@ final class _Servico {
     final id = _proximoPedido++;
     final c = Completer<Map<String, Object?>>();
     _pendentes[id] = c;
+    _log(() => '-> $tipo $id ${campos['asset'] ?? campos['padrao'] ?? ''}');
     canal.enviar({'t': tipo, 'id': id, ...campos});
     return c.future;
   }
@@ -279,7 +290,9 @@ final class _Servico {
       final entrada = AssetId.parse(m['entrada'] as String);
       final opcoes = ((m['opcoes'] as Map?) ?? const {}).cast<String, Object?>();
       final builder = _builder(chave, m['fabrica'] as String, opcoes, m['isRoot'] == true);
+      _log(() => 'ação ${m['chave']} em ${m['entrada']}: package config');
       final config = await _config();
+      _log(() => 'ação: runBuilder');
       final resolvers = _resolvers ??= AnalyzerResolvers.custom(
           packageConfig: config, sdkSummaryGenerator: _geradorDoResumoDoSdk());
       // O mesmo nome de logger do `build_runner` (`_actionLoggerName`).
@@ -318,6 +331,7 @@ Future<String> Function()? _geradorDoResumoDoSdk() {
   final raiz = Platform.environment['DARTFORGE_DART_SDK'];
   if (raiz == null || raiz.isEmpty) return null;
   return () async {
+    _log(() => 'resumo do SDK de $raiz');
     final dir = Directory('.dart_tool/dartforge/build');
     await dir.create(recursive: true);
     final resumo = File('${dir.path}/sdk.sum');
@@ -328,12 +342,14 @@ Future<String> Function()? _geradorDoResumoDoSdk() {
       'versao': await versao.exists() ? (await versao.readAsString()).trim() : '',
     });
     if (!await resumo.exists() || !await deps.exists() || await deps.readAsString() != atual) {
+      _log(() => 'resumo do SDK: gerando');
       final provisorio = File('${resumo.path}.tmp');
       await provisorio.writeAsBytes(await buildSdkSummary(
           sdkPath: raiz, resourceProvider: PhysicalResourceProvider.INSTANCE));
       await provisorio.rename(resumo.path);
       await deps.writeAsString(atual);
     }
+    _log(() => 'resumo do SDK pronto');
     return resumo.absolute.path;
   };
 }

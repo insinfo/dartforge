@@ -735,7 +735,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let const_primario = self.at_kw(Keyword::Const).then(|| self.advance().span);
         let name_text = self.text();
         let name = self.expect_identifier()?;
-        let type_params = self.parse_type_parameters_opt()?;
+        let type_params = self.parse_type_parameters_opt_variancia()?;
         if const_primario.is_none() && self.eat_op(Op::Assign) {
             let extends = Some(self.parse_type()?);
             self.expect_kw(Keyword::With)?;
@@ -1098,7 +1098,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.expect_ident("mixin")?;
         let name_text = self.text();
         let name = self.expect_identifier()?;
-        let type_params = self.parse_type_parameters_opt()?;
+        let type_params = self.parse_type_parameters_opt_variancia()?;
         let on = if self.eat_ident("on") {
             self.parse_type_list()?
         } else {
@@ -1123,7 +1123,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let const_primario = self.at_kw(Keyword::Const).then(|| self.advance().span);
         let name_text = self.text();
         let name = self.expect_identifier()?;
-        let type_params = self.parse_type_parameters_opt()?;
+        let type_params = self.parse_type_parameters_opt_variancia()?;
         let primario = self.parse_cabecalho_primario_opt(enum_token.span, const_primario)?;
         let with = if self.eat_kw(Keyword::With) {
             self.parse_type_list()?

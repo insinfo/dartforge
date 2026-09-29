@@ -29,6 +29,7 @@
 //!   como padrão constante): rejeitar programas inválidos é papel das fases
 //!   seguintes, e aceitar todo programa válido é o critério de aceite aqui.
 pub mod declarations;
+pub(crate) mod fasta;
 pub mod expressions;
 pub mod patterns;
 pub mod statements;

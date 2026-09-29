@@ -546,6 +546,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 let t_op = self.lower_expr(ast, *t);
                 let i_op = self.lower_expr(ast, *index);
+                self.marcar_se_tipado(*index, &i_op);
                 // `[]=` de extensão (a inferência resolve o índice para o
                 // `[]` da extensão; o `[]=` é o da mesma extensão).
                 if let Some(get) = self.operador_de_extensao(target) {
@@ -570,13 +571,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let cur = if composto { self.ler_indexado(t_op.clone(), i_op.clone(), l, repr) } else { None };
                     self.fixa_do_acesso = None;
                     let v = self.combinar(ast, op, cur, value);
+                    if !composto && let Rhs::Expr(e) = value {
+                        self.marcar_se_tipado(e, &v);
+                    }
                     self.fixa_do_acesso = fixa;
                     let gravou = self.gravar_indexado(t_op.clone(), i_op.clone(), v.clone(), l);
                     self.fixa_do_acesso = None;
                     if gravou {
                         return v;
                     }
-                    self.chamar_por_nome(t_op, super::sdk_fonte::Tipo::Chamar, "[]=", &[(None, i_op), (None, v.clone())]);
+                    self.chamar_por_nome_tipado(t_op, *t, super::sdk_fonte::Tipo::Chamar, "[]=", &[(None, i_op), (None, v.clone())]);
                     return v;
                 }
                 // `[]=` (e o `[]` do composto) de classe do programa: pelos
@@ -597,9 +601,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if self.ctx.sdk_da_fonte {
                     // SDK da fonte: `[]`/`[]=` pela classe dinâmica.
                     use super::sdk_fonte::Tipo;
-                    let cur = composto.then(|| self.chamar_por_nome(t_op.clone(), Tipo::Chamar, "[]", &[(None, i_op.clone())]));
+                    let cur = composto.then(|| self.chamar_por_nome_tipado(t_op.clone(), *t, Tipo::Chamar, "[]", &[(None, i_op.clone())]));
                     let v = self.combinar(ast, op, cur, value);
-                    self.chamar_por_nome(t_op, Tipo::Chamar, "[]=", &[(None, i_op), (None, v.clone())]);
+                    if !composto && let Rhs::Expr(e) = value {
+                        self.marcar_se_tipado(e, &v);
+                    }
+                    self.chamar_por_nome_tipado(t_op, *t, Tipo::Chamar, "[]=", &[(None, i_op), (None, v.clone())]);
                     return v;
                 }
                 if let Some(cid) = self.classe_do_usuario_de(*t) {

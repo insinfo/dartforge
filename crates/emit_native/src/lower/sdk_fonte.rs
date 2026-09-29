@@ -150,6 +150,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.chamar_por_seletor(recv, s, avaliados)
     }
 
+    /// [`Self::chamar_por_nome`] com o receptor `alvo` de tipo estático
+    /// conhecido: se os argumentos têm todos o tipo garantido, pelo seletor
+    /// tipado (`entrada_tipada.rs`), que só confere os covariantes.
+    pub fn chamar_por_nome_tipado(
+        &mut self,
+        recv: Operand,
+        alvo: dartforge_frontend::ast::ExprId,
+        tipo: Tipo,
+        nome: &str,
+        avaliados: &[Avaliado],
+    ) -> Operand {
+        let lib = self.ctx.program.unit(self.unit_id).library;
+        let s = texto_seletor(self.ctx, tipo, nome, lib);
+        let tipado = self.ctx.get_type(self.unit_id, alvo).is_some_and(|t| t != self.ctx.core.dynamic_);
+        let s = if tipado && matches!(tipo, Tipo::Chamar | Tipo::Gravar) && self.todos_conferidos(avaliados) {
+            super::entrada_tipada::seletor_tipado(&s)
+        } else {
+            s
+        };
+        self.chamar_por_seletor(recv, s, avaliados)
+    }
+
     /// Hook de `chamar_membro` (SDK da fonte): o membro de instância de uma
     /// classe do SDK vai pelo seletor, a não ser que só a biblioteca dela o
     /// possa sobrescrever e ele tenha **uma** implementação, que é um método
@@ -204,6 +226,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         }
         let s = texto_seletor(self.ctx, tipo, &nome, f.library);
+        // Receptor tipado e argumentos garantidos: a entrada que só confere
+        // os covariantes (`entrada_tipada.rs`).
+        let s = if matches!(tipo, Tipo::Chamar | Tipo::Gravar) && self.todos_conferidos(avaliados) {
+            super::entrada_tipada::seletor_tipado(&s)
+        } else {
+            s
+        };
         let tupla = if self.funcao_generica(decl_fid) {
             self.tupla_armada.clone().unwrap_or(Operand::Constant(Constant::Int(0)))
         } else {
@@ -295,6 +324,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(padrao);
         let nome = chave.strip_suffix("_=").unwrap_or(chave);
         let s = texto_seletor(self.ctx, tipo, nome, biblioteca);
+        let s = if matches!(tipo, Tipo::Chamar | Tipo::Gravar) && self.todos_conferidos(avaliados) {
+            super::entrada_tipada::seletor_tipado(&s)
+        } else {
+            s
+        };
         let r = self.chamar_por_seletor(recv, s, avaliados);
         if !self.is_terminated() {
             let r = self.coagir(r, ret);
@@ -1045,9 +1079,17 @@ pub fn tabela_de_metodos(ctx: &Context, cid: ClassId) -> Vec<(String, String)> {
             let f = &ctx.program.functions[fid];
             let e_setter = chave.ends_with("_=");
             let nome = chave.strip_suffix("_=").unwrap_or(chave);
+            // A entrada tipada do método (`entrada_tipada.rs`), quando ele
+            // a tem, no seletor `t…` — só se o `c:`/`s:` dele venceu aqui.
+            let tipada = f.variable.is_none()
+                && !matches!(f.kind, FunctionKind::Getter)
+                && super::entrada_tipada::precisa_entrada_tipada(ctx, fid);
             let mut por = |tipo: Tipo, a: Adaptador, base: &str| {
                 let s = texto_seletor(ctx, tipo, nome, f.library);
                 if vistos.insert(s.clone()) {
+                    if tipada && a != Adaptador::Ler {
+                        saida.push((super::entrada_tipada::seletor_tipado(&s), format!("{base}$t{}", &a.sufixo()[1..])));
+                    }
                     saida.push((s, format!("{base}{}", a.sufixo())));
                 }
             };
@@ -1226,12 +1268,19 @@ pub fn lower_adaptadores_da_funcao(ctx: &Context, module: &mut Module, fid: usiz
         FunctionKind::Getter => &[Adaptador::Ler, Adaptador::Chamar],
         _ => &[Adaptador::Chamar, Adaptador::Ler],
     };
-    for &a in adaptadores {
-        let simbolo = format!("{base}{}", a.sufixo());
+    // A entrada tipada (`$tc`, `$ts`): só confere os covariantes
+    // (`entrada_tipada.rs`), e só existe quando dispensa alguma conferência.
+    let mut lista: Vec<(Adaptador, bool)> = adaptadores.iter().map(|&a| (a, false)).collect();
+    if !matches!(f.kind, FunctionKind::Getter) && super::entrada_tipada::precisa_entrada_tipada(ctx, fid) {
+        lista.extend(adaptadores.iter().filter(|a| **a != Adaptador::Ler).map(|&a| (a, true)));
+    }
+    for (a, tipada) in lista {
+        let simbolo = if tipada { format!("{base}$t{}", &a.sufixo()[1..]) } else { format!("{base}{}", a.sufixo()) };
         let unit = unidade_de(ctx, f.class.expect("membro de classe"));
         let Some(unit) = unit else { continue };
         let mut b = FnBuilder::new(ctx, unit, simbolo, ctx.symbol_name(f.name).to_string(), Type::Ref);
         b.em_adaptador = true;
+        b.aridade_garantida = tipada;
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
         let args = Operand::Val(b.add_param("args".to_string(), Type::Ptr));
         let desc = Operand::Val(b.add_param("desc".to_string(), Type::Ptr));
@@ -1269,7 +1318,7 @@ pub fn lower_adaptadores_da_funcao(ctx: &Context, module: &mut Module, fid: usiz
                 // " of 'nome'" — antes de converter cada um à representação.
                 b.this_param = Some(recv.clone());
                 b.enclosing_class = f.class;
-                b.conferir_argumentos_da_entrada(fid, &vals);
+                b.conferir_argumentos_da_entrada_com(fid, &vals, tipada);
                 let reprs: Vec<Type> = ctx.outline.functions[fid].parameters.iter().map(|p| b.repr(p.ty)).collect();
                 let vals: Vec<Operand> = vals.into_iter().zip(reprs).map(|(v, r)| b.coagir(v, r)).collect();
                 if b.funcao_generica(fid) {
@@ -1675,23 +1724,36 @@ fn adaptadores_ou_recusa(ctx: &Context, module: &mut Module, gerar: impl FnOnce(
         .map(|e| e.strip_prefix(crate::PREFIXO_NAO_SUPORTADO).unwrap_or(e).to_string())
         .unwrap_or_else(|| "pânico do lowering".to_string());
     let motivo = motivo.rsplit_once(" (").map_or(motivo.as_str(), |(a, _)| a).to_string();
+    // Cada entrada uniforme construída e a tipada correspondente
+    // (`$tc`/`$ts`, `entrada_tipada.rs`), que a tabela pode citar mesmo sem
+    // ter sido construída antes do erro.
+    let mut entradas: Vec<(String, String)> = Vec::new();
     for f in &m.functions {
-        if !(f.symbol.ends_with("$c") || f.symbol.ends_with("$g") || f.symbol.ends_with("$s")) {
+        let s = &f.symbol;
+        if !(s.ends_with("$c") || s.ends_with("$g") || s.ends_with("$s") || s.ends_with("$tc") || s.ends_with("$ts")) {
             continue;
         }
+        let tipada = (s.ends_with("$c") || s.ends_with("$s")) && !s.ends_with("$tc") && !s.ends_with("$ts");
+        for simbolo in [Some(s.clone()), tipada.then(|| format!("{}$t{}", &s[..s.len() - 2], &s[s.len() - 1..]))].into_iter().flatten() {
+            if !entradas.iter().any(|(x, _)| *x == simbolo) {
+                entradas.push((simbolo, f.name.clone()));
+            }
+        }
+    }
+    for (simbolo, nome) in entradas {
         let unit = ctx.program.units.iter().position(|_| true).map(|u| dartforge_elements::model::UnitId(u as u32));
         let Some(unit) = unit else { continue };
-        let mut b = FnBuilder::new(ctx, unit, f.symbol.clone(), f.name.clone(), Type::Ref);
+        let mut b = FnBuilder::new(ctx, unit, simbolo.clone(), nome, Type::Ref);
         b.add_param("this".to_string(), Type::Ref);
         b.add_param("args".to_string(), Type::Ptr);
         b.add_param("desc".to_string(), Type::Ptr);
-        let t = b.emit(Instruction::Const(Constant::String(format!("{} ({motivo})", f.symbol))), Type::Ref);
+        let t = b.emit(Instruction::Const(Constant::String(format!("{simbolo} ({motivo})"))), Type::Ref);
         b.emit(
             Instruction::CallRuntime { name: "dartforge_membro_recusado".to_string(), args: vec![(t, Type::Ref)], ret_ty: Type::Void },
             Type::Void,
         );
         b.terminate(Terminator::Unreachable);
-        module.recusados.push((f.symbol.clone(), motivo.clone()));
+        module.recusados.push((simbolo, motivo.clone()));
         module.functions.push(b.func);
     }
 }
