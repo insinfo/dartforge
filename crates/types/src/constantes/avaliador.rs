@@ -104,6 +104,9 @@ pub struct Motor<'a> {
     args_de_criacao: HashSet<(UnitId, ExprId)>,
     /// Erros relatados pelo próprio visitante (`_valueOf`) quando `relatar`.
     pub relatos: Vec<Invalida>,
+    /// Offsets dos nomes de parâmetros formais, por unidade inferida (a
+    /// inferência resolve a leitura de um parâmetro como a de um local).
+    parametros: HashMap<UnitId, HashSet<usize>>,
     profundidade: u32,
     sym_identical: Option<SymbolId>,
     sym_length: Option<SymbolId>,
@@ -125,6 +128,12 @@ impl<'a> Motor<'a> {
         body: &'a BodyTypes,
         inferidas: &'a HashSet<LibraryId>,
     ) -> Self {
+        let mut parametros: HashMap<UnitId, HashSet<usize>> = HashMap::new();
+        for (i, u) in program.units.iter().enumerate() {
+            if inferidas.contains(&u.library) {
+                parametros.insert(UnitId(i as u32), offsets_de_parametros(&u.ast));
+            }
+        }
         Motor {
             program,
             interner,
@@ -142,6 +151,7 @@ impl<'a> Motor<'a> {
             construtores_em_curso: Vec::new(),
             args_de_criacao: HashSet::new(),
             relatos: Vec::new(),
+            parametros,
             profundidade: 0,
             sym_identical: interner.lookup("identical"),
             sym_length: interner.lookup("length"),
@@ -1602,6 +1612,12 @@ impl<'a> Motor<'a> {
         r
     }
 
+    /// O local lido por `e` é um parâmetro formal.
+    pub fn local_parametro(&self, u: UnitId, e: ExprId) -> bool {
+        let Some(offset) = self.body.units.get(u.0 as usize).and_then(|b| b.declaracao_local(e)) else { return false };
+        self.parametros.get(&u).is_some_and(|s| s.contains(&offset))
+    }
+
     /// O local lido por `e` é uma constante (`const`).
     pub fn local_constante(&self, u: UnitId, e: ExprId) -> bool {
         let Some(offset) = self.body.units.get(u.0 as usize).and_then(|b| b.declaracao_local(e)) else { return false };
@@ -2346,4 +2362,31 @@ fn locais_constantes(a: &ast::Ast) -> HashMap<usize, (ast::StmtId, usize)> {
         }
     }
     m
+}
+
+/// Os offsets dos nomes de todos os parâmetros formais de uma unidade
+/// (funções, construtores, tipos de função e parâmetros-função).
+fn offsets_de_parametros(a: &ast::Ast) -> HashSet<usize> {
+    fn params(ps: &[ast::Parameter], s: &mut HashSet<usize>) {
+        for p in ps {
+            if let Some(n) = p.name {
+                s.insert(n.span.start);
+            }
+            if let Some(f) = &p.function_parameters {
+                params(f, s);
+            }
+        }
+    }
+    let mut s = HashSet::new();
+    for f in a.functions.iter() {
+        if let Some(ps) = &f.parameters {
+            params(ps, &mut s);
+        }
+    }
+    for m in a.members.iter() {
+        if let ast::MemberKind::Constructor(k) = &m.kind {
+            params(&k.parameters, &mut s);
+        }
+    }
+    s
 }

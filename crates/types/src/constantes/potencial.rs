@@ -200,7 +200,11 @@ fn identificador(m: &Motor<'_>, cx: &Ctx, e: ExprId, parametros: bool, nos: &mut
             }
         }
         Some(Resolved::Local(_)) => {
-            if !m.local_constante(u, e) {
+            if m.local_parametro(u, e) {
+                if !parametros {
+                    nos.push(span);
+                }
+            } else if !m.local_constante(u, e) {
                 nos.push(span);
             }
         }
