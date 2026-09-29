@@ -530,6 +530,7 @@ pub extern "C" fn dartforge_list_join(handle: i64, sep_handle: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_collection_mark_unmodifiable(handle: i64) -> i64 {
     HEAP.with(|h| h.borrow_mut().marcar_imutavel(handle));
+    reclassificar_lista(handle);
     handle
 }
 

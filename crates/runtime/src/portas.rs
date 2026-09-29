@@ -537,7 +537,7 @@ fn materializar(g: &Grafo) -> i64 {
                 NoG::StringBuffer(u) => Value::StringBuffer(u.clone()),
                 NoG::RegExp(t) => Value::RegExp(t.clone()),
                 NoG::Match(t) => Value::Match(t.clone()),
-                NoG::Object { class_id, fields } => Value::Object { class_id: *class_id, fields: vec![(0, false); fields.len()] },
+                NoG::Object { class_id, fields } => Value::Object { class_id: *class_id, fields: vec![(0, false); fields.len()].into() },
                 NoG::Cell(_) => Value::Cell(TaggedValue::scalar(0)),
                 NoG::Environment(v) => Value::Environment(vec![TaggedValue::scalar(0); v.len()]),
                 NoG::Closure { code_id, tipado, abi, .. } => {
@@ -565,7 +565,7 @@ fn materializar(g: &Grafo) -> i64 {
                     tipo: *tipo,
                     bytes: bytes.clone().into(),
                 },
-                NoG::DoRuntime { pos, id } => Value::Object { class_id: cid_registrado(*pos).unwrap_or(-1), fields: vec![(*id, false)] },
+                NoG::DoRuntime { pos, id } => Value::Object { class_id: cid_registrado(*pos).unwrap_or(-1), fields: vec![(*id, false)].into() },
                 NoG::TypedView { class_id, tipo, deslocamento, comprimento, imutavel, .. } => Value::TypedView {
                     class_id: *class_id,
                     tipo: *tipo,
@@ -606,7 +606,7 @@ fn materializar(g: &Grafo) -> i64 {
                 NoG::Object { fields, .. } => {
                     let novos: Vec<(i64, bool)> = fields.iter().map(|f| { let x = t(f); (x.bits, x.is_ref) }).collect();
                     if let Value::Object { fields: fs, .. } = heap.get_mut(h) {
-                        *fs = novos;
+                        fs.copy_from_slice(&novos);
                     }
                 }
                 NoG::Cell(v) => {

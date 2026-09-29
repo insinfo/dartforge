@@ -44,6 +44,8 @@ const FRAGMENTOS: &[&str] = &[
     // δ (P5b): os natives do SDK da fonte (crates/emit_native/src/nativos.rs).
     "nativos_numeros",
     "nativos_strings",
+    // O caminho rápido do `_Map`/`_Set` padrão para chaves `int` e `String`.
+    "nativos_hash",
     // Relógio, fuso horário e entropia.
     "nativos_sistema",
     // O motor de expressões regulares do `RegExp`.

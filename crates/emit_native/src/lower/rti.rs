@@ -952,10 +952,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             _ => {}
         }
         match (self.ctx.table.get(decl), self.ctx.table.get(real)) {
-            (T::TypeParameter { param, .. }, _) => {
-                // (`T?` casado com `X?` dá `X?`: a tabela de tipos é só de
-                // leitura aqui, e o `?` a mais não muda a resposta dos testes
-                // que o código genérico faz com `T`.)
+            (T::TypeParameter { param, nullable }, _) => {
+                // `X?` casado com `T?` dá `X = T` (a inferência tira o `?`
+                // que o padrão já tem): o `nonNulls` de uma `List<T?>` é
+                // `Iterable<T>`. Sem a forma não anulável na tabela (só de
+                // leitura aqui), fica o `T?`.
+                let real = if *nullable { self.sem_interrogacao(real).unwrap_or(real) } else { real };
                 if let Some(i) = params.iter().position(|p| p == param)
                     && achados[i].is_none()
                 {
@@ -965,6 +967,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             (T::Interface { class: c1, args: a1, .. }, T::Interface { class: c2, args: a2, .. }) if c1 == c2 => {
                 for (x, y) in a1.iter().zip(a2.iter()) {
                     self.unificar(*x, *y, params, achados);
+                }
+            }
+            // Classes diferentes: o padrão casa com o supertipo do real
+            // (`Iterable<X>` contra `List<int>` é `Iterable<int>`), como a
+            // inferência faz pela interface do tipo real.
+            (T::Interface { class: c1, args: a1, .. }, T::Interface { class: c2, args: a2, .. }) => {
+                let Some(dados) = self.ctx.outline.hierarchy.get(*c2) else { return };
+                let Some(&modelo) = dados.supertypes.get(c1) else { return };
+                let T::Interface { args: margs, .. } = self.ctx.table.get(modelo) else { return };
+                for (x, m) in a1.iter().zip(margs.iter()) {
+                    self.unificar_pelo_modelo(*x, *m, &dados.type_params, a2, params, achados);
                 }
             }
             (T::FutureOr { arg, .. }, T::FutureOr { arg: b, .. }) => self.unificar(*arg, *b, params, achados),
@@ -990,6 +1003,52 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             _ => {}
         }
+    }
+
+    /// [`Self::unificar`] do padrão `decl` com o argumento `modelo` de um
+    /// supertipo, escrito nos parâmetros `formais` da classe real, cujos
+    /// argumentos são `reais`: onde o modelo é um formal, o real é o
+    /// argumento correspondente; um modelo sem variáveis casa como está.
+    fn unificar_pelo_modelo(
+        &self,
+        decl: TypeId,
+        modelo: TypeId,
+        formais: &[TypeParamId],
+        reais: &[TypeId],
+        params: &[TypeParamId],
+        achados: &mut [Option<TypeId>],
+    ) {
+        match (self.ctx.table.get(decl), self.ctx.table.get(modelo)) {
+            (_, T::TypeParameter { param, nullable: false }) => {
+                if let Some(&r) = formais.iter().position(|f| f == param).and_then(|k| reais.get(k)) {
+                    self.unificar(decl, r, params, achados);
+                }
+            }
+            (T::Interface { class: c1, args: a1, .. }, T::Interface { class: c2, args: m2, .. }) if c1 == c2 => {
+                for (x, m) in a1.iter().zip(m2.iter()) {
+                    self.unificar_pelo_modelo(*x, *m, formais, reais, params, achados);
+                }
+            }
+            _ if !self.contem_variavel(modelo) => self.unificar(decl, modelo, params, achados),
+            _ => {}
+        }
+    }
+
+    /// A forma não anulável de `t` (`T?` → `T`, `C<A>?` → `C<A>`), se a
+    /// tabela a tem.
+    fn sem_interrogacao(&self, t: TypeId) -> Option<TypeId> {
+        let ty = match self.ctx.table.get(t).clone() {
+            T::TypeParameter { param, nullable: true } => T::TypeParameter { param, nullable: false },
+            T::Interface { class, args, nullable: true } => T::Interface { class, args, nullable: false },
+            T::FutureOr { arg, nullable: true } => T::FutureOr { arg, nullable: false },
+            T::Record { positional, named, nullable: true } => T::Record { positional, named, nullable: false },
+            T::ExtensionType { decl, args, nullable: true } => T::ExtensionType { decl, args, nullable: false },
+            T::Function { type_params, ret, positional, optional, named, nullable: true } => {
+                T::Function { type_params, ret, positional, optional, named, nullable: false }
+            }
+            _ => return None,
+        };
+        self.ctx.table.intern_lookup(ty)
     }
 
     /// Grava a assinatura de uma closure (`F<…>`): o tipo estático da

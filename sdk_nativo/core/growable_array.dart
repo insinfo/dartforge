@@ -1,8 +1,9 @@
 // Substitui `_internal/vm/lib/growable_array.dart` (sobreposição
 // `sdk_nativo/`). Igual ao da VM 3.6.2, fora o `_grow` (marcado
 // "DartForge:"), que reserva a capacidade no vetor do runtime em vez de
-// copiar os elementos para um `_List` novo, e o `filled`, que preenche no
-// runtime.
+// copiar os elementos para um `_List` novo, o `filled`, que preenche no
+// runtime, e as cópias `_ofArray`/`_ofGrowableList`/`toList`, que copiam no
+// runtime (`_copiarElementos`, `array.dart`).
 // Copyright (c) 2012, the Dart project authors.  Please see the AUTHORS file
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
@@ -159,12 +160,12 @@ class _GrowableList<T> extends ListBase<T> {
   factory _GrowableList._ofArray(_Array<T> elements) {
     final int length = elements.length;
     if (length > 0) {
-      final data = _List(_adjustedCapacity(length));
-      for (int i = 0; i < length; i++) {
-        data[i] = elements[i];
-      }
-      final list = _GrowableList<T>._withData(data);
-      list._setLength(length);
+      // DartForge: a lista já com o `T` (e a forma dele, N14) e os
+      // elementos copiados de uma vez no runtime (`_copiarElementos`,
+      // `array.dart`). A VM copiava para um `_List` sem tipo, elemento a
+      // elemento, e o entregava ao `_withData`.
+      final list = _GrowableList<T>(length);
+      _copiarElementos(list, elements, length);
       return list;
     }
     return _GrowableList<T>.empty();
@@ -173,12 +174,12 @@ class _GrowableList<T> extends ListBase<T> {
   factory _GrowableList._ofGrowableList(_GrowableList<T> elements) {
     final int length = elements.length;
     if (length > 0) {
-      final data = _List(_adjustedCapacity(length));
-      for (int i = 0; i < length; i++) {
-        data[i] = elements[i];
-      }
-      final list = _GrowableList<T>._withData(data);
-      list._setLength(length);
+      // DartForge: a lista já com o `T` (e a forma dele, N14) e os
+      // elementos copiados de uma vez no runtime (`_copiarElementos`,
+      // `array.dart`). A VM copiava para um `_List` sem tipo, elemento a
+      // elemento, e o entregava ao `_withData`.
+      final list = _GrowableList<T>(length);
+      _copiarElementos(list, elements, length);
       return list;
     }
     return _GrowableList<T>.empty();
@@ -517,23 +518,19 @@ class _GrowableList<T> extends ListBase<T> {
     // However, the extra call causes a 5% regression in `ListCopy.toList.2`.
 
     final length = this.length;
+    // DartForge: as duas cópias pelo `_copiarElementos` (`array.dart`), como
+    // no `_ofGrowableList`.
     if (growable) {
       if (length > 0) {
-        final data = new _List(_adjustedCapacity(length));
-        for (int i = 0; i < length; i++) {
-          data[i] = this[i];
-        }
-        final result = new _GrowableList<T>._withData(data);
-        result._setLength(length);
+        final result = new _GrowableList<T>(length);
+        _copiarElementos(result, this, length);
         return result;
       }
       return <T>[];
     } else {
       if (length > 0) {
         final list = new _List<T>(length);
-        for (int i = 0; i < length; i++) {
-          list[i] = this[i];
-        }
+        _copiarElementos(list, this, length);
         return list;
       }
       return List<T>.empty(growable: false);

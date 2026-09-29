@@ -1,5 +1,6 @@
 //! Membros de `int` e `double` em linha, quando o tipo estático do
-//! receptor é exatamente `int` ou `double` (não anulável), e o `add` de
+//! receptor é exatamente `int` ou `double` (não anulável) — o `compareTo`
+//! de `int` com argumento `int` inclusive —, e o `add` de
 //! `List<int>`/`List<double>`/`List<bool>` sem caixa.
 //!
 //! As duas classes não podem ser estendidas nem implementadas fora do
@@ -91,6 +92,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(r) = self.lista_add_escalar(ast, e) {
             return Some(r);
         }
+        if let Some(r) = self.compare_to_int(ast, e) {
+            return Some(r);
+        }
         let (recv, nome, chamada) = match &ast.expr(e).kind {
             ExprKind::Property { target, name, null_aware: false } => (*target, name.sym, false),
             ExprKind::Call { target, arguments } if arguments.args.is_empty() && arguments.type_args.is_empty() => {
@@ -118,6 +122,48 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Primitivo::Int => self.intrinseco_int(v, forma),
             Primitivo::Double => self.intrinseco_double(v, forma),
         })
+    }
+
+    /// `a.compareTo(b)` com `a` e `b` exatamente `int` (não anuláveis): o
+    /// `_IntegerImplementation.compareTo` da VM com `other` inteiro é `-1`
+    /// se `a < b`, `1` se `a > b`, senão `0`; aqui, `(a > b) - (a < b)` em
+    /// linha. Sem isto, os dois números iam encaixotados (um `_Mint` novo
+    /// para cada um fora do `Smi`) ao despacho por seletor e à entrada
+    /// uniforme, que conferia o argumento pela RTI, e o `this < other` do
+    /// corpo (`num other`) ia ao despacho dinâmico para todo `_Mint` — o
+    /// comparador `(a, b) => a.compareTo(b)` de `sort` pagava tudo isso a
+    /// cada comparação. O `double` (e o `num`) fica com o membro do SDK:
+    /// NaN e `-0.0` têm regras próprias.
+    fn compare_to_int(&mut self, ast: &ast::Ast, e: ExprId) -> Option<Operand> {
+        let ExprKind::Call { target, arguments } = &ast.expr(e).kind else { return None };
+        if arguments.args.len() != 1 || arguments.args[0].name.is_some() || !arguments.type_args.is_empty() {
+            return None;
+        }
+        let ExprKind::Property { target: recv, name, null_aware: false } = &ast.expr(*target).kind else {
+            return None;
+        };
+        if self.ctx.symbol_name(name.sym) != "compareTo" {
+            return None;
+        }
+        let arg = arguments.args[0].value;
+        if self.primitivo(*recv) != Some(Primitivo::Int) || self.primitivo(arg) != Some(Primitivo::Int) {
+            return None;
+        }
+        let a = self.lower_expr(ast, *recv);
+        if self.is_terminated() {
+            return Some(Operand::Constant(Constant::Null));
+        }
+        let a = self.coagir(a, Type::I64);
+        let b = self.lower_expr(ast, arg);
+        if self.is_terminated() {
+            return Some(Operand::Constant(Constant::Null));
+        }
+        let b = self.coagir(b, Type::I64);
+        let maior = self.emit(Instruction::ICmp(ICmpOp::Sgt, a.clone(), b.clone()), Type::I1);
+        let menor = self.emit(Instruction::ICmp(ICmpOp::Slt, a, b), Type::I1);
+        let maior = self.emit(Instruction::ZExt { op: maior, from: Type::I1, to: Type::I64 }, Type::I64);
+        let menor = self.emit(Instruction::ZExt { op: menor, from: Type::I1, to: Type::I64 }, Type::I64);
+        Some(self.emit(Instruction::Sub(maior, menor), Type::I64))
     }
 
     /// `lista.add(v)` com a lista de tipo estático `List<int>`,

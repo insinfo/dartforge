@@ -341,6 +341,35 @@ mixin _CustomEqualsAndHashCode<K> implements _EqualsAndHashCode {
   bool _equals(Object? e1, Object? e2) => (_equality as Function)(e1, e2);
 }
 
+// DartForge: o caminho rápido do `_Map` e do `_Set` para chaves `int` e
+// `String` (`crates/runtime/src/nativos_hash.rs`). Na VM o compilador
+// especializa `_hashCode`/`_equals` para esses tipos e embute a sonda; aqui
+// o runtime percorre a MESMA tabela (`_index`, `_data`) com as mesmas contas
+// e grava o que o Dart gravaria. Quando não sabe (outra chave, `int` diante
+// de `double`, tabela cheia), não muda nada e devolve o sinal; o caminho do
+// SDK faz a operação.
+
+/// O novo `_usedData` depois de `mapa[chave] = valor`, ou -1.
+@pragma("vm:external-name", "DartForge_hash_mapa_gravar")
+external int _dfMapaGravar(Uint32List indice, List<Object?> dados, int mascara,
+    int usados, Object? chave, Object? valor);
+
+/// O valor da chave, `dados` se ela falta, ou `indice` se o Dart procura.
+@pragma("vm:external-name", "DartForge_hash_mapa_buscar")
+external Object? _dfMapaBuscar(
+    Uint32List indice, List<Object?> dados, int mascara, Object? chave);
+
+/// O novo `_usedData` depois de `conjunto.add(chave)` (o mesmo se já
+/// estava), ou -1.
+@pragma("vm:external-name", "DartForge_hash_conjunto_adicionar")
+external int _dfConjuntoAdicionar(Uint32List indice, List<Object?> dados,
+    int mascara, int usados, Object? chave);
+
+/// A chave guardada, `dados` se ela falta, ou `indice` se o Dart procura.
+@pragma("vm:external-name", "DartForge_hash_conjunto_buscar")
+external Object? _dfConjuntoBuscar(
+    Uint32List indice, List<Object?> dados, int mascara, Object? chave);
+
 final _uninitializedIndex = new Uint32List(_HashBase._UNINITIALIZED_INDEX_SIZE);
 // Note: not const. Const arrays are made immutable by having a different class
 // than regular arrays that throws on element assignment. We want the data field
@@ -363,6 +392,32 @@ base class _Map<K, V> extends _HashVMBase
     _data = _uninitializedData;
     _usedData = 0;
     _deletedKeys = 0;
+  }
+
+  // DartForge: `[]=`, `[]` e `containsKey` passam primeiro pelo runtime
+  // (`_dfMapaGravar`/`_dfMapaBuscar`); o resto é o do mixin.
+  void operator []=(K key, V value) {
+    final int usados =
+        _dfMapaGravar(_index, _data, _hashMask, _usedData, key, value);
+    if (usados >= 0) {
+      _usedData = usados;
+      return;
+    }
+    _set(key, value, _hashCode(key));
+  }
+
+  V? operator [](Object? key) {
+    final Uint32List indice = _index;
+    Object? v = _dfMapaBuscar(indice, _data, _hashMask, key);
+    if (identical(v, indice)) v = _getValueOrData(key);
+    return identical(_data, v) ? null : internal.unsafeCast<V>(v);
+  }
+
+  bool containsKey(Object? key) {
+    final Uint32List indice = _index;
+    Object? v = _dfMapaBuscar(indice, _data, _hashMask, key);
+    if (identical(v, indice)) v = _getValueOrData(key);
+    return !identical(_data, v);
   }
 
   void addAll(Map<K, V> other) {
@@ -1061,6 +1116,34 @@ base class _Set<E> extends _HashVMBase
     _data = _uninitializedData;
     _usedData = 0;
     _deletedKeys = 0;
+  }
+
+  // DartForge: `add`, `contains` e `lookup` passam primeiro pelo runtime
+  // (`_dfConjuntoAdicionar`/`_dfConjuntoBuscar`); o resto é o do mixin.
+  bool add(E key) {
+    final int antes = _usedData;
+    final int usados =
+        _dfConjuntoAdicionar(_index, _data, _hashMask, antes, key);
+    if (usados >= 0) {
+      if (usados == antes) return false;
+      _usedData = usados;
+      return true;
+    }
+    return _add(key, _hashCode(key));
+  }
+
+  bool contains(Object? key) {
+    final Uint32List indice = _index;
+    Object? k = _dfConjuntoBuscar(indice, _data, _hashMask, key);
+    if (identical(k, indice)) k = _getKeyOrData(key);
+    return !identical(_data, k);
+  }
+
+  E? lookup(Object? key) {
+    final Uint32List indice = _index;
+    Object? k = _dfConjuntoBuscar(indice, _data, _hashMask, key);
+    if (identical(k, indice)) k = _getKeyOrData(key);
+    return identical(_data, k) ? null : internal.unsafeCast<E>(k);
   }
 
   void addAll(Iterable<E> other) {

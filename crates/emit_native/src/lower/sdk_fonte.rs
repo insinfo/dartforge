@@ -83,7 +83,27 @@ pub fn membro_fechado(ctx: &Context, cid: ClassId, nome: &str) -> bool {
         // Classe do programa: o programa conhece todos os subtipos dela.
         return true;
     }
-    nome.starts_with('_') || classe_fechada(ctx, cid)
+    nome.starts_with('_') || classe_fechada(ctx, cid) || classe_fechada_por_modificador(ctx, cid)
+}
+
+/// Os modificadores de classe do Dart 3 fecham `cid` na biblioteca dela:
+/// ela é `final` ou `sealed`, e todo subtipo dela no programa é da mesma
+/// biblioteca e `final`, `sealed` ou privado — nenhum código de fora pode
+/// estendê-la, implementá-la nem sobrescrever um membro dela. É o caso de
+/// `String`, `int`, `double`, `num` e `bool`: sem isto, `s.codeUnitAt(i)`
+/// com `s` estático `String` ia pelo seletor e pela entrada uniforme, que
+/// confere os argumentos no RTI (a escrita dos cabeçalhos do `dart:_http`
+/// fazia centenas dessas chamadas por requisição).
+pub fn classe_fechada_por_modificador(ctx: &Context, cid: ClassId) -> bool {
+    let classe = &ctx.program.classes[cid.0 as usize];
+    if !(classe.modifiers.final_ || classe.modifiers.sealed) {
+        return false;
+    }
+    ctx.program.classes.iter().enumerate().all(|(k, c)| {
+        !subclasse_de(ctx, ClassId(k as u32), cid)
+            || (c.library == classe.library
+                && (c.modifiers.final_ || c.modifiers.sealed || ctx.symbol_name(c.name).starts_with('_')))
+    })
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {

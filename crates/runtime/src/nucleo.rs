@@ -135,7 +135,7 @@ thread_local! {
     /// `dartforge_dispatch_toString` do programa), para a exceção não
     /// capturada.
     static PARA_TEXTO: std::cell::Cell<Option<extern "C" fn(i64) -> i64>> = const { std::cell::Cell::new(None) };
-    static HEAP: RefCell<Heap> = RefCell::new(Heap::new(std::env::var_os("DARTFORGE_GC_STRESS").is_some()));
+    static HEAP: RefCell<Heap> = RefCell::new(Heap::do_isolado(std::env::var_os("DARTFORGE_GC_STRESS").is_some()));
     static CLASS_NAMES: RefCell<HashMap<i64, String>> = RefCell::new(HashMap::default());
     static SUBCLASSES: RefCell<HashMap<i64, Vec<i64>>> = RefCell::new(HashMap::default());
     /// As respostas de [`is_subclass`] já calculadas: toda checagem de tipo
@@ -268,11 +268,8 @@ fn untag(value: TaggedValue) -> (i64, u8) {
 /// Aloca objeto inicialmente zerado, com campos ainda sem referências.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_object_new(class_id: i64, field_count: i64) -> i64 {
-    HEAP.with(|heap| {
-        let mut heap = heap.borrow_mut();
-        let fields = heap.campos_novos(usize::try_from(field_count).expect("campos inválidos"));
-        heap.allocate(Value::Object { class_id, fields })
-    })
+    let n = usize::try_from(field_count).expect("campos inválidos");
+    HEAP.with(|heap| heap.borrow_mut().alocar_objeto(class_id, n))
 }
 // Os campos de um objeto (`Value::Object`) são lidos e gravados em linha
 // pelo código gerado (`llvm/mod.rs`, `GetField`/`SetField`): cada um é o par
@@ -285,13 +282,7 @@ const _: () = {
     assert!(std::mem::offset_of!((i64, bool), 1) == 8);
 };
 
-/// Zeros para a leitura de campo de algo que não é objeto (o que
-/// `dartforge_object_get` devolvia): nunca gravado — está em memória só de
-/// leitura, e gravar nela é erro do compilador que termina o processo.
-static CAMPOS_VAZIOS: [(i64, bool); CAMPOS_EM_LINHA] = [(0, false); CAMPOS_EM_LINHA];
-
-/// Maior índice de campo que o emissor lê em linha (acima dele, a chamada).
-pub const CAMPOS_EM_LINHA: usize = 4096;
+use crate::heap::{CAMPOS_EM_LINHA, CAMPOS_VAZIOS};
 
 /// O endereço dos campos do objeto `h` (ponteiro mutável: o código gerado
 /// grava por ele); de algo que não é objeto, [`CAMPOS_VAZIOS`]. O vetor de

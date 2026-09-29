@@ -1076,6 +1076,239 @@ const _: () = {
 /// tipada.
 pub static CLOSURE_VAZIA: CabecalhoDeClosure = CabecalhoDeClosure { code_id: 0, environment: 0, tipado: 0, abi: 0 };
 
+/// Um campo de objeto: os bits e se são referência (o que o coletor segue).
+pub type Campo = (i64, bool);
+
+/// Maior índice de campo que o emissor lê em linha (acima dele, a chamada
+/// `dartforge_object_get`/`_set`).
+pub const CAMPOS_EM_LINHA: usize = 4096;
+
+/// Zeros para a leitura em linha de campo de algo que não é objeto (o que
+/// `dartforge_object_get` devolvia): nunca gravado — está em memória só de
+/// leitura, e gravar nela é erro do compilador que termina o processo.
+pub static CAMPOS_VAZIOS: [Campo; CAMPOS_EM_LINHA] = [(0, false); CAMPOS_EM_LINHA];
+
+/// Os campos de um objeto do usuário (`Value::Object`): `len` pares
+/// [`Campo`] contíguos, de endereço fixo enquanto o objeto vive — o código
+/// gerado os lê e grava em linha pelo endereço que a tabela de campos do
+/// heap dá ([`Contexto::tabela`]).
+///
+/// O bloco vem de um de dois lugares:
+/// * do **espaço de campos** do heap ([`EspacoDeCampos`], `Heap::campos_novos`):
+///   blocos por número de campos, reaproveitados por listas livres sem passar
+///   pelo alocador do sistema; volta ao espaço quando a coleta libera o slot
+///   (o `Drop` não o devolve — um `Campos` do espaço descartado fora da coleta
+///   só fica sem reúso até o heap acabar, quando o espaço inteiro é liberado);
+/// * do alocador global (`From<Vec<Campo>>`, os objetos que o runtime monta
+///   à mão): liberado no `Drop`.
+pub struct Campos {
+    ptr: std::ptr::NonNull<Campo>,
+    len: usize,
+    do_espaco: bool,
+}
+
+impl Campos {
+    /// Nenhum campo (sem memória).
+    pub const fn vazio() -> Self {
+        Self { ptr: std::ptr::NonNull::dangling(), len: 0, do_espaco: false }
+    }
+    /// O endereço do primeiro campo (o que a tabela de campos publica).
+    pub fn as_mut_ptr(&mut self) -> *mut Campo {
+        self.ptr.as_ptr()
+    }
+    fn endereco(&self) -> *mut Campo {
+        if self.len == 0 { CAMPOS_VAZIOS.as_ptr().cast_mut() } else { self.ptr.as_ptr() }
+    }
+}
+
+impl From<Vec<Campo>> for Campos {
+    fn from(v: Vec<Campo>) -> Self {
+        if v.is_empty() {
+            return Self::vazio();
+        }
+        let b = v.into_boxed_slice();
+        let len = b.len();
+        let ptr = std::ptr::NonNull::new(Box::into_raw(b).cast::<Campo>()).expect("Box não nulo");
+        Self { ptr, len, do_espaco: false }
+    }
+}
+
+impl Drop for Campos {
+    fn drop(&mut self) {
+        if self.len > 0 && !self.do_espaco {
+            // SAFETY: veio de `Box<[Campo]>` com este comprimento (`From<Vec>`).
+            #[allow(unsafe_code)]
+            drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(self.ptr.as_ptr(), self.len)) });
+        }
+    }
+}
+
+impl std::ops::Deref for Campos {
+    type Target = [Campo];
+    fn deref(&self) -> &[Campo] {
+        // SAFETY: `ptr` aponta `len` campos iniciados (ou é pendente com 0).
+        #[allow(unsafe_code)]
+        unsafe {
+            std::slice::from_raw_parts(self.ptr.as_ptr(), self.len)
+        }
+    }
+}
+
+impl std::ops::DerefMut for Campos {
+    fn deref_mut(&mut self) -> &mut [Campo] {
+        // SAFETY: como em `deref`; o `&mut self` é o único acesso.
+        #[allow(unsafe_code)]
+        unsafe {
+            std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len)
+        }
+    }
+}
+
+impl std::fmt::Debug for Campos {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(self.iter()).finish()
+    }
+}
+
+/// O espaço dos campos dos objetos do usuário: pedaços grandes do alocador
+/// do sistema, repartidos por ponteiro (*bump*) em blocos de `16 × n` bytes,
+/// e uma lista livre intrusiva por número de campos, que a coleta alimenta.
+///
+/// É o par, sem mover objetos, do *new space* da VM
+/// (`runtime/vm/heap/scavenger.cc`): alocar um objeto é tirar um bloco da
+/// lista livre ou avançar o ponteiro no pedaço corrente — sem `malloc`,
+/// `calloc` nem `free` por objeto. O coletor daqui não move (o código gerado
+/// guarda handles em registradores entre pontos de coleta), então o bloco de
+/// um objeto morto volta à lista do tamanho dele. Objetos com mais de
+/// [`EspacoDeCampos::MAIOR`] campos vão ao alocador do sistema.
+pub struct EspacoDeCampos {
+    /// Cabeça da lista livre de cada número de campos (nulo = vazia); o
+    /// primeiro campo de um bloco livre guarda o próximo.
+    livres: Vec<*mut Campo>,
+    /// Os pedaços pedidos ao sistema (liberados com o heap).
+    pedacos: Vec<*mut u8>,
+    /// O que resta do pedaço corrente.
+    atual: *mut u8,
+    fim: *mut u8,
+    /// Bytes de blocos entregues e ainda não devolvidos.
+    pub bytes_em_uso: usize,
+    /// Bytes pedidos ao sistema.
+    pub bytes_reservados: usize,
+}
+
+impl std::fmt::Debug for EspacoDeCampos {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EspacoDeCampos")
+            .field("pedacos", &self.pedacos.len())
+            .field("bytes_em_uso", &self.bytes_em_uso)
+            .finish()
+    }
+}
+
+#[allow(unsafe_code)]
+impl EspacoDeCampos {
+    /// Maior número de campos servido pelo espaço.
+    pub const MAIOR: usize = 256;
+    /// Tamanho de cada pedaço pedido ao sistema.
+    const PEDACO: usize = 256 * 1024;
+
+    fn new() -> Self {
+        Self {
+            livres: vec![std::ptr::null_mut(); Self::MAIOR + 1],
+            pedacos: Vec::new(),
+            atual: std::ptr::null_mut(),
+            fim: std::ptr::null_mut(),
+            bytes_em_uso: 0,
+            bytes_reservados: 0,
+        }
+    }
+
+    fn layout_do_pedaco() -> std::alloc::Layout {
+        std::alloc::Layout::from_size_align(Self::PEDACO, 16).expect("layout do pedaço")
+    }
+
+    /// Um bloco zerado de `n` campos (`1 ≤ n ≤ MAIOR`).
+    #[inline]
+    fn alocar(&mut self, n: usize) -> *mut Campo {
+        debug_assert!(n >= 1 && n <= Self::MAIOR);
+        let bytes = n * std::mem::size_of::<Campo>();
+        self.bytes_em_uso += bytes;
+        let livre = self.livres[n];
+        if !livre.is_null() {
+            // SAFETY: bloco livre de `n` campos deste espaço; o primeiro
+            // campo guarda o próximo da lista.
+            unsafe {
+                self.livres[n] = (*livre).0 as *mut Campo;
+                zerar(livre, n);
+            }
+            return livre;
+        }
+        if (self.fim as usize) - (self.atual as usize) < bytes {
+            self.novo_pedaco();
+        }
+        let p = self.atual.cast::<Campo>();
+        // SAFETY: cabe no pedaço corrente (conferido acima); o pedaço veio
+        // zerado e nunca foi entregue.
+        self.atual = unsafe { self.atual.add(bytes) };
+        p
+    }
+
+    #[cold]
+    fn novo_pedaco(&mut self) {
+        // SAFETY: layout de tamanho não nulo.
+        let p = unsafe { std::alloc::alloc_zeroed(Self::layout_do_pedaco()) };
+        if p.is_null() {
+            std::alloc::handle_alloc_error(Self::layout_do_pedaco());
+        }
+        self.pedacos.push(p);
+        self.bytes_reservados += Self::PEDACO;
+        self.atual = p;
+        // SAFETY: fim do pedaço recém-alocado.
+        self.fim = unsafe { p.add(Self::PEDACO) };
+    }
+
+    /// Devolve o bloco de `n` campos à lista livre do tamanho dele.
+    #[inline]
+    fn liberar(&mut self, p: *mut Campo, n: usize) {
+        self.bytes_em_uso -= n * std::mem::size_of::<Campo>();
+        // SAFETY: bloco de `n` campos deste espaço, já sem dono.
+        unsafe { (*p).0 = self.livres[n] as i64 };
+        self.livres[n] = p;
+    }
+}
+
+/// Zera `n` campos em `p`: os tamanhos pequenos (quase todos os objetos)
+/// com gravações de tamanho fixo, sem a chamada ao `memset`.
+///
+/// # Safety
+/// `p` aponta `n` campos graváveis.
+#[inline]
+#[allow(unsafe_code)]
+unsafe fn zerar(p: *mut Campo, n: usize) {
+    // SAFETY: o contrato da função.
+    unsafe {
+        match n {
+            1 => p.cast::<[u64; 2]>().write([0; 2]),
+            2 => p.cast::<[u64; 4]>().write([0; 4]),
+            3 => p.cast::<[u64; 6]>().write([0; 6]),
+            4 => p.cast::<[u64; 8]>().write([0; 8]),
+            _ => std::ptr::write_bytes(p, 0, n),
+        }
+    }
+}
+
+impl Drop for EspacoDeCampos {
+    fn drop(&mut self) {
+        for &p in &self.pedacos {
+            // SAFETY: cada pedaço veio de `alloc_zeroed` com este layout.
+            #[allow(unsafe_code)]
+            unsafe {
+                std::alloc::dealloc(p, Self::layout_do_pedaco())
+            };
+        }
+    }
+}
+
 /// Valor gerenciado; somente campos marcados como referência participam do tracing.
 #[derive(Debug)]
 pub enum Value {
@@ -1089,7 +1322,7 @@ pub enum Value {
     Match(Texto),
     Object {
         class_id: i64,
-        fields: Vec<(i64, bool)>,
+        fields: Campos,
     },
     /// Local capturado mutável compartilhado por ambientes distintos.
     Cell(TaggedValue),
@@ -1207,7 +1440,7 @@ impl Value {
             Self::String(text) | Self::RegExp(text) | Self::Match(text) => text.capacidade_bytes(),
             Self::StringBuffer(v) => v.capacity().checked_mul(2).expect("payload excede usize"),
             Self::Object { fields, .. } => fields
-                .capacity()
+                .len()
                 .checked_mul(std::mem::size_of::<(i64, bool)>())
                 .expect("payload excede usize"),
             Self::Cell(_) | Self::BoxedInt(_) | Self::BoxedDouble(_) | Self::BoxedBool(_) => 0,
@@ -1378,7 +1611,23 @@ pub struct Contexto {
     /// (`portas.rs`). O código gerado o lê, atômico, no começo de cada volta
     /// de laço (o ponto seguro da J01).
     pub interrupcao: std::sync::atomic::AtomicU8,
+    /// A tabela de campos do heap deste isolado (deslocamento 40) e o
+    /// comprimento dela (48): a posição `h >> 1` do handle `h` dá o endereço
+    /// dos campos do objeto (`Heap::enderecos`); a posição 0 (null) e os
+    /// slots que não são objeto dão [`CAMPOS_VAZIOS`]. O código gerado lê o
+    /// campo em linha com duas cargas, sem chamar o runtime (`llvm/mod.rs`).
+    /// O endereço muda quando a tabela cresce: o código o relê depois de
+    /// cada chamada.
+    pub tabela: std::cell::Cell<*const *mut Campo>,
+    pub n_tabela: std::cell::Cell<usize>,
 }
+
+/// A tabela de quem ainda não tem heap: só a posição de null.
+struct TabelaInicial([*const Campo; 1]);
+// SAFETY: só leitura, e aponta para memória estática só de leitura.
+#[allow(unsafe_code)]
+unsafe impl Sync for TabelaInicial {}
+static TABELA_INICIAL: TabelaInicial = TabelaInicial([CAMPOS_VAZIOS.as_ptr()]);
 
 const _: () = {
     assert!(std::mem::offset_of!(Contexto, pendente) == 0);
@@ -1386,6 +1635,8 @@ const _: () = {
     assert!(std::mem::offset_of!(Contexto, areas) == 16);
     assert!(std::mem::offset_of!(Contexto, n_areas) == 24);
     assert!(std::mem::offset_of!(Contexto, interrupcao) == 32);
+    assert!(std::mem::offset_of!(Contexto, tabela) == 40);
+    assert!(std::mem::offset_of!(Contexto, n_tabela) == 48);
 };
 
 thread_local! {
@@ -1396,6 +1647,8 @@ thread_local! {
             areas: std::cell::Cell::new(std::ptr::null()),
             n_areas: std::cell::Cell::new(0),
             interrupcao: std::sync::atomic::AtomicU8::new(0),
+            tabela: std::cell::Cell::new(TABELA_INICIAL.0.as_ptr().cast()),
+            n_tabela: std::cell::Cell::new(1),
         }
     };
 }
@@ -1446,26 +1699,6 @@ fn visitar_quadros(mut f: impl FnMut(i64)) {
             }
             q = (*q).anterior;
         }
-    }
-}
-
-/// Até quantos campos um vetor de objeto coletado é guardado para reúso.
-const CAMPOS_REAPROVEITADOS: usize = 16;
-/// Quantos vetores de cada tamanho ficam guardados (o resto volta ao
-/// alocador).
-const VETORES_POR_TAMANHO: usize = 4096;
-
-/// Guarda o vetor de campos de um objeto coletado, se couber.
-fn guardar_campos(livres: &mut Vec<Vec<Vec<(i64, bool)>>>, campos: Vec<(i64, bool)>) {
-    let n = campos.len();
-    if n == 0 || n > CAMPOS_REAPROVEITADOS || campos.capacity() != n {
-        return;
-    }
-    if livres.len() <= n {
-        livres.resize_with(n + 1, Vec::new);
-    }
-    if livres[n].len() < VETORES_POR_TAMANHO {
-        livres[n].push(campos);
     }
 }
 
@@ -1554,11 +1787,14 @@ pub struct Heap {
     /// elementos de `data` (a reserva) e o tamanho lógico ainda é este, até
     /// o primeiro `_setLength`/`_setData` — na VM a lista aponta para o
     /// `_List` e o tamanho é outro campo.
-    /// Vetores de campos de objetos coletados, por número de campos (até
-    /// [`CAMPOS_REAPROVEITADOS`]): a alocação de um objeto pega daqui antes
-    /// de pedir memória ao alocador — criar e descartar objetos pequenos
-    /// custava um `calloc` e um `free` por objeto.
-    campos_livres: Vec<Vec<Vec<(i64, bool)>>>,
+    /// Onde moram os campos dos objetos do usuário ([`EspacoDeCampos`]).
+    espaco: EspacoDeCampos,
+    /// A tabela de campos: a posição `i + 1` é o endereço dos campos do
+    /// slot `i` se ele guarda um `Value::Object` vivo, e [`CAMPOS_VAZIOS`]
+    /// senão; a posição 0 é a de null. Publicada no [`Contexto`] da thread
+    /// quando `publica` (o heap do isolado, não os de teste).
+    enderecos: Vec<*mut Campo>,
+    publica: bool,
     pub iteracoes_ativas: crate::hash::HashSet<i64>,
     /// Lista de chaves → mapa de origem (para acusar modificação do mapa
     /// durante a iteração das chaves).
@@ -1658,7 +1894,9 @@ impl Heap {
             campos_late_inicializados: crate::hash::HashSet::default(),
             epoca_de_layout: EPOCA_DE_LAYOUT.load(std::sync::atomic::Ordering::Acquire),
             fixas: crate::hash::HashSet::default(),
-            campos_livres: Vec::new(),
+            espaco: EspacoDeCampos::new(),
+            enderecos: vec![CAMPOS_VAZIOS.as_ptr().cast_mut()],
+            publica: false,
             iteracoes_ativas: crate::hash::HashSet::default(),
             origens: crate::hash::HashMap::default(),
             finalizaveis: crate::hash::HashMap::default(),
@@ -1867,7 +2105,7 @@ impl Heap {
         self.set_root(frame, 0, text);
         let object = self.allocate(Value::Object {
             class_id,
-            fields: vec![(index, false), (text, true)],
+            fields: vec![(index, false), (text, true)].into(),
         });
         self.enum_values.insert((class_id, index), object);
         self.permanentes.insert(object);
@@ -1991,16 +2229,84 @@ impl Heap {
             .max(self.stats.estimated_bytes);
         self.allocations += 1;
         self.stats.allocations += 1;
+        self.guardar(value)
+    }
+    /// Põe `value` num slot (um livre, ou um novo no fim da tabela) e
+    /// atualiza a tabela de campos; devolve o handle.
+    #[inline]
+    fn guardar(&mut self, mut value: Value) -> i64 {
+        let endereco = match &mut value {
+            Value::Object { fields, .. } => fields.endereco(),
+            _ => CAMPOS_VAZIOS.as_ptr().cast_mut(),
+        };
         let index = if let Some(index) = self.free.pop() {
             self.slots[index] = Some(value);
             self.metadados[index] = 0;
+            self.enderecos[index + 1] = endereco;
             index
         } else {
             self.slots.push(Some(value));
             self.metadados.push(0);
+            let capacidade = self.enderecos.capacity();
+            self.enderecos.push(endereco);
+            if self.enderecos.capacity() != capacidade {
+                self.publicar_tabela();
+            } else if self.publica {
+                CONTEXTO.with(|c| c.n_tabela.set(self.enderecos.len()));
+            }
             self.slots.len() - 1
         };
         Self::handle_de_indice(index)
+    }
+    /// Publica a tabela de campos no [`Contexto`] da thread (o heap do
+    /// isolado; os heaps de teste não publicam).
+    fn publicar_tabela(&self) {
+        if self.publica {
+            CONTEXTO.with(|c| {
+                c.tabela.set(self.enderecos.as_ptr().cast());
+                c.n_tabela.set(self.enderecos.len());
+            });
+        }
+    }
+    /// O heap do isolado da thread: publica a tabela de campos no
+    /// [`Contexto`] (o que o código gerado lê em linha).
+    pub fn do_isolado(stress: bool) -> Self {
+        let mut h = Self::new(stress);
+        h.publica = true;
+        h.enderecos.reserve(1024);
+        h.publicar_tabela();
+        h
+    }
+    /// Aloca um objeto do usuário de `n` campos zerados (o caminho do
+    /// `dartforge_object_new`): o bloco dos campos vem do espaço de campos
+    /// ([`EspacoDeCampos`]), sem o alocador do sistema.
+    ///
+    /// O caminho rápido confere os gatilhos de [`Heap::allocate`] numa
+    /// comparação cada, sem montar o valor antes; se algum dispara (coleta,
+    /// teto, `--gc-stress`), vai ao caminho geral.
+    #[inline]
+    pub fn alocar_objeto(&mut self, class_id: i64, n: usize) -> i64 {
+        let bytes = std::mem::size_of::<Value>() + n * std::mem::size_of::<Campo>();
+        let depois = self.stats.estimated_bytes.saturating_add(bytes);
+        if self.stress
+            || self.allocations >= self.threshold
+            || depois > self.byte_threshold
+            || (self.limite_bytes != usize::MAX && self.bytes_totais(bytes) > self.limite_bytes)
+        {
+            return self.alocar_objeto_lento(class_id, n);
+        }
+        self.stats.estimated_bytes = depois;
+        self.stats.peak_estimated_bytes = self.stats.peak_estimated_bytes.max(depois);
+        self.allocations += 1;
+        self.stats.allocations += 1;
+        let fields = self.campos_novos(n);
+        self.guardar(Value::Object { class_id, fields })
+    }
+    #[cold]
+    #[inline(never)]
+    fn alocar_objeto_lento(&mut self, class_id: i64, n: usize) -> i64 {
+        let fields = self.campos_novos(n);
+        self.allocate(Value::Object { class_id, fields })
     }
     /// O metadado do slot de um handle vivo (0 = nenhum).
     pub fn metadado(&self, handle: i64) -> i64 {
@@ -2084,15 +2390,19 @@ impl Heap {
     /// é `null` para o campo anulável e "não inicializado" para o `late`), e
     /// as marcas de `late` inicializado seguem o campo.
     pub fn migrar_instancias(&mut self, plano: &crate::hash::HashMap<i64, Vec<i64>>) {
-        for slot in self.slots.iter_mut() {
-            if let Some(Value::Object { class_id, fields }) = slot
-                && let Some(origem) = plano.get(class_id)
-            {
-                let antigos = std::mem::take(fields);
-                *fields = origem
-                    .iter()
-                    .map(|&o| usize::try_from(o).ok().and_then(|o| antigos.get(o).copied()).unwrap_or((0, false)))
-                    .collect();
+        for index in 0..self.slots.len() {
+            let Some(Value::Object { class_id, fields }) = &self.slots[index] else { continue };
+            let Some(origem) = plano.get(class_id) else { continue };
+            let valores: Vec<Campo> = origem
+                .iter()
+                .map(|&o| usize::try_from(o).ok().and_then(|o| fields.get(o).copied()).unwrap_or((0, false)))
+                .collect();
+            let mut novos = self.campos_novos(valores.len());
+            novos.copy_from_slice(&valores);
+            self.enderecos[index + 1] = novos.endereco();
+            if let Some(Value::Object { fields, .. }) = self.slots[index].as_mut() {
+                let antigos = std::mem::replace(fields, novos);
+                self.liberar_campos(antigos);
             }
         }
         let marcas: Vec<(i64, i64)> = self.campos_late_inicializados.iter().copied().filter(|&(_, i)| i >= 0).collect();
@@ -2111,14 +2421,43 @@ impl Heap {
         let index = self.indice_vivo(handle);
         self.slots[index].as_ref().expect("slot vivo verificado")
     }
-    /// Um vetor de `n` campos zerados: reaproveitado de um objeto coletado,
-    /// ou novo.
-    pub fn campos_novos(&mut self, n: usize) -> Vec<(i64, bool)> {
-        if let Some(mut v) = self.campos_livres.get_mut(n).and_then(Vec::pop) {
-            v.fill((0, false));
-            return v;
+    /// `n` campos zerados do espaço de campos (acima de
+    /// [`EspacoDeCampos::MAIOR`], do alocador do sistema).
+    #[inline]
+    pub fn campos_novos(&mut self, n: usize) -> Campos {
+        if n == 0 {
+            return Campos::vazio();
         }
-        vec![(0, false); n]
+        if n > EspacoDeCampos::MAIOR {
+            return vec![(0, false); n].into();
+        }
+        let p = self.espaco.alocar(n);
+        Campos { ptr: std::ptr::NonNull::new(p).expect("bloco não nulo"), len: n, do_espaco: true }
+    }
+    /// Garante ao objeto `handle` pelo menos `n` campos (os novos, zerados):
+    /// troca o bloco dos campos e a posição dele na tabela de campos.
+    pub fn garantir_campos(&mut self, handle: i64, n: usize) {
+        let index = self.indice_vivo(handle);
+        let Some(Value::Object { fields, .. }) = &self.slots[index] else { return };
+        if fields.len() >= n {
+            return;
+        }
+        let antigos: Vec<Campo> = fields.to_vec();
+        let mut novos = self.campos_novos(n);
+        novos[..antigos.len()].copy_from_slice(&antigos);
+        self.enderecos[index + 1] = novos.endereco();
+        if let Some(Value::Object { fields, .. }) = self.slots[index].as_mut() {
+            let antigos = std::mem::replace(fields, novos);
+            self.liberar_campos(antigos);
+        }
+    }
+    /// Devolve os campos de um objeto morto (ou substituído) ao espaço.
+    fn liberar_campos(&mut self, campos: Campos) {
+        if campos.do_espaco && campos.len > 0 {
+            self.espaco.liberar(campos.ptr.as_ptr(), campos.len);
+        }
+        // Os do alocador do sistema saem no `Drop`.
+        drop(campos);
     }
     /// O endereço dos campos do objeto `handle`, numa busca só (o caminho
     /// quente de `dartforge_object_campos`); `None` se não é objeto vivo.
@@ -2596,9 +2935,12 @@ impl Heap {
                 vivos_em_bytes = vivos_em_bytes.saturating_add(valor.estimated_bytes());
             } else {
                 if let Some(Value::Object { fields, .. }) = slot.take() {
-                    guardar_campos(&mut self.campos_livres, fields);
+                    if fields.do_espaco && fields.len > 0 {
+                        self.espaco.liberar(fields.ptr.as_ptr(), fields.len);
+                    }
                 }
                 *slot = None;
+                self.enderecos[index + 1] = CAMPOS_VAZIOS.as_ptr().cast_mut();
                 self.free.push(index);
                 self.stats.reclaimed += 1;
             }
@@ -2734,7 +3076,7 @@ mod tests {
         let outer = heap.push_frame();
         let parent = heap.allocate(Value::Object {
             class_id: 1,
-            fields: vec![(0, true)],
+            fields: vec![(0, true)].into(),
         });
         heap.root(outer, parent);
         let inner = heap.push_frame();
@@ -2758,12 +3100,12 @@ mod tests {
         let frame = heap.push_frame();
         let a = heap.allocate(Value::Object {
             class_id: 1,
-            fields: vec![(0, true)],
+            fields: vec![(0, true)].into(),
         });
         heap.root(frame, a);
         let b = heap.allocate(Value::Object {
             class_id: 2,
-            fields: vec![(a, true)],
+            fields: vec![(a, true)].into(),
         });
         heap.root(frame, b);
         heap.set(a, 0, b, true);
@@ -2784,7 +3126,7 @@ mod tests {
         let text = heap.allocate(Value::String("descartável".into()));
         let object = heap.allocate(Value::Object {
             class_id: 1,
-            fields: vec![(text, false)],
+            fields: vec![(text, false)].into(),
         });
         heap.root(frame, object);
         heap.collect();
@@ -3017,7 +3359,7 @@ mod smi_r10 {
         // Um `Smi` como raiz, como campo `Ref` e como elemento: nada disso é
         // aresta; a coleta sob estresse não o toma por handle.
         heap.set_root(frame, 0, s);
-        let obj = heap.allocate(Value::Object { class_id: 1, fields: vec![(s, true)] });
+        let obj = heap.allocate(Value::Object { class_id: 1, fields: vec![(s, true)].into() });
         heap.set_root(frame, 1, obj);
         heap.set(obj, 0, smi::de(-5).unwrap(), true);
         let lista = heap.create_list(vec![TaggedValue::reference(s)]);
@@ -3219,14 +3561,14 @@ mod review_tests {
         let callee = heap.push_frame();
         let a = heap.allocate(Value::Object {
             class_id: 7,
-            fields: vec![],
+            fields: vec![].into(),
         });
         heap.root(callee, a);
         heap.pop_frame(callee);
         heap.root(caller, a);
         let b = heap.allocate(Value::Object {
             class_id: 7,
-            fields: vec![],
+            fields: vec![].into(),
         });
         heap.root(caller, b);
         assert_ne!(a, b);
@@ -3240,14 +3582,14 @@ mod review_tests {
         let frame = heap.push_frame();
         let first = heap.allocate(Value::Object {
             class_id: 1,
-            fields: vec![(0, true)],
+            fields: vec![(0, true)].into(),
         });
         heap.root(frame, first);
         let mut previous = first;
         for _ in 1..20_000 {
             let next = heap.allocate(Value::Object {
                 class_id: 1,
-                fields: vec![(first, true)],
+                fields: vec![(first, true)].into(),
             });
             heap.set(previous, 0, next, true);
             previous = next;
@@ -3270,7 +3612,7 @@ mod review_tests {
             for index in 0..count {
                 let handle = heap.allocate(Value::Object {
                     class_id: 1,
-                    fields: vec![(index, false)],
+                    fields: vec![(index, false)].into(),
                 });
                 heap.root(frame, handle);
                 std::hint::black_box(handle);

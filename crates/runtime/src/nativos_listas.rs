@@ -357,6 +357,75 @@ pub extern "C" fn dartforge_nativo_DartForge_List_preencher(lista: i64, valor: i
     });
 }
 
+/// A lista `h` mudou de classe concreta depois de ganhar o tipo — a
+/// constante `const <int>[…]` nasce como o literal (`_GrowableList<int>`,
+/// `dartforge_rti_definir`) e só depois é marcada não modificável, quando
+/// passa a `_ImmutableList`: o metadado segue para a classe nova, com os
+/// mesmos argumentos. Sem isto, os métodos de `_Array` (o `toList` da
+/// constante) avaliavam o `E` do receptor como `dynamic`.
+fn reclassificar_lista(h: i64) {
+    if !smi::e_handle(h) {
+        return;
+    }
+    let meta = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        match heap.try_get(h) {
+            Some(Value::List(_)) => heap.metadado(h),
+            _ => 0,
+        }
+    });
+    if meta == 0 {
+        return;
+    }
+    let Some(classe) = cid_do_runtime(h) else { return };
+    let novo = RTI.with(|u| {
+        let mut u = u.borrow_mut();
+        let lista = u.rt.list;
+        match u.tipo(meta - 1).clone() {
+            Tipo::Interface(c, args)
+                if c != classe && args.len() == 1 && u.como_supertipo(c, &args, lista).is_some() =>
+            {
+                Some(u.internar(Tipo::Interface(classe, args)))
+            }
+            _ => None,
+        }
+    });
+    if let Some(t) = novo {
+        HEAP.with(|heap| heap.borrow_mut().set_metadado(h, t + 1));
+    }
+}
+
+/// `_copiarElementos(destino, origem, n)` da sobreposição (`array.dart`):
+/// os `n` primeiros elementos de `origem` nos `n` primeiros de `destino`,
+/// duas listas do runtime (`List.of`, `toList` e as cópias de
+/// `_List`/`_GrowableList`). Os elementos saem com a tag, sem caixa: um
+/// `int` fora do `Smi` não vira `_Mint`, e a cópia entre listas compactas
+/// da mesma forma (N14) grava os bits direto. `destino` acabou de ser
+/// criada com o `E` dela, e `origem` é um `Iterable<E>` (o parâmetro da
+/// fábrica), então todo elemento cabe na forma do destino; um que não
+/// coubesse devolveria o destino à forma geral, como pelo `[]=`. Não
+/// aloca no heap Dart.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_List_copiar(destino: i64, origem: i64, n: i64) {
+    let n = usize::try_from(n).unwrap_or(0);
+    if n == 0 {
+        return;
+    }
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let fonte: Vec<TaggedValue> = match heap.get(origem) {
+            Value::List(itens) => itens.iter().take(n.min(itens.len_logico())).collect(),
+            _ => return,
+        };
+        if let Value::List(itens) = heap.get_mut(destino) {
+            let limite = itens.len_logico().min(itens.len());
+            for (i, v) in fonte.into_iter().enumerate().take(limite) {
+                itens.definir(i, v);
+            }
+        }
+    });
+}
+
 /// `_GrowableList._grow(capacidade)` da sobreposição
 /// (`sdk_nativo/core/growable_array.dart`): a capacidade reservada no
 /// vetor da lista, onde os elementos já estão. Uma lista de `_withData`

@@ -326,6 +326,14 @@ abstract mixin class ListBase<E> implements List<E> {
       Sort.sortInts(this as List<int>);
       return;
     }
+    // DartForge: com um comparador que aceita `int`, a mesma ordenação
+    // tipada (`Sort.sortIntsCom`): as mesmas chamadas ao comparador, na
+    // mesma ordem, sem a caixa de cada elemento lido nem a conferência do
+    // `E` a cada gravação.
+    if (compare is int Function(int, int) && this is List<int>) {
+      Sort.sortIntsCom(this as List<int>, compare);
+      return;
+    }
     Sort.sort(this, compare ?? _compareAny);
   }
 

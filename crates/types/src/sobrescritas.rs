@@ -1148,3 +1148,86 @@ pub fn membros_abstratos(
     }
     saida
 }
+
+/// `TypeSystemImpl.isNullable`: o tipo aceita `null` com certeza.
+fn anulavel(table: &TypeTable, t: TypeId) -> bool {
+    match table.get(t) {
+        Type::Dynamic | Type::Void | Type::Null => true,
+        Type::Never => false,
+        Type::Interface { nullable, .. }
+        | Type::Function { nullable, .. }
+        | Type::Record { nullable, .. }
+        | Type::TypeParameter { nullable, .. }
+        | Type::ExtensionType { nullable, .. } => *nullable,
+        Type::FutureOr { arg, nullable } => *nullable || anulavel(table, *arg),
+        Type::Intersection { bound, .. } => anulavel(table, *bound),
+    }
+}
+
+/// `ErrorVerifier._checkUseOfDefaultValuesInParameters`: parâmetro opcional
+/// sem valor padrão cujo tipo pode não aceitar `null`
+/// (`missing_default_value_for_parameter`, `_POSITIONAL`,
+/// `_WITH_ANNOTATION` com `@required`), nas funções de topo, métodos e
+/// construtores da biblioteca em que o valor padrão é esperado (nem
+/// abstrato, nem `external`, nem nativo, nem `factory` redirecionador). O
+/// tipo vale quando escrito ou num `this.x`; sem tipo escrito (inferido da
+/// sobrescrita ou do construtor da superclasse), não se decide.
+pub fn valores_padrao(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    outline: &OutlineTypes,
+    lib: dartforge_elements::model::LibraryId,
+) -> Vec<(UnitId, Diagnostic)> {
+    let mut saida = Vec::new();
+    for (i, f) in program.functions.iter().enumerate() {
+        if f.library != lib || f.patched_by.is_some() {
+            continue;
+        }
+        let Some(dados) = outline.functions.get(i) else { continue };
+        let (unit, params, esperado): (UnitId, &[ast::Parameter], bool) = match f.node {
+            FunctionRef::Function { unit, function } => {
+                let af = &program.unit(unit).ast.functions[function.0 as usize];
+                let nativo = matches!(af.body, ast::FunctionBody::Native(_));
+                let abstrato = f.class.is_some() && matches!(af.body, ast::FunctionBody::Empty);
+                (unit, af.parameters.as_deref().unwrap_or(&[]), !af.external && !nativo && !abstrato)
+            }
+            FunctionRef::Constructor { unit, member } => match &program.unit(unit).ast.member(member).kind {
+                MemberKind::Constructor(k) => (unit, &k.parameters[..], !k.external && !(k.factory && k.redirect.is_some())),
+                _ => continue,
+            },
+            FunctionRef::None => continue,
+        };
+        if !esperado || params.len() != dados.parameters.len() {
+            continue;
+        }
+        let ast_ = &program.unit(unit).ast;
+        for (p, pd) in params.iter().zip(dados.parameters.iter()) {
+            if p.kind == ast::ParameterKind::Required || p.required || p.default_value.is_some() || p.super_ {
+                continue;
+            }
+            if p.ty.is_none() && !p.this_ {
+                continue;
+            }
+            // Tipo escrito que não resolve (`dynamic` no outline): nada.
+            if anulavel(table, pd.ty) {
+                continue;
+            }
+            let Some(nome) = p.name else { continue };
+            let anotado = p.metadata.iter().any(|a| a.name.last().is_some_and(|n| interner.resolve(n.sym) == "required"));
+            let d = if anotado {
+                Diagnostic::com_codigo(c::MISSING_DEFAULT_VALUE_FOR_PARAMETER_WITH_ANNOTATION, nome.span, [] as [&str; 0])
+            } else {
+                let codigo = if p.kind == ast::ParameterKind::Optional {
+                    c::MISSING_DEFAULT_VALUE_FOR_PARAMETER_POSITIONAL
+                } else {
+                    c::MISSING_DEFAULT_VALUE_FOR_PARAMETER
+                };
+                Diagnostic::com_codigo(codigo, nome.span, [interner.resolve(nome.sym)])
+            };
+            let _ = ast_;
+            saida.push((unit, d));
+        }
+    }
+    saida
+}

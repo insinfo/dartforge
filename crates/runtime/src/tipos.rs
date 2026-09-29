@@ -1081,7 +1081,7 @@ pub extern "C" fn dartforge_rti_registro_nomeado(obj: i64, npos: i64, nomes: i64
     let campos = HEAP.with(|h| {
         let h = h.borrow();
         let Value::Object { fields, .. } = h.get(obj) else { panic!("record nomeado esperado") };
-        fields.clone()
+        fields.to_vec()
     });
     let nomes: Vec<&str> = nomes.split(',').collect();
     assert_eq!(campos.len(), npos + nomes.len(), "forma do record nomeado");
@@ -1195,7 +1195,7 @@ pub extern "C" fn dartforge_rti_objeto_tipo(t: i64) -> i64 {
     }
     let h = HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        let h = heap.allocate(Value::Object { class_id: CLASSE_TIPO, fields: vec![(t, false)] });
+        let h = heap.allocate(Value::Object { class_id: CLASSE_TIPO, fields: vec![(t, false)].into() });
         // Raiz permanente num id que os globais do programa (não negativos)
         // e o laço de eventos (negativos pequenos) não usam.
         heap.set_global_root(-(1_i64 << 40) - t, h);

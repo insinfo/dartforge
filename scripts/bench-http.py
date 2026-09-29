@@ -7,6 +7,9 @@ imprime `porta <n>`; o `wrk` gera a carga nas rotas `/` ("hello" em texto) e
 `/json` (`jsonEncode` de um objeto pequeno), com 1 e N conexões. Mede-se:
 
 * req/s e latência p50/p99 (os percentis do `wrk --latency`);
+* CPU do servidor por requisição (`utime + stime` de `/proc/<pid>/stat`
+  dividido pelas requisições): a medida mais estável quando outros
+  processos disputam a máquina;
 * RSS em repouso (`VmRSS` depois de subir e responder uma requisição) e RSS
   de pico (`VmHWM` ao fim da carga).
 
@@ -51,6 +54,13 @@ def pedir(porta, rota):
         return r.read().decode()
 
 
+def cpu_s(pid):
+    """utime + stime do processo (todas as threads), em segundos."""
+    with open(f"/proc/{pid}/stat") as f:
+        campos = f.read().rsplit(")", 1)[1].split()
+    return (int(campos[11]) + int(campos[12])) / os.sysconf("SC_CLK_TCK")
+
+
 def unidade(v):
     m = re.match(r"([\d.]+)(us|ms|s)$", v)
     x = float(m.group(1))
@@ -63,6 +73,7 @@ def wrk(porta, rota, conexoes, duracao):
                         f"http://127.0.0.1:{porta}{rota}"], capture_output=True, text=True, timeout=duracao + 60)
     s = p.stdout
     rps = float(re.search(r"Requests/sec:\s+([\d.]+)", s).group(1))
+    total = int(re.search(r"(\d+) requests in", s).group(1))
     pct = {k: unidade(v) for k, v in re.findall(r"^\s+(50|99)%\s+(\S+)$", s, re.M)}
     erros = re.search(r"Socket errors: (.*)", s)
     non2xx = re.search(r"Non-2xx or 3xx responses: (\d+)", s)
@@ -71,7 +82,7 @@ def wrk(porta, rota, conexoes, duracao):
         avisos.append("socket: " + erros.group(1))
     if non2xx:
         avisos.append("non-2xx: " + non2xx.group(1))
-    return rps, pct.get("50"), pct.get("99"), avisos
+    return rps, pct.get("50"), pct.get("99"), avisos, total
 
 
 def main():
@@ -119,11 +130,13 @@ def main():
                         if a.aquecer:
                             wrk(porta, rota, max(conexoes), a.aquecer)
                         for c in conexoes:
-                            rps, p50, p99, av = wrk(porta, rota, c, a.duracao)
-                            res[k].setdefault((rota, c), []).append((rps, p50, p99))
+                            antes = cpu_s(p.pid)
+                            rps, p50, p99, av, total = wrk(porta, rota, c, a.duracao)
+                            cpu = (cpu_s(p.pid) - antes) / max(total, 1) * 1e6
+                            res[k].setdefault((rota, c), []).append((rps, p50, p99, cpu))
                             avisos += [f"{NOMES[k]} {rota} c={c}: {x}" for x in av]
                             print(f"[{rep + 1}] {NOMES[k]:14} {rota:6} c={c:<4} {rps:10.0f} req/s  "
-                                  f"p50 {p50:.3f} ms  p99 {p99:.3f} ms", flush=True)
+                                  f"p50 {p50:.3f} ms  p99 {p99:.3f} ms  CPU {cpu:.0f} us/req", flush=True)
                     pico[k].append(rss_kb(p.pid, "VmHWM"))
                     print(f"[{rep + 1}] {NOMES[k]:14} RSS repouso {repouso[k][-1] / 1024:.1f} MB, "
                           f"pico {pico[k][-1] / 1024:.1f} MB", flush=True)
@@ -143,7 +156,9 @@ def main():
            "Mediana e, entre colchetes, a faixa (mínimo–máximo).", ""]
     for titulo, i, fmt in [("req/s (maior é melhor)", 0, lambda x: f"{x:.0f}"),
                            ("latência p50, ms", 1, lambda x: f"{x:.3f}"),
-                           ("latência p99, ms", 2, lambda x: f"{x:.3f}")]:
+                           ("latência p99, ms", 2, lambda x: f"{x:.3f}"),
+                           ("CPU do servidor por requisição, µs (menor é melhor; menos sensível à disputa da máquina)",
+                            3, lambda x: f"{x:.0f}")]:
         out += [f"**{titulo}**", "", "| rota | conexões | " + " | ".join(NOMES[k] for k in ks) + " |",
                 "|---|---:|" + "---:|" * len(ks)]
         for rota, _ in ROTAS:

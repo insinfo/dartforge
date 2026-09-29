@@ -61,7 +61,7 @@ fn alocar_stack_trace(texto: &str) -> i64 {
     let trace_str = HEAP.with(|h| h.borrow_mut().allocate(Value::String(Texto::de_str(texto))));
     let cid = id_da_classe_stack_trace();
     com_raizes(&[trace_str], || {
-        HEAP.with(|h| h.borrow_mut().allocate(Value::Object { class_id: cid, fields: vec![(trace_str, true)] }))
+        HEAP.with(|h| h.borrow_mut().allocate(Value::Object { class_id: cid, fields: vec![(trace_str, true)].into() }))
     })
 }
 
@@ -72,7 +72,7 @@ fn alocar_erro_com_rastro(class_id: i64, mut campos: Vec<(i64, bool)>) -> i64 {
     com_raizes(&raizes, || {
         let st = dartforge_stack_trace_get();
         campos.push((st, true));
-        com_raizes(&[st], || HEAP.with(|h| h.borrow_mut().allocate(Value::Object { class_id, fields: campos })))
+        com_raizes(&[st], || HEAP.with(|h| h.borrow_mut().allocate(Value::Object { class_id, fields: campos.into() })))
     })
 }
 
@@ -121,7 +121,7 @@ pub extern "C" fn dartforge_stack_trace_from_string(str_handle: i64) -> i64 {
         }).unwrap_or(1006);
         heap.borrow_mut().allocate(Value::Object {
             class_id: stack_trace_cid,
-            fields: vec![(str_handle, true)],
+            fields: vec![(str_handle, true)].into(),
         })
     })
 }
@@ -240,10 +240,9 @@ pub extern "C" fn dartforge_exception_throw(bits: i64, tag: u8) {
             // pendente (quem lança nem sempre o enraizou).
             let st = com_raizes(&[value.bits], || dartforge_stack_trace_get());
             HEAP.with(|heap| {
-                if let Value::Object { fields, .. } = heap.borrow_mut().get_mut(value.bits) {
-                    if fields.len() <= st_idx {
-                        fields.resize(st_idx + 1, (0, false));
-                    }
+                let mut heap = heap.borrow_mut();
+                heap.garantir_campos(value.bits, st_idx + 1);
+                if let Value::Object { fields, .. } = heap.get_mut(value.bits) {
                     fields[st_idx] = (st, true);
                 }
             });
@@ -330,7 +329,7 @@ fn allocate_format_exception(message: &str) -> i64 {
         HEAP.with(|h| {
             h.borrow_mut().allocate(Value::Object {
                 class_id: 1001, // FormatException
-                fields: vec![(msg, true), (0, true), (-1, false)],
+                fields: vec![(msg, true), (0, true), (-1, false)].into(),
             })
         })
     })
@@ -344,9 +343,9 @@ pub extern "C" fn dartforge_exception_new(msg_bits: i64, is_ref: u8) -> i64 {
         h.borrow_mut().allocate(Value::Object {
             class_id: 1000,
             fields: if msg_bits == 0 && is_ref == 0 {
-                Vec::new()
+                Vec::new().into()
             } else {
-                vec![(msg_bits, is_ref != 0)]
+                vec![(msg_bits, is_ref != 0)].into()
             },
         })
     })
@@ -363,7 +362,7 @@ pub extern "C" fn dartforge_format_exception_new(msg_handle: i64, src_handle: i6
     HEAP.with(|h| {
         h.borrow_mut().allocate(Value::Object {
             class_id: 1001,
-            fields: vec![(msg_handle, true), (src_handle, true), (offset, false)],
+            fields: vec![(msg_handle, true), (src_handle, true), (offset, false)].into(),
         })
     })
 }

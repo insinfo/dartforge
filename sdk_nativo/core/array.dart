@@ -1,6 +1,7 @@
 // Substitui `_internal/vm/lib/array.dart` (sobreposição `sdk_nativo/`).
-// Igual ao da VM 3.6.2, fora o `_List.filled` e o `_preencherLista` do
-// fim (marcados "DartForge:").
+// Igual ao da VM 3.6.2, fora o `_List.filled`, as cópias
+// `_List._ofGrowableList`/`_List._ofArray` e o `_preencherLista` e o
+// `_copiarElementos` do fim (marcados "DartForge:").
 // Copyright (c) 2012, the Dart project authors.  Please see the AUTHORS file
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
@@ -139,9 +140,10 @@ class _List<E> extends _Array<E> {
     final list = _List<E>(length);
     // TODO(30102): Remove this loop zero-trip guard.
     if (length > 0) {
-      for (int i = 0; i < length; i++) {
-        list[i] = elements[i];
-      }
+      // DartForge: os elementos de uma vez, no runtime (`_copiarElementos`),
+      // em vez do laço da VM, que passava cada um pelo `[]` e pelo `[]=`
+      // genéricos (com a conferência do `E` e a caixa de um `int` grande).
+      _copiarElementos(list, elements, length);
     }
     return list;
   }
@@ -151,9 +153,10 @@ class _List<E> extends _Array<E> {
     final list = _List<E>(length);
     // TODO(30102): Remove this loop zero-trip guard.
     if (length > 0) {
-      for (int i = 0; i < length; i++) {
-        list[i] = elements[i];
-      }
+      // DartForge: os elementos de uma vez, no runtime (`_copiarElementos`),
+      // em vez do laço da VM, que passava cada um pelo `[]` e pelo `[]=`
+      // genéricos (com a conferência do `E` e a caixa de um `int` grande).
+      _copiarElementos(list, elements, length);
     }
     return list;
   }
@@ -296,3 +299,12 @@ class _ArrayIterator<E> implements Iterator<E> {
 // `valor` (`_List.filled` e `_GrowableList.filled`).
 @pragma("vm:external-name", "DartForge_List_preencher")
 external void _preencherLista(Object lista, Object valor);
+
+// DartForge: copia os `n` primeiros elementos de `origem` para os `n`
+// primeiros de `destino`, duas listas do runtime (`_List`, `_ImmutableList`
+// ou `_GrowableList`) — as cópias de `List.of` e `toList`. `destino` já tem
+// o `E` dela e `origem` só tem elementos desse `E` (quem chama garante),
+// então nada é conferido; os elementos passam sem caixa, e entre duas
+// listas escalares compactas (N14) os bits passam direto.
+@pragma("vm:external-name", "DartForge_List_copiar")
+external void _copiarElementos(Object destino, Object origem, int n);

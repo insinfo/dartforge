@@ -401,6 +401,7 @@ impl<'a> LlvmEmitter<'a> {
             || func.blocks.iter().any(|b| {
                 b.instructions.iter().any(|(_, i, _)| {
                     matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending")
+                        || Self::usa_campos_em_linha(i)
                 })
             });
 
@@ -634,23 +635,27 @@ impl<'a> LlvmEmitter<'a> {
                             self.out,
                             "  %v{v} = call i64 @dartforge_object_new(i64 {class_id}, i64 {count})"
                         ).unwrap();
+                        // Os campos em linha, pela tabela de campos (o objeto
+                        // é novo: nenhum outro código o vê antes disto).
+                        if !fields.is_empty() {
+                            self.emitir_endereco_dos_campos(v, &format!("%v{v}"));
+                        }
                         for (idx, field) in fields.iter().enumerate() {
                             // E1: `is_ref` pela representação do valor.
                             let is_ref = u8::from(self.tipo_de(field) == Type::Ref);
                             let sf = self.coagir(field, Type::I64);
-                            writeln!(
-                                self.out,
-                                "  call void @dartforge_object_set(i64 %v{v}, i64 {idx}, i64 {sf}, i8 {is_ref})"
-                            ).unwrap();
+                            writeln!(self.out, "  %fg{v}.{idx} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {idx}, i32 0").unwrap();
+                            writeln!(self.out, "  store i64 {sf}, ptr %fg{v}.{idx}, align 8").unwrap();
+                            writeln!(self.out, "  %fr{v}.{idx} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {idx}, i32 1").unwrap();
+                            writeln!(self.out, "  store i8 {is_ref}, ptr %fr{v}.{idx}, align 8").unwrap();
                         }
                     }
                     // O campo em linha: o par `(bits, is_ref)` de 16 bytes no
-                    // endereço que `dartforge_object_campos` dá (o layout é
-                    // conferido no runtime, `nucleo.rs`).
+                    // endereço que a tabela de campos do heap dá (o layout é
+                    // conferido no runtime, `heap.rs`).
                     Instruction::GetField { object, index } if (*index as usize) < CAMPOS_EM_LINHA => {
                         let so = self.coagir(object, Type::I64);
-                        writeln!(self.out, "  %fc{v} = call i64 @dartforge_object_campos(i64 {so})").unwrap();
-                        writeln!(self.out, "  %fp{v} = inttoptr i64 %fc{v} to ptr").unwrap();
+                        self.emitir_endereco_dos_campos(v, &so);
                         writeln!(self.out, "  %fg{v} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {index}, i32 0").unwrap();
                         writeln!(self.out, "  %v{v} = load i64, ptr %fg{v}, align 8").unwrap();
                     }
@@ -665,8 +670,7 @@ impl<'a> LlvmEmitter<'a> {
                         let is_ref = u8::from(self.tipo_de(value) == Type::Ref);
                         let so = self.coagir(object, Type::I64);
                         let sv = self.coagir(value, Type::I64);
-                        writeln!(self.out, "  %fc{v} = call i64 @dartforge_object_campos(i64 {so})").unwrap();
-                        writeln!(self.out, "  %fp{v} = inttoptr i64 %fc{v} to ptr").unwrap();
+                        self.emitir_endereco_dos_campos(v, &so);
                         writeln!(self.out, "  %fg{v} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {index}, i32 0").unwrap();
                         writeln!(self.out, "  store i64 {sv}, ptr %fg{v}, align 8").unwrap();
                         writeln!(self.out, "  %fr{v} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {index}, i32 1").unwrap();
@@ -716,8 +720,7 @@ impl<'a> LlvmEmitter<'a> {
                     {
                         let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1) else { unreachable!() };
                         let so = self.coagir(&args[0].0, Type::I64);
-                        writeln!(self.out, "  %fc{v} = call i64 @dartforge_object_campos(i64 {so})").unwrap();
-                        writeln!(self.out, "  %fp{v} = inttoptr i64 %fc{v} to ptr").unwrap();
+                        self.emitir_endereco_dos_campos(v, &so);
                         writeln!(self.out, "  %fg{v} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {i}, i32 0").unwrap();
                         writeln!(self.out, "  %v{v} = load i64, ptr %fg{v}, align 8").unwrap();
                     }
@@ -740,8 +743,7 @@ impl<'a> LlvmEmitter<'a> {
                                 format!("%fz{v}")
                             }
                         };
-                        writeln!(self.out, "  %fc{v} = call i64 @dartforge_object_campos(i64 {so})").unwrap();
-                        writeln!(self.out, "  %fp{v} = inttoptr i64 %fc{v} to ptr").unwrap();
+                        self.emitir_endereco_dos_campos(v, &so);
                         writeln!(self.out, "  %fg{v} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {i}, i32 0").unwrap();
                         writeln!(self.out, "  store i64 {sv}, ptr %fg{v}, align 8").unwrap();
                         writeln!(self.out, "  %fr{v} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {i}, i32 1").unwrap();
@@ -2219,6 +2221,42 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
+
+    /// O endereço dos campos do objeto `so` (`%fp{v}`), lido em linha da
+    /// tabela de campos do heap (`Contexto::tabela`, deslocamentos 40 e 48
+    /// do contexto da thread; `crates/runtime/src/heap.rs`): a posição é o
+    /// handle girado um bit à direita (`h >> 1`, com o bit do `Smi` no topo),
+    /// e qualquer posição fora da tabela — `Smi`, negativo — vira a 0, a de
+    /// null, que dá os campos vazios, como `dartforge_object_campos` dava.
+    /// As cargas da tabela não passam de uma chamada: ela cresce (e muda de
+    /// endereço) quando o heap aloca.
+    fn emitir_endereco_dos_campos(&mut self, v: u32, so: &str) {
+        let o = &mut self.out;
+        writeln!(o, "  %fta{v} = getelementptr inbounds i8, ptr %ctx, i64 40").unwrap();
+        writeln!(o, "  %ftb{v} = load ptr, ptr %fta{v}, align 8").unwrap();
+        writeln!(o, "  %ftn{v} = getelementptr inbounds i8, ptr %ctx, i64 48").unwrap();
+        writeln!(o, "  %ftm{v} = load i64, ptr %ftn{v}, align 8").unwrap();
+        writeln!(o, "  %fth{v} = lshr i64 {so}, 1").unwrap();
+        writeln!(o, "  %ftl{v} = shl i64 {so}, 63").unwrap();
+        writeln!(o, "  %fti{v} = or i64 %fth{v}, %ftl{v}").unwrap();
+        writeln!(o, "  %fto{v} = icmp ult i64 %fti{v}, %ftm{v}").unwrap();
+        writeln!(o, "  %fts{v} = select i1 %fto{v}, i64 %fti{v}, i64 0").unwrap();
+        writeln!(o, "  %fte{v} = getelementptr inbounds ptr, ptr %ftb{v}, i64 %fts{v}").unwrap();
+        writeln!(o, "  %fp{v} = load ptr, ptr %fte{v}, align 8").unwrap();
+    }
+
+    /// A instrução lê ou grava campos em linha (e precisa de `%ctx`).
+    fn usa_campos_em_linha(inst: &Instruction) -> bool {
+        match inst {
+            Instruction::GetField { index, .. } | Instruction::SetField { index, .. } => (*index as usize) < CAMPOS_EM_LINHA,
+            Instruction::AllocObject { fields, .. } => !fields.is_empty(),
+            Instruction::CallRuntime { name, args, .. } => {
+                (name == "dartforge_object_get" || (name == "dartforge_object_set" && args.len() == 4))
+                    && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..CAMPOS_EM_LINHA as i64).contains(i))
+            }
+            _ => false,
+        }
+    }
     /// Tipo estatico de um operando dentro da funcao corrente.
     /// A instrução pode alocar (e, portanto, coletar)? Conservador: só não
     /// coleta o que comprovadamente emite só aritmética, memória local ou
