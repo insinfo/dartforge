@@ -600,3 +600,37 @@ fn sobrescritas_invalidas_do_corpus() {
         ]
     );
 }
+
+/// `getter_not_subtype_setter_types` (`types::sobrescritas::getters_e_setters`):
+/// topo, estático e a interface (o getter herdado leva o nome da classe).
+#[test]
+fn getter_e_setter_de_tipos_incompativeis() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = "int get a => 0;\nset a(String v) {}\nget b => 0;\nset b(int v) {}\nclass A {\n  static num get s => 0;\n  static set s(int v) {}\n  int get foo => 0;\n}\nclass B extends A {\n  set foo(String v) {}\n}\n";
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = dartforge_elements::load::load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let lib = prog.entry.unwrap();
+    let classes: Vec<ClassId> =
+        (0..prog.classes.len()).map(|i| ClassId(i as u32)).filter(|c| prog.class(*c).library == lib).collect();
+    let mut v: Vec<(String, String)> =
+        dartforge_types::sobrescritas::getters_e_setters(&prog, &interner, &mut table, &core, &outline, lib, &classes)
+            .into_iter()
+            .map(|(_, d)| (fonte[d.span.start..d.span.end].to_string(), d.message))
+            .collect();
+    v.sort();
+    assert_eq!(
+        v,
+        vec![
+            ("a".to_string(), "The return type of getter 'a' is 'int' which isn't a subtype of the type 'String' of its setter 'a'.".to_string()),
+            ("b".to_string(), "The return type of getter 'b' is 'dynamic' which isn't a subtype of the type 'int' of its setter 'b'.".to_string()),
+            ("foo".to_string(), "The return type of getter 'A.foo' is 'int' which isn't a subtype of the type 'String' of its setter 'foo'.".to_string()),
+            ("s".to_string(), "The return type of getter 's' is 'num' which isn't a subtype of the type 'int' of its setter 's'.".to_string()),
+        ]
+    );
+}

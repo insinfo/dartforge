@@ -566,7 +566,15 @@ fn nome_de(program: &Program, f: FunctionElementId) -> Option<(UnitId, Span)> {
                 DeclKind::Variables(vl) => Some((unit, vl.variables.get(index)?.name.span)),
                 _ => None,
             },
-            _ => None,
+            VariableRef::EnumConstant { unit, decl, index } => match &program.unit(unit).ast.decl(decl).kind {
+                DeclKind::Enum(d) => Some((unit, d.constants.get(index)?.name.span)),
+                _ => None,
+            },
+            VariableRef::Representation { unit, decl } => match &program.unit(unit).ast.decl(decl).kind {
+                DeclKind::ExtensionType(d) => Some((unit, d.representation_name.span)),
+                _ => None,
+            },
+            VariableRef::None => None,
         },
         FunctionRef::Constructor { .. } => None,
     }
@@ -581,14 +589,35 @@ impl Ctx<'_> {
         let func = self.program.function(f);
         let dados = self.outline.functions.get(f.0 as usize)?;
         match func.node {
-            FunctionRef::Function { .. } => {
-                if getter {
-                    Some(dados.return_type)
+            FunctionRef::Function { unit, function } => {
+                let af = &self.program.unit(unit).ast.functions[function.0 as usize];
+                let (escrito, t) = if getter {
+                    (af.return_type, dados.return_type)
                 } else {
-                    dados.parameters.first().map(|p| p.ty)
+                    (af.parameters.as_deref().and_then(|p| p.first()).and_then(|p| p.ty), dados.parameters.first()?.ty)
+                };
+                // Tipo escrito que não resolve (`InvalidType` no analyzer, que
+                // é subtipo de tudo e aceita tudo): não se decide.
+                if let Some(e) = escrito
+                    && t == self.core.dynamic_
+                    && !matches!(&self.program.unit(unit).ast.ty(e).kind,
+                        ast::TypeKind::Named { name, .. } if name.len() == 1 && self.interner.resolve(name[0].sym) == "dynamic")
+                {
+                    return None;
+                }
+                Some(t)
+            }
+            FunctionRef::None => {
+                let v = func.variable?;
+                let dados_v = self.outline.variables.get(v.0 as usize)?;
+                match self.program.variable(v).node {
+                    // Constante de enum e representação: o tipo é conhecido.
+                    VariableRef::EnumConstant { .. } | VariableRef::Representation { .. } => {
+                        dados_v.declared_type.or(dados_v.inferred)
+                    }
+                    _ => dados_v.declared_type,
                 }
             }
-            FunctionRef::None => self.outline.variables.get(func.variable?.0 as usize)?.declared_type,
             FunctionRef::Constructor { .. } => None,
         }
     }
@@ -616,6 +645,7 @@ pub fn getters_e_setters(
     enum Recipiente {
         Unidade(UnitId),
         Classe(ClassId),
+        Instancia(ClassId),
         Extensao(u32),
     }
     let mut grupos: HashMap<(Recipiente, SymbolId), (Vec<FunctionElementId>, Vec<FunctionElementId>)> = HashMap::new();
@@ -661,9 +691,17 @@ pub fn getters_e_setters(
         let recipiente = match (f.class, f.extension) {
             (_, Some(e)) => Recipiente::Extensao(e.0),
             (Some(c), None) if f.static_ => match program.class(c).kind {
-                dartforge_elements::model::ClassKind::Class | dartforge_elements::model::ClassKind::Enum => Recipiente::Classe(c),
+                dartforge_elements::model::ClassKind::Class
+                | dartforge_elements::model::ClassKind::Enum
+                | dartforge_elements::model::ClassKind::ExtensionType => Recipiente::Classe(c),
                 _ => continue,
             },
+            // Membros de instância de tipo de extensão: os declarados nele
+            // (`checkExtensionType`, a parte da interface que ele mesmo
+            // declara), com a representação.
+            (Some(c), None) if program.class(c).kind == dartforge_elements::model::ClassKind::ExtensionType => {
+                Recipiente::Instancia(c)
+            }
             (Some(_), None) => continue,
             (None, None) => match nome_de(program, id) {
                 Some((u, _)) => Recipiente::Unidade(u),
@@ -683,7 +721,11 @@ pub fn getters_e_setters(
             let mut env = SubtypeEnv::new(cx.table, &outline.hierarchy, core);
             is_subtype(tg, ts, &mut env)
         };
-        if !ok && let Some((u, span)) = nome_de(program, *g) {
+        // Num tipo de extensão, o getter da representação cede o lugar ao setter.
+        let representacao = matches!(k.0, Recipiente::Instancia(_))
+            && program.function(*g).variable.is_some_and(|v| matches!(program.variable(v).node, VariableRef::Representation { .. }));
+        let lugar = if representacao { nome_de(program, *s) } else { nome_de(program, *g) };
+        if !ok && let Some((u, span)) = lugar {
             let nome = interner.resolve(k.1).to_string();
             let args = [nome.clone(), formatar(cx.table, tg, interner, program), formatar(cx.table, ts, interner, program), nome];
             saida.push((u, Diagnostic::com_codigo(c::GETTER_NOT_SUBTYPE_SETTER_TYPES, span, args)));

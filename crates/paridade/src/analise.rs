@@ -493,13 +493,28 @@ impl Motor {
         // prova de nome indefinido. Os códigos de resolução de nome saem só
         // de arquivos sem erro de sintaxe (depois dos imports, que usam
         // esses diagnósticos para a supressão deles).
-        for a in analise.arquivos.values_mut() {
+        // Os códigos que comparam declarações entre si (tipos de getter e
+        // setter) saem de uma linha em que o parser se recuperou: a
+        // declaração ali não é a do analyzer.
+        let fontes: HashMap<PathBuf, &str> = program
+            .units
+            .iter()
+            .filter_map(|u| u.path.as_ref().map(|p| (chave(p), u.source.as_str())))
+            .collect();
+        for (k, a) in analise.arquivos.iter_mut() {
             if a.diags[..a.sintaticos].iter().any(recuperacao_do_parser) {
                 let n = a.sintaticos;
+                let erros: Vec<usize> =
+                    a.diags[..n].iter().filter(|d| recuperacao_do_parser(d)).map(|d| d.span.start).collect();
+                let fonte = fontes.get(k).copied().unwrap_or("");
+                let linha = |pos: usize| fonte.get(..pos).map_or(0, |t| t.matches('\n').count());
                 let mut i = 0;
                 a.diags.retain(|d| {
                     i += 1;
-                    i <= n || !d.code.is_some_and(|c| depende_de_declaracoes(c.info().nome))
+                    let Some(c) = d.code.map(|c| c.info().nome) else { return true };
+                    i <= n
+                        || !(depende_de_declaracoes(c)
+                            || depende_da_linha(c) && erros.iter().any(|&e| linha(e) == linha(d.span.start)))
                 });
             }
         }
@@ -584,6 +599,12 @@ fn depende_de_declaracoes(codigo: &str) -> bool {
             | "undefined_operator"
             | "not_a_type"
     )
+}
+
+/// Códigos que comparam declarações (getter e setter): não saem de uma linha
+/// em que o parser se recuperou.
+fn depende_da_linha(codigo: &str) -> bool {
+    matches!(codigo, "getter_not_subtype_setter_types")
 }
 
 /// `(unidade, intervalo do inicializador)` das variáveis fora do SDK, na
