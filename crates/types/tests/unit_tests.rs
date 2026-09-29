@@ -634,3 +634,36 @@ fn getter_e_setter_de_tipos_incompativeis() {
         ]
     );
 }
+
+/// `types::sobrescritas::membros_abstratos`: membro abstrato em classe
+/// concreta, herdados sem implementação (ordenados, com `getter`), a
+/// superclasse concreta que já os deixa de fora, e o `noSuchMethod`.
+#[test]
+fn membros_abstratos_em_classe_concreta() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = "abstract class I {\n  int get g;\n  void m();\n}\nclass A {\n  void f();\n}\nclass B implements I {}\nclass C extends B {}\nclass D implements I {\n  noSuchMethod(i) => null;\n}\n";
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = dartforge_elements::load::load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let lib = prog.entry.unwrap();
+    let classes: Vec<ClassId> =
+        (0..prog.classes.len()).map(|i| ClassId(i as u32)).filter(|c| prog.class(*c).library == lib).collect();
+    let mut v: Vec<(String, String)> =
+        dartforge_types::sobrescritas::membros_abstratos(&prog, &interner, &mut table, &core, &outline, &classes)
+            .into_iter()
+            .map(|(_, d)| (fonte[d.span.start..d.span.end].to_string(), d.message))
+            .collect();
+    v.sort();
+    assert_eq!(
+        v,
+        vec![
+            ("B".to_string(), "Missing concrete implementations of 'I.m' and 'getter I.g'.".to_string()),
+            ("void f();".to_string(), "'f' must have a method body because 'A' isn't abstract.".to_string()),
+        ]
+    );
+}

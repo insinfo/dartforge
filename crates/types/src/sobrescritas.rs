@@ -185,12 +185,15 @@ impl Ctx<'_> {
         let mut candidatos: Vec<(Achado, TypeId)> = Vec::new();
         // Superclasse, com os mixins por cima.
         let mut lado_super: Option<(Achado, TypeId)> = None;
-        if let Some(sc) = classe.supertype_class
+        if let Some(sc) = self.superclasse(d)
             && let Some(st) = visto(self, sc)
         {
             lado_super = self.na_interface(st, chave, prof + 1);
         }
         for &m in &classe.mixin_classes {
+            if self.fora_da_hierarquia(d, m) {
+                continue;
+            }
             let Some(mt) = visto(self, m) else { return None };
             if let Some(x) = self.na_interface(mt, chave, prof + 1) {
                 match lado_super {
@@ -201,6 +204,11 @@ impl Ctx<'_> {
         }
         candidatos.extend(lado_super);
         for &i in classe.interface_classes.iter().chain(classe.on_classes.iter()) {
+            // Enum e tipo de extensão não entram nas interfaces de uma classe
+            // (`implements_non_class`).
+            if self.fora_da_hierarquia(d, i) {
+                continue;
+            }
             let Some(it) = visto(self, i) else { return None };
             if let Some(x) = self.na_interface(it, chave, prof + 1)
                 && !candidatos.iter().any(|c| c.0 == x.0)
@@ -516,6 +524,13 @@ pub fn sobrescritas_invalidas(
         match (dados.supertype, classe.kind) {
             (Some(t), _) => supers.push(t),
             (None, dartforge_elements::model::ClassKind::Class) => supers.push(core.object),
+            (None, dartforge_elements::model::ClassKind::Enum) => {
+                if let (Some(e), Some(este)) = (cx.classe_do_core("Enum"), cx.tipo_proprio(cid))
+                    && let Some(t) = outline.hierarchy.supertype_of(este, e, cx.table, core)
+                {
+                    supers.push(t);
+                }
+            }
             _ => {}
         }
         supers.extend(dados.on.iter().copied());
@@ -534,6 +549,10 @@ pub fn sobrescritas_invalidas(
             supers.push(mt);
         }
         supers.extend(dados.interfaces.iter().copied());
+        supers.retain(|&t| match cx.table.get(t) {
+            Type::Interface { class, .. } => !cx.fora_da_hierarquia(cid, *class),
+            _ => true,
+        });
         for (f, span) in declarados(cid) {
             let Some(tipo) = outline.functions.get(f.0 as usize).map(|d| d.signature) else { continue };
             let conf = Conferencia { funcao: f, tipo, declarante: cid, span };
@@ -838,6 +857,13 @@ impl Ctx<'_> {
     /// acessor de campo que não é `abstract`.
     fn concreto(&self, f: FunctionElementId) -> bool {
         let func = self.program.function(f);
+        // O `index` do `Enum` conta como implementado (`ElementBuilder`).
+        if let Some(c) = func.class
+            && self.interner.resolve(func.name) == "index"
+            && Some(c) == self.classe_do_core("Enum")
+        {
+            return true;
+        }
         match func.node {
             FunctionRef::Function { unit, function } => {
                 let af = &self.program.unit(unit).ast.functions[function.0 as usize];
@@ -868,14 +894,48 @@ impl Ctx<'_> {
         {
             return Some(Achado { dono: d, funcao: f });
         }
+        // `_addMixinMembers`: o `implemented` do mixin inteiro, menos o que
+        // vem de `Object`.
         for &m in classe.mixin_classes.iter().rev() {
-            if let Some(&f) = self.program.class(m).instance_members.get(&chave)
-                && self.concreto(f)
+            if let Some(a) = self.implementado(m, chave, prof + 1)
+                && !self.de_object(a.dono)
             {
-                return Some(Achado { dono: m, funcao: f });
+                return Some(a);
             }
         }
-        self.implementado(classe.supertype_class?, chave, prof + 1)
+        self.implementado(self.superclasse(d)?, chave, prof + 1)
+    }
+
+    /// `InterfaceElement.supertype`: a do modelo, e `Enum` num enum
+    /// (`LibraryBuilder.buildEnumChildren`).
+    fn superclasse(&self, d: ClassId) -> Option<ClassId> {
+        let classe = self.program.class(d);
+        match classe.supertype_class {
+            Some(s) => Some(s),
+            None if classe.kind == dartforge_elements::model::ClassKind::Enum => self.classe_do_core("Enum"),
+            None => None,
+        }
+    }
+
+    /// O supertipo `s` de `d` é enum ou tipo de extensão numa classe, mixin
+    /// ou enum (o analyzer o descarta da cláusula).
+    fn fora_da_hierarquia(&self, d: ClassId, s: ClassId) -> bool {
+        use dartforge_elements::model::ClassKind as K;
+        self.program.class(d).kind != K::ExtensionType && matches!(self.program.class(s).kind, K::Enum | K::ExtensionType)
+    }
+
+    fn de_object(&self, c: ClassId) -> bool {
+        let classe = self.program.class(c);
+        self.interner.resolve(classe.name) == "Object" && self.program.library(classe.library).uri == "dart:core"
+    }
+
+    fn classe_do_core(&self, nome: &str) -> Option<ClassId> {
+        let lib = self.program.core?;
+        let sym = self.interner.lookup(nome)?;
+        match self.program.library(lib).declared.get(&sym)?.getter? {
+            dartforge_elements::model::Element::Class(c) => Some(c),
+            _ => None,
+        }
     }
 
     /// Todas as chaves de membros de instância de `c` e dos supertipos.
@@ -883,6 +943,9 @@ impl Ctx<'_> {
         let mut v: Vec<SymbolId> = Vec::new();
         let supers = self.outline.hierarchy.get(c).map(|d| d.supertypes.keys().copied().collect::<Vec<_>>()).unwrap_or_default();
         for s in std::iter::once(c).chain(supers) {
+            if s != c && self.fora_da_hierarquia(c, s) {
+                continue;
+            }
             for &k in self.program.class(s).instance_members.keys() {
                 if !v.contains(&k) {
                     v.push(k);
@@ -931,6 +994,23 @@ pub fn membros_abstratos(
             _ => continue,
         };
         let e_enum = classe.kind == dartforge_elements::model::ClassKind::Enum;
+        // Membro de `augment`, ou método cujo nome vem depois de `.` (um
+        // construtor com o nome da classe errado): a recuperação do parser
+        // difere da do analyzer e a classe não se decide.
+        let recuperado = membros.iter().any(|&m| {
+            let membro = ast_.member(m);
+            membro.augment
+                || matches!(&membro.kind, MemberKind::Method(f)
+                    if ast_.function(*f).name.is_some_and(|n| fonte[..n.span.start].trim_end().ends_with('.')))
+        });
+        // A palavra `augment` no começo de um membro, sem o experimento, é
+        // lida de outro jeito pelo parser do analyzer.
+        let sp = ast_.decl(decl.decl).span;
+        let texto_decl = fonte.get(sp.start..sp.end).unwrap_or("");
+        let augment_no_texto = texto_decl.lines().any(|l| l.trim_start().starts_with("augment "));
+        if recuperado || augment_no_texto || ast_.decl(decl.decl).augment {
+            continue;
+        }
         let Some(este) = cx.tipo_proprio(cid) else { continue };
         // `noSuchMethod` implementado que não é o de `Object`: encaminha.
         if let Some(n) = nsm
@@ -985,7 +1065,14 @@ pub fn membros_abstratos(
                         MemberKind::Constructor(_) => false,
                     });
                     if let Some(&m) = declarado {
-                        let sp = ast_.member(m).span;
+                        let mut sp = ast_.member(m).span;
+                        // `var get a;`: o `var` (erro de sintaxe) fica fora do nó.
+                        if let MemberKind::Method(_) = &ast_.member(m).kind
+                            && let Some(resto) = fonte[sp.start..sp.end].strip_prefix("var")
+                            && resto.starts_with(char::is_whitespace)
+                        {
+                            sp.start = sp.end - resto.trim_start().len();
+                        }
                         let span = Span { start: inicio_com_documentacao(fonte, sp.start), end: sp.end };
                         let codigo = if e_enum { c::ENUM_WITH_ABSTRACT_MEMBER } else { c::CONCRETE_CLASS_WITH_ABSTRACT_MEMBER };
                         saida.push((decl.unit, Diagnostic::com_codigo(codigo, span, [exibido.as_str(), interner.resolve(classe.name)])));
@@ -1016,7 +1103,9 @@ pub fn membros_abstratos(
                         continue;
                     }
                     let Some(tipo_concreto) = cx.tipo_visto(este, concreto) else { continue };
-                    let (pos, nomes) = cx.covariantes_efetivos(concreto.dono, concreto.funcao, chave);
+                    // `_inheritCovariance`: a covariância vem de todos os
+                    // membros homônimos na hierarquia da classe.
+                    let (pos, nomes) = cx.covariantes_efetivos(cid, concreto.funcao, chave);
                     let para_sub = cx.para_subtipo(tipo_concreto, &pos, &nomes);
                     let ok = {
                         let mut env = SubtypeEnv::new(cx.table, &outline.hierarchy, core);

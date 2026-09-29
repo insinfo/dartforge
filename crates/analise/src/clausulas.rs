@@ -1076,6 +1076,15 @@ pub fn verificador_de_heranca_prossegue(programa: &Program, lib: LibraryId, nome
                 }
             }
         }
+        // `verify()`: classe concreta com `Enum` entre os supertipos
+        // (transitivos) relata `concrete_class_has_enum_superinterface` e para.
+        if classe.kind != ClassKind::Enum && classe.kind != ClassKind::Mixin && !classe.modifiers.abstract_ && !classe.modifiers.sealed {
+            let mut todos = Vec::new();
+            supertipos(&l, id, &mut todos);
+            if todos.iter().any(|&s| s != id && l.e_enum_do_core(s)) {
+                erro = true;
+            }
+        }
         if erro {
             continue;
         }
