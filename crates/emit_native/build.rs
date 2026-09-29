@@ -66,6 +66,17 @@ fn precompilar_runtime() {
     let alvo = std::env::var("TARGET").expect("TARGET");
     let windows = alvo.contains("windows");
     let pular = std::env::var("DARTFORGE_RUNTIME_SEM_PRECOMPILAR").is_ok_and(|v| v == "1");
+    // macOS: o C das dependências (zlib, `ring`) sai para o mesmo mínimo que
+    // o `ld64.lld` declara no executável (`ligador_macos.rs`); sem isto o
+    // `cc` usa o do SDK da máquina (26.x), e o programa poderia chamar o que
+    // um macOS mais antigo não tem.
+    println!("cargo::rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET");
+    let minimo_macos = alvo.contains("apple-darwin").then(|| {
+        std::env::var("MACOSX_DEPLOYMENT_TARGET")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| if alvo.starts_with("aarch64") { "11.0" } else { "10.12" }.to_string())
+    });
 
     let mut fontes = Vec::new();
     for d in ["../runtime/src", "../runtime_estatico/src"] {
@@ -88,6 +99,10 @@ fn precompilar_runtime() {
         h.update(b"\0");
         h.update(feature.as_bytes());
         h.update(b"\0");
+        if let Some(m) = &minimo_macos {
+            h.update(m.as_bytes());
+            h.update(b"\0");
+        }
         for f in &fontes {
             let rel = f.strip_prefix(raiz).unwrap_or(f).to_string_lossy().replace('\\', "/");
             h.update(rel.as_bytes());
@@ -130,6 +145,9 @@ fn precompilar_runtime() {
         let ws = workspace.canonicalize().unwrap_or_else(|_| workspace.clone());
         bandeiras.push_str(&format!("--remap-path-prefix={}=dartforge", ws.display()));
         cmd.env("CARGO_ENCODED_RUSTFLAGS", bandeiras).env_remove("RUSTFLAGS");
+        if let Some(m) = &minimo_macos {
+            cmd.env("MACOSX_DEPLOYMENT_TARGET", m);
+        }
         let status = cmd.status().expect("executar o cargo do build");
         assert!(status.success(), "a compilação do runtime ({feature}) para {alvo} falhou");
         let produzido = dir_alvo.join(&alvo).join("release").join(arquivo_do_cargo);

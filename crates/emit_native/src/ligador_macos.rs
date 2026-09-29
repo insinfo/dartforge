@@ -611,7 +611,8 @@ pub fn ligar(ld: &Path, sysroot: &SysrootMacos, l: &Ligacao<'_>) -> Result<(), S
         // muitos objetos, os avisos de versão mínima escondiam o erro.
         let (erros, avisos): (Vec<&str>, Vec<&str>) =
             texto.lines().filter(|l| !l.trim().is_empty()).partition(|l| !l.contains("warning:"));
-        let linhas: Vec<&str> = erros.into_iter().chain(avisos).take(40).collect();
+        let n_avisos = 40usize.saturating_sub(erros.len());
+        let linhas: Vec<&str> = erros.into_iter().chain(avisos.into_iter().take(n_avisos)).collect();
         return Err(format!("o ld64.lld falhou na ligação ({}):\n{}", saida.status, linhas.join("\n")));
     }
     Ok(())
@@ -721,13 +722,17 @@ mod testes {
         assert!(faltam.is_empty(), "não exportados pelo SDK: {faltam:#?}");
     }
 
-    /// As duas `staticlib` do runtime **inteiras** (`-all_load`: todo membro,
-    /// não só o que um programa puxa) ligam só com os `.tbd` gerados: a `aot`
-    /// (com o `main`) como executável e a `dll` como biblioteca dinâmica. O
-    /// único nome de fora, o `dartforge_entry` do código gerado, vem de um
-    /// objeto C. Um nome fora de [`BIBLIOTECAS_DO_SISTEMA`] faz o `ld64.lld`
-    /// recusar a ligação, e a mensagem dele diz qual. (O `nm` da Apple não lê
-    /// o bitcode do LLVM do dartforge que vai nas `staticlib`.)
+    /// As duas `staticlib` do runtime ligam só com os `.tbd` gerados, com
+    /// tudo o que um programa pode puxar delas: cada nome que o código gerado
+    /// chama (`dartforge_runtime::simbolos::NOMES`, como a biblioteca do SDK
+    /// da fonte em `sdk_modulo.rs`) é exigido com `-u`. A `aot` (com o `main`)
+    /// vira executável e a `dll`, biblioteca dinâmica; o `dartforge_entry` do
+    /// código gerado vem de um objeto C. Um nome fora de
+    /// [`BIBLIOTECAS_DO_SISTEMA`] faz o `ld64.lld` recusar a ligação, e a
+    /// mensagem dele lista todos (`--error-limit=0`). (O `nm` da Apple não lê
+    /// o bitcode do LLVM do dartforge que vai nas `staticlib`; e o
+    /// `-all_load` exigiria até o que nenhum programa liga, como o
+    /// SecureTransport do `security_framework`.)
     #[cfg(target_os = "macos")]
     #[test]
     fn runtime_so_usa_simbolos_da_lista() {
@@ -736,8 +741,7 @@ mod testes {
         gerar(&dir.path().join("sysroot"), Arquitetura::do_hospedeiro()).unwrap();
         let sysroot = SysrootMacos { raiz: dir.path().join("sysroot"), versao: String::new() };
         let c = dir.path().join("entrada.c");
-        std::fs::write(&c, "void dartforge_entry(void) {}
-").unwrap();
+        std::fs::write(&c, "void dartforge_entry(void) {}\n").unwrap();
         let obj = dir.path().join("entrada.o");
         let status = Command::new(&clang).arg("-c").arg(&c).arg("-o").arg(&obj).status().expect("executar o Clang");
         assert!(status.success(), "o Clang não compilou {}", c.display());
@@ -753,11 +757,15 @@ mod testes {
         ];
         for (lib, produto, saida) in casos {
             let lib = lib.expect("runtime pré-compilado").lib_path;
-            let entradas = vec![obj.clone(), PathBuf::from("-all_load"), lib];
+            let mut entradas = vec![PathBuf::from("--error-limit=0"), obj.clone()];
+            for n in dartforge_runtime::simbolos::NOMES.iter().filter(|n| **n != "main") {
+                entradas.push(PathBuf::from("-u"));
+                entradas.push(PathBuf::from(format!("_{n}")));
+            }
+            entradas.push(lib);
             let l = Ligacao { produto, entradas, rpath_executavel: false, lto: false, podar: false, manter_depuracao: false, saida };
             if let Err(e) = ligar(&ld64_lld(&clang), &sysroot, &l) {
-                panic!("o runtime usa nomes fora de BIBLIOTECAS_DO_SISTEMA:
-{e}");
+                panic!("o runtime usa nomes fora de BIBLIOTECAS_DO_SISTEMA:\n{e}");
             }
         }
         // O executável roda (só o `dartforge_entry` vazio).
