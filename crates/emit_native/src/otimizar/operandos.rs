@@ -114,6 +114,11 @@ macro_rules! visitar {
                     f(args);
                     f(desc);
                 }
+                Instruction::CallSeletorRepasse { recv, args, desc, .. } => {
+                    f(recv);
+                    f(args);
+                    f(desc);
+                }
                 Instruction::ChamadaNativa { alvo, args, .. } => {
                     f(alvo);
                     args.$nome_t().for_each(|(a, _)| f(a));

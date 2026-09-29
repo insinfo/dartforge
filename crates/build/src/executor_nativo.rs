@@ -356,12 +356,16 @@ impl ExecutorNativo {
         );
         // O SDK que o analyzer dos builders lê (o resumo do SDK,
         // `pacotes/build_executor`): a raiz do `lib/` com que se compila.
+        // Remontada pelos componentes: o `buildSdkSummary` do analyzer exige
+        // caminho normalizado do sistema (`C:/sdk` no Windows é recusado com
+        // "Path must be normalized", também na VM), e `--sdk`/
+        // `DARTFORGE_SDK_LIB` podem chegar com `/`.
         if let Some(raiz) = self
             .cfg
             .sdk_lib
             .clone()
             .or_else(dartforge_elements::sdk::SdkLayout::discover)
-            .and_then(|l| l.parent().map(Path::to_path_buf))
+            .and_then(|l| l.parent().map(|p| p.components().collect::<PathBuf>()))
         {
             cmd.env("DARTFORGE_DART_SDK", raiz);
         }

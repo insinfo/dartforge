@@ -984,12 +984,41 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::Ref,
             );
             let receptor = e.emit(Instruction::EnvGet { env, index: 0 }, Type::Ref);
-            if let Some(vals) = e.desempacotar(&infos, args, desc) {
-                // A chamada do tear-off é dinâmica: os argumentos conferidos
-                // como na entrada uniforme (" of 'nome'"), com o receptor
-                // guardado no lugar do `this`, antes da chamada direta.
-                // Membro do SDK com uma implementação só: a conferência é a
-                // da entrada dela (os nomes dos parâmetros são os dela).
+            if self.tearoff_pelo_seletor(fid) {
+                // O tear-off é o da implementação que o despacho escolhe
+                // (como na VM): os argumentos são conferidos pelos
+                // parâmetros dela, e os opcionais omitidos ganham os padrões
+                // dela, não os do membro estático. `Def<E>` com
+                // `hash(Object? e)` implementando `Eq<E>.hash(E e)`, tirado
+                // de um `Def<Never>`, aceita qualquer argumento (o
+                // `DefaultEquality<Never>` do `package:collection` no
+                // `SetEquality<String>().equals` do freezed, B01). O vetor
+                // de argumentos, o descritor e a tupla de tipos seguem como
+                // vieram para a entrada da implementação pelo seletor sem o
+                // `t`, a que confere tudo (`entrada_tipada.rs`).
+                let f = &self.ctx.program.functions[fid];
+                let seletor = super::sdk_fonte::texto_seletor(
+                    self.ctx,
+                    super::sdk_fonte::Tipo::Chamar,
+                    self.ctx.symbol_name(f.name),
+                    f.library,
+                );
+                let r = e.emit_call_with_check(
+                    Instruction::CallSeletorRepasse {
+                        seletor,
+                        recv: receptor,
+                        args,
+                        desc,
+                    },
+                    Type::Ref,
+                );
+                e.terminate(Terminator::Return(Some(r)));
+            } else if let Some(vals) = e.desempacotar(&infos, args, desc) {
+                // Implementação única: os argumentos conferidos como na
+                // entrada uniforme (" of 'nome'"), com o receptor guardado
+                // no lugar do `this`, antes da chamada direta. Membro do SDK
+                // com uma implementação só: a conferência é a da entrada
+                // dela (os nomes dos parâmetros são os dela).
                 let conferido = self.implementacao_unica(fid).unwrap_or(fid);
                 let salvo = (e.this_param.replace(receptor.clone()), e.enclosing_class);
                 e.enclosing_class = self.ctx.program.functions[conferido].class;
@@ -1022,6 +1051,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
         self.definir_rti_de_tearoff(c.clone(), fid, Some(recv));
         c
+    }
+
+    /// A entrada do tear-off de `fid` chama pelo seletor em vez de conferir
+    /// os argumentos pelos parâmetros de `fid` e chamar direto: `fid` pode
+    /// não ser a implementação que o receptor executa (membro abstrato ou
+    /// sobrescrito no programa, ou membro aberto do SDK), e uma sobrescrita
+    /// pode alargar o tipo de um parâmetro (`Object?` no lugar do `E` da
+    /// interface). Só no SDK da fonte, onde toda classe tem a tabela de
+    /// seletores.
+    fn tearoff_pelo_seletor(&self, fid: usize) -> bool {
+        use super::sdk_fonte::{Implementacao, implementacoes, membro_fechado};
+        let f = &self.ctx.program.functions[fid];
+        let Some(cid) = f.class else { return false };
+        if f.static_ || !self.ctx.sdk_da_fonte || self.implementacao_unica(fid).is_some() {
+            return false;
+        }
+        let nome = self.ctx.symbol_name(f.name).to_string();
+        !membro_fechado(self.ctx, cid, &nome)
+            || implementacoes(self.ctx, cid, &nome)[..] != [Implementacao::Funcao(fid)]
     }
 
     /// O que um nome sem resolução (corpo de closure) é pelo escopo léxico,

@@ -23,6 +23,7 @@ pub fn instrucao_lanca(inst: &Instruction, nao_lancam: &HashSet<String>) -> bool
         | Instruction::CallDynamic { .. }
         | Instruction::CallClosure { .. }
         | Instruction::CallSeletor { .. }
+        | Instruction::CallSeletorRepasse { .. }
         | Instruction::CallClosureRepasse { .. }
         | Instruction::ChamadaNativa { .. }
         | Instruction::ChamadaTipada { .. }

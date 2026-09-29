@@ -1241,6 +1241,11 @@ pub(crate) fn usos_de(inst: &Instruction) -> Vec<ValueId> {
             op(args);
             op(desc);
         }
+        Instruction::CallSeletorRepasse { recv, args, desc, .. } => {
+            op(recv);
+            op(args);
+            op(desc);
+        }
         Instruction::ChamadaNativa { alvo, args, .. } => {
             op(alvo);
             args.iter().for_each(|(a, _)| op(a));
@@ -1372,6 +1377,11 @@ fn trocar_usos(inst: &mut Instruction, troca: &dyn Fn(ValueId) -> Option<ValueId
         }
         Instruction::CallClosureRepasse { closure, args, desc } => {
             t(closure);
+            t(args);
+            t(desc);
+        }
+        Instruction::CallSeletorRepasse { recv, args, desc, .. } => {
+            t(recv);
             t(args);
             t(desc);
         }

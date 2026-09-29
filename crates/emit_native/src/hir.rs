@@ -432,6 +432,17 @@ pub enum Instruction {
         args: Operand,
         desc: Operand,
     },
+    /// `recv.<seletor>` repassando o vetor de argumentos e o descritor já
+    /// montados (os de uma entrada uniforme, com a tupla de tipos no slot
+    /// depois dos argumentos): a entrada do tear-off de um método chama a
+    /// implementação do receptor, que confere os argumentos e completa os
+    /// opcionais com os padrões dela. Resultado `Ref`.
+    CallSeletorRepasse {
+        seletor: String,
+        recv: Operand,
+        args: Operand,
+        desc: Operand,
+    },
     /// Chamada a uma função nativa (C) no endereço `alvo` (`i64`), com a
     /// ABI C do alvo (`dart:ffi`, `lower/ffi.rs`). Os argumentos vêm na
     /// representação da HIR — inteiros e ponteiros `I64`, ponto flutuante

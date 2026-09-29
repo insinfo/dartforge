@@ -1547,6 +1547,9 @@ impl<'a> LlvmEmitter<'a> {
             Instruction::CallSeletor { seletor, recv, args, nomes, tupla_tipos } => {
                 self.emitir_chamada_por_seletor(v, seletor, recv, args, nomes, tupla_tipos);
             }
+            Instruction::CallSeletorRepasse { seletor, recv, args, desc } => {
+                self.emitir_repasse_por_seletor(v, seletor, recv, args, desc);
+            }
             Instruction::LoadIndexed { base, index } => {
                 let b = self.operand_str(base);
                 let i = self.coagir(index, Type::I64);
@@ -1710,6 +1713,7 @@ impl<'a> LlvmEmitter<'a> {
                     Instruction::LoadGlobal { .. }
                         | Instruction::StoreGlobal { .. }
                         | Instruction::CallSeletor { .. }
+                        | Instruction::CallSeletorRepasse { .. }
                         | Instruction::Const(Constant::String(_) | Constant::StringWtf8(_))
                 )
             })
@@ -2356,6 +2360,7 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::TearOff { .. }
             | Instruction::CallClosure { .. }
             | Instruction::CallSeletor { .. }
+            | Instruction::CallSeletorRepasse { .. }
             | Instruction::CallClosureRepasse { .. } => Type::Ref,
             Instruction::ChamadaNativa { ret, .. } => ret.tipo_hir(),
             Instruction::ChamadaTipada { ret, .. } => *ret,

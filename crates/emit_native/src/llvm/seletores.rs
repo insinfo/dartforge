@@ -83,6 +83,40 @@ impl LlvmEmitter<'_> {
         writeln!(self.out, "  %v{v} = call i64 %sf{v}(i64 {r}, ptr %sargs{v}, ptr @df.arr.{k})").unwrap();
     }
 
+    /// `%v = recv.<seletor>` com o vetor de argumentos e o descritor de uma
+    /// entrada uniforme repassados como vieram (`CallSeletorRepasse`); a
+    /// busca da entrada é a de [`Self::emitir_chamada_por_seletor`].
+    pub(super) fn emitir_repasse_por_seletor(
+        &mut self,
+        v: u32,
+        seletor: &str,
+        recv: &Operand,
+        args: &Operand,
+        desc: &Operand,
+    ) {
+        let r = self.coagir(recv, Type::Ref);
+        let a = self.operand_str(args);
+        let d = self.operand_str(desc);
+        let nome = match self.nomes_de_seletor.iter().position(|s| s == seletor) {
+            Some(j) => j,
+            None => {
+                self.nomes_de_seletor.push(seletor.to_string());
+                self.nomes_de_seletor.len() - 1
+            }
+        };
+        self.caches_de_seletor += 1;
+        let h = hash_seletor(seletor);
+        let slot = self.slot_de_cache();
+        writeln!(self.out, "  %sic{v} = getelementptr i64, ptr %area, i64 {slot}").unwrap();
+        writeln!(
+            self.out,
+            "  %sf{v} = call ptr @df.seletor(ptr %sic{v}, i64 {r}, i64 {h}, ptr @df.seln.{nome}, i64 {})",
+            seletor.len()
+        )
+        .unwrap();
+        writeln!(self.out, "  %v{v} = call i64 %sf{v}(i64 {r}, ptr {a}, ptr {d})").unwrap();
+    }
+
     /// Os nomes das funções do rastro (`DARTFORGE_RASTRO=1`).
     pub(super) fn emitir_nomes_do_rastro(&mut self) {
         for (k, s) in std::mem::take(&mut self.nomes_do_rastro).iter().enumerate() {

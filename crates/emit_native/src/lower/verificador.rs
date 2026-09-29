@@ -223,6 +223,9 @@ fn verificar_instrucao(c: &mut Contexto, inst: &Instruction, ty: Type) {
                 }
             }
         }
+        Instruction::CallSeletorRepasse { recv, .. } => {
+            c.checar_ref("repasse por seletor", recv, Type::Ref);
+        }
         Instruction::CallSeletor { recv, args, tupla_tipos, .. } => {
             c.checar_ref("chamada por seletor", recv, Type::Ref);
             if c.tipo(tupla_tipos) != Type::I64 {
