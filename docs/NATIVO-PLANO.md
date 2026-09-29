@@ -2464,3 +2464,7 @@ instruções/req → `dartforge_typed_cabecalho` 12,6 mil + as visões 4,4 mil).
 não saíam do laço). A cópia de `codeUnits` do `writeHeaders` segue byte a
 byte pelo `CodeUnits.[]` (agora a `$tc`, §9.6): é a semântica do SDK
 (`_CopyingBytesBuilder.add` com uma `List<int>` que não é `Uint8List`).
+
+Medido de novo com o heap de N19 estável (3a54107a, objetos com campos de
+8 bytes e mapa de referências): **902 989 instruções/req** — o total das
+três mudanças de §9.6–§9.8 sobre o ponto de partida fica em −26,3%.
