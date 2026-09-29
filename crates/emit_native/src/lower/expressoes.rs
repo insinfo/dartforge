@@ -904,13 +904,41 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         // Tear-off genérico por um alias que não só repassa os
                         // parâmetros (`typedef F<T> = C<int, T>`): a função
                         // genérica do tipo estático, com o objeto escrito
-                        // nos parâmetros dela.
+                        // nos parâmetros dela — ou, com a instanciação
+                        // implícita que a inferência escolheu (`C<int,
+                        // String> Function() g = F.nome;`), já instanciado.
                         if let Some(tipo) = self.ctx.get_type(self.unit_id, expr_id)
                             && let dartforge_types::table::Type::Function { type_params, ret, .. } = self.ctx.table.get(tipo).clone()
                             && !type_params.is_empty()
                             && let dartforge_types::table::Type::Interface { class: c2, args: a2, .. } = self.ctx.table.get(ret).clone()
                             && c2 == c
                         {
+                            if let Some(inst) = self.ctx.bodies.units[self.unit_id.0 as usize]
+                                .instanciacao_de_tearoff(expr_id)
+                                .map(<[_]>::to_vec)
+                                .filter(|i| i.len() == type_params.len())
+                            {
+                                let mut variaveis = false;
+                                let reais: Vec<String> = inst
+                                    .iter()
+                                    .map(|t| {
+                                        let r = self.receita_de_tipo(*t);
+                                        variaveis |= r.variaveis;
+                                        r.texto
+                                    })
+                                    .collect();
+                                let textos: Vec<String> =
+                                    a2.iter().map(|a| self.receita_de_tipo_com(*a, &type_params, &reais).texto).collect();
+                                let objeto = self.rti_da_receita(&super::rti::Receita {
+                                    texto: format!("C{}<{}>", self.ctx.id_rti(c), textos.join(",")),
+                                    variaveis,
+                                });
+                                let tupla = self.rti_da_receita(&super::rti::Receita {
+                                    texto: format!("L<{}>", textos.join(",")),
+                                    variaveis,
+                                });
+                                return self.tearoff_instanciado_de_construtor(f.0 as usize, objeto, tupla, None, span);
+                            }
                             return self.tearoff_generico_de_construtor(f.0 as usize, c, &type_params, &a2, tipo, span);
                         }
                         let repassa = args.len() == dados.type_params.len()

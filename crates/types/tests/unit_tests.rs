@@ -699,3 +699,40 @@ fn membros_em_conflito_e_valores_padrao() {
         ]
     );
 }
+
+/// `membros_de_enum`: `index`/`hashCode` concretos e `values` numa classe
+/// que implementa `Enum` (corpus `illegal_*`, oráculo 3.6.2).
+#[test]
+fn membros_proibidos_em_quem_implementa_enum() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    fs::write(
+        tmp.path().join("lib/core/core.dart"),
+        "library dart.core;\nclass Object { int get hashCode => 0; }\nclass int {}\nclass num {}\nclass double {}\nclass String {}\nclass bool {}\nclass Null {}\nclass Function {}\nclass Record {}\nclass Iterable<E> {}\nclass List<E> implements Iterable<E> {}\nclass Map<K, V> {}\nabstract class Enum { int get index; }\n",
+    )
+    .unwrap();
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = "abstract class A implements Enum {\n  int get index => 0;\n  int values = 0;\n}\n";
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = dartforge_elements::load::load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let lib = prog.entry.unwrap();
+    let classes: Vec<ClassId> =
+        (0..prog.classes.len()).map(|i| ClassId(i as u32)).filter(|c| prog.class(*c).library == lib).collect();
+    let mut v: Vec<(String, String)> =
+        dartforge_types::sobrescritas::membros_de_enum(&prog, &interner, &mut table, &core, &outline, &classes)
+            .into_iter()
+            .map(|(_, d)| (fonte[d.span.start..d.span.end].to_string(), d.message))
+            .collect();
+    v.sort();
+    assert_eq!(
+        v,
+        vec![
+            ("index".to_string(), "A concrete instance member named 'index' can't be declared in a class that implements 'Enum'.".to_string()),
+            ("values".to_string(), "An instance member named 'values' can't be declared in a class that implements 'Enum'.".to_string()),
+        ]
+    );
+}
