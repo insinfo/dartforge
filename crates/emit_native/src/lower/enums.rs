@@ -144,6 +144,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Ref,
         );
+        // Enum genérico (`a<bool>()`, ou inferido pelo construtor): o valor
+        // guarda o tipo dele (`E<bool>`), como qualquer instância genérica.
+        if self.classe_generica(cid) {
+            let t = super::membros::tipo_da_variavel(self.ctx, vid);
+            if matches!(self.ctx.table.get(t), dartforge_types::table::Type::Interface { class, args, .. }
+                if *class == cid && !args.is_empty())
+            {
+                let r = self.rti_de_tipo(t);
+                self.definir_rti(obj.clone(), r);
+            }
+        }
         // O objeto já é o valor do global (e raiz) antes do construtor: um
         // valor que se refere a si mesmo no construtor lê o objeto.
         self.emit(

@@ -2952,6 +2952,13 @@ pub struct Heap {
     /// `DARTFORGE_GC_VERIFICAR=1`: toda coleta menor confere, por uma
     /// travessia completa, que nenhum jovem alcançável ficou sem marca (uma
     /// barreira de escrita faltando).
+    /// Quanto o heap pode crescer até a próxima coleta completa, em % do que
+    /// sobreviveu à última (200: o dobro; para medir,
+    /// `DARTFORGE_GC_CRESCIMENTO`).
+    crescimento: usize,
+    /// Os bytes entre coletas menores ([`LIMITE_JOVEM`]; para medir,
+    /// `DARTFORGE_GC_JOVEM_KB`).
+    limite_jovem: usize,
     verificar: bool,
     /// `DARTFORGE_GC_RASTRO=1`: uma linha por coleta no stderr (o tipo, os
     /// marcados, a estimativa e o gatilho).
@@ -3039,6 +3046,11 @@ impl Heap {
             trabalho_da_marcacao: 0,
             pending: Vec::new(),
             byte_threshold: 2 * LIMITE_JOVEM,
+            crescimento: std::env::var("DARTFORGE_GC_CRESCIMENTO").ok().and_then(|v| v.parse::<usize>().ok()).map_or(200, |c| c.max(110)),
+            limite_jovem: std::env::var("DARTFORGE_GC_JOVEM_KB")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .map_or(LIMITE_JOVEM, |kb| (kb * 1024).max(64 * 1024)),
             limite_bytes: Self::limite_do_ambiente(),
             enum_values: crate::hash::HashMap::default(),
             tearoffs: crate::hash::HashMap::default(),
@@ -3465,7 +3477,7 @@ impl Heap {
     fn precisa_coletar(&self, bytes: usize) -> bool {
         self.stress
             || self.allocations >= CONTAGEM_JOVEM
-            || self.bytes_jovens + bytes > LIMITE_JOVEM
+            || self.bytes_jovens + bytes > self.limite_jovem
             || self.stats.estimated_bytes.saturating_add(bytes) > self.byte_threshold
             || (self.limite_bytes != usize::MAX && self.bytes_totais(bytes) > self.limite_bytes)
     }
@@ -3500,7 +3512,7 @@ impl Heap {
         }
         let mut k = TLAB_BLOCOS
             .min(CONTAGEM_JOVEM.saturating_sub(self.allocations))
-            .min(LIMITE_JOVEM.saturating_sub(self.bytes_jovens) / tamanho)
+            .min(self.limite_jovem.saturating_sub(self.bytes_jovens) / tamanho)
             .min(self.byte_threshold.saturating_sub(self.stats.estimated_bytes) / tamanho);
         if self.limite_bytes != usize::MAX {
             k = k.min(self.limite_bytes.saturating_sub(self.bytes_totais(0)) / tamanho);
@@ -4585,11 +4597,13 @@ impl Heap {
         // pouco dado vivo, o dobro dele vinha antes do gatilho da coleta
         // menor, e toda coleta era completa (a árvore longa de
         // `objetos_escapam/arvores` remarcada 250 vezes).
-        let crescimento = self
+        let crescimento = (self
             .stats
             .estimated_bytes
-            .saturating_mul(2)
-            .max(self.stats.estimated_bytes.saturating_add(2 * LIMITE_JOVEM))
+            .saturating_mul(self.crescimento))
+            / 100;
+        let crescimento = crescimento
+            .max(self.stats.estimated_bytes.saturating_add(2 * self.limite_jovem))
             .max(self.byte_threshold - self.byte_threshold / 4);
         self.byte_threshold = if self.limite_bytes == usize::MAX {
             crescimento
