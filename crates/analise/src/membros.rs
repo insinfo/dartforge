@@ -504,6 +504,112 @@ impl AchaAutoReferencia<'_> {
     }
 }
 
+/// Onde um trecho de código tem acesso a `this` (`ErrorVerifier._hasAccessToThis`).
+#[derive(Clone, Copy)]
+enum Acesso {
+    /// Corpo de método de instância ou de construtor gerador, ou
+    /// inicializador de campo `late` de instância.
+    Tem,
+    /// Corpo de método estático, de `factory` ou de função de topo, lista de
+    /// inicializadores, inicializador de campo não `late` ou estático.
+    NaoTem,
+    /// Função local ou expressão de função: herda o de fora.
+    Herda,
+}
+
+/// `_checkForInvalidReferenceToThis`: cada `this` pelo contexto mais interno
+/// que o contém. Os corpos que decidem o acesso
+/// (`_computeThisAccessForFunctionBody`) e os campos (`visitFieldDeclaration`)
+/// são intervalos da fonte; o mais estreito que contém o `this` decide, e uma
+/// função local passa a pergunta para o de fora.
+fn this_sem_acesso(cx: &mut Ctx<'_>) {
+    let ast_ = cx.ast;
+    let usos: Vec<Span> =
+        ast_.exprs.iter().filter(|e| matches!(e.kind, ast::ExprKind::This)).map(|e| e.span).collect();
+    if usos.is_empty() {
+        return;
+    }
+    let corpo = |b: &FunctionBody| match b {
+        FunctionBody::Block(s) => Some(ast_.stmt(*s).span),
+        FunctionBody::Expression(e) => Some(ast_.expr(*e).span),
+        _ => None,
+    };
+    // Os papéis das funções declaradas; as demais do arranjo são locais.
+    let mut papel: std::collections::HashMap<u32, Acesso> = std::collections::HashMap::new();
+    let mut regioes: Vec<(Span, Acesso)> = Vec::new();
+    let programa = cx.programa;
+    for &id in &programa.unit(cx.u).unit.declarations {
+        match &ast_.decl(id).kind {
+            DeclKind::Function(f) => {
+                papel.insert(f.0, Acesso::NaoTem);
+            }
+            DeclKind::Variables(vl) => {
+                for v in vl.variables.iter() {
+                    if let Some(e) = v.initializer {
+                        regioes.push((ast_.expr(e).span, Acesso::NaoTem));
+                    }
+                }
+            }
+            DeclKind::Class(_) | DeclKind::Mixin(_) | DeclKind::Enum(_) | DeclKind::Extension(_) | DeclKind::ExtensionType(_) => {
+                let membros: &[ast::MemberId] = match &ast_.decl(id).kind {
+                    DeclKind::Class(d) => &d.members,
+                    DeclKind::Mixin(d) => &d.members,
+                    DeclKind::Enum(d) => &d.members,
+                    DeclKind::Extension(d) => &d.members,
+                    DeclKind::ExtensionType(d) => &d.members,
+                    _ => &[],
+                };
+                for &m in membros {
+                    match &ast_.member(m).kind {
+                        MemberKind::Method(f) => {
+                            let estatico = ast_.function(*f).static_;
+                            papel.insert(f.0, if estatico { Acesso::NaoTem } else { Acesso::Tem });
+                        }
+                        MemberKind::Field(vl) => {
+                            let acesso = if !vl.static_ && vl.late { Acesso::Tem } else { Acesso::NaoTem };
+                            for v in vl.variables.iter() {
+                                if let Some(e) = v.initializer {
+                                    regioes.push((ast_.expr(e).span, acesso));
+                                }
+                            }
+                        }
+                        MemberKind::Constructor(k) => {
+                            if let Some(sp) = corpo(&k.body) {
+                                regioes.push((sp, if k.factory { Acesso::NaoTem } else { Acesso::Tem }));
+                            }
+                        }
+                    }
+                }
+            }
+            DeclKind::Typedef(_) => {}
+        }
+    }
+    for (i, f) in ast_.functions.iter().enumerate() {
+        if let Some(sp) = corpo(&f.body) {
+            regioes.push((sp, papel.get(&(i as u32)).copied().unwrap_or(Acesso::Herda)));
+        }
+    }
+    // Do mais estreito ao mais largo.
+    regioes.sort_by_key(|(s, _)| s.end - s.start);
+    for uso in usos {
+        let mut acesso = Acesso::NaoTem;
+        for &(sp, a) in &regioes {
+            if sp.start <= uso.start && uso.end <= sp.end {
+                match a {
+                    Acesso::Herda => continue,
+                    _ => {
+                        acesso = a;
+                        break;
+                    }
+                }
+            }
+        }
+        if matches!(acesso, Acesso::NaoTem) {
+            cx.relatar(c::INVALID_REFERENCE_TO_THIS, uso, &[]);
+        }
+    }
+}
+
 /// A espécie da declaração que contém os membros.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Container {
@@ -803,6 +909,7 @@ pub fn verificar(
                 cx.formais_fora(ps);
             }
         }
+        this_sem_acesso(&mut cx);
         saida.append(&mut cx.saida);
     }
     saida
@@ -1133,5 +1240,17 @@ mod testes {
                 t("type_alias_cannot_reference_itself", "M", m),
             ]
         );
+    }
+
+    /// `invalid_reference_to_this` (corpus, oráculo 3.6.2): o contexto mais
+    /// interno decide; funções locais e expressões de função herdam.
+    #[test]
+    fn this_sem_acesso() {
+        let v = rodar(
+            "this",
+            "var t = this;\nf() => this;\nclass A {\n  var a = this;\n  late var b = this;\n  static var c = this;\n  int x;\n  A() : x = this.hashCode { this; () => this; }\n  factory A.f() { this; return A(); }\n  m([p = this]) { this; g() => this; }\n  static s() => this;\n}\n",
+        );
+        let n = v.iter().filter(|x| x.0 == "invalid_reference_to_this").count();
+        assert_eq!(n, 8, "{v:?}");
     }
 }

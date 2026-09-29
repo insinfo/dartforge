@@ -39,6 +39,10 @@ enum Especie {
     Funcao,
     /// Parâmetro, variável de `catch` etc.: esconde nomes, não se relata.
     Oculta,
+    /// A exceção de `on T catch (e)` sem pilha (`UNUSED_CATCH_CLAUSE`).
+    CatchExcecao,
+    /// A pilha de `catch (e, s)` (`UNUSED_CATCH_STACK`).
+    CatchPilha,
 }
 
 struct Local {
@@ -660,8 +664,14 @@ impl<'a> Visita<'a> {
                 self.stmt(*body);
                 for c in catches.iter() {
                     self.entrar();
-                    for n in [c.exception, c.stack_trace].into_iter().flatten() {
-                        self.declarar(n, Especie::Oculta, None);
+                    // `visitCatchClause`: a exceção conta como usada quando há
+                    // pilha ou não há `on`.
+                    if let Some(n) = c.exception {
+                        let usada = c.stack_trace.is_some() || c.on_type.is_none();
+                        self.declarar(n, if usada { Especie::Oculta } else { Especie::CatchExcecao }, None);
+                    }
+                    if let Some(n) = c.stack_trace {
+                        self.declarar(n, Especie::CatchPilha, None);
                     }
                     self.stmt(c.body);
                     self.sair();
@@ -863,6 +873,8 @@ fn nao_usados_sem_filtro(u: Unidade<'_>, interner: &Interner, curinga: bool) -> 
         match l.especie {
             Especie::Variavel => out.push(Diagnostic::com_codigo(w::UNUSED_LOCAL_VARIABLE, l.span, [nome])),
             Especie::Funcao => out.push(Diagnostic::com_codigo(w::UNUSED_ELEMENT, l.span, [nome])),
+            Especie::CatchExcecao => out.push(Diagnostic::com_codigo(w::UNUSED_CATCH_CLAUSE, l.span, [nome])),
+            Especie::CatchPilha => out.push(Diagnostic::com_codigo(w::UNUSED_CATCH_STACK, l.span, [nome])),
             Especie::Oculta => {}
         }
     }
@@ -951,5 +963,17 @@ mod testes {
         let f = "void f(int x) {\n  if (x case var a && var a) {\n    a;\n  }\n  const b = 0;\n  g(@b y) {}\n  g(0);\n}\n";
         let r = rodar(f);
         assert_eq!(r, vec![], "{r:?}");
+    }
+
+    /// `UnusedLocalElementsVerifier.visitCatchClause`: a exceção só é
+    /// relatada em `on T catch (e)` sem pilha; a pilha, sempre que não lida.
+    #[test]
+    fn variaveis_de_catch() {
+        let f = "void f() {\n  try {} on Exception catch (e) {}\n  try {} catch (e) {}\n  try {} on Exception catch (e, s) {}\n  try {} catch (e, t) { print(t); }\n  try {} on Error catch (_) {}\n}\n";
+        let r = rodar(f);
+        assert_eq!(
+            r,
+            vec![("unused_catch_clause".to_string(), "e".to_string()), ("unused_catch_stack".to_string(), "s".to_string())]
+        );
     }
 }
