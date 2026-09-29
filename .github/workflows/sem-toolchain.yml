@@ -20,6 +20,7 @@ on:
     paths:
       - 'crates/emit_native/**'
       - 'crates/runtime/**'
+      - 'crates/llvm/src/**'
       - 'crates/cli/src/empacotar.rs'
       - 'crates/elements/src/distribuicao.rs'
       - 'corpus/nativo/**'
@@ -67,6 +68,23 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'empacotar falhou' }
           Get-ChildItem -Recurse (Join-Path $dist 'lib/sysroot'), (Join-Path $dist 'lib/llvm') | Select-Object FullName, Length | Format-Table -AutoSize
           "DIST=$dist" >> $env:GITHUB_ENV
+      # A referência: as mesmas rodadas, pela mesma distribuição, com o
+      # toolchain presente. Sem ele, nenhum programa pode falhar que passava
+      # com ele (o corpus nativo ainda tem falhas próprias do backend).
+      - name: Corpus nativo com o MSVC (referência)
+        shell: pwsh
+        run: |
+          $env:DARTFORGE_HOME = $env:DIST
+          $env:DARTFORGE_BIN = "$env:DIST\bin\dartforge.exe"
+          New-Item -ItemType Directory -Force relatorios | Out-Null
+          foreach ($r in @(@('io', '--nativo --corpus corpus/nativo --jobs 2'),
+                           @('io-gc-stress', '--nativo --corpus corpus/nativo --gc-stress --jobs 2 --limite-exec 120'),
+                           @('corpus', '--nativo --jobs 4'))) {
+            $p = Start-Process -FilePath target/release/dartforge-diferencial.exe -ArgumentList $r[1] -RedirectStandardOutput "relatorios/ref-$($r[0]).txt" -RedirectStandardError "relatorios/ref-$($r[0]).err" -NoNewWindow -PassThru -Wait
+            $texto = Get-Content "relatorios/ref-$($r[0]).txt" -Encoding utf8
+            Write-Host "$($r[0]): código $($p.ExitCode); $($texto | Where-Object { $_ -match '^DartForge Nativo: ' } | Select-Object -First 1)"
+            $texto | Where-Object { $_ -match '^FALHA ' } | ForEach-Object { Write-Host "  $_" }
+          }
       - name: Esconder o Visual Studio e o Windows SDK
         shell: pwsh
         run: |
@@ -136,18 +154,26 @@ jobs:
             @('corpus', '--nativo --jobs 4')
           )
           $falhou = $false
+          function Falhas($arquivo) { @(Get-Content $arquivo -Encoding utf8 | Where-Object { $_ -match '^FALHA ' } | ForEach-Object { ($_ -split '\s+')[1] }) }
           foreach ($r in $rodadas) {
             $rel = "relatorios/$($r[0]).txt"
             $p = Start-Process -FilePath target/release/dartforge-diferencial.exe -ArgumentList $r[1] -RedirectStandardOutput $rel -RedirectStandardError "relatorios/$($r[0]).err" -NoNewWindow -PassThru -Wait
             $texto = Get-Content $rel -Encoding utf8
             $placar = $texto | Where-Object { $_ -match '^DartForge Nativo: ' } | Select-Object -First 1
-            $falhas = @($texto | Where-Object { $_ -match '^FALHA ' })
-            Write-Host "$($r[0]): código $($p.ExitCode); $placar"
-            $falhas | ForEach-Object { Write-Host "  $_" }
-            Add-Content $env:GITHUB_STEP_SUMMARY "- Windows sem MSVC, $($r[0]): ``$placar``" -Encoding utf8
-            if (!$placar -or $falhas.Count -gt 0) { $falhou = $true }
+            $ref = Get-Content "relatorios/ref-$($r[0]).txt" -Encoding utf8 | Where-Object { $_ -match '^DartForge Nativo: ' } | Select-Object -First 1
+            Write-Host "$($r[0]): código $($p.ExitCode); sem MSVC $placar; com MSVC $ref"
+            Add-Content $env:GITHUB_STEP_SUMMARY "- Windows, $($r[0]): sem MSVC ``$placar``, com MSVC ``$ref``" -Encoding utf8
+            if (!$placar) { Write-Host "::error::$($r[0]): relatório sem placar"; $falhou = $true }
+            $novas = @(Falhas $rel | Where-Object { $_ -notin (Falhas "relatorios/ref-$($r[0]).txt") })
+            if ($novas.Count -gt 0) { Write-Host "::error::$($r[0]): falham só sem o MSVC: $($novas -join ', ')"; $falhou = $true }
+            $ligacao = @($texto | Select-String -Pattern 'falhou na ligação|CRT mínima não compilou|LNK\d{4}|vcruntime140|não foi possível instalar')
+            if ($ligacao.Count -gt 0) { $ligacao | ForEach-Object { Write-Host "::error::$($r[0]): $_" }; $falhou = $true }
           }
-          if ($falhou) { throw 'programa do corpus falhando sem MSVC' }
+          # N02: a observação de arquivos igual à VM.
+          foreach ($p in '34_observar_arquivos', '38_observar_arquivos_windows', '39_observar_arquivos_macos') {
+            if ((Falhas 'relatorios/io.txt') -contains $p) { Write-Host "::error::$p diverge da VM"; $falhou = $true }
+          }
+          if ($falhou) { throw 'a ligação sem MSVC piorou o corpus nativo' }
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
@@ -182,13 +208,19 @@ jobs:
           echo "DIST=$dist" >> "$GITHUB_ENV"
       # A referência: o corpus/nativo com o toolchain presente (a árvore de
       # desenvolvimento), para comparar com a rodada sem ele.
-      - name: corpus/nativo com o Xcode (referência)
+      # A referência: as mesmas rodadas, pela mesma distribuição, com o
+      # toolchain presente. Sem ele, nenhum programa pode falhar que passava
+      # com ele (o corpus nativo ainda tem falhas próprias do backend).
+      - name: Corpus nativo com o Xcode (referência)
         run: |
-          set -uo pipefail
+          set +e -uo pipefail
           mkdir -p relatorios
-          c=0; ./target/release/dartforge-diferencial --nativo --corpus corpus/nativo --jobs 2 > relatorios/io-com-xcode.txt 2>&1 || c=$?
-          grep -E '^(DartForge Nativo: |FALHA )' relatorios/io-com-xcode.txt || true
-          echo "código $c"
+          for r in "io:--nativo --corpus corpus/nativo --jobs 2" "io-gc-stress:--nativo --corpus corpus/nativo --gc-stress --jobs 2 --limite-exec 120" "corpus:--nativo --jobs 3"; do
+            nome=${r%%:*}; args=${r#*:}
+            c=0; DARTFORGE_HOME="$DIST" DARTFORGE_BIN="$DIST/bin/dartforge" ./target/release/dartforge-diferencial $args > "relatorios/ref-$nome.txt" 2>&1 || c=$?
+            echo "$nome: código $c; $(grep -E '^DartForge Nativo: ' "relatorios/ref-$nome.txt" || true)"
+            grep -E '^FALHA ' "relatorios/ref-$nome.txt" || true
+          done
       - name: Esconder o Xcode e as Command Line Tools
         run: |
           set -euo pipefail
@@ -198,7 +230,7 @@ jobs:
           done
       - name: Ligar e executar sem Xcode (olá mundo e corpus nativo)
         run: |
-          set -uo pipefail
+          set +e -uo pipefail
           dist="$DIST"
           ambiente=(env -i HOME="$HOME" PATH="$dist/bin:$DART_SDK/bin:/bin:/usr/bin:/usr/sbin" DEVELOPER_DIR=/nao/existe
                     DARTFORGE_HOME="$dist" DARTFORGE_BIN="$dist/bin/dartforge" DARTFORGE_DART_SDK="$DARTFORGE_DART_SDK"
@@ -218,23 +250,26 @@ jobs:
             echo "$1: ok"
           done
           falhou=0
+          falhas() { grep -E '^FALHA ' "$1" | awk '{print $2}' | sort -u; }
           for r in "io:--nativo --corpus corpus/nativo --jobs 2" "io-gc-stress:--nativo --corpus corpus/nativo --gc-stress --jobs 2 --limite-exec 120" "corpus:--nativo --jobs 3"; do
             nome=${r%%:*}; args=${r#*:}
-            "${ambiente[@]}" ./target/release/dartforge-diferencial $args > "relatorios/$nome.txt" 2>&1
+            # O código 1 (placar parcial) não encerra o passo: o que conta é
+            # a comparação com a referência.
+            c=0; "${ambiente[@]}" ./target/release/dartforge-diferencial $args > "relatorios/$nome.txt" 2>&1 || c=$?
             placar=$(grep -E '^DartForge Nativo: ' "relatorios/$nome.txt" || true)
-            echo "$nome: $placar"; grep -E '^FALHA ' "relatorios/$nome.txt" || true
-            echo "- macOS sem Xcode, $nome: \`$placar\`" >> "$GITHUB_STEP_SUMMARY"
-            [ -n "$placar" ] || falhou=1
+            ref=$(grep -E '^DartForge Nativo: ' "relatorios/ref-$nome.txt" || true)
+            echo "$nome: código $c; sem Xcode $placar; com Xcode $ref"
+            echo "- macOS, $nome: sem Xcode \`$placar\`, com Xcode \`$ref\`" >> "$GITHUB_STEP_SUMMARY"
+            [ -n "$placar" ] || { echo "::error::$nome: relatório sem placar"; falhou=1; }
+            novas=$(comm -13 <(falhas "relatorios/ref-$nome.txt") <(falhas "relatorios/$nome.txt") | tr '\n' ' ')
+            [ -z "$novas" ] || { echo "::error::$nome: falham só sem o Xcode: $novas"; falhou=1; }
             # Nenhuma falha de ligação (o que o toolchain escondido causaria).
-            if grep -nE 'falhou na ligação|ld64.lld|xcrun|SDK do macOS não encontrado' "relatorios/$nome.txt"; then falhou=1; fi
+            if grep -nE 'falhou na ligação|xcrun|não tem usr/lib/libSystem.tbd|SDK do macOS' "relatorios/$nome.txt"; then falhou=1; fi
           done
           # N02: a observação de arquivos igual à VM (FSEvents).
           for p in 34_observar_arquivos 38_observar_arquivos_windows 39_observar_arquivos_macos; do
-            if grep -E "^FALHA +$p" relatorios/io.txt relatorios/io-gc-stress.txt; then echo "::error::$p diverge da VM"; falhou=1; fi
+            if falhas relatorios/io.txt | grep -qx "$p"; then echo "::error::$p diverge da VM"; falhou=1; fi
           done
-          # Sem o Xcode, nada do corpus/nativo pode falhar que passava com ele.
-          ok() { sed -nE 's/^DartForge Nativo: +([0-9]+)\/.*/\1/p' "$1"; }
-          [ "$(ok relatorios/io.txt)" -ge "$(ok relatorios/io-com-xcode.txt)" ] || { echo '::error::corpus/nativo pior sem o Xcode'; falhou=1; }
           exit $falhou
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
