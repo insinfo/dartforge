@@ -132,6 +132,18 @@ fn chave_do_valor(h: i64) -> Option<i64> {
     if !smi::e_handle(h) || h < 0 {
         return None;
     }
+    // Um objeto do espaço: o metadado e a classe no cabeçalho, sem o heap
+    // (`heap::Cabecalho`, o handle é o bloco + 2).
+    if crate::heap::e_objeto(h) {
+        // SAFETY: o handle de um objeto vivo (o valor que o código gerado
+        // passou) aponta para o cabeçalho do bloco dele.
+        #[allow(unsafe_code)]
+        let c = unsafe { *((h - crate::heap::DESLOCAMENTO_DO_HANDLE) as *const crate::heap::Cabecalho) };
+        if c.metadado != 0 {
+            return Some(i64::from(c.metadado));
+        }
+        return (c.class_id >= 0).then(|| -16 - i64::from(c.class_id));
+    }
     HEAP.with(|heap| {
         let heap = heap.try_borrow().ok()?;
         let (meta, valor) = heap.metadado_e_valor(h);
@@ -1154,13 +1166,19 @@ pub extern "C" fn dartforge_rti_definir(obj: i64, tipo: i64) {
     let tipo = if let Some(classe) = classe_concreta {
         RTI.with(|u| {
             let mut u = u.borrow_mut();
-            match u.tipo(tipo).clone() {
-                Tipo::Interface(c, args) if c != classe && [u.rt.list, u.rt.map, u.rt.set].contains(&c)
-                    && u.como_supertipo(classe, &args, c).as_deref() == Some(args.as_slice()) =>
-                {
-                    u.internar(Tipo::Interface(classe, args))
+            // Só a interface de coleção de outra classe muda; o caso comum
+            // (a classe do próprio objeto: `Future<T>`, `_Map<K, V>`…) sai
+            // sem copiar o tipo.
+            let (c, args) = match u.tipo(tipo) {
+                Tipo::Interface(c, args) if *c != classe && [u.rt.list, u.rt.map, u.rt.set].contains(c) => {
+                    (*c, args.clone())
                 }
-                _ => tipo,
+                _ => return tipo,
+            };
+            if u.como_supertipo(classe, &args, c).as_deref() == Some(args.as_slice()) {
+                u.internar(Tipo::Interface(classe, args))
+            } else {
+                tipo
             }
         })
     } else {
@@ -1169,8 +1187,11 @@ pub extern "C" fn dartforge_rti_definir(obj: i64, tipo: i64) {
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
         h.set_metadado(obj, tipo + 1);
-        // Um literal `<int>[…]` (N14): a lista compacta.
-        ajustar_forma_da_lista(&mut h, obj);
+        // Um literal `<int>[…]` (N14): a lista compacta. Um objeto do espaço
+        // (`h & 3 == 2`) nunca é lista.
+        if !crate::heap::e_objeto(obj) {
+            ajustar_forma_da_lista(&mut h, obj);
+        }
     });
 }
 
