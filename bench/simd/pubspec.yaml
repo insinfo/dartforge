@@ -1,0 +1,12 @@
+name: bench_simd
+description: >-
+  Kernel de blend do rasterizador (dgfx) em três formas: escalar, SIMD com a
+  API do Dart 3.6 e SIMD com a API de Int32x4 do 3.14 (pacote dartforge_simd).
+publish_to: none
+
+environment:
+  sdk: ^3.6.0
+
+dependencies:
+  dartforge_simd:
+    path: ../../pacotes/dartforge_simd

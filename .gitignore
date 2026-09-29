@@ -44,3 +44,5 @@ runtime/ddc/*/
 /pacotes/macros_builder/pubspec.lock
 # Relatório local de espaço em disco do C: (da máquina, não do projeto)
 /RELATORIO-DISCO-C.md
+/bench/simd/.dart_tool/
+/bench/simd/pubspec.lock
