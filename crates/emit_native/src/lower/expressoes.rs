@@ -872,6 +872,37 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         return self.tearoff_de_construtor_te(expr_id, c, k, span);
                     }
                 }
+                // `Alias.new`/`Alias.nome` com `typedef Alias<…> = C<…>`:
+                // tear-off do construtor de `C` (o `NotifierFamilyProvider
+                // .internal` do riverpod). Com o tipo estático instanciado
+                // pela inferência, o objeto nasce com os argumentos; sem ele,
+                // só quando o alias repassa os parâmetros na ordem (então o
+                // tear-off é o genérico de `C`).
+                if let Some(Resolved::Element(dartforge_elements::model::Element::Typedef(td))) =
+                    self.ctx.get_resolved(self.unit_id, *target).cloned()
+                    && let Some(dados) = self.ctx.outline.typedefs.get(td.0 as usize)
+                    && let dartforge_types::table::Type::Interface { class: c, args, .. } =
+                        self.ctx.table.get(dados.target_type).clone()
+                    && self.ctx.biblioteca_compilada(self.ctx.program.classes[c.0 as usize].library)
+                    && !matches!(resolved, Some(Resolved::Member { .. }))
+                {
+                    let chave = if prop_name == "new" { self.ctx.interner.lookup("") } else { Some(name.sym) };
+                    if let Some(f) = chave.and_then(|k| self.ctx.program.classes[c.0 as usize].constructors.get(&k).copied()) {
+                        if let Some(tipo) = self.ctx.get_type(self.unit_id, expr_id)
+                            && let Some((objeto, tupla)) = self.instanciacao_do_tearoff(c, tipo)
+                        {
+                            return self.tearoff_instanciado_de_construtor(f.0 as usize, objeto, tupla, Some(tipo), span);
+                        }
+                        let repassa = args.len() == dados.type_params.len()
+                            && args.iter().zip(dados.type_params.iter()).all(|(a, p)| {
+                                matches!(self.ctx.table.get(*a),
+                                    dartforge_types::table::Type::TypeParameter { param, nullable: false } if param == p)
+                            });
+                        if repassa {
+                            return self.tearoff_de_construtor(f.0 as usize, span);
+                        }
+                    }
+                }
                 // `C.x`: membro estático (o alvo é um literal de classe).
                 let alvo_e_classe = matches!(
                     self.ctx.get_resolved(self.unit_id, *target),

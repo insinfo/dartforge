@@ -233,7 +233,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let casos = self.indices_de_campo_de_mixin(vid);
         if casos.is_empty() {
-            self.nao_suportado("campo de mixin sem classe que o aplique", span);
+            // Nenhuma classe do programa aplica o mixin: não existe objeto
+            // com este campo, e o acesso não executa (o `LocatorMixin` do
+            // `state_notifier`, que o riverpod importa e ninguém aplica).
+            // O programa é fechado — nenhuma classe nova aparece depois.
+            let _ = span;
+            self.terminate(Terminator::Unreachable);
+            let morto = self.new_block();
+            self.set_block(morto);
             return Some(Operand::Constant(Constant::Int(0)));
         }
         let cls = self.emit(

@@ -1199,14 +1199,38 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             e.add_param("closure".to_string(), Type::Ref);
             let args = Operand::Val(e.add_param("args".to_string(), Type::Ptr));
             let desc = Operand::Val(e.add_param("desc".to_string(), Type::Ptr));
-            if let Some(vals) = e.desempacotar(&infos, args, desc) {
+            if let Some(vals) = e.desempacotar(&infos, args.clone(), desc.clone()) {
                 let avaliados: Vec<Avaliado> = self.ctx.outline.functions[fid]
                     .parameters
                     .iter()
                     .zip(vals)
                     .map(|(p, v)| (if p.kind == ParameterKind::Named { p.name } else { None }, v))
                     .collect();
-                let r = e.instanciar_avaliados(dartforge_elements::model::FunctionElementId(fid as u32), &avaliados, span);
+                // Construtor de classe genérica: o tear-off é uma função
+                // genérica nos parâmetros da classe (`C<T> Function<T>()`),
+                // e os argumentos de tipo da chamada vêm no slot oculto
+                // (nenhum: `dynamic`).
+                let classe = self.ctx.program.functions[fid].class;
+                let n = classe.and_then(|c| self.ctx.outline.classes.get(c.0 as usize)).map_or(0, |d| d.type_params.len());
+                let r = match classe.filter(|_| n > 0) {
+                    Some(c) => {
+                        let tupla = e.tupla_do_slot(&args, &desc);
+                        e.tupla_de_tipos = Some(tupla.clone());
+                        let vars: Vec<String> = (0..n).map(|i| format!("M{i}")).collect();
+                        let objeto = e.rti_da_receita(&super::rti::Receita {
+                            texto: format!("C{}<{}>", self.ctx.id_rti(c), vars.join(",")),
+                            variaveis: true,
+                        });
+                        e.instanciar_avaliados_com_rti(
+                            dartforge_elements::model::FunctionElementId(fid as u32),
+                            &avaliados,
+                            span,
+                            Some(objeto),
+                            Some(tupla),
+                        )
+                    }
+                    None => e.instanciar_avaliados(dartforge_elements::model::FunctionElementId(fid as u32), &avaliados, span),
+                };
                 let r = e.coagir(r, Type::Ref);
                 e.terminate(Terminator::Return(Some(r)));
             }
