@@ -314,6 +314,32 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             }
 
+            // `A<T>.nome(…)` de uma aplicação de mixin nomeada (`class A = B
+            // with M;`): o construtor encaminhado da superclasse, com o
+            // objeto `A<T>`.
+            if let ExprKind::TypeArguments { target: t, type_args } = &ast.expr(*inner_target).kind
+                && !matches!(self.ctx.get_resolved(self.unit_id, expr_id), Some(Resolved::Constructor(_)))
+                && let Some(Resolved::Element(dartforge_elements::model::Element::Class(c))) =
+                    self.resolucao_ou_nome(ast, *t)
+                && self.ctx.program.classes[c.0 as usize].kind == dartforge_elements::model::ClassKind::MixinApplication
+                && self.ctx.biblioteca_compilada(self.ctx.program.classes[c.0 as usize].library)
+                && let Some(f) = self.construtor_de(c, method_name.sym)
+            {
+                let concreta = self.classe_concreta.take();
+                let avaliados = self.avaliar_args(ast, &arguments.args);
+                self.classe_concreta = concreta;
+                let args = self.receitas_dos_argumentos_de_tipo(type_args);
+                let objeto = self.rti_da_receita(&super::rti::Receita {
+                    texto: format!("C{}<{}>", self.ctx.id_rti(c), args.texto),
+                    variaveis: args.variaveis,
+                });
+                let tupla = self.rti_da_receita(&super::rti::Receita {
+                    texto: format!("L<{}>", args.texto),
+                    variaveis: args.variaveis,
+                });
+                return self.instanciar_avaliados_com_rti(f, &avaliados, expr.span, Some(objeto), Some(tupla));
+            }
+
             // `C.m(…)`: método estático do usuário.
             // `C.m(…)` (e `Alias.m(…)`, com `typedef Alias = C`).
             let alvo_e_classe = matches!(
