@@ -13,6 +13,7 @@ import "dart:async"
     show Completer, Future, Stream, StreamController, StreamSubscription, Timer;
 
 import "dart:collection" show HashMap;
+import "dart:convert" show jsonDecode;
 import "dart:typed_data" show ByteBuffer, TypedData, Uint8List;
 
 // O `timer_impl.dart` da VM (timers por porta e EventHandler) não entra:
@@ -348,6 +349,10 @@ final class Isolate {
   static Uri? get packageConfigSync {
     var hook = VMLibraryHooks.packageConfigUriSync;
     if (hook == null) {
+      // Sem o `builtin` da VM: o package config do processo
+      // (`DARTFORGE_PACKAGE_CONFIG`), como o `--packages` da VM.
+      final caminho = _packageConfigDoProcesso();
+      if (caminho != null) return Uri.file(caminho);
       throw new UnsupportedError("Isolate.packageConfig");
     }
     return hook();
@@ -362,9 +367,63 @@ final class Isolate {
   static Uri? resolvePackageUriSync(Uri packageUri) {
     var hook = VMLibraryHooks.resolvePackageUriSync;
     if (hook == null) {
-      throw new UnsupportedError("Isolate.resolvePackageUriSync");
+      final mapa = _pacotesDoProcesso();
+      if (mapa == null) {
+        throw new UnsupportedError("Isolate.resolvePackageUriSync");
+      }
+      return _resolverPacote(mapa, packageUri);
     }
     return hook(packageUri);
+  }
+
+  @pragma("vm:external-name", "DartForge_package_config")
+  external static String? _packageConfigDoProcesso();
+
+  @pragma("vm:external-name", "DartForge_ler_texto")
+  external static String? _lerTexto(String caminho);
+
+  static Map<String, Uri>? _mapaDePacotes;
+
+  /// Pacote → URI da raiz das bibliotecas (`rootUri` resolvida contra o
+  /// arquivo, mais `packageUri`), do package config do processo; `null` sem
+  /// ele. Como o `_parsePackageConfig` do `builtin.dart` da VM.
+  static Map<String, Uri>? _pacotesDoProcesso() {
+    final pronto = _mapaDePacotes;
+    if (pronto != null) return pronto;
+    final caminho = _packageConfigDoProcesso();
+    if (caminho == null) return null;
+    final texto = _lerTexto(caminho);
+    if (texto == null) return null;
+    final arquivo = Uri.file(caminho);
+    final mapa = <String, Uri>{};
+    final json = jsonDecode(texto);
+    if (json is Map && json["packages"] is List) {
+      for (final p in json["packages"] as List) {
+        if (p is! Map) continue;
+        final nome = p["name"];
+        final raiz = p["rootUri"];
+        if (nome is! String || raiz is! String) continue;
+        var raizUri = arquivo.resolve(raiz.endsWith("/") ? raiz : "$raiz/");
+        final lib = p["packageUri"];
+        mapa[nome] = lib is String
+            ? raizUri.resolve(lib.endsWith("/") ? lib : "$lib/")
+            : raizUri;
+      }
+    }
+    return _mapaDePacotes = mapa;
+  }
+
+  /// `package:nome/caminho` pelo mapa; outra URI volta como veio; pacote
+  /// desconhecido ou URI malformada dá `null` (o `_resolvePackageUriSync`
+  /// do `builtin.dart`).
+  static Uri? _resolverPacote(Map<String, Uri> mapa, Uri uri) {
+    if (!uri.isScheme("package")) return uri;
+    if (uri.host.isNotEmpty) return null;
+    final fim = uri.path.indexOf("/");
+    if (fim <= 0) return null;
+    final raiz = mapa[uri.path.substring(0, fim)];
+    if (raiz == null) return null;
+    return raiz.resolve(uri.path.substring(fim + 1));
   }
 
   static bool _packageSupported() =>

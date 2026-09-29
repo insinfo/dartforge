@@ -548,3 +548,216 @@ pub fn sobrescritas_invalidas(
     }
     saida
 }
+
+/// Onde está o nome da função `f` (o do campo ou variável, num acessor
+/// implícito).
+fn nome_de(program: &Program, f: FunctionElementId) -> Option<(UnitId, Span)> {
+    let func = program.function(f);
+    match func.node {
+        FunctionRef::Function { unit, function } => {
+            Some((unit, program.unit(unit).ast.functions[function.0 as usize].name?.span))
+        }
+        FunctionRef::None => match program.variable(func.variable?).node {
+            VariableRef::Field { unit, member, index } => match &program.unit(unit).ast.member(member).kind {
+                MemberKind::Field(vl) => Some((unit, vl.variables.get(index)?.name.span)),
+                _ => None,
+            },
+            VariableRef::TopLevel { unit, decl, index } => match &program.unit(unit).ast.decl(decl).kind {
+                DeclKind::Variables(vl) => Some((unit, vl.variables.get(index)?.name.span)),
+                _ => None,
+            },
+            _ => None,
+        },
+        FunctionRef::Constructor { .. } => None,
+    }
+}
+
+impl Ctx<'_> {
+    /// Os tipos de getter e setter de um acessor fora de interface (topo,
+    /// estático, extensão): o escrito, `dynamic` quando omitido numa função,
+    /// nada num campo ou variável sem tipo escrito (o tipo viria do
+    /// inicializador).
+    fn tipo_de_acessor(&mut self, f: FunctionElementId, getter: bool) -> Option<TypeId> {
+        let func = self.program.function(f);
+        let dados = self.outline.functions.get(f.0 as usize)?;
+        match func.node {
+            FunctionRef::Function { .. } => {
+                if getter {
+                    Some(dados.return_type)
+                } else {
+                    dados.parameters.first().map(|p| p.ty)
+                }
+            }
+            FunctionRef::None => self.outline.variables.get(func.variable?.0 as usize)?.declared_type,
+            FunctionRef::Constructor { .. } => None,
+        }
+    }
+}
+
+/// `GetterSetterTypesVerifier` (`src/error/getter_setter_types_verifier.dart`):
+/// o tipo de retorno do getter precisa ser subtipo do tipo do parâmetro do
+/// setter homônimo. Os acessores de topo (por unidade), os estáticos de
+/// classe e enum e os de extensão (`checkStaticAccessors`/`checkExtension`),
+/// e a interface das classes `classes` (`checkInterface`, que o
+/// `InheritanceOverrideVerifier` chama depois das sobrescritas).
+pub fn getters_e_setters(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    core: &CoreTypes,
+    outline: &OutlineTypes,
+    lib: dartforge_elements::model::LibraryId,
+    classes: &[ClassId],
+) -> Vec<(UnitId, Diagnostic)> {
+    let mut cx = Ctx { program, interner, table, core, outline };
+    let mut saida = Vec::new();
+    let saida_sem_augment = Vec::new;
+    // Acessores locais: `(recipiente, nome)` → getters e setters.
+    #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
+    enum Recipiente {
+        Unidade(UnitId),
+        Classe(ClassId),
+        Extensao(u32),
+    }
+    let mut grupos: HashMap<(Recipiente, SymbolId), (Vec<FunctionElementId>, Vec<FunctionElementId>)> = HashMap::new();
+    // Acessores de `augment` (e o que eles aumentam) ficam de fora: a
+    // recuperação do parser sem o experimento os lê de outro jeito.
+    let mut aumentados: std::collections::HashSet<(UnitId, u32)> = std::collections::HashSet::new();
+    for &u in &program.library(lib).units {
+        let ast_ = &program.unit(u).ast;
+        for m in &ast_.members {
+            if m.augment {
+                match &m.kind {
+                    MemberKind::Method(f) => {
+                        aumentados.insert((u, f.0));
+                    }
+                    MemberKind::Field(_) => return saida_sem_augment(),
+                    MemberKind::Constructor(_) => {}
+                }
+            }
+        }
+        for d in &ast_.decls {
+            if d.augment
+                && let DeclKind::Function(f) = &d.kind
+            {
+                aumentados.insert((u, f.0));
+            }
+        }
+    }
+    for (i, f) in program.functions.iter().enumerate() {
+        if f.library != lib || f.patched_by.is_some() {
+            continue;
+        }
+        if let FunctionRef::Function { unit, function } = f.node
+            && aumentados.contains(&(unit, function.0))
+        {
+            continue;
+        }
+        let id = FunctionElementId(i as u32);
+        let Some(especie) = cx.especie(id) else { continue };
+        if especie == Especie::Metodo {
+            continue;
+        }
+        let recipiente = match (f.class, f.extension) {
+            (_, Some(e)) => Recipiente::Extensao(e.0),
+            (Some(c), None) if f.static_ => match program.class(c).kind {
+                dartforge_elements::model::ClassKind::Class | dartforge_elements::model::ClassKind::Enum => Recipiente::Classe(c),
+                _ => continue,
+            },
+            (Some(_), None) => continue,
+            (None, None) => match nome_de(program, id) {
+                Some((u, _)) => Recipiente::Unidade(u),
+                None => continue,
+            },
+        };
+        let g = grupos.entry((recipiente, f.name)).or_default();
+        if especie == Especie::Getter { g.0.push(id) } else { g.1.push(id) }
+    }
+    let mut chaves: Vec<_> = grupos.keys().copied().collect();
+    chaves.sort_by_key(|(r, n)| (interner.resolve(*n).to_string(), format!("{r:?}")));
+    for k in chaves {
+        let (gs, ss) = &grupos[&k];
+        let ([g], [s]) = (gs.as_slice(), ss.as_slice()) else { continue };
+        let (Some(tg), Some(ts)) = (cx.tipo_de_acessor(*g, true), cx.tipo_de_acessor(*s, false)) else { continue };
+        let ok = {
+            let mut env = SubtypeEnv::new(cx.table, &outline.hierarchy, core);
+            is_subtype(tg, ts, &mut env)
+        };
+        if !ok && let Some((u, span)) = nome_de(program, *g) {
+            let nome = interner.resolve(k.1).to_string();
+            let args = [nome.clone(), formatar(cx.table, tg, interner, program), formatar(cx.table, ts, interner, program), nome];
+            saida.push((u, Diagnostic::com_codigo(c::GETTER_NOT_SUBTYPE_SETTER_TYPES, span, args)));
+        }
+    }
+    // A interface de cada classe.
+    for &cid in classes {
+        let classe = program.class(cid);
+        let Some(decl) = classe.decl else { continue };
+        let Some(dados_h) = outline.hierarchy.get(cid) else { continue };
+        let Some(params) = outline.classes.get(cid.0 as usize).map(|d| d.type_params.clone()) else { continue };
+        let args: Box<[TypeId]> = params.iter().map(|&p| cx.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
+        let este = cx.table.intern(Type::Interface { class: cid, args, nullable: false });
+        let mut nomes: Vec<SymbolId> = Vec::new();
+        for s in std::iter::once(cid).chain(dados_h.supertypes.keys().copied()) {
+            for (&chave, &f) in &program.class(s).instance_members {
+                if cx.especie(f) == Some(Especie::Getter) && !nomes.contains(&chave) {
+                    nomes.push(chave);
+                }
+            }
+        }
+        nomes.sort_by_key(|n| interner.resolve(*n).to_string());
+        for nome in nomes {
+            let texto = interner.resolve(nome).to_string();
+            let Some(chave_setter) = interner.lookup(&format!("{texto}_=")) else { continue };
+            let Some((g, tg)) = cx.na_interface(este, nome, 0) else { continue };
+            let Some((s, ts)) = cx.na_interface(este, chave_setter, 0) else { continue };
+            if texto.starts_with('_')
+                && (program.class(g.dono).library != classe.library || program.class(s.dono).library != classe.library)
+            {
+                continue;
+            }
+            if cx.especie(g.funcao) != Some(Especie::Getter) || cx.especie(s.funcao) != Some(Especie::Setter) {
+                continue;
+            }
+            if !cx.inferencia_confiavel(g.funcao) || !cx.inferencia_confiavel(s.funcao) {
+                continue;
+            }
+            let (Type::Function { ret, .. }, Type::Function { positional, optional, named, .. }) =
+                (cx.table.get(tg).clone(), cx.table.get(ts).clone())
+            else {
+                continue;
+            };
+            if positional.len() + optional.len() + named.len() != 1 {
+                continue;
+            }
+            let Some(&param) = positional.first().or(optional.first()) else { continue };
+            let ok = {
+                let mut env = SubtypeEnv::new(cx.table, &outline.hierarchy, core);
+                is_subtype(ret, param, &mut env)
+            };
+            if ok {
+                continue;
+            }
+            let lugar = if g.dono == cid {
+                nome_de(program, g.funcao)
+            } else if s.dono == cid {
+                nome_de(program, s.funcao)
+            } else {
+                let ast_ = &program.unit(decl.unit).ast;
+                match &ast_.decl(decl.decl).kind {
+                    DeclKind::Class(d) => Some((decl.unit, d.name.span)),
+                    DeclKind::Enum(d) => Some((decl.unit, d.name.span)),
+                    DeclKind::Mixin(d) => Some((decl.unit, d.name.span)),
+                    _ => None,
+                }
+            };
+            let Some((u, span)) = lugar else { continue };
+            let qualificado = |dono: ClassId| {
+                if dono == cid { texto.clone() } else { format!("{}.{texto}", interner.resolve(program.class(dono).name)) }
+            };
+            let args = [qualificado(g.dono), formatar(cx.table, ret, interner, program), formatar(cx.table, param, interner, program), qualificado(s.dono)];
+            saida.push((u, Diagnostic::com_codigo(c::GETTER_NOT_SUBTYPE_SETTER_TYPES, span, args)));
+        }
+    }
+    saida
+}

@@ -1,4 +1,14 @@
-// Runtime nativo: o subconjunto de `dart:mirrors` que os builders usam (B01).
+// Runtime nativo: o que um programa vê na VM JIT e o AOT da VM não dá, e de
+// que os builders do ecossistema dependem (B01). Duas partes:
+//
+// * o package config (`Isolate.resolvePackageUri`, `Isolate.packageConfig`):
+//   na VM vem do `--packages`; aqui, de `DARTFORGE_PACKAGE_CONFIG` (o
+//   hospedeiro do executor de builders o define). O `build_resolvers` acha
+//   o diretório dos pacotes por ele. A leitura e a resolução ficam no patch
+//   do `dart:isolate` (`sdk_nativo/isolate/isolate_patch.dart`), como no
+//   `builtin.dart` da VM; o runtime só dá o caminho e o texto do arquivo.
+//
+// * o subconjunto de `dart:mirrors`:
 //
 // O `TypeChecker.fromRuntime(T)` do `source_gen` (json_serializable, freezed,
 // built_value…) pede `reflectClass(T)` e lê só o nome da classe e a URI da
@@ -61,5 +71,26 @@ pub extern "C" fn dartforge_nativo_DartForge_mirrors_nome(tipo: i64) -> i64 {
     match classe_do_objeto_tipo(tipo).and_then(|c| BIBLIOTECAS_DAS_CLASSES.with(|m| m.borrow().get(&c).cloned())) {
         Some((_, nome)) => alocar_str(&nome),
         None => 0,
+    }
+}
+
+/// `DartForge_package_config`: o caminho do `package_config.json` do
+/// processo (`DARTFORGE_PACKAGE_CONFIG`), ou `null`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_package_config() -> i64 {
+    match std::env::var("DARTFORGE_PACKAGE_CONFIG") {
+        Ok(c) if !c.is_empty() => alocar_str(&c),
+        _ => 0,
+    }
+}
+
+/// `DartForge_ler_texto`: o conteúdo UTF-8 do arquivo `caminho`, ou `null`
+/// quando ele não pode ser lido.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_ler_texto(caminho: i64) -> i64 {
+    let caminho = HEAP.with(|h| h.borrow().texto(caminho).para_string());
+    match std::fs::read_to_string(&caminho) {
+        Ok(t) => alocar_str(&t),
+        Err(_) => 0,
     }
 }

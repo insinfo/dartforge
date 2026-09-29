@@ -313,7 +313,10 @@ impl ExecutorNativo {
     fn iniciar(&mut self, script: &ScriptDeBuilders) -> Result<String, String> {
         let (exe, chave) = self.compilar(script)?;
         let mut cmd = std::process::Command::new(&exe);
-        cmd.current_dir(&self.cfg.raiz);
+        // O `--packages` da VM: o `Isolate.resolvePackageUri` do executável
+        // (o `build_resolvers` acha os pacotes por ele) lê este arquivo.
+        cmd.current_dir(&self.cfg.raiz)
+            .env("DARTFORGE_PACKAGE_CONFIG", self.cfg.trabalho.join("package_config.json"));
         self.cliente = Some(ClienteBuild::iniciar(cmd)?);
         Ok(chave)
     }

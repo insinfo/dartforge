@@ -93,8 +93,9 @@ const FRAGMENTOS: &[&str] = &[
     "tls_formatos",
     // Os filtros zlib/gzip do `dart:io` (`ZLibEncoder`, `GZipCodec`).
     "zlib",
-    // O subconjunto de `dart:mirrors` que os builders usam (`reflectClass`).
-    "mirrors",
+    // O que um programa vê na VM JIT e o AOT não dá, para os builders: o
+    // subconjunto de `dart:mirrors` (`reflectClass`) e o package config.
+    "compat_jit",
     // `dart:developer` e a timeline no perfil de produção.
     "nativos_desenvolvedor",
     // RTI: tipos em tempo de execução.
