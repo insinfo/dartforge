@@ -288,6 +288,7 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str("declare i8 @llvm.expect.i8(i8, i8)\n");
         self.out.push_str("declare i1 @llvm.expect.i1(i1, i1)\n");
         self.out.push_str(CAIXA_DE_INT);
+        self.out.push_str(CLASSE_DO_VALOR);
         if compostas || !self.module.ffi_callbacks.is_empty() {
             self.out.push_str(
                 "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n\
@@ -852,6 +853,12 @@ impl<'a> LlvmEmitter<'a> {
                         // O pedido é raro: o caminho lento fica fora do corpo
                         // do laço.
                         writeln!(self.out, "  %v{v} = call i8 @llvm.expect.i8(i8 %iv{v}, i8 0)").unwrap();
+                    }
+                    // A classe do receptor: a do objeto do espaço lida no
+                    // cabeçalho, em linha (`df.classe`); o resto, o runtime.
+                    Instruction::CallRuntime { name, args, .. } if name == "dartforge_value_class" && args.len() == 1 => {
+                        let h = self.coagir(&args[0].0, Type::I64);
+                        writeln!(self.out, "  %v{v} = call i64 @df.classe(i64 {h})").unwrap();
                     }
                     Instruction::CallRuntime { name, args, ret_ty } => {
                         if name.starts_with("dartforge_nativo_") {
@@ -1651,7 +1658,7 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str("  %null_s = call i64 @dartforge_to_string_handle(i64 0)\n");
         self.out.push_str("  ret i64 %null_s\n");
         self.out.push_str("check_obj:\n");
-        self.out.push_str("  %cls = call i64 @dartforge_value_class(i64 %obj)\n");
+        self.out.push_str("  %cls = call i64 @df.classe(i64 %obj)\n");
 
         let mut cases = Vec::new();
         for class in &self.module.classes {
@@ -2797,6 +2804,44 @@ pronto:\n\
 lenta:\n\
   %q = call ptr @dartforge_area_de_globais_id(ptr @df.area, ptr @df.area_id)\n\
   ret ptr %q\n\
+}\n";
+
+/// A classe de um valor e o cache do ponto de chamada por seletor, em
+/// linha. Um objeto do espaço (`h & 3 == 2`, `runtime/src/heap.rs`,
+/// `Cabecalho`) tem o `class_id` no cabeçalho (`bloco + 4`, e o handle é
+/// `bloco + 2`): uma carga, como o `LoadClassId` da VM. O resto (`null`,
+/// `Smi`, valores do runtime) pergunta ao runtime (`dartforge_value_class`).
+/// O cache (`cache[0]` = classe + 1, `cache[1]` = entrada, na área do
+/// isolado) é conferido aqui; só a falha chama `dartforge_seletor`, que
+/// busca na tabela da classe e regrava o cache — o *inline cache*
+/// monomórfico da VM (`ICData`), sem a chamada ao runtime no acerto.
+const CLASSE_DO_VALOR: &str = "define internal i64 @df.classe(i64 %h) alwaysinline {\n\
+  %m = and i64 %h, -9223372036854775805\n\
+  %o = icmp eq i64 %m, 2\n\
+  br i1 %o, label %obj, label %rt\n\
+obj:\n\
+  %p = inttoptr i64 %h to ptr\n\
+  %cp = getelementptr inbounds i8, ptr %p, i64 2\n\
+  %c = load i32, ptr %cp, align 4, !invariant.load !{}\n\
+  %r = sext i32 %c to i64\n\
+  ret i64 %r\n\
+rt:\n\
+  %x = call i64 @dartforge_value_class(i64 %h)\n\
+  ret i64 %x\n\
+}\n\
+define internal ptr @df.seletor(ptr %c, i64 %r, i64 %h, ptr %n, i64 %l) alwaysinline {\n\
+  %cid = call i64 @df.classe(i64 %r)\n\
+  %k = add i64 %cid, 1\n\
+  %c0 = load i64, ptr %c, align 8\n\
+  %sim = icmp eq i64 %c0, %k\n\
+  br i1 %sim, label %acerto, label %falha\n\
+acerto:\n\
+  %ep = getelementptr inbounds i64, ptr %c, i64 1\n\
+  %e = load ptr, ptr %ep, align 8\n\
+  ret ptr %e\n\
+falha:\n\
+  %f = call ptr @dartforge_seletor(ptr %c, i64 %r, i64 %h, ptr %n, i64 %l)\n\
+  ret ptr %f\n\
 }\n";
 
 const CAIXA_DE_INT: &str = "define internal i64 @df.caixa_int(i64 %v) alwaysinline {\n\

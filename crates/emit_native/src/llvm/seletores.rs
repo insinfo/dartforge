@@ -76,7 +76,7 @@ impl LlvmEmitter<'_> {
         writeln!(self.out, "  %sic{v} = getelementptr i64, ptr %area, i64 {slot}").unwrap();
         writeln!(
             self.out,
-            "  %sf{v} = call ptr @dartforge_seletor(ptr %sic{v}, i64 {r}, i64 {h}, ptr @df.seln.{nome}, i64 {})",
+            "  %sf{v} = call ptr @df.seletor(ptr %sic{v}, i64 {r}, i64 {h}, ptr @df.seln.{nome}, i64 {})",
             seletor.len()
         )
         .unwrap();
@@ -199,7 +199,7 @@ impl LlvmEmitter<'_> {
              store i64 0, ptr %a\n  \
              %area = call ptr @df.obter_area()\n  \
              %ic = getelementptr i64, ptr %area, i64 {slot}\n  \
-             %f = call ptr @dartforge_seletor(ptr %ic, i64 %obj, i64 {h}, ptr @df.seln.{nome}, i64 {})\n  \
+             %f = call ptr @df.seletor(ptr %ic, i64 %obj, i64 {h}, ptr @df.seln.{nome}, i64 {})\n  \
              %r = call i64 %f(i64 %obj, ptr %a, ptr @df.arr.{k})\n  ret i64 %r\n}}\n",
             s.len()
         )
