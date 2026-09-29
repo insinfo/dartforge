@@ -1291,11 +1291,12 @@ mod tests {
         assert!(matches!(out.kind(), StmtKind::Block(s) if s.len() == 1));
         assert!(out.at_eof);
 
-        // Falta `;`: para na `}` do bloco sem consumi-la.
+        // Falta `;`: o `ensureSemicolon` do fasta o insere; o `break` fica
+        // e a `}` do bloco não é consumida por ele.
         let out = stmt("{ break }");
         assert!(out.result.is_ok());
         assert_eq!(out.diagnostics.len(), 1);
-        assert!(matches!(out.kind(), StmtKind::Block(s) if s.is_empty()));
+        assert!(matches!(out.kind(), StmtKind::Block(s) if s.len() == 1));
         assert!(out.at_eof);
 
         // Grupos aninhados são pulados inteiros durante a sincronização.

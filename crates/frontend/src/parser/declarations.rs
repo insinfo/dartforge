@@ -2948,11 +2948,10 @@ mod tests {
         }
     }
 
-    /// Falha com progresso ressincroniza na fronteira de membro: o `;` que
-    /// falta é apontado no token anterior (`1`) e a análise recomeça em
-    /// `garbage` (que vira um campo), sem engolir o `var y` — antes, a
-    /// recuperação pulava `garbage;` inteiro (fasta 3.6.2: `EXPECTED_TOKEN`
-    /// em `1`; a declaração quebrada `var x = 1 ...` é descartada nos dois).
+    /// O `;` que falta é apontado no token anterior (`1`) e inserido, como
+    /// no `ensureSemicolon` do fasta: `x` fica, `garbage` vira um campo sem
+    /// tipo (`MISSING_CONST_FINAL_VAR_OR_TYPE`) e o `var y` não é engolido
+    /// (conferido com o `dart analyze` 3.6.2).
     #[test]
     fn membro_fasta_fronteira_nao_engole_valido() {
         use dartforge_diagnostics::codigos::parser as c;
@@ -2974,7 +2973,7 @@ mod tests {
             MemberKind::Field(lista) => text(&nomes, lista.variables[0].name).to_string(),
             outro => panic!("{fonte}: {outro:?}"),
         }).collect();
-        assert_eq!(nomes_campos, ["garbage", "y"], "{fonte}: {:?}", out.diagnostics);
+        assert_eq!(nomes_campos, ["x", "garbage", "y"], "{fonte}: {:?}", out.diagnostics);
     }
 
     /// Membros válidos de todas as formas nunca tocam a recuperação.
@@ -2988,9 +2987,10 @@ mod tests {
         assert_eq!(class(&out, 0).members.len(), 8);
     }
 
-    /// Tentativa especulativa que vinga: sem o recurso, `augment` vira tipo
-    /// e a cauda `get foo => 0;` é retida como membro, sem erro novo — só o
-    /// `expected_token` do membro quebrado.
+    /// Sem o recurso, `augment` vira o tipo de um campo `int` (o `;` que
+    /// falta é inserido depois dele, como no `ensureSemicolon` do fasta) e
+    /// a cauda `get foo => 0;` é retida como membro — o `dart analyze` 3.6.2
+    /// dá `expected_token` em `int` e `undefined_class` em `augment`.
     #[test]
     fn membro_recuperacao_especulativa_retem_cauda_valida() {
         use crate::features::{LanguageVersion, LibraryFeatures};
@@ -3003,8 +3003,9 @@ mod tests {
         assert_eq!(out.diagnostics.len(), 1, "{fonte}: {:?}", out.diagnostics);
         assert_eq!(out.diagnostics[0].code, Some(c::EXPECTED_TOKEN));
         let classe = class(&out, 0);
-        assert_eq!(classe.members.len(), 1, "{fonte}: {:?}", out.diagnostics);
-        match member(&out, classe, 0) {
+        assert_eq!(classe.members.len(), 2, "{fonte}: {:?}", out.diagnostics);
+        assert_eq!((out.diagnostics[0].span.start, out.diagnostics[0].span.end), (20, 23));
+        match member(&out, classe, 1) {
             MemberKind::Method(id) => {
                 assert_eq!(text(&nomes, out.ast.function(*id).name.unwrap()), "foo");
             }
