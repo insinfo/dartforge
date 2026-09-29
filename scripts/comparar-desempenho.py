@@ -17,7 +17,8 @@ import argparse, os, re, shutil, signal, statistics, subprocess, sys, tempfile, 
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BENCH = os.path.join(RAIZ, "bench", "desempenho")
-DF = os.path.join(RAIZ, "target", "release", "dartforge")
+# `DARTFORGE_BIN` troca o binário (uma cópia estável enquanto outros compilam).
+DF = os.environ.get("DARTFORGE_BIN") or os.path.join(RAIZ, "target", "release", "dartforge")
 LINHA = re.compile(r"^(\w+): ([\d ]+) us \| (.*)$")
 
 

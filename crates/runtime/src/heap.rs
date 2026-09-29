@@ -1189,8 +1189,13 @@ impl std::fmt::Debug for Campos {
 /// bloco morto volta à lista do tamanho dele.
 #[repr(C)]
 pub struct Bloco {
-    /// 0 livre, 1 vivo, 2 marcado pela coleta em curso.
+    /// [`LIVRE`], [`JOVEM`], [`MARCADO`] (pela coleta em curso), [`VELHO`]
+    /// ou [`LEMBRADO`] (velho que ganhou referência depois da última coleta).
     pub estado: u8,
+    _reservado: u8,
+    /// O número de campos do bloco (`u16::MAX`: objeto grande, com página
+    /// própria).
+    pub classe: u16,
     /// O `hashCode` de identidade (0 = ainda não pedido).
     pub hash: u32,
     /// O metadado (RTI) do objeto, `id + 1` (0 = nenhum); num bloco livre,
@@ -1200,6 +1205,20 @@ pub struct Bloco {
     /// (`class_id` 0 e os campos do próprio bloco, zerados).
     pub valor: std::mem::ManuallyDrop<Value>,
 }
+
+/// Estados de um bloco ([`Bloco::estado`]). O coletor é geracional sem
+/// mover objetos (marcas "pegajosas"): um objeto nasce [`JOVEM`] (a
+/// alocação em linha grava 1), e o que sobrevive a uma coleta vira
+/// [`VELHO`]. A coleta menor só marca e varre os jovens; os velhos contam
+/// como vivos, e as referências de velho para jovem são achadas pelos
+/// [`LEMBRADO`]s — a barreira de escrita (`Heap::get_mut` no runtime e a do
+/// código gerado depois de gravar um `Ref` num campo, `llvm/mod.rs`) marca o
+/// velho que recebe uma referência, como o *store buffer* da VM.
+pub const LIVRE: u8 = 0;
+pub const JOVEM: u8 = 1;
+pub const MARCADO: u8 = 2;
+pub const VELHO: u8 = 3;
+pub const LEMBRADO: u8 = 4;
 
 /// O handle de um objeto do espaço é `bloco + DESLOCAMENTO_DO_HANDLE`.
 pub const DESLOCAMENTO_DO_HANDLE: i64 = 18;
@@ -1218,6 +1237,7 @@ const TLAB_BLOCOS: usize = 64;
 
 const _: () = {
     assert!(std::mem::offset_of!(Bloco, estado) == 0);
+    assert!(std::mem::offset_of!(Bloco, classe) == 2);
     assert!(std::mem::offset_of!(Bloco, hash) == 4);
     assert!(std::mem::offset_of!(Bloco, metadado) == 8);
     assert!(std::mem::offset_of!(Bloco, valor) == 16);
@@ -1233,6 +1253,15 @@ const _: () = {
 /// MiB e cresce), não a cada 1 MiB — que remarcava o que sobrevive quatro
 /// vezes mais.
 const GATILHO_MINIMO: usize = 4 * 1024 * 1024;
+
+/// A coleta menor vem a cada `LIMITE_JOVEM` bytes alocados (o tamanho do
+/// *new space*, como os 8 MiB do semiespaço da VM em 64 bits)…
+const LIMITE_JOVEM: usize = 8 * 1024 * 1024;
+/// … ou a cada `CONTAGEM_JOVEM` alocações (valores pequenos do runtime).
+const CONTAGEM_JOVEM: usize = 256 * 1024;
+/// No `--gc-stress`, uma coleta completa a cada tantas (as demais, menores:
+/// é nelas que uma barreira faltando apareceria).
+const MENORES_POR_COMPLETA_NO_ESTRESSE: u64 = 8;
 
 /// Bytes de um bloco de `n` campos.
 #[inline]
@@ -1397,6 +1426,14 @@ pub struct EspacoDeObjetos {
     pub vivos: usize,
     /// Blocos em todas as páginas.
     pub blocos: usize,
+    /// Os blocos entregues desde a última coleta (os jovens, e os da TLAB
+    /// ainda não usados): o que a coleta menor varre.
+    jovens: Vec<*mut Bloco>,
+    /// Os velhos que a barreira de escrita marcou ([`LEMBRADO`]).
+    lembrados: Vec<*mut Bloco>,
+    /// Blocos entregues desde a última coleta, por número de campos: a
+    /// demanda que a varredura reserva em páginas vazias.
+    demanda: Vec<usize>,
 }
 
 impl std::fmt::Debug for EspacoDeObjetos {
@@ -1414,6 +1451,9 @@ impl EspacoDeObjetos {
             livres: vec![std::ptr::null_mut(); MAIOR_CLASSE + 1],
             vivos: 0,
             blocos: 0,
+            jovens: Vec::new(),
+            lembrados: Vec::new(),
+            demanda: vec![0; MAIOR_CLASSE + 1],
         }
     }
 
@@ -1430,7 +1470,9 @@ impl EspacoDeObjetos {
             let campos = b.cast::<u8>().add(std::mem::size_of::<Bloco>()).cast::<Campo>();
             zerar(campos, n);
             b.write(Bloco {
-                estado: 0,
+                estado: LIVRE,
+                _reservado: 0,
+                classe: u16::try_from(n).unwrap_or(u16::MAX),
                 hash: 0,
                 metadado: proximo as i64,
                 valor: std::mem::ManuallyDrop::new(Value::Object {
@@ -1488,13 +1530,149 @@ impl EspacoDeObjetos {
         b
     }
 
+    /// Tira os `k` primeiros blocos livres de `n ≤ MAIOR_CLASSE` campos,
+    /// encadeados pelo metadado (o último aponta nulo), e os conta como
+    /// jovens: a TLAB.
+    fn tirar_varios(&mut self, n: usize, k: usize) -> *mut Bloco {
+        debug_assert!(n <= MAIOR_CLASSE && k > 0);
+        let mut cabeca: *mut Bloco = std::ptr::null_mut();
+        let mut cauda: *mut Bloco = std::ptr::null_mut();
+        let mut falta = k;
+        while falta > 0 {
+            if self.livres[n].is_null() {
+                self.nova_pagina(n);
+            }
+            let inicio = self.livres[n];
+            let mut fim = inicio;
+            self.jovens.push(fim);
+            falta -= 1;
+            // SAFETY: blocos livres da lista de `n`, encadeados pelo metadado.
+            unsafe {
+                while falta > 0 && (*fim).metadado != 0 {
+                    fim = (*fim).metadado as *mut Bloco;
+                    self.jovens.push(fim);
+                    falta -= 1;
+                }
+                self.livres[n] = (*fim).metadado as *mut Bloco;
+                (*fim).metadado = 0;
+                if cauda.is_null() {
+                    cabeca = inicio;
+                } else {
+                    (*cauda).metadado = inicio as i64;
+                }
+            }
+            cauda = fim;
+        }
+        self.demanda[n] += k;
+        cabeca
+    }
+
+    /// Marca o velho `b` como [`LEMBRADO`] (a barreira de escrita).
+    #[inline]
+    fn lembrar(&mut self, b: *mut Bloco) {
+        // SAFETY: bloco do espaço.
+        unsafe {
+            if (*b).estado == VELHO {
+                (*b).estado = LEMBRADO;
+                self.lembrados.push(b);
+            }
+        }
+    }
+
+    /// A varredura da coleta menor: os jovens marcados viram velhos; os não
+    /// marcados (e os da TLAB não usados) voltam à lista livre; os lembrados
+    /// voltam a velhos. Devolve (mortos, bytes promovidos, bytes soltos).
+    fn varrer_jovens(&mut self) -> (usize, usize, usize) {
+        let (mut mortos, mut promovidos, mut soltos) = (0, 0, 0);
+        let jovens = std::mem::take(&mut self.jovens);
+        for &b in &jovens {
+            // SAFETY: bloco entregue desde a última coleta, de uma página
+            // ainda viva (as páginas só saem na coleta completa).
+            unsafe {
+                let n = usize::from((*b).classe);
+                match (*b).estado {
+                    MARCADO => {
+                        (*b).estado = VELHO;
+                        if let Value::Object { fields, .. } = &*(*b).valor {
+                            promovidos += tamanho_do_bloco(fields.len);
+                        }
+                    }
+                    JOVEM => {
+                        mortos += 1;
+                        let tamanho = if let Value::Object { fields, .. } = &*(*b).valor { tamanho_do_bloco(fields.len) } else { 0 };
+                        soltos += tamanho;
+                        if n > MAIOR_CLASSE {
+                            // O objeto grande fica livre na página dele, que a
+                            // coleta completa solta.
+                            Self::soltar_objeto(b, self.pagina_do_grande(b));
+                            (*b).metadado = 0;
+                        } else {
+                            Self::soltar_objeto(b, n);
+                            (*b).metadado = self.livres[n] as i64;
+                            self.livres[n] = b;
+                        }
+                    }
+                    LIVRE if n <= MAIOR_CLASSE => {
+                        // Da TLAB, não usado.
+                        (*b).metadado = self.livres[n] as i64;
+                        self.livres[n] = b;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        self.jovens = jovens;
+        self.jovens.clear();
+        for b in std::mem::take(&mut self.lembrados) {
+            // SAFETY: bloco lembrado, velho.
+            unsafe { (*b).estado = VELHO };
+        }
+        self.vivos -= mortos;
+        for d in self.demanda.iter_mut() {
+            *d = 0;
+        }
+        (mortos, promovidos, soltos)
+    }
+
+    /// O número de campos do bloco grande `b` (a página dele sabe).
+    fn pagina_do_grande(&self, b: *mut Bloco) -> usize {
+        let base = b as usize & !(PAGINA - 1);
+        self.mapa.get(base).map_or(0, |i| self.paginas[i].n)
+    }
+
+    /// Devolve o bloco `b` (de `n` campos, objeto morto) ao molde livre:
+    /// solta os campos de fora do bloco, zera os próprios e o cabeçalho
+    /// (menos o encadeamento, que fica com quem chama).
+    ///
+    /// # Safety
+    /// `b` é bloco de `n` campos deste espaço cujo objeto morreu.
+    unsafe fn soltar_objeto(b: *mut Bloco, n: usize) {
+        // SAFETY: o contrato da função; o valor é sempre `Value::Object`.
+        unsafe {
+            let Value::Object { class_id, fields } = &mut *(*b).valor else { unreachable!("bloco sem objeto") };
+            *class_id = 0;
+            if !fields.do_espaco {
+                std::ptr::drop_in_place(fields);
+                let proprios = b.cast::<u8>().add(std::mem::size_of::<Bloco>()).cast::<Campo>();
+                std::ptr::write(fields, Campos { ptr: std::ptr::NonNull::new_unchecked(proprios), len: n, do_espaco: true });
+            }
+            zerar(fields.ptr.as_ptr(), n);
+            (*b).estado = LIVRE;
+            (*b).hash = 0;
+        }
+    }
+
     /// Um objeto novo de `n` campos zerados e classe `class_id`: o handle.
     #[inline]
     fn alocar(&mut self, class_id: i64, n: usize) -> i64 {
         let b = self.tirar(n);
+        self.jovens.push(b);
+        if n <= MAIOR_CLASSE {
+            self.demanda[n] += 1;
+        }
         // SAFETY: bloco livre tirado agora, com o molde de `n` campos.
         unsafe {
-            (*b).estado = 1;
+            (*b).estado = JOVEM;
             (*b).metadado = 0;
             if let Value::Object { class_id: c, .. } = &mut *(*b).valor {
                 *c = class_id;
@@ -1541,28 +1719,19 @@ impl EspacoDeObjetos {
                 // o valor é sempre `Value::Object`.
                 unsafe {
                     match (*b).estado {
-                        2 => {
-                            (*b).estado = 1;
+                        MARCADO => {
+                            (*b).estado = VELHO;
                             vivos_na_pagina += 1;
                             if let Value::Object { fields, .. } = &*(*b).valor {
                                 bytes_vivos += tamanho + if fields.do_espaco { 0 } else { fields.len * std::mem::size_of::<Campo>() };
                             }
                             continue;
                         }
-                        1 => {
+                        JOVEM | VELHO | LEMBRADO => {
+                            // Os campos que saíram do bloco (um objeto que
+                            // cresceu) voltam ao alocador do sistema.
                             mortos += 1;
-                            let Value::Object { class_id, fields } = &mut *(*b).valor else { unreachable!("bloco sem objeto") };
-                            *class_id = 0;
-                            if !fields.do_espaco {
-                                // Os campos que saíram do bloco (um objeto que
-                                // cresceu) voltam ao alocador do sistema.
-                                std::ptr::drop_in_place(fields);
-                                let proprios = b.cast::<u8>().add(std::mem::size_of::<Bloco>()).cast::<Campo>();
-                                std::ptr::write(fields, Campos { ptr: std::ptr::NonNull::new_unchecked(proprios), len: n, do_espaco: true });
-                            }
-                            zerar(fields.ptr.as_ptr(), n);
-                            (*b).estado = 0;
-                            (*b).hash = 0;
+                            Self::soltar_objeto(b, n);
                         }
                         _ => {}
                     }
@@ -1594,7 +1763,10 @@ impl EspacoDeObjetos {
                 solta[i] = true;
                 continue;
             }
-            let folga = vivos_da_classe[p.n].max(2 * p.blocos);
+            // A folga: o que sobreviveu e o que se alocou desde a última
+            // coleta (a demanda do próximo ciclo), e duas páginas. Soltar
+            // e pedir de novo a cada coleta custava as faltas de página.
+            let folga = vivos_da_classe[p.n].max(self.demanda[p.n]).max(2 * p.blocos);
             if livres_da_classe[p.n] >= folga + p.blocos {
                 livres_da_classe[p.n] -= p.blocos;
                 solta[i] = true;
@@ -1628,6 +1800,11 @@ impl EspacoDeObjetos {
             self.paginas.push(p);
         }
         self.vivos = vivos;
+        self.jovens.clear();
+        self.lembrados.clear();
+        for d in self.demanda.iter_mut() {
+            *d = 0;
+        }
         (mortos, vivos, bytes_vivos)
     }
 
@@ -2187,6 +2364,21 @@ pub struct Heap {
     publica: bool,
     /// O próximo `hashCode` de identidade de objeto.
     proximo_hash: u32,
+    /// A idade de cada slot: 0 jovem, 1 velho, 2 velho lembrado pela
+    /// barreira de escrita (`get_mut`), como os estados dos blocos.
+    idade: Vec<u8>,
+    /// Os slots ocupados desde a última coleta (o que a coleta menor varre)
+    /// e os velhos lembrados.
+    slots_jovens: Vec<usize>,
+    slots_lembrados: Vec<usize>,
+    /// Bytes alocados desde a última coleta (o gatilho da coleta menor).
+    bytes_jovens: usize,
+    /// A coleta em curso é menor (só os jovens).
+    coleta_menor: bool,
+    /// `DARTFORGE_GC_VERIFICAR=1`: toda coleta menor confere, por uma
+    /// travessia completa, que nenhum jovem alcançável ficou sem marca (uma
+    /// barreira de escrita faltando).
+    verificar: bool,
     pub iteracoes_ativas: crate::hash::HashSet<i64>,
     /// Lista de chaves → mapa de origem (para acusar modificação do mapa
     /// durante a iteração das chaves).
@@ -2289,6 +2481,12 @@ impl Heap {
             objetos: EspacoDeObjetos::new(),
             publica: false,
             proximo_hash: 0,
+            idade: Vec::new(),
+            slots_jovens: Vec::new(),
+            slots_lembrados: Vec::new(),
+            bytes_jovens: 0,
+            coleta_menor: false,
+            verificar: std::env::var("DARTFORGE_GC_VERIFICAR").as_deref() == Ok("1"),
             iteracoes_ativas: crate::hash::HashSet::default(),
             origens: crate::hash::HashMap::default(),
             finalizaveis: crate::hash::HashMap::default(),
@@ -2605,14 +2803,8 @@ impl Heap {
         // O portão antigo (`!self.frames.is_empty()`) existia porque o código
         // gerado não registrava raízes; com o frame de cada função (G1),
         // coletar sem frame aberto é só coletar com as raízes permanentes.
-        let passa_do_teto = self.limite_bytes != usize::MAX && self.bytes_totais(bytes) > self.limite_bytes;
-        if !self.gc_desligado
-            && (self.stress
-                || self.allocations >= self.threshold
-                || self.stats.estimated_bytes.saturating_add(bytes) > self.byte_threshold
-                || passa_do_teto)
-        {
-            self.collect();
+        if !self.gc_desligado && self.precisa_coletar(bytes) {
+            self.coletar_automatico(bytes);
         }
         // Depois da coleta: se ainda passa do teto, nao ha o que recuperar.
         self.verificar_teto(bytes);
@@ -2636,6 +2828,7 @@ impl Heap {
         self.stats.peak_estimated_bytes = self.stats.peak_estimated_bytes.max(self.stats.estimated_bytes);
         self.allocations += k;
         self.stats.allocations += k as u64;
+        self.bytes_jovens += bytes;
     }
     /// Põe `value` num slot (um livre, ou um novo no fim da tabela);
     /// devolve o handle.
@@ -2644,12 +2837,15 @@ impl Heap {
         let index = if let Some(index) = self.free.pop() {
             self.slots[index] = Some(value);
             self.metadados[index] = 0;
+            self.idade[index] = 0;
             index
         } else {
             self.slots.push(Some(value));
             self.metadados.push(0);
+            self.idade.push(0);
             self.slots.len() - 1
         };
+        self.slots_jovens.push(index);
         Self::handle_de_indice(index)
     }
     /// O heap do isolado da thread: reabastece a TLAB do [`Contexto`] (a
@@ -2673,16 +2869,34 @@ impl Heap {
     #[inline]
     pub fn alocar_objeto(&mut self, class_id: i64, n: usize) -> i64 {
         let bytes = tamanho_do_bloco(n);
-        let depois = self.stats.estimated_bytes.saturating_add(bytes);
-        if self.stress
-            || self.allocations >= self.threshold
-            || depois > self.byte_threshold
-            || (self.limite_bytes != usize::MAX && self.bytes_totais(bytes) > self.limite_bytes)
-        {
+        if self.precisa_coletar(bytes) {
             return self.alocar_objeto_lento(class_id, n);
         }
         self.contar_alocacao(1, bytes);
         self.objetos.alocar(class_id, n)
+    }
+    /// Uma alocação de `bytes` agora passaria de algum gatilho de coleta?
+    /// A menor vem a cada [`LIMITE_JOVEM`] bytes (ou [`CONTAGEM_JOVEM`]
+    /// alocações) desde a última coleta; a completa, quando o total passa do
+    /// gatilho que a última completa calculou (`byte_threshold`,
+    /// `threshold`) ou do teto.
+    #[inline]
+    fn precisa_coletar(&self, bytes: usize) -> bool {
+        self.stress
+            || self.allocations >= self.threshold.min(CONTAGEM_JOVEM)
+            || self.bytes_jovens + bytes > LIMITE_JOVEM
+            || self.stats.estimated_bytes.saturating_add(bytes) > self.byte_threshold
+            || (self.limite_bytes != usize::MAX && self.bytes_totais(bytes) > self.limite_bytes)
+    }
+    /// A coleta que os gatilhos pedem antes de alocar `bytes`: a completa se
+    /// o total passou do gatilho dela (ou do teto, ou a cada
+    /// [`MENORES_POR_COMPLETA_NO_ESTRESSE`] no `--gc-stress`); a menor senão.
+    fn coletar_automatico(&mut self, bytes: usize) {
+        let completa = self.allocations >= self.threshold
+            || self.stats.estimated_bytes.saturating_add(bytes) > self.byte_threshold
+            || (self.limite_bytes != usize::MAX && self.bytes_totais(bytes) > self.limite_bytes)
+            || (self.stress && self.stats.collections % MENORES_POR_COMPLETA_NO_ESTRESSE == 0);
+        self.coletar(!completa);
     }
     #[cold]
     #[inline(never)]
@@ -2703,7 +2917,8 @@ impl Heap {
         }
         let tamanho = tamanho_do_bloco(n);
         let mut k = TLAB_BLOCOS
-            .min(self.threshold.saturating_sub(self.allocations))
+            .min(self.threshold.min(CONTAGEM_JOVEM).saturating_sub(self.allocations))
+            .min(LIMITE_JOVEM.saturating_sub(self.bytes_jovens) / tamanho)
             .min(self.byte_threshold.saturating_sub(self.stats.estimated_bytes) / tamanho);
         if self.limite_bytes != usize::MAX {
             k = k.min(self.limite_bytes.saturating_sub(self.bytes_totais(0)) / tamanho);
@@ -2712,23 +2927,7 @@ impl Heap {
             return;
         }
         // Os `k` primeiros da lista livre, na ordem dela.
-        let mut cabeca: *mut Bloco = std::ptr::null_mut();
-        let mut cauda: *mut Bloco = std::ptr::null_mut();
-        for _ in 0..k {
-            let b = self.objetos.tirar(n);
-            // SAFETY: bloco livre recém-tirado; o encadeamento é pelo
-            // metadado, como nas listas livres.
-            #[allow(unsafe_code)]
-            unsafe {
-                (*b).metadado = 0;
-                if cauda.is_null() {
-                    cabeca = b;
-                } else {
-                    (*cauda).metadado = b as i64;
-                }
-            }
-            cauda = b;
-        }
+        let cabeca = self.objetos.tirar_varios(n, k);
         self.objetos.vivos += k;
         self.contar_alocacao(k, k * tamanho);
         CONTEXTO.with(|c| c.tlab[n].set(cabeca));
@@ -2790,6 +2989,13 @@ impl Heap {
                 (*b).hash = self.proximo_hash.max(1);
             }
             Some(i64::from((*b).hash))
+        }
+    }
+    /// A barreira de escrita do código gerado (`dartforge_lembrar`): o
+    /// objeto `h`, velho, recebeu um `Ref` num campo.
+    pub fn lembrar_objeto(&mut self, h: i64) {
+        if let Some(b) = self.objetos.bloco_de(h) {
+            self.objetos.lembrar(b);
         }
     }
     /// O metadado de um handle vivo (0 = nenhum).
@@ -2954,6 +3160,8 @@ impl Heap {
     #[inline]
     pub fn campos_de_objeto(&mut self, handle: i64) -> Option<*mut (i64, bool)> {
         let b = self.objetos.bloco_de(handle)?;
+        // Quem pede o ponteiro grava por ele: a barreira de escrita.
+        self.objetos.lembrar(b);
         // SAFETY: bloco do espaço; o valor é sempre `Value::Object`.
         #[allow(unsafe_code)]
         unsafe {
@@ -3288,13 +3496,24 @@ impl Heap {
         }
     }
     /// Obtém armazenamento mutável; não oferece acesso a slots já coletados.
+    ///
+    /// É a barreira de escrita do runtime: um velho entregue para escrita
+    /// é lembrado (o que se gravar nele pode ser jovem), sem olhar o que
+    /// vai ser gravado — conservador, como toda mutação do runtime passa
+    /// por aqui.
     pub fn get_mut(&mut self, handle: i64) -> &mut Value {
         if e_objeto(handle) {
+            let b = self.bloco_vivo(handle);
+            self.objetos.lembrar(b);
             // SAFETY: bloco vivo; a referência vive enquanto `&mut self`.
             #[allow(unsafe_code)]
-            return unsafe { &mut *(*self.bloco_vivo(handle)).valor };
+            return unsafe { &mut *(*b).valor };
         }
         let slot = self.indice_vivo(handle);
+        if self.idade[slot] == 1 {
+            self.idade[slot] = 2;
+            self.slots_lembrados.push(slot);
+        }
         self.slots[slot].as_mut().expect("slot vivo verificado")
     }
     /// Marca raízes e arestas tipadas iterativamente e libera inclusive ciclos inalcançáveis.
