@@ -100,6 +100,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if !(var.const_ || enum_) {
                     return None;
                 }
+                if let Some(k) = self.chave_de_const_primitiva(vid) {
+                    return Some(k);
+                }
                 let biblioteca = self.ctx.nome_da_biblioteca(var.library);
                 let dono = if let Some(cid) = var.class {
                     format!(".{}", self.ctx.symbol_name(self.ctx.program.class(cid).name))

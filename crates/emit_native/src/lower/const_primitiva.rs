@@ -37,6 +37,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(self.coagir(v, repr))
     }
 
+    /// A chave estrutural (`constantes.rs`) do valor de uma `const`
+    /// primitiva: `const [topo]` é a mesma constante que `const [7]`.
+    pub(super) fn chave_de_const_primitiva(&self, vid: VariableId) -> Option<String> {
+        Some(match self.valor_const_primitiva(vid, 0)? {
+            Primitiva::Int(v) => format!("i:{v}"),
+            Primitiva::Double(v) => format!("d:{}", v.to_bits()),
+            Primitiva::Bool(v) => format!("b:{v}"),
+        })
+    }
+
     fn valor_const_primitiva(&self, vid: VariableId, prof: u32) -> Option<Primitiva> {
         let var = &self.ctx.program.variables[vid.0 as usize];
         if !var.const_ || var.late || var.external || prof > 16 {
