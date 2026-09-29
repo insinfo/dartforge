@@ -1290,4 +1290,13 @@ pub struct ListaFixa {
     pub chave: Operand,
     pub comprimento: Operand,
     pub dados: Operand,
+    /// A forma dos elementos (N14, `heap::FormaDeLista`: 0 geral, 1 `int`,
+    /// 2 `double`, 3 `bool`), conferida antes das voltas: nelas, o
+    /// tamanho e a interpretação de cada elemento são conhecidos na emissão.
+    pub forma: i64,
+    /// Numa forma compacta, o comprimento para as gravações diretas
+    /// (`dartforge_lista_len_gravavel`, chamado antes das voltas: o
+    /// comprimento se a lista é modificável, senão 0 — e toda gravação vai
+    /// ao `[]=` do SDK).
+    pub comprimento_gravavel: Option<Operand>,
 }

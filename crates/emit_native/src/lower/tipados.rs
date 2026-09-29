@@ -20,16 +20,21 @@
 //! o endereço dos elementos e o comprimento são lidos dele em linha, a cada
 //! uso; as outras recebem um cabeçalho de comprimento 0 e ficam com o
 //! despacho. Na escrita, o runtime confere uma vez por lista que ela é
-//! modificável e que o `E` aceita o escalar, e marca um bit no cabeçalho;
+//! modificável e compacta do escalar, e marca um bit no cabeçalho;
 //! depois o código gerado só testa o bit. Os elementos saem sem caixa na representação
-//! do resultado (`int`, `double`); gravar direto só com `E` igual a `int`
-//! ou `double`, que nenhuma classe estende — com outro `E`, a lista pode
-//! ser de um subtipo e o `[]=` do SDK confere o valor (covariância).
+//! do resultado (`int`, `double`, `bool`); gravar direto só com `E` igual a
+//! `int`, `double` ou `bool`, que nenhuma classe estende — com outro `E`, a
+//! lista pode ser de um subtipo e o `[]=` do SDK confere o valor
+//! (covariância).
 //!
-//! O elemento de `List` é um `TaggedValue` do runtime (16 bytes: os bits, e
-//! `is_ref` e a tag nos bytes 8 e 9), lido e gravado em linha no endereço
-//! dos dados do cabeçalho. A leitura confere a tag: um elemento
-//! guardado de outra forma (uma caixa) sai por `dartforge_lista_ref`.
+//! N14: a forma dos elementos está no cabeçalho (`heap::FormaDeLista`). A
+//! lista cujo `E` reificado é exatamente `int`, `double` ou `bool` é
+//! compacta: cada elemento são os 8 bytes dos bits (`dados + 8·i`), sem tag
+//! — só o escalar do `E` entra nela, a covariância do SDK recusa o resto. A
+//! lista geral guarda um `TaggedValue` de 16 bytes (os bits, e `is_ref` e a
+//! tag nos bytes 8 e 9); a leitura de uma referência confere a tag. A
+//! leitura confere a forma (salvo nas voltas de N13, que a conferem antes):
+//! um elemento de outra forma sai por `dartforge_lista_ref`.
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
@@ -167,14 +172,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             None => self.campo_do_cabecalho(&cab, 1),
         };
         let Some(t) = gravacao.filter(|_| escrita) else { return len };
+        // N14: nas voltas de N13, a gravação direta foi conferida antes delas.
+        if let Some(n) = self.fixa_do_acesso.as_ref().and_then(|f| f.comprimento_gravavel.clone()) {
+            return n;
+        }
         // Gravação: o `E` reificado tem de aceitar o valor (covariância) e a
         // lista, ser modificável. Conferido uma vez por lista pelo runtime,
         // que marca o bit no cabeçalho; depois, só o bit.
-        let codigo = match t {
-            Type::I64 => 1,
-            Type::F64 => 2,
-            _ => 3,
-        };
+        let codigo = codigo_da_forma(t);
         let gravavel = self.campo_do_cabecalho(&cab, 2);
         let bit = self.emit(Instruction::And(gravavel, Operand::Constant(Constant::Int(1 << codigo))), Type::I64);
         let conferida = self.emit(Instruction::ICmp(ICmpOp::Ne, bit, Operand::Constant(Constant::Int(0))), Type::I1);
@@ -415,38 +420,79 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         )
     }
 
+    /// A forma dos elementos de uma lista do runtime (`heap::FormaDeLista`):
+    /// a constante conferida antes das voltas de N13, ou lida do cabeçalho.
+    fn forma_da_lista(&mut self, lista: &Operand) -> Result<i64, Operand> {
+        if let Some(f) = &self.fixa_do_acesso {
+            return Ok(f.forma);
+        }
+        let cab = self.cabecalho_da_lista(lista);
+        Err(self.campo_do_cabecalho(&cab, 3))
+    }
+
     /// O elemento `indice` (já conferido) de uma lista do runtime, na
-    /// representação `repr`: em linha quando a tag é a de `repr` (`int`,
-    /// `double`, ou referência para `Ref`), senão pela caixa (um escalar
-    /// numa posição `Ref` sai encaixotado por `dartforge_lista_ref`).
+    /// representação `repr`.
+    ///
+    /// Numa lista compacta (N14) da forma de `repr` (`int`, `double`,
+    /// `bool`), os 8 bytes dos bits em `dados + 8·indice`; numa lista geral
+    /// lida como `Ref`, o `TaggedValue` de 16 bytes quando a tag é de
+    /// referência. O resto sai pela caixa (`dartforge_lista_ref`: um escalar
+    /// numa posição `Ref` vira `Smi` ou caixa), e a forma conhecida na
+    /// emissão (as voltas de N13) poupa a conferência.
     pub(super) fn ler_elemento_da_lista(&mut self, lista: &Operand, indice: &Operand, repr: Type) -> Operand {
-        let (tipo, tag) = match repr {
-            Type::I64 => (TipoC::I64, TAG_INT),
-            Type::F64 => (TipoC::F64, TAG_DOUBLE),
-            // Um elemento guardado como referência: os bits são o handle.
-            Type::Ref => (TipoC::I64, TAG_REF),
-            // `bool`: os bits são 0 ou 1.
-            Type::I1 => (TipoC::I64, TAG_BOOL),
+        let alvo = match repr {
+            Type::I64 | Type::F64 | Type::I1 => codigo_da_forma(repr),
+            Type::Ref => 0,
             _ => return self.elemento_ref(lista, indice),
         };
         let dados = self.dados_da_lista(lista);
-        let i_tag = self.escala(indice, 16, 9);
-        let t = self.emit(Instruction::CargaNativa { endereco: dados.clone(), indice: i_tag, tipo: TipoC::U8 }, Type::I64);
-        let ok = self.emit(Instruction::ICmp(ICmpOp::Eq, t, Operand::Constant(Constant::Int(tag))), Type::I1);
-        let direto = self.new_block();
-        let caixa = self.new_block();
-        let juncao = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: ok, then_block: direto, else_block: caixa });
-
-        self.set_block(direto);
-        let i_bits = self.escala(indice, 2, 0);
+        let forma = self.forma_da_lista(lista);
+        // A lista geral lida como escalar (a forma 0 conhecida nas voltas):
+        // os 16 bytes com a tag, como antes das listas compactas.
+        let geral = alvo == 0 || forma == Ok(0);
+        if let Ok(k) = forma
+            && k != alvo
+            && k != 0
+        {
+            let r = self.elemento_ref(lista, indice);
+            return self.coagir(r, repr);
+        }
+        let mut caixa = None;
+        if let Err(f) = forma {
+            let ok = self.emit(Instruction::ICmp(ICmpOp::Eq, f, Operand::Constant(Constant::Int(alvo))), Type::I1);
+            let segue = self.new_block();
+            let b = self.new_block();
+            self.terminate(Terminator::CondBranch { cond: ok, then_block: segue, else_block: b });
+            self.set_block(segue);
+            caixa = Some(b);
+        }
+        let (tipo, tag) = match repr {
+            Type::F64 => (TipoC::F64, TAG_DOUBLE),
+            Type::Ref => (TipoC::I64, TAG_REF),
+            Type::I1 => (TipoC::I64, TAG_BOOL),
+            _ => (TipoC::I64, TAG_INT),
+        };
+        let i_bits = if geral {
+            let i_tag = self.escala(indice, 16, 9);
+            let t = self.emit(Instruction::CargaNativa { endereco: dados.clone(), indice: i_tag, tipo: TipoC::U8 }, Type::I64);
+            let ok = self.emit(Instruction::ICmp(ICmpOp::Eq, t, Operand::Constant(Constant::Int(tag))), Type::I1);
+            let direto = self.new_block();
+            let b = *caixa.get_or_insert_with(|| self.new_block());
+            self.terminate(Terminator::CondBranch { cond: ok, then_block: direto, else_block: b });
+            self.set_block(direto);
+            self.escala(indice, 2, 0)
+        } else {
+            indice.clone()
+        };
         let v = if repr == Type::I1 {
             let b = self.emit(Instruction::CargaNativa { endereco: dados, indice: i_bits, tipo }, Type::I64);
             self.emit(Instruction::ICmp(ICmpOp::Ne, b, Operand::Constant(Constant::Int(0))), Type::I1)
         } else {
             self.emit(Instruction::CargaNativa { endereco: dados, indice: i_bits, tipo }, repr)
         };
+        let Some(caixa) = caixa else { return v };
         let fim_direto = self.current_block;
+        let juncao = self.new_block();
         self.terminate(Terminator::Branch(juncao));
 
         self.set_block(caixa);
@@ -466,41 +512,32 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// Grava `valor` (`int`, `double` ou `bool`, sem caixa) no elemento `indice`
-    /// (já conferido) de uma lista do runtime modificável: os bits, `is_ref`
-    /// falso e a tag.
+    /// Grava `valor` (`int`, `double` ou `bool`, sem caixa) no elemento
+    /// `indice` (já conferido) de uma lista do runtime cuja gravação direta
+    /// foi conferida (`dartforge_lista_len_gravavel`): a lista é compacta da
+    /// forma de `repr` (N14), e o elemento são os 8 bytes dos bits.
     fn gravar_elemento_da_lista(&mut self, lista: &Operand, indice: &Operand, valor: Operand, repr: Type) {
-        let (tipo, tag, valor) = match repr {
-            Type::F64 => (TipoC::F64, TAG_DOUBLE, valor),
+        let (tipo, valor) = match repr {
+            Type::F64 => (TipoC::F64, valor),
             Type::I1 => {
                 let b = self.emit(Instruction::ZExt { op: valor, from: Type::I1, to: Type::I64 }, Type::I64);
-                (TipoC::I64, TAG_BOOL, b)
+                (TipoC::I64, b)
             }
-            _ => (TipoC::I64, TAG_INT, valor),
+            _ => (TipoC::I64, valor),
         };
         let dados = self.dados_da_lista(lista);
-        let i_bits = self.escala(indice, 2, 0);
-        self.emit(Instruction::GravacaoNativa { endereco: dados.clone(), indice: i_bits, tipo, valor }, Type::Void);
-        let i_ref = self.escala(indice, 16, 8);
-        self.emit(
-            Instruction::GravacaoNativa {
-                endereco: dados.clone(),
-                indice: i_ref,
-                tipo: TipoC::U8,
-                valor: Operand::Constant(Constant::Int(0)),
-            },
-            Type::Void,
-        );
-        let i_tag = self.escala(indice, 16, 9);
-        self.emit(
-            Instruction::GravacaoNativa {
-                endereco: dados,
-                indice: i_tag,
-                tipo: TipoC::U8,
-                valor: Operand::Constant(Constant::Int(tag)),
-            },
-            Type::Void,
-        );
+        self.emit(Instruction::GravacaoNativa { endereco: dados, indice: indice.clone(), tipo, valor }, Type::Void);
+    }
+}
+
+/// O código da forma compacta (`heap::FormaDeLista`) dos elementos de
+/// representação `t`: 1 `int`, 2 `double`, 3 `bool` — o mesmo das
+/// gravações diretas.
+pub(super) fn codigo_da_forma(t: Type) -> i64 {
+    match t {
+        Type::I64 => 1,
+        Type::F64 => 2,
+        _ => 3,
     }
 }
 

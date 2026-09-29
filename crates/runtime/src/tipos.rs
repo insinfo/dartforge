@@ -788,6 +788,65 @@ pub(crate) fn lista_aceita_escalar(meta: i64, codigo: i64) -> bool {
     })
 }
 
+/// A forma dos elementos (N14) de uma lista de tipo reificado `meta`
+/// (`Interface(List, [E])`): compacta quando o `E` é exatamente `int`,
+/// `double` ou `bool` não anuláveis — então só esse escalar entra pelo
+/// `[]=`/`add` do SDK (a covariância confere o valor contra o `E`
+/// reificado), e os 8 bytes dos bits bastam; senão a geral. Só lê o
+/// universo.
+pub(crate) fn forma_da_lista_do_tipo(meta: i64) -> crate::heap::FormaDeLista {
+    use crate::heap::FormaDeLista;
+    RTI.with(|u| {
+        let u = u.borrow();
+        let Some(Tipo::Interface(_, args)) = u.tipos.get(meta as usize) else { return FormaDeLista::Geral };
+        let Some(&e) = args.first() else { return FormaDeLista::Geral };
+        match u.tipos.get(e as usize) {
+            Some(Tipo::Interface(c, a)) if a.is_empty() && *c != 0 => {
+                if *c == u.rt.int {
+                    FormaDeLista::Int
+                } else if *c == u.rt.double {
+                    FormaDeLista::Double
+                } else if *c == u.rt.bool_ {
+                    FormaDeLista::Bool
+                } else {
+                    FormaDeLista::Geral
+                }
+            }
+            _ => FormaDeLista::Geral,
+        }
+    })
+}
+
+/// Põe a lista `h` na forma do tipo reificado dela (N14,
+/// [`forma_da_lista_do_tipo`]): chamado sempre que o metadado de uma lista
+/// é gravado. Uma lista que ainda não cabe na forma compacta (um elemento
+/// guardado como caixa) fica geral; nada disso é observável.
+pub(crate) fn ajustar_forma_da_lista(heap: &mut Heap, h: i64) {
+    use crate::heap::FormaDeLista;
+    if !matches!(heap.try_get(h), Some(Value::List(_))) {
+        return;
+    }
+    let meta = heap.metadado(h);
+    let forma = if meta == 0 { FormaDeLista::Geral } else { forma_da_lista_do_tipo(meta - 1) };
+    if let Value::List(e) = heap.get_mut(h) {
+        if forma == FormaDeLista::Geral {
+            e.descompactar();
+        } else {
+            e.compactar(forma);
+        }
+    }
+}
+
+/// Grava o tipo reificado `meta` (o metadado, `tipo + 1`) da lista `h` e a
+/// põe na forma dele ([`ajustar_forma_da_lista`]).
+pub(crate) fn definir_tipo_da_lista(h: i64, meta: i64) {
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        heap.set_metadado(h, meta);
+        ajustar_forma_da_lista(&mut heap, h);
+    });
+}
+
 /// `List<String>` na classe concreta de uma lista que o runtime cria (o
 /// `Dart_NewListOfTypeFilled` da VM).
 pub(crate) fn tipo_lista_de_textos(classe_concreta: Option<i64>) -> Option<i64> {
@@ -999,7 +1058,12 @@ pub extern "C" fn dartforge_rti_definir(obj: i64, tipo: i64) {
     } else {
         tipo
     };
-    HEAP.with(|h| h.borrow_mut().set_metadado(obj, tipo + 1));
+    HEAP.with(|h| {
+        let mut h = h.borrow_mut();
+        h.set_metadado(obj, tipo + 1);
+        // Um literal `<int>[…]` (N14): a lista compacta.
+        ajustar_forma_da_lista(&mut h, obj);
+    });
 }
 
 /// Grava o tipo estrutural de um record com campos nomeados. Os campos do

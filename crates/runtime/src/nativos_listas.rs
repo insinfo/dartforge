@@ -77,19 +77,19 @@ fn lista_len(this: i64) -> i64 {
 
 /// `lista[i] = v` direto (`lower/tipados.rs`) com `v` `int` (`codigo` 1),
 /// `double` (2) ou `bool` (3): o comprimento de `h` se ela é uma lista do
-/// runtime modificável cujo `E` reificado aceita o valor; senão 0 (o `[]=`
+/// runtime modificável e compacta dessa forma (N14: o `E` reificado é o
+/// escalar, e o código gerado grava os 8 bytes dos bits); senão 0 (o `[]=`
 /// do SDK, com a conferência de covariância e os erros da VM). Uma
-/// `List<Never>` vista como `List<int>` cai aqui. Só lê o heap e os tipos.
+/// `List<Never>` vista como `List<int>` cai aqui. Não muda a forma nem os
+/// dados (o laço de N13 guarda o endereço deles): só lê o heap e marca o
+/// bit no cabeçalho.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_lista_len_gravavel(h: i64, codigo: i64) -> i64 {
     heap_sem_emprestimo(|heap| {
         let imutavel = !heap.imutaveis.is_empty() && heap.imutaveis.contains(&h);
-        let meta = match heap.try_get(h) {
-            Some(Value::List(_)) if !imutavel => heap.metadado(h),
+        match heap.try_get(h) {
+            Some(Value::List(e)) if !imutavel && Some(e.forma()) == crate::heap::FormaDeLista::do_codigo(codigo) => {}
             _ => return 0,
-        };
-        if meta != 0 && !lista_aceita_escalar(meta - 1, codigo) {
-            return 0;
         }
         let Value::List(itens) = heap.get_mut(h) else { unreachable!() };
         // Conferido: o código gerado passa a gravar direto, pelo cabeçalho,
@@ -172,7 +172,7 @@ pub extern "C" fn dartforge_lista_len_ou_menos1(h: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_lista_ref(h: i64, i: i64) -> i64 {
     let v = HEAP.with(|heap| match heap.borrow().try_get(h) {
-        Some(Value::List(itens)) => usize::try_from(i).ok().and_then(|i| itens.get(i).copied()),
+        Some(Value::List(itens)) => usize::try_from(i).ok().and_then(|i| itens.get(i)),
         _ => None,
     });
     v.map_or(0, valor_como_ref)
@@ -190,7 +190,7 @@ pub extern "C" fn dartforge_nativo_List_allocate(length: i64, tupla: i64) -> i64
         h
     });
     if let Some(tipo) = tipo_lista_da_tupla(tupla, cid_do_runtime(h)) {
-        HEAP.with(|heap| heap.borrow_mut().set_metadado(h, tipo + 1));
+        definir_tipo_da_lista(h, tipo + 1);
     }
     h
 }
@@ -239,13 +239,13 @@ pub extern "C" fn dartforge_nativo_List_slice(this: i64, inicio: i64, quantos: i
     let h = HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         let Value::List(itens) = heap.get(this) else { return 0 };
-        let fatia: Vec<TaggedValue> = itens[inicio as usize..(inicio + quantos) as usize].to_vec();
-        let h = heap.allocate(Value::List(fatia.into()));
+        let fatia = itens.fatia(inicio as usize, (inicio + quantos) as usize);
+        let h = heap.allocate(Value::List(fatia));
         heap.fixas.insert(h);
         h
     });
     if h != 0 && let Some(tipo) = tipo_lista_copiada(this, cid_do_runtime(h)) {
-        HEAP.with(|heap| heap.borrow_mut().set_metadado(h, tipo + 1));
+        definir_tipo_da_lista(h, tipo + 1);
     }
     h
 }
@@ -256,13 +256,13 @@ pub extern "C" fn dartforge_nativo_ImmutableList_from(de: i64, inicio: i64, quan
     let h = HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         let Value::List(itens) = heap.get(de) else { return 0 };
-        let fatia: Vec<TaggedValue> = itens[inicio as usize..(inicio + quantos) as usize].to_vec();
-        let h = heap.allocate(Value::List(fatia.into()));
+        let fatia = itens.fatia(inicio as usize, (inicio + quantos) as usize);
+        let h = heap.allocate(Value::List(fatia));
         heap.marcar_imutavel(h);
         h
     });
     if h != 0 && let Some(tipo) = tipo_lista_da_tupla(tupla, cid_do_runtime(h)) {
-        HEAP.with(|heap| heap.borrow_mut().set_metadado(h, tipo + 1));
+        definir_tipo_da_lista(h, tipo + 1);
     }
     h
 }
@@ -281,7 +281,7 @@ pub extern "C" fn dartforge_nativo_GrowableList_allocate(dados: i64, tupla: i64)
         heap.allocate(Value::List(itens))
     });
     if h != 0 && let Some(tipo) = tipo_lista_da_tupla(tupla, cid_do_runtime(h)) {
-        HEAP.with(|heap| heap.borrow_mut().set_metadado(h, tipo + 1));
+        definir_tipo_da_lista(h, tipo + 1);
     }
     h
 }
@@ -313,7 +313,7 @@ pub extern "C" fn dartforge_nativo_GrowableList_setLength(this: i64, n: i64) {
         // A reserva de `_withData` vira os elementos até `n`.
         if let Value::List(itens) = heap.get_mut(this) {
             itens.definir_logico(None);
-            itens.vetor_mut().resize(n.max(0) as usize, TaggedValue::reference(0));
+            itens.redimensionar(n.max(0) as usize, TaggedValue::reference(0));
         }
     });
 }
@@ -331,11 +331,12 @@ pub extern "C" fn dartforge_nativo_GrowableList_setData(this: i64, dados: i64) {
         let Value::List(novos) = heap.get(dados) else { return };
         let n = n_atual.min(novos.len());
         let mut v = Vec::with_capacity(novos.len());
-        v.extend_from_slice(&novos[..n]);
+        v.extend(novos.iter().take(n));
         if let Value::List(itens) = heap.get_mut(this) {
-            // No mesmo `Elementos`: o cabeçalho não muda de endereço.
+            // No mesmo `Elementos`: o cabeçalho não muda de endereço, e a
+            // lista compacta continua compacta (N14).
             itens.definir_logico(None);
-            *itens.vetor_mut() = v;
+            itens.substituir(v);
         }
     });
 }
@@ -351,7 +352,7 @@ pub extern "C" fn dartforge_nativo_DartForge_List_preencher(lista: i64, valor: i
         let v = heap.normalizar(TaggedValue::reference(valor));
         if let Value::List(itens) = heap.get_mut(lista) {
             let n = itens.len_logico();
-            itens.fatia_mut()[..n].fill(v);
+            itens.preencher(n, v);
         }
     });
 }
@@ -367,14 +368,13 @@ pub extern "C" fn dartforge_nativo_DartForge_GrowableList_reservar(this: i64, ca
         if let Value::List(itens) = heap.get_mut(this) {
             let pendente = itens.logico();
             itens.definir_logico(None);
-            let mut v = itens.vetor_mut();
             if let Some(n) = pendente {
-                v.truncate(n);
+                itens.truncar(n);
             }
             let cap = usize::try_from(capacidade).unwrap_or(0);
-            let len = v.len();
+            let len = itens.len();
             if cap > len {
-                v.reserve_exact(cap - len);
+                itens.reservar_exato(cap - len);
             }
         }
     });
@@ -524,7 +524,7 @@ pub extern "C" fn dartforge_nativo_Internal_makeListFixedLength(lista: i64) -> i
         h
     });
     if h != 0 && let Some(tipo) = tipo_lista_copiada(lista, cid_do_runtime(h)) {
-        HEAP.with(|heap| heap.borrow_mut().set_metadado(h, tipo + 1));
+        definir_tipo_da_lista(h, tipo + 1);
     }
     h
 }
@@ -542,7 +542,7 @@ pub extern "C" fn dartforge_nativo_Internal_makeFixedListUnmodifiable(lista: i64
         h
     });
     if h != 0 && let Some(tipo) = tipo_lista_copiada(lista, cid_do_runtime(h)) {
-        HEAP.with(|heap| heap.borrow_mut().set_metadado(h, tipo + 1));
+        definir_tipo_da_lista(h, tipo + 1);
     }
     h
 }

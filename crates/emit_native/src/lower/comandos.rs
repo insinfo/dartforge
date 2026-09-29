@@ -305,24 +305,48 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     // lidos uma vez, e as conferências de limite do `v[i]`
                     // ficam provadas pela condição; senão (vazia, ou uma
                     // classe do programa que implementa `List`), as voltas de
-                    // sempre, que leem o `length` a cada volta.
+                    // sempre, que leem o `length` a cada volta. N14: as
+                    // voltas rápidas exigem também a forma dos elementos que
+                    // o tipo estático pede (compacta para `List<int>`,
+                    // `List<double>`, `List<bool>`; geral para os outros), e
+                    // a leem na emissão; a lista de outra forma vai às voltas
+                    // de sempre, que conferem a forma a cada acesso.
                     Some(Contado::Lista { alvo, local }) => {
+                        let forma = match self.indexavel(self.ctx.get_type(self.unit_id, alvo)) {
+                            Some(super::tipados::Indexavel::Nucleo { gravacao: Some(t) }) => super::tipados::codigo_da_forma(t),
+                            _ => 0,
+                        };
                         let lista = self.lower_expr(ast, alvo);
                         let lista = self.coagir(lista, Type::Ref);
                         let cab = self.cabecalho_da_lista(&lista);
                         let n = self.campo_do_cabecalho(&cab, 1);
                         let dados = self.campo_do_cabecalho(&cab, 0);
                         let do_runtime = self.emit(Instruction::ICmp(ICmpOp::Ne, n.clone(), Operand::Constant(Constant::Int(0))), Type::I1);
+                        let conferir_forma = self.new_block();
                         let rapido = self.new_block();
                         let geral = self.new_block();
                         let juncao = self.new_block();
-                        self.terminate(Terminator::CondBranch { cond: do_runtime, then_block: rapido, else_block: geral });
+                        self.terminate(Terminator::CondBranch { cond: do_runtime, then_block: conferir_forma, else_block: geral });
+                        self.set_block(conferir_forma);
+                        let f = self.campo_do_cabecalho(&cab, 3);
+                        let da_forma = self.emit(Instruction::ICmp(ICmpOp::Eq, f, Operand::Constant(Constant::Int(forma))), Type::I1);
+                        self.terminate(Terminator::CondBranch { cond: da_forma, then_block: rapido, else_block: geral });
                         self.set_block(rapido);
+                        let comprimento_gravavel = (forma != 0).then(|| {
+                            self.emit(
+                                Instruction::CallRuntime {
+                                    name: "dartforge_lista_len_gravavel".to_string(),
+                                    args: vec![(lista.clone(), Type::Ref), (Operand::Constant(Constant::Int(forma)), Type::I64)],
+                                    ret_ty: Type::I64,
+                                },
+                                Type::I64,
+                            )
+                        });
                         let chave = match self.buscar_local(local).map(|l| l.modo) {
                             Some(super::locais::Modo::Memoria(p)) => p,
                             _ => unreachable!("o laço de lista exige um local em memória"),
                         };
-                        self.listas_fixas.push(ListaFixa { chave, comprimento: n, dados });
+                        self.listas_fixas.push(ListaFixa { chave, comprimento: n, dados, forma, comprimento_gravavel });
                         self.voltas_do_for(ast, init.as_ref(), *condition, updates, *body, true, &rotulos);
                         self.listas_fixas.pop();
                         self.terminate(Terminator::Branch(juncao));

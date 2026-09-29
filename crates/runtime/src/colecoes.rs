@@ -42,7 +42,7 @@ pub extern "C" fn dartforge_list_get_ref(handle: i64, index: i64) -> i64 {
     let v = HEAP.with(|heap| {
         let heap = heap.borrow();
         match heap.get(handle) {
-            Value::List(items) => usize::try_from(index).ok().and_then(|i| items.get(i).copied()),
+            Value::List(items) => usize::try_from(index).ok().and_then(|i| items.get(i)),
             _ => None,
         }
     });
@@ -62,9 +62,9 @@ fn elemento_extremo_ref(handle: i64, qual: u8) -> i64 {
         let heap = heap.borrow();
         match heap.get(handle) {
             Value::List(items) => match qual {
-                0 => items.first().copied(),
-                1 => items.last().copied(),
-                _ => (items.len() == 1).then(|| items[0]),
+                0 => items.first(),
+                1 => items.last(),
+                _ => (items.len() == 1).then(|| items.valor(0)),
             },
             _ => None,
         }
@@ -147,7 +147,7 @@ pub extern "C" fn dartforge_list_first(handle: i64) -> i64 {
                 dartforge_exception_throw(err, 3);
                 return 0;
             }
-            items[0].bits
+            items.valor(0).bits
         } else {
             0
         }
@@ -488,7 +488,7 @@ pub extern "C" fn dartforge_list_reversed(handle: i64) -> i64 {
     let rev_items: Vec<TaggedValue> = HEAP.with(|heap| {
         let heap = heap.borrow();
         let Value::List(items) = heap.get(handle) else { return Vec::new(); };
-        items.iter().rev().copied().collect()
+        items.iter().rev().collect()
     });
     HEAP.with(|heap| heap.borrow_mut().allocate(Value::List(rev_items.into())))
 }
@@ -566,7 +566,7 @@ pub extern "C" fn dartforge_list_single(handle: i64) -> i64 {
                 dartforge_exception_throw(err, 3);
                 return 0;
             }
-            items[0].bits
+            items.valor(0).bits
         } else {
             0
         }
@@ -591,9 +591,9 @@ pub extern "C" fn dartforge_list_sublist(handle: i64, start: i64, end: i64) -> i
         }
         let h = heap.borrow();
         let Value::List(items) = h.get(handle) else { return 0; };
-        let slice: Vec<TaggedValue> = items[start as usize..end_idx as usize].to_vec();
+        let slice = items.fatia(start as usize, end_idx as usize);
         drop(h);
-        heap.borrow_mut().allocate(Value::List(slice.into()))
+        heap.borrow_mut().allocate(Value::List(slice))
     })
 }
 

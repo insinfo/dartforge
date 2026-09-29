@@ -547,32 +547,111 @@ impl TextoMut {
     }
 }
 
+/// A forma dos elementos de uma lista do runtime (N14), lida pelo código
+/// gerado no cabeçalho ([`CabecalhoDeLista`]).
+///
+/// `Geral` guarda cada elemento como um [`TaggedValue`] de 16 bytes. As
+/// outras são as listas compactas: o `E` reificado é exatamente `int`,
+/// `double` ou `bool` (não anulável), e cada elemento são só os 8 bytes dos
+/// bits, sem tag nem referência — o coletor não os percorre. O código de
+/// cada forma é o mesmo das gravações diretas (`codigo` de
+/// `dartforge_lista_len_gravavel`: 1 `int`, 2 `double`, 3 `bool`).
+///
+/// A forma é invisível para o programa: `is`/`as`, a covariância e os erros
+/// vêm do `E` reificado (o metadado do slot) e das conferências do SDK, que
+/// não mudam. Um valor que a forma não guarda (só o código do runtime
+/// poderia gravá-lo, sem a conferência de tipo) devolve a lista à forma
+/// geral ([`Elementos::descompactar`]) antes da gravação.
+///
+/// **Vagas.** O SDK grava `null` em posições de uma lista de `E` não
+/// anulável em dois momentos, e nunca as lê antes de gravar de novo: o
+/// `_List(n)` recém-alocado (que `List.filled`/`List.generate` preenchem em
+/// seguida) e o `null` que o `length =` da `_GrowableList` grava nas
+/// posições que vai cortar (logo depois cortadas). A forma compacta guarda
+/// essas vagas como 0 (`false`, `0.0`), como o `_List` da VM guarda o null
+/// que ninguém lê.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i64)]
+pub enum FormaDeLista {
+    Geral = 0,
+    Int = 1,
+    Double = 2,
+    Bool = 3,
+}
+
+impl FormaDeLista {
+    /// A forma compacta do código de gravação (1 `int`, 2 `double`, 3 `bool`).
+    pub fn do_codigo(codigo: i64) -> Option<Self> {
+        match codigo {
+            1 => Some(Self::Int),
+            2 => Some(Self::Double),
+            3 => Some(Self::Bool),
+            _ => None,
+        }
+    }
+
+    fn tag(self) -> ValueTag {
+        match self {
+            Self::Int => ValueTag::Int,
+            Self::Double => ValueTag::Double,
+            Self::Bool => ValueTag::Bool,
+            Self::Geral => ValueTag::Ref,
+        }
+    }
+
+    /// Os bits de `v` nesta forma compacta, ou `None` se ela não o guarda.
+    /// O null é uma vaga (ver o tipo): 0.
+    fn bits_de(self, v: TaggedValue) -> Option<i64> {
+        if self == Self::Geral {
+            return None;
+        }
+        if v.is_ref {
+            return (v.bits == 0).then_some(0);
+        }
+        (v.tag == self.tag()).then_some(v.bits)
+    }
+
+    /// O elemento de bits `bits` nesta forma compacta.
+    fn valor(self, bits: i64) -> TaggedValue {
+        TaggedValue { bits, is_ref: false, tag: self.tag() }
+    }
+}
+
 /// Os elementos de uma `Value::List` atrás de um cabeçalho de endereço fixo.
 ///
 /// O código gerado lê o cabeçalho em linha (`lower/tipados.rs`): o endereço
-/// dos elementos no deslocamento 0, o comprimento lógico no 8 e, no 16, as
-/// gravações diretas já conferidas. O cabeçalho mora num `Box` e não muda
-/// de endereço enquanto a lista vive (o slot pode mover o `Value`, o `Box`
-/// não): `dartforge_lista_cabecalho` é uma função pura do handle, que o
-/// LLVM tira dos laços. Toda mudança de estrutura passa por
-/// [`Elementos::vetor_mut`], cuja guarda ressincroniza o cabeçalho ao sair;
-/// gravar um elemento no lugar ([`Elementos::fatia_mut`]) não o muda.
+/// dos elementos no deslocamento 0, o comprimento lógico no 8, no 16 as
+/// gravações diretas já conferidas e no 24 a forma ([`FormaDeLista`]: o
+/// tamanho e a interpretação de cada elemento). O cabeçalho mora num `Box`
+/// e não muda de endereço enquanto a lista vive (o slot pode mover o
+/// `Value`, o `Box` não): `dartforge_lista_cabecalho` é uma função pura do
+/// handle, que o LLVM tira dos laços. Toda mudança de estrutura ou de forma
+/// ressincroniza o cabeçalho; gravar um elemento que a forma guarda não o
+/// muda.
 pub struct Elementos(Box<CabecalhoDeLista>);
 
 /// O cabeçalho lido pelo código gerado; ver [`Elementos`].
 #[repr(C)]
 pub struct CabecalhoDeLista {
-    /// `vetor.as_mut_ptr()`.
-    dados: *mut TaggedValue,
-    /// O comprimento lógico: `logico`, ou `vetor.len()`.
+    /// `vetor.as_mut_ptr()` na forma geral, `compacto.as_mut_ptr()` nas
+    /// compactas.
+    dados: *mut u8,
+    /// O comprimento lógico: `logico`, ou o do vetor da forma.
     len: i64,
     /// Bit `1 << codigo` (1 `int`, 2 `double`, 3 `bool`): a lista é
-    /// modificável e o `E` reificado aceita o escalar, conferido por
-    /// `dartforge_lista_len_gravavel`; bit `1 << (codigo + 4)`: além disso
-    /// ela cresce (`dartforge_lista_add_escalar`). Zerado quando o `E` ou a
-    /// imutabilidade mudam ([`Elementos::esquecer_gravacoes`]).
+    /// modificável, compacta da forma `codigo` (então o `E` reificado é o
+    /// escalar), conferido por `dartforge_lista_len_gravavel`; o código
+    /// gerado grava os 8 bytes direto. Bit `1 << (codigo + 4)`: a lista
+    /// cresce e aceita o escalar (`dartforge_lista_add_escalar`). Zerado
+    /// quando o `E`, a imutabilidade ou a forma mudam
+    /// ([`Elementos::esquecer_gravacoes`]).
     gravavel: i64,
+    /// A [`FormaDeLista`], como `i64`.
+    forma: i64,
+    /// Os elementos na forma geral (vazio nas compactas).
     vetor: Vec<TaggedValue>,
+    /// Os bits dos elementos nas formas compactas (vazio na geral).
+    compacto: Vec<i64>,
     /// `_GrowableList._withData(data)` (P5c): o vetor tem os elementos de
     /// `data` (a reserva) e o tamanho lógico é este, até o primeiro
     /// `_setLength`/`_setData` — na VM a lista aponta para o `_List` e o
@@ -584,33 +663,40 @@ const _: () = {
     assert!(std::mem::offset_of!(CabecalhoDeLista, dados) == 0);
     assert!(std::mem::offset_of!(CabecalhoDeLista, len) == 8);
     assert!(std::mem::offset_of!(CabecalhoDeLista, gravavel) == 16);
+    assert!(std::mem::offset_of!(CabecalhoDeLista, forma) == 24);
 };
 
 /// O cabeçalho de quem não é lista do runtime: comprimento 0 (nenhum índice
-/// passa no teste de limites) e nenhuma gravação conferida.
+/// passa no teste de limites), nenhuma gravação conferida, forma geral.
 pub static CABECALHO_VAZIO: CabecalhoDeLista = CabecalhoDeLista {
     dados: std::ptr::null_mut(),
     len: 0,
     gravavel: 0,
+    forma: 0,
     vetor: Vec::new(),
+    compacto: Vec::new(),
     logico: None,
 };
 
-// SAFETY: `dados` aponta para o buffer do próprio `vetor` (ou é nulo no
-// `CABECALHO_VAZIO`, que nunca é gravado): mover ou compartilhar o cabeçalho
-// entre threads é mover o `Vec`, que é `Send`/`Sync`.
+// SAFETY: `dados` aponta para o buffer de um dos vetores do próprio
+// cabeçalho (ou é nulo no `CABECALHO_VAZIO`, que nunca é gravado): mover ou
+// compartilhar o cabeçalho entre threads é mover os `Vec`, que são
+// `Send`/`Sync`.
 #[allow(unsafe_code)]
 unsafe impl Send for CabecalhoDeLista {}
 #[allow(unsafe_code)]
 unsafe impl Sync for CabecalhoDeLista {}
 
 impl Elementos {
+    /// Uma lista geral com os elementos `vetor`.
     pub fn new(vetor: Vec<TaggedValue>) -> Self {
         let mut e = Self(Box::new(CabecalhoDeLista {
             dados: std::ptr::null_mut(),
             len: 0,
             gravavel: 0,
+            forma: 0,
             vetor,
+            compacto: Vec::new(),
             logico: None,
         }));
         e.sincronizar();
@@ -619,19 +705,259 @@ impl Elementos {
 
     fn sincronizar(&mut self) {
         let c = &mut *self.0;
-        c.dados = c.vetor.as_mut_ptr();
-        c.len = c.logico.unwrap_or(c.vetor.len()) as i64;
+        let fisico = if c.forma == 0 {
+            c.dados = c.vetor.as_mut_ptr().cast();
+            c.vetor.len()
+        } else {
+            c.dados = c.compacto.as_mut_ptr().cast();
+            c.compacto.len()
+        };
+        c.len = c.logico.unwrap_or(fisico) as i64;
     }
 
-    /// Muda a estrutura (comprimento, capacidade): a guarda ressincroniza o
-    /// cabeçalho quando sai de escopo.
+    /// A forma dos elementos.
+    pub fn forma(&self) -> FormaDeLista {
+        match self.0.forma {
+            1 => FormaDeLista::Int,
+            2 => FormaDeLista::Double,
+            3 => FormaDeLista::Bool,
+            _ => FormaDeLista::Geral,
+        }
+    }
+
+    /// Passa à forma compacta `forma` se todo elemento (a reserva de
+    /// `_withData` inclusive) cabe nela — o escalar da forma, ou uma vaga
+    /// null; senão fica como está e devolve falso. Esquece as gravações
+    /// conferidas.
+    pub fn compactar(&mut self, forma: FormaDeLista) -> bool {
+        if forma == FormaDeLista::Geral || self.forma() == forma {
+            return self.forma() == forma;
+        }
+        if self.forma() != FormaDeLista::Geral {
+            self.descompactar();
+        }
+        let c = &mut *self.0;
+        let mut bits = Vec::with_capacity(c.vetor.capacity());
+        for v in &c.vetor {
+            match forma.bits_de(*v) {
+                Some(b) => bits.push(b),
+                None => return false,
+            }
+        }
+        c.vetor = Vec::new();
+        c.compacto = bits;
+        c.forma = forma as i64;
+        c.gravavel = 0;
+        self.sincronizar();
+        true
+    }
+
+    /// Volta à forma geral (os escalares com a tag), com a mesma
+    /// capacidade. Esquece as gravações conferidas.
+    pub fn descompactar(&mut self) {
+        let forma = self.forma();
+        if forma == FormaDeLista::Geral {
+            return;
+        }
+        let c = &mut *self.0;
+        let mut vetor = Vec::with_capacity(c.compacto.capacity());
+        vetor.extend(c.compacto.iter().map(|&b| forma.valor(b)));
+        c.compacto = Vec::new();
+        c.vetor = vetor;
+        c.forma = 0;
+        c.gravavel = 0;
+        self.sincronizar();
+    }
+
+    /// Quantos elementos o vetor da forma tem (a reserva de `_withData`
+    /// inclusive; o comprimento do Dart é [`Elementos::len_logico`]).
+    pub fn len(&self) -> usize {
+        if self.0.forma == 0 { self.0.vetor.len() } else { self.0.compacto.len() }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// A capacidade do vetor da forma.
+    pub fn capacity(&self) -> usize {
+        if self.0.forma == 0 { self.0.vetor.capacity() } else { self.0.compacto.capacity() }
+    }
+
+    /// Os bytes do buffer de elementos (para a contabilidade do coletor).
+    pub fn bytes_reservados(&self) -> usize {
+        if self.0.forma == 0 {
+            self.0.vetor.capacity() * std::mem::size_of::<TaggedValue>()
+        } else {
+            self.0.compacto.capacity() * std::mem::size_of::<i64>()
+        }
+    }
+
+    /// O elemento `i`, se existe.
+    pub fn get(&self, i: usize) -> Option<TaggedValue> {
+        match self.forma() {
+            FormaDeLista::Geral => self.0.vetor.get(i).copied(),
+            f => self.0.compacto.get(i).map(|&b| f.valor(b)),
+        }
+    }
+
+    /// O elemento `i`.
+    ///
+    /// # Panics
+    /// Se `i` passa do vetor da forma.
+    pub fn valor(&self, i: usize) -> TaggedValue {
+        match self.forma() {
+            FormaDeLista::Geral => self.0.vetor[i],
+            f => f.valor(self.0.compacto[i]),
+        }
+    }
+
+    /// Os elementos, com a tag.
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = TaggedValue> + ExactSizeIterator + '_ {
+        (0..self.len()).map(move |i| self.valor(i))
+    }
+
+    pub fn first(&self) -> Option<TaggedValue> {
+        self.get(0)
+    }
+
+    pub fn last(&self) -> Option<TaggedValue> {
+        self.len().checked_sub(1).and_then(|i| self.get(i))
+    }
+
+    /// As referências dos elementos (nenhuma numa forma compacta).
+    pub fn referencias(&self) -> impl Iterator<Item = i64> + '_ {
+        self.0.vetor.iter().filter_map(|v| v.is_ref.then_some(v.bits))
+    }
+
+    /// Os elementos, com a tag, num vetor novo.
+    pub fn to_vec(&self) -> Vec<TaggedValue> {
+        self.iter().collect()
+    }
+
+    /// Os elementos `[inicio, fim)` numa lista nova da mesma forma.
+    ///
+    /// # Panics
+    /// Se a faixa passa do vetor da forma.
+    pub fn fatia(&self, inicio: usize, fim: usize) -> Self {
+        let mut e = Self::new(Vec::new());
+        match self.forma() {
+            FormaDeLista::Geral => e.0.vetor = self.0.vetor[inicio..fim].to_vec(),
+            f => {
+                e.0.compacto = self.0.compacto[inicio..fim].to_vec();
+                e.0.forma = f as i64;
+            }
+        }
+        e.sincronizar();
+        e
+    }
+
+    /// Grava `v` (normalizado, R8) no elemento `i` existente; um valor que
+    /// a forma compacta não guarda a devolve à forma geral antes.
+    ///
+    /// # Panics
+    /// Se `i` passa do vetor da forma.
+    pub fn definir(&mut self, i: usize, v: TaggedValue) {
+        let forma = self.forma();
+        if forma != FormaDeLista::Geral {
+            if let Some(b) = forma.bits_de(v) {
+                self.0.compacto[i] = b;
+                return;
+            }
+            self.descompactar();
+        }
+        self.0.vetor[i] = v;
+    }
+
+    /// Grava `v` nos `n` primeiros elementos.
+    pub fn preencher(&mut self, n: usize, v: TaggedValue) {
+        let forma = self.forma();
+        if forma != FormaDeLista::Geral {
+            if let Some(b) = forma.bits_de(v) {
+                self.0.compacto[..n].fill(b);
+                return;
+            }
+            self.descompactar();
+        }
+        self.0.vetor[..n].fill(v);
+    }
+
+    /// Acrescenta `v` (normalizado) no fim do vetor.
+    pub fn push(&mut self, v: TaggedValue) {
+        let forma = self.forma();
+        if forma != FormaDeLista::Geral {
+            if let Some(b) = forma.bits_de(v) {
+                self.0.compacto.push(b);
+                self.sincronizar();
+                return;
+            }
+            self.descompactar();
+        }
+        self.0.vetor.push(v);
+        self.sincronizar();
+    }
+
+    /// O vetor passa a ter `n` elementos; os novos são `v`.
+    pub fn redimensionar(&mut self, n: usize, v: TaggedValue) {
+        let forma = self.forma();
+        if forma != FormaDeLista::Geral {
+            if let Some(b) = forma.bits_de(v) {
+                self.0.compacto.resize(n, b);
+                self.sincronizar();
+                return;
+            }
+            self.descompactar();
+        }
+        self.0.vetor.resize(n, v);
+        self.sincronizar();
+    }
+
+    /// Corta o vetor em `n` elementos.
+    pub fn truncar(&mut self, n: usize) {
+        self.0.vetor.truncate(n);
+        self.0.compacto.truncate(n);
+        self.sincronizar();
+    }
+
+    /// Reserva capacidade para `adicional` elementos além dos que há.
+    pub fn reservar_exato(&mut self, adicional: usize) {
+        if self.0.forma == 0 {
+            self.0.vetor.reserve_exact(adicional);
+        } else {
+            self.0.compacto.reserve_exact(adicional);
+        }
+        self.sincronizar();
+    }
+
+    /// Troca os elementos por `novos` (normalizados), na forma corrente se
+    /// todos cabem nela, senão na geral. A capacidade é a de `novos`.
+    pub fn substituir(&mut self, novos: Vec<TaggedValue>) {
+        let forma = self.forma();
+        if forma != FormaDeLista::Geral {
+            let bits: Option<Vec<i64>> = {
+                let mut b = Vec::with_capacity(novos.capacity());
+                novos.iter().try_for_each(|v| forma.bits_de(*v).map(|x| b.push(x))).map(|()| b)
+            };
+            if let Some(b) = bits {
+                self.0.compacto = b;
+                self.sincronizar();
+                return;
+            }
+            self.0.compacto = Vec::new();
+            self.0.forma = 0;
+            self.0.gravavel = 0;
+        }
+        self.0.vetor = novos;
+        self.sincronizar();
+    }
+
+    /// Muda a estrutura (comprimento, capacidade) na forma geral: devolve
+    /// a lista compacta à geral, e a guarda ressincroniza o cabeçalho quando
+    /// sai de escopo. Os caminhos comuns têm métodos próprios, que mantêm a
+    /// forma ([`Elementos::push`], [`Elementos::redimensionar`]…).
     pub fn vetor_mut(&mut self) -> GuardaDeElementos<'_> {
+        self.descompactar();
         GuardaDeElementos(self)
-    }
-
-    /// Os elementos para gravar no lugar, sem mudar a estrutura.
-    pub fn fatia_mut(&mut self) -> &mut [TaggedValue] {
-        &mut self.0.vetor
     }
 
     /// O tamanho lógico de `_withData`, se ainda pendente.
@@ -646,7 +972,7 @@ impl Elementos {
 
     /// O comprimento que o Dart vê.
     pub fn len_logico(&self) -> usize {
-        self.0.logico.unwrap_or(self.0.vetor.len())
+        self.0.logico.unwrap_or(self.len())
     }
 
     pub fn cabecalho(&self) -> *const CabecalhoDeLista {
@@ -665,15 +991,10 @@ impl Elementos {
         self.0.gravavel = 0;
     }
 
-    pub fn into_vec(self) -> Vec<TaggedValue> {
-        self.0.vetor
-    }
-}
-
-impl std::ops::Deref for Elementos {
-    type Target = Vec<TaggedValue>;
-    fn deref(&self) -> &Vec<TaggedValue> {
-        &self.0.vetor
+    /// Os elementos, com a tag (a forma geral).
+    pub fn into_vec(mut self) -> Vec<TaggedValue> {
+        self.descompactar();
+        std::mem::take(&mut self.0.vetor)
     }
 }
 
@@ -690,21 +1011,26 @@ impl From<Vec<TaggedValue>> for Elementos {
 }
 
 impl Clone for Elementos {
-    /// Outra lista: cabeçalho próprio, gravações a conferir de novo.
+    /// Outra lista, da mesma forma: cabeçalho próprio, gravações a conferir
+    /// de novo.
     fn clone(&self) -> Self {
         let mut e = Self::new(self.0.vetor.clone());
-        e.definir_logico(self.0.logico);
+        e.0.compacto = self.0.compacto.clone();
+        e.0.forma = self.0.forma;
+        e.0.logico = self.0.logico;
+        e.sincronizar();
         e
     }
 }
 
 impl std::fmt::Debug for Elementos {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_list().entries(self.0.vetor.iter()).finish()
+        f.debug_list().entries(self.iter()).finish()
     }
 }
 
-/// Acesso de estrutura a [`Elementos`]; ressincroniza o cabeçalho ao sair.
+/// Acesso de estrutura a [`Elementos`] na forma geral; ressincroniza o
+/// cabeçalho ao sair.
 pub struct GuardaDeElementos<'a>(&'a mut Elementos);
 
 impl std::ops::Deref for GuardaDeElementos<'_> {
@@ -889,9 +1215,8 @@ impl Value {
             Self::TypedData { bytes, .. } => bytes.capacity(),
             Self::TypedView { .. } => 0,
             Self::List(values) => values
-                .capacity()
-                .checked_mul(std::mem::size_of::<TaggedValue>())
-                .and_then(|n| n.checked_add(std::mem::size_of::<CabecalhoDeLista>()))
+                .bytes_reservados()
+                .checked_add(std::mem::size_of::<CabecalhoDeLista>())
                 .expect("payload excede usize"),
             Self::Environment(values) | Self::Set(values) | Self::Record(values) => values
                 .capacity()
@@ -938,12 +1263,10 @@ impl Value {
                 }
                 1
             }
+            // Uma lista compacta (N14) não tem referências: nada a percorrer.
+            Self::List(values) if values.forma() != FormaDeLista::Geral => 1,
             Self::List(values) => {
-                pending.extend(
-                    values
-                        .iter()
-                        .filter_map(|value| value.is_ref.then_some(value.bits)),
-                );
+                pending.extend(values.referencias());
                 values.len()
             }
             Self::Environment(values) | Self::Set(values) | Self::Record(values) => {
@@ -1933,7 +2256,7 @@ impl Heap {
     /// Lê o elemento sem alterar sua tag ou identidade.
     pub fn list_get(&self, handle: i64, index: usize) -> TaggedValue {
         match self.get(handle) {
-            Value::List(values) => values[index],
+            Value::List(values) => values.valor(index),
             _ => panic!("lista esperada"),
         }
     }
@@ -1944,7 +2267,7 @@ impl Heap {
         let Value::List(values) = self.get_mut(handle) else {
             panic!("lista esperada")
         };
-        values.fatia_mut()[index] = value;
+        values.definir(index, value);
     }
     /// Acrescenta elemento e contabiliza capacidade real do buffer na política de GC.
     /// A lista permanece protegida durante eventual coleta causada pelo crescimento.
@@ -1955,7 +2278,7 @@ impl Heap {
         let Value::List(values) = self.get_mut(handle) else {
             panic!("lista esperada")
         };
-        values.vetor_mut().push(value);
+        values.push(value);
         let added = self.get(handle).estimated_bytes() - previous;
         self.stats.estimated_bytes = self
             .stats
@@ -2756,6 +3079,47 @@ mod caixas {
         assert_eq!(heap.list_get(lista, 0), TaggedValue::double(2.5));
         let de_volta = heap.como_ref(heap.list_get(lista, 0));
         assert!(matches!(heap.get(de_volta), Value::BoxedDouble(d) if *d == 2.5));
+    }
+
+    /// N14: a forma compacta guarda só os bits, com a mesma leitura; uma
+    /// vaga null vira 0; um valor de outra forma devolve a lista à geral.
+    #[test]
+    fn lista_compacta_mantem_valores_e_volta_a_geral() {
+        let mut e = Elementos::new(vec![TaggedValue::scalar(7), TaggedValue::reference(0), TaggedValue::scalar(-1)]);
+        assert!(e.compactar(FormaDeLista::Int));
+        assert_eq!(e.forma(), FormaDeLista::Int);
+        assert_eq!(e.to_vec(), vec![TaggedValue::scalar(7), TaggedValue::scalar(0), TaggedValue::scalar(-1)]);
+        assert_eq!((e.0.forma, e.0.len), (1, 3));
+        assert_eq!(e.0.dados, e.0.compacto.as_ptr() as *mut u8);
+        e.push(TaggedValue::scalar(9));
+        e.redimensionar(6, TaggedValue::reference(0));
+        let f = e.fatia(3, 5);
+        assert_eq!((f.forma(), f.to_vec()), (FormaDeLista::Int, vec![TaggedValue::scalar(9), TaggedValue::scalar(0)]));
+        assert!(!e.clone().compactar(FormaDeLista::Double));
+        e.conferir_gravacao(1);
+        e.definir(1, TaggedValue::boolean(true));
+        assert_eq!(e.forma(), FormaDeLista::Geral);
+        assert!(!e.gravacao_conferida(1));
+        assert_eq!(e.valor(1), TaggedValue::boolean(true));
+        assert_eq!(e.valor(0), TaggedValue::scalar(7));
+        assert!(!e.compactar(FormaDeLista::Int));
+    }
+
+    /// O coletor não segue os bits de uma lista compacta (um `int` par
+    /// pareceria um handle).
+    #[test]
+    fn lista_compacta_nao_tem_referencias() {
+        let mut heap = Heap::new(false);
+        let s = heap.allocate(Value::String(Texto::de_str("x")));
+        let lista = heap.create_list(vec![TaggedValue::scalar(s)]);
+        if let Value::List(e) = heap.get_mut(lista) {
+            assert!(e.compactar(FormaDeLista::Int));
+        }
+        let quadro = heap.push_frame();
+        heap.root(quadro, lista);
+        heap.collect();
+        assert!(heap.try_get(s).is_none(), "o `int` com os bits do handle não mantém a string viva");
+        assert_eq!(heap.list_get(lista, 0), TaggedValue::scalar(s));
     }
 
     #[test]

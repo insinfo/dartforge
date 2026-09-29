@@ -210,7 +210,7 @@ fn copiar_para_grafo(raiz: i64, compartilhar: bool) -> Result<Grafo, MensagemIle
                     tipado: c.tipado,
                     abi: c.abi,
                 },
-                Value::List(vs) => NoG::List { itens: vs.iter().map(&mut v).collect(), fixa, imutavel, pendente },
+                Value::List(vs) => NoG::List { itens: vs.iter().map(|t| v(&t)).collect(), fixa, imutavel, pendente },
                 Value::Map(es) => NoG::Map(es.iter().map(|(a, b)| (v(a), v(b))).collect(), imutavel),
                 Value::Set(vs) => NoG::Set(vs.iter().map(&mut v).collect(), imutavel),
                 Value::Record(vs) => NoG::Record(vs.iter().map(&mut v).collect()),
@@ -670,6 +670,7 @@ fn materializar(g: &Grafo) -> i64 {
                     None => *meta,
                 };
                 heap.set_metadado(h, meta);
+                ajustar_forma_da_lista(&mut heap, h);
             }
         }
         let r = t(&g.raiz);

@@ -154,8 +154,8 @@ pub extern "C" fn dartforge_dyn_op(op: i64, a: i64, b: i64) -> i64 {
             let len_a = esquerda.len_logico();
             let len_b = direita.len_logico();
             let mut itens = Vec::with_capacity(len_a + len_b);
-            itens.extend_from_slice(&esquerda[..len_a]);
-            itens.extend_from_slice(&direita[..len_b]);
+            itens.extend(esquerda.iter().take(len_a));
+            itens.extend(direita.iter().take(len_b));
             Some((itens, heap.metadado(a)))
         });
         if let Some((itens, tipo)) = lista {
@@ -164,6 +164,7 @@ pub extern "C" fn dartforge_dyn_op(op: i64, a: i64, b: i64) -> i64 {
                 let nova = heap.create_list(itens);
                 if tipo != 0 {
                     heap.set_metadado(nova, tipo);
+                    ajustar_forma_da_lista(&mut heap, nova);
                 }
                 nova
             });
@@ -273,7 +274,7 @@ fn elemento_iteravel(h: i64, i: i64) -> Option<TaggedValue> {
         let heap = heap.borrow();
         let i = usize::try_from(i).ok()?;
         match heap.try_get(h)? {
-            Value::List(v) => v.get(i).copied(),
+            Value::List(v) => v.get(i),
             Value::Set(v) => v.get(i).copied(),
             _ => None,
         }
