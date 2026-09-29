@@ -205,7 +205,7 @@ impl Ctx<'_> {
             if self.fora_da_hierarquia(d, m) {
                 continue;
             }
-            let Some(mt) = visto(self, m) else { return None };
+            let mt = visto(self, m)?;
             if let Some(x) = self.na_interface(mt, chave, prof + 1) {
                 match lado_super {
                     Some(y) if y.0 != x.0 && !self.program.class(m).instance_members.contains_key(&chave) => return None,
@@ -220,7 +220,7 @@ impl Ctx<'_> {
             if self.fora_da_hierarquia(d, i) {
                 continue;
             }
-            let Some(it) = visto(self, i) else { return None };
+            let it = visto(self, i)?;
             if let Some(x) = self.na_interface(it, chave, prof + 1)
                 && !candidatos.iter().any(|c| c.0 == x.0)
             {
@@ -466,7 +466,8 @@ pub fn sobrescritas_invalidas(
     let mut saida = Vec::new();
     // Acessores e métodos por nó da fonte.
     let mut por_funcao: HashMap<(UnitId, u32), FunctionElementId> = HashMap::new();
-    let mut por_variavel: HashMap<(UnitId, u32, usize), (Option<FunctionElementId>, Option<FunctionElementId>)> = HashMap::new();
+    type Acessores = (Option<FunctionElementId>, Option<FunctionElementId>);
+    let mut por_variavel: HashMap<(UnitId, u32, usize), Acessores> = HashMap::new();
     for (i, f) in program.functions.iter().enumerate() {
         if f.class.is_none() || f.static_ {
             continue;
@@ -1051,7 +1052,7 @@ pub fn membros_abstratos(
             let texto = interner.resolve(chave).to_string();
             let Some((membro, tipo_membro)) = cx.na_interface(este, chave, 0) else {
                 // Conflito ou assinatura combinada que não se decide aqui.
-                if program.class(cid).instance_members.get(&chave).is_none() {
+                if !program.class(cid).instance_members.contains_key(&chave) {
                     incerto = true;
                 }
                 continue;
@@ -1230,7 +1231,7 @@ pub fn valores_padrao(
             FunctionRef::Constructor { member, .. } => program.unit(unit).ast.member(member).span.start,
             FunctionRef::None => 0,
         };
-        let da_classe = f.class.and_then(|c| program.class(c).decl).map_or(false, |d| {
+        let da_classe = f.class.and_then(|c| program.class(c).decl).is_some_and(|d| {
             d.unit == unit && linha_comeca_com_augment(program.unit(unit).ast.decl(d.decl).span.start)
         });
         let aumentada = linha_comeca_com_augment(inicio) || da_classe;
