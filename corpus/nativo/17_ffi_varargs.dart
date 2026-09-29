@@ -52,9 +52,13 @@ void main() {
 
   // As promoções do C (`float` → `double`, inteiros estreitos → `int`). No
   // Windows a VM 3.6.2 não as faz na parte variádica (imprime `0.00
-  // -603855111 …`); o nativo segue o C nos dois sistemas, e o caso é
-  // comparado fora do Windows.
-  if (!windows) {
+  // -603855111 …`), nem no arm64 da Apple, onde a parte variádica vai toda
+  // na pilha e a VM grava cada valor no tipo dele, o `float` como 4 bytes
+  // de `float` (`AllocateStack` de `native_calling_convention.cc`; imprime
+  // `-28405681494255423…`); o nativo segue o C em todos, e o caso é
+  // comparado fora desses dois.
+  final semPromocoesNaVm = windows || Abi.current() == Abi.macosArm64;
+  if (!semPromocoesNaVm) {
     final f2 = libc.lookupFunction<Int32 Function(Pointer<Uint8>, Size, Pointer<Uint8>, VarArgs<(Int64, Float, Int8, Uint16, Double)>),
         int Function(Pointer<Uint8>, int, Pointer<Uint8>, int, double, int, int, double)>(snprintf);
     final n2 = f2(buf, 256, texto('%lld %.2f %d %u %g'), 1 << 40, 1.5, -7, 65535, 1e-3);

@@ -8,7 +8,8 @@
 // as pistas no endian do hospedeiro, como nas listas `Float32x4List`. As
 // operações seguem a VM pista a pista: os `double` viram `float` por
 // arredondamento, as comparações dão `-1`/`0`, o `clamp` é
-// `max(min(v, superior), inferior)` e a máscara de `shuffle` fora de
+// `max(min(v, superior), inferior)` (com o `min`/`max` da arquitetura,
+// `clamp_pista`) e a máscara de `shuffle` fora de
 // `0..255` é `RangeError`.
 
 const CID_FLOAT32X4: usize = 15;
@@ -99,6 +100,33 @@ fn simd_min<T: PartialOrd>(a: T, b: T) -> T {
 }
 fn simd_max<T: PartialOrd>(a: T, b: T) -> T {
     if a > b { a } else { b }
+}
+
+/// O `clamp` de uma pista, `max(min(v, superior), inferior)`, como o
+/// `Float32x4_clamp`/`Float64x2_clamp` da VM (`runtime/lib/simd128.cc`), que
+/// muda com a arquitetura: no x64 são os ternários de `simd_min`/`simd_max`;
+/// no arm64 são o `vminf`/`vmaxf` dela (com NaN fica o primeiro operando, e
+/// entre ±0 o `min` dá `-0` e o `max` dá `+0`).
+#[cfg(target_arch = "aarch64")]
+fn clamp_pista<T: PartialOrd + Copy>(v: T, lo: T, hi: T, negativo: impl Fn(T) -> bool) -> T {
+    let m = if v == hi {
+        if negativo(v) { v } else { hi }
+    } else if v > hi {
+        hi
+    } else {
+        v
+    };
+    if m == lo {
+        if negativo(m) { lo } else { m }
+    } else if m < lo {
+        lo
+    } else {
+        m
+    }
+}
+#[cfg(not(target_arch = "aarch64"))]
+fn clamp_pista<T: PartialOrd + Copy>(v: T, lo: T, hi: T, _negativo: impl Fn(T) -> bool) -> T {
+    simd_max(simd_min(v, hi), lo)
 }
 
 /// A máscara de `shuffle`/`shuffleMix`: `0..255`, senão `RangeError`.
@@ -205,7 +233,7 @@ pub extern "C" fn dartforge_nativo_Float32x4_scale(a: i64, s: f64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Float32x4_clamp(a: i64, lo: i64, hi: i64) -> i64 {
     let (a, lo, hi) = (f32x4_de(a), f32x4_de(lo), f32x4_de(hi));
-    novo_f32x4(std::array::from_fn(|i| simd_max(simd_min(a[i], hi[i]), lo[i])))
+    novo_f32x4(std::array::from_fn(|i| clamp_pista(a[i], lo[i], hi[i], f32::is_sign_negative)))
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Float32x4_cmpequal(a: i64, b: i64) -> i64 {
@@ -492,7 +520,7 @@ pub extern "C" fn dartforge_nativo_Float64x2_scale(a: i64, s: f64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Float64x2_clamp(a: i64, lo: i64, hi: i64) -> i64 {
     let (a, lo, hi) = (f64x2_de(a), f64x2_de(lo), f64x2_de(hi));
-    novo_f64x2([simd_max(simd_min(a[0], hi[0]), lo[0]), simd_max(simd_min(a[1], hi[1]), lo[1])])
+    novo_f64x2(std::array::from_fn(|i| clamp_pista(a[i], lo[i], hi[i], f64::is_sign_negative)))
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Float64x2_getX(a: i64) -> f64 {

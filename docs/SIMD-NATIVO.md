@@ -171,7 +171,11 @@ x float>`, `shufflevector`, `fcmp` + `select`), sem intrínseca de alvo nem
   resultado da plataforma da VM (`Utils::Minimum`/`Maximum`: `fcmp olt`/
   `ogt` + `select`, com NaN e ±0 dando o segundo operando), conferidos
   contra a VM em `corpus/nativo/24` (também com `--optimize`, GC stress e
-  JIT). O `min`/`max` de `dart:math` (que propaga NaN) e o `clamp` de `num`
+  JIT). O `clamp` muda com a arquitetura, como no `simd128.cc`: no arm64 é
+  o `vminf`/`vmaxf` da VM (com NaN fica o primeiro operando, e na
+  igualdade o `min` dá `-0` e o `max` dá `+0`), então `clamp` de NaN é NaN
+  no arm64 e o limite superior no x64 (`clamp_pista` no runtime, o ramo
+  `aarch64` de `OpSimd::Clamp` em `llvm/simd.rs`). O `min`/`max` de `dart:math` (que propaga NaN) e o `clamp` de `num`
   (pelo `compareTo`) não passam por aqui.
 
 | Laço (`simd/bench.dart`, 819 200 voltas) | VM AOT | caixa | sem caixa |

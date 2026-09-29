@@ -63,6 +63,30 @@ impl LlvmEmitter<'_> {
                 writeln!(w, "  %sc{v} = fcmp {p} {kt} {x}, {y}").unwrap();
                 writeln!(w, "  {r} = select <{n} x i1> %sc{v}, {kt} {x}, {kt} {y}").unwrap();
             }
+            OpSimd::Clamp if cfg!(target_arch = "aarch64") => {
+                // O `vminf`/`vmaxf` da VM no arm64 (`simd128.cc`, e o
+                // `clamp_pista` do runtime): fora da igualdade, com NaN fica
+                // o primeiro operando; na igualdade (só ±0 importa) o `min`
+                // é o OU dos bits (`-0`) e o `max` é o E (`+0`).
+                let (x, lo, hi) = (a(self, 0), a(self, 1), a(self, 2));
+                let it = format!("<{n} x i{}>", if k == Type::V2F64 { 64 } else { 32 });
+                writeln!(w, "  %sa{v} = fcmp ogt {kt} {x}, {hi}").unwrap();
+                writeln!(w, "  %sd{v} = select <{n} x i1> %sa{v}, {kt} {hi}, {kt} {x}").unwrap();
+                writeln!(w, "  %sx{v} = bitcast {kt} {x} to {it}").unwrap();
+                writeln!(w, "  %sh{v} = bitcast {kt} {hi} to {it}").unwrap();
+                writeln!(w, "  %so{v} = or {it} %sx{v}, %sh{v}").unwrap();
+                writeln!(w, "  %sof{v} = bitcast {it} %so{v} to {kt}").unwrap();
+                writeln!(w, "  %se{v} = fcmp oeq {kt} {x}, {hi}").unwrap();
+                writeln!(w, "  %sm{v} = select <{n} x i1> %se{v}, {kt} %sof{v}, {kt} %sd{v}").unwrap();
+                writeln!(w, "  %sb{v} = fcmp olt {kt} %sm{v}, {lo}").unwrap();
+                writeln!(w, "  %sg{v} = select <{n} x i1> %sb{v}, {kt} {lo}, {kt} %sm{v}").unwrap();
+                writeln!(w, "  %smi{v} = bitcast {kt} %sm{v} to {it}").unwrap();
+                writeln!(w, "  %sl{v} = bitcast {kt} {lo} to {it}").unwrap();
+                writeln!(w, "  %sy{v} = and {it} %smi{v}, %sl{v}").unwrap();
+                writeln!(w, "  %syf{v} = bitcast {it} %sy{v} to {kt}").unwrap();
+                writeln!(w, "  %sf{v} = fcmp oeq {kt} %sm{v}, {lo}").unwrap();
+                writeln!(w, "  {r} = select <{n} x i1> %sf{v}, {kt} %syf{v}, {kt} %sg{v}").unwrap();
+            }
             OpSimd::Clamp => {
                 let (x, lo, hi) = (a(self, 0), a(self, 1), a(self, 2));
                 writeln!(w, "  %sa{v} = fcmp olt {kt} {x}, {hi}").unwrap();
