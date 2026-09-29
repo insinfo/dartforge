@@ -333,14 +333,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// acesso, cada uma com a busca do slot (~100 instruções).
     fn dados_e_comprimento_tipados(&mut self, lista: &Operand, tipo: i64, log2: i64, escrita: bool) -> (Operand, Operand) {
         let int = |x: i64| Operand::Constant(Constant::Int(x));
-        let cab = self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_typed_cabecalho".to_string(),
-                args: vec![(lista.clone(), Type::Ref), (int(tipo), Type::I64)],
-                ret_ty: Type::I64,
-            },
-            Type::I64,
-        );
+        let cab = self.cabecalho_tipado(lista, tipo);
         let dados = self.emit(Instruction::CargaNativa { endereco: cab.clone(), indice: int(0), tipo: TipoC::I64 }, Type::I64);
         let bytes = self.emit(Instruction::CargaNativa { endereco: cab, indice: int(1), tipo: TipoC::I64 }, Type::I64);
         let n = self.emit(Instruction::LShr(bytes, int(log2)), Type::I64);
@@ -372,6 +365,89 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
         let n = self.emit(Instruction::Phi { incoming: vec![(pelo_cabecalho, n), (fim_visao, n_visao)], ty: Type::I64 }, Type::I64);
         (dados, n)
+    }
+
+    /// O cabeçalho da lista tipada `lista` (`dartforge_typed_cabecalho`).
+    ///
+    /// A lista lida de um campo a cada acesso (`_buffer[_index++]` do
+    /// `_HttpParser`, o `_buffer[...] = ...` do `_CopyingBytesBuilder`)
+    /// passa por um cache do ponto de acesso: o último handle e o cabeçalho
+    /// dele, em dois locais da função. O LLVM não tira a chamada pura do
+    /// laço quando o campo é relido depois de uma chamada; com o cache, o
+    /// acerto é uma comparação. O handle guardado fica enraizado (local
+    /// `Ref`), então a lista dele não morre e o handle não é reusado por
+    /// outra enquanto está no cache: o cabeçalho continua o dela. A lista
+    /// que vem de parâmetro ou de local fica com a chamada, que o LLVM tira
+    /// dos laços (e vetoriza). Fora dos corpos `async`/geradores (os locais
+    /// viram posições do quadro).
+    fn cabecalho_tipado(&mut self, lista: &Operand, tipo: i64) -> Operand {
+        let int = |x: i64| Operand::Constant(Constant::Int(x));
+        let chamada = |s: &mut Self, nome: &str| {
+            s.emit(
+                Instruction::CallRuntime {
+                    name: nome.to_string(),
+                    args: vec![(lista.clone(), Type::Ref), (int(tipo), Type::I64)],
+                    ret_ty: Type::I64,
+                },
+                Type::I64,
+            )
+        };
+        if self.async_estado.is_some() || !self.lido_de_campo(lista) {
+            return chamada(self, "dartforge_typed_cabecalho");
+        }
+        let cache_h = self.alloca_na_entrada(Type::Ref);
+        let cache_c = self.alloca_na_entrada(Type::I64);
+        // Vazio no começo: o cabeçalho 0 nunca acerta (o null também tem
+        // cabeçalho, o vazio do runtime).
+        self.gravar_na_entrada(&cache_h, Operand::Constant(Constant::Null));
+        self.gravar_na_entrada(&cache_c, int(0));
+        let h = self.emit(Instruction::Load { ptr: cache_h.clone(), ty: Type::Ref }, Type::Ref);
+        let c = self.emit(Instruction::Load { ptr: cache_c.clone(), ty: Type::I64 }, Type::I64);
+        let igual = self.emit(Instruction::ICmp(ICmpOp::Eq, lista.clone(), h), Type::I1);
+        let conferir = self.new_block();
+        let acerto = self.new_block();
+        let falha = self.new_block();
+        let juncao = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: igual, then_block: conferir, else_block: falha });
+        self.set_block(conferir);
+        let cheio = self.emit(Instruction::ICmp(ICmpOp::Ne, c.clone(), int(0)), Type::I1);
+        self.terminate(Terminator::CondBranch { cond: cheio, then_block: acerto, else_block: falha });
+        self.set_block(acerto);
+        let fim_acerto = self.current_block;
+        let c_acerto = c;
+        self.terminate(Terminator::Branch(juncao));
+        self.set_block(falha);
+        let c_falha = chamada(self, "dartforge_typed_cabecalho_na_falha");
+        self.emit(Instruction::Store { ptr: cache_h, val: lista.clone() }, Type::Void);
+        self.emit(Instruction::Store { ptr: cache_c, val: c_falha.clone() }, Type::Void);
+        let fim_falha = self.current_block;
+        self.terminate(Terminator::Branch(juncao));
+        self.set_block(juncao);
+        self.emit(Instruction::Phi { incoming: vec![(fim_acerto, c_acerto), (fim_falha, c_falha)], ty: Type::I64 }, Type::I64)
+    }
+
+    /// `op` é o resultado da leitura de um campo (`dartforge_object_get`)?
+    fn lido_de_campo(&self, op: &Operand) -> bool {
+        let Operand::Val(v) = op else { return false };
+        self.func.blocks.iter().flat_map(|b| b.instructions.iter()).any(|(vid, inst, _)| {
+            *vid == *v
+                && match inst {
+                    Instruction::GetField { .. } => true,
+                    Instruction::CallRuntime { name, .. } => name == "dartforge_object_get",
+                    _ => false,
+                }
+        })
+    }
+
+    /// `*ptr = val` no bloco de entrada, logo depois dos `alloca` (vale
+    /// antes de qualquer uso).
+    fn gravar_na_entrada(&mut self, ptr: &Operand, val: Operand) {
+        let vid = ValueId(self.next_value);
+        self.next_value += 1;
+        self.value_types.insert(vid, Type::Void);
+        let b0 = self.func.blocks.iter().position(|b| b.id == BlockId(0)).expect("bloco de entrada");
+        let pos = self.n_allocas;
+        self.func.blocks[b0].instructions.insert(pos, (vid, Instruction::Store { ptr: ptr.clone(), val }, Type::Void));
     }
 
     /// `lista[indice]`, no resultado `repr`. `None` quando o índice não é

@@ -108,6 +108,9 @@ pub(crate) struct Corpo {
     /// Atalhos de ponto (3.10): o contexto da cadeia de seletores, pela
     /// expressão `DotShorthand` da raiz (ver `atalhos`).
     pub contexto_atalho: HashMap<u32, TypeId>,
+    /// Raízes `DotShorthand` de uma invocação cujo erro já foi relatado
+    /// (`atalhos::construcao`): o [`atalhos::valor`] do alvo não relata de novo.
+    pub atalhos_relatados: std::collections::HashSet<u32>,
     /// Nomes escritos em qualquer ponto do corpo de topo: dentro de uma
     /// closure eles não ficam promovidos (`functionExpression_begin` faz a
     /// junção conservadora com `assignedVariables.anywhere`).
@@ -189,6 +192,7 @@ impl Corpo {
             rotulos_pendentes: Vec::new(),
             curinga: None,
             contexto_atalho: HashMap::new(),
+            atalhos_relatados: std::collections::HashSet::new(),
             escritos_no_corpo: None,
             raiz: Raiz::Nada,
             campos: HashMap::new(),

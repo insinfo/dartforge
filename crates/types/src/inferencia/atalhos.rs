@@ -6,6 +6,15 @@
 //! raiz é `.id` registra o contexto dele para a raiz ([`registrar_cadeia`]);
 //! `e == .x` registra o tipo de `e` antes ([`registrar_igualdade`]). Só o
 //! primeiro registro vale.
+//!
+//! Como o analyzer 3.13.4, os atalhos são resolvidos mesmo numa biblioteca
+//! sem o recurso (o parser já relatou `experiment_not_enabled`), e os erros
+//! de resolução são os do `ResolverVisitor`: sem declaração no contexto, um
+//! acesso `.id` (ou uma criação `const .id(…)`) é
+//! `DOT_SHORTHAND_MISSING_CONTEXT` no nó; uma invocação `.id(…)` é
+//! `DOT_SHORTHAND_UNDEFINED_INVOCATION` no nome, com o contexto exibido
+//! (`_` quando não há); com a declaração e sem o membro, os
+//! `DOT_SHORTHAND_UNDEFINED_GETTER`/`_INVOCATION` no nome.
 
 use super::BodyInferrer;
 use super::corpo::Corpo;
@@ -13,8 +22,8 @@ use super::expr::{inferir, resolver};
 use crate::resolved::Resolved;
 use crate::table::{Type, TypeId};
 use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionKind};
-use dartforge_frontend::Feature;
 use dartforge_frontend::ast::{self, ExprId, ExprKind};
+use dartforge_diagnostics::codigos::compile_time_error as c;
 use dartforge_intern::SymbolId;
 
 /// Nó externo de uma cadeia `.id…`: registra o contexto dela para a raiz.
@@ -27,12 +36,7 @@ pub(crate) fn registrar_cadeia(inf: &BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
             | ExprKind::Index { .. }
             | ExprKind::TypeArguments { .. }
             | ExprKind::Unary { .. }
-    ) || !inf
-        .program
-        .library(cx.lib)
-        .features
-        .tem(Feature::DotShorthands)
-    {
+    ) {
         return;
     }
     if let Some(raiz) = a.raiz_de_atalho(e) {
@@ -50,6 +54,18 @@ pub(crate) fn registrar_igualdade(
     if let Some(r) = inf.program.unit(cx.unit).ast.raiz_de_atalho(direita) {
         cx.contexto_atalho.insert(r.0, esquerda);
     }
+}
+
+/// O contexto sem os `FutureOr` externos (`futureOrBase`), para exibir.
+fn base_de_future_or(inf: &BodyInferrer<'_>, mut t: TypeId) -> TypeId {
+    while let Type::FutureOr { arg, .. } = inf.table.get(t) {
+        t = *arg;
+    }
+    t
+}
+
+fn exibir(inf: &BodyInferrer<'_>, t: TypeId) -> String {
+    inf.table.format(base_de_future_or(inf, t), inf.interner, inf.program)
 }
 
 /// A declaração `D` que o contexto denota (spec 3.10, "Declaration denoted by
@@ -132,12 +148,37 @@ pub(crate) fn valor(
     ctx: TypeId,
 ) -> TypeId {
     let ctx = cx.contexto_atalho.remove(&e.0).unwrap_or(ctx);
+    let relatado = cx.atalhos_relatados.remove(&e.0);
     match declaracao(inf, ctx, nome) {
         Some(d) => {
             resolver(inf, cx, e, Resolved::Element(Element::Class(d)));
-            tipo_do_membro(inf, d, nome).unwrap_or(inf.core.dynamic_)
+            match tipo_do_membro(inf, d, nome) {
+                Some(t) => t,
+                None => {
+                    if !relatado {
+                        let (texto, span) = nome_e_span(inf, cx, e);
+                        let tipo = exibir(inf, ctx);
+                        inf.aviso_com_codigo(c::DOT_SHORTHAND_UNDEFINED_GETTER, span, &[&texto, &tipo]);
+                    }
+                    inf.core.dynamic_
+                }
+            }
         }
-        None => inf.core.dynamic_,
+        None => {
+            if !relatado {
+                let span = inf.program.unit(cx.unit).ast.expr(e).span;
+                inf.aviso_com_codigo(c::DOT_SHORTHAND_MISSING_CONTEXT, span, &[]);
+            }
+            inf.core.dynamic_
+        }
+    }
+}
+
+/// O texto e o intervalo do nome de um `DotShorthand`.
+fn nome_e_span(inf: &BodyInferrer<'_>, cx: &Corpo, e: ExprId) -> (String, dartforge_diagnostics::Span) {
+    match &inf.program.unit(cx.unit).ast.expr(e).kind {
+        ExprKind::DotShorthand { name, .. } => (inf.interner.resolve(name.sym).to_string(), name.span),
+        _ => (String::new(), inf.program.unit(cx.unit).ast.expr(e).span),
     }
 }
 
@@ -156,17 +197,38 @@ pub(crate) fn construcao(
         return None;
     };
     let alvo = *target;
-    let ExprKind::DotShorthand { name, .. } = &a.expr(alvo).kind else {
+    let ExprKind::DotShorthand { name, const_ } = &a.expr(alvo).kind else {
         return None;
     };
-    let nome = name.sym;
+    let (nome, const_) = (name.sym, *const_);
     let ctx_cadeia = cx.contexto_atalho.get(&alvo.0).copied().unwrap_or(ctx);
-    let d = declaracao(inf, ctx_cadeia, nome)?;
+    let Some(d) = declaracao(inf, ctx_cadeia, nome) else {
+        // Sem declaração no contexto: a criação `const .id(…)` não tem
+        // contexto; a invocação `.id(…)` não acha o membro em `_`.
+        if const_ {
+            let span = inf.program.unit(cx.unit).ast.expr(e).span;
+            inf.aviso_com_codigo(c::DOT_SHORTHAND_MISSING_CONTEXT, span, &[]);
+        } else {
+            let (texto, span) = nome_e_span(inf, cx, alvo);
+            let tipo = exibir(inf, ctx_cadeia);
+            inf.aviso_com_codigo(c::DOT_SHORTHAND_UNDEFINED_INVOCATION, span, &[&texto, &tipo]);
+        }
+        cx.atalhos_relatados.insert(alvo.0);
+        return None;
+    };
     let class = inf.program.class(d);
     if class.static_members.contains_key(&nome) {
         return None;
     }
-    let fid = *class.constructors.get(&chave_de_construtor(inf, nome)?)?;
+    let Some(fid) = chave_de_construtor(inf, nome).and_then(|k| class.constructors.get(&k)).copied() else {
+        if !tem_membro(inf, d, nome) {
+            let (texto, span) = nome_e_span(inf, cx, alvo);
+            let tipo = exibir(inf, ctx_cadeia);
+            inf.aviso_com_codigo(c::DOT_SHORTHAND_UNDEFINED_INVOCATION, span, &[&texto, &tipo]);
+            cx.atalhos_relatados.insert(alvo.0);
+        }
+        return None;
+    };
     let args_ast: Vec<(bool, ExprId)> = arguments
         .args
         .iter()

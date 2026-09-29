@@ -3054,7 +3054,9 @@ impl Heap {
             campos_late_inicializados: crate::hash::HashSet::default(),
             epoca_de_layout: EPOCA_DE_LAYOUT.load(std::sync::atomic::Ordering::Acquire),
             fixas: crate::hash::HashSet::default(),
-            objetos: EspacoDeObjetos::new(stress || std::env::var("DARTFORGE_GC_VERIFICAR").as_deref() == Ok("1")),
+            // Os testes do runtime conferem que o handle de um morto é
+            // recusado: lá, como no `--gc-stress`, os mortos são zerados já.
+            objetos: EspacoDeObjetos::new(stress || cfg!(test) || std::env::var("DARTFORGE_GC_VERIFICAR").as_deref() == Ok("1")),
             publica: false,
             marcador: Value::Objeto,
             idade: Vec::new(),
@@ -4903,6 +4905,55 @@ mod espaco_de_objetos {
             heap.set_root(frame, 0, 0);
             heap.coletar(false);
             assert_eq!(heap.stats().live_objects, 0);
+        })
+        .join()
+        .unwrap();
+    }
+
+    #[test]
+    fn varredura_sem_tocar_os_mortos_entrega_blocos_zerados() {
+        // O caminho de fora dos testes: as varreduras só leem o mapa de
+        // marcas, e a entrega zera a faixa suja.
+        std::thread::spawn(|| {
+            let mut heap = Heap::do_isolado(false);
+            heap.objetos.zerar_mortos = false;
+            let frame = heap.push_frame_with_slots(1);
+            let mut cabeca = 0;
+            for rodada in 0..6 {
+                for i in 0..20_000 {
+                    let elo = alocar_como_o_codigo_gerado(&mut heap, 5, 3);
+                    // O código gerado só zera o primeiro campo: o resto (e o
+                    // mapa de referências) tem de vir zerado da entrega.
+                    let o = heap.objeto(elo).expect("recém-alocado");
+                    assert_eq!((o.campo(1), o.campo(2)), ((0, false), (0, false)), "bloco sujo entregue");
+                    heap.set(elo, 0, smi::de(i).unwrap(), false);
+                    heap.set(elo, 1, cabeca, true);
+                    heap.set(elo, 2, 77, false);
+                    if i % 4 == 0 {
+                        cabeca = elo;
+                        heap.set_root(frame, 0, cabeca);
+                    }
+                    if i % 3_000 == 2_999 {
+                        heap.coletar(i % 9_000 != 8_999);
+                    }
+                }
+                // A lista inteira sobrevive; a cada rodada, a de antes morre.
+                let mut n = 0;
+                let mut h = cabeca;
+                while h != 0 {
+                    let o = heap.objeto(h).expect("elo vivo");
+                    assert_eq!((o.class_id, o.campo(2).0), (5, 77));
+                    n += 1;
+                    h = o.campo(1).0;
+                }
+                assert_eq!(n, 5_000 * (rodada % 2 + 1));
+                if rodada % 2 == 1 {
+                    cabeca = 0;
+                    heap.set_root(frame, 0, 0);
+                    heap.coletar(false);
+                    assert_eq!(heap.stats().live_objects, 0);
+                }
+            }
         })
         .join()
         .unwrap();

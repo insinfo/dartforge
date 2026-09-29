@@ -341,6 +341,13 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_typed_cabecalho(i64, i64) memory(none) nounwind willreturn speculatable",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
+    // A mesma, na falha do cache do ponto de acesso (`lower/tipados.rs`,
+    // `cabecalho_tipado`): sem `speculatable` nem `memory(none)`, que
+    // deixariam o LLVM chamá-la antes do teste do cache (um `select`).
+    Extern {
+        decl: "declare i64 @dartforge_typed_cabecalho_na_falha(i64, i64) nounwind",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
     // O caminho rápido das listas do núcleo (`lower/tipados.rs`). O
     // cabeçalho (`heap::CabecalhoDeLista`) não muda de endereço enquanto a
     // lista vive: uma função pura do handle, que sai dos laços. O

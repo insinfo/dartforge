@@ -182,6 +182,14 @@ pub extern "C" fn dartforge_typed_cabecalho(h: i64, tipo: i64) -> i64 {
     })
 }
 
+/// [`dartforge_typed_cabecalho`] na falha do cache do ponto de acesso do
+/// código gerado (`lower/tipados.rs`): o emissor a declara sem efeitos a
+/// menos, para o LLVM não a antecipar ao teste do cache.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_typed_cabecalho_na_falha(h: i64, tipo: i64) -> i64 {
+    dartforge_typed_cabecalho(h, tipo)
+}
+
 /// O endereço do primeiro elemento de `h` se ela é lista tipada, senão 0
 /// (sem efeito nem erro: o emissor a declara `speculatable`, e o LLVM pode
 /// calculá-la antes do teste de [`dartforge_typed_len`]). Os bytes não se

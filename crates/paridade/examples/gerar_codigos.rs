@@ -105,6 +105,38 @@ const SUPLEMENTO_3_13: &[(&str, &str, &str, &str, &str, &str, &str, &str)] = &[
         "Try removing the modifier.",
         "SYNTACTIC_ERROR",
     ),
+    // Atalhos de ponto (3.10), do `ResolverVisitor` do analyzer 3.13.4;
+    // o de contexto que falta não tem correção.
+    (
+        "CompileTimeErrorCode",
+        "compile_time_error",
+        "DOT_SHORTHAND_MISSING_CONTEXT",
+        "dot_shorthand_missing_context",
+        "CompileTimeErrorCode.DOT_SHORTHAND_MISSING_CONTEXT",
+        "A dot shorthand can't be used where there is no context type.",
+        "",
+        "COMPILE_TIME_ERROR",
+    ),
+    (
+        "CompileTimeErrorCode",
+        "compile_time_error",
+        "DOT_SHORTHAND_UNDEFINED_GETTER",
+        "dot_shorthand_undefined_member",
+        "CompileTimeErrorCode.DOT_SHORTHAND_UNDEFINED_GETTER",
+        "The static getter '{0}' isn't defined for the context type '{1}'.",
+        "Try correcting the name to the name of an existing static getter, or defining a getter or field named '{0}'.",
+        "COMPILE_TIME_ERROR",
+    ),
+    (
+        "CompileTimeErrorCode",
+        "compile_time_error",
+        "DOT_SHORTHAND_UNDEFINED_INVOCATION",
+        "dot_shorthand_undefined_member",
+        "CompileTimeErrorCode.DOT_SHORTHAND_UNDEFINED_INVOCATION",
+        "The static method or constructor '{0}' isn't defined for the context type '{1}'.",
+        "Try correcting the name to the name of an existing static method or constructor, or defining a static method or constructor named '{0}'.",
+        "COMPILE_TIME_ERROR",
+    ),
 ];
 
 #[derive(Debug, Clone, PartialEq)]
@@ -398,12 +430,12 @@ fn main() {
             nome: nome.to_string(),
             unico: unico.to_string(),
             mensagem: mensagem.to_string(),
-            correcao: Some(correcao.to_string()),
+            correcao: (!correcao.is_empty()).then(|| correcao.to_string()),
             documentado: false,
         };
         todas.push((e, modulo, tipo.to_string(), format!("tipo:{tipo}")));
     }
-    let _ = writeln!(resumo, "suplemento 3.13.4 (construtores primários): {}", SUPLEMENTO_3_13.len());
+    let _ = writeln!(resumo, "suplemento 3.13.4 (construtores primários e atalhos de ponto): {}", SUPLEMENTO_3_13.len());
     let n = todas.len();
     let mut s = String::new();
     s.push_str("// GERADO por `cargo run -p dartforge-paridade --example gerar_codigos`. NÃO EDITE.\n");

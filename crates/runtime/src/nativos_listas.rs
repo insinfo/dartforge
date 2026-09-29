@@ -705,6 +705,31 @@ pub extern "C" fn dartforge_nativo_DartForge_double_hashCode(this: f64) -> i64 {
 
 /// Os elementos `[inicio, fim)` de uma lista de inteiros (códigos).
 fn codigos_da_lista(lista: i64, inicio: i64, fim: i64) -> Vec<i64> {
+    // Uma lista tipada (o `Uint16List` do `String.fromCharCodes`): os
+    // elementos dela, como os natives da VM leem `TypedData`.
+    let tipados = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let (base, desl, tipo, n) = resolver(&heap, lista)?;
+        let t = tamanho_do_elemento(tipo);
+        let b = bytes_de(&heap, base);
+        let el = |i: usize| -> i64 {
+            let o = desl + i * t;
+            match tipo {
+                TIPO_INT8 => i64::from(b[o] as i8),
+                TIPO_INT16 => i64::from(i16::from_ne_bytes([b[o], b[o + 1]])),
+                TIPO_UINT16 => i64::from(u16::from_ne_bytes([b[o], b[o + 1]])),
+                TIPO_INT32 => i64::from(i32::from_ne_bytes(b[o..o + 4].try_into().unwrap())),
+                TIPO_UINT32 => i64::from(u32::from_ne_bytes(b[o..o + 4].try_into().unwrap())),
+                TIPO_INT64 | TIPO_UINT64 => i64::from_ne_bytes(b[o..o + 8].try_into().unwrap()),
+                _ => i64::from(b[o]),
+            }
+        };
+        let (i, f) = (inicio.max(0) as usize, (fim.max(0) as usize).min(n));
+        Some((i..f.max(i)).map(el).collect::<Vec<i64>>())
+    });
+    if let Some(v) = tipados {
+        return v;
+    }
     let n = lista_len(lista);
     (inicio.max(0)..fim.min(n))
         .map(|i| {
@@ -734,6 +759,13 @@ pub extern "C" fn dartforge_nativo_TwoByteString_allocateFromTwoByteList(lista: 
 pub extern "C" fn dartforge_nativo_StringBase_createFromCodePoints(lista: i64, inicio: i64, fim: i64) -> i64 {
     let mut u = Vec::new();
     for c in codigos_da_lista(lista, inicio, fim) {
+        // Fora de `0..=0x10FFFF`: `ArgumentError` sem mensagem, como o
+        // `StringBase_createFromCodePoints` da VM.
+        if !(0..=0x10FFFF).contains(&c) {
+            let e = dartforge_argument_error_new(0, 0);
+            dartforge_exception_throw(e, 3);
+            return 0;
+        }
         crate::heap::empurrar_ponto(&mut u, c as u32);
     }
     alocar_texto(Texto::de_unidades(u))
