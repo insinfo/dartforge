@@ -960,7 +960,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                     dartforge_types::table::Type::TypeParameter { param, nullable: false } if param == p)
                             });
                         if repassa {
-                            return self.tearoff_de_construtor(f.0 as usize, span);
+                            let t = self.tearoff_de_construtor(f.0 as usize, span);
+                            self.assinatura_generica_do_tearoff(&t, expr_id);
+                            return t;
                         }
                     }
                 }
@@ -1001,7 +1003,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             {
                                 return self.tearoff_instanciado_de_construtor(f.0 as usize, objeto, tupla, Some(tipo), span);
                             }
-                            return self.tearoff_de_construtor(f.0 as usize, span);
+                            let t = self.tearoff_de_construtor(f.0 as usize, span);
+                            self.assinatura_generica_do_tearoff(&t, expr_id);
+                            return t;
                         }
                     }
                     return match resolved {

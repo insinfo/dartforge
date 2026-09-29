@@ -281,3 +281,36 @@ pub extern "C" fn dartforge_nativo_DartForge_sb_texto(acumulador: i64) -> i64 {
     });
     alocar_texto(t)
 }
+
+/// `_StringBase._deCodigos(lista, inicio, fim)` (DartForge, o
+/// `createFromCharCodes` de `string_patch.dart`): as unidades `[inicio,
+/// fim)` de uma lista do runtime (`_List`, `_GrowableList`,
+/// `_ImmutableList`), todas `Smi` em `0..=0xFF`, viram a `_OneByteString`
+/// numa cópia só — o `_scanCodeUnits` e o `_setAt` por unidade da VM, que
+/// aqui eram uma chamada ao runtime cada. Qualquer outra coisa (unidade
+/// acima de 0xFF, negativa ou não `Smi`, faixa inválida, lista tipada):
+/// null, e o Dart segue pelo caminho da VM, com os erros dela.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_string_de_codigos(lista: i64, inicio: i64, fim: i64) -> i64 {
+    use crate::heap::{smi, ValueTag};
+    let bytes = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let Some(Value::List(e)) = heap.try_get(lista) else { return None };
+        let (i, f) = (usize::try_from(inicio).ok()?, usize::try_from(fim).ok()?);
+        if i > f || f > e.len_logico() {
+            return None;
+        }
+        let mut v = Vec::with_capacity(f - i);
+        for k in i..f {
+            let x = e.valor(k);
+            let n = match x.tag {
+                ValueTag::Int => x.bits,
+                ValueTag::Ref if smi::e_smi(x.bits) => smi::valor(x.bits),
+                _ => return None,
+            };
+            v.push(u8::try_from(n).ok()?);
+        }
+        Some(v)
+    });
+    bytes.map_or(0, |b| alocar_texto(Texto::Um(b)))
+}

@@ -1155,6 +1155,48 @@ pub const DESLOCAMENTO_DO_HANDLE: i64 = 2;
 /// Tamanho da página do espaço de objetos (e o alinhamento dela: a página
 /// de um handle é `h & !(PAGINA - 1)`).
 pub const PAGINA: usize = 64 * 1024;
+/// Bytes do começo de cada página com o mapa de marcas: um bit por
+/// palavra de 8 bytes da página (o bit do bloco é o da palavra onde ele
+/// começa). A marcação acende o bit do objeto alcançado; as varreduras
+/// leem só os bits, sem tocar os blocos, vivos ou mortos (a VM também
+/// marca fora do objeto no *old space*, `marking.cc`, pelo bit no
+/// cabeçalho; aqui o mapa fica junto, por página, como o do Immix).
+pub const CABECA_DA_PAGINA: usize = PAGINA / 64;
+
+/// A palavra e o bit do mapa de marcas do bloco `b`.
+#[inline]
+fn bit_de_marca(b: *const Cabecalho) -> (*mut u64, u64) {
+    let a = b as usize;
+    let base = a & !(PAGINA - 1);
+    let desl = a - base;
+    ((base + (desl >> 9) * 8) as *mut u64, 1u64 << ((desl >> 3) & 63))
+}
+
+/// O bloco `b` foi marcado (a coleta completa em curso, ou a menor que o
+/// promoveu)?
+///
+/// # Safety
+/// `b` é bloco de uma página do espaço.
+#[inline]
+#[allow(unsafe_code)]
+unsafe fn marcado(b: *const Cabecalho) -> bool {
+    let (w, m) = bit_de_marca(b);
+    // SAFETY: o contrato da função; o mapa está no começo da página.
+    unsafe { *w & m != 0 }
+}
+
+/// Acende o bit de marca do bloco `b`.
+///
+/// # Safety
+/// `b` é bloco de uma página do espaço.
+#[inline]
+#[allow(unsafe_code)]
+unsafe fn marcar_bloco(b: *const Cabecalho) {
+    let (w, m) = bit_de_marca(b);
+    // SAFETY: o contrato da função.
+    unsafe { *w |= m };
+}
+
 /// Maior número de campos das classes de tamanho do espaço; um objeto
 /// maior tem uma página só dele.
 pub const MAIOR_CLASSE: usize = 64;
@@ -1407,7 +1449,7 @@ impl Pagina {
     /// A página de blocos de `n` campos em `base` (`bytes` bytes).
     fn formatada(base: *mut u8, bytes: usize, n: usize) -> Self {
         let tamanho = tamanho_do_bloco(n);
-        let blocos = if n > MAIOR_CLASSE { 1 } else { PAGINA / tamanho };
+        let blocos = if n > MAIOR_CLASSE { 1 } else { (PAGINA - CABECA_DA_PAGINA) / tamanho };
         let palavras = u32::try_from(tamanho / 8).unwrap_or(1);
         let deslocamento = palavras.trailing_zeros();
         let inverso = inverso_impar(palavras >> deslocamento);
@@ -1416,20 +1458,21 @@ impl Pagina {
     fn layout(bytes: usize) -> std::alloc::Layout {
         std::alloc::Layout::from_size_align(bytes, PAGINA).expect("layout da página")
     }
+    /// O primeiro bloco (depois do mapa de marcas).
+    fn inicio(&self) -> *mut u8 {
+        self.base.wrapping_add(CABECA_DA_PAGINA)
+    }
     fn bloco(&self, i: usize) -> *mut Cabecalho {
-        // SAFETY (dos chamadores): `i < blocos`, dentro da página.
-        #[allow(unsafe_code)]
-        unsafe {
-            self.base.add(i * tamanho_do_bloco(self.n)).cast()
-        }
+        self.inicio().wrapping_add(i * tamanho_do_bloco(self.n)).cast()
     }
     /// O índice do bloco que começa `desl` bytes depois da base, se algum
     /// começa ali.
     #[inline]
     fn indice(&self, desl: usize) -> Option<usize> {
-        if desl & 7 != 0 || desl >= self.bytes || self.vazia {
+        if desl & 7 != 0 || desl >= self.bytes || desl < CABECA_DA_PAGINA || self.vazia {
             return None;
         }
+        let desl = desl - CABECA_DA_PAGINA;
         let palavras = (desl >> 3) as u32;
         let mascara = (1u32 << self.deslocamento) - 1;
         if palavras & mascara != 0 {
@@ -1509,6 +1552,15 @@ struct ReservaDePaginas {
     pedacos: Vec<(*mut u8, usize)>,
     /// Páginas zeradas por usar.
     livres: Vec<*mut u8>,
+    /// Páginas soltas pela coleta, ainda com o lixo dos mortos (e na
+    /// memória residente): a próxima página sai delas, zerada à mão — uma
+    /// estrutura que morre e volta a cada rodada não paga as faltas de
+    /// página de novo. As que ficam sem uso de uma coleta completa à outra
+    /// voltam ao sistema ([`ReservaDePaginas::aparar`]).
+    sujas: Vec<*mut u8>,
+    /// Quantas das `sujas` (as do fundo) ficaram sem uso desde o último
+    /// [`ReservaDePaginas::aparar`].
+    paradas: usize,
 }
 
 /// Páginas de cada pedaço que a [`ReservaDePaginas`] mapeia (2 MiB).
@@ -1574,6 +1626,12 @@ mod mapeamento {
 impl ReservaDePaginas {
     /// Uma página zerada de [`PAGINA`] bytes, alinhada a [`PAGINA`].
     fn pedir(&mut self) -> *mut u8 {
+        if let Some(p) = self.sujas.pop() {
+            self.paradas = self.paradas.min(self.sujas.len());
+            // SAFETY: página da reserva, sem uso.
+            unsafe { std::ptr::write_bytes(p, 0, PAGINA) };
+            return p;
+        }
         if let Some(p) = self.livres.pop() {
             return p;
         }
@@ -1599,22 +1657,33 @@ impl ReservaDePaginas {
             base
         }
     }
-    /// Devolve a página `p` (sem objeto vivo) à reserva.
+    /// Devolve a página `p` (sem objeto vivo) à reserva, suja.
     ///
     /// # Safety
     /// `p` veio de [`ReservaDePaginas::pedir`] e ninguém mais a usa.
     unsafe fn devolver(&mut self, p: *mut u8) {
-        #[cfg(target_os = "linux")]
-        {
-            // SAFETY: o contrato da função.
-            unsafe { mapeamento::descartar(p, PAGINA) };
-            self.livres.push(p);
+        self.sujas.push(p);
+    }
+
+    /// As páginas sujas paradas desde a chamada anterior (a coleta completa
+    /// anterior) voltam ao sistema: no Linux, `madvise(MADV_DONTNEED)` (saem
+    /// da memória residente e voltam zeradas); nos demais, `dealloc`.
+    fn aparar(&mut self) {
+        let k = self.paradas.min(self.sujas.len());
+        for p in self.sujas.drain(..k) {
+            #[cfg(target_os = "linux")]
+            {
+                // SAFETY: página da reserva, sem uso.
+                unsafe { mapeamento::descartar(p, PAGINA) };
+                self.livres.push(p);
+            }
+            #[cfg(not(target_os = "linux"))]
+            // SAFETY: página de `alloc_zeroed`, sem uso.
+            unsafe {
+                std::alloc::dealloc(p, Pagina::layout(PAGINA))
+            };
         }
-        #[cfg(not(target_os = "linux"))]
-        // SAFETY: o contrato da função; a página veio de `alloc_zeroed`.
-        unsafe {
-            std::alloc::dealloc(p, Pagina::layout(PAGINA))
-        };
+        self.paradas = self.sujas.len();
     }
 }
 
@@ -1629,7 +1698,7 @@ impl Drop for ReservaDePaginas {
             };
         }
         #[cfg(not(target_os = "linux"))]
-        for &p in &self.livres {
+        for &p in self.livres.iter().chain(&self.sujas) {
             // SAFETY: página de `alloc_zeroed`, sem uso.
             #[allow(unsafe_code)]
             unsafe {
@@ -1689,9 +1758,18 @@ pub struct EspacoDeObjetos {
     /// reusa as páginas em vez de devolvê-las e pedi-las de novo — cada
     /// página nova custa as faltas de página e a formatação.
     pico: Vec<usize>,
-    /// Algum objeto já ganhou corpo de fora (senão o `Drop` não percorre os
-    /// blocos atrás deles).
-    tem_fora: bool,
+    /// Os objetos com corpo de fora ([`FORA`]): as varreduras soltam o
+    /// corpo dos que morreram (o bit de marca apagado) sem ler os blocos.
+    com_fora: Vec<*mut Cabecalho>,
+    /// A região de cada número de campos veio de uma faixa livre (lixo dos
+    /// mortos: zerada ao ser entregue) ou de uma página zerada.
+    regiao_suja: Vec<bool>,
+    /// Blocos entregues e não soltos de cada número de campos (vivos e os
+    /// mortos que a varredura ainda não achou).
+    em_uso: Vec<usize>,
+    /// Zerar os mortos já na varredura (`--gc-stress` e a verificação: o
+    /// handle que sobrou de um morto é apanhado pelo estado [`LIVRE`], N4).
+    zerar_mortos: bool,
     /// Blocos entregues desde a última coleta (menos os devolvidos): os
     /// jovens que a coleta menor varre.
     entregues: usize,
@@ -1712,7 +1790,7 @@ impl std::fmt::Debug for EspacoDeObjetos {
 
 #[allow(unsafe_code)]
 impl EspacoDeObjetos {
-    fn new() -> Self {
+    fn new(zerar_mortos: bool) -> Self {
         Self {
             paginas: Vec::new(),
             mapa: MapaDePaginas::default(),
@@ -1726,7 +1804,10 @@ impl EspacoDeObjetos {
             lembrados: Vec::new(),
             demanda: vec![0; MAIOR_CLASSE + 1],
             pico: vec![0; MAIOR_CLASSE + 1],
-            tem_fora: false,
+            com_fora: Vec::new(),
+            regiao_suja: vec![false; MAIOR_CLASSE + 1],
+            em_uso: vec![0; MAIOR_CLASSE + 1],
+            zerar_mortos,
             entregues: 0,
             marcados: 0,
             reserva: ReservaDePaginas::default(),
@@ -1748,7 +1829,7 @@ impl EspacoDeObjetos {
             return i;
         }
         let tamanho = tamanho_do_bloco(n);
-        let bytes = if n > MAIOR_CLASSE { tamanho.div_ceil(PAGINA) * PAGINA } else { PAGINA };
+        let bytes = if n > MAIOR_CLASSE { (CABECA_DA_PAGINA + tamanho).div_ceil(PAGINA) * PAGINA } else { PAGINA };
         let base = self.alocar_pagina(bytes);
         let pagina = Pagina::formatada(base, bytes, n);
         self.blocos += pagina.blocos;
@@ -1790,21 +1871,33 @@ impl EspacoDeObjetos {
     /// região da classe; quando ela acaba, a região passa a ser uma faixa
     /// livre da classe ou uma página zerada. Devolve o início e quantos. O
     /// cabeçalho sai zerado, sem `n` (quem entrega o grava).
+    ///
+    /// As faixas livres guardam o lixo dos mortos (a varredura não os toca):
+    /// o trecho entregue é zerado aqui, logo antes de o programa o usar — a
+    /// memória que ele vai gravar já fica no cache.
     fn tirar_da_regiao(&mut self, n: usize, k: usize) -> (*mut u8, usize) {
         let tamanho = tamanho_do_bloco(n);
         let (mut cursor, mut fim) = self.regiao[n];
         if (fim as usize).saturating_sub(cursor as usize) < tamanho {
             (cursor, fim) = match self.livres[n].pop() {
-                Some(faixa) => faixa,
+                Some(faixa) => {
+                    self.regiao_suja[n] = true;
+                    faixa
+                }
                 None => {
                     let i = self.pagina_zerada(n);
+                    self.regiao_suja[n] = false;
                     let p = &self.paginas[i];
-                    (p.base, p.base.wrapping_add(p.blocos * tamanho))
+                    (p.inicio(), p.inicio().wrapping_add(p.blocos * tamanho))
                 }
             };
         }
         let j = k.min((fim as usize - cursor as usize) / tamanho);
         self.regiao[n] = (cursor.wrapping_add(j * tamanho), fim);
+        if self.regiao_suja[n] {
+            // SAFETY: blocos livres da classe, sem objeto vivo.
+            unsafe { std::ptr::write_bytes(cursor, 0, j * tamanho) };
+        }
         (cursor, j)
     }
 
@@ -1814,8 +1907,9 @@ impl EspacoDeObjetos {
     fn tirar(&mut self, n: usize) -> *mut Cabecalho {
         let b = if n > MAIOR_CLASSE {
             let i = self.pagina_zerada(n);
-            self.paginas[i].base.cast::<Cabecalho>()
+            self.paginas[i].inicio().cast::<Cabecalho>()
         } else {
+            self.em_uso[n] += 1;
             self.tirar_da_regiao(n, 1).0.cast::<Cabecalho>()
         };
         // SAFETY: bloco zerado de uma página do espaço.
@@ -1832,14 +1926,21 @@ impl EspacoDeObjetos {
         self.faixas.push((inicio, inicio.wrapping_add(j * tamanho_do_bloco(n)), n));
         self.demanda[n] += j;
         self.entregues += j;
+        self.em_uso[n] += j;
         (inicio, j)
     }
 
     /// Devolve os blocos zerados `[inicio, fim)` de `n` campos (o resto não
-    /// usado de uma faixa): de volta à região, se ela continua dali; senão,
-    /// às faixas livres.
+    /// usado da última faixa da classe, a da TLAB): de volta à região, se
+    /// ela continua dali; senão, às faixas livres. A faixa entregue encolhe
+    /// junto (a varredura menor só percorre o que o código gerado alocou).
     fn devolver_faixa(&mut self, n: usize, inicio: *mut u8, fim: *mut u8) {
-        self.entregues -= (fim as usize - inicio as usize) / tamanho_do_bloco(n);
+        let k = (fim as usize - inicio as usize) / tamanho_do_bloco(n);
+        self.entregues -= k;
+        self.em_uso[n] -= k;
+        if let Some(f) = self.faixas.iter_mut().rev().find(|f| f.2 == n && f.1 == fim) {
+            f.1 = inicio;
+        }
         if self.regiao[n].0 == fim {
             self.regiao[n].0 = inicio;
         } else {
@@ -1847,15 +1948,19 @@ impl EspacoDeObjetos {
         }
     }
 
-    /// Zera `[inicio, fim)` (blocos mortos de `n` campos, já sem corpo de
-    /// fora) e o devolve às faixas livres.
+    /// Devolve às faixas livres os blocos mortos `[inicio, fim)` de `n`
+    /// campos, sem tocá-los (a entrega os zera) — no `--gc-stress` e com a
+    /// verificação, zerados já (o estado [`LIVRE`] deixa o handle velho ser
+    /// apanhado, N4).
     ///
     /// # Safety
     /// `[inicio, fim)` são blocos de `n ≤ MAIOR_CLASSE` campos de uma página
     /// deste espaço, sem objeto vivo.
     unsafe fn soltar_faixa(&mut self, n: usize, inicio: *mut u8, fim: *mut u8) {
-        // SAFETY: o contrato da função.
-        unsafe { std::ptr::write_bytes(inicio, 0, fim as usize - inicio as usize) };
+        if self.zerar_mortos {
+            // SAFETY: o contrato da função.
+            unsafe { std::ptr::write_bytes(inicio, 0, fim as usize - inicio as usize) };
+        }
         self.livres[n].push((inicio, fim));
     }
 
@@ -1871,82 +1976,84 @@ impl EspacoDeObjetos {
         }
     }
 
-    /// Bytes que o objeto do bloco `b` ocupa (com o corpo de fora).
-    ///
-    /// # Safety
-    /// `b` é bloco com objeto.
-    unsafe fn bytes_do_objeto(b: *mut Cabecalho, n: usize) -> usize {
-        // SAFETY: o contrato da função.
-        unsafe {
-            let fora = if (*b).flags & FORA != 0 { tamanho_do_bloco(usize::from((*corpo(b)).n)) } else { 0 };
-            tamanho_do_bloco(n) + fora
-        }
+    /// Solta os corpos de fora dos objetos que a coleta não marcou (o bit
+    /// no mapa de marcas da página): devolve os bytes soltos.
+    fn soltar_corpos_mortos(&mut self) -> usize {
+        let mut soltos = 0;
+        self.com_fora.retain(|&b| {
+            // SAFETY: bloco com corpo de fora, de uma página viva.
+            unsafe {
+                if marcado(b) {
+                    return true;
+                }
+                soltos += tamanho_do_bloco(usize::from((*corpo(b)).n));
+                Self::soltar_corpo(b);
+            }
+            false
+        });
+        soltos
     }
 
-    /// A varredura da coleta menor: os jovens não marcados voltam, zerados,
-    /// às faixas livres (os marcados a marcação já fez velhos); os lembrados
-    /// voltam a velhos. Devolve (mortos, bytes promovidos, bytes soltos).
-    fn varrer_jovens(&mut self) -> (usize, usize, usize) {
-        let (mut mortos, mut promovidos, mut soltos) = (0, 0, 0);
+    /// Bytes dos corpos de fora dos objetos vivos.
+    fn bytes_de_fora(&self) -> usize {
+        // SAFETY: blocos com corpo de fora, vivos.
+        self.com_fora.iter().map(|&b| unsafe { tamanho_do_bloco(usize::from((*corpo(b)).n)) }).sum()
+    }
+
+    /// A varredura da coleta menor, só pelo mapa de marcas (a marcação
+    /// acendeu o bit dos jovens alcançados, já velhos): cada trecho de
+    /// jovens sem bit numa faixa entregue volta às faixas livres sem ser
+    /// tocado — o custo é o dos bits, não o dos mortos, como o do
+    /// *scavenger* da VM é o dos sobreviventes. Os lembrados voltam a
+    /// velhos. Devolve (mortos, bytes soltos).
+    fn varrer_jovens(&mut self) -> (usize, usize) {
+        let (mut mortos, mut soltos) = (0, 0);
+        soltos += self.soltar_corpos_mortos();
         let jovens = std::mem::take(&mut self.jovens);
         for &b in &jovens {
             // SAFETY: bloco entregue desde a última coleta, de uma página
             // ainda viva (as páginas só saem na coleta completa).
             unsafe {
+                if marcado(b) {
+                    continue;
+                }
                 let classe = usize::from((*b).n);
                 let n = if classe > MAIOR_CLASSE { self.pagina_do_grande(b) } else { classe };
-                match (*b).estado {
-                    VELHO => {
-                        // Promovido pela marcação.
-                        promovidos += Self::bytes_do_objeto(b, n);
-                    }
-                    JOVEM => {
-                        mortos += 1;
-                        soltos += Self::bytes_do_objeto(b, n);
-                        Self::soltar_corpo(b);
-                        if n > MAIOR_CLASSE {
-                            // O objeto grande fica livre na página dele, que a
-                            // coleta completa solta.
-                            (*b).estado = LIVRE;
-                        } else {
-                            let inicio = b.cast::<u8>();
-                            self.soltar_faixa(n, inicio, inicio.wrapping_add(tamanho_do_bloco(n)));
-                        }
-                    }
-                    _ => {}
+                mortos += 1;
+                soltos += tamanho_do_bloco(n);
+                if n > MAIOR_CLASSE {
+                    // O objeto grande fica livre na página dele, que a
+                    // coleta completa solta.
+                    (*b).estado = LIVRE;
+                } else {
+                    self.em_uso[n] -= 1;
+                    let inicio = b.cast::<u8>();
+                    self.soltar_faixa(n, inicio, inicio.wrapping_add(tamanho_do_bloco(n)));
                 }
             }
         }
         self.jovens = jovens;
         self.jovens.clear();
-        // As faixas das TLABs: o que o código gerado alocou é jovem (morto)
-        // ou já velho (a marcação da menor promove); o livre é o resto que
-        // `devolver_tlabs` já devolveu. Cada trecho de mortos seguidos volta
-        // zerado, como uma faixa livre (a faixa inteira, quando nada
-        // sobreviveu).
         let faixas = std::mem::take(&mut self.faixas);
         // Todos os entregues marcados: nenhum morto nas faixas.
         let todos_vivos = self.marcados >= self.entregues;
         for &(inicio, fim, n) in if todos_vivos { &faixas[..0] } else { &faixas[..] } {
             let tamanho = tamanho_do_bloco(n);
             let mut trecho: *mut u8 = std::ptr::null_mut();
+            let mut mortos_na_faixa = 0;
             let mut p = inicio;
             while p < fim {
-                let b = p.cast::<Cabecalho>();
                 // SAFETY: bloco da faixa, numa página viva.
-                unsafe {
-                    if (*b).estado == JOVEM {
-                        mortos += 1;
-                        soltos += Self::bytes_do_objeto(b, n);
-                        if self.tem_fora {
-                            Self::soltar_corpo(b);
-                        }
-                        if trecho.is_null() {
-                            trecho = p;
-                        }
-                    } else if !trecho.is_null() {
-                        self.soltar_faixa(n, trecho, p);
+                if unsafe { marcado(p.cast()) } {
+                    if !trecho.is_null() {
+                        // SAFETY: blocos mortos da faixa.
+                        unsafe { self.soltar_faixa(n, trecho, p) };
                         trecho = std::ptr::null_mut();
+                    }
+                } else {
+                    mortos_na_faixa += 1;
+                    if trecho.is_null() {
+                        trecho = p;
                     }
                 }
                 p = p.wrapping_add(tamanho);
@@ -1955,6 +2062,9 @@ impl EspacoDeObjetos {
                 // SAFETY: blocos mortos da faixa.
                 unsafe { self.soltar_faixa(n, trecho, fim) };
             }
+            mortos += mortos_na_faixa;
+            soltos += mortos_na_faixa * tamanho;
+            self.em_uso[n] -= mortos_na_faixa;
         }
         self.faixas = faixas;
         self.faixas.clear();
@@ -1968,7 +2078,7 @@ impl EspacoDeObjetos {
         for d in self.demanda.iter_mut() {
             *d = 0;
         }
-        (mortos, promovidos, soltos)
+        (mortos, soltos)
     }
 
     /// O número de campos do bloco grande `b` (a página dele sabe).
@@ -2023,30 +2133,36 @@ impl EspacoDeObjetos {
         p.indice(b - base).map(|i| p.bloco(i))
     }
 
-    /// A varredura da coleta completa: os marcados voltam a velhos; os demais
-    /// morrem e voltam às listas, refeitas em ordem de endereço. A página
-    /// sem vivo não é percorrida bloco a bloco: fica inteira como vazia
-    /// (zerada só quando for reusada, para qualquer número de campos)
+    /// Apaga o mapa de marcas de cada página (o começo da coleta completa).
+    fn limpar_marcas(&mut self) {
+        for p in self.paginas.iter().filter(|p| !p.vazia) {
+            // SAFETY: o mapa de marcas da página.
+            unsafe { std::ptr::write_bytes(p.base, 0, CABECA_DA_PAGINA) };
+        }
+    }
+
+    /// A varredura da coleta completa, só pelo mapa de marcas: o bit aceso é
+    /// vivo (a marcação já o deixou velho); cada trecho sem bit volta às
+    /// faixas livres, refeitas em ordem de endereço, sem que os blocos
+    /// sejam lidos (a entrega os zera). A página sem vivo fica inteira como
+    /// vazia (zerada só quando for reusada, para qualquer número de campos)
     /// enquanto os blocos livres do tamanho dela não passam dos vivos, da
-    /// demanda do ciclo e do pico recente (e de duas páginas); as demais vão
-    /// ao sistema. As regiões por usar das classes se desfazem (os blocos
-    /// delas entram nas listas). Devolve (mortos, vivos, bytes vivos).
+    /// demanda do ciclo e do pico recente (e de duas páginas); as demais
+    /// voltam à reserva. As regiões por usar das classes se desfazem (os
+    /// blocos delas entram nas faixas). Devolve (mortos, vivos, bytes vivos).
     fn varrer(&mut self) -> (usize, usize, usize) {
         let classes = MAIOR_CLASSE + 1;
-        let (mut mortos, mut vivos, mut bytes_vivos) = (0, 0, 0);
+        let (mut vivos, mut bytes_vivos) = (0, 0);
         for r in self.regiao.iter_mut() {
             *r = (std::ptr::null_mut(), std::ptr::null_mut());
         }
+        self.soltar_corpos_mortos();
         // Por página: o trecho `[de, ate)` de `faixas_livres` com as faixas
         // livres dela e os vivos.
         let mut trechos: Vec<(usize, usize, usize)> = Vec::with_capacity(self.paginas.len());
         let mut faixas_livres: Vec<(*mut u8, *mut u8)> = Vec::new();
-        let mut sujos: Vec<(*mut u8, *mut u8)> = Vec::new();
         let mut vivos_da_classe = vec![0usize; classes];
         let mut livres_da_classe = vec![0usize; classes];
-        // Os blocos ocupados (vivos e mortos desta coleta) por classe: o
-        // tamanho que o heap teve neste ciclo.
-        let mut ocupados_da_classe = vec![0usize; classes];
         for p in &self.paginas {
             let n = p.n;
             let de = faixas_livres.len();
@@ -2055,92 +2171,51 @@ impl EspacoDeObjetos {
                 continue;
             }
             let tamanho = tamanho_do_bloco(n);
-            // Uma passada só por página: o estado de cada bloco é lido uma
-            // vez (é a leitura que custa: uma linha de cache por bloco
-            // pequeno). As faixas livres e os trechos de mortos por zerar
-            // saem juntos; se a página acaba sem vivo, nada se zera (ela
-            // fica vazia inteira, zerada só quando reusada).
             let mut vivos_na_pagina = 0;
-            let mut ocupados = 0;
-            sujos.clear();
-            // O trecho livre corrente (`livre`) e, dentro dele, o começo dos
-            // mortos por zerar (`sujo`): os livres já estão zerados.
             let mut livre: *mut u8 = std::ptr::null_mut();
-            let mut sujo: *mut u8 = std::ptr::null_mut();
-            let mut q = p.base;
+            let mut q = p.inicio();
             for _ in 0..p.blocos {
-                let b = q.cast::<Cabecalho>();
-                // SAFETY: bloco da página; o estado diz se há objeto.
-                unsafe {
-                    match (*b).estado {
-                        MARCADO => {
-                            (*b).estado = VELHO;
-                            vivos_na_pagina += 1;
-                            bytes_vivos += Self::bytes_do_objeto(b, n);
-                            if !sujo.is_null() {
-                                sujos.push((sujo, q));
-                                sujo = std::ptr::null_mut();
-                            }
-                            if !livre.is_null() {
-                                faixas_livres.push((livre, q));
-                                livre = std::ptr::null_mut();
-                            }
-                        }
-                        LIVRE => {
-                            if !sujo.is_null() {
-                                sujos.push((sujo, q));
-                                sujo = std::ptr::null_mut();
-                            }
-                            if livre.is_null() {
-                                livre = q;
-                            }
-                        }
-                        _ => {
-                            ocupados += 1;
-                            if self.tem_fora {
-                                Self::soltar_corpo(b);
-                            }
-                            if sujo.is_null() {
-                                sujo = q;
-                            }
-                            if livre.is_null() {
-                                livre = q;
-                            }
-                        }
+                // SAFETY: bloco da página.
+                if unsafe { marcado(q.cast()) } {
+                    vivos_na_pagina += 1;
+                    if !livre.is_null() {
+                        faixas_livres.push((livre, q));
+                        livre = std::ptr::null_mut();
                     }
+                } else if livre.is_null() {
+                    livre = q;
                 }
                 q = q.wrapping_add(tamanho);
-            }
-            if !sujo.is_null() {
-                sujos.push((sujo, q));
             }
             if !livre.is_null() {
                 faixas_livres.push((livre, q));
             }
-            mortos += ocupados;
-            if n <= MAIOR_CLASSE {
-                ocupados_da_classe[n] += ocupados;
-            }
             if vivos_na_pagina == 0 {
                 faixas_livres.truncate(de);
-            } else {
-                for &(inicio, fim) in &sujos {
-                    // SAFETY: blocos mortos da página, sem corpo de fora.
+            } else if self.zerar_mortos {
+                for &(inicio, fim) in &faixas_livres[de..] {
+                    // SAFETY: blocos sem objeto vivo da página.
                     unsafe { std::ptr::write_bytes(inicio, 0, fim as usize - inicio as usize) };
                 }
             }
             vivos += vivos_na_pagina;
+            bytes_vivos += vivos_na_pagina * tamanho;
             if n <= MAIOR_CLASSE {
                 vivos_da_classe[n] += vivos_na_pagina;
                 livres_da_classe[n] += p.blocos - vivos_na_pagina;
             }
             trechos.push((de, faixas_livres.len(), vivos_na_pagina));
         }
+        bytes_vivos += self.bytes_de_fora();
+        let mortos = self.vivos.saturating_sub(vivos);
         for (n, p) in self.pico.iter_mut().enumerate() {
-            *p = (*p - *p / 8).max(vivos_da_classe[n] + ocupados_da_classe[n]);
+            // Os blocos ocupados (vivos e mortos desta coleta): o tamanho
+            // que o heap teve neste ciclo.
+            *p = (*p - *p / 8).max(self.em_uso[n]);
         }
-        // As páginas vazias que passam da folga vão ao sistema (as últimas
-        // primeiro: as listas preferem os endereços baixos); as já vazias
+        self.em_uso.copy_from_slice(&vivos_da_classe);
+        // As páginas vazias que passam da folga voltam à reserva (as últimas
+        // primeiro: as faixas preferem os endereços baixos); as já vazias
         // de antes contam como folga de todas as classes.
         let mut solta = vec![false; self.paginas.len()];
         let mut guardadas = 0usize;
@@ -2202,6 +2277,7 @@ impl EspacoDeObjetos {
         }
         // As vazias de endereço baixo saem primeiro (`pop`).
         self.vazias.reverse();
+        self.reserva.aparar();
         self.vivos = vivos;
         self.entregues = 0;
         self.marcados = 0;
@@ -2214,8 +2290,27 @@ impl EspacoDeObjetos {
         (mortos, vivos, bytes_vivos)
     }
 
-    /// Visita o bloco de cada objeto vivo.
+    /// Zera as faixas livres e o resto sujo das regiões: depois disso, todo
+    /// bloco sem objeto tem o estado [`LIVRE`] (as varreduras não tocam os
+    /// mortos).
+    fn limpar_livres(&mut self) {
+        for faixas in &self.livres {
+            for &(inicio, fim) in faixas {
+                // SAFETY: blocos livres de uma página do espaço.
+                unsafe { std::ptr::write_bytes(inicio, 0, fim as usize - inicio as usize) };
+            }
+        }
+        for (n, &(cursor, fim)) in self.regiao.iter().enumerate() {
+            if self.regiao_suja[n] && !cursor.is_null() {
+                // SAFETY: blocos livres da região da classe.
+                unsafe { std::ptr::write_bytes(cursor, 0, fim as usize - cursor as usize) };
+            }
+        }
+    }
+
+    /// Visita o bloco de cada objeto vivo (ou morto desde a última coleta).
     fn para_cada_vivo(&mut self, mut f: impl FnMut(*mut Cabecalho)) {
+        self.limpar_livres();
         for p in self.paginas.iter().filter(|p| !p.vazia) {
             for j in 0..p.blocos {
                 let b = p.bloco(j);
@@ -2230,18 +2325,14 @@ impl EspacoDeObjetos {
 
 impl Drop for EspacoDeObjetos {
     fn drop(&mut self) {
+        for &b in &self.com_fora {
+            // SAFETY: bloco com corpo de fora (do alocador do sistema).
+            #[allow(unsafe_code)]
+            unsafe {
+                Self::soltar_corpo(b)
+            };
+        }
         for p in &self.paginas {
-            for j in 0..if self.tem_fora && !p.vazia { p.blocos } else { 0 } {
-                let b = p.bloco(j);
-                // SAFETY: bloco da página; os corpos de fora são do alocador
-                // do sistema.
-                #[allow(unsafe_code)]
-                unsafe {
-                    if (*b).estado != LIVRE && (*b).flags & FORA != 0 {
-                        soltar_corpo_de_fora(corpo(b));
-                    }
-                }
-            }
             // As de `PAGINA` bytes saem com a reserva (o `Drop` dela); as
             // maiores vieram de `alloc` com este layout.
             if p.bytes == PAGINA {
@@ -2538,9 +2629,13 @@ fn marcado_na_coleta(marks: &[bool], idade: &[u8], objetos: &EspacoDeObjetos, me
     if e_objeto(h) {
         // SAFETY: bloco de uma página do espaço.
         #[allow(unsafe_code)]
-        return objetos.bloco_de(h).is_some_and(|b| {
-            let e = unsafe { (*b).estado };
-            e == MARCADO || (menor && (e == VELHO || e == LEMBRADO))
+        return objetos.bloco_de(h).is_some_and(|b| unsafe {
+            if menor {
+                let e = (*b).estado;
+                e == VELHO || e == LEMBRADO
+            } else {
+                marcado(b)
+            }
         });
     }
     let i = Heap::indice_de(h);
@@ -2959,7 +3054,7 @@ impl Heap {
             campos_late_inicializados: crate::hash::HashSet::default(),
             epoca_de_layout: EPOCA_DE_LAYOUT.load(std::sync::atomic::Ordering::Acquire),
             fixas: crate::hash::HashSet::default(),
-            objetos: EspacoDeObjetos::new(),
+            objetos: EspacoDeObjetos::new(stress || std::env::var("DARTFORGE_GC_VERIFICAR").as_deref() == Ok("1")),
             publica: false,
             marcador: Value::Objeto,
             idade: Vec::new(),
@@ -3685,10 +3780,11 @@ impl Heap {
                 atual
             } else {
                 let c = novo_corpo_de_fora(valores.len());
-                self.objetos.tem_fora = true;
                 (*c).class_id = (*b).class_id;
                 if (*b).flags & FORA != 0 {
                     soltar_corpo_de_fora(atual);
+                } else {
+                    self.objetos.com_fora.push(b);
                 }
                 *campos_de(b).cast::<*mut Cabecalho>() = c;
                 (*b).flags |= FORA;
@@ -4110,10 +4206,11 @@ impl Heap {
         // Esta coleta percorre o objeto no estado `e`? Na menor, só o jovem
         // (um velho conta como vivo, e as referências dele a jovens estão
         // nos lembrados); na completa, o que ainda não foi marcado.
-        let percorre = |e: u8| if menor { e == JOVEM } else { e != MARCADO };
-        // A menor promove já na marcação (o jovem alcançado fica velho: a
-        // varredura só procura os mortos).
-        let marca = if menor { VELHO } else { MARCADO };
+        // Na completa, o marcado é o do bit no mapa de marcas da página (a
+        // varredura lê só os bits).
+        // SAFETY (dos usos): `b` é bloco de uma página do espaço.
+        #[allow(unsafe_code)]
+        let percorre = |b: *const Cabecalho| unsafe { if menor { (*b).estado == JOVEM } else { !marcado(b) } };
         while let Some(handle) = pilha.pop() {
             // null e `Smi` (R10) não são arestas: o coletor nunca segue um
             // `Smi`, que não aponta para o heap.
@@ -4135,10 +4232,16 @@ impl Heap {
                     // SAFETY: bloco vivo do espaço.
                     #[allow(unsafe_code)]
                     unsafe {
-                        if !percorre((*b).estado) {
+                        if !percorre(b) {
                             break;
                         }
-                        (*b).estado = marca;
+                        // As duas promovem já na marcação (o jovem alcançado
+                        // fica velho, o lembrado volta a velho na completa:
+                        // a varredura só lê os bits) e acendem o bit.
+                        if (*b).estado != VELHO {
+                            (*b).estado = VELHO;
+                        }
+                        marcar_bloco(b);
                         live += 1;
                         objetos_marcados += 1;
                         // Só os campos que o mapa diz referência: o que
@@ -4154,7 +4257,7 @@ impl Heap {
                                 return;
                             }
                             if e_objeto(bits) {
-                                if !validar && !percorre((*((bits - DESLOCAMENTO_DO_HANDLE) as *const Cabecalho)).estado) {
+                                if !validar && !percorre((bits - DESLOCAMENTO_DO_HANDLE) as *const Cabecalho) {
                                     return;
                                 }
                                 if *proximo == 0 {
@@ -4298,6 +4401,7 @@ impl Heap {
         if !menor {
             self.stats.slots_scanned += self.slots.len() as u64;
             self.marks.fill(false);
+            self.objetos.limpar_marcas();
         }
         self.trabalho_da_marcacao = 0;
         let mut pendentes = std::mem::take(&mut self.pending);
@@ -4408,7 +4512,7 @@ impl Heap {
             for &index in &self.slots_lembrados {
                 self.idade[index] = 1;
             }
-            let (mortos, _, bytes_soltos) = self.objetos.varrer_jovens();
+            let (mortos, bytes_soltos) = self.objetos.varrer_jovens();
             self.stats.reclaimed += mortos as u64;
             self.stats.estimated_bytes = self.stats.estimated_bytes.saturating_sub(soltos.saturating_add(bytes_soltos));
         } else {

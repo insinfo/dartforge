@@ -22,6 +22,8 @@
 //!   `ErrorVerifier` (parâmetros de tipo em conflito, campos de enum e de
 //!   tipo de extensão, setters, `this.x` fora de construtor, lista de
 //!   inicializadores, `return` em construtor gerador).
+//! * [`nativos`]: `native` (cláusula de classe e corpo) fora do SDK
+//!   (`ErrorVerifier`).
 
 pub mod clausulas;
 pub mod duplicatas;
@@ -33,6 +35,7 @@ pub mod inicializacao;
 pub mod locais;
 pub mod membros;
 pub mod modificadores;
+pub mod nativos;
 pub mod operadores;
 pub mod privados;
 pub mod publicacao;

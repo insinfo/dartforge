@@ -909,8 +909,18 @@ impl<'s, 'i> Parser<'s, 'i> {
         match self.kind_of(pos) {
             Kind::Keyword(Keyword::Void) => true,
             Kind::Ident => {
-                if matches!(self.text_of(pos), "await" | "yield") {
+                // `await` só pode ser o tipo de uma declaração em corpo
+                // síncrono comum, quando não parece expressão (o
+                // `looksLikeAwaitExpression` de `parseStatementX`).
+                if self.text_of(pos) == "yield"
+                    || self.text_of(pos) == "await"
+                        && (self.in_async || self.in_generator || self.parece_expressao_apos_await(pos, false))
+                {
                     return false;
+                }
+                // `Function(...) nome`/`Function<T>(...) nome`: tipo de função.
+                if self.at_function_tail(pos) {
+                    return self.looks_like_type_then_identifier(pos);
                 }
                 match self.kind_of(pos + 1) {
                     Kind::Ident => {
@@ -978,7 +988,8 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// chamada `as`), e `async`/`sync` de corpo de função anônima.
     fn is_expression_continuation(&self, pos: usize) -> bool {
         match self.text_of(pos) {
-            "async" | "sync" => true,
+            // Só com o corpo em seguida: `int async;` declara `async`.
+            "async" | "sync" => matches!(self.kind_of(pos + 1), Kind::Op(Op::LBrace | Op::Arrow | Op::Star)),
             "as" => !matches!(
                 self.kind_of(pos + 1),
                 Kind::Op(Op::Assign | Op::Semicolon | Op::Comma)

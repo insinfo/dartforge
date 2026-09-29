@@ -766,6 +766,12 @@ impl<'s, 'i> Parser<'s, 'i> {
             Vec::new()
         };
         let implements = self.parse_implements_opt()?;
+        // `parseClassHeaderOpt`: `native 'nome'?` depois das cláusulas (o
+        // analyzer aceita a forma antiga; fora do SDK o `ErrorVerifier` dá
+        // `NATIVE_CLAUSE_IN_NON_SDK_CODE`, em `analise::nativos`).
+        if self.eat_ident("native") && self.string_at(0) {
+            self.parse_string_literal()?;
+        }
         let mut members = self.parse_class_body_ou_vazio(Some(name_text))?;
         let tem_supertipos = extends.is_some() || !with.is_empty() || !implements.is_empty();
         let primary_constructor = self.elaborar_construtor_primario(
@@ -1237,13 +1243,37 @@ impl<'s, 'i> Parser<'s, 'i> {
         let name_text = self.text();
         let name = self.expect_identifier()?;
         let type_params = self.parse_type_parameters_opt()?;
+        let tem_primario = self.at_op(Op::LParen) || self.at_op(Op::Dot);
         let constructor = if self.eat_op(Op::Dot) {
             Some(self.identifier_or_new()?)
         } else {
             None
         };
         let inicio_representacao = self.span();
-        let (representation_metadata, representation_type, representation_name) = self.parse_representacao()?;
+        let (representation_metadata, representation_type, representation_name) = if self.at_op(Op::LParen) {
+            self.parse_representacao()?
+        } else {
+            // `parseExtensionTypeDeclaration`: sem `(` nem `.`,
+            // `MISSING_PRIMARY_CONSTRUCTOR` no último token lido (o nome ou o
+            // `>`); com `.nome` sem `(`, `MISSING_PRIMARY_CONSTRUCTOR_PARAMETERS`
+            // no nome. O resto da declaração é lido normalmente, com a
+            // representação sintética (vazia, sem largura).
+            let codigo = if tem_primario {
+                codigos::parser::MISSING_PRIMARY_CONSTRUCTOR_PARAMETERS
+            } else {
+                codigos::parser::MISSING_PRIMARY_CONSTRUCTOR
+            };
+            let ultimo = self.tokens[self.pos - 1].span;
+            self.erro_em(codigo, ultimo, &[]);
+            let s = Span { start: ultimo.end, end: ultimo.end };
+            let nome = self.name_from("", s);
+            let ty = self.ast.push_type(TypeAnnotation {
+                span: s,
+                nullable: false,
+                kind: TypeKind::Named { name: vec![nome].into_boxed_slice(), args: Vec::new().into_boxed_slice() },
+            });
+            (Vec::new(), ty, nome)
+        };
         let representation_span = self.span_from(inicio_representacao);
         let implements = self.parse_implements_opt()?;
         let members = self.parse_class_body_ou_vazio(Some(name_text))?;

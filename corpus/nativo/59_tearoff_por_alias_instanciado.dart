@@ -43,4 +43,8 @@ void main() {
   print(gen('x'));
   print(gen<num>(3));
   print(gen.runtimeType);
+  // O tear-off genérico da própria classe: a assinatura genérica.
+  final dn = C.nomeado;
+  print(dn.runtimeType);
+  print(dn<int, String>('y'));
 }

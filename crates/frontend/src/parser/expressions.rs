@@ -32,7 +32,8 @@
 //!   exige resolução.
 //! * `throw` e `rethrow` só são aceitos no nível de `expression`, como na
 //!   gramática (`x ?? throw e` exige parênteses, e o corpus os tem).
-//! * `await` é operador apenas em corpo `async`; fora dele é identificador.
+//! * `await` é operador em corpo `async`; fora dele é identificador, salvo
+//!   quando parece expressão (`looksLikeAwaitExpression`, com erro).
 //!
 //! Em padrões constantes (`parse_unary(true)`) o `!` final que
 //! não é seguido de seletor fica para o parser de padrões (é um padrão de
@@ -682,9 +683,19 @@ impl<'s, 'i> Parser<'s, 'i> {
             Kind::Op(Op::Tilde) => UnaryOp::BitNot,
             Kind::Op(Op::PlusPlus) => UnaryOp::PrefixInc,
             Kind::Op(Op::MinusMinus) => UnaryOp::PrefixDec,
-            Kind::Ident if self.in_async && self.text() == "await" => {
+            // `parseUnaryExpression` do fasta: fora de `async`/`async*`, o
+            // `await` que parece expressão (`looksLikeAwaitExpression`, só
+            // em corpo síncrono comum; em `sync*` sempre) é lido como tal e
+            // relatado (`AWAIT_IN_WRONG_CONTEXT` no `await`).
+            Kind::Ident
+                if self.text() == "await"
+                    && (self.in_async || self.in_generator || self.parece_expressao_apos_await(self.pos, true)) =>
+            {
                 self.advance();
                 let operand = self.parse_unary(constant_pattern)?;
+                if !self.in_async {
+                    self.erro_em(codigos::compile_time_error::AWAIT_IN_WRONG_CONTEXT, start, &[]);
+                }
                 return Ok(self.push(start, ExprKind::Await(operand)));
             }
             _ => return self.parse_postfix(constant_pattern),
@@ -692,6 +703,45 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.advance();
         let operand = self.parse_unary(constant_pattern)?;
         Ok(self.push(start, ExprKind::Unary { op, operand }))
+    }
+
+    /// `looksLikeExpressionAfterAwaitOrYield` do fasta, com o `await` ou
+    /// `yield` em `pos`: o que segue só faz sentido como operando (`await
+    /// f();`, `await f + 1`, `if (await f)`, `await null`). `unario` é o
+    /// contexto `UnaryExpression` (também `await f,` e `await f;`).
+    pub(crate) fn parece_expressao_apos_await(&self, pos: usize, unario: bool) -> bool {
+        let binario = |k: Kind| {
+            matches!(
+                k,
+                Kind::Op(
+                    Op::Amp | Op::AmpAmp | Op::Pipe | Op::PipePipe | Op::Caret | Op::EqEq | Op::Gt | Op::Lt
+                        | Op::LtEq | Op::LtLt | Op::Minus | Op::Percent | Op::Plus | Op::QuestionQuestion
+                        | Op::Slash | Op::Star | Op::TildeSlash
+                )
+            )
+        };
+        match self.kind_of(pos + 1) {
+            Kind::Ident => {
+                let t = self.kind_of(pos + 2);
+                match t {
+                    Kind::Op(Op::LParen) => {
+                        let Some(fecha) = self.matching_close(pos + 2) else { return false };
+                        let d = self.kind_of(fecha + 1);
+                        matches!(
+                            d,
+                            Kind::Op(
+                                Op::Semicolon | Op::Dot | Op::Comma | Op::DotDot | Op::Question | Op::QuestionDot | Op::RParen
+                            )
+                        ) || binario(d)
+                    }
+                    Kind::Op(Op::Dot | Op::RParen | Op::RBracket) => true,
+                    Kind::Op(Op::Comma | Op::Semicolon) => unario,
+                    _ => binario(t),
+                }
+            }
+            Kind::Keyword(Keyword::Null) => true,
+            _ => false,
+        }
     }
 
     /// Primária, seletores e `++`/`--`/`!` pós-fixos.

@@ -311,6 +311,7 @@ impl Motor {
                     dartforge_analise::locais::nao_usados(*u, &interner, curinga, &sintaticos).into_iter().map(|d| (i, d)),
                 );
                 achados.extend(dartforge_analise::externos::inicializadores(*u).into_iter().map(|d| (i, d)));
+                achados.extend(dartforge_analise::nativos::fora_do_sdk(*u).into_iter().map(|d| (i, d)));
                 achados.extend(dartforge_analise::operadores::aridade(*u, &interner).into_iter().map(|d| (i, d)));
             }
             // Privados não usados: pela biblioteca inteira, sem erro de sintaxe.
