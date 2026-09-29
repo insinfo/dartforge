@@ -172,20 +172,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `a?.b op= v` / `a?[i] op= v` (§17.23): `a` é avaliado uma vez; se é
     /// null, nada mais é avaliado e o valor é null; senão, a atribuição
     /// comum sobre o valor de `a`. A cadeia `?.` de `a` (`x?.y?.b = v`)
-    /// desvia para o mesmo null.
+    /// desvia para o mesmo null. O `?.` antes do último elo também encurta
+    /// a atribuição inteira (`a?.b.c = v`, `a?.b[i] = v`: com `a` null, nem
+    /// `v` é avaliado); aí só a cadeia do receptor desvia (`ultimo_nulo`
+    /// falso: o último elo é comum).
+    #[allow(clippy::too_many_arguments)]
     fn atribuir_com_null_aware(
         &mut self,
         ast: &ast::Ast,
         op: ast::AssignOp,
         target: ExprId,
         recv: ExprId,
+        ultimo_nulo: bool,
         value: Rhs,
         span: Span,
     ) -> Operand {
         let saida = self.new_block();
         let cadeia_salva = self.cadeia_nula.replace((saida, Vec::new()));
         let recv_op = self.lower_alvo(ast, recv);
-        self.desviar_se_nulo(&recv_op);
+        if ultimo_nulo {
+            self.desviar_se_nulo(&recv_op);
+        }
         self.receptor_pronto = Some((recv, recv_op));
         self.null_aware_tratado = Some(target);
         let mut v = self.lower_atribuicao(ast, op, target, value, span);
@@ -353,8 +360,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 name,
                 null_aware,
             } => {
-                if *null_aware && self.null_aware_tratado != Some(target) {
-                    return self.atribuir_com_null_aware(ast, op, target, *recv, value, span);
+                if (*null_aware || Self::cadeia_tem_null_aware(ast, *recv))
+                    && self.null_aware_tratado != Some(target)
+                {
+                    return self.atribuir_com_null_aware(ast, op, target, *recv, *null_aware, value, span);
                 }
                 self.null_aware_tratado = None;
                 // `prefixo.x = v`: variável de topo importada com prefixo.
@@ -529,8 +538,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 index,
                 null_aware,
             } => {
-                if *null_aware && self.null_aware_tratado != Some(target) {
-                    return self.atribuir_com_null_aware(ast, op, target, *t, value, span);
+                if (*null_aware || Self::cadeia_tem_null_aware(ast, *t))
+                    && self.null_aware_tratado != Some(target)
+                {
+                    return self.atribuir_com_null_aware(ast, op, target, *t, *null_aware, value, span);
                 }
                 self.null_aware_tratado = None;
                 // `super[i] op= v`: os operadores `[]`/`[]=` da superclasse.

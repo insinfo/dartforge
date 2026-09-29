@@ -134,6 +134,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     fn e_elo(ast: &ast::Ast, e: ExprId) -> bool {
         match &ast.expr(e).kind {
             ExprKind::Property { .. } | ExprKind::Index { .. } => true,
+            // `a?.b!.c`: o `!` é seletor da cadeia (§17.23), não a encerra.
+            ExprKind::Unary { op: UnaryOp::NullAssert, .. } => true,
             ExprKind::Call { target, .. } => {
                 matches!(ast.expr(*target).kind, ExprKind::Property { .. })
             }
@@ -142,7 +144,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// A cadeia que termina em `e` tem algum `?.`/`?[`?
-    fn cadeia_tem_null_aware(ast: &ast::Ast, e: ExprId) -> bool {
+    pub(crate) fn cadeia_tem_null_aware(ast: &ast::Ast, e: ExprId) -> bool {
         let mut atual = e;
         loop {
             match &ast.expr(atual).kind {
@@ -161,6 +163,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     if matches!(ast.expr(*target).kind, ExprKind::Property { .. }) =>
                 {
                     atual = *target;
+                }
+                ExprKind::Unary { op: UnaryOp::NullAssert, operand } => {
+                    atual = *operand;
                 }
                 _ => return false,
             }
@@ -701,7 +706,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     return self.coagir(r, repr);
                 }
                 if *op == UnaryOp::NullAssert {
-                    let sub_op = self.lower_expr(ast, *operand);
+                    let sub_op = self.lower_alvo(ast, *operand);
                     if self.operand_type(&sub_op) != Type::Ref {
                         // Escalar não é null (R1): nada a checar.
                         return sub_op;
@@ -1404,6 +1409,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 });
                 let tipo = self.ctx.get_type(self.unit_id, expr_id);
                 self.tearoff_instanciado(fid, tupla, tipo)
+            }
+            // `C<T…>` como expressão: o objeto `Type` canônico do tipo
+            // instanciado (o literal cru `C` está em `membros.rs`).
+            ExprKind::TypeArguments { target, type_args }
+                if let Some(Resolved::Element(dartforge_elements::model::Element::Class(c))) =
+                    self.resolucao_ou_nome(ast, *target) =>
+            {
+                let args = self.receitas_dos_argumentos_de_tipo(type_args);
+                let t = self.rti_da_receita(&super::rti::Receita {
+                    texto: format!("C{}<{}>", self.ctx.id_rti(c), args.texto),
+                    variaveis: args.variaveis,
+                });
+                self.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_rti_objeto_tipo".to_string(),
+                        args: vec![(t, Type::I64)],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                )
             }
             outro => {
                 let oque = match outro {
