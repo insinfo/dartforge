@@ -9,7 +9,7 @@
 /// `String_getLength`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_String_getLength(this: i64) -> i64 {
-    HEAP.with(|heap| heap.borrow().texto(this).len() as i64)
+    com_texto(this, |t| t.len() as i64)
 }
 
 thread_local! {

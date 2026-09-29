@@ -29,7 +29,15 @@ fn texto_de(handle: i64) -> Texto {
 /// comprimento inteiro da string. `f` não pode alocar no heap (o empréstimo
 /// está aberto); quem aloca o resultado faz isso depois.
 fn com_texto<R>(handle: i64, f: impl FnOnce(&Texto) -> R) -> R {
-    HEAP.with(|heap| f(heap.borrow().texto(handle)))
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        // O caminho comum pela consulta curta ao slot (`try_get`); o que não
+        // é string cai no `texto`, que nomeia o defeito.
+        match heap.try_get(handle) {
+            Some(Value::String(t)) => f(t),
+            _ => f(heap.texto(handle)),
+        }
+    })
 }
 
 /// Texto de um valor que pode ser string, `StringBuffer` ou `Match`
