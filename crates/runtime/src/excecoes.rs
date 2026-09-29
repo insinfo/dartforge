@@ -36,8 +36,8 @@ pub fn texto_do_rastro_da_excecao() -> String {
     let Some(h) = CURRENT_STACK_TRACE.with(|slot| *slot.borrow()) else { return String::new() };
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        match heap.try_get(h) {
-            Some(Value::Object { fields, .. }) => match fields.first().and_then(|(t, _)| heap.try_get(*t)) {
+        match heap.objeto(h) {
+            Some(fields) => match fields.first().and_then(|(t, _)| heap.try_get(t)) {
                 Some(Value::String(texto)) => texto.para_string(),
                 _ => String::new(),
             },
@@ -61,7 +61,7 @@ fn alocar_stack_trace(texto: &str) -> i64 {
     let trace_str = HEAP.with(|h| h.borrow_mut().allocate(Value::String(Texto::de_str(texto))));
     let cid = id_da_classe_stack_trace();
     com_raizes(&[trace_str], || {
-        HEAP.with(|h| h.borrow_mut().allocate(Value::Object { class_id: cid, fields: vec![(trace_str, true)].into() }))
+        HEAP.with(|h| h.borrow_mut().novo_objeto(cid, &[(trace_str, true)]))
     })
 }
 
@@ -72,7 +72,7 @@ fn alocar_erro_com_rastro(class_id: i64, mut campos: Vec<(i64, bool)>) -> i64 {
     com_raizes(&raizes, || {
         let st = dartforge_stack_trace_get();
         campos.push((st, true));
-        com_raizes(&[st], || HEAP.with(|h| h.borrow_mut().allocate(Value::Object { class_id, fields: campos.into() })))
+        com_raizes(&[st], || HEAP.with(|h| h.borrow_mut().novo_objeto(class_id, &campos)))
     })
 }
 
@@ -119,10 +119,7 @@ pub extern "C" fn dartforge_stack_trace_from_string(str_handle: i64) -> i64 {
         let stack_trace_cid = CLASS_NAMES.with(|map| {
             map.borrow().iter().find(|(_, name)| *name == "StackTrace" || *name == "_StackTrace").map(|(&id, _)| id)
         }).unwrap_or(1006);
-        heap.borrow_mut().allocate(Value::Object {
-            class_id: stack_trace_cid,
-            fields: vec![(str_handle, true)].into(),
-        })
+        heap.borrow_mut().novo_objeto(stack_trace_cid, &[(str_handle, true)])
     })
 }
 
@@ -221,17 +218,17 @@ pub extern "C" fn dartforge_exception_throw(bits: i64, tag: u8) {
         let erro_sdk = CLASS_NAMES.with(|map| {
             map.borrow().iter().find(|(_, nome)| *nome == "Error").map(|(&id, _)| id)
         });
-        let precisa = HEAP.with(|heap| match heap.borrow().try_get(value.bits) {
-            Some(Value::Object { class_id, fields }) if (1000..=1012).contains(class_id) && dartforge_is_subclass(*class_id, 1007) != 0 => {
-                let st_idx = match *class_id {
+        let precisa = HEAP.with(|heap| match heap.borrow().objeto(value.bits) {
+            Some(fields) if (1000..=1012).contains(&fields.class_id) && dartforge_is_subclass(fields.class_id, 1007) != 0 => {
+                let st_idx = match fields.class_id {
                     1003 => 5,
                     1004 => 7,
                     _ => 1,
                 };
                 (fields.get(st_idx).map_or(0, |f| f.0) == 0).then_some(st_idx)
             }
-            Some(Value::Object { class_id, fields }) if erro_sdk.is_some_and(|cid| dartforge_is_subclass(*class_id, cid) != 0) => {
-                fields.first().is_some_and(|(valor, _)| *valor == 0).then_some(0)
+            Some(fields) if erro_sdk.is_some_and(|cid| dartforge_is_subclass(fields.class_id, cid) != 0) => {
+                fields.first().is_some_and(|(valor, _)| valor == 0).then_some(0)
             }
             _ => None,
         });
@@ -242,9 +239,7 @@ pub extern "C" fn dartforge_exception_throw(bits: i64, tag: u8) {
             HEAP.with(|heap| {
                 let mut heap = heap.borrow_mut();
                 heap.garantir_campos(value.bits, st_idx + 1);
-                if let Value::Object { fields, .. } = heap.get_mut(value.bits) {
-                    fields[st_idx] = (st, true);
-                }
+                heap.definir_campo(value.bits, st_idx, st, true);
             });
         }
     }
@@ -327,10 +322,8 @@ fn allocate_format_exception(message: &str) -> i64 {
     }
     com_raizes(&[msg], || {
         HEAP.with(|h| {
-            h.borrow_mut().allocate(Value::Object {
-                class_id: 1001, // FormatException
-                fields: vec![(msg, true), (0, true), (-1, false)].into(),
-            })
+            // FormatException
+            h.borrow_mut().novo_objeto(1001, &[(msg, true), (0, true), (-1, false)])
         })
     })
 }
@@ -340,14 +333,8 @@ fn allocate_format_exception(message: &str) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_exception_new(msg_bits: i64, is_ref: u8) -> i64 {
     HEAP.with(|h| {
-        h.borrow_mut().allocate(Value::Object {
-            class_id: 1000,
-            fields: if msg_bits == 0 && is_ref == 0 {
-                Vec::new().into()
-            } else {
-                vec![(msg_bits, is_ref != 0)].into()
-            },
-        })
+        let campos: &[crate::heap::Campo] = if msg_bits == 0 && is_ref == 0 { &[] } else { &[(msg_bits, is_ref != 0)] };
+        h.borrow_mut().novo_objeto(1000, campos)
     })
 }
 
@@ -360,10 +347,7 @@ pub extern "C" fn dartforge_format_exception_new(msg_handle: i64, src_handle: i6
         return com_raizes(&[msg_handle, src_handle], || g(msg_handle, src_handle, offset));
     }
     HEAP.with(|h| {
-        h.borrow_mut().allocate(Value::Object {
-            class_id: 1001,
-            fields: vec![(msg_handle, true), (src_handle, true), (offset, false)].into(),
-        })
+        h.borrow_mut().novo_objeto(1001, &[(msg_handle, true), (src_handle, true), (offset, false)])
     })
 }
 
@@ -568,8 +552,8 @@ pub extern "C" fn dartforge_error_get_message(handle: i64) -> i64 {
 fn campo_como_ref(handle: i64, indice: usize) -> i64 {
     let campo = HEAP.with(|heap| {
         let heap = heap.borrow();
-        let Value::Object { fields, .. } = heap.get(handle) else { return None; };
-        fields.get(indice).copied()
+        let Some(fields) = heap.objeto(handle) else { return None; };
+        fields.get(indice)
     });
     match campo {
         Some((bits, true)) => bits,
@@ -589,8 +573,8 @@ pub extern "C" fn dartforge_error_get_invalid_value(handle: i64) -> i64 {
     // inteiro que o `RangeError` guarda como escalar.
     let campo = HEAP.with(|heap| {
         let heap = heap.borrow();
-        let Value::Object { fields, .. } = heap.get(handle) else { return None; };
-        fields.get(2).copied()
+        let Some(fields) = heap.objeto(handle) else { return None; };
+        fields.get(2)
     });
     match campo {
         Some((bits, true)) => bits,
@@ -603,8 +587,8 @@ pub extern "C" fn dartforge_error_get_invalid_value(handle: i64) -> i64 {
 pub extern "C" fn dartforge_error_get_start(handle: i64) -> i64 {
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        let Value::Object { fields, .. } = heap.get(handle) else { return 0; };
-        fields.get(3).map_or(0, |(bits, _)| *bits)
+        let Some(fields) = heap.objeto(handle) else { return 0; };
+        fields.get(3).map_or(0, |(bits, _)| bits)
     })
 }
 
@@ -612,8 +596,8 @@ pub extern "C" fn dartforge_error_get_start(handle: i64) -> i64 {
 pub extern "C" fn dartforge_error_get_end(handle: i64) -> i64 {
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        let Value::Object { fields, .. } = heap.get(handle) else { return 0; };
-        fields.get(4).map_or(0, |(bits, _)| *bits)
+        let Some(fields) = heap.objeto(handle) else { return 0; };
+        fields.get(4).map_or(0, |(bits, _)| bits)
     })
 }
 
@@ -626,8 +610,8 @@ pub extern "C" fn dartforge_error_get_source(handle: i64) -> i64 {
 pub extern "C" fn dartforge_error_get_offset(handle: i64) -> i64 {
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        let Value::Object { fields, .. } = heap.get(handle) else { return 0; };
-        fields.get(2).map_or(0, |(bits, _)| if *bits < 0 { 0 } else { *bits })
+        let Some(fields) = heap.objeto(handle) else { return 0; };
+        fields.get(2).map_or(0, |(bits, _)| if bits < 0 { 0 } else { bits })
     })
 }
 
@@ -635,14 +619,14 @@ pub extern "C" fn dartforge_error_get_offset(handle: i64) -> i64 {
 pub extern "C" fn dartforge_error_get_stack_trace(handle: i64) -> i64 {
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        let Value::Object { class_id, fields } = heap.get(handle) else { return 0; };
-        let cid = *class_id;
+        let Some(fields) = heap.objeto(handle) else { return 0; };
+        let cid = fields.class_id;
         let st_idx = match cid {
             1003 => 5,
             1004 => 7,
             _ => 1,
         };
-        fields.get(st_idx).map_or(0, |(bits, _)| *bits)
+        fields.get(st_idx).map_or(0, |(bits, _)| bits)
     })
 }
 

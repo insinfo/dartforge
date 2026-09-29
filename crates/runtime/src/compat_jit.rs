@@ -37,8 +37,8 @@ fn registrar_biblioteca_da_classe(classe: i64, uri: &str, nome: &str) {
 /// A classe RTI de um objeto `Type` de classe (`Tipo::Interface`, também
 /// anulável), ou `None` para os outros tipos (função, record, `dynamic`…).
 fn classe_do_objeto_tipo(tipo: i64) -> Option<i64> {
-    let t = HEAP.with(|h| match h.borrow().try_get(tipo) {
-        Some(Value::Object { class_id, fields }) if *class_id == CLASSE_TIPO => fields.first().map(|f| f.0),
+    let t = HEAP.with(|h| match h.borrow().objeto(tipo) {
+        Some(o) if o.class_id == CLASSE_TIPO => o.first().map(|f| f.0),
         _ => None,
     })?;
     RTI.with(|u| {

@@ -113,9 +113,10 @@ fn safe_to_string(heap: &Heap, handle: i64, output: &mut TextoMut) {
         Value::BoxedDouble(d) => output.push_str(&formatar_double(*d)),
         Value::BoxedBool(b) => output.push_str(if *b { "true" } else { "false" }),
         Value::Set(items) => output.push_str(&format!("_Set len:{}", items.len())),
-        Value::Object { class_id, .. } => {
+        Value::Objeto => {
+            let class_id = heap.classe_do_objeto(handle).expect("objeto vivo");
             let nome = CLASS_NAMES
-                .with(|map| map.borrow().get(class_id).cloned())
+                .with(|map| map.borrow().get(&class_id).cloned())
                 .unwrap_or_else(|| "Object".to_string());
             output.push_str(&format!("Instance of '{nome}'"));
         }
@@ -228,7 +229,10 @@ fn describe_texto(heap: &Heap, handle: i64) -> Texto {
                     let name = CLASS_NAMES.with(|map| map.borrow().get(class_id).cloned()).unwrap_or_default();
                     output.push_str(&format!("Instance of '{name}'"));
                 }
-                Value::Object { class_id, fields } => {
+                Value::Objeto => {
+                    let objeto = heap.objeto(value.bits).expect("objeto vivo");
+                    let class_id = &objeto.class_id;
+                    let fields: Vec<crate::heap::Campo> = objeto.to_vec();
                     if *class_id == 1013 {
                         if let Some((b, _)) = fields.first() {
                             output.push_str(&format!("{b}"));

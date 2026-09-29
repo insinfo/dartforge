@@ -143,7 +143,7 @@ fn chave_do_valor(h: i64) -> Option<i64> {
             Value::BoxedDouble(_) => Some(-2),
             Value::BoxedBool(_) => Some(-3),
             Value::String(_) => Some(-4),
-            Value::Object { class_id, .. } if *class_id >= 0 => Some(-16 - class_id),
+            Value::Objeto => heap.classe_do_objeto(h).filter(|c| *c >= 0).map(|c| -16 - c),
             _ => None,
         }
     })
@@ -802,9 +802,8 @@ fn tipo_do_valor(u: &mut Universo, v: TaggedValue) -> i64 {
             Value::Set(_) => Forma::Cru(u.rt.set),
             Value::Closure(_) => Forma::Cru(u.rt.function),
             Value::Record(campos) => Forma::Registro(campos.clone()),
-            Value::Object { class_id, .. }
-            | Value::TypedData { class_id, .. }
-            | Value::TypedView { class_id, .. } => Forma::Cru(u.classe_do_heap(*class_id)),
+            Value::Objeto => Forma::Cru(u.classe_do_heap(heap.classe_do_objeto(h).expect("objeto vivo"))),
+            Value::TypedData { class_id, .. } | Value::TypedView { class_id, .. } => Forma::Cru(u.classe_do_heap(*class_id)),
             Value::Cell(_) | Value::Environment(_) => Forma::Cru(u.rt.object),
         }
     });
@@ -1151,10 +1150,7 @@ pub extern "C" fn dartforge_rti_definir(obj: i64, tipo: i64) {
     // O lowering dos literais reifica `List<E>`, `Map<K,V>` ou `Set<E>`, mas
     // os objetos pertencem às classes concretas do SDK. Os métodos dessas
     // classes (e de seus mixins) avaliam `P<i>` a partir do receptor.
-    let classe_concreta = HEAP.with(|h| match h.borrow().get(obj) {
-        Value::Object { class_id, .. } => Some(*class_id),
-        _ => cid_do_runtime(obj),
-    });
+    let classe_concreta = HEAP.with(|h| h.borrow().classe_do_objeto(obj)).or_else(|| cid_do_runtime(obj));
     let tipo = if let Some(classe) = classe_concreta {
         RTI.with(|u| {
             let mut u = u.borrow_mut();
@@ -1187,8 +1183,7 @@ pub extern "C" fn dartforge_rti_registro_nomeado(obj: i64, npos: i64, nomes: i64
     let nomes = HEAP.with(|h| h.borrow().texto(nomes).para_string());
     let campos = HEAP.with(|h| {
         let h = h.borrow();
-        let Value::Object { fields, .. } = h.get(obj) else { panic!("record nomeado esperado") };
-        fields.to_vec()
+        h.objeto(obj).expect("record nomeado esperado").to_vec()
     });
     let nomes: Vec<&str> = nomes.split(',').collect();
     assert_eq!(campos.len(), npos + nomes.len(), "forma do record nomeado");
@@ -1317,7 +1312,7 @@ pub extern "C" fn dartforge_rti_objeto_tipo(t: i64) -> i64 {
     }
     let h = HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        let h = heap.allocate(Value::Object { class_id: CLASSE_TIPO, fields: vec![(t, false)].into() });
+        let h = heap.novo_objeto(CLASSE_TIPO, &[(t, false)]);
         // Raiz permanente num id que os globais do programa (não negativos)
         // e o laço de eventos (negativos pequenos) não usam.
         heap.set_global_root(-(1_i64 << 40) - t, h);

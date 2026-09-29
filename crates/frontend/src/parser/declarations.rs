@@ -1632,6 +1632,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         topo: bool,
     ) -> PResult<FunctionId> {
         self.advance();
+        let mut type_params = Vec::new();
         let (name, parameters) = match kind {
             FunctionKind::Getter => (self.expect_identifier()?, None),
             FunctionKind::Setter => {
@@ -1640,6 +1641,15 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             _ => {
                 let name = self.parse_operator_name()?;
+                // `parseMethodTypeVar` lê os parâmetros de tipo do operador e
+                // o `AstBuilder.endClassMethod` os recusa no intervalo `<…>`
+                // (`TYPE_PARAMETER_ON_OPERATOR`); a árvore fica com eles.
+                if self.at_op(Op::Lt) {
+                    let abre = self.span();
+                    type_params = self.parse_type_parameters_opt()?;
+                    let lista = self.span_from(abre);
+                    self.erro_em(codigos::parser::TYPE_PARAMETER_ON_OPERATOR, lista, &[]);
+                }
                 (name, Some(self.parse_formal_parameters()?))
             }
         };
@@ -1654,7 +1664,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             kind,
             return_type,
             name: Some(name),
-            type_params: Vec::new().into_boxed_slice(),
+            type_params: type_params.into_boxed_slice(),
             parameters: parameters.map(Vec::into_boxed_slice),
             modifier,
             body,

@@ -337,9 +337,15 @@ Future<String> Function()? _geradorDoResumoDoSdk() {
     final resumo = File('${dir.path}/sdk.sum');
     final deps = File('${dir.path}/sdk.sum.deps');
     final versao = File('$raiz/version');
+    // Como o `defaultSdkSummaryGenerator` (versão do SDK e caminho do
+    // analyzer), mais o executável que gera: um executor novo (outro
+    // compilador, outro analyzer) refaz o resumo.
+    final executavel = File(Platform.resolvedExecutable);
     final atual = jsonEncode({
       'sdk': raiz,
       'versao': await versao.exists() ? (await versao.readAsString()).trim() : '',
+      'executor': executavel.path,
+      'data': (await executavel.lastModified()).microsecondsSinceEpoch,
     });
     if (!await resumo.exists() || !await deps.exists() || await deps.readAsString() != atual) {
       _log(() => 'resumo do SDK: gerando');

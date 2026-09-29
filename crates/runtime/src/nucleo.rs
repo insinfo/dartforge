@@ -278,28 +278,19 @@ pub extern "C" fn dartforge_object_new(class_id: i64, field_count: i64) -> i64 {
         h
     })
 }
-// Os campos de um objeto (`Value::Object`) são lidos e gravados em linha
-// pelo código gerado (`llvm/mod.rs`, `GetField`/`SetField`): cada um é o par
-// `(bits, is_ref)` — 16 bytes, os bits no deslocamento 0 e `is_ref` no 8.
-// O layout de tupla do Rust não é garantido pela linguagem; esta conferência
-// em tempo de compilação faz o contrato falhar no build, não em execução.
-const _: () = {
-    assert!(std::mem::size_of::<(i64, bool)>() == 16);
-    assert!(std::mem::offset_of!((i64, bool), 0) == 0);
-    assert!(std::mem::offset_of!((i64, bool), 1) == 8);
-};
+// Os campos de um objeto do usuário são lidos e gravados em linha pelo
+// código gerado (`llvm/mod.rs`, `GetField`/`SetField`): palavras de 8 bytes
+// depois do cabeçalho do bloco (`heap::Cabecalho`), com o mapa de
+// referências no cabeçalho.
 
-use crate::heap::{CAMPOS_EM_LINHA, CAMPOS_VAZIOS};
+use crate::heap::{CAMPOS_EM_LINHA, OBJETO_VAZIO};
 
-/// O endereço dos campos do objeto `h` (ponteiro mutável: o código gerado
-/// grava por ele); de algo que não é objeto, [`CAMPOS_VAZIOS`]. O vetor de
-/// campos não muda de tamanho enquanto o objeto vive, a não ser por
-/// chamadas sem atributo (a exceção que ganha o rastro): o emissor a
-/// declara `memory(inaccessiblemem: read)`, e uma gravação de campo em
-/// linha não invalida o endereço, mas qualquer chamada desconhecida sim.
+/// O endereço dos campos (palavras de 8 bytes) do objeto `h`; de algo que
+/// não é objeto, os campos zerados de [`OBJETO_VAZIO`]. O código gerado não
+/// a usa mais (lê o bloco em linha); fica para a ABI.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_object_campos(h: i64) -> i64 {
-    heap_sem_emprestimo(|heap| heap.campos_de_objeto(h).map_or(CAMPOS_VAZIOS.as_ptr() as i64, |p| p as i64))
+    heap_sem_emprestimo(|heap| heap.campos_de_objeto(h).map_or(OBJETO_VAZIO.campos.as_ptr() as i64, |p| p as i64))
 }
 
 /// A barreira de escrita do código gerado (`llvm/mod.rs`): o objeto `h`,
@@ -315,11 +306,11 @@ pub extern "C" fn dartforge_lembrar(h: i64) {
 pub extern "C" fn dartforge_object_get(handle: i64, index: i64) -> i64 {
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        let Value::Object { fields, .. } = heap.get(handle) else {
+        let Some(o) = heap.objeto(handle) else {
             return 0;
         };
         let idx = usize::try_from(index).unwrap_or(usize::MAX);
-        fields.get(idx).map_or(0, |(bits, _)| *bits)
+        o.get(idx).map_or(0, |(bits, _)| bits)
     })
 }
 /// Grava campo e informa explicitamente se seus bits são referência gerenciada.
@@ -366,10 +357,7 @@ pub extern "C" fn dartforge_late_field_set_initializing(handle: i64, index: i64,
 pub extern "C" fn dartforge_object_class(handle: i64) -> i64 {
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        let Value::Object { class_id, .. } = heap.get(handle) else {
-            panic!("objeto esperado")
-        };
-        *class_id
+        heap.classe_do_objeto(handle).expect("objeto esperado")
     })
 }
 /// Obtém um valor enum canônico usando nome UTF-8 emitido como constante LLVM.
@@ -540,9 +528,11 @@ pub extern "C" fn dartforge_value_class(handle: i64) -> i64 {
             // tem o heap emprestado para escrita durante uma chamada do
             // código gerado ou do runtime que pergunta a classe.
             let heap = unsafe { heap.try_borrow_unguarded() }.ok()?;
+            if let Some(o) = heap.objeto(handle) {
+                return Some(o.class_id);
+            }
             match heap.try_get(handle)? {
-                Value::Object { class_id, .. }
-                | Value::TypedData { class_id, .. }
+                Value::TypedData { class_id, .. }
                 | Value::TypedView { class_id, .. } => Some(*class_id),
                 valor => cid_do_valor_do_runtime(heap, handle, valor),
             }
@@ -567,8 +557,11 @@ pub extern "C" fn dartforge_value_class(handle: i64) -> i64 {
     }
     HEAP.with(|heap| {
         let heap = heap.borrow();
+        if let Some(cid) = heap.classe_do_objeto(handle) {
+            return cid;
+        }
         match heap.get(handle) {
-            Value::Object { class_id, .. } => *class_id,
+            Value::Objeto => unreachable!("objeto conferido acima"),
             Value::TypedData { class_id, .. } | Value::TypedView { class_id, .. } => *class_id,
             Value::String(_) => -2,
             Value::StringBuffer(_) => -8,

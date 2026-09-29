@@ -180,7 +180,10 @@ fn copiar_para_grafo(raiz: i64, compartilhar: bool) -> Result<Grafo, MensagemIle
                 Value::StringBuffer(u) => NoG::StringBuffer(u.clone()),
                 Value::RegExp(t) => NoG::RegExp(t.clone()),
                 Value::Match(t) => NoG::Match(t.clone()),
-                Value::Object { class_id, fields } => {
+                Value::Objeto => {
+                    let objeto = heap.objeto(h).expect("objeto vivo");
+                    let class_id = &objeto.class_id;
+                    let fields = objeto.to_vec();
                     if let Some(d) = NAO_ENVIAVEIS.with(|n| n.borrow().get(class_id).cloned()) {
                         return Err(MensagemIlegal(d));
                     }
@@ -248,10 +251,8 @@ fn copiar_para_grafo(raiz: i64, compartilhar: bool) -> Result<Grafo, MensagemIle
         HEAP.with(|heap| {
             let mut heap = heap.borrow_mut();
             for h in transferidos {
-                if let Value::Object { fields, .. } = heap.get_mut(h)
-                    && let Some(f) = fields.first_mut()
-                {
-                    *f = (0, true);
+                if heap.objeto(h).is_some_and(|o| !o.is_empty()) {
+                    heap.definir_campo(h, 0, 0, true);
                 }
             }
         });
@@ -537,7 +538,7 @@ fn materializar(g: &Grafo) -> i64 {
                 NoG::StringBuffer(u) => Value::StringBuffer(u.clone()),
                 NoG::RegExp(t) => Value::RegExp(t.clone()),
                 NoG::Match(t) => Value::Match(t.clone()),
-                NoG::Object { class_id, fields } => Value::Object { class_id: *class_id, fields: vec![(0, false); fields.len()].into() },
+                NoG::Object { .. } => Value::Objeto,
                 NoG::Cell(_) => Value::Cell(TaggedValue::scalar(0)),
                 NoG::Environment(v) => Value::Environment(vec![TaggedValue::scalar(0); v.len()]),
                 NoG::Closure { code_id, tipado, abi, .. } => {
@@ -565,7 +566,7 @@ fn materializar(g: &Grafo) -> i64 {
                     tipo: *tipo,
                     bytes: bytes.clone().into(),
                 },
-                NoG::DoRuntime { pos, id } => Value::Object { class_id: cid_registrado(*pos).unwrap_or(-1), fields: vec![(*id, false)].into() },
+                NoG::DoRuntime { .. } => Value::Objeto,
                 NoG::TypedView { class_id, tipo, deslocamento, comprimento, imutavel, .. } => Value::TypedView {
                     class_id: *class_id,
                     tipo: *tipo,
@@ -581,7 +582,11 @@ fn materializar(g: &Grafo) -> i64 {
                     continue;
                 }
             };
-            let h = heap.allocate(vazio);
+            let h = match (vazio, no) {
+                (Value::Objeto, NoG::Object { class_id, fields }) => heap.novo_objeto(*class_id, &vec![(0, false); fields.len()]),
+                (Value::Objeto, NoG::DoRuntime { pos, id }) => heap.novo_objeto(cid_registrado(*pos).unwrap_or(-1), &[(*id, false)]),
+                (vazio, _) => heap.allocate(vazio),
+            };
             heap.set_root(frame, i, h);
             handles.push(h);
         }
@@ -605,8 +610,8 @@ fn materializar(g: &Grafo) -> i64 {
             match no {
                 NoG::Object { fields, .. } => {
                     let novos: Vec<(i64, bool)> = fields.iter().map(|f| { let x = t(f); (x.bits, x.is_ref) }).collect();
-                    if let Value::Object { fields: fs, .. } = heap.get_mut(h) {
-                        fs.copy_from_slice(&novos);
+                    for (k, &(bits, e_ref)) in novos.iter().enumerate() {
+                        heap.definir_campo(h, k, bits, e_ref);
                     }
                 }
                 NoG::Cell(v) => {
@@ -1128,10 +1133,7 @@ fn despachar_proxima(chamar: extern "C" fn(i64) -> i64) -> bool {
 /// enviável) e devolve o id.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_porta_abrir(objeto: i64) -> i64 {
-    let classe = HEAP.with(|h| match h.borrow().try_get(objeto) {
-        Some(Value::Object { class_id, .. }) => Some(*class_id),
-        _ => None,
-    });
+    let classe = HEAP.with(|h| h.borrow().classe_do_objeto(objeto));
     if let Some(c) = classe {
         NAO_ENVIAVEIS.with(|n| {
             n.borrow_mut().entry(c).or_insert_with(|| "(object is a ReceivePort)\n".to_string());
@@ -1222,10 +1224,7 @@ pub extern "C" fn dartforge_nativo_DartForge_mensagem_atual() -> i64 {
 /// da VM sem o sufixo de biblioteca privada e sem o caminho de retenção.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_classe_nao_enviavel(objeto: i64) {
-    let classe = HEAP.with(|h| match h.borrow().try_get(objeto) {
-        Some(Value::Object { class_id, .. }) => Some(*class_id),
-        _ => None,
-    });
+    let classe = HEAP.with(|h| h.borrow().classe_do_objeto(objeto));
     let Some(c) = classe else { return };
     let nome = nome_da_classe(c);
     NAO_ENVIAVEIS.with(|n| {
@@ -1241,10 +1240,7 @@ pub extern "C" fn dartforge_nativo_DartForge_classe_nao_enviavel(objeto: i64) {
 /// primeiro campo movido numa mensagem (`TransferableTypedData`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_classe_transferivel(objeto: i64) {
-    let classe = HEAP.with(|h| match h.borrow().try_get(objeto) {
-        Some(Value::Object { class_id, .. }) => Some(*class_id),
-        _ => None,
-    });
+    let classe = HEAP.with(|h| h.borrow().classe_do_objeto(objeto));
     if let Some(c) = classe
         && !classes_transferiveis().contains(&c)
     {

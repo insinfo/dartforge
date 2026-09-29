@@ -36,6 +36,12 @@ pub struct LlvmEmitter<'a> {
     conv_phi: Vec<(u32, String, Type, ValueId, Type)>,
     /// Tipo guardado por cada `alloca` da função (para o `store`).
     apontado: std::collections::HashMap<ValueId, Type>,
+    /// Os endereços de cabeçalho de lista tipada da função corrente
+    /// (`dartforge_typed_cabecalho`, N17): o que se lê deles não muda
+    /// enquanto a lista vive, e a leitura leva `!invariant.load` — o LLVM a
+    /// tira dos laços e a junta com as iguais, como fazia com as chamadas
+    /// puras `dartforge_typed_len`/`dartforge_typed_ptr` de antes.
+    cabecalhos_invariantes: std::collections::HashSet<ValueId>,
     /// G: slot de raiz de cada valor `Ref` da função (SSA ou `alloca`).
     slots: std::collections::HashMap<ValueId, usize>,
     /// A função abriu um quadro de raízes (`%gcq`).
@@ -106,6 +112,7 @@ impl<'a> LlvmEmitter<'a> {
             prox_coercao: 0,
             conv_phi: Vec::new(),
             apontado: std::collections::HashMap::new(),
+            cabecalhos_invariantes: std::collections::HashSet::new(),
             slots: std::collections::HashMap::new(),
             tem_frame: false,
             tem_ctx: false,
@@ -335,10 +342,16 @@ impl<'a> LlvmEmitter<'a> {
         // valor i1 — modulo inteiro recusado pelo Clang.
         self.tipos.clear();
         self.apontado.clear();
+        self.cabecalhos_invariantes.clear();
         for block in &func.blocks {
             for (vid, inst, _) in &block.instructions {
                 if let Instruction::Alloca(t) = inst {
                     self.apontado.insert(*vid, *t);
+                }
+                if let Instruction::CallRuntime { name, .. } = inst
+                    && name == "dartforge_typed_cabecalho"
+                {
+                    self.cabecalhos_invariantes.insert(*vid);
                 }
             }
         }
@@ -689,21 +702,17 @@ impl<'a> LlvmEmitter<'a> {
                         }
                         for (idx, field) in fields.iter().enumerate() {
                             // E1: `is_ref` pela representação do valor.
-                            let is_ref = u8::from(self.tipo_de(field) == Type::Ref);
+                            let is_ref = u8::from(self.tipo_de(field) == Type::Ref).to_string();
                             let sf = self.coagir(field, Type::I64);
-                            writeln!(self.out, "  %fg{v}.{idx} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {idx}, i32 0").unwrap();
-                            writeln!(self.out, "  store i64 {sf}, ptr %fg{v}.{idx}, align 8").unwrap();
-                            writeln!(self.out, "  %fr{v}.{idx} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {idx}, i32 1").unwrap();
-                            writeln!(self.out, "  store i8 {is_ref}, ptr %fr{v}.{idx}, align 8").unwrap();
+                            self.emitir_gravacao_de_campo(v, &format!(".{idx}"), idx, &sf, &is_ref);
                         }
                     }
-                    // O campo em linha: o par `(bits, is_ref)` de 16 bytes no
-                    // endereço que a tabela de campos do heap dá (o layout é
-                    // conferido no runtime, `heap.rs`).
+                    // O campo em linha: a palavra de 8 bytes depois do
+                    // cabeçalho do corpo do objeto (`heap::Cabecalho`).
                     Instruction::GetField { object, index } if (*index as usize) < CAMPOS_EM_LINHA => {
                         let so = self.coagir(object, Type::I64);
                         self.emitir_endereco_dos_campos(v, &so);
-                        writeln!(self.out, "  %fg{v} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {index}, i32 0").unwrap();
+                        writeln!(self.out, "  %fg{v} = getelementptr inbounds i64, ptr %fp{v}, i64 {index}").unwrap();
                         writeln!(self.out, "  %v{v} = load i64, ptr %fg{v}, align 8").unwrap();
                     }
                     Instruction::GetField { object, index } => {
@@ -718,10 +727,7 @@ impl<'a> LlvmEmitter<'a> {
                         let so = self.coagir(object, Type::I64);
                         let sv = self.coagir(value, Type::I64);
                         self.emitir_endereco_dos_campos(v, &so);
-                        writeln!(self.out, "  %fg{v} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {index}, i32 0").unwrap();
-                        writeln!(self.out, "  store i64 {sv}, ptr %fg{v}, align 8").unwrap();
-                        writeln!(self.out, "  %fr{v} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {index}, i32 1").unwrap();
-                        writeln!(self.out, "  store i8 {is_ref}, ptr %fr{v}, align 8").unwrap();
+                        self.emitir_gravacao_de_campo(v, "", *index, &sv, &is_ref.to_string());
                         if self.barreira_em_linha(inst) {
                             self.emitir_barreira(v, &so, None);
                         }
@@ -771,7 +777,7 @@ impl<'a> LlvmEmitter<'a> {
                         let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1) else { unreachable!() };
                         let so = self.coagir(&args[0].0, Type::I64);
                         self.emitir_endereco_dos_campos(v, &so);
-                        writeln!(self.out, "  %fg{v} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {i}, i32 0").unwrap();
+                        writeln!(self.out, "  %fg{v} = getelementptr inbounds i64, ptr %fp{v}, i64 {i}").unwrap();
                         writeln!(self.out, "  %v{v} = load i64, ptr %fg{v}, align 8").unwrap();
                     }
                     Instruction::CallRuntime { name, args, .. }
@@ -794,10 +800,7 @@ impl<'a> LlvmEmitter<'a> {
                             }
                         };
                         self.emitir_endereco_dos_campos(v, &so);
-                        writeln!(self.out, "  %fg{v} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {i}, i32 0").unwrap();
-                        writeln!(self.out, "  store i64 {sv}, ptr %fg{v}, align 8").unwrap();
-                        writeln!(self.out, "  %fr{v} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {i}, i32 1").unwrap();
-                        writeln!(self.out, "  store i8 {is_ref}, ptr %fr{v}, align 8").unwrap();
+                        self.emitir_gravacao_de_campo(v, "", *i as usize, &sv, &is_ref);
                         if self.barreira_em_linha(inst) {
                             let dinamico = is_ref.starts_with('%').then_some(is_ref.as_str());
                             self.emitir_barreira(v, &so, dinamico);
@@ -903,6 +906,10 @@ impl<'a> LlvmEmitter<'a> {
                         let e = self.coagir(endereco, Type::I64);
                         let i = self.coagir(indice, Type::I64);
                         let t = tipo.llvm();
+                        let inv = match endereco {
+                            Operand::Val(x) if self.cabecalhos_invariantes.contains(x) => ", !invariant.load !{}",
+                            _ => "",
+                        };
                         writeln!(self.out, "  %cp{v} = inttoptr i64 {e} to ptr").unwrap();
                         writeln!(self.out, "  %cg{v} = getelementptr {t}, ptr %cp{v}, i64 {i}").unwrap();
                         let conv = match tipo {
@@ -916,7 +923,7 @@ impl<'a> LlvmEmitter<'a> {
                                 writeln!(self.out, "  %cl{v} = load {t}, ptr %cg{v}, align 1").unwrap();
                                 writeln!(self.out, "  %v{v} = {c}").unwrap();
                             }
-                            None => writeln!(self.out, "  %v{v} = load {t}, ptr %cg{v}, align 1").unwrap(),
+                            None => writeln!(self.out, "  %v{v} = load {t}, ptr %cg{v}, align 1{inv}").unwrap(),
                         }
                     }
                     Instruction::GravacaoNativa { endereco, indice, tipo, valor } => {
@@ -2296,22 +2303,76 @@ impl<'a> LlvmEmitter<'a> {
     }
 
 
-    /// O endereço dos campos do objeto `so` (`%fp{v}`), em linha: um objeto
-    /// do espaço de objetos (`h & 3 == 2` e `h > 0`, `crates/runtime/src/heap.rs`,
-    /// `Bloco`) guarda o ponteiro dos campos em `h + 14`; qualquer outra
-    /// coisa — null, `Smi`, valor do runtime — lê o ponteiro de
-    /// `Contexto::vazios` (deslocamento 40 do contexto da thread), os campos
-    /// zerados, como `dartforge_object_campos` dava. Uma carga, sem chamada.
+    /// O corpo do objeto `so` (`%fcb{v}`, o cabeçalho) e os campos dele
+    /// (`%fp{v}`), em linha: um objeto do espaço de objetos (`h & 3 == 2` e
+    /// `h > 0`; `crates/runtime/src/heap.rs`, `Cabecalho`) tem o cabeçalho em
+    /// `h - 2`; qualquer outra coisa — null, `Smi`, valor do runtime — usa o
+    /// `OBJETO_VAZIO` (o ponteiro em `Contexto::vazios`, deslocamento 40 do
+    /// contexto), campos zerados, como `dartforge_object_campos` dava. Com o
+    /// bit `FORA` nas `flags`, o corpo é o endereço guardado no primeiro
+    /// campo (o objeto que mudou de número de campos): uma seleção, sem
+    /// desvio. Sem chamada.
     fn emitir_endereco_dos_campos(&mut self, v: u32, so: &str) {
         let o = &mut self.out;
         // O bit de sinal entra na máscara: negativo nunca é objeto.
         writeln!(o, "  %fxk{v} = and i64 {so}, -9223372036854775805").unwrap();
         writeln!(o, "  %fxo{v} = icmp eq i64 %fxk{v}, 2").unwrap();
-        writeln!(o, "  %fxa{v} = add i64 {so}, 14").unwrap();
+        writeln!(o, "  %fxa{v} = add i64 {so}, -2").unwrap();
         writeln!(o, "  %fxq{v} = inttoptr i64 %fxa{v} to ptr").unwrap();
-        writeln!(o, "  %fxv{v} = getelementptr inbounds i8, ptr %ctx, i64 40").unwrap();
-        writeln!(o, "  %fxs{v} = select i1 %fxo{v}, ptr %fxq{v}, ptr %fxv{v}").unwrap();
-        writeln!(o, "  %fp{v} = load ptr, ptr %fxs{v}, align 8").unwrap();
+        writeln!(o, "  %fxvp{v} = getelementptr inbounds i8, ptr %ctx, i64 40").unwrap();
+        writeln!(o, "  %fxv{v} = load ptr, ptr %fxvp{v}, align 8").unwrap();
+        writeln!(o, "  %fxh{v} = select i1 %fxo{v}, ptr %fxq{v}, ptr %fxv{v}").unwrap();
+        writeln!(o, "  %fxfp{v} = getelementptr inbounds i8, ptr %fxh{v}, i64 1").unwrap();
+        writeln!(o, "  %fxf{v} = load i8, ptr %fxfp{v}, align 1").unwrap();
+        writeln!(o, "  %fxfb{v} = and i8 %fxf{v}, 1").unwrap();
+        writeln!(o, "  %fxfo{v} = icmp ne i8 %fxfb{v}, 0").unwrap();
+        writeln!(o, "  %fxcp{v} = getelementptr inbounds i8, ptr %fxh{v}, i64 16").unwrap();
+        writeln!(o, "  %fxc{v} = load ptr, ptr %fxcp{v}, align 8").unwrap();
+        writeln!(o, "  %fcb{v} = select i1 %fxfo{v}, ptr %fxc{v}, ptr %fxh{v}").unwrap();
+        writeln!(o, "  %fp{v} = getelementptr inbounds i8, ptr %fcb{v}, i64 16").unwrap();
+    }
+
+    /// Grava `sv` no campo `idx` do corpo `%fcb{v}` e acende ou apaga o bit
+    /// dele no mapa de referências (`is_ref`: `0`, `1` ou um `i8` só
+    /// conhecido em execução) — os 32 primeiros no cabeçalho, os demais nas
+    /// palavras depois dos campos (achadas pelo `n` do corpo).
+    fn emitir_gravacao_de_campo(&mut self, v: u32, sufixo: &str, idx: usize, sv: &str, is_ref: &str) {
+        let o = &mut self.out;
+        let t = format!("{v}{sufixo}");
+        writeln!(o, "  %fg{t} = getelementptr inbounds i64, ptr %fp{v}, i64 {idx}").unwrap();
+        writeln!(o, "  store i64 {sv}, ptr %fg{t}, align 8").unwrap();
+        let (palavra, largura, bit) = if idx < 32 {
+            writeln!(o, "  %fmp{t} = getelementptr inbounds i8, ptr %fcb{v}, i64 8").unwrap();
+            (format!("%fmp{t}"), "i32", idx)
+        } else {
+            writeln!(o, "  %fnp{t} = getelementptr inbounds i8, ptr %fcb{v}, i64 2").unwrap();
+            writeln!(o, "  %fn{t} = load i16, ptr %fnp{t}, align 2").unwrap();
+            writeln!(o, "  %fnz{t} = zext i16 %fn{t} to i64").unwrap();
+            writeln!(o, "  %fnw{t} = add i64 %fnz{t}, {}", (idx - 32) / 64).unwrap();
+            writeln!(o, "  %fmp{t} = getelementptr inbounds i64, ptr %fp{v}, i64 %fnw{t}").unwrap();
+            (format!("%fmp{t}"), "i64", (idx - 32) % 64)
+        };
+        // As constantes na largura da palavra, com sinal (o texto do IR).
+        let (limpa, acende) = if largura == "i32" {
+            (i64::from(!(1u32 << bit) as i32), i64::from((1u32 << bit) as i32))
+        } else {
+            (!(1u64 << bit) as i64, (1u64 << bit) as i64)
+        };
+        writeln!(o, "  %fm{t} = load {largura}, ptr {palavra}, align 4").unwrap();
+        writeln!(o, "  %fmc{t} = and {largura} %fm{t}, {limpa}").unwrap();
+        match is_ref {
+            "0" => writeln!(o, "  store {largura} %fmc{t}, ptr {palavra}, align 4").unwrap(),
+            "1" => {
+                writeln!(o, "  %fms{t} = or {largura} %fm{t}, {acende}").unwrap();
+                writeln!(o, "  store {largura} %fms{t}, ptr {palavra}, align 4").unwrap();
+            }
+            r => {
+                writeln!(o, "  %fmz{t} = zext i8 {r} to {largura}").unwrap();
+                writeln!(o, "  %fmb{t} = shl {largura} %fmz{t}, {bit}").unwrap();
+                writeln!(o, "  %fms{t} = or {largura} %fmc{t}, %fmb{t}").unwrap();
+                writeln!(o, "  store {largura} %fms{t}, ptr {palavra}, align 4").unwrap();
+            }
+        }
     }
 
     /// `dartforge_object_new(c, n)` com classe e número de campos
@@ -2323,7 +2384,7 @@ impl<'a> LlvmEmitter<'a> {
             return None;
         }
         match (&args[0].0, &args[1].0) {
-            (Operand::Constant(Constant::Int(c)), Operand::Constant(Constant::Int(n))) if (0..=TLAB_N).contains(n) && *c >= 0 => {
+            (Operand::Constant(Constant::Int(c)), Operand::Constant(Constant::Int(n))) if (0..=TLAB_N).contains(n) && (0..=i64::from(i32::MAX)).contains(c) => {
                 Some((*c, *n))
             }
             _ => None,
@@ -2334,8 +2395,8 @@ impl<'a> LlvmEmitter<'a> {
     /// `TryAllocateObject` da VM (`stub_code_compiler.cc`): tira o primeiro
     /// bloco da TLAB de `n` campos do isolado (`Contexto::tlab`,
     /// deslocamento `64 + 8n`; os blocos já foram contados como alocados e
-    /// têm os campos zerados e o molde do `Value::Object`), marca-o vivo,
-    /// grava a classe e devolve o handle (`bloco + 18`). TLAB vazia — ou,
+    /// têm cabeçalho e campos zerados), grava o cabeçalho (jovem, `n`, a
+    /// classe) e devolve o handle (`bloco + 2`). TLAB vazia — ou,
     /// para a classe que registra a tabela de métodos na primeira alocação
     /// (`dartforge_object_new_t`), classe ainda não registrada — vai ao
     /// runtime, que coleta se preciso e reabastece. O bloco da HIR termina
@@ -2368,16 +2429,19 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(o, "  %tx{v} = call i1 @llvm.expect.i1(i1 %tz{v}, i1 false)").unwrap();
             writeln!(o, "  br i1 %tx{v}, label %ao{v}.lento, label %ao{v}.rapido").unwrap();
         }
+        // O bloco livre tem o cabeçalho zerado (menos o número de campos),
+        // os campos zerados e o próximo da lista no primeiro campo: tira-se
+        // o próximo, zera-se o primeiro campo e grava-se a palavra do
+        // cabeçalho (estado jovem, sem flags, `n`, a classe).
+        let cabecalho = 1u64 | ((n as u64) << 16) | (u64::from(c as u32) << 32);
         writeln!(o, "ao{v}.rapido:").unwrap();
-        writeln!(o, "  %tpp{v} = getelementptr inbounds i8, ptr %tb{v}, i64 8").unwrap();
+        writeln!(o, "  %tpp{v} = getelementptr inbounds i8, ptr %tb{v}, i64 16").unwrap();
         writeln!(o, "  %tp{v} = load i64, ptr %tpp{v}, align 8").unwrap();
         writeln!(o, "  store i64 %tp{v}, ptr %ta{v}, align 8").unwrap();
         writeln!(o, "  store i64 0, ptr %tpp{v}, align 8").unwrap();
-        writeln!(o, "  store i8 1, ptr %tb{v}, align 8").unwrap();
-        writeln!(o, "  %tcp{v} = getelementptr inbounds i8, ptr %tb{v}, i64 24").unwrap();
-        writeln!(o, "  store i64 {c}, ptr %tcp{v}, align 8").unwrap();
+        writeln!(o, "  store i64 {}, ptr %tb{v}, align 8", cabecalho as i64).unwrap();
         writeln!(o, "  %thb{v} = ptrtoint ptr %tb{v} to i64").unwrap();
-        writeln!(o, "  %th{v} = add i64 %thb{v}, 18").unwrap();
+        writeln!(o, "  %th{v} = add i64 %thb{v}, 2").unwrap();
         writeln!(o, "  br label %ao{v}.fim").unwrap();
         writeln!(o, "ao{v}.lento:").unwrap();
         match &tabela {
@@ -2414,14 +2478,14 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     /// A barreira de escrita depois de gravar um `Ref` no objeto `so`
-    /// (`crates/runtime/src/heap.rs`, `Bloco`): se o objeto é velho (estado
-    /// 3 no cabeçalho, `h - 18`), `dartforge_lembrar` o põe entre os
+    /// (`crates/runtime/src/heap.rs`, `Cabecalho`): se o objeto é velho (estado
+    /// 3 no cabeçalho, `h - 2`), `dartforge_lembrar` o põe entre os
     /// lembrados da próxima coleta menor — o *store buffer* da barreira da
     /// VM. `dinamico`: o `is_ref` só conhecido em execução (0/1, `i8`). O
     /// bloco da HIR passa a terminar em `wb{v}.fim`.
     fn emitir_barreira(&mut self, v: u32, so: &str, dinamico: Option<&str>) {
         let o = &mut self.out;
-        writeln!(o, "  %wba{v} = add i64 {so}, -18").unwrap();
+        writeln!(o, "  %wba{v} = add i64 {so}, -2").unwrap();
         writeln!(o, "  %wbp{v} = inttoptr i64 %wba{v} to ptr").unwrap();
         writeln!(o, "  %wbe{v} = load i8, ptr %wbp{v}, align 8").unwrap();
         writeln!(o, "  %wbv{v} = icmp eq i8 %wbe{v}, 3").unwrap();

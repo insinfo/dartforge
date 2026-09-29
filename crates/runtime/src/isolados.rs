@@ -128,10 +128,7 @@ fn inteiro_de(v: TaggedValue) -> Option<i64> {
 
 /// O `_id` de uma `_SendPort` ou `_Capability` (o primeiro campo).
 fn id_do_objeto(h: i64) -> Option<i64> {
-    let campo = HEAP.with(|heap| match heap.borrow().try_get(h) {
-        Some(Value::Object { fields, .. }) => fields.first().copied(),
-        _ => None,
-    })?;
+    let campo = HEAP.with(|heap| heap.borrow().objeto(h).and_then(|o| o.first()))?;
     inteiro_de(if campo.1 { TaggedValue::reference(campo.0) } else { TaggedValue::scalar(campo.0) })
 }
 

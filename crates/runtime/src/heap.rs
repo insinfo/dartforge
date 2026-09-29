@@ -1083,147 +1083,75 @@ pub type Campo = (i64, bool);
 /// `dartforge_object_get`/`_set`).
 pub const CAMPOS_EM_LINHA: usize = 4096;
 
-/// Zeros para a leitura em linha de campo de algo que não é objeto (o que
-/// `dartforge_object_get` devolvia): nunca gravado — está em memória só de
-/// leitura, e gravar nela é erro do compilador que termina o processo.
-pub static CAMPOS_VAZIOS: [Campo; CAMPOS_EM_LINHA] = [(0, false); CAMPOS_EM_LINHA];
-
-/// Os campos de um objeto do usuário (`Value::Object`): `len` pares
-/// [`Campo`] contíguos, de endereço fixo enquanto o objeto vive — o código
-/// gerado os lê e grava em linha pelo ponteiro `ptr` (deslocamento 16 do
-/// `Value`, ver [`Bloco`]).
-///
-/// O bloco vem de um de dois lugares:
-/// * **dentro do bloco do objeto** no espaço de objetos ([`EspacoDeObjetos`],
-///   `do_espaco`): logo depois do cabeçalho, com o objeto; o `Drop` não o
-///   libera — o bloco inteiro volta ao espaço na coleta;
-/// * do alocador global (`From<Vec<Campo>>`): os objetos que o runtime
-///   monta à mão (antes de irem ao espaço) e os campos de um objeto que
-///   cresceu (`Heap::garantir_campos`) ou mudou de layout numa recarga (J03);
-///   liberado no `Drop`.
-///
-/// Layout C fixo: contrato com o emissor (`llvm/mod.rs`).
-#[repr(C)]
-pub struct Campos {
-    ptr: std::ptr::NonNull<Campo>,
-    len: usize,
-    do_espaco: bool,
-}
-
-impl Campos {
-    /// Nenhum campo (sem memória).
-    pub const fn vazio() -> Self {
-        Self { ptr: std::ptr::NonNull::dangling(), len: 0, do_espaco: false }
-    }
-    /// O endereço do primeiro campo.
-    pub fn as_mut_ptr(&mut self) -> *mut Campo {
-        self.ptr.as_ptr()
-    }
-}
-
-impl From<Vec<Campo>> for Campos {
-    fn from(v: Vec<Campo>) -> Self {
-        if v.is_empty() {
-            return Self::vazio();
-        }
-        let b = v.into_boxed_slice();
-        let len = b.len();
-        let ptr = std::ptr::NonNull::new(Box::into_raw(b).cast::<Campo>()).expect("Box não nulo");
-        Self { ptr, len, do_espaco: false }
-    }
-}
-
-impl Drop for Campos {
-    fn drop(&mut self) {
-        if self.len > 0 && !self.do_espaco {
-            // SAFETY: veio de `Box<[Campo]>` com este comprimento (`From<Vec>`).
-            #[allow(unsafe_code)]
-            drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(self.ptr.as_ptr(), self.len)) });
-        }
-    }
-}
-
-impl std::ops::Deref for Campos {
-    type Target = [Campo];
-    fn deref(&self) -> &[Campo] {
-        // SAFETY: `ptr` aponta `len` campos iniciados (ou é pendente com 0).
-        #[allow(unsafe_code)]
-        unsafe {
-            std::slice::from_raw_parts(self.ptr.as_ptr(), self.len)
-        }
-    }
-}
-
-impl std::ops::DerefMut for Campos {
-    fn deref_mut(&mut self) -> &mut [Campo] {
-        // SAFETY: como em `deref`; o `&mut self` é o único acesso.
-        #[allow(unsafe_code)]
-        unsafe {
-            std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len)
-        }
-    }
-}
-
-impl std::fmt::Debug for Campos {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_list().entries(self.iter()).finish()
-    }
-}
-
 /// O cabeçalho de um objeto do usuário no espaço de objetos
-/// ([`EspacoDeObjetos`]), seguido dos `n` campos. Layout C fixo: contrato
-/// com o emissor (`llvm/mod.rs`), conferido em [`conferir_layout`].
+/// ([`EspacoDeObjetos`]), seguido dos campos (8 bytes cada, os bits) e, com
+/// mais de 32 campos, das palavras que estendem o mapa de referências.
+/// Layout C fixo: contrato com o emissor (`llvm/mod.rs`).
 ///
-/// O handle do objeto é o endereço do `valor` com o bit 1 ligado
-/// (`bloco + 18`, [`DESLOCAMENTO_DO_HANDLE`]); os handles da tabela de
-/// slots são múltiplos de 4 e o `Smi` é ímpar (R10), então `h & 3 == 2`
-/// distingue o objeto sem consulta. A partir do handle:
-/// * `h + 6`: o `class_id` (deslocamento 8 do `Value::Object`);
-/// * `h + 14`: o ponteiro dos campos (`Campos::ptr`, deslocamento 16);
-/// * `h + 38`: os campos no próprio bloco (enquanto `Campos::do_espaco`).
+/// O handle do objeto é o endereço do cabeçalho com o bit 1 ligado
+/// (`bloco + 2`, [`DESLOCAMENTO_DO_HANDLE`]); os handles da tabela de slots
+/// são múltiplos de 4 e o `Smi` é ímpar (R10), então `h & 3 == 2`
+/// distingue o objeto sem consulta.
 ///
-/// Como o *new space* da VM, o bloco é tirado de uma lista (a TLAB do
-/// isolado, [`Contexto::tlab`]) pelo próprio código gerado, sem chamar o
-/// runtime; ao contrário dela, o coletor daqui não move objetos (o código
-/// gerado guarda handles em registradores entre pontos de coleta), e um
-/// bloco morto volta à lista do tamanho dele.
+/// Como na VM, o campo não carrega a marca de referência: o **mapa**
+/// (`mapa`, um bit por campo, e as palavras de extensão) diz quais campos o
+/// coletor segue — a VM tira isso da classe (o *unboxed fields bitmap*);
+/// aqui cada gravação acende ou apaga o bit do campo, então um campo que a
+/// representação faz às vezes `Ref` e às vezes escalar continua preciso.
+///
+/// Um objeto cujos campos mudaram de número depois de criado (o erro que
+/// ganha o rastro, a recarga do JIT que muda o layout da classe, J03) não
+/// pode mudar de endereço: os campos vão para um **corpo de fora** (bit
+/// [`FORA`] em `flags`), com o mesmo layout (cabeçalho + campos + extensão),
+/// cujo endereço fica no lugar do primeiro campo. O código gerado lê o
+/// corpo de fora com uma seleção sem desvio (`llvm/mod.rs`).
 #[repr(C)]
-pub struct Bloco {
+#[derive(Debug, Clone, Copy)]
+pub struct Cabecalho {
     /// [`LIVRE`], [`JOVEM`], [`MARCADO`] (pela coleta em curso), [`VELHO`]
     /// ou [`LEMBRADO`] (velho que ganhou referência depois da última coleta).
     pub estado: u8,
-    _reservado: u8,
-    /// O número de campos do bloco (`u16::MAX`: objeto grande, com página
-    /// própria).
-    pub classe: u16,
-    /// O `hashCode` de identidade (0 = ainda não pedido).
-    pub hash: u32,
-    /// O metadado (RTI) do objeto, `id + 1` (0 = nenhum); num bloco livre,
-    /// o endereço do próximo bloco livre da lista.
-    pub metadado: i64,
-    /// Sempre um `Value::Object`; num bloco livre, o molde
-    /// (`class_id` 0 e os campos do próprio bloco, zerados).
-    pub valor: std::mem::ManuallyDrop<Value>,
+    /// [`FORA`]: os campos moram num corpo de fora.
+    pub flags: u8,
+    /// O número de campos (no corpo de fora, o dele).
+    pub n: u16,
+    /// A classe (o `class_id` do código gerado; cabe em 32 bits).
+    pub class_id: i32,
+    /// O mapa de referências dos 32 primeiros campos.
+    pub mapa: u32,
+    /// O metadado (RTI) do objeto, `id + 1` (0 = nenhum).
+    pub metadado: u32,
 }
 
-/// Estados de um bloco ([`Bloco::estado`]). O coletor é geracional sem
+const _: () = {
+    assert!(std::mem::size_of::<Cabecalho>() == 16);
+    assert!(std::mem::offset_of!(Cabecalho, estado) == 0);
+    assert!(std::mem::offset_of!(Cabecalho, flags) == 1);
+    assert!(std::mem::offset_of!(Cabecalho, n) == 2);
+    assert!(std::mem::offset_of!(Cabecalho, class_id) == 4);
+    assert!(std::mem::offset_of!(Cabecalho, mapa) == 8);
+    assert!(std::mem::offset_of!(Cabecalho, metadado) == 12);
+};
+
+/// Estados de um bloco ([`Cabecalho::estado`]). O coletor é geracional sem
 /// mover objetos (marcas "pegajosas"): um objeto nasce [`JOVEM`] (a
 /// alocação em linha grava 1), e o que sobrevive a uma coleta vira
 /// [`VELHO`]. A coleta menor só marca e varre os jovens; os velhos contam
 /// como vivos, e as referências de velho para jovem são achadas pelos
-/// [`LEMBRADO`]s — a barreira de escrita (`Heap::get_mut` no runtime e a do
-/// código gerado depois de gravar um `Ref` num campo, `llvm/mod.rs`) marca o
-/// velho que recebe uma referência, como o *store buffer* da VM.
+/// [`LEMBRADO`]s — a barreira de escrita (`Heap::get_mut` e as gravações de
+/// campo do runtime, e a do código gerado depois de gravar um `Ref` num
+/// campo, `llvm/mod.rs`) marca o velho que recebe uma referência, como o
+/// *store buffer* da VM.
 pub const LIVRE: u8 = 0;
 pub const JOVEM: u8 = 1;
 pub const MARCADO: u8 = 2;
 pub const VELHO: u8 = 3;
 pub const LEMBRADO: u8 = 4;
+/// Bit de [`Cabecalho::flags`]: os campos moram num corpo de fora.
+pub const FORA: u8 = 1;
 
 /// O handle de um objeto do espaço é `bloco + DESLOCAMENTO_DO_HANDLE`.
-pub const DESLOCAMENTO_DO_HANDLE: i64 = 18;
-/// O discriminante de `Value::Object` (`#[repr(u8)]`).
-pub const TAG_DE_OBJETO: u8 = 4;
+pub const DESLOCAMENTO_DO_HANDLE: i64 = 2;
 /// Tamanho da página do espaço de objetos (e o alinhamento dela: a página
 /// de um handle é `h & !(PAGINA - 1)`).
 pub const PAGINA: usize = 64 * 1024;
@@ -1235,20 +1163,6 @@ pub const TLAB_N: usize = 16;
 /// Quantos blocos cada reabastecimento da TLAB entrega.
 const TLAB_BLOCOS: usize = 64;
 
-const _: () = {
-    assert!(std::mem::offset_of!(Bloco, estado) == 0);
-    assert!(std::mem::offset_of!(Bloco, classe) == 2);
-    assert!(std::mem::offset_of!(Bloco, hash) == 4);
-    assert!(std::mem::offset_of!(Bloco, metadado) == 8);
-    assert!(std::mem::offset_of!(Bloco, valor) == 16);
-    assert!(std::mem::size_of::<Bloco>() == 56);
-    assert!(std::mem::size_of::<Value>() == 40);
-    assert!(std::mem::offset_of!(Campos, ptr) == 0);
-    assert!(std::mem::offset_of!(Campos, len) == 8);
-    assert!(std::mem::offset_of!(Campos, do_espaco) == 16);
-};
-
-
 /// A coleta menor vem a cada `LIMITE_JOVEM` bytes alocados (o tamanho do
 /// *new space*; o semiespaço da VM começa menor e cresce até 8 MiB em 64
 /// bits — aqui fixo, entre o custo por coleta e o pico de memória)…
@@ -1259,33 +1173,209 @@ const CONTAGEM_JOVEM: usize = 256 * 1024;
 /// é nelas que uma barreira faltando apareceria).
 const MENORES_POR_COMPLETA_NO_ESTRESSE: u64 = 8;
 
-/// Bytes de um bloco de `n` campos.
+/// Palavras de extensão do mapa de referências para `n` campos (os 32
+/// primeiros bits estão no cabeçalho).
 #[inline]
-pub const fn tamanho_do_bloco(n: usize) -> usize {
-    std::mem::size_of::<Bloco>() + n * std::mem::size_of::<Campo>()
+pub const fn palavras_do_mapa(n: usize) -> usize {
+    if n > 32 { (n - 32).div_ceil(64) } else { 0 }
 }
 
-/// Confere, em tempo de execução, o layout de `Value::Object` que o emissor
-/// assume (`#[repr(u8)]`: a tag no byte 0, `class_id` no 8, `Campos` no 16).
-/// A linguagem garante esse layout (RFC 2195); a conferência pega uma
-/// mudança na declaração que o quebre.
+/// Campos que o bloco guarda: pelo menos um (o lugar do encadeamento da
+/// lista livre e do endereço do corpo de fora).
+#[inline]
+pub const fn capacidade(n: usize) -> usize {
+    if n == 0 { 1 } else { n }
+}
+
+/// Bytes de um bloco (ou corpo de fora) de `n` campos.
+#[inline]
+pub const fn tamanho_do_bloco(n: usize) -> usize {
+    std::mem::size_of::<Cabecalho>() + 8 * (capacidade(n) + palavras_do_mapa(n))
+}
+
+/// O objeto de ninguém: cabeçalho zerado e campos zerados. A leitura em
+/// linha de um campo de algo que não é objeto do espaço lê daqui (o que
+/// `dartforge_object_get` devolvia); nunca é gravado — está em memória só
+/// de leitura, e gravar nela é erro do compilador que termina o processo.
+#[repr(C)]
+pub struct ObjetoVazio {
+    pub cabecalho: Cabecalho,
+    pub campos: [i64; CAMPOS_EM_LINHA],
+}
+pub static OBJETO_VAZIO: ObjetoVazio = ObjetoVazio {
+    cabecalho: Cabecalho { estado: LIVRE, flags: 0, n: 0, class_id: 0, mapa: 0, metadado: 0 },
+    campos: [0; CAMPOS_EM_LINHA],
+};
+
+/// O corpo de um objeto (o próprio bloco, ou o corpo de fora).
 ///
-/// # Panics
-/// Se o layout não é o do contrato.
+/// # Safety
+/// `b` é o cabeçalho de um bloco vivo do espaço.
+#[inline]
 #[allow(unsafe_code)]
-pub fn conferir_layout() {
-    let mut c = [(0i64, false); 1];
-    let v = std::mem::ManuallyDrop::new(Value::Object {
-        class_id: 0x0102_0304_0506_0708,
-        fields: Campos { ptr: std::ptr::NonNull::new(c.as_mut_ptr()).expect("não nulo"), len: 1, do_espaco: true },
-    });
-    let base = (&*v as *const Value).cast::<u8>();
-    // SAFETY: leituras dentro dos 40 bytes do valor.
+unsafe fn corpo(b: *mut Cabecalho) -> *mut Cabecalho {
+    // SAFETY: o contrato da função; com FORA, o primeiro campo é o endereço.
     unsafe {
-        assert_eq!(*base, TAG_DE_OBJETO, "tag de Value::Object");
-        assert_eq!(base.add(8).cast::<i64>().read(), 0x0102_0304_0506_0708, "class_id de Value::Object");
-        assert_eq!(base.add(16).cast::<*mut Campo>().read(), c.as_mut_ptr(), "campos de Value::Object");
-        assert_eq!(base.add(24).cast::<usize>().read(), 1, "comprimento dos campos");
+        if (*b).flags & FORA != 0 { *campos_de(b).cast::<*mut Cabecalho>() } else { b }
+    }
+}
+
+/// Os campos depois de um cabeçalho (bloco ou corpo).
+#[inline]
+fn campos_de(c: *mut Cabecalho) -> *mut i64 {
+    c.wrapping_add(1).cast()
+}
+
+/// O campo `i` de um corpo é referência?
+///
+/// # Safety
+/// `c` é um corpo válido e `i < n`.
+#[inline]
+#[allow(unsafe_code)]
+unsafe fn e_referencia(c: *const Cabecalho, i: usize) -> bool {
+    // SAFETY: o contrato da função.
+    unsafe {
+        if i < 32 {
+            (*c).mapa >> i & 1 != 0
+        } else {
+            let ext = campos_de(c.cast_mut()).add(capacidade(usize::from((*c).n))).cast::<u64>();
+            *ext.add((i - 32) / 64) >> ((i - 32) % 64) & 1 != 0
+        }
+    }
+}
+
+/// Acende ou apaga o bit de referência do campo `i` de um corpo.
+///
+/// # Safety
+/// `c` é um corpo válido e `i < n`.
+#[inline]
+#[allow(unsafe_code)]
+unsafe fn marcar_referencia(c: *mut Cabecalho, i: usize, e_ref: bool) {
+    // SAFETY: o contrato da função.
+    unsafe {
+        if i < 32 {
+            if e_ref { (*c).mapa |= 1 << i } else { (*c).mapa &= !(1 << i) }
+        } else {
+            let w = campos_de(c).add(capacidade(usize::from((*c).n))).cast::<u64>().add((i - 32) / 64);
+            let bit = 1u64 << ((i - 32) % 64);
+            if e_ref { *w |= bit } else { *w &= !bit }
+        }
+    }
+}
+
+/// Empilha os campos-referência de um corpo; devolve quantos campos tem.
+///
+/// # Safety
+/// `c` é um corpo válido.
+#[inline]
+#[allow(unsafe_code)]
+unsafe fn empilhar_referencias(c: *const Cabecalho, pilha: &mut Vec<i64>) -> usize {
+    // SAFETY: o contrato da função.
+    unsafe {
+        let n = usize::from((*c).n);
+        let campos = campos_de(c.cast_mut());
+        let mut m = (*c).mapa;
+        while m != 0 {
+            let i = m.trailing_zeros() as usize;
+            pilha.push(*campos.add(i));
+            m &= m - 1;
+        }
+        if n > 32 {
+            let ext = campos.add(capacidade(n)).cast::<u64>();
+            for w in 0..palavras_do_mapa(n) {
+                let mut m = *ext.add(w);
+                while m != 0 {
+                    let i = 32 + w * 64 + m.trailing_zeros() as usize;
+                    pilha.push(*campos.add(i));
+                    m &= m - 1;
+                }
+            }
+        }
+        n
+    }
+}
+
+/// Um corpo de fora de `n` campos zerados (o alocador do sistema).
+fn novo_corpo_de_fora(n: usize) -> *mut Cabecalho {
+    let layout = std::alloc::Layout::from_size_align(tamanho_do_bloco(n), 8).expect("layout do corpo");
+    // SAFETY: layout de tamanho não nulo.
+    #[allow(unsafe_code)]
+    let p = unsafe { std::alloc::alloc_zeroed(layout) }.cast::<Cabecalho>();
+    if p.is_null() {
+        std::alloc::handle_alloc_error(layout);
+    }
+    // SAFETY: memória nova, zerada, do tamanho do corpo.
+    #[allow(unsafe_code)]
+    unsafe {
+        (*p).n = u16::try_from(n).expect("objeto com campos demais");
+    }
+    p
+}
+
+/// Solta um corpo de fora.
+///
+/// # Safety
+/// `c` veio de [`novo_corpo_de_fora`] e ninguém mais o usa.
+#[allow(unsafe_code)]
+unsafe fn soltar_corpo_de_fora(c: *mut Cabecalho) {
+    // SAFETY: o contrato da função.
+    unsafe {
+        let n = usize::from((*c).n);
+        std::alloc::dealloc(c.cast(), std::alloc::Layout::from_size_align(tamanho_do_bloco(n), 8).expect("layout do corpo"));
+    }
+}
+
+/// A vista de um objeto do espaço para o runtime ([`Heap::objeto`]): a
+/// classe e os campos, `(bits, é referência)`.
+#[derive(Clone, Copy)]
+pub struct Obj<'a> {
+    corpo: *const Cabecalho,
+    /// A classe do objeto.
+    pub class_id: i64,
+    _heap: std::marker::PhantomData<&'a Heap>,
+}
+
+#[allow(unsafe_code)]
+impl Obj<'_> {
+    /// Quantos campos.
+    pub fn len(&self) -> usize {
+        // SAFETY: corpo vivo enquanto o empréstimo do heap dura.
+        usize::from(unsafe { (*self.corpo).n })
+    }
+    /// Sem campos?
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+    /// O campo `i`: os bits e se é referência.
+    ///
+    /// # Panics
+    /// Com `i` fora do objeto.
+    pub fn campo(&self, i: usize) -> Campo {
+        assert!(i < self.len(), "campo {i} fora do objeto de {} campos", self.len());
+        // SAFETY: `i < n`; corpo vivo.
+        unsafe { (*campos_de(self.corpo.cast_mut()).add(i), e_referencia(self.corpo, i)) }
+    }
+    /// O campo `i`, se existe.
+    pub fn get(&self, i: usize) -> Option<Campo> {
+        (i < self.len()).then(|| self.campo(i))
+    }
+    /// O primeiro campo, se existe.
+    pub fn first(&self) -> Option<Campo> {
+        self.get(0)
+    }
+    /// Os campos, em ordem.
+    pub fn iter(&self) -> impl Iterator<Item = Campo> + '_ {
+        (0..self.len()).map(|i| self.campo(i))
+    }
+    /// Os campos copiados.
+    pub fn to_vec(&self) -> Vec<Campo> {
+        self.iter().collect()
+    }
+}
+
+impl std::fmt::Debug for Obj<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Obj").field("class_id", &self.class_id).field("campos", &self.to_vec()).finish()
     }
 }
 
@@ -1298,18 +1388,21 @@ struct Pagina {
     /// Número de campos dos blocos.
     n: usize,
     blocos: usize,
-    /// O inverso de `tamanho_do_bloco(n) / 8` (ímpar) módulo 2³²: o índice
-    /// de um bloco sai de uma multiplicação, e um deslocamento que não é
-    /// múltiplo do tamanho dá um índice além de `blocos` (o teste de
-    /// divisibilidade exata, *Hacker's Delight* 10-17).
+    /// O inverso de `tamanho_do_bloco(n) / 8` (ímpar, ou potência de 2
+    /// vezes ímpar: ver `indice`) módulo 2³²: o índice de um bloco sai de uma
+    /// multiplicação, e um deslocamento que não é múltiplo do tamanho dá um
+    /// índice além de `blocos` (o teste de divisibilidade exata, *Hacker's
+    /// Delight* 10-17).
     inverso: u32,
+    /// `tamanho_do_bloco(n) / 8` = `impar << deslocamento`.
+    deslocamento: u32,
 }
 
 impl Pagina {
     fn layout(bytes: usize) -> std::alloc::Layout {
         std::alloc::Layout::from_size_align(bytes, PAGINA).expect("layout da página")
     }
-    fn bloco(&self, i: usize) -> *mut Bloco {
+    fn bloco(&self, i: usize) -> *mut Cabecalho {
         // SAFETY (dos chamadores): `i < blocos`, dentro da página.
         #[allow(unsafe_code)]
         unsafe {
@@ -1323,7 +1416,12 @@ impl Pagina {
         if desl & 7 != 0 || desl >= self.bytes {
             return None;
         }
-        let i = ((desl >> 3) as u32).wrapping_mul(self.inverso) as usize;
+        let palavras = (desl >> 3) as u32;
+        let mascara = (1u32 << self.deslocamento) - 1;
+        if palavras & mascara != 0 {
+            return None;
+        }
+        let i = (palavras >> self.deslocamento).wrapping_mul(self.inverso) as usize;
         (i < self.blocos).then_some(i)
     }
 }
@@ -1381,52 +1479,52 @@ impl MapaDePaginas {
     }
 }
 
-/// Zera `n` campos em `p`: os tamanhos pequenos (quase todos os objetos)
+/// Zera `n` palavras em `p`: os tamanhos pequenos (quase todos os objetos)
 /// com gravações de tamanho fixo, sem a chamada ao `memset`.
 ///
 /// # Safety
-/// `p` aponta `n` campos graváveis.
+/// `p` aponta `n` palavras graváveis.
 #[inline]
 #[allow(unsafe_code)]
-unsafe fn zerar(p: *mut Campo, n: usize) {
+unsafe fn zerar(p: *mut i64, n: usize) {
     // SAFETY: o contrato da função.
     unsafe {
         match n {
             0 => {}
-            1 => p.cast::<[u64; 2]>().write([0; 2]),
-            2 => p.cast::<[u64; 4]>().write([0; 4]),
-            3 => p.cast::<[u64; 6]>().write([0; 6]),
-            4 => p.cast::<[u64; 8]>().write([0; 8]),
+            1 => p.write(0),
+            2 => p.cast::<[i64; 2]>().write([0; 2]),
+            3 => p.cast::<[i64; 3]>().write([0; 3]),
+            4 => p.cast::<[i64; 4]>().write([0; 4]),
             _ => std::ptr::write_bytes(p, 0, n),
         }
     }
 }
 
 /// O espaço dos objetos do usuário: páginas de [`PAGINA`] bytes, cada uma
-/// com blocos ([`Bloco`]) de um só número de campos, e uma lista livre por
-/// número de campos, refeita a cada varredura (em ordem de endereço).
+/// com blocos ([`Cabecalho`] + campos) de um só número de campos, e uma
+/// lista livre por número de campos (encadeada pelo primeiro campo),
+/// refeita a cada coleta completa (em ordem de endereço).
 ///
 /// É o par, sem mover objetos, do *new space* da VM
 /// (`runtime/vm/heap/scavenger.cc` e a alocação em linha do
 /// `stub_code_compiler.cc`): alocar um objeto é tirar o primeiro bloco da
 /// lista — pelo código gerado, da TLAB ([`Contexto::tlab`]) — sem `malloc`
-/// nem entrada na tabela de slots; a varredura devolve os mortos às listas e
-/// solta as páginas vazias que passam da folga do tamanho delas.
+/// nem entrada na tabela de slots.
 pub struct EspacoDeObjetos {
     paginas: Vec<Pagina>,
     /// A página de cada base (a validação de um handle).
     mapa: MapaDePaginas,
     /// Cabeça da lista livre de cada número de campos (`0..=MAIOR_CLASSE`).
-    livres: Vec<*mut Bloco>,
+    livres: Vec<*mut Cabecalho>,
     /// Blocos vivos (entregues e não devolvidos).
     pub vivos: usize,
     /// Blocos em todas as páginas.
     pub blocos: usize,
     /// Os blocos entregues desde a última coleta (os jovens, e os da TLAB
     /// ainda não usados): o que a coleta menor varre.
-    jovens: Vec<*mut Bloco>,
+    jovens: Vec<*mut Cabecalho>,
     /// Os velhos que a barreira de escrita marcou ([`LEMBRADO`]).
-    lembrados: Vec<*mut Bloco>,
+    lembrados: Vec<*mut Cabecalho>,
     /// Blocos entregues desde a última coleta, por número de campos: a
     /// demanda que a varredura reserva em páginas vazias.
     demanda: Vec<usize>,
@@ -1459,36 +1557,45 @@ impl EspacoDeObjetos {
         }
     }
 
-    /// Escreve o molde de bloco livre em `b` (`n` campos), sem ler o que
-    /// havia: estado 0, sem hash, `proximo` na lista, `Value::Object` de
-    /// classe 0 com os campos do próprio bloco, zerados.
+    /// O próximo da lista livre (no primeiro campo do bloco livre).
+    ///
+    /// # Safety
+    /// `b` é bloco livre do espaço.
+    #[inline]
+    unsafe fn proximo(b: *mut Cabecalho) -> *mut Cabecalho {
+        // SAFETY: o contrato da função.
+        unsafe { *campos_de(b) as *mut Cabecalho }
+    }
+
+    /// Grava o encadeamento da lista livre.
+    ///
+    /// # Safety
+    /// `b` é bloco livre do espaço.
+    #[inline]
+    unsafe fn encadear(b: *mut Cabecalho, proximo: *mut Cabecalho) {
+        // SAFETY: o contrato da função.
+        unsafe { *campos_de(b) = proximo as i64 };
+    }
+
+    /// Formata um bloco livre de `n` campos: cabeçalho zerado (menos `n`),
+    /// campos e extensão do mapa zerados, `proximo` no primeiro campo.
     ///
     /// # Safety
     /// `b` aponta um bloco de `n` campos de uma página deste espaço, sem
-    /// valor vivo.
-    unsafe fn formatar(b: *mut Bloco, n: usize, proximo: *mut Bloco) {
+    /// objeto vivo.
+    unsafe fn formatar(b: *mut Cabecalho, n: usize, proximo: *mut Cabecalho) {
         // SAFETY: o contrato da função.
         unsafe {
-            let campos = b.cast::<u8>().add(std::mem::size_of::<Bloco>()).cast::<Campo>();
-            zerar(campos, n);
-            b.write(Bloco {
-                estado: LIVRE,
-                _reservado: 0,
-                classe: u16::try_from(n).unwrap_or(u16::MAX),
-                hash: 0,
-                metadado: proximo as i64,
-                valor: std::mem::ManuallyDrop::new(Value::Object {
-                    class_id: 0,
-                    fields: Campos { ptr: std::ptr::NonNull::new_unchecked(campos), len: n, do_espaco: true },
-                }),
-            });
+            b.write(Cabecalho { estado: LIVRE, flags: 0, n: u16::try_from(n).unwrap_or(u16::MAX), class_id: 0, mapa: 0, metadado: 0 });
+            zerar(campos_de(b), capacidade(n) + palavras_do_mapa(n));
+            Self::encadear(b, proximo);
         }
     }
 
     /// Uma página nova para blocos de `n` campos, com todos os blocos na
     /// lista livre de `n` (os objetos grandes têm uma página de um bloco,
     /// fora das listas: devolve o bloco).
-    fn nova_pagina(&mut self, n: usize) -> *mut Bloco {
+    fn nova_pagina(&mut self, n: usize) -> *mut Cabecalho {
         let tamanho = tamanho_do_bloco(n);
         let bytes = if n > MAIOR_CLASSE { tamanho.div_ceil(PAGINA) * PAGINA } else { PAGINA };
         let layout = Pagina::layout(bytes);
@@ -1498,8 +1605,10 @@ impl EspacoDeObjetos {
             std::alloc::handle_alloc_error(layout);
         }
         let blocos = if n > MAIOR_CLASSE { 1 } else { PAGINA / tamanho };
-        let inverso = inverso_impar(u32::try_from(tamanho / 8).unwrap_or(1));
-        let pagina = Pagina { base, bytes, n, blocos, inverso };
+        let palavras = u32::try_from(tamanho / 8).unwrap_or(1);
+        let deslocamento = palavras.trailing_zeros();
+        let inverso = inverso_impar(palavras >> deslocamento);
+        let pagina = Pagina { base, bytes, n, blocos, inverso, deslocamento };
         let mut proximo = if n > MAIOR_CLASSE { std::ptr::null_mut() } else { self.livres[n] };
         for i in (0..blocos).rev() {
             let b = pagina.bloco(i);
@@ -1517,28 +1626,34 @@ impl EspacoDeObjetos {
     }
 
     /// Tira um bloco livre de `n` campos (estado ainda 0), criando página
-    /// se preciso.
+    /// se preciso; o primeiro campo volta a zero.
     #[inline]
-    fn tirar(&mut self, n: usize) -> *mut Bloco {
+    fn tirar(&mut self, n: usize) -> *mut Cabecalho {
         if n > MAIOR_CLASSE {
-            return self.nova_pagina(n);
+            let b = self.nova_pagina(n);
+            // SAFETY: o bloco da página nova.
+            unsafe { Self::encadear(b, std::ptr::null_mut()) };
+            return b;
         }
         let mut b = self.livres[n];
         if b.is_null() {
             b = self.nova_pagina(n);
         }
         // SAFETY: `b` é o primeiro bloco livre da lista de `n`.
-        self.livres[n] = unsafe { (*b).metadado } as *mut Bloco;
+        unsafe {
+            self.livres[n] = Self::proximo(b);
+            Self::encadear(b, std::ptr::null_mut());
+        }
         b
     }
 
     /// Tira os `k` primeiros blocos livres de `n ≤ MAIOR_CLASSE` campos,
-    /// encadeados pelo metadado (o último aponta nulo), e os conta como
-    /// jovens: a TLAB.
-    fn tirar_varios(&mut self, n: usize, k: usize) -> *mut Bloco {
+    /// encadeados pelo primeiro campo (o último aponta nulo), e os conta
+    /// como jovens: a TLAB.
+    fn tirar_varios(&mut self, n: usize, k: usize) -> *mut Cabecalho {
         debug_assert!(n <= MAIOR_CLASSE && k > 0);
-        let mut cabeca: *mut Bloco = std::ptr::null_mut();
-        let mut cauda: *mut Bloco = std::ptr::null_mut();
+        let mut cabeca: *mut Cabecalho = std::ptr::null_mut();
+        let mut cauda: *mut Cabecalho = std::ptr::null_mut();
         let mut falta = k;
         while falta > 0 {
             if self.livres[n].is_null() {
@@ -1548,19 +1663,20 @@ impl EspacoDeObjetos {
             let mut fim = inicio;
             self.jovens.push(fim);
             falta -= 1;
-            // SAFETY: blocos livres da lista de `n`, encadeados pelo metadado.
+            // SAFETY: blocos livres da lista de `n`, encadeados pelo primeiro
+            // campo.
             unsafe {
-                while falta > 0 && (*fim).metadado != 0 {
-                    fim = (*fim).metadado as *mut Bloco;
+                while falta > 0 && !Self::proximo(fim).is_null() {
+                    fim = Self::proximo(fim);
                     self.jovens.push(fim);
                     falta -= 1;
                 }
-                self.livres[n] = (*fim).metadado as *mut Bloco;
-                (*fim).metadado = 0;
+                self.livres[n] = Self::proximo(fim);
+                Self::encadear(fim, std::ptr::null_mut());
                 if cauda.is_null() {
                     cabeca = inicio;
                 } else {
-                    (*cauda).metadado = inicio as i64;
+                    Self::encadear(cauda, inicio);
                 }
             }
             cauda = fim;
@@ -1571,13 +1687,25 @@ impl EspacoDeObjetos {
 
     /// Marca o velho `b` como [`LEMBRADO`] (a barreira de escrita).
     #[inline]
-    fn lembrar(&mut self, b: *mut Bloco) {
+    fn lembrar(&mut self, b: *mut Cabecalho) {
         // SAFETY: bloco do espaço.
         unsafe {
             if (*b).estado == VELHO {
                 (*b).estado = LEMBRADO;
                 self.lembrados.push(b);
             }
+        }
+    }
+
+    /// Bytes que o objeto do bloco `b` ocupa (com o corpo de fora).
+    ///
+    /// # Safety
+    /// `b` é bloco com objeto.
+    unsafe fn bytes_do_objeto(b: *mut Cabecalho, n: usize) -> usize {
+        // SAFETY: o contrato da função.
+        unsafe {
+            let fora = if (*b).flags & FORA != 0 { tamanho_do_bloco(usize::from((*corpo(b)).n)) } else { 0 };
+            tamanho_do_bloco(n) + fora
         }
     }
 
@@ -1591,32 +1719,29 @@ impl EspacoDeObjetos {
             // SAFETY: bloco entregue desde a última coleta, de uma página
             // ainda viva (as páginas só saem na coleta completa).
             unsafe {
-                let n = usize::from((*b).classe);
+                let classe = usize::from((*b).n);
+                let n = if classe > MAIOR_CLASSE { self.pagina_do_grande(b) } else { classe };
                 match (*b).estado {
                     MARCADO => {
                         (*b).estado = VELHO;
-                        if let Value::Object { fields, .. } = &*(*b).valor {
-                            promovidos += tamanho_do_bloco(fields.len);
-                        }
+                        promovidos += Self::bytes_do_objeto(b, n);
                     }
                     JOVEM => {
                         mortos += 1;
-                        let tamanho = if let Value::Object { fields, .. } = &*(*b).valor { tamanho_do_bloco(fields.len) } else { 0 };
-                        soltos += tamanho;
+                        soltos += Self::bytes_do_objeto(b, n);
+                        Self::soltar_objeto(b, n);
                         if n > MAIOR_CLASSE {
                             // O objeto grande fica livre na página dele, que a
                             // coleta completa solta.
-                            Self::soltar_objeto(b, self.pagina_do_grande(b));
-                            (*b).metadado = 0;
+                            Self::encadear(b, std::ptr::null_mut());
                         } else {
-                            Self::soltar_objeto(b, n);
-                            (*b).metadado = self.livres[n] as i64;
+                            Self::encadear(b, self.livres[n]);
                             self.livres[n] = b;
                         }
                     }
                     LIVRE if n <= MAIOR_CLASSE => {
                         // Da TLAB, não usado.
-                        (*b).metadado = self.livres[n] as i64;
+                        Self::encadear(b, self.livres[n]);
                         self.livres[n] = b;
                     }
                     _ => {}
@@ -1637,30 +1762,24 @@ impl EspacoDeObjetos {
     }
 
     /// O número de campos do bloco grande `b` (a página dele sabe).
-    fn pagina_do_grande(&self, b: *mut Bloco) -> usize {
+    fn pagina_do_grande(&self, b: *mut Cabecalho) -> usize {
         let base = b as usize & !(PAGINA - 1);
         self.mapa.get(base).map_or(0, |i| self.paginas[i].n)
     }
 
     /// Devolve o bloco `b` (de `n` campos, objeto morto) ao molde livre:
-    /// solta os campos de fora do bloco, zera os próprios e o cabeçalho
-    /// (menos o encadeamento, que fica com quem chama).
+    /// solta o corpo de fora, zera campos, mapa e cabeçalho (menos o
+    /// encadeamento, que fica com quem chama).
     ///
     /// # Safety
     /// `b` é bloco de `n` campos deste espaço cujo objeto morreu.
-    unsafe fn soltar_objeto(b: *mut Bloco, n: usize) {
-        // SAFETY: o contrato da função; o valor é sempre `Value::Object`.
+    unsafe fn soltar_objeto(b: *mut Cabecalho, n: usize) {
+        // SAFETY: o contrato da função.
         unsafe {
-            let Value::Object { class_id, fields } = &mut *(*b).valor else { unreachable!("bloco sem objeto") };
-            *class_id = 0;
-            if !fields.do_espaco {
-                std::ptr::drop_in_place(fields);
-                let proprios = b.cast::<u8>().add(std::mem::size_of::<Bloco>()).cast::<Campo>();
-                std::ptr::write(fields, Campos { ptr: std::ptr::NonNull::new_unchecked(proprios), len: n, do_espaco: true });
+            if (*b).flags & FORA != 0 {
+                soltar_corpo_de_fora(corpo(b));
             }
-            zerar(fields.ptr.as_ptr(), n);
-            (*b).estado = LIVRE;
-            (*b).hash = 0;
+            Self::formatar(b, n, std::ptr::null_mut());
         }
     }
 
@@ -1672,13 +1791,10 @@ impl EspacoDeObjetos {
         if n <= MAIOR_CLASSE {
             self.demanda[n] += 1;
         }
-        // SAFETY: bloco livre tirado agora, com o molde de `n` campos.
+        // SAFETY: bloco livre tirado agora, formatado para `n` campos.
         unsafe {
             (*b).estado = JOVEM;
-            (*b).metadado = 0;
-            if let Value::Object { class_id: c, .. } = &mut *(*b).valor {
-                *c = class_id;
-            }
+            (*b).class_id = i32::try_from(class_id).expect("id de classe além de 32 bits");
         }
         self.vivos += 1;
         b as i64 + DESLOCAMENTO_DO_HANDLE
@@ -1687,7 +1803,7 @@ impl EspacoDeObjetos {
     /// O bloco do handle `h`, se `h` é o de um bloco de alguma página deste
     /// espaço (vivo ou não: o estado fica com quem pergunta).
     #[inline]
-    pub fn bloco_de(&self, h: i64) -> Option<*mut Bloco> {
+    pub fn bloco_de(&self, h: i64) -> Option<*mut Cabecalho> {
         if !e_objeto(h) {
             return None;
         }
@@ -1697,51 +1813,44 @@ impl EspacoDeObjetos {
         p.indice(b - base).map(|i| p.bloco(i))
     }
 
-    /// A varredura: os marcados (2) voltam a vivos (1); os vivos não
-    /// marcados morrem e voltam às listas, refeitas em ordem de endereço.
-    /// As páginas vazias ficam enquanto os blocos livres do tamanho delas
-    /// não passam dos vivos (a folga que a próxima coleta vai usar, como o
-    /// heap que dobra) nem de duas páginas; as demais vão ao sistema.
-    /// Devolve (mortos, vivos, bytes vivos).
+    /// A varredura da coleta completa: os marcados voltam a velhos; os demais
+    /// morrem e voltam às listas, refeitas em ordem de endereço. As páginas
+    /// vazias ficam enquanto os blocos livres do tamanho delas não passam
+    /// dos vivos, da demanda do ciclo e do pico recente (e de duas páginas);
+    /// as demais vão ao sistema. Devolve (mortos, vivos, bytes vivos).
     fn varrer(&mut self) -> (usize, usize, usize) {
         let classes = MAIOR_CLASSE + 1;
         let (mut mortos, mut vivos, mut bytes_vivos) = (0, 0, 0);
         // Por página: o trecho da lista livre (cabeça, cauda) e os vivos.
-        let mut trechos: Vec<(*mut Bloco, *mut Bloco, usize)> = Vec::with_capacity(self.paginas.len());
+        let mut trechos: Vec<(*mut Cabecalho, *mut Cabecalho, usize)> = Vec::with_capacity(self.paginas.len());
         let mut vivos_da_classe = vec![0usize; classes];
         let mut livres_da_classe = vec![0usize; classes];
         for p in &self.paginas {
             let n = p.n;
-            let tamanho = tamanho_do_bloco(n);
-            let (mut cabeca, mut cauda): (*mut Bloco, *mut Bloco) = (std::ptr::null_mut(), std::ptr::null_mut());
+            let (mut cabeca, mut cauda): (*mut Cabecalho, *mut Cabecalho) = (std::ptr::null_mut(), std::ptr::null_mut());
             let mut vivos_na_pagina = 0;
             for j in 0..p.blocos {
                 let b = p.bloco(j);
-                // SAFETY: bloco `j` da página; o estado diz se há objeto, e
-                // o valor é sempre `Value::Object`.
+                // SAFETY: bloco `j` da página; o estado diz se há objeto.
                 unsafe {
                     match (*b).estado {
                         MARCADO => {
                             (*b).estado = VELHO;
                             vivos_na_pagina += 1;
-                            if let Value::Object { fields, .. } = &*(*b).valor {
-                                bytes_vivos += tamanho + if fields.do_espaco { 0 } else { fields.len * std::mem::size_of::<Campo>() };
-                            }
+                            bytes_vivos += Self::bytes_do_objeto(b, n);
                             continue;
                         }
                         JOVEM | VELHO | LEMBRADO => {
-                            // Os campos que saíram do bloco (um objeto que
-                            // cresceu) voltam ao alocador do sistema.
                             mortos += 1;
                             Self::soltar_objeto(b, n);
                         }
                         _ => {}
                     }
-                    (*b).metadado = 0;
+                    Self::encadear(b, std::ptr::null_mut());
                     if cauda.is_null() {
                         cabeca = b;
                     } else {
-                        (*cauda).metadado = b as i64;
+                        Self::encadear(cauda, b);
                     }
                     cauda = b;
                 }
@@ -1768,9 +1877,10 @@ impl EspacoDeObjetos {
                 solta[i] = true;
                 continue;
             }
-            // A folga: o que sobreviveu e o que se alocou desde a última
-            // coleta (a demanda do próximo ciclo), e duas páginas. Soltar
-            // e pedir de novo a cada coleta custava as faltas de página.
+            // A folga: o que sobreviveu, o que se alocou desde a última
+            // coleta (a demanda do próximo ciclo), o pico recente e duas
+            // páginas. Soltar e pedir de novo a cada coleta custava as
+            // faltas de página e a formatação.
             let folga = vivos_da_classe[p.n].max(self.demanda[p.n]).max(self.pico[p.n]).max(2 * p.blocos);
             if livres_da_classe[p.n] >= folga + p.blocos {
                 livres_da_classe[p.n] -= p.blocos;
@@ -1780,14 +1890,14 @@ impl EspacoDeObjetos {
         for l in self.livres.iter_mut() {
             *l = std::ptr::null_mut();
         }
-        let mut caudas: Vec<*mut Bloco> = vec![std::ptr::null_mut(); classes];
+        let mut caudas: Vec<*mut Cabecalho> = vec![std::ptr::null_mut(); classes];
         let paginas = std::mem::take(&mut self.paginas);
         for (i, p) in paginas.into_iter().enumerate() {
             if solta[i] {
                 self.mapa.remover(p.base as usize);
                 self.blocos -= p.blocos;
                 // SAFETY: a página veio de `alloc` com este layout, e nenhum
-                // bloco dela está vivo (os campos de fora já foram soltos).
+                // bloco dela está vivo (os corpos de fora já foram soltos).
                 unsafe { std::alloc::dealloc(p.base, Pagina::layout(p.bytes)) };
                 continue;
             }
@@ -1797,7 +1907,7 @@ impl EspacoDeObjetos {
                     self.livres[p.n] = cabeca;
                 } else {
                     // SAFETY: a cauda é um bloco livre de outra página da classe.
-                    unsafe { (*caudas[p.n]).metadado = cabeca as i64 };
+                    unsafe { Self::encadear(caudas[p.n], cabeca) };
                 }
                 caudas[p.n] = cauda;
             }
@@ -1814,12 +1924,12 @@ impl EspacoDeObjetos {
     }
 
     /// Visita o bloco de cada objeto vivo.
-    fn para_cada_vivo(&mut self, mut f: impl FnMut(*mut Bloco)) {
+    fn para_cada_vivo(&mut self, mut f: impl FnMut(*mut Cabecalho)) {
         for p in &self.paginas {
             for j in 0..p.blocos {
                 let b = p.bloco(j);
                 // SAFETY: bloco da página.
-                if unsafe { (*b).estado } != 0 {
+                if unsafe { (*b).estado } != LIVRE {
                     f(b);
                 }
             }
@@ -1832,14 +1942,12 @@ impl Drop for EspacoDeObjetos {
         for p in &self.paginas {
             for j in 0..p.blocos {
                 let b = p.bloco(j);
-                // SAFETY: bloco da página; os campos de fora do bloco são
-                // do alocador global.
+                // SAFETY: bloco da página; os corpos de fora são do alocador
+                // do sistema.
                 #[allow(unsafe_code)]
                 unsafe {
-                    if let Value::Object { fields, .. } = &mut *(*b).valor
-                        && !fields.do_espaco
-                    {
-                        std::ptr::drop_in_place(fields);
+                    if (*b).estado != LIVRE && (*b).flags & FORA != 0 {
+                        soltar_corpo_de_fora(corpo(b));
                     }
                 }
             }
@@ -1852,12 +1960,10 @@ impl Drop for EspacoDeObjetos {
     }
 }
 
-/// Valor gerenciado; somente campos marcados como referência participam do tracing.
-///
-/// `#[repr(u8)]`: o layout de `Value::Object` é contrato com o emissor (a
-/// tag no byte 0, [`TAG_DE_OBJETO`]; ver [`Bloco`] e [`conferir_layout`]).
+/// Valor gerenciado da tabela de slots; somente campos marcados como
+/// referência participam do tracing. Os objetos do usuário moram fora dela,
+/// no espaço de objetos ([`Cabecalho`], [`Heap::objeto`]).
 #[derive(Debug)]
-#[repr(u8)]
 pub enum Value {
     /// `String` do Dart (`_OneByteString`/`_TwoByteString`, ver [`Texto`]).
     String(Texto),
@@ -1867,10 +1973,10 @@ pub enum Value {
     RegExp(Texto),
     /// `Match`: o texto casado.
     Match(Texto),
-    Object {
-        class_id: i64,
-        fields: Campos,
-    },
+    /// O que `Heap::get` devolve para um objeto do espaço de objetos: só
+    /// o marcador (a classe e os campos vêm de [`Heap::objeto`]). Nunca
+    /// mora num slot.
+    Objeto,
     /// Local capturado mutável compartilhado por ambientes distintos.
     Cell(TaggedValue),
     /// Capturas ordenadas imutáveis; mutabilidade compartilhada usa Cell.
@@ -2048,11 +2154,7 @@ impl Value {
         let payload = match self {
             Self::String(text) | Self::RegExp(text) | Self::Match(text) => text.capacidade_bytes(),
             Self::StringBuffer(v) => v.capacity().checked_mul(2).expect("payload excede usize"),
-            Self::Object { fields, .. } => fields
-                .len()
-                .checked_mul(std::mem::size_of::<(i64, bool)>())
-                .expect("payload excede usize"),
-            Self::Cell(_) | Self::BoxedInt(_) | Self::BoxedDouble(_) | Self::BoxedBool(_) => 0,
+            Self::Objeto | Self::Cell(_) | Self::BoxedInt(_) | Self::BoxedDouble(_) | Self::BoxedBool(_) => 0,
             Self::Closure(_) => std::mem::size_of::<CabecalhoDeClosure>(),
             Self::TypedData { bytes, .. } => bytes.capacity(),
             Self::TypedView { .. } => 0,
@@ -2086,18 +2188,11 @@ impl Value {
             | Self::BoxedInt(_)
             | Self::BoxedDouble(_)
             | Self::BoxedBool(_)
-            | Self::TypedData { .. } => 0,
+            | Self::TypedData { .. }
+            | Self::Objeto => 0,
             Self::TypedView { base, .. } => {
                 pending.push(*base);
                 1
-            }
-            Self::Object { fields, .. } => {
-                pending.extend(
-                    fields
-                        .iter()
-                        .filter_map(|(bits, is_ref)| is_ref.then_some(*bits)),
-                );
-                fields.len()
             }
             Self::Cell(value) => {
                 if value.is_ref {
@@ -2154,6 +2249,13 @@ fn marcado_na_coleta(marks: &[bool], idade: &[u8], objetos: &EspacoDeObjetos, me
     let i = Heap::indice_de(h);
     marks.get(i).copied().unwrap_or(false) || (menor && idade.get(i).is_some_and(|&x| x != 0))
 }
+
+/// O que [`Heap::get`] devolve para um objeto do espaço.
+struct Marcador(Value);
+// SAFETY: `Value::Objeto` não tem dados.
+#[allow(unsafe_code)]
+unsafe impl Sync for Marcador {}
+static VALOR_OBJETO: Marcador = Marcador(Value::Objeto);
 
 /// O `Ref` é o handle de um objeto do espaço de objetos ([`Bloco`]): o bit
 /// 1 ligado (os da tabela de slots são múltiplos de 4; o `Smi`, ímpar).
@@ -2248,11 +2350,11 @@ pub struct Contexto {
     /// (`portas.rs`). O código gerado o lê, atômico, no começo de cada volta
     /// de laço (o ponto seguro da J01).
     pub interrupcao: std::sync::atomic::AtomicU8,
-    /// O endereço de [`CAMPOS_VAZIOS`] (deslocamento 40): a leitura em
-    /// linha de um campo de algo que não é objeto do espaço carrega o
-    /// ponteiro dos campos daqui em vez de `h + 14` (`llvm/mod.rs`), e lê
-    /// zeros, como `dartforge_object_get` dava.
-    pub vazios: *const Campo,
+    /// O cabeçalho de [`OBJETO_VAZIO`] (deslocamento 40): a leitura em
+    /// linha de um campo de algo que não é objeto do espaço usa este objeto
+    /// no lugar do cabeçalho em `h - 2` (`llvm/mod.rs`), e lê zeros, como
+    /// `dartforge_object_get` dava.
+    pub vazios: *const Cabecalho,
     /// As classes com tabela de métodos registrada (deslocamento 48; um
     /// byte 0/1 por id, `seletores.rs`) e quantas (56): a alocação em linha
     /// de uma classe que registra a tabela na primeira alocação
@@ -2262,9 +2364,9 @@ pub struct Contexto {
     /// A TLAB do isolado (deslocamento 64): para cada número de campos
     /// `n ≤ TLAB_N`, uma lista de blocos livres do espaço de objetos já
     /// contados como alocação (`Heap::reabastecer_tlab`), encadeados pelo
-    /// `metadado`. O código gerado tira o primeiro (a alocação em linha,
+    /// primeiro campo. O código gerado tira o primeiro (a alocação em linha,
     /// `llvm/mod.rs`); lista vazia (nulo) vai ao runtime, que reabastece.
-    pub tlab: [std::cell::Cell<*mut Bloco>; TLAB_N + 1],
+    pub tlab: [std::cell::Cell<*mut Cabecalho>; TLAB_N + 1],
 }
 
 const _: () = {
@@ -2287,7 +2389,7 @@ thread_local! {
             areas: std::cell::Cell::new(std::ptr::null()),
             n_areas: std::cell::Cell::new(0),
             interrupcao: std::sync::atomic::AtomicU8::new(0),
-            vazios: CAMPOS_VAZIOS.as_ptr(),
+            vazios: &raw const OBJETO_VAZIO.cabecalho,
             registradas: std::cell::Cell::new(std::ptr::null()),
             n_registradas: std::cell::Cell::new(0),
             tlab: [const { std::cell::Cell::new(std::ptr::null_mut()) }; TLAB_N + 1],
@@ -2434,8 +2536,9 @@ pub struct Heap {
     /// O heap do isolado da thread (não um de teste): reabastece a TLAB do
     /// [`Contexto`] dela.
     publica: bool,
-    /// O próximo `hashCode` de identidade de objeto.
-    proximo_hash: u32,
+    /// O que `get_mut` devolve para um objeto do espaço (os campos se
+    /// gravam por [`Heap::definir_campo`]).
+    marcador: Value,
     /// A idade de cada slot: 0 jovem, 1 velho, 2 velho lembrado pela
     /// barreira de escrita (`get_mut`), como os estados dos blocos.
     idade: Vec<u8>,
@@ -2559,7 +2662,7 @@ impl Heap {
             fixas: crate::hash::HashSet::default(),
             objetos: EspacoDeObjetos::new(),
             publica: false,
-            proximo_hash: 0,
+            marcador: Value::Objeto,
             idade: Vec::new(),
             slots_jovens: Vec::new(),
             slots_lembrados: Vec::new(),
@@ -2774,10 +2877,7 @@ impl Heap {
         let frame = self.push_frame_with_slots(1);
         let text = self.allocate(Value::String(Texto::de_str(name)));
         self.set_root(frame, 0, text);
-        let object = self.allocate(Value::Object {
-            class_id,
-            fields: vec![(index, false), (text, true)].into(),
-        });
+        let object = self.novo_objeto(class_id, &[(index, false), (text, true)]);
         self.enum_values.insert((class_id, index), object);
         self.permanentes.insert(object);
         self.pop_frame(frame);
@@ -2867,13 +2967,20 @@ impl Heap {
     }
     /// Aloca após coleta; o chamador deve proteger o resultado antes de outra alocação.
     ///
-    /// Um `Value::Object` vai ao espaço de objetos ([`EspacoDeObjetos`]),
-    /// com os campos copiados para o bloco; os demais valores, a um slot.
+    /// Os valores do runtime vão a um slot; os objetos do usuário, ao espaço
+    /// de objetos ([`Heap::novo_objeto`], [`Heap::alocar_objeto`]).
+    ///
+    /// # Panics
+    /// Com [`Value::Objeto`], que não é valor de slot.
     pub fn allocate(&mut self, value: Value) -> i64 {
-        let bytes = match &value {
-            Value::Object { fields, .. } => tamanho_do_bloco(fields.len()),
-            v => v.estimated_bytes(),
-        };
+        assert!(!matches!(value, Value::Objeto), "objeto do espaço alocado como slot");
+        let bytes = value.estimated_bytes();
+        self.antes_de_alocar(bytes);
+        self.guardar(value)
+    }
+    /// Coleta se algum gatilho pede, confere o teto e conta a alocação de
+    /// `bytes`.
+    fn antes_de_alocar(&mut self, bytes: usize) {
         // Dois limites diferentes (G6):
         // * o GATILHO (`threshold`, `byte_threshold`): quanto se aloca desde
         //   a última coleta, recalculado no fim de cada uma
@@ -2890,16 +2997,17 @@ impl Heap {
         // Depois da coleta: se ainda passa do teto, nao ha o que recuperar.
         self.verificar_teto(bytes);
         self.contar_alocacao(1, bytes);
-        match value {
-            Value::Object { class_id, fields } => {
-                let h = self.objetos.alocar(class_id, fields.len());
-                if let Value::Object { fields: destino, .. } = self.get_mut(h) {
-                    destino.copy_from_slice(&fields);
-                }
-                h
-            }
-            value => self.guardar(value),
+    }
+    /// Um objeto do usuário novo com os campos `campos` (os que o runtime
+    /// monta à mão: erros, valores de enum, a classe `Type`…). Coleta antes
+    /// como [`Heap::allocate`]: as referências em `campos` precisam de raiz
+    /// de quem chama.
+    pub fn novo_objeto(&mut self, class_id: i64, campos: &[Campo]) -> i64 {
+        let h = self.alocar_objeto(class_id, campos.len());
+        for (i, &(bits, e_ref)) in campos.iter().enumerate() {
+            self.definir_campo(h, i, bits, e_ref);
         }
+        h
     }
     /// Conta `k` alocações de `bytes` no total para os gatilhos e os
     /// contadores.
@@ -2933,12 +3041,7 @@ impl Heap {
     }
     /// O heap do isolado da thread: reabastece a TLAB do [`Contexto`] (a
     /// alocação em linha do código gerado).
-    ///
-    /// # Panics
-    /// Se o layout de `Value::Object` não é o que o emissor assume
-    /// ([`conferir_layout`]).
     pub fn do_isolado(stress: bool) -> Self {
-        conferir_layout();
         let mut h = Self::new(stress);
         h.publica = true;
         h
@@ -2982,7 +3085,8 @@ impl Heap {
     #[cold]
     #[inline(never)]
     fn alocar_objeto_lento(&mut self, class_id: i64, n: usize) -> i64 {
-        self.allocate(Value::Object { class_id, fields: vec![(0, false); n].into() })
+        self.antes_de_alocar(tamanho_do_bloco(n));
+        self.objetos.alocar(class_id, n)
     }
     /// Reabastece a TLAB de `n` campos do [`Contexto`] (se vazia), com até
     /// [`TLAB_BLOCOS`] blocos contados como alocados agora — sem coletar:
@@ -3025,10 +3129,10 @@ impl Heap {
             let mut k = 0usize;
             while !b.is_null() {
                 k += 1;
-                // SAFETY: bloco livre da TLAB, encadeado pelo metadado.
+                // SAFETY: bloco livre da TLAB, encadeado pelo primeiro campo.
                 #[allow(unsafe_code)]
                 unsafe {
-                    b = (*b).metadado as *mut Bloco;
+                    b = EspacoDeObjetos::proximo(b);
                 }
             }
             if k > 0 {
@@ -3043,7 +3147,7 @@ impl Heap {
     /// O bloco vivo do objeto `h` (`h & 3 == 2`), ou `panic` como
     /// [`Heap::indice_vivo`] (N4).
     #[inline]
-    fn bloco_vivo(&self, handle: i64) -> *mut Bloco {
+    fn bloco_vivo(&self, handle: i64) -> *mut Cabecalho {
         match self.objetos.bloco_de(handle) {
             // SAFETY: bloco de uma página do espaço.
             #[allow(unsafe_code)]
@@ -3052,24 +3156,65 @@ impl Heap {
             None => panic!("bug do compilador: handle além da tabela (escalar usado como handle)\nhandle {handle}"),
         }
     }
-    /// O `hashCode` de identidade do objeto `h` do espaço (sorteado na
-    /// primeira consulta, como o da VM, de uma sequência determinística);
-    /// `None` se `h` não é objeto do espaço.
+    /// O `hashCode` de identidade do objeto `h` do espaço: tirado do
+    /// endereço, que não muda enquanto o objeto vive (o coletor não move) e
+    /// é único entre os vivos — 30 bits espalhados, nunca 0 (a VM sorteia e
+    /// guarda no cabeçalho; aqui o cabeçalho não tem lugar e não precisa).
+    /// `None` se `h` não é objeto vivo do espaço.
     pub fn hash_de_identidade(&mut self, h: i64) -> Option<i64> {
         let b = self.objetos.bloco_de(h)?;
-        #[allow(unsafe_code)]
         // SAFETY: bloco de uma página do espaço.
+        #[allow(unsafe_code)]
+        if unsafe { (*b).estado } == LIVRE {
+            return None;
+        }
+        let x = ((b as u64 >> 3).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 34) as i64;
+        Some(x.max(1))
+    }
+    /// A vista do objeto `h` do espaço (classe e campos), ou `None` se `h`
+    /// não é objeto vivo do espaço (null, `Smi`, valor do runtime, escalar).
+    pub fn objeto(&self, h: i64) -> Option<Obj<'_>> {
+        let b = self.objetos.bloco_de(h)?;
+        // SAFETY: bloco de uma página do espaço, conferido vivo.
+        #[allow(unsafe_code)]
         unsafe {
-            if (*b).estado == 0 {
+            if (*b).estado == LIVRE {
                 return None;
             }
-            if (*b).hash == 0 {
-                // Um passo da sequência de Weyl de 30 bits: todos distintos
-                // até dar a volta, bem espalhados; nunca 0.
-                self.proximo_hash = self.proximo_hash.wrapping_add(0x2545_F491) & 0x3fff_ffff;
-                (*b).hash = self.proximo_hash.max(1);
-            }
-            Some(i64::from((*b).hash))
+            Some(Obj { corpo: corpo(b), class_id: i64::from((*b).class_id), _heap: std::marker::PhantomData })
+        }
+    }
+    /// A classe do objeto `h` do espaço (`None` se não é objeto vivo).
+    #[inline]
+    pub fn classe_do_objeto(&self, h: i64) -> Option<i64> {
+        self.objeto(h).map(|o| o.class_id)
+    }
+    /// Grava o campo `i` do objeto `h` (com a marca de referência e a
+    /// barreira de escrita).
+    ///
+    /// # Panics
+    /// Se `h` não é objeto vivo ou `i` está fora dele.
+    pub fn definir_campo(&mut self, h: i64, i: usize, bits: i64, e_ref: bool) {
+        if e_ref && smi::e_handle(bits) {
+            self.conferir_vivo(bits);
+        }
+        let b = self.bloco_vivo(h);
+        self.objetos.lembrar(b);
+        // SAFETY: bloco vivo; `i` conferido contra o número de campos.
+        #[allow(unsafe_code)]
+        unsafe {
+            let c = corpo(b);
+            assert!(i < usize::from((*c).n), "campo {i} fora do objeto de {} campos", (*c).n);
+            *campos_de(c).add(i) = bits;
+            marcar_referencia(c, i, e_ref);
+        }
+    }
+    /// Pânico (N4) se `h` não é handle vivo.
+    fn conferir_vivo(&self, h: i64) {
+        if e_objeto(h) {
+            self.bloco_vivo(h);
+        } else {
+            self.indice_vivo(h);
         }
     }
     /// A barreira de escrita do código gerado (`dartforge_lembrar`): o
@@ -3100,7 +3245,7 @@ impl Heap {
         if e_objeto(handle) {
             // SAFETY: bloco vivo.
             #[allow(unsafe_code)]
-            return unsafe { (*self.bloco_vivo(handle)).metadado };
+            return i64::from(unsafe { (*self.bloco_vivo(handle)).metadado });
         }
         let i = self.indice_vivo(handle);
         self.metadados[i]
@@ -3109,9 +3254,9 @@ impl Heap {
     pub fn metadado_e_valor(&self, handle: i64) -> (i64, &Value) {
         if e_objeto(handle) {
             let b = self.bloco_vivo(handle);
-            // SAFETY: bloco vivo; a referência vive enquanto `&self`.
+            // SAFETY: bloco vivo.
             #[allow(unsafe_code)]
-            return unsafe { ((*b).metadado, &*(*b).valor) };
+            return (i64::from(unsafe { (*b).metadado }), &VALOR_OBJETO.0);
         }
         let i = self.indice_vivo(handle);
         (self.metadados[i], self.slots[i].as_ref().expect("slot vivo verificado"))
@@ -3122,7 +3267,7 @@ impl Heap {
             // SAFETY: bloco vivo.
             #[allow(unsafe_code)]
             unsafe {
-                (*self.bloco_vivo(handle)).metadado = valor
+                (*self.bloco_vivo(handle)).metadado = u32::try_from(valor).expect("metadado além de 32 bits")
             };
             return;
         }
@@ -3150,7 +3295,7 @@ impl Heap {
     }
     /// O handle (par) do slot `index` (R10).
     ///
-    /// Múltiplo de 4: o bit 1 ligado é o dos objetos do espaço ([`Bloco`]).
+    /// Múltiplo de 4: o bit 1 ligado é o dos objetos do espaço ([`Cabecalho`]).
     fn handle_de_indice(index: usize) -> i64 {
         i64::try_from(index + 1)
             .ok()
@@ -3202,27 +3347,25 @@ impl Heap {
     /// é `null` para o campo anulável e "não inicializado" para o `late`), e
     /// as marcas de `late` inicializado seguem o campo.
     pub fn migrar_instancias(&mut self, plano: &crate::hash::HashMap<i64, Vec<i64>>) {
-        self.objetos.para_cada_vivo(|b| {
-            // SAFETY: bloco vivo do espaço; o valor é sempre `Value::Object`.
+        let mut blocos = Vec::new();
+        self.objetos.para_cada_vivo(|b| blocos.push(b));
+        for b in blocos {
+            // SAFETY: bloco vivo do espaço.
             #[allow(unsafe_code)]
-            let Value::Object { class_id, fields } = (unsafe { &mut *(*b).valor }) else { return };
-            let Some(origem) = plano.get(class_id) else { return };
+            let class_id = i64::from(unsafe { (*b).class_id });
+            let Some(origem) = plano.get(&class_id) else { continue };
+            let h = b as i64 + DESLOCAMENTO_DO_HANDLE;
+            let antigos = self.objeto(h).expect("objeto vivo").to_vec();
             let valores: Vec<Campo> = origem
                 .iter()
-                .map(|&o| usize::try_from(o).ok().and_then(|o| fields.get(o).copied()).unwrap_or((0, false)))
+                .map(|&o| usize::try_from(o).ok().and_then(|o| antigos.get(o).copied()).unwrap_or((0, false)))
                 .collect();
-            if valores.len() == fields.len() {
-                fields.copy_from_slice(&valores);
-            } else {
-                // Os campos saem do bloco (o objeto não muda de endereço):
-                // o ponteiro no `Value` é o que o código gerado segue.
-                *fields = valores.into();
-            }
-        });
+            self.trocar_campos(b, &valores);
+        }
         let marcas: Vec<(i64, i64)> = self.campos_late_inicializados.iter().copied().filter(|&(_, i)| i >= 0).collect();
         for (h, i) in marcas {
-            let Some(Value::Object { class_id, .. }) = self.try_get(h) else { continue };
-            let Some(origem) = plano.get(class_id) else { continue };
+            let Some(class_id) = self.classe_do_objeto(h) else { continue };
+            let Some(origem) = plano.get(&class_id) else { continue };
             let nova = origem.iter().position(|&o| o == i);
             self.campos_late_inicializados.remove(&(h, i));
             if let Some(j) = nova {
@@ -3231,69 +3374,90 @@ impl Heap {
         }
     }
 
+    /// Troca os campos do objeto do bloco `b` por `valores`: no próprio bloco
+    /// se o número de campos é o dele, senão num corpo de fora (o objeto não
+    /// muda de endereço; o código gerado segue o corpo, [`FORA`]).
+    fn trocar_campos(&mut self, b: *mut Cabecalho, valores: &[Campo]) {
+        self.objetos.lembrar(b);
+        // SAFETY: bloco vivo do espaço; o corpo de fora é novo e do tamanho
+        // de `valores`.
+        #[allow(unsafe_code)]
+        unsafe {
+            let atual = corpo(b);
+            let c = if usize::from((*atual).n) == valores.len() {
+                atual
+            } else {
+                let c = novo_corpo_de_fora(valores.len());
+                (*c).class_id = (*b).class_id;
+                if (*b).flags & FORA != 0 {
+                    soltar_corpo_de_fora(atual);
+                }
+                *campos_de(b).cast::<*mut Cabecalho>() = c;
+                (*b).flags |= FORA;
+                c
+            };
+            for (i, &(bits, e_ref)) in valores.iter().enumerate() {
+                *campos_de(c).add(i) = bits;
+                marcar_referencia(c, i, e_ref);
+            }
+        }
+    }
+
+    /// Obtém valor vivo; o protocolo ABI não permite handles obsoletos. De
+    /// um objeto do espaço, o marcador [`Value::Objeto`] (os dados vêm de
+    /// [`Heap::objeto`]).
     pub fn get(&self, handle: i64) -> &Value {
         if e_objeto(handle) {
-            // SAFETY: bloco vivo; a referência vive enquanto `&self`.
-            #[allow(unsafe_code)]
-            return unsafe { &(*self.bloco_vivo(handle)).valor };
+            self.bloco_vivo(handle);
+            return &VALOR_OBJETO.0;
         }
         let index = self.indice_vivo(handle);
         self.slots[index].as_ref().expect("slot vivo verificado")
     }
     /// Garante ao objeto `handle` pelo menos `n` campos (os novos,
-    /// zerados): os campos saem do bloco para o alocador do sistema (o
-    /// objeto não muda de endereço; o código gerado segue o ponteiro).
+    /// zerados): num corpo de fora ([`Heap::trocar_campos`]).
     pub fn garantir_campos(&mut self, handle: i64, n: usize) {
-        let Value::Object { fields, .. } = self.get_mut(handle) else { return };
-        if fields.len() >= n {
+        let Some(o) = self.objeto(handle) else { return };
+        if o.len() >= n {
             return;
         }
-        let mut novos = fields.to_vec();
+        let mut novos = o.to_vec();
         novos.resize(n, (0, false));
-        *fields = novos.into();
+        let b = self.bloco_vivo(handle);
+        self.trocar_campos(b, &novos);
     }
-    /// O endereço dos campos do objeto `handle`, numa busca só (o caminho
-    /// quente de `dartforge_object_campos`); `None` se não é objeto vivo.
+    /// O endereço dos campos do objeto `handle` (palavras de 8 bytes; o
+    /// caminho de `dartforge_object_campos`); `None` se não é objeto vivo.
+    /// Quem pede o ponteiro pode gravar por ele: conta como barreira de
+    /// escrita, mas o mapa de referências fica com quem grava.
     #[inline]
-    pub fn campos_de_objeto(&mut self, handle: i64) -> Option<*mut (i64, bool)> {
+    pub fn campos_de_objeto(&mut self, handle: i64) -> Option<*mut i64> {
         let b = self.objetos.bloco_de(handle)?;
-        // Quem pede o ponteiro grava por ele: a barreira de escrita.
-        self.objetos.lembrar(b);
-        // SAFETY: bloco do espaço; o valor é sempre `Value::Object`.
+        // SAFETY: bloco do espaço.
         #[allow(unsafe_code)]
         unsafe {
-            if (*b).estado == 0 {
+            if (*b).estado == LIVRE {
                 return None;
             }
-            match &mut *(*b).valor {
-                Value::Object { fields, .. } => Some(fields.as_mut_ptr()),
-                _ => None,
-            }
+            self.objetos.lembrar(b);
+            Some(campos_de(corpo(b)))
         }
     }
     /// Obtém valor vivo se o handle for válido, ou None se inválido/destruído.
-    /// Null, `Smi` e escalar qualquer dão `None`.
+    /// Null, `Smi` e escalar qualquer dão `None`; um objeto vivo do espaço,
+    /// o marcador [`Value::Objeto`].
     pub fn try_get(&self, handle: i64) -> Option<&Value> {
         if !smi::e_handle(handle) || handle < 0 {
             return None;
         }
         if e_objeto(handle) {
-            let b = self.objetos.bloco_de(handle)?;
-            // SAFETY: bloco do espaço; a referência vive enquanto `&self`.
-            #[allow(unsafe_code)]
-            return unsafe { ((*b).estado != 0).then(|| &*(*b).valor) };
+            return self.objeto(handle).map(|_| &VALOR_OBJETO.0);
         }
         self.slots.get(Self::indice_de(handle)).and_then(Option::as_ref)
     }
     /// Atualiza campo com tag explícita; valores escalares jamais são raízes.
     pub fn set(&mut self, handle: i64, index: i64, bits: i64, is_ref: bool) {
-        if is_ref && smi::e_handle(bits) {
-            self.get(bits);
-        }
-        let Value::Object { fields, .. } = self.get_mut(handle) else {
-            panic!("objeto esperado")
-        };
-        fields[usize::try_from(index).expect("índice inválido")] = (bits, is_ref);
+        self.definir_campo(handle, usize::try_from(index).expect("índice inválido"), bits, is_ref);
     }
     /// Aloca protegendo as referências do payload contra a coleta anterior à alocação.
     fn allocate_linked(&mut self, value: Value) -> i64 {
@@ -3602,9 +3766,10 @@ impl Heap {
         if e_objeto(handle) {
             let b = self.bloco_vivo(handle);
             self.objetos.lembrar(b);
-            // SAFETY: bloco vivo; a referência vive enquanto `&mut self`.
-            #[allow(unsafe_code)]
-            return unsafe { &mut (*b).valor };
+            // Os campos de um objeto se gravam por `definir_campo`; aqui só
+            // o marcador (gravar nele não muda nada).
+            self.marcador = Value::Objeto;
+            return &mut self.marcador;
         }
         let slot = self.indice_vivo(handle);
         self.hashes_de_texto[slot].set(0);
@@ -3646,10 +3811,10 @@ impl Heap {
                         self.bloco_vivo(atual)
                     } else {
                         debug_assert!(self.objetos.bloco_de(atual).is_some(), "aresta inválida {atual}");
-                        (atual - DESLOCAMENTO_DO_HANDLE) as *mut Bloco
+                        (atual - DESLOCAMENTO_DO_HANDLE) as *mut Cabecalho
                     };
                     let mut proximo = 0;
-                    // SAFETY: bloco vivo do espaço; o valor é `Value::Object`.
+                    // SAFETY: bloco vivo do espaço.
                     #[allow(unsafe_code)]
                     unsafe {
                         // Na coleta menor, um velho conta como vivo e não é
@@ -3661,28 +3826,35 @@ impl Heap {
                         }
                         (*b).estado = MARCADO;
                         live += 1;
-                        if let Value::Object { fields, .. } = &*(*b).valor {
-                            self.trabalho_da_marcacao += fields.len;
-                            for &(bits, is_ref) in fields.iter() {
-                                if !is_ref || !smi::e_handle(bits) {
-                                    continue;
-                                }
-                                // O objeto que esta coleta não percorre (velho
-                                // na menor, já marcado) nem entra na pilha.
-                                if e_objeto(bits) {
-                                    if !validar {
-                                        let e = (*((bits - DESLOCAMENTO_DO_HANDLE) as *const Bloco)).estado;
-                                        if if menor { e != JOVEM } else { e == MARCADO } {
-                                            continue;
-                                        }
-                                    }
-                                    if proximo == 0 {
-                                        proximo = bits;
+                        // Só os campos que o mapa diz referência.
+                        let c = corpo(b);
+                        let antes = self.pending.len();
+                        self.trabalho_da_marcacao += empilhar_referencias(c, &mut self.pending);
+                        let mut j = antes;
+                        while j < self.pending.len() {
+                            let bits = self.pending[j];
+                            if !smi::e_handle(bits) {
+                                self.pending.swap_remove(j);
+                                continue;
+                            }
+                            // O objeto que esta coleta não percorre (velho
+                            // na menor, já marcado) nem fica na pilha; o
+                            // primeiro que falta marcar é seguido direto.
+                            if e_objeto(bits) {
+                                if !validar {
+                                    let e = (*((bits - DESLOCAMENTO_DO_HANDLE) as *const Cabecalho)).estado;
+                                    if if menor { e != JOVEM } else { e == MARCADO } {
+                                        self.pending.swap_remove(j);
                                         continue;
                                     }
                                 }
-                                self.pending.push(bits);
+                                if proximo == 0 {
+                                    proximo = bits;
+                                    self.pending.swap_remove(j);
+                                    continue;
+                                }
                             }
+                            j += 1;
                         }
                     }
                     atual = proximo;
@@ -3753,14 +3925,18 @@ impl Heap {
                 let b = self.bloco_vivo(h);
                 // SAFETY: bloco vivo do espaço.
                 #[allow(unsafe_code)]
-                let (estado, valor) = unsafe { ((*b).estado, &*(*b).valor) };
+                let estado = unsafe { (*b).estado };
                 if estado == JOVEM {
                     panic!(
                         "bug do coletor: jovem alcançável sem marca na coleta menor (barreira de escrita faltando)\nobjeto {h}, alcançado de {:?}",
                         origem.get(&h)
                     );
                 }
-                valor.trace(&mut pilha);
+                // SAFETY: bloco vivo do espaço.
+                #[allow(unsafe_code)]
+                unsafe {
+                    empilhar_referencias(corpo(b), &mut pilha)
+                };
             } else {
                 let i = self.indice_vivo(h);
                 if self.idade[i] == 0 && !self.marks[i] {
@@ -3805,9 +3981,9 @@ impl Heap {
         if menor {
             // Os velhos lembrados: as referências deles podem ser jovens.
             for &b in &self.objetos.lembrados {
-                // SAFETY: bloco lembrado, vivo; o valor é `Value::Object`.
+                // SAFETY: bloco lembrado, vivo.
                 #[allow(unsafe_code)]
-                unsafe { (*b).valor.trace(&mut pendentes) };
+                unsafe { empilhar_referencias(corpo(b), &mut pendentes) };
             }
             for &i in &self.slots_lembrados {
                 if let Some(v) = &self.slots[i] {
@@ -4053,12 +4229,10 @@ mod tests {
         assert_eq!(heap.enum_value(1, 0, "red"), first);
         assert_ne!(first, second);
         assert_ne!(first, other_class);
-        let Value::Object { class_id, fields } = heap.get(first) else {
-            panic!("enum deve ser objeto")
-        };
-        assert_eq!(*class_id, 1);
-        assert_eq!(fields[0], (0, false));
-        assert!(matches!(heap.get(fields[1].0), Value::String(name) if name == "red"));
+        let fields = heap.objeto(first).expect("enum deve ser objeto");
+        assert_eq!(fields.class_id, 1);
+        assert_eq!(fields.campo(0), (0, false));
+        assert!(matches!(heap.get(fields.campo(1).0), Value::String(name) if name == "red"));
         assert_eq!(heap.stats().permanent_roots, 3);
         assert_eq!(heap.stats().live_objects, 6);
         assert_eq!(heap.stats().root_slots, 0);
@@ -4068,10 +4242,7 @@ mod tests {
     fn tagged_edges_keep_unrooted_children_alive() {
         let mut heap = Heap::new(true);
         let outer = heap.push_frame();
-        let parent = heap.allocate(Value::Object {
-            class_id: 1,
-            fields: vec![(0, true)].into(),
-        });
+        let parent = heap.novo_objeto(1, &[(0, true)]);
         heap.root(outer, parent);
         let inner = heap.push_frame();
         let text = heap.allocate(Value::String("ação 🦀".into()));
@@ -4092,15 +4263,9 @@ mod tests {
     fn cycles_and_slot_reuse() {
         let mut heap = Heap::new(true);
         let frame = heap.push_frame();
-        let a = heap.allocate(Value::Object {
-            class_id: 1,
-            fields: vec![(0, true)].into(),
-        });
+        let a = heap.novo_objeto(1, &[(0, true)]);
         heap.root(frame, a);
-        let b = heap.allocate(Value::Object {
-            class_id: 2,
-            fields: vec![(a, true)].into(),
-        });
+        let b = heap.novo_objeto(2, &[(a, true)]);
         heap.root(frame, b);
         heap.set(a, 0, b, true);
         heap.collect();
@@ -4109,7 +4274,7 @@ mod tests {
         heap.collect();
         assert_eq!(heap.stats().live_objects, 0);
         // Os blocos dos mortos voltam à lista livre do tamanho deles.
-        let c = heap.allocate(Value::Object { class_id: 3, fields: vec![(0, false)].into() });
+        let c = heap.novo_objeto(3, &[(0, false)]);
         assert!(c == a || c == b);
         assert_eq!(heap.stats().live_objects, 1);
     }
@@ -4119,14 +4284,11 @@ mod tests {
         let mut heap = Heap::new(false);
         let frame = heap.push_frame();
         let text = heap.allocate(Value::String("descartável".into()));
-        let object = heap.allocate(Value::Object {
-            class_id: 1,
-            fields: vec![(text, false)].into(),
-        });
+        let object = heap.novo_objeto(1, &[(text, false)]);
         heap.root(frame, object);
         heap.collect();
         assert!(heap.slots[Heap::indice_de(text)].is_none());
-        assert!(matches!(heap.get(object), Value::Object { .. }));
+        assert!(matches!(heap.get(object), Value::Objeto));
     }
     /// Frames aninhados preservam argumentos; stress coleta durante milhares de alocações.
     #[test]
@@ -4158,10 +4320,6 @@ mod espaco_de_objetos {
     //! 1, listas livres refeitas na varredura e páginas soltas.
     use super::*;
 
-    #[test]
-    fn layout_do_objeto_e_o_do_contrato() {
-        conferir_layout();
-    }
 
     #[test]
     fn handles_de_objeto_e_de_slot_nao_se_confundem() {
@@ -4169,14 +4327,13 @@ mod espaco_de_objetos {
         let o = heap.alocar_objeto(7, 3);
         let s = heap.allocate(Value::String("x".into()));
         assert!(e_objeto(o) && !e_objeto(s) && s % 4 == 0);
-        assert!(matches!(heap.get(o), Value::Object { class_id: 7, fields } if fields.len() == 3));
+        assert!(matches!(heap.objeto(o), Some(f) if f.class_id == 7 && f.len() == 3));
         // Escalares quaisquer não são objetos (nem derrubam o `try_get`).
         for x in [2, 6, 18, o + 4, o - 4, o + 56, -2, i64::MAX - 1] {
             assert!(heap.try_get(x).is_none() || x == o, "{x}");
         }
         heap.set(o, 1, s, true);
-        let Value::Object { fields, .. } = heap.get(o) else { unreachable!() };
-        assert_eq!(fields[1], (s, true));
+        assert_eq!(heap.objeto(o).expect("objeto").campo(1), (s, true));
     }
 
     #[test]
@@ -4199,9 +4356,9 @@ mod espaco_de_objetos {
         let mut soma = 0;
         let mut no = cabeca;
         while no != 0 {
-            let Value::Object { fields, .. } = heap.get(no) else { unreachable!() };
-            soma += fields[0].0;
-            no = fields[1].0;
+            let fields = heap.objeto(no).expect("objeto");
+            soma += fields.campo(0).0;
+            no = fields.campo(1).0;
         }
         assert_eq!(soma, (0..10_000).sum::<i64>());
         heap.pop_frame(frame);
@@ -4228,14 +4385,14 @@ mod espaco_de_objetos {
         heap.garantir_campos(o, 5);
         heap.set(o, 4, 42, false);
         heap.collect();
-        let Value::Object { fields, .. } = heap.get(o) else { unreachable!() };
-        assert_eq!((fields.len(), fields[0].0, fields[4].0), (5, 41, 42));
+        let fields = heap.objeto(o).expect("objeto");
+        assert_eq!((fields.len(), fields.campo(0).0, fields.campo(4).0), (5, 41, 42));
         heap.pop_frame(frame);
         heap.collect();
         // O bloco voltou ao molde: um objeto novo de 1 campo o reusa zerado.
         let novo = heap.alocar_objeto(4, 1);
         assert_eq!(novo, o);
-        assert!(matches!(heap.get(novo), Value::Object { class_id: 4, fields } if fields.len() == 1 && fields[0] == (0, false)));
+        assert!(matches!(heap.objeto(novo), Some(f) if f.class_id == 4 && f.len() == 1 && f.campo(0) == (0, false)));
     }
 
     #[test]
@@ -4262,7 +4419,7 @@ mod espaco_de_objetos {
         heap.set(velho, 0, jovem, true);
         let lixo = heap.alocar_objeto(3, 1);
         heap.coletar(true);
-        assert!(matches!(heap.get(jovem), Value::Object { class_id: 2, fields } if fields[0].0 == 7));
+        assert!(matches!(heap.objeto(jovem), Some(f) if f.class_id == 2 && f.campo(0).0 == 7));
         assert!(heap.try_get(lixo).is_none());
         assert_eq!(heap.stats().live_objects, 2);
         // Depois dela, o jovem ficou velho: sem barreira nova, outra menor
@@ -4302,11 +4459,10 @@ mod espaco_de_objetos {
         // Grava sem barreira (como faria código gerado sem ela).
         let b = heap.objetos.bloco_de(velho).expect("objeto");
         #[allow(unsafe_code)]
-        // SAFETY: bloco vivo; o valor é `Value::Object`.
+        // SAFETY: bloco vivo de 1 campo.
         unsafe {
-            if let Value::Object { fields, .. } = &mut *(*b).valor {
-                fields[0] = (jovem, true);
-            }
+            *campos_de(b) = jovem;
+            marcar_referencia(b, 0, true);
         }
         heap.coletar(true);
     }
@@ -4340,7 +4496,7 @@ mod espaco_de_objetos {
         let mut heap = Heap::new(false);
         let o = heap.alocar_objeto(9, MAIOR_CLASSE + 100);
         heap.set(o, (MAIOR_CLASSE + 99) as i64, 5, false);
-        assert!(matches!(heap.get(o), Value::Object { fields, .. } if fields[MAIOR_CLASSE + 99].0 == 5));
+        assert!(matches!(heap.objeto(o), Some(f) if f.campo(MAIOR_CLASSE + 99).0 == 5));
         heap.collect();
         assert!(heap.try_get(o).is_none());
         assert!(heap.objetos.paginas.is_empty());
@@ -4552,14 +4708,14 @@ mod smi_r10 {
         // Um `Smi` como raiz, como campo `Ref` e como elemento: nada disso é
         // aresta; a coleta sob estresse não o toma por handle.
         heap.set_root(frame, 0, s);
-        let obj = heap.allocate(Value::Object { class_id: 1, fields: vec![(s, true)].into() });
+        let obj = heap.novo_objeto(1, &[(s, true)]);
         heap.set_root(frame, 1, obj);
         heap.set(obj, 0, smi::de(-5).unwrap(), true);
         let lista = heap.create_list(vec![TaggedValue::reference(s)]);
         // A lista normaliza o `Smi` para o escalar (R8).
         assert_eq!(heap.list_get(lista, 0), TaggedValue::scalar(3));
         heap.collect();
-        assert!(matches!(heap.get(obj), Value::Object { .. }));
+        assert!(matches!(heap.get(obj), Value::Objeto));
         heap.set_global_root(1, s);
         heap.set_raiz_do_runtime(0, s);
         heap.collect();
@@ -4754,17 +4910,11 @@ mod review_tests {
         let mut heap = Heap::new(true);
         let caller = heap.push_frame();
         let callee = heap.push_frame();
-        let a = heap.allocate(Value::Object {
-            class_id: 7,
-            fields: vec![].into(),
-        });
+        let a = heap.novo_objeto(7, &[]);
         heap.root(callee, a);
         heap.pop_frame(callee);
         heap.root(caller, a);
-        let b = heap.allocate(Value::Object {
-            class_id: 7,
-            fields: vec![].into(),
-        });
+        let b = heap.novo_objeto(7, &[]);
         heap.root(caller, b);
         assert_ne!(a, b);
         heap.collect();
@@ -4775,17 +4925,11 @@ mod review_tests {
     fn large_cycle_is_iterative() {
         let mut heap = Heap::new(false);
         let frame = heap.push_frame();
-        let first = heap.allocate(Value::Object {
-            class_id: 1,
-            fields: vec![(0, true)].into(),
-        });
+        let first = heap.novo_objeto(1, &[(0, true)]);
         heap.root(frame, first);
         let mut previous = first;
         for _ in 1..20_000 {
-            let next = heap.allocate(Value::Object {
-                class_id: 1,
-                fields: vec![(first, true)].into(),
-            });
+            let next = heap.novo_objeto(1, &[(first, true)]);
             heap.set(previous, 0, next, true);
             previous = next;
         }
@@ -4805,10 +4949,7 @@ mod review_tests {
             let frame = heap.push_frame();
             let started = std::time::Instant::now();
             for index in 0..count {
-                let handle = heap.allocate(Value::Object {
-                    class_id: 1,
-                    fields: vec![(index, false)].into(),
-                });
+                let handle = heap.novo_objeto(1, &[(index, false)]);
                 heap.root(frame, handle);
                 std::hint::black_box(handle);
             }

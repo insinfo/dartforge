@@ -289,16 +289,19 @@ fn utf8_de_texto(s: i64) -> Vec<u8> {
 // `dart:nativewrappers` o declara como o primeiro campo do layout).
 
 fn campo_nativo(obj: i64) -> i64 {
-    HEAP.with(|h| match h.borrow().get(obj) {
-        Value::Object { fields, .. } => fields.first().map_or(0, |f| f.0),
-        _ => panic!("bug do compilador: campo nativo de algo que não é objeto"),
+    HEAP.with(|h| match h.borrow().objeto(obj) {
+        Some(o) => o.first().map_or(0, |f| f.0),
+        None => panic!("bug do compilador: campo nativo de algo que não é objeto"),
     })
 }
 
 fn gravar_campo_nativo(obj: i64, valor: i64) {
-    HEAP.with(|h| match h.borrow_mut().get_mut(obj) {
-        Value::Object { fields, .. } if !fields.is_empty() => fields[0] = (valor, false),
-        _ => panic!("bug do compilador: campo nativo de algo que não é objeto"),
+    HEAP.with(|h| {
+        let mut h = h.borrow_mut();
+        if h.objeto(obj).is_none_or(|o| o.is_empty()) {
+            panic!("bug do compilador: campo nativo de algo que não é objeto");
+        }
+        h.definir_campo(obj, 0, valor, false);
     });
 }
 

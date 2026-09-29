@@ -63,8 +63,8 @@ fn tamanho_da_letra(l: char) -> Option<i64> {
 
 /// O id RTI do tipo de um objeto `Type`.
 fn tipo_do_objeto_type(h: i64) -> Option<i64> {
-    HEAP.with(|heap| match heap.borrow().try_get(h) {
-        Some(Value::Object { class_id: CLASSE_TIPO, fields }) => fields.first().map(|f| f.0),
+    HEAP.with(|heap| match heap.borrow().objeto(h) {
+        Some(o) if o.class_id == CLASSE_TIPO => o.first().map(|f| f.0),
         _ => None,
     })
 }
@@ -208,9 +208,9 @@ pub extern "C" fn dartforge_ffi_endereco_da_closure(clo: i64) -> i64 {
 fn endereco_de(ponteiro: i64) -> Option<i64> {
     HEAP.with(|h| {
         let h = h.borrow();
-        match h.try_get(ponteiro) {
-            Some(Value::Object { fields, .. }) => {
-                let (bits, is_ref) = *fields.first()?;
+        match h.objeto(ponteiro) {
+            Some(fields) => {
+                let (bits, is_ref) = fields.first()?;
                 if is_ref { h.int_de_ref(bits) } else { Some(bits) }
             }
             _ => None,
@@ -713,13 +713,12 @@ pub extern "C" fn dartforge_ffi_composto(rti: i64, base: i64, deslocamento: i64)
     let obj = com_raizes(&[base], || dartforge_object_new(c.classe, c.campos));
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
-        if let Value::Object { fields, .. } = h.get_mut(obj) {
-            if let Some(f) = usize::try_from(c.indice_base).ok().and_then(|i| fields.get_mut(i)) {
-                *f = (base, true);
-            }
-            if let Some(f) = usize::try_from(c.indice_deslocamento).ok().and_then(|i| fields.get_mut(i)) {
-                *f = (deslocamento, false);
-            }
+        let n = h.objeto(obj).map_or(0, |o| o.len());
+        if let Some(i) = usize::try_from(c.indice_base).ok().filter(|&i| i < n) {
+            h.definir_campo(obj, i, base, true);
+        }
+        if let Some(i) = usize::try_from(c.indice_deslocamento).ok().filter(|&i| i < n) {
+            h.definir_campo(obj, i, deslocamento, false);
         }
     });
     obj
@@ -813,10 +812,10 @@ pub extern "C" fn dartforge_typed_externo_t(class_id: i64, tipo: i64, ponteiro: 
 /// tamanho numa base `TypedData`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_ffi_endereco_do_composto(obj: i64) -> i64 {
-    let dados = HEAP.with(|h| match h.borrow().try_get(obj) {
-        Some(Value::Object { class_id, fields }) => {
-            let c = compostos_ffi().read().unwrap_or_else(|e| e.into_inner()).values().find(|c| c.classe == *class_id).copied()?;
-            let campo = |i: i64| usize::try_from(i).ok().and_then(|i| fields.get(i)).copied();
+    let dados = HEAP.with(|h| match h.borrow().objeto(obj) {
+        Some(fields) => {
+            let c = compostos_ffi().read().unwrap_or_else(|e| e.into_inner()).values().find(|c| c.classe == fields.class_id).copied()?;
+            let campo = |i: i64| usize::try_from(i).ok().and_then(|i| fields.get(i));
             Some((c, campo(c.indice_base)?, campo(c.indice_deslocamento)?))
         }
         _ => None,

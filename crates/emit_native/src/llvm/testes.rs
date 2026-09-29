@@ -250,12 +250,14 @@ fn campo_ref_leva_is_ref() {
     let corpo = corpo_de(&ir, "k");
     // O endereço dos campos vem do próprio objeto (`h + 14`), sem chamada.
     assert!(!corpo.contains("@dartforge_object_campos("), "{corpo}");
-    assert!(corpo.contains("%fxa2 = add i64 %v0, 14"), "{corpo}");
-    assert!(corpo.contains("%fp2 = load ptr, ptr %fxs2"), "{corpo}");
-    assert!(corpo.contains("ptr %fp2, i64 0, i32 0\n  store i64 %v1, ptr %fg2"), "{corpo}");
-    assert!(corpo.contains("store i8 1, ptr %fr2"), "{corpo}");
+    // O cabeçalho em `h - 2`; os campos, palavras de 8 bytes depois dele; o
+    // `is_ref` é o bit do campo no mapa do cabeçalho.
+    assert!(corpo.contains("%fxa2 = add i64 %v0, -2"), "{corpo}");
+    assert!(corpo.contains("%fp2 = getelementptr inbounds i8, ptr %fcb2, i64 16"), "{corpo}");
+    assert!(corpo.contains("ptr %fp2, i64 0\n  store i64 %v1, ptr %fg2"), "{corpo}");
+    assert!(corpo.contains("%fms2 = or i32 %fm2, 1"), "{corpo}");
     assert!(corpo.contains("store i64 7, ptr %fg3"), "{corpo}");
-    assert!(corpo.contains("store i8 0, ptr %fr3"), "{corpo}");
+    assert!(corpo.contains("%fmc3 = and i32 %fm3, -3\n  store i32 %fmc3"), "{corpo}");
     assert!(!corpo.contains("@dartforge_object_set("), "{corpo}");
 }
 
