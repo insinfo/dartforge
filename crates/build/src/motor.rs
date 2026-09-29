@@ -76,6 +76,9 @@ impl Default for OpcoesMotor {
     }
 }
 
+/// As consultas de uma ação com o digest de cada resposta.
+type Consultas = Vec<(Consulta, Option<Digest>)>;
+
 /// Quem produziu uma saída.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Origem {
@@ -1193,7 +1196,7 @@ impl Motor {
             // trigger dispara. Os disparados guardam as leituras do trigger
             // (a entrada e as partes), que decidem a próxima vez.
             let mut previos: HashMap<usize, Registro> = HashMap::new();
-            let mut do_gatilho: HashMap<usize, Vec<(Consulta, Option<Digest>)>> = HashMap::new();
+            let mut do_gatilho: HashMap<usize, Consultas> = HashMap::new();
             if !self.fases[fi].pos {
                 for &a in &executar {
                     if let Some(r) = self.entrada_nao_escrita(a) {
@@ -2004,7 +2007,7 @@ impl Motor {
     /// builder dispara, com as leituras que a decisão fez (a entrada e, para
     /// trigger de anotação, as partes legíveis pela fase — inclusive as
     /// geradas por fases anteriores).
-    fn disparo(&self, a: usize) -> Option<(bool, Vec<(Consulta, Option<Digest>)>)> {
+    fn disparo(&self, a: usize) -> Option<(bool, Consultas)> {
         let acao = &self.grafo.acoes[a];
         let fase = &self.fases[acao.fase];
         if !fase.so_se_disparada {

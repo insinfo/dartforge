@@ -45,8 +45,7 @@ impl Gatilho {
             let aviso = (!import_valido(i)).then(|| format!("Invalid import trigger: `{i}`"));
             (Some(Gatilho::Import(i.to_string())), aviso)
         } else if let Some(a) = texto.strip_prefix("annotation ") {
-            let aviso =
-                (!anotacao_valida(a)).then(|| format!("Invalid annotation trigger: `{a}`"));
+            let aviso = (!anotacao_valida(a)).then(|| format!("Invalid annotation trigger: `{a}`"));
             (Some(Gatilho::Anotacao(a.to_string())), aviso)
         } else {
             (None, Some(format!("Invalid trigger: `{texto}`")))
@@ -63,14 +62,13 @@ impl Gatilho {
         match self {
             Gatilho::Import(i) => {
                 let alvo = format!("package:{i}");
-                unidades.iter().any(|u| u.imports.iter().any(|x| *x == alvo))
+                unidades
+                    .iter()
+                    .any(|u| u.imports.contains(&alvo))
             }
             Gatilho::Anotacao(a) => unidades.iter().any(|u| {
                 u.anotacoes.iter().any(|nome| {
-                    nome == a
-                        || nome
-                            .split_once('.')
-                            .is_some_and(|(_, resto)| resto == a)
+                    nome == a || nome.split_once('.').is_some_and(|(_, resto)| resto == a)
                 })
             }),
         }
@@ -87,7 +85,8 @@ fn import_valido(s: &str) -> bool {
 /// `^[a-zA-Z_][a-zA-Z0-9]*$` (o `_` só na primeira posição, como no oficial).
 fn anotacao_valida(s: &str) -> bool {
     let mut c = s.chars();
-    c.next().is_some_and(|p| p.is_ascii_alphabetic() || p == '_')
+    c.next()
+        .is_some_and(|p| p.is_ascii_alphabetic() || p == '_')
         && c.all(|x| x.is_ascii_alphanumeric())
 }
 
@@ -220,12 +219,7 @@ pub fn analisar(fonte: &str) -> Option<Unidade> {
     let tokens = dartforge_frontend::lexer::lex(fonte).ok()?;
     let texto = |i: usize| tokens[i].text(fonte);
     let e_ident = |i: usize, t: &str| tokens[i].kind == Kind::Ident && texto(i) == t;
-    let e_string = |i: usize| {
-        matches!(
-            tokens[i].kind,
-            Kind::Str(_) | Kind::StrBegin(..)
-        )
-    };
+    let e_string = |i: usize| matches!(tokens[i].kind, Kind::Str(_) | Kind::StrBegin(..));
     let mut u = Unidade::default();
     let mut pendentes: Vec<String> = Vec::new();
     let mut profundidade = 0usize;
@@ -287,7 +281,8 @@ pub fn analisar(fonte: &str) -> Option<Unidade> {
         let diretiva = (e_ident(i, "import") || e_ident(i, "export")) && e_string(i + 1)
             || e_ident(i, "part") && (e_string(i + 1) || e_ident(i + 1, "of"))
             || e_ident(i, "library")
-                && (tokens[i + 1].kind == Kind::Ident || tokens[i + 1].kind == Kind::Op(Op::Semicolon));
+                && (tokens[i + 1].kind == Kind::Ident
+                    || tokens[i + 1].kind == Kind::Op(Op::Semicolon));
         if diretiva {
             pendentes.clear();
             let valor = valor_de_string(&tokens, fonte, i + 1);
@@ -426,7 +421,11 @@ mod testes {
         assert!(disparado(&a, "@an.Gerar() class X {}", |_| None));
         assert!(!disparado(&a, "@an.Gerar.nomeado() class X {}", |_| None));
         assert!(!disparado(&a, "@Gerar.nomeado() class X {}", |_| None));
-        assert!(disparado(&[Gatilho::Anotacao("Gerar.nomeado".into())], "@Gerar.nomeado() class X {}", |_| None));
+        assert!(disparado(
+            &[Gatilho::Anotacao("Gerar.nomeado".into())],
+            "@Gerar.nomeado() class X {}",
+            |_| None
+        ));
         // Pelas partes.
         let mut lidas = Vec::new();
         assert!(disparado(&a, "part 'y.dart';\nclass X {}", |u| {
@@ -436,7 +435,9 @@ mod testes {
         assert_eq!(lidas, ["y.dart"]);
         // O import não olha partes.
         let i = [Gatilho::Import("a/b.dart".into())];
-        assert!(!disparado(&i, "part 'y.dart';", |_| Some("import 'package:a/b.dart';".into())));
+        assert!(!disparado(&i, "part 'y.dart';", |_| Some(
+            "import 'package:a/b.dart';".into()
+        )));
         assert!(disparado(&i, "import 'package:a/b.dart';", |_| None));
         assert!(!disparado(&i, "import 'b.dart';", |_| None));
         // Sem triggers, não dispara; fonte que o lexer recusa, dispara.

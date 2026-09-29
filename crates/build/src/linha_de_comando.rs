@@ -41,7 +41,8 @@ impl Definicoes {
         for a in argumentos {
             let a = a.as_ref();
             let mut partes = a.splitn(3, '=');
-            let (Some(builder), Some(opcao), Some(valor)) = (partes.next(), partes.next(), partes.next())
+            let (Some(builder), Some(opcao), Some(valor)) =
+                (partes.next(), partes.next(), partes.next())
             else {
                 return Err(format!(
                     "Invalid argument (define): Expected at least 2 `=` signs, should be of the format like --define \"<builder_key>=<option>=<value>\": \"{a}\""
@@ -362,7 +363,8 @@ impl FiltroBuild {
         let esquema = arg.split_once(':').and_then(|(e, _)| {
             (!e.is_empty()
                 && e.as_bytes()[0].is_ascii_alphabetic()
-                && e.bytes().all(|c| c.is_ascii_alphanumeric() || b"+-.".contains(&c)))
+                && e.bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || b"+-.".contains(&c)))
             .then_some(e)
         });
         // O caminho da URI, sem consulta nem fragmento.
@@ -433,14 +435,16 @@ fn desescapar(s: &str) -> String {
 /// então `{a,b}` num caminho relativo não é alternativa, como no oficial.
 fn caminho_escapado(s: &str) -> String {
     let b = s.as_bytes();
-    let permitido = |c: u8| {
-        c.is_ascii_alphanumeric() || b"-._~!$&'()*+,;=:@/".contains(&c)
-    };
+    let permitido = |c: u8| c.is_ascii_alphanumeric() || b"-._~!$&'()*+,;=:@/".contains(&c);
     let mut o = String::with_capacity(s.len());
     let mut i = 0;
     while i < b.len() {
         let c = b[i];
-        if c == b'%' && i + 2 < b.len() && b[i + 1].is_ascii_hexdigit() && b[i + 2].is_ascii_hexdigit() {
+        if c == b'%'
+            && i + 2 < b.len()
+            && b[i + 1].is_ascii_hexdigit()
+            && b[i + 2].is_ascii_hexdigit()
+        {
             let h = |c: u8| (c as char).to_digit(16).unwrap_or(0) as u8;
             let x = h(b[i + 1]) * 16 + h(b[i + 2]);
             if x.is_ascii_alphanumeric() || b"-._~".contains(&x) {
@@ -498,9 +502,11 @@ mod testes {
         let f = FiltroBuild::do_argumento("lib/a b.*", "r", false).unwrap();
         assert!(f.casa(&AssetId::novo("r", "lib/a%20b.txt")));
         assert!(!f.casa(&AssetId::novo("r", "lib/a b.txt")));
-        assert!(!FiltroBuild::do_argumento("lib/{a,b}.txt", "r", false)
-            .unwrap()
-            .casa(&AssetId::novo("r", "lib/a.txt")));
+        assert!(
+            !FiltroBuild::do_argumento("lib/{a,b}.txt", "r", false)
+                .unwrap()
+                .casa(&AssetId::novo("r", "lib/a.txt"))
+        );
         // `package:`: os segmentos, desescapados.
         let p = FiltroBuild::do_argumento("package:r/a%20b.*", "r", false).unwrap();
         assert!(p.casa(&AssetId::novo("r", "lib/a b.txt")));

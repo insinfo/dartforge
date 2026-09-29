@@ -74,8 +74,12 @@ fn copiar(de: &Path, para: &Path) {
 /// pacote raiz renomeado para `raiz`.
 fn package_config(destino: &Path, raiz: &str) {
     let origem = caso_2_4().join(".dart_tool/package_config.json");
-    let texto = std::fs::read_to_string(&origem)
-        .unwrap_or_else(|e| panic!("{}: {e} (dart pub get em corpus/builders/perfil_2_4)", origem.display()));
+    let texto = std::fs::read_to_string(&origem).unwrap_or_else(|e| {
+        panic!(
+            "{}: {e} (dart pub get em corpus/builders/perfil_2_4)",
+            origem.display()
+        )
+    });
     let mut v: serde_json::Value = serde_json::from_str(&texto).unwrap();
     for p in v["packages"].as_array_mut().unwrap() {
         if p["name"] == "corpus_perfil_2_4" {
@@ -95,7 +99,8 @@ struct Oraculo {
 fn oraculo(caso: &Path, nome: &str) -> Oraculo {
     let dir = caso.join("oraculos").join(nome);
     let m: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(dir.join("manifesto.json")).unwrap()).unwrap();
+        serde_json::from_str(&std::fs::read_to_string(dir.join("manifesto.json")).unwrap())
+            .unwrap();
     let argumentos = m["argumentos"]
         .as_array()
         .unwrap()
@@ -107,7 +112,10 @@ fn oraculo(caso: &Path, nome: &str) -> Oraculo {
         let id = AssetId::de_texto(s["asset"].as_str().unwrap()).unwrap();
         let arq = match s["build_to"].as_str() {
             Some("source") => dir.join("source").join(id.caminho.as_ref()),
-            _ => dir.join("cache").join(id.pacote.as_ref()).join(id.caminho.as_ref()),
+            _ => dir
+                .join("cache")
+                .join(id.pacote.as_ref())
+                .join(id.caminho.as_ref()),
         };
         saidas.insert(id, std::fs::read(&arq).unwrap());
     }
@@ -139,9 +147,13 @@ fn opcoes(dir: &Path, argumentos: &[String]) -> OpcoesMotor {
 }
 
 fn motor(dir: &Path, opcoes: OpcoesMotor) -> Motor {
-    let cfg = PackageConfig::load(&dir.join(".dart_tool/package_config.json")).expect("package_config");
+    let cfg =
+        PackageConfig::load(&dir.join(".dart_tool/package_config.json")).expect("package_config");
     let mut m = Motor::novo(dir, &cfg, opcoes).expect("motor");
-    m.definir_executor_dart(Box::new(ExecutorVm::novo(ConfigDaVm::do_projeto(dart(), dir))));
+    m.definir_executor_dart(Box::new(ExecutorVm::novo(ConfigDaVm::do_projeto(
+        dart(),
+        dir,
+    ))));
     m
 }
 
@@ -175,7 +187,10 @@ fn escritas(m: &Motor) -> BTreeMap<AssetId, Vec<u8>> {
 }
 
 /// Diferenças entre o que o motor escreveu e o oráculo, nos dois sentidos.
-fn diferencas(obtido: &BTreeMap<AssetId, Vec<u8>>, esperado: &BTreeMap<AssetId, Vec<u8>>) -> Vec<String> {
+fn diferencas(
+    obtido: &BTreeMap<AssetId, Vec<u8>>,
+    esperado: &BTreeMap<AssetId, Vec<u8>>,
+) -> Vec<String> {
     let mut d = Vec::new();
     for (id, b) in esperado {
         match obtido.get(id) {
@@ -209,7 +224,12 @@ fn conferir(caso: &Path, raiz: &str, nome: &str) {
     println!("{nome}: {}", rel.texto());
     assert!(rel.falhas.is_empty(), "{nome}: {}", rel.texto());
     let d = diferencas(&escritas(&m), &o.saidas);
-    assert!(d.is_empty(), "{nome} ({:?}):\n{}", o.argumentos, d.join("\n"));
+    assert!(
+        d.is_empty(),
+        "{nome} ({:?}):\n{}",
+        o.argumentos,
+        d.join("\n")
+    );
 }
 
 #[test]
@@ -274,9 +294,17 @@ fn perfil_2_16_triggers_incrementais() {
         let rel = atualizar(&mut m, &[p]);
         println!("{arquivo}: {}", rel.texto());
         let incremental = escritas(&m);
-        assert_eq!(incremental.contains_key(&id(saida)), existe, "{arquivo}: {saida}");
+        assert_eq!(
+            incremental.contains_key(&id(saida)),
+            existe,
+            "{arquivo}: {saida}"
+        );
         let mut novo = motor(&dir, opcoes(&dir, &[]));
         atualizar(&mut novo, &[]);
-        assert_eq!(diferencas(&incremental, &escritas(&novo)), Vec::<String>::new(), "{arquivo}");
+        assert_eq!(
+            diferencas(&incremental, &escritas(&novo)),
+            Vec::<String>::new(),
+            "{arquivo}"
+        );
     }
 }
