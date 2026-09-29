@@ -130,6 +130,19 @@ pub const BIBLIOTECAS_DO_SISTEMA: &[BibliotecaDoSistema] = &[
             "___sincos_stret",
             "___sincosf_stret",
             "___stack_chk_fail",
+            // As variantes do `_FORTIFY_SOURCE` dos cabeçalhos do SDK (o C do
+            // zlib e do `ring` compilado no macOS).
+            "___memcpy_chk",
+            "___memmove_chk",
+            "___memset_chk",
+            "___snprintf_chk",
+            "___sprintf_chk",
+            "___strcat_chk",
+            "___strcpy_chk",
+            "___strncat_chk",
+            "___strncpy_chk",
+            "___vsnprintf_chk",
+            "___vsprintf_chk",
             "___stack_chk_guard",
             "_memset_pattern16",
             // Processo, memória e texto.
@@ -594,7 +607,11 @@ pub fn ligar(ld: &Path, sysroot: &SysrootMacos, l: &Ligacao<'_>) -> Result<(), S
     let saida = cmd.output().map_err(|e| format!("falha ao executar {}: {e}", ld.display()))?;
     if !saida.status.success() {
         let texto = String::from_utf8_lossy(&saida.stderr);
-        let linhas: Vec<&str> = texto.lines().filter(|l| !l.trim().is_empty()).take(40).collect();
+        // Os erros (e as linhas `>>>` que os explicam) antes dos avisos: com
+        // muitos objetos, os avisos de versão mínima escondiam o erro.
+        let (erros, avisos): (Vec<&str>, Vec<&str>) =
+            texto.lines().filter(|l| !l.trim().is_empty()).partition(|l| !l.contains("warning:"));
+        let linhas: Vec<&str> = erros.into_iter().chain(avisos).take(40).collect();
         return Err(format!("o ld64.lld falhou na ligação ({}):\n{}", saida.status, linhas.join("\n")));
     }
     Ok(())
