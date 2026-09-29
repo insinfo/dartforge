@@ -1758,7 +1758,7 @@ impl EspacoDeObjetos {
             trechos.push((cabeca, cauda, vivos_na_pagina));
         }
         for (n, p) in self.pico.iter_mut().enumerate() {
-            *p = (*p - *p / 4).max(vivos_da_classe[n]);
+            *p = (*p - *p / 8).max(vivos_da_classe[n]);
         }
         // As páginas vazias que passam da folga vão ao sistema (as últimas
         // primeiro: as listas preferem os endereços baixos).
@@ -2388,12 +2388,20 @@ pub struct Heap {
     slots_lembrados: Vec<usize>,
     /// Bytes alocados desde a última coleta (o gatilho da coleta menor).
     bytes_jovens: usize,
+    /// O `hashCode` de cada slot que é `String`, calculado na primeira
+    /// consulta (0 = ainda não): a `String` é imutável, e a VM também guarda
+    /// o hash no cabeçalho dela. Zerado quando o slot é reusado ou entregue
+    /// para escrita (`get_mut`).
+    hashes_de_texto: Vec<std::cell::Cell<u32>>,
     /// A coleta em curso é menor (só os jovens).
     coleta_menor: bool,
     /// `DARTFORGE_GC_VERIFICAR=1`: toda coleta menor confere, por uma
     /// travessia completa, que nenhum jovem alcançável ficou sem marca (uma
     /// barreira de escrita faltando).
     verificar: bool,
+    /// `DARTFORGE_GC_RASTRO=1`: uma linha por coleta no stderr (o tipo, os
+    /// marcados, a estimativa e o gatilho).
+    rastrear: bool,
     pub iteracoes_ativas: crate::hash::HashSet<i64>,
     /// Lista de chaves → mapa de origem (para acusar modificação do mapa
     /// durante a iteração das chaves).
@@ -2500,8 +2508,10 @@ impl Heap {
             slots_jovens: Vec::new(),
             slots_lembrados: Vec::new(),
             bytes_jovens: 0,
+            hashes_de_texto: Vec::new(),
             coleta_menor: false,
             verificar: std::env::var("DARTFORGE_GC_VERIFICAR").as_deref() == Ok("1"),
+            rastrear: std::env::var("DARTFORGE_GC_RASTRO").as_deref() == Ok("1"),
             iteracoes_ativas: crate::hash::HashSet::default(),
             origens: crate::hash::HashMap::default(),
             finalizaveis: crate::hash::HashMap::default(),
@@ -2853,11 +2863,13 @@ impl Heap {
             self.slots[index] = Some(value);
             self.metadados[index] = 0;
             self.idade[index] = 0;
+            self.hashes_de_texto[index].set(0);
             index
         } else {
             self.slots.push(Some(value));
             self.metadados.push(0);
             self.idade.push(0);
+            self.hashes_de_texto.push(std::cell::Cell::new(0));
             self.slots.len() - 1
         };
         self.slots_jovens.push(index);
@@ -3012,6 +3024,22 @@ impl Heap {
         if let Some(b) = self.objetos.bloco_de(h) {
             self.objetos.lembrar(b);
         }
+    }
+    /// O `hashCode` da `String` `h` ([`Texto::hash_vm`]), calculado uma vez
+    /// por valor; `None` se `h` não é `String` viva.
+    pub fn hash_de_texto(&self, h: i64) -> Option<i64> {
+        if !smi::e_handle(h) || h < 0 || e_objeto(h) {
+            return None;
+        }
+        let i = Self::indice_de(h);
+        let Some(Some(Value::String(t))) = self.slots.get(i) else { return None };
+        let cache = &self.hashes_de_texto[i];
+        if cache.get() != 0 {
+            return Some(i64::from(cache.get()));
+        }
+        let x = t.hash_vm();
+        cache.set(x as u32);
+        Some(x)
     }
     /// O metadado de um handle vivo (0 = nenhum).
     pub fn metadado(&self, handle: i64) -> i64 {
@@ -3525,6 +3553,7 @@ impl Heap {
             return unsafe { &mut *(*b).valor };
         }
         let slot = self.indice_vivo(handle);
+        self.hashes_de_texto[slot].set(0);
         if self.idade[slot] == 1 {
             self.idade[slot] = 2;
             self.slots_lembrados.push(slot);
@@ -3547,42 +3576,55 @@ impl Heap {
                 // As arestas vêm de raízes e de campos `is_ref`: a validação
                 // completa do handle (a página e o início do bloco) fica para
                 // o `--gc-stress`, o modo que caça raiz faltando (N4).
-                let b = if self.stress {
-                    self.bloco_vivo(handle)
-                } else {
-                    debug_assert!(self.objetos.bloco_de(handle).is_some(), "aresta inválida {handle}");
-                    (handle - DESLOCAMENTO_DO_HANDLE) as *mut Bloco
-                };
-                // SAFETY: bloco vivo do espaço; o valor é `Value::Object`.
-                #[allow(unsafe_code)]
-                unsafe {
-                    // Na coleta menor, um velho conta como vivo e não é
-                    // percorrido (as referências dele a jovens estão nos
-                    // lembrados); na completa, só o marcado é pulado.
-                    let e = (*b).estado;
-                    if if menor { e != JOVEM } else { e == MARCADO } {
-                        continue;
-                    }
-                    (*b).estado = MARCADO;
-                    live += 1;
-                    if let Value::Object { fields, .. } = &*(*b).valor {
-                        self.trabalho_da_marcacao += fields.len;
-                        let validar = self.stress;
-                        for &(bits, is_ref) in fields.iter() {
-                            if !is_ref || !smi::e_handle(bits) {
-                                continue;
-                            }
-                            // O objeto que esta coleta não percorre (velho
-                            // na menor, já marcado) nem entra na pilha.
-                            if !validar && e_objeto(bits) {
-                                let e = (*((bits - DESLOCAMENTO_DO_HANDLE) as *const Bloco)).estado;
-                                if if menor { e != JOVEM } else { e == MARCADO } {
+                let validar = self.stress;
+                let mut atual = handle;
+                // Segue direto o primeiro filho ainda por marcar (a lista
+                // ligada, o ramo de uma árvore) sem passar pela pilha.
+                while atual != 0 {
+                    let b = if validar {
+                        self.bloco_vivo(atual)
+                    } else {
+                        debug_assert!(self.objetos.bloco_de(atual).is_some(), "aresta inválida {atual}");
+                        (atual - DESLOCAMENTO_DO_HANDLE) as *mut Bloco
+                    };
+                    let mut proximo = 0;
+                    // SAFETY: bloco vivo do espaço; o valor é `Value::Object`.
+                    #[allow(unsafe_code)]
+                    unsafe {
+                        // Na coleta menor, um velho conta como vivo e não é
+                        // percorrido (as referências dele a jovens estão nos
+                        // lembrados); na completa, só o marcado é pulado.
+                        let e = (*b).estado;
+                        if if menor { e != JOVEM } else { e == MARCADO } {
+                            break;
+                        }
+                        (*b).estado = MARCADO;
+                        live += 1;
+                        if let Value::Object { fields, .. } = &*(*b).valor {
+                            self.trabalho_da_marcacao += fields.len;
+                            for &(bits, is_ref) in fields.iter() {
+                                if !is_ref || !smi::e_handle(bits) {
                                     continue;
                                 }
+                                // O objeto que esta coleta não percorre (velho
+                                // na menor, já marcado) nem entra na pilha.
+                                if e_objeto(bits) {
+                                    if !validar {
+                                        let e = (*((bits - DESLOCAMENTO_DO_HANDLE) as *const Bloco)).estado;
+                                        if if menor { e != JOVEM } else { e == MARCADO } {
+                                            continue;
+                                        }
+                                    }
+                                    if proximo == 0 {
+                                        proximo = bits;
+                                        continue;
+                                    }
+                                }
+                                self.pending.push(bits);
                             }
-                            self.pending.push(bits);
                         }
                     }
+                    atual = proximo;
                 }
                 continue;
             }
@@ -3843,6 +3885,17 @@ impl Heap {
         if !menor {
             self.recalcular_gatilhos(live);
         }
+        if self.rastrear {
+            eprintln!(
+                "[gc] {} marcados={live} trabalho={} estimados={} gatilho={} paginas={} vivos={}",
+                if menor { "menor" } else { "completa" },
+                self.trabalho_da_marcacao,
+                self.stats.estimated_bytes,
+                self.byte_threshold,
+                self.objetos.paginas.len(),
+                self.objetos.vivos
+            );
+        }
     }
 
     /// Os gatilhos da próxima coleta, a partir do que sobreviveu a esta.
@@ -3856,7 +3909,16 @@ impl Heap {
     /// conferido à parte (`allocate`).
     fn recalcular_gatilhos(&mut self, vivos: usize) {
         const PASSO_MINIMO: usize = 256 * 1024;
-        let crescimento = self.stats.estimated_bytes.saturating_mul(2).max(GATILHO_MINIMO);
+        // O dobro do que sobreviveu, e não menos que três quartos do gatilho
+        // anterior (a histerese: uma estrutura grande que morre e volta — a
+        // lista refeita a cada rodada — não faz o gatilho despencar e voltar
+        // a subir com uma coleta completa a cada dobra).
+        let crescimento = self
+            .stats
+            .estimated_bytes
+            .saturating_mul(2)
+            .max(GATILHO_MINIMO)
+            .max(self.byte_threshold - self.byte_threshold / 4);
         self.byte_threshold = if self.limite_bytes == usize::MAX {
             crescimento
         } else {
@@ -4200,6 +4262,30 @@ mod espaco_de_objetos {
             }
         }
         heap.coletar(true);
+    }
+
+    /// A carga de `bench/desempenho/objetos_escapam.dart` (`lista_ligada`)
+    /// direto no heap, para medir o coletor sem compilar Dart:
+    /// `cargo test --release -p dartforge-runtime lista_ligada_no_heap --
+    /// --ignored --nocapture` (com `DARTFORGE_GC_RASTRO=1`, as coletas).
+    #[test]
+    #[ignore = "medição"]
+    fn lista_ligada_no_heap() {
+        let mut heap = Heap::new(false);
+        heap.rastrear = std::env::var("DARTFORGE_GC_RASTRO").as_deref() == Ok("1");
+        let frame = heap.push_frame_with_slots(1);
+        for _ in 0..6 {
+            let t = std::time::Instant::now();
+            let mut cab = 0;
+            for i in 0..1_000_000 {
+                let no = heap.alocar_objeto(1, 2);
+                heap.set(no, 0, i, false);
+                heap.set(no, 1, cab, true);
+                cab = no;
+                heap.set_root(frame, 0, cab);
+            }
+            eprintln!("rodada: {:?} coletas={}", t.elapsed(), heap.stats().collections);
+        }
     }
 
     #[test]

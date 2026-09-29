@@ -53,7 +53,7 @@ fn chave_de_hash(heap: &Heap, k: i64) -> Option<(ChaveDeHash, i64)> {
     }
     match heap.try_get(k)? {
         Value::BoxedInt(v) => Some((ChaveDeHash::Int(*v), *v)),
-        Value::String(t) => Some((ChaveDeHash::Texto(k), t.hash_vm())),
+        Value::String(_) => Some((ChaveDeHash::Texto(k), heap.hash_de_texto(k)?)),
         _ => None,
     }
 }

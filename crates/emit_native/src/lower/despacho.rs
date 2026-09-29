@@ -327,7 +327,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return self.nao_suportado("operador sobre num/dynamic/objeto", span);
         };
         if self.ctx.sdk_da_fonte {
-            let r = self.chamar_por_nome(a, super::sdk_fonte::Tipo::Chamar, nome, &[(None, b)]);
+            // Os dois lados com o tipo garantido pelo estático: o seletor
+            // tipado (`entrada_tipada.rs`).
+            let tipado = self.todos_conferidos(&[(None, a.clone())]);
+            let r = self.chamar_por_nome_com_receptor_tipado(a, tipado, super::sdk_fonte::Tipo::Chamar, nome, &[(None, b)]);
             if matches!(op, BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq) {
                 return self.coagir(r, Type::I1);
             }

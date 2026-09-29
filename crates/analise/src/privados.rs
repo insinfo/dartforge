@@ -93,6 +93,10 @@ struct Coleta<'a> {
     augment: bool,
     /// Tipos nomeados por um `typedef` público (`typedef P = _C;`).
     expostos: HashSet<String>,
+    /// `(unidade, início)` dos campos declarados por parâmetro de construtor
+    /// primário (3.13): o analyzer 3.13 os relata com o código próprio
+    /// (`UNUSED_FIELD_FROM_PRIMARY_CONSTRUCTOR`), que o 3.6 não tem.
+    de_primario: HashSet<(usize, usize)>,
 }
 
 impl Coleta<'_> {
@@ -167,7 +171,7 @@ impl Coleta<'_> {
                         // `_isReadMember`: público só conta se for estático de
                         // tipo privado.
                         let candidato = privado(&nome) || (lista.static_ && tipo_privado);
-                        if candidato && !anot {
+                        if candidato && !anot && !self.de_primario.contains(&(u, v.name.span.start)) {
                             self.candidato(u, v.name, nome, Regra::Campo, None);
                         }
                     }
@@ -240,6 +244,7 @@ pub fn nao_usados(
         escritas: HashSet::new(),
         augment: false,
         expostos,
+        de_primario: HashSet::new(),
     };
     for (u, un) in unidades.iter().enumerate() {
         let ast_ = un.ast;
@@ -258,6 +263,11 @@ pub fn nao_usados(
                     // visitado pelo verificador do analyzer: nunca é relatado.
                     if p && !anot && !k.mixin_application {
                         c.candidato(u, k.name, nome.clone(), Regra::Elemento, Some(decl.span));
+                    }
+                    if let Some(k2) = k.primary_constructor
+                        && let MemberKind::Constructor(k2) = &ast_.member(k2).kind
+                    {
+                        c.de_primario.extend(k2.parameters.iter().filter_map(|p| p.name).map(|n| (u, n.span.start)));
                     }
                     c.membros(u, ast_, &nome, &k.members, p, false, false);
                 }

@@ -546,7 +546,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 let t_op = self.lower_expr(ast, *t);
                 let i_op = self.lower_expr(ast, *index);
-                self.marcar_se_tipado(*index, &i_op);
+                self.cast_implicito_de_operador(*index, &i_op, *t, "[]=", 0);
                 // `[]=` de extensão (a inferência resolve o índice para o
                 // `[]` da extensão; o `[]=` é o da mesma extensão).
                 if let Some(get) = self.operador_de_extensao(target) {
@@ -572,7 +572,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.fixa_do_acesso = None;
                     let v = self.combinar(ast, op, cur, value);
                     if !composto && let Rhs::Expr(e) = value {
-                        self.marcar_se_tipado(e, &v);
+                        self.cast_implicito_de_operador(e, &v, *t, "[]=", 1);
                     }
                     self.fixa_do_acesso = fixa;
                     let gravou = self.gravar_indexado(t_op.clone(), i_op.clone(), v.clone(), l);
@@ -604,7 +604,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let cur = composto.then(|| self.chamar_por_nome_tipado(t_op.clone(), *t, Tipo::Chamar, "[]", &[(None, i_op.clone())]));
                     let v = self.combinar(ast, op, cur, value);
                     if !composto && let Rhs::Expr(e) = value {
-                        self.marcar_se_tipado(e, &v);
+                        self.cast_implicito_de_operador(e, &v, *t, "[]=", 1);
                     }
                     self.chamar_por_nome_tipado(t_op, *t, Tipo::Chamar, "[]=", &[(None, i_op), (None, v.clone())]);
                     return v;

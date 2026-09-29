@@ -1348,6 +1348,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         if distintos.len() == 1 {
             let alvo = distintos[0];
+            self.conferir_covariantes_do_alvo(alvo, &recv, avaliados);
             let args = self.casar_args(alvo, avaliados);
             let r = self.chamar_direto(alvo, Some(recv), args);
             return if ret == Type::Void {
@@ -1394,6 +1395,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut entradas: Vec<(BlockId, Operand)> = Vec::new();
         for (f, b) in blocos.clone() {
             self.set_block(b);
+            self.conferir_covariantes_do_alvo(f, &recv, avaliados);
             let args = self.casar_args(f, avaliados);
             let r = self.chamar_direto(f, Some(recv.clone()), args);
             let r = if ret == Type::Void {

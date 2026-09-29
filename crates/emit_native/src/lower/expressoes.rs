@@ -621,6 +621,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 let lop = self.lower_expr(ast, *left);
                 let rop = self.lower_expr(ast, *right);
+                self.marcar_se_tipado(*left, &lop);
+                if let Some((nome, _)) = super::despacho::operador(*op)
+                    && !matches!(op, BinaryOp::Eq | BinaryOp::NotEq)
+                {
+                    self.cast_implicito_de_operador(*right, &rop, *left, nome, 0);
+                } else {
+                    self.marcar_se_tipado(*right, &rop);
+                }
                 let l_ty = self.ctx.get_type(self.unit_id, *left);
                 let r_ty = self.ctx.get_type(self.unit_id, *right);
                 let desconhecido = |t: Option<dartforge_types::table::TypeId>| {
@@ -1116,7 +1124,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.desviar_se_nulo(&target_op);
                 }
                 let idx_op = self.lower_expr(ast, *index);
-                self.marcar_se_tipado(*index, &idx_op);
+                self.cast_implicito_de_operador(*index, &idx_op, *target, "[]", 0);
                 if let Some(fid) = self.operador_de_extensao(expr_id) {
                     let receptor = self.ctx.get_type_bruto(self.unit_id, *target);
                     let r = self.chamar_extensao(target_op, fid, &[(None, idx_op)], receptor, None, expr.span);

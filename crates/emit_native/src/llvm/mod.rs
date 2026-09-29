@@ -47,6 +47,9 @@ pub struct LlvmEmitter<'a> {
     /// vários (a alocação em linha, [`LlvmEmitter::alocacao_em_linha`]): é
     /// o predecessor que os `phi` dos sucessores nomeiam.
     rotulos_de_saida: std::collections::HashMap<u32, String>,
+    /// O rótulo LLVM do trecho em emissão (o do bloco, ou o último que uma
+    /// instrução dividida abriu): o predecessor de um `phi` interno.
+    rotulo_atual: String,
     // --- P1 (closures, α) ---
     /// Vetores constantes de `i64` (`@df.arr.<k>`): assinaturas e descritores.
     vetores: Vec<Vec<i64>>,
@@ -107,6 +110,7 @@ impl<'a> LlvmEmitter<'a> {
             tem_frame: false,
             tem_ctx: false,
             rotulos_de_saida: std::collections::HashMap::new(),
+            rotulo_atual: String::new(),
 
             vetores: Vec::new(),
             vetor_de: std::collections::HashMap::new(),
@@ -416,6 +420,8 @@ impl<'a> LlvmEmitter<'a> {
                         Some((b.id.0, format!("ao{v}.fim")))
                     } else if self.barreira_em_linha(i) {
                         Some((b.id.0, format!("wb{v}.fim")))
+                    } else if matches!(i, Instruction::Const(Constant::String(_) | Constant::StringWtf8(_))) {
+                        Some((b.id.0, format!("ls{v}.fim")))
                     } else {
                         None
                     }
@@ -432,6 +438,7 @@ impl<'a> LlvmEmitter<'a> {
 
         for block in &func.blocks {
             writeln!(self.out, "b{}:", block.id.0).unwrap();
+            self.rotulo_atual = format!("b{}", block.id.0);
             if block.id.0 == 0 {
                 self.emit_buffers_de_closure(func);
                 if Self::usa_area(func) {
@@ -516,10 +523,25 @@ impl<'a> LlvmEmitter<'a> {
                         };
                         let idx = self.string_const_index(bytes).unwrap_or(0);
                         let len = bytes.len();
-                        writeln!(
-                            self.out,
-                            "  %v{v} = call i64 @dartforge_string_new(ptr @.str.{idx}, i64 {len})"
-                        ).unwrap();
+                        // O handle do literal fica num cache do ponto de uso,
+                        // na área do isolado (o literal é canônico e
+                        // permanente; a recarga do JIT esvazia os caches): a
+                        // busca no runtime só na primeira avaliação.
+                        let slot = self.slot_de_cache();
+                        let anterior = self.rotulo_atual.clone();
+                        let o = &mut self.out;
+                        writeln!(o, "  %lsp{v} = getelementptr i64, ptr %area, i64 {slot}").unwrap();
+                        writeln!(o, "  %lsv{v} = load i64, ptr %lsp{v}, align 8").unwrap();
+                        writeln!(o, "  %lsz{v} = icmp eq i64 %lsv{v}, 0").unwrap();
+                        writeln!(o, "  %lsx{v} = call i1 @llvm.expect.i1(i1 %lsz{v}, i1 false)").unwrap();
+                        writeln!(o, "  br i1 %lsx{v}, label %ls{v}.nova, label %ls{v}.fim").unwrap();
+                        writeln!(o, "ls{v}.nova:").unwrap();
+                        writeln!(o, "  %lsn{v} = call i64 @dartforge_string_new(ptr @.str.{idx}, i64 {len})").unwrap();
+                        writeln!(o, "  store i64 %lsn{v}, ptr %lsp{v}, align 8").unwrap();
+                        writeln!(o, "  br label %ls{v}.fim").unwrap();
+                        writeln!(o, "ls{v}.fim:").unwrap();
+                        writeln!(o, "  %v{v} = phi i64 [ %lsv{v}, %{anterior} ], [ %lsn{v}, %ls{v}.nova ]").unwrap();
+                        self.rotulo_atual = format!("ls{v}.fim");
                     }
                     Instruction::Add(a, b) => {
                         let sa = self.coagir(a, Type::I64);
@@ -1593,7 +1615,13 @@ impl<'a> LlvmEmitter<'a> {
     fn usa_area(func: &Function) -> bool {
         func.blocks.iter().any(|b| {
             b.instructions.iter().any(|(_, i, _)| {
-                matches!(i, Instruction::LoadGlobal { .. } | Instruction::StoreGlobal { .. } | Instruction::CallSeletor { .. })
+                matches!(
+                    i,
+                    Instruction::LoadGlobal { .. }
+                        | Instruction::StoreGlobal { .. }
+                        | Instruction::CallSeletor { .. }
+                        | Instruction::Const(Constant::String(_) | Constant::StringWtf8(_))
+                )
             })
         })
     }
@@ -2359,6 +2387,7 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(o, "  br label %ao{v}.fim").unwrap();
         writeln!(o, "ao{v}.fim:").unwrap();
         writeln!(o, "  %v{v} = phi i64 [ %th{v}, %ao{v}.rapido ], [ %tl{v}, %ao{v}.lento ]").unwrap();
+        self.rotulo_atual = format!("ao{v}.fim");
     }
 
     /// A gravação em linha de campo que pode pôr um `Ref` num objeto: leva a
@@ -2410,6 +2439,7 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(o, "  call void @dartforge_lembrar(i64 {so})").unwrap();
         writeln!(o, "  br label %wb{v}.fim").unwrap();
         writeln!(o, "wb{v}.fim:").unwrap();
+        self.rotulo_atual = format!("wb{v}.fim");
     }
 
     /// A instrução lê o contexto da thread (`%ctx`): campos em linha ou

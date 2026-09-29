@@ -333,7 +333,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         };
         let mut lento = |s: &mut Self| {
-            s.chamar_por_nome(lista2.clone(), super::sdk_fonte::Tipo::Chamar, "[]", &[(None, indice2.clone())])
+            // O receptor tem tipo estático (a lista indexável): o seletor
+            // tipado (`entrada_tipada.rs`).
+            s.chamar_por_nome_com_receptor_tipado(lista2.clone(), true, super::sdk_fonte::Tipo::Chamar, "[]", &[(None, indice2.clone())])
         };
         Some(self.desviar_indexado(&lista, &indice, ix, false, repr, &mut rapido, &mut lento))
     }
@@ -378,8 +380,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Operand::Constant(Constant::Int(0))
         };
         let mut lento = |s: &mut Self| {
-            s.chamar_por_nome(
+            s.chamar_por_nome_com_receptor_tipado(
                 lista2.clone(),
+                true,
                 super::sdk_fonte::Tipo::Chamar,
                 "[]=",
                 &[(None, indice2.clone()), (None, valor.clone())],

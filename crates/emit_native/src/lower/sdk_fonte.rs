@@ -161,10 +161,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         nome: &str,
         avaliados: &[Avaliado],
     ) -> Operand {
+        let tipado = self.ctx.get_type(self.unit_id, alvo).is_some_and(|t| t != self.ctx.core.dynamic_);
+        self.chamar_por_nome_com_receptor_tipado(recv, tipado, tipo, nome, avaliados)
+    }
+
+    /// [`Self::chamar_por_nome_tipado`] com a decisão sobre o receptor já
+    /// tomada (`receptor_tipado`: o tipo estático dele é conhecido).
+    pub fn chamar_por_nome_com_receptor_tipado(
+        &mut self,
+        recv: Operand,
+        receptor_tipado: bool,
+        tipo: Tipo,
+        nome: &str,
+        avaliados: &[Avaliado],
+    ) -> Operand {
         let lib = self.ctx.program.unit(self.unit_id).library;
         let s = texto_seletor(self.ctx, tipo, nome, lib);
-        let tipado = self.ctx.get_type(self.unit_id, alvo).is_some_and(|t| t != self.ctx.core.dynamic_);
-        let s = if tipado && matches!(tipo, Tipo::Chamar | Tipo::Gravar) && self.todos_conferidos(avaliados) {
+        let s = if receptor_tipado && matches!(tipo, Tipo::Chamar | Tipo::Gravar) && self.todos_conferidos(avaliados) {
             super::entrada_tipada::seletor_tipado(&s)
         } else {
             s

@@ -507,19 +507,37 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // A entrada tipada (`entrada_tipada.rs`): a aridade e os nomes vêm
         // garantidos pelo chamador estático.
         if !self.aridade_garantida {
-            let sig = self.emit(Instruction::ConstArray(sig), Type::Ptr);
-            let ok = self.emit(
-                Instruction::CallRuntime {
-                    name: "dartforge_args_casam".to_string(),
-                    args: vec![(desc.clone(), Type::Ptr), (sig, Type::Ptr)],
-                    ret_ty: Type::I8,
-                },
-                Type::I8,
-            );
-            let ok = self.emit(
-                Instruction::ICmp(ICmpOp::Ne, ok, Operand::Constant(Constant::Int(0))),
-                Type::I1,
-            );
+            let ok = if nomeados.is_empty() {
+                // Sem nomeados na assinatura, a conferência do
+                // `dartforge_args_casam` é: nenhum nomeado passado e
+                // `n_req <= posicionais <= n_pos` — em linha, sem a chamada.
+                let int = |x: usize| Operand::Constant(Constant::Int(x as i64));
+                let npos = self.emit(Instruction::LoadIndexed { base: desc.clone(), index: int(0) }, Type::I64);
+                let nnom = self.emit(Instruction::LoadIndexed { base: desc.clone(), index: int(1) }, Type::I64);
+                if n_req == n_pos {
+                    let x = self.emit(Instruction::Xor(npos, int(n_req)), Type::I64);
+                    let y = self.emit(Instruction::Or(x, nnom), Type::I64);
+                    self.emit(Instruction::ICmp(ICmpOp::Eq, y, int(0)), Type::I1)
+                } else {
+                    let lo = self.emit(Instruction::ICmp(ICmpOp::Sge, npos.clone(), int(n_req)), Type::I1);
+                    let hi = self.emit(Instruction::ICmp(ICmpOp::Sle, npos, int(n_pos)), Type::I1);
+                    let z = self.emit(Instruction::ICmp(ICmpOp::Eq, nnom, int(0)), Type::I1);
+                    let a = self.emit(Instruction::And(lo, hi), Type::I64);
+                    let a = self.emit(Instruction::And(a, z), Type::I64);
+                    self.emit(Instruction::ICmp(ICmpOp::Ne, a, int(0)), Type::I1)
+                }
+            } else {
+                let sig = self.emit(Instruction::ConstArray(sig), Type::Ptr);
+                let ok = self.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_args_casam".to_string(),
+                        args: vec![(desc.clone(), Type::Ptr), (sig, Type::Ptr)],
+                        ret_ty: Type::I8,
+                    },
+                    Type::I8,
+                );
+                self.emit(Instruction::ICmp(ICmpOp::Ne, ok, Operand::Constant(Constant::Int(0))), Type::I1)
+            };
             let b_ok = self.new_block();
             let b_erro = self.new_block();
             self.terminate(Terminator::CondBranch {

@@ -34,10 +34,14 @@ pub extern "C" fn dartforge_nativo_String_concat(this: i64, outro: i64) -> i64 {
     HEAP.with(|heap| heap.borrow_mut().string_concat(this, outro))
 }
 
-/// `String_getHashCode`: o `StringHasher` da VM (`Texto::hash_vm`).
+/// `String_getHashCode`: o `StringHasher` da VM (`Texto::hash_vm`),
+/// calculado uma vez por `String` (`Heap::hash_de_texto`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_String_getHashCode(this: i64) -> i64 {
-    HEAP.with(|heap| heap.borrow().texto(this).hash_vm())
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        heap.hash_de_texto(this).unwrap_or_else(|| heap.texto(this).hash_vm())
+    })
 }
 
 /// `String_toUpperCase` e `String_toLowerCase` (`String::Transform`).

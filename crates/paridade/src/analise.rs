@@ -305,7 +305,7 @@ impl Motor {
                     .path
                     .as_ref()
                     .and_then(|p| analise.arquivos.get(&chave(p)))
-                    .map(|a| a.diags[..a.sintaticos].iter().filter(|d| recuperacao_do_parser(d)).map(|d| d.span).collect())
+                    .map(|a| a.diags[..a.sintaticos].iter().filter(|d| recuperacao_do_parser(d, &a.texto)).map(|d| d.span).collect())
                     .unwrap_or_default();
                 achados.extend(
                     dartforge_analise::locais::nao_usados(*u, &interner, curinga, &sintaticos).into_iter().map(|d| (i, d)),
@@ -315,7 +315,7 @@ impl Motor {
             }
             // Privados não usados: pela biblioteca inteira, sem erro de sintaxe.
             let com_erro = ids.iter().any(|u| {
-                program.unit(*u).path.as_ref().and_then(|p| analise.arquivos.get(&chave(p))).is_none_or(|a| a.sintaticos > 0)
+                program.unit(*u).path.as_ref().and_then(|p| analise.arquivos.get(&chave(p))).is_none_or(|a| a.diags[..a.sintaticos].iter().any(|d| recuperacao_do_parser(d, &a.texto)))
             });
             achados.extend(dartforge_analise::privados::nao_usados(&unidades, &interner, com_erro));
             for (i, d) in achados {
@@ -510,10 +510,10 @@ impl Motor {
             .filter_map(|u| u.path.as_ref().map(|p| (chave(p), u.source.as_str())))
             .collect();
         for (k, a) in analise.arquivos.iter_mut() {
-            if a.diags[..a.sintaticos].iter().any(recuperacao_do_parser) {
+            if a.diags[..a.sintaticos].iter().any(|d| recuperacao_do_parser(d, &a.texto)) {
                 let n = a.sintaticos;
                 let erros: Vec<usize> =
-                    a.diags[..n].iter().filter(|d| recuperacao_do_parser(d)).map(|d| d.span.start).collect();
+                    a.diags[..n].iter().filter(|d| recuperacao_do_parser(d, &a.texto)).map(|d| d.span.start).collect();
                 let fonte = fontes.get(k).copied().unwrap_or("");
                 let linha = |pos: usize| fonte.get(..pos).map_or(0, |t| t.matches('\n').count());
                 let mut i = 0;
@@ -586,10 +586,17 @@ impl Motor {
 }
 
 /// Erro de sintaxe do qual o parser se recuperou descartando ou remontando
-/// trechos. `experiment_not_enabled` não é: a sintaxe do recurso desligado
-/// foi lida inteira (a árvore é a mesma do recurso ligado).
-pub fn recuperacao_do_parser(d: &Diagnostic) -> bool {
-    !d.code.is_some_and(|c| c.info().nome == "experiment_not_enabled")
+/// trechos (`fonte` é o texto do arquivo). Não são: `experiment_not_enabled`
+/// e `experiment_not_enabled_off_by_default` (a sintaxe do recurso desligado
+/// foi lida inteira, a árvore é a mesma do recurso ligado) e
+/// `missing_function_body` num `;` (o corpo vazio fica na árvore, como no
+/// fasta).
+pub fn recuperacao_do_parser(d: &Diagnostic, fonte: &str) -> bool {
+    match d.code.map(|c| c.info().nome) {
+        Some("experiment_not_enabled" | "experiment_not_enabled_off_by_default") => false,
+        Some("missing_function_body") => fonte.get(d.span.start..d.span.end) != Some(";"),
+        _ => true,
+    }
 }
 
 /// Códigos de nome que não resolve: dependem de todas as declarações da
