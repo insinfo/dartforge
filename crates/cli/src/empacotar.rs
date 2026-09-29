@@ -13,7 +13,7 @@
 //! lib/llvm/bin/                  o lld (e o Clang, se a build não tem o gerador embutido)
 //! lib/sysroot/<triple>/          o que a ligação exige do sistema: no Linux, a glibc e a
 //!                                libgcc; no Windows, as bibliotecas de importação e a CRT
-//!                                mínima do dartforge; no macOS, os `.tbd` do SDK
+//!                                mínima do dartforge; no macOS, os `.tbd` gerados
 //! ```
 use std::path::{Path, PathBuf};
 
@@ -59,8 +59,8 @@ pub fn run(args: &[std::ffi::OsString]) -> Resultado {
     // exige do sistema, que não se pede a quem usa o dartforge: no Linux, a
     // glibc e a libgcc desta máquina; no Windows, as bibliotecas de
     // importação e a CRT mínima geradas pelo dartforge (sem nada do MSVC nem
-    // do Windows SDK); no macOS, os `.tbd` do SDK desta máquina (sem o Xcode
-    // nem as Command Line Tools). O Clang só vai quando esta build não tem o
+    // do Windows SDK); no macOS, os `.tbd` gerados pelo dartforge (sem nada
+    // do SDK da Apple). O Clang só vai quando esta build não tem o
     // gerador embutido (é ele que compila o IR).
     let clang = dartforge_emit_native::driver::NativeDriverOptions::default().clang;
     let clang = localizar(&clang).ok_or_else(|| format!("Clang não encontrado ({})", clang.display()))?;
@@ -79,7 +79,8 @@ pub fn run(args: &[std::ffi::OsString]) -> Resultado {
         }
         Sistema::MacOs => {
             use dartforge_emit_native::ligador_macos as lm;
-            lm::SysrootMacos::do_sistema()?.copiar_para(&lib.join("sysroot").join(lm::triple_do_sysroot()))?;
+            let arch = lm::Arquitetura::do_hospedeiro();
+            lm::gerar(&lib.join("sysroot").join(arch.triple_do_sysroot()), arch)?;
         }
     }
     if !dartforge_emit_native::gerador::GERADOR_EMBUTIDO {

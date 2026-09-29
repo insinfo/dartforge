@@ -4,50 +4,469 @@
 //!
 //! O driver do Clang só dava à ligação a raiz do SDK do macOS (achada pelo
 //! `xcrun`), de onde vêm os *stubs* `.tbd` das bibliotecas do sistema
-//! (`libSystem`, `libiconv`, os frameworks `CoreFoundation` e `Security`), e
-//! as versões de plataforma. Aqui os `.tbd` vêm de um **sysroot de ligação**
-//! ([`SysrootMacos`]): o da distribuição (`lib/sysroot/<arch>-apple-darwin/`,
-//! copiado pelo `dartforge empacotar` do SDK da máquina que montou a
-//! distribuição, como o sysroot do Linux), ou, numa árvore de
-//! desenvolvimento, o SDK do sistema (`SDKROOT` ou `xcrun`). Um `.tbd` é
-//! texto: a lista dos símbolos e o caminho de instalação da biblioteca; o
-//! programa carrega as do sistema ao rodar.
+//! (`libSystem` e os frameworks `CoreFoundation` e `Security`), e as versões
+//! de plataforma. Aqui os `.tbd` são **gerados pelo dartforge**
+//! ([`BIBLIOTECAS_DO_SISTEMA`], [`gerar`]), como as bibliotecas de importação
+//! do Windows (`ligador_windows.rs`): nada do SDK da Apple é copiado nem
+//! redistribuído — a licença dele (Xcode and Apple SDKs Agreement) não
+//! permite. Um `.tbd` é texto (YAML, formato TAPI v4): o caminho de instalação
+//! da biblioteca e os nomes que ela exporta; um nome é um fato de interface.
+//! O programa carrega as bibliotecas do sistema ao rodar.
+//!
+//! Os arquivos gerados moram num **sysroot de ligação** ([`SysrootMacos`]): o
+//! da distribuição (`lib/sysroot/<arch>-apple-darwin/`, gerado pelo
+//! `dartforge empacotar`) ou, numa árvore de desenvolvimento, o cache nativo,
+//! gerado uma vez por conteúdo.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// As arquiteturas do macOS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Arquitetura {
+    Arm64,
+    X86_64,
+}
+
+impl Arquitetura {
+    /// A deste hospedeiro.
+    pub const fn do_hospedeiro() -> Arquitetura {
+        if cfg!(target_arch = "aarch64") { Arquitetura::Arm64 } else { Arquitetura::X86_64 }
+    }
+
+    /// O triple do sysroot (`lib/sysroot/<triple>`).
+    pub const fn triple_do_sysroot(self) -> &'static str {
+        match self {
+            Arquitetura::Arm64 => "arm64-apple-darwin",
+            Arquitetura::X86_64 => "x86_64-apple-darwin",
+        }
+    }
+
+    /// O nome no `-arch` do `ld64.lld`.
+    const fn nome(self) -> &'static str {
+        match self {
+            Arquitetura::Arm64 => "arm64",
+            Arquitetura::X86_64 => "x86_64",
+        }
+    }
+
+    /// A versão mínima do macOS: a do `rustc` para o alvo.
+    const fn minimo(self) -> &'static str {
+        match self {
+            Arquitetura::Arm64 => "11.0",
+            Arquitetura::X86_64 => "10.12",
+        }
+    }
+}
+
 /// O triple do sysroot deste hospedeiro.
 pub fn triple_do_sysroot() -> &'static str {
-    if cfg!(target_arch = "aarch64") { "arm64-apple-darwin" } else { "x86_64-apple-darwin" }
+    Arquitetura::do_hospedeiro().triple_do_sysroot()
 }
 
-/// A arquitetura do `-arch` e a versão mínima do macOS (as do `rustc` para o
-/// alvo: 11.0 no arm64, 10.12 no x86-64).
-fn arquitetura_e_minimo() -> (&'static str, &'static str) {
-    if cfg!(target_arch = "aarch64") { ("arm64", "11.0") } else { ("x86_64", "10.12") }
+/// Uma biblioteca do sistema e os nomes que a ligação pede a ela.
+pub struct BibliotecaDoSistema {
+    /// O `.tbd`, relativo ao sysroot: o nome com que o `ld64.lld` o procura
+    /// (`-lSystem` → `usr/lib/libSystem.tbd`; `-framework X` →
+    /// `System/Library/Frameworks/X.framework/X.tbd`).
+    pub arquivo: &'static str,
+    /// O caminho de instalação, gravado no executável (`LC_LOAD_DYLIB`).
+    pub install_name: &'static str,
+    /// Os nomes (com o `_` do Mach-O) nas duas arquiteturas.
+    pub simbolos: &'static [&'static str],
+    /// Os que só o arm64 usa.
+    pub so_arm64: &'static [&'static str],
+    /// Os que só o x86-64 usa: as variantes com sufixo que os cabeçalhos do
+    /// SDK escolhem nele (`$INODE64`, `$NOCANCEL`).
+    pub so_x86_64: &'static [&'static str],
 }
 
-/// Os `.tbd` que a ligação usa, relativos à raiz do SDK: o nome com que o
-/// `ld64.lld` os procura (`-lSystem` → `usr/lib/libSystem.tbd`) e os que o
-/// caminho de instalação indica (reexportações).
-pub const ARQUIVOS_DO_SYSROOT: &[&str] = &[
-    "usr/lib/libSystem.tbd",
-    "usr/lib/libSystem.B.tbd",
-    "usr/lib/libiconv.tbd",
-    "usr/lib/libiconv.2.tbd",
-    "System/Library/Frameworks/CoreFoundation.framework/CoreFoundation.tbd",
-    "System/Library/Frameworks/Security.framework/Security.tbd",
+/// As bibliotecas do sistema e os nomes que o runtime (as duas `staticlib`),
+/// o SDK e o código gerado usam. A `libSystem` reexporta as de
+/// `/usr/lib/system/` (`libsystem_c`, `libsystem_kernel`, `libdyld`,
+/// `libunwind`, `libdispatch`, `libcommonCrypto`, `libsystem_m`…): o
+/// executável liga só com ela, e o `dyld` acha cada nome pelas reexportações.
+///
+/// A lista do runtime saiu do `nm` das `staticlib` (`arm64` e `x86_64`, `aot`
+/// e `dll`); os testes `runtime_so_usa_simbolos_da_lista` e
+/// `simbolos_existem_no_sdk` conferem, no macOS, que nada falta e que cada
+/// nome existe no SDK.
+pub const BIBLIOTECAS_DO_SISTEMA: &[BibliotecaDoSistema] = &[
+    BibliotecaDoSistema {
+        arquivo: "usr/lib/libSystem.tbd",
+        install_name: "/usr/lib/libSystem.B.dylib",
+        simbolos: &[
+            // A partida, o `dyld` e a TLS.
+            "__NSGetArgc",
+            "__NSGetArgv",
+            "__NSGetEnviron",
+            "__NSGetExecutablePath",
+            "__dyld_get_image_header",
+            "__dyld_get_image_name",
+            "__dyld_get_image_vmaddr_slide",
+            "__dyld_image_count",
+            "__tlv_atexit",
+            "__tlv_bootstrap",
+            "dyld_stub_binder",
+            // O desenrolar (pânico do Rust).
+            "__Unwind_Backtrace",
+            "__Unwind_DeleteException",
+            "__Unwind_GetDataRelBase",
+            "__Unwind_GetIP",
+            "__Unwind_GetIPInfo",
+            "__Unwind_GetLanguageSpecificData",
+            "__Unwind_GetRegionStart",
+            "__Unwind_GetTextRelBase",
+            "__Unwind_RaiseException",
+            "__Unwind_Resume",
+            "__Unwind_SetGR",
+            "__Unwind_SetIP",
+            // O que o compilador de C e o LLVM chamam sozinhos.
+            "___assert_rtn",
+            "___chkstk_darwin",
+            "___error",
+            "___exp10",
+            "___exp10f",
+            "___sincos_stret",
+            "___sincosf_stret",
+            "___stack_chk_fail",
+            "___stack_chk_guard",
+            "_memset_pattern16",
+            // Processo, memória e texto.
+            "__exit",
+            "_abort",
+            "_calloc",
+            "_exit",
+            "_free",
+            "_getenv",
+            "_malloc",
+            "_memchr",
+            "_memcmp",
+            "_memcpy",
+            "_memmove",
+            "_memset",
+            "_posix_memalign",
+            "_qsort",
+            "_realloc",
+            "_snprintf",
+            "_strchr",
+            "_strcmp",
+            "_strerror",
+            "_strerror_r",
+            "_strlen",
+            "_strncmp",
+            "_strtod",
+            "_vsnprintf",
+            // Arquivos, processos e terminal.
+            "_chdir",
+            "_close",
+            "_closedir",
+            "_dirfd",
+            "_dup2",
+            "_execvp",
+            "_fcntl",
+            "_fork",
+            "_fsetattrlist",
+            "_fsync",
+            "_ftruncate",
+            "_getcwd",
+            "_getpid",
+            "_getrusage",
+            "_ioctl",
+            "_isatty",
+            "_kill",
+            "_lseek",
+            "_mkdir",
+            "_open",
+            "_pause",
+            "_pipe",
+            "_poll",
+            "_read",
+            "_readlink",
+            "_readv",
+            "_realpath$DARWIN_EXTSN",
+            "_rename",
+            "_rmdir",
+            "_setsid",
+            "_signal",
+            "_symlink",
+            "_tcgetattr",
+            "_tcsetattr",
+            "_unlink",
+            "_wait",
+            "_write",
+            "_writev",
+            // Eventos, soquetes e rede.
+            "_accept",
+            "_bind",
+            "_connect",
+            "_freeaddrinfo",
+            "_freeifaddrs",
+            "_gai_strerror",
+            "_getaddrinfo",
+            "_gethostname",
+            "_getifaddrs",
+            "_getnameinfo",
+            "_getpeername",
+            "_getsockname",
+            "_getsockopt",
+            "_if_nametoindex",
+            "_inet_pton",
+            "_kevent",
+            "_kqueue",
+            "_listen",
+            "_recv",
+            "_recvfrom",
+            "_recvmsg",
+            "_send",
+            "_sendmsg",
+            "_sendto",
+            "_setsockopt",
+            "_shutdown",
+            "_socket",
+            // Threads, tempo e o sistema.
+            "_CCRandomGenerateBytes",
+            "_clock_gettime",
+            "_dispatch_release",
+            "_dispatch_semaphore_create",
+            "_dispatch_semaphore_signal",
+            "_dispatch_semaphore_wait",
+            "_dispatch_time",
+            "_dlclose",
+            "_dlerror",
+            "_dlopen",
+            "_dlsym",
+            "_getentropy",
+            "_localtime_r",
+            "_mach_task_self_",
+            "_mmap",
+            "_munmap",
+            "_nanosleep",
+            "_pthread_attr_destroy",
+            "_pthread_attr_init",
+            "_pthread_attr_setstacksize",
+            "_pthread_cond_broadcast",
+            "_pthread_cond_destroy",
+            "_pthread_cond_signal",
+            "_pthread_cond_timedwait_relative_np",
+            "_pthread_cond_wait",
+            "_pthread_create",
+            "_pthread_detach",
+            "_pthread_join",
+            "_pthread_mutex_destroy",
+            "_pthread_mutex_init",
+            "_pthread_mutex_lock",
+            "_pthread_mutex_trylock",
+            "_pthread_mutex_unlock",
+            "_pthread_mutexattr_destroy",
+            "_pthread_mutexattr_init",
+            "_pthread_mutexattr_settype",
+            "_pthread_setname_np",
+            "_pthread_threadid_np",
+            "_sched_yield",
+            "_sysconf",
+            "_sysctlbyname",
+            "_task_info",
+            "_tzset",
+            // A `libm`: o que o código gerado, o SDK e o runtime chamam (a
+            // mesma lista do `ucrtbase` do Windows).
+            "_abs",
+            "_acos",
+            "_acosf",
+            "_asin",
+            "_asinf",
+            "_atan",
+            "_atan2",
+            "_atan2f",
+            "_atanf",
+            "_cbrt",
+            "_ceil",
+            "_ceilf",
+            "_copysign",
+            "_cos",
+            "_cosf",
+            "_cosh",
+            "_exp",
+            "_exp2",
+            "_expf",
+            "_expm1",
+            "_fabs",
+            "_floor",
+            "_floorf",
+            "_fma",
+            "_fmax",
+            "_fmin",
+            "_fmod",
+            "_fmodf",
+            "_frexp",
+            "_hypot",
+            "_labs",
+            "_ldexp",
+            "_llabs",
+            "_log",
+            "_log10",
+            "_log1p",
+            "_log2",
+            "_logf",
+            "_modf",
+            "_nearbyint",
+            "_pow",
+            "_powf",
+            "_remainder",
+            "_rint",
+            "_round",
+            "_roundf",
+            "_sin",
+            "_sinf",
+            "_sinh",
+            "_sqrt",
+            "_sqrtf",
+            "_tan",
+            "_tanf",
+            "_tanh",
+            "_trunc",
+            "_truncf",
+        ],
+        so_arm64: &[
+            "_bzero",
+            "_fstat",
+            "_fstatat",
+            "_lstat",
+            "_opendir",
+            "_pthread_jit_write_protect_np",
+            "_readdir_r",
+            "_stat",
+            "_sys_icache_invalidate",
+        ],
+        so_x86_64: &[
+            "___bzero",
+            "_close$NOCANCEL",
+            "_fstat$INODE64",
+            "_fstatat$INODE64",
+            "_lstat$INODE64",
+            "_opendir$INODE64",
+            "_readdir_r$INODE64",
+            "_stat$INODE64",
+        ],
+    },
+    // O `Platform.localeName` (io_plataforma.rs) e o `CFRunLoop` do FSEvents
+    // (io_observador.rs; as funções do FSEvents vêm do `CoreServices` pelo
+    // `dlsym`).
+    BibliotecaDoSistema {
+        arquivo: "System/Library/Frameworks/CoreFoundation.framework/CoreFoundation.tbd",
+        install_name: "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+        simbolos: &[
+            "_CFAbsoluteTimeGetCurrent",
+            "_CFArrayCreate",
+            "_CFArrayGetCount",
+            "_CFArrayGetValueAtIndex",
+            "_CFDataGetBytePtr",
+            "_CFDataGetLength",
+            "_CFDictionaryGetValueIfPresent",
+            "_CFEqual",
+            "_CFLocaleCopyCurrent",
+            "_CFLocaleCopyPreferredLanguages",
+            "_CFLocaleGetIdentifier",
+            "_CFNumberGetValue",
+            "_CFRelease",
+            "_CFRetain",
+            "_CFRunLoopAddTimer",
+            "_CFRunLoopGetCurrent",
+            "_CFRunLoopRun",
+            "_CFRunLoopStop",
+            "_CFRunLoopTimerCreate",
+            "_CFRunLoopWakeUp",
+            "_CFStringCreateWithBytesNoCopy",
+            "_CFStringCreateWithCString",
+            "_CFStringGetBytes",
+            "_CFStringGetCString",
+            "_CFStringGetCStringPtr",
+            "_CFStringGetLength",
+            "_CFStringGetMaximumSizeForEncoding",
+            "_kCFAllocatorDefault",
+            "_kCFAllocatorNull",
+            "_kCFRunLoopCommonModes",
+            "_kCFRunLoopDefaultMode",
+            "_kCFTypeArrayCallBacks",
+        ],
+        so_arm64: &[],
+        so_x86_64: &[],
+    },
+    // O chaveiro do sistema: as raízes da TLS (`tls.rs`, `rustls-native-certs`).
+    BibliotecaDoSistema {
+        arquivo: "System/Library/Frameworks/Security.framework/Security.tbd",
+        install_name: "/System/Library/Frameworks/Security.framework/Versions/A/Security",
+        simbolos: &[
+            "_SecCertificateCopyData",
+            "_SecCopyErrorMessageString",
+            "_SecTrustSettingsCopyCertificates",
+            "_SecTrustSettingsCopyTrustSettings",
+        ],
+        so_arm64: &[],
+        so_x86_64: &[],
+    },
 ];
 
-/// O arquivo com a versão do SDK de onde os `.tbd` vieram (o
-/// `-platform_version`).
+/// As bibliotecas do sistema, no formato do `ld64.lld`.
+const BIBLIOTECAS: &[&str] = &["-lSystem", "-framework", "CoreFoundation", "-framework", "Security"];
+
+/// O arquivo com a versão do SDK (o `-platform_version`) dos sysroots que
+/// copiavam os `.tbd` do SDK; nos gerados ele não existe, e a versão é a
+/// mínima.
 const ARQUIVO_VERSAO: &str = "versao-do-sdk";
 
-/// As bibliotecas do sistema, no formato do `ld64.lld`: as de
-/// `alvo::bibliotecas_do_sistema` (`-lc` e `-lm` são a própria `libSystem`).
-const BIBLIOTECAS: &[&str] = &["-lSystem", "-liconv", "-framework", "CoreFoundation", "-framework", "Security"];
+/// O `.tbd` (TAPI v4) de `b` para `arch`.
+///
+/// ```
+/// use dartforge_emit_native::ligador_macos::{Arquitetura, BIBLIOTECAS_DO_SISTEMA, tbd};
+/// let texto = tbd(&BIBLIOTECAS_DO_SISTEMA[0], Arquitetura::Arm64);
+/// assert!(texto.starts_with("--- !tapi-tbd\n"));
+/// assert!(texto.contains("install-name:    '/usr/lib/libSystem.B.dylib'"));
+/// assert!(texto.contains("'_malloc'"));
+/// ```
+pub fn tbd(b: &BibliotecaDoSistema, arch: Arquitetura) -> String {
+    let alvo = format!("{}-macos", arch.nome());
+    let proprios = match arch {
+        Arquitetura::Arm64 => b.so_arm64,
+        Arquitetura::X86_64 => b.so_x86_64,
+    };
+    let mut nomes: Vec<&str> = b.simbolos.iter().chain(proprios).copied().collect();
+    nomes.sort_unstable();
+    let lista: Vec<String> = nomes.iter().map(|n| format!("'{n}'")).collect();
+    format!(
+        "--- !tapi-tbd\ntbd-version:     4\ntargets:         [ {alvo} ]\ninstall-name:    '{}'\nexports:\n  - targets:     [ {alvo} ]\n    symbols:     [ {} ]\n...\n",
+        b.install_name,
+        lista.join(",\n                   ")
+    )
+}
 
-/// A raiz de um SDK do macOS com os `.tbd`, e a versão dele.
+/// Gera em `dir` os `.tbd` de [`BIBLIOTECAS_DO_SISTEMA`] para `arch`.
+///
+/// # Erros
+///
+/// Falha de escrita no diretório.
+pub fn gerar(dir: &Path, arch: Arquitetura) -> Result<(), String> {
+    for b in BIBLIOTECAS_DO_SISTEMA {
+        let caminho = dir.join(b.arquivo);
+        if let Some(p) = caminho.parent() {
+            std::fs::create_dir_all(p).map_err(|e| format!("{}: {e}", p.display()))?;
+        }
+        std::fs::write(&caminho, tbd(b, arch)).map_err(|e| format!("{}: {e}", caminho.display()))?;
+    }
+    Ok(())
+}
+
+/// A impressão digital do conteúdo gerado, para o diretório no cache.
+fn impressao(arch: Arquitetura) -> String {
+    let mut h = blake3::Hasher::new();
+    for b in BIBLIOTECAS_DO_SISTEMA {
+        h.update(b.arquivo.as_bytes());
+        h.update(tbd(b, arch).as_bytes());
+    }
+    h.finalize().to_hex()[..16].to_string()
+}
+
+/// O sysroot de ligação com os `.tbd`, e a versão do SDK (vazia: a mínima).
 #[derive(Debug, Clone)]
 pub struct SysrootMacos {
     raiz: PathBuf,
@@ -55,103 +474,42 @@ pub struct SysrootMacos {
 }
 
 impl SysrootMacos {
-    /// O da distribuição, senão o SDK do sistema.
+    /// O da distribuição, senão o do cache nativo, gerado agora se faltar.
     ///
     /// # Erros
     ///
-    /// Nem distribuição nem SDK (sem Xcode nem Command Line Tools).
+    /// A geração falhou (ver [`gerar`]).
     pub fn localizar() -> Result<&'static SysrootMacos, String> {
         static S: std::sync::OnceLock<Result<SysrootMacos, String>> = std::sync::OnceLock::new();
         S.get_or_init(|| {
-            if let Some(dir) = dartforge_elements::distribuicao::em_lib(&format!("sysroot/{}", triple_do_sysroot())) {
+            let arch = Arquitetura::do_hospedeiro();
+            if let Some(dir) = dartforge_elements::distribuicao::em_lib(&format!("sysroot/{}", arch.triple_do_sysroot()))
+                && dir.join(BIBLIOTECAS_DO_SISTEMA[0].arquivo).is_file()
+            {
                 let versao = std::fs::read_to_string(dir.join(ARQUIVO_VERSAO)).unwrap_or_default().trim().to_string();
                 return Ok(SysrootMacos { raiz: dir, versao });
             }
-            Self::do_sistema()
+            let raiz = crate::cache::dir_cache_nativo().join("ligacao-macos");
+            let chave = format!("{}-{}", arch.nome(), impressao(arch));
+            let dir = raiz.join(&chave);
+            if dir.join("pronto").is_file() {
+                return Ok(SysrootMacos { raiz: dir, versao: String::new() });
+            }
+            let tmp = raiz.join(format!("{chave}.tmp.{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&tmp);
+            gerar(&tmp, arch)?;
+            std::fs::write(tmp.join("pronto"), b"").map_err(|e| e.to_string())?;
+            if std::fs::rename(&tmp, &dir).is_err() {
+                let _ = std::fs::remove_dir_all(&tmp);
+                if !dir.join("pronto").is_file() {
+                    return Err(format!("não foi possível instalar {}", dir.display()));
+                }
+            }
+            Ok(SysrootMacos { raiz: dir, versao: String::new() })
         })
         .as_ref()
         .map_err(Clone::clone)
     }
-
-    /// O SDK do sistema (`SDKROOT` ou `xcrun --show-sdk-path`).
-    ///
-    /// # Erros
-    ///
-    /// Sem SDK, ou sem a `libSystem` nele.
-    pub fn do_sistema() -> Result<SysrootMacos, String> {
-        let raiz = crate::alvo::raiz_do_sdk_macos().ok_or(
-            "SDK do macOS não encontrado: instale as Command Line Tools (xcode-select --install) \
-             ou use a distribuição do dartforge (que traz os .tbd de ligação)",
-        )?;
-        if !raiz.join("usr/lib/libSystem.tbd").is_file() {
-            return Err(format!("{} não tem usr/lib/libSystem.tbd", raiz.display()));
-        }
-        Ok(SysrootMacos { raiz: raiz.to_path_buf(), versao: versao_do_sdk(raiz) })
-    }
-
-    /// Copia os `.tbd` para `destino` (o `dartforge empacotar`), com as
-    /// bibliotecas que eles reexportam sem trazer no mesmo arquivo.
-    ///
-    /// # Erros
-    ///
-    /// Arquivo ausente no SDK ou falha de escrita.
-    pub fn copiar_para(&self, destino: &Path) -> Result<(), String> {
-        let mut pendentes: Vec<String> = ARQUIVOS_DO_SYSROOT.iter().map(|s| s.to_string()).collect();
-        let mut feitos = std::collections::BTreeSet::new();
-        while let Some(rel) = pendentes.pop() {
-            if !feitos.insert(rel.clone()) {
-                continue;
-            }
-            let de = self.raiz.join(&rel);
-            let texto = std::fs::read_to_string(&de).map_err(|e| format!("{}: {e}", de.display()))?;
-            let para = destino.join(&rel);
-            if let Some(p) = para.parent() {
-                std::fs::create_dir_all(p).map_err(|e| format!("{}: {e}", p.display()))?;
-            }
-            std::fs::write(&para, &texto).map_err(|e| format!("{}: {e}", para.display()))?;
-            for r in reexportacoes_externas(&texto) {
-                if self.raiz.join(&r).is_file() {
-                    pendentes.push(r);
-                }
-            }
-        }
-        std::fs::write(destino.join(ARQUIVO_VERSAO), format!("{}\n", self.versao)).map_err(|e| e.to_string())
-    }
-}
-
-/// A versão de um SDK (`SDKSettings.json`, `"Version": "15.2"`); a mínima
-/// quando não há.
-fn versao_do_sdk(raiz: &Path) -> String {
-    let texto = std::fs::read_to_string(raiz.join("SDKSettings.json")).unwrap_or_default();
-    let achada = texto.split("\"Version\"").nth(1).and_then(|r| r.split('"').nth(1)).map(str::to_string);
-    achada.filter(|v| v.chars().all(|c| c.is_ascii_digit() || c == '.') && !v.is_empty()).unwrap_or_default()
-}
-
-/// Os `.tbd` (relativos à raiz do SDK) das bibliotecas citadas num `.tbd`
-/// que não são documentos dele mesmo: o `ld64.lld` procura uma reexportação
-/// pelo caminho de instalação dentro do `-syslibroot`.
-fn reexportacoes_externas(texto: &str) -> Vec<String> {
-    let proprios: Vec<&str> = texto
-        .lines()
-        .filter_map(|l| l.trim().strip_prefix("install-name:"))
-        .map(|v| v.trim().trim_matches(|c| c == '\'' || c == '"'))
-        .collect();
-    let mut saida = Vec::new();
-    for pedaco in texto.split(['\'', '"', ' ', ',', '[', ']', '\n']) {
-        let caminho = pedaco.trim();
-        if !(caminho.starts_with("/usr/lib/") || caminho.starts_with("/System/Library/")) || proprios.contains(&caminho) {
-            continue;
-        }
-        let rel = caminho.trim_start_matches('/');
-        let tbd = match rel.strip_suffix(".dylib") {
-            Some(base) => format!("{base}.tbd"),
-            None => format!("{rel}.tbd"),
-        };
-        if !saida.contains(&tbd) {
-            saida.push(tbd);
-        }
-    }
-    saida
 }
 
 /// O que se liga.
@@ -195,11 +553,12 @@ pub fn ld64_lld(clang: &Path) -> PathBuf {
 /// O `ld64.lld` não executou ou recusou a ligação (a mensagem leva o que ele
 /// disse).
 pub fn ligar(ld: &Path, sysroot: &SysrootMacos, l: &Ligacao<'_>) -> Result<(), String> {
-    let (arch, minimo) = arquitetura_e_minimo();
-    let minimo = std::env::var("MACOSX_DEPLOYMENT_TARGET").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| minimo.to_string());
+    let arch = Arquitetura::do_hospedeiro();
+    let minimo =
+        std::env::var("MACOSX_DEPLOYMENT_TARGET").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| arch.minimo().to_string());
     let versao_sdk = if sysroot.versao.is_empty() { minimo.clone() } else { sysroot.versao.clone() };
     let mut cmd = Command::new(ld);
-    cmd.args(["-arch", arch, "-platform_version", "macos", &minimo, &versao_sdk]);
+    cmd.args(["-arch", arch.nome(), "-platform_version", "macos", &minimo, &versao_sdk]);
     cmd.arg("-syslibroot").arg(&sysroot.raiz);
     match &l.produto {
         Produto::Executavel => {
@@ -246,18 +605,140 @@ mod testes {
     use super::*;
 
     #[test]
-    fn reexportacoes_fora_do_proprio_arquivo() {
-        let tbd = "--- !tapi-tbd\ninstall-name: '/usr/lib/libSystem.B.dylib'\nreexported-libraries:\n  - targets: [ arm64-macos ]\n    libraries: [ '/usr/lib/system/libcache.dylib', '/usr/lib/libobjc.A.dylib' ]\n--- !tapi-tbd\ninstall-name: '/usr/lib/system/libcache.dylib'\n...\n";
-        assert_eq!(reexportacoes_externas(tbd), vec!["usr/lib/libobjc.A.tbd".to_string()]);
-        let fw = "install-name: '/System/Library/Frameworks/A.framework/Versions/A/A'\nreexported-libraries:\n  - libraries: [ '/System/Library/Frameworks/B.framework/Versions/A/B' ]\n";
-        assert_eq!(reexportacoes_externas(fw), vec!["System/Library/Frameworks/B.framework/Versions/A/B.tbd".to_string()]);
+    fn nenhum_simbolo_repetido() {
+        for arch in [Arquitetura::Arm64, Arquitetura::X86_64] {
+            let mut todos: Vec<&str> = Vec::new();
+            for b in BIBLIOTECAS_DO_SISTEMA {
+                todos.extend(b.simbolos);
+                todos.extend(if arch == Arquitetura::Arm64 { b.so_arm64 } else { b.so_x86_64 });
+            }
+            let total = todos.len();
+            todos.sort_unstable();
+            todos.dedup();
+            assert_eq!(todos.len(), total, "{arch:?}");
+        }
     }
 
     #[test]
-    fn versao_do_sdk_do_json() {
+    fn tbd_por_arquitetura() {
+        let arm = tbd(&BIBLIOTECAS_DO_SISTEMA[0], Arquitetura::Arm64);
+        let x86 = tbd(&BIBLIOTECAS_DO_SISTEMA[0], Arquitetura::X86_64);
+        assert!(arm.contains("targets:         [ arm64-macos ]") && arm.contains("'_stat'") && !arm.contains("INODE64"));
+        assert!(x86.contains("targets:         [ x86_64-macos ]") && x86.contains("'_stat$INODE64'") && !x86.contains("'_stat'"));
+        assert!(arm.ends_with("...\n"));
+    }
+
+    #[test]
+    fn gerar_escreve_cada_biblioteca() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("SDKSettings.json"), "{\"CanonicalName\":\"macosx15.2\",\"Version\":\"15.2\"}").unwrap();
-        assert_eq!(versao_do_sdk(dir.path()), "15.2");
-        assert_eq!(versao_do_sdk(Path::new("/nao/existe")), "");
+        gerar(dir.path(), Arquitetura::Arm64).unwrap();
+        for b in BIBLIOTECAS_DO_SISTEMA {
+            let texto = std::fs::read_to_string(dir.path().join(b.arquivo)).unwrap();
+            assert!(texto.contains(b.install_name));
+        }
+    }
+
+    /// Os `.tbd` (relativos à raiz do SDK) das bibliotecas citadas num `.tbd`
+    /// que não são documentos dele mesmo (o `ld64.lld` procura uma
+    /// reexportação pelo caminho de instalação dentro do `-syslibroot`).
+    #[cfg(target_os = "macos")]
+    fn reexportacoes_externas(texto: &str) -> Vec<String> {
+        let proprios: Vec<&str> = texto
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix("install-name:"))
+            .map(|v| v.trim().trim_matches(|c| c == '\'' || c == '"'))
+            .collect();
+        let mut saida = Vec::new();
+        for pedaco in texto.split(['\'', '"', ' ', ',', '[', ']', '\n']) {
+            let caminho = pedaco.trim();
+            if !(caminho.starts_with("/usr/lib/") || caminho.starts_with("/System/Library/")) || proprios.contains(&caminho) {
+                continue;
+            }
+            let rel = caminho.trim_start_matches('/');
+            let tbd = match rel.strip_suffix(".dylib") {
+                Some(base) => format!("{base}.tbd"),
+                None => format!("{rel}.tbd"),
+            };
+            if !saida.contains(&tbd) {
+                saida.push(tbd);
+            }
+        }
+        saida
+    }
+
+    /// Os nomes que um `.tbd` do SDK e os que ele reexporta de outros
+    /// arquivos citam (todas as palavras: basta para conferir existência).
+    #[cfg(target_os = "macos")]
+    fn nomes_no_sdk(raiz: &Path, arquivo: &str) -> std::collections::HashSet<String> {
+        let mut nomes = std::collections::HashSet::new();
+        let mut pendentes = vec![arquivo.to_string()];
+        let mut vistos = std::collections::HashSet::new();
+        while let Some(rel) = pendentes.pop() {
+            if !vistos.insert(rel.clone()) {
+                continue;
+            }
+            let Ok(texto) = std::fs::read_to_string(raiz.join(&rel)) else { continue };
+            nomes.extend(texto.split(['\'', '"', ' ', ',', '[', ']', '\n']).map(|p| p.trim().to_string()));
+            pendentes.extend(reexportacoes_externas(&texto));
+        }
+        nomes
+    }
+
+    /// Cada nome gerado existe no `.tbd` do SDK da mesma biblioteca (o
+    /// runner do macOS, com o Xcode ou as Command Line Tools).
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn simbolos_existem_no_sdk() {
+        let raiz = crate::alvo::raiz_do_sdk_macos().expect("SDK do macOS (xcrun)");
+        let mut faltam = Vec::new();
+        for b in BIBLIOTECAS_DO_SISTEMA {
+            let nomes = nomes_no_sdk(raiz, b.arquivo);
+            assert!(nomes.contains(b.install_name), "{}: install-name {} fora do SDK", b.arquivo, b.install_name);
+            let proprios = if Arquitetura::do_hospedeiro() == Arquitetura::Arm64 { b.so_arm64 } else { b.so_x86_64 };
+            for n in b.simbolos.iter().chain(proprios) {
+                if !nomes.contains(*n) {
+                    faltam.push(format!("{}: {n}", b.arquivo));
+                }
+            }
+        }
+        assert!(faltam.is_empty(), "não exportados pelo SDK: {faltam:#?}");
+    }
+
+    /// Os nomes do `nm` de uma `staticlib` (`-u`: indefinidos; `-U`:
+    /// definidos).
+    #[cfg(target_os = "macos")]
+    fn nm(lib: &Path, bandeira: &str) -> std::collections::BTreeSet<String> {
+        let saida = Command::new("nm").args(["-g", "-j", bandeira]).arg(lib).output().expect("executar o nm");
+        assert!(saida.status.success(), "nm {}: {}", lib.display(), String::from_utf8_lossy(&saida.stderr));
+        String::from_utf8_lossy(&saida.stdout)
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.ends_with(':'))
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// Tudo o que as duas `staticlib` do runtime pedem de fora está nos
+    /// `.tbd` gerados (menos o que o código gerado define, `dartforge_*`).
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn runtime_so_usa_simbolos_da_lista() {
+        let arch = Arquitetura::do_hospedeiro();
+        let lista: std::collections::HashSet<&str> = BIBLIOTECAS_DO_SISTEMA
+            .iter()
+            .flat_map(|b| b.simbolos.iter().chain(if arch == Arquitetura::Arm64 { b.so_arm64 } else { b.so_x86_64 }))
+            .copied()
+            .collect();
+        let mut faltam = std::collections::BTreeSet::new();
+        for lib in [crate::cache::RuntimeCache::get_or_compile(), crate::cache::RuntimeCache::para_dll()] {
+            let lib = lib.expect("runtime pré-compilado").lib_path;
+            let definidos = nm(&lib, "-U");
+            for n in nm(&lib, "-u") {
+                if !definidos.contains(&n) && !n.starts_with("_dartforge_") && !lista.contains(n.as_str()) {
+                    faltam.insert(n);
+                }
+            }
+        }
+        assert!(faltam.is_empty(), "o runtime usa nomes fora de BIBLIOTECAS_DO_SISTEMA: {faltam:#?}");
     }
 }

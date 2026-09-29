@@ -75,7 +75,7 @@ hospedeiro, e tudo o que muda entre eles está em
 | SDK da fonte (desenvolvimento) | `dfsdk_<chave>.dll` + `.lib` de importação, `/DEF` | `libdfsdk_<chave>.so`, `-soname`, `rpath=$ORIGIN` | `libdfsdk_<chave>.dylib`, `@rpath`, `rpath=@executable_path` |
 | produção (ThinLTO) | `lld-link`, `/OPT:REF` | `ld.lld`, `--gc-sections`, sem símbolos | `ld64.lld`, `-dead_strip`, sem símbolos |
 | ligador (todo perfil) | `lld-link` direto (`ligador_windows.rs`) | `ld.lld` direto (`ligador.rs`) | `ld64.lld` direto (`ligador_macos.rs`) |
-| o que vem do sistema | nada: bibliotecas de importação e CRT mínima geradas pelo dartforge | glibc e libgcc copiadas (sysroot) | `.tbd` do SDK copiados (sysroot) |
+| o que vem do sistema | nada: bibliotecas de importação e CRT mínima geradas pelo dartforge | glibc e libgcc copiadas (sysroot) | nada: `.tbd` gerados pelo dartforge |
 
 O IR e as bandeiras no Windows são os de antes do porte, então as chaves de
 cache e os resumos de determinismo não mudaram. O mesmo IR vai ao JIT
@@ -133,16 +133,24 @@ foram avaliadas:
 
 **macOS (N16): sem Xcode nem Command Line Tools.** O `ld64.lld` direto
 (`ligador_macos.rs`) com `-syslibroot` no sysroot, `-platform_version` (o
-mínimo do `rustc` para o alvo e a versão do SDK de onde os `.tbd` vieram) e
-`-lSystem -liconv -framework CoreFoundation -framework Security`. Os `.tbd`
-(texto: nomes de símbolos e caminho de instalação) são copiados pelo
-`dartforge empacotar` do SDK da máquina que monta a distribuição, com as
-bibliotecas que eles reexportam sem trazer no mesmo arquivo, como o sysroot
-do Linux. **Ressalva legal (aberta):** os `.tbd` são arquivos do SDK da
-Apple, cuja licença (Xcode and Apple SDKs Agreement) não autoriza
-redistribuí-los; para uma distribuição pública, o caminho limpo é o do
-Windows — gerar os `.tbd` a partir da lista de símbolos que o runtime usa
-(um `.tbd` é YAML com nomes), sem copiar nada do SDK.
+mínimo do `rustc` para o alvo, também como versão do SDK) e
+`-lSystem -framework CoreFoundation -framework Security`. Os `.tbd` (TAPI v4,
+texto: caminho de instalação e nomes exportados) são **gerados pelo
+dartforge** (`BIBLIOTECAS_DO_SISTEMA`, por arquitetura: o x86-64 usa as
+variantes `$INODE64`/`$NOCANCEL`), como as bibliotecas de importação do
+Windows: nada do SDK da Apple é copiado, porque a licença dele (Xcode and
+Apple SDKs Agreement) não autoriza redistribuí-lo. O `dartforge empacotar`
+os escreve em `lib/sysroot/<triple>`; numa árvore de desenvolvimento vão
+para o cache nativo (`ligacao-macos/<arch>-<impressão>`), então toda ligação
+no macOS, com ou sem Xcode, usa os mesmos arquivos. A `libSystem` basta para
+tudo o que ela reexporta (`libsystem_c`, `libdyld`, `libunwind`,
+`libdispatch`, `libcommonCrypto`, `libsystem_m`…): o `dyld` acha cada nome
+pelas reexportações ao carregar. A lista saiu do `nm` das duas `staticlib`
+do runtime (compiladas para `aarch64-` e `x86_64-apple-darwin`), mais a
+`libm` e as chamadas que o LLVM emite sozinho (`___sincos_stret`,
+`_memset_pattern16`, `___chkstk_darwin`). No macOS,
+`runtime_so_usa_simbolos_da_lista` confere que o runtime não pede nada fora
+dela e `simbolos_existem_no_sdk`, que cada nome existe no `.tbd` do SDK.
 
 **A prova** é o workflow `sem-toolchain.yml`: compila o dartforge, monta a
 distribuição, **esconde** o toolchain (no Windows renomeia as pastas do
