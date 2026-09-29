@@ -66,6 +66,7 @@ fn main() {
                     versao_linguagem: Some(dartforge_frontend::LanguageVersion::PISO),
                     experimentos: Vec::new(),
                     depuracao: false,
+                    gerador: None,
                 };
                 dartforge_emit_native::compilar(&i2, &o2, &options)
             })

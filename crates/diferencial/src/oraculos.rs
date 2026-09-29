@@ -524,6 +524,7 @@ pub fn dartforge_nativo(amb: &Ambiente, programa: &Programa, dir: &Path) -> Said
                 versao_linguagem: Some(versao),
                 experimentos: Vec::new(),
                 depuracao: false,
+                gerador: None,
             };
             dartforge_emit_native::compilar(&entrada, &saida, &options)
         })
@@ -575,6 +576,7 @@ pub fn dartforge_nativo_ir(programa: &Programa) -> Result<String, String> {
                 versao_linguagem: Some(versao),
                 experimentos: Vec::new(),
                 depuracao: false,
+                gerador: None,
             };
             dartforge_emit_native::emitir_ir(&entrada, &options).map(|ir| ir.texto)
         })

@@ -62,7 +62,40 @@ pub fn gerar_uma_vez(
             n
         ));
     }
+    // Builder que falhou: a geração falhou (DF-BUILD-005), não uma geração
+    // parcial apresentada como pronta.
+    if !at.rel.falhas.is_empty() {
+        return Err(format!("{texto}\n{} ação(ões) de builder falharam", at.rel.falhas.len()));
+    }
     Ok((at.geracao, texto))
+}
+
+/// A compilação de `entrada` com o motor de build do projeto, se ele usa
+/// builders (DF-BUILD-009): `compilar` recebe o gerador (ou `None`) e o
+/// relatório do motor sai em `stderr`. Um erro do motor falha a compilação
+/// — nunca uma geração vazia que deixa o carregador ler o disco.
+#[cfg(feature = "nativo")]
+pub fn com_gerador<R>(
+    entrada: &Path,
+    packages: Option<&Path>,
+    compilar: impl FnOnce(Option<dartforge_emit_native::Gerador<'_>>) -> Result<R, String>,
+) -> Result<R, String> {
+    let Some((raiz, cfg, caminho_cfg)) = detectar(entrada, packages) else {
+        return compilar(None);
+    };
+    let texto = std::sync::Mutex::new(None);
+    let gerar = |programa: &dartforge_elements::model::Program, nomes: &dartforge_intern::Interner| {
+        let (g, t) = gerar_uma_vez(&raiz, &cfg, &caminho_cfg, programa, nomes)?;
+        if let Ok(mut x) = texto.lock() {
+            *x = Some(t);
+        }
+        Ok(g)
+    };
+    let r = compilar(Some(&gerar));
+    if let Some(t) = texto.into_inner().ok().flatten() {
+        eprintln!("{t}");
+    }
+    r
 }
 
 /// `dartforge build [<entrada.dart>] [--raiz <dir>] [--packages <cfg>] [--plano]

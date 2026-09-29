@@ -41,7 +41,19 @@ pub struct CompileOptions<'a> {
     pub experimentos: Vec<dartforge_frontend::Feature>,
     /// J05: tabelas de linha para o depurador nativo (`llvm/depuracao.rs`).
     pub depuracao: bool,
+    /// Quem produz as fontes geradas do projeto (o motor de build,
+    /// `crates/build`) a partir do programa carregado sem elas — o mesmo
+    /// contrato do `compile-js` (`dartforge_emit_js::Gerador`). `None`: o
+    /// projeto não usa builders, ou quem chama não os liga.
+    pub gerador: Option<Gerador<'a>>,
 }
+
+/// Veja [`CompileOptions::gerador`].
+pub type Gerador<'a> = &'a (dyn Fn(
+    &dartforge_elements::model::Program,
+    &Interner,
+) -> Result<std::sync::Arc<dartforge_elements::gerado::Geracao>, String>
+         + Sync);
 
 /// Tempo de cada fase da emissão (tudo antes do Clang).
 #[derive(Debug, Clone, Copy, Default)]
@@ -195,7 +207,26 @@ fn emitir_ir_interno(
     }
 
     let mut interner = Interner::new();
-    let (mut program, elements_diags) = load_lenient(entrada, &sdk, options.packages, &mut interner);
+    // Com o motor de build (DF-BUILD-009): uma carga tolerante sem os
+    // gerados serve de `BuildStep.resolver`; a geração volta em memória e
+    // a carga de verdade a lê antes do disco.
+    let (mut program, elements_diags) = match options.gerador {
+        Some(gerar) => {
+            let mut nomes_resolucao = Interner::new();
+            let (resolucao, _) = load_lenient(entrada, &sdk, options.packages, &mut nomes_resolucao);
+            let geracao = gerar(&resolucao, &nomes_resolucao)?;
+            dartforge_elements::load::load_lenient_gerados(
+                entrada,
+                &sdk,
+                options.packages,
+                &mut interner,
+                None,
+                None,
+                Some(geracao),
+            )
+        }
+        None => load_lenient(entrada, &sdk, options.packages, &mut interner),
+    };
     if let Some((primeiro, resto)) = elements_diags.split_first() {
         let mut msg = format!("erro ao carregar o programa: {primeiro}");
         for d in resto {
@@ -389,7 +420,7 @@ mod testes {
     const SDK: &str = "C:/tools/dartsdk-3.6.2/lib";
 
     fn emitir(entrada: &Path) -> IrEmitido {
-        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false };
+        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None };
         emitir_ir(entrada, &options).expect("emitir IR")
     }
 
@@ -436,7 +467,7 @@ mod testes {
         let dir = tempfile::tempdir().unwrap();
         let entrada = dir.path().join("main.dart");
         std::fs::write(&entrada, "void main() {\n  int? k = 1;\n  var a = {?k: 1};\n  var b = {?k: 2};\n  print(a.length + b.length);\n}\n").unwrap();
-        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false };
+        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None };
         let erro = std::thread::Builder::new()
             .stack_size(64 << 20)
             .spawn(move || emitir_ir(&entrada, &options).map(|ir| ir.texto))

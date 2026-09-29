@@ -106,16 +106,20 @@ pub fn aot(args: &[std::ffi::OsString]) -> Resultado {
     std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
-            let options = dartforge_emit_native::CompileOptions {
-                sdk: sdk.as_deref(),
-                packages: packages.as_deref(),
-                timings,
-                optimize,
-                versao_linguagem: None,
-                experimentos: Vec::new(),
-                depuracao,
-            };
-            dartforge_emit_native::compilar(&input, &output, &options)
+            // O motor de build do projeto, se ele usa builders (DF-BUILD-009).
+            crate::motor::com_gerador(&input, packages.as_deref(), |gerador| {
+                let options = dartforge_emit_native::CompileOptions {
+                    sdk: sdk.as_deref(),
+                    packages: packages.as_deref(),
+                    timings,
+                    optimize,
+                    versao_linguagem: None,
+                    experimentos: Vec::new(),
+                    depuracao,
+                    gerador,
+                };
+                dartforge_emit_native::compilar(&input, &output, &options).map_err(|e| e.to_string())
+            })
         })
         .map_err(|e| e.to_string())?
         .join()
@@ -186,16 +190,19 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
     std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
-            let options = dartforge_emit_native::CompileOptions {
-                sdk: s2.as_deref(),
-                packages: p2.as_deref(),
-                timings,
-                optimize,
-                versao_linguagem: linguagem.versao_corrente,
-                experimentos: linguagem.experimentos,
-                depuracao,
-            };
-            dartforge_emit_native::compilar(&i2, &o2, &options)
+            crate::motor::com_gerador(&i2, p2.as_deref(), |gerador| {
+                let options = dartforge_emit_native::CompileOptions {
+                    sdk: s2.as_deref(),
+                    packages: p2.as_deref(),
+                    timings,
+                    optimize,
+                    versao_linguagem: linguagem.versao_corrente,
+                    experimentos: linguagem.experimentos,
+                    depuracao,
+                    gerador,
+                };
+                dartforge_emit_native::compilar(&i2, &o2, &options).map_err(|e| e.to_string())
+            })
         })
         .map_err(|e| e.to_string())?
         .join()
@@ -229,6 +236,7 @@ fn emitir_ir_nativo(
                 versao_linguagem: linguagem.versao_corrente,
                 experimentos: linguagem.experimentos,
                 depuracao,
+                gerador: None,
             };
             dartforge_emit_native::emitir_ir(&input, &options)
         })

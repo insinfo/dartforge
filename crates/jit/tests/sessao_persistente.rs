@@ -142,7 +142,7 @@ fn medicao_sessao_persistente() {
     let emitido = std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
-            let opcoes = dartforge_emit_native::CompileOptions { sdk: None, packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false };
+            let opcoes = dartforge_emit_native::CompileOptions { sdk: None, packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None };
             // O runtime embutido (`JitSession::new`): o perfil sem o SDK da
             // fonte, que não importa nada da biblioteca do SDK.
             dartforge_emit_native::emitir_ir_com(&fonte, &opcoes, false).unwrap().texto

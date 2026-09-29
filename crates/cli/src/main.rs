@@ -116,12 +116,11 @@ fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error:
                         *rel_motor.borrow_mut() = Some(texto);
                         Ok(g)
                     }
-                    // O motor não é pré-requisito: sem ele, o carregador lê
-                    // o que estiver no disco, como antes.
-                    Err(e) => {
-                        *rel_motor.borrow_mut() = Some(format!("aviso: motor de build desligado: {e}"));
-                        Ok(std::sync::Arc::new(dartforge_elements::gerado::Geracao::default()))
-                    }
+                    // Erro do motor (builder que falhou, configuração
+                    // ilegível) falha a compilação: uma geração vazia faria o
+                    // carregador ler do disco saídas antigas como se fossem
+                    // desta compilação (DF-BUILD-005).
+                    Err(e) => Err(format!("motor de build: {e}")),
                 }
             };
             let gerador: Option<dartforge_emit_js::Gerador<'_>> = motor.as_ref().map(|_| &gerar as _);

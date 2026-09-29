@@ -54,16 +54,21 @@ fn emitir_geracao(
     std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
-            let opcoes = dartforge_emit_native::CompileOptions {
-                sdk: sdk.as_deref(),
-                packages: packages.as_deref(),
-                timings: false,
-                optimize: false,
-                versao_linguagem: None,
-                experimentos: Vec::new(),
-                depuracao: false,
-            };
-            dartforge_emit_native::emitir_ir_recarregavel(&entrada, &opcoes, anterior.as_deref().map(String::as_str))
+            // O motor de build do projeto, se ele usa builders (DF-BUILD-009):
+            // cada geração do programa refaz a geração das fontes.
+            crate::motor::com_gerador(&entrada, packages.as_deref(), |gerador| {
+                let opcoes = dartforge_emit_native::CompileOptions {
+                    sdk: sdk.as_deref(),
+                    packages: packages.as_deref(),
+                    timings: false,
+                    optimize: false,
+                    versao_linguagem: None,
+                    experimentos: Vec::new(),
+                    depuracao: false,
+                    gerador,
+                };
+                dartforge_emit_native::emitir_ir_recarregavel(&entrada, &opcoes, anterior.as_deref().map(String::as_str))
+            })
         })
         .map_err(|e| e.to_string())?
         .join()
