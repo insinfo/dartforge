@@ -335,6 +335,10 @@ pub struct ExtensionTypeDecl {
     pub representation_metadata: Box<[Annotation]>,
     pub representation_type: TypeId,
     pub representation_name: Name,
+    /// A lista `( … )` inteira do construtor primário. O que ela tem além da
+    /// representação (parâmetros descartados pela recuperação, com os
+    /// defaults) não pertence a declaração nenhuma.
+    pub representation_span: Span,
     pub implements: Box<[TypeId]>,
     pub members: Vec<MemberId>,
 }

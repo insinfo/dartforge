@@ -4492,6 +4492,55 @@ mod espaco_de_objetos {
     }
 
     #[test]
+    fn mapa_de_referencias_alem_de_32_campos() {
+        let mut heap = Heap::new(false);
+        let frame = heap.push_frame_with_slots(1);
+        let o = heap.alocar_objeto(1, 40);
+        heap.set_root(frame, 0, o);
+        let mut filhos = Vec::new();
+        for i in [0usize, 31, 32, 39] {
+            let f = heap.alocar_objeto(2, 0);
+            heap.set(o, i as i64, f, true);
+            filhos.push(f);
+        }
+        // Um escalar que parece handle não segura nada.
+        let lixo = heap.alocar_objeto(3, 0);
+        heap.set(o, 33, lixo, false);
+        heap.coletar(false);
+        for f in &filhos {
+            assert!(heap.objeto(*f).is_some());
+        }
+        assert!(heap.objeto(lixo).is_none());
+        let obj = heap.objeto(o).expect("objeto");
+        assert_eq!(obj.campo(32), (filhos[2], true));
+        assert!(!obj.campo(33).1);
+        // Trocar a referência por escalar apaga o bit.
+        heap.set(o, 39, 5, false);
+        heap.coletar(false);
+        assert!(heap.objeto(filhos[3]).is_none());
+    }
+
+    #[test]
+    fn corpo_de_fora_segue_na_coleta_e_na_barreira() {
+        let mut heap = Heap::new(false);
+        let frame = heap.push_frame_with_slots(1);
+        let o = heap.alocar_objeto(1, 1);
+        heap.set_root(frame, 0, o);
+        heap.coletar(false);
+        // O objeto velho cresce (corpo de fora) e recebe um jovem no campo
+        // novo: a coleta menor o acha pelo lembrado.
+        heap.garantir_campos(o, 3);
+        let jovem = heap.alocar_objeto(2, 0);
+        heap.set(o, 2, jovem, true);
+        heap.coletar(true);
+        assert!(heap.objeto(jovem).is_some());
+        assert_eq!(heap.objeto(o).expect("objeto").len(), 3);
+        heap.pop_frame(frame);
+        heap.coletar(false);
+        assert_eq!(heap.stats().live_objects, 0);
+    }
+
+    #[test]
     fn objeto_grande_tem_pagina_propria() {
         let mut heap = Heap::new(false);
         let o = heap.alocar_objeto(9, MAIOR_CLASSE + 100);

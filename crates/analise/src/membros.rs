@@ -584,6 +584,20 @@ fn this_sem_acesso(cx: &mut Ctx<'_>) {
             DeclKind::Typedef(_) => {}
         }
     }
+    // Os parâmetros que a representação de um extension type descarta não
+    // existem para o analyzer (`AstBuilder.endPrimaryConstructor`).
+    let descartados: Vec<Span> = programa
+        .unit(cx.u)
+        .unit
+        .declarations
+        .iter()
+        .filter_map(|&id| match &ast_.decl(id).kind {
+            DeclKind::ExtensionType(d) => Some(d.representation_span),
+            _ => None,
+        })
+        .collect();
+    let usos: Vec<Span> =
+        usos.into_iter().filter(|u| !descartados.iter().any(|d| d.start <= u.start && u.end <= d.end)).collect();
     for (i, f) in ast_.functions.iter().enumerate() {
         if let Some(sp) = corpo(&f.body) {
             regioes.push((sp, papel.get(&(i as u32)).copied().unwrap_or(Acesso::Herda)));

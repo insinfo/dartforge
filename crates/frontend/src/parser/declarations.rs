@@ -41,8 +41,8 @@ use crate::ast::{
     Annotation, AsyncModifier, ClassDecl, ClassModifiers, Combinator, CompilationUnit,
     Configuration, Constructor, Decl, DeclId, DeclKind, Directive, DirectiveKind, EnumConstant,
     EnumDecl, ExtensionDecl, ExtensionTypeDecl, Function, FunctionBody, FunctionId, FunctionKind,
-    Initializer, Member, MemberId, MemberKind, MixinDecl, Name, RedirectTarget, TypeId,
-    TypedefDecl, TypedefKind, Variable, VariableList,
+    Initializer, Member, MemberId, MemberKind, MixinDecl, Name, ParameterKind, RedirectTarget,
+    TypeAnnotation, TypeId, TypeKind, TypedefDecl, TypedefKind, Variable, VariableList,
 };
 use crate::features::Feature;
 use crate::token::{Keyword, Kind, Op};
@@ -1242,24 +1242,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else {
             None
         };
-        self.expect_op(Op::LParen)?;
-        let representation_metadata = self.parse_metadata()?;
-        // `final` é a forma declarante do construtor primário (3.13); `var`
-        // é erro num extension type (a representação não tem setter).
-        if self.at_kw(Keyword::Final) {
-            let t = self.advance();
-            self.exigir_no_ast(Feature::PrimaryConstructors, t.span);
-        } else if self.at_kw(Keyword::Var) {
-            let t = self.advance();
-            self.diagnostics.push(Diagnostic::com_codigo(
-                codigos::parser::REPRESENTATION_FIELD_MODIFIER,
-                t.span,
-                Vec::<&str>::new(),
-            ));
-        }
-        let representation_type = self.parse_type()?;
-        let representation_name = self.expect_identifier()?;
-        self.expect_op(Op::RParen)?;
+        let inicio_representacao = self.span();
+        let (representation_metadata, representation_type, representation_name) = self.parse_representacao()?;
+        let representation_span = self.span_from(inicio_representacao);
         let implements = self.parse_implements_opt()?;
         let members = self.parse_class_body_ou_vazio(Some(name_text))?;
         Ok(ExtensionTypeDecl {
@@ -1270,9 +1255,94 @@ impl<'s, 'i> Parser<'s, 'i> {
             representation_metadata: representation_metadata.into_boxed_slice(),
             representation_type,
             representation_name,
+            representation_span,
             implements: implements.into_boxed_slice(),
             members,
         })
+    }
+
+    /// A lista de parâmetros do construtor primário de um extension type
+    /// (`parseFormalParameters` com `MemberKind.PrimaryConstructor`) e a
+    /// representação que o `AstBuilder.endPrimaryConstructor` tira dela: o
+    /// primeiro parâmetro, se é posicional simples (senão
+    /// `EXPECTED_REPRESENTATION_FIELD` no token depois do `(`, e tipo e nome
+    /// sintéticos); sem tipo, `EXPECTED_REPRESENTATION_TYPE`; `var`/`final`
+    /// (antes da 3.13, em que `final` declara), `REPRESENTATION_FIELD_MODIFIER`;
+    /// a vírgula depois dele, `REPRESENTATION_FIELD_TRAILING_COMMA` (um só
+    /// parâmetro) ou `MULTIPLE_REPRESENTATION_FIELDS`.
+    fn parse_representacao(&mut self) -> PResult<(Vec<Annotation>, TypeId, Name)> {
+        let abre = self.pos;
+        if !self.at_op(Op::LParen) {
+            return Err(self.erro_esperado("("));
+        }
+        let salvo = self.em_construtor_primario;
+        self.em_construtor_primario = true;
+        let params = self.parse_formal_parameters();
+        self.em_construtor_primario = salvo;
+        let mut params = params?;
+        let depois_abre = self.tokens[abre + 1].span;
+        let sintetico = |p: &mut Self| {
+            let s = Span { start: depois_abre.start, end: depois_abre.start };
+            let nome = p.name_from("", s);
+            let ty = p.ast.push_type(TypeAnnotation {
+                span: s,
+                nullable: false,
+                kind: TypeKind::Named { name: vec![nome].into_boxed_slice(), args: Vec::new().into_boxed_slice() },
+            });
+            (ty, nome)
+        };
+        let simples = params.first().is_some_and(|p| {
+            p.kind == ParameterKind::Required && !p.this_ && !p.super_ && p.function_parameters.is_none() && p.name.is_some()
+        });
+        // O analyzer novo (3.13.4, o único que lê bibliotecas depois da 3.6)
+        // relata mais de um parâmetro como `MULTIPLE_REPRESENTATION_FIELDS`
+        // na primeira vírgula, qualquer que seja a forma do primeiro.
+        let n = params.len();
+        if self.features.versao() > crate::features::LanguageVersion::PISO && n > 1 && !simples {
+            let fim = params[0].span.end;
+            if let Some(virgula) =
+                self.tokens[abre..self.pos].iter().find(|t| t.span.start >= fim && t.kind == Kind::Op(Op::Comma))
+            {
+                let span = virgula.span;
+                self.erro_em(codigos::parser::MULTIPLE_REPRESENTATION_FIELDS, span, &[]);
+            }
+            let (ty, nome) = sintetico(self);
+            return Ok((Vec::new(), ty, nome));
+        }
+        if !simples {
+            self.erro_em(codigos::parser::EXPECTED_REPRESENTATION_FIELD, depois_abre, &[]);
+            let (ty, nome) = sintetico(self);
+            return Ok((Vec::new(), ty, nome));
+        }
+        let p = params.swap_remove(0);
+        let ty = match p.ty {
+            Some(ty) => ty,
+            // Com `final`/`var` o 3.13.4 (a forma declarante) aceita sem tipo.
+            None if p.final_ || p.var_ => sintetico(self).0,
+            None => {
+                self.erro_em(codigos::parser::EXPECTED_REPRESENTATION_TYPE, depois_abre, &[]);
+                sintetico(self).0
+            }
+        };
+        let modificador = p.var_ || (p.final_ && !self.features.tem(Feature::PrimaryConstructors));
+        if modificador {
+            let alvo = if p.var_ { Keyword::Var } else { Keyword::Final };
+            if let Some(t) = self.tokens[abre..self.pos].iter().find(|t| t.span.start >= p.span.start && t.kind == Kind::Keyword(alvo)) {
+                let span = t.span;
+                self.erro_em(codigos::parser::REPRESENTATION_FIELD_MODIFIER, span, &[]);
+            }
+        }
+        if let Some(virgula) = self.tokens[abre..self.pos].iter().find(|t| t.span.start >= p.span.end).filter(|t| t.kind == Kind::Op(Op::Comma)) {
+            let span = virgula.span;
+            let codigo = if n == 1 {
+                codigos::parser::REPRESENTATION_FIELD_TRAILING_COMMA
+            } else {
+                codigos::parser::MULTIPLE_REPRESENTATION_FIELDS
+            };
+            self.erro_em(codigo, span, &[]);
+        }
+        let nome = p.name.expect("parâmetro simples tem nome");
+        Ok((p.metadata.into_vec(), ty, nome))
     }
 
     /// Posição após `<...>` iniciado em `pos` contando só `<`/`>` (serve para

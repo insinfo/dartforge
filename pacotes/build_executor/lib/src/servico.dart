@@ -316,6 +316,8 @@ final class _Servico {
       logs.add({'nivel': 'severo', 'mensagem': '$e\n$s'});
       falhou = true;
     }
+    _log(() => 'ação $id: ${falhou ? 'falhou' : 'ok'}'
+        '${logs.where((l) => l['nivel'] == 'severo').map((l) => '\n  ${l['mensagem']}').join()}');
     canal.enviar({'t': 'build.resultado', 'id': id, 'saidas': const [], 'logs': logs, 'falhou': falhou});
   }
 }
