@@ -36,13 +36,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // A tupla desta chamada não vaza para a de fora (um getter de
         // extensão pode ser argumento de uma chamada genérica já armada).
         let salvo = self.tupla_armada.take();
+        let e_chamada = chamada.is_some();
         self.armar_tupla_com_receptor(fid, receptor, chamada);
-        let r = self.chamar_extensao_armada(recv, fid, avaliados, span);
+        let r = self.chamar_extensao_armada(recv, fid, avaliados, e_chamada, span);
         self.tupla_armada = salvo;
         r
     }
 
-    fn chamar_extensao_armada(&mut self, recv: Operand, fid: usize, avaliados: &[Avaliado], span: Span) -> Operand {
+    /// `e_chamada`: a expressão é uma chamada (`x.g()`); num getter, o valor
+    /// que ele devolve é chamado com os argumentos (mesmo sem nenhum).
+    fn chamar_extensao_armada(&mut self, recv: Operand, fid: usize, avaliados: &[Avaliado], e_chamada: bool, span: Span) -> Operand {
         let f = &self.ctx.program.functions[fid];
         if !super::funcao_do_usuario(self.ctx, fid) || !super::membros::tem_corpo(self.ctx, fid) {
             return self.nao_suportado("membro de extensão do SDK", span);
@@ -57,7 +60,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return self.nao_suportado("membro de extensão sem extensão", span);
         };
         let recv = self.coagir(recv, r);
-        if f.kind == FunctionKind::Getter && !avaliados.is_empty() {
+        if f.kind == FunctionKind::Getter && (e_chamada || !avaliados.is_empty()) {
             let v = self.chamar_direto(fid, Some(recv), Vec::new());
             return self.chamar_valor_funcao(v, avaliados);
         }
