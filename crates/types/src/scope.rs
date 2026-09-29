@@ -48,7 +48,13 @@ pub fn supertipos_ordenados(
     for &m in program.classes[class.0 as usize].mixin_classes.iter().rev() {
         empurrar(m, &mut saida);
     }
+    // A cadeia de superclasses pode ter ciclo (`class C extends C`, erro
+    // `recursive_interface_inheritance`): cada classe entra uma vez.
+    let mut cadeia: std::collections::HashSet<ClassId> = std::collections::HashSet::new();
     while let Some(c) = atual {
+        if !cadeia.insert(c) {
+            break;
+        }
         empurrar(c, &mut saida);
         for &m in program.classes[c.0 as usize].mixin_classes.iter().rev() {
             empurrar(m, &mut saida);

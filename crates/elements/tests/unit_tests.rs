@@ -506,3 +506,17 @@ fn escopo_de_imports_por_unidade() {
     let prog2 = load(&proj2.join("main.dart"), &sdk, None, &mut interner).expect("carregamento falhou");
     assert!(prog2.libraries.iter().all(|l| l.escopos_de_unidade.is_empty()));
 }
+
+/// `part` do próprio arquivo (`part/self_test.dart` da linguagem): a carga
+/// termina, com a unidade uma vez só.
+#[test]
+fn parte_de_si_mesma_nao_recarrega() {
+    let dir = tempdir().unwrap();
+    let sdk = empty_sdk(dir.path());
+    let main = dir.path().join("self_test.dart");
+    fs::write(&main, "part 'self_test.dart';\nmain() {}\n").unwrap();
+    let mut nomes = Interner::new();
+    let (p, _) = dartforge_elements::load::load_lenient(&main, &sdk, None, &mut nomes);
+    let lib = p.library(p.entry.unwrap());
+    assert_eq!(lib.units.len(), 1);
+}

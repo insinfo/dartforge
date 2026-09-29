@@ -550,3 +550,18 @@ fn test_accumulated_diagnostics_unknown_type() {
 
     assert!(found_bad && found_good, "ambos os campos devem ter sido inspecionados");
 }
+
+/// `class C extends C` (`recursive_interface_inheritance`): o outline termina
+/// (a cadeia de superclasses com ciclo é percorrida uma vez).
+#[test]
+fn superclasse_de_si_mesma_termina() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    fs::write(&main_dart, "class C extends C {\n  var foo = 0;\n  bar();\n}\n").unwrap();
+    let (prog, _) = dartforge_elements::load::load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let _ = resolve_outline(&prog, &interner, &mut table, &core);
+}

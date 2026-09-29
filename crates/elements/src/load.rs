@@ -563,6 +563,17 @@ fn carregar_leniente(
                                 (p, u)
                             }
                         };
+                        // Uma parte que já é unidade desta biblioteca (`part` do
+                        // próprio arquivo, ou ciclo de partes aninhadas) não é
+                        // carregada de novo: a carga não termina.
+                        let ja_na_biblioteca = program.libraries[lib_id.0 as usize]
+                            .units
+                            .iter()
+                            .copied()
+                            .find(|u| program.units[u.0 as usize].path.as_deref() == Some(canonical_part.as_path()));
+                        if ja_na_biblioteca.is_some() {
+                            continue;
+                        }
                         let da_biblioteca = program.libraries[lib_id.0 as usize].features;
                         let versao_da_parte = if program.libraries[lib_id.0 as usize].is_sdk {
                             Versao::Sdk

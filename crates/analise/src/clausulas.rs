@@ -433,6 +433,22 @@ impl Leitor<'_> {
         Some(s)
     }
 
+    /// A classe (ou mixin) declara campo de instância?
+    fn tem_campo_de_instancia(&self, id: ClassId) -> bool {
+        let c = self.programa.class(id);
+        if matches!(c.kind, ClassKind::Enum | ClassKind::ExtensionType) {
+            return false;
+        }
+        let Some(decl) = c.decl else { return false };
+        let ast_ = &self.programa.unit(decl.unit).ast;
+        let membros = match &ast_.decl(decl.decl).kind {
+            DeclKind::Class(d) => &d.members,
+            DeclKind::Mixin(d) => &d.members,
+            _ => return false,
+        };
+        membros.iter().any(|&m| matches!(&ast_.member(m).kind, ast::MemberKind::Field(vl) if !vl.static_))
+    }
+
     fn e_enum_do_core(&self, id: ClassId) -> bool {
         let c = self.programa.class(id);
         self.programa.library(c.library).uri == "dart:core" && self.nome(c.name) == "Enum"
@@ -932,6 +948,55 @@ pub fn nomes_de_clausulas(programa: &Program, lib: LibraryId) -> Vec<(UnitId, us
     v
 }
 
+/// Os supertipos diretos de `x` como o modelo de elementos do analyzer os
+/// guarda: a superclasse (uma classe; `extends` de mixin, enum ou tipo que
+/// não é classe não entra), os mixins, as restrições `on` e as interfaces.
+fn diretos(l: &Leitor<'_>, x: ClassId) -> (Option<ClassId>, Vec<ClassId>, Vec<ClassId>, Vec<ClassId>) {
+    let c = l.programa.class(x);
+    let Some(decl) = c.decl else { return (None, Vec::new(), Vec::new(), Vec::new()) };
+    let ast_ = &l.programa.unit(decl.unit).ast;
+    let Some(cl) = clausulas(&ast_.decl(decl.decl).kind) else { return (None, Vec::new(), Vec::new(), Vec::new()) };
+    let classe = |t: ast::TypeId, aceita_mixin: bool| match l.alvo(decl.unit, ast_, t, 0) {
+        Alvo::Classe(y) => match l.programa.class(y).kind {
+            ClassKind::Class | ClassKind::MixinApplication => Some(y),
+            ClassKind::Mixin if aceita_mixin => Some(y),
+            _ => None,
+        },
+        _ => None,
+    };
+    let sup = cl.extends.and_then(|t| classe(t, false));
+    let mixins = cl.with.iter().filter_map(|&t| classe(t, true)).collect();
+    let on = cl.on.iter().filter_map(|&t| classe(t, true)).collect();
+    let interfaces = cl.implements.iter().filter_map(|&t| classe(t, true)).collect();
+    (sup, mixins, on, interfaces)
+}
+
+/// `_checkForRecursiveInterfaceInheritance`: a busca em profundidade do
+/// analyzer (superclasse, mixins, `on`, interfaces), com o caminho até voltar
+/// a `alvo`. Um limite de passos evita a explosão em hierarquias grandes (aí
+/// nada se relata).
+fn ciclo(l: &Leitor<'_>, alvo: ClassId, el: ClassId, caminho: &mut Vec<ClassId>, passos: &mut u32) -> Option<Vec<ClassId>> {
+    *passos += 1;
+    if *passos > 20_000 {
+        return None;
+    }
+    if !caminho.is_empty() && el == alvo {
+        return Some(caminho.clone());
+    }
+    if caminho.iter().position(|&p| p == el).is_some_and(|i| i > 0) {
+        return None;
+    }
+    caminho.push(el);
+    let (sup, mixins, on, interfaces) = diretos(l, el);
+    for s in sup.into_iter().chain(mixins).chain(on).chain(interfaces) {
+        if let Some(r) = ciclo(l, alvo, s, caminho, passos) {
+            return Some(r);
+        }
+    }
+    caminho.pop();
+    None
+}
+
 /// `_checkForRepeatedType`: o segundo tipo de interface com o mesmo elemento.
 fn repetidos(
     l: &Leitor<'_>,
@@ -1027,7 +1092,9 @@ pub fn verificar(
             }
         }
 
-        // `InheritanceOverrideVerifier._checkDirectSuperTypes`.
+        // `InheritanceOverrideVerifier._checkDirectSuperTypes`; `direto_erro`
+        // é o `true` que ele devolve (e que encerra o `verify()`).
+        let mut direto_erro = false;
         if !consumidora.is_sdk {
             let versao = consumidora.features.versao();
             let enums_melhorados = (versao.major, versao.minor) >= (2, 17);
@@ -1048,6 +1115,7 @@ pub fn verificar(
                     let span = ast_.ty(t).span;
                     if l.e_enum_do_core(alvo) && enums_melhorados {
                         if !pode_ter_enum {
+                            direto_erro = true;
                             saida.push((
                                 decl.unit,
                                 Diagnostic::com_codigo(
@@ -1059,6 +1127,9 @@ pub fn verificar(
                         }
                         continue;
                     }
+                    if l.proibida(alvo) {
+                        direto_erro = true;
+                    }
                     if l.proibida(alvo)
                         && let Some(texto) = l.exibir(u, ast_, t, &cl.params)
                     {
@@ -1068,6 +1139,54 @@ pub fn verificar(
                         ));
                     }
                 }
+            }
+        }
+
+        // `_checkMixinOfEnum`: mixin com campo de instância num enum.
+        if classe.kind == ClassKind::Enum {
+            for &t in cl.with {
+                if let Alvo::Classe(m) = l.alvo(u, ast_, t, 0)
+                    && l.tem_campo_de_instancia(m)
+                {
+                    direto_erro = true;
+                }
+            }
+        }
+
+        // `InheritanceOverrideVerifier.verify`: supertipo de si mesmo.
+        // Com a declaração repetida (`duplicate_definition`, `augment class`
+        // sem o experimento), o nome nas cláusulas resolve para outro
+        // elemento que no analyzer; não se decide.
+        let repetida = programa.classes.iter().filter(|c| c.library == lib && c.name == classe.name).count() > 1;
+        if !direto_erro && !repetida && !ast_.decl(decl.decl).augment {
+            let mut passos = 0;
+            let mut caminho = Vec::new();
+            if let Some(ciclo) = ciclo(&l, id, id, &mut caminho, &mut passos) {
+                let nome = l.nome(classe.name);
+                let span = match &ast_.decl(decl.decl).kind {
+                    DeclKind::Class(d) => d.name.span,
+                    DeclKind::Enum(d) => d.name.span,
+                    DeclKind::Mixin(d) => d.name.span,
+                    _ => ast_.decl(decl.decl).span,
+                };
+                let d = if ciclo.len() > 1 {
+                    let mut texto: Vec<&str> = ciclo.iter().map(|&x| l.nome(programa.class(x).name)).collect();
+                    texto.push(nome);
+                    Diagnostic::com_codigo(c::RECURSIVE_INTERFACE_INHERITANCE, span, [nome, texto.join(", ").as_str()])
+                } else {
+                    let (sup, mixins, on, _) = diretos(&l, id);
+                    let codigo = if sup == Some(id) {
+                        c::RECURSIVE_INTERFACE_INHERITANCE_EXTENDS
+                    } else if on.contains(&id) {
+                        c::RECURSIVE_INTERFACE_INHERITANCE_ON
+                    } else if mixins.contains(&id) {
+                        c::RECURSIVE_INTERFACE_INHERITANCE_WITH
+                    } else {
+                        c::RECURSIVE_INTERFACE_INHERITANCE_IMPLEMENTS
+                    };
+                    Diagnostic::com_codigo(codigo, span, [nome])
+                };
+                saida.push((decl.unit, d));
             }
         }
 
@@ -1508,6 +1627,30 @@ mod testes {
         ];
         let esperado: Vec<(String, String, String)> =
             esperado.iter().map(|(a, b, c)| (a.to_string(), b.to_string(), c.to_string())).collect();
+        assert_eq!(v, esperado);
+    }
+
+    /// `_checkForRecursiveInterfaceInheritance`: o caminho da busca em
+    /// profundidade (corpus `recursive_interface_inheritance`, oráculo 3.6.2)
+    /// e os casos de base.
+    #[test]
+    fn supertipo_de_si_mesmo() {
+        let v = rodar(
+            "ciclo",
+            "class A extends B {}\nclass B implements C {}\nclass C extends A {}\nclass D extends B {}\nclass E extends E {\n  var foo = 0;\n}\nmixin M on M {}\nclass F with F {}\nclass G implements G {}\n",
+        );
+        let esperado = [
+            ("recursive_interface_inheritance", "A", "'A' can't be a superinterface of itself: A, B, C, A."),
+            ("recursive_interface_inheritance", "B", "'B' can't be a superinterface of itself: B, C, A, B."),
+            ("recursive_interface_inheritance", "C", "'C' can't be a superinterface of itself: C, A, B, C."),
+            ("recursive_interface_inheritance", "E", "'E' can't extend itself."),
+            ("recursive_interface_inheritance", "F", "'F' can't use itself as a mixin."),
+            ("recursive_interface_inheritance", "G", "'G' can't implement itself."),
+            ("recursive_interface_inheritance", "M", "'M' can't use itself as a superclass constraint."),
+        ];
+        let esperado: Vec<(String, String, String)> =
+            esperado.iter().map(|(a, b, c)| (a.to_string(), b.to_string(), c.to_string())).collect();
+        let v: Vec<_> = v.into_iter().filter(|x| x.0 == "recursive_interface_inheritance").collect();
         assert_eq!(v, esperado);
     }
 }
