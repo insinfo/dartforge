@@ -162,6 +162,14 @@ abstract final class _StringBase implements String {
 
     final typedCharCodes = unsafeCast<List<int>>(charCodes);
 
+    // DartForge: a lista do runtime toda em Latin-1 vira a string numa
+    // cópia só (`_deCodigos`); o resto (unidade acima de 0xFF ou não `Smi`,
+    // `Uint16List`) segue o caminho da VM, com os erros dela.
+    if (limit == null || limit <= _maxLatin1) {
+      final s = _deCodigos(typedCharCodes, start, end);
+      if (s != null) return s;
+    }
+
     final int actualLimit = limit ?? _scanCodeUnits(typedCharCodes, start, end);
     if (actualLimit < 0) {
       throw new ArgumentError(typedCharCodes);
@@ -178,6 +186,9 @@ abstract final class _StringBase implements String {
     // charCodes are not all Latin-1 or UTF-16.
     return _createFromCodePoints(typedCharCodes, start, end);
   }
+
+  @pragma("vm:external-name", "DartForge_string_de_codigos")
+  external static String? _deCodigos(List<int> codigos, int inicio, int fim);
 
   static int _scanCodeUnits(List<int> charCodes, int start, int end) {
     int bits = 0;
