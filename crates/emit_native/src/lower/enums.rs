@@ -144,14 +144,42 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Ref,
         );
-        // Enum genérico (`a<bool>()`, ou inferido pelo construtor): o valor
-        // guarda o tipo dele (`E<bool>`), como qualquer instância genérica.
-        if self.classe_generica(cid) {
-            let t = super::membros::tipo_da_variavel(self.ctx, vid);
-            if matches!(self.ctx.table.get(t), dartforge_types::table::Type::Interface { class, args, .. }
-                if *class == cid && !args.is_empty())
-            {
-                let r = self.rti_de_tipo(t);
+        // Enum genérico: o valor guarda o tipo dele, como qualquer instância
+        // genérica — os argumentos escritos (`a<bool>()`) ou, sem eles, os
+        // limites dos parâmetros (`E<Object>` para `T extends Object`).
+        if self.classe_generica(cid)
+            && let DeclKind::Enum(e) = &self.ctx.program.unit(unit).ast.decl(decl).kind
+        {
+            let escritos = e.constants[index].type_args.to_vec();
+            let receita = if escritos.is_empty() {
+                let params = self.ctx.outline.classes[cid.0 as usize].type_params.clone();
+                let mut r = super::rti::Receita { texto: String::new(), variaveis: false };
+                for (i, p) in params.iter().enumerate() {
+                    if i > 0 {
+                        r.texto.push(',');
+                    }
+                    // Sem limite escrito, `dynamic` (instanciar para os limites).
+                    let d = self.ctx.table.param(*p);
+                    if !d.explicito {
+                        r.texto.push('D');
+                        continue;
+                    }
+                    let x = self.receita_de_tipo(d.bound);
+                    r.texto.push_str(&x.texto);
+                    r.variaveis |= x.variaveis;
+                }
+                r
+            } else {
+                let salvo = std::mem::replace(&mut self.unit_id, unit);
+                let r = self.receitas_dos_argumentos_de_tipo(&escritos);
+                self.unit_id = salvo;
+                r
+            };
+            if !receita.variaveis {
+                let r = self.rti_da_receita(&super::rti::Receita {
+                    texto: format!("C{}<{}>", self.ctx.id_rti(cid), receita.texto),
+                    variaveis: false,
+                });
                 self.definir_rti(obj.clone(), r);
             }
         }

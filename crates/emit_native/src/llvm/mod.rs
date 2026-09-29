@@ -1061,9 +1061,20 @@ impl<'a> LlvmEmitter<'a> {
                     Instruction::Store { ptr, val } => {
                         // O local guarda a representação do seu tipo (R6); o
                         // valor chega já coagido pelo lowering, e aqui só se
-                        // acerta a largura.
+                        // acerta a largura. Um ponteiro que não é `alloca`
+                        // desta função (o endereço de um local de quem chama
+                        // uma função local direta, `funcoes_diretas.rs`)
+                        // grava na largura do valor, a do local de lá: um
+                        // `bool` gravado como `i64` pisava 7 bytes do quadro
+                        // de quem chamou (o `listenerHasError` do
+                        // `_Future._propagateToListeners`).
                         let t = match ptr {
-                            Operand::Val(p) => self.apontado.get(p).copied().unwrap_or(Type::I64),
+                            Operand::Val(p) => self.apontado.get(p).copied().unwrap_or_else(|| match self.tipo_de(val) {
+                                Type::I1 => Type::I1,
+                                Type::I8 => Type::I8,
+                                Type::F64 => Type::F64,
+                                _ => Type::I64,
+                            }),
                             _ => Type::I64,
                         };
                         let sp = self.operand_str(ptr);
