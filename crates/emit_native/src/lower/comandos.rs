@@ -540,7 +540,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 );
             }
             StmtKind::Function(fid) => {
-                self.declarar_funcao_local(ast, *fid, stmt.span);
+                if self.funcao_local_direta(*fid) {
+                    self.declarar_funcao_direta(ast, *fid, stmt.span);
+                } else {
+                    self.declarar_funcao_local(ast, *fid, stmt.span);
+                }
             }
             StmtKind::Try {
                 body,

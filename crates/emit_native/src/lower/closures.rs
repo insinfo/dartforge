@@ -71,8 +71,24 @@ pub struct ParamEntrada {
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Pré-passe das células (antes de declarar os parâmetros).
+    /// Com as funções locais diretas (`funcoes_diretas.rs`), salvo num
+    /// corpo `async`/gerador (`sem_diretas`).
     pub fn preparar_capturas(&mut self, ast: &ast::Ast, raiz: Raiz) {
-        self.celulas = captura::analisar(self.ctx, self.unit_id, ast, raiz).celulas;
+        // Os `late` de fora visíveis aqui (capturas já ligadas): uma função
+        // que os lê não pode ser direta (a marca de inicialização não vai
+        // pelo parâmetro).
+        let lates_de_fora: std::collections::HashSet<SymbolId> = self
+            .escopos
+            .iter()
+            .flat_map(|e| e.iter())
+            .filter(|(_, l)| l.late.is_some())
+            .map(|(s, _)| *s)
+            .collect();
+        let c = captura::analisar_com(self.ctx, self.unit_id, ast, raiz, !self.sem_diretas, &lates_de_fora);
+        self.celulas = c.celulas;
+        self.celulas_se_ref = c.celulas_se_ref;
+        self.atribuidos = c.atribuidas;
+        self.diretas_permitidas = c.diretas;
     }
 
     /// Nome do corpo de uma closure dentro desta função: `$clo<k>` para as

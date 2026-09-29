@@ -34,7 +34,7 @@
 //!   gramática (`x ?? throw e` exige parênteses, e o corpus os tem).
 //! * `await` é operador apenas em corpo `async`; fora dele é identificador.
 //!
-//! Em padrões constantes ([`Parser::parse_unary_expression`]) o `!` final que
+//! Em padrões constantes (`parse_unary(true)`) o `!` final que
 //! não é seguido de seletor fica para o parser de padrões (é um padrão de
 //! asserção de nulo), exatamente como o SDK faz com `ConstantPatternContext`.
 use super::{ComposedGt, ForHeader, PResult, Parser};
@@ -108,15 +108,6 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `bitwiseOrExpression` — operando de padrões relacionais.
     pub(crate) fn parse_bitwise_or_expression(&mut self) -> PResult<ExprId> {
         self.parse_binary(LEVEL_BIT_OR)
-    }
-
-    /// `unaryExpression` — padrões constantes.
-    ///
-    /// Um `!` final que não é seguido de seletor (`.`, `?.`, `?`, `(`, `[`)
-    /// **não** é consumido: em padrão ele é asserção de nulo do padrão, e o
-    /// chamador o lê.
-    pub(crate) fn parse_unary_expression(&mut self) -> PResult<ExprId> {
-        self.parse_unary(true)
     }
 
     /// `(args)` com os parênteses; sem argumentos de tipo (o chamador os lê).

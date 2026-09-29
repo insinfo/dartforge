@@ -156,7 +156,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.erro_de_linguagem(&format!("'{nome}' is already declared in this scope."), dartforge_diagnostics::Span { start: offset, end: fim });
         }
         let ty = Self::repr_de_local(ty);
-        if !self.celulas.contains(&offset) {
+        // Capturada só por funções diretas e atribuída: o escalar vai pelo
+        // endereço do `alloca`; o `Ref`, pela célula (`funcoes_diretas.rs`).
+        let celula = self.celulas.contains(&offset) || (ty == Type::Ref && self.celulas_se_ref.contains(&offset));
+        if !celula {
             let ptr = self.alloca_na_entrada(ty);
             let v = self.coagir(valor, ty);
             self.emit(
@@ -300,6 +303,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 late,
             },
         );
+    }
+
+    /// Liga um nome a um local já montado (as capturas de uma função
+    /// direta, `funcoes_diretas.rs`).
+    pub(super) fn ligar_local_como(&mut self, sym: SymbolId, local: Local) {
+        self.inserir_local(sym, local);
     }
 
     /// Liga um nome a um valor já calculado (parâmetro de closure em linha).

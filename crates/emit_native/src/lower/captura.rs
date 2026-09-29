@@ -63,6 +63,33 @@ struct Percurso<'x, 'a> {
     /// Nomes sem declaração no percurso que ele grava.
     livres_gravados: HashSet<SymbolId>,
     usa_this: bool,
+    // --- funções locais diretas (`funcoes_diretas.rs`) ---
+    /// As funções abertas, da mais externa à corrente: a função local
+    /// nomeada (`Some`) ou a expressão de função (`None`). O tamanho é `prof`.
+    pilha: Vec<Option<FunctionId>>,
+    /// Nome (offset) de cada função local declarada no percurso → a função.
+    funcoes_locais: HashMap<usize, FunctionId>,
+    /// Cada referência a uma função local: a função, se ela é o alvo de uma
+    /// chamada `f(…)`, e as funções atravessadas entre a declaração e a
+    /// referência.
+    refs: Vec<(FunctionId, bool, Vec<Option<FunctionId>>)>,
+    /// Funções locais que não podem ser diretas pela forma (genérica,
+    /// `async`/gerador, parâmetro opcional ou nomeado, lê um `late` de fora).
+    descartadas: HashSet<FunctionId>,
+    /// Offsets das declarações `late`.
+    lates: HashSet<usize>,
+    /// Nomes de fora da raiz que são `late`.
+    lates_de_fora: HashSet<SymbolId>,
+    /// O identificador que é o alvo da chamada sendo percorrida.
+    alvo_de_chamada: Option<ExprId>,
+    /// As funções locais diretas (segunda passada): chamá-las não captura
+    /// nada, o nome delas não é variável, e o que elas leem de fora vai por
+    /// parâmetro — a variável só precisa de célula se alguma função que
+    /// escapa também a captura.
+    diretas: Option<HashSet<FunctionId>>,
+    /// Declarações da profundidade 0 lidas ou gravadas só de dentro de
+    /// funções diretas (a cadeia inteira até a referência é direta).
+    capturadas_diretas: HashSet<usize>,
 }
 
 impl<'x, 'a> Percurso<'x, 'a> {
@@ -78,6 +105,15 @@ impl<'x, 'a> Percurso<'x, 'a> {
             livres: Vec::new(),
             livres_gravados: HashSet::new(),
             usa_this: false,
+            pilha: Vec::new(),
+            funcoes_locais: HashMap::new(),
+            refs: Vec::new(),
+            descartadas: HashSet::new(),
+            lates: HashSet::new(),
+            lates_de_fora: HashSet::new(),
+            alvo_de_chamada: None,
+            diretas: None,
+            capturadas_diretas: HashSet::new(),
         }
     }
 
@@ -112,16 +148,24 @@ impl<'x, 'a> Percurso<'x, 'a> {
         }
         match self.buscar(sym) {
             Some(d) => {
-                if d.prof == 0 {
-                    if self.prof > 0 {
-                        self.capturadas.insert(d.offset);
-                    }
-                    if grava {
-                        self.atribuidas.insert(d.offset);
+                let atravessadas = self.pilha[(d.prof as usize).min(self.pilha.len())..].to_vec();
+                if let Some(&f) = self.funcoes_locais.get(&d.offset) {
+                    let alvo = !grava && self.alvo_de_chamada == Some(e);
+                    self.refs.push((f, alvo, atravessadas.clone()));
+                    // O nome de uma função direta não é variável.
+                    if self.diretas.as_ref().is_some_and(|s| s.contains(&f)) {
+                        return;
                     }
                 }
+                if self.lates.contains(&d.offset) {
+                    self.descartadas.extend(atravessadas.iter().flatten().copied());
+                }
+                self.usar_declaracao(d, grava, &atravessadas);
             }
             None => {
+                if self.lates_de_fora.contains(&sym) {
+                    self.descartadas.extend(self.pilha.iter().flatten().copied());
+                }
                 if !self.livres.contains(&sym) {
                     self.livres.push(sym);
                 }
@@ -132,10 +176,39 @@ impl<'x, 'a> Percurso<'x, 'a> {
         }
     }
 
+    /// Leitura ou gravação da declaração `d`, vista de dentro das funções
+    /// `atravessadas`: da profundidade 0, é captura (pelo ambiente) se
+    /// alguma delas escapa, e captura direta (por parâmetro) se todas são
+    /// funções locais diretas.
+    fn usar_declaracao(&mut self, d: Decl, grava: bool, atravessadas: &[Option<FunctionId>]) {
+        if d.prof != 0 {
+            return;
+        }
+        if self.prof > 0 {
+            let so_diretas = self
+                .diretas
+                .as_ref()
+                .is_some_and(|s| atravessadas.iter().all(|f| f.is_some_and(|f| s.contains(&f))));
+            if so_diretas {
+                self.capturadas_diretas.insert(d.offset);
+            } else {
+                self.capturadas.insert(d.offset);
+            }
+        }
+        if grava {
+            self.atribuidas.insert(d.offset);
+        }
+    }
+
     /// Uma função (closure ou local) aninhada: parâmetros e corpo numa
-    /// profundidade a mais.
+    /// profundidade a mais. `local`: é a declaração de função local.
     fn funcao(&mut self, fid: FunctionId) {
+        self.funcao_de(fid, false);
+    }
+
+    fn funcao_de(&mut self, fid: FunctionId, local: bool) {
         let f = self.ast.function(fid);
+        self.pilha.push(local.then_some(fid));
         self.prof += 1;
         self.abrir();
         if let Some(params) = &f.parameters {
@@ -144,6 +217,7 @@ impl<'x, 'a> Percurso<'x, 'a> {
         self.corpo(&f.body);
         self.fechar();
         self.prof -= 1;
+        self.pilha.pop();
     }
 
     fn parametros(&mut self, params: &[ast::Parameter]) {
@@ -171,6 +245,9 @@ impl<'x, 'a> Percurso<'x, 'a> {
                 self.expr(i);
             }
             self.declarar(v.name);
+            if lista.late {
+                self.lates.insert(v.name.span.start as usize);
+            }
             // Mesmo sem escrita explícita, a marca de inicialização de um
             // `late` sem initializer deve ser compartilhada com a closure.
             if lista.late && v.initializer.is_none() {
@@ -196,14 +273,26 @@ impl<'x, 'a> Percurso<'x, 'a> {
             }
             StmtKind::Function(fid) => {
                 // O nome existe antes do corpo (recursão) e é ligado depois
-                // de a closure existir: conta como atribuído.
-                if let Some(n) = ast.function(*fid).name {
+                // de a closure existir: conta como atribuído — salvo a
+                // função direta, cujo nome não é variável.
+                let f = ast.function(*fid);
+                if let Some(n) = f.name {
                     self.declarar(n);
-                    if self.prof == 0 {
+                    self.funcoes_locais.insert(n.span.start as usize, *fid);
+                    let direta = self.diretas.as_ref().is_some_and(|s| s.contains(fid));
+                    if self.prof == 0 && !direta {
                         self.atribuidas.insert(n.span.start as usize);
                     }
                 }
-                self.funcao(*fid);
+                let params = f.parameters.as_deref().unwrap_or(&[]);
+                if !f.type_params.is_empty()
+                    || f.modifier != ast::AsyncModifier::None
+                    || params.iter().any(|p| p.kind != ast::ParameterKind::Required || p.default_value.is_some())
+                    || !matches!(f.body, FunctionBody::Block(_) | FunctionBody::Expression(_))
+                {
+                    self.descartadas.insert(*fid);
+                }
+                self.funcao_de(*fid, true);
             }
             StmtKind::Expression(e) => self.expr(*e),
             StmtKind::If {
@@ -352,13 +441,13 @@ impl<'x, 'a> Percurso<'x, 'a> {
                     self.declarar(*name);
                 } else {
                     match self.buscar(name.sym) {
-                        Some(d) if d.prof == 0 => {
-                            if self.prof > 0 {
-                                self.capturadas.insert(d.offset);
+                        Some(d) => {
+                            let atravessadas = self.pilha[(d.prof as usize).min(self.pilha.len())..].to_vec();
+                            if self.lates.contains(&d.offset) {
+                                self.descartadas.extend(atravessadas.iter().flatten().copied());
                             }
-                            self.atribuidas.insert(d.offset);
+                            self.usar_declaracao(d, true, &atravessadas);
                         }
-                        Some(_) => {}
                         None => {
                             if !self.livres.contains(&name.sym) {
                                 self.livres.push(name.sym);
@@ -521,7 +610,9 @@ impl<'x, 'a> Percurso<'x, 'a> {
                 self.expr(*index);
             }
             ExprKind::Call { target, arguments } => {
+                let salvo = self.alvo_de_chamada.replace(*target);
                 self.expr(*target);
+                self.alvo_de_chamada = salvo;
                 self.argumentos(arguments);
             }
             ExprKind::TypeArguments { target, .. } => self.expr(*target),
@@ -581,6 +672,17 @@ impl<'x, 'a> Percurso<'x, 'a> {
 pub struct Capturas {
     /// Offsets das declarações desta função que moram numa célula.
     pub celulas: HashSet<usize>,
+    /// Offsets das declarações desta função capturadas só por funções
+    /// diretas e atribuídas: moram numa célula só se o local é `Ref` (a
+    /// função direta recebe o endereço de um escalar, que o coletor não
+    /// precisa ver; o de um `Ref` fora do quadro de raízes não serve).
+    pub celulas_se_ref: HashSet<usize>,
+    /// Offsets das declarações desta função gravadas em algum ponto.
+    pub atribuidas: HashSet<usize>,
+    /// As funções locais (em qualquer profundidade) chamadas só
+    /// diretamente, de dentro de funções também diretas
+    /// (`funcoes_diretas.rs`).
+    pub diretas: HashSet<FunctionId>,
 }
 
 /// Corpo de uma função a analisar: parâmetros e as partes executáveis.
@@ -594,29 +696,83 @@ pub struct Raiz<'x> {
 /// As células das variáveis declaradas na função `raiz` (parâmetros e
 /// locais do corpo, fora das closures aninhadas).
 pub fn analisar(ctx: &Context, unit: UnitId, ast: &ast::Ast, raiz: Raiz) -> Capturas {
-    let mut p = Percurso::novo(ctx, unit, ast);
-    p.parametros(raiz.parametros);
-    for i in raiz.inicializadores {
-        match i {
-            ast::Initializer::Field { value, .. } => p.expr(*value),
-            ast::Initializer::Super { arguments, .. } | ast::Initializer::Redirect { arguments, .. } => {
-                p.argumentos(arguments)
+    analisar_com(ctx, unit, ast, raiz, false, &HashSet::new())
+}
+
+/// [`analisar`]; com `com_diretas`, as funções locais que não escapam viram
+/// diretas (`funcoes_diretas.rs`): primeiro as referências a cada função
+/// local, e a análise de escape — só é direta a função cujo nome aparece
+/// apenas como alvo de chamada `f(…)`, de dentro da função que a declara
+/// ou de outras funções diretas (uma closure que escapa poderia chamá-la
+/// depois de a função de fora retornar, com os endereços dos locais
+/// dela) —; depois as células com esse conjunto.
+///
+/// `lates_de_fora`: os nomes de fora da raiz (capturas já ligadas) que são
+/// `late`; uma função que os lê também não pode ser direta.
+pub fn analisar_com(
+    ctx: &Context,
+    unit: UnitId,
+    ast: &ast::Ast,
+    raiz: Raiz,
+    com_diretas: bool,
+    lates_de_fora: &HashSet<SymbolId>,
+) -> Capturas {
+    let diretas = if com_diretas {
+        let mut p = Percurso::novo(ctx, unit, ast);
+        p.lates_de_fora = lates_de_fora.clone();
+        p.percorrer(&raiz);
+        let mut diretas: HashSet<FunctionId> =
+            p.funcoes_locais.values().copied().filter(|f| !p.descartadas.contains(f)).collect();
+        loop {
+            let antes = diretas.len();
+            for (f, alvo, atravessadas) in &p.refs {
+                if diretas.contains(f)
+                    && !(*alvo && atravessadas.iter().all(|g| g.is_some_and(|g| diretas.contains(&g))))
+                {
+                    diretas.remove(f);
+                }
             }
-            ast::Initializer::Assert {
-                condition, message, ..
-            } => {
-                p.expr(*condition);
-                if let Some(m) = message {
-                    p.expr(*m);
+            if diretas.len() == antes {
+                break;
+            }
+        }
+        diretas
+    } else {
+        HashSet::new()
+    };
+    let mut p = Percurso::novo(ctx, unit, ast);
+    p.diretas = Some(diretas.clone());
+    p.percorrer(&raiz);
+    let celulas: HashSet<usize> = p.capturadas.intersection(&p.atribuidas).copied().collect();
+    let celulas_se_ref =
+        p.capturadas_diretas.intersection(&p.atribuidas).copied().filter(|o| !celulas.contains(o)).collect();
+    Capturas { celulas, celulas_se_ref, atribuidas: p.atribuidas, diretas }
+}
+
+impl Percurso<'_, '_> {
+    /// Percorre a função `raiz` inteira: parâmetros, lista de
+    /// inicialização e corpo.
+    fn percorrer(&mut self, raiz: &Raiz) {
+        self.parametros(raiz.parametros);
+        for i in raiz.inicializadores {
+            match i {
+                ast::Initializer::Field { value, .. } => self.expr(*value),
+                ast::Initializer::Super { arguments, .. } | ast::Initializer::Redirect { arguments, .. } => {
+                    self.argumentos(arguments)
+                }
+                ast::Initializer::Assert {
+                    condition, message, ..
+                } => {
+                    self.expr(*condition);
+                    if let Some(m) = message {
+                        self.expr(*m);
+                    }
                 }
             }
         }
-    }
-    if let Some(c) = raiz.corpo {
-        p.corpo(c);
-    }
-    Capturas {
-        celulas: p.capturadas.intersection(&p.atribuidas).copied().collect(),
+        if let Some(c) = raiz.corpo {
+            self.corpo(c);
+        }
     }
 }
 

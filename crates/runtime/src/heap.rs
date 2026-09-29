@@ -1248,15 +1248,11 @@ const _: () = {
     assert!(std::mem::offset_of!(Campos, do_espaco) == 16);
 };
 
-/// O menor gatilho de coleta por bytes alocados: com pouco dado vivo, a
-/// coleta vem a cada 4 MiB alocados (o *new space* da VM começa em alguns
-/// MiB e cresce), não a cada 1 MiB — que remarcava o que sobrevive quatro
-/// vezes mais.
-const GATILHO_MINIMO: usize = 4 * 1024 * 1024;
 
 /// A coleta menor vem a cada `LIMITE_JOVEM` bytes alocados (o tamanho do
-/// *new space*, como os 8 MiB do semiespaço da VM em 64 bits)…
-const LIMITE_JOVEM: usize = 8 * 1024 * 1024;
+/// *new space*; o semiespaço da VM começa menor e cresce até 8 MiB em 64
+/// bits — aqui fixo, entre o custo por coleta e o pico de memória)…
+const LIMITE_JOVEM: usize = 4 * 1024 * 1024;
 /// … ou a cada `CONTAGEM_JOVEM` alocações (valores pequenos do runtime).
 const CONTAGEM_JOVEM: usize = 256 * 1024;
 /// No `--gc-stress`, uma coleta completa a cada tantas (as demais, menores:
@@ -2483,7 +2479,7 @@ impl Heap {
             marks: Vec::new(),
             trabalho_da_marcacao: 0,
             pending: Vec::new(),
-            byte_threshold: GATILHO_MINIMO,
+            byte_threshold: 2 * LIMITE_JOVEM,
             limite_bytes: Self::limite_do_ambiente(),
             enum_values: crate::hash::HashMap::default(),
             tearoffs: crate::hash::HashMap::default(),
@@ -3909,11 +3905,15 @@ impl Heap {
         // anterior (a histerese: uma estrutura grande que morre e volta — a
         // lista refeita a cada rodada — não faz o gatilho despencar e voltar
         // a subir com uma coleta completa a cada dobra).
+        // E pelo menos dois semiespaços jovens acima do que sobreviveu: com
+        // pouco dado vivo, o dobro dele vinha antes do gatilho da coleta
+        // menor, e toda coleta era completa (a árvore longa de
+        // `objetos_escapam/arvores` remarcada 250 vezes).
         let crescimento = self
             .stats
             .estimated_bytes
             .saturating_mul(2)
-            .max(GATILHO_MINIMO)
+            .max(self.stats.estimated_bytes.saturating_add(2 * LIMITE_JOVEM))
             .max(self.byte_threshold - self.byte_threshold / 4);
         self.byte_threshold = if self.limite_bytes == usize::MAX {
             crescimento
@@ -4805,7 +4805,10 @@ mod fixed_root_tests {
         let stats = heap.stats();
         assert!(stats.collections >= 3);
         assert!(stats.reclaimed >= 5);
-        assert!(stats.peak_estimated_bytes < 7 * 1024 * 1024);
+        // O pico: o jovem entre coletas menores e o lixo velho (cada payload
+        // enraizado vira velho e morre na volta seguinte) até a completa,
+        // que vem dois semiespaços jovens acima do que sobreviveu.
+        assert!(stats.peak_estimated_bytes < 2 * LIMITE_JOVEM + 3 * 2 * 1024 * 1024, "{}", stats.peak_estimated_bytes);
         heap.pop_frame(frame);
         heap.collect();
         assert_eq!(heap.stats().estimated_bytes, 0);

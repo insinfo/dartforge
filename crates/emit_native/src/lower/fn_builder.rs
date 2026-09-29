@@ -122,6 +122,22 @@ pub struct FnBuilder<'a, 'c> {
     /// implícito): só com todos assim a chamada usa a entrada tipada; o
     /// resto fica com a que confere tudo (`c:`).
     pub args_conferidos: std::collections::HashSet<ValueId>,
+    // --- funções locais diretas (`funcoes_diretas.rs`) ---
+    /// As funções locais que `captura.rs` decidiu diretas nesta função.
+    pub diretas_permitidas: std::collections::HashSet<dartforge_frontend::ast::FunctionId>,
+    /// Offsets das declarações desta função gravadas em algum ponto.
+    pub atribuidos: std::collections::HashSet<usize>,
+    /// Offsets das declarações capturadas só por funções diretas e
+    /// atribuídas: célula só se o local é `Ref`.
+    pub celulas_se_ref: std::collections::HashSet<usize>,
+    /// Offsets das variáveis de fora que chegam a esta função direta pelo
+    /// endereço (repassadas pelo endereço a outra direta).
+    pub ponteiros: std::collections::HashSet<usize>,
+    /// As funções diretas visíveis, pelo offset do nome.
+    pub funcoes_diretas: HashMap<usize, super::funcoes_diretas::Direta>,
+    /// Sem funções diretas (corpo `async`/gerador: os `alloca` viram
+    /// posições do quadro, e o endereço deles não serve).
+    pub sem_diretas: bool,
     // --- P6 (async, `async_sm.rs`) ---
     /// Corpo de uma função `async` em curso: o quadro, as retomadas.
     pub async_estado: Option<Box<super::async_sm::EstadoAsync>>,
@@ -282,6 +298,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             aridade_garantida: false,
             tipos_dos_args: None,
             args_conferidos: std::collections::HashSet::new(),
+            diretas_permitidas: std::collections::HashSet::new(),
+            atribuidos: std::collections::HashSet::new(),
+            celulas_se_ref: std::collections::HashSet::new(),
+            ponteiros: std::collections::HashSet::new(),
+            funcoes_diretas: HashMap::new(),
+            sem_diretas: false,
             async_estado: None,
             params_de_tipo_da_funcao: Vec::new(),
             params_locais: Vec::new(),

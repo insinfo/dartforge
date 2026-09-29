@@ -306,6 +306,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let entrada = b.current_block;
         let inicio = b.new_block();
         b.set_block(inicio);
+        // Os `alloca` do corpo viram posições do quadro: sem funções locais
+        // diretas (o endereço de um local não sobreviveria à troca).
+        b.sem_diretas = true;
         b.preparar_capturas(
             ast,
             super::captura::Raiz {

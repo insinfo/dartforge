@@ -85,6 +85,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 None | Some(Resolved::Local(_)) | Some(Resolved::Parameter { .. })
             ) && let Some(local) = self.buscar_local(id.sym)
             {
+                // Função local direta (`funcoes_diretas.rs`): `call` estático.
+                if let Some(d) = self.direta_do_local(&local) {
+                    let avaliados = self.avaliar_args(ast, &arguments.args);
+                    return self.chamar_direta(&d, &avaliados);
+                }
                 let f = self.ler_local(&local);
                 let avaliados = self.avaliar_args(ast, &arguments.args);
                 return self.chamar_valor_funcao(f, &avaliados);

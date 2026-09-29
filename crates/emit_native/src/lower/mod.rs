@@ -20,6 +20,7 @@ pub mod extensoes;
 pub mod ffi;
 pub mod externos;
 pub mod fn_builder;
+pub mod funcoes_diretas;
 pub mod heranca;
 pub mod literais;
 pub mod locais;

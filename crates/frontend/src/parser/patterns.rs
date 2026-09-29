@@ -21,8 +21,10 @@
 //! * `Nome(...)`, `p.Nome(...)`, `Nome<T>(...)` é objeto; o tipo é montado
 //!   aqui (nunca tem `?`). `:x` em campo de record/objeto infere o nome do
 //!   padrão de variável interno, atravessando `?`, `!`, `as` e parênteses.
-//! * Constantes (literais, `-1`, `const [...]`, `a.b.c`) são lidas com
-//!   `parse_unary_expression`, um superconjunto do que a gramática permite.
+//! * Constantes (literais, `-1`, `const [...]`, `a.b.c`) são lidas como no
+//!   `parsePrimaryPattern` do fasta: a expressão unária e, para recuperar,
+//!   os operadores binários até a igualdade, com os erros
+//!   `INVALID_CONSTANT_*` do `ConstantPatternContext`.
 //! * `(p)` sem vírgula nem nome é parênteses; `(p,)`, `()` e `(a: p)` são
 //!   records. `(int, int) x` é variável com tipo record.
 //! * `<T>[...]`/`<K, V>{...}` levam argumentos de tipo; `<` que não abre uma
@@ -36,6 +38,14 @@ use crate::ast::{
 };
 use crate::token::{Keyword, Kind, Op};
 use dartforge_diagnostics::{Span, codigos};
+
+/// Onde termina a cadeia `a.b.c` de um padrão `const`
+/// ([`Parser::cadeia_de_envio`]).
+enum Envio {
+    Invocacao,
+    Erro(usize),
+    Aberto,
+}
 
 /// `ConstantPatternContext` do fasta.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -303,18 +313,27 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.advance();
                 self.parse_unary(true)
             }
+            Kind::Ident if self.text_of(depois) == "await" => {
+                // `await` é prefixo (`parseUnaryExpression`), sem o erro.
+                self.advance();
+                self.parse_unary(false)
+            }
             Kind::Ident => {
                 // `parseSend` em cada identificador da cadeia `a.b.c`: o que
                 // não é seguido de `.`, `(` ou `<` (uma invocação constante
                 // ainda pode vir) leva o erro.
-                match self.fim_de_envio_invalido(depois) {
-                    Some(fim) => {
+                match self.cadeia_de_envio(depois) {
+                    Envio::Invocacao => self.parse_unary(true),
+                    Envio::Erro(fim) => {
                         let span = self.tokens[fim].span;
                         self.erro_em(codigos::parser::INVALID_CONSTANT_CONST_PREFIX, span, &[]);
                         self.advance();
                         self.parse_unary(true)
                     }
-                    None => self.parse_unary(true),
+                    Envio::Aberto => {
+                        self.advance();
+                        self.parse_unary(true)
+                    }
                 }
             }
             _ => {
@@ -324,28 +343,30 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    /// A cadeia `a.b.c` que começa em `pos` (depois de `const`): a posição
-    /// do identificador (ou do `>` dos argumentos de tipo dele) em que o
-    /// `parseSend` do fasta relata `INVALID_CONSTANT_CONST_PREFIX`, ou
-    /// `None` se a cadeia termina numa invocação.
-    fn fim_de_envio_invalido(&self, mut pos: usize) -> Option<usize> {
+    /// A cadeia `a.b.c` que começa em `pos` (depois de `const`), pelo
+    /// `parseSend` do fasta: termina numa invocação (`C(`, `C<T>(`,
+    /// `C<T>.n(`, `p.C.n(`); ou no identificador (ou no `>` dos argumentos
+    /// de tipo dele) que não é seguido de `.`, `(` nem `<`, onde o erro é
+    /// relatado; ou em `<` que não abre invocação (o erro, se houver, é o
+    /// dos argumentos de tipo sem `(`).
+    fn cadeia_de_envio(&self, mut pos: usize) -> Envio {
         loop {
             if self.kind_of(pos) != Kind::Ident {
-                return None;
+                return Envio::Aberto;
             }
-            let mut fim = pos;
-            let mut prox = pos + 1;
-            if self.kind_of(prox) == Kind::Op(Op::Lt)
-                && let Some(depois) = self.skip_type_arguments(prox)
-                && self.kind_of(depois) == Kind::Op(Op::LParen)
-            {
-                fim = depois - 1;
-                prox = depois;
-            }
+            let prox = pos + 1;
             match self.kind_of(prox) {
                 Kind::Op(Op::Dot) => pos = prox + 1,
-                Kind::Op(Op::LParen | Op::Lt) => return None,
-                _ => return Some(fim),
+                Kind::Op(Op::LParen) => return Envio::Invocacao,
+                Kind::Op(Op::Lt) => {
+                    let Some(depois) = self.skip_type_arguments(prox) else { return Envio::Aberto };
+                    let invoca = self.kind_of(depois) == Kind::Op(Op::LParen)
+                        || (self.kind_of(depois) == Kind::Op(Op::Dot)
+                            && self.kind_of(depois + 1) == Kind::Ident
+                            && self.kind_of(depois + 2) == Kind::Op(Op::LParen));
+                    return if invoca { Envio::Invocacao } else { Envio::Aberto };
+                }
+                _ => return Envio::Erro(pos),
             }
         }
     }
@@ -381,6 +402,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 Ok(self.push(start, ExprKind::Unary { op: UnaryOp::Neg, operand }))
             }
             Kind::Op(Op::PlusPlus | Op::MinusMinus) => self.parse_unary(false),
+            Kind::Ident if self.text() == "await" => self.parse_unary(false),
             _ if ctx == ContextoConstante::Nenhum => self.parse_unary(false),
             kind => {
                 let literal = matches!(
@@ -398,7 +420,24 @@ impl<'s, 'i> Parser<'s, 'i> {
                         self.erro(codigos::parser::INVALID_CONSTANT_CONST_PREFIX, &[]);
                     }
                     (ContextoConstante::SoNumerico, Kind::Ident) => {
+                        // `parsePrimary` de cada identificador da cadeia
+                        // (`-p.x`: os dois), no nível de fora dos grupos.
                         self.erro(codigos::parser::INVALID_CONSTANT_PATTERN_NEGATION, &[]);
+                        let p0 = self.pos;
+                        let expr = self.parse_unary(true)?;
+                        let mut prof = 0usize;
+                        for i in p0 + 1..self.pos {
+                            match self.kind_of(i) {
+                                Kind::Op(Op::LParen | Op::LBracket | Op::LBrace | Op::Lt) => prof += 1,
+                                Kind::Op(Op::RParen | Op::RBracket | Op::RBrace | Op::Gt) => prof = prof.saturating_sub(1),
+                                Kind::Op(Op::Dot | Op::QuestionDot) if prof == 0 && self.kind_of(i + 1) == Kind::Ident => {
+                                    let span = self.tokens[i + 1].span;
+                                    self.erro_em(codigos::parser::INVALID_CONSTANT_PATTERN_NEGATION, span, &[]);
+                                }
+                                _ => {}
+                            }
+                        }
+                        return Ok(expr);
                     }
                     (ContextoConstante::SoNumerico, _) if literal => {
                         // A string inteira (com interpolações) é o token do fasta.
