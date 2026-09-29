@@ -166,6 +166,22 @@ pub extern "C" fn dartforge_typed_len(h: i64, tipo: i64, escrita: i64) -> i64 {
     })
 }
 
+/// O cabeçalho de endereço fixo (`heap::CabecalhoTipado`: o endereço do
+/// primeiro byte na palavra 0, o tamanho em bytes na 1) de `h` se ela é uma
+/// lista tipada interna do tipo `tipo`, senão o `CABECALHO_TIPADO_VAZIO`
+/// (tamanho 0): o código gerado (`lower/tipados.rs`) lê o comprimento e os
+/// dados em linha, e uma visão, que não tem cabeçalho próprio, volta a
+/// [`dartforge_typed_len`]/[`dartforge_typed_ptr`]. A lista interna nunca é
+/// não modificável (só a visão). Função pura do handle (o cabeçalho não muda
+/// enquanto a lista vive), que o LLVM tira dos laços.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_typed_cabecalho(h: i64, tipo: i64) -> i64 {
+    heap_sem_emprestimo(|heap| match heap.try_get(h) {
+        Some(Value::TypedData { tipo: t, bytes, .. }) if i64::from(*t) == tipo => bytes.cabecalho() as i64,
+        _ => std::ptr::addr_of!(crate::heap::CABECALHO_TIPADO_VAZIO) as i64,
+    })
+}
+
 /// O endereço do primeiro elemento de `h` se ela é lista tipada, senão 0
 /// (sem efeito nem erro: o emissor a declara `speculatable`, e o LLVM pode
 /// calculá-la antes do teste de [`dartforge_typed_len`]). Os bytes não se

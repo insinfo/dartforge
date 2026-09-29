@@ -1912,31 +1912,107 @@ pub enum Value {
 /// Os bytes de uma lista tipada interna: próprios (do heap do runtime) ou
 /// externos — a memória nativa de `Pointer.asTypedList`, que o Dart só vê
 /// (o `ExternalTypedData` da VM): nem copiada nem liberada pelo coletor.
+///
+/// Os bytes moram atrás de um cabeçalho de endereço fixo
+/// ([`CabecalhoTipado`], como o [`CabecalhoDeLista`] das listas, N13): o
+/// código gerado lê dele, em linha, o endereço do primeiro byte e o
+/// tamanho (`dartforge_typed_cabecalho`, `lower/tipados.rs`), sem
+/// `dartforge_typed_len`/`dartforge_typed_ptr` a cada acesso. O `Box` não
+/// muda de endereço quando o `Value` se move, e os bytes não mudam de
+/// tamanho: nenhum `&mut Vec` sai daqui, só a fatia.
 #[derive(Debug)]
-pub enum Armazenamento {
-    Proprio(Vec<u8>),
-    Externo { endereco: usize, tamanho: usize },
+pub struct Armazenamento(Box<CabecalhoTipado>);
+
+/// O cabeçalho de uma lista tipada interna; ver [`Armazenamento`].
+#[repr(C)]
+#[derive(Debug)]
+pub struct CabecalhoTipado {
+    /// O primeiro byte: o buffer de `proprio`, ou a memória externa.
+    dados: *mut u8,
+    /// O tamanho em bytes.
+    bytes: usize,
+    /// Os bytes próprios (vazio numa lista externa).
+    proprio: Vec<u8>,
+    /// A memória é externa (`asTypedList`).
+    externo: bool,
+}
+
+const _: () = {
+    assert!(std::mem::offset_of!(CabecalhoTipado, dados) == 0);
+    assert!(std::mem::offset_of!(CabecalhoTipado, bytes) == 8);
+};
+
+/// O cabeçalho de quem não é lista tipada interna do tipo pedido (uma visão,
+/// outra classe): tamanho 0 e nenhum endereço — o código gerado volta ao
+/// caminho de antes.
+pub static CABECALHO_TIPADO_VAZIO: CabecalhoTipado =
+    CabecalhoTipado { dados: std::ptr::null_mut(), bytes: 0, proprio: Vec::new(), externo: false };
+
+// SAFETY: `dados` aponta para o buffer de `proprio` (mover o cabeçalho é
+// mover o `Vec`, que é `Send`/`Sync`), para a memória externa que o
+// programa garante viva (o contrato de `asTypedList`, como antes, quando o
+// endereço era um `usize`) ou é nulo no `CABECALHO_TIPADO_VAZIO`, que nunca
+// é gravado.
+#[allow(unsafe_code)]
+unsafe impl Send for CabecalhoTipado {}
+#[allow(unsafe_code)]
+unsafe impl Sync for CabecalhoTipado {}
+
+impl Armazenamento {
+    /// Os bytes `v`, do heap do runtime.
+    pub fn proprio(mut v: Vec<u8>) -> Self {
+        let dados = v.as_mut_ptr();
+        let bytes = v.len();
+        Armazenamento(Box::new(CabecalhoTipado { dados, bytes, proprio: v, externo: false }))
+    }
+
+    /// `tamanho` bytes de memória nativa em `endereco`.
+    pub fn externo(endereco: usize, tamanho: usize) -> Self {
+        Armazenamento(Box::new(CabecalhoTipado {
+            dados: endereco as *mut u8,
+            bytes: tamanho,
+            proprio: Vec::new(),
+            externo: true,
+        }))
+    }
+
+    /// A memória é externa (`asTypedList`).
+    pub fn e_externo(&self) -> bool {
+        self.0.externo
+    }
+
+    /// O endereço fixo do cabeçalho, para o código gerado.
+    pub fn cabecalho(&self) -> *const CabecalhoTipado {
+        &*self.0
+    }
+
+    /// Bytes que o heap do runtime ocupa: os próprios e o cabeçalho (a
+    /// memória externa não conta).
+    pub fn capacity(&self) -> usize {
+        self.0.proprio.capacity() + std::mem::size_of::<CabecalhoTipado>()
+    }
 }
 
 impl Default for Armazenamento {
     fn default() -> Self {
-        Armazenamento::Proprio(Vec::new())
+        Armazenamento::proprio(Vec::new())
     }
 }
 
 impl Clone for Armazenamento {
     /// Uma cópia de uma lista externa continua sobre a mesma memória nativa.
     fn clone(&self) -> Self {
-        match self {
-            Armazenamento::Proprio(v) => Armazenamento::Proprio(v.clone()),
-            Armazenamento::Externo { endereco, tamanho } => Armazenamento::Externo { endereco: *endereco, tamanho: *tamanho },
+        if self.0.externo {
+            Armazenamento::externo(self.0.dados as usize, self.0.bytes)
+        } else {
+            Armazenamento::proprio(self.0.proprio.clone())
         }
     }
 }
 
 impl From<Vec<u8>> for Armazenamento {
     fn from(v: Vec<u8>) -> Self {
-        Armazenamento::Proprio(v)
+        Armazenamento::proprio(v)
     }
 }
 
@@ -1945,38 +2021,24 @@ impl From<Vec<u8>> for Armazenamento {
 impl std::ops::Deref for Armazenamento {
     type Target = [u8];
     fn deref(&self) -> &[u8] {
-        match self {
-            Armazenamento::Proprio(v) => v,
-            // SAFETY: a memória nativa de `asTypedList`, que o programa
-            // garante viva e com `tamanho` bytes enquanto usa a lista (o
-            // mesmo contrato da VM).
-            Armazenamento::Externo { endereco, tamanho } => unsafe {
-                std::slice::from_raw_parts(*endereco as *const u8, *tamanho)
-            },
+        if !self.0.externo {
+            return &self.0.proprio;
         }
+        // SAFETY: a memória nativa de `asTypedList`, que o programa garante
+        // viva e com `bytes` bytes enquanto usa a lista (o mesmo contrato da
+        // VM).
+        unsafe { std::slice::from_raw_parts(self.0.dados, self.0.bytes) }
     }
 }
 
 #[allow(unsafe_code)]
 impl std::ops::DerefMut for Armazenamento {
     fn deref_mut(&mut self) -> &mut [u8] {
-        match self {
-            Armazenamento::Proprio(v) => v,
-            // SAFETY: como em `deref`.
-            Armazenamento::Externo { endereco, tamanho } => unsafe {
-                std::slice::from_raw_parts_mut(*endereco as *mut u8, *tamanho)
-            },
+        if !self.0.externo {
+            return &mut self.0.proprio;
         }
-    }
-}
-
-impl Armazenamento {
-    /// Bytes que o heap do runtime ocupa (a memória externa não conta).
-    pub fn capacity(&self) -> usize {
-        match self {
-            Armazenamento::Proprio(v) => v.capacity(),
-            Armazenamento::Externo { .. } => 0,
-        }
+        // SAFETY: como em `deref`.
+        unsafe { std::slice::from_raw_parts_mut(self.0.dados, self.0.bytes) }
     }
 }
 
@@ -3556,7 +3618,14 @@ impl Heap {
     /// Marca tudo o que é alcançável a partir de `pending`; devolve quantos
     /// objetos marcou.
     fn marcar_pendentes(&mut self) -> usize {
-        let menor = self.coleta_menor;
+        // Uma cópia da marcação para cada tipo de coleta: o teste do estado
+        // de cada objeto (jovem na menor, não marcado na completa) sai sem
+        // desvio pelo tipo.
+        if self.coleta_menor { self.marcar::<true>() } else { self.marcar::<false>() }
+    }
+
+    fn marcar<const MENOR: bool>(&mut self) -> usize {
+        let menor = MENOR;
         let mut live = 0_usize;
         while let Some(handle) = self.pending.pop() {
             // null e `Smi` (R10) não são arestas: o coletor nunca segue um

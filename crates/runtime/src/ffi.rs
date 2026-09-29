@@ -795,7 +795,7 @@ pub extern "C" fn dartforge_typed_externo(class_id: i64, tipo: i64, ponteiro: i6
         h.borrow_mut().allocate(Value::TypedData {
             class_id,
             tipo,
-            bytes: crate::heap::Armazenamento::Externo { endereco: endereco as usize, tamanho },
+            bytes: crate::heap::Armazenamento::externo(endereco as usize, tamanho),
         })
     })
 }

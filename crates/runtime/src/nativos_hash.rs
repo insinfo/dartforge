@@ -98,7 +98,7 @@ fn igual_se(b: bool) -> Comparacao {
 /// Os bytes de um `Uint32List` interno (o `_index`), se `h` é um.
 fn bytes_do_indice(heap: &Heap, h: i64) -> Option<&[u8]> {
     match heap.try_get(h)? {
-        Value::TypedData { tipo: 6, bytes: crate::heap::Armazenamento::Proprio(b), .. } => Some(b),
+        Value::TypedData { tipo: 6, bytes, .. } if !bytes.e_externo() => Some(bytes),
         _ => None,
     }
 }
@@ -160,8 +160,10 @@ fn sondar(heap: &Heap, indice: &[u8], dados: &crate::heap::Elementos, mascara: i
 
 /// Grava `par` na posição `i` do `_index`.
 fn gravar_no_indice(heap: &mut Heap, indice: i64, i: usize, par: u32) {
-    if let Value::TypedData { bytes: crate::heap::Armazenamento::Proprio(b), .. } = heap.get_mut(indice) {
-        b[4 * i..4 * i + 4].copy_from_slice(&par.to_le_bytes());
+    if let Value::TypedData { bytes, .. } = heap.get_mut(indice)
+        && !bytes.e_externo()
+    {
+        bytes[4 * i..4 * i + 4].copy_from_slice(&par.to_le_bytes());
     }
 }
 

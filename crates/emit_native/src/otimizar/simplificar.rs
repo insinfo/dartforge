@@ -245,6 +245,7 @@ fn pura(inst: &Instruction) -> bool {
         Instruction::CallRuntime { name, .. } => matches!(
             name.as_str(),
             "dartforge_object_new" | "dartforge_object_campos" | "dartforge_exception_pending" | "dartforge_typed_len" | "dartforge_typed_ptr"
+                | "dartforge_typed_cabecalho"
         ),
         _ => false,
     }

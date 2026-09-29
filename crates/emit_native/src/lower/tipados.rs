@@ -149,16 +149,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// (`dartforge_typed_len`, ou o cabeçalho da lista do runtime).
     fn comprimento_rapido(&mut self, lista: &Operand, ix: Indexavel, escrita: bool) -> Operand {
         let (tipo, gravacao) = match ix {
-            Indexavel::Tipada(ListaTipada { tipo, .. }) | Indexavel::Simd { tipo, .. } => {
-                let args = vec![
-                    (lista.clone(), Type::Ref),
-                    (Operand::Constant(Constant::Int(tipo)), Type::I64),
-                    (Operand::Constant(Constant::Int(i64::from(escrita))), Type::I64),
-                ];
-                return self.emit(
-                    Instruction::CallRuntime { name: "dartforge_typed_len".to_string(), args, ret_ty: Type::I64 },
-                    Type::I64,
-                );
+            Indexavel::Tipada(ListaTipada { tipo, elemento }) => {
+                let (dados, n) = self.dados_e_comprimento_tipados(lista, tipo, log2_do_elemento(elemento), escrita);
+                self.dados_tipados = Some((lista.clone(), dados));
+                return n;
+            }
+            Indexavel::Simd { tipo, .. } => {
+                let (dados, n) = self.dados_e_comprimento_tipados(lista, tipo, 4, escrita);
+                self.dados_tipados = Some((lista.clone(), dados));
+                return n;
             }
             Indexavel::Nucleo { gravacao } => (0, gravacao),
         };
@@ -232,6 +231,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return f.comprimento.clone();
         }
         let n = self.comprimento_rapido(&lista, ix, false);
+        self.dados_tipados = None;
         if let Indexavel::Tipada(_) | Indexavel::Simd { .. } = ix {
             // O tipo estático garante a lista tipada do tipo: o comprimento
             // é esse.
@@ -271,6 +271,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         rapido: &mut dyn FnMut(&mut Self) -> Operand,
         lento: &mut dyn FnMut(&mut Self) -> Operand,
     ) -> Operand {
+        self.dados_tipados = None;
         let n = self.comprimento_rapido(lista, ix, escrita);
         let ok = self.emit(Instruction::ICmp(ICmpOp::Ult, indice.clone(), n), Type::I1);
         let bloco_rapido = self.new_block();
@@ -280,6 +281,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
         self.set_block(bloco_rapido);
         let r = rapido(self);
+        self.dados_tipados = None;
         let r = self.coagir(r, repr);
         let fim_rapido = self.current_block;
         self.terminate(Terminator::Branch(juncao));
@@ -301,8 +303,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// O endereço dos elementos de uma lista tipada apta.
+    /// O endereço dos elementos de uma lista tipada apta: o que
+    /// `comprimento_rapido` leu para o teste de limites que guarda este
+    /// acesso, ou `dartforge_typed_ptr`.
     fn enderecos_tipados(&mut self, lista: &Operand) -> Operand {
+        if let Some((l, d)) = &self.dados_tipados
+            && l == lista
+        {
+            return d.clone();
+        }
         self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_typed_ptr".to_string(),
@@ -311,6 +320,58 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::I64,
         )
+    }
+
+    /// O endereço dos elementos e o comprimento de uma lista tipada do tipo
+    /// `tipo` (elementos de `1 << log2` bytes). N17: a lista interna tem um
+    /// cabeçalho de endereço fixo (`heap::CabecalhoTipado`, dado por
+    /// `dartforge_typed_cabecalho`, pura do handle): o endereço e o tamanho
+    /// em bytes são lidos dele em linha. Uma visão (sem cabeçalho próprio:
+    /// o do runtime é o vazio, de endereço nulo) volta a
+    /// `dartforge_typed_len`/`dartforge_typed_ptr`, que resolvem a base, o
+    /// deslocamento e a imutabilidade. Antes eram as duas chamadas a cada
+    /// acesso, cada uma com a busca do slot (~100 instruções).
+    fn dados_e_comprimento_tipados(&mut self, lista: &Operand, tipo: i64, log2: i64, escrita: bool) -> (Operand, Operand) {
+        let int = |x: i64| Operand::Constant(Constant::Int(x));
+        let cab = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_typed_cabecalho".to_string(),
+                args: vec![(lista.clone(), Type::Ref), (int(tipo), Type::I64)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        let dados = self.emit(Instruction::CargaNativa { endereco: cab.clone(), indice: int(0), tipo: TipoC::I64 }, Type::I64);
+        let bytes = self.emit(Instruction::CargaNativa { endereco: cab, indice: int(1), tipo: TipoC::I64 }, Type::I64);
+        let n = self.emit(Instruction::LShr(bytes, int(log2)), Type::I64);
+        let tem = self.emit(Instruction::ICmp(ICmpOp::Ne, dados.clone(), int(0)), Type::I1);
+        let pelo_cabecalho = self.current_block;
+        let visao = self.new_block();
+        let juncao = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: tem, then_block: juncao, else_block: visao });
+        self.set_block(visao);
+        let args = vec![(lista.clone(), Type::Ref), (int(tipo), Type::I64), (int(i64::from(escrita)), Type::I64)];
+        let n_visao = self.emit(
+            Instruction::CallRuntime { name: "dartforge_typed_len".to_string(), args, ret_ty: Type::I64 },
+            Type::I64,
+        );
+        let dados_visao = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_typed_ptr".to_string(),
+                args: vec![(lista.clone(), Type::Ref)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        let fim_visao = self.current_block;
+        self.terminate(Terminator::Branch(juncao));
+        self.set_block(juncao);
+        let dados = self.emit(
+            Instruction::Phi { incoming: vec![(pelo_cabecalho, dados), (fim_visao, dados_visao)], ty: Type::I64 },
+            Type::I64,
+        );
+        let n = self.emit(Instruction::Phi { incoming: vec![(pelo_cabecalho, n), (fim_visao, n_visao)], ty: Type::I64 }, Type::I64);
+        (dados, n)
     }
 
     /// `lista[indice]`, no resultado `repr`. `None` quando o índice não é
@@ -549,3 +610,13 @@ const TAG_INT: i64 = 0;
 const TAG_BOOL: i64 = 1;
 const TAG_DOUBLE: i64 = 2;
 const TAG_REF: i64 = 3;
+
+/// O `log2` do tamanho em bytes de um elemento de lista tipada numérica.
+fn log2_do_elemento(e: TipoC) -> i64 {
+    match e {
+        TipoC::I8 | TipoC::U8 | TipoC::Bool => 0,
+        TipoC::I16 | TipoC::U16 => 1,
+        TipoC::I32 | TipoC::U32 | TipoC::F32 => 2,
+        _ => 3,
+    }
+}

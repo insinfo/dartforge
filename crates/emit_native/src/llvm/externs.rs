@@ -334,6 +334,13 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_typed_ptr(i64) memory(none) nounwind willreturn speculatable",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
+    // O cabeçalho de endereço fixo de uma lista tipada interna
+    // (`heap::CabecalhoTipado`, N17): o endereço e o tamanho em bytes são
+    // lidos dele em linha; pura do handle, como a das listas abaixo.
+    Extern {
+        decl: "declare i64 @dartforge_typed_cabecalho(i64, i64) memory(none) nounwind willreturn speculatable",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
     // O caminho rápido das listas do núcleo (`lower/tipados.rs`). O
     // cabeçalho (`heap::CabecalhoDeLista`) não muda de endereço enquanto a
     // lista vive: uma função pura do handle, que sai dos laços. O

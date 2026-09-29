@@ -138,6 +138,10 @@ pub struct FnBuilder<'a, 'c> {
     /// Sem funções diretas (corpo `async`/gerador: os `alloca` viram
     /// posições do quadro, e o endereço deles não serve).
     pub sem_diretas: bool,
+    /// O endereço dos elementos da lista tipada cujo comprimento
+    /// `comprimento_rapido` acabou de ler (a lista e o endereço): o acesso
+    /// que ele guarda usa o mesmo, sem ler de novo (`tipados.rs`).
+    pub dados_tipados: Option<(Operand, Operand)>,
     // --- P6 (async, `async_sm.rs`) ---
     /// Corpo de uma função `async` em curso: o quadro, as retomadas.
     pub async_estado: Option<Box<super::async_sm::EstadoAsync>>,
@@ -304,6 +308,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ponteiros: std::collections::HashSet::new(),
             funcoes_diretas: HashMap::new(),
             sem_diretas: false,
+            dados_tipados: None,
             async_estado: None,
             params_de_tipo_da_funcao: Vec::new(),
             params_locais: Vec::new(),

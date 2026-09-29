@@ -177,7 +177,16 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn parse_unary_pattern(&mut self) -> PResult<PatternId> {
         let start = self.span();
         let mut pattern = self.parse_primary_pattern()?;
+        // `isLastPatternAllowedInsideUnaryPattern` do fasta: um padrão
+        // relacional ou unário dentro de outro unário (`_ as int as num`,
+        // `> 1?`) é `INVALID_INSIDE_UNARY_PATTERN`, do início ao último token.
+        let mut permitido = !matches!(self.ast.pattern(pattern).kind, PatternKind::Relational { .. });
         loop {
+            if !permitido && (self.at_op(Op::Question) || self.at_op(Op::Bang) || self.at_ident("as")) {
+                let fim = self.tokens[self.pos - 1].span.end;
+                self.erro_em(codigos::parser::INVALID_INSIDE_UNARY_PATTERN, Span { start: start.start, end: fim }, &[]);
+            }
+            permitido = false;
             if self.eat_op(Op::Question) {
                 pattern = self.push_pattern(start, PatternKind::NullCheck(pattern));
             } else if self.eat_op(Op::Bang) {
@@ -362,7 +371,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     let Some(depois) = self.skip_type_arguments(prox) else { return Envio::Aberto };
                     let invoca = self.kind_of(depois) == Kind::Op(Op::LParen)
                         || (self.kind_of(depois) == Kind::Op(Op::Dot)
-                            && self.kind_of(depois + 1) == Kind::Ident
+                            && matches!(self.kind_of(depois + 1), Kind::Ident | Kind::Keyword(Keyword::New))
                             && self.kind_of(depois + 2) == Kind::Op(Op::LParen));
                     return if invoca { Envio::Invocacao } else { Envio::Aberto };
                 }
