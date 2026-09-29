@@ -1481,12 +1481,13 @@ impl<'a> LlvmEmitter<'a> {
                 )
                 .unwrap();
             }
-            Instruction::AllocClosureTipada { code_symbol, env, tipado, abi } => {
+            Instruction::AllocClosureTipada { code_symbol, env, tipado, abi, direto } => {
                 self.anotar_externo(code_symbol, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
                 let e = self.coagir(env, Type::Ref);
+                let f = if *direto { "dartforge_closure_nova_direta" } else { "dartforge_closure_new_tipada" };
                 writeln!(
                     self.out,
-                    "  %v{v} = call i64 @dartforge_closure_new_tipada(i64 ptrtoint (ptr @{code_symbol} to i64), i64 {e}, i64 ptrtoint (ptr @{tipado} to i64), i64 {abi})"
+                    "  %v{v} = call i64 @{f}(i64 ptrtoint (ptr @{code_symbol} to i64), i64 {e}, i64 ptrtoint (ptr @{tipado} to i64), i64 {abi})"
                 )
                 .unwrap();
             }

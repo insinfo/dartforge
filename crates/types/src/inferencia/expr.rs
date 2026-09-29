@@ -1048,7 +1048,7 @@ fn acesso_estatico(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, rt: Re
             let args = targs.map(|v| v.iter().map(|&t| inf.tipo_de_anotacao(cx, t)).collect::<Vec<_>>());
             tearoff_de_construtor(inf, cx, e, c, args, name, true)
         }
-        RefTipo::Alias(c, args, _) => {
+        RefTipo::Alias(c, args, td) => {
             if let Some(m) = inf.membro_estatico(c, name.sym, false) {
                 if instancia_explicita {
                     avisar_instanciacao_estatica(inf, cx, e, name);
@@ -1056,6 +1056,9 @@ fn acesso_estatico(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, rt: Re
                 }
                 resolver(inf, cx, e, m.resolved.clone());
                 return m.tipo;
+            }
+            if !instancia_explicita && args.is_some() && !inf.outline.typedefs[td.0 as usize].type_params.is_empty() {
+                return tearoff_generico_de_alias(inf, cx, e, c, td, name);
             }
             tearoff_de_construtor(inf, cx, e, c, args, name, false)
         }
@@ -1166,6 +1169,49 @@ fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
     }
     let sig = inf.assinatura_construtor(c, f);
     tearoff_com_argumentos(inf, c, sig, args)
+}
+
+/// `F.new`/`F.nome` por um alias genérico que não só repassa os parâmetros
+/// (`typedef F<T> = C<int, T>`), sem argumentos de tipo: a função genérica
+/// nos parâmetros do alias, `C<int, T> Function<T>(…)` (como o analyzer e o
+/// CFE), que a instanciação implícita do contexto fecha depois.
+fn tearoff_generico_de_alias(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Corpo,
+    e: ExprId,
+    c: ClassId,
+    td: dartforge_elements::model::TypedefId,
+    name: ast::Name,
+) -> TypeId {
+    let alvo = inf.outline.typedefs[td.0 as usize].target_type;
+    let params = inf.outline.typedefs[td.0 as usize].type_params.clone();
+    let alvo_args = match inf.table.get(alvo).clone() {
+        Type::Interface { args, .. } | Type::ExtensionType { args, .. } => args,
+        _ => return inf.core.dynamic_,
+    };
+    let novos: Vec<crate::table::TypeParamId> = params
+        .iter()
+        .map(|&p| {
+            let d = inf.table.param(p).clone();
+            inf.table.alloc_type_param(d.name, crate::table::TypeParamOwner::GenericFunctionType, d.bound, d.variance)
+        })
+        .collect();
+    let tipos: Vec<TypeId> = novos.iter().map(|&p| inf.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
+    let mapa = inf.mapa(&params, &tipos);
+    for (&p, &o) in novos.iter().zip(params.iter()) {
+        let b = inf.table.param(p).bound;
+        let b = inf.subst(b, &mapa);
+        inf.table.set_type_param_bound(p, b);
+        inf.table.param_mut(p).explicito = inf.table.param(o).explicito;
+    }
+    let args: Vec<TypeId> = alvo_args.iter().map(|a| inf.subst(*a, &mapa)).collect();
+    let t = tearoff_de_construtor(inf, cx, e, c, Some(args), name, false);
+    match inf.table.get(t).clone() {
+        Type::Function { type_params, ret, positional, optional, named, nullable } if type_params.is_empty() => {
+            inf.table.intern(Type::Function { type_params: novos.into_boxed_slice(), ret, positional, optional, named, nullable })
+        }
+        _ => t,
+    }
 }
 
 /// O tipo do tearoff de um construtor de `c` com assinatura `sig`: instanciado

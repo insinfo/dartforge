@@ -221,6 +221,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             })
             .collect();
         let generica = !proprios.is_empty();
+        // Ambiente direto: com um valor só no ambiente — o `this` sem
+        // capturas, ou uma captura `Ref` (ou o handle da célula dela) sem
+        // `this` —, a closure guarda o próprio valor no lugar do ambiente, e
+        // o corpo o recebe como o parâmetro `env`: sem o objeto do ambiente
+        // (uma alocação e uma indireção a menos; a VM guarda a captura no
+        // `Context` só quando há mais de uma). Fora: corpo `async`/gerador
+        // (o quadro guarda o ambiente), genérica, tupla de tipos, `late`.
+        let direto = f.modifier == AsyncModifier::None
+            && !generica
+            && self.tupla_de_tipos.is_none()
+            && match (com_this, &capturas[..]) {
+                (true, []) => true,
+                (false, [(_, l)]) => {
+                    l.late.is_none()
+                        && (matches!(l.modo, Modo::Celula(_) | Modo::Ambiente { celula: true, .. }) || l.ty == Type::Ref)
+                }
+                _ => false,
+            };
+        if direto {
+            forma.push_str("direto;");
+        }
         for (sym, l) in &capturas {
             let celula = matches!(l.modo, Modo::Celula(_) | Modo::Ambiente { celula: true, .. });
             forma.push_str(&format!("{}:{celula}:{:?};", self.ctx.symbol_name(*sym), l.ty));
@@ -252,7 +273,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // --- corpo ---------------------------------------------------------
         let mut b = FnBuilder::new(self.ctx, self.unit_id, simbolo.clone(), legivel.clone(), ret_repr);
         let env_b = Operand::Val(b.add_param("env".to_string(), Type::Ref));
-        if com_this {
+        if direto && com_this {
+            b.this_param = Some(env_b.clone());
+            b.enclosing_class = self.enclosing_class;
+        } else if direto {
+            let (sym, l) = &capturas[0];
+            let celula = matches!(l.modo, Modo::Celula(_) | Modo::Ambiente { celula: true, .. });
+            let modo = if celula {
+                let ptr = b.alloca_na_entrada(Type::Ref);
+                b.emit(Instruction::Store { ptr: ptr.clone(), val: env_b.clone() }, Type::Void);
+                Modo::Celula(ptr)
+            } else {
+                Modo::Valor(env_b.clone())
+            };
+            b.ligar_local_como(*sym, super::locais::Local { modo, ty: l.ty, offset: None, late: None });
+        } else if com_this {
             let t = b.emit(
                 Instruction::EnvGet {
                     env: env_b.clone(),
@@ -263,7 +298,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             b.this_param = Some(t);
             b.enclosing_class = self.enclosing_class;
         }
-        for (i, (sym, l)) in capturas.iter().enumerate() {
+        for (i, (sym, l)) in capturas.iter().enumerate().filter(|_| !direto) {
             let celula = matches!(
                 l.modo,
                 Modo::Celula(_) | Modo::Ambiente { celula: true, .. }
@@ -446,10 +481,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(t) = self.tupla_de_tipos.clone() {
             valores.push(t);
         }
-        let env = self.emit(Instruction::AllocEnv { values: valores }, Type::Ref);
+        let env = if direto {
+            let v = valores.pop().expect("o valor do ambiente direto");
+            self.coagir(v, Type::Ref)
+        } else {
+            self.emit(Instruction::AllocEnv { values: valores }, Type::Ref)
+        };
         match abi {
             Some((_, _, codigo)) => self.emit(
-                Instruction::AllocClosureTipada { code_symbol: simbolo_ent, env, tipado: simbolo, abi: codigo },
+                Instruction::AllocClosureTipada { code_symbol: simbolo_ent, env, tipado: simbolo, abi: codigo, direto },
+                Type::Ref,
+            ),
+            // Sem ABI tipada, o corpo tipado não é chamado (`abi` 0 não casa
+            // com nenhuma chamada tipada): a entrada no lugar dele.
+            None if direto => self.emit(
+                Instruction::AllocClosureTipada { code_symbol: simbolo_ent.clone(), env, tipado: simbolo_ent, abi: 0, direto },
                 Type::Ref,
             ),
             None => self.emit(

@@ -578,12 +578,13 @@ impl Universo {
                     partes.push(format!("{{{}}}", n.join(", ")));
                 }
                 let g = if *genericos > 0 {
-                    let v: Vec<String> = (0..*genericos).map(|i| format!("X{i}")).collect();
+                    // Como a VM: `<Y0, Y1>(Y0) => Y1`.
+                    let v: Vec<String> = (0..*genericos).map(|i| format!("Y{i}")).collect();
                     format!("<{}>", v.join(", "))
                 } else {
                     String::new()
                 };
-                format!("({}) => {}{g}", partes.join(", "), self.texto(*ret))
+                format!("{g}({}) => {}", partes.join(", "), self.texto(*ret))
             }
             Tipo::Registro { pos, nomeados } => {
                 let mut partes: Vec<String> = pos.iter().map(|&x| self.texto(x)).collect();
@@ -593,7 +594,7 @@ impl Universo {
                 }
                 format!("({})", partes.join(", "))
             }
-            Tipo::Ligada(i) => format!("X{i}"),
+            Tipo::Ligada(i) => format!("Y{i}"),
             Tipo::ParamClasse(i) => format!("P{i}"),
             Tipo::ParamFuncao(i) => format!("M{i}"),
             Tipo::Tupla(a) => {

@@ -610,12 +610,55 @@ impl Motor {
 /// e `experiment_not_enabled_off_by_default` (a sintaxe do recurso desligado
 /// foi lida inteira, a árvore é a mesma do recurso ligado) e
 /// `missing_function_body` num `;` (o corpo vazio fica na árvore, como no
-/// fasta) e `unexpected_separator_in_number` (o literal é lido inteiro).
+/// fasta), `unexpected_separator_in_number` (o literal é lido inteiro) e o
+/// `;` que falta diante do começo de outra declaração ou comando (o
+/// `ensureSemicolon` do fasta o insere, e `Parser::garantir_ponto_e_virgula`
+/// também: a árvore segue a do analyzer).
 pub fn recuperacao_do_parser(d: &Diagnostic, fonte: &str) -> bool {
     match d.code.map(|c| c.info().nome) {
         Some("experiment_not_enabled" | "experiment_not_enabled_off_by_default" | "unexpected_separator_in_number") => false,
         Some("missing_function_body") => fonte.get(d.span.start..d.span.end) != Some(";"),
+        Some("expected_token") if d.args.first().is_some_and(|a| &**a == ";") => !ponto_e_virgula_inserido(fonte, d.span.end),
         _ => true,
+    }
+}
+
+/// O token depois de `fim` é o que `garantir_ponto_e_virgula` aceita para
+/// inserir o `;` que falta: identificador ou palavra-chave, `}`, `@` ou o fim.
+fn ponto_e_virgula_inserido(fonte: &str, fim: usize) -> bool {
+    let b = fonte.as_bytes();
+    let mut i = fim.min(b.len());
+    loop {
+        while i < b.len() && b[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if b[i..].starts_with(b"//") {
+            while i < b.len() && b[i] != b'\n' {
+                i += 1;
+            }
+        } else if b[i..].starts_with(b"/*") {
+            let mut prof = 0usize;
+            while i < b.len() {
+                if b[i..].starts_with(b"/*") {
+                    prof += 1;
+                    i += 2;
+                } else if b[i..].starts_with(b"*/") {
+                    prof -= 1;
+                    i += 2;
+                    if prof == 0 {
+                        break;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+        } else {
+            break;
+        }
+    }
+    match b.get(i) {
+        None => true,
+        Some(&c) => c.is_ascii_alphabetic() || c == b'_' || c == b'$' || c == b'}' || c == b'@',
     }
 }
 

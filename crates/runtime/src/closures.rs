@@ -78,6 +78,23 @@ pub extern "C" fn dartforge_closure_new_tipada(code_id: i64, env: i64, tipado: i
     })
 }
 
+/// Uma closure de ambiente direto (`lower/closures.rs`): `valor` é a única
+/// captura (ou o `this`), guardada no lugar do ambiente — o corpo a recebe
+/// como o parâmetro `env`. Sem o objeto do ambiente; o coletor segue o
+/// campo como qualquer referência (null e `Smi` não são arestas). O
+/// chamador mantém `valor` enraizado durante a chamada (é operando dela).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_closure_nova_direta(code_id: i64, valor: i64, tipado: i64, abi: i64) -> i64 {
+    HEAP.with(|heap| {
+        heap.borrow_mut().allocate(Value::Closure(Box::new(crate::heap::CabecalhoDeClosure {
+            code_id,
+            environment: valor,
+            tipado,
+            abi,
+        })))
+    })
+}
+
 /// O corpo tipado de `h` se ela é uma closure com a ABI `abi` (a que quem
 /// chama espera), senão 0 — e quem chama segue pela entrada uniforme. Só
 /// lê o heap.

@@ -259,6 +259,9 @@ pub enum Instruction {
         env: Operand,
         tipado: String,
         abi: i64,
+        /// `env` é o único valor capturado, guardado no lugar do ambiente
+        /// (`lower/closures.rs`, ambiente direto): não é um ambiente.
+        direto: bool,
     },
     /// Chamada do corpo tipado de uma closure: `alvo` é o endereço (`I64`,
     /// de `dartforge_closure_tipada`), os argumentos vão nas representações

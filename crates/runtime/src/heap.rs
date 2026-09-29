@@ -1493,6 +1493,152 @@ impl MapaDePaginas {
     }
 }
 
+/// A reserva das páginas de [`PAGINA`] bytes do espaço de objetos: pedaços
+/// de [`PAGINAS_POR_PEDACO`] páginas mapeados do sistema de uma vez (no
+/// Linux; nos demais, o alocador do sistema, uma página por vez) e as
+/// páginas soltas pela coleta, devolvidas ao sistema com
+/// `madvise(MADV_DONTNEED)` — a memória sai da residente e volta zerada na
+/// próxima falta de página — sem desfazer o mapeamento. Antes, cada página
+/// era um `alloc` alinhado de 64 KiB, que a glibc atende com um `mmap`
+/// próprio (e o `dealloc` com um `munmap`): um programa que refaz uma
+/// estrutura grande a cada rodada pagava as duas chamadas por página.
+#[derive(Default)]
+struct ReservaDePaginas {
+    /// Os pedaços mapeados `(início, bytes)`.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pedacos: Vec<(*mut u8, usize)>,
+    /// Páginas zeradas por usar.
+    livres: Vec<*mut u8>,
+}
+
+/// Páginas de cada pedaço que a [`ReservaDePaginas`] mapeia (2 MiB).
+const PAGINAS_POR_PEDACO: usize = 32;
+
+#[cfg(target_os = "linux")]
+#[allow(unsafe_code)]
+mod mapeamento {
+    unsafe extern "C" {
+        fn mmap(addr: *mut u8, len: usize, prot: i32, flags: i32, fd: i32, off: i64) -> *mut u8;
+        fn munmap(addr: *mut u8, len: usize) -> i32;
+        fn madvise(addr: *mut u8, len: usize, conselho: i32) -> i32;
+    }
+    /// `bytes` novos, zerados, alinhados a `alinhamento` (potência de 2).
+    pub fn mapear(bytes: usize, alinhamento: usize) -> *mut u8 {
+        const PROT_RW: i32 = 1 | 2;
+        const MAP_PRIVATE: i32 = 2;
+        const MAP_ANON: i32 = 0x20;
+        let total = bytes + alinhamento;
+        // SAFETY: mapeamento anônimo novo.
+        let p = unsafe { mmap(std::ptr::null_mut(), total, PROT_RW, MAP_PRIVATE | MAP_ANON, -1, 0) };
+        if p as isize == -1 || p.is_null() {
+            std::alloc::handle_alloc_error(std::alloc::Layout::from_size_align(bytes, alinhamento).expect("layout"));
+        }
+        let inicio = (p as usize).next_multiple_of(alinhamento);
+        let antes = inicio - p as usize;
+        let depois = total - antes - bytes;
+        // SAFETY: as sobras do próprio mapeamento, fora de `[inicio, inicio + bytes)`.
+        unsafe {
+            if antes > 0 {
+                munmap(p, antes);
+            }
+            if depois > 0 {
+                munmap((inicio + bytes) as *mut u8, depois);
+            }
+        }
+        inicio as *mut u8
+    }
+    /// Desfaz o mapeamento de `[p, p + bytes)`.
+    ///
+    /// # Safety
+    /// `[p, p + bytes)` veio de [`mapear`] e ninguém mais o usa.
+    pub unsafe fn desmapear(p: *mut u8, bytes: usize) {
+        // SAFETY: o contrato da função.
+        unsafe { munmap(p, bytes) };
+    }
+    /// Devolve ao sistema a memória de `[p, p + bytes)` (volta zerada).
+    ///
+    /// # Safety
+    /// `[p, p + bytes)` é mapeamento anônimo privado sem nada vivo.
+    pub unsafe fn descartar(p: *mut u8, bytes: usize) {
+        const MADV_DONTNEED: i32 = 4;
+        // SAFETY: o contrato da função.
+        if unsafe { madvise(p, bytes, MADV_DONTNEED) } != 0 {
+            // Sem o descarte a memória não volta zerada: zera à mão.
+            // SAFETY: o contrato da função.
+            unsafe { std::ptr::write_bytes(p, 0, bytes) };
+        }
+    }
+}
+
+#[allow(unsafe_code)]
+impl ReservaDePaginas {
+    /// Uma página zerada de [`PAGINA`] bytes, alinhada a [`PAGINA`].
+    fn pedir(&mut self) -> *mut u8 {
+        if let Some(p) = self.livres.pop() {
+            return p;
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let bytes = PAGINA * PAGINAS_POR_PEDACO;
+            let inicio = mapeamento::mapear(bytes, PAGINA);
+            self.pedacos.push((inicio, bytes));
+            // As de endereço baixo saem primeiro (`pop`).
+            for i in (1..PAGINAS_POR_PEDACO).rev() {
+                self.livres.push(inicio.wrapping_add(i * PAGINA));
+            }
+            inicio
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let layout = Pagina::layout(PAGINA);
+            // SAFETY: layout de tamanho não nulo.
+            let base = unsafe { std::alloc::alloc_zeroed(layout) };
+            if base.is_null() {
+                std::alloc::handle_alloc_error(layout);
+            }
+            base
+        }
+    }
+    /// Devolve a página `p` (sem objeto vivo) à reserva.
+    ///
+    /// # Safety
+    /// `p` veio de [`ReservaDePaginas::pedir`] e ninguém mais a usa.
+    unsafe fn devolver(&mut self, p: *mut u8) {
+        #[cfg(target_os = "linux")]
+        {
+            // SAFETY: o contrato da função.
+            unsafe { mapeamento::descartar(p, PAGINA) };
+            self.livres.push(p);
+        }
+        #[cfg(not(target_os = "linux"))]
+        // SAFETY: o contrato da função; a página veio de `alloc_zeroed`.
+        unsafe {
+            std::alloc::dealloc(p, Pagina::layout(PAGINA))
+        };
+    }
+}
+
+impl Drop for ReservaDePaginas {
+    fn drop(&mut self) {
+        #[cfg(target_os = "linux")]
+        for &(p, bytes) in &self.pedacos {
+            // SAFETY: o pedaço veio de `mapear`; o espaço que o usava acabou.
+            #[allow(unsafe_code)]
+            unsafe {
+                mapeamento::desmapear(p, bytes)
+            };
+        }
+        #[cfg(not(target_os = "linux"))]
+        for &p in &self.livres {
+            // SAFETY: página de `alloc_zeroed`, sem uso.
+            #[allow(unsafe_code)]
+            unsafe {
+                std::alloc::dealloc(p, Pagina::layout(PAGINA))
+            };
+        }
+    }
+}
+
 /// O espaço dos objetos do usuário: páginas de [`PAGINA`] bytes, cada uma
 /// com blocos ([`Cabecalho`] + campos) de um só número de campos, e faixas
 /// livres (trechos contíguos de blocos zerados) por número de campos,
@@ -1546,6 +1692,16 @@ pub struct EspacoDeObjetos {
     /// Algum objeto já ganhou corpo de fora (senão o `Drop` não percorre os
     /// blocos atrás deles).
     tem_fora: bool,
+    /// Blocos entregues desde a última coleta (menos os devolvidos): os
+    /// jovens que a coleta menor varre.
+    entregues: usize,
+    /// Objetos do espaço marcados pela coleta em curso: na menor, se são
+    /// todos os entregues, nenhum jovem morreu e a varredura das faixas não
+    /// tem o que achar (a lista que só cresce).
+    marcados: usize,
+    /// De onde vêm as páginas de [`PAGINA`] bytes (as maiores, dos objetos
+    /// grandes, vêm do alocador do sistema).
+    reserva: ReservaDePaginas,
 }
 
 impl std::fmt::Debug for EspacoDeObjetos {
@@ -1571,6 +1727,9 @@ impl EspacoDeObjetos {
             demanda: vec![0; MAIOR_CLASSE + 1],
             pico: vec![0; MAIOR_CLASSE + 1],
             tem_fora: false,
+            entregues: 0,
+            marcados: 0,
+            reserva: ReservaDePaginas::default(),
         }
     }
 
@@ -1590,17 +1749,41 @@ impl EspacoDeObjetos {
         }
         let tamanho = tamanho_do_bloco(n);
         let bytes = if n > MAIOR_CLASSE { tamanho.div_ceil(PAGINA) * PAGINA } else { PAGINA };
+        let base = self.alocar_pagina(bytes);
+        let pagina = Pagina::formatada(base, bytes, n);
+        self.blocos += pagina.blocos;
+        self.mapa.inserir(base as usize, self.paginas.len());
+        self.paginas.push(pagina);
+        self.paginas.len() - 1
+    }
+
+    /// `bytes` zerados alinhados a [`PAGINA`]: da reserva, ou do alocador do
+    /// sistema para os objetos grandes.
+    fn alocar_pagina(&mut self, bytes: usize) -> *mut u8 {
+        if bytes == PAGINA {
+            return self.reserva.pedir();
+        }
         let layout = Pagina::layout(bytes);
         // SAFETY: layout de tamanho não nulo.
         let base = unsafe { std::alloc::alloc_zeroed(layout) };
         if base.is_null() {
             std::alloc::handle_alloc_error(layout);
         }
-        let pagina = Pagina::formatada(base, bytes, n);
-        self.blocos += pagina.blocos;
-        self.mapa.inserir(base as usize, self.paginas.len());
-        self.paginas.push(pagina);
-        self.paginas.len() - 1
+        base
+    }
+
+    /// Devolve a página `base` de `bytes` (de [`EspacoDeObjetos::alocar_pagina`]).
+    ///
+    /// # Safety
+    /// Nenhum bloco da página está vivo (os corpos de fora já foram soltos).
+    unsafe fn soltar_pagina(&mut self, base: *mut u8, bytes: usize) {
+        if bytes == PAGINA {
+            // SAFETY: o contrato da função.
+            unsafe { self.reserva.devolver(base) };
+        } else {
+            // SAFETY: o contrato da função; veio de `alloc_zeroed` com este layout.
+            unsafe { std::alloc::dealloc(base, Pagina::layout(bytes)) };
+        }
     }
 
     /// Até `k` blocos zerados e contíguos de `n ≤ MAIOR_CLASSE` campos da
@@ -1648,6 +1831,7 @@ impl EspacoDeObjetos {
         let (inicio, j) = self.tirar_da_regiao(n, k);
         self.faixas.push((inicio, inicio.wrapping_add(j * tamanho_do_bloco(n)), n));
         self.demanda[n] += j;
+        self.entregues += j;
         (inicio, j)
     }
 
@@ -1655,6 +1839,7 @@ impl EspacoDeObjetos {
     /// usado de uma faixa): de volta à região, se ela continua dali; senão,
     /// às faixas livres.
     fn devolver_faixa(&mut self, n: usize, inicio: *mut u8, fim: *mut u8) {
+        self.entregues -= (fim as usize - inicio as usize) / tamanho_do_bloco(n);
         if self.regiao[n].0 == fim {
             self.regiao[n].0 = inicio;
         } else {
@@ -1740,7 +1925,9 @@ impl EspacoDeObjetos {
         // zerado, como uma faixa livre (a faixa inteira, quando nada
         // sobreviveu).
         let faixas = std::mem::take(&mut self.faixas);
-        for &(inicio, fim, n) in &faixas {
+        // Todos os entregues marcados: nenhum morto nas faixas.
+        let todos_vivos = self.marcados >= self.entregues;
+        for &(inicio, fim, n) in if todos_vivos { &faixas[..0] } else { &faixas[..] } {
             let tamanho = tamanho_do_bloco(n);
             let mut trecho: *mut u8 = std::ptr::null_mut();
             let mut p = inicio;
@@ -1776,6 +1963,8 @@ impl EspacoDeObjetos {
             unsafe { (*b).estado = VELHO };
         }
         self.vivos -= mortos;
+        self.entregues = 0;
+        self.marcados = 0;
         for d in self.demanda.iter_mut() {
             *d = 0;
         }
@@ -1808,6 +1997,7 @@ impl EspacoDeObjetos {
     fn alocar(&mut self, class_id: i64, n: usize) -> i64 {
         let b = self.tirar(n);
         self.jovens.push(b);
+        self.entregues += 1;
         if n <= MAIOR_CLASSE {
             self.demanda[n] += 1;
         }
@@ -1851,6 +2041,7 @@ impl EspacoDeObjetos {
         // livres dela e os vivos.
         let mut trechos: Vec<(usize, usize, usize)> = Vec::with_capacity(self.paginas.len());
         let mut faixas_livres: Vec<(*mut u8, *mut u8)> = Vec::new();
+        let mut sujos: Vec<(*mut u8, *mut u8)> = Vec::new();
         let mut vivos_da_classe = vec![0usize; classes];
         let mut livres_da_classe = vec![0usize; classes];
         // Os blocos ocupados (vivos e mortos desta coleta) por classe: o
@@ -1864,88 +2055,78 @@ impl EspacoDeObjetos {
                 continue;
             }
             let tamanho = tamanho_do_bloco(n);
-            // Primeiro só se contam os marcados (um byte por bloco): a página
-            // sem vivo sai inteira.
+            // Uma passada só por página: o estado de cada bloco é lido uma
+            // vez (é a leitura que custa: uma linha de cache por bloco
+            // pequeno). As faixas livres e os trechos de mortos por zerar
+            // saem juntos; se a página acaba sem vivo, nada se zera (ela
+            // fica vazia inteira, zerada só quando reusada).
             let mut vivos_na_pagina = 0;
+            let mut ocupados = 0;
+            sujos.clear();
+            // O trecho livre corrente (`livre`) e, dentro dele, o começo dos
+            // mortos por zerar (`sujo`): os livres já estão zerados.
+            let mut livre: *mut u8 = std::ptr::null_mut();
+            let mut sujo: *mut u8 = std::ptr::null_mut();
             let mut q = p.base;
             for _ in 0..p.blocos {
-                // SAFETY: bloco da página.
-                vivos_na_pagina += usize::from(unsafe { (*q.cast::<Cabecalho>()).estado } == MARCADO);
+                let b = q.cast::<Cabecalho>();
+                // SAFETY: bloco da página; o estado diz se há objeto.
+                unsafe {
+                    match (*b).estado {
+                        MARCADO => {
+                            (*b).estado = VELHO;
+                            vivos_na_pagina += 1;
+                            bytes_vivos += Self::bytes_do_objeto(b, n);
+                            if !sujo.is_null() {
+                                sujos.push((sujo, q));
+                                sujo = std::ptr::null_mut();
+                            }
+                            if !livre.is_null() {
+                                faixas_livres.push((livre, q));
+                                livre = std::ptr::null_mut();
+                            }
+                        }
+                        LIVRE => {
+                            if !sujo.is_null() {
+                                sujos.push((sujo, q));
+                                sujo = std::ptr::null_mut();
+                            }
+                            if livre.is_null() {
+                                livre = q;
+                            }
+                        }
+                        _ => {
+                            ocupados += 1;
+                            if self.tem_fora {
+                                Self::soltar_corpo(b);
+                            }
+                            if sujo.is_null() {
+                                sujo = q;
+                            }
+                            if livre.is_null() {
+                                livre = q;
+                            }
+                        }
+                    }
+                }
                 q = q.wrapping_add(tamanho);
             }
+            if !sujo.is_null() {
+                sujos.push((sujo, q));
+            }
+            if !livre.is_null() {
+                faixas_livres.push((livre, q));
+            }
+            mortos += ocupados;
+            if n <= MAIOR_CLASSE {
+                ocupados_da_classe[n] += ocupados;
+            }
             if vivos_na_pagina == 0 {
-                let mut q = p.base;
-                for _ in 0..p.blocos {
-                    let b = q.cast::<Cabecalho>();
-                    // SAFETY: bloco da página; o estado diz se há objeto.
-                    unsafe {
-                        if (*b).estado != LIVRE {
-                            mortos += 1;
-                            if n <= MAIOR_CLASSE {
-                                ocupados_da_classe[n] += 1;
-                            }
-                            if self.tem_fora && (*b).flags & FORA != 0 {
-                                soltar_corpo_de_fora(corpo(b));
-                            }
-                        }
-                    }
-                    q = q.wrapping_add(tamanho);
-                }
+                faixas_livres.truncate(de);
             } else {
-                // O trecho livre corrente (`livre`) e, dentro dele, o começo
-                // dos mortos por zerar (`sujo`): os livres já estão zerados.
-                let mut livre: *mut u8 = std::ptr::null_mut();
-                let mut sujo: *mut u8 = std::ptr::null_mut();
-                let mut q = p.base;
-                for _ in 0..p.blocos {
-                    let b = q.cast::<Cabecalho>();
-                    // SAFETY: bloco da página; o estado diz se há objeto.
-                    unsafe {
-                        match (*b).estado {
-                            MARCADO => {
-                                (*b).estado = VELHO;
-                                bytes_vivos += Self::bytes_do_objeto(b, n);
-                                if !sujo.is_null() {
-                                    std::ptr::write_bytes(sujo, 0, q as usize - sujo as usize);
-                                    sujo = std::ptr::null_mut();
-                                }
-                                if !livre.is_null() {
-                                    faixas_livres.push((livre, q));
-                                    livre = std::ptr::null_mut();
-                                }
-                            }
-                            LIVRE => {
-                                if !sujo.is_null() {
-                                    std::ptr::write_bytes(sujo, 0, q as usize - sujo as usize);
-                                    sujo = std::ptr::null_mut();
-                                }
-                                if livre.is_null() {
-                                    livre = q;
-                                }
-                            }
-                            _ => {
-                                mortos += 1;
-                                if n <= MAIOR_CLASSE {
-                                    ocupados_da_classe[n] += 1;
-                                }
-                                Self::soltar_corpo(b);
-                                if sujo.is_null() {
-                                    sujo = q;
-                                }
-                                if livre.is_null() {
-                                    livre = q;
-                                }
-                            }
-                        }
-                    }
-                    q = q.wrapping_add(tamanho);
-                }
-                if !sujo.is_null() {
-                    // SAFETY: blocos mortos da página.
-                    unsafe { std::ptr::write_bytes(sujo, 0, q as usize - sujo as usize) };
-                }
-                if !livre.is_null() {
-                    faixas_livres.push((livre, q));
+                for &(inicio, fim) in &sujos {
+                    // SAFETY: blocos mortos da página, sem corpo de fora.
+                    unsafe { std::ptr::write_bytes(inicio, 0, fim as usize - inicio as usize) };
                 }
             }
             vivos += vivos_na_pagina;
@@ -2000,9 +2181,9 @@ impl EspacoDeObjetos {
             if solta[i] {
                 self.mapa.remover(p.base as usize);
                 self.blocos -= p.blocos;
-                // SAFETY: a página veio de `alloc` com este layout, e nenhum
-                // bloco dela está vivo (os corpos de fora já foram soltos).
-                unsafe { std::alloc::dealloc(p.base, Pagina::layout(p.bytes)) };
+                // SAFETY: nenhum bloco da página está vivo (os corpos de
+                // fora já foram soltos).
+                unsafe { self.soltar_pagina(p.base, p.bytes) };
                 continue;
             }
             let (de, ate, vivos_na_pagina) = trechos[i];
@@ -2022,6 +2203,8 @@ impl EspacoDeObjetos {
         // As vazias de endereço baixo saem primeiro (`pop`).
         self.vazias.reverse();
         self.vivos = vivos;
+        self.entregues = 0;
+        self.marcados = 0;
         self.jovens.clear();
         self.faixas.clear();
         self.lembrados.clear();
@@ -2059,11 +2242,17 @@ impl Drop for EspacoDeObjetos {
                     }
                 }
             }
-            // SAFETY: a página veio de `alloc` com este layout.
-            #[allow(unsafe_code)]
-            unsafe {
-                std::alloc::dealloc(p.base, Pagina::layout(p.bytes))
-            };
+            // As de `PAGINA` bytes saem com a reserva (o `Drop` dela); as
+            // maiores vieram de `alloc` com este layout.
+            if p.bytes == PAGINA {
+                self.reserva.livres.push(p.base);
+            } else {
+                // SAFETY: página de `alloc_zeroed` com este layout, sem uso.
+                #[allow(unsafe_code)]
+                unsafe {
+                    std::alloc::dealloc(p.base, Pagina::layout(p.bytes))
+                };
+            }
         }
     }
 }
@@ -3913,6 +4102,7 @@ impl Heap {
         // ele, apontar para `self`).
         let mut pilha = std::mem::take(&mut self.pending);
         let mut trabalho = 0usize;
+        let mut objetos_marcados = 0usize;
         // As arestas vêm de raízes e de campos `is_ref`: a validação
         // completa do handle (a página e o início do bloco) fica para o
         // `--gc-stress`, o modo que caça raiz faltando (N4).
@@ -3950,6 +4140,7 @@ impl Heap {
                         }
                         (*b).estado = marca;
                         live += 1;
+                        objetos_marcados += 1;
                         // Só os campos que o mapa diz referência: o que
                         // esta coleta não percorre (velho na menor, já
                         // marcado) nem entra na pilha; o primeiro que falta
@@ -4007,6 +4198,7 @@ impl Heap {
         }
         self.pending = pilha;
         self.trabalho_da_marcacao += trabalho;
+        self.objetos.marcados += objetos_marcados;
         live
     }
 

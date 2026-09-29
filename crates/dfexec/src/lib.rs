@@ -40,10 +40,17 @@ pub trait Canal: Send {
 }
 
 /// Processo filho que fala `dfexec/1` por stdin/stdout. stderr é herdado.
+///
+/// Os quadros do filho são lidos por uma thread, e `receber` espera por eles
+/// no máximo o prazo ([`CanalDeProcesso::com_prazo`]): um executor travado
+/// (laço infinito num builder, um `await` que nunca completa) vira erro do
+/// canal em vez de prender o hospedeiro, e o processo é encerrado.
 pub struct CanalDeProcesso {
     filho: std::process::Child,
     entrada: std::process::ChildStdin,
-    saida: std::process::ChildStdout,
+    quadros: std::sync::mpsc::Receiver<std::io::Result<Option<Value>>>,
+    prazo: Option<std::time::Duration>,
+    encerrado: bool,
 }
 
 impl CanalDeProcesso {
@@ -51,17 +58,57 @@ impl CanalDeProcesso {
         comando.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped());
         let mut filho = comando.spawn().map_err(|e| format!("não foi possível iniciar o executor: {e}"))?;
         let entrada = filho.stdin.take().ok_or("executor sem stdin")?;
-        let saida = filho.stdout.take().ok_or("executor sem stdout")?;
-        Ok(Self { filho, entrada, saida })
+        let mut saida = filho.stdout.take().ok_or("executor sem stdout")?;
+        let (tx, quadros) = std::sync::mpsc::channel();
+        std::thread::Builder::new()
+            .name("dfexec-leitor".into())
+            .spawn(move || loop {
+                let q = ler_quadro(&mut saida);
+                let fim = !matches!(q, Ok(Some(_)));
+                if tx.send(q).is_err() || fim {
+                    break;
+                }
+            })
+            .map_err(|e| format!("não foi possível ler o executor: {e}"))?;
+        Ok(Self { filho, entrada, quadros, prazo: None, encerrado: false })
+    }
+
+    /// Espera no máximo `prazo` por cada mensagem do executor (`None`: sem
+    /// limite). Esgotado, o processo é encerrado e `receber` falha.
+    pub fn com_prazo(mut self, prazo: Option<std::time::Duration>) -> Self {
+        self.prazo = prazo;
+        self
     }
 }
 
 impl Canal for CanalDeProcesso {
     fn enviar(&mut self, m: &Value) -> Result<(), String> {
+        if self.encerrado {
+            return Err("executor encerrado".into());
+        }
         escrever_quadro(&mut self.entrada, m).map_err(|e| format!("executor: {e}"))
     }
     fn receber(&mut self) -> Result<Value, String> {
-        match ler_quadro(&mut self.saida) {
+        if self.encerrado {
+            return Err("executor encerrado".into());
+        }
+        let q = match self.prazo {
+            Some(p) => match self.quadros.recv_timeout(p) {
+                Ok(q) => q,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    self.encerrado = true;
+                    let _ = self.filho.kill();
+                    let _ = self.filho.wait();
+                    return Err(format!(
+                        "o executor não respondeu em {} s (travado?); processo encerrado",
+                        p.as_secs_f64()
+                    ));
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Ok(None),
+            },
+            None => self.quadros.recv().unwrap_or(Ok(None)),
+        };
+        match q {
             Ok(Some(v)) => Ok(v),
             Ok(None) => Err("o executor terminou no meio da sessão".into()),
             Err(e) => Err(format!("executor: {e}")),
@@ -80,6 +127,21 @@ impl Drop for CanalDeProcesso {
 mod testes {
     use super::*;
     use serde_json::json;
+
+    #[cfg(unix)]
+    #[test]
+    fn prazo_esgotado_encerra_o_processo() {
+        let mut c = std::process::Command::new("sleep");
+        c.arg("30");
+        let t0 = std::time::Instant::now();
+        let mut canal = CanalDeProcesso::iniciar(c)
+            .unwrap()
+            .com_prazo(Some(std::time::Duration::from_millis(200)));
+        let e = canal.receber().unwrap_err();
+        assert!(e.contains("não respondeu"), "{e}");
+        assert!(t0.elapsed() < std::time::Duration::from_secs(10));
+        assert!(canal.receber().is_err());
+    }
 
     #[test]
     fn quadro_ida_e_volta() {

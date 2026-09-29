@@ -265,7 +265,13 @@ Por ação, na ordem, o primeiro que aceita:
    que o projeto não resolve vêm do cache do pub
    (`dependencias_executor.rs`). Sem executor, o padrão é
    `Indisponivel(motivo)`. A sessão
-   encerra o executor ao terminar ou quando ele é substituído. No
+   encerra o executor ao terminar ou quando ele é substituído. Cada
+   mensagem do executor (VM ou nativo) tem prazo: `DARTFORGE_BUILD_PRAZO`
+   segundos sem resposta (padrão 600; `0` desliga; as consultas `build.*`
+   do meio da ação reiniciam a contagem) e o processo é encerrado — a ação
+   em curso vira `Origem::Falha` com o motivo, e as seguintes seguem a
+   política de executor indisponível (`dfexec::CanalDeProcesso::com_prazo`,
+   `cliente::prazo_do_executor`). No
    `corpus/builders` pela VM: **57 iguais / 0 pendentes / 0 diferentes**
    (`crates/build/tests/executor_vm.rs`, com a saída do pós-processador do
    `cadeia_configuracao`), e incremental = do zero nas 12 edições.

@@ -382,6 +382,12 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_closure_new_tipada(i64, i64, i64, i64)",
         efeitos: ALOCA_SEM_LANCAR,
     },
+    // A closure com o ambiente direto (`lower/closures.rs`): o segundo
+    // argumento é o valor capturado, não um ambiente.
+    Extern {
+        decl: "declare i64 @dartforge_closure_nova_direta(i64, i64, i64, i64)",
+        efeitos: ALOCA_SEM_LANCAR,
+    },
     // A ABI de quem chama conferida contra a da closure (`closures.rs`).
     Extern {
         decl: "declare i64 @dartforge_closure_tipada(i64, i64) memory(inaccessiblemem: read) nounwind willreturn",

@@ -23,9 +23,26 @@ impl ClienteBuild<CanalDeProcesso> {
     /// Inicia um processo compatível. O handshake e o carregamento ficam
     /// para a primeira ação Dart; o motor deve construir este cliente sob
     /// demanda para manter o processo quente só quando for necessário.
+    ///
+    /// Cada resposta do processo tem o prazo de [`prazo_do_executor`]: um
+    /// builder travado vira falha da ação (`Origem::Falha`), não um
+    /// `dartforge build` preso.
     pub fn iniciar(comando: std::process::Command) -> Result<Self, String> {
-        CanalDeProcesso::iniciar(comando).map(Self::novo)
+        CanalDeProcesso::iniciar(comando).map(|c| Self::novo(c.com_prazo(prazo_do_executor())))
     }
+}
+
+/// Quanto o hospedeiro espera por cada mensagem do executor Dart (a VM ou o
+/// nativo) antes de dá-lo por travado: `DARTFORGE_BUILD_PRAZO` em segundos
+/// (`0` desliga), 600 s por padrão — folga para o resumo do SDK e a
+/// resolução do primeiro builder numa máquina carregada; as consultas
+/// `build.*` do meio de uma ação reiniciam a contagem.
+pub fn prazo_do_executor() -> Option<std::time::Duration> {
+    let s = match std::env::var("DARTFORGE_BUILD_PRAZO") {
+        Ok(v) => v.trim().parse::<f64>().ok().filter(|s| s.is_finite() && *s >= 0.0).unwrap_or(600.0),
+        Err(_) => 600.0,
+    };
+    (s > 0.0).then(|| std::time::Duration::from_secs_f64(s))
 }
 
 impl<C: Canal> ClienteBuild<C> {
@@ -758,5 +775,46 @@ mod testes {
             json!({"t":"build.resposta","id":11,"sim":true})
         );
         assert!(servico.escritas.is_empty());
+    }
+
+    /// Um executor que carrega e depois trava na ação: esgotado o prazo, a
+    /// ação falha (o motor a registra como `Origem::Falha`) e o processo é
+    /// encerrado, sem prender o hospedeiro.
+    #[cfg(unix)]
+    #[test]
+    fn acao_travada_esgota_o_prazo() {
+        let dir = tempfile::tempdir().unwrap();
+        let roteiro = dir.path().join("respostas");
+        let mut b = Vec::new();
+        for m in [
+            json!({"t":"ola","protocolo":"dfexec/1","servicos":["build"]}),
+            json!({"t":"build.carregado","id":1}),
+        ] {
+            dartforge_dfexec::escrever_quadro(&mut b, &m).unwrap();
+        }
+        std::fs::write(&roteiro, b).unwrap();
+        let mut c = std::process::Command::new("sh");
+        c.arg("-c").arg("cat \"$0\"; exec sleep 60").arg(&roteiro);
+        let canal = CanalDeProcesso::iniciar(c)
+            .unwrap()
+            .com_prazo(Some(std::time::Duration::from_millis(500)));
+        let mut cliente = ClienteBuild::novo(canal);
+        cliente
+            .preparar(&ScriptDeBuilders { aplicacoes: vec![], chave_de_cache: "x".into() })
+            .unwrap();
+        let pedido = PedidoAcao {
+            fase: 0,
+            chave: "p:b".into(),
+            fabrica: "b".into(),
+            opcoes: Mapa::default(),
+            raiz: true,
+            entrada: AssetId::novo("p", "lib/a.dart"),
+            saidas_permitidas: vec![AssetId::novo("p", "lib/a.g.dart")],
+        };
+        let mut servico = ServicoFalso { escritas: Vec::new() };
+        let t0 = std::time::Instant::now();
+        let e = cliente.executar(&pedido, &mut servico).unwrap_err();
+        assert!(e.0.contains("não respondeu"), "{}", e.0);
+        assert!(t0.elapsed() < std::time::Duration::from_secs(20));
     }
 }
