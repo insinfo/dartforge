@@ -389,7 +389,22 @@ impl Motor {
         ];
         let r = &grafo_pacotes.nos[grafo_pacotes.raiz].raiz;
         configuracao.push(chave(&r.join("pubspec.yaml")));
-        configuracao.push(chave(&r.join("build.yaml")));
+        // O `build.yaml` de cada pacote, exista ou não (criá-lo muda o
+        // plano), e o diretório raiz, cuja marca muda quando um override
+        // `<pacote>.build.yaml` aparece ou some (DF-BUILD-018).
+        for no in &grafo_pacotes.nos {
+            configuracao.push(chave(&no.raiz.join("build.yaml")));
+        }
+        configuracao.push(chave(r));
+        if let Ok(ls) = std::fs::read_dir(r) {
+            for e in ls.flatten() {
+                if e.file_name().to_string_lossy().ends_with(".build.yaml") {
+                    configuracao.push(chave(&e.path()));
+                }
+            }
+        }
+        configuracao.sort();
+        configuracao.dedup();
         let n_acoes = grafo.acoes.len();
         let mut m = Motor {
             raiz: raiz.to_path_buf(),
