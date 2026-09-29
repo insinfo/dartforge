@@ -836,6 +836,58 @@ mod tests {
     use dartforge_diagnostics::Diagnostic;
     use dartforge_intern::Interner;
 
+    /// `(código, texto do intervalo)` dos diagnósticos de uma unidade.
+    fn erros_da_unidade(fonte: &str) -> Vec<(String, String)> {
+        let mut nomes = Interner::new();
+        let out = crate::parser::parse(fonte, &mut nomes);
+        out.diagnostics
+            .iter()
+            .map(|d| (d.code.map(|c| c.info().nome.to_string()).unwrap_or_default(), fonte[d.span.start..d.span.end].to_string()))
+            .collect()
+    }
+
+    /// Padrões constantes com a recuperação do fasta (conferidos com o
+    /// `dart analyze` 3.6.2).
+    #[test]
+    fn padroes_constantes_com_os_erros_do_fasta() {
+        let caso = |p: &str| erros_da_unidade(&format!("void f(Object o) {{ switch (o) {{ case {p}: break; }} }}"));
+        let e = |c: &str, t: &str| vec![(c.to_string(), t.to_string())];
+        assert_eq!(caso("const 1 + 2"), e("invalid_constant_const_prefix", "1"));
+        assert_eq!(caso("const a"), e("invalid_constant_const_prefix", "a"));
+        assert_eq!(caso("const A.b"), e("invalid_constant_const_prefix", "b"));
+        assert_eq!(caso("const A.n()"), vec![]);
+        assert_eq!(caso("const A<int>.new()"), vec![]);
+        assert_eq!(caso("const -1"), e("invalid_constant_const_prefix", "-"));
+        assert_eq!(caso("-a"), e("invalid_constant_pattern_negation", "a"));
+        assert_eq!(
+            caso("-p.v"),
+            vec![
+                ("invalid_constant_pattern_negation".to_string(), "p".to_string()),
+                ("invalid_constant_pattern_negation".to_string(), "v".to_string())
+            ]
+        );
+        assert_eq!(caso("!true"), e("invalid_constant_pattern_unary", "!"));
+        assert_eq!(caso("1 >> 2"), e("invalid_constant_pattern_binary", ">>"));
+        assert_eq!(caso("1 is int"), e("invalid_constant_pattern_binary", "is"));
+        assert_eq!(caso("a + 1"), e("invalid_constant_pattern_binary", "+"));
+        assert_eq!(caso("const const A()"), e("invalid_constant_pattern_duplicate_const", "const"));
+        assert_eq!(caso("const ()"), e("invalid_constant_pattern_empty_record_literal", "("));
+        assert_eq!(caso("A<int>"), e("invalid_constant_pattern_generic", "<"));
+        assert_eq!(caso("_ as int as num"), e("invalid_inside_unary_pattern", "_ as int"));
+        assert_eq!(caso("> 1?"), e("invalid_inside_unary_pattern", "> 1"));
+    }
+
+    /// `ensureCloseParen`: o `)` que falta é relatado no token corrente e o
+    /// resto até o `)` casado é pulado; os comandos seguintes continuam.
+    #[test]
+    fn fecha_parenteses_como_o_fasta() {
+        assert_eq!(
+            erros_da_unidade("void f(x) { if (x case == 1 < 2) {} if (x case == 1 == 2) {} }"),
+            vec![("expected_token".to_string(), "<".to_string()), ("expected_token".to_string(), "==".to_string())]
+        );
+        assert_eq!(erros_da_unidade("void f() { g(1 2); }"), vec![("expected_token".to_string(), "2".to_string())]);
+    }
+
     struct Out {
         names: Interner,
         ast: Ast,
