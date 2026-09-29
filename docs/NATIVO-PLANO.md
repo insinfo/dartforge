@@ -2107,10 +2107,8 @@ baixo no mesmo intervalo).
 1. **Acesso ao slot e alocação do heap** (38,7% + 18,7% de `malloc`): cada
    consulta de valor passa por `try_get` + `indice_vivo`/`bloco_vivo`; cada
    objeto é um `Value` mais um vetor de campos no `malloc`. Dono: heap/GC.
-2. **Funções locais que não escapam** (`_HeaderValue._parse`,
-   `_HttpParser`): chamadas diretas com o ambiente na pilha, sem closure,
-   ambiente e célula no heap a cada chamada (103 closures e 103 ambientes por
-   requisição). Dono: lowering de closures.
+2. ~~**Funções locais que não escapam**~~: feito em §9.7 (chamadas diretas,
+   −20% de instruções).
 3. ~~**Conferência de argumento na entrada uniforme** para chamadas de tipo
    estático conhecido~~: feito em §9.6 (entrada `$tc`, −5% de instruções).
 4. **`Uint8List` em linha**: `typed_len`/`typed_ptr` por acesso (31 mil
@@ -2192,3 +2190,58 @@ A avaliação do tipo do receptor duas vezes no `[]=` de mapa (`K` e `V`,
 ambos covariantes: a VM também confere os dois) continua: cada
 `dartforge_rti_avaliar` passa pela chave do receptor
 (`chave_do_valor`, ~100 instruções).
+
+### 9.7 Funções locais que não escapam, chamadas diretas (item 2 de §9.5, medido em 2026-09-29)
+
+**O problema.** Uma função local era sempre um valor: a cada execução da
+declaração, um ambiente com as capturas, a closure e — porque o nome conta
+como atribuído (a recursão) — uma célula para o nome; toda chamada ia pela
+entrada uniforme. O `_HeaderValue._parse` declara oito por chamada (seis mais
+as duas de dentro de `parseParameters`), todas lendo e gravando o mesmo
+`index`, que por isso também morava numa célula.
+
+**A regra** (o que o grafo de fluxo da VM faz com as closures que não
+escapam, e o que o CFE garante sobre o nome de uma função local): uma função
+local cujo nome só aparece como alvo de chamada `f(…)` — nunca lido como
+valor, passado, guardado ou devolvido — e só de dentro da função que a
+declara ou de outras funções diretas não pode ser chamada depois de a função
+de fora retornar. A análise é a de `captura.rs` (`analisar_com`): as
+referências a cada função local, a forma (sem parâmetros de tipo próprios,
+síncrona, só posicionais obrigatórios, sem ler um `late` de fora) e o ponto
+fixo — uma função que deixa de ser direta vira closure, e o que ela chama
+passa a ser chamado de dentro de algo que escapa. A genérica fica closure (a
+tupla `$tipos` vem da entrada uniforme); um corpo `async`/gerador também não
+tem diretas (os `alloca` dele viram posições do quadro).
+
+**O código** (`crates/emit_native/src/lower/funcoes_diretas.rs`). A função
+direta vira uma função do módulo, `<de fora>$<nome>$d<impressão>`, com os
+parâmetros `[this] capturas… [tupla de fora] parâmetros…`, e a chamada, um
+`call` estático — sem closure, ambiente nem célula do nome. Cada captura vai
+de um de três jeitos, decididos na declaração: **valor** (a variável nunca é
+atribuída; lido na hora da chamada), **endereço** (atribuída, escalar, e
+nenhuma closure que escapa a captura: o endereço do `alloca` de quem declara,
+que a função lê e grava — o `index` do `_parse`) ou **célula** (atribuída e
+`Ref`, porque o endereço de um `Ref` fora do quadro de raízes o esconderia do
+coletor; ou capturada também por uma closure que escapa). Uma direta que
+chama outra declarada fora dela recebe as capturas dela e as repassa: a
+chamada nunca procura uma captura pelo nome, que um bloco de dentro pode ter
+sombreado.
+
+Correção: `corpus/nativo/54_funcoes_locais_diretas.dart` (o molde do
+`_parse` com várias funções sobre o mesmo índice, recursão, captura
+modificada antes e depois, `Ref` atribuído, sombreamento, chamada de dentro
+de uma closure que escapa, captura compartilhada com uma closure que escapa,
+laços com variável por volta, aninhadas, genérica de fora e local genérica,
+exceção e `finally`, tear-off, passada adiante, devolvida, `late`, `async`,
+`sync*`, `this`) igual à VM no AOT, no JIT e com `--gc-stress`; corpus nativo
+58/58 nos três, `corpus/js` pelo nativo 235/235, testes de
+`dartforge-emit-native` e `dartforge-runtime` verdes.
+
+Instruções por requisição (callgrind, `/`, §9.1): **1 164 449 → 927 176**
+(−20,4%). O `_parse` não cria mais closure nem ambiente; `dartforge_env_new`
+inclusivo 112 → 95 mil instruções/req e `dartforge_closure_new_tipada` 130
+→ 71 mil (o que resta são closures que escapam de fato: os
+`onData`/`onDone` de `_HttpOutgoing.addStream`, os `then` do
+`_AsyncCompleter`, as dos `_StreamController`). No `bench/desempenho` nenhum
+núcleo tem função local que não escapa: `chamadas/closures` (closures
+guardadas numa lista) fica igual (84 ms, 2,7× o Dart AOT, 5 repetições).
