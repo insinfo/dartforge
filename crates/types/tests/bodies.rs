@@ -2090,3 +2090,26 @@ fn augmentation_de_enum_acrescenta_valores_e_membros() {
     assert_eq!(erros.len(), 1, "{erros:?}");
     assert!(erros[0].starts_with(INVALID_ASSIGNMENT.template) && erros[0].ends_with("@ Cor.azul.index"), "{erros:?}");
 }
+
+#[test]
+fn switch_sobre_sealed_anulavel_e_exaustivo() {
+    // `isAlwaysExhaustive` ignora o `?`: `case var y?` e `case null` cobrem
+    // `S?` de uma classe `sealed`, e `r` está atribuída depois do `switch`
+    // (o `fieldType` do `ast_builder.dart` do analyzer 7.7.1).
+    let fonte = "library test; import 'dart:core';
+        sealed class S {}
+        class A extends S {}
+        String f(S? x) {
+          String r;
+          switch (x) {
+            case var y?: r = 'a';
+            case null: r = 'n';
+          }
+          return r;
+        }";
+    let diags = diagnosticos_de(fonte);
+    assert!(
+        !diags.iter().any(|d| d.message.contains("é lida antes de ser atribuída")),
+        "{diags:?}"
+    );
+}

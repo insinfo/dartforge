@@ -473,11 +473,55 @@ fn stack_trace(inf: &mut BodyInferrer<'_>) -> TypeId {
 /// saída "nenhum caso casou" é inalcançável. Aproximação: tipos cuja
 /// exaustividade o analyzer pode provar são tratados como exaustivos.
 fn switch_exaustivo(inf: &mut BodyInferrer<'_>, t: TypeId) -> bool {
-    match inf.table.get(t) {
-        Type::Interface { class, nullable: false, .. } => {
-            let c = inf.program.class(*class);
-            c.kind == dartforge_elements::model::ClassKind::Enum || c.modifiers.sealed || Some(*class) == inf.core.bool_class
+    sempre_exaustivo(inf, t, 0)
+}
+
+/// `TypeSystemImpl.isAlwaysExhaustive` (analyzer 7.7.1,
+/// `type_system.dart:819`): o `?` não conta (o `S?` de uma classe `sealed`
+/// é sempre exaustivo — `case var y?` e `case null` o cobrem); `Null`,
+/// `bool`, enum e classe `sealed`; tipo de extensão pela *erasure*;
+/// `FutureOr<T>` pelo `T`; parâmetro de tipo pelo limite promovido ou pelo
+/// declarado; record quando todos os campos são.
+fn sempre_exaustivo(inf: &mut BodyInferrer<'_>, t: TypeId, prof: u32) -> bool {
+    if prof > 32 {
+        return false;
+    }
+    match inf.table.get(t).clone() {
+        Type::Null => true,
+        Type::Interface { class, .. } => {
+            let c = inf.program.class(class);
+            c.kind == dartforge_elements::model::ClassKind::Enum
+                || c.modifiers.sealed
+                || Some(class) == inf.core.bool_class
         }
+        Type::ExtensionType { decl, .. } => {
+            let Some(rep) = inf.program.class(decl).representation else {
+                return false;
+            };
+            let Some(d) = inf.outline.variables[rep.0 as usize].declared_type else {
+                return false;
+            };
+            let apagado = inf.substituir_do_dono(t, decl, decl, d);
+            sempre_exaustivo(inf, apagado, prof + 1)
+        }
+        Type::FutureOr { arg, .. } => sempre_exaustivo(inf, arg, prof + 1),
+        Type::Intersection { param, bound } => {
+            sempre_exaustivo(inf, bound, prof + 1) || {
+                let b = inf.table.param(param).bound;
+                sempre_exaustivo(inf, b, prof + 1)
+            }
+        }
+        Type::TypeParameter { param, .. } => {
+            let b = inf.table.param(param).bound;
+            sempre_exaustivo(inf, b, prof + 1)
+        }
+        Type::Record { positional, named, .. } => positional
+            .iter()
+            .copied()
+            .chain(named.iter().map(|(_, c)| *c))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .all(|c| sempre_exaustivo(inf, c, prof + 1)),
         _ => false,
     }
 }
