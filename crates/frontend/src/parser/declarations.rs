@@ -2357,6 +2357,30 @@ mod tests {
     use crate::parser::{Parsed, Parser, parse};
     use dartforge_intern::Interner;
 
+    /// `MISSING_FUNCTION_BODY` no `;` onde o fasta lê o corpo sem
+    /// `allowAbstract` (conferido com o `dart analyze` 3.6.2): função e
+    /// acessor de topo sem `external`, membro `static`, membro `async`,
+    /// factory sem `external`. Método de instância, construtor gerador e
+    /// `external` aceitam `;`.
+    #[test]
+    fn corpo_vazio_sem_allow_abstract() {
+        let fonte = "class A {\n  static int get foo;\n  static set foo(int _);\n  static void m();\n  void i();\n  \
+                     A();\n  factory A.f();\n  external factory A.g();\n  void a() async;\n  external static void e();\n}\n\
+                     void f(int x);\nint get g;\nexternal void h();\n";
+        let mut nomes = Interner::new();
+        let out = parse(fonte, &mut nomes);
+        let linhas: Vec<usize> = out
+            .diagnostics
+            .iter()
+            .map(|d| {
+                assert_eq!(d.code, Some(dartforge_diagnostics::codigos::parser::MISSING_FUNCTION_BODY), "{d:?}");
+                assert_eq!(&fonte[d.span.start..d.span.end], ";");
+                fonte[..d.span.start].matches('\n').count() + 1
+            })
+            .collect();
+        assert_eq!(linhas, [2, 3, 4, 7, 9, 12, 13]);
+    }
+
     fn parse_ok(src: &str, names: &mut Interner) -> Parsed {
         let out = parse(src, names);
         assert!(out.diagnostics.is_empty(), "{src}: {:?}", out.diagnostics);
@@ -2676,7 +2700,7 @@ mod tests {
     #[test]
     fn getters_abstratos_e_native() {
         let mut names = Interner::new();
-        let src = "class A { get x; static get y; external get z; get w native; }";
+        let src = "class A { get x; static get y => 1; external get z; get w native; }";
         let out = parse_ok(src, &mut names);
         let a = class(&out, 0);
         assert_eq!(a.members.len(), 4);

@@ -1335,7 +1335,7 @@ mod testes {
     fn identificador_embutido_como_nome() {
         let v = rodar(
             "embutidos",
-            "import 'dart:core' as abstract;\nclass as {}\nclass B {}\nmixin M {}\nclass Function = B with M;\ntypedef interface = int;\nextension set on int {}\nclass C<static> {}\nvoid f<dynamic>() {}\nclass on {}\nclass augment {}\n",
+            "import 'dart:core' as abstract;\nclass as {}\nclass B {}\nmixin M {}\nclass Function = B with M;\ntypedef interface = int;\nextension set on int {}\nclass C<implements> {}\nvoid f<dynamic>() {}\nclass on {}\nclass augment {}\n",
         );
         let nomes: Vec<(&str, &str)> = v.iter().map(|(_, t, m)| (t.as_str(), m.as_str())).collect();
         assert_eq!(
@@ -1345,9 +1345,9 @@ mod testes {
                 ("abstract", "The built-in identifier 'abstract' can't be used as a prefix name."),
                 ("as", "The built-in identifier 'as' can't be used as a type name."),
                 ("dynamic", "The built-in identifier 'dynamic' can't be used as a type parameter name."),
+                ("implements", "The built-in identifier 'implements' can't be used as a type parameter name."),
                 ("interface", "The built-in identifier 'interface' can't be used as a typedef name."),
                 ("set", "The built-in identifier 'set' can't be used as an extension name."),
-                ("static", "The built-in identifier 'static' can't be used as a type parameter name."),
             ]
         );
     }
