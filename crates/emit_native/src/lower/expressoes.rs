@@ -894,6 +894,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         if let Some(f) = chave.and_then(|k| self.ctx.program.classes[c.0 as usize].constructors.get(&k).copied())
                             && !matches!(resolved, Some(Resolved::Member { .. }))
                         {
+                            // Classe genérica com os argumentos de tipo
+                            // inferidos pelo contexto (`putIfAbsent(k,
+                            // HashSet.new)` é `HashSet<V> Function()`): o
+                            // tear-off é o instanciado, como `C<T…>.new`.
+                            if let Some(tipo) = self.ctx.get_type(self.unit_id, expr_id)
+                                && let Some((objeto, tupla)) = self.instanciacao_do_tearoff(c, tipo)
+                            {
+                                return self.tearoff_instanciado_de_construtor(f.0 as usize, objeto, tupla, Some(tipo), span);
+                            }
                             return self.tearoff_de_construtor(f.0 as usize, span);
                         }
                     }

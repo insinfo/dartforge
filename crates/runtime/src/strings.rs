@@ -176,10 +176,10 @@ pub unsafe extern "C" fn dartforge_string_juntar_tipado(partes: *const i64, n: i
             let total: usize = partes.chunks_exact(2).map(|p| if p[0] == 1 { 20 } else { heap.texto(p[1]).len() }).sum();
             let mut v = Vec::with_capacity(total);
             for p in partes.chunks_exact(2) {
-                match (p[0], heap.texto_se_string(p[1])) {
-                    (1, _) => escrever_decimal(&mut v, p[1]),
-                    (_, Some(Texto::Um(b))) => v.extend_from_slice(b),
-                    _ => {}
+                if p[0] == 1 {
+                    escrever_decimal(&mut v, p[1]);
+                } else if let Texto::Um(b) = heap.texto(p[1]) {
+                    v.extend_from_slice(b);
                 }
             }
             return Texto::Um(v);

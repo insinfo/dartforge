@@ -1034,6 +1034,36 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
+    /// O tipo do objeto e a tupla da classe genérica `c` de um tear-off de
+    /// construtor cujo tipo estático (`tipo`) já é instanciado pela
+    /// inferência (`C<int> Function()`, sem parâmetros de tipo próprios);
+    /// `None` para classe não genérica ou tear-off genérico.
+    pub fn instanciacao_do_tearoff(&mut self, c: ClassId, tipo: TypeId) -> Option<(Operand, Operand)> {
+        let n = self.ctx.outline.classes.get(c.0 as usize)?.type_params.len();
+        if n == 0 {
+            return None;
+        }
+        let T::Function { type_params, ret, .. } = self.ctx.table.get(tipo) else { return None };
+        if !type_params.is_empty() {
+            return None;
+        }
+        let T::Interface { class, args, .. } = self.ctx.table.get(*ret) else { return None };
+        if *class != c || args.len() != n {
+            return None;
+        }
+        let args = args.clone();
+        let mut textos = Vec::with_capacity(n);
+        let mut variaveis = false;
+        for a in args.iter() {
+            let r = self.receita_de_tipo(*a);
+            variaveis |= r.variaveis;
+            textos.push(r.texto);
+        }
+        let objeto = self.rti_da_receita(&Receita { texto: format!("C{}<{}>", self.ctx.id_rti(c), textos.join(",")), variaveis });
+        let tupla = self.rti_da_receita(&Receita { texto: format!("L<{}>", textos.join(",")), variaveis });
+        Some((objeto, tupla))
+    }
+
     /// A forma não anulável de `t` (`T?` → `T`, `C<A>?` → `C<A>`), se a
     /// tabela a tem.
     fn sem_interrogacao(&self, t: TypeId) -> Option<TypeId> {
