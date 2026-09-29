@@ -487,6 +487,21 @@ pub extern "C" fn dartforge_nativo_DartForge_string_iguais(this: i64, outro: i64
     HEAP.with(|heap| u8::from(heap.borrow().string_equal(this, outro)))
 }
 
+/// `_StringBase.==` inteiro (o intrínseco `String_equality` da VM):
+/// `identical`, o teste `other is String` e as unidades. Toda `String` é um
+/// texto do runtime, então um objeto do espaço (`h & 3 == 2`), `null` ou um
+/// `Smi` é diferente sem consultar o heap.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_string_igual_a(this: i64, outro: i64) -> u8 {
+    if this == outro {
+        return 1;
+    }
+    if outro & 3 != 0 || outro <= 0 {
+        return 0;
+    }
+    HEAP.with(|heap| u8::from(heap.borrow().string_equal(this, outro)))
+}
+
 /// `_StringBase.codeUnitAt(i)` (intrínseco da VM), com a conferência de
 /// índice.
 #[unsafe(no_mangle)]

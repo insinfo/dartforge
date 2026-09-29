@@ -202,12 +202,29 @@ impl<'a> OutlineResolver<'a> {
         for (i, class) in self.program.classes.iter().enumerate() {
             let class_id = ClassId(i as u32);
             let mut params = Vec::with_capacity(class.type_params.len());
-            for p in class.type_params.iter() {
+            // A variância escrita (`class C<out T>`), guardada mesmo com o
+            // experimento desligado, como o `ElementBuilder` do analyzer.
+            let escritos: &[dartforge_frontend::ast::TypeParameter] = match class.decl {
+                Some(d) => match &self.program.unit(d.unit).ast.decl(d.decl).kind {
+                    dartforge_frontend::ast::DeclKind::Class(k) => &k.type_params,
+                    dartforge_frontend::ast::DeclKind::Mixin(k) => &k.type_params,
+                    dartforge_frontend::ast::DeclKind::Enum(k) => &k.type_params,
+                    _ => &[],
+                },
+                None => &[],
+            };
+            for (j, p) in class.type_params.iter().enumerate() {
+                let variance = match escritos.get(j).and_then(|t| t.variance).map(|v| v.0) {
+                    Some(dartforge_frontend::ast::Variance::In) => Variance::Contravariant,
+                    Some(dartforge_frontend::ast::Variance::Out) => Variance::Covariant,
+                    Some(dartforge_frontend::ast::Variance::Inout) => Variance::Invariant,
+                    None => Variance::Unspecified,
+                };
                 let pid = self.table.alloc_type_param(
                     p.name,
                     TypeParamOwner::Class(class_id),
                     self.core.object_nullable,
-                    Variance::Unspecified,
+                    variance,
                 );
                 params.push(pid);
             }

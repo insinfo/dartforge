@@ -262,6 +262,7 @@ pub const NATIVOS: &[Nativo] = &[
     runtime("DartForge_sb_texto"),
     runtime("DartForge_scheduleImmediate"),
     runtime("DartForge_string_dividir_por_codigo"),
+    runtime("DartForge_string_igual_a"),
     runtime("DartForge_string_iguais"),
     runtime("DartForge_string_indice_de"),
     runtime("DartForge_string_regiao_igual"),

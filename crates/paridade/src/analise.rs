@@ -441,6 +441,7 @@ impl Motor {
             atribuidos.extend(dartforge_types::sobrescritas::getters_e_setters(
                 &program, &interner, &mut table, &core, &outline, *lib, &classes,
             ));
+            atribuidos.extend(dartforge_types::variancia::variancia(&program, &interner, &table, &outline, *lib));
         }
         // Argumentos de tipo fora dos limites, unidade a unidade.
         for &u in &unidades_proprias {

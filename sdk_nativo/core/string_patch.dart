@@ -301,14 +301,16 @@ abstract final class _StringBase implements String {
 
   @pragma("vm:exact-result-type", bool)
   bool operator ==(Object other) {
-    if (identical(this, other)) {
-      return true;
-    }
-    // DartForge: as unidades UTF-16 comparadas no runtime (toda `String` é
-    // uma string dele: a classe não pode ser implementada fora do núcleo).
-    // O laço da VM passava cada unidade pelo `codeUnitAt`.
-    return other is String && _iguais(other);
+    // DartForge: `identical`, o `other is String` e as unidades UTF-16
+    // comparadas numa chamada ao runtime (toda `String` é uma string dele: a
+    // classe não pode ser implementada fora do núcleo). O laço da VM
+    // passava cada unidade pelo `codeUnitAt`; o intrínseco dela
+    // (`String_equality`) faz o mesmo numa rotina só.
+    return _igualA(other);
   }
+
+  @pragma("vm:external-name", "DartForge_string_igual_a")
+  external bool _igualA(Object other);
 
   @pragma("vm:external-name", "DartForge_string_iguais")
   external bool _iguais(String other);
@@ -1004,7 +1006,7 @@ final class _OneByteString extends _StringBase {
   // strings.
   @pragma('vm:never-inline')
   bool operator ==(Object other) {
-    return super == other;
+    return _igualA(other);
   }
 
   @pragma("vm:recognized", "asm-intrinsic")
@@ -1338,7 +1340,7 @@ final class _TwoByteString extends _StringBase {
   // strings.
   @pragma('vm:never-inline')
   bool operator ==(Object other) {
-    return super == other;
+    return _igualA(other);
   }
 
   String operator *(int times) {

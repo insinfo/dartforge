@@ -3473,6 +3473,12 @@ impl Heap {
     }
     /// Aloca protegendo as referências do payload contra a coleta anterior à alocação.
     fn allocate_linked(&mut self, value: Value) -> i64 {
+        // Sem coleta à vista, nada a proteger: o caminho enraizado (rastrear
+        // o valor, abrir um quadro, conferir cada referência) só quando a
+        // alocação vai coletar.
+        if self.gc_desligado || !self.precisa_coletar(value.estimated_bytes()) {
+            return self.allocate(value);
+        }
         let mut references = Vec::new();
         value.trace(&mut references);
         references.retain(|&h| smi::e_handle(h));

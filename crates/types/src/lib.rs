@@ -30,6 +30,7 @@ pub mod scope;
 pub mod sobrescritas;
 pub mod subtyping;
 pub mod table;
+pub mod variancia;
 
 pub use codes::*;
 pub use constant::{ConstValue, ConstantEvaluator};
