@@ -1881,6 +1881,96 @@ Tempo total do processo (s, mediana; inclui início e, nos JITs, compilação):
 | tipados | 2.46 | 0.12 | 0.53 | 0.17 |
 
 
+### 8.5 Mapas, conjuntos e strings (N18, medido em 2026-09-29)
+
+Ponto de partida (§8.4): `colecoes/mapa` 6,90×, `colecoes/conjunto_str`
+8,18×, `textos/construir` 6,82×, `textos/hashes` 6,42× o Dart AOT. O perfil
+(callgrind, `valgrind` da máquina; o `perf` não está disponível) mostrou que
+o `compact_hash.dart` já era o da VM (índice `Uint32List` e dados lado a
+lado, sem nó por entrada): o tempo ia no **caminho até a tabela**. Um
+`m[k] = v` de `Map<int, int>` custava cerca de 10 mil instruções: cada
+`_data[i] = x` passava pelo seletor e pela entrada uniforme do `[]=` de
+`_List`, com a conferência de covariância (`dartforge_rti_como_em`, que na
+época ainda formatava a mensagem mesmo quando passava — corrigido à parte
+em `tipos.rs`), e `_hashCode`/`_equals` iam ao despacho dinâmico. Na VM, o
+compilador especializa `_hashCode`/`_equals` do
+`_OperatorEqualsAndHashCode` para `int` e `String` e embute a sonda.
+
+O que entrou, uma coisa de cada vez:
+
+1. **Sonda do `_Map`/`_Set` no runtime** (`crates/runtime/src/nativos_hash.rs`,
+   sobreposição de `compact_hash.dart`). `_Map.[]=`, `[]`, `containsKey` e
+   `_Set.add`, `contains`, `lookup` chamam primeiro um native que percorre a
+   MESMA tabela, com as contas de `_HashBase` (`_hashPattern`,
+   `_firstProbe`, `_nextProbe`), e grava o que o Dart gravaria — então a
+   ordem de inserção, as remoções, a iteração e o `_rehash` continuam os do
+   SDK. Só para chave `int` (`Smi`/`_Mint`: `hashCode` é o valor) e `String`
+   (`Texto::hash_vm`, igualdade por unidades), cujo `==` é conhecido sem
+   chamar Dart; `int` diante de `double` (`1 == 1.0`), outra chave, tabela
+   cheia ou forma inesperada devolvem "não sei" sem mudar nada, e o caminho
+   do SDK faz a operação. `mapa` 2,6 → 0,93 bilhão de instruções (200 mil
+   chaves, callgrind); 730 → 290 ms.
+2. **Interpolação com `int` sem caixa** (`JuntarTextos`, `hir.rs`,
+   `llvm/mod.rs`; `dartforge_string_juntar_tipado`, `strings.rs`): a parte
+   `int` vai como par (espécie, bits) e os dígitos são escritos direto no
+   texto junto (dois por divisão), sem a string intermediária de
+   `dartforge_to_string_i64` — uma alocação a menos por `'k$i'`. Cada texto
+   é lido do heap uma vez.
+3. **Memória direta da RTI** (`tipos.rs`, `memo_e`/`memo_aval`): `v is t` e
+   `dartforge_rti_avaliar` guardados por uma chave do valor (o tipo
+   reificado gravado, ou a espécie/classe) numa tabela de 1024 vagas,
+   esquecida quando uma regra, classe ou forma do runtime muda. As
+   conferências de covariância da entrada `$c` (`K`/`V` do `[]=`, `E` do
+   `add`) deixam de montar o tipo do valor e de consultar o cache de
+   subtipos: `dartforge_rti_e` 235 → 112 instruções por chamada.
+4. **Buscas de `String` e `split` no runtime** (`nativos_strings.rs`,
+   sobreposição de `string_patch.dart`): `_substringMatches` (`startsWith`,
+   `endsWith`), `indexOf`/`lastIndexOf`/`contains` por `String` e
+   `_splitWithCharCode` eram laços de `codeUnitAt` — intrínseco em linha na
+   VM, uma chamada ao runtime por unidade aqui.
+5. **`StringBuffer` com acumulador do runtime** (sobreposição de
+   `string_buffer_patch.dart`): as unidades escritas vão direto para um
+   `Value::StringBuffer`, uma chamada por `write`, sem um objeto `String`
+   por parte guardado numa lista (nem a conferência do `add` dela); o
+   `toString` copia o acumulado. `sb.write('item $i;')` × 300 mil: 340 →
+   75 ms (Dart AOT 90 ms), e o pico de memória do `textos` cai de ~190 MB
+   (Dart AOT) para 68 MB.
+
+Correção: `corpus/nativo/47_mapas_e_conjuntos_int_string.dart` e
+`49_strings_busca_divisao_e_buffer.dart` iguais à VM no AOT, no JIT e com
+`--gc-stress`; corpus nativo 52/52 (AOT e JIT; com `--gc-stress` 51/52, o
+`50_receptor_int_e_objetos_do_espaco` de outro trabalho esgota o prazo de
+5 s sob carga), `corpus/js` no nativo 235/235; testes de
+`dartforge-runtime` e `dartforge-emit-native` verdes.
+
+`scripts/comparar-desempenho.py --repeticoes 5 colecoes textos`, depois
+(máquina com outros agentes compilando: o Dart AOT mediu ~2× o de §8.4, por
+isso a razão é o número que compara):
+
+| núcleo | DartForge AOT antes (§8.4) | DartForge AOT depois | Dart AOT (mesma rodada) | razão antes | razão depois |
+|---|---:|---:|---:|---:|---:|
+| colecoes/mapa | 598,8 | 308,7 [270,6–370,4] | 168,1 [113,0–215,6] | 6,90× | 1,84× |
+| colecoes/conjunto_str | 188,2 | 121,1 [117,5–160,4] | 29,7 [28,4–36,3] | 8,18× | 4,08× |
+| textos/construir | 708,4 | 252,2 [240,4–355,6] | 162,7 [111,3–221,2] | 6,82× | 1,55× |
+| textos/hashes | 249,5 | 189,3 [168,7–219,3] | 55,0 [52,6–71,8] | 6,42× | 3,44× |
+
+Tempo total do processo (s, mediana de 5): `colecoes` 5,17 contra 5,87 do
+Dart AOT (antes 8,91 contra 3,99); `textos` 2,72 contra 1,39 (antes 5,78
+contra 0,88). Pico de memória (MB): `colecoes` 147,9 contra 150,2 do Dart
+AOT; `textos` 67,7 contra 189,2. (A medição de memória de antes não foi
+registrada em §8.4.)
+
+O que ainda pesa, pelo perfil, e é de outras frentes: a entrada uniforme
+`$c` (vetor de argumentos, `dartforge_rti_avaliar` duas vezes por `[]=` —
+cerca de 180 instruções cada, a maior parte no metadado do receptor), o
+despacho por seletor e `dartforge_value_class`, a alocação de cada string
+(`Heap::allocate` e a coleta), e o iterador de `where`/`ListIterator` (os
+núcleos `where`+`endsWith` ainda 20× a VM). No que é desta frente: o
+`hashCode` de `String` recalculado a cada chamada (a VM o guarda no objeto;
+aqui exige um campo no `Texto`, `heap.rs`) e o literal de string achado
+por um mapa por endereço a cada avaliação (`dartforge_string_new`, ~90
+instruções).
+
 ## 9. Servidor HTTP (`dart:io`): medição e onde vai o tempo
 
 ### 9.1 O benchmark
