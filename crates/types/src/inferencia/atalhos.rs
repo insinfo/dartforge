@@ -23,7 +23,6 @@ use crate::resolved::Resolved;
 use crate::table::{Type, TypeId};
 use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionKind};
 use dartforge_frontend::ast::{self, ExprId, ExprKind};
-use dartforge_diagnostics::codigos::compile_time_error as c;
 use dartforge_intern::SymbolId;
 
 /// Nó externo de uma cadeia `.id…`: registra o contexto dela para a raiz.
@@ -158,7 +157,7 @@ pub(crate) fn valor(
                     if !relatado {
                         let (texto, span) = nome_e_span(inf, cx, e);
                         let tipo = exibir(inf, ctx);
-                        inf.aviso_com_codigo(c::DOT_SHORTHAND_UNDEFINED_GETTER, span, &[&texto, &tipo]);
+                        relatar(inf, "CompileTimeErrorCode.DOT_SHORTHAND_UNDEFINED_GETTER", span, &[&texto, &tipo]);
                     }
                     inf.core.dynamic_
                 }
@@ -167,10 +166,18 @@ pub(crate) fn valor(
         None => {
             if !relatado {
                 let span = inf.program.unit(cx.unit).ast.expr(e).span;
-                inf.aviso_com_codigo(c::DOT_SHORTHAND_MISSING_CONTEXT, span, &[]);
+                relatar(inf, "CompileTimeErrorCode.DOT_SHORTHAND_MISSING_CONTEXT", span, &[]);
             }
             inf.core.dynamic_
         }
+    }
+}
+
+/// Relata pelo nome único do código (os três são do suplemento 3.13.4 da
+/// tabela de `dartforge_diagnostics`).
+fn relatar(inf: &mut BodyInferrer<'_>, unico: &str, span: dartforge_diagnostics::Span, args: &[&str]) {
+    if let Some(codigo) = dartforge_diagnostics::Codigo::por_unico(unico) {
+        inf.aviso_com_codigo(codigo, span, args);
     }
 }
 
@@ -207,11 +214,11 @@ pub(crate) fn construcao(
         // contexto; a invocação `.id(…)` não acha o membro em `_`.
         if const_ {
             let span = inf.program.unit(cx.unit).ast.expr(e).span;
-            inf.aviso_com_codigo(c::DOT_SHORTHAND_MISSING_CONTEXT, span, &[]);
+            relatar(inf, "CompileTimeErrorCode.DOT_SHORTHAND_MISSING_CONTEXT", span, &[]);
         } else {
             let (texto, span) = nome_e_span(inf, cx, alvo);
             let tipo = exibir(inf, ctx_cadeia);
-            inf.aviso_com_codigo(c::DOT_SHORTHAND_UNDEFINED_INVOCATION, span, &[&texto, &tipo]);
+            relatar(inf, "CompileTimeErrorCode.DOT_SHORTHAND_UNDEFINED_INVOCATION", span, &[&texto, &tipo]);
         }
         cx.atalhos_relatados.insert(alvo.0);
         return None;
@@ -224,7 +231,7 @@ pub(crate) fn construcao(
         if !tem_membro(inf, d, nome) {
             let (texto, span) = nome_e_span(inf, cx, alvo);
             let tipo = exibir(inf, ctx_cadeia);
-            inf.aviso_com_codigo(c::DOT_SHORTHAND_UNDEFINED_INVOCATION, span, &[&texto, &tipo]);
+            relatar(inf, "CompileTimeErrorCode.DOT_SHORTHAND_UNDEFINED_INVOCATION", span, &[&texto, &tipo]);
             cx.atalhos_relatados.insert(alvo.0);
         }
         return None;
