@@ -336,12 +336,16 @@ pub enum Instruction {
     /// emissor monta o vetor de argumentos e o descritor
     /// (`[n_posicionais, n_nomeados, hash(nome)…]`) e chama a entrada
     /// uniforme da closure pelo endereço guardado nela (`@df_clo_invalido`
-    /// quando o valor não é closure).
+    /// quando o valor não é closure). Como na chamada por seletor, o vetor
+    /// tem um slot a mais, depois dos argumentos, com a tupla RTI dos
+    /// argumentos de tipo (`tupla_tipos`, `I64`; `0` quando a chamada não
+    /// passa nenhum): é dela que uma closure genérica lê os seus.
     CallClosure {
         closure: Operand,
         args: Vec<Operand>,
         nomes: Vec<String>,
         ret_ty: Type,
+        tupla_tipos: Operand,
     },
     CallRuntime {
         name: String,

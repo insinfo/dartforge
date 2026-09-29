@@ -450,6 +450,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             && !self.cast_so_pela_classe
             && args.is_empty()
             && (self.params_de_tipo_da_funcao.contains(&ultimo.sym)
+                || self.indice_local_de_tipo(ultimo.sym).is_some()
                 || self.params_da_classe().contains(&ultimo.sym))
         {
             let receita = self.receita_da_anotacao(ast_ty)?;

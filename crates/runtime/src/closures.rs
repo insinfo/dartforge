@@ -183,6 +183,19 @@ pub extern "C" fn dartforge_nsm_chamada() {
     com_raizes(&[erro], || dartforge_exception_throw(erro, 3));
 }
 
+/// A tupla RTI do corpo de uma closure genérica: os `n_fora` argumentos de
+/// tipo de quem a criou (`de_fora`, `0` sem nenhum; o que faltar é
+/// `dynamic`) seguidos dos dela — os da chamada (`propria`, a tupla do slot
+/// depois dos argumentos) ou, quando a chamada não passou nenhum (`0`), os
+/// padrões (`padrao`, a instanciação pelos limites).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_rti_tupla_juntar(de_fora: i64, n_fora: i64, propria: i64, padrao: i64) -> i64 {
+    let mut v = argumentos_da_tupla(de_fora);
+    v.resize(usize::try_from(n_fora).unwrap_or(0), 0);
+    v.extend(argumentos_da_tupla(if propria > 0 { propria } else { padrao }));
+    RTI.with(|u| u.borrow_mut().internar(Tipo::Tupla(v)))
+}
+
 /// Confere um descritor de chamada `[n_pos, n_nom, hash…]` contra a
 /// assinatura `[n_obrig, n_pos, n_nom, hash…, obrigatório…]` da função
 /// chamada: posicionais entre os obrigatórios e o total, todo nomeado
@@ -245,8 +258,10 @@ pub extern "C" fn dartforge_nativo_Function_apply(arguments: i64, names: i64) ->
             return 0;
         }
         let function = dartforge_nativo_DartForge_lista_get(arguments, 0);
+        // O slot depois dos argumentos é o da tupla de tipos (nenhuma).
         let args: Vec<i64> = (1..count)
             .map(|i| dartforge_nativo_DartForge_lista_get(arguments, i as i64))
+            .chain(std::iter::once(0))
             .collect();
         let mut desc = vec![(count - 1 - named) as i64, named as i64];
         for i in 0..named {

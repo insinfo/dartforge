@@ -25,9 +25,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // O tipo do valor chamado, para a chamada tipada de closure; salvo e
         // restaurado como a tupla (chamadas aninhadas nos argumentos).
         let tipo_salvo = std::mem::replace(&mut self.tipo_chamado, self.ctx.get_type(self.unit_id, *target));
+        let chamada_salva = self.chamada_corrente.replace(expr_id);
         let r = self.lower_chamada_interno(ast, expr_id, expr, target, arguments);
         self.tupla_armada = salvo;
         self.tipo_chamado = tipo_salvo;
+        self.chamada_corrente = chamada_salva;
         r
     }
 

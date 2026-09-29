@@ -1189,7 +1189,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 m
             }
-            ExprKind::InstanceCreation { arguments, constructor, .. } => {
+            ExprKind::InstanceCreation { arguments, constructor, ty, .. } => {
                 match self.ctx.get_resolved(self.unit_id, expr_id).cloned() {
                     Some(Resolved::Constructor(fid)) => {
                         self.tipo_da_criacao = self.ctx.get_type_bruto(self.unit_id, expr_id);
@@ -1199,9 +1199,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     // primário não é elemento (`tipos_de_extensao.rs`).
                     _ => match self.ctx.get_type_bruto(self.unit_id, expr_id).map(|t| self.ctx.table.get(t).clone()) {
                         Some(dartforge_types::table::Type::ExtensionType { decl, .. }) => {
+                            // `new E.nome(…)` sem prefixo chega do parser
+                            // como o tipo de duas partes `E.nome` (ele não
+                            // distingue `p.T` de `T.n`): quando a primeira
+                            // parte nomeia o próprio tipo, a segunda é o
+                            // construtor.
                             let nome = match constructor {
                                 Some(n) => Some(n.sym),
-                                None => self.ctx.interner.lookup(""),
+                                None => match &ast.ty(*ty).kind {
+                                    ast::TypeKind::Named { name, .. }
+                                        if name.len() == 2
+                                            && matches!(
+                                                self.ctx
+                                                    .program
+                                                    .lookup(self.ctx.program.unit(self.unit_id).library, name[0].sym)
+                                                    .and_then(|b| b.getter),
+                                                Some(dartforge_elements::model::Element::Class(c)) if c == decl
+                                            ) =>
+                                    {
+                                        Some(name[1].sym)
+                                    }
+                                    _ => self.ctx.interner.lookup(""),
+                                },
                             };
                             match nome {
                                 Some(n) => self.construir_te(ast, expr_id, decl, n, &arguments.args, expr.span),

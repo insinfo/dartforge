@@ -211,8 +211,11 @@ fn verificar_instrucao(c: &mut Contexto, inst: &Instruction, ty: Type) {
         Instruction::Const(Constant::Int(_)) if ty == Type::Ref => {
             c.erro("constante inteira registrada como Ref".to_string());
         }
-        Instruction::CallClosure { closure, args, .. } => {
+        Instruction::CallClosure { closure, args, tupla_tipos, .. } => {
             c.checar_ref("chamada de closure", closure, Type::Ref);
+            if c.tipo(tupla_tipos) != Type::I64 {
+                c.erro(format!("tupla de tipos da closure não é I64: {tupla_tipos:?}"));
+            }
             for a in args {
                 c.checar_ref("chamada de closure", a, Type::Ref);
                 if c.tipo(a) != Type::Ref {

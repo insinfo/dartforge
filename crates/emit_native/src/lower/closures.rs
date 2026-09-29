@@ -185,7 +185,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // dela do mesmo jeito. Uma closure nova inserida antes, ou capturas
         // que mudam, dão outro nome, e as closures vivas seguem no corpo em
         // que foram criadas.
-        let mut forma = format!("{com_this}|{}|", self.tupla_de_tipos.is_some());
+        let mut forma = format!("{com_this}|{}|{}|", self.tupla_de_tipos.is_some(), f.type_params.len());
+        // Closure genérica (`T f<T>()` local, `<T>(x) => …`): os argumentos de
+        // tipo dela vêm no slot oculto da chamada e se juntam, na tupla do
+        // corpo, depois dos de quem a criou (`M<n_fora + i>`).
+        let n_fora = self.tamanho_da_tupla();
+        let ids_proprios: Vec<dartforge_types::table::TypeParamId> = match tipo.map(|t| self.ctx.table.get(t)) {
+            Some(dartforge_types::table::Type::Function { type_params, .. }) if type_params.len() == f.type_params.len() => {
+                type_params.to_vec()
+            }
+            _ => Vec::new(),
+        };
+        let proprios: Vec<(SymbolId, dartforge_types::table::TypeParamId, usize)> = f
+            .type_params
+            .iter()
+            .enumerate()
+            .map(|(i, tp)| {
+                let id = ids_proprios.get(i).copied().unwrap_or(dartforge_types::table::TypeParamId(u32::MAX));
+                (tp.name.sym, id, n_fora + i)
+            })
+            .collect();
+        let generica = !proprios.is_empty();
         for (sym, l) in &capturas {
             let celula = matches!(l.modo, Modo::Celula(_) | Modo::Ambiente { celula: true, .. });
             forma.push_str(&format!("{}:{celula}:{:?};", self.ctx.symbol_name(*sym), l.ty));
@@ -238,6 +258,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // RTI: a closure vê as variáveis de tipo de quem a cria (`T` da
         // função genérica em volta: a tupla vai no fim do ambiente).
         b.params_de_tipo_da_funcao = self.params_de_tipo_da_funcao.clone();
+        b.params_locais = self.params_locais.clone();
+        b.params_locais.extend(proprios.iter().copied());
         b.extensao_do_this = self.extensao_do_this;
         b.tipo_ext_do_this = self.tipo_ext_do_this;
         b.classe_do_membro = self.classe_do_membro;
@@ -246,7 +268,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // Numa fábrica não há `this`, mas `T` é o da classe.
             b.enclosing_class = self.enclosing_class;
         }
-        if self.tupla_de_tipos.is_some() {
+        if self.tupla_de_tipos.is_some() && !generica {
             let t = b.emit(
                 Instruction::EnvGet {
                     env: env_b.clone(),
@@ -275,6 +297,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if let Some(n) = p.name {
                 b.declarar_variavel(n.sym, n.span.start as usize, ty, Operand::Val(vid));
             }
+        }
+        // A tupla juntada (a de fora e a da chamada) chega ao corpo da
+        // closure genérica como o último parâmetro.
+        if generica {
+            let t = b.add_param("$tipos".to_string(), Type::I64);
+            b.tupla_de_tipos = Some(Operand::Val(t));
         }
         if f.modifier != AsyncModifier::None {
             // P6: closure `async`, `sync*` ou `async*` — o corpo vira máquina
@@ -318,14 +346,58 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Ref,
         );
-        if let Some(vals) = e.desempacotar(&infos, args, desc) {
-            let mut todos = vec![env_e];
+        // Os argumentos de tipo que a closure genérica usa quando a chamada
+        // não passa nenhum (chamada dinâmica): os limites escritos, como a
+        // instanciação pelos limites; `dynamic` sem limite ou quando o limite
+        // depende de variáveis de tipo.
+        let padrao = generica.then(|| {
+            let mut texto = String::from("L<");
+            for (i, (_, id, _)) in proprios.iter().enumerate() {
+                if i > 0 {
+                    texto.push(',');
+                }
+                let limite = (id.0 != u32::MAX)
+                    .then(|| self.ctx.table.param(*id))
+                    .filter(|d| d.explicito)
+                    .map(|d| self.receita_de_tipo(d.bound))
+                    .filter(|r| !r.variaveis);
+                texto.push_str(limite.as_ref().map_or("D", |r| r.texto.as_str()));
+            }
+            texto.push('>');
+            super::rti::Receita { texto, variaveis: false }
+        });
+        if let Some(vals) = e.desempacotar(&infos, args.clone(), desc.clone()) {
+            let mut todos = vec![env_e.clone()];
             // O corpo tipado recebe cada argumento na representação dele (o
             // desencaixe confere o tipo, como a entrada dinâmica da VM).
             for (i, v) in vals.into_iter().enumerate() {
                 let ty = reprs.as_ref().map_or(Type::Ref, |r| r[i]);
                 let v = e.coagir(v, ty);
                 todos.push(v);
+            }
+            if let Some(padrao) = &padrao {
+                // A tupla da chamada está no slot depois dos argumentos.
+                let propria = e.tupla_do_slot(&args, &desc);
+                let de_fora = if self.tupla_de_tipos.is_some() {
+                    e.emit(Instruction::EnvGet { env: env_e.clone(), index: base + capturas.len() }, Type::I64)
+                } else {
+                    Operand::Constant(Constant::Int(0))
+                };
+                let padrao = e.rti_da_receita(padrao);
+                let juntada = e.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_rti_tupla_juntar".to_string(),
+                        args: vec![
+                            (de_fora, Type::I64),
+                            (Operand::Constant(Constant::Int(n_fora as i64)), Type::I64),
+                            (propria, Type::I64),
+                            (padrao, Type::I64),
+                        ],
+                        ret_ty: Type::I64,
+                    },
+                    Type::I64,
+                );
+                todos.push(juntada);
             }
             if !e.is_terminated() {
                 let r = e.emit_call_with_check(
@@ -562,6 +634,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // O tipo estático do valor chamado (`lower_chamada`): com uma ABI
         // tipada, a chamada tenta primeiro o corpo tipado da closure.
         let tipo = self.tipo_chamado.take();
+        let chamada = self.chamada_corrente.take();
         let callee = self.coagir(callee, Type::Ref);
         if let Some((reprs, ret, abi)) = tipo.and_then(|t| self.abi_do_tipo(t))
             && reprs.len() == avaliados.len()
@@ -569,7 +642,60 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         {
             return self.chamar_closure_tipada(callee, avaliados, &reprs, ret, abi);
         }
-        self.chamar_closure_uniforme(callee, avaliados)
+        let tupla = self.tupla_da_chamada_de_valor(tipo, chamada);
+        self.chamar_closure_uniforme(callee, avaliados, tupla)
+    }
+
+    /// A tupla de argumentos de tipo que a chamada `chamada` de um valor
+    /// função passa no slot oculto: os escritos (`f<int>(…)`); sem eles, os
+    /// que se deduzem casando o tipo estático genérico do valor (`tipo`,
+    /// `R Function<X…>(…)`) com o da chamada e os dos argumentos, como a
+    /// inferência fez (o que não se deduz fica `dynamic`). `0` (nenhum) quando
+    /// o valor não é genérico: a closure genérica chamada assim usa os limites.
+    fn tupla_da_chamada_de_valor(&mut self, tipo: Option<TypeId>, chamada: Option<ExprId>) -> Operand {
+        use dartforge_types::table::Type as T;
+        let zero = Operand::Constant(Constant::Int(0));
+        let Some(expr) = chamada else { return zero };
+        let unit_ast = &self.ctx.program.unit(self.unit_id).ast;
+        let ast::ExprKind::Call { arguments, .. } = &unit_ast.expr(expr).kind else { return zero };
+        if !arguments.type_args.is_empty() {
+            let args = arguments.type_args.to_vec();
+            let mut r = self.receitas_dos_argumentos_de_tipo(&args);
+            r.texto = format!("L<{}>", r.texto);
+            return self.rti_da_receita(&r);
+        }
+        let Some(t) = tipo else { return zero };
+        let T::Function { type_params, ret, positional, optional, named, .. } = self.ctx.table.get(t).clone() else {
+            return zero;
+        };
+        if type_params.is_empty() {
+            return zero;
+        }
+        let mut achados: Vec<Option<TypeId>> = vec![None; type_params.len()];
+        if let Some(real) = self.ctx.get_type_bruto(self.unit_id, expr) {
+            self.unificar(ret, real, &type_params, &mut achados);
+        }
+        let mut posicionais = positional.iter().chain(optional.iter());
+        for a in arguments.args.iter() {
+            let decl = match a.name {
+                Some(n) => named.iter().find(|(s, _, _)| *s == n.sym).map(|(_, t, _)| *t),
+                None => posicionais.next().copied(),
+            };
+            if let (Some(d), Some(real)) = (decl, self.ctx.get_type_bruto(self.unit_id, a.value)) {
+                self.unificar(d, real, &type_params, &mut achados);
+            }
+        }
+        let mut r = super::rti::Receita { texto: "L<".to_string(), variaveis: false };
+        for (i, achado) in achados.iter().enumerate() {
+            if i > 0 {
+                r.texto.push(',');
+            }
+            let x = self.receita_de_tipo(achado.unwrap_or(self.ctx.core.dynamic_));
+            r.texto.push_str(&x.texto);
+            r.variaveis |= x.variaveis;
+        }
+        r.texto.push('>');
+        self.rti_da_receita(&r)
     }
 
     /// A chamada pelo corpo tipado quando a closure tem a ABI `abi`, conferida
@@ -628,7 +754,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
 
         self.set_block(lento);
-        let s = self.chamar_closure_uniforme(callee, avaliados);
+        let s = self.chamar_closure_uniforme(callee, avaliados, Operand::Constant(Constant::Int(0)));
         let fim_lento = self.current_block;
         let lento_chega = !self.is_terminated();
         if lento_chega {
@@ -647,7 +773,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// A chamada pela convenção uniforme (a entrada `$ent` da closure).
-    fn chamar_closure_uniforme(&mut self, callee: Operand, avaliados: &[Avaliado]) -> Operand {
+    fn chamar_closure_uniforme(&mut self, callee: Operand, avaliados: &[Avaliado], tupla_tipos: Operand) -> Operand {
         let mut args = Vec::with_capacity(avaliados.len());
         for (n, v) in avaliados {
             if n.is_none() {
@@ -672,9 +798,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 args,
                 nomes,
                 ret_ty: Type::Ref,
+                tupla_tipos,
             },
             Type::Ref,
         )
+    }
+
+    /// A tupla de argumentos de tipo que a chamada pela convenção uniforme
+    /// passa no slot depois dos argumentos (`0`: nenhuma).
+    pub(super) fn tupla_do_slot(&mut self, args: &Operand, desc: &Operand) -> Operand {
+        let npos = self.emit(Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(0)) }, Type::I64);
+        let nnom = self.emit(Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(1)) }, Type::I64);
+        let indice = self.emit(Instruction::Add(npos, nnom), Type::I64);
+        self.emit(Instruction::LoadIndexed { base: args.clone(), index: indice }, Type::I64)
     }
 
     /// Os parâmetros de uma função do programa, para a entrada uniforme.
@@ -708,10 +844,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             e.add_param("closure".to_string(), Type::Ref);
             let args = Operand::Val(e.add_param("args".to_string(), Type::Ptr));
             let desc = Operand::Val(e.add_param("desc".to_string(), Type::Ptr));
-            if let Some(vals) = e.desempacotar(&infos, args, desc) {
+            if let Some(vals) = e.desempacotar(&infos, args.clone(), desc.clone()) {
                 // Os argumentos de uma chamada dinâmica, conferidos como na
                 // VM (" of 'nome'") antes de convertidos.
                 e.conferir_argumentos_da_entrada(fid, &vals);
+                // Função genérica: os argumentos de tipo vêm no slot oculto.
+                if e.funcao_generica(fid) {
+                    e.tupla_armada = Some(e.tupla_do_slot(&args, &desc));
+                }
                 let reprs: Vec<Type> = self.ctx.outline.functions[fid]
                     .parameters
                     .iter()
@@ -833,6 +973,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     via_super: false,
                 });
             }
+            // As constantes de um `enum` são membros estáticos dele, mas o
+            // modelo as guarda à parte (`enum_constants`): `case ida:` no
+            // corpo do próprio enum é o padrão constante `Direcao.ida`.
+            if let Some(v) = constante_de_enum(self.ctx, c, sym) {
+                return Some(Resolved::Member { class: c, member: MemberRef::Variable(v), via_super: false });
+            }
         }
         // Num membro estático, os estáticos da classe que o declara.
         if self.enclosing_class.is_none()
@@ -846,6 +992,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let var = &self.ctx.program.variables[v.0 as usize];
                 var.static_ && var.name == sym
             }) {
+                return Some(Resolved::Member { class: c, member: MemberRef::Variable(v), via_super: false });
+            }
+            if let Some(v) = constante_de_enum(self.ctx, c, sym) {
                 return Some(Resolved::Member { class: c, member: MemberRef::Variable(v), via_super: false });
             }
         }
@@ -1075,4 +1224,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.definir_rti_de_tearoff(t.clone(), fid, None);
         t
     }
+}
+
+/// A constante `sym` do `enum` `c`, se `c` é um enum e a declara.
+fn constante_de_enum(
+    ctx: &crate::context::Context,
+    c: dartforge_elements::model::ClassId,
+    sym: SymbolId,
+) -> Option<dartforge_elements::model::VariableId> {
+    ctx.program.classes[c.0 as usize]
+        .enum_constants
+        .iter()
+        .copied()
+        .find(|v| ctx.program.variables[v.0 as usize].name == sym)
 }

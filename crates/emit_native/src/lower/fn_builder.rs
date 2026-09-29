@@ -59,6 +59,10 @@ pub struct FnBuilder<'a, 'c> {
     /// O tipo estático do valor função que a chamada em curso vai chamar
     /// (`lower_chamada`, lido por `chamar_valor_funcao`).
     pub tipo_chamado: Option<dartforge_types::TypeId>,
+    /// A expressão da chamada em curso (`lower_chamada`), de onde
+    /// `chamar_valor_funcao` tira os argumentos de tipo que passa a uma
+    /// closure genérica (escritos, ou os inferidos pelo tipo estático).
+    pub chamada_corrente: Option<ExprId>,
     pub current_cascade_target: Option<Operand>,
     /// Um receptor já avaliado: quando `lower_expr` chega à expressão, usa o
     /// valor em vez de avaliá-la de novo (a atribuição `a?.b = v` avalia `a`
@@ -110,6 +114,11 @@ pub struct FnBuilder<'a, 'c> {
     // --- RTI (`rti.rs`) ---
     /// Os parâmetros de tipo da função corrente (`M<i>`), pelo nome.
     pub params_de_tipo_da_funcao: Vec<SymbolId>,
+    /// Os parâmetros de tipo das closures genéricas em volta (a função local
+    /// `T f<T>()`, a expressão `<T>(x) => …`) e a própria: nome, parâmetro e
+    /// posição na tupla (`M<i>`), depois dos de quem as criou
+    /// (`closures.rs`, `lower_closure`). O mais interno vem por último.
+    pub params_locais: Vec<(SymbolId, dartforge_types::table::TypeParamId, usize)>,
     /// Os parâmetros de tipo da classe vêm na tupla (fábrica de classe
     /// genérica: não há `this`).
     pub classe_por_tupla: bool,
@@ -237,6 +246,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             labeled_continue_targets: HashMap::new(),
             pending_labels: Vec::new(),
             tipo_chamado: None,
+            chamada_corrente: None,
             current_cascade_target: None,
             receptor_pronto: None,
             null_aware_tratado: None,
@@ -257,6 +267,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             em_adaptador: false,
             async_estado: None,
             params_de_tipo_da_funcao: Vec::new(),
+            params_locais: Vec::new(),
             classe_por_tupla: false,
             tupla_de_tipos: None,
             classe_concreta: None,

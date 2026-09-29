@@ -1391,14 +1391,19 @@ impl<'a> LlvmEmitter<'a> {
                 self.anotar_externo(code_symbol, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
                 writeln!(self.out, "  %v{v} = call i64 @dartforge_tearoff(i64 ptrtoint (ptr @{code_symbol} to i64))").unwrap();
             }
-            Instruction::CallClosure { closure, args, nomes, .. } => {
+            Instruction::CallClosure { closure, args, nomes, tupla_tipos, .. } => {
                 let k = self.vetor_de[&Self::descritor(args.len(), nomes)];
-                let n = args.len().max(1);
+                // O slot depois dos argumentos leva a tupla de tipos (a
+                // mesma convenção da chamada por seletor).
+                let n = args.len() + 1;
                 for (i, a) in args.iter().enumerate() {
                     let s = self.coagir(a, Type::I64);
                     writeln!(self.out, "  %ca{v}_{i} = getelementptr [{n} x i64], ptr %cargs{v}, i64 0, i64 {i}").unwrap();
                     writeln!(self.out, "  store i64 {s}, ptr %ca{v}_{i}").unwrap();
                 }
+                let tupla = self.coagir(tupla_tipos, Type::I64);
+                writeln!(self.out, "  %cat{v} = getelementptr [{n} x i64], ptr %cargs{v}, i64 0, i64 {}", args.len()).unwrap();
+                writeln!(self.out, "  store i64 {tupla}, ptr %cat{v}").unwrap();
                 let c = self.coagir(closure, Type::Ref);
                 self.entrada_da_closure(v, &c);
                 writeln!(self.out, "  %v{v} = call i64 %cf{v}(i64 {c}, ptr %cargs{v}, ptr @df.arr.{k})").unwrap();
@@ -1450,7 +1455,7 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  %rec_buf_{} = alloca [{} x i64]", vid.0, elements.len() * 2).unwrap();
                     }
                     Instruction::CallClosure { args, .. } => {
-                        writeln!(self.out, "  %cargs{} = alloca [{} x i64]", vid.0, args.len().max(1)).unwrap();
+                        writeln!(self.out, "  %cargs{} = alloca [{} x i64]", vid.0, args.len() + 1).unwrap();
                     }
                     Instruction::CallSeletor { args, .. } => {
                         writeln!(self.out, "  %sargs{} = alloca [{} x i64]", vid.0, args.len() + 1).unwrap();

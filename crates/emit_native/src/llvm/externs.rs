@@ -1121,6 +1121,10 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
+        decl: "declare i64 @dartforge_rti_tupla_juntar(i64, i64, i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
         decl: "declare void @dartforge_rti_definir(i64, i64)",
         efeitos: CONSERVADOR,
     },

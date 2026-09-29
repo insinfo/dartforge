@@ -91,9 +91,10 @@ macro_rules! visitar {
                     f(receiver);
                     args.$nome_t().for_each(|a| f(a));
                 }
-                Instruction::CallClosure { closure, args, .. } => {
+                Instruction::CallClosure { closure, args, tupla_tipos, .. } => {
                     f(closure);
                     args.$nome_t().for_each(|a| f(a));
+                    f(tupla_tipos);
                 }
                 Instruction::CallRuntime { args, .. } => args.$nome_t().for_each(|(a, _)| f(a)),
                 Instruction::IsClass { object, .. } => f(object),

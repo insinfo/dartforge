@@ -282,6 +282,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         // RTI: as variáveis de tipo do stub (a tupla mora no quadro).
         b.params_de_tipo_da_funcao = self.params_de_tipo_da_funcao.clone();
+        b.params_locais = self.params_locais.clone();
         b.extensao_do_this = self.extensao_do_this;
         b.tipo_ext_do_this = self.tipo_ext_do_this;
         b.classe_do_membro = self.classe_do_membro;
@@ -1199,9 +1200,10 @@ pub(crate) fn usos_de(inst: &Instruction) -> Vec<ValueId> {
             op(receiver);
             args.iter().for_each(&mut op);
         }
-        Instruction::CallClosure { closure, args, .. } => {
+        Instruction::CallClosure { closure, args, tupla_tipos, .. } => {
             op(closure);
             args.iter().for_each(&mut op);
+            op(tupla_tipos);
         }
         Instruction::CallRuntime { args, .. } => args.iter().for_each(|(a, _)| op(a)),
         Instruction::IsClass { object, .. } => op(object),
@@ -1333,9 +1335,10 @@ fn trocar_usos(inst: &mut Instruction, troca: &dyn Fn(ValueId) -> Option<ValueId
             t(receiver);
             args.iter_mut().for_each(t);
         }
-        Instruction::CallClosure { closure, args, .. } => {
+        Instruction::CallClosure { closure, args, tupla_tipos, .. } => {
             t(closure);
             args.iter_mut().for_each(t);
+            t(tupla_tipos);
         }
         Instruction::CallRuntime { args, .. } => args.iter_mut().for_each(|(a, _)| t(a)),
         Instruction::IsClass { object, .. } => t(object),

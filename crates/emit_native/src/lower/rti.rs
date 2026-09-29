@@ -97,6 +97,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// variável: `P` (classe do código corrente) ou `M` (função corrente, ou
     /// a classe numa fábrica, onde os argumentos vêm na tupla).
     fn variavel_de(&self, p: TypeParamId) -> Option<(char, usize)> {
+        // O de uma closure genérica em volta (ou a corrente).
+        if let Some(&(_, _, i)) = self.params_locais.iter().rev().find(|(_, x, _)| *x == p) {
+            return Some(('M', i));
+        }
         match self.ctx.table.param(p).owner {
             TypeParamOwner::Class(c) => {
                 let i = self.ctx.outline.classes.get(c.0 as usize)?.type_params.iter().position(|&x| x == p)?;
@@ -232,6 +236,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
+    /// A posição na tupla (`M<i>`) do parâmetro de tipo `sym` de uma
+    /// closure genérica em escopo (o mais interno com esse nome).
+    pub(super) fn indice_local_de_tipo(&self, sym: SymbolId) -> Option<usize> {
+        self.params_locais.iter().rev().find(|(s, _, _)| *s == sym).map(|&(_, _, i)| i)
+    }
+
+    /// Quantos argumentos de tipo a tupla corrente carrega: os da função
+    /// (e da extensão), os da classe numa fábrica, os das closures genéricas
+    /// em volta. Zero sem tupla.
+    pub(super) fn tamanho_da_tupla(&self) -> usize {
+        if self.tupla_de_tipos.is_none() {
+            return 0;
+        }
+        let classe = if self.classe_por_tupla { self.params_da_classe().len() } else { 0 };
+        let locais = self.params_locais.iter().map(|&(_, _, i)| i + 1).max().unwrap_or(0);
+        self.params_de_tipo_da_funcao.len().max(classe).max(locais)
+    }
+
     /// Os nomes dos parâmetros de tipo da classe envolvente (na ordem).
     pub(super) fn params_da_classe(&self) -> Vec<SymbolId> {
         let Some(c) = self.enclosing_class else { return Vec::new() };
@@ -274,7 +296,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Receita de uma variável de tipo em escopo, pelo nome: da função (e da
     /// extensão), depois da classe. `None` quando `sym` não é uma delas.
     pub fn receita_da_variavel_de_tipo(&self, sym: SymbolId) -> Option<Receita> {
-        let texto = if let Some(i) = self.params_de_tipo_da_funcao.iter().position(|s| *s == sym) {
+        let texto = if let Some(i) = self.indice_local_de_tipo(sym) {
+            format!("M{i}")
+        } else if let Some(i) = self.params_de_tipo_da_funcao.iter().position(|s| *s == sym) {
             format!("M{i}")
         } else {
             let i = self.params_da_classe().iter().position(|s| *s == sym)?;
@@ -293,6 +317,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let simples = name.len() == 1;
                 if simples && let Some(i) = ligadas.iter().rposition(|s| *s == ultimo.sym) {
                     r.texto.push_str(&format!("B{i}"));
+                } else if simples && let Some(i) = self.indice_local_de_tipo(ultimo.sym) {
+                    r.texto.push_str(&format!("M{i}"));
+                    r.variaveis = true;
                 } else if simples && let Some(i) = self.params_de_tipo_da_funcao.iter().position(|s| *s == ultimo.sym) {
                     r.texto.push_str(&format!("M{i}"));
                     r.variaveis = true;
@@ -875,7 +902,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    fn unificar(&self, decl: TypeId, real: TypeId, params: &[TypeParamId], achados: &mut [Option<TypeId>]) {
+    pub(super) fn unificar(&self, decl: TypeId, real: TypeId, params: &[TypeParamId], achados: &mut [Option<TypeId>]) {
         if real == self.ctx.core.dynamic_ {
             return;
         }
@@ -1058,6 +1085,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let nome = self.ctx.symbol_name(ultimo.sym);
                 if name.len() == 1
                     && (self.params_de_tipo_da_funcao.contains(&ultimo.sym)
+                        || self.indice_local_de_tipo(ultimo.sym).is_some()
                         || self.params_da_classe().contains(&ultimo.sym)
                         || nome == "FutureOr")
                 {

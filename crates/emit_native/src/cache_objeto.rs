@@ -17,7 +17,10 @@
 //! Disco: `<dir_cache_nativo>/obj/<2 hex>/<32 hex>.obj`. O objeto só aparece
 //! com o nome final inteiro (`rename` de um temporário), nunca é
 //! sobrescrito, e a poda apaga os mais antigos por data de uso quando o total
-//! passa do teto.
+//! passa do teto — nunca um objeto que este processo obteve (a ligação ainda
+//! vai lê-lo) nem um usado há menos de [`IDADE_MINIMA_PARA_PODAR`] (o de outro
+//! processo que ainda liga). Um programa maior que o teto (o executor de
+//! builders, com o `analyzer`) fica no cache até a próxima poda depois disso.
 
 use crate::cache::dir_cache_nativo;
 use crate::resumo::Fnv128;
@@ -39,6 +42,11 @@ const PODAR_A_CADA: usize = 16;
 
 /// Temporários mais velhos que isto são sobra de processo que morreu.
 const IDADE_TEMPORARIO_ORFAO: Duration = Duration::from_secs(3600);
+
+/// Objeto usado há menos que isto não é podado: outro processo pode tê-lo
+/// acabado de obter e ainda não ter ligado (a ligação de um programa grande
+/// leva minutos).
+pub const IDADE_MINIMA_PARA_PODAR: Duration = Duration::from_secs(30 * 60);
 
 /// `clang --version` inteiro (versão, alvo, modelo de threads, diretório de
 /// instalação), uma vez por caminho do Clang e por processo.
@@ -88,6 +96,8 @@ pub struct CacheObjeto {
     terminou: Condvar,
     insercoes: AtomicUsize,
     contador_tmp: AtomicUsize,
+    /// Objetos que este processo obteve: a poda não os apaga.
+    em_uso: Mutex<HashSet<PathBuf>>,
 }
 
 impl CacheObjeto {
@@ -100,6 +110,7 @@ impl CacheObjeto {
             terminou: Condvar::new(),
             insercoes: AtomicUsize::new(0),
             contador_tmp: AtomicUsize::new(0),
+            em_uso: Mutex::new(HashSet::new()),
         };
         c.podar();
         c
@@ -146,6 +157,7 @@ impl CacheObjeto {
                 if existe_inteiro(&final_) {
                     drop(andamento);
                     tocar(&final_);
+                    self.em_uso.lock().unwrap_or_else(|e| e.into_inner()).insert(final_.clone());
                     return Ok((final_, true));
                 }
                 if andamento.insert(chave) {
@@ -166,6 +178,7 @@ impl CacheObjeto {
         let r = criar(&tmp).and_then(|()| self.publicar(&tmp, &final_));
         let _ = std::fs::remove_dir_all(&dir_tmp);
         let acerto = r?;
+        self.em_uso.lock().unwrap_or_else(|e| e.into_inner()).insert(final_.clone());
         if !acerto && self.insercoes.fetch_add(1, Ordering::Relaxed) % PODAR_A_CADA == PODAR_A_CADA - 1 {
             self.podar();
         }
@@ -212,6 +225,7 @@ impl CacheObjeto {
             }
         }
         let mut objetos: Vec<(SystemTime, u64, PathBuf)> = Vec::new();
+        let em_uso = self.em_uso.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let Ok(subdirs) = std::fs::read_dir(&self.dir) else { return };
         for sub in subdirs.flatten() {
             if sub.file_name() == "tmp" {
@@ -232,9 +246,13 @@ impl CacheObjeto {
             return;
         }
         objetos.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.2.cmp(&b.2)));
-        for (_, tamanho, p) in objetos {
+        for (data, tamanho, p) in objetos {
             if total <= self.teto_bytes {
                 break;
+            }
+            let recente = agora.duration_since(data).map_or(true, |d| d < IDADE_MINIMA_PARA_PODAR);
+            if recente || em_uso.contains(&p) {
+                continue;
             }
             if std::fs::remove_file(&p).is_ok() {
                 total -= tamanho;
@@ -361,12 +379,33 @@ mod testes {
             let f = std::fs::File::options().write(true).open(c.caminho(k)).unwrap();
             f.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(1000 + k as u64)).unwrap();
         }
-        c.podar();
+        // A poda de outro processo (os objetos deste estão em uso).
+        CacheObjeto::novo(dir.path().to_path_buf(), 25).podar();
         let restantes = arquivos_em(&dir.path().join("obj"));
         let total: u64 = restantes.iter().map(|p| std::fs::metadata(p).unwrap().len()).sum();
         assert!(total <= 25, "{total} bytes");
         // Ficam os usados por último.
         assert_eq!(restantes.len(), 2);
         assert!(restantes.contains(&c.caminho(3)) && restantes.contains(&c.caminho(4)), "{restantes:?}");
+    }
+
+    /// Um objeto maior que o teto, obtido por este processo ou usado há
+    /// pouco por outro, sobrevive à poda: a ligação ainda vai lê-lo.
+    #[test]
+    fn podar_poupa_o_que_esta_em_uso() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = CacheObjeto::novo(dir.path().to_path_buf(), 5);
+        c.obter_ou_criar(1, escrever(b"0123456789")).unwrap();
+        let f = std::fs::File::options().write(true).open(c.caminho(1)).unwrap();
+        f.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(1000)).unwrap();
+        c.podar();
+        assert!(c.caminho(1).is_file(), "o objeto deste processo foi podado");
+        // Outro processo (um cache novo sobre o mesmo diretório): o antigo
+        // sai, o recente fica.
+        let outro = CacheObjeto::novo(dir.path().to_path_buf(), 5);
+        assert!(!c.caminho(1).is_file());
+        c.obter_ou_criar(2, escrever(b"0123456789")).unwrap();
+        outro.podar();
+        assert!(c.caminho(2).is_file(), "objeto recente de outro processo podado");
     }
 }
