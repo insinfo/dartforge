@@ -1880,3 +1880,153 @@ Tempo total do processo (s, mediana; inclui início e, nos JITs, compilação):
 | textos | 7.95 | 5.78 | 1.20 | 0.88 |
 | tipados | 2.46 | 0.12 | 0.53 | 0.17 |
 
+
+## 9. Servidor HTTP (`dart:io`): medição e onde vai o tempo
+
+### 9.1 O benchmark
+
+`bench/http/servidor.dart` é um servidor `dart:io` de verdade: `HttpServer.bind`
+no loopback, `GET /` responde `hello` (texto), `GET /json` responde o
+`jsonEncode` de um objeto pequeno; keep-alive ligado (o padrão do
+`HttpServer`), `autoCompress` desligado. `scripts/bench-http.py` compila o
+servidor pelo AOT do DartForge (`--optimize`, ou `--df-exe` com um executável
+pronto; `--df-antes` mede um segundo executável junto, para antes/depois) e
+pelo `dart compile exe`, sobe também o `dart run`, e gera a carga com o `wrk`
+(`apt-get install wrk`) com 1 e 64 conexões. Por medida: req/s, p50/p99 do
+`wrk --latency`, a CPU do servidor por requisição (`utime + stime` de
+`/proc/<pid>/stat` sobre as requisições do `wrk`) e a RSS (`VmRSS` em repouso,
+depois de subir e responder; `VmHWM` ao fim da carga). As repetições alternam
+os executores, com aquecimento antes de cada medida, e o relatório dá mediana
+e faixa.
+
+A máquina é disputada (outros agentes compilam ao mesmo tempo; carga 6–9 em 4
+CPUs): req/s e latência variam 30–50% entre rodadas. Por isso a comparação
+de mudanças é feita também por **instruções por requisição** no `callgrind`
+(determinístico: duas rodadas do mesmo executável dão 1 333 696 e 1 333 837):
+o servidor roda no `valgrind --tool=callgrind`, recebe 300 requisições de
+aquecimento por uma conexão keep-alive, os contadores são zerados
+(`callgrind_control -z`) e 500 requisições são contadas. Conta só o espaço de
+usuário (as chamadas de sistema ficam de fora).
+
+### 9.2 Medido (Linux x86-64, 4 CPUs, Dart 3.6.2, 2026-09-29)
+
+"Antes" é o `main` de 02h44 (depois de o nome do parâmetro do `TypeError` sair
+do caminho feliz, `lower/rti.rs`); "depois" inclui §9.4 e o que os outros
+trabalhos mudaram no mesmo intervalo (o heap estava em obra: `try_get`,
+`bloco_vivo`). 3 repetições alternadas, 5 s por medida:
+
+| medida | DartForge antes | DartForge depois | Dart VM (JIT) | Dart AOT |
+|---|---:|---:|---:|---:|
+| req/s, `/`, 1 conexão | 1677 [1273–2045] | 1913 [1340–2217] | 4544 [2479–7640] | 6723 [3143–7057] |
+| req/s, `/`, 64 conexões | 1974 [1524–2157] | 1826 [1143–2066] | 10024 [9754–10093] | 10752 [10536–11025] |
+| req/s, `/json`, 1 conexão | 1640 [1271–1641] | 1438 [1359–1781] | 4893 [4781–5937] | 4648 [3116–5599] |
+| req/s, `/json`, 64 conexões | 1702 [1542–1727] | 1977 [1256–2122] | 8142 [8027–9234] | 10180 [9345–10685] |
+| p50 `/`, 1 conexão, ms | 0,395 | 0,340 | 0,188 | 0,088 |
+| p50 `/`, 64 conexões, ms | 27,5 | 33,9 | 5,6 | 5,1 |
+| p99 `/json`, 64 conexões, ms | 118 | 97 | 33 | 26 |
+| CPU/req `/`, 1 conexão, µs | 387 [344–520] | 335 [316–405] | 133 | 75 |
+| CPU/req `/json`, 1 conexão, µs | 442 [437–462] | 412 [393–412] | 113 | 128 |
+| CPU/req `/json`, 64 conexões, µs | 477 | 473 | 106 | 85 |
+| instruções/req (callgrind, `/`) | 1 531 683 | 1 333 696 | — | 103 983 |
+| RSS em repouso, MB | 13,3 | 14,7 | 151 | 7,3 |
+| RSS de pico, MB | 15,2 | 16,2 | 167 | 18,1 |
+
+A primeira medida da sessão (o `dartforge` de 28/09, antes da mudança do
+nome do parâmetro) dava 1 668 req/s e p50 de 0,51 ms com 1 conexão, e
+1 565 req/s e p50 de 37,6 ms com 64.
+
+Leitura: o DartForge fica em 3–5× a CPU por requisição do Dart AOT e
+executa ~13× as instruções de usuário; a memória é o ponto forte (RSS de pico
+menor que a do `dart compile exe` e ~10× menor que a da VM). Com 64 conexões
+o servidor não escala (um isolado, CPU no teto): a latência é a fila.
+
+### 9.3 Onde vai o tempo
+
+**Não é a E/S.** `strace -c` sob carga, por requisição: ~2 `write`, ~2
+`ioctl(FIONREAD)`, ~1,3 `read`, ~1 `epoll_wait` e ~3,5 `futex` (o
+`dart compile exe` faz o mesmo número de `write`/`read`/`ioctl` e mais `futex`
+e `rt_sigprocmask`). No `perf`, a thread do manipulador de eventos é 3% das
+amostras; os natives de soquete (`Socket_Read`, `Socket_WriteList`,
+`Socket_Available`) e o laço de eventos somam ~1% das instruções de usuário
+(`_NativeSocket.write` 25 mil, `read` 19 mil, `_RawReceivePort._handleMessage`
+12 mil instruções por requisição, de 1,33 milhão). O `write` do soquete é
+~10% do tempo, quase todo no TCP do kernel.
+
+**É o código do `dart:_http` compilado.** Por categoria (self, callgrind,
+depois de §9.4):
+
+| categoria | instruções/req | % |
+|---|---:|---:|
+| heap: acesso ao slot (`try_get`, `indice_vivo`, `bloco_vivo`), alocação, raízes e coleta | 516 641 | 38,7 |
+| `malloc`/`free`/`memset` da libc (vetores de campos, ambientes, caixas) | 249 723 | 18,7 |
+| código Dart compilado | 172 810 | 13,0 |
+| RTI e conferências de argumento (`rti_e`, `tipo_do_valor`, `args_casam`, `rti_definir`) | 141 641 | 10,6 |
+| outros (exceções, laço, libc) | 93 422 | 7,0 |
+| despacho (classe do receptor, seletor) | 90 410 | 6,8 |
+| natives do SDK (strings, listas tipadas) | 69 758 | 5,2 |
+
+Contados por uprobe (`perf stat -e uprobes:…`), por requisição, antes de §9.4:
+444 alocações do heap (102 objetos, 103 closures, 103 ambientes, 51 células),
+874 `dartforge_rti_e`, 1 123 `dartforge_seletor`, 115 `dartforge_string_new`
+(literais: sem alocação, mas uma busca por endereço cada), uma coleta a cada
+2,6 requisições. Pelo `dart:_http` (inclusivo):
+
+* `res.write` → `_HttpOutboundMessage.encoding` relê o `content-type` a cada
+  escrita (`ContentType.parse` → `_HeaderValue._parse`): 213 mil instruções
+  por requisição (16%). É a semântica do SDK (a VM faz o mesmo parse), mas o
+  `_parse` define seis funções locais por chamada — 6 closures, 6 ambientes e
+  6 células alocados a cada vez — e compara cada caractere com um literal de
+  um caractere (`char == " "`).
+* `writeHeaders` 189 mil (14%): `_CopyingBytesBuilder.add(nome.codeUnits)`
+  copia byte a byte pelo `CodeUnits.[]` (149 chamadas por requisição, cada uma
+  pelo seletor e pela entrada uniforme `$c`, que confere o `int` do índice no
+  RTI) e cada acesso ao `Uint8List` chama `dartforge_typed_len` e
+  `dartforge_typed_ptr` (~100 instruções cada).
+
+### 9.4 O que entrou
+
+* **Classes fechadas pelos modificadores** (`lower/sdk_fonte.rs`,
+  `classe_fechada_por_modificador`): uma classe `final` ou `sealed` cujos
+  subtipos no programa são todos da mesma biblioteca e `final`, `sealed` ou
+  privados não pode ser estendida nem implementada de fora — é o caso de
+  `String`, `int`, `double`, `num` e `bool`. O membro dela passa a valer como
+  fechado (`membro_fechado`), e a chamada com receptor de tipo estático
+  `String` (`s.codeUnitAt(i)`, `s.substring`…) vai direto ao alvo, ou ao
+  `switch` pela classe com o seletor no `default`, em vez do seletor e da
+  entrada uniforme com a conferência dos argumentos. `rti_e` por requisição:
+  874 → 590; seletor: 1 123 → 671.
+* **`==` com o lado esquerdo de classe fechada** (`igualdade_de_classe_fechada`,
+  chamado de `lower/expressoes.rs`): a regra do null de sempre e, com os dois
+  lados não nulos, o `==` pelo mesmo despacho. O `char == " "` deixa de passar
+  pelo seletor `c:==` e pelo `_OneByteString.==$c` (650 instruções por
+  comparação, 123 comparações por requisição).
+* **A classe do receptor numa consulta só** (`dartforge_value_class`,
+  `nucleo.rs`; `cid_do_valor_do_runtime`, `seletores.rs`): strings, listas,
+  caixas e listas tipadas tinham duas ou três consultas ao slot (e dois
+  empréstimos do heap) por pergunta; agora uma. `cid_do_runtime` 50 mil →
+  9 mil instruções por requisição, mais 21 mil do `cid_do_valor_do_runtime`
+  novo: −19 mil.
+
+Instruções por requisição: 1,53 milhão → 1,33 milhão (−13%; a parte medida
+destas três mudanças: `cid_do_runtime` −19 mil líquido, `tipo_do_valor` −31 mil,
+`==$c` −12 mil, `Universo::interface`/`sub` −25 mil, com o heap mudando por
+baixo no mesmo intervalo).
+
+### 9.5 O que falta (pela ordem do ganho medido)
+
+1. **Acesso ao slot e alocação do heap** (38,7% + 18,7% de `malloc`): cada
+   consulta de valor passa por `try_get` + `indice_vivo`/`bloco_vivo`; cada
+   objeto é um `Value` mais um vetor de campos no `malloc`. Dono: heap/GC.
+2. **Funções locais que não escapam** (`_HeaderValue._parse`,
+   `_HttpParser`): chamadas diretas com o ambiente na pilha, sem closure,
+   ambiente e célula no heap a cada chamada (103 closures e 103 ambientes por
+   requisição). Dono: lowering de closures.
+3. **Conferência de argumento na entrada uniforme** para chamadas de tipo
+   estático conhecido: só os parâmetros covariantes precisam dela (a VM só
+   confere tudo nos encaminhadores `dyn:`); `CodeUnits.[]$c`, `setRange$c`,
+   `addByte$c`, `[]=$c`. Com a memória direta do RTI (`memo_e`) o custo
+   caiu, mas `args_casam` + `rti_e` ainda são ~50 mil instruções/req.
+4. **`Uint8List` em linha**: `typed_len`/`typed_ptr` por acesso (31 mil
+   instruções/req) — um cabeçalho de endereço fixo como o das listas (N13).
+5. **Literais de string por ponto de uso**: o handle do literal num global
+   do isolado, sem a busca por endereço (115 por requisição).
