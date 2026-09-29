@@ -410,8 +410,16 @@ impl<'a> LlvmEmitter<'a> {
             .blocks
             .iter()
             .filter_map(|b| {
-                let v = b.instructions.iter().rev().find(|(_, i, _)| Self::alocacao_em_linha(i).is_some())?.0 .0;
-                Some((b.id.0, format!("ao{v}.fim")))
+                b.instructions.iter().rev().find_map(|(vid, i, _)| {
+                    let v = vid.0;
+                    if Self::alocacao_em_linha(i).is_some() {
+                        Some((b.id.0, format!("ao{v}.fim")))
+                    } else if self.barreira_em_linha(i) {
+                        Some((b.id.0, format!("wb{v}.fim")))
+                    } else {
+                        None
+                    }
+                })
             })
             .collect();
         self.tem_ctx = self.tem_frame
@@ -692,6 +700,9 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  store i64 {sv}, ptr %fg{v}, align 8").unwrap();
                         writeln!(self.out, "  %fr{v} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {index}, i32 1").unwrap();
                         writeln!(self.out, "  store i8 {is_ref}, ptr %fr{v}, align 8").unwrap();
+                        if self.barreira_em_linha(inst) {
+                            self.emitir_barreira(v, &so, None);
+                        }
                     }
                     Instruction::SetField { object, index, value } => {
                         let is_ref = u8::from(self.tipo_de(value) == Type::Ref);
@@ -765,6 +776,10 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  store i64 {sv}, ptr %fg{v}, align 8").unwrap();
                         writeln!(self.out, "  %fr{v} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {i}, i32 1").unwrap();
                         writeln!(self.out, "  store i8 {is_ref}, ptr %fr{v}, align 8").unwrap();
+                        if self.barreira_em_linha(inst) {
+                            let dinamico = is_ref.starts_with('%').then_some(is_ref.as_str());
+                            self.emitir_barreira(v, &so, dinamico);
+                        }
                     }
                     Instruction::CallRuntime { .. } if Self::alocacao_em_linha(inst).is_some() => {
                         let (c, n) = Self::alocacao_em_linha(inst).expect("conferido na guarda");
@@ -2344,6 +2359,57 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(o, "  br label %ao{v}.fim").unwrap();
         writeln!(o, "ao{v}.fim:").unwrap();
         writeln!(o, "  %v{v} = phi i64 [ %th{v}, %ao{v}.rapido ], [ %tl{v}, %ao{v}.lento ]").unwrap();
+    }
+
+    /// A gravação em linha de campo que pode pôr um `Ref` num objeto: leva a
+    /// barreira de escrita ([`LlvmEmitter::emitir_barreira`]). Uma constante
+    /// escalar ou null não precisa.
+    fn barreira_em_linha(&self, inst: &Instruction) -> bool {
+        let pode_ser_ref = |op: &Operand| {
+            !matches!(op, Operand::Constant(Constant::Null | Constant::Int(_) | Constant::Bool(_) | Constant::Double(_)))
+        };
+        match inst {
+            Instruction::SetField { index, value, .. } => {
+                (*index as usize) < CAMPOS_EM_LINHA && self.tipo_de(value) == Type::Ref && pode_ser_ref(value)
+            }
+            Instruction::CallRuntime { name, args, .. }
+                if name == "dartforge_object_set"
+                    && args.len() == 4
+                    && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..CAMPOS_EM_LINHA as i64).contains(i)) =>
+            {
+                let escalar = matches!(&args[3].0, Operand::Constant(Constant::Int(0)) | Operand::Constant(Constant::Bool(false)));
+                !escalar && pode_ser_ref(&args[2].0)
+            }
+            _ => false,
+        }
+    }
+
+    /// A barreira de escrita depois de gravar um `Ref` no objeto `so`
+    /// (`crates/runtime/src/heap.rs`, `Bloco`): se o objeto é velho (estado
+    /// 3 no cabeçalho, `h - 18`), `dartforge_lembrar` o põe entre os
+    /// lembrados da próxima coleta menor — o *store buffer* da barreira da
+    /// VM. `dinamico`: o `is_ref` só conhecido em execução (0/1, `i8`). O
+    /// bloco da HIR passa a terminar em `wb{v}.fim`.
+    fn emitir_barreira(&mut self, v: u32, so: &str, dinamico: Option<&str>) {
+        let o = &mut self.out;
+        writeln!(o, "  %wba{v} = add i64 {so}, -18").unwrap();
+        writeln!(o, "  %wbp{v} = inttoptr i64 %wba{v} to ptr").unwrap();
+        writeln!(o, "  %wbe{v} = load i8, ptr %wbp{v}, align 8").unwrap();
+        writeln!(o, "  %wbv{v} = icmp eq i8 %wbe{v}, 3").unwrap();
+        let cond = match dinamico {
+            Some(r) => {
+                writeln!(o, "  %wbr{v} = icmp ne i8 {r}, 0").unwrap();
+                writeln!(o, "  %wbc{v} = and i1 %wbv{v}, %wbr{v}").unwrap();
+                format!("%wbc{v}")
+            }
+            None => format!("%wbv{v}"),
+        };
+        writeln!(o, "  %wbx{v} = call i1 @llvm.expect.i1(i1 {cond}, i1 false)").unwrap();
+        writeln!(o, "  br i1 %wbx{v}, label %wb{v}.lembrar, label %wb{v}.fim").unwrap();
+        writeln!(o, "wb{v}.lembrar:").unwrap();
+        writeln!(o, "  call void @dartforge_lembrar(i64 {so})").unwrap();
+        writeln!(o, "  br label %wb{v}.fim").unwrap();
+        writeln!(o, "wb{v}.fim:").unwrap();
     }
 
     /// A instrução lê o contexto da thread (`%ctx`): campos em linha ou

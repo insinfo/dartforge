@@ -126,6 +126,12 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
+        // A barreira de escrita (`llvm/mod.rs`, `emitir_barreira`): lembra o
+        // objeto velho; não aloca nem lança.
+        decl: "declare void @dartforge_lembrar(i64) nounwind",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
         decl: "declare void @dartforge_object_set(i64, i64, i64, i8)",
         // Lê/grava um campo: não aloca (o emissor a expande em linha com
         // índice constante).

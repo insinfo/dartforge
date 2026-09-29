@@ -108,6 +108,19 @@ pub struct FnBuilder<'a, 'c> {
     /// Esta função é um adaptador da tabela de métodos (`sdk_fonte.rs`): o
     /// membro que ele adapta é chamado direto, nunca pelo seletor de novo.
     pub em_adaptador: bool,
+    /// Entrada tipada (`$tc`/`$ts`, `entrada_tipada.rs`): a aridade e os
+    /// nomes já foram garantidos pelo chamador estático, e o
+    /// `desempacotar` não os confere de novo.
+    pub aridade_garantida: bool,
+    /// Os tipos dos parâmetros da invocação cujos argumentos são avaliados
+    /// a seguir (a lista de argumentos pelo endereço): o `avaliar_args`
+    /// confere cada argumento `dynamic` logo depois de avaliá-lo, como o
+    /// cast implícito que o CFE põe em volta dele (`entrada_tipada.rs`).
+    pub tipos_dos_args: Option<(usize, super::entrada_tipada::TiposDaInvocacao)>,
+    /// Argumentos `dynamic` (ou sem tipo estático) que chegaram à chamada
+    /// sem o cast implícito: a chamada deles fica com a entrada que confere
+    /// tudo (`c:`), não com a tipada.
+    pub args_sem_cast: std::collections::HashSet<ValueId>,
     // --- P6 (async, `async_sm.rs`) ---
     /// Corpo de uma função `async` em curso: o quadro, as retomadas.
     pub async_estado: Option<Box<super::async_sm::EstadoAsync>>,
@@ -265,6 +278,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             padrao_refutavel: false,
             cast_so_pela_classe: false,
             em_adaptador: false,
+            aridade_garantida: false,
+            tipos_dos_args: None,
+            args_sem_cast: std::collections::HashSet::new(),
             async_estado: None,
             params_de_tipo_da_funcao: Vec::new(),
             params_locais: Vec::new(),

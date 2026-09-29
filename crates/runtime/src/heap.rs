@@ -2070,16 +2070,22 @@ impl Value {
 
 /// O handle `h` foi marcado pela coleta em curso (vivo)? Null, `Smi` e
 /// escalar qualquer: não.
-fn marcado_na_coleta(marks: &[bool], objetos: &EspacoDeObjetos, h: i64) -> bool {
+///
+/// Na coleta menor, o velho conta como vivo.
+fn marcado_na_coleta(marks: &[bool], idade: &[u8], objetos: &EspacoDeObjetos, menor: bool, h: i64) -> bool {
     if !smi::e_handle(h) || h < 0 {
         return false;
     }
     if e_objeto(h) {
         // SAFETY: bloco de uma página do espaço.
         #[allow(unsafe_code)]
-        return objetos.bloco_de(h).is_some_and(|b| unsafe { (*b).estado } == 2);
+        return objetos.bloco_de(h).is_some_and(|b| {
+            let e = unsafe { (*b).estado };
+            e == MARCADO || (menor && (e == VELHO || e == LEMBRADO))
+        });
     }
-    marks.get(Heap::indice_de(h)).copied().unwrap_or(false)
+    let i = Heap::indice_de(h);
+    marks.get(i).copied().unwrap_or(false) || (menor && idade.get(i).is_some_and(|&x| x != 0))
 }
 
 /// O `Ref` é o handle de um objeto do espaço de objetos ([`Bloco`]): o bit
@@ -3520,6 +3526,7 @@ impl Heap {
     /// Marca tudo o que é alcançável a partir de `pending`; devolve quantos
     /// objetos marcou.
     fn marcar_pendentes(&mut self) -> usize {
+        let menor = self.coleta_menor;
         let mut live = 0_usize;
         while let Some(handle) = self.pending.pop() {
             // null e `Smi` (R10) não são arestas: o coletor nunca segue um
@@ -3540,10 +3547,14 @@ impl Heap {
                 // SAFETY: bloco vivo do espaço; o valor é `Value::Object`.
                 #[allow(unsafe_code)]
                 unsafe {
-                    if (*b).estado == 2 {
+                    // Na coleta menor, um velho conta como vivo e não é
+                    // percorrido (as referências dele a jovens estão nos
+                    // lembrados); na completa, só o marcado é pulado.
+                    let e = (*b).estado;
+                    if if menor { e != JOVEM } else { e == MARCADO } {
                         continue;
                     }
-                    (*b).estado = 2;
+                    (*b).estado = MARCADO;
                     live += 1;
                     if let Value::Object { fields, .. } = &*(*b).valor {
                         self.pending.extend(fields.iter().filter_map(|(bits, is_ref)| is_ref.then_some(*bits)));
@@ -3555,7 +3566,7 @@ impl Heap {
             // Raiz ou aresta que não é um handle vivo: mesmas quatro
             // mensagens de `get`, porque a causa é a mesma (N4).
             let index = self.indice_vivo(handle);
-            if self.marks[index] {
+            if self.marks[index] || (menor && self.idade[index] != 0) {
                 continue;
             }
             self.marks[index] = true;
@@ -3568,9 +3579,85 @@ impl Heap {
         live
     }
 
+    /// A coleta completa (o `dartforge_gc_collect` e os testes): marca a
+    /// partir das raízes e varre tudo; o que sobrevive fica velho.
     pub fn collect(&mut self) {
-        // O que a TLAB não usou volta a ser livre (a varredura refaz as listas).
+        self.coletar(false);
+    }
+
+    /// Empilha em `destino` as raízes: as permanentes do runtime, os
+    /// globais, os anexos de finalizador e os quadros (os do runtime e a
+    /// pilha-sombra do código gerado).
+    fn raizes(&self, destino: &mut Vec<i64>) {
+        destino.extend(self.enum_values.values().copied());
+        destino.extend(self.tearoffs.values().copied());
+        destino.extend(self.literais.values().copied());
+        destino.extend(self.globais.values().copied());
+        destino.extend(self.caixas_bool.iter().copied().filter(|&h| h != 0));
+        destino.extend(self.raizes_do_runtime.iter().copied().filter(|&h| h != 0));
+        destino.extend(self.finalizacoes_prontas.iter().copied());
+        for a in &self.anexos {
+            destino.push(a.dono);
+            if let AcaoDeFinalizador::Dart(acao) = a.acao {
+                destino.push(acao);
+            }
+        }
+        destino.extend(self.frames.iter().flat_map(|(_, roots)| roots.iter().copied()));
+        visitar_quadros(|h| destino.push(h));
+    }
+
+    /// `DARTFORGE_GC_VERIFICAR=1`, depois da marcação de uma coleta menor:
+    /// uma travessia completa a partir das raízes, sem gerações, não pode
+    /// achar jovem sem marca — seria uma referência de velho para jovem que
+    /// a barreira de escrita não lembrou.
+    ///
+    /// # Panics
+    /// Com a primeira referência assim.
+    fn verificar_coleta_menor(&self) {
+        let mut pilha = Vec::new();
+        self.raizes(&mut pilha);
+        let mut visto = crate::hash::HashSet::default();
+        let mut origem: crate::hash::HashMap<i64, i64> = crate::hash::HashMap::default();
+        while let Some(h) = pilha.pop() {
+            if !smi::e_handle(h) || h < 0 || !visto.insert(h) {
+                continue;
+            }
+            let antes = pilha.len();
+            if e_objeto(h) {
+                let b = self.bloco_vivo(h);
+                // SAFETY: bloco vivo do espaço.
+                #[allow(unsafe_code)]
+                let (estado, valor) = unsafe { ((*b).estado, &*(*b).valor) };
+                if estado == JOVEM {
+                    panic!(
+                        "bug do coletor: jovem alcançável sem marca na coleta menor (barreira de escrita faltando)\nobjeto {h}, alcançado de {:?}",
+                        origem.get(&h)
+                    );
+                }
+                valor.trace(&mut pilha);
+            } else {
+                let i = self.indice_vivo(h);
+                if self.idade[i] == 0 && !self.marks[i] {
+                    panic!(
+                        "bug do coletor: jovem alcançável sem marca na coleta menor (barreira de escrita faltando)\nslot {h}, alcançado de {:?}",
+                        origem.get(&h)
+                    );
+                }
+                self.slots[i].as_ref().expect("slot vivo verificado").trace(&mut pilha);
+            }
+            for &f in &pilha[antes..] {
+                origem.entry(f).or_insert(h);
+            }
+        }
+    }
+
+    /// Uma coleta: `menor` marca e varre só os jovens (os velhos contam como
+    /// vivos, e os lembrados pela barreira de escrita entram como raízes);
+    /// a completa, tudo. Em ambas o que sobrevive fica velho.
+    fn coletar(&mut self, menor: bool) {
+        // O que a TLAB não usou volta a ser livre.
         self.devolver_tlabs();
+        self.coleta_menor = menor;
         self.stats.collections += 1;
         self.stats.roots_scanned += self.enum_values.len() as u64;
         self.stats.roots_scanned += self.tearoffs.len() as u64;
@@ -3580,42 +3667,36 @@ impl Heap {
             .iter()
             .map(|(_, roots)| roots.len() as u64)
             .sum::<u64>();
-        self.stats.slots_scanned += self.slots.len() as u64;
         self.marks.resize(self.slots.len(), false);
-        self.marks.fill(false);
+        if !menor {
+            self.stats.slots_scanned += self.slots.len() as u64;
+            self.marks.fill(false);
+        }
         self.trabalho_da_marcacao = 0;
-        self.pending.clear();
-        self.pending.extend(self.enum_values.values().copied());
-        self.pending.extend(self.tearoffs.values().copied());
-        self.pending.extend(self.literais.values().copied());
-        self.pending.extend(self.globais.values().copied());
-        self.pending.extend(self.caixas_bool.iter().copied().filter(|&h| h != 0));
-        self.pending.extend(self.raizes_do_runtime.iter().copied().filter(|&h| h != 0));
-        self.pending.extend(self.finalizacoes_prontas.iter().copied());
-        for a in &self.anexos {
-            self.pending.push(a.dono);
-            if let AcaoDeFinalizador::Dart(acao) = a.acao {
-                self.pending.push(acao);
+        let mut pendentes = std::mem::take(&mut self.pending);
+        pendentes.clear();
+        self.raizes(&mut pendentes);
+        if menor {
+            // Os velhos lembrados: as referências deles podem ser jovens.
+            for &b in &self.objetos.lembrados {
+                // SAFETY: bloco lembrado, vivo; o valor é `Value::Object`.
+                #[allow(unsafe_code)]
+                unsafe { (*b).valor.trace(&mut pendentes) };
+            }
+            for &i in &self.slots_lembrados {
+                if let Some(v) = &self.slots[i] {
+                    v.trace(&mut pendentes);
+                }
             }
         }
-        self.pending.extend(
-            self.frames
-                .iter()
-                .flat_map(|(_, roots)| roots.iter().copied()),
-        );
-        let (pending, stats) = (&mut self.pending, &mut self.stats);
-        visitar_quadros(|h| {
-            stats.roots_scanned += 1;
-            pending.push(h);
-        });
+        self.pending = pendentes;
         let mut live = self.marcar_pendentes();
         // Os efêmeros: o valor de um portador vivo é alcançado quando a
         // chave é — o que pode tornar vivas outras chaves, até o ponto fixo.
         if !self.efemeros.is_empty() {
             loop {
-                let marks = &self.marks;
-                let objetos = &self.objetos;
-                let marcado = |h: i64| marcado_na_coleta(marks, objetos, h);
+                let (marks, idade, objetos) = (&self.marks, &self.idade, &self.objetos);
+                let marcado = |h: i64| marcado_na_coleta(marks, idade, objetos, menor, h);
                 let antes = self.pending.len();
                 for (&portador, &(chave, valor)) in &self.efemeros {
                     if marcado(portador) && (marcado(chave) || !smi::e_handle(chave)) && smi::e_handle(valor) && !marcado(valor) {
@@ -3629,9 +3710,11 @@ impl Heap {
             }
         }
         // Tabelas laterais: só ficam os handles que sobreviveram (G6).
-        let marks = &self.marks;
-        let objetos = &self.objetos;
-        let vivo = |h: &i64| marcado_na_coleta(marks, objetos, *h);
+        if menor && self.verificar {
+            self.verificar_coleta_menor();
+        }
+        let (marks, idade, objetos) = (&self.marks, &self.idade, &self.objetos);
+        let vivo = |h: &i64| marcado_na_coleta(marks, idade, objetos, menor, *h);
         self.fracas.retain(|portador, alvo| {
             if smi::e_handle(*alvo) && !vivo(alvo) {
                 *alvo = 0;
@@ -3679,21 +3762,48 @@ impl Heap {
         // `_setData`, as listas tipadas…) não passam pela contabilidade, e
         // subtrair a capacidade de agora do que foi somado na alocação
         // estouraria o contador.
-        let mut vivos_em_bytes = 0usize;
-        for (index, slot) in self.slots.iter_mut().enumerate() {
-            let Some(valor) = slot.as_ref() else { continue };
-            if self.marks[index] {
-                vivos_em_bytes = vivos_em_bytes.saturating_add(valor.estimated_bytes());
-            } else {
-                *slot = None;
-                self.free.push(index);
-                self.stats.reclaimed += 1;
+        if menor {
+            // Só os jovens: o marcado fica velho; o resto sai. A estimativa
+            // perde o que saiu (a completa a refaz dos vivos).
+            let mut soltos = 0usize;
+            for &index in &self.slots_jovens {
+                let Some(valor) = self.slots[index].as_ref() else { continue };
+                if self.marks[index] {
+                    self.marks[index] = false;
+                    self.idade[index] = 1;
+                } else {
+                    soltos = soltos.saturating_add(valor.estimated_bytes());
+                    self.slots[index] = None;
+                    self.free.push(index);
+                    self.stats.reclaimed += 1;
+                }
             }
+            for &index in &self.slots_lembrados {
+                self.idade[index] = 1;
+            }
+            let (mortos, _, bytes_soltos) = self.objetos.varrer_jovens();
+            self.stats.reclaimed += mortos as u64;
+            self.stats.estimated_bytes = self.stats.estimated_bytes.saturating_sub(soltos.saturating_add(bytes_soltos));
+        } else {
+            let mut vivos_em_bytes = 0usize;
+            for (index, slot) in self.slots.iter_mut().enumerate() {
+                let Some(valor) = slot.as_ref() else { continue };
+                if self.marks[index] {
+                    vivos_em_bytes = vivos_em_bytes.saturating_add(valor.estimated_bytes());
+                    self.idade[index] = 1;
+                } else {
+                    *slot = None;
+                    self.free.push(index);
+                    self.stats.reclaimed += 1;
+                }
+            }
+            let (mortos, _, bytes_de_objetos) = self.objetos.varrer();
+            self.stats.reclaimed += mortos as u64;
+            vivos_em_bytes = vivos_em_bytes.saturating_add(bytes_de_objetos);
+            self.stats.estimated_bytes = vivos_em_bytes;
         }
-        let (mortos, _, bytes_de_objetos) = self.objetos.varrer();
-        self.stats.reclaimed += mortos as u64;
-        vivos_em_bytes = vivos_em_bytes.saturating_add(bytes_de_objetos);
-        self.stats.estimated_bytes = vivos_em_bytes;
+        self.slots_jovens.clear();
+        self.slots_lembrados.clear();
         for (finalizador, par) in finalizar {
             finalizador(par);
         }
@@ -3705,7 +3815,11 @@ impl Heap {
             f(token);
         }
         self.allocations = 0;
-        self.recalcular_gatilhos(live);
+        self.bytes_jovens = 0;
+        self.coleta_menor = false;
+        if !menor {
+            self.recalcular_gatilhos(live);
+        }
     }
 
     /// Os gatilhos da próxima coleta, a partir do que sobreviveu a esta.
@@ -3899,7 +4013,10 @@ mod tests {
         }
         heap.collect();
         assert_eq!(heap.slots.iter().flatten().count(), 1);
-        assert!(heap.slots.len() <= 2);
+        // O temporário da volta anterior ficou velho na coleta explícita
+        // (completa): a coleta menor antes da alocação seguinte não o solta,
+        // a completa da volta sim — no máximo três slots.
+        assert!(heap.slots.len() <= 3);
     }
 }
 
@@ -3991,6 +4108,68 @@ mod espaco_de_objetos {
         assert_eq!(heap.hash_de_identidade(a), Some(ha));
         assert_ne!(heap.hash_de_identidade(b), Some(ha));
         assert!(ha > 0 && ha <= 0x3fff_ffff);
+    }
+
+    #[test]
+    fn coleta_menor_segue_os_lembrados_e_solta_os_jovens_mortos() {
+        let mut heap = Heap::new(false);
+        let frame = heap.push_frame_with_slots(1);
+        let velho = heap.alocar_objeto(1, 1);
+        heap.set_root(frame, 0, velho);
+        heap.coletar(false);
+        // Jovem só alcançável pelo velho (a barreira de `set` o lembra).
+        let jovem = heap.alocar_objeto(2, 1);
+        heap.set(jovem, 0, 7, false);
+        heap.set(velho, 0, jovem, true);
+        let lixo = heap.alocar_objeto(3, 1);
+        heap.coletar(true);
+        assert!(matches!(heap.get(jovem), Value::Object { class_id: 2, fields } if fields[0].0 == 7));
+        assert!(heap.try_get(lixo).is_none());
+        assert_eq!(heap.stats().live_objects, 2);
+        // Depois dela, o jovem ficou velho: sem barreira nova, outra menor
+        // não o percorre, e ele continua vivo.
+        heap.coletar(true);
+        assert!(heap.try_get(jovem).is_some());
+        // A completa solta o que só os velhos mortos alcançavam.
+        heap.set_root(frame, 0, 0);
+        heap.coletar(false);
+        assert_eq!(heap.stats().live_objects, 0);
+    }
+
+    #[test]
+    fn slots_velhos_gravados_pelo_runtime_sao_lembrados() {
+        let mut heap = Heap::new(false);
+        let frame = heap.push_frame_with_slots(1);
+        let lista = heap.create_list(Vec::new());
+        heap.set_root(frame, 0, lista);
+        heap.coletar(false);
+        let jovem = heap.alocar_objeto(5, 0);
+        heap.list_push(lista, TaggedValue::reference(jovem));
+        heap.coletar(true);
+        assert!(heap.try_get(jovem).is_some());
+        assert_eq!(heap.list_get(lista, 0).bits, jovem);
+    }
+
+    #[test]
+    #[should_panic(expected = "barreira de escrita faltando")]
+    fn verificacao_acha_barreira_faltando() {
+        let mut heap = Heap::new(false);
+        heap.verificar = true;
+        let frame = heap.push_frame_with_slots(1);
+        let velho = heap.alocar_objeto(1, 1);
+        heap.set_root(frame, 0, velho);
+        heap.coletar(false);
+        let jovem = heap.alocar_objeto(2, 0);
+        // Grava sem barreira (como faria código gerado sem ela).
+        let b = heap.objetos.bloco_de(velho).expect("objeto");
+        #[allow(unsafe_code)]
+        // SAFETY: bloco vivo; o valor é `Value::Object`.
+        unsafe {
+            if let Value::Object { fields, .. } = &mut *(*b).valor {
+                fields[0] = (jovem, true);
+            }
+        }
+        heap.coletar(true);
     }
 
     #[test]

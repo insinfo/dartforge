@@ -302,6 +302,14 @@ pub extern "C" fn dartforge_object_campos(h: i64) -> i64 {
     heap_sem_emprestimo(|heap| heap.campos_de_objeto(h).map_or(CAMPOS_VAZIOS.as_ptr() as i64, |p| p as i64))
 }
 
+/// A barreira de escrita do código gerado (`llvm/mod.rs`): o objeto `h`,
+/// velho, recebeu um `Ref` num campo gravado em linha, e a próxima coleta
+/// menor precisa percorrê-lo (`Heap::lembrar_objeto`). Não aloca.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_lembrar(h: i64) {
+    heap_sem_emprestimo(|heap| heap.lembrar_objeto(h));
+}
+
 /// Obtém bits do campo pelo índice estável escolhido pelo emissor.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_object_get(handle: i64, index: i64) -> i64 {
