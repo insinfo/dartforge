@@ -163,8 +163,15 @@ fn covariante_por_declaracao(ctx: &Context, fid: usize, i: usize) -> bool {
     }
     let Some(c) = f.class else { return false };
     let Some(dados) = ctx.outline.hierarchy.get(c) else { return false };
+    let nome = ctx.symbol_name(f.name);
+    let chave = if f.kind == dartforge_elements::model::FunctionKind::Setter && !nome.ends_with("_=") {
+        ctx.interner.lookup(&format!("{nome}_="))
+    } else {
+        Some(f.name)
+    };
+    let Some(chave) = chave else { return false };
     dados.supertypes.keys().any(|&s| {
-        s != c && ctx.program.classes[s.0 as usize].instance_members.get(&f.name).is_some_and(|g| casa(g.0 as usize))
+        s != c && ctx.program.classes[s.0 as usize].instance_members.get(&chave).is_some_and(|g| casa(g.0 as usize))
     })
 }
 

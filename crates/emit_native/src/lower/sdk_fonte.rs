@@ -1839,14 +1839,39 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         span: Span,
     ) {
         use dartforge_frontend::ast::{ExprKind, ForInTarget};
+        // Elemento `dynamic` num alvo tipado: o cast implícito de cada
+        // elemento (o CFE o põe na atribuição à variável do laço), com a
+        // mensagem do cast, antes de converter à representação.
+        let elemento_dinamico = match self.ctx.get_type(self.unit_id, iterable) {
+            Some(t) if t == self.ctx.core.dynamic_ => true,
+            Some(t) => self.tipo_elemento(t) == Some(self.ctx.core.dynamic_),
+            None => false,
+        };
         match target {
-            ForInTarget::Declared { name, .. } => {
+            ForInTarget::Declared { name, ty: anotado, .. } => {
+                if elemento_dinamico && let Some(tid) = anotado {
+                    self.checar_tipo_ou_lancar(ast.ty(*tid), x.clone(), super::rti::ContextoDoCast::Implicito);
+                    if self.is_terminated() {
+                        return;
+                    }
+                }
                 let ty = self.repr_do_local(name.span.start as usize);
                 let x = self.coagir(x, ty);
                 self.declarar_variavel(name.sym, name.span.start as usize, ty, x);
             }
             ForInTarget::Expression(e) => {
                 if let ExprKind::Identifier(id) = &ast.expr(*e).kind {
+                    if elemento_dinamico
+                        && let Some(t) = self.ctx.get_type(self.unit_id, *e)
+                        && t != self.ctx.core.dynamic_
+                        && t != self.ctx.core.object_nullable
+                    {
+                        let rti = self.rti_de_tipo(t);
+                        self.cast_rti_em(x.clone(), rti, super::rti::ContextoDoCast::Implicito);
+                        if self.is_terminated() {
+                            return;
+                        }
+                    }
                     let ty = self.buscar_local(id.sym).map_or(Type::Ref, |l| l.ty);
                     let x = self.coagir(x, ty);
                     self.gravar_local(id.sym, x);

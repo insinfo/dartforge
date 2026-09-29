@@ -906,11 +906,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     // Argumentos
 
     /// Avalia os argumentos na ordem do texto (a ordem de avaliação do Dart).
+    ///
+    /// Cada argumento `dynamic` ganha, logo depois de avaliado, o cast
+    /// implícito para o tipo do parâmetro na invocação armada para esta
+    /// lista (`armar_tipos_dos_args`, `entrada_tipada.rs`), como o CFE.
     pub fn avaliar_args(&mut self, ast: &ast::Ast, args: &[ast::Argument]) -> Vec<Avaliado> {
+        let tipos = match &self.tipos_dos_args {
+            Some((chave, _)) if *chave == args.as_ptr() as usize && !args.is_empty() => {
+                self.tipos_dos_args.take().map(|(_, t)| t)
+            }
+            _ => None,
+        };
+        let mut i_pos = 0;
         args.iter()
             .map(|a| {
                 let v = self.lower_expr(ast, a.value);
-                (a.name.map(|n| n.sym), v)
+                let nome = a.name.map(|n| n.sym);
+                if !self.is_terminated() {
+                    self.cast_implicito_do_argumento(tipos.as_ref(), a.value, nome, i_pos, &v);
+                }
+                if nome.is_none() {
+                    i_pos += 1;
+                }
+                (nome, v)
             })
             .collect()
     }
@@ -1469,7 +1487,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // A classe concreta (aplicação de mixin) vale para esta criação, não
         // para as que a avaliação dos argumentos fizer.
         let concreta = self.classe_concreta.take();
+        let armados = self.armar_tipos_do_construtor(fid, tipo, args);
         let avaliados = self.avaliar_args(ast, args);
+        self.tipos_dos_args = armados;
         self.tipo_da_criacao = tipo;
         self.classe_concreta = concreta;
         self.instanciar_avaliados(ctor_fid, &avaliados, span)

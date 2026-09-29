@@ -12,6 +12,7 @@ pub mod closures;
 pub mod comandos;
 pub mod constantes;
 pub mod despacho;
+pub mod entrada_tipada;
 pub mod enums;
 pub mod erros_do_runtime;
 pub mod expressoes;

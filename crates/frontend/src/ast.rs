@@ -357,6 +357,36 @@ pub enum TypedefKind {
     },
 }
 
+/// Modificador de variância de um parâmetro de tipo (`in`, `out`, `inout`),
+/// do experimento `variance`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Variance {
+    In,
+    Out,
+    Inout,
+}
+
+impl Variance {
+    /// O modificador pelo texto.
+    pub fn do_texto(texto: &str) -> Option<Variance> {
+        match texto {
+            "in" => Some(Variance::In),
+            "out" => Some(Variance::Out),
+            "inout" => Some(Variance::Inout),
+            _ => None,
+        }
+    }
+
+    /// O texto do modificador.
+    pub fn texto(self) -> &'static str {
+        match self {
+            Variance::In => "in",
+            Variance::Out => "out",
+            Variance::Inout => "inout",
+        }
+    }
+}
+
 /// `T extends Bound` numa lista `<...>`, com metadata.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct TypeParameter {
@@ -364,6 +394,11 @@ pub struct TypeParameter {
     pub metadata: Box<[Annotation]>,
     pub name: Name,
     pub bound: Option<TypeId>,
+    /// O modificador de variância escrito (`class C<out T>`), com o seu
+    /// token. Como no analyzer (`TypeParameter.varianceKeyword`), é guardado
+    /// mesmo com o experimento desligado: o parser relata o experimento e a
+    /// posição de uso continua conferida.
+    pub variance: Option<(Variance, Span)>,
 }
 
 /// Lista `tipo a = 1, b;` com os modificadores comuns.

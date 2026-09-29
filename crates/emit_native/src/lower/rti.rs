@@ -130,6 +130,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         r
     }
 
+    /// A receita de `t` com os parâmetros de tipo de `subst` trocados pelos
+    /// tipos dados (o parâmetro de uma classe genérica visto pela criação
+    /// `C<int>(…)`, `entrada_tipada.rs`).
+    pub(super) fn receita_de_tipo_substituida(&self, t: TypeId, subst: Option<&HashMap<TypeParamId, TypeId>>) -> Receita {
+        let vazio = HashMap::new();
+        let mut r = Receita { texto: String::new(), variaveis: false };
+        self.escrever_tipo(t, &mut Vec::new(), subst.unwrap_or(&vazio), &mut r);
+        r
+    }
+
     fn escrever_tipo(
         &self,
         t: TypeId,
@@ -804,14 +814,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// de classe; os outros (`dynamic`, `Object?`, tipos de função e
     /// parâmetros de tipo da função) ficam com a conversão de sempre.
     pub fn conferir_argumentos_da_entrada(&mut self, fid: usize, vals: &[Operand]) {
-        use dartforge_types::table::{Type as DartType, TypeParamOwner};
-        let f = &self.ctx.program.functions[fid];
-        for (p, v) in self.ctx.outline.functions[fid].parameters.clone().iter().zip(vals) {
-            let covariante = matches!(self.ctx.table.get(p.ty), DartType::TypeParameter { param, .. }
-                if matches!(self.ctx.table.param(*param).owner, TypeParamOwner::Class(c) if Some(c) == f.class));
-            let nominal = matches!(self.ctx.table.get(p.ty), DartType::Interface { .. });
-            let topo = p.ty == self.ctx.core.dynamic_ || p.ty == self.ctx.core.object_nullable;
-            if topo || !(covariante || nominal) {
+        self.conferir_argumentos_da_entrada_com(fid, vals, false);
+    }
+
+    /// [`Self::conferir_argumentos_da_entrada`]; na entrada tipada
+    /// (`so_covariantes`, `entrada_tipada.rs`), só os parâmetros
+    /// covariantes: os outros o chamador estático já garantiu.
+    pub fn conferir_argumentos_da_entrada_com(&mut self, fid: usize, vals: &[Operand], so_covariantes: bool) {
+        for (i, (p, v)) in self.ctx.outline.functions[fid].parameters.clone().iter().zip(vals).enumerate() {
+            if !super::entrada_tipada::conferido_na_entrada(self.ctx, fid, p.ty) {
+                continue;
+            }
+            if so_covariantes && !super::entrada_tipada::parametro_covariante(self.ctx, fid, i) {
                 continue;
             }
             let nome = p.name.map(|n| self.ctx.symbol_name(n).to_string()).unwrap_or_default();

@@ -26,7 +26,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // restaurado como a tupla (chamadas aninhadas nos argumentos).
         let tipo_salvo = std::mem::replace(&mut self.tipo_chamado, self.ctx.get_type(self.unit_id, *target));
         let chamada_salva = self.chamada_corrente.replace(expr_id);
+        let armados = self.armar_tipos_dos_args(*target, expr_id, &arguments.args);
         let r = self.lower_chamada_interno(ast, expr_id, expr, target, arguments);
+        self.tipos_dos_args = armados;
         self.tupla_armada = salvo;
         self.tipo_chamado = tipo_salvo;
         self.chamada_corrente = chamada_salva;
