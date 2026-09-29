@@ -1,18 +1,21 @@
 // Substitui `_internal/vm_shared/lib/string_buffer_patch.dart` (sobreposição
-// `sdk_nativo/`, P5c). O da VM acumula as unidades num `Uint16List` e cria a
-// string por um native (`StringBuffer_createStringFromUint16Array`); aqui as
-// partes escritas ficam numa lista e o `toString` as concatena de uma vez
-// (`_StringBase._concatRange`, o native `String_concatRange`). O que o
-// programa observa — o texto, `length`, `isEmpty` — é o mesmo.
+// `sdk_nativo/`, P5c). O da VM junta as partes numa lista e as unidades
+// soltas num `Uint16List`, compacta a lista de tempos em tempos e cria a
+// string por um native. Aqui as unidades escritas vão direto para um
+// acumulador do runtime (`Value::StringBuffer`, `nativos_strings.rs`): uma
+// chamada por `write`, sem um objeto por parte e sem a conferência de
+// covariância do `add` da lista; o `toString` copia o acumulado para uma
+// string nova (o `StringBuffer` continua podendo crescer). O que o programa
+// observa — o texto, `length`, `isEmpty` — é o mesmo.
 
 import "dart:_internal" show patch;
 
 @patch
 class StringBuffer {
-  /// As partes escritas, na ordem; `null` enquanto vazio.
-  List<String>? _partes;
+  /// O acumulador do runtime; `null` enquanto vazio.
+  Object? _acumulador;
 
-  /// A soma das unidades de código das partes.
+  /// As unidades de código escritas.
   int _unidades = 0;
 
   @patch
@@ -25,9 +28,9 @@ class StringBuffer {
 
   @patch
   void write(Object? obj) {
-    String str = "$obj";
+    String str = obj is String ? obj : "$obj";
     if (str.isEmpty) return;
-    (_partes ??= <String>[]).add(str);
+    _escrever(_acumulador ??= _novo(), str);
     _unidades += str.length;
   }
 
@@ -61,14 +64,23 @@ class StringBuffer {
 
   @patch
   void clear() {
-    _partes = null;
+    _acumulador = null;
     _unidades = 0;
   }
 
   @patch
   String toString() {
-    final partes = _partes;
-    if (partes == null) return "";
-    return _StringBase._concatRange(partes, 0, partes.length);
+    final acumulador = _acumulador;
+    if (acumulador == null) return "";
+    return _texto(acumulador);
   }
+
+  @pragma("vm:external-name", "DartForge_sb_novo")
+  external static Object _novo();
+
+  @pragma("vm:external-name", "DartForge_sb_escrever")
+  external static void _escrever(Object acumulador, String str);
+
+  @pragma("vm:external-name", "DartForge_sb_texto")
+  external static String _texto(Object acumulador);
 }

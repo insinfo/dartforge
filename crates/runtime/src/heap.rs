@@ -1267,6 +1267,11 @@ struct Pagina {
     /// Número de campos dos blocos.
     n: usize,
     blocos: usize,
+    /// O inverso de `tamanho_do_bloco(n) / 8` (ímpar) módulo 2³²: o índice
+    /// de um bloco sai de uma multiplicação, e um deslocamento que não é
+    /// múltiplo do tamanho dá um índice além de `blocos` (o teste de
+    /// divisibilidade exata, *Hacker's Delight* 10-17).
+    inverso: u32,
 }
 
 impl Pagina {
@@ -1280,6 +1285,90 @@ impl Pagina {
             self.base.add(i * tamanho_do_bloco(self.n)).cast()
         }
     }
+    /// O índice do bloco que começa `desl` bytes depois da base, se algum
+    /// começa ali.
+    #[inline]
+    fn indice(&self, desl: usize) -> Option<usize> {
+        if desl & 7 != 0 || desl >= self.bytes {
+            return None;
+        }
+        let i = ((desl >> 3) as u32).wrapping_mul(self.inverso) as usize;
+        (i < self.blocos).then_some(i)
+    }
+}
+
+/// O inverso de `a` (ímpar) módulo 2³² (Newton: cada passo dobra os bits
+/// certos).
+const fn inverso_impar(a: u32) -> u32 {
+    let mut x = a;
+    let mut i = 0;
+    while i < 5 {
+        x = x.wrapping_mul(2u32.wrapping_sub(a.wrapping_mul(x)));
+        i += 1;
+    }
+    x
+}
+
+/// Base da página (`endereço >> 16`) → índice + 1 em `paginas`: tabelas de
+/// 2¹⁶ posições por região de 4 GiB (quase sempre uma só), como o
+/// *pagemap* de um alocador — a validação de um handle sem hash.
+#[derive(Default)]
+struct MapaDePaginas {
+    regioes: Vec<(usize, Box<[u32]>)>,
+}
+
+impl MapaDePaginas {
+    const BITS: usize = 16;
+    #[inline]
+    fn chave(base: usize) -> (usize, usize) {
+        let k = base >> PAGINA.trailing_zeros();
+        (k >> Self::BITS, k & ((1 << Self::BITS) - 1))
+    }
+    #[inline]
+    fn get(&self, base: usize) -> Option<usize> {
+        let (r, i) = Self::chave(base);
+        let (_, t) = self.regioes.iter().find(|(x, _)| *x == r)?;
+        let v = t[i];
+        (v != 0).then(|| v as usize - 1)
+    }
+    fn definir(&mut self, base: usize, valor: u32) {
+        let (r, i) = Self::chave(base);
+        let pos = match self.regioes.iter().position(|(x, _)| *x == r) {
+            Some(p) => p,
+            None => {
+                self.regioes.push((r, vec![0u32; 1 << Self::BITS].into_boxed_slice()));
+                self.regioes.len() - 1
+            }
+        };
+        self.regioes[pos].1[i] = valor;
+    }
+    fn inserir(&mut self, base: usize, indice: usize) {
+        self.definir(base, u32::try_from(indice + 1).expect("páginas demais"));
+    }
+    fn remover(&mut self, base: usize) {
+        self.definir(base, 0);
+    }
+}
+
+/// Zera `n` campos em `p`: os tamanhos pequenos (quase todos os objetos)
+/// com gravações de tamanho fixo, sem a chamada ao `memset`.
+///
+/// # Safety
+/// `p` aponta `n` campos graváveis.
+#[inline]
+#[allow(unsafe_code)]
+unsafe fn zerar(p: *mut Campo, n: usize) {
+    // SAFETY: o contrato da função.
+    unsafe {
+        match n {
+            0 => {}
+            1 => p.cast::<[u64; 2]>().write([0; 2]),
+            2 => p.cast::<[u64; 4]>().write([0; 4]),
+            3 => p.cast::<[u64; 6]>().write([0; 6]),
+            4 => p.cast::<[u64; 8]>().write([0; 8]),
+            _ => std::ptr::write_bytes(p, 0, n),
+        }
+    }
 }
 
 /// O espaço dos objetos do usuário: páginas de [`PAGINA`] bytes, cada uma
@@ -1291,11 +1380,11 @@ impl Pagina {
 /// `stub_code_compiler.cc`): alocar um objeto é tirar o primeiro bloco da
 /// lista — pelo código gerado, da TLAB ([`Contexto::tlab`]) — sem `malloc`
 /// nem entrada na tabela de slots; a varredura devolve os mortos às listas e
-/// solta as páginas que ficaram vazias além de uma reserva.
+/// solta as páginas vazias que passam da folga do tamanho delas.
 pub struct EspacoDeObjetos {
     paginas: Vec<Pagina>,
-    /// Base da página → índice em `paginas` (a validação de um handle).
-    por_base: crate::hash::HashMap<usize, usize>,
+    /// A página de cada base (a validação de um handle).
+    mapa: MapaDePaginas,
     /// Cabeça da lista livre de cada número de campos (`0..=MAIOR_CLASSE`).
     livres: Vec<*mut Bloco>,
     /// Blocos vivos (entregues e não devolvidos).
@@ -1315,7 +1404,7 @@ impl EspacoDeObjetos {
     fn new() -> Self {
         Self {
             paginas: Vec::new(),
-            por_base: crate::hash::HashMap::default(),
+            mapa: MapaDePaginas::default(),
             livres: vec![std::ptr::null_mut(); MAIOR_CLASSE + 1],
             vivos: 0,
             blocos: 0,
@@ -1328,13 +1417,12 @@ impl EspacoDeObjetos {
     ///
     /// # Safety
     /// `b` aponta um bloco de `n` campos de uma página deste espaço, sem
-    /// valor vivo (os campos próprios de um objeto que cresceu já foram
-    /// soltos).
+    /// valor vivo.
     unsafe fn formatar(b: *mut Bloco, n: usize, proximo: *mut Bloco) {
         // SAFETY: o contrato da função.
         unsafe {
             let campos = b.cast::<u8>().add(std::mem::size_of::<Bloco>()).cast::<Campo>();
-            std::ptr::write_bytes(campos, 0, n);
+            zerar(campos, n);
             b.write(Bloco {
                 estado: 0,
                 hash: 0,
@@ -1360,7 +1448,8 @@ impl EspacoDeObjetos {
             std::alloc::handle_alloc_error(layout);
         }
         let blocos = if n > MAIOR_CLASSE { 1 } else { PAGINA / tamanho };
-        let pagina = Pagina { base, bytes, n, blocos };
+        let inverso = inverso_impar(u32::try_from(tamanho / 8).unwrap_or(1));
+        let pagina = Pagina { base, bytes, n, blocos, inverso };
         let mut proximo = if n > MAIOR_CLASSE { std::ptr::null_mut() } else { self.livres[n] };
         for i in (0..blocos).rev() {
             let b = pagina.bloco(i);
@@ -1368,7 +1457,7 @@ impl EspacoDeObjetos {
             unsafe { Self::formatar(b, n, proximo) };
             proximo = b;
         }
-        self.por_base.insert(base as usize, self.paginas.len());
+        self.mapa.inserir(base as usize, self.paginas.len());
         self.paginas.push(pagina);
         self.blocos += blocos;
         if n <= MAIOR_CLASSE {
@@ -1413,55 +1502,37 @@ impl EspacoDeObjetos {
     /// espaço (vivo ou não: o estado fica com quem pergunta).
     #[inline]
     pub fn bloco_de(&self, h: i64) -> Option<*mut Bloco> {
-        if h & 3 != 2 || h < 0 {
+        if !e_objeto(h) {
             return None;
         }
         let b = (h - DESLOCAMENTO_DO_HANDLE) as usize;
         let base = b & !(PAGINA - 1);
-        let p = &self.paginas[*self.por_base.get(&base)?];
-        let desl = b - base;
-        let tamanho = tamanho_do_bloco(p.n);
-        (desl % tamanho == 0 && desl / tamanho < p.blocos).then_some(b as *mut Bloco)
-    }
-
-    /// Solta os campos de fora do bloco (um objeto que cresceu) e devolve o
-    /// bloco ao molde livre.
-    ///
-    /// # Safety
-    /// `b` é um bloco de `n` campos deste espaço cujo objeto morreu.
-    unsafe fn soltar(b: *mut Bloco, n: usize, proximo: *mut Bloco) {
-        // SAFETY: o contrato da função; o valor é sempre `Value::Object`.
-        unsafe {
-            if let Value::Object { fields, .. } = &mut *(*b).valor
-                && !fields.do_espaco
-            {
-                std::ptr::drop_in_place(fields);
-            }
-            Self::formatar(b, n, proximo);
-        }
+        let p = &self.paginas[self.mapa.get(base)?];
+        p.indice(b - base).map(|i| p.bloco(i))
     }
 
     /// A varredura: os marcados (2) voltam a vivos (1); os vivos não
-    /// marcados morrem e voltam às listas, refeitas em ordem de endereço;
-    /// as páginas que ficaram vazias vão ao sistema, menos uma reserva por
-    /// tamanho. Devolve (mortos, vivos, bytes vivos).
+    /// marcados morrem e voltam às listas, refeitas em ordem de endereço.
+    /// As páginas vazias ficam enquanto os blocos livres do tamanho delas
+    /// não passam dos vivos (a folga que a próxima coleta vai usar, como o
+    /// heap que dobra) nem de duas páginas; as demais vão ao sistema.
+    /// Devolve (mortos, vivos, bytes vivos).
     fn varrer(&mut self) -> (usize, usize, usize) {
-        const RESERVA_DE_PAGINAS_VAZIAS: usize = 2;
-        for l in self.livres.iter_mut() {
-            *l = std::ptr::null_mut();
-        }
-        let mut vazias_mantidas = vec![0usize; MAIOR_CLASSE + 1];
+        let classes = MAIOR_CLASSE + 1;
         let (mut mortos, mut vivos, mut bytes_vivos) = (0, 0, 0);
-        let mut i = self.paginas.len();
-        while i > 0 {
-            i -= 1;
-            let (n, blocos) = (self.paginas[i].n, self.paginas[i].blocos);
+        // Por página: o trecho da lista livre (cabeça, cauda) e os vivos.
+        let mut trechos: Vec<(*mut Bloco, *mut Bloco, usize)> = Vec::with_capacity(self.paginas.len());
+        let mut vivos_da_classe = vec![0usize; classes];
+        let mut livres_da_classe = vec![0usize; classes];
+        for p in &self.paginas {
+            let n = p.n;
             let tamanho = tamanho_do_bloco(n);
-            let mut cabeca = if n <= MAIOR_CLASSE { self.livres[n] } else { std::ptr::null_mut() };
+            let (mut cabeca, mut cauda): (*mut Bloco, *mut Bloco) = (std::ptr::null_mut(), std::ptr::null_mut());
             let mut vivos_na_pagina = 0;
-            for j in (0..blocos).rev() {
-                let b = self.paginas[i].bloco(j);
-                // SAFETY: bloco `j` da página `i`; o estado diz se há objeto.
+            for j in 0..p.blocos {
+                let b = p.bloco(j);
+                // SAFETY: bloco `j` da página; o estado diz se há objeto, e
+                // o valor é sempre `Value::Object`.
                 unsafe {
                     match (*b).estado {
                         2 => {
@@ -1470,50 +1541,91 @@ impl EspacoDeObjetos {
                             if let Value::Object { fields, .. } = &*(*b).valor {
                                 bytes_vivos += tamanho + if fields.do_espaco { 0 } else { fields.len * std::mem::size_of::<Campo>() };
                             }
+                            continue;
                         }
                         1 => {
                             mortos += 1;
-                            Self::soltar(b, n, cabeca);
-                            cabeca = b;
+                            let Value::Object { class_id, fields } = &mut *(*b).valor else { unreachable!("bloco sem objeto") };
+                            *class_id = 0;
+                            if !fields.do_espaco {
+                                // Os campos que saíram do bloco (um objeto que
+                                // cresceu) voltam ao alocador do sistema.
+                                std::ptr::drop_in_place(fields);
+                                let proprios = b.cast::<u8>().add(std::mem::size_of::<Bloco>()).cast::<Campo>();
+                                std::ptr::write(fields, Campos { ptr: std::ptr::NonNull::new_unchecked(proprios), len: n, do_espaco: true });
+                            }
+                            zerar(fields.ptr.as_ptr(), n);
+                            (*b).estado = 0;
+                            (*b).hash = 0;
                         }
-                        _ => {
-                            (*b).metadado = cabeca as i64;
-                            cabeca = b;
-                        }
+                        _ => {}
                     }
+                    (*b).metadado = 0;
+                    if cauda.is_null() {
+                        cabeca = b;
+                    } else {
+                        (*cauda).metadado = b as i64;
+                    }
+                    cauda = b;
                 }
             }
             vivos += vivos_na_pagina;
-            let vazia = vivos_na_pagina == 0;
-            let solta = vazia && (n > MAIOR_CLASSE || vazias_mantidas[n] >= RESERVA_DE_PAGINAS_VAZIAS);
-            if solta {
-                // Os blocos desta página saem da lista: ela recomeça do que
-                // havia antes dela.
-                let p = self.paginas.swap_remove(i);
-                self.por_base.remove(&(p.base as usize));
-                if i < self.paginas.len() {
-                    let base = self.paginas[i].base as usize;
-                    self.por_base.insert(base, i);
-                }
-                self.blocos -= p.blocos;
-                // SAFETY: a página veio de `alloc` com este layout, e nenhum
-                // bloco dela está vivo.
-                unsafe { std::alloc::dealloc(p.base, Pagina::layout(p.bytes)) };
-                let _ = tamanho;
+            if n <= MAIOR_CLASSE {
+                vivos_da_classe[n] += vivos_na_pagina;
+                livres_da_classe[n] += p.blocos - vivos_na_pagina;
+            }
+            trechos.push((cabeca, cauda, vivos_na_pagina));
+        }
+        // As páginas vazias que passam da folga vão ao sistema (as últimas
+        // primeiro: as listas preferem os endereços baixos).
+        let mut solta = vec![false; self.paginas.len()];
+        for i in (0..self.paginas.len()).rev() {
+            let p = &self.paginas[i];
+            if trechos[i].2 != 0 {
                 continue;
             }
-            if vazia {
-                vazias_mantidas[n] += 1;
+            if p.n > MAIOR_CLASSE {
+                solta[i] = true;
+                continue;
             }
-            if n <= MAIOR_CLASSE {
-                self.livres[n] = cabeca;
+            let folga = vivos_da_classe[p.n].max(2 * p.blocos);
+            if livres_da_classe[p.n] >= folga + p.blocos {
+                livres_da_classe[p.n] -= p.blocos;
+                solta[i] = true;
             }
+        }
+        for l in self.livres.iter_mut() {
+            *l = std::ptr::null_mut();
+        }
+        let mut caudas: Vec<*mut Bloco> = vec![std::ptr::null_mut(); classes];
+        let paginas = std::mem::take(&mut self.paginas);
+        for (i, p) in paginas.into_iter().enumerate() {
+            if solta[i] {
+                self.mapa.remover(p.base as usize);
+                self.blocos -= p.blocos;
+                // SAFETY: a página veio de `alloc` com este layout, e nenhum
+                // bloco dela está vivo (os campos de fora já foram soltos).
+                unsafe { std::alloc::dealloc(p.base, Pagina::layout(p.bytes)) };
+                continue;
+            }
+            let (cabeca, cauda, _) = trechos[i];
+            if p.n <= MAIOR_CLASSE && !cabeca.is_null() {
+                if caudas[p.n].is_null() {
+                    self.livres[p.n] = cabeca;
+                } else {
+                    // SAFETY: a cauda é um bloco livre de outra página da classe.
+                    unsafe { (*caudas[p.n]).metadado = cabeca as i64 };
+                }
+                caudas[p.n] = cauda;
+            }
+            self.mapa.inserir(p.base as usize, self.paginas.len());
+            self.paginas.push(p);
         }
         self.vivos = vivos;
         (mortos, vivos, bytes_vivos)
     }
 
-    /// Visita o valor de cada objeto vivo.
+    /// Visita o bloco de cada objeto vivo.
     fn para_cada_vivo(&mut self, mut f: impl FnMut(*mut Bloco)) {
         for p in &self.paginas {
             for j in 0..p.blocos {
@@ -3555,6 +3667,108 @@ mod tests {
         heap.collect();
         assert_eq!(heap.slots.iter().flatten().count(), 1);
         assert!(heap.slots.len() <= 2);
+    }
+}
+
+#[cfg(test)]
+mod espaco_de_objetos {
+    //! O espaço de objetos: blocos por número de campos, handles com o bit
+    //! 1, listas livres refeitas na varredura e páginas soltas.
+    use super::*;
+
+    #[test]
+    fn layout_do_objeto_e_o_do_contrato() {
+        conferir_layout();
+    }
+
+    #[test]
+    fn handles_de_objeto_e_de_slot_nao_se_confundem() {
+        let mut heap = Heap::new(false);
+        let o = heap.alocar_objeto(7, 3);
+        let s = heap.allocate(Value::String("x".into()));
+        assert!(e_objeto(o) && !e_objeto(s) && s % 4 == 0);
+        assert!(matches!(heap.get(o), Value::Object { class_id: 7, fields } if fields.len() == 3));
+        // Escalares quaisquer não são objetos (nem derrubam o `try_get`).
+        for x in [2, 6, 18, o + 4, o - 4, o + 56, -2, i64::MAX - 1] {
+            assert!(heap.try_get(x).is_none() || x == o, "{x}");
+        }
+        heap.set(o, 1, s, true);
+        let Value::Object { fields, .. } = heap.get(o) else { unreachable!() };
+        assert_eq!(fields[1], (s, true));
+    }
+
+    #[test]
+    fn coleta_devolve_blocos_e_mantem_os_alcancaveis() {
+        let mut heap = Heap::new(false);
+        let frame = heap.push_frame_with_slots(1);
+        // Uma lista ligada de 10 mil nós alcançável e 10 mil mortos.
+        let mut cabeca = 0;
+        for i in 0..10_000 {
+            let lixo = heap.alocar_objeto(1, 2);
+            heap.set(lixo, 0, i, false);
+            let no = heap.alocar_objeto(2, 2);
+            heap.set(no, 0, i, false);
+            heap.set(no, 1, cabeca, true);
+            cabeca = no;
+            heap.set_root(frame, 0, cabeca);
+        }
+        heap.collect();
+        assert_eq!(heap.stats().live_objects, 10_000);
+        let mut soma = 0;
+        let mut no = cabeca;
+        while no != 0 {
+            let Value::Object { fields, .. } = heap.get(no) else { unreachable!() };
+            soma += fields[0].0;
+            no = fields[1].0;
+        }
+        assert_eq!(soma, (0..10_000).sum::<i64>());
+        heap.pop_frame(frame);
+        heap.collect();
+        assert_eq!(heap.stats().live_objects, 0);
+        // As páginas vazias além da folga voltaram ao sistema.
+        assert!(heap.objetos.paginas.len() <= 2, "{} páginas", heap.objetos.paginas.len());
+    }
+
+    #[test]
+    fn objeto_que_cresce_segue_pelo_ponteiro_dos_campos() {
+        let mut heap = Heap::new(false);
+        let frame = heap.push_frame();
+        let o = heap.alocar_objeto(3, 1);
+        heap.root(frame, o);
+        heap.set(o, 0, 41, false);
+        heap.garantir_campos(o, 5);
+        heap.set(o, 4, 42, false);
+        heap.collect();
+        let Value::Object { fields, .. } = heap.get(o) else { unreachable!() };
+        assert_eq!((fields.len(), fields[0].0, fields[4].0), (5, 41, 42));
+        heap.pop_frame(frame);
+        heap.collect();
+        // O bloco voltou ao molde: um objeto novo de 1 campo o reusa zerado.
+        let novo = heap.alocar_objeto(4, 1);
+        assert_eq!(novo, o);
+        assert!(matches!(heap.get(novo), Value::Object { class_id: 4, fields } if fields.len() == 1 && fields[0] == (0, false)));
+    }
+
+    #[test]
+    fn hash_de_identidade_estavel_e_distinto() {
+        let mut heap = Heap::new(false);
+        let a = heap.alocar_objeto(1, 0);
+        let b = heap.alocar_objeto(1, 0);
+        let ha = heap.hash_de_identidade(a).expect("objeto");
+        assert_eq!(heap.hash_de_identidade(a), Some(ha));
+        assert_ne!(heap.hash_de_identidade(b), Some(ha));
+        assert!(ha > 0 && ha <= 0x3fff_ffff);
+    }
+
+    #[test]
+    fn objeto_grande_tem_pagina_propria() {
+        let mut heap = Heap::new(false);
+        let o = heap.alocar_objeto(9, MAIOR_CLASSE + 100);
+        heap.set(o, (MAIOR_CLASSE + 99) as i64, 5, false);
+        assert!(matches!(heap.get(o), Value::Object { fields, .. } if fields[MAIOR_CLASSE + 99].0 == 5));
+        heap.collect();
+        assert!(heap.try_get(o).is_none());
+        assert!(heap.objetos.paginas.is_empty());
     }
 }
 

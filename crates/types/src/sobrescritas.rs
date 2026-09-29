@@ -169,12 +169,23 @@ impl Ctx<'_> {
     /// mixins por cima, cada um substituindo o anterior quando declara o
     /// nome), depois das interfaces e das restrições `on`.
     fn na_interface(&mut self, s: TypeId, chave: SymbolId, prof: u32) -> Option<(Achado, TypeId)> {
+        self.na_interface_ex(s, chave, prof, false)
+    }
+
+    /// `InheritanceManager3.getInherited2`: como [`Self::na_interface`], sem
+    /// o que a própria classe declara.
+    fn herdado(&mut self, s: TypeId, chave: SymbolId) -> Option<(Achado, TypeId)> {
+        self.na_interface_ex(s, chave, 0, true)
+    }
+
+    fn na_interface_ex(&mut self, s: TypeId, chave: SymbolId, prof: u32, pular_proprio: bool) -> Option<(Achado, TypeId)> {
         if prof > 32 {
             return None;
         }
         let Type::Interface { class: d, .. } = self.table.get(s).clone() else { return None };
         let classe = self.program.class(d);
         if classe.decl.is_some()
+            && !pular_proprio
             && let Some(&f) = classe.instance_members.get(&chave)
         {
             let a = Achado { dono: d, funcao: f };
@@ -1201,9 +1212,20 @@ pub fn valores_padrao(
         if !esperado || params.len() != dados.parameters.len() {
             continue;
         }
-        // Unidade com `augment` no começo de linha: sem o experimento, o
-        // analyzer lê essas declarações de outro jeito.
-        if program.unit(unit).source.lines().any(|l| l.trim_start().starts_with("augment ")) {
+        // Linha com `augment` que cita o nome da função (ou a própria linha
+        // dela): sem o experimento, o analyzer lê essas declarações de outro
+        // jeito.
+        let fonte = &program.unit(unit).source;
+        let nome_f = interner.resolve(f.name);
+        let linha_propria = match f.node {
+            FunctionRef::Function { function, .. } => program.unit(unit).ast.functions[function.0 as usize].span.start,
+            FunctionRef::Constructor { member, .. } => program.unit(unit).ast.member(member).span.start,
+            FunctionRef::None => 0,
+        };
+        let ini_linha = fonte[..linha_propria].rfind('\n').map_or(0, |i| i + 1);
+        let aumentada = fonte[ini_linha..].trim_start().starts_with("augment ")
+            || fonte.lines().any(|l| l.trim_start().starts_with("augment ") && (nome_f.is_empty() || l.contains(nome_f)));
+        if aumentada {
             continue;
         }
         for (p, pd) in params.iter().zip(dados.parameters.iter()) {
@@ -1230,6 +1252,153 @@ pub fn valores_padrao(
                 Diagnostic::com_codigo(codigo, nome.span, [interner.resolve(nome.sym)])
             };
             saida.push((unit, d));
+        }
+    }
+    saida
+}
+
+/// `ErrorVerifier._checkForConflictingClassMembers` (classes, mixins e tipos
+/// de extensão da biblioteca), menos o `conflicting_static_and_instance`, que
+/// `analise::heranca` relata: método declarado contra campo herdado
+/// (`conflicting_method_and_field`), acessor declarado contra método herdado
+/// (`conflicting_field_and_method`), e método e setter herdados com o mesmo
+/// nome (`conflicting_inherited_method_and_setter`), pelo `getInherited2`.
+pub fn membros_em_conflito(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    core: &CoreTypes,
+    outline: &OutlineTypes,
+    lib: dartforge_elements::model::LibraryId,
+) -> Vec<(UnitId, Diagnostic)> {
+    use dartforge_elements::model::ClassKind as K;
+    let mut cx = Ctx { program, interner, table, core, outline };
+    let mut saida = Vec::new();
+    for (ci, classe) in program.classes.iter().enumerate() {
+        let cid = ClassId(ci as u32);
+        if classe.library != lib || !matches!(classe.kind, K::Class | K::Mixin | K::ExtensionType) {
+            continue;
+        }
+        let Some(decl) = classe.decl else { continue };
+        let ast_ = &program.unit(decl.unit).ast;
+        if ast_.decl(decl.decl).augment {
+            continue;
+        }
+        let fonte = &program.unit(decl.unit).source;
+        if fonte.lines().any(|l| l.trim_start().starts_with("augment ")) {
+            continue;
+        }
+        if program.classes.iter().filter(|c| c.library == lib && c.name == classe.name).count() > 1 {
+            continue;
+        }
+        let (nome_classe, membros): (ast::Name, &[ast::MemberId]) = match &ast_.decl(decl.decl).kind {
+            DeclKind::Class(d) => (d.name, &d.members),
+            DeclKind::Mixin(d) => (d.name, &d.members),
+            DeclKind::ExtensionType(d) => (d.name, &d.members),
+            _ => continue,
+        };
+        let Some(este) = cx.tipo_proprio(cid) else { continue };
+        let texto_classe = interner.resolve(classe.name).to_string();
+        let herdado_visivel = |cx: &mut Ctx<'_>, nome: &str| -> Option<Achado> {
+            let chave = interner.lookup(nome)?;
+            let (a, _) = cx.herdado(este, chave)?;
+            if nome.starts_with('_') && program.class(a.dono).library != lib {
+                return None;
+            }
+            Some(a)
+        };
+        let dono = |a: Achado| interner.resolve(program.class(a.dono).name).to_string();
+        let mut conflitantes: Vec<String> = Vec::new();
+        // Métodos declarados contra acessores herdados.
+        for &m in membros {
+            let MemberKind::Method(f) = &ast_.member(m).kind else { continue };
+            let af = ast_.function(*f);
+            if !matches!(af.kind, ast::FunctionKind::Function | ast::FunctionKind::Operator) {
+                continue;
+            }
+            let Some(n) = af.name else { continue };
+            let nome = interner.resolve(n.sym).to_string();
+            let getter = herdado_visivel(&mut cx, &nome);
+            let setter = herdado_visivel(&mut cx, &format!("{nome}_="));
+            if af.static_ && (getter.is_some() || setter.is_some()) {
+                continue;
+            }
+            if classe.kind == K::ExtensionType {
+                continue;
+            }
+            let acessor = |a: Option<Achado>| a.filter(|a| cx.especie(a.funcao).is_some_and(|e| e != Especie::Metodo));
+            if let Some(a) = acessor(getter).or(acessor(setter)) {
+                saida.push((
+                    decl.unit,
+                    Diagnostic::com_codigo(c::CONFLICTING_METHOD_AND_FIELD, n.span, [texto_classe.clone(), nome.clone(), dono(a)]),
+                ));
+            }
+        }
+        // Acessores declarados (getters, setters e os dos campos) contra
+        // métodos herdados.
+        for &m in membros {
+            let mut acessores: Vec<(String, Span, bool)> = Vec::new();
+            match &ast_.member(m).kind {
+                MemberKind::Method(f) => {
+                    let af = ast_.function(*f);
+                    if matches!(af.kind, ast::FunctionKind::Getter | ast::FunctionKind::Setter)
+                        && let Some(n) = af.name
+                    {
+                        acessores.push((interner.resolve(n.sym).to_string(), n.span, af.static_));
+                    }
+                }
+                MemberKind::Field(vl) => {
+                    for v in vl.variables.iter() {
+                        let nome = interner.resolve(v.name.sym).to_string();
+                        acessores.push((nome.clone(), v.name.span, vl.static_));
+                        if !vl.final_ && !vl.const_ {
+                            acessores.push((nome, v.name.span, vl.static_));
+                        }
+                    }
+                }
+                MemberKind::Constructor(_) => {}
+            }
+            for (nome, span, estatico) in acessores {
+                let herdado = herdado_visivel(&mut cx, &nome).or_else(|| herdado_visivel(&mut cx, &format!("{nome}_=")));
+                if estatico && herdado.is_some() {
+                    conflitantes.push(nome);
+                } else if let Some(a) = herdado
+                    && cx.especie(a.funcao) == Some(Especie::Metodo)
+                {
+                    if classe.kind == K::ExtensionType {
+                        continue;
+                    }
+                    saida.push((
+                        decl.unit,
+                        Diagnostic::com_codigo(c::CONFLICTING_FIELD_AND_METHOD, span, [texto_classe.clone(), nome.clone(), dono(a)]),
+                    ));
+                    conflitantes.push(nome);
+                }
+            }
+        }
+        // Método e setter herdados com o mesmo nome.
+        for chave in cx.chaves_da_hierarquia(cid) {
+            let nome = interner.resolve(chave).to_string();
+            if nome.ends_with("_=") || conflitantes.contains(&nome) {
+                continue;
+            }
+            let Some(metodo) = herdado_visivel(&mut cx, &nome) else { continue };
+            if cx.especie(metodo.funcao) != Some(Especie::Metodo) {
+                continue;
+            }
+            if let Some(setter) = herdado_visivel(&mut cx, &format!("{nome}_="))
+                && cx.especie(setter.funcao) == Some(Especie::Setter)
+            {
+                let tipo = match classe.kind {
+                    K::Mixin => "mixin",
+                    K::ExtensionType => "extension type",
+                    _ => "class",
+                };
+                saida.push((
+                    decl.unit,
+                    Diagnostic::com_codigo(c::CONFLICTING_INHERITED_METHOD_AND_SETTER, nome_classe.span, [tipo, texto_classe.as_str(), nome.as_str()]),
+                ));
+            }
         }
     }
     saida

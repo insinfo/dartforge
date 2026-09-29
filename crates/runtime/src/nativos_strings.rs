@@ -104,3 +104,152 @@ pub extern "C" fn dartforge_nativo_Internal_writeIntoTwoByteString(string: i64, 
         }
     });
 }
+
+// Os laços de `string_patch.dart` que a VM faz com `codeUnitAt` intrínseco
+// (uma leitura em linha) e aqui custariam uma chamada ao runtime por
+// unidade: a comparação de trecho (`startsWith`, `endsWith`), a busca
+// (`indexOf`, `lastIndexOf`, `contains`) e a divisão por um caractere
+// (`split`). O resultado é o mesmo laço, feito sobre o `Texto`.
+
+/// As unidades de `outro` aparecem em `texto` a partir de `inicio`?
+fn trecho_igual(texto: &Texto, inicio: usize, outro: &Texto) -> bool {
+    match (texto, outro) {
+        (Texto::Um(a), Texto::Um(b)) => a[inicio..inicio + b.len()] == b[..],
+        (Texto::Dois(a), Texto::Dois(b)) => a[inicio..inicio + b.len()] == b[..],
+        _ => (0..outro.len()).all(|i| texto.unidade(inicio + i) == outro.unidade(i)),
+    }
+}
+
+/// `_StringBase._substringMatches(start, other)`: `other` vazio casa; fora
+/// dos limites, não.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_string_regiao_igual(this: i64, inicio: i64, outro: i64) -> u8 {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let (t, o) = (heap.texto(this), heap.texto(outro));
+        if o.is_empty() {
+            return 1;
+        }
+        let Ok(i) = usize::try_from(inicio) else { return 0 };
+        u8::from(i + o.len() <= t.len() && trecho_igual(t, i, o))
+    })
+}
+
+/// `indexOf(String other, start)` depois da conferência de `start` (feita
+/// no Dart): o primeiro índice `>= start` onde `other` casa, ou -1.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_string_indice_de(this: i64, outro: i64, inicio: i64) -> i64 {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let (t, o) = (heap.texto(this), heap.texto(outro));
+        let Some(maximo) = t.len().checked_sub(o.len()) else { return -1 };
+        let inicio = usize::try_from(inicio).unwrap_or(0);
+        if let (Texto::Um(a), Texto::Um(b)) = (t, o)
+            && let Some(&primeiro) = b.first()
+        {
+            // O primeiro byte filtra as posições.
+            let mut i = inicio;
+            while i <= maximo {
+                match a[i..=maximo].iter().position(|&x| x == primeiro) {
+                    None => return -1,
+                    Some(k) => i += k,
+                }
+                if a[i..i + b.len()] == b[..] {
+                    return i as i64;
+                }
+                i += 1;
+            }
+            return -1;
+        }
+        (inicio..=maximo).find(|&i| trecho_igual(t, i, o)).map_or(-1, |i| i as i64)
+    })
+}
+
+/// `lastIndexOf(String other, start)` depois da conferência de `start`: o
+/// último índice `<= start` onde `other` casa, ou -1.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_string_ultimo_indice_de(this: i64, outro: i64, inicio: i64) -> i64 {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let (t, o) = (heap.texto(this), heap.texto(outro));
+        let Some(maximo) = t.len().checked_sub(o.len()) else { return -1 };
+        if inicio < 0 {
+            return -1;
+        }
+        let inicio = (inicio as usize).min(maximo);
+        (0..=inicio).rev().find(|&i| trecho_igual(t, i, o)).map_or(-1, |i| i as i64)
+    })
+}
+
+/// `_OneByteString._splitWithCharCode(charCode)`: acrescenta a `lista` (a
+/// `<String>[]` nova do Dart) os pedaços entre as ocorrências da unidade
+/// `codigo`, na ordem — o mesmo laço, com cada pedaço alocado aqui.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_string_dividir_por_codigo(this: i64, lista: i64, codigo: i64) {
+    let pedacos: Vec<Texto> = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let t = heap.texto(this);
+        let mut v = Vec::new();
+        let mut inicio = 0;
+        for i in 0..t.len() {
+            if i64::from(t.unidade(i)) == codigo {
+                v.push(t.fatia(inicio, i));
+                inicio = i + 1;
+            }
+        }
+        v.push(t.fatia(inicio, t.len()));
+        v
+    });
+    for p in pedacos {
+        // `this` e `lista` têm raiz no chamador; cada pedaço, assim que
+        // alocado, entra na lista (a coleta de uma alocação seguinte o vê).
+        HEAP.with(|heap| {
+            let mut heap = heap.borrow_mut();
+            let h = heap.allocate(Value::String(p));
+            heap.list_push(lista, TaggedValue::reference(h));
+        });
+    }
+}
+
+/// O acumulador do `StringBuffer` (`string_buffer_patch.dart`): um
+/// `Value::StringBuffer` com as unidades escritas, que só o `StringBuffer`
+/// vê.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_sb_novo() -> i64 {
+    HEAP.with(|heap| heap.borrow_mut().allocate(Value::StringBuffer(Vec::new())))
+}
+
+/// Acrescenta as unidades da string `texto` ao acumulador.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_sb_escrever(acumulador: i64, texto: i64) {
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        // O texto é copiado antes (os dois são do heap e o acumulador é
+        // emprestado para escrita); o caso comum, curto e Latin-1, passa
+        // pela pilha.
+        let mut curto = [0u8; 256];
+        let (n, longo): (usize, Option<Vec<u16>>) = match heap.texto(texto) {
+            Texto::Um(b) if b.len() <= curto.len() => {
+                curto[..b.len()].copy_from_slice(b);
+                (b.len(), None)
+            }
+            t => (0, Some(t.para_vec())),
+        };
+        if let Value::StringBuffer(u) = heap.get_mut(acumulador) {
+            match longo {
+                None => u.extend(curto[..n].iter().map(|&x| u16::from(x))),
+                Some(v) => u.extend_from_slice(&v),
+            }
+        }
+    });
+}
+
+/// A string com o conteúdo do acumulador (na forma canônica).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_sb_texto(acumulador: i64) -> i64 {
+    let t = HEAP.with(|heap| match heap.borrow().get(acumulador) {
+        Value::StringBuffer(u) => Texto::de_fatia(u),
+        _ => Texto::vazio(),
+    });
+    alocar_texto(t)
+}

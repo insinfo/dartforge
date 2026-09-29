@@ -333,20 +333,20 @@ abstract final class _StringBase implements String {
   }
 
   @pragma("vm:recognized", "asm-intrinsic")
+  // DartForge: o laço de `codeUnitAt` (intrínseco em linha na VM) é feito
+  // no runtime (`nativos_strings.rs`), com o mesmo resultado: `other`
+  // vazio casa, fora dos limites não.
   @pragma("vm:exact-result-type", bool)
-  bool _substringMatches(int start, String other) {
-    if (other.isEmpty) return true;
-    final len = other.length;
-    if ((start < 0) || (start + len > this.length)) {
-      return false;
-    }
-    for (int i = 0; i < len; i++) {
-      if (this.codeUnitAt(i + start) != other.codeUnitAt(i)) {
-        return false;
-      }
-    }
-    return true;
-  }
+  @pragma("vm:external-name", "DartForge_string_regiao_igual")
+  external bool _substringMatches(int start, String other);
+
+  // DartForge: a busca de `indexOf`/`lastIndexOf` por uma `String`, depois
+  // da conferência de `start` (`nativos_strings.rs`).
+  @pragma("vm:external-name", "DartForge_string_indice_de")
+  external int _indiceDe(String other, int start);
+
+  @pragma("vm:external-name", "DartForge_string_ultimo_indice_de")
+  external int _ultimoIndiceDe(String other, int start);
 
   bool endsWith(String other) {
     return _substringMatches(this.length - other.length, other);
@@ -367,15 +367,7 @@ abstract final class _StringBase implements String {
       throw new RangeError.range(start, 0, this.length, "start");
     }
     if (pattern is String) {
-      String other = pattern;
-      int maxIndex = this.length - other.length;
-      // TODO: Use an efficient string search (e.g. BMH).
-      for (int index = start; index <= maxIndex; index++) {
-        if (_substringMatches(index, other)) {
-          return index;
-        }
-      }
-      return -1;
+      return _indiceDe(pattern, start);
     }
     for (int i = start; i <= this.length; i++) {
       // TODO(11276); This has quadratic behavior because matchAsPrefix tries
@@ -392,15 +384,7 @@ abstract final class _StringBase implements String {
       throw new RangeError.range(start, 0, this.length);
     }
     if (pattern is String) {
-      String other = pattern;
-      int maxIndex = this.length - other.length;
-      if (maxIndex < start) start = maxIndex;
-      for (int index = start; index >= 0; index--) {
-        if (_substringMatches(index, other)) {
-          return index;
-        }
-      }
-      return -1;
+      return _ultimoIndiceDe(pattern, start);
     }
     for (int i = start; i >= 0; i--) {
       // TODO(11276); This has quadratic behavior because matchAsPrefix tries
@@ -1028,19 +1012,16 @@ final class _OneByteString extends _StringBase {
   @pragma("vm:external-name", "OneByteString_substringUnchecked")
   external String _substringUncheckedNative(int startIndex, int endIndex);
 
+  // DartForge: o laço de `codeUnitAt` e `_substringUnchecked` é feito no
+  // runtime, que acrescenta os pedaços à lista (`nativos_strings.rs`).
   List<String> _splitWithCharCode(int charCode) {
     final parts = <String>[];
-    int i = 0;
-    int start = 0;
-    for (i = 0; i < this.length; ++i) {
-      if (this.codeUnitAt(i) == charCode) {
-        parts.add(this._substringUnchecked(start, i));
-        start = i + 1;
-      }
-    }
-    parts.add(this._substringUnchecked(start, i));
+    _dividirPorCodigo(parts, charCode);
     return parts;
   }
+
+  @pragma("vm:external-name", "DartForge_string_dividir_por_codigo")
+  external void _dividirPorCodigo(List<String> parts, int charCode);
 
   List<String> split(Pattern pattern) {
     // TODO(vegorov) investigate if this can be rewritten as `is _OneByteString`
@@ -1086,12 +1067,9 @@ final class _OneByteString extends _StringBase {
         if (patternCu0 > 0xFF) {
           return -1;
         }
-        for (int i = start; i < len; i++) {
-          if (this.codeUnitAt(i) == patternCu0) {
-            return i;
-          }
-        }
-        return -1;
+        // DartForge: a busca no runtime (`_indiceDe`), sem uma chamada por
+        // unidade.
+        return _indiceDe(patternAsString, start);
       }
     }
     return super.indexOf(pattern, start);
@@ -1108,12 +1086,8 @@ final class _OneByteString extends _StringBase {
         if (patternCu0 > 0xFF) {
           return false;
         }
-        for (int i = start; i < len; i++) {
-          if (this.codeUnitAt(i) == patternCu0) {
-            return true;
-          }
-        }
-        return false;
+        // DartForge: a busca no runtime (`_indiceDe`).
+        return _indiceDe(patternAsString, start) >= 0;
       }
     }
     return super.contains(pattern, start);

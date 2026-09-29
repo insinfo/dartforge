@@ -930,6 +930,18 @@ fn restricoes_satisfeitas(
     if mixin.on.len() != mixin.on_classes.len() {
         return None;
     }
+    // Mixin com `augment` (a restrição pode vir da augmentation, que o
+    // analyzer sem o experimento não lê) ou classe em ciclo de herança.
+    let aumentado = l.programa.library(mixin.library).units.iter().any(|&u| {
+        let a = &l.programa.unit(u).ast;
+        l.programa.unit(u).unit.declarations.iter().any(|&d| {
+            a.decl(d).augment && matches!(&a.decl(d).kind, DeclKind::Mixin(x) if x.name.sym == mixin.name)
+        })
+    });
+    let mut passos = 0;
+    if aumentado || ciclo(l, id, id, &mut Vec::new(), &mut passos).is_some() || passos > 20_000 {
+        return None;
+    }
     for &(u, t) in &mixin.on {
         if let TypeKind::Named { args, .. } = &l.programa.unit(u).ast.ty(t).kind
             && !args.is_empty()
