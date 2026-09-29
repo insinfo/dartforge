@@ -1188,6 +1188,65 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Tear-off de construtor (`C.new`, `C.nome`): canônico, e a entrada
     /// constrói o objeto com os argumentos recebidos.
+    /// Tear-off genérico do construtor `fid` da classe `c` cujo tipo estático
+    /// é `C<A…> Function<P…>(…)` (`tipo`, os `P` em `params`, os `A` em
+    /// `args`): a chamada passa os `P` no slot oculto, e o objeto nasce
+    /// `C<A…>` com `P` trocado por eles (um alias `typedef F<T> = C<int, T>`
+    /// dá `C<int, T>`).
+    pub fn tearoff_generico_de_construtor(
+        &mut self,
+        fid: usize,
+        c: dartforge_elements::model::ClassId,
+        params: &[dartforge_types::table::TypeParamId],
+        args: &[TypeId],
+        tipo: TypeId,
+        span: Span,
+    ) -> Operand {
+        let vars: Vec<String> = (0..params.len()).map(|i| format!("M{i}")).collect();
+        let textos: Vec<String> = args.iter().map(|a| self.receita_de_tipo_com(*a, params, &vars).texto).collect();
+        let objeto_texto = format!("C{}<{}>", self.ctx.id_rti(c), textos.join(","));
+        let tupla_texto = format!("L<{}>", textos.join(","));
+        let alvo = super::simbolo_de(self.ctx, fid);
+        let simbolo_ent = format!("{alvo}$teara{:08x}", (hash_nome(&objeto_texto) as u64) as u32);
+        if !self.entradas_feitas.contains(&simbolo_ent) {
+            self.entradas_feitas.insert(simbolo_ent.clone());
+            let infos = self.params_da_funcao(fid);
+            let nome = self.ctx.symbol_name(self.ctx.program.functions[fid].name).to_string();
+            let mut e = FnBuilder::new(self.ctx, self.unit_id, simbolo_ent.clone(), nome, Type::Ref);
+            e.add_param("closure".to_string(), Type::Ref);
+            let a = Operand::Val(e.add_param("args".to_string(), Type::Ptr));
+            let d = Operand::Val(e.add_param("desc".to_string(), Type::Ptr));
+            if let Some(vals) = e.desempacotar(&infos, a.clone(), d.clone()) {
+                let avaliados: Vec<Avaliado> = self.ctx.outline.functions[fid]
+                    .parameters
+                    .iter()
+                    .zip(vals)
+                    .map(|(p, v)| (if p.kind == ParameterKind::Named { p.name } else { None }, v))
+                    .collect();
+                let slot = e.tupla_do_slot(&a, &d);
+                e.tupla_de_tipos = Some(slot);
+                let objeto = e.rti_da_receita(&super::rti::Receita { texto: objeto_texto.clone(), variaveis: true });
+                let tupla = e.rti_da_receita(&super::rti::Receita { texto: tupla_texto.clone(), variaveis: true });
+                let r = e.instanciar_avaliados_com_rti(
+                    dartforge_elements::model::FunctionElementId(fid as u32),
+                    &avaliados,
+                    span,
+                    Some(objeto),
+                    Some(tupla),
+                );
+                let r = e.coagir(r, Type::Ref);
+                e.terminate(Terminator::Return(Some(r)));
+            }
+            self.absorver(e);
+        }
+        let t = self.emit(Instruction::TearOff { code_symbol: simbolo_ent }, Type::Ref);
+        // A assinatura é o tipo estático (a função genérica).
+        let r = self.receita_de_tipo(tipo);
+        let rti = self.rti_da_receita(&r);
+        self.definir_rti(t.clone(), rti);
+        t
+    }
+
     pub fn tearoff_de_construtor(&mut self, fid: usize, span: Span) -> Operand {
         let alvo = super::simbolo_de(self.ctx, fid);
         let simbolo_ent = format!("{alvo}$tear");

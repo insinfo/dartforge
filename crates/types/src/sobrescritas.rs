@@ -908,6 +908,9 @@ impl Ctx<'_> {
         // `_addMixinMembers`: o `implemented` do mixin inteiro, menos o que
         // vem de `Object`.
         for &m in classe.mixin_classes.iter().rev() {
+            if self.fora_da_hierarquia(d, m) {
+                continue;
+            }
             if let Some(a) = self.implementado(m, chave, prof + 1)
                 && !self.de_object(a.dono)
             {
@@ -922,6 +925,9 @@ impl Ctx<'_> {
     fn superclasse(&self, d: ClassId) -> Option<ClassId> {
         let classe = self.program.class(d);
         match classe.supertype_class {
+            // `extends` de enum ou tipo de extensão (`extends_non_class`): o
+            // supertipo fica `Object`.
+            Some(s) if self.fora_da_hierarquia(d, s) => self.classe_do_core("Object"),
             Some(s) => Some(s),
             None if classe.kind == dartforge_elements::model::ClassKind::Enum => self.classe_do_core("Enum"),
             None => None,
@@ -1485,6 +1491,7 @@ pub fn membros_de_enum(
                     .mixin_classes
                     .iter()
                     .rev()
+                    .filter(|&&m| !cx.fora_da_hierarquia(cid, m))
                     .find_map(|&m| cx.implementado(m, chave, 1).filter(|a| !cx.de_object(a.dono)))
                     .or_else(|| cx.superclasse(cid).and_then(|s| cx.implementado(s, chave, 1)));
                 let Some(a) = herdado else { continue };

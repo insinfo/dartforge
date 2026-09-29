@@ -483,7 +483,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Receita de `t` com os parâmetros `params` trocados pelas receitas
     /// `args` (os de um typedef).
-    fn receita_de_tipo_com(&self, t: TypeId, params: &[TypeParamId], args: &[String]) -> Receita {
+    pub(super) fn receita_de_tipo_com(&self, t: TypeId, params: &[TypeParamId], args: &[String]) -> Receita {
         // Escreve com marcadores e troca: os parâmetros do typedef não são de
         // classe nem de função, então `escrever_tipo` os escreveria como `D`.
         let mut r = Receita { texto: String::new(), variaveis: false };

@@ -493,8 +493,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 {
                     return t;
                 }
-                // `$1` sem receptor, no corpo de uma extensão sobre um record.
-                if self.ctx.symbol_name(sym).starts_with('$')
+                // `$1` sem receptor, no corpo de uma extensão sobre um record;
+                // também um campo nomeado do record do `on` (`sqlPrefix` na
+                // extensão sobre `({String? sqlPrefix, bool isNullable})` do
+                // drift): o `this` implícito lê o campo (a inferência deixa
+                // o identificador como `dynamic`).
+                let campo_do_on = self.extensao_do_this.is_some_and(|(_, on)| {
+                    matches!(self.ctx.table.get(self.ctx.apagar(on)),
+                        dartforge_types::table::Type::Record { named, .. } if named.iter().any(|(n, _)| *n == sym))
+                });
+                if (campo_do_on || self.ctx.symbol_name(sym).starts_with('$'))
                     && let Some(t) = self.this_param.clone()
                     && let Some(op) = {
                         let nome = self.ctx.symbol_name(sym).to_string();
@@ -892,6 +900,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             && let Some((objeto, tupla)) = self.instanciacao_do_tearoff(c, tipo)
                         {
                             return self.tearoff_instanciado_de_construtor(f.0 as usize, objeto, tupla, Some(tipo), span);
+                        }
+                        // Tear-off genérico por um alias que não só repassa os
+                        // parâmetros (`typedef F<T> = C<int, T>`): a função
+                        // genérica do tipo estático, com o objeto escrito
+                        // nos parâmetros dela.
+                        if let Some(tipo) = self.ctx.get_type(self.unit_id, expr_id)
+                            && let dartforge_types::table::Type::Function { type_params, ret, .. } = self.ctx.table.get(tipo).clone()
+                            && !type_params.is_empty()
+                            && let dartforge_types::table::Type::Interface { class: c2, args: a2, .. } = self.ctx.table.get(ret).clone()
+                            && c2 == c
+                        {
+                            return self.tearoff_generico_de_construtor(f.0 as usize, c, &type_params, &a2, tipo, span);
                         }
                         let repassa = args.len() == dados.type_params.len()
                             && args.iter().zip(dados.type_params.iter()).all(|(a, p)| {

@@ -51,17 +51,18 @@ void main() {
     print('$x: ${sinal(x)} ${absoluto(x)} ${par(x)} ${texto(x)} ${bits(x)}');
   }
 
-  // Muitas coletas com uma árvore longa viva e lixo em volta.
-  final longa = arvore(12, 1);
+  // Coletas com uma árvore longa viva e lixo em volta (pequeno o bastante
+  // para o --gc-stress, que coleta antes de toda alocação).
+  final longa = arvore(8, 1);
   var total = 0;
-  for (var i = 0; i < 200; i++) {
-    total += arvore(6, i).soma();
+  for (var i = 0; i < 40; i++) {
+    total += arvore(5, i).soma();
   }
   print('${longa.soma()} $total');
 
   // Uma lista ligada que cresce durante as coletas.
   No? cab;
-  for (var i = 0; i < 100000; i++) {
+  for (var i = 0; i < 3000; i++) {
     cab = No(cab, null, i);
   }
   var s = 0;
@@ -77,7 +78,7 @@ void main() {
   print(a.hashCode == a.hashCode && identityHashCode(a) == a.hashCode);
   final conjunto = <Object>{a, b, a, const Vazio(), const Vazio(), Vazio()};
   print(conjunto.length);
-  final largos = [for (var i = 0; i < 1000; i++) Largo()..r = i];
+  final largos = [for (var i = 0; i < 200; i++) Largo()..r = i];
   print(largos.fold<int>(0, (acc, l) => acc + l.total));
 
   // Campos genéricos (sempre `Ref`) com escalares e referências.
