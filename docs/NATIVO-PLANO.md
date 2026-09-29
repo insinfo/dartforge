@@ -2095,6 +2095,52 @@ outras threads. O que falta, pela ordem do ganho esperado:
 * no código do programa: `dartforge_contexto` em linha (TLS direto) e `?.` +
   `??` sobre `int?` sem caixa.
 
+### 8.7 Objetos de 8 bytes por campo (N19, segunda rodada, 2026-09-29)
+
+O nó da lista custava 88 bytes (cabeçalho 16 + `Value` 40 + 2 campos de
+16), e o `Value` embutido só existia para `Heap::get` devolver `&Value`.
+Agora:
+
+* **`Value::Object` saiu do enum.** O objeto do usuário é só o bloco:
+  `Cabecalho` de 16 bytes (`estado`, `flags`, `n: u16`, `class_id: i32`,
+  `mapa: u32`, `metadado: u32`) e os campos, **palavras de 8 bytes**. O
+  runtime o lê por `Heap::objeto(h) -> Obj` (classe, `campo(i) -> (bits,
+  é referência)`), grava por `Heap::definir_campo` (com a barreira) e cria
+  por `Heap::novo_objeto`; `Heap::get` devolve o marcador `Value::Objeto`.
+  Os cerca de 50 usos do runtime (erros, portas, RTI, FFI, saída) passaram
+  à API nova.
+* **Mapa de referências no cabeçalho**, como o *unboxed fields bitmap* da
+  VM: um bit por campo (os 32 primeiros no cabeçalho, os demais em palavras
+  depois dos campos). Cada gravação acende ou apaga o bit do campo (o
+  código gerado faz a leitura-modificação-escrita junto com o `store`), então
+  um campo que às vezes é `Ref` e às vezes escalar continua preciso. A
+  marcação percorre só os bits acesos (`trailing_zeros`).
+* **Corpo de fora.** O objeto que muda de número de campos depois de criado
+  (o erro que ganha o rastro, a recarga do JIT que muda o layout da classe,
+  J03) não pode mudar de endereço: os campos vão para um corpo de fora
+  (bit `FORA` em `flags`, o endereço no lugar do primeiro campo), e o código
+  gerado o segue com uma seleção sem desvio. Todo bloco tem pelo menos um
+  campo (o encadeamento da lista livre também mora ali).
+* **`hashCode` de identidade pelo endereço** (30 bits espalhados; o
+  coletor não move).
+* A alocação em linha grava o cabeçalho numa palavra (`1 | n << 16 |
+  classe << 32`) e zera o primeiro campo (o encadeamento).
+
+O nó da lista tem 32 bytes (a VM, 24). Validação: corpus/js 235/235 e
+corpus/nativo 59/59 em AOT, JIT e `--gc-stress` com
+`DARTFORGE_GC_VERIFICAR=1`; `bench/desempenho` inteiro com os resultados da
+VM. Medido (3 rodadas alternadas, máquina carregada; razão contra o Dart
+AOT das mesmas rodadas):
+
+| núcleo | §8.4 | §8.6 | agora | Dart AOT (ms) |
+|---|---:|---:|---:|---:|
+| objetos_escapam/arvores | 4,93× | 3,98× | 1,88× (103 ms) | 55 |
+| objetos_escapam/lista_ligada | 6,09× | 8,58× | 3,21× (52 ms) | 16 |
+| objetos_temporarios/pontos | 4,30× | 1,91× | 1,09× (27 ms) | 25 |
+
+Pico de memória residente de `objetos_escapam`: 179 MB → **75 MB** (Dart
+AOT 49, VM 181).
+
 ## 9. Servidor HTTP (`dart:io`): medição e onde vai o tempo
 
 ### 9.1 O benchmark
