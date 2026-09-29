@@ -1151,7 +1151,9 @@ pub extern "C" fn dartforge_rti_como(v: i64, t: i64) {
 /// de uma chamada dinâmica ou covariante (" of 'nome'").
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_como_em(v: i64, t: i64, contexto: i64, nome: i64) {
-    let sufixo = match contexto {
+    // O sufixo só é montado na falha: a conferência que passa (quase
+    // todas) não aloca nada.
+    let sufixo = || match contexto {
         0 => " in type cast".to_string(),
         1 => String::new(),
         _ => format!(" of '{}'", HEAP.with(|h| h.borrow().texto(nome).para_string())),
@@ -1165,7 +1167,7 @@ pub extern "C" fn dartforge_rti_como_em(v: i64, t: i64, contexto: i64, nome: i64
         if u.sub(s, t) {
             None
         } else {
-            Some(format!("type '{}' is not a subtype of type '{}'{sufixo}", u.texto(s), u.texto(t)))
+            Some(format!("type '{}' is not a subtype of type '{}'{}", u.texto(s), u.texto(t), sufixo()))
         }
     });
     if let Some(msg) = falha {

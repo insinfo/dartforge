@@ -317,6 +317,17 @@ impl ExecutorNativo {
         // (o `build_resolvers` acha os pacotes por ele) lê este arquivo.
         cmd.current_dir(&self.cfg.raiz)
             .env("DARTFORGE_PACKAGE_CONFIG", self.cfg.trabalho.join("package_config.json"));
+        // O SDK que o analyzer dos builders lê (o resumo do SDK,
+        // `pacotes/build_executor`): a raiz do `lib/` com que se compila.
+        if let Some(raiz) = self
+            .cfg
+            .sdk_lib
+            .clone()
+            .or_else(dartforge_elements::sdk::SdkLayout::discover)
+            .and_then(|l| l.parent().map(Path::to_path_buf))
+        {
+            cmd.env("DARTFORGE_DART_SDK", raiz);
+        }
         self.cliente = Some(ClienteBuild::iniciar(cmd)?);
         Ok(chave)
     }
@@ -479,7 +490,7 @@ mod testes {
         .unwrap();
         assert_eq!(
             dependencias_ausentes(&pc).unwrap(),
-            vec!["build_resolvers", "logging", "package_config"]
+            vec!["analyzer", "build_resolvers", "logging", "package_config"]
         );
     }
 }

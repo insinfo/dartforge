@@ -803,3 +803,259 @@ pub fn getters_e_setters(
     }
     saida
 }
+
+/// Começo de um nó anotado (`AnnotatedNodeImpl.beginToken`): o comentário
+/// de documentação logo antes, se houver.
+fn inicio_com_documentacao(fonte: &str, inicio: usize) -> usize {
+    let sem_espaco = fonte[..inicio].trim_end();
+    if let Some(sem_fim) = sem_espaco.strip_suffix("*/") {
+        if let Some(i) = sem_fim.rfind("/**")
+            && !sem_fim[i..].contains("*/")
+        {
+            return i;
+        }
+        return inicio;
+    }
+    let mut resultado = inicio;
+    let mut fim = sem_espaco.len();
+    loop {
+        let linha_ini = sem_espaco[..fim].rfind('\n').map_or(0, |i| i + 1);
+        let linha = sem_espaco[linha_ini..fim].trim_start();
+        if !(linha.starts_with("///") && !linha.starts_with("////")) {
+            break;
+        }
+        resultado = fim - linha.len();
+        if linha_ini == 0 {
+            break;
+        }
+        fim = sem_espaco[..linha_ini].trim_end().len();
+    }
+    resultado
+}
+
+impl Ctx<'_> {
+    /// O membro é concreto (`!isAbstract`): tem corpo, é `external`, ou é
+    /// acessor de campo que não é `abstract`.
+    fn concreto(&self, f: FunctionElementId) -> bool {
+        let func = self.program.function(f);
+        match func.node {
+            FunctionRef::Function { unit, function } => {
+                let af = &self.program.unit(unit).ast.functions[function.0 as usize];
+                af.external || !matches!(af.body, ast::FunctionBody::Empty)
+            }
+            FunctionRef::None => match func.variable.map(|v| self.program.variable(v).node) {
+                Some(VariableRef::Field { unit, member, .. }) => match &self.program.unit(unit).ast.member(member).kind {
+                    MemberKind::Field(vl) => !vl.abstract_,
+                    _ => true,
+                },
+                _ => true,
+            },
+            FunctionRef::Constructor { .. } => false,
+        }
+    }
+
+    /// `Interface.implemented[nome]`: o membro concreto da classe `d` (os
+    /// dela, por cima os dos mixins do último ao primeiro, por baixo os da
+    /// superclasse). Os de `Object` que vêm por mixin não contam.
+    fn implementado(&self, d: ClassId, chave: SymbolId, prof: u32) -> Option<Achado> {
+        if prof > 32 {
+            return None;
+        }
+        let classe = self.program.class(d);
+        if classe.decl.is_some()
+            && let Some(&f) = classe.instance_members.get(&chave)
+            && self.concreto(f)
+        {
+            return Some(Achado { dono: d, funcao: f });
+        }
+        for &m in classe.mixin_classes.iter().rev() {
+            if let Some(&f) = self.program.class(m).instance_members.get(&chave)
+                && self.concreto(f)
+            {
+                return Some(Achado { dono: m, funcao: f });
+            }
+        }
+        self.implementado(classe.supertype_class?, chave, prof + 1)
+    }
+
+    /// Todas as chaves de membros de instância de `c` e dos supertipos.
+    fn chaves_da_hierarquia(&self, c: ClassId) -> Vec<SymbolId> {
+        let mut v: Vec<SymbolId> = Vec::new();
+        let supers = self.outline.hierarchy.get(c).map(|d| d.supertypes.keys().copied().collect::<Vec<_>>()).unwrap_or_default();
+        for s in std::iter::once(c).chain(supers) {
+            for &k in self.program.class(s).instance_members.keys() {
+                if !v.contains(&k) {
+                    v.push(k);
+                }
+            }
+        }
+        v.sort_by_key(|k| self.interner.resolve(*k).to_string());
+        v
+    }
+
+    fn tipo_proprio(&mut self, c: ClassId) -> Option<TypeId> {
+        let params = self.outline.classes.get(c.0 as usize)?.type_params.clone();
+        let args: Box<[TypeId]> = params.iter().map(|&p| self.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
+        Some(self.table.intern(Type::Interface { class: c, args, nullable: false }))
+    }
+}
+
+/// A parte do `verify()` do `InheritanceOverrideVerifier` sobre classes
+/// concretas e enums (`src/error/inheritance_override.dart`): para cada nome
+/// da interface sem implementação concreta, `concrete_class_with_abstract_member`
+/// (ou `enum_with_abstract_member`) no membro abstrato que a própria classe
+/// declara, senão `non_abstract_class_inherits_abstract_member` no nome da
+/// classe, com os membros herdados (menos os que a superclasse concreta já
+/// deixa sem implementar); havendo `noSuchMethod` que não é o de `Object`,
+/// os que faltam são encaminhados. Com implementação concreta de outra
+/// assinatura, `invalid_implementation_override`.
+pub fn membros_abstratos(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    core: &CoreTypes,
+    outline: &OutlineTypes,
+    classes: &[ClassId],
+) -> Vec<(UnitId, Diagnostic)> {
+    let mut cx = Ctx { program, interner, table, core, outline };
+    let mut saida = Vec::new();
+    let nsm = interner.lookup("noSuchMethod");
+    for &cid in classes {
+        let classe = program.class(cid);
+        let Some(decl) = classe.decl else { continue };
+        let ast_ = &program.unit(decl.unit).ast;
+        let fonte = &program.unit(decl.unit).source;
+        let (nome_classe, membros): (ast::Name, &[ast::MemberId]) = match &ast_.decl(decl.decl).kind {
+            DeclKind::Class(d) if !d.modifiers.abstract_ && !d.modifiers.sealed => (d.name, &d.members),
+            DeclKind::Enum(d) => (d.name, &d.members),
+            _ => continue,
+        };
+        let e_enum = classe.kind == dartforge_elements::model::ClassKind::Enum;
+        let Some(este) = cx.tipo_proprio(cid) else { continue };
+        // `noSuchMethod` implementado que não é o de `Object`: encaminha.
+        if let Some(n) = nsm
+            && let Some(a) = cx.implementado(cid, n, 0)
+            && program.library(program.class(a.dono).library).uri != "dart:core"
+        {
+            continue;
+        }
+        // `_isNotImplementedInConcreteSuperClass`: a superclasse declarada,
+        // se concreta.
+        let superclasse_concreta = classe.supertype_class.filter(|&s| {
+            let sc = program.class(s);
+            sc.decl.is_some()
+                && sc.kind == dartforge_elements::model::ClassKind::Class
+                && !sc.modifiers.abstract_
+                && !sc.modifiers.sealed
+        });
+        let mut herdados: Vec<String> = Vec::new();
+        let mut incerto = false;
+        for chave in cx.chaves_da_hierarquia(cid) {
+            let texto = interner.resolve(chave).to_string();
+            let Some((membro, tipo_membro)) = cx.na_interface(este, chave, 0) else {
+                // Conflito ou assinatura combinada que não se decide aqui.
+                if program.class(cid).instance_members.get(&chave).is_none() {
+                    incerto = true;
+                }
+                continue;
+            };
+            if texto.starts_with('_') && program.class(membro.dono).library != classe.library {
+                continue;
+            }
+            let Some(especie) = cx.especie(membro.funcao) else { continue };
+            let exibido = texto.strip_suffix("_=").unwrap_or(&texto).to_string();
+            match cx.implementado(cid, chave, 0) {
+                None => {
+                    // `_reportConcreteClassWithAbstractMember`.
+                    let declarado = membros.iter().find(|&&m| match &ast_.member(m).kind {
+                        MemberKind::Method(f) => {
+                            let af = ast_.function(*f);
+                            af.name.is_some_and(|n| {
+                                let base = interner.resolve(n.sym);
+                                if af.kind == ast::FunctionKind::Setter { format!("{base}_=") == texto } else { base == texto && af.kind != ast::FunctionKind::Setter }
+                            }) && !af.static_
+                        }
+                        MemberKind::Field(vl) => {
+                            !vl.static_
+                                && vl.variables.iter().any(|v| {
+                                    let n = interner.resolve(v.name.sym);
+                                    n == texto || (!vl.final_ && !vl.const_ && format!("{n}_=") == texto)
+                                })
+                        }
+                        MemberKind::Constructor(_) => false,
+                    });
+                    if let Some(&m) = declarado {
+                        let sp = ast_.member(m).span;
+                        let span = Span { start: inicio_com_documentacao(fonte, sp.start), end: sp.end };
+                        let codigo = if e_enum { c::ENUM_WITH_ABSTRACT_MEMBER } else { c::CONCRETE_CLASS_WITH_ABSTRACT_MEMBER };
+                        saida.push((decl.unit, Diagnostic::com_codigo(codigo, span, [exibido.as_str(), interner.resolve(classe.name)])));
+                        continue;
+                    }
+                    if let Some(s) = superclasse_concreta
+                        && let Some(st) = outline.hierarchy.supertype_of(este, s, cx.table, core)
+                        && cx.na_interface(st, chave, 0).is_some()
+                    {
+                        continue;
+                    }
+                    if e_enum && (texto == "values" || texto == "values_=") {
+                        continue;
+                    }
+                    let prefixo = match especie {
+                        Especie::Getter => "getter ",
+                        Especie::Setter => "setter ",
+                        Especie::Metodo => "",
+                    };
+                    herdados.push(format!("{prefixo}{}.{exibido}", interner.resolve(program.class(membro.dono).name)));
+                }
+                Some(concreto) => {
+                    // A implementação concreta contra a assinatura da interface.
+                    if concreto == membro || cx.especie(concreto.funcao) != Some(especie) {
+                        continue;
+                    }
+                    if !cx.inferencia_confiavel(concreto.funcao) || !cx.inferencia_confiavel(membro.funcao) {
+                        continue;
+                    }
+                    let Some(tipo_concreto) = cx.tipo_visto(este, concreto) else { continue };
+                    let (pos, nomes) = cx.covariantes_efetivos(concreto.dono, concreto.funcao, chave);
+                    let para_sub = cx.para_subtipo(tipo_concreto, &pos, &nomes);
+                    let ok = {
+                        let mut env = SubtypeEnv::new(cx.table, &outline.hierarchy, core);
+                        is_subtype(para_sub, tipo_membro, &mut env)
+                    };
+                    if !ok {
+                        let codigo = if especie == Especie::Setter {
+                            c::INVALID_IMPLEMENTATION_OVERRIDE_SETTER
+                        } else {
+                            c::INVALID_IMPLEMENTATION_OVERRIDE
+                        };
+                        let args = [
+                            exibido.clone(),
+                            interner.resolve(program.class(concreto.dono).name).to_string(),
+                            formatar(cx.table, tipo_concreto, interner, program),
+                            interner.resolve(program.class(membro.dono).name).to_string(),
+                            formatar(cx.table, tipo_membro, interner, program),
+                        ];
+                        saida.push((decl.unit, Diagnostic::com_codigo(codigo, nome_classe.span, args)));
+                    }
+                }
+            }
+        }
+        if incerto || herdados.is_empty() {
+            continue;
+        }
+        herdados.sort();
+        let codigo = match herdados.len() {
+            1 => c::NON_ABSTRACT_CLASS_INHERITS_ABSTRACT_MEMBER_ONE,
+            2 => c::NON_ABSTRACT_CLASS_INHERITS_ABSTRACT_MEMBER_TWO,
+            3 => c::NON_ABSTRACT_CLASS_INHERITS_ABSTRACT_MEMBER_THREE,
+            4 => c::NON_ABSTRACT_CLASS_INHERITS_ABSTRACT_MEMBER_FOUR,
+            _ => c::NON_ABSTRACT_CLASS_INHERITS_ABSTRACT_MEMBER_FIVE_PLUS,
+        };
+        let mut args: Vec<String> = herdados.iter().take(4).cloned().collect();
+        if herdados.len() > 4 {
+            args.push((herdados.len() - 4).to_string());
+        }
+        saida.push((decl.unit, Diagnostic::com_codigo(codigo, nome_classe.span, args)));
+    }
+    saida
+}

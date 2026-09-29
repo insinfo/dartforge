@@ -17,6 +17,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:analyzer/dart/sdk/build_sdk_summary.dart';
+import 'package:analyzer/file_system/physical_file_system.dart';
 import 'package:build/build.dart';
 import 'package:build_resolvers/build_resolvers.dart';
 import 'package:glob/glob.dart';
@@ -278,7 +280,8 @@ final class _Servico {
       final opcoes = ((m['opcoes'] as Map?) ?? const {}).cast<String, Object?>();
       final builder = _builder(chave, m['fabrica'] as String, opcoes, m['isRoot'] == true);
       final config = await _config();
-      final resolvers = _resolvers ??= AnalyzerResolvers.custom(packageConfig: config);
+      final resolvers = _resolvers ??= AnalyzerResolvers.custom(
+          packageConfig: config, sdkSummaryGenerator: _geradorDoResumoDoSdk());
       // O mesmo nome de logger do `build_runner` (`_actionLoggerName`).
       final logger = Logger.detached('$chave on $entrada')..level = Level.ALL;
       final assinatura = logger.onRecord.listen((r) {
@@ -302,6 +305,37 @@ final class _Servico {
     }
     canal.enviar({'t': 'build.resultado', 'id': id, 'saidas': const [], 'logs': logs, 'falhou': falhou});
   }
+}
+
+/// O resumo do SDK para o analyzer quando o executor não é a VM (o executor
+/// nativo, B01): o `defaultSdkSummaryGenerator` do `build_resolvers` acha o
+/// SDK pelo executável que roda (`Platform.resolvedExecutable`, o `dart`),
+/// e aqui o executável é o próprio executor. O hospedeiro diz onde está o
+/// SDK (`DARTFORGE_DART_SDK`, a raiz com `lib/` e `version`); o resumo fica
+/// em `.dart_tool/dartforge/build/sdk.sum`, refeito quando o SDK muda.
+/// Sem a variável (a VM), vale o padrão do `build_resolvers`.
+Future<String> Function()? _geradorDoResumoDoSdk() {
+  final raiz = Platform.environment['DARTFORGE_DART_SDK'];
+  if (raiz == null || raiz.isEmpty) return null;
+  return () async {
+    final dir = Directory('.dart_tool/dartforge/build');
+    await dir.create(recursive: true);
+    final resumo = File('${dir.path}/sdk.sum');
+    final deps = File('${dir.path}/sdk.sum.deps');
+    final versao = File('$raiz/version');
+    final atual = jsonEncode({
+      'sdk': raiz,
+      'versao': await versao.exists() ? (await versao.readAsString()).trim() : '',
+    });
+    if (!await resumo.exists() || !await deps.exists() || await deps.readAsString() != atual) {
+      final provisorio = File('${resumo.path}.tmp');
+      await provisorio.writeAsBytes(await buildSdkSummary(
+          sdkPath: raiz, resourceProvider: PhysicalResourceProvider.INSTANCE));
+      await provisorio.rename(resumo.path);
+      await deps.writeAsString(atual);
+    }
+    return resumo.absolute.path;
+  };
 }
 
 String _nivel(Level l) => l >= Level.SEVERE

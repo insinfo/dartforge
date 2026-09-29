@@ -759,10 +759,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// [`Self::cast_rti`] com o contexto que dá o fim da mensagem da VM.
     pub fn cast_rti_em(&mut self, op: Operand, tipo: Operand, contexto: ContextoDoCast) {
         let v = self.coagir(op, Type::Ref);
-        let (codigo, nome) = match contexto {
-            ContextoDoCast::Como => (0, Operand::Constant(Constant::Null)),
-            ContextoDoCast::Implicito => (1, Operand::Constant(Constant::Null)),
-            ContextoDoCast::Parametro(n) => (2, self.emit(Instruction::Const(Constant::String(n)), Type::Ref)),
+        // O nome do parâmetro só entra na mensagem do `TypeError`: a
+        // conferência vai antes pelo `is` (`dartforge_rti_e`, o mesmo teste
+        // do `como_em`), e o texto do nome só é montado no caminho da
+        // falha. Antes, toda entrada covariante ou dinâmica (o `[]=` de
+        // `_List`, os adaptadores da tabela de métodos) pagava um
+        // `dartforge_string_new` por parâmetro a cada chamada.
+        let (codigo, nome, fim) = match contexto {
+            ContextoDoCast::Como => (0, Operand::Constant(Constant::Null), None),
+            ContextoDoCast::Implicito => (1, Operand::Constant(Constant::Null), None),
+            ContextoDoCast::Parametro(n) => {
+                let ok = self.testar_rti(v.clone(), tipo.clone());
+                let b_falha = self.new_block();
+                let b_fim = self.new_block();
+                self.terminate(Terminator::CondBranch {
+                    cond: ok,
+                    then_block: b_fim,
+                    else_block: b_falha,
+                });
+                self.set_block(b_falha);
+                (2, self.emit(Instruction::Const(Constant::String(n)), Type::Ref), Some(b_fim))
+            }
         };
         self.emit_call_with_check(
             Instruction::CallRuntime {
@@ -772,6 +789,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Void,
         );
+        if let Some(b_fim) = fim {
+            if !self.is_terminated() {
+                self.terminate(Terminator::Branch(b_fim));
+            }
+            self.set_block(b_fim);
+        }
     }
 
     /// Na entrada de uma chamada dinâmica (tear-off, adaptador da tabela de

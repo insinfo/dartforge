@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 /// Os pacotes que o lado Dart do executor importa, com as restrições do
 /// `pubspec.yaml` de `pacotes/build_executor`.
 pub const DEPENDENCIAS: &[(&str, &str)] = &[
+    ("analyzer", ">=6.9.0 <8.0.0"),
     ("build", "^2.4.2"),
     ("build_resolvers", "^2.4.4"),
     ("glob", "^2.1.0"),
