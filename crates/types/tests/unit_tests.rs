@@ -667,3 +667,35 @@ fn membros_abstratos_em_classe_concreta() {
         ]
     );
 }
+
+/// `membros_em_conflito` e `valores_padrao` de `types::sobrescritas`
+/// (corpus do analyzer, oráculo 3.6.2).
+#[test]
+fn membros_em_conflito_e_valores_padrao() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = "class A {\n  int foo = 0;\n  void bar() {}\n}\nclass B extends A {\n  void foo() {}\n  int get bar => 0;\n}\nvoid f([int a]) {}\nvoid g({String? b, int c = 0}) {}\nclass C {\n  C({this.x});\n  int x;\n}\n";
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = dartforge_elements::load::load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let lib = prog.entry.unwrap();
+    let mut v: Vec<(String, String)> = dartforge_types::sobrescritas::membros_em_conflito(&prog, &interner, &mut table, &core, &outline, lib)
+        .into_iter()
+        .chain(dartforge_types::sobrescritas::valores_padrao(&prog, &interner, &mut table, &outline, lib))
+        .map(|(_, d)| (fonte[d.span.start..d.span.end].to_string(), d.message))
+        .collect();
+    v.sort();
+    assert_eq!(
+        v,
+        vec![
+            ("a".to_string(), "The parameter 'a' can't have a value of 'null' because of its type, but the implicit default value is 'null'.".to_string()),
+            ("bar".to_string(), "Class 'B' can't define field 'bar' and have method 'A.bar' with the same name.".to_string()),
+            ("foo".to_string(), "Class 'B' can't define method 'foo' and have field 'A.foo' with the same name.".to_string()),
+            ("x".to_string(), "The parameter 'x' can't have a value of 'null' because of its type, but the implicit default value is 'null'.".to_string()),
+        ]
+    );
+}

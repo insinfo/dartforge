@@ -136,24 +136,44 @@ pub unsafe extern "C" fn dartforge_string_juntar(partes: *const i64, n: i64) -> 
     alocar_texto(junto)
 }
 
+/// Os pares de dígitos de 00 a 99, para escrever dois dígitos por divisão.
+const PARES_DECIMAIS: &[u8; 200] = b"\
+0001020304050607080910111213141516171819\
+2021222324252627282930313233343536373839\
+4041424344454647484950515253545556575859\
+6061626364656667686970717273747576777879\
+8081828384858687888990919293949596979899";
+
 /// Os dígitos decimais de `v` (com o sinal) no fim de `saida`: o
 /// `int.toString()` da VM, sem a string intermediária.
 fn escrever_decimal(saida: &mut Vec<u8>, v: i64) {
     let mut buf = [0u8; 20];
     let mut i = buf.len();
     let mut n = v.unsigned_abs();
-    loop {
+    while n >= 100 {
+        let par = (n % 100) as usize * 2;
+        n /= 100;
+        i -= 2;
+        buf[i..i + 2].copy_from_slice(&PARES_DECIMAIS[par..par + 2]);
+    }
+    if n >= 10 {
+        let par = n as usize * 2;
+        i -= 2;
+        buf[i..i + 2].copy_from_slice(&PARES_DECIMAIS[par..par + 2]);
+    } else {
         i -= 1;
-        buf[i] = b'0' + (n % 10) as u8;
-        n /= 10;
-        if n == 0 {
-            break;
-        }
+        buf[i] = b'0' + n as u8;
     }
     if v < 0 {
         saida.push(b'-');
     }
     saida.extend_from_slice(&buf[i..]);
+}
+
+/// Uma parte de `dartforge_string_juntar_tipado`, lida uma vez do heap.
+enum ParteDeTexto<'a> {
+    Texto(&'a Texto),
+    Int(i64),
 }
 
 /// A interpolação `'a$b c'` com partes `int` sem caixa (`JuntarTextos`,
@@ -171,28 +191,42 @@ pub unsafe extern "C" fn dartforge_string_juntar_tipado(partes: *const i64, n: i
     let partes = unsafe { std::slice::from_raw_parts(partes, 2 * n) };
     let junto = HEAP.with(|heap| {
         let heap = heap.borrow();
-        let um_byte = partes.chunks_exact(2).all(|p| p[0] == 1 || heap.texto(p[1]).e_um_byte());
+        // Cada texto é buscado no heap uma vez só.
+        let mut lidas: Vec<ParteDeTexto> = Vec::with_capacity(n);
+        let mut um_byte = true;
+        let mut total = 0;
+        for p in partes.chunks_exact(2) {
+            if p[0] == 1 {
+                total += 20;
+                lidas.push(ParteDeTexto::Int(p[1]));
+            } else {
+                let t = heap.texto(p[1]);
+                um_byte &= t.e_um_byte();
+                total += t.len();
+                lidas.push(ParteDeTexto::Texto(t));
+            }
+        }
         if um_byte {
-            let total: usize = partes.chunks_exact(2).map(|p| if p[0] == 1 { 20 } else { heap.texto(p[1]).len() }).sum();
             let mut v = Vec::with_capacity(total);
-            for p in partes.chunks_exact(2) {
-                if p[0] == 1 {
-                    escrever_decimal(&mut v, p[1]);
-                } else if let Texto::Um(b) = heap.texto(p[1]) {
-                    v.extend_from_slice(b);
+            for p in &lidas {
+                match p {
+                    ParteDeTexto::Int(i) => escrever_decimal(&mut v, *i),
+                    ParteDeTexto::Texto(Texto::Um(b)) => v.extend_from_slice(b),
+                    ParteDeTexto::Texto(_) => {}
                 }
             }
             return Texto::Um(v);
         }
-        let mut v: Vec<u16> = Vec::new();
+        let mut v: Vec<u16> = Vec::with_capacity(total);
         let mut digitos = Vec::new();
-        for p in partes.chunks_exact(2) {
-            if p[0] == 1 {
-                digitos.clear();
-                escrever_decimal(&mut digitos, p[1]);
-                v.extend(digitos.iter().map(|&d| u16::from(d)));
-            } else {
-                v.extend(heap.texto(p[1]).unidades());
+        for p in &lidas {
+            match p {
+                ParteDeTexto::Int(i) => {
+                    digitos.clear();
+                    escrever_decimal(&mut digitos, *i);
+                    v.extend(digitos.iter().map(|&d| u16::from(d)));
+                }
+                ParteDeTexto::Texto(t) => v.extend(t.unidades()),
             }
         }
         Texto::de_unidades(v)

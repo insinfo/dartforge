@@ -176,6 +176,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if e_sdk && membro_fechado(self.ctx, cid, &nome)
             && let [Implementacao::Funcao(alvo)] = implementacoes(self.ctx, cid, &chave)[..]
         {
+            // O `this` de um membro do SDK é sempre `Ref`: um `int` escalar
+            // vira `Smi` ou `_Mint` aqui (o `int` fechado por modificador
+            // chega com o receptor em `i64`; sem a caixa, um valor par ou
+            // fora do `Smi` seria lido como handle).
+            let recv = self.coagir(recv, Type::Ref);
             let args = self.casar_args(alvo, avaliados);
             let r = self.chamar_direto(alvo, Some(recv), args);
             let ret = self.repr_retorno(decl_fid);

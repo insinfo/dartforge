@@ -1212,19 +1212,22 @@ pub fn valores_padrao(
         if !esperado || params.len() != dados.parameters.len() {
             continue;
         }
-        // Linha com `augment` que cita o nome da função (ou a própria linha
-        // dela): sem o experimento, o analyzer lê essas declarações de outro
-        // jeito.
+        // A linha da própria declaração, ou a da classe que a contém, começa
+        // com `augment`: sem o experimento, o analyzer a lê de outro jeito.
         let fonte = &program.unit(unit).source;
-        let nome_f = interner.resolve(f.name);
-        let linha_propria = match f.node {
+        let linha_comeca_com_augment = |pos: usize| {
+            let ini = fonte[..pos.min(fonte.len())].rfind('\n').map_or(0, |i| i + 1);
+            fonte[ini..].trim_start().starts_with("augment ")
+        };
+        let inicio = match f.node {
             FunctionRef::Function { function, .. } => program.unit(unit).ast.functions[function.0 as usize].span.start,
             FunctionRef::Constructor { member, .. } => program.unit(unit).ast.member(member).span.start,
             FunctionRef::None => 0,
         };
-        let ini_linha = fonte[..linha_propria].rfind('\n').map_or(0, |i| i + 1);
-        let aumentada = fonte[ini_linha..].trim_start().starts_with("augment ")
-            || fonte.lines().any(|l| l.trim_start().starts_with("augment ") && (nome_f.is_empty() || l.contains(nome_f)));
+        let da_classe = f.class.and_then(|c| program.class(c).decl).map_or(false, |d| {
+            d.unit == unit && linha_comeca_com_augment(program.unit(unit).ast.decl(d.decl).span.start)
+        });
+        let aumentada = linha_comeca_com_augment(inicio) || da_classe;
         if aumentada {
             continue;
         }

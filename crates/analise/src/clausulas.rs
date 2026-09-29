@@ -938,8 +938,9 @@ fn restricoes_satisfeitas(
             a.decl(d).augment && matches!(&a.decl(d).kind, DeclKind::Mixin(x) if x.name.sym == mixin.name)
         })
     });
+    let repetido = l.programa.classes.iter().filter(|c| c.library == mixin.library && c.name == mixin.name).count() > 1;
     let mut passos = 0;
-    if aumentado || ciclo(l, id, id, &mut Vec::new(), &mut passos).is_some() || passos > 20_000 {
+    if aumentado || repetido || ciclo(l, id, id, &mut Vec::new(), &mut passos).is_some() || passos > 20_000 {
         return None;
     }
     for &(u, t) in &mixin.on {
@@ -1850,6 +1851,21 @@ mod testes {
                 ("nullable_type_in_implements_clause", "B"),
                 ("nullable_type_in_on_clause", "A?"),
                 ("nullable_type_in_with_clause", "M?"),
+            ]
+        );
+    }
+
+    /// `mixin_application_not_implemented_interface` (corpus, oráculo 3.6.2):
+    /// no nome do mixin, com o supertipo (`Object` omitido) e a restrição.
+    #[test]
+    fn mixin_sem_a_restricao_on() {
+        let v = rodar("restricao", "class A {}\nclass C {}\nmixin M on A {}\nclass B with M {}\nclass D extends C with M {}\nclass E extends A with M {}\n");
+        let v: Vec<(&str, &str)> = v.iter().filter(|x| x.0 == "mixin_application_not_implemented_interface").map(|x| (x.1.as_str(), x.2.as_str())).collect();
+        assert_eq!(
+            v,
+            vec![
+                ("M", "'M' can't be mixed onto 'C' because 'C' doesn't implement 'A'."),
+                ("M", "'M' can't be mixed onto 'Object' because 'Object' doesn't implement 'A'."),
             ]
         );
     }
