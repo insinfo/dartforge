@@ -1503,7 +1503,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         topo: bool,
     ) -> PResult<FunctionOrVariables> {
         if let Some(kind) = self.accessor_follows() {
-            let id = self.parse_accessor(mods, start, None, kind, external_topo)?;
+            let id = self.parse_accessor(mods, start, None, kind, external_topo, topo)?;
             return Ok(FunctionOrVariables::Function(id));
         }
         // `foo;`, `foo = e;`, `foo, ...` (também `static = 1;`, `external;`,
@@ -1552,7 +1552,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             None
         };
         if let Some(kind) = self.accessor_follows() {
-            let id = self.parse_accessor(mods, start, ty, kind, external_topo)?;
+            let id = self.parse_accessor(mods, start, ty, kind, external_topo, topo)?;
             return Ok(FunctionOrVariables::Function(id));
         }
         // `(` sem tipo nem modificadores não abre declaração: um tipo record
@@ -1591,6 +1591,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             let inicio_corpo = self.pos;
             let (modifier, body) = self.parse_function_body()?;
             self.conferir_corpo_externo(mods.external, false, inicio_corpo, &body, external_topo);
+            self.conferir_corpo_vazio(&body, Self::permite_abstrato(mods, modifier, topo));
             let id = self.ast.push_function(Function {
                 span: self.span_from(start),
                 external: mods.external,
@@ -1628,6 +1629,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         return_type: Option<TypeId>,
         kind: FunctionKind,
         external_topo: Option<Span>,
+        topo: bool,
     ) -> PResult<FunctionId> {
         self.advance();
         let (name, parameters) = match kind {
@@ -1644,6 +1646,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let inicio_corpo = self.pos;
         let (modifier, body) = self.parse_function_body()?;
         self.conferir_corpo_externo(mods.external, false, inicio_corpo, &body, external_topo);
+        self.conferir_corpo_vazio(&body, Self::permite_abstrato(mods, modifier, topo));
         Ok(self.ast.push_function(Function {
             span: self.span_from(start),
             external: mods.external,
@@ -2103,8 +2106,12 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
             }
             let inicio_corpo = self.pos;
-            let body = self.parse_function_body()?.1;
+            let (modificador, body) = self.parse_function_body()?;
             self.conferir_corpo_externo(mods.external, factory, inicio_corpo, &body, None);
+            // `parseFactoryMethod`: só a factory `external` dispensa o corpo;
+            // o construtor gerador segue a regra dos métodos (`parseMethod`).
+            let permite = if factory { mods.external } else { Self::permite_abstrato(mods, modificador, false) };
+            self.conferir_corpo_vazio(&body, permite);
             if mods.const_ && !factory {
                 let delimitador = match body {
                     FunctionBody::Block(_) => Some(Op::LBrace),
@@ -2246,6 +2253,27 @@ impl<'s, 'i> Parser<'s, 'i> {
                 codigos::parser::EXTERNAL_METHOD_WITH_BODY
             };
             self.erro_em(codigo, span, &[]);
+        }
+    }
+
+    /// O `allowAbstract` com que o fasta lê o corpo: no topo
+    /// (`parseTopLevelMethod`), só `external` dispensa o corpo; num membro
+    /// (`parseMethod`), o que não é `static` (ou é `external`) e não tem
+    /// modificador `async`/`sync*` (`inPlainSync`).
+    fn permite_abstrato(mods: Modifiers, modificador: AsyncModifier, topo: bool) -> bool {
+        if topo {
+            mods.external
+        } else {
+            (!mods.static_ || mods.external) && modificador == AsyncModifier::None
+        }
+    }
+
+    /// `parseFunctionBody` do fasta: corpo `;` onde `allowAbstract` é falso
+    /// dá `MISSING_FUNCTION_BODY` no `;` (a árvore fica com o corpo vazio).
+    fn conferir_corpo_vazio(&mut self, body: &FunctionBody, permite_abstrato: bool) {
+        if !permite_abstrato && matches!(body, FunctionBody::Empty) && self.pos > 0 {
+            let span = self.tokens[self.pos - 1].span;
+            self.erro_em(codigos::parser::MISSING_FUNCTION_BODY, span, &[]);
         }
     }
 

@@ -1434,6 +1434,11 @@ pub struct EspacoDeObjetos {
     /// Blocos entregues desde a última coleta, por número de campos: a
     /// demanda que a varredura reserva em páginas vazias.
     demanda: Vec<usize>,
+    /// O pico recente de vivos de cada número de campos (decai a cada
+    /// coleta completa): um programa que refaz uma estrutura grande (a lista
+    /// morre e volta) reusa as páginas em vez de devolvê-las e pedi-las de
+    /// novo — cada página nova custa as faltas de página e a formatação.
+    pico: Vec<usize>,
 }
 
 impl std::fmt::Debug for EspacoDeObjetos {
@@ -1454,6 +1459,7 @@ impl EspacoDeObjetos {
             jovens: Vec::new(),
             lembrados: Vec::new(),
             demanda: vec![0; MAIOR_CLASSE + 1],
+            pico: vec![0; MAIOR_CLASSE + 1],
         }
     }
 
@@ -1751,6 +1757,9 @@ impl EspacoDeObjetos {
             }
             trechos.push((cabeca, cauda, vivos_na_pagina));
         }
+        for (n, p) in self.pico.iter_mut().enumerate() {
+            *p = (*p - *p / 4).max(vivos_da_classe[n]);
+        }
         // As páginas vazias que passam da folga vão ao sistema (as últimas
         // primeiro: as listas preferem os endereços baixos).
         let mut solta = vec![false; self.paginas.len()];
@@ -1766,7 +1775,7 @@ impl EspacoDeObjetos {
             // A folga: o que sobreviveu e o que se alocou desde a última
             // coleta (a demanda do próximo ciclo), e duas páginas. Soltar
             // e pedir de novo a cada coleta custava as faltas de página.
-            let folga = vivos_da_classe[p.n].max(self.demanda[p.n]).max(2 * p.blocos);
+            let folga = vivos_da_classe[p.n].max(self.demanda[p.n]).max(self.pico[p.n]).max(2 * p.blocos);
             if livres_da_classe[p.n] >= folga + p.blocos {
                 livres_da_classe[p.n] -= p.blocos;
                 solta[i] = true;
@@ -3557,8 +3566,22 @@ impl Heap {
                     (*b).estado = MARCADO;
                     live += 1;
                     if let Value::Object { fields, .. } = &*(*b).valor {
-                        self.pending.extend(fields.iter().filter_map(|(bits, is_ref)| is_ref.then_some(*bits)));
-                        self.trabalho_da_marcacao += fields.len();
+                        self.trabalho_da_marcacao += fields.len;
+                        let validar = self.stress;
+                        for &(bits, is_ref) in fields.iter() {
+                            if !is_ref || !smi::e_handle(bits) {
+                                continue;
+                            }
+                            // O objeto que esta coleta não percorre (velho
+                            // na menor, já marcado) nem entra na pilha.
+                            if !validar && e_objeto(bits) {
+                                let e = (*((bits - DESLOCAMENTO_DO_HANDLE) as *const Bloco)).estado;
+                                if if menor { e != JOVEM } else { e == MARCADO } {
+                                    continue;
+                                }
+                            }
+                            self.pending.push(bits);
+                        }
                     }
                 }
                 continue;

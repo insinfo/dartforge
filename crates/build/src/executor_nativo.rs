@@ -114,6 +114,27 @@ fn executavel_valido(exe: &Path, depfile: &Path) -> bool {
     !deps.is_empty() && deps.iter().all(|d| mtime(d).is_some_and(|m| m <= t))
 }
 
+/// Os nomes `libdfsdk_…` (a biblioteca do SDK da fonte) que os bytes de um
+/// executável citam.
+fn bibliotecas_citadas(bytes: &[u8]) -> Vec<String> {
+    let marca = b"libdfsdk_";
+    let mut v = Vec::new();
+    let mut i = 0;
+    while let Some(p) = bytes[i..].windows(marca.len()).position(|w| w == marca) {
+        let ini = i + p;
+        let fim = bytes[ini..]
+            .iter()
+            .position(|b| !(b.is_ascii_alphanumeric() || *b == b'_' || *b == b'.'))
+            .map_or(bytes.len(), |k| ini + k);
+        let nome = String::from_utf8_lossy(&bytes[ini..fim]).to_string();
+        if !v.contains(&nome) {
+            v.push(nome);
+        }
+        i = fim.max(ini + 1);
+    }
+    v
+}
+
 /// Escreve um depfile do Ninja (`saida: dep…`, espaço escapado com `\`).
 fn depfile(saida: &Path, deps: &[PathBuf]) -> String {
     let esc = |p: &Path| {
@@ -264,11 +285,19 @@ impl ExecutorNativo {
         let deps = arquivos_do_programa(&principal, &pc, self.cfg.sdk_lib.as_deref())?;
         std::fs::write(&dep, depfile(&exe, &deps))
             .map_err(|e| format!("{}: {e}", dep.display()))?;
-        // Executáveis de chaves antigas não servem mais.
+        // Executáveis de chaves antigas não servem mais, nem as bibliotecas
+        // do SDK da fonte que o `compile-native` copiou ao lado deles
+        // (`libdfsdk_<hash>`, ~40 MB cada): fica a que o executável novo cita.
+        let citadas = std::fs::read(&exe)
+            .map(|b| bibliotecas_citadas(&b))
+            .unwrap_or_default();
         if let Ok(ls) = std::fs::read_dir(t) {
             for e in ls.flatten() {
                 let n = e.file_name().to_string_lossy().to_string();
-                if n.starts_with("executor-") && !n.contains(&chave) {
+                let velho_exe = n.starts_with("executor-") && !n.contains(&chave);
+                let velha_lib =
+                    n.starts_with("libdfsdk_") && !citadas.is_empty() && !citadas.contains(&n);
+                if velho_exe || velha_lib {
                     let _ = std::fs::remove_file(e.path());
                 }
             }
@@ -315,8 +344,10 @@ impl ExecutorNativo {
         let mut cmd = std::process::Command::new(&exe);
         // O `--packages` da VM: o `Isolate.resolvePackageUri` do executável
         // (o `build_resolvers` acha os pacotes por ele) lê este arquivo.
-        cmd.current_dir(&self.cfg.raiz)
-            .env("DARTFORGE_PACKAGE_CONFIG", self.cfg.trabalho.join("package_config.json"));
+        cmd.current_dir(&self.cfg.raiz).env(
+            "DARTFORGE_PACKAGE_CONFIG",
+            self.cfg.trabalho.join("package_config.json"),
+        );
         // O SDK que o analyzer dos builders lê (o resumo do SDK,
         // `pacotes/build_executor`): a raiz do `lib/` com que se compila.
         if let Some(raiz) = self
@@ -467,6 +498,15 @@ pub fn ligar(
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn bibliotecas_do_sdk_citadas_no_executavel() {
+        let b = b"\x00xx libdfsdk_0123abcd.so\x00yy libdfsdk_0123abcd.so\x00libdfsdk_ff.dll\x00";
+        assert_eq!(
+            bibliotecas_citadas(b),
+            vec!["libdfsdk_0123abcd.so", "libdfsdk_ff.dll"]
+        );
+    }
 
     #[test]
     fn depfile_ida_e_volta_com_espacos() {
