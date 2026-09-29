@@ -464,6 +464,25 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
+    /// `ensureCloseParen` do fasta: o `)` que fecha o `(` na posição absoluta
+    /// `abre`. Se o token corrente não é ele, `EXPECTED_TOKEN` (`)`) no token
+    /// corrente e o cursor pula para depois do `)` casado — o que fica no
+    /// meio não é lido, como no fasta. Sem `)` casado (fim de arquivo), o
+    /// erro de sempre.
+    pub(crate) fn garantir_fecha_parenteses(&mut self, abre: usize) -> PResult<()> {
+        if self.eat_op(Op::RParen) {
+            return Ok(());
+        }
+        match self.matching_close(abre) {
+            Some(fecha) if fecha >= self.pos && self.kind_of(fecha) == Kind::Op(Op::RParen) && !self.at_eof() => {
+                self.erro(codigos::parser::EXPECTED_TOKEN, &[")"]);
+                self.pos = fecha + 1;
+                Ok(())
+            }
+            _ => Err(self.erro_esperado(")")),
+        }
+    }
+
     /// Faltou um comando: `MISSING_STATEMENT` no token corrente, precedido de
     /// `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` se ele é uma palavra reservada
     /// (o fasta tenta o comando de expressão e tropeça no identificador).

@@ -582,6 +582,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `if (e) s`, `if (e) s else s`, `if (e case p when g) s`.
     fn parse_if(&mut self, start: Span) -> PResult<StmtId> {
         self.advance();
+        let abre = self.pos;
         self.expect_op(Op::LParen)?;
         let condition = self.parse_expression()?;
         let mut case_pattern = None;
@@ -592,7 +593,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 guard = Some(self.parse_expression()?);
             }
         }
-        self.expect_op(Op::RParen)?;
+        self.garantir_fecha_parenteses(abre)?;
         let then = self.parse_statement()?;
         let else_ = if self.eat_kw(Keyword::Else) {
             Some(self.parse_statement()?)
@@ -665,9 +666,10 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     fn parse_while(&mut self, start: Span) -> PResult<StmtId> {
         self.advance();
+        let abre = self.pos;
         self.expect_op(Op::LParen)?;
         let condition = self.parse_expression()?;
-        self.expect_op(Op::RParen)?;
+        self.garantir_fecha_parenteses(abre)?;
         let body = self.parse_statement()?;
         Ok(self.push_stmt(start, StmtKind::While { condition, body }))
     }
@@ -676,9 +678,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.advance();
         let body = self.parse_statement()?;
         self.expect_kw(Keyword::While)?;
+        let abre = self.pos;
         self.expect_op(Op::LParen)?;
         let condition = self.parse_expression()?;
-        self.expect_op(Op::RParen)?;
+        self.garantir_fecha_parenteses(abre)?;
         self.expect_semicolon()?;
         Ok(self.push_stmt(start, StmtKind::DoWhile { body, condition }))
     }
@@ -690,9 +693,10 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `switch` e devolve os cases já lidos.
     fn parse_switch(&mut self, start: Span) -> PResult<StmtId> {
         self.advance();
+        let abre = self.pos;
         self.expect_op(Op::LParen)?;
         let value = self.parse_expression()?;
-        self.expect_op(Op::RParen)?;
+        self.garantir_fecha_parenteses(abre)?;
         let close = self.matching_close(self.pos);
         self.expect_op(Op::LBrace)?;
         let mut cases = Vec::new();

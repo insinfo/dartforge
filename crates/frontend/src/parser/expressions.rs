@@ -114,6 +114,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     ///
     /// Um argumento é nomeado quando é um identificador seguido de `:`.
     pub(crate) fn parse_arguments(&mut self) -> PResult<Arguments> {
+        let abre = self.pos;
         let start = self.expect_op(Op::LParen)?.span;
         // Os argumentos vão para o rascunho compartilhado a partir de `base`
         // (chamadas aninhadas empilham acima) e saem numa única alocação de
@@ -132,10 +133,17 @@ impl<'s, 'i> Parser<'s, 'i> {
                 let value = self.parse_expression()?;
                 self.scratch_args.push(Argument { name, value });
                 if !self.eat_op(Op::Comma) {
+                    // `parseArgumentsRest`: o que parece começar outra
+                    // expressão é um argumento depois de uma vírgula que
+                    // falta; o resto fecha em `ensureCloseParen`.
+                    if !self.at_op(Op::RParen) && self.parece_inicio_de_expressao(self.pos) {
+                        self.erro(codigos::parser::EXPECTED_TOKEN, &[","]);
+                        continue;
+                    }
                     break;
                 }
             }
-            self.expect_op(Op::RParen)
+            self.garantir_fecha_parenteses(abre).map(|()| self.tokens[self.pos - 1])
         })();
         let args: Box<[Argument]> = self.scratch_args[base..].into();
         self.scratch_args.truncate(base);
@@ -1098,6 +1106,7 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// `(e)`, `(a, b)`, `(a,)`, `(nome: e)`, `()`; `const_` força record.
     fn parse_parenthesized_or_record(&mut self, start: Span, const_: bool) -> PResult<ExprId> {
+        let abre = self.pos;
         self.expect_op(Op::LParen)?;
         let mut positional = Vec::new();
         let mut named = Vec::new();
@@ -1118,7 +1127,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 break;
             }
         }
-        self.expect_op(Op::RParen)?;
+        self.garantir_fecha_parenteses(abre)?;
         if is_record {
             return Ok(self.push(
                 start,

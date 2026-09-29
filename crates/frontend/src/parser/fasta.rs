@@ -157,6 +157,28 @@ impl<'s, 'i> Parser<'s, 'i> {
         ) || matches!(self.kind_of(pos), Kind::Op(Op::At) | Kind::Eof)
     }
 
+    /// `looksLikeExpressionStart` (`identifier_context.dart`).
+    pub(crate) fn parece_inicio_de_expressao(&self, pos: usize) -> bool {
+        match self.kind_of(pos) {
+            Kind::Ident | Kind::Int | Kind::Double | Kind::Str(_) | Kind::StrBegin(..) => true,
+            Kind::Keyword(_) => !self.parece_inicio_de_comando(pos),
+            Kind::Op(op) => matches!(
+                op,
+                Op::Hash
+                    | Op::LBrace
+                    | Op::LParen
+                    | Op::LBracket
+                    | Op::Lt
+                    | Op::Bang
+                    | Op::Minus
+                    | Op::Tilde
+                    | Op::PlusPlus
+                    | Op::MinusMinus
+            ),
+            _ => false,
+        }
+    }
+
     /// `looksLikeTypeParamOrArg` (`type_info_impl.dart`): em declaração, um
     /// identificador puro seguido de identificador puro, `,` ou `>` parece
     /// mais um parâmetro de tipo depois de uma vírgula que falta.
