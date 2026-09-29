@@ -2399,7 +2399,7 @@ impl<'a> LlvmEmitter<'a> {
         };
         match inst {
             Instruction::SetField { index, value, .. } => {
-                (*index as usize) < CAMPOS_EM_LINHA && self.tipo_de(value) == Type::Ref && pode_ser_ref(value)
+                *index < CAMPOS_EM_LINHA && self.tipo_de(value) == Type::Ref && pode_ser_ref(value)
             }
             Instruction::CallRuntime { name, args, .. }
                 if name == "dartforge_object_set"
@@ -2446,7 +2446,7 @@ impl<'a> LlvmEmitter<'a> {
     /// alocação em linha.
     fn usa_contexto(inst: &Instruction) -> bool {
         match inst {
-            Instruction::GetField { index, .. } | Instruction::SetField { index, .. } => (*index as usize) < CAMPOS_EM_LINHA,
+            Instruction::GetField { index, .. } | Instruction::SetField { index, .. } => *index < CAMPOS_EM_LINHA,
             Instruction::AllocObject { fields, .. } => !fields.is_empty(),
             Instruction::CallRuntime { name, args, .. } => {
                 Self::alocacao_em_linha(inst).is_some()

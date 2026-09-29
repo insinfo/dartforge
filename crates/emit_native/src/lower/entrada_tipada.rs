@@ -495,4 +495,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.cast_rti_em(valor.clone(), t, super::rti::ContextoDoCast::Implicito);
         self.marcar_conferido(valor);
     }
+
+    /// A implementação única do membro de instância `fid` de uma classe
+    /// do SDK cujo membro é fechado (só a biblioteca dela o implementa), com
+    /// os mesmos parâmetros; `None` sem ela.
+    pub(super) fn implementacao_unica(&self, fid: usize) -> Option<usize> {
+        let f = &self.ctx.program.functions[fid];
+        let cid = f.class?;
+        if f.static_ || !self.ctx.sdk_da_fonte || !self.ctx.program.library(self.ctx.program.classes[cid.0 as usize].library).is_sdk {
+            return None;
+        }
+        let nome = self.ctx.symbol_name(f.name).to_string();
+        if !super::sdk_fonte::membro_fechado(self.ctx, cid, &nome) {
+            return None;
+        }
+        let [super::sdk_fonte::Implementacao::Funcao(g)] = super::sdk_fonte::implementacoes(self.ctx, cid, &nome)[..] else {
+            return None;
+        };
+        let n = |x: usize| self.ctx.outline.functions.get(x).map(|o| o.parameters.len());
+        (n(g) == n(fid)).then_some(g)
+    }
 }

@@ -2298,7 +2298,6 @@ pub struct Heap {
     frames: Vec<(i64, Vec<i64>)>,
     next_frame: i64,
     allocations: usize,
-    threshold: usize,
     stress: bool,
     stats: HeapStats,
     marks: Vec<bool>,
@@ -2479,7 +2478,6 @@ impl Heap {
             frames: Vec::new(),
             next_frame: 1,
             allocations: 0,
-            threshold: 256,
             stress,
             stats: HeapStats::default(),
             marks: Vec::new(),
@@ -2905,12 +2903,11 @@ impl Heap {
     /// Uma alocação de `bytes` agora passaria de algum gatilho de coleta?
     /// A menor vem a cada [`LIMITE_JOVEM`] bytes (ou [`CONTAGEM_JOVEM`]
     /// alocações) desde a última coleta; a completa, quando o total passa do
-    /// gatilho que a última completa calculou (`byte_threshold`,
-    /// `threshold`) ou do teto.
+    /// gatilho que a última completa calculou (`byte_threshold`) ou do teto.
     #[inline]
     fn precisa_coletar(&self, bytes: usize) -> bool {
         self.stress
-            || self.allocations >= self.threshold.min(CONTAGEM_JOVEM)
+            || self.allocations >= CONTAGEM_JOVEM
             || self.bytes_jovens + bytes > LIMITE_JOVEM
             || self.stats.estimated_bytes.saturating_add(bytes) > self.byte_threshold
             || (self.limite_bytes != usize::MAX && self.bytes_totais(bytes) > self.limite_bytes)
@@ -2919,10 +2916,9 @@ impl Heap {
     /// o total passou do gatilho dela (ou do teto, ou a cada
     /// [`MENORES_POR_COMPLETA_NO_ESTRESSE`] no `--gc-stress`); a menor senão.
     fn coletar_automatico(&mut self, bytes: usize) {
-        let completa = self.allocations >= self.threshold
-            || self.stats.estimated_bytes.saturating_add(bytes) > self.byte_threshold
+        let completa = self.stats.estimated_bytes.saturating_add(bytes) > self.byte_threshold
             || (self.limite_bytes != usize::MAX && self.bytes_totais(bytes) > self.limite_bytes)
-            || (self.stress && self.stats.collections % MENORES_POR_COMPLETA_NO_ESTRESSE == 0);
+            || (self.stress && self.stats.collections.is_multiple_of(MENORES_POR_COMPLETA_NO_ESTRESSE));
         self.coletar(!completa);
     }
     #[cold]
@@ -2944,7 +2940,7 @@ impl Heap {
         }
         let tamanho = tamanho_do_bloco(n);
         let mut k = TLAB_BLOCOS
-            .min(self.threshold.min(CONTAGEM_JOVEM).saturating_sub(self.allocations))
+            .min(CONTAGEM_JOVEM.saturating_sub(self.allocations))
             .min(LIMITE_JOVEM.saturating_sub(self.bytes_jovens) / tamanho)
             .min(self.byte_threshold.saturating_sub(self.stats.estimated_bytes) / tamanho);
         if self.limite_bytes != usize::MAX {
@@ -3181,7 +3177,7 @@ impl Heap {
         if e_objeto(handle) {
             // SAFETY: bloco vivo; a referência vive enquanto `&self`.
             #[allow(unsafe_code)]
-            return unsafe { &*(*self.bloco_vivo(handle)).valor };
+            return unsafe { &(*self.bloco_vivo(handle)).valor };
         }
         let index = self.indice_vivo(handle);
         self.slots[index].as_ref().expect("slot vivo verificado")
@@ -3550,7 +3546,7 @@ impl Heap {
             self.objetos.lembrar(b);
             // SAFETY: bloco vivo; a referência vive enquanto `&mut self`.
             #[allow(unsafe_code)]
-            return unsafe { &mut *(*b).valor };
+            return unsafe { &mut (*b).valor };
         }
         let slot = self.indice_vivo(handle);
         self.hashes_de_texto[slot].set(0);
@@ -3925,31 +3921,13 @@ impl Heap {
             let folga = self.limite_bytes.saturating_sub(self.bytes_totais(0));
             crescimento.min(self.stats.estimated_bytes.saturating_add((folga / 2).max(PASSO_MINIMO)))
         };
-        // O gatilho por contagem acompanha: com teto, no máximo tantos
-        // objetos quanto a folga comporta pelo tamanho mínimo de um slot.
-        // A coleta percorre a tabela de slots inteira (marcas e varredura):
-        // o gatilho acompanha o tamanho dela, para o custo por alocação ser
-        // constante. Só com os vivos, uma tabela que cresceu (550 mil slots
-        // depois de montar um texto grande) e poucos vivos coletava a cada
-        // 256 alocações, varrendo tudo a cada vez. As alocações até lá
-        // reusam os slots livres, sem crescer a tabela.
-        //
-        // Pelo mesmo motivo acompanha o trabalho da marcação: poucos objetos
-        // vivos com uma lista grande (um `sort` de 100 mil `int` que
-        // encaixota alguns `_Mint`) percorriam a lista inteira a cada 256
-        // alocações — 212 coletas e 28% do tempo num `sort` de 100 mil.
-        let por_contagem = vivos
-            .saturating_mul(2)
-            .max((self.slots.len() + self.objetos.blocos) / 2)
-            .max(self.trabalho_da_marcacao / 2)
-            .max(256);
-        self.threshold = if self.limite_bytes == usize::MAX {
-            por_contagem
-        } else {
-            let folga = self.limite_bytes.saturating_sub(self.bytes_totais(0));
-            let slot = std::mem::size_of::<Option<Value>>().max(1);
-            por_contagem.min(vivos.saturating_add((folga / 2 / slot).max(PASSO_MINIMO / slot)))
-        };
+        // Não há mais gatilho por contagem para a coleta completa: ele
+        // existia porque toda coleta varria a tabela de slots inteira, e com
+        // poucos vivos coletava a cada 256 alocações (um `sort` de 100 mil
+        // `int` com alguns `_Mint` percorria a lista toda a cada vez). A
+        // coleta menor varre só os jovens e vem por bytes ou por
+        // `CONTAGEM_JOVEM` alocações; a completa, pelos bytes.
+        let _ = vivos;
     }
 
     /// Obtém contadores sem percorrer os objetos ou suas raízes.
@@ -4644,13 +4622,15 @@ mod raizes_do_runtime {
 
     #[test]
     fn coleta_sem_frame_aberto() {
-        // O portão antigo só coletava com frame; agora o limiar basta.
+        // O portão antigo só coletava com frame; agora o limiar basta (a
+        // coleta menor, por contagem de alocações).
         let mut heap = Heap::new(false);
-        for _ in 0..1000 {
+        let n = CONTAGEM_JOVEM + 1000;
+        for _ in 0..n {
             heap.allocate(Value::String("lixo".into()));
         }
         assert!(heap.stats().collections > 0);
-        assert!(heap.stats().live_objects < 1000);
+        assert!(heap.stats().live_objects < n);
     }
 
     #[test]

@@ -31,11 +31,24 @@
 //!   colado a `=` e é lido por `composed_gt`.
 use super::{PResult, Parser};
 use crate::ast::{
-    BinaryOp, ListPatternElement, MapPatternEntry, Name, Pattern, PatternField, PatternId,
+    BinaryOp, ExprId, ExprKind, ListPatternElement, UnaryOp, MapPatternEntry, Name, Pattern, PatternField, PatternId,
     PatternKind, TypeAnnotation, TypeKind,
 };
 use crate::token::{Keyword, Kind, Op};
 use dartforge_diagnostics::{Span, codigos};
+
+/// `ConstantPatternContext` do fasta.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ContextoConstante {
+    /// Fora de padrão constante.
+    Nenhum,
+    /// Padrão constante sem `const`.
+    Implicito,
+    /// Padrão constante com `const`.
+    Explicito,
+    /// Operando de `-` num padrão constante: só literal numérico.
+    SoNumerico,
+}
 
 impl<'s, 'i> Parser<'s, 'i> {
     /// `pattern` completo (com `||`, `&&`, `as`, `?`, `!`).
@@ -238,10 +251,190 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(self.push_pattern(start, PatternKind::Relational { op, value }))
     }
 
-    /// Literal, `-1`, `const …`, `a.b.c`: qualquer `unaryExpression`.
+    /// Padrão constante, como o `parsePrimaryPattern` do fasta: com `const`
+    /// (contexto explícito) ou sem (implícito), lido por
+    /// `parsePrecedenceExpression(EQUALITY_PRECEDENCE)` — a gramática só
+    /// aceita a precedência de seletor, mas o fasta lê até a igualdade para
+    /// recuperar e relata o que sobra (`INVALID_CONSTANT_PATTERN_*`,
+    /// `INVALID_CONSTANT_CONST_PREFIX`). A árvore é a da expressão lida.
     fn parse_constant_pattern(&mut self, start: Span) -> PResult<PatternId> {
-        let expr = self.parse_unary_expression()?;
+        let explicito = self.at_kw(Keyword::Const);
+        let ctx = if explicito { ContextoConstante::Explicito } else { ContextoConstante::Implicito };
+        let inicio = self.span();
+        let expr = if explicito { self.padrao_const_explicito()? } else { self.padrao_const_unario(ctx)? };
+        let expr = self.padrao_const_binario(inicio, expr, ctx)?;
         Ok(self.push_pattern(start, PatternKind::Constant(expr)))
+    }
+
+    /// `_parsePrecedenceExpressionLoop` no contexto de padrão constante: um
+    /// operador binário (ou `is`) entre a igualdade e o seletor é relatado —
+    /// com `const`, `INVALID_CONSTANT_CONST_PREFIX` no último token lido;
+    /// sem, `INVALID_CONSTANT_PATTERN_BINARY` no operador — e a expressão
+    /// continua sem contexto. `as` e o `!` final ficam para o padrão.
+    fn padrao_const_binario(&mut self, inicio: Span, expr: ExprId, ctx: ContextoConstante) -> PResult<ExprId> {
+        let Some((_, texto, span)) = self.operador_binario_de_padrao() else { return Ok(expr) };
+        if ctx == ContextoConstante::Explicito {
+            let ultimo = self.tokens[self.pos - 1].span;
+            self.erro_unico(codigos::parser::INVALID_CONSTANT_CONST_PREFIX, ultimo, &[]);
+        } else {
+            self.erro_em(codigos::parser::INVALID_CONSTANT_PATTERN_BINARY, span, &[texto]);
+        }
+        self.parse_binary_rest(inicio, expr, super::expressions::LEVEL_EQUALITY)
+    }
+
+    /// `const` seguido do resto: as formas que a gramática aceita
+    /// (`const [..]`, `const {..}`, `const <T>…`, `const (..)`, `const
+    /// C(..)`) são lidas com o `const`; as outras, sem ele, com o erro do
+    /// `parsePrimary`/`parseSend` do fasta.
+    fn padrao_const_explicito(&mut self) -> PResult<ExprId> {
+        let depois = self.pos + 1;
+        match self.kind_of(depois) {
+            Kind::Op(Op::LBracket | Op::LBrace | Op::Lt) => self.parse_unary(true),
+            Kind::Op(Op::LParen) => {
+                if self.kind_of(depois + 1) == Kind::Op(Op::RParen) {
+                    let abre = self.tokens[depois].span;
+                    self.erro_em(codigos::parser::INVALID_CONSTANT_PATTERN_EMPTY_RECORD_LITERAL, abre, &[]);
+                }
+                self.parse_unary(true)
+            }
+            Kind::Keyword(Keyword::Const) => {
+                let segundo = self.tokens[depois].span;
+                self.erro_em(codigos::parser::INVALID_CONSTANT_PATTERN_DUPLICATE_CONST, segundo, &[]);
+                self.advance();
+                self.parse_unary(true)
+            }
+            Kind::Ident => {
+                // `parseSend` em cada identificador da cadeia `a.b.c`: o que
+                // não é seguido de `.`, `(` ou `<` (uma invocação constante
+                // ainda pode vir) leva o erro.
+                match self.fim_de_envio_invalido(depois) {
+                    Some(fim) => {
+                        let span = self.tokens[fim].span;
+                        self.erro_em(codigos::parser::INVALID_CONSTANT_CONST_PREFIX, span, &[]);
+                        self.advance();
+                        self.parse_unary(true)
+                    }
+                    None => self.parse_unary(true),
+                }
+            }
+            _ => {
+                self.advance();
+                self.padrao_const_unario(ContextoConstante::Explicito)
+            }
+        }
+    }
+
+    /// A cadeia `a.b.c` que começa em `pos` (depois de `const`): a posição
+    /// do identificador (ou do `>` dos argumentos de tipo dele) em que o
+    /// `parseSend` do fasta relata `INVALID_CONSTANT_CONST_PREFIX`, ou
+    /// `None` se a cadeia termina numa invocação.
+    fn fim_de_envio_invalido(&self, mut pos: usize) -> Option<usize> {
+        loop {
+            if self.kind_of(pos) != Kind::Ident {
+                return None;
+            }
+            let mut fim = pos;
+            let mut prox = pos + 1;
+            if self.kind_of(prox) == Kind::Op(Op::Lt)
+                && let Some(depois) = self.skip_type_arguments(prox)
+                && self.kind_of(depois) == Kind::Op(Op::LParen)
+            {
+                fim = depois - 1;
+                prox = depois;
+            }
+            match self.kind_of(prox) {
+                Kind::Op(Op::Dot) => pos = prox + 1,
+                Kind::Op(Op::LParen | Op::Lt) => return None,
+                _ => return Some(fim),
+            }
+        }
+    }
+
+    /// `parseUnaryExpression` + `parsePrimary` com o contexto de padrão
+    /// constante: `!`/`~` não são aceitos (`INVALID_CONSTANT_PATTERN_UNARY`),
+    /// `-` só nega literal numérico (`INVALID_CONSTANT_PATTERN_NEGATION`), e
+    /// com `const` nenhum literal nem `-` é aceito.
+    fn padrao_const_unario(&mut self, ctx: ContextoConstante) -> PResult<ExprId> {
+        let start = self.span();
+        match self.kind() {
+            Kind::Op(op @ (Op::Bang | Op::Tilde)) => {
+                if ctx != ContextoConstante::Nenhum {
+                    self.erro(codigos::parser::INVALID_CONSTANT_PATTERN_UNARY, &[op.text()]);
+                }
+                self.advance();
+                let operand = self.parse_unary(false)?;
+                let op = if op == Op::Bang { UnaryOp::Not } else { UnaryOp::BitNot };
+                Ok(self.push(start, ExprKind::Unary { op, operand }))
+            }
+            Kind::Op(Op::Minus) => {
+                let mut interno = ctx;
+                if ctx == ContextoConstante::Explicito {
+                    self.erro(codigos::parser::INVALID_CONSTANT_CONST_PREFIX, &[]);
+                    interno = ContextoConstante::Nenhum;
+                }
+                self.advance();
+                let operand = if interno == ContextoConstante::Nenhum {
+                    self.parse_unary(false)?
+                } else {
+                    self.padrao_const_unario(ContextoConstante::SoNumerico)?
+                };
+                Ok(self.push(start, ExprKind::Unary { op: UnaryOp::Neg, operand }))
+            }
+            Kind::Op(Op::PlusPlus | Op::MinusMinus) => self.parse_unary(false),
+            _ if ctx == ContextoConstante::Nenhum => self.parse_unary(false),
+            kind => {
+                let literal = matches!(
+                    kind,
+                    Kind::Str(_)
+                        | Kind::StrBegin(..)
+                        | Kind::Op(Op::Hash)
+                        | Kind::Keyword(Keyword::True | Keyword::False | Keyword::Null)
+                );
+                match (ctx, kind) {
+                    (ContextoConstante::Explicito, Kind::Int | Kind::Double) => {
+                        self.erro(codigos::parser::INVALID_CONSTANT_CONST_PREFIX, &[]);
+                    }
+                    (ContextoConstante::Explicito, _) if literal => {
+                        self.erro(codigos::parser::INVALID_CONSTANT_CONST_PREFIX, &[]);
+                    }
+                    (ContextoConstante::SoNumerico, Kind::Ident) => {
+                        self.erro(codigos::parser::INVALID_CONSTANT_PATTERN_NEGATION, &[]);
+                    }
+                    (ContextoConstante::SoNumerico, _) if literal => {
+                        // A string inteira (com interpolações) é o token do fasta.
+                        let span = self.span_da_string_ou_token();
+                        self.erro_em(codigos::parser::INVALID_CONSTANT_PATTERN_NEGATION, span, &[]);
+                    }
+                    _ => {}
+                }
+                self.parse_unary(true)
+            }
+        }
+    }
+
+    /// O intervalo do token corrente; numa string com interpolação, até o
+    /// fim dela.
+    fn span_da_string_ou_token(&self) -> Span {
+        let s = self.span();
+        if let Kind::StrBegin(..) = self.kind() {
+            let mut i = self.pos + 1;
+            let mut prof = 1usize;
+            while i < self.tokens.len() {
+                match self.kind_of(i) {
+                    Kind::StrBegin(..) => prof += 1,
+                    Kind::StrEnd(_) => {
+                        prof -= 1;
+                        if prof == 0 {
+                            return Span { start: s.start, end: self.tokens[i].span.end };
+                        }
+                    }
+                    Kind::Eof => break,
+                    _ => {}
+                }
+                i += 1;
+            }
+        }
+        s
     }
 
     /// `var x`, `final x`, `final int x`, `var _`.
@@ -279,6 +472,16 @@ impl<'s, 'i> Parser<'s, 'i> {
         // constante (e o analyzer a recusa como não constante).
         if matches!(next, Kind::Op(Op::Dot | Op::Lt | Op::PlusPlus | Op::MinusMinus)) {
             return self.parse_constant_pattern(start);
+        }
+        // `a + 1`: um identificador só, num contexto refutável, é padrão
+        // constante no fasta, e o operador vira `INVALID_CONSTANT_PATTERN_BINARY`.
+        {
+            self.advance();
+            let binario = self.operador_binario_de_padrao().is_some();
+            self.pos = pos;
+            if binario {
+                return self.parse_constant_pattern(start);
+            }
         }
         let name = self.identifier();
         Ok(self.finish_variable(start, false, false, None, name))

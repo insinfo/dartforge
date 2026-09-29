@@ -46,7 +46,7 @@ const IDADE_TEMPORARIO_ORFAO: Duration = Duration::from_secs(3600);
 /// Objeto usado há menos que isto não é podado: outro processo pode tê-lo
 /// acabado de obter e ainda não ter ligado (a ligação de um programa grande
 /// leva minutos).
-pub const IDADE_MINIMA_PARA_PODAR: Duration = Duration::from_secs(30 * 60);
+pub const IDADE_MINIMA_PARA_PODAR: Duration = Duration::from_secs(10 * 60);
 
 /// `clang --version` inteiro (versão, alvo, modelo de threads, diretório de
 /// instalação), uma vez por caminho do Clang e por processo.

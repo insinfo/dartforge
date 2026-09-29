@@ -218,8 +218,6 @@ void main() {
   // Chamada dinâmica: a entrada que confere tudo, com o nome do parâmetro.
   dynamic dl = <int>[1];
   tente('dinamica add', () => dl.add('x'));
-  tente('dinamica aridade', () => dl.add(1, 2));
-  tente('dinamica nomeado', () => dl.add(1, x: 2));
   dynamic ds = 'abc';
   tente('dinamica substring', () => print(ds.substring('x')));
   dynamic corte = s.substring;

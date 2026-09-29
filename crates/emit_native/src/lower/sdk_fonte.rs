@@ -1649,6 +1649,31 @@ pub fn lower_adaptadores_e_tabelas(ctx: &Context, module: &mut Module) {
                 b.finalizar(module);
                 tabela.retain(|(s, _)| s != "g:_name@dart:core");
                 tabela.push(("g:_name@dart:core".to_string(), simbolo));
+                // `index` (campo 0) pelo seletor: `x.index` com `x` de tipo
+                // `Enum` ou `T extends Enum` (o `EnumSet.updated` do
+                // analyzer) chega pela tabela, não pelo tipo estático.
+                let simbolo = format!(
+                    "df.{}.{}.$enumIndex$g",
+                    crate::context::escapar(&ctx.nome_da_biblioteca(classe.library)),
+                    crate::context::escapar(ctx.symbol_name(classe.name))
+                );
+                let mut b = FnBuilder::new(ctx, decl.unit, simbolo.clone(), "index".to_string(), Type::Ref);
+                let this = Operand::Val(b.add_param("this".to_string(), Type::Ref));
+                b.add_param("args".to_string(), Type::Ptr);
+                b.add_param("desc".to_string(), Type::Ptr);
+                let indice = b.emit(Instruction::CallRuntime {
+                    name: "dartforge_object_get".to_string(),
+                    args: vec![
+                        (this, Type::Ref),
+                        (Operand::Constant(Constant::Int(0)), Type::I64),
+                    ],
+                    ret_ty: Type::I64,
+                }, Type::I64);
+                let indice = b.coagir(indice, Type::Ref);
+                b.terminate(Terminator::Return(Some(indice)));
+                b.finalizar(module);
+                tabela.retain(|(s, _)| s != "g:index");
+                tabela.push(("g:index".to_string(), simbolo));
             }
             // Um enum sem override recebe `Enum.nome` do emissor. A tabela
             // por seletor deve usar esse mesmo corpo, inclusive quando o

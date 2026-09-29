@@ -924,6 +924,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             );
             let receptor = e.emit(Instruction::EnvGet { env, index: 0 }, Type::Ref);
             if let Some(vals) = e.desempacotar(&infos, args, desc) {
+                // A chamada do tear-off é dinâmica: os argumentos conferidos
+                // como na entrada uniforme (" of 'nome'"), com o receptor
+                // guardado no lugar do `this`, antes da chamada direta.
+                // Membro do SDK com uma implementação só: a conferência é a
+                // da entrada dela (os nomes dos parâmetros são os dela).
+                let conferido = self.implementacao_unica(fid).unwrap_or(fid);
+                let salvo = (e.this_param.replace(receptor.clone()), e.enclosing_class);
+                e.enclosing_class = self.ctx.program.functions[conferido].class;
+                e.conferir_argumentos_da_entrada(conferido, &vals);
+                (e.this_param, e.enclosing_class) = salvo;
                 let avaliados: Vec<Avaliado> = self.ctx.outline.functions[fid]
                     .parameters
                     .iter()

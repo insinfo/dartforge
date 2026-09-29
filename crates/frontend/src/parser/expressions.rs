@@ -53,7 +53,7 @@ use dartforge_diagnostics::{Span, codigos};
 const LEVEL_IF_NULL: u8 = 0;
 const LEVEL_OR: u8 = 1;
 const LEVEL_AND: u8 = 2;
-const LEVEL_EQUALITY: u8 = 3;
+pub(crate) const LEVEL_EQUALITY: u8 = 3;
 const LEVEL_RELATIONAL: u8 = 4;
 const LEVEL_BIT_OR: u8 = 5;
 const LEVEL_BIT_XOR: u8 = 6;
@@ -446,7 +446,13 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// no nível relacional com um tipo à direita.
     fn parse_binary(&mut self, min_level: u8) -> PResult<ExprId> {
         let start = self.span();
-        let mut left = self.parse_unary(false)?;
+        let left = self.parse_unary(false)?;
+        self.parse_binary_rest(start, left, min_level)
+    }
+
+    /// Continuação de [`Parser::parse_binary`] com o operando esquerdo já
+    /// lido (o padrão constante lê o operando com as regras dele).
+    pub(crate) fn parse_binary_rest(&mut self, start: Span, mut left: ExprId, min_level: u8) -> PResult<ExprId> {
         while let Some(here) = self.binary_here() {
             match here {
                 BinaryHere::Op { level, op, len } => {
@@ -486,6 +492,46 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
         }
         Ok(left)
+    }
+
+    /// Operador binário (ou `is`) no cursor com nível a partir da igualdade:
+    /// o nível, o texto do token do fasta (`>>`, `>=`, `is`) e o intervalo
+    /// dele. `as` fica de fora (é o padrão de cast).
+    pub(crate) fn operador_binario_de_padrao(&self) -> Option<(u8, &'static str, Span)> {
+        let inicio = self.span();
+        let (level, texto, len) = match self.binary_here()? {
+            BinaryHere::As => return None,
+            BinaryHere::Is => (LEVEL_RELATIONAL, "is", 1),
+            BinaryHere::Op { level, op, len } => {
+                let texto = match op {
+                    BinaryOp::Eq => "==",
+                    BinaryOp::NotEq => "!=",
+                    BinaryOp::Lt => "<",
+                    BinaryOp::LtEq => "<=",
+                    BinaryOp::Gt => ">",
+                    BinaryOp::GtEq => ">=",
+                    BinaryOp::Shr => ">>",
+                    BinaryOp::UShr => ">>>",
+                    BinaryOp::BitOr => "|",
+                    BinaryOp::BitXor => "^",
+                    BinaryOp::BitAnd => "&",
+                    BinaryOp::Shl => "<<",
+                    BinaryOp::Add => "+",
+                    BinaryOp::Sub => "-",
+                    BinaryOp::Mul => "*",
+                    BinaryOp::Div => "/",
+                    BinaryOp::Rem => "%",
+                    BinaryOp::TruncDiv => "~/",
+                    _ => return None,
+                };
+                (level, texto, len)
+            }
+        };
+        if level < LEVEL_EQUALITY {
+            return None;
+        }
+        let fim = self.peek_at(len - 1).span.end;
+        Some((level, texto, Span { start: inicio.start, end: fim }))
     }
 
     /// Operador binário no cursor, se houver, com nível e tamanho em tokens.
@@ -529,7 +575,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// Prefixos `-`, `!`, `~`, `++`, `--`, `await`, seguidos do pós-fixo.
     ///
     /// `constant_pattern` deixa o `!` pós-fixo final para o parser de padrões.
-    fn parse_unary(&mut self, constant_pattern: bool) -> PResult<ExprId> {
+    pub(crate) fn parse_unary(&mut self, constant_pattern: bool) -> PResult<ExprId> {
         self.enter()?;
         let result = self.parse_unary_inner(constant_pattern);
         self.leave();
@@ -637,6 +683,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     if !self.method_type_arguments_ahead() {
                         break;
                     }
+                    let lt_pos = self.pos;
                     let type_args = self.parse_type_arguments_opt()?;
                     if self.at_op(Op::LParen) {
                         let mut arguments = self.parse_arguments()?;
@@ -649,6 +696,12 @@ impl<'s, 'i> Parser<'s, 'i> {
                             },
                         );
                     } else {
+                        if constant_pattern {
+                            // `parsePrecedenceExpression`: argumentos de tipo
+                            // sem `(` num padrão constante.
+                            let lt = self.tokens[lt_pos].span;
+                            self.erro_em(codigos::parser::INVALID_CONSTANT_PATTERN_GENERIC, lt, &[]);
+                        }
                         expr = self.push(
                             start,
                             ExprKind::TypeArguments {
@@ -1350,7 +1403,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     // -- Utilidades ---------------------------------------------------------
 
     /// Anexa uma expressão cujo span vai de `start` ao último token consumido.
-    fn push(&mut self, start: Span, kind: ExprKind) -> ExprId {
+    pub(crate) fn push(&mut self, start: Span, kind: ExprKind) -> ExprId {
         let span = self.span_from(start);
         self.ast.push_expr(Expr { span, kind })
     }

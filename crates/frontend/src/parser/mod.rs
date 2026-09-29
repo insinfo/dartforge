@@ -454,6 +454,16 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.erro(codigos::parser::EXPECTED_TOKEN, &[texto])
     }
 
+    /// Como [`Parser::erro_em`], sem repetir um diagnóstico igual (código e
+    /// intervalo) já registrado: o analyzer não relata duas vezes o mesmo
+    /// erro no mesmo lugar (o fasta às vezes o pede duas vezes, como o
+    /// `INVALID_CONSTANT_CONST_PREFIX` de `const 1 + 2`).
+    pub(crate) fn erro_unico(&mut self, codigo: Codigo, span: Span, args: &[&str]) {
+        if !self.diagnostics.iter().any(|d| d.code == Some(codigo) && d.span == span) {
+            self.erro_em(codigo, span, args);
+        }
+    }
+
     /// Faltou um comando: `MISSING_STATEMENT` no token corrente, precedido de
     /// `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` se ele é uma palavra reservada
     /// (o fasta tenta o comando de expressão e tropeça no identificador).
