@@ -430,6 +430,9 @@ impl Motor {
             atribuidos.extend(dartforge_types::sobrescritas::sobrescritas_invalidas(
                 &program, &interner, &mut table, &core, &outline, &classes,
             ));
+            atribuidos.extend(dartforge_types::sobrescritas::membros_de_enum(
+                &program, &interner, &mut table, &core, &outline, &classes,
+            ));
             atribuidos.extend(dartforge_types::sobrescritas::membros_abstratos(
                 &program, &interner, &mut table, &core, &outline, &classes,
             ));

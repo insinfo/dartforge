@@ -1406,3 +1406,114 @@ pub fn membros_em_conflito(
     }
     saida
 }
+
+/// A parte do `verify()` sobre classes que implementam `Enum`
+/// (`implementsDartCoreEnum`, pelos supertipos transitivos, e todo enum):
+/// `index`, `hashCode` e `==` concretos declarados
+/// (`illegal_concrete_enum_member`, na classe, no enum ou no mixin) ou
+/// herdados de outra classe que não `Object`/`Enum` (no nome da classe), e o
+/// membro de instância `values` declarado (fora de enum) ou herdado
+/// (`illegal_enum_values`).
+pub fn membros_de_enum(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    core: &CoreTypes,
+    outline: &OutlineTypes,
+    classes: &[ClassId],
+) -> Vec<(UnitId, Diagnostic)> {
+    use dartforge_elements::model::ClassKind as K;
+    let mut cx = Ctx { program, interner, table, core, outline };
+    let mut saida = Vec::new();
+    let Some(enum_core) = cx.classe_do_core("Enum") else { return saida };
+    for &cid in classes {
+        let classe = program.class(cid);
+        let Some(decl) = classe.decl else { continue };
+        let implementa_enum = classe.kind == K::Enum
+            || outline.hierarchy.get(cid).is_some_and(|d| d.supertypes.contains_key(&enum_core));
+        if !implementa_enum || cid == enum_core {
+            continue;
+        }
+        let ast_ = &program.unit(decl.unit).ast;
+        let fonte = &program.unit(decl.unit).source;
+        if fonte.lines().any(|l| l.trim_start().starts_with("augment ")) {
+            continue;
+        }
+        let (nome_classe, membros): (ast::Name, &[ast::MemberId]) = match &ast_.decl(decl.decl).kind {
+            DeclKind::Class(d) => (d.name, &d.members),
+            DeclKind::Enum(d) => (d.name, &d.members),
+            DeclKind::Mixin(d) => (d.name, &d.members),
+            _ => continue,
+        };
+        let e_enum = classe.kind == K::Enum;
+        let proibido = |n: &str| matches!(n, "index" | "hashCode" | "==");
+        // Declarados.
+        for &m in membros {
+            match &ast_.member(m).kind {
+                MemberKind::Field(vl) if !vl.static_ => {
+                    for v in vl.variables.iter() {
+                        let n = interner.resolve(v.name.sym);
+                        if !e_enum && n == "values" {
+                            saida.push((decl.unit, Diagnostic::com_codigo(c::ILLEGAL_ENUM_VALUES_DECLARATION, v.name.span, [] as [&str; 0])));
+                        }
+                        if proibido(n) {
+                            saida.push((decl.unit, Diagnostic::com_codigo(c::ILLEGAL_CONCRETE_ENUM_MEMBER_DECLARATION, v.name.span, [n])));
+                        }
+                    }
+                }
+                MemberKind::Method(f) => {
+                    let af = ast_.function(*f);
+                    let Some(nome) = af.name else { continue };
+                    let n = interner.resolve(nome.sym);
+                    let abstrato = !af.external && matches!(af.body, ast::FunctionBody::Empty);
+                    let setter = af.kind == ast::FunctionKind::Setter;
+                    if !(af.static_ || abstrato || setter) && proibido(n) {
+                        saida.push((decl.unit, Diagnostic::com_codigo(c::ILLEGAL_CONCRETE_ENUM_MEMBER_DECLARATION, nome.span, [n])));
+                    }
+                    if !af.static_ && !e_enum && n == "values" {
+                        saida.push((decl.unit, Diagnostic::com_codigo(c::ILLEGAL_ENUM_VALUES_DECLARATION, nome.span, [] as [&str; 0])));
+                    }
+                }
+                _ => {}
+            }
+        }
+        // Herdados (`getInheritedConcreteMap2`; mixins não herdam).
+        if classe.kind != K::Mixin {
+            for n in ["hashCode", "==", "index"] {
+                let Some(chave) = interner.lookup(n) else { continue };
+                let herdado = classe
+                    .mixin_classes
+                    .iter()
+                    .rev()
+                    .find_map(|&m| cx.implementado(m, chave, 1).filter(|a| !cx.de_object(a.dono)))
+                    .or_else(|| cx.superclasse(cid).and_then(|s| cx.implementado(s, chave, 1)));
+                let Some(a) = herdado else { continue };
+                let dono = program.class(a.dono);
+                let conta = if dono.kind != K::Class && dono.kind != K::MixinApplication {
+                    true
+                } else if n == "index" {
+                    a.dono != enum_core
+                } else {
+                    !cx.de_object(a.dono)
+                };
+                if conta {
+                    saida.push((
+                        decl.unit,
+                        Diagnostic::com_codigo(c::ILLEGAL_CONCRETE_ENUM_MEMBER_INHERITANCE, nome_classe.span, [n, interner.resolve(dono.name)]),
+                    ));
+                }
+            }
+        }
+        let Some(este) = cx.tipo_proprio(cid) else { continue };
+        let values = interner.lookup("values");
+        let values_set = interner.lookup("values_=");
+        let herdado = values.and_then(|k| cx.herdado(este, k)).or_else(|| values_set.and_then(|k| cx.herdado(este, k)));
+        if let Some((a, _)) = herdado {
+            saida.push((
+                decl.unit,
+                Diagnostic::com_codigo(c::ILLEGAL_ENUM_VALUES_INHERITANCE, nome_classe.span, [interner.resolve(program.class(a.dono).name)]),
+            ));
+        }
+    }
+    saida
+}

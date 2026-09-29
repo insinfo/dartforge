@@ -17,7 +17,7 @@ Outros processos disputam a máquina: as repetições alternam os executores e
 o relatório dá a mediana e a faixa (mínimo–máximo). Antes de cada medida há
 um aquecimento curto (o JIT da VM otimiza as funções quentes nele).
 
-Uso: scripts/bench-http.py [--repeticoes N] [--duracao S] [--conexoes 1,64]
+Uso: scripts/bench-http.py [--repeticoes N] [--duracao S] [--conexoes 1,64] [--df-antes EXE]
                             [--df-exe EXE] [--so df,vm,aot] [--saida ARQ.md]
 
 O `wrk` vem do gerenciador de pacotes (`apt-get install wrk`).
@@ -28,7 +28,7 @@ RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FONTE = os.path.join(RAIZ, "bench", "http", "servidor.dart")
 DF = os.environ.get("DARTFORGE", os.path.join(RAIZ, "target", "release", "dartforge"))
 ROTAS = [("/", "hello"), ("/json", None)]
-NOMES = {"df": "DartForge AOT", "vm": "Dart VM (JIT)", "aot": "Dart AOT"}
+NOMES = {"df0": "DartForge AOT (antes)", "df": "DartForge AOT", "vm": "Dart VM (JIT)", "aot": "Dart AOT"}
 
 
 def rss_kb(pid, campo):
@@ -92,6 +92,7 @@ def main():
     ap.add_argument("--aquecer", type=int, default=2, help="segundos de aquecimento por rota")
     ap.add_argument("--conexoes", default="1,64")
     ap.add_argument("--df-exe", help="executável do DartForge já compilado (pula a compilação)")
+    ap.add_argument("--df-antes", help="outro executável do DartForge, medido junto (comparação antes/depois)")
     ap.add_argument("--so", default="df,vm,aot")
     ap.add_argument("--saida")
     a = ap.parse_args()
@@ -99,6 +100,8 @@ def main():
     tmp = tempfile.mkdtemp(prefix="df-bench-http-")
     execs = {}
     try:
+        if a.df_antes:
+            execs["df0"] = [a.df_antes]
         for k in a.so.split(","):
             if k == "df":
                 exe = a.df_exe or os.path.join(tmp, "servidor.df")
