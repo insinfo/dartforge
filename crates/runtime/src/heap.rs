@@ -1493,31 +1493,10 @@ impl MapaDePaginas {
     }
 }
 
-/// Zera `n` palavras em `p`: os tamanhos pequenos (quase todos os objetos)
-/// com gravações de tamanho fixo, sem a chamada ao `memset`.
-///
-/// # Safety
-/// `p` aponta `n` palavras graváveis.
-#[inline]
-#[allow(unsafe_code)]
-unsafe fn zerar(p: *mut i64, n: usize) {
-    // SAFETY: o contrato da função.
-    unsafe {
-        match n {
-            0 => {}
-            1 => p.write(0),
-            2 => p.cast::<[i64; 2]>().write([0; 2]),
-            3 => p.cast::<[i64; 3]>().write([0; 3]),
-            4 => p.cast::<[i64; 4]>().write([0; 4]),
-            _ => std::ptr::write_bytes(p, 0, n),
-        }
-    }
-}
-
 /// O espaço dos objetos do usuário: páginas de [`PAGINA`] bytes, cada uma
-/// com blocos ([`Cabecalho`] + campos) de um só número de campos, e uma
-/// lista livre por número de campos (encadeada pelo primeiro campo),
-/// refeita a cada coleta completa (em ordem de endereço).
+/// com blocos ([`Cabecalho`] + campos) de um só número de campos, e faixas
+/// livres (trechos contíguos de blocos zerados) por número de campos,
+/// refeitas a cada coleta completa (em ordem de endereço).
 ///
 /// É o par, sem mover objetos, do *new space* da VM
 /// (`runtime/vm/heap/scavenger.cc` e a alocação em linha do
@@ -1868,8 +1847,10 @@ impl EspacoDeObjetos {
         for r in self.regiao.iter_mut() {
             *r = (std::ptr::null_mut(), std::ptr::null_mut());
         }
-        // Por página: o trecho da lista livre (cabeça, cauda) e os vivos.
-        let mut trechos: Vec<(*mut Cabecalho, *mut Cabecalho, usize)> = Vec::with_capacity(self.paginas.len());
+        // Por página: o trecho `[de, ate)` de `faixas_livres` com as faixas
+        // livres dela e os vivos.
+        let mut trechos: Vec<(usize, usize, usize)> = Vec::with_capacity(self.paginas.len());
+        let mut faixas_livres: Vec<(*mut u8, *mut u8)> = Vec::new();
         let mut vivos_da_classe = vec![0usize; classes];
         let mut livres_da_classe = vec![0usize; classes];
         // Os blocos ocupados (vivos e mortos desta coleta) por classe: o
@@ -1877,8 +1858,9 @@ impl EspacoDeObjetos {
         let mut ocupados_da_classe = vec![0usize; classes];
         for p in &self.paginas {
             let n = p.n;
+            let de = faixas_livres.len();
             if p.vazia {
-                trechos.push((std::ptr::null_mut(), std::ptr::null_mut(), 0));
+                trechos.push((de, de, 0));
                 continue;
             }
             let tamanho = tamanho_do_bloco(n);
@@ -1891,7 +1873,6 @@ impl EspacoDeObjetos {
                 vivos_na_pagina += usize::from(unsafe { (*q.cast::<Cabecalho>()).estado } == MARCADO);
                 q = q.wrapping_add(tamanho);
             }
-            let (mut cabeca, mut cauda): (*mut Cabecalho, *mut Cabecalho) = (std::ptr::null_mut(), std::ptr::null_mut());
             if vivos_na_pagina == 0 {
                 let mut q = p.base;
                 for _ in 0..p.blocos {
@@ -1911,40 +1892,60 @@ impl EspacoDeObjetos {
                     q = q.wrapping_add(tamanho);
                 }
             } else {
+                // O trecho livre corrente (`livre`) e, dentro dele, o começo
+                // dos mortos por zerar (`sujo`): os livres já estão zerados.
+                let mut livre: *mut u8 = std::ptr::null_mut();
+                let mut sujo: *mut u8 = std::ptr::null_mut();
                 let mut q = p.base;
                 for _ in 0..p.blocos {
                     let b = q.cast::<Cabecalho>();
-                    q = q.wrapping_add(tamanho);
                     // SAFETY: bloco da página; o estado diz se há objeto.
                     unsafe {
                         match (*b).estado {
                             MARCADO => {
                                 (*b).estado = VELHO;
                                 bytes_vivos += Self::bytes_do_objeto(b, n);
-                                continue;
+                                if !sujo.is_null() {
+                                    std::ptr::write_bytes(sujo, 0, q as usize - sujo as usize);
+                                    sujo = std::ptr::null_mut();
+                                }
+                                if !livre.is_null() {
+                                    faixas_livres.push((livre, q));
+                                    livre = std::ptr::null_mut();
+                                }
                             }
-                            JOVEM | VELHO | LEMBRADO => {
+                            LIVRE => {
+                                if !sujo.is_null() {
+                                    std::ptr::write_bytes(sujo, 0, q as usize - sujo as usize);
+                                    sujo = std::ptr::null_mut();
+                                }
+                                if livre.is_null() {
+                                    livre = q;
+                                }
+                            }
+                            _ => {
                                 mortos += 1;
                                 if n <= MAIOR_CLASSE {
                                     ocupados_da_classe[n] += 1;
                                 }
-                                Self::soltar_objeto(b, n);
+                                Self::soltar_corpo(b);
+                                if sujo.is_null() {
+                                    sujo = q;
+                                }
+                                if livre.is_null() {
+                                    livre = q;
+                                }
                             }
-                            // Livre: formatado, ou zerado de uma região (sem
-                            // o `n`).
-                            _ => (*b).n = u16::try_from(n).unwrap_or(u16::MAX),
                         }
-                        if cauda.is_null() {
-                            cabeca = b;
-                        } else {
-                            Self::encadear(cauda, b);
-                        }
-                        cauda = b;
                     }
+                    q = q.wrapping_add(tamanho);
                 }
-                // SAFETY: a cauda é bloco livre da página.
-                if !cauda.is_null() {
-                    unsafe { Self::encadear(cauda, std::ptr::null_mut()) };
+                if !sujo.is_null() {
+                    // SAFETY: blocos mortos da página.
+                    unsafe { std::ptr::write_bytes(sujo, 0, q as usize - sujo as usize) };
+                }
+                if !livre.is_null() {
+                    faixas_livres.push((livre, q));
                 }
             }
             vivos += vivos_na_pagina;
@@ -1952,7 +1953,7 @@ impl EspacoDeObjetos {
                 vivos_da_classe[n] += vivos_na_pagina;
                 livres_da_classe[n] += p.blocos - vivos_na_pagina;
             }
-            trechos.push((cabeca, cauda, vivos_na_pagina));
+            trechos.push((de, faixas_livres.len(), vivos_na_pagina));
         }
         for (n, p) in self.pico.iter_mut().enumerate() {
             *p = (*p - *p / 8).max(vivos_da_classe[n] + ocupados_da_classe[n]);
@@ -1991,10 +1992,9 @@ impl EspacoDeObjetos {
             }
         }
         for l in self.livres.iter_mut() {
-            *l = std::ptr::null_mut();
+            l.clear();
         }
         self.vazias.clear();
-        let mut caudas: Vec<*mut Cabecalho> = vec![std::ptr::null_mut(); classes];
         let paginas = std::mem::take(&mut self.paginas);
         for (i, mut p) in paginas.into_iter().enumerate() {
             if solta[i] {
@@ -2005,21 +2005,19 @@ impl EspacoDeObjetos {
                 unsafe { std::alloc::dealloc(p.base, Pagina::layout(p.bytes)) };
                 continue;
             }
-            let (cabeca, cauda, vivos_na_pagina) = trechos[i];
+            let (de, ate, vivos_na_pagina) = trechos[i];
             if vivos_na_pagina == 0 {
                 p.vazia = true;
                 self.vazias.push(self.paginas.len());
-            } else if p.n <= MAIOR_CLASSE && !cabeca.is_null() {
-                if caudas[p.n].is_null() {
-                    self.livres[p.n] = cabeca;
-                } else {
-                    // SAFETY: a cauda é um bloco livre de outra página da classe.
-                    unsafe { Self::encadear(caudas[p.n], cabeca) };
-                }
-                caudas[p.n] = cauda;
+            } else if p.n <= MAIOR_CLASSE {
+                self.livres[p.n].extend_from_slice(&faixas_livres[de..ate]);
             }
             self.mapa.inserir(p.base as usize, self.paginas.len());
             self.paginas.push(p);
+        }
+        // As faixas de endereço baixo saem primeiro (`pop`).
+        for l in self.livres.iter_mut() {
+            l.reverse();
         }
         // As vazias de endereço baixo saem primeiro (`pop`).
         self.vazias.reverse();

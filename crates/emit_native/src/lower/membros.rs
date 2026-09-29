@@ -2092,6 +2092,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(v) = self.ler_variavel_nativa(vid, span) {
             return v;
         }
+        // `const` primitiva: a constante, sem o getter (`const_primitiva.rs`).
+        if let Some(v) = self.ler_const_primitiva(vid) {
+            return v;
+        }
         if !self.ctx.biblioteca_compilada(self.ctx.program.variables[vid.0 as usize].library)
         {
             let nome = self

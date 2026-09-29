@@ -10,6 +10,7 @@ pub mod cascata;
 pub mod chamadas;
 pub mod closures;
 pub mod comandos;
+pub mod const_primitiva;
 pub mod constantes;
 pub mod despacho;
 pub mod entrada_tipada;
