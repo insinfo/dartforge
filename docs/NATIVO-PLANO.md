@@ -1881,6 +1881,9 @@ Tempo total do processo (s, mediana; inclui início e, nos JITs, compilação):
 | tipados | 2.46 | 0.12 | 0.53 | 0.17 |
 
 
+Os núcleos de `objetos_*` depois do espaço de objetos, da alocação em linha
+e do coletor geracional (N19) estão em §8.6.
+
 ### 8.5 Mapas, conjuntos e strings (N18, medido em 2026-09-29)
 
 Ponto de partida (§8.4): `colecoes/mapa` 6,90×, `colecoes/conjunto_str`
@@ -1970,6 +1973,127 @@ núcleos `where`+`endsWith` ainda 20× a VM). No que é desta frente: o
 aqui exige um campo no `Texto`, `heap.rs`) e o literal de string achado
 por um mapa por endereço a cada avaliação (`dartforge_string_new`, ~90
 instruções).
+
+### 8.6 Alocação e coleta dos objetos do usuário (N19, medido em 2026-09-29)
+
+Ponto de partida (§8.4): `objetos_escapam/arvores` 4,93×,
+`objetos_escapam/lista_ligada` 6,09×, `objetos_temporarios/pontos` 4,30× o
+Dart AOT. O perfil (callgrind, `arvores(12)` + `lista(200000)`, 723 milhões
+de instruções) mostrou onde iam as cerca de 850 instruções por objeto:
+
+* alocação por chamada ao runtime: `dartforge_object_new`, `Heap::allocate`,
+  o registro da tabela de métodos e um `calloc`/`free` para o vetor de campos
+  (cerca de 250 instruções);
+* cada leitura ou gravação de campo chamava `dartforge_object_campos` (TLS,
+  tabela de handles, `match` no `Value`);
+* coleta completa a cada ~1 MiB alocado, sempre marcando tudo o que vive (a
+  árvore longa) e varrendo a tabela de slots inteira.
+
+Como a VM faz (`runtime/vm/heap/scavenger.cc`, a alocação em linha de
+`stub_code_compiler.cc`): *new space* com ponteiro de alocação em linha no
+código (TLAB), scavenger de Cheney que só toca os sobreviventes, promoção
+para o *old space*, barreira de escrita com *store buffer* (o velho que
+recebe referência nova é lembrado). O DartForge não pode mover objetos: o
+código gerado guarda handles em registradores entre pontos de coleta (a
+pilha-sombra é só de raízes, não é relida), então o par aqui é **geracional
+sem mover** (marcas "pegajosas"):
+
+1. **Espaço de objetos** (`crates/runtime/src/heap.rs`: `Bloco`,
+   `EspacoDeObjetos`). O objeto do usuário sai da tabela de slots: vive num
+   bloco de página de 64 KiB com blocos de um só número de campos — um
+   cabeçalho de 16 bytes (estado de coleta, número de campos, `hashCode` de
+   identidade, metadado de RTI), o próprio `Value::Object` (`Value` passou a
+   `#[repr(u8)]`, com o layout conferido em `conferir_layout`) e os campos. O
+   handle é o endereço do `Value` mais 2 (`h & 3 == 2`); os handles da
+   tabela passaram a múltiplos de 4 e o `Smi` continua ímpar. Listas livres
+   por número de campos, refeitas a cada varredura; páginas vazias soltas
+   além da folga (vivos, demanda do ciclo e um pico recente que decai). A
+   validação de um handle (`bloco_de`) usa um mapa de páginas de dois
+   níveis, sem hash.
+2. **Campos em linha pelo objeto.** O código gerado lê o ponteiro dos
+   campos em `h + 14` (uma carga; o que não é objeto lê
+   `Contexto::vazios`, zeros, como antes). Sem chamada por acesso.
+3. **Alocação em linha (TLAB).** `Contexto::tlab[n]` (n ≤ 16 campos) é uma
+   lista de blocos já contados como alocados; o código tira o primeiro,
+   grava estado e classe e segue (`llvm/mod.rs`, `emitir_alocacao_em_linha`,
+   com o teste de registro da tabela de métodos da classe). Lista vazia vai
+   ao runtime, que coleta se preciso e reabastece 64 blocos. No
+   `--gc-stress` a TLAB fica vazia: toda alocação passa pelo runtime.
+4. **Coletor geracional sem mover.** Um objeto nasce jovem; o que sobrevive
+   a uma coleta vira velho. A coleta menor (a cada 4 MiB ou 256 mil
+   alocações) marca só a partir das raízes e dos **lembrados**, e varre só a
+   lista dos jovens; a completa vem quando o total passa do dobro do que
+   sobreviveu à última (e pelo menos dois semiespaços jovens acima dele, com
+   histerese de ¾ do gatilho anterior). A **barreira de escrita**: toda
+   mutação do runtime passa por `Heap::get_mut`, que lembra o velho (objeto
+   ou slot); o código gerado, depois de gravar um `Ref` num campo, testa o
+   estado no cabeçalho (`h - 18`) e chama `dartforge_lembrar` se é velho.
+   `DARTFORGE_GC_VERIFICAR=1` faz cada coleta menor conferir, por uma
+   travessia completa, que nenhum jovem alcançável ficou sem marca (o
+   corpus inteiro passa com `--gc-stress` e a verificação ligada);
+   `DARTFORGE_GC_RASTRO=1` escreve uma linha por coleta.
+5. **O que veio junto** (pedido da coordenação): o `hashCode` de `String`
+   calculado uma vez por valor (`Heap::hash_de_texto`, usado por
+   `String_getHashCode` e pela sonda de `nativos_hash.rs`); o handle de cada
+   literal de texto num cache do ponto de uso, na área do isolado (a busca no
+   runtime só na primeira avaliação; a recarga do JIT esvazia os caches); o
+   receptor escalar de membro do SDK chamado direto vai em caixa
+   (`chamar_membro_fonte`, `corpus/nativo/50`).
+
+`scripts/comparar-desempenho.py` passou a medir também o pico de memória
+residente (`ru_maxrss` pelo `wait4`, o mesmo do `/usr/bin/time -v`, que não
+está instalado na máquina), aceita `--sem-jit` e `DARTFORGE_BIN`.
+
+Medido (Linux x86-64, 4 CPUs com outros agentes compilando — carga 5 a 6,
+por isso as faixas largas; razão = DartForge AOT / Dart AOT das mesmas
+rodadas alternadas, mediana de 5):
+
+| núcleo | antes (§8.4) | depois | Dart AOT | razão antes | razão depois |
+|---|---:|---:|---:|---:|---:|
+| objetos_escapam/arvores | 244,8 | 200,8 [169–279] | 50,4 | 4,93× | 3,98× |
+| objetos_escapam/lista_ligada | 90,6 | 146,5 [95–187] | 17,1 | 6,09× | 8,58× |
+| objetos_temporarios/pontos | 57,3 | 33,0 [30–74] | 17,3 | 4,30× | 1,91× |
+| objetos_temporarios/soma_ponto | 4,1 | 6,3 | 32,1 | 0,15× | 0,20× |
+| textos/hashes | 249,5 | 105,5 | 59,0 | 6,42× | 1,79× |
+| colecoes/conjunto_str | 188,2 | 94,7 | 44,0 | 8,18× | 2,15× |
+
+(`textos` e `colecoes` também têm o trabalho de mapas e strings do N18, §8.5;
+aqui só o hash guardado e o cache de literal são deste passo.)
+
+Pico de memória residente (MB, mediana; `objetos_escapam` inteiro):
+DartForge AOT 179, Dart VM 182, Dart AOT 50. Em `objetos_temporarios`,
+13,6 contra 13,0 do Dart AOT.
+
+Em instruções (callgrind, o mesmo programa reduzido do perfil inicial): 723
+milhões → 319 milhões depois dos passos 1–3 (a alocação saiu do perfil:
+`dartforge_object_new` de 60 milhões para 1). Em `arvores(12)`, a coleta
+passou de 40% das instruções para 25%, e o que resta é o código do programa
+(`arvore` e `conta`: o `esq?.conta() ?? 0` encaixota e desencaixota o `int?`,
+e cada ativação chama `dartforge_contexto` e monta o quadro da
+pilha-sombra).
+
+**O que não fechou, e por quê.** `lista_ligada` ficou pior: tudo o que ela
+aloca sobrevive (um milhão de nós por rodada, refeitos a cada rodada), então
+toda coleta menor promove tudo o que marcou, e as completas marcam a lista
+inteira duas vezes por rodada. Por objeto, a marcação custa cerca de 60
+instruções e a varredura 30. O nó ocupa 88 bytes (cabeçalho 16 + `Value` 40
++ 2 campos de 16) contra 24 na VM, e o custo de memória (faltas de página,
+banda) domina o tempo. Na VM a marcação do *old space* é concorrente, em
+outras threads. O que falta, pela ordem do ganho esperado:
+
+* **campos de 8 bytes**: o `is_ref` de cada campo é estático por classe
+  (`repr_do_campo`); um mapa de bits por classe no lugar do `bool` por campo
+  deixa o nó da lista em 72 bytes e a marcação sem o teste por campo. A API
+  `Campos: Deref<[(i64, bool)]>` do runtime (≈60 usos) muda junto;
+* **`Value` de 32 bytes** (encaixotar `TypedView`, `class_id` de 32 bits em
+  `TypedData`): o bloco perde mais 8 bytes;
+* **página jovem com ponteiro de alocação** e reciclagem da página inteira
+  quando nenhum objeto dela sobrevive (a varredura menor deixa de tocar cada
+  morto, como o scavenger);
+* **marcação da completa em paralelo**, ou concorrente (a VM marca o *old
+  space* em outras threads);
+* no código do programa: `dartforge_contexto` em linha (TLS direto) e `?.` +
+  `??` sobre `int?` sem caixa.
 
 ## 9. Servidor HTTP (`dart:io`): medição e onde vai o tempo
 
