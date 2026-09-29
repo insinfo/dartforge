@@ -109,7 +109,7 @@ pub(crate) struct Corpo {
     /// expressão `DotShorthand` da raiz (ver `atalhos`).
     pub contexto_atalho: HashMap<u32, TypeId>,
     /// Raízes `DotShorthand` de uma invocação cujo erro já foi relatado
-    /// (`atalhos::construcao`): o [`atalhos::valor`] do alvo não relata de novo.
+    /// (`atalhos::construcao`): o [`super::atalhos::valor`] do alvo não relata de novo.
     pub atalhos_relatados: std::collections::HashSet<u32>,
     /// Nomes escritos em qualquer ponto do corpo de topo: dentro de uma
     /// closure eles não ficam promovidos (`functionExpression_begin` faz a

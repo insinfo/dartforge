@@ -10,6 +10,9 @@
 #     dartforge-elements, já para com 3 erros; emit_js, emit_native e
 #     gerador_ng têm avisos do próprio rustc). Volta junto com o fmt, pelo
 #     mesmo motivo.
+#   * `cargo doc`: por decisão do proprietário (2026-09-29), o CI não gasta
+#     tempo com formatação nem documentação gerada; os doctests seguem no
+#     `cargo test`.
 #   * Ubuntu: a trilha nova falha no Linux em dartforge-dev (hashes, plato),
 #     dartforge-emit-js (basico) e dartforge-elements (sdk_cache) — não no
 #     Windows, que é o alvo. Registrado para quem cuidar do Linux.
@@ -44,7 +47,7 @@ jobs:
       - run: sh scripts/sem-trailer-ia.sh --historico HEAD
 
   windows:
-    name: test e doc (Windows)
+    name: test (Windows)
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
@@ -157,15 +160,6 @@ jobs:
           --ignored --skip corpus_pub --skip new_sali_tipa --skip corpus_roda_no_dart_run
           --skip ddc_bate_com_dart_run --skip microbenchmark
           --skip ng_edicao_dart_em_cada_arquivo
-      # `private_intra_doc_links` fica permitido: com --document-private-items
-      # os itens privados SÃO documentados e os links resolvem (o frontend
-      # tem 13 desses, todos para métodos privados do Parser).
-      - name: doc
-        if: success() || failure()
-        env:
-          RUSTDOCFLAGS: '-D warnings -A rustdoc::private_intra_doc_links'
-        # --keep-going: um crate que falha não esconde os erros dos outros.
-        run: cargo doc --locked --workspace --no-deps --document-private-items --keep-going
 
   # O backend nativo e o JIT no Linux e no macOS: compilar com os dois
   # features, os testes do emit_native e do JIT (com os ignorados) e a recarga

@@ -1570,7 +1570,9 @@ struct ReservaDePaginas {
     paradas: usize,
 }
 
-/// Páginas de cada pedaço que a [`ReservaDePaginas`] mapeia (2 MiB).
+/// Páginas de cada pedaço que a [`ReservaDePaginas`] mapeia (2 MiB). Só o
+/// Linux mapeia em pedaços; nos outros a constante fica pela documentação.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 const PAGINAS_POR_PEDACO: usize = 32;
 
 #[cfg(target_os = "linux")]
@@ -2656,7 +2658,7 @@ struct Marcador(Value);
 unsafe impl Sync for Marcador {}
 static VALOR_OBJETO: Marcador = Marcador(Value::Objeto);
 
-/// O `Ref` é o handle de um objeto do espaço de objetos ([`Bloco`]): o bit
+/// O `Ref` é o handle de um objeto do espaço de objetos ([`EspacoDeObjetos`]): o bit
 /// 1 ligado (os da tabela de slots são múltiplos de 4; o `Smi`, ímpar).
 /// Negativo nunca é objeto (é escalar usado como handle, N4).
 #[inline]
