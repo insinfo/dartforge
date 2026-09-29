@@ -269,7 +269,14 @@ fn untag(value: TaggedValue) -> (i64, u8) {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_object_new(class_id: i64, field_count: i64) -> i64 {
     let n = usize::try_from(field_count).expect("campos inválidos");
-    HEAP.with(|heap| heap.borrow_mut().alocar_objeto(class_id, n))
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let h = heap.alocar_objeto(class_id, n);
+        // A próxima alocação deste tamanho sai em linha, da TLAB (sem
+        // coletar aqui: `h` ainda não tem raiz).
+        heap.reabastecer_tlab(n);
+        h
+    })
 }
 // Os campos de um objeto (`Value::Object`) são lidos e gravados em linha
 // pelo código gerado (`llvm/mod.rs`, `GetField`/`SetField`): cada um é o par
@@ -513,9 +520,12 @@ fn valor_como_ref(v: TaggedValue) -> i64 {
 /// são lançáveis pelo subconjunto e devolvem -1.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_value_class(handle: i64) -> i64 {
-    // O caso comum (o receptor de todo despacho): um objeto Dart, cuja
-    // classe está no próprio valor. Uma consulta ao slot, sem os
-    // empréstimos e a segunda busca do caminho geral.
+    // O caso comum (o receptor de todo despacho): um objeto Dart ou uma
+    // lista tipada, cuja classe está no próprio valor, ou um valor do
+    // runtime com a classe do SDK da fonte (`_OneByteString`,
+    // `_GrowableList`…). Uma consulta ao slot só, sem os empréstimos e as
+    // buscas repetidas do caminho geral (o `dart:_http` pergunta a classe
+    // de strings e `Uint8List` a cada despacho).
     if crate::heap::smi::e_handle(handle) && handle > 0 {
         let cid = HEAP.with(|heap| {
             // SAFETY: leitura imediata, sem guardar a referência; ninguém
@@ -523,8 +533,10 @@ pub extern "C" fn dartforge_value_class(handle: i64) -> i64 {
             // código gerado ou do runtime que pergunta a classe.
             let heap = unsafe { heap.try_borrow_unguarded() }.ok()?;
             match heap.try_get(handle)? {
-                Value::Object { class_id, .. } => Some(*class_id),
-                _ => None,
+                Value::Object { class_id, .. }
+                | Value::TypedData { class_id, .. }
+                | Value::TypedView { class_id, .. } => Some(*class_id),
+                valor => cid_do_valor_do_runtime(heap, handle, valor),
             }
         });
         if let Some(cid) = cid {

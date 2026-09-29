@@ -630,6 +630,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // a inferência ainda não grava a promoção no tipo da leitura,
                 // então o operando chega `Ref` e volta ao escalar aqui.
                 // (`==`/`!=` fica de fora: comparar com null é legítimo.)
+                if matches!(op, BinaryOp::Eq | BinaryOp::NotEq)
+                    && let Some(r) =
+                        self.igualdade_de_classe_fechada(l_ty, &lop, &rop, matches!(op, BinaryOp::NotEq))
+                {
+                    return r;
+                }
                 let (lop, rop) = if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) || texto {
                     (lop, rop)
                 } else {

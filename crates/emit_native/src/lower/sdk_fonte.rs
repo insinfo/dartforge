@@ -398,6 +398,68 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(Instruction::Phi { incoming: vec![(fim1, r1), (fim2, r2)], ty: Type::I1 }, Type::I1)
     }
 
+    /// `a == b` (ou `a != b`, com `negar`) quando o tipo estático de `a` é
+    /// uma classe cujo `==` é fechado ([`membro_fechado`]: `String`, `int`,
+    /// `double`, `bool`…): a regra do null de [`Self::igualdade_fonte`] e,
+    /// com os dois lados não nulos, o `==` pelo despacho de
+    /// [`Self::chamar_membro_fonte`] — a chamada direta, ou o `switch` pela
+    /// classe com o seletor no `default` —, sem a entrada uniforme e a
+    /// conferência dos argumentos do seletor `c:==`. É o `char == " "` dos
+    /// analisadores do `dart:_http`. `None`: o caminho geral.
+    pub fn igualdade_de_classe_fechada(
+        &mut self,
+        tipo_de_a: Option<dartforge_types::table::TypeId>,
+        a: &Operand,
+        b: &Operand,
+        negar: bool,
+    ) -> Option<Operand> {
+        if !self.ctx.sdk_da_fonte || self.em_adaptador || self.operand_type(a) != Type::Ref {
+            return None;
+        }
+        let dartforge_types::table::Type::Interface { class, .. } = self.ctx.table.get(tipo_de_a?) else {
+            return None;
+        };
+        let fid = self.membro_na_classe(*class, "==")?;
+        let dono = self.ctx.program.functions[fid].class?;
+        if !self.ctx.program.library(self.ctx.program.classes[dono.0 as usize].library).is_sdk
+            || !membro_fechado(self.ctx, dono, "==")
+        {
+            return None;
+        }
+        let a = a.clone();
+        let b = self.coagir(b.clone(), Type::Ref);
+        let zero = Operand::Constant(Constant::Int(0));
+        let na = self.emit(Instruction::ICmp(ICmpOp::Eq, a.clone(), zero.clone()), Type::I1);
+        let nb = self.emit(Instruction::ICmp(ICmpOp::Eq, b.clone(), zero), Type::I1);
+        let algum = self.emit(Instruction::Or(na, nb), Type::I1);
+        let algum = self.emit(Instruction::ICmp(ICmpOp::Ne, algum, Operand::Constant(Constant::Int(0))), Type::I1);
+        let b_id = self.new_block();
+        let b_din = self.new_block();
+        let juncao = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: algum, then_block: b_id, else_block: b_din });
+        self.set_block(b_id);
+        let r1 = self.emit(Instruction::ICmp(ICmpOp::Eq, a.clone(), b.clone()), Type::I1);
+        let fim1 = self.current_block;
+        self.terminate(Terminator::Branch(juncao));
+        self.set_block(b_din);
+        // As condições de `chamar_membro_fonte` já valem (membro de
+        // instância de classe do SDK, fora de adaptador); o seletor fica só
+        // por garantia, sem deixar blocos pela metade.
+        let r = match self.chamar_membro_fonte(a.clone(), fid, &[(None, b.clone())]) {
+            Some(r) => r,
+            None => self.chamar_por_seletor(a, "c:==".to_string(), &[(None, b)]),
+        };
+        let r2 = self.coagir(r, Type::I1);
+        let mut entradas = vec![(fim1, r1)];
+        if !self.is_terminated() {
+            entradas.push((self.current_block, r2));
+            self.terminate(Terminator::Branch(juncao));
+        }
+        self.set_block(juncao);
+        let e = self.emit(Instruction::Phi { incoming: entradas, ty: Type::I1 }, Type::I1);
+        Some(if negar { self.emit(Instruction::LNot(e), Type::I1) } else { e })
+    }
+
     /// `op is T` com o SDK da fonte (hook de `testar_tipo`): toda classe
     /// (`int`, `num`, `String`, `Object`…) é uma classe compilada com id, e
     /// a resposta é a do grafo de subtipos que as bibliotecas registram; null

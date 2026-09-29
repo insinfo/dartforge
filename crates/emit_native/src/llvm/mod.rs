@@ -8,6 +8,9 @@ mod simd;
 
 /// Maior índice de campo lido em linha (`CAMPOS_EM_LINHA` do runtime).
 const CAMPOS_EM_LINHA: usize = 4096;
+/// Os números de campos com alocação em linha (`TLAB_N` do runtime,
+/// `crates/runtime/src/heap.rs`).
+const TLAB_N: i64 = 16;
 mod seletores;
 #[cfg(test)]
 mod testes;
@@ -40,6 +43,10 @@ pub struct LlvmEmitter<'a> {
     /// A função leu `%ctx` (`dartforge_contexto`, o contexto da thread do
     /// runtime) na entrada: exceção pendente e pilha-sombra sem chamada.
     tem_ctx: bool,
+    /// O rótulo LLVM em que termina cada bloco da HIR que se divide em
+    /// vários (a alocação em linha, [`LlvmEmitter::alocacao_em_linha`]): é
+    /// o predecessor que os `phi` dos sucessores nomeiam.
+    rotulos_de_saida: std::collections::HashMap<u32, String>,
     // --- P1 (closures, α) ---
     /// Vetores constantes de `i64` (`@df.arr.<k>`): assinaturas e descritores.
     vetores: Vec<Vec<i64>>,
@@ -99,6 +106,7 @@ impl<'a> LlvmEmitter<'a> {
             slots: std::collections::HashMap::new(),
             tem_frame: false,
             tem_ctx: false,
+            rotulos_de_saida: std::collections::HashMap::new(),
 
             vetores: Vec::new(),
             vetor_de: std::collections::HashMap::new(),
@@ -267,6 +275,7 @@ impl<'a> LlvmEmitter<'a> {
         });
         self.out.push_str(simd::DECLARACOES);
         self.out.push_str("declare i8 @llvm.expect.i8(i8, i8)\n");
+        self.out.push_str("declare i1 @llvm.expect.i1(i1, i1)\n");
         self.out.push_str(CAIXA_DE_INT);
         if compostas || !self.module.ffi_callbacks.is_empty() {
             self.out.push_str(
@@ -397,11 +406,19 @@ impl<'a> LlvmEmitter<'a> {
             &|b| blocos_que_convertem.contains(&b.0),
         );
         self.tem_frame = !self.slots.is_empty();
+        self.rotulos_de_saida = func
+            .blocks
+            .iter()
+            .filter_map(|b| {
+                let v = b.instructions.iter().rev().find(|(_, i, _)| Self::alocacao_em_linha(i).is_some())?.0 .0;
+                Some((b.id.0, format!("ao{v}.fim")))
+            })
+            .collect();
         self.tem_ctx = self.tem_frame
             || func.blocks.iter().any(|b| {
                 b.instructions.iter().any(|(_, i, _)| {
                     matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending")
-                        || Self::usa_campos_em_linha(i)
+                        || Self::usa_contexto(i)
                 })
             });
 
@@ -749,6 +766,10 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  %fr{v} = getelementptr inbounds {{ i64, i8 }}, ptr %fp{v}, i64 {i}, i32 1").unwrap();
                         writeln!(self.out, "  store i8 {is_ref}, ptr %fr{v}, align 8").unwrap();
                     }
+                    Instruction::CallRuntime { .. } if Self::alocacao_em_linha(inst).is_some() => {
+                        let (c, n) = Self::alocacao_em_linha(inst).expect("conferido na guarda");
+                        self.emitir_alocacao_em_linha(v, c, n);
+                    }
                     Instruction::CallRuntime { name, args, ret_ty }
                         if name == "dartforge_object_new"
                             && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
@@ -1083,7 +1104,10 @@ impl<'a> LlvmEmitter<'a> {
                                         _ => None,
                                     })
                                     .unwrap_or_else(|| self.operand_str(op));
-                                format!("[ {sop}, %b{} ]", b.0)
+                                match self.rotulos_de_saida.get(&b.0) {
+                                    Some(r) => format!("[ {sop}, %{r} ]"),
+                                    None => format!("[ {sop}, %b{} ]", b.0),
+                                }
                             })
                             .collect();
                         let joined = in_strs.join(", ");
@@ -2229,37 +2253,109 @@ impl<'a> LlvmEmitter<'a> {
     }
 
 
-    /// O endereço dos campos do objeto `so` (`%fp{v}`), lido em linha da
-    /// tabela de campos do heap (`Contexto::tabela`, deslocamentos 40 e 48
-    /// do contexto da thread; `crates/runtime/src/heap.rs`): a posição é o
-    /// handle girado um bit à direita (`h >> 1`, com o bit do `Smi` no topo),
-    /// e qualquer posição fora da tabela — `Smi`, negativo — vira a 0, a de
-    /// null, que dá os campos vazios, como `dartforge_object_campos` dava.
-    /// As cargas da tabela não passam de uma chamada: ela cresce (e muda de
-    /// endereço) quando o heap aloca.
+    /// O endereço dos campos do objeto `so` (`%fp{v}`), em linha: um objeto
+    /// do espaço de objetos (`h & 3 == 2` e `h > 0`, `crates/runtime/src/heap.rs`,
+    /// `Bloco`) guarda o ponteiro dos campos em `h + 14`; qualquer outra
+    /// coisa — null, `Smi`, valor do runtime — lê o ponteiro de
+    /// `Contexto::vazios` (deslocamento 40 do contexto da thread), os campos
+    /// zerados, como `dartforge_object_campos` dava. Uma carga, sem chamada.
     fn emitir_endereco_dos_campos(&mut self, v: u32, so: &str) {
         let o = &mut self.out;
-        writeln!(o, "  %fta{v} = getelementptr inbounds i8, ptr %ctx, i64 40").unwrap();
-        writeln!(o, "  %ftb{v} = load ptr, ptr %fta{v}, align 8").unwrap();
-        writeln!(o, "  %ftn{v} = getelementptr inbounds i8, ptr %ctx, i64 48").unwrap();
-        writeln!(o, "  %ftm{v} = load i64, ptr %ftn{v}, align 8").unwrap();
-        writeln!(o, "  %fth{v} = lshr i64 {so}, 1").unwrap();
-        writeln!(o, "  %ftl{v} = shl i64 {so}, 63").unwrap();
-        writeln!(o, "  %fti{v} = or i64 %fth{v}, %ftl{v}").unwrap();
-        writeln!(o, "  %fto{v} = icmp ult i64 %fti{v}, %ftm{v}").unwrap();
-        writeln!(o, "  %fts{v} = select i1 %fto{v}, i64 %fti{v}, i64 0").unwrap();
-        writeln!(o, "  %fte{v} = getelementptr inbounds ptr, ptr %ftb{v}, i64 %fts{v}").unwrap();
-        writeln!(o, "  %fp{v} = load ptr, ptr %fte{v}, align 8").unwrap();
+        // O bit de sinal entra na máscara: negativo nunca é objeto.
+        writeln!(o, "  %fxk{v} = and i64 {so}, -9223372036854775805").unwrap();
+        writeln!(o, "  %fxo{v} = icmp eq i64 %fxk{v}, 2").unwrap();
+        writeln!(o, "  %fxa{v} = add i64 {so}, 14").unwrap();
+        writeln!(o, "  %fxq{v} = inttoptr i64 %fxa{v} to ptr").unwrap();
+        writeln!(o, "  %fxv{v} = getelementptr inbounds i8, ptr %ctx, i64 40").unwrap();
+        writeln!(o, "  %fxs{v} = select i1 %fxo{v}, ptr %fxq{v}, ptr %fxv{v}").unwrap();
+        writeln!(o, "  %fp{v} = load ptr, ptr %fxs{v}, align 8").unwrap();
     }
 
-    /// A instrução lê ou grava campos em linha (e precisa de `%ctx`).
-    fn usa_campos_em_linha(inst: &Instruction) -> bool {
+    /// `dartforge_object_new(c, n)` com classe e número de campos
+    /// constantes e `n ≤ TLAB_N`: a alocação sai em linha
+    /// ([`LlvmEmitter::emitir_alocacao_em_linha`]). Devolve `(c, n)`.
+    fn alocacao_em_linha(inst: &Instruction) -> Option<(i64, i64)> {
+        let Instruction::CallRuntime { name, args, .. } = inst else { return None };
+        if name != "dartforge_object_new" || args.len() != 2 {
+            return None;
+        }
+        match (&args[0].0, &args[1].0) {
+            (Operand::Constant(Constant::Int(c)), Operand::Constant(Constant::Int(n))) if (0..=TLAB_N).contains(n) && *c >= 0 => {
+                Some((*c, *n))
+            }
+            _ => None,
+        }
+    }
+
+    /// A alocação em linha de um objeto de classe `c` e `n` campos, como o
+    /// `TryAllocateObject` da VM (`stub_code_compiler.cc`): tira o primeiro
+    /// bloco da TLAB de `n` campos do isolado (`Contexto::tlab`,
+    /// deslocamento `64 + 8n`; os blocos já foram contados como alocados e
+    /// têm os campos zerados e o molde do `Value::Object`), marca-o vivo,
+    /// grava a classe e devolve o handle (`bloco + 18`). TLAB vazia — ou,
+    /// para a classe que registra a tabela de métodos na primeira alocação
+    /// (`dartforge_object_new_t`), classe ainda não registrada — vai ao
+    /// runtime, que coleta se preciso e reabastece. O bloco da HIR termina
+    /// no rótulo `ao{v}.fim` ([`LlvmEmitter::rotulos_de_saida`]).
+    fn emitir_alocacao_em_linha(&mut self, v: u32, c: i64, n: i64) {
+        let tabela = self.module.funcoes_de_tabela.get(&(c as u32)).cloned();
+        if let Some(f) = &tabela {
+            self.anotar_externo(f, Type::Ptr, &[]);
+        }
+        let o = &mut self.out;
+        writeln!(o, "  %ta{v} = getelementptr inbounds i8, ptr %ctx, i64 {}", 64 + 8 * n).unwrap();
+        writeln!(o, "  %tb{v} = load ptr, ptr %ta{v}, align 8").unwrap();
+        writeln!(o, "  %tz{v} = icmp eq ptr %tb{v}, null").unwrap();
+        if tabela.is_some() {
+            writeln!(o, "  %tnp{v} = getelementptr inbounds i8, ptr %ctx, i64 56").unwrap();
+            writeln!(o, "  %tn{v} = load i64, ptr %tnp{v}, align 8").unwrap();
+            writeln!(o, "  %tk{v} = icmp ule i64 %tn{v}, {c}").unwrap();
+            writeln!(o, "  %tq{v} = or i1 %tz{v}, %tk{v}").unwrap();
+            writeln!(o, "  %tx{v} = call i1 @llvm.expect.i1(i1 %tq{v}, i1 false)").unwrap();
+            writeln!(o, "  br i1 %tx{v}, label %ao{v}.lento, label %ao{v}.reg").unwrap();
+            writeln!(o, "ao{v}.reg:").unwrap();
+            writeln!(o, "  %trp{v} = getelementptr inbounds i8, ptr %ctx, i64 48").unwrap();
+            writeln!(o, "  %tr{v} = load ptr, ptr %trp{v}, align 8").unwrap();
+            writeln!(o, "  %trb{v} = getelementptr inbounds i8, ptr %tr{v}, i64 {c}").unwrap();
+            writeln!(o, "  %trv{v} = load i8, ptr %trb{v}, align 1").unwrap();
+            writeln!(o, "  %trz{v} = icmp eq i8 %trv{v}, 0").unwrap();
+            writeln!(o, "  %try{v} = call i1 @llvm.expect.i1(i1 %trz{v}, i1 false)").unwrap();
+            writeln!(o, "  br i1 %try{v}, label %ao{v}.lento, label %ao{v}.rapido").unwrap();
+        } else {
+            writeln!(o, "  %tx{v} = call i1 @llvm.expect.i1(i1 %tz{v}, i1 false)").unwrap();
+            writeln!(o, "  br i1 %tx{v}, label %ao{v}.lento, label %ao{v}.rapido").unwrap();
+        }
+        writeln!(o, "ao{v}.rapido:").unwrap();
+        writeln!(o, "  %tpp{v} = getelementptr inbounds i8, ptr %tb{v}, i64 8").unwrap();
+        writeln!(o, "  %tp{v} = load i64, ptr %tpp{v}, align 8").unwrap();
+        writeln!(o, "  store i64 %tp{v}, ptr %ta{v}, align 8").unwrap();
+        writeln!(o, "  store i64 0, ptr %tpp{v}, align 8").unwrap();
+        writeln!(o, "  store i8 1, ptr %tb{v}, align 8").unwrap();
+        writeln!(o, "  %tcp{v} = getelementptr inbounds i8, ptr %tb{v}, i64 24").unwrap();
+        writeln!(o, "  store i64 {c}, ptr %tcp{v}, align 8").unwrap();
+        writeln!(o, "  %thb{v} = ptrtoint ptr %tb{v} to i64").unwrap();
+        writeln!(o, "  %th{v} = add i64 %thb{v}, 18").unwrap();
+        writeln!(o, "  br label %ao{v}.fim").unwrap();
+        writeln!(o, "ao{v}.lento:").unwrap();
+        match &tabela {
+            Some(f) => writeln!(o, "  %tl{v} = call i64 @dartforge_object_new_t(i64 {c}, i64 {n}, ptr @{f})").unwrap(),
+            None => writeln!(o, "  %tl{v} = call i64 @dartforge_object_new(i64 {c}, i64 {n})").unwrap(),
+        }
+        writeln!(o, "  br label %ao{v}.fim").unwrap();
+        writeln!(o, "ao{v}.fim:").unwrap();
+        writeln!(o, "  %v{v} = phi i64 [ %th{v}, %ao{v}.rapido ], [ %tl{v}, %ao{v}.lento ]").unwrap();
+    }
+
+    /// A instrução lê o contexto da thread (`%ctx`): campos em linha ou
+    /// alocação em linha.
+    fn usa_contexto(inst: &Instruction) -> bool {
         match inst {
             Instruction::GetField { index, .. } | Instruction::SetField { index, .. } => (*index as usize) < CAMPOS_EM_LINHA,
             Instruction::AllocObject { fields, .. } => !fields.is_empty(),
             Instruction::CallRuntime { name, args, .. } => {
-                (name == "dartforge_object_get" || (name == "dartforge_object_set" && args.len() == 4))
-                    && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..CAMPOS_EM_LINHA as i64).contains(i))
+                Self::alocacao_em_linha(inst).is_some()
+                    || ((name == "dartforge_object_get" || (name == "dartforge_object_set" && args.len() == 4))
+                        && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..CAMPOS_EM_LINHA as i64).contains(i)))
             }
             _ => false,
         }

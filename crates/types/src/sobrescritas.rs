@@ -1201,7 +1201,11 @@ pub fn valores_padrao(
         if !esperado || params.len() != dados.parameters.len() {
             continue;
         }
-        let ast_ = &program.unit(unit).ast;
+        // Unidade com `augment` no começo de linha: sem o experimento, o
+        // analyzer lê essas declarações de outro jeito.
+        if program.unit(unit).source.lines().any(|l| l.trim_start().starts_with("augment ")) {
+            continue;
+        }
         for (p, pd) in params.iter().zip(dados.parameters.iter()) {
             if p.kind == ast::ParameterKind::Required || p.required || p.default_value.is_some() || p.super_ {
                 continue;
@@ -1225,7 +1229,6 @@ pub fn valores_padrao(
                 };
                 Diagnostic::com_codigo(codigo, nome.span, [interner.resolve(nome.sym)])
             };
-            let _ = ast_;
             saida.push((unit, d));
         }
     }

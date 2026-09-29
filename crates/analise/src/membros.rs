@@ -960,6 +960,16 @@ pub fn verificar(
                         {
                             continue;
                         }
+                        // `_isFactoryConstructorReturnType`: o nome antes do
+                        // ponto de uma `factory` precisa ser o da declaração.
+                        if k.factory
+                            && let Some(n) = nome
+                            && k.class_name.sym != n.sym
+                            && cx.fonte.get(k.class_name.span.start..k.class_name.span.end)
+                                == Some(cx.nome(k.class_name.sym))
+                        {
+                            cx.relatar(c::INVALID_FACTORY_NAME_NOT_A_CLASS, k.class_name.span, &[]);
+                        }
                         cx.construtor(k);
                         cx.inicializadores(k, container, superclasse.as_deref());
                     }
@@ -1340,5 +1350,14 @@ mod testes {
                 ("static", "The built-in identifier 'static' can't be used as a type parameter name."),
             ]
         );
+    }
+
+    /// `invalid_factory_name_not_a_class` (corpus, oráculo 3.6.2): o nome de
+    /// uma `factory` que não é o da classe.
+    #[test]
+    fn factory_com_outro_nome() {
+        let v = rodar("factory", "class A {\n  factory B() => throw 0;\n  factory A.c() => throw 0;\n  factory foo() => throw 0;\n}\n");
+        let v: Vec<&str> = v.iter().filter(|x| x.0 == "invalid_factory_name_not_a_class").map(|x| x.1.as_str()).collect();
+        assert_eq!(v, vec!["B", "foo"]);
     }
 }

@@ -1090,17 +1090,20 @@ pub static CAMPOS_VAZIOS: [Campo; CAMPOS_EM_LINHA] = [(0, false); CAMPOS_EM_LINH
 
 /// Os campos de um objeto do usuário (`Value::Object`): `len` pares
 /// [`Campo`] contíguos, de endereço fixo enquanto o objeto vive — o código
-/// gerado os lê e grava em linha pelo endereço que a tabela de campos do
-/// heap dá ([`Contexto::tabela`]).
+/// gerado os lê e grava em linha pelo ponteiro `ptr` (deslocamento 16 do
+/// `Value`, ver [`Bloco`]).
 ///
 /// O bloco vem de um de dois lugares:
-/// * do **espaço de campos** do heap ([`EspacoDeCampos`], `Heap::campos_novos`):
-///   blocos por número de campos, reaproveitados por listas livres sem passar
-///   pelo alocador do sistema; volta ao espaço quando a coleta libera o slot
-///   (o `Drop` não o devolve — um `Campos` do espaço descartado fora da coleta
-///   só fica sem reúso até o heap acabar, quando o espaço inteiro é liberado);
-/// * do alocador global (`From<Vec<Campo>>`, os objetos que o runtime monta
-///   à mão): liberado no `Drop`.
+/// * **dentro do bloco do objeto** no espaço de objetos ([`EspacoDeObjetos`],
+///   `do_espaco`): logo depois do cabeçalho, com o objeto; o `Drop` não o
+///   libera — o bloco inteiro volta ao espaço na coleta;
+/// * do alocador global (`From<Vec<Campo>>`): os objetos que o runtime
+///   monta à mão (antes de irem ao espaço) e os campos de um objeto que
+///   cresceu (`Heap::garantir_campos`) ou mudou de layout numa recarga (J03);
+///   liberado no `Drop`.
+///
+/// Layout C fixo: contrato com o emissor (`llvm/mod.rs`).
+#[repr(C)]
 pub struct Campos {
     ptr: std::ptr::NonNull<Campo>,
     len: usize,
@@ -1112,12 +1115,9 @@ impl Campos {
     pub const fn vazio() -> Self {
         Self { ptr: std::ptr::NonNull::dangling(), len: 0, do_espaco: false }
     }
-    /// O endereço do primeiro campo (o que a tabela de campos publica).
+    /// O endereço do primeiro campo.
     pub fn as_mut_ptr(&mut self) -> *mut Campo {
         self.ptr.as_ptr()
-    }
-    fn endereco(&self) -> *mut Campo {
-        if self.len == 0 { CAMPOS_VAZIOS.as_ptr().cast_mut() } else { self.ptr.as_ptr() }
     }
 }
 
@@ -1170,147 +1170,394 @@ impl std::fmt::Debug for Campos {
     }
 }
 
-/// O espaço dos campos dos objetos do usuário: pedaços grandes do alocador
-/// do sistema, repartidos por ponteiro (*bump*) em blocos de `16 × n` bytes,
-/// e uma lista livre intrusiva por número de campos, que a coleta alimenta.
+/// O cabeçalho de um objeto do usuário no espaço de objetos
+/// ([`EspacoDeObjetos`]), seguido dos `n` campos. Layout C fixo: contrato
+/// com o emissor (`llvm/mod.rs`), conferido em [`conferir_layout`].
+///
+/// O handle do objeto é o endereço do `valor` com o bit 1 ligado
+/// (`bloco + 18`, [`DESLOCAMENTO_DO_HANDLE`]); os handles da tabela de
+/// slots são múltiplos de 4 e o `Smi` é ímpar (R10), então `h & 3 == 2`
+/// distingue o objeto sem consulta. A partir do handle:
+/// * `h + 6`: o `class_id` (deslocamento 8 do `Value::Object`);
+/// * `h + 14`: o ponteiro dos campos (`Campos::ptr`, deslocamento 16);
+/// * `h + 38`: os campos no próprio bloco (enquanto `Campos::do_espaco`).
+///
+/// Como o *new space* da VM, o bloco é tirado de uma lista (a TLAB do
+/// isolado, [`Contexto::tlab`]) pelo próprio código gerado, sem chamar o
+/// runtime; ao contrário dela, o coletor daqui não move objetos (o código
+/// gerado guarda handles em registradores entre pontos de coleta), e um
+/// bloco morto volta à lista do tamanho dele.
+#[repr(C)]
+pub struct Bloco {
+    /// 0 livre, 1 vivo, 2 marcado pela coleta em curso.
+    pub estado: u8,
+    /// O `hashCode` de identidade (0 = ainda não pedido).
+    pub hash: u32,
+    /// O metadado (RTI) do objeto, `id + 1` (0 = nenhum); num bloco livre,
+    /// o endereço do próximo bloco livre da lista.
+    pub metadado: i64,
+    /// Sempre um `Value::Object`; num bloco livre, o molde
+    /// (`class_id` 0 e os campos do próprio bloco, zerados).
+    pub valor: std::mem::ManuallyDrop<Value>,
+}
+
+/// O handle de um objeto do espaço é `bloco + DESLOCAMENTO_DO_HANDLE`.
+pub const DESLOCAMENTO_DO_HANDLE: i64 = 18;
+/// O discriminante de `Value::Object` (`#[repr(u8)]`).
+pub const TAG_DE_OBJETO: u8 = 4;
+/// Tamanho da página do espaço de objetos (e o alinhamento dela: a página
+/// de um handle é `h & !(PAGINA - 1)`).
+pub const PAGINA: usize = 64 * 1024;
+/// Maior número de campos das classes de tamanho do espaço; um objeto
+/// maior tem uma página só dele.
+pub const MAIOR_CLASSE: usize = 64;
+/// Os números de campos com alocação em linha (TLAB): `0..=TLAB_N`.
+pub const TLAB_N: usize = 16;
+/// Quantos blocos cada reabastecimento da TLAB entrega.
+const TLAB_BLOCOS: usize = 64;
+
+const _: () = {
+    assert!(std::mem::offset_of!(Bloco, estado) == 0);
+    assert!(std::mem::offset_of!(Bloco, hash) == 4);
+    assert!(std::mem::offset_of!(Bloco, metadado) == 8);
+    assert!(std::mem::offset_of!(Bloco, valor) == 16);
+    assert!(std::mem::size_of::<Bloco>() == 56);
+    assert!(std::mem::size_of::<Value>() == 40);
+    assert!(std::mem::offset_of!(Campos, ptr) == 0);
+    assert!(std::mem::offset_of!(Campos, len) == 8);
+    assert!(std::mem::offset_of!(Campos, do_espaco) == 16);
+};
+
+/// Bytes de um bloco de `n` campos.
+#[inline]
+pub const fn tamanho_do_bloco(n: usize) -> usize {
+    std::mem::size_of::<Bloco>() + n * std::mem::size_of::<Campo>()
+}
+
+/// Confere, em tempo de execução, o layout de `Value::Object` que o emissor
+/// assume (`#[repr(u8)]`: a tag no byte 0, `class_id` no 8, `Campos` no 16).
+/// A linguagem garante esse layout (RFC 2195); a conferência pega uma
+/// mudança na declaração que o quebre.
+///
+/// # Panics
+/// Se o layout não é o do contrato.
+#[allow(unsafe_code)]
+pub fn conferir_layout() {
+    let mut c = [(0i64, false); 1];
+    let v = std::mem::ManuallyDrop::new(Value::Object {
+        class_id: 0x0102_0304_0506_0708,
+        fields: Campos { ptr: std::ptr::NonNull::new(c.as_mut_ptr()).expect("não nulo"), len: 1, do_espaco: true },
+    });
+    let base = (&*v as *const Value).cast::<u8>();
+    // SAFETY: leituras dentro dos 40 bytes do valor.
+    unsafe {
+        assert_eq!(*base, TAG_DE_OBJETO, "tag de Value::Object");
+        assert_eq!(base.add(8).cast::<i64>().read(), 0x0102_0304_0506_0708, "class_id de Value::Object");
+        assert_eq!(base.add(16).cast::<*mut Campo>().read(), c.as_mut_ptr(), "campos de Value::Object");
+        assert_eq!(base.add(24).cast::<usize>().read(), 1, "comprimento dos campos");
+    }
+}
+
+/// Uma página do espaço de objetos: blocos de um só tamanho.
+#[derive(Debug)]
+struct Pagina {
+    base: *mut u8,
+    /// Bytes alocados (`PAGINA`, ou mais para um objeto grande).
+    bytes: usize,
+    /// Número de campos dos blocos.
+    n: usize,
+    blocos: usize,
+}
+
+impl Pagina {
+    fn layout(bytes: usize) -> std::alloc::Layout {
+        std::alloc::Layout::from_size_align(bytes, PAGINA).expect("layout da página")
+    }
+    fn bloco(&self, i: usize) -> *mut Bloco {
+        // SAFETY (dos chamadores): `i < blocos`, dentro da página.
+        #[allow(unsafe_code)]
+        unsafe {
+            self.base.add(i * tamanho_do_bloco(self.n)).cast()
+        }
+    }
+}
+
+/// O espaço dos objetos do usuário: páginas de [`PAGINA`] bytes, cada uma
+/// com blocos ([`Bloco`]) de um só número de campos, e uma lista livre por
+/// número de campos, refeita a cada varredura (em ordem de endereço).
 ///
 /// É o par, sem mover objetos, do *new space* da VM
-/// (`runtime/vm/heap/scavenger.cc`): alocar um objeto é tirar um bloco da
-/// lista livre ou avançar o ponteiro no pedaço corrente — sem `malloc`,
-/// `calloc` nem `free` por objeto. O coletor daqui não move (o código gerado
-/// guarda handles em registradores entre pontos de coleta), então o bloco de
-/// um objeto morto volta à lista do tamanho dele. Objetos com mais de
-/// [`EspacoDeCampos::MAIOR`] campos vão ao alocador do sistema.
-pub struct EspacoDeCampos {
-    /// Cabeça da lista livre de cada número de campos (nulo = vazia); o
-    /// primeiro campo de um bloco livre guarda o próximo.
-    livres: Vec<*mut Campo>,
-    /// Os pedaços pedidos ao sistema (liberados com o heap).
-    pedacos: Vec<*mut u8>,
-    /// O que resta do pedaço corrente.
-    atual: *mut u8,
-    fim: *mut u8,
-    /// Bytes de blocos entregues e ainda não devolvidos.
-    pub bytes_em_uso: usize,
-    /// Bytes pedidos ao sistema.
-    pub bytes_reservados: usize,
+/// (`runtime/vm/heap/scavenger.cc` e a alocação em linha do
+/// `stub_code_compiler.cc`): alocar um objeto é tirar o primeiro bloco da
+/// lista — pelo código gerado, da TLAB ([`Contexto::tlab`]) — sem `malloc`
+/// nem entrada na tabela de slots; a varredura devolve os mortos às listas e
+/// solta as páginas que ficaram vazias além de uma reserva.
+pub struct EspacoDeObjetos {
+    paginas: Vec<Pagina>,
+    /// Base da página → índice em `paginas` (a validação de um handle).
+    por_base: crate::hash::HashMap<usize, usize>,
+    /// Cabeça da lista livre de cada número de campos (`0..=MAIOR_CLASSE`).
+    livres: Vec<*mut Bloco>,
+    /// Blocos vivos (entregues e não devolvidos).
+    pub vivos: usize,
+    /// Blocos em todas as páginas.
+    pub blocos: usize,
 }
 
-impl std::fmt::Debug for EspacoDeCampos {
+impl std::fmt::Debug for EspacoDeObjetos {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("EspacoDeCampos")
-            .field("pedacos", &self.pedacos.len())
-            .field("bytes_em_uso", &self.bytes_em_uso)
-            .finish()
+        f.debug_struct("EspacoDeObjetos").field("paginas", &self.paginas.len()).field("vivos", &self.vivos).finish()
     }
 }
 
 #[allow(unsafe_code)]
-impl EspacoDeCampos {
-    /// Maior número de campos servido pelo espaço.
-    pub const MAIOR: usize = 256;
-    /// Tamanho de cada pedaço pedido ao sistema.
-    const PEDACO: usize = 256 * 1024;
-
+impl EspacoDeObjetos {
     fn new() -> Self {
         Self {
-            livres: vec![std::ptr::null_mut(); Self::MAIOR + 1],
-            pedacos: Vec::new(),
-            atual: std::ptr::null_mut(),
-            fim: std::ptr::null_mut(),
-            bytes_em_uso: 0,
-            bytes_reservados: 0,
+            paginas: Vec::new(),
+            por_base: crate::hash::HashMap::default(),
+            livres: vec![std::ptr::null_mut(); MAIOR_CLASSE + 1],
+            vivos: 0,
+            blocos: 0,
         }
     }
 
-    fn layout_do_pedaco() -> std::alloc::Layout {
-        std::alloc::Layout::from_size_align(Self::PEDACO, 16).expect("layout do pedaço")
+    /// Escreve o molde de bloco livre em `b` (`n` campos), sem ler o que
+    /// havia: estado 0, sem hash, `proximo` na lista, `Value::Object` de
+    /// classe 0 com os campos do próprio bloco, zerados.
+    ///
+    /// # Safety
+    /// `b` aponta um bloco de `n` campos de uma página deste espaço, sem
+    /// valor vivo (os campos próprios de um objeto que cresceu já foram
+    /// soltos).
+    unsafe fn formatar(b: *mut Bloco, n: usize, proximo: *mut Bloco) {
+        // SAFETY: o contrato da função.
+        unsafe {
+            let campos = b.cast::<u8>().add(std::mem::size_of::<Bloco>()).cast::<Campo>();
+            std::ptr::write_bytes(campos, 0, n);
+            b.write(Bloco {
+                estado: 0,
+                hash: 0,
+                metadado: proximo as i64,
+                valor: std::mem::ManuallyDrop::new(Value::Object {
+                    class_id: 0,
+                    fields: Campos { ptr: std::ptr::NonNull::new_unchecked(campos), len: n, do_espaco: true },
+                }),
+            });
+        }
     }
 
-    /// Um bloco zerado de `n` campos (`1 ≤ n ≤ MAIOR`).
-    #[inline]
-    fn alocar(&mut self, n: usize) -> *mut Campo {
-        debug_assert!(n >= 1 && n <= Self::MAIOR);
-        let bytes = n * std::mem::size_of::<Campo>();
-        self.bytes_em_uso += bytes;
-        let livre = self.livres[n];
-        if !livre.is_null() {
-            // SAFETY: bloco livre de `n` campos deste espaço; o primeiro
-            // campo guarda o próximo da lista.
-            unsafe {
-                self.livres[n] = (*livre).0 as *mut Campo;
-                zerar(livre, n);
-            }
-            return livre;
-        }
-        if (self.fim as usize) - (self.atual as usize) < bytes {
-            self.novo_pedaco();
-        }
-        let p = self.atual.cast::<Campo>();
-        // SAFETY: cabe no pedaço corrente (conferido acima); o pedaço veio
-        // zerado e nunca foi entregue.
-        self.atual = unsafe { self.atual.add(bytes) };
-        p
-    }
-
-    #[cold]
-    fn novo_pedaco(&mut self) {
+    /// Uma página nova para blocos de `n` campos, com todos os blocos na
+    /// lista livre de `n` (os objetos grandes têm uma página de um bloco,
+    /// fora das listas: devolve o bloco).
+    fn nova_pagina(&mut self, n: usize) -> *mut Bloco {
+        let tamanho = tamanho_do_bloco(n);
+        let bytes = if n > MAIOR_CLASSE { tamanho.div_ceil(PAGINA) * PAGINA } else { PAGINA };
+        let layout = Pagina::layout(bytes);
         // SAFETY: layout de tamanho não nulo.
-        let p = unsafe { std::alloc::alloc_zeroed(Self::layout_do_pedaco()) };
-        if p.is_null() {
-            std::alloc::handle_alloc_error(Self::layout_do_pedaco());
+        let base = unsafe { std::alloc::alloc(layout) };
+        if base.is_null() {
+            std::alloc::handle_alloc_error(layout);
         }
-        self.pedacos.push(p);
-        self.bytes_reservados += Self::PEDACO;
-        self.atual = p;
-        // SAFETY: fim do pedaço recém-alocado.
-        self.fim = unsafe { p.add(Self::PEDACO) };
+        let blocos = if n > MAIOR_CLASSE { 1 } else { PAGINA / tamanho };
+        let pagina = Pagina { base, bytes, n, blocos };
+        let mut proximo = if n > MAIOR_CLASSE { std::ptr::null_mut() } else { self.livres[n] };
+        for i in (0..blocos).rev() {
+            let b = pagina.bloco(i);
+            // SAFETY: bloco `i` da página nova.
+            unsafe { Self::formatar(b, n, proximo) };
+            proximo = b;
+        }
+        self.por_base.insert(base as usize, self.paginas.len());
+        self.paginas.push(pagina);
+        self.blocos += blocos;
+        if n <= MAIOR_CLASSE {
+            self.livres[n] = proximo;
+        }
+        proximo
     }
 
-    /// Devolve o bloco de `n` campos à lista livre do tamanho dele.
+    /// Tira um bloco livre de `n` campos (estado ainda 0), criando página
+    /// se preciso.
     #[inline]
-    fn liberar(&mut self, p: *mut Campo, n: usize) {
-        self.bytes_em_uso -= n * std::mem::size_of::<Campo>();
-        // SAFETY: bloco de `n` campos deste espaço, já sem dono.
-        unsafe { (*p).0 = self.livres[n] as i64 };
-        self.livres[n] = p;
+    fn tirar(&mut self, n: usize) -> *mut Bloco {
+        if n > MAIOR_CLASSE {
+            return self.nova_pagina(n);
+        }
+        let mut b = self.livres[n];
+        if b.is_null() {
+            b = self.nova_pagina(n);
+        }
+        // SAFETY: `b` é o primeiro bloco livre da lista de `n`.
+        self.livres[n] = unsafe { (*b).metadado } as *mut Bloco;
+        b
     }
-}
 
-/// Zera `n` campos em `p`: os tamanhos pequenos (quase todos os objetos)
-/// com gravações de tamanho fixo, sem a chamada ao `memset`.
-///
-/// # Safety
-/// `p` aponta `n` campos graváveis.
-#[inline]
-#[allow(unsafe_code)]
-unsafe fn zerar(p: *mut Campo, n: usize) {
-    // SAFETY: o contrato da função.
-    unsafe {
-        match n {
-            1 => p.cast::<[u64; 2]>().write([0; 2]),
-            2 => p.cast::<[u64; 4]>().write([0; 4]),
-            3 => p.cast::<[u64; 6]>().write([0; 6]),
-            4 => p.cast::<[u64; 8]>().write([0; 8]),
-            _ => std::ptr::write_bytes(p, 0, n),
+    /// Um objeto novo de `n` campos zerados e classe `class_id`: o handle.
+    #[inline]
+    fn alocar(&mut self, class_id: i64, n: usize) -> i64 {
+        let b = self.tirar(n);
+        // SAFETY: bloco livre tirado agora, com o molde de `n` campos.
+        unsafe {
+            (*b).estado = 1;
+            (*b).metadado = 0;
+            if let Value::Object { class_id: c, .. } = &mut *(*b).valor {
+                *c = class_id;
+            }
+        }
+        self.vivos += 1;
+        b as i64 + DESLOCAMENTO_DO_HANDLE
+    }
+
+    /// O bloco do handle `h`, se `h` é o de um bloco de alguma página deste
+    /// espaço (vivo ou não: o estado fica com quem pergunta).
+    #[inline]
+    pub fn bloco_de(&self, h: i64) -> Option<*mut Bloco> {
+        if h & 3 != 2 || h < 0 {
+            return None;
+        }
+        let b = (h - DESLOCAMENTO_DO_HANDLE) as usize;
+        let base = b & !(PAGINA - 1);
+        let p = &self.paginas[*self.por_base.get(&base)?];
+        let desl = b - base;
+        let tamanho = tamanho_do_bloco(p.n);
+        (desl % tamanho == 0 && desl / tamanho < p.blocos).then_some(b as *mut Bloco)
+    }
+
+    /// Solta os campos de fora do bloco (um objeto que cresceu) e devolve o
+    /// bloco ao molde livre.
+    ///
+    /// # Safety
+    /// `b` é um bloco de `n` campos deste espaço cujo objeto morreu.
+    unsafe fn soltar(b: *mut Bloco, n: usize, proximo: *mut Bloco) {
+        // SAFETY: o contrato da função; o valor é sempre `Value::Object`.
+        unsafe {
+            if let Value::Object { fields, .. } = &mut *(*b).valor
+                && !fields.do_espaco
+            {
+                std::ptr::drop_in_place(fields);
+            }
+            Self::formatar(b, n, proximo);
+        }
+    }
+
+    /// A varredura: os marcados (2) voltam a vivos (1); os vivos não
+    /// marcados morrem e voltam às listas, refeitas em ordem de endereço;
+    /// as páginas que ficaram vazias vão ao sistema, menos uma reserva por
+    /// tamanho. Devolve (mortos, vivos, bytes vivos).
+    fn varrer(&mut self) -> (usize, usize, usize) {
+        const RESERVA_DE_PAGINAS_VAZIAS: usize = 2;
+        for l in self.livres.iter_mut() {
+            *l = std::ptr::null_mut();
+        }
+        let mut vazias_mantidas = vec![0usize; MAIOR_CLASSE + 1];
+        let (mut mortos, mut vivos, mut bytes_vivos) = (0, 0, 0);
+        let mut i = self.paginas.len();
+        while i > 0 {
+            i -= 1;
+            let (n, blocos) = (self.paginas[i].n, self.paginas[i].blocos);
+            let tamanho = tamanho_do_bloco(n);
+            let mut cabeca = if n <= MAIOR_CLASSE { self.livres[n] } else { std::ptr::null_mut() };
+            let mut vivos_na_pagina = 0;
+            for j in (0..blocos).rev() {
+                let b = self.paginas[i].bloco(j);
+                // SAFETY: bloco `j` da página `i`; o estado diz se há objeto.
+                unsafe {
+                    match (*b).estado {
+                        2 => {
+                            (*b).estado = 1;
+                            vivos_na_pagina += 1;
+                            if let Value::Object { fields, .. } = &*(*b).valor {
+                                bytes_vivos += tamanho + if fields.do_espaco { 0 } else { fields.len * std::mem::size_of::<Campo>() };
+                            }
+                        }
+                        1 => {
+                            mortos += 1;
+                            Self::soltar(b, n, cabeca);
+                            cabeca = b;
+                        }
+                        _ => {
+                            (*b).metadado = cabeca as i64;
+                            cabeca = b;
+                        }
+                    }
+                }
+            }
+            vivos += vivos_na_pagina;
+            let vazia = vivos_na_pagina == 0;
+            let solta = vazia && (n > MAIOR_CLASSE || vazias_mantidas[n] >= RESERVA_DE_PAGINAS_VAZIAS);
+            if solta {
+                // Os blocos desta página saem da lista: ela recomeça do que
+                // havia antes dela.
+                let p = self.paginas.swap_remove(i);
+                self.por_base.remove(&(p.base as usize));
+                if i < self.paginas.len() {
+                    let base = self.paginas[i].base as usize;
+                    self.por_base.insert(base, i);
+                }
+                self.blocos -= p.blocos;
+                // SAFETY: a página veio de `alloc` com este layout, e nenhum
+                // bloco dela está vivo.
+                unsafe { std::alloc::dealloc(p.base, Pagina::layout(p.bytes)) };
+                let _ = tamanho;
+                continue;
+            }
+            if vazia {
+                vazias_mantidas[n] += 1;
+            }
+            if n <= MAIOR_CLASSE {
+                self.livres[n] = cabeca;
+            }
+        }
+        self.vivos = vivos;
+        (mortos, vivos, bytes_vivos)
+    }
+
+    /// Visita o valor de cada objeto vivo.
+    fn para_cada_vivo(&mut self, mut f: impl FnMut(*mut Bloco)) {
+        for p in &self.paginas {
+            for j in 0..p.blocos {
+                let b = p.bloco(j);
+                // SAFETY: bloco da página.
+                if unsafe { (*b).estado } != 0 {
+                    f(b);
+                }
+            }
         }
     }
 }
 
-impl Drop for EspacoDeCampos {
+impl Drop for EspacoDeObjetos {
     fn drop(&mut self) {
-        for &p in &self.pedacos {
-            // SAFETY: cada pedaço veio de `alloc_zeroed` com este layout.
+        for p in &self.paginas {
+            for j in 0..p.blocos {
+                let b = p.bloco(j);
+                // SAFETY: bloco da página; os campos de fora do bloco são
+                // do alocador global.
+                #[allow(unsafe_code)]
+                unsafe {
+                    if let Value::Object { fields, .. } = &mut *(*b).valor
+                        && !fields.do_espaco
+                    {
+                        std::ptr::drop_in_place(fields);
+                    }
+                }
+            }
+            // SAFETY: a página veio de `alloc` com este layout.
             #[allow(unsafe_code)]
             unsafe {
-                std::alloc::dealloc(p, Self::layout_do_pedaco())
+                std::alloc::dealloc(p.base, Pagina::layout(p.bytes))
             };
         }
     }
 }
 
 /// Valor gerenciado; somente campos marcados como referência participam do tracing.
+///
+/// `#[repr(u8)]`: o layout de `Value::Object` é contrato com o emissor (a
+/// tag no byte 0, [`TAG_DE_OBJETO`]; ver [`Bloco`] e [`conferir_layout`]).
 #[derive(Debug)]
+#[repr(u8)]
 pub enum Value {
     /// `String` do Dart (`_OneByteString`/`_TwoByteString`, ver [`Texto`]).
     String(Texto),
@@ -1355,12 +1602,12 @@ pub enum Value {
     /// Lista tipada interna (`_Uint8List`, `_Float64List`, … do
     /// `typed_data_patch.dart` da VM): a classe, o tipo do elemento
     /// (`typed_data.rs`, `TIPO_*`) e os bytes, no endian do hospedeiro.
-    TypedData { class_id: i64, tipo: u8, bytes: Armazenamento },
+    TypedData { tipo: u8, class_id: i64, bytes: Armazenamento },
     /// Visão sobre uma lista tipada interna (`_Uint8ArrayView`,
     /// `_ByteDataView`, …): a classe, o tipo do elemento, a lista de base,
     /// o deslocamento em bytes, o comprimento em elementos e se é não
     /// modificável (`_UnmodifiableXArrayView`, que rejeita escrita).
-    TypedView { class_id: i64, tipo: u8, base: i64, deslocamento: usize, comprimento: usize, imutavel: bool },
+    TypedView { tipo: u8, imutavel: bool, class_id: i64, base: i64, deslocamento: usize, comprimento: usize },
 }
 /// Os bytes de uma lista tipada interna: próprios (do heap do runtime) ou
 /// externos — a memória nativa de `Pointer.asTypedList`, que o Dart só vê
@@ -1526,6 +1773,28 @@ impl Value {
     }
 }
 
+/// O handle `h` foi marcado pela coleta em curso (vivo)? Null, `Smi` e
+/// escalar qualquer: não.
+fn marcado_na_coleta(marks: &[bool], objetos: &EspacoDeObjetos, h: i64) -> bool {
+    if !smi::e_handle(h) || h < 0 {
+        return false;
+    }
+    if e_objeto(h) {
+        // SAFETY: bloco de uma página do espaço.
+        #[allow(unsafe_code)]
+        return objetos.bloco_de(h).is_some_and(|b| unsafe { (*b).estado } == 2);
+    }
+    marks.get(Heap::indice_de(h)).copied().unwrap_or(false)
+}
+
+/// O `Ref` é o handle de um objeto do espaço de objetos ([`Bloco`]): o bit
+/// 1 ligado (os da tabela de slots são múltiplos de 4; o `Smi`, ímpar).
+/// Negativo nunca é objeto (é escalar usado como handle, N4).
+#[inline]
+pub fn e_objeto(r: i64) -> bool {
+    r & (3 | i64::MIN) == 2
+}
+
 /// `Ref` com `Smi` etiquetado (R10, docs/NATIVO-PLANO.md §6.2 e §7.1).
 ///
 /// Um `Ref` do código gerado é um `i64` com a etiqueta no bit baixo, como o
@@ -1611,23 +1880,24 @@ pub struct Contexto {
     /// (`portas.rs`). O código gerado o lê, atômico, no começo de cada volta
     /// de laço (o ponto seguro da J01).
     pub interrupcao: std::sync::atomic::AtomicU8,
-    /// A tabela de campos do heap deste isolado (deslocamento 40) e o
-    /// comprimento dela (48): a posição `h >> 1` do handle `h` dá o endereço
-    /// dos campos do objeto (`Heap::enderecos`); a posição 0 (null) e os
-    /// slots que não são objeto dão [`CAMPOS_VAZIOS`]. O código gerado lê o
-    /// campo em linha com duas cargas, sem chamar o runtime (`llvm/mod.rs`).
-    /// O endereço muda quando a tabela cresce: o código o relê depois de
-    /// cada chamada.
-    pub tabela: std::cell::Cell<*const *mut Campo>,
-    pub n_tabela: std::cell::Cell<usize>,
+    /// O endereço de [`CAMPOS_VAZIOS`] (deslocamento 40): a leitura em
+    /// linha de um campo de algo que não é objeto do espaço carrega o
+    /// ponteiro dos campos daqui em vez de `h + 14` (`llvm/mod.rs`), e lê
+    /// zeros, como `dartforge_object_get` dava.
+    pub vazios: *const Campo,
+    /// As classes com tabela de métodos registrada (deslocamento 48; um
+    /// byte 0/1 por id, `seletores.rs`) e quantas (56): a alocação em linha
+    /// de uma classe que registra a tabela na primeira alocação
+    /// (`dartforge_object_new_t`) só pula o runtime depois do registro.
+    pub registradas: std::cell::Cell<*const u8>,
+    pub n_registradas: std::cell::Cell<usize>,
+    /// A TLAB do isolado (deslocamento 64): para cada número de campos
+    /// `n ≤ TLAB_N`, uma lista de blocos livres do espaço de objetos já
+    /// contados como alocação (`Heap::reabastecer_tlab`), encadeados pelo
+    /// `metadado`. O código gerado tira o primeiro (a alocação em linha,
+    /// `llvm/mod.rs`); lista vazia (nulo) vai ao runtime, que reabastece.
+    pub tlab: [std::cell::Cell<*mut Bloco>; TLAB_N + 1],
 }
-
-/// A tabela de quem ainda não tem heap: só a posição de null.
-struct TabelaInicial([*const Campo; 1]);
-// SAFETY: só leitura, e aponta para memória estática só de leitura.
-#[allow(unsafe_code)]
-unsafe impl Sync for TabelaInicial {}
-static TABELA_INICIAL: TabelaInicial = TabelaInicial([CAMPOS_VAZIOS.as_ptr()]);
 
 const _: () = {
     assert!(std::mem::offset_of!(Contexto, pendente) == 0);
@@ -1635,8 +1905,10 @@ const _: () = {
     assert!(std::mem::offset_of!(Contexto, areas) == 16);
     assert!(std::mem::offset_of!(Contexto, n_areas) == 24);
     assert!(std::mem::offset_of!(Contexto, interrupcao) == 32);
-    assert!(std::mem::offset_of!(Contexto, tabela) == 40);
-    assert!(std::mem::offset_of!(Contexto, n_tabela) == 48);
+    assert!(std::mem::offset_of!(Contexto, vazios) == 40);
+    assert!(std::mem::offset_of!(Contexto, registradas) == 48);
+    assert!(std::mem::offset_of!(Contexto, n_registradas) == 56);
+    assert!(std::mem::offset_of!(Contexto, tlab) == 64);
 };
 
 thread_local! {
@@ -1647,8 +1919,10 @@ thread_local! {
             areas: std::cell::Cell::new(std::ptr::null()),
             n_areas: std::cell::Cell::new(0),
             interrupcao: std::sync::atomic::AtomicU8::new(0),
-            tabela: std::cell::Cell::new(TABELA_INICIAL.0.as_ptr().cast()),
-            n_tabela: std::cell::Cell::new(1),
+            vazios: CAMPOS_VAZIOS.as_ptr(),
+            registradas: std::cell::Cell::new(std::ptr::null()),
+            n_registradas: std::cell::Cell::new(0),
+            tlab: [const { std::cell::Cell::new(std::ptr::null_mut()) }; TLAB_N + 1],
         }
     };
 }
@@ -1787,14 +2061,14 @@ pub struct Heap {
     /// elementos de `data` (a reserva) e o tamanho lógico ainda é este, até
     /// o primeiro `_setLength`/`_setData` — na VM a lista aponta para o
     /// `_List` e o tamanho é outro campo.
-    /// Onde moram os campos dos objetos do usuário ([`EspacoDeCampos`]).
-    espaco: EspacoDeCampos,
-    /// A tabela de campos: a posição `i + 1` é o endereço dos campos do
-    /// slot `i` se ele guarda um `Value::Object` vivo, e [`CAMPOS_VAZIOS`]
-    /// senão; a posição 0 é a de null. Publicada no [`Contexto`] da thread
-    /// quando `publica` (o heap do isolado, não os de teste).
-    enderecos: Vec<*mut Campo>,
+    /// Onde moram os objetos do usuário ([`EspacoDeObjetos`]); os slots
+    /// guardam os demais valores do runtime.
+    objetos: EspacoDeObjetos,
+    /// O heap do isolado da thread (não um de teste): reabastece a TLAB do
+    /// [`Contexto`] dela.
     publica: bool,
+    /// O próximo `hashCode` de identidade de objeto.
+    proximo_hash: u32,
     pub iteracoes_ativas: crate::hash::HashSet<i64>,
     /// Lista de chaves → mapa de origem (para acusar modificação do mapa
     /// durante a iteração das chaves).
@@ -1894,9 +2168,9 @@ impl Heap {
             campos_late_inicializados: crate::hash::HashSet::default(),
             epoca_de_layout: EPOCA_DE_LAYOUT.load(std::sync::atomic::Ordering::Acquire),
             fixas: crate::hash::HashSet::default(),
-            espaco: EspacoDeCampos::new(),
-            enderecos: vec![CAMPOS_VAZIOS.as_ptr().cast_mut()],
+            objetos: EspacoDeObjetos::new(),
             publica: false,
+            proximo_hash: 0,
             iteracoes_ativas: crate::hash::HashSet::default(),
             origens: crate::hash::HashMap::default(),
             finalizaveis: crate::hash::HashMap::default(),
@@ -2195,8 +2469,14 @@ impl Heap {
         self.stats.live_roots -= roots.iter().filter(|handle| **handle != 0).count();
     }
     /// Aloca após coleta; o chamador deve proteger o resultado antes de outra alocação.
+    ///
+    /// Um `Value::Object` vai ao espaço de objetos ([`EspacoDeObjetos`]),
+    /// com os campos copiados para o bloco; os demais valores, a um slot.
     pub fn allocate(&mut self, value: Value) -> i64 {
-        let bytes = value.estimated_bytes();
+        let bytes = match &value {
+            Value::Object { fields, .. } => tamanho_do_bloco(fields.len()),
+            v => v.estimated_bytes(),
+        };
         // Dois limites diferentes (G6):
         // * o GATILHO (`threshold`, `byte_threshold`): quanto se aloca desde
         //   a última coleta, recalculado no fim de cada uma
@@ -2218,75 +2498,63 @@ impl Heap {
         }
         // Depois da coleta: se ainda passa do teto, nao ha o que recuperar.
         self.verificar_teto(bytes);
-        self.stats.estimated_bytes = self
-            .stats
-            .estimated_bytes
-            .checked_add(bytes)
-            .expect("heap excede usize");
-        self.stats.peak_estimated_bytes = self
-            .stats
-            .peak_estimated_bytes
-            .max(self.stats.estimated_bytes);
-        self.allocations += 1;
-        self.stats.allocations += 1;
-        self.guardar(value)
+        self.contar_alocacao(1, bytes);
+        match value {
+            Value::Object { class_id, fields } => {
+                let h = self.objetos.alocar(class_id, fields.len());
+                if let Value::Object { fields: destino, .. } = self.get_mut(h) {
+                    destino.copy_from_slice(&fields);
+                }
+                h
+            }
+            value => self.guardar(value),
+        }
     }
-    /// Põe `value` num slot (um livre, ou um novo no fim da tabela) e
-    /// atualiza a tabela de campos; devolve o handle.
+    /// Conta `k` alocações de `bytes` no total para os gatilhos e os
+    /// contadores.
     #[inline]
-    fn guardar(&mut self, mut value: Value) -> i64 {
-        let endereco = match &mut value {
-            Value::Object { fields, .. } => fields.endereco(),
-            _ => CAMPOS_VAZIOS.as_ptr().cast_mut(),
-        };
+    fn contar_alocacao(&mut self, k: usize, bytes: usize) {
+        self.stats.estimated_bytes = self.stats.estimated_bytes.checked_add(bytes).expect("heap excede usize");
+        self.stats.peak_estimated_bytes = self.stats.peak_estimated_bytes.max(self.stats.estimated_bytes);
+        self.allocations += k;
+        self.stats.allocations += k as u64;
+    }
+    /// Põe `value` num slot (um livre, ou um novo no fim da tabela);
+    /// devolve o handle.
+    #[inline]
+    fn guardar(&mut self, value: Value) -> i64 {
         let index = if let Some(index) = self.free.pop() {
             self.slots[index] = Some(value);
             self.metadados[index] = 0;
-            self.enderecos[index + 1] = endereco;
             index
         } else {
             self.slots.push(Some(value));
             self.metadados.push(0);
-            let capacidade = self.enderecos.capacity();
-            self.enderecos.push(endereco);
-            if self.enderecos.capacity() != capacidade {
-                self.publicar_tabela();
-            } else if self.publica {
-                CONTEXTO.with(|c| c.n_tabela.set(self.enderecos.len()));
-            }
             self.slots.len() - 1
         };
         Self::handle_de_indice(index)
     }
-    /// Publica a tabela de campos no [`Contexto`] da thread (o heap do
-    /// isolado; os heaps de teste não publicam).
-    fn publicar_tabela(&self) {
-        if self.publica {
-            CONTEXTO.with(|c| {
-                c.tabela.set(self.enderecos.as_ptr().cast());
-                c.n_tabela.set(self.enderecos.len());
-            });
-        }
-    }
-    /// O heap do isolado da thread: publica a tabela de campos no
-    /// [`Contexto`] (o que o código gerado lê em linha).
+    /// O heap do isolado da thread: reabastece a TLAB do [`Contexto`] (a
+    /// alocação em linha do código gerado).
+    ///
+    /// # Panics
+    /// Se o layout de `Value::Object` não é o que o emissor assume
+    /// ([`conferir_layout`]).
     pub fn do_isolado(stress: bool) -> Self {
+        conferir_layout();
         let mut h = Self::new(stress);
         h.publica = true;
-        h.enderecos.reserve(1024);
-        h.publicar_tabela();
         h
     }
     /// Aloca um objeto do usuário de `n` campos zerados (o caminho do
-    /// `dartforge_object_new`): o bloco dos campos vem do espaço de campos
-    /// ([`EspacoDeCampos`]), sem o alocador do sistema.
+    /// `dartforge_object_new`), no espaço de objetos.
     ///
     /// O caminho rápido confere os gatilhos de [`Heap::allocate`] numa
-    /// comparação cada, sem montar o valor antes; se algum dispara (coleta,
-    /// teto, `--gc-stress`), vai ao caminho geral.
+    /// comparação cada; se algum dispara (coleta, teto, `--gc-stress`), vai
+    /// ao caminho geral.
     #[inline]
     pub fn alocar_objeto(&mut self, class_id: i64, n: usize) -> i64 {
-        let bytes = std::mem::size_of::<Value>() + n * std::mem::size_of::<Campo>();
+        let bytes = tamanho_do_bloco(n);
         let depois = self.stats.estimated_bytes.saturating_add(bytes);
         if self.stress
             || self.allocations >= self.threshold
@@ -2295,31 +2563,148 @@ impl Heap {
         {
             return self.alocar_objeto_lento(class_id, n);
         }
-        self.stats.estimated_bytes = depois;
-        self.stats.peak_estimated_bytes = self.stats.peak_estimated_bytes.max(depois);
-        self.allocations += 1;
-        self.stats.allocations += 1;
-        let fields = self.campos_novos(n);
-        self.guardar(Value::Object { class_id, fields })
+        self.contar_alocacao(1, bytes);
+        self.objetos.alocar(class_id, n)
     }
     #[cold]
     #[inline(never)]
     fn alocar_objeto_lento(&mut self, class_id: i64, n: usize) -> i64 {
-        let fields = self.campos_novos(n);
-        self.allocate(Value::Object { class_id, fields })
+        self.allocate(Value::Object { class_id, fields: vec![(0, false); n].into() })
     }
-    /// O metadado do slot de um handle vivo (0 = nenhum).
+    /// Reabastece a TLAB de `n` campos do [`Contexto`] (se vazia), com até
+    /// [`TLAB_BLOCOS`] blocos contados como alocados agora — sem coletar:
+    /// só o que cabe antes do próximo gatilho (o que passa dele fica para o
+    /// runtime, que coleta). Sem TLAB no `--gc-stress` (toda alocação
+    /// passa pelo runtime, que coleta antes) e nos heaps de teste.
+    pub fn reabastecer_tlab(&mut self, n: usize) {
+        if !self.publica || self.stress || n > TLAB_N {
+            return;
+        }
+        if !CONTEXTO.with(|c| c.tlab[n].get().is_null()) {
+            return;
+        }
+        let tamanho = tamanho_do_bloco(n);
+        let mut k = TLAB_BLOCOS
+            .min(self.threshold.saturating_sub(self.allocations))
+            .min(self.byte_threshold.saturating_sub(self.stats.estimated_bytes) / tamanho);
+        if self.limite_bytes != usize::MAX {
+            k = k.min(self.limite_bytes.saturating_sub(self.bytes_totais(0)) / tamanho);
+        }
+        if k == 0 {
+            return;
+        }
+        // Os `k` primeiros da lista livre, na ordem dela.
+        let mut cabeca: *mut Bloco = std::ptr::null_mut();
+        let mut cauda: *mut Bloco = std::ptr::null_mut();
+        for _ in 0..k {
+            let b = self.objetos.tirar(n);
+            // SAFETY: bloco livre recém-tirado; o encadeamento é pelo
+            // metadado, como nas listas livres.
+            #[allow(unsafe_code)]
+            unsafe {
+                (*b).metadado = 0;
+                if cauda.is_null() {
+                    cabeca = b;
+                } else {
+                    (*cauda).metadado = b as i64;
+                }
+            }
+            cauda = b;
+        }
+        self.objetos.vivos += k;
+        self.contar_alocacao(k, k * tamanho);
+        CONTEXTO.with(|c| c.tlab[n].set(cabeca));
+    }
+    /// Devolve as TLABs do [`Contexto`] (o que o código gerado não usou) antes
+    /// de uma coleta: os blocos voltam a ser só livres (a varredura refaz as
+    /// listas) e saem da contagem de alocações.
+    fn devolver_tlabs(&mut self) {
+        if !self.publica {
+            return;
+        }
+        for n in 0..=TLAB_N {
+            let mut b = CONTEXTO.with(|c| c.tlab[n].replace(std::ptr::null_mut()));
+            let mut k = 0usize;
+            while !b.is_null() {
+                k += 1;
+                // SAFETY: bloco livre da TLAB, encadeado pelo metadado.
+                #[allow(unsafe_code)]
+                unsafe {
+                    b = (*b).metadado as *mut Bloco;
+                }
+            }
+            if k > 0 {
+                let bytes = k * tamanho_do_bloco(n);
+                self.objetos.vivos -= k;
+                self.allocations = self.allocations.saturating_sub(k);
+                self.stats.allocations = self.stats.allocations.saturating_sub(k as u64);
+                self.stats.estimated_bytes = self.stats.estimated_bytes.saturating_sub(bytes);
+            }
+        }
+    }
+    /// O bloco vivo do objeto `h` (`h & 3 == 2`), ou `panic` como
+    /// [`Heap::indice_vivo`] (N4).
+    #[inline]
+    fn bloco_vivo(&self, handle: i64) -> *mut Bloco {
+        match self.objetos.bloco_de(handle) {
+            // SAFETY: bloco de uma página do espaço.
+            #[allow(unsafe_code)]
+            Some(b) if unsafe { (*b).estado } != 0 => b,
+            Some(_) => panic!("bug do compilador: handle já coletado (raiz faltando)\nhandle {handle}"),
+            None => panic!("bug do compilador: handle além da tabela (escalar usado como handle)\nhandle {handle}"),
+        }
+    }
+    /// O `hashCode` de identidade do objeto `h` do espaço (sorteado na
+    /// primeira consulta, como o da VM, de uma sequência determinística);
+    /// `None` se `h` não é objeto do espaço.
+    pub fn hash_de_identidade(&mut self, h: i64) -> Option<i64> {
+        let b = self.objetos.bloco_de(h)?;
+        #[allow(unsafe_code)]
+        // SAFETY: bloco de uma página do espaço.
+        unsafe {
+            if (*b).estado == 0 {
+                return None;
+            }
+            if (*b).hash == 0 {
+                // Um passo da sequência de Weyl de 30 bits: todos distintos
+                // até dar a volta, bem espalhados; nunca 0.
+                self.proximo_hash = self.proximo_hash.wrapping_add(0x2545_F491) & 0x3fff_ffff;
+                (*b).hash = self.proximo_hash.max(1);
+            }
+            Some(i64::from((*b).hash))
+        }
+    }
+    /// O metadado de um handle vivo (0 = nenhum).
     pub fn metadado(&self, handle: i64) -> i64 {
+        if e_objeto(handle) {
+            // SAFETY: bloco vivo.
+            #[allow(unsafe_code)]
+            return unsafe { (*self.bloco_vivo(handle)).metadado };
+        }
         let i = self.indice_vivo(handle);
         self.metadados[i]
     }
-    /// O metadado e o valor de um handle vivo, numa consulta só ao slot.
+    /// O metadado e o valor de um handle vivo, numa consulta só.
     pub fn metadado_e_valor(&self, handle: i64) -> (i64, &Value) {
+        if e_objeto(handle) {
+            let b = self.bloco_vivo(handle);
+            // SAFETY: bloco vivo; a referência vive enquanto `&self`.
+            #[allow(unsafe_code)]
+            return unsafe { ((*b).metadado, &*(*b).valor) };
+        }
         let i = self.indice_vivo(handle);
         (self.metadados[i], self.slots[i].as_ref().expect("slot vivo verificado"))
     }
-    /// Grava o metadado do slot de um handle vivo.
+    /// Grava o metadado de um handle vivo.
     pub fn set_metadado(&mut self, handle: i64, valor: i64) {
+        if e_objeto(handle) {
+            // SAFETY: bloco vivo.
+            #[allow(unsafe_code)]
+            unsafe {
+                (*self.bloco_vivo(handle)).metadado = valor
+            };
+            return;
+        }
         let i = self.indice_vivo(handle);
         self.metadados[i] = valor;
         // O `E` de uma lista mudou: as gravações diretas se conferem de novo.
@@ -2331,6 +2716,9 @@ impl Heap {
     /// diretas conferidas (`CabecalhoDeLista::gravavel`).
     pub fn marcar_imutavel(&mut self, handle: i64) {
         self.imutaveis.insert(handle);
+        if e_objeto(handle) {
+            return;
+        }
         if let Some(Value::List(e)) = smi::e_handle(handle)
             .then(|| self.slots.get_mut(Self::indice_de(handle)))
             .flatten()
@@ -2340,15 +2728,17 @@ impl Heap {
         }
     }
     /// O handle (par) do slot `index` (R10).
+    ///
+    /// Múltiplo de 4: o bit 1 ligado é o dos objetos do espaço ([`Bloco`]).
     fn handle_de_indice(index: usize) -> i64 {
         i64::try_from(index + 1)
             .ok()
-            .and_then(|h| h.checked_shl(1).filter(|x| x >> 1 == h))
+            .and_then(|h| h.checked_shl(2).filter(|x| x >> 2 == h))
             .expect("handles esgotados")
     }
-    /// O slot de um handle par, sem verificar se está vivo.
+    /// O slot de um handle da tabela, sem verificar se está vivo.
     pub fn indice_de(handle: i64) -> usize {
-        usize::try_from((handle >> 1) - 1).expect("handle positivo")
+        usize::try_from((handle >> 2) - 1).expect("handle positivo")
     }
     /// Índice do slot de um handle vivo, ou `panic` que diz QUAL contrato
     /// foi quebrado (docs/NATIVO-PLANO.md §6.4, N4).
@@ -2362,6 +2752,7 @@ impl Heap {
     /// * além da tabela — escalar positivo usado como handle;
     /// * slot vazio — o objeto foi coletado: faltou raiz.
     fn indice_vivo(&self, handle: i64) -> usize {
+        debug_assert!(!e_objeto(handle), "objeto do espaço no caminho da tabela");
         if handle == 0 {
             panic!("bug do compilador: handle null (0) desreferenciado");
         }
@@ -2390,21 +2781,23 @@ impl Heap {
     /// é `null` para o campo anulável e "não inicializado" para o `late`), e
     /// as marcas de `late` inicializado seguem o campo.
     pub fn migrar_instancias(&mut self, plano: &crate::hash::HashMap<i64, Vec<i64>>) {
-        for index in 0..self.slots.len() {
-            let Some(Value::Object { class_id, fields }) = &self.slots[index] else { continue };
-            let Some(origem) = plano.get(class_id) else { continue };
+        self.objetos.para_cada_vivo(|b| {
+            // SAFETY: bloco vivo do espaço; o valor é sempre `Value::Object`.
+            #[allow(unsafe_code)]
+            let Value::Object { class_id, fields } = (unsafe { &mut *(*b).valor }) else { return };
+            let Some(origem) = plano.get(class_id) else { return };
             let valores: Vec<Campo> = origem
                 .iter()
                 .map(|&o| usize::try_from(o).ok().and_then(|o| fields.get(o).copied()).unwrap_or((0, false)))
                 .collect();
-            let mut novos = self.campos_novos(valores.len());
-            novos.copy_from_slice(&valores);
-            self.enderecos[index + 1] = novos.endereco();
-            if let Some(Value::Object { fields, .. }) = self.slots[index].as_mut() {
-                let antigos = std::mem::replace(fields, novos);
-                self.liberar_campos(antigos);
+            if valores.len() == fields.len() {
+                fields.copy_from_slice(&valores);
+            } else {
+                // Os campos saem do bloco (o objeto não muda de endereço):
+                // o ponteiro no `Value` é o que o código gerado segue.
+                *fields = valores.into();
             }
-        }
+        });
         let marcas: Vec<(i64, i64)> = self.campos_late_inicializados.iter().copied().filter(|&(_, i)| i >= 0).collect();
         for (h, i) in marcas {
             let Some(Value::Object { class_id, .. }) = self.try_get(h) else { continue };
@@ -2418,57 +2811,41 @@ impl Heap {
     }
 
     pub fn get(&self, handle: i64) -> &Value {
+        if e_objeto(handle) {
+            // SAFETY: bloco vivo; a referência vive enquanto `&self`.
+            #[allow(unsafe_code)]
+            return unsafe { &*(*self.bloco_vivo(handle)).valor };
+        }
         let index = self.indice_vivo(handle);
         self.slots[index].as_ref().expect("slot vivo verificado")
     }
-    /// `n` campos zerados do espaço de campos (acima de
-    /// [`EspacoDeCampos::MAIOR`], do alocador do sistema).
-    #[inline]
-    pub fn campos_novos(&mut self, n: usize) -> Campos {
-        if n == 0 {
-            return Campos::vazio();
-        }
-        if n > EspacoDeCampos::MAIOR {
-            return vec![(0, false); n].into();
-        }
-        let p = self.espaco.alocar(n);
-        Campos { ptr: std::ptr::NonNull::new(p).expect("bloco não nulo"), len: n, do_espaco: true }
-    }
-    /// Garante ao objeto `handle` pelo menos `n` campos (os novos, zerados):
-    /// troca o bloco dos campos e a posição dele na tabela de campos.
+    /// Garante ao objeto `handle` pelo menos `n` campos (os novos,
+    /// zerados): os campos saem do bloco para o alocador do sistema (o
+    /// objeto não muda de endereço; o código gerado segue o ponteiro).
     pub fn garantir_campos(&mut self, handle: i64, n: usize) {
-        let index = self.indice_vivo(handle);
-        let Some(Value::Object { fields, .. }) = &self.slots[index] else { return };
+        let Value::Object { fields, .. } = self.get_mut(handle) else { return };
         if fields.len() >= n {
             return;
         }
-        let antigos: Vec<Campo> = fields.to_vec();
-        let mut novos = self.campos_novos(n);
-        novos[..antigos.len()].copy_from_slice(&antigos);
-        self.enderecos[index + 1] = novos.endereco();
-        if let Some(Value::Object { fields, .. }) = self.slots[index].as_mut() {
-            let antigos = std::mem::replace(fields, novos);
-            self.liberar_campos(antigos);
-        }
-    }
-    /// Devolve os campos de um objeto morto (ou substituído) ao espaço.
-    fn liberar_campos(&mut self, campos: Campos) {
-        if campos.do_espaco && campos.len > 0 {
-            self.espaco.liberar(campos.ptr.as_ptr(), campos.len);
-        }
-        // Os do alocador do sistema saem no `Drop`.
-        drop(campos);
+        let mut novos = fields.to_vec();
+        novos.resize(n, (0, false));
+        *fields = novos.into();
     }
     /// O endereço dos campos do objeto `handle`, numa busca só (o caminho
     /// quente de `dartforge_object_campos`); `None` se não é objeto vivo.
     #[inline]
     pub fn campos_de_objeto(&mut self, handle: i64) -> Option<*mut (i64, bool)> {
-        if !smi::e_handle(handle) || handle < 0 {
-            return None;
-        }
-        match self.slots.get_mut(Self::indice_de(handle)) {
-            Some(Some(Value::Object { fields, .. })) => Some(fields.as_mut_ptr()),
-            _ => None,
+        let b = self.objetos.bloco_de(handle)?;
+        // SAFETY: bloco do espaço; o valor é sempre `Value::Object`.
+        #[allow(unsafe_code)]
+        unsafe {
+            if (*b).estado == 0 {
+                return None;
+            }
+            match &mut *(*b).valor {
+                Value::Object { fields, .. } => Some(fields.as_mut_ptr()),
+                _ => None,
+            }
         }
     }
     /// Obtém valor vivo se o handle for válido, ou None se inválido/destruído.
@@ -2477,6 +2854,12 @@ impl Heap {
         if !smi::e_handle(handle) || handle < 0 {
             return None;
         }
+        if e_objeto(handle) {
+            let b = self.objetos.bloco_de(handle)?;
+            // SAFETY: bloco do espaço; a referência vive enquanto `&self`.
+            #[allow(unsafe_code)]
+            return unsafe { ((*b).estado != 0).then(|| &*(*b).valor) };
+        }
         self.slots.get(Self::indice_de(handle)).and_then(Option::as_ref)
     }
     /// Atualiza campo com tag explícita; valores escalares jamais são raízes.
@@ -2484,8 +2867,7 @@ impl Heap {
         if is_ref && smi::e_handle(bits) {
             self.get(bits);
         }
-        let slot = self.indice_vivo(handle);
-        let Value::Object { fields, .. } = self.slots[slot].as_mut().expect("slot vivo verificado") else {
+        let Value::Object { fields, .. } = self.get_mut(handle) else {
             panic!("objeto esperado")
         };
         fields[usize::try_from(index).expect("índice inválido")] = (bits, is_ref);
@@ -2789,6 +3171,11 @@ impl Heap {
     }
     /// Obtém armazenamento mutável; não oferece acesso a slots já coletados.
     pub fn get_mut(&mut self, handle: i64) -> &mut Value {
+        if e_objeto(handle) {
+            // SAFETY: bloco vivo; a referência vive enquanto `&mut self`.
+            #[allow(unsafe_code)]
+            return unsafe { &mut *(*self.bloco_vivo(handle)).valor };
+        }
         let slot = self.indice_vivo(handle);
         self.slots[slot].as_mut().expect("slot vivo verificado")
     }
@@ -2801,6 +3188,23 @@ impl Heap {
             // null e `Smi` (R10) não são arestas: o coletor nunca segue um
             // `Smi`, que não aponta para o heap.
             if !smi::e_handle(handle) {
+                continue;
+            }
+            if e_objeto(handle) {
+                let b = self.bloco_vivo(handle);
+                // SAFETY: bloco vivo do espaço; o valor é `Value::Object`.
+                #[allow(unsafe_code)]
+                unsafe {
+                    if (*b).estado == 2 {
+                        continue;
+                    }
+                    (*b).estado = 2;
+                    live += 1;
+                    if let Value::Object { fields, .. } = &*(*b).valor {
+                        self.pending.extend(fields.iter().filter_map(|(bits, is_ref)| is_ref.then_some(*bits)));
+                        self.trabalho_da_marcacao += fields.len();
+                    }
+                }
                 continue;
             }
             // Raiz ou aresta que não é um handle vivo: mesmas quatro
@@ -2820,6 +3224,8 @@ impl Heap {
     }
 
     pub fn collect(&mut self) {
+        // O que a TLAB não usou volta a ser livre (a varredura refaz as listas).
+        self.devolver_tlabs();
         self.stats.collections += 1;
         self.stats.roots_scanned += self.enum_values.len() as u64;
         self.stats.roots_scanned += self.tearoffs.len() as u64;
@@ -2863,7 +3269,8 @@ impl Heap {
         if !self.efemeros.is_empty() {
             loop {
                 let marks = &self.marks;
-                let marcado = |h: i64| smi::e_handle(h) && h > 0 && marks.get(Self::indice_de(h)).copied().unwrap_or(false);
+                let objetos = &self.objetos;
+                let marcado = |h: i64| marcado_na_coleta(marks, objetos, h);
                 let antes = self.pending.len();
                 for (&portador, &(chave, valor)) in &self.efemeros {
                     if marcado(portador) && (marcado(chave) || !smi::e_handle(chave)) && smi::e_handle(valor) && !marcado(valor) {
@@ -2878,9 +3285,8 @@ impl Heap {
         }
         // Tabelas laterais: só ficam os handles que sobreviveram (G6).
         let marks = &self.marks;
-        let vivo = |h: &i64| {
-            smi::e_handle(*h) && *h > 0 && marks.get(Self::indice_de(*h)).copied().unwrap_or(false)
-        };
+        let objetos = &self.objetos;
+        let vivo = |h: &i64| marcado_na_coleta(marks, objetos, *h);
         self.fracas.retain(|portador, alvo| {
             if smi::e_handle(*alvo) && !vivo(alvo) {
                 *alvo = 0;
@@ -2934,17 +3340,14 @@ impl Heap {
             if self.marks[index] {
                 vivos_em_bytes = vivos_em_bytes.saturating_add(valor.estimated_bytes());
             } else {
-                if let Some(Value::Object { fields, .. }) = slot.take() {
-                    if fields.do_espaco && fields.len > 0 {
-                        self.espaco.liberar(fields.ptr.as_ptr(), fields.len);
-                    }
-                }
                 *slot = None;
-                self.enderecos[index + 1] = CAMPOS_VAZIOS.as_ptr().cast_mut();
                 self.free.push(index);
                 self.stats.reclaimed += 1;
             }
         }
+        let (mortos, _, bytes_de_objetos) = self.objetos.varrer();
+        self.stats.reclaimed += mortos as u64;
+        vivos_em_bytes = vivos_em_bytes.saturating_add(bytes_de_objetos);
         self.stats.estimated_bytes = vivos_em_bytes;
         for (finalizador, par) in finalizar {
             finalizador(par);
@@ -2993,7 +3396,7 @@ impl Heap {
         // alocações — 212 coletas e 28% do tempo num `sort` de 100 mil.
         let por_contagem = vivos
             .saturating_mul(2)
-            .max(self.slots.len() / 2)
+            .max((self.slots.len() + self.objetos.blocos) / 2)
             .max(self.trabalho_da_marcacao / 2)
             .max(256);
         self.threshold = if self.limite_bytes == usize::MAX {
@@ -3008,7 +3411,7 @@ impl Heap {
     /// Obtém contadores sem percorrer os objetos ou suas raízes.
     pub fn stats(&self) -> HeapStats {
         HeapStats {
-            live_objects: self.slots.len() - self.free.len(),
+            live_objects: self.slots.len() - self.free.len() + self.objetos.vivos,
             reserved_slots: self.slots.len(),
             permanent_roots: self.enum_values.len()
                 + self.tearoffs.len()
@@ -3110,13 +3513,14 @@ mod tests {
         heap.root(frame, b);
         heap.set(a, 0, b, true);
         heap.collect();
-        assert_eq!(heap.slots.iter().flatten().count(), 2);
+        assert_eq!(heap.stats().live_objects, 2);
         heap.pop_frame(frame);
         heap.collect();
-        assert_eq!(heap.slots.iter().flatten().count(), 0);
-        let c = heap.allocate(Value::String("novo".into()));
+        assert_eq!(heap.stats().live_objects, 0);
+        // Os blocos dos mortos voltam à lista livre do tamanho deles.
+        let c = heap.allocate(Value::Object { class_id: 3, fields: vec![(0, false)].into() });
         assert!(c == a || c == b);
-        assert_eq!(heap.slots.len(), 2);
+        assert_eq!(heap.stats().live_objects, 1);
     }
     /// Bits escalares coincidentes com handles não retêm objetos.
     #[test]

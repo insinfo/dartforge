@@ -98,6 +98,55 @@ struct Universo {
     /// O tipo cru de cada classe, com a aridade com que foi calculado (uma
     /// recarga que mude a aridade recalcula).
     crus: HashMap<i64, (usize, i64)>,
+    /// Memória direta (sem colisão resolvida: a entrada nova ocupa a vaga)
+    /// de `v is t`, pela chave do valor ([`chave_do_valor`]): `(chave, t,
+    /// resposta)`. Evita montar o tipo do valor e o cache de subtipos a cada
+    /// conferência de covariância (`K`/`V` do `[]=` de um mapa, `E` do `add`
+    /// de uma lista), que a VM faz com um teste de classe em linha.
+    memo_e: Vec<(i64, i64, bool)>,
+    /// O mesmo para `dartforge_rti_avaliar`: `[chave de this, modelo,
+    /// classe, tupla, resultado]`.
+    memo_aval: Vec<[i64; 5]>,
+}
+
+/// O tamanho das memórias diretas do [`Universo`] (potência de 2).
+const MEMO_N: usize = 1 << 10;
+
+/// A vaga de uma chave nas memórias diretas.
+fn vaga_da_memoria(a: i64, b: i64, c: i64) -> usize {
+    let h = (a as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        ^ (b as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F)
+        ^ (c as u64).wrapping_mul(0x1656_67B1_9E37_79F9);
+    (h >> (64 - MEMO_N.trailing_zeros())) as usize
+}
+
+/// Uma chave que determina o tipo de `h` em [`tipo_do_valor`] sem o
+/// montar: o tipo reificado gravado no objeto (o metadado, > 0), ou a
+/// espécie do valor (`int` -1, `double` -2, `bool` -3, `String` -4) ou a
+/// classe de um objeto sem metadado (`-16 - classe`). `None` (null, lista
+/// sem metadado, record, …): o tipo sai pelo caminho de sempre.
+fn chave_do_valor(h: i64) -> Option<i64> {
+    if smi::e_smi(h) {
+        return Some(-1);
+    }
+    if !smi::e_handle(h) || h < 0 {
+        return None;
+    }
+    HEAP.with(|heap| {
+        let heap = heap.try_borrow().ok()?;
+        let (meta, valor) = heap.metadado_e_valor(h);
+        if meta != 0 {
+            return Some(meta);
+        }
+        match valor {
+            Value::BoxedInt(_) => Some(-1),
+            Value::BoxedDouble(_) => Some(-2),
+            Value::BoxedBool(_) => Some(-3),
+            Value::String(_) => Some(-4),
+            Value::Object { class_id, .. } if *class_id >= 0 => Some(-16 - class_id),
+            _ => None,
+        }
+    })
 }
 
 thread_local! {
@@ -177,6 +226,43 @@ impl Universo {
             u.internar(t);
         }
         u
+    }
+
+    /// Esquece as memórias diretas (uma regra, classe ou forma nova do
+    /// runtime pode mudar uma resposta guardada).
+    fn esquecer_memorias(&mut self) {
+        self.memo_e.clear();
+        self.memo_aval.clear();
+    }
+
+    /// `v is t` guardado para a chave do valor.
+    fn memo_e_ler(&self, chave: i64, t: i64) -> Option<bool> {
+        let (c, tt, r) = *self.memo_e.get(vaga_da_memoria(chave, t, 0))?;
+        (c == chave && tt == t).then_some(r)
+    }
+
+    fn memo_e_gravar(&mut self, chave: i64, t: i64, r: bool) {
+        if self.memo_e.is_empty() {
+            // Uma vaga vazia nunca casa: nenhuma chave vale 0 (o metadado
+            // é > 0, as espécies < 0).
+            self.memo_e = vec![(0, 0, false); MEMO_N];
+        }
+        let i = vaga_da_memoria(chave, t, 0);
+        self.memo_e[i] = (chave, t, r);
+    }
+
+    /// `dartforge_rti_avaliar` guardado.
+    fn memo_aval_ler(&self, k: [i64; 4]) -> Option<i64> {
+        let e = self.memo_aval.get(vaga_da_memoria(k[0], k[1], k[2] ^ k[3].rotate_left(32)))?;
+        (e[..4] == k).then_some(e[4])
+    }
+
+    fn memo_aval_gravar(&mut self, k: [i64; 4], r: i64) {
+        if self.memo_aval.is_empty() {
+            self.memo_aval = vec![[0, -1, 0, 0, 0]; MEMO_N];
+        }
+        let i = vaga_da_memoria(k[0], k[1], k[2] ^ k[3].rotate_left(32));
+        self.memo_aval[i] = [k[0], k[1], k[2], k[3], r];
     }
 
     fn internar(&mut self, t: Tipo) -> i64 {
@@ -888,7 +974,9 @@ pub(crate) fn tipo_lista_copiada(origem: i64, classe_concreta: Option<i64>) -> O
 pub extern "C" fn dartforge_rti_classe_nome(classe: i64, nome: i64, n_params: i64) {
     let nome = HEAP.with(|h| h.borrow().texto(nome).para_string());
     RTI.with(|u| {
-        u.borrow_mut().classes.insert(classe, (nome, usize::try_from(n_params).unwrap_or(0)));
+        let mut u = u.borrow_mut();
+        u.classes.insert(classe, (nome, usize::try_from(n_params).unwrap_or(0)));
+        u.esquecer_memorias();
     });
 }
 
@@ -912,7 +1000,11 @@ pub unsafe extern "C" fn dartforge_rti_iniciar_tabela(dados: *const u8, len: i64
             "C" => {
                 let (n, nome) = b.split_once(' ').unwrap_or((b, ""));
                 let n: usize = n.parse().unwrap_or(0);
-                RTI.with(|u| u.borrow_mut().classes.insert(id, (nome.to_string(), n)));
+                RTI.with(|u| {
+                    let mut u = u.borrow_mut();
+                    u.classes.insert(id, (nome.to_string(), n));
+                    u.esquecer_memorias();
+                });
             }
             "R" => {
                 let modelo = receita_de_unidades(b.encode_utf16().collect());
@@ -946,6 +1038,7 @@ pub extern "C" fn dartforge_rti_regra(classe: i64, modelo: i64) {
             // Uma regra nova (a geração nova de uma recarga) pode mudar uma
             // resposta já guardada.
             u.cache_sub.clear();
+            u.esquecer_memorias();
         }
     });
 }
@@ -958,6 +1051,7 @@ pub extern "C" fn dartforge_rti_regra(classe: i64, modelo: i64) {
 pub extern "C" fn dartforge_rti_classe_do_runtime(forma: i64, classe: i64) {
     RTI.with(|u| {
         let mut u = u.borrow_mut();
+        u.esquecer_memorias();
         let rt = &mut u.rt;
         match forma {
             0 => rt.int = classe,
@@ -1012,9 +1106,19 @@ fn receita_de_unidades(unidades: Vec<u16>) -> i64 {
 pub extern "C" fn dartforge_rti_avaliar(modelo: i64, this: i64, classe: i64, tupla: i64) -> i64 {
     RTI.with(|u| {
         let mut u = u.borrow_mut();
+        // O tipo de `this` só entra pela chave dele: a memória direta
+        // responde sem montá-lo.
+        let chave_this = if this == 0 { Some(0) } else { chave_do_valor(this) };
+        let memo = chave_this.map(|c| [c, modelo, classe, tupla]);
+        if let Some(r) = memo.and_then(|k| u.memo_aval_ler(k)) {
+            return r;
+        }
         let tipo_this = if this == 0 { 0 } else { tipo_do_ref(&mut u, this) };
         let chave = (modelo, tipo_this, classe, tupla);
         if let Some(&r) = u.cache_aval.get(&chave) {
+            if let Some(k) = memo {
+                u.memo_aval_gravar(k, r);
+            }
             return r;
         }
         let args_classe: Vec<i64> = match u.tipo(tipo_this).clone() {
@@ -1031,6 +1135,9 @@ pub extern "C" fn dartforge_rti_avaliar(modelo: i64, this: i64, classe: i64, tup
         };
         let r = u.substituir(modelo, &args_classe, &args_funcao);
         u.cache_aval.insert(chave, r);
+        if let Some(k) = memo {
+            u.memo_aval_gravar(k, r);
+        }
         r
     })
 }
@@ -1123,10 +1230,17 @@ pub extern "C" fn dartforge_rti_e(v: i64, t: i64) -> u8 {
         if let Some(r) = u.teste_sem_o_valor(v, t) {
             return u8::from(r);
         }
+        let chave = chave_do_valor(v);
+        if let Some(r) = chave.and_then(|c| u.memo_e_ler(c, t)) {
+            return u8::from(r);
+        }
         let s = tipo_do_ref(&mut u, v);
         let r = u.sub(s, t);
         if depurar() {
             eprintln!("[depurar] {} is {} = {r}", u.texto(s), u.texto(t));
+        }
+        if let Some(c) = chave {
+            u.memo_e_gravar(c, t, r);
         }
         u8::from(r)
     })
@@ -1163,8 +1277,16 @@ pub extern "C" fn dartforge_rti_como_em(v: i64, t: i64, contexto: i64, nome: i64
         if u.teste_sem_o_valor(v, t) == Some(true) {
             return None;
         }
+        let chave = chave_do_valor(v);
+        if chave.and_then(|c| u.memo_e_ler(c, t)) == Some(true) {
+            return None;
+        }
         let s = tipo_do_ref(&mut u, v);
-        if u.sub(s, t) {
+        let r = u.sub(s, t);
+        if let Some(c) = chave {
+            u.memo_e_gravar(c, t, r);
+        }
+        if r {
             None
         } else {
             Some(format!("type '{}' is not a subtype of type '{}'{}", u.texto(s), u.texto(t), sufixo()))

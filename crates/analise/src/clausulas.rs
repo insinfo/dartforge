@@ -753,10 +753,15 @@ fn mixins(
                 } else if !el.on.is_empty() {
                     // `_checkForMixinSuperclassConstraints`.
                     match restricoes_satisfeitas(l, id, &anteriores, m) {
-                        Some(true) => {}
-                        // `mixin_application_not_implemented_interface`
-                        // (não emitido aqui) fecha a porta.
-                        Some(false) => *fechada = true,
+                        Some(Ok(())) => {}
+                        // `mixin_application_not_implemented_interface`, no
+                        // nome do mixin, fecha a porta.
+                        Some(Err(i)) => {
+                            *fechada = true;
+                            if let Some(d) = nao_implementa(l, u, id, ast_, t, m, i) {
+                                relatos.push(d);
+                            }
+                        }
                         None => *incerta = true,
                     }
                 }
@@ -920,7 +925,7 @@ fn restricoes_satisfeitas(
     id: ClassId,
     anteriores: &[ClassId],
     m: ClassId,
-) -> Option<bool> {
+) -> Option<Result<(), usize>> {
     let mixin = l.programa.class(m);
     if mixin.on.len() != mixin.on_classes.len() {
         return None;
@@ -939,13 +944,61 @@ fn restricoes_satisfeitas(
     {
         return None;
     }
-    let base = l.programa.class(id).supertype_class?;
+    // `_enclosingClass.supertype`: num enum, `Enum`.
+    let base = match l.programa.class(id).supertype_class {
+        Some(b) => b,
+        None if l.programa.class(id).kind == ClassKind::Enum => l.do_core("Enum")?,
+        None => return None,
+    };
     let mut conhecidos = Vec::new();
     supertipos(l, base, &mut conhecidos);
     for &a in anteriores {
         supertipos(l, a, &mut conhecidos);
     }
-    Some(mixin.on_classes.iter().all(|c| conhecidos.contains(c)))
+    match mixin.on_classes.iter().position(|c| !conhecidos.contains(c)) {
+        None => Some(Ok(())),
+        Some(i) => Some(Err(i)),
+    }
+}
+
+/// O `mixin_application_not_implemented_interface` do mixin `m` (tipo `t`
+/// na cláusula `with` de `id`), cuja restrição `on` de índice `i` a
+/// superclasse não implementa: `'M' can't be mixed onto 'S' because 'S'
+/// doesn't implement 'A'.` O supertipo é o `extends` escrito (`Object`
+/// omitido, `Enum` num enum).
+fn nao_implementa(
+    l: &Leitor<'_>,
+    u: UnitId,
+    id: ClassId,
+    ast_: &ast::Ast,
+    t: ast::TypeId,
+    m: ClassId,
+    i: usize,
+) -> Option<Diagnostic> {
+    let classe = l.programa.class(id);
+    let decl = classe.decl?;
+    let params: Vec<SymbolId> = clausulas(&ast_.decl(decl.decl).kind)?.params;
+    let mixin_txt = l.exibir(u, ast_, t, &params)?;
+    let mixin_txt = mixin_txt.strip_suffix('?').unwrap_or(&mixin_txt).to_string();
+    let super_txt = match (&ast_.decl(decl.decl).kind, clausulas(&ast_.decl(decl.decl).kind)?.extends) {
+        (_, Some(e)) => {
+            let x = l.exibir(u, ast_, e, &params)?;
+            x.strip_suffix('?').unwrap_or(&x).to_string()
+        }
+        (DeclKind::Enum(_), None) => "Enum".to_string(),
+        (_, None) => "Object".to_string(),
+    };
+    let mixin = l.programa.class(m);
+    let (mu, mt) = *mixin.on.get(i)?;
+    let mast = &l.programa.unit(mu).ast;
+    let restricao = l.exibir(mu, mast, mt, &[])?;
+    let TypeKind::Named { name, .. } = &ast_.ty(t).kind else { return None };
+    let span = name.last()?.span;
+    Some(Diagnostic::com_codigo(
+        c::MIXIN_APPLICATION_NOT_IMPLEMENTED_INTERFACE,
+        span,
+        [mixin_txt.as_str(), super_txt.as_str(), restricao.as_str()],
+    ))
 }
 
 /// Onde começam os tipos de `extends`, `implements` e `with` de classes,

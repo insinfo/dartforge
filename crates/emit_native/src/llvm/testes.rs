@@ -248,10 +248,10 @@ fn campo_ref_leva_is_ref() {
     );
     let ir = emitir(f);
     let corpo = corpo_de(&ir, "k");
-    // O endereço dos campos vem da tabela de campos do contexto, sem chamada.
+    // O endereço dos campos vem do próprio objeto (`h + 14`), sem chamada.
     assert!(!corpo.contains("@dartforge_object_campos("), "{corpo}");
-    assert!(corpo.contains("%fth2 = lshr i64 %v0, 1"), "{corpo}");
-    assert!(corpo.contains("%fp2 = load ptr, ptr %fte2"), "{corpo}");
+    assert!(corpo.contains("%fxa2 = add i64 %v0, 14"), "{corpo}");
+    assert!(corpo.contains("%fp2 = load ptr, ptr %fxs2"), "{corpo}");
     assert!(corpo.contains("ptr %fp2, i64 0, i32 0\n  store i64 %v1, ptr %fg2"), "{corpo}");
     assert!(corpo.contains("store i8 1, ptr %fr2"), "{corpo}");
     assert!(corpo.contains("store i64 7, ptr %fg3"), "{corpo}");

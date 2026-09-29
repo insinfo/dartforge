@@ -530,15 +530,20 @@ pub extern "C" fn dartforge_nativo_DartForge_int_hashCode(this: i64) -> i64 {
     this
 }
 
-/// `Object._getHash`/`hashCode` de identidade: o handle do objeto, estável
-/// enquanto ele vive e único entre os vivos (a VM sorteia; o valor não é
-/// observável pelo programa além de igualdade).
+/// `Object._getHash`/`hashCode` de identidade: o de um objeto do usuário
+/// fica no cabeçalho dele (`Heap::hash_de_identidade`, como o da VM); o de
+/// um valor do runtime é o handle, estável enquanto ele vive e único entre
+/// os vivos (a VM sorteia; o valor não é observável pelo programa além de
+/// igualdade).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Object_getHash(o: i64) -> i64 {
     if crate::heap::smi::e_smi(o) {
         return crate::heap::smi::valor(o);
     }
-    (o >> 1) & 0x3fff_ffff
+    if let Some(h) = HEAP.with(|h| h.borrow_mut().hash_de_identidade(o)) {
+        return h;
+    }
+    (o >> 2) & 0x3fff_ffff
 }
 
 /// `Object.toString()` (`Object_toString`): `Instance of 'Classe'`.

@@ -131,6 +131,15 @@ pub extern "C" fn dartforge_registrar_tabela(cid: i64, f: extern "C" fn() -> *co
 /// 0x3FFF_FF01…) ficam com o mapa.
 const REGISTRADAS_ATE: usize = 1 << 16;
 
+/// Publica [`REGISTRADAS`] no contexto da thread (a alocação em linha de
+/// `dartforge_object_new_t` confere o registro por ali, `llvm/mod.rs`).
+fn publicar_registradas(r: &[bool]) {
+    crate::heap::CONTEXTO.with(|c| {
+        c.registradas.set(r.as_ptr().cast());
+        c.n_registradas.set(r.len());
+    });
+}
+
 /// A classe `cid` já tem tabela registrada?
 fn ja_registrada(cid: i64) -> bool {
     match usize::try_from(cid) {
@@ -149,6 +158,7 @@ fn marcar_registrada(cid: i64) {
                 r.resize(i + 1, false);
             }
             r[i] = true;
+            publicar_registradas(&r);
         });
     }
 }
@@ -180,10 +190,14 @@ pub extern "C" fn dartforge_publicar_geracao(
         f();
     }
     REPUBLICANDO.with(|r| r.set(true));
+    // Enquanto os registros se refazem, toda alocação passa pelo runtime,
+    // que registra de novo (`dartforge_object_new_t`).
+    crate::heap::CONTEXTO.with(|c| c.n_registradas.set(0));
     if let Some(f) = registrar {
         f();
     }
     REPUBLICANDO.with(|r| r.set(false));
+    REGISTRADAS.with(|r| publicar_registradas(&r.borrow()));
     if let Some(f) = rti {
         f();
     }
@@ -219,48 +233,52 @@ pub unsafe extern "C" fn dartforge_registrar_cids(ids: *const i64, n: i64) {
 /// O id de classe (do SDK da fonte) de um valor que o runtime representa por
 /// conta própria; `None` sem o SDK da fonte ou para um objeto comum.
 fn cid_do_runtime(handle: i64) -> Option<i64> {
-    CIDS_DO_RUNTIME.with(|c| {
-        let c = c.borrow();
-        if c.is_empty() {
-            return None;
-        }
-        let pos = if handle == 0 {
-            CID_NULL
-        } else if crate::heap::smi::e_smi(handle) {
-            CID_SMI
-        } else {
-            let pos = HEAP.with(|heap| {
-                let heap = heap.borrow();
-                Some(match heap.get(handle) {
-                    Value::Object { .. } => return None,
-                    Value::String(t) => {
-                        if t.e_um_byte() {
-                            CID_ONE_BYTE_STRING
-                        } else {
-                            CID_TWO_BYTE_STRING
-                        }
-                    }
-                    Value::List(_) => {
-                        if heap.imutaveis.contains(&handle) {
-                            CID_IMMUTABLE_LIST
-                        } else if heap.fixas.contains(&handle) {
-                            CID_LIST
-                        } else {
-                            CID_GROWABLE_LIST
-                        }
-                    }
-                    Value::Closure(_) => CID_CLOSURE,
-                    Value::BoxedInt(_) => CID_MINT,
-                    Value::BoxedDouble(_) => CID_DOUBLE,
-                    Value::BoxedBool(_) => CID_BOOL,
-                    Value::Record(_) => CID_RECORD,
-                    _ => return None,
-                })
-            });
-            pos?
-        };
-        c.get(pos).copied()
+    if handle == 0 {
+        return cid_na_tabela(CID_NULL);
+    }
+    if crate::heap::smi::e_smi(handle) {
+        return cid_na_tabela(CID_SMI);
+    }
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        cid_do_valor_do_runtime(&heap, handle, heap.get(handle))
     })
+}
+
+/// A posição `pos` da tabela de ids de classe dos valores do runtime, como
+/// gravada (`None` sem o SDK da fonte).
+fn cid_na_tabela(pos: usize) -> Option<i64> {
+    CIDS_DO_RUNTIME.with(|c| c.borrow().get(pos).copied())
+}
+
+/// [`cid_do_runtime`] de um valor já lido do heap: `dartforge_value_class`
+/// o chama com o valor da única consulta ao slot que faz.
+fn cid_do_valor_do_runtime(heap: &crate::heap::Heap, handle: i64, valor: &Value) -> Option<i64> {
+    let pos = match valor {
+        Value::String(t) => {
+            if t.e_um_byte() {
+                CID_ONE_BYTE_STRING
+            } else {
+                CID_TWO_BYTE_STRING
+            }
+        }
+        Value::List(_) => {
+            if heap.imutaveis.contains(&handle) {
+                CID_IMMUTABLE_LIST
+            } else if heap.fixas.contains(&handle) {
+                CID_LIST
+            } else {
+                CID_GROWABLE_LIST
+            }
+        }
+        Value::Closure(_) => CID_CLOSURE,
+        Value::BoxedInt(_) => CID_MINT,
+        Value::BoxedDouble(_) => CID_DOUBLE,
+        Value::BoxedBool(_) => CID_BOOL,
+        Value::Record(_) => CID_RECORD,
+        _ => return None,
+    };
+    cid_na_tabela(pos)
 }
 
 /// A entrada uniforme do seletor `hash` na tabela da classe `cid`, se ela tem.
