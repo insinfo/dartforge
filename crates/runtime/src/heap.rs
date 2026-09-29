@@ -4098,8 +4098,15 @@ mod espaco_de_objetos {
         heap.pop_frame(frame);
         heap.collect();
         assert_eq!(heap.stats().live_objects, 0);
-        // As páginas vazias além da folga voltaram ao sistema.
-        assert!(heap.objetos.paginas.len() <= 2, "{} páginas", heap.objetos.paginas.len());
+        // As páginas ficam enquanto o pico recente de vivos as pede (a
+        // estrutura pode voltar); o pico decai a cada coleta completa, e as
+        // vazias além da folga voltam ao sistema.
+        let retidas = heap.objetos.paginas.len();
+        assert!(retidas > 2);
+        for _ in 0..20 {
+            heap.collect();
+        }
+        assert!(heap.objetos.paginas.len() <= 2, "{} páginas de {retidas}", heap.objetos.paginas.len());
     }
 
     #[test]
