@@ -1054,8 +1054,7 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// `ensureSemicolon` do fasta: o `;` que falta é relatado e inserido.
     fn expect_semicolon(&mut self) -> PResult<()> {
-        self.garantir_ponto_e_virgula();
-        Ok(())
+        self.garantir_ponto_e_virgula()
     }
 
     fn push_stmt(&mut self, start: Span, kind: StmtKind) -> StmtId {

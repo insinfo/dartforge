@@ -467,10 +467,20 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `ensureSemicolon` do fasta: sem `;`, `EXPECTED_TOKEN` (`;`) no último
     /// token lido e a análise segue como se ele estivesse ali (o fasta
     /// insere um `;` sintético), sem pular nada.
-    pub(crate) fn garantir_ponto_e_virgula(&mut self) {
-        if !self.eat_op(Op::Semicolon) {
-            self.erro_esperado(";");
+    ///
+    /// Só quando o token seguinte pode começar a próxima declaração ou
+    /// comando (identificador, palavra-chave, `@`, `}`, fim): diante de um
+    /// operador, o mais provável é que a expressão anterior tenha parado
+    /// antes do que o fasta leria (`5 ~ 3`, recuperações de expressão que
+    /// ainda não foram portadas), e a recuperação antiga (pular até o `;`)
+    /// fica mais perto do analyzer do que continuar no meio da expressão.
+    pub(crate) fn garantir_ponto_e_virgula(&mut self) -> PResult<()> {
+        if self.eat_op(Op::Semicolon) {
+            return Ok(());
         }
+        let seguro = matches!(self.kind(), Kind::Ident | Kind::Keyword(_) | Kind::Op(Op::RBrace | Op::At) | Kind::Eof);
+        let e = self.erro_esperado(";");
+        if seguro { Ok(()) } else { Err(e) }
     }
 
     /// `ensureCloseParen` do fasta: o `)` que fecha o `(` na posição absoluta

@@ -1397,9 +1397,22 @@ struct Pagina {
     inverso: u32,
     /// `tamanho_do_bloco(n) / 8` = `impar << deslocamento`.
     deslocamento: u32,
+    /// Página sem objeto vivo guardada para reuso (em
+    /// [`EspacoDeObjetos::vazias`]): o conteúdo é lixo dos mortos até ela
+    /// ser zerada e formatada de novo, para qualquer número de campos.
+    vazia: bool,
 }
 
 impl Pagina {
+    /// A página de blocos de `n` campos em `base` (`bytes` bytes).
+    fn formatada(base: *mut u8, bytes: usize, n: usize) -> Self {
+        let tamanho = tamanho_do_bloco(n);
+        let blocos = if n > MAIOR_CLASSE { 1 } else { PAGINA / tamanho };
+        let palavras = u32::try_from(tamanho / 8).unwrap_or(1);
+        let deslocamento = palavras.trailing_zeros();
+        let inverso = inverso_impar(palavras >> deslocamento);
+        Pagina { base, bytes, n, blocos, inverso, deslocamento, vazia: false }
+    }
     fn layout(bytes: usize) -> std::alloc::Layout {
         std::alloc::Layout::from_size_align(bytes, PAGINA).expect("layout da página")
     }
@@ -1414,7 +1427,7 @@ impl Pagina {
     /// começa ali.
     #[inline]
     fn indice(&self, desl: usize) -> Option<usize> {
-        if desl & 7 != 0 || desl >= self.bytes {
+        if desl & 7 != 0 || desl >= self.bytes || self.vazia {
             return None;
         }
         let palavras = (desl >> 3) as u32;
@@ -1528,6 +1541,15 @@ pub struct EspacoDeObjetos {
     /// (os blocos que o código gerado alocou; o resto não usado já voltou à
     /// lista livre e está livre).
     faixas: Vec<(*mut u8, *mut u8, usize)>,
+    /// A região ainda não usada `[cursor, fim)` da página em uso de cada
+    /// número de campos: blocos zerados (cabeçalho inclusive), que saem em
+    /// ordem, sem lista livre (o *bump pointer*). Uma página nova (ou
+    /// vazia reusada) entra inteira aqui; a coleta completa a desfaz.
+    regiao: Vec<(*mut u8, *mut u8)>,
+    /// As páginas sem objeto vivo guardadas pela coleta completa (índices
+    /// em `paginas`), por zerar: a próxima região de qualquer número de
+    /// campos sai delas antes de pedir memória ao sistema.
+    vazias: Vec<usize>,
     /// Os velhos que a barreira de escrita marcou ([`LEMBRADO`]).
     lembrados: Vec<*mut Cabecalho>,
     /// Blocos entregues desde a última coleta, por número de campos: a
@@ -1561,6 +1583,8 @@ impl EspacoDeObjetos {
             blocos: 0,
             jovens: Vec::new(),
             faixas: Vec::new(),
+            regiao: vec![(std::ptr::null_mut(), std::ptr::null_mut()); MAIOR_CLASSE + 1],
+            vazias: Vec::new(),
             lembrados: Vec::new(),
             demanda: vec![0; MAIOR_CLASSE + 1],
             pico: vec![0; MAIOR_CLASSE + 1],
@@ -1603,52 +1627,70 @@ impl EspacoDeObjetos {
         }
     }
 
-    /// Uma página nova para blocos de `n` campos, com todos os blocos na
-    /// lista livre de `n` (os objetos grandes têm uma página de um bloco,
-    /// fora das listas: devolve o bloco).
-    fn nova_pagina(&mut self, n: usize) -> *mut Cabecalho {
+    /// Uma página zerada para blocos de `n` campos: uma vazia reusada
+    /// (zerada e formatada agora) ou uma nova do sistema. Devolve o índice.
+    fn pagina_zerada(&mut self, n: usize) -> usize {
+        if n <= MAIOR_CLASSE
+            && let Some(i) = self.vazias.pop()
+        {
+            let p = &mut self.paginas[i];
+            // SAFETY: a página inteira é deste espaço e não tem objeto vivo.
+            unsafe { std::ptr::write_bytes(p.base, 0, p.bytes) };
+            self.blocos -= p.blocos;
+            *p = Pagina::formatada(p.base, p.bytes, n);
+            self.blocos += p.blocos;
+            return i;
+        }
         let tamanho = tamanho_do_bloco(n);
         let bytes = if n > MAIOR_CLASSE { tamanho.div_ceil(PAGINA) * PAGINA } else { PAGINA };
         let layout = Pagina::layout(bytes);
         // SAFETY: layout de tamanho não nulo.
-        let base = unsafe { std::alloc::alloc(layout) };
+        let base = unsafe { std::alloc::alloc_zeroed(layout) };
         if base.is_null() {
             std::alloc::handle_alloc_error(layout);
         }
-        let blocos = if n > MAIOR_CLASSE { 1 } else { PAGINA / tamanho };
-        let palavras = u32::try_from(tamanho / 8).unwrap_or(1);
-        let deslocamento = palavras.trailing_zeros();
-        let inverso = inverso_impar(palavras >> deslocamento);
-        let pagina = Pagina { base, bytes, n, blocos, inverso, deslocamento };
-        let mut proximo = if n > MAIOR_CLASSE { std::ptr::null_mut() } else { self.livres[n] };
-        for i in (0..blocos).rev() {
-            let b = pagina.bloco(i);
-            // SAFETY: bloco `i` da página nova.
-            unsafe { Self::formatar(b, n, proximo) };
-            proximo = b;
-        }
+        let pagina = Pagina::formatada(base, bytes, n);
+        self.blocos += pagina.blocos;
         self.mapa.inserir(base as usize, self.paginas.len());
         self.paginas.push(pagina);
-        self.blocos += blocos;
-        if n <= MAIOR_CLASSE {
-            self.livres[n] = proximo;
-        }
-        proximo
+        self.paginas.len() - 1
     }
 
-    /// Tira um bloco livre de `n` campos (estado ainda 0), criando página
-    /// se preciso; o primeiro campo volta a zero.
+    /// Até `k` blocos zerados e contíguos de `n ≤ MAIOR_CLASSE` campos da
+    /// região da classe (uma página zerada nova quando ela acaba): o início
+    /// e quantos. O cabeçalho sai zerado, sem `n` (quem entrega o grava).
+    fn tirar_da_regiao(&mut self, n: usize, k: usize) -> (*mut u8, usize) {
+        let tamanho = tamanho_do_bloco(n);
+        let (mut cursor, mut fim) = self.regiao[n];
+        if (fim as usize).saturating_sub(cursor as usize) < tamanho {
+            let i = self.pagina_zerada(n);
+            let p = &self.paginas[i];
+            cursor = p.base;
+            fim = p.base.wrapping_add(p.blocos * tamanho);
+        }
+        let j = k.min((fim as usize - cursor as usize) / tamanho);
+        self.regiao[n] = (cursor.wrapping_add(j * tamanho), fim);
+        (cursor, j)
+    }
+
+    /// Tira um bloco livre de `n` campos (estado ainda 0) — da lista livre,
+    /// ou da região — com o primeiro campo zerado.
     #[inline]
     fn tirar(&mut self, n: usize) -> *mut Cabecalho {
         if n > MAIOR_CLASSE {
-            let b = self.nova_pagina(n);
+            let i = self.pagina_zerada(n);
+            let b = self.paginas[i].base.cast::<Cabecalho>();
             // SAFETY: o bloco da página nova.
-            unsafe { Self::encadear(b, std::ptr::null_mut()) };
+            unsafe { (*b).n = u16::try_from(n).unwrap_or(u16::MAX) };
             return b;
         }
-        let mut b = self.livres[n];
+        let b = self.livres[n];
         if b.is_null() {
-            b = self.nova_pagina(n);
+            let (inicio, _) = self.tirar_da_regiao(n, 1);
+            let b = inicio.cast::<Cabecalho>();
+            // SAFETY: bloco zerado da região.
+            unsafe { (*b).n = n as u16 };
+            return b;
         }
         // SAFETY: `b` é o primeiro bloco livre da lista de `n`.
         unsafe {
@@ -1658,35 +1700,56 @@ impl EspacoDeObjetos {
         b
     }
 
-    /// Tira do começo da lista livre de `n ≤ TLAB_N` campos uma faixa de
-    /// até `k` blocos contíguos (a lista está em ordem de endereço dentro
-    /// de cada página, e a página nova entra inteira nela): devolve o
-    /// início e quantos. Os blocos continuam encadeados ao seguinte pelo
-    /// primeiro campo (o que [`Heap::devolver_tlabs`] reaproveita).
+    /// Uma faixa de até `k` blocos livres contíguos de `n ≤ TLAB_N` campos
+    /// para a TLAB: do começo da lista livre (em ordem de endereço dentro de
+    /// cada página) enquanto contígua, ou da região. Devolve o início e
+    /// quantos; os blocos têm campos zerados, menos talvez o primeiro (o
+    /// encadeamento da lista), e o cabeçalho sem estado.
     fn tirar_faixa(&mut self, n: usize, k: usize) -> (*mut u8, usize) {
         debug_assert!(n <= MAIOR_CLASSE && k > 0);
-        if self.livres[n].is_null() {
-            self.nova_pagina(n);
-        }
         let tamanho = tamanho_do_bloco(n);
-        let inicio = self.livres[n];
-        let mut fim = inicio;
-        let mut j = 1;
-        // SAFETY: blocos livres da lista de `n`, encadeados pelo primeiro
-        // campo.
-        unsafe {
-            let mut proximo = Self::proximo(fim);
-            while j < k && proximo == fim.cast::<u8>().wrapping_add(tamanho).cast() {
-                fim = proximo;
-                proximo = Self::proximo(fim);
-                j += 1;
+        let (inicio, j) = if self.livres[n].is_null() {
+            self.tirar_da_regiao(n, k)
+        } else {
+            let inicio = self.livres[n];
+            let mut fim = inicio;
+            let mut j = 1;
+            // SAFETY: blocos livres da lista de `n`, encadeados pelo
+            // primeiro campo.
+            unsafe {
+                let mut proximo = Self::proximo(fim);
+                while j < k && proximo == fim.cast::<u8>().wrapping_add(tamanho).cast() {
+                    fim = proximo;
+                    proximo = Self::proximo(fim);
+                    j += 1;
+                }
+                self.livres[n] = proximo;
             }
-            self.livres[n] = proximo;
-        }
-        let inicio = inicio.cast::<u8>();
+            (inicio.cast::<u8>(), j)
+        };
         self.faixas.push((inicio, inicio.wrapping_add(j * tamanho), n));
         self.demanda[n] += j;
         (inicio, j)
+    }
+
+    /// Devolve à frente da lista livre de `n` os blocos `[inicio, fim)`
+    /// (o resto não usado de uma faixa), encadeados em ordem, com o `n` no
+    /// cabeçalho.
+    fn devolver_faixa(&mut self, n: usize, inicio: *mut u8, fim: *mut u8) {
+        let tamanho = tamanho_do_bloco(n);
+        let mut proximo = self.livres[n];
+        let mut p = fim;
+        while p > inicio {
+            p = p.wrapping_sub(tamanho);
+            let b = p.cast::<Cabecalho>();
+            // SAFETY: bloco livre da faixa, sem objeto.
+            unsafe {
+                (*b).n = n as u16;
+                Self::encadear(b, proximo);
+            }
+            proximo = b;
+        }
+        self.livres[n] = proximo;
     }
 
     /// Marca o velho `b` como [`LEMBRADO`] (a barreira de escrita).
@@ -1846,13 +1909,19 @@ impl EspacoDeObjetos {
     }
 
     /// A varredura da coleta completa: os marcados voltam a velhos; os demais
-    /// morrem e voltam às listas, refeitas em ordem de endereço. As páginas
-    /// vazias ficam enquanto os blocos livres do tamanho delas não passam
-    /// dos vivos, da demanda do ciclo e do pico recente (e de duas páginas);
-    /// as demais vão ao sistema. Devolve (mortos, vivos, bytes vivos).
+    /// morrem e voltam às listas, refeitas em ordem de endereço. A página
+    /// sem vivo não é percorrida bloco a bloco: fica inteira como vazia
+    /// (zerada só quando for reusada, para qualquer número de campos)
+    /// enquanto os blocos livres do tamanho dela não passam dos vivos, da
+    /// demanda do ciclo e do pico recente (e de duas páginas); as demais vão
+    /// ao sistema. As regiões por usar das classes se desfazem (os blocos
+    /// delas entram nas listas). Devolve (mortos, vivos, bytes vivos).
     fn varrer(&mut self) -> (usize, usize, usize) {
         let classes = MAIOR_CLASSE + 1;
         let (mut mortos, mut vivos, mut bytes_vivos) = (0, 0, 0);
+        for r in self.regiao.iter_mut() {
+            *r = (std::ptr::null_mut(), std::ptr::null_mut());
+        }
         // Por página: o trecho da lista livre (cabeça, cauda) e os vivos.
         let mut trechos: Vec<(*mut Cabecalho, *mut Cabecalho, usize)> = Vec::with_capacity(self.paginas.len());
         let mut vivos_da_classe = vec![0usize; classes];
@@ -1862,35 +1931,74 @@ impl EspacoDeObjetos {
         let mut ocupados_da_classe = vec![0usize; classes];
         for p in &self.paginas {
             let n = p.n;
-            let (mut cabeca, mut cauda): (*mut Cabecalho, *mut Cabecalho) = (std::ptr::null_mut(), std::ptr::null_mut());
+            if p.vazia {
+                trechos.push((std::ptr::null_mut(), std::ptr::null_mut(), 0));
+                continue;
+            }
+            let tamanho = tamanho_do_bloco(n);
+            // Primeiro só se contam os marcados (um byte por bloco): a página
+            // sem vivo sai inteira.
             let mut vivos_na_pagina = 0;
-            for j in 0..p.blocos {
-                let b = p.bloco(j);
-                // SAFETY: bloco `j` da página; o estado diz se há objeto.
-                unsafe {
-                    match (*b).estado {
-                        MARCADO => {
-                            (*b).estado = VELHO;
-                            vivos_na_pagina += 1;
-                            bytes_vivos += Self::bytes_do_objeto(b, n);
-                            continue;
-                        }
-                        JOVEM | VELHO | LEMBRADO => {
+            let mut q = p.base;
+            for _ in 0..p.blocos {
+                // SAFETY: bloco da página.
+                vivos_na_pagina += usize::from(unsafe { (*q.cast::<Cabecalho>()).estado } == MARCADO);
+                q = q.wrapping_add(tamanho);
+            }
+            let (mut cabeca, mut cauda): (*mut Cabecalho, *mut Cabecalho) = (std::ptr::null_mut(), std::ptr::null_mut());
+            if vivos_na_pagina == 0 {
+                let mut q = p.base;
+                for _ in 0..p.blocos {
+                    let b = q.cast::<Cabecalho>();
+                    // SAFETY: bloco da página; o estado diz se há objeto.
+                    unsafe {
+                        if (*b).estado != LIVRE {
                             mortos += 1;
                             if n <= MAIOR_CLASSE {
                                 ocupados_da_classe[n] += 1;
                             }
-                            Self::soltar_objeto(b, n);
+                            if self.tem_fora && (*b).flags & FORA != 0 {
+                                soltar_corpo_de_fora(corpo(b));
+                            }
                         }
-                        _ => {}
                     }
-                    Self::encadear(b, std::ptr::null_mut());
-                    if cauda.is_null() {
-                        cabeca = b;
-                    } else {
-                        Self::encadear(cauda, b);
+                    q = q.wrapping_add(tamanho);
+                }
+            } else {
+                let mut q = p.base;
+                for _ in 0..p.blocos {
+                    let b = q.cast::<Cabecalho>();
+                    q = q.wrapping_add(tamanho);
+                    // SAFETY: bloco da página; o estado diz se há objeto.
+                    unsafe {
+                        match (*b).estado {
+                            MARCADO => {
+                                (*b).estado = VELHO;
+                                bytes_vivos += Self::bytes_do_objeto(b, n);
+                                continue;
+                            }
+                            JOVEM | VELHO | LEMBRADO => {
+                                mortos += 1;
+                                if n <= MAIOR_CLASSE {
+                                    ocupados_da_classe[n] += 1;
+                                }
+                                Self::soltar_objeto(b, n);
+                            }
+                            // Livre: formatado, ou zerado de uma região (sem
+                            // o `n`).
+                            _ => (*b).n = u16::try_from(n).unwrap_or(u16::MAX),
+                        }
+                        if cauda.is_null() {
+                            cabeca = b;
+                        } else {
+                            Self::encadear(cauda, b);
+                        }
+                        cauda = b;
                     }
-                    cauda = b;
+                }
+                // SAFETY: a cauda é bloco livre da página.
+                if !cauda.is_null() {
+                    unsafe { Self::encadear(cauda, std::ptr::null_mut()) };
                 }
             }
             vivos += vivos_na_pagina;
@@ -1904,11 +2012,22 @@ impl EspacoDeObjetos {
             *p = (*p - *p / 8).max(vivos_da_classe[n] + ocupados_da_classe[n]);
         }
         // As páginas vazias que passam da folga vão ao sistema (as últimas
-        // primeiro: as listas preferem os endereços baixos).
+        // primeiro: as listas preferem os endereços baixos); as já vazias
+        // de antes contam como folga de todas as classes.
         let mut solta = vec![false; self.paginas.len()];
+        let mut guardadas = 0usize;
         for i in (0..self.paginas.len()).rev() {
             let p = &self.paginas[i];
             if trechos[i].2 != 0 {
+                continue;
+            }
+            if p.vazia {
+                // Vazia desde a coleta anterior e não reusada: sobra.
+                if guardadas >= 2 {
+                    solta[i] = true;
+                } else {
+                    guardadas += 1;
+                }
                 continue;
             }
             if p.n > MAIOR_CLASSE {
@@ -1928,9 +2047,10 @@ impl EspacoDeObjetos {
         for l in self.livres.iter_mut() {
             *l = std::ptr::null_mut();
         }
+        self.vazias.clear();
         let mut caudas: Vec<*mut Cabecalho> = vec![std::ptr::null_mut(); classes];
         let paginas = std::mem::take(&mut self.paginas);
-        for (i, p) in paginas.into_iter().enumerate() {
+        for (i, mut p) in paginas.into_iter().enumerate() {
             if solta[i] {
                 self.mapa.remover(p.base as usize);
                 self.blocos -= p.blocos;
@@ -1939,8 +2059,11 @@ impl EspacoDeObjetos {
                 unsafe { std::alloc::dealloc(p.base, Pagina::layout(p.bytes)) };
                 continue;
             }
-            let (cabeca, cauda, _) = trechos[i];
-            if p.n <= MAIOR_CLASSE && !cabeca.is_null() {
+            let (cabeca, cauda, vivos_na_pagina) = trechos[i];
+            if vivos_na_pagina == 0 {
+                p.vazia = true;
+                self.vazias.push(self.paginas.len());
+            } else if p.n <= MAIOR_CLASSE && !cabeca.is_null() {
                 if caudas[p.n].is_null() {
                     self.livres[p.n] = cabeca;
                 } else {
@@ -1952,6 +2075,8 @@ impl EspacoDeObjetos {
             self.mapa.inserir(p.base as usize, self.paginas.len());
             self.paginas.push(p);
         }
+        // As vazias de endereço baixo saem primeiro (`pop`).
+        self.vazias.reverse();
         self.vivos = vivos;
         self.jovens.clear();
         self.faixas.clear();
@@ -1964,7 +2089,7 @@ impl EspacoDeObjetos {
 
     /// Visita o bloco de cada objeto vivo.
     fn para_cada_vivo(&mut self, mut f: impl FnMut(*mut Cabecalho)) {
-        for p in &self.paginas {
+        for p in self.paginas.iter().filter(|p| !p.vazia) {
             for j in 0..p.blocos {
                 let b = p.bloco(j);
                 // SAFETY: bloco da página.
@@ -1979,7 +2104,7 @@ impl EspacoDeObjetos {
 impl Drop for EspacoDeObjetos {
     fn drop(&mut self) {
         for p in &self.paginas {
-            for j in 0..if self.tem_fora { p.blocos } else { 0 } {
+            for j in 0..if self.tem_fora && !p.vazia { p.blocos } else { 0 } {
                 let b = p.bloco(j);
                 // SAFETY: bloco da página; os corpos de fora são do alocador
                 // do sistema.
@@ -3163,8 +3288,7 @@ impl Heap {
     }
     /// Devolve as TLABs do [`Contexto`] (o que o código gerado não usou) antes
     /// de uma coleta: o resto de cada faixa volta à frente da lista livre
-    /// (os blocos ainda estão encadeados em ordem) e sai da contagem de
-    /// alocações.
+    /// e sai da contagem de alocações.
     fn devolver_tlabs(&mut self) {
         if !self.publica {
             return;
@@ -3174,14 +3298,7 @@ impl Heap {
             let tamanho = tamanho_do_bloco(n);
             let k = (fim as usize).saturating_sub(cursor as usize) / tamanho;
             if k > 0 {
-                // SAFETY: `[cursor, fim)` são blocos livres da faixa, cada um
-                // encadeado ao seguinte pelo primeiro campo.
-                #[allow(unsafe_code)]
-                unsafe {
-                    let ultimo = fim.wrapping_sub(tamanho).cast::<Cabecalho>();
-                    EspacoDeObjetos::encadear(ultimo, self.objetos.livres[n]);
-                }
-                self.objetos.livres[n] = cursor.cast();
+                self.objetos.devolver_faixa(n, cursor, fim);
                 let bytes = k * tamanho;
                 self.objetos.vivos -= k;
                 self.allocations = self.allocations.saturating_sub(k);

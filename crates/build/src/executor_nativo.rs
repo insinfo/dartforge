@@ -259,6 +259,12 @@ impl ExecutorNativo {
         // O bootstrap mora no projeto que usa builders: a compilação dele não
         // passa pelo motor (que compilaria este executor de novo).
         cmd.env("DARTFORGE_BUILD_COMPILANDO_EXECUTOR", "1");
+        // Sem o otimizador da HIR (inlining): o executor é um programa enorme
+        // (o `analyzer` inteiro) que roda uma vez por sessão, e o inlining
+        // mais que dobra o IR (1,34 GB contra 0,58 GB no json_serializable) e
+        // a memória da compilação (12 GB, morto pelo OOM). Recompilar os
+        // builders com otimização pesada é o que BUILD-RUST.md §4 descarta.
+        cmd.env("DARTFORGE_OTIMIZAR_HIR", "0");
         cmd.arg("compile-native")
             .arg(&principal)
             .arg("-o")

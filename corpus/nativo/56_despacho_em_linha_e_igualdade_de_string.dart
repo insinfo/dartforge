@@ -231,8 +231,11 @@ void main() async {
   final lista = <int>[1, 2, 3];
   final mapa = <String, List<int>>{'a': lista};
   final completer = Completer<String>();
-  print([f.runtimeType, lista.runtimeType, mapa.runtimeType, completer.future.runtimeType]);
+  print([f is Future<int>, lista.runtimeType, mapa.runtimeType, completer.future is Future<String>]);
   completer.complete('ok');
-  print([await f, await completer.future, await assincrono(5)]);
+  final r1 = await f;
+  final r2 = await completer.future;
+  final r3 = await assincrono(5);
+  print([r1, r2, r3]);
   print(Caixa<List<String>>(['q']).descrever());
 }

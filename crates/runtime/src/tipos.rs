@@ -1162,7 +1162,15 @@ pub extern "C" fn dartforge_rti_definir(obj: i64, tipo: i64) {
     // O lowering dos literais reifica `List<E>`, `Map<K,V>` ou `Set<E>`, mas
     // os objetos pertencem às classes concretas do SDK. Os métodos dessas
     // classes (e de seus mixins) avaliam `P<i>` a partir do receptor.
-    let classe_concreta = HEAP.with(|h| h.borrow().classe_do_objeto(obj)).or_else(|| cid_do_runtime(obj));
+    // Um objeto do espaço: a classe e o metadado no cabeçalho do bloco
+    // (`heap::Cabecalho`), sem consultar o heap — como o código gerado lê.
+    let cabecalho = crate::heap::e_objeto(obj).then(|| (obj - crate::heap::DESLOCAMENTO_DO_HANDLE) as *mut crate::heap::Cabecalho);
+    let classe_concreta = match cabecalho {
+        // SAFETY: o handle de um objeto vivo aponta para o cabeçalho dele.
+        #[allow(unsafe_code)]
+        Some(c) => Some(i64::from(unsafe { (*c).class_id })),
+        None => cid_do_runtime(obj),
+    };
     let tipo = if let Some(classe) = classe_concreta {
         RTI.with(|u| {
             let mut u = u.borrow_mut();
@@ -1184,14 +1192,20 @@ pub extern "C" fn dartforge_rti_definir(obj: i64, tipo: i64) {
     } else {
         tipo
     };
+    if let Some(c) = cabecalho {
+        // O metadado (`id + 1`) não é referência: sem barreira.
+        // SAFETY: como acima; o cabeçalho é do objeto e só esta thread o grava.
+        #[allow(unsafe_code)]
+        unsafe {
+            (*c).metadado = u32::try_from(tipo + 1).expect("metadado além de 32 bits");
+        }
+        return;
+    }
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
         h.set_metadado(obj, tipo + 1);
-        // Um literal `<int>[…]` (N14): a lista compacta. Um objeto do espaço
-        // (`h & 3 == 2`) nunca é lista.
-        if !crate::heap::e_objeto(obj) {
-            ajustar_forma_da_lista(&mut h, obj);
-        }
+        // Um literal `<int>[…]` (N14): a lista compacta.
+        ajustar_forma_da_lista(&mut h, obj);
     });
 }
 
