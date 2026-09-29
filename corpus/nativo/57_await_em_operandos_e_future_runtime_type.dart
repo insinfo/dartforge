@@ -4,7 +4,8 @@
 // conjunto, record, argumentos posicionais e nomeados, operadores
 // binários, interpolação, cascata, condicional e dentro de `async*`. E o
 // `runtimeType` de um `_Future`, que a VM mostra como `Future`
-// (`lower/rti.rs`, `nome_visivel`). A saída tem de ser a da VM.
+// (`lower/rti.rs`, `nome_visivel`), comparado com o literal de tipo
+// genérico `Future<int>` (`lower/expressoes.rs`). A saída tem de ser a da VM.
 import 'dart:async';
 
 Future<int> g(int n) async {
@@ -102,4 +103,7 @@ Future<void> main() async {
   print(StreamController<int>().stream.runtimeType);
   print(Future.value(3).runtimeType == Future<int>);
   print('${Future<List<int>>.value([1]).runtimeType}');
+  print(Future<int>);
+  print(Map<String, List<int>>);
+  print(Future<int> == Future<int>);
 }
