@@ -1717,7 +1717,7 @@ mod testes {
     }
 
     /// Restrição `on` satisfeita pela superclasse abre a porta; não
-    /// satisfeita (`mixin_application_not_implemented_interface`) fecha.
+    /// satisfeita, `mixin_application_not_implemented_interface` fecha.
     #[test]
     fn restricao_on_do_mixin_aplicado() {
         let v = rodar(
@@ -1725,7 +1725,7 @@ mod testes {
             "class S {}\nmixin M on S {}\nclass N {}\nclass A extends S with M, N {}\nclass B with M, N {}\n",
         );
         let v: Vec<(&str, &str)> = v.iter().map(|(a, b, _)| (a.as_str(), b.as_str())).collect();
-        assert_eq!(v, vec![("class_used_as_mixin", "N")]);
+        assert_eq!(v, vec![("class_used_as_mixin", "N"), ("mixin_application_not_implemented_interface", "M")]);
     }
 
     /// Um alias de classe com um só mixin não herda de outra classe, e ele
@@ -1859,7 +1859,7 @@ mod testes {
     /// no nome do mixin, com o supertipo (`Object` omitido) e a restrição.
     #[test]
     fn mixin_sem_a_restricao_on() {
-        let v = rodar("restricao", "class A {}\nclass C {}\nmixin M on A {}\nclass B with M {}\nclass D extends C with M {}\nclass E extends A with M {}\n");
+        let v = rodar("restricao-on", "class A {}\nclass C {}\nmixin M on A {}\nclass B with M {}\nclass D extends C with M {}\nclass E extends A with M {}\n");
         let v: Vec<(&str, &str)> = v.iter().filter(|x| x.0 == "mixin_application_not_implemented_interface").map(|x| (x.1.as_str(), x.2.as_str())).collect();
         assert_eq!(
             v,

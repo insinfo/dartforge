@@ -1353,10 +1353,11 @@ mod testes {
     }
 
     /// `invalid_factory_name_not_a_class` (corpus, oráculo 3.6.2): o nome de
-    /// uma `factory` que não é o da classe.
+    /// uma `factory` que não é o da classe (na 3.13, `factory foo()` é o
+    /// construtor `A.foo`, por isso a versão 3.6).
     #[test]
     fn factory_com_outro_nome() {
-        let v = rodar("factory", "class A {\n  factory B() => throw 0;\n  factory A.c() => throw 0;\n  factory foo() => throw 0;\n}\n");
+        let v = rodar("factory", "// @dart = 3.6\nclass A {\n  factory B() => throw 0;\n  factory A.c() => throw 0;\n  factory foo() => throw 0;\n}\n");
         let v: Vec<&str> = v.iter().filter(|x| x.0 == "invalid_factory_name_not_a_class").map(|x| x.1.as_str()).collect();
         assert_eq!(v, vec!["B", "foo"]);
     }
