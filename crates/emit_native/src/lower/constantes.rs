@@ -119,13 +119,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let Some(Resolved::Constructor(f)) = self.ctx.get_resolved(self.unit_id, e) else {
                     return None;
                 };
-                self.chave_de_criacao(ast, f.0 as usize, arguments)
+                self.chave_de_criacao(ast, e, f.0 as usize, arguments)
             }
             ExprKind::Call { arguments, .. } if em_const => {
                 let Some(Resolved::Constructor(f)) = self.ctx.get_resolved(self.unit_id, e) else {
                     return None;
                 };
-                self.chave_de_criacao(ast, f.0 as usize, arguments)
+                self.chave_de_criacao(ast, e, f.0 as usize, arguments)
             }
             ExprKind::List { const_, elements, .. } => {
                 if !(em_const || *const_) {
@@ -289,7 +289,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    fn chave_de_criacao(&self, ast: &ast::Ast, fid: usize, arguments: &ast::Arguments) -> Option<String> {
+    /// A chave de `const C<…>(…)`: o construtor, os argumentos e — numa
+    /// classe genérica — o tipo da criação: `const Link<Token>()` e `const
+    /// Link<BeginToken>()` são objetos distintos (os argumentos de tipo fazem
+    /// parte da identidade da constante), senão o segundo seria o primeiro,
+    /// com o tipo reificado errado (o `groupingStack` do scanner do analyzer).
+    fn chave_de_criacao(&self, ast: &ast::Ast, e: ExprId, fid: usize, arguments: &ast::Arguments) -> Option<String> {
         if !super::funcao_do_usuario(self.ctx, fid) {
             return None;
         }
@@ -313,7 +318,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         for (n, k) in nomeados {
             pos.push(format!("{n}={k}"));
         }
-        Some(format!("o:{}({})", super::simbolo_de(self.ctx, fid), pos.join(",")))
+        let generica = self.ctx.program.functions[fid]
+            .class
+            .and_then(|c| self.ctx.outline.classes.get(c.0 as usize))
+            .is_some_and(|d| !d.type_params.is_empty());
+        let tipo = if generica { self.tipo_na_chave(e)? } else { String::new() };
+        Some(format!("o:{}{tipo}({})", super::simbolo_de(self.ctx, fid), pos.join(",")))
     }
 
     /// Se `e` é uma constante canônica (`const`, literal constante de
