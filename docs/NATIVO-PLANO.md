@@ -2468,3 +2468,131 @@ byte pelo `CodeUnits.[]` (agora a `$tc`, §9.6): é a semântica do SDK
 Medido de novo com o heap de N19 estável (3a54107a, objetos com campos de
 8 bytes e mapa de referências): **902 989 instruções/req** — o total das
 três mudanças de §9.6–§9.8 sobre o ponto de partida fica em −26,3%.
+
+### 9.9 Rodada 2: constantes, closures, cabeçalhos e o servidor que caía (medido em 2026-09-29)
+
+Ponto de partida: o `main` depois da rodada de caches inline de despacho
+(`df.classe`/`df.seletor` em linha, `==` de `String` numa chamada, a
+string canônica de um caractere do `s[i]`, a limpeza da exceção só quando
+pendente — `corpus/nativo/56_despacho_em_linha_e_igualdade_de_string.dart`,
+completo e igual à VM) e do heap novo de N19: **593 029 instruções/req**
+(callgrind, `/`, §9.1). Cada item abaixo foi medido sozinho, na ordem:
+
+| mudança | instruções/req |
+|---|---:|
+| ponto de partida | 593 029 |
+| `const` primitiva vira a constante (`lower/const_primitiva.rs`) | 561 006 |
+| closure de ambiente direto (`lower/closures.rs`) | 529 500 |
+| `String.fromCharCodes` de lista em Latin-1 numa cópia; cache do cabeçalho tipado | 513 029 |
+| Dart AOT (`dart compile exe`, o mesmo roteiro) | 107 613 |
+
+Na rota `/json`: 606 103 (Dart AOT 125 788).
+
+* **`const` primitiva** (`lower/const_primitiva.rs`, chamado de
+  `ler_global`): a leitura de uma `const` `int`/`double`/`bool` cujo
+  inicializador é literal, negação ou aritmética de inteiros sobre outras
+  dessas constantes vira a constante — o que o CFE faz com toda constante.
+  Antes cada `_State.X`/`_CharCode.LF` era o getter preguiçoso do global (a
+  bandeira, a carga, às vezes uma chamada): o `switch (_state)` do
+  `_HttpParser._doParse` comparava o estado com uma dezena de globais por
+  byte da requisição; agora é uma tabela de saltos (o `_doParse` foi de 26
+  para 13 mil instruções/req). A chave estrutural de `const [topo]` passa a
+  ser a de `const [7]` (antes as duas constantes eram objetos diferentes).
+  `corpus/nativo/59_constantes_primitivas_e_switch.dart`.
+* **Closure de ambiente direto** (`lower/closures.rs`): com um valor só no
+  ambiente — o `this` sem capturas, ou uma captura `Ref` (ou a célula
+  dela) sem `this` —, a closure guarda o valor no lugar do ambiente e o
+  corpo o recebe como o parâmetro `env` (`dartforge_closure_nova_direta`,
+  `AllocClosureTipada { direto }`): uma alocação a menos por closure (59
+  ambientes por requisição → 30). Fora: corpo `async`/gerador, genérica,
+  tupla de tipos, `late`. O `==` de duas closures da mesma expressão sobre
+  o mesmo objeto passa a ser `false`, como na VM (o runtime as igualava
+  quando o ambiente tinha um valor só).
+  `corpus/nativo/60_closures_de_ambiente_direto.dart`.
+* **`String.fromCharCodes` de lista do runtime**
+  (`sdk_nativo/core/string_patch.dart`, `_deCodigos`;
+  `DartForge_string_de_codigos`): a lista toda em Latin-1 vira a string
+  numa cópia só, em vez do `_scanCodeUnits` e de um `_setAt` (uma chamada ao
+  runtime) por unidade — os nomes e valores de cabeçalho do `_HttpParser`.
+  De passagem, dois defeitos antigos dos natives de string: o
+  `_allocateFromTwoByteList` com `Uint16List` (pânico "lista esperada") e o
+  `ArgumentError` do `_createFromCodePoints` acima de U+10FFFF.
+  `corpus/nativo/61_string_de_codigos.dart`.
+* **Cache do cabeçalho tipado** (`lower/tipados.rs`, `cabecalho_tipado`):
+  a lista tipada relida de um campo a cada acesso (`_buffer![_index++]`,
+  `_buffer[_length + i] = bytes[i]`) passa por um cache por função e tipo
+  de elemento: o último handle, num local `Ref` (enraizado: a lista não
+  morre e o handle não é reusado enquanto está no cache), e o cabeçalho
+  dele. A falha chama `dartforge_typed_cabecalho_na_falha`, declarada sem
+  `speculatable` (com a função pura, o LLVM chamava antes do teste e o
+  cache virava um `select`). Lista de parâmetro ou de local fica com a
+  chamada pura, que o LLVM tira do laço e vetoriza (`tipados/produto_f64`
+  6,3 ms e `fnv_bytes` 13,2 ms, iguais). `typed_cabecalho` por requisição:
+  394 → 58 chamadas. `corpus/nativo/62_cache_de_cabecalho_tipado.dart`.
+
+**O servidor caía quando o cliente fechava a conexão** (defeito de §9.7,
+achado aqui): um cliente que mandava a requisição e fechava antes da
+resposta derrubava o processo (SIGSEGV no `_Future._propagateToListeners`,
+pelo `_asyncCompleteError`); o `wrk` fecha as conexões ao fim de cada
+medida, então nenhuma medida de §9.2 em diante sobrevivia à segunda
+rodada. A função local direta `handleError` grava `listenerHasError`
+(`bool`, capturado por endereço) com `store i64` num `alloca i1` do
+chamador: os 7 bytes a mais zeravam o ponteiro da área de globais guardado
+ao lado. O `store` por um ponteiro que não é `alloca` da função agora tem a
+largura do valor (`llvm/mod.rs`).
+`corpus/nativo/63_funcao_direta_grava_bool_por_endereco.dart`.
+
+Correção de tudo: corpus nativo inteiro igual à VM no AOT e com
+`--gc-stress` (fora os programas em obra de outras frentes).
+
+**Medido com o `wrk`** (`scripts/bench-http.py`, 3 repetições, 5 s; carga
+da máquina 6–8 em 4 CPUs):
+
+| medida | DartForge (§9.2) | DartForge agora | Dart VM (JIT) | Dart AOT |
+|---|---:|---:|---:|---:|
+| req/s, `/`, 1 conexão | 1913 | 3991 [3143–4263] | 5489 | 9372 |
+| req/s, `/`, 64 conexões | 1826 | 3608 [3173–3626] | 9484 | 12193 |
+| req/s, `/json`, 1 conexão | 1438 | 3396 [3308–3511] | 5443 | 6828 |
+| req/s, `/json`, 64 conexões | 1977 | 3422 [3094–3430] | 7968 | 10700 |
+| CPU/req `/`, 1 conexão, µs | 335 | 216 | 146 | 84 |
+| CPU/req `/json`, 64 conexões, µs | 473 | 286 | 117 | 92 |
+| p50 `/`, 64 conexões, ms | 33,9 | 17,2 | 6,4 | 4,9 |
+| RSS em repouso, MB | 14,7 | 17,0 | 150 | 7,3 |
+| RSS de pico, MB | 16,2 | 28,1 | 166 | 17,7 |
+
+O ganho de req/s desde §9.2 soma o heap de N19, a rodada de despacho em
+linha e esta. A RSS de pico subiu (16 → 28 MB) no mesmo intervalo: o
+padrão de coleta do heap novo (as duas `Uint8List` de 8 KB por
+requisição contam para o gatilho por bytes), a conferir com a frente do
+heap.
+
+**Onde vai agora** (self, `/`, 513 mil instruções/req): código Dart
+compilado 26,8%; heap (slots, alocação, coleta) 20,9%; `malloc`/`free`/
+`memset` da libc 18,3%; runtime e natives 16,7%; RTI 11,8%; classe do
+receptor no despacho 5,2%. Os maiores, pela ordem:
+
+1. **Alocação e coleta** (heap + libc, ~39%): cada `Uint8List(8192)` é um
+   `calloc` (o `memset` de 21 mil instruções/req é dele), a coleta
+   (`coletar`, 43 mil/req inclusivo) é disparada pelos bytes dessas
+   listas; cada closure/ambiente/lista é um `Value` num slot mais
+   `malloc`. `list_push` custa ~380 instruções por `add` (o
+   `_headerField.add(byte)` do `_doParse`, 46 por requisição): duas
+   `estimated_bytes`, `get` e `get_mut`. Dono: heap.
+2. **Natives de string** (~40 mil/req): `codeUnitAt` (334 por requisição,
+   48 instruções cada), `length` (242), `==`, `[]` — cada um uma consulta
+   ao slot. Um cabeçalho de endereço fixo para o `Texto`, como o das listas
+   tipadas (N17), deixaria o código gerado ler em linha e tirar dos laços;
+   depende da representação no heap.
+3. **RTI** (60 mil/req): `rti_avaliar` (180 por requisição, ~107 cada) e
+   `rti_definir` (121, ~260 cada nas listas do runtime: `cid_do_runtime`,
+   `set_metadado`, `ajustar_forma_da_lista`). Um cache no ponto de uso de
+   `P<i>` pela classe e o metadado do cabeçalho do objeto (lidos em linha)
+   tiraria a maioria das chamadas. Dono: `lower/rti.rs`/`tipos.rs`.
+4. **A classe do receptor que não é objeto do espaço** (`value_class` do
+   runtime, 245 por requisição, ~100 cada): strings, listas e listas
+   tipadas no cache inline do seletor. Depende de a classe estar no handle
+   ou num cabeçalho.
+5. **Por chamada de função Dart** (1 185 por requisição): prólogo com
+   `dartforge_contexto`, a área de globais e o quadro de raízes. Os
+   getters e acessos de uma linha não entram em linha quando a chamada vai
+   pelo seletor (`CodeUnits.[]`, 149 por requisição no `writeHeaders`).
