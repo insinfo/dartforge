@@ -225,6 +225,32 @@ impl Leitor<'_> {
         }
     }
 
+    /// O tipo escrito é anulável: `?` nele ou num alias que ele expande.
+    fn anulavel(&self, u: UnitId, ast_: &ast::Ast, t: ast::TypeId, prof: u32) -> bool {
+        let no = ast_.ty(t);
+        if no.nullable {
+            return true;
+        }
+        let TypeKind::Named { name, .. } = &no.kind else { return false };
+        if prof > 8 {
+            return false;
+        }
+        match self.elemento(u, name) {
+            Some(Element::Typedef(tid)) => {
+                let td = self.programa.typedef(tid);
+                let ast_td = &self.programa.unit(td.decl.unit).ast;
+                match &ast_td.decl(td.decl.decl).kind {
+                    DeclKind::Typedef(d) => match d.kind {
+                        TypedefKind::Alias(corpo) => self.anulavel(td.decl.unit, ast_td, corpo, prof + 1),
+                        TypedefKind::Legacy { .. } => false,
+                    },
+                    _ => false,
+                }
+            }
+            _ => false,
+        }
+    }
+
     /// A classe `nome` do `dart:core`.
     fn do_core(&self, nome: &str) -> Option<ClassId> {
         self.programa.classes.iter().position(|c| {
@@ -1138,7 +1164,22 @@ pub fn verificar(
         for (tipos, codigo, aceita_mixin) in grupos_de_resolucao {
             let fora_do_on = codigo != c::MIXIN_SUPER_CLASS_CONSTRAINT_NON_INTERFACE;
             for &t in tipos {
-                let erro = match l.resolver(u, ast_, t, &cl.params, 0, fora_do_on) {
+                let resolvido = l.resolver(u, ast_, t, &cl.params, 0, fora_do_on);
+                // `NamedTypeResolver._verifyNullability`: `?` escrito num tipo
+                // de cláusula (o nó inteiro).
+                if l.anulavel(u, ast_, t, 0) && matches!(resolvido, Resolvido::Classe(_)) {
+                    let codigo_nulo = if codigo == c::IMPLEMENTS_NON_CLASS {
+                        c::NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE
+                    } else if codigo == c::MIXIN_OF_NON_CLASS {
+                        c::NULLABLE_TYPE_IN_WITH_CLAUSE
+                    } else if codigo == c::MIXIN_SUPER_CLASS_CONSTRAINT_NON_INTERFACE {
+                        c::NULLABLE_TYPE_IN_ON_CLAUSE
+                    } else {
+                        c::NULLABLE_TYPE_IN_EXTENDS_CLAUSE
+                    };
+                    saida.push((decl.unit, Diagnostic::com_codigo(codigo_nulo, ast_.ty(t).span, [] as [&str; 0])));
+                }
+                let erro = match resolvido {
                     Resolvido::Ignorar => false,
                     Resolvido::NaoClasse => true,
                     Resolvido::Classe(x) => match programa.class(x).kind {
@@ -1717,5 +1758,25 @@ mod testes {
             esperado.iter().map(|(a, b, c)| (a.to_string(), b.to_string(), c.to_string())).collect();
         let v: Vec<_> = v.into_iter().filter(|x| x.0 == "recursive_interface_inheritance").collect();
         assert_eq!(v, esperado);
+    }
+
+    /// `_verifyNullability` nos tipos de cláusula: `?` escrito ou vindo de
+    /// um alias (corpus `nullable_type_in_*_clause`, oráculo 3.6.2).
+    #[test]
+    fn tipo_anulavel_em_clausula() {
+        let v = rodar(
+            "anulavel",
+            "class A {}\nmixin M {}\ntypedef B = A?;\nclass C extends A? {}\nclass D implements B {}\nclass E with M? {}\nmixin N on A? {}\n",
+        );
+        let v: Vec<(&str, &str)> = v.iter().map(|(c, t, _)| (c.as_str(), t.as_str())).collect();
+        assert_eq!(
+            v,
+            vec![
+                ("nullable_type_in_extends_clause", "A?"),
+                ("nullable_type_in_implements_clause", "B"),
+                ("nullable_type_in_on_clause", "A?"),
+                ("nullable_type_in_with_clause", "M?"),
+            ]
+        );
     }
 }

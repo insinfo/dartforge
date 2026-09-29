@@ -38,6 +38,7 @@ pub const BIBLIOTECAS_DA_FONTE: &[&str] =
         "ffi",
         "_http",
         "io",
+        "mirrors",
     ];
 
 /// Diretório da sobreposição: `DARTFORGE_SDK_NATIVO`, senão o `sdk_nativo/`

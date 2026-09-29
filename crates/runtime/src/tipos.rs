@@ -919,6 +919,11 @@ pub unsafe extern "C" fn dartforge_rti_iniciar_tabela(dados: *const u8, len: i64
                 dartforge_rti_regra(id, modelo);
             }
             "F" => dartforge_rti_classe_do_runtime(id, b.parse().expect("id da RTI")),
+            // A biblioteca e o nome declarado da classe (`dart:mirrors`).
+            "B" => {
+                let (uri, nome) = b.split_once(' ').unwrap_or((b, ""));
+                registrar_biblioteca_da_classe(id, uri, nome);
+            }
             _ => panic!("registro da RTI desconhecido: {linha}"),
         }
     }

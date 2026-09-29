@@ -232,6 +232,8 @@ pub const NATIVOS: &[Nativo] = &[
     runtime("DartForge_finalizador_desanexar"),
     runtime("DartForge_imprimir"),
     runtime("DartForge_mensagem_atual"),
+    runtime("DartForge_mirrors_nome"),
+    runtime("DartForge_mirrors_uri"),
     runtime("DartForge_porta_abrir"),
     runtime("DartForge_porta_atual"),
     runtime("DartForge_porta_enviar"),

@@ -1303,6 +1303,11 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
         let nome = nome_visivel(ctx, c);
         let n = ctx.outline.classes.get(c.0 as usize).map_or(0, |d| d.type_params.len());
         tabela.push_str(&format!("C{id} {n} {nome}\n"));
+        // A biblioteca que declara a classe e o nome declarado, para o
+        // `reflectClass` do `dart:mirrors` (`runtime/src/mirrors.rs`).
+        let classe = &ctx.program.classes[c.0 as usize];
+        let uri = ctx.program.library(classe.library).uri.replace(' ', "%20");
+        tabela.push_str(&format!("B{id} {uri} {}\n", ctx.symbol_name(classe.name)));
         let Some(d) = ctx.outline.hierarchy.get(c) else { continue };
         let mut sups: Vec<(i64, TypeId)> = d.supertypes.iter().map(|(k, t)| (ctx.id_rti(*k), *t)).collect();
         sups.sort_by_key(|x| x.0);

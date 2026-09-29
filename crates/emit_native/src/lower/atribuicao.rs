@@ -760,8 +760,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let sym = self.ctx.interner.lookup(&nome)?;
                     self.ctx.program.classes[cid.0 as usize].static_members.get(&sym).copied()
                 } else {
+                    // O getter pode vir de uma superinterface (`List.last=`
+                    // com o `last` de `Iterable`): a busca é a da interface
+                    // do tipo, não só a da cadeia de superclasses.
                     self.membro_na_classe(cid, &nome)
                         .map(|fid| dartforge_elements::model::FunctionElementId(fid as u32))
+                        .or_else(|| getter_da_interface(self.ctx, cid, &nome))
                 }
             });
             let Some(getter) = getter else {
@@ -882,4 +886,34 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(fim);
         v
     }
+}
+
+/// O getter `nome` da interface da classe `cid`: a própria classe, as
+/// superclasses, os mixins e as superinterfaces, em largura (a primeira
+/// declaração achada; numa interface bem formada as outras têm a mesma
+/// assinatura).
+fn getter_da_interface(
+    ctx: &crate::context::Context,
+    cid: dartforge_elements::model::ClassId,
+    nome: &str,
+) -> Option<dartforge_elements::model::FunctionElementId> {
+    let sym = ctx.interner.lookup(nome)?;
+    let mut fila = std::collections::VecDeque::from([cid]);
+    let mut vistos = std::collections::HashSet::new();
+    while let Some(c) = fila.pop_front() {
+        if !vistos.insert(c) {
+            continue;
+        }
+        let classe = &ctx.program.classes[c.0 as usize];
+        if let Some(&f) = classe.instance_members.get(&sym)
+            && ctx.program.functions[f.0 as usize].kind != FunctionKind::Setter
+        {
+            return Some(f);
+        }
+        fila.extend(classe.supertype_class);
+        fila.extend(classe.mixin_classes.iter().copied());
+        fila.extend(classe.interface_classes.iter().copied());
+        fila.extend(classe.on_classes.iter().copied());
+    }
+    None
 }

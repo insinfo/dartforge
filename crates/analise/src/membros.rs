@@ -610,6 +610,70 @@ fn this_sem_acesso(cx: &mut Ctx<'_>) {
     }
 }
 
+/// Os identificadores embutidos do scanner (`KeywordStyle.builtIn`), menos
+/// `augment`, que o scanner do 3.6 só faz palavra-chave com o experimento.
+fn embutido(nome: &str) -> bool {
+    matches!(
+        nome,
+        "abstract" | "as" | "covariant" | "deferred" | "dynamic" | "export" | "extension" | "external" | "factory"
+            | "Function" | "get" | "implements" | "import" | "interface" | "late" | "library" | "mixin"
+            | "operator" | "part" | "required" | "set" | "static" | "typedef"
+    )
+}
+
+/// `_checkForBuiltInIdentifierAsName`: identificador embutido como nome de
+/// classe, mixin, enum, alias, `typedef`, extensão, tipo de extensão,
+/// prefixo de import ou parâmetro de tipo.
+fn identificadores_embutidos(cx: &mut Ctx<'_>) {
+    let ast_ = cx.ast;
+    let programa = cx.programa;
+    let unidade = programa.unit(cx.u);
+    let sdk = programa.library(unidade.library).is_sdk;
+    let mut achados: Vec<(Codigo, ast::Name)> = Vec::new();
+    for d in &unidade.unit.directives {
+        if let ast::DirectiveKind::Import { prefix: Some(p), .. } = &d.kind {
+            achados.push((c::BUILT_IN_IDENTIFIER_AS_PREFIX_NAME, *p));
+        }
+    }
+    let mut parametros: Vec<ast::Name> = Vec::new();
+    for &id in &unidade.unit.declarations {
+        let (codigo, nome, tps): (Codigo, Option<ast::Name>, &[ast::TypeParameter]) = match &ast_.decl(id).kind {
+            // `visitClassTypeAlias`: o alias de classe usa o código de `typedef`.
+            DeclKind::Class(d) if d.mixin_application => (c::BUILT_IN_IDENTIFIER_AS_TYPEDEF_NAME, Some(d.name), &d.type_params),
+            DeclKind::Class(d) => (c::BUILT_IN_IDENTIFIER_AS_TYPE_NAME, Some(d.name), &d.type_params),
+            DeclKind::Mixin(d) => (c::BUILT_IN_IDENTIFIER_AS_TYPE_NAME, Some(d.name), &d.type_params),
+            DeclKind::Enum(d) => (c::BUILT_IN_IDENTIFIER_AS_TYPE_NAME, Some(d.name), &d.type_params),
+            DeclKind::Typedef(d) => (c::BUILT_IN_IDENTIFIER_AS_TYPEDEF_NAME, Some(d.name), &d.type_params),
+            DeclKind::Extension(d) => (c::BUILT_IN_IDENTIFIER_AS_EXTENSION_NAME, d.name, &d.type_params),
+            DeclKind::ExtensionType(d) => (c::BUILT_IN_IDENTIFIER_AS_EXTENSION_TYPE_NAME, Some(d.name), &d.type_params),
+            _ => continue,
+        };
+        if let Some(n) = nome {
+            // A classe `Function` do `dart:core` é a exceção.
+            if !(sdk && cx.nome(n.sym) == "Function") {
+                achados.push((codigo, n));
+            }
+        }
+        parametros.extend(tps.iter().map(|p| p.name));
+    }
+    for f in &ast_.functions {
+        parametros.extend(f.type_params.iter().map(|p| p.name));
+    }
+    for t in &ast_.types {
+        if let TypeKind::Function { type_params, .. } = &t.kind {
+            parametros.extend(type_params.iter().map(|p| p.name));
+        }
+    }
+    achados.extend(parametros.into_iter().map(|n| (c::BUILT_IN_IDENTIFIER_AS_TYPE_PARAMETER_NAME, n)));
+    for (codigo, n) in achados {
+        let texto = cx.nome(n.sym).to_string();
+        // O nome escrito (a recuperação do parser pode dar nome sintético).
+        if embutido(&texto) && cx.fonte.get(n.span.start..n.span.end) == Some(texto.as_str()) {
+            cx.relatar(codigo, n.span, &[&texto]);
+        }
+    }
+}
+
 /// A espécie da declaração que contém os membros.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Container {
@@ -910,6 +974,7 @@ pub fn verificar(
             }
         }
         this_sem_acesso(&mut cx);
+        identificadores_embutidos(&mut cx);
         saida.append(&mut cx.saida);
     }
     saida
@@ -1252,5 +1317,28 @@ mod testes {
         );
         let n = v.iter().filter(|x| x.0 == "invalid_reference_to_this").count();
         assert_eq!(n, 8, "{v:?}");
+    }
+
+    /// `built_in_identifier_in_declaration` (corpus, oráculo 3.6.2): o código
+    /// de cada contexto; `augment` e os pseudo-palavras-chave não contam.
+    #[test]
+    fn identificador_embutido_como_nome() {
+        let v = rodar(
+            "embutidos",
+            "import 'dart:core' as abstract;\nclass as {}\nclass B {}\nmixin M {}\nclass Function = B with M;\ntypedef interface = int;\nextension set on int {}\nclass C<static> {}\nvoid f<dynamic>() {}\nclass on {}\nclass augment {}\n",
+        );
+        let nomes: Vec<(&str, &str)> = v.iter().map(|(_, t, m)| (t.as_str(), m.as_str())).collect();
+        assert_eq!(
+            nomes,
+            vec![
+                ("Function", "The built-in identifier 'Function' can't be used as a typedef name."),
+                ("abstract", "The built-in identifier 'abstract' can't be used as a prefix name."),
+                ("as", "The built-in identifier 'as' can't be used as a type name."),
+                ("dynamic", "The built-in identifier 'dynamic' can't be used as a type parameter name."),
+                ("interface", "The built-in identifier 'interface' can't be used as a typedef name."),
+                ("set", "The built-in identifier 'set' can't be used as an extension name."),
+                ("static", "The built-in identifier 'static' can't be used as a type parameter name."),
+            ]
+        );
     }
 }

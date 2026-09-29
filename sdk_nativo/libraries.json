@@ -30,7 +30,8 @@
       "_internal/vm/bin/io_service_patch.dart": "io/io_service_patch.dart",
       "_internal/vm/bin/secure_socket_patch.dart": "io/secure_socket_patch.dart",
       "internal/sort.dart": "internal/sort.dart",
-      "collection/list.dart": "collection/list.dart"
+      "collection/list.dart": "collection/list.dart",
+      "_internal/vm/lib/mirrors_patch.dart": "mirrors/mirrors_patch.dart"
     }
   }
 }
