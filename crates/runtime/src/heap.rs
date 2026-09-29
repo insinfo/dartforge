@@ -1228,6 +1228,12 @@ const _: () = {
     assert!(std::mem::offset_of!(Campos, do_espaco) == 16);
 };
 
+/// O menor gatilho de coleta por bytes alocados: com pouco dado vivo, a
+/// coleta vem a cada 4 MiB alocados (o *new space* da VM começa em alguns
+/// MiB e cresce), não a cada 1 MiB — que remarcava o que sobrevive quatro
+/// vezes mais.
+const GATILHO_MINIMO: usize = 4 * 1024 * 1024;
+
 /// Bytes de um bloco de `n` campos.
 #[inline]
 pub const fn tamanho_do_bloco(n: usize) -> usize {
@@ -2264,7 +2270,7 @@ impl Heap {
             marks: Vec::new(),
             trabalho_da_marcacao: 0,
             pending: Vec::new(),
-            byte_threshold: 1024 * 1024,
+            byte_threshold: GATILHO_MINIMO,
             limite_bytes: Self::limite_do_ambiente(),
             enum_values: crate::hash::HashMap::default(),
             tearoffs: crate::hash::HashMap::default(),
@@ -3303,7 +3309,15 @@ impl Heap {
                 continue;
             }
             if e_objeto(handle) {
-                let b = self.bloco_vivo(handle);
+                // As arestas vêm de raízes e de campos `is_ref`: a validação
+                // completa do handle (a página e o início do bloco) fica para
+                // o `--gc-stress`, o modo que caça raiz faltando (N4).
+                let b = if self.stress {
+                    self.bloco_vivo(handle)
+                } else {
+                    debug_assert!(self.objetos.bloco_de(handle).is_some(), "aresta inválida {handle}");
+                    (handle - DESLOCAMENTO_DO_HANDLE) as *mut Bloco
+                };
                 // SAFETY: bloco vivo do espaço; o valor é `Value::Object`.
                 #[allow(unsafe_code)]
                 unsafe {
@@ -3486,7 +3500,7 @@ impl Heap {
     /// conferido à parte (`allocate`).
     fn recalcular_gatilhos(&mut self, vivos: usize) {
         const PASSO_MINIMO: usize = 256 * 1024;
-        let crescimento = self.stats.estimated_bytes.saturating_mul(2).max(1024 * 1024);
+        let crescimento = self.stats.estimated_bytes.saturating_mul(2).max(GATILHO_MINIMO);
         self.byte_threshold = if self.limite_bytes == usize::MAX {
             crescimento
         } else {
