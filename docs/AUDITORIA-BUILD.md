@@ -8,6 +8,9 @@ O código oficial de referência é o do `build_runner_core` 8.0.0 e do
 | Item | Estado | Nota |
 |---|---|---|
 | DF-BUILD-001 descobrir builders sem `build_runner` | feito | `dartforge_build::detectar`: algum pacote resolvido com `builders:`/`post_process_builders:` no `build.yaml`, ou o `build_runner` resolvido. |
+| DF-BUILD-002 builders Dart sem a VM oficial | parcial | `executor_nativo::ExecutorNativo`: o mesmo bootstrap do executor pela VM, compilado pelo `compile-native` do DartForge e servido pelo `dfexec/1`; é o executor padrão do `dartforge build`. `cadeia_configuracao` igual ao oráculo e incremental = do zero sem `dart`; o resto do corpus ainda não (B01 em `PENDENCIAS.md`). |
+| DF-BUILD-003 compilar o `analyzer`/`build_resolvers` no nativo | parcial | O bootstrap com `build_resolvers`, `analyzer` 7.7.1 e `source_gen` compila sem recusa (eram 222 no `cadeia_configuracao`); falta executá-lo por inteiro nos builders que resolvem bibliotecas (`json_serializable`: ações não terminam). |
+| DF-BUILD-004 dependências do hospedeiro | parcial | O executor precisa de `analyzer`, `build`, `build_resolvers`, `glob`, `logging` e `package_config` (`dependencias_executor::DEPENDENCIAS`); o que o projeto não resolve vem do cache do pub (a maior versão que satisfaz as restrições do executor e de quem pede, transitivamente), e o que o cache não tem é diagnosticado pelo nome, pela restrição e por quem pediu. Sem rede: não baixa pacotes. |
 | DF-BUILD-005 não mascarar falha com resultado antigo | feito (CLI) | `Origem::Falha`: o builder que lança, registra erro severo, escreve saída não permitida ou derruba o executor no meio da ação não cai mais no apoio; a ação fica sem saídas, `RelMotor::falhas` a lista e `dartforge build` falha. Só a ausência de executor (`FalhaDart::Indisponivel`) segue a política de apoio. Falta o `dev` anunciar a falha em vez de republicar. |
 | DF-BUILD-006 modo independente | parcial | `dartforge build` conta a ação de apoio que entrega conteúdo lido do disco do `build_runner` (`RelMotor::apoio_com_saida`) como saída sem produtor do DartForge e falha sem `--aceitar-pendentes`. Aberto: as ações de apoio **sem** conteúdo — o oficial não escreveu nada ali, e o DartForge não sabe por conta própria que não escreveria: no `limitless_ui/example`, 541 do `ngdart` (bibliotecas do `ngcompiler`, que o nativo recusa) e 5 parciais do Sass; hoje só aparecem no relatório (`apoio`). |
 | DF-BUILD-007 código de saída | feito (CLI) | Pendentes ou apoio: falha sem `--aceitar-pendentes`; no `--comparar`, depois do placar. |
@@ -22,5 +25,5 @@ O código oficial de referência é o do `build_runner_core` 8.0.0 e do
 | DF-BUILD-022 identidade das substituições nativas | feito | O gerador nativo só substitui o builder quando o pacote imitado vem do pub.dev (`source: hosted`, `description.url` do pub.dev) na versão imitada (`Travado::do_pub_dev`); `path`, `git` ou outro servidor com a mesma versão vão ao executor. |
 | DF-BUILD-026 comparação bidirecional | parcial | Saída a mais aparece como `diferente`, ou como `não solicitado` se o builder é opcional. |
 
-Os demais (002, 003, 004, 008, 009, 014, 015, 016, 018, 019, 021–025,
+Os demais (008, 009, 014, 015, 016, 018, 019, 021–025,
 027–031) seguem abertos; ver a auditoria.

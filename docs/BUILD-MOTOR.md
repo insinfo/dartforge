@@ -253,8 +253,18 @@ Por ação, na ordem, o primeiro que aceita:
    executor que existe é o **pela VM Dart** (`vm.rs` + `pacotes/build_executor`):
    executa o builder do ecossistema de verdade (o `runBuilder` do
    `package:build`, o `AnalyzerResolvers` do `build_resolvers`), ligado por
-   `dartforge build --dart <exe>` ou `DARTFORGE_BUILD_DART`. Sem ele, o padrão
-   é `Indisponivel(motivo)`, até existir o processo auto-hospedado. A sessão
+   `dartforge build --dart <exe>` ou `DARTFORGE_BUILD_DART`. O **nativo**
+   (`executor_nativo.rs`, B01) é o mesmo bootstrap compilado pelo
+   `compile-native` do DartForge, sem VM: é o padrão do `dartforge build`
+   com a feature `nativo` (`DARTFORGE_BUILD_NATIVO=0` o desliga; nos
+   compiladores só com `DARTFORGE_BUILD_NATIVO=1`). O executável fica em
+   `.dart_tool/dartforge/build/executor-<chave>`, com um depfile dos fontes
+   que o programa carrega (o código dos builders para o motor); o processo
+   recebe `DARTFORGE_PACKAGE_CONFIG` (o `--packages` da VM) e
+   `DARTFORGE_DART_SDK` (o SDK do resumo do analyzer). Os pacotes do executor
+   que o projeto não resolve vêm do cache do pub
+   (`dependencias_executor.rs`). Sem executor, o padrão é
+   `Indisponivel(motivo)`. A sessão
    encerra o executor ao terminar ou quando ele é substituído. No
    `corpus/builders` pela VM: **57 iguais / 0 pendentes / 0 diferentes**
    (`crates/build/tests/executor_vm.rs`, com a saída do pós-processador do
