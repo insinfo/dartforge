@@ -406,6 +406,9 @@ fn chave_do_sdk(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     // O rastro de depuração muda o código (`llvm/mod.rs`).
     h.update(std::env::var("DARTFORGE_RASTRO").unwrap_or_default().as_bytes());
     h.update(b"\0");
+    // A ligação de comparação (`DARTFORGE_LIGAR_COM_CLANG`) dá outra DLL.
+    h.update(if crate::driver::ligar_com_clang() { b"clang" } else { b"lld" });
+    h.update(b"\0");
     h.update(clang_id.as_bytes());
     for a in args {
         h.update(a.as_bytes());
@@ -585,6 +588,25 @@ pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk
             },
         )
         .map_err(|e| format!("a ligação da DLL do SDK da fonte falhou: {e}"))?;
+    } else if crate::alvo::sistema() == crate::alvo::Sistema::Windows && crate::driver::ligar_com_clang() {
+        // A ligação de antes do N15 (o driver do Clang, `link.exe` e a CRT do
+        // Visual C++), só para comparação (`DARTFORGE_LIGAR_COM_CLANG`).
+        let saida = std::process::Command::new(clang)
+            .current_dir(&tmp)
+            .arg("-shared")
+            .args(BIBLIOTECAS_DA_FONTE.iter().map(|b| format!("{b}.{ext_obj}")))
+            .arg(&runtime_dll.lib_path)
+            .arg("-Wl,/DEF:exportados.def")
+            .args(crate::alvo::argumentos_de_ligacao())
+            .arg("-o")
+            .arg(&arquivo_dll)
+            .output()
+            .map_err(|e| format!("Clang: {e}"))?;
+        if !saida.status.success() {
+            let texto = String::from_utf8_lossy(&saida.stderr);
+            let linhas: Vec<&str> = texto.lines().filter(|l| !l.trim().is_empty()).take(40).collect();
+            return Err(format!("a ligação da DLL do SDK da fonte falhou ({}):\n{}", saida.status, linhas.join("\n")));
+        }
     } else if crate::alvo::sistema() == crate::alvo::Sistema::Windows {
         // O `lld-link` direto, com as bibliotecas de importação e a CRT
         // mínima do dartforge (`ligador_windows.rs`); o `.def` exporta o
@@ -762,7 +784,9 @@ mod testes {
             return;
         }
         let sdk = carregar_sdk_nativo(Path::new(SDK_DIR.as_str())).unwrap();
-        assert_eq!(sdk.substituicoes.len(), 25);
+        // 26 com o `mirrors_patch.dart` (o `reflectClass` do executor de
+        // builders, corpus/nativo/45).
+        assert_eq!(sdk.substituicoes.len(), 26);
         for b in BIBLIOTECAS_DA_FONTE {
             assert!(sdk.library(b).is_some(), "dart:{b} fora do layout");
         }

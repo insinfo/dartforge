@@ -291,10 +291,16 @@ fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &
         // A ligação de antes do N15 (o driver do Clang com o `link.exe` e a
         // CRT do Visual C++), só para comparação: é a referência do
         // `sem-toolchain.yml`, na mesma build.
-        Sistema::Windows if std::env::var_os("DARTFORGE_LIGAR_COM_CLANG").is_some() => ligar_antigo_com_clang(clang, obj, sdk, ligacao, output, depuracao),
+        Sistema::Windows if ligar_com_clang() => ligar_antigo_com_clang(clang, obj, sdk, ligacao, output, depuracao),
         Sistema::Windows => ligar_no_windows(clang, obj, sdk, ligacao, output, depuracao),
         Sistema::MacOs => ligar_no_macos(clang, obj, sdk, ligacao, output, depuracao),
     }
+}
+
+/// Se a ligação no Windows é a de antes do N15 (`DARTFORGE_LIGAR_COM_CLANG`
+/// definida): o executável e a DLL do SDK da fonte.
+pub fn ligar_com_clang() -> bool {
+    cfg!(windows) && std::env::var_os("DARTFORGE_LIGAR_COM_CLANG").is_some()
 }
 
 /// A ligação pelo driver do Clang, como era antes do N15 (o toolchain do
