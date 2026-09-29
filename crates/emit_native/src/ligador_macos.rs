@@ -704,41 +704,47 @@ mod testes {
         assert!(faltam.is_empty(), "não exportados pelo SDK: {faltam:#?}");
     }
 
-    /// Os nomes do `nm` de uma `staticlib` (`-u`: indefinidos; `-U`:
-    /// definidos).
-    #[cfg(target_os = "macos")]
-    fn nm(lib: &Path, bandeira: &str) -> std::collections::BTreeSet<String> {
-        let saida = Command::new("nm").args(["-g", "-j", bandeira]).arg(lib).output().expect("executar o nm");
-        assert!(saida.status.success(), "nm {}: {}", lib.display(), String::from_utf8_lossy(&saida.stderr));
-        String::from_utf8_lossy(&saida.stdout)
-            .lines()
-            .map(str::trim)
-            .filter(|l| !l.is_empty() && !l.ends_with(':'))
-            .map(str::to_string)
-            .collect()
-    }
-
-    /// Tudo o que as duas `staticlib` do runtime pedem de fora está nos
-    /// `.tbd` gerados (menos o que o código gerado define, `dartforge_*`).
+    /// As duas `staticlib` do runtime **inteiras** (`-all_load`: todo membro,
+    /// não só o que um programa puxa) ligam só com os `.tbd` gerados: a `aot`
+    /// (com o `main`) como executável e a `dll` como biblioteca dinâmica. O
+    /// único nome de fora, o `dartforge_entry` do código gerado, vem de um
+    /// objeto C. Um nome fora de [`BIBLIOTECAS_DO_SISTEMA`] faz o `ld64.lld`
+    /// recusar a ligação, e a mensagem dele diz qual. (O `nm` da Apple não lê
+    /// o bitcode do LLVM do dartforge que vai nas `staticlib`.)
     #[cfg(target_os = "macos")]
     #[test]
     fn runtime_so_usa_simbolos_da_lista() {
-        let arch = Arquitetura::do_hospedeiro();
-        let lista: std::collections::HashSet<&str> = BIBLIOTECAS_DO_SISTEMA
-            .iter()
-            .flat_map(|b| b.simbolos.iter().chain(if arch == Arquitetura::Arm64 { b.so_arm64 } else { b.so_x86_64 }))
-            .copied()
-            .collect();
-        let mut faltam = std::collections::BTreeSet::new();
-        for lib in [crate::cache::RuntimeCache::get_or_compile(), crate::cache::RuntimeCache::para_dll()] {
+        let clang = crate::driver::NativeDriverOptions::default().clang;
+        let dir = tempfile::tempdir().unwrap();
+        gerar(&dir.path().join("sysroot"), Arquitetura::do_hospedeiro()).unwrap();
+        let sysroot = SysrootMacos { raiz: dir.path().join("sysroot"), versao: String::new() };
+        let c = dir.path().join("entrada.c");
+        std::fs::write(&c, "void dartforge_entry(void) {}
+").unwrap();
+        let obj = dir.path().join("entrada.o");
+        let status = Command::new(&clang).arg("-c").arg(&c).arg("-o").arg(&obj).status().expect("executar o Clang");
+        assert!(status.success(), "o Clang não compilou {}", c.display());
+        let exe = dir.path().join("programa");
+        let dylib = dir.path().join("libteste.dylib");
+        let casos = [
+            (crate::cache::RuntimeCache::get_or_compile(), Produto::Executavel, &exe),
+            (
+                crate::cache::RuntimeCache::para_dll(),
+                Produto::Dinamica { install_name: "@rpath/libteste.dylib", exportados: &[] },
+                &dylib,
+            ),
+        ];
+        for (lib, produto, saida) in casos {
             let lib = lib.expect("runtime pré-compilado").lib_path;
-            let definidos = nm(&lib, "-U");
-            for n in nm(&lib, "-u") {
-                if !definidos.contains(&n) && !n.starts_with("_dartforge_") && !lista.contains(n.as_str()) {
-                    faltam.insert(n);
-                }
+            let entradas = vec![obj.clone(), PathBuf::from("-all_load"), lib];
+            let l = Ligacao { produto, entradas, rpath_executavel: false, lto: false, podar: false, manter_depuracao: false, saida };
+            if let Err(e) = ligar(&ld64_lld(&clang), &sysroot, &l) {
+                panic!("o runtime usa nomes fora de BIBLIOTECAS_DO_SISTEMA:
+{e}");
             }
         }
-        assert!(faltam.is_empty(), "o runtime usa nomes fora de BIBLIOTECAS_DO_SISTEMA: {faltam:#?}");
+        // O executável roda (só o `dartforge_entry` vazio).
+        let saida = Command::new(&exe).output().expect("executar o programa");
+        assert!(saida.status.code().is_some(), "o programa terminou por sinal: {saida:?}");
     }
 }
