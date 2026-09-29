@@ -63,17 +63,24 @@ fn base_de_future_or(inf: &BodyInferrer<'_>, mut t: TypeId) -> TypeId {
     t
 }
 
-fn exibir(inf: &BodyInferrer<'_>, t: TypeId) -> String {
-    inf.table.format(base_de_future_or(inf, t), inf.interner, inf.program)
+/// O contexto exibido na mensagem: sem `FutureOr` e sem o `?` (o
+/// analyzer 3.13.4 mostra `Object` para o contexto `Object?`).
+fn exibir(inf: &mut BodyInferrer<'_>, t: TypeId) -> String {
+    let base = base_de_future_or(inf, t);
+    let base = inf.nao_nulo(base);
+    inf.table.format(base, inf.interner, inf.program)
 }
 
 /// A declaração `D` que o contexto denota (spec 3.10, "Declaration denoted by
 /// a type scheme"): `C`/`C<…>` de classe, mixin, enum ou extension type; `S?`
 /// e `FutureOr<S>` denotam o que `S` denota. `Future<S>` cai para `S` quando
 /// `Future` não tem o membro (o contexto do `=>` de função `async`).
-fn declaracao(inf: &BodyInferrer<'_>, ctx: TypeId, nome: SymbolId) -> Option<ClassId> {
+///
+/// Uma declaração privada de outra biblioteca não é denotada (o analyzer
+/// 3.13.4 trata o contexto como ausente).
+fn declaracao(inf: &BodyInferrer<'_>, cx: &Corpo, ctx: TypeId, nome: SymbolId) -> Option<ClassId> {
     let mut t = ctx;
-    loop {
+    let d = loop {
         match inf.table.get(t) {
             Type::Interface { class, args, .. } => {
                 let c = *class;
@@ -82,13 +89,30 @@ fn declaracao(inf: &BodyInferrer<'_>, ctx: TypeId, nome: SymbolId) -> Option<Cla
                     t = args[0];
                     continue;
                 }
-                return Some(c);
+                break c;
             }
-            Type::ExtensionType { decl, .. } => return Some(*decl),
+            Type::ExtensionType { decl, .. } => break *decl,
             Type::FutureOr { arg, .. } => t = *arg,
             _ => return None,
         }
+    };
+    let class = inf.program.class(d);
+    if class.library != cx.lib && inf.interner.resolve(class.name).starts_with('_') {
+        return None;
     }
+    Some(d)
+}
+
+/// `D` tem o construtor da chave `k`: declarado, o primário de um tipo de
+/// extensão, ou o sem nome implícito de uma classe sem construtores.
+fn tem_construtor(inf: &BodyInferrer<'_>, d: ClassId, k: SymbolId) -> bool {
+    if inf.construtor_ou_primario(d, k).is_some() {
+        return true;
+    }
+    let class = inf.program.class(d);
+    Some(k) == inf.sym.vazio
+        && class.constructors.is_empty()
+        && matches!(class.kind, ClassKind::Class | ClassKind::MixinApplication)
 }
 
 /// A chave do construtor `nome` (`new` = o sem nome).
@@ -108,7 +132,7 @@ fn tem_membro(inf: &BodyInferrer<'_>, d: ClassId, nome: SymbolId) -> bool {
             .enum_constants
             .iter()
             .any(|v| inf.program.variable(*v).name == nome)
-        || chave_de_construtor(inf, nome).is_some_and(|k| class.constructors.contains_key(&k))
+        || chave_de_construtor(inf, nome).is_some_and(|k| tem_construtor(inf, d, k))
 }
 
 /// O tipo de `D.nome` como valor: getter/campo estático, constante de enum,
@@ -134,8 +158,12 @@ fn tipo_do_membro(inf: &mut BodyInferrer<'_>, d: ClassId, nome: SymbolId) -> Opt
             nullable: false,
         }));
     }
-    let fid = *class.constructors.get(&chave_de_construtor(inf, nome)?)?;
-    Some(inf.outline.functions[fid.0 as usize].signature)
+    let k = chave_de_construtor(inf, nome)?;
+    match inf.construtor_ou_primario(d, k) {
+        Some(Some(fid)) => Some(inf.outline.functions[fid.0 as usize].signature),
+        Some(None) => Some(inf.assinatura_primario(d)),
+        None => tem_construtor(inf, d, k).then_some(inf.core.dynamic_),
+    }
 }
 
 /// `.nome` sem chamada: getter, campo, constante de enum ou tear-off.
@@ -148,7 +176,7 @@ pub(crate) fn valor(
 ) -> TypeId {
     let ctx = cx.contexto_atalho.remove(&e.0).unwrap_or(ctx);
     let relatado = cx.atalhos_relatados.remove(&e.0);
-    match declaracao(inf, ctx, nome) {
+    match declaracao(inf, cx, ctx, nome) {
         Some(d) => {
             resolver(inf, cx, e, Resolved::Element(Element::Class(d)));
             match tipo_do_membro(inf, d, nome) {
@@ -209,7 +237,7 @@ pub(crate) fn construcao(
     };
     let (nome, const_) = (name.sym, *const_);
     let ctx_cadeia = cx.contexto_atalho.get(&alvo.0).copied().unwrap_or(ctx);
-    let Some(d) = declaracao(inf, ctx_cadeia, nome) else {
+    let Some(d) = declaracao(inf, cx, ctx_cadeia, nome) else {
         // Sem declaração no contexto: a criação `const .id(…)` não tem
         // contexto; a invocação `.id(…)` não acha o membro em `_`.
         if const_ {
@@ -228,7 +256,11 @@ pub(crate) fn construcao(
         return None;
     }
     let Some(fid) = chave_de_construtor(inf, nome).and_then(|k| class.constructors.get(&k)).copied() else {
-        if !tem_membro(inf, d, nome) {
+        // A criação `const .id(…)` sem o construtor é o
+        // `CONST_WITH_UNDEFINED_CONSTRUCTOR` do caminho comum.
+        if const_ {
+            cx.atalhos_relatados.insert(alvo.0);
+        } else if !tem_membro(inf, d, nome) {
             let (texto, span) = nome_e_span(inf, cx, alvo);
             let tipo = exibir(inf, ctx_cadeia);
             relatar(inf, "CompileTimeErrorCode.DOT_SHORTHAND_UNDEFINED_INVOCATION", span, &[&texto, &tipo]);

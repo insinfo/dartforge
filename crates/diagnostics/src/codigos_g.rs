@@ -8,12 +8,12 @@
 // ParserErrorCode: 265
 // ScannerErrorCode: 12
 // TodoCode: 4
-// suplemento 3.13.4 (construtores primários): 7
+// suplemento 3.13.4 (construtores primários e atalhos de ponto): 10
 #![allow(missing_docs)]
 
 use crate::{InfoCodigo, Severidade, TipoErro};
 
-pub(crate) static TABELA: [InfoCodigo; 1037] = [
+pub(crate) static TABELA: [InfoCodigo; 1040] = [
     InfoCodigo { nome: "abstract_field_initializer", unico: "CompileTimeErrorCode.ABSTRACT_FIELD_CONSTRUCTOR_INITIALIZER", mensagem: "Abstract fields can't have initializers.", correcao: Some("Try removing the field initializer or the 'abstract' keyword from the field declaration."), tipo: TipoErro::CompileTimeError, severidade: Severidade::Error, documentado: true },
     InfoCodigo { nome: "abstract_field_initializer", unico: "CompileTimeErrorCode.ABSTRACT_FIELD_INITIALIZER", mensagem: "Abstract fields can't have initializers.", correcao: Some("Try removing the initializer or the 'abstract' keyword."), tipo: TipoErro::CompileTimeError, severidade: Severidade::Error, documentado: true },
     InfoCodigo { nome: "abstract_super_member_reference", unico: "CompileTimeErrorCode.ABSTRACT_SUPER_MEMBER_REFERENCE", mensagem: "The {0} '{1}' is always abstract in the supertype.", correcao: None, tipo: TipoErro::CompileTimeError, severidade: Severidade::Error, documentado: true },
@@ -1051,9 +1051,12 @@ pub(crate) static TABELA: [InfoCodigo; 1037] = [
     InfoCodigo { nome: "const_primary_constructor_with_body", unico: "ParserErrorCode.CONST_PRIMARY_CONSTRUCTOR_WITH_BLOCK_BODY", mensagem: "The body part of a constant primary constructor can't have a block body.", correcao: Some("Try replacing the block body with a semicolon, or removing the 'const' modifier."), tipo: TipoErro::CompileTimeError, severidade: Severidade::Error, documentado: false },
     InfoCodigo { nome: "const_primary_constructor_with_body", unico: "ParserErrorCode.CONST_PRIMARY_CONSTRUCTOR_WITH_EXPRESSION_BODY", mensagem: "The body part of a constant primary constructor can't have an expression body.", correcao: Some("Try replacing the expression body with a semicolon, or removing the 'const' modifier."), tipo: TipoErro::CompileTimeError, severidade: Severidade::Error, documentado: false },
     InfoCodigo { nome: "primary_constructor_body_with_modifier", unico: "ParserErrorCode.PRIMARY_CONSTRUCTOR_BODY_WITH_MODIFIER", mensagem: "A primary constructor body can't have the modifier '{0}'.", correcao: Some("Try removing the modifier."), tipo: TipoErro::SyntacticError, severidade: Severidade::Error, documentado: false },
+    InfoCodigo { nome: "dot_shorthand_missing_context", unico: "CompileTimeErrorCode.DOT_SHORTHAND_MISSING_CONTEXT", mensagem: "A dot shorthand can't be used where there is no context type.", correcao: None, tipo: TipoErro::CompileTimeError, severidade: Severidade::Error, documentado: false },
+    InfoCodigo { nome: "dot_shorthand_undefined_member", unico: "CompileTimeErrorCode.DOT_SHORTHAND_UNDEFINED_GETTER", mensagem: "The static getter '{0}' isn't defined for the context type '{1}'.", correcao: Some("Try correcting the name to the name of an existing static getter, or defining a getter or field named '{0}'."), tipo: TipoErro::CompileTimeError, severidade: Severidade::Error, documentado: false },
+    InfoCodigo { nome: "dot_shorthand_undefined_member", unico: "CompileTimeErrorCode.DOT_SHORTHAND_UNDEFINED_INVOCATION", mensagem: "The static method or constructor '{0}' isn't defined for the context type '{1}'.", correcao: Some("Try correcting the name to the name of an existing static method or constructor, or defining a static method or constructor named '{0}'."), tipo: TipoErro::CompileTimeError, severidade: Severidade::Error, documentado: false },
 ];
 
-pub(crate) static POR_UNICO: [(&str, u16); 1037] = [
+pub(crate) static POR_UNICO: [(&str, u16); 1040] = [
     ("CompileTimeErrorCode.ABSTRACT_FIELD_CONSTRUCTOR_INITIALIZER", 0),
     ("CompileTimeErrorCode.ABSTRACT_FIELD_INITIALIZER", 1),
     ("CompileTimeErrorCode.ABSTRACT_SUPER_MEMBER_REFERENCE", 2),
@@ -1178,6 +1181,9 @@ pub(crate) static POR_UNICO: [(&str, u16); 1037] = [
     ("CompileTimeErrorCode.DEFERRED_IMPORT_OF_EXTENSION", 121),
     ("CompileTimeErrorCode.DEFINITELY_UNASSIGNED_LATE_LOCAL_VARIABLE", 122),
     ("CompileTimeErrorCode.DISALLOWED_TYPE_INSTANTIATION_EXPRESSION", 123),
+    ("CompileTimeErrorCode.DOT_SHORTHAND_MISSING_CONTEXT", 1037),
+    ("CompileTimeErrorCode.DOT_SHORTHAND_UNDEFINED_GETTER", 1038),
+    ("CompileTimeErrorCode.DOT_SHORTHAND_UNDEFINED_INVOCATION", 1039),
     ("CompileTimeErrorCode.DUPLICATE_CONSTRUCTOR_DEFAULT", 124),
     ("CompileTimeErrorCode.DUPLICATE_CONSTRUCTOR_NAME", 125),
     ("CompileTimeErrorCode.DUPLICATE_DEFINITION", 126),
@@ -2643,6 +2649,9 @@ pub mod modulos {
         pub const PRIMARY_CONSTRUCTOR_BODY_WITHOUT_DECLARATION: Codigo = Codigo(1031);
         pub const MULTIPLE_PRIMARY_CONSTRUCTOR_BODY_DECLARATIONS: Codigo = Codigo(1032);
         pub const PRIMARY_CONSTRUCTOR_BODY_WITH_EXPRESSION_BODY: Codigo = Codigo(1033);
+        pub const DOT_SHORTHAND_MISSING_CONTEXT: Codigo = Codigo(1037);
+        pub const DOT_SHORTHAND_UNDEFINED_GETTER: Codigo = Codigo(1038);
+        pub const DOT_SHORTHAND_UNDEFINED_INVOCATION: Codigo = Codigo(1039);
     }
     /// `StaticWarningCode`.
     pub mod static_warning {
