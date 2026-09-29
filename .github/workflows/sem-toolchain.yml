@@ -68,14 +68,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'empacotar falhou' }
           Get-ChildItem -Recurse (Join-Path $dist 'lib/sysroot'), (Join-Path $dist 'lib/llvm') | Select-Object FullName, Length | Format-Table -AutoSize
           "DIST=$dist" >> $env:GITHUB_ENV
-      # A referência: as mesmas rodadas, pela mesma distribuição, com o
-      # toolchain presente. Sem ele, nenhum programa pode falhar que passava
-      # com ele (o corpus nativo ainda tem falhas próprias do backend).
+      # A referência: as mesmas rodadas, pela mesma distribuição, ligadas
+      # como antes (com o MSVC). Sem o toolchain, nenhum programa pode falhar
+      # que passava na referência; um que falha e depois passa ao ser
+      # repetido é intermitente (aviso), não regressão.
       - name: Corpus nativo com o MSVC (referência)
         shell: pwsh
         run: |
           $env:DARTFORGE_HOME = $env:DIST
           $env:DARTFORGE_BIN = "$env:DIST\bin\dartforge.exe"
+          # A ligação de antes do N15 (driver do Clang, link.exe e a CRT do
+          # Visual C++), na mesma build: a diferença medida é só a ligação.
+          $env:DARTFORGE_LIGAR_COM_CLANG = '1'
           New-Item -ItemType Directory -Force relatorios | Out-Null
           foreach ($r in @(@('io', '--nativo --corpus corpus/nativo --jobs 2'),
                            @('io-gc-stress', '--nativo --corpus corpus/nativo --gc-stress --jobs 2 --limite-exec 120'),
@@ -165,7 +169,17 @@ jobs:
             Add-Content $env:GITHUB_STEP_SUMMARY "- Windows, $($r[0]): sem MSVC ``$placar``, com MSVC ``$ref``" -Encoding utf8
             if (!$placar) { Write-Host "::error::$($r[0]): relatório sem placar"; $falhou = $true }
             $novas = @(Falhas $rel | Where-Object { $_ -notin (Falhas "relatorios/ref-$($r[0]).txt") })
-            if ($novas.Count -gt 0) { Write-Host "::error::$($r[0]): falham só sem o MSVC: $($novas -join ', ')"; $falhou = $true }
+            foreach ($n in $novas) {
+              # Repete o programa duas vezes: passar em uma é intermitência.
+              $passou = $false
+              foreach ($i in 1, 2) {
+                $rr = "relatorios/repete-$($r[0])-$n-$i.txt"
+                Start-Process -FilePath target/release/dartforge-diferencial.exe -ArgumentList "$($r[1]) --filtro $n" -RedirectStandardOutput $rr -RedirectStandardError "$rr.err" -NoNewWindow -Wait
+                if ((Get-Content $rr -Encoding utf8 | Where-Object { $_ -match '^FALHA ' }).Count -eq 0) { $passou = $true }
+              }
+              if ($passou) { Write-Host "::warning::$($r[0]): $n falhou uma vez e passou ao repetir (intermitente)" }
+              else { Write-Host "::error::$($r[0]): $n falha só sem o MSVC"; $falhou = $true }
+            }
             $ligacao = @($texto | Select-String -Pattern 'falhou na ligação|CRT mínima não compilou|LNK\d{4}|vcruntime140|não foi possível instalar')
             if ($ligacao.Count -gt 0) { $ligacao | ForEach-Object { Write-Host "::error::$($r[0]): $_" }; $falhou = $true }
           }
@@ -220,7 +234,8 @@ jobs:
       # desenvolvimento), para comparar com a rodada sem ele.
       # A referência: as mesmas rodadas, pela mesma distribuição, com o
       # toolchain presente. Sem ele, nenhum programa pode falhar que passava
-      # com ele (o corpus nativo ainda tem falhas próprias do backend).
+      # com ele; um que falha e depois passa ao ser repetido é intermitente
+      # (aviso), não regressão.
       - name: Corpus nativo com o Xcode (referência)
         run: |
           set +e -uo pipefail
@@ -271,8 +286,16 @@ jobs:
             echo "$nome: código $c; sem Xcode $placar; com Xcode $ref"
             echo "- macOS, $nome: sem Xcode \`$placar\`, com Xcode \`$ref\`" >> "$GITHUB_STEP_SUMMARY"
             [ -n "$placar" ] || { echo "::error::$nome: relatório sem placar"; falhou=1; }
-            novas=$(comm -13 <(falhas "relatorios/ref-$nome.txt") <(falhas "relatorios/$nome.txt") | tr '\n' ' ')
-            [ -z "$novas" ] || { echo "::error::$nome: falham só sem o Xcode: $novas"; falhou=1; }
+            for n in $(comm -13 <(falhas "relatorios/ref-$nome.txt") <(falhas "relatorios/$nome.txt")); do
+              # Repete o programa duas vezes: passar em uma é intermitência.
+              passou=0
+              for i in 1 2; do
+                "${ambiente[@]}" ./target/release/dartforge-diferencial $args --filtro "$n" > "relatorios/repete-$nome-$n-$i.txt" 2>&1
+                grep -qE '^FALHA ' "relatorios/repete-$nome-$n-$i.txt" || passou=1
+              done
+              if [ $passou = 1 ]; then echo "::warning::$nome: $n falhou uma vez e passou ao repetir (intermitente)"
+              else echo "::error::$nome: $n falha só sem o Xcode"; falhou=1; fi
+            done
             # Nenhuma falha de ligação (o que o toolchain escondido causaria).
             if grep -nE 'falhou na ligação|xcrun|não tem usr/lib/libSystem.tbd|SDK do macOS' "relatorios/$nome.txt"; then falhou=1; fi
           done

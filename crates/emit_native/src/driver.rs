@@ -288,9 +288,133 @@ fn ligar_no_macos(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, 
 fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &Path, depuracao: bool) -> Result<(), String> {
     match crate::alvo::sistema() {
         Sistema::Linux => ligar_no_linux(clang, obj, sdk, ligacao, output, depuracao),
+        // A ligação de antes do N15 (o driver do Clang com o `link.exe` e a
+        // CRT do Visual C++), só para comparação: é a referência do
+        // `sem-toolchain.yml`, na mesma build.
+        Sistema::Windows if std::env::var_os("DARTFORGE_LIGAR_COM_CLANG").is_some() => ligar_antigo_com_clang(clang, obj, sdk, ligacao, output, depuracao),
         Sistema::Windows => ligar_no_windows(clang, obj, sdk, ligacao, output, depuracao),
         Sistema::MacOs => ligar_no_macos(clang, obj, sdk, ligacao, output, depuracao),
     }
+}
+
+/// A ligação pelo driver do Clang, como era antes do N15 (o toolchain do
+/// Visual Studio na máquina): `DARTFORGE_LIGAR_COM_CLANG=1` no Windows. Só
+/// para comparar com a ligação sem o toolchain do sistema.
+fn ligar_antigo_com_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &Path, depuracao: bool) -> Result<(), String> {
+    if crate::alvo::sistema() == Sistema::Linux {
+        return ligar_no_linux(clang, obj, sdk, ligacao, output, depuracao);
+    }
+    let mut cmd = std::process::Command::new(clang);
+    cmd.arg(obj).args(sdk).arg(ligacao.biblioteca());
+    let sistema = crate::alvo::sistema();
+    match ligacao {
+        Ligacao::SdkCompartilhado(_) if sistema == Sistema::Windows => {
+            // Executável do SDK da fonte (desenvolvimento): o runtime está na
+            // DLL, que usa a CRT dinâmica (a do `rustc`); o executável usa a
+            // mesma.
+            cmd.args(["-Wl,/NODEFAULTLIB:libcmt", "-lmsvcrt"]);
+        }
+        Ligacao::SdkCompartilhado(_) => {
+            // A biblioteca compartilhada vai ao lado do executável; o `rpath`
+            // aponta o carregador para o diretório do próprio executável.
+            cmd.arg(if sistema == Sistema::MacOs { "-Wl,-rpath,@executable_path" } else { "-Wl,-rpath,$ORIGIN" });
+            // O Clang acrescenta `-lSystem` no macOS: sem a raiz do SDK
+            // (`-isysroot`), o ligador não o acha.
+            cmd.args(crate::alvo::argumentos_de_ligacao());
+        }
+        Ligacao::Producao(_) => {
+            // Produção com o SDK da fonte: tudo estático no executável,
+            // ThinLTO entre o programa e o SDK (lld), e o ligador tira as
+            // seções que nada alcança.
+            // O lld tem de ser o do mesmo LLVM do Clang (o bitcode ThinLTO só
+            // é lido pela mesma versão). O Clang com ThinLTO exige o literal
+            // `lld` em `-fuse-ld=` (caminho absoluto dá `clang: error: LTO
+            // requires -fuse-ld=lld` no Windows); então o diretório bin irmão
+            // do próprio Clang vai ao PATH só deste spawn, para o `lld`
+            // resolvido ser o da mesma versão. Recusar sua ausência evita cair
+            // num lld errado do PATH em silêncio (medido: LLVM 20 lendo
+            // bitcode 22 — `Unknown attribute kind (105)`).
+            let nome_lld = match sistema {
+                Sistema::Windows => "lld-link.exe",
+                Sistema::Linux => "ld.lld",
+                Sistema::MacOs => "ld64.lld",
+            };
+            let lld = clang.with_file_name(nome_lld);
+            if !lld.is_file() {
+                return Err(format!("ThinLTO requer {nome_lld} ao lado de {}", clang.display()));
+            }
+            if let Some(bin) = clang.parent()
+                && !bin.as_os_str().is_empty()
+            {
+                let mut caminhos = vec![bin.to_path_buf()];
+                if let Some(atual) = std::env::var_os("PATH") {
+                    caminhos.extend(std::env::split_paths(&atual));
+                }
+                if let Ok(novo) = std::env::join_paths(caminhos) {
+                    cmd.env("PATH", novo);
+                }
+            }
+            cmd.args(["-fuse-ld=lld", "-flto=thin", "-O2"]);
+            cmd.args(crate::alvo::argumentos_de_ligacao());
+            // O bitcode do gerador embutido não tem o resumo do ThinLTO: o
+            // `lld` faz a LTO completa, e a geração de código dela divide-se
+            // em partições paralelas (o Mach-O não tem a opção).
+            let particoes = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, 16);
+            match sistema {
+                Sistema::Windows => {
+                    // `/OPT:REF` liga também o `/OPT:ICF` do `lld-link`, que
+                    // funde funções de corpo idêntico num endereço só; o
+                    // `/OPT:NOICF` vai logo abaixo, para todo perfil
+                    // (`left == right` daria `true`, corpus/js 147 e 184).
+                    cmd.args(["-Wl,/NODEFAULTLIB:libcmt", "-lmsvcrt", "-Wl,/OPT:REF"]);
+                    cmd.arg(format!("-Wl,/opt:lldltopartitions={particoes}"));
+                }
+                // Sem a tabela de símbolos, como o `.exe` do Windows (que a
+                // deixa no PDB): metade do tamanho no ELF (medido: 9,4 → 4,4 MB).
+                Sistema::Linux => {
+                    cmd.arg("-Wl,--gc-sections");
+                    if !crate::ligador::manter_simbolos() && !depuracao {
+                        cmd.arg("-Wl,--strip-all");
+                    }
+                    cmd.arg(format!("-Wl,--lto-partitions={particoes}"));
+                }
+                Sistema::MacOs => {
+                    cmd.arg("-Wl,-dead_strip");
+                    // `-S` tira o mapa de depuração (J05).
+                    if !depuracao {
+                        cmd.args(["-Wl,-S", "-Wl,-x"]);
+                    }
+                }
+            }
+        }
+        Ligacao::Runtime(_) => {
+            cmd.args(crate::alvo::argumentos_de_ligacao());
+        }
+    }
+    if sistema == Sistema::Windows && depuracao {
+        // O `-g` na ligação vira o `/DEBUG` do ligador: o PDB ao lado do
+        // executável, com as tabelas CodeView do objeto.
+        cmd.arg("-g");
+    }
+    if sistema == Sistema::Windows {
+        // Sem ICF em nenhum perfil: o `link.exe` sem `/DEBUG` (e o `lld-link`
+        // com `/OPT:REF`) funde funções de corpo idêntico, e o tear-off de
+        // função de topo se compara pelo endereço.
+        cmd.arg("-Wl,/OPT:NOICF");
+    }
+    let saida = cmd
+        .arg("-o")
+        .arg(output)
+        .output()
+        .map_err(|e| format!("falha na ligação com Clang em {clang:?}: {e}"))?;
+    if !saida.status.success() {
+        // O que o ligador disse vai no erro (sem isso a falha no CI não
+        // tem diagnóstico).
+        let texto = String::from_utf8_lossy(&saida.stderr);
+        let linhas: Vec<&str> = texto.lines().filter(|l| !l.trim().is_empty()).take(40).collect();
+        return Err(format!("Clang falhou na ligação do executável ({}):\n{}", saida.status, linhas.join("\n")));
+    }
+    Ok(())
 }
 
 /// O que a limpeza depois da ligação apaga: nada com `manter_ir`, e nunca um
