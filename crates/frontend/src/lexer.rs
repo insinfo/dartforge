@@ -240,41 +240,80 @@ impl<'s> Lexer<'s> {
         Ok(())
     }
 
+    /// Literal numérico com os limites de token do scanner do fasta
+    /// (`tokenizeNumber`, `tokenizeHex`, `tokenizeFractionPart`), inclusive
+    /// os separadores de dígito `_` (Dart 3.6): o `_` fica dentro do token
+    /// onde o scanner o põe, mesmo fora de lugar (`100_`, `0x_1`, `3_.14`,
+    /// `1e_3`) — o parser relata `UNEXPECTED_SEPARATOR_IN_NUMBER`. `3._14` é
+    /// `3`, `.` e o identificador `_14`, como lá.
     fn number(&mut self, start: usize) {
-        if self.at(0) == b'0' && matches!(self.at(1), b'x' | b'X') && self.at(2).is_ascii_hexdigit()
-        {
+        let digito = |b: u8| b.is_ascii_digit();
+        if self.at(0) == b'0' && matches!(self.at(1), b'x' | b'X') && (self.at(2).is_ascii_hexdigit() || self.at(2) == b'_') {
             self.pos += 2;
-            while self.at(0).is_ascii_hexdigit() {
+            while self.at(0).is_ascii_hexdigit() || self.at(0) == b'_' {
                 self.pos += 1;
             }
             self.push(Kind::Int, start);
             return;
         }
-        while self.at(0).is_ascii_digit() {
+        if self.at(0) == b'.' {
+            // `.5`: parte fracionária direto.
+            self.pos += 1;
+            self.fracao(start);
+            return;
+        }
+        while digito(self.at(0)) || self.at(0) == b'_' {
             self.pos += 1;
         }
-        let mut is_double = false;
-        if self.at(0) == b'.' && self.at(1).is_ascii_digit() {
-            is_double = true;
+        if matches!(self.at(0), b'e' | b'E') {
+            // `tokenizeFractionPart` a partir do `e` (o scanner só volta
+            // atrás se o expoente não tiver dígitos).
+            if self.expoente_valido() {
+                self.fracao(start);
+                return;
+            }
+        } else if self.at(0) == b'.' && digito(self.at(1)) {
             self.pos += 1;
-            while self.at(0).is_ascii_digit() {
+            self.fracao(start);
+            return;
+        }
+        self.push(Kind::Int, start);
+    }
+
+    /// O `e` corrente abre um expoente com dígitos (`e5`, `e+5`, `e_5`).
+    fn expoente_valido(&self) -> bool {
+        let mut i = 1;
+        while self.at(i) == b'_' {
+            i += 1;
+        }
+        if matches!(self.at(i), b'+' | b'-') {
+            i += 1;
+        }
+        while self.at(i) == b'_' {
+            i += 1;
+        }
+        self.at(i).is_ascii_digit()
+    }
+
+    /// `tokenizeFractionPart`: dígitos e `_`, expoente opcional; o token é
+    /// sempre `double`.
+    fn fracao(&mut self, start: usize) {
+        while self.at(0).is_ascii_digit() || self.at(0) == b'_' {
+            self.pos += 1;
+        }
+        if matches!(self.at(0), b'e' | b'E') && self.expoente_valido() {
+            self.pos += 1;
+            while self.at(0) == b'_' {
+                self.pos += 1;
+            }
+            if matches!(self.at(0), b'+' | b'-') {
+                self.pos += 1;
+            }
+            while self.at(0).is_ascii_digit() || self.at(0) == b'_' {
                 self.pos += 1;
             }
         }
-        if matches!(self.at(0), b'e' | b'E') {
-            let mut end = self.pos + 1;
-            if matches!(self.bytes.get(end), Some(b'+' | b'-')) {
-                end += 1;
-            }
-            if matches!(self.bytes.get(end), Some(d) if d.is_ascii_digit()) {
-                while matches!(self.bytes.get(end), Some(d) if d.is_ascii_digit()) {
-                    end += 1;
-                }
-                self.pos = end;
-                is_double = true;
-            }
-        }
-        self.push(if is_double { Kind::Double } else { Kind::Int }, start);
+        self.push(Kind::Double, start);
     }
 
     /// Lê um literal de string a partir da aspa de abertura.

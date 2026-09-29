@@ -610,10 +610,10 @@ impl Motor {
 /// e `experiment_not_enabled_off_by_default` (a sintaxe do recurso desligado
 /// foi lida inteira, a árvore é a mesma do recurso ligado) e
 /// `missing_function_body` num `;` (o corpo vazio fica na árvore, como no
-/// fasta).
+/// fasta) e `unexpected_separator_in_number` (o literal é lido inteiro).
 pub fn recuperacao_do_parser(d: &Diagnostic, fonte: &str) -> bool {
     match d.code.map(|c| c.info().nome) {
-        Some("experiment_not_enabled" | "experiment_not_enabled_off_by_default") => false,
+        Some("experiment_not_enabled" | "experiment_not_enabled_off_by_default" | "unexpected_separator_in_number") => false,
         Some("missing_function_body") => fonte.get(d.span.start..d.span.end) != Some(";"),
         _ => true,
     }

@@ -1504,7 +1504,11 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
 /// `dart:typed_data` pela interface pública (`_Smi` → `int`,
 /// `_GrowableList` → `List`, `_Uint8List` → `Uint8List`…); as demais —
 /// inclusive as visões (`_Uint8ArrayView`) e `_Map` — ficam com o nome
-/// declarado.
+/// declarado. Fora dos ids predefinidos, a VM só troca o `_Future` do
+/// `dart:async` por `Future` (o mesmo `Class::GenerateUserVisibleName`
+/// compara o nome com `Symbols::_Future()` e a biblioteca com
+/// `Library::AsyncLibrary()`); `_SyncCompleter`, `_ControllerStream`… ficam
+/// com o nome declarado.
 pub fn nome_visivel(ctx: &Context, c: ClassId) -> String {
     let classe = &ctx.program.classes[c.0 as usize];
     let nome = ctx.symbol_name(classe.name);
@@ -1516,6 +1520,7 @@ pub fn nome_visivel(ctx: &Context, c: ClassId) -> String {
             Some("String")
         }
         ("dart:core", "_List" | "_ImmutableList" | "_GrowableList") => Some("List"),
+        ("dart:async", "_Future") => Some("Future"),
         ("dart:typed_data", n) => match n {
             "_Int8List" | "_ExternalInt8Array" => Some("Int8List"),
             "_Uint8List" | "_ExternalUint8Array" => Some("Uint8List"),

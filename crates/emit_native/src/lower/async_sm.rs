@@ -810,8 +810,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// Na retomada: com `código == _ERRO`, lança o `_ErroAssincrono` do
-    /// `resultado` ali; senão segue.
-    fn lancar_se_erro(&mut self, codigo: Operand, resultado: Operand, span: Span) {
+    /// `resultado` ali; senão segue. Devolve o bloco que desvia para o
+    /// caminho sem erro (o único predecessor dele).
+    fn lancar_se_erro(&mut self, codigo: Operand, resultado: Operand, span: Span) -> BlockId {
         // `código` chega como `int` numa posição `Ref` (Smi).
         let c = self.coagir(codigo, Type::I64);
         let e_erro = self.emit(
@@ -820,6 +821,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
         let b_erro = self.new_block();
         let b_ok = self.new_block();
+        let origem = self.current_block;
         self.terminate(Terminator::CondBranch {
             cond: e_erro,
             then_block: b_erro,
@@ -828,6 +830,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(b_erro);
         self.lancar_erro_assincrono(resultado, span);
         self.set_block(b_ok);
+        origem
     }
 
     /// `Return` que não passa por `_asyncReturn`.
@@ -902,8 +905,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let est = self.async_estado.as_ref().expect("corpo async");
         let (codigo, resultado) = (est.codigo.clone(), est.resultado.clone());
         self.set_block(retomada);
-        self.lancar_se_erro(codigo, resultado.clone(), span);
-        resultado
+        let origem = self.lancar_se_erro(codigo, resultado.clone(), span);
+        // O valor retomado é o parâmetro `resultado`, que cada entrada do
+        // corpo troca: sai dele uma definição SSA própria, aqui, para que a
+        // passada 2 (`guardar_vivos`) o leve ao quadro quando ele atravessa
+        // outro ponto de suspensão (`[await a, await b]`, `f(await a, await
+        // b)`, `await a + await b`, `'${await a}${await b}'`…). Os
+        // parâmetros do corpo ficam de fora daquela passada.
+        self.emit(
+            Instruction::Phi {
+                incoming: vec![(origem, resultado)],
+                ty: Type::Ref,
+            },
+            Type::Ref,
+        )
     }
 
     /// Lança, no ponto do `await`, o erro de um `_ErroAssincrono` com o

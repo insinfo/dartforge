@@ -110,6 +110,40 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.parse_binary(LEVEL_BIT_OR)
     }
 
+    /// Separadores de dígito do literal numérico em `span`: fora de lugar
+    /// (não entre dois dígitos), `UNEXPECTED_SEPARATOR_IN_NUMBER` no início
+    /// do literal, com comprimento 1 (o token de erro do scanner); numa
+    /// biblioteca antes da 3.6, `EXPERIMENT_NOT_ENABLED` no literal inteiro
+    /// (`digit-separators` entrou na 3.6).
+    fn conferir_separadores(&mut self, span: Span) {
+        let texto = &self.source.as_bytes()[span.start..span.end];
+        if !texto.contains(&b'_') {
+            return;
+        }
+        let hex = texto.len() > 1 && matches!(texto[1], b'x' | b'X');
+        let digito = |b: u8| if hex { b.is_ascii_hexdigit() } else { b.is_ascii_digit() };
+        let inicio = if hex { 2 } else { 0 };
+        let mut fora = false;
+        for (i, &b) in texto.iter().enumerate().skip(inicio) {
+            if b != b'_' {
+                continue;
+            }
+            let antes = texto[inicio..i].iter().rev().find(|&&c| c != b'_');
+            let depois = texto[i + 1..].iter().find(|&&c| c != b'_');
+            if !antes.is_some_and(|&c| digito(c)) || !depois.is_some_and(|&c| digito(c)) {
+                fora = true;
+                break;
+            }
+        }
+        if fora {
+            let um = Span { start: span.start, end: span.start + 1 };
+            self.erro_em(codigos::scanner::UNEXPECTED_SEPARATOR_IN_NUMBER, um, &[]);
+        }
+        if self.features.versao() < crate::features::LanguageVersion::new(3, 6) {
+            self.erro_em(codigos::parser::EXPERIMENT_NOT_ENABLED, span, &["digit-separators", "3.6.0"]);
+        }
+    }
+
     /// `(args)` com os parênteses; sem argumentos de tipo (o chamador os lê).
     ///
     /// Um argumento é nomeado quando é um identificador seguido de `:`.
@@ -452,7 +486,20 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// Continuação de [`Parser::parse_binary`] com o operando esquerdo já
     /// lido (o padrão constante lê o operando com as regras dele).
     pub(crate) fn parse_binary_rest(&mut self, start: Span, mut left: ExprId, min_level: u8) -> PResult<ExprId> {
-        while let Some(here) = self.binary_here() {
+        loop {
+            let Some(here) = self.binary_here() else {
+                match self.operador_por_extenso(min_level) {
+                    Some((level, op, texto)) => {
+                        let palavra = self.text().to_string();
+                        self.erro(codigos::parser::BINARY_OPERATOR_WRITTEN_OUT, &[&palavra, texto]);
+                        self.advance();
+                        let right = self.parse_binary(level + 1)?;
+                        left = self.push(start, ExprKind::Binary { op, left, right });
+                        continue;
+                    }
+                    None => break,
+                }
+            };
             match here {
                 BinaryHere::Op { level, op, len } => {
                     if level < min_level {
@@ -491,6 +538,52 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
         }
         Ok(left)
+    }
+
+    /// `_attemptPrecedenceLevelRecovery` do fasta: um identificador `and`,
+    /// `or`, `xor`, `shl` ou `shr` onde cabe um operador binário é lido, em
+    /// tentativa, como cada operador que ele descreve (`and`: `&`, depois
+    /// `&&`); a primeira leitura sem erro que termina num ponto plausível
+    /// (`;`, `,`, `)`, `{`, `}`, `|`, `||`, `&`, `&&`, fim ou outra dessas
+    /// palavras) é aceita, com `BINARY_OPERATOR_WRITTEN_OUT`.
+    fn operador_por_extenso(&mut self, min_level: u8) -> Option<(u8, BinaryOp, &'static str)> {
+        if self.recuperando_operador || !self.e_identificador_puro(self.pos) {
+            return None;
+        }
+        let trocas: &[(u8, BinaryOp, &'static str)] = match self.text() {
+            "xor" => &[(LEVEL_BIT_XOR, BinaryOp::BitXor, "^")],
+            "and" => &[(LEVEL_BIT_AND, BinaryOp::BitAnd, "&"), (LEVEL_AND, BinaryOp::And, "&&")],
+            "or" => &[(LEVEL_BIT_OR, BinaryOp::BitOr, "|"), (LEVEL_OR, BinaryOp::Or, "||")],
+            "shl" => &[(LEVEL_SHIFT, BinaryOp::Shl, "<<")],
+            "shr" => &[(LEVEL_SHIFT, BinaryOp::Shr, ">>")],
+            _ => return None,
+        };
+        for &(level, op, texto) in trocas {
+            if level < min_level {
+                continue;
+            }
+            let cp = self.checkpoint();
+            self.recuperando_operador = true;
+            self.advance();
+            let inicio = self.span();
+            let ok = self
+                .parse_binary(level + 1)
+                .and_then(|r| self.parse_binary_rest(inicio, r, min_level))
+                .is_ok();
+            let aceita = ok
+                && self.diagnostics.len() == cp.diagnostics
+                && (matches!(
+                    self.kind(),
+                    Kind::Op(Op::Semicolon | Op::Comma | Op::RParen | Op::LBrace | Op::RBrace | Op::Pipe | Op::PipePipe | Op::Amp | Op::AmpAmp)
+                        | Kind::Eof
+                ) || (self.e_identificador_puro(self.pos) && matches!(self.text(), "xor" | "and" | "or" | "shl" | "shr")));
+            self.recuperando_operador = false;
+            self.restore(cp);
+            if aceita {
+                return Some((level, op, texto));
+            }
+        }
+        None
     }
 
     /// Operador binário (ou `is`) no cursor com nível a partir da igualdade:
@@ -835,10 +928,12 @@ impl<'s, 'i> Parser<'s, 'i> {
                 Ok(self.push(start, ExprKind::Identifier(name)))
             }
             Kind::Int => {
+                self.conferir_separadores(start);
                 self.advance();
                 Ok(self.push(start, ExprKind::Int(start)))
             }
             Kind::Double => {
+                self.conferir_separadores(start);
                 self.advance();
                 Ok(self.push(start, ExprKind::Double(start)))
             }

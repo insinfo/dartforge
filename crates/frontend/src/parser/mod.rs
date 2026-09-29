@@ -205,6 +205,9 @@ pub struct Parser<'s, 'i> {
     /// construtor primário, pelo início do `this`: a elaboração, que sabe se
     /// o construtor é `const`, relata ali os erros de corpo do analyzer.
     pub(crate) corpos_primarios: std::collections::HashMap<usize, Span>,
+    /// Numa tentativa de `operador_por_extenso` (o `_currentlyRecovering` do
+    /// fasta): não se tenta outra dentro dela.
+    pub(crate) recuperando_operador: bool,
 }
 
 /// Limite de aninhamento antes de um diagnóstico de profundidade.
@@ -228,6 +231,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             features: LibraryFeatures::atual(),
             em_construtor_primario: false,
             corpos_primarios: std::collections::HashMap::new(),
+            recuperando_operador: false,
         }
     }
 
