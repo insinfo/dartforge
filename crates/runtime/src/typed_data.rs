@@ -190,6 +190,62 @@ pub extern "C" fn dartforge_typed_cabecalho_na_falha(h: i64, tipo: i64) -> i64 {
     dartforge_typed_cabecalho(h, tipo)
 }
 
+/// `lista.fillRange(inicio, fim, valor)` de uma lista tipada de inteiros
+/// (lista interna ou visão modificável do tipo `tipo`, menos a
+/// `Uint8ClampedList`), gravando os bits baixos de `valor` como o `[]=` da
+/// VM. Devolve 1 se preencheu; 0 se não é o caso simples (lista vazia ou
+/// não apta, faixa inválida) — o código gerado então chama o `fillRange`
+/// do SDK, que lança o erro da VM. Antes, o `fillRange` do SDK gravava
+/// elemento a elemento pelo despacho (~30 ns cada; o `clear` de um quadro
+/// de 512×512 custava 26 ms).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_typed_fill_int(h: i64, tipo: i64, inicio: i64, fim: i64, valor: i64) -> i64 {
+    let Some((p, a, b)) = faixa_para_preencher(h, tipo, inicio, fim) else { return 0 };
+    // SAFETY: `p` é o primeiro elemento de uma lista apta de `n ≥ fim`
+    // elementos do tipo `tipo` (`dartforge_typed_len`/`dartforge_typed_ptr`),
+    // sem alinhamento suposto.
+    unsafe {
+        match tipo as u8 {
+            TIPO_INT8 | TIPO_UINT8 => std::ptr::write_bytes(p.add(a), valor as u8, b - a),
+            TIPO_INT16 | TIPO_UINT16 => (a..b).for_each(|i| (p as *mut u16).add(i).write_unaligned(valor as u16)),
+            TIPO_INT32 | TIPO_UINT32 => (a..b).for_each(|i| (p as *mut u32).add(i).write_unaligned(valor as u32)),
+            TIPO_INT64 | TIPO_UINT64 => (a..b).for_each(|i| (p as *mut u64).add(i).write_unaligned(valor as u64)),
+            _ => return 0,
+        }
+    }
+    1
+}
+
+/// [`dartforge_typed_fill_int`] de `Float32List`/`Float64List`: o `double`
+/// arredondado a `float` no `Float32List`, como o `[]=`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_typed_fill_double(h: i64, tipo: i64, inicio: i64, fim: i64, valor: f64) -> i64 {
+    let Some((p, a, b)) = faixa_para_preencher(h, tipo, inicio, fim) else { return 0 };
+    // SAFETY: como em `dartforge_typed_fill_int`.
+    unsafe {
+        match tipo as u8 {
+            TIPO_FLOAT32 => (a..b).for_each(|i| (p as *mut f32).add(i).write_unaligned(valor as f32)),
+            TIPO_FLOAT64 => (a..b).for_each(|i| (p as *mut f64).add(i).write_unaligned(valor)),
+            _ => return 0,
+        }
+    }
+    1
+}
+
+/// O endereço do primeiro elemento e a faixa `inicio..fim` de uma lista apta
+/// à gravação do tipo `tipo`, se a faixa é válida e não vazia.
+fn faixa_para_preencher(h: i64, tipo: i64, inicio: i64, fim: i64) -> Option<(*mut u8, usize, usize)> {
+    if tipo == i64::from(TIPO_UINT8_CLAMPED) {
+        return None;
+    }
+    let n = dartforge_typed_len(h, tipo, 1);
+    if n == 0 || inicio < 0 || fim <= inicio || fim > n {
+        return None;
+    }
+    let p = dartforge_typed_ptr(h) as *mut u8;
+    (!p.is_null()).then_some((p, inicio as usize, fim as usize))
+}
+
 /// O endereço do primeiro elemento de `h` se ela é lista tipada, senão 0
 /// (sem efeito nem erro: o emissor a declara `speculatable`, e o LLVM pode
 /// calculá-la antes do teste de [`dartforge_typed_len`]). Os bytes não se

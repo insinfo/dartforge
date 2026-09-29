@@ -336,9 +336,14 @@ pub const EXTERNS: &[Extern] = &[
     },
     // O cabeçalho de endereço fixo de uma lista tipada interna
     // (`heap::CabecalhoTipado`, N17): o endereço e o tamanho em bytes são
-    // lidos dele em linha; pura do handle, como a das listas abaixo.
+    // lidos dele em linha; pura do handle, como a das listas abaixo. Devolve
+    // um ponteiro `dereferenceable(16)` (nunca nulo: o cabeçalho vazio do
+    // runtime vale para o que não é lista interna): as duas cargas dele
+    // podem ser especuladas, e o LLVM as tira dos laços junto com a chamada
+    // — antes, com o `inttoptr` de um `i64`, só a chamada saía, e as cargas
+    // ficavam a cada acesso (o laço tem saídas antes delas).
     Extern {
-        decl: "declare i64 @dartforge_typed_cabecalho(i64, i64) memory(none) nounwind willreturn speculatable",
+        decl: "declare dereferenceable(16) ptr @dartforge_typed_cabecalho(i64, i64) memory(none) nounwind willreturn speculatable",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     // A mesma, na falha do cache do ponto de acesso (`lower/tipados.rs`,
@@ -346,6 +351,16 @@ pub const EXTERNS: &[Extern] = &[
     // deixariam o LLVM chamá-la antes do teste do cache (um `select`).
     Extern {
         decl: "declare i64 @dartforge_typed_cabecalho_na_falha(i64, i64) nounwind",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    // `fillRange` de lista tipada (`lower/tipados.rs`, `preencher_tipada`):
+    // 1 se preencheu, 0 para o caminho do SDK.
+    Extern {
+        decl: "declare i64 @dartforge_typed_fill_int(i64, i64, i64, i64, i64) nounwind",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_typed_fill_double(i64, i64, i64, i64, double) nounwind",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     // O caminho rápido das listas do núcleo (`lower/tipados.rs`). O

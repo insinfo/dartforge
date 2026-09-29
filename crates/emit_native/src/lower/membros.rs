@@ -761,7 +761,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return self.ler_campo(obj, vid, span);
         };
         if self.variable_initializer_em(vid).is_some() {
-            return self.emit_call_with_check(
+            // Via rápida em linha (ver `late_nao_nulo_e_inicializado`): o
+            // valor não nulo sai direto; o getter (que inicializa) só é
+            // chamado com o campo ainda nulo.
+            let rapido = self.late_nao_nulo_e_inicializado(vid).then(|| {
+                let atual = self.ler_campo(obj.clone(), vid, span);
+                let nao_nulo = self.emit(Instruction::ICmp(ICmpOp::Ne, atual.clone(), Operand::Constant(Constant::Null)), Type::I1);
+                let b_juntar = self.new_block();
+                let b_getter = self.new_block();
+                let de = self.current_block;
+                self.terminate(Terminator::CondBranch { cond: nao_nulo, then_block: b_juntar, else_block: b_getter });
+                self.set_block(b_getter);
+                (atual, de, b_juntar)
+            });
+            let v = self.emit_call_with_check(
                 Instruction::CallStatic {
                     symbol: super::simbolo_getter_campo_late(self.ctx, vid),
                     args: vec![obj],
@@ -769,37 +782,86 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 },
                 self.repr_do_campo(vid),
             );
+            let Some((atual, de, b_juntar)) = rapido else { return v };
+            let incoming = if self.is_terminated() {
+                vec![(de, atual)]
+            } else {
+                let b = self.current_block;
+                self.terminate(Terminator::Branch(b_juntar));
+                vec![(de, atual), (b, v)]
+            };
+            self.set_block(b_juntar);
+            return self.emit(Instruction::Phi { incoming, ty: Type::Ref }, Type::Ref);
         }
         let atual = self.ler_campo(obj.clone(), vid, span);
-        {
-            let idx = match self.indice_campo(vid) {
-                Some(i) => Operand::Constant(Constant::Int(i as i64)),
-                None => match self.indice_dinamico(obj.clone(), vid, span) {
-                    Some(i) => i,
-                    None => return self.nao_suportado("campo late fora do layout", span),
-                },
-            };
-            let inicializado = self.emit(
-                Instruction::CallRuntime {
-                    name: "dartforge_late_field_initialized".to_string(),
-                    args: vec![(obj, Type::Ref), (idx, Type::I64)],
-                    ret_ty: Type::I8,
-                },
-                Type::I8,
-            );
-            let vazio = self.emit(
-                Instruction::ICmp(ICmpOp::Eq, inicializado, Operand::Constant(Constant::Int(0))),
-                Type::I1,
-            );
-            let b_erro = self.new_block();
-            let b_ler = self.new_block();
-            self.terminate(Terminator::CondBranch { cond: vazio, then_block: b_erro, else_block: b_ler });
-            self.set_block(b_erro);
-            let nome = self.ctx.symbol_name(var.name).to_string();
-            self.lancar_erro_late(&nome, 0);
-            self.set_block(b_ler);
+        if self.late_nao_nulo_e_inicializado(vid) {
+            // Via rápida: valor não nulo ⇒ inicializado; só o nulo consulta
+            // o runtime (que distingue "não inicializado").
+            let nao_nulo = self.emit(Instruction::ICmp(ICmpOp::Ne, atual.clone(), Operand::Constant(Constant::Null)), Type::I1);
+            let b_pronto = self.new_block();
+            let b_conferir = self.new_block();
+            self.terminate(Terminator::CondBranch { cond: nao_nulo, then_block: b_pronto, else_block: b_conferir });
+            self.set_block(b_conferir);
+            self.conferir_late_inicializado(obj, vid, span);
+            if !self.is_terminated() {
+                self.terminate(Terminator::Branch(b_pronto));
+            }
+            self.set_block(b_pronto);
             return atual;
         }
+        self.conferir_late_inicializado(obj, vid, span);
+        atual
+    }
+
+    /// Um campo `late` sem inicializador, de tipo interface não anulável e
+    /// guardado como referência: nele o valor gravado nunca é `null`, e o
+    /// campo de um objeto novo é zero (`null`) — então "não nulo" já prova
+    /// "inicializado", sem a tabela lateral do runtime (uma chamada com
+    /// busca em `HashSet` por leitura, que ficava no corpo dos laços).
+    fn late_nao_nulo_e_inicializado(&self, vid: VariableId) -> bool {
+        let ty = tipo_da_variavel(self.ctx, vid);
+        // A representação natural do tipo (não a forçada do `late` com
+        // inicializador): `int`/`double`/`bool` ficam de fora.
+        if self.repr_do_campo(vid) != Type::Ref || self.repr(ty) != Type::Ref {
+            return false;
+        }
+        matches!(self.ctx.table.get(ty), dartforge_types::table::Type::Interface { nullable: false, .. })
+            && ty != self.ctx.core.dynamic_
+    }
+
+    /// Confere no runtime que o campo `late` `vid` de `obj` foi inicializado
+    /// e lança o `LateInitializationError` se não foi; termina no bloco da
+    /// leitura, sem terminar.
+    fn conferir_late_inicializado(&mut self, obj: Operand, vid: VariableId, span: Span) {
+        let idx = match self.indice_campo(vid) {
+            Some(i) => Operand::Constant(Constant::Int(i as i64)),
+            None => match self.indice_dinamico(obj.clone(), vid, span) {
+                Some(i) => i,
+                None => {
+                    self.nao_suportado("campo late fora do layout", span);
+                    return;
+                }
+            },
+        };
+        let inicializado = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_late_field_initialized".to_string(),
+                args: vec![(obj, Type::Ref), (idx, Type::I64)],
+                ret_ty: Type::I8,
+            },
+            Type::I8,
+        );
+        let vazio = self.emit(
+            Instruction::ICmp(ICmpOp::Eq, inicializado, Operand::Constant(Constant::Int(0))),
+            Type::I1,
+        );
+        let b_erro = self.new_block();
+        let b_ler = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: vazio, then_block: b_erro, else_block: b_ler });
+        self.set_block(b_erro);
+        let nome = self.ctx.symbol_name(self.ctx.program.variables[vid.0 as usize].name).to_string();
+        self.lancar_erro_late(&nome, 0);
+        self.set_block(b_ler);
     }
 
     /// Corpo único do getter de um campo `late` com inicializador. O estado
@@ -820,6 +882,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             },
         };
+        if self.late_nao_nulo_e_inicializado(vid) {
+            // Via rápida (ver `late_nao_nulo_e_inicializado`): valor não nulo
+            // já é o valor inicializado.
+            let atual = self.ler_campo(obj.clone(), vid, span);
+            let nao_nulo = self.emit(Instruction::ICmp(ICmpOp::Ne, atual.clone(), Operand::Constant(Constant::Null)), Type::I1);
+            let b_rapido = self.new_block();
+            let b_lento = self.new_block();
+            self.terminate(Terminator::CondBranch { cond: nao_nulo, then_block: b_rapido, else_block: b_lento });
+            self.set_block(b_rapido);
+            self.terminate(Terminator::Return(Some(atual)));
+            self.set_block(b_lento);
+        }
         let pronto = self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_late_field_initialized".to_string(),
@@ -2105,14 +2179,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return self.nao_suportado(&format!("global do SDK ({nome})"), span);
         }
         let repr = self.repr(tipo_da_variavel(self.ctx, vid));
-        self.emit_call_with_check(
+        let v = self.emit_call_with_check(
             Instruction::CallStatic {
                 symbol: super::simbolo_global(self.ctx, vid),
                 args: Vec::new(),
                 ret_ty: repr,
             },
             repr,
-        )
+        );
+        if let Operand::Val(id) = &v {
+            self.lidos_de_global.insert(*id);
+        }
+        v
     }
 
     /// Grava um global (e marca-o inicializado).

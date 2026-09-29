@@ -856,6 +856,14 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  %v{v} = call i64 @{name}_t({}, ptr @{f})", resto.join(", ")).unwrap();
                         let _ = ret_ty;
                     }
+                    // O cabeçalho de lista tipada: o ponteiro
+                    // `dereferenceable` fica em `%v{v}cp` para as cargas
+                    // (`CargaNativa`), e o valor da HIR é o inteiro.
+                    Instruction::CallRuntime { name, args, .. } if name == "dartforge_typed_cabecalho" => {
+                        let (h, t) = (self.coagir(&args[0].0, Type::I64), self.coagir(&args[1].0, Type::I64));
+                        writeln!(self.out, "  %v{v}cp = call dereferenceable(16) ptr @dartforge_typed_cabecalho(i64 {h}, i64 {t})").unwrap();
+                        writeln!(self.out, "  %v{v} = ptrtoint ptr %v{v}cp to i64").unwrap();
+                    }
                     // A exceção pendente: o espelho no contexto da thread.
                     Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending" && self.tem_ctx => {
                         writeln!(self.out, "  %v{v} = load i8, ptr %ctx, align 8").unwrap();
@@ -949,7 +957,13 @@ impl<'a> LlvmEmitter<'a> {
                             Operand::Val(x) if self.cabecalhos_invariantes.contains(x) => ", !invariant.load !{}",
                             _ => "",
                         };
-                        writeln!(self.out, "  %cp{v} = inttoptr i64 {e} to ptr").unwrap();
+                        match endereco {
+                            // O ponteiro `dereferenceable` do cabeçalho.
+                            Operand::Val(x) if self.cabecalhos_invariantes.contains(x) => {
+                                writeln!(self.out, "  %cp{v} = getelementptr i8, ptr %v{}cp, i64 0", x.0).unwrap()
+                            }
+                            _ => writeln!(self.out, "  %cp{v} = inttoptr i64 {e} to ptr").unwrap(),
+                        }
                         writeln!(self.out, "  %cg{v} = getelementptr {t}, ptr %cp{v}, i64 {i}").unwrap();
                         let conv = match tipo {
                             TipoC::I8 | TipoC::I16 | TipoC::I32 => Some(format!("sext {t} %cl{v} to i64")),
@@ -1073,6 +1087,8 @@ impl<'a> LlvmEmitter<'a> {
                                 Type::I1 => Type::I1,
                                 Type::I8 => Type::I8,
                                 Type::F64 => Type::F64,
+                                // Local SIMD sem caixa de quem chama (16 bytes).
+                                t if t.e_vetor() => t,
                                 _ => Type::I64,
                             }),
                             _ => Type::I64,

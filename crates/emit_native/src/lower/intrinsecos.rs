@@ -92,6 +92,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(r) = self.lista_add_escalar(ast, e) {
             return Some(r);
         }
+        if let Some(r) = self.preencher_tipada(ast, e) {
+            return Some(r);
+        }
         if let Some(r) = self.compare_to_int(ast, e) {
             return Some(r);
         }

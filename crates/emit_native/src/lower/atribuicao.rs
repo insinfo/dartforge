@@ -581,8 +581,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.fixa_do_acesso = fixa.clone();
                     let cur = if composto { self.ler_indexado(t_op.clone(), i_op.clone(), l, repr) } else { None };
                     self.fixa_do_acesso = None;
-                    let v = self.combinar(ast, op, cur, value);
-                    if !composto && let Rhs::Expr(e) = value {
+                    // Lista SIMD com valor SIMD do mesmo tipo: o valor vai
+                    // como vetor, e só o caminho lento (`[]=` do SDK) o põe
+                    // na caixa — antes, `v4[i] = a + b` alocava uma caixa
+                    // por gravação (docs/SIMD-NATIVO.md).
+                    let simd = match (l, value) {
+                        (super::tipados::Indexavel::Simd { k, .. }, Rhs::Expr(e))
+                            if !composto && self.simd_da_expr(e) == Some(k) =>
+                        {
+                            Some((e, k))
+                        }
+                        _ => None,
+                    };
+                    let v = match simd {
+                        Some((e, k)) => self.lower_simd(ast, e, k),
+                        None => self.combinar(ast, op, cur, value),
+                    };
+                    if !composto && simd.is_none() && let Rhs::Expr(e) = value {
                         self.cast_implicito_de_operador(e, &v, *t, "[]=", 1);
                     }
                     self.fixa_do_acesso = fixa;
@@ -591,6 +606,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     if gravou {
                         return v;
                     }
+                    let v = if simd.is_some() { self.coagir(v, Type::Ref) } else { v };
                     self.chamar_por_nome_tipado(t_op, *t, super::sdk_fonte::Tipo::Chamar, "[]=", &[(None, i_op), (None, v.clone())]);
                     return v;
                 }

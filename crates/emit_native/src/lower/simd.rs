@@ -109,6 +109,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// A forma sem caixa da expressão `e`, se o compilador a reconhece.
     fn receita_simd(&self, ast: &ast::Ast, e: ExprId) -> Option<Receita> {
         use Type::{V2F64, V4F32, V4I32};
+        if let Some(r) = self.receita_api_314(ast, e) {
+            return Some(r);
+        }
         let expr = ast.expr(e);
         match &expr.kind {
             ExprKind::Binary { op, left, right } => {
@@ -213,6 +216,112 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }),
                     _ => None,
                 }
+            }
+            _ => None,
+        }
+    }
+
+    /// `e` chama um membro de uma extensão sobre `Int32x4` marcada com
+    /// `@pragma('dartforge:simd-api', '3.14')` — a API de `Int32x4` do Dart
+    /// 3.14 escrita em Dart 3.6 (`docs/SIMD-NATIVO.md` §6). O corpo dos
+    /// membros é o do `typed_data_patch.dart` da VM (roda na VM 3.6.2, que é
+    /// o oráculo); aqui a chamada vira a instrução vetorial.
+    fn api_314(&self, e: ExprId) -> bool {
+        let Some(Resolved::ExtensionMember { extension, .. }) = self.ctx.get_resolved(self.unit_id, e) else {
+            return false;
+        };
+        let decl = self.ctx.program.extension(*extension).decl;
+        let unit = self.ctx.program.unit(decl.unit);
+        let Some(d) = unit.ast.decls.get(decl.decl.0 as usize) else { return false };
+        d.metadata.iter().any(|an| {
+            if an.name.len() != 1 || self.ctx.symbol_name(an.name[0].sym) != "pragma" {
+                return false;
+            }
+            let Some(args) = &an.arguments else { return false };
+            let textos: Vec<Option<String>> = args
+                .args
+                .iter()
+                .map(|a| match &unit.ast.exprs[a.value.0 as usize].kind {
+                    ExprKind::String(lit) => lit.constant_value().map(|t| String::from_utf8_lossy(t.as_bytes()).into_owned()),
+                    _ => None,
+                })
+                .collect();
+            matches!(textos.as_slice(), [Some(a), Some(b)] if a == "dartforge:simd-api" && b == "3.14")
+        })
+    }
+
+    /// `e` tem tipo estático `int` não anulável.
+    fn e_int(&self, e: ExprId) -> bool {
+        matches!(
+            self.ctx.get_type(self.unit_id, e).map(|t| self.ctx.table.get(t)),
+            Some(T::Interface { class, nullable: false, .. }) if Some(*class) == self.ctx.core.int_class
+        )
+    }
+
+    /// A forma sem caixa de um membro da API de `Int32x4` do Dart 3.14
+    /// ([`Self::api_314`]): operadores `~`, `-` unário, `*`, `<<`, `>>`;
+    /// `andNot`, `abs`, as comparações com sinal, `min`/`max`; `anyTrue` e
+    /// `allTrue`.
+    fn receita_api_314(&self, ast: &ast::Ast, e: ExprId) -> Option<Receita> {
+        use Type::V4I32;
+        let int4 = |x: ExprId| self.simd_da_expr(x) == Some(V4I32);
+        match &ast.expr(e).kind {
+            ExprKind::Binary { op, left, right } if self.api_314(e) && int4(*left) => {
+                let receptor = Some((*left, V4I32));
+                match op {
+                    BinaryOp::Mul if int4(*right) => {
+                        Some(Receita { op: OpSimd::Mul, receptor, args: vec![(*right, Arg::Vetor(V4I32))], resultado: V4I32 })
+                    }
+                    BinaryOp::Shl | BinaryOp::Shr if self.e_int(*right) => Some(Receita {
+                        op: OpSimd::Desloca(*op == BinaryOp::Shr),
+                        receptor,
+                        args: vec![(*right, Arg::Escalar(Type::I64))],
+                        resultado: V4I32,
+                    }),
+                    _ => None,
+                }
+            }
+            ExprKind::Unary { op: op @ (UnaryOp::Neg | UnaryOp::BitNot), operand } if self.api_314(e) && int4(*operand) => {
+                let op = if *op == UnaryOp::Neg { OpSimd::Neg } else { OpSimd::Not };
+                Some(Receita { op, receptor: Some((*operand, V4I32)), args: Vec::new(), resultado: V4I32 })
+            }
+            ExprKind::Property { target, name, null_aware: false } if self.api_314(e) && int4(*target) => {
+                let op = match self.ctx.symbol_name(name.sym) {
+                    "anyTrue" => OpSimd::Algum,
+                    "allTrue" => OpSimd::Todos,
+                    _ => return None,
+                };
+                Some(Receita { op, receptor: Some((*target, V4I32)), args: Vec::new(), resultado: Type::I1 })
+            }
+            ExprKind::Call { target, arguments } => {
+                if !arguments.type_args.is_empty() || arguments.args.iter().any(|a| a.name.is_some()) {
+                    return None;
+                }
+                let ExprKind::Property { target: recv, name, null_aware: false } = &ast.expr(*target).kind else {
+                    return None;
+                };
+                if !(self.api_314(e) || self.api_314(*target)) || !int4(*recv) {
+                    return None;
+                }
+                let args: Vec<ExprId> = arguments.args.iter().map(|a| a.value).collect();
+                let receptor = Some((*recv, V4I32));
+                let op = match (self.ctx.symbol_name(name.sym), args.as_slice()) {
+                    ("abs", []) => {
+                        return Some(Receita { op: OpSimd::Abs, receptor, args: Vec::new(), resultado: V4I32 });
+                    }
+                    (_, [a]) if !int4(*a) => return None,
+                    ("andNot", [_]) => OpSimd::AndNot,
+                    ("equal", [_]) => OpSimd::CmpInt(ICmpOp::Eq),
+                    ("notEqual", [_]) => OpSimd::CmpInt(ICmpOp::Ne),
+                    ("lessThan", [_]) => OpSimd::CmpInt(ICmpOp::Slt),
+                    ("lessThanOrEqual", [_]) => OpSimd::CmpInt(ICmpOp::Sle),
+                    ("greaterThan", [_]) => OpSimd::CmpInt(ICmpOp::Sgt),
+                    ("greaterThanOrEqual", [_]) => OpSimd::CmpInt(ICmpOp::Sge),
+                    ("min", [_]) => OpSimd::Min,
+                    ("max", [_]) => OpSimd::Max,
+                    _ => return None,
+                };
+                Some(Receita { op, receptor, args: vec![(args[0], Arg::Vetor(V4I32))], resultado: V4I32 })
             }
             _ => None,
         }

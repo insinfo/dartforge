@@ -30,6 +30,19 @@ Fontes normativas, por ordem de precedência quando divergem:
 | **D8** | Este desenho substitui `docs/historico/MACROS-ARQUITETURA.md` (fases "herdadas, transporte descartado" e Q4). |
 | **D9** | Segue-se o CFE 3.6.2 e a spec de augmentations 1.46: sem `augmented()`, sem embrulho de corpo. |
 
+**API de biblioteca mais nova que o 3.6.2 (D1).** A `dart:typed_data` continua
+a do 3.6.2 — um `Int32x4.equal` escrito contra ela é membro indefinido, como
+qualquer `@Since` 3.7+. A API SIMD do Dart 3.14 (`Int32x4.lessThan`, `<<`,
+`allTrue`, …) entra por outro caminho, sem mexer no SDK nem na versão de
+linguagem: uma **extensão comum** de Dart 3.6 com as assinaturas exatas do
+3.14 e os corpos do `typed_data_patch.dart` da VM
+(`pacotes/dartforge_simd/lib/int32x4_3_14.dart`, marcada com
+`@pragma('dartforge:simd-api', '3.14')`), que o backend nativo reconhece
+pelo pragma e compila em instruções vetoriais. O programa que a importa roda
+igual na VM 3.6.2 (o oráculo executa os corpos em Dart) e num SDK 3.14 (os
+membros da classe têm precedência sobre os da extensão). Detalhes em
+`docs/SIMD-NATIVO.md` §6.
+
 **Regra governante** (PLANO.md, "geração de código e macros: rápidas, e custo
 zero para quem não usa"): o gating por versão e a detecção de recursos não
 podem custar nada perceptível para um projeto 3.6 comum. A versão é resolvida

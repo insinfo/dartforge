@@ -14,7 +14,8 @@ use std::fmt::Write;
 pub const DECLARACOES: &str = "declare <4 x float> @llvm.fabs.v4f32(<4 x float>)\n\
     declare <2 x double> @llvm.fabs.v2f64(<2 x double>)\n\
     declare <4 x float> @llvm.sqrt.v4f32(<4 x float>)\n\
-    declare <2 x double> @llvm.sqrt.v2f64(<2 x double>)\n";
+    declare <2 x double> @llvm.sqrt.v2f64(<2 x double>)\n\
+    declare <4 x i32> @llvm.abs.v4i32(<4 x i32>, i1)\n";
 
 /// Pistas, tipo da pista e sufixo das intrínsecas de um vetor.
 fn forma(k: Type) -> (u32, &'static str, &'static str) {
@@ -49,6 +50,8 @@ impl LlvmEmitter<'_> {
                     (OpSimd::Mul, true) => "fmul",
                     (OpSimd::Div, true) => "fdiv",
                     (OpSimd::Add, false) => "add",
+                    // `Int32x4 * Int32x4` (3.14): os 32 bits baixos do produto.
+                    (OpSimd::Mul, false) => "mul",
                     (OpSimd::Sub, false) => "sub",
                     (OpSimd::And, false) => "and",
                     (OpSimd::Or, false) => "or",
@@ -56,6 +59,13 @@ impl LlvmEmitter<'_> {
                     _ => unreachable!("operação SIMD {op:?} sobre {k:?}"),
                 };
                 writeln!(w, "  {r} = {instr} {kt} {x}, {y}").unwrap();
+            }
+            // `Int32x4.min`/`max` (3.14): comparação com sinal.
+            OpSimd::Min | OpSimd::Max if !ponto_flutuante => {
+                let (x, y) = (a(self, 0), a(self, 1));
+                let p = if op == OpSimd::Min { "slt" } else { "sgt" };
+                writeln!(w, "  %sc{v} = icmp {p} {kt} {x}, {y}").unwrap();
+                writeln!(w, "  {r} = select <{n} x i1> %sc{v}, {kt} {x}, {kt} {y}").unwrap();
             }
             OpSimd::Min | OpSimd::Max => {
                 let (x, y) = (a(self, 0), a(self, 1));
@@ -93,6 +103,58 @@ impl LlvmEmitter<'_> {
                 writeln!(w, "  %sm{v} = select <{n} x i1> %sa{v}, {kt} {x}, {kt} {hi}").unwrap();
                 writeln!(w, "  %sb{v} = fcmp ogt {kt} %sm{v}, {lo}").unwrap();
                 writeln!(w, "  {r} = select <{n} x i1> %sb{v}, {kt} %sm{v}, {kt} {lo}").unwrap();
+            }
+            // `-Int32x4` e `Int32x4.abs()` (3.14): com volta, e o `abs` de
+            // -2^31 é -2^31 (`llvm.abs` com `is_int_min_poison` falso).
+            OpSimd::Neg if !ponto_flutuante => {
+                let x = a(self, 0);
+                writeln!(w, "  {r} = sub {kt} zeroinitializer, {x}").unwrap();
+            }
+            OpSimd::Abs if !ponto_flutuante => {
+                let x = a(self, 0);
+                writeln!(w, "  {r} = call {kt} @llvm.abs.v4i32({kt} {x}, i1 false)").unwrap();
+            }
+            OpSimd::CmpInt(c) => {
+                let (x, y) = (a(self, 0), a(self, 1));
+                let p = match c {
+                    ICmpOp::Eq => "eq",
+                    ICmpOp::Ne => "ne",
+                    ICmpOp::Slt => "slt",
+                    ICmpOp::Sle => "sle",
+                    ICmpOp::Sgt => "sgt",
+                    ICmpOp::Sge => "sge",
+                    ICmpOp::Ult => "ult",
+                };
+                writeln!(w, "  %sc{v} = icmp {p} {kt} {x}, {y}").unwrap();
+                writeln!(w, "  {r} = sext <{n} x i1> %sc{v} to <{n} x i32>").unwrap();
+            }
+            OpSimd::AndNot | OpSimd::Not => {
+                let x = a(self, 0);
+                let uns = self.splat_constante(n, el, "-1");
+                if op == OpSimd::Not {
+                    writeln!(w, "  {r} = xor {kt} {x}, {uns}").unwrap();
+                } else {
+                    let y = a(self, 1);
+                    writeln!(w, "  %sn{v} = xor {kt} {y}, {uns}").unwrap();
+                    writeln!(w, "  {r} = and {kt} {x}, %sn{v}").unwrap();
+                }
+            }
+            OpSimd::Desloca(direita) => {
+                // A quantidade é `s & 31` (também a negativa), como a VM.
+                let x = a(self, 0);
+                let s = self.coagir(&args[1], Type::I64);
+                writeln!(w, "  %sm{v} = and i64 {s}, 31").unwrap();
+                writeln!(w, "  %st{v} = trunc i64 %sm{v} to i32").unwrap();
+                self.espalhar(&mut w, v, "d", &format!("%st{v}"), k);
+                let instr = if direita { "ashr" } else { "shl" };
+                writeln!(w, "  {r} = {instr} {kt} {x}, %ssd{v}").unwrap();
+            }
+            OpSimd::Algum | OpSimd::Todos => {
+                let x = a(self, 0);
+                writeln!(w, "  %sz{v} = icmp ne {kt} {x}, zeroinitializer").unwrap();
+                writeln!(w, "  %sb{v} = bitcast <{n} x i1> %sz{v} to i{n}").unwrap();
+                let (p, alvo) = if op == OpSimd::Algum { ("ne", "0") } else { ("eq", "-1") };
+                writeln!(w, "  {r} = icmp {p} i{n} %sb{v}, {alvo}").unwrap();
             }
             OpSimd::Neg => {
                 let x = a(self, 0);

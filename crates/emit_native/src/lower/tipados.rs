@@ -139,6 +139,85 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(Indexavel::Tipada(ListaTipada { tipo, elemento }))
     }
 
+    /// `lista.fillRange(inicio, fim, valor)` de uma lista tipada numérica
+    /// (tipo estático `Int8List` … `Float64List`, menos a
+    /// `Uint8ClampedList`), com os três argumentos `int`/`int`/elemento não
+    /// anuláveis: o runtime preenche a faixa de uma vez
+    /// (`dartforge_typed_fill_int`/`_double`); faixa inválida, lista vazia
+    /// ou visão não modificável voltam ao `fillRange` do SDK com os mesmos
+    /// valores, que lança o erro da VM. As classes de `dart:typed_data` são
+    /// `final`: o membro é sempre o do SDK.
+    pub(super) fn preencher_tipada(
+        &mut self,
+        ast: &dartforge_frontend::ast::Ast,
+        e: dartforge_frontend::ast::ExprId,
+    ) -> Option<Operand> {
+        use dartforge_frontend::ast::{ExprId, ExprKind};
+        let ExprKind::Call { target, arguments } = &ast.expr(e).kind else { return None };
+        if arguments.args.len() != 3 || arguments.args.iter().any(|a| a.name.is_some()) || !arguments.type_args.is_empty() {
+            return None;
+        }
+        let ExprKind::Property { target: recv, name, null_aware: false } = &ast.expr(*target).kind else {
+            return None;
+        };
+        if self.ctx.symbol_name(name.sym) != "fillRange" {
+            return None;
+        }
+        let Some(Indexavel::Tipada(l)) = self.indexavel(self.ctx.get_type(self.unit_id, *recv)) else {
+            return None;
+        };
+        if !l.gravacao_direta() {
+            return None;
+        }
+        let repr = l.repr();
+        let classe_de = |s: &Self, x: ExprId| match s.ctx.get_type(s.unit_id, x).map(|t| s.ctx.table.get(t)) {
+            Some(T::Interface { class, nullable: false, .. }) => Some(*class),
+            _ => None,
+        };
+        let int = self.ctx.core.int_class;
+        let elemento = if repr == Type::F64 { self.ctx.core.double_class } else { int };
+        let [a, b, v] = [arguments.args[0].value, arguments.args[1].value, arguments.args[2].value];
+        if int.is_none() || classe_de(self, a) != int || classe_de(self, b) != int || classe_de(self, v) != elemento {
+            return None;
+        }
+        // Ordem de avaliação do Dart: receptor, depois os argumentos.
+        let mut ops = Vec::with_capacity(4);
+        for (x, t) in [(*recv, Type::Ref), (a, Type::I64), (b, Type::I64), (v, repr)] {
+            let op = self.lower_expr(ast, x);
+            if self.is_terminated() {
+                return Some(Operand::Constant(Constant::Null));
+            }
+            ops.push(self.coagir(op, t));
+        }
+        let nome = if repr == Type::F64 { "dartforge_typed_fill_double" } else { "dartforge_typed_fill_int" };
+        let feito = self.emit(
+            Instruction::CallRuntime {
+                name: nome.to_string(),
+                args: vec![
+                    (ops[0].clone(), Type::Ref),
+                    (Operand::Constant(Constant::Int(l.tipo)), Type::I64),
+                    (ops[1].clone(), Type::I64),
+                    (ops[2].clone(), Type::I64),
+                    (ops[3].clone(), repr),
+                ],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        let ok = self.emit(Instruction::ICmp(ICmpOp::Ne, feito, Operand::Constant(Constant::Int(0))), Type::I1);
+        let lento = self.new_block();
+        let juncao = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: ok, then_block: juncao, else_block: lento });
+        self.set_block(lento);
+        let args: Vec<super::membros::Avaliado> = ops[1..].iter().map(|o| (None, o.clone())).collect();
+        self.chamar_por_nome(ops[0].clone(), super::sdk_fonte::Tipo::Chamar, "fillRange", &args);
+        if !self.is_terminated() {
+            self.terminate(Terminator::Branch(juncao));
+        }
+        self.set_block(juncao);
+        Some(Operand::Constant(Constant::Null))
+    }
+
     /// Uma lista SIMD: o vetor sem caixa não atravessa quadros assíncronos
     /// (lá o elemento fica com o despacho).
     fn lista_simd(&self, tipo: i64, k: Type) -> Option<Indexavel> {
@@ -435,16 +514,31 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(Instruction::Phi { incoming: vec![(fim_acerto, c_acerto), (fim_falha, c_falha)], ty: Type::I64 }, Type::I64)
     }
 
-    /// `op` é o resultado da leitura de um campo (`dartforge_object_get`)?
+    /// `op` é relido a cada acesso: a leitura de um campo
+    /// (`dartforge_object_get`) ou de uma variável global (a de topo, o
+    /// `static`), ou a junção que a via rápida de um campo `late`
+    /// (`membros.rs`) ou a inicialização preguiçosa de uma global fazem com
+    /// essa leitura. O LLVM não tira do laço a chamada pura sobre um valor
+    /// relido; o cache de `cabecalho_tipado` resolve com uma comparação.
     fn lido_de_campo(&self, op: &Operand) -> bool {
+        let leitura = |v: &ValueId| {
+            self.func.blocks.iter().flat_map(|b| b.instructions.iter()).any(|(vid, inst, _)| {
+                *vid == *v
+                    && match inst {
+                        Instruction::GetField { .. } | Instruction::LoadGlobal { .. } => true,
+                        Instruction::CallRuntime { name, .. } => name == "dartforge_object_get",
+                        _ => false,
+                    }
+            })
+        };
         let Operand::Val(v) = op else { return false };
+        if leitura(v) || self.lidos_de_global.contains(v) {
+            return true;
+        }
         self.func.blocks.iter().flat_map(|b| b.instructions.iter()).any(|(vid, inst, _)| {
             *vid == *v
-                && match inst {
-                    Instruction::GetField { .. } => true,
-                    Instruction::CallRuntime { name, .. } => name == "dartforge_object_get",
-                    _ => false,
-                }
+                && matches!(inst, Instruction::Phi { incoming, .. }
+                    if incoming.iter().any(|(_, o)| matches!(o, Operand::Val(w) if leitura(w))))
         })
     }
 
@@ -526,12 +620,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Operand::Constant(Constant::Int(0))
         };
         let mut lento = |s: &mut Self| {
+            // Um vetor SIMD sem caixa só é encaixotado aqui, no caminho lento.
+            let valor = if s.operand_type(&valor).e_vetor() { s.coagir(valor.clone(), Type::Ref) } else { valor.clone() };
             s.chamar_por_nome_com_receptor_tipado(
                 lista2.clone(),
                 true,
                 super::sdk_fonte::Tipo::Chamar,
                 "[]=",
-                &[(None, indice2.clone()), (None, valor.clone())],
+                &[(None, indice2.clone()), (None, valor)],
             );
             Operand::Constant(Constant::Int(0))
         };

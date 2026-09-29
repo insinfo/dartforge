@@ -122,6 +122,22 @@ pub enum OpSimd {
     Carrega,
     /// Grava `args[2]` no endereço `args[0]` + 16 × `args[1]`.
     Grava,
+    // API de `Int32x4` do Dart 3.14 (`docs/SIMD-NATIVO.md` §6), pela
+    // extensão marcada `@pragma('dartforge:simd-api', '3.14')`. `Mul`,
+    // `Min`, `Max`, `Neg` e `Abs` servem também ao `Int32x4` (inteiro, com
+    // volta no estouro; `abs(-2^31)` é `-2^31`).
+    /// Comparação com sinal pista a pista de `Int32x4`: máscara -1/0.
+    CmpInt(ICmpOp),
+    /// `a & ~b`.
+    AndNot,
+    /// `~a`.
+    Not,
+    /// `a << (s & 31)` (`false`) ou `a >> (s & 31)` aritmético (`true`),
+    /// com `s` `int`.
+    Desloca(bool),
+    /// Alguma pista ≠ 0 (`anyTrue`) / todas ≠ 0 (`allTrue`): `bool`.
+    Algum,
+    Todos,
 }
 
 /// Constantes suportadas na HIR.

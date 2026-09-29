@@ -1,9 +1,12 @@
 # SIMD no backend nativo — contrato de desenho
 
-**Estado: não iniciado.** Entra depois que `dart:typed_data` for compilado da
-fonte pelo backend nativo (rodada 2, passo P5 em diante: o SDK da fonte,
-`Smi`, strings UTF-16). Registrado em 2026-09-23 a partir de material trazido
-pelo proprietário; o que é fato relatado de terceiros está marcado como tal.
+**Estado (2026-09-29): em uso.** `Float32x4`/`Int32x4`/`Float64x2` sem caixa
+em locais, operadores, listas SIMD e gravação indexada (§5); a API de
+`Int32x4` do Dart 3.14 por uma extensão marcada (§6); medidas contra o Dart
+AOT 3.6.2 nos benchmarks do dgfx e no rasterizador (§7). Falta: parâmetros e
+retornos sem caixa, e o que §7.3 lista. Contrato registrado em 2026-09-23 a
+partir de material trazido pelo proprietário; o que é fato relatado de
+terceiros está marcado como tal.
 
 ## 1. A lição, numa frase
 
@@ -183,6 +186,192 @@ x float>`, `shufflevector`, `fcmp` + `select`), sem intrínseca de alvo nem
 | `Float32x4` `acc + a[i] * b[i] + um` | 6 ms | 414 ms | 2 ms |
 | `Int32x4` `acc + (a[i] & m)` | 6 ms | 254 ms | 0–1 ms |
 
+* **Gravação indexada sem caixa** (2026-09-29): `v4[i] = expr` numa
+  `Int32x4List`/`Float32x4List`/`Float64x2List` com valor SIMD do mesmo
+  tipo grava o vetor direto (`lower/atribuicao.rs`); só o caminho lento
+  (índice fora, visão não modificável: o `[]=` do SDK) o põe na caixa.
+  Antes, toda gravação chamava `dartforge_simd_caixa` — uma alocação por
+  volta, que sozinha fazia o B2D v1 SIMD do dgfx 9× mais lento que o
+  escalar. O local SIMD gravado por uma função local direta (pelo endereço
+  do local de quem chama) grava 16 bytes (`llvm/mod.rs`, `Store`); antes o
+  IR era recusado pelo Clang. `corpus/nativo/67`.
+
+## 6. A API de `Int32x4` do Dart 3.14
+
+**Fonte** (conferida em 2026-09-29): `sdk/lib/typed_data/typed_data.dart` e
+`sdk/lib/_internal/vm/lib/typed_data_patch.dart` do `main` do
+`dart-lang/sdk` (`tools/VERSION` 3.14.0), commits de 2026-08-18 a
+2026-09-19 (`[typed_data] Add Int32x4 …`), e o SDK
+`3.14.0-248.0.dev` (2026-09-19, que já tem `andNot` e `min`/`max`). Todos
+`@Since("3.14")`, só em `Int32x4` (`Float32x4`/`Float64x2` não mudaram):
+
+```dart
+factory Int32x4.splat(int value);        factory Int32x4.zero();
+Int32x4 operator ~();                    Int32x4 andNot(Int32x4 other);
+Int32x4 operator -();                    Int32x4 abs();
+Int32x4 operator <<(int shiftAmount);    Int32x4 operator >>(int shiftAmount);
+Int32x4 equal(Int32x4 other);            Int32x4 notEqual(Int32x4 other);
+Int32x4 lessThan(Int32x4 other);         Int32x4 lessThanOrEqual(Int32x4 other);
+Int32x4 greaterThan(Int32x4 other);      Int32x4 greaterThanOrEqual(Int32x4 other);
+Int32x4 min(Int32x4 other);              Int32x4 max(Int32x4 other);
+bool get anyTrue;                        bool get allTrue;
+```
+
+Em revisão, não integrado: `Int32x4 operator *(Int32x4 other)` (CL 551260,
+32 bits baixos do produto). **Não existe** proposta publicada de conversão
+numérica `Int32x4` ↔ `Float32x4` (nem CL aberta): não há assinatura oficial
+para seguir, e não foi implementada. Semântica (do patch da VM): tudo em 32
+bits com volta (`-(-2^31)` e `abs(-2^31)` dão `-2^31`); deslocamento por
+`shiftAmount & 31` (negativos e ≥ 32 também), `>>` aritmético; comparações
+com sinal dão -1/0; `anyTrue` = alguma pista ≠ 0, `allTrue` = todas ≠ 0.
+
+**Como fica disponível sem quebrar a paridade com o 3.6.2** (decisão):
+`dart:typed_data` continua a do 3.6.2 (D1 de `docs/VERSOES-LINGUAGEM.md`). A
+API vem numa **extensão comum** de Dart 3.6,
+`pacotes/dartforge_simd/lib/int32x4_3_14.dart` (`extension Int32x4Api314 on
+Int32x4`), com as assinaturas acima e os corpos do patch da VM, marcada com
+`@pragma('dartforge:simd-api', '3.14')`:
+
+* na VM 3.6.2 (o oráculo do corpus), os corpos rodam em Dart — é o que
+  garante que o resultado do DartForge é conferido contra a semântica
+  oficial, byte a byte;
+* no nativo, `lower/simd.rs` (`api_314`, `receita_api_314`) reconhece a
+  chamada a um membro de extensão sobre `Int32x4` cuja declaração tem o
+  pragma e emite a instrução (`OpSimd::CmpInt`, `AndNot`, `Not`,
+  `Desloca`, `Algum`, `Todos`, e `Mul`/`Min`/`Max`/`Neg`/`Abs` no ramo
+  inteiro de `llvm/simd.rs`: `icmp` + `sext`, `shl`/`ashr` por um splat de
+  `s & 31`, `mul`, `llvm.abs.v4i32` com `is_int_min_poison` falso, `icmp` +
+  `bitcast` para `i4` nas reduções) — nenhuma intrínseca de alvo;
+* num SDK 3.14, os membros da classe têm precedência sobre os da extensão;
+  a extensão só completa o `*`.
+
+Os construtores `Int32x4.splat`/`zero` não cabem numa extensão do 3.6:
+`Int32x4(v, v, v, v)` e `Int32x4(0, 0, 0, 0)` já são intrinsecados. Um
+programa que não importa a extensão não muda em nada. Conferido em
+`corpus/nativo/69` (a extensão copiada; extremos, `s` negativo e ≥ 32,
+laço sobre `Int32x4List`, caminhos em caixa) contra a VM 3.6.2 — e, fora
+do harness, igual também no `dart run` do 3.14.0-248.0.dev.
+
+## 7. O rasterizador do dgfx (2026-09-29)
+
+Critério do proprietário: cada variante SIMD do rasterizador mais rápida
+que a escalar compilada pelo próprio DartForge (e que o Dart AOT). Medido
+numa cópia de `benchmark/rasterization_benchmark.dart` só com os pares
+escalar/SIMD (B2D v1, B2D v2 Imm/Batch, SKIA; o PNG trocado por um resumo
+FNV do framebuffer, igual nos três compiladores), `--sem-iso`: com
+isolates o executável do DartForge sai com 127 (um `Isolate.run` com
+closure que captura uma visão tipada já falha sozinho — fora do SIMD).
+Windows x64, `--optimize`, 3 rodadas intercaladas, ms por iteração
+(mínimo–máximo). "antes" é o binário do início do dia; "depois", o com as
+correções abaixo.
+
+| variante | Dart AOT 3.6.2 | Dart AOT 3.14.0-248.0.dev | DartForge antes | DartForge depois |
+| --- | ---: | ---: | ---: | ---: |
+| B2D v1 escalar | 6,68–7,09 | 6,67–7,01 | 28,55–35,72 | 5,96–6,06 |
+| B2D v1 SIMD | 203,32–268,42 | 21,39–21,91 | 290,71–436,58 | 5,68–6,48 |
+| B2D v2 Imm escalar | 2,43–3,99 | 2,08–2,15 | 31,63–32,44 | 1,18–1,32 |
+| B2D v2 Imm SIMD | 65,46–86,08 | 3,64–3,80 | 111,91–127,12 | 2,59–2,65 |
+| B2D v2 Batch escalar | 2,34–5,35 | 2,02–2,13 | 33,80–35,15 | 1,15–1,22 |
+| B2D v2 Batch SIMD | 21,37–23,83 | 2,35–2,45 | 54,98–60,64 | 1,38–1,47 |
+| SKIA escalar | 2,63–4,08 | 1,86–1,93 | 36,65–41,40 | 3,41–3,55 |
+| SKIA SIMD | 7,90–12,90 | 1,70–1,74 | 87,31–104,35 | 12,16–12,48 |
+
+SIMD ÷ escalar (medianas): B2D v1 0,96× (SIMD ganha), B2D v2 Imm 2,16×,
+B2D v2 Batch 1,18×, SKIA 3,60×; no Dart AOT 3.6.2: 31,8×, 19,4×, 6,5×,
+3,0×.
+
+### 7.1 Gargalos achados no IR e corrigidos
+
+1. **Gravação SIMD encaixotada** (§5): uma alocação por `v4[i] = …`;
+   B2D v1 SIMD 375 → 44 ms (antes das demais).
+2. **Leitura de campo `late`**: cada leitura era `dartforge_late_field_initialized`
+   (busca num `HashSet` do runtime) e o `late final x = …` chamava o
+   getter; agora, em campo de tipo interface não anulável guardado como
+   referência, "não nulo" já prova "inicializado" (o campo novo é zero, e
+   nesse tipo nunca se grava `null`), e o runtime só é consultado com o
+   campo nulo (`lower/membros.rs`). Tipos anuláveis, `int`/`double`/`bool`
+   e o ciclo de inicialização seguem pelo runtime (`corpus/nativo/67`).
+3. **Cabeçalho de lista tipada fora dos laços**: `dartforge_typed_cabecalho`
+   devolve `dereferenceable(16) ptr` (nunca nulo), e as duas cargas dele
+   passam a ser especuláveis — o LLVM as tira dos laços com a chamada (antes
+   só a chamada saía; as cargas ficavam, porque o laço tem saídas antes
+   delas). A lista relida a cada acesso — de campo, da via rápida de
+   `late`, de global — passa pelo cache de cabeçalho de `cabecalho_tipado`.
+4. **`fillRange` de lista tipada**: o do SDK gravava elemento a elemento
+   pelo despacho (~30 ns cada); o `clear()` do rasterizador (3 listas de
+   512×512) custava 26 ms por iteração, 70 % do tempo do B2D. Agora, com o
+   tipo estático de lista tipada numérica (menos `Uint8ClampedList`) e
+   argumentos `int`/elemento não anuláveis, o runtime preenche de uma vez
+   (`dartforge_typed_fill_int`/`_double`); faixa inválida, lista vazia e
+   visão não modificável voltam ao `fillRange` do SDK.
+
+### 7.2 Benchmarks pequenos (`dgfx/benchmark/simd`)
+
+μs por `exercise()` (10 chamadas de `run()`, o valor do `benchmark_harness`
+2.4.0, copiado sem pacote), mínimo–máximo de 3 rodadas; a rodada 1 de
+coverage/span/solid teve `rustc` de outros agentes rodando. "3.6" são as
+variantes que compilam no SDK 3.6.2 (escalar, extração de faixa, e as
+adaptações `andNot36`/`floatBits36` com `Int32x4.bool` e `shiftSimd36`/
+`floatSimd36` com deslocamento por faixa); "3.14" são as da API nova, pela
+extensão (§6) no Dart 3.6.2 e no DartForge, e pelos membros da classe no
+3.14.0-248.0.dev. Resumos da saída iguais em todas as colunas.
+
+| benchmark | VM 3.6.2 | DF antes | DF depois | VM 3.6.2 (ext.) | VM 3.14-dev | DF (ext.) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| CoverageScan.scalar | 807–1544 | 3009–7308 | 2710–5877 | 899–1908 | 878–1128 | 2941–5779 |
+| CoverageScan.laneExtract | 20358–35234 | 5506–5704 | 3905–6421 | 20744–22079 | 969–1364 | 3568–14906 |
+| CoverageScan.scanSimd | — | — | — | 151583–162415 | 4203–6801 | 4171–4986 |
+| SpanClassify.scalar | 306–407 | 6128–15392 | 1484–1943 | 304–492 | 303–358 | 1518–1625 |
+| SpanClassify.laneExtract | 708–900 | 35842–38700 | 7697–22821 | 574–930 | 581–632 | 6985–8048 |
+| SpanClassify.compareSimd | — | — | — | 47380–56510 | 1107–1121 | 2269–2509 |
+| MaskSelect.scalar | 375–1136 | 1255–3209 | 1175–2116 | 354–1029 | 367–533 | 1198–1485 |
+| MaskSelect.andNot(36) | 26038–28355 | 8865–10153 | 2559–6945 | 35012–40380 | 1116–1202 | 2002–7836 |
+| MaskSelect.floatBits(36) | 15071–15603 | 9444–10766 | 2011–2230 | 15419–16821 | 614–705 | 2168–3333 |
+| SolidBlend.scalar | 457–642 | 1072–1767 | 1070–3697 | 441–2039 | 435–1510 | 1065–2271 |
+| SolidBlend.shiftSimd(36) | 190084–249403 | 198012–311002 | 191776–471263 | 185080–455218 | 4411–6806 | 103209–127089 |
+| SolidBlend.floatSimd(36) | 101938–130814 | 176405–190736 | 128115–280625 | 101034–291535 | 7430–9228 | 87689–103194 |
+| SolidBlend.mulSimd (`*`) | — | — | — | 171798–404126 | 4394–4961 | 2055–2286 |
+| Int32x4Op.load+store | 64–115 | 6509–12509 | 552–990 | 65–177 | 64–104 | 356–1012 |
+| Int32x4Op.add | 3137–10814 | 7057–14302 | 825–1155 | 2942–3499 | 147–559 | 778–1088 |
+| Int32x4Op.andNot | — | — | — | 13867–17671 | 453–571 | 770–1091 |
+| Int32x4Op.shiftLeft | — | — | — | 8582–12577 | 361–474 | 619–909 |
+| Int32x4Op.abs | — | — | — | 8872–18566 | 404–466 | 647–857 |
+| Int32x4Op.min | — | — | — | 21403–27618 | 478–535 | 974–1188 |
+| Int32x4Op.lessThan | — | — | — | 12147–17688 | 471–702 | 814–1047 |
+| Int32x4Op.equal.allTrue | — | — | — | 10517–21052 | 105–131 | 718–945 |
+| Int32x4Op.withX | 2823–5480 | 7605–12291 | 632–764 | 2702–4625 | 300–334 | 661–803 |
+| Int32x4Op.lanes->Float32x4 | 6365–11872 | 7782–11197 | 552–729 | 5820–7760 | 907–1018 | 360–821 |
+
+No IR (`opt -O2` do `--emit-ir`) os laços das variantes da API nova não têm
+chamada, caixa nem alocação no caminho de toda volta; os `Int32x4Op` do
+DartForge ficam no custo do acesso às listas (globais), não da operação.
+
+### 7.3 O que ainda perde, e por quê
+
+* **SKIA SIMD 3,6× o escalar** — algoritmo do benchmark e compilador: o
+  `_blitAccumulatedSIMD` cria uma `List<int>.generate` por linha (no
+  DartForge ~1,2 µs cada, contra ~20 ns na VM) e extrai as pistas gravando
+  o vetor num `Int32x4List` de rascunho e relendo quatro `int` pelos campos
+  (`_simdLaneScratch`, `_simdLaneInts`), enquanto o escalar só lê o
+  acumulador; a leitura do campo a cada acesso não sai do laço (sem TBAA,
+  a gravação na lista pode, para o LLVM, mudar o campo).
+* **B2D v2 Imm 2,2× e Batch 1,2×** — algoritmo: o escalar
+  (`_resolveMaskedScalar`) só visita as linhas marcadas em `activeMask`; o
+  SIMD varre o tile inteiro e ainda faz o blend por pixel em escalar.
+* **SolidBlend.shiftSimd/floatSimd** — compilador: `mul`, `toF` e `toI` são
+  funções que recebem e devolvem `Int32x4`/`Float32x4` — a caixa na
+  fronteira da chamada (parâmetros e retornos SIMD sem caixa não existem);
+  com o `*` da API nova (`mulSimd`) o mesmo kernel cai de ~110 000 para
+  ~2 200 μs.
+* **SpanClassify/CoverageScan/MaskSelect SIMD ≥ escalar no DartForge** —
+  compilador: listas em globais e campos `late` relidas a cada acesso, e o
+  `.length` de lista tipada relida chama `dartforge_typed_len` a cada
+  volta (o LLVM especula a chamada `speculatable` do ramo da visão para
+  trocar o desvio por `select`); o escalar do DartForge já é 2–5× o da VM
+  nesses kernels pelo mesmo motivo.
+
 Falta: tirar comprimento e endereço de `List<E>` dos laços com prova de
 estabilidade na HIR; parâmetros e retornos SIMD sem caixa (entrada tipada
-das funções).
+das funções); não especular `dartforge_typed_len`/`_ptr` fora do ramo da
+visão; TBAA (campo × elemento de lista tipada) para tirar a releitura de
+campos dos laços.
