@@ -190,7 +190,13 @@ ordem de `FRAGMENTOS` (`crates/runtime/build.rs`) — o mesmo texto para o AOT
   `String` do Rust. `StringBuffer` guarda as unidades.
 - **Listas, mapas, conjuntos:** valores do runtime com slots etiquetados
   `(bits, tag)`; os membros são externs `dartforge_list_*`, `dartforge_map_*`,
-  `dartforge_set_*`.
+  `dartforge_set_*`. A lista tem um cabeçalho de endereço fixo
+  (`heap::CabecalhoDeLista`: dados, comprimento, gravações conferidas e a
+  forma), lido em linha pelo código gerado (`lower/tipados.rs`). Quando o
+  `E` reificado é exatamente `int`, `double` ou `bool`, a lista é
+  **compacta** (N14, `heap::FormaDeLista`): cada elemento são só os 8 bytes
+  dos bits, sem tag, e o coletor não os percorre; nas outras, cada elemento
+  é um `TaggedValue` de 16 bytes. A forma não é observável.
 - **Closures:** `Value::Closure`/`Environment`/`Cell` do runtime, produzidas
   pelo lowering (`lower/closures.rs`): o código da closure é o endereço da
   entrada uniforme (`ptrtoint`, `crates/emit_native/src/llvm/mod.rs`, emissão
