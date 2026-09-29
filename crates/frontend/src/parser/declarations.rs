@@ -2437,6 +2437,43 @@ mod tests {
     use crate::parser::{Parsed, Parser, parse};
     use dartforge_intern::Interner;
 
+    /// Representação de extension type pelo `AstBuilder.endPrimaryConstructor`
+    /// e parâmetros de tipo em operador (conferidos com o `dart analyze`
+    /// 3.6.2).
+    #[test]
+    fn representacao_e_operador_com_parametros_de_tipo() {
+        let fonte = "// @dart = 3.6\n\
+                     extension type A(final int x) {}\n\
+                     extension type C([int x = 0]) {}\n\
+                     extension type D(x) {}\n\
+                     extension type E(int x,) {}\n\
+                     extension type F(int x, int y) {}\n\
+                     extension type G() {}\n\
+                     extension type H(this.x) {}\n\
+                     class K { bool operator ==<T>(Object o) => true; }\n";
+        let mut nomes = Interner::new();
+        let features = crate::features::LibraryFeatures::piso();
+        let out = crate::parser::parse_com(fonte, &mut nomes, features);
+        let v: Vec<(&str, &str)> = out
+            .diagnostics
+            .iter()
+            .map(|d| (d.code.map_or("", |c| c.info().nome), &fonte[d.span.start..d.span.end]))
+            .collect();
+        assert_eq!(
+            v,
+            [
+                ("representation_field_modifier", "final"),
+                ("expected_representation_field", "["),
+                ("expected_representation_type", "x"),
+                ("representation_field_trailing_comma", ","),
+                ("multiple_representation_fields", ","),
+                ("expected_representation_field", ")"),
+                ("expected_representation_field", "this"),
+                ("type_parameter_on_operator", "<T>"),
+            ]
+        );
+    }
+
     /// `MISSING_FUNCTION_BODY` no `;` onde o fasta lê o corpo sem
     /// `allowAbstract` (conferido com o `dart analyze` 3.6.2): função e
     /// acessor de topo sem `external`, membro `static`, membro `async`,
