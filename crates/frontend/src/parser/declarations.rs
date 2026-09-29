@@ -1832,6 +1832,14 @@ impl<'s, 'i> Parser<'s, 'i> {
         {
             // `new nome?(...)` (3.13): construtor com o nome da classe implícito.
             self.parse_construtor_new(mods, class_name)?
+        } else if let Some(fim) = self.tipo_antes_de_factory() {
+            // `parseClassMember`: um tipo antes de `factory` é
+            // `TYPE_BEFORE_FACTORY` no último token dele, e o resto é a
+            // factory (`augment factory C.f()` sem o experimento).
+            let span = self.tokens[fim - 1].span;
+            self.erro_em(codigos::parser::TYPE_BEFORE_FACTORY, span, &[]);
+            self.pos = fim;
+            self.parse_constructor(mods, true, class_name)?
         } else if self.at_ident("factory")
             && (self.at_identifier_at(1)
                 || (self.features.tem(Feature::PrimaryConstructors) && self.at_op_at(1, Op::LParen)))
@@ -2334,6 +2342,16 @@ impl<'s, 'i> Parser<'s, 'i> {
             };
             self.erro_em(codigo, span, &[]);
         }
+    }
+
+    /// O fim do tipo que precede `factory nome` num membro, se houver.
+    fn tipo_antes_de_factory(&self) -> Option<usize> {
+        if self.at_ident("factory") {
+            return None;
+        }
+        let fim = self.skip_type(self.pos)?;
+        (fim > self.pos && self.kind_of(fim) == Kind::Ident && self.text_of(fim) == "factory" && self.kind_of(fim + 1) == Kind::Ident)
+            .then_some(fim)
     }
 
     /// O `allowAbstract` com que o fasta lê o corpo: no topo

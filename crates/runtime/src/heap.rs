@@ -3963,17 +3963,30 @@ impl Heap {
     fn marcar<const MENOR: bool>(&mut self) -> usize {
         let menor = MENOR;
         let mut live = 0_usize;
-        while let Some(handle) = self.pending.pop() {
+        // A pilha e os contadores em variáveis locais: gravar em `self` a
+        // cada objeto (o `Vec` e o trabalho) impedia o compilador de os
+        // manter em registradores (as gravações nos objetos podem, para
+        // ele, apontar para `self`).
+        let mut pilha = std::mem::take(&mut self.pending);
+        let mut trabalho = 0usize;
+        // As arestas vêm de raízes e de campos `is_ref`: a validação
+        // completa do handle (a página e o início do bloco) fica para o
+        // `--gc-stress`, o modo que caça raiz faltando (N4).
+        let validar = self.stress;
+        // Esta coleta percorre o objeto no estado `e`? Na menor, só o jovem
+        // (um velho conta como vivo, e as referências dele a jovens estão
+        // nos lembrados); na completa, o que ainda não foi marcado.
+        let percorre = |e: u8| if menor { e == JOVEM } else { e != MARCADO };
+        // A menor promove já na marcação (o jovem alcançado fica velho: a
+        // varredura só procura os mortos).
+        let marca = if menor { VELHO } else { MARCADO };
+        while let Some(handle) = pilha.pop() {
             // null e `Smi` (R10) não são arestas: o coletor nunca segue um
             // `Smi`, que não aponta para o heap.
             if !smi::e_handle(handle) {
                 continue;
             }
             if e_objeto(handle) {
-                // As arestas vêm de raízes e de campos `is_ref`: a validação
-                // completa do handle (a página e o início do bloco) fica para
-                // o `--gc-stress`, o modo que caça raiz faltando (N4).
-                let validar = self.stress;
                 let mut atual = handle;
                 // Segue direto o primeiro filho ainda por marcar (a lista
                 // ligada, o ramo de uma árvore) sem passar pela pilha.
@@ -3988,16 +4001,10 @@ impl Heap {
                     // SAFETY: bloco vivo do espaço.
                     #[allow(unsafe_code)]
                     unsafe {
-                        // Na coleta menor, um velho conta como vivo e não é
-                        // percorrido (as referências dele a jovens estão nos
-                        // lembrados); na completa, só o marcado é pulado.
-                        let e = (*b).estado;
-                        if if menor { e != JOVEM } else { e == MARCADO } {
+                        if !percorre((*b).estado) {
                             break;
                         }
-                        // A menor promove já na marcação (o jovem alcançado
-                        // fica velho: a varredura só procura os mortos).
-                        (*b).estado = if menor { VELHO } else { MARCADO };
+                        (*b).estado = marca;
                         live += 1;
                         // Só os campos que o mapa diz referência: o que
                         // esta coleta não percorre (velho na menor, já
@@ -4005,18 +4012,15 @@ impl Heap {
                         // marcar é seguido direto.
                         let c = corpo(b);
                         let n = usize::from((*c).n);
-                        self.trabalho_da_marcacao += n;
+                        trabalho += n;
                         let campos = campos_de(c);
                         let visitar = |bits: i64, proximo: &mut i64, pilha: &mut Vec<i64>| {
                             if !smi::e_handle(bits) {
                                 return;
                             }
                             if e_objeto(bits) {
-                                if !validar {
-                                    let e = (*((bits - DESLOCAMENTO_DO_HANDLE) as *const Cabecalho)).estado;
-                                    if if menor { e != JOVEM } else { e == MARCADO } {
-                                        return;
-                                    }
+                                if !validar && !percorre((*((bits - DESLOCAMENTO_DO_HANDLE) as *const Cabecalho)).estado) {
+                                    return;
                                 }
                                 if *proximo == 0 {
                                     *proximo = bits;
@@ -4028,7 +4032,7 @@ impl Heap {
                         let mut m = (*c).mapa;
                         while m != 0 {
                             let i = m.trailing_zeros() as usize;
-                            visitar(*campos.add(i), &mut proximo, &mut self.pending);
+                            visitar(*campos.add(i), &mut proximo, &mut pilha);
                             m &= m - 1;
                         }
                         if n > 32 {
@@ -4037,7 +4041,7 @@ impl Heap {
                                 let mut m = *ext.add(w);
                                 while m != 0 {
                                     let i = 32 + w * 64 + m.trailing_zeros() as usize;
-                                    visitar(*campos.add(i), &mut proximo, &mut self.pending);
+                                    visitar(*campos.add(i), &mut proximo, &mut pilha);
                                     m &= m - 1;
                                 }
                             }
@@ -4055,11 +4059,10 @@ impl Heap {
             }
             self.marks[index] = true;
             live += 1;
-            self.trabalho_da_marcacao += self.slots[index]
-                .as_ref()
-                .expect("slot vivo verificado")
-                .trace(&mut self.pending);
+            trabalho += self.slots[index].as_ref().expect("slot vivo verificado").trace(&mut pilha);
         }
+        self.pending = pilha;
+        self.trabalho_da_marcacao += trabalho;
         live
     }
 
