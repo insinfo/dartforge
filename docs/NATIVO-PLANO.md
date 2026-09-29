@@ -2111,12 +2111,84 @@ baixo no mesmo intervalo).
    `_HttpParser`): chamadas diretas com o ambiente na pilha, sem closure,
    ambiente e célula no heap a cada chamada (103 closures e 103 ambientes por
    requisição). Dono: lowering de closures.
-3. **Conferência de argumento na entrada uniforme** para chamadas de tipo
-   estático conhecido: só os parâmetros covariantes precisam dela (a VM só
-   confere tudo nos encaminhadores `dyn:`); `CodeUnits.[]$c`, `setRange$c`,
-   `addByte$c`, `[]=$c`. Com a memória direta do RTI (`memo_e`) o custo
-   caiu, mas `args_casam` + `rti_e` ainda são ~50 mil instruções/req.
+3. ~~**Conferência de argumento na entrada uniforme** para chamadas de tipo
+   estático conhecido~~: feito em §9.6 (entrada `$tc`, −5% de instruções).
 4. **`Uint8List` em linha**: `typed_len`/`typed_ptr` por acesso (31 mil
    instruções/req) — um cabeçalho de endereço fixo como o das listas (N13).
 5. **Literais de string por ponto de uso**: o handle do literal num global
    do isolado, sem a busca por endereço (115 por requisição).
+
+### 9.6 Entrada tipada: só os parâmetros covariantes (item 3 de §9.5, medido em 2026-09-29)
+
+**A regra.** Numa chamada com o receptor de tipo estático conhecido, o
+analisador garante cada argumento contra o parâmetro da interface — menos
+os *covariantes*: os escritos `covariant` (ou que herdam a palavra de um
+membro sobrescrito) e os que mencionam um parâmetro de tipo da classe em
+posição covariante (`E`, `Iterable<E>`, `FutureOr<T>`, `V Function()`; o
+`isGenericCovariantImpl` que o CFE propaga pela sobrescrita). A VM compila
+duas entradas por método — a *checked entry*, dos encaminhadores `dyn:`, e a
+*unchecked entry*, das chamadas tipadas —, e o argumento `dynamic` de uma
+chamada tipada ganha do CFE um cast implícito em volta dele, logo depois de
+avaliado (a mensagem sem " of 'nome'").
+
+**O que entrou** (`crates/emit_native/src/lower/entrada_tipada.rs`):
+
+* a chamada por seletor de um membro do SDK com o receptor tipado e todos os
+  argumentos garantidos usa o seletor `t` + o de sempre (`tc:[]`, `ts:x`);
+  a tabela da classe o liga à entrada `$tc`/`$ts`, gerada só quando a `$c`
+  confere algum parâmetro que a tipada dispensa, e o runtime
+  (`dartforge_seletor`) cai no seletor sem o `t` quando a classe não a tem
+  (sem o que dispensar, encaminhador de `noSuchMethod`, classe do
+  programa). A `$tc` também não confere a aridade;
+* a conferência de aridade da entrada uniforme sem nomeados vai em linha
+  (`n_req <= posicionais <= n_pos`, nenhum nomeado), sem chamar
+  `dartforge_args_casam`;
+* o cast implícito do argumento `dynamic` no ponto de chamada, com o tipo do
+  parâmetro na invocação (o tipo estático do alvo, ou o do construtor com os
+  argumentos de tipo da criação), para funções, construtores, fábricas,
+  métodos, índices (`[]`, `[]=`) e operadores; e no `for-in` com o
+  elemento `dynamic` numa variável tipada (`for (E e in elementos)` do
+  `List.from`). Eram os dois defeitos de N14: `f(<int?>[null] as dynamic)`
+  para `Iterable<int>` passava, e o erro do `List.from` saía do `add` com
+  " of 'value'";
+* os parâmetros covariantes de membro do programa conferidos no despacho
+  direto (`chamar_membro`), por implementação e com o receptor, antes de
+  converter à representação — antes `A a = B(); a.m(1.5)` com
+  `B.m(covariant int x)` truncava para 1; e o tear-off de método confere os
+  argumentos como a entrada uniforme (os nomes do parâmetro da
+  implementação).
+
+Correção: `corpus/nativo/52_chamada_tipada_e_covariancia.dart`
+(covariância de lista, mapa e conjunto pela interface; `covariant` escrito,
+nomeado e herdado; genérico da classe pela interface e sobrescrita que
+alarga; classe do programa sobre `ListBase`; argumentos `dynamic` para
+função, nomeado, tipo de função, construtor, fábrica, construtor genérico,
+membros do SDK, índice, operador; a ordem de avaliação do cast; `for-in`,
+`List.from`; chamada dinâmica e tear-off) igual à VM no AOT, no JIT e com
+`--gc-stress`; corpus nativo 56/56, `corpus/js` pelo nativo 235/235; testes
+de `dartforge-emit-native` e `dartforge-runtime` verdes. Fica de fora (já
+era assim): a mensagem do `NoSuchMethodError` de aridade errada numa chamada
+dinâmica (`dartforge_nsm_chamada` não sabe o receptor nem o nome).
+
+Instruções por requisição (callgrind, `/`, §9.1): **1 225 725 → 1 164 449**
+(−5,0%). `dartforge_rti_e` 31,7 → 6,3 mil instruções/req; `args_casam`
+14,8 mil → fora do perfil. O `CodeUnits.[]` do `writeHeaders` (149 por
+requisição) passa pela `$tc` (sem conferir o índice).
+
+`scripts/comparar-desempenho.py --sem-jit --repeticoes 3 colecoes chamadas
+textos` (máquina disputada; a razão contra o Dart AOT é o que compara; os
+números incluem o que as outras frentes mudaram desde §8.5):
+
+| núcleo | DartForge AOT | Dart AOT | razão (§8.5) | razão agora |
+|---|---:|---:|---:|---:|
+| colecoes/mapa | 338,5 | 251,8 | 1,84× | 1,34× |
+| colecoes/conjunto_str | 110,6 | 34,6 | 4,08× | 3,20× |
+| colecoes/lista_add | 51,2 | 33,0 | — | 1,55× |
+| textos/construir | 300,3 | 184,8 | 1,55× | 1,62× |
+| textos/hashes | 80,9 | 54,4 | 3,44× | 1,49× |
+| chamadas/closures | 85,1 | 36,2 | — | 2,35× |
+
+A avaliação do tipo do receptor duas vezes no `[]=` de mapa (`K` e `V`,
+ambos covariantes: a VM também confere os dois) continua: cada
+`dartforge_rti_avaliar` passa pela chave do receptor
+(`chave_do_valor`, ~100 instruções).
