@@ -156,10 +156,12 @@ o corpus nativo contra a VM pela distribuição (`DARTFORGE_HOME`).
 
 ## 2. Modelo de objetos (runtime, `crates/runtime`)
 
-O runtime é Rust, com heap preciso por **handles** (`heap.rs`): um `Ref` do
-código gerado é um `i64` — `0` é null, um valor **par** indexa a tabela de
-handles e um valor **ímpar** é um `int` pequeno etiquetado, o `Smi` (R10,
-NATIVO-PLANO §6.2), que não aloca e que o coletor nunca segue. O código
+O runtime é Rust, com heap preciso (`heap.rs`): um `Ref` do código gerado é
+um `i64` — `0` é null; um valor **ímpar** é um `int` pequeno etiquetado, o
+`Smi` (R10, NATIVO-PLANO §6.2), que não aloca e que o coletor nunca segue; um
+valor com os dois bits baixos `10` é o endereço de um **objeto do usuário**
+no espaço de objetos (mais 2); e um múltiplo de 4 é o handle de um valor do
+runtime na tabela de slots (`(índice + 1) << 2`). O código
 fonte do runtime são os fragmentos `nucleo`, `gc_raizes`, `excecoes`, `saida`,
 `strings`, `colecoes` e `closures` de `crates/runtime/src/`, concatenados na
 ordem de `FRAGMENTOS` (`crates/runtime/build.rs`) — o mesmo texto para o AOT
@@ -167,7 +169,14 @@ ordem de `FRAGMENTOS` (`crates/runtime/build.rs`) — o mesmo texto para o AOT
 
 - **Objeto de classe do usuário:** `Value::Object { class_id, fields }`, cada
   campo `(bits: i64, is_ref: bool)` — a marcação `is_ref` é o que o coletor
-  segue (E1). O `class_id` hoje é a posição da classe na carga + 1, e as
+  segue (E1). Mora fora da tabela de slots, num bloco do **espaço de
+  objetos** (`heap::Bloco`, `heap::EspacoDeObjetos`, NATIVO-PLANO §8.6):
+  cabeçalho de 16 bytes (estado de coleta, número de campos, `hashCode` de
+  identidade, metadado de RTI), o próprio `Value` (`#[repr(u8)]`, layout
+  conferido) e os campos. O código gerado aloca em linha pela TLAB do
+  isolado (`Contexto::tlab`), lê e grava campos pelo ponteiro em `h + 14`
+  sem chamar o runtime e, depois de gravar um `Ref`, passa pela barreira de
+  escrita do coletor geracional. O `class_id` hoje é a posição da classe na carga + 1, e as
   classes de erro do SDK têm ids fixos 1000–1012 (`lower/mod.rs`); ids estáveis
   por `DeclId` entram em P2.
 - **`int`:** `i64` com estouro modular, como a VM. **`double`:** `f64`.
