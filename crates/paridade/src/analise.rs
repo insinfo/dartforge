@@ -24,7 +24,7 @@ use dartforge_diagnostics::{Diagnostic, Span, codigos};
 use dartforge_elements::model::{LibraryId, Program, UnitId};
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_frontend::ast::DirectiveKind;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// Nome da entrada sintética (nunca existe no disco).
@@ -368,12 +368,15 @@ impl Motor {
         let (_, diags_init) =
             dartforge_types::infer_bodies_das_bibliotecas(&program, &interner, &mut table, &core, &mut outline, &[]);
         let mut atribuidos: Vec<(UnitId, Diagnostic)> = Vec::new();
+        // As tabelas laterais das bibliotecas do lote, cada unidade da passada
+        // da sua biblioteca (a avaliação de constantes lê todas).
+        let mut corpos: Option<dartforge_types::BodyTypes> = None;
         // Corpos: uma passada por biblioteca do lote.
         for lib in &libs_proprias {
             if cancelado() {
                 return None;
             }
-            let (_, ds) = dartforge_types::infer_bodies_das_bibliotecas(
+            let (bt, ds) = dartforge_types::infer_bodies_das_bibliotecas_com_locais(
                 &program,
                 &interner,
                 &mut table,
@@ -381,6 +384,18 @@ impl Motor {
                 &mut outline,
                 std::slice::from_ref(lib),
             );
+            match &mut corpos {
+                None => corpos = Some(bt),
+                Some(c) => {
+                    let mut bt = bt;
+                    for u in &program.library(*lib).units {
+                        let i = u.0 as usize;
+                        if i < c.units.len() && i < bt.units.len() {
+                            c.units[i] = std::mem::take(&mut bt.units[i]);
+                        }
+                    }
+                }
+            }
             let corpo = if ds.len() >= diags_init.len() && ds[..diags_init.len()] == diags_init[..] {
                 &ds[diags_init.len()..]
             } else {
@@ -424,6 +439,21 @@ impl Motor {
                 atribuidos.push((u, d.clone()));
             }
         }
+        // Constantes (`ConstantVerifier`): as bibliotecas do lote são as
+        // inferidas; as outras (SDK, pacotes) ficam opacas.
+        if let Some(corpos) = &corpos {
+            let inferidas: HashSet<LibraryId> = libs_proprias.iter().copied().collect();
+            atribuidos.extend(dartforge_types::constantes::verificar(
+                &program,
+                &interner,
+                &mut table,
+                &core,
+                &outline,
+                corpos,
+                &inferidas,
+                &libs_proprias,
+            ));
+        }
         // Sobrescritas inválidas, nas classes em que o `verify()` do
         // `InheritanceOverrideVerifier` chega a conferi-las.
         for lib in &libs_proprias {
@@ -465,6 +495,14 @@ impl Motor {
             }
             let fonte = &program.unit(unidade).source;
             let trecho = fonte.get(d.span.start..d.span.end).unwrap_or("");
+            // Os códigos de constantes vêm de `types::constantes`; o que a
+            // inferência emite deles (sem código) fica de fora.
+            if d.code.is_none() {
+                let cod = ponte::codificar_tipos(d, trecho);
+                if cod.code.is_some_and(|c| dartforge_types::constantes::CODIGOS.contains(&c.info().nome)) {
+                    continue;
+                }
+            }
             let cod = ponte::codificar_tipos(d, trecho);
             if cod.code.is_some_and(|c| matches!(c.info().nome, "undefined_class" | "not_a_type"))
                 && clausulas.contains(&(unidade, cod.span.start))

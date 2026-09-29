@@ -1,0 +1,981 @@
+//! O `ConstantVerifier` do analyzer 6.11
+//! (`src/dart/constant/constant_verifier.dart`): percorre as unidades de
+//! uma biblioteca e relata os erros de constantes — variáveis `const`,
+//! campos `final` de classes com construtor `const`, criações e coleções
+//! constantes, registros, valores padrão, padrões constantes e relacionais,
+//! inicializadores de construtores `const`.
+
+use super::avaliador::{Constante, Ctx, Invalida, Motor};
+use super::valor::{Estado, Valor};
+use crate::resolved::Resolved;
+use crate::table::{Type, TypeId};
+use dartforge_diagnostics::{codigos::compile_time_error as c, Codigo, Diagnostic, Span};
+use dartforge_elements::model::{ClassId, LibraryId, UnitId, VariableId, VariableRef};
+use dartforge_frontend::ast::{
+    self, CollectionElement, DeclKind, ExprId, ExprKind, MemberKind, PatternId, PatternKind, StmtId, StmtKind,
+};
+use std::collections::HashMap;
+
+/// Os códigos mais específicos que o padrão (`_reportError`): relatados
+/// como estão, no lugar do código padrão do ponto de uso.
+const ESPECIFICOS: &[Codigo] = &[
+    c::CONST_EVAL_EXTENSION_METHOD,
+    c::CONST_EVAL_EXTENSION_TYPE_METHOD,
+    c::CONST_EVAL_FOR_ELEMENT,
+    c::CONST_EVAL_METHOD_INVOCATION,
+    c::CONST_EVAL_PROPERTY_ACCESS,
+    c::CONST_EVAL_THROWS_EXCEPTION,
+    c::CONST_EVAL_THROWS_IDBZE,
+    c::CONST_EVAL_TYPE_BOOL_NUM_STRING,
+    c::CONST_EVAL_TYPE_BOOL,
+    c::CONST_EVAL_TYPE_BOOL_INT,
+    c::CONST_EVAL_TYPE_INT,
+    c::CONST_EVAL_TYPE_NUM,
+    c::CONST_EVAL_TYPE_NUM_STRING,
+    c::CONST_EVAL_TYPE_STRING,
+    c::RECURSIVE_COMPILE_TIME_CONSTANT,
+    c::CONST_CONSTRUCTOR_FIELD_TYPE_MISMATCH,
+    c::CONST_CONSTRUCTOR_PARAM_TYPE_MISMATCH,
+    c::CONST_TYPE_PARAMETER,
+    c::CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF,
+    c::CONST_SPREAD_EXPECTED_LIST_OR_SET,
+    c::CONST_SPREAD_EXPECTED_MAP,
+    c::EXPRESSION_IN_MAP,
+    c::VARIABLE_TYPE_MISMATCH,
+    c::NON_BOOL_CONDITION,
+    c::NON_CONSTANT_DEFAULT_VALUE_FROM_DEFERRED_LIBRARY,
+    c::NON_CONSTANT_MAP_KEY_FROM_DEFERRED_LIBRARY,
+    c::NON_CONSTANT_MAP_VALUE_FROM_DEFERRED_LIBRARY,
+    c::SET_ELEMENT_FROM_DEFERRED_LIBRARY,
+    c::SPREAD_EXPRESSION_FROM_DEFERRED_LIBRARY,
+    c::NON_CONSTANT_CASE_EXPRESSION_FROM_DEFERRED_LIBRARY,
+    c::INVALID_ANNOTATION_CONSTANT_VALUE_FROM_DEFERRED_LIBRARY,
+    c::IF_ELEMENT_CONDITION_FROM_DEFERRED_LIBRARY,
+    c::CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE_FROM_DEFERRED_LIBRARY,
+    c::NON_CONSTANT_LIST_ELEMENT_FROM_DEFERRED_LIBRARY,
+    c::NON_CONSTANT_RECORD_FIELD_FROM_DEFERRED_LIBRARY,
+    c::PATTERN_CONSTANT_FROM_DEFERRED_LIBRARY,
+    c::WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION,
+    c::WRONG_NUMBER_OF_TYPE_ARGUMENTS_ANONYMOUS_FUNCTION,
+];
+
+/// Os códigos cuja verificação é deste módulo (o que a inferência emite
+/// deles é descartado por quem mede a paridade).
+pub const CODIGOS: &[&str] = &[
+    "const_initialized_with_non_constant_value",
+    "const_eval_throws_exception",
+    "const_with_non_constant_argument",
+    "equal_elements_in_const_set",
+    "equal_keys_in_const_map",
+];
+
+struct Verificador<'m, 'a> {
+    m: &'m mut Motor<'a>,
+    lib: LibraryId,
+    unidade: UnitId,
+    saida: Vec<(UnitId, Diagnostic)>,
+    /// `(unidade, membro, índice)` → variável; `(unidade, decl, índice)` → variável.
+    campos: HashMap<(UnitId, ast::MemberId, usize), VariableId>,
+    topo: HashMap<(UnitId, ast::DeclId, usize), VariableId>,
+    /// A classe (declaração) de cada membro.
+    classe_de_membro: HashMap<(UnitId, ast::MemberId), ClassId>,
+    padroes_ligados: bool,
+}
+
+/// Os erros de constantes das unidades de `lib`.
+pub fn verificar(m: &mut Motor<'_>, lib: LibraryId) -> Vec<(UnitId, Diagnostic)> {
+    let program = m.program;
+    let mut campos = HashMap::new();
+    let mut topo = HashMap::new();
+    let mut classe_de_membro = HashMap::new();
+    for (i, v) in program.variables.iter().enumerate() {
+        if v.library != lib {
+            continue;
+        }
+        match v.node {
+            VariableRef::Field { unit, member, index } => {
+                campos.insert((unit, member, index), VariableId(i as u32));
+                if let Some(k) = v.class {
+                    classe_de_membro.insert((unit, member), k);
+                }
+            }
+            VariableRef::TopLevel { unit, decl, index } => {
+                topo.insert((unit, decl, index), VariableId(i as u32));
+            }
+            _ => {}
+        }
+    }
+    let padroes_ligados = program.library(lib).features.versao() >= dartforge_frontend::features::LanguageVersion::new(3, 0);
+    let mut v = Verificador { m, lib, unidade: UnitId(0), saida: Vec::new(), campos, topo, classe_de_membro, padroes_ligados };
+    for &u in &program.library(lib).units {
+        if program.unit(u).role == dartforge_elements::model::UnitRole::Patch {
+            continue;
+        }
+        v.unidade = u;
+        let a = v.m.ast(u);
+        for &d in &program.unit(u).unit.declarations {
+            v.declaracao(a, d);
+        }
+    }
+    v.saida
+}
+
+impl Verificador<'_, '_> {
+    fn cx(&self) -> Ctx {
+        Ctx::simples(self.unidade, self.lib)
+    }
+
+    fn relatar(&mut self, codigo: Codigo, span: Span, args: Vec<String>) {
+        self.saida.push((self.unidade, Diagnostic::com_codigo(codigo, span, args)));
+    }
+
+    /// `_reportError`.
+    fn relatar_invalida(&mut self, i: &Invalida, padrao: Option<Codigo>) {
+        if i.evitar_relato || i.unidade != self.unidade {
+            return;
+        }
+        if ESPECIFICOS.contains(&i.codigo) {
+            self.relatar(i.codigo, i.span, i.args.clone());
+        } else if let Some(p) = padrao {
+            self.relatar(p, i.span, Vec::new());
+        }
+    }
+
+    /// `_evaluateAndReportError`.
+    fn avaliar_e_relatar(&mut self, e: ExprId, em_const: bool, padrao: Codigo) -> Constante {
+        let cx = self.cx();
+        let r = self.m.avaliar(&cx, e, em_const);
+        if let Constante::Invalida(i) = &r {
+            let i = (**i).clone();
+            self.relatar_invalida(&i, Some(padrao));
+        }
+        r
+    }
+
+    // -- Declarações -----------------------------------------------------------
+
+    fn declaracao(&mut self, a: &ast::Ast, d: ast::DeclId) {
+        let decl = a.decl(d);
+        match &decl.kind {
+            DeclKind::Variables(l) => {
+                for (i, var) in l.variables.iter().enumerate() {
+                    if let Some(init) = var.initializer {
+                        self.expr(a, init, l.const_);
+                        if l.const_ {
+                            if let Some(&v) = self.topo.get(&(self.unidade, d, i)) {
+                                self.resultado_de_variavel(v, true);
+                            }
+                        }
+                    }
+                }
+            }
+            DeclKind::Function(f) => self.funcao(a, *f),
+            DeclKind::Class(k) => self.membros(a, &k.members),
+            DeclKind::Mixin(k) => self.membros(a, &k.members),
+            DeclKind::Enum(k) => {
+                for cst in k.constants.iter() {
+                    if let Some(args) = &cst.arguments {
+                        for arg in args.args.iter() {
+                            self.expr(a, arg.value, true);
+                        }
+                    }
+                }
+                self.membros(a, &k.members);
+            }
+            DeclKind::Extension(k) => self.membros(a, &k.members),
+            DeclKind::ExtensionType(k) => self.membros(a, &k.members),
+            DeclKind::Typedef(_) => {}
+        }
+    }
+
+    fn resultado_de_variavel(&mut self, v: VariableId, const_: bool) {
+        if let Some(Constante::Invalida(i)) = self.m.valor_de_variavel(v) {
+            let i = (*i).clone();
+            let padrao = if const_ { Some(c::CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE) } else { None };
+            self.relatar_invalida(&i, padrao);
+        }
+    }
+
+    fn membros(&mut self, a: &ast::Ast, membros: &[ast::MemberId]) {
+        for &mid in membros {
+            let membro = a.member(mid);
+            match &membro.kind {
+                MemberKind::Field(l) => {
+                    for (i, var) in l.variables.iter().enumerate() {
+                        let Some(init) = var.initializer else { continue };
+                        self.expr(a, init, l.const_);
+                        if !(l.const_ || l.final_) {
+                            continue;
+                        }
+                        let Some(&v) = self.campos.get(&(self.unidade, mid, i)) else { continue };
+                        if !l.static_ {
+                            let classe = self.classe_de_membro.get(&(self.unidade, mid)).copied();
+                            let tem = classe.is_some_and(|k| self.tem_construtor_gerador_const(k));
+                            let e_classe = classe.is_some_and(|k| self.m.program.class(k).kind == dartforge_elements::model::ClassKind::Class);
+                            if e_classe && !tem {
+                                continue;
+                            }
+                            if !tem {
+                                continue;
+                            }
+                        } else if !l.const_ {
+                            continue;
+                        }
+                        self.resultado_de_variavel(v, l.const_);
+                    }
+                }
+                MemberKind::Method(f) => self.funcao(a, *f),
+                MemberKind::Constructor(k) => self.construtor(a, mid, k),
+            }
+        }
+    }
+
+    fn tem_construtor_gerador_const(&self, k: ClassId) -> bool {
+        self.m
+            .program
+            .class(k)
+            .constructors
+            .values()
+            .any(|f| self.m.program.function(*f).const_ && !self.m.program.function(*f).factory)
+    }
+
+    /// `visitConstructorDeclaration`.
+    fn construtor(&mut self, a: &ast::Ast, mid: ast::MemberId, k: &ast::Constructor) {
+        if k.const_ {
+            // `_validateConstructorInitializers`: potencialmente constantes.
+            let cx = Ctx { lexico: None, ..self.cx() };
+            for init in k.initializers.iter() {
+                let exprs: Vec<ExprId> = match init {
+                    ast::Initializer::Field { value, .. } => vec![*value],
+                    ast::Initializer::Assert { condition, message, .. } => std::iter::once(*condition).chain(*message).collect(),
+                    ast::Initializer::Super { arguments, .. } | ast::Initializer::Redirect { arguments, .. } => {
+                        arguments.args.iter().map(|x| x.value).collect()
+                    }
+                };
+                for x in exprs {
+                    let mut nos = Vec::new();
+                    super::potencial::coletar_em(self.m, &cx, x, true, false, &mut nos);
+                    for n in nos {
+                        self.relatar(c::INVALID_CONSTANT, n, Vec::new());
+                    }
+                }
+            }
+            if !k.factory {
+                self.inicializadores_de_campo(a, mid);
+            }
+        }
+        self.valores_padrao(a, &k.parameters);
+        for init in k.initializers.iter() {
+            match init {
+                ast::Initializer::Field { value, .. } => self.expr(a, *value, false),
+                ast::Initializer::Assert { condition, message, .. } => {
+                    self.expr(a, *condition, false);
+                    if let Some(m) = message {
+                        self.expr(a, *m, false);
+                    }
+                }
+                ast::Initializer::Super { arguments, .. } | ast::Initializer::Redirect { arguments, .. } => {
+                    for x in arguments.args.iter() {
+                        self.expr(a, x.value, false);
+                    }
+                }
+            }
+        }
+        self.corpo(a, &k.body);
+    }
+
+    /// `_validateFieldInitializers`: campos de instância com inicializador
+    /// que não é constante, relatados no `const` do construtor.
+    fn inicializadores_de_campo(&mut self, a: &ast::Ast, mid: ast::MemberId) {
+        let Some(k) = self.classe_de(a, mid) else { return };
+        let e_enum = self.m.program.class(k).kind == dartforge_elements::model::ClassKind::Enum;
+        let Some(palavra) = self.palavra_const(a, mid) else { return };
+        let membros: Vec<ast::MemberId> = self.membros_da_classe(a, k);
+        for fm in membros {
+            let MemberKind::Field(l) = &a.member(fm).kind else { continue };
+            if l.static_ {
+                continue;
+            }
+            for var in l.variables.iter() {
+                if e_enum && self.m.interner.resolve(var.name.sym) == "values" {
+                    continue;
+                }
+                let Some(init) = var.initializer else { continue };
+                let cx = self.cx();
+                let r = self.m.avaliar(&cx, init, l.const_);
+                if matches!(r, Constante::Invalida(_)) {
+                    let nome = self.m.interner.resolve(var.name.sym).to_string();
+                    self.relatar(c::CONST_CONSTRUCTOR_WITH_FIELD_INITIALIZED_BY_NON_CONST, palavra, vec![nome]);
+                }
+            }
+        }
+    }
+
+    /// A classe declarada que contém o membro `mid` (pelos construtores).
+    fn classe_de(&self, _a: &ast::Ast, mid: ast::MemberId) -> Option<ClassId> {
+        for (i, f) in self.m.program.functions.iter().enumerate() {
+            let _ = i;
+            if let dartforge_elements::model::FunctionRef::Constructor { unit, member } = f.node {
+                if unit == self.unidade && member == mid {
+                    return f.class;
+                }
+            }
+        }
+        None
+    }
+
+    fn membros_da_classe(&self, a: &ast::Ast, k: ClassId) -> Vec<ast::MemberId> {
+        let Some(d) = self.m.program.class(k).decl else { return Vec::new() };
+        if d.unit != self.unidade {
+            return Vec::new();
+        }
+        match &a.decl(d.decl).kind {
+            DeclKind::Class(x) => x.members.clone(),
+            DeclKind::Enum(x) => x.members.clone(),
+            DeclKind::Mixin(x) => x.members.clone(),
+            DeclKind::ExtensionType(x) => x.members.clone(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// O token `const` do construtor.
+    fn palavra_const(&self, a: &ast::Ast, mid: ast::MemberId) -> Option<Span> {
+        let s = a.member(mid).span;
+        let fonte = &self.m.program.unit(self.unidade).source;
+        let t = fonte.get(s.start..s.end)?;
+        let mut i = 0;
+        let b = t.as_bytes();
+        while i + 5 <= b.len() {
+            if &b[i..i + 5] == b"const" && (i == 0 || !b[i - 1].is_ascii_alphanumeric()) && b.get(i + 5).is_none_or(|c| !c.is_ascii_alphanumeric() && *c != b'_') {
+                return Some(Span { start: s.start + i, end: s.start + i + 5 });
+            }
+            i += 1;
+        }
+        None
+    }
+
+    fn funcao(&mut self, a: &ast::Ast, f: ast::FunctionId) {
+        let func = a.function(f);
+        if let Some(ps) = &func.parameters {
+            self.valores_padrao(a, ps);
+        }
+        self.corpo(a, &func.body);
+    }
+
+    /// `_validateDefaultValues`.
+    fn valores_padrao(&mut self, a: &ast::Ast, ps: &[ast::Parameter]) {
+        for p in ps {
+            let Some(d) = p.default_value else { continue };
+            self.expr(a, d, false);
+            if self.m.body.units[self.unidade.0 as usize].tipos_invalidos.contains(&d) {
+                continue;
+            }
+            let r = self.m.resultado_padrao(self.unidade, self.lib, d);
+            if let Constante::Invalida(i) = r {
+                self.relatar_invalida(&i, Some(c::NON_CONSTANT_DEFAULT_VALUE));
+            }
+        }
+    }
+
+    fn corpo(&mut self, a: &ast::Ast, b: &ast::FunctionBody) {
+        match b {
+            ast::FunctionBody::Block(s) => self.stmt(a, *s),
+            ast::FunctionBody::Expression(e) => self.expr(a, *e, false),
+            _ => {}
+        }
+    }
+
+    // -- Comandos --------------------------------------------------------------
+
+    fn stmt(&mut self, a: &ast::Ast, s: StmtId) {
+        match &a.stmt(s).kind {
+            StmtKind::Block(xs) => {
+                for x in xs.iter() {
+                    self.stmt(a, *x);
+                }
+            }
+            StmtKind::Variables(l) => {
+                for (i, var) in l.variables.iter().enumerate() {
+                    if let Some(init) = var.initializer {
+                        self.expr(a, init, l.const_);
+                        if l.const_ {
+                            let r = self.m.valor_de_local_declarado(self.unidade, self.lib, s, i);
+                            if let Constante::Invalida(x) = r {
+                                self.relatar_invalida(&x, Some(c::CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE));
+                            }
+                        }
+                    }
+                }
+            }
+            StmtKind::PatternVariables { pattern, value, .. } => {
+                self.expr(a, *value, false);
+                self.padrao(a, *pattern);
+            }
+            StmtKind::Function(f) => self.funcao(a, *f),
+            StmtKind::Expression(e) => self.expr(a, *e, false),
+            StmtKind::If { condition, case_pattern, guard, then, else_ } => {
+                self.expr(a, *condition, false);
+                if let Some(p) = case_pattern {
+                    self.padrao(a, *p);
+                }
+                if let Some(g) = guard {
+                    self.expr(a, *g, false);
+                }
+                self.stmt(a, *then);
+                if let Some(e) = else_ {
+                    self.stmt(a, *e);
+                }
+            }
+            StmtKind::For { init, condition, updates, body, .. } => {
+                match init {
+                    Some(ast::ForInit::Variables(l)) => {
+                        for var in l.variables.iter() {
+                            if let Some(i) = var.initializer {
+                                self.expr(a, i, l.const_);
+                            }
+                        }
+                    }
+                    Some(ast::ForInit::Expression(e)) => self.expr(a, *e, false),
+                    None => {}
+                }
+                if let Some(c) = condition {
+                    self.expr(a, *c, false);
+                }
+                for u in updates.iter() {
+                    self.expr(a, *u, false);
+                }
+                self.stmt(a, *body);
+            }
+            StmtKind::ForIn { target, iterable, body, .. } => {
+                if let ast::ForInTarget::Pattern { pattern, .. } = target {
+                    self.padrao(a, *pattern);
+                }
+                self.expr(a, *iterable, false);
+                self.stmt(a, *body);
+            }
+            StmtKind::While { condition, body } | StmtKind::DoWhile { body, condition } => {
+                self.expr(a, *condition, false);
+                self.stmt(a, *body);
+            }
+            StmtKind::Switch { value, cases } => {
+                self.expr(a, *value, false);
+                for caso in cases.iter() {
+                    if let Some(p) = caso.pattern {
+                        if self.padroes_ligados {
+                            self.padrao(a, p);
+                        } else if let PatternKind::Constant(e) = &a.pattern(p).kind {
+                            // `_validateSwitchStatement_nullSafety`.
+                            let e = desparentizar(a, *e);
+                            self.expr(a, e, true);
+                            self.avaliar_e_relatar(e, true, c::NON_CONSTANT_CASE_EXPRESSION);
+                        }
+                    }
+                    if let Some(g) = caso.guard {
+                        self.expr(a, g, false);
+                    }
+                    for x in caso.body.iter() {
+                        self.stmt(a, *x);
+                    }
+                }
+            }
+            StmtKind::Return(Some(e)) | StmtKind::Yield { value: e, .. } => self.expr(a, *e, false),
+            StmtKind::Try { body, catches, finally_ } => {
+                self.stmt(a, *body);
+                for c in catches.iter() {
+                    self.stmt(a, c.body);
+                }
+                if let Some(f) = finally_ {
+                    self.stmt(a, *f);
+                }
+            }
+            StmtKind::Labeled { body, .. } => self.stmt(a, *body),
+            StmtKind::Assert { condition, message } => {
+                self.expr(a, *condition, false);
+                if let Some(m) = message {
+                    self.expr(a, *m, false);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // -- Padrões ---------------------------------------------------------------
+
+    fn padrao(&mut self, a: &ast::Ast, p: PatternId) {
+        match &a.pattern(p).kind {
+            PatternKind::Constant(e) => {
+                let e = desparentizar(a, *e);
+                if self.m.body.units[self.unidade.0 as usize].tipos_invalidos.contains(&e) {
+                    return;
+                }
+                let r = self.avaliar_e_relatar(e, false, c::CONSTANT_PATTERN_WITH_NON_CONSTANT_EXPRESSION);
+                if matches!(r, Constante::Valor(_)) {
+                    self.expr(a, e, false);
+                }
+            }
+            PatternKind::Relational { value, .. } => {
+                self.expr(a, *value, false);
+                self.avaliar_e_relatar(*value, false, c::NON_CONSTANT_RELATIONAL_PATTERN_EXPRESSION);
+            }
+            PatternKind::Or(x, y) | PatternKind::And(x, y) => {
+                self.padrao(a, *x);
+                self.padrao(a, *y);
+            }
+            PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => self.padrao(a, *x),
+            PatternKind::Cast { pattern, .. } => self.padrao(a, *pattern),
+            PatternKind::List { elements, .. } => {
+                for el in elements.iter() {
+                    match el {
+                        ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) => self.padrao(a, *x),
+                        _ => {}
+                    }
+                }
+            }
+            PatternKind::Map { entries, .. } => {
+                for en in entries.iter() {
+                    self.padrao(a, en.value);
+                    self.avaliar_e_relatar(en.key, false, c::NON_CONSTANT_MAP_PATTERN_KEY);
+                }
+            }
+            PatternKind::Record { fields } | PatternKind::Object { fields, .. } => {
+                for f in fields.iter() {
+                    self.padrao(a, f.pattern);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // -- Expressões ------------------------------------------------------------
+
+    fn expr(&mut self, a: &ast::Ast, e: ExprId, em_const: bool) {
+        let u = self.unidade;
+        match &a.expr(e).kind {
+            ExprKind::InstanceCreation { keyword, arguments, .. } => {
+                let const_ = matches!(keyword, Some(ast::CreationKeyword::Const));
+                if const_ {
+                    self.criacao_constante(a, e, arguments);
+                } else {
+                    for x in arguments.args.iter() {
+                        self.expr(a, x.value, em_const);
+                    }
+                }
+            }
+            ExprKind::Call { target, arguments } => {
+                if em_const && matches!(self.m.resolvido(u, e), Some(Resolved::Constructor(_))) {
+                    self.criacao_constante(a, e, arguments);
+                    return;
+                }
+                self.expr(a, *target, em_const);
+                for x in arguments.args.iter() {
+                    self.expr(a, x.value, em_const);
+                }
+            }
+            ExprKind::List { const_, elements, .. } => {
+                let c = *const_ || em_const;
+                for el in elements.iter() {
+                    self.elemento_filho(a, el, c);
+                }
+                if c {
+                    let tipo = self.m.estatico(u, e);
+                    let elemento = match self.m.table.get(tipo) {
+                        Type::Interface { args, .. } if args.len() == 1 => args[0],
+                        _ => self.m.core.dynamic_,
+                    };
+                    let mut lv = Literal { tipo: TipoLiteral::Lista(elemento), unicos: Vec::new(), duplicados: Vec::new() };
+                    for el in elements.iter() {
+                        self.verificar_elemento(a, &mut lv, el);
+                    }
+                }
+            }
+            ExprKind::SetOrMap { const_, elements, .. } => {
+                let c = *const_ || em_const;
+                for el in elements.iter() {
+                    self.elemento_filho(a, el, c);
+                }
+                if c {
+                    let tipo = self.m.estatico(u, e);
+                    let (classe, args) = match self.m.table.get(tipo) {
+                        Type::Interface { class, args, .. } => (Some(*class), args.to_vec()),
+                        _ => (None, Vec::new()),
+                    };
+                    let tl = if classe.is_some() && classe == self.m.core.set_class && args.len() == 1 {
+                        Some(TipoLiteral::Conjunto(args[0]))
+                    } else if classe.is_some() && classe == self.m.core.map_class && args.len() == 2 {
+                        Some(TipoLiteral::Mapa(args[0], args[1]))
+                    } else {
+                        None
+                    };
+                    if let Some(tl) = tl {
+                        let mut lv = Literal { tipo: tl, unicos: Vec::new(), duplicados: Vec::new() };
+                        for el in elements.iter() {
+                            self.verificar_elemento(a, &mut lv, el);
+                        }
+                        let codigo = if matches!(lv.tipo, TipoLiteral::Mapa(..)) { c::EQUAL_KEYS_IN_CONST_MAP } else { c::EQUAL_ELEMENTS_IN_CONST_SET };
+                        for (dup, _) in std::mem::take(&mut lv.duplicados) {
+                            self.relatar(codigo, dup, Vec::new());
+                        }
+                    }
+                }
+            }
+            ExprKind::Record { const_, positional, named } => {
+                let c = *const_ || em_const;
+                for x in positional.iter().chain(named.iter().map(|(_, x)| x)) {
+                    self.expr(a, *x, c);
+                }
+                if *const_ {
+                    for x in positional.iter().chain(named.iter().map(|(_, x)| x)) {
+                        self.avaliar_e_relatar(*x, true, c::NON_CONSTANT_RECORD_FIELD);
+                    }
+                }
+            }
+            ExprKind::FunctionExpression(f) => self.funcao(a, *f),
+            ExprKind::String(lit) => {
+                for p in lit.parts.iter() {
+                    if let ast::StringPart::Interpolation(x) = p {
+                        self.expr(a, *x, em_const);
+                    }
+                }
+            }
+            ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => self.expr(a, *x, em_const),
+            ExprKind::Property { target, .. } => self.expr(a, *target, em_const),
+            ExprKind::Index { target, index, .. } => {
+                self.expr(a, *target, em_const);
+                self.expr(a, *index, em_const);
+            }
+            ExprKind::TypeArguments { target, .. } => self.expr(a, *target, em_const),
+            ExprKind::Unary { operand, .. } => self.expr(a, *operand, em_const),
+            ExprKind::Binary { left, right, .. } => {
+                self.expr(a, *left, em_const);
+                self.expr(a, *right, em_const);
+            }
+            ExprKind::Conditional { condition, then, else_ } => {
+                self.expr(a, *condition, em_const);
+                self.expr(a, *then, em_const);
+                self.expr(a, *else_, em_const);
+            }
+            ExprKind::Is { value, .. } | ExprKind::As { value, .. } => self.expr(a, *value, em_const),
+            ExprKind::Assign { target, value, .. } => {
+                self.expr(a, *target, em_const);
+                self.expr(a, *value, em_const);
+            }
+            ExprKind::PatternAssign { pattern, value } => {
+                self.padrao(a, *pattern);
+                self.expr(a, *value, em_const);
+            }
+            ExprKind::Cascade { target, sections, .. } => {
+                self.expr(a, *target, em_const);
+                for s in sections.iter() {
+                    self.expr(a, *s, em_const);
+                }
+            }
+            ExprKind::Switch { value, cases } => {
+                self.expr(a, *value, em_const);
+                for caso in cases.iter() {
+                    self.padrao(a, caso.pattern);
+                    if let Some(g) = caso.guard {
+                        self.expr(a, g, false);
+                    }
+                    self.expr(a, caso.body, em_const);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn elemento_filho(&mut self, a: &ast::Ast, el: &CollectionElement, em_const: bool) {
+        match el {
+            CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => self.expr(a, *x, em_const),
+            CollectionElement::MapEntry { key, value, .. } => {
+                self.expr(a, *key, em_const);
+                self.expr(a, *value, em_const);
+            }
+            CollectionElement::Spread { value, .. } => self.expr(a, *value, em_const),
+            CollectionElement::If { condition, case_pattern, guard, then, else_ } => {
+                self.expr(a, *condition, em_const);
+                if let Some(p) = case_pattern {
+                    self.padrao(a, *p);
+                }
+                if let Some(g) = guard {
+                    self.expr(a, *g, em_const);
+                }
+                self.elemento_filho(a, then, em_const);
+                if let Some(x) = else_ {
+                    self.elemento_filho(a, x, em_const);
+                }
+            }
+            CollectionElement::For { condition, updates, body, .. } => {
+                if let Some(c) = condition {
+                    self.expr(a, *c, em_const);
+                }
+                for u in updates.iter() {
+                    self.expr(a, *u, em_const);
+                }
+                self.elemento_filho(a, body, em_const);
+            }
+            CollectionElement::ForIn { iterable, body, .. } => {
+                self.expr(a, *iterable, em_const);
+                self.elemento_filho(a, body, em_const);
+            }
+        }
+    }
+
+    /// `visitInstanceCreationExpression` de uma criação constante: avalia e
+    /// relata (com o relator verdadeiro: os argumentos não resolvidos
+    /// também); com valor, segue nos argumentos.
+    fn criacao_constante(&mut self, a: &ast::Ast, e: ExprId, arguments: &ast::Arguments) {
+        if !matches!(self.m.resolvido(self.unidade, e), Some(Resolved::Constructor(_))) {
+            return;
+        }
+        let cx = Ctx { relatar: true, ..self.cx() };
+        let antes = self.m.relatos.len();
+        let r = self.m.avaliar(&cx, e, true);
+        let relatos: Vec<Invalida> = self.m.relatos.drain(antes..).collect();
+        for i in relatos {
+            if i.unidade == self.unidade && !i.evitar_relato {
+                self.relatar(i.codigo, i.span, i.args.clone());
+            }
+        }
+        match r {
+            Constante::Invalida(i) => {
+                if !i.evitar_relato && i.unidade == self.unidade {
+                    self.relatar(i.codigo, i.span, i.args.clone());
+                }
+            }
+            Constante::Valor(_) => {
+                for x in arguments.args.iter() {
+                    self.expr(a, x.value, true);
+                }
+            }
+        }
+    }
+
+    // -- Literais constantes (`_ConstLiteralVerifier`) -------------------------
+
+    fn codigo_do_literal(t: &TipoLiteral) -> Codigo {
+        match t {
+            TipoLiteral::Lista(_) => c::NON_CONSTANT_LIST_ELEMENT,
+            TipoLiteral::Conjunto(_) => c::NON_CONSTANT_SET_ELEMENT,
+            TipoLiteral::Mapa(..) => c::NON_CONSTANT_MAP_ELEMENT,
+        }
+    }
+
+    fn verificar_elemento(&mut self, a: &ast::Ast, lv: &mut Literal, el: &CollectionElement) -> bool {
+        let u = self.unidade;
+        let codigo = Self::codigo_do_literal(&lv.tipo);
+        match el {
+            CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => {
+                let Constante::Valor(v) = self.avaliar_e_relatar(*x, true, codigo) else { return false };
+                let span = self.m.span(u, *x);
+                match lv.tipo {
+                    TipoLiteral::Lista(t) => {
+                        if !self.m.casa(&v, t) {
+                            let args = vec![self.m.formatar(v.tipo), self.m.formatar(t)];
+                            self.relatar(c::LIST_ELEMENT_TYPE_NOT_ASSIGNABLE, span, args);
+                            return false;
+                        }
+                        true
+                    }
+                    TipoLiteral::Conjunto(t) => {
+                        if !self.m.casa(&v, t) {
+                            let args = vec![self.m.formatar(v.tipo), self.m.formatar(t)];
+                            self.relatar(c::SET_ELEMENT_TYPE_NOT_ASSIGNABLE, span, args);
+                            return false;
+                        }
+                        if !self.m.igualdade_primitiva(&v, self.lib) {
+                            let args = vec![self.m.formatar(v.tipo)];
+                            self.relatar(c::CONST_SET_ELEMENT_NOT_PRIMITIVE_EQUALITY, span, args);
+                            return false;
+                        }
+                        self.registrar_unico(lv, v, span);
+                        true
+                    }
+                    TipoLiteral::Mapa(..) => true,
+                }
+            }
+            CollectionElement::For { .. } | CollectionElement::ForIn { .. } => {
+                let s = self.m.span_de_elemento(u, el);
+                self.relatar(c::CONST_EVAL_FOR_ELEMENT, s, Vec::new());
+                false
+            }
+            CollectionElement::If { condition, then, else_, case_pattern, .. } => {
+                if case_pattern.is_some() {
+                    return false;
+                }
+                let Constante::Valor(cond) = self.avaliar_e_relatar(*condition, true, codigo) else { return false };
+                if !cond.estado.e_bool() {
+                    return false;
+                }
+                match cond.como_bool() {
+                    None => {
+                        let a1 = self.potenciais_no_literal(a, lv, then);
+                        let a2 = else_.as_ref().is_none_or(|x| self.potenciais_no_literal(a, lv, x));
+                        a1 && a2
+                    }
+                    Some(true) => {
+                        let a1 = self.verificar_elemento(a, lv, then);
+                        let a2 = else_.as_ref().is_none_or(|x| self.potenciais_no_literal(a, lv, x));
+                        a1 && a2
+                    }
+                    Some(false) => {
+                        let a1 = self.potenciais_no_literal(a, lv, then);
+                        let a2 = else_.as_ref().is_none_or(|x| self.verificar_elemento(a, lv, x));
+                        a1 && a2
+                    }
+                }
+            }
+            CollectionElement::MapEntry { key, value, .. } => {
+                let TipoLiteral::Mapa(tk, tv) = lv.tipo else { return false };
+                let k = self.avaliar_e_relatar(*key, true, c::NON_CONSTANT_MAP_KEY);
+                let v = self.avaliar_e_relatar(*value, true, c::NON_CONSTANT_MAP_VALUE);
+                if let Constante::Valor(k) = k {
+                    let span = self.m.span(u, *key);
+                    if !self.m.casa(&k, tk) {
+                        let args = vec![self.m.formatar(k.tipo), self.m.formatar(tk)];
+                        self.relatar(c::MAP_KEY_TYPE_NOT_ASSIGNABLE, span, args);
+                    }
+                    if !self.m.igualdade_primitiva(&k, self.lib) {
+                        let args = vec![self.m.formatar(k.tipo)];
+                        self.relatar(c::CONST_MAP_KEY_NOT_PRIMITIVE_EQUALITY, span, args);
+                    }
+                    self.registrar_unico(lv, k, span);
+                }
+                if let Constante::Valor(v) = v {
+                    if !self.m.casa(&v, tv) {
+                        let span = self.m.span(u, *value);
+                        let args = vec![self.m.formatar(v.tipo), self.m.formatar(tv)];
+                        self.relatar(c::MAP_VALUE_TYPE_NOT_ASSIGNABLE, span, args);
+                    }
+                }
+                true
+            }
+            CollectionElement::Spread { value, null_aware } => {
+                let Constante::Valor(v) = self.avaliar_e_relatar(*value, true, codigo) else { return false };
+                let span = self.m.span(u, *value);
+                match lv.tipo {
+                    TipoLiteral::Lista(_) | TipoLiteral::Conjunto(_) => {
+                        let lista = v.como_lista().cloned();
+                        let conj = v.como_conjunto().cloned();
+                        let Some(itens) = lista.clone().or(conj) else {
+                            if v.estado.e_nulo() && *null_aware {
+                                return true;
+                            }
+                            self.relatar(c::CONST_SPREAD_EXPECTED_LIST_OR_SET, span, Vec::new());
+                            return false;
+                        };
+                        if matches!(lv.tipo, TipoLiteral::Lista(_)) {
+                            return true;
+                        }
+                        if lista.is_some() && !itens.iter().all(|x| self.m.igualdade_primitiva(x, self.lib)) {
+                            let s = self.m.span_de_elemento(u, el);
+                            let args = vec![self.m.formatar(v.tipo)];
+                            self.relatar(c::CONST_SET_ELEMENT_NOT_PRIMITIVE_EQUALITY, s, args);
+                            return false;
+                        }
+                        for x in itens.iter() {
+                            self.registrar_unico(lv, x.clone(), span);
+                        }
+                        true
+                    }
+                    TipoLiteral::Mapa(..) => {
+                        if v.estado.e_nulo() && *null_aware {
+                            return true;
+                        }
+                        match v.como_mapa().cloned() {
+                            Some(m) => {
+                                for (k, _) in m.iter() {
+                                    self.registrar_unico(lv, k.clone(), span);
+                                }
+                                true
+                            }
+                            None => {
+                                self.relatar(c::CONST_SPREAD_EXPECTED_MAP, span, Vec::new());
+                                false
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn registrar_unico(&mut self, lv: &mut Literal, v: Valor, span: Span) {
+        if v.desconhecido_de_fato() || matches!(v.estado, Estado::Null { invalido: true }) {
+            return;
+        }
+        for (x, s) in lv.unicos.iter() {
+            if self.m.iguais(x, &v) {
+                let original = *s;
+                if !lv.duplicados.iter().any(|(d, _)| *d == span) {
+                    lv.duplicados.push((span, original));
+                }
+                return;
+            }
+        }
+        lv.unicos.push((v, span));
+    }
+
+    /// `_reportNotPotentialConstants` do verificador de literais.
+    fn potenciais_no_literal(&mut self, a: &ast::Ast, lv: &Literal, el: &CollectionElement) -> bool {
+        let _ = a;
+        let cx = self.cx();
+        let mut nos: Vec<(Span, Codigo)> = Vec::new();
+        let base = Self::codigo_do_literal(&lv.tipo);
+        self.coletar_elemento(&cx, el, base, &mut nos);
+        if nos.is_empty() {
+            return true;
+        }
+        for (s, codigo) in nos {
+            self.relatar(codigo, s, Vec::new());
+        }
+        false
+    }
+
+    fn coletar_elemento(&mut self, cx: &Ctx, el: &CollectionElement, base: Codigo, nos: &mut Vec<(Span, Codigo)>) {
+        let mapa = base == c::NON_CONSTANT_MAP_ELEMENT;
+        let um = |m: &Motor<'_>, x: ExprId, codigo: Codigo, nos: &mut Vec<(Span, Codigo)>| {
+            let mut v = Vec::new();
+            super::potencial::coletar_em(m, cx, x, false, true, &mut v);
+            nos.extend(v.into_iter().map(|s| (s, codigo)));
+        };
+        match el {
+            CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) | CollectionElement::Spread { value: x, .. } => {
+                um(self.m, *x, base, nos)
+            }
+            CollectionElement::MapEntry { key, value, .. } => {
+                let (ck, cv) = if mapa { (c::NON_CONSTANT_MAP_KEY, c::NON_CONSTANT_MAP_VALUE) } else { (base, base) };
+                um(self.m, *key, ck, nos);
+                um(self.m, *value, cv, nos);
+            }
+            CollectionElement::If { condition, then, else_, .. } => {
+                um(self.m, *condition, base, nos);
+                self.coletar_elemento(cx, then, base, nos);
+                if let Some(x) = else_ {
+                    self.coletar_elemento(cx, x, base, nos);
+                }
+            }
+            CollectionElement::For { .. } | CollectionElement::ForIn { .. } => {
+                nos.push((self.m.span_de_elemento(cx.unidade, el), base));
+            }
+        }
+    }
+}
+
+enum TipoLiteral {
+    Lista(TypeId),
+    Conjunto(TypeId),
+    Mapa(TypeId, TypeId),
+}
+
+struct Literal {
+    tipo: TipoLiteral,
+    unicos: Vec<(Valor, Span)>,
+    duplicados: Vec<(Span, Span)>,
+}
+
+fn desparentizar(a: &ast::Ast, mut e: ExprId) -> ExprId {
+    while let ExprKind::Parenthesized(x) = a.expr(e).kind {
+        e = x;
+    }
+    e
+}

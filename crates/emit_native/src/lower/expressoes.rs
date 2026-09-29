@@ -1312,6 +1312,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         self.tipo_da_criacao = self.ctx.get_type_bruto(self.unit_id, expr_id);
                         self.instanciar(ast, fid, &arguments.args, expr.span)
                     }
+                    // `new A<T>(…)` de uma aplicação de mixin nomeada
+                    // (`class A = B with M;`, o `_SyncStreamController` do
+                    // `Stream.fromFutures`): sem construtor declarado, o da
+                    // superclasse que ela encaminha (`construtor_de`).
+                    _ if let Some(dartforge_types::table::Type::Interface { class: c, .. }) =
+                        self.ctx.get_type_bruto(self.unit_id, expr_id).map(|t| self.ctx.table.get(t).clone())
+                        && self.ctx.program.classes[c.0 as usize].kind == dartforge_elements::model::ClassKind::MixinApplication
+                        && let Some(f) = constructor
+                            .map(|n| n.sym)
+                            .or_else(|| match &ast.ty(*ty).kind {
+                                ast::TypeKind::Named { name, .. } if name.len() == 2 => Some(name[1].sym),
+                                _ => self.ctx.interner.lookup(""),
+                            })
+                            .and_then(|n| self.construtor_de(c, n)) =>
+                    {
+                        self.tipo_da_criacao = self.ctx.get_type_bruto(self.unit_id, expr_id);
+                        self.instanciar(ast, f, &arguments.args, expr.span)
+                    }
                     // `new E(…)`/`const E.nome(…)` de tipo de extensão: o
                     // primário não é elemento (`tipos_de_extensao.rs`).
                     _ => match self.ctx.get_type_bruto(self.unit_id, expr_id).map(|t| self.ctx.table.get(t).clone()) {

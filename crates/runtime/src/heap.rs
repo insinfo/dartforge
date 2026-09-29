@@ -1208,8 +1208,15 @@ const TLAB_BLOCOS: usize = 256;
 
 /// A coleta menor vem a cada `LIMITE_JOVEM` bytes alocados (o tamanho do
 /// *new space*; o semiespaço da VM começa menor e cresce até 8 MiB em 64
-/// bits — aqui fixo, entre o custo por coleta e o pico de memória)…
-const LIMITE_JOVEM: usize = 4 * 1024 * 1024;
+/// bits — aqui fixo, entre o custo por coleta e o pico de memória; 2 MiB
+/// cabem melhor no cache que 4: medido em `objetos_escapam`, menos tempo e
+/// menos memória)…
+const LIMITE_JOVEM: usize = 2 * 1024 * 1024;
+/// Quanto o heap cresce até a próxima coleta completa, em % do que
+/// sobreviveu à última: 150 (o dobro, 200, custava ~15 MB a mais de pico em
+/// `objetos_escapam` sem ganho de tempo, já que a varredura só lê o mapa
+/// de marcas).
+const CRESCIMENTO: usize = 150;
 /// … ou a cada `CONTAGEM_JOVEM` alocações (valores pequenos do runtime).
 const CONTAGEM_JOVEM: usize = 256 * 1024;
 /// No `--gc-stress`, uma coleta completa a cada tantas (as demais, menores:
@@ -2953,7 +2960,7 @@ pub struct Heap {
     /// travessia completa, que nenhum jovem alcançável ficou sem marca (uma
     /// barreira de escrita faltando).
     /// Quanto o heap pode crescer até a próxima coleta completa, em % do que
-    /// sobreviveu à última (200: o dobro; para medir,
+    /// sobreviveu à última ([`CRESCIMENTO`]; para medir,
     /// `DARTFORGE_GC_CRESCIMENTO`).
     crescimento: usize,
     /// Os bytes entre coletas menores ([`LIMITE_JOVEM`]; para medir,
@@ -3046,7 +3053,7 @@ impl Heap {
             trabalho_da_marcacao: 0,
             pending: Vec::new(),
             byte_threshold: 2 * LIMITE_JOVEM,
-            crescimento: std::env::var("DARTFORGE_GC_CRESCIMENTO").ok().and_then(|v| v.parse::<usize>().ok()).map_or(200, |c| c.max(110)),
+            crescimento: std::env::var("DARTFORGE_GC_CRESCIMENTO").ok().and_then(|v| v.parse::<usize>().ok()).map_or(CRESCIMENTO, |c| c.max(110)),
             limite_jovem: std::env::var("DARTFORGE_GC_JOVEM_KB")
                 .ok()
                 .and_then(|v| v.parse::<usize>().ok())
@@ -4580,7 +4587,7 @@ impl Heap {
 
     /// Os gatilhos da próxima coleta, a partir do que sobreviveu a esta.
     ///
-    /// Sem teto, o heap pode dobrar (o geométrico de sempre). Com teto, a
+    /// Sem teto, o heap cresce [`CRESCIMENTO`]% (o geométrico). Com teto, a
     /// próxima coleta vem quando se gastar metade da folga que resta — a
     /// histerese: uma coleta que achou quase tudo vivo não se repete na
     /// alocação seguinte (antes, passar da metade do teto coletava em TODA
@@ -4589,7 +4596,7 @@ impl Heap {
     /// conferido à parte (`allocate`).
     fn recalcular_gatilhos(&mut self, vivos: usize) {
         const PASSO_MINIMO: usize = 256 * 1024;
-        // O dobro do que sobreviveu, e não menos que três quartos do gatilho
+        // [`CRESCIMENTO`]% do que sobreviveu, e não menos que três quartos do gatilho
         // anterior (a histerese: uma estrutura grande que morre e volta — a
         // lista refeita a cada rodada — não faz o gatilho despencar e voltar
         // a subir com uma coleta completa a cada dobra).

@@ -1602,6 +1602,15 @@ impl<'a> Motor<'a> {
         r
     }
 
+    /// O local lido por `e` é uma constante (`const`).
+    pub fn local_constante(&self, u: UnitId, e: ExprId) -> bool {
+        let Some(offset) = self.body.units.get(u.0 as usize).and_then(|b| b.declaracao_local(e)) else { return false };
+        match self.locais_da_unidade.get(&u) {
+            Some(m) => m.contains_key(&offset),
+            None => locais_constantes(self.ast(u)).contains_key(&offset),
+        }
+    }
+
     // -- Potencialmente constante ---------------------------------------------
 
     /// `_reportNotPotentialConstants`: o primeiro nó que não é

@@ -18,6 +18,7 @@
 pub mod bounds;
 pub mod codes;
 pub mod constant;
+pub mod constantes;
 pub mod constraints;
 pub mod despejo;
 pub mod hierarchy;
@@ -80,6 +81,23 @@ pub fn infer_program_bodies(
     outline: &mut OutlineTypes,
 ) -> (BodyTypes, Vec<Diagnostic>) {
     let inferrer = BodyInferrer::new(program, interner, table, core, outline);
+    inferrer.infer_all()
+}
+
+/// Como [`infer_bodies_das_bibliotecas`], registrando a declaração do local
+/// que cada leitura de local resolve (`UnitBodyTypes::declaracoes_de_locais`),
+/// que a avaliação de constantes locais usa ([`constantes`]).
+pub fn infer_bodies_das_bibliotecas_com_locais(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    core: &CoreTypes,
+    outline: &mut OutlineTypes,
+    bibliotecas: &[dartforge_elements::model::LibraryId],
+) -> (BodyTypes, Vec<Diagnostic>) {
+    let mut inferrer = BodyInferrer::new(program, interner, table, core, outline);
+    inferrer.apenas_bibliotecas = Some(bibliotecas.iter().map(|l| l.0).collect());
+    inferrer.registrar_locais = true;
     inferrer.infer_all()
 }
 
