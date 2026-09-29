@@ -1,51 +1,53 @@
-# Contribuindo com o DartForge
+# Contributing to DartForge
 
-O alvo inicial é Dart 3.6.2 e o código original usa licença MIT.
+The initial target is Dart 3.6.2, and the original code is MIT licensed.
 
-## Código e documentação
+## Code and documentation
 
-Escreva comentários e documentação Rust em português. Use `//!` para módulos e `///`
-imediatamente acima das funções. Explique intenção, contrato e limitações relevantes;
-evite comentários que apenas repitam uma linha óbvia da implementação.
+Write Rust comments and documentation in Portuguese. Use `//!` for modules and `///`
+directly above functions. Explain intent, contract and relevant limitations; avoid
+comments that merely restate an obvious line of the implementation.
 
-APIs públicas devem ter resumo, exemplo executável e seção `# Erros` quando retornam
-falhas. Documente pré-condições e `# Panics` quando aplicáveis. Os exemplos são verificados
-por `cargo test`; não use `ignore` para esconder exemplos quebrados.
+Public APIs must have a summary, a runnable example and an `# Erros` section when they
+return failures. Document preconditions and `# Panics` where applicable. Examples are
+checked by `cargo test`; do not use `ignore` to hide broken examples.
 
-O parser rejeita recursos fora do subconjunto. Uma sintaxe aceita precisa manter
-semântica demonstrável por testes, incluindo efeitos, ordem de avaliação e escopos.
+The parser rejects features outside the supported subset. Any accepted syntax must keep
+semantics that tests can demonstrate, including side effects, evaluation order and scopes.
 
-## Verificação
+## Verification
 
     cargo fmt --all -- --check
     cargo clippy --locked --workspace --all-targets -- -D warnings
     cargo test --locked --workspace -- --include-ignored
     cargo doc --locked --workspace --no-deps --document-private-items
 
-Os testes ignorados por padrão exigem Node. No PowerShell, `scripts/check.ps1` reúne
-verificações e exige geração de documentação sem avisos.
-A comparação diferencial com o Dart 3.6.2 (VM, `dartdevc` e produção) é o
-`crates/diferencial` (`cargo run --release -p dartforge-diferencial`); ver `ESTADO.md` §3.
+Tests ignored by default require Node. On PowerShell, `scripts/check.ps1` runs these checks
+together and requires documentation to build without warnings. CI checks behavior only: it
+does not run `cargo fmt` or `cargo doc` (the project owner's decision; see the header of
+`.github/workflows/ci.yml`).
+The differential comparison with Dart 3.6.2 (VM, `dartdevc` and production) is
+`crates/diferencial` (`cargo run --release -p dartforge-diferencial`); see `ESTADO.md` §3.
 
 ## Commits
 
-**Nenhum commit leva trailer ou assinatura de assistente de IA.** Nada de
+**No commit carries an AI-assistant trailer or signature.** No
 `Co-Authored-By: Claude …`, `Co-authored-by: … Copilot`, `Generated with [Claude Code]`,
-`🤖 Generated…` ou equivalentes de Opus, Sonnet, GPT, Codex, Gemini, Cursor e afins —
-nem em commits comuns, nem em merges, nem em descrições de pull request. A regra vale para
-pessoas e para agentes, e prevalece sobre qualquer padrão de atribuição da ferramenta.
+`🤖 Generated…` or the equivalents for Opus, Sonnet, GPT, Codex, Gemini, Cursor and the
+like — not in regular commits, not in merges, not in pull request descriptions. The rule
+applies to people and to agents, and overrides any attribution default of the tool.
 
-A regra é conferida em dois lugares:
+The rule is enforced in two places:
 
-* hook local, uma vez por clone: `git config core.hooksPath scripts/hooks` (recusa o commit);
-* CI: o job `mensagens` do `ci.yml` reprova quando qualquer commit do histórico viola a regra.
+* a local hook, once per clone: `git config core.hooksPath scripts/hooks` (rejects the commit);
+* CI: the `mensagens` job of `ci.yml` fails when any commit in the history breaks the rule.
 
-O verificador é `scripts/sem-trailer-ia.sh`.
+The checker is `scripts/sem-trailer-ia.sh`.
 
-## Referências
+## References
 
-A pasta `references/` inteira permanece ignorada. Registre fontes e revisões no catálogo
-em `docs/`, preservando as licenças originais. Não adicione clones ao histórico.
+The whole `references/` folder stays ignored. Record sources and revisions in the catalog
+under `docs/`, preserving the original licenses. Do not add clones to the history.
 
-Meça desempenho separadamente de correção. Nunca trate diferenças de SDK, backend ou flags
-como resultados equivalentes, e não transforme divergências conhecidas em passes.
+Measure performance separately from correctness. Never treat differences in SDK, backend or
+flags as equivalent results, and do not turn known divergences into passes.
