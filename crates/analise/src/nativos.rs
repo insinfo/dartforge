@@ -121,3 +121,32 @@ pub fn fora_do_sdk(unidade: Unidade<'_>) -> Vec<Diagnostic> {
     }
     out
 }
+
+#[cfg(test)]
+mod testes {
+    use super::*;
+    use dartforge_frontend::parser::parse;
+    use dartforge_intern::Interner;
+
+    fn achados(fonte: &str) -> Vec<(&'static str, usize, usize)> {
+        let mut nomes = Interner::new();
+        let out = parse(fonte, &mut nomes);
+        assert!(out.diagnostics.is_empty(), "{fonte}: {:?}", out.diagnostics);
+        let u = Unidade { ast: &out.ast, unit: &out.unit, fonte };
+        fora_do_sdk(u).into_iter().map(|d| (d.code.unwrap().info().nome, d.span.start, d.span.end)).collect()
+    }
+
+    /// Posições do `dart analyze` 3.6.2 (`syntax/syntax_native_test.dart` e
+    /// `executable_body/ExecutableBody__*_nativeBody.dart` do corpus).
+    #[test]
+    fn clausula_e_corpo_como_o_oraculo() {
+        assert_eq!(
+            achados("class A {}\nclass W<T> extends A native \"*W\" {}\nclass N native 'x' {}\n"),
+            [("native_clause_in_non_sdk_code", 32, 43), ("native_clause_in_non_sdk_code", 55, 65)]
+        );
+        assert_eq!(
+            achados("int f() native 'f';\nclass C { void m() native; }\n"),
+            [("native_function_body_in_non_sdk_code", 8, 19), ("native_function_body_in_non_sdk_code", 39, 46)]
+        );
+    }
+}

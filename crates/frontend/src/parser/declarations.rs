@@ -3043,6 +3043,28 @@ mod tests {
         }
     }
 
+    /// `extension type A {}`: `MISSING_PRIMARY_CONSTRUCTOR` no nome (o
+    /// último token lido) e o corpo lido normalmente; `A.n {}`,
+    /// `MISSING_PRIMARY_CONSTRUCTOR_PARAMETERS` em `n` (fasta 3.6.2).
+    #[test]
+    fn extension_type_sem_construtor_primario() {
+        use dartforge_diagnostics::codigos::parser as c;
+        for (fonte, codigo, inicio, fim, membros) in [
+            ("extension type A<T> { int get x => 0; }", c::MISSING_PRIMARY_CONSTRUCTOR, 18, 19, 1),
+            ("extension type A.n { }", c::MISSING_PRIMARY_CONSTRUCTOR_PARAMETERS, 17, 18, 0),
+        ] {
+            let mut nomes = Interner::new();
+            let out = parse(fonte, &mut nomes);
+            assert_eq!(out.diagnostics.len(), 1, "{fonte}: {:?}", out.diagnostics);
+            let d = &out.diagnostics[0];
+            assert_eq!((d.code, d.span.start, d.span.end), (Some(codigo), inicio, fim), "{fonte}");
+            match &out.ast.decl(out.unit.declarations[0]).kind {
+                DeclKind::ExtensionType(e) => assert_eq!(e.members.len(), membros, "{fonte}"),
+                outro => panic!("{fonte}: {outro:?}"),
+            }
+        }
+    }
+
     /// Tentativa com tipo de retorno: `augment C.named() : ...` lê o tipo,
     /// denuncia `constructor_with_return_type` nele e lê o construtor com
     /// o redirect — sem cascata (sondado no SDK 3.6.2 local: só o erro no
