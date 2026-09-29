@@ -340,9 +340,22 @@ pub(crate) fn completar(
         );
     }
 
+    // A declaração que é a própria palavra sob o cursor (o `cl` solto no
+    // topo, que a recuperação do parser completa como `cl;`, variável de
+    // topo, como o fasta) não é sugestão: começa no cursor e tem o nome
+    // digitado, como o servidor de análise do Dart a exclui.
+    let caminho = consulta.programa.unit(unidade).path.clone();
+    let palavra = &texto[inicio..fim];
     let mut itens = coletor.itens;
     itens.retain_mut(|i| {
         if i.inserir == SENTINELA {
+            return false;
+        }
+        if i.inserir == palavra
+            && i.importar.is_none()
+            && caminho.is_some()
+            && i.origem.as_ref().is_some_and(|(p, o)| Some(p) == caminho.as_ref() && *o == inicio)
+        {
             return false;
         }
         match crate::aproximado::pontuar(digitado, i.inserir.trim_end_matches([':', ' '])) {
