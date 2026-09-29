@@ -342,6 +342,11 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_string_juntar(ptr, i64) nounwind",
         efeitos: ALOCA_SEM_LANCAR,
     },
+    // A interpolação com partes `int` sem caixa: pares (espécie, bits).
+    Extern {
+        decl: "declare i64 @dartforge_string_juntar_tipado(ptr, i64) nounwind",
+        efeitos: ALOCA_SEM_LANCAR,
+    },
     // O cabeçalho imutável de uma closure (`heap::CabecalhoDeClosure`),
     // de endereço fixo: puro do handle.
     Extern {

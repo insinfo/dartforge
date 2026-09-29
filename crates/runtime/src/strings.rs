@@ -136,6 +136,70 @@ pub unsafe extern "C" fn dartforge_string_juntar(partes: *const i64, n: i64) -> 
     alocar_texto(junto)
 }
 
+/// Os dígitos decimais de `v` (com o sinal) no fim de `saida`: o
+/// `int.toString()` da VM, sem a string intermediária.
+fn escrever_decimal(saida: &mut Vec<u8>, v: i64) {
+    let mut buf = [0u8; 20];
+    let mut i = buf.len();
+    let mut n = v.unsigned_abs();
+    loop {
+        i -= 1;
+        buf[i] = b'0' + (n % 10) as u8;
+        n /= 10;
+        if n == 0 {
+            break;
+        }
+    }
+    if v < 0 {
+        saida.push(b'-');
+    }
+    saida.extend_from_slice(&buf[i..]);
+}
+
+/// A interpolação `'a$b c'` com partes `int` sem caixa (`JuntarTextos`,
+/// `llvm/mod.rs`): `n` pares (espécie, bits) — espécie 0, o `Ref` de uma
+/// string; 1, um `int`, escrito em decimal direto no resultado (sem a
+/// string intermediária de `dartforge_to_string_i64`). Resultado Latin-1
+/// na forma `Um`, senão `Dois`, como [`dartforge_string_juntar`].
+///
+/// # Safety
+/// `partes` aponta para `2·n` palavras legíveis (a temporária do emissor).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_string_juntar_tipado(partes: *const i64, n: i64) -> i64 {
+    let n = usize::try_from(n).expect("número de partes inválido");
+    // SAFETY: garantido por quem chama.
+    let partes = unsafe { std::slice::from_raw_parts(partes, 2 * n) };
+    let junto = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let um_byte = partes.chunks_exact(2).all(|p| p[0] == 1 || heap.texto(p[1]).e_um_byte());
+        if um_byte {
+            let total: usize = partes.chunks_exact(2).map(|p| if p[0] == 1 { 20 } else { heap.texto(p[1]).len() }).sum();
+            let mut v = Vec::with_capacity(total);
+            for p in partes.chunks_exact(2) {
+                match (p[0], heap.texto_se_string(p[1])) {
+                    (1, _) => escrever_decimal(&mut v, p[1]),
+                    (_, Some(Texto::Um(b))) => v.extend_from_slice(b),
+                    _ => {}
+                }
+            }
+            return Texto::Um(v);
+        }
+        let mut v: Vec<u16> = Vec::new();
+        let mut digitos = Vec::new();
+        for p in partes.chunks_exact(2) {
+            if p[0] == 1 {
+                digitos.clear();
+                escrever_decimal(&mut digitos, p[1]);
+                v.extend(digitos.iter().map(|&d| u16::from(d)));
+            } else {
+                v.extend(heap.texto(p[1]).unidades());
+            }
+        }
+        Texto::de_unidades(v)
+    });
+    alocar_texto(junto)
+}
+
 /// Concatena strings não nulas; argumentos devem estar enraizados pelo emissor.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_string_concat(a: i64, b: i64) -> i64 {

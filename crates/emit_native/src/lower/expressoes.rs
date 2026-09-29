@@ -371,6 +371,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 let raw_op = self.lower_expr(ast, *sub_expr);
                                 let raw_ty = self.operand_type(&raw_op);
                                 match raw_ty {
+                                    // O `int` entra sem caixa em `JuntarTextos`: os
+                                    // dígitos vão direto para o texto junto, sem a
+                                    // string intermediária (a `_interpolate` da VM
+                                    // também não a guarda).
+                                    Type::I64 if str_lit.parts.len() > 1 => raw_op,
                                     Type::I64 => self.emit(
                                         Instruction::CallRuntime {
                                             name: "dartforge_to_string_i64".to_string(),

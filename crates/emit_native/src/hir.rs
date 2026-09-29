@@ -239,9 +239,10 @@ pub enum Instruction {
     AllocEnv {
         values: Vec<Operand>,
     },
-    /// A interpolação `'a$b c'`: as partes (textos, `Ref`) numa só string,
-    /// com uma alocação (`dartforge_string_juntar`), não uma por
-    /// concatenação.
+    /// A interpolação `'a$b c'`: as partes numa só string, com uma alocação
+    /// (`dartforge_string_juntar_tipado`), não uma por concatenação. Cada
+    /// parte é um texto (`Ref`) ou um `int` sem caixa (`I64`), escrito em
+    /// decimal direto no resultado.
     JuntarTextos {
         partes: Vec<Operand>,
     },

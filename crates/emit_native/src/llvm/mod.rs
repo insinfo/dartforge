@@ -1330,13 +1330,20 @@ impl<'a> LlvmEmitter<'a> {
                 }
             }
             Instruction::JuntarTextos { partes } => {
+                // Pares (espécie, bits): 0 e o `Ref` de um texto, 1 e um `int`.
                 let n = partes.len();
                 for (i, p) in partes.iter().enumerate() {
-                    let s = self.coagir(p, Type::Ref);
-                    writeln!(self.out, "  %jp{v}_{i} = getelementptr [{n} x i64], ptr %jbuf{v}, i64 0, i64 {i}").unwrap();
+                    let (especie, s) = if self.tipo_de(p) == Type::I64 {
+                        (1, self.coagir(p, Type::I64))
+                    } else {
+                        (0, self.coagir(p, Type::Ref))
+                    };
+                    writeln!(self.out, "  %jk{v}_{i} = getelementptr [{} x i64], ptr %jbuf{v}, i64 0, i64 {}", 2 * n, 2 * i).unwrap();
+                    writeln!(self.out, "  store i64 {especie}, ptr %jk{v}_{i}").unwrap();
+                    writeln!(self.out, "  %jp{v}_{i} = getelementptr [{} x i64], ptr %jbuf{v}, i64 0, i64 {}", 2 * n, 2 * i + 1).unwrap();
                     writeln!(self.out, "  store i64 {s}, ptr %jp{v}_{i}").unwrap();
                 }
-                writeln!(self.out, "  %v{v} = call i64 @dartforge_string_juntar(ptr %jbuf{v}, i64 {n})").unwrap();
+                writeln!(self.out, "  %v{v} = call i64 @dartforge_string_juntar_tipado(ptr %jbuf{v}, i64 {n})").unwrap();
             }
             Instruction::AllocEnv { values } => {
                 let n = values.len();
@@ -1466,7 +1473,7 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  %envbuf{} = alloca [{} x i64]", vid.0, values.len() * 2).unwrap();
                     }
                     Instruction::JuntarTextos { partes } => {
-                        writeln!(self.out, "  %jbuf{} = alloca [{} x i64]", vid.0, partes.len().max(1)).unwrap();
+                        writeln!(self.out, "  %jbuf{} = alloca [{} x i64]", vid.0, 2 * partes.len().max(1)).unwrap();
                     }
                     _ => {}
                 }
