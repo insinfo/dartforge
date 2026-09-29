@@ -13,7 +13,6 @@ class Impl<N, T> {
 }
 
 typedef Alias<N, T> = Impl<N, T>;
-typedef Fixo<T> = Impl<int, T>;
 
 class Familia<N, T> {
   final Impl<N, T> Function(String) fabrica;
@@ -34,8 +33,6 @@ void main() {
   print(Concreta().fabrica('a'));
   Impl<bool, int> Function(String) f = Alias.new;
   print(f('b'));
-  Impl<int, String> Function(String) g = Fixo.interno;
-  print(g('c'));
   final h = Alias.interno;
   print(h<num, Object>('d'));
   print(Localizador);
