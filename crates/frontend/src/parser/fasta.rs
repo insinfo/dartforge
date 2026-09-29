@@ -33,17 +33,16 @@ pub(crate) enum Estilo {
 /// não for palavra-chave do fasta.
 pub(crate) fn estilo(texto: &str) -> Option<Estilo> {
     Some(match texto {
-        "assert" | "break" | "case" | "catch" | "class" | "const" | "continue" | "default" | "do" | "else"
-        | "enum" | "extends" | "false" | "final" | "finally" | "for" | "if" | "in" | "is" | "new" | "null"
-        | "rethrow" | "return" | "super" | "switch" | "this" | "throw" | "true" | "try" | "var" | "void"
-        | "while" | "with" => Estilo::Reservada,
-        "abstract" | "as" | "augment" | "covariant" | "deferred" | "dynamic" | "export" | "extension"
-        | "external" | "factory" | "Function" | "get" | "implements" | "import" | "interface" | "late"
-        | "library" | "mixin" | "operator" | "part" | "required" | "set" | "static" | "typedef" => {
-            Estilo::Embutida
-        }
-        "async" | "await" | "base" | "hide" | "inout" | "native" | "of" | "on" | "out" | "patch" | "sealed"
-        | "show" | "source" | "sync" | "when" | "yield" => Estilo::Pseudo,
+        "assert" | "break" | "case" | "catch" | "class" | "const" | "continue" | "default"
+        | "do" | "else" | "enum" | "extends" | "false" | "final" | "finally" | "for" | "if"
+        | "in" | "is" | "new" | "null" | "rethrow" | "return" | "super" | "switch" | "this"
+        | "throw" | "true" | "try" | "var" | "void" | "while" | "with" => Estilo::Reservada,
+        "abstract" | "as" | "augment" | "covariant" | "deferred" | "dynamic" | "export"
+        | "extension" | "external" | "factory" | "Function" | "get" | "implements" | "import"
+        | "interface" | "late" | "library" | "mixin" | "operator" | "part" | "required" | "set"
+        | "static" | "typedef" => Estilo::Embutida,
+        "async" | "await" | "base" | "hide" | "inout" | "native" | "of" | "on" | "out"
+        | "patch" | "sealed" | "show" | "source" | "sync" | "when" | "yield" => Estilo::Pseudo,
         _ => return None,
     })
 }
@@ -52,13 +51,33 @@ pub(crate) fn estilo(texto: &str) -> Option<Estilo> {
 pub(crate) fn e_modificador(texto: &str) -> bool {
     matches!(
         texto,
-        "abstract" | "augment" | "const" | "covariant" | "external" | "final" | "late" | "required" | "static" | "var"
+        "abstract"
+            | "augment"
+            | "const"
+            | "covariant"
+            | "external"
+            | "final"
+            | "late"
+            | "required"
+            | "static"
+            | "var"
     )
 }
 
 /// `isTopLevelKeyword` de `token.dart`.
 pub(crate) fn e_palavra_de_topo(texto: &str) -> bool {
-    matches!(texto, "class" | "enum" | "export" | "extension" | "import" | "library" | "mixin" | "part" | "typedef")
+    matches!(
+        texto,
+        "class"
+            | "enum"
+            | "export"
+            | "extension"
+            | "import"
+            | "library"
+            | "mixin"
+            | "part"
+            | "typedef"
+    )
 }
 
 /// `isVariance` de `type_info_impl.dart`: `in`, `inout` ou `out`.
@@ -114,11 +133,27 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// `looksLikeStatementStart` (`identifier_context.dart`).
     pub(crate) fn parece_inicio_de_comando(&self, pos: usize) -> bool {
-        let t = if self.kind_of(pos) == Kind::Ident { "" } else { self.palavra_de(pos) };
+        let t = if self.kind_of(pos) == Kind::Ident {
+            ""
+        } else {
+            self.palavra_de(pos)
+        };
         matches!(
             t,
-            "assert" | "break" | "continue" | "do" | "else" | "final" | "for" | "if" | "return" | "switch" | "try"
-                | "var" | "void" | "while"
+            "assert"
+                | "break"
+                | "continue"
+                | "do"
+                | "else"
+                | "final"
+                | "for"
+                | "if"
+                | "return"
+                | "switch"
+                | "try"
+                | "var"
+                | "void"
+                | "while"
         ) || matches!(self.kind_of(pos), Kind::Op(Op::At) | Kind::Eof)
     }
 
@@ -128,7 +163,8 @@ impl<'s, 'i> Parser<'s, 'i> {
     pub(crate) fn parece_param_ou_arg_de_tipo(&self, em_declaracao: bool, pos: usize) -> bool {
         em_declaracao
             && self.e_identificador_puro(pos)
-            && (self.e_identificador_puro(pos + 1) || matches!(self.kind_of(pos + 1), Kind::Op(Op::Comma | Op::Gt)))
+            && (self.e_identificador_puro(pos + 1)
+                || matches!(self.kind_of(pos + 1), Kind::Op(Op::Comma | Op::Gt)))
     }
 
     /// `isValidNonRecordTypeReference` (`type_info.dart`).
@@ -166,21 +202,28 @@ impl<'s, 'i> Parser<'s, 'i> {
         for i in 0..self.tokens.len() {
             let t = self.tokens[i];
             match t.kind {
-                Kind::Op(Op::Lt) | Kind::Op(Op::LParen) => pilha.push((if t.kind == Kind::Op(Op::Lt) { Op::Lt } else { Op::LParen }, i)),
+                Kind::Op(Op::Lt) | Kind::Op(Op::LParen) => pilha.push((
+                    if t.kind == Kind::Op(Op::Lt) {
+                        Op::Lt
+                    } else {
+                        Op::LParen
+                    },
+                    i,
+                )),
                 Kind::Op(o @ (Op::LBrace | Op::LBracket)) => {
                     descartar_lt(&mut pilha);
                     pilha.push((o, i));
                 }
                 // `${`: a interpolação fecha dentro do próprio token de string.
-                Kind::StrBegin(_, Interp::Brace) | Kind::StrMid(_, Interp::Brace) => descartar_lt(&mut pilha),
+                Kind::StrBegin(_, Interp::Brace) | Kind::StrMid(_, Interp::Brace) => {
+                    descartar_lt(&mut pilha)
+                }
                 Kind::Op(Op::Gt) => {
                     let ge = t.glued && self.kind_of(i + 1) == Kind::Op(Op::Assign);
-                    if !ge {
-                        if let Some(&(Op::Lt, abre)) = pilha.last() {
-                            pilha.pop();
-                            if abre == lt {
-                                return Some(i);
-                            }
+                    if !ge && let Some(&(Op::Lt, abre)) = pilha.last() {
+                        pilha.pop();
+                        if abre == lt {
+                            return Some(i);
                         }
                     }
                 }
