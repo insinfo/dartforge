@@ -4,7 +4,7 @@
 
 **Placar agora: 12.241/23.030 na posição exata (53,2%)**, 11.849 com a
 mensagem igual; FP 1.086, FN 10.502, posição errada 287 (de 11.758, FP
-1.212, medidos no mesmo oráculo em `f5080479`). Cláusulas de herança e a
+1.212, medidos no mesmo oráculo em `0e4a7128`). Cláusulas de herança e a
 porta do `ErrorVerifier` (`analise::clausulas`: dez códigos novos sem erro
 emitido, `class_used_as_mixin` FP 91 → 0, `extends Enum` sem FP), privados
 não usados (`analise::privados`: `unused_element` 88 → 165, `unused_field`
