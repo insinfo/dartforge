@@ -242,7 +242,7 @@ fn normalizar(p: &Path) -> PathBuf {
 
 /// Arquivos de um depfile do Ninja (`saida: dep1 dep2`, espaço escapado com
 /// `\`).
-fn deps_do_depfile(texto: &str) -> Vec<PathBuf> {
+pub(crate) fn deps_do_depfile(texto: &str) -> Vec<PathBuf> {
     let Some((_, resto)) = texto.split_once(": ") else {
         return Vec::new();
     };
@@ -284,6 +284,64 @@ fn kernel_valido(dill: &Path, depfile: &Path) -> bool {
     !deps.is_empty() && deps.iter().all(|d| mtime(d).is_some_and(|m| m <= t))
 }
 
+/// Os arquivos que o bootstrap de builders precisa, já gravados.
+pub(crate) struct Gravados {
+    /// O `bootstrap.dart`.
+    pub principal: PathBuf,
+    /// O `package_config.json` do projeto com o pacote do executor.
+    pub package_config: PathBuf,
+    /// Hash do script, das fontes do executor, do bootstrap e do
+    /// `package_config.json` gravados: a base da chave do que se compila.
+    pub hasher: blake3::Hasher,
+}
+
+/// Grava em `trabalho` o pacote do executor (as fontes embutidas), o
+/// `package_config.json` (o do projeto, `package_config`, mais o executor) e
+/// o bootstrap do `script`, reescrevendo só o que mudou (a data dos arquivos
+/// decide se o compilado ainda vale). Comum à VM e ao executor nativo.
+pub(crate) fn gravar_bootstrap(
+    trabalho: &Path,
+    package_config_do_projeto: &Path,
+    script: &ScriptDeBuilders,
+) -> Result<Gravados, String> {
+    let erro = |p: &Path, e: std::io::Error| format!("{}: {e}", p.display());
+    let pacote = trabalho.join(PACOTE);
+    let mut h = blake3::Hasher::new();
+    h.update(script.chave_de_cache.as_bytes());
+    for (rel, texto) in FONTES {
+        let destino = pacote.join("lib").join(rel);
+        if let Some(pai) = destino.parent() {
+            std::fs::create_dir_all(pai).map_err(|e| erro(pai, e))?;
+        }
+        if std::fs::read_to_string(&destino).ok().as_deref() != Some(*texto) {
+            std::fs::write(&destino, texto).map_err(|e| erro(&destino, e))?;
+        }
+        h.update(rel.as_bytes());
+        h.update(texto.as_bytes());
+    }
+    let pc = trabalho.join("package_config.json");
+    let json = serde_json::to_string_pretty(&package_config(package_config_do_projeto, &pacote)?)
+        .unwrap_or_default();
+    if std::fs::read_to_string(&pc).ok().as_deref() != Some(json.as_str()) {
+        std::fs::write(&pc, &json).map_err(|e| erro(&pc, e))?;
+    }
+    let principal = trabalho.join("bootstrap.dart");
+    let texto = bootstrap(
+        script,
+        &normalizar(&std::path::absolute(package_config_do_projeto).unwrap_or_default()),
+    );
+    if std::fs::read_to_string(&principal).ok().as_deref() != Some(texto.as_str()) {
+        std::fs::write(&principal, &texto).map_err(|e| erro(&principal, e))?;
+    }
+    h.update(texto.as_bytes());
+    h.update(json.as_bytes());
+    Ok(Gravados {
+        principal,
+        package_config: pc,
+        hasher: h,
+    })
+}
+
 /// O que o executor mediu (para o relatório e os testes).
 #[derive(Debug, Clone, Default)]
 pub struct MedicaoVm {
@@ -321,37 +379,12 @@ impl ExecutorVm {
     fn iniciar(&mut self, script: &ScriptDeBuilders) -> Result<String, String> {
         let t = &self.cfg.trabalho;
         let erro = |p: &Path, e: std::io::Error| format!("{}: {e}", p.display());
-        let pacote = t.join(PACOTE);
-        let mut h = blake3::Hasher::new();
-        h.update(script.chave_de_cache.as_bytes());
-        for (rel, texto) in FONTES {
-            let destino = pacote.join("lib").join(rel);
-            if let Some(pai) = destino.parent() {
-                std::fs::create_dir_all(pai).map_err(|e| erro(pai, e))?;
-            }
-            if std::fs::read_to_string(&destino).ok().as_deref() != Some(*texto) {
-                std::fs::write(&destino, texto).map_err(|e| erro(&destino, e))?;
-            }
-            h.update(rel.as_bytes());
-            h.update(texto.as_bytes());
-        }
-        let pc = t.join("package_config.json");
-        let json =
-            serde_json::to_string_pretty(&package_config(&self.cfg.package_config, &pacote)?)
-                .unwrap_or_default();
-        if std::fs::read_to_string(&pc).ok().as_deref() != Some(json.as_str()) {
-            std::fs::write(&pc, &json).map_err(|e| erro(&pc, e))?;
-        }
-        let principal = t.join("bootstrap.dart");
-        let texto = bootstrap(
-            script,
-            &normalizar(&std::path::absolute(&self.cfg.package_config).unwrap_or_default()),
-        );
-        if std::fs::read_to_string(&principal).ok().as_deref() != Some(texto.as_str()) {
-            std::fs::write(&principal, &texto).map_err(|e| erro(&principal, e))?;
-        }
-        h.update(texto.as_bytes());
-        h.update(json.as_bytes());
+        let Gravados {
+            principal,
+            package_config: pc,
+            mut hasher,
+        } = gravar_bootstrap(t, &self.cfg.package_config, script)?;
+        let h = &mut hasher;
         h.update(self.cfg.dart.to_string_lossy().as_bytes());
         let chave = h.finalize().to_hex()[..16].to_string();
         let dill = t.join(format!("bootstrap-{chave}.dill"));

@@ -1,0 +1,7 @@
+[
+  {"nome": "padrao", "argumentos": []},
+  {"nome": "release", "argumentos": ["--release"]},
+  {"nome": "define", "argumentos": ["--define", "corpus_perfil_2_4:sempre=origem=cli", "--define", ":sempre=lista=[1, 2.0, \"três\", {\"b\": 1, \"a\": null}]", "--define", "corpus_perfil_2_4:sempre=igual=a=b", "--define", ":anotacao=run_only_if_triggered=false", "--define", "desconhecido=x=1"]},
+  {"nome": "config_alt", "argumentos": ["--config", "alt"]},
+  {"nome": "filtro", "argumentos": ["--build-filter", "lib/resumo.txt", "--build-filter", "package:corpus_perfil_2_4/importa.*.txt"]}
+]

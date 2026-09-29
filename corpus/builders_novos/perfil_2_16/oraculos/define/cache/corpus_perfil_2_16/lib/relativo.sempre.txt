@@ -1,0 +1,6 @@
+builder: sempre
+entrada: corpus_perfil_2_16|lib/relativo.dart
+isRoot: true
+opcoes: {"global":"sim","igual":"a=b","lista":[1,2.0,"três",{"a":null,"b":1}],"modo":"dev_alvo","origem":"cli","run_only_if_triggered":false}
+---
+128

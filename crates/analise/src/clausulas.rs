@@ -997,6 +997,71 @@ fn ciclo(l: &Leitor<'_>, alvo: ClassId, el: ClassId, caminho: &mut Vec<ClassId>,
     None
 }
 
+/// As classes, aliases, enums e mixins de `lib` em que o
+/// `InheritanceOverrideVerifier.verify()` do analyzer passa das verificações
+/// que o encerram cedo (`_checkDirectSuperTypes`, `Enum` em classe concreta,
+/// herança recursiva) e chega às sobrescritas. Declaração repetida na
+/// biblioteca ou `augment` não entra.
+pub fn verificador_de_heranca_prossegue(programa: &Program, lib: LibraryId, nomes: &Interner) -> Vec<ClassId> {
+    let l = Leitor { programa, nomes };
+    let consumidora = programa.library(lib);
+    let versao = consumidora.features.versao();
+    let enums_melhorados = (versao.major, versao.minor) >= (2, 17);
+    let mut v = Vec::new();
+    for (i, classe) in programa.classes.iter().enumerate() {
+        if classe.library != lib {
+            continue;
+        }
+        let Some(decl) = classe.decl else { continue };
+        let id = ClassId(i as u32);
+        let ast_ = &programa.unit(decl.unit).ast;
+        if ast_.decl(decl.decl).augment {
+            continue;
+        }
+        let Some(cl) = clausulas(&ast_.decl(decl.decl).kind) else { continue };
+        if programa.classes.iter().filter(|c| c.library == lib && c.name == classe.name).count() > 1 {
+            continue;
+        }
+        let pode_ter_enum =
+            classe.kind == ClassKind::Enum || classe.kind == ClassKind::Mixin || classe.modifiers.abstract_;
+        let mut erro = false;
+        for &t in cl.implements.iter().chain(cl.on).chain(cl.extends.as_slice()).chain(cl.with) {
+            match l.alvo(decl.unit, ast_, t, 0) {
+                Alvo::Classe(a) => {
+                    if !consumidora.is_sdk {
+                        if l.e_enum_do_core(a) && enums_melhorados {
+                            erro |= !pode_ter_enum;
+                        } else if l.proibida(a) {
+                            erro = true;
+                        }
+                    }
+                }
+                // Não resolvido aqui: não se decide.
+                Alvo::Desconhecido => erro = true,
+                Alvo::NaoInterface => {}
+            }
+        }
+        if classe.kind == ClassKind::Enum {
+            for &t in cl.with {
+                if let Alvo::Classe(m) = l.alvo(decl.unit, ast_, t, 0)
+                    && l.tem_campo_de_instancia(m)
+                {
+                    erro = true;
+                }
+            }
+        }
+        if erro {
+            continue;
+        }
+        let mut passos = 0;
+        if ciclo(&l, id, id, &mut Vec::new(), &mut passos).is_some() || passos > 20_000 {
+            continue;
+        }
+        v.push(id);
+    }
+    v
+}
+
 /// `_checkForRepeatedType`: o segundo tipo de interface com o mesmo elemento.
 fn repetidos(
     l: &Leitor<'_>,

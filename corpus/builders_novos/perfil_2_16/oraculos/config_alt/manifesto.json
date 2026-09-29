@@ -1,0 +1,29 @@
+{
+  "dart": "3.13.4",
+  "pacotes": {"analyzer": "14.4.0", "build": "4.0.11", "build_config": "1.3.3", "build_runner": "2.16.1", "dart_style": "3.1.13", "glob": "2.2.0"},
+  "argumentos": ["--config", "alt"],
+  "saidas": [
+    {"asset": "corpus_perfil_2_16|lib/anotacoes.desligado.txt", "build_to": "cache", "sha256": "a3a50acb595d0e9189bb4032f819f7f74fe0a90b36617d0c45ea856bfdd6ebeb"},
+    {"asset": "corpus_perfil_2_16|lib/anotado.desligado.txt", "build_to": "cache", "sha256": "41be5017e3f4c0dc51d8ccbf2747886f4eff2ec876e224c32f065b62f40b99b1"},
+    {"asset": "corpus_perfil_2_16|lib/com_parte.desligado.txt", "build_to": "cache", "sha256": "9f928a93f2fa3b2c2dbc9bc87231cb94be4fe8e34aad249393bd21ce5e212339"},
+    {"asset": "corpus_perfil_2_16|lib/com_parte_detalhe.desligado.txt", "build_to": "cache", "sha256": "3534072a6703b926a19504ff099b54b9224fe0b7bd3556ad7728ced9ef53d7e4"},
+    {"asset": "corpus_perfil_2_16|lib/comentario.desligado.txt", "build_to": "cache", "sha256": "0dbacdb9bbeea941d63ce9f2647f5a7bc27840773ba9e50de4d353ed30ad068a"},
+    {"asset": "corpus_perfil_2_16|lib/construtor_nomeado.desligado.txt", "build_to": "cache", "sha256": "f7b1328ac17e926a8bef03f6172071cd0994c00c03676fd773625589b6b8d032"},
+    {"asset": "corpus_perfil_2_16|lib/exporta.desligado.txt", "build_to": "cache", "sha256": "2f9a498fce37f729bd28532a20f09ffa97ce05bbe316669750cb258fd238956c"},
+    {"asset": "corpus_perfil_2_16|lib/importa.desligado.txt", "build_to": "cache", "sha256": "6d5ea00d3c370d5ca21fc07c19f65da2a98307d5c7e84c43a26a7383673e37f9"},
+    {"asset": "corpus_perfil_2_16|lib/marcador.desligado.txt", "build_to": "cache", "sha256": "758d2e8088b5e5b70a9e4e5c230a4440257d521fb5a495374fdaedf8de15e901"},
+    {"asset": "corpus_perfil_2_16|lib/membro.desligado.txt", "build_to": "cache", "sha256": "df4ac188c9a64f6fc8bd164f00e53cfbcc4ba3bb83a98ddabdc5c8eb6a34da64"},
+    {"asset": "corpus_perfil_2_16|lib/outra.anotacao.txt", "build_to": "cache", "sha256": "477f3a8d574a622fd273e3c86ff86e05bd590ac6fda75f56c1839ed7c4356f45"},
+    {"asset": "corpus_perfil_2_16|lib/outra.desligado.txt", "build_to": "cache", "sha256": "d35af05143f7e021401ab1b73f2b1a1c7599d01647ad74de296354b3755b05a3"},
+    {"asset": "corpus_perfil_2_16|lib/prefixado.desligado.txt", "build_to": "cache", "sha256": "cad84bf5497260e7bd81d431a2c0fcb8382ae4b5fc53584dca87d4213c1c6de0"},
+    {"asset": "corpus_perfil_2_16|lib/relativo.desligado.txt", "build_to": "cache", "sha256": "25695f1809d2dc7c233ece8ede230df1bed51766fe025faf403a234e2b1a1e37"},
+    {"asset": "corpus_perfil_2_16|lib/semeado.desligado.txt", "build_to": "cache", "sha256": "2a467a586e14d7a151977ac70187bce51f466817ff92156127d653fcb876bca3"},
+    {"asset": "corpus_perfil_2_16|lib/semeado.parte.dart", "build_to": "cache", "sha256": "7ab507730e0703e66acb4e6f65e0f63945ccbc70035bc0120bd80c1f82bf32a7"},
+    {"asset": "corpus_perfil_2_16|lib/semeado.parte.desligado.txt", "build_to": "cache", "sha256": "e50ac95a99845c34be748e0f87837d03a53a90c3c7ed2647740321d916fa6cb4"},
+    {"asset": "corpus_perfil_2_16|lib/via_apoio.desligado.txt", "build_to": "cache", "sha256": "73938bd4736785d55b3c3913399b7401bbfedac482ef6edd869706a7a24279d3"},
+    {"asset": "corpus_perfil_2_16|lib/via_apoio.importacao.txt", "build_to": "cache", "sha256": "c185d10bc5ec1ba5a736ac4f3162613ce668b3072f0c3f32bf259cdcd3cb41b7"},
+    {"asset": "corpus_perfil_2_16|tool/builders.desligado.txt", "build_to": "cache", "sha256": "a3a8a068f8aa45165bbc63674d46cf05ac16eb8cd0ffa54170d325809c83a5f2"}
+  ],
+  "excluidos": 0,
+  "executavel": false
+}

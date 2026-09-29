@@ -1,0 +1,5 @@
+name: apoio_perfil
+description: Pacote de apoio do caso perfil_2_4.
+publish_to: none
+environment:
+  sdk: ^3.6.0

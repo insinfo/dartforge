@@ -1,0 +1,12 @@
+name: corpus_perfil_2_4
+description: Configuração do build_runner 2.4.15 / build_config 1.1.2 — a CLI (--define, --config, --build-filter) e run_only_if_triggered sem efeito.
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dependencies:
+  apoio_perfil:
+    path: apoio
+dev_dependencies:
+  build: ^2.4.2
+  build_runner: 2.4.15
+  glob: ^2.1.3

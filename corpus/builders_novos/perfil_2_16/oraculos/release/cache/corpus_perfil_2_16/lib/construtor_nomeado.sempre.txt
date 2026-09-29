@@ -1,0 +1,6 @@
+builder: sempre
+entrada: corpus_perfil_2_16|lib/construtor_nomeado.dart
+isRoot: true
+opcoes: {"global":"sim","modo":"release_alvo","origem":"alvo","run_only_if_triggered":false,"so_release":"global"}
+---
+220

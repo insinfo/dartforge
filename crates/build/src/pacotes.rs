@@ -37,6 +37,13 @@ impl GrafoPacotes {
         self.por_nome.get(nome).map(|&i| &self.nos[i])
     }
 
+    /// O perfil de versão do projeto: o `build_config` e o `build_runner`
+    /// que o `pubspec.lock` resolveu ([`crate::perfil`]).
+    pub fn perfil(&self) -> crate::perfil::Perfil {
+        let v = |p: &str| self.lock.get(p).map(|t| t.versao.as_str());
+        crate::perfil::Perfil::das_versoes(v("build_config"), v("build_runner"))
+    }
+
     /// `PackageGraph.forPath(dir)`: `dir` tem o `pubspec.yaml` da raiz; o
     /// `package_config.json` é o que `cfg` já leu.
     pub fn montar(

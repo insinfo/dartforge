@@ -71,6 +71,7 @@ ordinal de `asset`):
 | `sass_builder` | sass_builder 2.2.1 em dev (sourceMaps → `.css` e `.css.map` no cache), parciais, `@use`, `@import`, `@media`, `.sass` | não |
 | `sass_builder_compressed` | o mesmo com `outputStyle: compressed` nas opções do alvo (forma do new_sali/frontend) | não |
 | `cadeia_configuracao` | builders locais (`import: 'tool/builders.dart'`) e um pacote de apoio por caminho: `runs_before`, `required_inputs`, `applies_builders`, `enabled: false`, `generate_for` include/exclude, `global_options` (options, dev_options, runs_before), build_to source/cache, builder com duas fábricas, extensões `{{}}` e `^`, `auto_apply` none/dependents/all_packages/root_package, `defaults` com generate_for/options/dev_options/release_options, post_process_builder. Cada saída traz `options.config` (JSON, chaves ordenadas) e `options.isRoot` | sim |
+| `perfil_2_4` | a CLI do `build_runner` 2.4.15 — `--release`, `--define` (JSON, texto com `=`, chave desconhecida), `--config alt`, `--build-filter` (relativo e `package:`, com construção sob demanda) — e `run_only_if_triggered` sem efeito. Um oráculo por configuração em `oraculos/<nome>/` (`configuracoes.json`, `scripts/corpus-perfis.py`); o par 2.16.1 é `corpus/builders_novos/perfil_2_16` | não |
 | `sem_builders` | controle do custo zero: sem build_runner, sem build.yaml; `saidas: []` | sim |
 
 Fora do corpus por decisão do proprietário: `go_router_builder` (exige Flutter).

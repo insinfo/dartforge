@@ -1,0 +1,12 @@
+name: corpus_perfil_2_16
+description: Configuração do build_runner 2.16.1 / build_config 1.3 — triggers, run_only_if_triggered e a CLI (--define, --config, --build-filter).
+publish_to: none
+environment:
+  sdk: ^3.11.0
+dependencies:
+  apoio_perfil:
+    path: apoio
+dev_dependencies:
+  build: ^4.0.0
+  build_runner: 2.16.1
+  glob: ^2.1.3

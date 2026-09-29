@@ -47,6 +47,15 @@ pub struct OpcoesMotor {
     /// quando o usuário pede (`dartforge build --estado`,
     /// `DARTFORGE_BUILD_ESTADO=1`), pela regra governante 6 do `PLANO.md`.
     pub persistir: bool,
+    /// `--config <nome>`: `build.<nome>.yaml` no lugar do `build.yaml` da raiz
+    /// (alvos, `global_options` e `triggers`).
+    pub config: Option<String>,
+    /// `--define <builder>=<opção>=<valor>`, por cima das `global_options`.
+    pub definicoes: crate::linha_de_comando::Definicoes,
+    /// `--build-filter`: só as ações com saída que algum filtro casa rodam
+    /// de início; as outras, só se um passo que roda ler a saída delas
+    /// (`shouldBuildForDirs` e a construção sob demanda do oficial).
+    pub filtros: Vec<crate::linha_de_comando::FiltroBuild>,
 }
 
 impl Default for OpcoesMotor {
@@ -60,6 +69,9 @@ impl Default for OpcoesMotor {
             estrito: false,
             medir_nao_verificados: false,
             persistir: false,
+            config: None,
+            definicoes: Default::default(),
+            filtros: Vec::new(),
         }
     }
 }
@@ -74,9 +86,13 @@ pub enum Origem {
     /// O builder (ou o executor, no meio da ação) falhou: sem saídas, e a
     /// geração inteira falha (DF-BUILD-005).
     Falha,
-    /// Âncora de pós-processador cuja entrada gerada não foi escrita: o
-    /// oficial não a executa (`_runPostProcessAction`, `wasOutput`).
+    /// Entrada gerada que não foi escrita (ou falhou): o oficial não executa
+    /// o passo (`_runPostProcessAction` e `_matchingPrimaryInputs`,
+    /// `wasOutput`).
     Omitida,
+    /// `run_only_if_triggered: true` e nenhum trigger disparou
+    /// ([`crate::gatilhos`]): o passo não roda, e nada é escrito.
+    NaoDisparada,
 }
 
 /// Por que uma ação não saiu do executor Dart.
@@ -138,6 +154,8 @@ pub struct RelMotor {
     /// `build_runner` (as outras: o oficial não escreveu nada ali).
     pub apoio_com_saida: usize,
     pub pendentes_por_motivo: BTreeMap<String, usize>,
+    /// Passos com `run_only_if_triggered` que nenhum trigger disparou.
+    pub nao_disparadas: usize,
     /// Ações cujo builder falhou nesta atualização: a geração falhou.
     pub falhas: Vec<String>,
     pub tempo: Duration,
@@ -148,6 +166,28 @@ pub struct RelMotor {
 }
 
 impl RelMotor {
+    /// Soma uma passada seguinte (a construção sob demanda do
+    /// `--build-filter` repete a atualização).
+    fn somar(&mut self, o: RelMotor) {
+        self.acoes_verificadas += o.acoes_verificadas;
+        self.acoes_executadas += o.acoes_executadas;
+        self.consultas_reavaliadas += o.consultas_reavaliadas;
+        self.nativas += o.nativas;
+        self.dart += o.dart;
+        self.unidades_nativas += o.unidades_nativas;
+        self.consultas_gerador += o.consultas_gerador;
+        self.apoio += o.apoio;
+        self.apoio_com_saida += o.apoio_com_saida;
+        for (m, n) in o.pendentes_por_motivo {
+            *self.pendentes_por_motivo.entry(m).or_default() += n;
+        }
+        self.nao_disparadas += o.nao_disparadas;
+        self.falhas.extend(o.falhas);
+        self.tempo += o.tempo;
+        self.tempo_revalidar += o.tempo_revalidar;
+        self.tempo_nativo += o.tempo_nativo;
+    }
+
     pub fn texto(&self) -> String {
         let mut s = format!(
             "motor: {} ações verificadas, {} executadas ({} nativas, {} Dart, {} apoio, {} unidades regeneradas), {} consultas reavaliadas, {} consultas do gerador, {} saídas alteradas, {:.1} ms (revalidar {:.1} ms, nativo por pacote {:.1} ms)",
@@ -164,6 +204,9 @@ impl RelMotor {
             self.tempo_revalidar.as_secs_f64() * 1000.0,
             self.tempo_nativo.as_secs_f64() * 1000.0,
         );
+        if self.nao_disparadas > 0 {
+            s.push_str(&format!("\n  não disparadas: {}", self.nao_disparadas));
+        }
         for (m, n) in &self.pendentes_por_motivo {
             s.push_str(&format!("\n  pendentes ({n}): {m}"));
         }
@@ -249,6 +292,9 @@ pub struct Motor {
     codigo_restaurado: Option<Vec<PathBuf>>,
     /// Algum registro mudou desde a última gravação do estado.
     estado_sujo: bool,
+    /// Com `--build-filter`: as ações pedidas (as de saída filtrada, a cadeia
+    /// das entradas geradas delas e as que um passo que rodou leu).
+    pedidas: HashSet<usize>,
 }
 
 impl Drop for Motor {
@@ -368,8 +414,14 @@ impl Motor {
         let grafo_pacotes = GrafoPacotes::montar(raiz, cfg, None)?;
         let configs_script = Configs::ler(&grafo_pacotes, false)?;
         let plano = Plano::do_script(&grafo_pacotes, &configs_script)?;
-        let configs = Configs::ler(&grafo_pacotes, true)?;
-        let (fases, alvos) = fases(&grafo_pacotes, &configs, &plano, opcoes.release)?;
+        let configs = Configs::ler_com(&grafo_pacotes, true, opcoes.config.as_deref())?;
+        let (fases, alvos) = fases(
+            &grafo_pacotes,
+            &configs,
+            &plano,
+            opcoes.release,
+            &opcoes.definicoes,
+        )?;
         let grafo = Grafo::montar(&grafo_pacotes, &configs, &fases, &alvos)?;
         let Indices {
             por_fase,
@@ -396,6 +448,9 @@ impl Motor {
             configuracao.push(chave(&no.raiz.join("build.yaml")));
         }
         configuracao.push(chave(r));
+        if let Some(k) = &opcoes.config {
+            configuracao.push(chave(&r.join(format!("build.{k}.yaml"))));
+        }
         if let Ok(ls) = std::fs::read_dir(r) {
             for e in ls.flatten() {
                 if e.file_name().to_string_lossy().ends_with(".build.yaml") {
@@ -437,7 +492,9 @@ impl Motor {
             restaurar: None,
             codigo_restaurado: None,
             estado_sujo: false,
+            pedidas: HashSet::new(),
         };
+        m.pedir_pelos_filtros();
         for c in m.configuracao.iter().chain(&m.dirs) {
             m.marcas.insert(c.clone(), Marca::ler(c));
         }
@@ -599,7 +656,13 @@ impl Motor {
     /// as fases ocultas sem gerador nativo não são preguiçosas — só as
     /// opcionais, como no `build_runner` (`is_optional`).
     fn demandada(&self, a: usize, demanda: Demanda, dart_ativo: bool) -> bool {
-        if demanda == Demanda::Tudo || self.registros[a].is_some() {
+        if self.registros[a].is_some() {
+            return true;
+        }
+        if !self.opcoes.filtros.is_empty() {
+            return self.pedidas.contains(&a);
+        }
+        if demanda == Demanda::Tudo {
             return true;
         }
         let fi = self.grafo.acoes[a].fase;
@@ -788,11 +851,139 @@ impl Motor {
         self.esperadas = esperadas;
         self.fontes = fontes;
         self.dirs = dirs;
+        self.pedir_pelos_filtros();
         Ok(())
     }
 
     /// Recalcula o que for preciso e publica a geração.
     pub fn atualizar(
+        &mut self,
+        ctx: &Contexto<'_>,
+        mudados: &[PathBuf],
+        demanda: Demanda,
+    ) -> Result<Atualizacao, String> {
+        let mut at = self.atualizar_passo(ctx, mudados, demanda)?;
+        // `--build-filter`: um passo que rodou leu a saída de uma ação que
+        // não estava pedida — o oficial a constrói na hora (`_isReadableNode`
+        // → `_runLazyPhaseForInput`). Aqui ela entra nas pedidas e a
+        // atualização se repete: a saída nova acorda quem a leu.
+        while !self.opcoes.filtros.is_empty() {
+            let novas = self.pedidas_por_leitura();
+            if novas.is_empty() {
+                break;
+            }
+            self.pedidas.extend(novas);
+            let mais = self.atualizar_passo(ctx, &[], demanda)?;
+            let mut alterados: BTreeSet<PathBuf> = at.alterados.into_iter().collect();
+            alterados.extend(mais.alterados);
+            at.alterados = alterados.into_iter().collect();
+            at.rel.somar(mais.rel);
+            at.rel.saidas_alteradas = at.alterados.len();
+            at.avisos.extend(mais.avisos);
+            at.geracao = mais.geracao;
+        }
+        Ok(at)
+    }
+
+    /// As ações que o `--build-filter` pede de início
+    /// (`_matchingPrimaryInputs` com `shouldBuildForDirs`): as de fase não
+    /// opcional com alguma saída que um filtro casa e que é visível no build
+    /// (fora da raiz, só os assets públicos), e, para cada uma, a ação que
+    /// produz a entrada gerada dela. Âncoras de pós-processador rodam sempre.
+    fn pedir_pelos_filtros(&mut self) {
+        self.pedidas.clear();
+        if self.opcoes.filtros.is_empty() {
+            return;
+        }
+        let mut pilha = Vec::new();
+        for (a, acao) in self.grafo.acoes.iter().enumerate() {
+            if !acao.viva() {
+                continue;
+            }
+            let fase = &self.fases[acao.fase];
+            let pedida = acao.pos
+                || !fase.opcional
+                    && acao.saidas.iter().any(|s| {
+                        self.opcoes.filtros.iter().any(|f| f.casa(s)) && self.visivel_no_build(s)
+                    });
+            if pedida {
+                pilha.push(a);
+            }
+        }
+        while let Some(a) = pilha.pop() {
+            if !self.pedidas.insert(a) {
+                continue;
+            }
+            if let Some(g) = self.grafo.gerados.get(&self.grafo.acoes[a].entrada) {
+                pilha.push(g.acao);
+            }
+        }
+    }
+
+    /// `isVisibleInBuild`: na raiz tudo; fora dela, os assets públicos
+    /// (`lib/**`, `bin/**`, … e `additional_public_assets`).
+    fn visivel_no_build(&self, id: &AssetId) -> bool {
+        let Some(&p) = self.grafo_pacotes.por_nome.get(id.pacote.as_ref()) else {
+            return false;
+        };
+        if p == self.grafo_pacotes.raiz {
+            return true;
+        }
+        crate::grafo::VISIVEIS_FORA_DA_RAIZ
+            .iter()
+            .map(|s| s.to_string())
+            .chain(self.configs.por_pacote[p].publicos_adicionais.iter().cloned())
+            .any(|g| crate::glob::Glob::novo(&g).is_ok_and(|g| g.casa(&id.caminho)))
+    }
+
+    /// As ações ainda não pedidas cuja saída um passo executado consultou:
+    /// por caminho (`canRead`, leitura) ou como candidato de um glob
+    /// (`findAssets`), de fase anterior à do leitor.
+    fn pedidas_por_leitura(&self) -> Vec<usize> {
+        let por_natural: HashMap<&Path, &AssetId> = self
+            .naturais
+            .iter()
+            .map(|(id, n)| (n.as_path(), id))
+            .collect();
+        let mut novas = BTreeSet::new();
+        for (a, r) in self.registros.iter().enumerate() {
+            let Some(r) = r else { continue };
+            let fase = self.grafo.acoes[a].fase;
+            let mut pedir = |id: &AssetId| {
+                if let Some(g) = self.grafo.gerados.get(id)
+                    && g.fase < fase
+                    && self.registros[g.acao].is_none()
+                    && !self.pedidas.contains(&g.acao)
+                {
+                    novas.insert(g.acao);
+                }
+            };
+            for (c, _) in &r.consultas {
+                match c {
+                    Consulta::GlobAtivos {
+                        dir, candidatos, ..
+                    } => {
+                        for (rel, gerado) in candidatos {
+                            if *gerado
+                                && let Some(id) = por_natural.get(chave(&dir.join(rel)).as_path())
+                            {
+                                pedir(id);
+                            }
+                        }
+                    }
+                    _ => {
+                        if let Some(id) = c.caminho().and_then(|p| por_natural.get(p)) {
+                            pedir(id);
+                        }
+                    }
+                }
+            }
+        }
+        novas.into_iter().collect()
+    }
+
+    /// Uma passada do motor sobre as fases (ver [`Motor::atualizar`]).
+    fn atualizar_passo(
         &mut self,
         ctx: &Contexto<'_>,
         mudados: &[PathBuf],
@@ -997,26 +1188,64 @@ impl Motor {
             if executar.is_empty() {
                 continue;
             }
-            let novos: Vec<Registro> = match nativo {
-                Some(g) if self.nativos[g].por_pacote() => executar
+            // Passos que não rodam: entrada gerada que não foi escrita
+            // (`wasOutput`) e, com `run_only_if_triggered`, os que nenhum
+            // trigger dispara. Os disparados guardam as leituras do trigger
+            // (a entrada e as partes), que decidem a próxima vez.
+            let mut previos: HashMap<usize, Registro> = HashMap::new();
+            let mut do_gatilho: HashMap<usize, Vec<(Consulta, Option<Digest>)>> = HashMap::new();
+            if !self.fases[fi].pos {
+                for &a in &executar {
+                    if let Some(r) = self.entrada_nao_escrita(a) {
+                        previos.insert(a, r);
+                    } else if let Some((disparou, consultas)) = self.disparo(a) {
+                        if disparou {
+                            do_gatilho.insert(a, consultas);
+                        } else {
+                            previos.insert(a, self.sem_saidas(a, consultas, Origem::NaoDisparada));
+                        }
+                    }
+                }
+            }
+            let rodar: Vec<usize> = executar
+                .iter()
+                .copied()
+                .filter(|a| !previos.contains_key(a))
+                .collect();
+            let rodados: Vec<Registro> = match nativo {
+                _ if rodar.is_empty() => Vec::new(),
+                Some(g) if self.nativos[g].por_pacote() => rodar
                     .iter()
                     .map(|&a| self.de_pacote(g, a, motivo_dart.as_deref()))
                     .collect(),
                 Some(g) => {
-                    let mut v = Vec::with_capacity(executar.len());
-                    for &a in &executar {
+                    let mut v = Vec::with_capacity(rodar.len());
+                    for &a in &rodar {
                         v.push(self.nativo_por_acao(ctx, &mudados, g, a, motivo_dart.as_deref()));
                     }
                     v
                 }
-                None if motivo_dart.is_none() && self.fases[fi].pos => self.pos_em_serie(&executar),
+                None if motivo_dart.is_none() && self.fases[fi].pos => self.pos_em_serie(&rodar),
                 None if motivo_dart.is_none() => {
-                    executar.iter().map(|&a| self.dart_ou_apoio(a)).collect()
+                    rodar.iter().map(|&a| self.dart_ou_apoio(a)).collect()
                 }
-                None => self.apoio_em_paralelo(&executar, motivo_dart.as_deref()),
+                None => self.apoio_em_paralelo(&rodar, motivo_dart.as_deref()),
             };
+            let mut rodados: HashMap<usize, Registro> = rodar.into_iter().zip(rodados).collect();
+            let novos: Vec<Registro> = executar
+                .iter()
+                .map(|a| {
+                    previos.remove(a).unwrap_or_else(|| {
+                        let mut r = rodados.remove(a).expect("registro de ação rodada");
+                        if let Some(c) = do_gatilho.remove(a) {
+                            r.consultas.extend(c);
+                        }
+                        r
+                    })
+                })
+                .collect();
             for (a, mut r) in executar.into_iter().zip(novos) {
-                if r.origem != Origem::Omitida {
+                if !matches!(r.origem, Origem::Omitida | Origem::NaoDisparada) {
                     rel.acoes_executadas += 1;
                 }
                 match r.origem {
@@ -1029,6 +1258,7 @@ impl Motor {
                         }
                     }
                     Origem::Falha => rel.falhas.push(r.motivo.clone().unwrap_or_default()),
+                    Origem::NaoDisparada => rel.nao_disparadas += 1,
                     Origem::Pendente | Origem::Omitida => {}
                 }
                 if let Some(m) = &r.motivo {
@@ -1277,6 +1507,10 @@ impl Motor {
             h.update(format!("{nome} {} {:?}\n", t.versao, t.tipo).as_bytes());
         }
         h.update(&[u8::from(self.opcoes.release)]);
+        // `--config` e os `triggers` acumulados decidem o que roda sem
+        // aparecer em consulta nenhuma (o `buildTriggersDigest` do oficial).
+        h.update(format!("{:?}", self.opcoes.config).as_bytes());
+        h.update(format!("{:?}", self.configs.gatilhos.por_builder).as_bytes());
         h.finalize().to_hex().to_string()
     }
 
@@ -1361,8 +1595,14 @@ impl Motor {
                 Origem::Nativo(n) => crate::persistencia::OrigemSalva::Nativo(n.to_string()),
                 Origem::Dart if codigo_dart.is_some() => crate::persistencia::OrigemSalva::Dart,
                 Origem::Apoio => crate::persistencia::OrigemSalva::Apoio,
-                Origem::Omitida => crate::persistencia::OrigemSalva::Omitida,
-                Origem::Dart | Origem::Pendente | Origem::Falha => continue,
+                Origem::Omitida if self.grafo.acoes[a].pos => {
+                    crate::persistencia::OrigemSalva::Omitida
+                }
+                Origem::Dart
+                | Origem::Pendente
+                | Origem::Falha
+                | Origem::Omitida
+                | Origem::NaoDisparada => continue,
             };
             let saidas = r
                 .saidas
@@ -1702,6 +1942,100 @@ impl Motor {
             apagados: resultado.apagados,
             restaurado: false,
         })
+    }
+
+    /// Registro de um passo que não roda: nenhuma saída escrita, só as
+    /// consultas que decidiram isso.
+    fn sem_saidas(
+        &self,
+        a: usize,
+        consultas: Vec<(Consulta, Option<Digest>)>,
+        origem: Origem,
+    ) -> Registro {
+        Registro {
+            impressao: [0; 32],
+            consultas,
+            saidas: self.grafo.acoes[a]
+                .saidas
+                .iter()
+                .map(|s| (s.clone(), None))
+                .collect(),
+            origem,
+            motivo: None,
+            medido: Vec::new(),
+            do_apoio: Vec::new(),
+            apagados: Vec::new(),
+            restaurado: false,
+        }
+    }
+
+    /// A entrada primária é saída de uma fase anterior que não foi escrita
+    /// (ou falhou): o passo não roda (`_matchingPrimaryInputs`: `if
+    /// (!input.wasOutput) return`; no 2.16.1, `skipMissingPrimaryInput`). A
+    /// consulta negativa o acorda quando a entrada for escrita.
+    fn entrada_nao_escrita(&self, a: usize) -> Option<Registro> {
+        let entrada = &self.grafo.acoes[a].entrada;
+        let g = self.grafo.gerados.get(entrada)?;
+        // Só quando quem produz a entrada rodou de fato: sem executor (a
+        // ação pendente, ou lida do apoio) não se sabe o que o builder
+        // escreveria, e o passo segue a política de apoio.
+        let conhecida = self.registros[g.acao].as_ref().is_some_and(|r| {
+            matches!(
+                r.origem,
+                Origem::Dart
+                    | Origem::Nativo(_)
+                    | Origem::Falha
+                    | Origem::NaoDisparada
+                    | Origem::Omitida
+            )
+        });
+        if !conhecida {
+            return None;
+        }
+        let n = self.natural_de(entrada);
+        if self.memoria.contains_key(&n) {
+            return None;
+        }
+        Some(self.sem_saidas(a, vec![(Consulta::Arquivo(n), None)], Origem::Omitida))
+    }
+
+    /// `_allowedByTriggers`: `None` se a fase não tem `run_only_if_triggered:
+    /// true` (ou o perfil não tem triggers); senão, se algum trigger do
+    /// builder dispara, com as leituras que a decisão fez (a entrada e, para
+    /// trigger de anotação, as partes legíveis pela fase — inclusive as
+    /// geradas por fases anteriores).
+    fn disparo(&self, a: usize) -> Option<(bool, Vec<(Consulta, Option<Digest>)>)> {
+        let acao = &self.grafo.acoes[a];
+        let fase = &self.fases[acao.fase];
+        if !fase.so_se_disparada {
+            return None;
+        }
+        let chave = &self.plano.aplicacoes[fase.aplicacao].chave;
+        let abreviado = self.grafo_pacotes.perfil().trigger_pelo_nome_abreviado();
+        let Some(gatilhos) = self.configs.gatilhos.do_builder(chave, abreviado) else {
+            return Some((false, Vec::new()));
+        };
+        let memoria = |id: &AssetId| {
+            self.naturais
+                .get(id)
+                .and_then(|p| self.memoria.get(p))
+                .cloned()
+        };
+        let mut servico = ServicoAcao::novo(&self.grafo, &self.grafo_pacotes, a, &memoria);
+        let primaria = servico
+            .ler(&acao.entrada)
+            .map(|b| String::from_utf8_lossy(&b).into_owned())
+            .unwrap_or_default();
+        let disparou = crate::gatilhos::disparado(gatilhos, &primaria, |uri| {
+            let id = resolver_uri(uri, &acao.entrada)?;
+            if !servico.can_read(&id) {
+                return None;
+            }
+            servico
+                .ler(&id)
+                .map(|b| String::from_utf8_lossy(&b).into_owned())
+        });
+        Some((disparou, servico.consultas))
     }
 
     fn naturais_de_entrada(&self, a: usize) -> PathBuf {
@@ -2629,6 +2963,14 @@ impl Motor {
                         (Origem::Dart, _) => p
                             .diferentes
                             .push((id.clone(), "executor Dart: difere do oficial".into())),
+                        (Origem::NaoDisparada, _) => p.diferentes.push((
+                            id.clone(),
+                            "nenhum trigger disparou aqui; o oficial escreveu".into(),
+                        )),
+                        (Origem::Omitida, _) => p.diferentes.push((
+                            id.clone(),
+                            "entrada gerada não escrita aqui; o oficial escreveu".into(),
+                        )),
                         _ => {
                             if let Some((_, m)) = r.medido.iter().find(|(s, _)| s == id) {
                                 if m.as_ref() == esperado.as_slice() {
@@ -2653,8 +2995,10 @@ impl Motor {
         // pendente: não é esperada.
         for (i, r) in self.registros.iter().enumerate() {
             let Some(r) = r else { continue };
-            let Origem::Nativo(n) = r.origem else {
-                continue;
+            let n = match r.origem {
+                Origem::Nativo(n) => n,
+                Origem::Dart => "executor Dart",
+                _ => continue,
             };
             let acao = &self.grafo.acoes[i];
             let opcional = self.fases[acao.fase].opcional;
@@ -2695,6 +3039,40 @@ impl Motor {
         }
         false
     }
+}
+
+/// `AssetId.resolve(Uri.parse(uri), from: de)`: `package:p/x` é `p|lib/x`,
+/// `asset:p/x` é `p|x`, um caminho relativo é relativo ao diretório de `de`.
+/// `None` para outro esquema ou caminho que sai do pacote.
+fn resolver_uri(uri: &str, de: &AssetId) -> Option<AssetId> {
+    if let Some(resto) = uri.strip_prefix("package:") {
+        let (p, c) = resto.split_once('/')?;
+        return Some(AssetId::novo(p, &format!("lib/{c}")));
+    }
+    if let Some(resto) = uri.strip_prefix("asset:") {
+        let (p, c) = resto.split_once('/')?;
+        return Some(AssetId::novo(p, c));
+    }
+    if uri.contains(':') {
+        return None;
+    }
+    let mut partes: Vec<&str> = if uri.starts_with('/') {
+        Vec::new()
+    } else {
+        let mut v: Vec<&str> = de.caminho.split('/').collect();
+        v.pop();
+        v
+    };
+    for s in uri.split('/') {
+        match s {
+            "" | "." => {}
+            ".." => {
+                partes.pop()?;
+            }
+            x => partes.push(x),
+        }
+    }
+    Some(AssetId::novo(&de.pacote, &partes.join("/")))
 }
 
 fn mais_nova(entrada: &Path, apoio: &Path) -> bool {

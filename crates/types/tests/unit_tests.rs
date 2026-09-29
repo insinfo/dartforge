@@ -565,3 +565,38 @@ fn superclasse_de_si_mesma_termina() {
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let _ = resolve_outline(&prog, &interner, &mut table, &core);
 }
+
+/// `invalid_override` (`types::sobrescritas`), nas formas do corpus do
+/// analyzer (oráculo 3.6.2): retorno, parâmetro, setter, `covariant` e a
+/// verificação dos parâmetros covariantes contra todos os supertipos.
+#[test]
+fn sobrescritas_invalidas_do_corpus() {
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    let fonte = "class A {\n  int g() => 0;\n  void m(int a) {}\n  set s(num v) {}\n  void c(num a) {}\n}\nclass B extends A {\n  String g() => '';\n  void m(String a) {}\n  set s(int v) {}\n  void c(dynamic a) {}\n}\nclass C extends B {\n  void c(covariant String a) {}\n}\nclass D extends A {\n  int g() => 1;\n  void m(covariant int a) {}\n}\n";
+    fs::write(&main_dart, fonte).unwrap();
+    let (prog, _) = dartforge_elements::load::load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let lib = prog.entry.unwrap();
+    let classes: Vec<ClassId> =
+        (0..prog.classes.len()).map(|i| ClassId(i as u32)).filter(|c| prog.class(*c).library == lib).collect();
+    let mut v: Vec<(String, String)> =
+        dartforge_types::sobrescritas::sobrescritas_invalidas(&prog, &interner, &mut table, &core, &outline, &classes)
+            .into_iter()
+            .map(|(_, d)| (fonte[d.span.start..d.span.end].to_string(), d.message))
+            .collect();
+    v.sort();
+    assert_eq!(
+        v,
+        vec![
+            ("c".to_string(), "'C.c' ('void Function(String)') isn't a valid override of 'A.c' ('void Function(num)').".to_string()),
+            ("g".to_string(), "'B.g' ('String Function()') isn't a valid override of 'A.g' ('int Function()').".to_string()),
+            ("m".to_string(), "'B.m' ('void Function(String)') isn't a valid override of 'A.m' ('void Function(int)').".to_string()),
+            ("s".to_string(), "The setter 'B.s' ('void Function(int)') isn't a valid override of 'A.s' ('void Function(num)').".to_string()),
+        ]
+    );
+}

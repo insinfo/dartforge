@@ -1,0 +1,6 @@
+builder: sempre
+entrada: corpus_perfil_2_4|lib/exporta.dart
+isRoot: true
+opcoes: {"modo":"dev_defaults","origem":"alternativa","run_only_if_triggered":true}
+---
+91

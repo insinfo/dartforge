@@ -142,12 +142,39 @@ fn import_do_script(import: &str) -> String {
 pub struct Configs {
     pub por_pacote: Vec<BuildConfig>,
     pub avisos: Vec<String>,
+    /// Os `triggers` acumulados de todos os pacotes (`BuildConfigs.buildTriggers`).
+    pub gatilhos: crate::gatilhos::Gatilhos,
 }
 
-/// `<pacote>.build.yaml` na raiz (`build_config_overrides.dart`).
-fn overrides(grafo: &GrafoPacotes) -> Result<HashMap<String, BuildConfig>, String> {
+/// `<pacote>.build.yaml` na raiz e, com `--config <nome>`, o
+/// `build.<nome>.yaml` no lugar do `build.yaml` da raiz
+/// (`findBuildConfigOverrides`, igual no 2.4.15 e no 2.16.1).
+fn overrides(
+    grafo: &GrafoPacotes,
+    chave_config: Option<&str>,
+) -> Result<HashMap<String, BuildConfig>, String> {
+    let perfil = grafo.perfil();
     let raiz = &grafo.nos[grafo.raiz];
     let mut m = HashMap::new();
+    if let Some(k) = chave_config {
+        let caminho = raiz.raiz.join(format!("build.{k}.yaml"));
+        let texto = std::fs::read_to_string(&caminho)
+            .map_err(|_| format!("Cannot find build.{k}.yaml for specified config."))?;
+        let deps: Vec<String> = raiz.deps.iter().map(|&d| grafo.nos[d].nome.clone()).collect();
+        // As definições de builder do arquivo são ignoradas (o oficial avisa):
+        // o plano vem do `build.yaml`; aqui só valem alvos, opções globais e
+        // triggers.
+        m.insert(
+            raiz.nome.clone(),
+            BuildConfig::de_texto_no_perfil(
+                &raiz.nome,
+                &deps,
+                &texto,
+                &caminho.display().to_string(),
+                perfil,
+            )?,
+        );
+    }
     let Ok(ls) = std::fs::read_dir(&raiz.raiz) else {
         return Ok(m);
     };
@@ -167,12 +194,22 @@ fn overrides(grafo: &GrafoPacotes) -> Result<HashMap<String, BuildConfig>, Strin
             continue;
         };
         let deps: Vec<String> = no.deps.iter().map(|&d| grafo.nos[d].nome.clone()).collect();
+        // `--config` vence o `<raiz>.build.yaml` (é inserido depois).
+        if chave_config.is_some() && pacote == raiz.nome {
+            continue;
+        }
         let caminho = raiz.raiz.join(&nome);
         let texto =
             std::fs::read_to_string(&caminho).map_err(|e| format!("{}: {e}", caminho.display()))?;
         m.insert(
             pacote.clone(),
-            BuildConfig::de_texto(&pacote, &deps, &texto, &caminho.display().to_string())?,
+            BuildConfig::de_texto_no_perfil(
+                &pacote,
+                &deps,
+                &texto,
+                &caminho.display().to_string(),
+                perfil,
+            )?,
         );
     }
     Ok(m)
@@ -181,8 +218,26 @@ fn overrides(grafo: &GrafoPacotes) -> Result<HashMap<String, BuildConfig>, Strin
 impl Configs {
     /// `estrito`: erro de `build.yaml` é fatal (o `TargetGraph` em tempo de
     /// execução); senão vira o padrão com aviso (a geração do script).
+    ///
+    /// # Erros
+    /// `build.yaml` recusado (com `estrito`) ou override ilegível.
     pub fn ler(grafo: &GrafoPacotes, estrito: bool) -> Result<Configs, String> {
-        let ov = overrides(grafo)?;
+        Self::ler_com(grafo, estrito, None)
+    }
+
+    /// [`Configs::ler`] com `--config <chave>`: o `build.<chave>.yaml` no
+    /// lugar do `build.yaml` da raiz (só na configuração de execução; o
+    /// script — definições e ordem dos builders — lê sempre o `build.yaml`).
+    ///
+    /// # Erros
+    /// Como [`Configs::ler`], e o `build.<chave>.yaml` ausente.
+    pub fn ler_com(
+        grafo: &GrafoPacotes,
+        estrito: bool,
+        chave_config: Option<&str>,
+    ) -> Result<Configs, String> {
+        let perfil = grafo.perfil();
+        let ov = overrides(grafo, chave_config)?;
         let mut por_pacote = Vec::with_capacity(grafo.nos.len());
         let mut avisos = Vec::new();
         for no in &grafo.nos {
@@ -195,7 +250,7 @@ impl Configs {
                 por_pacote.push(BuildConfig::padrao(SDK, &deps));
                 continue;
             }
-            match BuildConfig::do_diretorio(&no.nome, &deps, &no.raiz) {
+            match BuildConfig::do_diretorio_no_perfil(&no.nome, &deps, &no.raiz, perfil) {
                 Ok(c) => por_pacote.push(c),
                 Err(e) if estrito => {
                     return Err(format!("Failed to parse `build.yaml` for {}: {e}", no.nome));
@@ -206,7 +261,19 @@ impl Configs {
                 }
             }
         }
-        Ok(Configs { por_pacote, avisos })
+        let gatilhos = if perfil.aceita_triggers() {
+            crate::gatilhos::Gatilhos::das_configs(&por_pacote)
+        } else {
+            crate::gatilhos::Gatilhos::default()
+        };
+        if let Some(t) = gatilhos.texto_dos_avisos() {
+            avisos.push(t);
+        }
+        Ok(Configs {
+            por_pacote,
+            avisos,
+            gatilhos,
+        })
     }
 }
 
@@ -264,6 +331,11 @@ impl Plano {
         let cfg_raiz = &configs.por_pacote[*ordem.last().ok_or("grafo de pacotes vazio")?];
         // `findBuilderOrder` (`builder_ordering.dart`).
         defs.sort_by(|a, b| a.chave.cmp(&b.chave));
+        if grafo.perfil().recusa_chave_duplicada()
+            && let Some(d) = defs.windows(2).find(|w| w[0].chave == w[1].chave)
+        {
+            return Err(format!("Duplicate builder key: {}", d[0].chave));
+        }
         let n = defs.len();
         let saidas: Vec<Vec<&String>> = defs
             .iter()
@@ -362,7 +434,7 @@ impl Plano {
                 fabricas: vec![p.fabrica.clone()],
                 filtro: Filtro::Nenhum,
                 opcional: false,
-                oculta: true,
+                oculta: p.build_to == BuildTo::Cache,
                 generate_for_padrao: p.padroes.generate_for.clone(),
                 opcoes_padrao: p.padroes.options.clone(),
                 opcoes_dev: p.padroes.dev_options.clone(),
@@ -454,13 +526,16 @@ pub struct Fase {
     /// ([`crate::equivalente`]): a chave dele, e `opcoes` já são as do
     /// construtor.
     pub equivalente: Option<&'static str>,
+    /// `run_only_if_triggered: true` nas opções fundidas e o perfil com
+    /// triggers ([`crate::gatilhos`]): o passo só roda se disparado.
+    pub so_se_disparada: bool,
 }
 
 impl Fase {
     /// `InBuildPhase.identity`: o que muda a fase sem ser opção.
     pub fn identidade(&self, plano: &Plano, grafo: &GrafoPacotes) -> String {
         format!(
-            "{}#{} {} {} gen={} fontes={} opcional={} oculta={} pos={} ext={:?} entradas_pos={:?}",
+            "{}#{} {} {} gen={} fontes={} opcional={} oculta={} pos={} ext={:?} entradas_pos={:?} gatilho={}",
             plano.aplicacoes[self.aplicacao].chave,
             self.fabrica,
             grafo.nos[self.pacote].nome,
@@ -472,6 +547,7 @@ impl Fase {
             self.pos,
             self.extensoes.as_ref().map(|e| &e.declaradas),
             self.entradas_pos,
+            self.so_se_disparada,
         )
     }
 }
@@ -484,13 +560,23 @@ pub struct NoAlvo {
     pub alvo: usize,
 }
 
-/// As fases, como `createBuildPhases` (`apply_builders.dart:196-349`).
+/// As fases, como `createBuildPhases` (`apply_builders.dart:196-349` no
+/// 2.4.15, `build_phase_creator.dart` no 2.16.1 — a mesma ordem e a mesma
+/// precedência de opções). `definicoes`: os `--define`, fundidos por chave
+/// sobre as `global_options` da raiz.
+///
+/// # Erros
+/// Dependência de alvo inexistente, extensões inválidas, ou pós-processador
+/// com `build_to: source` (`build_config` ≥ 1.3.0), que o motor ainda não
+/// executa.
 pub fn fases(
     grafo: &GrafoPacotes,
     configs: &Configs,
     plano: &Plano,
     release: bool,
+    definicoes: &crate::linha_de_comando::Definicoes,
 ) -> Result<(Vec<Fase>, Vec<NoAlvo>), String> {
+    let dispara = grafo.perfil().dispara();
     // `allModules`: por pacote (ordem de `allPackages`), alvos na ordem.
     let mut nos: Vec<NoAlvo> = Vec::new();
     let mut por_chave: HashMap<&str, usize> = HashMap::new();
@@ -524,7 +610,7 @@ pub fn fases(
     let ciclos = scc(&inicio, |i| deps_alvo[i].clone());
 
     let cfg_raiz = &configs.por_pacote[grafo.raiz];
-    let global: HashMap<&str, Mapa> = cfg_raiz
+    let mut global: HashMap<&str, Mapa> = cfg_raiz
         .global
         .iter()
         .map(|(k, g)| {
@@ -538,6 +624,11 @@ pub fn fases(
             )
         })
         .collect();
+    // `builderConfigOverrides`: `(global ?? empty).overrideWith(define)`.
+    for (k, m) in &definicoes.0 {
+        let base = global.remove(k.as_str()).unwrap_or_default();
+        global.insert(k.as_str(), base.sobrepor(m));
+    }
     let por_aplicacao: HashMap<&str, usize> = plano
         .aplicacoes
         .iter()
@@ -644,6 +735,18 @@ pub fn fases(
                             &ap.opcoes_dev
                         })
                         .sobrepor(&opcoes_alvo);
+                    // `phase.options.config['run_only_if_triggered'] == true`,
+                    // nas opções da fase antes de qualquer equivalência.
+                    let so_se_disparada = dispara
+                        && !ap.pos
+                        && opcoes.obter("run_only_if_triggered")
+                            == Some(&crate::valor::Valor::Bool(true));
+                    if ap.pos && !ap.oculta {
+                        return Err(format!(
+                            "{}: post_process_builders com build_to: source (build_config ≥ 1.3.0) ainda não é suportado pelo motor do DartForge",
+                            ap.chave
+                        ));
+                    }
                     let generate_for = cfg
                         .and_then(|c| c.generate_for.clone())
                         .or_else(|| ap.generate_for_padrao.clone())
@@ -696,6 +799,7 @@ pub fn fases(
                         entradas_pos: None,
                         substituido,
                         equivalente: equivalente.map(|e| e.chave),
+                        so_se_disparada,
                     };
                     if ap.pos {
                         pos.push(f);

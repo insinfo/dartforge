@@ -1,0 +1,5 @@
+name: apoio_perfil
+description: Pacote de apoio do caso perfil_2_16 — contribui triggers para um builder de outro pacote.
+publish_to: none
+environment:
+  sdk: ^3.11.0

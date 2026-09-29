@@ -1,0 +1,6 @@
+builder: sem_gatilho
+entrada: corpus_perfil_2_4|lib/com_parte.dart
+isRoot: true
+opcoes: {"run_only_if_triggered":true}
+---
+115

@@ -83,6 +83,38 @@ Duas perguntas, nada mais: **quando** (plano, agenda, impressão) e
   inteiro; **sem distinção de maiúsculas no Windows** (o `Glob` usa o
   `p.context` da plataforma), como o oráculo roda.
 
+### 2.1 Perfis de versão (`perfil.rs`, `gatilhos.rs`, `linha_de_comando.rs`)
+
+O `pubspec.lock` escolhe as regras (DF-BUILD-011): o `build_config` decide o
+parser (1.1.2 recusa `triggers`; 1.2.0 aceita; 1.3.x aceita `build_to` nos
+pós-processadores e prende a chave de definição ao pacote) e o `build_runner`
+decide a execução (≥ 2.7.0: `run_only_if_triggered` + `triggers`; ≥ 2.14.0:
+`--build-filter asset:`; ≥ 2.15.3: chave duplicada é erro). Sem `build_runner`
+no lock, o `build_config` decide também os triggers.
+
+* **Triggers** — porte de `build_triggers.dart` e `_allowedByTriggers`
+  (`build/build.dart` do 2.16.1): opção `run_only_if_triggered: true` nas
+  opções fundidas da fase; triggers acumulados de todos os pacotes pela chave
+  escrita; `import x` = import `package:x` literal da unidade primária;
+  `annotation N` = metadado de declaração de topo (inteiro ou sem o primeiro
+  trecho), também nas partes legíveis pela fase. A análise é pelos tokens do
+  lexer, no nível de topo; fonte que o lexer recusa conta como disparada.
+  Passo não disparado: `Origem::NaoDisparada`, sem saídas, com as leituras
+  (entrada e partes) como consultas.
+* **CLI** — `dartforge build --define <b>=<o>=<v>` (JSON do Dart, senão
+  texto; fundido por chave sobre as `global_options`, depois de
+  `dev`/`release`), `--config <nome>` (`build.<nome>.yaml` substitui o
+  `build.yaml` da raiz na configuração de execução — alvos, globais,
+  triggers —, não no script) e `--build-filter` (relativo = `Uri.path`
+  escapado; `package:` sob `lib/`; `asset:` no 2.14+). Com filtro, rodam as
+  ações de fase não opcional com saída filtrada e visível, a cadeia das
+  entradas geradas e, em passadas seguintes, as que um passo executado leu
+  (a construção sob demanda do oficial).
+* **Oráculo** — `corpus/builders/perfil_2_4` (2.4.15) e
+  `corpus/builders_novos/perfil_2_16` (2.16.1, fora de `corpus/builders`
+  porque exige Dart ≥ 3.11 no `pub get`), `oraculos/<configuração>/`,
+  gerados por `scripts/corpus-perfis.py`; teste `tests/perfis.rs`.
+
 ## 3. Grafo de saídas (`grafo.rs`)
 
 Para cada fase, em ordem, as entradas que casam
@@ -291,7 +323,8 @@ executor Dart, como o `build_runner_core` 8.0.0 os executa.
 * `compile-js` usa o motor numa passada; `DARTFORGE_GERADOS` fica um ciclo
   como sinônimo (`build_runner` = só apoio; `ng` = padrão com motor).
 * `dartforge build [--release] [--plano] [--comparar] [--escrever-cache
-  <dir>] [--trabalhadores N] [--estrito] [--dart <exe>] [--estado]`;
+  <dir>] [--trabalhadores N] [--estrito] [--dart <exe>] [--estado]
+  [--define ...] [--config <nome>] [--build-filter <glob>]` (§2.1);
   `--dart` (ou `DARTFORGE_BUILD_DART`, que vale também para `dev`, `serve` e
   `compile-js`) liga o executor de builders pela VM; `--estado` (ou
   `DARTFORGE_BUILD_ESTADO=1`, idem) liga o estado entre processos (§4.1).

@@ -8,12 +8,44 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// Variável que o executor nativo de builders põe na compilação do próprio
+/// bootstrap: aquele programa não passa pelo motor (o bootstrap mora no
+/// projeto que usa builders, e o motor compilaria o executor de novo).
+const COMPILANDO_EXECUTOR: &str = "DARTFORGE_BUILD_COMPILANDO_EXECUTOR";
+
+/// Liga o executor de builders Dart no `motor`: pela VM quando pedida
+/// (`--dart`/`DARTFORGE_BUILD_DART`, o caminho de compatibilidade), senão o
+/// **nativo** (B01): o bootstrap compilado pelo `compile-native` deste mesmo
+/// executável, sem `dart` nem `build_runner`. `padrao`: o nativo vale sem
+/// pedido (o `dartforge build`); nos compiladores (`compile-js`,
+/// `compile-native`, `run`), só com `DARTFORGE_BUILD_NATIVO=1`, porque a
+/// primeira compilação do executor custa minutos. `DARTFORGE_BUILD_NATIVO=0`
+/// o desliga sempre (fica o apoio). Sem a feature `nativo`, só a VM.
+pub fn ligar_executor(motor: &mut Motor, dart: Option<PathBuf>, sdk: Option<PathBuf>, caminho_cfg: &Path, padrao: bool) {
+    if let Some(d) = dart {
+        dartforge_build::vm::ligar(motor, d, caminho_cfg);
+        return;
+    }
+    let pedido = std::env::var_os(dartforge_build::executor_nativo::VARIAVEL);
+    let ligado = match pedido.as_ref().and_then(|v| v.to_str()) {
+        Some("0") => false,
+        Some(_) => true,
+        None => padrao,
+    };
+    if cfg!(feature = "nativo") && ligado && let Ok(exe) = std::env::current_exe() {
+        dartforge_build::executor_nativo::ligar(motor, exe, sdk, caminho_cfg);
+    }
+}
+
 /// O projeto da entrada usa builders? Custa ler o `package_config.json`
 /// (que o carregador também lê) e os `build.yaml` dos pacotes resolvidos.
 pub fn detectar(
     entrada: &Path,
     packages: Option<&Path>,
 ) -> Option<(PathBuf, PackageConfig, PathBuf)> {
+    if std::env::var_os(COMPILANDO_EXECUTOR).is_some() {
+        return None;
+    }
     let caminho = packages
         .map(Path::to_path_buf)
         .or_else(|| PackageConfig::discover(entrada))?;
@@ -41,8 +73,9 @@ pub fn gerar_uma_vez(
             ..OpcoesMotor::default()
         },
     )?;
-    // Builders Dart pela VM só quando pedidos (DARTFORGE_BUILD_DART).
-    dartforge_build::vm::ligar_do_ambiente(&mut m, caminho_cfg);
+    // Builders Dart: pela VM quando pedida (DARTFORGE_BUILD_DART), senão
+    // pelo executor nativo.
+    ligar_executor(&mut m, dartforge_build::vm::dart_do_ambiente(), None, caminho_cfg, false);
     let at = m.atualizar(
         &Contexto {
             banco: &SemBanco,
@@ -105,7 +138,8 @@ pub fn com_gerador<R>(
 /// `.dart_tool/dartforge/build/estado` e reaproveitado no próximo processo;
 /// sem pedido, nada vai ao disco (regra governante 6). Com `--dart` (ou
 /// `DARTFORGE_BUILD_DART`) os builders sem gerador nativo executam pela VM
-/// Dart (`dartforge_build::vm`); sem ele, vale o apoio do `build_runner`.
+/// Dart (`dartforge_build::vm`); sem ele, pelo executor nativo
+/// (`dartforge_build::executor_nativo`, exige a feature `nativo`).
 pub fn run_build(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<std::ffi::OsString> = args.to_vec();
     std::thread::Builder::new()
@@ -118,15 +152,28 @@ pub fn run_build(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::
 }
 
 fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
-    let uso = "uso: dartforge build [<entrada.dart>] [--raiz <dir>] [--packages <cfg>] [--sdk <lib>] [--plano] [--comparar] [--release] [--estrito] [--aceitar-pendentes] [--trabalhadores N] [--escrever-cache <dir>] [--dart <exe>] [--estado]";
+    let uso = "uso: dartforge build [<entrada.dart>] [--raiz <dir>] [--packages <cfg>] [--sdk <lib>] [--plano] [--comparar] [--release] [--estrito] [--aceitar-pendentes] [--trabalhadores N] [--escrever-cache <dir>] [--dart <exe>] [--estado] [--define <builder>=<opção>=<valor>] [--config <nome>] [--build-filter <glob>]";
     let (mut entrada, mut raiz, mut packages, mut sdk, mut cache) = (None, None, None, None, None);
     let mut dart = dartforge_build::vm::dart_do_ambiente();
     let (mut plano, mut comparar, mut release, mut estrito) = (false, false, false, false);
     let mut aceitar_pendentes = false;
     let mut persistir = dartforge_build::persistencia::pedido_no_ambiente();
     let mut trabalhadores = OpcoesMotor::default().trabalhadores;
+    // As do `build_runner` (`--define`, `--config`, `--build-filter`), com a
+    // mesma forma: `--x v` ou `--x=v`; `--define` e `--build-filter` repetem.
+    let (mut config, mut defines, mut filtros) = (None, Vec::new(), Vec::new());
     let mut it = args.iter();
     while let Some(a) = it.next() {
+        if let Some((opcao, valor)) = a.to_str().and_then(|s| s.split_once('='))
+            && matches!(opcao, "--define" | "--config" | "--build-filter")
+        {
+            match opcao {
+                "--define" => defines.push(valor.to_string()),
+                "--config" => config = Some(valor.to_string()),
+                _ => filtros.push(valor.to_string()),
+            }
+            continue;
+        }
         let proximo = |it: &mut std::slice::Iter<'_, std::ffi::OsString>| {
             it.next().map(PathBuf::from).ok_or(uso)
         };
@@ -144,6 +191,18 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
             // produziu (placar, transição); sem ela, é falha (DF-BUILD-007).
             Some("--aceitar-pendentes") => aceitar_pendentes = true,
             Some("--estado") => persistir = true,
+            Some(o @ ("--define" | "--config" | "--build-filter")) => {
+                let v = it
+                    .next()
+                    .and_then(|v| v.to_str())
+                    .map(str::to_string)
+                    .ok_or(uso)?;
+                match o {
+                    "--define" => defines.push(v),
+                    "--config" => config = Some(v),
+                    _ => filtros.push(v),
+                }
+            }
             Some("--trabalhadores") => {
                 trabalhadores = it
                     .next()
@@ -183,7 +242,35 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
             eprintln!("aviso: {a}");
         }
         let bd = raiz.join(".dart_tool/build/entrypoint/build.dart");
-        if let Ok(texto) = std::fs::read_to_string(&bd) {
+        if let Ok(texto) = std::fs::read_to_string(&bd)
+            && texto.contains("BuilderFactories(")
+        {
+            // `build_runner` ≥ 2.9: o script só registra as fábricas por
+            // chave, sem as aplicações; confere-se o conjunto das chaves.
+            let mut oficiais: Vec<&str> = texto
+                .split('\'')
+                .collect::<Vec<_>>()
+                .windows(2)
+                .filter(|w| {
+                    w[1].trim_start().starts_with(':') && w[0].contains(':') && !w[0].contains('/')
+                })
+                .map(|w| w[0])
+                .collect();
+            oficiais.sort_unstable();
+            let mut nossas: Vec<&str> = p.aplicacoes.iter().map(|a| a.chave.as_str()).collect();
+            nossas.sort_unstable();
+            if oficiais != nossas {
+                return Err(format!(
+                    "builders diferentes do {}: oficial {oficiais:?}, DartForge {nossas:?}",
+                    bd.display()
+                ));
+            }
+            println!(
+                "builders iguais aos do {} ({}; o script do build_runner ≥ 2.9 não traz as aplicações)",
+                bd.display(),
+                nossas.len()
+            );
+        } else if let Ok(texto) = std::fs::read_to_string(&bd) {
             match dartforge_build::oraculo::comparar(&p.aplicacoes, &texto)? {
                 Ok(()) => println!(
                     "plano igual ao {} ({} aplicações)",
@@ -201,17 +288,23 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
         }
         return Ok(());
     }
-    let opcoes = OpcoesMotor {
+    let mut opcoes = OpcoesMotor {
         release,
         trabalhadores,
         estrito,
         medir_nao_verificados: comparar,
         persistir,
+        ..OpcoesMotor::default()
     };
+    dartforge_build::linha_de_comando::OpcoesDoBuild::do_projeto(
+        &raiz,
+        config.as_deref(),
+        &defines,
+        &filtros,
+    )?
+    .aplicar(&mut opcoes);
     let mut motor = Motor::novo(&raiz, &cfg, opcoes)?;
-    if let Some(d) = dart {
-        dartforge_build::vm::ligar(&mut motor, d, &caminho_cfg);
-    }
+    ligar_executor(&mut motor, dart, sdk.clone(), &caminho_cfg, true);
     // O programa serve de `BuildStep.resolver` aos geradores nativos.
     let entrada = entrada.or_else(|| Some(raiz.join("web/main.dart")).filter(|p| p.is_file()));
     let mut nomes = dartforge_intern::Interner::new();

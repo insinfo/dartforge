@@ -1,0 +1,5 @@
+# Triggers valem de todos os pacotes do build, não só de quem define ou aplica
+# o builder (build_triggers.dart, BuildTriggers.fromConfigs).
+triggers:
+  corpus_perfil_2_16:importacao:
+    - import apoio_perfil/reexporta.dart

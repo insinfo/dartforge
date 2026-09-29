@@ -1,0 +1,6 @@
+builder: anotacao
+entrada: corpus_perfil_2_4|lib/anotado.dart
+isRoot: true
+opcoes: {"origem":"alvo","run_only_if_triggered":false}
+---
+52

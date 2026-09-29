@@ -1,0 +1,6 @@
+builder: desligado
+entrada: corpus_perfil_2_4|lib/importa.dart
+isRoot: true
+opcoes: {}
+---
+75

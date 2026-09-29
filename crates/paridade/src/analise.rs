@@ -423,6 +423,14 @@ impl Motor {
                 atribuidos.push((u, d.clone()));
             }
         }
+        // Sobrescritas inválidas, nas classes em que o `verify()` do
+        // `InheritanceOverrideVerifier` chega a conferi-las.
+        for lib in &libs_proprias {
+            let classes = dartforge_analise::clausulas::verificador_de_heranca_prossegue(&program, *lib, &interner);
+            atribuidos.extend(dartforge_types::sobrescritas::sobrescritas_invalidas(
+                &program, &interner, &mut table, &core, &outline, &classes,
+            ));
+        }
         // Argumentos de tipo fora dos limites, unidade a unidade.
         for &u in &unidades_proprias {
             for d in dartforge_types::limites::argumentos_fora_dos_limites(&program, &interner, &mut table, &core, &outline, u) {

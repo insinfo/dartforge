@@ -1,0 +1,6 @@
+builder: anotacao
+entrada: corpus_perfil_2_4|lib/semeado.dart
+isRoot: true
+opcoes: {"origem":"defaults","run_only_if_triggered":true}
+---
+144

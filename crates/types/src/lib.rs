@@ -27,6 +27,7 @@ pub mod ops;
 pub mod resolve;
 pub mod resolved;
 pub mod scope;
+pub mod sobrescritas;
 pub mod subtyping;
 pub mod table;
 

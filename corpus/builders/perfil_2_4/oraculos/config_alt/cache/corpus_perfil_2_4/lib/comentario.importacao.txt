@@ -1,0 +1,6 @@
+builder: importacao
+entrada: corpus_perfil_2_4|lib/comentario.dart
+isRoot: true
+opcoes: {"global":"alternativa","run_only_if_triggered":true}
+---
+215

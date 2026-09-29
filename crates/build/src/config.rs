@@ -1,10 +1,13 @@
 //! `pubspec.yaml`, `pubspec.lock` e `build.yaml`, lidos como o
-//! `build_config` 1.1.2 e o `build_runner_core` 8.0.0 leem.
+//! `build_config` do lock lê ([`crate::perfil`]): 1.1.2 por padrão, 1.2.0
+//! com a chave de topo `triggers`, 1.3.x com `build_to` nos
+//! `post_process_builders` e a chave de definição presa ao pacote.
 //!
 //! O `build.yaml` segue o `$checkKeys` dos `*.g.dart` do `build_config`:
 //! chave desconhecida é erro, campo obrigatório ausente é erro, tipo errado é
 //! erro. As chaves de builder e de alvo são normalizadas como
 //! `key_normalization.dart`.
+use crate::perfil::Perfil;
 use crate::valor::{Mapa, Valor};
 use std::path::Path;
 use yaml_rust2::{Yaml, YamlLoader};
@@ -112,6 +115,18 @@ pub fn ler_lock(texto: &str, origem: &str) -> Result<Vec<(String, Travado)>, Str
 
 pub fn chave_builder_definicao(chave: &str, pacote: &str) -> String {
     normalizar_definicao(&chave.replacen('|', ":", 1), pacote)
+}
+
+/// `_normalizeDefinition` do `build_config` ≥ 1.3.2: a chave `outro:x`
+/// definida no pacote `p` é erro.
+fn conferir_dono(chave_normalizada: &str, pacote: &str) -> Result<(), String> {
+    if chave_normalizada.starts_with(&format!("{pacote}:")) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Builder key \"{chave_normalizada}\" does not belong to package \"{pacote}\"."
+        ))
+    }
 }
 
 pub fn chave_builder_uso(chave: &str, pacote: &str) -> String {
@@ -223,6 +238,8 @@ pub struct DefPos {
     pub pacote: String,
     pub fabrica: String,
     pub import: String,
+    /// `build_to` (`build_config` ≥ 1.3.0; antes, sempre `cache`).
+    pub build_to: BuildTo,
     pub padroes: Padroes,
 }
 
@@ -270,6 +287,10 @@ pub struct BuildConfig {
     pub alvos: Vec<Alvo>,
     pub global: Vec<(String, CfgGlobal)>,
     pub publicos_adicionais: Vec<String>,
+    /// `triggers` (`build_config` ≥ 1.2.0): por nome de builder, **sem
+    /// normalizar**, o valor como o YAML trouxe. Validade e sentido são do
+    /// `build_runner` ([`crate::gatilhos`]).
+    pub gatilhos: Vec<(String, Valor)>,
 }
 
 impl BuildConfig {
@@ -292,6 +313,7 @@ impl BuildConfig {
             }],
             global: Vec::new(),
             publicos_adicionais: Vec::new(),
+            gatilhos: Vec::new(),
         }
     }
 
@@ -299,17 +321,39 @@ impl BuildConfig {
         self.global.iter().find(|(k, _)| k == chave).map(|(_, c)| c)
     }
 
-    /// `BuildConfig.fromBuildConfigDir`: `build.yaml` do diretório, ou o padrão.
+    /// `BuildConfig.fromBuildConfigDir`: `build.yaml` do diretório, ou o
+    /// padrão. Lido como o `build_config` 1.1.2; [`BuildConfig::do_diretorio_no_perfil`]
+    /// escolhe a versão.
+    ///
+    /// # Erros
+    /// `build.yaml` que existe e não se lê, ou que o `build_config` recusa.
     pub fn do_diretorio(
         pacote: &str,
         dependencias: &[String],
         dir: &Path,
     ) -> Result<BuildConfig, String> {
+        Self::do_diretorio_no_perfil(pacote, dependencias, dir, Perfil::default())
+    }
+
+    /// [`BuildConfig::do_diretorio`] com as regras do `build_config` de `perfil`.
+    ///
+    /// # Erros
+    /// Como [`BuildConfig::do_diretorio`].
+    pub fn do_diretorio_no_perfil(
+        pacote: &str,
+        dependencias: &[String],
+        dir: &Path,
+        perfil: Perfil,
+    ) -> Result<BuildConfig, String> {
         let caminho = dir.join("build.yaml");
         match std::fs::read_to_string(&caminho) {
-            Ok(texto) => {
-                Self::de_texto(pacote, dependencias, &texto, &caminho.display().to_string())
-            }
+            Ok(texto) => Self::de_texto_no_perfil(
+                pacote,
+                dependencias,
+                &texto,
+                &caminho.display().to_string(),
+                perfil,
+            ),
             // Só a ausência vale o padrão (`fromBuildConfigDir` testa
             // `exists`); um `build.yaml` que existe e não se lê (permissão,
             // bytes que não são UTF-8, diretório com esse nome) é erro, não
@@ -319,18 +363,54 @@ impl BuildConfig {
         }
     }
 
-    /// `BuildConfig.parse`.
+    /// `BuildConfig.parse` do `build_config` 1.1.2.
+    ///
+    /// ```
+    /// use dartforge_build::config::BuildConfig;
+    /// let c = BuildConfig::de_texto("p", &[], "targets:\n  $default: {}\n", "build.yaml").unwrap();
+    /// assert_eq!(c.alvos[0].chave, "p:p");
+    /// // `triggers` só existe a partir do build_config 1.2.0.
+    /// assert!(BuildConfig::de_texto("p", &[], "triggers: {}\n", "build.yaml").is_err());
+    /// ```
+    ///
+    /// # Erros
+    /// YAML inválido, chave desconhecida, campo obrigatório ausente ou tipo
+    /// errado, como o `$checkKeys`.
     pub fn de_texto(
         pacote: &str,
         dependencias: &[String],
         texto: &str,
         origem: &str,
     ) -> Result<BuildConfig, String> {
+        Self::de_texto_no_perfil(pacote, dependencias, texto, origem, Perfil::default())
+    }
+
+    /// `BuildConfig.parse` do `build_config` de `perfil`.
+    ///
+    /// ```
+    /// use dartforge_build::config::BuildConfig;
+    /// use dartforge_build::perfil::Perfil;
+    /// let novo = Perfil::das_versoes(Some("1.2.0"), Some("2.7.0"));
+    /// let t = "triggers:\n  p:b:\n    - annotation A\n";
+    /// let c = BuildConfig::de_texto_no_perfil("p", &[], t, "build.yaml", novo).unwrap();
+    /// assert_eq!(c.gatilhos[0].0, "p:b");
+    /// ```
+    ///
+    /// # Erros
+    /// Como [`BuildConfig::de_texto`], com as chaves da versão.
+    pub fn de_texto_no_perfil(
+        pacote: &str,
+        dependencias: &[String],
+        texto: &str,
+        origem: &str,
+        perfil: Perfil,
+    ) -> Result<BuildConfig, String> {
         let y = carregar_yaml(texto, origem)?;
         let ctx = Ctx {
             pacote,
             deps: dependencias,
             origem,
+            perfil,
         };
         ctx.config(&y)
     }
@@ -340,6 +420,7 @@ struct Ctx<'a> {
     pacote: &'a str,
     deps: &'a [String],
     origem: &'a str,
+    perfil: Perfil,
 }
 
 type R<T> = Result<T, String>;
@@ -564,8 +645,12 @@ impl Ctx<'_> {
                 .map(|b| chave_builder_uso(b, self.pacote))
                 .collect::<Vec<_>>()
         };
+        let chave_normalizada = chave_builder_definicao(chave, self.pacote);
+        if self.perfil.exige_chave_do_pacote() {
+            conferir_dono(&chave_normalizada, self.pacote).map_err(|e| self.erro(onde, &e))?;
+        }
         Ok(DefBuilder {
-            chave: chave_builder_definicao(chave, self.pacote),
+            chave: chave_normalizada,
             pacote: self.pacote.to_string(),
             fabricas,
             import: self.texto(&y["import"], onde)?.unwrap_or_default(),
@@ -587,23 +672,41 @@ impl Ctx<'_> {
 
     fn pos(&self, chave: &str, y: &Yaml) -> R<DefPos> {
         let onde = &format!("post_process_builders.{chave}");
-        self.checar(
-            y,
-            onde,
+        let novo = self.perfil.aceita_build_to_pos();
+        let permitidas: &[&str] = if novo {
+            &[
+                "builder_factory",
+                "import",
+                "input_extensions",
+                "target",
+                "build_to",
+                "defaults",
+            ]
+        } else {
             &[
                 "builder_factory",
                 "import",
                 "input_extensions",
                 "target",
                 "defaults",
-            ],
-            &["builder_factory", "import"],
-        )?;
+            ]
+        };
+        self.checar(y, onde, permitidas, &["builder_factory", "import"])?;
+        let build_to = match self.texto(&y["build_to"], onde)?.as_deref() {
+            None | Some("cache") => BuildTo::Cache,
+            Some("source") => BuildTo::Source,
+            Some(o) => return Err(self.erro(onde, &format!("build_to desconhecido: {o}"))),
+        };
+        let chave_normalizada = chave_builder_definicao(chave, self.pacote);
+        if self.perfil.exige_chave_do_pacote() {
+            conferir_dono(&chave_normalizada, self.pacote).map_err(|e| self.erro(onde, &e))?;
+        }
         Ok(DefPos {
-            chave: chave_builder_definicao(chave, self.pacote),
+            chave: chave_normalizada,
             pacote: self.pacote.to_string(),
             fabrica: self.texto(&y["builder_factory"], onde)?.unwrap_or_default(),
             import: self.texto(&y["import"], onde)?.unwrap_or_default(),
+            build_to,
             padroes: match &y["defaults"] {
                 Yaml::Null | Yaml::BadValue => Padroes::default(),
                 d => self.padroes(d, onde)?,
@@ -666,8 +769,12 @@ impl Ctx<'_> {
             Some(v) => v,
             None => self.deps.to_vec(),
         };
+        let chave_alvo = chave_alvo_definicao(chave, self.pacote);
+        if self.perfil.exige_chave_do_pacote() {
+            conferir_dono(&chave_alvo, self.pacote).map_err(|e| self.erro(onde, &e))?;
+        }
         Ok(Alvo {
-            chave: chave_alvo_definicao(chave, self.pacote),
+            chave: chave_alvo,
             pacote: self.pacote.to_string(),
             auto_apply_builders: self
                 .booleano(&y["auto_apply_builders"], onde)?
@@ -687,18 +794,38 @@ impl Ctx<'_> {
         if !matches!(y, Yaml::Hash(_)) {
             return Err(self.erro("build.yaml", "esperava um mapa"));
         }
-        self.checar(
-            y,
-            "build.yaml",
-            &[
-                "builders",
-                "post_process_builders",
-                "targets",
-                "global_options",
-                "additional_public_assets",
-            ],
-            &[],
-        )?;
+        let mut permitidas = vec![
+            "builders",
+            "post_process_builders",
+            "targets",
+            "global_options",
+            "additional_public_assets",
+        ];
+        if self.perfil.aceita_triggers() {
+            permitidas.push("triggers");
+        }
+        self.checar(y, "build.yaml", &permitidas, &[])?;
+        // `triggersByBuilder`: `(v as Map?)?.map((k, e) => MapEntry(k as
+        // String, e as Object))` — o valor não pode ser nulo.
+        let mut gatilhos = Vec::new();
+        if self.perfil.aceita_triggers()
+            && let Some(h) = self.mapa(&y["triggers"], "triggers")?
+        {
+            for (k, v) in h {
+                let k = k
+                    .as_str()
+                    .ok_or_else(|| self.erro("triggers", "chave não é texto"))?;
+                if matches!(v, Yaml::Null) {
+                    return Err(self.erro(
+                        &format!("triggers.{k}"),
+                        "valor nulo (esperava uma lista de triggers)",
+                    ));
+                }
+                let valor = Valor::de_yaml(v).map_err(|e| self.erro("triggers", &e))?;
+                gatilhos.retain(|(x, _): &(String, Valor)| x != k);
+                gatilhos.push((k.to_string(), valor));
+            }
+        }
         let mut alvos = Vec::new();
         match self.mapa(&y["targets"], "targets")? {
             None => alvos = BuildConfig::padrao(self.pacote, self.deps).alvos,
@@ -784,6 +911,7 @@ impl Ctx<'_> {
             publicos_adicionais: self
                 .lista_textos(&y["additional_public_assets"], "additional_public_assets")?
                 .unwrap_or_default(),
+            gatilhos,
         })
     }
 }
@@ -861,6 +989,26 @@ post_process_builders:
         assert_eq!(c.pos[0].chave, "sass_builder:sass_source_cleanup");
         assert_eq!(c.alvos[0].chave, "sass_builder:sass_builder");
         assert_eq!(c.alvos[0].dependencias, vec!["sass:sass"]);
+    }
+
+    #[test]
+    fn chaves_por_perfil() {
+        let antigo = Perfil::default();
+        let p12 = Perfil::das_versoes(Some("1.2.0"), Some("2.7.0"));
+        let p13 = Perfil::das_versoes(Some("1.3.3"), Some("2.16.1"));
+        let gat = "triggers:\n  p:b: [annotation A]\n";
+        assert!(BuildConfig::de_texto_no_perfil("p", &[], gat, "t", antigo).is_err());
+        assert!(BuildConfig::de_texto_no_perfil("p", &[], gat, "t", p12).is_ok());
+        // `e as Object`: valor nulo é erro.
+        assert!(BuildConfig::de_texto_no_perfil("p", &[], "triggers:\n  p:b:\n", "t", p12).is_err());
+        let pos = "post_process_builders:\n  x:\n    import: a.dart\n    builder_factory: f\n    build_to: source\n";
+        assert!(BuildConfig::de_texto_no_perfil("p", &[], pos, "t", p12).is_err());
+        let c = BuildConfig::de_texto_no_perfil("p", &[], pos, "t", p13).unwrap();
+        assert_eq!(c.pos[0].build_to, BuildTo::Source);
+        // Chave de outro pacote: aceita até o 1.3.1, erro no 1.3.2.
+        let outro = "builders:\n  q:x:\n    import: a.dart\n    builder_factories: [f]\n    build_extensions: {.a: [.b]}\n";
+        assert!(BuildConfig::de_texto_no_perfil("p", &[], outro, "t", p12).is_ok());
+        assert!(BuildConfig::de_texto_no_perfil("p", &[], outro, "t", p13).is_err());
     }
 
     #[test]

@@ -1,0 +1,6 @@
+builder: anotacao
+entrada: corpus_perfil_2_4|lib/com_parte_detalhe.dart
+isRoot: true
+opcoes: {"origem":"alvo","run_only_if_triggered":true}
+---
+87

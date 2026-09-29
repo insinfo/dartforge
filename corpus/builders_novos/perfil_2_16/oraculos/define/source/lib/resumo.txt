@@ -1,0 +1,9 @@
+builder: resumo
+entrada: corpus_perfil_2_16|lib/resumo.lista
+isRoot: true
+opcoes: {}
+---
+lib/anotado.sempre.txt: builder: sempre
+lib/anotado.anotacao.txt: builder: anotacao
+lib/membro.anotacao.txt: builder: anotacao
+lib/importa.importacao.txt: builder: importacao

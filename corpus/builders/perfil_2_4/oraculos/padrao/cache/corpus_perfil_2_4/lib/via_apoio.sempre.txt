@@ -1,0 +1,6 @@
+builder: sempre
+entrada: corpus_perfil_2_4|lib/via_apoio.dart
+isRoot: true
+opcoes: {"global":"sim","modo":"dev_alvo","origem":"alvo","run_only_if_triggered":false}
+---
+135

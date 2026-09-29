@@ -1,0 +1,104 @@
+# build_config 1.1.2 / build_runner 2.4.15: sem `triggers` (o $checkKeys recusa a
+# chave); `run_only_if_triggered` é uma opção como outra qualquer, sem efeito.
+targets:
+  $default:
+    builders:
+      # A opção vem dos defaults (true); o alvo a desliga: roda sempre.
+      corpus_perfil_2_4:sempre:
+        options:
+          run_only_if_triggered: false
+          origem: alvo
+        dev_options:
+          modo: dev_alvo
+        release_options:
+          modo: release_alvo
+      corpus_perfil_2_4:desligado:
+        enabled: false
+      corpus_perfil_2_4:resumo:
+        enabled: true
+      corpus_perfil_2_4:anotacao:
+        options:
+          origem: alvo
+
+builders:
+  anotacao:
+    import: 'tool/builders.dart'
+    builder_factories: ['anotacao']
+    build_extensions: {'.dart': ['.anotacao.txt']}
+    auto_apply: root_package
+    build_to: cache
+    required_inputs: ['.parte.dart']
+    defaults:
+      generate_for: ['lib/**']
+      options:
+        run_only_if_triggered: true
+        origem: defaults
+      release_options:
+        modo: release_defaults
+
+  importacao:
+    import: 'tool/builders.dart'
+    builder_factories: ['importacao']
+    build_extensions: {'.dart': ['.importacao.txt']}
+    auto_apply: root_package
+    build_to: cache
+    defaults:
+      generate_for: ['lib/**']
+      options:
+        run_only_if_triggered: true
+
+  sempre:
+    import: 'tool/builders.dart'
+    builder_factories: ['sempre']
+    build_extensions: {'.dart': ['.sempre.txt']}
+    auto_apply: root_package
+    build_to: cache
+    defaults:
+      generate_for: ['lib/**']
+      options:
+        run_only_if_triggered: true
+        origem: defaults
+      dev_options:
+        modo: dev_defaults
+      release_options:
+        modo: release_defaults
+
+  sem_gatilho:
+    import: 'tool/builders.dart'
+    builder_factories: ['semGatilho']
+    build_extensions: {'.dart': ['.sem_gatilho.txt']}
+    auto_apply: root_package
+    build_to: cache
+    defaults:
+      generate_for: ['lib/**']
+      options:
+        run_only_if_triggered: true
+
+  desligado:
+    import: 'tool/builders.dart'
+    builder_factories: ['desligado']
+    build_extensions: {'.dart': ['.desligado.txt']}
+    auto_apply: root_package
+    build_to: cache
+
+  semente:
+    import: 'tool/builders.dart'
+    builder_factories: ['semente']
+    build_extensions: {'.semente': ['.parte.dart']}
+    auto_apply: root_package
+    build_to: cache
+
+  resumo:
+    import: 'tool/builders.dart'
+    builder_factories: ['resumo']
+    build_extensions: {'^lib/resumo.lista': ['lib/resumo.txt']}
+    auto_apply: none
+    build_to: source
+    required_inputs: ['.sempre.txt', '.anotacao.txt', '.importacao.txt']
+
+global_options:
+  corpus_perfil_2_4:sempre:
+    options:
+      global: sim
+    release_options:
+      so_release: global

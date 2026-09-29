@@ -1,0 +1,17 @@
+{
+  "dart": "3.6.2",
+  "pacotes": {"analyzer": "7.7.1", "build": "2.4.2", "build_config": "1.1.2", "build_resolvers": "2.4.4", "build_runner": "2.4.15", "build_runner_core": "8.0.0", "dart_style": "3.0.1", "glob": "2.2.0"},
+  "argumentos": ["--build-filter", "lib/resumo.txt", "--build-filter", "package:corpus_perfil_2_4/importa.*.txt"],
+  "saidas": [
+    {"asset": "corpus_perfil_2_4|lib/anotado.anotacao.txt", "build_to": "cache", "sha256": "610751e4715de9c3b031f0e0c0b171ef1486a960ca4e72884802270cf0c3df64"},
+    {"asset": "corpus_perfil_2_4|lib/anotado.sempre.txt", "build_to": "cache", "sha256": "e8777f8744bdb008ace62a4bdd5c1d2314e40504fd107a6770df3753da2076ea"},
+    {"asset": "corpus_perfil_2_4|lib/importa.anotacao.txt", "build_to": "cache", "sha256": "75144d21e503a9ebcae7cac68bce111c68da04775168ca8e2ee7c2a87f51c85c"},
+    {"asset": "corpus_perfil_2_4|lib/importa.importacao.txt", "build_to": "cache", "sha256": "ec86c929161eb13e736f80de1cfd47de6c0771d24310fd4f9ce95e847ccfc5b9"},
+    {"asset": "corpus_perfil_2_4|lib/importa.sem_gatilho.txt", "build_to": "cache", "sha256": "708f78bd9e1fa2df44f4ce53bc932cc93689a7de69b0927d5096c95ce2fd60fd"},
+    {"asset": "corpus_perfil_2_4|lib/importa.sempre.txt", "build_to": "cache", "sha256": "4ea446709b9f47cf5cd58c2a9b4816ab2ab69f7408aeae494718c2ff84426def"},
+    {"asset": "corpus_perfil_2_4|lib/membro.anotacao.txt", "build_to": "cache", "sha256": "fdc1bb0acc081c247c71a353093eea3b073ab0eab48605d0dd6ed5ee28545502"},
+    {"asset": "corpus_perfil_2_4|lib/resumo.txt", "build_to": "source", "sha256": "963935c72f83a2adac9a2496c86876d8740b9cd3062899ca37e3b710c8a6d119"}
+  ],
+  "excluidos": 0,
+  "executavel": false
+}

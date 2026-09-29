@@ -1,0 +1,19 @@
+# `--config alt`: substitui o build.yaml da raiz nos alvos, global_options e
+# triggers (não nas definições de builder, que ficam as do build.yaml).
+targets:
+  $default:
+    builders:
+      corpus_perfil_2_16:sempre:
+        options:
+          origem: alternativa
+      corpus_perfil_2_16:resumo:
+        enabled: false
+
+global_options:
+  corpus_perfil_2_16:importacao:
+    options:
+      global: alternativa
+
+triggers:
+  corpus_perfil_2_16:anotacao:
+    - annotation Outra
