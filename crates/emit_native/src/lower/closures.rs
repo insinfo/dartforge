@@ -1340,6 +1340,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         t
     }
 
+    /// Tear-off genérico sem instanciação (`final f = C.new;`): a assinatura
+    /// é o tipo estático, a função genérica (`<Y0>(Y0) => C<Y0>` na VM), não a
+    /// do construtor com os parâmetros da classe em `dynamic`.
+    pub fn assinatura_generica_do_tearoff(&mut self, t: &Operand, e: ast::ExprId) {
+        if let Some(tipo) = self.ctx.get_type(self.unit_id, e)
+            && matches!(self.ctx.table.get(tipo), dartforge_types::table::Type::Function { type_params, .. } if !type_params.is_empty())
+        {
+            let r = self.receita_de_tipo(tipo);
+            let rti = self.rti_da_receita(&r);
+            self.definir_rti(t.clone(), rti);
+        }
+    }
+
     pub fn tearoff_de_construtor(&mut self, fid: usize, span: Span) -> Operand {
         let alvo = super::simbolo_de(self.ctx, fid);
         let simbolo_ent = format!("{alvo}$tear");
