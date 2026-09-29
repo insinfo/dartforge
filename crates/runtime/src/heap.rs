@@ -1528,11 +1528,15 @@ pub struct EspacoDeObjetos {
     /// Blocos entregues desde a última coleta, por número de campos: a
     /// demanda que a varredura reserva em páginas vazias.
     demanda: Vec<usize>,
-    /// O pico recente de vivos de cada número de campos (decai a cada
-    /// coleta completa): um programa que refaz uma estrutura grande (a lista
-    /// morre e volta) reusa as páginas em vez de devolvê-las e pedi-las de
-    /// novo — cada página nova custa as faltas de página e a formatação.
+    /// O pico recente de blocos ocupados (vivos e mortos numa coleta
+    /// completa) de cada número de campos, que decai a cada coleta completa:
+    /// um programa que refaz uma estrutura grande (a lista morre e volta)
+    /// reusa as páginas em vez de devolvê-las e pedi-las de novo — cada
+    /// página nova custa as faltas de página e a formatação.
     pico: Vec<usize>,
+    /// Algum objeto já ganhou corpo de fora (senão o `Drop` não percorre os
+    /// blocos atrás deles).
+    tem_fora: bool,
 }
 
 impl std::fmt::Debug for EspacoDeObjetos {
@@ -1554,6 +1558,7 @@ impl EspacoDeObjetos {
             lembrados: Vec::new(),
             demanda: vec![0; MAIOR_CLASSE + 1],
             pico: vec![0; MAIOR_CLASSE + 1],
+            tem_fora: false,
         }
     }
 
@@ -1825,6 +1830,9 @@ impl EspacoDeObjetos {
         let mut trechos: Vec<(*mut Cabecalho, *mut Cabecalho, usize)> = Vec::with_capacity(self.paginas.len());
         let mut vivos_da_classe = vec![0usize; classes];
         let mut livres_da_classe = vec![0usize; classes];
+        // Os blocos ocupados (vivos e mortos desta coleta) por classe: o
+        // tamanho que o heap teve neste ciclo.
+        let mut ocupados_da_classe = vec![0usize; classes];
         for p in &self.paginas {
             let n = p.n;
             let (mut cabeca, mut cauda): (*mut Cabecalho, *mut Cabecalho) = (std::ptr::null_mut(), std::ptr::null_mut());
@@ -1842,6 +1850,9 @@ impl EspacoDeObjetos {
                         }
                         JOVEM | VELHO | LEMBRADO => {
                             mortos += 1;
+                            if n <= MAIOR_CLASSE {
+                                ocupados_da_classe[n] += 1;
+                            }
                             Self::soltar_objeto(b, n);
                         }
                         _ => {}
@@ -1863,7 +1874,7 @@ impl EspacoDeObjetos {
             trechos.push((cabeca, cauda, vivos_na_pagina));
         }
         for (n, p) in self.pico.iter_mut().enumerate() {
-            *p = (*p - *p / 8).max(vivos_da_classe[n]);
+            *p = (*p - *p / 8).max(vivos_da_classe[n] + ocupados_da_classe[n]);
         }
         // As páginas vazias que passam da folga vão ao sistema (as últimas
         // primeiro: as listas preferem os endereços baixos).
@@ -1940,7 +1951,7 @@ impl EspacoDeObjetos {
 impl Drop for EspacoDeObjetos {
     fn drop(&mut self) {
         for p in &self.paginas {
-            for j in 0..p.blocos {
+            for j in 0..if self.tem_fora { p.blocos } else { 0 } {
                 let b = p.bloco(j);
                 // SAFETY: bloco da página; os corpos de fora são do alocador
                 // do sistema.
@@ -3388,6 +3399,7 @@ impl Heap {
                 atual
             } else {
                 let c = novo_corpo_de_fora(valores.len());
+                self.objetos.tem_fora = true;
                 (*c).class_id = (*b).class_id;
                 if (*b).flags & FORA != 0 {
                     soltar_corpo_de_fora(atual);
@@ -3826,35 +3838,48 @@ impl Heap {
                         }
                         (*b).estado = MARCADO;
                         live += 1;
-                        // Só os campos que o mapa diz referência.
+                        // Só os campos que o mapa diz referência: o que
+                        // esta coleta não percorre (velho na menor, já
+                        // marcado) nem entra na pilha; o primeiro que falta
+                        // marcar é seguido direto.
                         let c = corpo(b);
-                        let antes = self.pending.len();
-                        self.trabalho_da_marcacao += empilhar_referencias(c, &mut self.pending);
-                        let mut j = antes;
-                        while j < self.pending.len() {
-                            let bits = self.pending[j];
+                        let n = usize::from((*c).n);
+                        self.trabalho_da_marcacao += n;
+                        let campos = campos_de(c);
+                        let mut visitar = |bits: i64, proximo: &mut i64, pilha: &mut Vec<i64>| {
                             if !smi::e_handle(bits) {
-                                self.pending.swap_remove(j);
-                                continue;
+                                return;
                             }
-                            // O objeto que esta coleta não percorre (velho
-                            // na menor, já marcado) nem fica na pilha; o
-                            // primeiro que falta marcar é seguido direto.
                             if e_objeto(bits) {
                                 if !validar {
                                     let e = (*((bits - DESLOCAMENTO_DO_HANDLE) as *const Cabecalho)).estado;
                                     if if menor { e != JOVEM } else { e == MARCADO } {
-                                        self.pending.swap_remove(j);
-                                        continue;
+                                        return;
                                     }
                                 }
-                                if proximo == 0 {
-                                    proximo = bits;
-                                    self.pending.swap_remove(j);
-                                    continue;
+                                if *proximo == 0 {
+                                    *proximo = bits;
+                                    return;
                                 }
                             }
-                            j += 1;
+                            pilha.push(bits);
+                        };
+                        let mut m = (*c).mapa;
+                        while m != 0 {
+                            let i = m.trailing_zeros() as usize;
+                            visitar(*campos.add(i), &mut proximo, &mut self.pending);
+                            m &= m - 1;
+                        }
+                        if n > 32 {
+                            let ext = campos.add(capacidade(n)).cast::<u64>();
+                            for w in 0..palavras_do_mapa(n) {
+                                let mut m = *ext.add(w);
+                                while m != 0 {
+                                    let i = 32 + w * 64 + m.trailing_zeros() as usize;
+                                    visitar(*campos.add(i), &mut proximo, &mut self.pending);
+                                    m &= m - 1;
+                                }
+                            }
                         }
                     }
                     atual = proximo;

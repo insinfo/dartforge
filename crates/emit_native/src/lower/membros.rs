@@ -1702,7 +1702,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// Inicializadores de campo da própria classe, na ordem de declaração.
+    ///
+    /// Os de um mixin (ou de uma superclasse sem construtor) rodam no
+    /// construtor de quem o aplica, mas são código de `cid`: as variáveis de
+    /// tipo deles são as de `cid`, e o `this` é visto como `cid` (o `reader =
+    /// FlowLinkReader<PromotionInfo<Type>>()` do `FlowModelHelper<Type>` do
+    /// analyzer, aplicado a uma classe cujo primeiro parâmetro é outro).
     fn inicializar_campos(&mut self, cid: ClassId) {
+        let salvo = self.enclosing_class.replace(cid);
+        self.inicializar_campos_de(cid);
+        self.enclosing_class = salvo;
+    }
+
+    fn inicializar_campos_de(&mut self, cid: ClassId) {
         let this = self.this_param.clone().expect("construtor tem this");
         let campos: Vec<VariableId> = self.ctx.program.classes[cid.0 as usize].fields.clone();
         for vid in campos {
