@@ -71,6 +71,20 @@ pub enum TipoDependencia {
 pub struct Travado {
     pub tipo: TipoDependencia,
     pub versao: String,
+    /// `description.url` de um pacote `hosted` (o servidor de onde veio).
+    pub servidor: Option<String>,
+}
+
+impl Travado {
+    /// O pacote é o publicado no pub.dev com essa versão — imutável, então a
+    /// versão identifica o código. Um fork (`path`, `git`, outro servidor)
+    /// com a mesma versão não é (DF-BUILD-022).
+    pub fn do_pub_dev(&self) -> bool {
+        self.tipo == TipoDependencia::Hosted
+            && self.servidor.as_deref().is_some_and(|u| {
+                matches!(u.trim_end_matches('/'), "https://pub.dev" | "https://pub.dartlang.org")
+            })
+    }
 }
 
 pub fn ler_lock(texto: &str, origem: &str) -> Result<Vec<(String, Travado)>, String> {
@@ -88,7 +102,8 @@ pub fn ler_lock(texto: &str, origem: &str) -> Result<Vec<(String, Travado)>, Str
             outro => return Err(format!("Unable to determine dependency type:\n{outro:?}")),
         };
         let versao = p["version"].as_str().unwrap_or_default().to_string();
-        v.push((nome.to_string(), Travado { tipo, versao }));
+        let servidor = p["description"]["url"].as_str().map(str::to_string);
+        v.push((nome.to_string(), Travado { tipo, versao, servidor }));
     }
     Ok(v)
 }

@@ -642,7 +642,9 @@ impl Motor {
         saida
     }
 
-    /// O gerador nativo que cobre a fase, se a versão do lock é a imitada.
+    /// O gerador nativo que cobre a fase, se a versão do lock é a imitada e o
+    /// pacote é o publicado no pub.dev (um fork com a mesma versão pode ter
+    /// outra fábrica: vai ao executor, DF-BUILD-022).
     fn nativo_da_fase(&self, fi: usize) -> Option<usize> {
         let f = &self.fases[fi];
         let chave = f
@@ -656,7 +658,7 @@ impl Motor {
                     self.grafo_pacotes
                         .lock
                         .get(*p)
-                        .is_some_and(|t| vs.contains(&t.versao.as_str()))
+                        .is_some_and(|t| t.do_pub_dev() && vs.contains(&t.versao.as_str()))
                 })
         })
     }
