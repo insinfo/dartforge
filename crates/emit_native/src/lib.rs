@@ -525,7 +525,19 @@ mod testes {
             assert!(sa.contains(s), "{s} em {sa:?}");
         }
         assert!(sa.is_subset(&sb), "símbolos de A que sumiram em B: {:?}", sa.difference(&sb).collect::<Vec<_>>());
-        assert_eq!(ia, ia2, "o mesmo programa em outro diretório dá o mesmo IR");
+        // O mesmo programa em outro diretório dá o mesmo IR, salvo as
+        // constantes de dados (`@df.arr.*`): a tabela da RTI leva a URI
+        // `file:` da biblioteca de cada classe (`dart:mirrors`), que depende
+        // do diretório por definição. Essas linhas só mudam de conteúdo, não
+        // de tipo (`[N x i64]`).
+        let (la, la2): (Vec<_>, Vec<_>) = (ia.lines().collect(), ia2.lines().collect());
+        assert_eq!(la.len(), la2.len(), "o mesmo programa em outro diretório dá o mesmo IR");
+        for (x, y) in la.iter().zip(&la2) {
+            if x != y {
+                let tipo = |l: &str| l.split(']').next().map(str::to_string);
+                assert!(x.starts_with("@df.arr.") && tipo(x) == tipo(y), "o mesmo programa em outro diretório dá o mesmo IR:\n{x}\n{y}");
+            }
+        }
     }
 
     /// P6 e a regra de custo zero: só o programa que usa `dart:async` compila
@@ -558,8 +570,10 @@ mod testes {
         let assincrono = emitir_fonte("Future<int> f() async { await null; return 2; }\nFuture<void> main() async { print(await f()); }\n");
         assert!(assincrono.texto.contains("call void @dartforge_laco_de_eventos(ptr @dartforge_chamar_dart0)"));
         assert!(assincrono.texto.contains("define i64 @df.main$2edart..f$async$q"), "o corpo da máquina de estados");
+        // O `dart:async` vem do módulo do SDK em cache (`sdk_modulo.rs`): o IR
+        // do programa só o chama, não define as funções dele (`bytes_sdk`
+        // pode ser 0).
         assert!(assincrono.texto.contains("@df.dart$3aasync.._asyncAwait("));
-        assert!(assincrono.bytes_sdk > 0);
     }
 
     #[test]
