@@ -2069,6 +2069,15 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     mil entradas, cujo `_data` tem 1 milhão de palavras). Um objeto grande que não é string nem
     `INSTANCIA` (onde `mapa` não tem uso, §2.3) guarda em `mapa` as palavras do corpo
     (`EspacoDeObjetos::alocar`); a string grande continua pela região.
+65. **Memória do espaço** (medido e corrigido em `NATIVO-PLANO.md` §14). As páginas de 64 KiB
+    saem de pedaços de 2 MiB reservados do sistema em todas as plataformas (`VirtualAlloc`
+    reserva/confirma no Windows, `mmap` no Unix) — fora do Linux eram `alloc_zeroed`, que no
+    Windows custava 128 KiB residentes por página. A região grande de um jovem morto sai já na
+    coleta menor (§2.8 dizia "na varredura"; a completa só a achava depois de um ciclo inteiro
+    sem contar para gatilho nenhum), para um cache com teto de 4 MiB. As páginas soltas voltam
+    ao sistema salvo 32 sujas (o `gc_free_pages` da Julia). Um handle velho para uma região já
+    solta dá "handle além da tabela" com `validar_handles` (antes, "já coletado"), como já
+    acontecia depois da completa.
 
 ---
 
