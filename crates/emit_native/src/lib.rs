@@ -151,8 +151,15 @@ pub fn sdk_do_dart() -> Result<PathBuf, String> {
 
 /// [`emitir_ir`] (o nome fica para quem já o chamava; o SDK vem sempre da
 /// fonte, docs/NATIVO-ESPACO-UNIFICADO.md §4.7).
+///
+/// Literais como objetos estáticos (§2.11) só na produção (`optimize`), que
+/// é uma imagem só. No desenvolvimento o SDK mora na DLL, com os estáticos
+/// dela: um literal estático no executável seria outro objeto que o igual da
+/// DLL (`identical('a'.substring(1, 1), '')` dava falso). Sem estáticos, o
+/// literal do programa é internado no heap e canonicalizado contra os
+/// estáticos da DLL, como no JIT.
 pub fn emitir_ir_com(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, String> {
-    emitir_ir_interno(entrada, options, None, None, true)
+    emitir_ir_interno(entrada, options, None, None, options.optimize)
 }
 
 /// [`emitir_ir`] de uma geração nova de um programa em execução (o hot
