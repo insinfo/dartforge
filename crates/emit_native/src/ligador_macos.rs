@@ -445,6 +445,7 @@ pub const BIBLIOTECAS_DO_SISTEMA: &[BibliotecaDoSistema] = &[
             "_CFLocaleCopyCurrent",
             "_CFLocaleCopyPreferredLanguages",
             "_CFLocaleGetIdentifier",
+            "_CFMachPortCreateRunLoopSource",
             "_CFNumberGetValue",
             "_CFRelease",
             "_CFRetain",
