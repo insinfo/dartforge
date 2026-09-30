@@ -19,7 +19,7 @@ fn main() {
     let out_dir = raiz.join("target/native_corpus");
     std::fs::create_dir_all(&out_dir).expect("criar target/native_corpus");
 
-    let mut programas = listar_programas(&corpus_dir, filtro.as_deref());
+    let programas = listar_programas(&corpus_dir, filtro.as_deref());
     if programas.is_empty() {
         eprintln!("Nenhum programa encontrado em {}", corpus_dir.display());
         std::process::exit(1);
@@ -118,6 +118,9 @@ fn main() {
             }
             if !match_code {
                 println!("  --- EXIT CODE DIFF: dart={} nativo={} ---", dart_code, nat_code);
+            }
+            if !dart_stderr.is_empty() {
+                println!("  [STDERR DART]:\n{}", dart_stderr.trim_end());
             }
             if !nat_stderr.is_empty() {
                 println!("  [STDERR]:\n{}", nat_stderr.trim_end());
