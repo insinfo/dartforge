@@ -116,21 +116,21 @@ jobs:
           fi
           echo "DIST=$dist" >> "$GITHUB_ENV"
           echo "RAIZ=$raiz" >> "$GITHUB_ENV"
-      - name: Compactar (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $zip = Join-Path $env:RAIZ "$(Split-Path $env:DIST -Leaf).zip"
-          Compress-Archive -Path $env:DIST -DestinationPath $zip
-          "ARQUIVO=$zip" >> $env:GITHUB_ENV
-      - name: Compactar (Linux e macOS)
-        if: runner.os != 'Windows'
+      # No mesmo shell do passo anterior: os caminhos gravados por ele são do
+      # bash (/tmp/... no Windows), que o pwsh não resolve.
+      - name: Compactar (.zip no Windows, .tar.gz nos outros)
         shell: bash
         run: |
           set -euo pipefail
-          arq="$RAIZ/$(basename "$DIST").tar.gz"
-          tar -czf "$arq" -C "$RAIZ" "$(basename "$DIST")"
-          echo "ARQUIVO=$arq" >> "$GITHUB_ENV"
+          nome=$(basename "$DIST")
+          cd "$RAIZ"
+          if [ "$RUNNER_OS" = Windows ]; then
+            7z a -tzip -bso0 "$nome.zip" "$nome"
+            echo "ARQUIVO=$RAIZ/$nome.zip" >> "$GITHUB_ENV"
+          else
+            tar -czf "$nome.tar.gz" "$nome"
+            echo "ARQUIVO=$RAIZ/$nome.tar.gz" >> "$GITHUB_ENV"
+          fi
       - name: Publicar no release
         shell: bash
         env:
