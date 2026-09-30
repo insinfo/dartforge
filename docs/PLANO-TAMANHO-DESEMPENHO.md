@@ -148,6 +148,57 @@ Depois disso:
   só para seletores chamados de forma dinâmica.
 - **Deduplicação de stubs idênticos:** o equivalente do `DedupInstructions` do Dart.
 
+### Feito: tabelas montadas na ligação (2026-09-30)
+
+A especificação é `NATIVO-PODA-DE-TABELAS.md`. Resumo do que entrou:
+
+- **SDK sem tabelas.** O SDK de produção não define mais as tabelas de métodos. Cada biblioteca
+  grava um resumo (`<lib>.poda`) junto do bitcode em cache.
+- **Ponto fixo na ligação.** O `poda::montar` roda um ponto fixo por seletor sobre os resumos e o
+  IR do programa, e define no módulo do programa só os pares vivos.
+- **Formas sob demanda.** As formas de entrada saíram de graça: cada uma é um par próprio, com o
+  seu seletor.
+- **Onde vale.** Só no `aot --optimize`. O JIT, a recarga e a DLL de desenvolvimento continuam
+  com as tabelas inteiras.
+
+Medidas numa cópia do `HEAD` `0ae614d8` ("antes") e na mesma cópia com a mudança ("depois"),
+em bytes:
+
+| Programa | Antes | Depois | Dart 3.6.2 `compile exe` |
+|---|---:|---:|---:|
+| hello | 10 711 552 | 3 181 568 (−70%) | 5 797 376 |
+| t0 (`map`/`join`) | 10 713 088 | 3 183 616 (−70%) | — |
+| `bench/http/servidor.dart` | 12 075 520 | 4 759 552 (−61%) | 6 108 160 |
+| `bench/desempenho/json.dart` | 10 774 016 | 3 522 560 (−67%) | — |
+| `bench/simd/bin/blend.dart` | 10 731 520 | 3 227 648 (−70%) | — |
+
+- **Pares vivos no hello:** 3 111 de 50 066, em 158 de 662 tabelas. O `.text` cai de 9,5 MB
+  para 2,6 MB: 1,79 MB de Dart (o `dart:core` fica com 0,64 MB), 0,68 MB de Rust e 0,14 MB de
+  C.
+- **Tempo da montagem:** 50–160 ms por programa.
+- **Tempo de ligação (cache de objeto quente):**
+  - antes, 35–66 s com a máquina livre e 78–97 s com a máquina ocupada;
+  - depois, 11–22 s nas mesmas condições.
+
+  É o LTO que encolhe.
+- **Chave de comparação:** com `DARTFORGE_SEM_PODA_DE_TABELAS=1`, o `corpus/nativo/81` volta a
+  10,8 MB, e todas as formas dos membros não usados reaparecem no mapa.
+
+Ferramentas, em `tools/tamanho/`:
+
+- `quebra.py` quebra o mapa da ligação (`DARTFORGE_MAPA_DA_LIGACAO=1`) por biblioteca.
+- `por-que.py` segue o relatório `DARTFORGE_POR_QUE=<arquivo>`: a cadeia de causas de um
+  símbolo ("quem puxou isto?") e os bytes por seletor que puxou.
+
+O `alcance.py` da pesquisa virou o próprio `poda.rs`.
+
+O que ficou para depois está em `NATIVO-PODA-DE-TABELAS.md` §6:
+
+- a restrição pelo tipo do receptor;
+- os ajudantes `_dartforge*` como raízes por biblioteca.
+
+Os dois são o que mais pesa agora: `toString` puxa 187 KB do hello.
+
 ## 2. Desempenho
 
 ### Medida
@@ -313,14 +364,14 @@ conferência da tabela de cids (`dartforge_registrar_cids`).
 1. **Ganhos rápidos de tamanho:** feito em 2026-09-30 (§1, «Feito»). Entraram `panic=abort`,
    o `@df.area` enxuto, o `safeicf` e o `optsize`; o `opt-level="s"` foi rejeitado.
 2. **Propostas 1 a 4 de desempenho,** baratas e independentes.
-3. **Tabelas de métodos na ligação** (tamanho), junto da tabela de despacho global (proposta 6).
+3. **Tabelas de métodos na ligação** (tamanho): feito em 2026-09-30 (§1, «Feito: tabelas montadas
+   na ligação»). A tabela de despacho global (proposta 6) continua aberta.
 4. **Fases B → C → D** dos valores no espaço de objetos: especificadas juntas em
    `NATIVO-ESPACO-UNIFICADO.md` (2026-09-30), implementadas em paralelo por pacote e medidas na
    integração (`NATIVO-PLANO.md` §12).
 
-As ferramentas de medida (`alcance.py`, `quebra.py`, religação por variantes, amostrador com
-pilhas) ficaram no scratchpad da sessão de 2026-09-29. Vale trazer para `tools/` as que forem
-reusadas.
+As ferramentas de medida reusáveis estão em `tools/tamanho/`: `quebra.py` e `por-que.py`. O
+`alcance.py` da pesquisa virou `crates/emit_native/src/poda.rs`.
 
 ## 4. O que aproveitar do scriptc (Vercel Labs)
 
@@ -336,6 +387,8 @@ que já está neste plano não se repete aqui. O que ele acrescenta:
      `$c`/`$tc`/`$g`/`$tearm` deles (conferido pelo mapa do ligador ou por `llvm-nm`), e o programa
      roda igual à VM.
    - Sem esse caso, o teste só provaria a eliminação de classes inteiras, que já existe.
+   - **Feito (2026-09-30):** `corpus/nativo/81_poda_de_tabelas.dart` e o teste
+     `sdk_modulo::testes::poda_tira_membros_nao_usados`, que confere pelo mapa da ligação.
 2. **Marcador de ABI na ligação** (`packages/compiler/src/backend/runtime-abi.ts`). O objeto do
    programa deixa `scr_runtime_abi_v4` indefinido, e só o runtime compatível o define: a mistura
    falha na ligação, não em tempo de execução.
@@ -357,6 +410,10 @@ que já está neste plano não se repete aqui. O que ele acrescenta:
    alcance (`Causa`: raiz, função, variável, classe). Estender isso ao SDK nativo e às tabelas
    responde a perguntas como "quem puxou este método?" e "por que TLS entrou no hello?".
    - Primeiro passo: trazer para `tools/` o `alcance.py` e o `quebra.py` da pesquisa.
+   - **Feito para as tabelas (2026-09-30):** `DARTFORGE_POR_QUE=<arquivo>` grava a causa de cada
+     símbolo vivo, e `tools/tamanho/por-que.py` segue a cadeia (`NATIVO-PODA-DE-TABELAS.md`
+     §3.10). O runtime Rust fica de fora do relatório; o que ele mostra é qual função Dart cita
+     o native.
 5. **Inventário de compatibilidade ligado a evidência.** O scriptc separa suporte comprovado,
    parcial, recusa explícita e não revisado, e não trata "não está no registro" como prova de
    ausência. Aplicável por eixo (AOT, JIT, JS dev, JS produção, plataforma) sobre o diferencial

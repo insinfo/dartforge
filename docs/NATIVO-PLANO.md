@@ -3355,8 +3355,32 @@ já tem cópias com o `chunk` num local, §10.3).
    `String`), lendo `bytes[i]` de um `Uint8List` local em vez de
    `_getCharUnsafe(i)`.
 
-O que fica de fora: a covariância do `[]=` (RTI, outra frente), o `optsize` do
-SDK de produção (§1 de `PLANO-TAMANHO-DESEMPENHO.md`) e o `encode`.
+Acrescentados depois do primeiro perfil da implementação (o mesmo método):
+
+7. **Memória rápida do `is`** (`runtime/src/tipos.rs`). Com a sonda barata, as
+   duas conferências de covariância do `[]=$c` (`dartforge_rti_e` e
+   `Universo::e_topo`) passaram a 11% do `Map<int,int>`. Na frente do universo
+   entra uma tabela de 256 vagas `[chave do valor, t, resposta]` num estático de
+   thread sem destrutor: a mesma chave e as mesmas respostas da `memo_e`,
+   esquecida junto com ela (`esquecer_memorias`). O acerto não faz o
+   `RTI.with`, o `borrow` nem o `teste_sem_o_valor`.
+8. **A escrita em UTF-8 do `encode`** (sobreposição nova `sdk_nativo/convert/json.dart`,
+   a 30ª, igual à do SDK fora dois métodos). O `writeAsciiString` e o
+   `writeStringSlice` do `_JsonUtf8Stringifier` gravam o ASCII direto num
+   `Uint8List` local, sem o `writeByte` virtual por byte; o bloco cheio vai ao
+   `addChunk` no mesmo byte de antes, e o resto passa pelos `write*CharCode`.
+9. **O `_data` novo sem o tipo reificado** (`_dfNovosDados`): o `new
+   List.filled(n, null)` dos `_init` sobrepostos e do lote do JSON avaliava o
+   `List<Object?>` a cada tabela. A lista nunca sai da tabela (a VM também a cria
+   sem argumentos de tipo). A lista do JSON sai pronta do runtime
+   (`DartForge_json_fechar_lista`) com o tipo do `[]` modelo do listener, sem
+   o `[]` por contêiner; e o `getString` do parser de UTF-8 copia o ASCII em
+   linha.
+
+O que fica de fora: o `optsize` do SDK de produção (§1 de
+`PLANO-TAMANHO-DESEMPENHO.md`), o `jsonEncode` para `String`, o
+`double.toString` (o `core::fmt` do runtime é ~7% do `utf8_bytes`) e o
+`num.clamp` do próprio `somaValor` do benchmark (~13% do `decode_medio`).
 
 ### 13.3 Como validar
 
