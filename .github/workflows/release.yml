@@ -1,0 +1,138 @@
+# Release: uma tag `v*` publica a distribuição do dartforge (`dartforge
+# empacotar`) para Windows x64, Linux x64 e macOS arm64 como um release do
+# GitHub. Cada pacote traz o executável, o runtime, o SDK do Dart (lib/), o
+# ligador e o sysroot: quem baixa não instala Rust, LLVM, o SDK do Dart,
+# MSVC/Windows SDK nem Xcode (docs/NATIVO.md §1.2).
+#
+# Antes de publicar, cada job confere a distribuição num ambiente limpo:
+# compila e roda um programa em AOT de desenvolvimento e de produção.
+# Tag com hífen (v0.1.0-alpha.1) vira pré-release.
+name: Release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: tag já existente a (re)publicar
+        required: true
+permissions:
+  contents: write
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: '0'
+  TAG: ${{ inputs.tag || github.ref_name }}
+jobs:
+  criar:
+    name: criar o release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Release (pré-release se a tag tem hífen)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then exit 0; fi
+          pre=()
+          case "$TAG" in *-*) pre=(--prerelease) ;; esac
+          gh release create "$TAG" "${pre[@]}" --verify-tag --title "DartForge $TAG" --notes-file - <<'EOF'
+          Experimental build of DartForge, a Dart → JavaScript and native (LLVM) compiler written in Rust.
+
+          Each archive is a self-contained distribution: `bin/dartforge` plus the runtime, the Dart SDK
+          libraries, the linker and the system stubs. No Rust, LLVM, Dart SDK, MSVC/Windows SDK or
+          Xcode is needed on the machine that uses it.
+
+              dartforge aot main.dart main --optimize     # native executable
+              dartforge run main.dart                      # JIT, with hot reload
+              dartforge compile-js main.dart -o dist       # JavaScript (DDC contract)
+
+          Status and known gaps: see ESTADO.md and docs/PENDENCIAS.md in the repository.
+          EOF
+
+  pacote:
+    name: pacote (${{ matrix.nome }})
+    needs: criar
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            nome: windows-x64
+          - os: ubuntu-latest
+            nome: linux-x64
+          - os: macos-latest
+            nome: macos-arm64
+    env:
+      # O C que o `cc` compila sai com o mínimo do alvo arm64 (ci.yml).
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ env.TAG }}
+      - uses: ./.github/actions/dart
+      - if: runner.os == 'Windows'
+        uses: ./.github/actions/llvm-windows
+        with:
+          desenvolvimento: 'true'
+      # Linux e macOS: o pacote oficial do LLVM, ligado estático (o executável
+      # publicado não depende de uma libLLVM instalada).
+      - if: runner.os != 'Windows'
+        uses: ./.github/actions/llvm-unix
+      - name: Rust fixado (rust-toolchain.toml)
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - name: Compilar dartforge (nativo, jit)
+        run: cargo build --locked --release -p dartforge-cli --features nativo,jit
+      - name: Empacotar e conferir num ambiente limpo
+        shell: bash
+        env:
+          NOME: ${{ matrix.nome }}
+        run: |
+          set -euo pipefail
+          raiz=$(mktemp -d)
+          dist="$raiz/dartforge-$TAG-$NOME"
+          exe=dartforge; [ "$RUNNER_OS" = Windows ] && exe=dartforge.exe
+          "./target/release/$exe" empacotar "$dist"
+          du -sh "$dist"
+          d=$(mktemp -d)
+          printf "void main(List<String> a) {\n  print('oi \${a.join(\",\")}');\n  print([1, 2, 3].map((x) => x * x).toList());\n}\n" > "$d/main.dart"
+          esperado=$'oi x,y\n[1, 4, 9]'
+          cd "$d"
+          if [ "$RUNNER_OS" = Windows ]; then
+            "$dist/bin/$exe" aot main.dart dev.exe
+            [ "$(./dev.exe x y | tr -d '\r')" = "$esperado" ]
+            "$dist/bin/$exe" aot main.dart prod.exe --optimize
+            [ "$(./prod.exe x y | tr -d '\r')" = "$esperado" ]
+          else
+            env -i PATH=/usr/bin:/bin HOME="$d/home" "$dist/bin/$exe" aot main.dart dev
+            [ "$(./dev x y)" = "$esperado" ]
+            env -i PATH=/usr/bin:/bin HOME="$d/home" "$dist/bin/$exe" aot main.dart prod --optimize
+            [ "$(./prod x y)" = "$esperado" ]
+          fi
+          echo "DIST=$dist" >> "$GITHUB_ENV"
+          echo "RAIZ=$raiz" >> "$GITHUB_ENV"
+      - name: Compactar (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RAIZ "$(Split-Path $env:DIST -Leaf).zip"
+          Compress-Archive -Path $env:DIST -DestinationPath $zip
+          "ARQUIVO=$zip" >> $env:GITHUB_ENV
+      - name: Compactar (Linux e macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          arq="$RAIZ/$(basename "$DIST").tar.gz"
+          tar -czf "$arq" -C "$RAIZ" "$(basename "$DIST")"
+          echo "ARQUIVO=$arq" >> "$GITHUB_ENV"
+      - name: Publicar no release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" "$ARQUIVO" --clobber
