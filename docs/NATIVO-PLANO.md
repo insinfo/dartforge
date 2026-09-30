@@ -3153,6 +3153,13 @@ e do emissor, o módulo `heap` com `DARTFORGE_GC_VERIFICAR=1`, o corpus nativo
 a saída da VM e a recarga (`crates/cli/tests/reload_estado.rs`,
 `cli_preserva_o_estado_do_espaco_unificado_em_tres_recargas`).
 
+Integrado em 2026-09-30, tudo verde: `corpus/nativo` (92 programas) no AOT, no
+JIT e no `--jit-aot` (JIT × AOT idênticos), com `--gc-stress --limite-exec 60`
+sem e com `DARTFORGE_GC_VERIFICAR=1`, e no `aot --optimize` contra a VM;
+`corpus/js` no AOT (235); os testes do runtime, do emissor, do JIT e da CLI,
+inclusive os `#[ignore]` de fixture, recarga e JIT, e `cargo test --workspace`.
+O que a integração corrigiu está em §4.10 da especificação (itens 55–64).
+
 Os programas novos (`corpus/nativo`):
 
 * `90_textos_um_e_dois_bytes`, `91_textos_grandes_e_interpolacao`,
@@ -3179,19 +3186,71 @@ que são estáticos — o 93 confere só esses); `int.hashCode` não é o valor
 (`7.hashCode` é 81207), ao contrário do que §2.10 da especificação supunha;
 `'ß'.toUpperCase()` fica `'ß'`; e o `utf8.decode` tira só o BOM do começo.
 
-### 12.2 Medidas
+### 12.2 Medidas (integração, 2026-09-30)
 
-A medir na integração, pelo método de §9.10 (execuções alternadas DartForge ×
-Dart AOT, mínimo e mediana, razão por par). Antes = o `main` do começo da
-integração; depois = o do fim.
+Método de §9.10: execuções alternadas dos três executáveis (`aot --optimize`
+do `main` antes do espaço unificado, `6f6d14bf`, compilado à parte; o de
+depois; e `dart compile exe` do SDK 3.6.2), 5 rodadas de cada `bench/desempenho`
+(6 medidas por rodada), mínimo em ms; razão = mínimo / mínimo do Dart AOT.
+Máquina Windows 11 de 2 núcleos com ruído, sem builds rodando. As saídas dos
+benchmarks são iguais às da VM nos três. A estimativa é a de
+`NATIVO-ESPACO-UNIFICADO.md` §5.4 (não medida).
 
-| Medida | Antes | Estimativa (não medida) | Depois | Dart AOT |
-|---|---:|---|---:|---:|
-| `json.dart` `decode_medio` | 394 ms | 2–3× o AOT | a medir | 54,6 ms |
-| `json.dart` `encode_medio` | 149 ms | 1,5–2× | a medir | 57,3 ms |
-| `json.dart` `decode_grande` | 509 ms | 1,5–2,5× | a medir | 127 ms |
-| `textos/construir` | 159 ms | 1,0–1,3× | a medir | 81 ms |
-| `textos/hashes` | 63 ms | ≈ 1,2× | a medir | 38 ms |
-| `int.toString` × 1 milhão | 140 ms | 40–60 ms | a medir | 20 ms |
-| servidor HTTP, CPU/req, 1 conexão | 180 µs | 140–155 µs | a medir | 102 µs |
-| string `"abc"` em memória | ≈ 90 B | 32 B | 32 B (layout) | 32 B |
+| Medida | Antes | Depois | Dart AOT | Depois/Dart | Estimativa |
+|---|---:|---:|---:|---:|---|
+| `json` `decode_pequeno` | 78,8 | 63,9 | 20,1 | 3,2× | — |
+| `json` `decode_medio` | 116,3 | 89,2 | 27,9 | 3,2× | 2–3× |
+| `json` `decode_grande` | 297,3 | 172,0 | 77,8 | 2,2× | 1,5–2,5× |
+| `json` `encode_medio` | 96,7 | 49,8 | 30,2 | 1,65× | 1,5–2× |
+| `json` `encode_grande` | 211,2 | 106,5 | 71,1 | 1,5× | — |
+| `json` `utf8_bytes` | 207,4 | 101,2 | 31,0 | 3,3× | — |
+| `json` `reviver` | 88,4 | 58,8 | 20,3 | 2,9× | — |
+| `textos/construir` | 108,5 | 70,0 | 49,1 | 1,43× | 1,0–1,3× |
+| `textos/hashes` | 45,6 | 33,9 | 27,7 | 1,22× | ≈ 1,2× |
+| `int.toString` × 1 milhão | 88,8 | 37,4 | 11,5 | 3,3× | 40–60 ms |
+| `codeUnitAt` de campo, 1,5 milhão | 1,3 | 1,0 | 0,5 | 2,1× | ≈ 3,5 ms (outra máquina) |
+| `colecoes/lista_add` | 20,5 | 6,7 | 8,3 | 0,81× | — |
+| `colecoes/mapa` (`Map<int,int>`) | 87,5 | 113,3 | 41,7 | 2,7× | — |
+| `colecoes/conjunto_str` | 45,6 | 35,1 | 16,2 | 2,2× | — |
+| `objetos_em_colecoes/lista_objetos` | 41,8 | 21,0 | 11,5 | 1,8× | — |
+| `objetos_em_colecoes/mapa_int_objeto` | 57,3 | 62,9 | 19,3 | 3,3× | — |
+| `objetos_em_colecoes/mapa_str_objeto` | 33,4 | 21,6 | 8,5 | 2,6× | — |
+| `objetos_em_colecoes/ordenar_objetos` | 196,8 | 95,4 | 45,6 | 2,1× | — |
+| `objetos_escapam/arvores` | 47,9 | 47,1 | 26,4 | 1,8× | — |
+| `chamadas/closures` | 31,0 | 24,9 | 16,7 | 1,5× | — |
+| `blend` escalar / SIMD 3.6 / SIMD 3.14 (µs) | 34,7 / 20,3 / 20,9 | 33,2 / 19,4 / 20,0 | 58,0 / 6 722 / 11 661 | — | — |
+| servidor HTTP, CPU/req, 1 conexão (µs, mediana de 3) | 150,7 | 139,1 | 75,3 | 1,85× | 140–155 µs |
+| servidor HTTP, req/s, 64 conexões | 6 206 | 6 731 | 9 104 | — | — |
+| servidor, RSS em repouso / pico (MB) | 16,2 / 23,2 | 19,3 / 28,1 | 17,0 / 27,7 | — | — |
+| `hello` (bytes) | 10 786 816 | 10 711 552 | 5 797 376 | 1,85× | — |
+| `bench/http/servidor.dart` (bytes) | 12 213 760 | 12 075 520 | 6 108 160 | 1,98× | — |
+| string `"abc"` em memória | ≈ 90 B | 32 B (layout) | 32 B | 1× | 32 B |
+
+Sem mudança (dentro do ruído): `crivo`, `lista_leitura`, `lista_sort`,
+`objetos_temporarios`, `numerico`, `fib`, `formas`, `tipados`,
+`lista_ligada`. O laço SIMD do `blend` continua sem chamada nas voltas rápidas
+(o assembly de `blendSimd314`/`blendSimd36`/`blendEscalar` é o de
+`SIMD-NATIVO.md` §8.4).
+
+Os dois pioras são os mapas de chave `int` (`mapa`, `mapa_int_objeto`): o
+`int.hashCode` passou a ser o da VM (`HashIntegerOp`; o 95 o fixa), e as
+chaves sequenciais deixaram de cair em posições vizinhas do `_index` —
+acesso aleatório, que o Dart AOT paga também, mas com menos trabalho por
+sonda. O perfil do `Map<int,int>` depois: 38% em `nativos_hash::sondar` (as
+faltas de cache da sonda), ~20% nos acessos do runtime ao `_index` e ao
+`_data` (`tipada`, `lista_elementos`, `palavras`) e o resto no `_Map` em Dart.
+
+Números da primeira medição da integração, antes da correção de
+`bloco_vivo` (§4.10 item 63 da especificação), para registro: `mapa` 254,8,
+`conjunto_str` 99,7, `textos/hashes` 85,1, `construir` 120,3 ms — o runtime
+passava 65% do tempo conferindo handles no mapa de páginas.
+
+**Gatilhos (P0b passo 10).** `LIMITE_JOVEM` remedido com
+`DARTFORGE_GC_JOVEM_KB` em 1, 2, 4 e 8 MiB (3 rodadas alternadas de
+`objetos_escapam`, `objetos_temporarios`, `textos`, `json`,
+`objetos_em_colecoes`): nenhum valor ganha em todos. 4 e 8 MiB melhoram
+`arvores` e `mapa_int_objeto` (5–10%) e pioram o JSON pequeno e médio
+(`decode_*`, `encode_*`, 5–20%); 1 MiB piora `arvores` 15%. Fica em 2 MiB.
+`CONTAGEM_JOVEM` (256 Ki alocações) não dispara mais antes de
+`LIMITE_JOVEM`: todo bloco tem ao menos 24 bytes, e 256 Ki × 24 B = 6 MiB >
+2 MiB. Fica como teto de segurança.

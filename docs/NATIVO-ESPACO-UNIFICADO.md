@@ -2052,6 +2052,23 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     coletas (`TRABALHO_POR_MENOR_NO_ESTRESSE`), e a verificação (`DARTFORGE_GC_VERIFICAR`)
     com o mesmo espaçamento; a menor continua antes de toda alocação. A mensagem do
     verificador passou a dar cid, estado, flags e posição do pai.
+63. **Handle sem conferência no mapa de páginas (desvio de §3.2, "pânico N4").** Medido, o
+    runtime passava 65% do tempo de `Set<String>.add` em `bloco_vivo`/`bloco_de` (o mapa de
+    páginas, a `Pagina`, o índice do bloco) a cada leitura de cabeçalho. Agora a conferência
+    completa, com as mensagens N4 de handle inválido, vale com `validar_handles`: no
+    `--gc-stress`, com `DARTFORGE_GC_VERIFICAR=1`, nos testes (`cfg(test)`/`debug_assertions`)
+    ou com `DARTFORGE_VALIDAR_HANDLES=1`. Fora disso um handle de objeto é o bloco (a
+    invariante do código gerado e do runtime) e só o estado `LIVRE` é conferido, na leitura do
+    cabeçalho que se faz de todo modo ("já coletado" continua); um escalar usado como handle
+    derruba o processo por acesso inválido em vez da mensagem. `Heap::bloco_do_espaco` é o
+    `objetos.bloco_de` dos dois modos (nunca um estático); `bloco_vivo` é `inline(always)`
+    com o caminho conferido `#[cold]`. Efeito (60–100 rodadas): `Set<String>` 59→38 ms,
+    `Map<int,int>` 185→118 ms, `textos/hashes` 64→34 ms, `construir` 115→72 ms.
+64. **Palavras do objeto grande em `mapa`.** O `n` satura em `u16::MAX` (corpo acima de 512 KiB)
+    e `palavras_do_corpo` ia ao mapa de páginas a cada leitura (13% do `Map<int,int>` de 500
+    mil entradas, cujo `_data` tem 1 milhão de palavras). Um objeto grande que não é string nem
+    `INSTANCIA` (onde `mapa` não tem uso, §2.3) guarda em `mapa` as palavras do corpo
+    (`EspacoDeObjetos::alocar`); a string grande continua pela região.
 
 ---
 

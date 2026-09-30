@@ -194,6 +194,40 @@ do AOT com `--optimize`, com execuções alternadas e a mediana da razão paread
   ruído, o que concorda com o −2–3% estimado.
 - **`CONTAGEM_JOVEM` não foi revista:** a medida foi interrompida.
 
+### Feito: espaço unificado, fases B–D (integração, 2026-09-30)
+
+Especificação em `NATIVO-ESPACO-UNIFICADO.md`; a tabela completa está em
+`NATIVO-PLANO.md` §12.2. As medidas são do AOT com `--optimize`, com 5 rodadas
+alternadas do `main` antes (`6f6d14bf`), do de depois e do Dart AOT 3.6.2, no
+mínimo em ms. Saídas iguais às da VM.
+
+| Medida | Antes | Depois | Dart AOT |
+|---|---:|---:|---:|
+| JSON `decode_medio` | 116,3 | 89,2 | 27,9 |
+| JSON `decode_grande` | 297,3 | 172,0 | 77,8 |
+| JSON `encode_medio` | 96,7 | 49,8 | 30,2 |
+| JSON `utf8_bytes` | 207,4 | 101,2 | 31,0 |
+| `textos/construir` / `hashes` | 108,5 / 45,6 | 70,0 / 33,9 | 49,1 / 27,7 |
+| `int.toString` × 1 milhão | 88,8 | 37,4 | 11,5 |
+| `Map<int,int>` (500 mil) | 87,5 | 113,3 | 41,7 |
+| HTTP, CPU/req, 1 conexão (µs, mediana de 3) | 150,7 | 139,1 | 75,3 |
+| HTTP, RSS em repouso (MB) | 16,2 | 19,3 | 17,0 |
+| `hello` / servidor (bytes) | 10 786 816 / 12 213 760 | 10 711 552 / 12 075 520 | 5 797 376 / 6 108 160 |
+
+- **Ganhos:** JSON de 1,3× a 2× mais rápido; o `encode` chega a 1,5–1,9× do Dart AOT. Textos
+  ficam 1,2–1,4× o Dart AOT, e `int.toString` 2,4× mais rápido que antes.
+- **Pioras:** os mapas de chave `int`. O `int.hashCode` passou a ser o da VM, que o programa 95 fixa
+  (`7.hashCode == 81207`), e a chave sequencial deixou de cair em posição vizinha do `_index`.
+  O HTTP melhora 8% em CPU/req; a memória em repouso sobe 3 MB (89 classes de tamanho).
+- **O que a integração achou medindo:** 65% do runtime ia na conferência de handles no mapa de
+  páginas (`bloco_vivo`). Ela passou a valer só no `--gc-stress`, na verificação e nos testes
+  (item 63 de §4.10 da especificação).
+- **Próximos alvos:**
+  - o caminho de `_Map`/`_Set` com chave `int`: sonda mais barata e menos acessos ao `_index`/`_data`
+    por operação;
+  - o `decode` do JSON, que ainda está a 2,2–3,2× do Dart AOT;
+  - a RSS das classes médias pouco usadas.
+
 ### Causa raiz
 
 Os objetos das classes do programa já seguem o desenho da VM do Dart:
