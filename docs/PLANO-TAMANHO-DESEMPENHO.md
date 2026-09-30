@@ -203,3 +203,60 @@ esses custos somam cerca de 55–60% do JSON e 17–20% da CPU do servidor.
 As ferramentas de medida (`alcance.py`, `quebra.py`, religação por variantes, amostrador com
 pilhas) ficaram no scratchpad da sessão de 2026-09-29. Vale trazer para `tools/` as que forem
 reusadas.
+
+## 4. O que aproveitar do scriptc (Vercel Labs)
+
+Conferido em `E:\references\scriptc` (revisão `0d9d946`), que compila TypeScript para C/LLVM com
+runtime nativo próprio em C, contagem de referências e ilha QuickJS opcional (`--dynamic`). O
+que já está neste plano não se repete aqui. O que ele acrescenta:
+
+1. **Teste de ausência de código** (`tests/harness/deadstrip.test.ts`). Confere que corpo, wrapper
+   assíncrono, instância genérica e entrada de vtable de algo inalcançável **não aparecem** no
+   artefato, e que os mesmos construtos, quando alcançados, dão os mesmos diagnósticos.
+   - Adaptar para o DartForge junto com as tabelas montadas na ligação. O caso é uma classe
+     **instanciada** com métodos nunca chamados: o executável não pode conter nem o corpo nem os
+     `$c`/`$tc`/`$g`/`$tearm` deles (conferido pelo mapa do ligador ou por `llvm-nm`), e o programa
+     roda igual à VM.
+   - Sem esse caso, o teste só provaria a eliminação de classes inteiras, que já existe.
+2. **Marcador de ABI na ligação** (`packages/compiler/src/backend/runtime-abi.ts`). O objeto do
+   programa deixa `scr_runtime_abi_v4` indefinido, e só o runtime compatível o define: a mistura
+   falha na ligação, não em tempo de execução.
+   - Aqui os hashes do cache já protegem o caminho normal. O marcador (ex.:
+     `dartforge_runtime_abi_v<N>`) cobre ligações manuais e distribuições misturadas. Vale
+     sobretudo **antes** das fases B/C/D, que mudam layouts.
+   - Custo: horas.
+3. **Plano do runtime por capacidades** (`packages/runtime-pack-common/runtime-pack-matrix.mjs`:
+   unidades opcionais com predicados, e zlib, mbedTLS e QuickJS só quando a capacidade é
+   efetiva).
+   - Aqui o runtime é uma staticlib única por fragmentos (`crates/runtime/build.rs`), e o
+     `/OPT:REF`/`--gc-sections` já descarta o código Rust não referenciado.
+   - A pesquisa de tamanho mostrou que rustls, ring e zlib entram no hello só porque o código de
+     `dart:io` do SDK está vivo pelas tabelas de métodos. Eles saem sozinhos com as tabelas
+     montadas na ligação.
+   - Então a seleção explícita por capacidade tem **prioridade baixa** como ganho de tamanho. Vale
+     como relatório verificável: quais capacidades o executável liga e por quê.
+4. **Relatório de "por que isto ficou no executável".** O `crates/mundo` já registra a causa de
+   alcance (`Causa`: raiz, função, variável, classe). Estender isso ao SDK nativo e às tabelas
+   responde a perguntas como "quem puxou este método?" e "por que TLS entrou no hello?".
+   - Primeiro passo: trazer para `tools/` o `alcance.py` e o `quebra.py` da pesquisa.
+5. **Inventário de compatibilidade ligado a evidência.** O scriptc separa suporte comprovado,
+   parcial, recusa explícita e não revisado, e não trata "não está no registro" como prova de
+   ausência. Aplicável por eixo (AOT, JIT, JS dev, JS produção, plataforma) sobre o diferencial
+   que já existe.
+
+**O que não copiar:**
+
+- **A ilha QuickJS** (o equivalente seria embutir a VM).
+- **Contagem de referências com coleta de ciclos no lugar do GC:** o perfil aponta representação e
+  indireções, não o modelo de coleta.
+- **A restrição de métodos genéricos fora da vtable:** o scriptc só especializa chamadas
+  resolvidas estaticamente e recusa as demais, o que fere a compatibilidade com o Dart.
+  Especialização aqui só como caminho adicional, com a entrada genérica sempre presente e um
+  orçamento de versões.
+- **Os arrays do runtime** (`packages/runtime/src/scr_array.c`, slots de 8 B com a espécie dos
+  elementos no contêiner): a ideia de representação confirma a fase D, mas o código atende
+  semântica de JS (buracos, propriedades) e usa `realloc`.
+
+**Comparação de tamanho.** O hello de ~320 KB divulgado pelo scriptc é macOS, ligado à
+libSystem, com runtime de escopo menor. Não é comparável aos números do Windows deste
+documento.
