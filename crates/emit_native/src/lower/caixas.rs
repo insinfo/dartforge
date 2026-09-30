@@ -9,9 +9,8 @@
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
 
-/// O campo do código (a entrada uniforme) de uma `_Closure`.
-pub(super) const CLOSURE_CODIGO: i64 = 0;
-/// O campo do contexto (ou do valor do ambiente direto).
+/// O campo do contexto (ou do valor do ambiente direto) de uma `_Closure`;
+/// o campo 0 é o código (a entrada uniforme).
 pub(super) const CLOSURE_CONTEXTO: i64 = 1;
 /// O campo do corpo tipado.
 pub(super) const CLOSURE_TIPADO: i64 = 2;

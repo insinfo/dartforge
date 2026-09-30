@@ -26,9 +26,11 @@ use crate::hir::*;
 use dartforge_runtime::layout::{self, cid, estado, flags};
 use std::fmt::Write;
 
+#[cfg(test)]
 /// O cabeçalho (palavra 0) de um `_Mint`: `JOVEM | BRUTO << 8 | 1 << 16 | 3 << 32`.
 const CAB_MINT: u64 = layout::palavra_do_cabecalho(estado::JOVEM, flags::BRUTO, 1, cid::MINT);
 /// O de um `_Double`.
+#[cfg(test)]
 const CAB_DOUBLE: u64 = layout::palavra_do_cabecalho(estado::JOVEM, flags::BRUTO, 1, cid::DOUBLE);
 /// O de uma `_Celula` (1 campo).
 const CAB_CELULA: u64 = layout::palavra_do_cabecalho(estado::JOVEM, flags::INSTANCIA, 1, cid::CELULA);

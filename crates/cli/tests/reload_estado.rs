@@ -5,8 +5,14 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+/// Prazo por linha da saída. A primeira linha só sai depois de o JIT
+/// compilar o programa e, com o cache frio, as bibliotecas do SDK que ele
+/// usa: no CI do Windows (2 núcleos, os testes em paralelo, cache vazio)
+/// isso passou de 60 s. Só pesa quando o teste falha.
+const PRAZO: Duration = Duration::from_secs(300);
+
 /// Encerra a CLI e devolve o stderr dela. Com `esperado`, antes espera a
-/// linha que o contém (até 60 s): a CLI escreve o diagnóstico da geração
+/// linha que o contém (até [`PRAZO`]): a CLI escreve o diagnóstico da geração
 /// logo depois de publicá-la, e o programa, que já roda o código novo, pode
 /// escrever a saída nova antes — matar a CLI ao ver a saída perderia o
 /// diagnóstico.
@@ -23,7 +29,7 @@ fn encerrar(child: &mut Child, esperado: Option<&str>) -> String {
     });
     let mut texto = String::new();
     if let Some(esperado) = esperado {
-        let prazo = Instant::now() + Duration::from_secs(60);
+        let prazo = Instant::now() + PRAZO;
         while let Ok(linha) = rx.recv_timeout(prazo.saturating_duration_since(Instant::now())) {
             texto.push_str(&linha);
             texto.push('\n');
@@ -87,8 +93,8 @@ fn cli_preserva_estatico_apos_editar_o_mesmo_arquivo_dart() {
 
     // A primeira geração compila o programa inteiro (o perfil `test` do CI
     // é debug): o mesmo prazo do teste ao vivo.
-    let first = rx.recv_timeout(Duration::from_secs(60));
-    let first_len = rx.recv_timeout(Duration::from_secs(60));
+    let first = rx.recv_timeout(PRAZO);
+    let first_len = rx.recv_timeout(PRAZO);
     if first.as_deref() == Ok("1") && first_len.as_deref() == Ok("1") {
         editar(&fixtures.join("reload_estado_v2.dart"), &entrada);
     }
@@ -152,7 +158,7 @@ fn cli_preserva_o_estado_do_espaco_unificado_em_tres_recargas() {
     ];
     let mut vistas = Vec::new();
     for (i, _) in esperadas.iter().enumerate() {
-        let prazo = Duration::from_secs(if i == 0 { 60 } else { 20 });
+        let prazo = if i == 0 { PRAZO } else { Duration::from_secs(20) };
         let Ok(linha) = rx.recv_timeout(prazo) else { break };
         vistas.push(linha);
         if i + 1 < esperadas.len() {
@@ -198,7 +204,7 @@ fn cli_recarrega_o_programa_em_execucao() {
     let mut ultimo_v1 = None;
     let mut primeiro_v2 = None;
     let mut editado = false;
-    while let Ok(linha) = rx.recv_timeout(Duration::from_secs(60)) {
+    while let Ok(linha) = rx.recv_timeout(PRAZO) {
         linhas.push(linha.clone());
         if let Some(n) = linha.strip_prefix("v1 ").and_then(|n| n.parse::<u32>().ok()) {
             ultimo_v1 = Some(n);
@@ -254,7 +260,7 @@ fn cli_recarrega_com_classe_inserida() {
     let mut ultimo_v1 = None;
     let mut primeira_v2 = None;
     let mut editado = false;
-    while let Ok(linha) = rx.recv_timeout(Duration::from_secs(60)) {
+    while let Ok(linha) = rx.recv_timeout(PRAZO) {
         linhas.push(linha.clone());
         let partes: Vec<&str> = linha.split(' ').collect();
         match partes.as_slice() {
@@ -313,7 +319,7 @@ fn cli_classe_que_some_e_volta_mantem_o_id() {
     let mut linhas = Vec::new();
     let mut fase = 0;
     let mut primeira_v2 = None;
-    while let Ok(linha) = rx.recv_timeout(Duration::from_secs(60)) {
+    while let Ok(linha) = rx.recv_timeout(PRAZO) {
         linhas.push(linha.clone());
         let partes: Vec<&str> = linha.split(' ').collect();
         match partes.as_slice() {
@@ -370,7 +376,7 @@ fn cli_recarrega_com_campos_mudados() {
     let mut ultimo_v1 = None;
     let mut primeira_v2 = None;
     let mut editado = false;
-    while let Ok(linha) = rx.recv_timeout(Duration::from_secs(60)) {
+    while let Ok(linha) = rx.recv_timeout(PRAZO) {
         linhas.push(linha.clone());
         let partes: Vec<&str> = linha.split(' ').collect();
         match partes.as_slice() {
@@ -430,7 +436,7 @@ fn cli_recarrega_com_assinatura_mudada() {
     let mut ultimo_v1 = None;
     let mut primeira_v2 = None;
     let mut editado = false;
-    while let Ok(linha) = rx.recv_timeout(Duration::from_secs(60)) {
+    while let Ok(linha) = rx.recv_timeout(PRAZO) {
         linhas.push(linha.clone());
         let partes: Vec<&str> = linha.split(' ').collect();
         match partes.as_slice() {

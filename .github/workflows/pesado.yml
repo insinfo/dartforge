@@ -602,6 +602,10 @@ jobs:
     env:
       CARGO_PROFILE_RELEASE_LTO: 'false'
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+      # O C que o `cc` compila (ring, zlib, blake3) sai com o mínimo do SDK do
+      # runner (26.x) sem isto, e o ld64 avisa em cada objeto que ele é mais
+      # novo que o mínimo 11.0 do alvo arm64. Só as ferramentas da Apple leem.
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/dart
