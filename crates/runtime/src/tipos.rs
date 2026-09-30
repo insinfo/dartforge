@@ -107,6 +107,11 @@ struct Universo {
     /// O mesmo para `dartforge_rti_avaliar`: `[chave de this, modelo,
     /// classe, tupla, resultado]`.
     memo_aval: Vec<[i64; 5]>,
+    /// O mesmo para `dartforge_rti_definir` de uma coleção do runtime:
+    /// `[classe concreta, tipo pedido, tipo gravado]` — o `List<E>` de um
+    /// literal visto como `_GrowableList<E>` passava por `como_supertipo`
+    /// (e um `Vec` novo) a cada lista criada (N17).
+    memo_definir: Vec<[i64; 3]>,
 }
 
 /// O tamanho das memórias diretas do [`Universo`] (potência de 2).
@@ -245,6 +250,7 @@ impl Universo {
     fn esquecer_memorias(&mut self) {
         self.memo_e.clear();
         self.memo_aval.clear();
+        self.memo_definir.clear();
     }
 
     /// `v is t` guardado para a chave do valor.
@@ -1154,6 +1160,34 @@ pub extern "C" fn dartforge_rti_avaliar(modelo: i64, this: i64, classe: i64, tup
     })
 }
 
+/// [`dartforge_rti_avaliar`] (sem tupla) de um ponto de uso com cache em
+/// linha (`llvm/mod.rs`, N17): `cache` são as duas palavras do ponto na
+/// área de globais do isolado — a chave de `this` ([`chave_do_valor`] de
+/// um objeto do espaço: o metadado, ou `-16 - classe`) e o resultado. O
+/// código gerado compara a chave lida no cabeçalho de `this` com a
+/// primeira palavra e só chama aqui na falha; aqui a resposta é gravada
+/// quando `this` é objeto do espaço (os outros valores não têm a chave no
+/// cabeçalho e voltam sempre ao runtime).
+///
+/// # Safety
+/// `cache` aponta para duas palavras graváveis da área do isolado.
+#[unsafe(no_mangle)]
+#[allow(unsafe_code)]
+pub unsafe extern "C" fn dartforge_rti_avaliar_cache(cache: *mut i64, modelo: i64, this: i64, classe: i64) -> i64 {
+    let r = dartforge_rti_avaliar(modelo, this, classe, 0);
+    if crate::heap::e_objeto(this)
+        && let Some(chave) = chave_do_valor(this)
+        && chave != 0
+    {
+        // SAFETY: o contrato acima; só a thread do isolado grava a área.
+        unsafe {
+            *cache = chave;
+            *cache.add(1) = r;
+        }
+    }
+    r
+}
+
 /// Grava o tipo de um objeto genérico (nos metadados do slot).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_definir(obj: i64, tipo: i64) {
@@ -1177,18 +1211,31 @@ pub extern "C" fn dartforge_rti_definir(obj: i64, tipo: i64) {
             let mut u = u.borrow_mut();
             // Só a interface de coleção de outra classe muda; o caso comum
             // (a classe do próprio objeto: `Future<T>`, `_Map<K, V>`…) sai
-            // sem copiar o tipo.
+            // sem copiar o tipo. Só esse caso entra na memória, lida antes.
+            let vaga = vaga_da_memoria(classe, tipo, 1);
+            if let Some(&[mc, mt, r]) = u.memo_definir.get(vaga)
+                && mc == classe
+                && mt == tipo
+            {
+                return r;
+            }
             let (c, args) = match u.tipo(tipo) {
                 Tipo::Interface(c, args) if *c != classe && [u.rt.list, u.rt.map, u.rt.set].contains(c) => {
                     (*c, args.clone())
                 }
                 _ => return tipo,
             };
-            if u.como_supertipo(classe, &args, c).as_deref() == Some(args.as_slice()) {
+            let r = if u.como_supertipo(classe, &args, c).as_deref() == Some(args.as_slice()) {
                 u.internar(Tipo::Interface(classe, args))
             } else {
                 tipo
+            };
+            if u.memo_definir.is_empty() {
+                // Vaga vazia nunca casa: nenhum tipo pedido vale -1.
+                u.memo_definir = vec![[0, -1, 0]; MEMO_N];
             }
+            u.memo_definir[vaga] = [classe, tipo, r];
+            r
         })
     } else {
         tipo

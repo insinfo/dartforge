@@ -35,6 +35,8 @@ pub extern "C" fn main() -> i32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_iniciar(entrada: extern "C" fn(), para_texto: extern "C" fn(i64) -> i64) -> i32 {
     PARA_TEXTO.with(|p| p.set(Some(para_texto)));
+    // O isolado principal usa as listas livres do alocador (`alocador.rs`).
+    ligar_cache_de_alocacao();
     if depurar() {
         // Depuração: o pânico do runtime mostra a pilha de funções Dart
         // (`DARTFORGE_RASTRO=1` na compilação).
@@ -143,6 +145,21 @@ thread_local! {
     /// busca no grafo alocava um conjunto por consulta. Limpo a cada
     /// registro de subclasse (a carga e cada recarga).
     static SUBTIPO_CALCULADO: RefCell<HashMap<(i64, i64), u8>> = RefCell::new(HashMap::default());
+    /// Na frente de [`SUBTIPO_CALCULADO`], uma tabela de acesso direto
+    /// (classe, alvo, resposta): o `v is String`/`is num`/`is Map` do
+    /// `_JsonStringifier.writeJsonValue` e do `somaValor` do bench de JSON
+    /// pagavam o hash da tupla e o `borrow` do mapa a cada teste. Limpa
+    /// junto com o mapa.
+    static SUBTIPO_RAPIDO: std::cell::Cell<[(i64, i64, u8); VAGAS_SUBTIPO_RAPIDO]> =
+        const { std::cell::Cell::new([(-1, -1, 0); VAGAS_SUBTIPO_RAPIDO]) };
+}
+
+/// Vagas de [`SUBTIPO_RAPIDO`] (potência de 2).
+const VAGAS_SUBTIPO_RAPIDO: usize = 512;
+
+/// A vaga de (classe, alvo) em [`SUBTIPO_RAPIDO`].
+fn vaga_subtipo(class_id: i64, target_class: i64) -> usize {
+    (class_id.wrapping_mul(0x9E37_79B9).wrapping_add(target_class) as usize) & (VAGAS_SUBTIPO_RAPIDO - 1)
 }
 
 /// O heap para as funções do caminho rápido que o emissor declara com
@@ -184,6 +201,7 @@ pub extern "C" fn dartforge_register_subclass(sub_id: i64, super_id: i64) {
         if !lista.contains(&super_id) {
             lista.push(super_id);
             SUBTIPO_CALCULADO.with(|c| c.borrow_mut().clear());
+            SUBTIPO_RAPIDO.with(|c| c.set([(-1, -1, 0); VAGAS_SUBTIPO_RAPIDO]));
         }
     });
 }
@@ -206,11 +224,24 @@ fn is_subclass(class_id: i64, target_class: i64) -> u8 {
         // Object é supertipo de toda classe nominal
         return 1;
     }
-    if let Some(r) = SUBTIPO_CALCULADO.with(|c| c.borrow().get(&(class_id, target_class)).copied()) {
+    let vaga = vaga_subtipo(class_id, target_class);
+    // SAFETY: a tabela é local da thread e nenhuma referência a ela
+    // sobrevive a esta leitura (nem a gravação abaixo) — o `Cell` só não
+    // dá acesso a um elemento sem copiar o arranjo inteiro.
+    let (c, t, r) = SUBTIPO_RAPIDO.with(|x| unsafe { (*x.as_ptr())[vaga] });
+    if c == class_id && t == target_class {
         return r;
     }
-    let r = subclasse_pelo_grafo(class_id, target_class);
-    SUBTIPO_CALCULADO.with(|c| c.borrow_mut().insert((class_id, target_class), r));
+    let r = match SUBTIPO_CALCULADO.with(|c| c.borrow().get(&(class_id, target_class)).copied()) {
+        Some(r) => r,
+        None => {
+            let r = subclasse_pelo_grafo(class_id, target_class);
+            SUBTIPO_CALCULADO.with(|c| c.borrow_mut().insert((class_id, target_class), r));
+            r
+        }
+    };
+    // SAFETY: como na leitura acima.
+    SUBTIPO_RAPIDO.with(|x| unsafe { (*x.as_ptr())[vaga] = (class_id, target_class, r) });
     r
 }
 

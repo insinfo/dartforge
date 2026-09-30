@@ -143,6 +143,9 @@ pub struct FnBuilder<'a, 'c> {
     /// elemento: os dois locais (handle, cabeçalho) que todos os acessos da
     /// função compartilham (`tipados.rs`, `cabecalho_tipado`).
     pub caches_de_cabecalho: std::collections::HashMap<i64, (Operand, Operand)>,
+    /// Os caches da string relida de campo (`textos.rs`), por valor lido:
+    /// os locais do handle, do endereço das unidades e do comprimento.
+    pub caches_de_texto: std::collections::HashMap<ValueId, (Operand, Operand, Operand)>,
     /// Os valores lidos de uma variável global pelo getter dela
     /// (`membros.rs`, `ler_global`): relidos a cada acesso, como um campo,
     /// então também passam pelo cache de cabeçalho.
@@ -314,6 +317,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             sem_diretas: false,
             dados_tipados: None,
             caches_de_cabecalho: std::collections::HashMap::new(),
+            caches_de_texto: std::collections::HashMap::new(),
             lidos_de_global: std::collections::HashSet::new(),
             async_estado: None,
             params_de_tipo_da_funcao: Vec::new(),

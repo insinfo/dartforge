@@ -12,6 +12,49 @@ pub extern "C" fn dartforge_nativo_String_getLength(this: i64) -> i64 {
     com_texto(this, |t| t.len() as i64)
 }
 
+/// O endereço das unidades de `h` para o código gerado ler em linha
+/// (`lower/textos.rs`): o do `Vec<u8>` de um `_OneByteString`, o do
+/// `Vec<u16>` de um `_TwoByteString` com o bit 63 ligado; 0 se `h` não é
+/// string. O `Vec` de um `Texto` nunca muda de tamanho depois de criado (a
+/// string é imutável; o `writeInto*String` grava no lugar), então o endereço
+/// vale enquanto a string vive — o código gerado mantém o handle enraizado.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_texto_dados(h: i64) -> i64 {
+    // Sem o `borrow` (declarada `memory(none)`: `heap_sem_emprestimo`).
+    heap_sem_emprestimo(|heap| match heap.try_get(h) {
+        Some(Value::String(Texto::Um(b))) => b.as_ptr() as i64,
+        Some(Value::String(Texto::Dois(u))) => u.as_ptr() as i64 | i64::MIN,
+        _ => 0,
+    })
+}
+
+/// O comprimento de `h` em unidades; 0 se `h` não é string.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_texto_len(h: i64) -> i64 {
+    heap_sem_emprestimo(|heap| match heap.try_get(h) {
+        Some(Value::String(t)) => t.len() as i64,
+        _ => 0,
+    })
+}
+
+/// Na falha do cache do ponto de leitura (`lower/textos.rs`): o endereço
+/// de [`dartforge_texto_dados`], e o comprimento gravado em `*comprimento`
+/// (o local do cache) — uma consulta ao slot para os dois.
+///
+/// # Safety
+/// `comprimento` aponta para um `i64` gravável (o `alloca` do cache).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_texto_na_falha(h: i64, comprimento: *mut i64) -> i64 {
+    let (d, n) = heap_sem_emprestimo(|heap| match heap.try_get(h) {
+        Some(Value::String(Texto::Um(b))) => (b.as_ptr() as i64, b.len() as i64),
+        Some(Value::String(Texto::Dois(u))) => (u.as_ptr() as i64 | i64::MIN, u.len() as i64),
+        _ => (0, 0),
+    });
+    // SAFETY: contrato acima.
+    unsafe { *comprimento = n };
+    d
+}
+
 thread_local! {
     /// As strings de um caractere Latin-1 já devolvidas por `String_charAt`
     /// neste isolado: os literais canônicos (`Heap::string_literal`,
@@ -252,21 +295,63 @@ pub extern "C" fn dartforge_nativo_DartForge_sb_novo() -> i64 {
 pub extern "C" fn dartforge_nativo_DartForge_sb_escrever(acumulador: i64, texto: i64) {
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        // O texto é copiado antes (os dois são do heap e o acumulador é
-        // emprestado para escrita); o caso comum, curto e Latin-1, passa
-        // pela pilha.
-        let mut curto = [0u8; 256];
-        let (n, longo): (usize, Option<Vec<u16>>) = match heap.texto(texto) {
-            Texto::Um(b) if b.len() <= curto.len() => {
-                curto[..b.len()].copy_from_slice(b);
-                (b.len(), None)
-            }
-            t => (0, Some(t.para_vec())),
+        // O acumulador sai do slot enquanto o texto é lido (os dois são do
+        // heap), e volta depois: sem a cópia intermediária das unidades.
+        let mut u = match heap.get_mut(acumulador) {
+            Value::StringBuffer(u) => std::mem::take(u),
+            _ => return,
         };
-        if let Value::StringBuffer(u) = heap.get_mut(acumulador) {
-            match longo {
-                None => u.extend(curto[..n].iter().map(|&x| u16::from(x))),
-                Some(v) => u.extend_from_slice(&v),
+        match heap.texto(texto) {
+            Texto::Um(b) => u.extend(b.iter().map(|&x| u16::from(x))),
+            Texto::Dois(d) => u.extend_from_slice(d),
+        }
+        if let Value::StringBuffer(v) = heap.get_mut(acumulador) {
+            *v = u;
+        }
+    });
+}
+
+/// `StringBuffer._escreverSeTexto(acumulador, obj)` da sobreposição: se
+/// `obj` é uma string, acrescenta as unidades dela ao acumulador e devolve
+/// quantas; senão -1, sem mudar nada (o Dart segue pelo `toString`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_sb_escrever_se_texto(acumulador: i64, obj: i64) -> i64 {
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        // As unidades da string por endereço: o `Vec` de um `Texto` não muda
+        // enquanto a string vive (ela está viva: é o argumento) e o
+        // acumulador é outro valor, então crescer o acumulador não as move.
+        // Duas consultas ao slot (a string e o acumulador) em vez de quatro.
+        let (p, n, dois) = match heap.try_get(obj) {
+            Some(Value::String(Texto::Um(b))) => (b.as_ptr() as usize, b.len(), false),
+            Some(Value::String(Texto::Dois(u))) => (u.as_ptr() as usize, u.len(), true),
+            _ => return -1,
+        };
+        let Value::StringBuffer(u) = heap.get_mut(acumulador) else { return -1 };
+        if dois {
+            // SAFETY: `p` e `n` são os de um `Vec<u16>` vivo e intocado aqui.
+            u.extend_from_slice(unsafe { std::slice::from_raw_parts(p as *const u16, n) });
+        } else {
+            // SAFETY: idem, `Vec<u8>`.
+            u.extend(unsafe { std::slice::from_raw_parts(p as *const u8, n) }.iter().map(|&x| u16::from(x)));
+        }
+        n as i64
+    })
+}
+
+/// Acrescenta o ponto de código `codigo` ao acumulador (`writeCharCode`
+/// da sobreposição, que já conferiu `0 <= codigo <= 0x10FFFF`): uma
+/// unidade, ou o par de surrogates acima de 0xFFFF, como a VM.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_sb_escrever_codigo(acumulador: i64, codigo: i64) {
+    HEAP.with(|heap| {
+        if let Value::StringBuffer(u) = heap.borrow_mut().get_mut(acumulador) {
+            if codigo <= 0xFFFF {
+                u.push(codigo as u16);
+            } else {
+                let bits = codigo - 0x10000;
+                u.push((0xD800 | (bits >> 10)) as u16);
+                u.push((0xDC00 | (bits & 0x3FF)) as u16);
             }
         }
     });

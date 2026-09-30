@@ -68,6 +68,14 @@ const fn embutido(nome: &'static str) -> Nativo {
     Nativo { nome, estado: Estado::Embutido, efeitos: CONSERVADOR }
 }
 
+/// Natives que o SDK declara com retornos diferentes conforme o ponto de uso
+/// e que o runtime implementa com o mais largo, `Ref`: `Double_parse` é
+/// `double?` no `double._nativeParse` e `double` no `_parseDouble` do
+/// `convert_patch.dart` (o número do JSON). O `external` chama com `Ref` e
+/// converte para o tipo declarado — sem isso o handle da caixa era lido
+/// como os bits do `double`.
+pub const RETORNO_REF: &[&str] = &["Double_parse"];
+
 /// Intrínsecos da VM (`vm:recognized` sem native) que o nativo implementa
 /// com uma função do runtime, pelo `Classe.membro`: (membro, native).
 pub const INTRINSECOS: &[(&str, &str)] = &[
@@ -197,6 +205,7 @@ pub const NATIVOS: &[Nativo] = &[
     runtime("DartForge_capacidade_nova"),
     runtime("DartForge_classe_nao_enviavel"),
     runtime("DartForge_classe_transferivel"),
+    runtime("DartForge_double_bits"),
     runtime("DartForge_ffi_abi"),
     runtime("DartForge_ffi_callback_apagar"),
     runtime("DartForge_ffi_callback_args"),
@@ -236,6 +245,8 @@ pub const NATIVOS: &[Nativo] = &[
     runtime("DartForge_hash_mapa_buscar"),
     runtime("DartForge_hash_mapa_gravar"),
     runtime("DartForge_imprimir"),
+    runtime("DartForge_int_toString"),
+    runtime("DartForge_json_acrescentar"),
     runtime("DartForge_ler_texto"),
     runtime("DartForge_mensagem_atual"),
     runtime("DartForge_mirrors_nome"),
@@ -258,6 +269,8 @@ pub const NATIVOS: &[Nativo] = &[
     runtime("DartForge_regexp_n_nomes"),
     runtime("DartForge_regexp_nome"),
     runtime("DartForge_sb_escrever"),
+    runtime("DartForge_sb_escrever_codigo"),
+    runtime("DartForge_sb_escrever_se_texto"),
     runtime("DartForge_sb_novo"),
     runtime("DartForge_sb_texto"),
     runtime("DartForge_scheduleImmediate"),

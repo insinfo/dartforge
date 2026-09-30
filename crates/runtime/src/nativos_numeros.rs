@@ -238,6 +238,124 @@ pub extern "C" fn dartforge_nativo_Double_getIsNegative(this: f64) -> u8 {
 /// Os dígitos mais curtos que voltam ao mesmo `double` vêm da formatação
 /// `{:e}` do Rust (o mesmo critério do `ToShortest`).
 pub fn texto_de_double_da_vm(d: f64) -> String {
+    let mut buf = [0u8; TAMANHO_DOUBLE_DA_VM];
+    let n = escrever_double_da_vm(d, &mut buf);
+    // Só ASCII.
+    String::from_utf8_lossy(&buf[..n]).into_owned()
+}
+
+/// O maior texto de [`texto_de_double_da_vm`]: `-` + 17 dígitos + `.` +
+/// `e-308` (ou `0.000000` + 17 dígitos) cabe com folga.
+const TAMANHO_DOUBLE_DA_VM: usize = 48;
+
+/// Buffer da pilha para o `{:e}` (sem a `String` do `format!`).
+struct BufferDaPilha<'a> {
+    buf: &'a mut [u8],
+    n: usize,
+}
+
+impl std::fmt::Write for BufferDaPilha<'_> {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        let fim = self.n + s.len();
+        if fim > self.buf.len() {
+            return Err(std::fmt::Error);
+        }
+        self.buf[self.n..fim].copy_from_slice(s.as_bytes());
+        self.n = fim;
+        Ok(())
+    }
+}
+
+/// [`texto_de_double_da_vm`] escrito em `saida` (ASCII), sem alocar: o
+/// `Double_toString` do `jsonEncode` de uma lista de `double` alocava
+/// quatro `String` por número. Devolve o comprimento.
+fn escrever_double_da_vm(d: f64, saida: &mut [u8; TAMANHO_DOUBLE_DA_VM]) -> usize {
+    let mut n = 0usize;
+    let mut por = |b: &[u8], n: &mut usize| {
+        saida[*n..*n + b.len()].copy_from_slice(b);
+        *n += b.len();
+    };
+    if d.is_nan() {
+        por(b"NaN", &mut n);
+        return n;
+    }
+    if d.is_infinite() {
+        por(if d > 0.0 { b"Infinity" } else { b"-Infinity" }, &mut n);
+        return n;
+    }
+    if d == 0.0 {
+        por(if d.is_sign_negative() { b"-0.0" } else { b"0.0" }, &mut n);
+        return n;
+    }
+    // Os dígitos mais curtos: `{:e}` do valor absoluto, `d[.ddd]e<exp>`.
+    let mut e = [0u8; 40];
+    let mut w = BufferDaPilha { buf: &mut e, n: 0 };
+    std::fmt::Write::write_fmt(&mut w, format_args!("{:e}", d.abs())).expect("formato {:e}");
+    let usado = w.n;
+    let e = &e[..usado];
+    let pos_e = e.iter().position(|&c| c == b'e').expect("formato {:e}");
+    let (mantissa, exp_txt) = (&e[..pos_e], &e[pos_e + 1..]);
+    let expoente: i32 = std::str::from_utf8(exp_txt).ok().and_then(|t| t.parse().ok()).expect("expoente");
+    let mut digitos = [0u8; 24];
+    let mut nd = 0usize;
+    for &c in mantissa {
+        if c != b'.' {
+            digitos[nd] = c;
+            nd += 1;
+        }
+    }
+    let digitos = &digitos[..nd];
+    let nd = nd as i32;
+    let ponto = expoente + 1; // posição do ponto decimal nos dígitos
+    if d < 0.0 {
+        por(b"-", &mut n);
+    }
+    if (-6..21).contains(&expoente) {
+        if ponto <= 0 {
+            por(b"0.", &mut n);
+            for _ in 0..(-ponto) {
+                por(b"0", &mut n);
+            }
+            por(digitos, &mut n);
+        } else if ponto >= nd {
+            por(digitos, &mut n);
+            for _ in 0..(ponto - nd) {
+                por(b"0", &mut n);
+            }
+            por(b".0", &mut n);
+        } else {
+            por(&digitos[..ponto as usize], &mut n);
+            por(b".", &mut n);
+            por(&digitos[ponto as usize..], &mut n);
+        }
+    } else {
+        por(&digitos[..1], &mut n);
+        if nd > 1 {
+            por(b".", &mut n);
+            por(&digitos[1..], &mut n);
+        }
+        por(b"e", &mut n);
+        por(if expoente < 0 { b"-" } else { b"+" }, &mut n);
+        let mut ex = [0u8; 8];
+        let mut i = ex.len();
+        let mut v = expoente.unsigned_abs();
+        loop {
+            i -= 1;
+            ex[i] = b'0' + (v % 10) as u8;
+            v /= 10;
+            if v == 0 {
+                break;
+            }
+        }
+        por(&ex[i..], &mut n);
+    }
+    n
+}
+
+/// A forma antiga de [`texto_de_double_da_vm`], para os testes conferirem
+/// a nova contra ela.
+#[cfg(test)]
+fn texto_de_double_da_vm_antigo(d: f64) -> String {
     if d.is_nan() {
         return "NaN".to_string();
     }
@@ -291,13 +409,46 @@ pub fn texto_de_double_da_vm(d: f64) -> String {
 /// `Double_toString`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Double_toString(this: f64) -> i64 {
-    alocar_str(&texto_de_double_da_vm(this))
+    let mut buf = [0u8; TAMANHO_DOUBLE_DA_VM];
+    let n = escrever_double_da_vm(this, &mut buf);
+    alocar_texto(Texto::Um(buf[..n].to_vec()))
+}
+
+/// `_Double._bitsDe(d)` da sobreposição (`double.dart`): os bits do
+/// `double`, a chave do cache do `toString` (o `identical` de dois `double`
+/// da VM compara os bits).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_double_bits(d: f64) -> i64 {
+    d.to_bits() as i64
+}
+
+/// `_Smi._deInteiro(v)` da sobreposição (`integers.dart`): os dígitos
+/// decimais de `v`, o texto do `_Smi.toString` da VM.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_int_toString(v: i64) -> i64 {
+    dartforge_to_string_i64(v)
 }
 
 #[cfg(test)]
 mod testes_nativos_numeros {
     //! Os valores esperados são os da VM 3.6.2 (`print`, medidos).
     use super::*;
+
+    /// A escrita sem alocação dá o mesmo texto que a forma antiga, em
+    /// valores de todas as faixas de expoente (os bits de um gerador).
+    #[test]
+    fn double_to_string_sem_alocar_e_o_de_antes() {
+        let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
+        for _ in 0..200_000 {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            let d = f64::from_bits(x);
+            assert_eq!(texto_de_double_da_vm(d), texto_de_double_da_vm_antigo(d), "{x:#x}");
+            let curto = (x % 2_000_000) as f64 / 1000.0 - 1000.0;
+            assert_eq!(texto_de_double_da_vm(curto), texto_de_double_da_vm_antigo(curto));
+        }
+    }
 
     #[test]
     fn double_to_string_e_o_da_vm() {

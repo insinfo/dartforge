@@ -452,7 +452,13 @@ pub extern "C" fn dartforge_nativo_Isolate_spawnFunction(
         ouvinte_de_erro: (ouvinte_de_erro != 0).then(|| id_do_objeto(ouvinte_de_erro)).flatten(),
         nome: nome.clone(),
     };
-    let criada = std::thread::Builder::new().name(nome).stack_size(PILHA_DO_ISOLADO).spawn(move || rodar_isolado(pedido));
+    let criada = std::thread::Builder::new().name(nome).stack_size(PILHA_DO_ISOLADO).spawn(move || {
+        // As listas livres do alocador valem enquanto o isolado roda
+        // (`alocador.rs`); o fim da thread as devolve ao sistema.
+        ligar_cache_de_alocacao();
+        rodar_isolado(pedido);
+        esvaziar_cache_de_alocacao();
+    });
     if let Err(e) = criada {
         // A VM responde na porta de pronto com o texto do erro.
         postar(pronto, Portavel::Str(format!("Unable to create the isolate thread: {e}")).para_grafo());

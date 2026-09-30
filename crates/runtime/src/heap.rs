@@ -4005,12 +4005,18 @@ impl Heap {
     pub fn list_push(&mut self, handle: i64, value: TaggedValue) {
         let value = self.normalizar(value);
         self.validate_tag(value);
-        let previous = self.get(handle).estimated_bytes();
+        // Uma consulta ao slot só (N17): a estimativa da lista muda só com
+        // a capacidade do vetor (`Value::estimated_bytes`), e o `push` sem
+        // realocar não conta nada nem pode coletar (salvo no estresse).
         let Value::List(values) = self.get_mut(handle) else {
             panic!("lista esperada")
         };
+        let previous = values.bytes_reservados();
         values.push(value);
-        let added = self.get(handle).estimated_bytes() - previous;
+        let added = values.bytes_reservados() - previous;
+        if added == 0 && !self.stress {
+            return;
+        }
         self.stats.estimated_bytes = self
             .stats
             .estimated_bytes

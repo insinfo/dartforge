@@ -28,15 +28,39 @@ class StringBuffer {
 
   @patch
   void write(Object? obj) {
-    String str = obj is String ? obj : "$obj";
+    // A string vai ao acumulador numa chamada só (o teste `is String`, o
+    // `isEmpty` e o `length` ficam no runtime); o resto passa pelo
+    // `toString`, como na VM.
+    final int n = _escreverSeTexto(_acumulador ??= _novo(), obj);
+    if (n >= 0) {
+      _unidades += n;
+      return;
+    }
+    String str = "$obj";
     if (str.isEmpty) return;
-    _escrever(_acumulador ??= _novo(), str);
+    _escrever(_acumulador!, str);
     _unidades += str.length;
   }
 
+  // As unidades vão direto ao acumulador, sem a string de um caractere que
+  // o `String.fromCharCode` alocava (o `writeCharCode` do
+  // `_JsonStringifier` e do `_JsonStringParser` escreve por aqui); as
+  // conferências e o `RangeError` são os da VM.
   @patch
   void writeCharCode(int charCode) {
-    write(String.fromCharCode(charCode));
+    if (charCode <= 0xFFFF) {
+      if (charCode < 0) {
+        throw new RangeError.range(charCode, 0, 0x10FFFF);
+      }
+      _escreverCodigo(_acumulador ??= _novo(), charCode);
+      _unidades += 1;
+    } else {
+      if (charCode > 0x10FFFF) {
+        throw new RangeError.range(charCode, 0, 0x10FFFF);
+      }
+      _escreverCodigo(_acumulador ??= _novo(), charCode);
+      _unidades += 2;
+    }
   }
 
   @patch
@@ -80,6 +104,16 @@ class StringBuffer {
 
   @pragma("vm:external-name", "DartForge_sb_escrever")
   external static void _escrever(Object acumulador, String str);
+
+  /// Se `obj` é uma `String`, acrescenta as unidades dela e devolve quantas;
+  /// senão -1 (sem mudar nada).
+  @pragma("vm:external-name", "DartForge_sb_escrever_se_texto")
+  external static int _escreverSeTexto(Object acumulador, Object? obj);
+
+  /// Acrescenta o ponto de código `codigo` (0..0x10FFFF, conferido pelo
+  /// Dart): uma unidade, ou o par de surrogates acima de 0xFFFF.
+  @pragma("vm:external-name", "DartForge_sb_escrever_codigo")
+  external static void _escreverCodigo(Object acumulador, int codigo);
 
   @pragma("vm:external-name", "DartForge_sb_texto")
   external static String _texto(Object acumulador);

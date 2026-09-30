@@ -353,6 +353,25 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_typed_cabecalho_na_falha(i64, i64) nounwind",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
+    // As unidades de uma string lidas em linha (`lower/textos.rs`): o
+    // endereço (bit 63: `_TwoByteString`) e o comprimento, puros do handle
+    // (a string é imutável e o `Vec` das unidades não muda de endereço);
+    // 0 quando o valor não é string do runtime.
+    Extern {
+        decl: "declare i64 @dartforge_texto_dados(i64) memory(none) nounwind willreturn speculatable",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_texto_len(i64) memory(none) nounwind willreturn speculatable",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    // As duas numa chamada, na falha do cache do ponto de acesso (o
+    // comprimento vai ao local do cache): sem `speculatable` nem
+    // `memory(none)` (o LLVM a chamaria antes do teste do cache).
+    Extern {
+        decl: "declare i64 @dartforge_texto_na_falha(i64, ptr) nounwind",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
     // `fillRange` de lista tipada (`lower/tipados.rs`, `preencher_tipada`):
     // 1 se preencheu, 0 para o caminho do SDK.
     Extern {
@@ -550,9 +569,13 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare void @dartforge_register_subclass(i64, i64)",
         efeitos: CONSERVADOR,
     },
+    // O teste `v is C` pela classe: só lê o grafo de classes (e grava os
+    // caches dele, `nucleo.rs`); não aloca no heap nem lança. Sem os efeitos
+    // conservadores, as referências vivas não vão ao quadro de raízes a
+    // cada teste, e o LLVM junta os testes iguais.
     Extern {
-        decl: "declare i8 @dartforge_is_subclass(i64, i64)",
-        efeitos: CONSERVADOR,
+        decl: "declare i8 @dartforge_is_subclass(i64, i64) memory(read) nounwind willreturn",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare i64 @dartforge_stack_trace_get()",
@@ -1164,6 +1187,10 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i64 @dartforge_rti_avaliar(i64, i64, i64, i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_rti_avaliar_cache(ptr, i64, i64, i64)",
         efeitos: CONSERVADOR,
     },
     Extern {

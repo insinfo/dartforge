@@ -2596,3 +2596,383 @@ receptor no despacho 5,2%. Os maiores, pela ordem:
    `dartforge_contexto`, a área de globais e o quadro de raízes. Os
    getters e acessos de uma linha não entram em linha quando a chamada vai
    pelo seletor (`CodeUnits.[]`, 149 por requisição no `writeHeaders`).
+
+### 9.10 Rodada 3 (N17): alocação, RTI no ponto de uso e o prólogo (medido em 2026-09-29, Windows)
+
+**Máquina e método.** Windows 11, Intel i3-1215U de notebook (2 núcleos P,
+4 E, 7,7 GB), com outros agentes compilando na mesma máquina. Sem `wrk` nem
+`callgrind`. A carga vem de um cliente em Dart compilado com
+`dart compile exe`: HTTP/1.1 com keep-alive, 1 ou 64 conexões, cada uma
+manda a requisição seguinte ao receber a resposta inteira (`Content-Length`
+ou *chunked*). Ele mede req/s e p50/p99, com 0,5 s de aquecimento e 2–3 s
+de medida. Um roteiro em PowerShell sobe cada servidor e mede:
+
+* afinidade fixa: servidor no processador lógico 2 (núcleo P), cliente no
+  6, os dois com prioridade alta;
+* CPU do servidor por requisição (`TotalProcessorTime`);
+* RSS em repouso (`WorkingSet64` depois de subir e responder) e de pico
+  (`PeakWorkingSet64` ao fim das duas cargas);
+* os executores alternam a cada repetição, e a repetição inteira é
+  descartada e refeita se um `rustc`/`clang`/`lld-link`/`dartforge` rodou
+  durante ela.
+
+Mesmo assim o ruído é de ±15–30% entre repetições (frequência variável do
+notebook, a máquina disputada). Por isso a comparação de uma mudança é a
+**razão por par** (os dois executores vizinhos na mesma repetição), com
+mediana e faixa sobre 20 pares. Para separar o efeito de cada mudança, as
+do emissor têm uma chave de medida na compilação (`DARTFORGE_SEM_CACHE_RTI=1`,
+`DARTFORGE_SEM_QUADRO_NA_ENTRADA=1`). As variáveis `DARTFORGE_SEM_*` entram
+na chave do SDK em cache (`sdk_modulo.rs`). A do alocador é de execução
+(`DARTFORGE_ALOCADOR_SEM_CACHE=1`).
+
+O perfil, sem `perf`: um amostrador em Python suspende a thread do isolado
+a cada ~1–4 ms e percorre a pilha com o `StackWalk64` da `dbghelp`. A
+simbolização usa o mapa do `lld-link` (`/map`, com os símbolos estáticos, por
+um invólucro do `lld-link` num diretório de ferramentas à parte) e a tabela
+de exportação das DLLs do sistema. O PDB de `--depuracao` não serve para
+isso: só tem os símbolos públicos do runtime (o SDK vem em cache, sem
+depuração), e as funções internas saíam com o nome da pública vizinha.
+
+**Onde ia o tempo no Windows** (self, thread do isolado, `/`, 1 conexão,
+servidor do `main` de partida), em % da CPU ativa (fora a espera no laço):
+
+| categoria | % |
+|---|---:|
+| código Dart compilado | 31 |
+| chamadas de sistema de E/S (`WSASend`, `ZwDeviceIoControlFile`) | 24 |
+| `malloc`/`free` (`RtlAllocateHeap`/`RtlFreeHeap`/`GetProcessHeap`) | 10,7 |
+| heap e coleta (`tirar_da_regiao`, `allocate`, `coletar`, `list_push`) | 8,8 |
+| RTI (`rti_avaliar`, `rti_definir`, `rti_e`, `is_subclass`) | 6,3 |
+| natives de string e lista | 6,1 |
+| classe do receptor (`value_class`, `cid_do_valor_do_runtime`) | 2,9 |
+| `dartforge_contexto` + `__chkstk` | 2,5 |
+
+A diferença mais clara para o §9.9 é o `malloc` do Windows: o `System` do
+Rust é o `HeapAlloc` do heap do processo, com o `GetProcessHeap` e a trava do
+heap a cada closure, ambiente, vetor de lista ou texto.
+
+**O que entrou** (cada item medido sozinho, razão por par, 20 pares):
+
+* **Alocador com lista livre por thread** (`crates/runtime/src/alocador.rs`,
+  fragmento novo). É o `#[global_allocator]` das `staticlib` do executável
+  (`aot` e `dll`); o JIT e os testes do crate continuam com o do processo.
+  Pedidos de até 512 bytes com alinhamento ≤ 16 vão a classes de 16 em 16
+  bytes, cada uma com a sua lista livre por thread (até 64 KiB por classe).
+  Todo bloco de classe sai do `System` com o tamanho da classe, então pode
+  voltar a qualquer lista ou ao sistema. As listas só valem nas threads de
+  isolado (`dartforge_iniciar` e o `Isolate.spawn` as ligam; o fim da thread
+  do isolado as esvazia). No perfil, o `malloc`/`free` vai de 10,7% para ~3%
+  da CPU ativa. CPU/req com 1 conexão: razão **0,94** [0,73–1,22];
+  req/s 1,00 [0,79–1,35].
+* **`P<i>` com cache no ponto de uso** (`llvm/mod.rs`,
+  `emitir_rti_avaliar_em_cache`; `tipos.rs`, `dartforge_rti_avaliar_cache`).
+  Serve ao `dartforge_rti_avaliar` sem tupla e com `this`: duas palavras na
+  área do isolado (a mesma dos caches de seletor, zerada pela recarga)
+  guardam a chave do tipo de `this` e o resultado. A chave é o metadado do
+  cabeçalho do objeto, ou `-16 - classe` sem metadado, a mesma da memória do
+  runtime (`chave_do_valor`). Com um objeto do espaço e a chave igual, a
+  resposta sai com cargas, sem chamada; senão o runtime responde e grava.
+  CPU/req: razão **0,89** [0,56–1,45]; req/s 1,08 [0,72–1,55]. Continua
+  indo ao runtime: o receptor que não é objeto do espaço, a tupla de
+  função (`M<i>`) e os pontos em que o tipo de `this` alterna, como o
+  `_Future._propagateToListeners` com `Future`s de `T` diferentes, onde o
+  cache de uma entrada troca a cada vez.
+* **Memória direta no `rti_definir` das coleções** (`tipos.rs`,
+  `memo_definir`). O `List<E>` de um literal visto como `_GrowableList<E>`
+  (e o mesmo para `Map` e `Set`) passava por `como_supertipo`, `substituir`,
+  um `Vec` novo e o `internar` a cada coleção criada (~1,2% das amostras).
+  Agora é uma vaga de `[classe, tipo pedido, tipo gravado]`, limpa com as
+  outras memórias. Não foi medido sozinho (vai junto com o item anterior no
+  mesmo runtime).
+* **`list_push` com uma consulta ao slot** (`heap.rs`). Eram `get`,
+  `get_mut` e outro `get` para a estimativa; agora a diferença da capacidade
+  reservada do vetor, e o `push` que não realoca sai sem mexer nos
+  contadores (salvo no `--gc-stress`, que continua coletando). Não foi
+  medido sozinho: menor que o ruído.
+* **O quadro de raízes no topo do bloco de entrada** (`llvm/mod.rs`, o
+  prólogo). O `alloca` do quadro saía depois do `df.obter_area`, que é
+  `alwaysinline` e tem desvios. Com isso ele deixava de estar no bloco de
+  entrada e virava **alocação dinâmica**: `__chkstk` e o ajuste de pilha a
+  cada chamada da função, e o inliner não o levava para o bloco de entrada
+  de quem chama. O `__chkstk` sai do perfil (era 0,6%) e o executável do
+  servidor cai de 15,1 para 13,7 MB. CPU/req: razão 1,05 [0,75–3,7]; req/s
+  0,97 [0,27–1,17]. **Sem ganho mensurável** com este ruído; fica porque
+  remove as alocações dinâmicas e o código delas.
+
+Correção: `corpus/nativo/70_rti_cache_no_ponto_de_uso.dart` (o mesmo ponto
+de uso com receptores de outros argumentos de tipo, outras classes,
+subclasses que fixam o argumento, sem tipo gravado; as coleções criadas em
+métodos genéricos, com `is`, `runtimeType` e a covariância do `add`/`[]=`;
+20 000 objetos; `Isolate.run`) é igual à VM no AOT, no JIT, com
+`--gc-stress` e no AOT `--optimize`. Corpus nativo 76/76 no AOT, no JIT e
+com `--gc-stress --limite-exec 60`. O `02_io_assincrono` só passa sem `HOME`
+no ambiente: o oráculo em cache foi gravado sem ele; não tem relação com
+esta rodada. Testes de `dartforge-runtime` verdes, incluindo os 4 novos do
+alocador (`tests/alocador.rs`).
+
+**Antes e depois** (10 repetições, 3 s, 1 e 64 conexões; "antes" é o
+servidor compilado pelo `main` de partida desta rodada; mediana [faixa]):
+
+| medida | DartForge antes | DartForge depois | razão por par | Dart AOT |
+|---|---:|---:|---:|---:|
+| req/s, 1 conexão | 5014 [1635–5716] | 4318 [2229–6529] | 1,14 [0,70–1,41] | 5804 [2899–8078] |
+| req/s, 64 conexões | 4050 [1855–6472] | 5548 [2141–7694] | 1,17 [0,65–1,53] | 7875 [4643–10793] |
+| CPU/req, 1 conexão, µs | 221 [129–492] | 180 [110–353] | 0,82 [0,69–1,26] | 102 [71–236] |
+| CPU/req, 64 conexões, µs | 241 [147–525] | 182 [127–450] | 0,86 [0,68–1,57] | 123 [94–218] |
+| p50 / p99, 1 conexão, ms | 0,229 / 0,674 | 0,222 / 0,565 | — | 0,160 / 0,401 |
+| p50 / p99, 64 conexões, ms | 15,1 / 26,5 | 12,5 / 17,7 | — | 0,40 / 189 |
+| RSS em repouso, MB | 18,5 | 18,8 | — | 17,0 |
+| RSS de pico, MB | 25,5 | 25,7 | — | 27,7 |
+
+As medianas de req/s de cada executor vêm de repetições diferentes (a de
+1 conexão "antes" saiu maior que a "depois"). A comparação é a razão por
+par: +14% req/s e −18% de CPU por requisição com 1 conexão, e +17% e −14%
+com 64. As faixas se sobrepõem, e o número de pares é pequeno. No Windows o
+Dart AOT tem RSS de pico maior que o DartForge. O p99 de 64 conexões do Dart
+AOT varia muito entre rodadas (59–365 ms).
+
+**O que falta, e por quê:**
+
+1. **A classe do receptor que não é objeto do espaço** (item 4 de §9.9,
+   ~2,9%). Uma classe por slot lida em linha exige invalidar a entrada
+   quando a classe de um valor do runtime muda depois da criação (a lista
+   que vira fixa ou imutável pelos conjuntos `fixas`/`imutaveis`). Não
+   entrou nesta rodada: o risco de semântica é maior que o ganho, que
+   ficaria abaixo do ruído desta máquina.
+2. **`dartforge_contexto` por chamada** (~1,3%). Um TLS do próprio módulo
+   (cache preguiçoso do ponteiro do contexto) tiraria a chamada do prólogo,
+   mas o JIT (ORC no COFF) não foi verificado com variáveis `thread_local`.
+3. **As duas `Uint8List(8192)` e o gatilho da coleta.** Aqui cada uma é
+   ~0,4% (o `calloc`), e a coleta inteira (`coletar`) ~2,2%. A coleta menor
+   vem a cada ~60 requisições (`LIMITE_JOVEM` de 2 MiB, ~33 KB estimados por
+   requisição, metade dessas listas). A velha cresce ~35 KB por coleta menor
+   até a completa em ~4,2 MB. No Windows o RSS de pico ficou em 25,5–25,7 MB,
+   antes e depois, abaixo do Dart AOT (27,7). O pico de 28 MB do §9.9 é do
+   Linux e não foi remedido aqui.
+4. **Cache de 2 vias no `P<i>`** para os pontos em que o tipo de `this`
+   alterna (o que resta do `rti_avaliar`, ~1%).
+5. Refazer tudo no Linux com o `callgrind` (§9.1): as razões acima são do
+   Windows, com o `malloc` do sistema mais caro que o da glibc.
+
+## 10. JSON (`dart:convert`): `jsonEncode`/`jsonDecode` (medido em 2026-09-29)
+
+### 10.1 O benchmark
+
+`bench/desempenho/json.dart` segue o padrão de `comum.dart`. Os documentos
+saem de um gerador determinístico:
+
+* pequeno: 1 080 unidades, decodificado 2 000 vezes por rodada;
+* médio: 101 447 unidades, 30 vezes;
+* grande: 5 974 162 unidades, uma vez.
+
+Eles têm objetos aninhados, listas de `int` (até ~2^62, com negativos) e
+de `double` (dízimas, expoentes, `0.1 + 0.2`), e strings com aspas,
+barras, controles, acentos, CJK e pares substitutos (emoji, clave de sol).
+Os núcleos são `decode_*`, `encode_*`, `indentado`
+(`JsonEncoder.withIndent`), `utf8_bytes` (`json.fuse(utf8)`, ida e volta
+em bytes) e `reviver`.
+
+Antes das medidas, o programa imprime a soma de todas as unidades de cada
+documento e confere a ida e volta (`jsonEncode(jsonDecode(s)) == s`). Cada
+núcleo imprime uma soma de conferência da estrutura. A saída inteira é
+igual à da VM e à do `dart compile exe`.
+
+### 10.2 Dois defeitos achados pelo benchmark
+
+* **`jsonDecode` quadrático.** O `_JsonStringParser` chama o
+  `Double_parse` (o `_parseDouble`) para todo número com mais de 15
+  algarismos ou com expoente fora de ±22. Para ler a fatia do número, o
+  native copiava a string inteira (`texto_de`): com o documento de 6 MB,
+  cada número copiava 12 MB, e `decode_grande` levava 38–70 s por rodada.
+  Agora o native lê só a fatia, por um buffer da pilha quando é ASCII curto
+  (`nativos_listas.rs`).
+* **`double` errado.** O mesmo native tem duas declarações no SDK: `double?`
+  no `double._nativeParse` e `double` no `_parseDouble` do
+  `convert_patch.dart`. O runtime devolve sempre a caixa (`Ref`), e a
+  chamada com retorno `double` lia o handle como se fosse os bits do
+  número: `2.12e-7` voltava `6.4e-323`. Agora `nativos::RETORNO_REF` marca
+  os natives nessa situação, e tanto o `external` (`externos.rs`) quanto a
+  chamada direta (`sdk_fonte.rs`) chamam com `Ref` e convertem para o tipo
+  declarado.
+
+### 10.3 O que entrou
+
+1. **`String.codeUnitAt` e `length` em linha** (`lower/textos.rs`, item 2
+   de §9.9), sem mexer no `heap.rs`.
+   * As unidades de um `Texto` moram num `Vec` que não muda depois de
+     criado (a string é imutável, e o `writeInto*String` grava no lugar).
+     Por isso o endereço delas é fixo enquanto a string vive.
+   * Duas funções puras dão o endereço e o comprimento:
+     `dartforge_texto_dados` (com o bit 63 ligado quando cada unidade tem
+     dois bytes) e `dartforge_texto_len`. As duas são `memory(none)` e
+     leem o heap sem o `borrow` (`heap_sem_emprestimo`).
+   * O código gerado lê a unidade depois de um teste de limites. Índice
+     fora da faixa, ou valor que não é string do runtime, vai ao native de
+     antes, que lança o `RangeError` da VM.
+   * A string lida de um campo tem um cache por ponto de leitura: o handle
+     enraizado, o endereço e o comprimento. A falha do cache é uma chamada
+     só (`dartforge_texto_na_falha`), que grava o comprimento no local do
+     cache.
+   * Continua pendente um cabeçalho de endereço fixo, como o das listas
+     tipadas: o cache não sobrevive entre chamadas, e uma função pequena
+     que lê o campo (o `_getCharUnsafe` do parser) falha a cada chamada.
+2. **`is` pela classe** (`nucleo.rs`, `llvm/externs.rs`).
+   `dartforge_is_subclass` ganhou uma tabela de acesso direto de 512 vagas
+   na frente do mapa. Passou a ser declarado `memory(read) nounwind
+   willreturn`, sem os efeitos conservadores (ele não aloca nem lança).
+   Com isso, os testes `is String`/`is num`/`is Map` do `writeJsonValue`
+   deixam de levar as referências vivas ao quadro de raízes.
+3. **`int.toString` e `double.toString`** (sobreposições
+   `sdk_nativo/core/integers.dart` e `double.dart`, `nativos_numeros.rs`).
+   * `_Smi.toString`: a tabela pequena da VM continua devolvendo a mesma
+     string para -99..99. Fora dela, uma chamada ao runtime. Antes era o
+     laço da VM, com um `_setAt` (uma chamada) a cada dois dígitos e o `~/`
+     e o `remainder` pelo despacho de `num`.
+   * `_Double.toString`: o cache de 8 entradas compara os bits do `double`
+     (é o que o `identical` compara), guardados numa `List<int>` ao lado da
+     lista de textos. Antes cada entrada custava uma leitura pelo seletor,
+     uma caixa e uma chamada ao runtime. O texto devolvido é o mesmo objeto
+     nos mesmos casos.
+   * O `Double_toString` escreve num buffer da pilha, sem as quatro
+     `String` que alocava antes.
+4. **`StringBuffer`** (`sdk_nativo/core/string_buffer_patch.dart`,
+   `nativos_strings.rs`).
+   * `write` de uma `String` é uma chamada só: o teste, o `isEmpty` e o
+     `length` ficam no runtime, com duas consultas ao slot.
+   * `writeCharCode` escreve direto no acumulador. Antes criava uma string
+     de um caractere por chamada. Os `RangeError` agora são os do
+     `writeCharCode` da VM (antes eram os do `String.fromCharCode`).
+5. **`_JsonListener` e `_JsonStringParser`** (sobreposição
+   `sdk_nativo/convert/convert_patch.dart`, gerada do arquivo da VM).
+   * O listener acrescenta aos contêineres que ele mesmo criou (os pares de
+     um objeto, os elementos de um vetor e a pilha, todos `[]` de
+     `dynamic`/`Object?`) pelo native `DartForge_json_acrescentar`. Isso
+     evita o despacho do `add` (saber a classe de uma lista do runtime
+     custa duas consultas a `HashSet`) e a conferência do `E` na entrada
+     uniforme.
+   * `parse`, `parseString` e `parseNumber` foram copiados do mixin para o
+     `_JsonStringParser`, com o `chunk` num local. Assim o endereço das
+     unidades sai dos laços.
+
+**Correção.** `corpus/nativo/75_json_textos_e_numeros.dart` saiu igual à
+VM no AOT, no JIT e com `--gc-stress`. Ele cobre:
+
+* `codeUnitAt`/`length` de parâmetro, de campo e de campo trocado no meio
+  do laço, com duas unidades, string vazia e índice fora da faixa;
+* números do JSON com 17 algarismos, expoentes, `-0.0`, `5e-324` e
+  inteiros grandes;
+* `int.toString` e a identidade da tabela pequena, e o cache do
+  `double.toString`;
+* `StringBuffer` com `writeCharCode` de par substituto e fora da faixa;
+* ida e volta com escapes, surrogates soltos, `withIndent`, `fuse(utf8)` e
+  reviver.
+
+O corpus nativo passou 76/76 nos três modos. Os testes de
+`dartforge-runtime` estão verdes; entre eles, um confere a escrita nova do
+`double` contra a antiga em 400 mil valores.
+
+### 10.4 Medido (Windows 11, 8 núcleos; Dart SDK 3.6.2)
+
+A tabela dá o tempo estável por núcleo, em ms: a mediana das rodadas
+depois da primeira e, entre colchetes, a faixa (mínimo–máximo) de 3
+repetições alternadas.
+
+A máquina tinha outros agentes compilando e medindo, e o mesmo binário
+variou até 3×: compare as medianas, e leia as faixas como o tamanho do
+ruído. "Antes" é o `main` do início (`30eb778f`). "Depois" inclui também o
+que outras frentes mudaram na mesma árvore no intervalo (alocador, RTI).
+
+| núcleo | antes | depois | Dart AOT | razão antes | razão depois |
+|---|---:|---:|---:|---:|---:|
+| decode_pequeno | 614,9 [331–1666] ¹ | 178,6 [127–433] | 31,4 [24–43] | 19,6× | 5,7× |
+| encode_pequeno | 293,3 [262–979] | 188,2 [103–509] | 33,0 [25–46] | 8,9× | 5,7× |
+| decode_medio | 585,7 [520–1777] ¹ | 394,0 [175–935] | 54,6 [42–75] | 10,7× | 7,2× |
+| encode_medio | 406,9 [341–654] | 148,6 [135–401] | 57,3 [42–67] | 7,1× | 2,6× |
+| decode_grande | 47 873 [38 060–70 324] ¹ | 508,7 [421–1539] | 126,7 [100–192] | 378× | 4,0× |
+| encode_grande | 668,3 [492–847] | 290,1 [283–752] | 123,1 [88–138] | 5,4× | 2,4× |
+| indentado | 274,0 [207–405] | 115,1 [114–326] | 88,8 [42–132] | 3,1× | 1,3× |
+| utf8_bytes | 533,0 [352–685] ¹ | 304,8 [238–804] | 78,7 [41–104] | 6,8× | 3,9× |
+| reviver | 269,1 [227–402] ¹ | 124,5 [114–298] | 49,8 [29–57] | 5,4× | 2,5× |
+
+¹ Com o `double` errado: resultado diferente do da VM.
+
+* **Tempo total do processo:** 351 s → 13,4 s (Dart AOT 4,2 s).
+* **Pico de memória residente** (`PeakWorkingSetSize`): 477 → 317 MB (Dart
+  AOT 195). A queda não foi atribuída a uma mudança só, porque o alocador
+  de outra frente entrou no mesmo intervalo.
+* **`bench/desempenho/textos`**, as mesmas três versões: `construir` 187 →
+  159 ms (Dart AOT 81), `hashes` 74 → 63 ms (38), pico de memória 87 → 88
+  MB.
+
+Ganho de cada passo, pelo mínimo de 3–4 execuções alternadas do mesmo
+programa (30 decodificações ou codificações do documento médio). Com o
+ruído da máquina, a precisão não passa de ~10%:
+
+| passo | decode | encode |
+|---|---:|---:|
+| só as correções de 10.2 | ~200 ms (Dart AOT 34) | ~190 ms (35) |
+| + 1–2 (em linha, `is`) | 222 | 194 |
+| + 3–4 e o cache por ponto de leitura | 227 | 165 |
+| + `is` sem efeitos, `write` numa chamada | 229 | 129 |
+| + 5 (listener e parser) | 211 | 129 |
+
+Micro (a mesma máquina, ms):
+
+| operação | antes | depois | Dart AOT |
+|---|---:|---:|---:|
+| `int.toString` × 1 milhão | 920 | 140 | 20 |
+| `double.toString` × 300 mil | 800 | 145 | 59 |
+| `writeCharCode` × 1 milhão | 130 | 28 | 7 |
+| `codeUnitAt` de campo sobre 1,5 milhão de unidades | — | 4,8 | 3,3 |
+
+### 10.5 Onde vai o tempo agora
+
+O perfil é por amostragem: a thread é suspensa a cada ~1 ms e o RIP é
+lido. A simbolização usa o PDB, com o runtime compilado com as tabelas de
+linha (`DARTFORGE_LIB` apontando para a `staticlib` com `debug =
+"line-tables-only"`).
+
+Na decodificação do documento médio:
+
+* **alocação e coleta, ~21%:** só `RtlAllocateHeap`/`RtlFreeHeap` do
+  `ntdll` são 7%. Cada string é um slot mais o `Vec`; cada lista, o `Box`
+  do cabeçalho mais o `Vec`.
+* **classe do receptor, ~12%:** em `cid_do_valor_do_runtime`, cada
+  `value_class` de uma lista do runtime procura o handle em `imutaveis` e
+  em `fixas`, dois `HashSet`.
+* **RTI, ~10%:** `rti_como_em`, `rti_e` e `rti_avaliar`, na covariância das
+  entradas `$c` do `_Map` e da `_GrowableList` e nos tipos dos
+  `_Map<String, dynamic>` criados.
+* **o parser em Dart, ~9%.**
+* **as consultas de string ao runtime, ~4%:** a falha do cache e as funções
+  puras.
+
+Na codificação:
+
+* **alocação, ~17%;**
+* **classe do receptor, ~12%;**
+* **as listas, ~10%:** a do `writeMap` (`List.filled` mais a closure do
+  `forEach`) e o `_seen` do `_checkCycle`;
+* **o acumulador do `StringBuffer`, ~9%:** `sb_escrever_se_texto` e as
+  consultas ao slot;
+* **RTI, ~7%.**
+
+O que falta, pela ordem do ganho medido. As três primeiras são de outras
+frentes (heap, despacho e RTI):
+
+1. A classe da lista no cabeçalho (`CabecalhoDeLista`), sem os dois
+   `HashSet` em `cid_do_valor_do_runtime`.
+2. Alocação: a string num bloco só (hoje é o slot mais o `Vec`).
+3. As conferências de covariância do `_Map.[]=` e do `add` quando o `E` é o
+   tipo topo.
+4. Um cabeçalho de endereço fixo para o `Texto`: uma chamada pura em vez
+   de duas, e um cache que sobrevive entre chamadas. O mesmo problema
+   aparece no cache de `tipados.rs`, que falha a cada chamada do `writeByte`
+   do `_JsonUtf8Stringifier` (4% do `utf8_bytes`).
+5. `writeMap` sem a lista intermediária nem a closure.
+
+**Achado de passagem.** Numa versão intermediária da sobreposição, o
+`_JsonStringParser` usava os estáticos do mixin `_ChunkedJsonParser` sem
+qualificação. Eles estão fora do escopo léxico, e a VM daria erro de
+compilação. O front-end aceitou em silêncio e gerou acesso dinâmico. A
+saída saiu certa, mas o programa deveria ter sido recusado.

@@ -446,6 +446,8 @@ impl<'a> LlvmEmitter<'a> {
                         Some((b.id.0, format!("ls{v}.fim")))
                     } else if matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_clear") {
                         Some((b.id.0, format!("xc{v}.fim")))
+                    } else if Self::rti_avaliar_em_cache(i) {
+                        Some((b.id.0, format!("ra{v}.fim")))
                     } else {
                         None
                     }
@@ -465,6 +467,18 @@ impl<'a> LlvmEmitter<'a> {
             self.rotulo_atual = format!("b{}", block.id.0);
             if block.id.0 == 0 {
                 self.emit_buffers_de_closure(func);
+                // O quadro de raízes também nasce antes de qualquer chamada
+                // (N17): o `df.obter_area` abaixo é `alwaysinline` e tem
+                // desvios, e um `alloca` depois dele deixava de ser do bloco
+                // de entrada — virava alocação dinâmica, com `__chkstk` e o
+                // `stacksave` a cada chamada da função, e impedia o inliner
+                // de levar o quadro para o bloco de entrada de quem chama.
+                // `DARTFORGE_SEM_QUADRO_NA_ENTRADA=1` na compilação volta ao
+                // lugar antigo (medida).
+                if self.tem_frame && Self::quadro_na_entrada() {
+                    let n = self.slots.values().max().map_or(0, |m| m + 1);
+                    writeln!(self.out, "  %gcq = alloca {{ ptr, i64, [{n} x i64] }}, align 8").unwrap();
+                }
                 if Self::usa_area(func) {
                     writeln!(self.out, "  %area = call ptr @df.obter_area()").unwrap();
                 }
@@ -491,7 +505,9 @@ impl<'a> LlvmEmitter<'a> {
                 // é o do maior).
                 let n = self.slots.values().max().map_or(0, |m| m + 1);
                 let t = format!("{{ ptr, i64, [{n} x i64] }}");
-                writeln!(self.out, "  %gcq = alloca {t}, align 8").unwrap();
+                if !Self::quadro_na_entrada() {
+                    writeln!(self.out, "  %gcq = alloca {t}, align 8").unwrap();
+                }
                 writeln!(self.out, "  store {t} {{ ptr null, i64 {n}, [{n} x i64] zeroinitializer }}, ptr %gcq").unwrap();
                 for slot in 0..n {
                     writeln!(self.out, "  %gcs{slot} = getelementptr inbounds {t}, ptr %gcq, i64 0, i32 2, i64 {slot}").unwrap();
@@ -893,6 +909,9 @@ impl<'a> LlvmEmitter<'a> {
                         // O pedido é raro: o caminho lento fica fora do corpo
                         // do laço.
                         writeln!(self.out, "  %v{v} = call i8 @llvm.expect.i8(i8 %iv{v}, i8 0)").unwrap();
+                    }
+                    Instruction::CallRuntime { args, .. } if Self::rti_avaliar_em_cache(inst) => {
+                        self.emitir_rti_avaliar_em_cache(v, args);
                     }
                     // A classe do receptor: a do objeto do espaço lida no
                     // cabeçalho, em linha (`df.classe`); o resto, o runtime.
@@ -1731,9 +1750,74 @@ impl<'a> LlvmEmitter<'a> {
                         | Instruction::CallSeletor { .. }
                         | Instruction::CallSeletorRepasse { .. }
                         | Instruction::Const(Constant::String(_) | Constant::StringWtf8(_))
-                )
+                ) || Self::rti_avaliar_em_cache(i)
             })
         })
+    }
+
+    /// O quadro de raízes no topo do bloco de entrada (ver o prólogo).
+    fn quadro_na_entrada() -> bool {
+        static DESLIGADO: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        !*DESLIGADO.get_or_init(|| std::env::var_os("DARTFORGE_SEM_QUADRO_NA_ENTRADA").is_some_and(|v| !v.is_empty() && v != "0"))
+    }
+
+    /// `dartforge_rti_avaliar` sem tupla e com `this`: vai pelo cache do
+    /// ponto de uso na área ([`Self::emitir_rti_avaliar_em_cache`]).
+    /// `DARTFORGE_SEM_CACHE_RTI=1` na compilação desliga (medida).
+    fn rti_avaliar_em_cache(i: &Instruction) -> bool {
+        static DESLIGADO: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        matches!(i, Instruction::CallRuntime { name, args, .. }
+            if name == "dartforge_rti_avaliar"
+                && args.len() == 4
+                && matches!(args[3].0, Operand::Constant(Constant::Int(0)))
+                && !matches!(args[1].0, Operand::Constant(_)))
+            && !*DESLIGADO.get_or_init(|| std::env::var_os("DARTFORGE_SEM_CACHE_RTI").is_some_and(|v| !v.is_empty() && v != "0"))
+    }
+
+    /// `P<i>` avaliado com cache no ponto de uso (N17): duas palavras da
+    /// área do isolado guardam a chave do tipo de `this` — o metadado do
+    /// cabeçalho do objeto (`heap::Cabecalho`, deslocamento 12 do bloco, 10
+    /// do handle), ou `-16 - classe` sem metadado, a mesma chave da memória
+    /// do runtime (`chave_do_valor`) — e o resultado. Um objeto do espaço
+    /// com a chave gravada responde com duas cargas; o resto (valores do
+    /// runtime, a primeira vez, outra chave) chama
+    /// `dartforge_rti_avaliar_cache`, que responde e grava. O modelo e a
+    /// classe são constantes do ponto; a tupla é 0. A área é por isolado (os
+    /// ids de tipo são do universo dele) e a recarga zera os caches.
+    fn emitir_rti_avaliar_em_cache(&mut self, v: u32, args: &[(Operand, Type)]) {
+        let modelo = self.coagir(&args[0].0, Type::I64);
+        let this = self.coagir(&args[1].0, Type::I64);
+        let classe = self.coagir(&args[2].0, Type::I64);
+        let slot = self.slot_de_cache();
+        let o = &mut self.out;
+        writeln!(o, "  %ra{v}c = getelementptr i64, ptr %area, i64 {slot}").unwrap();
+        writeln!(o, "  %ra{v}m = and i64 {this}, -9223372036854775805").unwrap();
+        writeln!(o, "  %ra{v}o = icmp eq i64 %ra{v}m, 2").unwrap();
+        writeln!(o, "  br i1 %ra{v}o, label %ra{v}.obj, label %ra{v}.lenta").unwrap();
+        writeln!(o, "ra{v}.obj:").unwrap();
+        writeln!(o, "  %ra{v}p = inttoptr i64 {this} to ptr").unwrap();
+        writeln!(o, "  %ra{v}mp = getelementptr inbounds i8, ptr %ra{v}p, i64 10").unwrap();
+        writeln!(o, "  %ra{v}md = load i32, ptr %ra{v}mp, align 4").unwrap();
+        writeln!(o, "  %ra{v}cp = getelementptr inbounds i8, ptr %ra{v}p, i64 2").unwrap();
+        writeln!(o, "  %ra{v}cl = load i32, ptr %ra{v}cp, align 4").unwrap();
+        writeln!(o, "  %ra{v}mz = zext i32 %ra{v}md to i64").unwrap();
+        writeln!(o, "  %ra{v}cs = sext i32 %ra{v}cl to i64").unwrap();
+        writeln!(o, "  %ra{v}cn = sub i64 -16, %ra{v}cs").unwrap();
+        writeln!(o, "  %ra{v}tm = icmp ne i32 %ra{v}md, 0").unwrap();
+        writeln!(o, "  %ra{v}k = select i1 %ra{v}tm, i64 %ra{v}mz, i64 %ra{v}cn").unwrap();
+        writeln!(o, "  %ra{v}k0 = load i64, ptr %ra{v}c, align 8").unwrap();
+        writeln!(o, "  %ra{v}ok = icmp eq i64 %ra{v}k0, %ra{v}k").unwrap();
+        writeln!(o, "  br i1 %ra{v}ok, label %ra{v}.acerto, label %ra{v}.lenta").unwrap();
+        writeln!(o, "ra{v}.acerto:").unwrap();
+        writeln!(o, "  %ra{v}rp = getelementptr inbounds i64, ptr %ra{v}c, i64 1").unwrap();
+        writeln!(o, "  %ra{v}r1 = load i64, ptr %ra{v}rp, align 8").unwrap();
+        writeln!(o, "  br label %ra{v}.fim").unwrap();
+        writeln!(o, "ra{v}.lenta:").unwrap();
+        writeln!(o, "  %ra{v}r2 = call i64 @dartforge_rti_avaliar_cache(ptr %ra{v}c, i64 {modelo}, i64 {this}, i64 {classe})").unwrap();
+        writeln!(o, "  br label %ra{v}.fim").unwrap();
+        writeln!(o, "ra{v}.fim:").unwrap();
+        writeln!(o, "  %v{v} = phi i64 [ %ra{v}r1, %ra{v}.acerto ], [ %ra{v}r2, %ra{v}.lenta ]").unwrap();
+        self.rotulo_atual = format!("ra{v}.fim");
     }
 
     /// O endereço do slot de um global, em `%ga<v>`.

@@ -35,6 +35,7 @@ pub mod sdk_fonte;
 pub mod sdk_por_nome;
 pub mod intrinsecos;
 pub mod simd;
+pub mod textos;
 pub mod tipados;
 pub mod tipos_de_extensao;
 pub mod verificador;

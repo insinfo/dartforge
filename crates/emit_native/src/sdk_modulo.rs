@@ -408,7 +408,16 @@ fn chave_do_sdk(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     // O rastro de depuração muda o código (`llvm/mod.rs`).
     h.update(std::env::var("DARTFORGE_RASTRO").unwrap_or_default().as_bytes());
     h.update(b"\0");
-    // A ligação de comparação (`DARTFORGE_LIGAR_COM_CLANG`) dá outra DLL.
+    // As chaves de medida do emissor (`DARTFORGE_SEM_…`, que desligam uma
+    // otimização para comparar antes e depois) mudam o código.
+    let mut chaves: Vec<(String, String)> = std::env::vars()
+        .filter(|(k, _)| k.starts_with("DARTFORGE_SEM_"))
+        .collect();
+    chaves.sort();
+    for (k, v) in chaves {
+        h.update(format!("{k}={v}\0").as_bytes());
+    }
+        // A ligação de comparação (`DARTFORGE_LIGAR_COM_CLANG`) dá outra DLL.
     h.update(if crate::driver::ligar_com_clang() { b"clang" } else { b"lld" });
     h.update(b"\0");
     h.update(clang_id.as_bytes());
@@ -787,8 +796,9 @@ mod testes {
         }
         let sdk = carregar_sdk_nativo(Path::new(SDK_DIR.as_str())).unwrap();
         // 26 com o `mirrors_patch.dart` (o `reflectClass` do executor de
-        // builders, corpus/nativo/45).
-        assert_eq!(sdk.substituicoes.len(), 26);
+        // builders, corpus/nativo/45); 29 com `double.dart`, `integers.dart`
+        // e `convert_patch.dart` (o JSON, docs/NATIVO-PLANO.md).
+        assert_eq!(sdk.substituicoes.len(), 29);
         for b in BIBLIOTECAS_DA_FONTE {
             assert!(sdk.library(b).is_some(), "dart:{b} fora do layout");
         }

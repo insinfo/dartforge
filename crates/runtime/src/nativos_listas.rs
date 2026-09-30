@@ -138,6 +138,25 @@ pub extern "C" fn dartforge_lista_add_escalar(h: i64, bits: i64, codigo: i64) ->
     })
 }
 
+/// `_JsonListener._acrescentar(lista, v)` da sobreposição de
+/// `convert_patch.dart`: `v` no fim de uma lista que o listener criou
+/// (`[]`, de `E` `dynamic`/`Object?`, que aceita qualquer valor), sem o
+/// despacho do `add` nem a conferência de covariância. 0, sem mudar nada, se
+/// `lista` não é uma lista do runtime na forma geral e sem tamanho lógico
+/// pendente (o Dart faz então o `add`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_json_acrescentar(lista: i64, v: i64) -> i64 {
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        match heap.try_get(lista) {
+            Some(Value::List(e)) if e.logico().is_none() && e.forma() == crate::heap::FormaDeLista::Geral => {}
+            _ => return 0,
+        }
+        heap.list_push(lista, TaggedValue::reference(v));
+        1
+    })
+}
+
 /// O cabeçalho de `h` (`heap::CabecalhoDeLista`: endereço dos elementos,
 /// comprimento lógico e gravações conferidas) se ela é uma lista do
 /// runtime, senão o `CABECALHO_VAZIO` (comprimento 0). O endereço não muda
@@ -833,8 +852,35 @@ pub extern "C" fn dartforge_nativo_Closure_equals(this: i64, outro: i64) -> u8 {
 /// minúsculas não são aceitos, como na VM).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Double_parse(texto: i64, inicio: i64, fim: i64) -> i64 {
-    let t = texto_de(texto).fatia(inicio.max(0) as usize, fim.max(0) as usize).para_string();
-    let corpo = t.strip_prefix(['+', '-']).unwrap_or(&t);
+    // Só a fatia: o `_JsonStringParser` passa o documento inteiro (`chunk`)
+    // a cada número, e copiar o texto todo tornava o `jsonDecode` quadrático.
+    // O número curto em ASCII (o de todo JSON) vai por um buffer da pilha,
+    // sem as duas alocações da fatia e da `String`.
+    let mut pilha = [0u8; 64];
+    let curto = com_texto(texto, |t| {
+        let (i, f) = (inicio.max(0) as usize, fim.max(0) as usize);
+        if f < i || f - i > pilha.len() || f > t.len() {
+            return None;
+        }
+        for k in i..f {
+            let u = t.unidade(k);
+            if u >= 0x80 {
+                return None;
+            }
+            pilha[k - i] = u as u8;
+        }
+        Some(f - i)
+    });
+    let longo;
+    let t: &str = match curto {
+        // Só ASCII foi copiado.
+        Some(n) => std::str::from_utf8(&pilha[..n]).expect("ASCII"),
+        None => {
+            longo = com_texto(texto, |t| t.fatia(inicio.max(0) as usize, fim.max(0) as usize).para_string());
+            &longo
+        }
+    };
+    let corpo = t.strip_prefix(['+', '-']).unwrap_or(t);
     let valido = corpo == "NaN"
         || corpo == "Infinity"
         || (!corpo.is_empty()

@@ -42,7 +42,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             args.push((op, abi));
         }
         let ret = self.func.return_ty;
-        let ret_abi = if ret == Type::I1 { Type::I8 } else { ret };
+        // O native que o SDK declara com mais de um tipo de retorno devolve
+        // sempre a forma mais larga (`Ref`); o tipo declarado vem da coerção.
+        let ret_abi = if crate::nativos::RETORNO_REF.contains(&nome.as_str()) && ret != Type::Void {
+            Type::Ref
+        } else if ret == Type::I1 {
+            Type::I8
+        } else {
+            ret
+        };
         let r = self.emit_call_with_check(
             Instruction::CallRuntime {
                 name: crate::nativos::simbolo(&nome),

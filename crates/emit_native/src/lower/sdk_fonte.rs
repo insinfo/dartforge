@@ -703,6 +703,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .map(|c| format!("{}.", self.ctx.symbol_name(self.ctx.program.classes[c.0 as usize].name)))
             .unwrap_or_default();
         let membro = format!("{dono}{}", self.ctx.symbol_name(f.name));
+        if let Some(r) = self.texto_em_linha(&membro, native.as_deref(), this.as_ref(), args) {
+            return Some(r);
+        }
         let nome = match native {
             Some(n) => {
                 match crate::nativos::nativo(&n).map(|x| x.estado) {
@@ -769,6 +772,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Type::Void
         } else {
             self.ctx.outline.functions.get(fid).map_or(ret, |d| self.repr_nativo(d.return_type))
+        };
+        // `RETORNO_REF`: o runtime devolve a caixa, e o valor declarado sai
+        // da coerção (nativos.rs).
+        let ret_valor = if crate::nativos::RETORNO_REF.contains(&nome.as_str()) && ret_valor != Type::Void {
+            Type::Ref
+        } else {
+            ret_valor
         };
         let ret_nativo = if ret_valor == Type::I1 { Type::I8 } else { ret_valor };
         let r = self.emit_call_with_check(

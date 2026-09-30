@@ -102,6 +102,8 @@ const FRAGMENTOS: &[&str] = &[
     "nativos_desenvolvedor",
     // RTI: tipos em tempo de execução.
     "tipos",
+    // O alocador global do executável, com listas livres por thread (N17).
+    "alocador",
 ];
 
 fn main() {
