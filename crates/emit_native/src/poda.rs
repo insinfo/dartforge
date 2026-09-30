@@ -34,6 +34,10 @@ pub const SELETORES_RAIZ: &[&str] = &["c:call", "c:toString", "c:==", "g:hashCod
 /// nativo não invoca por nome); o próximo entra aqui.
 pub const CHAMA_POR_NOME: &[&str] = &[];
 
+/// Uma tabela de métodos como o lowering a monta (`Module::tabelas_de_metodos`):
+/// o cid, a função que devolve a tabela e os pares `(seletor, entrada)`.
+pub type TabelaDoModulo = (u32, String, Vec<(String, String)>);
+
 /// O hash de um seletor (FNV-1a de 64 bits, `lower::closures::hash_nome`).
 fn hash_seletor(texto: &str) -> i64 {
     crate::lower::closures::hash_nome(texto)
@@ -357,7 +361,7 @@ impl Resumo {
 /// assert_eq!(r.nomes, vec!["f".to_string(), "g".to_string()]);
 /// assert_eq!(r.definicoes[0].refs, vec![1]);
 /// ```
-pub fn resumir(ir: &str, modulo: &str, externas: &[(u32, String, Vec<(String, String)>)]) -> Resumo {
+pub fn resumir(ir: &str, modulo: &str, externas: &[TabelaDoModulo]) -> Resumo {
     // Passo 1: os nomes locais e os textos dos seletores.
     let mut locais: HashSet<&str> = HashSet::new();
     let mut textos_seln: HashMap<&str, String> = HashMap::new();
@@ -816,12 +820,12 @@ mod testes {
     /// Um SDK de brinquedo: a classe `C` tem `usado` e `morto`; a tabela é
     /// externa, e a função `aloca` cita a função da tabela.
     fn sdk() -> Resumo {
-        let ir = format!(
-            "define i64 @C.usado$c(i64 %t, ptr %a, ptr %d) {{\n  ret i64 0\n}}\n\
-             define i64 @C.morto$c(i64 %t, ptr %a, ptr %d) {{\n  %x = call i64 @C.morto(i64 %t)\n  ret i64 %x\n}}\n\
-             define i64 @C.morto(i64 %t) {{\n  ret i64 1\n}}\n\
-             define internal i64 @df.classe(i64 %h) {{\n  ret i64 0\n}}\n\
-             define i64 @aloca() {{\n  %v = call i64 @dartforge_object_new_t(i64 200, i64 0, ptr @df.mt.C)\n  ret i64 %v\n}}\n\
+        let ir = String::from(
+            "define i64 @C.usado$c(i64 %t, ptr %a, ptr %d) {\n  ret i64 0\n}\n\
+             define i64 @C.morto$c(i64 %t, ptr %a, ptr %d) {\n  %x = call i64 @C.morto(i64 %t)\n  ret i64 %x\n}\n\
+             define i64 @C.morto(i64 %t) {\n  ret i64 1\n}\n\
+             define internal i64 @df.classe(i64 %h) {\n  ret i64 0\n}\n\
+             define i64 @aloca() {\n  %v = call i64 @dartforge_object_new_t(i64 200, i64 0, ptr @df.mt.C)\n  ret i64 %v\n}\n\
              declare ptr @df.mt.C()\n"
         );
         let metodos = vec![("c:usado".to_string(), "C.usado$c".to_string()), ("c:morto".to_string(), "C.morto$c".to_string())];

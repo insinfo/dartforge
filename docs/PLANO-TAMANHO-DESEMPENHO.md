@@ -183,6 +183,29 @@ em bytes:
   É o LTO que encolhe.
 - **Chave de comparação:** com `DARTFORGE_SEM_PODA_DE_TABELAS=1`, o `corpus/nativo/81` volta a
   10,8 MB, e todas as formas dos membros não usados reaparecem no mapa.
+- **Verificação, na cópia com a mudança:**
+
+  | Corpus e perfil | Resultado |
+  |---|---:|
+  | `corpus/nativo` em produção (`dartforge-diferencial --nativo --otimizar`, opção nova) | 93/93 |
+  | `corpus/nativo` com `--nativo` | 93/93 |
+  | `corpus/nativo` com `--nativo --gc-stress --limite-exec 60` | 93/93 |
+  | `corpus/nativo` com `--jit` | 93/93 |
+  | `corpus/js` em produção | 235/235 |
+
+- **Desempenho igual.** Mínimos em ms de rodadas alternadas, antes / depois:
+
+  | Medida | Antes | Depois |
+  |---|---:|---:|
+  | `json.dart` `decode_medio` (5 rodadas) | 85,6 | 83,6 |
+  | `json.dart` `decode_grande` | 182,0 | 170,6 |
+  | `json.dart` `encode_grande` | 106,9 | 107,6 |
+  | `json.dart` `utf8_bytes` | 103,5 | 103,8 |
+  | `blend.dart` escalar, µs (20 rodadas) | 29,9 | 29,9 |
+  | `blend.dart` 3.6, µs | 17,2 | 17,2 |
+  | `blend.dart` 3.14, µs | 17,5 | 17,5 |
+
+  As outras medidas do `json.dart` ficam dentro de 1%.
 
 Ferramentas, em `tools/tamanho/`:
 

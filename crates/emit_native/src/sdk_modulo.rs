@@ -268,7 +268,7 @@ pub struct BibliotecaDoSdk {
     /// As tabelas de métodos que o módulo cita, mas não define (o perfil de
     /// produção, docs/NATIVO-PODA-DE-TABELAS.md §3.2): vão para o resumo da
     /// biblioteca. Vazio no desenvolvimento.
-    pub tabelas: Vec<(u32, String, Vec<(String, String)>)>,
+    pub tabelas: Vec<crate::poda::TabelaDoModulo>,
 }
 
 /// Baixa e emite cada uma das [`BIBLIOTECAS_DA_FONTE`] no seu módulo (P5c):
