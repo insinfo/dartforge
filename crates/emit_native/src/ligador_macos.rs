@@ -944,6 +944,11 @@ pub fn ligar(ld: &Path, sysroot: &SysrootMacos, l: &Ligacao<'_>) -> Result<(), S
             cmd.args(["-S", "-x"]);
         }
     }
+    if l.podar
+        && let Some(m) = crate::ligador::mapa_da_ligacao(l.saida)
+    {
+        cmd.arg("-map").arg(m);
+    }
     cmd.args(&l.entradas);
     cmd.args(BIBLIOTECAS);
     let saida = cmd.output().map_err(|e| format!("falha ao executar {}: {e}", ld.display()))?;

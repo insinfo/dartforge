@@ -122,6 +122,9 @@ pub fn finalizar_programa() -> i32 {
                 s.estimated_bytes, s.peak_estimated_bytes, s.permanent_roots, s.caixas_evitadas);
         });
     }
+    if std::env::var("DARTFORGE_GC_MEMORIA").is_ok_and(|v| !v.is_empty() && v != "0") {
+        HEAP.with(|heap| eprint!("[memória] fim do programa\n{}", heap.borrow().relatorio_de_memoria()));
+    }
     codigo_de_saida_global()
 }
 

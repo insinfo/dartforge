@@ -265,6 +265,10 @@ pub struct BibliotecaDoSdk {
     pub ir: String,
     /// Os membros recusados: (símbolo, motivo).
     pub recusados: Vec<(String, String)>,
+    /// As tabelas de métodos que o módulo cita, mas não define (o perfil de
+    /// produção, docs/NATIVO-PODA-DE-TABELAS.md §3.2): vão para o resumo da
+    /// biblioteca. Vazio no desenvolvimento.
+    pub tabelas: Vec<(u32, String, Vec<(String, String)>)>,
 }
 
 /// Baixa e emite cada uma das [`BIBLIOTECAS_DA_FONTE`] no seu módulo (P5c):
@@ -272,8 +276,9 @@ pub struct BibliotecaDoSdk {
 /// um. É função só das fontes do SDK, da sobreposição e do compilador.
 /// `producao`: o perfil de produção ([`PerfilDoSdk::Producao`]), que nunca
 /// recarrega. O descritor da área de globais vai sem os nomes dos slots
-/// (`LlvmEmitter::com_area_enxuta`) e toda função leva `optsize`
-/// ([`com_optsize`]).
+/// (`LlvmEmitter::com_area_enxuta`), toda função leva `optsize`
+/// ([`com_optsize`]) e as tabelas de métodos ficam para a ligação
+/// (`LlvmEmitter::com_tabelas_na_ligacao`, docs/NATIVO-PODA-DE-TABELAS.md).
 pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path, producao: bool) -> Result<Vec<BibliotecaDoSdk>, String> {
     use dartforge_types::table::{CoreTypes, TypeTable};
     let (program, interner) = carregar_bibliotecas_da_fonte(lib_dir)?;
@@ -318,9 +323,14 @@ pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path, producao: bool) -> Result<Vec<B
         crate::otimizar::otimizar(&mut module);
         // A DLL do SDK fica carregada o processo inteiro: os literais são
         // objetos estáticos também no JIT (docs/NATIVO-ESPACO-UNIFICADO.md §2.11).
-        let ir = crate::llvm::LlvmEmitter::new(&module).com_area_enxuta(producao).com_objetos_estaticos(true).emit_all();
+        let ir = crate::llvm::LlvmEmitter::new(&module)
+            .com_area_enxuta(producao)
+            .com_objetos_estaticos(true)
+            .com_tabelas_na_ligacao(producao)
+            .emit_all();
         let ir = if producao { com_optsize(&ir) } else { ir };
-        saida.push(BibliotecaDoSdk { uri, ir, recusados: std::mem::take(&mut module.recusados) });
+        let tabelas = if producao { std::mem::take(&mut module.tabelas_de_metodos) } else { Vec::new() };
+        saida.push(BibliotecaDoSdk { uri, ir, recusados: std::mem::take(&mut module.recusados), tabelas });
     }
     Ok(saida)
 }
@@ -341,6 +351,10 @@ pub struct SdkCompilado {
     pub objetos: Vec<PathBuf>,
     pub dll: PathBuf,
     pub importacao: PathBuf,
+    /// Os resumos da poda das tabelas de métodos, um por biblioteca
+    /// (`<biblioteca>.poda`, docs/NATIVO-PODA-DE-TABELAS.md §3.3): só no
+    /// perfil de produção.
+    pub resumos: Vec<PathBuf>,
     /// Quanto levou para compilar (o custo a frio); `None` quando veio do
     /// cache.
     pub frio: Option<std::time::Duration>,
@@ -498,6 +512,11 @@ pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk
     let ext_obj = crate::alvo::ext_objeto();
     let pronto = |d: &Path, frio| SdkCompilado {
         objetos: BIBLIOTECAS_DA_FONTE.iter().map(|b| d.join(format!("{b}.{ext_obj}"))).collect(),
+        resumos: if perfil == PerfilDoSdk::Producao {
+            BIBLIOTECAS_DA_FONTE.iter().map(|b| d.join(format!("{b}.poda"))).collect()
+        } else {
+            Vec::new()
+        },
         dll: d.join(&arquivo_dll),
         // No Windows liga-se contra a biblioteca de importação; no ELF e no
         // Mach-O, contra a própria biblioteca compartilhada.
@@ -549,6 +568,11 @@ pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk
         }
         for (s, m) in &lib.recusados {
             resumo.push_str(&format!("{}\t{s}\t{m}\n", lib.uri));
+        }
+        // O resumo da poda (produção): do IR que vira o bitcode.
+        if perfil == PerfilDoSdk::Producao {
+            let poda = crate::poda::resumir(&lib.ir, &lib.uri, &lib.tabelas);
+            std::fs::write(tmp.join(format!("{b}.poda")), poda.para_texto()).map_err(|e| e.to_string())?;
         }
     }
     std::fs::write(tmp.join("recusados.tsv"), resumo).map_err(|e| e.to_string())?;
@@ -834,8 +858,9 @@ mod testes {
         let sdk = carregar_sdk_nativo(Path::new(SDK_DIR.as_str())).unwrap();
         // 26 com o `mirrors_patch.dart` (o `reflectClass` do executor de
         // builders, corpus/nativo/45); 29 com `double.dart`, `integers.dart`
-        // e `convert_patch.dart` (o JSON, docs/NATIVO-PLANO.md).
-        assert_eq!(sdk.substituicoes.len(), 29);
+        // e `convert_patch.dart` (o JSON, docs/NATIVO-PLANO.md); 30 com o
+        // `convert/json.dart` (a escrita em UTF-8, §13.2).
+        assert_eq!(sdk.substituicoes.len(), 30);
         for b in BIBLIOTECAS_DA_FONTE {
             assert!(sdk.library(b).is_some(), "dart:{b} fora do layout");
         }
@@ -988,6 +1013,61 @@ mod testes {
         let o = std::process::Command::new(&copia).current_dir(sozinho.path()).output().unwrap();
         assert!(o.status.success(), "código {:?}; stderr: {}", o.status.code(), String::from_utf8_lossy(&o.stderr));
         assert_eq!(String::from_utf8_lossy(&o.stdout).replace("\r\n", "\n"), "oi\n[2, 4, 6]\n{a: 1}\n");
+    }
+
+    /// O teste de ausência de código (docs/NATIVO-PODA-DE-TABELAS.md §4, o
+    /// `deadstrip.test.ts` do scriptc): `corpus/nativo/81_poda_de_tabelas.dart`
+    /// tem uma classe instanciada com membros que nada usa. No executável de
+    /// produção (o mapa da ligação) não fica símbolo nenhum deles — nem o
+    /// corpo nem as entradas `$c`/`$tc`/`$g`/`$s`/`$tearm` —, ficam as
+    /// entradas dos usados, e a saída é a da VM.
+    #[test]
+    #[ignore = "compila o SDK da fonte (lento a frio); roda no CI"]
+    fn poda_tira_membros_nao_usados() {
+        let sdk_dir = SdkLayout::discover().unwrap_or_else(|| PathBuf::from(SDK_DIR.as_str()));
+        if !sdk_dir.join("libraries.json").is_file() {
+            assert!(std::env::var_os("CI").is_none(), "SDK do Dart ausente no CI ({})", sdk_dir.display());
+            return;
+        }
+        let entrada = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/nativo/81_poda_de_tabelas.dart");
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join(crate::alvo::nome_executavel("poda"));
+        crate::ligador::pedir_mapas_da_ligacao();
+        let (e2, x2) = (entrada.clone(), exe.clone());
+        std::thread::Builder::new()
+            .stack_size(256 << 20)
+            .spawn(move || {
+                let opcoes = crate::CompileOptions { sdk: Some(&sdk_dir), packages: None, timings: false, optimize: true, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
+                crate::compilar_com(&e2, &x2, &opcoes)
+            })
+            .unwrap()
+            .join()
+            .unwrap()
+            .expect("compilar em produção");
+        let mapa = std::fs::read_to_string(exe.with_extension("map")).expect("o mapa da ligação");
+        let ficaram: Vec<&str> = mapa.lines().filter(|l| l.contains("naoUsadoPoda")).collect();
+        assert!(ficaram.is_empty(), "membros não usados no executável:\n{}", ficaram.join("\n"));
+        // As entradas dos usados, uma de cada forma (o setter `x=` leva o
+        // `=` escapado; o tear-off estático é o `$tearm`, o dinâmico passa
+        // pelo `$g`).
+        let usados = [
+            "Poda.usadoDinamicoPoda$c",
+            "PodaFilha.usadoDinamicoPoda$c",
+            "lidoPorGetterPoda$g",
+            "gravadoPorSetterPoda$3d$s",
+            "tearoffUsadoPoda$tearm",
+            "tearoffDinamicoPoda$g",
+            "genericoUsadoPoda$c",
+        ];
+        for usado in usados {
+            assert!(mapa.contains(usado), "{usado} fora do mapa da ligação");
+        }
+        let o = std::process::Command::new(&exe).output().unwrap();
+        assert!(o.status.success(), "código {:?}; stderr: {}", o.status.code(), String::from_utf8_lossy(&o.stderr));
+        assert_eq!(
+            String::from_utf8_lossy(&o.stdout).replace("\r\n", "\n"),
+            "7\n13\n13\n7\n101\nt\nPoda(3, 9)\n4\n102\n13\n7\nnsm Symbol(\"qualquerCoisaPoda\") [1, 2] 1\nNoSuchMethodError\n"
+        );
     }
 
     /// A medição de P5c: quantos membros do SDK da fonte o lowering baixa.

@@ -202,6 +202,11 @@ pub fn ligar(ld: &Path, sysroot: &SysrootLinux, l: &Ligacao<'_>) -> Result<(), S
             cmd.arg("--strip-all");
         }
     }
+    if l.podar
+        && let Some(m) = mapa_da_ligacao(l.saida)
+    {
+        cmd.arg(format!("-Map={}", m.display()));
+    }
     cmd.args(&l.entradas);
     // As bibliotecas do sistema (o `-lgcc_s -lutil -lrt -lpthread -lm -ldl
     // -lc` do runtime), pelos arquivos do sysroot.
@@ -222,6 +227,26 @@ pub fn ligar(ld: &Path, sysroot: &SysrootLinux, l: &Ligacao<'_>) -> Result<(), S
         return Err(format!("o ld.lld falhou na ligação ({}):\n{}", saida.status, linhas.join("\n")));
     }
     Ok(())
+}
+
+/// `DARTFORGE_MAPA_DA_LIGACAO=1`: o mapa da ligação de um executável de
+/// produção ao lado dele (`<saída>.map`), com o endereço e o tamanho de cada
+/// símbolo depois do LTO — o que `tools/tamanho/quebra.py` lê e o teste de
+/// ausência de código confere (docs/NATIVO-PODA-DE-TABELAS.md §3.10).
+/// [`pedir_mapas_da_ligacao`] também liga.
+pub fn mapa_da_ligacao(saida: &Path) -> Option<PathBuf> {
+    let pedido = MAPAS.load(std::sync::atomic::Ordering::Relaxed)
+        || std::env::var("DARTFORGE_MAPA_DA_LIGACAO").is_ok_and(|v| v == "1");
+    pedido.then(|| saida.with_extension("map"))
+}
+
+/// Os mapas pedidos pelo próprio processo (os testes), sem mexer no
+/// ambiente.
+static MAPAS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Liga [`mapa_da_ligacao`] neste processo.
+pub fn pedir_mapas_da_ligacao() {
+    MAPAS.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// `DARTFORGE_MANTER_SIMBOLOS=1` deixa a tabela de símbolos no executável,

@@ -90,6 +90,10 @@ pub struct Ambiente {
     pub path_extra: Vec<PathBuf>,
     /// `--gc-stress`: o executável nativo roda com `DARTFORGE_GC_STRESS=1`.
     pub gc_stress: bool,
+    /// `--otimizar`: o executável nativo é o de produção (`aot --optimize`:
+    /// um executável só, LTO e a poda das tabelas de métodos,
+    /// docs/NATIVO-PODA-DE-TABELAS.md).
+    pub otimizar: bool,
 }
 
 impl Ambiente {
@@ -154,6 +158,7 @@ impl Ambiente {
             limite: Duration::from_secs(120),
             limite_nativo: Duration::from_secs(5),
             gc_stress: false,
+            otimizar: false,
         }
     }
 
@@ -513,6 +518,7 @@ pub fn dartforge_nativo(amb: &Ambiente, programa: &Programa, dir: &Path) -> Said
     let entrada = programa.entrada.clone();
     let saida = saida_exe.clone();
     let versao = versao_do_programa(amb, programa);
+    let otimizar = amb.otimizar;
     let comp_res = std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
@@ -520,7 +526,7 @@ pub fn dartforge_nativo(amb: &Ambiente, programa: &Programa, dir: &Path) -> Said
                 sdk: None,
                 packages: None,
                 timings: false,
-                optimize: false,
+                optimize: otimizar,
                 versao_linguagem: Some(versao),
                 experimentos: Vec::new(),
                 depuracao: false,

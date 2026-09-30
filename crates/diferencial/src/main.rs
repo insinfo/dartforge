@@ -10,7 +10,7 @@ use dartforge_diferencial::{
 };
 
 const USO: &str = "uso:
-  dartforge-diferencial [--nativo [--gc-stress]] [--producao] [--corpus DIR] [--filtro TEXTO] [--sem-forge] [--sem-cache] [--jobs N] [--limite SEG] [--limite-exec SEG] [--silencioso]
+  dartforge-diferencial [--nativo [--gc-stress] [--otimizar]] [--producao] [--corpus DIR] [--filtro TEXTO] [--sem-forge] [--sem-cache] [--jobs N] [--limite SEG] [--limite-exec SEG] [--silencioso]
       roda dart run × [ddc+node ou nativo] × dartforge em cada programa e imprime o relatório
       (dois SDKs de oráculo: DARTFORGE_DART_SDK, o piso 3.6.2, e DARTFORGE_DART_SDK_3_13;
       cada programa vai para o menor SDK que cobre o `// requer-dart: x.y` e o `// @dart=x.y`
@@ -19,6 +19,8 @@ const USO: &str = "uso:
       recurso não implementado — docs/VERSOES-LINGUAGEM.md §5)
       (--gc-stress: o executável nativo roda com DARTFORGE_GC_STRESS=1, coleta antes de
       toda alocação — um programa só passa se passar também assim; docs/NATIVO-PLANO.md G7)
+      (--otimizar: o executável nativo é o de produção, `aot --optimize` — LTO e a poda
+      das tabelas de métodos; docs/NATIVO-PODA-DE-TABELAS.md)
       (código 0 se todos batem; 1 se algum falha)
       --fragmento K/N roda só o fragmento K de N do corpus (índice % N == K-1;
       vale em todos os modos — é como o CI divide o corpus nativo entre máquinas)
@@ -251,6 +253,7 @@ fn main() {
             "--jit" => (op.nativo, op.jit) = (true, true),
             "--jit-aot" => (op.nativo, op.jit, op.jit_aot) = (true, true, true),
             "--gc-stress" => amb.gc_stress = true,
+            "--otimizar" => amb.otimizar = true,
             "--executar" => executar = true,
             "--producao" => op.com_producao = true,
             "--sem-cache" => amb.usar_cache = false,
@@ -384,6 +387,7 @@ fn main() {
                     match (op.nativo, op.jit, amb.gc_stress) {
                         (true, true, _) => "jit",
                         (true, false, true) => "aot-gc-stress",
+                        (true, false, false) if amb.otimizar => "aot-otimizado",
                         (true, false, false) => "aot",
                         (false, ..) => "js-dev",
                     }

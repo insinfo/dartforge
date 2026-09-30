@@ -422,7 +422,7 @@ impl Heap {
 
     /// `f` com `hs` enraizados num quadro do runtime (null e `Smi` não ocupam
     /// raiz útil, mas não atrapalham).
-    fn lista_com_raizes<R>(&mut self, hs: &[Ref], f: impl FnOnce(&mut Heap) -> R) -> R {
+    pub(crate) fn lista_com_raizes<R>(&mut self, hs: &[Ref], f: impl FnOnce(&mut Heap) -> R) -> R {
         let quadro = self.push_frame_with_slots(hs.len());
         for (i, &x) in hs.iter().enumerate() {
             self.set_root(quadro, i, x);

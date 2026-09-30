@@ -180,6 +180,9 @@ impl LlvmEmitter<'_> {
                 .any(|classe| classe.id == *cid && classe.name == "_StackTrace");
             if !modulo.biblioteca_sdk || trace_do_runtime {
                 writeln!(corpo, "  call void @dartforge_registrar_tabela(i64 {cid}, ptr @{simbolo})").unwrap();
+                if self.tabelas_na_ligacao {
+                    self.anotar_externo(simbolo, Type::Ptr, &[]);
+                }
             }
         }
         for (k, (nome, simbolo)) in modulo.ajudantes.iter().enumerate() {
@@ -256,36 +259,23 @@ impl LlvmEmitter<'_> {
     /// ligador (`/OPT:REF`, no perfil de produção) tira a tabela, os
     /// adaptadores e os métodos que só ela alcançava. As classes dos valores
     /// do runtime são registradas pela entrada do programa.
+    ///
+    /// Com as tabelas na ligação (o SDK de produção,
+    /// docs/NATIVO-PODA-DE-TABELAS.md §3.2) nada sai aqui: o módulo do
+    /// programa define as tabelas do SDK, só com os pares vivos
+    /// (`poda::montar`).
     fn emitir_tabelas_de_metodos(&mut self) -> String {
+        if self.tabelas_na_ligacao {
+            return String::new();
+        }
         let modulo = self.module;
         for (cid, simbolo, metodos) in &modulo.tabelas_de_metodos {
-            let mut pares: Vec<(i64, &str, &str)> =
-                metodos.iter().map(|(s, f)| (hash_seletor(s), s.as_str(), f.as_str())).collect();
-            pares.sort();
-            for par in pares.windows(2) {
-                assert!(
-                    par[0].0 != par[1].0 || par[0].1 == par[1].1,
-                    "hash de seletor repetido na classe {cid}: {} e {}",
-                    par[0].1,
-                    par[1].1
-                );
-            }
-            pares.dedup_by(|a, b| a.0 == b.0);
+            let pares = crate::poda::pares_da_tabela(*cid, metodos);
             for (_, _, f) in &pares {
-                let s = f.to_string();
-                self.anotar_externo(&s, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
+                self.anotar_externo(f, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
             }
-            let mut itens = vec![format!("i64 {cid}"), format!("i64 {}", pares.len())];
-            itens.extend(pares.iter().map(|(h, _, f)| format!("i64 {h}, ptr @{f}")));
-            let mut tipos = vec!["i64", "i64"];
-            tipos.extend(pares.iter().flat_map(|_| ["i64", "ptr"]));
-            writeln!(
-                self.out,
-                "@{simbolo}$d = private unnamed_addr constant {{ {} }} {{ {} }}",
-                tipos.join(", "),
-                itens.join(", ")
-            )
-            .unwrap();
+            let itens: Vec<(i64, String)> = pares.iter().map(|(h, _, f)| (*h, format!("@{f}"))).collect();
+            self.out.push_str(&crate::poda::linha_de_tabela(&format!("@{simbolo}$d = private unnamed_addr constant "), i64::from(*cid), &itens));
             writeln!(self.out, "define ptr @{simbolo}() {{\nb0:\n  ret ptr @{simbolo}$d\n}}").unwrap();
         }
         String::new()
@@ -323,7 +313,10 @@ impl LlvmEmitter<'_> {
         let mut definidas: std::collections::HashSet<&str> =
             self.module.functions.iter().map(|f| f.symbol.as_str()).collect();
         // As funções das tabelas de métodos do módulo (`emitir_tabelas_de_metodos`).
-        definidas.extend(self.module.tabelas_de_metodos.iter().map(|(_, s, _)| s.as_str()));
+        // Com as tabelas na ligação, elas são do módulo do programa.
+        if !self.tabelas_na_ligacao {
+            definidas.extend(self.module.tabelas_de_metodos.iter().map(|(_, s, _)| s.as_str()));
+        }
         let declaradas_runtime: std::collections::HashSet<&str> = super::externs::EXTERNS
             .iter()
             .filter_map(|e| {

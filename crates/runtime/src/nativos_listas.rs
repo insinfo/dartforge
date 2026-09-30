@@ -99,25 +99,137 @@ fn tipar_lista_copiada(h: i64, origem: i64, classe: i32) {
     }
 }
 
-/// `_JsonListener._acrescentar(lista, v)` da sobreposição de
-/// `convert_patch.dart`: `v` no fim de uma lista que o listener criou
-/// (`[]`, de `E` `dynamic`/`Object?`, que aceita qualquer valor), sem o
-/// despacho do `add` nem a conferência de covariância. 0, sem mudar nada, se
-/// `lista` não é uma `_GrowableList` na forma geral (o Dart faz então o
-/// `add`). Pode coletar (o crescimento).
+/// A pilha de valores do `_JsonListener` da sobreposição de `convert_patch.dart`
+/// (docs/NATIVO-PLANO.md §13.2, item 4): uma `_GrowableList` de `Object?` que só
+/// o listener vê, na forma geral. Os natives abaixo a leem e gravam pelos
+/// deslocamentos do contrato (`Dados` de `nativos_hash.rs`), sem o `Heap`, e
+/// devolvem -1 sem mudar nada quando ela não está nessa forma — o Dart faz
+/// então o `add`, o laço e o `length =` de sempre.
+///
+/// `_JsonListener._dfEmpilhar(pilha, v)`: `v` no fim da pilha, sem o despacho
+/// do `add` nem a conferência do `E` (`Object?`). Devolve o novo comprimento.
+/// Pode coletar (o crescimento do armazenamento).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_json_acrescentar(lista: i64, v: i64) -> i64 {
+pub extern "C" fn dartforge_nativo_DartForge_json_empilhar(pilha: i64, v: i64) -> i64 {
+    if let Some(n) = empilhar_cru(pilha, v) {
+        return n;
+    }
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        let serve = heap.e_lista(lista)
-            && heap.classe(lista) == crate::layout::cid::GROWABLE_LIST
-            && heap.lista_forma(lista) == crate::listas::Elemento::Geral;
+        let serve = heap.e_lista(pilha)
+            && heap.classe(pilha) == crate::layout::cid::GROWABLE_LIST
+            && heap.lista_forma(pilha) == crate::listas::Elemento::Geral;
         if !serve {
-            return 0;
+            return -1;
         }
-        heap.lista_push(lista, crate::heap::Valor::Ref(v));
-        1
+        heap.lista_push(pilha, crate::heap::Valor::Ref(v));
+        heap.lista_len(pilha) as i64
     })
+}
+
+/// O `empilhar` com capacidade sobrando: grava no armazenamento (com a barreira
+/// de elemento) e o comprimento no campo 0, sem o `Heap`. `None` se precisa
+/// crescer ou a forma não é a simples.
+fn empilhar_cru(pilha: i64, v: i64) -> Option<i64> {
+    use crate::layout::{cid, desl, e_objeto};
+    if !e_objeto(pilha) {
+        return None;
+    }
+    // SAFETY: objeto vivo (o campo `_pilha` do listener).
+    if unsafe { cabecalho_cru(pilha) }.class_id != cid::GROWABLE_LIST {
+        return None;
+    }
+    // SAFETY: `_GrowableList`: comprimento no campo 0, armazenamento no 1.
+    let (len, a) = unsafe { (palavra_crua(pilha, desl::COMPRIMENTO), palavra_crua(pilha, desl::EXPANSIVEL_DADOS)) };
+    let d = Dados::de(a, true)?;
+    let n = usize::try_from(len).ok()?;
+    if n >= d.len {
+        return None;
+    }
+    d.gravar(n, v);
+    // SAFETY: o campo 0 (comprimento bruto, sem barreira: não é referência).
+    unsafe { *no_bloco(pilha, desl::COMPRIMENTO).cast::<i64>() = len + 1 };
+    Some(len + 1)
+}
+
+/// A marca em `inicio - 1` e a pilha (cortada no comprimento), se `inicio` é
+/// uma posição de contêiner aberto (`1 ≤ inicio ≤ comprimento`) e a marca um
+/// `Smi`.
+fn marca_da_pilha(pilha: i64, inicio: i64) -> Option<(Dados, usize, i64)> {
+    let p = Dados::da_expansivel(pilha)?;
+    let inicio = usize::try_from(inicio).ok().filter(|&i| i >= 1 && i <= p.len)?;
+    let m = p.ler(inicio - 1);
+    crate::layout::smi::e_smi(m).then(|| (p, inicio, crate::layout::smi::valor(m)))
+}
+
+/// Corta a pilha em `ate` (anulando as posições tiradas, para não reter os
+/// valores; null não pede barreira).
+fn cortar_pilha(pilha: i64, p: Dados, ate: usize) {
+    for i in ate..p.len {
+        // SAFETY: `i < len` do armazenamento geral gravável da pilha.
+        unsafe { *p.p.add(i) = 0 };
+    }
+    // SAFETY: o campo 0 da `_GrowableList` (comprimento bruto).
+    unsafe { *no_bloco(pilha, crate::layout::desl::COMPRIMENTO).cast::<i64>() = ate as i64 };
+}
+
+/// `_JsonListener._dfTruncar(pilha, inicio)`: tira os valores `pilha[inicio..]`
+/// e a marca em `inicio - 1`; devolve a marca, ou -1. Não aloca.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_json_truncar(pilha: i64, inicio: i64) -> i64 {
+    let Some((p, inicio, marca)) = marca_da_pilha(pilha, inicio) else { return -1 };
+    // A pilha é gravável (a do listener): a mesma conferência de `empilhar_cru`.
+    // SAFETY: o armazenamento da `_GrowableList` (campo 1).
+    if Dados::de(unsafe { palavra_crua(pilha, crate::layout::desl::EXPANSIVEL_DADOS) }, true).is_none() {
+        return -1;
+    }
+    cortar_pilha(pilha, p, inicio - 1);
+    marca
+}
+
+/// `_JsonListener._dfMarca(pilha, inicio)`: a marca em `inicio - 1` (o contêiner
+/// aberto), sem mudar nada; -1 fora da forma simples. Não aloca.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_json_marca(pilha: i64, inicio: i64) -> i64 {
+    marca_da_pilha(pilha, inicio).map_or(-1, |(_, _, m)| m)
+}
+
+/// `_JsonListener._dfFecharLista(pilha, inicio, modelo)`: a lista do JSON com os
+/// valores `pilha[inicio..]`, na ordem — uma `_GrowableList` nova do tamanho
+/// exato, com o tipo reificado de `modelo` (o `[]` de `List<dynamic>` do
+/// listener, o mesmo tipo do `[]` que o listener da VM cria por lista) —, e a
+/// pilha sem esses valores nem a marca em `inicio - 1`. null, sem mudar nada,
+/// fora da forma simples. Pode coletar.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_json_fechar_lista(pilha: i64, inicio: i64, modelo: i64) -> i64 {
+    use crate::layout::{cid, desl, e_objeto};
+    let Some((p, i0, _)) = marca_da_pilha(pilha, inicio) else { return 0 };
+    // SAFETY: o armazenamento da `_GrowableList` (campo 1).
+    if Dados::de(unsafe { palavra_crua(pilha, desl::EXPANSIVEL_DADOS) }, true).is_none() {
+        return 0;
+    }
+    // SAFETY: objeto vivo.
+    if !e_objeto(modelo) || unsafe { cabecalho_cru(modelo) }.class_id != cid::GROWABLE_LIST {
+        return 0;
+    }
+    let n = p.len - i0;
+    let lista = HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        // A pilha e o modelo enraizados: os valores são alcançados pela pilha.
+        let lista = heap.lista_com_raizes(&[pilha, modelo], |heap| heap.nova_expansivel(n, n, crate::listas::Elemento::Geral));
+        let tipo = heap.metadado(modelo);
+        heap.set_metadado(lista, tipo);
+        if n > 0 {
+            // O coletor não move: `p` continua valendo. O armazenamento é novo e
+            // ninguém mais o vê: cópia crua, sem barreira (como `lista_reservar`).
+            let a = heap.lista_dados(lista);
+            let copia: Vec<i64> = (i0..p.len).map(|i| p.ler(i)).collect();
+            heap.palavras_mut(a)[1..1 + n].copy_from_slice(&copia);
+        }
+        lista
+    });
+    cortar_pilha(pilha, p, i0 - 1);
+    lista
 }
 
 /// `_List(length)`: `length` nulls, tamanho fixo. O parâmetro não tem tipo

@@ -243,11 +243,17 @@ pub const NATIVOS: &[Nativo] = &[
     runtime("DartForge_finalizador_desanexar"),
     runtime("DartForge_hash_conjunto_adicionar"),
     runtime("DartForge_hash_conjunto_buscar"),
+    runtime("DartForge_hash_conjunto_preencher"),
     runtime("DartForge_hash_mapa_buscar"),
     runtime("DartForge_hash_mapa_gravar"),
+    runtime("DartForge_hash_mapa_preencher"),
+    runtime("DartForge_hash_novos_dados"),
     runtime("DartForge_imprimir"),
     runtime("DartForge_int_toString"),
-    runtime("DartForge_json_acrescentar"),
+    runtime("DartForge_json_empilhar"),
+    runtime("DartForge_json_fechar_lista"),
+    runtime("DartForge_json_marca"),
+    runtime("DartForge_json_truncar"),
     runtime("DartForge_ler_texto"),
     runtime("DartForge_mensagem_atual"),
     runtime("DartForge_mirrors_nome"),
@@ -787,7 +793,10 @@ pub fn no_espaco_unificado(nome: &str) -> Option<(Pacote, bool)> {
         | "DartForge_GrowableList_reservar"
         | "Internal_makeListFixedLength"
         | "Internal_makeFixedListUnmodifiable"
-        | "DartForge_json_acrescentar" => (P3, false),
+        | "DartForge_json_empilhar"
+        | "DartForge_json_fechar_lista"
+        | "DartForge_json_marca"
+        | "DartForge_json_truncar" => (P3, false),
         n if n.starts_with("DartForge_hash_") => (P3, false),
         // P2: caixas, closures, records.
         n if n.starts_with("DartForge_record_") => (P2, true),

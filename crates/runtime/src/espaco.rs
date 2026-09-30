@@ -5,8 +5,10 @@
 //! só **classe de tamanho** (`layout::classe_de_tamanho`: as exatas de 1 a 64
 //! palavras e 24 médias até 2014 palavras, cada uma enchendo a página); um corpo
 //! maior tem uma **região grande** própria, arredondada a 4 KiB e alinhada a
-//! [`PAGINA`] (`VirtualAlloc`/`mmap`), cujas soltas ficam num cache por tamanho
-//! até a coleta completa seguinte.
+//! [`PAGINA`] (`VirtualAlloc`/`mmap`), solta já na coleta menor que a acha
+//! morta, para um cache por tamanho com teto. As páginas saem de pedaços
+//! reservados do sistema e só ocupam memória onde se escreve; as soltas voltam
+//! ao sistema salvo um cache quente pequeno (docs/NATIVO-PLANO.md §14).
 //!
 //! O começo de cada página (e de cada região) é o mapa de marcas: um bit por
 //! palavra. A marcação acende o bit do objeto alcançado; as varreduras leem só os
@@ -376,9 +378,6 @@ impl Pagina {
         let inverso = inverso_impar(em_palavras >> deslocamento);
         Pagina { base, bytes, classe, palavras, blocos, inverso, deslocamento, vazia: false }
     }
-    fn layout(bytes: usize) -> std::alloc::Layout {
-        std::alloc::Layout::from_size_align(bytes, PAGINA).expect("layout da página")
-    }
     /// O primeiro bloco (depois do mapa de marcas).
     fn inicio(&self) -> *mut u8 {
         self.base.wrapping_add(CABECA_DA_PAGINA)
@@ -461,22 +460,26 @@ impl MapaDePaginas {
 
 // ─── Memória do sistema ────────────────────────────────────────────────────
 
-/// A reserva das páginas de [`PAGINA`] bytes do espaço de objetos: pedaços de
-/// [`PAGINAS_POR_PEDACO`] páginas mapeados do sistema de uma vez (no Linux; nos
-/// demais, o alocador do sistema, uma página por vez) e as páginas soltas pela
-/// coleta, devolvidas ao sistema com `madvise(MADV_DONTNEED)` — a memória sai da
-/// residente e volta zerada na próxima falta de página — sem desfazer o
-/// mapeamento.
+/// A reserva das páginas de [`PAGINA`] bytes do espaço de objetos
+/// (docs/NATIVO-PLANO.md §14): pedaços de [`PAGINAS_POR_PEDACO`] páginas
+/// reservados do sistema de uma vez, em todas as plataformas, e as páginas
+/// soltas pela coleta. A página nova vem zerada do sistema e só entra na
+/// memória residente onde o programa escreve (antes, fora do Linux, cada
+/// página era um `alloc_zeroed` alinhado a 64 KiB, que no Windows o `HeapAlloc`
+/// atende com o dobro dos bytes, todos zerados: 128 KiB residentes por página).
+/// A página solta fica suja num cache quente pequeno e o resto volta ao sistema
+/// ([`sistema::descartar`]) sem desfazer a reserva — o `gc_free_pages` da Julia.
 #[derive(Default)]
 struct ReservaDePaginas {
-    /// Os pedaços mapeados `(início, bytes)`.
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    /// Os pedaços reservados `(início, bytes)`.
     pedacos: Vec<(*mut u8, usize)>,
-    /// Páginas zeradas por usar.
+    /// Páginas zeradas por usar (nunca usadas, ou devolvidas ao sistema): no
+    /// Windows, confirmadas só quando saem ([`sistema::confirmar`]).
     livres: Vec<*mut u8>,
     /// Páginas soltas pela coleta, ainda com o lixo dos mortos (e na memória
-    /// residente): a próxima página sai delas, zerada à mão. As que ficam sem uso
-    /// de uma coleta completa à outra voltam ao sistema
+    /// residente): a próxima página sai delas, zerada à mão. A coleta completa
+    /// guarda no máximo [`PAGINAS_QUENTES`] (as soltas mais recentes) e devolve
+    /// ao sistema as demais e as que ficaram sem uso desde a completa anterior
     /// ([`ReservaDePaginas::aparar`]).
     sujas: Vec<*mut u8>,
     /// Quantas das `sujas` (as do fundo) ficaram sem uso desde o último
@@ -484,10 +487,17 @@ struct ReservaDePaginas {
     paradas: usize,
 }
 
-/// Páginas de cada pedaço que a [`ReservaDePaginas`] mapeia (2 MiB). Só o Linux
-/// mapeia em pedaços.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+/// Páginas de cada pedaço que a [`ReservaDePaginas`] reserva (2 MiB).
 const PAGINAS_POR_PEDACO: usize = 32;
+
+/// Quantas páginas sujas a reserva guarda de uma coleta completa à outra: as
+/// que cabem no semiespaço jovem (`LIMITE_JOVEM`, 2 MiB), o que a próxima
+/// coleta menor pode pedir. A Julia guarda o intervalo de coleta
+/// (`gc_free_pages`, `default_collect_interval`).
+const PAGINAS_QUENTES: usize = 32;
+
+/// Teto dos bytes do cache das regiões grandes soltas ([`RegioesGrandes`]).
+const TETO_DO_CACHE_DE_GRANDES: usize = 4 * 1024 * 1024;
 
 #[cfg(unix)]
 mod mapeamento {
@@ -502,10 +512,12 @@ mod mapeamento {
     const MAP_ANON: i32 = 0x20;
     #[cfg(not(target_os = "linux"))]
     const MAP_ANON: i32 = 0x1000;
+    const PROT_RW: i32 = 1 | 2;
+    const MAP_PRIVATE: i32 = 2;
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
+    const MAP_FIXED: i32 = 0x10;
     /// `bytes` novos, zerados, alinhados a `alinhamento` (potência de 2).
     pub fn mapear(bytes: usize, alinhamento: usize) -> *mut u8 {
-        const PROT_RW: i32 = 1 | 2;
-        const MAP_PRIVATE: i32 = 2;
         let total = bytes + alinhamento;
         // SAFETY: mapeamento anônimo novo.
         let p = unsafe { mmap(std::ptr::null_mut(), total, PROT_RW, MAP_PRIVATE | MAP_ANON, -1, 0) };
@@ -534,26 +546,41 @@ mod mapeamento {
         // SAFETY: o contrato da função.
         unsafe { munmap(p, bytes) };
     }
-    /// Devolve ao sistema a memória de `[p, p + bytes)` (volta zerada).
+    /// Devolve ao sistema a memória de `[p, p + bytes)`, que volta zerada: no
+    /// Linux, `madvise(MADV_DONTNEED)`; nos demais Unix (onde o
+    /// `MADV_DONTNEED` não garante zero), um mapeamento anônimo novo por cima.
     ///
     /// # Safety
     /// `[p, p + bytes)` é mapeamento anônimo privado sem nada vivo.
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub unsafe fn descartar(p: *mut u8, bytes: usize) {
-        const MADV_DONTNEED: i32 = 4;
-        // SAFETY: o contrato da função.
-        if unsafe { madvise(p, bytes, MADV_DONTNEED) } != 0 {
-            // Sem o descarte a memória não volta zerada: zera à mão.
+        #[cfg(target_os = "linux")]
+        {
+            const MADV_DONTNEED: i32 = 4;
             // SAFETY: o contrato da função.
-            unsafe { std::ptr::write_bytes(p, 0, bytes) };
+            if unsafe { madvise(p, bytes, MADV_DONTNEED) } == 0 {
+                return;
+            }
         }
+        #[cfg(not(target_os = "linux"))]
+        {
+            // SAFETY: o contrato da função; o mapeamento novo substitui o
+            // trecho no mesmo endereço.
+            let q = unsafe { mmap(p, bytes, PROT_RW, MAP_PRIVATE | MAP_ANON | MAP_FIXED, -1, 0) };
+            if q == p {
+                return;
+            }
+        }
+        // Sem o descarte a memória não volta zerada: zera à mão.
+        // SAFETY: o contrato da função.
+        unsafe { std::ptr::write_bytes(p, 0, bytes) };
     }
 }
 
-/// A memória das regiões grandes: reservada e confirmada de uma vez, zerada,
-/// alinhada a [`PAGINA`], com a granularidade de página do sistema (4 KiB): um
-/// objeto de 20 KiB ocupa 24 KiB de memória (o resto do endereço alinhado não é
-/// confirmado).
+/// A memória do sistema: as regiões grandes (reservadas e confirmadas de uma
+/// vez, zeradas, alinhadas a [`PAGINA`], com a granularidade de página do
+/// sistema — um objeto de 20 KiB ocupa 24 KiB; o resto do endereço alinhado
+/// não é confirmado) e os pedaços de páginas da [`ReservaDePaginas`]
+/// (reservados, confirmados página a página no Windows).
 mod sistema {
     use super::PAGINA;
 
@@ -562,31 +589,70 @@ mod sistema {
         fn VirtualAlloc(endereco: *mut u8, bytes: usize, tipo: u32, protecao: u32) -> *mut u8;
         fn VirtualFree(endereco: *mut u8, bytes: usize, tipo: u32) -> i32;
     }
-
-    /// `bytes` zerados alinhados a [`PAGINA`].
     #[cfg(windows)]
-    pub fn reservar(bytes: usize) -> *mut u8 {
-        const MEM_COMMIT: u32 = 0x1000;
-        const MEM_RESERVE: u32 = 0x2000;
-        const PAGE_READWRITE: u32 = 0x04;
-        // SAFETY: reserva nova; a granularidade de alocação do Windows (64
-        // KiB) dá o alinhamento de uma página do espaço.
-        let p = unsafe { VirtualAlloc(std::ptr::null_mut(), bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) };
+    const MEM_COMMIT: u32 = 0x1000;
+    #[cfg(windows)]
+    const MEM_RESERVE: u32 = 0x2000;
+    #[cfg(windows)]
+    const MEM_DECOMMIT: u32 = 0x4000;
+    #[cfg(windows)]
+    const MEM_RELEASE: u32 = 0x8000;
+    #[cfg(windows)]
+    const PAGE_READWRITE: u32 = 0x04;
+
+    /// `VirtualAlloc` de `bytes` com `tipo`; aborta sem memória.
+    #[cfg(windows)]
+    fn virtual_alloc(endereco: *mut u8, bytes: usize, tipo: u32) -> *mut u8 {
+        // SAFETY: reserva nova (`endereco` nulo) ou confirmação dentro de uma
+        // reserva deste módulo.
+        let p = unsafe { VirtualAlloc(endereco, bytes, tipo, PAGE_READWRITE) };
         if p.is_null() {
             std::alloc::handle_alloc_error(std::alloc::Layout::from_size_align(bytes, PAGINA).expect("layout"));
         }
+        p
+    }
+
+    /// `bytes` zerados alinhados a [`PAGINA`], confirmados.
+    #[cfg(windows)]
+    pub fn reservar(bytes: usize) -> *mut u8 {
+        // A granularidade de alocação do Windows (64 KiB) dá o alinhamento
+        // de uma página do espaço.
+        let p = virtual_alloc(std::ptr::null_mut(), bytes, MEM_RESERVE | MEM_COMMIT);
         assert!(p as usize % PAGINA == 0, "VirtualAlloc sem o alinhamento de 64 KiB");
         p
     }
     /// Devolve `[p, p + bytes)` ao sistema.
     ///
     /// # Safety
-    /// Veio de [`reservar`] e ninguém mais o usa.
+    /// Veio de [`reservar`] ou de [`reservar_pedaco`] e ninguém mais o usa.
     #[cfg(windows)]
     pub unsafe fn liberar(p: *mut u8, _bytes: usize) {
-        const MEM_RELEASE: u32 = 0x8000;
         // SAFETY: o contrato da função.
         unsafe { VirtualFree(p, 0, MEM_RELEASE) };
+    }
+    /// Um pedaço de `bytes` alinhado a [`PAGINA`] para páginas: no Windows só
+    /// reservado ([`confirmar`] cada página antes do uso).
+    #[cfg(windows)]
+    pub fn reservar_pedaco(bytes: usize) -> *mut u8 {
+        let p = virtual_alloc(std::ptr::null_mut(), bytes, MEM_RESERVE);
+        assert!(p as usize % PAGINA == 0, "VirtualAlloc sem o alinhamento de 64 KiB");
+        p
+    }
+    /// Confirma `[p, p + bytes)` de um pedaço (zerado se não estava
+    /// confirmado; confirmar o já confirmado não muda nada).
+    #[cfg(windows)]
+    pub fn confirmar(p: *mut u8, bytes: usize) {
+        virtual_alloc(p, bytes, MEM_COMMIT);
+    }
+    /// Devolve ao sistema a memória de `[p, p + bytes)` de um pedaço (sai da
+    /// residente e da confirmada; volta zerada no próximo [`confirmar`]).
+    ///
+    /// # Safety
+    /// `[p, p + bytes)` é de um pedaço, sem nada vivo.
+    #[cfg(windows)]
+    pub unsafe fn descartar(p: *mut u8, bytes: usize) {
+        // SAFETY: o contrato da função.
+        unsafe { VirtualFree(p, bytes, MEM_DECOMMIT) };
     }
 
     /// `bytes` zerados alinhados a [`PAGINA`].
@@ -597,11 +663,30 @@ mod sistema {
     /// Devolve `[p, p + bytes)` ao sistema.
     ///
     /// # Safety
-    /// Veio de [`reservar`] e ninguém mais o usa.
+    /// Veio de [`reservar`] ou de [`reservar_pedaco`] e ninguém mais o usa.
     #[cfg(unix)]
     pub unsafe fn liberar(p: *mut u8, bytes: usize) {
         // SAFETY: o contrato da função.
         unsafe { super::mapeamento::desmapear(p, bytes) };
+    }
+    /// Um pedaço de `bytes` alinhado a [`PAGINA`] para páginas (o `mmap` só
+    /// ocupa memória onde se escreve).
+    #[cfg(unix)]
+    pub fn reservar_pedaco(bytes: usize) -> *mut u8 {
+        super::mapeamento::mapear(bytes, PAGINA)
+    }
+    /// Nada a confirmar no Unix.
+    #[cfg(unix)]
+    pub fn confirmar(_p: *mut u8, _bytes: usize) {}
+    /// Devolve ao sistema a memória de `[p, p + bytes)` de um pedaço (volta
+    /// zerada).
+    ///
+    /// # Safety
+    /// `[p, p + bytes)` é de um pedaço, sem nada vivo.
+    #[cfg(unix)]
+    pub unsafe fn descartar(p: *mut u8, bytes: usize) {
+        // SAFETY: o contrato da função.
+        unsafe { super::mapeamento::descartar(p, bytes) };
     }
 
     /// `bytes` zerados alinhados a [`PAGINA`].
@@ -618,11 +703,28 @@ mod sistema {
     /// Devolve `[p, p + bytes)` ao sistema.
     ///
     /// # Safety
-    /// Veio de [`reservar`] e ninguém mais o usa.
+    /// Veio de [`reservar`] ou de [`reservar_pedaco`] e ninguém mais o usa.
     #[cfg(not(any(windows, unix)))]
     pub unsafe fn liberar(p: *mut u8, bytes: usize) {
         // SAFETY: o contrato da função.
         unsafe { std::alloc::dealloc(p, std::alloc::Layout::from_size_align(bytes, PAGINA).expect("layout da região")) };
+    }
+    /// Um pedaço de `bytes` zerados alinhado a [`PAGINA`].
+    #[cfg(not(any(windows, unix)))]
+    pub fn reservar_pedaco(bytes: usize) -> *mut u8 {
+        reservar(bytes)
+    }
+    /// Nada a confirmar.
+    #[cfg(not(any(windows, unix)))]
+    pub fn confirmar(_p: *mut u8, _bytes: usize) {}
+    /// Zera `[p, p + bytes)` (sem como devolver ao sistema).
+    ///
+    /// # Safety
+    /// `[p, p + bytes)` é de um pedaço, sem nada vivo.
+    #[cfg(not(any(windows, unix)))]
+    pub unsafe fn descartar(p: *mut u8, bytes: usize) {
+        // SAFETY: o contrato da função.
+        unsafe { std::ptr::write_bytes(p, 0, bytes) };
     }
 }
 
@@ -635,53 +737,34 @@ impl ReservaDePaginas {
             unsafe { std::ptr::write_bytes(p, 0, PAGINA) };
             return p;
         }
-        if let Some(p) = self.livres.pop() {
-            return p;
-        }
-        #[cfg(target_os = "linux")]
-        {
+        if self.livres.is_empty() {
             let bytes = PAGINA * PAGINAS_POR_PEDACO;
-            let inicio = mapeamento::mapear(bytes, PAGINA);
+            let inicio = sistema::reservar_pedaco(bytes);
             self.pedacos.push((inicio, bytes));
             // As de endereço baixo saem primeiro (`pop`).
-            for i in (1..PAGINAS_POR_PEDACO).rev() {
+            for i in (0..PAGINAS_POR_PEDACO).rev() {
                 self.livres.push(inicio.wrapping_add(i * PAGINA));
             }
-            inicio
         }
-        #[cfg(not(target_os = "linux"))]
-        {
-            let layout = Pagina::layout(PAGINA);
-            // SAFETY: layout de tamanho não nulo.
-            let base = unsafe { std::alloc::alloc_zeroed(layout) };
-            if base.is_null() {
-                std::alloc::handle_alloc_error(layout);
-            }
-            base
-        }
+        let p = self.livres.pop().expect("pedaço novo sem páginas");
+        sistema::confirmar(p, PAGINA);
+        p
     }
     /// Devolve a página `p` (sem objeto vivo) à reserva, suja.
     fn devolver(&mut self, p: *mut u8) {
         self.sujas.push(p);
     }
 
-    /// As páginas sujas paradas desde a chamada anterior (a coleta completa
-    /// anterior) voltam ao sistema: no Linux, `madvise(MADV_DONTNEED)` (saem da
-    /// memória residente e voltam zeradas); nos demais, `dealloc`.
+    /// A cada coleta completa: as sujas paradas desde a chamada anterior, e as
+    /// que passam de [`PAGINAS_QUENTES`] (as soltas há mais tempo), voltam ao
+    /// sistema ([`sistema::descartar`]: saem da memória residente e voltam
+    /// zeradas).
     fn aparar(&mut self) {
-        let k = self.paradas.min(self.sujas.len());
+        let k = self.paradas.max(self.sujas.len().saturating_sub(PAGINAS_QUENTES)).min(self.sujas.len());
         for p in self.sujas.drain(..k) {
-            #[cfg(target_os = "linux")]
-            {
-                // SAFETY: página da reserva, sem uso.
-                unsafe { mapeamento::descartar(p, PAGINA) };
-                self.livres.push(p);
-            }
-            #[cfg(not(target_os = "linux"))]
-            // SAFETY: página de `alloc_zeroed`, sem uso.
-            unsafe {
-                std::alloc::dealloc(p, Pagina::layout(PAGINA))
-            };
+            // SAFETY: página de um pedaço, sem uso.
+            unsafe { sistema::descartar(p, PAGINA) };
+            self.livres.push(p);
         }
         self.paradas = self.sujas.len();
     }
@@ -689,23 +772,21 @@ impl ReservaDePaginas {
 
 impl Drop for ReservaDePaginas {
     fn drop(&mut self) {
-        #[cfg(target_os = "linux")]
         for &(p, bytes) in &self.pedacos {
-            // SAFETY: o pedaço veio de `mapear`; o espaço que o usava acabou.
-            unsafe { mapeamento::desmapear(p, bytes) };
-        }
-        #[cfg(not(target_os = "linux"))]
-        for &p in self.livres.iter().chain(&self.sujas) {
-            // SAFETY: página de `alloc_zeroed`, sem uso.
-            unsafe { std::alloc::dealloc(p, Pagina::layout(PAGINA)) };
+            // SAFETY: o pedaço veio de `reservar_pedaco`; o espaço que o usava
+            // acabou.
+            unsafe { sistema::liberar(p, bytes) };
         }
     }
 }
 
 /// O cache das regiões grandes soltas, por tamanho: um programa que refaz um
 /// objeto grande a cada rodada (o buffer, a lista) reusa a região em vez de
-/// pedi-la e devolvê-la ao sistema a cada vez (o cache de páginas da VM). As que
-/// ficam sem uso de uma coleta completa à outra voltam ao sistema.
+/// pedi-la e devolvê-la ao sistema a cada vez. Tem teto
+/// ([`TETO_DO_CACHE_DE_GRANDES`]; as mais antigas saem primeiro), e as que
+/// ficam sem uso de uma coleta completa à outra voltam ao sistema: a VM não
+/// guarda página grande nenhuma (`CanUseCache`, `page.cc`), e a região morta
+/// na coleta menor vem para cá na hora (docs/NATIVO-PLANO.md §14).
 #[derive(Default)]
 struct RegioesGrandes {
     /// `(bytes, início)`, as mais antigas primeiro.
@@ -732,10 +813,28 @@ impl RegioesGrandes {
         }
         sistema::reservar(bytes)
     }
-    /// Guarda a região `p` de `bytes` bytes (sem objeto vivo).
+    /// Guarda a região `p` de `bytes` bytes (sem objeto vivo); acima do teto,
+    /// as mais antigas voltam ao sistema (a que sozinha passa dele, direto).
     fn devolver(&mut self, p: *mut u8, bytes: usize) {
+        if bytes > TETO_DO_CACHE_DE_GRANDES {
+            // SAFETY: região sem objeto vivo.
+            unsafe { sistema::liberar(p, bytes) };
+            return;
+        }
         self.soltas.push((bytes, p));
         self.bytes += bytes;
+        let mut k = 0;
+        while self.bytes > TETO_DO_CACHE_DE_GRANDES {
+            let (b, q) = self.soltas[k];
+            self.bytes -= b;
+            // SAFETY: região do cache, sem uso.
+            unsafe { sistema::liberar(q, b) };
+            k += 1;
+        }
+        if k > 0 {
+            self.soltas.drain(..k);
+            self.paradas = self.paradas.saturating_sub(k);
+        }
     }
     /// As soltas sem uso desde a chamada anterior voltam ao sistema.
     fn aparar(&mut self) {
@@ -895,6 +994,23 @@ impl EspacoDeObjetos {
         self.paginas.len() - 1
     }
 
+    /// Tira a página `i` de `paginas` (a última toma o lugar dela) e do mapa de
+    /// páginas, sem soltá-la: devolve-a.
+    fn remover_pagina(&mut self, i: usize) -> Pagina {
+        let p = self.paginas.swap_remove(i);
+        self.mapa.remover(p.base as usize);
+        self.blocos -= p.blocos;
+        let antiga = self.paginas.len();
+        if i < antiga {
+            // A que estava em `antiga` agora está em `i`.
+            self.mapa.inserir(self.paginas[i].base as usize, i);
+            if let Some(v) = self.vazias.iter_mut().find(|v| **v == antiga) {
+                *v = i;
+            }
+        }
+        p
+    }
+
     /// Devolve a página `p` (sem objeto vivo): à reserva, ou ao cache das
     /// regiões grandes.
     fn soltar_pagina(&mut self, p: &Pagina) {
@@ -1048,8 +1164,9 @@ impl EspacoDeObjetos {
 
     /// A varredura da coleta menor, só pelo mapa de marcas (a marcação acendeu o
     /// bit dos jovens alcançados, já velhos): cada trecho de jovens sem bit numa
-    /// faixa entregue volta às faixas livres sem ser tocado. Os lembrados voltam
-    /// a velhos. Devolve (mortos, bytes soltos).
+    /// faixa entregue volta às faixas livres sem ser tocado; a região grande de
+    /// um jovem morto volta ao cache delas. Os lembrados voltam a velhos.
+    /// Devolve (mortos, bytes soltos).
     pub(crate) fn varrer_jovens(&mut self) -> (usize, usize) {
         let (mut mortos, mut soltos) = (0, 0);
         soltos += self.soltar_mortos_de_fora();
@@ -1063,10 +1180,15 @@ impl EspacoDeObjetos {
                 }
                 mortos += 1;
                 if classe == GRANDE {
-                    // O objeto grande fica livre na região dele, que a coleta
-                    // completa solta.
-                    soltos += self.mapa.get(b as usize & !(PAGINA - 1)).map_or(0, |i| self.paginas[i].bytes);
-                    (*b).estado = LIVRE;
+                    // A região do objeto grande morto volta ao cache delas já
+                    // (a varredura dos grandes da Julia, `sweep_big`): até a
+                    // coleta completa, ela seria memória que nenhum gatilho
+                    // conta (docs/NATIVO-PLANO.md §14.2).
+                    if let Some(i) = self.mapa.get(b as usize & !(PAGINA - 1)) {
+                        let p = self.remover_pagina(i);
+                        soltos += p.bytes;
+                        self.grandes.devolver(p.base, p.bytes);
+                    }
                 } else {
                     let tamanho = bytes_do_bloco(palavras_da_classe(classe));
                     soltos += tamanho;
@@ -1456,6 +1578,148 @@ impl EspacoDeObjetos {
     #[allow(dead_code)]
     pub(crate) fn bytes_em_cache(&self) -> usize {
         self.grandes.bytes
+    }
+
+    /// A quebra da memória do espaço (`DARTFORGE_GC_MEMORIA=1`): por classe de
+    /// tamanho, as páginas, os blocos e os ocupados (os vivos da última coleta
+    /// completa mais os entregues desde então); as páginas vazias, as da
+    /// reserva, as regiões grandes vivas e em cache, os corpos de fora e os
+    /// anexos. Uma linha por item, em KiB.
+    pub(crate) fn relatorio_de_memoria(&self) -> String {
+        use std::fmt::Write;
+        let kib = |b: usize| b / 1024;
+        let mut paginas_da_classe = vec![0usize; N_CLASSES];
+        let (mut grandes, mut bytes_grandes, mut vazias) = (0, 0, 0);
+        let (mut grandes_mortas, mut bytes_grandes_mortas) = (0, 0);
+        for p in &self.paginas {
+            if p.vazia {
+                vazias += 1;
+            } else if p.classe == GRANDE {
+                grandes += 1;
+                bytes_grandes += p.bytes;
+                // SAFETY: o bloco da região, legível.
+                if unsafe { (*p.bloco(0)).estado } == LIVRE {
+                    grandes_mortas += 1;
+                    bytes_grandes_mortas += p.bytes;
+                }
+            } else {
+                paginas_da_classe[p.classe] += 1;
+            }
+        }
+        let mut s = String::new();
+        let (mut total_paginas, mut total_ocupado) = (0, 0);
+        let mut linhas = Vec::new();
+        for c in 1..N_CLASSES {
+            let k = paginas_da_classe[c];
+            if k == 0 {
+                continue;
+            }
+            let tamanho = bytes_do_bloco(palavras_da_classe(c));
+            let por_pagina = (PAGINA - CABECA_DA_PAGINA) / tamanho;
+            let ocupados = self.em_uso[c];
+            total_paginas += k;
+            total_ocupado += ocupados * tamanho;
+            linhas.push(format!(
+                "  classe {c:>2} ({tamanho:>5} B): {k:>3} pág., {ocupados:>6}/{:>6} blocos ({}%)",
+                k * por_pagina,
+                ocupados * 100 / (k * por_pagina).max(1)
+            ));
+        }
+        let _ = writeln!(
+            s,
+            "[memória] páginas de classe: {total_paginas} ({} KiB), ocupado {} KiB ({}%), classes com página: {}",
+            kib(total_paginas * PAGINA),
+            kib(total_ocupado),
+            total_ocupado * 100 / (total_paginas * PAGINA).max(1),
+            linhas.len()
+        );
+        for l in linhas {
+            let _ = writeln!(s, "{l}");
+        }
+        let _ = writeln!(
+            s,
+            "[memória] vazias guardadas: {vazias} ({} KiB); reserva: {} livres, {} sujas ({} KiB sujas)",
+            kib(vazias * PAGINA),
+            self.reserva.livres.len(),
+            self.reserva.sujas.len(),
+            kib(self.reserva.sujas.len() * PAGINA)
+        );
+        let _ = writeln!(
+            s,
+            "[memória] regiões grandes: {grandes} no espaço ({} KiB; {grandes_mortas} mortas, {} KiB), {} em cache ({} KiB); corpos de fora: {} ({} KiB); anexos: {} ({} KiB)",
+            kib(bytes_grandes),
+            kib(bytes_grandes_mortas),
+            self.grandes.soltas.len(),
+            kib(self.grandes.bytes),
+            self.com_fora.len(),
+            kib(self.bytes_de_fora()),
+            self.anexos.len(),
+            kib(self.bytes_de_anexos)
+        );
+        let _ = writeln!(
+            s,
+            "[memória] vetores do espaço: páginas {} KiB, livres {} faixas, jovens {} KiB, faixas {} KiB, lembrados {} KiB",
+            kib(self.paginas.capacity() * std::mem::size_of::<Pagina>() + self.mapa.regioes.len() * 4 * (1 << MapaDePaginas::BITS)),
+            self.livres.iter().map(Vec::len).sum::<usize>(),
+            kib(self.jovens.capacity() * 16),
+            kib(self.faixas.capacity() * 24),
+            kib(self.lembrados.capacity() * 8)
+        );
+        s
+    }
+}
+
+/// A memória residente e o pico do processo, e os bytes confirmados do heap do
+/// processo (o do alocador do Rust), em bytes (`DARTFORGE_GC_MEMORIA=1`).
+pub(crate) fn memoria_do_processo() -> (usize, usize, usize) {
+    #[cfg(windows)]
+    {
+        #[repr(C)]
+        #[derive(Default)]
+        struct Contadores {
+            cb: u32,
+            faltas: u32,
+            pico: usize,
+            atual: usize,
+            resto: [usize; 6],
+        }
+        #[repr(C)]
+        #[derive(Default)]
+        struct ResumoDoHeap {
+            cb: u32,
+            alocado: usize,
+            confirmado: usize,
+            reservado: usize,
+            maximo: usize,
+        }
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn GetCurrentProcess() -> *mut std::ffi::c_void;
+            fn GetProcessHeap() -> *mut std::ffi::c_void;
+            fn K32GetProcessMemoryInfo(p: *mut std::ffi::c_void, c: *mut Contadores, n: u32) -> i32;
+            fn HeapSummary(h: *mut std::ffi::c_void, flags: u32, r: *mut ResumoDoHeap) -> i32;
+        }
+        let mut c = Contadores { cb: std::mem::size_of::<Contadores>() as u32, ..Default::default() };
+        let mut r = ResumoDoHeap { cb: std::mem::size_of::<ResumoDoHeap>() as u32, ..Default::default() };
+        // SAFETY: estruturas do tamanho informado.
+        unsafe {
+            K32GetProcessMemoryInfo(GetCurrentProcess(), &mut c, c.cb);
+            HeapSummary(GetProcessHeap(), 0, &mut r);
+        }
+        (c.atual, c.pico, r.confirmado)
+    }
+    #[cfg(not(windows))]
+    {
+        let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+        let campo = |nome: &str| {
+            status
+                .lines()
+                .find(|l| l.starts_with(nome))
+                .and_then(|l| l.split_whitespace().nth(1))
+                .and_then(|v| v.parse::<usize>().ok())
+                .map_or(0, |k| k * 1024)
+        };
+        (campo("VmRSS:"), campo("VmHWM:"), 0)
     }
 }
 

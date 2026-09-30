@@ -159,6 +159,51 @@ thread_local! {
     static RTI: RefCell<Universo> = RefCell::new(Universo::novo());
 }
 
+/// Vagas da [`MEMO_RAPIDO`] (potência de 2).
+const MEMO_RAPIDO_N: usize = 256;
+
+thread_local! {
+    /// A memória direta de `v is t` na frente do [`Universo`]
+    /// (docs/NATIVO-PLANO.md §13.2, item 7): `[chave do valor, t, resposta]`,
+    /// a mesma chave e as mesmas respostas de `memo_e`, mas num estático de
+    /// thread sem destrutor nem `RefCell`. O acerto dispensa o acesso ao
+    /// universo, o `borrow` e as consultas de `teste_sem_o_valor` — o que pesa
+    /// nas duas conferências de covariância de cada `mapa[k] = v`. Esquecida
+    /// junto com as memórias do universo ([`Universo::esquecer_memorias`]).
+    static MEMO_RAPIDO: std::cell::UnsafeCell<[[i64; 3]; MEMO_RAPIDO_N]> =
+        const { std::cell::UnsafeCell::new([[0, -1, 0]; MEMO_RAPIDO_N]) };
+}
+
+/// A vaga de `(chave, t)` na [`MEMO_RAPIDO`].
+#[inline(always)]
+fn vaga_rapida(chave: i64, t: i64) -> usize {
+    let h = (chave as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (t as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F);
+    (h >> (64 - MEMO_RAPIDO_N.trailing_zeros())) as usize
+}
+
+/// `v is t` guardado na [`MEMO_RAPIDO`] para a chave do valor. Nenhuma chave
+/// vale 0 e nenhum tipo -1: a vaga vazia nunca casa.
+#[inline(always)]
+#[allow(unsafe_code)]
+fn memo_rapido_ler(chave: i64, t: i64) -> Option<u8> {
+    // SAFETY: a memória é desta thread e nenhuma referência a ela sobrevive à
+    // leitura.
+    let e = MEMO_RAPIDO.with(|m| unsafe { (*m.get())[vaga_rapida(chave, t)] });
+    (e[0] == chave && e[1] == t).then_some(e[2] as u8)
+}
+
+#[allow(unsafe_code)]
+fn memo_rapido_gravar(chave: i64, t: i64, r: bool) {
+    // SAFETY: como em `memo_rapido_ler`.
+    MEMO_RAPIDO.with(|m| unsafe { (*m.get())[vaga_rapida(chave, t)] = [chave, t, i64::from(r)] });
+}
+
+#[allow(unsafe_code)]
+fn memo_rapido_esquecer() {
+    // SAFETY: como em `memo_rapido_ler`.
+    MEMO_RAPIDO.with(|m| unsafe { *m.get() = [[0, -1, 0]; MEMO_RAPIDO_N] });
+}
+
 impl Tipo {
     /// O tipo com cada tipo-filho trocado por `f(filho)`.
     fn com_filhos(&self, mut f: impl FnMut(i64) -> i64) -> Tipo {
@@ -237,6 +282,7 @@ impl Universo {
     /// Esquece as memórias diretas (uma regra, classe ou forma nova do
     /// runtime pode mudar uma resposta guardada).
     fn esquecer_memorias(&mut self) {
+        memo_rapido_esquecer();
         self.memo_e.clear();
         self.memo_aval.clear();
         self.memo_definir.clear();
@@ -1273,22 +1319,29 @@ pub extern "C" fn dartforge_rti_do_valor(v: i64) -> i64 {
 /// `v is T`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_e(v: i64, t: i64) -> u8 {
+    let chave = chave_do_valor(v);
+    if let Some(r) = chave.and_then(|c| memo_rapido_ler(c, t)) {
+        return r;
+    }
     RTI.with(|u| {
         let mut u = u.borrow_mut();
-        if let Some(r) = u.teste_sem_o_valor(v, t) {
-            return u8::from(r);
-        }
-        let chave = chave_do_valor(v);
-        if let Some(r) = chave.and_then(|c| u.memo_e_ler(c, t)) {
-            return u8::from(r);
-        }
-        let s = tipo_do_ref(&mut u, v);
-        let r = u.sub(s, t);
-        if depurar() {
-            eprintln!("[depurar] {} is {} = {r}", u.texto(s), u.texto(t));
-        }
+        let r = if let Some(r) = u.teste_sem_o_valor(v, t) {
+            r
+        } else if let Some(r) = chave.and_then(|c| u.memo_e_ler(c, t)) {
+            r
+        } else {
+            let s = tipo_do_ref(&mut u, v);
+            let r = u.sub(s, t);
+            if depurar() {
+                eprintln!("[depurar] {} is {} = {r}", u.texto(s), u.texto(t));
+            }
+            if let Some(c) = chave {
+                u.memo_e_gravar(c, t, r);
+            }
+            r
+        };
         if let Some(c) = chave {
-            u.memo_e_gravar(c, t, r);
+            memo_rapido_gravar(c, t, r);
         }
         u8::from(r)
     })

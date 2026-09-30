@@ -12,7 +12,7 @@
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
 
-import "dart:_compact_hash" show createMapFromKeyValueListUnsafe;
+import "dart:_compact_hash" show createMapFromKeyValueRangeUnsafe;
 
 import "dart:_internal"
     show
@@ -93,43 +93,84 @@ class _JsonListener {
   final Object? Function(Object? key, Object? value)? reviver;
 
   /**
-   * Stack used to handle nested containers.
+   * DartForge (docs/NATIVO-PLANO.md §13.2, item 4): a pilha única dos valores
+   * dos contêineres abertos, no lugar do `[]` por contêiner, da lista de pares
+   * por objeto e das pilhas de contêineres e de estados do parser.
    *
-   * The current container is pushed on the stack when a new one is
-   * started.
+   * Abrir um contêiner empilha uma marca, `início anterior * 32 + estado do
+   * parser` (o estado cabe em 5 bits), e os valores do contêiner vêm depois
+   * dela; fechar monta a lista ou o mapa da faixa, tira a faixa e a marca e
+   * devolve o estado salvo (o `restoreState` do parser). Os valores chegam nos
+   * mesmos pontos do listener da VM, e o reviver é chamado nos mesmos pontos,
+   * com a mesma chave e o mesmo índice.
    */
-  final List<Object?> stack = [];
+  final List<Object?> _pilha = <Object?>[];
 
-  /** Contents of the current container being built, or null if not building a
-  * container.
-  *
-  * When building [Map] this will contain array of key-value pairs.
-  */
-  List<dynamic>? currentContainer;
+  /** O início, em [_pilha], dos valores do contêiner aberto mais interno. */
+  int _inicio = 0;
 
   /** The most recently read value. */
   Object? value;
 
   /**
-   * DartForge: acrescenta `v` ao fim de `lista`, uma lista crescível que o
-   * próprio listener criou (`[]`, de elementos `dynamic`/`Object?`): o
-   * `add` sem o despacho pela classe e sem a conferência do `E` (que aceita
-   * tudo). Devolve 0, sem mudar nada, se a lista não está na forma simples
-   * do runtime — aí o chamador usa o `add`.
+   * DartForge: empilha `v` no fim de `pilha` (a [_pilha], uma lista crescível
+   * de `Object?`) e devolve o novo comprimento: o `add` sem o despacho pela
+   * classe e sem a conferência do `E`. -1, sem mudar nada, se a lista não
+   * está na forma simples do runtime.
    */
-  @pragma("vm:external-name", "DartForge_json_acrescentar")
-  external static int _acrescentar(List lista, Object? v);
+  @pragma("vm:external-name", "DartForge_json_empilhar")
+  external static int _dfEmpilhar(List pilha, Object? v);
 
-  /** Pushes the currently active container. */
-  void beginContainer() {
-    if (_acrescentar(stack, currentContainer) == 0) stack.add(currentContainer);
-    currentContainer = [];
+  /**
+   * DartForge: a marca em `pilha[inicio - 1]`, sem mudar nada; -1 fora da
+   * forma simples.
+   */
+  @pragma("vm:external-name", "DartForge_json_marca")
+  external static int _dfMarca(List pilha, int inicio);
+
+  /**
+   * DartForge: a lista com os valores `pilha[inicio..]` (uma lista crescível
+   * nova, do tipo de [_modelo]); tira da pilha esses valores e a marca em
+   * `inicio - 1`. null, sem mudar nada, fora da forma simples.
+   */
+  @pragma("vm:external-name", "DartForge_json_fechar_lista")
+  external static List<dynamic>? _dfFecharLista(
+      List pilha, int inicio, List<dynamic> modelo);
+
+  /** O tipo das listas do JSON: o do `[]` que o listener da VM cria. */
+  final List<dynamic> _modelo = [];
+
+  /**
+   * DartForge: tira da pilha os valores `pilha[inicio..]` e a marca em
+   * `inicio - 1` e devolve a marca; -1, sem mudar nada, fora da forma simples.
+   */
+  @pragma("vm:external-name", "DartForge_json_truncar")
+  external static int _dfTruncar(List pilha, int inicio);
+
+  /** Empilha [v]; devolve o comprimento da pilha. */
+  int _empilhar(Object? v) {
+    final int n = _dfEmpilhar(_pilha, v);
+    if (n >= 0) return n;
+    _pilha.add(v);
+    return _pilha.length;
   }
 
-  /** Pops the top container from the [stack]. */
-  void popContainer() {
-    value = currentContainer;
-    currentContainer = unsafeCast<List?>(stack.removeLast());
+  /** Abre um contêiner guardando o [estado] do parser. */
+  void _abrir(int estado) {
+    _inicio = _empilhar(_inicio * 32 + estado);
+  }
+
+  /** Tira da pilha a faixa do contêiner e a marca (o caminho sem o runtime). */
+  int _truncarLento() {
+    final int marca = unsafeCast<int>(_pilha[_inicio - 1]);
+    _pilha.length = _inicio - 1;
+    return marca;
+  }
+
+  /** Restaura o início da [marca] e devolve o estado salvo nela. */
+  int _restaurar(int marca) {
+    _inicio = marca >> 5;
+    return marca & 31;
   }
 
   void handleString(String value) {
@@ -148,50 +189,63 @@ class _JsonListener {
     this.value = null;
   }
 
-  void beginObject() {
-    beginContainer();
+  /** Abre um objeto; [estado] é o do parser, devolvido por [endObject]. */
+  void beginObject(int estado) {
+    _abrir(estado);
   }
 
   void propertyName() {
-    final keyValuePairs = unsafeCast<List>(currentContainer);
-    if (_acrescentar(keyValuePairs, value) == 0) keyValuePairs.add(value);
+    _empilhar(value);
     value = null;
   }
 
   void propertyValue() {
-    final keyValuePairs = unsafeCast<List>(currentContainer);
     if (reviver case final reviver?) {
-      final key = keyValuePairs.last;
-      final revivido = reviver(key, value);
-      if (_acrescentar(keyValuePairs, revivido) == 0) keyValuePairs.add(revivido);
+      final key = _pilha.last;
+      _empilhar(reviver(key, value));
     } else {
-      if (_acrescentar(keyValuePairs, value) == 0) keyValuePairs.add(value);
+      _empilhar(value);
     }
     value = null;
   }
 
-  void endObject() {
-    popContainer();
-    value = createMapFromKeyValueListUnsafe<String, dynamic>(
-        unsafeCast<List>(value));
+  /** Fecha o objeto aberto; devolve o estado do parser salvo ao abri-lo. */
+  int endObject() {
+    final mapa = createMapFromKeyValueRangeUnsafe<String, dynamic>(_pilha, _inicio);
+    int marca = _dfTruncar(_pilha, _inicio);
+    if (marca < 0) marca = _truncarLento();
+    value = mapa;
+    return _restaurar(marca);
   }
 
-  void beginArray() {
-    beginContainer();
+  /** Abre uma lista; [estado] é o do parser, devolvido por [endArray]. */
+  void beginArray(int estado) {
+    _abrir(estado);
   }
 
   void arrayElement() {
-    var list = unsafeCast<List>(currentContainer);
     var reviver = this.reviver;
     if (reviver != null) {
-      value = reviver(list.length, value);
+      value = reviver(_pilha.length - _inicio, value);
     }
-    if (_acrescentar(list, value) == 0) list.add(value);
+    _empilhar(value);
     value = null;
   }
 
-  void endArray() {
-    popContainer();
+  /** Fecha a lista aberta; devolve o estado do parser salvo ao abri-la. */
+  int endArray() {
+    int marca = _dfMarca(_pilha, _inicio);
+    List<dynamic>? lista = marca < 0 ? null : _dfFecharLista(_pilha, _inicio, _modelo);
+    if (lista == null) {
+      final List<dynamic> nova = [];
+      for (int i = _inicio; i < _pilha.length; i++) {
+        nova.add(_pilha[i]);
+      }
+      marca = _truncarLento();
+      lista = nova;
+    }
+    value = lista;
+    return _restaurar(marca);
   }
 
   /**
@@ -200,7 +254,7 @@ class _JsonListener {
    * Must only be called when the entire input has been parsed.
    */
   dynamic get result {
-    assert(currentContainer == null);
+    assert(_pilha.isEmpty);
     var reviver = this.reviver;
     if (reviver != null) {
       return reviver(null, value);
@@ -873,15 +927,13 @@ mixin _ChunkedJsonParser<T> on _JsonParserWithListener {
           break;
         case LBRACKET:
           if ((state & ALLOW_VALUE_MASK) != 0) fail(position);
-          listener.beginArray();
-          saveState(state);
+          listener.beginArray(state);
           state = STATE_ARRAY_EMPTY;
           position++;
           break;
         case LBRACE:
           if ((state & ALLOW_VALUE_MASK) != 0) fail(position);
-          listener.beginObject();
-          saveState(state);
+          listener.beginObject(state);
           state = STATE_OBJECT_EMPTY;
           position++;
           break;
@@ -920,27 +972,21 @@ mixin _ChunkedJsonParser<T> on _JsonParserWithListener {
           }
           break;
         case RBRACKET:
-          if (state == STATE_ARRAY_EMPTY) {
-            listener.endArray();
-          } else if (state == STATE_ARRAY_VALUE) {
+          if (state == STATE_ARRAY_VALUE) {
             listener.arrayElement();
-            listener.endArray();
-          } else {
+          } else if (state != STATE_ARRAY_EMPTY) {
             fail(position);
           }
-          state = restoreState() | VALUE_READ_BITS;
+          state = listener.endArray() | VALUE_READ_BITS;
           position++;
           break;
         case RBRACE:
-          if (state == STATE_OBJECT_EMPTY) {
-            listener.endObject();
-          } else if (state == STATE_OBJECT_VALUE) {
+          if (state == STATE_OBJECT_VALUE) {
             listener.propertyValue();
-            listener.endObject();
-          } else {
+          } else if (state != STATE_OBJECT_EMPTY) {
             fail(position);
           }
-          state = restoreState() | VALUE_READ_BITS;
+          state = listener.endObject() | VALUE_READ_BITS;
           position++;
           break;
         default:
@@ -1539,15 +1585,13 @@ class _JsonStringParser extends _JsonParserWithListener
           break;
         case _ChunkedJsonParser.LBRACKET:
           if ((state & _ChunkedJsonParser.ALLOW_VALUE_MASK) != 0) fail(position);
-          listener.beginArray();
-          saveState(state);
+          listener.beginArray(state);
           state = _ChunkedJsonParser.STATE_ARRAY_EMPTY;
           position++;
           break;
         case _ChunkedJsonParser.LBRACE:
           if ((state & _ChunkedJsonParser.ALLOW_VALUE_MASK) != 0) fail(position);
-          listener.beginObject();
-          saveState(state);
+          listener.beginObject(state);
           state = _ChunkedJsonParser.STATE_OBJECT_EMPTY;
           position++;
           break;
@@ -1586,27 +1630,21 @@ class _JsonStringParser extends _JsonParserWithListener
           }
           break;
         case _ChunkedJsonParser.RBRACKET:
-          if (state == _ChunkedJsonParser.STATE_ARRAY_EMPTY) {
-            listener.endArray();
-          } else if (state == _ChunkedJsonParser.STATE_ARRAY_VALUE) {
+          if (state == _ChunkedJsonParser.STATE_ARRAY_VALUE) {
             listener.arrayElement();
-            listener.endArray();
-          } else {
+          } else if (state != _ChunkedJsonParser.STATE_ARRAY_EMPTY) {
             fail(position);
           }
-          state = restoreState() | _ChunkedJsonParser.VALUE_READ_BITS;
+          state = listener.endArray() | _ChunkedJsonParser.VALUE_READ_BITS;
           position++;
           break;
         case _ChunkedJsonParser.RBRACE:
-          if (state == _ChunkedJsonParser.STATE_OBJECT_EMPTY) {
-            listener.endObject();
-          } else if (state == _ChunkedJsonParser.STATE_OBJECT_VALUE) {
+          if (state == _ChunkedJsonParser.STATE_OBJECT_VALUE) {
             listener.propertyValue();
-            listener.endObject();
-          } else {
+          } else if (state != _ChunkedJsonParser.STATE_OBJECT_EMPTY) {
             fail(position);
           }
-          state = restoreState() | _ChunkedJsonParser.VALUE_READ_BITS;
+          state = listener.endObject() | _ChunkedJsonParser.VALUE_READ_BITS;
           position++;
           break;
         default:
@@ -1819,7 +1857,22 @@ class _JsonStringParser extends _JsonParserWithListener
     listener.handleNumber(parseDouble(start, position));
     return position;
   }
+  // DartForge (docs/NATIVO-PLANO.md §13.2, item 5): com todas as unidades até
+  // `0xFF` (`bits`), a `_OneByteString` montada em linha (a alocação da TLAB e
+  // as gravações do `writeIntoOneByteString`), sem a chamada do `substring` ao
+  // runtime; a forma é a canônica, a que o `substring` daria. A vazia é o
+  // literal `""`, como no `substring` da VM.
   String getString(int start, int end, int bits) {
+    if (bits <= 0xFF) {
+      final int n = end - start;
+      if (n == 0) return "";
+      final String texto = chunk;
+      final String r = allocateOneByteString(n);
+      for (int i = 0; i < n; i++) {
+        writeIntoOneByteString(r, i, texto.codeUnitAt(start + i));
+      }
+      return r;
+    }
     return chunk.substring(start, end);
   }
 
@@ -1945,10 +1998,333 @@ class _JsonUtf8Parser extends _JsonParserWithListener
   @pragma('vm:unsafe:no-bounds-checks')
   int _getCharUnsafe(int position) => chunk[position];
 
+  // DartForge (docs/NATIVO-PLANO.md §13.2, item 6): `parse`, `parseString` e
+  // `parseNumber` do `_ChunkedJsonParser`, como no `_JsonStringParser`, com os
+  // bytes num local (`texto[i]`, a leitura em linha da `Uint8List`) no lugar
+  // do `_getCharUnsafe` por byte. Os testes `char > 0xFF` do texto de UTF-16
+  // ficam: um byte nunca passa deles, como o `isUtf16Input` falso do mixin.
+  void parse(int position) {
+    final Uint8List texto = chunk;
+    int length = chunkEnd;
+    if (partialState != _ChunkedJsonParser.NO_PARTIAL) {
+      position = parsePartial(position);
+      if (position == length) return;
+    }
+    final charAttributes = _ChunkedJsonParser._characterAttributes;
+
+    int state = this.state;
+    outer:
+    while (position < length) {
+      int char = 0;
+      do {
+        char = texto[position];
+        if (char > 0xFF) {
+          break;
+        }
+        if ((charAttributes.codeUnitAt(char) & _ChunkedJsonParser.CHAR_WHITESPACE) == 0) {
+          break;
+        }
+        position++;
+        if (position >= length) {
+          break outer;
+        }
+      } while (true);
+
+      switch (char) {
+        case _ChunkedJsonParser.QUOTE:
+          if ((state & _ChunkedJsonParser.ALLOW_STRING_MASK) != 0) fail(position);
+          state |= _ChunkedJsonParser.VALUE_READ_BITS;
+          position = parseString(position + 1);
+          break;
+        case _ChunkedJsonParser.LBRACKET:
+          if ((state & _ChunkedJsonParser.ALLOW_VALUE_MASK) != 0) fail(position);
+          listener.beginArray(state);
+          state = _ChunkedJsonParser.STATE_ARRAY_EMPTY;
+          position++;
+          break;
+        case _ChunkedJsonParser.LBRACE:
+          if ((state & _ChunkedJsonParser.ALLOW_VALUE_MASK) != 0) fail(position);
+          listener.beginObject(state);
+          state = _ChunkedJsonParser.STATE_OBJECT_EMPTY;
+          position++;
+          break;
+        case _ChunkedJsonParser.CHAR_n:
+          if ((state & _ChunkedJsonParser.ALLOW_VALUE_MASK) != 0) fail(position);
+          state |= _ChunkedJsonParser.VALUE_READ_BITS;
+          position = parseNull(position);
+          break;
+        case _ChunkedJsonParser.CHAR_f:
+          if ((state & _ChunkedJsonParser.ALLOW_VALUE_MASK) != 0) fail(position);
+          state |= _ChunkedJsonParser.VALUE_READ_BITS;
+          position = parseFalse(position);
+          break;
+        case _ChunkedJsonParser.CHAR_t:
+          if ((state & _ChunkedJsonParser.ALLOW_VALUE_MASK) != 0) fail(position);
+          state |= _ChunkedJsonParser.VALUE_READ_BITS;
+          position = parseTrue(position);
+          break;
+        case _ChunkedJsonParser.COLON:
+          if (state != _ChunkedJsonParser.STATE_OBJECT_KEY) fail(position);
+          listener.propertyName();
+          state = _ChunkedJsonParser.STATE_OBJECT_COLON;
+          position++;
+          break;
+        case _ChunkedJsonParser.COMMA:
+          if (state == _ChunkedJsonParser.STATE_OBJECT_VALUE) {
+            listener.propertyValue();
+            state = _ChunkedJsonParser.STATE_OBJECT_COMMA;
+            position++;
+          } else if (state == _ChunkedJsonParser.STATE_ARRAY_VALUE) {
+            listener.arrayElement();
+            state = _ChunkedJsonParser.STATE_ARRAY_COMMA;
+            position++;
+          } else {
+            fail(position);
+          }
+          break;
+        case _ChunkedJsonParser.RBRACKET:
+          if (state == _ChunkedJsonParser.STATE_ARRAY_VALUE) {
+            listener.arrayElement();
+          } else if (state != _ChunkedJsonParser.STATE_ARRAY_EMPTY) {
+            fail(position);
+          }
+          state = listener.endArray() | _ChunkedJsonParser.VALUE_READ_BITS;
+          position++;
+          break;
+        case _ChunkedJsonParser.RBRACE:
+          if (state == _ChunkedJsonParser.STATE_OBJECT_VALUE) {
+            listener.propertyValue();
+          } else if (state != _ChunkedJsonParser.STATE_OBJECT_EMPTY) {
+            fail(position);
+          }
+          state = listener.endObject() | _ChunkedJsonParser.VALUE_READ_BITS;
+          position++;
+          break;
+        default:
+          if ((state & _ChunkedJsonParser.ALLOW_VALUE_MASK) != 0) fail(position);
+          state |= _ChunkedJsonParser.VALUE_READ_BITS;
+          position = parseNumber(char, position);
+          break;
+      }
+    }
+    this.state = state;
+  }
+  int parseString(int position) {
+    final Uint8List texto = chunk;
+    final charAttributes = _ChunkedJsonParser._characterAttributes;
+
+    // Format: '"'([^\x00-\x1f\\\"]|'\\'[bfnrt/\\"])*'"'
+    // Initial position is right after first '"'.
+    int start = position;
+    int end = chunkEnd;
+    int bits = 0;
+    int char = 0;
+    if (position < end) {
+      do {
+        // Caveat: do not combine the following two lines together. It helps
+        // compiler to generate better code (it currently can't reorder operations
+        // to reduce register pressure).
+        char = texto[position];
+        position++;
+        bits |= char; // Includes final '"', but that never matters.
+        if (char > 0xFF) {
+          continue;
+        }
+        if ((charAttributes.codeUnitAt(char) & _ChunkedJsonParser.CHAR_SIMPLE_STRING_END) != 0) {
+          break;
+        }
+      } while (position < end);
+      if (char == _ChunkedJsonParser.QUOTE) {
+        int sliceEnd = position - 1;
+        listener.handleString(getString(start, sliceEnd, bits));
+        return sliceEnd + 1;
+      }
+      if (char == _ChunkedJsonParser.BACKSLASH) {
+        int sliceEnd = position - 1;
+        beginString();
+        if (start < sliceEnd) addSliceToString(start, sliceEnd);
+        return parseStringToBuffer(sliceEnd);
+      }
+      if (char < _ChunkedJsonParser.SPACE) {
+        fail(position - 1, "Control character in string");
+      }
+    }
+    beginString();
+    if (start < end) addSliceToString(start, end);
+    return chunkString(_ChunkedJsonParser.STR_PLAIN);
+  }
+  int parseNumber(int char, int position) {
+    final Uint8List texto = chunk;
+    // Also called on any unexpected character.
+    // Format:
+    //  '-'?('0'|[1-9][0-9]*)('.'[0-9]+)?([eE][+-]?[0-9]+)?
+    int start = position;
+    int length = chunkEnd;
+    // Collects an int value while parsing. Used for both an integer literal,
+    // and the exponent part of a double literal.
+    // Stored as negative to ensure we can represent -2^63.
+    int intValue = 0;
+    double doubleValue = 0.0; // Collect double value while parsing.
+    // 1 if there is no leading -, -1 if there is.
+    int sign = 1;
+    bool isDouble = false;
+    // Break this block when the end of the number literal is reached.
+    // At that time, position points to the next character, and isDouble
+    // is set if the literal contains a decimal point or an exponential.
+    if (char == _ChunkedJsonParser.MINUS) {
+      sign = -1;
+      position++;
+      if (position == length) return beginChunkNumber(_ChunkedJsonParser.NUM_SIGN, start);
+      char = texto[position];
+    }
+    int digit = char ^ _ChunkedJsonParser.CHAR_0;
+    if (digit > 9) {
+      if (sign < 0) {
+        fail(position, "Missing expected digit");
+      } else {
+        // If it doesn't even start out as a numeral.
+        fail(position);
+      }
+    }
+    if (digit == 0) {
+      position++;
+      if (position == length) return beginChunkNumber(_ChunkedJsonParser.NUM_ZERO, start);
+      char = texto[position];
+      digit = char ^ _ChunkedJsonParser.CHAR_0;
+      // If starting with zero, next character must not be digit.
+      if (digit <= 9) fail(position);
+    } else {
+      int digitCount = 0;
+      do {
+        if (digitCount >= 18) {
+          // Check for overflow.
+          // Is 1 if digit is 8 or 9 and sign == 0, or digit is 9 and sign < 0;
+          int highDigit = digit >> 3;
+          if (sign < 0) highDigit &= digit;
+          if (digitCount == 19 || intValue - highDigit < -922337203685477580) {
+            isDouble = true;
+            // Big value that we know is not trusted to be exact later,
+            // forcing reparsing using `double.parse`.
+            doubleValue = 9223372036854775808.0;
+          }
+        }
+        intValue = 10 * intValue - digit;
+        digitCount++;
+        position++;
+        if (position == length) return beginChunkNumber(_ChunkedJsonParser.NUM_DIGIT, start);
+        char = texto[position];
+        digit = char ^ _ChunkedJsonParser.CHAR_0;
+      } while (digit <= 9);
+    }
+    if (char == _ChunkedJsonParser.DECIMALPOINT) {
+      if (!isDouble) {
+        isDouble = true;
+        doubleValue = (intValue == 0) ? 0.0 : -intValue.toDouble();
+      }
+      intValue = 0;
+      position++;
+      if (position == length) return beginChunkNumber(_ChunkedJsonParser.NUM_DOT, start);
+      char = texto[position];
+      digit = char ^ _ChunkedJsonParser.CHAR_0;
+      if (digit > 9) fail(position);
+      do {
+        doubleValue = 10.0 * doubleValue + digit;
+        intValue -= 1;
+        position++;
+        if (position == length) return beginChunkNumber(_ChunkedJsonParser.NUM_DOT_DIGIT, start);
+        char = texto[position];
+        digit = char ^ _ChunkedJsonParser.CHAR_0;
+      } while (digit <= 9);
+    }
+    if ((char | 0x20) == _ChunkedJsonParser.CHAR_e) {
+      if (!isDouble) {
+        isDouble = true;
+        doubleValue = (intValue == 0) ? 0.0 : -intValue.toDouble();
+        intValue = 0;
+      }
+      position++;
+      if (position == length) return beginChunkNumber(_ChunkedJsonParser.NUM_E, start);
+      char = texto[position];
+      int expSign = 1;
+      int exponent = 0;
+      if (((char + 1) | 2) == 0x2e /*+ or -*/) {
+        expSign = 0x2C - char; // -1 for _ChunkedJsonParser.MINUS, +1 for _ChunkedJsonParser.PLUS
+        position++;
+        if (position == length) return beginChunkNumber(_ChunkedJsonParser.NUM_E_SIGN, start);
+        char = texto[position];
+      }
+      digit = char ^ _ChunkedJsonParser.CHAR_0;
+      if (digit > 9) {
+        fail(position, "Missing expected digit");
+      }
+      bool exponentOverflow = false;
+      do {
+        exponent = 10 * exponent + digit;
+        if (exponent > 400) exponentOverflow = true;
+        position++;
+        if (position == length) return beginChunkNumber(_ChunkedJsonParser.NUM_E_DIGIT, start);
+        char = texto[position];
+        digit = char ^ _ChunkedJsonParser.CHAR_0;
+      } while (digit <= 9);
+      if (exponentOverflow) {
+        if (doubleValue == 0.0 || expSign < 0) {
+          listener.handleNumber(sign < 0 ? -0.0 : 0.0);
+        } else {
+          listener.handleNumber(
+              sign < 0 ? double.negativeInfinity : double.infinity);
+        }
+        return position;
+      }
+      intValue += expSign * exponent;
+    }
+    if (!isDouble) {
+      int bitFlag = -(sign + 1) >> 1; // 0 if sign == -1, -1 if sign == 1
+      // Negate if bitFlag is -1 by doing ~intValue + 1
+      listener.handleNumber((intValue ^ bitFlag) - bitFlag);
+      return position;
+    }
+    // Double values at or above this value (2 ** 53) may have lost precision.
+    // Only trust results that are below this value.
+    const double maxExactDouble = 9007199254740992.0;
+    if (doubleValue < maxExactDouble) {
+      int exponent = intValue;
+      double signedMantissa = doubleValue * sign;
+      if (exponent >= -22) {
+        if (exponent < 0) {
+          listener.handleNumber(signedMantissa / POWERS_OF_TEN[-exponent]);
+          return position;
+        }
+        if (exponent == 0) {
+          listener.handleNumber(signedMantissa);
+          return position;
+        }
+        if (exponent <= 22) {
+          listener.handleNumber(signedMantissa * POWERS_OF_TEN[exponent]);
+          return position;
+        }
+      }
+    }
+    // If the value is outside the range +/-maxExactDouble or
+    // exponent is outside the range +/-22, then we can't trust simple double
+    // arithmetic to get the exact result, so we use the system double parsing.
+    listener.handleNumber(parseDouble(start, position));
+    return position;
+  }
+
   String getString(int start, int end, int bits) {
     const int maxAsciiChar = 0x7f;
     if (bits <= maxAsciiChar) {
-      return createOneByteStringFromCharacters(chunk, start, end);
+      // DartForge (docs/NATIVO-PLANO.md §13.2, item 6): o
+      // `createOneByteStringFromCharacters` com a cópia em linha (a alocação
+      // da TLAB e as gravações do `writeIntoOneByteString`), sem a chamada do
+      // `copyRangeFromUint8ListToOneByteString`.
+      final Uint8List bytes = chunk;
+      final int n = end - start;
+      final String r = allocateOneByteString(n);
+      for (int i = 0; i < n; i++) {
+        writeIntoOneByteString(r, i, bytes[start + i]);
+      }
+      return r;
     }
     beginString();
     if (start < end) addSliceToString(start, end);

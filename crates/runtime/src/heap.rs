@@ -501,6 +501,11 @@ pub struct Heap {
     /// `DARTFORGE_GC_RASTRO=1`: uma linha por coleta no stderr (o tipo, os
     /// marcados, a estimativa e o gatilho).
     rastrear: bool,
+    /// `DARTFORGE_GC_MEMORIA=1`: depois de cada coleta completa (e no fim do
+    /// programa), a quebra da memória do espaço por classe de tamanho, das
+    /// tabelas do runtime e do processo ([`Heap::relatorio_de_memoria`]).
+    /// Com `2`, depois de toda coleta.
+    memoria: u8,
     /// Pares nativos finalizáveis (o `Dart_NewFinalizableHandle` da VM):
     /// objeto → (finalizador, par). Quando o objeto morre, a coleta tira a
     /// entrada e chama `finalizador(par)` — que só libera recursos do
@@ -609,6 +614,7 @@ impl Heap {
                 || std::env::var("DARTFORGE_GC_VERIFICAR").as_deref() == Ok("1")
                 || std::env::var("DARTFORGE_VALIDAR_HANDLES").as_deref() == Ok("1"),
             rastrear: std::env::var("DARTFORGE_GC_RASTRO").as_deref() == Ok("1"),
+            memoria: std::env::var("DARTFORGE_GC_MEMORIA").ok().and_then(|v| v.parse::<u8>().ok()).unwrap_or(0),
             finalizaveis: crate::hash::HashMap::default(),
             fracas: crate::hash::HashMap::default(),
             efemeros: crate::hash::HashMap::default(),
@@ -1660,6 +1666,10 @@ impl Heap {
             self.trabalho_na_completa = self.trabalho_da_marcacao + live;
             self.recalcular_gatilhos(live);
         }
+        if self.memoria > 1 || (self.memoria == 1 && !menor) {
+            eprintln!("[memória] depois da coleta {}", if menor { "menor" } else { "completa" });
+            eprint!("{}", self.relatorio_de_memoria());
+        }
         if self.rastrear {
             eprintln!(
                 "[gc] {} marcados={live} trabalho={} estimados={} gatilho={} paginas={} vivos={}",
@@ -1671,6 +1681,47 @@ impl Heap {
                 self.objetos.vivos
             );
         }
+    }
+
+    /// A quebra da memória (`DARTFORGE_GC_MEMORIA=1`): o espaço de objetos, as
+    /// tabelas laterais do runtime (entradas e bytes de capacidade) e o
+    /// processo (residente, pico, heap do sistema confirmado).
+    pub fn relatorio_de_memoria(&self) -> String {
+        use std::fmt::Write;
+        fn tabela<K, V>(m: &crate::hash::HashMap<K, V>) -> (usize, usize) {
+            (m.len(), m.capacity() * (std::mem::size_of::<(K, V)>() + 1) / 1024)
+        }
+        fn conjunto<K>(m: &crate::hash::HashSet<K>) -> (usize, usize) {
+            (m.len(), m.capacity() * (std::mem::size_of::<K>() + 1) / 1024)
+        }
+        let mut s = self.objetos.relatorio_de_memoria();
+        let literais: usize = self.literais.keys().map(|k| k.capacity() * 2).sum::<usize>() / 1024;
+        let _ = writeln!(
+            s,
+            "[memória] tabelas (entradas, KiB): globais {:?}, literais {:?} (+{literais} KiB de chaves), constantes {:?}, permanentes {:?}, enum {:?}, tearoffs {:?}, código de tearoff {:?}, late {:?}, fracas {:?}, efêmeros {:?}, finalizáveis {:?}; estimados {} KiB, gatilho {} KiB",
+            tabela(&self.globais),
+            tabela(&self.literais),
+            tabela(&self.constantes),
+            conjunto(&self.permanentes),
+            tabela(&self.enum_values),
+            tabela(&self.tearoffs),
+            tabela(&self.codigo_do_tearoff),
+            conjunto(&self.campos_late_inicializados),
+            tabela(&self.fracas),
+            tabela(&self.efemeros),
+            tabela(&self.finalizaveis),
+            self.stats.estimated_bytes / 1024,
+            self.byte_threshold / 1024
+        );
+        let (rss, pico, heap_do_sistema) = crate::espaco::memoria_do_processo();
+        let _ = writeln!(
+            s,
+            "[memória] processo: residente {} KiB, pico {} KiB, heap do sistema confirmado {} KiB",
+            rss / 1024,
+            pico / 1024,
+            heap_do_sistema / 1024
+        );
+        s
     }
 
     /// Os gatilhos da próxima coleta, a partir do que sobreviveu a esta.

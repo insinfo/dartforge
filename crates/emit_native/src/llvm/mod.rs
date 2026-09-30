@@ -115,6 +115,11 @@ pub struct LlvmEmitter<'a> {
     /// verdadeiro no AOT e nos módulos do SDK; falso nos módulos do programa no
     /// JIT, cuja memória é liberada (J02).
     objetos_estaticos: bool,
+    /// As tabelas de métodos são montadas na ligação
+    /// (docs/NATIVO-PODA-DE-TABELAS.md §3.2): o módulo só declara a função
+    /// de cada tabela, e o conteúdo vai para o resumo (`poda.rs`). É o SDK
+    /// de produção.
+    tabelas_na_ligacao: bool,
     /// O estado de cada pacote da emissão (§4.2, passo 4); os pacotes o usam
     /// conforme migram.
     #[allow(dead_code)]
@@ -163,6 +168,7 @@ impl<'a> LlvmEmitter<'a> {
             area_enxuta: false,
             depuracao: module.functions.iter().any(|f| f.depuracao.is_some()).then(depuracao::Depuracao::nova),
             objetos_estaticos: false,
+            tabelas_na_ligacao: false,
             textos: Default::default(),
             caixas: Default::default(),
             listas: Default::default(),
@@ -174,6 +180,16 @@ impl<'a> LlvmEmitter<'a> {
     /// especificação do espaço unificado): o AOT e os módulos do SDK.
     pub fn com_objetos_estaticos(mut self, sim: bool) -> Self {
         self.objetos_estaticos = sim;
+        self
+    }
+
+    /// As tabelas de métodos do módulo ficam para a ligação
+    /// (docs/NATIVO-PODA-DE-TABELAS.md §3.2): nem o `$d` nem a função que o
+    /// devolve são definidos aqui, só declarados por quem os cita; o
+    /// conteúdo vai para o resumo da biblioteca (`poda::resumir`). Só o SDK
+    /// de produção.
+    pub fn com_tabelas_na_ligacao(mut self, sim: bool) -> Self {
+        self.tabelas_na_ligacao = sim;
         self
     }
 

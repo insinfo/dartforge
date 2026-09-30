@@ -883,6 +883,11 @@ pub fn argumentos(sysroot: &SysrootWindows, l: &Ligacao<'_>) -> Vec<std::ffi::Os
     }
     if l.podar {
         a.push("/opt:ref".into());
+        if let Some(m) = crate::ligador::mapa_da_ligacao(l.saida) {
+            let mut o = std::ffi::OsString::from("/map:");
+            o.push(m.as_os_str());
+            a.push(o);
+        }
     }
     if l.lto {
         let particoes = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, 16);

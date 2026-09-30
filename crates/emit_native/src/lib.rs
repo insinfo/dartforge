@@ -16,6 +16,7 @@ pub mod llvm;
 pub mod lower;
 pub mod nativos;
 pub mod otimizar;
+pub mod poda;
 pub mod resumo;
 pub mod sdk_modulo;
 

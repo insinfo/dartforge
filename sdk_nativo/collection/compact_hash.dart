@@ -370,6 +370,29 @@ external int _dfConjuntoAdicionar(Uint32List indice, List<Object?> dados,
 external Object? _dfConjuntoBuscar(
     Uint32List indice, List<Object?> dados, int mascara, Object? chave);
 
+// DartForge: os lotes (docs/NATIVO-PLANO.md §13.2, itens 2 e 3). O runtime
+// grava de uma vez as entradas de chave `int`/`String` de `pares` (de `de` até
+// `ate`), na ordem, e para na primeira que não sabe gravar. O resultado junta a
+// posição onde parou (bits altos) e o novo `_usedData` (os 32 bits baixos); o
+// Dart grava a entrada da parada pelo caminho do SDK e chama de novo.
+
+/// `this[pares[i]] = pares[i + 1]` para `i` de `de` até `ate`, de 2 em 2; com
+/// `pularRemovidas`, sem as entradas removidas do `_data` velho.
+@pragma("vm:external-name", "DartForge_hash_mapa_preencher")
+external int _dfMapaPreencher(Uint32List indice, List<Object?> dados,
+    int mascara, int usados, List pares, int de, int ate, bool pularRemovidas);
+
+/// DartForge: o `_data` novo de uma tabela, `new List.filled(n, null)` sem
+/// avaliar o tipo reificado: a lista é interna (nunca sai do `_HashBase`) e só
+/// é comparada por identidade e lida pelos próprios métodos da tabela.
+@pragma("vm:external-name", "DartForge_hash_novos_dados")
+external List<Object?> _dfNovosDados(int n);
+
+/// `add(velhos[i])` para `i` de `de` até `ate`, sem as removidas.
+@pragma("vm:external-name", "DartForge_hash_conjunto_preencher")
+external int _dfConjuntoPreencher(Uint32List indice, List<Object?> dados,
+    int mascara, int usados, List velhos, int de, int ate);
+
 final _uninitializedIndex = new Uint32List(_HashBase._UNINITIALIZED_INDEX_SIZE);
 // Note: not const. Const arrays are made immutable by having a different class
 // than regular arrays that throws on element assignment. We want the data field
@@ -418,6 +441,77 @@ base class _Map<K, V> extends _HashVMBase
     Object? v = _dfMapaBuscar(indice, _data, _hashMask, key);
     if (identical(v, indice)) v = _getValueOrData(key);
     return !identical(_data, v);
+  }
+
+  // DartForge: o `_init` do mixin (o `_rehash`) com a reinserção em lote
+  // (`_dfMapaPreencher`): a mesma ordem, e cada entrada que o runtime não
+  // conhece pelo `this[key] = …` de sempre.
+  void _init(int size, int hashMask, List? oldData, int oldUsed) {
+    if (size < _HashBase._INITIAL_INDEX_SIZE) {
+      size = _HashBase._INITIAL_INDEX_SIZE;
+      hashMask = _HashBase._indexSizeToHashMask(size);
+    }
+    assert(size & (size - 1) == 0);
+    assert(_HashBase._UNUSED_PAIR == 0);
+    _index = new Uint32List(size);
+    _hashMask = hashMask;
+    _data = _dfNovosDados(size);
+    _usedData = 0;
+    _deletedKeys = 0;
+    if (oldData != null) {
+      int i = 0;
+      while (i < oldUsed) {
+        final int r = _dfMapaPreencher(
+            _index, _data, _hashMask, _usedData, oldData, i, oldUsed, true);
+        _usedData = r & 0xFFFFFFFF;
+        i = r >> 32;
+        if (i < oldUsed) {
+          var key = oldData[i];
+          if (!_HashBase._isDeleted(oldData, key)) {
+            this[key] = oldData[i + 1];
+          }
+          i += 2;
+        }
+      }
+    }
+  }
+
+  // DartForge: o `_populateUnsafe` do mixin pelo lote.
+  void _populateUnsafe(List<Object?> keyValuePairs) {
+    _dfPreencherDaFaixa(keyValuePairs, 0, keyValuePairs.length);
+  }
+
+  /// DartForge: o `_populateUnsafe` dos pares `pares[de..ate)` (o mapa de um
+  /// objeto do JSON, da pilha do listener), sem conferir tipos: a mesma
+  /// capacidade do `_populateUnsafe` e as gravações do `_set`, na ordem.
+  void _dfPreencherDaFaixa(List<Object?> pares, int de, int ate) {
+    assert((ate - de).isEven);
+    int size = _roundUpToPowerOfTwo(ate - de);
+    if (size < _HashBase._INITIAL_INDEX_SIZE) {
+      size = _HashBase._INITIAL_INDEX_SIZE;
+    }
+    int hashMask = _HashBase._indexSizeToHashMask(size);
+
+    assert(size & (size - 1) == 0);
+    assert(_HashBase._UNUSED_PAIR == 0);
+    _index = new Uint32List(size);
+    _hashMask = hashMask;
+    _data = _dfNovosDados(size);
+    _usedData = 0;
+    _deletedKeys = 0;
+    int i = de;
+    while (i < ate) {
+      final int r = _dfMapaPreencher(
+          _index, _data, _hashMask, _usedData, pares, i, ate, false);
+      _usedData = r & 0xFFFFFFFF;
+      i = r >> 32;
+      if (i < ate) {
+        final key = internal.unsafeCast<K>(pares[i]);
+        final value = internal.unsafeCast<V>(pares[i + 1]);
+        _set(key, value, _hashCode(key));
+        i += 2;
+      }
+    }
   }
 
   void addAll(Map<K, V> other) {
@@ -1146,6 +1240,37 @@ base class _Set<E> extends _HashVMBase
     return identical(_data, k) ? null : internal.unsafeCast<E>(k);
   }
 
+  // DartForge: o `_init` do mixin (o `_rehash`) com a reinserção em lote
+  // (`_dfConjuntoPreencher`); cada chave que o runtime não conhece pelo
+  // `add` de sempre.
+  void _init(int size, int hashMask, List? oldData, int oldUsed) {
+    if (size < _HashBase._INITIAL_INDEX_SIZE) {
+      size = _HashBase._INITIAL_INDEX_SIZE;
+      hashMask = _HashBase._indexSizeToHashMask(size);
+    }
+    _index = new Uint32List(size);
+    _hashMask = hashMask;
+    _data = _dfNovosDados(size >> 1);
+    _usedData = 0;
+    _deletedKeys = 0;
+    if (oldData != null) {
+      int i = 0;
+      while (i < oldUsed) {
+        final int r = _dfConjuntoPreencher(
+            _index, _data, _hashMask, _usedData, oldData, i, oldUsed);
+        _usedData = r & 0xFFFFFFFF;
+        i = r >> 32;
+        if (i < oldUsed) {
+          var key = oldData[i];
+          if (!_HashBase._isDeleted(oldData, key)) {
+            add(key);
+          }
+          i += 1;
+        }
+      }
+    }
+  }
+
   void addAll(Iterable<E> other) {
     if (other case final _Set otherBase) {
       // If this set is empty we might be able to block-copy from [other].
@@ -1316,3 +1441,12 @@ typedef DefaultSet<E> = _Set<E>;
 @pragma('vm:prefer-inline')
 Map<K, V> createMapFromKeyValueListUnsafe<K, V>(List<Object?> keyValuePairs) =>
     DefaultMap<K, V>().._populateUnsafe(keyValuePairs);
+
+/// DartForge: o mapa dos pares `keyValuePairs[start..]` (até o fim da lista),
+/// como o [createMapFromKeyValueListUnsafe] da sublista, sem copiá-la: o
+/// listener do JSON monta cada objeto da faixa da pilha de valores
+/// (`convert_patch.dart`, docs/NATIVO-PLANO.md §13.2, item 4).
+Map<K, V> createMapFromKeyValueRangeUnsafe<K, V>(
+        List<Object?> keyValuePairs, int start) =>
+    DefaultMap<K, V>()
+      .._dfPreencherDaFaixa(keyValuePairs, start, keyValuePairs.length);

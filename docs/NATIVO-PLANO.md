@@ -3254,3 +3254,215 @@ passava 65% do tempo conferindo handles no mapa de páginas.
 `CONTAGEM_JOVEM` (256 Ki alocações) não dispara mais antes de
 `LIMITE_JOVEM`: todo bloco tem ao menos 24 bytes, e 256 Ki × 24 B = 6 MiB >
 2 MiB. Fica como teto de segurança.
+
+## 13. Mapas de chave `int` e `jsonDecode` (plano, 2026-09-30)
+
+Alvos, contra o Dart AOT (§12.2): `colecoes/mapa` (`Map<int,int>`, 500 mil
+chaves) 113 contra 42 ms; `json` `decode_medio` 89 contra 28, `decode_grande`
+172 contra 78, `utf8_bytes` 101 contra 31.
+
+### 13.1 Onde vai o tempo (perfil com pilhas, `aot --optimize`, simbolizado pelo `/map`)
+
+**`Map<int,int>`** (`m[i*31 % n] = i` e `m[i]`, 500 mil chaves; self):
+
+| | % |
+|---|---:|
+| `nativos_hash::sondar` (as faltas de cache do `_index` e do `_data`, que a VM também paga) | 28,6 |
+| acessores do `Heap` que o native chama antes da sonda (`tipada`, `palavras`, `e_objeto_vivo`, `lista_elementos`, `lista_len`, `lista_dados`, `elementos_dos_dados`, `chave_de_hash`, `gravar_ref`) | 34 |
+| a covariância do `$c` do `[]=` (`dartforge_rti_e`, `Universo::e_topo`) | 9,9 |
+| `_Map.[]=`, `[]=$c`, `[]`, `_init` em Dart | 13 |
+
+O `_init` (o `_rehash`) reinsere cada entrada por `this[key] = …`: a entrada
+`$c` com as duas conferências e uma chamada ao native por entrada. Crescer de 8
+a 1 Mi posições reinsere ~524 mil entradas, um terço das gravações.
+
+Na VM, o `[]=` do `_Map` é Dart compilado com `_hashCode`/`_equals` pela
+tabela de despacho e a sonda em linha (`compact_hash.dart`, os campos de
+`_HashVMBase` como intrínsecos `LinkedHashBase_get*`,
+`recognized_methods_list.h`). As faltas de cache são as mesmas; o que sobra
+aqui é o caminho até a sonda: cada native faz o `HEAP.with`, o `borrow`, e
+resolve o `_index` e o `_data` por quatro ou cinco acessores com conferências
+(`bloco_vivo`, a forma, o corpo) — ~150 instruções antes da primeira leitura.
+
+**`jsonDecode` do documento médio** (inclusivo):
+
+| | % |
+|---|---:|
+| montar os contêineres: `json_acrescentar` (26,8; dele, `lista_reservar` 10,7), `propertyValue`/`arrayElement` (20), `removeLast` das pilhas (4,5), `[]` novo por contêiner (3,7) | ~55 com sobreposição |
+| `createMapFromKeyValueListUnsafe` (o `_populateUnsafe`: `_set` por chave com `hashCode` e `==` dinâmicos, o `[]=$tc` do `_data`, `List.filled`, `Uint32List`) | 18,5 |
+| `substring` das strings (`fatia_de_texto`: alocação pelo runtime e cópia) | 11 |
+| `somaValor` do próprio benchmark (`forEach`, `clamp`) | 12,8 |
+| `parse`/`parseString`/`parseNumber` | 14 |
+
+Na VM o listener é o mesmo (um `[]` por contêiner, `add` e `removeLast`), mas o
+`add` e o `removeLast` são intrínsecos em linha e a alocação é por *bump
+pointer*. Aqui cada valor é uma chamada que cresce a lista de 0 a 3, 7, 15…
+pelo alocador do runtime, e o mapa de cada objeto é montado pelo caminho
+genérico do SDK. No `utf8_bytes`, a metade do `decode` passa ainda pelo `parse`
+genérico do mixin, com `_getCharUnsafe` chamado por byte (o `_JsonStringParser`
+já tem cópias com o `chunk` num local, §10.3).
+
+### 13.2 O que muda
+
+**Mapas e conjuntos** (`runtime/src/nativos_hash.rs`,
+`sdk_nativo/collection/compact_hash.dart`):
+
+1. **Sonda sem o `Heap`.** Os natives leem o `_index` e o `_data` pelos
+   deslocamentos do contrato (`layout`: comprimento em `h+14`, elementos em
+   `h+22`, bytes da `_Uint32List` pelo ponteiro em `h+22`), depois de conferir
+   no cabeçalho o cid (28 no índice; 8 no `_data` gravável, 8/9 no lido), a
+   forma `REFS` e, no índice, a ausência de `EXTERNO`. Nada de `HEAP.with` nem
+   `borrow` no caminho comum. A chave `int` (`Smi`, ou `_Mint` pelo valor em
+   `h+14`) e a `String` (hash do cabeçalho; calculado e gravado na primeira vez,
+   como `hash_de_texto`) são lidas do mesmo jeito. A gravação no `_data` faz a
+   barreira de elemento do código gerado (`@df.barreira_elemento`: velho ou
+   lembrado recebendo filho jovem suja o cartão; velho chama o
+   `dartforge_lembrar`). As contas (`_hashPattern`, `_firstProbe`,
+   `_nextProbe`) e o protocolo de "não sei" não mudam.
+2. **Reinserção em lote.** `_Map._init` e `_Set._init` (sobrepostos) chamam um
+   native que reinsere de uma vez as entradas de chave `int`/`String` de
+   `oldData` (pulando as removidas, `identical(key, oldData)`) e devolve até
+   onde foi e o novo `_usedData`; a entrada que ele não conhece vai pelo
+   `this[key] = …` de antes, uma por vez, e o native continua da seguinte. A
+   ordem de inserção, e portanto a de iteração, é a mesma.
+3. **Mapa do JSON em lote.** `createMapFromKeyValueRangeUnsafe` (nova, no
+   `dart:_compact_hash`) monta o `_Map` direto de uma faixa da pilha do
+   listener, com o mesmo tamanho do `_populateUnsafe` e o mesmo native de
+   lote; chave repetida fica com o último valor na posição da primeira, como o
+   `_set`.
+
+**JSON** (`sdk_nativo/convert/convert_patch.dart`,
+`runtime/src/nativos_listas.rs`):
+
+4. **Uma pilha de valores só.** O `_JsonListener` passa a guardar todos os
+   valores dos contêineres abertos numa `_GrowableList` única, reaproveitada
+   por todos os níveis: abrir um contêiner empilha uma marca
+   (`início anterior * 32 + estado do parser`) e fechar monta a lista (um
+   armazenamento do tamanho exato, uma chamada) ou o mapa (item 3) da faixa e
+   devolve o estado salvo. Some o `[]` por contêiner com os crescimentos, a
+   lista de pares por objeto, a pilha de contêineres e a de estados
+   (`saveState`/`restoreState`). O reviver é chamado nos mesmos pontos, com a
+   mesma chave (o topo da pilha) e o mesmo índice (a contagem desde o
+   início). As listas devolvidas são `List<dynamic>` expansíveis e os mapas
+   `_Map<String, dynamic>`, como na VM.
+5. **String curta sem o runtime.** `getString` do `_JsonStringParser` com
+   `bits <= 0xFF` monta a `_OneByteString` pelo `allocateOneByteString` em
+   linha (TLAB) e grava as unidades em linha; a vazia é o literal `""`, como
+   no `substring` da VM. Com unidade acima de `0xFF`, o `substring`. A forma
+   canônica (uma string de um byte quando cabe) se mantém.
+6. **`_JsonUtf8Parser` com os bytes num local**: `parse`, `parseString` e
+   `parseNumber` copiados do mixin para ele (como o §10.3 fez no de
+   `String`), lendo `bytes[i]` de um `Uint8List` local em vez de
+   `_getCharUnsafe(i)`.
+
+O que fica de fora: a covariância do `[]=` (RTI, outra frente), o `optsize` do
+SDK de produção (§1 de `PLANO-TAMANHO-DESEMPENHO.md`) e o `encode`.
+
+### 13.3 Como validar
+
+`corpus/nativo` inteiro no AOT, no JIT e com `--gc-stress --limite-exec 60`;
+`aot --optimize` dos programas afetados contra a VM; testes do runtime e do
+emissor. Programas novos a partir de 100: mapas e conjuntos de chave `int`
+(negativas, grandes, `_Mint`, colisões de padrão, remoção durante o
+crescimento, ordem de iteração, `1` e `1.0`, `NaN`) e JSON (números extremos,
+unicode e surrogates, aninhamento profundo, chaves repetidas, reviver, erros de
+formato). Medida: execuções alternadas contra o Dart AOT, mínimo e razão
+pareada.
+
+## 14. Memória do espaço de objetos (plano, 2026-09-30)
+
+Alvos (§12.2): o servidor HTTP em repouso subiu de 16,2 para 19,3 MB com o
+espaço unificado (Dart AOT: 17,0); o pico do `bench/desempenho/json.dart` é
+323 MB contra 195 do Dart AOT. A hipótese de partida — as 89 classes de
+tamanho, cada uma com página e TLAB próprias, e as regiões grandes em cache —
+foi medida antes de mudar qualquer coisa.
+
+### 14.1 Como medir
+
+`DARTFORGE_GC_MEMORIA=1` escreve no stderr, depois de cada coleta completa e
+no fim do programa, a quebra da memória (`EspacoDeObjetos::relatorio_de_memoria`
+e `Heap::relatorio_de_memoria`): por classe de tamanho, as páginas, os blocos
+e os ocupados; as páginas vazias guardadas e as da reserva (sujas); as regiões
+grandes no espaço (quantas mortas à espera da completa) e em cache; os corpos
+de fora e os anexos; os vetores do espaço; as tabelas laterais do `Heap`
+(entradas e KiB); e o processo (residente, pico e o heap do sistema
+confirmado, `HeapSummary`). `DARTFORGE_GC_MEMORIA=2` escreve depois de toda
+coleta, menor inclusive (o que acha o pico). O pico de um programa em lote vem
+de `PeakWorkingSet64` lido a cada 20 ms; o repouso e o pico do servidor, do
+script de §9.10.
+
+### 14.2 Causas medidas (Windows, `aot --optimize`)
+
+**1. Cada página de 64 KiB custa 128 KiB residentes.** Fora do Linux, a página
+vinha de `std::alloc::alloc_zeroed` com alinhamento de 64 KiB; no Windows o
+`System` do Rust atende um alinhamento acima de 16 pedindo ao `HeapAlloc`
+`tamanho + alinhamento` com `HEAP_ZERO_MEMORY`, que zera o bloco inteiro: os
+128 KiB ficam confirmados e tocados, mesmo com um bloco só em uso. Medido: o
+heap do sistema confirmado acompanha 2 × as páginas (374 páginas, 24 MB → 73
+MB confirmados; 865 páginas, 55 MB → 138 MB). No servidor em repouso, 63
+páginas (4 MB, 28% ocupadas, 31 classes com página, 20 delas com menos de 5%
+dos blocos) custam 8 MB dos 11,6 MB do heap do sistema.
+
+**2. O objeto grande jovem que morre só volta na coleta completa.** A coleta
+menor marca a região como `LIVRE` e desconta os bytes da estimativa, mas a
+região fica no espaço até a completa: a memória não é contada por nenhum
+gatilho e cresce sem limite entre duas completas. No pico do `json`
+(`utf8_bytes`, `encode_grande`), 127 regiões mortas somavam 89 MB, com a
+estimativa em 67 MB e o gatilho da completa em 78 MB.
+
+**3. Páginas vazias guardadas.** A completa guarda as páginas sem vivo de uma
+classe até a folga `max(vivos, demanda, pico recente, 2 páginas)` e manda as
+demais à reserva, onde ficam sujas (residentes) até a completa seguinte: no
+`json`, até 594 vazias (38 MB) e 367 sujas (23 MB) depois de uma fase que
+soltou o documento grande.
+
+**O que não é causa.** As classes de tamanho: com a página tocada só onde há
+bloco (causa 1 resolvida), uma classe com um bloco custa uma página de 4 KiB
+mais o mapa de marcas; as 31 classes do servidor, ~0,2 MB. O cache das regiões
+grandes (0–12 MB) é pequeno perto das regiões mortas no espaço (causa 2). As
+tabelas laterais do `Heap` somam menos de 20 KiB no servidor e no `json`. No
+pico do `json` a soma bate: 61 MB de páginas × 2 + 13 MB de vazias × 2 + 102
+MB de regiões grandes (89 mortas) + ~30 MB do resto (imagem, pilhas, heap do
+Rust) ≈ 328 MB.
+
+### 14.3 O que a VM e a Julia fazem
+
+* **VM** (`runtime/vm/heap/page.cc`, `pages.cc`, `freelist.h`): páginas de
+  512 KiB de `VirtualMemory::AllocateAligned` (reserva do sistema, tocada sob
+  demanda); um cache de páginas por tipo, mas **nunca** das grandes
+  (`CanUseCache`: a inicialização do objeto supõe memória zerada do sistema);
+  a página grande sai na varredura. O *old space* não tem classes de tamanho:
+  lista livre de tamanho variável.
+* **Julia** (`gc-pages.c`, `gc-stock.c`): páginas de 16 KiB tiradas de blocos
+  mapeados de uma vez; a página solta vai a `pool_lazily_freed`, e depois da
+  varredura `gc_free_pages` guarda um cache quente do tamanho do intervalo de
+  coleta e devolve o resto ao sistema (`VirtualFree(MEM_DECOMMIT)` no Windows,
+  `madvise(MADV_FREE/DONTNEED)` no Unix). O objeto grande é `malloc` e sai na
+  varredura (`sweep_big`), na menor inclusive.
+
+### 14.4 Plano
+
+1. **Páginas do sistema, em pedaços, tocadas sob demanda, em todas as
+   plataformas** (`espaco.rs`, `ReservaDePaginas`). Um pedaço de 32 páginas (2
+   MiB) reservado de uma vez: no Windows `VirtualAlloc(MEM_RESERVE)` e cada
+   página confirmada (`MEM_COMMIT`) quando sai da reserva; no Unix o `mmap` de
+   hoje (Linux e os demais). A página nova vem zerada do sistema e só entra na
+   memória residente onde o programa escreve. A página suja devolvida ao
+   sistema: `VirtualFree(MEM_DECOMMIT)` no Windows, `madvise(MADV_DONTNEED)` no
+   Linux, `mmap(MAP_FIXED)` por cima nos demais Unix (que não garantem zero
+   depois do `MADV_DONTNEED`).
+2. **O objeto grande jovem morto sai na coleta menor** (`varrer_jovens`): a
+   região volta ao cache das grandes na hora, como na varredura da Julia.
+3. **O cache das regiões grandes tem teto** (`RegioesGrandes`): até 4 MiB (as
+   mais antigas voltam ao sistema quando passa), além do aparo de hoje a cada
+   completa. Serve ao programa que refaz o mesmo buffer a cada rodada; não
+   guarda o lixo grande de um ciclo inteiro.
+4. **Páginas sujas: só um cache quente** (`ReservaDePaginas::aparar`, a cada
+   completa): ficam no máximo as sujas que cabem no semiespaço jovem
+   (`LIMITE_JOVEM`, 32 páginas), as mais recentes; as demais voltam ao sistema
+   na hora (o `gc_free_pages` da Julia), e as paradas desde a completa anterior
+   também.
+
+Sem mudança nas classes de tamanho, na TLAB, no código gerado e nos gatilhos.
+O tempo não pode piorar: `json`, `textos` e `blend` medidos antes e depois,
+alternados.

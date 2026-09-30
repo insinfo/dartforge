@@ -104,6 +104,17 @@ pub fn compile_and_link(
     //   `-ffunction-sections`) e o runtime estático, com `/OPT:REF` tirando o
     //   que o programa não alcança.
     let producao = options.optimize && sdk.is_some();
+    // Produção: as tabelas de métodos montadas no módulo do programa, só com
+    // os pares vivos (docs/NATIVO-PODA-DE-TABELAS.md). O objeto em cache é
+    // o deste IR já montado.
+    let montado;
+    let llvm_ir = match &sdk {
+        Some(s) if producao => {
+            montado = crate::poda::montar_producao(llvm_ir, &s.resumos, options.timings)?;
+            montado.as_str()
+        }
+        _ => llvm_ir,
+    };
     let (ligar_com, sdk_objetos): (Ligacao, Vec<PathBuf>) = match &sdk {
         Some(s) if producao => (Ligacao::Producao(crate::cache::RuntimeCache::para_producao()?.lib_path), s.objetos.clone()),
         Some(s) => (Ligacao::SdkCompartilhado(s.importacao.clone()), Vec::new()),
