@@ -15,6 +15,8 @@ pub struct NativeDriverOptions {
     /// J05: o objeto leva as tabelas de linha; no Windows a ligação gera o
     /// PDB (`/DEBUG`), que é onde o depurador as procura.
     pub depuracao: bool,
+    /// A CPU-alvo (`--cpu`, `gerador::Cpu`); `None`, a base do alvo.
+    pub cpu: Option<crate::gerador::Cpu>,
 }
 
 impl Default for NativeDriverOptions {
@@ -24,6 +26,7 @@ impl Default for NativeDriverOptions {
             optimize: false,
             timings: false,
             depuracao: false,
+            cpu: None,
         }
     }
 }
@@ -102,7 +105,7 @@ pub fn compile_and_link(
     //   que o programa não alcança.
     let producao = options.optimize && sdk.is_some();
     let (ligar_com, sdk_objetos): (Ligacao, Vec<PathBuf>) = match &sdk {
-        Some(s) if producao => (Ligacao::Producao(crate::cache::RuntimeCache::para_dll()?.lib_path), s.objetos.clone()),
+        Some(s) if producao => (Ligacao::Producao(crate::cache::RuntimeCache::para_producao()?.lib_path), s.objetos.clone()),
         Some(s) => (Ligacao::SdkCompartilhado(s.importacao.clone()), Vec::new()),
         None => (Ligacao::Runtime(runtime.lib_path.clone()), Vec::new()),
     };
@@ -122,7 +125,7 @@ pub fn compile_and_link(
     // Produção com o SDK da fonte: bitcode, otimizado junto com o do SDK na
     // ligação (LTO).
     let gerador = Gerador::escolher(&options.clang);
-    let geracao = Geracao::do_programa(options.optimize, producao);
+    let geracao = Geracao { cpu: options.cpu, ..Geracao::do_programa(options.optimize, producao) };
     if manter_ir {
         // A cópia em `.df_tmp` só existe para quem pediu DARTFORGE_KEEP_IR
         // (o `determinismo --executar` do harness lê essas cópias).
@@ -156,7 +159,7 @@ pub fn compile_and_link(
 
     // Fase 2: Link do objeto com o runtime estático
     let t_link = Instant::now();
-    let mut ligou = ligar(&options.clang, &obj_file, &sdk_objetos, &ligar_com, output, options.depuracao);
+    let mut ligou = ligar(&options.clang, &obj_file, &sdk_objetos, &ligar_com, output, options.depuracao, options.cpu);
     if ligou.is_err()
         && let Some((c, chave, true)) = do_cache
     {
@@ -166,7 +169,7 @@ pub fn compile_and_link(
         obj_file = obj_staging()?;
         gerador.gerar(llvm_ir, geracao, &obj_file)?;
         do_cache = None;
-        ligou = ligar(&options.clang, &obj_file, &sdk_objetos, &ligar_com, output, options.depuracao);
+        ligou = ligar(&options.clang, &obj_file, &sdk_objetos, &ligar_com, output, options.depuracao, options.cpu);
     }
     ligou?;
     if let Some(s) = sdk.as_ref().filter(|_| !producao) {
@@ -217,7 +220,7 @@ impl Ligacao {
 
 /// A ligação no Linux: o `ld.lld` direto, com o sysroot de ligação
 /// (`ligador.rs`) — sem o driver do Clang nem o GCC na máquina.
-fn ligar_no_linux(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &Path, depuracao: bool) -> Result<(), String> {
+fn ligar_no_linux(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &Path, depuracao: bool, cpu: Option<crate::gerador::Cpu>) -> Result<(), String> {
     use crate::ligador;
     let sysroot = ligador::SysrootLinux::localizar(clang)?;
     let mut entradas = vec![obj.to_path_buf()];
@@ -232,6 +235,7 @@ fn ligar_no_linux(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, 
             entradas,
             rpath_origem: matches!(ligacao, Ligacao::SdkCompartilhado(_)),
             lto: producao,
+            cpu: cpu.map(crate::gerador::Cpu::nome),
             podar: producao,
             manter_depuracao: depuracao,
             saida: output,
@@ -242,7 +246,7 @@ fn ligar_no_linux(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, 
 /// A ligação no Windows: o `lld-link` direto, com as bibliotecas de
 /// importação e a CRT mínima geradas pelo dartforge (`ligador_windows.rs`) —
 /// sem o Visual Studio nem o Windows SDK na máquina (N15).
-fn ligar_no_windows(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &Path, depuracao: bool) -> Result<(), String> {
+fn ligar_no_windows(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &Path, depuracao: bool, cpu: Option<crate::gerador::Cpu>) -> Result<(), String> {
     use crate::ligador_windows as lw;
     let sysroot = lw::SysrootWindows::localizar(clang)?;
     let mut entradas = vec![obj.to_path_buf()];
@@ -252,14 +256,14 @@ fn ligar_no_windows(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao
     lw::ligar(
         &lw::lld_link(clang),
         sysroot,
-        &lw::Ligacao { produto: lw::Produto::Executavel, entradas, lto: producao, podar: producao, depuracao, saida: output },
+        &lw::Ligacao { produto: lw::Produto::Executavel, entradas, lto: producao, cpu: cpu.map(crate::gerador::Cpu::nome), podar: producao, depuracao, saida: output },
     )
 }
 
 /// A ligação no macOS: o `ld64.lld` direto, com os `.tbd` do sysroot de
 /// ligação (`ligador_macos.rs`) — sem o `xcrun`, o `ld` da Apple nem as
 /// Command Line Tools na máquina (N16).
-fn ligar_no_macos(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &Path, depuracao: bool) -> Result<(), String> {
+fn ligar_no_macos(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &Path, depuracao: bool, cpu: Option<crate::gerador::Cpu>) -> Result<(), String> {
     use crate::ligador_macos as lm;
     let sysroot = lm::SysrootMacos::localizar()?;
     let mut entradas = vec![obj.to_path_buf()];
@@ -274,6 +278,7 @@ fn ligar_no_macos(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, 
             entradas,
             rpath_executavel: matches!(ligacao, Ligacao::SdkCompartilhado(_)),
             lto: producao,
+            cpu: cpu.map(crate::gerador::Cpu::nome),
             podar: producao,
             manter_depuracao: depuracao,
             saida: output,
@@ -285,15 +290,15 @@ fn ligar_no_macos(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, 
 /// o que o sistema exige vindo do dartforge (nenhum driver de C, nenhum
 /// toolchain do sistema). O `lld` é o do mesmo LLVM do gerador — o bitcode
 /// da produção (LTO) só é lido pela mesma versão.
-fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &Path, depuracao: bool) -> Result<(), String> {
+fn ligar(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &Path, depuracao: bool, cpu: Option<crate::gerador::Cpu>) -> Result<(), String> {
     match crate::alvo::sistema() {
-        Sistema::Linux => ligar_no_linux(clang, obj, sdk, ligacao, output, depuracao),
+        Sistema::Linux => ligar_no_linux(clang, obj, sdk, ligacao, output, depuracao, cpu),
         // A ligação de antes do N15 (o driver do Clang com o `link.exe` e a
         // CRT do Visual C++), só para comparação: é a referência do
         // `sem-toolchain.yml`, na mesma build.
-        Sistema::Windows if ligar_com_clang() => ligar_antigo_com_clang(clang, obj, sdk, ligacao, output, depuracao),
-        Sistema::Windows => ligar_no_windows(clang, obj, sdk, ligacao, output, depuracao),
-        Sistema::MacOs => ligar_no_macos(clang, obj, sdk, ligacao, output, depuracao),
+        Sistema::Windows if ligar_com_clang() => ligar_antigo_com_clang(clang, obj, sdk, ligacao, output, depuracao, cpu),
+        Sistema::Windows => ligar_no_windows(clang, obj, sdk, ligacao, output, depuracao, cpu),
+        Sistema::MacOs => ligar_no_macos(clang, obj, sdk, ligacao, output, depuracao, cpu),
     }
 }
 
@@ -306,9 +311,9 @@ pub fn ligar_com_clang() -> bool {
 /// A ligação pelo driver do Clang, como era antes do N15 (o toolchain do
 /// Visual Studio na máquina): `DARTFORGE_LIGAR_COM_CLANG=1` no Windows. Só
 /// para comparar com a ligação sem o toolchain do sistema.
-fn ligar_antigo_com_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &Path, depuracao: bool) -> Result<(), String> {
+fn ligar_antigo_com_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao, output: &Path, depuracao: bool, cpu: Option<crate::gerador::Cpu>) -> Result<(), String> {
     if crate::alvo::sistema() == Sistema::Linux {
-        return ligar_no_linux(clang, obj, sdk, ligacao, output, depuracao);
+        return ligar_no_linux(clang, obj, sdk, ligacao, output, depuracao, cpu);
     }
     let mut cmd = std::process::Command::new(clang);
     cmd.arg(obj).args(sdk).arg(ligacao.biblioteca());
@@ -361,6 +366,10 @@ fn ligar_antigo_com_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &L
                 }
             }
             cmd.args(["-fuse-ld=lld", "-flto=thin", "-O2"]);
+            // A CPU-alvo da geração de código da LTO (`--cpu`).
+            if let Some(c) = cpu {
+                cmd.arg(format!("-march={}", c.nome()));
+            }
             cmd.args(crate::alvo::argumentos_de_ligacao());
             // O bitcode do gerador embutido não tem o resumo do ThinLTO: o
             // `lld` faz a LTO completa, e a geração de código dela divide-se

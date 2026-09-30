@@ -50,8 +50,9 @@ fn ir(depuracao: bool) -> Option<String> {
                 experimentos: Vec::new(),
                 depuracao,
                 gerador: None,
+                cpu: None,
             };
-            emitir_ir_com(&entrada, &options, true).unwrap_or_else(|e| panic!("não compilou:\n{e}")).texto
+            emitir_ir_com(&entrada, &options).unwrap_or_else(|e| panic!("não compilou:\n{e}")).texto
         })
         .unwrap()
         .join()

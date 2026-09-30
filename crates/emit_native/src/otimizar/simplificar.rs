@@ -242,13 +242,28 @@ fn pura(inst: &Instruction) -> bool {
         | Instruction::CellGet { .. } => true,
         Instruction::Unbox { to, .. } => to.e_vetor(),
         Instruction::Simd { op, .. } => *op != OpSimd::Grava,
-        Instruction::CallRuntime { name, .. } => matches!(
-            name.as_str(),
-            "dartforge_object_new" | "dartforge_object_campos" | "dartforge_exception_pending" | "dartforge_typed_len" | "dartforge_typed_ptr"
-                | "dartforge_typed_cabecalho"
-        ),
+        Instruction::CallRuntime { name, .. } => {
+            matches!(name.as_str(), "dartforge_object_new" | "dartforge_exception_pending" | "dartforge_value_class")
+                || ajudante_puro(name)
+        }
         _ => false,
     }
+}
+
+/// Um ajudante `@df.*` do espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md
+/// §3.5) sem efeito além do resultado: está numa das quatro tabelas de
+/// efeitos (`llvm/textos_ir.rs`, `caixas_ir.rs`, `listas_ir.rs`,
+/// `tipados_ir.rs`, lidas por `externs::efeitos_de`), não lança e não grava
+/// no heap (os `*_gravar*` gravam, mesmo os que devolvem valor). Os que
+/// alocam (caixas, strings, SIMD) são tiráveis como a alocação de objeto; o
+/// `@df.texto_hash` só preenche o cache do hash.
+fn ajudante_puro(nome: &str) -> bool {
+    use crate::llvm::externs::{CONSERVADOR, efeitos_de};
+    if !nome.starts_with("df.") || nome.contains("gravar") {
+        return false;
+    }
+    let e = efeitos_de(nome);
+    e != CONSERVADOR && !e.lanca
 }
 
 /// Tira os valores puros que ninguém usa.

@@ -67,6 +67,7 @@ fn main() {
                     experimentos: Vec::new(),
                     depuracao: false,
                     gerador: None,
+                    cpu: None,
                 };
                 dartforge_emit_native::compilar(&i2, &o2, &options)
             })

@@ -118,18 +118,23 @@ fn isolado_pausado() -> bool {
     ISOLADO.with(|i| i.borrow().as_ref().is_some_and(|e| !e.pausas.is_empty()))
 }
 
-/// O inteiro de um valor Dart (escalar ou `Ref` de `int`).
-fn inteiro_de(v: TaggedValue) -> Option<i64> {
-    if !v.is_ref {
-        return (v.tag == ValueTag::Int).then_some(v.bits);
+/// O inteiro de um valor Dart (escalar sem caixa, ou `Ref` de `int`).
+fn inteiro_de(v: crate::heap::Valor) -> Option<i64> {
+    match v {
+        crate::heap::Valor::Int(i) => Some(i),
+        crate::heap::Valor::Ref(r) => HEAP.with(|h| h.borrow().int_de(r)),
+        _ => None,
     }
-    HEAP.with(|h| h.borrow().int_de_ref(v.bits))
 }
 
-/// O `_id` de uma `_SendPort` ou `_Capability` (o primeiro campo).
+/// O `_id` de uma `_SendPort` ou `_Capability` (o primeiro campo: bruto, ou
+/// um `Ref` de `int`).
 fn id_do_objeto(h: i64) -> Option<i64> {
-    let campo = HEAP.with(|heap| heap.borrow().objeto(h).and_then(|o| o.first()))?;
-    inteiro_de(if campo.1 { TaggedValue::reference(campo.0) } else { TaggedValue::scalar(campo.0) })
+    if !crate::layout::e_objeto(h) {
+        return None;
+    }
+    let (bits, e_ref) = HEAP.with(|heap| heap.borrow().objeto(h).and_then(|o| o.first()))?;
+    if e_ref { inteiro_de(crate::heap::Valor::Ref(bits)) } else { Some(bits) }
 }
 
 /// Chama a função `nome` da sobreposição de `dart:isolate`.
@@ -164,17 +169,24 @@ fn atender_controle() -> bool {
 
 /// `IsolateMessageHandler::HandleLibMessage`: `[0, tipo, …]`.
 fn tratar_mensagem_de_controle(msg: i64) {
-    let itens: Vec<TaggedValue> = HEAP.with(|h| {
+    use crate::heap::Valor;
+    // A mensagem é uma lista do núcleo (`listas.rs`): os elementos sem caixa,
+    // na forma do armazenamento.
+    let itens: Vec<Valor> = HEAP.with(|h| {
         let h = h.borrow();
-        match h.try_get(msg) {
-            Some(Value::List(v)) => v.to_vec(),
-            _ => Vec::new(),
+        if !crate::layout::e_objeto(msg) || !h.e_lista(msg) {
+            return Vec::new();
         }
+        (0..h.lista_len(msg)).map(|i| h.lista_get(msg, i)).collect()
     });
     let Some(tipo) = itens.get(1).and_then(|v| inteiro_de(*v)) else { return };
-    let objeto = |i: usize| itens.get(i).filter(|v| v.is_ref).map(|v| v.bits).unwrap_or(0);
+    let objeto = |i: usize| match itens.get(i) {
+        Some(Valor::Ref(r)) => *r,
+        _ => 0,
+    };
     let id = |i: usize| id_do_objeto(objeto(i));
-    let valor = |i: usize| itens.get(i).map_or(0, |v| if v.is_ref { v.bits } else { HEAP.with(|h| h.borrow_mut().como_ref(*v)) });
+    // O elemento numa posição `Ref` (encaixota o escalar de uma lista compacta).
+    let valor = |i: usize| itens.get(i).map_or(0, |v| HEAP.with(|h| h.borrow_mut().como_ref(*v)));
     match tipo {
         OOB_PAUSA | OOB_RETOMAR => {
             let (Some(cap), Some(retomar)) = (id(2), id(3)) else { return };
@@ -234,10 +246,11 @@ fn tratar_mensagem_de_controle(msg: i64) {
         }
         OOB_ERROS_FATAIS => {
             let Some(cap) = id(2) else { return };
-            let fatal = HEAP.with(|h| {
-                let h = h.borrow();
-                itens.get(3).is_some_and(|v| if v.is_ref { matches!(h.try_get(v.bits), Some(Value::BoxedBool(true))) } else { v.bits != 0 })
-            });
+            let fatal = match itens.get(3) {
+                Some(Valor::Bool(b)) => *b,
+                Some(Valor::Ref(r)) => HEAP.with(|h| h.borrow().bool_de(*r)) == Some(true),
+                _ => false,
+            };
             com_estado(|e| {
                 if cap == e.termino {
                     e.erros_fatais = fatal;
@@ -275,9 +288,12 @@ fn relatar_erro_nao_tratado() -> bool {
         if fatal {
             let textos: Vec<String> = HEAP.with(|h| {
                 let h = h.borrow();
-                (0..h.list_len(descricao))
-                    .map(|i| match h.try_get(h.list_get(descricao, i).bits) {
-                        Some(Value::String(t)) => t.para_string(),
+                if !crate::layout::e_objeto(descricao) || !h.e_lista(descricao) {
+                    return Vec::new();
+                }
+                (0..h.lista_len(descricao))
+                    .map(|i| match h.lista_get(descricao, i) {
+                        crate::heap::Valor::Ref(r) => h.texto(r).map(|t| t.para_string()).unwrap_or_default(),
                         _ => String::new(),
                     })
                     .collect()
@@ -381,7 +397,7 @@ fn rodar_isolado(p: PedidoDeIsolado) {
             e.pausas.push(e.pausa);
         }
         if let Some(porta) = p.ouvinte_de_saida {
-            e.ouvintes_de_saida.push((porta, Grafo::escalar(0, ValueTag::Ref)));
+            e.ouvintes_de_saida.push((porta, Grafo::nulo()));
         }
         e.ouvintes_de_erro.extend(p.ouvinte_de_erro);
         (e.controle, e.pausa, e.termino)
@@ -440,7 +456,7 @@ pub extern "C" fn dartforge_nativo_Isolate_spawnFunction(
     }
     let Some(g_entrada) = copiar_para_outro_isolado(entrada) else { return };
     let Some(g_mensagem) = copiar_para_outro_isolado(mensagem) else { return };
-    let texto = |h: i64| (h != 0).then(|| HEAP.with(|heap| heap.borrow().texto(h).para_string()));
+    let texto = |h: i64| HEAP.with(|heap| heap.borrow().texto(h).map(|t| t.para_string()));
     let nome = texto(nome).unwrap_or_else(|| format!("{}:spawn()", texto(uri).unwrap_or_default()));
     let pedido = PedidoDeIsolado {
         pronto,
@@ -485,7 +501,7 @@ pub extern "C" fn dartforge_nativo_Isolate_spawnUri(
     _nome: i64,
 ) {
     let Some(pronto) = id_do_objeto(pronto) else { return };
-    let uri = HEAP.with(|h| h.borrow().texto(uri).para_string());
+    let uri = HEAP.with(|h| h.borrow().texto(uri).map(|t| t.para_string()).unwrap_or_default());
     // O JIT (o hospedeiro definiu o script) roda um programa por processo:
     // as tabelas de classes e o RTI são do processo. Ver docs/JIT.md.
     let jit = script_do_programa().lock().unwrap_or_else(|e| e.into_inner()).is_some();
@@ -513,7 +529,7 @@ pub extern "C" fn dartforge_nativo_Isolate_getPortAndCapabilitiesOfCurrentIsolat
 pub extern "C" fn dartforge_nativo_Isolate_getDebugName(porta: i64) -> i64 {
     let Some(id) = id_do_objeto(porta) else { return 0 };
     let nome = nomes_dos_isolados().get(&id).cloned();
-    nome.map_or(0, |n| alocar_str(&n))
+    nome.map_or(0, |n| HEAP.with(|h| h.borrow_mut().alocar_str(&n)))
 }
 
 /// `Isolate_getCurrentRootUriStr`: o URI `file:` do script (o `.dart` que
@@ -526,7 +542,7 @@ pub extern "C" fn dartforge_nativo_Isolate_getCurrentRootUriStr() -> i64 {
         None => std::env::current_exe().ok().or_else(|| std::env::args_os().next().map(std::path::PathBuf::from)).unwrap_or_default(),
     };
     let absoluto = if caminho.is_absolute() { caminho } else { std::env::current_dir().unwrap_or_default().join(caminho) };
-    alocar_str(&uri_de_arquivo(&absoluto))
+    HEAP.with(|h| h.borrow_mut().alocar_str(&uri_de_arquivo(&absoluto)))
 }
 
 /// O URI `file:` de um caminho absoluto (`Uri.file`), com os bytes fora dos

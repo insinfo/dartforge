@@ -27,7 +27,7 @@ Etapas (`crates/emit_native/src/lib.rs`, `emitir_ir` e `compilar`):
    conteúdo num módulo próprio (a biblioteca `dfsdk_<chave>` de §1.1, ou
    bitcode ThinLTO na produção), com ids de classe fixados pela tabela do SDK
    compilado (`Context::com_sdk_da_fonte_e_ids`, `crates/emit_native/src/lib.rs:233-238`).
-   O casamento por nome de §3 só volta com `DARTFORGE_SDK_DA_FONTE=0`.
+   É o único modo desde o espaço unificado (o casamento por nome saiu, §3).
 2. **Lowering para a HIR própria** (`crates/emit_native/src/hir.rs`,
    `crates/emit_native/src/lower/`). Chamada a função do usuário é direta; a
    método de instância do usuário é um `switch` sobre a classe dinâmica
@@ -73,13 +73,36 @@ hospedeiro, e tudo o que muda entre eles está em
 | cabeçalho do IR | `x86_64-pc-windows-msvc` | `x86_64-unknown-linux-gnu` | nenhum (o do hospedeiro) |
 | `comdat` | sim | sim | não (`linkonce_odr` já é fraco) |
 | SDK da fonte (desenvolvimento) | `dfsdk_<chave>.dll` + `.lib` de importação, `/DEF` | `libdfsdk_<chave>.so`, `-soname`, `rpath=$ORIGIN` | `libdfsdk_<chave>.dylib`, `@rpath`, `rpath=@executable_path` |
-| produção (ThinLTO) | `lld-link`, `/OPT:REF` | `ld.lld`, `--gc-sections`, sem símbolos | `ld64.lld`, `-dead_strip`, sem símbolos |
+| produção (ThinLTO) | `lld-link`, `/OPT:REF`, `/OPT:SAFEICF` | `ld.lld`, `--gc-sections`, `--icf=safe`, sem símbolos | `ld64.lld`, `-dead_strip`, sem símbolos (sem ICF) |
 | ligador (todo perfil) | `lld-link` direto (`ligador_windows.rs`) | `ld.lld` direto (`ligador.rs`) | `ld64.lld` direto (`ligador_macos.rs`) |
 | o que vem do sistema | nada: bibliotecas de importação e CRT mínima geradas pelo dartforge | glibc e libgcc copiadas (sysroot) | nada: `.tbd` gerados pelo dartforge |
 
 O IR e as bandeiras no Windows são os de antes do porte, então as chaves de
 cache e os resumos de determinismo não mudaram. O mesmo IR vai ao JIT
 (`docs/JIT.md`, «Linux e macOS»).
+
+**O executável de produção** (`aot --optimize`) difere do de desenvolvimento
+em três pontos, todos para tamanho (docs/PLANO-TAMANHO-DESEMPENHO.md §1):
+
+* **O runtime é compilado com `panic=abort`.** É a variante
+  `dartforge_rtprod_*` da `staticlib`. A do executável sem o SDK da fonte
+  (`dartforge_runtime_*`) também aborta. A da DLL de desenvolvimento, que o
+  JIT carrega, continua desenrolando.
+  * Um pânico no código que o Dart chama já encerrava o processo: ele chega a
+    uma fronteira `extern "C"` (as entradas do runtime, o `main` C, o código
+    Dart que a thread de um isolado roda), onde o Rust aborta.
+  * O que muda é o pânico no Rust puro de uma thread auxiliar: a preparação
+    de um isolado e as threads do `dart:io`. Antes ele matava só a thread e
+    o resto podia ficar esperando por ela; agora encerra o processo, com a
+    mensagem do pânico.
+  * Nenhum `catch_unwind` nem `join` do runtime conta com o desenrolamento.
+* **O descritor `@df.area` de cada módulo é `[chave, -n]`**, sem os hashes
+  dos nomes dos slots. Esses hashes só servem à recarga, e a produção nunca
+  recarrega.
+* **As funções idênticas são juntadas pelo ICF seguro**, e as do SDK levam
+  `optsize`. O ICF seguro só junta as funções cujo endereço ninguém toma,
+  então o `==` de tear-offs de funções de corpo idêntico continua `false`
+  (corpus/nativo 80).
 
 ### 1.2 Ligação sem o toolchain de C do sistema (N15, N16)
 
@@ -164,73 +187,118 @@ o corpus nativo contra a VM pela distribuição (`DARTFORGE_HOME`).
 
 ## 2. Modelo de objetos (runtime, `crates/runtime`)
 
-O runtime é Rust, com heap preciso (`heap.rs`): um `Ref` do código gerado é
-um `i64` — `0` é null; um valor **ímpar** é um `int` pequeno etiquetado, o
-`Smi` (R10, NATIVO-PLANO §6.2), que não aloca e que o coletor nunca segue; um
-valor com os dois bits baixos `10` é o endereço de um **objeto do usuário**
-no espaço de objetos (mais 2); e um múltiplo de 4 é o handle de um valor do
-runtime na tabela de slots (`(índice + 1) << 2`). O código
-fonte do runtime são os fragmentos `nucleo`, `gc_raizes`, `excecoes`, `saida`,
-`strings`, `colecoes` e `closures` de `crates/runtime/src/`, concatenados na
-ordem de `FRAGMENTOS` (`crates/runtime/build.rs`) — o mesmo texto para o AOT
-(`rustc` avulso) e para o JIT (módulo `dartforge_runtime::abi`).
+O runtime é Rust, com heap preciso e **um espaço de objetos só**
+(docs/NATIVO-ESPACO-UNIFICADO.md): todo valor do runtime — objeto do
+programa, string, caixa, lista, closure, contexto, lista tipada — é um bloco
+com o mesmo cabeçalho de 16 bytes e uma classe (`cid`) no cabeçalho. Um
+`Ref` do código gerado é um `i64`: `0` é null; um valor **ímpar** é um `int`
+pequeno etiquetado, o `Smi` (R10, NATIVO-PLANO §6.2), que não aloca e que o
+coletor nunca segue; `h & 7 == 2` é um objeto, com o bloco em `h - 2`; o resto
+é inválido. O contrato numérico (deslocamentos, cids, classes de tamanho,
+formatos) está em `crates/runtime/src/layout.rs`, usado pelo runtime e pelo
+emissor (`dartforge_runtime::layout`). O código fonte do runtime são os
+fragmentos de `crates/runtime/src/` concatenados na ordem de `FRAGMENTOS`
+(`crates/runtime/build.rs`) — o mesmo texto para o AOT (`rustc` avulso) e para
+o JIT (módulo `dartforge_runtime::abi`) —, mais os módulos `heap`, `layout`,
+`espaco` e as vistas por tema (`textos`, `caixas`, `listas`, `tipadas`).
 
-- **Objeto de classe do usuário:** `Value::Object { class_id, fields }`, cada
-  campo `(bits: i64, is_ref: bool)` — a marcação `is_ref` é o que o coletor
-  segue (E1). Mora fora da tabela de slots, num bloco do **espaço de
-  objetos** (`heap::Bloco`, `heap::EspacoDeObjetos`, NATIVO-PLANO §8.6):
-  cabeçalho de 16 bytes (estado de coleta, número de campos, `hashCode` de
-  identidade, metadado de RTI), o próprio `Value` (`#[repr(u8)]`, layout
-  conferido) e os campos. O código gerado aloca em linha pela TLAB do
-  isolado (`Contexto::tlab`), lê e grava campos pelo ponteiro em `h + 14`
-  sem chamar o runtime e, depois de gravar um `Ref`, passa pela barreira de
-  escrita do coletor geracional. O `class_id` hoje é a posição da classe na carga + 1, e as
-  classes de erro do SDK têm ids fixos 1000–1012 (`lower/mod.rs`); ids estáveis
-  por `DeclId` entram em P2.
+- **Cabeçalho** (`layout::Cabecalho`): estado de coleta (com `PERMANENTE`
+  para os objetos estáticos da imagem), `flags` (o **formato do corpo** —
+  `INSTANCIA`, `BRUTO` ou `REFS` —, cartões, anexo nativo, forma compacta de
+  lista, memória externa), `n`, o `cid`, o `mapa` (os bits de referência dos
+  32 primeiros campos de uma instância; nas strings, o hash) e o metadado de
+  RTI (`id + 1`). O coletor percorre o corpo pelo formato, sem olhar a classe:
+  `INSTANCIA` pelos bits do mapa, `REFS` toda palavra par e não nula depois da
+  palavra 0, `BRUTO` nada.
+- **Classes fixas** (`layout::cid`, §2.4 da especificação): 1–65 são as
+  classes que o runtime conhece (`Null` 1, `_Smi` 2, `_Mint` 3, `_Double` 4,
+  `bool` 5, `_OneByteString` 6, `_TwoByteString` 7, `_List` 8,
+  `_ImmutableList` 9, `_GrowableList` 10, `_Closure` 11, `_Record` 12, o
+  contexto e a célula de closure 13/14, o acumulador do `StringBuffer` e o
+  programa de `RegExp` 15/16, `_SendPort`/`_Capability` 17/18, SIMD 19–21 e as
+  listas tipadas e visões 22–65); as classes do programa e do resto do SDK
+  começam em 128. O `cid` de um objeto nunca muda depois de publicado: `_List`
+  é a lista fixa, `_ImmutableList` a imutável e `_GrowableList` a expansível,
+  escolhidas na alocação. O código gerado lê a classe em linha
+  (`@df.classe`: `0` → 1, ímpar → 2, senão o `cid` do cabeçalho), e o módulo
+  confere na partida que a tabela de classes do runtime é a dele
+  (`dartforge_registrar_cids`, o marcador de ABI).
+- **Objeto de classe do programa:** `INSTANCIA`, cada campo uma palavra (bits
+  crus ou `Ref`) com o bit de referência no mapa (E1). O código gerado aloca
+  em linha pela TLAB do isolado (`@df.alocar`, qualquer bloco de até 16
+  palavras), lê e grava campos em `h + 14` sem chamar o runtime e, depois de
+  gravar um `Ref`, passa pela barreira de escrita (`@df.barreira`: um pai
+  velho que recebe um filho jovem é lembrado; a lista grande marca o cartão do
+  elemento). As classes de erro do runtime têm ids fixos 1000–1012.
 - **`int`:** `i64` com estouro modular, como a VM. **`double`:** `f64`.
   **`bool`:** `i1` no IR, `u8` na fronteira com o runtime. Numa posição `Ref`
-  (`Object?`, `dynamic`) o `int` vira `Smi` quando cabe em 63 bits (sem
-  alocação) e `_Mint` no heap quando não cabe; `double` vira caixa no heap e
-  `bool` um de dois singletons (R3/R10). As coleções guardam o escalar com a
-  tag, nunca a caixa nem o `Smi` (R8).
-- **`String`:** unidades de código UTF-16 na forma da VM (`Texto`,
-  `heap.rs`; NATIVO-PLANO §7, decisão 5): `_OneByteString` (toda unidade ≤
-  0xFF, um byte cada, Latin-1) ou `_TwoByteString` (dois bytes), escolhido
-  pelo conteúdo e canônico — um pedaço Latin-1 de um texto de dois bytes
-  volta a um byte. `length`, índices, `codeUnitAt`, `substring`, busca,
-  `split`, `padLeft` e comparação são por unidade, em O(1) por acesso; um
-  surrogate solto é uma unidade como outra (`runes` o devolve como ele
-  mesmo). Só o `print` troca o surrogate solto por U+FFFD, como a VM
-  (`Utf8::Encode`, `runtime/vm/unicode.cc`). As constantes chegam do IR em
-  UTF-8 e o runtime aceita WTF-8 (`dartforge_string_new`); `toString` e
-  interpolação montam o texto por unidades (`TextoMut`), sem passar por
-  `String` do Rust. `StringBuffer` guarda as unidades.
-- **Listas, mapas, conjuntos:** valores do runtime com slots etiquetados
-  `(bits, tag)`; os membros são externs `dartforge_list_*`, `dartforge_map_*`,
-  `dartforge_set_*`. A lista tem um cabeçalho de endereço fixo
-  (`heap::CabecalhoDeLista`: dados, comprimento, gravações conferidas e a
-  forma), lido em linha pelo código gerado (`lower/tipados.rs`). Quando o
-  `E` reificado é exatamente `int`, `double` ou `bool`, a lista é
-  **compacta** (N14, `heap::FormaDeLista`): cada elemento são só os 8 bytes
-  dos bits, sem tag, e o coletor não os percorre; nas outras, cada elemento
-  é um `TaggedValue` de 16 bytes. A forma não é observável.
-- **Closures:** `Value::Closure`/`Environment`/`Cell` do runtime, produzidas
-  pelo lowering (`lower/closures.rs`): o código da closure é o endereço da
-  entrada uniforme (`ptrtoint`, `crates/emit_native/src/llvm/mod.rs`, emissão
-  de `AllocClosure`), o ambiente guarda as variáveis livres ou as células
-  delas (`lower/captura.rs`). Teste: `corpus/nativo/28_closures_tipadas.dart`.
-  *Histórico (até 2026-09-27):* aqui se lia que o lowering "ainda não"
-  produzia closures (P1); P1 entrou (`docs/NATIVO-PLANO.md` §7.5).
+  (`Object?`, `dynamic`) o `int` vira `Smi` quando cabe em 63 bits e `_Mint`
+  (bloco `BRUTO` de uma palavra) quando não cabe; `double` vira `_Double`;
+  `bool` é uma das duas caixas **estáticas** do runtime (`dartforge_falso`,
+  `dartforge_verdadeiro`). `identical` compara o handle, ou o valor de dois
+  `_Mint`/`_Double` (`@df.identico`, como `Instance::IsIdenticalTo` da VM).
+- **`String`:** `_OneByteString` (toda unidade ≤ 0xFF, um byte cada) ou
+  `_TwoByteString` (dois bytes), blocos `BRUTO` com o comprimento em `h + 14` e
+  as unidades a partir de `h + 22`, escolhidos pelo conteúdo e canônicos — um
+  pedaço Latin-1 de um texto de dois bytes volta a um byte. O `hashCode` é o
+  `StringHasher` da VM (`layout::hash_de_texto`), guardado no cabeçalho na
+  primeira consulta. `length`, `codeUnitAt`, a alocação e a gravação de
+  unidades do SDK (`allocateOneByteString`, `writeIntoOneByteString`) são em
+  linha (`@df.texto_*`). Um surrogate solto é uma unidade como outra; só o
+  `print` o troca por U+FFFD, como a VM (`Utf8::Encode`). **Literais:** no AOT,
+  cada literal é um objeto estático do módulo (`@df.s.<chave>`,
+  `linkonce_odr` numa seção própria, estado `PERMANENTE`), sem chamada no ponto
+  de uso, e o mesmo literal é o mesmo objeto entre bibliotecas; no JIT (cuja
+  memória de uma geração é liberada), o literal é internado no heap
+  (`dartforge_string_new`, cache no ponto de uso). O acumulador do
+  `StringBuffer` e o programa compilado de um `RegExp` são blocos com **anexo
+  nativo**, soltos pelo coletor quando o dono morre.
+- **Listas:** `_List`/`_ImmutableList` são `REFS` (o comprimento e os
+  elementos `Ref`) ou, quando o `E` reificado é exatamente `int`, `double` ou
+  `bool`, **compactas** (`BRUTO` com a forma em `flags`: os 8 bytes de cada
+  elemento, sem caixa); a forma não é observável e troca no lugar quando o
+  tipo é gravado (`rti_definir`). `_GrowableList` é `INSTANCIA` de dois campos:
+  o comprimento e o armazenamento (uma `_List`), com o crescimento da VM
+  (`(capacidade * 2) | 3`). Uma lista geral acima de 2014 elementos tem
+  **cartões** (um bit por 32 elementos), e a coleta menor percorre só os
+  cartões sujos de uma lista velha. `Map`/`Set` são o `_Map`/`_Set` da fonte do
+  SDK (o `_data` uma `_List`, o `_index` uma `_Uint32List`).
+- **Listas tipadas e SIMD:** a lista interna é `BRUTO` com o comprimento em
+  `h + 14` e o endereço dos dados em `h + 22` (apontando para dentro do próprio
+  bloco, ou para a memória de fora de um `asTypedList`, `EXTERNO`); a visão é
+  `INSTANCIA` com o comprimento e os dados nos mesmos lugares, a base e o
+  deslocamento. O código gerado lê `len` e `dados` sem saber qual das três é.
+  O coletor não move, então os dados têm endereço fixo enquanto o objeto
+  vive (FFI, TLS e E/S síncrona usam o ponteiro direto).
+- **Closures:** `_Closure` (`INSTANCIA`: o código, o contexto, o corpo tipado e
+  a ABI), `_Contexto` (as capturas) e `_Celula` (a variável capturada mutável),
+  alocados em linha pelo lowering (`lower/closures.rs`, `lower/captura.rs`).
+  Uma captura é lida na representação com que foi gravada — o verificador da
+  HIR (`lower/verificador.rs`) recusa a divergência. O record posicional é
+  `_Record` (`REFS`); o nomeado, um objeto da classe da forma.
+- **Mensagens entre isolados** (`portas.rs`): o grafo copia os blocos pelo
+  formato — campos com o bit de referência, palavras `REFS`, corpos `BRUTO`
+  crus —, refaz no destino o que aponta para dentro de si ou para fora do heap
+  (lista tipada, visão, anexo) e passa os objetos estáticos pela identidade.
 - **Exceções:** modelo por valor — exceção pendente no runtime e verificação
   depois de cada chamada (NATIVO-PLANO §1), com `try`/`on T`/`catch (e, s)`/
   `finally` e `rethrow`.
 - **Estado:** heap, nomes de classe e exceção pendente em `thread_local!` do
   runtime; os globais Dart (`@dfg_<id>` e a bandeira `$ok`) são slots da
   **área de globais do isolado** — cada isolado é uma thread com a sua área,
-  como a *field table* da VM (`crates/emit_native/src/llvm/mod.rs:65-72` e
-  `1397-1405`; runtime em `crates/runtime/src/gc_raizes.rs`).
-  *Histórico (até 2026-09-27):* aqui se lia que os globais eram `@dfg_<id>`
-  do módulo e só passariam à tabela do isolado em P8.
+  como a *field table* da VM (`crates/emit_native/src/llvm/mod.rs`; runtime
+  em `crates/runtime/src/gc_raizes.rs`).
+
+> **Histórico (até 2026-09-30).** Até o espaço unificado havia dois heaps no
+> mesmo isolado: o espaço de objetos (só os objetos das classes do programa e
+> do SDK compilado) e uma **tabela de slots** (`Heap::slots`, um `enum Value`
+> por slot, handles múltiplos de 4) com strings, caixas, listas, closures,
+> listas tipadas e, sem o SDK da fonte, mapas e conjuntos, cada um com o
+> conteúdo num `Vec` do `malloc` e um segundo coletor. Os elementos das
+> listas gerais eram `TaggedValue` de 16 bytes, e o código gerado lia listas,
+> strings e closures por cabeçalhos de endereço fixo (`CabecalhoDeLista`,
+> `CabecalhoTipado`, `CabecalhoDeClosure`) e por externs de acesso. Tudo isso
+> saiu (docs/NATIVO-ESPACO-UNIFICADO.md §2.17).
 
 ---
 
@@ -239,18 +307,22 @@ ordem de `FRAGMENTOS` (`crates/runtime/build.rs`) — o mesmo texto para o AOT
 Os membros do SDK vêm da **fonte do SDK 3.6.2** com a sobreposição
 `sdk_nativo/` (`sdk_nativo/libraries.json`) e os natives em Rust da tabela
 `crates/emit_native/src/nativos.rs`; o que cada native pendente significa
-para a API pública está em `docs/NATIVOS-PENDENTES.md`. Esse é o padrão
-desde P5d (`docs/NATIVO-PLANO.md` §7.13).
+para a API pública está em `docs/NATIVOS-PENDENTES.md`. É o único modo: um
+membro do SDK sem elemento útil no ponto da chamada (receptor `dynamic`,
+`Object`, corpo de closure sem tipo) vai pela classe dinâmica do receptor,
+por seletor (`lower/chamadas.rs`, `metodo_por_seletor`;
+`lower/expressoes.rs`, `propriedade_por_seletor`), com o `noSuchMethod` do
+receptor na falta.
 
-O runtime escrito à mão que casa membros **pelo nome**
-(`crates/emit_native/src/lower/sdk_por_nome.rs`: `length`, `add`,
-`substring`, `join`, `Exception(…)`, `StringBuffer()`…) continua **congelado**
-e só é usado com `DARTFORGE_SDK_DA_FONTE=0`, para comparação.
-
-> **Histórico (até 2026-09-27).** Esta seção dizia que o runtime por nome
-> cobria "só" os membros do SDK e que seria apagado em P5. P5c/P5d entraram
-> (`docs/NATIVO-PLANO.md` §7.9 e §7.13); o caminho por nome não foi apagado,
-> ficou atrás da variável de ambiente.
+> **Histórico (até 2026-09-30).** O runtime escrito à mão que casava membros
+> **pelo nome** (`lower/sdk_por_nome.rs`: `length`, `add`, `substring`,
+> `join`, `Exception(…)`, `StringBuffer()`…), congelado desde a rodada 2 e
+> usado só com `DARTFORGE_SDK_DA_FONTE=0`, saiu com o espaço unificado, com
+> o despacho pelo nome em mundo fechado (`lower/despacho.rs`) e os externs
+> `dartforge_list_*`/`map_*`/`set_*`/`string_*` que só ele emitia
+> (docs/NATIVO-ESPACO-UNIFICADO.md §3.7, §4.7). Até 2026-09-27 esta seção
+> dizia que ele seria apagado em P5; P5c/P5d o deixaram atrás da variável
+> de ambiente.
 
 ---
 

@@ -5,6 +5,8 @@
 
 pub mod async_sm;
 pub mod atribuicao;
+/// Os membros de caixas, closures e records em linha (P2 do espaço unificado).
+pub mod caixas;
 pub mod captura;
 pub mod cascata;
 pub mod chamadas;
@@ -23,16 +25,16 @@ pub mod externos;
 pub mod fn_builder;
 pub mod funcoes_diretas;
 pub mod heranca;
+/// Os membros de `_List`/`_GrowableList` em linha (P3 do espaço unificado).
+pub mod listas;
 pub mod literais;
 pub mod locais;
 pub mod membros;
-pub mod nsm;
 pub mod operadores;
 pub mod padroes;
 pub mod registros;
 pub mod rti;
 pub mod sdk_fonte;
-pub mod sdk_por_nome;
 pub mod intrinsecos;
 pub mod simd;
 pub mod textos;
@@ -190,52 +192,10 @@ pub fn lower_program(ctx: &Context) -> Module {
         to_string_symbol: None,
     });
 
-    module.modo_sdk = ctx.sdk_da_fonte;
+    // O SDK vem sempre da fonte (docs/NATIVO-ESPACO-UNIFICADO.md §4.7): as
+    // classes de erro são as dele (P5c).
+    module.modo_sdk = true;
     module.biblioteca_sdk = ctx.biblioteca_sdk;
-    if ctx.sdk_da_fonte {
-        // As classes de erro são as do SDK da fonte (P5c).
-        return lower_classes_e_funcoes(ctx, module);
-    }
-    // Classes e interfaces de erro da biblioteca padrão
-    module.classes.push(ClassDef { id: 1000, name: "Exception".to_string(), field_count: 1, vtable: Vec::new(), to_string_symbol: None });
-    module.classes.push(ClassDef { id: 1001, name: "FormatException".to_string(), field_count: 1, vtable: Vec::new(), to_string_symbol: None });
-    module.classes.push(ClassDef { id: 1002, name: "StateError".to_string(), field_count: 1, vtable: Vec::new(), to_string_symbol: None });
-    module.classes.push(ClassDef { id: 1003, name: "ArgumentError".to_string(), field_count: 1, vtable: Vec::new(), to_string_symbol: None });
-    module.classes.push(ClassDef { id: 1004, name: "RangeError".to_string(), field_count: 1, vtable: Vec::new(), to_string_symbol: None });
-    module.classes.push(ClassDef { id: 1005, name: "UnsupportedError".to_string(), field_count: 1, vtable: Vec::new(), to_string_symbol: None });
-    module.classes.push(ClassDef { id: 1006, name: "StackTrace".to_string(), field_count: 1, vtable: Vec::new(), to_string_symbol: None });
-    module.classes.push(ClassDef { id: 1007, name: "Error".to_string(), field_count: 1, vtable: Vec::new(), to_string_symbol: None });
-    module.classes.push(ClassDef { id: 1008, name: "UnimplementedError".to_string(), field_count: 1, vtable: Vec::new(), to_string_symbol: None });
-    module.classes.push(ClassDef { id: 1009, name: "AssertionError".to_string(), field_count: 1, vtable: Vec::new(), to_string_symbol: None });
-    module.classes.push(ClassDef { id: 1010, name: "ConcurrentModificationError".to_string(), field_count: 1, vtable: Vec::new(), to_string_symbol: None });
-    module.classes.push(ClassDef { id: 1011, name: "TypeError".to_string(), field_count: 1, vtable: Vec::new(), to_string_symbol: None });
-    module.classes.push(ClassDef { id: 1012, name: "NoSuchMethodError".to_string(), field_count: 1, vtable: Vec::new(), to_string_symbol: None });
-
-    module.subtyping_edges.push((1000, 0)); // Exception <: Object
-    module.subtyping_edges.push((1001, 1000)); // FormatException <: Exception
-    module.subtyping_edges.push((1001, 0)); // FormatException <: Object
-    module.subtyping_edges.push((1007, 0)); // Error <: Object
-    module.subtyping_edges.push((1002, 1007)); // StateError <: Error
-    module.subtyping_edges.push((1002, 0));
-    module.subtyping_edges.push((1003, 1007)); // ArgumentError <: Error
-    module.subtyping_edges.push((1003, 0));
-    module.subtyping_edges.push((1004, 1003)); // RangeError <: ArgumentError
-    module.subtyping_edges.push((1004, 1007));
-    module.subtyping_edges.push((1004, 0));
-    module.subtyping_edges.push((1005, 1007)); // UnsupportedError <: Error
-    module.subtyping_edges.push((1005, 0));
-    module.subtyping_edges.push((1008, 1005)); // UnimplementedError <: UnsupportedError
-    module.subtyping_edges.push((1008, 1007)); // UnimplementedError <: Error
-    module.subtyping_edges.push((1008, 0));
-    module.subtyping_edges.push((1009, 1007)); // AssertionError <: Error
-    module.subtyping_edges.push((1009, 0));
-    module.subtyping_edges.push((1010, 1007)); // ConcurrentModificationError <: Error
-    module.subtyping_edges.push((1010, 0));
-    module.subtyping_edges.push((1011, 1007)); // TypeError <: Error
-    module.subtyping_edges.push((1011, 0));
-    module.subtyping_edges.push((1012, 1007)); // NoSuchMethodError <: Error
-    module.subtyping_edges.push((1012, 0));
-    module.subtyping_edges.push((1006, 0)); // StackTrace <: Object
     lower_classes_e_funcoes(ctx, module)
 }
 
@@ -268,18 +228,12 @@ fn lower_classes_e_funcoes(ctx: &Context, mut module: Module) -> Module {
         // Enum do programa é subtipo do `Enum` do SDK (especificação §13):
         // sem a aresta, `valor is Enum` respondia falso. A superclasse do
         // outline não carrega o `Enum`, então a aresta é registrada aqui.
-        // Sem id do SDK (modo sem fonte), não há o que registrar.
-        if ctx.sdk_da_fonte
-            && !ctx.program.library(class.library).is_sdk
+        if !ctx.program.library(class.library).is_sdk
             && enums::e_enum(ctx, dartforge_elements::model::ClassId(c_idx as u32))
             && let Some(enum_sdk) = ctx.classe_do_sdk("core", "Enum")
             && let Some(enum_id) = ctx.id_de_classe(enum_sdk)
         {
             module.subtyping_edges.push((class_id, enum_id));
-        }
-        let mut nomes_de_supertipo: Vec<&str> = Vec::new();
-        if let Some(sup) = class.supertype_class {
-            nomes_de_supertipo.push(ctx.symbol_name(ctx.program.classes[sup.0 as usize].name));
         }
         for mix in &class.mixin_classes {
             if let Some(m) = ctx.id_de_classe(*mix) {
@@ -290,32 +244,6 @@ fn lower_classes_e_funcoes(ctx: &Context, mut module: Module) -> Module {
             if let Some(i) = ctx.id_de_classe(*iface) {
                 module.subtyping_edges.push((class_id, i));
             }
-            nomes_de_supertipo.push(ctx.symbol_name(ctx.program.classes[iface.0 as usize].name));
-        }
-        for sup_name in nomes_de_supertipo {
-            if ctx.sdk_da_fonte {
-                // As classes de erro são as do SDK da fonte: arestas reais.
-                break;
-            }
-            let builtin = match sup_name {
-                "Exception" => Some(1000),
-                "FormatException" => Some(1001),
-                "StateError" => Some(1002),
-                "ArgumentError" => Some(1003),
-                "RangeError" => Some(1004),
-                "UnsupportedError" => Some(1005),
-                "StackTrace" => Some(1006),
-                "Error" => Some(1007),
-                "UnimplementedError" => Some(1008),
-                "AssertionError" => Some(1009),
-                "ConcurrentModificationError" => Some(1010),
-                "TypeError" => Some(1011),
-                "NoSuchMethodError" => Some(1012),
-                _ => None,
-            };
-            if let Some(b) = builtin {
-                module.subtyping_edges.push((class_id, b));
-            }
         }
     }
 
@@ -324,7 +252,7 @@ fn lower_classes_e_funcoes(ctx: &Context, mut module: Module) -> Module {
         if !ctx.biblioteca_no_modulo(ctx.program.functions[f_idx].library) {
             continue;
         }
-        if ctx.sdk_da_fonte && ctx.program.library(ctx.program.functions[f_idx].library).is_sdk {
+        if ctx.program.library(ctx.program.functions[f_idx].library).is_sdk {
             // Módulo do SDK da fonte (P5c): o membro que não baixa é
             // recusado sozinho, com o motivo (`sdk_fonte.rs`).
             sdk_fonte::lower_funcao_ou_recusa(ctx, &mut module, f_idx);
@@ -332,15 +260,11 @@ fn lower_classes_e_funcoes(ctx: &Context, mut module: Module) -> Module {
             lower_funcao(ctx, &mut module, f_idx);
         }
     }
-    if ctx.sdk_da_fonte {
-        sdk_fonte::lower_adaptadores_e_tabelas(ctx, &mut module);
-    }
+    sdk_fonte::lower_adaptadores_e_tabelas(ctx, &mut module);
     let mut module = lower_globais_e_resto(ctx, module);
-    if ctx.sdk_da_fonte {
-        sdk_fonte::tabelas_das_formas_de_record(ctx, &mut module);
-        if !ctx.biblioteca_sdk {
-            ffi::lower_ffi(ctx, &mut module);
-        }
+    sdk_fonte::tabelas_das_formas_de_record(ctx, &mut module);
+    if !ctx.biblioteca_sdk {
+        ffi::lower_ffi(ctx, &mut module);
     }
     module
 }
@@ -364,7 +288,7 @@ fn com_corpo_da_fonte<'c>(ctx: &'c Context) -> &'c std::collections::HashSet<Str
 /// Baixa uma função (de topo, método, construtor) para o módulo.
 pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
     let func_elem = &ctx.program.functions[f_idx];
-    if func_elem.external && ctx.sdk_da_fonte {
+    if func_elem.external {
         // `external` (inclusive construtor): o corpo é o do patch ou o
         // native (`sdk_fonte::chamar_externo`); nada a baixar aqui — um
         // corpo vazio com o mesmo símbolo tomaria o lugar do patch.
@@ -686,13 +610,9 @@ fn lower_globais_e_resto(ctx: &Context, mut module: Module) -> Module {
             b.lower_getter_campo_late(obj, vid, ctx.program.unit(unit).ast.member(member).span);
             b.finalizar(m);
         };
-        if ctx.sdk_da_fonte {
-            // SDK da fonte: o getter que não baixa vira recusa, como os
-            // outros membros (`sdk_fonte::lower_funcao_ou_recusa`).
-            sdk_fonte::lower_getter_late_ou_recusa(ctx, &mut module, vid, unit, construir);
-        } else {
-            construir(&mut module);
-        }
+        // O getter que não baixa vira recusa, como os outros membros
+        // (`sdk_fonte::lower_funcao_ou_recusa`).
+        sdk_fonte::lower_getter_late_ou_recusa(ctx, &mut module, vid, unit, construir);
     }
 
     // 3. Variáveis de topo e campos estáticos do usuário: um getter
@@ -726,21 +646,9 @@ fn lower_globais_e_resto(ctx: &Context, mut module: Module) -> Module {
         let repr = ctx.to_hir_type(ty);
         let repr = if repr == Type::Void { Type::Ref } else { repr };
         module.globais.push((vid.0, repr, simbolo_valor_global(ctx, vid)));
-        if ctx.sdk_da_fonte {
-            // SDK da fonte (P5c): o getter (ou a recusa dele) e o setter que
-            // outro módulo chama para gravar.
-            sdk_fonte::lower_global_ou_recusa(ctx, &mut module, vid, unit, repr);
-            continue;
-        }
-        let mut builder = fn_builder::FnBuilder::new(
-            ctx,
-            unit,
-            simbolo_global(ctx, vid),
-            ctx.symbol_name(v.name).to_string(),
-            repr,
-        );
-        builder.lower_getter_global(vid, repr);
-        builder.finalizar(&mut module);
+        // O getter (ou a recusa dele) e o setter que outro módulo chama para
+        // gravar (P5c).
+        sdk_fonte::lower_global_ou_recusa(ctx, &mut module, vid, unit, repr);
     }
 
     // As entradas de tear-off são geradas por quem as usa; duas funções que
@@ -801,18 +709,23 @@ fn lower_globais_e_resto(ctx: &Context, mut module: Module) -> Module {
             to_string_symbol: Some(simbolo.clone()),
         });
         module.subtyping_edges.push((id, 0));
+        // Com o SDK da fonte, `is Record`/`is Object` perguntam pelas
+        // classes do `dart:core` (o `(x: 1) is Record` dava falso).
+        for nome in ["Record", "Object"] {
+            if let Some(c) = ctx.classe_do_sdk("core", nome).and_then(|c| ctx.id_de_classe(c)) {
+                module.subtyping_edges.push((id, c));
+            }
+        }
         let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied()) else {
             continue;
         };
         let mut builder = fn_builder::FnBuilder::new(ctx, u, simbolo, "toString".to_string(), Type::Ref);
         builder.lower_to_string_de_forma(k);
         builder.finalizar(&mut module);
-        if ctx.sdk_da_fonte {
-            let simbolo_hash = format!("df.$registro.{k}.hashCode");
-            let mut builder = fn_builder::FnBuilder::new(ctx, u, simbolo_hash, "hashCode".to_string(), Type::I64);
-            builder.lower_hash_de_forma(k);
-            builder.finalizar(&mut module);
-        }
+        let simbolo_hash = format!("df.$registro.{k}.hashCode");
+        let mut builder = fn_builder::FnBuilder::new(ctx, u, simbolo_hash, "hashCode".to_string(), Type::I64);
+        builder.lower_hash_de_forma(k);
+        builder.finalizar(&mut module);
     }
     if !ctx.formas_de_record.is_empty()
         && let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied())

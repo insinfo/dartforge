@@ -1,6 +1,8 @@
-//! Records com campo nomeado (P3).
+//! Records (P3; espaço unificado, P2).
 //!
-//! O record só posicional é o `Value::Record` do runtime (ele o imprime). O
+//! O record só posicional é o `_Record` do runtime (cid fixo 12, corpo `REFS`:
+//! a palavra 0 é o número de campos e as seguintes os campos, todos `Ref`;
+//! docs/NATIVO-ESPACO-UNIFICADO.md §2.5). O
 //! runtime não tem a forma (os nomes) de um record com campo nomeado, então
 //! cada **forma** do programa — número de posicionais e nomes ordenados,
 //! coletada de todos os literais, padrões e tipos antes do lowering
@@ -88,22 +90,33 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::Void,
             );
         }
-        if self.ctx.sdk_da_fonte {
-            let nomes = self.emit(Instruction::Const(Constant::String(nomes.join(","))), Type::Ref);
-            self.emit(
-                Instruction::CallRuntime {
-                    name: "dartforge_rti_registro_nomeado".to_string(),
-                    args: vec![
-                        (obj.clone(), Type::Ref),
-                        (Operand::Constant(Constant::Int(positional.len() as i64)), Type::I64),
-                        (nomes, Type::Ref),
-                    ],
-                    ret_ty: Type::Void,
-                },
-                Type::Void,
-            );
-        }
+        let nomes = self.emit(Instruction::Const(Constant::String(nomes.join(","))), Type::Ref);
+        self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_rti_registro_nomeado".to_string(),
+                args: vec![
+                    (obj.clone(), Type::Ref),
+                    (Operand::Constant(Constant::Int(positional.len() as i64)), Type::I64),
+                    (nomes, Type::Ref),
+                ],
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        );
         obj
+    }
+
+    /// `(e1, …, ek)` só posicional: um `_Record` (`AllocRecord`) com os
+    /// campos encaixotados aqui, em instruções `Box` da HIR (o emissor grava
+    /// as palavras sem alocar no meio).
+    pub fn lower_registro_posicional(&mut self, ast: &ast::Ast, positional: &[ExprId]) -> Operand {
+        let mut ops = Vec::with_capacity(positional.len());
+        for &p in positional {
+            let v = self.lower_expr(ast, p);
+            let v = self.coagir(v, Type::Ref);
+            ops.push((v, 3));
+        }
+        self.emit(Instruction::AllocRecord { elements: ops }, Type::Ref)
     }
 
     /// As formas com o campo `nome` (`$k` ou nomeado): (id, índice).
@@ -169,11 +182,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             casos.push((id, b));
             blocos.push((b, i));
         }
-        // `dartforge_value_class` devolve o CID de `_Record` registrado pelo
-        // SDK da fonte; o runtime legado usa -7 para a mesma representação.
-        let id_record = self.ctx.classe_do_sdk("core", "_Record")
-            .and_then(|cid| self.ctx.id_de_classe(cid))
-            .map_or(-7, i64::from);
+        // O record posicional do runtime é a classe fixa `_Record`.
+        let id_record = i64::from(dartforge_runtime::layout::cid::RECORD);
         let b_runtime = self.new_block();
         casos.push((id_record, b_runtime));
         self.terminate(Terminator::Switch {
@@ -191,16 +201,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(b_runtime);
         match posicional {
             Some(k) => {
-                let v = self.emit_call_with_check(
-                    Instruction::CallRuntime {
-                        name: "dartforge_record_get_ref".to_string(),
-                        args: vec![(recv.clone(), Type::Ref), (Operand::Constant(Constant::Int(k - 1)), Type::I64)],
-                        ret_ty: Type::Ref,
-                    },
-                    Type::Ref,
-                );
+                // Em linha: o número de campos na palavra 0 do corpo e o
+                // campo `k` (1-based) na palavra `k`; fora da forma,
+                // `NoSuchMethodError`.
+                let n = self.palavra_do_objeto(recv.clone(), 0, Type::I64);
+                let cabe = self.emit(Instruction::ICmp(ICmpOp::Sge, n, Operand::Constant(Constant::Int(k))), Type::I1);
+                let b_ler = self.new_block();
+                let b_fora = self.new_block();
+                self.terminate(Terminator::CondBranch { cond: cabe, then_block: b_ler, else_block: b_fora });
+                self.set_block(b_ler);
+                let v = self.palavra_do_objeto(recv.clone(), k, Type::Ref);
                 entradas.push((self.current_block, v));
                 self.terminate(Terminator::Branch(juncao));
+                self.set_block(b_fora);
+                self.lancar_nsm(nome);
             }
             None => {
                 // Record posicional do runtime não tem campo nomeado.

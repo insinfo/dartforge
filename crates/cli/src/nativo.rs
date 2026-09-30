@@ -65,7 +65,7 @@ pub fn abi_info(args: &[std::ffi::OsString]) -> Resultado {
 /// aceitas e ignoradas, porque silenciosamente não fazer o que a bandeira diz
 /// é pior do que não ter a bandeira.
 pub fn aot(args: &[std::ffi::OsString]) -> Resultado {
-    let usage = "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--depuracao] [--timings] [--sdk <lib>] [--packages <package_config.json>]";
+    let usage = "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--depuracao] [--timings] [--cpu x86-64|x86-64-v2|x86-64-v3|x86-64-v4|native] [--sdk <lib>] [--packages <package_config.json>]";
     if args.len() < 3 {
         return Err(usage.into());
     }
@@ -76,12 +76,17 @@ pub fn aot(args: &[std::ffi::OsString]) -> Resultado {
     let mut timings = false;
     let mut sdk: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
+    let mut cpu: Option<dartforge_emit_native::gerador::Cpu> = None;
     let mut flags = args[3..].iter();
     while let Some(flag) = flags.next() {
         match flag.to_str() {
             Some("--optimize") => optimize = true,
             Some("--depuracao") => depuracao = true,
             Some("--timings") => timings = true,
+            Some("--cpu") => {
+                let nome = flags.next().and_then(|v| v.to_str()).ok_or("--cpu exige o nome da CPU")?;
+                cpu = Some(dartforge_emit_native::gerador::Cpu::do_nome(nome)?);
+            }
             Some("--sdk") => sdk = Some(PathBuf::from(flags.next().ok_or("--sdk exige caminho")?)),
             Some("--packages") => {
                 packages = Some(PathBuf::from(flags.next().ok_or("--packages exige caminho")?))
@@ -117,6 +122,7 @@ pub fn aot(args: &[std::ffi::OsString]) -> Resultado {
                     experimentos: Vec::new(),
                     depuracao,
                     gerador,
+                    cpu,
                 };
                 dartforge_emit_native::compilar(&input, &output, &options).map_err(|e| e.to_string())
             })
@@ -130,10 +136,12 @@ pub fn aot(args: &[std::ffi::OsString]) -> Resultado {
 #[cfg(feature = "nativo")]
 pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
     use dartforge_elements::sdk::Linguagem;
-    let usage = "usage: dartforge compile-native <input.dart> -o <output.exe> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--optimize] [--depuracao] [--versao-linguagem x.y] [--enable-experiment=a,b]
+    let usage = "usage: dartforge compile-native <input.dart> -o <output.exe> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--optimize] [--depuracao] [--cpu <cpu>] [--versao-linguagem x.y] [--enable-experiment=a,b]
        dartforge compile-native <input.dart> --emit-ir -o <saida.ll> [--resumo] [...]
        dartforge compile-native <input.dart> --resumo [...]
   --depuracao  tabelas de linha para o depurador nativo (gdb, lldb, Visual Studio)
+  --cpu      CPU-alvo: x86-64 (a base, SSE2), x86-64-v2, x86-64-v3, x86-64-v4 ou native
+             (o executável só roda em máquinas com ela)
   --emit-ir  grava o LLVM IR em -o, sem Clang nem ligação
   --resumo   imprime `<hash de 32 dígitos>  <bytes>` do LLVM IR (o mesmo resumo
              do `dartforge-diferencial determinismo --nativo`), sem Clang";
@@ -141,6 +149,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
     let mut out: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
+    let mut cpu: Option<dartforge_emit_native::gerador::Cpu> = None;
     let mut timings = false;
     let mut optimize = false;
     let mut depuracao = false;
@@ -155,6 +164,10 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
             Some("--sdk") => sdk = Some(PathBuf::from(it.next().ok_or(usage)?)),
             Some("--packages") => packages = Some(PathBuf::from(it.next().ok_or(usage)?)),
             Some("--timings") => timings = true,
+            Some("--cpu") => {
+                let nome = it.next().and_then(|v| v.to_str()).ok_or("--cpu exige o nome da CPU")?;
+                cpu = Some(dartforge_emit_native::gerador::Cpu::do_nome(nome)?);
+            }
             Some("--optimize") => optimize = true,
             Some("--depuracao") => depuracao = true,
             Some("--emit-ir") => emit_ir = true,
@@ -200,6 +213,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
                     experimentos: linguagem.experimentos,
                     depuracao,
                     gerador,
+                    cpu,
                 };
                 dartforge_emit_native::compilar(&i2, &o2, &options).map_err(|e| e.to_string())
             })
@@ -237,6 +251,7 @@ fn emitir_ir_nativo(
                 experimentos: linguagem.experimentos,
                 depuracao,
                 gerador: None,
+                cpu: None,
             };
             dartforge_emit_native::emitir_ir(&input, &options)
         })

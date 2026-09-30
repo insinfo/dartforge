@@ -121,14 +121,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
             let args = Operand::Val(e.add_param("args".to_string(), Type::Ptr));
             let desc = Operand::Val(e.add_param("desc".to_string(), Type::Ptr));
-            let env = e.emit(
-                Instruction::CallRuntime {
-                    name: "dartforge_closure_env".to_string(),
-                    args: vec![(clo, Type::Ref)],
-                    ret_ty: Type::Ref,
-                },
-                Type::Ref,
-            );
+            let env = e.contexto_da_closure(clo);
             let receptor_op = e.emit(Instruction::EnvGet { env, index: 0 }, Type::Ref);
             if let Some(vals) = e.desempacotar(&infos, args, desc) {
                 let avaliados: Vec<Avaliado> = self.ctx.outline.functions[fid]

@@ -143,8 +143,8 @@ unsafe fn ler_cobject(p: *const u8, externos: &mut Vec<(usize, usize)>, profundi
                 }
                 Portavel::Tipada(t, copia)
             }
-            KSEND_PORT => Portavel::DoRuntime { pos: CID_SEND_PORT, id: *(v as *const i64) },
-            KCAPABILITY => Portavel::DoRuntime { pos: CID_CAPABILITY, id: *(v as *const i64) },
+            KSEND_PORT => Portavel::DoRuntime { cid: crate::layout::cid::SEND_PORT, id: *(v as *const i64) },
+            KCAPABILITY => Portavel::DoRuntime { cid: crate::layout::cid::CAPABILITY, id: *(v as *const i64) },
             // O endereço chega como `int`; o finalizador fica com o C (a VM
             // só o chama se a mensagem não for entregue).
             KNATIVE_POINTER => Portavel::Int(*(v as *const i64)),
@@ -257,8 +257,8 @@ impl ArenaDeCObject {
                     *(p.add(24) as *mut *const u8) = ultimo.as_ptr();
                     p
                 }
-                Portavel::DoRuntime { pos, id } => {
-                    let p = self.novo(if *pos == CID_CAPABILITY { KCAPABILITY } else { KSEND_PORT });
+                Portavel::DoRuntime { cid, id } => {
+                    let p = self.novo(if *cid == crate::layout::cid::CAPABILITY { KCAPABILITY } else { KSEND_PORT });
                     *(p.add(8) as *mut i64) = *id;
                     p
                 }
@@ -340,7 +340,7 @@ fn funcoes_da_api_nativa() -> [(&'static str, usize); 4] {
 /// `DartNativeApiFunctionPointer(nome)`: o endereço da função da API nativa.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartNativeApiFunctionPointer(nome: i64) -> i64 {
-    let nome = HEAP.with(|h| h.borrow().texto(nome).para_string());
+    let nome = HEAP.with(|h| h.borrow().texto(nome).map(|t| t.para_string()).unwrap_or_default());
     match funcoes_da_api_nativa().iter().find(|(n, _)| *n == nome) {
         Some((_, f)) => *f as i64,
         None => {

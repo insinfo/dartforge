@@ -46,6 +46,9 @@ pub struct CompileOptions<'a> {
     /// contrato do `compile-js` (`dartforge_emit_js::Gerador`). `None`: o
     /// projeto não usa builders, ou quem chama não os liga.
     pub gerador: Option<Gerador<'a>>,
+    /// A CPU-alvo do código gerado (`--cpu`, [`gerador::Cpu`]); `None`, a
+    /// base do alvo (no x86-64, SSE2).
+    pub cpu: Option<gerador::Cpu>,
 }
 
 /// Veja [`CompileOptions::gerador`].
@@ -132,7 +135,7 @@ pub fn construtos_do_erro(texto: &str) -> Vec<String> {
 /// Construto não suportado também é `Err`, com **todos** os diagnósticos do
 /// módulo (formato em `erro_de_compilacao`); nenhum IR é emitido.
 pub fn emitir_ir(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, String> {
-    emitir_ir_com(entrada, options, sdk_modulo::sdk_da_fonte_pedido())
+    emitir_ir_com(entrada, options)
 }
 
 /// O `lib/` do SDK do Dart: o que [`SdkLayout::discover`] acha (a variável
@@ -146,10 +149,10 @@ pub fn sdk_do_dart() -> Result<PathBuf, String> {
     })
 }
 
-/// [`emitir_ir`] escolhendo o SDK: da fonte (P5c/P5d, `sdk_modulo`) ou o
-/// runtime por nome de antes.
-pub fn emitir_ir_com(entrada: &Path, options: &CompileOptions, da_fonte: bool) -> Result<IrEmitido, String> {
-    emitir_ir_interno(entrada, options, da_fonte, None, None)
+/// [`emitir_ir`] (o nome fica para quem já o chamava; o SDK vem sempre da
+/// fonte, docs/NATIVO-ESPACO-UNIFICADO.md §4.7).
+pub fn emitir_ir_com(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, String> {
+    emitir_ir_interno(entrada, options, None, None, true)
 }
 
 /// [`emitir_ir`] de uma geração nova de um programa em execução (o hot
@@ -159,7 +162,9 @@ pub fn emitir_ir_recarregavel(entrada: &Path, options: &CompileOptions, ir_anter
     let area = ir_anterior.and_then(area_do_ir);
     // J03: a mesma classe com o mesmo id da geração viva.
     let ids = ir_anterior.map(context::ids_do_ir);
-    emitir_ir_interno(entrada, options, sdk_modulo::sdk_da_fonte_pedido(), area, ids)
+    // O JIT libera a memória de uma geração (J02): sem objetos estáticos nos
+    // módulos do programa (docs/NATIVO-ESPACO-UNIFICADO.md §2.11).
+    emitir_ir_interno(entrada, options, area, ids, false)
 }
 
 /// Os nomes (hashes) dos slots da área de globais do programa no IR `ir`:
@@ -178,9 +183,9 @@ pub fn area_do_ir(ir: &str) -> Option<Vec<i64>> {
 fn emitir_ir_interno(
     entrada: &Path,
     options: &CompileOptions,
-    da_fonte: bool,
     area_anterior: Option<Vec<i64>>,
     ids_anteriores: Option<std::collections::HashMap<(String, String), u32>>,
+    objetos_estaticos: bool,
 ) -> Result<IrEmitido, String> {
     // 1. Carregamento e Inferência (Front-end)
     let t_front = Instant::now();
@@ -189,10 +194,9 @@ fn emitir_ir_interno(
         None => sdk_do_dart()?,
     };
 
-    // A seção `vm` com a sobreposição `sdk_nativo/` (P5a): o `dart:async` que
-    // o programa compila da fonte (P6) é o dela; com o SDK da fonte (P5c,
-    // `da_fonte`), todas as bibliotecas de `BIBLIOTECAS_DA_FONTE` também,
-    // ligadas como objetos em cache (`sdk_modulo::sdk_compilado`). `mut`: a
+    // A seção `vm` com a sobreposição `sdk_nativo/` (P5a): as bibliotecas de
+    // `BIBLIOTECAS_DA_FONTE` são as dela, ligadas como objetos em cache
+    // (`sdk_modulo::sdk_compilado`). `mut`: a
     // versão de linguagem corrente pode vir de `--versao-linguagem` (Dart
     // moderno, P2).
     let mut sdk = sdk_modulo::carregar_sdk_nativo(&sdk_dir)
@@ -210,7 +214,7 @@ fn emitir_ir_interno(
     // Com o motor de build (DF-BUILD-009): uma carga tolerante sem os
     // gerados serve de `BuildStep.resolver`; a geração volta em memória e
     // a carga de verdade a lê antes do disco.
-    let (mut program, elements_diags) = match options.gerador {
+    let (program, elements_diags) = match options.gerador {
         Some(gerar) => {
             let mut nomes_resolucao = Interner::new();
             let (resolucao, _) = load_lenient(entrada, &sdk, options.packages, &mut nomes_resolucao);
@@ -234,19 +238,11 @@ fn emitir_ir_interno(
         }
         return Err(msg);
     }
-    // P6: as bibliotecas do SDK que este programa compila da fonte deixam de
-    // ser "do SDK" nesta cópia do programa (`fonte.rs`).
-    // Com o SDK da fonte (P5c) elas já são módulos à parte, em cache, e o
-    // programa não as baixa de novo.
-    let usadas = fonte::bibliotecas_da_fonte(&program, &interner);
-    let usa_dart_async = !usadas.is_empty();
-    let mut bibliotecas_da_fonte = if da_fonte { Vec::new() } else { usadas };
-    for l in &bibliotecas_da_fonte {
-        program.libraries[l.0 as usize].is_sdk = false;
-    }
-    if !bibliotecas_da_fonte.is_empty() {
-        bibliotecas_da_fonte.extend(fonte::separar_partes_do_core(&mut program));
-    }
+    // As bibliotecas do SDK compiladas da fonte (P5c) são módulos à parte, em
+    // cache: o programa não as baixa de novo; `dart:async` usado liga o laço
+    // de eventos.
+    let usa_dart_async = !fonte::bibliotecas_da_fonte(&program, &interner).is_empty();
+    let bibliotecas_da_fonte: Vec<dartforge_elements::model::LibraryId> = Vec::new();
 
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &program, &interner);
@@ -292,14 +288,10 @@ fn emitir_ir_interno(
                     (Invoked Dart programs must have a 'main' function defined)"
             .to_string());
     }
-    let ctx = if da_fonte {
-        // Os ids das classes do SDK são os do SDK compilado, não os do que
-        // este programa carregou (`context::TabelaDeIds`).
-        let ids = sdk_modulo::ids_de_classe_do_sdk(&sdk_dir)?;
-        ctx.com_sdk_da_fonte_e_ids(ids)
-    } else {
-        ctx
-    };
+    // Os ids das classes do SDK são os do SDK compilado, não os do que este
+    // programa carregou (`context::TabelaDeIds`).
+    let ids = sdk_modulo::ids_de_classe_do_sdk(&sdk_dir)?;
+    let ctx = ctx.com_sdk_da_fonte_e_ids(ids);
     let ctx = match ids_anteriores {
         Some(ids) => ctx.com_ids_anteriores(ids),
         None => ctx,
@@ -311,14 +303,12 @@ fn emitir_ir_interno(
     let mut hir_module = lower::lower_program(&ctx);
     hir_module.ids_do_programa = ctx.ids_do_programa();
     hir_module.campos_do_programa = ctx.campos_do_programa();
-    if da_fonte {
-        hir_module.registros_do_sdk = sdk_modulo::registros_do_sdk();
-        hir_module.cids_do_runtime = sdk_modulo::cids_do_runtime(&ctx);
-        hir_module.versao_do_sdk = sdk_dir
-            .parent()
-            .and_then(|d| std::fs::read_to_string(d.join("version")).ok())
-            .map(|v| v.trim().to_string());
-    }
+    hir_module.registros_do_sdk = sdk_modulo::registros_do_sdk();
+    hir_module.cids_do_runtime = sdk_modulo::cids_do_runtime(&ctx);
+    hir_module.versao_do_sdk = sdk_dir
+        .parent()
+        .and_then(|d| std::fs::read_to_string(d.join("version")).ok())
+        .map(|v| v.trim().to_string());
     if !hir_module.erros.is_empty() {
         return Err(erro_de_compilacao(&hir_module.erros));
     }
@@ -328,7 +318,13 @@ fn emitir_ir_interno(
 
     // 3. Emissão de LLVM IR
     let t_llvm = Instant::now();
-    let emitter = llvm::LlvmEmitter::new(&hir_module).com_area_anterior(area_anterior);
+    // Produção (`--optimize`) nunca recarrega: o descritor da área vai sem
+    // os nomes dos slots (`com_area_enxuta`). O JIT emite sem `optimize`.
+    let enxuta = options.optimize && area_anterior.is_none();
+    let emitter = llvm::LlvmEmitter::new(&hir_module)
+        .com_area_anterior(area_anterior)
+        .com_area_enxuta(enxuta)
+        .com_objetos_estaticos(objetos_estaticos);
     let llvm_ir = emitter.emit_all();
     let llvm_duration = t_llvm.elapsed();
 
@@ -373,7 +369,7 @@ pub fn compilar(
     saida: &Path,
     options: &CompileOptions,
 ) -> Result<PathBuf, String> {
-    compilar_com(entrada, saida, options, sdk_modulo::sdk_da_fonte_pedido())
+    compilar_com(entrada, saida, options)
 }
 
 /// [`compilar`] escolhendo o SDK (ver [`emitir_ir_com`]).
@@ -381,11 +377,10 @@ pub fn compilar_com(
     entrada: &Path,
     saida: &Path,
     options: &CompileOptions,
-    da_fonte: bool,
 ) -> Result<PathBuf, String> {
     let t_total = Instant::now();
 
-    let ir = emitir_ir_com(entrada, options, da_fonte)?;
+    let ir = emitir_ir_com(entrada, options)?;
 
     // 4. Clang e Ligação
     let driver_opts = driver::NativeDriverOptions {
@@ -393,6 +388,7 @@ pub fn compilar_com(
         optimize: options.optimize,
         timings: options.timings,
         depuracao: options.depuracao,
+        cpu: options.cpu,
     };
 
     let ligacao = driver::compile_and_link(&ir.texto, saida, &driver_opts)?;
@@ -420,7 +416,7 @@ mod testes {
     const SDK: &str = "C:/tools/dartsdk-3.6.2/lib";
 
     fn emitir(entrada: &Path) -> IrEmitido {
-        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None };
+        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
         emitir_ir(entrada, &options).expect("emitir IR")
     }
 
@@ -467,7 +463,7 @@ mod testes {
         let dir = tempfile::tempdir().unwrap();
         let entrada = dir.path().join("main.dart");
         std::fs::write(&entrada, "void main() {\n  int? k = 1;\n  var a = {?k: 1};\n  var b = {?k: 2};\n  print(a.length + b.length);\n}\n").unwrap();
-        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None };
+        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
         let erro = std::thread::Builder::new()
             .stack_size(64 << 20)
             .spawn(move || emitir_ir(&entrada, &options).map(|ir| ir.texto))

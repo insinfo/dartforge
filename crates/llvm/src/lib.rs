@@ -37,7 +37,7 @@ use llvm_sys::target::{
 };
 use llvm_sys::target_machine::{
     LLVMCodeGenFileType, LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetDataLayout, LLVMCreateTargetMachine,
-    LLVMDisposeTargetMachine, LLVMGetDefaultTargetTriple, LLVMGetTargetFromTriple, LLVMRelocMode,
+    LLVMDisposeTargetMachine, LLVMGetDefaultTargetTriple, LLVMGetHostCPUFeatures, LLVMGetHostCPUName, LLVMGetTargetFromTriple, LLVMRelocMode,
     LLVMTargetMachineEmitToMemoryBuffer, LLVMTargetMachineRef,
 };
 use llvm_sys::transforms::pass_builder::{
@@ -100,14 +100,26 @@ pub struct Opcoes {
     /// de `-O0`.
     pub otimizar: bool,
     pub formato: Formato,
+    /// A CPU-alvo (o nome do LLVM, como o `-march` do Clang; `native` é a
+    /// desta máquina, com os recursos dela); `None`, a padrão do Clang
+    /// ([`cpu_padrao`]).
+    pub cpu: Option<&'static str>,
 }
 
 impl Opcoes {
     /// O que entra na chave de um objeto em cache: dois módulos iguais com
     /// opções de mesma descrição dão os mesmos bytes.
     pub fn descricao(&self) -> String {
+        let cpu = match self.cpu {
+            None => String::new(),
+            Some("native") => {
+                let (nome, recursos) = cpu_da_maquina();
+                format!(" cpu=native({nome};{recursos})")
+            }
+            Some(c) => format!(" cpu={c}"),
+        };
         format!(
-            "{} {}",
+            "{} {}{cpu}",
             if self.otimizar { "O2" } else { "O0" },
             match self.formato {
                 Formato::Objeto => "objeto",
@@ -115,6 +127,14 @@ impl Opcoes {
             }
         )
     }
+}
+
+/// O nome e os recursos da CPU desta máquina, como o LLVM os detecta (o
+/// `-march=native` do Clang).
+fn cpu_da_maquina() -> (String, String) {
+    // SAFETY: as strings devolvidas são nossas e liberadas por
+    // `tomar_mensagem`.
+    unsafe { (tomar_mensagem(LLVMGetHostCPUName()), tomar_mensagem(LLVMGetHostCPUFeatures())) }
 }
 
 /// A identidade do gerador para as chaves de cache: a versão do LLVM, o
@@ -145,7 +165,7 @@ pub fn gerar(nome: &str, ir: &str, opcoes: &Opcoes) -> Result<Vec<u8>, String> {
     let contexto = Contexto::novo();
     let modulo = contexto.ler(nome, ir)?;
     let triple = modulo.triple().unwrap_or_else(triple_padrao);
-    let maquina = MaquinaAlvo::do_triple(&triple, opcoes.otimizar)?;
+    let maquina = MaquinaAlvo::do_triple(&triple, opcoes.otimizar, opcoes.cpu)?;
     modulo.completar_alvo(&triple, &maquina);
     let pipeline = match (opcoes.formato, opcoes.otimizar) {
         (Formato::Bitcode, _) => "lto-pre-link<O2>",
@@ -329,13 +349,22 @@ impl Drop for Modulo<'_> {
 struct MaquinaAlvo(LLVMTargetMachineRef);
 
 impl MaquinaAlvo {
-    /// A máquina do `triple` com a CPU padrão do Clang ([`cpu_padrao`]).
+    /// A máquina do `triple` com a CPU pedida, ou a padrão do Clang
+    /// ([`cpu_padrao`]).
     /// Código independente de posição fora do Windows: os executáveis do
     /// Linux são PIE (o padrão do Clang) e as bibliotecas compartilhadas do
     /// SDK o exigem; o Mach-O é sempre PIC.
-    fn do_triple(triple: &str, otimizar: bool) -> Result<Self, String> {
+    fn do_triple(triple: &str, otimizar: bool, cpu: Option<&str>) -> Result<Self, String> {
         let triple_c = CString::new(triple).map_err(|_| format!("triple com NUL: {triple:?}"))?;
-        let cpu = CString::new(cpu_padrao(triple)).expect("CPU sem NUL");
+        // `native`: o nome e os recursos detectados (o que o Clang faz com
+        // `-march=native`); outro nome, os recursos implícitos dele.
+        let (cpu, recursos) = match cpu {
+            Some("native") => cpu_da_maquina(),
+            Some(c) => (c.to_owned(), String::new()),
+            None => (cpu_padrao(triple).to_owned(), String::new()),
+        };
+        let cpu = CString::new(cpu).map_err(|_| "CPU com NUL".to_owned())?;
+        let recursos = CString::new(recursos).map_err(|_| "recursos com NUL".to_owned())?;
         let windows = triple.contains("windows");
         // SAFETY: o alvo devolvido é uma referência estática do registro do
         // LLVM; a mensagem de erro é nossa; a máquina criada vai para o
@@ -351,7 +380,7 @@ impl MaquinaAlvo {
                 alvo,
                 triple_c.as_ptr(),
                 cpu.as_ptr(),
-                c"".as_ptr(),
+                recursos.as_ptr(),
                 if otimizar { LLVMCodeGenOptLevel::LLVMCodeGenLevelDefault } else { LLVMCodeGenOptLevel::LLVMCodeGenLevelNone },
                 if windows { LLVMRelocMode::LLVMRelocDefault } else { LLVMRelocMode::LLVMRelocPIC },
                 LLVMCodeModel::LLVMCodeModelDefault,
@@ -400,7 +429,7 @@ mod testes {
     #[test]
     fn gera_objeto_e_bitcode() {
         for otimizar in [false, true] {
-            let obj = gerar("soma", IR, &Opcoes { otimizar, formato: Formato::Objeto }).unwrap();
+            let obj = gerar("soma", IR, &Opcoes { otimizar, formato: Formato::Objeto, cpu: None }).unwrap();
             let magico = &obj[..4];
             // ELF, Mach-O (64 bits) ou COFF x86-64/arm64.
             assert!(
@@ -408,19 +437,19 @@ mod testes {
                 "cabeçalho inesperado: {magico:x?}"
             );
         }
-        let bc = gerar("soma", IR, &Opcoes { otimizar: true, formato: Formato::Bitcode }).unwrap();
+        let bc = gerar("soma", IR, &Opcoes { otimizar: true, formato: Formato::Bitcode, cpu: None }).unwrap();
         assert_eq!(&bc[..4], b"BC\xc0\xde");
     }
 
     #[test]
     fn mesmo_ir_mesmos_bytes() {
-        let op = Opcoes { otimizar: true, formato: Formato::Objeto };
+        let op = Opcoes { otimizar: true, formato: Formato::Objeto, cpu: None };
         assert_eq!(gerar("a", IR, &op).unwrap(), gerar("a", IR, &op).unwrap());
     }
 
     #[test]
     fn ir_invalido_da_erro_com_a_mensagem_do_llvm() {
-        let e = gerar("ruim", "define i32 @f( {", &Opcoes { otimizar: false, formato: Formato::Objeto }).unwrap_err();
+        let e = gerar("ruim", "define i32 @f( {", &Opcoes { otimizar: false, formato: Formato::Objeto, cpu: None }).unwrap_err();
         assert!(e.contains("ruim"), "{e}");
     }
 

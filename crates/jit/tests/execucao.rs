@@ -418,11 +418,12 @@ void main() {
     ),
 ];
 
-/// Emite o LLVM IR de um arquivo Dart pela trilha nova (`emitir_ir`), o mesmo
-/// texto que o driver AOT entrega ao Clang.
+/// Emite o LLVM IR de um arquivo Dart como o JIT o recebe
+/// (`emitir_ir_recarregavel`: sem objetos estáticos, que o JIT não tem,
+/// docs/NATIVO-ESPACO-UNIFICADO.md §2.11); o driver AOT liga esse mesmo texto.
 fn emitir_ir(entrada: &Path) -> String {
-    let opcoes = dartforge_emit_native::CompileOptions { sdk: None, packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None };
-    dartforge_emit_native::emitir_ir(entrada, &opcoes)
+    let opcoes = dartforge_emit_native::CompileOptions { sdk: None, packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
+    dartforge_emit_native::emitir_ir_recarregavel(entrada, &opcoes, None)
         .unwrap_or_else(|erro| panic!("o programa de teste não emitiu IR: {erro}"))
         .texto
 }

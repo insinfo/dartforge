@@ -48,41 +48,52 @@ vector registers end to end (no boxing, no allocation, no runtime calls on the h
   on the 3.6.2 SDK by [`pacotes/dartforge_simd`](pacotes/dartforge_simd) (plain Dart on the VM,
   a `<4 x i32>` instruction in DartForge).
 
-Microseconds per call (lower is better), best of 7 rounds × 400 calls, taking the best of two
-separate runs with no other build running:
+Microseconds per call (lower is better), best of 7 rounds × 400 calls, minimum over 7 alternated
+runs of each binary on a busy machine (Windows x64, `aot --optimize`). "Before" is DartForge at
+commit `9edf24d3`; `--cpu` builds for a newer x86-64 level (the default stays baseline SSE2):
 
-| Variant | Dart VM (JIT) 3.6.2 | Dart AOT 3.6.2 | **DartForge AOT** |
-|---|---:|---:|---:|
-| scalar | 104.1 | 69.7 | **71.8** |
-| SIMD, 3.6 API | 3 863.9 | 7 428.6 | **95.3** |
-| SIMD, 3.14 API | 9 326.6 ¹ | 14 048.6 ¹ | **31.6** |
+| Variant | Dart AOT 3.6.2 | DartForge before | **DartForge** | DartForge `--cpu x86-64-v2` | DartForge `--cpu x86-64-v3` |
+|---|---:|---:|---:|---:|---:|
+| scalar | 75.3 | 64.0 | **47.4** | 25.3 | 16.0 |
+| SIMD, 3.6 API | 9 831.0 | 85.8 | **26.6** | 26.2 | 26.7 |
+| SIMD, 3.14 API | 20 705.1 ¹ | 26.9 | **26.8** | 14.8 | 14.8 |
 
 ¹ On the 3.6.2 VM the 3.14 operations are the Dart fallbacks of the extension (lane by lane).
 
 What this shows:
 
-- **The same SIMD source is 78× faster than Dart AOT and 40× faster than the Dart VM** (3.6 API),
-  because DartForge does not box the vectors.
-- **With the Dart 3.6 API, SIMD still loses to scalar, even in DartForge** (95.3 vs 71.8 µs): the
-  API has no integer multiply, so every vector must go to `Float32x4` lane by lane and back.
-- **With an integer vector multiply, SIMD wins: 31.6 µs, 2.2× faster than the best scalar code**
-  of any of the three compilers (2.3× faster than DartForge's own scalar loop). Beating scalar code needs the right operations in the API (or
-  compiler intrinsics); code generation alone cannot remove the lane round trips the 3.6 API forces.
-- Scalar code is on par with Dart AOT and 1.45× faster than the Dart VM (JIT).
+- **The same SIMD source is 370× faster than Dart AOT** (3.6 API), because DartForge keeps the
+  vectors unboxed and turns the lane-by-lane `Int32x4` ↔ `Float32x4` round trip into vector
+  conversions (`cvtdq2ps` / `cvttps2dq`).
+- **Scalar code is 1.6× faster than Dart AOT at the baseline, 4.7× with `--cpu x86-64-v3`**: typed
+  list loops are versioned, so the hot loop has no bounds checks and no runtime calls, and LLVM
+  auto-vectorizes it when the target has the instructions for it.
+- With the Dart 3.6 API, SIMD now beats the plain scalar loop at the baseline (26.6 vs 47.4 µs); the
+  3.14 API (`Int32x4 * Int32x4`) is about as fast at the baseline and 1.8× faster with SSE4.1.
 
 ### What the machine code shows
 
-The production build (`aot --optimize`, `-O2`, baseline x86-64 / SSE2, no `-march`) of the
-two loops, from the kept LLVM IR (`DARTFORGE_KEEP_IR=1`) compiled with the same flags:
+From the kept LLVM IR (`DARTFORGE_KEEP_IR=1`) compiled with `clang -x ir -O2 -S` (plus
+`-march=...` for the `--cpu` columns):
 
-- `blendSimd314`: the loop arithmetic is vector code: `pmuludq` + `pshufd` (the SSE2 sequence for a
-  32-bit lane multiply), `paddd` and `psrad`. The loop still has guard paths with runtime calls
-  (an index outside the small-integer range, a receiver of another list class).
-- `blendEscalar`: the arithmetic is scalar (`imulq`, `sarq`). LLVM does **not** auto-vectorize
-  this loop today, because the loop body still contains guard paths with runtime calls (boxing an
-  out-of-range integer, dynamic dispatch for an unexpected receiver). That is why DartForge's scalar
-  code only ties with Dart AOT here, and it is an open item: once those guards are hoisted out of
-  the loop, LLVM can vectorize the scalar version too.
+- **Typed list loops are versioned.** Before the loop, DartForge reads each list's length and data
+  address once and checks `0 <= start` and `limit <= list.length` for every list indexed by the
+  loop counter. If that holds, the loop runs with no bounds checks and no runtime calls. Otherwise
+  the original loop runs and throws the same `RangeError` at the same index. A typed list never
+  changes length and its bytes have a fixed address, so the check holds even with calls in the
+  loop body. Before, the body had cold guard paths with runtime calls (boxing the index,
+  dynamic dispatch, unboxing), and those stopped LLVM from vectorizing the loop.
+- `blendSimd314` (baseline): the loop is `movdqu`, `pshufd` + `pmuludq` (the SSE2 32-bit lane
+  multiply), `paddd`, `psrad`, `movdqu`, with no calls and no guard paths left.
+- `blendSimd36` (baseline): `cvtdq2ps`, `mulps`, `addps`, a vector range test (`cmpnleps`,
+  `cmpnltps`, `movmskps`), `cvttps2dq`, `psrad`. Lanes that are NaN, infinite or outside the 32-bit
+  range take a cold lane-by-lane path that keeps Dart's `toInt()` semantics (throws on NaN and
+  infinity, saturates otherwise).
+- `blendEscalar`: at the baseline the loop is scalar with no calls (`imulq`, `shrq`, unrolled by
+  2). LLVM's cost model declines to vectorize it: the product is 64-bit (Dart `int`), and SSE2 has
+  no 64-bit lane multiply. Forcing 2-wide vectors was measured at 58.8 µs, slower than scalar.
+  With `--cpu x86-64-v2` the loop vectorizes (`pmovsxdq`, `pmuludq`, `paddq`); with
+  `x86-64-v3` it uses 256-bit `vpmuludq`.
 
 ### 2. Full rasterizer (dgfx)
 
@@ -103,6 +114,10 @@ DartForge column as an upper bound; details in [docs/SIMD-NATIVO.md](docs/SIMD-N
 - Where SIMD still loses, the cause is mostly in the benchmark's algorithm: B2D v2 Immediate's
   scalar path only visits the rows marked active while the SIMD path scans the whole tile, and the
   SKIA SIMD path allocates a `List.generate` per row and extracts lanes through a scratch list.
+- Re-measured on 2026-09-30 with loop versioning and the lane conversions (same images): the
+  machine was about 3× slower than in the table above (Dart AOT B2D v1 scalar 17.8 ms instead of
+  6.7), and the changes did not separate from the noise. The rasterizer's hot loops read their
+  lists from fields and globals, which the versioning does not cover yet (docs/SIMD-NATIVO.md §8.4).
 
 Machine: Intel Core i3-1215U, 7.7 GB RAM, Windows 11; Dart SDK 3.6.2 (stable) and
 3.14.0-248.0.dev; LLVM 22.1.8.
@@ -113,6 +128,7 @@ Machine: Intel Core i3-1215U, 7.7 GB RAM, Windows 11; Dart SDK 3.6.2 (stable) an
     dart run bin/blend.dart                                   # Dart VM (JIT)
     dart compile exe bin/blend.dart -o blend_dart.exe         # Dart AOT
     dartforge aot bin/blend.dart blend_df.exe --optimize      # DartForge
+    dartforge aot bin/blend.dart blend_v3.exe --optimize --cpu x86-64-v3   # AVX2 machines only
     # the machine code: set DARTFORGE_KEEP_IR=1, then
     # clang -x ir -O2 -S .df_tmp/blend_df.ll   and look at blendEscalar / blendSimd314
 

@@ -74,7 +74,7 @@ pub fn finalizar_programa() -> i32 {
     if pending {
         let (bits, tag) = EXCEPTION.with(|slot| {
             let value = slot.borrow().expect("exceção verificada acima");
-            untag(value)
+            (bits_da_excecao(value), etiqueta_da_excecao(value))
         });
         HEAP.with(|heap| {
             let heap = heap.borrow();
@@ -87,10 +87,7 @@ pub fn finalizar_programa() -> i32 {
                         drop(heap);
                         tomar_excecao();
                         let t = com_raizes(&[bits], || f(bits));
-                        let s = HEAP.with(|h| match h.borrow().try_get(t) {
-                            Some(Value::String(texto)) => Some(texto.para_string()),
-                            _ => None,
-                        });
+                        let s = HEAP.with(|h| h.borrow().texto(t).map(|texto| texto.para_string()));
                         // O `toString()` também falhou: a descrição do
                         // runtime (a classe do objeto).
                         s.unwrap_or_else(|| {
@@ -128,7 +125,7 @@ pub fn finalizar_programa() -> i32 {
     codigo_de_saida_global()
 }
 
-use crate::heap::{CONTEXTO, Heap, TaggedValue, Texto, TextoMut, Value};
+use crate::heap::{CONTEXTO, Heap, Texto, TextoMut};
 use std::cell::RefCell;
 use crate::hash::{HashMap, HashSet};
 
@@ -152,6 +149,125 @@ thread_local! {
     /// junto com o mapa.
     static SUBTIPO_RAPIDO: std::cell::Cell<[(i64, i64, u8); VAGAS_SUBTIPO_RAPIDO]> =
         const { std::cell::Cell::new([(-1, -1, 0); VAGAS_SUBTIPO_RAPIDO]) };
+    /// Os mapas de bits de subtipo que o código gerado lê em linha
+    /// (`df.subclasse`, `llvm/mod.rs`; [`crate::heap::Contexto::subtipos`]).
+    static MAPAS_DE_SUBTIPO: RefCell<MapasDeSubtipo> = RefCell::new(MapasDeSubtipo::default());
+}
+
+/// Para cada classe alvo `C` já consultada, o mapa de bits das classes
+/// `cid <: C` (o type testing stub da VM, que responde `is C` sem ir ao
+/// runtime): o `is C` do código gerado lê um bit, sem chamada. O mapa de
+/// `C` é montado na primeira consulta que vai ao runtime
+/// ([`dartforge_is_subclass`]), pelo grafo inverso (as subclasses de `C`),
+/// e todos são descartados a cada relação nova de subclasse (a carga de um
+/// módulo, uma recarga): nenhum mapa responde por um grafo antigo.
+#[derive(Default)]
+struct MapasDeSubtipo {
+    /// Os mapas, pelo alvo; `ponteiros` é o que o [`crate::heap::Contexto`]
+    /// publica (nulo = não montado).
+    mapas: Vec<Option<Box<[u64]>>>,
+    ponteiros: Vec<*const u64>,
+    /// A largura de todos os mapas em bits (múltiplo de 64): acima do maior
+    /// id com relação registrada. 0 = a calcular.
+    largura: usize,
+    /// O grafo inverso (supertipo direto → subtipos diretos), do
+    /// [`SUBCLASSES`] vigente; vazio = a calcular.
+    inverso: HashMap<i64, Vec<i64>>,
+}
+
+/// O maior alvo com mapa de bits (os ids de classe são densos e pequenos).
+const MAIOR_ALVO_COM_MAPA: i64 = 1 << 16;
+
+impl MapasDeSubtipo {
+    /// Descarta todos os mapas (o grafo mudou) e tira os ponteiros do
+    /// contexto.
+    fn descartar(&mut self) {
+        crate::heap::CONTEXTO.with(|c| {
+            c.n_subtipos.set(0);
+            c.largura_subtipos.set(0);
+            c.subtipos.set(std::ptr::null());
+        });
+        self.mapas.clear();
+        self.ponteiros.clear();
+        self.largura = 0;
+        self.inverso.clear();
+    }
+    /// Monta o mapa do alvo `c` (0 ≤ c < [`MAIOR_ALVO_COM_MAPA`]) e publica.
+    ///
+    /// Nada que o código gerado possa ter lido é realocado ou solto aqui: a
+    /// tabela de ponteiros nasce com um lugar para cada classe da largura
+    /// (um alvo acima dela não tem subtipo registrado, e fica no runtime),
+    /// e só [`MapasDeSubtipo::descartar`] a solta — a partir de
+    /// `dartforge_register_subclass`, uma chamada que o LLVM trata como
+    /// escrita qualquer. `dartforge_is_subclass` é declarado `memory(read)`
+    /// (`llvm/externs.rs`): um laço pode guardar a tabela lida antes dele.
+    fn montar(&mut self, c: i64) {
+        let alvo = c as usize;
+        if self.mapas.get(alvo).is_some_and(Option::is_some) {
+            return;
+        }
+        if self.largura == 0 {
+            SUBCLASSES.with(|m| {
+                let m = m.borrow();
+                // Só os ids densos contam para a largura: há ids fora da
+                // faixa (a classe `_Type` do runtime, `0x3FFF_FF01`), que
+                // ficam no runtime.
+                let mut maior = 0i64;
+                let denso = |id: i64| if (0..MAIOR_ALVO_COM_MAPA).contains(&id) { id } else { 0 };
+                for (&sub, supers) in m.iter() {
+                    maior = maior.max(denso(sub));
+                    for &s in supers {
+                        maior = maior.max(denso(s));
+                        self.inverso.entry(s).or_default().push(sub);
+                    }
+                }
+                self.largura = (usize::try_from(maior).unwrap_or(0) + 1).div_ceil(64) * 64;
+            });
+            self.mapas = (0..self.largura).map(|_| None).collect();
+            self.ponteiros = vec![std::ptr::null(); self.largura];
+            let (p, n, l) = (self.ponteiros.as_ptr(), self.ponteiros.len(), self.largura);
+            crate::heap::CONTEXTO.with(|ctx| {
+                if !crate::heap::classe_em_linha() {
+                    return;
+                }
+                ctx.subtipos.set(p);
+                ctx.n_subtipos.set(n);
+                ctx.largura_subtipos.set(l);
+            });
+        }
+        if alvo >= self.ponteiros.len() {
+            return;
+        }
+        let palavras = self.largura / 64;
+        let mut mapa = vec![0u64; palavras].into_boxed_slice();
+        let mut ligar = |cid: i64| {
+            if let Ok(i) = usize::try_from(cid)
+                && i < palavras * 64
+            {
+                mapa[i / 64] |= 1 << (i % 64);
+            }
+        };
+        if c == 0 {
+            // `Object` é supertipo de toda classe.
+            mapa.fill(u64::MAX);
+        } else {
+            let mut vistos = HashSet::default();
+            let mut fila = vec![c];
+            vistos.insert(c);
+            while let Some(x) = fila.pop() {
+                ligar(x);
+                if let Some(subs) = self.inverso.get(&x) {
+                    for &s in subs {
+                        if vistos.insert(s) {
+                            fila.push(s);
+                        }
+                    }
+                }
+            }
+        }
+        self.ponteiros[alvo] = mapa.as_ptr();
+        self.mapas[alvo] = Some(mapa);
+    }
 }
 
 /// Vagas de [`SUBTIPO_RAPIDO`] (potência de 2).
@@ -202,6 +318,7 @@ pub extern "C" fn dartforge_register_subclass(sub_id: i64, super_id: i64) {
             lista.push(super_id);
             SUBTIPO_CALCULADO.with(|c| c.borrow_mut().clear());
             SUBTIPO_RAPIDO.with(|c| c.set([(-1, -1, 0); VAGAS_SUBTIPO_RAPIDO]));
+            MAPAS_DE_SUBTIPO.with(|m| m.borrow_mut().descartar());
         }
     });
 }
@@ -210,6 +327,14 @@ pub extern "C" fn dartforge_register_subclass(sub_id: i64, super_id: i64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_is_subclass(class_id: i64, target_class: i64) -> u8 {
     let r = is_subclass(class_id, target_class);
+    // O próximo `is` deste alvo sai do mapa de bits, em linha.
+    if (0..MAIOR_ALVO_COM_MAPA).contains(&target_class) {
+        MAPAS_DE_SUBTIPO.with(|m| {
+            if let Ok(mut m) = m.try_borrow_mut() {
+                m.montar(target_class);
+            }
+        });
+    }
     if depurar() {
         eprintln!("[depurar] is_subclass({class_id}, {target_class}) = {r}");
     }
@@ -269,43 +394,19 @@ fn subclasse_pelo_grafo(class_id: i64, target_class: i64) -> u8 {
     })
 }
 
-/// Monta um valor com tag a partir da ABI plana (bits, tag); valida referências.
-fn tagged(bits: i64, tag: u8) -> TaggedValue {
-    match tag {
-        1 => TaggedValue::scalar(bits),
-        2 => TaggedValue::boolean(bits != 0),
-        3 => TaggedValue::reference(bits),
-        4 => TaggedValue {
-            bits,
-            is_ref: false,
-            tag: crate::heap::ValueTag::Double,
-        },
-        _ => panic!("tag de valor inválida"),
-    }
-}
 
-/// Separa um valor na ABI plana (bits, tag) para chamadas LLVM.
-fn untag(value: TaggedValue) -> (i64, u8) {
-    use crate::heap::ValueTag;
-    let tag = match value.tag {
-        ValueTag::Int => 1,
-        ValueTag::Bool => 2,
-        ValueTag::Ref => 3,
-        ValueTag::Double => 4,
-    };
-    (value.bits, tag)
-}
 
 /// Aloca objeto inicialmente zerado, com campos ainda sem referências.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_object_new(class_id: i64, field_count: i64) -> i64 {
     let n = usize::try_from(field_count).expect("campos inválidos");
+    let cid = i32::try_from(class_id).expect("classe inválida");
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        let h = heap.alocar_objeto(class_id, n);
+        let h = heap.alocar_instancia(cid, n);
         // A próxima alocação deste tamanho sai em linha, da TLAB (sem
         // coletar aqui: `h` ainda não tem raiz).
-        heap.reabastecer_tlab(n);
+        heap.reabastecer_tlab(crate::layout::palavras_de_instancia(n));
         h
     })
 }
@@ -354,13 +455,13 @@ pub extern "C" fn dartforge_object_set(handle: i64, index: i64, bits: i64, is_re
 /// bits do campo: `0`, `false` e `null` podem ser valores já atribuídos.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_late_field_initialized(handle: i64, index: i64) -> u8 {
-    HEAP.with(|heap| u8::from(heap.borrow().campos_late_inicializados.contains(&(handle, index))))
+    HEAP.with(|heap| u8::from(heap.borrow().late_inicializado((handle, index))))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_late_field_mark_initialized(handle: i64, index: i64) {
     HEAP.with(|heap| {
-        heap.borrow_mut().campos_late_inicializados.insert((handle, index));
+        heap.borrow_mut().marcar_late((handle, index));
     });
 }
 
@@ -368,7 +469,7 @@ pub extern "C" fn dartforge_late_field_mark_initialized(handle: i64, index: i64)
 /// em curso. `-1` fica reservado ao estado dos locais capturados em `Cell`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_late_field_initializing(handle: i64, index: i64) -> u8 {
-    HEAP.with(|heap| u8::from(heap.borrow().campos_late_inicializados.contains(&(handle, -index - 2))))
+    HEAP.with(|heap| u8::from(heap.borrow().late_inicializado((handle, -index - 2))))
 }
 
 #[unsafe(no_mangle)]
@@ -377,115 +478,52 @@ pub extern "C" fn dartforge_late_field_set_initializing(handle: i64, index: i64,
         let mut heap = heap.borrow_mut();
         let key = (handle, -index - 2);
         if active != 0 {
-            heap.campos_late_inicializados.insert(key);
+            heap.marcar_late(key);
         } else {
-            heap.campos_late_inicializados.remove(&key);
+            heap.desmarcar_late(key);
         }
     });
-}
-/// Consulta identidade nominal para despacho virtual gerado pelo LLVM.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_object_class(handle: i64) -> i64 {
-    HEAP.with(|heap| {
-        let heap = heap.borrow();
-        heap.classe_do_objeto(handle).expect("objeto esperado")
-    })
-}
-/// Obtém um valor enum canônico usando nome UTF-8 emitido como constante LLVM.
-///
-/// # Safety
-/// O ponteiro deve identificar `len` bytes legíveis; class_id/index são IDs válidos.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_enum_get(class_id: i64, index: i64, ptr: *const u8, len: i64) -> i64 {
-    let len = usize::try_from(len).expect("comprimento inválido");
-    let bytes = if len == 0 { &[] } else {
-        // SAFETY: a constante LLVM permanece legível pelo comprimento informado.
-        unsafe { std::slice::from_raw_parts(ptr, len) }
-    };
-    let name = std::str::from_utf8(bytes).expect("UTF-8 inválido");
-    HEAP.with(|heap| heap.borrow_mut().enum_value(class_id, index, name))
-}
-
-/// O valor escalar por trás de um `Ref` numérico ou booleano: `Smi`,
-/// `_Mint`, `_Double` ou caixa de `bool` (R3/R10); outro valor dá `None`.
-fn escalar_de_ref(heap: &Heap, r: i64) -> Option<TaggedValue> {
-    if crate::heap::smi::e_smi(r) {
-        return Some(TaggedValue::scalar(crate::heap::smi::valor(r)));
-    }
-    match heap.try_get(r) {
-        Some(Value::BoxedInt(i)) => Some(TaggedValue::scalar(*i)),
-        Some(Value::BoxedDouble(d)) => Some(TaggedValue::double(*d)),
-        Some(Value::BoxedBool(b)) => Some(TaggedValue::boolean(*b)),
-        _ => None,
-    }
 }
 
 /// Compara igualdade (== de Dart) entre dois handles de referência.
 ///
 /// Números comparam por valor, com a regra de `num`: `1 == 1.0` (R9); um
 /// `Smi` e um `_Mint` nunca têm o mesmo valor (a forma é canônica, R10), mas
-/// a comparação é por valor de todo modo.
+/// a comparação é por valor de todo modo. Strings, pelas unidades.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_equal(a: i64, b: i64) -> u8 {
     if a == b { return 1; }
     if a == 0 || b == 0 { return 0; }
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        use crate::heap::ValueTag::{Bool, Double, Int};
-        match (escalar_de_ref(&heap, a), escalar_de_ref(&heap, b)) {
-            (Some(x), Some(y)) => u8::from(match (x.tag, y.tag) {
-                (Int, Int) | (Bool, Bool) => x.bits == y.bits,
-                (Double, Double) => f64::from_bits(x.bits as u64) == f64::from_bits(y.bits as u64),
-                (Int, Double) => (x.bits as f64) == f64::from_bits(y.bits as u64),
-                (Double, Int) => f64::from_bits(x.bits as u64) == (y.bits as f64),
-                _ => false,
-            }),
-            (Some(_), None) | (None, Some(_)) => 0,
-            (None, None) => u8::from(heap.string_equal(a, b)),
-        }
+        use crate::heap::Valor::{Bool, Double, Int, Ref};
+        u8::from(match (heap.valor(a), heap.valor(b)) {
+            (Int(x), Int(y)) => x == y,
+            (Bool(x), Bool(y)) => x == y,
+            (Double(x), Double(y)) => x == y,
+            (Int(x), Double(y)) => (x as f64) == y,
+            (Double(x), Int(y)) => x == (y as f64),
+            (Ref(x), Ref(y)) => heap.e_texto(x) && heap.e_texto(y) && heap.textos_iguais(x, y),
+            _ => false,
+        })
     })
 }
 
 /// `identical(a, b)` sobre referências, com a semântica da VM
-/// (`Instance::IsIdenticalTo`): mesmo handle, ou dois inteiros de mesmo
-/// valor, ou dois `double` bit a bit iguais (R9). Dois `Smi` de mesmo valor
-/// têm os mesmos bits, e caem no primeiro teste.
+/// (`Instance::IsIdenticalTo`): mesmo handle, ou dois `_Mint` de mesmo
+/// valor, ou dois `_Double` bit a bit iguais (R9; §2.10). É o caminho lento
+/// de `@df.identico`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_identical(a: i64, b: i64) -> u8 {
     if a == b { return 1; }
-    if a == 0 || b == 0 { return 0; }
-    // Um objeto do espaço (`h & 3 == 2`) nunca é número: só a identidade
-    // do handle, já conferida (o `Object.==` padrão das classes do SDK).
-    if crate::heap::e_objeto(a) || crate::heap::e_objeto(b) { return 0; }
-    HEAP.with(|heap| {
-        let heap = heap.borrow();
-        use crate::heap::ValueTag::{Double, Int};
-        match (escalar_de_ref(&heap, a), escalar_de_ref(&heap, b)) {
-            (Some(x), Some(y)) if (x.tag == Int && y.tag == Int) || (x.tag == Double && y.tag == Double) => {
-                u8::from(x.bits == y.bits)
-            }
-            _ => 0,
-        }
-    })
+    HEAP.with(|heap| u8::from(heap.borrow().identico(a, b)))
 }
 
 /// `Box` (R3/R10): `int` numa posição `Ref` — o `Smi` quando cabe em 63
-/// bits (não aloca), senão o `_Mint` no heap.
+/// bits (não aloca), senão o `_Mint` (caminho lento de `@df.caixa_int`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_box_int(v: i64) -> i64 {
     HEAP.with(|heap| heap.borrow_mut().caixa_int(v))
-}
-
-/// `Box`: `double` numa posição `Ref`.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_box_double(v: f64) -> i64 {
-    HEAP.with(|heap| heap.borrow_mut().allocate(Value::BoxedDouble(v)))
-}
-
-/// `Box`: `bool` numa posição `Ref` (um dos dois singletons).
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_box_bool(v: u8) -> i64 {
-    HEAP.with(|heap| heap.borrow_mut().caixa_bool(v != 0))
 }
 
 /// Lança o `TypeError` de uma coerção implícita que falhou (`null` ou
@@ -496,13 +534,13 @@ fn lancar_type_error() {
 }
 
 /// `Unbox` (R3/R10): `int` de uma referência (`Smi` ou `_Mint`); null ou
-/// outro tipo lança TypeError.
+/// outro tipo lança TypeError. O caminho lento de `@df.desencaixa_int`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_unbox_int(h: i64) -> i64 {
     if crate::heap::smi::e_smi(h) {
         return crate::heap::smi::valor(h);
     }
-    let v = HEAP.with(|heap| heap.borrow().int_de_ref(h));
+    let v = HEAP.with(|heap| heap.borrow().int_de(h));
     v.unwrap_or_else(|| {
         lancar_type_error();
         0
@@ -512,10 +550,7 @@ pub extern "C" fn dartforge_unbox_int(h: i64) -> i64 {
 /// `Unbox`: `double` de uma referência (um `int` encaixotado não é `double`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_unbox_double(h: i64) -> f64 {
-    let v = HEAP.with(|heap| match heap.borrow().try_get(h) {
-        Some(Value::BoxedDouble(d)) => Some(*d),
-        _ => None,
-    });
+    let v = HEAP.with(|heap| heap.borrow().double_de(h));
     v.unwrap_or_else(|| {
         lancar_type_error();
         0.0
@@ -525,10 +560,7 @@ pub extern "C" fn dartforge_unbox_double(h: i64) -> f64 {
 /// `Unbox`: `bool` de uma referência.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_unbox_bool(h: i64) -> u8 {
-    let v = HEAP.with(|heap| match heap.borrow().try_get(h) {
-        Some(Value::BoxedBool(b)) => Some(*b),
-        _ => None,
-    });
+    let v = HEAP.with(|heap| heap.borrow().bool_de(h));
     v.map_or_else(
         || {
             lancar_type_error();
@@ -538,95 +570,204 @@ pub extern "C" fn dartforge_unbox_bool(h: i64) -> u8 {
     )
 }
 
-/// Elemento como referência (R5/R8): escalar é encaixotado na saída.
-fn valor_como_ref(v: TaggedValue) -> i64 {
-    HEAP.with(|heap| heap.borrow_mut().como_ref(v))
-}
 
-/// Consulta a classe nominal de um handle para testes `on T` de captura.
-///
-/// Devolve o `class_id` de objetos, -2 para strings, -3 para listas, -4 para
-/// mapas, -5 para conjuntos e -6 para closures; outros valores internos nunca
-/// são lançáveis pelo subconjunto e devolvem -1.
+/// A classe de um valor: o cid do cabeçalho de um objeto, 1 (`Null`) para
+/// null e 2 (`_Smi`) para um `Smi` (§2.4). O código gerado a lê em linha
+/// (`@df.classe`); esta é a do runtime e a do `ClassID.getID`. Só lê o heap.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_value_class(handle: i64) -> i64 {
-    // O caso comum (o receptor de todo despacho): um objeto Dart ou uma
-    // lista tipada, cuja classe está no próprio valor, ou um valor do
-    // runtime com a classe do SDK da fonte (`_OneByteString`,
-    // `_GrowableList`…). Uma consulta ao slot só, sem os empréstimos e as
-    // buscas repetidas do caminho geral (o `dart:_http` pergunta a classe
-    // de strings e `Uint8List` a cada despacho).
-    if crate::heap::smi::e_handle(handle) && handle > 0 {
-        let cid = HEAP.with(|heap| {
-            // SAFETY: leitura imediata, sem guardar a referência; ninguém
-            // tem o heap emprestado para escrita durante uma chamada do
-            // código gerado ou do runtime que pergunta a classe.
-            let heap = unsafe { heap.try_borrow_unguarded() }.ok()?;
-            if let Some(o) = heap.objeto(handle) {
-                return Some(o.class_id);
+    heap_sem_emprestimo(|heap| i64::from(heap.classe(handle)))
+}
+
+/// Um valor da ABI de pares `(bits, tag)` (tags 1 int, 2 bool, 3 referência,
+/// 4 double) como [`crate::heap::Valor`].
+fn valor_de_par(bits: i64, tag: i64) -> crate::heap::Valor {
+    use crate::heap::Valor;
+    match tag {
+        1 => Valor::Int(bits),
+        2 => Valor::Bool(bits != 0),
+        3 => Valor::Ref(bits),
+        4 => Valor::Double(f64::from_bits(bits as u64)),
+        _ => panic!("tag de valor inválida"),
+    }
+}
+
+/// Cria um record posicional a partir de um array plano de pares (bits, tag):
+/// o caminho lento do `AllocRecord` com elemento sem caixa, que encaixota
+/// aqui com as raízes certas.
+///
+/// # Safety
+/// `pairs` aponta `2 * len` palavras legíveis.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_record_new(pairs: *const i64, len: i64) -> i64 {
+    let len = usize::try_from(len).expect("comprimento inválido");
+    let valores: Vec<crate::heap::Valor> = if len == 0 {
+        Vec::new()
+    } else {
+        // SAFETY: o contrato da função.
+        let raw = unsafe { std::slice::from_raw_parts(pairs, len * 2) };
+        raw.chunks_exact(2).map(|par| valor_de_par(par[0], par[1])).collect()
+    };
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        // Os `Ref` e cada caixa nova ficam enraizados até o record existir.
+        let quadro = heap.push_frame();
+        for v in &valores {
+            if let crate::heap::Valor::Ref(r) = v {
+                heap.root(quadro, *r);
             }
-            match heap.try_get(handle)? {
-                Value::TypedData { class_id, .. }
-                | Value::TypedView { class_id, .. } => Some(*class_id),
-                valor => cid_do_valor_do_runtime(heap, handle, valor),
-            }
-        });
-        if let Some(cid) = cid {
-            return cid;
         }
+        let mut refs = Vec::with_capacity(len);
+        for v in valores {
+            let r = heap.como_ref(v);
+            heap.root(quadro, r);
+            refs.push(r);
+        }
+        let h = heap.novo_record(&refs);
+        heap.pop_frame(quadro);
+        h
+    })
+}
+
+// ─── Espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md §3.6): esqueleto da P0a ──
+
+/// Um record posicional (`_Record`, `REFS`) com os `n` `Ref` em `refs`: o
+/// caminho do `AllocRecord` grande demais para a TLAB. Não lança.
+///
+/// # Safety
+/// `refs` aponta `n` palavras legíveis.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_record_novo(refs: *const i64, n: i64) -> i64 {
+    let n = usize::try_from(n).expect("comprimento inválido");
+    let campos = if n == 0 {
+        &[][..]
+    } else {
+        // SAFETY: o contrato da função.
+        unsafe { std::slice::from_raw_parts(refs, n) }
+    };
+    // `novo_record` enraíza os campos durante a alocação.
+    HEAP.with(|heap| heap.borrow_mut().novo_record(campos))
+}
+
+// ─── Natives de identidade, closures e records (vindos de `nativos_listas.rs`,
+// docs/NATIVO-ESPACO-UNIFICADO.md §4.9) ───────────────────────────────────────
+
+/// `ClassID.getID(o)`: o cid do valor (`ClassID_getID`; o emissor o faz em
+/// linha por `@df.classe`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_ClassID_getID(o: i64) -> i64 {
+    dartforge_value_class(o)
+}
+
+/// `identical(a, b)` (`Identical_comparison`; o lowering o faz em linha por
+/// `@df.identico`, `lower/caixas.rs`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Identical_comparison(a: i64, b: i64) -> u8 {
+    dartforge_identical(a, b)
+}
+
+/// O receptor de um tear-off de método: o único campo `Ref` do `_Contexto` de
+/// um campo só (`AllocEnv [receptor]`, `lower/closures.rs`). Uma closure de
+/// ambiente direto ou com outro contexto não tem receptor (só é igual a si
+/// mesma).
+fn receptor_do_tearoff(heap: &Heap, c: &crate::caixas::ClosureRef) -> Option<i64> {
+    let (ctx, e_ref) = c.contexto;
+    if !e_ref || !crate::heap::e_objeto(ctx) || heap.classe(ctx) != crate::layout::cid::CONTEXTO {
+        return None;
     }
-    // Com o SDK da fonte (P5c), os valores do runtime têm a classe do SDK
-    // que representam (`_Smi`, `_OneByteString`, `_GrowableList`…).
-    if let Some(cid) = cid_do_runtime(handle) {
-        return cid;
+    let o = heap.objeto(ctx)?;
+    match (o.len(), o.get(0)) {
+        (1, Some((r, true))) => Some(r),
+        _ => None,
     }
-    // null tem classe própria (`Null`): os testes de tipo sobre `Ref`
-    // perguntam a classe sem precisar desviar antes (R, testar_tipo).
-    if handle == 0 {
-        return -12;
-    }
-    // Um `Smi` é um `int` (a mesma classe do `_Mint`, R10).
-    if crate::heap::smi::e_smi(handle) {
-        return -9;
+}
+
+/// `_Closure.==` (`Closure_equals`): a mesma função e o mesmo receptor (o
+/// tear-off de um método sobre o mesmo objeto); closures comuns só são
+/// iguais a si mesmas.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Closure_equals(this: i64, outro: i64) -> u8 {
+    if this == outro {
+        return 1;
     }
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        if let Some(cid) = heap.classe_do_objeto(handle) {
-            return cid;
+        let (Some(a), Some(b)) = (heap.closure(this), heap.closure(outro)) else { return 0 };
+        if a.codigo != b.codigo {
+            return 0;
         }
-        match heap.get(handle) {
-            Value::Objeto => unreachable!("objeto conferido acima"),
-            Value::TypedData { class_id, .. } | Value::TypedView { class_id, .. } => *class_id,
-            Value::String(_) => -2,
-            Value::StringBuffer(_) => -8,
-            Value::List(_) => -3,
-            Value::Map(_) => -4,
-            Value::Set(_) => -5,
-            Value::Closure(_) => -6,
-            Value::BoxedInt(_) => -9,
-            Value::BoxedDouble(_) => -10,
-            Value::BoxedBool(_) => -11,
-            Value::Record(_) => -7,
-            Value::Cell(_) | Value::Environment(_) | Value::RegExp(_) | Value::Match(_) => -1,
+        match (receptor_do_tearoff(&heap, &a), receptor_do_tearoff(&heap, &b)) {
+            (Some(x), Some(y)) => u8::from(x == y),
+            _ => 0,
         }
     })
 }
 
-/// Cria um novo Record no heap a partir de um array plano de pares (bits, tag).
+/// `_Closure._computeHash` (`Closure_computeHash`): coerente com o
+/// `Closure_equals` — a função e, no tear-off de um método, o receptor.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_record_new(pairs: *const i64, len: i64) -> i64 {
-    let len = usize::try_from(len).expect("comprimento inválido");
-    let items = if len == 0 {
-        Vec::new()
-    } else {
-        let raw = unsafe { std::slice::from_raw_parts(pairs, len * 2) };
-        raw.chunks_exact(2)
-            .map(|chunk| tagged(chunk[0], chunk[1] as u8))
-            .collect()
-    };
+pub extern "C" fn dartforge_nativo_Closure_computeHash(this: i64) -> i64 {
     HEAP.with(|heap| {
-        let mut heap = heap.borrow_mut();
-        let items: Vec<TaggedValue> = items.into_iter().map(|v| heap.normalizar(v)).collect();
-        heap.allocate(Value::Record(items))
+        let heap = heap.borrow();
+        let Some(c) = heap.closure(this) else { return 0 };
+        let mut h = (c.codigo as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        if let Some(r) = receptor_do_tearoff(&heap, &c) {
+            h ^= (r as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F);
+        }
+        // Um `Smi` positivo de 30 bits, como o hash da VM.
+        ((h >> 34) & 0x3FFF_FFFF) as i64
+    })
+}
+
+/// `_Record._numFields`: quantos campos (o record posicional do runtime).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_record_numFields(this: i64) -> i64 {
+    HEAP.with(|heap| heap.borrow().record(this).map_or(0, |c| c.len() as i64))
+}
+
+/// `_Record._shape`: a forma — para o record posicional, o número de campos.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_record_shape(this: i64) -> i64 {
+    dartforge_nativo_DartForge_record_numFields(this)
+}
+
+/// `_Record._fieldNames`: os nomes (nenhum no record posicional): uma
+/// `_ImmutableList` vazia.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_record_fieldNames(_this: i64) -> i64 {
+    HEAP.with(|heap| heap.borrow_mut().nova_lista(crate::layout::cid::IMMUTABLE_LIST, 0, crate::listas::Elemento::Geral))
+}
+
+/// `_Record._fieldAt(i)`: o campo (já em posição `Ref`), ou null fora da forma.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_record_fieldAt(this: i64, i: i64) -> i64 {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let campos = heap.record(this);
+        usize::try_from(i).ok().and_then(|i| campos.and_then(|c| c.get(i).copied())).unwrap_or(0)
+    })
+}
+
+/// `Object._getHash`/`identityHashCode` (`Object_getHash`, §2.10): o `int` é o
+/// próprio valor; `true`/`false`, as constantes da VM (1231/1237); a `String`,
+/// o hash do conteúdo (o `_identityHashCode` da VM é o `String_getHashCode`);
+/// os demais objetos, o hash de identidade do cabeçalho
+/// (`Heap::hash_de_identidade`, estável porque o coletor não move).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Object_getHash(o: i64) -> i64 {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        match heap.valor(o) {
+            crate::heap::Valor::Int(i) => return i,
+            crate::heap::Valor::Bool(b) => return if b { 1231 } else { 1237 },
+            _ => {}
+        }
+        if o == 0 {
+            return 2011;
+        }
+        if heap.e_texto(o) {
+            return heap.hash_de_texto(o).map_or(0, i64::from);
+        }
+        heap.hash_de_identidade(o).unwrap_or((o >> 3) & 0x3fff_ffff)
     })
 }

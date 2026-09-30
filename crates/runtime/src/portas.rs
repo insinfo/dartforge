@@ -7,10 +7,17 @@
 //   (as portas nativas, como a do IOService), que recebe a mensagem na
 //   thread de quem enviou.
 // * Enviar copia a mensagem para um grafo portátil (`Grafo`), que o destino
-//   materializa no próprio heap. É a semântica da VM: o que é mutável é
-//   copiado; o que é profundamente imutável e permanente (constantes,
-//   enums, tear-offs de topo, literais, strings) passa pela identidade
-//   quando a mensagem fica no mesmo isolado.
+//   materializa no próprio heap. É a semântica da VM
+//   (`object_graph_copy.cc`): o que é mutável é copiado; o que é
+//   profundamente imutável e permanente passa pela identidade — os objetos
+//   estáticos da imagem (as caixas de `bool`, os literais de string do AOT)
+//   em qualquer isolado do processo; constantes, enums, tear-offs de topo e
+//   strings do heap quando a mensagem fica no mesmo isolado.
+// * O grafo copia blocos do espaço de objetos pelo formato do corpo
+//   (docs/NATIVO-ESPACO-UNIFICADO.md §2.12): `INSTANCIA` campo a campo com o
+//   bit de referência; `REFS` pela palavra 0 e as referências; `BRUTO` cru,
+//   menos o que aponta para dentro de si ou para fora do heap (lista tipada,
+//   visão, anexo), que o destino refaz.
 // * A fila do isolado guarda (porta, grafo, chegada). O laço de eventos
 //   (`eventos.rs`) atende timers e mensagens pela ordem de chegada — na VM o
 //   timer também é uma mensagem —, e esvazia as microtarefas depois de
@@ -19,13 +26,18 @@
 //   `_handleMessage` da VM), que lê a porta e a mensagem correntes.
 // * O isolado vive enquanto tiver porta aberta com `keepIsolateAlive`.
 
-/// Um valor dentro de um grafo portátil.
+/// Uma palavra dentro de um grafo portátil (uma referência ou os bits de um
+/// campo escalar, no destino).
 #[derive(Clone, Copy, Debug)]
 enum ValG {
-    /// Escalar (int, double, bool) com a tag, ou `Smi`/null numa posição Ref.
-    Bits(i64, bool, ValueTag),
+    /// Uma palavra que não aponta para o heap: `null`, um `Smi` numa posição
+    /// `Ref`, ou os bits de um campo escalar.
+    Palavra(i64),
     /// O nó `i` do grafo.
     No(usize),
+    /// Um objeto estático da imagem (`PERMANENTE`): o mesmo endereço em todo
+    /// isolado do processo, nunca coletado nem gravado.
+    Estatico(i64),
     /// Um objeto permanente do heap de origem, passado pela identidade (só
     /// quando origem e destino são o mesmo isolado).
     Mesmo(i64),
@@ -38,36 +50,42 @@ enum ValG {
     TearOff(i64),
 }
 
-/// Um nó do grafo: a forma de um `Value` do heap, com as referências
-/// trocadas por `ValG`, e as marcas das tabelas laterais do objeto.
+/// Um nó do grafo: um bloco do espaço de objetos copiado pelo formato, com as
+/// referências trocadas por `ValG`.
 #[derive(Clone, Debug)]
 enum NoG {
-    String(Texto),
-    StringBuffer(Vec<u16>),
-    RegExp(Texto),
-    Match(Texto),
-    Object { class_id: i64, fields: Vec<ValG> },
-    Cell(ValG),
-    Environment(Vec<ValG>),
-    Closure { code_id: i64, environment: ValG, tipado: i64, abi: i64 },
-    List { itens: Vec<ValG>, fixa: bool, imutavel: bool, pendente: Option<usize> },
-    Map(Vec<(ValG, ValG)>, bool),
-    Set(Vec<ValG>, bool),
-    Record(Vec<ValG>),
-    BoxedInt(i64),
-    BoxedDouble(f64),
-    BoxedBool(bool),
-    TypedData { class_id: i64, tipo: u8, bytes: Vec<u8> },
-    TypedView { class_id: i64, tipo: u8, base: ValG, deslocamento: usize, comprimento: usize, imutavel: bool },
-    /// Uma `Uint8List` montada fora do heap (as respostas dos serviços
-    /// nativos): a classe sai de `CIDS_DO_RUNTIME` no isolado que a recebe.
-    Bytes(Vec<u8>),
-    /// Uma lista tipada montada fora do heap (`Dart_PostCObject` com
-    /// `kTypedData`): a classe sai do tipo, no isolado que a recebe.
-    Tipada(u8, Vec<u8>),
-    /// Um objeto do runtime de um campo inteiro (`SendPort`, `Capability`
-    /// vindos do C): a classe é a da posição `pos` de `CIDS_DO_RUNTIME`.
-    DoRuntime { pos: usize, id: i64 },
+    /// Um objeto `INSTANCIA` (do programa, ou do runtime: `_GrowableList`,
+    /// `_Closure`, `_Contexto`, `_Celula`, `_SendPort`…): a classe e os campos,
+    /// com o bit de referência de cada um.
+    Instancia { cid: i32, campos: Vec<(ValG, bool)> },
+    /// Um corpo `REFS` (`_List`/`_ImmutableList` geral, `_Record`): a palavra 0
+    /// (o comprimento ou a forma) e as referências.
+    Refs { cid: i32, palavra0: i64, refs: Vec<ValG> },
+    /// Uma `_List`/`_ImmutableList` compacta (`BRUTO` com `ELEMENTO`): os
+    /// elementos crus (`i64`, bits de `f64` ou 0/1).
+    Compacta { cid: i32, forma: crate::listas::Elemento, elementos: Vec<i64> },
+    /// Um corpo `BRUTO` sem ponteiro para dentro de si nem para fora do heap
+    /// (`_Mint`, `_Double`, SIMD): as palavras e os `flags`, copiados crus.
+    Bruto { cid: i32, flags: u8, palavras: Box<[i64]> },
+    /// Uma string (a forma canônica é refeita no destino).
+    Texto(Texto),
+    /// O acumulador de um `StringBuffer` (`_AcumuladorDeTexto`, `ANEXO`): as
+    /// unidades, que moram fora do heap.
+    Acumulador(Vec<u16>),
+    /// O programa de um `RegExp` (`_ProgramaDeRegExp`, `ANEXO`): o padrão e as
+    /// opções, recompilado no destino (`regexp.rs`).
+    ProgramaRe { fonte: Vec<u16>, opcoes: [bool; 4] },
+    /// Uma lista tipada interna ou externa (`EXTERNO`): os bytes, copiados
+    /// numa interna no destino (a VM copia a externa para memória nova,
+    /// `object_graph_copy.cc`).
+    Tipada { tipo: u8, bytes: Vec<u8> },
+    /// Uma visão: a base (copiada) e o deslocamento; o endereço dos dados é
+    /// recalculado no destino.
+    Visao { cid: i32, base: ValG, deslocamento: usize, len: usize },
+    /// Um objeto do runtime de um campo inteiro vindo de fora do heap
+    /// (`SendPort`, `Capability` do C): a classe é a da posição `pos` da
+    /// cid fixo (`layout::cid`, `_SendPort`/`_Capability`).
+    DoRuntime { cid: i32, id: i64 },
 }
 
 /// Uma mensagem copiada: os nós (com o metadado RTI de cada um) e a raiz.
@@ -90,37 +108,33 @@ pub struct Grafo {
 /// Por que uma mensagem não pode ser enviada.
 pub struct MensagemIlegal(pub String);
 
-fn val_de_tagged(v: TaggedValue, mapa: &mut crate::hash::HashMap<i64, usize>, pilha: &mut Vec<i64>, nos: &mut Vec<(NoG, i64)>, compartilhar: bool) -> ValG {
-    if !v.is_ref || !smi::e_handle(v.bits) {
-        return ValG::Bits(v.bits, v.is_ref, v.tag);
+/// A palavra `h` (numa posição `Ref`) no grafo: imediata, estática, pela
+/// identidade, canônica, ou o nó do objeto (reservado agora e preenchido
+/// quando `h` sai da pilha).
+fn ref_de_handle(heap: &Heap, h: i64, mapa: &mut crate::hash::HashMap<i64, usize>, pilha: &mut Vec<i64>, nos: &mut Vec<(NoG, i64)>, compartilhar: bool) -> ValG {
+    if !crate::layout::e_objeto(h) {
+        return ValG::Palavra(h);
     }
-    ref_de_handle(v.bits, mapa, pilha, nos, compartilhar)
-}
-
-fn ref_de_handle(h: i64, mapa: &mut crate::hash::HashMap<i64, usize>, pilha: &mut Vec<i64>, nos: &mut Vec<(NoG, i64)>, compartilhar: bool) -> ValG {
-    if !smi::e_handle(h) {
-        return ValG::Bits(h, true, ValueTag::Ref);
+    if heap.e_estatico(h) {
+        return ValG::Estatico(h);
     }
     if compartilhar {
-        let permanente = HEAP.with(|heap| {
-            let heap = heap.borrow();
-            heap.e_permanente(h) || matches!(heap.try_get(h), Some(Value::String(_)))
-        });
-        if permanente {
+        if heap.e_permanente(h) || heap.e_texto(h) {
             return ValG::Mesmo(h);
         }
-    } else {
-        let canonico = HEAP.with(|heap| {
-            let heap = heap.borrow();
-            if let Some(g) = heap.getter_da_constante(h) {
-                Some(ValG::Constante(g))
-            } else {
-                heap.codigo_do_tearoff(h).map(ValG::TearOff)
-            }
-        });
-        if let Some(v) = canonico {
-            return v;
-        }
+    } else if let Some(g) = heap.getter_da_constante(h) {
+        return ValG::Constante(g);
+    } else if let Some(c) = heap.codigo_do_tearoff(h) {
+        return ValG::TearOff(c);
+    }
+    let c = *heap.cabecalho(h);
+    // Um anexo nativo que o grafo não sabe copiar (só o acumulador do
+    // `StringBuffer` e o programa do `RegExp` têm cópia) chega como `null`.
+    if c.flags & crate::layout::flags::ANEXO != 0
+        && c.class_id != crate::layout::cid::ACUMULADOR_DE_TEXTO
+        && c.class_id != crate::layout::cid::PROGRAMA_DE_REGEXP
+    {
+        return ValG::Palavra(0);
     }
     if let Some(&i) = mapa.get(&h) {
         return ValG::No(i);
@@ -128,7 +142,7 @@ fn ref_de_handle(h: i64, mapa: &mut crate::hash::HashMap<i64, usize>, pilha: &mu
     let i = nos.len();
     mapa.insert(h, i);
     // Reserva o nó; o conteúdo é preenchido quando `h` sai da pilha.
-    nos.push((NoG::BoxedBool(false), 0));
+    nos.push((NoG::Acumulador(Vec::new()), 0));
     pilha.push(h);
     ValG::No(i)
 }
@@ -154,6 +168,96 @@ thread_local! {
     static ULTIMA_RECUSA: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
+/// As unidades do acumulador de texto `h` (`_AcumuladorDeTexto`): o anexo em
+/// `b+16` é um `Box<Vec<u16>>` (docs/NATIVO-ESPACO-UNIFICADO.md §2.5).
+fn unidades_do_acumulador(heap: &Heap, h: i64) -> Vec<u16> {
+    let p = heap.anexo(h) as *const Vec<u16>;
+    if p.is_null() {
+        return Vec::new();
+    }
+    // SAFETY: o anexo de um `_AcumuladorDeTexto` vivo é o `Vec<u16>` dele,
+    // solto só quando o bloco morre; o empréstimo do heap o mantém.
+    #[allow(unsafe_code)]
+    unsafe {
+        (*p).clone()
+    }
+}
+
+/// Os elementos de uma `_List`/`_ImmutableList` como nó do grafo, pela forma.
+fn no_da_lista_fixa(heap: &Heap, h: i64, classe: i32, v: &mut dyn FnMut(i64) -> ValG) -> NoG {
+    use crate::listas::{Elemento, ElementosRef};
+    match heap.lista_elementos(h) {
+        ElementosRef::Geral(e) => NoG::Refs { cid: classe, palavra0: e.len() as i64, refs: e.iter().map(|&x| v(x)).collect() },
+        ElementosRef::Int(e) => NoG::Compacta { cid: classe, forma: Elemento::Int, elementos: e.to_vec() },
+        ElementosRef::Double(e) => NoG::Compacta { cid: classe, forma: Elemento::Double, elementos: e.iter().map(|d| d.to_bits() as i64).collect() },
+        ElementosRef::Bool(e) => NoG::Compacta { cid: classe, forma: Elemento::Bool, elementos: e.to_vec() },
+    }
+}
+
+/// O nó do bloco `h` (já conferido: nem imediato, nem estático, nem anexo de
+/// programa). `v` traduz cada referência encontrada.
+fn no_do_bloco(heap: &Heap, h: i64, v: &mut dyn FnMut(i64) -> ValG, transferidos: &mut Vec<i64>) -> Result<NoG, MensagemIlegal> {
+    use crate::layout::{cid, flags};
+    let c = *heap.cabecalho(h);
+    let classe = c.class_id;
+    let forma = c.flags & flags::FORMA;
+    if forma == flags::INSTANCIA {
+        if cid::e_tipada(classe) {
+            // Visão (`INSTANCIA`, cids 36–65): a base e o deslocamento.
+            let t = heap.tipada(h).expect("visão viva");
+            return Ok(NoG::Visao { cid: classe, base: v(t.base.unwrap_or(0)), deslocamento: t.deslocamento, len: t.len });
+        }
+        let objeto = heap.objeto(h).expect("objeto vivo");
+        let class_id = objeto.class_id;
+        let campos = objeto.to_vec();
+        if let Some(d) = NAO_ENVIAVEIS.with(|n| n.borrow().get(&class_id).cloned()) {
+            return Err(MensagemIlegal(d));
+        }
+        if classes_transferiveis().contains(&class_id) {
+            if campos.first().is_none_or(|f| f.0 == 0) {
+                return Err(MensagemIlegal("(TransferableTypedData has been transferred already)\n".to_string()));
+            }
+            transferidos.push(h);
+        }
+        let campos = campos.iter().map(|&(bits, e_ref)| (if e_ref { v(bits) } else { ValG::Palavra(bits) }, e_ref)).collect();
+        return Ok(NoG::Instancia { cid: classe, campos });
+    }
+    if forma == flags::REFS {
+        if cid::e_lista_fixa(classe) {
+            return Ok(no_da_lista_fixa(heap, h, classe, v));
+        }
+        if classe == cid::RECORD {
+            let campos = heap.record(h).expect("record vivo");
+            return Ok(NoG::Refs { cid: classe, palavra0: campos.len() as i64, refs: campos.iter().map(|&x| v(x)).collect() });
+        }
+        // Outro `REFS`: a palavra 0 é o número de referências.
+        let p = heap.palavras(h);
+        let n = usize::try_from(p[0]).unwrap_or(0).min(p.len().saturating_sub(1));
+        return Ok(NoG::Refs { cid: classe, palavra0: p[0], refs: p[1..=n].iter().map(|&x| v(x)).collect() });
+    }
+    // `BRUTO`.
+    if c.flags & flags::ANEXO != 0 {
+        if classe == cid::PROGRAMA_DE_REGEXP {
+            let (fonte, opcoes) = padrao_do_programa_re(heap, h);
+            return Ok(NoG::ProgramaRe { fonte, opcoes });
+        }
+        return Ok(NoG::Acumulador(unidades_do_acumulador(heap, h)));
+    }
+    if cid::e_texto(classe) {
+        return Ok(NoG::Texto(heap.texto(h).expect("string viva").para_texto()));
+    }
+    if cid::e_tipada(classe) {
+        let t = heap.tipada(h).expect("lista tipada viva");
+        let bytes = heap.bytes_da_tipada(h).map(<[u8]>::to_vec).unwrap_or_default();
+        return Ok(NoG::Tipada { tipo: t.tipo, bytes });
+    }
+    if cid::e_lista_fixa(classe) {
+        // Compacta: `lista_elementos` diz a forma.
+        return Ok(no_da_lista_fixa(heap, h, classe, v));
+    }
+    Ok(NoG::Bruto { cid: classe, flags: c.flags, palavras: heap.palavras(h).into() })
+}
+
 /// Copia o valor `raiz` (um valor numa posição `Ref`) para um grafo.
 /// `compartilhar`: o destino é este mesmo isolado.
 fn copiar_para_grafo(raiz: i64, compartilhar: bool) -> Result<Grafo, MensagemIlegal> {
@@ -162,74 +266,14 @@ fn copiar_para_grafo(raiz: i64, compartilhar: bool) -> Result<Grafo, MensagemIle
     let mut nos: Vec<(NoG, i64)> = Vec::new();
     let mut tipos = (!compartilhar).then(TiposDaMensagem::default);
     let mut transferidos: Vec<i64> = Vec::new();
-    let r = ref_de_handle(raiz, &mut mapa, &mut pilha, &mut nos, compartilhar);
+    let r = HEAP.with(|heap| ref_de_handle(&heap.borrow(), raiz, &mut mapa, &mut pilha, &mut nos, compartilhar));
     while let Some(h) = pilha.pop() {
         let i = mapa[&h];
         let r = HEAP.with(|heap| -> Result<(NoG, i64), MensagemIlegal> {
             let heap = heap.borrow();
-            let meta = heap.metadado(h);
-            let fixa = heap.fixas.contains(&h);
-            let imutavel = heap.imutaveis.contains(&h);
-            let pendente = match heap.get(h) {
-                Value::List(e) => e.logico(),
-                _ => None,
-            };
-            let mut v = |t: &TaggedValue| val_de_tagged(*t, &mut mapa, &mut pilha, &mut nos, compartilhar);
-            let no = match heap.get(h) {
-                Value::String(t) => NoG::String(t.clone()),
-                Value::StringBuffer(u) => NoG::StringBuffer(u.clone()),
-                Value::RegExp(t) => NoG::RegExp(t.clone()),
-                Value::Match(t) => NoG::Match(t.clone()),
-                Value::Objeto => {
-                    let objeto = heap.objeto(h).expect("objeto vivo");
-                    let class_id = &objeto.class_id;
-                    let fields = objeto.to_vec();
-                    if let Some(d) = NAO_ENVIAVEIS.with(|n| n.borrow().get(class_id).cloned()) {
-                        return Err(MensagemIlegal(d));
-                    }
-                    if classes_transferiveis().contains(class_id) {
-                        if fields.first().is_none_or(|f| f.0 == 0) {
-                            return Err(MensagemIlegal("(TransferableTypedData has been transferred already)\n".to_string()));
-                        }
-                        transferidos.push(h);
-                    }
-                    let fields = fields
-                        .iter()
-                        .map(|&(bits, is_ref)| {
-                            if is_ref {
-                                v(&TaggedValue::reference(bits))
-                            } else {
-                                ValG::Bits(bits, false, ValueTag::Int)
-                            }
-                        })
-                        .collect();
-                    NoG::Object { class_id: *class_id, fields }
-                }
-                Value::Cell(t) => NoG::Cell(v(t)),
-                Value::Environment(vs) => NoG::Environment(vs.iter().map(&mut v).collect()),
-                Value::Closure(c) => NoG::Closure {
-                    code_id: c.code_id,
-                    environment: v(&TaggedValue::reference(c.environment)),
-                    tipado: c.tipado,
-                    abi: c.abi,
-                },
-                Value::List(vs) => NoG::List { itens: vs.iter().map(|t| v(&t)).collect(), fixa, imutavel, pendente },
-                Value::Map(es) => NoG::Map(es.iter().map(|(a, b)| (v(a), v(b))).collect(), imutavel),
-                Value::Set(vs) => NoG::Set(vs.iter().map(&mut v).collect(), imutavel),
-                Value::Record(vs) => NoG::Record(vs.iter().map(&mut v).collect()),
-                Value::BoxedInt(x) => NoG::BoxedInt(*x),
-                Value::BoxedDouble(x) => NoG::BoxedDouble(*x),
-                Value::BoxedBool(x) => NoG::BoxedBool(*x),
-                Value::TypedData { class_id, tipo, bytes } => NoG::TypedData { class_id: *class_id, tipo: *tipo, bytes: bytes.to_vec() },
-                Value::TypedView { class_id, tipo, base, deslocamento, comprimento, imutavel } => NoG::TypedView {
-                    class_id: *class_id,
-                    tipo: *tipo,
-                    base: v(&TaggedValue::reference(*base)),
-                    deslocamento: *deslocamento,
-                    comprimento: *comprimento,
-                    imutavel: *imutavel,
-                },
-            };
+            let meta = i64::from(heap.cabecalho(h).metadado);
+            let mut v = |x: i64| ref_de_handle(&heap, x, &mut mapa, &mut pilha, &mut nos, compartilhar);
+            let no = no_do_bloco(&heap, h, &mut v, &mut transferidos)?;
             Ok((no, meta))
         });
         let (mut no, meta) = r?;
@@ -239,10 +283,11 @@ fn copiar_para_grafo(raiz: i64, compartilhar: bool) -> Result<Grafo, MensagemIle
             _ => meta,
         };
         // Um objeto `Type` leva o tipo pela tabela da mensagem.
-        if let (Some(t), NoG::Object { class_id: CLASSE_TIPO, fields }) = (tipos.as_mut(), &mut no)
-            && let Some(ValG::Bits(id, _, _)) = fields.first().copied()
+        if let (Some(t), NoG::Instancia { cid, campos }) = (tipos.as_mut(), &mut no)
+            && i64::from(*cid) == CLASSE_TIPO
+            && let Some((ValG::Palavra(id), _)) = campos.first().copied()
         {
-            fields[0] = ValG::Bits(t.exportar(id), false, ValueTag::Int);
+            campos[0] = (ValG::Palavra(t.exportar(id)), false);
         }
         nos[i] = (no, meta);
     }
@@ -263,7 +308,7 @@ fn copiar_para_grafo(raiz: i64, compartilhar: bool) -> Result<Grafo, MensagemIle
         let classes: std::collections::BTreeSet<i64> = nos
             .iter()
             .filter_map(|(no, _)| match no {
-                NoG::Object { class_id, .. } => Some(*class_id),
+                NoG::Instancia { cid, .. } => Some(i64::from(*cid)),
                 _ => None,
             })
             .collect();
@@ -281,31 +326,34 @@ impl Grafo {
         f(&self.raiz);
         for (no, _) in &self.nos {
             match no {
-                NoG::Object { fields, .. } => fields.iter().for_each(&mut f),
-                NoG::Cell(v) | NoG::Closure { environment: v, .. } | NoG::TypedView { base: v, .. } => f(v),
-                NoG::Environment(vs) | NoG::Set(vs, _) | NoG::Record(vs) | NoG::List { itens: vs, .. } => vs.iter().for_each(&mut f),
-                NoG::Map(es, _) => es.iter().for_each(|(a, b)| {
-                    f(a);
-                    f(b);
-                }),
-                NoG::String(_)
-                | NoG::StringBuffer(_)
-                | NoG::RegExp(_)
-                | NoG::Match(_)
-                | NoG::BoxedInt(_)
-                | NoG::BoxedDouble(_)
-                | NoG::BoxedBool(_)
-                | NoG::TypedData { .. }
-                | NoG::Bytes(_)
-                | NoG::Tipada(..)
+                NoG::Instancia { campos, .. } => campos.iter().for_each(|(v, _)| f(v)),
+                NoG::Refs { refs, .. } => refs.iter().for_each(&mut f),
+                NoG::Visao { base, .. } => f(base),
+                NoG::Compacta { .. }
+                | NoG::Bruto { .. }
+                | NoG::Texto(_)
+                | NoG::Acumulador(_)
+                | NoG::ProgramaRe { .. }
+                | NoG::Tipada { .. }
                 | NoG::DoRuntime { .. } => {}
             }
         }
     }
 
-    /// Um grafo de um valor só, sem referências (as respostas do runtime).
-    pub fn escalar(bits: i64, tag: ValueTag) -> Grafo {
-        Grafo { nos: Vec::new(), raiz: ValG::Bits(bits, false, tag), origem: 0, tipos: None, tabelas: Vec::new() }
+    /// Um grafo de um valor só, sem nó (as respostas do runtime): `null` ou
+    /// um `Smi`.
+    fn imediato(r: i64) -> Grafo {
+        Grafo { nos: Vec::new(), raiz: ValG::Palavra(r), origem: 0, tipos: None, tabelas: Vec::new() }
+    }
+
+    /// O grafo de `null`.
+    pub fn nulo() -> Grafo {
+        Grafo::imediato(0)
+    }
+
+    /// O grafo do `int` `v`.
+    pub fn de_int(v: i64) -> Grafo {
+        Portavel::Int(v).para_grafo()
     }
 }
 
@@ -327,7 +375,7 @@ pub enum Portavel {
     /// Uma lista tipada de elementos `tipo` (os `TIPO_*` do runtime).
     Tipada(u8, Vec<u8>),
     /// Um objeto do runtime de um campo inteiro (ver [`NoG::DoRuntime`]).
-    DoRuntime { pos: usize, id: i64 },
+    DoRuntime { cid: i32, id: i64 },
     Objeto(Vec<Portavel>),
 }
 
@@ -364,115 +412,204 @@ impl Portavel {
     }
 }
 
+/// Um objeto estático da imagem (`ValG::Estatico`) lido sem heap: as caixas
+/// de `bool` e os literais de string (o bloco é constante e vive o processo
+/// inteiro; `layout` dá os deslocamentos).
+fn portavel_de_estatico(h: i64) -> Portavel {
+    use crate::layout::{DESLOCAMENTO_DO_HANDLE, cid, desl};
+    let b = (h - DESLOCAMENTO_DO_HANDLE) as *const u8;
+    // SAFETY: `h` é o handle de um objeto estático (conferido na cópia), um
+    // bloco constante da seção da imagem com o cabeçalho e o corpo inteiros.
+    #[allow(unsafe_code)]
+    unsafe {
+        let c = *(b as *const crate::layout::Cabecalho);
+        let palavra = |d: usize| *(b.add(d) as *const i64);
+        match c.class_id {
+            cid::BOOL => Portavel::Bool(palavra(desl::VALOR) != 0),
+            cid::ONE_BYTE_STRING => {
+                let n = palavra(desl::COMPRIMENTO) as usize;
+                let u = std::slice::from_raw_parts(b.add(desl::UNIDADES), n);
+                Portavel::Str(u.iter().map(|&x| char::from(x)).collect())
+            }
+            cid::TWO_BYTE_STRING => {
+                let n = palavra(desl::COMPRIMENTO) as usize;
+                let u = std::slice::from_raw_parts(b.add(desl::UNIDADES) as *const u16, n);
+                Portavel::Str(String::from_utf16_lossy(u))
+            }
+            _ => Portavel::Nulo,
+        }
+    }
+}
+
 impl Grafo {
     /// O grafo lido como [`Portavel`] (numa thread sem heap Dart). Um ciclo,
     /// que as mensagens dos serviços nunca têm, vira `Nulo` na volta.
     pub fn para_portavel(&self) -> Portavel {
-        fn val(g: &Grafo, v: &ValG, visitando: &mut Vec<bool>) -> Portavel {
+        /// A palavra `v`; `e_ref` diz se ela está numa posição `Ref` (senão,
+        /// os bits de um campo escalar, lidos como `int`).
+        fn val(g: &Grafo, v: &ValG, e_ref: bool, visitando: &mut Vec<bool>) -> Portavel {
             match *v {
-                ValG::Bits(bits, is_ref, tag) => match tag {
-                    ValueTag::Int => Portavel::Int(bits),
-                    ValueTag::Bool => Portavel::Bool(bits != 0),
-                    ValueTag::Double => Portavel::Double(f64::from_bits(bits as u64)),
-                    ValueTag::Ref if bits == 0 => Portavel::Nulo,
-                    ValueTag::Ref if is_ref && smi::e_smi(bits) => Portavel::Int(smi::valor(bits)),
-                    ValueTag::Ref => Portavel::Nulo,
-                },
+                ValG::Palavra(bits) if !e_ref => Portavel::Int(bits),
+                ValG::Palavra(0) => Portavel::Nulo,
+                ValG::Palavra(bits) if smi::e_smi(bits) => Portavel::Int(smi::valor(bits)),
+                ValG::Palavra(_) => Portavel::Nulo,
+                ValG::Estatico(h) => portavel_de_estatico(h),
                 ValG::Mesmo(_) | ValG::Constante(_) | ValG::TearOff(_) => Portavel::Nulo,
                 ValG::No(i) => {
                     if visitando[i] {
                         return Portavel::Nulo;
                     }
                     visitando[i] = true;
-                    let r = match &g.nos[i].0 {
-                        NoG::String(t) => Portavel::Str(t.para_string()),
-                        NoG::BoxedInt(x) => Portavel::Int(*x),
-                        NoG::BoxedDouble(x) => Portavel::Double(*x),
-                        NoG::BoxedBool(b) => Portavel::Bool(*b),
-                        NoG::List { itens, pendente, .. } => {
-                            let n = pendente.unwrap_or(itens.len()).min(itens.len());
-                            Portavel::Lista(itens[..n].iter().map(|x| val(g, x, visitando)).collect())
-                        }
-                        NoG::TypedData { bytes, .. } | NoG::Bytes(bytes) | NoG::Tipada(_, bytes) => Portavel::Bytes(bytes.clone()),
-                        NoG::DoRuntime { pos, id } => Portavel::DoRuntime { pos: *pos, id: *id },
-                        NoG::TypedView { tipo, base, deslocamento, comprimento, .. } => {
-                            let n = comprimento * tamanho_do_elemento(*tipo);
-                            match val(g, base, visitando) {
-                                Portavel::Bytes(b) => Portavel::Bytes(b[(*deslocamento).min(b.len())..(deslocamento + n).min(b.len())].to_vec()),
-                                _ => Portavel::Nulo,
-                            }
-                        }
-                        NoG::Object { fields, .. } => Portavel::Objeto(fields.iter().map(|x| val(g, x, visitando)).collect()),
-                        _ => Portavel::Nulo,
-                    };
+                    let r = no(g, &g.nos[i].0, visitando);
                     visitando[i] = false;
                     r
                 }
             }
         }
+        fn no(g: &Grafo, n: &NoG, visitando: &mut Vec<bool>) -> Portavel {
+            use crate::layout::cid;
+            use crate::listas::Elemento;
+            match n {
+                NoG::Texto(t) => Portavel::Str(t.para_string()),
+                NoG::Bruto { cid: cid::MINT, palavras, .. } => Portavel::Int(palavras.first().copied().unwrap_or(0)),
+                NoG::Bruto { cid: cid::DOUBLE, palavras, .. } => Portavel::Double(f64::from_bits(palavras.first().copied().unwrap_or(0) as u64)),
+                NoG::Refs { cid: c, refs, .. } if cid::e_lista_fixa(*c) => Portavel::Lista(refs.iter().map(|x| val(g, x, true, visitando)).collect()),
+                NoG::Compacta { forma, elementos, .. } => Portavel::Lista(
+                    elementos
+                        .iter()
+                        .map(|&x| match forma {
+                            Elemento::Double => Portavel::Double(f64::from_bits(x as u64)),
+                            Elemento::Bool => Portavel::Bool(x != 0),
+                            _ => Portavel::Int(x),
+                        })
+                        .collect(),
+                ),
+                NoG::Instancia { cid: cid::GROWABLE_LIST, campos } => {
+                    // O comprimento (campo 0, bruto) e o armazenamento (campo 1).
+                    let n = match campos.first() {
+                        Some((ValG::Palavra(n), false)) => usize::try_from(*n).unwrap_or(0),
+                        _ => 0,
+                    };
+                    match campos.get(1).map(|(d, _)| val(g, d, true, visitando)) {
+                        Some(Portavel::Lista(mut itens)) => {
+                            itens.truncate(n);
+                            Portavel::Lista(itens)
+                        }
+                        _ => Portavel::Lista(Vec::new()),
+                    }
+                }
+                NoG::Instancia { campos, .. } => Portavel::Objeto(campos.iter().map(|(x, e_ref)| val(g, x, *e_ref, visitando)).collect()),
+                NoG::Tipada { bytes, .. } => Portavel::Bytes(bytes.clone()),
+                NoG::DoRuntime { cid, id } => Portavel::DoRuntime { cid: *cid, id: *id },
+                NoG::Visao { cid: c, base, deslocamento, len } => {
+                    let tipo = if *c >= cid::BYTE_DATA_VIEW { TIPO_UINT8 } else { ((*c - cid::PRIMEIRA_VISAO) % cid::TIPOS_DE_ELEMENTO) as u8 };
+                    let n = len * tamanho_do_elemento(tipo);
+                    match val(g, base, true, visitando) {
+                        Portavel::Bytes(b) => Portavel::Bytes(b[(*deslocamento).min(b.len())..(deslocamento + n).min(b.len())].to_vec()),
+                        _ => Portavel::Nulo,
+                    }
+                }
+                _ => Portavel::Nulo,
+            }
+        }
         let mut visitando = vec![false; self.nos.len()];
-        val(self, &self.raiz, &mut visitando)
+        val(self, &self.raiz, true, &mut visitando)
     }
 }
 
 impl Portavel {
     /// O grafo deste valor.
     pub fn para_grafo(&self) -> Grafo {
+        fn no(n: NoG, nos: &mut Vec<(NoG, i64)>) -> ValG {
+            nos.push((n, 0));
+            ValG::No(nos.len() - 1)
+        }
         fn val(p: &Portavel, nos: &mut Vec<(NoG, i64)>) -> ValG {
+            use crate::layout::{cid, flags};
             match p {
-                Portavel::Nulo => ValG::Bits(0, true, ValueTag::Ref),
-                Portavel::Bool(b) => {
-                    let i = nos.len();
-                    nos.push((NoG::BoxedBool(*b), 0));
-                    ValG::No(i)
-                }
+                Portavel::Nulo | Portavel::Objeto(_) => ValG::Palavra(0),
+                Portavel::Bool(b) => ValG::Estatico(Heap::caixa_bool(*b)),
                 Portavel::Int(x) => match smi::de(*x) {
-                    Some(r) => ValG::Bits(r, true, ValueTag::Ref),
-                    None => {
-                        let i = nos.len();
-                        nos.push((NoG::BoxedInt(*x), 0));
-                        ValG::No(i)
-                    }
+                    Some(r) => ValG::Palavra(r),
+                    None => no(NoG::Bruto { cid: cid::MINT, flags: flags::BRUTO, palavras: Box::new([*x]) }, nos),
                 },
-                Portavel::Double(x) => {
-                    let i = nos.len();
-                    nos.push((NoG::BoxedDouble(*x), 0));
-                    ValG::No(i)
-                }
-                Portavel::Str(s) => {
-                    let i = nos.len();
-                    nos.push((NoG::String(Texto::de_str(s)), 0));
-                    ValG::No(i)
-                }
+                Portavel::Double(x) => no(NoG::Bruto { cid: cid::DOUBLE, flags: flags::BRUTO, palavras: Box::new([x.to_bits() as i64]) }, nos),
+                Portavel::Str(s) => no(NoG::Texto(Texto::de_str(s)), nos),
                 Portavel::Lista(itens) => {
                     let i = nos.len();
-                    nos.push((NoG::BoxedBool(false), 0));
-                    let vs: Vec<ValG> = itens.iter().map(|x| val(x, nos)).collect();
-                    nos[i] = (NoG::List { itens: vs, fixa: true, imutavel: false, pendente: None }, 0);
+                    nos.push((NoG::Acumulador(Vec::new()), 0));
+                    let refs: Vec<ValG> = itens.iter().map(|x| val(x, nos)).collect();
+                    nos[i] = (NoG::Refs { cid: cid::LIST, palavra0: refs.len() as i64, refs }, 0);
                     ValG::No(i)
                 }
-                Portavel::Bytes(b) => {
-                    let i = nos.len();
-                    nos.push((NoG::Bytes(b.clone()), 0));
-                    ValG::No(i)
-                }
-                Portavel::Tipada(tipo, b) => {
-                    let i = nos.len();
-                    nos.push((NoG::Tipada(*tipo, b.clone()), 0));
-                    ValG::No(i)
-                }
-                Portavel::DoRuntime { pos, id } => {
-                    let i = nos.len();
-                    nos.push((NoG::DoRuntime { pos: *pos, id: *id }, 0));
-                    ValG::No(i)
-                }
-                // Um objeto só existe em grafos que vieram do heap.
-                Portavel::Objeto(_) => ValG::Bits(0, true, ValueTag::Ref),
+                Portavel::Bytes(b) => no(NoG::Tipada { tipo: TIPO_UINT8, bytes: b.clone() }, nos),
+                Portavel::Tipada(tipo, b) => no(NoG::Tipada { tipo: *tipo, bytes: b.clone() }, nos),
+                Portavel::DoRuntime { cid, id } => no(NoG::DoRuntime { cid: *cid, id: *id }, nos),
             }
         }
         let mut nos = Vec::new();
         let raiz = val(self, &mut nos);
         Grafo { nos, raiz, origem: 0, tipos: None, tabelas: Vec::new() }
+    }
+}
+
+/// Aloca, no heap deste isolado, o bloco vazio do nó `no` (as referências
+/// ficam para depois: o grafo pode ter ciclos). `None` para a visão, que
+/// precisa da base já alocada, e para os anexos (acumulador, programa de
+/// `RegExp`), que o runtime cria fora do empréstimo do heap
+/// ([`alocar_anexo`]).
+fn alocar_no(heap: &mut Heap, no: &NoG) -> Option<i64> {
+    use crate::layout::{cid, flags};
+    Some(match no {
+        NoG::Instancia { cid: c, campos } => {
+            let vazios: Vec<crate::heap::Campo> = campos.iter().map(|&(_, e_ref)| (0, e_ref)).collect();
+            heap.novo_objeto(i64::from(*c), &vazios)
+        }
+        NoG::Refs { cid: c, palavra0, refs } => {
+            if cid::e_lista_fixa(*c) {
+                heap.nova_lista(*c, refs.len(), crate::listas::Elemento::Geral)
+            } else if *c == cid::RECORD {
+                heap.novo_record(&vec![0; refs.len()])
+            } else {
+                let h = heap.alocar(*c, 1 + refs.len(), flags::REFS);
+                heap.palavras_mut(h)[0] = *palavra0;
+                h
+            }
+        }
+        NoG::Compacta { cid: c, forma, elementos } => {
+            let h = heap.nova_lista(*c, elementos.len(), *forma);
+            // Antes de publicar: sem barreira (e são escalares).
+            heap.palavras_mut(h)[1..=elementos.len()].copy_from_slice(elementos);
+            h
+        }
+        NoG::Bruto { cid: c, flags: f, palavras } => {
+            let h = heap.alocar(*c, palavras.len(), *f);
+            heap.palavras_mut(h).copy_from_slice(palavras);
+            h
+        }
+        NoG::Texto(t) => heap.alocar_texto(t.vista()),
+        NoG::Tipada { tipo, bytes } => {
+            let tipo = if *tipo == TIPO_BYTE_DATA { TIPO_UINT8 } else { *tipo };
+            let h = heap.nova_tipada(tipo, bytes.len() / tamanho_do_elemento(tipo));
+            if let Some(b) = heap.bytes_da_tipada_mut(h) {
+                let n = b.len().min(bytes.len());
+                b[..n].copy_from_slice(&bytes[..n]);
+            }
+            h
+        }
+        NoG::DoRuntime { cid, id } => heap.novo_objeto(i64::from(*cid), &[(*id, false)]),
+        NoG::Visao { .. } | NoG::Acumulador(_) | NoG::ProgramaRe { .. } => return None,
+    })
+}
+
+/// O bloco de um nó com anexo nativo (o acumulador do `StringBuffer`, o
+/// programa do `RegExp`), criado pelo dono do anexo (`nativos_strings.rs`,
+/// `regexp.rs`), que empresta o heap ele mesmo. `None` para os outros nós.
+fn alocar_anexo(no: &NoG) -> Option<i64> {
+    match no {
+        NoG::Acumulador(u) => Some(novo_acumulador_com(u.clone())),
+        NoG::ProgramaRe { fonte, opcoes } => Some(programa_re_de_padrao(fonte, *opcoes)),
+        _ => None,
     }
 }
 
@@ -496,8 +633,9 @@ fn materializar(g: &Grafo) -> i64 {
     let mut objetos_tipo: crate::hash::HashMap<usize, i64> = crate::hash::HashMap::default();
     if let Some(ids) = &ids_de_tipo {
         for (i, (no, _)) in g.nos.iter().enumerate() {
-            if let NoG::Object { class_id: CLASSE_TIPO, fields } = no
-                && let Some(ValG::Bits(k, _, _)) = fields.first()
+            if let NoG::Instancia { cid, campos } = no
+                && i64::from(*cid) == CLASSE_TIPO
+                && let Some((ValG::Palavra(k), _)) = campos.first()
             {
                 objetos_tipo.insert(i, dartforge_rti_objeto_tipo(ids[*k as usize]));
             }
@@ -523,163 +661,98 @@ fn materializar(g: &Grafo) -> i64 {
         }
         _ => {}
     });
+    // O quadro de raízes dos nós, e os nós com anexo nativo, que o runtime
+    // cria fora do empréstimo do heap (cada um enraizado logo que nasce).
+    let frame = HEAP.with(|heap| heap.borrow_mut().push_frame_with_slots(g.nos.len()));
+    let mut handles = vec![0i64; g.nos.len()];
+    for (i, (no, _)) in g.nos.iter().enumerate() {
+        if let Some(h) = alocar_anexo(no) {
+            HEAP.with(|heap| heap.borrow_mut().set_root(frame, i, h));
+            handles[i] = h;
+        }
+    }
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        let frame = heap.push_frame_with_slots(g.nos.len());
-        let mut handles = Vec::with_capacity(g.nos.len());
         for (i, (no, _)) in g.nos.iter().enumerate() {
-            if let Some(&h) = objetos_tipo.get(&i) {
-                heap.set_root(frame, i, h);
-                handles.push(h);
+            if handles[i] != 0 {
                 continue;
             }
-            let vazio = match no {
-                NoG::String(t) => Value::String(t.clone()),
-                NoG::StringBuffer(u) => Value::StringBuffer(u.clone()),
-                NoG::RegExp(t) => Value::RegExp(t.clone()),
-                NoG::Match(t) => Value::Match(t.clone()),
-                NoG::Object { .. } => Value::Objeto,
-                NoG::Cell(_) => Value::Cell(TaggedValue::scalar(0)),
-                NoG::Environment(v) => Value::Environment(vec![TaggedValue::scalar(0); v.len()]),
-                NoG::Closure { code_id, tipado, abi, .. } => {
-                    Value::Closure(Box::new(crate::heap::CabecalhoDeClosure {
-                        code_id: *code_id,
-                        environment: 0,
-                        tipado: *tipado,
-                        abi: *abi,
-                    }))
-                }
-                NoG::List { itens, .. } => Value::List(vec![TaggedValue::scalar(0); itens.len()].into()),
-                NoG::Map(es, _) => Value::Map(Vec::with_capacity(es.len())),
-                NoG::Set(v, _) => Value::Set(Vec::with_capacity(v.len())),
-                NoG::Record(v) => Value::Record(vec![TaggedValue::scalar(0); v.len()]),
-                NoG::BoxedInt(x) => Value::BoxedInt(*x),
-                NoG::BoxedDouble(x) => Value::BoxedDouble(*x),
-                NoG::TypedData { class_id, tipo, bytes } => Value::TypedData { class_id: *class_id, tipo: *tipo, bytes: bytes.clone().into() },
-                NoG::Bytes(bytes) => Value::TypedData {
-                    class_id: cid_registrado(CID_UINT8_LIST).unwrap_or(-1),
-                    tipo: TIPO_UINT8,
-                    bytes: bytes.clone().into(),
+            let h = match objetos_tipo.get(&i) {
+                Some(&h) => h,
+                None => match alocar_no(&mut heap, no) {
+                    Some(h) => h,
+                    None => continue,
                 },
-                NoG::Tipada(tipo, bytes) => Value::TypedData {
-                    class_id: cid_da_lista_tipada(*tipo).and_then(cid_registrado).unwrap_or(-1),
-                    tipo: *tipo,
-                    bytes: bytes.clone().into(),
-                },
-                NoG::DoRuntime { .. } => Value::Objeto,
-                NoG::TypedView { class_id, tipo, deslocamento, comprimento, imutavel, .. } => Value::TypedView {
-                    class_id: *class_id,
-                    tipo: *tipo,
-                    base: 0,
-                    deslocamento: *deslocamento,
-                    comprimento: *comprimento,
-                    imutavel: *imutavel,
-                },
-                NoG::BoxedBool(b) => {
-                    let h = heap.caixa_bool(*b);
-                    heap.set_root(frame, i, h);
-                    handles.push(h);
-                    continue;
-                }
-            };
-            let h = match (vazio, no) {
-                (Value::Objeto, NoG::Object { class_id, fields }) => heap.novo_objeto(*class_id, &vec![(0, false); fields.len()]),
-                (Value::Objeto, NoG::DoRuntime { pos, id }) => heap.novo_objeto(cid_registrado(*pos).unwrap_or(-1), &[(*id, false)]),
-                (vazio, _) => heap.allocate(vazio),
             };
             heap.set_root(frame, i, h);
-            handles.push(h);
+            handles[i] = h;
         }
-        let t = |v: &ValG| -> TaggedValue {
+        let palavra = |v: &ValG, handles: &[i64]| -> i64 {
             match *v {
-                ValG::Bits(bits, is_ref, tag) => TaggedValue { bits, is_ref, tag },
-                ValG::No(i) => TaggedValue::reference(handles[i]),
-                ValG::Mesmo(h) if mesmo => TaggedValue::reference(h),
-                ValG::Constante(getter) => TaggedValue::reference(canonicas.get(&getter).copied().unwrap_or(0)),
-                ValG::TearOff(c) => TaggedValue::reference(tearoffs.get(&c).copied().unwrap_or(0)),
+                ValG::Palavra(bits) => bits,
+                ValG::No(i) => handles[i],
+                ValG::Estatico(h) => h,
+                ValG::Mesmo(h) if mesmo => h,
+                ValG::Constante(getter) => canonicas.get(&getter).copied().unwrap_or(0),
+                ValG::TearOff(c) => tearoffs.get(&c).copied().unwrap_or(0),
                 // Fora do isolado de origem não há o que compartilhar: o
                 // emissor copia (`compartilhar` falso) para outro isolado.
-                ValG::Mesmo(_) => TaggedValue::reference(0),
+                ValG::Mesmo(_) => 0,
             }
         };
+        // As visões, depois das bases (uma visão de visão espera a dela).
+        loop {
+            let mut pendentes = false;
+            let mut progresso = false;
+            for (i, (no, _)) in g.nos.iter().enumerate() {
+                let NoG::Visao { cid, base, deslocamento, len } = no else { continue };
+                if handles[i] != 0 {
+                    continue;
+                }
+                let b = palavra(base, &handles);
+                if b == 0 && matches!(base, ValG::No(_)) {
+                    pendentes = true;
+                    continue;
+                }
+                let h = heap.nova_visao(*cid, b, *deslocamento, *len);
+                heap.set_root(frame, i, h);
+                handles[i] = h;
+                progresso = true;
+            }
+            if !pendentes || !progresso {
+                break;
+            }
+        }
         for (i, (no, meta)) in g.nos.iter().enumerate() {
             if objetos_tipo.contains_key(&i) {
                 continue;
             }
             let h = handles[i];
+            if h == 0 {
+                continue;
+            }
             match no {
-                NoG::Object { fields, .. } => {
-                    let novos: Vec<(i64, bool)> = fields.iter().map(|f| { let x = t(f); (x.bits, x.is_ref) }).collect();
-                    for (k, &(bits, e_ref)) in novos.iter().enumerate() {
-                        heap.definir_campo(h, k, bits, e_ref);
+                NoG::Instancia { campos, .. } => {
+                    for (k, (v, e_ref)) in campos.iter().enumerate() {
+                        let bits = palavra(v, &handles);
+                        heap.definir_campo(h, k, bits, *e_ref);
                     }
                 }
-                NoG::Cell(v) => {
-                    let x = t(v);
-                    *heap.get_mut(h) = Value::Cell(x);
-                }
-                NoG::Environment(vs) => {
-                    let x: Vec<TaggedValue> = vs.iter().map(t).collect();
-                    *heap.get_mut(h) = Value::Environment(x);
-                }
-                NoG::Closure { code_id, environment, tipado, abi } => {
-                    let e = t(environment).bits;
-                    // No mesmo cabeçalho (endereço fixo).
-                    if let Value::Closure(c) = heap.get_mut(h) {
-                        **c = crate::heap::CabecalhoDeClosure { code_id: *code_id, environment: e, tipado: *tipado, abi: *abi };
-                    }
-                }
-                NoG::List { itens, fixa, imutavel, pendente } => {
-                    let x: Vec<TaggedValue> = itens.iter().map(t).collect();
-                    // O mesmo `Elementos` (o cabeçalho não muda de endereço).
-                    if let Value::List(e) = heap.get_mut(h) {
-                        *e.vetor_mut() = x;
-                        e.definir_logico(*pendente);
-                    }
-                    if *fixa {
-                        heap.fixas.insert(h);
-                    }
-                    if *imutavel {
-                        heap.marcar_imutavel(h);
-                    }
-                }
-                NoG::Map(es, imutavel) => {
-                    let x: Vec<(TaggedValue, TaggedValue)> = es.iter().map(|(a, b)| (t(a), t(b))).collect();
-                    *heap.get_mut(h) = Value::Map(x);
-                    if *imutavel {
-                        heap.marcar_imutavel(h);
-                    }
-                }
-                NoG::Set(vs, imutavel) => {
-                    let x: Vec<TaggedValue> = vs.iter().map(t).collect();
-                    *heap.get_mut(h) = Value::Set(x);
-                    if *imutavel {
-                        heap.marcar_imutavel(h);
-                    }
-                }
-                NoG::Record(vs) => {
-                    let x: Vec<TaggedValue> = vs.iter().map(t).collect();
-                    *heap.get_mut(h) = Value::Record(x);
-                }
-                NoG::TypedView { base, .. } => {
-                    let b = t(base).bits;
-                    if let Value::TypedView { base: slot, .. } = heap.get_mut(h) {
-                        *slot = b;
-                    }
+                NoG::Refs { refs, .. } if !refs.is_empty() => {
+                    let novos: Vec<i64> = refs.iter().map(|v| palavra(v, &handles)).collect();
+                    heap.gravar_refs(h, 1, &novos);
                 }
                 _ => {}
             }
-            if *meta != 0 && !matches!(no, NoG::BoxedBool(_)) {
+            if *meta != 0 {
                 let meta = match &ids_de_tipo {
                     Some(ids) => 1 + ids[(*meta - 1) as usize],
                     None => *meta,
                 };
                 heap.set_metadado(h, meta);
-                ajustar_forma_da_lista(&mut heap, h);
             }
         }
-        let r = t(&g.raiz);
-        let resultado = if r.is_ref { r.bits } else { heap.como_ref(r) };
+        let resultado = palavra(&g.raiz, &handles);
         heap.pop_frame(frame);
         resultado
     })
@@ -1133,7 +1206,7 @@ fn despachar_proxima(chamar: extern "C" fn(i64) -> i64) -> bool {
 /// enviável) e devolve o id.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_porta_abrir(objeto: i64) -> i64 {
-    let classe = HEAP.with(|h| h.borrow().classe_do_objeto(objeto));
+    let classe = HEAP.with(|h| h.borrow().objeto(objeto).map(|o| o.class_id));
     if let Some(c) = classe {
         NAO_ENVIAVEIS.with(|n| {
             n.borrow_mut().entry(c).or_insert_with(|| "(object is a ReceivePort)\n".to_string());
@@ -1196,7 +1269,7 @@ pub extern "C" fn dartforge_nativo_DartForge_porta_enviar(id: i64, mensagem: i64
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_porta_recusa() -> i64 {
     let d = ULTIMA_RECUSA.with(|u| u.borrow().clone());
-    alocar_str(&d)
+    HEAP.with(|h| h.borrow_mut().alocar_str(&d))
 }
 
 /// `DartForge_portas_despachante(f)`: a closure sem argumentos que o laço
@@ -1224,7 +1297,7 @@ pub extern "C" fn dartforge_nativo_DartForge_mensagem_atual() -> i64 {
 /// da VM sem o sufixo de biblioteca privada e sem o caminho de retenção.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_classe_nao_enviavel(objeto: i64) {
-    let classe = HEAP.with(|h| h.borrow().classe_do_objeto(objeto));
+    let classe = HEAP.with(|h| h.borrow().objeto(objeto).map(|o| o.class_id));
     let Some(c) = classe else { return };
     let nome = nome_da_classe(c);
     NAO_ENVIAVEIS.with(|n| {
@@ -1240,7 +1313,7 @@ pub extern "C" fn dartforge_nativo_DartForge_classe_nao_enviavel(objeto: i64) {
 /// primeiro campo movido numa mensagem (`TransferableTypedData`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_classe_transferivel(objeto: i64) {
-    let classe = HEAP.with(|h| h.borrow().classe_do_objeto(objeto));
+    let classe = HEAP.with(|h| h.borrow().objeto(objeto).map(|o| o.class_id));
     if let Some(c) = classe
         && !classes_transferiveis().contains(&c)
     {

@@ -525,6 +525,7 @@ pub fn dartforge_nativo(amb: &Ambiente, programa: &Programa, dir: &Path) -> Said
                 experimentos: Vec::new(),
                 depuracao: false,
                 gerador: None,
+                cpu: None,
             };
             dartforge_emit_native::compilar(&entrada, &saida, &options)
         })
@@ -563,6 +564,17 @@ pub fn dartforge_nativo(amb: &Ambiente, programa: &Programa, dir: &Path) -> Said
 /// `Err` com a mensagem dele (sem o id da thread, que mudaria de execução para
 /// execução), para ser comparado como qualquer outro resultado.
 pub fn dartforge_nativo_ir(programa: &Programa) -> Result<String, String> {
+    emitir_ir_do_programa(programa, false)
+}
+
+/// O IR que o JIT executa: sem objetos estáticos (o JIT não os tem, a memória
+/// de uma geração é liberada; docs/NATIVO-ESPACO-UNIFICADO.md §2.11), como o
+/// `dartforge run` (`emitir_ir_recarregavel`). O `--jit-aot` liga este mesmo IR.
+pub fn dartforge_nativo_ir_jit(programa: &Programa) -> Result<String, String> {
+    emitir_ir_do_programa(programa, true)
+}
+
+fn emitir_ir_do_programa(programa: &Programa, jit: bool) -> Result<String, String> {
     let entrada = programa.entrada.clone();
     let versao = versao_exigida(programa);
     std::thread::Builder::new()
@@ -577,8 +589,13 @@ pub fn dartforge_nativo_ir(programa: &Programa) -> Result<String, String> {
                 experimentos: Vec::new(),
                 depuracao: false,
                 gerador: None,
+                cpu: None,
             };
-            dartforge_emit_native::emitir_ir(&entrada, &options).map(|ir| ir.texto)
+            if jit {
+                dartforge_emit_native::emitir_ir_recarregavel(&entrada, &options, None).map(|ir| ir.texto)
+            } else {
+                dartforge_emit_native::emitir_ir(&entrada, &options).map(|ir| ir.texto)
+            }
         })
         .map_err(|e| format!("[emitir-ir] falha ao criar thread de emissão: {e}"))?
         .join()
@@ -735,7 +752,7 @@ fn saida_do_erro_de_compilacao(e: &str) -> Saida {
 pub fn dartforge_jit(amb: &Ambiente, programa: &Programa, dir: &Path, com_aot: bool) -> (Saida, crate::relatorio::ExecucaoJit) {
     use crate::relatorio::{AotDoMesmoIr, ExecucaoJit};
     let _ = std::fs::create_dir_all(dir);
-    let ir = match dartforge_nativo_ir(programa) {
+    let ir = match dartforge_nativo_ir_jit(programa) {
         Ok(ir) => ir,
         Err(e) => {
             // Programa negativo recusado: a mesma recusa do `--nativo`.

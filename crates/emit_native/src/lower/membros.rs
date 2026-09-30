@@ -93,9 +93,9 @@ pub fn subclasse_de(ctx: &Context, sub: ClassId, sup: ClassId) -> bool {
 pub fn tem_corpo(ctx: &Context, fid: usize) -> bool {
     let f = &ctx.program.functions[fid];
     match f.node {
-        // SDK da fonte (P5c): um `external` é implementado pelo patch ou
-        // pelo native (`sdk_fonte::chamar_externo`).
-        FunctionRef::Function { .. } if f.external && ctx.sdk_da_fonte => true,
+        // Um `external` do SDK é implementado pelo patch ou pelo native
+        // (`sdk_fonte::chamar_externo`).
+        FunctionRef::Function { .. } if f.external => true,
         FunctionRef::Function { unit, function } => !matches!(
             ctx.program.unit(unit).ast.function(function).body,
             FunctionBody::Empty | FunctionBody::Native(_)
@@ -489,55 +489,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             dartforge_types::table::Type::Interface { args, .. } => args.first().copied(),
             _ => None,
         }
-    }
-
-    /// `lista[i]` lido na representação `repr` (R5): referência pelo
-    /// acessor que encaixota, escalar pelos bits. Índice fora da faixa lança
-    /// `RangeError` (exceção pendente).
-    pub fn ler_elemento_lista(&mut self, lista: Operand, idx: Operand, repr: Type) -> Operand {
-        if repr == Type::Ref {
-            return self.emit_call_with_check(
-                Instruction::CallRuntime {
-                    name: "dartforge_list_get_ref".to_string(),
-                    args: vec![(lista, Type::Ref), (idx, Type::I64)],
-                    ret_ty: Type::Ref,
-                },
-                Type::Ref,
-            );
-        }
-        let bits = self.emit_call_with_check(
-            Instruction::CallRuntime {
-                name: "dartforge_list_get_bits".to_string(),
-                args: vec![(lista, Type::Ref), (idx, Type::I64)],
-                ret_ty: Type::I64,
-            },
-            Type::I64,
-        );
-        self.bits_para(bits, repr)
-    }
-
-    /// `first`/`last`/`single` na representação do tipo da expressão.
-    pub fn ler_extremo_lista(&mut self, lista: Operand, qual: &str, expr: ExprId) -> Operand {
-        let repr = self.repr_da_expressao(expr).unwrap_or(Type::Ref);
-        if repr == Type::Ref {
-            return self.emit_call_with_check(
-                Instruction::CallRuntime {
-                    name: format!("dartforge_list_{qual}_ref"),
-                    args: vec![(lista, Type::Ref)],
-                    ret_ty: Type::Ref,
-                },
-                Type::Ref,
-            );
-        }
-        let bits = self.emit_call_with_check(
-            Instruction::CallRuntime {
-                name: format!("dartforge_list_{qual}"),
-                args: vec![(lista, Type::Ref)],
-                ret_ty: Type::I64,
-            },
-            Type::I64,
-        );
-        self.bits_para(bits, repr)
     }
 
     /// Membro de instância por nome, subindo a cadeia de superclasses.
@@ -1337,7 +1288,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         recv: Operand,
         decl_fid: usize,
         avaliados: &[Avaliado],
-        span: Span,
+        _span: Span,
     ) -> Operand {
         if let Some(r) = self.chamar_membro_fonte(recv.clone(), decl_fid, avaliados) {
             return r;
@@ -1368,7 +1319,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             if tem_corpo(self.ctx, decl_fid) && super::funcao_do_usuario(self.ctx, decl_fid) {
                 distintos.push(decl_fid);
-            } else if self.ctx.sdk_da_fonte {
+            } else {
                 // Nenhuma classe do programa implementa o membro: o que a
                 // alcança só pode ser um encaminhador de `noSuchMethod`
                 // (classe com `noSuchMethod` que não o declara). Pelo
@@ -1405,19 +1356,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 };
                 let r = self.chamar_por_seletor_com_tupla(recv, s, &completos, tupla);
                 return if ret == Type::Void { Operand::Constant(Constant::Null) } else { self.coagir(r, ret) };
-            } else {
-                // Encaminhador `noSuchMethod` estático (casos 57, 216, 223):
-                // a classe concreta tem `noSuchMethod` e o CFE sintetizaria o
-                // encaminhador com a assinatura do membro. Só dispara onde
-                // antes era erro; fora do escopo (setter, nomeado, genérico,
-                // múltiplos nsm) mantém o diagnóstico antigo.
-                if let Some(r) = super::nsm::encaminhar_metodo_para_nsm(self, recv.clone(), decl_fid, avaliados, span) {
-                    return r;
-                }
-                if let Some(r) = super::nsm::encaminhar_getter_para_nsm(self, recv, decl_fid, avaliados, span) {
-                    return r;
-                }
-                return self.nao_suportado("chamada de membro sem implementação compilada", span);
             }
         }
         if distintos.len() == 1 {
@@ -1627,7 +1565,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // A factory `core.Symbol` redireciona para a classe concreta da
         // biblioteca interna. O alvo é inequívoco e evita que a resolução
         // da factory volte à própria declaração abstrata.
-        if self.ctx.sdk_da_fonte && Some(cid) == self.ctx.classe_do_sdk("core", "Symbol") {
+        if Some(cid) == self.ctx.classe_do_sdk("core", "Symbol") {
             if let Some(concreta) = self.ctx.classe_do_sdk("_internal", "Symbol")
                 && let Some(vazio) = self.ctx.interner.lookup("")
                 && let Some(&construtor) = self.ctx.program.classes[concreta.0 as usize].constructors.get(&vazio)
@@ -2129,6 +2067,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::Return(Some(Self::valor_zero(repr))));
         self.set_block(continua);
         let v = self.coagir(v, repr);
+        // A `const` de string montada (`'a${'b'}'`) é o literal canônico de
+        // mesmo conteúdo (`constantes.rs`).
+        let v = if e_const && repr == Type::Ref {
+            self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_constante_canonica".to_string(),
+                    args: vec![(v, Type::Ref)],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            )
+        } else {
+            v
+        };
         let raiz = (repr == Type::Ref).then_some(vid.0);
         self.emit(
             Instruction::StoreGlobal {
@@ -2204,9 +2156,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let repr = self.repr(tipo_da_variavel(self.ctx, vid));
         let val = self.coagir(val, repr);
-        if self.ctx.sdk_da_fonte
-            && !self.ctx.biblioteca_no_modulo(self.ctx.program.variables[vid.0 as usize].library)
-        {
+        if !self.ctx.biblioteca_no_modulo(self.ctx.program.variables[vid.0 as usize].library) {
             // O global mora em outro módulo (SDK da fonte): pelo setter dele.
             self.emit_call_with_check(
                 Instruction::CallStatic {
@@ -2306,8 +2256,7 @@ pub fn padrao_literal(ast: &ast::Ast, e: ExprId) -> bool {
 /// exporta: não literal, de uma biblioteca do SDK fora do módulo corrente.
 pub fn padrao_exportado(ctx: &crate::context::Context, fid: usize, unit: UnitId, e: ExprId) -> bool {
     let lib = ctx.program.functions[fid].library;
-    ctx.sdk_da_fonte
-        && ctx.program.library(lib).is_sdk
+    ctx.program.library(lib).is_sdk
         && !ctx.biblioteca_no_modulo(lib)
         && !padrao_literal(&ctx.program.unit(unit).ast, e)
 }

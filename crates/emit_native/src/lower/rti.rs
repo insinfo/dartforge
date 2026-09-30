@@ -1328,7 +1328,7 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
         // `_Type` é criado pelo runtime, fora da hierarquia de elementos do
         // programa. Ele ainda herda os membros de `Object`, incluindo o
         // getter privado usado por `identityHashCode(Object)` no hashSeed.
-        if ctx.sdk_da_fonte && let Some(objeto) = ctx.core.object_class {
+        if let Some(objeto) = ctx.core.object_class {
             for (seletor, simbolo) in super::sdk_fonte::tabela_de_metodos(ctx, objeto) {
                 if !metodos.iter().any(|(existente, _)| *existente == seletor) {
                     metodos.push((seletor, simbolo));

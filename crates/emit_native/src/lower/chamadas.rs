@@ -1,6 +1,7 @@
 //! Chamadas: funções de topo, locais e estáticas do usuário, construtores
 //! (`C(…)`, `C.nome(…)`) e métodos de instância pelo elemento resolvido.
-//! O que é do SDK passa por `sdk_por_nome.rs` (congelado).
+//! O membro do SDK sem elemento útil vai pela classe dinâmica do receptor
+//! ([`FnBuilder::metodo_por_seletor`]; o SDK vem sempre da fonte).
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
@@ -47,10 +48,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some((c, nome)) = self.criacao_te(ast, *target) {
             return self.construir_te(ast, expr_id, c, nome, &arguments.args, expr.span);
         }
-        if let Some(op) = self.funcao_sdk_por_nome(ast, target, arguments) {
-            return op;
-        }
-
         // `Native.addressOf<T>(f)`: o front-end da VM a reescreve para o
         // endereço do símbolo; o argumento é o elemento, não um valor.
         if let Some(Resolved::Member { member: MemberRef::Function(f), .. }) = self.ctx.get_resolved(self.unit_id, *target).cloned() {
@@ -130,13 +127,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 );
             }
             // Método do SDK chamado sem receptor (no corpo de uma extensão
-            // sobre um tipo do SDK): pelo nome, com `this`.
+            // sobre um tipo do SDK): pelo seletor, com `this`.
             if let Some(Resolved::Member { member: MemberRef::Function(f), .. }) = resolvido
                 && !crate::lower::funcao_do_usuario(self.ctx, f.0 as usize)
                 && let Some(this) = self.this_param.clone()
             {
                 let nome = self.ctx.symbol_name(id.sym).to_string();
-                return self.metodo_sdk_por_nome(ast, expr, target, target, &nome, this, arguments);
+                return self.metodo_por_seletor(ast, &nome, this, arguments);
             }
             match resolvido {
                 Some(Resolved::Element(dartforge_elements::model::Element::Function(f)))
@@ -220,10 +217,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 _ => {}
             }
         }
-        if let Some(op) = self.estatica_sdk_por_nome(ast, target, arguments) {
-            return op;
-        }
-
         // Instanciação sem `new`: `C(…)`, `C.nome(…)`.
         if let Some(Resolved::Constructor(fid)) =
             self.ctx.get_resolved(self.unit_id, expr_id).cloned()
@@ -563,9 +556,35 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.nao_suportado(&oque, expr.span)
     }
 
+    /// Método do SDK sobre um receptor que não é classe do usuário (ou sem
+    /// elemento útil): o membro pela classe dinâmica do receptor, por
+    /// seletor. Argumentos de tipo escritos (`d.m<int>(…)`) vão na tupla da
+    /// chamada por seletor (o método genérico, ou o `Invocation.typeArguments`
+    /// de um `noSuchMethod`).
+    pub(super) fn metodo_por_seletor(
+        &mut self,
+        ast: &ast::Ast,
+        m_name: &str,
+        recv_op: Operand,
+        arguments: &ast::Arguments,
+    ) -> Operand {
+        let av = self.avaliar_args(ast, &arguments.args);
+        if !arguments.type_args.is_empty() {
+            let args = self.receitas_dos_argumentos_de_tipo(&arguments.type_args);
+            let tupla = self.rti_da_receita(&super::rti::Receita {
+                texto: format!("L<{}>", args.texto),
+                variaveis: args.variaveis,
+            });
+            let lib = self.ctx.program.unit(self.unit_id).library;
+            let s = super::sdk_fonte::texto_seletor(self.ctx, super::sdk_fonte::Tipo::Chamar, m_name, lib);
+            return self.chamar_por_seletor_com_tupla(recv_op, s, &av, tupla);
+        }
+        self.chamar_por_nome(recv_op, super::sdk_fonte::Tipo::Chamar, m_name, &av)
+    }
+
     /// `alvo.m(args)` quando `m` não é membro estático do tipo do alvo: o
     /// membro pela classe dinâmica (receptor sem tipo útil), `f.call(…)`, ou
-    /// o membro do SDK casado pelo nome.
+    /// o membro do SDK pelo seletor.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn chamada_sem_membro(
         &mut self,
@@ -576,54 +595,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         m_name: &str,
         recv_op: Operand,
         arguments: &ast::Arguments,
-    ) -> Operand {        // Receptor sem tipo útil: o membro pela classe dinâmica.
-        if self.receptor_dinamico(*inner_target) {
-            let alvos = self.alvos_por_nome(m_name);
-            if !alvos.is_empty() {
-                let nome = m_name.to_string();
-                let r2 = recv_op.clone();
-                return self.despachar(
-                    recv_op,
-                    &alvos,
-                    super::despacho::Uso::Chamar,
-                    &mut |s: &mut Self| s.avaliar_args(ast, &arguments.args),
-                    &mut |s: &mut Self| {
-                        let n = s.erros.len();
-                        let r = s.metodo_sdk_por_nome(
-                            ast,
-                            expr,
-                            target,
-                            inner_target,
-                            &nome,
-                            r2.clone(),
-                            arguments,
-                        );
-                        if s.erros.len() > n {
-                            s.erros.truncate(n);
-                            return s.lancar_nsm(&nome);
-                        }
-                        r
-                    },
-                    expr.span,
-                );
-            }
-        }
-
+    ) -> Operand {
         // `f.call(…)` sobre um valor função.
         if m_name == "call" && self.e_valor_funcao(*inner_target) {
             let avaliados = self.avaliar_args(ast, &arguments.args);
             return self.chamar_valor_funcao(recv_op, &avaliados);
         }
 
-        self.metodo_sdk_por_nome(
-            ast,
-            expr,
-            target,
-            inner_target,
-            m_name,
-            recv_op,
-            arguments,
-        )
+        let _ = (expr, target);
+        self.metodo_por_seletor(ast, m_name, recv_op, arguments)
     }
 
     /// `prefixo.nome` com `prefixo` de um `import … as prefixo`: o elemento.

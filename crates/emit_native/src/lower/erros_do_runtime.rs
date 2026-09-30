@@ -7,7 +7,7 @@
 //! runtime — é ele que `catch (e) on ArgumentError` testa e que o runtime
 //! imprime —, então a construção é a mesma extern que o runtime já usa para
 //! os erros que ele lança (`dartforge_argument_error_value`…). Não é caso
-//! novo do mecanismo congelado de `sdk_por_nome.rs`: é a representação do
+//! novo do casamento por nome (que saiu com o espaço unificado): é a representação do
 //! runtime das mesmas classes, e sai com a faixa 1000–1012 em P5d.
 
 use super::fn_builder::FnBuilder;
@@ -100,27 +100,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.runtime_ref("dartforge_argument_error_not_null", vec![(n, Type::Ref)])
             }
             ("TypeError", "") => self.runtime_ref("dartforge_type_error_new", Vec::new()),
-            // A lista é do runtime (P5d: `_List`/`_GrowableList` da fonte);
-            // `List.filled` do `Future.wait`.
-            ("List", "filled") => {
-                let n = Self::arg(&a, 0);
-                let n = self.coagir(n, Type::I64);
-                let v = Self::arg(&a, 1);
-                let tag = self.operand_tag(&v);
-                let (bits, _) = self.para_bits(v);
-                let l = self.emit_call_with_check(
-                    Instruction::CallRuntime {
-                        name: "dartforge_list_filled".to_string(),
-                        args: vec![(n, Type::I64), (bits, Type::I64), (Operand::Constant(Constant::Int(i64::from(tag))), Type::I8)],
-                        ret_ty: Type::Ref,
-                    },
-                    Type::Ref,
-                );
-                if let Some(t) = self.tipo_da_criacao.take() {
-                    self.definir_rti_se_generico(l.clone(), t);
-                }
-                l
-            }
             _ => return None,
         })
     }

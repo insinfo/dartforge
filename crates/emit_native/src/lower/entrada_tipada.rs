@@ -502,7 +502,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub(super) fn implementacao_unica(&self, fid: usize) -> Option<usize> {
         let f = &self.ctx.program.functions[fid];
         let cid = f.class?;
-        if f.static_ || !self.ctx.sdk_da_fonte || !self.ctx.program.library(self.ctx.program.classes[cid.0 as usize].library).is_sdk {
+        if f.static_ || !self.ctx.program.library(self.ctx.program.classes[cid.0 as usize].library).is_sdk {
             return None;
         }
         let nome = self.ctx.symbol_name(f.name).to_string();

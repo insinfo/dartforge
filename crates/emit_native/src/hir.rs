@@ -138,6 +138,18 @@ pub enum OpSimd {
     /// Alguma pista ≠ 0 (`anyTrue`) / todas ≠ 0 (`allTrue`): `bool`.
     Algum,
     Todos,
+    /// `Float32x4(v.x.toDouble(), v.y.toDouble(), v.z.toDouble(),
+    /// v.w.toDouble())` de um `Int32x4` `v` (`lower/simd.rs`): `sitofp`
+    /// pista a pista — o mesmo valor, pois o `int` de 32 bits vira `double`
+    /// sem perda e o `double` vira `float` com um arredondamento só.
+    IntParaFloat,
+    /// `fptosi` pista a pista de um `Float32x4` cujas pistas estão todas em
+    /// `[-2^31, 2^31)` (conferido antes por [`OpSimd::NaFaixaInt32`]): o
+    /// `toInt()` de cada pista, que aí não lança nem satura.
+    FloatParaInt,
+    /// Todas as pistas do `Float32x4` em `[-2^31, 2^31)` (NaN não está):
+    /// `bool`.
+    NaFaixaInt32,
 }
 
 /// Constantes suportadas na HIR.
@@ -238,12 +250,6 @@ pub enum Instruction {
         fields: Vec<Operand>,
     },
     AllocList {
-        elements: Vec<(Operand, u8)>,
-    },
-    AllocMap {
-        entries: Vec<((Operand, u8), (Operand, u8))>,
-    },
-    AllocSet {
         elements: Vec<(Operand, u8)>,
     },
     AllocRecord {

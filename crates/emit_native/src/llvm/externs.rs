@@ -60,51 +60,11 @@ impl Extern {
 /// Todas as externs que o código gerado pode chamar.
 pub const EXTERNS: &[Extern] = &[
     Extern {
-        decl: "declare void @dartforge_print_i64(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare void @dartforge_print_f64(double)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare void @dartforge_print_bool(i8)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare void @dartforge_print_null()",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare void @dartforge_print_string(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare void @dartforge_print_list(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare void @dartforge_print_map(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare void @dartforge_print_set(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare void @dartforge_print_handle(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
         decl: "declare i64 @dartforge_string_new(ptr, i64)",
         efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare i64 @dartforge_string_concat(i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i8 @dartforge_string_equal(i64, i64)",
         efeitos: CONSERVADOR,
     },
     Extern {
@@ -146,132 +106,12 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
-        decl: "declare i64 @dartforge_object_class(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_list_new(ptr, i64)",
-        efeitos: ALOCA_SEM_LANCAR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_list_len(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_list_get_bits(i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i8 @dartforge_list_get_tag(i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare void @dartforge_list_set(i64, i64, i64, i8)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare void @dartforge_list_push(i64, i64, i8)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_map_new(ptr, ptr, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_map_len(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_map_get_bits(i64, i64, i8)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i8 @dartforge_map_get_tag(i64, i64, i8)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare void @dartforge_map_set(i64, i64, i8, i64, i8)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i8 @dartforge_map_contains(i64, i64, i8)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_set_new(ptr, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_set_len(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i8 @dartforge_set_contains(i64, i64, i8)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i8 @dartforge_set_add(i64, i64, i8)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_cell_new(i64, i8)",
-        efeitos: ALOCA_SEM_LANCAR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_cell_get_bits(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i8 @dartforge_cell_get_tag(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare void @dartforge_cell_set(i64, i64, i8)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_env_new(ptr, i64)",
-        efeitos: ALOCA_SEM_LANCAR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_env_get(i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_closure_new(i64, i64)",
-        efeitos: ALOCA_SEM_LANCAR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_closure_code(i64)",
-        efeitos: ALOCA_SEM_LANCAR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_closure_env(i64)",
-        efeitos: ALOCA_SEM_LANCAR,
-    },
-    Extern {
         decl: "declare i64 @dartforge_tearoff(i64)",
         efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
-        decl: "declare void @dartforge_gc_empilhar(ptr)",
-        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
-    },
-    Extern {
-        decl: "declare void @dartforge_gc_desempilhar(ptr)",
-        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
-    },
-    Extern {
-        decl: "declare void @dartforge_gc_collect()",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
         decl: "declare void @dartforge_gc_global_root(i64, i64)",
         efeitos: ALOCA_SEM_LANCAR,
-    },
-    Extern {
-        decl: "declare void @dartforge_marcar_permanente(i64)",
-        efeitos: CONSERVADOR,
     },
     Extern {
         decl: "declare void @dartforge_marcar_constante(i64, i64)",
@@ -330,48 +170,6 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_typed_len(i64, i64, i64) memory(none) nounwind willreturn speculatable",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
-    Extern {
-        decl: "declare i64 @dartforge_typed_ptr(i64) memory(none) nounwind willreturn speculatable",
-        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
-    },
-    // O cabeçalho de endereço fixo de uma lista tipada interna
-    // (`heap::CabecalhoTipado`, N17): o endereço e o tamanho em bytes são
-    // lidos dele em linha; pura do handle, como a das listas abaixo. Devolve
-    // um ponteiro `dereferenceable(16)` (nunca nulo: o cabeçalho vazio do
-    // runtime vale para o que não é lista interna): as duas cargas dele
-    // podem ser especuladas, e o LLVM as tira dos laços junto com a chamada
-    // — antes, com o `inttoptr` de um `i64`, só a chamada saía, e as cargas
-    // ficavam a cada acesso (o laço tem saídas antes delas).
-    Extern {
-        decl: "declare dereferenceable(16) ptr @dartforge_typed_cabecalho(i64, i64) memory(none) nounwind willreturn speculatable",
-        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
-    },
-    // A mesma, na falha do cache do ponto de acesso (`lower/tipados.rs`,
-    // `cabecalho_tipado`): sem `speculatable` nem `memory(none)`, que
-    // deixariam o LLVM chamá-la antes do teste do cache (um `select`).
-    Extern {
-        decl: "declare i64 @dartforge_typed_cabecalho_na_falha(i64, i64) nounwind",
-        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
-    },
-    // As unidades de uma string lidas em linha (`lower/textos.rs`): o
-    // endereço (bit 63: `_TwoByteString`) e o comprimento, puros do handle
-    // (a string é imutável e o `Vec` das unidades não muda de endereço);
-    // 0 quando o valor não é string do runtime.
-    Extern {
-        decl: "declare i64 @dartforge_texto_dados(i64) memory(none) nounwind willreturn speculatable",
-        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
-    },
-    Extern {
-        decl: "declare i64 @dartforge_texto_len(i64) memory(none) nounwind willreturn speculatable",
-        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
-    },
-    // As duas numa chamada, na falha do cache do ponto de acesso (o
-    // comprimento vai ao local do cache): sem `speculatable` nem
-    // `memory(none)` (o LLVM a chamaria antes do teste do cache).
-    Extern {
-        decl: "declare i64 @dartforge_texto_na_falha(i64, ptr) nounwind",
-        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
-    },
     // `fillRange` de lista tipada (`lower/tipados.rs`, `preencher_tipada`):
     // 1 se preencheu, 0 para o caminho do SDK.
     Extern {
@@ -382,70 +180,15 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_typed_fill_double(i64, i64, i64, i64, double) nounwind",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
-    // O caminho rápido das listas do núcleo (`lower/tipados.rs`). O
-    // cabeçalho (`heap::CabecalhoDeLista`) não muda de endereço enquanto a
-    // lista vive: uma função pura do handle, que sai dos laços. O
-    // comprimento e o endereço dos elementos são lidos dele em linha, a cada
-    // uso (uma chamada que cresce a lista os muda no cabeçalho).
-    Extern {
-        decl: "declare i64 @dartforge_lista_cabecalho(i64) memory(none) nounwind willreturn speculatable",
-        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
-    },
-    // A interpolação: as partes (textos) numa string só; aloca.
-    Extern {
-        decl: "declare i64 @dartforge_string_juntar(ptr, i64) nounwind",
-        efeitos: ALOCA_SEM_LANCAR,
-    },
     // A interpolação com partes `int` sem caixa: pares (espécie, bits).
     Extern {
         decl: "declare i64 @dartforge_string_juntar_tipado(ptr, i64) nounwind",
-        efeitos: ALOCA_SEM_LANCAR,
-    },
-    // O cabeçalho imutável de uma closure (`heap::CabecalhoDeClosure`),
-    // de endereço fixo: puro do handle.
-    Extern {
-        decl: "declare i64 @dartforge_closure_cabecalho(i64) memory(none) nounwind willreturn speculatable",
-        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
-    },
-    // O endereço dos elementos de um ambiente de closure (o vetor não muda
-    // de tamanho enquanto o ambiente vive): puro do handle.
-    Extern {
-        decl: "declare i64 @dartforge_env_dados(i64) memory(none) nounwind willreturn speculatable",
-        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
-    },
-    // `lista.add(v)` de um escalar sem caixa: acrescenta ou devolve 0 (o
-    // `add` do SDK); pode coletar.
-    Extern {
-        decl: "declare i64 @dartforge_lista_add_escalar(i64, i64, i64) nounwind",
-        efeitos: ALOCA_SEM_LANCAR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_closure_new_tipada(i64, i64, i64, i64)",
-        efeitos: ALOCA_SEM_LANCAR,
-    },
-    // A closure com o ambiente direto (`lower/closures.rs`): o segundo
-    // argumento é o valor capturado, não um ambiente.
-    Extern {
-        decl: "declare i64 @dartforge_closure_nova_direta(i64, i64, i64, i64)",
         efeitos: ALOCA_SEM_LANCAR,
     },
     // A ABI de quem chama conferida contra a da closure (`closures.rs`).
     Extern {
         decl: "declare i64 @dartforge_closure_tipada(i64, i64) memory(inaccessiblemem: read) nounwind willreturn",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
-    },
-    Extern {
-        // Marca o bit de gravação no cabeçalho (memória que o módulo lê).
-        decl: "declare i64 @dartforge_lista_len_gravavel(i64, i64) nounwind willreturn",
-        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
-    },
-    Extern {
-        decl: "declare i64 @dartforge_lista_len_ou_menos1(i64) memory(inaccessiblemem: read) nounwind willreturn speculatable",
-        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
-    },
-    Extern {
-        decl: "declare i64 @dartforge_lista_ref(i64, i64)",
-        efeitos: Efeitos { aloca: true, lanca: false, chama_dart: false },
     },
     // Os campos dos objetos em linha (`GetField`/`SetField`): o endereço
     // vem do vetor de campos no heap do runtime, que só muda de tamanho por
@@ -454,12 +197,6 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_object_campos(i64) memory(inaccessiblemem: read) nounwind willreturn speculatable",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
-    // A caixa de um vetor SIMD (`llvm/simd.rs`): posição do id de classe
-    // (`CIDS_DO_RUNTIME`) e os 16 bytes em dois `i64`.
-    Extern {
-        decl: "declare i64 @dartforge_simd_caixa(i64, i64, i64)",
-        efeitos: ALOCA_SEM_LANCAR,
-    },
     Extern {
         decl: "declare i64 @dartforge_view_nova(i64, i64, i64, i64, i64)",
         efeitos: CONSERVADOR,
@@ -467,18 +204,6 @@ pub const EXTERNS: &[Extern] = &[
     Extern {
         decl: "declare i64 @dartforge_view_nova_t(i64, i64, i64, i64, i64, ptr)",
         efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_box_int(i64)",
-        efeitos: ALOCA_SEM_LANCAR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_box_double(double)",
-        efeitos: ALOCA_SEM_LANCAR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_box_bool(i8)",
-        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare i64 @dartforge_unbox_int(i64)",
@@ -493,35 +218,7 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
-        decl: "declare i8 @dartforge_identical(i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_list_get_ref(i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_list_first_ref(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_list_last_ref(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_list_single_ref(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_map_get_ref(i64, i64, i8)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
         decl: "declare i64 @dartforge_exception_peek_ref()",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare void @dartforge_null_assert_fail() noreturn",
         efeitos: CONSERVADOR,
     },
     Extern {
@@ -545,22 +242,6 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
-        decl: "declare i64 @dartforge_exception_take_bits()",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i8 @dartforge_exception_take_tag()",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_exception_peek_bits()",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i8 @dartforge_exception_peek_tag()",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
         decl: "declare void @dartforge_exception_clear()",
         // Só lê ou limpa a pendência: não aloca.
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
@@ -582,28 +263,13 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
-        decl: "declare i64 @dartforge_stack_trace_empty()",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_stack_trace_from_string(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
         decl: "declare void @dartforge_throw_with_stack_trace(i64, i8, i64)",
         efeitos: CONSERVADOR,
     },
     Extern {
-        decl: "declare i64 @dartforge_list_first(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_list_last(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
         decl: "declare i64 @dartforge_value_class(i64)",
-        efeitos: CONSERVADOR,
+        // A classe do valor: só lê (docs/NATIVO-ESPACO-UNIFICADO.md §3.5).
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare i64 @dartforge_to_string_i64(i64)",
@@ -622,175 +288,16 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
-        decl: "declare i64 @dartforge_string_len(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_generic_len(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_string_code_unit_at(i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_string_code_units(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_string_runes(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_string_to_upper(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_string_repeat(i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_list_join(i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_list_new_empty()",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_map_get_to_string(i64, i64, i8)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
         decl: "declare i64 @dartforge_record_new(ptr, i64)",
         efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
-        decl: "declare i64 @dartforge_int_to_radix_string(i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_int_parse(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_int_try_parse(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare double @dartforge_double_parse(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_string_substring(i64, i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_string_from_char_code(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_string_from_char_codes(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_string_index_of(i64, i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_string_last_index_of(i64, i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_string_split(i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i8 @dartforge_string_contains(i64, i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_string_replace_all(i64, i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_string_pad_left(i64, i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_string_pad_right(i64, i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_string_trim(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_string_trim_left(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_string_trim_right(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i8 @dartforge_string_starts_with(i64, i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i8 @dartforge_string_ends_with(i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_string_to_lower(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_string_compare_to(i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_string_replace_first(i64, i64, i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_string_replace_range(i64, i64, i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_list_reversed(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_string_buffer_new()",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare void @dartforge_string_buffer_write(i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_regexp_new(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_string_split_map_pieces(i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
         decl: "declare i64 @dartforge_collection_mark_unmodifiable(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i8 @dartforge_collection_is_unmodifiable(i64)",
-        efeitos: CONSERVADOR,
+        // Devolve uma `_ImmutableList` nova (§2.16): aloca, não lança.
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare i64 @dartforge_exception_new(i64, i8)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_format_exception_new(i64, i64, i64)",
         efeitos: CONSERVADOR,
     },
     Extern {
@@ -810,19 +317,7 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
-        decl: "declare i64 @dartforge_range_error_new(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_range_error_value(i64, i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
         decl: "declare i64 @dartforge_range_error_range(i64, i64, i64, i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_range_error_index(i64, i64, i64, i64)",
         efeitos: CONSERVADOR,
     },
     Extern {
@@ -835,10 +330,6 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i64 @dartforge_assertion_error_new(i64, i8)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_concurrent_modification_error_new(i64)",
         efeitos: CONSERVADOR,
     },
     Extern {
@@ -870,79 +361,6 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
-        decl: "declare i64 @dartforge_error_get_message(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_error_get_name(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_error_get_invalid_value(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_error_get_start(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_error_get_end(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_error_get_source(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_error_get_offset(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_error_get_stack_trace(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_list_single(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_list_sublist(i64, i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_list_remove_at(i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_list_filled(i64, i64, i8)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_map_remove(i64, i64, i8)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_map_keys(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare void @dartforge_iteration_begin(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare void @dartforge_iteration_end(i64)",
-        efeitos: CONSERVADOR,
-    },
-    // --- P1 (closures, α): convenção uniforme e leituras com representação ---
-    Extern {
-        decl: "declare i64 @dartforge_cell_get_ref(i64)",
-        efeitos: ALOCA_SEM_LANCAR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_env_get_ref(i64, i64)",
-        efeitos: ALOCA_SEM_LANCAR,
-    },
-    Extern {
         decl: "declare i64 @dartforge_closure_entry(i64)",
         efeitos: CONSERVADOR,
     },
@@ -963,10 +381,6 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_dyn_op(i64, i64, i64)",
         efeitos: CONSERVADOR,
     },
-    Extern {
-        decl: "declare i64 @dartforge_dyn_unario(i64, i64)",
-        efeitos: CONSERVADOR,
-    },
     // --- P3 (α): iteração de lista ou conjunto ---
     Extern {
         decl: "declare i64 @dartforge_iteravel_get_ref(i64, i64)",
@@ -974,15 +388,6 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i64 @dartforge_iteravel_get_bits(i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    // --- P3 (α): records ---
-    Extern {
-        decl: "declare i64 @dartforge_record_len(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i64 @dartforge_record_get_ref(i64, i64)",
         efeitos: CONSERVADOR,
     },
     // --- P5c (δ): SDK da fonte — seletores, tabelas de métodos, recusas ---
@@ -1080,15 +485,6 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare void @dartforge_nativo_Error_trySetStackTrace(i64, i64)",
         efeitos: CONSERVADOR,
     },
-    // --- RTI: tipos em tempo de execução (`tipos.rs`) ---
-    Extern {
-        decl: "declare void @dartforge_rti_classe_nome(i64, i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare void @dartforge_rti_regra(i64, i64)",
-        efeitos: CONSERVADOR,
-    },
     Extern {
         decl: "declare void @dartforge_rti_iniciar_tabela(ptr, i64)",
         efeitos: CONSERVADOR,
@@ -1178,10 +574,6 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
-        decl: "declare void @dartforge_rti_classe_do_runtime(i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
         decl: "declare i64 @dartforge_rti_receita(i64)",
         efeitos: CONSERVADOR,
     },
@@ -1206,19 +598,7 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
-        decl: "declare i64 @dartforge_rti_do_valor(i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
         decl: "declare i8 @dartforge_rti_e(i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare i8 @dartforge_rti_subtipo(i64, i64)",
-        efeitos: CONSERVADOR,
-    },
-    Extern {
-        decl: "declare void @dartforge_rti_como(i64, i64)",
         efeitos: CONSERVADOR,
     },
     Extern {
@@ -1233,10 +613,75 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_rti_objeto_tipo(i64)",
         efeitos: CONSERVADOR,
     },
+    // ─── Espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md §3.6) ───────────
+    Extern {
+        // (cid, palavras, flags): a alocação lenta de `@df.alocar` (P0).
+        decl: "declare i64 @dartforge_alocar(i64, i64, i64) nounwind",
+        efeitos: ALOCA_SEM_LANCAR,
+    },
+    Extern {
+        // (len, dois): o caminho lento de `@df.texto_alocar` (P1).
+        decl: "declare i64 @dartforge_texto_novo(i64, i64) nounwind",
+        efeitos: ALOCA_SEM_LANCAR,
+    },
+    Extern {
+        // A string de uma constante vira o literal canônico (`constantes.rs`).
+        decl: "declare i64 @dartforge_constante_canonica(i64) nounwind",
+        efeitos: ALOCA_SEM_LANCAR,
+    },
+    Extern {
+        // Calcula e grava o hash no cabeçalho da string (P1).
+        decl: "declare i64 @dartforge_texto_hash(i64) nounwind willreturn",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
+        // As mesmas unidades? O caminho lento de `@df.texto_igual` (P1).
+        decl: "declare i8 @dartforge_texto_iguais(i64, i64) memory(read) nounwind willreturn",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
+        // (palavras, n, cid, forma): a lista literal (P3).
+        decl: "declare i64 @dartforge_lista_nova(ptr, i64, i64, i64) nounwind",
+        efeitos: ALOCA_SEM_LANCAR,
+    },
+    Extern {
+        // (lista, Ref): o `add` que cresce o armazenamento (P3).
+        decl: "declare i64 @dartforge_lista_acrescentar(i64, i64) nounwind",
+        efeitos: ALOCA_SEM_LANCAR,
+    },
+    Extern {
+        // (início, fim): a seção dos objetos estáticos de uma imagem (P0).
+        decl: "declare void @dartforge_registrar_imagem(ptr, ptr) nounwind",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
+        // (Refs, n): o record posicional (P2).
+        decl: "declare i64 @dartforge_record_novo(ptr, i64) nounwind",
+        efeitos: ALOCA_SEM_LANCAR,
+    },
 ];
+
+/// Os dados do runtime que o código gerado referencia (não são funções),
+/// `(símbolo, declaração)`: nenhum. As caixas estáticas de `bool` são lidas do
+/// `Contexto` da thread (`layout::contexto::VERDADEIRO`/`FALSO`), porque entre o
+/// executável e a DLL do SDK cada imagem tem a sua cópia dos dados do runtime
+/// (docs/NATIVO-ESPACO-UNIFICADO.md §4.10, item 9).
+pub const GLOBAIS: &[(&str, &str)] = &[];
 
 /// Efeitos da extern `nome`; desconhecida é conservadora.
 pub fn efeitos_de(nome: &str) -> Efeitos {
+    // Os ajudantes `@df.*` de cada pacote do espaço unificado chamados por
+    // `CallRuntime` (docs/NATIVO-ESPACO-UNIFICADO.md §3.5).
+    for tabela in [
+        super::textos_ir::EFEITOS_DOS_AJUDANTES,
+        super::caixas_ir::EFEITOS_DOS_AJUDANTES,
+        super::listas_ir::EFEITOS_DOS_AJUDANTES,
+        super::tipados_ir::EFEITOS_DOS_AJUDANTES,
+    ] {
+        if let Some(&(_, aloca, lanca)) = tabela.iter().find(|(n, _, _)| *n == nome) {
+            return Efeitos { aloca, lanca, chama_dart: false };
+        }
+    }
     static TABELA: std::sync::OnceLock<std::collections::HashMap<&'static str, Efeitos>> = std::sync::OnceLock::new();
     TABELA.get_or_init(|| EXTERNS.iter().map(|e| (e.nome(), e.efeitos)).collect()).get(nome).copied().unwrap_or(CONSERVADOR)
 }

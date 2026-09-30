@@ -163,6 +163,14 @@ impl LlvmEmitter<'_> {
             writeln!(corpo, "  call void @dartforge_register_subclass(i64 {sub}, i64 {sup})").unwrap();
         }
         corpo.push_str(&self.emitir_tabelas_de_metodos());
+        // A seção dos objetos estáticos desta imagem (docs/NATIVO-ESPACO-UNIFICADO.md
+        // §2.11): cada módulo com estáticos registra a da imagem em que foi
+        // ligado (o executável, a DLL do SDK); o registro é idempotente.
+        if self.objetos_estaticos {
+            let (globais, inicio, fim) = crate::alvo::marcadores_da_imagem();
+            self.out.push_str(&globais);
+            writeln!(corpo, "  call void @dartforge_registrar_imagem(ptr {inicio}, ptr {fim})").unwrap();
+        }
         // As classes do programa (e as formas de record) registram a tabela
         // na partida. `_StackTrace` do SDK também precisa: o runtime cria o
         // primeiro trace diretamente, sem passar por `object_new_t`, que é o

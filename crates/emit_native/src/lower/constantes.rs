@@ -376,11 +376,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Corpo do getter de uma constante canônica.
     fn lower_getter_constante(&mut self, ast: &ast::Ast, e: ExprId, valor: &str, raiz: u32) {
-        // SDK da fonte: `const {…}` é um `_ConstMap`/`_ConstSet` (imutável,
-        // como na VM), montado do `_Map`/`_Set` do literal.
-        if self.ctx.sdk_da_fonte
-            && let ExprKind::SetOrMap { elements, .. } = &ast.expr(e).kind
-        {
+        // `const {…}` é um `_ConstMap`/`_ConstSet` (imutável, como na VM),
+        // montado do `_Map`/`_Set` do literal.
+        if let ExprKind::SetOrMap { elements, .. } = &ast.expr(e).kind {
             let conjunto = self.literal_e_conjunto(e, elements);
             let tipo = self.ctx.get_type(self.unit_id, e);
             self.lower_getter_canonico(valor, raiz, false, |b| {
@@ -480,6 +478,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(b_init);
         let v = gerar(self);
         let v = self.coagir(v, Type::Ref);
+        // A lista constante vira uma `_ImmutableList` NOVA (a classe não muda
+        // depois de publicada, docs/NATIVO-ESPACO-UNIFICADO.md §2.16): o valor
+        // guardado e devolvido é o que o runtime devolve.
         let v = if colecao {
             self.emit(
                 Instruction::CallRuntime {
@@ -490,7 +491,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::Ref,
             )
         } else {
-            v
+            // Uma `String` montada (interpolação constante) vira o literal
+            // canônico de mesmo conteúdo; outro valor volta como está.
+            self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_constante_canonica".to_string(),
+                    args: vec![(v, Type::Ref)],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            )
         };
         self.emit(
             Instruction::StoreGlobal {

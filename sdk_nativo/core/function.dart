@@ -13,9 +13,8 @@ final class _Closure implements Function {
   @pragma("vm:external-name", "Closure_equals")
   external bool operator ==(Object other);
 
-  // DartForge: a closure do runtime não tem campos no heap; o hash é
-  // calculado (coerente com `==`: a função e o receptor do tear-off), sem
-  // o cache em `_hash`.
+  // DartForge: o hash é calculado (coerente com `==`: a função e o
+  // receptor do tear-off), sem o cache em `_hash` da VM.
   int get hashCode {
     return _computeHash();
   }
@@ -26,32 +25,18 @@ final class _Closure implements Function {
   @pragma("vm:external-name", "Closure_computeHash")
   external int _computeHash();
 
-  // No instance fields should be declared before the following fields whose
-  // offsets must be identical in Dart and C++.
-
-  // The following fields are declared both in raw_object.h (for direct access
-  // from C++ code) and also here so that the offset-to-field map used by
-  // deferred objects is properly initialized.
-  // Caution: These fields are not Dart instances, but VM objects. Their Dart
-  // names do not need to match the C++ names, but they must be private.
+  // DartForge (docs/NATIVO-ESPACO-UNIFICADO.md §2.5): os campos na ordem do
+  // bloco que o runtime e o código gerado criam (`_Closure`, cid 11,
+  // `INSTANCIA` de quatro campos). O Dart não os lê nem grava: `==` e
+  // `hashCode` precisam do receptor guardado no `_Contexto`, e ficam nos
+  // natives. A instância nasce só no runtime/código gerado, nunca por
+  // construtor.
   @pragma("vm:entry-point")
-  var _instantiator_type_arguments;
+  int _codigo = 0;
   @pragma("vm:entry-point")
-  var _function_type_arguments;
+  Object? _contexto;
   @pragma("vm:entry-point")
-  var _delayed_type_arguments;
+  int _tipado = 0;
   @pragma("vm:entry-point")
-  var _function;
-  @pragma("vm:entry-point")
-  var _context;
-
-  // Note: _Closure objects are created by VM "magically", without invoking
-  // constructor. So, _Closure default constructor is never compiled and
-  // detection of default-initialized fields is not performed.
-  // As a consequence, VM incorrectly assumes that _hash field is not
-  // nullable and may incorrectly remove 'if (_hash == null)' in get:hashCode.
-  // This initializer makes _hash field nullable even without constructor
-  // compilation.
-  @pragma("vm:entry-point")
-  var _hash = null;
+  int _abi = 0;
 }

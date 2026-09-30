@@ -1,9 +1,10 @@
 // Substitui `_internal/vm/lib/growable_array.dart` (sobreposição
 // `sdk_nativo/`). Igual ao da VM 3.6.2, fora o `_grow` (marcado
-// "DartForge:"), que reserva a capacidade no vetor do runtime em vez de
-// copiar os elementos para um `_List` novo, o `filled`, que preenche no
+// "DartForge:"), que monta o armazenamento maior no runtime numa cópia só
+// (na forma compacta do `E`, se for o caso), o `filled`, que preenche no
 // runtime, e as cópias `_ofArray`/`_ofGrowableList`/`toList`, que copiam no
-// runtime (`_copiarElementos`, `array.dart`).
+// runtime (`_copiarElementos`, `array.dart`). A representação é a da VM: o
+// comprimento e o `_List` de dados (docs/NATIVO-ESPACO-UNIFICADO.md §2.5).
 // Copyright (c) 2012, the Dart project authors.  Please see the AUTHORS file
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
@@ -378,11 +379,12 @@ class _GrowableList<T> extends ListBase<T> {
   // Grow from 0 to 3, and then double + 1.
   int _nextCapacity(int old_capacity) => (old_capacity * 2) | 3;
 
-  // DartForge: a lista crescível guarda os elementos no próprio vetor do
-  // runtime (não num `_List` separado, como na VM): crescer é só reservar
-  // capacidade nele. O `_grow` da VM alocava um `_List` novo, copiava os
-  // elementos um a um pelo `[]=` e o entregava ao `_setData`, que copiava
-  // de novo.
+  // DartForge: o `_List` novo de `new_capacity`, com os elementos até o
+  // comprimento e a forma (compacta ou geral) do atual, montado e trocado no
+  // runtime (`Heap::lista_reservar`) numa cópia só. O `_grow` da VM alocava
+  // um `_List` sem tipo, copiava os elementos um a um pelo `[]=` (com a
+  // caixa de cada `int`/`double` de uma lista compacta) e o entregava ao
+  // `_setData`.
   void _grow(int new_capacity) {
     _reservar(new_capacity);
   }

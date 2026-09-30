@@ -1,40 +1,32 @@
 //! O caminho rápido de `[]`, `[]=` e `length` quando o tipo estático do
 //! receptor é uma lista tipada numérica (`Int8List` … `Float64List` de
-//! `dart:typed_data`) ou uma `List<E>` do núcleo.
+//! `dart:typed_data`) ou uma `List<E>` do núcleo, e os membros externos de
+//! lista tipada feitos em linha (`tipada_em_linha`).
 //!
-//! Essas classes são `final` no SDK: o valor é sempre a lista interna
-//! (`_Int32List`) ou uma visão (`_Int32ArrayView`, e a não modificável) do
-//! `typed_data_patch.dart`. Então `a[i]`, `a[i] = v` e `a.length` não
-//! precisam do despacho pela classe dinâmica: o comprimento e o endereço
-//! dos elementos vêm de duas funções do runtime que só leem o heap dele
-//! (`dartforge_typed_len`/`dartforge_typed_ptr`, funções puras do handle,
-//! declaradas `memory(none) speculatable`, que o LLVM tira dos laços),
-//! e o elemento é lido ou gravado direto. Um índice fora dos limites, uma
-//! visão não modificável na escrita ou um tipo de elemento inesperado caem
-//! no despacho de sempre, com os mesmos erros da VM.
+//! Essas classes de `dart:typed_data` são `final` no SDK: o valor é sempre a
+//! lista interna (`_Int32List`, também sobre memória de fora), ou uma visão
+//! (`_Int32ArrayView`, e a não modificável) do `typed_data_patch.dart`. No
+//! espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md §2.5) as três formas têm
+//! o comprimento em `h+14` e o endereço dos bytes em `h+22`, invariantes
+//! enquanto a lista vive: `@df.tipada_len`/`@df.tipada_dados`
+//! (`llvm/tipados_ir.rs`) os leem em linha com `!invariant.load`, e o LLVM tira
+//! as cargas dos laços (e vetoriza). Na escrita, a visão não modificável
+//! (conferida pelo cid, também invariante) dá comprimento 0. Um índice fora dos
+//! limites cai no despacho de sempre, com os mesmos erros da VM.
 //!
-//! `List` não é `final`: uma classe do usuário pode implementá-la. As
-//! listas do runtime (`_List`, `_GrowableList`, `_ImmutableList`) têm um
-//! cabeçalho de endereço fixo (`heap::CabecalhoDeLista`), que
-//! `dartforge_lista_cabecalho` dá (função pura do handle, fora dos laços):
-//! o endereço dos elementos e o comprimento são lidos dele em linha, a cada
-//! uso; as outras recebem um cabeçalho de comprimento 0 e ficam com o
-//! despacho. Na escrita, o runtime confere uma vez por lista que ela é
-//! modificável e compacta do escalar, e marca um bit no cabeçalho;
-//! depois o código gerado só testa o bit. Os elementos saem sem caixa na representação
-//! do resultado (`int`, `double`, `bool`); gravar direto só com `E` igual a
-//! `int`, `double` ou `bool`, que nenhuma classe estende — com outro `E`, a
-//! lista pode ser de um subtipo e o `[]=` do SDK confere o valor
-//! (covariância).
-//!
-//! N14: a forma dos elementos está no cabeçalho (`heap::FormaDeLista`). A
-//! lista cujo `E` reificado é exatamente `int`, `double` ou `bool` é
-//! compacta: cada elemento são os 8 bytes dos bits (`dados + 8·i`), sem tag
-//! — só o escalar do `E` entra nela, a covariância do SDK recusa o resto. A
-//! lista geral guarda um `TaggedValue` de 16 bytes (os bits, e `is_ref` e a
-//! tag nos bytes 8 e 9); a leitura de uma referência confere a tag. A
-//! leitura confere a forma (salvo nas voltas de N13, que a conferem antes):
-//! um elemento de outra forma sai por `dartforge_lista_ref`.
+//! `List` não é `final`: uma classe do usuário pode implementá-la. A classe do
+//! receptor (`@df.classe`) diz se é lista do runtime (`_List`,
+//! `_ImmutableList`, `_GrowableList`, cids 8–10); a outra recebe comprimento 0
+//! e fica com o despacho. O comprimento está em `h+14` nas três; os elementos,
+//! no armazenamento (a própria lista, ou a `_List` em `h+22` da expansível),
+//! uma palavra cada a partir de `a+22`, com a forma no `flags` dele (§2.16):
+//! `REFS` (cada palavra um `Ref`) ou compacta de `int`, `double` ou `bool`
+//! (os bits sem caixa). A leitura confere a forma (salvo nas voltas de N13,
+//! que a conferem antes); a gravação direta só com `E` igual a `int`,
+//! `double` ou `bool` (que nenhuma classe estende; com outro `E`, a lista pode
+//! ser de um subtipo e o `[]=` do SDK confere o valor), numa `_List` ou
+//! `_GrowableList` (a `_ImmutableList` não aceita) de forma compacta do `E`
+//! (`@df.nucleo_len_gravavel`): um escalar sem barreira.
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
@@ -50,6 +42,52 @@ impl FnBuilder<'_, '_> {
         let dartforge_frontend::ast::ExprKind::Identifier(n) = &ast.expr(alvo).kind else { return None };
         let super::locais::Modo::Memoria(chave) = self.buscar_local(n.sym)?.modo else { return None };
         self.listas_fixas.iter().rev().find(|f| f.chave == chave).cloned()
+    }
+
+    /// A lista tipada provada das voltas rápidas em emissão
+    /// (`comandos::Contado::Tipadas`) que `alvo` (um local) nomeia; com
+    /// `indice`, só se ele é o contador do laço (`alvo[i]`). O local é
+    /// identificado pelo `alloca`, então um homônimo declarado no corpo não
+    /// casa.
+    pub(super) fn provada_de(
+        &self,
+        ast: &dartforge_frontend::ast::Ast,
+        alvo: dartforge_frontend::ast::ExprId,
+        indice: Option<dartforge_frontend::ast::ExprId>,
+    ) -> Option<super::fn_builder::TipadaProvada> {
+        if self.tipadas_provadas.is_empty() {
+            return None;
+        }
+        let endereco = |e: dartforge_frontend::ast::ExprId| {
+            let dartforge_frontend::ast::ExprKind::Identifier(n) = &ast.expr(e).kind else { return None };
+            match self.buscar_local(n.sym)?.modo {
+                super::locais::Modo::Memoria(p) => Some(p),
+                _ => None,
+            }
+        };
+        let chave = endereco(alvo)?;
+        let contador = match indice {
+            Some(i) => Some(endereco(i)?),
+            None => None,
+        };
+        self.tipadas_provadas
+            .iter()
+            .rev()
+            .find(|p| p.chave == chave && contador.as_ref().is_none_or(|c| *c == p.contador))
+            .cloned()
+    }
+
+    /// O endereço dos elementos e o comprimento de uma lista tipada ou SIMD
+    /// (`lista`, do tipo estático `ix`), lidos antes das voltas de um laço
+    /// versionado; `escrita`: o comprimento de uma visão não modificável é 0.
+    pub(super) fn dados_da_provada(&mut self, lista: &Operand, ix: Indexavel, escrita: bool) -> Option<(Operand, Operand)> {
+        let lista = self.coagir(lista.clone(), Type::Ref);
+        match ix {
+            Indexavel::Tipada(ListaTipada { tipo, .. }) | Indexavel::Simd { tipo, .. } => {
+                Some(self.dados_e_comprimento_tipados(&lista, tipo, escrita))
+            }
+            Indexavel::Nucleo { .. } => None,
+        }
     }
 }
 
@@ -91,9 +129,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// O caminho rápido de índice do tipo estático `ty` (não anulável), se
     /// houver.
     pub(super) fn indexavel(&self, ty: Option<TypeId>) -> Option<Indexavel> {
-        if !self.ctx.sdk_da_fonte {
-            return None;
-        }
         let T::Interface { class, args, nullable: false } = self.ctx.table.get(ty?) else {
             return None;
         };
@@ -224,86 +259,58 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.async_estado.is_none().then_some(Indexavel::Simd { tipo, k })
     }
 
-    /// O comprimento para o caminho rápido, ou 0 se ele não serve
-    /// (`dartforge_typed_len`, ou o cabeçalho da lista do runtime).
+
+    /// Um ajudante do prelúdio (`llvm/tipados_ir.rs`): leitura em linha do
+    /// bloco, sem efeitos (`EFEITOS_DOS_AJUDANTES`).
+    fn ajudante_tipado(&mut self, nome: &str, args: Vec<(Operand, Type)>, ret: Type) -> Operand {
+        self.emit(Instruction::CallRuntime { name: nome.to_string(), args, ret_ty: ret }, ret)
+    }
+
+    /// O comprimento para o caminho rápido, ou 0 se ele não serve: o da lista
+    /// tipada (0 na visão não modificável, na escrita), ou o da lista do
+    /// runtime (0 para quem não é; na escrita direta, 0 também para a
+    /// imutável ou de outra forma).
     fn comprimento_rapido(&mut self, lista: &Operand, ix: Indexavel, escrita: bool) -> Operand {
-        let (tipo, gravacao) = match ix {
-            Indexavel::Tipada(ListaTipada { tipo, elemento }) => {
-                let (dados, n) = self.dados_e_comprimento_tipados(lista, tipo, log2_do_elemento(elemento), escrita);
+        let int = |x: i64| Operand::Constant(Constant::Int(x));
+        let gravacao = match ix {
+            Indexavel::Tipada(ListaTipada { tipo, .. }) | Indexavel::Simd { tipo, .. } => {
+                let (dados, n) = self.dados_e_comprimento_tipados(lista, tipo, escrita);
                 self.dados_tipados = Some((lista.clone(), dados));
                 return n;
             }
-            Indexavel::Simd { tipo, .. } => {
-                let (dados, n) = self.dados_e_comprimento_tipados(lista, tipo, 4, escrita);
-                self.dados_tipados = Some((lista.clone(), dados));
-                return n;
-            }
-            Indexavel::Nucleo { gravacao } => (0, gravacao),
+            Indexavel::Nucleo { gravacao } => gravacao,
         };
-        debug_assert_eq!(tipo, 0);
-        // O comprimento lógico, em linha (0 para quem não é lista do
-        // runtime: o `CABECALHO_VAZIO`); numa lista fixa das voltas (N13),
-        // o lido antes delas.
-        let cab = self.cabecalho_da_lista(lista);
-        let len = match &self.fixa_do_acesso {
-            Some(f) => f.comprimento.clone(),
-            None => self.campo_do_cabecalho(&cab, 1),
+        let Some(t) = gravacao.filter(|_| escrita) else {
+            // O comprimento lógico, em linha; numa lista fixa das voltas
+            // (N13), o lido antes delas.
+            return match &self.fixa_do_acesso {
+                Some(f) => f.comprimento.clone(),
+                None => self.ajudante_tipado("df.nucleo_len", vec![(lista.clone(), Type::Ref)], Type::I64),
+            };
         };
-        let Some(t) = gravacao.filter(|_| escrita) else { return len };
         // N14: nas voltas de N13, a gravação direta foi conferida antes delas.
         if let Some(n) = self.fixa_do_acesso.as_ref().and_then(|f| f.comprimento_gravavel.clone()) {
             return n;
         }
-        // Gravação: o `E` reificado tem de aceitar o valor (covariância) e a
-        // lista, ser modificável. Conferido uma vez por lista pelo runtime,
-        // que marca o bit no cabeçalho; depois, só o bit.
-        let codigo = codigo_da_forma(t);
-        let gravavel = self.campo_do_cabecalho(&cab, 2);
-        let bit = self.emit(Instruction::And(gravavel, Operand::Constant(Constant::Int(1 << codigo))), Type::I64);
-        let conferida = self.emit(Instruction::ICmp(ICmpOp::Ne, bit, Operand::Constant(Constant::Int(0))), Type::I1);
-        let direto = self.new_block();
-        let conferir = self.new_block();
-        let juncao = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: conferida, then_block: direto, else_block: conferir });
-        self.set_block(direto);
-        self.terminate(Terminator::Branch(juncao));
-        self.set_block(conferir);
-        let n = self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_lista_len_gravavel".to_string(),
-                args: vec![(lista.clone(), Type::Ref), (Operand::Constant(Constant::Int(codigo)), Type::I64)],
-                ret_ty: Type::I64,
-            },
-            Type::I64,
-        );
-        self.terminate(Terminator::Branch(juncao));
-        self.set_block(juncao);
-        self.emit(Instruction::Phi { incoming: vec![(direto, len), (conferir, n)], ty: Type::I64 }, Type::I64)
-    }
-
-    /// O cabeçalho de uma lista do runtime (`heap::CabecalhoDeLista`).
-    pub(super) fn cabecalho_da_lista(&mut self, lista: &Operand) -> Operand {
-        self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_lista_cabecalho".to_string(),
-                args: vec![(lista.clone(), Type::Ref)],
-                ret_ty: Type::I64,
-            },
-            Type::I64,
-        )
-    }
-
-    /// A palavra `i` do cabeçalho: 0 os dados, 1 o comprimento, 2 as
-    /// gravações conferidas.
-    pub(super) fn campo_do_cabecalho(&mut self, cab: &Operand, i: i64) -> Operand {
-        self.emit(
-            Instruction::CargaNativa { endereco: cab.clone(), indice: Operand::Constant(Constant::Int(i)), tipo: TipoC::I64 },
+        // Gravação direta: `_List` ou `_GrowableList` (a classe diz que é
+        // modificável) com o armazenamento na forma compacta do `E` (que só
+        // existe com o `E` reificado exatamente `int`, `double` ou `bool`:
+        // a covariância está satisfeita).
+        self.ajudante_tipado(
+            "df.nucleo_len_gravavel",
+            vec![(lista.clone(), Type::Ref), (int(codigo_da_forma(t)), Type::I64)],
             Type::I64,
         )
     }
 
     /// `lista.length`.
     pub(super) fn length_indexado(&mut self, lista: Operand, ix: Indexavel) -> Operand {
+        // Lista tipada provada das voltas rápidas: o comprimento lido antes.
+        if let Some(p) = self.provada_do_acesso.take()
+            && let Indexavel::Tipada(_) | Indexavel::Simd { .. } = ix
+        {
+            return p.comprimento;
+        }
         let lista = self.coagir(lista, Type::Ref);
         // N13: a lista do runtime das voltas (comprimento não nulo, fixo).
         if let (Indexavel::Nucleo { .. }, Some(f)) = (ix, &self.fixa_do_acesso) {
@@ -340,6 +347,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Desvia para o caminho rápido quando `indice` está nos limites da
     /// lista apta, senão para o `lento`; junta os dois resultados na
     /// representação `repr`.
+    #[allow(clippy::too_many_arguments)]
     fn desviar_indexado(
         &mut self,
         lista: &Operand,
@@ -384,173 +392,35 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// O endereço dos elementos de uma lista tipada apta: o que
     /// `comprimento_rapido` leu para o teste de limites que guarda este
-    /// acesso, ou `dartforge_typed_ptr`.
+    /// acesso, ou `@df.tipada_dados`.
     fn enderecos_tipados(&mut self, lista: &Operand) -> Operand {
         if let Some((l, d)) = &self.dados_tipados
             && l == lista
         {
             return d.clone();
         }
-        self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_typed_ptr".to_string(),
-                args: vec![(lista.clone(), Type::Ref)],
-                ret_ty: Type::I64,
-            },
-            Type::I64,
-        )
+        self.ajudante_tipado("df.tipada_dados", vec![(lista.clone(), Type::Ref)], Type::I64)
     }
 
     /// O endereço dos elementos e o comprimento de uma lista tipada do tipo
-    /// `tipo` (elementos de `1 << log2` bytes). N17: a lista interna tem um
-    /// cabeçalho de endereço fixo (`heap::CabecalhoTipado`, dado por
-    /// `dartforge_typed_cabecalho`, pura do handle): o endereço e o tamanho
-    /// em bytes são lidos dele em linha. Uma visão (sem cabeçalho próprio:
-    /// o do runtime é o vazio, de endereço nulo) volta a
-    /// `dartforge_typed_len`/`dartforge_typed_ptr`, que resolvem a base, o
-    /// deslocamento e a imutabilidade. Antes eram as duas chamadas a cada
-    /// acesso, cada uma com a busca do slot (~100 instruções).
-    fn dados_e_comprimento_tipados(&mut self, lista: &Operand, tipo: i64, log2: i64, escrita: bool) -> (Operand, Operand) {
-        let int = |x: i64| Operand::Constant(Constant::Int(x));
-        let cab = self.cabecalho_tipado(lista, tipo);
-        let dados = self.emit(Instruction::CargaNativa { endereco: cab.clone(), indice: int(0), tipo: TipoC::I64 }, Type::I64);
-        let bytes = self.emit(Instruction::CargaNativa { endereco: cab, indice: int(1), tipo: TipoC::I64 }, Type::I64);
-        let n = self.emit(Instruction::LShr(bytes, int(log2)), Type::I64);
-        let tem = self.emit(Instruction::ICmp(ICmpOp::Ne, dados.clone(), int(0)), Type::I1);
-        let pelo_cabecalho = self.current_block;
-        let visao = self.new_block();
-        let juncao = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: tem, then_block: juncao, else_block: visao });
-        self.set_block(visao);
-        let args = vec![(lista.clone(), Type::Ref), (int(tipo), Type::I64), (int(i64::from(escrita)), Type::I64)];
-        let n_visao = self.emit(
-            Instruction::CallRuntime { name: "dartforge_typed_len".to_string(), args, ret_ty: Type::I64 },
-            Type::I64,
-        );
-        let dados_visao = self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_typed_ptr".to_string(),
-                args: vec![(lista.clone(), Type::Ref)],
-                ret_ty: Type::I64,
-            },
-            Type::I64,
-        );
-        let fim_visao = self.current_block;
-        self.terminate(Terminator::Branch(juncao));
-        self.set_block(juncao);
-        let dados = self.emit(
-            Instruction::Phi { incoming: vec![(pelo_cabecalho, dados), (fim_visao, dados_visao)], ty: Type::I64 },
-            Type::I64,
-        );
-        let n = self.emit(Instruction::Phi { incoming: vec![(pelo_cabecalho, n), (fim_visao, n_visao)], ty: Type::I64 }, Type::I64);
-        (dados, n)
-    }
-
-    /// O cabeçalho da lista tipada `lista` (`dartforge_typed_cabecalho`).
-    ///
-    /// A lista lida de um campo a cada acesso (`_buffer[_index++]` do
-    /// `_HttpParser`, o `_buffer[...] = ...` do `_CopyingBytesBuilder`)
-    /// passa por um cache: o último handle e o cabeçalho dele, em dois
-    /// locais da função, um par por tipo de elemento, que os acessos da
-    /// função compartilham (o `_buffer.length` e o `_buffer[i] = b` do
-    /// `addByte`). O LLVM não tira a chamada pura do
-    /// laço quando o campo é relido depois de uma chamada; com o cache, o
-    /// acerto é uma comparação. O handle guardado fica enraizado (local
-    /// `Ref`), então a lista dele não morre e o handle não é reusado por
-    /// outra enquanto está no cache: o cabeçalho continua o dela. A lista
-    /// que vem de parâmetro ou de local fica com a chamada, que o LLVM tira
-    /// dos laços (e vetoriza). Fora dos corpos `async`/geradores (os locais
-    /// viram posições do quadro).
-    fn cabecalho_tipado(&mut self, lista: &Operand, tipo: i64) -> Operand {
-        let int = |x: i64| Operand::Constant(Constant::Int(x));
-        let chamada = |s: &mut Self, nome: &str| {
-            s.emit(
-                Instruction::CallRuntime {
-                    name: nome.to_string(),
-                    args: vec![(lista.clone(), Type::Ref), (int(tipo), Type::I64)],
-                    ret_ty: Type::I64,
-                },
+    /// `tipo` (interna, externa ou visão: os mesmos deslocamentos, §2.5), em
+    /// linha e invariantes (`@df.tipada_dados`/`@df.tipada_len`); `escrita`: 0
+    /// na visão não modificável do tipo (`@df.tipada_len_gravavel`, pelo cid).
+    /// Antes, um cabeçalho de endereço fixo por chamada pura ao runtime e um
+    /// cache por ponto de acesso.
+    fn dados_e_comprimento_tipados(&mut self, lista: &Operand, tipo: i64, escrita: bool) -> (Operand, Operand) {
+        let dados = self.ajudante_tipado("df.tipada_dados", vec![(lista.clone(), Type::Ref)], Type::I64);
+        let n = if escrita {
+            let imutavel = i64::from(dartforge_runtime::layout::cid::visao(tipo as u8, true));
+            self.ajudante_tipado(
+                "df.tipada_len_gravavel",
+                vec![(lista.clone(), Type::Ref), (Operand::Constant(Constant::Int(imutavel)), Type::I64)],
                 Type::I64,
             )
+        } else {
+            self.ajudante_tipado("df.tipada_len", vec![(lista.clone(), Type::Ref)], Type::I64)
         };
-        if self.async_estado.is_some() || !self.lido_de_campo(lista) {
-            return chamada(self, "dartforge_typed_cabecalho");
-        }
-        let (cache_h, cache_c) = match self.caches_de_cabecalho.get(&tipo) {
-            Some(c) => c.clone(),
-            None => {
-                let cache_h = self.alloca_na_entrada(Type::Ref);
-                let cache_c = self.alloca_na_entrada(Type::I64);
-                // Vazio no começo: o cabeçalho 0 nunca acerta (o null também
-                // tem cabeçalho, o vazio do runtime).
-                self.gravar_na_entrada(&cache_h, Operand::Constant(Constant::Null));
-                self.gravar_na_entrada(&cache_c, int(0));
-                self.caches_de_cabecalho.insert(tipo, (cache_h.clone(), cache_c.clone()));
-                (cache_h, cache_c)
-            }
-        };
-        let h = self.emit(Instruction::Load { ptr: cache_h.clone(), ty: Type::Ref }, Type::Ref);
-        let c = self.emit(Instruction::Load { ptr: cache_c.clone(), ty: Type::I64 }, Type::I64);
-        let igual = self.emit(Instruction::ICmp(ICmpOp::Eq, lista.clone(), h), Type::I1);
-        let conferir = self.new_block();
-        let acerto = self.new_block();
-        let falha = self.new_block();
-        let juncao = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: igual, then_block: conferir, else_block: falha });
-        self.set_block(conferir);
-        let cheio = self.emit(Instruction::ICmp(ICmpOp::Ne, c.clone(), int(0)), Type::I1);
-        self.terminate(Terminator::CondBranch { cond: cheio, then_block: acerto, else_block: falha });
-        self.set_block(acerto);
-        let fim_acerto = self.current_block;
-        let c_acerto = c;
-        self.terminate(Terminator::Branch(juncao));
-        self.set_block(falha);
-        let c_falha = chamada(self, "dartforge_typed_cabecalho_na_falha");
-        self.emit(Instruction::Store { ptr: cache_h, val: lista.clone() }, Type::Void);
-        self.emit(Instruction::Store { ptr: cache_c, val: c_falha.clone() }, Type::Void);
-        let fim_falha = self.current_block;
-        self.terminate(Terminator::Branch(juncao));
-        self.set_block(juncao);
-        self.emit(Instruction::Phi { incoming: vec![(fim_acerto, c_acerto), (fim_falha, c_falha)], ty: Type::I64 }, Type::I64)
-    }
-
-    /// `op` é relido a cada acesso: a leitura de um campo
-    /// (`dartforge_object_get`) ou de uma variável global (a de topo, o
-    /// `static`), ou a junção que a via rápida de um campo `late`
-    /// (`membros.rs`) ou a inicialização preguiçosa de uma global fazem com
-    /// essa leitura. O LLVM não tira do laço a chamada pura sobre um valor
-    /// relido; o cache de `cabecalho_tipado` resolve com uma comparação.
-    fn lido_de_campo(&self, op: &Operand) -> bool {
-        let leitura = |v: &ValueId| {
-            self.func.blocks.iter().flat_map(|b| b.instructions.iter()).any(|(vid, inst, _)| {
-                *vid == *v
-                    && match inst {
-                        Instruction::GetField { .. } | Instruction::LoadGlobal { .. } => true,
-                        Instruction::CallRuntime { name, .. } => name == "dartforge_object_get",
-                        _ => false,
-                    }
-            })
-        };
-        let Operand::Val(v) = op else { return false };
-        if leitura(v) || self.lidos_de_global.contains(v) {
-            return true;
-        }
-        self.func.blocks.iter().flat_map(|b| b.instructions.iter()).any(|(vid, inst, _)| {
-            *vid == *v
-                && matches!(inst, Instruction::Phi { incoming, .. }
-                    if incoming.iter().any(|(_, o)| matches!(o, Operand::Val(w) if leitura(w))))
-        })
-    }
-
-    /// `*ptr = val` no bloco de entrada, logo depois dos `alloca` (vale
-    /// antes de qualquer uso).
-    fn gravar_na_entrada(&mut self, ptr: &Operand, val: Operand) {
-        let vid = ValueId(self.next_value);
-        self.next_value += 1;
-        self.value_types.insert(vid, Type::Void);
-        let b0 = self.func.blocks.iter().position(|b| b.id == BlockId(0)).expect("bloco de entrada");
-        let pos = self.n_allocas;
-        self.func.blocks[b0].instructions.insert(pos, (vid, Instruction::Store { ptr: ptr.clone(), val }, Type::Void));
+        (dados, n)
     }
 
     /// `lista[indice]`, no resultado `repr`. `None` quando o índice não é
@@ -558,6 +428,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub(super) fn ler_indexado(&mut self, lista: Operand, indice: Operand, ix: Indexavel, repr: Type) -> Option<Operand> {
         if self.operand_type(&indice) != Type::I64 {
             return None;
+        }
+        // `lista[i]` nas voltas rápidas de um laço versionado: `i` está
+        // provado em `0..comprimento` — a carga, sem teste de limites nem
+        // caminho lento (que chamaria o runtime e impediria o LLVM de
+        // vetorizar o laço).
+        if let Some(p) = self.provada_do_acesso.take() {
+            match ix {
+                Indexavel::Tipada(l) => {
+                    let v = self.emit(Instruction::CargaNativa { endereco: p.dados, indice, tipo: l.elemento }, l.repr());
+                    return Some(self.coagir(v, repr));
+                }
+                Indexavel::Simd { k, .. } => {
+                    let v = self.emit(Instruction::Simd { op: OpSimd::Carrega, args: vec![p.dados, indice] }, k);
+                    return Some(self.coagir(v, repr));
+                }
+                Indexavel::Nucleo { .. } => {}
+            }
         }
         let lista = self.coagir(lista, Type::Ref);
         let (lista2, indice2) = (lista.clone(), indice.clone());
@@ -588,8 +475,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Indexavel::Nucleo { gravacao } => gravacao.is_some(),
             Indexavel::Simd { .. } => true,
         };
+        let provada = self.provada_do_acesso.take();
         if !direta || self.operand_type(&indice) != Type::I64 {
             return false;
+        }
+        // `lista[i] = v` nas voltas rápidas de um laço versionado, com a
+        // lista provada também para a gravação: a gravação, sem teste de
+        // limites nem caminho lento. `Int32List` etc. guardam os bits baixos
+        // (o `trunc` de `GravacaoNativa`), como o `[]=` da VM.
+        if let Some(p) = provada.filter(|p| p.escrita) {
+            match ix {
+                Indexavel::Tipada(l) => {
+                    let v = self.coagir(valor, l.repr());
+                    self.emit(Instruction::GravacaoNativa { endereco: p.dados, indice, tipo: l.elemento, valor: v }, Type::Void);
+                    return true;
+                }
+                Indexavel::Simd { k, .. } => {
+                    let v = self.coagir(valor, k);
+                    self.emit(Instruction::Simd { op: OpSimd::Grava, args: vec![p.dados, indice, v] }, Type::Void);
+                    return true;
+                }
+                Indexavel::Nucleo { .. } => {}
+            }
         }
         let lista = self.coagir(lista, Type::Ref);
         let (lista2, indice2, valor2) = (lista.clone(), indice.clone(), valor.clone());
@@ -635,132 +542,146 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         true
     }
 
-    /// O endereço dos elementos de uma lista do runtime apta, do cabeçalho.
-    fn dados_da_lista(&mut self, lista: &Operand) -> Operand {
-        if let Some(f) = &self.fixa_do_acesso {
-            return f.dados.clone();
-        }
-        let cab = self.cabecalho_da_lista(lista);
-        self.campo_do_cabecalho(&cab, 0)
+    /// O armazenamento de uma lista do runtime (a própria `_List` ou
+    /// `_ImmutableList`, ou os dados da `_GrowableList`): o endereço do
+    /// elemento 0 (`a+22`) e a forma dele (`flags & (FORMA | ELEMENTO)`, o
+    /// [`codigo_da_forma`]). O chamador sabe que `lista` é lista do runtime.
+    pub(super) fn armazenamento_da_lista(&mut self, lista: &Operand) -> (Operand, Operand) {
+        let a = self.ajudante_tipado("df.nucleo_armazenamento", vec![(lista.clone(), Type::Ref)], Type::I64);
+        let forma = self.ajudante_tipado("df.nucleo_forma", vec![(a.clone(), Type::I64)], Type::I64);
+        let dados = self.emit(Instruction::Add(a, Operand::Constant(Constant::Int(ELEMENTOS_DO_ARMAZENAMENTO))), Type::I64);
+        (dados, forma)
     }
 
-    /// `indice * k + d`, em `int`.
-    fn escala(&mut self, indice: &Operand, k: i64, d: i64) -> Operand {
-        let m = self.emit(Instruction::Mul(indice.clone(), Operand::Constant(Constant::Int(k))), Type::I64);
-        if d == 0 {
-            return m;
-        }
-        self.emit(Instruction::Add(m, Operand::Constant(Constant::Int(d))), Type::I64)
+    /// O comprimento lógico de `lista` se ela é lista do runtime, senão 0
+    /// (`@df.nucleo_len`).
+    pub(super) fn comprimento_do_nucleo(&mut self, lista: &Operand) -> Operand {
+        self.ajudante_tipado("df.nucleo_len", vec![(lista.clone(), Type::Ref)], Type::I64)
     }
 
-    /// `dartforge_lista_ref(lista, indice)`: o elemento numa posição `Ref`.
-    fn elemento_ref(&mut self, lista: &Operand, indice: &Operand) -> Operand {
-        self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_lista_ref".to_string(),
-                args: vec![(lista.clone(), Type::Ref), (indice.clone(), Type::I64)],
-                ret_ty: Type::Ref,
-            },
-            Type::Ref,
+    /// O comprimento de `lista` para gravações diretas na forma `forma`
+    /// (`@df.nucleo_len_gravavel`): 0 se ela não é `_List`/`_GrowableList`
+    /// dessa forma.
+    pub(super) fn comprimento_gravavel_do_nucleo(&mut self, lista: &Operand, forma: i64) -> Operand {
+        self.ajudante_tipado(
+            "df.nucleo_len_gravavel",
+            vec![(lista.clone(), Type::Ref), (Operand::Constant(Constant::Int(forma)), Type::I64)],
+            Type::I64,
         )
     }
 
-    /// A forma dos elementos de uma lista do runtime (`heap::FormaDeLista`):
-    /// a constante conferida antes das voltas de N13, ou lida do cabeçalho.
-    fn forma_da_lista(&mut self, lista: &Operand) -> Result<i64, Operand> {
+    /// O endereço do elemento 0 e a forma: os conferidos antes das voltas de
+    /// N13 (forma conhecida na emissão), ou lidos em linha.
+    fn elementos_e_forma(&mut self, lista: &Operand) -> (Operand, Result<i64, Operand>) {
         if let Some(f) = &self.fixa_do_acesso {
-            return Ok(f.forma);
+            return (f.dados.clone(), Ok(f.forma));
         }
-        let cab = self.cabecalho_da_lista(lista);
-        Err(self.campo_do_cabecalho(&cab, 3))
+        let (dados, forma) = self.armazenamento_da_lista(lista);
+        (dados, Err(forma))
+    }
+
+    /// O elemento `indice` de um armazenamento da forma `k`, na
+    /// representação natural dela: o `Ref` (`@df.palavra_ref`, que o
+    /// emissor enraíza como qualquer `Ref`), ou os bits do escalar.
+    fn carregar_na_forma(&mut self, dados: &Operand, indice: &Operand, k: i64) -> Operand {
+        match k {
+            FORMA_INT => self.emit(
+                Instruction::CargaNativa { endereco: dados.clone(), indice: indice.clone(), tipo: TipoC::I64 },
+                Type::I64,
+            ),
+            FORMA_DOUBLE => self.emit(
+                Instruction::CargaNativa { endereco: dados.clone(), indice: indice.clone(), tipo: TipoC::F64 },
+                Type::F64,
+            ),
+            FORMA_BOOL => {
+                let b = self.emit(
+                    Instruction::CargaNativa { endereco: dados.clone(), indice: indice.clone(), tipo: TipoC::I64 },
+                    Type::I64,
+                );
+                self.emit(Instruction::ICmp(ICmpOp::Ne, b, Operand::Constant(Constant::Int(0))), Type::I1)
+            }
+            _ => self.ajudante_tipado("df.palavra_ref", vec![(dados.clone(), Type::I64), (indice.clone(), Type::I64)], Type::Ref),
+        }
+    }
+
+    /// O elemento `indice` pelo `[]` do SDK (a forma que não serve à
+    /// representação pedida), em `repr`.
+    fn elemento_pelo_sdk(&mut self, lista: &Operand, indice: &Operand, repr: Type) -> Operand {
+        let r = self.chamar_por_nome_com_receptor_tipado(
+            lista.clone(),
+            true,
+            super::sdk_fonte::Tipo::Chamar,
+            "[]",
+            &[(None, indice.clone())],
+        );
+        if self.is_terminated() {
+            return Operand::Constant(Constant::Null);
+        }
+        self.coagir(r, repr)
     }
 
     /// O elemento `indice` (já conferido) de uma lista do runtime, na
     /// representação `repr`.
     ///
-    /// Numa lista compacta (N14) da forma de `repr` (`int`, `double`,
-    /// `bool`), os 8 bytes dos bits em `dados + 8·indice`; numa lista geral
-    /// lida como `Ref`, o `TaggedValue` de 16 bytes quando a tag é de
-    /// referência. O resto sai pela caixa (`dartforge_lista_ref`: um escalar
-    /// numa posição `Ref` vira `Smi` ou caixa), e a forma conhecida na
-    /// emissão (as voltas de N13) poupa a conferência.
+    /// Na forma compacta de `repr` (`int`, `double`, `bool`), os 8 bytes dos
+    /// bits em `dados + 8·indice`; na lista geral, o `Ref` (desencaixado se
+    /// `repr` é escalar). Lido como `Ref`, um elemento compacto sai
+    /// encaixotado. O que sobra (uma forma compacta que não é a de `repr`
+    /// escalar) vai ao `[]` do SDK. A forma conhecida na emissão (as voltas
+    /// de N13) poupa a conferência.
     pub(super) fn ler_elemento_da_lista(&mut self, lista: &Operand, indice: &Operand, repr: Type) -> Operand {
-        let alvo = match repr {
-            Type::I64 | Type::F64 | Type::I1 => codigo_da_forma(repr),
-            Type::Ref => 0,
-            _ => return self.elemento_ref(lista, indice),
-        };
-        let dados = self.dados_da_lista(lista);
-        let forma = self.forma_da_lista(lista);
-        // A lista geral lida como escalar (a forma 0 conhecida nas voltas):
-        // os 16 bytes com a tag, como antes das listas compactas.
-        let geral = alvo == 0 || forma == Ok(0);
-        if let Ok(k) = forma
-            && k != alvo
-            && k != 0
-        {
-            let r = self.elemento_ref(lista, indice);
-            return self.coagir(r, repr);
-        }
-        let mut caixa = None;
-        if let Err(f) = forma {
-            let ok = self.emit(Instruction::ICmp(ICmpOp::Eq, f, Operand::Constant(Constant::Int(alvo))), Type::I1);
-            let segue = self.new_block();
-            let b = self.new_block();
-            self.terminate(Terminator::CondBranch { cond: ok, then_block: segue, else_block: b });
-            self.set_block(segue);
-            caixa = Some(b);
-        }
-        let (tipo, tag) = match repr {
-            Type::F64 => (TipoC::F64, TAG_DOUBLE),
-            Type::Ref => (TipoC::I64, TAG_REF),
-            Type::I1 => (TipoC::I64, TAG_BOOL),
-            _ => (TipoC::I64, TAG_INT),
-        };
-        let i_bits = if geral {
-            let i_tag = self.escala(indice, 16, 9);
-            let t = self.emit(Instruction::CargaNativa { endereco: dados.clone(), indice: i_tag, tipo: TipoC::U8 }, Type::I64);
-            let ok = self.emit(Instruction::ICmp(ICmpOp::Eq, t, Operand::Constant(Constant::Int(tag))), Type::I1);
-            let direto = self.new_block();
-            let b = *caixa.get_or_insert_with(|| self.new_block());
-            self.terminate(Terminator::CondBranch { cond: ok, then_block: direto, else_block: b });
-            self.set_block(direto);
-            self.escala(indice, 2, 0)
+        let escalar = matches!(repr, Type::I64 | Type::F64 | Type::I1);
+        let formas: Vec<i64> = if escalar {
+            vec![codigo_da_forma(repr), FORMA_GERAL]
         } else {
-            indice.clone()
+            vec![FORMA_GERAL, FORMA_INT, FORMA_DOUBLE, FORMA_BOOL]
         };
-        let v = if repr == Type::I1 {
-            let b = self.emit(Instruction::CargaNativa { endereco: dados, indice: i_bits, tipo }, Type::I64);
-            self.emit(Instruction::ICmp(ICmpOp::Ne, b, Operand::Constant(Constant::Int(0))), Type::I1)
-        } else {
-            self.emit(Instruction::CargaNativa { endereco: dados, indice: i_bits, tipo }, repr)
+        let (dados, forma) = self.elementos_e_forma(lista);
+        let f = match forma {
+            Ok(k) if formas.contains(&k) => {
+                let v = self.carregar_na_forma(&dados, indice, k);
+                return self.coagir(v, repr);
+            }
+            Ok(_) => return self.elemento_pelo_sdk(lista, indice, repr),
+            Err(f) => f,
         };
-        let Some(caixa) = caixa else { return v };
-        let fim_direto = self.current_block;
         let juncao = self.new_block();
-        self.terminate(Terminator::Branch(juncao));
-
-        self.set_block(caixa);
-        let r = self.elemento_ref(lista, indice);
-        let r = self.coagir(r, repr);
-        let fim_caixa = self.current_block;
-        let caixa_chega = !self.is_terminated();
-        if caixa_chega {
+        let mut entradas = Vec::with_capacity(formas.len() + 1);
+        for k in formas {
+            let ok = self.emit(Instruction::ICmp(ICmpOp::Eq, f.clone(), Operand::Constant(Constant::Int(k))), Type::I1);
+            let sim = self.new_block();
+            let nao = self.new_block();
+            self.terminate(Terminator::CondBranch { cond: ok, then_block: sim, else_block: nao });
+            self.set_block(sim);
+            let v = self.carregar_na_forma(&dados, indice, k);
+            let v = self.coagir(v, repr);
+            if !self.is_terminated() {
+                entradas.push((self.current_block, v));
+                self.terminate(Terminator::Branch(juncao));
+            }
+            self.set_block(nao);
+        }
+        let v = self.elemento_pelo_sdk(lista, indice, repr);
+        if !self.is_terminated() {
+            entradas.push((self.current_block, v));
             self.terminate(Terminator::Branch(juncao));
         }
-
         self.set_block(juncao);
-        if caixa_chega {
-            self.emit(Instruction::Phi { incoming: vec![(fim_direto, v), (fim_caixa, r)], ty: repr }, repr)
-        } else {
-            v
+        match entradas.len() {
+            0 => {
+                self.terminate(Terminator::Unreachable);
+                Operand::Constant(Constant::Null)
+            }
+            1 => entradas.pop().expect("uma entrada").1,
+            _ => self.emit(Instruction::Phi { incoming: entradas, ty: repr }, repr),
         }
     }
 
     /// Grava `valor` (`int`, `double` ou `bool`, sem caixa) no elemento
     /// `indice` (já conferido) de uma lista do runtime cuja gravação direta
-    /// foi conferida (`dartforge_lista_len_gravavel`): a lista é compacta da
-    /// forma de `repr` (N14), e o elemento são os 8 bytes dos bits.
+    /// foi conferida (`@df.nucleo_len_gravavel`): o armazenamento é compacto
+    /// da forma de `repr`, e o elemento são os 8 bytes dos bits (escalar:
+    /// sem barreira).
     fn gravar_elemento_da_lista(&mut self, lista: &Operand, indice: &Operand, valor: Operand, repr: Type) {
         let (tipo, valor) = match repr {
             Type::F64 => (TipoC::F64, valor),
@@ -770,34 +691,204 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             _ => (TipoC::I64, valor),
         };
-        let dados = self.dados_da_lista(lista);
+        let (dados, _) = self.elementos_e_forma(lista);
         self.emit(Instruction::GravacaoNativa { endereco: dados, indice: indice.clone(), tipo, valor }, Type::Void);
     }
 }
 
-/// O código da forma compacta (`heap::FormaDeLista`) dos elementos de
-/// representação `t`: 1 `int`, 2 `double`, 3 `bool` — o mesmo das
-/// gravações diretas.
+/// A forma de um armazenamento de lista do runtime: os bits `FORMA` e
+/// `ELEMENTO` do `flags` (`layout::flags`, §2.3 e §2.16).
+pub(super) const FORMA_GERAL: i64 = dartforge_runtime::layout::flags::REFS as i64;
+const FORMA_INT: i64 = (dartforge_runtime::layout::flags::BRUTO | dartforge_runtime::layout::flags::ELEMENTO_INT) as i64;
+const FORMA_DOUBLE: i64 = (dartforge_runtime::layout::flags::BRUTO | dartforge_runtime::layout::flags::ELEMENTO_DOUBLE) as i64;
+const FORMA_BOOL: i64 = (dartforge_runtime::layout::flags::BRUTO | dartforge_runtime::layout::flags::ELEMENTO_BOOL) as i64;
+
+/// O elemento 0 de um armazenamento, a partir do handle (`b+24` = `h+22`).
+const ELEMENTOS_DO_ARMAZENAMENTO: i64 =
+    dartforge_runtime::layout::desl::ELEMENTOS as i64 - dartforge_runtime::layout::DESLOCAMENTO_DO_HANDLE;
+
+/// O código da forma compacta dos elementos de representação `t` (`int`,
+/// `double`, `bool`), o que `@df.nucleo_forma` lê do armazenamento; a forma
+/// geral para as outras.
 pub(super) fn codigo_da_forma(t: Type) -> i64 {
     match t {
-        Type::I64 => 1,
-        Type::F64 => 2,
-        _ => 3,
+        Type::I64 => FORMA_INT,
+        Type::F64 => FORMA_DOUBLE,
+        Type::I1 => FORMA_BOOL,
+        _ => FORMA_GERAL,
     }
 }
 
-/// As tags de `ValueTag` do runtime (`heap.rs`, `#[repr(u8)]`).
-const TAG_INT: i64 = 0;
-const TAG_BOOL: i64 = 1;
-const TAG_DOUBLE: i64 = 2;
-const TAG_REF: i64 = 3;
+/// O tipo de elemento e o tipo C de uma classe de lista tipada numérica do
+/// `typed_data_patch.dart` (`_Int8List`, `_Int8ArrayView`,
+/// `_UnmodifiableInt8ArrayView`…); `None` para SIMD e o resto.
+fn elemento_da_classe(classe: &str) -> Option<(i64, TipoC)> {
+    let base = classe.strip_prefix("_Unmodifiable").or_else(|| classe.strip_prefix('_'))?;
+    let base = base.strip_suffix("ArrayView").or_else(|| base.strip_suffix("List"))?;
+    elemento_do_nome(base)
+}
 
-/// O `log2` do tamanho em bytes de um elemento de lista tipada numérica.
-fn log2_do_elemento(e: TipoC) -> i64 {
-    match e {
-        TipoC::I8 | TipoC::U8 | TipoC::Bool => 0,
-        TipoC::I16 | TipoC::U16 => 1,
-        TipoC::I32 | TipoC::U32 | TipoC::F32 => 2,
-        _ => 3,
+/// `Int8` … `Float64` → (o `TIPO_*`, o tipo C).
+fn elemento_do_nome(nome: &str) -> Option<(i64, TipoC)> {
+    Some(match nome {
+        "Int8" => (0, TipoC::I8),
+        "Uint8" => (1, TipoC::U8),
+        "Uint8Clamped" => (2, TipoC::U8),
+        "Int16" => (3, TipoC::I16),
+        "Uint16" => (4, TipoC::U16),
+        "Int32" => (5, TipoC::I32),
+        "Uint32" => (6, TipoC::U32),
+        "Int64" => (7, TipoC::I64),
+        "Uint64" => (8, TipoC::U64),
+        "Float32" => (9, TipoC::F32),
+        "Float64" => (10, TipoC::F64),
+        _ => return None,
+    })
+}
+
+impl FnBuilder<'_, '_> {
+    /// O membro externo de lista tipada ou visão feito em linha (P4,
+    /// docs/NATIVO-ESPACO-UNIFICADO.md §3.8), ou `None` (a chamada de sempre):
+    ///
+    /// * `TypedDataBase_length`, `TypedDataView_offsetInBytes`,
+    ///   `TypedDataView_typedData`: a carga do bloco;
+    /// * o `[]` reconhecido de cada lista numérica e visão
+    ///   (`DartForge_typed_indexar_*`): o teste de limites e a carga, com o
+    ///   runtime como caminho lento (que lança o `RangeError` da VM);
+    /// * `_TypedList._getX`/`_setX` numéricos (os acessos por bytes do
+    ///   `ByteData` e das cópias do patch): o teste `0 <= off`, `off + N <=
+    ///   bytes` e a carga ou gravação, com o runtime como caminho lento.
+    ///
+    /// Os resultados saem na representação natural (`int` `I64`, `double`
+    /// `F64`), como `texto_em_linha`. SIMD e `_memMove*` ficam no runtime.
+    pub(super) fn tipada_em_linha(
+        &mut self,
+        membro: &str,
+        native: Option<&str>,
+        this: Option<&Operand>,
+        args: &[Operand],
+    ) -> Option<Operand> {
+        let this = this?.clone();
+        if self.operand_type(&this) != Type::Ref {
+            return None;
+        }
+        let nome_do_ajudante = match (native, args.len()) {
+            (Some("TypedDataBase_length"), 0) => Some(("df.tipada_len", Type::I64)),
+            (Some("TypedDataView_offsetInBytes"), 0) => Some(("df.tipada_deslocamento", Type::I64)),
+            (Some("TypedDataView_typedData"), 0) => Some(("df.tipada_base", Type::Ref)),
+            (Some(_), _) => return None,
+            (None, _) => None,
+        };
+        if let Some((nome, ret)) = nome_do_ajudante {
+            return Some(self.ajudante_tipado(nome, vec![(this, Type::Ref)], ret));
+        }
+        let lento = crate::nativos::intrinseco(membro)?;
+        if let Some(classe) = membro.strip_suffix(".[]") {
+            let (_, tc) = elemento_da_classe(classe)?;
+            if args.len() != 1 {
+                return None;
+            }
+            return Some(self.indexar_tipada_em_linha(this, args[0].clone(), tc, lento));
+        }
+        let (grava, nome) = match membro.strip_prefix("_TypedList._get") {
+            Some(n) => (false, n),
+            None => (true, membro.strip_prefix("_TypedList._set")?),
+        };
+        let (_, tc) = elemento_do_nome(nome)?;
+        if args.len() != usize::from(grava) + 1 {
+            return None;
+        }
+        Some(self.bytes_tipados_em_linha(this, args, tc, grava, lento))
+    }
+
+    /// `this[i]` de uma lista numérica ou visão (o elemento `tc`): em linha
+    /// quando `0 <= i < length`, senão o intrínseco `lento` do runtime.
+    fn indexar_tipada_em_linha(&mut self, this: Operand, i: Operand, tc: TipoC, lento: &str) -> Operand {
+        let repr = tc.tipo_hir();
+        let i = self.coagir(i, Type::I64);
+        let n = self.ajudante_tipado("df.tipada_len", vec![(this.clone(), Type::Ref)], Type::I64);
+        let ok = self.emit(Instruction::ICmp(ICmpOp::Ult, i.clone(), n), Type::I1);
+        let rapido = self.new_block();
+        let devagar = self.new_block();
+        let juncao = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: ok, then_block: rapido, else_block: devagar });
+        self.set_block(rapido);
+        let dados = self.ajudante_tipado("df.tipada_dados", vec![(this.clone(), Type::Ref)], Type::I64);
+        let v = self.emit(Instruction::CargaNativa { endereco: dados, indice: i.clone(), tipo: tc }, repr);
+        let fim_rapido = self.current_block;
+        self.terminate(Terminator::Branch(juncao));
+        self.set_block(devagar);
+        let s = self.emit_call_with_check(
+            Instruction::CallRuntime {
+                name: crate::nativos::simbolo(lento),
+                args: vec![(this, Type::Ref), (i, Type::I64)],
+                ret_ty: repr,
+            },
+            repr,
+        );
+        let fim_lento = self.current_block;
+        let chega = !self.is_terminated();
+        if chega {
+            self.terminate(Terminator::Branch(juncao));
+        }
+        self.set_block(juncao);
+        if chega {
+            self.emit(Instruction::Phi { incoming: vec![(fim_rapido, v), (fim_lento, s)], ty: repr }, repr)
+        } else {
+            v
+        }
+    }
+
+    /// `this._getX(off)` / `this._setX(off, v)` (o elemento `tc` de `N`
+    /// bytes em `off`, sem alinhamento): em linha quando `off u< bytes` e
+    /// `off + N <= bytes`, senão o intrínseco `lento` do runtime (que lança).
+    fn bytes_tipados_em_linha(&mut self, this: Operand, args: &[Operand], tc: TipoC, grava: bool, lento: &str) -> Operand {
+        let int = |x: i64| Operand::Constant(Constant::Int(x));
+        let repr = tc.tipo_hir();
+        let off = self.coagir(args[0].clone(), Type::I64);
+        let valor = if grava { Some(self.coagir(args[1].clone(), repr)) } else { None };
+        let bytes = self.ajudante_tipado("df.tipada_bytes", vec![(this.clone(), Type::Ref)], Type::I64);
+        let dentro = self.emit(Instruction::ICmp(ICmpOp::Ult, off.clone(), bytes.clone()), Type::I1);
+        let cabe_bloco = self.new_block();
+        let rapido = self.new_block();
+        let devagar = self.new_block();
+        let juncao = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: dentro, then_block: cabe_bloco, else_block: devagar });
+        self.set_block(cabe_bloco);
+        let fim = self.emit(Instruction::Add(off.clone(), int(tc.tamanho_c() as i64)), Type::I64);
+        let cabe = self.emit(Instruction::ICmp(ICmpOp::Sle, fim, bytes), Type::I1);
+        self.terminate(Terminator::CondBranch { cond: cabe, then_block: rapido, else_block: devagar });
+
+        self.set_block(rapido);
+        let dados = self.ajudante_tipado("df.tipada_dados", vec![(this.clone(), Type::Ref)], Type::I64);
+        let endereco = self.emit(Instruction::Add(dados, off.clone()), Type::I64);
+        let v = match &valor {
+            Some(x) => {
+                self.emit(Instruction::GravacaoNativa { endereco, indice: int(0), tipo: tc, valor: x.clone() }, Type::Void);
+                None
+            }
+            None => Some(self.emit(Instruction::CargaNativa { endereco, indice: int(0), tipo: tc }, repr)),
+        };
+        let fim_rapido = self.current_block;
+        self.terminate(Terminator::Branch(juncao));
+
+        self.set_block(devagar);
+        let mut a = vec![(this, Type::Ref), (off, Type::I64)];
+        if let Some(x) = valor {
+            a.push((x, repr));
+        }
+        let ret = if grava { Type::Void } else { repr };
+        let s = self.emit_call_with_check(Instruction::CallRuntime { name: crate::nativos::simbolo(lento), args: a, ret_ty: ret }, ret);
+        let fim_lento = self.current_block;
+        let chega = !self.is_terminated();
+        if chega {
+            self.terminate(Terminator::Branch(juncao));
+        }
+        self.set_block(juncao);
+        match v {
+            None => Operand::Constant(Constant::Null),
+            Some(v) if chega => self.emit(Instruction::Phi { incoming: vec![(fim_rapido, v), (fim_lento, s)], ty: repr }, repr),
+            Some(v) => v,
+        }
     }
 }

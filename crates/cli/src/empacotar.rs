@@ -37,10 +37,11 @@ pub fn run(args: &[std::ffi::OsString]) -> Resultado {
     let exe = std::env::current_exe()?;
     copiar(&exe, &bin.join(exe.file_name().ok_or("executável sem nome")?))?;
 
-    // O runtime pré-compilado (as duas variantes).
+    // O runtime pré-compilado (as três variantes).
     for r in [
         dartforge_emit_native::cache::RuntimeCache::get_or_compile()?,
         dartforge_emit_native::cache::RuntimeCache::para_dll()?,
+        dartforge_emit_native::cache::RuntimeCache::para_producao()?,
     ] {
         copiar(&r.lib_path, &lib.join("runtime").join(r.lib_path.file_name().ok_or("runtime sem nome")?))?;
     }

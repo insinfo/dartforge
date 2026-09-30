@@ -41,12 +41,14 @@ fn modo_com_stdio(modo: i64) -> bool {
 fn textos_da_lista(lista: i64) -> Option<Vec<Vec<u8>>> {
     HEAP.with(|h| {
         let h = h.borrow();
-        let n = h.list_len(lista);
+        if !h.e_lista(lista) {
+            return None;
+        }
+        let n = h.lista_len(lista);
         let mut saida = Vec::with_capacity(n);
         for i in 0..n {
-            let v = h.list_get(lista, i);
-            match (v.is_ref, h.try_get(v.bits)) {
-                (true, Some(Value::String(t))) => saida.push(t.para_utf8_da_vm()),
+            match h.lista_get(lista, i) {
+                crate::heap::Valor::Ref(r) => saida.push(h.texto(r)?.para_utf8_da_vm()),
                 _ => return None,
             }
         }

@@ -43,7 +43,13 @@ pub fn substituir_objetos(func: &mut Function) -> bool {
     let mut candidatos: HashMap<ValueId, Vec<(usize, Acesso)>> = HashMap::new();
     for b in &func.blocks {
         for (v, inst, _) in &b.instructions {
-            if matches!(inst, Instruction::CallRuntime { name, .. } if name == "dartforge_object_new") {
+            // Só objetos do programa (cid ≥ 128): as classes do runtime têm
+            // layout e identidade que o runtime conhece (§2.4).
+            if let Instruction::CallRuntime { name, args, .. } = inst
+                && name == "dartforge_object_new"
+                && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
+                    if *c >= dartforge_runtime::layout::PRIMEIRO_CID_LIVRE)
+            {
                 candidatos.insert(*v, Vec::new());
             }
         }

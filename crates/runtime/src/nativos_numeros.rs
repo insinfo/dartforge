@@ -1,4 +1,6 @@
-// Runtime nativo: natives de `int` e `double` do SDK da fonte (P5b).
+// Runtime nativo: natives de `int`, `double` e `dart:math` do SDK da fonte
+// (P5b; espaço unificado, P2: os `DartForge_double_*`, `Double_parse`,
+// `DartForge_int_hashCode` e `DartForge_math_*` vieram de `nativos_listas.rs`).
 //
 // Cada função é o native de mesmo nome da VM (`runtime/lib/integers.cc`,
 // `double.cc`), com o símbolo `dartforge_nativo_<Nome>` e a assinatura na
@@ -411,7 +413,7 @@ fn texto_de_double_da_vm_antigo(d: f64) -> String {
 pub extern "C" fn dartforge_nativo_Double_toString(this: f64) -> i64 {
     let mut buf = [0u8; TAMANHO_DOUBLE_DA_VM];
     let n = escrever_double_da_vm(this, &mut buf);
-    alocar_texto(Texto::Um(buf[..n].to_vec()))
+    HEAP.with(|heap| heap.borrow_mut().alocar_texto(crate::textos::TextoRef::Um(&buf[..n])))
 }
 
 /// `_Double._bitsDe(d)` da sobreposição (`double.dart`): os bits do
@@ -427,6 +429,211 @@ pub extern "C" fn dartforge_nativo_DartForge_double_bits(d: f64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_int_toString(v: i64) -> i64 {
     dartforge_to_string_i64(v)
+}
+
+/// `has63BitSmis()` (`DartForge_verdadeiro`): o `Smi` daqui tem 63 bits (R10).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_verdadeiro() -> u8 {
+    1
+}
+
+/// `_Smi.hashCode`/`_Mint.hashCode`: o `HashIntegerOp` da VM — o produto de 96
+/// bits de `this` (sem sinal) por `0x2d51`, as três palavras de 32 bits
+/// combinadas por xor, cortado a 30 bits. O lowering o faz em linha
+/// (`lower/caixas.rs`); fica para a chamada.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_int_hashCode(this: i64) -> i64 {
+    let p = u128::from(this as u64) * 0x2d51;
+    let x = (p as u32) ^ ((p >> 32) as u32) ^ ((p >> 64) as u32);
+    i64::from(x & 0x3fff_ffff)
+}
+
+/// `_Double.toInt()`: truncado, saturado fora da faixa de 64 bits (como a
+/// VM); NaN e infinito lançam `UnsupportedError("Infinity or NaN toInt")`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_double_toInt(this: f64) -> i64 {
+    if !this.is_finite() {
+        let m = HEAP.with(|heap| heap.borrow_mut().alocar_str("Infinity or NaN toInt"));
+        let e = com_raizes(&[m], || dartforge_unsupported_error_new(m));
+        com_raizes(&[e], || dartforge_exception_throw(e, 3));
+        return 0;
+    }
+    this as i64
+}
+
+/// `_Double.floorToDouble()` e afins.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_double_floor(this: f64) -> f64 {
+    this.floor()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_double_ceil(this: f64) -> f64 {
+    this.ceil()
+}
+
+/// `roundToDouble`: metade para longe de zero (`round` da VM).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_double_round(this: f64) -> f64 {
+    this.round()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_double_truncate(this: f64) -> f64 {
+    this.trunc()
+}
+
+/// `_Double._modulo(other)`: `%` euclidiano de `double` (resultado nunca
+/// negativo), como `DoubleModulo` da VM.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_double_modulo(this: f64, outro: f64) -> f64 {
+    let r = this % outro;
+    if r < 0.0 {
+        r + outro.abs()
+    } else if r == 0.0 {
+        // A VM normaliza -0.0 para +0.0 no módulo; remainder preserva o sinal.
+        0.0
+    } else {
+        r
+    }
+}
+
+/// `_Double._remainder(other)`: o resto com o sinal do dividendo.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_double_remainder(this: f64, outro: f64) -> f64 {
+    this % outro
+}
+
+/// `_Double.hashCode` (o `HashDoubleOp` da VM): o do `int` quando o valor é
+/// inteiro e cabe em 64 bits (`1.0.hashCode == 1.hashCode`, exigido pela
+/// igualdade de `num`); senão os bits dobrados, `(b ^ b >>> 32)` em 62 bits.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_double_hashCode(this: f64) -> i64 {
+    if this.is_finite() && this == this.trunc() && (-9.223_372_036_854_775_808e18..9.223_372_036_854_775_808e18).contains(&this) {
+        return dartforge_nativo_DartForge_int_hashCode(this as i64);
+    }
+    let b = this.to_bits();
+    ((b ^ (b >> 32)) & 0x3fff_ffff_ffff_ffff) as i64
+}
+
+/// `double._nativeParse(str, start, end)` (`Double_parse`): o número do
+/// texto `[start, end)` ou null — decimal com expoente opcional, `NaN`,
+/// `Infinity`, com sinal (o `CStringToDouble` da VM; `inf`/`nan` em
+/// minúsculas não são aceitos, como na VM). Devolve a caixa (`RETORNO_REF`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Double_parse(texto: i64, inicio: i64, fim: i64) -> i64 {
+    // Só a fatia: o `_JsonStringParser` passa o documento inteiro (`chunk`)
+    // a cada número, e copiar o texto todo tornava o `jsonDecode` quadrático.
+    // O número curto em ASCII (o de todo JSON) vai por um buffer da pilha,
+    // sem as duas alocações da fatia e da `String`.
+    let mut pilha = [0u8; 64];
+    let (i, f) = (inicio.max(0) as usize, fim.max(0) as usize);
+    let lido = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let Some(t) = heap.texto(texto) else { return Err(None) };
+        if f < i || f > t.len() {
+            return Err(None);
+        }
+        if f - i <= pilha.len() && (i..f).all(|k| t.unidade(k) < 0x80) {
+            for k in i..f {
+                pilha[k - i] = t.unidade(k) as u8;
+            }
+            return Ok(f - i);
+        }
+        Err(Some(t.fatia(i, f).para_string()))
+    });
+    let longo;
+    let t: &str = match lido {
+        // Só ASCII foi copiado.
+        Ok(n) => std::str::from_utf8(&pilha[..n]).expect("ASCII"),
+        Err(Some(s)) => {
+            longo = s;
+            &longo
+        }
+        Err(None) => return 0,
+    };
+    let corpo = t.strip_prefix(['+', '-']).unwrap_or(t);
+    let valido = corpo == "NaN"
+        || corpo == "Infinity"
+        || (!corpo.is_empty()
+            && corpo.chars().all(|c| c.is_ascii_digit() || matches!(c, '.' | 'e' | 'E' | '+' | '-'))
+            && corpo.chars().any(|c| c.is_ascii_digit()));
+    if !valido {
+        return 0;
+    }
+    let v = if corpo == "NaN" {
+        f64::NAN
+    } else if corpo == "Infinity" {
+        if t.starts_with('-') { f64::NEG_INFINITY } else { f64::INFINITY }
+    } else {
+        match t.parse::<f64>() {
+            Ok(v) => v,
+            Err(_) => return 0,
+        }
+    };
+    HEAP.with(|heap| heap.borrow_mut().caixa_double(v))
+}
+
+/// Intrínsecos de `dart:math` (`_sqrt`, `_sin`…): a função da libm do Rust.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_math_sqrt(x: f64) -> f64 {
+    x.sqrt()
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_math_sin(x: f64) -> f64 {
+    x.sin()
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_math_cos(x: f64) -> f64 {
+    x.cos()
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_math_tan(x: f64) -> f64 {
+    x.tan()
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_math_acos(x: f64) -> f64 {
+    x.acos()
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_math_asin(x: f64) -> f64 {
+    x.asin()
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_math_atan(x: f64) -> f64 {
+    x.atan()
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_math_atan2(a: f64, b: f64) -> f64 {
+    a.atan2(b)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_math_exp(x: f64) -> f64 {
+    x.exp()
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_math_log(x: f64) -> f64 {
+    x.ln()
+}
+/// `_doublePow(base, exponent)`: `pow` da C (a VM chama `pow`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_DartForge_math_pow(base: f64, expoente: f64) -> f64 {
+    base.powf(expoente)
+}
+
+#[cfg(test)]
+mod testes_modulo_double {
+    use super::dartforge_nativo_DartForge_double_modulo as modulo;
+
+    #[test]
+    fn segue_sinais_e_zero_da_vm() {
+        assert_eq!(modulo(-7.5, 2.0), 0.5);
+        assert_eq!(modulo(-7.5, -2.0), 0.5);
+        assert_eq!(modulo(7.5, -2.0), 1.5);
+        assert_eq!(modulo(-7.5, f64::INFINITY), f64::INFINITY);
+        assert_eq!(modulo(-0.0, 2.0).to_bits(), 0.0f64.to_bits());
+        assert!(modulo(7.5, 0.0).is_nan());
+    }
 }
 
 #[cfg(test)]
@@ -744,19 +951,19 @@ pub fn double_com_precisao(d: f64, p: i64) -> String {
 /// `Double_toStringAsFixed`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Double_toStringAsFixed(this: f64, digitos: i64) -> i64 {
-    alocar_str(&double_com_fixo(this, digitos))
+    HEAP.with(|heap| heap.borrow_mut().alocar_str(&double_com_fixo(this, digitos)))
 }
 
 /// `Double_toStringAsExponential`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Double_toStringAsExponential(this: f64, digitos: i64) -> i64 {
-    alocar_str(&double_com_expoente(this, digitos))
+    HEAP.with(|heap| heap.borrow_mut().alocar_str(&double_com_expoente(this, digitos)))
 }
 
 /// `Double_toStringAsPrecision`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Double_toStringAsPrecision(this: f64, precisao: i64) -> i64 {
-    alocar_str(&double_com_precisao(this, precisao))
+    HEAP.with(|heap| heap.borrow_mut().alocar_str(&double_com_precisao(this, precisao)))
 }
 
 #[cfg(test)]

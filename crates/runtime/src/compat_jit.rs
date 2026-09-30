@@ -59,7 +59,7 @@ fn classe_do_objeto_tipo(tipo: i64) -> Option<i64> {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_mirrors_uri(tipo: i64) -> i64 {
     match classe_do_objeto_tipo(tipo).and_then(|c| BIBLIOTECAS_DAS_CLASSES.with(|m| m.borrow().get(&c).cloned())) {
-        Some((uri, _)) => alocar_str(&uri),
+        Some((uri, _)) => HEAP.with(|h| h.borrow_mut().alocar_str(&uri)),
         None => 0,
     }
 }
@@ -69,7 +69,7 @@ pub extern "C" fn dartforge_nativo_DartForge_mirrors_uri(tipo: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_mirrors_nome(tipo: i64) -> i64 {
     match classe_do_objeto_tipo(tipo).and_then(|c| BIBLIOTECAS_DAS_CLASSES.with(|m| m.borrow().get(&c).cloned())) {
-        Some((_, nome)) => alocar_str(&nome),
+        Some((_, nome)) => HEAP.with(|h| h.borrow_mut().alocar_str(&nome)),
         None => 0,
     }
 }
@@ -79,7 +79,7 @@ pub extern "C" fn dartforge_nativo_DartForge_mirrors_nome(tipo: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_package_config() -> i64 {
     match std::env::var("DARTFORGE_PACKAGE_CONFIG") {
-        Ok(c) if !c.is_empty() => alocar_str(&c),
+        Ok(c) if !c.is_empty() => HEAP.with(|h| h.borrow_mut().alocar_str(&c)),
         _ => 0,
     }
 }
@@ -88,9 +88,9 @@ pub extern "C" fn dartforge_nativo_DartForge_package_config() -> i64 {
 /// quando ele não pode ser lido.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_ler_texto(caminho: i64) -> i64 {
-    let caminho = HEAP.with(|h| h.borrow().texto(caminho).para_string());
+    let caminho = HEAP.with(|h| h.borrow().texto(caminho).map(|t| t.para_string()).unwrap_or_default());
     match std::fs::read_to_string(&caminho) {
-        Ok(t) => alocar_str(&t),
+        Ok(t) => HEAP.with(|h| h.borrow_mut().alocar_str(&t)),
         Err(_) => 0,
     }
 }

@@ -5,12 +5,21 @@ pub mod externs;
 mod depuracao;
 mod raizes;
 mod simd;
+// As emissões que dependem da representação dos valores do runtime, uma por
+// pacote do espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md §4.2, passo 4).
+mod caixas_ir;
+mod listas_ir;
+mod textos_ir;
+mod tipados_ir;
 
-/// Maior índice de campo lido em linha (`CAMPOS_EM_LINHA` do runtime).
-const CAMPOS_EM_LINHA: usize = 4096;
-/// Os números de campos com alocação em linha (`TLAB_N` do runtime,
-/// `crates/runtime/src/heap.rs`).
-const TLAB_N: i64 = 16;
+use dartforge_runtime::layout;
+/// Maior índice de campo lido em linha (o contrato de layout).
+const CAMPOS_EM_LINHA: usize = layout::CAMPOS_EM_LINHA;
+/// O maior corpo, em palavras, com alocação em linha (a TLAB de `w` palavras,
+/// `layout::contexto::tlab_cursor(w)`): um objeto de até `TLAB_N` campos.
+const TLAB_N: i64 = layout::TLAB_N as i64;
+/// A máscara de `e_objeto` (`h & (7 | i64::MIN) == 2`).
+const MASCARA_DE_OBJETO: i64 = 7 | i64::MIN;
 mod seletores;
 #[cfg(test)]
 mod testes;
@@ -36,12 +45,6 @@ pub struct LlvmEmitter<'a> {
     conv_phi: Vec<(u32, String, Type, ValueId, Type)>,
     /// Tipo guardado por cada `alloca` da função (para o `store`).
     apontado: std::collections::HashMap<ValueId, Type>,
-    /// Os endereços de cabeçalho de lista tipada da função corrente
-    /// (`dartforge_typed_cabecalho`, N17): o que se lê deles não muda
-    /// enquanto a lista vive, e a leitura leva `!invariant.load` — o LLVM a
-    /// tira dos laços e a junta com as iguais, como fazia com as chamadas
-    /// puras `dartforge_typed_len`/`dartforge_typed_ptr` de antes.
-    cabecalhos_invariantes: std::collections::HashSet<ValueId>,
     /// Os `alloca` `Ref` cujo endereço sai da função (a captura por endereço
     /// de uma função local direta, `lower/funcoes_diretas.rs`): moram no
     /// próprio slot do quadro de raízes, e quem recebe o endereço grava
@@ -102,8 +105,26 @@ pub struct LlvmEmitter<'a> {
     /// O layout da área da geração em execução (hot reload): os slots que
     /// continuam mantêm o índice, os novos vêm depois (`emit_globais`).
     area_anterior: Option<Vec<i64>>,
+    /// O descritor da área sem os nomes dos slots (`[chave, -n]`): o
+    /// executável de produção, que nunca recarrega (`com_area_enxuta`).
+    area_enxuta: bool,
     /// J05: os metadados de depuração, quando alguma função tem posições.
     depuracao: Option<depuracao::Depuracao>,
+    // --- Espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md) ---
+    /// Os literais de string são objetos estáticos do módulo (§2.11):
+    /// verdadeiro no AOT e nos módulos do SDK; falso nos módulos do programa no
+    /// JIT, cuja memória é liberada (J02).
+    objetos_estaticos: bool,
+    /// O estado de cada pacote da emissão (§4.2, passo 4); os pacotes o usam
+    /// conforme migram.
+    #[allow(dead_code)]
+    textos: textos_ir::EstadoDeTextos,
+    #[allow(dead_code)]
+    caixas: caixas_ir::EstadoDeCaixas,
+    #[allow(dead_code)]
+    listas: listas_ir::EstadoDeListas,
+    #[allow(dead_code)]
+    tipados: tipados_ir::EstadoDeTipados,
 }
 
 impl<'a> LlvmEmitter<'a> {
@@ -117,7 +138,6 @@ impl<'a> LlvmEmitter<'a> {
             prox_coercao: 0,
             conv_phi: Vec::new(),
             apontado: std::collections::HashMap::new(),
-            cabecalhos_invariantes: std::collections::HashSet::new(),
             allocas_no_quadro: std::collections::HashSet::new(),
             slots: std::collections::HashMap::new(),
             tem_frame: false,
@@ -140,8 +160,21 @@ impl<'a> LlvmEmitter<'a> {
             slots_de_global: std::collections::HashMap::new(),
             hashes_de_slot: Vec::new(),
             area_anterior: None,
+            area_enxuta: false,
             depuracao: module.functions.iter().any(|f| f.depuracao.is_some()).then(depuracao::Depuracao::nova),
+            objetos_estaticos: false,
+            textos: Default::default(),
+            caixas: Default::default(),
+            listas: Default::default(),
+            tipados: Default::default(),
         }
+    }
+
+    /// Os literais de string como objetos estáticos do módulo (§2.11 da
+    /// especificação do espaço unificado): o AOT e os módulos do SDK.
+    pub fn com_objetos_estaticos(mut self, sim: bool) -> Self {
+        self.objetos_estaticos = sim;
+        self
     }
 
     /// O emissor de uma geração nova de um programa em execução (hot reload
@@ -152,6 +185,16 @@ impl<'a> LlvmEmitter<'a> {
     /// executam código antigo veem os mesmos estáticos que o código novo.
     pub fn com_area_anterior(mut self, anterior: Option<Vec<i64>>) -> Self {
         self.area_anterior = anterior;
+        self
+    }
+
+    /// O descritor da área só com a chave e o número de slots, `[chave, -n]`
+    /// (o sinal marca a forma enxuta para `dartforge_area_de_globais`): os
+    /// hashes dos nomes só servem à recarga (a migração da área e a
+    /// extensão do layout), e o executável de produção nunca recarrega. O
+    /// JIT e a DLL de desenvolvimento ficam com o descritor completo.
+    pub fn com_area_enxuta(mut self, enxuta: bool) -> Self {
+        self.area_enxuta = enxuta;
         self
     }
 
@@ -194,6 +237,7 @@ impl<'a> LlvmEmitter<'a> {
             self.emitir_globais_de_seletores();
             self.emitir_descritor_da_area();
             self.out.push_str(OBTER_AREA);
+            self.emitir_globais_de_texto();
             self.emitir_declaracoes_externas();
             if let Some(d) = self.depuracao.take() {
                 d.finalizar(&mut self.out);
@@ -223,6 +267,7 @@ impl<'a> LlvmEmitter<'a> {
         // desta thread no `Contexto` (deslocamentos 16 e 24); uma entrada
         // ausente vai ao runtime, que a preenche (e dá o id na primeira vez).
         self.out.push_str(OBTER_AREA);
+        self.emitir_globais_de_texto();
         self.emitir_declaracoes_externas();
         if let Some(d) = self.depuracao.take() {
             d.finalizar(&mut self.out);
@@ -293,9 +338,18 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str(simd::DECLARACOES);
         self.out.push_str("declare i8 @llvm.expect.i8(i8, i8)\n");
         self.out.push_str("declare i1 @llvm.expect.i1(i1, i1)\n");
-        self.out.push_str(CAIXA_DE_INT);
+        for (_, decl) in externs::GLOBAIS {
+            self.out.push_str(decl);
+            self.out.push('\n');
+        }
+        // Os ajudantes `@df.*` de cada pacote (§3.5).
+        self.out.push_str(textos_ir::AJUDANTES);
+        self.out.push_str(caixas_ir::AJUDANTES);
+        self.out.push_str(listas_ir::AJUDANTES);
+        self.out.push_str(tipados_ir::AJUDANTES);
         let classe_do_valor = classe_do_valor(&self.module.cids_do_runtime);
         self.out.push_str(&classe_do_valor);
+        self.out.push_str(&ajudantes_do_espaco());
         if compostas || !self.module.ffi_callbacks.is_empty() {
             self.out.push_str(
                 "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n\
@@ -350,17 +404,11 @@ impl<'a> LlvmEmitter<'a> {
         // valor i1 — modulo inteiro recusado pelo Clang.
         self.tipos.clear();
         self.apontado.clear();
-        self.cabecalhos_invariantes.clear();
         self.allocas_no_quadro = Self::allocas_ref_que_escapam(func);
         for block in &func.blocks {
             for (vid, inst, _) in &block.instructions {
                 if let Instruction::Alloca(t) = inst {
                     self.apontado.insert(*vid, *t);
-                }
-                if let Instruction::CallRuntime { name, .. } = inst
-                    && name == "dartforge_typed_cabecalho"
-                {
-                    self.cabecalhos_invariantes.insert(*vid);
                 }
             }
         }
@@ -442,7 +490,10 @@ impl<'a> LlvmEmitter<'a> {
                         Some((b.id.0, format!("ao{v}.fim")))
                     } else if self.barreira_em_linha(i) {
                         Some((b.id.0, format!("wb{v}.fim")))
-                    } else if matches!(i, Instruction::Const(Constant::String(_) | Constant::StringWtf8(_))) {
+                    } else if !self.objetos_estaticos && matches!(i, Instruction::Const(Constant::String(_) | Constant::StringWtf8(_))) {
+                        // Sem os objetos estáticos (o JIT), o literal vai ao
+                        // cache do ponto de uso (`textos_ir`), que divide o
+                        // bloco; com eles, é uma constante (§2.11).
                         Some((b.id.0, format!("ls{v}.fim")))
                     } else if matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_clear") {
                         Some((b.id.0, format!("xc{v}.fim")))
@@ -561,34 +612,8 @@ impl<'a> LlvmEmitter<'a> {
                     Instruction::Const(Constant::Null) => {
                         writeln!(self.out, "  %v{v} = add i64 0, 0").unwrap();
                     }
-                    Instruction::Const(Constant::String(_) | Constant::StringWtf8(_)) => {
-                        let bytes: &[u8] = match inst {
-                            Instruction::Const(Constant::String(s)) => s.as_bytes(),
-                            Instruction::Const(Constant::StringWtf8(s)) => s,
-                            _ => unreachable!(),
-                        };
-                        let idx = self.string_const_index(bytes).unwrap_or(0);
-                        let len = bytes.len();
-                        // O handle do literal fica num cache do ponto de uso,
-                        // na área do isolado (o literal é canônico e
-                        // permanente; a recarga do JIT esvazia os caches): a
-                        // busca no runtime só na primeira avaliação.
-                        let slot = self.slot_de_cache();
-                        let anterior = self.rotulo_atual.clone();
-                        let o = &mut self.out;
-                        writeln!(o, "  %lsp{v} = getelementptr i64, ptr %area, i64 {slot}").unwrap();
-                        writeln!(o, "  %lsv{v} = load i64, ptr %lsp{v}, align 8").unwrap();
-                        writeln!(o, "  %lsz{v} = icmp eq i64 %lsv{v}, 0").unwrap();
-                        writeln!(o, "  %lsx{v} = call i1 @llvm.expect.i1(i1 %lsz{v}, i1 false)").unwrap();
-                        writeln!(o, "  br i1 %lsx{v}, label %ls{v}.nova, label %ls{v}.fim").unwrap();
-                        writeln!(o, "ls{v}.nova:").unwrap();
-                        writeln!(o, "  %lsn{v} = call i64 @dartforge_string_new(ptr @.str.{idx}, i64 {len})").unwrap();
-                        writeln!(o, "  store i64 %lsn{v}, ptr %lsp{v}, align 8").unwrap();
-                        writeln!(o, "  br label %ls{v}.fim").unwrap();
-                        writeln!(o, "ls{v}.fim:").unwrap();
-                        writeln!(o, "  %v{v} = phi i64 [ %lsv{v}, %{anterior} ], [ %lsn{v}, %ls{v}.nova ]").unwrap();
-                        self.rotulo_atual = format!("ls{v}.fim");
-                    }
+                    Instruction::Const(Constant::String(s)) => self.emitir_const_string(v, s.as_bytes()),
+                    Instruction::Const(Constant::StringWtf8(s)) => self.emitir_const_string(v, s),
                     Instruction::Add(a, b) => {
                         let sa = self.coagir(a, Type::I64);
                         let sb = self.coagir(b, Type::I64);
@@ -762,7 +787,7 @@ impl<'a> LlvmEmitter<'a> {
                         self.emitir_endereco_dos_campos(v, &so);
                         self.emitir_gravacao_de_campo(v, "", *index, &sv, &is_ref.to_string());
                         if self.barreira_em_linha(inst) {
-                            self.emitir_barreira(v, &so, None);
+                            self.emitir_barreira(v, &so, &sv, None);
                         }
                     }
                     Instruction::SetField { object, index, value } => {
@@ -836,7 +861,7 @@ impl<'a> LlvmEmitter<'a> {
                         self.emitir_gravacao_de_campo(v, "", *i as usize, &sv, &is_ref);
                         if self.barreira_em_linha(inst) {
                             let dinamico = is_ref.starts_with('%').then_some(is_ref.as_str());
-                            self.emitir_barreira(v, &so, dinamico);
+                            self.emitir_barreira(v, &so, &sv, dinamico);
                         }
                     }
                     Instruction::CallRuntime { .. } if Self::alocacao_em_linha(inst).is_some() => {
@@ -871,14 +896,6 @@ impl<'a> LlvmEmitter<'a> {
                         let resto: Vec<String> = args.iter().map(|(a, t)| format!("{} {}", t.llvm_ir(), self.coagir(a, *t))).collect();
                         writeln!(self.out, "  %v{v} = call i64 @{name}_t({}, ptr @{f})", resto.join(", ")).unwrap();
                         let _ = ret_ty;
-                    }
-                    // O cabeçalho de lista tipada: o ponteiro
-                    // `dereferenceable` fica em `%v{v}cp` para as cargas
-                    // (`CargaNativa`), e o valor da HIR é o inteiro.
-                    Instruction::CallRuntime { name, args, .. } if name == "dartforge_typed_cabecalho" => {
-                        let (h, t) = (self.coagir(&args[0].0, Type::I64), self.coagir(&args[1].0, Type::I64));
-                        writeln!(self.out, "  %v{v}cp = call dereferenceable(16) ptr @dartforge_typed_cabecalho(i64 {h}, i64 {t})").unwrap();
-                        writeln!(self.out, "  %v{v} = ptrtoint ptr %v{v}cp to i64").unwrap();
                     }
                     // A exceção pendente: o espelho no contexto da thread.
                     Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending" && self.tem_ctx => {
@@ -918,6 +935,13 @@ impl<'a> LlvmEmitter<'a> {
                     Instruction::CallRuntime { name, args, .. } if name == "dartforge_value_class" && args.len() == 1 => {
                         let h = self.coagir(&args[0].0, Type::I64);
                         writeln!(self.out, "  %v{v} = call i64 @df.classe(i64 {h})").unwrap();
+                    }
+                    // `cid <: C` pelo mapa de bits do alvo (`df.subclasse`),
+                    // sem chamada depois da primeira consulta.
+                    Instruction::CallRuntime { name, args, .. } if name == "dartforge_is_subclass" && args.len() == 2 => {
+                        let a = self.coagir(&args[0].0, Type::I64);
+                        let b = self.coagir(&args[1].0, Type::I64);
+                        writeln!(self.out, "  %v{v} = call i8 @df.subclasse(i64 {a}, i64 {b})").unwrap();
                     }
                     Instruction::CallRuntime { name, args, ret_ty } => {
                         if name.starts_with("dartforge_nativo_") {
@@ -972,17 +996,8 @@ impl<'a> LlvmEmitter<'a> {
                         let e = self.coagir(endereco, Type::I64);
                         let i = self.coagir(indice, Type::I64);
                         let t = tipo.llvm();
-                        let inv = match endereco {
-                            Operand::Val(x) if self.cabecalhos_invariantes.contains(x) => ", !invariant.load !{}",
-                            _ => "",
-                        };
-                        match endereco {
-                            // O ponteiro `dereferenceable` do cabeçalho.
-                            Operand::Val(x) if self.cabecalhos_invariantes.contains(x) => {
-                                writeln!(self.out, "  %cp{v} = getelementptr i8, ptr %v{}cp, i64 0", x.0).unwrap()
-                            }
-                            _ => writeln!(self.out, "  %cp{v} = inttoptr i64 {e} to ptr").unwrap(),
-                        }
+                        let inv = "";
+                        writeln!(self.out, "  %cp{v} = inttoptr i64 {e} to ptr").unwrap();
                         writeln!(self.out, "  %cg{v} = getelementptr {t}, ptr %cp{v}, i64 {i}").unwrap();
                         let conv = match tipo {
                             TipoC::I8 | TipoC::I16 | TipoC::I32 => Some(format!("sext {t} %cl{v} to i64")),
@@ -1023,68 +1038,8 @@ impl<'a> LlvmEmitter<'a> {
                     Instruction::ChamadaNativaComposta { alvo, args, ret, destino, variadica } => {
                         self.chamada_nativa_composta(v, alvo, args, ret, destino.as_ref(), *variadica);
                     }
-                    Instruction::AllocList { elements } => {
-                        // Alloca temporário para pares (bits, tag)
-                        let count = elements.len();
-                        let alloca_id = format!("list_buf_{v}");
-                        for (idx, (elem, tag)) in elements.iter().enumerate() {
-                            let se = self.coagir(elem, Type::I64);
-                            let off_bits = idx * 2;
-                            let off_tag = idx * 2 + 1;
-                            writeln!(self.out, "  %ptr_{v}_{off_bits} = getelementptr [{} x i64], ptr %{alloca_id}, i64 0, i64 {off_bits}", count * 2).unwrap();
-                            writeln!(self.out, "  store i64 {se}, ptr %ptr_{v}_{off_bits}").unwrap();
-                            writeln!(self.out, "  %ptr_{v}_{off_tag} = getelementptr [{} x i64], ptr %{alloca_id}, i64 0, i64 {off_tag}", count * 2).unwrap();
-                            writeln!(self.out, "  store i64 {tag}, ptr %ptr_{v}_{off_tag}").unwrap();
-                        }
-                        writeln!(
-                            self.out,
-                            "  %v{v} = call i64 @dartforge_list_new(ptr %{alloca_id}, i64 {count})"
-                        ).unwrap();
-                    }
-                    Instruction::AllocMap { entries } => {
-                        let count = entries.len();
-                        let k_buf = format!("map_k_{v}");
-                        let v_buf = format!("map_v_{v}");
-                        for (idx, ((k, k_tag), (val, v_tag))) in entries.iter().enumerate() {
-                            let sk = self.coagir(k, Type::I64);
-                            let sv = self.coagir(val, Type::I64);
-                            let off_bits = idx * 2;
-                            let off_tag = idx * 2 + 1;
-                            writeln!(self.out, "  %kptr_{v}_{off_bits} = getelementptr [{} x i64], ptr %{k_buf}, i64 0, i64 {off_bits}", count * 2).unwrap();
-                            writeln!(self.out, "  store i64 {sk}, ptr %kptr_{v}_{off_bits}").unwrap();
-                            writeln!(self.out, "  %kptr_{v}_{off_tag} = getelementptr [{} x i64], ptr %{k_buf}, i64 0, i64 {off_tag}", count * 2).unwrap();
-                            writeln!(self.out, "  store i64 {k_tag}, ptr %kptr_{v}_{off_tag}").unwrap();
-
-                            writeln!(self.out, "  %vptr_{v}_{off_bits} = getelementptr [{} x i64], ptr %{v_buf}, i64 0, i64 {off_bits}", count * 2).unwrap();
-                            writeln!(self.out, "  store i64 {sv}, ptr %vptr_{v}_{off_bits}").unwrap();
-                            writeln!(self.out, "  %vptr_{v}_{off_tag} = getelementptr [{} x i64], ptr %{v_buf}, i64 0, i64 {off_tag}", count * 2).unwrap();
-                            writeln!(self.out, "  store i64 {v_tag}, ptr %vptr_{v}_{off_tag}").unwrap();
-                        }
-                        writeln!(
-                            self.out,
-                            "  %v{v} = call i64 @dartforge_map_new(ptr %{k_buf}, ptr %{v_buf}, i64 {count})"
-                        ).unwrap();
-                    }
-                    Instruction::AllocRecord { elements } => {
-                        let count = elements.len();
-                        let total_i64 = count * 2;
-                        let buf_name = format!("rec_buf_{v}");
-                        for (i, (elem, tag)) in elements.iter().enumerate() {
-                            let sop = self.coagir(elem, Type::I64);
-                            let ptr_bits = format!("ptr_rec_{v}_{i}_bits");
-                            let ptr_tag = format!("ptr_rec_{v}_{i}_tag");
-                            let off_bits = i * 2;
-                            let off_tag = i * 2 + 1;
-                            writeln!(self.out, "  %{ptr_bits} = getelementptr [{total_i64} x i64], ptr %{buf_name}, i64 0, i64 {off_bits}").unwrap();
-                            writeln!(self.out, "  store i64 {sop}, ptr %{ptr_bits}").unwrap();
-                            writeln!(self.out, "  %{ptr_tag} = getelementptr [{total_i64} x i64], ptr %{buf_name}, i64 0, i64 {off_tag}").unwrap();
-                            writeln!(self.out, "  store i64 {tag}, ptr %{ptr_tag}").unwrap();
-                        }
-                        writeln!(
-                            self.out,
-                            "  %v{v} = call i64 @dartforge_record_new(ptr %{buf_name}, i64 {count})"
-                        ).unwrap();
-                    }
+                    Instruction::AllocList { elements } => self.emitir_alloc_list(v, elements),
+                    Instruction::AllocRecord { elements } => self.emitir_alloc_record(v, elements),
                     // O `alloca` nasce no bloco de entrada (`emit_buffers_de_closure`).
                     Instruction::Alloca(_) => {}
                     Instruction::Load { ptr, ty } => {
@@ -1124,63 +1079,14 @@ impl<'a> LlvmEmitter<'a> {
                             writeln!(self.out, "  store i64 {sv}, ptr %gcs{slot}").unwrap();
                         }
                     }
-                    // O vetor SIMD em caixa: os 16 bytes como dois `i64`, na
-                    // ordem da memória (qualquer endian), para o runtime.
-                    Instruction::Box { op, from } if from.e_vetor() => {
-                        let so = self.coagir(op, *from);
-                        let pos = match from {
-                            Type::V4F32 => 15,
-                            Type::V4I32 => 16,
-                            _ => 17,
-                        };
-                        writeln!(self.out, "  %bx{v} = bitcast {} {so} to <2 x i64>", from.llvm_ir()).unwrap();
-                        writeln!(self.out, "  %bl{v} = extractelement <2 x i64> %bx{v}, i32 0").unwrap();
-                        writeln!(self.out, "  %bh{v} = extractelement <2 x i64> %bx{v}, i32 1").unwrap();
-                        writeln!(self.out, "  %v{v} = call i64 @dartforge_simd_caixa(i64 {pos}, i64 %bl{v}, i64 %bh{v})").unwrap();
-                    }
-                    // Da caixa (imutável), os bytes no endereço que
-                    // `dartforge_typed_ptr` dá.
-                    Instruction::Unbox { op, to } if to.e_vetor() => {
-                        let so = self.coagir(op, Type::Ref);
-                        writeln!(self.out, "  %ux{v} = call i64 @dartforge_typed_ptr(i64 {so})").unwrap();
-                        writeln!(self.out, "  %up{v} = inttoptr i64 %ux{v} to ptr").unwrap();
-                        writeln!(self.out, "  %v{v} = load {}, ptr %up{v}, align 1", to.llvm_ir()).unwrap();
-                    }
+                    Instruction::Box { op, from } if from.e_vetor() => self.emitir_caixa_simd(v, op, *from),
+                    Instruction::Unbox { op, to } if to.e_vetor() => self.emitir_descaixa_simd(v, op, *to),
                     Instruction::Simd { op, args } => {
                         let ty = self.tipos.get(vid).copied().unwrap_or(Type::Void);
                         self.emitir_simd(v, *op, args, ty);
                     }
-                    Instruction::Box { op, from } => {
-                        match from {
-                            Type::F64 => {
-                                let so = self.coagir(op, Type::F64);
-                                writeln!(self.out, "  %v{v} = call i64 @dartforge_box_double(double {so})").unwrap();
-                            }
-                            Type::I1 | Type::I8 => {
-                                let so = self.coagir(op, Type::I8);
-                                writeln!(self.out, "  %v{v} = call i64 @dartforge_box_bool(i8 {so})").unwrap();
-                            }
-                            _ => {
-                                let so = self.coagir(op, Type::I64);
-                                writeln!(self.out, "  %v{v} = call i64 @df.caixa_int(i64 {so})").unwrap();
-                            }
-                        }
-                    }
-                    Instruction::Unbox { op, to } => {
-                        let so = self.coagir(op, Type::Ref);
-                        match to {
-                            Type::F64 => {
-                                writeln!(self.out, "  %v{v} = call double @dartforge_unbox_double(i64 {so})").unwrap();
-                            }
-                            Type::I1 => {
-                                writeln!(self.out, "  %u{v} = call i8 @dartforge_unbox_bool(i64 {so})").unwrap();
-                                writeln!(self.out, "  %v{v} = trunc i8 %u{v} to i1").unwrap();
-                            }
-                            _ => {
-                                writeln!(self.out, "  %v{v} = call i64 @df.desencaixa_int(i64 {so})").unwrap();
-                            }
-                        }
-                    }
+                    Instruction::Box { op, from } => self.emitir_caixa(v, op, *from),
+                    Instruction::Unbox { op, to } => self.emitir_descaixa(v, op, *to),
                     Instruction::LShr(a, b) => {
                         let sa = self.coagir(a, Type::I64);
                         let sb = self.coagir(b, Type::I64);
@@ -1448,94 +1354,15 @@ impl<'a> LlvmEmitter<'a> {
     /// Emite uma instrução das closures (P1); `false` se não é uma delas.
     fn emit_closure_inst(&mut self, v: u32, inst: &Instruction, ty: Type) -> bool {
         match inst {
-            Instruction::AllocCell { value } => {
-                let tag = self.tag_de(value);
-                let s = self.coagir(value, Type::I64);
-                writeln!(self.out, "  %v{v} = call i64 @dartforge_cell_new(i64 {s}, i8 {tag})").unwrap();
-            }
-            Instruction::CellGet { cell } => {
-                let c = self.coagir(cell, Type::Ref);
-                if ty == Type::Ref {
-                    writeln!(self.out, "  %v{v} = call i64 @dartforge_cell_get_ref(i64 {c})").unwrap();
-                } else {
-                    writeln!(self.out, "  %u{v} = call i64 @dartforge_cell_get_bits(i64 {c})").unwrap();
-                    self.bits_para_repr(v, &format!("%u{v}"), ty);
-                }
-            }
-            Instruction::CellSet { cell, value } => {
-                let tag = self.tag_de(value);
-                let c = self.coagir(cell, Type::Ref);
-                let s = self.coagir(value, Type::I64);
-                writeln!(self.out, "  call void @dartforge_cell_set(i64 {c}, i64 {s}, i8 {tag})").unwrap();
-            }
-            // A captura lida em linha: o vetor de um ambiente não muda de
-            // tamanho, então o endereço dos elementos (`TaggedValue`, 16
-            // bytes) é uma função pura do handle (`dartforge_env_dados`).
-            Instruction::EnvGet { env, index } => {
-                let e = self.coagir(env, Type::Ref);
-                if ty == Type::Ref {
-                    writeln!(self.out, "  %v{v} = call i64 @df.env_ref(i64 {e}, i64 {index})").unwrap();
-                } else {
-                    writeln!(self.out, "  %ed{v} = call i64 @dartforge_env_dados(i64 {e})").unwrap();
-                    writeln!(self.out, "  %ep{v} = inttoptr i64 %ed{v} to ptr").unwrap();
-                    writeln!(self.out, "  %eg{v} = getelementptr i8, ptr %ep{v}, i64 {}", index * 16).unwrap();
-                    writeln!(self.out, "  %u{v} = load i64, ptr %eg{v}, align 8").unwrap();
-                    self.bits_para_repr(v, &format!("%u{v}"), ty);
-                }
-            }
-            Instruction::JuntarTextos { partes } => {
-                // Pares (espécie, bits): 0 e o `Ref` de um texto, 1 e um `int`.
-                let n = partes.len();
-                for (i, p) in partes.iter().enumerate() {
-                    let (especie, s) = if self.tipo_de(p) == Type::I64 {
-                        (1, self.coagir(p, Type::I64))
-                    } else {
-                        (0, self.coagir(p, Type::Ref))
-                    };
-                    writeln!(self.out, "  %jk{v}_{i} = getelementptr [{} x i64], ptr %jbuf{v}, i64 0, i64 {}", 2 * n, 2 * i).unwrap();
-                    writeln!(self.out, "  store i64 {especie}, ptr %jk{v}_{i}").unwrap();
-                    writeln!(self.out, "  %jp{v}_{i} = getelementptr [{} x i64], ptr %jbuf{v}, i64 0, i64 {}", 2 * n, 2 * i + 1).unwrap();
-                    writeln!(self.out, "  store i64 {s}, ptr %jp{v}_{i}").unwrap();
-                }
-                writeln!(self.out, "  %v{v} = call i64 @dartforge_string_juntar_tipado(ptr %jbuf{v}, i64 {n})").unwrap();
-            }
-            Instruction::AllocEnv { values } => {
-                let n = values.len();
-                if n == 0 {
-                    writeln!(self.out, "  %v{v} = call i64 @dartforge_env_new(ptr null, i64 0)").unwrap();
-                } else {
-                    for (i, val) in values.iter().enumerate() {
-                        let tag = self.tag_de(val);
-                        let s = self.coagir(val, Type::I64);
-                        writeln!(self.out, "  %eb{v}_{i} = getelementptr [{} x i64], ptr %envbuf{v}, i64 0, i64 {}", n * 2, i * 2).unwrap();
-                        writeln!(self.out, "  store i64 {s}, ptr %eb{v}_{i}").unwrap();
-                        writeln!(self.out, "  %et{v}_{i} = getelementptr [{} x i64], ptr %envbuf{v}, i64 0, i64 {}", n * 2, i * 2 + 1).unwrap();
-                        writeln!(self.out, "  store i64 {tag}, ptr %et{v}_{i}").unwrap();
-                    }
-                    writeln!(self.out, "  %v{v} = call i64 @dartforge_env_new(ptr %envbuf{v}, i64 {n})").unwrap();
-                }
-            }
-            // O código de uma closure é o endereço da entrada uniforme: vale
-            // entre módulos (uma closure criada no SDK da fonte é chamada no
-            // programa) e não depende da ordem de nada.
-            Instruction::AllocClosure { code_symbol, env } => {
-                self.anotar_externo(code_symbol, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
-                let e = self.coagir(env, Type::Ref);
-                writeln!(
-                    self.out,
-                    "  %v{v} = call i64 @dartforge_closure_new(i64 ptrtoint (ptr @{code_symbol} to i64), i64 {e})"
-                )
-                .unwrap();
-            }
+            Instruction::AllocCell { value } => self.emitir_alloc_cell(v, value),
+            Instruction::CellGet { cell } => self.emitir_cell_get(v, cell, ty),
+            Instruction::CellSet { cell, value } => self.emitir_cell_set(cell, value),
+            Instruction::EnvGet { env, index } => self.emitir_env_get(v, env, *index, ty),
+            Instruction::JuntarTextos { partes } => self.emitir_juntar_textos(v, partes),
+            Instruction::AllocEnv { values } => self.emitir_alloc_env(v, values),
+            Instruction::AllocClosure { code_symbol, env } => self.emitir_alloc_closure(v, code_symbol, env),
             Instruction::AllocClosureTipada { code_symbol, env, tipado, abi, direto } => {
-                self.anotar_externo(code_symbol, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
-                let e = self.coagir(env, Type::Ref);
-                let f = if *direto { "dartforge_closure_nova_direta" } else { "dartforge_closure_new_tipada" };
-                writeln!(
-                    self.out,
-                    "  %v{v} = call i64 @{f}(i64 ptrtoint (ptr @{code_symbol} to i64), i64 {e}, i64 ptrtoint (ptr @{tipado} to i64), i64 {abi})"
-                )
-                .unwrap();
+                self.emitir_alloc_closure_tipada(v, code_symbol, env, tipado, *abi, *direto);
             }
             Instruction::ChamadaTipada { alvo, args, ret } => {
                 let a = self.coagir(alvo, Type::I64);
@@ -1551,10 +1378,7 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  %v{v} = call {} %ct{v}({})", ret.llvm_ir(), partes.join(", ")).unwrap();
                 }
             }
-            Instruction::TearOff { code_symbol } => {
-                self.anotar_externo(code_symbol, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
-                writeln!(self.out, "  %v{v} = call i64 @dartforge_tearoff(i64 ptrtoint (ptr @{code_symbol} to i64))").unwrap();
-            }
+            Instruction::TearOff { code_symbol } => self.emitir_tearoff(v, code_symbol),
             Instruction::CallClosure { closure, args, nomes, tupla_tipos, .. } => {
                 let k = self.vetor_de[&Self::descritor(args.len(), nomes)];
                 // O slot depois dos argumentos leva a tupla de tipos (a
@@ -1612,28 +1436,16 @@ impl<'a> LlvmEmitter<'a> {
                     Instruction::Alloca(ty) => {
                         writeln!(self.out, "  %v{} = alloca {}", vid.0, ty.llvm_ir()).unwrap();
                     }
-                    Instruction::AllocList { elements } => {
-                        writeln!(self.out, "  %list_buf_{} = alloca [{} x i64]", vid.0, elements.len() * 2).unwrap();
-                    }
-                    Instruction::AllocMap { entries } => {
-                        writeln!(self.out, "  %map_k_{} = alloca [{} x i64]", vid.0, entries.len() * 2).unwrap();
-                        writeln!(self.out, "  %map_v_{} = alloca [{} x i64]", vid.0, entries.len() * 2).unwrap();
-                    }
-                    Instruction::AllocRecord { elements } => {
-                        writeln!(self.out, "  %rec_buf_{} = alloca [{} x i64]", vid.0, elements.len() * 2).unwrap();
-                    }
+                    Instruction::AllocList { elements } => self.buffer_de_lista(vid.0, elements),
+                    Instruction::AllocRecord { elements } => self.buffer_de_record(vid.0, elements),
                     Instruction::CallClosure { args, .. } => {
                         writeln!(self.out, "  %cargs{} = alloca [{} x i64]", vid.0, args.len() + 1).unwrap();
                     }
                     Instruction::CallSeletor { args, .. } => {
                         writeln!(self.out, "  %sargs{} = alloca [{} x i64]", vid.0, args.len() + 1).unwrap();
                     }
-                    Instruction::AllocEnv { values } if !values.is_empty() => {
-                        writeln!(self.out, "  %envbuf{} = alloca [{} x i64]", vid.0, values.len() * 2).unwrap();
-                    }
-                    Instruction::JuntarTextos { partes } => {
-                        writeln!(self.out, "  %jbuf{} = alloca [{} x i64]", vid.0, 2 * partes.len().max(1)).unwrap();
-                    }
+                    Instruction::AllocEnv { values } => self.buffer_de_ambiente(vid.0, values),
+                    Instruction::JuntarTextos { partes } => self.buffer_de_juntar_textos(vid.0, partes),
                     _ => {}
                 }
             }
@@ -1678,9 +1490,17 @@ impl<'a> LlvmEmitter<'a> {
     /// a chave estável do módulo e o hash do nome de cada slot. Os slots de
     /// cache de seletor têm [`BIT_DE_CACHE`] no nome: não migram para uma
     /// área nova e a publicação de uma recarga os zera (guardam endereços de
-    /// código, e as tabelas de métodos acabaram de mudar).
+    /// código, e as tabelas de métodos acabaram de mudar). Em produção,
+    /// `[chave, -n]` ([`LlvmEmitter::com_area_enxuta`]).
     fn emitir_descritor_da_area(&mut self) {
         let chave = self.module.registro.clone().unwrap_or_else(|| "df.programa".to_string());
+        if self.area_enxuta {
+            // Produção (`com_area_enxuta`): `[chave, -n]`, sem os nomes.
+            let n = self.hashes_de_slot.len() as i64;
+            writeln!(self.out, "@df.area = private unnamed_addr constant [2 x i64] [i64 {}, i64 {}]", hash_de_slot(&chave), -n)
+                .unwrap();
+            return;
+        }
         let mut valores = vec![hash_de_slot(&chave).to_string(), String::new()];
         for h in &self.hashes_de_slot {
             valores.push(h.to_string());
@@ -1791,7 +1611,7 @@ impl<'a> LlvmEmitter<'a> {
         let slot = self.slot_de_cache();
         let o = &mut self.out;
         writeln!(o, "  %ra{v}c = getelementptr i64, ptr %area, i64 {slot}").unwrap();
-        writeln!(o, "  %ra{v}m = and i64 {this}, -9223372036854775805").unwrap();
+        writeln!(o, "  %ra{v}m = and i64 {this}, {MASCARA_DE_OBJETO}").unwrap();
         writeln!(o, "  %ra{v}o = icmp eq i64 %ra{v}m, 2").unwrap();
         writeln!(o, "  br i1 %ra{v}o, label %ra{v}.obj, label %ra{v}.lenta").unwrap();
         writeln!(o, "ra{v}.obj:").unwrap();
@@ -2449,7 +2269,6 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::DoubleToInt(..) => Type::I64,
             Instruction::AllocObject { .. }
             | Instruction::AllocList { .. }
-            | Instruction::AllocMap { .. }
             | Instruction::AllocRecord { .. }
             | Instruction::Box { .. }
             | Instruction::AllocCell { .. }
@@ -2503,7 +2322,7 @@ impl<'a> LlvmEmitter<'a> {
     fn emitir_endereco_dos_campos(&mut self, v: u32, so: &str) {
         let o = &mut self.out;
         // O bit de sinal entra na máscara: negativo nunca é objeto.
-        writeln!(o, "  %fxk{v} = and i64 {so}, -9223372036854775805").unwrap();
+        writeln!(o, "  %fxk{v} = and i64 {so}, {MASCARA_DE_OBJETO}").unwrap();
         writeln!(o, "  %fxo{v} = icmp eq i64 %fxk{v}, 2").unwrap();
         writeln!(o, "  %fxa{v} = add i64 {so}, -2").unwrap();
         writeln!(o, "  %fxq{v} = inttoptr i64 %fxa{v} to ptr").unwrap();
@@ -2596,10 +2415,13 @@ impl<'a> LlvmEmitter<'a> {
             self.anotar_externo(f, Type::Ptr, &[]);
         }
         let o = &mut self.out;
-        let tamanho = 16 + 8 * n.max(1);
-        writeln!(o, "  %ta{v} = getelementptr inbounds i8, ptr %ctx, i64 {}", 64 + 16 * n).unwrap();
+        // A TLAB é por palavras do corpo: `n ≤ TLAB_N` campos ocupam
+        // `max(n, 1)` palavras (sem extensão do mapa).
+        let w = layout::palavras_de_instancia(n as usize);
+        let tamanho = layout::bytes_do_bloco(w);
+        writeln!(o, "  %ta{v} = getelementptr inbounds i8, ptr %ctx, i64 {}", layout::contexto::tlab_cursor(w)).unwrap();
         writeln!(o, "  %tb{v} = load ptr, ptr %ta{v}, align 8").unwrap();
-        writeln!(o, "  %tfa{v} = getelementptr inbounds i8, ptr %ctx, i64 {}", 72 + 16 * n).unwrap();
+        writeln!(o, "  %tfa{v} = getelementptr inbounds i8, ptr %ctx, i64 {}", layout::contexto::tlab_fim(w)).unwrap();
         writeln!(o, "  %tf{v} = load ptr, ptr %tfa{v}, align 8").unwrap();
         writeln!(o, "  %tnx{v} = getelementptr i8, ptr %tb{v}, i64 {tamanho}").unwrap();
         writeln!(o, "  %tz{v} = icmp ugt ptr %tnx{v}, %tf{v}").unwrap();
@@ -2626,7 +2448,7 @@ impl<'a> LlvmEmitter<'a> {
         // os campos zerados e o próximo da lista no primeiro campo: avança-se
         // o cursor, zera-se o primeiro campo e grava-se a palavra do
         // cabeçalho (estado jovem, sem flags, `n`, a classe).
-        let cabecalho = 1u64 | ((n as u64) << 16) | (u64::from(c as u32) << 32);
+        let cabecalho = layout::palavra_do_cabecalho(layout::estado::JOVEM, layout::flags::INSTANCIA, n as usize, c as i32);
         writeln!(o, "ao{v}.rapido:").unwrap();
         writeln!(o, "  store ptr %tnx{v}, ptr %ta{v}, align 8").unwrap();
         writeln!(o, "  %tpp{v} = getelementptr inbounds i8, ptr %tb{v}, i64 16").unwrap();
@@ -2669,31 +2491,26 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    /// A barreira de escrita depois de gravar um `Ref` no objeto `so`
-    /// (`crates/runtime/src/heap.rs`, `Cabecalho`): se o objeto é velho (estado
-    /// 3 no cabeçalho, `h - 2`), `dartforge_lembrar` o põe entre os
-    /// lembrados da próxima coleta menor — o *store buffer* da barreira da
-    /// VM. `dinamico`: o `is_ref` só conhecido em execução (0/1, `i8`). O
-    /// bloco da HIR passa a terminar em `wb{v}.fim`.
-    fn emitir_barreira(&mut self, v: u32, so: &str, dinamico: Option<&str>) {
+    /// A barreira de escrita depois de gravar o `Ref` `sv` no objeto `so`
+    /// (`@df.barreira`, docs/NATIVO-ESPACO-UNIFICADO.md §2.7): o objeto velho
+    /// que recebe um filho jovem vai para os lembrados da próxima coleta menor —
+    /// o *store buffer* da barreira da VM. `dinamico`: o `is_ref` só conhecido em
+    /// execução (0/1, `i8`). O bloco da HIR passa a terminar em `wb{v}.fim`.
+    fn emitir_barreira(&mut self, v: u32, so: &str, sv: &str, dinamico: Option<&str>) {
         let o = &mut self.out;
-        writeln!(o, "  %wba{v} = add i64 {so}, -2").unwrap();
-        writeln!(o, "  %wbp{v} = inttoptr i64 %wba{v} to ptr").unwrap();
-        writeln!(o, "  %wbe{v} = load i8, ptr %wbp{v}, align 8").unwrap();
-        writeln!(o, "  %wbv{v} = icmp eq i8 %wbe{v}, 3").unwrap();
-        let cond = match dinamico {
+        match dinamico {
             Some(r) => {
                 writeln!(o, "  %wbr{v} = icmp ne i8 {r}, 0").unwrap();
-                writeln!(o, "  %wbc{v} = and i1 %wbv{v}, %wbr{v}").unwrap();
-                format!("%wbc{v}")
+                writeln!(o, "  br i1 %wbr{v}, label %wb{v}.ref, label %wb{v}.fim").unwrap();
+                writeln!(o, "wb{v}.ref:").unwrap();
+                writeln!(o, "  call void @df.barreira(i64 {so}, i64 {sv})").unwrap();
+                writeln!(o, "  br label %wb{v}.fim").unwrap();
             }
-            None => format!("%wbv{v}"),
-        };
-        writeln!(o, "  %wbx{v} = call i1 @llvm.expect.i1(i1 {cond}, i1 false)").unwrap();
-        writeln!(o, "  br i1 %wbx{v}, label %wb{v}.lembrar, label %wb{v}.fim").unwrap();
-        writeln!(o, "wb{v}.lembrar:").unwrap();
-        writeln!(o, "  call void @dartforge_lembrar(i64 {so})").unwrap();
-        writeln!(o, "  br label %wb{v}.fim").unwrap();
+            None => {
+                writeln!(o, "  call void @df.barreira(i64 {so}, i64 {sv})").unwrap();
+                writeln!(o, "  br label %wb{v}.fim").unwrap();
+            }
+        }
         writeln!(o, "wb{v}.fim:").unwrap();
         self.rotulo_atual = format!("wb{v}.fim");
     }
@@ -2995,8 +2812,20 @@ lenta:\n\
 /// A classe de um valor e o cache do ponto de chamada por seletor, em
 /// linha. Um objeto do espaço (`h & 3 == 2`, `runtime/src/heap.rs`,
 /// `Cabecalho`) tem o `class_id` no cabeçalho (`bloco + 4`, e o handle é
-/// `bloco + 2`): uma carga, como o `LoadClassId` da VM. O resto (`null`,
-/// `Smi`, valores do runtime) pergunta ao runtime (`dartforge_value_class`).
+/// `bloco + 2`): uma carga, como o `LoadClassId` da VM. Um valor do runtime
+/// num slot (`h > 0`, `h & 3 == 0`, índice `h / 4 - 1`) tem a classe no
+/// vetor denso do heap (`Heap::classes`, 8 bytes por slot, o `cid` nos 4
+/// primeiros), cujo endereço e comprimento o contexto da thread publica
+/// (deslocamentos 336 e 344, `runtime/src/heap.rs`, `Contexto`): relidos a
+/// cada uso, porque o vetor cresce (muda de endereço) quando o heap ganha
+/// slots. Índice fora da faixa ou classe desconhecida (`i32::MIN`), e o
+/// resto (`null` e `Smi` sem o SDK da fonte), perguntam ao runtime
+/// (`dartforge_value_class`).
+///
+/// `df.subclasse` é o `cid <: C` pelo mapa de bits do alvo que o runtime
+/// monta na primeira consulta (`runtime/src/nucleo.rs`, `MapasDeSubtipo`;
+/// deslocamentos 352–368 do contexto), o *type testing stub* da VM: sem
+/// chamada quando o mapa existe e o `cid` está na largura dele.
 /// O cache (`cache[0]` = classe + 1, `cache[1]` = entrada, na área do
 /// isolado) é conferido aqui; só a falha chama `dartforge_seletor`, que
 /// busca na tabela da classe e regrava o cache — o *inline cache*
@@ -3006,10 +2835,16 @@ lenta:\n\
 /// classes deles (`Null`, `_Smi`) são as da tabela `cids` do módulo
 /// (`sdk_modulo::cids_do_runtime`, a que o runtime recebe na partida).
 fn classe_do_valor(cids: &[i64]) -> String {
-    let (nulo, smi) = match cids {
-        [n, s, ..] if *n >= 0 && *s >= 0 => (*n, *s),
-        _ => return CLASSE_DO_VALOR.replace("@@RAPIDOS@@", ""),
-    };
+    let texto = CLASSE_DO_VALOR
+        .replace("@@MASCARA@@", &MASCARA_DE_OBJETO.to_string())
+        .replace("@@CLASSE@@", &(layout::desl::CLASSE as i64 - layout::DESLOCAMENTO_DO_HANDLE).to_string())
+        .replace("@@SUBTIPOS@@", &layout::contexto::SUBTIPOS.to_string())
+        .replace("@@N_SUBTIPOS@@", &layout::contexto::N_SUBTIPOS.to_string())
+        .replace("@@LARGURA@@", &layout::contexto::LARGURA_SUBTIPOS.to_string());
+    // Sem o SDK da fonte (o caminho legado), `null` e o `Smi` vão ao runtime.
+    if !matches!(cids, [n, s, ..] if *n >= 0 && *s >= 0) {
+        return texto.replace("@@RAPIDOS@@", "");
+    }
     let rapidos = format!(
         "  %z = icmp eq i64 %h, 0\n\
   br i1 %z, label %nulo, label %s0\n\
@@ -3021,18 +2856,20 @@ s0:\n\
   br i1 %i, label %smi, label %s1\n\
 smi:\n\
   ret i64 {smi}\n\
-s1:\n"
+s1:\n",
+        nulo = layout::cid::NULL,
+        smi = layout::cid::SMI
     );
-    CLASSE_DO_VALOR.replace("@@RAPIDOS@@", &rapidos)
+    texto.replace("@@RAPIDOS@@", &rapidos)
 }
 
 const CLASSE_DO_VALOR: &str = "define internal i64 @df.classe(i64 %h) alwaysinline {\n\
-@@RAPIDOS@@  %m = and i64 %h, -9223372036854775805\n\
+@@RAPIDOS@@  %m = and i64 %h, @@MASCARA@@\n\
   %o = icmp eq i64 %m, 2\n\
   br i1 %o, label %obj, label %rt\n\
 obj:\n\
   %p = inttoptr i64 %h to ptr\n\
-  %cp = getelementptr inbounds i8, ptr %p, i64 2\n\
+  %cp = getelementptr inbounds i8, ptr %p, i64 @@CLASSE@@\n\
   %c = load i32, ptr %cp, align 4, !invariant.load !{}\n\
   %r = sext i32 %c to i64\n\
   ret i64 %r\n\
@@ -3053,50 +2890,183 @@ acerto:\n\
 falha:\n\
   %f = call ptr @dartforge_seletor(ptr %c, i64 %r, i64 %h, ptr %n, i64 %l)\n\
   ret ptr %f\n\
+}\n\
+define internal i8 @df.subclasse(i64 %cid, i64 %alvo) alwaysinline {\n\
+  %ctx = call ptr @dartforge_contexto()\n\
+  %lp = getelementptr inbounds i8, ptr %ctx, i64 @@LARGURA@@\n\
+  %l = load i64, ptr %lp, align 8\n\
+  %d1 = icmp ult i64 %cid, %l\n\
+  br i1 %d1, label %t1, label %lento\n\
+t1:\n\
+  %np = getelementptr inbounds i8, ptr %ctx, i64 @@N_SUBTIPOS@@\n\
+  %n = load i64, ptr %np, align 8\n\
+  %d2 = icmp ult i64 %alvo, %n\n\
+  br i1 %d2, label %t2, label %lento\n\
+t2:\n\
+  %tp = getelementptr inbounds i8, ptr %ctx, i64 @@SUBTIPOS@@\n\
+  %t = load ptr, ptr %tp, align 8\n\
+  %mp = getelementptr inbounds ptr, ptr %t, i64 %alvo\n\
+  %mapa = load ptr, ptr %mp, align 8\n\
+  %tem = icmp ne ptr %mapa, null\n\
+  br i1 %tem, label %t3, label %lento\n\
+t3:\n\
+  %w = lshr i64 %cid, 6\n\
+  %wp = getelementptr inbounds i64, ptr %mapa, i64 %w\n\
+  %pal = load i64, ptr %wp, align 8\n\
+  %s = and i64 %cid, 63\n\
+  %x = lshr i64 %pal, %s\n\
+  %x8 = trunc i64 %x to i8\n\
+  %b = and i8 %x8, 1\n\
+  ret i8 %b\n\
+lento:\n\
+  %y = call i8 @dartforge_is_subclass(i64 %cid, i64 %alvo)\n\
+  ret i8 %y\n\
 }\n";
 
-const CAIXA_DE_INT: &str = "define internal i64 @df.caixa_int(i64 %v) alwaysinline {\n\
-  %a = add i64 %v, 4611686018427387904\n\
-  %ok = icmp ult i64 %a, -9223372036854775808\n\
-  br i1 %ok, label %smi, label %heap\n\
-smi:\n\
-  %s = shl i64 %v, 1\n\
-  %r = or i64 %s, 1\n\
+/// Os ajudantes da fundação do espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md
+/// §3.5), com os deslocamentos do contrato de layout:
+///
+/// * `@df.e_objeto(h)`: `h & (7 | i64::MIN) == 2`;
+/// * `@df.filho_jovem(v)`: o filho gravado pede a barreira (objeto jovem);
+/// * `@df.barreira(o, v)`: `o` velho recebendo filho jovem → `dartforge_lembrar`
+///   (peso 1:9 no ramo lento, como a barreira da Julia);
+/// * `@df.barreira_elemento(o, i, v)`: a mesma com cartões (`o` velho ou
+///   lembrado com `CARTOES`: suja o cartão do elemento `i`);
+/// * `@df.alocar(cabecalho, w)`: a TLAB de `w ≤ TLAB_N` palavras (o cursor
+///   avança `16 + 8w` e grava a palavra 0); esgotada ou `w` maior,
+///   `dartforge_alocar(cid, w, cabecalho >> 8)`.
+fn ajudantes_do_espaco() -> String {
+    use layout::{contexto, desl, estado, flags};
+    let d = |x: usize| x as i64 - layout::DESLOCAMENTO_DO_HANDLE;
+    format!(
+        "define internal i1 @df.e_objeto(i64 %h) alwaysinline {{\n\
+  %m = and i64 %h, {mascara}\n\
+  %r = icmp eq i64 %m, 2\n\
+  ret i1 %r\n\
+}}\n\
+define internal i1 @df.filho_jovem(i64 %v) alwaysinline {{\n\
+  %b = and i64 %v, 1\n\
+  %imediato = icmp ne i64 %b, 0\n\
+  %nulo = icmp eq i64 %v, 0\n\
+  %nada = or i1 %imediato, %nulo\n\
+  br i1 %nada, label %nao, label %s1\n\
+s1:\n\
+  %m = and i64 %v, {mascara}\n\
+  %o = icmp eq i64 %m, 2\n\
+  br i1 %o, label %obj, label %nao\n\
+obj:\n\
+  %p = inttoptr i64 %v to ptr\n\
+  %ep = getelementptr inbounds i8, ptr %p, i64 {estado_h}\n\
+  %e = load i8, ptr %ep, align 8\n\
+  %j = icmp eq i8 %e, {jovem}\n\
+  ret i1 %j\n\
+nao:\n\
+  ret i1 false\n\
+}}\n\
+define internal void @df.barreira(i64 %o, i64 %v) alwaysinline {{\n\
+  %p = inttoptr i64 %o to ptr\n\
+  %ep = getelementptr inbounds i8, ptr %p, i64 {estado_h}\n\
+  %e = load i8, ptr %ep, align 8\n\
+  %velho = icmp eq i8 %e, {velho}\n\
+  %x = call i1 @llvm.expect.i1(i1 %velho, i1 false)\n\
+  br i1 %x, label %filho, label %fim\n\
+filho:\n\
+  %j = call i1 @df.filho_jovem(i64 %v)\n\
+  br i1 %j, label %lembrar, label %fim\n\
+lembrar:\n\
+  call void @dartforge_lembrar(i64 %o)\n\
+  br label %fim\n\
+fim:\n\
+  ret void\n\
+}}\n\
+define internal void @df.barreira_elemento(i64 %o, i64 %i, i64 %v) alwaysinline {{\n\
+  %p = inttoptr i64 %o to ptr\n\
+  %ep = getelementptr inbounds i8, ptr %p, i64 {estado_h}\n\
+  %e = load i8, ptr %ep, align 8\n\
+  %e3 = sub i8 %e, {velho}\n\
+  %velho = icmp ult i8 %e3, 2\n\
+  %x = call i1 @llvm.expect.i1(i1 %velho, i1 false)\n\
+  br i1 %x, label %filho, label %fim\n\
+filho:\n\
+  %j = call i1 @df.filho_jovem(i64 %v)\n\
+  br i1 %j, label %lento, label %fim\n\
+lento:\n\
+  %fp = getelementptr inbounds i8, ptr %p, i64 {flags_h}\n\
+  %f = load i8, ptr %fp, align 1\n\
+  %fc = and i8 %f, {cartoes}\n\
+  %temc = icmp ne i8 %fc, 0\n\
+  br i1 %temc, label %cartao, label %lembrar\n\
+cartao:\n\
+  %lp = getelementptr inbounds i8, ptr %p, i64 {comprimento_h}\n\
+  %len = load i64, ptr %lp, align 8\n\
+  %w = lshr i64 %i, {log_palavra}\n\
+  %k = add i64 %len, %w\n\
+  %kb = shl i64 %k, 3\n\
+  %kd = add i64 %kb, {elementos_h}\n\
+  %cp = getelementptr inbounds i8, ptr %p, i64 %kd\n\
+  %cv = load i64, ptr %cp, align 8\n\
+  %s = lshr i64 %i, {log_cartao}\n\
+  %s63 = and i64 %s, 63\n\
+  %bit = shl i64 1, %s63\n\
+  %nv = or i64 %cv, %bit\n\
+  store i64 %nv, ptr %cp, align 8\n\
+  br label %lembrar\n\
+lembrar:\n\
+  %ev = icmp eq i8 %e, {velho}\n\
+  br i1 %ev, label %chamar, label %fim\n\
+chamar:\n\
+  call void @dartforge_lembrar(i64 %o)\n\
+  br label %fim\n\
+fim:\n\
+  ret void\n\
+}}\n\
+define internal i64 @df.alocar(i64 %cab, i64 %w) alwaysinline {{\n\
+  %pequeno = icmp ule i64 %w, {tlab_n}\n\
+  br i1 %pequeno, label %tlab, label %lento\n\
+tlab:\n\
+  %ctx = call ptr @dartforge_contexto()\n\
+  %o16 = shl i64 %w, 4\n\
+  %oc = add i64 %o16, {tlab}\n\
+  %ta = getelementptr inbounds i8, ptr %ctx, i64 %oc\n\
+  %tb = load ptr, ptr %ta, align 8\n\
+  %of = add i64 %oc, 8\n\
+  %tfa = getelementptr inbounds i8, ptr %ctx, i64 %of\n\
+  %tf = load ptr, ptr %tfa, align 8\n\
+  %w8 = shl i64 %w, 3\n\
+  %tam = add i64 %w8, {cabecalho}\n\
+  %tnx = getelementptr i8, ptr %tb, i64 %tam\n\
+  %esgotada = icmp ugt ptr %tnx, %tf\n\
+  %x = call i1 @llvm.expect.i1(i1 %esgotada, i1 false)\n\
+  br i1 %x, label %lento, label %rapido\n\
+rapido:\n\
+  store ptr %tnx, ptr %ta, align 8\n\
+  store i64 %cab, ptr %tb, align 8\n\
+  %hb = ptrtoint ptr %tb to i64\n\
+  %h = add i64 %hb, {deslocamento}\n\
+  ret i64 %h\n\
+lento:\n\
+  %cid = lshr i64 %cab, 32\n\
+  %fl = lshr i64 %cab, 8\n\
+  %fn = and i64 %fl, 16777215\n\
+  %r = call i64 @dartforge_alocar(i64 %cid, i64 %w, i64 %fn)\n\
   ret i64 %r\n\
-heap:\n\
-  %h = call i64 @dartforge_box_int(i64 %v)\n\
-  ret i64 %h\n\
-}\n\
-define internal i64 @df.env_ref(i64 %e, i64 %i) alwaysinline {\n\
-  %d = call i64 @dartforge_env_dados(i64 %e)\n\
-  %p = inttoptr i64 %d to ptr\n\
-  %o = shl i64 %i, 4\n\
-  %g = getelementptr i8, ptr %p, i64 %o\n\
-  %gt = getelementptr i8, ptr %g, i64 9\n\
-  %t = load i8, ptr %gt, align 1\n\
-  %b = load i64, ptr %g, align 8\n\
-  %ref = icmp eq i8 %t, 3\n\
-  br i1 %ref, label %direto, label %int\n\
-direto:\n\
-  ret i64 %b\n\
-int:\n\
-  %ei = icmp eq i8 %t, 0\n\
-  br i1 %ei, label %inteiro, label %caixa\n\
-inteiro:\n\
-  %bi = call i64 @df.caixa_int(i64 %b)\n\
-  ret i64 %bi\n\
-caixa:\n\
-  %c = call i64 @dartforge_env_get_ref(i64 %e, i64 %i)\n\
-  ret i64 %c\n\
-}\n\
-define internal i64 @df.desencaixa_int(i64 %r) alwaysinline {\n\
-  %b = and i64 %r, 1\n\
-  %e = icmp ne i64 %b, 0\n\
-  br i1 %e, label %smi, label %heap\n\
-smi:\n\
-  %v = ashr i64 %r, 1\n\
-  ret i64 %v\n\
-heap:\n\
-  %h = call i64 @dartforge_unbox_int(i64 %r)\n\
-  ret i64 %h\n\
-}\n";
+}}\n",
+        mascara = MASCARA_DE_OBJETO,
+        estado_h = d(desl::ESTADO),
+        flags_h = d(desl::FLAGS),
+        comprimento_h = d(desl::COMPRIMENTO),
+        elementos_h = d(desl::ELEMENTOS),
+        jovem = estado::JOVEM,
+        velho = estado::VELHO,
+        cartoes = flags::CARTOES,
+        log_palavra = layout::ELEMENTOS_POR_PALAVRA_DE_CARTAO.trailing_zeros(),
+        log_cartao = layout::ELEMENTOS_POR_CARTAO.trailing_zeros(),
+        tlab_n = layout::TLAB_N,
+        tlab = contexto::TLAB,
+        cabecalho = layout::TAMANHO_DO_CABECALHO,
+        deslocamento = layout::DESLOCAMENTO_DO_HANDLE,
+    )
+}
+
+// `@df.caixa_int`, `@df.desencaixa_int` e `@df.env_ref` são da P2
+// (`caixas_ir::AJUDANTES`, docs/NATIVO-ESPACO-UNIFICADO.md §3.5).

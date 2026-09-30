@@ -2,7 +2,8 @@
 // `sdk_nativo/`, P5c). O da VM junta as partes numa lista e as unidades
 // soltas num `Uint16List`, compacta a lista de tempos em tempos e cria a
 // string por um native. Aqui as unidades escritas vão direto para um
-// acumulador do runtime (`Value::StringBuffer`, `nativos_strings.rs`): uma
+// acumulador do runtime (`_AcumuladorDeTexto`, um objeto com o vetor de
+// unidades anexado, solto pelo coletor com ele; `nativos_strings.rs`): uma
 // chamada por `write`, sem um objeto por parte e sem a conferência de
 // covariância do `add` da lista; o `toString` copia o acumulado para uma
 // string nova (o `StringBuffer` continua podendo crescer). O que o programa

@@ -1,7 +1,7 @@
 //! Expressões: literais, identificadores, operadores, curto-circuito,
 //! condicional, cadeias `?.`, propriedades, índices, coleções, `is`/`as`.
-//! As chamadas estão em `chamadas.rs`; os membros do SDK casados pelo nome,
-//! em `sdk_por_nome.rs`.
+//! As chamadas estão em `chamadas.rs`; o membro do SDK sem elemento útil vai
+//! pela classe dinâmica do receptor ([`FnBuilder::propriedade_por_seletor`]).
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
@@ -425,15 +425,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                         let caixa = self.coagir(raw_op, Type::Ref);
                                         self.texto_por_seletor(caixa)
                                     }
-                                    Type::Ref if self.ctx.sdk_da_fonte => self.texto_por_seletor(raw_op),
-                                    Type::Ref => self.emit(
-                                        Instruction::CallStatic {
-                                            symbol: "dartforge_dispatch_toString".to_string(),
-                                            args: vec![raw_op],
-                                            ret_ty: Type::Ref,
-                                        },
-                                        Type::Ref,
-                                    ),
+                                    Type::Ref => self.texto_por_seletor(raw_op),
                                     Type::Void | Type::Ptr => self.emit(
                                         Instruction::Const(Constant::String("null".to_string())),
                                         Type::Ref,
@@ -651,6 +643,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // a inferência ainda não grava a promoção no tipo da leitura,
                 // então o operando chega `Ref` e volta ao escalar aqui.
                 // (`==`/`!=` fica de fora: comparar com null é legítimo.)
+                // `String` não anulável à esquerda: o `==` da `String` (que não
+                // é sobrescrevível) em linha, `@df.texto_igual_a`.
+                if matches!(op, BinaryOp::Eq | BinaryOp::NotEq)
+                    && l_ty.is_some_and(|t| {
+                        self.ctx.is_string(t)
+                            && matches!(self.ctx.table.get(t), dartforge_types::table::Type::Interface { nullable: false, .. })
+                    })
+                    && self.operand_type(&lop) == Type::Ref
+                {
+                    let r = self.igualdade_de_texto(lop, rop);
+                    if matches!(op, BinaryOp::NotEq) {
+                        return self.emit(Instruction::LNot(r), Type::I1);
+                    }
+                    return r;
+                }
                 if matches!(op, BinaryOp::Eq | BinaryOp::NotEq)
                     && let Some(r) =
                         self.igualdade_de_classe_fechada(l_ty, &lop, &rop, matches!(op, BinaryOp::NotEq))
@@ -836,10 +843,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 null_aware,
             } => {
                 let prop_name = self.ctx.symbol_name(name.sym);
-
-                if let Some(op) = self.propriedade_estatica_sdk_por_nome(ast, target, prop_name) {
-                    return op;
-                }
 
                 let span = expr.span;
                 let resolved = self.ctx.get_resolved(self.unit_id, expr_id).cloned();
@@ -1045,6 +1048,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     && let Some(l) = self.indexavel(self.ctx.get_type(self.unit_id, *target))
                 {
                     self.fixa_do_acesso = self.lista_fixa_de(ast, *target);
+                    self.provada_do_acesso = self.provada_de(ast, *target, None);
                     let n = self.length_indexado(target_op, l);
                     self.fixa_do_acesso = None;
                     let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::I64);
@@ -1143,7 +1147,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if let Some(l) = self.indexavel(self.ctx.get_type(self.unit_id, *target)) {
                     let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
                     self.fixa_do_acesso = self.lista_fixa_de(ast, *target);
+                    self.provada_do_acesso = self.provada_de(ast, *target, Some(*index));
                     let lido = self.ler_indexado(target_op.clone(), idx_op.clone(), l, repr);
+                    self.provada_do_acesso = None;
                     self.fixa_do_acesso = None;
                     if let Some(r) = lido {
                         return r;
@@ -1155,86 +1161,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
                     return self.coagir(r, repr);
                 }
-                if self.ctx.sdk_da_fonte {
-                    // SDK da fonte: `[]` pela classe dinâmica.
-                    let r = self.chamar_por_nome_tipado(target_op, *target, super::sdk_fonte::Tipo::Chamar, "[]", &[(None, idx_op)]);
-                    let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
-                    return self.coagir(r, repr);
-                }
-                // `operator []` de classe do usuário, pela classe estática.
-                if let Some(cid) = self.classe_do_usuario_de(*target) {
-                    let Some(fid) = self.membro_na_classe(cid, "[]") else {
-                        return self.nao_suportado("operador [] ausente", expr.span);
-                    };
-                    return self.chamar_membro(target_op, fid, &[(None, idx_op)], expr.span);
-                }
-                let target_ty = self.ctx.get_type(self.unit_id, *target);
-                let is_map = target_ty.map_or(false, |t| self.ctx.is_map(t))
-                    || self.operand_type(&idx_op) == Type::Ref;
-                let is_string_or_match = target_ty.map_or(false, |t| self.ctx.is_string(t))
-                    || matches!(ast.expr(*target).kind, ExprKind::String(_))
-                    || (if let ExprKind::Identifier(id) = &ast.expr(*target).kind {
-                        self.ctx.symbol_name(id.sym) == "m"
-                    } else {
-                        false
-                    });
-                if is_map {
-                    // E2: a chave com a tag real (antes, 3 fixo). R5: o
-                    // valor de `mapa[k]` é `V?`, sempre `Ref`.
-                    let ktag = self.operand_tag(&idx_op);
-                    let (kbits, _) = self.para_bits(idx_op);
-                    self.emit(
-                        Instruction::CallRuntime {
-                            name: "dartforge_map_get_ref".to_string(),
-                            args: vec![
-                                (target_op, Type::Ref),
-                                (kbits, Type::I64),
-                                (Operand::Constant(Constant::Int(i64::from(ktag))), Type::I8),
-                            ],
-                            ret_ty: Type::Ref,
-                        },
-                        Type::Ref,
-                    )
-                } else if is_string_or_match {
-                    self.emit_call_with_check(
-                        Instruction::CallRuntime {
-                            name: "dartforge_list_get_bits".to_string(),
-                            args: vec![(target_op, Type::Ref), (idx_op, Type::I64)],
-                            ret_ty: Type::Ref,
-                        },
-                        Type::Ref,
-                    )
-                } else {
-                    let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
-                    self.ler_elemento_lista(target_op, idx_op, repr)
-                }
+                // `[]` do SDK pela classe dinâmica.
+                let r = self.chamar_por_nome_tipado(target_op, *target, super::sdk_fonte::Tipo::Chamar, "[]", &[(None, idx_op)]);
+                let repr = self.repr_da_expressao(expr_id).unwrap_or(Type::Ref);
+                self.coagir(r, repr)
             }
             ExprKind::Record { positional, named, .. } if !named.is_empty() => {
                 self.lower_registro_nomeado(ast, positional, named, expr.span)
             }
-            ExprKind::Record { positional, .. } => {
-                let mut ops = Vec::new();
-                for p in positional.iter() {
-                    let op = self.lower_expr(ast, *p);
-                    let tag = self.operand_tag(&op);
-                    ops.push((op, tag));
-                }
-                let vid = ValueId(self.next_value);
-                self.next_value += 1;
-                self.value_types.insert(vid, Type::Ref);
-                let block_idx = self
-                    .func
-                    .blocks
-                    .iter()
-                    .position(|b| b.id == self.current_block)
-                    .unwrap();
-                self.func.blocks[block_idx].instructions.push((
-                    vid,
-                    Instruction::AllocRecord { elements: ops },
-                    Type::Ref,
-                ));
-                Operand::Val(vid)
-            }
+            // O record posicional (`_Record`, `REFS`): os campos encaixotados
+            // na HIR e o `AllocRecord` só com `Ref` (`registros.rs`).
+            ExprKind::Record { positional, .. } => self.lower_registro_posicional(ast, positional),
             ExprKind::Call { target, arguments } => {
                 self.lower_chamada(ast, expr_id, expr, target, arguments)
             }
@@ -1244,8 +1181,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let l = self.lower_literal_de_colecao(ast, super::literais::Colecao::Lista, elements, expr.span);
                 self.rti_do_literal(l, expr_id)
             }
-            // SDK da fonte: mapas e conjuntos são o `_Map`/`_Set` da fonte.
-            ExprKind::SetOrMap { elements, .. } if self.ctx.sdk_da_fonte => {
+            // Mapas e conjuntos são o `_Map`/`_Set` da fonte do SDK.
+            ExprKind::SetOrMap { elements, .. } => {
                 let tipo = if self.literal_e_conjunto(expr_id, elements) {
                     super::literais::Colecao::Conjunto
                 } else {
@@ -1253,25 +1190,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 };
                 let colecao = self.lower_literal_de_colecao(ast, tipo, elements, expr.span);
                 self.rti_do_literal(colecao, expr_id)
-            }
-            ExprKind::SetOrMap { elements, .. } if self.literal_e_conjunto(expr_id, elements) => {
-                let l = self.lower_literal_de_colecao(ast, super::literais::Colecao::Conjunto, elements, expr.span);
-                self.rti_do_literal(l, expr_id)
-            }
-            ExprKind::SetOrMap { elements, .. }
-                if !elements.iter().all(|e| {
-                    matches!(
-                        e,
-                        ast::CollectionElement::MapEntry {
-                            null_aware_key: false,
-                            null_aware_value: false,
-                            ..
-                        }
-                    )
-                }) =>
-            {
-                let l = self.lower_literal_de_colecao(ast, super::literais::Colecao::Mapa, elements, expr.span);
-                self.rti_do_literal(l, expr_id)
             }
             ExprKind::List { elements, .. } => {
                 let mut elem_ops = Vec::new();
@@ -1288,23 +1206,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.definir_rti_se_generico(l.clone(), t);
                 }
                 l
-            }
-            ExprKind::SetOrMap { elements, .. } => {
-                let mut entries = Vec::new();
-                for el in elements.iter() {
-                    if let ast::CollectionElement::MapEntry { key, value, .. } = el {
-                        let kop = self.lower_expr(ast, *key);
-                        let ktag = self.operand_tag(&kop);
-                        let vop = self.lower_expr(ast, *value);
-                        let vtag = self.operand_tag(&vop);
-                        entries.push(((kop, ktag), (vop, vtag)));
-                    }
-                }
-                let m = self.emit(Instruction::AllocMap { entries }, Type::Ref);
-                if let Some(t) = self.ctx.get_type(self.unit_id, expr_id) {
-                    self.definir_rti_se_generico(m.clone(), t);
-                }
-                m
             }
             ExprKind::InstanceCreation { arguments, constructor, ty, .. } => {
                 match self.ctx.get_resolved(self.unit_id, expr_id).cloned() {
@@ -1485,31 +1386,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         {
             return op;
         }
-        // Receptor sem tipo útil: o membro pela classe dinâmica.
-        if self.receptor_dinamico(target) {
-            let alvos = self.alvos_por_nome(prop_name);
-            if !alvos.is_empty() {
-                let nome = prop_name.to_string();
-                let r2 = target_op.clone();
-                return self.despachar(
-                    target_op,
-                    &alvos,
-                    super::despacho::Uso::Ler,
-                    &mut |_s: &mut Self| Vec::new(),
-                    &mut |s: &mut Self| {
-                        let n = s.erros.len();
-                        let r = s.propriedade_sdk_por_nome(r2.clone(), &nome, expr_id, span);
-                        if s.erros.len() > n {
-                            s.erros.truncate(n);
-                            return s.lancar_nsm(&nome);
-                        }
-                        r
-                    },
-                    span,
-                );
-            }
-        }
-        self.propriedade_sdk_por_nome(target_op, prop_name, expr_id, span)
+        self.propriedade_por_seletor(target_op, prop_name, expr_id, span)
+    }
+
+    /// Propriedade de valor do SDK (`length`, `isEmpty`, `first`, `message`…):
+    /// o membro pela classe dinâmica do receptor, por seletor (o SDK vem
+    /// sempre da fonte).
+    pub(super) fn propriedade_por_seletor(
+        &mut self,
+        target_op: Operand,
+        prop_name: &str,
+        expr_id: ExprId,
+        span: dartforge_diagnostics::Span,
+    ) -> Operand {
+        let _ = (expr_id, span);
+        self.chamar_por_nome(target_op, super::sdk_fonte::Tipo::Ler, prop_name, &[])
     }
 
     /// Membro implícito (`x` = `this.x`) que é do SDK (a extensão sobre um
@@ -1543,6 +1434,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 return Some(op);
             }
         }
-        Some(self.propriedade_sdk_por_nome(this, &nome, expr_id, span))
+        Some(self.propriedade_por_seletor(this, &nome, expr_id, span))
     }
 }

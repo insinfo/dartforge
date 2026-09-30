@@ -43,41 +43,42 @@ fn campo_late_distingue_valor_zero_de_ausencia_de_escrita() {
 #[test]
 fn subtipagem_e_avaliacao() {
     numa_thread(|| {
-        // 0 = Object; 1 e 2 classes sem parâmetros; 10 = List<E>, 11 =
-        // Iterable<E>, 20 = Future<T>.
+        // 0 = Object; 201 e 202 classes sem parâmetros; 210 = List<E>, 211 =
+        // Iterable<E>, 220 = Future<T> (classes do programa: cid ≥ 128, fora
+        // dos cids fixos do runtime, docs/NATIVO-ESPACO-UNIFICADO.md §2.4).
         dartforge_rti_classe_do_runtime(10, 0);
-        dartforge_rti_classe_do_runtime(9, 20);
-        dartforge_rti_regra(10, receita("C11<P0>"));
-        dartforge_rti_regra(1, receita("C2"));
-        assert!(sub("C10<C1>", "C11<C1>"));
-        assert!(sub("C10<C1>", "C11<C2>"), "covariante pela regra 1 <: 2");
-        assert!(!sub("C10<C2>", "C11<C1>"));
-        assert!(!sub("C11<C1>", "C10<C1>"));
-        assert!(sub("C1", "C0"), "tudo é Object");
+        dartforge_rti_classe_do_runtime(9, 220);
+        dartforge_rti_regra(210, receita("C211<P0>"));
+        dartforge_rti_regra(201, receita("C202"));
+        assert!(sub("C210<C201>", "C211<C201>"));
+        assert!(sub("C210<C201>", "C211<C202>"), "covariante pela regra 201 <: 202");
+        assert!(!sub("C210<C202>", "C211<C201>"));
+        assert!(!sub("C211<C201>", "C210<C201>"));
+        assert!(sub("C201", "C0"), "tudo é Object");
         assert!(!sub("U", "C0"), "Null não é Object");
-        assert!(sub("U", "C1?"));
-        assert!(!sub("C1?", "C1"));
-        assert!(sub("C1", "C1?"));
-        assert!(sub("C20<C1>", "O<C1>"));
-        assert!(sub("C1", "O<C1>"));
-        assert!(!sub("C2", "O<C1>"));
-        assert!(sub("N", "C1"), "Never é o fundo");
-        assert!(sub("C1", "D"), "dynamic é o topo");
+        assert!(sub("U", "C201?"));
+        assert!(!sub("C201?", "C201"));
+        assert!(sub("C201", "C201?"));
+        assert!(sub("C220<C201>", "O<C201>"));
+        assert!(sub("C201", "O<C201>"));
+        assert!(!sub("C202", "O<C201>"));
+        assert!(sub("N", "C201"), "Never é o fundo");
+        assert!(sub("C201", "D"), "dynamic é o topo");
         // R Function(P): retorno covariante, parâmetro contravariante.
-        assert!(sub("F<0;C1;1;C0;>", "F<0;C0;1;C1;>"));
-        assert!(!sub("F<0;C0;1;C1;>", "F<0;C1;1;C0;>"));
+        assert!(sub("F<0;C201;1;C0;>", "F<0;C0;1;C201;>"));
+        assert!(!sub("F<0;C0;1;C201;>", "F<0;C201;1;C0;>"));
         assert!(!sub("F<0;D;1;D;>", "F<0;D;2;C0,C0;>"), "aridade");
 
-        // `P0` avaliado no tipo de `this` (List<C1>) visto como Iterable.
-        let obj = dartforge_object_new(10, 0);
-        dartforge_rti_definir(obj, receita("C10<C1>"));
-        let t = dartforge_rti_avaliar(receita("C11<P0>"), obj, 11, 0);
-        assert_eq!(t, receita("C11<C1>"));
-        assert!(dartforge_rti_e(obj, receita("C11<C2>")) != 0);
-        assert!(dartforge_rti_e(obj, receita("C11<U>")) == 0);
+        // `P0` avaliado no tipo de `this` (List<C201>) visto como Iterable.
+        let obj = dartforge_object_new(210, 0);
+        dartforge_rti_definir(obj, receita("C210<C201>"));
+        let t = dartforge_rti_avaliar(receita("C211<P0>"), obj, 211, 0);
+        assert_eq!(t, receita("C211<C201>"));
+        assert!(dartforge_rti_e(obj, receita("C211<C202>")) != 0);
+        assert!(dartforge_rti_e(obj, receita("C211<U>")) == 0);
         // `M0` da tupla.
-        let t = dartforge_rti_avaliar(receita("C10<M0>"), 0, 0, receita("L<C2>"));
-        assert_eq!(t, receita("C10<C2>"));
+        let t = dartforge_rti_avaliar(receita("C210<M0>"), 0, 0, receita("L<C202>"));
+        assert_eq!(t, receita("C210<C202>"));
     });
 }
 
@@ -88,35 +89,30 @@ fn subtipagem_e_avaliacao() {
 #[allow(unsafe_code)]
 fn allocators_de_lista_preservam_argumento_de_tipo() {
     numa_thread(|| {
-        // 10 = List<E>; 11 = _List<E>; 12 = _ImmutableList<E>;
-        // 13 = _GrowableList<E>. Os índices 7–9 são os CIDs de lista.
-        let mut cids = [0_i64; 12];
-        cids[7] = 13;
-        cids[8] = 11;
-        cids[9] = 12;
-        // SAFETY: `cids` fica vivo durante a cópia feita pelo runtime.
-        unsafe { dartforge_registrar_cids(cids.as_ptr(), cids.len() as i64) };
-        dartforge_rti_classe_do_runtime(4, 10);
-        for classe in [11, 12, 13] {
-            dartforge_rti_regra(classe, receita("C10<P0>"));
+        // 200 = List<E> (uma classe do programa, cid ≥ 128); as concretas têm
+        // os cids fixos do contrato (docs/NATIVO-ESPACO-UNIFICADO.md §2.4):
+        // 8 = _List<E>, 9 = _ImmutableList<E>, 10 = _GrowableList<E>.
+        dartforge_rti_classe_do_runtime(4, 200);
+        for classe in [8, 9, 10] {
+            dartforge_rti_regra(classe, receita("C200<P0>"));
         }
 
-        let fixo = dartforge_nativo_List_allocate(dartforge_box_int(2), receita("L<C1>"));
-        assert!(dartforge_rti_e(fixo, receita("C10<C1>")) != 0);
+        let fixo = dartforge_nativo_List_allocate(dartforge_box_int(2), receita("L<C201>"));
+        assert!(dartforge_rti_e(fixo, receita("C200<C201>")) != 0);
         let fatia = dartforge_nativo_List_slice(fixo, 0, 2, 1);
-        assert!(dartforge_rti_e(fatia, receita("C10<C1>")) != 0);
+        assert!(dartforge_rti_e(fatia, receita("C200<C201>")) != 0);
 
-        let imutavel = dartforge_nativo_ImmutableList_from(fixo, 0, 2, receita("L<C1>"));
-        assert!(dartforge_rti_e(imutavel, receita("C10<C1>")) != 0);
-        assert!(dartforge_rti_e(imutavel, receita("C10<C2>")) == 0);
+        let imutavel = dartforge_nativo_ImmutableList_from(fixo, 0, 2, receita("L<C201>"));
+        assert!(dartforge_rti_e(imutavel, receita("C200<C201>")) != 0);
+        assert!(dartforge_rti_e(imutavel, receita("C200<C202>")) == 0);
 
         let imutavel_de_copia = dartforge_nativo_Internal_makeFixedListUnmodifiable(fixo);
-        assert!(dartforge_rti_e(imutavel_de_copia, receita("C10<C1>")) != 0);
+        assert!(dartforge_rti_e(imutavel_de_copia, receita("C200<C201>")) != 0);
         let fixo_de_copia = dartforge_nativo_Internal_makeListFixedLength(imutavel_de_copia);
-        assert!(dartforge_rti_e(fixo_de_copia, receita("C10<C1>")) != 0);
+        assert!(dartforge_rti_e(fixo_de_copia, receita("C200<C201>")) != 0);
 
-        let mutavel = dartforge_nativo_GrowableList_allocate(fixo, receita("L<C1>"));
-        assert!(dartforge_rti_e(mutavel, receita("C10<C1>")) != 0);
+        let mutavel = dartforge_nativo_GrowableList_allocate(fixo, receita("L<C201>"));
+        assert!(dartforge_rti_e(mutavel, receita("C200<C201>")) != 0);
     });
 }
 

@@ -2,9 +2,11 @@
 //!
 //! A escolha da operação vem das representações: `I64` com `I64` é aritmética
 //! inteira; um `F64` promove o outro lado (`IntToDouble`, nunca `bitcast`);
-//! igualdade envolvendo `Ref` vai ao runtime (`==` do Dart, com caixas por
-//! valor — R9). Antes, "algum lado é `Ref`" queria dizer "concatena strings",
-//! o que valia só porque tudo que não era `int` era `Ref`.
+//! igualdade envolvendo `Ref` vai ao `==` do Dart pela classe dinâmica (a
+//! regra do null em linha, `igualdade_fonte`); `identical` de `Ref` é o
+//! `@df.identico` em linha (docs/NATIVO-ESPACO-UNIFICADO.md §2.10). Antes,
+//! "algum lado é `Ref`" queria dizer "concatena strings", o que valia só
+//! porque tudo que não era `int` era `Ref`.
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
@@ -16,8 +18,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// `identical(a, b)`: escalares por valor (bits, para `double`); se
-    /// algum lado é `Ref`, pelo runtime (handle igual, ou caixas de mesmo
-    /// valor — `Instance::IsIdenticalTo` da VM).
+    /// algum lado é `Ref`, pelo `@df.identico` em linha (handle igual, ou
+    /// `_Mint`/`_Double` de mesmo valor — `Instance::IsIdenticalTo` da VM;
+    /// o ajudante é da P2, `llvm/caixas_ir.rs`).
     pub fn identicos(&mut self, a: Operand, b: Operand) -> Operand {
         let (ta, tb) = (self.operand_type(&a), self.operand_type(&b));
         match (ta, tb) {
@@ -45,24 +48,33 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             _ => {
                 let a = self.coagir(a, Type::Ref);
                 let b = self.coagir(b, Type::Ref);
-                let r = self.emit(
-                    Instruction::CallRuntime {
-                        name: "dartforge_identical".to_string(),
-                        args: vec![(a, Type::Ref), (b, Type::Ref)],
-                        ret_ty: Type::I8,
-                    },
-                    Type::I8,
-                );
                 self.emit(
-                    Instruction::Trunc {
-                        op: r,
-                        from: Type::I8,
-                        to: Type::I1,
+                    Instruction::CallRuntime {
+                        name: "df.identico".to_string(),
+                        args: vec![(a, Type::Ref), (b, Type::Ref)],
+                        ret_ty: Type::I1,
                     },
                     Type::I1,
                 )
             }
         }
+    }
+
+    /// `a == b` com `a` de tipo estático `String` não anulável (o `==` da
+    /// `String` não é sobrescrevível): o `@df.texto_igual_a` em linha — a
+    /// identidade, a classe de `b`, o comprimento e o hash, e as unidades no
+    /// runtime só quando preciso (P1, `llvm/textos_ir.rs`).
+    pub fn igualdade_de_texto(&mut self, a: Operand, b: Operand) -> Operand {
+        let a = self.coagir(a, Type::Ref);
+        let b = self.coagir(b, Type::Ref);
+        self.emit(
+            Instruction::CallRuntime {
+                name: "df.texto_igual_a".to_string(),
+                args: vec![(a, Type::Ref), (b, Type::Ref)],
+                ret_ty: Type::I1,
+            },
+            Type::I1,
+        )
     }
 
     /// Operando `Ref` cujo tipo estático é `int?`/`double?` (ou `int`,
@@ -99,18 +111,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Type::I64 => ("dartforge_to_string_i64", Type::I64),
             Type::F64 => ("dartforge_to_string_f64", Type::F64),
             Type::I1 | Type::I8 => ("dartforge_to_string_bool", Type::I8),
-            _ if self.ctx.sdk_da_fonte => return self.texto_por_seletor(op),
-            _ => {
-                let op = self.coagir(op, Type::Ref);
-                return self.emit_call_with_check(
-                    Instruction::CallStatic {
-                        symbol: "dartforge_dispatch_toString".to_string(),
-                        args: vec![op],
-                        ret_ty: Type::Ref,
-                    },
-                    Type::Ref,
-                );
-            }
+            _ => return self.texto_por_seletor(op),
         };
         self.emit(
             Instruction::CallRuntime {
@@ -144,91 +145,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let a = self.coagir(a, Type::Ref);
         let b = self.coagir(b, Type::Ref);
-        if self.ctx.sdk_da_fonte {
-            return self.igualdade_fonte(a, b);
-        }
-        // `operator ==` de uma classe do programa (§17.26: com um lado null
-        // vale `identical`; senão, `a.==(b)` pela classe dinâmica de `a`).
-        let alvos: Vec<(i64, super::despacho::Alvo)> = self
-            .alvos_por_nome("==")
-            .into_iter()
-            .filter(|(_, x)| matches!(x, super::despacho::Alvo::Funcao(_)))
-            .collect();
-        if !alvos.is_empty() {
-            let b_nulo = self.emit(
-                Instruction::ICmp(ICmpOp::Eq, b.clone(), Operand::Constant(Constant::Int(0))),
-                Type::I1,
-            );
-            let b_din = self.new_block();
-            let b_id = self.new_block();
-            let juncao = self.new_block();
-            self.terminate(Terminator::CondBranch {
-                cond: b_nulo,
-                then_block: b_id,
-                else_block: b_din,
-            });
-            self.set_block(b_din);
-            let (a2, b2, b3) = (a.clone(), b.clone(), b.clone());
-            let r = self.despachar(
-                a.clone(),
-                &alvos,
-                super::despacho::Uso::Chamar,
-                &mut |_s: &mut Self| vec![(None, b3.clone())],
-                &mut |s: &mut Self| {
-                    let r = s.igualdade_do_runtime(a2.clone(), b2.clone());
-                    s.coagir(r, Type::Ref)
-                },
-                dartforge_diagnostics::Span { start: 0, end: 0 },
-            );
-            let r1 = self.coagir(r, Type::I1);
-            let fim1 = self.current_block;
-            self.terminate(Terminator::Branch(juncao));
-            self.set_block(b_id);
-            let r2 = self.igualdade_do_runtime(a, b);
-            let fim2 = self.current_block;
-            self.terminate(Terminator::Branch(juncao));
-            self.set_block(juncao);
-            return self.emit(
-                Instruction::Phi {
-                    incoming: vec![(fim1, r1), (fim2, r2)],
-                    ty: Type::I1,
-                },
-                Type::I1,
-            );
-        }
-        self.igualdade_do_runtime(a, b)
-    }
-
-    /// `==` do runtime (identidade, caixas por valor, strings por conteúdo),
-    /// passando antes pela igualdade estrutural dos records com forma
-    /// quando o programa tem algum (`registros.rs`).
-    fn igualdade_do_runtime(&mut self, a: Operand, b: Operand) -> Operand {
-        if !self.ctx.formas_de_record.is_empty() {
-            return self.emit_call_with_check(
-                Instruction::CallStatic {
-                    symbol: super::registros::SIMBOLO_IGUAL.to_string(),
-                    args: vec![a, b],
-                    ret_ty: Type::I1,
-                },
-                Type::I1,
-            );
-        }
-        let r = self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_equal".to_string(),
-                args: vec![(a, Type::Ref), (b, Type::Ref)],
-                ret_ty: Type::I8,
-            },
-            Type::I8,
-        );
-        self.emit(
-            Instruction::Trunc {
-                op: r,
-                from: Type::I8,
-                to: Type::I1,
-            },
-            Type::I1,
-        )
+        // §17.26: com um lado null vale `identical`; senão, `a.==(b)` pela
+        // classe dinâmica de `a` (o `==` da fonte do SDK ou do programa).
+        self.igualdade_fonte(a, b)
     }
 
     /// O operador de `int` que o caminho do `Smi` calcula em linha.
@@ -340,16 +259,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             );
         }
         if texto && matches!(op, BinaryOp::Mul) {
+            // `String.*` da fonte do SDK (`_StringBase.operator *`).
             let a = self.coagir(lop, Type::Ref);
-            let n = self.coagir(rop, Type::I64);
-            return self.emit(
-                Instruction::CallRuntime {
-                    name: "dartforge_string_repeat".to_string(),
-                    args: vec![(a, Type::Ref), (n, Type::I64)],
-                    ret_ty: Type::Ref,
-                },
-                Type::Ref,
-            );
+            let n = self.coagir(rop, Type::Ref);
+            let r = self.chamar_por_nome(a, super::sdk_fonte::Tipo::Chamar, "*", &[(None, n)]);
+            return self.coagir(r, Type::Ref);
         }
         match op {
             BinaryOp::Eq => return self.iguais(lop, rop),

@@ -874,6 +874,9 @@ pub struct Ligacao<'a> {
     pub rpath_executavel: bool,
     /// LTO dos bitcodes de entrada (produção).
     pub lto: bool,
+    /// A CPU-alvo da geração de código da LTO (`--cpu`, o nome do LLVM);
+    /// `None`, a base.
+    pub cpu: Option<&'static str>,
     /// Tirar o que nada alcança (`-dead_strip`) e os símbolos locais (produção).
     pub podar: bool,
     /// Manter o mapa de depuração mesmo podando (J05).
@@ -925,9 +928,16 @@ pub fn ligar(ld: &Path, sysroot: &SysrootMacos, l: &Ligacao<'_>) -> Result<(), S
     }
     if l.lto {
         cmd.arg("--lto-O2");
+        if let Some(c) = l.cpu {
+            cmd.arg("-mllvm").arg(format!("-mcpu={c}"));
+        }
     }
     if l.podar {
         cmd.arg("-dead_strip");
+        // Sem `--icf=safe` (que o `ld64.lld` tem, como o `ld.lld` e o
+        // `lld-link`): não foi verificado num Mac que ele trate como tomado
+        // todo endereço de um objeto sem `__llvm_addrsig` (os do Rust), e
+        // o `==` de tear-offs depende disso (`ligador_windows.rs`).
         // `-S` tira o mapa de depuração (J05); `-x`, os símbolos locais.
         if !crate::ligador::manter_simbolos() && !l.manter_depuracao {
             cmd.args(["-S", "-x"]);
@@ -1094,7 +1104,7 @@ mod testes {
                 entradas.push(PathBuf::from(format!("_{n}")));
             }
             entradas.push(lib);
-            let l = Ligacao { produto, entradas, rpath_executavel: false, lto: false, podar: false, manter_depuracao: false, saida };
+            let l = Ligacao { produto, entradas, rpath_executavel: false, lto: false, cpu: None, podar: false, manter_depuracao: false, saida };
             if let Err(e) = ligar(&ld64_lld(&clang), &sysroot, &l) {
                 panic!("o runtime usa nomes fora de BIBLIOTECAS_DO_SISTEMA:\n{e}");
             }

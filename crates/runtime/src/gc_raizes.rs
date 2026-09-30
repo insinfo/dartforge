@@ -27,30 +27,6 @@ pub extern "C" fn dartforge_contexto() -> *const crate::heap::Contexto {
     crate::heap::CONTEXTO.with(|c| c as *const crate::heap::Contexto)
 }
 
-/// Encadeia o quadro de raízes de uma função gerada, no stack dela
-/// (`crate::heap::QuadroDeRaizes`): o prólogo escreve o número de slots e
-/// os zera; cada raiz depois é um `store` no slot.
-///
-/// # Safety
-/// `quadro` é o quadro no stack da função gerada que chama.
-#[unsafe(no_mangle)]
-#[allow(unsafe_code)]
-pub unsafe extern "C" fn dartforge_gc_empilhar(quadro: *mut crate::heap::QuadroDeRaizes) {
-    // SAFETY: o contrato acima, que o emissor cumpre.
-    unsafe { crate::heap::empilhar_quadro(quadro) };
-}
-
-/// Desencadeia o quadro de raízes antes de cada retorno da função.
-///
-/// # Safety
-/// `quadro` é o topo, empilhado pela mesma função.
-#[unsafe(no_mangle)]
-#[allow(unsafe_code)]
-pub unsafe extern "C" fn dartforge_gc_desempilhar(quadro: *const crate::heap::QuadroDeRaizes) {
-    // SAFETY: o contrato acima, que o emissor cumpre.
-    unsafe { crate::heap::desempilhar_quadro(quadro) };
-}
-
 /// Valor corrente de um global `Ref` do programa, mantido como raiz permanente.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_gc_global_root(id: i64, handle: i64) {
@@ -69,6 +45,13 @@ pub extern "C" fn dartforge_marcar_permanente(handle: i64) {
 pub extern "C" fn dartforge_marcar_constante(handle: i64, getter: i64) {
     HEAP.with(|heap| heap.borrow_mut().marcar_constante(handle, getter as usize));
 }
+/// A forma canônica do valor de uma constante, antes de o getter guardá-lo: a
+/// string montada (`const s = 'a${'b'}'`) vira o literal canônico de mesmo
+/// conteúdo, como a canonicalização de constantes da VM.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_constante_canonica(handle: i64) -> i64 {
+    HEAP.with(|heap| heap.borrow_mut().constante_canonica(handle))
+}
 /// Permite coleta explícita em testes e futuras rotinas de manutenção.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_gc_collect() {
@@ -80,7 +63,8 @@ pub extern "C" fn dartforge_gc_collect() {
 //
 // Os estáticos do Dart (e os caches dos pontos de chamada por seletor) são
 // por isolado, como a *field table* da VM: cada módulo compilado descreve
-// os slots dele (`@df.area`: `[chave, n, nome_0…nome_{n-1}]`, com hashes) e
+// os slots dele (`@df.area`: `[chave, n, nome_0…nome_{n-1}]`, com hashes;
+// no executável de produção, que não recarrega, só `[chave, -n]`) e
 // cada isolado — uma thread — tem uma área zerada por módulo, criada no
 // primeiro acesso. Os globais `Ref` são raízes pelo endereço do slot
 // (`dartforge_gc_global_root`).
@@ -199,7 +183,8 @@ fn slots_novos(n: usize) -> Vec<i64> {
 /// A área de globais do módulo de `descritor` neste isolado.
 ///
 /// # Safety
-/// `descritor` aponta para o `@df.area` de um módulo: `n + 2` palavras,
+/// `descritor` aponta para o `@df.area` de um módulo: `n + 2` palavras
+/// (`[chave, n, nomes…]`), ou 2 (`[chave, -n]`, o enxuto de produção),
 /// constantes durante todo o processo.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_area_de_globais(descritor: *const i64) -> *mut i64 {
@@ -208,15 +193,25 @@ pub unsafe extern "C" fn dartforge_area_de_globais(descritor: *const i64) -> *mu
     if ultimo == d {
         return area as *mut i64;
     }
-    // SAFETY: garantido por quem chama.
-    let (chave, nomes) = unsafe {
-        let n = *descritor.add(1) as usize;
-        (*descritor, std::slice::from_raw_parts(descritor.add(2), n))
+    // SAFETY: garantido por quem chama. O descritor enxuto do executável de
+    // produção (`[chave, -n]`, sem os nomes) não recarrega: n slots zerados,
+    // sem nomes e sem folga.
+    let (chave, nomes, enxuto) = unsafe {
+        let bruto = *descritor.add(1);
+        if bruto < 0 {
+            (*descritor, &[][..], Some(bruto.unsigned_abs() as usize))
+        } else {
+            (*descritor, std::slice::from_raw_parts(descritor.add(2), bruto as usize), None)
+        }
     };
     let p = AREAS.with(|areas| {
         let mut areas = areas.borrow_mut();
         if let Some(a) = areas.iter_mut().find(|a| a.descritores.contains(&d)) {
             return a.slots.as_mut_ptr();
+        }
+        if let Some(n) = enxuto {
+            areas.push(AreaDeGlobais { descritores: vec![d], chave, nomes: Vec::new(), slots: vec![0; n] });
+            return areas.last_mut().expect("acabou de entrar").slots.as_mut_ptr();
         }
         if let Some(i) = areas.iter().position(|a| a.chave == chave) {
             let a = &mut areas[i];
@@ -314,4 +309,79 @@ fn migrar_area(antiga: &AreaDeGlobais, nova: &mut AreaDeGlobais) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod testes_gc_raizes {
+    use super::*;
+
+    #[test]
+    fn descritor_enxuto_da_n_slots_zerados_e_a_mesma_area() {
+        std::thread::spawn(|| {
+            // `[chave, -n]` (produção) e `[chave, n, nomes…]` (recarga), de
+            // módulos diferentes, no mesmo isolado.
+            static ENXUTO: [i64; 2] = [0x1234, -3];
+            static COMPLETO: [i64; 4] = [0x5678, 2, 11, 12];
+            // SAFETY: descritores constantes do processo inteiro.
+            let (a, b, c) = unsafe {
+                (
+                    dartforge_area_de_globais(ENXUTO.as_ptr()),
+                    dartforge_area_de_globais(COMPLETO.as_ptr()),
+                    dartforge_area_de_globais(ENXUTO.as_ptr()),
+                )
+            };
+            assert_eq!(a, c);
+            assert_ne!(a, b);
+            // SAFETY: a área tem os 3 slots do descritor.
+            let slots = unsafe { std::slice::from_raw_parts_mut(a, 3) };
+            assert_eq!(slots, [0, 0, 0]);
+            slots[2] = 7;
+            AREAS.with(|areas| {
+                let areas = areas.borrow();
+                let e = areas.iter().find(|x| x.chave == 0x1234).expect("área enxuta");
+                assert!(e.nomes.is_empty());
+                assert_eq!(e.slots, [0, 0, 7]);
+                let c = areas.iter().find(|x| x.chave == 0x5678).expect("área completa");
+                assert_eq!(c.nomes, [11, 12]);
+            });
+        })
+        .join()
+        .unwrap();
+    }
+}
+
+// ─── Espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md §3.6) ───────────────
+
+/// A alocação lenta do código gerado (`@df.alocar`): um bloco zerado de
+/// `palavras` palavras de corpo, classe `cid`, estado `JOVEM`; coleta se preciso
+/// e reabastece a TLAB de `palavras` (até `layout::TLAB_N`). Não lança.
+///
+/// `flags` são os bits 8–31 da palavra 0 do cabeçalho que o código gerado
+/// montou (`cabecalho >> 8`): os `flags` do bloco nos 8 de baixo e, em
+/// `INSTANCIA`, o número de campos nos 16 seguintes (em `BRUTO`/`REFS`, o `n` é
+/// `palavras`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_alocar(cid: i64, palavras: i64, flags: i64) -> i64 {
+    let w = usize::try_from(palavras).expect("bug do compilador: palavras negativas em dartforge_alocar");
+    let f = (flags & 0xFF) as u8;
+    let n = if f & crate::layout::flags::FORMA == crate::layout::flags::INSTANCIA {
+        ((flags >> 8) & 0xFFFF) as usize
+    } else {
+        w
+    };
+    let cid = i32::try_from(cid).expect("bug do compilador: cid além de 32 bits");
+    HEAP.with(|h| {
+        let mut h = h.borrow_mut();
+        let r = h.alocar_bloco(cid, w, f, n);
+        h.reabastecer_tlab(w);
+        r
+    })
+}
+
+/// Registra a seção de objetos estáticos `[inicio, fim)` de uma imagem (o
+/// executável, a DLL do SDK): chamada pelo `@df.preparar_isolado` de cada uma
+/// (docs/NATIVO-ESPACO-UNIFICADO.md §2.11). Não aloca nem lança.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_registrar_imagem(inicio: *const u8, fim: *const u8) {
+    crate::heap::registrar_imagem(inicio as usize, fim as usize);
 }

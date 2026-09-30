@@ -32,14 +32,10 @@ pub struct Context<'a> {
     /// Diretório da biblioteca de entrada: as bibliotecas `file:` são
     /// nomeadas pelo caminho relativo a ele (estável entre máquinas).
     raiz: Option<std::path::PathBuf>,
-    /// P5c: o SDK é compilado da fonte (`sdk_modulo`). As bibliotecas de
-    /// [`crate::sdk_modulo::BIBLIOTECAS_DA_FONTE`] têm corpo compilado e
-    /// classes com id, como as do programa.
-    pub sdk_da_fonte: bool,
     /// Este contexto baixa uma biblioteca do SDK em um objeto separado.
     pub biblioteca_sdk: bool,
     /// Por biblioteca: o corpo das funções dela é compilado (as do programa;
-    /// com `sdk_da_fonte`, também as do SDK da fonte).
+    /// com [`Context::com_sdk_da_fonte`], também as do SDK da fonte).
     pub compiladas: Vec<bool>,
     /// Por biblioteca: as funções dela são baixadas **neste** módulo (as do
     /// programa; num módulo do SDK da fonte, só a biblioteca dele). As outras
@@ -158,7 +154,6 @@ impl<'a> Context<'a> {
             ids_fixos_do_sdk: None,
             formas_de_record: Vec::new(),
             raiz,
-            sdk_da_fonte: false,
             biblioteca_sdk: false,
             compiladas: program.libraries.iter().map(|l| !l.is_sdk).collect(),
             no_modulo: program.libraries.iter().map(|l| !l.is_sdk).collect(),
@@ -232,7 +227,6 @@ impl<'a> Context<'a> {
     /// Liga o SDK da fonte (P5c): as bibliotecas de `BIBLIOTECAS_DA_FONTE`
     /// passam a ter corpo compilado e classes com id.
     pub fn com_sdk_da_fonte(mut self) -> Self {
-        self.sdk_da_fonte = true;
         for (i, l) in self.program.libraries.iter().enumerate() {
             if let Some(nome) = l.uri.strip_prefix("dart:")
                 && crate::sdk_modulo::BIBLIOTECAS_DA_FONTE.contains(&nome)
@@ -349,14 +343,16 @@ impl<'a> Context<'a> {
 
     /// Ids de classe estáveis (P2): as classes compiladas pela ordem do
     /// caminho — as do SDK primeiro (grupo 0), numa faixa que só depende do
-    /// SDK, depois as do programa —, a partir de 1, pulando 1000–1012. Com
-    /// a tabela do SDK (`ids_fixos_do_sdk`), as do SDK vêm dela e as do
-    /// programa começam depois da maior.
+    /// SDK, depois as do programa —, a partir de 128, pulando 1000–1012; as
+    /// classes de `layout::cid::DO_SDK` têm o cid fixo (1–65). Com a tabela
+    /// do SDK (`ids_fixos_do_sdk`), as do SDK vêm dela e as do programa
+    /// começam depois da maior.
     fn numerar_classes(&mut self) {
         let program = self.program;
         let mut ids = vec![None; program.classes.len()];
         let mut chaves: Vec<(String, String, usize)> = Vec::new();
-        let mut prox = 1u32;
+        // 1–127 são dos cids fixos (docs/NATIVO-ESPACO-UNIFICADO.md §2.4).
+        let mut prox = dartforge_runtime::layout::PRIMEIRO_CID_LIVRE as u32;
         match self.ids_fixos_do_sdk.clone() {
             Some(tabela) => {
                 for (i, c) in program.classes.iter().enumerate() {
@@ -674,8 +670,18 @@ pub fn ids_das_classes_do_sdk(program: &Program, interner: &Interner, compiladas
         .collect();
     chaves.sort();
     let mut tabela = TabelaDeIds::default();
-    let mut prox = 1u32;
+    // As classes que o runtime conhece têm o cid fixo do contrato de layout
+    // (docs/NATIVO-ESPACO-UNIFICADO.md §2.4, `layout::cid::DO_SDK`): 1–127 ficam
+    // reservados (quem não existe no SDK carregado fica sem instâncias) e as
+    // demais começam em `PRIMEIRO_CID_LIVRE`, pulando 1000–1012.
+    let fixos: std::collections::HashMap<(&str, &str), u32> =
+        dartforge_runtime::layout::cid::DO_SDK.iter().map(|&(c, lib, nome)| ((lib, nome), c as u32)).collect();
+    let mut prox = dartforge_runtime::layout::PRIMEIRO_CID_LIVRE as u32;
     for k in chaves {
+        if let Some(&c) = fixos.get(&(k.0.as_str(), k.1.as_str())) {
+            tabela.ids.insert(k, c);
+            continue;
+        }
         if (1000..=1012).contains(&prox) {
             prox = 1013;
         }

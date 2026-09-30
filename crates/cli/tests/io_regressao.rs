@@ -25,7 +25,6 @@ fn compilar_e_rodar_com_ambiente(nome: &str, args: &[&std::ffi::OsStr], ambiente
         .arg(raiz.join("tests/fixtures").join(format!("{nome}.dart")))
         .arg("-o")
         .arg(&exe)
-        .env("DARTFORGE_SDK_DA_FONTE", "1")
         .output()
         .expect("CLI");
     assert!(compilacao.status.success(), "compilação de {nome}: {}", String::from_utf8_lossy(&compilacao.stderr));

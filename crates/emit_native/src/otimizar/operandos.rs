@@ -46,13 +46,9 @@ macro_rules! visitar {
                 | Instruction::Box { op: a, .. }
                 | Instruction::Unbox { op: a, .. } => f(a),
                 Instruction::AllocObject { fields, .. } => fields.$nome_t().for_each(|a| f(a)),
-                Instruction::AllocList { elements } | Instruction::AllocSet { elements } | Instruction::AllocRecord { elements } => {
+                Instruction::AllocList { elements } | Instruction::AllocRecord { elements } => {
                     elements.$nome_t().for_each(|(a, _)| f(a))
                 }
-                Instruction::AllocMap { entries } => entries.$nome_t().for_each(|((k, _), (v, _))| {
-                    f(k);
-                    f(v);
-                }),
                 Instruction::AllocCell { value } => f(value),
                 Instruction::AllocEnv { values } => values.$nome_t().for_each(|a| f(a)),
                 Instruction::JuntarTextos { partes } => partes.$nome_t().for_each(|a| f(a)),

@@ -112,8 +112,8 @@ jobs:
           CARGO_PROFILE_RELEASE_LTO: 'false'
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
         run: cargo build --locked --release -p dartforge-diferencial -p dartforge-cli -p dartforge-emit-js-producao -p dartforge-jit -p dartforge-paridade
-      # O runtime pré-compilado (as duas staticlib, a do executável e a da
-      # DLL do SDK da fonte) mora no OUT_DIR do build do emit_native, fora do
+      # O runtime pré-compilado (as três staticlib: a do executável, a da
+      # DLL do SDK da fonte e a de produção) mora no OUT_DIR do emit_native, fora do
       # artefato: sem ele, todo programa nativo dos outros jobs falhava ao
       # ligar ("o runtime … não está na distribuição"). Vai junto, e o
       # harness aponta DARTFORGE_LIB para ele.
@@ -121,8 +121,8 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force runtime-pre | Out-Null
-          $libs = @(Get-ChildItem target/release/build -Recurse -File -Include 'dartforge_runtime_*.lib', 'dartforge_rtdll_*.lib' | Where-Object { $_.Directory.Name -eq 'out' })
-          if ($libs.Count -lt 2) { Write-Host '::error::runtime pré-compilado não encontrado no OUT_DIR do emit_native'; exit 1 }
+          $libs = @(Get-ChildItem target/release/build -Recurse -File -Include 'dartforge_runtime_*.lib', 'dartforge_rtdll_*.lib', 'dartforge_rtprod_*.lib' | Where-Object { $_.Directory.Name -eq 'out' })
+          if ($libs.Count -lt 3) { Write-Host '::error::runtime pré-compilado não encontrado no OUT_DIR do emit_native'; exit 1 }
           $libs | Copy-Item -Destination runtime-pre
           Get-ChildItem runtime-pre | Select-Object Name, Length
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

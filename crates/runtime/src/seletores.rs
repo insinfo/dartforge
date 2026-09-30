@@ -18,14 +18,15 @@ thread_local! {
     /// em `dartforge_object_new_t`, sem o hash de `METODOS`). Só cresce, como
     /// `METODOS`.
     static REGISTRADAS: RefCell<Vec<bool>> = const { RefCell::new(Vec::new()) };
-    /// Ids de classe (do SDK da fonte) dos valores que o runtime representa
-    /// por conta própria, na ordem de `CID_*`; vazio sem o SDK da fonte.
-    static CIDS_DO_RUNTIME: RefCell<Vec<i64>> = const { RefCell::new(Vec::new()) };
     /// O seletor da última busca que falhou (o texto do `NoSuchMethodError`).
     static SELETOR_AUSENTE: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
-/// Posições em `CIDS_DO_RUNTIME` (a ordem que o emissor grava).
+/// As posições da tabela de 32 classes do runtime que o emissor grava
+/// (`sdk_modulo::cids_do_runtime`, `@df.cids`). Com os cids fixos
+/// (docs/NATIVO-ESPACO-UNIFICADO.md §2.4) a tabela é só a conferência de ABI
+/// de [`dartforge_registrar_cids`]; as posições ficam para quem ainda pede o
+/// cid por elas.
 const CID_NULL: usize = 0;
 const CID_SMI: usize = 1;
 const CID_MINT: usize = 2;
@@ -57,27 +58,62 @@ const CID_FLOAT64X2_LIST: usize = 29;
 const CID_SEND_PORT: usize = 30;
 const CID_CAPABILITY: usize = 31;
 
-/// A posição em `CIDS_DO_RUNTIME` da lista tipada interna de elementos
-/// `tipo` (os `TIPO_*` de `typed_data.rs`); `ByteData` vira `Uint8List`.
-fn cid_da_lista_tipada(tipo: u8) -> Option<usize> {
-    Some(match tipo {
-        TIPO_INT8 => CID_INT8_LIST,
-        TIPO_UINT8 | TIPO_BYTE_DATA => CID_UINT8_LIST,
-        TIPO_UINT8_CLAMPED => CID_UINT8_CLAMPED_LIST,
-        TIPO_INT16 => CID_INT16_LIST,
-        TIPO_UINT16 => CID_UINT16_LIST,
-        TIPO_INT32 => CID_INT32_LIST,
-        TIPO_UINT32 => CID_UINT32_LIST,
-        TIPO_INT64 => CID_INT64_LIST,
-        TIPO_UINT64 => CID_UINT64_LIST,
-        TIPO_FLOAT32 => CID_FLOAT32_LIST,
-        TIPO_FLOAT64 => CID_FLOAT64_LIST,
-        TIPO_INT32X4 => CID_INT32X4_LIST,
-        TIPO_FLOAT32X4 => CID_FLOAT32X4_LIST,
-        TIPO_FLOAT64X2 => CID_FLOAT64X2_LIST,
-        _ => return None,
-    })
-}
+/// O cid fixo de cada posição da tabela das classes do runtime (a ordem de
+/// `CID_*`; `layout::cid`).
+const CIDS_FIXOS_POR_POSICAO: [i32; 32] = {
+    use crate::layout::cid;
+    [
+        cid::NULL,
+        cid::SMI,
+        cid::MINT,
+        cid::DOUBLE,
+        cid::BOOL,
+        cid::ONE_BYTE_STRING,
+        cid::TWO_BYTE_STRING,
+        cid::GROWABLE_LIST,
+        cid::LIST,
+        cid::IMMUTABLE_LIST,
+        cid::CLOSURE,
+        cid::RECORD,
+        cid::PRIMEIRA_TIPADA + 1,  // _Uint8List
+        cid::PRIMEIRA_VISAO + 1,   // _Uint8ArrayView
+        cid::PRIMEIRA_TIPADA + 7,  // _Int64List
+        cid::FLOAT32X4,
+        cid::INT32X4,
+        cid::FLOAT64X2,
+        cid::PRIMEIRA_TIPADA,      // _Int8List
+        cid::PRIMEIRA_TIPADA + 2,  // _Uint8ClampedList
+        cid::PRIMEIRA_TIPADA + 3,  // _Int16List
+        cid::PRIMEIRA_TIPADA + 4,  // _Uint16List
+        cid::PRIMEIRA_TIPADA + 5,  // _Int32List
+        cid::PRIMEIRA_TIPADA + 6,  // _Uint32List
+        cid::PRIMEIRA_TIPADA + 8,  // _Uint64List
+        cid::PRIMEIRA_TIPADA + 9,  // _Float32List
+        cid::PRIMEIRA_TIPADA + 10, // _Float64List
+        cid::PRIMEIRA_TIPADA + 12, // _Int32x4List
+        cid::PRIMEIRA_TIPADA + 11, // _Float32x4List
+        cid::PRIMEIRA_TIPADA + 13, // _Float64x2List
+        cid::SEND_PORT,
+        cid::CAPABILITY,
+    ]
+};
+
+const _: () = {
+    // As posições nomeadas casam com a tabela.
+    assert!(CIDS_FIXOS_POR_POSICAO[CID_NULL] == crate::layout::cid::NULL);
+    assert!(CIDS_FIXOS_POR_POSICAO[CID_SMI] == crate::layout::cid::SMI);
+    assert!(CIDS_FIXOS_POR_POSICAO[CID_UINT8_LIST] == crate::layout::cid::tipada(1));
+    assert!(CIDS_FIXOS_POR_POSICAO[CID_UINT8_VIEW] == crate::layout::cid::visao(1, false));
+    assert!(CIDS_FIXOS_POR_POSICAO[CID_INT64_LIST] == crate::layout::cid::tipada(7));
+    assert!(CIDS_FIXOS_POR_POSICAO[CID_INT8_LIST] == crate::layout::cid::tipada(0));
+    assert!(CIDS_FIXOS_POR_POSICAO[CID_FLOAT64X2_LIST] == crate::layout::cid::tipada(13));
+    assert!(CIDS_FIXOS_POR_POSICAO[CID_SEND_PORT] == crate::layout::cid::SEND_PORT);
+    assert!(CIDS_FIXOS_POR_POSICAO[CID_CAPABILITY] == crate::layout::cid::CAPABILITY);
+    assert!(CID_MINT + CID_DOUBLE + CID_BOOL + CID_ONE_BYTE_STRING + CID_TWO_BYTE_STRING > 0);
+    assert!(CID_GROWABLE_LIST + CID_LIST + CID_IMMUTABLE_LIST + CID_CLOSURE + CID_RECORD > 0);
+    assert!(CID_UINT8_CLAMPED_LIST + CID_INT16_LIST + CID_UINT16_LIST + CID_INT32_LIST + CID_UINT32_LIST > 0);
+    assert!(CID_UINT64_LIST + CID_FLOAT32_LIST + CID_FLOAT64_LIST + CID_INT32X4_LIST + CID_FLOAT32X4_LIST > 0);
+};
 
 /// Os pares `[hash, entrada]` de uma classe, em memória do runtime.
 pub type TabelaDeMetodos = std::sync::Arc<[[i64; 2]]>;
@@ -89,12 +125,6 @@ pub type TabelaDeMetodos = std::sync::Arc<[[i64; 2]]>;
 unsafe fn copiar_tabela(pares: *const i64, n: usize) -> TabelaDeMetodos {
     // SAFETY: garantido por quem chama.
     unsafe { std::slice::from_raw_parts(pares as *const [i64; 2], n) }.into()
-}
-
-/// O id de classe (do SDK da fonte) na posição `pos` de `CIDS_DO_RUNTIME`;
-/// `None` sem o SDK da fonte.
-fn cid_registrado(pos: usize) -> Option<i64> {
-    CIDS_DO_RUNTIME.with(|c| c.borrow().get(pos).copied().filter(|&c| c >= 0))
 }
 
 /// Registra a tabela de métodos da classe `cid`: `n` pares `[hash, entrada]`
@@ -219,66 +249,34 @@ pub extern "C" fn dartforge_object_new_t(cid: i64, campos: i64, f: extern "C" fn
     dartforge_object_new(cid, campos)
 }
 
-/// Registra os ids de classe dos valores do runtime (SDK da fonte).
+/// A conferência de ABI do módulo (docs/NATIVO-ESPACO-UNIFICADO.md §2.4,
+/// §3.6): as classes do runtime têm cids fixos, e um módulo compilado com
+/// outra numeração que a deste runtime não pode rodar sobre ele. `ids` é a
+/// tabela do módulo: os cids de `layout::cid::DO_SDK` em ordem, ou as 32
+/// posições de [`CIDS_FIXOS_POR_POSICAO`] (uma classe que o SDK carregado
+/// não tem vem como -1). Diferente: o processo aborta com a mensagem.
 ///
 /// # Safety
 /// `ids` aponta para `n` palavras legíveis.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_registrar_cids(ids: *const i64, n: i64) {
     // SAFETY: o emissor passa uma constante do módulo com `n` palavras.
-    let v = unsafe { std::slice::from_raw_parts(ids, n as usize) }.to_vec();
-    CIDS_DO_RUNTIME.with(|c| *c.borrow_mut() = v);
-}
-
-/// O id de classe (do SDK da fonte) de um valor que o runtime representa por
-/// conta própria; `None` sem o SDK da fonte ou para um objeto comum.
-fn cid_do_runtime(handle: i64) -> Option<i64> {
-    if handle == 0 {
-        return cid_na_tabela(CID_NULL);
-    }
-    if crate::heap::smi::e_smi(handle) {
-        return cid_na_tabela(CID_SMI);
-    }
-    HEAP.with(|heap| {
-        let heap = heap.borrow();
-        cid_do_valor_do_runtime(&heap, handle, heap.get(handle))
-    })
-}
-
-/// A posição `pos` da tabela de ids de classe dos valores do runtime, como
-/// gravada (`None` sem o SDK da fonte).
-fn cid_na_tabela(pos: usize) -> Option<i64> {
-    CIDS_DO_RUNTIME.with(|c| c.borrow().get(pos).copied())
-}
-
-/// [`cid_do_runtime`] de um valor já lido do heap: `dartforge_value_class`
-/// o chama com o valor da única consulta ao slot que faz.
-fn cid_do_valor_do_runtime(heap: &crate::heap::Heap, handle: i64, valor: &Value) -> Option<i64> {
-    let pos = match valor {
-        Value::String(t) => {
-            if t.e_um_byte() {
-                CID_ONE_BYTE_STRING
-            } else {
-                CID_TWO_BYTE_STRING
-            }
-        }
-        Value::List(_) => {
-            if heap.imutaveis.contains(&handle) {
-                CID_IMMUTABLE_LIST
-            } else if heap.fixas.contains(&handle) {
-                CID_LIST
-            } else {
-                CID_GROWABLE_LIST
-            }
-        }
-        Value::Closure(_) => CID_CLOSURE,
-        Value::BoxedInt(_) => CID_MINT,
-        Value::BoxedDouble(_) => CID_DOUBLE,
-        Value::BoxedBool(_) => CID_BOOL,
-        Value::Record(_) => CID_RECORD,
-        _ => return None,
+    let v = unsafe { std::slice::from_raw_parts(ids, usize::try_from(n).unwrap_or(0)) };
+    let esperado: Vec<i64> = if v.len() == crate::layout::cid::DO_SDK.len() {
+        crate::layout::cid::DO_SDK.iter().map(|&(c, _, _)| i64::from(c)).collect()
+    } else {
+        CIDS_FIXOS_POR_POSICAO.iter().map(|&c| i64::from(c)).collect()
     };
-    cid_na_tabela(pos)
+    let confere = v.len() == esperado.len() && v.iter().zip(&esperado).all(|(&m, &r)| m == r || m == -1);
+    if !confere {
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+        let _ = writeln!(
+            std::io::stderr().lock(),
+            "erro: o módulo foi compilado com outra tabela de classes do runtime (ABI): módulo {v:?}, runtime {esperado:?}"
+        );
+        std::process::abort();
+    }
 }
 
 /// A entrada uniforme do seletor `hash` na tabela da classe `cid`, se ela tem.
@@ -349,7 +347,7 @@ extern "C" fn dartforge_nsm_seletor(recv: i64, args: *const i64, desc: *const i6
         let tabela = nomes_de_argumento().read().unwrap_or_else(|e| e.into_inner());
         hashes.iter().map(|h| tabela.get(h).cloned().unwrap_or_default()).collect()
     };
-    let n = com_raizes(&[recv], || alocar_str(nome));
+    let n = com_raizes(&[recv], || HEAP.with(|h| h.borrow_mut().alocar_str(nome)));
     let nomes: Vec<&str> = nomes.iter().map(String::as_str).collect();
     if let Some(r) = com_raizes(&[n], || invocar_no_such_method(recv, codigo, n, &valores, npos, &nomes, tupla)) {
         return r;
@@ -391,7 +389,7 @@ fn invocar_no_such_method(recv: i64, codigo: i64, nome: i64, valores: &[i64], np
         enraizar(v);
     }
     let pos = enraizar(dart_lista_fixa(&valores[..npos]));
-    let textos: Vec<i64> = nomes.iter().map(|t| enraizar(alocar_str(t))).collect();
+    let textos: Vec<i64> = nomes.iter().map(|t| enraizar(HEAP.with(|h| h.borrow_mut().alocar_str(t)))).collect();
     let nomes = enraizar(dart_lista_fixa(&textos));
     let vals = enraizar(dart_lista_fixa(&valores[npos..]));
     let objetos: Vec<i64> = tipos.iter().map(|&t| enraizar(dartforge_rti_objeto_tipo(t))).collect();
@@ -412,28 +410,30 @@ fn invocar_no_such_method(recv: i64, codigo: i64, nome: i64, valores: &[i64], np
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_encaminhar_nsm(recv: i64, codigo: i64, nome: i64, ambiente: i64, npos: i64, nnom: i64, tupla: i64) -> i64 {
     let (npos, nnom) = (npos as usize, nnom as usize);
-    let campos: Vec<TaggedValue> = HEAP.with(|h| match h.borrow().try_get(ambiente) {
-        Some(Value::Environment(v)) => v.clone(),
-        _ => Vec::new(),
+    // O `_Contexto` do encaminhador (`lower/sdk_fonte.rs`, `gerar_encaminhador_nsm`) guarda todos os valores
+    // como `Ref` (encaixotados pelo compilador) e depois os nomes. Sem
+    // argumento nenhum o contexto é `null` (`AllocEnv` vazio não aloca).
+    let campos: Vec<i64> = HEAP.with(|h| {
+        let h = h.borrow();
+        if !crate::layout::e_objeto(ambiente) {
+            return Vec::new();
+        }
+        let n = h.objeto(ambiente).map_or(0, |o| o.len());
+        (0..n).map(|i| h.captura(ambiente, i).0).collect()
     });
     if campos.len() != npos + 2 * nnom {
         return 0;
     }
-    // O ambiente guarda os escalares sem caixa: cada valor volta à posição
-    // `Ref` (pode alocar) e fica enraizado até a chamada.
-    let frame = HEAP.with(|h| h.borrow_mut().push_frame_with_slots(npos + nnom + 3));
+    let frame = HEAP.with(|h| h.borrow_mut().push_frame_with_slots(3));
     let enraizar = |i: usize, x: i64| HEAP.with(|h| h.borrow_mut().set_root(frame, i, x));
     enraizar(0, recv);
     enraizar(1, nome);
     enraizar(2, ambiente);
-    let mut valores = Vec::with_capacity(npos + nnom);
-    for (i, t) in campos[..npos + nnom].iter().enumerate() {
-        let r = HEAP.with(|h| h.borrow_mut().como_ref(*t));
-        enraizar(3 + i, r);
-        valores.push(r);
-    }
-    let nomes: Vec<String> =
-        HEAP.with(|h| campos[npos + nnom..].iter().map(|t| h.borrow().texto(t.bits).para_string()).collect());
+    let valores: Vec<i64> = campos[..npos + nnom].to_vec();
+    let nomes: Vec<String> = HEAP.with(|h| {
+        let h = h.borrow();
+        campos[npos + nnom..].iter().map(|&t| h.texto(t).map(|t| t.para_string()).unwrap_or_default()).collect()
+    });
     let nomes: Vec<&str> = nomes.iter().map(String::as_str).collect();
     let r = invocar_no_such_method(recv, codigo, nome, &valores, npos, &nomes, tupla).unwrap_or(0);
     HEAP.with(|h| h.borrow_mut().pop_frame(frame));
@@ -493,7 +493,7 @@ pub unsafe extern "C" fn dartforge_seletor(cache: *mut i64, recv: i64, hash: i64
 /// compilação" do harness).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_membro_recusado(texto: i64) {
-    let t = HEAP.with(|heap| heap.borrow().texto(texto).para_string());
+    let t = HEAP.with(|heap| heap.borrow().texto(texto).map(|t| t.para_string()).unwrap_or_default());
     use std::io::Write;
     let _ = std::io::stdout().flush();
     let _ = writeln!(std::io::stderr().lock(), "erro: membro do SDK não suportado no backend nativo: {t}");
@@ -567,7 +567,14 @@ pub unsafe extern "C" fn dartforge_definir_migracao(dados: *const i64, n: i64) {
         let (Some(&classe), Some(&len)) = (v.get(i), v.get(i + 1)) else { break };
         let len = usize::try_from(len).unwrap_or(0);
         let Some(origem) = v.get(i + 2..i + 2 + len) else { break };
-        plano.insert(classe, origem.to_vec());
+        // As classes do runtime (cid < 128) têm layout fixo, igual em toda
+        // geração: um plano que as mude é recusado (§2.13).
+        if classe < crate::layout::PRIMEIRO_CID_LIVRE {
+            use std::io::Write;
+            let _ = writeln!(std::io::stderr().lock(), "erro: migração recusada para a classe do runtime {classe}");
+        } else {
+            plano.insert(classe, origem.to_vec());
+        }
         i += 2 + len;
     }
     let epoca = crate::heap::EPOCA_DE_LAYOUT.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1;

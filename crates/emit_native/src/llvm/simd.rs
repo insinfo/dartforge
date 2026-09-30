@@ -318,6 +318,26 @@ impl LlvmEmitter<'_> {
                     writeln!(w, "  {r} = insertelement <2 x double> %sv{v}_0, double %sd{v}_1, i32 1").unwrap();
                 }
             }
+            OpSimd::IntParaFloat => {
+                let x = a(self, 0);
+                writeln!(w, "  {r} = sitofp <4 x i32> {x} to <4 x float>").unwrap();
+            }
+            OpSimd::FloatParaInt => {
+                let x = a(self, 0);
+                writeln!(w, "  {r} = fptosi <4 x float> {x} to <4 x i32>").unwrap();
+            }
+            OpSimd::NaFaixaInt32 => {
+                // -2^31 e 2^31, exatos em `float` (a notação hexadecimal do
+                // LLVM é a do `double`); comparações ordenadas: NaN fica fora.
+                let x = a(self, 0);
+                let lo = self.splat_constante(4, "float", "0xC1E0000000000000");
+                let hi = self.splat_constante(4, "float", "0x41E0000000000000");
+                writeln!(w, "  %sl{v} = fcmp oge <4 x float> {x}, {lo}").unwrap();
+                writeln!(w, "  %sh{v} = fcmp olt <4 x float> {x}, {hi}").unwrap();
+                writeln!(w, "  %sa{v} = and <4 x i1> %sl{v}, %sh{v}").unwrap();
+                writeln!(w, "  %sm{v} = bitcast <4 x i1> %sa{v} to i4").unwrap();
+                writeln!(w, "  {r} = icmp eq i4 %sm{v}, -1").unwrap();
+            }
             OpSimd::Carrega => {
                 let e = self.coagir(&args[0], Type::I64);
                 let i = self.coagir(&args[1], Type::I64);

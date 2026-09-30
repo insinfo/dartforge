@@ -11,9 +11,11 @@
 // por caractere.
 //
 // O `_RegExp` da sobreposição (`sdk_nativo/core/regexp_patch.dart`) compila
-// o padrão uma vez (`DartForge_regexp_compilar`, um id numa tabela do
-// processo) e pede cada casamento (`DartForge_regexp_executar`); as
-// posições do último casamento são lidas por `DartForge_regexp_captura`.
+// o padrão uma vez (`DartForge_regexp_compilar`) num `_ProgramaDeRegExp` (cid
+// 16, `BRUTO`+`ANEXO`: o `Box<ProgramaRe>` solto pelo coletor quando o
+// `_RegExp` morre, docs/NATIVO-ESPACO-UNIFICADO.md §4.3) e pede cada
+// casamento (`DartForge_regexp_executar`); as posições do último casamento
+// são lidas por `DartForge_regexp_captura`.
 
 /// Uma classe de caracteres (`[...]`, `\d`, `.`).
 #[derive(Clone, Debug)]
@@ -78,6 +80,8 @@ struct ProgramaRe {
     sensivel: bool,
     unicode: bool,
     ponto_tudo: bool,
+    /// O padrão de origem: a cópia entre isolados recompila no destino (§2.12).
+    fonte: Vec<u16>,
 }
 
 // ---------------------------------------------------------------------------
@@ -706,7 +710,7 @@ fn compilar_re(padrao: &[u16], multilinha: bool, sensivel: bool, unicode: bool, 
     }
     let nomes = std::mem::take(&mut a.nomes);
     resolver_nomes_re(&mut raiz, &nomes)?;
-    Ok(ProgramaRe { raiz, grupos: a.grupos, nomes, multilinha, sensivel, unicode, ponto_tudo })
+    Ok(ProgramaRe { raiz, grupos: a.grupos, nomes, multilinha, sensivel, unicode, ponto_tudo, fonte: padrao.to_vec() })
 }
 
 // ---------------------------------------------------------------------------
@@ -1098,19 +1102,78 @@ fn executar_re(p: &ProgramaRe, s: &[u16], inicio: usize, pegajoso: bool) -> Opti
 // Natives do `_RegExp` da sobreposição.
 
 thread_local! {
-    static PROGRAMAS_RE: std::cell::RefCell<Vec<ProgramaRe>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// As posições do último casamento e a mensagem da última compilação que
+    /// falhou (lidas logo em seguida pelo Dart, na mesma thread).
     static ULTIMO_RE: std::cell::RefCell<(Vec<i64>, String)> = const { std::cell::RefCell::new((Vec::new(), String::new())) };
 }
 
-fn unidades_re(handle: i64) -> Vec<u16> {
-    match texto_de(handle) {
-        Texto::Um(b) => b.into_iter().map(u16::from).collect(),
-        Texto::Dois(v) => v,
-    }
+/// Solta o programa de um `_ProgramaDeRegExp` morto (chamado pelo coletor).
+///
+/// # Safety
+/// `p` saiu de `Box::into_raw` de um `Box<ProgramaRe>` em [`novo_programa_re`]
+/// e é solto uma vez só.
+unsafe fn soltar_programa_re(p: *mut u8) {
+    // SAFETY: contrato acima.
+    drop(unsafe { Box::from_raw(p.cast::<ProgramaRe>()) });
 }
 
-/// `DartForge_regexp_compilar`: compila o padrão e devolve o id, ou −1 com
-/// a mensagem em `DartForge_regexp_erro`.
+/// Um `_ProgramaDeRegExp` com o programa `p`.
+fn novo_programa_re(p: ProgramaRe) -> i64 {
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let h = heap.alocar(
+            crate::layout::cid::PROGRAMA_DE_REGEXP,
+            1,
+            crate::layout::flags::BRUTO | crate::layout::flags::ANEXO,
+        );
+        let bytes = std::mem::size_of::<ProgramaRe>() + 16 * p.fonte.len();
+        let ptr = Box::into_raw(Box::new(p)).cast::<u8>();
+        // SAFETY: `soltar_programa_re` é a única liberação de `ptr`.
+        unsafe { heap.anexar(h, soltar_programa_re, ptr, bytes) };
+        h
+    })
+}
+
+/// O programa do `_ProgramaDeRegExp` `h`, emprestado enquanto `h` vive.
+///
+/// # Panics
+/// Se `h` não é um programa (bug do compilador).
+fn programa_re(heap: &Heap, h: i64) -> &ProgramaRe {
+    assert!(
+        crate::layout::e_objeto(h) && heap.classe(h) == crate::layout::cid::PROGRAMA_DE_REGEXP,
+        "bug do compilador: programa de RegExp esperado
+handle {h}"
+    );
+    // SAFETY: o anexo de um programa vivo é um `ProgramaRe`, solto só quando o
+    // bloco morre (e o empréstimo do heap impede a coleta).
+    unsafe { &*heap.anexo(h).cast::<ProgramaRe>() }
+}
+
+/// O padrão e as opções `(multilinha, sensível, unicode, ponto_tudo)` do
+/// programa `h`: a cópia entre isolados recompila no destino (§2.12).
+fn padrao_do_programa_re(heap: &Heap, h: i64) -> (Vec<u16>, [bool; 4]) {
+    let p = programa_re(heap, h);
+    (p.fonte.clone(), [p.multilinha, p.sensivel, p.unicode, p.ponto_tudo])
+}
+
+/// Recompila no isolado corrente um programa copiado de outro (§2.12); o
+/// padrão já compilou uma vez, então não falha.
+fn programa_re_de_padrao(fonte: &[u16], opcoes: [bool; 4]) -> i64 {
+    let p = compilar_re(fonte, opcoes[0], opcoes[1], opcoes[2], opcoes[3]).expect("padrão de RegExp já compilado");
+    novo_programa_re(p)
+}
+
+/// Casa o programa `h` nas unidades `s` a partir de `inicio` (só lá, se
+/// `pegajoso`): as posições `[início, fim]` de cada grupo.
+fn regexp_casar_em(h: i64, s: &[u16], inicio: usize, pegajoso: bool) -> Option<Vec<i64>> {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        executar_re(programa_re(&heap, h), s, inicio, pegajoso)
+    })
+}
+
+/// `DartForge_regexp_compilar`: compila o padrão e devolve o
+/// `_ProgramaDeRegExp`, ou null com a mensagem em `DartForge_regexp_erro`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_regexp_compilar(
     padrao: i64,
@@ -1119,16 +1182,15 @@ pub extern "C" fn dartforge_nativo_DartForge_regexp_compilar(
     unicode: u8,
     ponto_tudo: u8,
 ) -> i64 {
-    let u = unidades_re(padrao);
-    match compilar_re(&u, multilinha != 0, sensivel != 0, unicode != 0, ponto_tudo != 0) {
-        Ok(p) => PROGRAMAS_RE.with(|v| {
-            let mut v = v.borrow_mut();
-            v.push(p);
-            (v.len() - 1) as i64
-        }),
+    let r = com_texto(padrao, |t| {
+        let u: Vec<u16> = t.unidades().collect();
+        compilar_re(&u, multilinha != 0, sensivel != 0, unicode != 0, ponto_tudo != 0)
+    });
+    match r {
+        Ok(p) => novo_programa_re(p),
         Err(e) => {
             ULTIMO_RE.with(|u| u.borrow_mut().1 = e);
-            -1
+            0
         }
     }
 }
@@ -1142,41 +1204,49 @@ pub extern "C" fn dartforge_nativo_DartForge_regexp_erro() -> i64 {
 
 /// `DartForge_regexp_grupos`: quantos grupos de captura.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_regexp_grupos(id: i64) -> i64 {
-    PROGRAMAS_RE.with(|v| v.borrow().get(id as usize).map_or(0, |p| p.grupos as i64))
+pub extern "C" fn dartforge_nativo_DartForge_regexp_grupos(programa: i64) -> i64 {
+    HEAP.with(|heap| programa_re(&heap.borrow(), programa).grupos as i64)
 }
 
 /// `DartForge_regexp_n_nomes`: quantos grupos nomeados.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_regexp_n_nomes(id: i64) -> i64 {
-    PROGRAMAS_RE.with(|v| v.borrow().get(id as usize).map_or(0, |p| p.nomes.len() as i64))
+pub extern "C" fn dartforge_nativo_DartForge_regexp_n_nomes(programa: i64) -> i64 {
+    HEAP.with(|heap| programa_re(&heap.borrow(), programa).nomes.len() as i64)
 }
 
 /// `DartForge_regexp_nome`: o nome do `i`-ésimo grupo nomeado.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_regexp_nome(id: i64, i: i64) -> i64 {
-    let n = PROGRAMAS_RE.with(|v| v.borrow().get(id as usize).and_then(|p| p.nomes.get(i as usize)).map(|x| x.0.clone()));
+pub extern "C" fn dartforge_nativo_DartForge_regexp_nome(programa: i64, i: i64) -> i64 {
+    let n = HEAP.with(|heap| programa_re(&heap.borrow(), programa).nomes.get(i as usize).map(|x| x.0.clone()));
     alocar_str(&n.unwrap_or_default())
 }
 
 /// `DartForge_regexp_indice_do_nome`: o índice do `i`-ésimo grupo nomeado.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_regexp_indice_do_nome(id: i64, i: i64) -> i64 {
-    PROGRAMAS_RE.with(|v| v.borrow().get(id as usize).and_then(|p| p.nomes.get(i as usize)).map_or(-1, |x| x.1 as i64))
+pub extern "C" fn dartforge_nativo_DartForge_regexp_indice_do_nome(programa: i64, i: i64) -> i64 {
+    HEAP.with(|heap| programa_re(&heap.borrow(), programa).nomes.get(i as usize).map_or(-1, |x| x.1 as i64))
 }
 
 /// `DartForge_regexp_executar`: casa a partir de `inicio`; as posições ficam
-/// para `DartForge_regexp_captura`.
+/// para `DartForge_regexp_captura`. As unidades de uma `_TwoByteString` são
+/// lidas direto do bloco; as de uma `_OneByteString` são alargadas antes (o
+/// motor anda em `u16`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_regexp_executar(id: i64, alvo: i64, inicio: i64, pegajoso: u8) -> u8 {
-    let s = unidades_re(alvo);
-    if inicio < 0 || inicio as usize > s.len() {
-        return 0;
-    }
-    let r = PROGRAMAS_RE.with(|v| {
-        let v = v.borrow();
-        let p = v.get(id as usize)?;
-        executar_re(p, &s, inicio as usize, pegajoso != 0)
+pub extern "C" fn dartforge_nativo_DartForge_regexp_executar(programa: i64, alvo: i64, inicio: i64, pegajoso: u8) -> u8 {
+    let r = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let p = programa_re(&heap, programa);
+        let t = heap.texto(alvo).expect("bug do compilador: string esperada");
+        if inicio < 0 || inicio as usize > t.len() {
+            return None;
+        }
+        match t {
+            crate::textos::TextoRef::Dois(u) => executar_re(p, u, inicio as usize, pegajoso != 0),
+            crate::textos::TextoRef::Um(b) => {
+                let u: Vec<u16> = b.iter().map(|&x| u16::from(x)).collect();
+                executar_re(p, &u, inicio as usize, pegajoso != 0)
+            }
+        }
     });
     match r {
         Some(caps) => {

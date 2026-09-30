@@ -1,53 +1,50 @@
-// Runtime nativo: membros de `String`, `StringBuffer`, `RegExp` e `parse`.
+// Runtime nativo: auxiliares de string dos fragmentos, o literal do JIT, a
+// interpolação e os externs de `String` do lowering "por nome".
 //
-// As strings são `Texto` (`heap.rs`): unidades UTF-16 na forma da VM,
-// `_OneByteString` (Latin-1) ou `_TwoByteString` (decisão 5,
-// docs/NATIVO-PLANO.md §7.1). Todo índice, comprimento e busca daqui é em
-// unidades de código, como no `dart:core`; nada passa por `String` do Rust
-// (que perderia os surrogates soltos). Estes externs são os do mecanismo
-// "por nome" (congelado): morrem em P5d, quando os membros vêm da fonte do
-// SDK e só os natives (`String_charAt`, `String_concat`, ...) ficam aqui.
+// As strings são blocos `_OneByteString`/`_TwoByteString` do espaço de objetos
+// (`textos.rs`, docs/NATIVO-ESPACO-UNIFICADO.md §2.5): lidas pela vista
+// (`Heap::texto`, uma `TextoRef` emprestada do bloco, sem cópia) e criadas em
+// uma alocação na forma canônica. Todo índice, comprimento e busca daqui é em
+// unidades de código, como no `dart:core`; nada passa por `String` do Rust (que
+// perderia os surrogates soltos).
+//
+// Os externs do mecanismo "por nome" (`dartforge_string_*` fora os de
+// interpolação e literal) são do caminho sem SDK da fonte e saem com ele (P5,
+// §3.7); até lá seguem valendo sobre a representação nova.
 
-/// Aloca uma string gerenciada. O chamador enraíza o resultado.
+/// Aloca uma string com as unidades de `t` (forma canônica). O chamador
+/// enraíza o resultado.
 fn alocar_texto(t: Texto) -> i64 {
-    HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(t)))
+    HEAP.with(|heap| heap.borrow_mut().alocar_texto(t.vista()))
 }
 
 /// Aloca uma string a partir de texto que o runtime formatou (UTF-8 válido).
 fn alocar_str(s: &str) -> i64 {
-    alocar_texto(Texto::de_str(s))
+    HEAP.with(|heap| heap.borrow_mut().alocar_str(s))
 }
 
-/// O texto de uma string (cópia; o empréstimo do heap não sobrevive à
-/// próxima alocação). Handle 0 é bug do compilador (N4).
-fn texto_de(handle: i64) -> Texto {
-    HEAP.with(|heap| heap.borrow().texto(handle).clone())
-}
-
-/// Empresta o texto de uma string, sem copiar: para as operações que leem
-/// uma parte dele (`codeUnitAt`, `substring`), que com a cópia custavam o
-/// comprimento inteiro da string. `f` não pode alocar no heap (o empréstimo
-/// está aberto); quem aloca o resultado faz isso depois.
-fn com_texto<R>(handle: i64, f: impl FnOnce(&Texto) -> R) -> R {
+/// Empresta a vista da string `handle`, sem copiar. `f` não pode alocar no
+/// heap (o empréstimo está aberto); quem aloca o resultado faz isso depois.
+/// Um valor que não é string é bug do compilador (N4).
+fn com_texto<R>(handle: i64, f: impl FnOnce(crate::textos::TextoRef<'_>) -> R) -> R {
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        // O caminho comum pela consulta curta ao slot (`try_get`); o que não
-        // é string cai no `texto`, que nomeia o defeito.
-        match heap.try_get(handle) {
-            Some(Value::String(t)) => f(t),
-            _ => f(heap.texto(handle)),
+        match heap.texto(handle) {
+            Some(t) => f(t),
+            None => panic!("bug do compilador: string esperada\nhandle {handle}"),
         }
     })
 }
 
-/// Texto de um valor que pode ser string, `StringBuffer` ou `Match`
-/// (o lowering por nome chama `length` e `codeUnitAt` sobre os três).
-fn texto_de_qualquer(handle: i64) -> Option<Texto> {
-    HEAP.with(|heap| match heap.borrow().try_get(handle) {
-        Some(Value::String(t)) | Some(Value::Match(t)) => Some(t.clone()),
-        Some(Value::StringBuffer(u)) => Some(Texto::de_fatia(u)),
-        _ => None,
-    })
+/// A cópia de construção das unidades de uma string (para os algoritmos que
+/// alocam no meio). Não string: `None`.
+fn copia_de_texto(handle: i64) -> Option<Texto> {
+    HEAP.with(|heap| heap.borrow().texto(handle).map(crate::textos::TextoRef::para_texto))
+}
+
+/// A cópia de uma string; um valor que não é string é bug do compilador (N4).
+fn texto_copiado(handle: i64) -> Texto {
+    com_texto(handle, |t| t.para_texto())
 }
 
 /// Lança `RangeError.range(valor, min, max, nome)`, como o
@@ -75,8 +72,20 @@ fn faixa_valida(start: i64, end: i64, len: usize) -> Option<(usize, usize)> {
     Some((start as usize, end as usize))
 }
 
-/// Copia WTF-8 (UTF-8 válido é WTF-8) de uma constante LLVM para uma
-/// string gerenciada.
+/// O `int` de um elemento de lista (`Valor::Int` da forma compacta, `Smi` ou
+/// `_Mint`); `None` se não é `int`.
+fn inteiro_do_valor(heap: &Heap, v: crate::heap::Valor) -> Option<i64> {
+    match v {
+        crate::heap::Valor::Int(x) => Some(x),
+        crate::heap::Valor::Ref(r) if crate::layout::smi::e_smi(r) => Some(crate::layout::smi::valor(r)),
+        crate::heap::Valor::Ref(r) if crate::layout::e_objeto(r) => heap.int_de(r),
+        _ => None,
+    }
+}
+
+/// Copia WTF-8 (UTF-8 válido é WTF-8) de uma constante LLVM para o literal
+/// canônico (`Heap::string_literal`): o literal do JIT, cujos módulos não têm
+/// objetos estáticos (a memória de uma geração é liberada, §2.11).
 /// SAFETY: ptr deve apontar para len bytes legíveis; o emissor garante essa região.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_string_new(ptr: *const u8, len: i64) -> i64 {
@@ -93,13 +102,12 @@ pub unsafe extern "C" fn dartforge_string_new(ptr: *const u8, len: i64) -> i64 {
     // avaliação convertia os bytes para UTF-16 e procurava no mapa dos
     // literais do heap.
     let chave = (ptr as usize, bytes.len());
-    let achado = LITERAIS_POR_ENDERECO.with(|m| {
-        m.borrow().get(&chave).and_then(|(b, h)| (**b == *bytes).then_some(*h))
-    });
+    let achado = LITERAIS_POR_ENDERECO.with(|m| m.borrow().get(&chave).and_then(|(b, h)| (**b == *bytes).then_some(*h)));
     if let Some(h) = achado {
         return h;
     }
-    let h = HEAP.with(|heap| heap.borrow_mut().string_literal(Texto::de_wtf8(bytes)));
+    let t = Texto::de_wtf8(bytes);
+    let h = HEAP.with(|heap| heap.borrow_mut().string_literal(t.vista()));
     LITERAIS_POR_ENDERECO.with(|m| m.borrow_mut().insert(chave, (bytes.into(), h)));
     h
 }
@@ -110,39 +118,6 @@ thread_local! {
     static LITERAIS_POR_ENDERECO: RefCell<crate::hash::HashMap<(usize, usize), (Box<[u8]>, i64)>> =
         RefCell::new(crate::hash::HashMap::default());
 }
-/// A interpolação: as `n` partes (textos, `Ref`) numa string só, com uma
-/// alocação. As partes estão enraizadas pelo emissor e são copiadas antes
-/// de alocar o resultado.
-///
-/// # Safety
-/// `partes` aponta para `n` palavras legíveis (a temporária do emissor).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_string_juntar(partes: *const i64, n: i64) -> i64 {
-    let n = usize::try_from(n).expect("número de partes inválido");
-    // SAFETY: garantido por quem chama.
-    let partes = unsafe { std::slice::from_raw_parts(partes, n) };
-    let junto = HEAP.with(|heap| {
-        let heap = heap.borrow();
-        let textos: Vec<&Texto> = partes.iter().map(|&p| heap.texto(p)).collect();
-        let total: usize = textos.iter().map(|t| t.len()).sum();
-        // Todas Latin-1: os bytes direto, na forma canônica `Um`.
-        if textos.iter().all(|t| matches!(t, Texto::Um(_))) {
-            let mut v = Vec::with_capacity(total);
-            for t in &textos {
-                if let Texto::Um(b) = t {
-                    v.extend_from_slice(b);
-                }
-            }
-            return Texto::Um(v);
-        }
-        let mut v = Vec::with_capacity(total);
-        for t in &textos {
-            v.extend(t.unidades());
-        }
-        Texto::de_unidades(v)
-    });
-    alocar_texto(junto)
-}
 
 /// Os pares de dígitos de 00 a 99, para escrever dois dígitos por divisão.
 const PARES_DECIMAIS: &[u8; 200] = b"\
@@ -152,10 +127,9 @@ const PARES_DECIMAIS: &[u8; 200] = b"\
 6061626364656667686970717273747576777879\
 8081828384858687888990919293949596979899";
 
-/// Os dígitos decimais de `v` (com o sinal) no fim de `saida`: o
-/// `int.toString()` da VM, sem a string intermediária.
-fn escrever_decimal(saida: &mut Vec<u8>, v: i64) {
-    let mut buf = [0u8; 20];
+/// Os dígitos decimais de `v` (com o sinal) no fim de `buf`: o `int.toString()`
+/// da VM, sem a string intermediária. Devolve o índice do primeiro byte.
+fn escrever_decimal(buf: &mut [u8; 20], v: i64) -> usize {
     let mut i = buf.len();
     let mut n = v.unsigned_abs();
     while n >= 100 {
@@ -173,228 +147,89 @@ fn escrever_decimal(saida: &mut Vec<u8>, v: i64) {
         buf[i] = b'0' + n as u8;
     }
     if v < 0 {
-        saida.push(b'-');
+        i -= 1;
+        buf[i] = b'-';
     }
-    saida.extend_from_slice(&buf[i..]);
-}
-
-/// Uma parte de `dartforge_string_juntar_tipado`, lida uma vez do heap.
-enum ParteDeTexto<'a> {
-    Texto(&'a Texto),
-    Int(i64),
+    i
 }
 
 /// A interpolação `'a$b c'` com partes `int` sem caixa (`JuntarTextos`,
-/// `llvm/mod.rs`): `n` pares (espécie, bits) — espécie 0, o `Ref` de uma
-/// string; 1, um `int`, escrito em decimal direto no resultado (sem a
-/// string intermediária de `dartforge_to_string_i64`). Resultado Latin-1
-/// na forma `Um`, senão `Dois`, como [`dartforge_string_juntar`].
+/// `llvm/textos_ir.rs`): `n` pares (espécie, bits) — espécie 0, o `Ref` de uma
+/// string; 1, um `int`, escrito em decimal direto no resultado. Uma medição
+/// (comprimento e forma), uma alocação e as cópias das unidades dos blocos, sem
+/// cópia intermediária.
 ///
 /// # Safety
-/// `partes` aponta para `2·n` palavras legíveis (a temporária do emissor).
+/// `partes` aponta para `2·n` palavras legíveis (a temporária do emissor); as
+/// strings estão enraizadas pelo emissor.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_string_juntar_tipado(partes: *const i64, n: i64) -> i64 {
     let n = usize::try_from(n).expect("número de partes inválido");
     // SAFETY: garantido por quem chama.
     let partes = unsafe { std::slice::from_raw_parts(partes, 2 * n) };
-    let junto = HEAP.with(|heap| {
-        let heap = heap.borrow();
-        // Cada texto é buscado no heap uma vez só.
-        let mut lidas: Vec<ParteDeTexto> = Vec::with_capacity(n);
-        let mut um_byte = true;
-        let mut total = 0;
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let mut buf = [0u8; 20];
+        let (mut total, mut um) = (0usize, true);
         for p in partes.chunks_exact(2) {
             if p[0] == 1 {
-                total += 20;
-                lidas.push(ParteDeTexto::Int(p[1]));
+                total += buf.len() - escrever_decimal(&mut buf, p[1]);
             } else {
-                let t = heap.texto(p[1]);
-                um_byte &= t.e_um_byte();
+                let t = heap.texto(p[1]).expect("bug do compilador: string esperada na interpolação");
                 total += t.len();
-                lidas.push(ParteDeTexto::Texto(t));
+                um &= t.cabe_em_um_byte();
             }
         }
-        if um_byte {
-            let mut v = Vec::with_capacity(total);
-            for p in &lidas {
-                match p {
-                    ParteDeTexto::Int(i) => escrever_decimal(&mut v, *i),
-                    ParteDeTexto::Texto(Texto::Um(b)) => v.extend_from_slice(b),
-                    ParteDeTexto::Texto(_) => {}
-                }
-            }
-            return Texto::Um(v);
-        }
-        let mut v: Vec<u16> = Vec::with_capacity(total);
-        let mut digitos = Vec::new();
-        for p in &lidas {
-            match p {
-                ParteDeTexto::Int(i) => {
-                    digitos.clear();
-                    escrever_decimal(&mut digitos, *i);
-                    v.extend(digitos.iter().map(|&d| u16::from(d)));
-                }
-                ParteDeTexto::Texto(t) => v.extend(t.unidades()),
+        let r = heap.novo_texto(total, !um);
+        let mut pos = 0;
+        for p in partes.chunks_exact(2) {
+            if p[0] == 1 {
+                let i = escrever_decimal(&mut buf, p[1]);
+                heap.escrever_texto(r, pos, crate::textos::TextoRef::Um(&buf[i..]));
+                pos += buf.len() - i;
+            } else {
+                let k = heap.texto(p[1]).map_or(0, crate::textos::TextoRef::len);
+                heap.copiar_texto(r, pos, p[1], 0, k);
+                pos += k;
             }
         }
-        Texto::de_unidades(v)
-    });
-    alocar_texto(junto)
+        r
+    })
 }
 
 /// Concatena strings não nulas; argumentos devem estar enraizados pelo emissor.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_string_concat(a: i64, b: i64) -> i64 {
-    HEAP.with(|heap| heap.borrow_mut().string_concat(a, b))
-}
-/// Compara conteúdo por unidades; dois handles null são iguais.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_equal(a: i64, b: i64) -> u8 {
-    HEAP.with(|heap| u8::from(heap.borrow().string_equal(a, b)))
+    HEAP.with(|heap| heap.borrow_mut().juntar_textos(&[a, b]))
 }
 
-/// Comprimento em unidades UTF-16 (`String_getLength`).
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_len(handle: i64) -> i64 {
-    if handle == 0 {
-        return 0;
-    }
-    HEAP.with(|heap| match heap.borrow().get(handle) {
-        Value::String(t) | Value::Match(t) => t.len() as i64,
-        Value::StringBuffer(u) => u.len() as i64,
-        _ => 0,
+/// Lista expansível de inteiros (sem alocação no meio: a forma compacta).
+fn lista_de_inteiros(valores: Vec<i64>) -> i64 {
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let n = valores.len();
+        let l = heap.nova_expansivel(n, n, crate::listas::Elemento::Int);
+        for (i, v) in valores.into_iter().enumerate() {
+            heap.lista_set(l, i, crate::heap::Valor::Int(v));
+        }
+        l
     })
 }
 
-/// A unidade UTF-16 no índice (`codeUnitAt`). Fora dos limites lança o
-/// `RangeError` do `CheckBound` da VM (`DRT_RangeError`,
-/// `runtime_entry.cc`): `RangeError.range(i, 0, length - 1, "length")`.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_code_unit_at(handle: i64, index: i64) -> i64 {
-    let unidade = HEAP.with(|heap| {
-        let heap = heap.borrow();
-        let n = match heap.get(handle) {
-            Value::String(t) | Value::Match(t) => t.len(),
-            Value::StringBuffer(u) => u.len(),
-            _ => 0,
-        };
-        if index < 0 || index as usize >= n {
-            return Err(n as i64);
-        }
-        let i = index as usize;
-        Ok(match heap.get(handle) {
-            Value::String(t) | Value::Match(t) => i64::from(t.unidade(i)),
-            Value::StringBuffer(u) => i64::from(u[i]),
-            _ => 0,
-        })
-    });
-    match unidade {
-        Ok(u) => u,
-        Err(n) => {
-            lancar_range(index, 0, n - 1, "length");
-            0
-        }
-    }
-}
-
-/// Lista de inteiros (os pedaços já são escalares: sem alocação no meio).
-fn lista_de_inteiros(valores: impl Iterator<Item = i64>) -> i64 {
-    let itens: Vec<TaggedValue> = valores.map(TaggedValue::scalar).collect();
-    HEAP.with(|heap| heap.borrow_mut().create_list(itens))
-}
-
-/// `codeUnits`: as unidades UTF-16 como inteiros.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_code_units(handle: i64) -> i64 {
-    let t = texto_de_qualquer(handle).unwrap_or_else(Texto::vazio);
-    lista_de_inteiros(t.unidades().map(i64::from))
-}
-
-/// `runes`: os pontos de código; surrogate solto sai como ele mesmo (o
-/// `RuneIterator` do `dart:core`), não como U+FFFD.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_runes(handle: i64) -> i64 {
-    let t = texto_de_qualquer(handle).unwrap_or_else(Texto::vazio);
-    lista_de_inteiros(t.pontos().into_iter().map(i64::from))
-}
-
-/// Converte um inteiro para string na base indicada (ex.: base 16 para hex minúsculo).
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_int_to_radix_string(value: i64, radix: i64) -> i64 {
-    let radix = radix.clamp(2, 36) as u32;
-    let s = if value == 0 {
-        "0".to_string()
-    } else {
-        let neg = value < 0;
-        let mut uval = if neg { (-(value as i128)) as u64 } else { value as u64 };
-        let mut digits = Vec::new();
-        let uradix = radix as u64;
-        while uval > 0 {
-            let rem = (uval % uradix) as u32;
-            let c = if rem < 10 { (b'0' + rem as u8) as char } else { (b'a' + (rem - 10) as u8) as char };
-            digits.push(c);
-            uval /= uradix;
-        }
-        if neg { digits.push('-'); }
-        digits.into_iter().rev().collect()
-    };
-    alocar_str(&s)
-}
-
-/// `substring(start, [end])` em unidades UTF-16, com o
-/// `RangeError.checkValidRange` do `dart:core`. `end < 0` = ausente.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_substring(handle: i64, start: i64, end: i64) -> i64 {
-    let t = texto_de(handle);
-    match faixa_valida(start, end, t.len()) {
-        Some((a, b)) => alocar_texto(t.fatia(a, b)),
-        None => 0,
-    }
-}
-
-/// `String.fromCharCode`: ponto ≤ 0xFFFF é uma unidade (inclusive
-/// surrogate solto); acima, um par. Fora de 0..0x10FFFF lança
-/// `RangeError.range(charCode, 0, 0x10FFFF)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_from_char_code(code: i64) -> i64 {
-    if !(0..=0x10FFFF).contains(&code) {
-        lancar_range(code, 0, 0x10FFFF, "charCode");
-        return 0;
-    }
-    let mut u = Vec::with_capacity(2);
-    crate::heap::empurrar_ponto(&mut u, code as u32);
-    alocar_texto(Texto::de_unidades(u))
-}
-
-/// `String.fromCharCodes(lista)`: cada elemento é um ponto de código.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_from_char_codes(list_handle: i64) -> i64 {
-    let codigos: Vec<i64> = HEAP.with(|heap| match heap.borrow().get(list_handle) {
-        Value::List(items) => items.iter().map(|v| v.bits).collect(),
-        _ => Vec::new(),
-    });
-    let mut u = Vec::with_capacity(codigos.len());
-    for c in codigos {
-        if !(0..=0x10FFFF).contains(&c) {
-            lancar_range(c, 0, 0x10FFFF, "charCode");
-            return 0;
-        }
-        crate::heap::empurrar_ponto(&mut u, c as u32);
-    }
-    alocar_texto(Texto::de_unidades(u))
-}
-
-/// O padrão de busca: string ou `RegExp` (este pelo casador rudimentar).
+/// O padrão de busca: string ou `RegExp` (o programa compilado, cid 16).
 enum Padrao {
     Texto(Texto),
-    RegExp(Texto),
+    RegExp(i64),
 }
 
 fn padrao_de(handle: i64) -> Option<Padrao> {
-    HEAP.with(|heap| match heap.borrow().try_get(handle) {
-        Some(Value::String(t)) => Some(Padrao::Texto(t.clone())),
-        Some(Value::RegExp(p)) => Some(Padrao::RegExp(p.clone())),
-        _ => None,
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        if let Some(t) = heap.texto(handle) {
+            return Some(Padrao::Texto(t.para_texto()));
+        }
+        (crate::layout::e_objeto(handle) && heap.classe(handle) == crate::layout::cid::PROGRAMA_DE_REGEXP)
+            .then_some(Padrao::RegExp(handle))
     })
 }
 
@@ -402,14 +237,17 @@ fn padrao_de(handle: i64) -> Option<Padrao> {
 fn proxima(alvo: &Texto, padrao: &Padrao, desde: usize) -> Option<(usize, usize)> {
     match padrao {
         Padrao::Texto(p) => alvo.procurar(p, desde).map(|i| (i, p.len())),
-        Padrao::RegExp(p) => regexp_proxima(alvo, p, desde),
+        Padrao::RegExp(p) => {
+            let caps = regexp_casar_em(*p, &alvo.para_vec(), desde, false)?;
+            Some((caps[0] as usize, (caps[1] - caps[0]) as usize))
+        }
     }
 }
 
 /// `indexOf(padrão, [start])` em unidades; -1 se não houver.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_string_index_of(handle: i64, pat_handle: i64, start: i64) -> i64 {
-    let t = texto_de(handle);
+    let t = texto_copiado(handle);
     let Some(p) = padrao_de(pat_handle) else { return -1 };
     if start < 0 || start as usize > t.len() {
         lancar_range(start, 0, t.len() as i64, "start");
@@ -418,36 +256,23 @@ pub extern "C" fn dartforge_string_index_of(handle: i64, pat_handle: i64, start:
     proxima(&t, &p, start as usize).map_or(-1, |(i, _)| i as i64)
 }
 
-/// `lastIndexOf(padrão, [start])`; `start < 0` = ausente (o fim).
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_last_index_of(handle: i64, pat_handle: i64, start: i64) -> i64 {
-    let t = texto_de(handle);
-    let Some(Padrao::Texto(p)) = padrao_de(pat_handle) else { return -1 };
-    let ate = if start < 0 {
-        t.len()
-    } else if start as usize > t.len() {
-        lancar_range(start, 0, t.len() as i64, "start");
-        return 0;
-    } else {
-        start as usize
-    };
-    t.procurar_ultimo(&p, ate).map_or(-1, |i| i as i64)
-}
+/// Uma parte de uma lista de pedaços: o `bool` antes do texto (a marca de
+/// casamento do `splitMapJoin`) e o texto.
+type Pedaco = (Option<bool>, Texto);
 
-/// Lista com os valores dados, na ordem, alocando cada um já com a lista
-/// enraizada (G6): antes os pedaços iam para um `Vec` do Rust e a lista era
-/// alocada no fim — uma coleta no meio liberava os primeiros.
-fn lista_de_pedacos(itens: Vec<(Option<TaggedValue>, Value)>) -> i64 {
-    let lista = HEAP.with(|h| h.borrow_mut().create_list(Vec::new()));
+/// Lista expansível com os pedaços, na ordem, alocando cada um já com a lista
+/// enraizada (G6: uma coleta no meio vê os pedaços anteriores pela lista).
+fn lista_de_pedacos(itens: Vec<Pedaco>) -> i64 {
+    let lista = HEAP.with(|h| h.borrow_mut().nova_expansivel(0, 0, crate::listas::Elemento::Geral));
     com_raizes(&[lista], || {
-        for (antes, val) in itens {
+        for (antes, texto) in itens {
             HEAP.with(|h| {
                 let mut h = h.borrow_mut();
-                if let Some(a) = antes {
-                    h.list_push(lista, a);
+                if let Some(b) = antes {
+                    h.lista_push(lista, crate::heap::Valor::Bool(b));
                 }
-                let x = h.allocate(val);
-                h.list_push(lista, TaggedValue::reference(x));
+                let x = h.alocar_texto(texto.vista());
+                h.lista_push(lista, crate::heap::Valor::Ref(x));
             });
         }
     });
@@ -473,157 +298,12 @@ fn padrao_vazio(p: &Padrao) -> bool {
     matches!(p, Padrao::Texto(t) if t.is_empty())
 }
 
-/// `split(padrão)`, o algoritmo do `_StringBase.split` (`string_patch.dart`):
-/// padrão string vazio separa em unidades (cada metade de um par de
-/// surrogates vira um pedaço); receptor vazio com casamento dá `[]`.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_split(handle: i64, pat_handle: i64) -> i64 {
-    let t = texto_de(handle);
-    let p = padrao_de(pat_handle).unwrap_or(Padrao::Texto(Texto::vazio()));
-    let n = t.len();
-    let mut pedacos: Vec<Texto> = Vec::new();
-    if padrao_vazio(&p) {
-        pedacos.extend((0..n).map(|i| t.fatia(i, i + 1)));
-    } else {
-        let casamentos = ocorrencias(&t, &p);
-        if !(n == 0 && !casamentos.is_empty()) {
-            let mut it = casamentos.into_iter();
-            let (mut inicio, mut anterior) = (0, 0);
-            loop {
-                if inicio == n {
-                    pedacos.push(t.fatia(anterior, n));
-                    break;
-                }
-                let Some((a, k)) = it.next() else {
-                    pedacos.push(t.fatia(anterior, n));
-                    break;
-                };
-                if a == n {
-                    pedacos.push(t.fatia(anterior, n));
-                    break;
-                }
-                let fim = a + k;
-                if inicio == fim && fim == anterior {
-                    inicio += 1;
-                    continue;
-                }
-                pedacos.push(t.fatia(anterior, a));
-                inicio = fim;
-                anterior = fim;
-            }
-        }
-    }
-    lista_de_pedacos(pedacos.into_iter().map(|x| (None, Value::String(x))).collect())
-}
-
-/// `contains(padrão, [start])`.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_contains(handle: i64, pat_handle: i64, start: i64) -> u8 {
-    (dartforge_string_index_of(handle, pat_handle, start) >= 0) as u8
-}
-
-/// Casador rudimentar de `RegExp` (herdado; a decisão 3 troca pelo motor
-/// `regress` atrás de uma interface). Reconhece `\d+`, uma classe
-/// `[...]` de caracteres literais e texto literal. Devolve o comprimento do
-/// casamento em `alvo[i..]`.
-fn regexp_casa_em(alvo: &Texto, padrao: &Texto, i: usize) -> Option<usize> {
-    let p = padrao.para_string();
-    if p == r"\d+" {
-        let n = (i..alvo.len()).take_while(|&k| (b'0' as u16..=b'9' as u16).contains(&alvo.unidade(k))).count();
-        return (n > 0).then_some(n);
-    }
-    if p.len() >= 2 && p.starts_with('[') && p.ends_with(']') {
-        if i >= alvo.len() {
-            return None;
-        }
-        let conjunto: Vec<u16> = p[1..p.len() - 1].encode_utf16().collect();
-        return conjunto.contains(&alvo.unidade(i)).then_some(1);
-    }
-    alvo.coincide_em(padrao, i).then_some(padrao.len())
-}
-
-fn regexp_proxima(alvo: &Texto, padrao: &Texto, desde: usize) -> Option<(usize, usize)> {
-    (desde..=alvo.len()).find_map(|i| regexp_casa_em(alvo, padrao, i).map(|n| (i, n)))
-}
-
-/// Cria um novo RegExp.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_regexp_new(pat_handle: i64) -> i64 {
-    let pat = texto_de_qualquer(pat_handle).unwrap_or_else(Texto::vazio);
-    HEAP.with(|heap| heap.borrow_mut().allocate(Value::RegExp(pat)))
-}
-
-/// Divide a string em pedaços para splitMapJoin: lista de [is_match (bool), parte (Match ou String)].
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_split_map_pieces(target_handle: i64, pat_handle: i64) -> i64 {
-    let t = texto_de(target_handle);
-    let p = padrao_de(pat_handle).unwrap_or(Padrao::Texto(Texto::vazio()));
-    let n = t.len();
-    let mut pedacos: Vec<(bool, Texto)> = Vec::new();
-    if padrao_vazio(&p) {
-        // `_splitMapJoinEmptyString`: um casamento vazio antes de cada
-        // caractere, sem separar um par de surrogates.
-        pedacos.push((false, Texto::vazio()));
-        let mut i = 0;
-        while i < n {
-            pedacos.push((true, Texto::vazio()));
-            let par = i + 1 < n
-                && (t.unidade(i) & !0x3FF) == 0xD800
-                && (t.unidade(i + 1) & !0x3FF) == 0xDC00;
-            let k = if par { 2 } else { 1 };
-            pedacos.push((false, t.fatia(i, i + k)));
-            i += k;
-        }
-        pedacos.push((true, Texto::vazio()));
-        pedacos.push((false, Texto::vazio()));
-    } else {
-        let mut inicio = 0;
-        for (a, k) in ocorrencias(&t, &p) {
-            pedacos.push((false, t.fatia(inicio, a)));
-            pedacos.push((true, t.fatia(a, a + k)));
-            inicio = a + k;
-        }
-        pedacos.push((false, t.fatia(inicio, n)));
-    }
-    lista_de_pedacos(
-        pedacos
-            .into_iter()
-            .map(|(e_casamento, texto)| {
-                let val = if e_casamento { Value::Match(texto) } else { Value::String(texto) };
-                (Some(TaggedValue::boolean(e_casamento)), val)
-            })
-            .collect(),
-    )
-}
-
-/// `replaceAll(de, para)`: padrão vazio insere em toda fronteira de
-/// unidade (`'ab'.replaceAll('', '-')` é `-a-b-`).
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_replace_all(handle: i64, from_handle: i64, to_handle: i64) -> i64 {
-    let t = texto_de(handle);
-    let para = texto_de_qualquer(to_handle).unwrap_or_else(Texto::vazio);
-    let Some(p) = padrao_de(from_handle) else { return handle };
-    let casamentos = ocorrencias(&t, &p);
-    if casamentos.is_empty() {
-        return handle;
-    }
-    let mut saida = TextoMut::new();
-    let mut inicio = 0;
-    for (a, k) in casamentos {
-        saida.0.extend((inicio..a).map(|i| t.unidade(i)));
-        saida.push_texto(&para);
-        inicio = a + k;
-    }
-    saida.0.extend((inicio..t.len()).map(|i| t.unidade(i)));
-    alocar_texto(saida.fim())
-}
-
 /// `padLeft`/`padRight` do `_StringBase`: `delta = width - length`; sem
 /// nada a fazer devolve o próprio receptor; o enchimento é repetido
 /// `delta` vezes inteiro (não é cortado).
 fn preencher(handle: i64, width: i64, pad_handle: i64, esquerda: bool) -> i64 {
-    let t = texto_de(handle);
-    let pad = texto_de_qualquer(pad_handle).unwrap_or_else(|| Texto::de_str(" "));
+    let t = texto_copiado(handle);
+    let pad = copia_de_texto(pad_handle).unwrap_or_else(|| Texto::de_str(" "));
     let delta = width - t.len() as i64;
     if delta <= 0 || pad.is_empty() {
         return handle;
@@ -641,93 +321,60 @@ fn preencher(handle: i64, width: i64, pad_handle: i64, esquerda: bool) -> i64 {
     alocar_texto(saida.fim())
 }
 
-/// Preenche à esquerda até a largura indicada.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_pad_left(handle: i64, width: i64, pad_handle: i64) -> i64 {
-    preencher(handle, width, pad_handle, true)
-}
-
-/// Preenche à direita até a largura indicada.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_pad_right(handle: i64, width: i64, pad_handle: i64) -> i64 {
-    preencher(handle, width, pad_handle, false)
-}
-
-/// Aloca um novo StringBuffer vazio.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_buffer_new() -> i64 {
-    HEAP.with(|heap| heap.borrow_mut().allocate(Value::StringBuffer(Vec::new())))
-}
-
-/// `StringBuffer.write(obj)`: acrescenta `"$obj"` (null escreve `null`).
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_buffer_write(buf_handle: i64, str_handle: i64) {
-    HEAP.with(|heap| {
-        let mut heap_ref = heap.borrow_mut();
-        let parte: Texto = if str_handle == 0 {
-            Texto::de_str("null")
-        } else {
-            match heap_ref.try_get(str_handle) {
-                Some(Value::String(t)) => t.clone(),
-                _ => describe_texto(&heap_ref, str_handle),
-            }
-        };
-        if let Value::StringBuffer(buf) = heap_ref.get_mut(buf_handle) {
-            buf.extend(parte.unidades());
-        }
-    });
-}
-
 /// `toUpperCase`/`toLowerCase` da VM (`String::Transform`, `object.cc`):
 /// mapeamento **simples**, um ponto de código para um ponto de código
 /// (`CaseMapping`), então `'ß'.toUpperCase()` é `'ß'` (o JS dá `SS`).
-/// O mapeamento completo do Rust só é usado quando dá um caractere só.
+/// O mapeamento completo do Rust só é usado quando dá um caractere só. Nada a
+/// mudar devolve o próprio receptor.
 fn transformar(handle: i64, maiuscula: bool) -> i64 {
-    let t = texto_de(handle);
-    let mut u = Vec::with_capacity(t.len());
-    let mut mudou = false;
-    for p in t.pontos() {
-        let novo = char::from_u32(p).map_or(p, |c| {
-            let mut it: Box<dyn Iterator<Item = char>> =
-                if maiuscula { Box::new(c.to_uppercase()) } else { Box::new(c.to_lowercase()) };
-            match (it.next(), it.next()) {
-                (Some(x), None) => x as u32,
-                _ => p,
+    let novo = com_texto(handle, |t| {
+        // ASCII puro: o caminho de uma passada, sem a tabela Unicode.
+        if let crate::textos::TextoRef::Um(b) = t
+            && b.is_ascii()
+        {
+            let muda = if maiuscula { b.iter().any(u8::is_ascii_lowercase) } else { b.iter().any(u8::is_ascii_uppercase) };
+            if !muda {
+                return None;
             }
-        });
-        mudou |= novo != p;
-        crate::heap::empurrar_ponto(&mut u, novo);
+            let v: Vec<u8> = b.iter().map(|c| if maiuscula { c.to_ascii_uppercase() } else { c.to_ascii_lowercase() }).collect();
+            return Some(Texto::Um(v));
+        }
+        let mut u = Vec::with_capacity(t.len());
+        let mut mudou = false;
+        for p in t.pontos() {
+            let novo = char::from_u32(p).map_or(p, |c| {
+                let mut it: Box<dyn Iterator<Item = char>> =
+                    if maiuscula { Box::new(c.to_uppercase()) } else { Box::new(c.to_lowercase()) };
+                match (it.next(), it.next()) {
+                    (Some(x), None) => x as u32,
+                    _ => p,
+                }
+            });
+            mudou |= novo != p;
+            crate::textos::empurrar_ponto(&mut u, novo);
+        }
+        mudou.then(|| Texto::de_unidades(u))
+    });
+    match novo {
+        Some(t) => alocar_texto(t),
+        None => handle,
     }
-    if !mudou {
-        return handle;
-    }
-    alocar_texto(Texto::de_unidades(u))
-}
-
-/// Retorna uma nova string convertida para maiúsculas.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_to_upper(handle: i64) -> i64 {
-    transformar(handle, true)
-}
-
-/// Retorna uma nova string convertida para minúsculas.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_to_lower(handle: i64) -> i64 {
-    transformar(handle, false)
 }
 
 /// Repete uma string `times` vezes (`'a' * 3`); zero ou negativo dá `''`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_string_repeat(handle: i64, times: i64) -> i64 {
-    if times <= 0 {
-        return alocar_texto(Texto::vazio());
-    }
-    let t = texto_de(handle);
-    let mut saida = TextoMut::new();
-    for _ in 0..times {
-        saida.push_texto(&t);
-    }
-    alocar_texto(saida.fim())
+    let times = usize::try_from(times).unwrap_or(0);
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let (n, um) = heap.texto(handle).map_or((0, true), |t| (t.len(), t.cabe_em_um_byte()));
+        let total = n.checked_mul(times).expect("string grande demais");
+        let r = heap.novo_texto(total, !um);
+        for k in 0..times {
+            heap.copiar_texto(r, k * n, handle, 0, n);
+        }
+        r
+    })
 }
 
 /// `_StringBase._isTwoByteWhitespace` (`string_patch.dart`), por unidade.
@@ -748,9 +395,8 @@ fn e_espaco_dart(u: u16) -> bool {
     }
 }
 
-/// `trim`/`trimLeft`/`trimRight`: nada a tirar devolve o próprio receptor.
-fn aparar(handle: i64, esquerda: bool, direita: bool) -> i64 {
-    let t = texto_de(handle);
+/// A faixa sem espaço Dart nas pontas pedidas.
+fn faixa_aparada(t: crate::textos::TextoRef<'_>, esquerda: bool, direita: bool) -> (usize, usize) {
     let n = t.len();
     let mut a = 0;
     if esquerda {
@@ -764,164 +410,23 @@ fn aparar(handle: i64, esquerda: bool, direita: bool) -> i64 {
             b -= 1;
         }
     }
+    (a, b)
+}
+
+/// `trim`/`trimLeft`/`trimRight`: nada a tirar devolve o próprio receptor.
+fn aparar(handle: i64, esquerda: bool, direita: bool) -> i64 {
+    let (n, (a, b)) = com_texto(handle, |t| (t.len(), faixa_aparada(t, esquerda, direita)));
     if a == 0 && b == n {
         return handle;
     }
-    alocar_texto(t.fatia(a, b))
-}
-
-/// Remove espaços em branco do início e fim.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_trim(handle: i64) -> i64 {
-    aparar(handle, true, true)
-}
-
-/// Remove espaços em branco do início.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_trim_left(handle: i64) -> i64 {
-    aparar(handle, true, false)
-}
-
-/// Remove espaços em branco do fim.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_trim_right(handle: i64) -> i64 {
-    aparar(handle, false, true)
-}
-
-/// `startsWith(padrão, [index])`; índice fora de `0..length` lança.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_starts_with(handle: i64, pat_handle: i64, start: i64) -> u8 {
-    let t = texto_de(handle);
-    if start < 0 || start as usize > t.len() {
-        lancar_range(start, 0, t.len() as i64, "index");
-        return 0;
-    }
-    match padrao_de(pat_handle) {
-        Some(Padrao::Texto(p)) => u8::from(t.coincide_em(&p, start as usize)),
-        Some(Padrao::RegExp(p)) => u8::from(regexp_casa_em(&t, &p, start as usize).is_some()),
-        None => 0,
-    }
-}
-
-/// Verifica se a string termina com o sufixo dado.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_ends_with(handle: i64, pat_handle: i64) -> u8 {
-    let t = texto_de(handle);
-    let p = texto_de(pat_handle);
-    if p.len() > t.len() {
-        return 0;
-    }
-    u8::from(t.coincide_em(&p, t.len() - p.len()))
-}
-
-/// `compareTo` por unidades UTF-16 (-1, 0, 1).
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_compare_to(handle: i64, other_handle: i64) -> i64 {
-    let a = texto_de(handle);
-    let b = texto_de(other_handle);
-    match a.comparar(&b) {
-        std::cmp::Ordering::Less => -1,
-        std::cmp::Ordering::Equal => 0,
-        std::cmp::Ordering::Greater => 1,
-    }
-}
-
-/// `replaceFirst(de, para, [startIndex])`.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_replace_first(handle: i64, from_handle: i64, to_handle: i64, start: i64) -> i64 {
-    let t = texto_de(handle);
-    if start < 0 || start as usize > t.len() {
-        lancar_range(start, 0, t.len() as i64, "startIndex");
-        return 0;
-    }
-    let para = texto_de_qualquer(to_handle).unwrap_or_else(Texto::vazio);
-    let Some(p) = padrao_de(from_handle) else { return handle };
-    match proxima(&t, &p, start as usize) {
-        Some((i, n)) => {
-            let mut saida = TextoMut::new();
-            saida.0.extend((0..i).map(|k| t.unidade(k)));
-            saida.push_texto(&para);
-            saida.0.extend((i + n..t.len()).map(|k| t.unidade(k)));
-            alocar_texto(saida.fim())
-        }
-        None => handle,
-    }
-}
-
-/// `replaceRange(start, end, replacement)` com o `checkValidRange`.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_string_replace_range(handle: i64, start: i64, end: i64, rep_handle: i64) -> i64 {
-    let t = texto_de(handle);
-    let Some((a, b)) = faixa_valida(start, end, t.len()) else { return 0 };
-    let rep = texto_de_qualquer(rep_handle).unwrap_or_else(Texto::vazio);
-    let mut saida = TextoMut::new();
-    saida.0.extend((0..a).map(|k| t.unidade(k)));
-    saida.push_texto(&rep);
-    saida.0.extend((b..t.len()).map(|k| t.unidade(k)));
-    alocar_texto(saida.fim())
+    HEAP.with(|heap| heap.borrow_mut().fatia_de_texto(handle, a, b))
 }
 
 /// O texto aparado de uma string, para os `parse` (sem espaço Dart nas pontas).
 fn texto_para_parse(handle: i64) -> String {
-    let t = texto_de(handle);
-    let n = t.len();
-    let mut a = 0;
-    while a < n && e_espaco_dart(t.unidade(a)) {
-        a += 1;
-    }
-    let mut b = n;
-    while b > a && e_espaco_dart(t.unidade(b - 1)) {
-        b -= 1;
-    }
-    t.fatia(a, b).para_string()
+    com_texto(handle, |t| {
+        let (a, b) = faixa_aparada(t, true, true);
+        t.fatia(a, b).para_string()
+    })
 }
 
-/// Converte string para inteiro ou lança FormatException.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_int_parse(handle: i64) -> i64 {
-    if handle == 0 {
-        let err = allocate_format_exception("Invalid number: null");
-        dartforge_exception_throw(err, 3);
-        return 0;
-    }
-    let text = texto_para_parse(handle);
-    match text.parse::<i64>() {
-        Ok(val) => val,
-        Err(_) => {
-            let err = allocate_format_exception(&format!("Invalid radix-10 number: {text}"));
-            dartforge_exception_throw(err, 3);
-            0
-        }
-    }
-}
-
-/// `int.tryParse`: null (0) se falhar; senão o `int` como referência (R3).
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_int_try_parse(handle: i64) -> i64 {
-    if handle == 0 {
-        return 0;
-    }
-    match texto_para_parse(handle).parse::<i64>() {
-        Ok(val) => valor_como_ref(TaggedValue::scalar(val)),
-        Err(_) => 0,
-    }
-}
-
-/// Converte string para ponto flutuante ou lança FormatException.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_double_parse(handle: i64) -> f64 {
-    if handle == 0 {
-        let err = allocate_format_exception("Invalid double: null");
-        dartforge_exception_throw(err, 3);
-        return 0.0;
-    }
-    let text = texto_para_parse(handle);
-    match text.parse::<f64>() {
-        Ok(val) => val,
-        Err(_) => {
-            let err = allocate_format_exception(&format!("Invalid double: {text}"));
-            dartforge_exception_throw(err, 3);
-            0.0
-        }
-    }
-}

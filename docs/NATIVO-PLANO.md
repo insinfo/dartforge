@@ -2976,3 +2976,222 @@ frentes (heap, despacho e RTI):
 qualificação. Eles estão fora do escopo léxico, e a VM daria erro de
 compilação. O front-end aceitou em silêncio e gerou acesso dinâmico. A
 saída saiu certa, mas o programa deveria ter sido recusado.
+
+## 11. Classe do valor em linha e coleta menor mais barata (medido em 2026-09-30, Windows)
+
+São as propostas 1 e 2 de `PLANO-TAMANHO-DESEMPENHO.md` §2.
+
+### 11.1 O que entrou
+
+1. **A classe de cada slot num vetor denso** (`runtime/src/heap.rs`, `Heap::classes`).
+   * **O vetor.** É um `ClasseDoSlot { classe: i32, marcas: u32 }` por slot, paralelo a
+     `Heap::slots`.
+   * **Quando a classe é escrita.** Ela é calculada quando o slot recebe o valor (`guardar`) e é
+     a mesma resposta de `dartforge_value_class`: com o SDK da fonte, a classe do SDK; sem ele,
+     os códigos negativos de antes.
+   * **Quando ela é refeita:**
+     * quando uma marca muda (`marcar_fixa`, `marcar_imutavel`: são os únicos pontos em que a
+       classe de uma lista muda);
+     * quando chega a tabela dos ids do SDK (`dartforge_registrar_cids` →
+       `definir_cids_do_runtime`, que refaz os slots já alocados).
+   * **Por que isso basta.** O valor de um slot nunca troca de variante. A troca de conteúdo das
+     mensagens entre isolados (`portas.rs`) mantém a variante.
+   * **O que saiu.** Os `HashSet` `fixas`/`imutaveis` foram removidos. Só os objetos do espaço
+     marcados como imutáveis, que são raros, continuam num conjunto (`imutaveis_do_espaco`).
+   * **O que o contexto publica.** O endereço e o comprimento do vetor ficam nos deslocamentos
+     336 e 344. O vetor é estendido até a capacidade de `slots`, e o endereço só é republicado
+     quando ele cresce.
+   * **O `df.classe` (`llvm/mod.rs`).** Para um slot (`h > 0`, `h & 3 == 0`), ele confere o
+     índice e lê o `i32`. O endereço e o comprimento são relidos a cada uso. Índice fora da
+     faixa ou classe desconhecida (`i32::MIN`, que é o slot livre) vão ao runtime.
+2. **`is C` por mapa de bits** (`runtime/src/nucleo.rs`, `MapasDeSubtipo`; `df.subclasse` em
+   `llvm/mod.rs`). É o equivalente, montado pelo runtime, da tabela `@df.sub.<C>[cid]`.
+   * **Montagem.** A primeira consulta de um alvo `C` que vai ao runtime
+     (`dartforge_is_subclass`) monta o mapa das classes `cid <: C` pelo grafo inverso.
+   * **Publicação.** O contexto publica a tabela de ponteiros por alvo (352), o número de alvos
+     (360) e a largura em bits (368).
+   * **O caminho rápido.** A partir daí, o `is C` do código gerado lê um bit, sem chamada.
+     Continuam indo ao runtime: o `cid` fora da largura, o alvo sem mapa e os ids que não são
+     densos (`_Type` `0x3FFF_FF01`, as formas de record `0x4000_0000+`).
+   * **Invalidação.** Toda relação nova de subclasse (`dartforge_register_subclass`: a carga e
+     cada recarga do JIT, que refaz os registros) descarta todos os mapas. Por isso nenhum mapa
+     responde por um grafo antigo, inclusive no código mantido de gerações anteriores (J04),
+     que lê os mesmos mapas do runtime.
+   * **A tabela de ponteiros não é realocada enquanto houver mapas.** Ela nasce com uma entrada
+     por classe da largura. O motivo é que `dartforge_is_subclass` continua declarado
+     `memory(read)`, então um laço pode reter um ponteiro lido antes da chamada. Só o
+     `register_subclass`, uma chamada comum para o LLVM, solta os mapas.
+3. **Coleta menor** (`heap.rs`, `coletar`):
+   * os bytes de cada slot ficam guardados na alocação (`bytes_do_slot`, somados pelo
+     crescimento que `list_push`/`set_add` contam), e a menor desconta os mortos sem ler o
+     valor de novo; a completa refaz a estimativa pelo valor e a regrava;
+   * as marcas `late` gravadas desde a última coleta ficam numa lista (`late_novos`), e a menor
+     confere só essas: um velho não morre na menor. Antes, era um `retain` da tabela inteira,
+     com uma entrada por objeto vivo com campo `late`;
+   * `imutaveis_do_espaco`, `iteracoes_ativas` e `origens` só são filtrados quando não estão
+     vazios. `fixas`/`imutaveis` já não existem.
+4. **Correção achada pelo teste novo:** `(x: 1) is Record` e `is Object` davam `false` com o
+   SDK da fonte, porque a forma de record só tinha a aresta para o id 0. Agora ela também tem
+   as arestas para as classes `Record` e `Object` do `dart:core` (`lower/mod.rs`).
+
+**Chave de medida:** com `DARTFORGE_SEM_CLASSE_EM_LINHA=1` na execução, o runtime não publica
+os dois vetores, e o código gerado vai sempre ao runtime. A resposta é a mesma.
+
+### 11.2 Medido
+
+**Condições.** AOT com `--optimize`, no mesmo notebook de §9.10, disputado com os builds de
+outras frentes:
+
+* **JSON:** 8 repetições alternadas, descartando as que tiveram build no meio. Cada célula é
+  mínimo / mediana, entre as repetições, da mediana das rodadas depois da primeira.
+* **"Antes":** o compilador do início desta rodada.
+* **"Depois":** a árvore do fim da rodada, **com as mudanças das outras frentes do intervalo**.
+
+| núcleo (ms) | antes | depois | depois, sem em linha | Dart AOT | razão antes/depois |
+|---|---:|---:|---:|---:|---:|
+| total do processo (s) | 17,1 / 18,8 | 13,9 / 16,6 | 15,1 / 17,6 | 3,5 / 3,8 | 1,19 [0,98–1,39] |
+| decode_pequeno | 153 / 193 | 120 / 127 | 134 / 157 | 32 / 35 | 1,27 |
+| encode_pequeno | 180 / 190 | 99 / 105 | 105 / 186 | 32 / 35 | 1,82 |
+| decode_medio | 331 / 384 | 227 / 280 | 268 / 317 | 44 / 46 | 1,42 |
+| encode_medio | 233 / 257 | 183 / 212 | 201 / 236 | 46 / 51 | 1,21 |
+| decode_grande | 640 / 723 | 529 / 582 | 606 / 653 | 118 / 134 | 1,21 |
+| encode_grande | 443 / 514 | 407 / 490 | 438 / 456 | 105 / 114 | 1,09 |
+| indentado | 189 / 211 | 122 / 171 | 169 / 188 | 55 / 59 | 1,22 |
+| utf8_bytes | 410 / 515 | 356 / 408 | 390 / 463 | 56 / 76 | 1,17 |
+| reviver | 203 / 236 | 168 / 191 | 193 / 210 | 39 / 46 | 1,22 |
+
+A razão pareada "antes / depois sem em linha" dá 1,11 no total. A parte em linha (`df.classe`
+e `df.subclasse`) responde por uns 7%, e o runtime (vetor e coleta) mais as outras frentes pelo
+resto. A saída foi igual nos três executáveis.
+
+**Perfil do JSON** (self, thread do isolado, ~2 000 amostras por pilha em 10 s, simbolizado
+pelo `/map` do `lld-link`), em % das amostras:
+
+| categoria | antes | depois |
+|---|---:|---:|
+| código Dart compilado | 22,4 | 29,0 |
+| classe do valor (`value_class`, `cid_do_valor_do_runtime`, `is_subclass`) | 12,6 | 0,7 |
+| coleta (`coletar`, `trace`, `marcar_pendentes`) | 10,0 | 4,9 |
+| `malloc`/`free` | 8,1 | 10,5 |
+| listas do runtime | 8,1 | 10,8 |
+| strings | 7,6 | 8,0 |
+| alocação no heap | 5,8 | 6,8 |
+| RTI | 4,1 | 4,5 |
+| `dartforge_contexto` | 0,6 | 1,1 |
+
+`value_class` (5,5%), `cid_do_valor_do_runtime` (5,4%) e `is_subclass` (1,7%) saem do perfil.
+`Heap::coletar` sozinho cai de 8,6% para 2,5%. O resto sobe em proporção porque o total caiu.
+O `dartforge_contexto` sobe um pouco: é a chamada do `df.classe` nas funções sem `%ctx`.
+
+**Servidor HTTP.** 4 executores alternados. A medida foi interrompida depois de 4 repetições
+válidas (de 12), com builds concorrentes. Mediana [faixa]:
+
+| medida | antes | depois | depois, sem em linha | Dart AOT |
+|---|---:|---:|---:|---:|
+| req/s, 1 conexão | 2955 [2333–3331] | 2701 [2557–3185] | 2879 [2612–2908] | 4027 [3833–4152] |
+| req/s, 64 conexões | 3259 [2902–3570] | 3196 [2805–4211] | 2955 [2769–3688] | 5771 [4961–6282] |
+| CPU/req, 1 conexão, µs | 259 [234–346] | 303 [231–318] | 276 [269–299] | 157 [148–175] |
+| CPU/req, 64 conexões, µs | 298 [273–328] | 309 [228–347] | 324 [260–355] | 199 [164–214] |
+| RSS em repouso / pico, MB | 18,0 / 25,1 | 16,6 / 23,2 | 16,6 / 23,2 | 17,0 / 27,8 |
+
+A razão pareada antes/depois é 1,00 [0,74–1,10] na CPU/req com 1 conexão e 0,97 [0,83–1,36]
+com 64. **Não há ganho mensurável acima do ruído** com 4 pares. A estimativa era −2–3%, e a
+classe do receptor era ~2,9% do servidor em §9.10.
+
+### 11.3 Correção
+
+* **Corpus novo:**
+  * `85_is_as_listas_fixas_imutaveis`: `List.filled` com e sem `growable`,
+    `List.unmodifiable`, `const`, `List.generate`, `toList`, `sublist`, `List.of`, strings de um
+    e dois bytes, números, records e closures, por `is`/`as`/`runtimeType`/`whereType`, e o
+    `UnsupportedError` de cada operação;
+  * `86_is_hierarquias_mixins_interfaces`: herança, interfaces, mixins com `on` e aplicação
+    nomeada, `sealed` com `switch`, erros e exceções do SDK e do usuário, `StringSink` do
+    usuário, a matriz objeto × alvo nas duas ordens;
+  * `87_classe_do_slot_sob_coleta`: 240 mil listas fixas, imutáveis e expansíveis que morrem e
+    têm os slots reusados, campos `late` de jovens que morrem, e `Isolate.run`.
+* **Resultado:** os três são iguais à VM no AOT, no JIT e com `--gc-stress --limite-exec 60`.
+  O corpus nativo passa 81/82 nos três modos. A falha é `78_simd_conversao_de_pistas`, da
+  frente de SIMD, em andamento: o LLVM recusa o IR (`<4 x float>` gravado como `i64`), sem
+  relação com esta rodada.
+* **Testes:** `cargo test --release -p dartforge-emit-native -p dartforge-runtime` verde. Entre
+  os testes novos de `heap.rs`: a classe segue as marcas e a tabela do SDK chegada depois; a
+  coleta menor purga só as marcas dos jovens mortos; o slot reusado não herda as marcas.
+
+### 11.4 O que não foi verificado
+
+* **`CONTAGEM_JOVEM`** não foi revista: a rodada foi encerrada antes. Pela conta, com
+  `LIMITE_JOVEM` de 2 MiB, o gatilho por contagem (256 Ki alocações) só dispara antes do de
+  bytes se a média for < 8 bytes por alocação, o que nenhum valor atinge. A conta não foi medida.
+* **O perfil do servidor HTTP** depois da mudança.
+* **Os testes de recarga do JIT** (`crates/jit/tests/hot_reload.rs`). A invalidação dos mapas
+  segue o `register_subclass`, que a publicação de cada geração refaz. O caso "classe nova
+  numa recarga muda um `is`" não tem teste próprio.
+* **O Linux:** os deslocamentos novos do contexto têm `assert` de compilação, mas o corpus só
+  rodou no Windows.
+
+## 12. Espaço unificado: todos os valores no espaço de objetos (2026-09-30)
+
+A especificação é `docs/NATIVO-ESPACO-UNIFICADO.md` (as fases B–D de
+`PLANO-TAMANHO-DESEMPENHO.md` §2 de uma vez). Em uma frase por eixo: o handle
+de slot (múltiplo de 4) sumiu; todo valor do runtime é um bloco com o
+cabeçalho de 16 bytes e um cid fixo (1–65 para as classes do runtime, 128 em
+diante para as demais); o coletor percorre o corpo pelo formato (`INSTANCIA`,
+`BRUTO`, `REFS`) e uma lista grande tem cartões; os literais de string do AOT
+são objetos estáticos; a cópia entre isolados é por bloco; e o caminho sem
+SDK da fonte saiu (`lower/sdk_por_nome.rs`, `DARTFORGE_SDK_DA_FONTE`, o
+despacho pelo nome em mundo fechado de `lower/despacho.rs` e os externs
+`dartforge_list_*`/`map_*`/`set_*`/`string_*` que só ele emitia).
+
+### 12.1 Estado
+
+Implementado por pacotes em paralelo (P0–P5, §4 da especificação); a
+integração (§5 da especificação) valida na ordem: testes de unidade do runtime
+e do emissor, o módulo `heap` com `DARTFORGE_GC_VERIFICAR=1`, o corpus nativo
+(82 programas de antes mais os novos 90–99) no AOT, no JIT e com
+`--gc-stress`, o corpus `js`, a produção (`aot --optimize`), os benchmarks com
+a saída da VM e a recarga (`crates/cli/tests/reload_estado.rs`,
+`cli_preserva_o_estado_do_espaco_unificado_em_tres_recargas`).
+
+Os programas novos (`corpus/nativo`):
+
+* `90_textos_um_e_dois_bytes`, `91_textos_grandes_e_interpolacao`,
+  `92_textos_identidade_hash_mapas` (duas bibliotecas),
+  `93_textos_entre_isolados`, `94_utf8_e_bytes`: as strings (formas, pares
+  substitutos, tamanhos das classes médias à região grande, `identical` de
+  literais entre bibliotecas, hash da VM, strings entre isolados, UTF-8);
+* `95_caixas_closures_records`: `identical` de `double` e `_Mint`, `-0.0` e
+  `NaN`, closures que capturam `int`/`double`/mutáveis, tear-offs,
+  `Function.apply`, records;
+* `96_listas_formas_e_cartoes`, `97_mapas_conjuntos_grandes`: as formas
+  compactas e a descompactação, os erros de lista fixa e imutável, e uma
+  lista velha de 100 mil elementos que recebe objetos novos entre coletas
+  (cartões);
+* `98_tipadas_visoes_externas`: listas tipadas de todos os tipos, visões,
+  `ByteData`, listas acima de 16 KiB, SIMD e `asTypedList` sobre `malloc`;
+* `99_pressao_de_coleta`: pressão de coleta com gravação velho→jovem, para
+  rodar com `--gc-stress` e `DARTFORGE_GC_VERIFICAR=1`.
+
+Comportamentos da VM 3.6.2 que os programas fixam e que não são óbvios: a VM
+compartilha as strings entre isolados (até as montadas em tempo de execução
+voltam `identical` de uma ida e volta por `SendPort`; aqui só os literais,
+que são estáticos — o 93 confere só esses); `int.hashCode` não é o valor
+(`7.hashCode` é 81207), ao contrário do que §2.10 da especificação supunha;
+`'ß'.toUpperCase()` fica `'ß'`; e o `utf8.decode` tira só o BOM do começo.
+
+### 12.2 Medidas
+
+A medir na integração, pelo método de §9.10 (execuções alternadas DartForge ×
+Dart AOT, mínimo e mediana, razão por par). Antes = o `main` do começo da
+integração; depois = o do fim.
+
+| Medida | Antes | Estimativa (não medida) | Depois | Dart AOT |
+|---|---:|---|---:|---:|
+| `json.dart` `decode_medio` | 394 ms | 2–3× o AOT | a medir | 54,6 ms |
+| `json.dart` `encode_medio` | 149 ms | 1,5–2× | a medir | 57,3 ms |
+| `json.dart` `decode_grande` | 509 ms | 1,5–2,5× | a medir | 127 ms |
+| `textos/construir` | 159 ms | 1,0–1,3× | a medir | 81 ms |
+| `textos/hashes` | 63 ms | ≈ 1,2× | a medir | 38 ms |
+| `int.toString` × 1 milhão | 140 ms | 40–60 ms | a medir | 20 ms |
+| servidor HTTP, CPU/req, 1 conexão | 180 µs | 140–155 µs | a medir | 102 µs |
+| string `"abc"` em memória | ≈ 90 B | 32 B | 32 B (layout) | 32 B |

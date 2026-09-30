@@ -20,7 +20,7 @@ use crate::hir::*;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, Element, FunctionKind};
 use dartforge_frontend::ast::{
-    self, BinaryOp, ExprId, ExprKind, ListPatternElement, PatternId, PatternKind, StmtId,
+    self, BinaryOp, ExprId, ExprKind, PatternId, PatternKind, StmtId,
 };
 use dartforge_intern::SymbolId;
 use dartforge_types::resolved::MemberRef;
@@ -166,25 +166,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             }
         }
-        let alvos = self.alvos_por_nome(&texto);
-        let tem_alvos = !alvos.is_empty();
-        let v2 = valor.clone();
-        self.despachar(
-            valor,
-            &alvos,
-            super::despacho::Uso::Ler,
-            &mut |_s: &mut Self| Vec::new(),
-            &mut |s: &mut Self| {
-                let n = s.erros.len();
-                let r = s.propriedade_sdk_por_nome(v2.clone(), &texto, origem, span);
-                if s.erros.len() > n && tem_alvos {
-                    s.erros.truncate(n);
-                    return s.lancar_nsm(&texto);
-                }
-                r
-            },
-            span,
-        )
+        let r = self.propriedade_por_seletor(valor, &texto, origem, span);
+        self.coagir(r, Type::Ref)
     }
 
     /// Casa `valor` com o padrão `p`; em falha desvia para `falha`. `origem`
@@ -364,142 +347,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.checar_tipo_ou_lancar(ast.ty(*ty), v, super::rti::ContextoDoCast::Como);
                 self.casar(ast, *pattern, valor, falha, ligacao, ligados, origem);
             }
-            PatternKind::List { elements, .. } if self.ctx.sdk_da_fonte => {
+            // Listas e mapas são as classes da fonte do SDK: pelos membros
+            // (`length`, `[]`, `containsKey`…) da classe dinâmica.
+            PatternKind::List { elements, .. } => {
                 self.casar_lista_fonte(ast, elements, valor, falha, ligacao, ligados, origem);
             }
-            PatternKind::Map { entries, .. } if self.ctx.sdk_da_fonte => {
-                self.casar_mapa_fonte(ast, entries, valor, falha, ligacao, ligados, origem);
-            }
-            PatternKind::List { elements, .. } => {
-                let v = self.coagir(valor, Type::Ref);
-                let cls = self.emit(
-                    Instruction::CallRuntime {
-                        name: "dartforge_value_class".to_string(),
-                        args: vec![(v.clone(), Type::Ref)],
-                        ret_ty: Type::I64,
-                    },
-                    Type::I64,
-                );
-                let e_lista = self.emit(
-                    Instruction::ICmp(ICmpOp::Eq, cls, Operand::Constant(Constant::Int(-3))),
-                    Type::I1,
-                );
-                self.exigir(e_lista, falha);
-                let len = self.emit(
-                    Instruction::CallRuntime {
-                        name: "dartforge_list_len".to_string(),
-                        args: vec![(v.clone(), Type::Ref)],
-                        ret_ty: Type::I64,
-                    },
-                    Type::I64,
-                );
-                let resto = elements
-                    .iter()
-                    .position(|e| matches!(e, ListPatternElement::Rest(_)));
-                let n_fixos = elements.len() - usize::from(resto.is_some());
-                let ok = self.emit(
-                    Instruction::ICmp(
-                        if resto.is_some() { ICmpOp::Sge } else { ICmpOp::Eq },
-                        len.clone(),
-                        Operand::Constant(Constant::Int(n_fixos as i64)),
-                    ),
-                    Type::I1,
-                );
-                self.exigir(ok, falha);
-                for (i, el) in elements.iter().enumerate() {
-                    match (el, resto) {
-                        (ListPatternElement::Pattern(sp), Some(r)) if i > r => {
-                            // Depois do resto: contado do fim.
-                            let depois = (elements.len() - i) as i64;
-                            let idx = self.emit(
-                                Instruction::Sub(len.clone(), Operand::Constant(Constant::Int(depois))),
-                                Type::I64,
-                            );
-                            let x = self.ler_elemento_lista(v.clone(), idx, Type::Ref);
-                            self.casar(ast, *sp, x, falha, ligacao, ligados, origem);
-                        }
-                        (ListPatternElement::Pattern(sp), _) => {
-                            let x = self.ler_elemento_lista(
-                                v.clone(),
-                                Operand::Constant(Constant::Int(i as i64)),
-                                Type::Ref,
-                            );
-                            self.casar(ast, *sp, x, falha, ligacao, ligados, origem);
-                        }
-                        (ListPatternElement::Rest(Some(sp)), _) => {
-                            let depois = (elements.len() - i - 1) as i64;
-                            let fim = self.emit(
-                                Instruction::Sub(len.clone(), Operand::Constant(Constant::Int(depois))),
-                                Type::I64,
-                            );
-                            let sub = self.emit_call_with_check(
-                                Instruction::CallRuntime {
-                                    name: "dartforge_list_sublist".to_string(),
-                                    args: vec![
-                                        (v.clone(), Type::Ref),
-                                        (Operand::Constant(Constant::Int(i as i64)), Type::I64),
-                                        (fim, Type::I64),
-                                    ],
-                                    ret_ty: Type::Ref,
-                                },
-                                Type::Ref,
-                            );
-                            self.casar(ast, *sp, sub, falha, ligacao, ligados, origem);
-                        }
-                        (ListPatternElement::Rest(None), _) => {}
-                    }
-                }
-            }
             PatternKind::Map { entries, .. } => {
-                let v = self.coagir(valor, Type::Ref);
-                let cls = self.emit(
-                    Instruction::CallRuntime {
-                        name: "dartforge_value_class".to_string(),
-                        args: vec![(v.clone(), Type::Ref)],
-                        ret_ty: Type::I64,
-                    },
-                    Type::I64,
-                );
-                let e_mapa = self.emit(
-                    Instruction::ICmp(ICmpOp::Eq, cls, Operand::Constant(Constant::Int(-4))),
-                    Type::I1,
-                );
-                self.exigir(e_mapa, falha);
-                for en in entries.iter() {
-                    let k = self.lower_expr(ast, en.key);
-                    let ktag = self.operand_tag(&k);
-                    let (kbits, _) = self.para_bits(k);
-                    let tem = self.emit(
-                        Instruction::CallRuntime {
-                            name: "dartforge_map_contains".to_string(),
-                            args: vec![
-                                (v.clone(), Type::Ref),
-                                (kbits.clone(), Type::I64),
-                                (Operand::Constant(Constant::Int(i64::from(ktag))), Type::I8),
-                            ],
-                            ret_ty: Type::I8,
-                        },
-                        Type::I8,
-                    );
-                    let tem = self.emit(
-                        Instruction::ICmp(ICmpOp::Ne, tem, Operand::Constant(Constant::Int(0))),
-                        Type::I1,
-                    );
-                    self.exigir(tem, falha);
-                    let x = self.emit(
-                        Instruction::CallRuntime {
-                            name: "dartforge_map_get_ref".to_string(),
-                            args: vec![
-                                (v.clone(), Type::Ref),
-                                (kbits, Type::I64),
-                                (Operand::Constant(Constant::Int(i64::from(ktag))), Type::I8),
-                            ],
-                            ret_ty: Type::Ref,
-                        },
-                        Type::Ref,
-                    );
-                    self.casar(ast, en.value, x, falha, ligacao, ligados, origem);
-                }
+                self.casar_mapa_fonte(ast, entries, valor, falha, ligacao, ligados, origem);
             }
             PatternKind::Record { fields } if fields.iter().any(|f| f.name.is_some() || self.nome_implicito(ast, f).is_some()) => {
                 // Forma com campo nomeado (`registros.rs`): a classe do
@@ -569,16 +423,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     },
                     Type::I64,
                 );
-                let e_rec = if self.ctx.sdk_da_fonte {
-                    let _ = cls;
-                    self.e_instancia_do_core(v.clone(), "Record")
-                } else {
-                    self.emit(Instruction::ICmp(ICmpOp::Eq, cls, Operand::Constant(Constant::Int(-7))), Type::I1)
-                };
+                // Record só posicional: a classe `_Record` (cid fixo,
+                // `REFS`); o record com nome é de outra classe (a da forma).
+                let cid_record = i64::from(dartforge_runtime::layout::cid::RECORD);
+                let e_rec = self.emit(Instruction::ICmp(ICmpOp::Eq, cls, Operand::Constant(Constant::Int(cid_record))), Type::I1);
                 self.exigir(e_rec, falha);
                 let n = self.emit(
                     Instruction::CallRuntime {
-                        name: "dartforge_record_len".to_string(),
+                        name: "dartforge_nativo_DartForge_record_numFields".to_string(),
                         args: vec![(v.clone(), Type::Ref)],
                         ret_ty: Type::I64,
                     },
@@ -592,7 +444,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 for (i, f) in fields.iter().enumerate() {
                     let x = self.emit(
                         Instruction::CallRuntime {
-                            name: "dartforge_record_get_ref".to_string(),
+                            name: "dartforge_nativo_DartForge_record_fieldAt".to_string(),
                             args: vec![
                                 (v.clone(), Type::Ref),
                                 (Operand::Constant(Constant::Int(i as i64)), Type::I64),

@@ -136,6 +136,9 @@ pub struct Ligacao<'a> {
     pub rpath_origem: bool,
     /// LTO dos bitcodes de entrada, com a geração de código em partições.
     pub lto: bool,
+    /// A CPU-alvo da geração de código da LTO (`--cpu`, o nome do LLVM);
+    /// `None`, a base (`x86-64` no x86-64).
+    pub cpu: Option<&'static str>,
     /// Tirar as seções que nada alcança e a tabela de símbolos (produção).
     pub podar: bool,
     /// Manter os símbolos e as seções de depuração mesmo podando (J05).
@@ -185,11 +188,15 @@ pub fn ligar(ld: &Path, sysroot: &SysrootLinux, l: &Ligacao<'_>) -> Result<(), S
     }
     if l.lto {
         let particoes = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, 16);
-        let cpu = if cfg!(target_arch = "x86_64") { "x86-64" } else { "generic" };
+        let cpu = l.cpu.unwrap_or(if cfg!(target_arch = "x86_64") { "x86-64" } else { "generic" });
         cmd.arg("--lto-O2").arg(format!("--lto-partitions={particoes}")).arg(format!("-plugin-opt=mcpu={cpu}"));
     }
     if l.podar {
         cmd.arg("--gc-sections");
+        // O ICF seguro: junta só as funções idênticas cujo endereço ninguém
+        // toma (`.llvm_addrsig`), então o `==` de tear-offs continua certo
+        // (`ligador_windows.rs`, corpus/nativo 80).
+        cmd.arg("--icf=safe");
         // `DARTFORGE_MANTER_SIMBOLOS=1`: a tabela de símbolos fica (perfis).
         if !manter_simbolos() && !l.manter_depuracao {
             cmd.arg("--strip-all");

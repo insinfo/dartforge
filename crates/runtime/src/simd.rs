@@ -2,37 +2,32 @@
 // `Int32x4` e `Float64x2` (`runtime/lib/simd128.cc` da VM) — e o acesso a
 // eles nas listas tipadas (`_getFloat32x4`…).
 //
-// Um valor SIMD é um `Value::TypedData` de 16 bytes com o id de classe de
-// `_Float32x4`, `_Int32x4` ou `_Float64x2` (registrados pelo emissor em
-// `CIDS_DO_RUNTIME`): imutável, comparado por identidade como na VM, e com
-// as pistas no endian do hospedeiro, como nas listas `Float32x4List`. As
-// operações seguem a VM pista a pista: os `double` viram `float` por
-// arredondamento, as comparações dão `-1`/`0`, o `clamp` é
-// `max(min(v, superior), inferior)` (com o `min`/`max` da arquitetura,
-// `clamp_pista`) e a máscara de `shuffle` fora de
-// `0..255` é `RangeError`.
+// Um valor SIMD é um bloco `BRUTO` de duas palavras com as pistas
+// (`tipadas.rs`, docs/NATIVO-ESPACO-UNIFICADO.md §2.5), de cid fixo
+// `_Float32x4`, `_Int32x4` ou `_Float64x2` (19–21): imutável, comparado por
+// identidade como na VM, e com as pistas no endian do hospedeiro, como nas
+// listas `Float32x4List`. O código gerado encaixota e desencaixota em linha
+// (`@df.simd_caixa`, `llvm/tipados_ir.rs`). As operações seguem a VM pista a
+// pista: os `double` viram `float` por arredondamento, as comparações dão
+// `-1`/`0`, o `clamp` é `max(min(v, superior), inferior)` (com o `min`/`max`
+// da arquitetura, `clamp_pista`) e a máscara de `shuffle` fora de `0..255` é
+// `RangeError`.
 
-const CID_FLOAT32X4: usize = 15;
-const CID_INT32X4: usize = 16;
-const CID_FLOAT64X2: usize = 17;
+const CID_FLOAT32X4: i32 = crate::layout::cid::FLOAT32X4;
+const CID_INT32X4: i32 = crate::layout::cid::INT32X4;
+const CID_FLOAT64X2: i32 = crate::layout::cid::FLOAT64X2;
 
-fn simd_novo(pos: usize, tipo: u8, bytes: [u8; 16]) -> i64 {
-    let class_id = cid_registrado(pos).expect("bug do compilador: SIMD sem o SDK da fonte");
-    HEAP.with(|h| h.borrow_mut().allocate(Value::TypedData { class_id, tipo, bytes: bytes.to_vec().into() }))
+/// Um valor SIMD novo da classe `cid` com as pistas (`_tipo` é o do elemento
+/// da lista correspondente, só documentação no ponto de chamada).
+fn simd_novo(cid: i32, _tipo: u8, bytes: [u8; 16]) -> i64 {
+    HEAP.with(|h| h.borrow_mut().novo_simd(cid, bytes))
 }
 
 fn simd_bytes(h: i64) -> [u8; 16] {
-    HEAP.with(|heap| {
-        let heap = heap.borrow();
-        match heap.get(h) {
-            Value::TypedData { bytes, .. } if bytes.len() == 16 => {
-                let mut b = [0u8; 16];
-                b.copy_from_slice(bytes);
-                b
-            }
-            _ => panic!("bug do compilador: valor SIMD esperado"),
-        }
-    })
+    match HEAP.with(|heap| heap.borrow().simd(h)) {
+        Some(b) => b,
+        None => panic!("bug do compilador: valor SIMD esperado"),
+    }
 }
 
 fn f32x4_de(h: i64) -> [f32; 4] {
@@ -76,22 +71,6 @@ fn novo_f64x2(v: [f64; 2]) -> i64 {
         b[8 * i..8 * i + 8].copy_from_slice(&x.to_ne_bytes());
     }
     simd_novo(CID_FLOAT64X2, TIPO_FLOAT64X2, b)
-}
-
-/// A caixa de um vetor sem caixa do código gerado (`llvm/simd.rs`): `pos` é
-/// a posição do id de classe (`CID_FLOAT32X4`…), e `lo`/`hi` os 16 bytes na
-/// ordem da memória.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_simd_caixa(pos: i64, lo: i64, hi: i64) -> i64 {
-    let mut b = [0u8; 16];
-    b[..8].copy_from_slice(&lo.to_ne_bytes());
-    b[8..].copy_from_slice(&hi.to_ne_bytes());
-    let (pos, tipo) = match pos as usize {
-        CID_INT32X4 => (CID_INT32X4, TIPO_INT32X4),
-        CID_FLOAT64X2 => (CID_FLOAT64X2, TIPO_FLOAT64X2),
-        _ => (CID_FLOAT32X4, TIPO_FLOAT32X4),
-    };
-    simd_novo(pos, tipo, b)
 }
 
 /// `Utils::Minimum`/`Maximum` da VM (com NaN, o segundo operando).
@@ -584,16 +563,14 @@ pub extern "C" fn dartforge_nativo_TypedData_SetFloat64x2(this: i64, off: i64, v
 /// (o `[]` reconhecido da VM).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_typed_indexar_simd(this: i64, i: i64) -> i64 {
-    let Some((base, desloc, tipo, n)) = HEAP.with(|h| resolver(&h.borrow(), this)) else { return 0 };
-    if i < 0 || i as usize >= n {
-        lancar_range(i, 0, n as i64 - 1, "length");
-        return 0;
-    }
-    let off = (desloc + i as usize * 16) as i64;
-    match tipo {
-        TIPO_INT32X4 => dartforge_nativo_TypedData_GetInt32x4(base, off),
-        TIPO_FLOAT64X2 => dartforge_nativo_TypedData_GetFloat64x2(base, off),
-        _ => dartforge_nativo_TypedData_GetFloat32x4(base, off),
+    let Some((t, p)) = elemento(this, i) else { return 0 };
+    let mut b = [0u8; 16];
+    // SAFETY: `p` é o elemento `i < len` (16 bytes) da lista viva.
+    unsafe { std::ptr::copy_nonoverlapping(p, b.as_mut_ptr(), 16) };
+    match t.tipo {
+        TIPO_INT32X4 => simd_novo(CID_INT32X4, TIPO_INT32X4, b),
+        TIPO_FLOAT64X2 => simd_novo(CID_FLOAT64X2, TIPO_FLOAT64X2, b),
+        _ => simd_novo(CID_FLOAT32X4, TIPO_FLOAT32X4, b),
     }
 }
 
@@ -612,8 +589,14 @@ fn percent_f(x: f64) -> String {
 /// `%f` nos `Float32x4`/`Float64x2` e `%08x` nos `Int32x4`; `None` para os
 /// outros valores.
 fn texto_simd(h: i64) -> Option<String> {
-    let cid = dartforge_value_class(h);
-    let e = |pos| cid_registrado(pos) == Some(cid);
+    if !crate::layout::e_objeto(h) {
+        return None;
+    }
+    let cid = HEAP.with(|x| {
+        let x = x.borrow();
+        x.e_objeto_vivo(h).then(|| x.cabecalho(h).class_id)
+    })?;
+    let e = |c: i32| c == cid;
     if e(CID_FLOAT32X4) {
         let v: Vec<String> = f32x4_de(h).iter().map(|x| percent_f(f64::from(*x))).collect();
         Some(format!("[{}]", v.join(", ")))

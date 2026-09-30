@@ -409,9 +409,9 @@ pub extern "C" fn dartforge_nativo_Socket_SetOption(this: i64, opcao: i64, proto
     }
     let v = HEAP.with(|h| {
         let h = h.borrow();
-        match h.try_get(valor) {
-            Some(Value::BoxedBool(b)) => i64::from(*b),
-            _ => h.int_de_ref(valor).unwrap_or(0),
+        match h.bool_de(valor) {
+            Some(b) => i64::from(b),
+            None => h.int_de(valor).unwrap_or(0),
         }
     });
     if !definir_opcao(s.descritor(), opcao, protocolo == TIPO_IPV4, v) {
@@ -533,7 +533,7 @@ pub extern "C" fn dartforge_nativo_RawSocketOption_GetOptionValue(chave: i64) ->
 /// `Socket_Fatal(msg)`: erro irrecuperável do `dart:io` (a VM aborta).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Socket_Fatal(msg: i64) {
-    let texto = if msg == 0 { String::from("(null)") } else { HEAP.with(|h| h.borrow().texto(msg).para_string()) };
+    let texto = if msg == 0 { String::from("(null)") } else { HEAP.with(|h| h.borrow().texto(msg).map(|t| t.para_string()).unwrap_or_default()) };
     eprintln!("Fatal error in dart:io (socket): {texto}");
     std::process::abort();
 }
@@ -613,7 +613,7 @@ pub extern "C" fn dartforge_nativo_Socket_SendTo(this: i64, buffer: i64, inicio:
 /// `null`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_InternetAddress_Parse(texto: i64) -> i64 {
-    let t = HEAP.with(|h| h.borrow().texto(texto).para_string());
+    let t = HEAP.with(|h| h.borrow().texto(texto).map(|t| t.para_string()).unwrap_or_default());
     interpretar_endereco(&t).map_or(0, dart_bytes)
 }
 
@@ -631,7 +631,7 @@ pub extern "C" fn dartforge_nativo_InternetAddress_RawAddrToString(addr: i64) ->
 /// IPv6 de enlace local com `%interface`, ou o `OSError`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_InternetAddress_ParseScopedLinkLocalAddress(texto: i64) -> i64 {
-    let t = HEAP.with(|h| h.borrow().texto(texto).para_string());
+    let t = HEAP.with(|h| h.borrow().texto(texto).map(|t| t.para_string()).unwrap_or_default());
     match resolver_nome(&t, TIPO_IPV6) {
         Ok(v) if !v.is_empty() => dart_int(v[0].escopo()),
         Ok(_) => ErroDoSo::do_codigo(codigo_do_so::INVALIDO).para_dart(),
@@ -922,8 +922,11 @@ fn ajudante_de_io(nome: &str) -> usize {
 fn int_da_lista(lista: i64, i: usize) -> Option<i64> {
     HEAP.with(|h| {
         let h = h.borrow();
-        let v = h.list_get(lista, i);
-        if v.is_ref { h.int_de_ref(v.bits) } else { Some(v.bits) }
+        match h.lista_get(lista, i) {
+            crate::heap::Valor::Int(v) => Some(v),
+            crate::heap::Valor::Ref(r) => h.int_de(r),
+            _ => None,
+        }
     })
 }
 
@@ -982,12 +985,16 @@ pub extern "C" fn dartforge_nativo_Socket_SendMessage(this: i64, buffer: i64, in
         let bytes = bytes_da_lista_tipada(buffer).unwrap_or_default();
         let inicio = (inicio.max(0) as usize).min(bytes.len());
         let fim = (inicio + n.max(0) as usize).min(bytes.len());
-        let total = HEAP.with(|h| h.borrow().list_len(controles));
+        let total = HEAP.with(|h| h.borrow().lista_len(controles));
         let mut mensagens = Vec::with_capacity(total / 3);
         for i in (0..total - total % 3).step_by(3) {
-            let dados = HEAP.with(|h| h.borrow().list_get(controles, i + 2));
-            match (int_da_lista(controles, i), int_da_lista(controles, i + 1), bytes_da_lista_tipada(dados.bits)) {
-                (Some(nivel), Some(tipo), Some(d)) if dados.is_ref => mensagens.push((nivel, tipo, d)),
+            let dados = HEAP.with(|h| h.borrow().lista_get(controles, i + 2));
+            let (dados_ref, dados_e_ref) = match dados {
+                crate::heap::Valor::Ref(r) => (r, true),
+                _ => (0, false),
+            };
+            match (int_da_lista(controles, i), int_da_lista(controles, i + 1), bytes_da_lista_tipada(dados_ref)) {
+                (Some(nivel), Some(tipo), Some(d)) if dados_e_ref => mensagens.push((nivel, tipo, d)),
                 _ => {
                     lancar_erro_de_argumento("Invalid control message");
                     return 0;

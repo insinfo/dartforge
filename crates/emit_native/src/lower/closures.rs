@@ -303,7 +303,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 l.modo,
                 Modo::Celula(_) | Modo::Ambiente { celula: true, .. }
             );
-            b.ligar_ambiente(*sym, env_b.clone(), base + i, celula, l.ty, l.late.as_ref());
+            // Um vetor SIMD capturado vai no ambiente na caixa (a posição
+            // tem 64 bits).
+            let ty = if l.ty.e_vetor() { Type::Ref } else { l.ty };
+            b.ligar_ambiente(*sym, env_b.clone(), base + i, celula, ty, l.late.as_ref());
         }
         // RTI: a closure vê as variáveis de tipo de quem a cria (`T` da
         // função genérica em volta: a tupla vai no fim do ambiente).
@@ -388,14 +391,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
         let args = Operand::Val(e.add_param("args".to_string(), Type::Ptr));
         let desc = Operand::Val(e.add_param("desc".to_string(), Type::Ptr));
-        let env_e = e.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_closure_env".to_string(),
-                args: vec![(clo, Type::Ref)],
-                ret_ty: Type::Ref,
-            },
-            Type::Ref,
-        );
+        let env_e = e.contexto_da_closure(clo);
         // Os argumentos de tipo que a closure genérica usa quando a chamada
         // não passa nenhum (chamada dinâmica): os limites escritos, como a
         // instanciação pelos limites; `dynamic` sem limite ou quando o limite
@@ -476,9 +472,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Some(c) => c,
                 None => self.ler_local(l),
             };
+            // O vetor SIMD sem caixa vai na caixa (`ligar_ambiente` com `Ref`).
+            let v = if self.operand_type(&v).e_vetor() { self.coagir(v, Type::Ref) } else { v };
             valores.push(v);
         }
         if let Some(t) = self.tupla_de_tipos.clone() {
+            // A tupla vai crua no contexto (`I64`), como o `EnvGet` do corpo a lê.
+            let t = self.coagir(t, Type::I64);
             valores.push(t);
         }
         let env = if direto {
@@ -786,40 +786,43 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// com outra representação seguem pela entrada uniforme): sem vetor de
     /// argumentos, descritor, conferência de aridade nem caixas.
     fn chamar_closure_tipada(&mut self, callee: Operand, avaliados: &[Avaliado], reprs: &[Type], ret: Type, abi: i64) -> Operand {
-        // Devolve `Ref`, como a chamada uniforme. O cabeçalho da closure
-        // (`heap::CabecalhoDeClosure`: código, ambiente, corpo tipado, ABI)
-        // vem de uma chamada pura e é lido em linha; quem não é closure tem
-        // ABI 0, que não casa com nenhuma.
+        // Devolve `Ref`, como a chamada uniforme. Os campos da `_Closure`
+        // (código, contexto, corpo tipado, ABI) são lidos do bloco em linha,
+        // depois de conferir a classe (`@df.classe` em linha): só um bloco de
+        // `_Closure` tem os quatro campos; quem não é closure segue pela
+        // entrada uniforme.
         debug_assert_ne!(abi, 0);
-        let cab = self.emit(
+        let rapido = self.new_block();
+        let lento = self.new_block();
+        let juncao = self.new_block();
+        let conferir_abi = self.new_block();
+        let classe = self.emit(
             Instruction::CallRuntime {
-                name: "dartforge_closure_cabecalho".to_string(),
+                name: "dartforge_value_class".to_string(),
                 args: vec![(callee.clone(), Type::Ref)],
                 ret_ty: Type::I64,
             },
             Type::I64,
         );
-        let palavra = |s: &mut Self, i: i64, ty: Type| {
-            s.emit(
-                Instruction::CargaNativa {
-                    endereco: cab.clone(),
-                    indice: Operand::Constant(Constant::Int(i)),
-                    tipo: TipoC::I64,
-                },
-                ty,
-            )
-        };
-        let abi_da_closure = palavra(self, 3, Type::I64);
+        let e_closure = self.emit(
+            Instruction::ICmp(
+                ICmpOp::Eq,
+                classe,
+                Operand::Constant(Constant::Int(i64::from(dartforge_runtime::layout::cid::CLOSURE))),
+            ),
+            Type::I1,
+        );
+        self.terminate(Terminator::CondBranch { cond: e_closure, then_block: conferir_abi, else_block: lento });
+
+        self.set_block(conferir_abi);
+        let abi_da_closure = self.palavra_do_objeto(callee.clone(), super::caixas::CLOSURE_ABI, Type::I64);
         let tem = self.emit(Instruction::ICmp(ICmpOp::Eq, abi_da_closure, Operand::Constant(Constant::Int(abi))), Type::I1);
-        let rapido = self.new_block();
-        let lento = self.new_block();
-        let juncao = self.new_block();
         self.terminate(Terminator::CondBranch { cond: tem, then_block: rapido, else_block: lento });
 
         self.set_block(rapido);
-        let alvo = palavra(self, 2, Type::I64);
-        // O ambiente é uma referência (raiz enquanto vivo).
-        let env = palavra(self, 1, Type::Ref);
+        let alvo = self.palavra_do_objeto(callee.clone(), super::caixas::CLOSURE_TIPADO, Type::I64);
+        // O contexto é uma referência (raiz enquanto vivo).
+        let env = self.contexto_da_closure(callee.clone());
         let mut args = vec![(env, Type::Ref)];
         for ((_, v), &t) in avaliados.iter().zip(reprs) {
             let v = self.coagir(v.clone(), t);
@@ -975,14 +978,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
             let args = Operand::Val(e.add_param("args".to_string(), Type::Ptr));
             let desc = Operand::Val(e.add_param("desc".to_string(), Type::Ptr));
-            let env = e.emit(
-                Instruction::CallRuntime {
-                    name: "dartforge_closure_env".to_string(),
-                    args: vec![(clo, Type::Ref)],
-                    ret_ty: Type::Ref,
-                },
-                Type::Ref,
-            );
+            let env = e.contexto_da_closure(clo);
             let receptor = e.emit(Instruction::EnvGet { env, index: 0 }, Type::Ref);
             if self.tearoff_pelo_seletor(fid) {
                 // O tear-off é o da implementação que o despacho escolhe
@@ -1058,13 +1054,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// não ser a implementação que o receptor executa (membro abstrato ou
     /// sobrescrito no programa, ou membro aberto do SDK), e uma sobrescrita
     /// pode alargar o tipo de um parâmetro (`Object?` no lugar do `E` da
-    /// interface). Só no SDK da fonte, onde toda classe tem a tabela de
-    /// seletores.
+    /// interface). Toda classe tem a tabela de seletores (SDK da fonte).
     fn tearoff_pelo_seletor(&self, fid: usize) -> bool {
         use super::sdk_fonte::{Implementacao, implementacoes, membro_fechado};
         let f = &self.ctx.program.functions[fid];
         let Some(cid) = f.class else { return false };
-        if f.static_ || !self.ctx.sdk_da_fonte || self.implementacao_unica(fid).is_some() {
+        if f.static_ || self.implementacao_unica(fid).is_some() {
             return false;
         }
         let nome = self.ctx.symbol_name(f.name).to_string();
@@ -1179,14 +1174,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
             let args = Operand::Val(e.add_param("args".to_string(), Type::Ptr));
             let desc = Operand::Val(e.add_param("desc".to_string(), Type::Ptr));
-            let env = e.emit(
-                Instruction::CallRuntime {
-                    name: "dartforge_closure_env".to_string(),
-                    args: vec![(clo, Type::Ref)],
-                    ret_ty: Type::Ref,
-                },
-                Type::Ref,
-            );
+            let env = e.contexto_da_closure(clo);
             let t = e.emit(Instruction::EnvGet { env, index: 0 }, Type::I64);
             if let Some(vals) = e.desempacotar(&infos, args, desc) {
                 // Os argumentos de uma chamada dinâmica, conferidos como na
@@ -1205,6 +1193,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             self.absorver(e);
         }
+        // A tupla vai crua (`I64`), como a entrada a lê (`EnvGet` em `I64`).
+        let tupla = self.coagir(tupla, Type::I64);
         let env = self.emit(Instruction::AllocEnv { values: vec![tupla] }, Type::Ref);
         let c = self.emit(Instruction::AllocClosure { code_symbol: simbolo_ent, env }, Type::Ref);
         self.definir_rti_de_instanciacao(c.clone(), fid, tipo);
@@ -1232,14 +1222,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
             let args = Operand::Val(e.add_param("args".to_string(), Type::Ptr));
             let desc = Operand::Val(e.add_param("desc".to_string(), Type::Ptr));
-            let env = e.emit(
-                Instruction::CallRuntime {
-                    name: "dartforge_closure_env".to_string(),
-                    args: vec![(clo, Type::Ref)],
-                    ret_ty: Type::Ref,
-                },
-                Type::Ref,
-            );
+            let env = e.contexto_da_closure(clo);
             let obj = e.emit(Instruction::EnvGet { env: env.clone(), index: 0 }, Type::I64);
             let t = e.emit(Instruction::EnvGet { env, index: 1 }, Type::I64);
             if let Some(vals) = e.desempacotar(&infos, args, desc) {
@@ -1261,6 +1244,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             self.absorver(e);
         }
+        // O tipo do objeto e a tupla vão crus (`I64`), como a entrada os lê.
+        let objeto = self.coagir(objeto, Type::I64);
+        let tupla = self.coagir(tupla, Type::I64);
         let env = self.emit(Instruction::AllocEnv { values: vec![objeto, tupla] }, Type::Ref);
         let c = self.emit(Instruction::AllocClosure { code_symbol: simbolo_ent, env }, Type::Ref);
         self.definir_rti_de_instanciacao(c.clone(), fid, tipo);

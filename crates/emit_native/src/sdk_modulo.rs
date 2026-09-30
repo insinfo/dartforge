@@ -119,13 +119,6 @@ pub fn medir_inferencia_do_sdk(lib_dir: &Path) -> Result<Vec<InferenciaDaBibliot
     Ok(saida)
 }
 
-/// O SDK da fonte está ligado neste processo? É o padrão (P5d): o corpus
-/// inteiro passa por ele, e só ele tem `dart:io`, isolados, TLS e FFI.
-/// `DARTFORGE_SDK_DA_FONTE=0` volta ao runtime por nome de antes (99 de 225
-/// programas do corpus), mantido para comparação.
-pub fn sdk_da_fonte_pedido() -> bool {
-    !std::env::var("DARTFORGE_SDK_DA_FONTE").is_ok_and(|v| v.trim() == "0")
-}
 
 /// A função que registra no runtime as classes de uma biblioteca do SDK da
 /// fonte (nomes, subtipos, tabelas de métodos); a entrada do programa a
@@ -277,7 +270,11 @@ pub struct BibliotecaDoSdk {
 /// Baixa e emite cada uma das [`BIBLIOTECAS_DA_FONTE`] no seu módulo (P5c):
 /// mundo aberto, símbolos estáveis, os membros que não baixam recusados um a
 /// um. É função só das fontes do SDK, da sobreposição e do compilador.
-pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path) -> Result<Vec<BibliotecaDoSdk>, String> {
+/// `producao`: o perfil de produção ([`PerfilDoSdk::Producao`]), que nunca
+/// recarrega. O descritor da área de globais vai sem os nomes dos slots
+/// (`LlvmEmitter::com_area_enxuta`) e toda função leva `optsize`
+/// ([`com_optsize`]).
+pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path, producao: bool) -> Result<Vec<BibliotecaDoSdk>, String> {
     use dartforge_types::table::{CoreTypes, TypeTable};
     let (program, interner) = carregar_bibliotecas_da_fonte(lib_dir)?;
     let mut table = TypeTable::new();
@@ -319,7 +316,10 @@ pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path) -> Result<Vec<BibliotecaDoSdk>,
         // O otimizador da HIR (`otimizar/`) também no SDK: é onde fica o
         // código de `List`, `Map`, `String`… que os programas mais chamam.
         crate::otimizar::otimizar(&mut module);
-        let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
+        // A DLL do SDK fica carregada o processo inteiro: os literais são
+        // objetos estáticos também no JIT (docs/NATIVO-ESPACO-UNIFICADO.md §2.11).
+        let ir = crate::llvm::LlvmEmitter::new(&module).com_area_enxuta(producao).com_objetos_estaticos(true).emit_all();
+        let ir = if producao { com_optsize(&ir) } else { ir };
         saida.push(BibliotecaDoSdk { uri, ir, recusados: std::mem::take(&mut module.recusados) });
     }
     Ok(saida)
@@ -456,8 +456,8 @@ fn chave_do_sdk(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
 /// ```
 pub fn geracao_do_sdk(perfil: PerfilDoSdk) -> Geracao {
     match perfil {
-        PerfilDoSdk::Desenvolvimento => Geracao { otimizar: false, formato: Formato::Objeto, compartilhado: true },
-        PerfilDoSdk::Producao => Geracao { otimizar: true, formato: Formato::Bitcode, compartilhado: false },
+        PerfilDoSdk::Desenvolvimento => Geracao { otimizar: false, formato: Formato::Objeto, compartilhado: true, cpu: None },
+        PerfilDoSdk::Producao => Geracao { otimizar: true, formato: Formato::Bitcode, compartilhado: false, cpu: None },
     }
 }
 
@@ -524,7 +524,7 @@ pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk
         .stack_size(256 << 20)
         .spawn({
             let lib_dir = lib_dir.to_path_buf();
-            move || emitir_bibliotecas_do_sdk(&lib_dir)
+            move || emitir_bibliotecas_do_sdk(&lib_dir, perfil == PerfilDoSdk::Producao)
         })
         .map_err(|e| e.to_string())?
         .join()
@@ -593,6 +593,7 @@ pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk
                 entradas,
                 rpath_origem: false,
                 lto: false,
+                cpu: None,
                 podar: false,
                 manter_depuracao: false,
                 saida: &tmp.join(&arquivo_dll),
@@ -632,6 +633,7 @@ pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk
                 produto: lw::Produto::Dll { def: &tmp.join("exportados.def") },
                 entradas,
                 lto: false,
+                cpu: None,
                 podar: false,
                 depuracao: false,
                 saida: &tmp.join(&arquivo_dll),
@@ -656,6 +658,7 @@ pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk
                 entradas,
                 rpath_executavel: false,
                 lto: false,
+                cpu: None,
                 podar: false,
                 manter_depuracao: false,
                 saida: &tmp.join(&arquivo_dll),
@@ -773,6 +776,40 @@ pub fn medir_lowering_do_sdk(lib_dir: &Path) -> Result<Vec<MembroDoSdk>, String>
     Ok(saida)
 }
 
+/// O IR de uma biblioteca do SDK com `optsize` em toda função definida (o
+/// perfil de produção): o LLVM pesa tamanho nas decisões de inlining,
+/// desenrolamento e vetorização. Medido em 2026-09-29: −453 KB no olá
+/// mundo e −532 KB no servidor HTTP, sem diferença além do ruído em
+/// `bench/desempenho/json.dart` e `bench/simd/bin/blend.dart`
+/// (docs/PLANO-TAMANHO-DESEMPENHO.md §1). O código do SDK que a LTO
+/// embute no programa segue os atributos de quem chama.
+///
+/// ```
+/// use dartforge_emit_native::sdk_modulo::com_optsize;
+/// let ir = "define i64 @f(i64 %x) comdat {\n  ret i64 %x\n}\ndefine internal void @g() alwaysinline {\n";
+/// assert_eq!(
+///     com_optsize(ir),
+///     "define i64 @f(i64 %x) optsize comdat {\n  ret i64 %x\n}\ndefine internal void @g() alwaysinline optsize {\n"
+/// );
+/// ```
+pub fn com_optsize(ir: &str) -> String {
+    let mut s = String::with_capacity(ir.len() + ir.len() / 64);
+    for l in ir.split_inclusive('\n') {
+        // Os atributos vêm depois dos parâmetros e antes do `comdat` (ou da
+        // chave que abre o corpo).
+        let ponto = l.starts_with("define ").then(|| l.find(" comdat").or_else(|| l.rfind(" {"))).flatten();
+        match ponto {
+            Some(i) => {
+                s.push_str(&l[..i]);
+                s.push_str(" optsize");
+                s.push_str(&l[i..]);
+            }
+            None => s.push_str(l),
+        }
+    }
+    s
+}
+
 #[cfg(test)]
 mod testes {
     use super::*;
@@ -852,7 +889,7 @@ mod testes {
         let t = std::time::Instant::now();
         let libs = std::thread::Builder::new()
             .stack_size(256 << 20)
-            .spawn(|| emitir_bibliotecas_do_sdk(Path::new(SDK_DIR.as_str())).unwrap())
+            .spawn(|| emitir_bibliotecas_do_sdk(Path::new(SDK_DIR.as_str()), false).unwrap())
             .unwrap()
             .join()
             .unwrap();
@@ -899,7 +936,7 @@ mod testes {
             .spawn(move || {
 
                 let otimizar = std::env::var("DARTFORGE_OTIMIZAR").is_ok_and(|v| v == "1");
-                let opcoes = crate::CompileOptions { sdk: Some(Path::new(SDK_DIR.as_str())), packages: None, timings: true, optimize: otimizar, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None };
+                let opcoes = crate::CompileOptions { sdk: Some(Path::new(SDK_DIR.as_str())), packages: None, timings: true, optimize: otimizar, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
                 crate::compilar(&entrada, &saida, &opcoes).map(|_| saida)
             })
             .unwrap()
@@ -936,8 +973,8 @@ mod testes {
             .stack_size(256 << 20)
             .spawn(move || {
 
-                let opcoes = crate::CompileOptions { sdk: Some(&sdk_dir), packages: None, timings: false, optimize: true, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None };
-                crate::compilar_com(&e2, &x2, &opcoes, true)
+                let opcoes = crate::CompileOptions { sdk: Some(&sdk_dir), packages: None, timings: false, optimize: true, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
+                crate::compilar_com(&e2, &x2, &opcoes)
             })
             .unwrap()
             .join()

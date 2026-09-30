@@ -664,11 +664,18 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_processar(
 ) -> i64 {
     let Some(f) = filtro_do_objeto(this) else { return 0 };
     let listas = [b0, b1, b2, b3];
-    // Os bytes dos anéis e das posições saem do heap durante o
-    // processamento (nada aqui chama o Dart nem aloca no heap) e voltam
-    // depois, sem cópia.
-    let mut aneis: [crate::heap::Armazenamento; 4] = std::array::from_fn(|i| tomar_bytes_tipados(listas[i]));
-    let mut bytes_pos = tomar_bytes_tipados(pos);
+    // O processamento trabalha direto sobre os bytes dos anéis e das
+    // posições (§2.14: o coletor não move, e nada aqui chama o Dart nem aloca
+    // no heap), sem cópia.
+    // SAFETY: as cinco listas são distintas (os `_ExternalBuffer` e a lista
+    // das posições do `_SecureFilterImpl`) e vivas (argumentos enraizados pelo
+    // código gerado) durante toda a chamada.
+    let mut aneis: [&mut [u8]; 4] = std::array::from_fn(|i| unsafe { bytes_tipados_mut(listas[i]) });
+    // SAFETY: como acima.
+    let bytes_pos = unsafe { bytes_tipados_mut(pos) };
+    if bytes_pos.len() < 64 {
+        return 0;
+    }
     let mut p = [0usize; 8];
     for (i, v) in p.iter_mut().enumerate() {
         let mut b = [0u8; 8];
@@ -679,10 +686,6 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_processar(
     for (i, v) in p.iter().enumerate() {
         bytes_pos[i * 8..i * 8 + 8].copy_from_slice(&(*v as i64).to_ne_bytes());
     }
-    for (i, a) in aneis.into_iter().enumerate() {
-        devolver_bytes_tipados(listas[i], a);
-    }
-    devolver_bytes_tipados(pos, bytes_pos);
     match r {
         Ok(()) => 0,
         Err((codigo, texto)) => {
@@ -692,7 +695,7 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_processar(
     }
 }
 
-fn processar_aneis(f: &mut FiltroTls, em_handshake: bool, aneis: &mut [crate::heap::Armazenamento; 4], p: &mut [usize; 8]) -> Result<(), (i64, String)> {
+fn processar_aneis(f: &mut FiltroTls, em_handshake: bool, aneis: &mut [&mut [u8]; 4], p: &mut [usize; 8]) -> Result<(), (i64, String)> {
     use std::io::{Read, Write};
     let Some(conexao) = f.conexao.as_mut() else { return Ok(()) };
     for (i, a) in aneis.iter().enumerate() {
@@ -758,25 +761,18 @@ fn processar_aneis(f: &mut FiltroTls, em_handshake: bool, aneis: &mut [crate::he
     Ok(())
 }
 
-/// Tira os bytes de uma lista tipada interna do heap (a lista fica vazia
-/// até [`devolver_bytes_tipados`]).
-fn tomar_bytes_tipados(h: i64) -> crate::heap::Armazenamento {
-    HEAP.with(|heap| {
-        let mut heap = heap.borrow_mut();
-        if !matches!(heap.try_get(h), Some(Value::TypedData { .. })) {
-            return Default::default();
-        }
-        std::mem::take(bytes_de_mut(&mut heap, h))
-    })
-}
-
-fn devolver_bytes_tipados(h: i64, b: crate::heap::Armazenamento) {
-    HEAP.with(|heap| {
-        let mut heap = heap.borrow_mut();
-        if matches!(heap.try_get(h), Some(Value::TypedData { .. })) {
-            *bytes_de_mut(&mut heap, h) = b;
-        }
-    });
+/// Os bytes graváveis da lista tipada `h` (vazio se não é lista tipada
+/// modificável).
+///
+/// # Safety
+/// A lista vive enquanto a fatia é usada, nada aloca no heap nesse tempo, e
+/// não há outra fatia viva dos mesmos bytes.
+unsafe fn bytes_tipados_mut<'a>(h: i64) -> &'a mut [u8] {
+    match HEAP.with(|heap| heap.borrow().tipada(h)) {
+        // SAFETY: pelo contrato desta função.
+        Some(t) if !t.imutavel => unsafe { t.fatia_mut() },
+        _ => &mut [],
+    }
 }
 
 // ---------------------------------------------------------------------------

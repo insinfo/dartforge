@@ -1,9 +1,11 @@
 # SIMD no backend nativo — contrato de desenho
 
-**Estado (2026-09-29): em uso.** `Float32x4`/`Int32x4`/`Float64x2` sem caixa
+**Estado (2026-09-30): em uso.** `Float32x4`/`Int32x4`/`Float64x2` sem caixa
 em locais, operadores, listas SIMD e gravação indexada (§5); a API de
 `Int32x4` do Dart 3.14 por uma extensão marcada (§6); medidas contra o Dart
-AOT 3.6.2 nos benchmarks do dgfx e no rasterizador (§7). Falta: parâmetros e
+AOT 3.6.2 nos benchmarks do dgfx e no rasterizador (§7); laços de listas
+tipadas versionados sem guardas, `--cpu` e a conversão de pistas
+`Int32x4` ↔ `Float32x4` (§8). Falta: parâmetros e
 retornos sem caixa, e o que §7.3 lista. Contrato registrado em 2026-09-23 a
 partir de material trazido pelo proprietário; o que é fato relatado de
 terceiros está marcado como tal.
@@ -375,3 +377,154 @@ estabilidade na HIR; parâmetros e retornos SIMD sem caixa (entrada tipada
 das funções); não especular `dartforge_typed_len`/`_ptr` fora do ramo da
 visão; TBAA (campo × elemento de lista tipada) para tirar a releitura de
 campos dos laços.
+
+## 8. Laços de listas tipadas sem guardas, CPU-alvo e conversão de pistas (2026-09-29)
+
+### 8.1 Versionamento de laço (`lower/comandos.rs`, `laco_de_tipadas`)
+
+Antes, cada `x[i]` de lista tipada tinha o teste de limites e, no caminho
+lento, a caixa do índice (`dartforge_box_int`), o despacho
+(`df.seletor`) e o desencaixe (`dartforge_unbox_int`). Esses caminhos são
+frios, mas são chamadas no corpo do laço: o vetorizador do LLVM recusa o
+laço ("call instruction cannot be vectorized", "more than one early
+exit"), e o endereço e o comprimento das listas não saem do laço de forma
+útil.
+
+Agora um `for (var i = a; i < L; i += p)` contado (J01), crescente e
+estrito, com `L` fixo nas voltas (literal, local `int` que o laço não grava,
+ou `v.length` de lista tipada local), cujo corpo tem acessos `x[i]` a listas
+de `dart:typed_data` (numéricas e SIMD) guardadas em locais que o laço não
+grava, com o tipo declarado do local (não uma promoção), é **versionado**:
+
+* antes das voltas: o endereço e o comprimento de cada lista (pelo
+  cabeçalho, ou `dartforge_typed_len(.., escrita)` numa visão — 0 na não
+  modificável quando o laço grava nela) e a prova `0 <= a && L <= x.length`
+  para todas;
+* provada: as voltas rápidas, em que `x[i]`, `x[i] = v`, `x[i] op= v` e
+  `x.length` usam o que foi lido — carga e gravação diretas, sem teste nem
+  caminho lento. O valor gravado passa pela mesma `GravacaoNativa`
+  (`trunc` para `Int32List`, `Uint8List`…; `fptrunc` para `Float32List`);
+  a aritmética `int` continua de 64 bits com volta;
+* senão: as voltas de sempre (o `RangeError` no índice certo, com as
+  gravações das voltas anteriores feitas).
+
+Por que a prova vale com chamadas no corpo: uma lista tipada não muda de
+tamanho, os bytes moram atrás de um cabeçalho de endereço fixo
+(`heap::CabecalhoTipado`, §9.8 de `NATIVO-PLANO.md`) e o local da lista
+fica enraizado; `i` fica em `a..L ⊆ 0..x.length` e não transborda
+(`L <= 2^60`). O corpo é baixado duas vezes, então só entram corpos sem
+closures, funções locais, laços internos (o de dentro se versiona sozinho),
+rótulos, `try`, `switch`, padrões, coleções literais e `const`
+(`duplicavel`). Funções `async` ficam de fora.
+`DARTFORGE_SEM_VERSIONAR_TIPADAS=1` na compilação desliga (medida; entra
+na chave do SDK). Correção: `corpus/nativo/77_versionamento_listas_tipadas`
+(prova que falha por lista curta, começo negativo, índice além do `Smi` e
+perto de `2^63`; visão com deslocamento e não modificável na mesma função;
+visões sobrepostas com dependência entre voltas e a mesma lista como fonte
+e destino; lista vazia; estouro de 64 bits e truncamento em `Int32List`,
+`Uint8List`, `Int8List`, `Uint16List`, `Float32List`; exceção no meio;
+`break`/`continue`/`return`; passo 2; laço de dentro com `sublistView`;
+contador sombreado no corpo).
+
+### 8.2 `--cpu` (aot e compile-native)
+
+`--cpu x86-64|x86-64-v2|x86-64-v3|x86-64-v4|native`; sem a opção, a base
+de sempre (`x86-64`, SSE2). A CPU vai para o `-march` do Clang e para a
+máquina-alvo do gerador embutido (`crates/llvm`; `native` com os recursos
+detectados), e na produção para a geração de código da LTO
+(`/mllvm:-mcpu=` do `lld-link`, `-plugin-opt=mcpu=` do `ld.lld`,
+`-mllvm -mcpu=` do `ld64.lld`) — é na LTO que o vetorizador roda, para o
+programa e o SDK. O runtime (Rust) e a DLL do SDK de desenvolvimento
+continuam na base. A CPU entra na chave do cache de objeto (`native` com os
+recursos da máquina). O executável só roda em máquinas com a CPU pedida.
+
+### 8.3 Conversão de pistas (`lower/simd.rs`, `conversao_de_pistas`)
+
+A API do Dart 3.6 não converte `Int32x4` ↔ `Float32x4`; o rasterizador faz
+a ida e volta pista a pista. Reconhecidos, com `v`/`r` locais:
+
+* `Float32x4(v.x.toDouble(), v.y.toDouble(), v.z.toDouble(),
+  v.w.toDouble())` → `sitofp <4 x i32>` (`cvtdq2ps`): igual por pista (o
+  `int` de 32 bits é exato em `double`, e o `double` vira `float` com um
+  arredondamento só);
+* `Int32x4(r.x.toInt(), …)` e `Int32x4(r.x.toInt() >> c, …)` (mesmo `c`
+  literal em `0..=31`) → um teste vetorial de que todas as pistas estão em
+  `[-2^31, 2^31)` (`fcmp` ordenado: NaN fica fora) e, se sim, `fptosi`
+  (`cvttps2dq`) + `ashr` (`psrad`); senão, o caminho pista a pista de
+  sempre — o `UnsupportedError` do `toInt()` de NaN/infinito, e fora da
+  faixa a saturação em 64 bits e o truncamento do construtor, como a VM.
+
+Correção: `corpus/nativo/78_simd_conversao_de_pistas` (±0, frações,
+`2147483520`, `±2^31`, `-2147483904`, `1e20`, `3e9`, `±FLT_MAX`, NaN e
+±infinito em cada pista, `>> 8`/`>> 31`, formas que não casam, o blend da
+API 3.6 com pistas fora da faixa no meio das voltas). O programa achou um
+defeito anterior: um local SIMD capturado (sem ser gravado) por uma
+closure ia sem caixa para o ambiente de 64 bits por posição, e o Clang
+recusava o IR; agora vai na caixa (`lower/closures.rs`).
+
+### 8.4 Medido
+
+`bench/simd/bin/blend.dart` (65 536 canais, μs por chamada, o menor de 7
+rodadas × 400 chamadas), Windows x64, `aot --optimize`; o mínimo de 7
+execuções intercaladas dos binários (máquina ruidosa, com builds de outros
+agentes; o Dart AOT deu 75 μs no escalar, contra 70 na medida do README).
+"HEAD" é o binário de `9edf24d3`; "sem versionar" é o de agora com
+`DARTFORGE_SEM_VERSIONAR_TIPADAS=1` (já com §8.3). Saídas iguais em todos
+(checksum `446940672`).
+
+| forma | Dart AOT 3.6.2 | HEAD | sem versionar | agora | `--cpu x86-64-v2` | `--cpu x86-64-v3` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| escalar | 75,3 | 64,0 | 68,5 | 47,4 | 25,3 | 16,0 |
+| SIMD, API 3.6 | 9 831,0 | 85,8 | 29,2 | 26,6 | 26,2 | 26,7 |
+| SIMD, API 3.14 | 20 705,1 | 26,9 | 28,7 | 26,8 | 14,8 | 14,8 |
+
+O que o assembly mostra (IR mantido com `DARTFORGE_KEEP_IR=1`, `clang -x
+ir -O2 -S`, com `-march` para as colunas de CPU):
+
+* `blendSimd314`, base SSE2: as voltas rápidas não têm chamada nem teste
+  de limites — `movdqu`, `pshufd` + `pmuludq` (o `mul` de 32 bits),
+  `paddd`, `psrad $8`, `movdqu` e o contador. Antes havia, dentro do laço,
+  os caminhos com `dartforge_box_int`/`df.seletor`/`dartforge_unbox_int`
+  (frios: o tempo quase não muda, 26,9 → 26,8).
+* `blendSimd36`, base SSE2: `movups`, `cvtdq2ps` (×2), `mulps`, `addps`,
+  `cmpnleps`/`cmpnltps` + `movmskps` (o teste de faixa), `cvttps2dq`,
+  `psrad $8`, `movdqu`; o caminho pista a pista fica num bloco frio. Antes,
+  12 extrações e inserções de pista e 4 `cvttss2si` com os testes de NaN
+  por volta: 85,8 → 26,6 μs, 3,2× mais rápido, e agora no nível da API 3.14.
+* `blendEscalar`, base SSE2: as voltas rápidas são escalares sem chamada
+  (`movslq`, `imulq`, `addq`, `shrq`, `movl`, desenroladas por 2). O
+  vetorizador **recusa pelo custo** ("the cost-model indicates that
+  vectorization is not beneficial"): o produto é de 64 bits (`int` do Dart
+  × elemento estendido), e o SSE2 não tem multiplicação de 64 bits por
+  pista (são 3 `pmuludq` + deslocamentos + somas por par). Forçado
+  (`-force-vector-width=2` na LTO, medido): 58,8 μs, pior que os 47,4
+  escalares — o modelo de custo acerta. Com `--cpu x86-64-v2` o laço
+  vetoriza (`pmovsxdq`, `pmuludq`, `paddq`, `psrlq`), 25,3 μs; com
+  `x86-64-v3`, em `ymm` (`vpmuludq`), 16,0 μs — 4,7× o Dart AOT e mais
+  rápido que o SIMD explícito da API 3.14 na base.
+
+Rasterizador (`raster_simd.dart` de §7, `--sem-iso`, ms por iteração,
+mínimo–máximo de 3 rodadas intercaladas). A máquina estava ~3× mais lenta
+que na medida de §7 (o Dart AOT deu 17,8 ms no B2D v1 escalar, contra 6,7):
+as diferenças abaixo de ~30 % estão dentro do ruído. Imagens iguais em
+todas as colunas.
+
+| variante | Dart AOT 3.6.2 | antes (§7) | sem versionar | agora | `--cpu x86-64-v3` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| B2D v1 escalar | 17,76–19,51 | 17,38–20,85 | 12,42–16,88 | 13,30–14,44 | 9,95–15,80 |
+| B2D v1 SIMD | 542,83–598,43 | 12,79–17,10 | 14,64–17,21 | 13,94–18,09 | 13,37–18,68 |
+| B2D v2 Imm escalar | 6,41–8,13 | 2,47–3,67 | 2,81–3,49 | 2,70–3,05 | 2,71–4,06 |
+| B2D v2 Imm SIMD | 154,22–183,63 | 5,13–7,70 | 6,84–10,16 | 6,34–7,22 | 5,23–7,08 |
+| B2D v2 Batch escalar | 6,76–7,18 | 2,54–3,85 | 2,56–3,14 | 1,93–2,86 | 2,12–2,78 |
+| B2D v2 Batch SIMD | 40,47–46,62 | 2,56–4,26 | 3,25–4,60 | 2,44–3,36 | 2,72–3,83 |
+| SKIA escalar | 5,42–5,83 | 6,38–9,33 | 9,12–10,71 | 6,51–9,12 | 6,85–15,18 |
+| SKIA SIMD | 16,98–19,79 | 29,96–31,88 | 24,59–28,53 | 21,24–32,36 | 20,43–31,46 |
+
+No rasterizador o ganho não se separa do ruído desta máquina: os laços
+quentes dele não são da forma `x[i]` com `x` local (as listas vêm de campos
+e globais, relidas a cada acesso, §7.3), e o SKIA SIMD continua limitado
+pela `List.generate` por linha.
+
+Falta: estender a prova às listas lidas de campo/global (hoje só locais) e
+a índices `i + c`; `List<E>` (N13 já versiona pelo comprimento, mas sem
+tirar as conferências de forma); parâmetros e retornos SIMD sem caixa.

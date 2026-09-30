@@ -574,6 +574,21 @@ ser publicada também é removida: nenhum endereço dela chegou a nenhuma célul
 *Histórico (até 2026-09-27):* nenhuma geração era liberada antes do fim da
 sessão; o custo era linear no número de recargas.
 
+**Sem objetos estáticos nos módulos do programa.** No AOT, cada literal de
+string é um objeto estático do módulo (`@df.s.<chave>`, estado `PERMANENTE`,
+docs/NATIVO-ESPACO-UNIFICADO.md §2.11), que o heap pode referenciar para
+sempre. Um módulo do programa no JIT não pode ter isso: a memória da geração
+é liberada, e um global ou uma lista velha ainda apontaria para ela. Por isso
+o emissor só usa estáticos com `objetos_estaticos` ligado (o AOT e a
+biblioteca do SDK, que fica carregada o processo inteiro); nos módulos do
+programa no JIT o literal é internado no heap (`dartforge_string_new`, com o
+cache no ponto de uso, raiz em `Heap::literais`) e os caches da área são
+esvaziados em cada publicação. As caixas estáticas de `bool`
+(`dartforge_verdadeiro`, `dartforge_falso`) são do runtime, que também vive o
+processo inteiro. Os cids das classes do runtime (1–127) são fixos e iguais em
+toda geração; uma migração de layout (J03) nunca os inclui — o runtime recusa
+um plano com cid < 128 (`seletores.rs`, `dartforge_definir_migracao`).
+
 ### Recarga proporcional à edição (J04)
 
 O emissor escreve o programa inteiro a cada edição, mas a geração nova

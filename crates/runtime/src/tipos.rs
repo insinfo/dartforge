@@ -15,9 +15,10 @@
 // * **regras de supertipo** por classe (o `_Universe.findRule` do dart2js):
 //   para cada classe `C<X…>`, os supertipos dela escritos em `P<i>`;
 //   registradas pelo código gerado na entrada;
-// * o **tipo de cada objeto** genérico mora nos metadados do slot do heap
-//   (`Heap::metadados`, o `metadata_ptr` reservado do cabeçalho); um objeto
-//   sem metadado tem o tipo cru da classe (argumentos `dynamic`).
+// * o **tipo de cada objeto** genérico mora no `metadado` do cabeçalho do
+//   bloco (`layout::Cabecalho`, `id + 1`; docs/NATIVO-ESPACO-UNIFICADO.md
+//   §2.15), para todo objeto do espaço — listas e closures inclusive; um
+//   objeto sem metadado tem o tipo cru da classe (argumentos `dynamic`).
 //
 // A subtipagem segue as regras da especificação (Dart 3, sem tipos legados;
 // "Subtypes", o `_isSubtype` do dart2js), com cache por par.
@@ -126,44 +127,32 @@ fn vaga_da_memoria(a: i64, b: i64, c: i64) -> usize {
 }
 
 /// Uma chave que determina o tipo de `h` em [`tipo_do_valor`] sem o
-/// montar: o tipo reificado gravado no objeto (o metadado, > 0), ou a
-/// espécie do valor (`int` -1, `double` -2, `bool` -3, `String` -4) ou a
-/// classe de um objeto sem metadado (`-16 - classe`). `None` (null, lista
-/// sem metadado, record, …): o tipo sai pelo caminho de sempre.
+/// montar (§2.15): o tipo reificado gravado no objeto (o metadado, > 0), ou,
+/// sem ele, `-16 - cid` — para todo valor: `null` e `Smi` pelos cids 1 e 2,
+/// os demais pelo cid do cabeçalho. Um record posicional sem metadado não
+/// tem chave (o tipo dele sai dos campos). `None` também para o que não é
+/// valor válido.
 fn chave_do_valor(h: i64) -> Option<i64> {
-    if smi::e_smi(h) {
-        return Some(-1);
+    use crate::layout::{DESLOCAMENTO_DO_HANDLE, cid};
+    if h == 0 {
+        return Some(-16 - i64::from(cid::NULL));
     }
-    if !smi::e_handle(h) || h < 0 {
+    if smi::e_smi(h) {
+        return Some(-16 - i64::from(cid::SMI));
+    }
+    if !crate::layout::e_objeto(h) {
         return None;
     }
-    // Um objeto do espaço: o metadado e a classe no cabeçalho, sem o heap
-    // (`heap::Cabecalho`, o handle é o bloco + 2).
-    if crate::heap::e_objeto(h) {
-        // SAFETY: o handle de um objeto vivo (o valor que o código gerado
-        // passou) aponta para o cabeçalho do bloco dele.
-        #[allow(unsafe_code)]
-        let c = unsafe { *((h - crate::heap::DESLOCAMENTO_DO_HANDLE) as *const crate::heap::Cabecalho) };
-        if c.metadado != 0 {
-            return Some(i64::from(c.metadado));
-        }
-        return (c.class_id >= 0).then(|| -16 - i64::from(c.class_id));
+    // O metadado e a classe no cabeçalho, sem o heap (o handle é o bloco + 2;
+    // vale também para os estáticos da imagem).
+    // SAFETY: o handle de um objeto vivo (o valor que o código gerado
+    // passou) aponta para o cabeçalho do bloco dele.
+    #[allow(unsafe_code)]
+    let c = unsafe { *((h - DESLOCAMENTO_DO_HANDLE) as *const crate::layout::Cabecalho) };
+    if c.metadado != 0 {
+        return Some(i64::from(c.metadado));
     }
-    HEAP.with(|heap| {
-        let heap = heap.try_borrow().ok()?;
-        let (meta, valor) = heap.metadado_e_valor(h);
-        if meta != 0 {
-            return Some(meta);
-        }
-        match valor {
-            Value::BoxedInt(_) => Some(-1),
-            Value::BoxedDouble(_) => Some(-2),
-            Value::BoxedBool(_) => Some(-3),
-            Value::String(_) => Some(-4),
-            Value::Objeto => heap.classe_do_objeto(h).filter(|c| *c >= 0).map(|c| -16 - c),
-            _ => None,
-        }
-    })
+    (c.class_id != cid::RECORD).then(|| -16 - i64::from(c.class_id))
 }
 
 thread_local! {
@@ -775,17 +764,24 @@ impl Leitor<'_> {
     }
 }
 
-use crate::heap::{smi, ValueTag};
+// `smi` para todos os fragmentos.
+use crate::heap::smi;
 
-/// O tipo de um valor (`Ref` ou escalar pela tag).
-fn tipo_do_valor(u: &mut Universo, v: TaggedValue) -> i64 {
-    match v.tag {
-        ValueTag::Int => return u.interface(u.rt.int, Vec::new()),
-        ValueTag::Double => return u.interface(u.rt.double, Vec::new()),
-        ValueTag::Bool => return u.interface(u.rt.bool_, Vec::new()),
-        ValueTag::Ref => {}
+/// O tipo de um valor sem caixa ou numa posição `Ref`.
+#[allow(dead_code)]
+fn tipo_do_valor(u: &mut Universo, v: crate::heap::Valor) -> i64 {
+    use crate::heap::Valor;
+    match v {
+        Valor::Int(_) => u.interface(u.rt.int, Vec::new()),
+        Valor::Double(_) => u.interface(u.rt.double, Vec::new()),
+        Valor::Bool(_) => u.interface(u.rt.bool_, Vec::new()),
+        Valor::Ref(r) => tipo_do_ref(u, r),
     }
-    let h = v.bits;
+}
+
+/// O tipo de um `Ref` (null, `Smi` ou objeto), despachado pelo cid (§2.15).
+fn tipo_do_ref(u: &mut Universo, h: i64) -> i64 {
+    use crate::layout::cid;
     if h == 0 {
         return T_NULO;
     }
@@ -795,54 +791,40 @@ fn tipo_do_valor(u: &mut Universo, v: TaggedValue) -> i64 {
     enum Forma {
         Pronto(i64),
         Cru(i64),
-        /// Lista sem tipo gravado (literal de `E` dinâmico, lista do
-        /// runtime): a classe concreta do SDK (`_GrowableList`, `_List`,
-        /// `_ImmutableList`), como na VM — `List` cru não é subtipo de
-        /// `ListBase`, e o `addAll` do SDK converte para ele.
-        Lista,
-        Registro(Vec<TaggedValue>),
+        Registro(Vec<i64>),
     }
     let forma = HEAP.with(|heap| {
         let heap = heap.borrow();
-        let (meta, valor) = heap.metadado_e_valor(h);
-        if meta != 0 {
-            return Forma::Pronto(meta - 1);
+        let c = *heap.cabecalho(h);
+        if c.metadado != 0 {
+            return Forma::Pronto(i64::from(c.metadado) - 1);
         }
-        match valor {
-            Value::BoxedInt(_) => Forma::Cru(u.rt.int),
-            Value::BoxedDouble(_) => Forma::Cru(u.rt.double),
-            Value::BoxedBool(_) => Forma::Cru(u.rt.bool_),
-            Value::String(_) => Forma::Cru(u.rt.string),
-            Value::StringBuffer(_) => Forma::Cru(u.rt.string_buffer),
-            Value::RegExp(_) => Forma::Cru(u.rt.regexp),
-            Value::Match(_) => Forma::Cru(u.rt.matchc),
-            Value::List(_) => Forma::Lista,
-            Value::Map(_) => Forma::Cru(u.rt.map),
-            Value::Set(_) => Forma::Cru(u.rt.set),
-            Value::Closure(_) => Forma::Cru(u.rt.function),
-            Value::Record(campos) => Forma::Registro(campos.clone()),
-            Value::Objeto => Forma::Cru(u.classe_do_heap(heap.classe_do_objeto(h).expect("objeto vivo"))),
-            Value::TypedData { class_id, .. } | Value::TypedView { class_id, .. } => Forma::Cru(u.classe_do_heap(*class_id)),
-            Value::Cell(_) | Value::Environment(_) => Forma::Cru(u.rt.object),
+        match c.class_id {
+            cid::MINT => Forma::Cru(u.rt.int),
+            cid::DOUBLE => Forma::Cru(u.rt.double),
+            cid::BOOL => Forma::Cru(u.rt.bool_),
+            cid::ONE_BYTE_STRING | cid::TWO_BYTE_STRING => Forma::Cru(u.rt.string),
+            cid::CLOSURE => Forma::Cru(u.rt.function),
+            cid::RECORD => Forma::Registro(heap.record(h).map(<[i64]>::to_vec).unwrap_or_default()),
+            // As classes internas do runtime (contexto, célula, acumulador,
+            // programa de `RegExp`) nunca chegam ao programa como valor.
+            cid::CONTEXTO | cid::CELULA | cid::ACUMULADOR_DE_TEXTO | cid::PROGRAMA_DE_REGEXP => Forma::Cru(u.rt.object),
+            // Lista sem tipo gravado (literal de `E` dinâmico, lista do
+            // runtime), lista tipada, objeto: a classe concreta
+            // (`_GrowableList`, `_List`, `_ImmutableList`…), como na VM —
+            // `List` cru não é subtipo de `ListBase`, e o `addAll` do SDK
+            // converte para ele.
+            c => Forma::Cru(u.classe_do_heap(i64::from(c))),
         }
     });
     match forma {
         Forma::Pronto(t) => t,
         Forma::Cru(c) => u.cru(c),
-        Forma::Lista => {
-            let c = cid_do_runtime(h).unwrap_or(u.rt.list);
-            u.cru(c)
-        }
         Forma::Registro(campos) => {
-            let pos = campos.into_iter().map(|c| tipo_do_valor(u, c)).collect();
+            let pos = campos.into_iter().map(|c| tipo_do_ref(u, c)).collect();
             u.internar(Tipo::Registro { pos, nomeados: Vec::new() })
         }
     }
-}
-
-/// O tipo de um `Ref` (null, `Smi`, caixa ou objeto).
-fn tipo_do_ref(u: &mut Universo, r: i64) -> i64 {
-    tipo_do_valor(u, TaggedValue::reference(r))
 }
 
 /// Os natives `_List` e `_GrowableList` recebem a tupla dos argumentos de
@@ -898,46 +880,48 @@ pub(crate) fn lista_aceita_escalar(meta: i64, codigo: i64) -> bool {
 /// `[]=`/`add` do SDK (a covariância confere o valor contra o `E`
 /// reificado), e os 8 bytes dos bits bastam; senão a geral. Só lê o
 /// universo.
-pub(crate) fn forma_da_lista_do_tipo(meta: i64) -> crate::heap::FormaDeLista {
-    use crate::heap::FormaDeLista;
+pub(crate) fn forma_da_lista_do_tipo(meta: i64) -> crate::listas::Elemento {
+    use crate::listas::Elemento;
     RTI.with(|u| {
         let u = u.borrow();
-        let Some(Tipo::Interface(_, args)) = u.tipos.get(meta as usize) else { return FormaDeLista::Geral };
-        let Some(&e) = args.first() else { return FormaDeLista::Geral };
+        let Some(Tipo::Interface(_, args)) = u.tipos.get(meta as usize) else { return Elemento::Geral };
+        let Some(&e) = args.first() else { return Elemento::Geral };
         match u.tipos.get(e as usize) {
             Some(Tipo::Interface(c, a)) if a.is_empty() && *c != 0 => {
                 if *c == u.rt.int {
-                    FormaDeLista::Int
+                    Elemento::Int
                 } else if *c == u.rt.double {
-                    FormaDeLista::Double
+                    Elemento::Double
                 } else if *c == u.rt.bool_ {
-                    FormaDeLista::Bool
+                    Elemento::Bool
                 } else {
-                    FormaDeLista::Geral
+                    Elemento::Geral
                 }
             }
-            _ => FormaDeLista::Geral,
+            _ => Elemento::Geral,
         }
     })
 }
 
 /// Põe a lista `h` na forma do tipo reificado dela (N14,
 /// [`forma_da_lista_do_tipo`]): chamado sempre que o metadado de uma lista
-/// é gravado. Uma lista que ainda não cabe na forma compacta (um elemento
-/// guardado como caixa) fica geral; nada disso é observável.
+/// é gravado. A troca é do armazenamento (`Heap::lista_ajustar_forma`,
+/// `listas.rs`, §2.15), que converte no lugar os elementos que já existem,
+/// sem alocar; uma lista que ainda não cabe na forma compacta fica geral.
+/// Nada disso é observável.
 pub(crate) fn ajustar_forma_da_lista(heap: &mut Heap, h: i64) {
-    use crate::heap::FormaDeLista;
-    if !matches!(heap.try_get(h), Some(Value::List(_))) {
+    if !crate::layout::e_objeto(h) || !heap.e_lista(h) {
         return;
     }
     let meta = heap.metadado(h);
-    let forma = if meta == 0 { FormaDeLista::Geral } else { forma_da_lista_do_tipo(meta - 1) };
-    if let Value::List(e) = heap.get_mut(h) {
-        if forma == FormaDeLista::Geral {
-            e.descompactar();
-        } else {
-            e.compactar(forma);
-        }
+    let forma = if meta == 0 { crate::listas::Elemento::Geral } else { forma_da_lista_do_tipo(meta - 1) };
+    if heap.lista_forma(h) != forma {
+        // A troca pode alocar (as caixas da forma geral, §2.16): a lista
+        // fica enraizada enquanto isso (quem chama nem sempre a enraizou).
+        let quadro = heap.push_frame_with_slots(1);
+        heap.set_root(quadro, 0, h);
+        heap.lista_ajustar_forma(h, forma);
+        heap.pop_frame(quadro);
     }
 }
 
@@ -985,18 +969,6 @@ pub(crate) fn tipo_lista_copiada(origem: i64, classe_concreta: Option<i64>) -> O
 }
 
 // --- ABI do código gerado ------------------------------------------------
-
-/// Registra uma classe do universo: id RTI, nome (`String` do heap) e
-/// número de parâmetros de tipo.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_rti_classe_nome(classe: i64, nome: i64, n_params: i64) {
-    let nome = HEAP.with(|h| h.borrow().texto(nome).para_string());
-    RTI.with(|u| {
-        let mut u = u.borrow_mut();
-        u.classes.insert(classe, (nome, usize::try_from(n_params).unwrap_or(0)));
-        u.esquecer_memorias();
-    });
-}
 
 /// Os registros da RTI do programa numa tabela (`lower/rti.rs`): uma linha
 /// por registro — `C<id> <parâmetros> <nome>` (o nome da classe),
@@ -1098,7 +1070,7 @@ pub extern "C" fn dartforge_rti_classe_do_runtime(forma: i64, classe: i64) {
 /// resultado).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_receita(texto: i64) -> i64 {
-    let unidades = HEAP.with(|h| h.borrow().texto(texto).para_vec());
+    let unidades: Vec<u16> = HEAP.with(|h| h.borrow().texto(texto).map(|t| t.unidades().collect()).unwrap_or_default());
     receita_de_unidades(unidades)
 }
 
@@ -1188,24 +1160,27 @@ pub unsafe extern "C" fn dartforge_rti_avaliar_cache(cache: *mut i64, modelo: i6
     r
 }
 
-/// Grava o tipo de um objeto genérico (nos metadados do slot).
+/// Grava o tipo de um objeto genérico (no `metadado` do cabeçalho).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_definir(obj: i64, tipo: i64) {
-    if !smi::e_handle(obj) {
+    if !crate::layout::e_objeto(obj) {
         return;
     }
     // O lowering dos literais reifica `List<E>`, `Map<K,V>` ou `Set<E>`, mas
     // os objetos pertencem às classes concretas do SDK. Os métodos dessas
     // classes (e de seus mixins) avaliam `P<i>` a partir do receptor.
-    // Um objeto do espaço: a classe e o metadado no cabeçalho do bloco
-    // (`heap::Cabecalho`), sem consultar o heap — como o código gerado lê.
-    let cabecalho = crate::heap::e_objeto(obj).then(|| (obj - crate::heap::DESLOCAMENTO_DO_HANDLE) as *mut crate::heap::Cabecalho);
-    let classe_concreta = match cabecalho {
-        // SAFETY: o handle de um objeto vivo aponta para o cabeçalho dele.
-        #[allow(unsafe_code)]
-        Some(c) => Some(i64::from(unsafe { (*c).class_id })),
-        None => cid_do_runtime(obj),
-    };
+    // A classe e o metadado no cabeçalho do bloco (`layout::Cabecalho`), sem
+    // consultar o heap — como o código gerado lê.
+    let cabecalho = (obj - crate::layout::DESLOCAMENTO_DO_HANDLE) as *mut crate::layout::Cabecalho;
+    // SAFETY: o handle de um objeto vivo aponta para o cabeçalho dele.
+    #[allow(unsafe_code)]
+    let (estado, cid) = unsafe { ((*cabecalho).estado, (*cabecalho).class_id) };
+    // Um estático da imagem (`PERMANENTE`) é só leitura e não tem tipo a
+    // gravar (os literais de string e as caixas de `bool`).
+    if estado == crate::layout::estado::PERMANENTE {
+        return;
+    }
+    let classe_concreta = Some(i64::from(cid));
     let tipo = if let Some(classe) = classe_concreta {
         RTI.with(|u| {
             let mut u = u.borrow_mut();
@@ -1240,21 +1215,16 @@ pub extern "C" fn dartforge_rti_definir(obj: i64, tipo: i64) {
     } else {
         tipo
     };
-    if let Some(c) = cabecalho {
-        // O metadado (`id + 1`) não é referência: sem barreira.
-        // SAFETY: como acima; o cabeçalho é do objeto e só esta thread o grava.
-        #[allow(unsafe_code)]
-        unsafe {
-            (*c).metadado = u32::try_from(tipo + 1).expect("metadado além de 32 bits");
-        }
-        return;
+    // O metadado (`id + 1`) não é referência: sem barreira.
+    // SAFETY: como acima; o cabeçalho é do objeto e só esta thread o grava.
+    #[allow(unsafe_code)]
+    unsafe {
+        (*cabecalho).metadado = u32::try_from(tipo + 1).expect("metadado além de 32 bits");
     }
-    HEAP.with(|h| {
-        let mut h = h.borrow_mut();
-        h.set_metadado(obj, tipo + 1);
-        // Um literal `<int>[…]` (N14): a lista compacta.
-        ajustar_forma_da_lista(&mut h, obj);
-    });
+    // Um literal `<int>[…]` (N14): a lista compacta.
+    if crate::layout::cid::e_lista(cid) {
+        HEAP.with(|h| ajustar_forma_da_lista(&mut h.borrow_mut(), obj));
+    }
 }
 
 /// Grava o tipo estrutural de um record com campos nomeados. Os campos do
@@ -1263,7 +1233,7 @@ pub extern "C" fn dartforge_rti_definir(obj: i64, tipo: i64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_registro_nomeado(obj: i64, npos: i64, nomes: i64) {
     let npos = usize::try_from(npos).expect("número de campos posicionais inválido");
-    let nomes = HEAP.with(|h| h.borrow().texto(nomes).para_string());
+    let nomes = HEAP.with(|h| h.borrow().texto(nomes).map(|t| t.para_string()).unwrap_or_default());
     let campos = HEAP.with(|h| {
         let h = h.borrow();
         h.objeto(obj).expect("record nomeado esperado").to_vec()
@@ -1274,7 +1244,7 @@ pub extern "C" fn dartforge_rti_registro_nomeado(obj: i64, npos: i64, nomes: i64
         let mut u = u.borrow_mut();
         let mut campos: Vec<i64> = campos.into_iter().map(|(bits, is_ref)| {
             assert!(is_ref, "campo de record sem referência");
-            tipo_do_valor(&mut u, TaggedValue::reference(bits))
+            tipo_do_ref(&mut u, bits)
         }).collect();
         let nomeados = nomes.into_iter().zip(campos.drain(npos..)).map(|(n, t)| (n.to_string(), t)).collect();
         u.internar(Tipo::Registro { pos: campos, nomeados })
@@ -1348,7 +1318,7 @@ pub extern "C" fn dartforge_rti_como_em(v: i64, t: i64, contexto: i64, nome: i64
     let sufixo = || match contexto {
         0 => " in type cast".to_string(),
         1 => String::new(),
-        _ => format!(" of '{}'", HEAP.with(|h| h.borrow().texto(nome).para_string())),
+        _ => format!(" of '{}'", HEAP.with(|h| h.borrow().texto(nome).map(|t| t.para_string()).unwrap_or_default())),
     };
     let falha = RTI.with(|u| {
         let mut u = u.borrow_mut();
@@ -1371,7 +1341,7 @@ pub extern "C" fn dartforge_rti_como_em(v: i64, t: i64, contexto: i64, nome: i64
         }
     });
     if let Some(msg) = falha {
-        let m = HEAP.with(|h| h.borrow_mut().allocate(Value::String(Texto::de_str(&msg))));
+        let m = HEAP.with(|h| h.borrow_mut().alocar_str(&msg));
         let e = com_raizes(&[m], || dartforge_type_error_com_mensagem(m));
         com_raizes(&[e], || dartforge_exception_throw(e, 3));
     }
@@ -1409,7 +1379,7 @@ pub extern "C" fn dartforge_rti_objeto_tipo(t: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_texto(t: i64) -> i64 {
     let s = RTI.with(|u| u.borrow().texto(t));
-    HEAP.with(|h| h.borrow_mut().allocate(Value::String(Texto::de_str(&s))))
+    HEAP.with(|h| h.borrow_mut().alocar_str(&s))
 }
 
 /// `TypeError` com a mensagem. No SDK da fonte, a exceção precisa ser a classe

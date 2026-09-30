@@ -54,7 +54,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `Int32x4` ou `Float64x2` não anulável e a função é síncrona (um
     /// quadro assíncrono guarda 64 bits por posição).
     pub(super) fn tipo_simd(&self, ty: Option<TypeId>) -> Option<Type> {
-        if !self.ctx.sdk_da_fonte || self.async_estado.is_some() {
+        if self.async_estado.is_some() {
             return None;
         }
         let T::Interface { class, nullable: false, .. } = self.ctx.table.get(ty?) else {
@@ -421,17 +421,161 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let i = self.lower_expr(ast, *index);
                     // Coagido uma vez: o caminho lento reusa o mesmo valor.
                     let i = if self.operand_type(&i) == Type::Ref { self.coagir(i, Type::I64) } else { i };
-                    if let Some(v) = self.ler_indexado(lista, i, ix, k) {
+                    self.provada_do_acesso = self.provada_de(ast, *target, Some(*index));
+                    let lido = self.ler_indexado(lista, i, ix, k);
+                    self.provada_do_acesso = None;
+                    if let Some(v) = lido {
                         return v;
                     }
                 }
             }
             _ => {}
         }
+        if let Some(v) = self.conversao_de_pistas(ast, e, k) {
+            return v;
+        }
         if let Some(r) = self.receita_simd(ast, e).filter(|r| r.resultado == k) {
             return self.emitir_receita(ast, r);
         }
         let v = self.lower_expr(ast, e);
         self.coagir(v, k)
+    }
+
+    /// A ida e volta pista a pista entre `Int32x4` e `Float32x4` que a API
+    /// do Dart 3.6 obriga (não há conversão numérica entre os dois), como
+    /// conversão vetorial:
+    ///
+    /// * `Float32x4(v.x.toDouble(), v.y.toDouble(), v.z.toDouble(),
+    ///   v.w.toDouble())`, com `v` um local `Int32x4`: `sitofp` — o mesmo
+    ///   valor por pista (o `int` de 32 bits é exato em `double`, e o
+    ///   `double` vira `float` com um arredondamento só, como o `sitofp`);
+    /// * `Int32x4(r.x.toInt(), …)` e `Int32x4(r.x.toInt() >> c, …)` (o mesmo
+    ///   `c` literal em `0..=31`), com `r` um local `Float32x4`: se todas as
+    ///   pistas estão em `[-2^31, 2^31)`, `fptosi` (o `toInt()` trunca, e aí
+    ///   não lança nem satura) e `ashr` por `c` (o `>> c` do `int` de 64 bits
+    ///   de um valor de 32 bits, truncado a 32 bits pelo construtor, é o
+    ///   `ashr` de 32 bits); senão (NaN, infinito, fora da faixa), o caminho
+    ///   pista a pista de sempre, que lança o `UnsupportedError` do `toInt()`
+    ///   ou satura e trunca como a VM.
+    ///
+    /// Os locais são lidos uma vez em vez de quatro (ler um local não tem
+    /// efeito).
+    fn conversao_de_pistas(&mut self, ast: &ast::Ast, e: ExprId, k: Type) -> Option<Operand> {
+        use Type::{V4F32, V4I32};
+        if k != V4F32 && k != V4I32 {
+            return None;
+        }
+        let ExprKind::Call { arguments, .. } = &ast.expr(e).kind else { return None };
+        if !arguments.type_args.is_empty() || arguments.args.len() != 4 || arguments.args.iter().any(|a| a.name.is_some()) {
+            return None;
+        }
+        let Some(Resolved::Constructor(fid)) = self.ctx.get_resolved(self.unit_id, e) else { return None };
+        let f = &self.ctx.program.functions[fid.0 as usize];
+        let c = &self.ctx.program.classes[f.class?.0 as usize];
+        if self.ctx.program.library(c.library).uri != "dart:typed_data" || !self.ctx.symbol_name(f.name).is_empty() {
+            return None;
+        }
+        let esperado = match self.ctx.symbol_name(c.name) {
+            "Float32x4" => V4F32,
+            "Int32x4" => V4I32,
+            _ => return None,
+        };
+        if esperado != k {
+            return None;
+        }
+        let sem_parenteses = |mut x: ExprId| {
+            while let ExprKind::Parenthesized(y) = &ast.expr(x).kind {
+                x = *y;
+            }
+            x
+        };
+        // `origem.<pista i>.<metodo>()`: o símbolo do local `origem`.
+        let pista_convertida = |x: ExprId, i: u8, metodo: &str, origem: Type| -> Option<dartforge_intern::SymbolId> {
+            let ExprKind::Call { target, arguments } = &ast.expr(sem_parenteses(x)).kind else { return None };
+            if !arguments.args.is_empty() || !arguments.type_args.is_empty() {
+                return None;
+            }
+            let ExprKind::Property { target: p, name, null_aware: false } = &ast.expr(*target).kind else { return None };
+            if self.ctx.symbol_name(name.sym) != metodo {
+                return None;
+            }
+            let ExprKind::Property { target: v, name: l, null_aware: false } = &ast.expr(*p).kind else { return None };
+            if pista(self.ctx.symbol_name(l.sym).chars().next()?)? != i || self.ctx.symbol_name(l.sym).len() != 1 {
+                return None;
+            }
+            let ExprKind::Identifier(n) = &ast.expr(*v).kind else { return None };
+            (self.simd_da_expr(*v) == Some(origem) && self.buscar_local(n.sym).is_some()).then_some(n.sym)
+        };
+        let args: Vec<ExprId> = arguments.args.iter().map(|a| a.value).collect();
+        if k == V4F32 {
+            let mut origem = None;
+            for (i, &a) in args.iter().enumerate() {
+                let s = pista_convertida(a, i as u8, "toDouble", V4I32)?;
+                if origem.is_some_and(|o| o != s) {
+                    return None;
+                }
+                origem = Some(s);
+            }
+            let v = sem_parenteses(args[0]);
+            let ExprKind::Call { target, .. } = &ast.expr(v).kind else { return None };
+            let ExprKind::Property { target: p, .. } = &ast.expr(*target).kind else { return None };
+            let ExprKind::Property { target: local, .. } = &ast.expr(*p).kind else { return None };
+            let x = self.lower_simd(ast, *local, V4I32);
+            return Some(self.emit(Instruction::Simd { op: OpSimd::IntParaFloat, args: vec![x] }, V4F32));
+        }
+        // `Int32x4(r.x.toInt() [>> c], …)`.
+        let fonte = self.source();
+        let literal = |x: ExprId| match &ast.expr(sem_parenteses(x)).kind {
+            ExprKind::Int(span) => fonte.get(span.start as usize..span.end as usize)?.replace('_', "").parse::<i64>().ok(),
+            _ => None,
+        };
+        let mut origem = None;
+        let mut deslocamento: Option<Option<i64>> = None;
+        let mut local = None;
+        for (i, &a) in args.iter().enumerate() {
+            let (conv, c) = match &ast.expr(sem_parenteses(a)).kind {
+                ExprKind::Binary { op: BinaryOp::Shr, left, right } => (*left, Some(literal(*right).filter(|c| (0..=31).contains(c))?)),
+                _ => (a, None),
+            };
+            let s = pista_convertida(conv, i as u8, "toInt", V4F32)?;
+            if origem.is_some_and(|o| o != s) || deslocamento.is_some_and(|d| d != c) {
+                return None;
+            }
+            origem = Some(s);
+            deslocamento = Some(c);
+            if local.is_none() {
+                let ExprKind::Call { target, .. } = &ast.expr(sem_parenteses(conv)).kind else { return None };
+                let ExprKind::Property { target: p, .. } = &ast.expr(*target).kind else { return None };
+                let ExprKind::Property { target: l, .. } = &ast.expr(*p).kind else { return None };
+                local = Some(*l);
+            }
+        }
+        let r = self.receita_simd(ast, e)?;
+        let f = self.lower_simd(ast, local?, V4F32);
+        let ok = self.emit(Instruction::Simd { op: OpSimd::NaFaixaInt32, args: vec![f.clone()] }, Type::I1);
+        let rapido = self.new_block();
+        let lento = self.new_block();
+        let juncao = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: ok, then_block: rapido, else_block: lento });
+        self.set_block(rapido);
+        let mut t = self.emit(Instruction::Simd { op: OpSimd::FloatParaInt, args: vec![f] }, V4I32);
+        if let Some(Some(c)) = deslocamento {
+            t = self.emit(Instruction::Simd { op: OpSimd::Desloca(true), args: vec![t, Operand::Constant(Constant::Int(c))] }, V4I32);
+        }
+        let fim_rapido = self.current_block;
+        self.terminate(Terminator::Branch(juncao));
+        self.set_block(lento);
+        let s = self.emitir_receita(ast, r);
+        let fim_lento = self.current_block;
+        let lento_chega = !self.is_terminated();
+        if lento_chega {
+            self.terminate(Terminator::Branch(juncao));
+        }
+        self.set_block(juncao);
+        Some(if lento_chega {
+            self.emit(Instruction::Phi { incoming: vec![(fim_rapido, t), (fim_lento, s)], ty: V4I32 }, V4I32)
+        } else {
+            t
+        })
     }
 }

@@ -143,9 +143,6 @@ pub struct FnBuilder<'a, 'c> {
     /// elemento: os dois locais (handle, cabeçalho) que todos os acessos da
     /// função compartilham (`tipados.rs`, `cabecalho_tipado`).
     pub caches_de_cabecalho: std::collections::HashMap<i64, (Operand, Operand)>,
-    /// Os caches da string relida de campo (`textos.rs`), por valor lido:
-    /// os locais do handle, do endereço das unidades e do comprimento.
-    pub caches_de_texto: std::collections::HashMap<ValueId, (Operand, Operand, Operand)>,
     /// Os valores lidos de uma variável global pelo getter dela
     /// (`membros.rs`, `ler_global`): relidos a cada acesso, como um campo,
     /// então também passam pelo cache de cabeçalho.
@@ -194,6 +191,13 @@ pub struct FnBuilder<'a, 'c> {
     pub listas_fixas: Vec<ListaFixa>,
     /// A lista fixa do acesso indexado em emissão (`tipados.rs`).
     pub fixa_do_acesso: Option<ListaFixa>,
+    /// As listas tipadas das voltas rápidas em emissão
+    /// (`comandos::Contado::Tipadas`): o contador do laço está provado
+    /// dentro dos limites delas, e os dados e o comprimento foram lidos
+    /// antes das voltas.
+    pub tipadas_provadas: Vec<TipadaProvada>,
+    /// A lista tipada provada do acesso indexado em emissão (`tipados.rs`).
+    pub provada_do_acesso: Option<TipadaProvada>,
     /// A classe que declara a função corrente (também num membro
     /// estático): os estáticos dela estão no escopo léxico.
     pub classe_do_membro: Option<dartforge_elements::model::ClassId>,
@@ -317,7 +321,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             sem_diretas: false,
             dados_tipados: None,
             caches_de_cabecalho: std::collections::HashMap::new(),
-            caches_de_texto: std::collections::HashMap::new(),
             lidos_de_global: std::collections::HashSet::new(),
             async_estado: None,
             params_de_tipo_da_funcao: Vec::new(),
@@ -333,6 +336,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             tupla_do_padrao_te: None,
             listas_fixas: Vec::new(),
             fixa_do_acesso: None,
+            tipadas_provadas: Vec::new(),
+            provada_do_acesso: None,
             classe_do_membro: None,
             sitios_de_callback: 0,
             posicao: None,
@@ -1262,8 +1267,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(div_zero_block);
         // SDK da fonte: o `IntegerDivisionByZeroException` do `dart:core`, o
         // que a VM lança (e o que `on IntegerDivisionByZeroException` pega).
-        if self.ctx.sdk_da_fonte
-            && let Some(classe) = self.ctx.classe_do_sdk("core", "IntegerDivisionByZeroException")
+        if let Some(classe) = self.ctx.classe_do_sdk("core", "IntegerDivisionByZeroException")
             && let Some(vazio) = self.ctx.interner.lookup("")
             && let Some(&ctor) = self.ctx.program.classes[classe.0 as usize].constructors.get(&vazio)
         {
@@ -1320,7 +1324,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // outro objeto. O tipo do operando direito não prova que ele seja
         // numérico (`s *= 2`); o despacho dinâmico trata esses casos.
         let (tl, tr) = (self.operand_type(&lop), self.operand_type(&rop));
-        let rop = if tr == Type::Ref && matches!(tl, Type::I64 | Type::F64) {
+        let rop = if tr == Type::Ref && tl == Type::F64 {
+            // `d op= n` com `d` `double` e `n` `num`: o `int` vira `double`
+            // (o `other.toDouble()` dos operadores de `_Double`).
+            self.emit(
+                Instruction::CallRuntime { name: "df.num_para_double".to_string(), args: vec![(rop, Type::Ref)], ret_ty: Type::F64 },
+                Type::F64,
+            )
+        } else if tr == Type::Ref && tl == Type::I64 {
             self.coagir(rop, tl)
         } else {
             rop
@@ -1353,4 +1364,23 @@ pub struct ListaFixa {
     /// comprimento se a lista é modificável, senão 0 — e toda gravação vai
     /// ao `[]=` do SDK).
     pub comprimento_gravavel: Option<Operand>,
+}
+
+/// Uma lista tipada (`dart:typed_data`) das voltas rápidas de um laço
+/// versionado (`comandos::Contado::Tipadas`): antes delas, provou-se que
+/// todo valor do contador fica em `0..comprimento`, e o comprimento e o
+/// endereço dos elementos foram lidos uma vez — fixos enquanto a lista
+/// vive (lista tipada não muda de tamanho, e os bytes moram atrás de um
+/// cabeçalho de endereço fixo, `heap::CabecalhoTipado`).
+#[derive(Debug, Clone)]
+pub struct TipadaProvada {
+    /// O endereço do local da lista (o `alloca` dele).
+    pub chave: Operand,
+    /// O endereço do local do contador do laço.
+    pub contador: Operand,
+    pub dados: Operand,
+    pub comprimento: Operand,
+    /// Provada também para a gravação: o comprimento de uma visão veio de
+    /// `dartforge_typed_len(.., 1)`, que dá 0 para a não modificável.
+    pub escrita: bool,
 }

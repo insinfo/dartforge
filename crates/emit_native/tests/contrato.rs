@@ -29,10 +29,11 @@ fn ir_de(fonte: &str) -> Option<String> {
                 experimentos: Vec::new(),
                 depuracao: false,
                 gerador: None,
+                cpu: None,
             };
-            // O contrato do runtime por nome (sem o SDK da fonte), fixo:
-            // não depende do padrão nem de `DARTFORGE_SDK_DA_FONTE`.
-            emitir_ir_com(&entrada, &options, false)
+            // Com o SDK da fonte (o único modo desde o espaço unificado,
+            // docs/NATIVO-ESPACO-UNIFICADO.md §4.7).
+            emitir_ir_com(&entrada, &options)
                 .unwrap_or_else(|e| panic!("não compilou:\n{e}"))
                 .texto
         })
@@ -57,8 +58,8 @@ fn ir_de_fonte(fonte: &str) -> Option<String> {
     let entrada = dir.path().join("main.dart");
     std::fs::write(&entrada, fonte).unwrap();
     Some(std::thread::Builder::new().stack_size(64 << 20).spawn(move || {
-        let options = CompileOptions { sdk: Some(Path::new(&sdk)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None };
-        emitir_ir_com(&entrada, &options, true).unwrap_or_else(|e| panic!("não compilou:\n{e}")).texto
+        let options = CompileOptions { sdk: Some(Path::new(&sdk)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
+        emitir_ir_com(&entrada, &options).unwrap_or_else(|e| panic!("não compilou:\n{e}")).texto
     }).unwrap().join().unwrap())
 }
 
@@ -102,8 +103,9 @@ fn aridade_closure_lanca_no_such_method_error_da_fonte() {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
             optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
             gerador: None,
+            cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
+        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -129,8 +131,9 @@ fn getter_estatico_que_retorna_funcao_e_chamado_como_valor() {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
             optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
             gerador: None,
+            cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
+        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -157,8 +160,9 @@ fn factory_redirecionadora_preserva_rti_do_destino() {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
             optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
             gerador: None,
+            cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
+        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -185,8 +189,9 @@ fn getter_de_interface_despacha_campo_e_getter() {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
             optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
             gerador: None,
+            cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
+        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -213,8 +218,9 @@ fn escrita_covariante_em_colecoes_lanca_type_error_sem_mutar() {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
             optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
             gerador: None,
+            cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
+        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -241,8 +247,9 @@ fn argumento_dinamico_errado_do_sdk_lanca_type_error() {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
             optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
             gerador: None,
+            cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
+        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -268,8 +275,9 @@ fn iterable_generate_testa_assinatura_generica_no_sdk() {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
             optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
             gerador: None,
+            cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
+        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -316,8 +324,9 @@ fn enum_name_index_implicito_no_sdk() {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
             optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
             gerador: None,
+            cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
+        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -358,8 +367,9 @@ fn enum_values_implicito_no_sdk() {    let sdk = std::env::var("DARTFORGE_TEST_S
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
             optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
             gerador: None,
+            cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
+        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -387,8 +397,9 @@ fn classe_generica_tostring_padrao_no_sdk() {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
             optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
             gerador: None,
+            cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
+        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -430,8 +441,9 @@ fn nsm_encaminhador_metodo_no_sdk() {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
             optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
             gerador: None,
+            cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
+        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -472,8 +484,9 @@ fn nsm_encaminhador_getter_no_sdk() {
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
             optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
             gerador: None,
+            cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
+        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -499,8 +512,9 @@ fn enum_e_subtipo_de_enum_no_sdk() {    let sdk = std::env::var("DARTFORGE_TEST_
             sdk: Some(Path::new(&sdk)), packages: None, timings: false,
             optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false,
             gerador: None,
+            cpu: None,
         };
-        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options, true)
+        dartforge_emit_native::compilar_com(&entrada, &exe_para_thread, &options)
             .unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     }).unwrap().join().unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
@@ -533,7 +547,6 @@ fn for_com_variavel_reatribuida_le_o_local() {
     };
     assert!(main.matches("= phi i64").count() >= 2, "a volta do laço e o `if` juntam o valor do local:\n{main}");
     assert!(main.contains("add i64 0, 7"), "o `i = 7` chega ao `phi`:\n{main}");
-    assert!(main.contains("@dartforge_print_i64(i64 %v"), "{main}");
 }
 
 /// (2) `c.dobro()`: chamada do método pelo elemento resolvido (N1) — antes
@@ -548,11 +561,11 @@ fn chamada_de_metodo_com_retorno() {
     // O método (e o objeto, que não escapa) some pelo otimizador da HIR:
     // sobra `v * 2` com o `v` do construtor.
     assert!(main.contains(".dobro(i64") || main.contains("mul i64"), "{main}");
-    assert!(!main.contains("@dartforge_print_i64(i64 0)"), "{main}");
 }
 
-/// (3) `print(soma(40, 2))` com retorno `int`: o resultado é `I64` (R1) e sai
-/// por `print_i64` — antes ia a `print_handle` como se fosse handle.
+/// (3) `print(soma(40, 2))` com retorno `int`: o resultado é `I64` (R1), e o
+/// `print` do SDK o recebe numa posição `Ref` — antes ia a `print_handle`
+/// como se fosse handle.
 #[test]
 fn funcao_de_topo_com_retorno_int_imprime_o_escalar() {
     let Some(main) =
@@ -562,6 +575,5 @@ fn funcao_de_topo_com_retorno_int_imprime_o_escalar() {
     };
     // A chamada, ou o corpo dela embutido pelo otimizador da HIR.
     assert!(main.contains("= call i64 @df.") || main.contains("add i64 %v"), "{main}");
-    assert!(main.contains("@dartforge_print_i64(i64 %v"), "{main}");
     assert!(!main.contains("@dartforge_print_handle"), "{main}");
 }

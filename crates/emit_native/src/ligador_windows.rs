@@ -828,6 +828,9 @@ pub struct Ligacao<'a> {
     pub entradas: Vec<PathBuf>,
     /// LTO dos bitcodes de entrada (produção), em partições.
     pub lto: bool,
+    /// A CPU-alvo da geração de código da LTO (`--cpu`, o nome do LLVM);
+    /// `None`, a base.
+    pub cpu: Option<&'static str>,
     /// Tirar as seções que nada alcança (`/OPT:REF`, produção).
     pub podar: bool,
     /// O PDB com as tabelas CodeView dos objetos (J05, `/DEBUG`).
@@ -853,9 +856,14 @@ pub fn argumentos(sysroot: &SysrootWindows, l: &Ligacao<'_>) -> Vec<std::ffi::Os
     for s in ["/nologo", "/lldignoreenv", "/nodefaultlib", "/machine:x64", "/subsystem:console", "/include:_tls_used"] {
         a.push(s.into());
     }
-    // Sem ICF em nenhum perfil: o tear-off de função de topo se compara pelo
-    // endereço (`left == right`, corpus/js 147 e 184).
-    a.push("/opt:noicf".into());
+    // O tear-off de função de topo se compara pelo endereço (`left == right`,
+    // corpus/js 147 e 184, corpus/nativo 80): o ICF completo juntaria duas
+    // funções de corpo idêntico e o `==` dos tear-offs daria `true`. Na
+    // produção, o ICF seguro (`/opt:safeicf`) só junta as funções cujo
+    // endereço ninguém toma (a tabela `.llvm_addrsig` do objeto; um objeto
+    // sem ela, como os do Rust, conta inteiro como tomado); no
+    // desenvolvimento, nenhum (a ligação rápida).
+    a.push(if l.podar { "/opt:safeicf" } else { "/opt:noicf" }.into());
     let crt_comum = sysroot.dir.join("dfcrt_comum.obj");
     match &l.produto {
         Produto::Executavel => {
@@ -880,6 +888,11 @@ pub fn argumentos(sysroot: &SysrootWindows, l: &Ligacao<'_>) -> Vec<std::ffi::Os
         let particoes = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, 16);
         a.push("/opt:lldlto=2".into());
         a.push(format!("/opt:lldltopartitions={particoes}").into());
+        // A CPU-alvo da geração de código da LTO (`--cpu`): a opção
+        // `-mcpu` do LLVM, que o `lld` lê para a LTO (`native` é detectada).
+        if let Some(c) = l.cpu {
+            a.push(format!("/mllvm:-mcpu={c}").into());
+        }
     }
     if l.depuracao {
         a.push("/debug".into());
@@ -1066,7 +1079,7 @@ int main(void) {
             ligar(
                 &lld_link(&clang),
                 &sysroot,
-                &Ligacao { produto: Produto::Executavel, entradas, lto: false, podar: true, depuracao: true, saida },
+                &Ligacao { produto: Produto::Executavel, entradas, lto: false, cpu: None, podar: true, depuracao: true, saida },
             )
             .unwrap();
         };
@@ -1084,7 +1097,7 @@ int df_valor(void) { static int registrado; if (!registrado) { registrado = 1; a
         ligar(
             &lld_link(&clang),
             &sysroot,
-            &Ligacao { produto: Produto::Dll { def: &def }, entradas: vec![dll_obj], lto: false, podar: false, depuracao: false, saida: &d.join("b.dll") },
+            &Ligacao { produto: Produto::Dll { def: &def }, entradas: vec![dll_obj], lto: false, cpu: None, podar: false, depuracao: false, saida: &d.join("b.dll") },
         )
         .unwrap();
         assert!(d.join("b.lib").is_file(), "a biblioteca de importação da DLL");

@@ -127,7 +127,7 @@ pub extern "C" fn dartforge_nativo_DateTime_timeZoneOffsetInSeconds(segundos: i6
 /// `DateTime_timeZoneName`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DateTime_timeZoneName(segundos: i64) -> i64 {
-    alocar_str(&fuso_local(segundos).1)
+    HEAP.with(|h| h.borrow_mut().alocar_str(&fuso_local(segundos).1))
 }
 
 /// Entropia do sistema: o `RandomState` do Rust é semeado pelo gerador
@@ -159,4 +159,98 @@ pub extern "C" fn dartforge_nativo_SecureRandom_getBytes(n: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Uri_isWindowsPlatform() -> u8 {
     u8::from(cfg!(windows))
+}
+
+// ---------------------------------------------------------------------------
+// `Object` e as referências fracas (recebidos de `nativos_listas.rs`,
+// docs/NATIVO-ESPACO-UNIFICADO.md §4.9). O hash de identidade
+// (`Object_getHash`) fica com as caixas (P2).
+
+/// `Object.==` (`Object_equals`): identidade.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Object_equals(this: i64, outro: i64) -> u8 {
+    dartforge_identical(this, outro)
+}
+
+/// `Object.toString()` (`Object_toString`): `Instance of 'Classe'`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Object_toString(this: i64) -> i64 {
+    // O `Object_toString` da VM também escreve os números (o `_Mint` e o
+    // `_Double` não têm `toString` próprio na fonte): pelo cid, sem desencaixar
+    // o que não é número.
+    let (inteiro, real) = HEAP.with(|h| {
+        let h = h.borrow();
+        (h.int_de(this), h.double_de(this))
+    });
+    if let Some(i) = inteiro {
+        return dartforge_to_string_i64(i);
+    }
+    if let Some(d) = real {
+        return dartforge_nativo_Double_toString(d);
+    }
+    if let Some(t) = texto_simd(this) {
+        return HEAP.with(|h| h.borrow_mut().alocar_str(&t));
+    }
+    let cid = dartforge_value_class(this);
+    // Genérica com argumentos reificados: o nome inclui os argumentos
+    // (`Instance of 'Caixa<int>'`), como a VM; sem argumentos, o nome
+    // registrado da classe.
+    let nome = texto_com_argumentos(this)
+        .unwrap_or_else(|| CLASS_NAMES.with(|m| m.borrow().get(&cid).cloned()).unwrap_or_default());
+    HEAP.with(|h| h.borrow_mut().alocar_str(&format!("Instance of '{nome}'")))
+}
+
+/// `Object._haveSameRuntimeType(a, b)`: a mesma classe (os argumentos de
+/// tipo ficam para a RTI).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Object_haveSameRuntimeType(a: i64, b: i64) -> u8 {
+    u8::from(dartforge_value_class(a) == dartforge_value_class(b))
+}
+
+/// `Object.runtimeType`: usa o universo RTI, inclusive argumentos de tipo
+/// reificados, e devolve o objeto `Type` canônico do isolado.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_Object_runtimeType(this: i64) -> i64 {
+    dartforge_rti_objeto_tipo(dartforge_rti_do_valor(this))
+}
+
+// Referências fracas e efêmeros (`WeakReference`, `Expando`): o estado mora
+// nas tabelas `fracas`/`efemeros` do heap, por handle, que a coleta purga
+// pelo bit de marca (`heap.rs`).
+
+/// `WeakReference.target` (`WeakReference_getTarget`): o alvo, ou null se
+/// foi coletado.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_WeakReference_getTarget(this: i64) -> i64 {
+    HEAP.with(|h| h.borrow().fracas.get(&this).copied().unwrap_or(0))
+}
+
+/// `_WeakReference._target =` (`WeakReference_setTarget`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_WeakReference_setTarget(this: i64, alvo: i64) {
+    HEAP.with(|h| h.borrow_mut().fracas.insert(this, alvo));
+}
+
+/// `_WeakProperty.key` (`WeakProperty_getKey`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_WeakProperty_getKey(this: i64) -> i64 {
+    HEAP.with(|h| h.borrow().efemeros.get(&this).map_or(0, |p| p.0))
+}
+
+/// `_WeakProperty.key =` (`WeakProperty_setKey`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_WeakProperty_setKey(this: i64, chave: i64) {
+    HEAP.with(|h| h.borrow_mut().efemeros.entry(this).or_insert((0, 0)).0 = chave);
+}
+
+/// `_WeakProperty.value` (`WeakProperty_getValue`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_WeakProperty_getValue(this: i64) -> i64 {
+    HEAP.with(|h| h.borrow().efemeros.get(&this).map_or(0, |p| p.1))
+}
+
+/// `_WeakProperty.value =` (`WeakProperty_setValue`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_nativo_WeakProperty_setValue(this: i64, valor: i64) {
+    HEAP.with(|h| h.borrow_mut().efemeros.entry(this).or_insert((0, 0)).1 = valor);
 }

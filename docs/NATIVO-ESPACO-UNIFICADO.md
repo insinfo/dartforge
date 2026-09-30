@@ -1584,6 +1584,475 @@ Ordem:
 P3 apaga as funções de `nativos_listas.rs`; o destino as recria com o mesmo símbolo (o `build.rs`
 recusa símbolo duplicado, `crates/runtime/build.rs` "define algum símbolo duas vezes").
 
+### 4.10 Registro de mudanças do contrato (P0a, 2026-09-30)
+
+O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
+
+1. **Nomes velhos com sufixo `_velho`.** Sete métodos da API velha tinham o nome que §3.3 dá a
+   um método novo com outra assinatura, e um tipo não pode ter os dois: `Heap::texto`,
+   `hash_de_texto`, `string_literal` (P1) e `caixa_int`, `caixa_bool`, `como_ref`, `tearoff`
+   (P2) viraram `texto_velho`, `hash_de_texto_velho`, `string_literal_velho`, `caixa_int_velho`,
+   `caixa_bool_velho`, `como_ref_velho`, `tearoff_velho`, com as chamadas dos fragmentos
+   trocadas (mecânico, 54 pontos). Somem no corte. Os nomes sem sufixo são os de `textos.rs` e
+   `caixas.rs`.
+2. **`e_objeto`** mora em `layout` e é `h & (7 | i64::MIN) == 2` (o texto de §2.2 diz `& 3`; os
+   dois coincidem em todo handle válido, porque os blocos são alinhados a 8 e os handles de slot
+   são múltiplos de 4). `heap.rs` reexporta de `layout` `Cabecalho`, `Ref`, `e_objeto`, `smi`,
+   `palavras_do_mapa`, `capacidade`, `PAGINA`, `CABECA_DA_PAGINA`, `DESLOCAMENTO_DO_HANDLE`,
+   `MAIOR_CLASSE`, `TLAB_N`, `CAMPOS_EM_LINHA`; `LIVRE`/`JOVEM`/`VELHO`/`LEMBRADO`/`FORA` são
+   apelidos das de `layout`, e `MARCADO` (2) fica enquanto o coletor de hoje o usar.
+3. **`novo_objeto`** continua com `class_id: i64` até o corte (os chamadores passam `i64`);
+   `hash_de_identidade` passou a `&self` (compatível). `alocar_instancia`, `cabecalho`,
+   `classe` (objeto, null e `Smi`), `e_objeto_vivo` e `lembrar` já funcionam sobre o espaço de
+   hoje; o resto de §3.2 é `todo!("P0b")`.
+4. **`layout` a mais que §3.1:** `cid::INTERNA` (a biblioteca `""` das classes internas do
+   runtime em `DO_SDK`; as do SDK usam a URI, `dart:core`, a chave da numeração estável),
+   `cid::TIPOS_DE_ELEMENTO` e os predicados por faixa de §2.4 (`cid::e_texto`, `e_lista_fixa`,
+   `e_lista`, `e_tipada_interna`, `e_tipada`, `e_visao_imutavel`, `e_simd`),
+   `palavras_de_cartoes`, `bytes_do_bloco` e `contexto::tlab_cursor(w)`/`tlab_fim(w)`.
+5. **Emissor: os corpos não são `todo!()`.** Os arquivos `llvm/textos_ir.rs`, `caixas_ir.rs`,
+   `listas_ir.rs` e `tipados_ir.rs` receberam o código de hoje dos braços, movido sem mudança: o IR
+   gerado é o mesmo até cada pacote trocar o seu. Os métodos: `emitir_const_string`,
+   `emitir_juntar_textos`, `buffer_de_juntar_textos`, `emitir_globais_de_texto` (gancho no fim do
+   módulo para os literais estáticos) (P1); `emitir_caixa`, `emitir_descaixa`, `emitir_alloc_cell`,
+   `emitir_cell_get`, `emitir_cell_set`, `emitir_alloc_env`, `buffer_de_ambiente`,
+   `emitir_env_get`, `emitir_alloc_closure`, `emitir_alloc_closure_tipada`, `emitir_tearoff`,
+   `emitir_alloc_record`, `buffer_de_record` (P2); `emitir_alloc_list`, `buffer_de_lista` (P3);
+   `emitir_caixa_simd`, `emitir_descaixa_simd` (P4). Os `buffer_*` são os `alloca` do bloco de
+   entrada (`emit_buffers_de_closure`), que dependem da ABI de cada braço. Cada arquivo define um
+   `Estado*` (`#[derive(Default)]`) guardado no `LlvmEmitter` (`self.textos`, `self.caixas`,
+   `self.listas`, `self.tipados`), para o pacote ter estado por módulo sem editar `llvm/mod.rs`.
+   O `LlvmEmitter` ganhou `objetos_estaticos` e `com_objetos_estaticos(bool)` (o driver liga na
+   P0b). Os ganchos do lowering: `lower/listas.rs::lista_em_linha`,
+   `lower/tipados.rs::tipada_em_linha`, `lower/caixas.rs::caixa_em_linha`, com a assinatura de
+   `texto_em_linha` (`membro`, `native`, `this`, `args`).
+6. **Externs novas com esqueleto no runtime.** O teste `cada_extern_do_emissor_existe_no_runtime`
+   (`crates/jit/tests/execucao.rs`) exige cada extern declarada no runtime; os esqueletos
+   (`todo!`) estão nos arquivos dos donos: `dartforge_alocar` (`gc_raizes.rs`, P0),
+   `dartforge_texto_novo`/`_texto_hash`/`_texto_iguais` (`nativos_strings.rs`, P1),
+   `dartforge_lista_nova`/`_lista_acrescentar` (`nativos_listas.rs`, P3),
+   `dartforge_record_novo` (`nucleo.rs`, P2). `@dartforge_falso`/`@dartforge_verdadeiro` não são
+   funções: ficam em `externs::GLOBAIS`, impressas no prelúdio.
+7. **`ClassID_getID`** passou a `Embutido` no catálogo: `CallRuntime dartforge_value_class`, que o
+   emissor já troca por `@df.classe`. O native do runtime fica até a P2 movê-lo (§4.9).
+   `nativos::no_espaco_unificado(nome) -> Option<(Pacote, bool)>` codifica a tabela §3.8 (o
+   pacote e se vira em linha).
+8. **Numeração:** as classes do programa também começam em 128 quando não há SDK compilado.
+   `sdk_modulo::cids_do_runtime` não mudou (a tabela de 32 posições ainda alimenta o runtime
+   velho; com a numeração nova ela já dá os cids fixos).
+9. **Problemas abertos para a P0b:** (a) os estáticos de `bool` existem em cada cópia do runtime
+   (a `staticlib` do executável e a da DLL do SDK); a identidade de `true` exige que o código
+   da DLL use os do executável (ou o contrário); (b) o JIT publica só funções
+   (`simbolos::tabela`): os dados `dartforge_falso`/`_verdadeiro` precisam entrar na tabela;
+   (c) a seção da imagem (`.dfimg`) dos estáticos.
+
+**P2 (2026-09-30):**
+
+10. **Tear-off canônico:** a P0 acrescentou `Heap::tearoff_registrado(codigo) -> Option<Ref>` e
+    `Heap::registrar_tearoff(codigo, h)` (as tabelas `tearoffs`/`codigo_do_tearoff`/`permanentes`
+    são privadas); `caixas.rs::tearoff` usa os dois.
+11. **Leitura de `_Closure` e `_Record` no lowering:** `lower/closures.rs`, `lower/registros.rs`
+    e `lower/caixas.rs` leem os campos pela `CallRuntime dartforge_object_get(h, i)` com `i`
+    constante, que o emissor expande em linha como a palavra `b+16+8i` (zeros para null/`Smi`).
+    A P0 mantém essa expansão sem conferir `FORMA` (vale também para a `_Record` `REFS`: `i = 0`
+    é o número de campos, `i = k` o campo `k`). A chamada tipada confere `@df.classe == 11` antes
+    de ler a ABI (só o bloco de `_Closure` tem os quatro campos).
+12. **`AllocEnv` vazio é null** (sem alocar): quem não captura nada nunca lê o contexto. Quem lê
+    um contexto no runtime (`dartforge_encaminhar_nsm`, P5) usa `Heap::captura(h, i)` só para
+    `i` menor que o número de valores gravados.
+13. **Record posicional:** `registros.rs::lower_registro_posicional(ast, positional)` encaixota
+    os elementos em HIR (`Box`) e emite `AllocRecord` só com `Ref` (tag 3); pedido à P5 que o
+    braço `ExprKind::Record` posicional de `expressoes.rs` o chame. Enquanto um elemento chegar
+    sem caixa, o emissor usa o caminho lento `dartforge_record_new` (pares), que encaixota no
+    runtime com as raízes certas: a extern fica declarada.
+14. **Ajudantes da P2 no prelúdio:** `@df.caixa_int`, `@df.desencaixa_int`, `@df.caixa_double`,
+    `@df.desencaixa_double`, `@df.caixa_bool`, `@df.desencaixa_bool`, `@df.identico`
+    (`caixas_ir::AJUDANTES`, com `EFEITOS_DOS_AJUDANTES`). Usam `@df.alocar(cabeçalho, w)` e,
+    em `CellSet` de `Ref`, `@df.barreira(o, v)` (P0). `@df.env_ref` não existe mais: o `EnvGet`
+    lê a palavra `h+14+8i` na representação gravada.
+15. **`caixa_em_linha`:** `Identical_comparison` por `CallRuntime df.identico` (I1),
+    `DartForge_int_hashCode` (o próprio `i64`) e `DartForge_double_bits` (`Bitcast`). Os
+    `DartForge_record_*` ficam no runtime: o receptor pode ser um record com forma (objeto do
+    programa), e o native confere a classe.
+16. **`sdk_nativo/core/function.dart`:** os campos do `_Closure` da VM saem; entram
+    `int _codigo`, `Object? _contexto`, `int _tipado`, `int _abi` na ordem do bloco (só para a
+    classe descrever o layout). `==` e `hashCode` continuam natives (`Closure_equals`,
+    `Closure_computeHash`, em `nucleo.rs`): precisam do receptor guardado no `_Contexto`.
+17. **`dartforge_value_class`** devolve o cid do layout (1 para null, 2 para `Smi`), não mais
+    os negativos de antes (−12, −9…); quem os comparava no runtime (P5) passa ao cid.
+18. **As funções de `Heap` da P2 que alocam enraízam elas mesmas os `Ref` recebidos**
+    (`nova_celula`, `novo_contexto`, `nova_closure`, `novo_record`): quem chama só enraíza o
+    resultado.
+19. **Natives movidos (regra atômica de §4.9):** os de §4.9 da P2 e também `Object_getHash`
+    (para `nucleo.rs`: `int` → o valor, `bool` → 1231/1237, null → 2011, `String` → o hash do
+    conteúdo, o resto → `hash_de_identidade`) e `DartForge_verdadeiro` (`has63BitSmis`, para
+    `nativos_numeros.rs`). O teste `testes_modulo_double` foi junto.
+20. **`EXCEPTION` em `finalizar_programa`** (`nucleo.rs`) ainda lê o par `(bits, tag)` por
+    `untag`: muda no corte, junto com o tipo da `EXCEPTION` (P5: `TaggedValue` → `Valor`).
+    `tagged`/`untag`/`valor_como_ref` ficam em `nucleo.rs` até lá (os usam `excecoes.rs` e
+    `colecoes.rs`).
+
+19. **P4 — ajudantes do prelúdio** (`llvm/tipados_ir.rs`, com `EFEITOS_DOS_AJUDANTES`, todos
+    sem alocar nem lançar, menos `@df.simd_caixa`): `@df.tipada_len`, `@df.tipada_dados`
+    (devolve `i64`, não `ptr`: o lowering soma e indexa em HIR), `@df.tipada_cid`,
+    `@df.tipada_len_gravavel(t, cid_imutável)` (0 na visão não modificável), `@df.tipada_bytes`,
+    `@df.tipada_base`, `@df.tipada_deslocamento` (cargas com `!invariant.load`: nada disso muda
+    enquanto a lista vive); `@df.nucleo_len` (0 se o cid não é 8–10), `@df.nucleo_armazenamento`,
+    `@df.nucleo_forma` (`flags & 0x66` do armazenamento), `@df.nucleo_len_gravavel(l, forma)`
+    (cid 8 ou 10 e forma igual), `@df.palavra_ref(e, i)` (carga de um `Ref` que o emissor
+    enraíza, porque o resultado da `CallRuntime` é `Ref`); `@df.simd_caixa(<2 x i64>, cid)` por
+    `@df.alocar`. Os `@df.nucleo_*` leem o bloco pelos deslocamentos do contrato em vez de
+    chamar os `@df.lista_*` da P3 (sem dependência de ordem; mesma semântica). A descaixa SIMD
+    lê `h+14` sem `!invariant.load` (a caixa pode ter sido gravada na mesma função).
+20. **P4 — forma no lowering:** `lower/tipados.rs::codigo_da_forma` passa a devolver o `flags`
+    do armazenamento (`REFS` 0x04, `BRUTO|ELEMENTO_*` 0x22/0x42/0x62), e `ListaFixa::forma`
+    (N13) guarda esse código; `ListaFixa::dados` é o endereço do elemento 0 (`a+22`). Ganchos
+    novos `pub(super)` para quem lê listas do núcleo (o for-in de `sdk_fonte.rs`):
+    `comprimento_do_nucleo`, `armazenamento_da_lista`, `comprimento_gravavel_do_nucleo`,
+    `ler_elemento_da_lista` (mesma assinatura). Gravação direta de `Ref` em lista geral (com
+    `@df.barreira_elemento`) não foi feita: só escalares em forma compacta são gravados em linha,
+    como antes.
+21. **P4 — runtime:** `typed_data.rs::resolver` devolve `Option<TipadaRef>`; `bytes_de`/
+    `bytes_de_mut` saem (usar `Heap::tipada`/`bytes_da_tipada[_mut]`). `TIPO_*` e
+    `tamanho_do_elemento` ficam, agora apelidos de `tipadas::tipo`/`tipadas::tamanho_do_elemento`
+    (há também `tipadas::tipo_do_cid` e `cid_da_visao`). `TipadaRef::fatia`/`fatia_mut`
+    (`unsafe`) dão os bytes sem o empréstimo do heap (TLS, FFI). Auxiliares de fragmento em
+    `io_arquivos.rs`: `dart_lista_fixa(&[Ref])` (`nova_lista(LIST, n, Geral)` + `gravar_refs`),
+    `bytes_de_lista_de_valores(&Heap, h)`, `dart_tipada_de_bytes(tipo, &[u8])`. Saem do runtime
+    `dartforge_typed_cabecalho`, `_typed_cabecalho_na_falha` e `dartforge_simd_caixa` (o código
+    gerado não os emite mais); `dartforge_typed_len`/`_typed_ptr` ficam (caminho do
+    `fillRange`), sem emissão. **Pedidos:** à P0, tirar essas três declarações de `externs.rs` e
+    o caso especial `dartforge_typed_cabecalho`/`cabecalhos_invariantes` de `llvm/mod.rs`, e
+    consultar `tipados_ir::EFEITOS_DOS_AJUDANTES` em `efeitos_de`; à P3, trocar `resolver`/
+    `bytes_de` em `nativos_listas.rs` (`codigos_da_lista`); à P5, tirar `dartforge_typed_len`/
+    `_ptr`/`_cabecalho` de `otimizar/simplificar.rs` e tratar os `df.*` sem efeito como puros.
+22. **P4 — `tipada_em_linha`:** em linha `TypedDataBase_length`, `TypedDataView_offsetInBytes`,
+    `TypedDataView_typedData`, o `[]` reconhecido das listas numéricas e visões e
+    `_TypedList._getX`/`_setX` numéricos, com o runtime como caminho lento; SIMD, `_memMove*` e
+    `setClampedRange` ficam no runtime. Os natives de `_List`/`_GrowableList` (§3.8, linha
+    "P4 (em linha)") ficam com a P3 (`lista_em_linha`, §4.5 passo 5).
+
+**P3 (2026-09-30):**
+
+23. **`listas.rs` além de §3.3:** `Elemento::{flags, de_flags, codigo, do_codigo}` (o código de
+    ABI é a ordem das variantes: 0 geral, 1 `int`, 2 `double`, 3 `bool`), `ElementosRef::{len,
+    is_empty, get}`, `Heap::lista_de_refs(cid, &[Ref])` (lista fixa geral recém-alocada) e
+    `Heap::lista_preencher(h, Valor)` (o `List.filled`: o mesmo objeto em toda posição).
+    `lista_dados(h)` devolve o próprio `h` numa `_List`/`_ImmutableList` (como
+    `@df.lista_armazenamento`). A `_List` compacta reserva as palavras de cartões como a geral
+    (descompactar no lugar precisa delas), e a grande nasce com `CARTOES` em qualquer forma.
+    Todo método que aloca enraíza o que segura entre duas alocações (inclusive o `v` de
+    `lista_push` durante o crescimento); o resultado é de quem chama.
+24. **Null numa lista compacta.** `lista_ajustar_forma(h, compacta)` aceita null dentro do
+    comprimento (vira 0/0.0/false): é chamado depois de o `E` escalar não anulável ser gravado, e
+    o null só existe antes de o SDK preencher (`List<int>.filled`, `_GrowableList<int>(n)`).
+    `lista_set` de null numa compacta com metadado ≠ 0 grava zero (o `length =` que encolhe
+    limpa as posições cortadas por `_setIndexed(i, null)`); sem metadado, descompacta. Conta com
+    a P5: a forma compacta só para `E` exatamente `int`/`double`/`bool` não anulável, e todo
+    `rti_definir` de lista chamando `lista_ajustar_forma` (com `Geral` para qualquer outro `E`).
+    Numa `_GrowableList` de armazenamento vazio, ajustar a forma aloca um armazenamento vazio
+    próprio (o `_emptyList` do SDK é compartilhado); ajustar pode alocar (descompactar), então
+    quem chama enraíza `h`.
+25. **`dartforge_lista_nova(palavras, n, cid, forma)`:** `forma` de 0 a 3 é o código de
+    `Elemento`; **outro valor é o endereço de `n` bytes de tags** (1 `int`, 2 `bool`, 3 `Ref`,
+    4 bits de `double`) do literal misto, que sai geral com as caixas feitas no runtime (uma
+    caixa feita no código gerado antes da lista ficaria sem raiz na alocação seguinte). O
+    `AllocList` passa `cid` 10 (`_GrowableList` de capacidade `n`) e escolhe a forma pelos tipos
+    dos operandos (todos `Ref` → geral; todos `int`/`double`/`bool` → compacta; senão tags).
+    Os dois `alloca` (palavras e tags) saem em `buffer_de_lista`.
+26. **Ajudantes da P3 no prelúdio** (`listas_ir::AJUDANTES`, todos sem alocar nem lançar, em
+    `EFEITOS_DOS_AJUDANTES`): os quatro de §3.5 mais `@df.lista_capacidade(l)`,
+    `@df.lista_ler(a, i)` (`Ref`: a `CallRuntime` com retorno `Ref` é enraizada; uma
+    `CargaNativa` seria `I64`), `@df.lista_gravar_ref(a, i, v)` (com `@df.barreira_elemento`),
+    `@df.lista_gravar_len(l, n)` e `@df.lista_gravar_dados(l, d)` (grava com `@df.barreira` e
+    devolve 1 se a forma de `d` é a do armazenamento atual; senão 0, e o native devolve a forma
+    compacta ao armazenamento sem tipo que o `_shrink` da VM monta). Ganchos `pub(super)` em
+    `lower/listas.rs`: `lista_len_em_linha`, `lista_armazenamento_em_linha` (`I64`),
+    `lista_forma_em_linha`, `acrescentar_escalar_em_linha`.
+27. **`lista_em_linha`:** `List_getLength`, `GrowableList_getLength`/`_getCapacity`/
+    `_setLength` (sem barreira nem conferência, como a VM), `_setData` (acima),
+    `List_setIndexed`/`GrowableList_setIndexed` (em linha só no armazenamento geral dentro da
+    faixa; o resto no native) e o `[]` (`_Array`/`_List`/`_ImmutableList`/`_GrowableList`: em
+    linha na geral dentro da faixa; compacta ou fora, `DartForge_lista_get`). O `add` escalar de
+    `intrinsecos.rs` grava direto numa `_GrowableList` compacta da forma do valor com lugar,
+    chama `dartforge_lista_acrescentar` cheia e o `add` do SDK no resto.
+28. **Natives:** `Internal_makeListFixedLength`, `Internal_makeFixedListUnmodifiable` e
+    `dartforge_collection_mark_unmodifiable` devolvem objeto novo com o tipo copiado
+    (`tipo_lista_copiada`); o getter de constante (`constantes.rs`) já usava o valor devolvido e
+    os chamadores do SDK (`array_patch.dart`, `string_patch.dart`, `array.dart`) também.
+    `GrowableList_allocate` é o `_withData` da VM (compartilha o `_List`). `_grow` continua
+    `DartForge_GrowableList_reservar` (armazenamento novo da mesma forma, uma cópia).
+    `ClassID.numPredefinedCids` passa a `PRIMEIRO_CID_LIVRE` (128): as classes do runtime usam o
+    `hashCode` no hash das constantes, como as predefinidas da VM (`compact_hash.dart`).
+29. **Saem do runtime** (`nativos_listas.rs`): `dartforge_lista_cabecalho`,
+    `_lista_len_gravavel`, `_lista_add_escalar` (§3.7). Ficam como transição, sobre a API nova:
+    `dartforge_lista_len_ou_menos1` e `_lista_ref` (o primeiro ainda emitido pelo for-in de
+    `lower/sdk_fonte.rs`), `dartforge_collection_is_unmodifiable` (usado só pelo legado de
+    `colecoes.rs`). O legado de `colecoes.rs` (`dartforge_list_*`, `_map_*`, `_set_*`,
+    `_iteration_*`, `_generic_len`) continua sobre a API velha até a P5 confirmar que ninguém o
+    emite (hoje: `atribuicao.rs`, `expressoes.rs`, `membros.rs`, `padroes.rs`, `verificador.rs`,
+    `erros_do_runtime.rs`, `comandos.rs`, `despacho.rs`, `ffi_callbacks.rs`); aí a P3 o apaga.
+    `lower/literais.rs` perdeu os ramos sem SDK da fonte (o literal com elementos de controle
+    acrescenta à lista por `dartforge_lista_acrescentar`); `laco_indice` e
+    `ler_elemento_iteravel` ficam (a P4 os usa em `comandos.rs`).
+30. **Pedidos da P3:** à P0, em `externs.rs`, tirar as declarações de `dartforge_lista_cabecalho`,
+    `_lista_len_gravavel`, `_lista_add_escalar` e `_list_new` e marcar
+    `dartforge_collection_mark_unmodifiable` como `ALOCA_SEM_LANCAR`; no for-in de
+    `lower/sdk_fonte.rs` (≈2120–2160), trocar `dartforge_lista_len_ou_menos1` e
+    `dartforge_lista_cabecalho` pela classe (`dartforge_value_class`, cid 8–10) e por
+    `lista_len_em_linha` (ou os ganchos da P4, item 20). À P5, em `tipos.rs`, levar
+    `ajustar_forma_da_lista`/`definir_tipo_da_lista` a `Heap::lista_ajustar_forma` (item 24) e
+    manter `tipo_lista_da_tupla`/`tipo_lista_copiada` com a assinatura de hoje (a P3 passa o cid
+    fixo como classe concreta). `Object_getHash` e `DartForge_verdadeiro` continuam em
+    `nativos_listas.rs` (§3.8 dá `Object_getHash` à P2; §4.9 o exclui da lista da P5): quem os
+    quiser os move pela regra de §4.9.
+31. **P1 — `textos.rs` além de §3.3:** `TextoRef::cabe_em_um_byte`; em `Heap`,
+    `escrever_texto(destino, pos, t)`, `copiar_texto(destino, pos, fonte, inicio, fim)` (sem
+    cópia intermediária), `fatia_de_texto(h, inicio, fim)` (o `_substringUnchecked`) e
+    `juntar_textos(&[Ref])` (concatenação numa alocação); `TextoMut::push_vista`;
+    `IterUnidades` passou a andar sobre a vista e é `DoubleEndedIterator`. `Texto::hash_vm`
+    continua `i64` (a API velha a usa); `TextoRef::hash_vm` é `u32`. O `Texto` e os demais
+    saíram de `heap.rs` para `textos.rs` numa troca só (autorizada), com `heap.rs` reexportando.
+    `hash_de_texto(&self)` grava o hash por `AtomicU32` e nunca num estático (`PERMANENTE`).
+    `textos_iguais(a, a)` só é verdadeiro se `a` é string. `string_literal` interna por
+    `Heap::literal`/`guardar_literal` (a P0 os acrescentou): o literal fica em `literais` (raiz) e
+    `permanentes` — a `lista_de_tabela` da P3 depende disso.
+32. **P1 — fragmentos:** `alocar_texto(Texto)`, `alocar_str`, `lancar_range` e `com_texto`
+    ficam (usados por outros pacotes); `com_texto` passa a entregar a `TextoRef` (a API de leitura
+    da `Texto` é a mesma). Saem `texto_de`, `texto_de_qualquer`, `dartforge_texto_dados`,
+    `_texto_len` e `_texto_na_falha`. Novos: `inteiro_do_valor(heap, Valor)` (`Smi`, `_Mint` ou
+    `Valor::Int`), `copia_de_texto`, `texto_copiado`, `novo_acumulador_com(Vec<u16>)` e
+    `acrescentar_ao_acumulador`; em `regexp.rs`, `novo_programa_re`,
+    `padrao_do_programa_re(heap, h) -> (Vec<u16>, [bool; 4])` e
+    `programa_re_de_padrao(fonte, opcoes)` para a cópia entre isolados (§2.12; a P5 já lê o
+    acumulador direto do anexo em `portas.rs`, o `Box<Vec<u16>>`).
+33. **P1 — natives recebidos (§4.9):** além dos da tabela, `DartForge_string_codeUnitAt` (o
+    caminho lento de `codeUnitAt`) também veio de `nativos_listas.rs` para `nativos_strings.rs`.
+34. **P1 — `RegExp`:** `_RegExp._id` virou `final Object _programa` (o `_ProgramaDeRegExp`);
+    `_compilar` devolve `Object?` (null no erro); os natives recebem o handle. `ProgramaRe`
+    guarda o padrão (`fonte`). Sai `PROGRAMAS_RE`. O legado `dartforge_regexp_new` compila pelo
+    mesmo motor (o casador rudimentar saiu) e `dartforge_string_split_map_pieces` devolve a
+    parte casada como `String` (o `Value::Match` não existe mais).
+35. **P1 — `StringBuffer`:** o acumulador conta para os gatilhos só o que tinha ao ser criado
+    (`anexar(.., bytes)`). O crescimento do `Vec` não entra em `contar_externos`, porque a morte
+    desconta só os `bytes` registrados. **Pedido à P0:** `Heap::ajustar_anexo(h, bytes)` para o
+    dono atualizar o tamanho registrado; o P1 passa a chamá-lo em `sb_escrever*`.
+36. **P1 — emissor:** mais um ajudante, `@df.texto_igual_a(a, b)` (o `_StringBase.==` com um
+    `Object?`: identidade, `e_objeto`, cid 6/7, depois `@df.texto_igual`). `@df.texto_igual` não
+    compara cids (uma `_TwoByteString` Latin-1 do `allocateTwoByteString` pode ser igual a uma
+    `_OneByteString`): o falso rápido vem só do comprimento ou dos dois hashes calculados e
+    diferentes. Os ajudantes são texto fixo em `AJUDANTES`, conferido contra `layout` por
+    `const` e por teste. `lower/textos.rs` chama os ajudantes por `CallRuntime df.texto_*`
+    (efeitos em `textos_ir::EFEITOS_DOS_AJUDANTES`) e faz em linha também
+    `DartForge_string_igual_a`/`_iguais`. O campo `caches_de_texto` saiu de `lower/fn_builder.rs`
+    (autorizado). O literal estático é `@"df.s.<32 hex do blake3(cid, unidades)>"`, com o
+    `comdat` escrito junto do global em `emitir_globais_de_texto`.
+37. **P1 — `integers.dart`/`double.dart`** (item 7 de §4.3): ficam como estão até a medição
+    da integração. Não houve execução antes do corte, e a troca pelo `_Smi.toString` da VM com
+    `@df.texto_alocar`/`@df.texto_gravar` em linha só se decide medindo.
+38. **Pedidos da P1:** à P0, em `externs.rs`, tirar as declarações de `dartforge_texto_dados`,
+    `_texto_len` e `_texto_na_falha` (o runtime não as define mais; o teste
+    `cada_extern_do_emissor_existe_no_runtime` acusa), e `ajustar_anexo` (item 35). Aberto para
+    a P0b: o literal estático em `comdat` só é único dentro de uma ligação. Entre o executável e
+    a DLL do SDK há duas cópias, então `identical` de literais iguais entre o programa e o SDK
+    depende da mesma solução do problema 9(a).
+39. **P5 — exceção pendente:** `excecoes.rs` guarda a exceção como o par da ABI plana `(bits,
+    tag)` numa `TaggedValue` (fora do heap) até o corte, porque `nucleo.rs` (P2) a lê no fim do
+    programa com `untag`; `excecoes.rs` já não usa `tagged`/`untag`/`valor_como_ref` (tem
+    `excecao_da_abi`, `etiqueta_da_excecao`, `excecao_como_ref` sobre `como_ref(Valor)`). No
+    corte, `EXCEPTION` passa a `Option<Valor>` junto com esse leitor.
+40. **P5 — compatibilidade que fica até o corte** (para chamadores de outros pacotes):
+    `seletores.rs` mantém `cid_registrado(pos)` e as posições `CID_*` (agora o cid fixo da
+    posição, `CIDS_FIXOS_POR_POSICAO`; `ffi.rs`, `io_arquivos.rs`, `simd.rs`), `cid_do_runtime(h)`
+    (= `Heap::classe`; `nativos_listas.rs`, `io_plataforma.rs`, `nucleo.rs`) e
+    `cid_do_valor_do_runtime` (genérico no valor, que ignora; `nucleo.rs`); sai
+    `CIDS_DO_RUNTIME`. `portas.rs` mantém `Grafo::escalar(bits, ValueTag)` (`io_eventos.rs`) ao
+    lado dos novos `Grafo::nulo()`/`Grafo::de_int(v)`. O `use crate::heap::{smi, ValueTag}` de
+    `tipos.rs` continua sendo o import desses nomes para todos os fragmentos.
+41. **P5 — `dartforge_registrar_cids`:** aceita as duas tabelas que o emissor pode passar — os
+    65 cids de `DO_SDK` em ordem, ou as 32 posições de `sdk_modulo::cids_do_runtime` (com -1 para
+    a classe que o SDK carregado não tem) — e aborta com a mensagem se a tabela do módulo não é a
+    do runtime. `dartforge_definir_migracao` descarta (com mensagem) a entrada de cid < 128.
+42. **P5 — RTI:** `chave_do_valor` é `metadado` ou `−16 − cid` para todo valor (null −17,
+    `Smi` −18), menos o `_Record` sem metadado (o tipo sai dos campos: sem chave).
+    `rti_definir` não grava num estático (`PERMANENTE`) e ajusta a forma de toda lista do núcleo
+    (cid 8–10); `ajustar_forma_da_lista` enraíza a lista durante `lista_ajustar_forma`, que pode
+    alocar (pedido da P3).
+43. **P5 — cópia entre isolados:** os nós do grafo são `Instancia` (campos com o bit),
+    `Refs` (palavra 0 e referências), `Compacta` (lista `BRUTO` com a forma), `Bruto`
+    (`_Mint`, `_Double`, SIMD), `Texto`, `Tipada` (interna ou externa → interna), `Visao` (base
+    copiada, dados recalculados por `nova_visao`), `Acumulador` e `ProgramaRe`; os dois anexos
+    são criados pelo dono (`novo_acumulador_com`, `programa_re_de_padrao`, P1) antes do empréstimo
+    do heap, já enraizados no quadro da mensagem. Outro anexo chega como `null`. `ValG::Estatico`
+    leva um objeto `PERMANENTE` pelo endereço; a thread de um serviço nativo, sem heap, lê o
+    estático direto pelo `layout` (`bool` e strings). As listas usam `nova_lista` (cartões) e
+    `gravar_refs`; a lista compacta copia as palavras antes de publicar.
+44. **P5 — emissor sem o modo legado:** `lower/sdk_por_nome.rs` e `lower/nsm.rs` foram apagados
+    (nenhum chamador; o encaminhador em linha de `nsm.rs` só valia sem o SDK da fonte; a P0 tirou
+    os `mod` de `lower/mod.rs`). O despacho pelo nome em mundo fechado de `lower/despacho.rs` (`Alvo`, `Uso`,
+    `alvos_por_nome`, `alvos_de_escrita`, `despachar`) saiu; o membro sem elemento útil vai por
+    `metodo_por_seletor` (`chamadas.rs`) e `propriedade_por_seletor` (`expressoes.rs`). O padrão
+    de record posicional confere o cid 12 e lê pelos natives `DartForge_record_numFields`/
+    `_fieldAt` (saem `dartforge_record_len`/`_get_ref`); `String * n` vai pelo seletor (sai
+    `dartforge_string_repeat`); `identical` de `Ref` é `@df.identico` e o `==` com `String` não
+    anulável à esquerda é `@df.texto_igual_a`. O record posicional de `expressoes.rs` é
+    `lower_registro_posicional` (P2). `escape.rs` só substitui objetos de cid ≥ 128;
+    `simplificar.rs` trata como puros os ajudantes `df.*` das quatro tabelas de efeitos que não
+    lançam nem gravam (pedido da P4).
+45. **P5 — verificador da HIR:** recusa `AllocMap`/`AllocSet`, record posicional com campo que
+    não é `Ref`, e captura lida numa representação diferente da gravada (`EnvGet` sobre o
+    parâmetro `env` de um corpo de closure, contra o `AllocEnv` passado a `AllocClosure`/
+    `AllocClosureTipada` no módulo; `CellGet`/`CellSet` contra a `_Celula` da mesma função ou a
+    lida do ambiente). Os pares `(bits, tag)` conferidos ficaram só os da ABI de lançamento.
+46. **P5 — natives recebidos (§4.9):** `Object_equals`, `_toString`, `_haveSameRuntimeType`,
+    `_runtimeType` e `WeakReference_*`/`WeakProperty_*` em `nativos_sistema.rs` (movidos por quem
+    recebe, regra do coordenador).
+47. **P5 — testes:** `EN/tests/contrato.rs` e `crates/jit/tests/sessao_persistente.rs` no modo
+    com SDK da fonte (três asserções sobre `print_i64`, que só o `print` por nome emitia, saíram);
+    `EN/llvm/testes.rs` ganhou o literal estático e as regras novas do verificador;
+    `crates/cli/tests/reload_estado.rs` perdeu a variante sem SDK e ganhou
+    `cli_preserva_o_estado_do_espaco_unificado_em_tres_recargas` (§5.2 item 9, fixtures
+    `reload_espaco_v1..4.dart`, saída conferida na VM); os testes da CLI não passam mais
+    `DARTFORGE_SDK_DA_FONTE`. Os programas 90–99 estão em `corpus/nativo` (o 92 é um diretório
+    com duas bibliotecas).
+48. **Pedidos da P5:** à **P0** — (a) tirar `pub mod sdk_por_nome;` e `pub mod nsm;` de
+    `lower/mod.rs` (a P5 então apaga os dois arquivos); (b) em `sdk_fonte.rs`,
+    `gerar_encaminhador_nsm`, encaixotar os valores (`coagir(v, Type::Ref)`) antes do
+    `AllocEnv`: `dartforge_encaminhar_nsm` lê todas as capturas como `Ref`; (c) tirar
+    `Context::sdk_da_fonte`, `sdk_da_fonte_pedido`/`DARTFORGE_SDK_DA_FONTE` e o `bool` de
+    `emitir_ir_com`/`compilar_com`, com os ramos que sobram em `closures.rs`, `comandos.rs`,
+    `constantes.rs`, `fn_builder.rs`, `intrinsecos.rs`, `literais.rs`, `mod.rs`, `registros.rs`,
+    `sdk_fonte.rs`, `simd.rs` e `tipados.rs` (de cada dono); (d) tirar `AllocMap`/`AllocSet` da
+    HIR (ninguém mais os emite); (e) tirar de `externs.rs` as 134 declarações que nenhum código
+    do emissor cita mais (conferido por busca em 2026-09-30, fora `externs.rs` e
+    `llvm/testes.rs`): as de acesso de §3.7 (`box_*`, `cell_*`, `closure_cabecalho`/`_code`/
+    `_env`, `env_*`, `lista_ref`, `typed_ptr`, `record_len`/`_get_ref`), as do legado
+    (`list_*`, `map_*`, `set_*`, `string_*` menos `new`/`concat`/`juntar_tipado`,
+    `string_buffer_*`, `regexp_new`, `int_to_radix_string`, `print_list`/`_map`/`_set`,
+    `dyn_unario`), e outras que já não eram emitidas (§1.7). A lista exata sai de
+    `grep -o '@dartforge_[a-z_0-9]*' llvm/externs.rs` contra o resto de `src/`; os runtimes que
+    as definem (`strings.rs`, `colecoes.rs`, P1/P3) as apagam junto. À **P2** — `nucleo.rs`: ler a
+    exceção pendente pelo par da ABI no corte (item 39) e trocar `cid_do_valor_do_runtime`/
+    `cid_do_runtime` por `Heap::classe`. À **P3** — `nativos_listas.rs`: `cid_do_runtime(h)` →
+    `Heap::classe`. À **P4** — `io_eventos.rs`: `Grafo::escalar(x, ValueTag::Int)` →
+    `Grafo::de_int(x)`; `ffi.rs`, `io_arquivos.rs`, `simd.rs`: `cid_registrado(CID_*)` →
+    `layout::cid`; `io_plataforma.rs`: `cid_do_runtime` → `Heap::classe`.
+49. **P0b — o espaço (`espaco.rs`).** Classes de tamanho por palavras do corpo (`classe_de_tamanho`:
+    1–64 exatas e as 24 médias, índice da classe = palavras nas exatas); a TLAB de `w` palavras é
+    a classe `w`. Região grande: `bytes_da_regiao(w)` = mapa de marcas + bloco, arredondado a 4 KiB,
+    alinhado a 64 KiB (`VirtualAlloc(MEM_RESERVE | MEM_COMMIT)` no Windows; `mmap` com o recorte em
+    todo Unix, `MAP_ANON` 0x20 no Linux e 0x1000 nos demais), registrada no `MapaDePaginas` como
+    uma página de um bloco; a morta vai a um cache por tamanho (`RegioesGrandes`), reusada zerada, e
+    as paradas de uma coleta completa à outra voltam ao sistema. Anexos por endereço do bloco
+    (`HashMap`), soltos na varredura (menor e completa) pelo bit de marca, e no fim do heap.
+50. **P0b — contratos que o texto não fixava.** (a) `dartforge_alocar(cid, palavras, x)`: `x` são os
+    bits 8–31 da palavra 0 do cabeçalho que o código montou (`cabecalho >> 8`): `flags` nos 8 de
+    baixo e, em `INSTANCIA`, o número de campos nos 16 seguintes (em `BRUTO`/`REFS` o `n` é
+    `palavras`). (b) `REFS`: a palavra 0 é o **número de `Ref` que seguem** (o comprimento da
+    `_List`, os campos do `_Record`); o coletor percorre as palavras `1..=min(palavra 0, w − 1)` —
+    as palavras de cartões vêm depois dos elementos e não são `Ref`. (c) `Heap::alocar(cid, w,
+    flags)` grava `n = w`; `INSTANCIA` com mapa estendido é por `alocar_instancia`. Quem aloca uma
+    `REFS` grande acende `CARTOES` e reserva as palavras (`layout::palavras_de_lista`). (d)
+    `Heap::palavras(h)` começa em `b+16` (a palavra 0 é a do comprimento); em `INSTANCIA`, é o
+    corpo (o de fora, se houver). (e) `gravar_refs` num velho com `CARTOES` suja os cartões da
+    faixa inteira e lembra o objeto se algum valor é jovem; `lembrar(h)` suja todos.
+    (f) `Heap::ajustar_anexo(h, bytes)`: a diferença conta nos gatilhos.
+51. **P0b — estáticos.** Um handle de objeto fora das páginas é estático se cai numa faixa
+    registrada (`dartforge_registrar_imagem(inicio, fim)`, `heap::registrar_imagem`) ou é uma das
+    caixas de `bool` do runtime, e o estado é `PERMANENTE`; nada lê memória fora dessas faixas.
+    O estático é legível por toda a API (`cabecalho`, `classe`, `palavras`, `metadado`,
+    `e_objeto_vivo`, `hash_de_identidade`); gravar nele é pânico (`conferir_gravavel`). O
+    registro da imagem: cada módulo com `objetos_estaticos` escreve os marcadores da seção
+    (`alvo::marcadores_da_imagem`: `.dfimg$a`/`$z` em `comdat` no COFF, `__start_dfimg`/
+    `__stop_dfimg` com uma âncora no ELF, `section$start/end$__DATA_CONST$__dfimg` no Mach-O) e
+    chama o registro na função de registro dele (`df.registrar.<uri>` e `df.registrar.programa`);
+    `alvo::secao_da_imagem()` é a seção dos literais. `objetos_estaticos`: `emitir_ir`/`compilar`
+    (AOT) e os módulos do SDK, sim; `emitir_ir_recarregavel` (JIT), não. Com eles, o literal não
+    divide o bloco (`rotulos_de_saida`).
+52. **P0b — problema 9 (a)/(b), `bool`.** O código gerado não referencia mais os dados
+    `dartforge_falso`/`_verdadeiro`: o `Contexto` da thread publica os dois handles
+    (`layout::contexto::VERDADEIRO` = 360, `FALSO` = 368) e `@df.caixa_bool`/`@df.desencaixa_bool`
+    (`caixas_ir.rs`, mudança mecânica autorizada) os leem dali. Só o runtime ativo tem `Contexto`,
+    então entre o executável e a DLL do SDK vale sempre a cópia dele; o JIT não precisa publicar
+    dados. `externs::GLOBAIS` ficou vazia. Continua aberto (9a, item 38): um literal de string
+    igual no programa e no SDK é um estático em cada imagem na ligação de desenvolvimento
+    (executável + DLL); `identical` entre os dois só na produção, em que tudo é uma imagem.
+53. **P0b — emissor.** `@df.classe` sem o ramo de slot: `0` → 1, ímpar → 2, objeto → carga
+    `!invariant.load`, o resto (handle inválido) → `dartforge_value_class`, que dá o pânico N4.
+    `@df.alocar`, `@df.barreira`, `@df.barreira_elemento`, `@df.e_objeto` e `@df.filho_jovem`
+    (em `ajudantes_do_espaco`, com os deslocamentos de `layout`); a alocação em linha de
+    `dartforge_object_new` pela TLAB de `max(n, 1)` palavras; a barreira de campo por
+    `@df.barreira(o, v)`. Pendente para a integração: remedir `LIMITE_JOVEM` e `CONTAGEM_JOVEM`
+    (passo 10), que exige executar.
+54. **Corte (P0, 2026-09-30).** Saíram do runtime: `enum Value`, `TaggedValue`/`ValueTag`,
+    `Elementos`/`CabecalhoDeLista`/`FormaDeLista`/`Armazenamento`/`CabecalhoTipado`/
+    `CabecalhoDeClosure` e os vazios, `ClasseDoSlot` e as marcas, os campos de slot do `Heap`
+    (`slots`, `metadados`, `free`, `marks`, `idade`, `slots_jovens`, `slots_lembrados`,
+    `bytes_do_slot`, `hashes_de_texto`, `classes`, `cids_do_runtime`, `caixas_bool`,
+    `imutaveis_do_espaco`, `marcador`, `iteracoes_ativas`, `origens`) e os métodos de §2.17 com
+    os `*_velho`; o N4 passou a `bloco_vivo`/`handle_invalido` (as quatro mensagens, com "já
+    coletado" quando o endereço cai numa página do espaço). A exceção pendente é
+    `Option<heap::Valor>` (`excecoes.rs`: `bits_da_excecao`/`etiqueta_da_excecao`, lidos por
+    `nucleo.rs`). `portas.rs`: `NoG::DoRuntime`/`Portavel::DoRuntime` levam o `cid` fixo;
+    `Grafo::escalar` saiu. `seletores.rs`: saíram `cid_registrado`, `cid_do_runtime` e
+    `cid_do_valor_do_runtime` (fica `CIDS_FIXOS_POR_POSICAO` para a conferência de
+    `dartforge_registrar_cids`). `colecoes.rs` ficou só com
+    `dartforge_collection_mark_unmodifiable`. Saíram 80 funções exportadas que nenhum código
+    cita (o legado sem SDK da fonte e os acessos da representação velha; ficam as 5 que os testes
+    usam: `closure_code`, `print_bool`/`_f64`/`_string`, `rti_subtipo`), e do emissor `AllocMap`/
+    `AllocSet` e 138 declarações de `externs.rs`. Os testes do módulo `heap` foram reescritos
+    sobre a API nova (`tests`, `espaco_de_objetos`, `falhas_de_handle`, `raizes_do_runtime`,
+    `review_tests`, `fixed_root_tests` e os novos de `espaco_unificado`); saíram os que só
+    testavam a representação velha (`texto_utf16` — o `Texto` é de `textos.rs` —, `smi_r10`,
+    `caixas`, `maps_sets_tearoffs`, `captures_and_lists`).
+
+**Integração (2026-09-30):** o que a primeira execução de ponta a ponta exigiu além do texto.
+
+55. **`anexar` num bloco que já nasce com `ANEXO`.** Os donos alocam o acumulador e o programa
+    de `RegExp` com `alocar(cid, 1, BRUTO | ANEXO)` (§2.4); `Heap::anexar` recusava a flag já
+    acesa ("anexo duplicado", 67 programas). O duplicado passa a ser a palavra do ponteiro já
+    gravada (`b+16 ≠ 0`).
+56. **Cartão da barreira de elemento.** `@df.barreira_elemento` somava `desl::ELEMENTOS` (24,
+    do bloco) ao handle, 2 bytes além: o `or` do cartão caía desalinhado e a coleta menor não
+    via o elemento novo (lista velha grande com filho jovem morto e reusado: 96, 99). O
+    deslocamento é `ELEMENTOS − 2`, como os demais do contrato (`d(desl::…)`).
+57. **`int.hashCode` é o da VM, não o valor** (§2.10 supunha o valor; o 95 fixa `7.hashCode ==
+    81207`): o `HashIntegerOp` (`il_x64.cc`), o produto de 96 bits de `v` sem sinal por
+    `0x2d51` com as três palavras de 32 bits combinadas por xor, cortado a 30 bits. Em linha
+    em `lower/caixas.rs` (`DartForge_int_hashCode`), no native (`nativos_numeros.rs`) e no
+    caminho rápido do `_Map`/`_Set` (`nativos_hash.rs::chave_de_hash`, que tem de dar a
+    mesma tabela que o Dart). `double.hashCode`: o do `int` quando é inteiro e cabe em 64
+    bits; senão `(b ^ b >>> 32) & (2^62 − 1)` (a VM).
+58. **Literal canônico = o estático da imagem.** `identical(s[0], 'a')` (o `String_charAt`
+    da VM devolve o símbolo predefinido) e a `const` de string montada (`const x =
+    'a${'b'}'`, que o emissor avalia em tempo de execução) precisam dar o literal estático de
+    mesmo conteúdo, que o runtime não conhecia. `textos.rs` ganhou um índice dos estáticos
+    das imagens registradas, montado sob demanda pelo hash já gravado no cabeçalho
+    (`estatico_de_texto`; percorre a seção pulando palavras zero e para no primeiro cabeçalho
+    que não é string estática); `Heap::string_literal` o consulta antes de internar, e o
+    getter de `const` (`constantes.rs`, `membros.rs`) passa o valor por
+    `dartforge_constante_canonica` (string → literal canônico; o resto como está). Entre o
+    executável e a DLL do SDK com o mesmo literal vale o registrado por último (o programa).
+    `heap::imagens()` dá as faixas.
+59. **O JIT recebe IR sem estáticos.** O diferencial (`--jit`, `--jit-aot`) e os testes do JIT
+    mandavam ao JIT o IR do AOT (`emitir_ir`, com `.dfimg`): no JIT os marcadores `$a`/`$z`
+    não delimitam a seção e todo literal era "handle além da tabela". Passam a usar
+    `emitir_ir_recarregavel(.., None)`, o do `dartforge run` (`oraculos::dartforge_nativo_ir_jit`,
+    `jit/tests/execucao.rs`, `sessao_persistente.rs`); o `--jit-aot` liga esse mesmo IR.
+60. **`d op= n` com `d` `double` e `n` `num`.** `lower_binary_op_helper` desencaixava o `num`
+    como `_Double` (`TypeError` para um `int`; defeito anterior, exposto pelo 96). Novo
+    ajudante `@df.num_para_double` (`caixas_ir.rs`): `Smi`/`_Mint` convertidos, o resto pelo
+    `@df.desencaixa_double`.
+61. **Externs compostos pelo nome.** O corte tirou `dartforge_typed_novo_t`, `_view_nova_t` e
+    `_typed_externo_t` (emitidos como `@{name}_t` em `llvm/mod.rs`, invisíveis à busca por
+    nome); voltaram em `externs.rs`, `typed_data.rs` e `ffi.rs`.
+62. **`--gc-stress` sem custo quadrático.** Uma completa a cada 8 coletas custa o heap vivo
+    inteiro a cada 8 alocações: com os novos programas (e todo valor sendo bloco) o 99 passava
+    de 6 min. No estresse, a completa vem a cada `max(8, trabalho da última completa / 64)`
+    coletas (`TRABALHO_POR_MENOR_NO_ESTRESSE`), e a verificação (`DARTFORGE_GC_VERIFICAR`)
+    com o mesmo espaçamento; a menor continua antes de toda alocação. A mensagem do
+    verificador passou a dar cid, estado, flags e posição do pai.
+
 ---
 
 ## 5. Testes e medições (no fim)

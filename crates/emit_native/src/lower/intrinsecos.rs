@@ -43,12 +43,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `ClassID.cidX` (`dart:_internal`): na VM, campos `static final` que o
     /// runtime preenche com o id de classe de `_List`, `_OneByteString`…; o
     /// SDK compara `ClassID.getID(x)` com eles para tomar os atalhos (o
-    /// `split` de um caractere, os laços de `_List`). Aqui o id de cada
-    /// classe é o que `dartforge_value_class` devolve (a tabela de
-    /// `sdk_modulo::cids_do_runtime`), conhecido ao compilar; sem esta
-    /// troca, os campos ficavam 0 e o SDK nunca tomava os atalhos. Um campo
-    /// sem classe correspondente no runtime fica como está.
+    /// `split` de um caractere, os laços de `_List`). Aqui o cid dessas
+    /// classes é fixo (`layout::cid`, docs/NATIVO-ESPACO-UNIFICADO.md §2.4), o
+    /// mesmo no runtime, no emissor e em toda geração: a constante do contrato.
+    /// `numPredefinedCids` é o primeiro cid livre (as classes do runtime ficam
+    /// abaixo, como as predefinidas da VM no hash das constantes,
+    /// `compact_hash.dart`). As classes externas da VM (`cidExternal*`) não
+    /// existem aqui: o campo fica como está (0, que nenhum objeto tem).
     fn id_de_classe_do_runtime(&self, ast: &ast::Ast, e: ExprId) -> Option<i64> {
+        use dartforge_runtime::layout::{cid, PRIMEIRO_CID_LIVRE};
+        use dartforge_runtime::tipadas::tipo;
         let ExprKind::Property { name, null_aware: false, .. } = &ast.expr(e).kind else { return None };
         let Some(dartforge_types::resolved::Resolved::Member { class, .. }) = self.ctx.get_resolved(self.unit_id, e) else {
             return None;
@@ -56,27 +60,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if Some(*class) != self.ctx.classe_do_sdk("_internal", "ClassID") {
             return None;
         }
-        let (lib, classe) = match self.ctx.symbol_name(name.sym) {
-            "cidArray" => ("core", "_List"),
-            "cidGrowableObjectArray" => ("core", "_GrowableList"),
-            "cidImmutableArray" => ("core", "_ImmutableList"),
-            "cidOneByteString" => ("core", "_OneByteString"),
-            "cidTwoByteString" => ("core", "_TwoByteString"),
-            "cidUint8ArrayView" => ("typed_data", "_Uint8ArrayView"),
-            "cidUint8Array" => ("typed_data", "_Uint8List"),
-            "cidInt8Array" => ("typed_data", "_Int8List"),
-            "cidUint8ClampedArray" => ("typed_data", "_Uint8ClampedList"),
+        let id = match self.ctx.symbol_name(name.sym) {
+            "cidArray" => cid::LIST,
+            "cidGrowableObjectArray" => cid::GROWABLE_LIST,
+            "cidImmutableArray" => cid::IMMUTABLE_LIST,
+            "cidOneByteString" => cid::ONE_BYTE_STRING,
+            "cidTwoByteString" => cid::TWO_BYTE_STRING,
+            "cidUint8ArrayView" => cid::visao(tipo::UINT8, false),
+            "cidUint8Array" => cid::tipada(tipo::UINT8),
+            "cidInt8ArrayView" => cid::visao(tipo::INT8, false),
+            "cidInt8Array" => cid::tipada(tipo::INT8),
+            "cidUint8ClampedArray" => cid::tipada(tipo::UINT8_CLAMPED),
+            "numPredefinedCids" => return Some(PRIMEIRO_CID_LIVRE),
             _ => return None,
         };
-        let c = self.ctx.classe_do_sdk(lib, classe)?;
-        self.ctx.id_de_classe(c).map(i64::from)
+        Some(i64::from(id))
     }
 
     /// O membro de `int`/`double` em linha, ou `None` (o caminho de sempre).
     pub(super) fn expressao_intrinseca(&mut self, ast: &ast::Ast, e: ExprId) -> Option<Operand> {
-        if !self.ctx.sdk_da_fonte {
-            return None;
-        }
         if let Some(id) = self.id_de_classe_do_runtime(ast, e) {
             return Some(self.emit(Instruction::Const(Constant::Int(id)), Type::I64));
         }
@@ -170,14 +172,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// `lista.add(v)` com a lista de tipo estático `List<int>`,
-    /// `List<double>` ou `List<bool>` e `v` exatamente desse tipo (sem caixa):
-    /// `dartforge_lista_add_escalar` acrescenta o escalar numa lista
-    /// crescível do runtime; qualquer outra (uma classe do usuário, tamanho
-    /// fixo, não modificável, `E` que não aceita o valor) chama o `add` de
-    /// sempre. Sem isto, cada `add` passava pelo despacho, conferia o `E`
-    /// duas vezes pela RTI (na entrada uniforme e no `[]=` dentro do `add`)
-    /// e gravava o valor encaixotado.
+    /// `List<double>` ou `List<bool>` e `v` exatamente desse tipo (sem caixa),
+    /// como o `add` da VM em linha: numa `_GrowableList` (cid 10) de
+    /// armazenamento compacto da forma do valor (docs/NATIVO-ESPACO-UNIFICADO.md
+    /// §2.16: a forma compacta só existe quando o `E` reificado é o escalar)
+    /// com lugar, a palavra gravada direto e o comprimento mais um; cheia,
+    /// `dartforge_lista_acrescentar` (cresce para `(capacidade * 2) | 3`);
+    /// qualquer outra (uma classe do usuário, tamanho fixo, não modificável,
+    /// armazenamento geral) chama o `add` de sempre. Sem isto, cada `add`
+    /// passava pelo despacho, conferia o `E` duas vezes pela RTI (na entrada
+    /// uniforme e no `[]=` dentro do `add`) e gravava o valor encaixotado.
     fn lista_add_escalar(&mut self, ast: &ast::Ast, e: ExprId) -> Option<Operand> {
+        use dartforge_runtime::layout::{cid, flags};
         let ExprKind::Call { target, arguments } = &ast.expr(e).kind else { return None };
         if arguments.args.len() != 1 || arguments.args[0].name.is_some() || !arguments.type_args.is_empty() {
             return None;
@@ -199,10 +205,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let T::Interface { class, nullable: false, .. } = self.ctx.table.get(self.ctx.get_type(self.unit_id, arg)?) else {
             return None;
         };
-        let (esperada, codigo) = match t {
-            Type::I64 => (self.ctx.core.int_class, 1),
-            Type::F64 => (self.ctx.core.double_class, 2),
-            _ => (self.ctx.core.bool_class, 3),
+        let (esperada, forma) = match t {
+            Type::I64 => (self.ctx.core.int_class, flags::BRUTO | flags::ELEMENTO_INT),
+            Type::F64 => (self.ctx.core.double_class, flags::BRUTO | flags::ELEMENTO_DOUBLE),
+            _ => (self.ctx.core.bool_class, flags::BRUTO | flags::ELEMENTO_BOOL),
         };
         if Some(*class) != esperada {
             return None;
@@ -217,23 +223,45 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return Some(Operand::Constant(Constant::Null));
         }
         let v = self.coagir(v, t);
-        let bits = match t {
-            Type::I64 => v.clone(),
-            Type::F64 => self.emit(Instruction::Bitcast { op: v.clone(), to: Type::I64 }, Type::I64),
-            _ => self.emit(Instruction::ZExt { op: v.clone(), from: Type::I1, to: Type::I64 }, Type::I64),
+        // A palavra da forma: o `i64`, o `double` (os bits, pela gravação de
+        // `F64`) ou 0/1.
+        let (palavra, tipo) = match t {
+            Type::I64 => (v.clone(), TipoC::I64),
+            Type::F64 => (v.clone(), TipoC::F64),
+            _ => (self.emit(Instruction::ZExt { op: v.clone(), from: Type::I1, to: Type::I64 }, Type::I64), TipoC::I64),
         };
-        let feito = self.emit(
+        let classe = self.emit(
             Instruction::CallRuntime {
-                name: "dartforge_lista_add_escalar".to_string(),
-                args: vec![(lista.clone(), Type::Ref), (bits, Type::I64), (c(codigo), Type::I64)],
+                name: "dartforge_value_class".to_string(),
+                args: vec![(lista.clone(), Type::Ref)],
                 ret_ty: Type::I64,
             },
             Type::I64,
         );
-        let ok = self.emit(Instruction::ICmp(ICmpOp::Ne, feito, c(0)), Type::I1);
+        let expansivel = self.emit(Instruction::ICmp(ICmpOp::Eq, classe, c(i64::from(cid::GROWABLE_LIST))), Type::I1);
+        let b_exp = self.new_block();
         let lento = self.new_block();
         let juncao = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: ok, then_block: juncao, else_block: lento });
+        self.terminate(Terminator::CondBranch { cond: expansivel, then_block: b_exp, else_block: lento });
+
+        self.set_block(b_exp);
+        let (_feito, cheio) = self.acrescentar_escalar_em_linha(lista.clone(), palavra, tipo, forma, lento);
+        self.terminate(Terminator::Branch(juncao));
+
+        // Cheia: o crescimento (e a gravação) no runtime, com o valor numa
+        // caixa (o `Smi`, sem alocação, no caso comum do `int`).
+        self.set_block(cheio);
+        let caixa = self.coagir(v.clone(), Type::Ref);
+        self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_lista_acrescentar".to_string(),
+                args: vec![(lista.clone(), Type::Ref), (caixa, Type::Ref)],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        );
+        self.terminate(Terminator::Branch(juncao));
+
         self.set_block(lento);
         self.chamar_por_nome(lista, super::sdk_fonte::Tipo::Chamar, "add", &[(None, v)]);
         if !self.is_terminated() {

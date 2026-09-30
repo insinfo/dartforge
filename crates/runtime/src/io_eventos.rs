@@ -379,7 +379,7 @@ impl InfoDeDescritor {
 /// `DartUtils::PostInt32`: a máscara de eventos na porta.
 fn postar_evento(porta: i64, eventos: i64) {
     if porta != 0 {
-        postar(porta, Grafo::escalar(eventos, ValueTag::Int));
+        postar(porta, Grafo::de_int(eventos));
     }
 }
 

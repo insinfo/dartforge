@@ -62,25 +62,17 @@ enum Num {
 fn ler_num(h: i64) -> Option<Num> {
     HEAP.with(|heap| {
         let heap = heap.borrow();
-        // `Smi` ou `_Mint` (R10); senão a caixa de `double`.
-        if let Some(i) = heap.int_de_ref(h) {
-            return Some(Num::I(i));
-        }
-        match heap.try_get(h) {
-            Some(Value::BoxedDouble(d)) => Some(Num::D(*d)),
+        // `Smi` ou `_Mint` (R10); senão o `_Double`.
+        match heap.valor(h) {
+            crate::heap::Valor::Int(i) => Some(Num::I(i)),
+            crate::heap::Valor::Double(d) => Some(Num::D(d)),
             _ => None,
         }
     })
 }
 
 fn e_string(h: i64) -> bool {
-    h != 0
-        && HEAP.with(|heap| {
-            matches!(
-                heap.borrow().try_get(h),
-                Some(Value::String(_))
-            )
-        })
+    HEAP.with(|heap| heap.borrow().e_texto(h))
 }
 
 fn caixa_int(v: i64) -> i64 {
@@ -88,32 +80,62 @@ fn caixa_int(v: i64) -> i64 {
 }
 
 fn caixa_double(v: f64) -> i64 {
-    HEAP.with(|heap| heap.borrow_mut().allocate(Value::BoxedDouble(v)))
+    HEAP.with(|heap| heap.borrow_mut().caixa_double(v))
 }
 
 fn caixa_bool(v: bool) -> i64 {
-    HEAP.with(|heap| heap.borrow_mut().caixa_bool(v))
+    Heap::caixa_bool(v)
 }
 
 /// `NoSuchMethodError` do operador `op` (receptor sem o operador).
 fn nsm_operador(op: i64) -> i64 {
-    let nome = HEAP.with(|heap| {
-        heap.borrow_mut()
-            .allocate(Value::String(Texto::de_str(nome_do_operador(op))))
-    });
+    let nome = HEAP.with(|heap| heap.borrow_mut().alocar_str(nome_do_operador(op)));
     let erro = com_raizes(&[nome], || dartforge_no_such_method_error_new(nome));
     com_raizes(&[erro], || dartforge_exception_throw(erro, 3));
     0
 }
 
 fn divisao_por_zero() -> i64 {
-    let msg = HEAP.with(|heap| {
-        heap.borrow_mut()
-            .allocate(Value::String(Texto::de_str("IntegerDivisionByZeroException")))
-    });
+    let msg = HEAP.with(|heap| heap.borrow_mut().alocar_str("IntegerDivisionByZeroException"));
     let erro = com_raizes(&[msg], || dartforge_unsupported_error_new(msg));
     com_raizes(&[erro], || dartforge_exception_throw(erro, 3));
     0
+}
+
+/// `a + b` de duas listas do núcleo: uma `_GrowableList` nova com os
+/// elementos das duas, na forma delas quando é a mesma, e o tipo da da
+/// esquerda (`List.+`). `None` se algum lado não é lista.
+fn concatenar_listas(a: i64, b: i64) -> Option<i64> {
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        if !heap.e_lista(a) || !heap.e_lista(b) {
+            return None;
+        }
+        // `a` e `b` só estão nos argumentos: raízes enquanto a nova é alocada
+        // (e os elementos, se a forma mudar, encaixotados).
+        let quadro = heap.push_frame();
+        heap.root(quadro, a);
+        heap.root(quadro, b);
+        let (len_a, len_b) = (heap.lista_len(a), heap.lista_len(b));
+        let (forma_a, forma_b) = (heap.lista_forma(a), heap.lista_forma(b));
+        let forma = if forma_a == forma_b { forma_a } else { crate::listas::Elemento::Geral };
+        let nova = heap.nova_expansivel(len_a + len_b, len_a + len_b, forma);
+        heap.root(quadro, nova);
+        for i in 0..len_a {
+            let v = heap.lista_get(a, i);
+            heap.lista_set(nova, i, v);
+        }
+        for i in 0..len_b {
+            let v = heap.lista_get(b, i);
+            heap.lista_set(nova, len_a + i, v);
+        }
+        let tipo = heap.metadado(a);
+        if tipo != 0 {
+            heap.set_metadado(nova, tipo);
+        }
+        heap.pop_frame(quadro);
+        Some(nova)
+    })
 }
 
 /// Resto euclidiano do Dart (`int.%`): nunca negativo.
@@ -136,7 +158,7 @@ pub extern "C" fn dartforge_dyn_op(op: i64, a: i64, b: i64) -> i64 {
             com_raizes(&[e], || dartforge_exception_throw(e, 3));
             return 0;
         }
-        return HEAP.with(|heap| heap.borrow_mut().string_concat(a, b));
+        return dartforge_string_concat(a, b);
     }
     if op == OP_MUL && e_string(a) {
         return match ler_num(b) {
@@ -144,31 +166,11 @@ pub extern "C" fn dartforge_dyn_op(op: i64, a: i64, b: i64) -> i64 {
             _ => nsm_operador(op),
         };
     }
-    if op == OP_ADD {
-        // `List.+` devolve uma lista nova e expansível. Algumas listas do SDK
-        // reservam capacidade antes de publicar o comprimento (`Elementos::logico`).
-        let lista = HEAP.with(|heap| {
-            let heap = heap.borrow();
-            let (Some(Value::List(esquerda)), Some(Value::List(direita))) =
-                (heap.try_get(a), heap.try_get(b)) else { return None };
-            let len_a = esquerda.len_logico();
-            let len_b = direita.len_logico();
-            let mut itens = Vec::with_capacity(len_a + len_b);
-            itens.extend(esquerda.iter().take(len_a));
-            itens.extend(direita.iter().take(len_b));
-            Some((itens, heap.metadado(a)))
-        });
-        if let Some((itens, tipo)) = lista {
-            return HEAP.with(|heap| {
-                let mut heap = heap.borrow_mut();
-                let nova = heap.create_list(itens);
-                if tipo != 0 {
-                    heap.set_metadado(nova, tipo);
-                    ajustar_forma_da_lista(&mut heap, nova);
-                }
-                nova
-            });
-        }
+    if op == OP_ADD
+        && let Some(lista) = concatenar_listas(a, b)
+    {
+        // `List.+` devolve uma lista nova e expansível.
+        return lista;
     }
     let (Some(x), Some(y)) = (ler_num(a), ler_num(b)) else {
         return nsm_operador(op);
@@ -235,58 +237,26 @@ pub extern "C" fn dartforge_dyn_op(op: i64, a: i64, b: i64) -> i64 {
     }
 }
 
-/// `-a` e `~a` sobre uma referência.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_dyn_unario(op: i64, a: i64) -> i64 {
-    match (op, ler_num(a)) {
-        (OP_NEG, Some(Num::I(i))) => caixa_int(i.wrapping_neg()),
-        (OP_NEG, Some(Num::D(d))) => caixa_double(-d),
-        (OP_NOT, Some(Num::I(i))) => caixa_int(!i),
-        _ => nsm_operador(op),
-    }
-}
-
-/// Comprimento de um record posicional do runtime.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_record_len(h: i64) -> i64 {
-    HEAP.with(|heap| match heap.borrow().try_get(h) {
-        Some(Value::Record(v)) => v.len() as i64,
-        _ => -1,
-    })
-}
-
-/// Campo posicional `i` de um record, como referência (escalar
-/// encaixotado, R5).
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_record_get_ref(h: i64, i: i64) -> i64 {
-    let v = HEAP.with(|heap| match heap.borrow().get(h) {
-        Value::Record(v) => v[usize::try_from(i).expect("índice de record")],
-        _ => panic!("record esperado"),
-    });
-    valor_como_ref(v)
-}
-
-/// O elemento `i` de uma lista ou de um conjunto (a ordem de inserção), para
-/// o `for-in` e o espalhamento; outro valor vai ao acessor de lista (que
-/// lança).
-fn elemento_iteravel(h: i64, i: i64) -> Option<TaggedValue> {
+/// O elemento `i` de uma lista do núcleo, para o `for-in` e o espalhamento;
+/// `None` para outro valor ou índice fora.
+fn elemento_iteravel(h: i64, i: i64) -> Option<crate::heap::Valor> {
     HEAP.with(|heap| {
         let heap = heap.borrow();
         let i = usize::try_from(i).ok()?;
-        match heap.try_get(h)? {
-            Value::List(v) => v.get(i),
-            Value::Set(v) => v.get(i).copied(),
-            _ => None,
-        }
+        (heap.e_lista(h) && i < heap.lista_len(h)).then(|| heap.lista_get(h, i))
     })
 }
 
-/// `elemento_iteravel` como referência (escalar encaixotado).
+/// `elemento_iteravel` como referência (escalar encaixotado); outro valor
+/// lança `TypeError`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_iteravel_get_ref(h: i64, i: i64) -> i64 {
     match elemento_iteravel(h, i) {
-        Some(v) => valor_como_ref(v),
-        None => dartforge_list_get_ref(h, i),
+        Some(v) => HEAP.with(|heap| heap.borrow_mut().como_ref(v)),
+        None => {
+            lancar_type_error();
+            0
+        }
     }
 }
 
@@ -294,7 +264,13 @@ pub extern "C" fn dartforge_iteravel_get_ref(h: i64, i: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_iteravel_get_bits(h: i64, i: i64) -> i64 {
     match elemento_iteravel(h, i) {
-        Some(v) => v.bits,
-        None => dartforge_list_get_bits(h, i),
+        Some(crate::heap::Valor::Ref(r)) => r,
+        Some(crate::heap::Valor::Int(n)) => n,
+        Some(crate::heap::Valor::Double(d)) => d.to_bits() as i64,
+        Some(crate::heap::Valor::Bool(b)) => i64::from(b),
+        None => {
+            lancar_type_error();
+            0
+        }
     }
 }

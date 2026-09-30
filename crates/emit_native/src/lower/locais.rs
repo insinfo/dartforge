@@ -182,6 +182,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             );
             return;
         }
+        // A célula guarda uma palavra, na representação do local (a mesma
+        // com que `CellGet`/`CellSet` a leem e gravam); um vetor SIMD vai na
+        // caixa.
+        let ty = if ty.e_vetor() { Type::Ref } else { ty };
         let ptr = self.alloca_na_entrada(Type::Ref);
         let v = self.coagir(valor, ty);
         let celula = self.emit(Instruction::AllocCell { value: v }, Type::Ref);

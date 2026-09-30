@@ -1,6 +1,6 @@
 //! O SDK compilado da fonte no lowering (P5c/P5d, δ; docs/NATIVO-PLANO.md §7).
 //!
-//! Com `Context::sdk_da_fonte`, as sete bibliotecas de
+//! As sete bibliotecas de
 //! `sdk_modulo::BIBLIOTECAS_DA_FONTE` são código Dart compilado como o do
 //! programa, cada uma no seu módulo (objeto em cache), e o programa as chama
 //! pelos símbolos estáveis. Três coisas mudam em relação ao mundo fechado:
@@ -192,7 +192,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// seletor quando alguma implementação concreta é um campo: o despacho
     /// por funções de `membros.rs` não pode representar esse getter implícito.
     pub fn chamar_membro_fonte(&mut self, recv: Operand, decl_fid: usize, avaliados: &[Avaliado]) -> Option<Operand> {
-        if !self.ctx.sdk_da_fonte || self.em_adaptador {
+        if self.em_adaptador {
             return None;
         }
         let f = &self.ctx.program.functions[decl_fid];
@@ -359,7 +359,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Hook da leitura de campo: um getter de subclasse pode sobrescrever
     /// inclusive o getter implícito de um campo da classe base.
     pub fn ler_campo_fonte(&mut self, obj: Operand, vid: VariableId) -> Option<Operand> {
-        if !self.ctx.sdk_da_fonte || self.em_adaptador {
+        if self.em_adaptador {
             return None;
         }
         let v = &self.ctx.program.variables[vid.0 as usize];
@@ -399,7 +399,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// uma classe do SDK que um setter pode sobrescrever vai pelo seletor
     /// `s:x`. `false`: a gravação direta de sempre vale.
     pub fn gravar_campo_fonte(&mut self, obj: Operand, vid: VariableId, valor: Operand) -> bool {
-        if !self.ctx.sdk_da_fonte || self.em_adaptador {
+        if self.em_adaptador {
             return false;
         }
         let v = &self.ctx.program.variables[vid.0 as usize];
@@ -465,7 +465,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         b: &Operand,
         negar: bool,
     ) -> Option<Operand> {
-        if !self.ctx.sdk_da_fonte || self.em_adaptador || self.operand_type(a) != Type::Ref {
+        if self.em_adaptador || self.operand_type(a) != Type::Ref {
             return None;
         }
         let dartforge_types::table::Type::Interface { class, .. } = self.ctx.table.get(tipo_de_a?) else {
@@ -538,9 +538,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         ast_ty: &dartforge_frontend::ast::TypeAnnotation,
         op: Operand,
     ) -> Option<Operand> {
-        if !self.ctx.sdk_da_fonte {
-            return None;
-        }
         // No código do SDK, os testes com argumentos de tipo (`is List<E>`)
         // escolhem um caminho rápido equivalente para um programa correto
         // (`ListBase.setRange`, `List.from`, `ListQueue.addAll`…): até a RTI,
@@ -684,9 +681,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Hook de `chamar_direto`: a chamada a um `external` do SDK da fonte.
     /// `None` quando a função tem corpo (a chamada direta de sempre).
     pub fn chamar_externo(&mut self, fid: usize, this: Option<Operand>, args: &[Operand]) -> Option<Operand> {
-        if !self.ctx.sdk_da_fonte {
-            return None;
-        }
         let f = &self.ctx.program.functions[fid];
         if !f.external || f.variable.is_some() {
             return None;
@@ -704,6 +698,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .unwrap_or_default();
         let membro = format!("{dono}{}", self.ctx.symbol_name(f.name));
         if let Some(r) = self.texto_em_linha(&membro, native.as_deref(), this.as_ref(), args) {
+            return Some(r);
+        }
+        // Os ganchos de cada pacote do espaço unificado
+        // (docs/NATIVO-ESPACO-UNIFICADO.md §4.2, passo 4): listas do núcleo
+        // (P3), listas tipadas e SIMD (P4), caixas, closures e records (P2).
+        if let Some(r) = self.lista_em_linha(&membro, native.as_deref(), this.as_ref(), args) {
+            return Some(r);
+        }
+        if let Some(r) = self.tipada_em_linha(&membro, native.as_deref(), this.as_ref(), args) {
+            return Some(r);
+        }
+        if let Some(r) = self.caixa_em_linha(&membro, native.as_deref(), this.as_ref(), args) {
             return Some(r);
         }
         let nome = match native {
@@ -959,6 +965,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             "Internal_unsafeCast" => {
                 let v = args.first().cloned().unwrap_or(Operand::Constant(Constant::Null));
                 if ret == Type::Void { v } else { self.coagir(v, ret) }
+            }
+            // `ClassID.getID(o)`: a classe do valor em linha (`@df.classe`,
+            // docs/NATIVO-ESPACO-UNIFICADO.md §3.8), sem chamar o runtime.
+            "ClassID_getID" => {
+                let o = args.first().cloned().unwrap_or(Operand::Constant(Constant::Null));
+                let o = self.coagir(o, Type::Ref);
+                let c = self.emit(
+                    Instruction::CallRuntime { name: "dartforge_value_class".to_string(), args: vec![(o, Type::Ref)], ret_ty: Type::I64 },
+                    Type::I64,
+                );
+                if ret == Type::Void { c } else { self.coagir(c, ret) }
             }
             _ => self.nao_suportado(&format!("native embutido `{nome}`"), Span { start: 0, end: 0 }),
         }
@@ -1263,7 +1280,9 @@ fn gerar_encaminhador_nsm(ctx: &Context, module: &mut Module, unit: UnitId, simb
     };
     let npos = valores.len() - nomes.len();
     let nnom = nomes.len();
-    let mut campos = valores;
+    // `dartforge_encaminhar_nsm` lê todas as capturas como `Ref`: os valores
+    // vão encaixotados (docs/NATIVO-ESPACO-UNIFICADO.md §4.10, item 48).
+    let mut campos: Vec<Operand> = valores.into_iter().map(|v| b.coagir(v, Type::Ref)).collect();
     for n in nomes {
         campos.push(b.emit(Instruction::Const(Constant::String(n)), Type::Ref));
     }
@@ -2096,24 +2115,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let classe = self.ctx.classe_do_sdk("core", "ConcurrentModificationError")?;
         let vazio = self.ctx.interner.lookup("")?;
         let ctor = *self.ctx.program.classes[classe.0 as usize].constructors.get(&vazio)?;
-        let comprimento = |s: &mut Self| {
-            s.emit(
-                Instruction::CallRuntime {
-                    name: "dartforge_lista_len_ou_menos1".to_string(),
-                    args: vec![(lista.clone(), Type::Ref)],
-                    ret_ty: Type::I64,
-                },
-                Type::I64,
-            )
-        };
-        let n0 = comprimento(self);
-        let e_lista = self.emit(Instruction::ICmp(ICmpOp::Sge, n0.clone(), Operand::Constant(Constant::Int(0))), Type::I1);
+        // Lista do núcleo pela classe (`@df.classe`, cids 8–10 fixos,
+        // docs/NATIVO-ESPACO-UNIFICADO.md §2.4): `_List`, `_ImmutableList` ou
+        // `_GrowableList`; o comprimento em linha (`@df.lista_len`).
+        let cid = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_value_class".to_string(),
+                args: vec![(lista.clone(), Type::Ref)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        let desde = self.emit(
+            Instruction::Sub(cid, Operand::Constant(Constant::Int(i64::from(dartforge_runtime::layout::cid::LIST)))),
+            Type::I64,
+        );
+        let e_lista = self.emit(Instruction::ICmp(ICmpOp::Ult, desde, Operand::Constant(Constant::Int(3))), Type::I1);
         let direto = self.new_block();
         let iterador = self.new_block();
         let depois = self.new_block();
         self.terminate(Terminator::CondBranch { cond: e_lista, then_block: direto, else_block: iterador });
 
         self.set_block(direto);
+        let n0 = self.lista_len_em_linha(lista.clone());
         let indice = self.emit(Instruction::Alloca(Type::I64), Type::Ptr);
         self.emit(Instruction::Store { ptr: indice.clone(), val: Operand::Constant(Constant::Int(0)) }, Type::Void);
         let cabeca = self.new_block();
@@ -2123,20 +2147,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::Branch(cabeca));
 
         self.set_block(cabeca);
-        // Dentro do laço, o comprimento vem do cabeçalho da lista (chamada
-        // pura, fora do laço; a leitura em linha a cada volta).
-        let cab = self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_lista_cabecalho".to_string(),
-                args: vec![(lista.clone(), Type::Ref)],
-                ret_ty: Type::I64,
-            },
-            Type::I64,
-        );
-        let n = self.emit(
-            Instruction::CargaNativa { endereco: cab, indice: Operand::Constant(Constant::Int(1)), tipo: TipoC::I64 },
-            Type::I64,
-        );
+        // Dentro do laço, o comprimento lido do bloco a cada volta
+        // (`@df.lista_len`, o mesmo deslocamento nas três classes).
+        let n = self.lista_len_em_linha(lista.clone());
         let igual = self.emit(Instruction::ICmp(ICmpOp::Eq, n.clone(), n0), Type::I1);
         self.terminate(Terminator::CondBranch { cond: igual, then_block: confere, else_block: mudou });
 

@@ -180,10 +180,12 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_funcao(endereco: i64, ns: i64, 
     };
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
-        let env = h.create_environment(vec![TaggedValue::scalar(endereco), TaggedValue::scalar(ns)]);
+        // O contexto guarda os dois escalares (sem referência); a closure o
+        // guarda como `Ref` (enraizado durante a alocação dela).
+        let env = h.novo_contexto(&[(endereco, false), (ns, false)]);
         let frame = h.push_frame_with_slots(1);
         h.set_root(frame, 0, env);
-        let clo = h.create_closure(entrada as i64, env);
+        let clo = h.nova_closure(entrada as i64, (env, true), 0, 0);
         h.set_metadado(clo, df + 1);
         h.pop_frame(frame);
         clo
@@ -194,8 +196,11 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_funcao(endereco: i64, ns: i64, 
 fn ambiente_da_closure(clo: i64) -> (i64, i64) {
     HEAP.with(|h| {
         let h = h.borrow();
-        let (_, env) = h.closure_parts(clo);
-        (h.environment_get(env, 0).bits, h.environment_get(env, 1).bits)
+        let Some(c) = h.closure(clo) else {
+            panic!("bug do compilador: trampolim FFI sem closure");
+        };
+        let env = c.contexto.0;
+        (h.captura(env, 0).0, h.captura(env, 1).0)
     })
 }
 
@@ -211,7 +216,7 @@ fn endereco_de(ponteiro: i64) -> Option<i64> {
         match h.objeto(ponteiro) {
             Some(fields) => {
                 let (bits, is_ref) = fields.first()?;
-                if is_ref { h.int_de_ref(bits) } else { Some(bits) }
+                if is_ref { h.int_de(bits) } else { Some(bits) }
             }
             _ => None,
         }
@@ -261,18 +266,16 @@ fn novo_ponteiro(endereco: i64, tipo: Option<i64>) -> i64 {
 /// base `TypedData`, fora dos limites lança `RangeError`.
 fn com_memoria<R>(base: i64, deslocamento: i64, n: usize, f: impl FnOnce(*mut u8) -> R) -> Option<R> {
     let lista = HEAP.with(|h| resolver(&h.borrow(), base));
-    if let Some((interna, desloc, tipo, comprimento)) = lista {
-        let total = comprimento * tamanho_do_elemento(tipo);
+    if let Some(t) = lista {
+        let total = t.bytes;
         let ini = usize::try_from(deslocamento).ok().filter(|&d| d.checked_add(n).is_some_and(|fim| fim <= total));
         let Some(ini) = ini else {
             lancar_erro_de_intervalo(deslocamento, total as i64);
             return None;
         };
-        return Some(HEAP.with(|h| {
-            let mut h = h.borrow_mut();
-            let bytes = bytes_de_mut(&mut h, interna);
-            f(bytes[desloc + ini..].as_mut_ptr())
-        }));
+        // Os bytes não se movem (§2.14): o endereço vale enquanto a base vive,
+        // e `f` não aloca no heap.
+        return Some(f(t.dados.wrapping_add(ini)));
     }
     let Some(endereco) = endereco_de(base) else {
         lancar_erro_de_argumento("a Pointer or TypedData was expected");
@@ -542,7 +545,7 @@ mod dl {
 /// `Ffi_dl_open(path)`: o handle, ou `ArgumentError` com o erro do sistema.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Ffi_dl_open(caminho: i64) -> i64 {
-    let texto = HEAP.with(|h| h.borrow().texto(caminho).para_string());
+    let texto = HEAP.with(|h| h.borrow().texto(caminho).map(|t| t.para_string()).unwrap_or_default());
     #[cfg(unix)]
     {
         let Ok(c) = std::ffi::CString::new(texto.clone()) else {
@@ -613,7 +616,7 @@ fn procurar(handle: i64, nome: &std::ffi::CStr) -> usize {
 /// `Ffi_dl_lookup(handle, symbolName)`: o endereço, ou `ArgumentError`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Ffi_dl_lookup(handle: i64, nome: i64) -> i64 {
-    let texto = HEAP.with(|h| h.borrow().texto(nome).para_string());
+    let texto = HEAP.with(|h| h.borrow().texto(nome).map(|t| t.para_string()).unwrap_or_default());
     let Ok(c) = std::ffi::CString::new(texto.clone()) else {
         return lancar_erro_de_argumento_ffi(format!("Failed to lookup symbol '{texto}'"));
     };
@@ -630,7 +633,7 @@ pub extern "C" fn dartforge_nativo_Ffi_dl_lookup(handle: i64, nome: i64) -> i64 
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Ffi_dl_providesSymbol(handle: i64, nome: i64) -> u8 {
-    let texto = HEAP.with(|h| h.borrow().texto(nome).para_string());
+    let texto = HEAP.with(|h| h.borrow().texto(nome).map(|t| t.para_string()).unwrap_or_default());
     std::ffi::CString::new(texto).map_or(0, |c| u8::from(procurar(handle, &c) != 0))
 }
 
@@ -789,14 +792,9 @@ pub extern "C" fn dartforge_typed_externo(class_id: i64, tipo: i64, ponteiro: i6
         lancar_erro_de_argumento("asTypedList on nullptr");
         return 0;
     }
-    let tamanho = n as usize * tamanho_do_elemento(tipo);
-    HEAP.with(|h| {
-        h.borrow_mut().allocate(Value::TypedData {
-            class_id,
-            tipo,
-            bytes: crate::heap::Armazenamento::externo(endereco as usize, tamanho),
-        })
-    })
+    debug_assert_eq!(class_id, i64::from(crate::layout::cid::tipada(tipo)), "cid da lista tipada fora do contrato");
+    // A lista interna com `EXTERNO` (§2.5): o comprimento e o endereço nativo.
+    HEAP.with(|h| h.borrow_mut().tipada_externa(tipo, endereco as usize as *mut u8, n as usize))
 }
 
 /// [`dartforge_typed_externo`] que registra a tabela de métodos da classe na
@@ -824,7 +822,7 @@ pub extern "C" fn dartforge_ffi_endereco_do_composto(obj: i64) -> i64 {
         lancar_erro_de_argumento("a Struct or Union was expected in a native call");
         return 0;
     };
-    let deslocamento = if e_ref { HEAP.with(|h| h.borrow().int_de_ref(deslocamento)).unwrap_or(0) } else { deslocamento };
+    let deslocamento = if e_ref { HEAP.with(|h| h.borrow().int_de(deslocamento)).unwrap_or(0) } else { deslocamento };
     com_memoria(base, deslocamento, c.tamanho as usize, |p| p as i64).unwrap_or(0)
 }
 
@@ -836,13 +834,7 @@ pub extern "C" fn dartforge_ffi_composto_novo(rti: i64) -> i64 {
         lancar_unsupported("struct or union not registered in the DartForge native backend");
         return 0;
     };
-    let Some(cid) = cid_registrado(CID_UINT8_LIST) else {
-        lancar_unsupported("struct by value needs the Dart SDK compiled from source");
-        return 0;
-    };
-    let bytes = HEAP.with(|h| {
-        h.borrow_mut().allocate(Value::TypedData { class_id: cid, tipo: TIPO_UINT8, bytes: vec![0u8; c.tamanho as usize].into() })
-    });
+    let bytes = HEAP.with(|h| h.borrow_mut().nova_tipada(TIPO_UINT8, c.tamanho as usize));
     com_raizes(&[bytes], || dartforge_ffi_composto(rti, bytes, 0))
 }
 

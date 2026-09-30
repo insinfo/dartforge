@@ -51,37 +51,31 @@ fn editar(origem: &std::path::Path, destino: &std::path::Path) {
     std::fs::write(destino, conteudo).expect("edição");
 }
 
-#[test]
-fn cli_preserva_estatico_apos_editar_o_mesmo_arquivo_dart() {
-    verificar_recarga(false);
+/// A CLI com a biblioteca do SDK da fonte (o único modo desde o espaço
+/// unificado, docs/NATIVO-ESPACO-UNIFICADO.md §4.7).
+fn cli_com_sdk() -> Command {
+    let dll = dartforge_emit_native::sdk_modulo::dll_do_sdk_da_fonte().expect("DLL do SDK da fonte");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_dartforge"));
+    command.env("DARTFORGE_SDK_DLL", dll);
+    command
 }
 
 #[test]
 #[ignore = "compila DLL do SDK da fonte; executar no job sdk-fonte do Pesado"]
-fn cli_preserva_estatico_com_sdk_da_fonte() {
-    verificar_recarga(true);
-}
-
-fn verificar_recarga(com_sdk_da_fonte: bool) {
+fn cli_preserva_estatico_apos_editar_o_mesmo_arquivo_dart() {
     let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
-    // Um diretório por teste: os dois rodam em paralelo no mesmo processo, e
-    // a limpeza de um apagava a fixture do outro.
+    // Um diretório por teste: eles rodam em paralelo no mesmo processo, e a
+    // limpeza de um apagava a fixture do outro.
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join(format!("../../target/tmp-reload-cli-{}-{}", std::process::id(), u8::from(com_sdk_da_fonte)));
+        .join(format!("../../target/tmp-reload-cli-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("diretório da fixture");
     let entrada = dir.join("main.dart");
     editar(&fixtures.join("reload_estado_v1.dart"), &entrada);
 
-    let mut command = Command::new(env!("CARGO_BIN_EXE_dartforge"));
+    let mut command = cli_com_sdk();
     command.arg("reload").arg(&entrada).arg("--preservar-estado")
         .arg("--intervalo").arg("50")
         .stdout(Stdio::piped()).stderr(Stdio::piped());
-    if com_sdk_da_fonte {
-        let dll = dartforge_emit_native::sdk_modulo::dll_do_sdk_da_fonte().expect("DLL do SDK da fonte");
-        command.env("DARTFORGE_SDK_DA_FONTE", "1").env("DARTFORGE_SDK_DLL", dll);
-    } else {
-        command.env_remove("DARTFORGE_SDK_DA_FONTE").env_remove("DARTFORGE_SDK_DLL");
-    }
     let mut child = command.spawn().expect("CLI");
     let (tx, rx) = mpsc::channel();
     let stdout = child.stdout.take().expect("stdout");
@@ -118,6 +112,61 @@ fn verificar_recarga(com_sdk_da_fonte: bool) {
     assert_eq!(second_len.as_deref(), Ok("2"), "{stderr}");
     assert!(stderr.contains("geração 1: estado preservado"), "{stderr}");
     assert!(stderr.contains("geração 2: estado preservado"), "{stderr}");
+}
+
+/// Recarga com o estado do espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md
+/// §5.2, item 9): os globais guardam strings, listas compactas (`<int>`,
+/// `<double>`) e gerais, uma closure que encadeia as das gerações
+/// anteriores, um `double` em caixa e uma lista grande (com cartões, §2.7)
+/// gravada entre gerações; o programa é recarregado três vezes, e cada
+/// geração vê o estado de todas as anteriores.
+#[test]
+#[ignore = "compila DLL do SDK da fonte; executar no job sdk-fonte do Pesado"]
+fn cli_preserva_o_estado_do_espaco_unificado_em_tres_recargas() {
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(format!("../../target/tmp-reload-espaco-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("diretório da fixture");
+    let entrada = dir.join("main.dart");
+    editar(&fixtures.join("reload_espaco_v1.dart"), &entrada);
+
+    let mut command = cli_com_sdk();
+    command.arg("reload").arg(&entrada).arg("--preservar-estado")
+        .arg("--intervalo").arg("50")
+        .stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command.spawn().expect("CLI");
+    let (tx, rx) = mpsc::channel();
+    let stdout = child.stdout.take().expect("stdout");
+    let reader = std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            let _ = tx.send(line.expect("linha"));
+        }
+    });
+
+    // Cada geração imprime uma linha; a edição seguinte só depois dela.
+    let esperadas = [
+        "v1 1 a1 1 1.5 s1 1.5 1 1",
+        "v2 2 a1a2 1,2 1.5,2.5 s1,s2 2.5 3 2",
+        "v3 3 a1a2a3 1,2,3 1.5,2.5,3.5 s1,s2,s3 3.5 6 3",
+        "v4 4 a1a2a3a4 1,2,3,4 1.5,2.5,3.5,4.5 s1,s2,s3,s4 4.5 10 4",
+    ];
+    let mut vistas = Vec::new();
+    for (i, _) in esperadas.iter().enumerate() {
+        let prazo = Duration::from_secs(if i == 0 { 60 } else { 20 });
+        let Ok(linha) = rx.recv_timeout(prazo) else { break };
+        vistas.push(linha);
+        if i + 1 < esperadas.len() {
+            editar(&fixtures.join(format!("reload_espaco_v{}.dart", i + 2)), &entrada);
+        }
+    }
+    let stderr = encerrar(&mut child, Some("geração 4: estado preservado"));
+    reader.join().expect("leitor");
+    std::fs::remove_dir_all(&dir).expect("limpeza da fixture");
+
+    assert_eq!(vistas, esperadas, "{stderr}");
+    for g in 1..=4 {
+        assert!(stderr.contains(&format!("geração {g}: estado preservado")), "{stderr}");
+    }
 }
 
 /// Hot reload ao vivo: a edição chega ao programa em execução (um timer

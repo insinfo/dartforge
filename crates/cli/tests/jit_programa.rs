@@ -13,7 +13,6 @@ fn script_e_spawn_uri_no_jit() {
     let saida = Command::new(env!("CARGO_BIN_EXE_dartforge"))
         .arg("run")
         .arg(&fixture)
-        .env("DARTFORGE_SDK_DA_FONTE", "1")
         .env("DARTFORGE_SDK_DLL", dll)
         .output()
         .expect("CLI");

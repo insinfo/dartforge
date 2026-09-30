@@ -471,62 +471,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 else {
                     let n = self.ctx.symbol_name(name.sym).to_string();
                     if self.receptor_dinamico(*recv) {
-                        if self.ctx.sdk_da_fonte {
-                            // Em SDK da fonte, até um setter inexistente passa
-                            // pelo seletor: o runtime produz NoSuchMethodError.
-                            // O RHS é avaliado depois do receptor, como em Dart.
-                            let recv_op = self.lower_expr(ast, *recv);
-                            let cur = composto.then(|| self.chamar_por_nome(
-                                recv_op.clone(), super::sdk_fonte::Tipo::Ler, &n, &[],
-                            ));
-                            let v = self.combinar(ast, op, cur, value);
-                            self.chamar_por_nome(
-                                recv_op, super::sdk_fonte::Tipo::Gravar, &n,
-                                &[(None, v.clone())],
-                            );
-                            return v;
-                        }
-                        // Receptor sem tipo útil: campo/setter pela classe
-                        // dinâmica.
-                        let alvos = self.alvos_de_escrita(&n);
-                        if !alvos.is_empty() {
-                            let recv_op = self.lower_expr(ast, *recv);
-                            let recv_op = self.coagir(recv_op, Type::Ref);
-                            let cur = if composto {
-                                let leitura = self.alvos_por_nome(&n);
-                                let n2 = n.clone();
-                                Some(self.despachar(
-                                    recv_op.clone(),
-                                    &leitura,
-                                    super::despacho::Uso::Ler,
-                                    &mut |_s: &mut Self| Vec::new(),
-                                    &mut |s: &mut Self| s.lancar_nsm(&n2),
-                                    span,
-                                ))
-                            } else {
-                                None
-                            };
-                            let v = self.combinar(ast, op, cur, value);
-                            let v2 = v.clone();
-                            let n3 = format!("{n}=");
-                            return self.despachar(
-                                recv_op,
-                                &alvos,
-                                super::despacho::Uso::Gravar,
-                                &mut |_s: &mut Self| vec![(None, v2.clone())],
-                                &mut |s: &mut Self| s.lancar_nsm(&n3),
-                                span,
-                            );
-                        }
-                        // Mundo fechado sem setter com esse nome. Ainda é uma
-                        // expressão válida: avaliar receptor e valor, então
-                        // lançar NoSuchMethodError em tempo de execução.
-                        self.lower_expr(ast, *recv);
-                        if composto {
-                            return self.lancar_nsm(&n);
-                        }
-                        self.lower_rhs(ast, value, Type::Ref);
-                        return self.lancar_nsm(&format!("{n}="));
+                        // Até um setter inexistente passa pelo seletor: o
+                        // runtime produz o `NoSuchMethodError`. O RHS é
+                        // avaliado depois do receptor, como em Dart.
+                        let recv_op = self.lower_expr(ast, *recv);
+                        let cur = composto.then(|| self.chamar_por_nome(
+                            recv_op.clone(), super::sdk_fonte::Tipo::Ler, &n, &[],
+                        ));
+                        let v = self.combinar(ast, op, cur, value);
+                        self.chamar_por_nome(
+                            recv_op, super::sdk_fonte::Tipo::Gravar, &n,
+                            &[(None, v.clone())],
+                        );
+                        return v;
                     }
                     return self.nao_suportado(&format!("atribuição a `{n}`"), span);
                 };
@@ -579,7 +536,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let repr = self.repr_da_expressao(target).unwrap_or(Type::Ref);
                     let fixa = self.lista_fixa_de(ast, *t);
                     self.fixa_do_acesso = fixa.clone();
+                    let provada = self.provada_de(ast, *t, Some(*index));
+                    self.provada_do_acesso = provada.clone();
                     let cur = if composto { self.ler_indexado(t_op.clone(), i_op.clone(), l, repr) } else { None };
+                    self.provada_do_acesso = None;
                     self.fixa_do_acesso = None;
                     // Lista SIMD com valor SIMD do mesmo tipo: o valor vai
                     // como vetor, e só o caminho lento (`[]=` do SDK) o põe
@@ -601,7 +561,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         self.cast_implicito_de_operador(e, &v, *t, "[]=", 1);
                     }
                     self.fixa_do_acesso = fixa;
+                    self.provada_do_acesso = provada;
                     let gravou = self.gravar_indexado(t_op.clone(), i_op.clone(), v.clone(), l);
+                    self.provada_do_acesso = None;
                     self.fixa_do_acesso = None;
                     if gravou {
                         return v;
@@ -625,112 +587,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.chamar_membro(t_op, set, &[(None, i_op), (None, v.clone())], span);
                     return v;
                 }
-                if self.ctx.sdk_da_fonte {
-                    // SDK da fonte: `[]`/`[]=` pela classe dinâmica.
-                    use super::sdk_fonte::Tipo;
-                    let cur = composto.then(|| self.chamar_por_nome_tipado(t_op.clone(), *t, Tipo::Chamar, "[]", &[(None, i_op.clone())]));
-                    let v = self.combinar(ast, op, cur, value);
-                    if !composto && let Rhs::Expr(e) = value {
-                        self.cast_implicito_de_operador(e, &v, *t, "[]=", 1);
-                    }
-                    self.chamar_por_nome_tipado(t_op, *t, Tipo::Chamar, "[]=", &[(None, i_op), (None, v.clone())]);
-                    return v;
+                // `[]`/`[]=` do SDK pela classe dinâmica.
+                use super::sdk_fonte::Tipo;
+                let cur = composto.then(|| self.chamar_por_nome_tipado(t_op.clone(), *t, Tipo::Chamar, "[]", &[(None, i_op.clone())]));
+                let v = self.combinar(ast, op, cur, value);
+                if !composto && let Rhs::Expr(e) = value {
+                    self.cast_implicito_de_operador(e, &v, *t, "[]=", 1);
                 }
-                if let Some(cid) = self.classe_do_usuario_de(*t) {
-                    let (Some(set), get) = (
-                        self.membro_na_classe(cid, "[]="),
-                        self.membro_na_classe(cid, "[]"),
-                    ) else {
-                        return self.nao_suportado("operador []= ausente", span);
-                    };
-                    let cur = if composto {
-                        let Some(get) = get else {
-                            return self.nao_suportado("operador [] ausente", span);
-                        };
-                        Some(self.chamar_membro(t_op.clone(), get, &[(None, i_op.clone())], span))
-                    } else {
-                        None
-                    };
-                    let v = self.combinar(ast, op, cur, value);
-                    self.chamar_membro(t_op, set, &[(None, i_op), (None, v.clone())], span);
-                    return v;
-                }
-                let t_ty = self.ctx.get_type(self.unit_id, *t);
-                let e_mapa = t_ty.is_some_and(|ty| self.ctx.is_map(ty));
-                let e_lista = t_ty.is_some_and(|ty| self.ctx.is_list(ty));
-                if e_lista {
-                    let cur = if composto {
-                        Some(self.emit_call_with_check(
-                            Instruction::CallRuntime {
-                                name: "dartforge_list_get_bits".to_string(),
-                                args: vec![(t_op.clone(), Type::Ref), (i_op.clone(), Type::I64)],
-                                ret_ty: Type::I64,
-                            },
-                            Type::I64,
-                        ))
-                    } else {
-                        None
-                    };
-                    let v = self.combinar(ast, op, cur, value);
-                    let tag = self.operand_tag(&v);
-                    let (bits, _) = self.para_bits(v.clone());
-                    self.emit_call_with_check(
-                        Instruction::CallRuntime {
-                            name: "dartforge_list_set".to_string(),
-                            args: vec![
-                                (t_op, Type::Ref),
-                                (i_op, Type::I64),
-                                (bits, Type::I64),
-                                (Operand::Constant(Constant::Int(i64::from(tag))), Type::I8),
-                            ],
-                            ret_ty: Type::Void,
-                        },
-                        Type::Void,
-                    );
-                    return v;
-                }
-                if e_mapa {
-                    let ktag = self.operand_tag(&i_op);
-                    let (kbits, _) = self.para_bits(i_op);
-                    let cur = if composto {
-                        Some(self.emit(
-                            Instruction::CallRuntime {
-                                name: "dartforge_map_get_bits".to_string(),
-                                args: vec![
-                                    (t_op.clone(), Type::Ref),
-                                    (kbits.clone(), Type::I64),
-                                    (Operand::Constant(Constant::Int(i64::from(ktag))), Type::I8),
-                                ],
-                                ret_ty: Type::I64,
-                            },
-                            Type::I64,
-                        ))
-                    } else {
-                        None
-                    };
-                    let v = self.combinar(ast, op, cur, value);
-                    let vtag = self.operand_tag(&v);
-                    let (vbits, _) = self.para_bits(v.clone());
-                    self.emit_call_with_check(
-                        Instruction::CallRuntime {
-                            name: "dartforge_map_set".to_string(),
-                            args: vec![
-                                (t_op, Type::Ref),
-                                (kbits, Type::I64),
-                                (Operand::Constant(Constant::Int(i64::from(ktag))), Type::I8),
-                                (vbits, Type::I64),
-                                (Operand::Constant(Constant::Int(i64::from(vtag))), Type::I8),
-                            ],
-                            ret_ty: Type::Void,
-                        },
-                        Type::Void,
-                    );
-                    return v;
-                }
-                if !composto {
-                    return self.gravar_indice_dinamico(ast, t_op, i_op, value, span);
-                }
-                self.nao_suportado("atribuição a índice", span)
+                self.chamar_por_nome_tipado(t_op, *t, Tipo::Chamar, "[]=", &[(None, i_op), (None, v.clone())]);
+                v
             }
             _ => self.nao_suportado("alvo de atribuição", span),
         }
@@ -833,93 +698,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         v
     }
 
-    /// `a[i] = v` com `a` sem tipo estático útil: lista ou mapa do runtime
-    /// pela classe do valor, `operator []=` de uma classe do programa, senão
-    /// `NoSuchMethodError`.
-    fn gravar_indice_dinamico(
-        &mut self,
-        ast: &ast::Ast,
-        alvo: Operand,
-        indice: Operand,
-        value: Rhs,
-        span: Span,
-    ) -> Operand {
-        let v = self.lower_rhs(ast, value, Type::Ref);
-        let alvo = self.coagir(alvo, Type::Ref);
-        let cls = self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_value_class".to_string(),
-                args: vec![(alvo.clone(), Type::Ref)],
-                ret_ty: Type::I64,
-            },
-            Type::I64,
-        );
-        let b_lista = self.new_block();
-        let b_mapa = self.new_block();
-        let b_outro = self.new_block();
-        let fim = self.new_block();
-        self.terminate(Terminator::Switch {
-            val: cls,
-            default: b_outro,
-            cases: vec![(-3, b_lista), (-4, b_mapa)],
-        });
-        self.set_block(b_lista);
-        let i = self.coagir(indice.clone(), Type::I64);
-        let tag = self.operand_tag(&v);
-        let (bits, _) = self.para_bits(v.clone());
-        self.emit_call_with_check(
-            Instruction::CallRuntime {
-                name: "dartforge_list_set".to_string(),
-                args: vec![
-                    (alvo.clone(), Type::Ref),
-                    (i, Type::I64),
-                    (bits, Type::I64),
-                    (Operand::Constant(Constant::Int(i64::from(tag))), Type::I8),
-                ],
-                ret_ty: Type::Void,
-            },
-            Type::Void,
-        );
-        self.terminate(Terminator::Branch(fim));
-        self.set_block(b_mapa);
-        let ktag = self.operand_tag(&indice);
-        let (kbits, _) = self.para_bits(indice.clone());
-        let vtag = self.operand_tag(&v);
-        let (vbits, _) = self.para_bits(v.clone());
-        self.emit_call_with_check(
-            Instruction::CallRuntime {
-                name: "dartforge_map_set".to_string(),
-                args: vec![
-                    (alvo.clone(), Type::Ref),
-                    (kbits, Type::I64),
-                    (Operand::Constant(Constant::Int(i64::from(ktag))), Type::I8),
-                    (vbits, Type::I64),
-                    (Operand::Constant(Constant::Int(i64::from(vtag))), Type::I8),
-                ],
-                ret_ty: Type::Void,
-            },
-            Type::Void,
-        );
-        self.terminate(Terminator::Branch(fim));
-        self.set_block(b_outro);
-        let alvos: Vec<_> = self
-            .alvos_por_nome("[]=")
-            .into_iter()
-            .filter(|(_, a)| matches!(a, super::despacho::Alvo::Funcao(_)))
-            .collect();
-        let (i2, v2) = (indice, v.clone());
-        self.despachar(
-            alvo,
-            &alvos,
-            super::despacho::Uso::Chamar,
-            &mut |_s: &mut Self| vec![(None, i2.clone()), (None, v2.clone())],
-            &mut |s: &mut Self| s.lancar_nsm("[]="),
-            span,
-        );
-        self.terminate(Terminator::Branch(fim));
-        self.set_block(fim);
-        v
-    }
 }
 
 /// O getter `nome` da interface da classe `cid`: a própria classe, as

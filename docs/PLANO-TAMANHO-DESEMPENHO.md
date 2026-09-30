@@ -63,6 +63,57 @@ Cuidados:
 - **`opt-level="s"` e `optsize`:** passam pelos benchmarks antes de entrar.
 - **Descartado:** o `/opt:icf` completo quebra a identidade de tear-off.
 
+### Feito (2026-09-30)
+
+A tabela acima é a estimativa por religação. O que entrou, medido de ponta a ponta:
+
+- **Runtime de produção com `panic=abort`.** É uma terceira variante da `staticlib`,
+  `dartforge_rtprod_*`: a feature `dll` com `panic=abort` (`ABORTAR` em `emit_native/build.rs`,
+  `RuntimeCache::para_producao`). Só o executável de produção a liga. A variante `aot` (a do
+  `main` C, sem o SDK da fonte) também aborta. A da DLL de desenvolvimento, que o JIT carrega,
+  continua desenrolando. Quase nada muda no comportamento: um pânico no código que o Dart
+  chama já abortava na fronteira `extern "C"`. O que muda está em `NATIVO.md` §1.1.
+- **`@df.area` enxuto:** `[chave, -n]` no `aot --optimize`, no programa e no SDK de produção
+  (`LlvmEmitter::com_area_enxuta`). O sinal marca a forma. O leitor é
+  `dartforge_area_de_globais`: dá `n` slots exatos, sem nomes e sem folga. O JIT e a DLL de
+  desenvolvimento continuam com o descritor completo.
+- **ICF seguro na produção:**
+  - `/opt:safeicf` no `lld-link`; o desenvolvimento continua com `/opt:noicf`.
+  - `--icf=safe` no `ld.lld`.
+  - No `ld64.lld` não entrou: não foi verificado num Mac que um objeto sem `__llvm_addrsig`
+    (os do Rust) conte como endereço tomado.
+  - `corpus/nativo/80_tearoffs_de_corpo_identico.dart` confere contra a VM. Com o
+    `/opt:icf` completo forçado, ele falha (`nada == nadab` dá `true`); com o seguro, passa.
+- **`optsize` em toda função do SDK de produção** (`sdk_modulo::com_optsize`).
+- **Rejeitado: `opt-level="s"` no runtime.** Tira mais 233 KB (hello) e 248 KB (servidor),
+  mas o `json.dart` fica ~55% mais lento em duas rodadas (soma dos mínimos: 2,4 → 3,8 s e
+  2,3 → 3,5 s). O runtime faz o trabalho de texto e de números do JSON.
+
+Tamanho, `aot --optimize`, numa cópia do `HEAD` 0ef4a7ac (bytes):
+
+| Programa | Antes | `panic=abort` + área enxuta + `safeicf` | + `optsize` no SDK | Total |
+|---|---:|---:|---:|---:|
+| hello | 12 349 440 | 10 706 944 | 10 253 824 | −2,00 MB (−17,0%) |
+| t0 (`map`/`join`) | 12 351 488 | 10 708 992 | 10 255 360 | −17,0% |
+| `bench/http/servidor.dart` | 13 827 584 | 12 124 672 | 11 592 192 | −2,13 MB (−16,2%) |
+| `bench/desempenho/json.dart` | 12 429 312 | 10 773 504 | 10 319 872 | −17,0% |
+| `bench/simd/bin/blend.dart` | 12 368 384 | 10 724 864 | 10 272 256 | −16,9% |
+
+Tempo de ligação do servidor (cache de objeto quente, duas rodadas): antes 50,6 e 38,2 s;
+com as três mudanças 36,9 e 36,0 s; com `optsize`, 38,0 e 36,6 s. Não piorou.
+
+Desempenho (máquina com outros builds rodando; mínimos de rodadas alternadas):
+
+| Medida | Antes | 3 mudanças | + `optsize` |
+|---|---:|---:|---:|
+| `json.dart`, soma dos mínimos (3 rodadas) | 2,14 s | 2,01 s | — |
+| `json.dart` (6 rodadas) | — | 3,14 s | 3,16 s |
+| `blend.dart` escalar / 3.6 / 3.14, µs (20 rodadas) | — | 76,1 / 99,2 / 30,4 | 77,0 / 97,0 / 30,4 |
+| servidor, req/s em `/` e `/json`, mediana de 5 | 2 506 / 2 271 | 2 433 / 2 456 | 2 843 / 2 331 |
+
+O servidor foi medido no Windows com um cliente Dart de 4 conexões keep-alive. O
+`scripts/bench-http.py` exige `wrk` e `/proc`, então não rodou.
+
 ### Estrutural: tabelas de métodos montadas na ligação
 
 É o equivalente, no DartForge, destas peças das referências:
@@ -121,6 +172,27 @@ Perfil do JSON (tempo *self*):
 | alocação no heap | 8 |
 | listas do runtime | 6 |
 | RTI | 4,6 |
+
+### Feito: propostas 1 e 2 (2026-09-30)
+
+Detalhes, perfis e o que não foi verificado estão em `NATIVO-PLANO.md` §11. As medidas são
+do AOT com `--optimize`, com execuções alternadas e a mediana da razão pareada.
+
+| Medida | Antes | Depois | Razão pareada antes/depois | Dart AOT |
+|---|---:|---:|---:|---:|
+| JSON, tempo total (mín., 8 rep.) | 17,1 s | 13,9 s | 1,19 [0,98–1,39] | 3,5 s |
+| JSON `decode_medio` (mín.) | 331 ms | 227 ms | 1,42 | 44 ms |
+| JSON `encode_pequeno` (mín.) | 180 ms | 99 ms | 1,82 | 32 ms |
+| HTTP, CPU/req, 1 conexão (mediana, 4 rep.) | 259 µs | 303 µs | 1,00 [0,74–1,10] | 157 µs |
+
+- **Perfil do JSON (self):** a classe do valor cai de 12,6% para 0,7%, e a coleta de 10,0% para
+  4,9%.
+- **O "depois" inclui o que outras frentes mudaram na mesma árvore no intervalo.** A parte em
+  linha sozinha, medida no mesmo binário com `DARTFORGE_SEM_CLASSE_EM_LINHA=1`, dá uma razão de
+  1,07 no JSON total.
+- **HTTP:** só 4 repetições válidas, com builds concorrentes. Não há ganho mensurável acima do
+  ruído, o que concorda com o −2–3% estimado.
+- **`CONTAGEM_JOVEM` não foi revista:** a medida foi interrompida.
 
 ### Causa raiz
 
@@ -181,6 +253,16 @@ esses custos somam cerca de 55–60% do JSON e 17–20% da CPU do servidor.
 - **Ganho estimado:** JSON 2–3× mais rápido e HTTP −15–20% de CPU/req. A coleta que custa pelo
   alocado se resolve junto; a coleta continua sem mover objetos, como na Julia.
 
+**Estado (2026-09-30).** As fases B, C e D viraram uma especificação só, de uma vez e sem os slots
+convivendo com o espaço: `docs/NATIVO-ESPACO-UNIFICADO.md`. Ela troca o desenho incremental acima
+por cids fixos para as classes do runtime (1–65), três formatos de corpo que o coletor percorre sem
+olhar a classe (`INSTANCIA`, `BRUTO`, `REFS`), classes de tamanho médias e regiões grandes, cartões
+nas listas grandes, literais de string estáticos no AOT e a cópia entre isolados por bloco; e tira
+o caminho sem SDK da fonte (`sdk_por_nome.rs`, `DARTFORGE_SDK_DA_FONTE`). A implementação foi
+dividida em pacotes paralelos (P0–P5, §4 da especificação) e é validada na integração (§5); os
+números medidos entram em `NATIVO-PLANO.md` §12. O marcador de ABI de §4 abaixo entrou como a
+conferência da tabela de cids (`dartforge_registrar_cids`).
+
 ### O que não fazer, com evidência
 
 - **Trocar a pilha-sombra por *statepoints*:**
@@ -194,11 +276,13 @@ esses custos somam cerca de 55–60% do JSON e 17–20% da CPU do servidor.
 
 ## 3. Ordem proposta
 
-1. **Ganhos rápidos de tamanho:** `panic=abort`, `@df.area` enxuto e `safeicf`. `opt-level="s"`
-   e `optsize` só depois de medir.
+1. **Ganhos rápidos de tamanho:** feito em 2026-09-30 (§1, «Feito»). Entraram `panic=abort`,
+   o `@df.area` enxuto, o `safeicf` e o `optsize`; o `opt-level="s"` foi rejeitado.
 2. **Propostas 1 a 4 de desempenho,** baratas e independentes.
 3. **Tabelas de métodos na ligação** (tamanho), junto da tabela de despacho global (proposta 6).
-4. **Fases B → C → D** dos valores no espaço de objetos.
+4. **Fases B → C → D** dos valores no espaço de objetos: especificadas juntas em
+   `NATIVO-ESPACO-UNIFICADO.md` (2026-09-30), implementadas em paralelo por pacote e medidas na
+   integração (`NATIVO-PLANO.md` §12).
 
 As ferramentas de medida (`alcance.py`, `quebra.py`, religação por variantes, amostrador com
 pilhas) ficaram no scratchpad da sessão de 2026-09-29. Vale trazer para `tools/` as que forem

@@ -4,13 +4,14 @@
 //! A especificação (§17.9 "Collection literals") avalia os elementos em
 //! ordem e acrescenta cada valor produzido; `...e` acrescenta os elementos de
 //! `e` (`...?e` ignora null); `if` e `for` produzem zero ou mais valores. O
-//! literal só de expressões continua na alocação direta
-//! (`AllocList`/`AllocMap`); os outros começam vazios e acrescentam.
+//! literal de lista só de expressões continua na alocação direta
+//! (`AllocList`, `llvm/listas_ir.rs`); os outros começam vazios (a
+//! `_GrowableList` do literal, o `_Map`/`_Set` da fonte) e acrescentam.
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
 use dartforge_diagnostics::Span;
-use dartforge_frontend::ast::{self, CollectionElement, ExprId, ForInTarget, ForInit};
+use dartforge_frontend::ast::{self, CollectionElement, ExprId, ForInit};
 
 /// Que coleção o literal constrói.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -45,79 +46,40 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         elements.iter().find_map(folha).unwrap_or(false)
     }
 
-    /// Coleção vazia do tipo pedido.
+    /// Coleção vazia do tipo pedido: a `_GrowableList` do literal (`AllocList`
+    /// sem elementos) ou o `_Map`/`_Set` da fonte.
     fn colecao_vazia(&mut self, tipo: Colecao) -> Operand {
-        if self.ctx.sdk_da_fonte && tipo != Colecao::Lista {
-            return self.colecao_vazia_fonte(tipo == Colecao::Mapa);
-        }
         match tipo {
             Colecao::Lista => self.emit(Instruction::AllocList { elements: Vec::new() }, Type::Ref),
-            Colecao::Mapa => self.emit(Instruction::AllocMap { entries: Vec::new() }, Type::Ref),
-            Colecao::Conjunto => {
-                // `set_new` com zero pares: o ponteiro é de um vetor
-                // constante qualquer (não é lido).
-                let vazio = self.emit(Instruction::ConstArray(vec![0]), Type::Ptr);
-                self.emit(
-                    Instruction::CallRuntime {
-                        name: "dartforge_set_new".to_string(),
-                        args: vec![(vazio, Type::Ptr), (Operand::Constant(Constant::Int(0)), Type::I64)],
-                        ret_ty: Type::Ref,
-                    },
-                    Type::Ref,
-                )
-            }
+            _ => self.colecao_vazia_fonte(tipo == Colecao::Mapa),
         }
     }
 
-    /// Acrescenta um valor à lista ou ao conjunto.
+    /// Acrescenta um valor à lista ou ao conjunto. A lista é a `_GrowableList`
+    /// que o literal acabou de criar (ainda sem o `E` reificado, gravado no fim
+    /// por quem baixa o literal): o `add` direto do runtime
+    /// (`dartforge_lista_acrescentar`, o valor numa posição `Ref`), sem o
+    /// despacho nem a conferência de covariância, que o tipo estático do
+    /// elemento já garante. O conjunto usa o `add` do `_Set`.
     fn acrescentar(&mut self, alvo: Operand, tipo: Colecao, v: Operand) {
-        if self.ctx.sdk_da_fonte && tipo == Colecao::Conjunto {
+        if tipo == Colecao::Conjunto {
             self.chamar_por_nome(alvo, super::sdk_fonte::Tipo::Chamar, "add", &[(None, v)]);
             return;
         }
-        let tag = self.operand_tag(&v);
-        let (bits, _) = self.para_bits(v);
-        let (nome, ret) = match tipo {
-            Colecao::Lista => ("dartforge_list_push", Type::Void),
-            _ => ("dartforge_set_add", Type::I8),
-        };
-        self.emit_call_with_check(
+        let v = self.coagir(v, Type::Ref);
+        self.emit(
             Instruction::CallRuntime {
-                name: nome.to_string(),
-                args: vec![
-                    (alvo, Type::Ref),
-                    (bits, Type::I64),
-                    (Operand::Constant(Constant::Int(i64::from(tag))), Type::I8),
-                ],
-                ret_ty: ret,
+                name: "dartforge_lista_acrescentar".to_string(),
+                args: vec![(alvo, Type::Ref), (v, Type::Ref)],
+                ret_ty: Type::Ref,
             },
-            ret,
+            Type::Ref,
         );
     }
 
+    /// Acrescenta uma entrada ao mapa (o `[]=` do `_Map`).
     fn acrescentar_entrada(&mut self, alvo: Operand, k: Operand, v: Operand) {
-        if self.ctx.sdk_da_fonte {
-            self.chamar_por_nome(alvo, super::sdk_fonte::Tipo::Chamar, "[]=", &[(None, k), (None, v)]);
-            return;
-        }
-        let ktag = self.operand_tag(&k);
-        let (kbits, _) = self.para_bits(k);
-        let vtag = self.operand_tag(&v);
-        let (vbits, _) = self.para_bits(v);
-        self.emit_call_with_check(
-            Instruction::CallRuntime {
-                name: "dartforge_map_set".to_string(),
-                args: vec![
-                    (alvo, Type::Ref),
-                    (kbits, Type::I64),
-                    (Operand::Constant(Constant::Int(i64::from(ktag))), Type::I8),
-                    (vbits, Type::I64),
-                    (Operand::Constant(Constant::Int(i64::from(vtag))), Type::I8),
-                ],
-                ret_ty: Type::Void,
-            },
-            Type::Void,
-        );
+        self.chamar_por_nome(alvo, super::sdk_fonte::Tipo::Chamar, "[]=", &[(None, k), (None, v)]);
     }
 
     /// Literal de coleção com elementos de controle (ou de conjunto).
@@ -148,7 +110,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// fazer de um literal inteiro um `double`.
     fn preencher_de_tabela(&mut self, ast: &ast::Ast, alvo: Operand, tipo: Colecao, elements: &[CollectionElement]) -> bool {
         const MINIMO: usize = 8;
-        if !self.ctx.sdk_da_fonte || elements.len() < MINIMO {
+        if elements.len() < MINIMO {
             return false;
         }
         let mut tabela: Vec<u8> = Vec::new();
@@ -258,35 +220,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             CollectionElement::Spread { value, null_aware } => {
                 let fonte = self.lower_expr(ast, *value);
                 let fonte = self.coagir(fonte, Type::Ref);
-                if self.ctx.sdk_da_fonte {
-                    // SDK da fonte: `...e` é o `addAll` da coleção (§17.9.1).
-                    let espalhar = |s: &mut Self, f: Operand| {
-                        s.chamar_por_nome(alvo.clone(), super::sdk_fonte::Tipo::Chamar, "addAll", &[(None, f)]);
-                    };
-                    if *null_aware {
-                        self.se_nao_nulo(fonte, espalhar);
-                    } else {
-                        espalhar(self, fonte);
-                    }
-                    return;
-                }
-                if tipo == Colecao::Mapa {
-                    self.nao_suportado("espalhamento num literal de mapa", span);
-                    return;
-                }
+                // `...e` é o `addAll` da coleção (§17.9.1).
                 let espalhar = |s: &mut Self, f: Operand| {
-                    let n = s.emit(
-                        Instruction::CallRuntime {
-                            name: "dartforge_generic_len".to_string(),
-                            args: vec![(f.clone(), Type::Ref)],
-                            ret_ty: Type::I64,
-                        },
-                        Type::I64,
-                    );
-                    s.laco_indice(n, |s2, i| {
-                        let x = s2.ler_elemento_iteravel(f.clone(), i, Type::Ref);
-                        s2.acrescentar(alvo.clone(), tipo, x);
-                    });
+                    s.chamar_por_nome(alvo.clone(), super::sdk_fonte::Tipo::Chamar, "addAll", &[(None, f)]);
                 };
                 if *null_aware {
                     self.se_nao_nulo(fonte, espalhar);
@@ -405,46 +341,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             } => {
                 let fonte = self.lower_expr(ast, *iterable);
                 let fonte = self.coagir(fonte, Type::Ref);
-                if self.ctx.sdk_da_fonte {
-                    let corpo: &CollectionElement = body;
-                    self.iterar_fonte(fonte, &mut |s: &mut Self, x: Operand| {
-                        s.abrir_escopo();
-                        s.ligar_alvo_de_for_in(ast, target, x, *iterable, span);
-                        s.elemento_de_colecao(ast, alvo.clone(), tipo, corpo, span);
-                        s.fechar_escopo();
-                    });
-                    return;
-                }
-                let n = self.emit(
-                    Instruction::CallRuntime {
-                        name: "dartforge_generic_len".to_string(),
-                        args: vec![(fonte.clone(), Type::Ref)],
-                        ret_ty: Type::I64,
-                    },
-                    Type::I64,
-                );
                 let corpo: &CollectionElement = body;
-                self.laco_indice(n, |s, i| {
+                self.iterar_fonte(fonte, &mut |s: &mut Self, x: Operand| {
                     s.abrir_escopo();
-                    match target {
-                        ForInTarget::Declared { name, .. } => {
-                            let ty = s.repr_do_local(name.span.start as usize);
-                            let x = s.ler_elemento_iteravel(fonte.clone(), i, ty);
-                            s.declarar_variavel(name.sym, name.span.start as usize, ty, x);
-                        }
-                        ForInTarget::Pattern { pattern, .. } => {
-                            let x = s.ler_elemento_iteravel(fonte.clone(), i, Type::Ref);
-                            s.casar_irrefutavel(ast, *pattern, x, super::padroes::Ligacao::Declarar, *iterable);
-                        }
-                        ForInTarget::Expression(e) => {
-                            if let ast::ExprKind::Identifier(id) = &ast.expr(*e).kind {
-                                let x = s.ler_elemento_iteravel(fonte.clone(), i, Type::Ref);
-                                s.gravar_local(id.sym, x);
-                            } else {
-                                s.nao_suportado("alvo de for-in em literal", span);
-                            }
-                        }
-                    }
+                    s.ligar_alvo_de_for_in(ast, target, x, *iterable, span);
                     s.elemento_de_colecao(ast, alvo.clone(), tipo, corpo, span);
                     s.fechar_escopo();
                 });

@@ -1,98 +1,22 @@
-// Runtime nativo: células, ambientes e closures.
+// Runtime nativo: células, contextos e closures (espaço unificado, P2:
+// docs/NATIVO-ESPACO-UNIFICADO.md §2.5 e `caixas.rs`).
+//
+// O código gerado cria e lê células, contextos e closures em linha
+// (`llvm/caixas_ir.rs`). As funções abaixo ficam para a ABI: as de criação
+// como caminho lento, e as de leitura para o runtime e para o que ainda as
+// declara (`llvm/externs.rs`). A ABI de pares `(bits, tag)` (tags 1 int, 2
+// bool, 3 referência, 4 double) das externs antigas vira um `Campo`: a
+// palavra na representação gravada e se ela é referência.
 
-/// Cria uma célula de captura mutável; o chamador a enraíza antes de coletar.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_cell_new(bits: i64, tag: u8) -> i64 {
-    let value = tagged(bits, tag);
-    HEAP.with(|heap| heap.borrow_mut().create_cell(value))
-}
-
-/// Lê os bits de uma captura mutável, sem copiar o objeto de uma referência.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_cell_get_bits(handle: i64) -> i64 {
-    HEAP.with(|heap| heap.borrow().cell_get(handle).bits)
-}
-
-/// Lê a tag (1 = int, 2 = bool, 3 = referência) de uma captura mutável.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_cell_get_tag(handle: i64) -> u8 {
-    HEAP.with(|heap| untag(heap.borrow().cell_get(handle)).1)
-}
-
-/// Atualiza a captura observada por todos os ambientes que partilham a célula.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_cell_set(handle: i64, bits: i64, tag: u8) {
-    let value = tagged(bits, tag);
-    HEAP.with(|heap| heap.borrow_mut().cell_set(handle, value));
-}
-
-/// Cria um ambiente com `len` pares (bits, tag) lidos de `pairs`.
-///
-/// # Safety
-/// `pairs` deve apontar para `2 * len` i64 legíveis; o emissor constrói o vetor
-/// na pilha. Capturas mutáveis entram como handles de célula (tag 3).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_env_new(pairs: *const i64, len: i64) -> i64 {
-    let len = usize::try_from(len).expect("comprimento inválido");
-    let captures = if len == 0 {
-        Vec::new()
-    } else {
-        // SAFETY: vetor temporário do emissor, legível pelos `2 * len` i64.
-        let raw = unsafe { std::slice::from_raw_parts(pairs, len * 2) };
-        raw.chunks_exact(2)
-            .map(|pair| tagged(pair[0], u8::try_from(pair[1]).expect("tag inválida")))
-            .collect()
-    };
-    HEAP.with(|heap| heap.borrow_mut().create_environment(captures))
-}
-
-/// Obtém a captura (handle de célula) por índice do ambiente.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_env_get(handle: i64, index: i64) -> i64 {
-    HEAP.with(|heap| {
-        heap.borrow()
-            .environment_get(handle, usize::try_from(index).expect("índice inválido"))
-            .bits
-    })
-}
-
-/// Cria uma closure com identidade própria sobre código simbólico e ambiente.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_closure_new(code_id: i64, env: i64) -> i64 {
-    HEAP.with(|heap| heap.borrow_mut().create_closure(code_id, env))
-}
-
-/// Uma closure com corpo de ABI tipada (`lower/closures.rs`): `tipado` é o
-/// endereço do corpo `(env, p0…) -> r` nas representações da HIR, e `abi` o
-/// código delas.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_closure_new_tipada(code_id: i64, env: i64, tipado: i64, abi: i64) -> i64 {
-    HEAP.with(|heap| {
-        let mut heap = heap.borrow_mut();
-        let h = heap.create_closure(code_id, env);
-        if let Value::Closure(c) = heap.get_mut(h) {
-            c.tipado = tipado;
-            c.abi = abi;
-        }
-        h
-    })
-}
-
-/// Uma closure de ambiente direto (`lower/closures.rs`): `valor` é a única
-/// captura (ou o `this`), guardada no lugar do ambiente — o corpo a recebe
-/// como o parâmetro `env`. Sem o objeto do ambiente; o coletor segue o
-/// campo como qualquer referência (null e `Smi` não são arestas). O
-/// chamador mantém `valor` enraizado durante a chamada (é operando dela).
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_closure_nova_direta(code_id: i64, valor: i64, tipado: i64, abi: i64) -> i64 {
-    HEAP.with(|heap| {
-        heap.borrow_mut().allocate(Value::Closure(Box::new(crate::heap::CabecalhoDeClosure {
-            code_id,
-            environment: valor,
-            tipado,
-            abi,
-        })))
-    })
+/// O `Campo` de um par `(bits, tag)` da ABI antiga: só a tag 3 é referência;
+/// `bool` é 0/1 e `double`, os bits.
+fn campo_de_par(bits: i64, tag: u8) -> crate::heap::Campo {
+    match tag {
+        1 | 4 => (bits, false),
+        2 => (i64::from(bits != 0), false),
+        3 => (bits, true),
+        _ => panic!("tag de valor inválida"),
+    }
 }
 
 /// O corpo tipado de `h` se ela é uma closure com a ABI `abi` (a que quem
@@ -100,8 +24,8 @@ pub extern "C" fn dartforge_closure_nova_direta(code_id: i64, valor: i64, tipado
 /// lê o heap.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_closure_tipada(h: i64, abi: i64) -> i64 {
-    heap_sem_emprestimo(|heap| match heap.try_get(h) {
-        Some(Value::Closure(c)) if c.abi == abi && abi != 0 => c.tipado,
+    heap_sem_emprestimo(|heap| match heap.closure(h) {
+        Some(c) if c.abi == abi && abi != 0 => c.tipado,
         _ => 0,
     })
 }
@@ -115,73 +39,43 @@ pub extern "C" fn dartforge_tearoff(code_id: i64) -> i64 {
 /// Consulta o código simbólico de uma closure para despacho indireto.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_closure_code(handle: i64) -> i64 {
-    HEAP.with(|heap| heap.borrow().closure_parts(handle).0)
+    HEAP.with(|heap| heap.borrow().closure(handle).expect("closure esperada").codigo)
 }
 
-/// Consulta o ambiente de uma closure para chamadas indiretas.
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_closure_env(handle: i64) -> i64 {
-    heap_sem_emprestimo(|heap| match heap.try_get(handle) {
-        Some(Value::Closure(c)) => c.environment,
-        _ => heap.closure_parts(handle).1,
-    })
-}
+/// Os quatro campos de ninguém (`abi` 0): o que [`dartforge_closure_cabecalho`]
+/// devolve para quem não é closure.
+static CLOSURE_NENHUMA: [i64; 4] = [0; 4];
 
-/// O cabeçalho da closure `h` (`heap::CabecalhoDeClosure`), ou o
-/// `CLOSURE_VAZIA` (`abi` 0) para quem não é closure. O endereço não muda
-/// enquanto a closure vive e ela é imutável: função pura do handle, e o
-/// código gerado lê `abi`, `tipado` e o ambiente em linha.
+/// O endereço dos quatro campos da closure `h` (código, contexto, corpo
+/// tipado, ABI — a ordem do antigo `CabecalhoDeClosure`), ou os de
+/// [`CLOSURE_NENHUMA`] para quem não é closure. O código gerado lê o bloco
+/// direto (`lower/closures.rs`); fica para a ABI.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_closure_cabecalho(h: i64) -> i64 {
-    heap_sem_emprestimo(|heap| match heap.try_get(h) {
-        Some(Value::Closure(c)) => &**c as *const crate::heap::CabecalhoDeClosure as i64,
-        _ => std::ptr::addr_of!(crate::heap::CLOSURE_VAZIA) as i64,
+    heap_sem_emprestimo(|heap| match heap.closure(h) {
+        Some(_) => h + (crate::layout::desl::CORPO as i64 - crate::layout::DESLOCAMENTO_DO_HANDLE),
+        None => CLOSURE_NENHUMA.as_ptr() as i64,
     })
 }
-
-/// O endereço dos elementos (`TaggedValue`) do ambiente `h`, ou 0. O vetor
-/// de capturas não muda de tamanho (a mutabilidade compartilhada mora em
-/// `Cell`): o endereço vale enquanto o ambiente vive, e o código gerado lê
-/// as capturas em linha (`EnvGet`, `llvm/mod.rs`).
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_env_dados(h: i64) -> i64 {
-    heap_sem_emprestimo(|heap| match heap.try_get(h) {
-        Some(Value::Environment(v)) => v.as_ptr() as i64,
-        _ => 0,
-    })
-}
-
 
 // --- P1: convenção uniforme das closures (docs/NATIVO-PLANO.md §7.4) --------
 
-/// Lê uma captura mutável como referência: um escalar guardado sai
-/// encaixotado (R5), nunca como bits lidos por handle.
+/// Lê uma captura mutável como referência. A palavra de um escalar não diz o
+/// tipo: sai como `int` (o código gerado lê a célula na representação do
+/// local e nunca chama esta).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_cell_get_ref(handle: i64) -> i64 {
-    let v = HEAP.with(|heap| heap.borrow().cell_get(handle));
-    valor_como_ref(v)
+    let (bits, e_ref) = HEAP.with(|heap| heap.borrow().celula(handle));
+    if e_ref { bits } else { HEAP.with(|heap| heap.borrow_mut().caixa_int(bits)) }
 }
 
-/// Lê a posição `index` do ambiente como referência (escalar encaixotado).
-#[unsafe(no_mangle)]
-pub extern "C" fn dartforge_env_get_ref(handle: i64, index: i64) -> i64 {
-    let v = HEAP.with(|heap| {
-        heap.borrow()
-            .environment_get(handle, usize::try_from(index).expect("índice inválido"))
-    });
-    valor_como_ref(v)
-}
-
-/// O endereço da entrada uniforme de uma closure (o código gravado por
-/// `dartforge_closure_new`). Um valor que não é closure (null, ou outro
-/// objeto chamado como função) deixa `NoSuchMethodError` pendente e devolve
-/// 0, que o ponto de chamada troca pela entrada `@df_clo_invalido`.
+/// O endereço da entrada uniforme de uma closure (o código gravado nela). Um
+/// valor que não é closure (null, ou outro objeto chamado como função) deixa
+/// `NoSuchMethodError` pendente e devolve 0, que o ponto de chamada troca pela
+/// entrada `@df_clo_invalido`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_closure_entry(handle: i64) -> i64 {
-    let codigo = HEAP.with(|heap| match heap.borrow().try_get(handle) {
-        Some(Value::Closure(c)) => Some(c.code_id),
-        _ => None,
-    });
+    let codigo = HEAP.with(|heap| heap.borrow().closure(handle).map(|c| c.codigo));
     // Um objeto de classe com `call` (classe chamável): a entrada do método
     // na tabela da classe tem a mesma convenção (receptor, args, desc).
     codigo.or_else(|| metodo_da_classe(dartforge_value_class(handle), hash_do_nome("c:call")).map(|f| f as i64))
@@ -195,7 +89,7 @@ pub extern "C" fn dartforge_closure_entry(handle: i64) -> i64 {
 /// (valor que não é função, ou aridade/nomes errados).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nsm_chamada() {
-    let nome = HEAP.with(|heap| heap.borrow_mut().allocate(Value::String(Texto::de_str("call"))));
+    let nome = HEAP.with(|heap| heap.borrow_mut().alocar_str("call"));
     let erro = com_raizes(&[nome], || dartforge_no_such_method_error_new(nome));
     com_raizes(&[erro], || dartforge_exception_throw(erro, 3));
 }
@@ -262,31 +156,44 @@ pub unsafe extern "C" fn dartforge_arg_indice(desc: *const i64, hash: i64) -> i6
         .map_or(-1, |p| p as i64)
 }
 
+/// O comprimento de uma lista do núcleo, ou 0 para o que não é lista.
+fn comprimento_da_lista(h: i64) -> usize {
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        if heap.e_lista(h) { heap.lista_len(h) } else { 0 }
+    })
+}
+
 /// `Function._apply` da VM recebe `[função, posicionais…, nomeados…]` e os
 /// nomes em uma segunda lista, já produzidas pelo patch Dart de `Function.apply`.
 /// Recompõe a ABI uniforme das closures, inclusive o descritor de nomes.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Function_apply(arguments: i64, names: i64) -> i64 {
     com_raizes(&[arguments, names], || {
-        let count = lista_len(arguments).max(0) as usize;
-        let named = lista_len(names).max(0) as usize;
+        let count = comprimento_da_lista(arguments);
+        let named = comprimento_da_lista(names);
         if count == 0 || named >= count {
             dartforge_nsm_chamada();
             return 0;
         }
-        let function = dartforge_nativo_DartForge_lista_get(arguments, 0);
-        // O slot depois dos argumentos é o da tupla de tipos (nenhuma).
-        let args: Vec<i64> = (1..count)
-            .map(|i| dartforge_nativo_DartForge_lista_get(arguments, i as i64))
-            .chain(std::iter::once(0))
-            .collect();
+        // Os elementos em posição `Ref` (as listas são as gerais do patch; a
+        // caixa, se houver, fica viva na própria lista).
+        let (function, args, nomes) = HEAP.with(|heap| {
+            let mut heap = heap.borrow_mut();
+            let function = heap.lista_get_ref(arguments, 0);
+            // O slot depois dos argumentos é o da tupla de tipos (nenhuma).
+            let args: Vec<i64> = (1..count).map(|i| heap.lista_get_ref(arguments, i)).chain(std::iter::once(0)).collect();
+            let nomes: Vec<Option<String>> = (0..named)
+                .map(|i| {
+                    let v = heap.lista_get_ref(names, i);
+                    heap.texto(v).map(|t| t.para_string())
+                })
+                .collect();
+            (function, args, nomes)
+        });
         let mut desc = vec![(count - 1 - named) as i64, named as i64];
-        for i in 0..named {
-            let value = dartforge_nativo_DartForge_lista_get(names, i as i64);
-            let Some(name) = HEAP.with(|heap| match heap.borrow().try_get(value) {
-                Some(Value::String(text)) => Some(text.para_string()),
-                _ => None,
-            }) else {
+        for name in nomes {
+            let Some(name) = name else {
                 dartforge_nsm_chamada();
                 return 0;
             };
@@ -296,12 +203,14 @@ pub extern "C" fn dartforge_nativo_Function_apply(arguments: i64, names: i64) ->
             });
             desc.push(hash as i64);
         }
-        let code = dartforge_closure_entry(function);
-        if code == 0 { return 0; }
-        // SAFETY: `dartforge_closure_entry` devolve o endereço de uma entrada
-        // uniforme gerada com assinatura (closure, argumentos, descritor).
-        let entry: extern "C" fn(i64, *const i64, *const i64) -> i64 = unsafe { std::mem::transmute(code as usize) };
-        entry(function, args.as_ptr(), desc.as_ptr())
+        com_raizes(&args, || {
+            let code = dartforge_closure_entry(function);
+            if code == 0 { return 0; }
+            // SAFETY: `dartforge_closure_entry` devolve o endereço de uma entrada
+            // uniforme gerada com assinatura (closure, argumentos, descritor).
+            let entry: extern "C" fn(i64, *const i64, *const i64) -> i64 = unsafe { std::mem::transmute(code as usize) };
+            entry(function, args.as_ptr(), desc.as_ptr())
+        })
     })
 }
 
@@ -317,7 +226,7 @@ mod function_apply_tests {
                 && *desc.add(2) == hash("c") && *desc.add(3) == hash("b")
                 && *args.add(1) == 0 && *args.add(2) == 0
         };
-        let value_alive = HEAP.with(|heap| matches!(heap.borrow().try_get(unsafe { *args }), Some(Value::String(t)) if t.para_string() == "valor"));
+        let value_alive = HEAP.with(|heap| heap.borrow().texto(unsafe { *args }).is_some_and(|t| t.para_string() == "valor"));
         i64::from(matches && value_alive)
     }
 
@@ -329,23 +238,36 @@ mod function_apply_tests {
 
     #[test]
     fn function_apply_encaminha_descritor_nomeado_a_entrada_uniforme() {
+        use crate::heap::Valor;
+        use crate::listas::Elemento;
         let function = dartforge_tearoff(entry as usize as i64);
         com_raizes(&[function], || {
-            let (arguments, names) = HEAP.with(|heap| {
-                let mut heap = heap.borrow_mut();
-                let c = heap.allocate(Value::String(Texto::de_str("c")));
-                let b = heap.allocate(Value::String(Texto::de_str("b")));
-                let value = heap.allocate(Value::String(Texto::de_str("valor")));
-                let arguments = heap.allocate(Value::List(vec![
-                    TaggedValue::reference(function),
-                    TaggedValue::reference(value),
-                    TaggedValue::reference(0),
-                    TaggedValue::reference(0),
-                ].into()));
-                let names = heap.allocate(Value::List(vec![TaggedValue::reference(c), TaggedValue::reference(b)].into()));
-                (arguments, names)
+            let c = HEAP.with(|heap| heap.borrow_mut().alocar_str("c"));
+            com_raizes(&[c], || {
+                let b = HEAP.with(|heap| heap.borrow_mut().alocar_str("b"));
+                com_raizes(&[b], || {
+                    let value = HEAP.with(|heap| heap.borrow_mut().alocar_str("valor"));
+                    com_raizes(&[value], || {
+                        let arguments = HEAP.with(|heap| {
+                            let mut heap = heap.borrow_mut();
+                            let l = heap.nova_lista(crate::layout::cid::LIST, 4, Elemento::Geral);
+                            heap.lista_set(l, 0, Valor::Ref(function));
+                            heap.lista_set(l, 1, Valor::Ref(value));
+                            l
+                        });
+                        com_raizes(&[arguments], || {
+                            let names = HEAP.with(|heap| {
+                                let mut heap = heap.borrow_mut();
+                                let l = heap.nova_lista(crate::layout::cid::LIST, 2, Elemento::Geral);
+                                heap.lista_set(l, 0, Valor::Ref(c));
+                                heap.lista_set(l, 1, Valor::Ref(b));
+                                l
+                            });
+                            assert_eq!(dartforge_nativo_Function_apply(arguments, names), 1);
+                        });
+                    });
+                });
             });
-            assert_eq!(dartforge_nativo_Function_apply(arguments, names), 1);
         });
     }
 }

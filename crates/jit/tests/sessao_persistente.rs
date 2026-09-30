@@ -142,19 +142,25 @@ fn medicao_sessao_persistente() {
     let emitido = std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
-            let opcoes = dartforge_emit_native::CompileOptions { sdk: None, packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None };
-            // O runtime embutido (`JitSession::new`): o perfil sem o SDK da
-            // fonte, que não importa nada da biblioteca do SDK.
-            dartforge_emit_native::emitir_ir_com(&fonte, &opcoes, false).unwrap().texto
+            let opcoes = dartforge_emit_native::CompileOptions { sdk: None, packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
+            // Com o SDK da fonte (o único modo do emissor desde o espaço
+            // unificado): o programa importa o runtime e o SDK da biblioteca
+            // compartilhada, que a sessão carrega (`JitSession::new_for_ir_com`).
+            dartforge_emit_native::emitir_ir_recarregavel(&fonte, &opcoes, None).unwrap().texto
         })
         .unwrap()
         .join()
         .unwrap();
     drop(dir);
+    let dll = dartforge_emit_native::sdk_modulo::dll_do_sdk_da_fonte().expect("biblioteca do SDK da fonte");
+    // A sessão do IR: o runtime embutido para o trivial, a biblioteca do SDK
+    // para o emitido; e a execução pela entrada de cada perfil.
+    let nova_sessao = |ir: &str| JitSession::new_for_ir_com(ir, Some(&dll)).unwrap();
+    let executar = |s: &JitSession| if s.usa_sdk_da_fonte() { s.run_main().unwrap().total } else { s.run_entry().unwrap().total };
 
     for (rotulo, ir) in [("trivial", TRIVIAL), ("IR do emissor", emitido.as_str())] {
         let (p50, p95) = medir(n, || {
-            let mut sessao = JitSession::new().unwrap();
+            let mut sessao = nova_sessao(ir);
             let t = Instant::now();
             sessao.add_ir_module("m", ir).unwrap();
             sessao.lookup(dartforge_jit::ENTRY_SYMBOL).unwrap();
@@ -174,7 +180,7 @@ fn medicao_sessao_persistente() {
         println!("      compilar para o cache, {rotulo}: mediana {:.3} ms, p95 {:.3} ms (uma vez por módulo)", ms(c50), ms(c95));
         let compilado = compile_module("m", ir).unwrap();
         let (p50, p95) = medir(n, || {
-            let mut sessao = JitSession::new().unwrap();
+            let mut sessao = nova_sessao(ir);
             let t = Instant::now();
             sessao.add_compiled_module(&compilado).unwrap();
             sessao.lookup(dartforge_jit::ENTRY_SYMBOL).unwrap();
@@ -186,9 +192,9 @@ fn medicao_sessao_persistente() {
             ms(p50),
             ms(p95)
         );
-        let mut sessao = JitSession::new().unwrap();
+        let mut sessao = nova_sessao(ir);
         sessao.add_compiled_module(&compilado).unwrap();
-        let (p50, p95) = medir(100, || sessao.run_entry().unwrap().total);
+        let (p50, p95) = medir(100, || executar(&sessao));
         println!("(iii) uma execução, {rotulo}, sessão aquecida: mediana {:.3} ms, p95 {:.3} ms", ms(p50), ms(p95));
     }
 }

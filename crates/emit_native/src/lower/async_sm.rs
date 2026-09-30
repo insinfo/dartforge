@@ -452,14 +452,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
         let args = Operand::Val(e.add_param("args".to_string(), Type::Ptr));
         let desc = Operand::Val(e.add_param("desc".to_string(), Type::Ptr));
-        let env_e = e.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_closure_env".to_string(),
-                args: vec![(clo, Type::Ref)],
-                ret_ty: Type::Ref,
-            },
-            Type::Ref,
-        );
+        let env_e = e.contexto_da_closure(clo);
         if let Some(vals) = e.desempacotar(&infos, args, desc) {
             let mut todos = vec![env_e];
             todos.extend(vals);
@@ -608,14 +601,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
         let args = Operand::Val(e.add_param("args".to_string(), Type::Ptr));
         let desc = Operand::Val(e.add_param("desc".to_string(), Type::Ptr));
-        let env = e.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_closure_env".to_string(),
-                args: vec![(clo, Type::Ref)],
-                ret_ty: Type::Ref,
-            },
-            Type::Ref,
-        );
+        let env = e.contexto_da_closure(clo);
         if e.desempacotar(&[], args, desc).is_some() {
             let modelo = e.emit(Instruction::EnvGet { env, index: 0 }, Type::Ref);
             let mut campos: Vec<Operand> = vec![Operand::Constant(Constant::Int(0)); tamanho];
@@ -1173,13 +1159,9 @@ pub(crate) fn usos_de(inst: &Instruction) -> Vec<ValueId> {
         | Instruction::Box { op: a, .. }
         | Instruction::Unbox { op: a, .. } => op(a),
         Instruction::AllocObject { fields, .. } => fields.iter().for_each(&mut op),
-        Instruction::AllocList { elements } | Instruction::AllocSet { elements } | Instruction::AllocRecord { elements } => {
+        Instruction::AllocList { elements } | Instruction::AllocRecord { elements } => {
             elements.iter().for_each(|(a, _)| op(a))
         }
-        Instruction::AllocMap { entries } => entries.iter().for_each(|((k, _), (v, _))| {
-            op(k);
-            op(v);
-        }),
         Instruction::AllocCell { value } => op(value),
         Instruction::AllocEnv { values } => values.iter().for_each(&mut op),
         Instruction::JuntarTextos { partes } => partes.iter().for_each(&mut op),
@@ -1313,13 +1295,9 @@ fn trocar_usos(inst: &mut Instruction, troca: &dyn Fn(ValueId) -> Option<ValueId
         | Instruction::Box { op: a, .. }
         | Instruction::Unbox { op: a, .. } => t(a),
         Instruction::AllocObject { fields, .. } => fields.iter_mut().for_each(t),
-        Instruction::AllocList { elements } | Instruction::AllocSet { elements } | Instruction::AllocRecord { elements } => {
+        Instruction::AllocList { elements } | Instruction::AllocRecord { elements } => {
             elements.iter_mut().for_each(|(a, _)| t(a))
         }
-        Instruction::AllocMap { entries } => entries.iter_mut().for_each(|((k, _), (v, _))| {
-            t(k);
-            t(v);
-        }),
         Instruction::AllocCell { value } => t(value),
         Instruction::AllocEnv { values } => values.iter_mut().for_each(t),
         Instruction::JuntarTextos { partes } => partes.iter_mut().for_each(t),

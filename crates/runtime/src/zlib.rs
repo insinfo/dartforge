@@ -193,16 +193,7 @@ fn bytes_de_lista_de_int(h: i64) -> Vec<u8> {
     if let Some(b) = bytes_da_lista_tipada(h) {
         return b;
     }
-    HEAP.with(|heap| {
-        let heap = heap.borrow();
-        match heap.try_get(h) {
-            Some(Value::List(itens)) => itens
-                .iter()
-                .map(|v| if v.is_ref { heap.int_de_ref(v.bits).unwrap_or(0) as u8 } else { v.bits as u8 })
-                .collect(),
-            _ => Vec::new(),
-        }
-    })
+    HEAP.with(|heap| bytes_de_lista_de_valores(&heap.borrow(), h))
 }
 
 fn lancar_dados_invalidos() {

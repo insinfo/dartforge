@@ -15,13 +15,20 @@
 // valendo para ela (remoção, iteração, `_rehash`).
 //
 // Só a chave cujo `==` e `hashCode` o runtime conhece sem chamar Dart
-// passa: `int` (`Smi` ou `_Mint`: o `hashCode` é o valor) e `String` (o
-// `StringHasher` da VM, `Texto::hash_vm`; a igualdade por unidades). Como
+// passa: `int` (`Smi` ou `_Mint`: o `hashCode` do `HashIntegerOp` da VM) e `String` (o
+// `StringHasher` da VM, guardado no cabeçalho da string; a igualdade por
+// unidades). Como
 // `int` e `String` não têm subclasses, `chave == entrada` é conhecido para
 // toda entrada, com uma exceção: `int == double` compara números
 // (`1 == 1.0`); esse encontro devolve "não sei". "Não sei" (outra chave,
 // tabela que precisa crescer, forma inesperada) não muda nada, e o Dart
 // refaz a operação pelo caminho do SDK.
+//
+// Espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md §4.5, item 4): o `_data`
+// é uma `_List` geral (`REFS`: cada entrada um `Ref` — `Smi`, `_Mint`,
+// string…) e o `_index` uma `_Uint32List` interna (cid 28), lida pelos bytes
+// da lista tipada. Uma lista de dados compacta, imutável na gravação ou de
+// outra classe devolve "não sei".
 
 /// Uma chave que o runtime compara e espalha sozinho.
 enum ChaveDeHash {
@@ -45,48 +52,55 @@ enum Sonda {
     Falta { ponto: usize, padrao: u32 },
 }
 
-/// A chave e o `hashCode` dela, se o runtime os conhece.
+/// A chave e o `hashCode` dela, se o runtime os conhece: `int` (`Smi` ou
+/// `_Mint`, o `hashCode` da VM, o mesmo de `_Smi.hashCode` no código gerado)
+/// ou string (o hash do cabeçalho).
 fn chave_de_hash(heap: &Heap, k: i64) -> Option<(ChaveDeHash, i64)> {
-    if crate::heap::smi::e_smi(k) {
-        let v = crate::heap::smi::valor(k);
-        return Some((ChaveDeHash::Int(v), v));
+    use crate::layout::cid;
+    if crate::layout::smi::e_smi(k) {
+        let v = crate::layout::smi::valor(k);
+        return Some((ChaveDeHash::Int(v), dartforge_nativo_DartForge_int_hashCode(v)));
     }
-    match heap.try_get(k)? {
-        Value::BoxedInt(v) => Some((ChaveDeHash::Int(*v), *v)),
-        Value::String(_) => Some((ChaveDeHash::Texto(k), heap.hash_de_texto(k)?)),
-        _ => None,
+    if !crate::layout::e_objeto(k) {
+        return None;
     }
+    let c = heap.classe(k);
+    if c == cid::MINT {
+        let v = heap.int_de(k)?;
+        return Some((ChaveDeHash::Int(v), dartforge_nativo_DartForge_int_hashCode(v)));
+    }
+    if cid::e_texto(c) {
+        return Some((ChaveDeHash::Texto(k), i64::from(heap.hash_de_texto(k)?)));
+    }
+    None
 }
 
-/// `chave == entrada` (o `==` de `int` ou de `String`).
-fn comparar_chave(heap: &Heap, chave: &ChaveDeHash, entrada: TaggedValue) -> Comparacao {
+/// `chave == entrada` (o `==` de `int` ou de `String`), com a entrada `Ref`.
+fn comparar_chave(heap: &Heap, chave: &ChaveDeHash, entrada: i64) -> Comparacao {
+    use crate::layout::cid;
     match *chave {
-        ChaveDeHash::Int(v) => match entrada.tag {
-            crate::heap::ValueTag::Int => igual_se(entrada.bits == v),
-            crate::heap::ValueTag::Double => Comparacao::NaoSei,
-            crate::heap::ValueTag::Bool => Comparacao::Diferente,
-            crate::heap::ValueTag::Ref => {
-                if crate::heap::smi::e_smi(entrada.bits) {
-                    return igual_se(crate::heap::smi::valor(entrada.bits) == v);
-                }
-                match heap.try_get(entrada.bits) {
-                    Some(Value::BoxedInt(x)) => igual_se(*x == v),
-                    Some(Value::BoxedDouble(_)) => Comparacao::NaoSei,
-                    _ => Comparacao::Diferente,
-                }
+        ChaveDeHash::Int(v) => {
+            if crate::layout::smi::e_smi(entrada) {
+                return igual_se(crate::layout::smi::valor(entrada) == v);
             }
-        },
-        ChaveDeHash::Texto(h) => {
-            if entrada.tag != crate::heap::ValueTag::Ref || entrada.bits == 0 {
+            if !crate::layout::e_objeto(entrada) {
                 return Comparacao::Diferente;
             }
-            if entrada.bits == h {
-                return Comparacao::Igual;
-            }
-            match (heap.try_get(h), heap.try_get(entrada.bits)) {
-                (Some(Value::String(a)), Some(Value::String(b))) => igual_se(a == b),
+            match heap.classe(entrada) {
+                cid::MINT => igual_se(heap.int_de(entrada) == Some(v)),
+                // `1 == 1.0`: o `==` de `num`, que o Dart decide.
+                cid::DOUBLE => Comparacao::NaoSei,
                 _ => Comparacao::Diferente,
             }
+        }
+        ChaveDeHash::Texto(h) => {
+            if entrada == h {
+                return Comparacao::Igual;
+            }
+            if !crate::layout::e_objeto(entrada) || !cid::e_texto(heap.classe(entrada)) {
+                return Comparacao::Diferente;
+            }
+            igual_se(heap.textos_iguais(h, entrada))
         }
     }
 }
@@ -95,18 +109,31 @@ fn igual_se(b: bool) -> Comparacao {
     if b { Comparacao::Igual } else { Comparacao::Diferente }
 }
 
-/// Os bytes de um `Uint32List` interno (o `_index`), se `h` é um.
+/// Os bytes de uma `_Uint32List` interna (o `_index`), se `h` é uma.
+#[allow(unsafe_code)]
 fn bytes_do_indice(heap: &Heap, h: i64) -> Option<&[u8]> {
-    match heap.try_get(h)? {
-        Value::TypedData { tipo: 6, bytes, .. } if !bytes.e_externo() => Some(bytes),
-        _ => None,
+    let t = heap.tipada(h)?;
+    if t.cid != crate::layout::cid::tipada(crate::tipadas::tipo::UINT32) || t.externa {
+        return None;
     }
+    // SAFETY: a lista vive enquanto dura o empréstimo do heap (nenhuma coleta
+    // com `&Heap`); uma resolução só (`bytes_da_tipada` resolveria de novo).
+    Some(unsafe { t.fatia() })
 }
 
-/// Os elementos de `_data`, se é uma lista do runtime na forma geral.
-fn elementos_dos_dados(heap: &Heap, h: i64) -> Option<&crate::heap::Elementos> {
-    match heap.try_get(h)? {
-        Value::List(e) if e.forma() == crate::heap::FormaDeLista::Geral => Some(e),
+/// Os elementos de `_data` (até o comprimento), se é uma `_List` geral;
+/// `gravar` exige a modificável (`_List`, não `_ImmutableList`).
+fn elementos_dos_dados(heap: &Heap, h: i64, gravar: bool) -> Option<&[i64]> {
+    if !heap.e_lista(h) {
+        return None;
+    }
+    let c = heap.classe(h);
+    let serve = if gravar { c == crate::layout::cid::LIST } else { crate::layout::cid::e_lista_fixa(c) };
+    if !serve {
+        return None;
+    }
+    match heap.lista_elementos(h) {
+        crate::listas::ElementosRef::Geral(p) => Some(p),
         _ => None,
     }
 }
@@ -119,7 +146,7 @@ fn par_do_indice(indice: &[u8], i: usize) -> u32 {
 /// A sonda do `_findValueOrInsertPoint` (mapa, `passo` 2) e do `_add`
 /// (conjunto, `passo` 1), com as contas de `_HashBase`. `None`: a
 /// igualdade não é conhecida sem o Dart.
-fn sondar(heap: &Heap, indice: &[u8], dados: &crate::heap::Elementos, mascara: i64, chave: &ChaveDeHash, hash: i64, passo: usize) -> Option<Sonda> {
+fn sondar(heap: &Heap, indice: &[u8], dados: &[i64], mascara: i64, chave: &ChaveDeHash, hash: i64, passo: usize) -> Option<Sonda> {
     let tamanho = indice.len() / 4;
     if tamanho == 0 || !tamanho.is_power_of_two() {
         return None;
@@ -146,7 +173,7 @@ fn sondar(heap: &Heap, indice: &[u8], dados: &crate::heap::Elementos, mascara: i
             let entrada = (padrao ^ par) as usize;
             if entrada < maximo {
                 let d = entrada * passo;
-                match comparar_chave(heap, chave, dados.get(d)?) {
+                match comparar_chave(heap, chave, *dados.get(d)?) {
                     Comparacao::Igual => return Some(Sonda::Achou(d)),
                     Comparacao::Diferente => {}
                     Comparacao::NaoSei => return None,
@@ -158,13 +185,18 @@ fn sondar(heap: &Heap, indice: &[u8], dados: &crate::heap::Elementos, mascara: i
     Some(Sonda::Falta { ponto: primeira_removida.unwrap_or(i), padrao })
 }
 
-/// Grava `par` na posição `i` do `_index`.
+/// Grava `par` na posição `i` do `_index` (bytes da lista tipada: não é
+/// referência, sem barreira).
 fn gravar_no_indice(heap: &mut Heap, indice: i64, i: usize, par: u32) {
-    if let Value::TypedData { bytes, .. } = heap.get_mut(indice)
-        && !bytes.e_externo()
-    {
+    if let Some(bytes) = heap.bytes_da_tipada_mut(indice) {
         bytes[4 * i..4 * i + 4].copy_from_slice(&par.to_le_bytes());
     }
+}
+
+/// Grava o `Ref` `v` na entrada `d` do `_data` (`_List` geral: palavra `1 + d`
+/// do corpo, com barreira e cartão).
+fn gravar_nos_dados(heap: &mut Heap, dados: i64, d: usize, v: i64) {
+    heap.gravar_ref(dados, 1 + d, v);
 }
 
 /// O que a gravação decidiu na leitura.
@@ -184,11 +216,11 @@ pub extern "C" fn dartforge_nativo_DartForge_hash_mapa_gravar(indice: i64, dados
         let mut heap = heap.borrow_mut();
         let decisao = {
             let h: &Heap = &heap;
-            match (chave_de_hash(h, chave), bytes_do_indice(h, indice), elementos_dos_dados(h, dados)) {
+            match (chave_de_hash(h, chave), bytes_do_indice(h, indice), elementos_dos_dados(h, dados, true)) {
                 (Some((k, hash)), Some(ind), Some(el)) => match sondar(h, ind, el, mascara, &k, hash, 2) {
                     Some(Sonda::Achou(d)) => Gravacao::Atualizar(d + 1),
                     Some(Sonda::Falta { ponto, padrao }) => {
-                        if usados < 0 || usados as usize >= el.len() {
+                        if usados < 0 || usados as usize + 1 >= el.len() {
                             Gravacao::NaoSei
                         } else {
                             Gravacao::Inserir { ponto, padrao }
@@ -202,14 +234,14 @@ pub extern "C" fn dartforge_nativo_DartForge_hash_mapa_gravar(indice: i64, dados
         match decisao {
             Gravacao::NaoSei => -1,
             Gravacao::Atualizar(d) => {
-                heap.list_set(dados, d, TaggedValue::reference(valor));
+                gravar_nos_dados(&mut heap, dados, d, valor);
                 usados
             }
             Gravacao::Inserir { ponto, padrao } => {
                 let u = usados as usize;
                 gravar_no_indice(&mut heap, indice, ponto, padrao | (u >> 1) as u32);
-                heap.list_set(dados, u, TaggedValue::reference(chave));
-                heap.list_set(dados, u + 1, TaggedValue::reference(valor));
+                gravar_nos_dados(&mut heap, dados, u, chave);
+                gravar_nos_dados(&mut heap, dados, u + 1, valor);
                 usados + 2
             }
         }
@@ -222,22 +254,15 @@ pub extern "C" fn dartforge_nativo_DartForge_hash_mapa_gravar(indice: i64, dados
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_hash_mapa_buscar(indice: i64, dados: i64, mascara: i64, chave: i64) -> i64 {
     HEAP.with(|heap| {
-        let mut heap = heap.borrow_mut();
-        let achado = {
-            let h: &Heap = &heap;
-            match (chave_de_hash(h, chave), bytes_do_indice(h, indice), elementos_dos_dados(h, dados)) {
-                (Some((k, hash)), Some(ind), Some(el)) => match sondar(h, ind, el, mascara, &k, hash, 2) {
-                    Some(Sonda::Achou(d)) => el.get(d + 1).map(Ok),
-                    Some(Sonda::Falta { .. }) => Some(Err(dados)),
-                    None => None,
-                },
-                _ => None,
-            }
-        };
-        match achado {
-            Some(Ok(v)) => heap.como_ref(v),
-            Some(Err(d)) => d,
-            None => indice,
+        let heap = heap.borrow();
+        let h: &Heap = &heap;
+        match (chave_de_hash(h, chave), bytes_do_indice(h, indice), elementos_dos_dados(h, dados, false)) {
+            (Some((k, hash)), Some(ind), Some(el)) => match sondar(h, ind, el, mascara, &k, hash, 2) {
+                Some(Sonda::Achou(d)) => el.get(d + 1).copied().unwrap_or(indice),
+                Some(Sonda::Falta { .. }) => dados,
+                None => indice,
+            },
+            _ => indice,
         }
     })
 }
@@ -251,7 +276,7 @@ pub extern "C" fn dartforge_nativo_DartForge_hash_conjunto_adicionar(indice: i64
         let mut heap = heap.borrow_mut();
         let decisao = {
             let h: &Heap = &heap;
-            match (chave_de_hash(h, chave), bytes_do_indice(h, indice), elementos_dos_dados(h, dados)) {
+            match (chave_de_hash(h, chave), bytes_do_indice(h, indice), elementos_dos_dados(h, dados, true)) {
                 (Some((k, hash)), Some(ind), Some(el)) => match sondar(h, ind, el, mascara, &k, hash, 1) {
                     Some(Sonda::Achou(d)) => Gravacao::Atualizar(d),
                     Some(Sonda::Falta { ponto, padrao }) => {
@@ -273,7 +298,7 @@ pub extern "C" fn dartforge_nativo_DartForge_hash_conjunto_adicionar(indice: i64
             Gravacao::Inserir { ponto, padrao } => {
                 let u = usados as usize;
                 gravar_no_indice(&mut heap, indice, ponto, padrao | u as u32);
-                heap.list_set(dados, u, TaggedValue::reference(chave));
+                gravar_nos_dados(&mut heap, dados, u, chave);
                 usados + 1
             }
         }
@@ -286,22 +311,15 @@ pub extern "C" fn dartforge_nativo_DartForge_hash_conjunto_adicionar(indice: i64
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_hash_conjunto_buscar(indice: i64, dados: i64, mascara: i64, chave: i64) -> i64 {
     HEAP.with(|heap| {
-        let mut heap = heap.borrow_mut();
-        let achado = {
-            let h: &Heap = &heap;
-            match (chave_de_hash(h, chave), bytes_do_indice(h, indice), elementos_dos_dados(h, dados)) {
-                (Some((k, hash)), Some(ind), Some(el)) => match sondar(h, ind, el, mascara, &k, hash, 1) {
-                    Some(Sonda::Achou(d)) => el.get(d).map(Ok),
-                    Some(Sonda::Falta { .. }) => Some(Err(dados)),
-                    None => None,
-                },
-                _ => None,
-            }
-        };
-        match achado {
-            Some(Ok(v)) => heap.como_ref(v),
-            Some(Err(d)) => d,
-            None => indice,
+        let heap = heap.borrow();
+        let h: &Heap = &heap;
+        match (chave_de_hash(h, chave), bytes_do_indice(h, indice), elementos_dos_dados(h, dados, false)) {
+            (Some((k, hash)), Some(ind), Some(el)) => match sondar(h, ind, el, mascara, &k, hash, 1) {
+                Some(Sonda::Achou(d)) => el.get(d).copied().unwrap_or(indice),
+                Some(Sonda::Falta { .. }) => dados,
+                None => indice,
+            },
+            _ => indice,
         }
     })
 }

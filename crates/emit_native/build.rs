@@ -50,8 +50,26 @@ fn main() {
     precompilar_runtime();
 }
 
-/// Compila as duas variantes da `staticlib` do runtime
-/// (`crates/runtime_estatico`, features `aot` e `dll`) para o alvo do build,
+/// O perfil de uma variante da `staticlib` do runtime, por cima do `release`
+/// do workspace (entra no nome dela). `panic=abort`, nas variantes que só o
+/// AOT liga (a do executável com o `main` C e a de produção): sem as tabelas
+/// de desenrolamento e os caminhos de limpeza do Rust (~0,6 MB a menos por
+/// executável). Quase nada muda: um pânico no código que o Dart chama já
+/// encerrava o processo, porque chega a uma fronteira `extern "C"` (as
+/// entradas do runtime, o `main` C, o código Dart que a thread de um isolado
+/// roda) e o Rust aborta ali. O que muda é o pânico no Rust puro de uma
+/// thread auxiliar (a preparação de um isolado, as threads do `dart:io`):
+/// antes matava só a thread, agora encerra o processo. Nenhum `catch_unwind`
+/// nem `join` do runtime conta com o desenrolamento (docs/NATIVO.md). A
+/// variante da DLL de desenvolvimento, que o JIT também carrega, fica como
+/// era.
+const ABORTAR: &[&str] = &["--config", "profile.release.panic=\"abort\""];
+
+/// Compila as três variantes da `staticlib` do runtime
+/// (`crates/runtime_estatico`): a do executável sem o SDK da fonte (feature
+/// `aot`, com o `main` C), a da DLL do SDK da fonte (feature `dll`; o perfil
+/// de desenvolvimento e o JIT) e a de produção (feature `dll` com
+/// [`ABORTAR`], ligada estaticamente no executável), para o alvo do build,
 /// com um `cargo build` próprio (outro diretório de alvo: nada disputa a
 /// trava do build de fora), e publica, para o binário, o diretório e os
 /// nomes delas. O nome leva o blake3 do fonte do runtime, do `Cargo.lock`,
@@ -92,7 +110,11 @@ fn precompilar_runtime() {
 
     let arquivo_do_cargo = if windows { "dartforge_runtime_estatico.lib" } else { "libdartforge_runtime_estatico.a" };
     let ext = if windows { "lib" } else { "a" };
-    for (variante, feature, prefixo) in [("PRINCIPAL", "aot", "dartforge_runtime_"), ("DLL", "dll", "dartforge_rtdll_")] {
+    for (variante, feature, prefixo, perfil) in [
+        ("PRINCIPAL", "aot", "dartforge_runtime_", ABORTAR),
+        ("DLL", "dll", "dartforge_rtdll_", &[][..]),
+        ("PRODUCAO", "dll", "dartforge_rtprod_", ABORTAR),
+    ] {
         let mut h = blake3::Hasher::new();
         h.update(b"dartforge-runtime-cargo\0");
         h.update(alvo.as_bytes());
@@ -101,6 +123,10 @@ fn precompilar_runtime() {
         h.update(b"\0");
         if let Some(m) = &minimo_macos {
             h.update(m.as_bytes());
+            h.update(b"\0");
+        }
+        for c in perfil {
+            h.update(c.as_bytes());
             h.update(b"\0");
         }
         for f in &fontes {
@@ -117,7 +143,9 @@ fn precompilar_runtime() {
         if pular || lib.is_file() {
             continue;
         }
-        let dir_alvo = saida.join("cargo-runtime");
+        // Um diretório de alvo por perfil: as dependências de um não
+        // invalidam as do outro.
+        let dir_alvo = saida.join(if perfil.is_empty() { "cargo-runtime" } else { "cargo-runtime-abort" });
         let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
         let mut cmd = std::process::Command::new(cargo);
         cmd.arg("build")
@@ -126,6 +154,7 @@ fn precompilar_runtime() {
             .arg("--manifest-path")
             .arg(workspace.join("Cargo.toml"))
             .args(["-p", "dartforge-runtime-estatico", "--features", feature, "--target", &alvo])
+            .args(perfil)
             .arg("--target-dir")
             .arg(&dir_alvo);
         if std::env::var_os("CARGO_NET_OFFLINE").is_some() {

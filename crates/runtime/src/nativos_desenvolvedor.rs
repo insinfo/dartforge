@@ -62,12 +62,12 @@ pub extern "C" fn dartforge_nativo_Developer_getServiceMinorVersion() -> i64 {
 /// `Developer_getServerInfo(port)`: sem servidor, `null` na porta.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Developer_getServerInfo(porta: i64) {
-    postar(id_da_send_port(porta), Grafo::escalar(0, ValueTag::Ref));
+    postar(id_da_send_port(porta), Grafo::nulo());
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Developer_webServerControl(porta: i64, _ligar: u8, _silenciar: i64) {
-    postar(id_da_send_port(porta), Grafo::escalar(0, ValueTag::Ref));
+    postar(id_da_send_port(porta), Grafo::nulo());
 }
 
 #[unsafe(no_mangle)]

@@ -53,6 +53,46 @@ fn literal_wtf8_preserva_surrogate_isolado_no_ir() {
     assert!(!ir.contains("\\EF\\BF\\BD"), "surrogate foi substituído: {ir}");
 }
 
+/// §2.11: no AOT (`objetos_estaticos`), o literal é um objeto estático do
+/// módulo — `_TwoByteString` (cid 7) com o surrogate solto como unidade, o
+/// cabeçalho `PERMANENTE | BRUTO | w | cid` e o hash da VM —, sem chamada nem
+/// cache no ponto de uso.
+#[test]
+fn literal_estatico_no_aot() {
+    use dartforge_runtime::layout;
+    let f = funcao(
+        "literal_estatico",
+        vec![],
+        Type::Ref,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![(
+                ValueId(0),
+                Instruction::Const(Constant::StringWtf8(vec![0xED, 0xA0, 0xBD])),
+                Type::Ref,
+            )],
+            terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
+        }],
+    );
+    let mut m = Module::new();
+    m.functions.push(f);
+    let ir = LlvmEmitter::new(&m).com_objetos_estaticos(true).emit_all();
+    let corpo = corpo_de(&ir, "literal_estatico");
+    assert!(!corpo.contains("@dartforge_string_new("), "{corpo}");
+    // O nome do global é `@"df.s.<blake3>"` (com aspas: tem pontos).
+    assert!(ir.contains("df.s."), "{ir}");
+    assert!(ir.contains("linkonce_odr"), "{ir}");
+    let cabecalho = layout::palavra_do_cabecalho(
+        layout::estado::PERMANENTE,
+        layout::flags::BRUTO,
+        layout::palavras_de_texto(1, true),
+        layout::cid::TWO_BYTE_STRING,
+    );
+    assert!(ir.contains(&format!("i64 {}", cabecalho as i64)), "cabeçalho {cabecalho:#x}: {ir}");
+    let hash = layout::hash_de_texto([0xD83Du16]);
+    assert!(ir.contains(&format!("i64 {hash}")), "hash {hash}: {ir}");
+}
+
 /// G1/G3: função com `Ref` vivo num ponto de coleta abre o quadro, enraíza
 /// o parâmetro (argumento da chamada que aloca) e fecha o quadro antes de
 /// TODO `ret` — inclusive o da saída por exceção. O resultado da chamada só
@@ -262,7 +302,8 @@ fn campo_ref_leva_is_ref() {
 }
 
 /// E3: o verificador recusa constante inteira numa posição `Ref` e tag
-/// incoerente com a representação.
+/// incoerente com a representação (a ABI plana `(bits, tag)` do
+/// lançamento).
 #[test]
 fn verificador_recusa_inteiro_como_ref_e_tag_errada() {
     let v0 = ValueId(0);
@@ -285,9 +326,8 @@ fn verificador_recusa_inteiro_como_ref_e_tag_errada() {
                 (
                     ValueId(2),
                     Instruction::CallRuntime {
-                        name: "dartforge_list_push".to_string(),
+                        name: "dartforge_exception_throw".to_string(),
                         args: vec![
-                            (Operand::Val(v0), Type::Ref),
                             (Operand::Constant(Constant::Int(5)), Type::I64),
                             (Operand::Constant(Constant::Int(3)), Type::I8),
                         ],
@@ -312,4 +352,56 @@ fn verificador_recusa_inteiro_como_ref_e_tag_errada() {
         erros.iter().any(|e| e.contains("tag 3 para um valor I64")),
         "{erros:?}"
     );
+}
+
+/// Risco 12 (docs/NATIVO-ESPACO-UNIFICADO.md §6): a captura lida na
+/// representação com que foi gravada; o record posicional só com `Ref`; e
+/// as instruções que saíram com o espaço unificado (`AllocMap`, `AllocSet`).
+#[test]
+fn verificador_confere_capturas_records_e_instrucoes_que_sairam() {
+    let (x, env, clo) = (ValueId(0), ValueId(1), ValueId(2));
+    // `f(x)` cria a closure `g` com o ambiente `[x: I64, célula de I64]` e um
+    // record com um `I64`.
+    let cel = ValueId(3);
+    let criadora = funcao(
+        "f",
+        vec![(x, "x".to_string(), Type::I64)],
+        Type::Void,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![
+                (cel, Instruction::AllocCell { value: Operand::Val(x) }, Type::Ref),
+                (env, Instruction::AllocEnv { values: vec![Operand::Val(x), Operand::Val(cel)] }, Type::Ref),
+                (clo, Instruction::AllocClosure { code_symbol: "g".to_string(), env: Operand::Val(env) }, Type::Ref),
+                (ValueId(4), Instruction::AllocRecord { elements: vec![(Operand::Val(x), 1)] }, Type::Ref),
+            ],
+            terminator: Terminator::Return(None),
+        }],
+    );
+    // `g` lê a captura 0 como `Ref` (gravada `I64`) e a célula como `F64`.
+    let (e, c0, c1, c2) = (ValueId(0), ValueId(1), ValueId(2), ValueId(3));
+    let corpo = funcao(
+        "g",
+        vec![(e, "env".to_string(), Type::Ref)],
+        Type::Void,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![
+                (c0, Instruction::EnvGet { env: Operand::Val(e), index: 0 }, Type::Ref),
+                (c1, Instruction::EnvGet { env: Operand::Val(e), index: 1 }, Type::Ref),
+                (c2, Instruction::CellGet { cell: Operand::Val(c1) }, Type::F64),
+            ],
+            terminator: Terminator::Return(None),
+        }],
+    );
+    let mut m = Module::new();
+    m.functions.push(criadora);
+    m.functions.push(corpo);
+    let erros = crate::lower::verificador::verificar(&m);
+    let tem = |s: &str| erros.iter().any(|e| e.contains(s));
+    assert!(tem("captura 0 do ambiente: lida como Ref, gravada como I64"), "{erros:?}");
+    assert!(tem("célula: lida como F64, gravada como I64"), "{erros:?}");
+    assert!(tem("record posicional: campo I64"), "{erros:?}");
+    // A captura 1 (a célula, `Ref`) lida como `Ref`: sem erro.
+    assert!(!tem("captura 1"), "{erros:?}");
 }

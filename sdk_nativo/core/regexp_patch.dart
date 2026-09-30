@@ -146,8 +146,9 @@ class _RegExpMatch implements RegExpMatch {
 
 /// O `RegExp` do backend nativo do DartForge. Mesma interface do `_RegExp`
 /// da VM; o motor é o do runtime (`crates/runtime/src/regexp.rs`, semântica
-/// do ECMAScript como o irregexp), com o padrão compilado uma vez num id e
-/// as posições do último casamento lidas uma a uma.
+/// do ECMAScript como o irregexp), com o padrão compilado uma vez num objeto
+/// do runtime (`_ProgramaDeRegExp`, solto pelo coletor quando o `_RegExp`
+/// morre) e as posições do último casamento lidas uma a uma.
 @pragma("vm:entry-point")
 class _RegExp implements RegExp {
   final String pattern;
@@ -155,7 +156,8 @@ class _RegExp implements RegExp {
   final bool isCaseSensitive;
   final bool isUnicode;
   final bool isDotAll;
-  final int _id;
+  /// O programa compilado (`_ProgramaDeRegExp` do runtime).
+  final Object _programa;
   final int _groupCount;
 
   factory _RegExp(String pattern,
@@ -163,61 +165,63 @@ class _RegExp implements RegExp {
       bool caseSensitive = true,
       bool unicode = false,
       bool dotAll = false}) {
-    final id = _compilar(pattern, multiLine, caseSensitive, unicode, dotAll);
-    if (id < 0) {
+    final programa =
+        _compilar(pattern, multiLine, caseSensitive, unicode, dotAll);
+    if (programa == null) {
       throw FormatException("${_erro()} $pattern");
     }
-    return _RegExp._(pattern, multiLine, caseSensitive, unicode, dotAll, id,
-        _grupos(id));
+    return _RegExp._(pattern, multiLine, caseSensitive, unicode, dotAll,
+        programa, _grupos(programa));
   }
 
   _RegExp._(this.pattern, this.isMultiLine, this.isCaseSensitive,
-      this.isUnicode, this.isDotAll, this._id, this._groupCount);
+      this.isUnicode, this.isDotAll, this._programa, this._groupCount);
 
   @pragma("vm:external-name", "DartForge_regexp_compilar")
-  external static int _compilar(String padrao, bool multiLinha, bool sensivel,
+  external static Object? _compilar(String padrao, bool multiLinha, bool sensivel,
       bool unicode, bool pontoTudo);
 
   @pragma("vm:external-name", "DartForge_regexp_erro")
   external static String _erro();
 
   @pragma("vm:external-name", "DartForge_regexp_grupos")
-  external static int _grupos(int id);
+  external static int _grupos(Object programa);
 
   @pragma("vm:external-name", "DartForge_regexp_n_nomes")
-  external static int _nNomes(int id);
+  external static int _nNomes(Object programa);
 
   @pragma("vm:external-name", "DartForge_regexp_nome")
-  external static String _nome(int id, int i);
+  external static String _nome(Object programa, int i);
 
   @pragma("vm:external-name", "DartForge_regexp_indice_do_nome")
-  external static int _indiceDoNome(int id, int i);
+  external static int _indiceDoNome(Object programa, int i);
 
   @pragma("vm:external-name", "DartForge_regexp_executar")
-  external static bool _executar(int id, String alvo, int inicio, bool pegajoso);
+  external static bool _executar(
+      Object programa, String alvo, int inicio, bool pegajoso);
 
   @pragma("vm:external-name", "DartForge_regexp_captura")
   external static int _captura(int i);
 
   Iterable<String> get _groupNames sync* {
-    final n = _nNomes(_id);
+    final n = _nNomes(_programa);
     for (var i = 0; i < n; i++) {
-      yield _nome(_id, i);
+      yield _nome(_programa, i);
     }
   }
 
   int _groupNameIndex(String name) {
-    final n = _nNomes(_id);
+    final n = _nNomes(_programa);
     for (var i = 0; i < n; i++) {
-      if (name == _nome(_id, i)) {
-        return _indiceDoNome(_id, i);
+      if (name == _nome(_programa, i)) {
+        return _indiceDoNome(_programa, i);
       }
     }
     return -1;
   }
 
   List<int>? _casar(String str, int inicio, bool pegajoso) {
-    if (!_executar(_id, str, inicio, pegajoso)) return null;
+    if (!_executar(_programa, str, inicio, pegajoso)) return null;
     return List<int>.generate(2 * (_groupCount + 1), _captura);
   }
 

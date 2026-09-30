@@ -157,7 +157,7 @@ type ResultadoIo<T> = Result<T, ErroDoSo>;
 // Valores Dart devolvidos pelos natives.
 
 fn dart_bool(b: bool) -> i64 {
-    HEAP.with(|h| h.borrow_mut().caixa_bool(b))
+    Heap::caixa_bool(b)
 }
 
 fn dart_int(i: i64) -> i64 {
@@ -170,25 +170,45 @@ fn dart_texto_de_bytes(b: &[u8]) -> i64 {
     alocar_str(&String::from_utf8_lossy(b))
 }
 
+/// Uma lista tipada interna do `tipo` com os bytes (o comprimento em
+/// elementos é `bytes.len() / tamanho`).
+fn dart_tipada_de_bytes(tipo: u8, bytes: &[u8]) -> i64 {
+    HEAP.with(|h| {
+        let mut h = h.borrow_mut();
+        let l = h.nova_tipada(tipo, bytes.len() / tamanho_do_elemento(tipo));
+        if let Some(b) = h.bytes_da_tipada_mut(l) {
+            b.copy_from_slice(bytes);
+        }
+        l
+    })
+}
+
 /// Uma `Uint8List` (`_Uint8List`) com os bytes.
 fn dart_bytes(bytes: Vec<u8>) -> i64 {
-    let class_id = cid_registrado(CID_UINT8_LIST).expect("bug do compilador: dart:io sem o SDK da fonte");
-    HEAP.with(|h| h.borrow_mut().allocate(Value::TypedData { class_id, tipo: TIPO_UINT8, bytes: bytes.into() }))
+    dart_tipada_de_bytes(TIPO_UINT8, &bytes)
 }
 
 /// Uma `Int64List` (`_Int64List`) com os valores.
 fn dart_int64s(valores: &[i64]) -> i64 {
-    let class_id = cid_registrado(CID_INT64_LIST).expect("bug do compilador: dart:io sem o SDK da fonte");
     let bytes: Vec<u8> = valores.iter().flat_map(|v| v.to_ne_bytes()).collect();
-    HEAP.with(|h| h.borrow_mut().allocate(Value::TypedData { class_id, tipo: TIPO_INT64, bytes: bytes.into() }))
+    dart_tipada_de_bytes(TIPO_INT64, &bytes)
 }
 
-/// Uma `_List` de tamanho fixo com os valores (já na posição `Ref`).
+/// Uma `_List` de tamanho fixo (cid 8, geral) com os valores (já na posição
+/// `Ref`), enraizados durante a alocação.
 fn dart_lista_fixa(valores: &[i64]) -> i64 {
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
-        let l = h.allocate(Value::List(valores.iter().map(|&v| TaggedValue::reference(v)).collect()));
-        h.fixas.insert(l);
+        let quadro = h.push_frame_with_slots(valores.len().max(1));
+        for (i, &v) in valores.iter().enumerate() {
+            h.set_root(quadro, i, v);
+        }
+        let l = h.nova_lista(crate::layout::cid::LIST, valores.len(), crate::listas::Elemento::Geral);
+        h.pop_frame(quadro);
+        // A palavra 0 do corpo é o comprimento; os elementos, as seguintes.
+        if !valores.is_empty() {
+            h.gravar_refs(l, 1, valores);
+        }
         l
     })
 }
@@ -222,13 +242,23 @@ fn lancar_erro_interno(mensagem: &str) {
 
 /// Os bytes de uma lista tipada (lista interna ou visão).
 fn bytes_da_lista_tipada(h: i64) -> Option<Vec<u8>> {
-    HEAP.with(|heap| {
-        let heap = heap.borrow();
-        let (interna, desloc, tipo, n) = resolver(&heap, h)?;
-        let b = bytes_de(&heap, interna);
-        let fim = (desloc + n * tamanho_do_elemento(tipo)).min(b.len());
-        Some(b[desloc.min(fim)..fim].to_vec())
-    })
+    HEAP.with(|heap| heap.borrow().bytes_da_tipada(h).map(<[u8]>::to_vec))
+}
+
+/// Os bytes de uma lista do núcleo de inteiros, cada um truncado a 8 bits
+/// (o `Dart_ListGetAsBytes` da VM); vazio se `h` não é lista do núcleo.
+fn bytes_de_lista_de_valores(heap: &Heap, h: i64) -> Vec<u8> {
+    if !heap.e_lista(h) {
+        return Vec::new();
+    }
+    (0..heap.lista_len(h))
+        .map(|i| match heap.lista_get(h, i) {
+            crate::heap::Valor::Int(v) => v as u8,
+            crate::heap::Valor::Ref(r) => heap.int_de(r).unwrap_or(0) as u8,
+            crate::heap::Valor::Bool(b) => u8::from(b),
+            crate::heap::Valor::Double(_) => 0,
+        })
+        .collect()
 }
 
 /// O caminho de um `rawPath` (`Uint8List` UTF-8 terminado em NUL, o
@@ -281,7 +311,7 @@ fn utf8_de_texto(s: i64) -> Vec<u8> {
     if s == 0 {
         return Vec::new();
     }
-    HEAP.with(|h| h.borrow().texto(s).para_utf8_da_vm())
+    HEAP.with(|h| h.borrow().texto(s).map(|t| t.para_utf8_da_vm()).unwrap_or_default())
 }
 
 // ---------------------------------------------------------------------------
@@ -1309,7 +1339,7 @@ pub extern "C" fn dartforge_nativo_File_ReadByte(this: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_File_WriteByte(this: i64, valor: i64) -> i64 {
     let Some(a) = arquivo_do_receptor(this) else { return 0 };
-    let Some(v) = HEAP.with(|h| h.borrow().int_de_ref(valor)) else {
+    let Some(v) = HEAP.with(|h| h.borrow().int_de(valor)) else {
         return ErroDoSo::argumento_invalido().para_dart();
     };
     dart_ou_erro(a.escrever_tudo(&[v as u8]), |()| dart_int(1))
@@ -1329,8 +1359,8 @@ pub extern "C" fn dartforge_nativo_File_Read(this: i64, n: i64) -> i64 {
         Ok(lidos) => {
             buf.truncate(lidos);
             let base = dart_bytes(buf);
-            let cid = cid_registrado(CID_UINT8_VIEW).expect("bug do compilador: dart:io sem o SDK da fonte");
-            com_raizes(&[base], || dartforge_view_nova(cid, i64::from(TIPO_UINT8), base, 0, lidos as i64))
+            let cid = crate::layout::cid::visao(TIPO_UINT8, false);
+            com_raizes(&[base], || dartforge_view_nova(i64::from(cid), i64::from(TIPO_UINT8), base, 0, lidos as i64))
         }
         Err(e) => e.para_dart(),
     }
@@ -1341,7 +1371,7 @@ pub extern "C" fn dartforge_nativo_File_Read(this: i64, n: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_File_ReadInto(this: i64, buffer: i64, inicio: i64, fim: i64) -> i64 {
     let Some(a) = arquivo_do_receptor(this) else { return 0 };
-    let fim = HEAP.with(|h| h.borrow().int_de_ref(fim)).unwrap_or(inicio);
+    let fim = HEAP.with(|h| h.borrow().int_de(fim)).unwrap_or(inicio);
     let mut buf = vec![0u8; (fim - inicio).max(0) as usize];
     match a.ler(&mut buf) {
         Ok(lidos) => {
@@ -1357,21 +1387,23 @@ pub extern "C" fn dartforge_nativo_File_ReadInto(this: i64, buffer: i64, inicio:
 fn gravar_bytes_na_lista(lista: i64, inicio: usize, bytes: &[u8]) {
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        if let Some((interna, desloc, tipo, _)) = resolver(&heap, lista) {
+        if let Some(t) = resolver(&heap, lista) {
             // Só listas de bytes chegam aqui (`_ensureFastAndSerializable…`
             // nos patches); outra largura grava um byte por elemento.
-            let passo = tamanho_do_elemento(tipo);
-            let destino = bytes_de_mut(&mut heap, interna);
-            for (i, &b) in bytes.iter().enumerate() {
-                let pos = desloc + (inicio + i) * passo;
-                if pos < destino.len() {
-                    destino[pos] = b;
+            let passo = tamanho_do_elemento(t.tipo);
+            if let Some(destino) = heap.bytes_da_tipada_mut(lista) {
+                for (i, &b) in bytes.iter().enumerate() {
+                    let pos = (inicio + i) * passo;
+                    if pos < destino.len() {
+                        destino[pos] = b;
+                    }
                 }
             }
             return;
         }
+        // `List<int>`: o byte como `int` (sem alocação: cabe no `Smi`).
         for (i, &b) in bytes.iter().enumerate() {
-            heap.list_set(lista, inicio + i, TaggedValue::scalar(i64::from(b)));
+            heap.lista_set(lista, inicio + i, crate::heap::Valor::Int(i64::from(b)));
         }
     });
 }
@@ -1381,7 +1413,7 @@ fn gravar_bytes_na_lista(lista: i64, inicio: usize, bytes: &[u8]) {
 pub extern "C" fn dartforge_nativo_File_WriteFrom(this: i64, buffer: i64, inicio: i64, fim: i64) -> i64 {
     let Some(a) = arquivo_do_receptor(this) else { return 0 };
     let bytes = bytes_da_lista_tipada(buffer).unwrap_or_default();
-    let fim = HEAP.with(|h| h.borrow().int_de_ref(fim)).unwrap_or(bytes.len() as i64) as usize;
+    let fim = HEAP.with(|h| h.borrow().int_de(fim)).unwrap_or(bytes.len() as i64) as usize;
     let inicio = (inicio.max(0) as usize).min(fim);
     dart_nulo_ou_erro(a.escrever_tudo(&bytes[inicio..fim.min(bytes.len())]))
 }

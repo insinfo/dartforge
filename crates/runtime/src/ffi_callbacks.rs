@@ -280,11 +280,11 @@ fn bits_do_excepcional(v: i64, l: char) -> Result<i64, String> {
     }
     HEAP.with(|h| {
         let h = h.borrow();
-        let inteiro = h.int_de_ref(v);
-        match (l, h.try_get(v)) {
-            ('f' | 'd', Some(Value::BoxedDouble(d))) => Ok(d.to_bits() as i64),
-            ('f' | 'd', _) => inteiro.map(|i| (i as f64).to_bits() as i64).ok_or_else(|| "exceptionalReturn must be a double".to_string()),
-            ('b', Some(Value::BoxedBool(b))) => Ok(i64::from(*b)),
+        let inteiro = h.int_de(v);
+        match (l, h.double_de(v), h.bool_de(v)) {
+            ('f' | 'd', Some(d), _) => Ok(d.to_bits() as i64),
+            ('f' | 'd', None, _) => inteiro.map(|i| (i as f64).to_bits() as i64).ok_or_else(|| "exceptionalReturn must be a double".to_string()),
+            ('b', _, Some(b)) => Ok(i64::from(b)),
             _ => inteiro.ok_or_else(|| "exceptionalReturn must be an int".to_string()),
         }
     })
@@ -293,7 +293,7 @@ fn bits_do_excepcional(v: i64, l: char) -> Result<i64, String> {
 /// O código de uma closure (a identidade de uma função de topo ou
 /// estática, para o cache de `fromFunction`).
 fn codigo_da_closure(clo: i64) -> i64 {
-    HEAP.with(|h| h.borrow().closure_parts(clo).0)
+    HEAP.with(|h| h.borrow().closure(clo).map_or(0, |c| c.codigo))
 }
 
 /// Cria o trampolim de `ctx` e o registra.
@@ -529,15 +529,19 @@ pub unsafe extern "C" fn dartforge_ffi_callback_postar(ctx: *const ContextoCallb
 /// mensagem de `listener` (os ponteiros viram `Pointer<X>` da assinatura).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_args(mensagem: i64) -> i64 {
-    let itens: Vec<TaggedValue> = HEAP.with(|h| match h.borrow().try_get(mensagem) {
-        Some(Value::List(v)) => v.to_vec(),
-        _ => Vec::new(),
+    // Os elementos da mensagem (uma lista do núcleo), na posição `Ref`.
+    let itens: Vec<crate::heap::Valor> = HEAP.with(|h| {
+        let h = h.borrow();
+        if !h.e_lista(mensagem) {
+            return Vec::new();
+        }
+        (0..h.lista_len(mensagem)).map(|i| h.lista_get(mensagem, i)).collect()
     });
-    let inteiro = |v: &TaggedValue| if v.is_ref { HEAP.with(|h| h.borrow().int_de_ref(v.bits)).unwrap_or(0) } else { v.bits };
+    let inteiro = |v: &crate::heap::Valor| inteiro_do_argumento(*v).unwrap_or(0);
     let Some(ctx) = itens.first().map(inteiro) else { return mensagem };
     let vivo = callbacks_vivos().lock().unwrap_or_else(|e| e.into_inner()).values().any(|&c| c as i64 == ctx);
     if !vivo {
-        return dartforge_list_new_empty();
+        return dart_lista_fixa(&[]);
     }
     // SAFETY: o contexto está registrado (vivo).
     let (chave, ns) = unsafe {
@@ -548,31 +552,40 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_callback_args(mensagem: i64) ->
         Tipo::Funcao { pos, .. } => pos.to_vec(),
         _ => Vec::new(),
     });
-    let mut saida = Vec::with_capacity(itens.len().saturating_sub(1));
-    let frame = HEAP.with(|h| h.borrow_mut().push_frame_with_slots(itens.len().max(1)));
+    // Cada argumento vira um `Ref` enraizado no quadro (a caixa de um
+    // inteiro, o `Pointer`, a struct copiada), e a lista é montada no fim.
+    let n = itens.len().saturating_sub(1);
+    let frame = HEAP.with(|h| h.borrow_mut().push_frame_with_slots(n.max(1)));
     let (_, params) = partes_da_chave(&chave);
+    let mut saida = Vec::with_capacity(n);
     for (i, (v, p)) in itens.iter().skip(1).zip(params).enumerate() {
         let x = match p {
-            ParteDaChave::Letra('p') => {
-                let p = novo_ponteiro(inteiro(v), tipos.get(i).copied());
-                HEAP.with(|h| h.borrow_mut().set_root(frame, i, p));
-                TaggedValue::reference(p)
-            }
+            ParteDaChave::Letra('p') => novo_ponteiro(inteiro(v), tipos.get(i).copied()),
             // Os bytes da struct viram uma struct sobre memória Dart.
             ParteDaChave::Composto(rti) => {
-                let bytes = HEAP.with(|h| match h.borrow().try_get(v.bits) {
-                    Some(Value::TypedData { bytes, .. }) => bytes.to_vec(),
+                let bytes = match v {
+                    crate::heap::Valor::Ref(r) => HEAP.with(|h| h.borrow().bytes_da_tipada(*r).map(<[u8]>::to_vec)).unwrap_or_default(),
                     _ => Vec::new(),
-                });
-                let s = dartforge_ffi_composto_copia(rti, bytes.as_ptr() as i64);
-                HEAP.with(|h| h.borrow_mut().set_root(frame, i, s));
-                TaggedValue::reference(s)
+                };
+                dartforge_ffi_composto_copia(rti, bytes.as_ptr() as i64)
             }
-            ParteDaChave::Letra(_) => *v,
+            ParteDaChave::Letra(_) => HEAP.with(|h| h.borrow_mut().como_ref(*v)),
         };
+        HEAP.with(|h| h.borrow_mut().set_root(frame, i, x));
         saida.push(x);
     }
-    let lista = HEAP.with(|h| h.borrow_mut().create_list(saida));
+    let lista = dart_lista_fixa(&saida);
     HEAP.with(|h| h.borrow_mut().pop_frame(frame));
     lista
+}
+
+/// O `int` de um elemento de lista (escalar da forma compacta, `Smi` ou
+/// `_Mint`).
+fn inteiro_do_argumento(v: crate::heap::Valor) -> Option<i64> {
+    match v {
+        crate::heap::Valor::Int(i) => Some(i),
+        crate::heap::Valor::Bool(b) => Some(i64::from(b)),
+        crate::heap::Valor::Double(_) => None,
+        crate::heap::Valor::Ref(r) => HEAP.with(|h| h.borrow().int_de(r)),
+    }
 }

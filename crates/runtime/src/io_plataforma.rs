@@ -405,10 +405,11 @@ fn dart_lista_de_textos(textos: &[String], tipada: bool) -> i64 {
     com_raizes(&[lista], || {
         for (i, t) in textos.iter().enumerate() {
             let s = alocar_str(t);
-            HEAP.with(|h| h.borrow_mut().list_set(lista, i, TaggedValue::reference(s)));
+            HEAP.with(|h| h.borrow_mut().lista_set(lista, i, crate::heap::Valor::Ref(s)));
         }
         if tipada {
-            if let Some(tipo) = tipo_lista_de_textos(cid_do_runtime(lista)) {
+            let cid = HEAP.with(|h| h.borrow().classe(lista));
+            if let Some(tipo) = tipo_lista_de_textos(Some(i64::from(cid))) {
                 HEAP.with(|h| h.borrow_mut().set_metadado(lista, tipo + 1));
             }
         }
@@ -950,7 +951,7 @@ pub extern "C" fn dartforge_nativo_SystemEncodingToString(bytes: i64) -> i64 {
     let b = bytes_da_lista_tipada(bytes).unwrap_or_else(|| {
         HEAP.with(|h| {
             let h = h.borrow();
-            (0..h.list_len(bytes)).map(|i| h.list_get(bytes, i).bits as u8).collect()
+            bytes_de_lista_de_valores(&h, bytes)
         })
     });
     alocar_str(&do_sistema_para_utf8(&b))

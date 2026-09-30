@@ -56,6 +56,54 @@ pub fn cabecalho_ir() -> &'static str {
     }
 }
 
+/// A seção dos objetos estáticos da imagem (os literais de string,
+/// docs/NATIVO-ESPACO-UNIFICADO.md §2.11), só de leitura: `.dfimg$m` no COFF
+/// (o ligador junta `.dfimg$a`, `$m` e `$z` em ordem), `dfimg` no ELF (um nome
+/// de identificador C, para o ligador definir `__start_dfimg`/`__stop_dfimg`) e
+/// `__DATA_CONST,__dfimg` no Mach-O.
+pub const fn secao_da_imagem() -> &'static str {
+    match sistema() {
+        Sistema::Windows => ".dfimg$m",
+        Sistema::Linux => "dfimg",
+        Sistema::MacOs => "__DATA_CONST,__dfimg",
+    }
+}
+
+/// Os marcadores de início e fim da seção dos estáticos de uma imagem
+/// ([`secao_da_imagem`]): as declarações de nível de módulo que os definem (ou
+/// os referenciam) e os dois operandos `ptr`. Cada módulo que registra a imagem
+/// os escreve; no COFF são `linkonce_odr` em `comdat` (uma cópia por imagem), e
+/// no ELF e no Mach-O o ligador define os símbolos de início e fim de seção — a
+/// âncora garante que a seção exista mesmo sem literal nenhum.
+pub fn marcadores_da_imagem() -> (String, &'static str, &'static str) {
+    match sistema() {
+        Sistema::Windows => (
+            "$df.img.a = comdat any\n$df.img.z = comdat any\n\
+             @df.img.a = linkonce_odr hidden constant [2 x i64] zeroinitializer, section \".dfimg$a\", comdat, align 8\n\
+             @df.img.z = linkonce_odr hidden constant [2 x i64] zeroinitializer, section \".dfimg$z\", comdat, align 8\n"
+                .to_string(),
+            "@df.img.a",
+            "@df.img.z",
+        ),
+        Sistema::Linux => (
+            "$df.img.ancora = comdat any\n\
+             @df.img.ancora = linkonce_odr hidden constant [2 x i64] zeroinitializer, section \"dfimg\", comdat, align 8\n\
+             @__start_dfimg = external hidden global i8\n@__stop_dfimg = external hidden global i8\n"
+                .to_string(),
+            "@__start_dfimg",
+            "@__stop_dfimg",
+        ),
+        Sistema::MacOs => (
+            "@df.img.ancora = linkonce_odr hidden constant [2 x i64] zeroinitializer, section \"__DATA_CONST,__dfimg\", align 8\n\
+             @\"\\01section$start$__DATA_CONST$__dfimg\" = external hidden global i8\n\
+             @\"\\01section$end$__DATA_CONST$__dfimg\" = external hidden global i8\n"
+                .to_string(),
+            "@\"\\01section$start$__DATA_CONST$__dfimg\"",
+            "@\"\\01section$end$__DATA_CONST$__dfimg\"",
+        ),
+    }
+}
+
 /// Se o formato de objeto tem `comdat`. O Mach-O não tem: lá a definição
 /// `linkonce_odr` sozinha vira símbolo fraco, e o ligador fica com uma.
 pub const fn tem_comdat() -> bool {

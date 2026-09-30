@@ -26,9 +26,9 @@ lowering. Este documento separa as duas coisas.
   prefixo em `crates/emit_native/src/lib.rs:72`). O programa que não passa
   por ali compila e roda; `DARTFORGE_FONTE_NAO_SUPORTADO=1` lista, na
   compilação, cada construto que virou `UnsupportedError`.
-* O SDK da fonte é o padrão (`sdk_modulo::sdk_da_fonte_pedido`,
-  `sdk_modulo.rs:121-127`); `DARTFORGE_SDK_DA_FONTE=0` volta ao runtime por
-  nome, que não tem `dart:io` nem FFI e não é considerado aqui.
+* O SDK da fonte é o único modo desde o espaço unificado
+  (docs/NATIVO-ESPACO-UNIFICADO.md §4.7): o runtime por nome e
+  `DARTFORGE_SDK_DA_FONTE` saíram.
 * `libraries.json` da sobreposição troca **arquivos inteiros**; `file_patch.dart`,
   `socket_patch.dart`, `sync_socket_patch.dart`, `internal_patch.dart`,
   `type_patch.dart`, `errors_patch.dart`, `object_patch.dart`,
@@ -280,7 +280,7 @@ pelo compilador/runtime da VM):
 | `Internal_loadDynamicModule` | `internal_patch.dart:446-455` | `loadDynamicModule` de `dart:_internal` (módulos dinâmicos da VM) |
 | `Internal_nativeEffect` | `internal_patch.dart:160-164` | inserido pelo transformador de FFI da VM; sem chamador no SDK |
 | `Internal_prependTypeArguments`, `Internal_boundsCheckForPartialInstantiation` | `internal_patch.dart:135-148` | `vm:entry-point` das closures genéricas da VM; o nativo tem as suas (`lower/closures.rs`) |
-| `InvocationMirror_unpackTypeArguments` | `_internal/vm/lib/invocation_mirror_patch.dart:106-109` | só via `_InvocationMirror`/`NoSuchMethodError._withType`, criados pela VM; o nativo monta `Invocation` pela factory pública (`lower/nsm.rs:1-22`) e tem `NoSuchMethodError` próprio (id 1012, `lower/mod.rs:205`) |
+| `InvocationMirror_unpackTypeArguments` | `_internal/vm/lib/invocation_mirror_patch.dart:106-109` | só via `_InvocationMirror`/`NoSuchMethodError._withType`, criados pela VM; o nativo monta `Invocation` no runtime pelo `_dartforgeNoSuchMethod` (`seletores.rs`) e tem `NoSuchMethodError` próprio (id 1012, `lower/mod.rs:205`) |
 | `Isolate_registerKernelBlob`, `Isolate_unregisterKernelBlob` | `sdk_nativo/isolate/isolate_patch.dart:701-717` | `createUriForKernelBlob`/`unregisterKernelBlobUri` são membros injetados pelo patch, ausentes de `isolate/isolate.dart`; recebem kernel, que o nativo não executa |
 
 Ressalva: `dart:_internal` é privada da plataforma (a VM recusa

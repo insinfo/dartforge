@@ -190,7 +190,8 @@ pub const NATIVOS: &[Nativo] = &[
     pendente("AssertionError_throwNewSource"),
     pendente("Bool_fromEnvironment"),
     pendente("Bool_hasEnvironment"),
-    runtime("ClassID_getID"),
+    // A classe do valor em linha (`@df.classe`, docs/NATIVO-ESPACO-UNIFICADO.md §3.8).
+    embutido("ClassID_getID"),
     runtime("Closure_computeHash"),
     runtime("Closure_equals"),
     runtime("Crypto_GetRandomBytes"),
@@ -722,6 +723,103 @@ pub const NATIVOS: &[Nativo] = &[
 /// A entrada de um native, se existe.
 pub fn nativo(nome: &str) -> Option<&'static Nativo> {
     NATIVOS.binary_search_by(|n| n.nome.cmp(nome)).ok().map(|i| &NATIVOS[i])
+}
+
+/// Os pacotes da especificação do espaço unificado
+/// (docs/NATIVO-ESPACO-UNIFICADO.md §4): quem muda a implementação de um native.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pacote {
+    /// Fundação: layout, espaço, coletor, contrato do emissor.
+    P0,
+    /// Strings.
+    P1,
+    /// Caixas, células, contextos, closures, records.
+    P2,
+    /// Listas, mapas, conjuntos.
+    P3,
+    /// Listas tipadas, SIMD, FFI, E/S.
+    P4,
+    /// Transversais (isolados, RTI, erros, saída).
+    P5,
+}
+
+/// O que o espaço unificado muda num native (a tabela §3.8 da especificação):
+/// o pacote que troca a implementação e se ela passa a ser **em linha** (pelos
+/// ajudantes `@df.*` e pelos ganchos `*_em_linha` do lowering; o native do
+/// runtime, quando fica, é o caminho lento). `None`: o native não muda de
+/// representação (só de API do heap, quando a tem).
+pub fn no_espaco_unificado(nome: &str) -> Option<(Pacote, bool)> {
+    use Pacote::*;
+    let r = match nome {
+        // P1: strings.
+        "String_getLength" | "Internal_allocateOneByteString" | "Internal_allocateTwoByteString"
+        | "Internal_writeIntoOneByteString" | "Internal_writeIntoTwoByteString" | "String_getHashCode"
+        | "DartForge_string_codeUnitAt" => (P1, true),
+        "String_charAt"
+        | "String_concat"
+        | "StringBase_substringUnchecked"
+        | "OneByteString_substringUnchecked"
+        | "OneByteString_allocateFromOneByteList"
+        | "TwoByteString_allocateFromTwoByteList"
+        | "StringBase_createFromCodePoints"
+        | "StringBase_joinReplaceAllResult"
+        | "String_concatRange"
+        | "String_toUpperCase"
+        | "String_toLowerCase"
+        | "DartForge_int_toString"
+        | "Double_toString"
+        | "DartForge_double_bits"
+        | "DartForge_imprimir" => (P1, false),
+        n if n.starts_with("DartForge_string_") || n.starts_with("DartForge_sb_") || n.starts_with("DartForge_regexp_") => {
+            (P1, false)
+        }
+        // P0: a classe do valor.
+        "ClassID_getID" => (P0, true),
+        // P3: listas do núcleo (o em linha de `List<E>` em `lower/tipados.rs` é da P4).
+        "List_getLength" | "GrowableList_getLength" | "GrowableList_getCapacity" | "GrowableList_setLength"
+        | "GrowableList_setData" | "GrowableList_setIndexed" | "List_setIndexed" | "DartForge_lista_get" => (P3, true),
+        "List_allocate"
+        | "List_slice"
+        | "ImmutableList_from"
+        | "GrowableList_allocate"
+        | "DartForge_List_preencher"
+        | "DartForge_List_copiar"
+        | "DartForge_GrowableList_reservar"
+        | "Internal_makeListFixedLength"
+        | "Internal_makeFixedListUnmodifiable"
+        | "DartForge_json_acrescentar" => (P3, false),
+        n if n.starts_with("DartForge_hash_") => (P3, false),
+        // P2: caixas, closures, records.
+        n if n.starts_with("DartForge_record_") => (P2, true),
+        "Closure_equals" | "Closure_computeHash" | "Function_apply" | "Identical_comparison" | "Double_parse"
+        | "DartForge_int_hashCode" | "Object_getHash" => (P2, false),
+        n if n.starts_with("Double_")
+            || n.starts_with("Integer_")
+            || n.starts_with("Mint_")
+            || n.starts_with("Smi_")
+            || n.starts_with("DartForge_double_") =>
+        {
+            (P2, false)
+        }
+        // P4: listas tipadas e SIMD.
+        "TypedDataBase_length" | "TypedDataView_typedData" | "TypedDataView_offsetInBytes" => (P4, true),
+        n if n.starts_with("TypedData_Get") || n.starts_with("TypedData_Set") || n.starts_with("DartForge_typed_") => {
+            (P4, true)
+        }
+        "TypedDataBase_setClampedRange" => (P4, false),
+        n if n.starts_with("Float32x4_") || n.starts_with("Int32x4_") || n.starts_with("Float64x2_") => (P4, false),
+        // P5: transversais.
+        n if n.starts_with("WeakReference_")
+            || n.starts_with("WeakProperty_")
+            || n.starts_with("Object_")
+            || n.starts_with("Isolate_")
+            || n.starts_with("DartForge_porta_") =>
+        {
+            (P5, false)
+        }
+        _ => return None,
+    };
+    Some(r)
 }
 
 /// O símbolo do runtime que implementa um native.

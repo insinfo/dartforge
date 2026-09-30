@@ -1,9 +1,9 @@
 //! O runtime nativo do AOT e o diretório dos caches do backend.
 //!
 //! O runtime é a `staticlib` de `crates/runtime_estatico`, compilada pelo
-//! `build.rs` deste crate com o `cargo` do build (duas variantes: a do
-//! executável, com o `main` C, e a da biblioteca compartilhada do SDK da
-//! fonte). Vem pronta com o dartforge: em `lib/` da distribuição, ou no
+//! `build.rs` deste crate com o `cargo` do build (três variantes: a do
+//! executável, com o `main` C, a da biblioteca compartilhada do SDK da
+//! fonte e a de produção, que é a da biblioteca com `panic=abort`). Vem pronta com o dartforge: em `lib/` da distribuição, ou no
 //! diretório do build numa árvore de desenvolvimento. Quem usa o dartforge
 //! não compila Rust. O nome leva o hash do fonte do runtime e do
 //! `Cargo.lock`: só o runtime deste compilador casa.
@@ -44,6 +44,13 @@ impl RuntimeCache {
     /// `main` C (cfg `dartforge_runtime_dll`); o `main` é o do executável.
     pub fn para_dll() -> Result<Self, String> {
         runtime_precompilado(env!("DARTFORGE_RUNTIME_DLL")).map(|lib_path| Self { lib_path })
+    }
+
+    /// A variante de [`RuntimeCache::para_dll`] que o executável de produção
+    /// com o SDK da fonte liga estaticamente: compilada com `panic=abort`
+    /// (`build.rs`, `ABORTAR`). A da DLL, que o JIT também carrega, desenrola.
+    pub fn para_producao() -> Result<Self, String> {
+        runtime_precompilado(env!("DARTFORGE_RUNTIME_PRODUCAO")).map(|lib_path| Self { lib_path })
     }
 }
 
