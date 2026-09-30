@@ -278,6 +278,11 @@ mínimo em ms. Saídas iguais às da VM.
     por operação;
   - o `decode` do JSON, que ainda está a 2,2–3,2× do Dart AOT;
   - a RSS das classes médias pouco usadas.
+- **Feito depois (2026-09-30, `NATIVO-PLANO.md` §13):**
+  - O `Map<int,int>` passou de 3,4× para 1,2× do Dart AOT (0,97× numa sessão quieta).
+  - O `decode_medio` foi de 3,7× para 1,3×, e o `utf8_bytes` de 3,9× para 2,4×.
+  - O que mudou: a sonda sem o `Heap`, a reinserção em lote, o listener do JSON com uma pilha
+    única e a memória rápida do `is`.
 
 ### Causa raiz
 

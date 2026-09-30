@@ -3490,3 +3490,51 @@ Rust) ≈ 328 MB.
 Sem mudança nas classes de tamanho, na TLAB, no código gerado e nos gatilhos.
 O tempo não pode piorar: `json`, `textos` e `blend` medidos antes e depois,
 alternados.
+
+### 13.4 Medido (2026-09-30, Windows, 2 núcleos, outras frentes compilando)
+
+Execuções alternadas dos três executáveis em 5 rodadas: o `aot --optimize` do
+`main` antes (`0ae614d8`, com a sobreposição do `HEAD`), o de depois e o `dart
+compile exe` 3.6.2. A tabela dá o mínimo em ms e a mediana da razão pareada
+contra o Dart AOT. A máquina tinha builds de outros agentes durante a medida, e o
+próprio Dart AOT variou até 2× entre sessões: compare as razões. As saídas foram
+iguais nos três.
+
+| núcleo | antes | depois | Dart AOT | razão antes | razão depois |
+|---|---:|---:|---:|---:|---:|
+| `colecoes/mapa` (`Map<int,int>`) | 294,8 | 82,5 | 111,2 | 3,42 | 1,20 |
+| `colecoes/conjunto_str` | 66,4 | 44,4 | 31,3 | 2,53 | 2,39 |
+| `objetos_em_colecoes/mapa_int_objeto` | 101,5 | 40,0 | 27,6 | 3,67 | 1,45 |
+| `objetos_em_colecoes/mapa_str_objeto` | 32,2 | 23,2 | 17,7 | 1,82 | 1,41 |
+| `json` `decode_pequeno` | 131,5 | 58,5 | 37,1 | 3,77 | 1,61 |
+| `json` `decode_medio` | 192,1 | 71,5 | 46,1 | 3,71 | 1,34 |
+| `json` `decode_grande` | 414,4 | 164,8 | 116,9 | 2,87 | 1,41 |
+| `json` `utf8_bytes` | 190,8 | 118,9 | 48,5 | 3,93 | 2,40 |
+| `json` `reviver` | 111,0 | 51,9 | 33,2 | 3,19 | 1,69 |
+| `json` `encode_medio` | 107,6 | 92,1 | 47,1 | 1,85 | 1,48 |
+
+Numa sessão anterior, mais quieta (3 rodadas), o `mapa` ficou em 0,97× e o
+`conjunto_str` em 0,90× do Dart AOT. No `mapa`, o perfil depois é quase só
+`hash_mapa_buscar`, `hash_mapa_gravar` e `hash_mapa_preencher` (60%, as faltas de
+cache da sonda). O resto é a entrada `$c` do `[]=` e do `[]`, e as
+conferências de covariância caíram para 1,8%.
+
+**Correção:**
+
+* `corpus/nativo` inteiro igual à VM no AOT (95/95), no JIT (96/96), com
+  `--gc-stress --limite-exec 60` (95/95) e em produção, `--otimizar` (96/96).
+  O 96º entrou de outra frente durante as rodadas.
+* Programas novos:
+  * `100_mapas_conjuntos_chave_int`: extremos de 64 bits, `_Mint` calculado,
+    remoção durante o crescimento com reinserção, padrões que colidem, `1`/`1.0`,
+    `NaN`, `-0.0`, chaves mistas, a ordem de iteração, `putIfAbsent`,
+    `update`, `removeWhere` e 200 mil chaves.
+  * `101_json_pilha_e_mapas`: números extremos, escapes, surrogates soltos,
+    400 níveis de aninhamento, chaves repetidas, reviver, UTF-8 em pedaços de 1,
+    2, 3 e 7 bytes, BOM, texto em pedaços e 15 erros com a posição.
+* `cargo test --release -p dartforge-runtime -p dartforge-emit-native` verde.
+
+**Achado de passagem.** No AOT de desenvolvimento, `identical('abc'.substring(1, 1), '')`
+dava `false` no `main` de antes: o `""` da DLL do SDK não era o do programa. O
+`b23db221`, de outra frente, corrigiu isso durante esta rodada. O 101 não
+confere essa identidade.
