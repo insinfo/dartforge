@@ -10,6 +10,9 @@ pub struct Adaptador<'m> {
     /// Modo verificador: o que está morto vira *stub* que denuncia a chamada
     /// (`dart_podado("…")`) em vez de sumir.
     pub stub: bool,
+    /// Nomes cujas entradas de assinatura são emitidas (os do despacho
+    /// dinâmico e dos *tearoffs* no texto); `None`: todas.
+    pub assinaturas: Option<&'m std::collections::HashSet<String>>,
 }
 
 impl Vivos for Adaptador<'_> {
@@ -59,5 +62,8 @@ impl Vivos for Adaptador<'_> {
     }
     fn tearoff_ctor(&self, f: FunctionElementId) -> bool {
         self.stub || self.mundo.tearoff_de_construtor(f)
+    }
+    fn assinatura(&self, nome: &str) -> bool {
+        self.assinaturas.is_none_or(|s| s.contains(nome))
     }
 }

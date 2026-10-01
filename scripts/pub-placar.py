@@ -95,10 +95,26 @@ def chave(trabalho, nome, arq):
     return nome + '/' + os.path.relpath(arq, os.path.join(trabalho, 'pkgs', nome)).replace(os.sep, '/')
 
 
-def rodar(cmd, cwd, limite, env):
+def limitar_memoria(mb):
+    """No Linux, o `preexec_fn` que limita o espaço de endereçamento do
+    processo e dos filhos (o Clang e o ligador que o dartforge chama) a `mb`
+    MiB: o programa que estoura falha sozinho, com estado `memoria`, em vez
+    de levar o runner junto (o OOM killer)."""
+    if os.name == 'nt' or not mb:
+        return None
+    import resource
+
+    def aplicar():
+        b = mb * 1024 * 1024
+        resource.setrlimit(resource.RLIMIT_AS, (b, b))
+    return aplicar
+
+
+def rodar(cmd, cwd, limite, env, memoria_mb=0):
     t = time.time()
     try:
-        r = subprocess.run(cmd, cwd=cwd, capture_output=True, timeout=limite, env=env)
+        r = subprocess.run(cmd, cwd=cwd, capture_output=True, timeout=limite, env=env,
+                           preexec_fn=limitar_memoria(memoria_mb))
         return r.returncode, r.stdout.decode('utf8', 'replace'), r.stderr.decode('utf8', 'replace'), time.time() - t
     except subprocess.TimeoutExpired as e:
         return 'timeout', (e.stdout or b'').decode('utf8', 'replace'), (e.stderr or b'').decode('utf8', 'replace'), time.time() - t
@@ -128,8 +144,15 @@ def um(a, cfg, k, nome, arq, env):
     # tomaria a cópia do pacote como raiz e cobraria as dependências de
     # desenvolvimento dela.
     env_df['DARTFORGE_BUILD_COMPILANDO_EXECUTOR'] = '1'
-    rc, out, err, dt = rodar([a.dartforge, 'aot', arq, exe, '--packages', cfg], cwd, a.tempo_compilacao, env_df)
+    rc, out, err, dt = rodar([a.dartforge, 'aot', arq, exe, '--packages', cfg], cwd, a.tempo_compilacao, env_df,
+                             a.memoria_compilacao)
     res['t_compilacao'] = round(dt, 1)
+    sem_memoria = rc in (-9, 137) or re.search(r'out of memory|memory allocation of|Cannot allocate memory|bad_alloc', err + out)
+    if rc != 0 and sem_memoria:
+        res['estado'] = 'memoria'
+        res['erro'] = 'memória esgotada na compilação (limite %d MiB)' % a.memoria_compilacao
+        res['saida_erro'] = (err + out)[-4000:]
+        return res
     if rc != 0:
         linhas = [l for l in (err + out).strip().splitlines() if l.strip()]
         res['estado'] = 'compilacao'
@@ -175,6 +198,8 @@ def main():
     ap.add_argument('--limite-testes', type=int, default=3)
     ap.add_argument('--tempo-compilacao', type=int, default=900)
     ap.add_argument('--tempo-execucao', type=int, default=120)
+    ap.add_argument('--memoria-compilacao', type=int, default=6000,
+                    help='MiB de espaço de endereçamento do dartforge e dos filhos (Linux; 0 = sem limite)')
     ap.add_argument('--filtro', default='')
     a = ap.parse_args()
     a.trabalho = os.path.abspath(a.trabalho)

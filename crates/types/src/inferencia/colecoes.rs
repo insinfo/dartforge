@@ -296,6 +296,17 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, f
             if let Some(i) = init {
                 super::instrucoes::inicializacao_de_for(inf, cx, i);
             }
+            // `for_conditionBegin`: o que a condição e as atualizações
+            // escrevem perde a promoção (junção conservadora do laço).
+            let mut partes = Vec::new();
+            if let Some(c) = condition {
+                partes.push(super::instrucoes::Parte::Expr(*c));
+            }
+            for u2 in updates.iter() {
+                partes.push(super::instrucoes::Parte::Expr(*u2));
+            }
+            let (escritas, capturadas) = super::instrucoes::escritas_em(inf, cx, &partes);
+            cx.fluxo.juncao_conservadora(&escritas, &capturadas);
             let antes = cx.fluxo.clone();
             if let Some(c) = condition {
                 let (vf, _ff) = expr::condicao_verificada(inf, cx, *c);

@@ -145,10 +145,41 @@ pub fn compile_and_link(
             .map_err(|e| format!("falha ao escrever LLVM IR em {}: {e}", ll_file.display()))?;
     }
 
-    // Fase 1: o gerador compila LLVM IR -> objeto, ou o cache já tem o
-    // objeto deste IR com este gerador e esta geração.
+    // Fase 1': o módulo grande vai em partes (C9, `particao.rs`): cada uma
+    // um objeto, com a sua chave no cache, compiladas poucas por vez.
     let t_clang = Instant::now();
     let cache = CacheObjeto::do_ambiente();
+    if !producao
+        && let Some((limiar, alvo)) = crate::particao::limites()
+        && llvm_ir.len() > limiar
+    {
+        let partes = crate::particao::dividir(llvm_ir, alvo);
+        let objetos = gerar_partes(&partes, &gerador, geracao, cache, &staging, &stem)?;
+        drop(partes);
+        let clang_duration = t_clang.elapsed();
+        let t_link = Instant::now();
+        let mut extras: Vec<PathBuf> = objetos[1..].to_vec();
+        extras.extend(sdk_objetos.iter().cloned());
+        ligar(&options.clang, &objetos[0], &extras, &ligar_com, output, options.depuracao, options.cpu)?;
+        if let Some(s) = sdk.as_ref() {
+            let destino = output.parent().unwrap_or(Path::new(".")).join(s.dll.file_name().unwrap_or_default());
+            if !destino.is_file() && std::fs::hard_link(&s.dll, &destino).is_err() {
+                std::fs::copy(&s.dll, &destino).map_err(|e| format!("não foi possível pôr a DLL do SDK em {}: {e}", destino.display()))?;
+            }
+        }
+        if options.timings {
+            eprintln!("  Partes:    {} objetos", objetos.len());
+        }
+        if cache.is_none() {
+            for o in &objetos {
+                let _ = std::fs::remove_file(o);
+            }
+        }
+        return Ok(TemposLigacao { clang: clang_duration, link: t_link.elapsed(), objeto_do_cache: false });
+    }
+
+    // Fase 1: o gerador compila LLVM IR -> objeto, ou o cache já tem o
+    // objeto deste IR com este gerador e esta geração.
     let obj_staging = || -> Result<PathBuf, String> {
         criar_staging()?;
         Ok(staging.join(format!("{stem}.{}", crate::alvo::ext_objeto())))
@@ -206,6 +237,61 @@ pub fn compile_and_link(
         link: link_duration,
         objeto_do_cache: matches!(do_cache, Some((_, _, true))),
     })
+}
+
+/// Os objetos das partes de um módulo grande (C9), na ordem: cada parte
+/// pelo cache de objetos (ou no `staging`), `DARTFORGE_PARTES_PARALELAS`
+/// (padrão 2: a memória de um Clang é a medida, não os núcleos) por vez.
+fn gerar_partes(
+    partes: &[String],
+    gerador: &Gerador,
+    geracao: Geracao,
+    cache: Option<&'static CacheObjeto>,
+    staging: &Path,
+    stem: &str,
+) -> Result<Vec<PathBuf>, String> {
+    let paralelas = std::env::var("DARTFORGE_PARTES_PARALELAS")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .unwrap_or(2)
+        .max(1);
+    let identidade = gerador.identidade()?;
+    let descricao = geracao.descricao();
+    if cache.is_none() {
+        std::fs::create_dir_all(staging).map_err(|e| format!("{}: {e}", staging.display()))?;
+    }
+    let proxima = std::sync::atomic::AtomicUsize::new(0);
+    let resultados: std::sync::Mutex<Vec<Option<Result<PathBuf, String>>>> =
+        std::sync::Mutex::new((0..partes.len()).map(|_| None).collect());
+    std::thread::scope(|s| {
+        for _ in 0..paralelas.min(partes.len()) {
+            s.spawn(|| loop {
+                let i = proxima.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if i >= partes.len() {
+                    break;
+                }
+                let ir = partes[i].as_str();
+                let r = match cache {
+                    Some(c) => {
+                        let chave = cache_objeto::chave(ir, &identidade, &[descricao.as_str()]);
+                        c.obter_ou_criar(chave, |tmp| gerador.gerar(ir, geracao, tmp)).map(|(o, _)| o)
+                    }
+                    None => {
+                        let o = staging.join(format!("{stem}.parte{i}.{}", crate::alvo::ext_objeto()));
+                        gerador.gerar(ir, geracao, &o).map(|()| o)
+                    }
+                };
+                resultados.lock().unwrap_or_else(|e| e.into_inner())[i] = Some(r);
+            });
+        }
+    });
+    resultados
+        .into_inner()
+        .unwrap_or_else(|e| e.into_inner())
+        .into_iter()
+        .enumerate()
+        .map(|(i, r)| r.unwrap_or_else(|| Err(format!("a parte {i} não foi gerada"))))
+        .collect()
 }
 
 /// Com o que o objeto do programa é ligado.

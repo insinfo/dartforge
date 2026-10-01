@@ -554,7 +554,7 @@ fn texto_de_membro(ctx: &Ctx, m: &ModState, c: ClassId, fid: FunctionElementId, 
 /// representação em `$this` (parâmetro inicializador, lista de
 /// inicializadores ou redirecionamento `this(…)`) e roda o corpo, que vê
 /// `this`; o factory é uma função comum que devolve o valor.
-fn texto_de_construtor(ctx: &Ctx, m: &ModState, c: ClassId, unit: dartforge_elements::model::UnitId, ctor: &ast::Constructor, fid: FunctionElementId) -> String {
+pub(crate) fn texto_de_construtor(ctx: &Ctx, m: &ModState, c: ClassId, unit: dartforge_elements::model::UnitId, ctor: &ast::Constructor, fid: FunctionElementId) -> String {
     let (mut e, mut ps, rep) = emissor(ctx, m, c, unit);
     let nome = nome_de_construtor(ctor.name.map(|n| ctx.name(n.sym)).unwrap_or(""));
     let sig = ctx.fn_ty(fid);
@@ -599,10 +599,17 @@ fn texto_de_construtor(ctx: &Ctx, m: &ModState, c: ClassId, unit: dartforge_elem
         let corpo = finish_body(&mut e);
         return e.wrap_async_head(AsyncKind::None, &head, &prologo, &corpo, &rep);
     }
-    // Generativo.
-    e.extension_this = Some(rep.clone());
+    // Generativo. No tipo de interop (`package:web`), o `this` é o próprio
+    // tipo de extensão: os membros `external` dele, lidos e escritos pelo
+    // `this` implícito no corpo, são acessos de propriedade sobre `$this`.
+    let this_ty = if ctx.is_js_class(c) {
+        Ty::Iface { class: c, args: Vec::new(), nullable: false }
+    } else {
+        rep.clone()
+    };
+    e.extension_this = Some(this_ty.clone());
     if let Some(sym) = ctx.sym("this") {
-        e.declare_js(sym, "$this".into(), rep.clone());
+        e.declare_js(sym, "$this".into(), this_ty);
     }
     let mut corpo = Writer::default();
     corpo.line("let $this;");

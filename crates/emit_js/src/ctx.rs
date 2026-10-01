@@ -561,6 +561,11 @@ impl<'a> Ctx<'a> {
         self.filtro.is_none_or(|x| x.tearoff_ctor(f))
     }
 
+    /// A entrada de assinatura do membro `nome` é emitida ([`crate::filtro::Vivos::assinatura`]).
+    pub fn assinatura_viva(&self, nome: &str) -> bool {
+        self.filtro.is_none_or(|x| x.assinatura(nome))
+    }
+
     /// Rótulo de um elemento podado para o *stub* (`dart_podado("…")`).
     pub fn rotulo_podado(&self, lib: LibraryId, classe: Option<ClassId>, nome: &str) -> String {
         let uri = &self.program.library(lib).uri;

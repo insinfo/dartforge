@@ -479,6 +479,27 @@ pub fn constante_inline(e: &FnEmitter, vid: VariableId) -> Option<Js> {
     Some(js)
 }
 
+/// `@rest` no último parâmetro posicional (`compiler.dart:3722-3726`): o
+/// parâmetro JS vira `...nome` — `gbind(f, @rest typeArgs)` recebe todos os
+/// argumentos seguintes num array.
+pub fn com_rest(e: &FnEmitter, params: &[ast::Parameter], js: String) -> String {
+    if e.ctx.sdk.is_none() || !e.ctx.libs[e.lib.0 as usize].is_sdk {
+        return js;
+    }
+    let Some(ultimo) = params.iter().rev().find(|p| p.kind != ast::ParameterKind::Named) else { return js };
+    if !ultimo.metadata.iter().any(|a| nome_da_anotacao(e.ctx, a) == "rest") {
+        return js;
+    }
+    let Some(n) = ultimo.name else { return js };
+    let Some(l) = e.lookup_local(n.sym) else { return js };
+    let nome = l.js.clone();
+    // O nome é o último item da lista de parâmetros posicionais.
+    match js.rfind(nome.as_str()) {
+        Some(p) if js[p..].trim_end() == nome => format!("{}...{}", &js[..p], &js[p..]),
+        _ => js,
+    }
+}
+
 // --------------------------------------------------------------------- intrínsecos
 
 /// O intrínseco que `fid` é, se for.

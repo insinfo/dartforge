@@ -376,6 +376,15 @@ impl ColorSpace {
                     dart_sign(c) * dart_pow(abs, 1.8)
                 }
             }
+            ColorSpace::Rec2020 if rec2020_bt2020() => {
+                // Antes do 1.102.0: a função de transferência da BT.2020.
+                let abs = c.abs();
+                if abs < REC2020_BETA * 4.5 {
+                    c / 4.5
+                } else {
+                    dart_sign(c) * dart_pow((abs + REC2020_ALPHA - 1.0) / REC2020_ALPHA, 1.0 / 0.45)
+                }
+            }
             ColorSpace::Rec2020 => dart_sign(c) * dart_pow(c.abs(), 2.40),
             _ => c,
         }
@@ -392,6 +401,14 @@ impl ColorSpace {
                     dart_sign(c) * dart_pow(abs, 1.0 / 1.8)
                 } else {
                     16.0 * c
+                }
+            }
+            ColorSpace::Rec2020 if rec2020_bt2020() => {
+                let abs = c.abs();
+                if abs > REC2020_BETA {
+                    dart_sign(c) * (REC2020_ALPHA * dart_pow(abs, 0.45) - (REC2020_ALPHA - 1.0))
+                } else {
+                    4.5 * c
                 }
             }
             ColorSpace::Rec2020 => dart_sign(c) * dart_pow(c.abs(), 1.0 / 2.40),
@@ -1768,4 +1785,14 @@ mod testes_conversao {
             x.channels_or_null()
         );
     }
+}
+
+/// Constantes da gama do rec2020 no dart-sass anterior ao 1.102.0
+/// (`rec2020.dart`, `_alpha` e `_beta`).
+const REC2020_ALPHA: f64 = 1.09929682680944;
+const REC2020_BETA: f64 = 0.018053968510807;
+
+/// A compilação em curso imita o dart-sass 1.101 (gama da BT.2020)?
+fn rec2020_bt2020() -> bool {
+    crate::options::versao_corrente() == crate::VersaoDartSass::V1_101
 }

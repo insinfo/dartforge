@@ -33,12 +33,13 @@ pub fn imita(chave: &str) -> &'static [(&'static str, &'static [&'static str])] 
         // O fork com `package:web` (`ngx_compiler` 9.0.0-dev.2): o mesmo
         // gerador, no dialeto 9 (`docs/NGDART-COMPILADOR-DE-VISOES.md`).
         "ngx_dart:ngx_dart" => &[("ngx_dart", &["9.0.0-dev.2"])],
-        // O Sass é o do `dartforge-sass`: o port do dart-sass 1.102.0 e o
-        // modo de compatibilidade com o 1.66.0 (o do ngcomponents
-        // 3.0.0-dev.1). Outra versão do `sass` no lock muda a saída.
+        // O Sass é o do `dartforge-sass`: o port do dart-sass 1.102.0 e os
+        // modos de compatibilidade com o 1.101.0–1.101.3 (new_sali e
+        // limitless_ui) e com o 1.66.0 (o do ngcomponents 3.0.0-dev.1).
+        // Outra versão do `sass` no lock muda a saída.
         "sass_builder:sass_builder" => &[
             ("sass_builder", &["2.2.1"]),
-            ("sass", &["1.102.0", "1.66.0"]),
+            ("sass", &["1.102.0", "1.101.0", "1.101.1", "1.101.2", "1.101.3", "1.66.0"]),
         ],
         "i18n:yamlBasedBuilder" => &[("i18n", &["4.2.1"])],
         _ => &[],

@@ -404,6 +404,17 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// Nome de propriedade JS de um membro de instância (getter/método/campo).
     /// Devolve `.nome`, `[$nome]`, `[_privado]` ou `['+']`.
     pub fn member_access(&self, recv_ty: &Ty, name: &str, setter: bool) -> String {
+        // Modo SDK: membro com `@JSExportName('Symbol.iterator')` é acessado
+        // pelo nome exportado, como é declarado.
+        if self.ctx.sdk.is_some() {
+            if let Some(m) = self.ctx.lookup_member(recv_ty, name, setter) {
+                if let MemberKind::Method(f) | MemberKind::Getter(f) | MemberKind::Setter(f) = m.kind {
+                    if let Some(x) = crate::sdk_proprio::nome_de_topo(self.ctx, f) {
+                        return if x.contains('.') { format!("[{x}]") } else { js::prop_access(x) };
+                    }
+                }
+            }
+        }
         if name.starts_with('_') {
             // Privado: escopo da biblioteca que o declara.
             let lib = self

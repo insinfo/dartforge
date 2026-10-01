@@ -1133,6 +1133,12 @@ impl<'a> Serializer<'a> {
     /// No modo 1.66, sempre o `fuzzyAsInt` (o `_writeNumber` do 1.66 não
     /// distingue o `inspect`).
     fn as_int(&self, n: f64) -> Option<f64> {
+        // No 1.101 (antes do 1.101.4) o contrário do 1.102: o aproximado fora
+        // do `inspect`, e no `inspect` só o inteiro exato.
+        if self.options.v1101() {
+            let i = crate::value::fuzzy_as_int(n).map(|i| i as f64)?;
+            return (!self.inspect || i == n).then_some(i);
+        }
         if self.inspect || self.options.v166() {
             return crate::value::fuzzy_as_int(n).map(|i| i as f64);
         }
@@ -1622,6 +1628,10 @@ impl<'a> Serializer<'a> {
             if opaque && self.try_hex_or_named_rgb(&rgb) {
                 return;
             }
+            if self.options.v1101() {
+                self.write_legacy_color_1101(color, &rgb, opaque);
+                return;
+            }
             let inicio = self.buffer.len();
             self.write_rgb(&rgb);
             let rgb_texto = self.buffer.split_off(inicio);
@@ -1673,6 +1683,44 @@ impl<'a> Serializer<'a> {
         } else {
             self.write_rgb(color);
         }
+    }
+
+    /// A cor legada no `compressed` do dart-sass 1.101.0–1.101.3
+    /// (`_writeLegacyColor`, antes do 1.101.4): `rgb` ou `hsl` pelo tamanho só
+    /// dos textos dos canais (o HSL ganha dois pelos `%`), e o alfa depois.
+    fn write_legacy_color_1101(&mut self, color: &Color, rgb: &Color, opaque: bool) {
+        let texto = |s: &mut Self, n: f64| {
+            let inicio = s.buffer.len();
+            s.write_number(n);
+            String::from_utf8(s.buffer.split_off(inicio)).unwrap_or_default()
+        };
+        let (r, g, b) = (
+            texto(self, rgb.channel0()),
+            texto(self, rgb.channel1()),
+            texto(self, rgb.channel2()),
+        );
+        let hsl = color.to_space(ColorSpace::Hsl, true);
+        let (h, s, l) = (
+            texto(self, hsl.channel0()),
+            texto(self, hsl.channel1()),
+            texto(self, hsl.channel2()),
+        );
+        if r.len() + g.len() + b.len() <= h.len() + s.len() + l.len() + 2 {
+            let cabeca: &[u8] = if opaque { b"rgb(" } else { b"rgba(" };
+            self.buffer.extend_from_slice(cabeca);
+            self.buffer
+                .extend_from_slice(format!("{r},{g},{b}").as_bytes());
+        } else {
+            let cabeca: &[u8] = if opaque { b"hsl(" } else { b"hsla(" };
+            self.buffer.extend_from_slice(cabeca);
+            self.buffer
+                .extend_from_slice(format!("{h},{s}%,{l}%").as_bytes());
+        }
+        if !opaque {
+            self.buffer.push(b',');
+            self.write_number(color.alpha_f64());
+        }
+        self.buffer.push(b')');
     }
 
     /// `_canUseHex`: os canais (de uma cor `rgb`), se todos cabem em hex.
@@ -1755,6 +1803,21 @@ impl<'a> Serializer<'a> {
             .extend_from_slice(if opaque { b"rgb(" } else { b"rgba(" });
         let sep = self.comma_separator();
         let canais = [rgb.channel0(), rgb.channel1(), rgb.channel2()];
+        // No 1.101 cada canal é um número (`_writeNumber`), sem o `%`.
+        if self.options.v1101() {
+            for (i, c) in canais.iter().enumerate() {
+                if i > 0 {
+                    self.buffer.extend_from_slice(sep);
+                }
+                self.write_number(*c);
+            }
+            if !opaque {
+                self.buffer.extend_from_slice(sep);
+                self.write_number(color.alpha_f64());
+            }
+            self.buffer.push(b')');
+            return;
+        }
         let inteiros: Option<Vec<f64>> = canais.iter().map(|&c| self.as_int(c)).collect();
         match inteiros {
             Some(v) => {

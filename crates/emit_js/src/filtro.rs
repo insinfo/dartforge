@@ -41,6 +41,13 @@ pub trait Vivos {
     fn seletor_escrita(&self, nome_base: &str) -> bool;
     /// O tearoff estático `_#nome#tearOff` do construtor é citado.
     fn tearoff_ctor(&self, f: FunctionElementId) -> bool;
+    /// A entrada de assinatura (`setMethodSignature` e irmãs) do membro
+    /// `nome` é emitida. Só o despacho dinâmico (`dsend`/`dload`/`dput`) e o
+    /// *tearoff* (`bind`) leem assinaturas (`docs/JS-PRODUCAO-SDK-PROPRIO.md`
+    /// §6); o padrão é emitir todas.
+    fn assinatura(&self, _nome: &str) -> bool {
+        true
+    }
 }
 
 /// Tudo vivo: tem de emitir exatamente o que o caminho sem filtro emite.

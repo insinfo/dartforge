@@ -769,10 +769,12 @@ fn depende_de_declaracoes(codigo: &str) -> bool {
     )
 }
 
-/// Códigos que comparam declarações (getter e setter): não saem de uma linha
+/// Códigos que dependem da forma exata de uma declaração (tipos de getter e
+/// setter; variável sem inicializador, que a recuperação pode inventar a
+/// partir de um getter com nome inválido): não saem de uma linha
 /// em que o parser se recuperou.
 fn depende_da_linha(codigo: &str) -> bool {
-    matches!(codigo, "getter_not_subtype_setter_types")
+    matches!(codigo, "getter_not_subtype_setter_types" | "not_initialized_non_nullable_variable")
 }
 
 /// `(unidade, intervalo do inicializador)` das variáveis fora do SDK, na

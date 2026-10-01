@@ -1606,6 +1606,19 @@ pub(crate) fn membro_super(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
         resolver(inf, cx, e, Resolved::Member { class: sup, member: MemberRef::Function(f), via_super: true });
         return t;
     }
+    // `late final x;` sem inicializador tem setter implícito (o modelo de
+    // elementos não o cria): `super.x = v` o alcança.
+    if setter {
+        for k in cadeia_do_super(inf, classe) {
+            let campo = inf.program.class(k).fields.iter().copied().find(|&v| {
+                let ve = inf.program.variable(v);
+                ve.name == name.sym && ve.late && ve.final_ && !ve.static_
+            });
+            if let Some(v) = campo {
+                return inf.tipo_variavel(v);
+            }
+        }
+    }
     // `Object` (a cadeia de uma classe sempre termina nele).
     let o = inf.core.object;
     if let Some(m) = inf.membro_de_interface(o, name.sym, setter) {
@@ -1720,7 +1733,7 @@ fn ler_indice(
     index: ExprId, null_aware: bool, ctx: TypeId,
 ) -> (TypeId, bool) {
     let (recv, curto) = receptor(inf, cx, target, null_aware);
-    if receptor_nunca(inf, cx, target, recv) {
+    if !null_aware && !cx.sobreposicoes.contains_key(&target) && receptor_nunca(inf, cx, target, recv) {
         inferir_livre(inf, cx, index);
         return (inf.core.never, curto);
     }
@@ -2391,8 +2404,14 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                     let (target, index, null_aware) = (*target, *index, *null_aware);
                     let (recv, c) = receptor(inf, cx, target, null_aware);
                     *curto = c;
-                    let t = escrita_indice(inf, cx, alvo, recv, index, span);
-                    (t, t, None)
+                    if !null_aware && receptor_nunca(inf, cx, target, recv) {
+                        inferir_livre(inf, cx, index);
+                        let d = inf.core.dynamic_;
+                        (d, d, None)
+                    } else {
+                        let t = escrita_indice(inf, cx, alvo, recv, index, span);
+                        (t, t, None)
+                    }
                 }
                 _ => {
                     let t = inferir_livre(inf, cx, alvo);
@@ -3024,7 +3043,8 @@ fn teste_de_tipo(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, value: ExprId, ty: 
     // Tipo que não resolveu (`InvalidType` no analyzer): nada a dizer.
     let invalido = inf.diagnostics[avisos_antes..].iter().any(|d| d.code.is_some());
     teste_de_tipo_desnecessario(inf, cx, value, v, ty, t, negado, invalido, span);
-    let alvo = alvo_de_promocao(inf, cx, value);
+    // `x is Never` não promove `x` (o ramo "sim" fica com o tipo de antes).
+    let alvo = alvo_de_promocao(inf, cx, value).filter(|_| !matches!(inf.table.get(t), Type::Never));
     let depois = cx.fluxo.clone();
     let (mut sim, mut nao) = (depois.clone(), depois.clone());
     if let Some(id) = alvo {
@@ -3032,6 +3052,11 @@ fn teste_de_tipo(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, value: ExprId, ty: 
         inf.promover(&mut sim, id, decl, t);
         let fatorado = fator(inf, v, t);
         inf.promover_testado(&mut nao, id, decl, fatorado, t);
+    }
+    // `e is Never` nunca é verdadeiro: o ramo "sim" é inalcançável (sem
+    // promover o alvo).
+    if matches!(inf.table.get(t), Type::Never) {
+        sim = sim.inalcancavel();
     }
     if negado {
         (nao, sim)

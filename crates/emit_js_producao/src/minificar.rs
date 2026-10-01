@@ -318,3 +318,41 @@ mod testes {
         assert_eq!(compactar(&um), um);
     }
 }
+
+/// Minificação de identificadores por escopo e de espaço
+/// (`docs/JS-PRODUCAO-SDK-PROPRIO.md` §7.2), com o `oxc`: parser → semântica
+/// → *mangler* → impressor minificado.
+///
+/// O arquivo é embrulhado numa função, para que os nomes de topo (`dart`,
+/// `core`, `L$pacote__lib`, `t$R`) também sejam locais e encurtem — nada de
+/// fora do arquivo os cita. Globais livres (`self`, `window`, `console`, os
+/// construtores do DOM) não têm declaração no arquivo e por isso nunca são
+/// renomeados; escopo com `eval` direto fica intacto (regra do *mangler*).
+/// **Propriedades não mudam**: o nome de membro Dart é observável no contrato
+/// do DDC (`dsend(o, "foo")`, `NoSuchMethodError`, interop).
+///
+/// # Erros
+///
+/// O texto não é JS válido para o parser (o que seria defeito do emissor):
+/// a primeira mensagem do parser.
+pub fn minificar_nomes(js: &str) -> Result<String, String> {
+    use oxc_allocator::Allocator;
+    use oxc_codegen::{Codegen, CodegenOptions};
+    use oxc_mangler::{MangleOptions, Mangler};
+    use oxc_parser::Parser;
+    use oxc_span::SourceType;
+    let fonte = format!("(function () {{\n{js}\n}})();\n");
+    let alocador = Allocator::default();
+    let tipo = SourceType::cjs();
+    let lido = Parser::new(&alocador, &fonte, tipo).parse();
+    if let Some(e) = lido.diagnostics.first() {
+        return Err(format!("oxc não leu o arquivo de produção: {e}"));
+    }
+    let mangle = Mangler::new().with_options(MangleOptions { top_level: Some(true), ..MangleOptions::default() }).build(&lido.program);
+    let saida = Codegen::new()
+        .with_options(CodegenOptions::minify())
+        .with_scoping(Some(mangle.scoping))
+        .with_private_member_mappings(Some(mangle.class_private_mappings))
+        .build(&lido.program);
+    Ok(saida.code)
+}

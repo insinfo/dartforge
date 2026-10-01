@@ -1789,13 +1789,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let cls = self.class_ref(c);
         let js = format!("{cls}{}", js::prop_access(&static_member_name(n)));
         match mk {
+            // Modo SDK: dentro de `JS()` e no runtime, o *tearoff* é cru.
+            MemberKind::Method(fid) if self.em_js_estrangeiro || crate::sdk_proprio::funcao_sem_reificar(self.ctx, fid) => (Js::prim(js), self.ctx.fn_ty(fid)),
             MemberKind::Method(fid) => {
                 let ty = self.ctx.fn_ty(fid);
                 (self.tearoff_static(&js, &ty), ty)
             }
             MemberKind::Getter(fid) => (Js::prim(js), self.ctx.ty_of(self.ctx.outline.functions[fid.0 as usize].return_type)),
             MemberKind::Setter(_) => (Js::prim(js), Ty::Dynamic),
-            MemberKind::Field(vid) => (Js::prim(js), self.ctx.var_ty(vid)),
+            MemberKind::Field(vid) => match crate::sdk_proprio::constante_inline(self, vid) {
+                Some(v) => (v, self.ctx.var_ty(vid)),
+                None => (Js::prim(js), self.ctx.var_ty(vid)),
+            },
         }
     }
 
@@ -3561,7 +3566,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
         self.m.note_class(class);
         let _ = cls;
-        let call = if is_factory {
+        // Construtor gerativo não-`external` de extension type de interop: a
+        // função estática do objeto da classe (`emit_js_interop_class`), que
+        // devolve a representação — não há classe JS para o `new`.
+        let ext_interop = cls.kind == dartforge_elements::model::ClassKind::ExtensionType
+            && self.ctx.js_classes.contains_key(&class);
+        let call = if is_factory || ext_interop {
             format!("{cls_ref}.{jsname}({})", arg_js.join(", "))
         } else {
             format!("new {cls_ref}.{jsname}({})", arg_js.join(", "))

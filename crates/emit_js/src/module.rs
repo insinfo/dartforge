@@ -742,6 +742,8 @@ pub(crate) fn function_text(ctx: &Ctx, m: &ModState, fid: FunctionElementId, hea
     }
     let ps: &[ast::Parameter] = af.parameters.as_deref().unwrap_or(&[]);
     let (pjs, prologue) = e.declare_params(ps, Some(&sig_ty));
+    // Modo SDK: `@rest` no último parâmetro.
+    let pjs = crate::sdk_proprio::com_rest(&e, ps, pjs);
     if !pjs.is_empty() {
         params_js.push(pjs);
     }
@@ -1663,6 +1665,13 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             items.push(format!("{}: {valor}", crate::sdk_proprio::chave_nativa(m, n)));
         }
     };
+    // Perfil de produção: só as entradas que o despacho dinâmico e o
+    // *tearoff* leem (`Vivos::assinatura`); sem filtro, todas.
+    method_sigs.retain(|(n, _)| ctx.assinatura_viva(n));
+    generic_methods.retain(|(n, _)| ctx.assinatura_viva(n));
+    getter_sigs.retain(|(n, _)| ctx.assinatura_viva(n));
+    setter_sigs.retain(|(n, _)| ctx.assinatura_viva(n));
+    let fields_sig: Vec<&FieldInfo> = fields.iter().filter(|f| ctx.assinatura_viva(&f.name)).collect();
     if !method_sigs.is_empty() {
         let mut items: Vec<String> = Vec::new();
         for (n, t) in method_sigs.iter() {
@@ -1704,8 +1713,8 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     }
     let lib_uri = js::string_literal(&ctx.program.library(class.library).uri);
     crate::linha!(w, "dart.setLibraryUri({cref}, {lib_uri});");
-    if !fields.is_empty() {
-        let items: Vec<String> = fields
+    if !fields_sig.is_empty() {
+        let items: Vec<String> = fields_sig
             .iter()
             .map(|f| {
                 let key = match &f.storage {
@@ -1893,6 +1902,24 @@ fn emit_js_interop_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             MemberKind::Constructor(ctor) => {
                 if ctor.factory && !ctor.external && ctor.redirect.is_none() {
                     emit_factory(ctx, m, c, unit, ctor, mid, &mut cw);
+                } else if !ctor.factory
+                    && !ctor.external
+                    && class.kind == ClassKind::ExtensionType
+                    && ctx.class_params[c.0 as usize].is_empty()
+                {
+                    // Construtor gerativo não-`external` de extension type de
+                    // interop (`HTMLStyleElement() : _ = document.createElement('style')`
+                    // do package:web): só membro `external` é interop
+                    // (`usesJSInterop`, dev_compiler js_interop.dart:151-161);
+                    // o resto é Dart comum, como num tipo de extensão apagado
+                    // (`_emitLibraryProcedures`, compiler.dart:3527).
+                    let sym = ctor.name.map(|n| n.sym).or(ctx.empty_sym);
+                    if let Some(fid) = sym.and_then(|s| class.constructors.get(&s).copied()) {
+                        let texto = crate::tipo_extensao::texto_de_construtor(ctx, m, c, unit, ctor, fid);
+                        for line in texto.lines() {
+                            cw.line(line);
+                        }
+                    }
                 }
             }
             MemberKind::Field(_) => {}

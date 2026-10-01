@@ -422,8 +422,8 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             // O tipo nomeado da criação implícita: `A`, `A<int>`, `p.A`
             // (sem o nome do construtor).
             let sp = match &a.expr(target).kind {
-                ExprKind::Property { target: t, .. } if expr::referencia_a_tipo(inf, cx, *t).is_some() => a.expr(*t).span,
-                _ => a.expr(target).span,
+                ExprKind::Property { target: t, .. } if expr::referencia_a_tipo(inf, cx, *t).is_some() => tipo_nomeado_da_criacao(inf, cx, *t),
+                _ => tipo_nomeado_da_criacao(inf, cx, target),
             };
             avisar_classe_abstrata(inf, c, f, sp);
         }
@@ -441,6 +441,18 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) => c,
             RefTipo::Extensao(_) => unreachable!(),
         };
+        // `A()` de classe abstrata sem construtor declarado: o padrão
+        // implícito é gerador (`INSTANTIATE_ABSTRACT_CLASS`).
+        {
+            let k = inf.program.class(c);
+            if matches!(k.kind, ClassKind::Class | ClassKind::MixinApplication)
+                && (k.modifiers.abstract_ || k.modifiers.sealed)
+                && k.constructors.is_empty()
+            {
+                let sp = tipo_nomeado_da_criacao(inf, cx, target);
+                inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::INSTANTIATE_ABSTRACT_CLASS, sp, &[]);
+            }
+        }
         if inf.program.class(c).kind == ClassKind::Enum
             && inf.sym.vazio.is_some_and(|v| inf.construtor_de(c, v).is_none())
         {
@@ -526,7 +538,7 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 return (r, false);
             }
             let (r_ty, curto) = receptor(inf, cx, recv, null_aware);
-            if expr::receptor_nunca(inf, cx, recv, r_ty) {
+            if !null_aware && !cx.sobreposicoes.contains_key(&recv) && expr::receptor_nunca(inf, cx, recv, r_ty) {
                 for arg in args.args.iter() {
                     inferir_livre(inf, cx, arg.value);
                 }
@@ -1050,6 +1062,14 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
         return inf.core.dynamic_;
     }
     let Some(f) = f else {
+        // Sem construtor declarado: o padrão implícito (gerador).
+        if constructor.is_none() && inf.program.class(c).constructors.is_empty() {
+            let k = inf.program.class(c);
+            if matches!(k.kind, ClassKind::Class | ClassKind::MixinApplication) && (k.modifiers.abstract_ || k.modifiers.sealed) {
+                let sp = a.ty(ty).span;
+                inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::INSTANTIATE_ABSTRACT_CLASS, sp, &[]);
+            }
+        }
         for x in args.args.iter() {
             inferir_livre(inf, cx, x.value);
         }
@@ -1067,13 +1087,30 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
     construir(inf, cx, Some(e), c, f, explicitos, args, ctx)
 }
 
+/// O intervalo do tipo nomeado de uma criação implícita: `A`, `p.A` ou
+/// `A<int>` (até o `>`).
+fn tipo_nomeado_da_criacao(inf: &BodyInferrer<'_>, cx: &Corpo, alvo: ExprId) -> Span {
+    let a = &inf.program.unit(cx.unit).ast;
+    match &a.expr(alvo).kind {
+        ExprKind::TypeArguments { target, type_args } => {
+            let ini = a.expr(*target).span.start;
+            let fim = type_args.last().map(|&t| a.ty(t).span.end).unwrap_or(a.expr(*target).span.end);
+            let fonte = &inf.program.unit(cx.unit).source;
+            let resto = fonte.get(fim..).unwrap_or("");
+            let fecha = resto.find('>').map(|i| fim + i + 1).unwrap_or(fim);
+            Span { start: ini, end: fecha }
+        }
+        _ => a.expr(alvo).span,
+    }
+}
+
 /// `INSTANTIATE_ABSTRACT_CLASS` (`_checkForConstOrNewWithAbstractClass`,
 /// `an611:src/generated/error_verifier.dart:2950-2973`): criação de uma
 /// classe abstrata (ou `sealed`) por um construtor que não é `factory`, no
 /// tipo nomeado.
 fn avisar_classe_abstrata(inf: &mut BodyInferrer<'_>, c: ClassId, f: FunctionElementId, span: Span) {
     let k = inf.program.class(c);
-    if k.kind != ClassKind::Class || !(k.modifiers.abstract_ || k.modifiers.sealed) {
+    if !matches!(k.kind, ClassKind::Class | ClassKind::MixinApplication) || !(k.modifiers.abstract_ || k.modifiers.sealed) {
         return;
     }
     if inf.program.function(f).factory {

@@ -218,6 +218,11 @@ impl<'a> Options<'a> {
         matches!(self.versao, VersaoDartSass::V1_66_0)
     }
 
+    /// Imita o dart-sass 1.101.0–1.101.3?
+    pub(crate) fn v1101(&self) -> bool {
+        matches!(self.versao, VersaoDartSass::V1_101)
+    }
+
     pub(crate) fn is_compressed(&self) -> bool {
         matches!(self.style, OutputStyle::Compressed)
     }
@@ -289,6 +294,13 @@ pub enum VersaoDartSass {
     V1_102_0,
     /// dart-sass 1.66.0 (modo de compatibilidade).
     V1_66_0,
+    /// dart-sass 1.101.0 a 1.101.3 (a mesma saída CSS): antes do 1.101.4, a
+    /// cor legada no `compressed` escolhe entre `rgb` e `hsl` pelo tamanho só
+    /// dos canais, o `rgb()` escreve canal não inteiro como número (sem `%`),
+    /// o inteiro é o aproximado fora do `inspect`, o `if()` do CSS leva o valor
+    /// como o `toString` (inspect); e, antes do 1.102.0, a gama do rec2020 é a
+    /// da ITU-R BT.2020.
+    V1_101,
 }
 
 impl VersaoDartSass {
@@ -305,6 +317,7 @@ impl VersaoDartSass {
         match versao {
             "1.102.0" => Some(Self::V1_102_0),
             "1.66.0" => Some(Self::V1_66_0),
+            "1.101.0" | "1.101.1" | "1.101.2" | "1.101.3" => Some(Self::V1_101),
             _ => None,
         }
     }

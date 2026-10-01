@@ -15,6 +15,7 @@ pub mod hir;
 pub mod llvm;
 pub mod lower;
 pub mod mundo_nativo;
+pub mod particao;
 pub mod nativos;
 pub mod otimizar;
 pub mod poda;

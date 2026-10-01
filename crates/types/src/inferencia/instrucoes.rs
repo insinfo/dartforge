@@ -824,7 +824,7 @@ pub(crate) fn local_da_escrita(cx: &Corpo, e: Escrita) -> Option<LocalId> {
 }
 
 /// Locais escritos nas partes (e os escritos dentro de closures nelas).
-fn escritas_em(inf: &BodyInferrer<'_>, cx: &Corpo, partes: &[Parte]) -> (Vec<LocalId>, Vec<LocalId>) {
+pub(crate) fn escritas_em(inf: &BodyInferrer<'_>, cx: &Corpo, partes: &[Parte]) -> (Vec<LocalId>, Vec<LocalId>) {
     let mut v = Varredura::nova(&inf.program.unit(cx.unit).ast);
     for p in partes {
         match p {

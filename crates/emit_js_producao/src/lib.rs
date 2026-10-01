@@ -182,7 +182,7 @@ pub fn emitir_com_mundo(a: &dartforge_emit_js::Analise<'_>, indice: &sdk::Indice
         let t = Instant::now();
         let mundo = dartforge_mundo::calcular(entrada, &raizes);
         rel.tempo_mundo += t.elapsed();
-        let ad = filtro::Adaptador { mundo: &mundo, program: a.program, stub: op.stub };
+        let ad = filtro::Adaptador { mundo: &mundo, program: a.program, stub: op.stub, assinaturas: None };
         let t = Instant::now();
         let emitido = a.emitir(Some(&ad))?;
         rel.tempo_emissao += t.elapsed();

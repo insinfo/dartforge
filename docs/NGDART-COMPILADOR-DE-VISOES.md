@@ -405,6 +405,14 @@ saídas (`Motor::saidas_invisiveis_a`); o harness passou a ocultar os
   do nativo igual ao do `sass_builder` desses locks.
 - `crates/frontend`: o valor de string de várias linhas com CRLF no fonte deve
   ser com `\n` (§A2) — afeta também o JS gerado.
+- `crates/emit_js`: construtor não-`external` de *extension type* de interop
+  (`package:web`) — `finish_ctor_call` cai no `new X.new()`, e o objeto de
+  apoio dos tipos de extensão só sai para os apagados. Bloqueia o limitless
+  no navegador.
+- Programa do `dev`/`serve` enxerga as saídas `build_to: source` de fases
+  posteriores ao ngdart (o `messages.i18n.dart`): o template sai com
+  `interpolateString0` onde o oficial tem `interpolate0` — mesmo
+  comportamento, texto diferente.
 
 ## E. Resultado
 
@@ -419,3 +427,27 @@ Oráculo (`oraculo --todos`, 2026-09-30):
 próprio `ngcompiler`/`ngx_compiler` (que o harness não examina: o DDC nunca
 as pede). O pendente de cada um é o `web/scrollbar.css`, excluído pelo
 `generate_for` do `build.yaml` (o oficial não o gera).
+
+Testes do crate: 62 unitários, corpus `corpus/ngdart` **372 conferidos, 0
+pendentes**, incremental, Sass e shim — todos verdes.
+
+`dartforge serve`/`dev` em cópias limpas (sem `.dart_tool/build`, sem nenhum
+`.template.dart`), aberto no Edge headless:
+
+- a sessão do `dev` passou a carregar, além do `main`, as entradas do ngdart
+  do `lib/` e `web/` do pacote (`EtapaDeGeracao::raizes`,
+  `crates/dev/src/{geracao,lib}.rs`), como a CLI `build` já fazia: antes, o
+  `app_component.dart` só era alcançável pelo próprio `.template.dart` (que
+  ainda não existia), ficava fora do programa e o gerador o recusava — a
+  carga falhava com 83 templates ausentes;
+- **new_sali/frontend**: pronto em 12 s, 592 módulos, 968 ações nativas do
+  motor; a tela de login monta ("Bem-vindo(a) … ENTRAR"), 0 exceções; único
+  erro: `style.css` 404 (o `web/style.scss` é do `sass_builder`, e o lock tem
+  o dart-sass 1.101.0, que o Sass nativo não imita — §D);
+- **limitless_ui/example**: pronto em 10 s, 477 módulos, 636 ações nativas do
+  `ngx_dart`; quebra em tempo de execução no `ngx_dart`
+  (`HTMLStyleElement.new is not a constructor`): o construtor gerativo
+  não-`external` de *extension type* de interop do `package:web`
+  (`HTMLStyleElement() : _ = document.createElement('style')`) sai do
+  `crates/emit_js` como `new X.new()` de classe — defeito do emissor JS,
+  encaminhado (§D).

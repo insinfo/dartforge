@@ -3109,7 +3109,13 @@ impl<'a> Visitor<'a> {
         };
         let mut partes = Vec::with_capacity(results.len());
         for (c, v) in results {
-            partes.push(format!("{c}: {}", v.to_css_string(e.span, false)?));
+            // Antes do 1.101.4, o valor pelo `toString` (o `inspect`).
+            let texto = if crate::options::versao_corrente() == crate::VersaoDartSass::V1_101 {
+                v.inspect(e.span)?
+            } else {
+                v.to_css_string(e.span, false)?
+            };
+            partes.push(format!("{c}: {texto}"));
         }
         Ok(Value::String(
             format!("if({})", partes.join("; ")),

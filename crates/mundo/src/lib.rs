@@ -212,6 +212,39 @@ pub fn calcular(e: Entrada<'_>, r: &Raizes) -> Mundo {
     calcular_com(e, r, Opcoes::default())
 }
 
+/// Constante cujo valor o emissor dobra no uso (o `shouldInlineConstant` do
+/// DDC, `kernel/constants.dart:105-120`): `const` com inicializador literal
+/// numérico, booleano, nulo ou *string* de menos de 32 unidades. É o mesmo
+/// critério de `emit_js::sdk_proprio::literal_inlinavel`.
+pub fn constante_inlinavel(p: &Program, v: VariableId) -> bool {
+    let var = p.variable(v);
+    if !var.const_ {
+        return false;
+    }
+    let (unit, init) = match var.node {
+        VariableRef::TopLevel { unit, decl, index } => match &p.unit(unit).ast.decl(decl).kind {
+            ast::DeclKind::Variables(l) => (unit, l.variables.get(index).and_then(|x| x.initializer)),
+            _ => return false,
+        },
+        VariableRef::Field { unit, member, index } => match &p.unit(unit).ast.member(member).kind {
+            ast::MemberKind::Field(l) => (unit, l.variables.get(index).and_then(|x| x.initializer)),
+            _ => return false,
+        },
+        _ => return false,
+    };
+    let Some(x) = init else { return false };
+    fn literal(a: &ast::Ast, x: ast::ExprId) -> bool {
+        match &a.expr(x).kind {
+            ast::ExprKind::Int(_) | ast::ExprKind::Double(_) | ast::ExprKind::Bool(_) | ast::ExprKind::Null => true,
+            ast::ExprKind::String(lit) => lit.constant_value().is_some_and(|v| v.utf16_len() < 32),
+            ast::ExprKind::Unary { op: ast::UnaryOp::Neg, operand } => matches!(a.expr(*operand).kind, ast::ExprKind::Int(_) | ast::ExprKind::Double(_)),
+            ast::ExprKind::Parenthesized(i) => literal(a, *i),
+            _ => false,
+        }
+    }
+    literal(&p.unit(unit).ast, x)
+}
+
 /// Classes `@Native`/`@JsPeerInterface` das bibliotecas do SDK
 /// (`native_types.dart` do DDC).
 fn classes_nativas(e: &Entrada<'_>) -> HashSet<ClassId> {
@@ -265,12 +298,23 @@ pub fn tags_nativas(e: &Entrada<'_>) -> Vec<(ClassId, Vec<String>)> {
     out
 }
 
+/// `int` e `num` de `dart:core`.
+fn int_num(e: &Entrada<'_>) -> Option<(ClassId, ClassId)> {
+    let core = e.program.core?;
+    let classe = |n: &str| match e.program.library(core).declared.get(&e.interner.lookup(n)?)?.getter? {
+        Element::Class(c) => Some(c),
+        _ => None,
+    };
+    Some((classe("int")?, classe("num")?))
+}
+
 /// Como [`calcular`], com [`Opcoes`].
 pub fn calcular_com(e: Entrada<'_>, r: &Raizes, op: Opcoes) -> Mundo {
     let mut m = Motor::novo(e);
     if op.incluir_sdk {
         m.incluir_sdk = true;
         m.nativas = classes_nativas(&e);
+        m.int_num = int_num(&e);
     }
     m.causa = Causa::Raiz;
     for s in {
@@ -339,6 +383,7 @@ pub fn conferir(e: Entrada<'_>, r: &Raizes, mundo: &Mundo) -> Vec<Inconsistencia
     if mundo.incluir_sdk {
         m.incluir_sdk = true;
         m.nativas = classes_nativas(&e);
+        m.int_num = int_num(&e);
     }
     m.classes = mundo.classes.clone();
     m.f_vivo = mundo.funcoes.clone();
@@ -473,6 +518,8 @@ pub(crate) struct Motor<'a> {
     /// Classes nativas (`@Native`/`@JsPeerInterface`): viva como tipo é
     /// instanciada, porque o objeto nasce no navegador.
     nativas: HashSet<ClassId>,
+    /// `(int, num)` de `dart:core`, com o SDK no mundo.
+    int_num: Option<(ClassId, ClassId)>,
 }
 
 impl<'a> Motor<'a> {
@@ -514,6 +561,7 @@ impl<'a> Motor<'a> {
             alvo_de_escrita: None,
             incluir_sdk: false,
             nativas: HashSet::new(),
+            int_num: None,
         }
     }
 
@@ -555,6 +603,12 @@ impl<'a> Motor<'a> {
         }
         let var = self.e.program.variable(v);
         if !self.e_usuario_lib(var.library) {
+            return;
+        }
+        // Com o SDK no mundo (o perfil de produção do SDK próprio), a
+        // constante primitiva é dobrada no ponto de uso pelo emissor: a
+        // variável não é lida em execução e não precisa existir.
+        if self.incluir_sdk && constante_inlinavel(self.e.program, v) {
             return;
         }
         // Campo de instância é armazenamento: vive com a classe instanciada,
@@ -616,6 +670,13 @@ impl<'a> Motor<'a> {
         let Some(t) = receptor else {
             self.novo_seletor(nome);
             return;
+        };
+        // Com o SDK no mundo: um `int` em execução é um número do JS, cuja
+        // classe é `JSNumber` — que implementa `double`, não `int` (o `JSInt`
+        // do DDC nunca é instanciado). O cone de `int` é o de `num`.
+        let t = match self.int_num {
+            Some((int, num)) if t == int => num,
+            _ => t,
         };
         if self.sel.contains(nome) {
             return;

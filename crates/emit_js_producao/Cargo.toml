@@ -15,6 +15,12 @@ dartforge-elements = { path = "../elements" }
 dartforge-intern = { path = "../intern" }
 serde = { version = "1", features = ["derive"] }
 postcard = { version = "1", default-features = false, features = ["use-std"] }
+# Minificação de identificadores por escopo (docs/JS-PRODUCAO-SDK-PROPRIO.md §7.2).
+oxc_allocator = "0.152"
+oxc_parser = "0.152"
+oxc_span = "0.152"
+oxc_mangler = "0.152"
+oxc_codegen = "0.152"
 
 [lib]
 path = "src/lib.rs"

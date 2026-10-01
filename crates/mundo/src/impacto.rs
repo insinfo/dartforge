@@ -951,6 +951,30 @@ fn expr(m: &mut Motor<'_>, ctx: &Contexto, id: ExprId) {
             if let Some(Alvo::Classe(c)) = alvo_estatico(m, ctx, *target) {
                 m.criar(c, "", false);
             }
+            // SDK: `JS_CLASS_REF(C)` entrega a classe a um *template* JS, que a
+            // estende ou a constrói (`class _Record extends #`, `new #(…)`): a
+            // classe conta como instanciada.
+            if m.e.program.library(ctx.biblioteca).is_sdk {
+                let ast = &m.e.program.unit(ctx.unidade).ast;
+                let nome = match &ast.expr(*target).kind {
+                    ExprKind::Identifier(n) => Some(n.sym),
+                    ExprKind::Property { name, .. } => Some(name.sym),
+                    _ => None,
+                };
+                if nome.is_some_and(|s| m.e.interner.resolve(s) == "JS_CLASS_REF") {
+                    if let Some(a) = arguments.args.first() {
+                        if let Some(Alvo::Classe(c)) = alvo_estatico(m, ctx, a.value) {
+                            m.instanciar(c);
+                            // O construtor é chamado pelo *template*
+                            // (`Object.getPrototypeOf(#).new.call(…)`).
+                            let ctors: Vec<FunctionElementId> = m.e.program.class(c).constructors.values().copied().collect();
+                            for k in ctors {
+                                m.usar_construtor(k, false);
+                            }
+                        }
+                    }
+                }
+            }
             expr(m, ctx, *target);
             argumentos(m, ctx, arguments);
         }
