@@ -421,8 +421,25 @@ impl<'s> Lexer<'s> {
                     let tail_start = self.pos;
                     return self.string_tail(tail_start, flags);
                 }
-                let dolar = if self.pos > 0 && self.bytes[self.pos - 1] == b'$' { self.pos - 1 } else { self.pos };
-                return Err(self.erro(codigos::scanner::MISSING_IDENTIFIER, dolar, &[]));
+                // `$` sem nome (nem `{`): o scanner do fasta não para; o
+                // parser relata `MISSING_IDENTIFIER` no que segue o `$` e
+                // continua (`"$"`, `"$ "`, `"$$x"`). O trecho seguinte
+                // recomeça logo depois do `$`.
+                self.pos += 1;
+                self.tokens.push(Token {
+                    kind: if first {
+                        Kind::StrBegin(flags, Interp::Ident)
+                    } else {
+                        Kind::StrMid(flags, Interp::Ident)
+                    },
+                    span: Span {
+                        start,
+                        end: self.pos,
+                    },
+                    glued: false,
+                });
+                let tail_start = self.pos;
+                return self.string_tail(tail_start, flags);
             }
             self.pos += 1;
         }

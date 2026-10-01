@@ -47,6 +47,17 @@ enum Envio {
     Aberto,
 }
 
+/// `PatternContext` do fasta: onde o padrão aparece.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ContextoDePadrao {
+    /// `var (a, b) = e;`, `for (final (a, b) in e)`.
+    Declaracao,
+    /// `case p`, `if (e case p)`, `switch` como expressão.
+    Correspondencia,
+    /// `(a, b) = e`.
+    Atribuicao,
+}
+
 /// `ConstantPatternContext` do fasta.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ContextoConstante {
@@ -61,6 +72,66 @@ enum ContextoConstante {
 }
 
 impl<'s, 'i> Parser<'s, 'i> {
+    /// Um padrão de nível mais externo no contexto `ctx`.
+    pub(crate) fn parse_pattern_em(&mut self, ctx: ContextoDePadrao) -> PResult<PatternId> {
+        let salvo = self.contexto_padrao;
+        self.contexto_padrao = ctx;
+        let r = self.parse_pattern();
+        self.contexto_padrao = salvo;
+        r
+    }
+
+    /// Os erros que `parseVariablePattern` (`parser_impl.dart:9908`) relata
+    /// pelo contexto: `var`/`final` em declaração é
+    /// `VARIABLE_PATTERN_KEYWORD_IN_DECLARATION_CONTEXT`; `var` com tipo em
+    /// correspondência, `VAR_AND_TYPE`; variável declarada (não um
+    /// identificador solto) em atribuição, `PATTERN_ASSIGNMENT_DECLARES_VARIABLE`
+    /// no nome; o nome `when`/`as`, `ILLEGAL_PATTERN_VARIABLE_NAME` (ou
+    /// `ILLEGAL_PATTERN_ASSIGNMENT_VARIABLE_NAME`, solto em atribuição).
+    fn conferir_padrao_de_variavel(&mut self, palavra: Option<Span>, var_: bool, tipado: bool, nome: Name) {
+        let solto = palavra.is_none() && !tipado;
+        // Solto num contexto refutável é padrão constante
+        // (`parsePrimaryPattern`): `when`/`as` ali é
+        // `ILLEGAL_PATTERN_IDENTIFIER_NAME`.
+        if solto && self.contexto_padrao == ContextoDePadrao::Correspondencia {
+            let texto = &self.source[nome.span.start..nome.span.end];
+            if matches!(texto, "when" | "as") {
+                let texto = texto.to_string();
+                self.erro_em(codigos::parser::ILLEGAL_PATTERN_IDENTIFIER_NAME, nome.span, &[&texto]);
+            }
+            return;
+        }
+        match self.contexto_padrao {
+            ContextoDePadrao::Declaracao => {
+                if let Some(p) = palavra {
+                    self.erro_em(codigos::parser::VARIABLE_PATTERN_KEYWORD_IN_DECLARATION_CONTEXT, p, &[]);
+                }
+            }
+            ContextoDePadrao::Correspondencia => {
+                if let (Some(p), true, true) = (palavra, var_, tipado) {
+                    self.erro_em(codigos::parser::VAR_AND_TYPE, p, &[]);
+                }
+            }
+            ContextoDePadrao::Atribuicao => {
+                if !solto {
+                    let texto = self.source[nome.span.start..nome.span.end].to_string();
+                    let texto = if texto.is_empty() { "(unnamed)".to_string() } else { texto };
+                    self.erro_em(codigos::parser::PATTERN_ASSIGNMENT_DECLARES_VARIABLE, nome.span, &[&texto]);
+                }
+            }
+        }
+        let texto = &self.source[nome.span.start..nome.span.end];
+        if matches!(texto, "when" | "as") {
+            let texto = texto.to_string();
+            let codigo = if self.contexto_padrao == ContextoDePadrao::Atribuicao && solto {
+                codigos::parser::ILLEGAL_PATTERN_ASSIGNMENT_VARIABLE_NAME
+            } else {
+                codigos::parser::ILLEGAL_PATTERN_VARIABLE_NAME
+            };
+            self.erro_em(codigo, nome.span, &[&texto]);
+        }
+    }
+
     /// `pattern` completo (com `||`, `&&`, `as`, `?`, `!`).
     pub(crate) fn parse_pattern(&mut self) -> PResult<PatternId> {
         self.enter()?;
@@ -238,6 +309,13 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             Kind::Keyword(Keyword::Var | Keyword::Final) => self.parse_variable_pattern(start),
             Kind::Keyword(Keyword::Const) => self.parse_constant_pattern(start),
+            // `void Function() f` / `void Function() _`: variável tipada.
+            Kind::Keyword(Keyword::Void) if self.variable_pattern_type_end(self.pos).is_some() => {
+                let ty = self.parse_type()?;
+                let name = self.expect_identifier()?;
+                self.conferir_padrao_de_variavel(None, false, true, name);
+                Ok(self.finish_variable(start, false, false, Some(ty), name))
+            }
             Kind::Ident => self.parse_identifier_pattern(start),
             Kind::Int
             | Kind::Double
@@ -567,13 +645,16 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn parse_variable_pattern(&mut self, start: Span) -> PResult<PatternId> {
         let final_ = self.at_kw(Keyword::Final);
         let var_ = !final_;
-        self.advance();
-        let ty = if final_ && self.variable_pattern_type_end(self.pos).is_some() {
+        let palavra = self.advance().span;
+        // `var int x` (erro: `VAR_AND_TYPE` em correspondência) também lê
+        // o tipo, como `computeVariablePatternType` do fasta.
+        let ty = if self.variable_pattern_type_end(self.pos).is_some() {
             Some(self.parse_type()?)
         } else {
             None
         };
         let name = self.expect_identifier()?;
+        self.conferir_padrao_de_variavel(Some(palavra), var_, ty.is_some(), name);
         Ok(self.finish_variable(start, final_, var_, ty, name))
     }
 
@@ -589,6 +670,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.variable_pattern_type_end(pos).is_some() {
             let ty = self.parse_type()?;
             let name = self.expect_identifier()?;
+            self.conferir_padrao_de_variavel(None, false, true, name);
             return Ok(self.finish_variable(start, false, false, Some(ty), name));
         }
         if self.object_pattern_paren(pos).is_some() {
@@ -613,6 +695,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
         }
         let name = self.identifier();
+        self.conferir_padrao_de_variavel(None, false, false, name);
         Ok(self.finish_variable(start, false, false, None, name))
     }
 
@@ -851,6 +934,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
                 _ => return None,
             },
+            Kind::Keyword(Keyword::Void) => self.skip_type(pos)?,
             Kind::Op(Op::LParen) => {
                 let close = self.matching_close(pos)?;
                 let ident = if self.kind_of(close + 1) == Kind::Op(Op::Question) {

@@ -574,7 +574,8 @@ impl<'a> BodyInferrer<'a> {
         let c = self.program.class(classe);
         if !setter {
             if let Some(&v) = c.enum_constants.iter().find(|&&v| self.program.variable(v).name == nome) {
-                let t = self.tipo_this_classe(classe);
+                // O tipo da constante (`E<int>` em `a<int>()`), não o `E<T>`.
+                let t = self.tipo_variavel(v);
                 return Some(Membro {
                     resolved: Resolved::Member { class: classe, member: MemberRef::Variable(v), via_super: false },
                     tipo: t,

@@ -181,3 +181,14 @@ unused_field
 wrong_number_of_parameters_for_setter
 wrong_type_parameter_variance_position
 yield_of_invalid_type
+# 2026-10-01, segunda rodada (docs/ANALISADOR-PARIDADE-PLANO.md §7–8; placar
+# 18.516/23.030): exaustividade de switch e os quatro com FP nos pacotes da
+# rodada anterior, agora limpos no corpus e nos 209 pacotes.
+equal_elements_in_const_set
+getter_not_subtype_setter_types
+invalid_override
+invalid_use_of_null_value
+map_value_type_not_assignable
+non_exhaustive_switch_statement
+unreachable_switch_case
+unreachable_switch_default

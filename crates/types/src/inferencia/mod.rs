@@ -117,6 +117,15 @@ pub struct BodyInferrer<'a> {
     /// Contexto refinado dos argumentos de `clamp`/`remainder` para a
     /// próxima invocação.
     pub(crate) contexto_numerico_pendente: Option<TypeId>,
+    /// O `errorEntity` da próxima invocação genérica (onde vai o
+    /// `COULD_NOT_INFER`) e os nomes dos parâmetros posicionais do alvo
+    /// (para a mensagem); só quem conhece o alvo os define.
+    pub(crate) entidade_da_inferencia: Option<Span>,
+    /// Parâmetros cujo tipo escrito não resolve (`InvalidType` no
+    /// analyzer), pela unidade e o offset do nome: a leitura deles tem o tipo
+    /// de recuperação.
+    pub(crate) locais_invalidos: HashSet<(UnitId, usize)>,
+    pub(crate) nomes_posicionais: Option<Vec<String>>,
     /// Unidade de cada diagnóstico (paralelo a `diagnostics`), para quem
     /// precisa do arquivo (ferramentas; o LSP).
     pub unidades_dos_avisos: Vec<Option<UnitId>>,
@@ -184,6 +193,9 @@ impl<'a> BodyInferrer<'a> {
             params_construtor: HashMap::new(),
             promoviveis: HashMap::new(),
             contexto_numerico_pendente: None,
+            entidade_da_inferencia: None,
+            locais_invalidos: HashSet::new(),
+            nomes_posicionais: None,
             unidades_dos_avisos: Vec::new(),
             unidade_corrente: None,
             espalhamentos_inferidos: HashMap::new(),
@@ -519,7 +531,9 @@ impl<'a> BodyInferrer<'a> {
     /// tipo `Null`, é o `INVALID_USE_OF_NULL_VALUE` (sem argumentos), no
     /// mesmo lugar.
     pub(crate) fn aviso_de_nulo(&mut self, recv: TypeId, codigo: dartforge_diagnostics::Codigo, span: Span, args: &[&str]) {
-        if matches!(self.table.get(recv), crate::table::Type::Null) {
+        // `Never?` não é `Null` para o analyzer (é o `NeverType` com `?`).
+        let never_anulavel = matches!(self.table.exibicao(recv), Some(crate::table::Exibicao::NeverAnulavel));
+        if matches!(self.table.get(recv), crate::table::Type::Null) && !never_anulavel {
             self.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::INVALID_USE_OF_NULL_VALUE, span, &[]);
         } else {
             self.aviso_com_codigo(codigo, span, args);

@@ -129,6 +129,26 @@ pub struct TypeTable {
     lookup: HashMap<Type, TypeId>,
     type_params: Vec<TypeParameterData>,
     payload_bytes: usize,
+    /// Tipos decorados para a exibição (C9): o alias de `typedef` com que o
+    /// tipo foi escrito (`TypeImpl.alias` do analyzer) e o `Never?` (que é
+    /// `Null` na semântica). Cada decorado é um `TypeId` próprio com a mesma
+    /// estrutura do alvo (`get` devolve a do alvo), fora do hash-consing;
+    /// só existem com [`TypeTable::preservar_exibicao`] ligado (a análise:
+    /// paridade, LSP), nunca na compilação.
+    exibicao: HashMap<TypeId, Exibicao>,
+    decorados: HashMap<(TypeId, Exibicao), TypeId>,
+    canonicos: HashMap<TypeId, TypeId>,
+    /// Liga a criação de tipos decorados ([`TypeTable::decorar`]).
+    pub preservar_exibicao: bool,
+}
+
+/// A decoração de exibição de um tipo (ver [`TypeTable`]).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Exibicao {
+    /// Escrito como o alias `typedef` com estes argumentos.
+    Alias { typedef: dartforge_elements::model::TypedefId, args: Box<[TypeId]> },
+    /// `Never?` (estrutura `Null`).
+    NeverAnulavel,
 }
 
 impl Default for TypeTable {
@@ -145,7 +165,49 @@ impl TypeTable {
             lookup: HashMap::with_capacity(1024),
             type_params: Vec::with_capacity(256),
             payload_bytes: 0,
+            exibicao: HashMap::new(),
+            decorados: HashMap::new(),
+            canonicos: HashMap::new(),
+            preservar_exibicao: false,
         }
+    }
+
+    /// O tipo `alvo` com a decoração de exibição `ex` (um `TypeId` novo com
+    /// a mesma estrutura); sem [`TypeTable::preservar_exibicao`], o próprio
+    /// `alvo`.
+    pub fn decorar(&mut self, alvo: TypeId, ex: Exibicao) -> TypeId {
+        if !self.preservar_exibicao {
+            return alvo;
+        }
+        let c = self.canonico(alvo);
+        if let Some(&d) = self.decorados.get(&(c, ex.clone())) {
+            return d;
+        }
+        let id = TypeId(self.types.len() as u32);
+        let estrutura = self.types[c.0 as usize].clone();
+        self.types.push(estrutura);
+        self.exibicao.insert(id, ex.clone());
+        self.canonicos.insert(id, c);
+        self.decorados.insert((c, ex), id);
+        id
+    }
+
+    /// O tipo sem a decoração de topo (o internado).
+    pub fn canonico(&self, t: TypeId) -> TypeId {
+        self.canonicos.get(&t).copied().unwrap_or(t)
+    }
+
+    /// Se nenhum tipo decorado foi criado.
+    pub fn exibicao_vazia(&self) -> bool {
+        self.exibicao.is_empty()
+    }
+
+    /// A decoração de exibição de `t`, se houver.
+    pub fn exibicao(&self, t: TypeId) -> Option<&Exibicao> {
+        if self.exibicao.is_empty() {
+            return None;
+        }
+        self.exibicao.get(&t)
     }
 
     /// Retorna o número de tipos únicos internados na tabela.
@@ -263,8 +325,32 @@ impl TypeTable {
         self.lookup.get(&ty).copied()
     }
 
-    /// Retorna representação textual legível de um tipo para mensagens de diagnóstico.
+    /// Retorna representação textual legível de um tipo para mensagens de
+    /// diagnóstico: o `getDisplayString(preferTypeAlias: true)` com que o
+    /// `ErrorReporter` do analyzer converte os tipos dos argumentos.
     pub fn format(&self, ty: TypeId, interner: &Interner, program: &Program) -> String {
+        self.formatar(ty, interner, program, true)
+    }
+
+    /// O `getDisplayString()` sem alias (`DartType.toString`).
+    pub fn format_sem_alias(&self, ty: TypeId, interner: &Interner, program: &Program) -> String {
+        self.formatar(ty, interner, program, false)
+    }
+
+    fn formatar(&self, ty: TypeId, interner: &Interner, program: &Program, alias: bool) -> String {
+        match self.exibicao(ty) {
+            Some(Exibicao::NeverAnulavel) => return "Never?".to_string(),
+            Some(Exibicao::Alias { typedef, args }) if alias => {
+                let nome = interner.resolve(program.typedefs[typedef.0 as usize].name);
+                let q = if self.get(ty).is_declared_nullable() { "?" } else { "" };
+                if args.is_empty() {
+                    return format!("{nome}{q}");
+                }
+                let a: Vec<String> = args.iter().map(|&x| self.formatar(x, interner, program, alias)).collect();
+                return format!("{nome}<{}>{q}", a.join(", "));
+            }
+            _ => {}
+        }
         let t = self.get(ty);
         match t {
             Type::Dynamic => "dynamic".to_string(),
@@ -283,7 +369,7 @@ impl TypeTable {
                 } else {
                     let formatted_args: Vec<String> = args
                         .iter()
-                        .map(|&a| self.format(a, interner, program))
+                        .map(|&a| self.formatar(a, interner, program, alias))
                         .collect();
                     format!("{name}<{}>{q}", formatted_args.join(", "))
                 }
@@ -299,12 +385,12 @@ impl TypeTable {
                 let q = if *nullable { "?" } else { "" };
                 let mut p_strs = Vec::new();
                 for &p in positional.iter() {
-                    p_strs.push(self.format(p, interner, program));
+                    p_strs.push(self.formatar(p, interner, program, alias));
                 }
                 if !optional.is_empty() {
                     let opt_strs: Vec<String> = optional
                         .iter()
-                        .map(|&p| self.format(p, interner, program))
+                        .map(|&p| self.formatar(p, interner, program, alias))
                         .collect();
                     p_strs.push(format!("[{}]", opt_strs.join(", ")));
                 }
@@ -313,12 +399,12 @@ impl TypeTable {
                         .iter()
                         .map(|(n, t, req)| {
                             let r = if *req { "required " } else { "" };
-                            format!("{r}{} {}", self.format(*t, interner, program), interner.resolve(*n))
+                            format!("{r}{} {}", self.formatar(*t, interner, program, alias), interner.resolve(*n))
                         })
                         .collect();
                     p_strs.push(format!("{{{}}}", named_strs.join(", ")));
                 }
-                let ret_str = self.format(*ret, interner, program);
+                let ret_str = self.formatar(*ret, interner, program, alias);
                 // Genérica: `T Function<T>(T)`, com o limite quando não é `Object?`.
                 let tps = match t {
                     Type::Function { type_params, .. } if !type_params.is_empty() => {
@@ -334,7 +420,7 @@ impl TypeTable {
                                         nome.to_string()
                                     }
                                     Type::Dynamic => nome.to_string(),
-                                    _ => format!("{nome} extends {}", self.format(d.bound, interner, program)),
+                                    _ => format!("{nome} extends {}", self.formatar(d.bound, interner, program, alias)),
                                 }
                             })
                             .collect();
@@ -352,14 +438,14 @@ impl TypeTable {
                 let q = if *nullable { "?" } else { "" };
                 let mut parts = Vec::new();
                 for &p in positional.iter() {
-                    parts.push(self.format(p, interner, program));
+                    parts.push(self.formatar(p, interner, program, alias));
                 }
                 // Como o analyzer: nomeados entre chaves, e `(int,)` com um
                 // único posicional.
                 if !named.is_empty() {
                     let nomeados: Vec<String> = named
                         .iter()
-                        .map(|(n, t)| format!("{} {}", self.format(*t, interner, program), interner.resolve(*n)))
+                        .map(|(n, t)| format!("{} {}", self.formatar(*t, interner, program, alias), interner.resolve(*n)))
                         .collect();
                     parts.push(format!("{{{}}}", nomeados.join(", ")));
                 } else if positional.len() == 1 {
@@ -369,7 +455,7 @@ impl TypeTable {
             }
             Type::FutureOr { arg, nullable } => {
                 let q = if *nullable { "?" } else { "" };
-                format!("FutureOr<{}>{q}", self.format(*arg, interner, program))
+                format!("FutureOr<{}>{q}", self.formatar(*arg, interner, program, alias))
             }
             Type::TypeParameter { param, nullable } => {
                 let q = if *nullable { "?" } else { "" };
@@ -377,7 +463,7 @@ impl TypeTable {
                 format!("{name}{q}")
             }
             Type::Intersection { param, bound } => {
-                format!("{} & {}", interner.resolve(self.param(*param).name), self.format(*bound, interner, program))
+                format!("{} & {}", interner.resolve(self.param(*param).name), self.formatar(*bound, interner, program, alias))
             }
             Type::ExtensionType {
                 decl,
@@ -391,7 +477,7 @@ impl TypeTable {
                 } else {
                     let formatted_args: Vec<String> = args
                         .iter()
-                        .map(|&a| self.format(a, interner, program))
+                        .map(|&a| self.formatar(a, interner, program, alias))
                         .collect();
                     format!("{name}<{}>{q}", formatted_args.join(", "))
                 }

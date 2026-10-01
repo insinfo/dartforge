@@ -27,7 +27,7 @@ fn memoria_volta_a_base_depois_de_cada_edicao() {
     for versao in 3..23 {
         assert_eq!(
             p.na_posicao("textDocument/hover", "lib/a.dart", 1, 11, json!({}))["result"]["contents"],
-            "int f()"
+            "int f()\nType: int Function()"
         );
         retido = retido.max(dartforge_instrument::live_bytes().saturating_sub(base));
         p.mudar("lib/a.dart", versao, &texto(versao as usize));

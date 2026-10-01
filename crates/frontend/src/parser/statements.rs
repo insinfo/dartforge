@@ -81,7 +81,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         {
             let final_ = self.at_kw(Keyword::Final);
             self.advance();
-            let pattern = self.parse_pattern()?;
+            let pattern = self.parse_pattern_em(super::patterns::ContextoDePadrao::Declaracao)?;
             if self.at_op(Op::Assign) {
                 return Err(self.erro_esperado("in"));
             }
@@ -339,8 +339,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             Keyword::Const => {
                 // `const x = 1;` / `const int x = 1;` são declarações;
                 // `const Foo();` / `const [1].length;` são expressões.
+                // `const x;` e `const x, y = 1;` também (o `const` sem
+                // inicializador é erro da fase seguinte, `CONST_NOT_INITIALIZED`).
                 let declaration = self.declaration_type_at(self.pos + 1, false)
-                    || (self.at_identifier_at(1) && self.at_op_at(2, Op::Assign));
+                    || (self.at_identifier_at(1)
+                        && matches!(self.kind_at(2), Kind::Op(Op::Assign | Op::Semicolon | Op::Comma)));
                 if declaration {
                     self.parse_local_declaration(start)
                 } else {
@@ -397,27 +400,29 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `yield` é statement quando estamos num gerador ou quando o que segue
     /// só faz sentido como operando (`yield* e`, `yield x`, `yield 1`…).
     fn looks_like_yield_statement(&self) -> bool {
-        if self.in_generator {
+        // `parseStatementX` do fasta: em `async`, `sync*` e `async*` é sempre
+        // o comando; num corpo síncrono comum só quando o que segue parece
+        // operando (`looksLikeYieldStatement`, a mesma regra do `await`):
+        // `yield 0;` ali é a expressão `yield` com o `;` que falta.
+        if self.in_generator || self.in_async {
             return true;
         }
-        match self.kind_at(1) {
-            Kind::Op(Op::Star) => self.kind_at(2) != Kind::Op(Op::Assign),
-            Kind::Ident
-            | Kind::Int
-            | Kind::Double
-            | Kind::Str(_)
-            | Kind::StrBegin(..)
-            | Kind::Keyword(_)
-            | Kind::Op(Op::LParen | Op::LBracket | Op::LBrace | Op::Hash | Op::Bang | Op::Tilde) => {
-                true
-            }
-            _ => false,
-        }
+        self.parece_expressao_apos_await(self.pos, false)
     }
 
     /// Statement de expressão `e;`.
     fn parse_expression_statement(&mut self, start: Span) -> PResult<StmtId> {
         let expr = self.parse_expression()?;
+        // `handleExpressionStatement` (`ast_builder.dart:4253`): `super;` e
+        // atribuição a alvo não atribuível (este, além do
+        // `MISSING_ASSIGNABLE_SELECTOR` da atribuição).
+        self.conferir_super_solto(expr);
+        if let crate::ast::ExprKind::Assign { target, .. } = self.ast.expr(expr).kind
+            && !self.e_atribuivel(target)
+        {
+            let span = self.ast.expr(target).span;
+            self.erro_em(codigos::parser::ILLEGAL_ASSIGNMENT_TO_NON_ASSIGNABLE, span, &[]);
+        }
         self.expect_semicolon()?;
         Ok(self.push_stmt(start, StmtKind::Expression(expr)))
     }
@@ -490,7 +495,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn parse_pattern_variables(&mut self, start: Span) -> PResult<StmtId> {
         let final_ = self.at_kw(Keyword::Final);
         self.advance();
-        let pattern = self.parse_pattern()?;
+        let pattern = self.parse_pattern_em(super::patterns::ContextoDePadrao::Declaracao)?;
         self.expect_op(Op::Assign)?;
         let value = self.parse_expression()?;
         self.expect_semicolon()?;
@@ -531,6 +536,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let mut variables = Vec::new();
         loop {
             let name = self.expect_identifier()?;
+            self.conferir_await_yield_como_nome(name.span);
             let initializer = self.parse_initializer_opt()?;
             variables.push(Variable { name, initializer });
             if !self.eat_op(Op::Comma) {
@@ -540,6 +546,15 @@ impl<'s, 'i> Parser<'s, 'i> {
         list.variables = variables.into_boxed_slice();
         self.expect_semicolon()?;
         Ok(self.push_stmt(start, StmtKind::Variables(list)))
+    }
+
+    /// `checkAsyncAwaitYieldAsIdentifier` (`identifier_context_impl.dart:1387`):
+    /// fora de corpo síncrono comum, `await`/`yield` como nome declarado é
+    /// `ASYNC_KEYWORD_USED_AS_IDENTIFIER`.
+    pub(crate) fn conferir_await_yield_como_nome(&mut self, nome: Span) {
+        if (self.in_async || self.in_generator) && matches!(&self.source[nome.start..nome.end], "await" | "yield") {
+            self.erro_em(codigos::parser::ASYNC_KEYWORD_USED_AS_IDENTIFIER, nome, &[]);
+        }
     }
 
     /// `= e` opcional após um nome de variável.
@@ -719,6 +734,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     fn parse_switch_cases(&mut self, cases: &mut Vec<SwitchCase>) -> PResult<()> {
+        let mut viu_default = false;
         while !self.at_op(Op::RBrace) && !self.at_eof() {
             let case_start = self.span();
             let mut labels = Vec::new();
@@ -726,6 +742,15 @@ impl<'s, 'i> Parser<'s, 'i> {
                 labels.push(self.identifier());
                 self.advance();
             }
+            // `parseSwitchCase` (`parser_impl.dart:9044`): `case` depois de
+            // `default` é `SWITCH_HAS_CASE_AFTER_DEFAULT_CASE` no `case`;
+            // outro `default`, `SWITCH_HAS_MULTIPLE_DEFAULT_CASES`.
+            if viu_default && self.at_kw(Keyword::Case) {
+                self.erro(codigos::parser::SWITCH_HAS_CASE_AFTER_DEFAULT_CASE, &[]);
+            } else if viu_default && self.at_kw(Keyword::Default) {
+                self.erro(codigos::parser::SWITCH_HAS_MULTIPLE_DEFAULT_CASES, &[]);
+            }
+            viu_default |= self.at_kw(Keyword::Default);
             let (pattern, guard) = if self.eat_kw(Keyword::Case) {
                 let pattern = self.parse_pattern()?;
                 let guard = if self.eat_ident("when") {
@@ -829,12 +854,24 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `assert(c);`, `assert(c, msg);`, `assert(c, msg,);`
     fn parse_assert(&mut self, start: Span) -> PResult<StmtId> {
         self.advance();
+        let abre = self.pos;
         self.expect_op(Op::LParen)?;
         let condition = self.parse_expression()?;
         let mut message = None;
         if self.eat_op(Op::Comma) && !self.at_op(Op::RParen) {
             message = Some(self.parse_expression()?);
             self.eat_op(Op::Comma);
+        }
+        // `parseAssert` (`parser_impl.dart`): sobra antes do `)` casado é
+        // `UNEXPECTED_TOKEN` no primeiro token dela, e o resto é pulado.
+        if !self.at_op(Op::RParen)
+            && let Some(fecha) = self.matching_close(abre)
+            && fecha > self.pos
+            && self.kind_of(fecha) == Kind::Op(Op::RParen)
+        {
+            let texto = self.text().to_string();
+            self.erro(codigos::parser::UNEXPECTED_TOKEN, &[&texto]);
+            self.pos = fecha;
         }
         self.expect_op(Op::RParen)?;
         self.expect_semicolon()?;

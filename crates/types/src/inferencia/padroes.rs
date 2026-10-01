@@ -119,6 +119,8 @@ fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, fi
         PatternKind::Wildcard { ty: Some(x) } => {
             let x = *x;
             let r = inf.tipo_de_anotacao(cx, x);
+            let inv = anotacao_invalida(inf, cx, x, r);
+            registrar_tipo_de_padrao(inf, cx, p, r, inv);
             let sp = inf.program.unit(cx.unit).ast.ty(x).span;
             nunca_casa(inf, cx, t, r, sp);
         }
@@ -147,6 +149,8 @@ fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, fi
                 }
                 None => t,
             };
+            let inv = ty.is_some_and(|x| anotacao_invalida(inf, cx, x, tipo));
+            registrar_tipo_de_padrao(inf, cx, p, tipo, inv);
             declarar_local(inf, cx, Local { nome: name.sym, tipo, final_: final_ || f2, late: false, const_: false, offset: name.span.start, funcao_local: false }, true);
         }
         PatternKind::Constant(e) => {
@@ -195,6 +199,8 @@ fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, fi
         PatternKind::Cast { pattern, ty } => {
             let (pattern, ty) = (*pattern, *ty);
             let c = inf.tipo_de_anotacao(cx, ty);
+            let inv = anotacao_invalida(inf, cx, ty, c);
+            registrar_tipo_de_padrao(inf, cx, p, c, inv);
             let sp = inf.program.unit(cx.unit).ast.ty(ty).span;
             nunca_casa(inf, cx, t, c, sp);
             tipar(inf, cx, pattern, c, final_, atribuicao);
@@ -209,6 +215,8 @@ fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, fi
             };
             {
                 let requerido = inf.lista(el);
+                let inv = type_args.first().is_some_and(|&x| anotacao_invalida(inf, cx, x, el));
+                registrar_tipo_de_padrao(inf, cx, p, requerido, inv);
                 let sp = inf.program.unit(cx.unit).ast.pattern(p).span;
                 nunca_casa(inf, cx, t, requerido, sp);
             }
@@ -238,6 +246,11 @@ fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, fi
                     None => (inf.core.object_nullable, inf.core.object_nullable),
                 }
             };
+            if let Some(mc) = inf.core.map_class {
+                let requerido = inf.table.intern(Type::Interface { class: mc, args: vec![k, v].into_boxed_slice(), nullable: false });
+                let inv = type_args.len() == 2 && (anotacao_invalida(inf, cx, type_args[0], k) || anotacao_invalida(inf, cx, type_args[1], v));
+                registrar_tipo_de_padrao(inf, cx, p, requerido, inv);
+            }
             let es: Vec<(ExprId, PatternId)> = entries.iter().map(|e| (e.key, e.value)).collect();
             for (key, val) in es {
                 inferir(inf, cx, key, k);
@@ -271,6 +284,8 @@ fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, fi
             let ty = *ty;
             let fields: Vec<(Option<ast::Name>, PatternId)> = fields.iter().map(|f| (f.name, f.pattern)).collect();
             let obj = tipo_do_padrao_objeto(inf, cx, ty, t);
+            let inv = anotacao_invalida(inf, cx, ty, obj);
+            registrar_tipo_de_padrao(inf, cx, p, obj, inv);
             {
                 let sp = inf.program.unit(cx.unit).ast.ty(ty).span;
                 nunca_casa(inf, cx, t, obj, sp);
@@ -279,7 +294,20 @@ fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, fi
                 let nome = n.map(|n| n.sym).or_else(|| nome_implicito(inf, cx, x));
                 let ft = match nome {
                     Some(nm) => match inf.buscar_membro(cx.lib, obj, nm, false) {
-                        Busca::Achado(m) => m.tipo,
+                        Busca::Achado(m) => {
+                            // Membro de extensão ou de tipo de extensão: a
+                            // exaustividade o lê como `ExtensionKey` (o tipo
+                            // do objeto é apagado).
+                            let de_tipo_de_extensao = matches!(
+                                &m.resolved,
+                                crate::resolved::Resolved::Member { class, .. }
+                                    if inf.program.class(*class).kind == dartforge_elements::model::ClassKind::ExtensionType
+                            );
+                            if m.de_extensao || de_tipo_de_extensao {
+                                inf.body_types.units[cx.unit.0 as usize].campos_de_extensao.insert(x, m.tipo);
+                            }
+                            m.tipo
+                        }
                         Busca::Nunca => inf.core.never,
                         _ => inf.core.dynamic_,
                     },
@@ -288,6 +316,30 @@ fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, fi
                 tipar(inf, cx, x, ft, final_, atribuicao);
             }
         }
+    }
+}
+
+/// Guarda o tipo do padrão para a exaustividade (ver
+/// [`crate::resolved::UnitBodyTypes::tipos_de_padroes`]); um tipo escrito
+/// que não resolve (fica `dynamic` sem ser `dynamic`) marca o padrão como
+/// inválido, como o `InvalidType` do analyzer.
+fn registrar_tipo_de_padrao(inf: &mut BodyInferrer<'_>, cx: &Corpo, p: PatternId, t: TypeId, invalido: bool) {
+    let b = &mut inf.body_types.units[cx.unit.0 as usize];
+    b.tipos_de_padroes.insert(p, t);
+    if invalido {
+        b.padroes_invalidos.insert(p);
+    }
+}
+
+/// A anotação `x`, resolvida para `r`, não resolve: `dynamic` sem ter sido
+/// escrita `dynamic`.
+fn anotacao_invalida(inf: &BodyInferrer<'_>, cx: &Corpo, x: ast::TypeId, r: TypeId) -> bool {
+    if !inf.e_dynamic(r) {
+        return false;
+    }
+    match &inf.program.unit(cx.unit).ast.ty(x).kind {
+        ast::TypeKind::Named { name, .. } => !name.last().is_some_and(|n| inf.interner.resolve(n.sym) == "dynamic"),
+        _ => true,
     }
 }
 

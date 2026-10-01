@@ -68,7 +68,8 @@ fn base_de_future_or(inf: &BodyInferrer<'_>, mut t: TypeId) -> TypeId {
 fn exibir(inf: &mut BodyInferrer<'_>, t: TypeId) -> String {
     let base = base_de_future_or(inf, t);
     let base = inf.nao_nulo(base);
-    inf.table.format(base, inf.interner, inf.program)
+    // O analyzer passa o texto já pronto (`getDisplayString()`, sem alias).
+    inf.table.format_sem_alias(base, inf.interner, inf.program)
 }
 
 /// A declaração `D` que o contexto denota (spec 3.10, "Declaration denoted by

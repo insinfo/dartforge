@@ -437,20 +437,18 @@ impl<'a> OutlineResolver<'a> {
             self.extension_type_params[i] = params.into_boxed_slice();
         }
 
-        // Atualizar bounds escritos para classes
-        for (i, class) in self.program.classes.iter().enumerate() {
-            let params = self.class_type_params[i].clone();
-            let mut scope = HashMap::with_capacity(params.len());
-            for (p_elem, &pid) in class.type_params.iter().zip(params.iter()) {
-                scope.insert(p_elem.name, pid);
+        // Atualizar bounds escritos para classes. Três passadas: um tipo cru
+        // no limite (`I extends Restriction`) é instanciado para os limites
+        // da outra classe, que podem ainda não ter sido lidos na primeira
+        // (sairia `Restriction<Object?>` em vez de `Restriction<Object>`);
+        // cadeias de limites crus até três níveis; só a última relata.
+        let (n_diag, n_unid) = (self.diagnostics.len(), self.unidades_dos_avisos.len());
+        for passada in 0..3 {
+            if passada > 0 {
+                self.diagnostics.truncate(n_diag);
+                self.unidades_dos_avisos.truncate(n_unid);
             }
-            for (p_elem, &pid) in class.type_params.iter().zip(params.iter()) {
-                if let Some((unit_id, ast_ty_id)) = p_elem.bound {
-                    let bound_ty =
-                        self.resolve_annotation(unit_id, ast_ty_id, class.library, &scope);
-                    self.table.set_type_param_bound(pid, bound_ty);
-                }
-            }
+            self.resolver_limites_de_classes();
         }
 
         // E os dos typedefs (`typedef F<X extends num> = X Function();`):
@@ -464,6 +462,23 @@ impl<'a> OutlineResolver<'a> {
             for (p_elem, &pid) in typedef.type_params.iter().zip(params.iter()) {
                 if let Some((unit_id, ast_ty_id)) = p_elem.bound {
                     let bound_ty = self.resolve_annotation(unit_id, ast_ty_id, typedef.library, &scope);
+                    self.table.set_type_param_bound(pid, bound_ty);
+                }
+            }
+        }
+    }
+
+    /// Os limites escritos dos parâmetros de tipo de todas as classes.
+    fn resolver_limites_de_classes(&mut self) {
+        for (i, class) in self.program.classes.iter().enumerate() {
+            let params = self.class_type_params[i].clone();
+            let mut scope = HashMap::with_capacity(params.len());
+            for (p_elem, &pid) in class.type_params.iter().zip(params.iter()) {
+                scope.insert(p_elem.name, pid);
+            }
+            for (p_elem, &pid) in class.type_params.iter().zip(params.iter()) {
+                if let Some((unit_id, ast_ty_id)) = p_elem.bound {
+                    let bound_ty = self.resolve_annotation(unit_id, ast_ty_id, class.library, &scope);
                     self.table.set_type_param_bound(pid, bound_ty);
                 }
             }
@@ -673,11 +688,28 @@ impl<'a> OutlineResolver<'a> {
                         (None, None)
                     }
                 }
-                VariableRef::EnumConstant { .. } => {
+                VariableRef::EnumConstant { unit, decl, index } => {
                     if let Some(cls) = var.class {
+                        // Enum genérico: `a<int>()` dá `E<int>`; sem argumentos
+                        // escritos, os limites (a inferência pelos argumentos do
+                        // construtor fica de fora). Sem isto o tipo saía `E`
+                        // sem argumentos e o UP de duas constantes vazava `E<T>`.
+                        let n = self.class_type_params[cls.0 as usize].len();
+                        let escritos: Vec<ast::TypeId> = match &self.program.unit(unit).ast.decl(decl).kind {
+                            DeclKind::Enum(en) => en.constants.get(index).map(|k| k.type_args.to_vec()).unwrap_or_default(),
+                            _ => Vec::new(),
+                        };
+                        let args: Vec<TypeId> = if n == 0 {
+                            Vec::new()
+                        } else if escritos.len() == n {
+                            escritos.iter().map(|&t| self.resolve_annotation(unit, t, var.library, &HashMap::new())).collect()
+                        } else {
+                            let formals = self.class_type_params[cls.0 as usize].clone();
+                            self.instanciar_para_limites(&formals)
+                        };
                         let ty = self.table.intern(Type::Interface {
                             class: cls,
-                            args: Box::new([]),
+                            args: args.into_boxed_slice(),
                             nullable: false,
                         });
                         (Some(ty), Some(ty))
@@ -1400,7 +1432,7 @@ impl<'a> OutlineResolver<'a> {
                     }
                     if self.interner.lookup("Never") == Some(sym) {
                         return if is_nullable {
-                            self.core.null
+                            self.table.decorar(self.core.null, crate::table::Exibicao::NeverAnulavel)
                         } else {
                             self.core.never
                         };
@@ -1519,6 +1551,10 @@ impl<'a> OutlineResolver<'a> {
                                         subst.insert(f, a);
                                     }
                                     let expanded = substitute(target_ty, &subst, self.table);
+                                    let expanded = self.table.decorar(
+                                        expanded,
+                                        crate::table::Exibicao::Alias { typedef: tid, args: resolved_args.clone().into_boxed_slice() },
+                                    );
                                     if is_nullable {
                                         nullable(expanded, self.table)
                                     } else {
@@ -1610,6 +1646,10 @@ impl<'a> OutlineResolver<'a> {
                                     subst.insert(f, a);
                                 }
                                 let expanded = substitute(target_ty, &subst, self.table);
+                                let expanded = self.table.decorar(
+                                    expanded,
+                                    crate::table::Exibicao::Alias { typedef: tid, args: resolved_args.clone().into_boxed_slice() },
+                                );
                                 if is_nullable {
                                     nullable(expanded, self.table)
                                 } else {

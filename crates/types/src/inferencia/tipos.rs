@@ -432,13 +432,16 @@ impl<'a> BodyInferrer<'a> {
                             self.instanciar_para_limites(&data.type_params)
                         };
                         let mapa = self.mapa(&data.type_params, &args);
-                        self.subst(data.target_type, &mapa)
+                        let r = self.subst(data.target_type, &mapa);
+                        self.table.decorar(r, crate::table::Exibicao::Alias { typedef: tid, args: args.into_boxed_slice() })
                     }
                     _ => {
                         let nome = self.interner.resolve(name[name.len() - 1].sym);
                         match nome {
                             "dynamic" if name.len() == 1 => return self.core.dynamic_,
-                            "Never" if name.len() == 1 => return if anulavel { self.core.null } else { self.core.never },
+                            "Never" if name.len() == 1 => {
+                                return if anulavel { self.table.decorar(self.core.null, crate::table::Exibicao::NeverAnulavel) } else { self.core.never };
+                            }
                             "Null" if name.len() == 1 => return self.core.null,
                             _ => {
                                 // Nome que não resolve para tipo

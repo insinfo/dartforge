@@ -189,12 +189,14 @@ fn escopo_locais_parametros_membros_topo_e_palavras() {
     assert_eq!(item(&r, "local")["detail"], "String");
     assert_eq!(item(&r, "parametro")["detail"], "int");
     assert_eq!(item(&r, "dobro(…)")["kind"], 3);
-    // Locais antes dos membros, membros antes do topo, palavras no fim.
+    // A relevância do Dart no começo de um comando (`Block_statement`):
+    // o local mais próximo, `return`, o campo, a função de topo e, por
+    // último, a variável de topo.
     let pos = |rotulo: &str| r_rotulos.iter().position(|r| r == rotulo).unwrap();
-    assert!(pos("local") < pos("proprio"));
-    assert!(pos("proprio") < pos("global"));
-    assert!(pos("global") < pos("dobro(…)"));
-    assert!(pos("dobro(…)") < pos("return"));
+    assert!(pos("local") < pos("return"));
+    assert!(pos("return") < pos("proprio"));
+    assert!(pos("proprio") < pos("dobro(…)"));
+    assert!(pos("dobro(…)") < pos("global"));
 
     // Com prefixo, primeiro o que começa com ele (sem diferenciar
     // maiúsculas); depois o que só casa por aproximação (`Comparable`

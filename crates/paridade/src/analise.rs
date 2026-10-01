@@ -295,6 +295,9 @@ impl Motor {
         // Bibliotecas com sintaxe posterior ao 3.6: a referência é o
         // analyzer 3.13.4 (docs/VERSOES-LINGUAGEM.md), com outro SDK.
         let mut libs_com_sintaxe_nova: BTreeSet<LibraryId> = BTreeSet::new();
+        // Bibliotecas com erro de sintaxe: o verificador de elementos não
+        // usados não roda nelas.
+        let mut libs_com_erro_de_sintaxe: BTreeSet<LibraryId> = BTreeSet::new();
         // 3. Nomes duplicados (`crates/analise`), por biblioteca do lote.
         for lib in &libs_proprias {
             let biblioteca = program.library(*lib);
@@ -345,6 +348,9 @@ impl Motor {
             let com_erro = ids.iter().any(|u| {
                 program.unit(*u).path.as_ref().and_then(|p| analise.arquivos.get(&chave(p))).is_none_or(|a| a.diags[..a.sintaticos].iter().any(|d| recuperacao_do_parser(d, &a.texto)))
             });
+            if com_erro {
+                libs_com_erro_de_sintaxe.insert(*lib);
+            }
             achados.extend(dartforge_analise::privados::nao_usados(&unidades, &interner, com_erro));
             for (i, d) in achados {
                 if let Some(p) = &program.unit(ids[i]).path {
@@ -385,6 +391,8 @@ impl Motor {
 
         // 4. Tipos.
         let mut table = dartforge_types::TypeTable::new();
+        // Mensagens com o alias de `typedef` e o `Never?` escritos (C9).
+        table.preservar_exibicao = true;
         let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
         let (mut outline, diags_outline, unidades_outline) =
             dartforge_types::resolve_outline_com_unidades(&program, &interner, &mut table, &core);
@@ -513,11 +521,24 @@ impl Motor {
                 &program, &interner, &mut table, &core, &outline, *lib, &classes,
             ));
             atribuidos.extend(dartforge_types::variancia::variancia(&program, &interner, &table, &outline, *lib));
+            if let Some(corpos) = &corpos
+                && !libs_com_erro_de_sintaxe.contains(lib)
+                // O oráculo 3.13 (sintaxe nova) chama o código de
+                // `unused_element_parameter`.
+                && !libs_com_sintaxe_nova.contains(lib)
+            {
+                atribuidos.extend(dartforge_types::parametros::parametros_nao_usados(&program, &interner, &outline, corpos, *lib));
+            }
         }
         // Argumentos de tipo fora dos limites, unidade a unidade.
         for &u in &unidades_proprias {
             for d in dartforge_types::limites::argumentos_fora_dos_limites(&program, &interner, &mut table, &core, &outline, u) {
                 atribuidos.push((u, d));
+            }
+            if let Some(corpo) = corpos.as_ref().and_then(|c| c.units.get(u.0 as usize)) {
+                for d in dartforge_types::limites::argumentos_inferidos_fora_dos_limites(&program, &interner, &mut table, &core, &outline, corpo, u) {
+                    atribuidos.push((u, d));
+                }
             }
         }
         // Nos tipos de `extends`/`implements`/`with` o analyzer não relata
@@ -704,6 +725,39 @@ impl Motor {
 pub fn recuperacao_do_parser(d: &Diagnostic, fonte: &str) -> bool {
     match d.code.map(|c| c.info().nome) {
         Some("experiment_not_enabled" | "experiment_not_enabled_off_by_default" | "unexpected_separator_in_number") => false,
+        // Erros que o fasta relata sem descartar nem inventar código (o
+        // nome, o modificador e a expressão continuam na árvore).
+        Some(
+            "async_keyword_used_as_identifier"
+            | "extraneous_modifier"
+            | "extraneous_modifier_in_extension_type"
+            | "extraneous_modifier_in_primary_constructor"
+            | "modifier_out_of_order"
+            | "duplicated_modifier"
+            | "missing_assignable_selector"
+            | "illegal_assignment_to_non_assignable"
+            | "equality_cannot_be_equality_operand"
+            | "invalid_operator_questionmark_period_for_super"
+            | "var_return_type"
+            | "extension_declares_abstract_member"
+            | "extension_declares_constructor"
+            | "extension_declares_instance_field"
+            | "mixin_declares_constructor"
+            | "member_with_class_name"
+            | "const_class"
+            | "static_constructor"
+            | "static_operator"
+            | "getter_with_parameters"
+            | "covariant_member"
+            | "invalid_use_of_covariant_in_extension"
+            | "pattern_assignment_declares_variable"
+            | "variable_pattern_keyword_in_declaration_context"
+            | "illegal_pattern_variable_name"
+            | "illegal_pattern_assignment_variable_name"
+            | "illegal_pattern_identifier_name"
+            | "switch_has_case_after_default_case"
+            | "switch_has_multiple_default_cases",
+        ) => false,
         Some("missing_function_body") => fonte.get(d.span.start..d.span.end) != Some(";"),
         Some("expected_token") if d.args.first().is_some_and(|a| &**a == ";") => !ponto_e_virgula_inserido(fonte, d.span.end),
         _ => true,

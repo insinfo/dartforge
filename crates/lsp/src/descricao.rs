@@ -19,6 +19,14 @@ use dartforge_types::{Type, TypeId};
 impl Projeto {
     /// O hover do que `d` denota na unidade `unidade`.
     pub(crate) fn hover(&self, unidade: UnitId, d: &Denotado) -> Option<Hover> {
+        // Declaração de constante de enum: o analyzer não tem hover ali.
+        if d.expr.is_none()
+            && let Some(Concreto::Variavel(v)) = d.concreto
+            && self.programa().variable(v).class.is_some_and(|c| self.programa().class(c).enum_constants.contains(&v))
+            && self.nome_da_variavel(v).is_some_and(|(u, s)| u == unidade && s == d.nome)
+        {
+            return None;
+        }
         let (descricao, tipo, inicio_doc) = match (&d.alvo, d.concreto) {
             (
                 Alvo::Local {
@@ -56,7 +64,8 @@ impl Projeto {
             }
             (_, Some(Concreto::Funcao(f))) => {
                 let fe = self.programa().function(f);
-                let tipo = matches!(fe.kind, FunctionKind::Getter)
+                // Na declaração (sem expressão), o analyzer não mostra tipo.
+                let tipo = (matches!(fe.kind, FunctionKind::Getter) && d.expr.is_some())
                     .then(|| {
                         self.tipo_da_referencia(unidade, d.expr)
                             .unwrap_or(self.consulta.outline.functions[f.0 as usize].return_type)
@@ -95,12 +104,152 @@ impl Projeto {
         };
         let documentacao = inicio_doc
             .and_then(|(u, inicio)| dartdoc::documentacao(&self.programa().unit(u).source, inicio))
-            .or_else(|| self.documentacao_herdada(d));
+            .or_else(|| self.documentacao_herdada(d))
+            .or_else(|| self.documentacao_do_parametro(d));
+        // Sem expressão e fora da declaração (metadados, `show`/`hide`,
+        // `[ref]`): o analyzer não tem tipo estático para mostrar.
+        let tipo = if d.expr.is_none() && !matches!(d.alvo, Alvo::Local { .. }) && !self.declaracao(d).is_some_and(|(u, s)| u == unidade && s == d.nome) {
+            None
+        } else {
+            tipo
+        };
+        // `this.x` num construtor: o elemento do hover é o parâmetro.
+        let campo_formal = d.expr.is_none()
+            && crate::projeto::parametro_em(&self.programa().unit(unidade).ast, d.nome.start).is_some_and(|(x, _)| x.this_);
+        // Chamada: o tipo da invocação (`staticInvokeType`), como o Dart.
+        let tipo = tipo.or_else(|| match d.concreto {
+            Some(Concreto::Funcao(f))
+                if matches!(self.programa().function(f).kind, FunctionKind::Function | FunctionKind::Operator)
+                    && d.expr.is_some_and(|e| self.eh_alvo_de_chamada(unidade, e)) =>
+            {
+                self.tipo_da_referencia(unidade, d.expr)
+                    .filter(|t| !matches!(self.consulta.tabela.get(*t), Type::Dynamic))
+                    .map(|t| self.consulta.formatar(t))
+            }
+            // Função local chamada.
+            None if matches!(d.alvo, Alvo::Local { .. })
+                && d.expr.is_some_and(|e| self.eh_alvo_de_chamada(unidade, e))
+                && d.expr.and_then(|e| self.tipo_da_referencia(unidade, Some(e))).is_some_and(|t| matches!(self.consulta.tabela.get(t), Type::Function { .. })) =>
+            {
+                self.tipo_da_referencia(unidade, d.expr).map(|t| self.consulta.formatar(t))
+            }
+            _ => None,
+        });
+        // Criação sem `new`/`const`: `(new) ` antes da descrição.
+        let mut descricao = descricao;
+        if let Some(Concreto::Funcao(f)) = d.concreto
+            && matches!(self.programa().function(f).kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor)
+            && d.expr.is_some_and(|e| self.eh_alvo_de_chamada(unidade, e) || self.eh_alvo_de_chamada_por_propriedade(unidade, e))
+        {
+            descricao = format!("(new) {descricao}");
+        }
+        if self.depreciado(d) {
+            descricao = format!("(deprecated) {descricao}");
+        }
         Some(Hover {
             intervalo: d.nome,
             descricao,
             tipo,
             documentacao,
+            biblioteca: if campo_formal { None } else { self.biblioteca_exibida(d) },
+        })
+    }
+
+    /// Um parâmetro (inclusive o rótulo `nome:` de um argumento) mostra a
+    /// documentação da função dele, como o `computeDocumentation` do
+    /// analyzer.
+    fn documentacao_do_parametro(&self, d: &Denotado) -> Option<String> {
+        let Alvo::Local { unidade: u, declaracao } = d.alvo else { return None };
+        let p = self.programa();
+        let ast = &p.unit(u).ast;
+        let inicio = match crate::projeto::parametro_em(ast, declaracao)?.1 {
+            crate::projeto::DonoParametro::Funcao(f) => {
+                ast.function(f).name?;
+                ast.decls
+                    .iter()
+                    .find(|x| matches!(x.kind, DeclKind::Function(g) if g == f))
+                    .map(|x| x.span.start)
+                    .or_else(|| ast.members.iter().find(|m| matches!(m.kind, MemberKind::Method(g) if g == f)).map(|m| m.span.start))
+                    .unwrap_or(ast.function(f).span.start)
+            }
+            crate::projeto::DonoParametro::Construtor(m) => ast.member(m).span.start,
+        };
+        dartdoc::documentacao(&p.unit(u).source, inicio)
+    }
+
+    /// `e` é o alvo de uma chamada (`e(…)`).
+    fn eh_alvo_de_chamada(&self, unidade: UnitId, e: ast::ExprId) -> bool {
+        self.programa().unit(unidade).ast.exprs.iter().any(|x| matches!(&x.kind, ast::ExprKind::Call { target, .. } if *target == e))
+    }
+
+    /// `e` é a classe de `A.nome(…)` (o alvo da propriedade chamada).
+    fn eh_alvo_de_chamada_por_propriedade(&self, unidade: UnitId, e: ast::ExprId) -> bool {
+        let ast = &self.programa().unit(unidade).ast;
+        ast.exprs.iter().enumerate().any(|(i, x)| {
+            matches!(&x.kind, ast::ExprKind::Property { target, .. } if *target == e)
+                && self.eh_alvo_de_chamada(unidade, ast::ExprId(i as u32))
+        })
+    }
+
+    /// A biblioteca do elemento não local, como o hover do Dart a mostra.
+    fn biblioteca_exibida(&self, d: &Denotado) -> Option<String> {
+        let p = self.programa();
+        let lib = match (&d.alvo, d.concreto) {
+            (Alvo::Local { .. }, _) | (Alvo::Prefixo { .. }, _) => return None,
+            (Alvo::ParametroDeTipo { unidade, declaracao }, _) => {
+                // Parâmetro de tipo de método ou função: local.
+                let ast = &p.unit(*unidade).ast;
+                if ast.functions.iter().any(|f| f.type_params.iter().any(|t| t.name.span.start == *declaracao)) {
+                    return None;
+                }
+                p.unit(*unidade).library
+            }
+            (_, Some(Concreto::Funcao(f))) => p.function(f).library,
+            (_, Some(Concreto::Variavel(v))) => p.variable(v).library,
+            (Alvo::Topo(el), None) => self.biblioteca_do_elemento(*el),
+            (Alvo::Construtor(f), None) => p.function(*f).library,
+            (Alvo::Membro { .. }, None) => return None,
+        };
+        let uri = &p.library(lib).uri;
+        if !uri.starts_with("file:") {
+            return Some(uri.clone());
+        }
+        let caminho = url::Url::parse(uri).ok()?.to_file_path().ok()?;
+        let raiz = crate::projeto::raiz_do_projeto(&caminho);
+        let relativo = dartforge_elements::config::sem_verbatim(caminho.clone());
+        let relativo = relativo.strip_prefix(dartforge_elements::config::sem_verbatim(raiz.clone())).ok()?;
+        let partes: Vec<String> = relativo.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+        // Em `lib/` de um pacote, o analyzer vê a URI `package:`.
+        if partes.first().is_some_and(|c| c == "lib")
+            && let Some(pacote) = crate::indice::nome_do_pacote(&raiz)
+        {
+            return Some(format!("package:{pacote}/{}", partes[1..].join("/")));
+        }
+        Some(partes.join("/"))
+    }
+
+    /// A declaração do elemento tem `@deprecated` ou `@Deprecated(…)`.
+    fn depreciado(&self, d: &Denotado) -> bool {
+        let p = self.programa();
+        let metadados: Option<(UnitId, &[ast::Annotation])> = match (&d.alvo, d.concreto) {
+            (_, Some(Concreto::Funcao(f))) => match p.function(f).node {
+                FunctionRef::Function { unit, function } => {
+                    let ast = &p.unit(unit).ast;
+                    ast.decls
+                        .iter()
+                        .find(|x| matches!(x.kind, DeclKind::Function(g) if g == function))
+                        .map(|x| (unit, &x.metadata[..]))
+                        .or_else(|| ast.members.iter().find(|m| matches!(m.kind, MemberKind::Method(g) if g == function)).map(|m| (unit, &m.metadata[..])))
+                }
+                FunctionRef::Constructor { unit, member } => Some((unit, &p.unit(unit).ast.member(member).metadata[..])),
+                FunctionRef::None => None,
+            },
+            (Alvo::Topo(Element::Class(c)), None) => p.class(*c).decl.map(|dr| (dr.unit, &p.unit(dr.unit).ast.decl(dr.decl).metadata[..])),
+            _ => None,
+        };
+        metadados.is_some_and(|(u, ms)| {
+            let fonte = &p.unit(u).source;
+            ms.iter().any(|a| a.name.last().is_some_and(|n| matches!(&fonte[n.span.start..n.span.end], "deprecated" | "Deprecated")))
         })
     }
 
@@ -140,10 +289,23 @@ impl Projeto {
         let atual = self
             .tipo_da_referencia(unidade_expr, expr)
             .unwrap_or(declarado);
-        Some((
-            format!("{} {nome}", self.consulta.formatar(declarado)),
-            Some(self.consulta.formatar(atual)),
-        ))
+        // Parâmetro: com os delimitadores do tipo dele (`[int b = 0]`,
+        // `{required int c}`), como o `writeFormalParameter` do analyzer.
+        let mut texto = format!("{} {nome}", self.consulta.formatar(declarado));
+        if let Some((p, _)) = crate::projeto::parametro_em(&unidade.ast, declaracao)
+            && p.name.is_some_and(|n| n.span.start == declaracao)
+        {
+            let padrao = p.default_value.map_or(String::new(), |e| {
+                let s = unidade.ast.expr(e).span;
+                format!(" = {}", &unidade.source[s.start..s.end])
+            });
+            texto = match p.kind {
+                ParameterKind::Required => texto,
+                ParameterKind::Optional => format!("[{texto}{padrao}]"),
+                ParameterKind::Named => format!("{{{}{texto}{padrao}}}", if p.required { "required " } else { "" }),
+            };
+        }
+        Some((texto, Some(self.consulta.formatar(atual))))
     }
 
     /// Assinatura de uma função local pelo tipo inferido e pela árvore.
@@ -210,9 +372,10 @@ impl Projeto {
             ),
             None => ("", None),
         };
-        let mut obrigatorios = Vec::new();
-        let mut opcionais = Vec::new();
-        let mut nomeados = Vec::new();
+        // Como o `_writeFormalParameters` do analyzer com `multiline`: com
+        // três parâmetros ou mais, um por linha, com vírgula final.
+        let multilinha = ps.len() >= 3;
+        let mut itens: Vec<(ParameterKind, String)> = Vec::new();
         for (i, p) in ps.iter().enumerate() {
             let tipo = tipos
                 .get(i)
@@ -235,24 +398,47 @@ impl Projeto {
             } else {
                 format!("{tipo} {nome}{padrao}")
             };
-            match p.kind {
-                ParameterKind::Required => obrigatorios.push(texto),
-                ParameterKind::Named => nomeados.push(if p.required {
-                    format!("required {texto}")
-                } else {
-                    texto
-                }),
-                _ => opcionais.push(texto),
+            let texto = if p.kind == ParameterKind::Named && p.required {
+                format!("required {texto}")
+            } else {
+                texto
+            };
+            itens.push((p.kind, texto));
+        }
+        let (abre_grupo, separador, fim, prefixo) =
+            if multilinha { (" ", ",", ",
+", "
+  ") } else { ("", ", ", "", "") };
+        let mut s = String::from("(");
+        let mut ultimo: Option<ParameterKind> = None;
+        let mut fecha = "";
+        for (i, (k, texto)) in itens.iter().enumerate() {
+            if i != 0 {
+                s.push_str(separador);
             }
+            if ultimo != Some(*k) {
+                s.push_str(fecha);
+                if ultimo.is_some() {
+                    s.push_str(abre_grupo);
+                }
+                let (abre, f) = match k {
+                    ParameterKind::Required => ("", ""),
+                    ParameterKind::Optional => ("[", "]"),
+                    ParameterKind::Named => ("{", "}"),
+                };
+                s.push_str(abre);
+                fecha = f;
+                ultimo = Some(*k);
+            }
+            s.push_str(prefixo);
+            s.push_str(texto);
         }
-        let mut partes = obrigatorios;
-        if !opcionais.is_empty() {
-            partes.push(format!("[{}]", opcionais.join(", ")));
+        if !itens.is_empty() {
+            s.push_str(fim);
         }
-        if !nomeados.is_empty() {
-            partes.push(format!("{{{}}}", nomeados.join(", ")));
-        }
-        format!("({})", partes.join(", "))
+        s.push_str(fecha);
+        s.push(')');
+        s
     }
 
     /// Assinatura de uma função, método, getter, setter ou construtor.

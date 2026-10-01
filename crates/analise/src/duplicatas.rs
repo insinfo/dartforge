@@ -544,7 +544,10 @@ impl Contexto {
 
     /// A chave, quando as declarações de mesma localização se juntam.
     fn chave_se(&self, juntar: bool) -> Option<ChaveDeElemento> {
-        if juntar { self.chave() } else { None }
+        // O 6.11 não junta duas extensões de mesmo nome (`augment extension
+        // E` sem o experimento vira uma segunda `extension E`): só o nome
+        // repetido é relatado, não os membros de uma contra a outra.
+        if juntar && self.tipo_de_elemento != "extension" { self.chave() } else { None }
     }
 
     /// Recebe os nomes já acumulados pelo elemento.

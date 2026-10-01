@@ -201,19 +201,30 @@ impl Ctx<'_> {
         {
             lado_super = self.na_interface(st, chave, prof + 1);
         }
+        // Um mixin aplicado só sobrepõe a superclasse com o que ele declara;
+        // o que vem da restrição `on` e das interfaces dele entra como
+        // candidato de interface (a combinação escolhe o mais específico,
+        // `InheritanceManager3._getInterface`).
+        let mut dos_mixins: Vec<(Achado, TypeId)> = Vec::new();
         for &m in &classe.mixin_classes {
             if self.fora_da_hierarquia(d, m) {
                 continue;
             }
             let mt = visto(self, m)?;
             if let Some(x) = self.na_interface(mt, chave, prof + 1) {
-                match lado_super {
-                    Some(y) if y.0 != x.0 && !self.program.class(m).instance_members.contains_key(&chave) => return None,
-                    _ => lado_super = Some(x),
+                if self.program.class(m).instance_members.contains_key(&chave) {
+                    lado_super = Some(x);
+                } else if lado_super.is_none_or(|y| y.0 != x.0) {
+                    dos_mixins.push(x);
                 }
             }
         }
         candidatos.extend(lado_super);
+        for x in dos_mixins {
+            if !candidatos.iter().any(|c| c.0 == x.0) {
+                candidatos.push(x);
+            }
+        }
         for &i in classe.interface_classes.iter().chain(classe.on_classes.iter()) {
             // Enum e tipo de extensão não entram nas interfaces de uma classe
             // (`implements_non_class`).

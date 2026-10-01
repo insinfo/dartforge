@@ -198,6 +198,11 @@ impl<'a> Motor<'a> {
         self.table.format(t, self.interner, self.program)
     }
 
+    /// Sem o alias (`getDisplayString()`): onde o analyzer já passa texto.
+    pub fn formatar_sem_alias(&self, t: TypeId) -> String {
+        self.table.format_sem_alias(t, self.interner, self.program)
+    }
+
     /// `extensionTypeErasure`.
     pub fn apagar(&mut self, t: TypeId) -> TypeId {
         let outline = self.outline;
@@ -1186,6 +1191,12 @@ impl<'a> Motor<'a> {
     }
 
     fn estados_iguais(&mut self, a: &Estado, b: &Estado) -> bool {
+        // Valor não conhecido (constante de outra biblioteca, opaca) não é
+        // provadamente igual a nada: dois `CompileTimeErrorCode.X` vindos
+        // de fora não são o mesmo elemento de conjunto.
+        if a.desconhecido() || b.desconhecido() {
+            return false;
+        }
         match (a, b) {
             (Estado::Bool(x), Estado::Bool(y)) => x == y,
             (Estado::Int(x), Estado::Int(y)) => x == y,
@@ -1531,8 +1542,16 @@ impl<'a> Motor<'a> {
         let Some(k) = self.program.variable(v).class else {
             return Constante::Valor(Valor::novo(self.core.dynamic_, Estado::Generico { campos: Rc::new(Vec::new()), desconhecido: true }));
         };
-        let n = self.program.class(k).type_params.len();
-        let tipo = self.table.intern(Type::Interface { class: k, args: vec![self.core.dynamic_; n].into_boxed_slice(), nullable: false });
+        // O tipo da constante (a instanciação escrita, `a<int>()`, ou a dos
+        // limites), como o `DartObject` do analyzer.
+        let vd = &self.outline.variables[v.0 as usize];
+        let tipo = match vd.declared_type.or(vd.inferred) {
+            Some(t) => t,
+            None => {
+                let n = self.program.class(k).type_params.len();
+                self.table.intern(Type::Interface { class: k, args: vec![self.core.dynamic_; n].into_boxed_slice(), nullable: false })
+            }
+        };
         let nome = self.interner.resolve(self.program.variable(v).name);
         let campos = vec![
             (Campo::Indice, Valor::novo(self.core.int, Estado::Int(Some(index as i64)))),
@@ -1971,7 +1990,7 @@ impl<'a> Motor<'a> {
             if !invalido && !self.casa(&valor, tipo_p) {
                 let excecao = aestatico.is_some_and(|t| self.atribuivel(t, tipo_p));
                 let mut e = self.erro(au, aspan, c::CONST_CONSTRUCTOR_PARAM_TYPE_MISMATCH);
-                e.args = vec![self.formatar(valor.tipo), self.formatar(tipo_p)];
+                e.args = vec![self.formatar_sem_alias(valor.tipo), self.formatar_sem_alias(tipo_p)];
                 e.excecao = excecao;
                 return Constante::Invalida(Box::new(e));
             }
@@ -1982,7 +2001,7 @@ impl<'a> Motor<'a> {
                     let tipo_campo = subst(self, tipo_campo);
                     if tipo_campo != tipo_p && !invalido && !self.casa(&valor, tipo_campo) {
                         let mut e = self.erro(au, aspan, c::CONST_CONSTRUCTOR_PARAM_TYPE_MISMATCH);
-                        e.args = vec![self.formatar(valor.tipo), self.formatar(tipo_campo)];
+                        e.args = vec![self.formatar_sem_alias(valor.tipo), self.formatar_sem_alias(tipo_campo)];
                         return Constante::Invalida(Box::new(e));
                     }
                     if campos.iter().any(|(c, _)| *c == Campo::Nome(nome.sym)) {

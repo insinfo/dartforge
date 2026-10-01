@@ -52,7 +52,7 @@ fn reaproveita_entre_consultas_e_cai_na_edicao() {
     // Biblioteca: carrega uma vez, reaproveita na definição.
     assert_eq!(
         hover(&mut p, "lib/a.dart", 1, 11),
-        json!({"contents": "int f()", "range": {"start": {"line": 1, "character": 11}, "end": {"line": 1, "character": 12}}})
+        json!({"contents": "int f()\nType: int Function()", "range": {"start": {"line": 1, "character": 11}, "end": {"line": 1, "character": 12}}})
     );
     p.na_posicao("textDocument/definition", "lib/a.dart", 1, 11, json!({}));
     let e = est(&p);
@@ -128,7 +128,7 @@ fn orcamento_zero_nunca_retem() {
     p.requisitar("initialize", json!({"capabilities": {}}));
     p.abrir("lib/a.dart", "int f() => 1;\nint g() => f();\n");
     for _ in 0..3 {
-        assert_eq!(hover(&mut p, "lib/a.dart", 1, 11)["contents"], "int f()");
+        assert_eq!(hover(&mut p, "lib/a.dart", 1, 11)["contents"], "int f()\nType: int Function()");
     }
     let e = est(&p);
     assert_eq!(

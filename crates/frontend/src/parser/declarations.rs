@@ -44,6 +44,7 @@ use crate::ast::{
     Initializer, Member, MemberId, MemberKind, MixinDecl, Name, ParameterKind, RedirectTarget,
     TypeAnnotation, TypeId, TypeKind, TypedefDecl, TypedefKind, Variable, VariableList,
 };
+use super::modificadores::{DonoDeParametros, Fichas};
 use crate::features::Feature;
 use crate::token::{Keyword, Kind, Op};
 use dartforge_diagnostics::{Diagnostic, Span, codigos};
@@ -85,6 +86,8 @@ struct Modifiers {
     const_: bool,
     const_span: Option<Span>,
     var_: bool,
+    /// Os tokens dos modificadores, para os diagnósticos do fasta.
+    fichas: Fichas,
 }
 
 impl Modifiers {
@@ -99,6 +102,16 @@ impl Modifiers {
             || self.const_
             || self.var_
     }
+}
+
+/// O que começa no cursor do topo ([`Parser::rota_de_topo`]).
+enum RotaDeTopo {
+    /// Sem modificadores antes da palavra de topo: o despacho de sempre.
+    Comum,
+    /// Um membro de topo (função, getter, setter ou variáveis).
+    Membro,
+    /// Uma palavra de topo na posição `palavra`, com modificadores antes.
+    Palavra { palavra: usize },
 }
 
 /// Resultado de `tipo? nome …`: função/método/acessor ou lista de variáveis.
@@ -120,6 +133,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let mut unit = CompilationUnit::default();
         if self.kind() == Kind::ScriptTag {
             unit.script_tag = Some(self.advance().span);
+            self.estado_diretivas = super::EstadoDiretivas::Script;
         }
         while !self.at_eof() {
             let start_pos = self.pos;
@@ -134,13 +148,19 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn parse_top_level_item(&mut self, unit: &mut CompilationUnit) -> PResult<()> {
         let start = self.span();
         let metadata = self.parse_metadata()?;
+        let palavra = self.span();
         if let Some(kind) = self.parse_directive_opt()? {
+            self.conferir_ordem_de_diretiva(&kind, palavra);
             unit.directives.push(Directive {
                 span: self.span_from(start),
                 metadata,
                 kind,
             });
             return Ok(());
+        }
+        // `checkDeclaration`: depois de uma declaração, diretiva é erro.
+        if self.estado_diretivas != super::EstadoDiretivas::PartOf {
+            self.estado_diretivas = super::EstadoDiretivas::Declaracoes;
         }
         let augment = self.parse_augment_opt();
         // `;` solto no topo é `unexpected_token` no fasta 3.6.2 ("Unexpected
@@ -158,6 +178,78 @@ impl<'s, 'i> Parser<'s, 'i> {
         let id = self.parse_top_level_declaration(start, metadata, augment)?;
         unit.declarations.push(id);
         Ok(())
+    }
+
+    /// A ordem das diretivas (`DirectiveContext` do fasta,
+    /// `directive_context.dart`): `import`/`export` depois de `part` são
+    /// `IMPORT_DIRECTIVE_AFTER_PART_DIRECTIVE`/`EXPORT_DIRECTIVE_AFTER_PART_DIRECTIVE`;
+    /// qualquer diretiva depois de uma declaração,
+    /// `DIRECTIVE_AFTER_DECLARATION`; `library` fora do começo,
+    /// `LIBRARY_DIRECTIVE_NOT_FIRST`/`MULTIPLE_LIBRARY_DIRECTIVES`; numa
+    /// `part of`, outra diretiva é `NON_PART_OF_DIRECTIVE_IN_PART` (salvo
+    /// com `enhanced-parts`) e outro `part of`, `MULTIPLE_PART_OF_DIRECTIVES`.
+    /// O erro vai na palavra que abre a diretiva.
+    fn conferir_ordem_de_diretiva(&mut self, kind: &DirectiveKind, palavra: Span) {
+        use super::EstadoDiretivas as E;
+        use codigos::parser as c;
+        let partes = self.features.tem(Feature::EnhancedParts);
+        let estado = self.estado_diretivas;
+        let erro = match kind {
+            DirectiveKind::Import { .. } | DirectiveKind::Export { .. } => {
+                let import = matches!(kind, DirectiveKind::Import { .. });
+                match estado {
+                    E::Nenhum | E::Script | E::Library | E::ImportExport => {
+                        self.estado_diretivas = E::ImportExport;
+                        None
+                    }
+                    E::Part => Some(if import { c::IMPORT_DIRECTIVE_AFTER_PART_DIRECTIVE } else { c::EXPORT_DIRECTIVE_AFTER_PART_DIRECTIVE }),
+                    E::PartOf if partes => {
+                        self.estado_diretivas = E::ImportExport;
+                        None
+                    }
+                    E::PartOf => Some(c::NON_PART_OF_DIRECTIVE_IN_PART),
+                    E::Declaracoes => Some(c::DIRECTIVE_AFTER_DECLARATION),
+                }
+            }
+            DirectiveKind::Part { .. } => match estado {
+                E::Nenhum | E::Script | E::Library | E::ImportExport | E::Part => {
+                    self.estado_diretivas = E::Part;
+                    None
+                }
+                E::PartOf if partes => {
+                    self.estado_diretivas = E::ImportExport;
+                    None
+                }
+                E::PartOf => Some(c::NON_PART_OF_DIRECTIVE_IN_PART),
+                E::Declaracoes => Some(c::DIRECTIVE_AFTER_DECLARATION),
+            },
+            DirectiveKind::Library { .. } => {
+                if estado < E::Library {
+                    self.estado_diretivas = E::Library;
+                    None
+                } else if estado == E::Library {
+                    Some(c::MULTIPLE_LIBRARY_DIRECTIVES)
+                } else if estado == E::PartOf {
+                    Some(c::NON_PART_OF_DIRECTIVE_IN_PART)
+                } else {
+                    Some(c::LIBRARY_DIRECTIVE_NOT_FIRST)
+                }
+            }
+            DirectiveKind::PartOf { .. } => {
+                if estado == E::Nenhum {
+                    self.estado_diretivas = E::PartOf;
+                    None
+                } else if estado == E::PartOf {
+                    Some(c::MULTIPLE_PART_OF_DIRECTIVES)
+                } else {
+                    Some(c::NON_PART_OF_DIRECTIVE_IN_PART)
+                }
+            }
+            _ => None,
+        };
+        if let Some(codigo) = erro {
+            self.erro_em(codigo, palavra, &[]);
+        }
     }
 
     /// O modificador `augment` de uma declaração de topo ou de um membro
@@ -385,7 +477,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                     && self.starts_member() =>
                 {
                     let marco = self.diagnostics.len();
-                    match self.parse_member(class_name) {
+                    self.especulando = true;
+                    let r = self.parse_member(class_name);
+                    self.especulando = false;
+                    match r {
                         Ok(id) => {
                             members.push(id);
                             return;
@@ -448,7 +543,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             let t = self.advance();
             self.exigir(Feature::Macros, t.span);
             let uri = self.parse_string_literal()?;
-            self.garantir_ponto_e_virgula()?;
+            self.garantir_ponto_e_virgula_forcado();
             return Ok(Some(DirectiveKind::ImportAugment { uri }));
         }
         if self.at_ident("augment") && self.at_ident_at(1, "library") && self.string_at(2) {
@@ -456,7 +551,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.exigir(Feature::Macros, t.span);
             self.advance();
             let uri = self.parse_string_literal()?;
-            self.garantir_ponto_e_virgula()?;
+            self.garantir_ponto_e_virgula_forcado();
             return Ok(Some(DirectiveKind::AugmentLibrary { uri }));
         }
         if self.at_ident("library") && (self.at_identifier_at(1) || self.at_op_at(1, Op::Semicolon))
@@ -467,21 +562,27 @@ impl<'s, 'i> Parser<'s, 'i> {
             } else {
                 Vec::new()
             };
-            self.garantir_ponto_e_virgula()?;
+            self.garantir_ponto_e_virgula_forcado();
             return Ok(Some(DirectiveKind::Library { name }));
         }
         if self.at_ident("import") && self.string_at(1) {
             self.advance();
             let uri = self.parse_string_literal()?;
             let configurations = self.parse_configurations()?;
+            let deferred_span = self.at_ident("deferred").then(|| self.span());
             let deferred = self.eat_ident("deferred");
             let prefix = if self.eat_ident("as") {
                 Some(self.expect_identifier()?)
             } else {
                 None
             };
+            // `parseImport`: `deferred` sem `as` é
+            // `MISSING_PREFIX_IN_DEFERRED_IMPORT` no `deferred`.
+            if let (Some(span), None) = (deferred_span, prefix) {
+                self.erro_em(codigos::parser::MISSING_PREFIX_IN_DEFERRED_IMPORT, span, &[]);
+            }
             let combinators = self.parse_combinators()?;
-            self.garantir_ponto_e_virgula()?;
+            self.garantir_ponto_e_virgula_forcado();
             return Ok(Some(DirectiveKind::Import {
                 uri,
                 configurations,
@@ -495,7 +596,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             let uri = self.parse_string_literal()?;
             let configurations = self.parse_configurations()?;
             let combinators = self.parse_combinators()?;
-            self.garantir_ponto_e_virgula()?;
+            self.garantir_ponto_e_virgula_forcado();
             return Ok(Some(DirectiveKind::Export {
                 uri,
                 configurations,
@@ -506,7 +607,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             if self.string_at(1) {
                 self.advance();
                 let uri = self.parse_string_literal()?;
-                self.garantir_ponto_e_virgula()?;
+                self.garantir_ponto_e_virgula_forcado();
                 return Ok(Some(DirectiveKind::Part { uri }));
             }
             if self.at_ident_at(1, "of") && (self.string_at(2) || self.at_identifier_at(2)) {
@@ -517,7 +618,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 } else {
                     (None, self.parse_dotted_name()?)
                 };
-                self.garantir_ponto_e_virgula()?;
+                self.garantir_ponto_e_virgula_forcado();
                 return Ok(Some(DirectiveKind::PartOf { uri, name }));
             }
         }
@@ -650,8 +751,25 @@ impl<'s, 'i> Parser<'s, 'i> {
         metadata: Vec<Annotation>,
         augment: bool,
     ) -> PResult<DeclId> {
-        let kind = if self.class_follows() {
-            DeclKind::Class(self.parse_class()?)
+        let mut pre = ClassModifiers::default();
+        let membro = match self.rota_de_topo() {
+            RotaDeTopo::Membro => true,
+            RotaDeTopo::Comum => false,
+            RotaDeTopo::Palavra { palavra } => {
+                self.modificadores_antes_de_palavra(palavra, &mut pre);
+                false
+            }
+        };
+        self.prefixos_de_mixin_e_enum();
+        let kind = if membro {
+            let fstart = self.span();
+            let mods = self.parse_modifiers(true);
+            match self.parse_function_or_variables(mods, fstart, mods.external_span, true)? {
+                FunctionOrVariables::Function(id) => DeclKind::Function(id),
+                FunctionOrVariables::Variables(list) => DeclKind::Variables(list),
+            }
+        } else if self.class_follows() {
+            DeclKind::Class(self.parse_class(pre)?)
         } else if self.mixin_follows() {
             DeclKind::Mixin(self.parse_mixin()?)
         } else if self.at_kw(Keyword::Enum) {
@@ -666,7 +784,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.parse_extension_or_extension_type()?
         } else {
             let fstart = self.span();
-            let mods = self.parse_modifiers();
+            let mods = self.parse_modifiers(true);
             match self.parse_function_or_variables(mods, fstart, mods.external_span, true)? {
                 FunctionOrVariables::Function(id) => DeclKind::Function(id),
                 FunctionOrVariables::Variables(list) => DeclKind::Variables(list),
@@ -680,16 +798,136 @@ impl<'s, 'i> Parser<'s, 'i> {
         }))
     }
 
+    /// A decisão de `parseTopLevelDeclarationImpl` (`parser_impl.dart:528`)
+    /// sobre o que começa no cursor: uma palavra de topo (`class`, `enum`,
+    /// `mixin`…) precedida de modificadores (`isModifier` do token, sem olhar
+    /// o seguinte) e de no máximo um `macro`/`sealed`/`base`/`interface`; ou
+    /// um membro de topo — sempre que começa por `var`, `late`, `final` (não
+    /// antes de `class`/`mixin`/`enum`) ou `const` (não antes de `class`), e
+    /// quando os modificadores não levam a uma palavra de topo
+    /// (`final abstract class` é um campo `final` mal formado).
+    fn rota_de_topo(&self) -> RotaDeTopo {
+        let p0 = self.pos;
+        let palavra = |p: usize| match self.kind_of(p) {
+            Kind::Ident | Kind::Keyword(_) => self.text_of(p),
+            _ => "",
+        };
+        let mut j = p0;
+        if super::fasta::e_modificador(palavra(p0)) && palavra(p0) != "augment" {
+            let seguinte = palavra(p0 + 1);
+            match palavra(p0) {
+                "var" | "late" => return RotaDeTopo::Membro,
+                "final" if !matches!(seguinte, "class" | "mixin" | "enum") => return RotaDeTopo::Membro,
+                "const" if seguinte != "class" => return RotaDeTopo::Membro,
+                _ => {}
+            }
+            while super::fasta::e_modificador(palavra(j)) && palavra(j) != "augment" {
+                j += 1;
+            }
+        }
+        let mut k = j;
+        match palavra(j) {
+            "macro" if palavra(j + 1) == "class" => k = j + 1,
+            "sealed" | "base" | "interface" if matches!(palavra(j + 1), "class" | "mixin" | "enum") => k = j + 1,
+            "sealed" if palavra(j + 1) == "abstract" && palavra(j + 2) == "class" => k = j + 2,
+            _ => {}
+        }
+        if super::fasta::e_palavra_de_topo(palavra(k)) {
+            if j == p0 {
+                return RotaDeTopo::Comum;
+            }
+            return RotaDeTopo::Palavra { palavra: k };
+        }
+        // Modificadores seguidos de nome, ou `sealed`/`base`/… fora da ordem
+        // (`base abstract class`, `sealed sealed class`): membro.
+        if j > p0 || (k == j && self.class_follows()) {
+            return RotaDeTopo::Membro;
+        }
+        RotaDeTopo::Comum
+    }
+
+    /// Os modificadores de membro antes de uma palavra de topo, lidos pelo
+    /// `ModifierContext` (`parseClassModifiers`, `parseEnumModifiers`,
+    /// `parseMixinModifiers`…): o que não cabe ali é relatado e
+    /// descartado; `abstract`/`final` de classe vão para `pre`.
+    fn modificadores_antes_de_palavra(&mut self, palavra: usize, pre: &mut ClassModifiers) {
+        let mut f = Fichas::default();
+        self.contexto_de_modificadores(&mut f, false);
+        // `mixin class` é classe (`_handleModifiersForClassDeclaration`).
+        let mut texto = self.text_of(palavra);
+        if texto == "mixin" && self.text_of(palavra + 1) == "class" {
+            texto = "class";
+        }
+        self.relatar_modificadores_antes_de_topo(&f, texto);
+        match texto {
+            "class" => {
+                pre.abstract_ = f.abstract_.is_some();
+                pre.final_ = f.final_.is_some();
+                if f.final_.is_some() && self.text_of(palavra) == "mixin" {
+                    self.erro_no_token(f.final_.unwrap_or_default(), codigos::parser::FINAL_MIXIN_CLASS);
+                }
+            }
+            "mixin" => {
+                if let Some(fi) = f.final_ {
+                    self.erro_no_token(fi, codigos::parser::FINAL_MIXIN);
+                }
+            }
+            "enum" => {
+                if let Some(fi) = f.final_ {
+                    self.erro_no_token(fi, codigos::parser::FINAL_ENUM);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// `sealed`/`base`/`interface` antes de `mixin`, `mixin class` ou
+    /// `enum` (`parseTopLevelKeywordDeclaration`): só `base` cabe em mixin,
+    /// nenhum em enum; o que não cabe é relatado (`SEALED_MIXIN`,
+    /// `INTERFACE_MIXIN_CLASS`, `BASE_ENUM`…) e descartado. As formas
+    /// válidas (`base mixin`, `sealed class`…) seguem para o despacho comum.
+    fn prefixos_de_mixin_e_enum(&mut self) {
+        if self.kind() != Kind::Ident || !matches!(self.text(), "sealed" | "base" | "interface") {
+            return;
+        }
+        let prefixo = self.pos;
+        let texto = self.text();
+        let seguinte = match self.kind_at(1) {
+            Kind::Ident | Kind::Keyword(_) => self.text_at(1),
+            _ => return,
+        };
+        let codigo = match (seguinte, texto) {
+            ("enum", "sealed") => codigos::parser::SEALED_ENUM,
+            ("enum", "base") => codigos::parser::BASE_ENUM,
+            ("enum", _) => codigos::parser::INTERFACE_ENUM,
+            ("mixin", _) if self.text_at(2) == "class" && self.kind_at(2) == Kind::Keyword(Keyword::Class) => match texto {
+                "sealed" => codigos::parser::SEALED_MIXIN_CLASS,
+                "interface" => codigos::parser::INTERFACE_MIXIN_CLASS,
+                _ => return,
+            },
+            ("mixin", "sealed") => codigos::parser::SEALED_MIXIN,
+            ("mixin", "interface") => codigos::parser::INTERFACE_MIXIN,
+            _ => return,
+        };
+        self.erro_no_token(prefixo, codigo);
+        self.advance();
+    }
+
     /// `modificadores* class` começa aqui?
     fn class_follows(&self) -> bool {
         let mut i = self.pos;
         loop {
             match self.kind_of(i) {
                 Kind::Keyword(Keyword::Final) => i += 1,
+                // `mixin` só abre classe colado a `class` (`mixin base class`
+                // é um mixin chamado `base`, como no fasta).
+                Kind::Ident if self.text_of(i) == "mixin" => {
+                    return self.kind_of(i + 1) == Kind::Keyword(Keyword::Class);
+                }
                 Kind::Ident
                     if matches!(
                         self.text_of(i),
-                        "abstract" | "base" | "interface" | "sealed" | "mixin" | "macro"
+                        "abstract" | "base" | "interface" | "sealed" | "macro"
                     ) =>
                 {
                     i += 1
@@ -702,14 +940,22 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// `base? mixin Nome` começa aqui?
     fn mixin_follows(&self) -> bool {
-        (self.at_ident("mixin") && self.at_identifier_at(1))
-            || (self.at_ident("base") && self.at_ident_at(1, "mixin") && self.at_identifier_at(2))
+        // `parseTopLevelKeywordDeclaration`: depois de `mixin`, só `(`, `.` e
+        // `<` fazem dele um nome comum (membro de topo); o resto abre um
+        // mixin, mesmo que o nome falte (`mixin final M {}`).
+        let abre = |i: usize| !matches!(self.kind_of(i), Kind::Op(Op::LParen | Op::Dot | Op::Lt) | Kind::Eof);
+        (self.at_ident("mixin") && abre(self.pos + 1))
+            || (self.at_ident("base") && self.at_ident_at(1, "mixin") && abre(self.pos + 2))
     }
 
     /// `classDeclaration`, inclusive a forma `class C = S with M;`.
-    fn parse_class(&mut self) -> PResult<ClassDecl> {
-        let mut modifiers = ClassModifiers::default();
+    fn parse_class(&mut self, pre: ClassModifiers) -> PResult<ClassDecl> {
+        let mut modifiers = pre;
+        let mut sealed = None;
         loop {
+            if self.at_ident("sealed") {
+                sealed = Some(self.span());
+            }
             if self.eat_kw(Keyword::Final) {
                 modifiers.final_ = true;
             } else if self.eat_ident("abstract") {
@@ -731,10 +977,16 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
         }
         let class_token = self.expect_kw(Keyword::Class)?;
+        // `parseClassOrNamedMixinApplication`: `abstract` com `sealed` é
+        // `ABSTRACT_SEALED_CLASS` no `sealed` (em qualquer ordem).
+        if modifiers.abstract_
+            && let Some(span) = sealed
+        {
+            self.erro_em(codigos::parser::ABSTRACT_SEALED_CLASS, span, &[]);
+        }
         // `class const K(...)`: construtor primário constante (3.13).
         let const_primario = self.at_kw(Keyword::Const).then(|| self.advance().span);
-        let name_text = self.text();
-        let name = self.expect_identifier()?;
+        let (name_text, name) = self.nome_de_declaracao()?;
         let type_params = self.parse_type_parameters_opt_variancia()?;
         if const_primario.is_none() && self.eat_op(Op::Assign) {
             let extends = Some(self.parse_type()?);
@@ -772,6 +1024,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.eat_ident("native") && self.string_at(0) {
             self.parse_string_literal()?;
         }
+        self.dono = super::DonoDeMembros::Classe;
         let mut members = self.parse_class_body_ou_vazio(Some(name_text))?;
         let tem_supertipos = extends.is_some() || !with.is_empty() || !implements.is_empty();
         let primary_constructor = self.elaborar_construtor_primario(
@@ -837,12 +1090,60 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// `{ membros }` ou, a partir da 3.13, `;` (corpo vazio).
     fn parse_class_body_ou_vazio(&mut self, class_name: Option<&'s str>) -> PResult<Vec<MemberId>> {
+        let sintetico = self.nome_sintetico.take();
         if self.at_op(Op::Semicolon) {
             let t = self.advance();
             self.exigir_no_ast(Feature::PrimaryConstructors, t.span);
             return Ok(Vec::new());
         }
+        // `ensureBlock` (`parser_impl.dart:4204`) com o `BlockKind` da
+        // declaração: sem `{`, `EXPECTED_CLASS_BODY`/`EXPECTED_MIXIN_BODY`/…
+        // no último token lido (no lugar do nome sintético, se houver) e um
+        // corpo vazio sintético; o resto é lido como declarações seguintes.
+        if !self.at_op(Op::LBrace) && self.pos > 0 {
+            let codigo = match self.dono {
+                super::DonoDeMembros::Classe => codigos::parser::EXPECTED_CLASS_BODY,
+                super::DonoDeMembros::Mixin => codigos::parser::EXPECTED_MIXIN_BODY,
+                super::DonoDeMembros::Extension => codigos::parser::EXPECTED_EXTENSION_BODY,
+                super::DonoDeMembros::ExtensionType => codigos::parser::EXPECTED_EXTENSION_TYPE_BODY,
+                super::DonoDeMembros::Enum => return self.parse_class_body(class_name),
+            };
+            let span = sintetico.unwrap_or(self.tokens[self.pos - 1].span);
+            self.erro_em(codigo, span, &[]);
+            return Ok(Vec::new());
+        }
         self.parse_class_body(class_name)
+    }
+
+    /// O nome de uma classe ou mixin (`ClassOrMixinOrExtensionIdentifierContext`,
+    /// `identifier_context_impl.dart`): uma palavra que abre a declaração
+    /// seguinte (`mixin mixin class C`, `mixin final M`) ou que só caberia
+    /// depois do nome não é o nome — `MISSING_IDENTIFIER` nela e um nome
+    /// sintético vazio, sem consumir; outra palavra reservada é
+    /// `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` e vira o nome.
+    fn nome_de_declaracao(&mut self) -> PResult<(&'s str, Name)> {
+        let segue = |p: &Self, i: usize| {
+            matches!(p.kind_of(i), Kind::Op(Op::Lt | Op::LBrace | Op::Assign | Op::LParen | Op::Dot) | Kind::Eof)
+                || matches!(p.kind_of(i), Kind::Keyword(Keyword::Extends | Keyword::With))
+                || (p.kind_of(i) == Kind::Ident && matches!(p.text_of(i), "implements" | "on"))
+        };
+        let pos = self.pos;
+        let pseudo = self.kind() == Kind::Ident
+            && matches!(super::fasta::estilo(self.text()), None | Some(super::fasta::Estilo::Pseudo));
+        if !pseudo {
+            let recuperar = self.at_eof()
+                || (self.parece_inicio_de_topo(pos) && !segue(self, pos + 1))
+                || (segue(self, pos) && !segue(self, pos + 1));
+            if recuperar {
+                let aqui = self.span();
+                self.erro_em(codigos::parser::MISSING_IDENTIFIER, aqui, &[]);
+                self.nome_sintetico = Some(aqui);
+                let nome = self.name_from("", Span { start: aqui.start, end: aqui.start });
+                return Ok(("", nome));
+            }
+        }
+        let texto = self.text();
+        Ok((texto, self.expect_identifier()?))
     }
 
     /// Derivação D → D2 do construtor primário (spec 3.13, `:926-1025`),
@@ -1102,15 +1403,43 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn parse_mixin(&mut self) -> PResult<MixinDecl> {
         let base = self.eat_ident("base");
         self.expect_ident("mixin")?;
-        let name_text = self.text();
-        let name = self.expect_identifier()?;
+        let (name_text, name) = self.nome_de_declaracao()?;
         let type_params = self.parse_type_parameters_opt_variancia()?;
+        // Mixin não tem construtor primário: `(` ou `.nome(` depois do nome
+        // é `UNEXPECTED_TOKEN` no primeiro token, e o grupo é pulado
+        // (analyzer 3.13.4, `primary_constructors/syntax/mixin_error_test`).
+        if self.at_op(Op::LParen) || (self.at_op(Op::Dot) && self.at_identifier_at(1)) {
+            let texto = self.text().to_string();
+            self.erro(codigos::parser::UNEXPECTED_TOKEN, &[&texto]);
+            if self.eat_op(Op::Dot) {
+                self.advance();
+            }
+            if self.at_op(Op::LParen) {
+                match self.matching_close(self.pos) {
+                    Some(f) if self.kind_of(f) == Kind::Op(Op::RParen) => self.pos = f + 1,
+                    _ => {}
+                }
+            }
+        }
+        // Recuperação do cabeçalho do mixin: um nome solto antes de `on`,
+        // `implements` ou `{` é `UNEXPECTED_TOKEN` e é pulado
+        // (`mixin sealed M {}`).
+        if self.kind() == Kind::Ident
+            && !self.at_ident("on")
+            && !self.at_ident("implements")
+            && (self.at_op_at(1, Op::LBrace) || self.at_ident_at(1, "on") || self.at_ident_at(1, "implements"))
+        {
+            let texto = self.text().to_string();
+            self.erro(codigos::parser::UNEXPECTED_TOKEN, &[&texto]);
+            self.advance();
+        }
         let on = if self.eat_ident("on") {
             self.parse_type_list()?
         } else {
             Vec::new()
         };
         let implements = self.parse_implements_opt()?;
+        self.dono = super::DonoDeMembros::Mixin;
         let members = self.parse_class_body_ou_vazio(Some(name_text))?;
         Ok(MixinDecl {
             base,
@@ -1137,14 +1466,32 @@ impl<'s, 'i> Parser<'s, 'i> {
             Vec::new()
         };
         let implements = self.parse_implements_opt()?;
+        let abre = self.pos;
         self.expect_op(Op::LBrace)?;
         let mut constants = Vec::new();
         while !self.at_op(Op::RBrace) && !self.at_op(Op::Semicolon) && !self.at_eof() {
             constants.push(self.parse_enum_constant()?);
-            if !self.eat_op(Op::Comma) {
-                break;
+            if self.eat_op(Op::Comma) || self.at_op(Op::RBrace) || self.at_op(Op::Semicolon) {
+                continue;
+            }
+            // `parseEnum` (`parser_impl.dart`): outro nome é a constante
+            // seguinte depois de uma vírgula que falta (`EXPECTED_TOKEN` `,`
+            // nele); qualquer outra coisa é `EXPECTED_TOKEN` `}` nela e o
+            // corpo acaba no `}` casado.
+            match self.matching_close(abre) {
+                Some(fecha) if self.kind_of(fecha) == Kind::Op(Op::RBrace) => {
+                    if self.at_identifier() {
+                        self.erro(codigos::parser::EXPECTED_TOKEN, &[","]);
+                    } else {
+                        self.erro(codigos::parser::EXPECTED_TOKEN, &["}"]);
+                        self.pos = fecha;
+                        break;
+                    }
+                }
+                _ => break,
             }
         }
+        self.dono = super::DonoDeMembros::Enum;
         let mut members = if self.eat_op(Op::Semicolon) {
             self.parse_member_list(Some(name_text))?
         } else {
@@ -1224,8 +1571,34 @@ impl<'s, 'i> Parser<'s, 'i> {
             (None, None)
         };
         let type_params = self.parse_type_parameters_opt()?;
-        self.expect_ident("on")?;
-        let on = self.parse_type()?;
+        // `parseExtensionDeclaration` (`parser_impl.dart`): sem `on`,
+        // `extends`/`implements`/`with` fazem as vezes dele com
+        // `EXPECTED_INSTEAD`; senão `EXPECTED_TOKEN` (`on`) no último token
+        // lido e um `on` sintético. Sem tipo depois (`{`), `EXPECTED_TYPE_NAME`
+        // no `{` e um tipo sintético; o corpo é lido normalmente.
+        if !self.eat_ident("on") {
+            if self.at_kw(Keyword::Extends) || self.at_kw(Keyword::With) || self.at_ident("implements") {
+                self.erro(codigos::parser::EXPECTED_INSTEAD, &["on"]);
+                self.advance();
+            } else {
+                let ultimo = self.tokens[self.pos - 1].span;
+                self.erro_em(codigos::parser::EXPECTED_TOKEN, ultimo, &["on"]);
+            }
+        }
+        let on = if matches!(self.kind(), Kind::Op(Op::LBrace | Op::Semicolon | Op::RBrace) | Kind::Eof) {
+            let aqui = self.span();
+            self.erro_em(codigos::parser::EXPECTED_TYPE_NAME, aqui, &[]);
+            let s = Span { start: aqui.start, end: aqui.start };
+            let nome = self.name_from("", s);
+            self.ast.push_type(TypeAnnotation {
+                span: s,
+                nullable: false,
+                kind: TypeKind::Named { name: vec![nome].into_boxed_slice(), args: Vec::new().into_boxed_slice() },
+            })
+        } else {
+            self.parse_type()?
+        };
+        self.dono = super::DonoDeMembros::Extension;
         let members = self.parse_class_body_ou_vazio(name_text)?;
         Ok(ExtensionDecl {
             name,
@@ -1276,6 +1649,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         };
         let representation_span = self.span_from(inicio_representacao);
         let implements = self.parse_implements_opt()?;
+        self.dono = super::DonoDeMembros::ExtensionType;
         let members = self.parse_class_body_ou_vazio(Some(name_text))?;
         Ok(ExtensionTypeDecl {
             const_,
@@ -1307,6 +1681,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         let salvo = self.em_construtor_primario;
         self.em_construtor_primario = true;
+        self.params_de = DonoDeParametros::ConstrutorPrimario;
         let params = self.parse_formal_parameters();
         self.em_construtor_primario = salvo;
         let mut params = params?;
@@ -1354,7 +1729,11 @@ impl<'s, 'i> Parser<'s, 'i> {
                 sintetico(self).0
             }
         };
-        let modificador = p.var_ || (p.final_ && !self.features.tem(Feature::PrimaryConstructors));
+        // O 3.13.4 com mais de um parâmetro só relata
+        // `MULTIPLE_REPRESENTATION_FIELDS` (`extension type E(final i, final x)`).
+        let varios_no_3_13 = self.features.versao() > crate::features::LanguageVersion::PISO && n > 1;
+        let modificador =
+            !varios_no_3_13 && (p.var_ || (p.final_ && !self.features.tem(Feature::PrimaryConstructors)));
         if modificador {
             let alvo = if p.var_ { Keyword::Var } else { Keyword::Final };
             if let Some(t) = self.tokens[abre..self.pos].iter().find(|t| t.span.start >= p.span.start && t.kind == Kind::Keyword(alvo)) {
@@ -1421,6 +1800,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             if self.kind_of(after) == Kind::Op(Op::LParen) {
                 let name = self.identifier();
                 let type_params = self.parse_type_parameters_opt()?;
+                self.params_de = DonoDeParametros::AliasDeTipo;
                 let parameters = self.parse_formal_parameters()?;
                 self.garantir_ponto_e_virgula()?;
                 return Ok(TypedefDecl {
@@ -1436,6 +1816,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let return_type = Some(self.parse_type()?);
         let name = self.expect_identifier()?;
         let type_params = self.parse_type_parameters_opt()?;
+        self.params_de = DonoDeParametros::AliasDeTipo;
         let parameters = self.parse_formal_parameters()?;
         self.garantir_ponto_e_virgula()?;
         Ok(TypedefDecl {
@@ -1452,76 +1833,26 @@ impl<'s, 'i> Parser<'s, 'i> {
     // Modificadores, funções e variáveis (comum a topo e membros)
     // -----------------------------------------------------------------------
 
-    /// O identificador embutido corrente é usado como modificador (e não
-    /// como nome de função/variável)? `late(x)`, `static = 1`, `external;`
-    /// são nomes.
-    fn modifier_ok(&self) -> bool {
-        // `static ({int a, int b}) f()` e `static (int, int)? g()`: o `(` abre
-        // um record type de retorno, não a lista de parâmetros de um método
-        // chamado `static`. É modificador quando o grupo é seguido de um nome
-        // (com `?` opcional entre eles).
-        if self.kind_at(1) == Kind::Op(Op::LParen) {
-            if let Some(close) = self.matching_close(self.pos + 1) {
-                let mut after = close + 1;
-                if self.kind_of(after) == Kind::Op(Op::Question) {
-                    after += 1;
-                }
-                return self.kind_of(after) == Kind::Ident;
-            }
-            return false;
+    /// Modificadores em qualquer ordem (superconjunto), lidos como no fasta
+    /// (`ler_modificadores_de_topo`/`ler_modificadores_de_membro`, que
+    /// relatam ordem errada, repetição e o que não cabe no contexto).
+    fn parse_modifiers(&mut self, topo: bool) -> Modifiers {
+        let f = if topo { self.ler_modificadores_de_topo() } else { self.ler_modificadores_de_membro() };
+        let span = |p: Option<usize>| p.map(|p| self.tokens[p].span);
+        Modifiers {
+            external: f.external.is_some(),
+            external_span: span(f.external),
+            static_: f.static_.is_some(),
+            abstract_: f.abstract_.is_some(),
+            abstract_span: span(f.abstract_),
+            covariant: f.covariant.is_some(),
+            late: f.late.is_some(),
+            final_: f.final_.is_some(),
+            const_: f.const_.is_some(),
+            const_span: span(f.const_),
+            var_: f.var_.is_some(),
+            fichas: f,
         }
-        !matches!(
-            self.kind_at(1),
-            Kind::Eof
-                | Kind::Op(
-                    Op::LParen
-                        | Op::Assign
-                        | Op::Semicolon
-                        | Op::Comma
-                        | Op::Dot
-                        | Op::Lt
-                        | Op::Arrow
-                        | Op::Question
-                        | Op::RParen
-                        | Op::RBrace
-                        | Op::RBracket
-                        | Op::LBracket
-                        | Op::Colon
-                )
-        )
-    }
-
-    /// Modificadores em qualquer ordem: `external static abstract covariant
-    /// late final const var`.
-    fn parse_modifiers(&mut self) -> Modifiers {
-        let mut m = Modifiers::default();
-        loop {
-            match self.kind() {
-                Kind::Keyword(Keyword::Final) => m.final_ = true,
-                Kind::Keyword(Keyword::Const) => {
-                    m.const_ = true;
-                    m.const_span = Some(self.span());
-                }
-                Kind::Keyword(Keyword::Var) => m.var_ = true,
-                Kind::Ident if self.modifier_ok() => match self.text() {
-                    "external" => {
-                        m.external = true;
-                        m.external_span = Some(self.span());
-                    }
-                    "static" => m.static_ = true,
-                    "abstract" => {
-                        m.abstract_ = true;
-                        m.abstract_span = Some(self.span());
-                    }
-                    "covariant" => m.covariant = true,
-                    "late" => m.late = true,
-                    _ => break,
-                },
-                _ => break,
-            }
-            self.advance();
-        }
-        m
     }
 
     /// `get nome`, `set nome`, `operator op` começam aqui? Devolve o tipo do
@@ -1630,6 +1961,34 @@ impl<'s, 'i> Parser<'s, 'i> {
                     &[],
                 );
             }
+            self.relatar_modificadores_de_campo(mods, topo, nome.span);
+            let variables = self.parse_declared_variables_tail(nome)?;
+            return Ok(FunctionOrVariables::Variables(VariableList {
+                external: mods.external,
+                static_: mods.static_,
+                abstract_: mods.abstract_,
+                covariant: mods.covariant,
+                late: mods.late,
+                final_: mods.final_,
+                const_: mods.const_,
+                var_: mods.var_,
+                ty: None,
+                variables: variables.into_boxed_slice(),
+            }));
+        }
+        // `parseTopLevelMemberImpl`/`parseClassOrMixin…MemberImpl`: com
+        // `var`/`final`/`const`, um padrão externo seguido de `=` (`const
+        // f() = e`, `var (a, b) = e`) é
+        // `PATTERN_VARIABLE_DECLARATION_OUTSIDE_FUNCTION_OR_METHOD` sobre o
+        // padrão, que é descartado; o resto é um campo de nome sintético.
+        if (mods.var_ || mods.final_ || mods.const_)
+            && let Some(fim) = self.padrao_externo_seguido_de_igual(self.pos)
+        {
+            let inicio = self.span();
+            let span = Span { start: inicio.start, end: self.tokens[fim].span.end };
+            self.erro_em(codigos::parser::PATTERN_VARIABLE_DECLARATION_OUTSIDE_FUNCTION_OR_METHOD, span, &[]);
+            self.pos = fim + 1;
+            let nome = self.name_from("", Span { start: inicio.start, end: inicio.start });
             let variables = self.parse_declared_variables_tail(nome)?;
             return Ok(FunctionOrVariables::Variables(VariableList {
                 external: mods.external,
@@ -1669,13 +2028,23 @@ impl<'s, 'i> Parser<'s, 'i> {
         // (`(`, `<`). O nome vira sintético (antes
         // dela), com `missing_identifier` na palavra, e o `;` que falta é
         // relatado no tipo (`augment mixin M {}` sem o experimento).
+        // O mesmo vale, depois de modificadores ou de um tipo, para as
+        // palavras reservadas que abrem declaração (`class`, `enum`, `final`,
+        // `const`, `var`, `void`): `final abstract class C {}` e
+        // `final final class C {}` são um campo sem nome (`;` que falta no
+        // último modificador) seguido da classe.
+        let palavra_reservada_de_topo = matches!(
+            self.kind(),
+            Kind::Keyword(Keyword::Class | Keyword::Enum | Keyword::Final | Keyword::Const | Keyword::Var | Keyword::Void)
+        );
         if topo
-            && ty.is_some()
-            && self.kind() == Kind::Ident
-            && matches!(
-                self.text_of(self.pos),
-                "extension" | "export" | "import" | "library" | "mixin" | "part" | "typedef" | "get" | "set"
-            )
+            && (ty.is_some() || (mods.algum() && palavra_reservada_de_topo))
+            && ((self.kind() == Kind::Ident
+                && matches!(
+                    self.text_of(self.pos),
+                    "extension" | "export" | "import" | "library" | "mixin" | "part" | "typedef" | "get" | "set"
+                ))
+                || palavra_reservada_de_topo)
             // Seguida de parâmetros é o nome de uma função (`String
             // extension(String path)` do `package:path`), como no Fasta.
             && !matches!(self.kind_at(1), Kind::Op(Op::Semicolon | Op::Assign | Op::Comma | Op::LParen | Op::Lt))
@@ -1685,13 +2054,31 @@ impl<'s, 'i> Parser<'s, 'i> {
             return Err(self.erro_esperado(";"));
         }
         let name = self.expect_identifier()?;
-        if self.at_op(Op::LParen) || self.at_op(Op::Lt) {
+        // `parseTopLevelMemberImpl`/`parseClassOrMixin...MemberImpl`: nome
+        // seguido de `{` ou `=>` é método sem parâmetros
+        // (`parseGetterOrFormalParameters`: `MISSING_FUNCTION_PARAMETERS`, ou
+        // `MISSING_METHOD_PARAMETERS` em classe, no nome) e o corpo é lido.
+        let sem_parametros = self.at_op(Op::LBrace) || self.at_op(Op::Arrow);
+        if self.at_op(Op::LParen) || self.at_op(Op::Lt) || sem_parametros {
+            self.relatar_modificadores_de_metodo(mods, topo, FunctionKind::Function);
             let type_params = self.parse_type_parameters_opt()?;
-            let parameters = self.parse_formal_parameters()?;
+            self.params_de = self.dono_de_parametros(mods, topo);
+            let parameters = if sem_parametros {
+                let codigo = if !topo && !matches!(self.dono, super::DonoDeMembros::Extension | super::DonoDeMembros::ExtensionType) {
+                    codigos::parser::MISSING_METHOD_PARAMETERS
+                } else {
+                    codigos::parser::MISSING_FUNCTION_PARAMETERS
+                };
+                self.erro_em(codigo, name.span, &[]);
+                Vec::new()
+            } else {
+                self.parse_formal_parameters()?
+            };
             let inicio_corpo = self.pos;
             let (modifier, body) = self.parse_function_body()?;
             self.conferir_corpo_externo(mods.external, false, inicio_corpo, &body, external_topo);
             self.conferir_corpo_vazio(&body, Self::permite_abstrato(mods, modifier, topo));
+            self.conferir_abstrato_em_extension(mods, topo, name.span, &body);
             let id = self.ast.push_function(Function {
                 span: self.span_from(start),
                 external: mods.external,
@@ -1705,6 +2092,13 @@ impl<'s, 'i> Parser<'s, 'i> {
                 body,
             });
             return Ok(FunctionOrVariables::Function(id));
+        }
+        self.relatar_modificadores_de_campo(mods, topo, name.span);
+        // `parseFields`: sem tipo e sem `var`/`final`/`const`,
+        // `MISSING_CONST_FINAL_VAR_OR_TYPE` no nome (`interface interface
+        // class C {}`: o identificador embutido não é tipo).
+        if ty.is_none() && !mods.var_ && !mods.final_ && !mods.const_ {
+            self.erro_em(codigos::parser::MISSING_CONST_FINAL_VAR_OR_TYPE, name.span, &[]);
         }
         let variables = self.parse_declared_variables_tail(name)?;
         Ok(FunctionOrVariables::Variables(VariableList {
@@ -1721,6 +2115,29 @@ impl<'s, 'i> Parser<'s, 'i> {
         }))
     }
 
+    /// `skipOuterPattern` + `=`: o último token de um padrão externo
+    /// (`Nome(...)`, `p.Nome(...)`, `(...)`, `[...]`, `{...}`) que começa em
+    /// `pos` e é seguido de `=`.
+    fn padrao_externo_seguido_de_igual(&self, pos: usize) -> Option<usize> {
+        let mut i = pos;
+        if self.kind_of(i) == Kind::Ident {
+            i += 1;
+            if self.kind_of(i) == Kind::Op(Op::Dot) && self.kind_of(i + 1) == Kind::Ident {
+                i += 2;
+            }
+            if self.kind_of(i) == Kind::Op(Op::Lt) {
+                i = self.skip_type_arguments(i)?;
+            }
+            if self.kind_of(i) != Kind::Op(Op::LParen) {
+                return None;
+            }
+        } else if !matches!(self.kind_of(i), Kind::Op(Op::LParen | Op::LBracket | Op::LBrace)) {
+            return None;
+        }
+        let fecha = self.matching_close(i)?;
+        (self.kind_of(fecha + 1) == Kind::Op(Op::Assign)).then_some(fecha)
+    }
+
     /// Getter, setter ou operador a partir de `get`/`set`/`operator`.
     fn parse_accessor(
         &mut self,
@@ -1731,13 +2148,41 @@ impl<'s, 'i> Parser<'s, 'i> {
         external_topo: Option<Span>,
         topo: bool,
     ) -> PResult<FunctionId> {
+        self.relatar_modificadores_de_metodo(mods, topo, kind);
         self.advance();
         let mut type_params = Vec::new();
         let (name, parameters) = match kind {
-            FunctionKind::Getter => (self.expect_identifier()?, None),
+            FunctionKind::Getter => {
+                let name = self.expect_identifier()?;
+                self.conferir_nome_de_membro(name.span);
+                // `parseGetterOrFormalParameters`: `get x(...)` é
+                // `GETTER_WITH_PARAMETERS` no `(`, e a lista é lida.
+                if self.at_op(Op::LParen) {
+                    self.erro(codigos::parser::GETTER_WITH_PARAMETERS, &[]);
+                    self.params_de = self.dono_de_parametros(mods, topo);
+                    self.parse_formal_parameters()?;
+                }
+                (name, None)
+            }
             FunctionKind::Setter => {
                 let name = self.expect_identifier()?;
-                (name, Some(self.parse_formal_parameters()?))
+                self.conferir_nome_de_membro(name.span);
+                // `parseGetterOrFormalParameters`: sem `(`, o erro de
+                // parâmetros que faltam no nome (`missingParameterMessage`:
+                // de método em classe, mixin e enum; de função no resto) e
+                // uma lista vazia sintética.
+                if !self.at_op(Op::LParen) {
+                    let codigo = if !topo && !matches!(self.dono, super::DonoDeMembros::Extension | super::DonoDeMembros::ExtensionType) {
+                        codigos::parser::MISSING_METHOD_PARAMETERS
+                    } else {
+                        codigos::parser::MISSING_FUNCTION_PARAMETERS
+                    };
+                    self.erro_em(codigo, name.span, &[]);
+                    (name, Some(Vec::new()))
+                } else {
+                    self.params_de = self.dono_de_parametros(mods, topo);
+                    (name, Some(self.parse_formal_parameters()?))
+                }
             }
             _ => {
                 let name = self.parse_operator_name()?;
@@ -1750,6 +2195,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     let lista = self.span_from(abre);
                     self.erro_em(codigos::parser::TYPE_PARAMETER_ON_OPERATOR, lista, &[]);
                 }
+                self.params_de = self.dono_de_parametros(mods, topo);
                 (name, Some(self.parse_formal_parameters()?))
             }
         };
@@ -1757,6 +2203,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let (modifier, body) = self.parse_function_body()?;
         self.conferir_corpo_externo(mods.external, false, inicio_corpo, &body, external_topo);
         self.conferir_corpo_vazio(&body, Self::permite_abstrato(mods, modifier, topo));
+        self.conferir_abstrato_em_extension(mods, topo, name.span, &body);
         Ok(self.ast.push_function(Function {
             span: self.span_from(start),
             external: mods.external,
@@ -1771,8 +2218,121 @@ impl<'s, 'i> Parser<'s, 'i> {
         }))
     }
 
+    /// Os erros de modificador de um método, getter, setter ou operador: o
+    /// ramo de método de `parseTopLevelMemberImpl` (`var` é
+    /// `VAR_RETURN_TYPE`; `final`/`const`/`late`, `EXTRANEOUS_MODIFIER`) e o
+    /// começo de `parseMethod` (`parser_impl.dart:4827`) para membros;
+    /// O `MemberKind` do fasta para os parâmetros de uma função de topo ou
+    /// de um membro (`parseMethod`): `covariant` não cabe em função de topo
+    /// nem em método estático, e tem código próprio em extension e
+    /// extension type.
+    fn dono_de_parametros(&self, mods: Modifiers, topo: bool) -> DonoDeParametros {
+        use super::DonoDeMembros as D;
+        match self.dono {
+            _ if topo => DonoDeParametros::TopoOuEstatico,
+            D::Extension => DonoDeParametros::Extension,
+            D::ExtensionType => DonoDeParametros::ExtensionType,
+            _ if mods.static_ => DonoDeParametros::TopoOuEstatico,
+            _ => DonoDeParametros::Outro,
+        }
+    }
+
+    /// Chamado assim que a declaração se revela método.
+    fn relatar_modificadores_de_metodo(&mut self, mods: Modifiers, topo: bool, kind: FunctionKind) {
+        let f = mods.fichas;
+        if topo {
+            if let Some(v) = f.var_final_ou_const() {
+                if f.var_.is_some() {
+                    self.erro_no_token(v, codigos::parser::VAR_RETURN_TYPE);
+                } else {
+                    self.modificador_estranho(Some(v));
+                }
+            } else {
+                self.modificador_estranho(f.late);
+            }
+            return;
+        }
+        if let Some(a) = f.abstract_ {
+            self.erro_no_token(a, codigos::parser::ABSTRACT_CLASS_MEMBER);
+        }
+        self.modificador_estranho(f.late);
+        let acessor = matches!(kind, FunctionKind::Getter | FunctionKind::Setter);
+        if let Some(st) = f.static_ {
+            if kind == FunctionKind::Operator {
+                self.erro_no_token(st, codigos::parser::STATIC_OPERATOR);
+            }
+        } else if let Some(c) = f.covariant
+            && kind != FunctionKind::Setter
+        {
+            self.erro_no_token(c, codigos::parser::COVARIANT_MEMBER);
+        }
+        if let Some(c) = f.const_ {
+            if acessor {
+                self.modificador_estranho(Some(c));
+            } else {
+                self.erro_no_token(c, codigos::parser::CONST_METHOD);
+            }
+        } else if let Some(v) = f.var_ {
+            self.erro_no_token(v, codigos::parser::VAR_RETURN_TYPE);
+        } else {
+            self.modificador_estranho(f.final_);
+        }
+    }
+
+    /// Numa extension, método com corpo `;` sem `external` é
+    /// `EXTENSION_DECLARES_ABSTRACT_MEMBER` no nome (no operador, para
+    /// `operator`; `parser_impl.dart:5084`).
+    fn conferir_abstrato_em_extension(&mut self, mods: Modifiers, topo: bool, nome: Span, body: &FunctionBody) {
+        if !topo
+            && self.dono == super::DonoDeMembros::Extension
+            && matches!(body, FunctionBody::Empty)
+            && !mods.external
+        {
+            self.erro_em(codigos::parser::EXTENSION_DECLARES_ABSTRACT_MEMBER, nome, &[]);
+        }
+    }
+
+    /// Os erros de modificador de um campo (`parseFields`,
+    /// `parser_impl.dart:3656`): `covariant final` sem `late` é
+    /// `FINAL_AND_COVARIANT`; `covariant late final` com inicializador,
+    /// `FINAL_AND_COVARIANT_LATE_WITH_INITIALIZER`; `abstract external`,
+    /// `ABSTRACT_EXTERNAL_FIELD`; numa extension, sem `static` nem
+    /// `external`, `EXTENSION_DECLARES_INSTANCE_FIELD` no primeiro nome
+    /// (`parser_impl.dart:3809`).
+    /// Chamado com o cursor logo depois do primeiro nome.
+    fn relatar_modificadores_de_campo(&mut self, mods: Modifiers, topo: bool, nome: Span) {
+        let f = mods.fichas;
+        if let (Some(c), Some(_)) = (f.covariant, f.final_) {
+            if f.late.is_none() {
+                self.erro_no_token(c, codigos::parser::FINAL_AND_COVARIANT);
+            } else if self.at_op(Op::Assign) {
+                self.erro_no_token(c, codigos::parser::FINAL_AND_COVARIANT_LATE_WITH_INITIALIZER);
+            }
+        }
+        if let (Some(a), Some(_)) = (f.abstract_, f.external) {
+            self.erro_no_token(a, codigos::parser::ABSTRACT_EXTERNAL_FIELD);
+        }
+        if !topo
+            && self.dono == super::DonoDeMembros::Extension
+            && f.static_.is_none()
+            && f.external.is_none()
+        {
+            self.erro_em(codigos::parser::EXTENSION_DECLARES_INSTANCE_FIELD, nome, &[]);
+        }
+    }
+
+    /// `parseFieldInitializerOpt` e o ramo de getter/setter de `parseMethod`
+    /// (`parser_impl.dart:3934`, `:5003`): campo, getter ou setter com o
+    /// nome da declaração envolvente é `MEMBER_WITH_CLASS_NAME` no nome.
+    fn conferir_nome_de_membro(&mut self, nome: Span) {
+        if self.nome_envolvente.is_some_and(|n| n == &self.source[nome.start..nome.end]) {
+            self.erro_em(codigos::parser::MEMBER_WITH_CLASS_NAME, nome, &[]);
+        }
+    }
+
     /// `= e`? (`, nome = e`?)* `;` a partir do primeiro nome já lido.
     fn parse_declared_variables_tail(&mut self, first: Name) -> PResult<Vec<Variable>> {
+        self.conferir_nome_de_membro(first.span);
         let mut variables = Vec::new();
         let mut name = first;
         loop {
@@ -1786,6 +2346,16 @@ impl<'s, 'i> Parser<'s, 'i> {
                 break;
             }
             name = self.expect_identifier()?;
+            self.conferir_nome_de_membro(name.span);
+        }
+        // Sem inicializador, a declaração acabou no nome: o `;` que falta é
+        // inserido diante de qualquer token, como no fasta (`augment Object?
+        // foo();` é o campo `Object` seguido do `?` solto). Com inicializador
+        // a expressão pode ter parado antes do que o fasta leria, e vale a
+        // regra prudente de `garantir_ponto_e_virgula`.
+        if variables.last().is_some_and(|v| v.initializer.is_none()) && !self.especulando {
+            self.garantir_ponto_e_virgula_forcado();
+            return Ok(variables);
         }
         self.garantir_ponto_e_virgula()?;
         Ok(variables)
@@ -1828,6 +2398,13 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// Um `classMemberDefinition`: campo, método, acessor, operador ou
     /// construtor. `class_name` decide se `Nome(` é construtor.
     fn parse_member(&mut self, class_name: Option<&'s str>) -> PResult<MemberId> {
+        self.nome_envolvente = class_name;
+        let r = self.parse_member_dentro(class_name);
+        self.nome_envolvente = None;
+        r
+    }
+
+    fn parse_member_dentro(&mut self, class_name: Option<&'s str>) -> PResult<MemberId> {
         let start = self.span();
         let metadata = self.parse_metadata()?;
         // `=>` onde um membro era esperado: método sem nome nem parâmetros
@@ -1849,7 +2426,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         let augment = self.parse_augment_opt();
         let fstart = self.span();
-        let mods = self.parse_modifiers();
+        let mods = self.parse_modifiers(false);
         // `this` abre parte de corpo com qualquer corpo (os diagnósticos
         // próprios valem), com ou sem o recurso.
         let parte = self.at_kw(Keyword::This) && !self.at_op_at(1, Op::Dot);
@@ -1877,7 +2454,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             // `factory(` só é construtor a partir da 3.13; antes, é um método
             // chamado `factory` (a versão decide, VERSOES-LINGUAGEM.md §4.5).
             self.parse_constructor(mods, true, class_name)?
-        } else if self.constructor_follows(class_name, mods) {
+        } else if self.constructor_follows(class_name) {
             self.parse_constructor(mods, false, class_name)?
         } else if self.constructor_com_retorno(class_name) {
             // `T C(` (C é a classe) ou `T X.Y(` / `T X.Y` sem parênteses:
@@ -1893,7 +2470,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.span_from(tstart),
                 &[],
             );
-            if self.constructor_follows(class_name, mods) {
+            if self.constructor_follows(class_name) {
                 self.parse_constructor(mods, false, class_name)?
             } else if self.metodo_sem_parametros() {
                 // `T X.Y` sem parênteses (`int C.named;`): X é denunciado.
@@ -2048,12 +2625,28 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     /// `Nome(` com o nome da classe (ou após `const`), ou `Nome.x(`.
-    fn constructor_follows(&self, class_name: Option<&str>, mods: Modifiers) -> bool {
+    fn constructor_follows(&self, class_name: Option<&str>) -> bool {
         if !self.at_identifier() {
             return false;
         }
         if self.at_op_at(1, Op::LParen) {
-            return mods.const_ || class_name == Some(self.text());
+            // `parseMethod`: com lista de inicialização (`Nome(...) :`) é
+            // construtor qualquer que seja o nome (`INVALID_CONSTRUCTOR_NAME`
+            // se não for o da classe).
+            let com_inicializadores = self
+                .matching_close(self.pos + 1)
+                .is_some_and(|f| self.kind_of(f + 1) == Kind::Op(Op::Colon));
+            // `const nome(` com outro nome é método (`CONST_METHOD`), como no
+            // `parseMethod` do fasta.
+            return class_name == Some(self.text()) || com_inicializadores;
+        }
+        // `Nome<T>(` com o nome da classe: construtor com parâmetros de tipo
+        // (erro, relatado em `parse_constructor`).
+        if class_name == Some(self.text())
+            && self.at_op_at(1, Op::Lt)
+            && self.skip_type_arguments(self.pos + 1).is_some_and(|f| self.kind_of(f) == Kind::Op(Op::LParen))
+        {
+            return true;
         }
         self.at_op_at(1, Op::Dot)
             && (self.at_identifier_at(2) || self.at_kw_at(2, Keyword::New))
@@ -2071,6 +2664,17 @@ impl<'s, 'i> Parser<'s, 'i> {
         classe: Option<&'s str>,
     ) -> PResult<MemberKind> {
         if factory {
+            // `parseFactoryMethod` (`parser_impl.dart:5108`): `static`,
+            // `covariant`, `var` e `final` antes de `factory` são
+            // `EXTRANEOUS_MODIFIER`; `abstract`, `ABSTRACT_CLASS_MEMBER`
+            // (`parseClassOrMixinOrExtensionOrEnumMemberImpl`).
+            let f = mods.fichas;
+            if let Some(a) = f.abstract_ {
+                self.erro_no_token(a, codigos::parser::ABSTRACT_CLASS_MEMBER);
+            }
+            self.modificador_estranho(f.static_.or(f.covariant));
+            self.modificador_estranho(f.var_.or(f.final_));
+            self.conferir_construtor_em_mixin_ou_extension(self.span());
             let t = self.advance();
             if self.at_op(Op::LParen) {
                 // `factory(...)`: só chega aqui na 3.13 (antes é método).
@@ -2085,12 +2689,45 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
         }
         let class_name = self.expect_identifier()?;
+        if !factory {
+            self.conferir_construtor_em_mixin_ou_extension(class_name.span);
+            // `parseMethod` (`parser_impl.dart:5014`): construtor com outro
+            // nome (`Outro.x()`) é `INVALID_CONSTRUCTOR_NAME` no nome;
+            // `static`, `STATIC_CONSTRUCTOR`.
+            if Some(&self.source[class_name.span.start..class_name.span.end]) != classe {
+                self.erro_em(codigos::parser::INVALID_CONSTRUCTOR_NAME, class_name.span, &[]);
+            }
+            if let Some(st) = mods.fichas.static_ {
+                self.erro_no_token(st, codigos::parser::STATIC_CONSTRUCTOR);
+            }
+            // `AstBuilder.endClassConstructor` (`ast_builder.dart:5897`):
+            // parâmetros de tipo num construtor são
+            // `TYPE_PARAMETER_ON_CONSTRUCTOR` sobre a lista, que é lida.
+            if self.at_op(Op::Lt) {
+                let abre = self.span();
+                self.parse_type_parameters_opt()?;
+                let lista = self.span_from(abre);
+                self.erro_em(codigos::parser::TYPE_PARAMETER_ON_CONSTRUCTOR, lista, &[]);
+            }
+        }
         let name = if self.eat_op(Op::Dot) {
             Some(self.identifier_or_new()?)
         } else {
             None
         };
         self.parse_constructor_resto(mods, factory, class_name, name)
+    }
+
+    /// Construtor em mixin ou extension: `MIXIN_DECLARES_CONSTRUCTOR` /
+    /// `EXTENSION_DECLARES_CONSTRUCTOR` no nome (no `factory`, se houver;
+    /// `parser_impl.dart:5042` e `:5182`).
+    fn conferir_construtor_em_mixin_ou_extension(&mut self, span: Span) {
+        let codigo = match self.dono {
+            super::DonoDeMembros::Mixin => codigos::parser::MIXIN_DECLARES_CONSTRUCTOR,
+            super::DonoDeMembros::Extension => codigos::parser::EXTENSION_DECLARES_CONSTRUCTOR,
+            _ => return,
+        };
+        self.erro_em(codigo, span, &[]);
     }
 
     /// O `Name` da classe dona para um construtor escrito sem ele (`new`,
@@ -2186,6 +2823,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         class_name: Name,
         name: Option<Name>,
     ) -> PResult<MemberKind> {
+        if !factory {
+            self.params_de = self.dono_de_parametros(mods, false);
+        }
         let parameters = self.parse_formal_parameters()?;
         let mut initializers = Vec::new();
         let mut redirect = None;
@@ -2215,6 +2855,12 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.garantir_ponto_e_virgula()?;
             FunctionBody::Empty
         } else {
+            // `parseMethod` (`parser_impl.dart:5030`): construtor `external`
+            // com lista de inicialização é
+            // `EXTERNAL_CONSTRUCTOR_WITH_INITIALIZER` no `:`.
+            if mods.external && !factory && self.at_op(Op::Colon) {
+                self.erro(codigos::parser::EXTERNAL_CONSTRUCTOR_WITH_INITIALIZER, &[]);
+            }
             if self.eat_op(Op::Colon) {
                 loop {
                     initializers.push(self.parse_initializer()?);
@@ -2276,7 +2922,13 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn parse_initializer(&mut self) -> PResult<Initializer> {
         let start = self.span();
         if self.eat_kw(Keyword::Super) {
-            let constructor = if self.eat_op(Op::Dot) {
+            // `super?.x()`: `INVALID_OPERATOR_QUESTIONMARK_PERIOD_FOR_SUPER`
+            // no `?.` (`parseSuperExpression`), lido como `.`.
+            if self.at_op(Op::QuestionDot) {
+                let span = self.span();
+                self.erro_em(codigos::parser::INVALID_OPERATOR_QUESTIONMARK_PERIOD_FOR_SUPER, span, &[]);
+            }
+            let constructor = if self.eat_op(Op::Dot) || self.eat_op(Op::QuestionDot) {
                 Some(self.identifier_or_new()?)
             } else {
                 None
@@ -2293,11 +2945,15 @@ impl<'s, 'i> Parser<'s, 'i> {
                 let name = self.identifier_or_new()?;
                 if self.at_op(Op::LParen) {
                     let arguments = self.parse_arguments()?;
+                    self.conferir_corpo_de_redirecionamento();
                     return Ok(Initializer::Redirect {
                         span: self.span_from(start),
                         constructor: Some(name),
                         arguments,
                     });
+                }
+                if !self.at_op(Op::Assign) {
+                    return self.inicializador_sem_atribuicao(start);
                 }
                 self.expect_op(Op::Assign)?;
                 let value = self.parse_expression()?;
@@ -2308,7 +2964,14 @@ impl<'s, 'i> Parser<'s, 'i> {
                     value,
                 });
             }
+            if !self.at_op(Op::LParen) {
+                // `this` sem `.` nem `(`: `EXPECTED_TOKEN` (`.`) no que segue
+                // (`parseInitializer`, `parser_impl.dart:4098`).
+                self.erro_esperado(".");
+                return self.inicializador_sem_atribuicao(start);
+            }
             let arguments = self.parse_arguments()?;
+            self.conferir_corpo_de_redirecionamento();
             return Ok(Initializer::Redirect {
                 span: self.span_from(start),
                 constructor: None,
@@ -2334,6 +2997,31 @@ impl<'s, 'i> Parser<'s, 'i> {
         let name = self.expect_identifier()?;
         self.expect_op(Op::Assign)?;
         let value = self.parse_expression()?;
+        Ok(Initializer::Field {
+            span: self.span_from(start),
+            this_: false,
+            name,
+            value,
+        })
+    }
+
+    /// `parseInitializer` (`parser_impl.dart:4089`): `this(...)` seguido de
+    /// `{` ou `=>` é `REDIRECTING_CONSTRUCTOR_WITH_BODY` nele.
+    fn conferir_corpo_de_redirecionamento(&mut self) {
+        if self.at_op(Op::LBrace) || self.at_op(Op::Arrow) {
+            self.erro(codigos::parser::REDIRECTING_CONSTRUCTOR_WITH_BODY, &[]);
+        }
+    }
+
+    /// A recuperação final de `parseInitializer` (`parser_impl.dart:4134`):
+    /// `this.x`/`this` sem atribuição é `MISSING_ASSIGNMENT_IN_INITIALIZER` no
+    /// `this`, e o inicializador vira `<sintético> = expressão`, com a
+    /// expressão lida desde o `this`.
+    fn inicializador_sem_atribuicao(&mut self, start: Span) -> PResult<Initializer> {
+        self.erro_em(codigos::parser::MISSING_ASSIGNMENT_IN_INITIALIZER, start, &[]);
+        self.pos = self.tokens.iter().position(|t| t.span.start == start.start).unwrap_or(self.pos);
+        let value = self.parse_expression()?;
+        let name = self.name_from("", Span { start: start.start, end: start.start });
         Ok(Initializer::Field {
             span: self.span_from(start),
             this_: false,
@@ -2473,7 +3161,34 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.garantir_ponto_e_virgula()?;
             return Ok(FunctionBody::Native(name));
         }
-        Err(self.erro(codigos::parser::MISSING_FUNCTION_BODY, &[]))
+        // Recuperação de `parseFunctionBody` (`parser_impl.dart`): `=` ou
+        // `return` no lugar de `=>` são `MISSING_FUNCTION_BODY` neles e a
+        // expressão é lida como corpo `=>`; uma palavra solta antes de `=>`
+        // ou `{` é `UNEXPECTED_TOKEN` e é pulada; qualquer outra coisa é
+        // `MISSING_FUNCTION_BODY` nela, com um bloco vazio sintético, sem
+        // consumir nada (`ensureBlock`).
+        if self.at_op(Op::Assign) || self.at_kw(Keyword::Return) {
+            self.erro(codigos::parser::MISSING_FUNCTION_BODY, &[]);
+            self.advance();
+            let expr = self.parse_expression()?;
+            if expect_semicolon {
+                self.garantir_ponto_e_virgula()?;
+            }
+            return Ok(FunctionBody::Expression(expr));
+        }
+        if matches!(self.kind(), Kind::Ident | Kind::Keyword(_))
+            && matches!(self.kind_at(1), Kind::Op(Op::Arrow | Op::LBrace))
+        {
+            let texto = self.text().to_string();
+            self.erro(codigos::parser::UNEXPECTED_TOKEN, &[&texto]);
+            self.advance();
+            return self.parse_body_after_modifier(expect_semicolon);
+        }
+        self.erro(codigos::parser::MISSING_FUNCTION_BODY, &[]);
+        let aqui = self.span().start;
+        let vazio = Span { start: aqui, end: aqui };
+        let bloco = self.ast.push_stmt(crate::ast::Stmt { span: vazio, kind: crate::ast::StmtKind::Block(Box::default()) });
+        Ok(FunctionBody::Block(bloco))
     }
 }
 
@@ -2549,6 +3264,20 @@ mod tests {
     fn parse_ok(src: &str, names: &mut Interner) -> Parsed {
         let out = parse(src, names);
         assert!(out.diagnostics.is_empty(), "{src}: {:?}", out.diagnostics);
+        out
+    }
+
+    /// Como [`parse_ok`], tolerando só os erros de ordem de diretivas (as
+    /// amostras juntam `library`, `part` e `part of` numa unidade só).
+    fn parse_ok_salvo_ordem(src: &str, names: &mut Interner) -> Parsed {
+        use dartforge_diagnostics::codigos::parser as c;
+        let out = parse(src, names);
+        let ordem = [c::NON_PART_OF_DIRECTIVE_IN_PART, c::DIRECTIVE_AFTER_DECLARATION];
+        assert!(
+            out.diagnostics.iter().all(|d| d.code.is_some_and(|k| ordem.contains(&k))),
+            "{src}: {:?}",
+            out.diagnostics
+        );
         out
     }
 
@@ -2769,7 +3498,7 @@ mod tests {
     #[test]
     fn library_sem_nome_e_part_of_pontuado() {
         let mut names = Interner::new();
-        let out = parse_ok("library; part of a.b;", &mut names);
+        let out = parse_ok_salvo_ordem("library; part of a.b;", &mut names);
         assert_eq!(out.unit.directives.len(), 2);
         assert!(
             matches!(&out.unit.directives[0].kind, DirectiveKind::Library { name } if name.is_empty())
@@ -2920,18 +3649,24 @@ mod tests {
             &mut names,
         );
         assert_eq!(out.diagnostics.len(), 3, "{:?}", out.diagnostics);
-        assert_eq!(out.unit.declarations.len(), 2);
-        assert_eq!(text(&names, class(&out, 0).name), "A");
-        assert_eq!(text(&names, class(&out, 1).name), "B");
+        // `class {}` vira classe de nome sintético vazio (como no fasta);
+        // `enum {}` ainda cai na recuperação de topo.
+        assert_eq!(out.unit.declarations.len(), 4);
+        assert_eq!(text(&names, class(&out, 0).name), "");
+        assert_eq!(text(&names, class(&out, 1).name), "A");
+        assert_eq!(text(&names, class(&out, 2).name), "B");
     }
 
     #[test]
     fn recuperacao_pula_o_corpo_da_declaracao_quebrada() {
         let mut names = Interner::new();
         let out = parse("class A B { var x; } class C {}", &mut names);
-        assert_eq!(out.diagnostics.len(), 1, "{:?}", out.diagnostics);
-        assert_eq!(out.unit.declarations.len(), 1);
-        assert_eq!(text(&names, class(&out, 0).name), "C");
+        // `ensureBlock`: `EXPECTED_CLASS_BODY` no `A` e corpo sintético; `B
+        // { … }` é função sem parâmetros (`MISSING_FUNCTION_PARAMETERS`).
+        assert_eq!(out.diagnostics.len(), 2, "{:?}", out.diagnostics);
+        assert_eq!(out.unit.declarations.len(), 3);
+        assert_eq!(text(&names, class(&out, 0).name), "A");
+        assert_eq!(text(&names, class(&out, 2).name), "C");
     }
 
     #[test]
@@ -3112,8 +3847,9 @@ mod tests {
             "{fonte}: {:?}",
             out.diagnostics
         );
-        assert_eq!(out.unit.declarations.len(), 1);
-        assert!(matches!(decl(&out, 0), DeclKind::Variables(l) if l.variables.iter().any(|v| text(&nomes, v.name) == "b")));
+        // `int? a` vira campo com o `;` inserido; `var b` vem depois.
+        assert_eq!(out.unit.declarations.len(), 2);
+        assert!(matches!(decl(&out, 1), DeclKind::Variables(l) if l.variables.iter().any(|v| text(&nomes, v.name) == "b")));
     }
 
     /// `Foo() = Bar;` sem `factory`: o alvo é lido e só o `=` é
@@ -3347,7 +4083,8 @@ mod tests {
             out.diagnostics
         );
         assert_eq!(out.unit.declarations.len(), 1, "{fonte}");
-        assert!(class(&out, 0).members.is_empty(), "{fonte}: {:?}", out.diagnostics);
+        // O `;` inserido fecha o campo `int? ab` (`ensureSemicolon`).
+        assert_eq!(class(&out, 0).members.len(), 1, "{fonte}: {:?}", out.diagnostics);
     }
 
     /// `(` sem tipo nem modificadores não abre declaração no topo: é
@@ -3402,8 +4139,11 @@ mod tests {
         let src = "async )";
         let tokens = crate::lexer::lex(src).unwrap();
         let mut p = Parser::new(src, tokens, &mut names);
-        assert!(p.parse_function_body().is_err());
+        // `ensureBlock` do fasta: corpo ausente vira bloco vazio sintético,
+        // sem consumir o `)`.
+        assert!(matches!(p.parse_function_body(), Ok((_, FunctionBody::Block(_)))));
         assert_eq!(p.diagnostics.len(), 1);
+        assert!(p.at_op(crate::token::Op::RParen));
         assert!(!p.in_async);
     }
 
@@ -3443,7 +4183,7 @@ mod tests {
             let src = "import 'a.dart'; import 'b.dart' deferred as b show x, y hide z; \
                        import 'c.dart' if (dart.library.io == 'x') 'd.dart' if (dart.library.html) 'e.dart' as c; \
                        export 'f.dart' show q; part 'g.dart'; part of 'h.dart';";
-            let out = parse_ok(src, &mut names);
+            let out = parse_ok_salvo_ordem(src, &mut names);
             assert_eq!(out.unit.directives.len(), 6);
             match &out.unit.directives[1].kind {
                 DirectiveKind::Import {

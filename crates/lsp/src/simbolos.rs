@@ -29,18 +29,23 @@ pub(super) fn do_documento(texto: &str, features: LibraryFeatures) -> Vec<Value>
                 saida.push(simbolo(texto, &linhas, &nomes, e.name, decl.span, 10, filhos));
                 continue;
             }
-            DeclKind::Extension(e) => (e.name, 5, Some(e.members.as_slice())),
-            DeclKind::ExtensionType(e) => (Some(e.name), 5, Some(e.members.as_slice())),
+            // Extensões e extension types são `Namespace` no servidor do Dart.
+            DeclKind::Extension(e) => (e.name, 3, Some(e.members.as_slice())),
+            DeclKind::ExtensionType(e) => (Some(e.name), 3, Some(e.members.as_slice())),
             DeclKind::Typedef(t) => (Some(t.name), 5, None),
             DeclKind::Function(f) => {
                 let func = parsed.ast.function(*f);
-                (func.name, 12, None)
+                let kind = match func.kind {
+                    dartforge_frontend::ast::FunctionKind::Getter | dartforge_frontend::ast::FunctionKind::Setter => 7,
+                    _ => 12,
+                };
+                (func.name, kind, None)
             }
             DeclKind::Variables(v) => {
                 for variable in v.variables.iter() {
                     saida.push(simbolo(
                         texto, &linhas, &nomes, variable.name, decl.span,
-                        if v.const_ { 14 } else { 13 }, Vec::new(),
+                        13, Vec::new(),
                     ));
                 }
                 continue;
@@ -78,14 +83,19 @@ fn simbolos_membros(
                 }
             }
             MemberKind::Constructor(c) => {
+                // Como o outline do Dart: `Classe.nome` (ou `Classe`).
                 let nome = c.name.unwrap_or(c.class_name);
-                saida.push(simbolo(texto, linhas, nomes, nome, membro.span, 9, Vec::new()));
+                let mut s = simbolo(texto, linhas, nomes, nome, membro.span, 9, Vec::new());
+                if let Some(n) = c.name {
+                    s["name"] = json!(format!("{}.{}", nomes.resolve(c.class_name.sym), nomes.resolve(n.sym)));
+                }
+                saida.push(s);
             }
             MemberKind::Field(v) => {
                 for variable in v.variables.iter() {
                     saida.push(simbolo(
                         texto, linhas, nomes, variable.name, membro.span,
-                        if v.const_ { 14 } else { 8 }, Vec::new(),
+                        8, Vec::new(),
                     ));
                 }
             }

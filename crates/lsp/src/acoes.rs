@@ -1018,3 +1018,118 @@ fn tipo_escrevivel(projeto: &Projeto, unidade: UnitId, offset: usize, texto_tipo
                 )
         })
 }
+
+/// `Organize Imports` (`source.organizeImports`), como o `ImportOrganizer`
+/// do Dart 3.6.2 (`services/correction/organize_imports.dart` e
+/// `analyzer_plugin/lib/src/utilities/directive_sort.dart`): as diretivas
+/// `import`, `export` e `part` ordenadas por grupo (`dart:`, `package:`,
+/// outras com `://`, relativas; primeiro os imports, depois os exports,
+/// por fim as partes) e pela URI, com uma linha em branco entre os grupos e
+/// as duplicadas exatas removidas; cada diretiva leva o comentário das
+/// linhas de cima (menos o cabeçalho do arquivo) e o comentário no fim da
+/// linha dela. Os imports não usados não são removidos aqui (o código
+/// `unused_import` ainda não é publicado). Sem diretivas para mexer, a
+/// ação vem sem edição, como o comando do Dart, que é sempre oferecido.
+pub(crate) fn organizar_imports(uri: &str, texto: &str) -> AcaoDeCodigo {
+    let acao = |edicoes: Vec<Edicao>| AcaoDeCodigo {
+        titulo: "Organize Imports".into(),
+        especie: "source.organizeImports".into(),
+        edicoes,
+        diagnostico: None,
+        criar_arquivo: None,
+    };
+    let mut nomes = dartforge_intern::Interner::new();
+    let analisado = dartforge_frontend::parser::parse(texto, &mut nomes);
+    let diretivas = &analisado.unit.directives;
+    let tem_library = diretivas.iter().any(|d| matches!(d.kind, DirectiveKind::Library { .. }));
+    let fim_de_linha = if texto.contains("\r\n") { "\r\n" } else { "\n" };
+    // (prioridade, uri, início, fim, texto)
+    let mut itens: Vec<(u8, String, usize, usize)> = Vec::new();
+    let mut fim_anterior: Option<usize> = None;
+    for (i, d) in diretivas.iter().enumerate() {
+        let (tipo, literal) = match &d.kind {
+            DirectiveKind::Import { uri, .. } => (0u8, uri),
+            DirectiveKind::Export { uri, .. } => (1u8, uri),
+            DirectiveKind::Part { uri } => (2u8, uri),
+            _ => {
+                fim_anterior = Some(d.span.end);
+                continue;
+            }
+        };
+        let conteudo = dartforge_elements::load::string_lit_value(literal).unwrap_or_default();
+        let grupo = if conteudo.starts_with("dart:") {
+            0
+        } else if conteudo.starts_with("package:") {
+            1
+        } else if conteudo.contains("://") {
+            2
+        } else {
+            3
+        };
+        let prioridade = if tipo == 2 { 8 } else { tipo * 4 + grupo };
+        // Comentário de cima: o que fica entre a diretiva anterior (depois
+        // do fim da linha dela) e esta; na primeira sem `library`, só o da
+        // linha imediatamente acima.
+        let mut inicio = d.span.start;
+        let pseudo_biblioteca = !tem_library && i == 0;
+        let antes = fim_anterior.map_or(0, |f| texto[f..].find('\n').map_or(texto.len(), |k| f + k + 1).min(d.span.start));
+        let lacuna = &texto[antes..d.span.start];
+        if let Some(k) = lacuna.find("//").or_else(|| lacuna.find("/*")) {
+            let candidato = antes + texto[antes..antes + k].rfind('\n').map_or(0, |j| j + 1);
+            let linhas_de_lacuna = texto[candidato..d.span.start].matches('\n').count();
+            if !pseudo_biblioteca && fim_anterior.is_some() {
+                inicio = candidato;
+            } else if pseudo_biblioteca && fim_anterior.is_some() && linhas_de_lacuna == 1 {
+                inicio = candidato;
+            }
+        }
+        // Comentário no fim da linha.
+        let mut fim = d.span.end;
+        let resto_da_linha = &texto[fim..texto[fim..].find('\n').map_or(texto.len(), |k| fim + k)];
+        if resto_da_linha.trim_start().starts_with("//") {
+            fim += resto_da_linha.trim_end_matches('\r').len();
+        }
+        itens.push((prioridade, conteudo, inicio, fim));
+        fim_anterior = Some(d.span.end);
+    }
+    let (Some(primeiro), Some(ultimo)) = (itens.iter().map(|x| x.2).min(), itens.iter().map(|x| x.3).max()) else {
+        return acao(Vec::new());
+    };
+    let mut ordenados = itens.clone();
+    ordenados.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| comparar_uri(&a.1, &b.1)));
+    let mut codigo = String::new();
+    let mut atual: Option<u8> = None;
+    let mut anterior = String::new();
+    for (p, _, ini, fim) in &ordenados {
+        let trecho = texto[*ini..*fim].to_string();
+        if trecho == anterior {
+            continue;
+        }
+        if atual != Some(*p) {
+            if atual.is_some() {
+                codigo.push_str(fim_de_linha);
+            }
+            atual = Some(*p);
+        }
+        codigo.push_str(&trecho);
+        codigo.push_str(fim_de_linha);
+        anterior = trecho;
+    }
+    let codigo = codigo.trim_end().to_string();
+    if codigo == texto[primeiro..ultimo] {
+        return acao(Vec::new());
+    }
+    acao(vec![Edicao { uri: uri.to_string(), span: Span { start: primeiro, end: ultimo }, texto: codigo }])
+}
+
+/// `compareDirectiveUri` do Dart: `package:` compara o nome do pacote e
+/// depois o caminho; o resto, a URI inteira.
+fn comparar_uri(a: &str, b: &str) -> std::cmp::Ordering {
+    if (!a.starts_with("package:") || !b.starts_with("package:")) && !a.starts_with('/') && !b.starts_with('/') {
+        return a.cmp(b);
+    }
+    match (a.find('/'), b.find('/')) {
+        (Some(i), Some(j)) => a[..i].cmp(&b[..j]).then_with(|| a[i + 1..].cmp(&b[j + 1..])),
+        _ => a.cmp(b),
+    }
+}

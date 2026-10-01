@@ -24,6 +24,22 @@ struct Restricao {
     param: usize,
     lower: TypeId,
     upper: TypeId,
+    /// Índice em `GenericInferrer::origens` (`TypeConstraintOrigin`).
+    origem: Option<usize>,
+}
+
+/// A origem de uma restrição, para a mensagem de `COULD_NOT_INFER`
+/// (`fe76:type_inference/type_constraint.dart:173-330`).
+#[derive(Debug, Clone)]
+pub enum Origem {
+    /// `TypeConstraintFromArgument`: `Parameter 'p' declared as '…' but
+    /// argument is '…'.`; `prefixo` substitui `Parameter 'p'` (`List element`,
+    /// `Map key`, `Map value`).
+    Argumento { parametro: String, declarado: TypeId, argumento: TypeId, prefixo: Option<String> },
+    /// `TypeConstraintFromReturnType`.
+    Retorno { declarado: TypeId, contexto: TypeId },
+    /// `TypeConstraintFromFunctionContext`.
+    Funcao { declarado: TypeId, contexto: TypeId },
 }
 
 /// Inferidor de argumentos de tipo para um conjunto de parâmetros `L`.
@@ -32,11 +48,19 @@ pub struct GenericInferrer {
     restricoes: Vec<Restricao>,
     /// Escolhas já fixadas (tipos conhecidos) de rodadas anteriores.
     fixados: Vec<Option<TypeId>>,
+    origens: Vec<Origem>,
+    origem_atual: Option<usize>,
 }
 
 impl GenericInferrer {
     pub fn new(params: &[TypeParamId]) -> Self {
-        Self { params: params.to_vec(), restricoes: Vec::new(), fixados: vec![None; params.len()] }
+        Self { params: params.to_vec(), restricoes: Vec::new(), fixados: vec![None; params.len()], origens: Vec::new(), origem_atual: None }
+    }
+
+    /// A origem das restrições geradas a seguir.
+    pub fn com_origem(&mut self, o: Origem) {
+        self.origens.push(o);
+        self.origem_atual = Some(self.origens.len() - 1);
     }
 
     /// `arg <: param` (os parâmetros de `L` estão em `param`).
@@ -78,11 +102,11 @@ impl GenericInferrer {
         }
         if left {
             if let Some(i) = self.index(p, env) {
-                self.restricoes.push(Restricao { param: i, lower: env.core.unknown, upper: q });
+                self.restricoes.push(Restricao { param: i, lower: env.core.unknown, upper: q, origem: self.origem_atual });
                 return true;
             }
         } else if let Some(i) = self.index(q, env) {
-            self.restricoes.push(Restricao { param: i, lower: p, upper: env.core.unknown });
+            self.restricoes.push(Restricao { param: i, lower: p, upper: env.core.unknown, origem: self.origem_atual });
             return true;
         }
         if p == q {
@@ -472,6 +496,189 @@ impl GenericInferrer {
         tipos
     }
 
+    /// `tryChooseFinalTypes(failAtError: false)` (`an611:src/dart/element/
+    /// generic_inferrer.dart:250-386`): os `COULD_NOT_INFER` da inferência,
+    /// `(nome do parâmetro de tipo, sufixo da mensagem)`. Refaz a escolha
+    /// final como o analyzer (`_chooseTypes`, com a cláusula `extends`
+    /// substituída pelos já escolhidos) e confere cada restrição e o limite
+    /// com o tipo escolhido; sem erro, confere os tipos finais contra os
+    /// limites (`_checkArgumentsNotMatchingBounds`, `:388-420`).
+    pub fn falhas(
+        &self,
+        finais: &[TypeId],
+        env: &mut SubtypeEnv,
+        interner: &dartforge_intern::Interner,
+        program: &dartforge_elements::model::Program,
+    ) -> Vec<(String, String)> {
+        let n = self.params.len();
+        let fmt = |env: &SubtypeEnv, t: TypeId| env.table.format_sem_alias(t, interner, program);
+        let mut inferidos: Vec<TypeId> = vec![env.core.unknown; n];
+        let mut saida = Vec::new();
+        for i in 0..n {
+            let (lower, mut upper) = self.fundir(i, env);
+            let limite = self.limite_escrito(i, &inferidos, env);
+            if let Some(b) = limite {
+                upper = down(upper, b, env);
+            }
+            let t = match self.fixados[i] {
+                Some(f) => f,
+                None => Self::escolher(lower, upper, true, env),
+            };
+            inferidos[i] = t;
+        }
+        // O tipo testado é o escolhido de fato (`choose_final`), quando há:
+        // a refeitura acima só vale para os parâmetros sem escolha.
+        for i in 0..n.min(finais.len()) {
+            if !env.core.is_unknown(env.table, finais[i]) && !has_unknown(finais[i], env) {
+                inferidos[i] = finais[i];
+            }
+        }
+        for i in 0..n {
+            let t = inferidos[i];
+            // Argumento `dynamic` (ou inválido) que leva o escolhido a
+            // `dynamic`: o analyzer não acusa.
+            if matches!(env.table.get(t), Type::Dynamic)
+                && self.restricoes.iter().any(|r| r.param == i && matches!(env.table.get(r.lower), Type::Dynamic))
+            {
+                continue;
+            }
+            // Parâmetro `FutureOr<T>`: o casamento do analyzer escolhe entre
+            // `Future<T>` e `T` de um jeito que o nosso não reproduz em todos
+            // os casos; pelo lado seguro, não acusa.
+            let de_future_or = self.restricoes.iter().any(|r| {
+                r.param == i
+                    && matches!(r.origem.and_then(|o| self.origens.get(o)), Some(Origem::Argumento { declarado, .. })
+                        if matches!(env.table.get(*declarado), Type::FutureOr { .. }))
+            });
+            if de_future_or {
+                continue;
+            }
+            // Um argumento `dynamic` não restringe (o analyzer não acusa
+            // `max(d, 2.0)` com `d` dinâmico).
+            let proprias: Vec<Restricao> = self
+                .restricoes
+                .iter()
+                .filter(|r| r.param == i && !matches!(env.table.get(r.lower), Type::Dynamic))
+                .copied()
+                .collect();
+            let satisfaz = |r: &Restricao, env: &mut SubtypeEnv| {
+                let ok_l = env.core.is_unknown(env.table, r.lower) || {
+                    let l = schema_least(r.lower, env);
+                    is_subtype(l, t, env)
+                };
+                let ok_u = env.core.is_unknown(env.table, r.upper) || {
+                    let u = schema_greatest(r.upper, env);
+                    is_subtype(t, u, env)
+                };
+                ok_l && ok_u
+            };
+            let mut sucesso = proprias.iter().all(|r| satisfaz(r, env));
+            let mut extends: Option<(String, String, bool)> = None;
+            if sucesso {
+                if let Some(b) = self.limite_escrito(i, &inferidos, env) {
+                    let bruto = env.table.param(self.params[i]).bound;
+                    let ok = is_subtype(t, b, env);
+                    extends = Some((fmt(env, bruto), fmt(env, b), ok));
+                    sucesso = ok;
+                }
+            }
+            if sucesso {
+                continue;
+            }
+            let nome = interner.resolve(env.table.param(self.params[i]).name).to_string();
+            // Por origem, na ordem de chegada: as não satisfeitas e as satisfeitas.
+            let mut por_origem: Vec<(Option<usize>, bool)> = Vec::new();
+            for r in &proprias {
+                let ok = satisfaz(r, env);
+                match por_origem.iter_mut().find(|(o, _)| *o == r.origem) {
+                    Some(x) => x.1 &= ok,
+                    None => por_origem.push((r.origem, ok)),
+                }
+            }
+            let mut linhas_ns: Vec<Vec<String>> = Vec::new();
+            let mut linhas_s: Vec<Vec<String>> = Vec::new();
+            for (o, ok) in &por_origem {
+                let partes = match o.and_then(|o| self.origens.get(o)) {
+                    Some(Origem::Argumento { parametro, declarado, argumento, prefixo }) => vec![
+                        prefixo.clone().unwrap_or_else(|| format!("Parameter '{parametro}'")),
+                        format!("declared as     '{}'", fmt(env, *declarado)),
+                        format!("but argument is '{}'.", fmt(env, *argumento)),
+                    ],
+                    Some(Origem::Retorno { declarado, contexto }) => vec![
+                        "Return type".to_string(),
+                        format!("declared as '{}'", fmt(env, *declarado)),
+                        format!("used where  '{}' is required.", fmt(env, *contexto)),
+                    ],
+                    Some(Origem::Funcao { declarado, contexto }) => vec![
+                        "Function type".to_string(),
+                        format!("declared as '{}'", fmt(env, *declarado)),
+                        format!("used where  '{}' is required.", fmt(env, *contexto)),
+                    ],
+                    None => continue,
+                };
+                if *ok {
+                    linhas_s.push(partes);
+                } else {
+                    linhas_ns.push(partes);
+                }
+            }
+            if let Some((bruto, produzido, ok)) = extends {
+                let partes = vec![format!("Type parameter '{nome}'"), format!("is declared to extend '{bruto}' producing '{produzido}'.")];
+                if ok {
+                    linhas_s.push(partes);
+                } else {
+                    linhas_ns.push(partes);
+                }
+            }
+            let ts = fmt(env, t);
+            let nao = formatar_restricoes(&linhas_ns);
+            let mut sim = formatar_restricoes(&linhas_s);
+            if !sim.is_empty() {
+                sim = format!("\nThe type '{ts}' was inferred from:\n{sim}");
+            }
+            let intro = format!("Tried to infer '{ts}' for '{nome}' which doesn't work:");
+            saida.push((nome, format!("\n\n{intro}\n{nao}{sim}\n\nConsider passing explicit type argument(s) to the generic.\n\n")));
+        }
+        if saida.is_empty() {
+            for i in 0..n.min(finais.len()) {
+                let d = env.table.param(self.params[i]).clone();
+                if !d.explicito {
+                    continue;
+                }
+                let mapa: HashMap<TypeParamId, TypeId> = self.params.iter().copied().zip(finais.iter().copied()).collect();
+                let b = substitute(d.bound, &mapa, env.table);
+                let dinamico = matches!(env.table.get(finais[i]), Type::Dynamic)
+                    && self.restricoes.iter().any(|r| r.param == i && matches!(env.table.get(r.lower), Type::Dynamic));
+                if !dinamico && !is_subtype(finais[i], b, env) {
+                    let nome = interner.resolve(d.name).to_string();
+                    let args: Vec<String> = finais.iter().map(|&x| fmt(env, x)).collect();
+                    saida.push((
+                        nome,
+                        format!(
+                            "\n'{}' doesn't conform to the bound '{}', instantiated from '{}' using type arguments [{}].",
+                            fmt(env, finais[i]),
+                            fmt(env, b),
+                            fmt(env, d.bound),
+                            args.join(", ")
+                        ),
+                    ));
+                }
+            }
+        }
+        saida
+    }
+
+    /// O limite escrito do parâmetro `i`, com os parâmetros substituídos
+    /// pelos `atuais` (a cláusula `extends`).
+    fn limite_escrito(&self, i: usize, atuais: &[TypeId], env: &mut SubtypeEnv) -> Option<TypeId> {
+        if !env.table.param(self.params[i]).explicito {
+            return None;
+        }
+        let b = env.table.param(self.params[i]).bound;
+        let mapa: HashMap<TypeParamId, TypeId> = self.params.iter().copied().zip(atuais.iter().copied()).collect();
+        Some(substitute(b, &mapa, env.table))
+    }
+
     /// Se os tipos finais satisfazem as restrições coletadas.
     pub fn satisfeito(&self, tipos: &[TypeId], env: &mut SubtypeEnv) -> bool {
         for r in &self.restricoes {
@@ -491,6 +698,23 @@ impl GenericInferrer {
         }
         true
     }
+}
+
+/// `_formatConstraints` (`an611:src/dart/element/generic_inferrer.dart:914-947`):
+/// uma linha por origem (sem repetir), o prefixo alinhado pelo maior.
+fn formatar_restricoes(partes: &[Vec<String>]) -> String {
+    let maior = partes.iter().map(|p| p[0].chars().count()).max().unwrap_or(0);
+    let mut linhas: Vec<String> = Vec::new();
+    for p in partes {
+        let pad = " ".repeat(maior - p[0].chars().count());
+        let meio = " ".repeat(maior);
+        let fim = if p.len() > 2 { format!("\n  {meio} {}", p[2]) } else { String::new() };
+        let l = format!("  {}{pad} {}{fim}", p[0], p[1]);
+        if !linhas.contains(&l) {
+            linhas.push(l);
+        }
+    }
+    linhas.join("\n")
 }
 
 fn future_of(t: TypeId, env: &mut SubtypeEnv) -> Option<TypeId> {

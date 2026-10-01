@@ -13,13 +13,24 @@ use std::collections::HashMap;
 /// Tipos como `dynamic`, `void` e `Null` já são anuláveis por natureza e não mudam.
 /// `Never?` é canonicamente simplificado para `Null`.
 pub fn nullable(ty: TypeId, table: &mut TypeTable) -> TypeId {
+    // Decorados de exibição (C9): o alias anulável continua o alias.
+    if let Some(ex) = table.exibicao(ty).cloned() {
+        let c = table.canonico(ty);
+        let n = nullable(c, table);
+        return match ex {
+            crate::table::Exibicao::NeverAnulavel => ty,
+            ex if n != c => table.decorar(n, ex),
+            _ => ty,
+        };
+    }
     let t = table.get(ty).clone();
     match t {
         Type::Dynamic | Type::Void | Type::Null => ty,
         Type::Intersection { param, .. } => table.intern(Type::TypeParameter { param, nullable: true }),
         Type::Never => {
-            // Never? === Null
-            table.intern(Type::Null)
+            // Never? === Null (exibido `Never?` quando a tabela preserva a exibição).
+            let n = table.intern(Type::Null);
+            table.decorar(n, crate::table::Exibicao::NeverAnulavel)
         }
         Type::Interface {
             class,
@@ -85,6 +96,15 @@ pub fn nullable(ty: TypeId, table: &mut TypeTable) -> TypeId {
 ///
 /// `Null` torna-se `Never`. `dynamic` e `void` permanecem inalterados.
 pub fn non_nullable(ty: TypeId, table: &mut TypeTable) -> TypeId {
+    if let Some(ex) = table.exibicao(ty).cloned() {
+        let c = table.canonico(ty);
+        let n = non_nullable(c, table);
+        return match ex {
+            crate::table::Exibicao::Alias { .. } if n != c => table.decorar(n, ex),
+            crate::table::Exibicao::Alias { .. } => ty,
+            crate::table::Exibicao::NeverAnulavel => n,
+        };
+    }
     let t = table.get(ty).clone();
     match t {
         Type::Null => table.intern(Type::Never),
@@ -236,6 +256,22 @@ pub fn substitute(
 ) -> TypeId {
     if mapping.is_empty() {
         return ty;
+    }
+    // Decorado de exibição: substitui o alvo e os argumentos do alias.
+    if let Some(ex) = table.exibicao(ty).cloned() {
+        let c = table.canonico(ty);
+        let nc = substitute(c, mapping, table);
+        return match ex {
+            crate::table::Exibicao::Alias { typedef, args } => {
+                let novos: Box<[TypeId]> = args.iter().map(|&a| substitute(a, mapping, table)).collect();
+                if nc == c && novos == args {
+                    ty
+                } else {
+                    table.decorar(nc, crate::table::Exibicao::Alias { typedef, args: novos })
+                }
+            }
+            crate::table::Exibicao::NeverAnulavel => ty,
+        };
     }
 
     let t = table.get(ty).clone();
@@ -700,3 +736,40 @@ pub fn erase_extension_type(
 pub use crate::bounds::up as lub;
 /// Maior subtipo comum: **DOWN**(`a`, `b`) de `upper-lower-bounds.md`.
 pub use crate::bounds::down as glb;
+
+/// O tipo sem nenhuma decoração de exibição (alias, `Never?`), em toda a
+/// estrutura: a identidade semântica, para comparar `TypeId`s
+/// (`a as N` com `typedef N = num` e `a: num` é o mesmo tipo).
+pub fn sem_exibicao(ty: TypeId, table: &mut TypeTable) -> TypeId {
+    let c = table.canonico(ty);
+    if table.exibicao_vazia() {
+        return c;
+    }
+    let t = table.get(c).clone();
+    let f = |x: TypeId, table: &mut TypeTable| sem_exibicao(x, table);
+    let novo = match t {
+        Type::Interface { class, args, nullable } => {
+            Type::Interface { class, args: args.iter().map(|&a| f(a, table)).collect(), nullable }
+        }
+        Type::ExtensionType { decl, args, nullable } => {
+            Type::ExtensionType { decl, args: args.iter().map(|&a| f(a, table)).collect(), nullable }
+        }
+        Type::FutureOr { arg, nullable } => Type::FutureOr { arg: f(arg, table), nullable },
+        Type::Record { positional, named, nullable } => Type::Record {
+            positional: positional.iter().map(|&a| f(a, table)).collect(),
+            named: named.iter().map(|&(n, a)| (n, f(a, table))).collect(),
+            nullable,
+        },
+        Type::Function { type_params, ret, positional, optional, named, nullable } => Type::Function {
+            type_params,
+            ret: f(ret, table),
+            positional: positional.iter().map(|&a| f(a, table)).collect(),
+            optional: optional.iter().map(|&a| f(a, table)).collect(),
+            named: named.iter().map(|&(n, a, r)| (n, f(a, table), r)).collect(),
+            nullable,
+        },
+        Type::Intersection { param, bound } => Type::Intersection { param, bound: f(bound, table) },
+        _ => return c,
+    };
+    table.intern(novo)
+}

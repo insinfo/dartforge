@@ -396,3 +396,299 @@ backends), exaustividade (`non_exhaustive_switch_*`,
 do parser: `expected_token`, `extraneous_modifier`), `could_not_infer`, os
 FN de `unused_element` (parâmetros opcionais nunca passados, `_` em
 bibliotecas com curinga) e a cauda de códigos com menos de 20 casos.
+
+## 7. Segunda rodada — especificação (2026-10-01)
+
+Pedido do dono: o analisador e o LSP completos. Mesmo método: regra do
+analyzer com arquivo:linha → implementação inteira → validação no fim
+(placar, 209 pacotes sem FP publicado, testes, CI). Citações: `an611:` é
+`analyzer-6.11.0/lib/`, `fe76:` é `_fe_analyzer_shared-76.0.0/lib/src/`.
+Base: placar `b10` = 17.428/23.030 (75,7%).
+
+### 7.1 R1 — exaustividade de `switch` (porte do algoritmo de espaços)
+
+Perda na base: `non_exhaustive_switch_statement` 64 FN,
+`non_exhaustive_switch_expression` 33, `unreachable_switch_case` 47,
+`unreachable_switch_default` 10.
+
+**Regra.** `ConstantVerifier.visitSwitchExpression`/`visitSwitchStatement`
+(`an611:src/dart/constant/constant_verifier.dart:437-473`) chamam
+`_validateSwitchExhaustiveness` (`:883-1000`) depois de avaliar os padrões
+constantes (`_withConstantPatternValues`, `:1049`). A expressão sempre deve
+ser exaustiva; o comando só se o tipo do escrutínio é "sempre exaustivo"
+(`TypeSystemImpl.isAlwaysExhaustive`, `an611:src/dart/element/type_system.dart:832-874`)
+e a biblioteca tem padrões (3.0+). Cada caso vira um espaço
+(`PatternConverter.dispatchPattern`, `an611:src/generated/exhaustiveness.dart:520-680`,
+sobre o `SpaceCreator` de `fe76:exhaustiveness/shared.dart:339-838`);
+`computeExhaustiveness` (`fe76:exhaustiveness/exhaustive.dart:38-70`) dá os
+casos cobertos pelos anteriores (`UNREACHABLE_SWITCH_CASE` na seta da
+expressão ou na palavra `case`) e as testemunhas não cobertas
+(`NON_EXHAUSTIVE_SWITCH_*` na palavra `switch`, argumentos: o tipo do
+escrutínio, a testemunha e a testemunha de correção —
+`PropertyWitness.witnessToDart`, `fe76:exhaustiveness/witness.dart`); se é
+exaustivo e há `default`, `UNREACHABLE_SWITCH_DEFAULT` na palavra
+`default`. Tipo inválido no escrutínio ou num padrão (e padrão constante
+sem valor) desliga a verificação inteira (`hasInvalidType`).
+
+Tipos estáticos (`fe76:exhaustiveness/static_type.dart`, `types.dart`,
+`types/*.dart`): `Object?`/`Object`/`Null`/`Never`, anulável, baseado em
+tipo (comum, `bool` selado em `true`/`false`, enum selado nas constantes
+cujo tipo cabe na sobreaproximação, classe `sealed` nas subclasses diretas
+da biblioteca — `getDirectSubclasses` e `getSubclassAsInstanceOf`,
+`an611:src/generated/exhaustiveness.dart:126-203` —, `FutureOr<T>` em `T` e
+`Future<T>`, lista selada pelos tamanhos das chaves de interesse, registro),
+restritos (valor constante, padrão de lista, padrão de mapa) e embrulhado
+(parâmetro de tipo pelo limite). Igualdade como no Dart (tipo e restrição);
+espaços por identidade.
+
+**Implementação.** `crates/types/src/constantes/exaustividade.rs` (o porte),
+chamado pelo verificador de constantes (`verificador.rs`), que guarda os
+valores dos padrões constantes e das chaves de mapa. A inferência guarda o
+tipo de cada padrão que a conversão lê (`UnitBodyTypes::tipos_de_padroes`:
+variável, curinga e cast escritos, objeto, lista e mapa requeridos), o
+tipo das propriedades de extensão de padrões objeto (`campos_de_extensao`)
+e os padrões com tipo escrito que não resolve (`padroes_invalidos`).
+Limite conhecido: `case nome:` (constante por identificador simples, que o
+parser guarda como variável) desliga a verificação daquele `switch`.
+
+### 7.2 R2 — `could_not_infer` e os limites dos argumentos inferidos
+
+Perda: `could_not_infer` 54 FN; `type_argument_not_matching_bounds` 101 FN
+(parte deles nos mesmos lugares).
+
+**Regra.** `GenericInferrer.tryChooseFinalTypes(failAtError: false)`
+(`an611:src/dart/element/generic_inferrer.dart:250-386`): para cada
+parâmetro, o tipo escolhido (`_chooseTypes` final, com a cláusula `extends`
+substituída pelos já escolhidos) tem de satisfazer cada restrição e o
+limite; senão `COULD_NOT_INFER` no `errorEntity` com a mensagem de
+`_formatError` (`:587-630`): as restrições agrupadas por origem
+(`TypeConstraintFromArgument`, `…FromReturnType`, `…FromFunctionContext`,
+`…FromExtendsClause`, `fe76:type_inference/type_constraint.dart:173-330`),
+as não satisfeitas e depois "The type '…' was inferred from:", alinhadas por
+`_formatConstraints` (`:914-947`). Sem erro, `_checkArgumentsNotMatchingBounds`
+(`:388-420`) confere os tipos finais contra os limites. O `errorEntity` é o
+nome do método/função, o nome do construtor (`C`, `P._`, `A.foo`).
+Além disso o `NamedType` de uma criação sem argumentos escritos é conferido
+com os argumentos inferidos (`TypeArgumentsVerifier.checkNamedType`):
+`TYPE_ARGUMENT_NOT_MATCHING_BOUNDS` no nome da classe.
+
+**Implementação.** `constraints.rs`: cada restrição guarda a origem
+(`Origem`); `GenericInferrer::falhas` refaz a escolha final do analyzer e
+monta as mensagens. `chamadas.rs`: quem conhece o alvo (método, função,
+estático, construtor) define o `errorEntity` e os nomes dos parâmetros
+posicionais antes de `invocar`. `limites.rs`:
+`argumentos_inferidos_fora_dos_limites` lê as instanciações gravadas.
+
+### 7.3 R3 — `unused_element` de parâmetros opcionais
+
+Perda: 42 FN (código `unused_element` no 3.6; `unused_element_parameter`
+só no oráculo 3.13 dos construtores primários, fora).
+
+**Regra.** `UnusedLocalElementsVerifier.visitFormalParameterList`
+(`an611:src/error/unused_local_elements_verifier.dart:600-609`) com
+`_isUsedElement` (`:860-923`): só opcionais de construtor, função e método;
+fora os de executável genérico e de construtor de classe genérica; fora os
+de executável acessível de fora (`_isPubliclyAccessible`, `:799-823`); fora
+o que corresponde a um obrigatório do construtor da superclasse ou de um
+sobrescrito, ou a um parâmetro usado de um sobrescrito
+(`_overridesUsedParameter`, `:970-992`). Usado = recebe argumento em alguma
+chamada da biblioteca (`_addParametersForArguments`, `:360-365`) ou é alvo
+de um `super.x` (`:116-118`). Bibliotecas com erro de sintaxe ficam de fora.
+
+**Implementação.** `crates/types/src/parametros.rs`, sobre as resoluções da
+inferência (chamadas, criações, `super(...)`, `this(...)`, constantes de
+enum, parâmetros `super.x`).
+
+### 7.4 R4 — FP de `invalid_override`, `map_value_type_not_assignable`, `getter_not_subtype_setter_types`, `equal_elements_in_const_set`
+
+Causas nos 209 pacotes e correções:
+
+* constante de enum genérico (`enum E<T> { a<int>() }`): o tipo é a
+  instanciação escrita, ou a dos limites — não o tipo cru com
+  `dynamic` (`resolve.rs`, `VariableRef::EnumConstant`);
+* limite cru de classe (`I extends Restriction`) resolvido antes do limite
+  da própria `Restriction`: os limites das classes são resolvidos em três
+  passadas (`resolver_limites_de_classes`);
+* constantes opacas (de biblioteca não inferida) nunca são iguais
+  (`estados_iguais`): dois `X.y` vindos de fora não são o mesmo elemento;
+* mixin que não declara o membro não esconde o da superclasse na interface
+  (`na_interface_ex`): o membro achado nele vira candidato da combinação.
+
+### 7.5 R5 — C13, recuperação do parser
+
+Porte, por causa, das recuperações do fasta (`fe76:parser/parser_impl.dart`,
+`modifier_context.dart`, `an611:src/fasta/ast_builder.dart`): `expected_token`
+(FP 107, FN 85, posição 58), `missing_identifier`, `extraneous_modifier` (69
+FN), `modifier_out_of_order` (20), `missing_assignable_selector` (43),
+`illegal_assignment_to_non_assignable` (39),
+`extension_declares_instance_field` (54, `parser_impl.dart:3809`),
+`extension_declares_abstract_member` (44, `:5084`). Especificação detalhada
+por regra no resultado (§8).
+
+### 7.6 R6 — C9, exibição de alias e `Never?`
+
+Ver §3.9. Perda: ~200 mensagens (`type_argument_not_matching_bounds` 161,
+variância 27, `invalid_assignment` 24). Decisão no resultado (§8).
+
+### 7.7 R7 — LSP além dos diagnósticos
+
+Medição contra o `dart language-server` 3.6.2 (harness de oráculo: os dois
+servidores sobre os mesmos arquivos, respostas comparadas por recurso:
+capacidades, hover, definição, referências, renomear, completar, ações,
+assinatura) e porte das lacunas; especificação e tabela em `docs/LSP.md`.
+
+## 8. Segunda rodada — resultado (2026-10-01)
+
+Placar (oráculo 3.6.2, mesmas condições de §6):
+
+| passo | posição exata | mensagem igual | FP | FN | pos. errada |
+|---|---:|---:|---:|---:|---:|
+| fim da primeira rodada (`b10`) | 17.428 (75,7%) | 17.000 | 617 | 5.351 | 251 |
+| R1 exaustividade + R2/R3 + R4 + C13 (parcial) | 18.396 (79,9%) | 18.110 | 613 | 4.449 | 185 |
+| correções de FP (parâmetros, enums genéricos, extensões, filtro de recuperação) | 18.516 (80,4%) | 18.236 | 494 | 4.334 | 180 |
+| `unnecessary_cast` com alias, códigos sem recuperação, mensagens sem alias onde o analyzer já passa texto | **18.535 (80,5%)** | 18.267 | **493** | **4.315** | 180 |
+
+Ganhos por código (acertos `b10` → agora; FP `b10` → agora):
+
+| código | antes | agora | FP antes | FP agora |
+|---|---:|---:|---:|---:|
+| `expected_token` | 964 | 1.056 | 107 | 33 |
+| `non_exhaustive_switch_statement` | 0 | 64 | 0 | 0 |
+| `extraneous_modifier` | 0 | 64 | 1 | 1 |
+| `duplicate_definition` | 1.007 | 1.071 | 14 | 13 |
+| `extension_declares_instance_field` | 0 | 54 | 0 | 0 |
+| `missing_identifier` | 180 | 228 | 18 | 17 |
+| `unreachable_switch_case` | 0 | 47 | 0 | 0 |
+| `extension_declares_abstract_member` | 0 | 44 | 0 | 0 |
+| `missing_assignable_selector` | 0 | 43 | 0 | 0 |
+| `unused_element` (parâmetros opcionais) | 166 | 205 | 0 | 0 |
+| `illegal_assignment_to_non_assignable` | 0 | 39 | 0 | 0 |
+| `expected_type_name` | 4 | 39 | 1 | 0 |
+| `non_exhaustive_switch_expression` | 0 | 33 | 0 | 0 |
+| `could_not_infer` | 0 | 25 | 0 | 0 |
+| `modifier_out_of_order` | 0 | 20 | 0 | 0 |
+| `unexpected_token` | 0 | 19 | 3 | 0 |
+| `unreachable_switch_default` | 0 | 10 | 0 | 0 |
+| `type_argument_not_matching_bounds` (mensagem igual) | 913 | 1.078 | 2 | 2 |
+| `invalid_assignment` (mensagem igual) | 171 | 181 | 33 | 33 |
+
+**C9.** Implementado sem mudar a representação para os backends: a tabela
+de tipos ganhou tipos *decorados* (`TypeTable::decorar`, `Exibicao`) — um
+`TypeId` próprio com a mesma estrutura do alvo, fora do hash-consing — para
+o alias de `typedef` escrito e para o `Never?`; só são criados com
+`TypeTable::preservar_exibicao`, que a paridade (e por ela o `dartforge
+analyze` e o LSP tipado) liga e a compilação não. `format` exibe como o
+`getDisplayString(preferTypeAlias: true)` dos argumentos de diagnóstico;
+`format_sem_alias` como o `toString` (usado onde o analyzer já converte
+para texto: `could_not_infer`, testemunhas de exaustividade). A
+substituição e a anulabilidade preservam a decoração; comparações de
+identidade semântica usam `ops::sem_exibicao` (`unnecessary_cast`). As 161
+mensagens erradas de `type_argument_not_matching_bounds` foram a 0.
+
+**Publicação.** `verificados.txt`: 159 → 167 códigos —
+`equal_elements_in_const_set`, `getter_not_subtype_setter_types`,
+`invalid_override`, `map_value_type_not_assignable` (os quatro que tinham
+FP nos pacotes), `invalid_use_of_null_value`,
+`non_exhaustive_switch_statement`, `unreachable_switch_case`,
+`unreachable_switch_default` — todos sem erro emitido no corpus e nos 209
+pacotes. `non_exhaustive_switch_expression` ficou de fora por uma mensagem
+(tipo de função genérica aninhada exibido com `T₀`) e `could_not_infer` por
+16 mensagens (limite de parâmetro de método genérico substituído pelo
+receptor; origem de tear-off).
+
+**Projetos reais.** 209 pacotes: nenhum FP, posição ou mensagem errada de
+código publicado. Na medição intermediária, `unused_element` de parâmetros
+tinha 482 FP nos pacotes, todos de usos que o analyzer conta e a primeira
+versão não (fábrica redirecionadora `= D._`, leitura do parâmetro no corpo,
+tear-off, `this.nome(...)`/`super.nome(...)`, argumentos de anotação):
+portados (`visitConstructorDeclaration`, `visitSimpleIdentifier`,
+`_useIdentifierElement`) e zerados.
+
+**Correções de motor achadas no caminho.** Constante de enum genérico com o
+tipo `E<T>` vazando na leitura (`membro_estatico`, `inferir_tipo_de_variavel_sem_tipo`)
+e com `E<dynamic>` no valor constante (`valor_de_enum`): agora o tipo da
+instanciação. `x == y` com `x: Never` tem tipo `Never`. Parâmetro com tipo
+escrito que não resolve dá o tipo de recuperação na leitura
+(`locais_invalidos`). Extensões homônimas não se juntam na detecção de
+duplicatas. Erros do parser que não descartam código (lista em
+`paridade::analise::recuperacao_do_parser`) não escondem mais locais não
+usados.
+
+**LSP (R7).** Medido contra o `dart language-server` 3.6.2 (oráculo em
+`crates/lsp/oraculo/`, 4 projetos, 410 posições) e completado; tabela
+antes/depois e regras em `docs/LSP.md` ("Paridade com o servidor do Dart").
+
+**Testes.** `crates/paridade/tests/regras_do_analyzer.rs` ganhou quatro
+arquivos conferidos contra o `dart analyze` 3.6.2 (`sonda_arquivos
+--livre`): 17 diagnósticos de exaustividade, 6 de inferência/limites/C9, 4
+de parâmetros opcionais e um arquivo sem nenhum (os usos que não contam como
+não usados). `cargo test -p dartforge-types -p dartforge-analise -p
+dartforge-paridade` verde.
+
+### 8.1 C13 — recuperação do parser (especificação e resultado)
+
+Feito em `crates/frontend` (novo `parser/modificadores.rs`; `declarations.rs`,
+`expressions.rs`, `statements.rs`, `patterns.rs`, `types.rs`, `mod.rs`,
+`lexer.rs`; testes em `tests/recuperacao.rs`). Só caminhos de erro: o
+parser antigo e o novo sobre a `lib/` do SDK 3.6.2 e o pub-cache (31.679
+arquivos) dão 0 arquivo novo recusado, 0 diagnóstico mudado nos já
+recusados e 10 aceitos a mais (`case void Function() _`). Regras e origem
+(`fe76:parser/…`, `an611:src/fasta/ast_builder.dart`):
+
+1. Modificadores de topo, membro e parâmetro → `modifier_context.dart`
+   (`_parseModifiers`, `parseFormalParameterModifiers:213`) e caminho rápido
+   `parser_impl.dart:3415`/`:4475`: `DUPLICATED_MODIFIER`,
+   `MODIFIER_OUT_OF_ORDER`, `CONFLICTING_MODIFIERS`, `CONST_AND_FINAL`,
+   `FINAL_AND_VAR`, `COVARIANT_AND_STATIC`, `EXTRANEOUS_MODIFIER` por
+   contexto, `INVALID_USE_OF_COVARIANT_IN_EXTENSION`,
+   `EXTRANEOUS_MODIFIER_IN_EXTENSION_TYPE`/`_IN_PRIMARY_CONSTRUCTOR`,
+   `FUNCTION_TYPED_PARAMETER_VAR`.
+2. Método × campo → `parser_impl.dart:3640`, `parseMethod:4827`,
+   `parseFields:3656`: `VAR_RETURN_TYPE`, `ABSTRACT_CLASS_MEMBER`,
+   `STATIC_OPERATOR`, `COVARIANT_MEMBER`, `CONST_METHOD`,
+   `FINAL_AND_COVARIANT(_LATE_WITH_INITIALIZER)`, `ABSTRACT_EXTERNAL_FIELD`,
+   `MISSING_CONST_FINAL_VAR_OR_TYPE`.
+3. Despacho do topo → `parseTopLevelDeclarationImpl:528`,
+   `parseTopLevelKeywordDeclaration`: `CONST_CLASS`, `EXTERNAL_*`,
+   `FINAL_MIXIN(_CLASS)`, `FINAL_ENUM`, `SEALED_`/`INTERFACE_`/`BASE_` em
+   mixin e enum, `ABSTRACT_SEALED_CLASS`; palavra de topo no lugar do nome.
+4. Nome e corpo → `ClassOrMixinOrExtensionIdentifierContext`,
+   `ensureBlock:4204`: nome sintético, `EXPECTED_*_BODY`.
+5. Extension → `parseExtensionDeclaration`, `:3809`, `:5084`, `:5048`,
+   `:5189`: `on` ausente, `EXTENSION_DECLARES_INSTANCE_FIELD`/
+   `_ABSTRACT_MEMBER`/`_CONSTRUCTOR`, `MIXIN_DECLARES_CONSTRUCTOR`.
+6. Construtores e membros → `:5003-5032`, `parseFactoryMethod:5108`,
+   `ast_builder:5897`, `:4089`/`:4134`, `:3934`, `:1531`:
+   `INVALID_CONSTRUCTOR_NAME`, `STATIC_CONSTRUCTOR`,
+   `TYPE_PARAMETER_ON_CONSTRUCTOR`, `EXTERNAL_CONSTRUCTOR_WITH_INITIALIZER`,
+   `REDIRECTING_CONSTRUCTOR_WITH_BODY`, `MISSING_ASSIGNMENT_IN_INITIALIZER`,
+   `MEMBER_WITH_CLASS_NAME`, `GETTER_WITH_PARAMETERS`,
+   `MISSING_FUNCTION/METHOD_PARAMETERS`.
+7. Corpo de função (`parseFunctionBody`) e `;` inserido (`ensureSemicolon`).
+8. Atribuição → `ast_builder.dart:3752`, `:4253`, `:5688`, `:5704`, `:5840`:
+   `MISSING_ASSIGNABLE_SELECTOR`, `ILLEGAL_ASSIGNMENT_TO_NON_ASSIGNABLE`.
+9. Expressões → `:6094`, `:6906`, `:7243`, `:7270`,
+   `skipChainedAsIsOperators`: `EQUALITY_CANNOT_BE_EQUALITY_OPERAND`,
+   `INVALID_OPERATOR_QUESTIONMARK_PERIOD_FOR_SUPER`,
+   `CONSTRUCTOR_WITH_TYPE_ARGUMENTS`, `LITERAL_WITH_(CLASS_AND_)NEW`, `is`/`as`
+   encadeados, fecho ausente de coleções.
+10. Padrões → `parseVariablePattern:9908`; comandos → `parseSwitchCase:9044`,
+    `checkAsyncAwaitYieldAsIdentifier`; strings → `quote.dart:186`; diretivas
+    → `directive_context.dart`.
+
+Resultado no placar (acerto/FP/FN): `expected_token` 964/107/85 →
+1.056/33/49 (posição errada 58 → 2), `missing_identifier` 180/18/60 →
+228/17/22, `extraneous_modifier` 0/1/69 → 64/1/5, `expected_type_name`
+4/1/37 → 39/0/2, mais ~45 códigos que foram de 0 a 100%. Fora: `for (var
+(a, b) = …; …)` (variante nova de `ForInit`, mexe na AST de todos os
+backends), `case X = 1:` em 2.19, recuperação do scanner (`0x;`), mensagens
+3.13 de `representation_field_modifier`, `experiment_not_enabled` com a
+versão do 3.13 ("3.8.0") na mensagem.
+
+### 8.2 Limites conhecidos
+
+Variância declarada (`in`/`out`, só com
+o experimento) nas mensagens de `could_not_infer`; o `T₀` dos tipos de
+função genéricos aninhados; `case nome:` com constante estática da classe
+(a verificação daquele `switch` fica de fora); a substituição dos limites
+dos parâmetros de tipo de método pelo receptor (só mensagem).

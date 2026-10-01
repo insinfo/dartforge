@@ -6,10 +6,11 @@
 //! inicializadores de construtores `const`.
 
 use super::avaliador::{Constante, Ctx, Invalida, Motor};
+use super::exaustividade::{Caso, Entrada, Exaustividade};
 use super::valor::{Estado, Valor};
 use crate::resolved::Resolved;
 use crate::table::{Type, TypeId};
-use dartforge_diagnostics::{codigos::compile_time_error as c, Codigo, Diagnostic, Span};
+use dartforge_diagnostics::{codigos::compile_time_error as c, codigos::warning as w, Codigo, Diagnostic, Span};
 use dartforge_elements::model::{ClassId, LibraryId, UnitId, VariableId, VariableRef};
 use dartforge_frontend::ast::{
     self, CollectionElement, DeclKind, ExprId, ExprKind, MemberKind, PatternId, PatternKind, StmtId, StmtKind,
@@ -80,6 +81,10 @@ struct Verificador<'m, 'a> {
     /// A classe (declaração) de cada membro.
     classe_de_membro: HashMap<(UnitId, ast::MemberId), ClassId>,
     padroes_ligados: bool,
+    /// Valores dos padrões constantes e das chaves de padrões de mapa da
+    /// unidade (`_withConstantPatternValues`), para a exaustividade.
+    valores_de_padroes: HashMap<PatternId, Valor>,
+    valores_de_chaves: HashMap<ExprId, Valor>,
 }
 
 /// Os erros de constantes das unidades de `lib`.
@@ -106,12 +111,25 @@ pub fn verificar(m: &mut Motor<'_>, lib: LibraryId) -> Vec<(UnitId, Diagnostic)>
         }
     }
     let padroes_ligados = program.library(lib).features.versao() >= dartforge_frontend::features::LanguageVersion::new(3, 0);
-    let mut v = Verificador { m, lib, unidade: UnitId(0), saida: Vec::new(), campos, topo, classe_de_membro, padroes_ligados };
+    let mut v = Verificador {
+        m,
+        lib,
+        unidade: UnitId(0),
+        saida: Vec::new(),
+        campos,
+        topo,
+        classe_de_membro,
+        padroes_ligados,
+        valores_de_padroes: HashMap::new(),
+        valores_de_chaves: HashMap::new(),
+    };
     for &u in &program.library(lib).units {
         if program.unit(u).role == dartforge_elements::model::UnitRole::Patch {
             continue;
         }
         v.unidade = u;
+        v.valores_de_padroes.clear();
+        v.valores_de_chaves.clear();
         let a = v.m.ast(u);
         for &d in &program.unit(u).unit.declarations {
             v.declaracao(a, d);
@@ -477,6 +495,12 @@ impl Verificador<'_, '_> {
                         self.stmt(a, *x);
                     }
                 }
+                if self.padroes_ligados {
+                    let casos: Vec<Caso> = cases.iter().map(|k| Caso { padrao: k.pattern, guardado: k.guard.is_some() }).collect();
+                    let inicio = a.stmt(s).span.start;
+                    let pos: Vec<usize> = cases.iter().map(|k| self.inicio_da_palavra_do_caso(k)).collect();
+                    self.exaustividade(a, *value, inicio, &casos, &pos, false);
+                }
             }
             StmtKind::Return(Some(e)) | StmtKind::Yield { value: e, .. } => self.expr(a, *e, false),
             StmtKind::Try { body, catches, finally_ } => {
@@ -509,8 +533,21 @@ impl Verificador<'_, '_> {
                     return;
                 }
                 let r = self.avaliar_e_relatar(e, false, c::CONSTANT_PATTERN_WITH_NON_CONSTANT_EXPRESSION);
-                if matches!(r, Constante::Valor(_)) {
+                if let Constante::Valor(v) = r {
+                    self.valores_de_padroes.insert(p, v);
                     self.expr(a, e, false);
+                }
+            }
+            // `case nome:` (o parser guarda como variável): a constante de
+            // topo com esse nome, para a exaustividade.
+            PatternKind::Variable { final_: false, var_: false, ty: None, name } if self.padroes_ligados => {
+                let program = self.m.program;
+                if let Some(dartforge_elements::model::Element::Variable(v)) =
+                    program.lookup_na_unidade(self.unidade, name.sym).and_then(|b| b.getter)
+                {
+                    if let Some(Constante::Valor(val)) = self.m.valor_de_variavel(v) {
+                        self.valores_de_padroes.insert(p, val);
+                    }
                 }
             }
             PatternKind::Relational { value, .. } => {
@@ -534,7 +571,9 @@ impl Verificador<'_, '_> {
             PatternKind::Map { entries, .. } => {
                 for en in entries.iter() {
                     self.padrao(a, en.value);
-                    self.avaliar_e_relatar(en.key, false, c::NON_CONSTANT_MAP_PATTERN_KEY);
+                    if let Constante::Valor(v) = self.avaliar_e_relatar(en.key, false, c::NON_CONSTANT_MAP_PATTERN_KEY) {
+                        self.valores_de_chaves.insert(en.key, v);
+                    }
                 }
             }
             PatternKind::Record { fields } | PatternKind::Object { fields, .. } => {
@@ -678,9 +717,103 @@ impl Verificador<'_, '_> {
                     }
                     self.expr(a, caso.body, em_const);
                 }
+                let casos: Vec<Caso> = cases.iter().map(|k| Caso { padrao: Some(k.pattern), guardado: k.guard.is_some() }).collect();
+                let inicio = a.expr(e).span.start;
+                let pos: Vec<usize> = cases.iter().map(|k| self.seta_do_caso(a, k)).collect();
+                self.exaustividade(a, *value, inicio, &casos, &pos, true);
             }
             _ => {}
         }
+    }
+
+    // -- Exaustividade (`_validateSwitchExhaustiveness`, `:883-1000`) ----------
+
+    /// Relata `UNREACHABLE_SWITCH_CASE` (na palavra `case` ou na seta),
+    /// `NON_EXHAUSTIVE_SWITCH_*` (na palavra `switch`) e
+    /// `UNREACHABLE_SWITCH_DEFAULT` (na palavra `default`). `pos` é o
+    /// início do token de cada caso.
+    fn exaustividade(&mut self, a: &ast::Ast, valor: ExprId, inicio_switch: usize, casos: &[Caso], pos: &[usize], expressao: bool) {
+        let u = self.unidade;
+        let body = self.m.body;
+        let corpo = &body.units[u.0 as usize];
+        if corpo.tipos_invalidos.contains(&valor) {
+            return;
+        }
+        let Some(t) = corpo.get_type(valor) else { return };
+        let program = self.m.program;
+        let fonte = program.unit(u).source.as_str();
+        let versao_3_3 = program.library(self.lib).features.versao() >= dartforge_frontend::features::LanguageVersion::new(3, 3);
+        let valores_de_padroes = std::mem::take(&mut self.valores_de_padroes);
+        let valores_de_chaves = std::mem::take(&mut self.valores_de_chaves);
+        let entrada = Entrada {
+            ast: a,
+            source: fonte,
+            tipos_de_padroes: &corpo.tipos_de_padroes,
+            campos_de_extensao: &corpo.campos_de_extensao,
+            padroes_invalidos: &corpo.padroes_invalidos,
+            valores_de_padroes: &valores_de_padroes,
+            valores_de_chaves: &valores_de_chaves,
+            versao_3_3,
+        };
+        let mut ex = Exaustividade::nova(self.m, self.lib);
+        let deve = expressao || ex.sempre_exaustivo(t, 0);
+        let r = ex.verificar(&entrada, t, casos);
+        drop(ex);
+        self.valores_de_padroes = valores_de_padroes;
+        self.valores_de_chaves = valores_de_chaves;
+        let Some(r) = r else { return };
+        for i in r.inalcancaveis {
+            let n = if expressao { 2 } else { 4 };
+            self.relatar(w::UNREACHABLE_SWITCH_CASE, Span { start: pos[i], end: pos[i] + n }, Vec::new());
+        }
+        let default = casos.iter().position(|k| k.padrao.is_none());
+        match (r.testemunha, r.correcao) {
+            (Some(tw), Some(co)) => {
+                if deve && default.is_none() {
+                    let codigo = if expressao { c::NON_EXHAUSTIVE_SWITCH_EXPRESSION } else { c::NON_EXHAUSTIVE_SWITCH_STATEMENT };
+                    let tipo = self.m.formatar(t);
+                    self.relatar(codigo, Span { start: inicio_switch, end: inicio_switch + 6 }, vec![tipo, tw, co]);
+                }
+            }
+            _ => {
+                if let Some(d) = default {
+                    if deve {
+                        self.relatar(w::UNREACHABLE_SWITCH_DEFAULT, Span { start: pos[d], end: pos[d] + 7 }, Vec::new());
+                    }
+                }
+            }
+        }
+    }
+
+    /// O início da palavra `case`/`default` de um caso de `switch` (depois
+    /// dos rótulos).
+    fn inicio_da_palavra_do_caso(&self, k: &ast::SwitchCase) -> usize {
+        let fonte = self.m.program.unit(self.unidade).source.as_bytes();
+        let mut i = k.span.start;
+        if let Some(l) = k.labels.last() {
+            i = pular_brancos(fonte, l.span.end);
+            if fonte.get(i) == Some(&b':') {
+                i += 1;
+            }
+            i = pular_brancos(fonte, i);
+        }
+        i
+    }
+
+    /// O início da seta `=>` de um caso de expressão `switch`.
+    fn seta_do_caso(&self, a: &ast::Ast, k: &ast::SwitchExprCase) -> usize {
+        let fonte = self.m.program.unit(self.unidade).source.as_bytes();
+        let fim = match k.guard {
+            Some(g) => a.expr(g).span.end,
+            None => a.pattern(k.pattern).span.end,
+        };
+        let limite = a.expr(k.body).span.start;
+        let mut i = fim;
+        while i + 1 < fonte.len() && i < limite && !(fonte[i] == b'=' && fonte[i + 1] == b'>') {
+            let j = pular_brancos(fonte, i);
+            i = if j > i { j } else { i + 1 };
+        }
+        i
     }
 
     fn elemento_filho(&mut self, a: &ast::Ast, el: &CollectionElement, em_const: bool) {
@@ -971,6 +1104,28 @@ struct Literal {
     tipo: TipoLiteral,
     unicos: Vec<(Valor, Span)>,
     duplicados: Vec<(Span, Span)>,
+}
+
+/// Pula espaços e comentários a partir de `i`.
+fn pular_brancos(f: &[u8], mut i: usize) -> usize {
+    loop {
+        while i < f.len() && f[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if f.get(i) == Some(&b'/') && f.get(i + 1) == Some(&b'/') {
+            while i < f.len() && f[i] != b'\n' {
+                i += 1;
+            }
+        } else if f.get(i) == Some(&b'/') && f.get(i + 1) == Some(&b'*') {
+            i += 2;
+            while i + 1 < f.len() && !(f[i] == b'*' && f[i + 1] == b'/') {
+                i += 1;
+            }
+            i = (i + 2).min(f.len());
+        } else {
+            return i;
+        }
+    }
 }
 
 fn desparentizar(a: &ast::Ast, mut e: ExprId) -> ExprId {

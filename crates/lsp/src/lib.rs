@@ -15,14 +15,25 @@
 
 pub mod servidor;
 mod acoes;
+mod assinatura;
+mod assistencias;
+mod chamadas;
+mod dicas;
+mod estrutura;
+mod hierarquia;
 mod aproximado;
 mod completar;
 mod consulta;
+mod correcoes;
+mod criar;
 mod dartdoc;
 mod descricao;
 mod indice;
 mod navegacao;
 mod projeto;
+mod realce;
+mod relevancia;
+mod relevancia_tabelas;
 mod renomear;
 mod semantica;
 mod sessao;
@@ -41,6 +52,10 @@ pub use completar::{Chamada, Completar, ImportAutomatico, ItemCompletar};
 pub use renomear::{Edicao, RenomearArquivo, Renomeacao};
 
 pub use acoes::AcaoDeCodigo;
+pub use assinatura::Assinatura;
+pub use chamadas::ItemDeChamada;
+pub use dicas::Dica;
+pub use estrutura::Dobra;
 pub use sessao::EstatisticasSessao;
 
 
@@ -78,6 +93,10 @@ pub struct Hover {
     pub tipo: Option<String>,
     /// Documentação (`///` ou `/** */`), já sem os marcadores.
     pub documentacao: Option<String>,
+    /// A biblioteca que declara o elemento (não local), como o Dart a
+    /// mostra: `package:x/y.dart`, `dart:core`, ou o caminho relativo à raiz
+    /// do projeto para um arquivo fora de `lib/`.
+    pub biblioteca: Option<String>,
 }
 
 /// Resposta de `textDocument/references`: a declaração (quando se sabe onde
@@ -380,7 +399,9 @@ pub trait Analisador {
     fn acoes(&mut self, documentos: &DocumentStore, uri: &str, inicio: usize, fim: usize, _publicados: &[Diagnostic]) -> Vec<AcaoDeCodigo> {
         let Some(texto) = documentos.get(uri) else { return Vec::new() };
         let diagnosticos = self.diagnosticar(uri, texto);
-        acoes::corrigir_sintaxe(uri, &diagnosticos, inicio, fim)
+        let mut saida = acoes::corrigir_sintaxe(uri, &diagnosticos, inicio, fim);
+        saida.push(acoes::organizar_imports(uri, texto));
+        saida
     }
 
     /// Descarta estado associado ao documento quando ele sai do editor.
@@ -417,6 +438,93 @@ pub trait Analisador {
         let spans = self.referencias(uri, texto, offset)?;
         Some(Referencias::de_lista(uri, spans))
     }
+
+    /// Ajuda de assinatura na lista de argumentos que contém `offset`
+    /// (`textDocument/signatureHelp`). `automatica`: o editor pediu ao
+    /// digitar `(`; só responde se esse `(` abre a lista. O padrão: nenhuma.
+    fn assinatura(&mut self, _documentos: &DocumentStore, _uri: &str, _offset: usize, _automatica: bool) -> Option<Assinatura> {
+        None
+    }
+
+    /// As ocorrências, no próprio documento, do que `offset` denota
+    /// (`textDocument/documentHighlight`). O padrão usa as referências
+    /// conservadoras do documento.
+    fn destaques(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<Vec<dartforge_diagnostics::Span>> {
+        let texto = documentos.get(uri)?.to_string();
+        self.referencias(uri, &texto, offset)
+    }
+
+    /// Implementações (`textDocument/implementation`): subtipos de uma
+    /// classe ou as sobrescritas de um membro, com a URI de cada uma.
+    fn implementacoes(&mut self, _documentos: &DocumentStore, _uri: &str, _offset: usize) -> Vec<(String, dartforge_diagnostics::Span)> {
+        Vec::new()
+    }
+
+    /// A declaração do tipo estático do que `offset` denota
+    /// (`textDocument/typeDefinition`).
+    fn definicao_de_tipo(&mut self, _documentos: &DocumentStore, _uri: &str, _offset: usize) -> Option<(String, dartforge_diagnostics::Span)> {
+        None
+    }
+
+    /// Regiões de dobra (`textDocument/foldingRange`); `so_linhas`: o
+    /// cliente anunciou `lineFoldingOnly`.
+    fn dobras(&mut self, _uri: &str, _texto: &str, _so_linhas: bool) -> Vec<Dobra> {
+        Vec::new()
+    }
+
+    /// Faixas de seleção em `offset`, da mais interna à mais externa
+    /// (`textDocument/selectionRange`).
+    fn selecoes(&mut self, _uri: &str, _texto: &str, _offset: usize) -> Vec<dartforge_diagnostics::Span> {
+        Vec::new()
+    }
+
+    /// Dicas embutidas do documento inteiro (`textDocument/inlayHint`).
+    fn dicas(&mut self, _documentos: &DocumentStore, _uri: &str) -> Vec<Dica> {
+        Vec::new()
+    }
+
+    /// Tokens semânticos do documento já codificados para o protocolo
+    /// (grupos de 5 números); `multilinha`: o cliente aceita tokens de
+    /// várias linhas; `faixa` (bytes): só os que a tocam.
+    fn tokens_semanticos(&mut self, _documentos: &DocumentStore, _uri: &str, _multilinha: bool, _faixa: Option<(usize, usize)>) -> Option<Vec<u32>> {
+        None
+    }
+
+    /// O executável em `offset` como item da hierarquia de chamadas
+    /// (`textDocument/prepareCallHierarchy`).
+    fn preparar_chamadas(&mut self, _documentos: &DocumentStore, _uri: &str, _offset: usize) -> Option<ItemDeChamada> {
+        None
+    }
+
+    /// Chamadas recebidas (`true`) ou feitas pelo executável cujo nome está
+    /// em `offset` de `uri`, com os intervalos de cada uma (no arquivo de
+    /// quem chama); `origem` é o documento em que a hierarquia foi pedida.
+    fn chamadas(&mut self, _documentos: &DocumentStore, _origem: &str, _uri: &str, _offset: usize, _recebidas: bool) -> Vec<(ItemDeChamada, Vec<dartforge_diagnostics::Span>)> {
+        Vec::new()
+    }
+
+    /// O item da hierarquia de tipos em `offset`
+    /// (`textDocument/prepareTypeHierarchy`).
+    fn preparar_hierarquia(&mut self, _documentos: &DocumentStore, _uri: &str, _offset: usize) -> Option<ItemDeTipo> {
+        None
+    }
+
+    /// Supertipos (`true`) ou subtipos diretos do item cuja classe tem o
+    /// nome em `offset` de `uri` (o `data` do item); `origem` é o documento
+    /// em que a hierarquia foi pedida (o projeto procurado).
+    fn hierarquia(&mut self, _documentos: &DocumentStore, _origem: &str, _uri: &str, _offset: usize, _supertipos: bool) -> Vec<ItemDeTipo> {
+        Vec::new()
+    }
+}
+
+/// Um item da hierarquia de tipos: o nome exibido (`Base<int>`), o arquivo,
+/// a declaração inteira e o nome.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemDeTipo {
+    pub nome: String,
+    pub uri: String,
+    pub intervalo: dartforge_diagnostics::Span,
+    pub selecao: dartforge_diagnostics::Span,
 }
 
 /// Análise sintática: o parser novo, sem resolução (nomes e tipos chegam depois).
@@ -555,6 +663,7 @@ impl Analisador for AnalisadorSintatico {
                 descricao: tipo.descricao?,
                 tipo: tipo.tipo_estatico,
                 documentacao: None,
+                biblioteca: None,
             }),
         }
     }
@@ -578,7 +687,17 @@ impl Analisador for AnalisadorSintatico {
 
     fn hover_no_workspace(&mut self, uri: &str, _texto: &str, offset: usize, documentos: &DocumentStore) -> Option<Hover> {
         let (intervalo, descricao, tipo) = navegacao::hover_em(documentos, uri, offset, self)?;
-        Some(Hover { intervalo, descricao, tipo, documentacao: None })
+        Some(Hover { intervalo, descricao, tipo, documentacao: None, biblioteca: None })
+    }
+
+    fn dobras(&mut self, uri: &str, texto: &str, so_linhas: bool) -> Vec<Dobra> {
+        let features = self.features(uri, texto);
+        estrutura::dobras(texto, features, so_linhas)
+    }
+
+    fn selecoes(&mut self, uri: &str, texto: &str, offset: usize) -> Vec<dartforge_diagnostics::Span> {
+        let features = self.features(uri, texto);
+        estrutura::selecoes(texto, features, offset)
     }
 
     fn referencias_em(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<Referencias> {

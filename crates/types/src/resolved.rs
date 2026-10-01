@@ -91,6 +91,17 @@ pub struct UnitBodyTypes {
     /// (`int Function(int) f = id;`), pela expressão do tear-off: a closure
     /// tem o tipo instanciado e leva os argumentos, como na VM.
     pub instanciacoes_de_tearoff: std::collections::HashMap<ast::ExprId, Box<[TypeId]>>,
+    /// O tipo de cada padrão que a exaustividade lê (`PatternConverter` do
+    /// analyzer, `an611:src/generated/exhaustiveness.dart:520-680`): o
+    /// declarado de uma variável, o escrito de um curinga ou de um cast, o
+    /// requerido de um padrão objeto, lista (`List<E>`) ou mapa (`Map<K, V>`).
+    pub tipos_de_padroes: std::collections::HashMap<ast::PatternId, TypeId>,
+    /// O tipo da propriedade de extensão lida por um campo de padrão objeto
+    /// (`ExtensionKey`), pelo subpadrão do campo.
+    pub campos_de_extensao: std::collections::HashMap<ast::PatternId, TypeId>,
+    /// Padrões cujo tipo escrito não resolve (`InvalidType`): o analyzer não
+    /// verifica a exaustividade do `switch` que os contém.
+    pub padroes_invalidos: std::collections::HashSet<ast::PatternId>,
 }
 
 impl UnitBodyTypes {
@@ -105,6 +116,9 @@ impl UnitBodyTypes {
             tipos_de_execucao_de_funcoes: std::collections::HashMap::new(),
             instanciacoes: std::collections::HashMap::new(),
             instanciacoes_de_tearoff: std::collections::HashMap::new(),
+            tipos_de_padroes: std::collections::HashMap::new(),
+            campos_de_extensao: std::collections::HashMap::new(),
+            padroes_invalidos: std::collections::HashSet::new(),
         }
     }
 

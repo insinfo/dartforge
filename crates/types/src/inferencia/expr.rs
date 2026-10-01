@@ -328,6 +328,9 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
     match resolver_nome(inf, cx, n.sym, false) {
         RefNome::Local(id) => {
             resolver(inf, cx, e, Resolved::Local(id));
+            if inf.locais_invalidos.contains(&(cx.unit, cx.local(id).offset)) {
+                inf.body_types.units[cx.unit.0 as usize].tipos_invalidos.insert(e);
+            }
             if n.span.start < cx.local(id).offset && !cx.local(id).funcao_local {
                 let msg = format!("{}: '{}'", REFERENCED_BEFORE_DECLARATION.template, inf.interner.resolve(n.sym));
                 inf.aviso(msg, n.span);
@@ -677,7 +680,8 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
         ExprKind::As { value, ty } => {
             let v = inferir_livre(inf, cx, *value);
             let t = inf.tipo_no_contexto(cx, *ty, crate::resolve::ContextoDeTipo::As);
-            if v == t && !inf.e_dynamic(v) {
+            let iguais = v == t || crate::ops::sem_exibicao(v, inf.table) == crate::ops::sem_exibicao(t, inf.table);
+            if iguais && !inf.e_dynamic(v) {
                 inf.aviso(UNNECESSARY_CAST.template.to_string(), span);
             }
             if let Some(id) = alvo_de_promocao(inf, cx, *value) {
@@ -1957,6 +1961,13 @@ fn binario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: BinaryOp, 
         BinaryOp::And | BinaryOp::Or | BinaryOp::Eq | BinaryOp::NotEq => {
             let (vf, ff) = condicao_binaria(inf, cx, e, op, left, right);
             cx.fluxo = inf.juntar(&vf, &ff);
+            // `x == y` com `x: Never`: o receptor nunca existe, e a invocação
+            // de `==` tem o tipo `Never` (como qualquer membro de `Never`).
+            if matches!(op, BinaryOp::Eq | BinaryOp::NotEq)
+                && inf.body_types.units[cx.unit.0 as usize].get_type(left).is_some_and(|t| matches!(inf.table.get(t), Type::Never))
+            {
+                return inf.core.never;
+            }
             inf.core.bool_
         }
         BinaryOp::IfNull => {

@@ -212,7 +212,7 @@ uma resolução paralela por nome. Formas cobertas (matriz em
 | --- | --- | --- |
 | local, parâmetro (promovido) | a declaração | `num n` + `Type: int` (tipo da referência, com promoção) |
 | função local | a declaração | `int dobro(int v)` |
-| membro por instância, `this` implícito, `super`, cascata | o membro resolvido para o receptor (a sobrescrita, não a família) | assinatura completa (`void met(int x, {int y = 0, required String nome})`); campo e getter com `Type:` já substituído (`T valor` + `Type: int`) |
+| membro por instância, `this` implícito, `super`, cascata | o membro resolvido para o receptor (a sobrescrita, não a família) | assinatura completa (`void met(int x, [int y = 0])`; com três parâmetros ou mais, um por linha, como o `multiline` do analyzer); numa chamada, `Type:` com o tipo da invocação (`void Function(int, [int])`); campo e getter com `Type:` já substituído (`T valor` + `Type: int`) |
 | construtor nomeado (`A.nome()`, `new A.nome()`) e sem nome escrito (`A()`) | o construtor; sem construtor escrito, a classe | `Caixa<T> Caixa.vazia(T v)` |
 | classe, mixin, enum, extension type, extensão, typedef | a declaração | `abstract class B<T> extends A with M implements I` (modificadores, parâmetros de tipo, supertipos como no `ElementDisplayStringBuilder`) |
 | variável, função, getter de topo; importados com ou sem prefixo | a declaração (outro arquivo, aberto ou no disco, ou o SDK) | `int x` + `Type: int`; `int soma([int a = 0])`; `int get g` + `Type: int` |
@@ -223,7 +223,18 @@ uma resolução paralela por nome. Formas cobertas (matriz em
 
 O hover inclui a documentação (`///` ou `/** */`, limpa, depois de `---` em
 Markdown); um membro sobrescrito sem documentação própria mostra a do
-primeiro membro sobrescrito que a tem, como o analyzer. Partes entram pela
+primeiro membro sobrescrito que a tem, como o analyzer. Em Markdown, o
+texto segue o `toHover` do Dart 3.6.2 (`lsp/handlers/handler_hover.dart`):
+o bloco `dart` com a descrição (`(deprecated) ` antes, se a declaração tem
+`@deprecated`/`@Deprecated`; `(new) ` antes do construtor de uma criação
+sem `new`/`const`), `Type: \`T\``, a biblioteca do elemento não local em
+itálico (`*package:x/y.dart*`, `*dart:core*`, ou o caminho relativo à raiz
+para um arquivo fora de `lib/`, como o `_libraryInfo` do analyzer) e, depois
+de `---`, a documentação. Um parâmetro mostra os delimitadores do tipo dele
+(`[int b = 0]`, `{required int c}`); a declaração de uma constante de enum
+não tem hover; os nomes de `show`/`hide` resolvem para o elemento exportado
+(hover, definição, referências e renomear). Em texto puro, sem a linha da
+biblioteca. Partes entram pela
 biblioteca dona e a definição cruza parte ↔ dona; o texto aberto vale mais
 que o disco (inclusive para o dono da declaração). Definição e hover
 carregam só a biblioteca do documento (e o que ela importa) e inferem só os
@@ -524,14 +535,22 @@ Implementadas: `initialize` (com `serverInfo`), `initialized`, `shutdown`,
 `textDocument/completion`, `textDocument/prepareRename`,
 `textDocument/rename`, `textDocument/codeAction`, `completionItem/resolve`,
 `textDocument/diagnostic` (só com o cliente que anuncia
-`textDocument.diagnostic`), `dartforge/dormir`
+`textDocument.diagnostic`), `textDocument/signatureHelp`,
+`textDocument/documentHighlight`, `textDocument/implementation`,
+`textDocument/typeDefinition`, `textDocument/foldingRange`,
+`textDocument/selectionRange`, `textDocument/inlayHint`,
+`textDocument/semanticTokens/full` e `/range`,
+`textDocument/prepareTypeHierarchy`, `typeHierarchy/supertypes`,
+`typeHierarchy/subtypes`, `textDocument/prepareCallHierarchy`,
+`callHierarchy/incomingCalls`, `callHierarchy/outgoingCalls` (regras em
+"Paridade com o servidor do Dart (3.6.2)"), `dartforge/dormir`
 (gancho de teste do cancelamento em execução; clientes reais nunca enviam).
 
-Pendentes no completar: a relevância não pondera pelo tipo esperado nem
-pelo uso (o Dart usa as duas coisas). Nas ações: as correções de códigos
-que ainda não são publicados (criar classe ou método para nome indefinido,
-remover import não usado…) esperam a publicação deles; das assistências do
-Dart, só a anotação de tipo de local existe.
+Pendentes nas ações: das assistências do Dart (`refactor.*`: extrair
+método ou variável, embutir, converter corpo, mover para arquivo…), só a
+anotação de tipo de local existe; das ações de fonte, só `Organize Imports`
+(sem remover imports não usados: `unused_import` não é publicado ainda);
+`Sort Members` e `Fix All` não existem.
 
 **Diagnósticos puxados (LSP 3.17).** O cliente que anuncia
 `textDocument.diagnostic` recebe o `diagnosticProvider`
@@ -556,6 +575,301 @@ componentes); até lá, a formatação fica com o `dart format`. Os
 diagnósticos semânticos publicados (os códigos de `verificados.txt`,
 inclusive os que dependem de tipos) chegam pelo fluxo tipado descrito em
 "Diagnósticos tipados"; os não verificados continuam fora do editor.
+
+## Paridade com o servidor do Dart (3.6.2)
+
+O alvo é o `dart language-server` do SDK 3.6.2 (o mesmo do oráculo dos
+diagnósticos). As regras abaixo saem da fonte do `analysis_server` na tag
+`3.6.2` do checkout de referência (`git show 3.6.2:pkg/analysis_server/…`,
+caminhos relativos a `pkg/analysis_server/lib/src/`) e foram conferidas no
+oráculo; onde o servidor atual (pós-3.6) mudou o comportamento e a mudança
+é melhor para o editor, a escolha está dita.
+
+### Oráculo de paridade
+
+`crates/lsp/oraculo/oraculo.py` abre os mesmos arquivos nos dois servidores
+por stdio (capacidades de cliente como as do VS Code: Markdown, snippets,
+`documentChanges`, `prepareSupport`, `lineFoldingOnly`,
+`hierarchicalDocumentSymbolSupport`), espera a análise inicial do Dart e pede,
+em posições amostradas de identificadores (fora de comentários e strings, 12
+por arquivo, espalhadas): `hover`, `definition`, `typeDefinition`,
+`implementation`, `references`, `documentHighlight`, `prepareRename`,
+`rename`, `codeAction` (assistências no cursor), `selectionRange`,
+`prepareCallHierarchy`, `prepareTypeHierarchy` e `completion` (no meio do
+nome, com até dois caracteres digitados, ou logo depois do `.` de um acesso a
+membro); `signatureHelp` logo depois do `(` de chamadas (disparo automático)
+e depois da primeira vírgula (invocado); por arquivo, `documentSymbol`,
+`foldingRange`, `semanticTokens/full`, `inlayHint`, `documentLink` e
+`formatting`; e `codeAction` no intervalo de cada diagnóstico que o Dart
+publica. `crates/lsp/oraculo/resumo.py` normaliza (URIs sem
+percent-encoding nem caixa, intervalos, conjuntos) e imprime a tabela.
+
+Uso (o binário do DartForge com `DARTFORGE_SDK_LIB` apontando o SDK 3.6.2):
+
+```text
+python crates/lsp/oraculo/oraculo.py saida.jsonl target/release/dartforge-lsp.exe <projeto> …
+python crates/lsp/oraculo/resumo.py saida.jsonl
+```
+
+Projetos medidos: cópias de `args-2.7.0`, `path-1.9.1` e
+`string_scanner-1.4.1` do pub-cache (só `lib/`, `dev_dependencies` fora,
+`dart pub get --offline`) e um projeto `app` com erros comuns (método,
+getter e função indefinidos, argumento obrigatório faltando, `switch` não
+exaustivo, membros abstratos sem implementação, variável não usada, cast
+desnecessário).
+
+Resultado (4 projetos, 36 arquivos, 410 posições; "igual" é o resultado
+normalizado idêntico ao do Dart; antes = o servidor no início deste
+trabalho, depois = o atual):
+
+| Recurso | Antes | Depois | Observação |
+|---|---|---|---|
+| documentSymbol | 53% | 97% | espécies e nomes (`A.nome`) como o Dart |
+| foldingRange | 0% | 100% | |
+| semanticTokens (por token) | 0% | 100% | |
+| inlayHint (por arquivo) | 17% | 50% | falta `InvalidType` e argumentos de tipo de chamada genérica |
+| codeAction: correções p/ diag. do Dart | 17% | 75% | faltam `Add missing switch cases` e `Add required argument` |
+| codeAction: ações de fonte | 1% | 0% | `Organize Imports` igual; `Fix All` e `Sort Members` não existem |
+| hover (texto inteiro) | 17% | 86% | |
+| hover (assinatura) | 86% | 97% | |
+| definition | 95% | 96% | |
+| typeDefinition | 28% | 95% | |
+| implementation | 71% | 77% | o Dart procura no SDK inteiro |
+| references | 56% | 58% | o Dart procura no SDK inteiro (aqui, o projeto carregado) |
+| documentHighlight | 0% | 95% | |
+| prepareRename | 95% | 96% | |
+| rename | 88% | 89% | |
+| codeAction: assistências no cursor | 8% | 26% | faltam Extract/Inline Method, Move to file, Convert to… |
+| selectionRange | 0% | 48% | nós intermediários da árvore do analyzer |
+| prepareCallHierarchy | 68% | 86% | |
+| prepareTypeHierarchy | 22% | 76% | `range` do Dart é o nome; aqui a declaração |
+| completion: alvo presente | 95% | 98% | |
+| completion: mesmo top-1 | 46% | 63% | |
+| completion: top-5 ≥ 60% comum | 48% | 52% | |
+| signatureHelp (rótulo) | 53% | 99% | |
+| workspace/symbol | 0% | 0% | o Dart inclui o SDK inteiro |
+
+Latência (mediana no oráculo, ms, Dart / DartForge): hover 1,4 / 3,5 (era
+3,5), completion 5,0 / 69,5 (era 67,6), signatureHelp 1,1 / 3,3,
+documentHighlight 1,4 / 4,1, semanticTokens 2,1 / 4,0, inlayHint 1,7 / 3,4,
+foldingRange 1,4 / 0,4. Com `examples/latencia_recursos.rs` (release,
+Windows, 20 pedidos em `args/lib/src/arg_parser.dart`,
+`args/lib/command_runner.dart` e `path/lib/src/context.dart`): hover parado
+2,5–3,5 ms, completion parado 67–82 ms, signatureHelp 2,6–2,8 ms,
+documentHighlight 3,2–4,1 ms, foldingRange 0,5–1,6 ms, hover logo após
+edição 63–73 ms, completion logo após edição 74–88 ms. O hover e o
+completar não pioraram; o completar continua dominado pela reinferência da
+biblioteca a cada pedido.
+
+### Regras por recurso
+
+**Completar** (`lsp/handlers/handler_completion.dart`,
+`services/completion/dart/*`). Além do descrito em "Consultas semânticas
+por requisição":
+
+* *relevância* — a do `RelevanceComputer`/`FeatureComputer` do Dart
+  (`crates/lsp/src/relevancia.rs`): média ponderada das características
+  tipo de contexto (o tipo que a posição espera — parâmetro do argumento,
+  alvo da atribuição, tipo escrito da variável, retorno da função, `bool`
+  da condição — contra o tipo do item: igual 1,0, subtipo 0,40, supertipo
+  0,02, sem relação 0,13), espécie do elemento no local do completar (as
+  tabelas estatísticas `relevance_tables.g.dart` do 3.6.2, geradas em
+  `relevancia_tabelas.rs` por `crates/lsp/oraculo/gerar_tabelas.py`; o local
+  é o papel da posição no nó pai: `Block_statement`,
+  `ArgumentList_method_unnamed`, `PropertyAccess_propertyName`,
+  `ReturnStatement_expression`, `VariableDeclaration_initializer`…; locais
+  pela proximidade e membros pela distância de herança, `0,9^d`),
+  palavra-chave (o alto da faixa no local), não importado (−1), nome com `$`
+  e `noSuchMethod`; `⌊((média + 1) / 2) × 1000⌋`, e os argumentos nomeados
+  com 900 (950 obrigatório). A ordem é a relevância (o digitado como
+  prefixo antes do casamento aproximado; entre iguais, o grupo e o nome);
+* nada no nome de uma declaração (variável com `var`/`final`/tipo,
+  parâmetro com tipo, função, classe…), como o Dart;
+* `Cor.▮` lista as constantes do enum; `show`/`hide` lista o que a
+  biblioteca da diretiva exporta; `this.▮` num construtor lista os campos
+  ainda não inicializados e `super.▮` os parâmetros do construtor da
+  superclasse ainda não repassados;
+* com `completionItem.labelDetailsSupport`, o rótulo é só o nome e
+  `labelDetails` traz a assinatura curta (`(…) → int`, ` String`) e a
+  biblioteca a importar, como o Dart faz com esse cliente.
+
+Divergências conhecidas do completar: o Dart sugere também o que o SDK
+inteiro declara sem import (`InternetAddress`… com `isNotImported`); aqui só
+as bibliotecas `dart:` importáveis que o índice conhece. A latência
+(~70 ms contra ~5 ms) vem da inferência da biblioteca refeita a cada pedido.
+
+**Ajuda de assinatura** (`computer/computer_signature.dart`,
+`lsp/handlers/handler_signature_help.dart`, `lsp/mapping.dart`
+`toSignatureHelp`). `signatureHelpProvider` com `triggerCharacters: ["("]`
+e `retriggerCharacters: [","]` (`lsp/constants.dart`). A lista é a
+`ArgumentList` mais interna que contém o cursor (do `(` exclusive ao `)`
+inclusive); uma `FunctionExpression` entre o cursor e a lista encerra a
+busca (cursor no corpo de um *closure* argumento não mostra a chamada de
+fora). Só chamadas de método ou função (`MethodInvocation`), criações de
+instância (`InstanceCreationExpression`, com ou sem `new`) e invocações de
+expressão cujo alvo é um identificador; getter ou campo que devolve função
+não tem assinatura. Rótulo `nome(p1, [p2], {p3})`, com `nome` o nome do
+método, ou o nome qualificado do tipo criado (`p.A.nome`), e cada
+parâmetro `[required ]tipo nome[ = padrão]`, tipo como o elemento o vê (num
+receptor genérico, substituído: `List<int>.add` → `add(int value)`; numa
+criação, pelos argumentos do tipo criado) e o padrão como escrito. Um só
+`SignatureInformation`, `activeSignature: 0`; documentação do elemento (a do
+hover, Markdown se o cliente aceita). Disparo automático (`triggerKind: 2`,
+`isRetrigger: false`) só responde quando o cursor está logo depois do `(`
+que abre a lista. Escolha: o 3.6.2 manda `activeParameter: -1` (nenhum
+parâmetro destacado); o servidor atual calcula o parâmetro ativo (o do
+argumento sob o cursor, nomeado pelo nome, posicional pela posição; entre
+argumentos, o próximo posicional) e manda o tamanho da lista quando não há
+(`null` ao cliente com `noActiveParameterSupport`). Seguimos o atual: no VS
+Code, o parâmetro sendo digitado fica destacado. Assinatura de argumentos de
+tipo (`List<▮>`) não existe aqui.
+
+**Destaques no documento** (`lsp/handlers/handler_document_highlights.dart`,
+`DartUnitOccurrencesComputer`): as ocorrências do elemento sob o cursor no
+próprio arquivo, a declaração inclusive, sem `kind`. Aqui, pela identidade
+do `references` (`Projeto::ocorrencias`) restrita à unidade; num membro de
+instância a família inteira (o Dart separa o membro sobrescrito do que
+sobrescreve).
+
+**Implementações** (`lsp/handlers/handler_implementation.dart`,
+`search/type_hierarchy.dart` `TypeHierarchyComputerHelper`): o elemento sob
+o cursor; se é classe (ou construtor dela), os subtipos transitivos; se é
+membro de instância de classe, a declaração do membro em cada subtipo que o
+declara (ou o recebe de um mixin; não os intermediários sem declaração);
+local, topo que não é classe e membro de extension type não têm
+implementação (lista vazia). Os locais são o nome de cada declaração. A
+busca cobre o projeto carregado (as bibliotecas do projeto e o que elas
+importam).
+
+**Definição do tipo** (`lsp/handlers/handler_type_definition.dart`): o nó
+sob o cursor dá o tipo — nome de tipo, a própria classe; declaração de
+variável, de parâmetro ou de `for-in`, o tipo declarado; expressão, o tipo
+estático (com promoção); método ou função, nada (é tipo função) — e só tipo
+de interface (classe, enum, mixin, extension type; `int?` vai para `int`)
+tem destino: o nome da declaração do tipo. Sem destino, lista vazia. Sem
+`LocationLink` (o cliente do oráculo não anuncia `linkSupport`).
+
+**Dobras** (`computer/computer_folding.dart`,
+`lsp/handlers/handler_folding.dart`): as regiões em ordem de visita da
+árvore — anotações (do fim do nome da primeira ao fim da última), corpo de
+classe e de mixin (do fim do nome ao `}`), de enum, extensão e extension
+type (entre as chaves), construtor, método e função (do fim do nome ao
+fim), listas de parâmetros e de argumentos (entre os parênteses; se a linha
+do `(` já tem região, a partir do primeiro parâmetro ou argumento), literais
+de lista, conjunto, mapa e registro, blocos de `if`/`else`/`while`/`do` (do
+`{` ao fim do último comando, ou do último comentário antes do `}`), `for`
+e corpo de *closure* (do `{` ao `}`), `switch` e cada caso (do `:` ao fim),
+`switch` de expressão e cada caso (do `=>` ao fim), `assert` e strings de
+várias linhas —, depois as diretivas (da palavra-chave da primeira ao fim da
+última, `imports`) e os comentários (`/* */` do fim da primeira linha;
+`//`/`///` consecutivos do mesmo tipo e sem linha em branco, do fim do
+primeiro ao fim do último; `comment`). Só regiões de mais de uma linha;
+duas não começam na mesma linha. Ordenadas pelo início; com
+`lineFoldingOnly`, a que termina na linha em que a seguinte começa (sem
+contê-la) termina na linha anterior, e some se ficar com uma linha.
+
+**Faixas de seleção** (`computer/computer_selection_ranges.dart`): os nós
+que contêm o cursor, do mais interno ao mais externo, sem repetir intervalo;
+a declaração inclui o comentário de documentação. Aqui, dos nós da árvore do
+parser (nomes, expressões, comandos, tipos, padrões, parâmetros, listas de
+argumentos, `nome: valor`, `x = e`, declarações, diretivas); a árvore do
+analyzer tem nós intermediários que esta não tem (`ExpressionStatement` com
+o `;`, `VariableDeclarationList`, `FormalParameterList`), então alguns
+degraus diferem.
+
+**Dicas embutidas** (`computer/computer_inlay_hint.dart`): o arquivo inteiro
+(o intervalo pedido é ignorado, como no Dart); tipo antes do nome de
+variável sem tipo escrito (local, campo, topo, `for-in`, padrão), antes do
+nome de parâmetro sem tipo (de *closure* inclusive; não `this.x`/`super.x`)
+e de função ou método sem tipo de retorno (antes do `get` num getter; não
+em setter); `nome:` antes de cada argumento posicional de chamada
+resolvida; argumentos de tipo inferidos (`<int>`) antes do `[`/`{` de
+literal sem argumentos escritos e depois do nome da classe numa criação sem
+argumentos escritos. `label` em partes (sem `location`), `paddingRight`
+como o Dart. Falta: argumentos de tipo inferidos de chamada genérica
+(`map<String>(…)`), que pedem os argumentos inferidos da inferência comum.
+
+**Tokens semânticos** (`computer/computer_highlights.dart`,
+`lsp/semantic_tokens/{mapping,legend,encoder}.dart`): a legenda é a do
+3.6.2, na mesma ordem (tipos `annotation, keyword, class, comment, method,
+variable, parameter, enum, enumMember, type, source, property, namespace,
+boolean, number, string, function, typeParameter`; modificadores
+`documentation, constructor, declaration, importPrefix, instance, static,
+escape, annotation, control, label, interpolation, void, wildcard`). Palavras
+reservadas e embutidas viram `keyword` (`control` nas de fluxo), `true`/
+`false` `boolean`, `void` `keyword`+`void`; números, strings (cada trecho
+de uma interpolada; `${…}`/`$x` como `source`+`interpolation`; escapes como
+`string`+`escape`) e comentários (`documentation` em `///`/`/**`); cada nome
+pelo elemento que denota — declarações com `declaration` (classe,
+extension type, método, getter/setter, campo e variável), referências a
+getter, campo e variável de topo como `property`, campo declarado como
+`variable` (com `instance` ou `static`), métodos com `instance`/`static`,
+construtores (`class`/`method` + `constructor`), locais, parâmetros
+(`label` nos rótulos `nome:`), parâmetros de tipo, constantes de enum,
+prefixos (`importPrefix`), e `source` para o não resolvido. Anotações:
+`annotation` do `@` ao `(` (ou ao fim) e no `)`, com `annotation` nos
+nomes. Sobreposições divididas pelo de cima (`splitOverlappingTokens`);
+sem `multilineTokenSupport`, um token por linha.
+
+**Hierarquia de tipos** (`lsp/handlers/handler_type_hierarchy.dart`,
+`computer/computer_lazy_type_hierarchy.dart`): `prepareTypeHierarchy` no
+nome de um tipo (ou dentro de uma classe, mixin, enum ou extension type)
+devolve o item da classe (`kind: 5`, nome com os parâmetros de tipo,
+`range` a declaração, `selectionRange` o nome); `supertypes`: superclasse
+(`Object` quando não há `extends`), restrições `on`, interfaces e mixins, com
+os argumentos de tipo escritos (`Base<int>`); `subtypes`: as classes do
+projeto que citam o tipo em `extends`, `implements`, `on` ou `with`.
+
+**Ações rápidas**: além das descritas em `textDocument/codeAction` acima,
+`crates/lsp/src/correcoes.rs` traz as dos códigos publicados que ainda não
+tinham correção, com título, espécie e edição dos produtores do 3.6.2
+(`services/correction/dart/*.dart`, ligados em `fix_internal.dart`):
+`non_abstract_class_inherits_abstract_member` (`Create N missing
+override(s)` — os membros sem implementação concreta na cadeia da classe,
+ordenados pelo nome, getter antes de setter, par getter/setter como campo,
+tipos substituídos pelos argumentos com que a classe vê o supertipo,
+corpo `// TODO: implement x` + `throw UnimplementedError();`, depois do
+último membro —, `Create 'noSuchMethod' method`, `Make class 'C'
+abstract`), `concrete_class_with_abstract_member` (as duas últimas),
+`unused_field`, `unused_catch_clause`, `unused_catch_stack`,
+`assignment_to_final_local`, `missing_default_value_for_parameter` (`Add
+'required' keyword` num nomeado, `Make 'x' nullable`),
+`await_in_wrong_context` (`Add 'async' modifier`, com `Future<…>` no
+retorno escrito), `nullable_type_in_*_clause` (`Remove the '?'`),
+`const_instance_field` (`Add 'static' modifier`), `non_final_field_in_enum`
+(`Make final`), `extension(_type)_declares_member_of_object` (`Remove method
+declaration`) e `assert_in_redirecting_constructor` (`Remove the
+assertion`). As correções valem para os diagnósticos das linhas pedidas (o Dart filtra
+por linha), as assistências para o cursor; `Ignore 'x' for this line`/`for
+the whole file` vêm por último para os diagnósticos que não são erro.
+Assistências de reescrita (`crates/lsp/src/assistencias.rs`): `Convert to
+async function body`, `Convert to block body`, `Convert to expression
+body`, `Remove type annotation`, `Split variable declaration`, `Use curly
+braces`, `Assign value to new local variable`, `Inline Local Variable`,
+`Extract Local Variable`; criação de membros (`crates/lsp/src/criar.rs`):
+`Change to 'x'` (distância de edição < 3), `Create method/function/class/
+mixin/getter/field/local variable`, `Create extension method/getter`.
+`source.organizeImports` segue o `ImportOrganizer` (dart:, package:,
+relativos; exports depois; duplicados removidos). Faltam: `Fix All`, `Sort
+Members`, `Add missing switch cases`, `Add required argument`, `Extract
+Method`, `Inline Method`, `Move to file`.
+
+**Hierarquia de chamadas** (`computer/computer_call_hierarchy.dart`,
+`lsp/handlers/handler_call_hierarchy.dart`): `prepareCallHierarchy` num
+executável escrito (função, método, operador, getter/setter escritos,
+construtor; o sem nome implícito fica na classe), com nome exibido (`get
+x`, `set x`, `A.nome`), espécie (12 função, 6 método, 9 construtor, 7
+propriedade), `detail` o contêiner (classe ou arquivo), `range` a
+declaração e `selectionRange` o nome; `incomingCalls`: as referências (a
+família de sobrescrita inclusa) agrupadas pelo executável que as contém
+(ou pela classe, num inicializador de campo, ou pelo arquivo);
+`outgoingCalls`: chamadas, criações e leituras de getter escrito no corpo,
+agrupadas pelo chamado. As recebidas procuram no projeto carregado.
+
+**Fora (e por quê)**: formatação (decisão L08 acima); `documentLink` (no
+3.6.2 só liga `** See code in examples/api/…` de comentários do Flutter);
+`codeLens`, `colorProvider` e `inlineValue` (desligados no 3.6.2 sem
+configuração do cliente).
 
 ## Testes
 

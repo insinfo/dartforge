@@ -19,7 +19,22 @@ fn acoes(p: &mut Projeto, relativo: &str, de: (u32, u32), ate: (u32, u32), extra
             params["context"][k] = v;
         }
     }
-    p.requisitar("textDocument/codeAction", params)["result"].clone()
+    let r = p.requisitar("textDocument/codeAction", params)["result"].clone();
+    // As ações de fonte (sempre oferecidas) e as criações para nomes
+    // indefinidos têm testes próprios (`tests/correcoes.rs`); aqui ficam fora.
+    let fora = |k: &str| {
+        k.starts_with("source")
+            || k.starts_with("quickfix.ignore")
+            || (k.starts_with("refactor.") && k != "refactor.add.typeAnnotation")
+            || k == "quickfix.change.to"
+            || ["method", "function", "class", "mixin", "getter", "field", "localVariable"]
+                .iter()
+                .any(|s| k == format!("quickfix.create.{s}"))
+    };
+    match r {
+        Value::Array(l) => Value::Array(l.into_iter().filter(|a| !fora(a["kind"].as_str().unwrap_or(""))).collect()),
+        outro => outro,
+    }
 }
 
 fn titulos(r: &Value) -> Vec<String> {
@@ -36,7 +51,7 @@ fn anuncia_a_capacidade() {
     let r = p.requisitar("initialize", json!({"capabilities": {}}));
     assert_eq!(
         r["result"]["capabilities"]["codeActionProvider"],
-        json!({"codeActionKinds": ["quickfix", "refactor"]})
+        json!({"codeActionKinds": ["quickfix", "refactor", "source", "source.organizeImports"]})
     );
 }
 
@@ -96,19 +111,24 @@ fn importar_biblioteca_do_sdk_e_do_projeto() {
     p.abrir("lib/a.dart", texto);
     let uri = p.uri("lib/a.dart");
     // Chamada a um nome indefinido: SDK (sem bibliotecas `dart:_`).
+    // (As correções valem para os diagnósticos da linha, como no Dart: o
+    // `r` não usado da mesma linha também aparece.)
     let r = acoes(&mut p, "lib/a.dart", (3, 11), (3, 11), json!({}));
-    assert_eq!(titulos(&r), vec!["Import library 'dart:math'"]);
-    assert_eq!(r[0]["kind"], "quickfix.import.librarySdk");
+    let importar = acao(&r, "Import library 'dart:math'");
+    assert_eq!(titulos(&r).iter().filter(|t| t.starts_with("Import")).count(), 1);
+    assert_eq!(importar["kind"], "quickfix.import.librarySdk");
     assert_eq!(
-        aplicar(&r[0]["edit"], &uri, texto),
+        aplicar(&importar["edit"], &uri, texto),
         "import 'dart:core';\nimport 'dart:math';\n\nvoid f() {\n  var r = Random();\n  Soma? s;\n  print(pi);\n  _privada();\n}\n"
     );
     // Tipo indefinido: biblioteca do projeto (parte não conta), relativa.
+    // (O `s` não usado da mesma linha também tem a sua correção.)
     let r = acoes(&mut p, "lib/a.dart", (4, 3), (4, 3), json!({}));
-    assert_eq!(titulos(&r), vec!["Import library 'util/soma.dart'"]);
-    assert_eq!(r[0]["kind"], "quickfix.import.libraryProject1");
+    assert_eq!(titulos(&r).into_iter().filter(|t| t.starts_with("Import")).collect::<Vec<_>>(), vec!["Import library 'util/soma.dart'"]);
+    let importar = acao(&r, "Import library 'util/soma.dart'");
+    assert_eq!(importar["kind"], "quickfix.import.libraryProject1");
     assert!(
-        aplicar(&r[0]["edit"], &uri, texto)
+        aplicar(&importar["edit"], &uri, texto)
             .starts_with("import 'dart:core';\nimport 'util/soma.dart';\n")
     );
     // Variável de topo do SDK declarada na biblioteca, não numa parte.
@@ -214,9 +234,11 @@ fn remove_local_nao_usado_e_as_atribuicoes() {
         aplicar(&acao(&r, "Remove unused local variable")["edit"], &p.uri("lib/b.dart"), texto),
         "void f() {\n  var a = 1, b = 2;\n  var d = 4;\n  print(a + d);\n}\n"
     );
-    // Usado: nada a remover.
+    // Usado: nada a remover dele (o `b` da mesma linha, não usado, tem a
+    // sua correção, como no Dart, que corrige os diagnósticos da linha).
     let pos = onde(texto, "a = 1", 0);
-    assert!(!titulos(&acoes(&mut p, "lib/b.dart", pos, pos, json!({}))).contains(&"Remove unused local variable".to_string()));
+    let r = acoes(&mut p, "lib/b.dart", pos, pos, json!({}));
+    assert!(r.as_array().unwrap().iter().filter(|a| a["title"] == "Remove unused local variable").all(|a| a["diagnostics"][0]["range"]["start"]["character"] != pos.1));
 }
 
 #[test]

@@ -120,7 +120,7 @@ impl Sessao {
         });
         if serve {
             self.estatisticas.reaproveitadas += 1;
-            return self.entrada.as_ref().map(|(_, p)| Uso::Retido(p));
+            return self.entrada.as_mut().map(|(_, p)| Uso::Retido(p));
         }
         self.invalidar();
         let projeto = carregar()?;
@@ -144,14 +144,16 @@ impl Sessao {
         };
         self.estatisticas.fonte_retida = fonte;
         self.entrada = Some((chave, projeto));
-        self.entrada.as_ref().map(|(_, p)| Uso::Retido(p))
+        self.entrada.as_mut().map(|(_, p)| Uso::Retido(p))
     }
 }
 
 /// Um projeto emprestado da sessão ou próprio da consulta (acima do
-/// orçamento), usado do mesmo jeito.
+/// orçamento), usado do mesmo jeito. Mutável porque algumas consultas
+/// (a ajuda de assinatura) internam tipos substituídos na tabela do
+/// programa; a tabela só cresce enquanto a versão vale e cai com ela.
 pub(crate) enum Uso<'a> {
-    Retido(&'a Projeto),
+    Retido(&'a mut Projeto),
     Proprio(Box<Projeto>),
 }
 
@@ -159,6 +161,15 @@ impl std::ops::Deref for Uso<'_> {
     type Target = Projeto;
 
     fn deref(&self) -> &Projeto {
+        match self {
+            Uso::Retido(p) => p,
+            Uso::Proprio(p) => p,
+        }
+    }
+}
+
+impl std::ops::DerefMut for Uso<'_> {
+    fn deref_mut(&mut self) -> &mut Projeto {
         match self {
             Uso::Retido(p) => p,
             Uso::Proprio(p) => p,

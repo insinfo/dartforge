@@ -139,6 +139,22 @@ pub struct Servidor<A = AnalisadorSintatico> {
     atualizar_puxados: bool,
     /// Número do próximo pedido do servidor ao cliente (o id do `refresh`).
     proximo_pedido: u64,
+    /// O cliente aceita Markdown na documentação da ajuda de assinatura.
+    assinatura_markdown: bool,
+    /// O cliente aceita `activeParameter: null` (`noActiveParameterSupport`).
+    assinatura_sem_ativo: bool,
+    /// O cliente só dobra linhas inteiras (`foldingRange.lineFoldingOnly`).
+    dobras_so_linhas: bool,
+    /// O cliente aceita tokens semânticos de várias linhas.
+    tokens_multilinha: bool,
+    /// `SymbolKind`s que o cliente anuncia (`documentSymbol.symbolKind`);
+    /// sem a lista, só os da primeira versão do protocolo (1 a 18), e
+    /// `EnumMember` vira `Enum` como no servidor do Dart.
+    tipos_de_simbolo: Option<Vec<u64>>,
+    /// O cliente aceita `labelDetails` nos itens do completar: o rótulo é
+    /// só o nome, e a assinatura curta e a biblioteca a importar vão nos
+    /// detalhes (como o servidor do Dart faz com esse cliente).
+    rotulo_detalhes: bool,
 }
 
 impl Servidor<AnalisadorSintatico> {
@@ -183,6 +199,12 @@ impl<A: Analisador> Servidor<A> {
             diagnosticos_puxados: false,
             atualizar_puxados: false,
             proximo_pedido: 0,
+            assinatura_markdown: false,
+            assinatura_sem_ativo: false,
+            dobras_so_linhas: false,
+            tokens_multilinha: false,
+            rotulo_detalhes: false,
+            tipos_de_simbolo: None,
         }
     }
 
@@ -334,7 +356,19 @@ impl<A: Analisador> Servidor<A> {
         }
         if let Some(requisicao) = self.fila.pop_front() {
             debug_assert!(eh_requisicao(&requisicao));
-            saidas.push(self.tratar_requisicao(&requisicao));
+            // Um pânico numa consulta não derruba o servidor (o do Dart
+            // nunca cai por um pedido): a resposta é um erro interno e a
+            // sessão semântica, que pode ter ficado pela metade, cai.
+            let resposta = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.tratar_requisicao(&requisicao)));
+            match resposta {
+                Ok(r) => saidas.push(r),
+                Err(_) => {
+                    self.analisador.documento_alterado("");
+                    let id = requisicao.get("id").cloned().unwrap_or(Value::Null);
+                    registrar(format!("pânico ao tratar {}", requisicao.get("method").and_then(Value::as_str).unwrap_or("?")));
+                    saidas.push(erro(&id, -32603, "erro interno ao tratar o pedido"));
+                }
+            }
         }
         // Resultados tipados depois das notificações: o que uma mudança já
         // recebida tornou velho é descartado aqui, antes de chegar ao editor.
@@ -494,6 +528,30 @@ impl<A: Analisador> Servidor<A> {
                     .pointer("/params/capabilities/workspace/diagnostics/refreshSupport")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
+                self.assinatura_markdown = mensagem
+                    .pointer("/params/capabilities/textDocument/signatureHelp/signatureInformation/documentationFormat")
+                    .and_then(Value::as_array)
+                    .is_some_and(|f| f.iter().any(|x| x.as_str() == Some("markdown")));
+                self.assinatura_sem_ativo = mensagem
+                    .pointer("/params/capabilities/textDocument/signatureHelp/signatureInformation/noActiveParameterSupport")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                self.tipos_de_simbolo = mensagem
+                    .pointer("/params/capabilities/textDocument/documentSymbol/symbolKind/valueSet")
+                    .and_then(Value::as_array)
+                    .map(|l| l.iter().filter_map(Value::as_u64).collect());
+                self.rotulo_detalhes = mensagem
+                    .pointer("/params/capabilities/textDocument/completion/completionItem/labelDetailsSupport")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                self.tokens_multilinha = mensagem
+                    .pointer("/params/capabilities/textDocument/semanticTokens/multilineTokenSupport")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                self.dobras_so_linhas = mensagem
+                    .pointer("/params/capabilities/textDocument/foldingRange/lineFoldingOnly")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 let renomear = if self.preparar_renomeacao { json!({"prepareProvider": true}) } else { json!(true) };
                 let mut resultado = json!({
                     "capabilities": {
@@ -505,7 +563,23 @@ impl<A: Analisador> Servidor<A> {
                         "referencesProvider": true,
                         "hoverProvider": true,
                         "renameProvider": renomear,
-                        "codeActionProvider": {"codeActionKinds": ["quickfix", "refactor"]},
+                        "codeActionProvider": {"codeActionKinds": ["quickfix", "refactor", "source", "source.organizeImports"]},
+                        // Os caracteres do servidor do Dart
+                        // (`dartSignatureHelpTriggerCharacters`).
+                        "signatureHelpProvider": {"triggerCharacters": ["("], "retriggerCharacters": [","]},
+                        "documentHighlightProvider": true,
+                        "implementationProvider": true,
+                        "typeDefinitionProvider": true,
+                        "foldingRangeProvider": true,
+                        "selectionRangeProvider": true,
+                        "typeHierarchyProvider": true,
+                        "callHierarchyProvider": true,
+                        "inlayHintProvider": {"resolveProvider": false},
+                        "semanticTokensProvider": {
+                            "legend": {"tokenTypes": crate::realce::TIPOS, "tokenModifiers": crate::realce::MODIFICADORES},
+                            "full": true,
+                            "range": true,
+                        },
                         "completionProvider": {
                             "triggerCharacters": ["."],
                             "resolveProvider": true,
@@ -542,9 +616,12 @@ impl<A: Analisador> Servidor<A> {
                     .and_then(|p| p.get("textDocument"))
                     .and_then(|d| d.get("uri"))
                     .and_then(Value::as_str);
-                let simbolos = uri
+                let mut simbolos = uri
                     .and_then(|u| self.documentos.get(u).map(|t| (u, t.to_string())))
                     .map_or_else(Vec::new, |(u, t)| self.analisador.simbolos(u, &t));
+                for s in &mut simbolos {
+                    ajustar_especies(s, self.tipos_de_simbolo.as_deref());
+                }
                 let resultado = if self.simbolos_hierarquicos {
                     simbolos
                 } else {
@@ -647,14 +724,19 @@ impl<A: Analisador> Servidor<A> {
                     // O formato do servidor do Dart: a descrição em bloco de
                     // código, o tipo e, separada por `---`, a documentação.
                     let conteudo = if self.hover_markdown {
-                        let mut valor = format!("```dart\n{}\n```", hover.descricao);
+                        // Como o `toHover` do Dart: descrição, tipo, biblioteca
+                        // e, depois de `---`, a documentação.
+                        let mut valor = format!("```dart\n{}\n```\n", hover.descricao);
                         if let Some(t) = &hover.tipo {
-                            valor.push_str(&format!("\nType: `{t}`"));
+                            valor.push_str(&format!("Type: `{t}`\n\n"));
+                        }
+                        if let Some(b) = &hover.biblioteca {
+                            valor.push_str(&format!("*{b}*\n\n"));
                         }
                         if let Some(d) = &hover.documentacao {
-                            valor.push_str(&format!("\n\n---\n{d}"));
+                            valor.push_str(&format!("---\n{d}\n"));
                         }
-                        json!({"kind": "markdown", "value": valor})
+                        json!({"kind": "markdown", "value": valor.trim_end()})
                     } else {
                         let mut valor = hover.descricao.clone();
                         if let Some(t) = &hover.tipo {
@@ -695,7 +777,7 @@ impl<A: Analisador> Servidor<A> {
                                 _ => None,
                             };
                             let mut valor = json!({
-                                "label": item.rotulo,
+                                "label": if self.rotulo_detalhes { item.inserir.trim_end().to_string() } else { item.rotulo.clone() },
                                 "kind": item.especie,
                                 "sortText": format!("{i:05}"),
                                 "filterText": item.inserir.trim_end(),
@@ -706,6 +788,18 @@ impl<A: Analisador> Servidor<A> {
                             }
                             if let Some(detalhe) = &item.detalhe {
                                 valor["detail"] = json!(detalhe);
+                            }
+                            if self.rotulo_detalhes {
+                                let mut detalhes = serde_json::Map::new();
+                                if let Some(curta) = assinatura_curta(item.detalhe.as_deref(), item.chamada.is_some()) {
+                                    detalhes.insert("detail".into(), json!(curta));
+                                }
+                                if let Some(imp) = &item.importar {
+                                    detalhes.insert("description".into(), json!(imp.uri));
+                                }
+                                if !detalhes.is_empty() {
+                                    valor["labelDetails"] = Value::Object(detalhes);
+                                }
                             }
                             if let Some(imp) = &item.importar {
                                 valor["additionalTextEdits"] = json!([{
@@ -828,6 +922,210 @@ impl<A: Analisador> Servidor<A> {
                     Err(motivo) => erro(&id, RENOMEAR_INVALIDO, motivo),
                 }
             }
+            "textDocument/signatureHelp" => {
+                let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {
+                    return resposta(&id, Value::Null);
+                };
+                // Disparo automático (`(` digitado, ajuda fechada): só se o
+                // `(` abre a lista, como o servidor do Dart.
+                let automatica = mensagem.pointer("/params/context/triggerKind").and_then(Value::as_u64) == Some(2)
+                    && mensagem.pointer("/params/context/isRetrigger").and_then(Value::as_bool) == Some(false);
+                let Some(a) = self.analisador.assinatura(&self.documentos, &u, offset, automatica) else {
+                    return resposta(&id, Value::Null);
+                };
+                let mut assinatura = json!({
+                    "label": a.rotulo,
+                    "parameters": a.parametros.iter().map(|p| json!({"label": p})).collect::<Vec<_>>(),
+                });
+                if let Some(d) = &a.documentacao {
+                    assinatura["documentation"] =
+                        if self.assinatura_markdown { json!({"kind": "markdown", "value": d}) } else { json!(d) };
+                }
+                // Sem parâmetro ativo e sem `null` no cliente: um índice fora
+                // da lista (o VS Code não destaca nenhum).
+                let ativo = match a.ativo {
+                    Some(i) => json!(i),
+                    None if self.assinatura_sem_ativo => Value::Null,
+                    None => json!(a.parametros.len()),
+                };
+                resposta(&id, json!({"signatures": [assinatura], "activeSignature": 0, "activeParameter": ativo}))
+            }
+            "textDocument/documentHighlight" => {
+                let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {
+                    return resposta(&id, Value::Null);
+                };
+                let destaques = self.analisador.destaques(&self.documentos, &u, offset).unwrap_or_default();
+                let itens: Vec<Value> = destaques.into_iter().filter_map(|s| Some(json!({"range": self.faixa(&u, s)?}))).collect();
+                resposta(&id, if itens.is_empty() { Value::Null } else { json!(itens) })
+            }
+            "textDocument/implementation" => {
+                let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {
+                    return resposta(&id, json!([]));
+                };
+                let locais: Vec<Value> = self
+                    .analisador
+                    .implementacoes(&self.documentos, &u, offset)
+                    .into_iter()
+                    .filter_map(|(alvo, s)| Some(json!({"uri": alvo, "range": self.faixa(&alvo, s)?})))
+                    .collect();
+                resposta(&id, json!(locais))
+            }
+            "textDocument/typeDefinition" => {
+                let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {
+                    return resposta(&id, json!([]));
+                };
+                let local = self
+                    .analisador
+                    .definicao_de_tipo(&self.documentos, &u, offset)
+                    .and_then(|(alvo, s)| Some(json!({"uri": alvo, "range": self.faixa(&alvo, s)?})));
+                resposta(&id, local.unwrap_or_else(|| json!([])))
+            }
+            "textDocument/foldingRange" => {
+                let uri = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).map(str::to_string);
+                let Some((u, texto)) = uri.and_then(|u| Some((u.clone(), self.documentos.get(&u)?.to_string()))) else {
+                    return resposta(&id, Value::Null);
+                };
+                let so_linhas = self.dobras_so_linhas;
+                let dobras: Vec<Value> = self
+                    .analisador
+                    .dobras(&u, &texto, so_linhas)
+                    .into_iter()
+                    .map(|d| {
+                        let mut v = json!({"startLine": d.linha_inicio, "endLine": d.linha_fim});
+                        if !so_linhas {
+                            v["startCharacter"] = json!(d.coluna_inicio);
+                            v["endCharacter"] = json!(d.coluna_fim);
+                        }
+                        if let Some(k) = d.especie {
+                            v["kind"] = json!(k);
+                        }
+                        v
+                    })
+                    .collect();
+                resposta(&id, json!(dobras))
+            }
+            "textDocument/selectionRange" => {
+                let uri = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).map(str::to_string);
+                let Some((u, texto)) = uri.and_then(|u| Some((u.clone(), self.documentos.get(&u)?.to_string()))) else {
+                    return resposta(&id, Value::Null);
+                };
+                let posicoes: Vec<Posicao> = mensagem
+                    .pointer("/params/positions")
+                    .and_then(Value::as_array)
+                    .map(|l| l.iter().filter_map(ler_posicao).collect())
+                    .unwrap_or_default();
+                let mut saida = Vec::new();
+                for p in posicoes {
+                    let Some(offset) = self.documentos.linhas(&u).map(|t| t.offset_de_posicao(&texto, p.linha, p.coluna)) else {
+                        break;
+                    };
+                    let spans = self.analisador.selecoes(&u, &texto, offset);
+                    let Some(tabela) = self.documentos.linhas(&u) else { break };
+                    // Do mais externo ao mais interno, cada um pai do seguinte.
+                    let mut atual: Option<Value> = None;
+                    for s in spans.iter().rev() {
+                        let mut v = json!({"range": intervalo_lsp(&texto, tabela, s.start, s.end)});
+                        if let Some(pai) = atual.take() {
+                            v["parent"] = pai;
+                        }
+                        atual = Some(v);
+                    }
+                    saida.push(atual.unwrap_or_else(|| json!({"range": intervalo_lsp(&texto, tabela, offset, offset)})));
+                }
+                resposta(&id, json!(saida))
+            }
+            "textDocument/semanticTokens/full" | "textDocument/semanticTokens/range" => {
+                let uri = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).map(str::to_string);
+                let Some(u) = uri.filter(|u| self.documentos.get(u).is_some()) else {
+                    return resposta(&id, Value::Null);
+                };
+                let faixa = mensagem.pointer("/params/range").and_then(ler_intervalo).and_then(|(de, ate)| {
+                    let texto = self.documentos.get(&u)?;
+                    let tabela = self.documentos.linhas(&u)?;
+                    Some((tabela.offset_de_posicao(texto, de.linha, de.coluna), tabela.offset_de_posicao(texto, ate.linha, ate.coluna)))
+                });
+                let multilinha = self.tokens_multilinha;
+                match self.analisador.tokens_semanticos(&self.documentos, &u, multilinha, faixa) {
+                    Some(dados) => resposta(&id, json!({"data": dados})),
+                    None => resposta(&id, Value::Null),
+                }
+            }
+            "textDocument/inlayHint" => {
+                let uri = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).map(str::to_string);
+                let Some(u) = uri.filter(|u| self.documentos.get(u).is_some()) else {
+                    return resposta(&id, json!([]));
+                };
+                let dicas = self.analisador.dicas(&self.documentos, &u);
+                let (Some(texto), Some(tabela)) = (self.documentos.get(&u), self.documentos.linhas(&u)) else {
+                    return resposta(&id, json!([]));
+                };
+                let itens: Vec<Value> = dicas
+                    .into_iter()
+                    .map(|d| {
+                        let (l, c) = tabela.posicao_de_offset(texto, d.offset);
+                        let mut v = json!({
+                            "position": {"line": l, "character": c},
+                            "label": [{"value": d.rotulo}],
+                            "kind": d.especie,
+                        });
+                        if d.espaco_depois {
+                            v["paddingRight"] = json!(true);
+                        }
+                        v
+                    })
+                    .collect();
+                resposta(&id, json!(itens))
+            }
+            "textDocument/prepareCallHierarchy" => {
+                let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {
+                    return resposta(&id, Value::Null);
+                };
+                let item = self.analisador.preparar_chamadas(&self.documentos, &u, offset);
+                let valor = item.and_then(|i| self.item_de_chamada(&i, &u));
+                resposta(&id, valor.map_or(Value::Null, |v| json!([v])))
+            }
+            "callHierarchy/incomingCalls" | "callHierarchy/outgoingCalls" => {
+                let dados = mensagem.pointer("/params/item/data");
+                let alvo = dados.and_then(|d| d.get("uri")).and_then(Value::as_str).map(str::to_string);
+                let origem = dados.and_then(|d| d.get("origem")).and_then(Value::as_str).map(str::to_string);
+                let offset = dados.and_then(|d| d.get("offset")).and_then(Value::as_u64);
+                let (Some(alvo), Some(origem), Some(offset)) = (alvo, origem, offset) else {
+                    return erro(&id, -32602, "CallHierarchyItem sem o campo data");
+                };
+                let recebidas = metodo == "callHierarchy/incomingCalls";
+                let chamadas = self.analisador.chamadas(&self.documentos, &origem, &alvo, offset as usize, recebidas);
+                let mut saida = Vec::new();
+                for (item, spans) in chamadas {
+                    // Recebidas: intervalos no arquivo de quem chama; feitas:
+                    // no arquivo do item pedido.
+                    let arquivo = if recebidas { item.uri.clone() } else { alvo.clone() };
+                    let faixas: Vec<Value> = spans.iter().filter_map(|s| self.faixa(&arquivo, *s)).collect();
+                    let Some(v) = self.item_de_chamada(&item, &origem) else { continue };
+                    saida.push(if recebidas { json!({"from": v, "fromRanges": faixas}) } else { json!({"to": v, "fromRanges": faixas}) });
+                }
+                resposta(&id, json!(saida))
+            }
+            "textDocument/prepareTypeHierarchy" => {
+                let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {
+                    return resposta(&id, Value::Null);
+                };
+                let item = self.analisador.preparar_hierarquia(&self.documentos, &u, offset);
+                let valor = item.and_then(|i| self.item_de_hierarquia(&i, &u));
+                resposta(&id, valor.map_or(Value::Null, |v| json!([v])))
+            }
+            "typeHierarchy/supertypes" | "typeHierarchy/subtypes" => {
+                let dados = mensagem.pointer("/params/item/data");
+                let alvo = dados.and_then(|d| d.get("uri")).and_then(Value::as_str).map(str::to_string);
+                let origem = dados.and_then(|d| d.get("origem")).and_then(Value::as_str).map(str::to_string);
+                let offset = dados.and_then(|d| d.get("offset")).and_then(Value::as_u64);
+                let (Some(alvo), Some(origem), Some(offset)) = (alvo, origem, offset) else {
+                    return erro(&id, -32602, "TypeHierarchyItem sem o campo data");
+                };
+                let supertipos = metodo == "typeHierarchy/supertypes";
+                let itens = self.analisador.hierarquia(&self.documentos, &origem, &alvo, offset as usize, supertipos);
+                let valores: Vec<Value> = itens.iter().filter_map(|i| self.item_de_hierarquia(i, &origem)).collect();
+                resposta(&id, json!(valores))
+            }
             METODO_DORMIR => {
                 let ms = mensagem
                     .get("params")
@@ -850,6 +1148,35 @@ impl<A: Analisador> Servidor<A> {
                 )
             }
         }
+    }
+
+    /// Um `CallHierarchyItem`, com o arquivo e o offset do nome em `data`.
+    fn item_de_chamada(&self, item: &crate::ItemDeChamada, origem: &str) -> Option<Value> {
+        let mut v = json!({
+            "name": item.nome,
+            "kind": item.especie,
+            "uri": item.uri,
+            "range": self.faixa(&item.uri, item.intervalo)?,
+            "selectionRange": self.faixa(&item.uri, item.selecao)?,
+            "data": {"uri": item.uri, "offset": item.selecao.start, "origem": origem},
+        });
+        if let Some(d) = &item.detalhe {
+            v["detail"] = json!(d);
+        }
+        Some(v)
+    }
+
+    /// Um `TypeHierarchyItem` (espécie 5, classe, como o Dart), com o
+    /// arquivo e o offset do nome em `data` para os pedidos seguintes.
+    fn item_de_hierarquia(&self, item: &crate::ItemDeTipo, origem: &str) -> Option<Value> {
+        Some(json!({
+            "name": item.nome,
+            "kind": 5,
+            "uri": item.uri,
+            "range": self.faixa(&item.uri, item.intervalo)?,
+            "selectionRange": self.faixa(&item.uri, item.selecao)?,
+            "data": {"uri": item.uri, "offset": item.selecao.start, "origem": origem},
+        }))
     }
 
     /// A documentação da declaração que o item aponta (`data.arquivo`,
@@ -934,7 +1261,8 @@ impl<A: Analisador> Servidor<A> {
                 }
             };
             let mut planos = Vec::new();
-            for simbolo in self.analisador.simbolos(&uri, &texto) {
+            for mut simbolo in self.analisador.simbolos(&uri, &texto) {
+                ajustar_especies(&mut simbolo, self.tipos_de_simbolo.as_deref());
                 achatar_simbolos(&simbolo, &uri, None, &mut planos);
             }
             for s in planos {
@@ -1293,4 +1621,57 @@ pub fn metodos_suportados() -> HashMap<&'static str, &'static str> {
             "requisição: gancho de teste do cancelamento em execução",
         ),
     ])
+}
+
+/// A assinatura curta dos detalhes do rótulo (`getCompletionDetail` do
+/// Dart): `(…) → R` ou `() → R` para o que se chama, ` T` (com o espaço)
+/// para campos, getters e variáveis.
+fn assinatura_curta(detalhe: Option<&str>, chamavel: bool) -> Option<String> {
+    let detalhe = detalhe?;
+    if chamavel && detalhe.starts_with('(') {
+        let mut nivel = 0usize;
+        let mut fim = detalhe.len();
+        for (i, c) in detalhe.char_indices() {
+            match c {
+                '(' | '<' | '[' | '{' => nivel += 1,
+                ')' | '>' | ']' | '}' => {
+                    nivel = nivel.saturating_sub(1);
+                    if nivel == 0 && c == ')' {
+                        fim = i + 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let parametros = if &detalhe[..fim] == "()" { "()" } else { "(…)" };
+        let retorno = detalhe[fim..].trim_start().strip_prefix("→").map(str::trim);
+        return Some(match retorno {
+            Some(r) if !r.is_empty() => format!("{parametros} → {r}"),
+            _ => parametros.to_string(),
+        });
+    }
+    (!detalhe.is_empty()).then(|| format!(" {detalhe}"))
+}
+
+/// Troca, na árvore de símbolos, as espécies que o cliente não anunciou
+/// pela alternativa do servidor do Dart (`elementKindToSymbolKind`):
+/// `EnumMember` (22) → `Enum` (10), `TypeParameter` (26) → `Variable` (13).
+fn ajustar_especies(simbolo: &mut Value, suportadas: Option<&[u64]>) {
+    let aceita = |k: u64| suportadas.map_or(k <= 18, |l| l.contains(&k));
+    if let Some(k) = simbolo["kind"].as_u64()
+        && !aceita(k)
+    {
+        let alternativa = match k {
+            22 => 10,
+            26 => 13,
+            _ => k,
+        };
+        simbolo["kind"] = json!(alternativa);
+    }
+    if let Some(filhos) = simbolo.get_mut("children").and_then(Value::as_array_mut) {
+        for f in filhos {
+            ajustar_especies(f, suportadas);
+        }
+    }
 }

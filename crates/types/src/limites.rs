@@ -94,6 +94,75 @@ pub fn argumentos_fora_dos_limites(
     out
 }
 
+/// Os `type_argument_not_matching_bounds` dos argumentos de tipo
+/// **inferidos** de uma criação de instância sem argumentos escritos
+/// (`C(x)`, `new C.nome(x)`): o analyzer confere o `NamedType` do
+/// construtor com o tipo já inferido (`checkNamedType`,
+/// `an611:src/error/type_arguments_verifier.dart`), no nome da classe.
+/// Nunca super-bounded (criação de instância).
+pub fn argumentos_inferidos_fora_dos_limites(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    core: &CoreTypes,
+    outline: &OutlineTypes,
+    corpo: &crate::resolved::UnitBodyTypes,
+    unit: UnitId,
+) -> Vec<Diagnostic> {
+    let a = &program.unit(unit).ast;
+    let mut v = Verificador { program, interner, table, core, outline, unit, nomes_de_parametros: HashSet::new() };
+    let mut out = Vec::new();
+    for (i, e) in a.exprs.iter().enumerate() {
+        let id = ast::ExprId(i as u32);
+        let (span, args) = match &e.kind {
+            ExprKind::InstanceCreation { ty, arguments, .. } => {
+                let TypeKind::Named { args: escritos, .. } = &a.ty(*ty).kind else { continue };
+                if !escritos.is_empty() {
+                    continue;
+                }
+                (a.ty(*ty).span, arguments)
+            }
+            ExprKind::Call { target, arguments } => {
+                if !arguments.type_args.is_empty() {
+                    continue;
+                }
+                let sp = match &a.expr(*target).kind {
+                    ExprKind::Identifier(_) => a.expr(*target).span,
+                    // `C.nome(x)`: o nome da classe; `p.C(x)`: o nome inteiro.
+                    ExprKind::Property { target: t, .. } => match &a.expr(*t).kind {
+                        ExprKind::Identifier(_) => a.expr(*t).span,
+                        _ => continue,
+                    },
+                    _ => continue,
+                };
+                (sp, arguments)
+            }
+            _ => continue,
+        };
+        let Some(crate::resolved::Resolved::Constructor(f)) = corpo.get_resolved(id) else { continue };
+        let Some(c) = program.function(*f).class else { continue };
+        let params = outline.classes[c.0 as usize].type_params.to_vec();
+        if params.is_empty() {
+            continue;
+        }
+        let Some(tipos) = corpo.instanciacao(args.span.start).map(|x| x.to_vec()) else { continue };
+        if tipos.len() != params.len() {
+            continue;
+        }
+        for (i, &p) in params.iter().enumerate() {
+            let limite = v.table.param(p).bound;
+            let limite = v.subst(limite, &params, &tipos);
+            if !v.sub(tipos[i], limite) {
+                let ta = v.formatar(tipos[i]);
+                let nome = interner.resolve(v.table.param(p).name).to_string();
+                let l = v.formatar(limite);
+                out.push(Diagnostic::com_codigo(c::TYPE_ARGUMENT_NOT_MATCHING_BOUNDS, span, [ta.as_str(), nome.as_str(), l.as_str()]));
+            }
+        }
+    }
+    out
+}
+
 impl Verificador<'_> {
     fn ast(&self) -> &ast::Ast {
         &self.program.unit(self.unit).ast
@@ -217,7 +286,11 @@ impl Verificador<'_> {
                     match self.interner.resolve(n.sym) {
                         "dynamic" if args.is_empty() => return Some(self.core.dynamic_),
                         "Never" if args.is_empty() => {
-                            return Some(if anulavel { self.core.null } else { self.core.never });
+                            return Some(if anulavel {
+                                self.table.decorar(self.core.null, crate::table::Exibicao::NeverAnulavel)
+                            } else {
+                                self.core.never
+                            });
                         }
                         _ => {}
                     }
@@ -252,7 +325,8 @@ impl Verificador<'_> {
                         if params.len() != tipos.len() {
                             return None;
                         }
-                        self.subst(alvo, &params, &tipos)
+                        let r = self.subst(alvo, &params, &tipos);
+                        self.table.decorar(r, crate::table::Exibicao::Alias { typedef: tid, args: tipos.into_boxed_slice() })
                     }
                     _ => return None,
                 }
@@ -351,7 +425,8 @@ impl Verificador<'_> {
                             let vp = variancia_em(self.table, alvo, p, Variancia::Co);
                             tipos.push(self.invertido(x, vp.combinar(va))?);
                         }
-                        self.subst(alvo, &params, &tipos)
+                        let r = self.subst(alvo, &params, &tipos);
+                        self.table.decorar(r, crate::table::Exibicao::Alias { typedef: tid, args: tipos.into_boxed_slice() })
                     }
                     _ => return Some(inteiro),
                 }

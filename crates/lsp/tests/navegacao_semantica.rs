@@ -231,11 +231,13 @@ fn hover_por_forma_com_documentacao() {
         (
             "met(1",
             0,
-            "void met(int x, {int y = 0, required String nome})\n\nFaz algo com [x].",
+            // Três parâmetros: um por linha, como o `multiline` do analyzer;
+            // numa chamada, o tipo da invocação.
+            "void met(\n  int x, {\n  int y = 0,\n  required String nome,\n})\nType: void Function(int, {required String nome, int y})\n\nFaz algo com [x].",
         ),
         ("valor + c", 0, "T valor\nType: int\n\nO valor guardado."),
         ("dobro;", 0, "int get dobro\nType: int"),
-        ("dobro(total", 0, "int dobro(int v)"),
+        ("dobro(total", 0, "int dobro(int v)\nType: int Function(int)"),
         ("total));", 0, "int total\nType: int"),
         // O tipo mostrado é o promovido; a declaração, a escrita.
         ("n);", 0, "num n\nType: int"),
@@ -246,7 +248,7 @@ fn hover_por_forma_com_documentacao() {
             0,
             "class Caixa<T> extends Base implements Comparavel\n\nUma caixa de [T].",
         ),
-        ("print(n", 0, "void print(Object? object)"),
+        ("print(n", 0, "void print(Object? object)\nType: void Function(Object?)"),
     ];
     for &(agulha, n, esperado) in casos {
         assert_eq!(
@@ -273,7 +275,7 @@ fn hover_por_forma_com_documentacao() {
     );
     assert_eq!(
         r["contents"]["value"],
-        "```dart\nT valor\n```\nType: `int`\n\n---\nO valor guardado."
+        "```dart\nT valor\n```\nType: `int`\n\n*package:projeto/modelo.dart*\n\n---\nO valor guardado."
     );
     // O intervalo é o do nome sob o cursor.
     let (l, c) = onde(USO, "valor + c", 0);

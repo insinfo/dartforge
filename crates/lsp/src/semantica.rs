@@ -300,21 +300,139 @@ impl Analisador for AnalisadorSemantico {
                 diagnosticos.push(d.clone());
             }
         }
-        let mut saida = crate::acoes::corrigir_sintaxe(uri, &diagnosticos, inicio, fim);
+        // As correções valem para os diagnósticos das linhas pedidas (o
+        // servidor do Dart filtra por linha); as assistências, para o
+        // cursor.
+        let (linha_ini, linha_fim) = {
+            let a = texto[..inicio.min(texto.len())].rfind('\n').map_or(0, |i| i + 1);
+            let b = texto[fim.min(texto.len())..].find('\n').map_or(texto.len(), |i| fim + i);
+            (a, b)
+        };
+        let mut saida = crate::acoes::corrigir_sintaxe(uri, &diagnosticos, linha_ini, linha_fim);
+        saida.push(crate::acoes::organizar_imports(uri, texto));
+        // As de ignorar vêm por último, como a prioridade do Dart.
+        let ignorar = crate::correcoes::ignorar(uri, texto, &diagnosticos, linha_ini, linha_fim);
         if self.sdk.is_none() {
+            saida.extend(ignorar);
             return saida;
         }
         self.indice_sdk();
-        let Some(arquivo) = crate::projeto::arquivo_da_uri(uri) else { return saida };
-        let AnalisadorSemantico { sessao, sdk: Some(sdk), indice_sdk: Some(indice), indice_projeto, .. } = self else { return saida };
-        if let Some(projeto) = sessao.obter(crate::sessao::Escopo::Biblioteca(arquivo), documentos, || {
+        let Some(arquivo) = crate::projeto::arquivo_da_uri(uri) else {
+            saida.extend(ignorar);
+            return saida;
+        };
+        let AnalisadorSemantico { sessao, sdk: Some(sdk), indice_sdk: Some(indice), indice_projeto, .. } = self else {
+            saida.extend(ignorar);
+            return saida;
+        };
+        if let Some(mut projeto) = sessao.obter(crate::sessao::Escopo::Biblioteca(arquivo), documentos, || {
             crate::projeto::carregar_biblioteca(sdk, documentos, uri)
         }) {
-            saida.extend(crate::acoes::corrigir_publicados(&projeto, uri, &diagnosticos, inicio, fim));
+            saida.extend(crate::acoes::corrigir_publicados(&projeto, uri, &diagnosticos, linha_ini, linha_fim));
+            // Importar antes de criar: a prioridade das correções do Dart.
             saida.extend(crate::acoes::importar(&projeto, indice, indice_projeto, documentos, uri, inicio, fim));
+            saida.extend(crate::correcoes::corrigir(&mut projeto, uri, &diagnosticos, linha_ini, linha_fim));
+            if let Some(unidade) = projeto.unidade_do_uri(uri) {
+                let criadas = projeto.criar_indefinidos(uri, unidade, inicio, fim);
+                saida.extend(criadas);
+            }
             saida.extend(crate::acoes::assistencias(&projeto, uri, inicio, fim));
+            if let Some(unidade) = projeto.unidade_do_uri(uri) {
+                saida.extend(projeto.assistencias_de_reescrita(uri, unidade, inicio, fim));
+            }
         }
+        saida.extend(ignorar);
         saida
+    }
+
+    fn dobras(&mut self, uri: &str, texto: &str, so_linhas: bool) -> Vec<crate::Dobra> {
+        self.sintatico.dobras(uri, texto, so_linhas)
+    }
+
+    fn selecoes(&mut self, uri: &str, texto: &str, offset: usize) -> Vec<Span> {
+        self.sintatico.selecoes(uri, texto, offset)
+    }
+
+    fn assinatura(&mut self, documentos: &DocumentStore, uri: &str, offset: usize, automatica: bool) -> Option<crate::Assinatura> {
+        let mut projeto = self.biblioteca(documentos, uri)?;
+        let unidade = projeto.unidade_do_uri(uri)?;
+        projeto.assinatura(unidade, offset, automatica)
+    }
+
+    fn destaques(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<Vec<Span>> {
+        if self.sdk.is_none() {
+            let texto = documentos.get(uri)?.to_string();
+            return self.sintatico.referencias(uri, &texto, offset);
+        }
+        let projeto = self.biblioteca(documentos, uri)?;
+        let unidade = projeto.unidade_do_uri(uri)?;
+        projeto.destaques(unidade, offset)
+    }
+
+    fn implementacoes(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Vec<(String, Span)> {
+        let Some(projeto) = self.projeto(documentos, uri) else { return Vec::new() };
+        let Some(unidade) = projeto.unidade_do_uri(uri) else { return Vec::new() };
+        projeto
+            .implementacoes(unidade, offset)
+            .into_iter()
+            .filter_map(|(u, s)| Some((projeto.uri_da_unidade(u)?, s)))
+            .collect()
+    }
+
+    fn definicao_de_tipo(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<(String, Span)> {
+        let projeto = self.biblioteca(documentos, uri)?;
+        let unidade = projeto.unidade_do_uri(uri)?;
+        let (u, s) = projeto.definicao_de_tipo(unidade, offset)?;
+        Some((projeto.uri_da_unidade(u)?, s))
+    }
+
+    fn dicas(&mut self, documentos: &DocumentStore, uri: &str) -> Vec<crate::Dica> {
+        let Some(projeto) = self.biblioteca(documentos, uri) else { return Vec::new() };
+        let Some(unidade) = projeto.unidade_do_uri(uri) else { return Vec::new() };
+        projeto.dicas(unidade)
+    }
+
+    fn tokens_semanticos(&mut self, documentos: &DocumentStore, uri: &str, multilinha: bool, faixa: Option<(usize, usize)>) -> Option<Vec<u32>> {
+        let projeto = self.biblioteca(documentos, uri)?;
+        let unidade = projeto.unidade_do_uri(uri)?;
+        let realces = projeto.realces(unidade);
+        let texto = documentos.get(uri)?;
+        let tabela = documentos.linhas(uri)?;
+        Some(crate::realce::codificar(texto, tabela, &realces, multilinha, faixa))
+    }
+
+    fn preparar_chamadas(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<crate::ItemDeChamada> {
+        let projeto = self.biblioteca(documentos, uri)?;
+        let unidade = projeto.unidade_do_uri(uri)?;
+        let f = projeto.executavel_em(unidade, offset)?;
+        projeto.item_de_chamada(f)
+    }
+
+    fn chamadas(&mut self, documentos: &DocumentStore, origem: &str, uri: &str, offset: usize, recebidas: bool) -> Vec<(crate::ItemDeChamada, Vec<Span>)> {
+        let Some(projeto) = self.projeto(documentos, origem) else { return Vec::new() };
+        let Some(unidade) = projeto.unidade_do_uri(uri) else { return Vec::new() };
+        let Some(f) = projeto.executavel_em(unidade, offset) else { return Vec::new() };
+        if recebidas { projeto.chamadas_recebidas(f) } else { projeto.chamadas_feitas(f) }
+    }
+
+    fn preparar_hierarquia(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<crate::ItemDeTipo> {
+        let projeto = self.biblioteca(documentos, uri)?;
+        let unidade = projeto.unidade_do_uri(uri)?;
+        let c = projeto.classe_alvo_da_hierarquia(unidade, offset)?;
+        projeto.item_de_tipo(c, None)
+    }
+
+    fn hierarquia(&mut self, documentos: &DocumentStore, origem: &str, uri: &str, offset: usize, supertipos: bool) -> Vec<crate::ItemDeTipo> {
+        // O projeto do documento de origem contém a classe (do projeto, de
+        // um pacote ou do SDK) e todos os subtipos do projeto.
+        let Some(projeto) = self.projeto(documentos, origem) else { return Vec::new() };
+        let Some(unidade) = projeto.unidade_do_uri(uri) else { return Vec::new() };
+        let Some(c) = projeto.classe_denotada(unidade, offset) else { return Vec::new() };
+        if supertipos {
+            projeto.itens_de_supertipos(c)
+        } else {
+            projeto.subtipos(c, true).into_iter().filter_map(|x| projeto.item_de_tipo(x, None)).collect()
+        }
     }
 
     fn completar(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<crate::Completar> {

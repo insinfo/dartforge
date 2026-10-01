@@ -25,6 +25,7 @@ pub mod hierarchy;
 pub mod inferencia;
 pub mod limites;
 pub mod ops;
+pub mod parametros;
 pub mod resolve;
 pub mod resolved;
 pub mod scope;

@@ -32,6 +32,7 @@
 //! * `>` sempre chega isolado do lexer, então `<` … `>` de tipos nunca precisa
 //!   de retrocesso; `in_type_args` é incrementado durante a leitura para que
 //!   expressões dentro de metadata não componham `>>`.
+use super::modificadores::{DonoDeParametros, Fichas};
 use super::{MAX_DEPTH, PResult, Parser};
 use crate::ast::{
     Annotation, Name, Parameter, ParameterKind, TypeAnnotation, TypeId, TypeKind, TypeParameter,
@@ -147,6 +148,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         let start = self.span();
         if self.eat_kw(Keyword::Void) {
             let span = self.span_from(start);
+            // `VoidType.parseType` (`type_info_impl.dart:446`): argumentos de
+            // tipo depois de `void` são `VOID_WITH_TYPE_ARGUMENTS` no `<` e
+            // são lidos.
+            if self.at_op(Op::Lt) && self.skip_type_arguments(self.pos).is_some() {
+                self.erro(codigos::parser::VOID_WITH_TYPE_ARGUMENTS, &[]);
+                self.parse_type_arguments_opt()?;
+            }
             return Ok(self.ast.push_type(TypeAnnotation {
                 span,
                 nullable: false,
@@ -345,6 +353,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.expect_op(Op::Lt)?;
         let mut args = Vec::new();
         loop {
+            // Anotação num argumento de tipo é `ANNOTATION_ON_TYPE_ARGUMENT`
+            // nela (`AstBuilder`), e é lida e descartada.
+            if self.at_op(Op::At) {
+                for a in self.parse_metadata()? {
+                    self.erro_em(codigos::parser::ANNOTATION_ON_TYPE_ARGUMENT, a.span, &[]);
+                }
+            }
             args.push(self.parse_type()?);
             if !self.eat_op(Op::Comma) {
                 break;
@@ -603,6 +618,16 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     fn parse_parameter_list(&mut self, in_function_type: bool) -> PResult<Vec<Parameter>> {
+        // O construtor primário de extension type chega como
+        // `ConstrutorPrimario`; o de classe e enum (3.13) chega como `Outro`:
+        // o `covariant` dele é conferido na elaboração, que sabe se o
+        // parâmetro declara campo.
+        let dono = if in_function_type {
+            DonoDeParametros::TipoDeFuncao
+        } else {
+            std::mem::replace(&mut self.params_de, DonoDeParametros::Outro)
+        };
+        self.params_de = DonoDeParametros::Outro;
         self.expect_op(Op::LParen)?;
         let mut params = Vec::new();
         loop {
@@ -618,11 +643,16 @@ impl<'s, 'i> Parser<'s, 'i> {
             };
             if let Some((kind, close)) = group {
                 self.advance();
+                // Grupo vazio (`({})`, `([])`): `MISSING_IDENTIFIER` no fecho
+                // (o fasta insere um parâmetro sintético).
+                if self.at_op(close) {
+                    self.erro(codigos::parser::MISSING_IDENTIFIER, &[]);
+                }
                 loop {
                     if self.eat_op(close) {
                         break;
                     }
-                    params.push(self.parse_formal_parameter(kind, in_function_type)?);
+                    params.push(self.parse_formal_parameter(kind, in_function_type, dono)?);
                     if !self.eat_op(Op::Comma) {
                         self.expect_op(close)?;
                         break;
@@ -632,7 +662,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.conferir_nomes_publicos(&params);
                 return Ok(params);
             }
-            params.push(self.parse_formal_parameter(ParameterKind::Required, in_function_type)?);
+            params.push(self.parse_formal_parameter(ParameterKind::Required, in_function_type, dono)?);
             if !self.eat_op(Op::Comma) {
                 self.expect_op(Op::RParen)?;
                 self.conferir_nomes_publicos(&params);
@@ -647,39 +677,28 @@ impl<'s, 'i> Parser<'s, 'i> {
         &mut self,
         kind: ParameterKind,
         in_function_type: bool,
+        dono: DonoDeParametros,
     ) -> PResult<Parameter> {
         let start = self.span();
         let metadata = self.parse_metadata_opt()?;
-        let mut required = false;
-        let mut covariant = false;
-        let mut final_ = false;
-        let mut var_ = false;
-        let mut const_ = false;
-        // Modificadores em qualquer ordem: rejeitar ordem errada é papel das
-        // fases seguintes. `required`/`covariant` são identificadores comuns
-        // quando nada declarável os segue (`{required}` é um parâmetro
-        // chamado `required`).
-        loop {
-            if self.at_kw(Keyword::Final) || self.at_kw(Keyword::Var) {
-                let t = self.advance();
-                if t.kind == Kind::Keyword(Keyword::Final) {
-                    final_ = true;
-                } else {
-                    var_ = true;
-                }
-                self.conferir_modificador_de_parametro(t.span, in_function_type);
-            } else if self.eat_kw(Keyword::Const) {
-                const_ = true;
-            } else if self.at_ident("required") && self.modifier_precedes_declaration() {
-                self.advance();
-                required = true;
-            } else if self.at_ident("covariant") && self.modifier_precedes_declaration() {
-                self.advance();
-                covariant = true;
-            } else {
-                break;
-            }
+        // Modificadores em qualquer ordem (superconjunto), lidos pelo
+        // `ModifierContext` do fasta (`parseFormalParameterModifiers`), que
+        // relata ordem errada, repetição e o que não cabe num parâmetro.
+        // `required`/`covariant`… são identificadores comuns quando nada
+        // declarável os segue (`{required}` é um parâmetro chamado
+        // `required`).
+        let mut f = Fichas::default();
+        self.contexto_de_modificadores(&mut f, false);
+        for p in [f.final_, f.var_].into_iter().flatten() {
+            let span = self.tokens[p].span;
+            self.conferir_modificador_de_parametro(span, in_function_type);
         }
+        self.relatar_modificadores_de_parametro(&f, kind == ParameterKind::Named, dono);
+        let required = f.required.is_some();
+        let covariant = f.covariant.is_some();
+        let final_ = f.final_.is_some();
+        let var_ = f.var_.is_some();
+        let const_ = f.const_.is_some();
 
         let ty = if self.at_field_formal(self.pos) {
             None
@@ -701,6 +720,12 @@ impl<'s, 'i> Parser<'s, 'i> {
             Some(self.identifier())
         } else if in_function_type && ty.is_some() {
             None
+        } else if matches!(self.kind(), Kind::Op(Op::Comma | Op::RParen | Op::RBracket | Op::RBrace)) {
+            // Parâmetro sem nome antes de `,` ou do fecho (`f(,[])`):
+            // `MISSING_IDENTIFIER` nele e um nome sintético; a lista segue.
+            self.erro(codigos::parser::MISSING_IDENTIFIER, &[]);
+            let s = self.span().start;
+            Some(self.name_from("", Span { start: s, end: s }))
         } else {
             return Err(self.erro_identificador());
         };
@@ -711,6 +736,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let mut function_nullable = false;
         if !in_function_type && name.is_some() && (self.at_op(Op::LParen) || self.at_op(Op::Lt)) {
             function_type_params = self.parse_type_parameters_opt()?;
+            self.params_de = DonoDeParametros::ParametroFuncao;
             function_parameters = Some(self.parse_formal_parameters()?);
             // `int f(int x)?` — nulabilidade da forma antiga.
             function_nullable = self.eat_op(Op::Question);
@@ -718,6 +744,19 @@ impl<'s, 'i> Parser<'s, 'i> {
 
         let default_value =
             if self.at_op(Op::Assign) || (kind == ParameterKind::Named && self.at_op(Op::Colon)) {
+                // `parseFormalParameter` (`parser_impl.dart:2170`): default em
+                // posicional obrigatório é `NAMED_PARAMETER_OUTSIDE_GROUP`; em
+                // tipo de função, `typedef` antigo ou parâmetro-função,
+                // `DEFAULT_VALUE_IN_FUNCTION_TYPE` (no `=`/`:`).
+                let igual = self.span();
+                if kind == ParameterKind::Required {
+                    self.erro_em(codigos::parser::NAMED_PARAMETER_OUTSIDE_GROUP, igual, &[]);
+                } else if matches!(
+                    dono,
+                    DonoDeParametros::TipoDeFuncao | DonoDeParametros::AliasDeTipo | DonoDeParametros::ParametroFuncao
+                ) {
+                    self.erro_em(codigos::parser::DEFAULT_VALUE_IN_FUNCTION_TYPE, igual, &[]);
+                }
                 self.advance();
                 Some(self.parse_expression()?)
             } else {
@@ -832,18 +871,6 @@ impl<'s, 'i> Parser<'s, 'i> {
                     [texto.as_str()],
                 ));
             }
-        }
-    }
-
-    /// O token após um possível `required`/`covariant` inicia mesmo um
-    /// parâmetro (identificador, `this`, `super`, `final`, `var`, `void`…).
-    fn modifier_precedes_declaration(&self) -> bool {
-        match self.kind_at(1) {
-            Kind::Ident | Kind::Keyword(_) => true,
-            // `required ({int a})? t`, `covariant (int, int) p`: tipo de
-            // registro seguido do nome.
-            Kind::Op(Op::LParen) => self.looks_like_type_then_name(self.pos + 1),
-            _ => false,
         }
     }
 
@@ -1685,10 +1712,8 @@ mod tests {
             params("(Map<String, List<int>>? x)"),
             "(Map<String, List<int>>? x)"
         );
-        assert_eq!(
-            params("(final x, var y, const z)"),
-            "(final x, var y, const z)"
-        );
+        // `const` em parâmetro é `EXTRANEOUS_MODIFIER` (fasta).
+        assert_eq!(params("(final x, var y)"), "(final x, var y)");
         assert_eq!(params("(final int x)"), "(final int x)");
         assert_eq!(params("(void Function() cb)"), "(void Function() cb)");
         assert_eq!(params("(int Function(int)? cb)"), "(int Function(int)? cb)");

@@ -109,6 +109,12 @@ pub struct ItemCompletar {
     grupo: u8,
     /// Qualidade do casamento com o digitado (0: prefixo; 1: aproximado).
     qualidade: u8,
+    /// O que entra no cálculo da relevância (`crate::relevancia`).
+    rel: crate::relevancia::Rel,
+    /// Classe do item (elemento de topo), para o tipo de contexto.
+    classe: Option<ClassId>,
+    /// A relevância calculada (`0..1000`).
+    relevancia: i32,
 }
 
 /// Resultado do completar: o intervalo do prefixo (bytes) e os itens em ordem.
@@ -122,6 +128,7 @@ pub struct Completar {
 }
 
 /// Onde o sentinela caiu na análise.
+#[derive(Clone, Copy)]
 enum Sentinela {
     /// Numa expressão; com o alvo quando é `alvo.▮`.
     Expr(ExprId, Option<ExprId>),
@@ -249,20 +256,37 @@ pub(crate) fn completar(
     let mut coletor = Coletor {
         itens: Vec::new(),
         biblioteca,
+        receptor: None,
     };
 
     let sentinela = preparado
         .as_ref()
         .and_then(|_| achar_sentinela(&consulta.programa.unit(unidade).ast, inicio));
+    // Nome de `show`/`hide`: o que a biblioteca da diretiva exporta.
+    let combinador = biblioteca_do_combinador(&consulta, unidade, inicio);
     // Nomes de bibliotecas não importadas cabem onde um nome solto cabe.
     let mut nao_importados: Option<bool> = None;
+    // `this.▮` e `super.▮` num construtor: campos ou parâmetros do
+    // construtor da superclasse ainda não usados.
+    let formal = parametro_formal(&consulta, unidade, inicio);
     match sentinela {
+        _ if formal.is_some() => {
+            for (nome, tipo) in formal.into_iter().flatten() {
+                coletor.empurrar(grupo::MEMBRO, especie::CAMPO, nome.clone(), nome, tipo);
+            }
+        }
+        _ if combinador.is_some() => {
+            if let Some(alvo) = combinador {
+                let exportado = consulta.programa.library(alvo).exported.clone();
+                coletor.espaco_de_nomes(&consulta, &exportado, |_| grupo::IMPORTADO);
+            }
+        }
         Some(Sentinela::Expr(expr, Some(alvo))) => {
             coletor.membros_do_alvo(&mut consulta, unidade, expr, alvo)
         }
         Some(Sentinela::Expr(expr, None)) => {
             coletor.argumentos_nomeados(&consulta, unidade, expr);
-            coletor.escopo(&mut consulta);
+            coletor.escopo(&mut consulta, unidade);
             let ast = &consulta.programa.unit(unidade).ast;
             let comando = ast
                 .stmts
@@ -288,6 +312,12 @@ pub(crate) fn completar(
             if prefixo.is_none() {
                 nao_importados = Some(true);
             }
+        }
+        None if nome_declarado(&consulta.programa.unit(unidade).ast, inicio) => {
+            // O nome de uma declaração (variável com `var`/`final`/tipo,
+            // parâmetro, função, classe, membro): o servidor do Dart não
+            // sugere nada ali.
+            return Some(vazio);
         }
         None => {
             coletor.biblioteca(&consulta);
@@ -366,15 +396,66 @@ pub(crate) fn completar(
             None => false,
         }
     });
+    // Relevância como a do servidor do Dart (`crate::relevancia`): o local
+    // do completar e o tipo que ele espera.
+    {
+        let ast = &consulta.programa.unit(unidade).ast;
+        let corpos = &consulta.corpos.units[unidade.0 as usize];
+        let construtora = |c: ExprId| matches!(corpos.get_resolved(c), Some(Resolved::Constructor(_)));
+        let local: Option<String> = match sentinela {
+            _ if combinador.is_some() => Some("ShowCombinator_shownName".into()),
+            Some(Sentinela::Expr(expr, Some(_))) => {
+                let chamada = ast.exprs.iter().any(|e| matches!(&e.kind, ExprKind::Call { target, .. } if *target == expr));
+                (!chamada).then(|| "PropertyAccess_propertyName".to_string())
+            }
+            Some(Sentinela::Expr(expr, None)) => crate::relevancia::local_da_expressao(ast, expr, &construtora),
+            Some(Sentinela::Tipo { .. }) => local_do_tipo(ast, inicio),
+            None => {
+                let em_classe = ast.decls.iter().any(|d| d.span.start < inicio && inicio < d.span.end && matches!(d.kind, ast::DeclKind::Class(_) | ast::DeclKind::Mixin(_) | ast::DeclKind::Enum(_) | ast::DeclKind::Extension(_) | ast::DeclKind::ExtensionType(_)));
+                Some(if em_classe { "ClassDeclaration_member" } else { "CompilationUnit_declaration" }.to_string())
+            }
+        };
+        let esperado = match sentinela {
+            Some(Sentinela::Expr(expr, alvo)) => {
+                // `a.▮` pede o tipo do acesso inteiro; o resto, o da expressão.
+                let _ = alvo;
+                tipo_esperado(&mut consulta, unidade, expr)
+            }
+            _ => None,
+        };
+        let tipo_bool = consulta.core.bool_;
+        let tipo_nulo = consulta.core.null;
+        for i in &mut itens {
+            if i.rel.tipo.is_none() {
+                i.rel.tipo = match i.rel.palavra {
+                    Some("true" | "false") => Some(tipo_bool),
+                    Some("null") => Some(tipo_nulo),
+                    _ => None,
+                };
+            }
+            if i.rel.tipo.is_none()
+                && let Some(c) = i.classe
+            {
+                i.rel.tipo = tipo_da_classe(&mut consulta, c);
+            }
+            let contexto = match (esperado, i.rel.tipo) {
+                (Some(e), Some(t)) => caracteristica_de_contexto(&mut consulta, e, t),
+                _ => 0.0,
+            };
+            i.relevancia = crate::relevancia::relevancia(&i.rel, local.as_deref(), contexto);
+        }
+    }
     itens.sort_by(|a, b| {
         (
             a.qualidade,
+            std::cmp::Reverse(a.relevancia),
             a.grupo,
             a.inserir.to_ascii_lowercase(),
             &a.inserir,
         )
             .cmp(&(
                 b.qualidade,
+                std::cmp::Reverse(b.relevancia),
                 b.grupo,
                 b.inserir.to_ascii_lowercase(),
                 &b.inserir,
@@ -394,6 +475,133 @@ pub(crate) fn completar(
         fim: offset,
         itens,
         incompleta,
+    })
+}
+
+/// Os nomes que cabem num parâmetro `this.▮` (campos de instância da
+/// classe ainda não inicializados por outro parâmetro ou inicializador) ou
+/// `super.▮` (parâmetros do construtor da superclasse chamado ainda não
+/// repassados), com o tipo.
+fn parametro_formal(consulta: &Consulta, unidade: dartforge_elements::model::UnitId, inicio: usize) -> Option<Vec<(String, Option<String>)>> {
+    let p = &consulta.programa;
+    let u = p.unit(unidade);
+    let ast = &u.ast;
+    let (membro, k, prm) = ast.members.iter().find_map(|m| match &m.kind {
+        ast::MemberKind::Constructor(k) => k
+            .parameters
+            .iter()
+            .find(|x| (x.this_ || x.super_) && x.name.is_some_and(|n| n.span.start == inicio))
+            .map(|x| (m, k, x)),
+        _ => None,
+    })?;
+    let classe = (0..p.classes.len()).map(|i| ClassId(i as u32)).find(|c| {
+        p.class(*c).decl.is_some_and(|d| {
+            d.unit == unidade && {
+                let s = u.ast.decl(d.decl).span;
+                s.start <= membro.span.start && membro.span.end <= s.end
+            }
+        })
+    })?;
+    let usados: HashSet<String> = k
+        .parameters
+        .iter()
+        .filter(|x| !std::ptr::eq(*x, prm))
+        .filter_map(|x| x.name.map(|n| consulta.nome(n.sym).to_string()))
+        .chain(k.initializers.iter().filter_map(|i| match i {
+            ast::Initializer::Field { name, .. } => Some(consulta.nome(name.sym).to_string()),
+            _ => None,
+        }))
+        .collect();
+    let mut saida = Vec::new();
+    if prm.this_ {
+        for v in &p.class(classe).fields {
+            let ve = p.variable(*v);
+            let nome = consulta.nome(ve.name).to_string();
+            if ve.static_ || usados.contains(&nome) {
+                continue;
+            }
+            saida.push((nome, consulta.tipo_da_variavel(*v).map(|t| consulta.formatar(t))));
+        }
+    } else {
+        // O construtor chamado: `super.nome(…)` nos inicializadores, senão
+        // o sem nome da superclasse.
+        let sup = p.class(classe).supertype_class?;
+        let nome_ctor = k.initializers.iter().find_map(|i| match i {
+            ast::Initializer::Super { constructor, .. } => Some(constructor.map(|n| n.sym)),
+            _ => None,
+        });
+        let alvo = p.class(sup).construtores().into_iter().find(|(n, _)| match nome_ctor {
+            Some(Some(s)) => *n == s,
+            _ => consulta.nome(*n).is_empty(),
+        });
+        let (_, f) = alvo?;
+        for q in consulta.outline.functions[f.0 as usize].parameters.iter() {
+            let Some(n) = q.externo.or(q.name) else { continue };
+            let nome = consulta.nome(n).to_string();
+            let posicional = q.kind != ast::ParameterKind::Named;
+            if usados.contains(&nome) || (posicional != (prm.kind != ast::ParameterKind::Named)) {
+                continue;
+            }
+            saida.push((nome, Some(consulta.formatar(q.ty))));
+        }
+    }
+    Some(saida)
+}
+
+/// A biblioteca alvo do `import`/`export` cujo `show`/`hide` tem um nome
+/// começando em `inicio`.
+fn biblioteca_do_combinador(consulta: &Consulta, unidade: dartforge_elements::model::UnitId, inicio: usize) -> Option<LibraryId> {
+    let u = consulta.programa.unit(unidade);
+    let lib = consulta.programa.library(u.library);
+    let alvos = lib
+        .imports
+        .iter()
+        .filter(|i| i.unit == unidade)
+        .map(|i| (i.directive, i.library))
+        .chain(lib.exports.iter().filter(|e| e.unit == unidade).map(|e| (e.directive, e.library)));
+    for (indice, alvo) in alvos {
+        let Some(d) = u.unit.directives.get(indice) else { continue };
+        let combinadores = match &d.kind {
+            ast::DirectiveKind::Import { combinators, .. } | ast::DirectiveKind::Export { combinators, .. } => combinators,
+            _ => continue,
+        };
+        for c in combinadores {
+            let (ast::Combinator::Show(nomes) | ast::Combinator::Hide(nomes)) = c;
+            if nomes.iter().any(|n| n.span.start == inicio) {
+                return Some(alvo);
+            }
+        }
+    }
+    None
+}
+
+/// O sentinela em `inicio` é o nome de uma declaração: variável local ou
+/// de topo, ou campo, com `var`/`final`/`const`/tipo escrito; parâmetro;
+/// função, método, classe, mixin, enum, extensão, typedef, constante de
+/// enum; parâmetro de tipo.
+fn nome_declarado(ast: &ast::Ast, inicio: usize) -> bool {
+    let eh = |n: &ast::Name| n.span.start == inicio;
+    let lista = |l: &ast::VariableList| (l.var_ || l.final_ || l.const_ || l.ty.is_some()) && l.variables.iter().any(|v| eh(&v.name));
+    ast.stmts.iter().any(|s| match &s.kind {
+        StmtKind::Variables(l) => lista(l),
+        StmtKind::ForIn { target: ast::ForInTarget::Declared { name, .. }, .. } => eh(name),
+        _ => false,
+    }) || ast.decls.iter().any(|d| match &d.kind {
+        ast::DeclKind::Variables(l) => lista(l),
+        ast::DeclKind::Class(k) => eh(&k.name),
+        ast::DeclKind::Mixin(k) => eh(&k.name),
+        ast::DeclKind::Enum(k) => eh(&k.name) || k.constants.iter().any(|c| eh(&c.name)),
+        ast::DeclKind::Extension(k) => k.name.as_ref().is_some_and(eh),
+        ast::DeclKind::ExtensionType(k) => eh(&k.name),
+        ast::DeclKind::Typedef(k) => eh(&k.name),
+        ast::DeclKind::Function(_) => false,
+    }) || ast.members.iter().any(|m| match &m.kind {
+        ast::MemberKind::Field(l) => lista(l),
+        _ => false,
+    }) || ast.functions.iter().any(|f| {
+        f.name.as_ref().is_some_and(eh)
+            || f.parameters.iter().flatten().any(|p| p.ty.is_some() && p.name.as_ref().is_some_and(eh))
+            || f.type_params.iter().any(|t| eh(&t.name))
     })
 }
 
@@ -493,6 +701,9 @@ fn achar_sentinela(ast: &ast::Ast, inicio: usize) -> Option<Sentinela> {
 struct Coletor {
     itens: Vec<ItemCompletar>,
     biblioteca: LibraryId,
+    /// Classe do receptor enquanto se coletam membros de instância (a
+    /// distância de herança de cada membro).
+    receptor: Option<ClassId>,
 }
 
 impl Coletor {
@@ -514,11 +725,14 @@ impl Coletor {
             importar: None,
             grupo,
             qualidade: 0,
+            rel: crate::relevancia::Rel::default(),
+            classe: None,
+            relevancia: 0,
         });
         self.itens.last_mut().expect("item recém-empurrado")
     }
 
-    fn palavras(&mut self, palavras: &[&str]) {
+    fn palavras(&mut self, palavras: &[&'static str]) {
         for p in palavras {
             self.empurrar(
                 grupo::PALAVRA,
@@ -526,7 +740,43 @@ impl Coletor {
                 p.to_string(),
                 p.to_string(),
                 None,
-            );
+            )
+            .rel
+            .palavra = Some(p);
+        }
+    }
+
+    /// Preenche a relevância do último item a partir da função `f` (com o
+    /// tipo `tipo` visto pelo receptor).
+    fn rel_de_funcao(&mut self, consulta: &Consulta, f: FunctionElementId, tipo: TypeId) {
+        use crate::relevancia::Especie;
+        let fe = consulta.programa.function(f);
+        let membro = fe.class.is_some() || fe.extension.is_some();
+        let nome = consulta.nome(fe.name).to_string();
+        let constante_de_enum = fe.variable.is_some_and(|v| {
+            let ve = consulta.programa.variable(v);
+            ve.class.is_some_and(|c| consulta.programa.class(c).enum_constants.contains(&v))
+        });
+        let (especie, tipo_do_item) = match fe.kind {
+            _ if constante_de_enum => (Especie::SemTabela, Some(tipo)),
+            FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor => {
+                (if membro { Especie::Campo } else { Especie::VariavelDeTopo }, Some(tipo))
+            }
+            FunctionKind::Constructor | FunctionKind::SyntheticConstructor => (Especie::Construtor, retorno(consulta, tipo)),
+            FunctionKind::Function | FunctionKind::Operator => {
+                (if membro { Especie::Metodo } else { Especie::Funcao }, retorno(consulta, tipo))
+            }
+        };
+        let distancia = match (self.receptor, fe.class) {
+            (Some(r), Some(c)) if membro => distancia_de_heranca(consulta, r, c).map(|d| d as u32),
+            _ => None,
+        };
+        if let Some(item) = self.itens.last_mut() {
+            item.rel.especie = Some(especie);
+            item.rel.tipo = tipo_do_item;
+            item.rel.distancia = distancia;
+            item.rel.comeca_com_dolar = nome.starts_with('$');
+            item.rel.no_such_method = nome == "noSuchMethod";
         }
     }
 
@@ -572,6 +822,7 @@ impl Coletor {
                     Some(consulta.formatar(tipo)),
                 )
                 .origem = origem;
+                self.rel_de_funcao(consulta, f, tipo);
             }
             FunctionKind::Getter | FunctionKind::Setter => {
                 let especie = if fe.class.is_some() || fe.extension.is_some() {
@@ -588,6 +839,7 @@ impl Coletor {
                     Some(consulta.formatar(tipo)),
                 )
                 .origem = origem;
+                self.rel_de_funcao(consulta, f, tipo);
             }
             FunctionKind::Function
             | FunctionKind::Constructor
@@ -630,6 +882,7 @@ impl Coletor {
                 );
                 item.chamada = Some(Chamada::Parametros(parametros));
                 item.origem = origem;
+                self.rel_de_funcao(consulta, f, tipo);
             }
             FunctionKind::Operator => {}
         }
@@ -652,16 +905,30 @@ impl Coletor {
                 } else {
                     especie::CLASSE
                 };
+                let especie_rel = match classe.decl.map(|d| &programa.unit(d.unit).ast.decl(d.decl).kind) {
+                    Some(ast::DeclKind::Enum(_)) => crate::relevancia::Especie::Enum,
+                    Some(ast::DeclKind::Mixin(_)) => crate::relevancia::Especie::Mixin,
+                    Some(ast::DeclKind::ExtensionType(_)) => crate::relevancia::Especie::SemTabela,
+                    _ => crate::relevancia::Especie::Classe,
+                };
                 let origem = consulta.origem(consulta.inicio_do_elemento(elemento));
-                self.empurrar(grupo, especie, nome.clone(), nome, None)
-                    .origem = origem;
+                let item = self.empurrar(grupo, especie, nome.clone(), nome, None);
+                item.origem = origem;
+                item.rel.especie = Some(especie_rel);
+                item.classe = Some(c);
             }
             Element::Typedef(t) => {
                 let nome = consulta.nome(programa.typedef(t).name).to_string();
                 if !self.invisivel(consulta, &nome, programa.typedef(t).library) {
                     let origem = consulta.origem(consulta.inicio_do_elemento(elemento));
-                    self.empurrar(grupo, especie::CLASSE, nome.clone(), nome, None)
-                        .origem = origem;
+                    let alvo_funcao = matches!(consulta.tabela.get(consulta.outline.typedefs[t.0 as usize].target_type), Type::Function { .. });
+                    let item = self.empurrar(grupo, especie::CLASSE, nome.clone(), nome, None);
+                    item.origem = origem;
+                    item.rel.especie = Some(if alvo_funcao {
+                        crate::relevancia::Especie::AliasDeFuncao
+                    } else {
+                        crate::relevancia::Especie::SemTabela
+                    });
                 }
             }
             Element::Extension(x) => {
@@ -671,8 +938,9 @@ impl Coletor {
                 let nome = consulta.nome(n).to_string();
                 if !self.invisivel(consulta, &nome, programa.extension(x).library) {
                     let origem = consulta.origem(consulta.inicio_do_elemento(elemento));
-                    self.empurrar(grupo, especie::CLASSE, nome.clone(), nome, None)
-                        .origem = origem;
+                    let item = self.empurrar(grupo, especie::CLASSE, nome.clone(), nome, None);
+                    item.origem = origem;
+                    item.rel.especie = Some(crate::relevancia::Especie::SemTabela);
                 }
             }
             Element::Function(f) => {
@@ -701,13 +969,17 @@ impl Coletor {
                 if !self.invisivel(consulta, &nome, ve.library) {
                     let detalhe = consulta.tipo_da_variavel(v).map(|t| consulta.formatar(t));
                     let origem = consulta.origem(consulta.inicio_da_variavel(v));
-                    self.empurrar(grupo, especie::VARIAVEL, nome.clone(), nome, detalhe)
-                        .origem = origem;
+                    let item = self.empurrar(grupo, especie::VARIAVEL, nome.clone(), nome, detalhe);
+                    item.origem = origem;
+                    item.rel.especie = Some(crate::relevancia::Especie::VariavelDeTopo);
+                    item.rel.tipo = consulta.tipo_da_variavel(v);
                 }
             }
             Element::Prefix(_, p) => {
                 let nome = consulta.nome(p).to_string();
-                self.empurrar(grupo::PREFIXO, especie::MODULO, nome.clone(), nome, None);
+                self.empurrar(grupo::PREFIXO, especie::MODULO, nome.clone(), nome, None)
+                    .rel
+                    .especie = Some(crate::relevancia::Especie::Prefixo);
             }
         }
     }
@@ -751,7 +1023,9 @@ impl Coletor {
             .collect();
         prefixos.sort();
         for p in prefixos {
-            self.empurrar(grupo::PREFIXO, especie::MODULO, p.clone(), p, None);
+            self.empurrar(grupo::PREFIXO, especie::MODULO, p.clone(), p, None)
+                .rel
+                .especie = Some(crate::relevancia::Especie::Prefixo);
         }
     }
 
@@ -911,6 +1185,14 @@ impl Coletor {
                 texto: novo,
             });
             item.origem = Some((d.arquivo.clone(), d.inicio));
+            item.rel.nao_importado = true;
+            item.rel.especie = Some(if funcao {
+                crate::relevancia::Especie::Funcao
+            } else if d.tipo {
+                crate::relevancia::Especie::Classe
+            } else {
+                crate::relevancia::Especie::VariavelDeTopo
+            });
             if funcao {
                 item.chamada = Some(if d.sem_parametros {
                     Chamada::Parametros(Vec::new())
@@ -923,9 +1205,14 @@ impl Coletor {
     }
 
     /// Nomes visíveis no identificador sondado.
-    fn escopo(&mut self, consulta: &mut Consulta) {
+    fn escopo(&mut self, consulta: &mut Consulta, unidade: dartforge_elements::model::UnitId) {
         if let Some(escopo) = consulta.escopo.clone() {
-            for local in &escopo.locais {
+            let ast = &consulta.programa.unit(unidade).ast;
+            let eh_parametro = |o: usize| {
+                ast.functions.iter().flat_map(|f| f.parameters.iter().flatten()).any(|p| p.name.is_some_and(|n| n.span.start == o))
+                    || ast.members.iter().any(|m| matches!(&m.kind, ast::MemberKind::Constructor(k) if k.parameters.iter().any(|p| p.name.is_some_and(|n| n.span.start == o))))
+            };
+            for (i, local) in escopo.locais.iter().enumerate() {
                 let nome = consulta.nome(local.nome).to_string();
                 let especie = if local.funcao {
                     especie::FUNCAO
@@ -933,7 +1220,17 @@ impl Coletor {
                     especie::VARIAVEL
                 };
                 let detalhe = consulta.formatar(local.tipo);
-                self.empurrar(grupo::LOCAL, especie, nome.clone(), nome, Some(detalhe));
+                let parametro = eh_parametro(local.offset);
+                let item = self.empurrar(grupo::LOCAL, especie, nome.clone(), nome, Some(detalhe));
+                if local.funcao {
+                    item.rel.especie = Some(crate::relevancia::Especie::Funcao);
+                    item.rel.tipo = retorno(consulta, local.tipo);
+                } else {
+                    item.rel.especie = Some(if parametro { crate::relevancia::Especie::Parametro } else { crate::relevancia::Especie::Local });
+                    item.rel.tipo = Some(local.tipo);
+                    item.rel.local = true;
+                    item.rel.distancia = Some(i as u32);
+                }
             }
             for (nome, _) in &escopo.parametros_de_tipo {
                 let nome = consulta.nome(*nome).to_string();
@@ -943,7 +1240,9 @@ impl Coletor {
                     nome.clone(),
                     nome,
                     None,
-                );
+                )
+                .rel
+                .especie = Some(crate::relevancia::Especie::ParametroDeTipo);
             }
             if let Some(classe) = escopo.classe {
                 if !escopo.estatico
@@ -974,9 +1273,26 @@ impl Coletor {
     /// de uma classe.
     fn estaticos_da_classe(&mut self, consulta: &Consulta, classe: ClassId, construtores: bool) {
         let c = consulta.programa.class(classe);
+        // Constantes de enum (`Cor.▮` lista `azul`, `verde`…), na ordem
+        // declarada, com o tipo do enum.
+        for v in c.enum_constants.clone() {
+            let nome = consulta.nome(consulta.programa.variable(v).name).to_string();
+            let tipo = consulta.tipo_da_variavel(v).map(|t| consulta.formatar(t));
+            let origem = consulta.origem(consulta.inicio_da_variavel(v));
+            let tipo_id = consulta.tipo_da_variavel(v);
+            let item = self.empurrar(grupo::MEMBRO, especie::MEMBRO_DE_ENUM, nome.clone(), nome, tipo);
+            item.origem = origem;
+            item.rel.especie = Some(crate::relevancia::Especie::SemTabela);
+            item.rel.tipo = tipo_id;
+        }
+        let c = consulta.programa.class(classe);
         let mut membros: Vec<FunctionElementId> = c.static_members.values().copied().collect();
         membros.sort();
         for f in membros {
+            // O acessor de uma constante de enum já entrou acima.
+            if consulta.programa.function(f).variable.is_some_and(|v| c.enum_constants.contains(&v)) {
+                continue;
+            }
             let tipo = tipo_declarado(consulta, f);
             self.funcao(consulta, grupo::MEMBRO, f, tipo);
         }
@@ -1009,8 +1325,10 @@ impl Coletor {
             }
         }
         let mut classes = Vec::new();
+        self.receptor = None;
         match consulta.tabela.get(busca).clone() {
             Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => {
+                self.receptor = Some(class);
                 classes.push(class)
             }
             Type::Record {
@@ -1210,7 +1528,7 @@ impl Coletor {
                 .iter()
                 .filter_map(|a| a.name.map(|n| n.sym))
                 .collect();
-            let mut nomeados: Vec<(String, TypeId)> = Vec::new();
+            let mut nomeados: Vec<(String, TypeId, bool)> = Vec::new();
             let construtor = match corpos.get_resolved(ExprId(i as u32)) {
                 Some(Resolved::Constructor(f)) => Some(*f),
                 _ => alvo.and_then(|a| match corpos.get_resolved(a) {
@@ -1223,26 +1541,28 @@ impl Coletor {
                     if p.kind == ast::ParameterKind::Named
                         && let Some(n) = p.externo.or(p.name).filter(|n| !passados.contains(n))
                     {
-                        nomeados.push((consulta.nome(n).to_string(), p.ty));
+                        nomeados.push((consulta.nome(n).to_string(), p.ty, p.required));
                     }
                 }
             } else if let Some(t) = alvo.and_then(|a| corpos.get_type(a))
                 && let Type::Function { named, .. } = consulta.tabela.get(t)
             {
-                for (n, t, _) in named.iter() {
+                for (n, t, obrigatorio) in named.iter() {
                     if !passados.contains(n) {
-                        nomeados.push((consulta.nome(*n).to_string(), *t));
+                        nomeados.push((consulta.nome(*n).to_string(), *t, *obrigatorio));
                     }
                 }
             }
-            for (nome, tipo) in nomeados {
+            for (nome, tipo, obrigatorio) in nomeados {
                 self.empurrar(
                     grupo::NOMEADO,
                     especie::VARIAVEL,
                     format!("{nome}: "),
                     format!("{nome}: "),
                     Some(consulta.formatar(tipo)),
-                );
+                )
+                .rel
+                .fixa = Some(if obrigatorio { 950 } else { 900 });
             }
             return;
         }
@@ -1318,4 +1638,190 @@ fn parametros_de_tipo_em(ast: &ast::Ast, offset: usize) -> Vec<SymbolId> {
         .flat_map(|(_, ps)| ps.iter().map(|t| t.name.sym))
         .filter(|s| vistos.insert(*s))
         .collect()
+}
+
+/// O retorno de um tipo de função.
+fn retorno(consulta: &Consulta, tipo: TypeId) -> Option<TypeId> {
+    match consulta.tabela.get(tipo) {
+        Type::Function { ret, .. } => Some(*ret),
+        _ => None,
+    }
+}
+
+/// Arestas de `sub` até `sup` na hierarquia (superclasse, mixins,
+/// interfaces, `on`), como o `_inheritanceDistance` do Dart.
+fn distancia_de_heranca(consulta: &Consulta, sub: ClassId, sup: ClassId) -> Option<usize> {
+    let mut fila = std::collections::VecDeque::from([(sub, 0usize)]);
+    let mut vistas = HashSet::new();
+    while let Some((c, d)) = fila.pop_front() {
+        if c == sup {
+            return Some(d);
+        }
+        if !vistas.insert(c) {
+            continue;
+        }
+        let cl = consulta.programa.class(c);
+        for s in cl.supertype_class.iter().chain(&cl.mixin_classes).chain(&cl.interface_classes).chain(&cl.on_classes) {
+            fila.push_back((*s, d + 1));
+        }
+    }
+    None
+}
+
+/// O tipo de interface de `c` com os argumentos `Never`, como o Dart
+/// instancia uma classe sugerida (`instantiateInstanceElement`).
+fn tipo_da_classe(consulta: &mut Consulta, c: ClassId) -> Option<TypeId> {
+    let n = consulta.outline.classes.get(c.0 as usize)?.type_params.len();
+    let never = consulta.core.never;
+    let args: Box<[TypeId]> = std::iter::repeat_n(never, n).collect();
+    Some(consulta.tabela.intern(Type::Interface { class: c, args, nullable: false }))
+}
+
+/// `contextTypeFeature`: igual 1,0; subtipo 0,40; supertipo 0,02; sem
+/// relação 0,13.
+fn caracteristica_de_contexto(consulta: &mut Consulta, esperado: TypeId, tipo: TypeId) -> f64 {
+    if esperado == tipo {
+        return 1.0;
+    }
+    let Consulta { tabela, outline, core, .. } = consulta;
+    let mut env = dartforge_types::SubtypeEnv::new(tabela, &outline.hierarchy, core);
+    if dartforge_types::is_subtype(tipo, esperado, &mut env) {
+        0.40
+    } else if dartforge_types::is_subtype(esperado, tipo, &mut env) {
+        0.02
+    } else {
+        0.13
+    }
+}
+
+/// O tipo que a posição da expressão `expr` espera (`computeContextType`
+/// do Dart, nos casos comuns): o parâmetro do argumento, o alvo da
+/// atribuição, o tipo da variável com tipo escrito, o retorno da função, o
+/// `bool` de uma condição. `dynamic` não conta.
+fn tipo_esperado(consulta: &mut Consulta, unidade: dartforge_elements::model::UnitId, expr: ExprId) -> Option<TypeId> {
+    let ast = &consulta.programa.unit(unidade).ast;
+    let corpos = &consulta.corpos.units[unidade.0 as usize];
+    let mut esperado: Option<TypeId> = None;
+    for s in &ast.stmts {
+        match &s.kind {
+            StmtKind::If { condition, .. } | StmtKind::While { condition, .. } | StmtKind::DoWhile { condition, .. } if *condition == expr => {
+                esperado = Some(consulta.core.bool_);
+            }
+            StmtKind::Variables(l) if l.ty.is_some() => {
+                if let Some(v) = l.variables.iter().find(|v| v.initializer == Some(expr)) {
+                    esperado = corpos.tipo_local(v.name.span.start);
+                }
+            }
+            StmtKind::Return(Some(e)) if *e == expr => {
+                // O retorno escrito da função que contém o comando.
+                let f = ast.functions.iter().filter(|f| f.span.start <= s.span.start && s.span.end <= f.span.end).min_by_key(|f| f.span.end - f.span.start);
+                if let Some(f) = f
+                    && let Some(n) = f.name
+                {
+                    esperado = corpos.tipo_local(n.span.start).and_then(|t| retorno(consulta, t)).or_else(|| {
+                        consulta
+                            .programa
+                            .functions
+                            .iter()
+                            .position(|x| matches!(x.node, dartforge_elements::model::FunctionRef::Function { unit, function } if unit == unidade && ast.function(function).span == f.span))
+                            .map(|i| consulta.outline.functions[i].return_type)
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+    if esperado.is_none() {
+        for (i, e) in ast.exprs.iter().enumerate() {
+            match &e.kind {
+                ExprKind::Assign { target, value, .. } if *value == expr => esperado = corpos.get_type(*target),
+                ExprKind::Call { target, arguments } => {
+                    if let Some(k) = arguments.args.iter().position(|a| a.value == expr) {
+                        let a = &arguments.args[k];
+                        let construtor = match corpos.get_resolved(ExprId(i as u32)) {
+                            Some(Resolved::Constructor(f)) => Some(*f),
+                            _ => None,
+                        };
+                        let tipo_f = construtor.map(|f| consulta.outline.functions[f.0 as usize].signature).or_else(|| corpos.get_type(*target));
+                        esperado = tipo_f.and_then(|t| parametro_do_argumento(consulta, t, arguments, k, a.name.map(|n| n.sym)));
+                    }
+                }
+                ExprKind::InstanceCreation { arguments, .. } => {
+                    if let Some(k) = arguments.args.iter().position(|a| a.value == expr) {
+                        let a = &arguments.args[k];
+                        if let Some(Resolved::Constructor(f)) = corpos.get_resolved(ExprId(i as u32)) {
+                            let t = consulta.outline.functions[f.0 as usize].signature;
+                            esperado = parametro_do_argumento(consulta, t, arguments, k, a.name.map(|n| n.sym));
+                        }
+                    }
+                }
+                _ => {}
+            }
+            if esperado.is_some() {
+                break;
+            }
+        }
+    }
+    esperado.filter(|t| !matches!(consulta.tabela.get(*t), Type::Dynamic))
+}
+
+/// O tipo do parâmetro que recebe o `k`-ésimo argumento (posicional pela
+/// posição entre os posicionais, nomeado pelo nome).
+fn parametro_do_argumento(consulta: &Consulta, tipo_f: TypeId, argumentos: &ast::Arguments, k: usize, nome: Option<SymbolId>) -> Option<TypeId> {
+    let Type::Function { positional, optional, named, .. } = consulta.tabela.get(tipo_f) else { return None };
+    match nome {
+        Some(n) => named.iter().find(|(s, _, _)| *s == n).map(|(_, t, _)| *t),
+        None => {
+            let posicao = argumentos.args[..k].iter().filter(|a| a.name.is_none()).count();
+            positional.iter().chain(optional.iter()).nth(posicao).copied()
+        }
+    }
+}
+
+/// O local do completar num nome de tipo (`VariableDeclarationList_type`,
+/// `FormalParameterList_parameter`, `TypeArgumentList_argument`…).
+fn local_do_tipo(ast: &ast::Ast, inicio: usize) -> Option<String> {
+    let tipo = ast.types.iter().enumerate().find(|(_, t)| match &t.kind {
+        ast::TypeKind::Named { name, .. } => name.last().is_some_and(|n| n.span.start == inicio),
+        _ => false,
+    })?;
+    let id = ast::TypeId(tipo.0 as u32);
+    let em_lista = |l: &ast::VariableList| l.ty == Some(id);
+    if ast.stmts.iter().any(|s| matches!(&s.kind, StmtKind::Variables(l) if em_lista(l))) {
+        return Some("VariableDeclarationList_type".into());
+    }
+    if ast.members.iter().any(|m| matches!(&m.kind, ast::MemberKind::Field(l) if em_lista(l))) {
+        return Some("FieldDeclaration_fields".into());
+    }
+    if ast.functions.iter().any(|f| f.parameters.iter().flatten().any(|p| p.ty == Some(id))) {
+        return Some("FormalParameterList_parameter".into());
+    }
+    if ast.functions.iter().any(|f| f.return_type == Some(id)) {
+        let metodo = ast.members.iter().any(|m| matches!(m.kind, ast::MemberKind::Method(f) if ast.function(f).return_type == Some(id)));
+        return Some(if metodo { "MethodDeclaration_returnType" } else { "FunctionDeclaration_returnType" }.into());
+    }
+    if ast.types.iter().any(|t| matches!(&t.kind, ast::TypeKind::Named { args, .. } if args.contains(&id))) {
+        return Some("TypeArgumentList_argument".into());
+    }
+    for e in &ast.exprs {
+        match &e.kind {
+            ExprKind::Is { ty, .. } if *ty == id => return Some("IsExpression_type".into()),
+            ExprKind::As { ty, .. } if *ty == id => return Some("AsExpression_type".into()),
+            _ => {}
+        }
+    }
+    for d in &ast.decls {
+        if let ast::DeclKind::Class(k) = &d.kind {
+            if k.extends == Some(id) {
+                return Some("ExtendsClause_superclass".into());
+            }
+            if k.implements.contains(&id) {
+                return Some("ImplementsClause_interface".into());
+            }
+            if k.with.contains(&id) {
+                return Some("WithClause_mixinType".into());
+            }
+        }
+    }
+    None
 }

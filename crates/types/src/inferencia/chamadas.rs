@@ -172,6 +172,8 @@ pub(crate) fn invocar(
     explicitos: Option<Vec<TypeId>>,
 ) -> (TypeId, TypeId) {
     let Type::Function { type_params, ret, positional, optional, named, .. } = inf.table.get(f).clone() else {
+        inf.entidade_da_inferencia = None;
+        inf.nomes_posicionais = None;
         for a in args.args.iter() {
             inferir_livre(inf, cx, a.value);
         }
@@ -199,6 +201,9 @@ pub(crate) fn invocar(
         let f2 = inf.table.intern(Type::Function { type_params: novos.into_boxed_slice(), ret, positional, optional, named, nullable: false });
         return invocar(inf, cx, f2, args, ctx, explicitos);
     }
+    // O `errorEntity` vale só para esta invocação (os argumentos têm as suas).
+    let entidade = inf.entidade_da_inferencia.take();
+    let nomes_posicionais = inf.nomes_posicionais.take();
     // Argumentos de tipo explícitos: instancia e segue como não genérica.
     if !type_params.is_empty() {
         if let Some(ex) = explicitos {
@@ -231,6 +236,7 @@ pub(crate) fn invocar(
     // Genérica: para baixo (retorno × contexto), depois argumentos em estágios.
     let mut gi = GenericInferrer::new(&type_params);
     if !inf.e_desconhecido(ctx) {
+        gi.com_origem(crate::constraints::Origem::Retorno { declarado: ret, contexto: ctx });
         let mut env = inf.env();
         gi.constrain_return(ret, ctx, &mut env);
     }
@@ -262,19 +268,37 @@ pub(crate) fn invocar(
             tipos[i] = t;
             if let Some(p) = params[i] {
                 let t = inf.tipo_do_call_implicito(t, p).unwrap_or(t);
+                let parametro = match a.name {
+                    Some(n) => inf.interner.resolve(n.sym).to_string(),
+                    None => {
+                        let pos = args.args[..i].iter().filter(|x| x.name.is_none()).count();
+                        nomes_posicionais.as_ref().and_then(|v| v.get(pos).cloned()).unwrap_or_default()
+                    }
+                };
+                gi.com_origem(crate::constraints::Origem::Argumento { parametro, declarado: p, argumento: t, prefixo: None });
                 let mut env = inf.env();
                 gi.constrain_argument(t, p, &mut env);
             }
         }
     }
     let usar_limites = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::InferenceUsingBounds);
+    let (interner, program) = (inf.interner, inf.program);
     let mut env = inf.env();
     if usar_limites {
         gi.restringir_pelos_limites(&mut env);
     }
     let finais = gi.choose_final(&mut env);
+    let falhas = match entidade {
+        Some(_) => gi.falhas(&finais, &mut env, interner, program),
+        None => Vec::new(),
+    };
     let inst = instanciar_funcao(f, &finais, &mut env);
     drop(env);
+    if let Some(sp) = entidade {
+        for (nome, sufixo) in falhas {
+            inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::COULD_NOT_INFER, sp, &[&nome, &sufixo]);
+        }
+    }
     inf.body_types.units[cx.unit.0 as usize].set_instanciacao(args.span.start, finais.clone().into_boxed_slice());
     // Checagem com os parâmetros instanciados.
     if let Type::Function { positional: ip, optional: io, named: inm, ret: iret, .. } = inf.table.get(inst).clone() {
@@ -400,6 +424,30 @@ fn argumentos_de_tipo(inf: &mut BodyInferrer<'_>, cx: &Corpo, args: &ast::Argume
     Some(args.type_args.iter().map(|&t| inf.tipo_de_argumento_de_tipo(cx, t)).collect())
 }
 
+/// Prepara o `errorEntity` do `COULD_NOT_INFER` da próxima invocação
+/// genérica e os nomes dos parâmetros posicionais do alvo `f`.
+pub(crate) fn preparar_entidade(inf: &mut BodyInferrer<'_>, sp: Span, f: Option<FunctionElementId>) {
+    inf.entidade_da_inferencia = Some(sp);
+    inf.nomes_posicionais = f.map(|f| {
+        inf.outline.functions[f.0 as usize]
+            .parameters
+            .iter()
+            .filter(|p| p.kind != ast::ParameterKind::Named)
+            .map(|p| p.name.map(|n| inf.interner.resolve(n).to_string()).unwrap_or_default())
+            .collect()
+    });
+}
+
+/// A função (de topo, membro, de extensão) a que `e` resolveu.
+fn funcao_resolvida(inf: &BodyInferrer<'_>, cx: &Corpo, e: ExprId) -> Option<FunctionElementId> {
+    match inf.body_types.units[cx.unit.0 as usize].get_resolved(e)? {
+        Resolved::Element(Element::Function(f)) => Some(*f),
+        Resolved::Member { member: crate::resolved::MemberRef::Function(f), .. } => Some(*f),
+        Resolved::ExtensionMember { member, .. } => Some(*member),
+        _ => None,
+    }
+}
+
 /// `f(args)`, `r.m(args)`, `C(args)`, `C.nome(args)`...
 pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx: TypeId) -> (TypeId, bool) {
     let a = &inf.program.unit(cx.unit).ast;
@@ -499,7 +547,10 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             if let ExprKind::Identifier(p) = &a.expr(recv).kind {
                 if matches!(resolver_nome(inf, cx, p.sym, false), RefNome::Prefixo) {
                     let t = inferir(inf, cx, target, u);
+                    let f = funcao_resolvida(inf, cx, target);
+                    preparar_entidade(inf, name.span, f);
                     let (r, _) = invocar_valor(inf, cx, e, t, args, ctx, explicitos, span);
+                    inf.entidade_da_inferencia = None;
                     return (r, false);
                 }
             }
@@ -525,7 +576,10 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                     }
                 }
                 let t = inferir(inf, cx, target, u);
+                let f = funcao_resolvida(inf, cx, target);
+                preparar_entidade(inf, name.span, f);
                 let (r, _) = invocar_valor(inf, cx, e, t, args, ctx, explicitos, span);
+                inf.entidade_da_inferencia = None;
                 return (r, false);
             }
             // `super.m(args)`.
@@ -607,7 +661,10 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                     }
                     let (mut r, _) = if m.metodo {
                         let t = inf.nao_nulo(m.tipo);
-                        invocar(inf, cx, t, args, ctx, explicitos)
+                        preparar_entidade(inf, name.span, m.funcao);
+                        let r = invocar(inf, cx, t, args, ctx, explicitos);
+                        inf.entidade_da_inferencia = None;
+                        r
                     } else {
                         invocar_valor(inf, cx, e, m.tipo, args, ctx, explicitos, span)
                     };
@@ -715,7 +772,12 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 }
                 return (inf.core.dynamic_, false);
             }
+            if matches!(a.expr(target).kind, ExprKind::Identifier(_)) {
+                let f = funcao_resolvida(inf, cx, target);
+                preparar_entidade(inf, a.expr(target).span, f);
+            }
             let (r, _) = invocar_valor(inf, cx, e, t, args, ctx, explicitos, span);
+            inf.entidade_da_inferencia = None;
             (r, false)
         }
     }
@@ -933,7 +995,20 @@ pub(crate) fn construir(
         nullable: false,
     });
     // Contexto `C<...>?` ou supertipo: a restrição do retorno cuida.
+    if let Some(e) = e {
+        let a = &inf.program.unit(cx.unit).ast;
+        let sp = match &a.expr(e).kind {
+            ExprKind::Call { target, .. } => a.expr(*target).span,
+            ExprKind::InstanceCreation { ty, constructor, .. } => {
+                let t = a.ty(*ty).span;
+                Span { start: t.start, end: constructor.map(|n| n.span.end).unwrap_or(t.end) }
+            }
+            _ => a.expr(e).span,
+        };
+        preparar_entidade(inf, sp, f);
+    }
     let (r, _) = invocar(inf, cx, generica, args, ctx, None);
+    inf.entidade_da_inferencia = None;
     r
 }
 

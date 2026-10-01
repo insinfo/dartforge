@@ -46,9 +46,21 @@ npm run compile
 | `dartforge.serverPath` | `null` (usa o `PATH`) | Caminho do binário `dartforge-lsp` |
 | `dartforge.trace.server` | `off` | Rastreia mensagens cliente ↔ servidor |
 
+## O que o servidor oferece
+
+Tudo vem do servidor pelo protocolo; o `vscode-languageclient` liga cada
+recurso que o servidor anuncia no `initialize`, sem código na extensão:
+diagnósticos (imediatos e tipados), completar (com importação automática e
+snippets de chamada), hover, ir para definição, para a definição do tipo e
+para as implementações, referências, destaques no documento, renomear
+(com `prepareRename`), ações rápidas e assistências, ajuda de assinatura,
+símbolos do documento e do workspace, dobras, expandir seleção, dicas
+embutidas e hierarquia de tipos. A paridade medida de cada um com o
+servidor do Dart está em `docs/LSP.md` ("Paridade com o servidor do Dart").
+
 ## O que a extensão NÃO faz (de propósito)
 
-Nenhuma análise no cliente: sem parsing, sem diagnósticos próprios, sem
-hover/completion/definição (capacidades não implementadas no servidor neste
-brief — ver `docs/LSP.md`). Se o binário não for encontrado, o VS Code
+Nenhuma análise no cliente: sem parsing, sem diagnósticos próprios e sem
+recursos implementados em TypeScript. Formatação fica com o `dart format`
+(decisão em `docs/LSP.md`). Se o binário não for encontrado, o VS Code
 mostra o erro de ativação no canal da extensão.

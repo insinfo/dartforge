@@ -150,14 +150,14 @@ fn importado_usa_tipos_e_texto_vigente_sem_reter_versoes() {
     }}));
     servidor.bombear();
     assert_eq!(requisitar(&mut servidor, 81, "textDocument/definition", &uri_fn, 9)["range"]["start"], json!({"line":0,"character":4}));
-    assert_eq!(requisitar(&mut servidor, 82, "textDocument/hover", &uri_fn, 9)["contents"], "int soma(int a, int b)");
+    assert_eq!(requisitar(&mut servidor, 82, "textDocument/hover", &uri_fn, 9)["contents"], "int soma(int a, int b)\nType: int Function(int, int)");
     servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
         "textDocument":{"uri":destino_fn,"languageId":"dart","version":1,
             "text":"// nova linha\nString soma(String a) => a;\n"}
     }}));
     servidor.bombear();
     assert_eq!(requisitar(&mut servidor, 83, "textDocument/definition", &uri_fn, 9)["range"]["start"], json!({"line":1,"character":7}));
-    assert_eq!(requisitar(&mut servidor, 84, "textDocument/hover", &uri_fn, 9)["contents"], "String soma(String a)");
+    assert_eq!(requisitar(&mut servidor, 84, "textDocument/hover", &uri_fn, 9)["contents"], "String soma(String a)\nType: String Function(String)");
     servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{
         "textDocument":{"uri":destino_fn,"version":2},
         "contentChanges":[{"text":"int soma([int a = 0]) => a;\n"}]
@@ -165,7 +165,7 @@ fn importado_usa_tipos_e_texto_vigente_sem_reter_versoes() {
     servidor.bombear();
     assert_eq!(requisitar(&mut servidor, 85, "textDocument/definition", &uri_fn, 9)["range"]["start"], json!({"line":0,"character":4}));
     // Parâmetro opcional com valor padrão: a assinatura completa.
-    assert_eq!(requisitar(&mut servidor, 86, "textDocument/hover", &uri_fn, 9)["contents"], "int soma([int a = 0])");
+    assert_eq!(requisitar(&mut servidor, 86, "textDocument/hover", &uri_fn, 9)["contents"], "int soma([int a = 0])\nType: int Function([int])");
 
     let biblioteca_getter = raiz.join("getter.dart");
     let entrada_getter = raiz.join("main_getter.dart");
@@ -211,7 +211,7 @@ fn importado_usa_tipos_e_texto_vigente_sem_reter_versoes() {
     }}));
     servidor.bombear();
     assert_eq!(requisitar(&mut servidor, 94, "textDocument/definition", &uri_funcao_prefixada, 11)["range"]["start"], json!({"line":0,"character":4}));
-    assert_eq!(requisitar(&mut servidor, 95, "textDocument/hover", &uri_funcao_prefixada, 11)["contents"], "int soma(int a, int b)");
+    assert_eq!(requisitar(&mut servidor, 95, "textDocument/hover", &uri_funcao_prefixada, 11)["contents"], "int soma(int a, int b)\nType: int Function(int, int)");
     // A análise tipada em segundo plano gravou o cache deste SDK mínimo.
     servidor.aguardar_diagnosticos(std::time::Duration::from_secs(120));
     let layout = SdkLayout::load(&raiz.join("sdk/lib"), "dartdevc").unwrap();

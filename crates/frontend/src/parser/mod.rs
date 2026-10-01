@@ -30,6 +30,7 @@
 //!   seguintes, e aceitar todo programa válido é o critério de aceite aqui.
 pub mod declarations;
 pub(crate) mod fasta;
+pub(crate) mod modificadores;
 pub mod expressions;
 pub mod patterns;
 pub mod statements;
@@ -208,6 +209,49 @@ pub struct Parser<'s, 'i> {
     /// Numa tentativa de `operador_por_extenso` (o `_currentlyRecovering` do
     /// fasta): não se tenta outra dentro dela.
     pub(crate) recuperando_operador: bool,
+    /// A declaração cujos membros estão sendo lidos (o `DeclarationKind` do
+    /// fasta): decide os erros próprios de extension e mixin.
+    pub(crate) dono: DonoDeMembros,
+    /// O dono da próxima lista de parâmetros formais (o `MemberKind` do
+    /// fasta), posto por quem a lê logo antes; a lista o consome (as listas
+    /// aninhadas, de parâmetro-função, são `Outro`).
+    pub(crate) params_de: modificadores::DonoDeParametros,
+    /// O nome da declaração cujo membro está sendo lido (`None` no topo):
+    /// campo, getter ou setter com ele é `MEMBER_WITH_CLASS_NAME`.
+    pub(crate) nome_envolvente: Option<&'s str>,
+    /// O `PatternContext` do fasta do padrão em leitura.
+    pub(crate) contexto_padrao: patterns::ContextoDePadrao,
+    /// O `DirectiveState` do fasta (`directive_context.dart`).
+    pub(crate) estado_diretivas: EstadoDiretivas,
+    /// Numa tentativa especulativa de `recover_member`: o `;` que falta não
+    /// é inserido diante de qualquer token (a tentativa só vinga com
+    /// membro bem terminado).
+    pub(crate) especulando: bool,
+    /// O lugar do nome sintético da classe/mixin em leitura (recuperação de
+    /// `nome_de_declaracao`), onde vai o erro de corpo ausente.
+    pub(crate) nome_sintetico: Option<dartforge_diagnostics::Span>,
+}
+
+/// `DirectiveState` (`directive_context.dart`), na ordem do enum do fasta.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum EstadoDiretivas {
+    Nenhum,
+    Script,
+    Library,
+    ImportExport,
+    Part,
+    PartOf,
+    Declaracoes,
+}
+
+/// O `DeclarationKind` do fasta para os membros em leitura.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DonoDeMembros {
+    Classe,
+    Mixin,
+    Enum,
+    Extension,
+    ExtensionType,
 }
 
 /// Limite de aninhamento antes de um diagnóstico de profundidade.
@@ -232,6 +276,13 @@ impl<'s, 'i> Parser<'s, 'i> {
             em_construtor_primario: false,
             corpos_primarios: std::collections::HashMap::new(),
             recuperando_operador: false,
+            dono: DonoDeMembros::Classe,
+            params_de: modificadores::DonoDeParametros::Outro,
+            nome_envolvente: None,
+            contexto_padrao: patterns::ContextoDePadrao::Correspondencia,
+            estado_diretivas: EstadoDiretivas::Nenhum,
+            especulando: false,
+            nome_sintetico: None,
         }
     }
 
@@ -455,6 +506,16 @@ impl<'s, 'i> Parser<'s, 'i> {
             let s = self.span().start;
             return self.erro_em(codigos::scanner::EXPECTED_TOKEN, Span { start: s, end: s + 1 }, &[texto]);
         }
+        // Um `>` que o scanner do fasta lê junto do seguinte (`>=`, `>>`,
+        // `>>=`…) é um token só lá: o erro cobre a composição inteira.
+        if self.in_type_args == 0
+            && let Some(c) = self.composed_gt()
+            && c.len() > 1
+        {
+            let s = self.span().start;
+            let fim = self.peek_at(c.len() - 1).span.end;
+            return self.erro_em(codigos::parser::EXPECTED_TOKEN, Span { start: s, end: fim }, &[texto]);
+        }
         self.erro(codigos::parser::EXPECTED_TOKEN, &[texto])
     }
 
@@ -487,6 +548,16 @@ impl<'s, 'i> Parser<'s, 'i> {
         if seguro { Ok(()) } else { Err(e) }
     }
 
+    /// `ensureSemicolon` sem a prudência de [`Parser::garantir_ponto_e_virgula`]:
+    /// para onde a construção acabou num token certo (nome, URI, prefixo), o
+    /// `;` que falta é relatado no último token lido e a análise segue no
+    /// token corrente, qualquer que seja.
+    pub(crate) fn garantir_ponto_e_virgula_forcado(&mut self) {
+        if !self.eat_op(Op::Semicolon) {
+            self.erro_esperado(";");
+        }
+    }
+
     /// `ensureCloseParen` do fasta: o `)` que fecha o `(` na posição absoluta
     /// `abre`. Se o token corrente não é ele, `EXPECTED_TOKEN` (`)`) no token
     /// corrente e o cursor pula para depois do `)` casado — o que fica no
@@ -498,7 +569,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         match self.matching_close(abre) {
             Some(fecha) if fecha >= self.pos && self.kind_of(fecha) == Kind::Op(Op::RParen) && !self.at_eof() => {
-                self.erro(codigos::parser::EXPECTED_TOKEN, &[")"]);
+                self.erro_esperado(")");
                 self.pos = fecha + 1;
                 Ok(())
             }

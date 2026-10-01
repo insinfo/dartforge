@@ -610,6 +610,34 @@ impl Projeto {
                 );
             }
         }
+        // Nomes de `show`/`hide` de um import ou export: o elemento que a
+        // biblioteca alvo exporta com esse nome.
+        {
+            let p = self.programa();
+            let lib = p.library(u.library);
+            let alvos = lib
+                .imports
+                .iter()
+                .filter(|i| i.unit == unidade)
+                .map(|i| (i.directive, i.library))
+                .chain(lib.exports.iter().filter(|e| e.unit == unidade).map(|e| (e.directive, e.library)));
+            for (indice, alvo_lib) in alvos {
+                let Some(d) = u.unit.directives.get(indice) else { continue };
+                let combinadores = match &d.kind {
+                    ast::DirectiveKind::Import { combinators, .. } | ast::DirectiveKind::Export { combinators, .. } => combinators,
+                    _ => continue,
+                };
+                for c in combinadores {
+                    let (ast::Combinator::Show(nomes) | ast::Combinator::Hide(nomes)) = c;
+                    if let Some(n) = nomes.iter().find(|n| n.span == nome)
+                        && let Some(el) = p.library(alvo_lib).exported.get(&n.sym).and_then(|b| b.getter.or(b.setter))
+                    {
+                        let (alvo, concreto) = self.topo(el);
+                        return denotado(alvo, None, concreto);
+                    }
+                }
+            }
+        }
         // Metadados (`@nome`, `@p.nome`, `@Classe.ctor(...)`).
         if let Some(d) = self.em_metadados(unidade, nome) {
             return Ok(Some(d));
@@ -1039,7 +1067,7 @@ impl Projeto {
     /// Resolve uma referência de documentação (`[a]`, `[A.b]`, `[p.A.b]`)
     /// no escopo da declaração documentada: os parâmetros e parâmetros de
     /// tipo dela, os membros da classe envolvente e o escopo da biblioteca.
-    fn resolver_referencia_doc(
+    pub(crate) fn resolver_referencia_doc(
         &self,
         unidade: UnitId,
         comentario: Span,

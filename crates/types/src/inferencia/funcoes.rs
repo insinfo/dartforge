@@ -44,6 +44,16 @@ fn declarar_parametros(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, params: &[ast
             continue;
         }
         if let Some(n) = &p.name {
+            // Tipo escrito que não resolve: `dynamic` sem ser `dynamic`.
+            if matches!(inf.table.get(t), Type::Dynamic) {
+                if let Some(x) = p.ty {
+                    if let ast::TypeKind::Named { name, .. } = &inf.program.unit(cx.unit).ast.ty(x).kind {
+                        if !name.last().is_some_and(|k| inf.interner.resolve(k.sym) == "dynamic") {
+                            inf.locais_invalidos.insert((cx.unit, n.span.start));
+                        }
+                    }
+                }
+            }
             declarar_local(
                 inf,
                 cx,
@@ -356,7 +366,15 @@ pub(crate) fn inferir_tipo_de_variavel_sem_tipo(inf: &mut BodyInferrer<'_>, vid:
             }
         }
         None => match v.node {
-            VariableRef::EnumConstant { .. } => v.class.map(|c| inf.tipo_this_classe(c)).unwrap_or(inf.core.dynamic_),
+            // O tipo da constante vem do outline (a instanciação escrita ou a
+            // dos limites); o tipo `this` da classe (`E<T>`) vazaria o `T`.
+            VariableRef::EnumConstant { .. } => {
+                let d = &inf.outline.variables[vid.0 as usize];
+                match d.declared_type.or(d.inferred) {
+                    Some(t) => t,
+                    None => v.class.map(|c| inf.tipo_this_classe(c)).unwrap_or(inf.core.dynamic_),
+                }
+            }
             _ => inf.core.dynamic_,
         },
     }
