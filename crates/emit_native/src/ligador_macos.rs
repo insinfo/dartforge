@@ -845,10 +845,18 @@ impl SysrootMacos {
             gerar(&tmp, arch)?;
             std::fs::write(tmp.join("pronto"), b"").map_err(|e| e.to_string())?;
             if std::fs::rename(&tmp, &dir).is_err() {
-                let _ = std::fs::remove_dir_all(&tmp);
+                // O destino existe. Com `pronto`, outro processo venceu a
+                // corrida: vale o dele. Sem `pronto`, é resto de uma geração
+                // interrompida ou de uma versão anterior sem a marca (o CI
+                // restaura o `target/` de um cache): sai, e a nossa entra.
                 if !dir.join("pronto").is_file() {
-                    return Err(format!("não foi possível instalar {}", dir.display()));
+                    let _ = std::fs::remove_dir_all(&dir);
+                    if std::fs::rename(&tmp, &dir).is_err() && !dir.join("pronto").is_file() {
+                        let _ = std::fs::remove_dir_all(&tmp);
+                        return Err(format!("não foi possível instalar {}", dir.display()));
+                    }
                 }
+                let _ = std::fs::remove_dir_all(&tmp);
             }
             Ok(SysrootMacos { raiz: dir, versao: String::new() })
         })

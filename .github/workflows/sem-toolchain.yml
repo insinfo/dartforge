@@ -100,10 +100,35 @@ jobs:
             "${env:ProgramFiles(x86)}\Windows Kits",
             "${env:ProgramFiles}\Windows Kits"
           )
+          # Um serviço do runner às vezes prende um arquivo de uma das pastas
+          # (o Rename-Item da pasta inteira falha): tenta de novo, parando os
+          # processos que carregaram módulos dela; se ainda assim não der,
+          # esconde só o que a ligação poderia achar (Lib, Include e bin de
+          # cada versão), e falha se nem isso der.
+          function Parar-Quem-Usa($p) {
+            Get-Process | Where-Object {
+              try { $_.Modules | Where-Object { $_.FileName -like "$p*" } } catch { $false }
+            } | Stop-Process -Force -ErrorAction SilentlyContinue
+          }
           foreach ($p in $pastas) {
-            if (Test-Path $p) {
-              Rename-Item -LiteralPath $p -NewName ((Split-Path $p -Leaf) + '.escondido') -ErrorAction Stop
-              Write-Host "escondido: $p"
+            if (-not (Test-Path $p)) { continue }
+            $ok = $false
+            for ($i = 1; $i -le 5 -and -not $ok; $i++) {
+              try {
+                Rename-Item -LiteralPath $p -NewName ((Split-Path $p -Leaf) + '.escondido') -ErrorAction Stop
+                $ok = $true
+              } catch {
+                Write-Host "tentativa ${i}: $($_.Exception.Message)"
+                Parar-Quem-Usa $p
+                Start-Sleep -Seconds 3
+              }
+            }
+            if ($ok) { Write-Host "escondido: $p"; continue }
+            $partes = Get-ChildItem -LiteralPath $p -Recurse -Directory -Depth 2 -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -in 'Lib', 'Include', 'bin' }
+            foreach ($d in $partes) {
+              Rename-Item -LiteralPath $d.FullName -NewName ($d.Name + '.escondido') -ErrorAction Stop
+              Write-Host "escondido (parte): $($d.FullName)"
             }
           }
       - name: Ligar e executar sem MSVC (olá mundo e corpus nativo)
