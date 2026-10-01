@@ -645,6 +645,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
         // Construtor nomeado.
         let cname = if name == "new" { "" } else { name };
+        // Modo SDK: o construtor de representação de um tipo de extensão de
+        // interop (`JSNumber._(x)` nos *patches* de `dart:js_interop`) é o
+        // próprio valor, como nos apagados.
+        if self.ctx.sdk.is_some() && self.ctx.program.class(c).kind == dartforge_elements::model::ClassKind::ExtensionType && crate::tipo_extensao::nome_do_primario(self.ctx, c).as_deref() == Some(cname) {
+            return Some(self.tipo_ext_construir(c, vec![], false, cname, arguments, expected));
+        }
         if crate::tipo_extensao::e_tipo_extensao_apagado(self.ctx, c) {
             // O primário não é elemento: `tipo_ext_construir` o reconhece.
             if !crate::tipo_extensao::tem_construtor(self.ctx, c, cname) {
@@ -751,7 +757,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     return (self.js_null_check(Js::prim(format!("{js}({})", args.join(", "))), &MemberKind::Method(fid)), ret);
                 }
                 let (args, ret, targs) = self.emit_args_for(&fty, arguments, expected);
-                let mut all = targs;
+                // Modo SDK: `@NoReifyGeneric` não passa os argumentos de tipo.
+                let mut all = if crate::sdk_proprio::sem_generico(self.ctx, fid) { Vec::new() } else { targs };
                 all.extend(args);
                 (Js::prim(format!("{js}({})", all.join(", "))), ret)
             }

@@ -894,6 +894,33 @@ executado. O custo do verificador é de 28-36 ms. O `limitless_ui/example`
 só cai 6,5% (48,2 → 45,1 MB): a galeria alcança quase tudo, e seletor só por
 nome é o limite (`docs/JS-PRODUCAO.md` §6.0).
 
+**SDK compilado pela nossa trilha** (padrão desde 2026-10-01;
+`docs/JS-PRODUCAO-SDK-PROPRIO.md`). O arquivo deixou de conter o
+`dart_sdk.js`. As bibliotecas `dart:` saem do nosso emissor em modo SDK
+(intrínsecos `JS()`, classes nativas, `dart:_runtime`), e o mundo fechado
+passa a cobrir também o SDK. Por cima vêm a emissão enxuta e a troca de
+nomes do `oxc`. `--sdk-ddc` volta ao caminho antigo.
+
+Validação:
+
+* corpus 238/238 iguais à VM, com o SDK próprio e com `--sdk-ddc`;
+* `limitless_ui` 26/26 no e2e;
+* `new_sali/frontend` com 11 passos sem erro no `fluxo.mjs`.
+
+Tamanhos, bruto/gzip:
+
+| programa | antes | agora | `dart2js -O4` |
+| --- | ---: | ---: | ---: |
+| `01_print` | 1.370/176 KB | **258/47 KB** | 35/11,5 KB |
+| `limitless_ui` | 45,1 MB | **14,0/2,07 MB** | 4,5/1,2 MB |
+| `new_sali` | — | **24,9/3,6 MB** | 7,6/2,0 MB |
+
+Pendências:
+
+* o tempo do mundo fechado nos projetos reais: 7,6 e 11,7 min, contra 55 s
+  do `dart2js`;
+* propriedades e o motor rti, que ainda pesam no tamanho.
+
 ### 1.3 Latência e memória — `crates/dev`
 
 `dartforge dev` mantém a sessão viva e recompila o mínimo.

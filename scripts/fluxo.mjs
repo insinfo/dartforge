@@ -482,7 +482,13 @@ async function main() {
     navegador.kill();
     srv.close();
     // O Edge segura arquivos do perfil por um instante depois do kill.
-    rmSync(perfil, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    // Se ainda segurar depois das tentativas, o perfil fica para trás (é
+    // temporário em target/) e o relatório sai mesmo assim.
+    try {
+      rmSync(perfil, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    } catch (e) {
+      console.error(`fluxo: perfil do navegador não apagado (${e.code}): ${perfil}`);
+    }
   }
 
   // Relatório.

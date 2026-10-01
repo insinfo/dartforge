@@ -76,6 +76,9 @@ pub struct ModoSdk {
     pub sem_reificar_lib: HashSet<LibraryId>,
     /// Funções com `@ReifyFunctionTypes(false)`.
     pub sem_reificar_fn: HashSet<FunctionElementId>,
+    /// Funções com `@NoReifyGeneric()`: sem parâmetros de tipo no JS
+    /// (`compiler.dart:3596-3598, 6394`).
+    pub sem_generico: HashSet<FunctionElementId>,
     /// Parâmetros com `@nullCheck`, pelo início do nome na fonte (unidade, byte).
     pub verificar_nulo: HashSet<(u32, u32)>,
     /// Classes primitivas no JS (`JSBool`, `JSNumber`, `JSString`): ganham
@@ -136,6 +139,7 @@ impl ModoSdk {
             pares: HashMap::new(),
             sem_reificar_lib: HashSet::new(),
             sem_reificar_fn: HashSet::new(),
+            sem_generico: HashSet::new(),
             verificar_nulo: HashSet::new(),
             primitivas: [ctx.jsbool, ctx.jsnumber, ctx.jsstring].into_iter().flatten().collect(),
             sem_asserts_do_sdk: true,
@@ -333,6 +337,9 @@ impl ModoSdk {
                 "ReifyFunctionTypes" if bool_da_anotacao(ctx, uid, a) == Some(false) => {
                     self.sem_reificar_fn.insert(fe);
                 }
+                "NoReifyGeneric" => {
+                    self.sem_generico.insert(fe);
+                }
                 _ => {}
             }
         }
@@ -411,9 +418,17 @@ pub fn funcao_sem_reificar(ctx: &Ctx, fid: FunctionElementId) -> bool {
     ctx.sdk.as_ref().is_some_and(|s| s.sem_reificar_fn.contains(&fid) || s.sem_reificar_lib.contains(&ctx.program.function(fid).library))
 }
 
+/// A função tem `@NoReifyGeneric()`.
+pub fn sem_generico(ctx: &Ctx, fid: FunctionElementId) -> bool {
+    ctx.sdk.as_ref().is_some_and(|s| s.sem_generico.contains(&fid))
+}
+
 /// O `assert` não é emitido: modo SDK e a unidade é do SDK.
 pub fn omitir_assert(ctx: &Ctx, lib: LibraryId) -> bool {
-    ctx.sdk.as_ref().is_some_and(|s| s.sem_asserts_do_sdk) && ctx.libs[lib.0 as usize].is_sdk
+    // O único `assert` do `dart:_runtime` é o de `assertInterop` (função Dart
+    // passada ao JS sem `allowInterop`), comportamento observável que o
+    // `dart_sdk.js` do DDC mantém: fica.
+    ctx.sdk.as_ref().is_some_and(|s| s.sem_asserts_do_sdk && s.runtime != Some(lib)) && ctx.libs[lib.0 as usize].is_sdk
 }
 
 /// Conferências de `@nullCheck` dos parâmetros já declarados (`compiler.dart:3855`):
@@ -494,15 +509,34 @@ pub fn verificacoes_de_covariancia(e: &FnEmitter, params: &[ast::Parameter]) -> 
     for p in params {
         let Some(n) = p.name else { continue };
         let Some(l) = e.lookup_local(n.sym) else { continue };
-        let mut usados = Vec::new();
-        l.ty.collect_params(&mut usados);
-        let cita = usados.iter().any(|id| da_classe.contains(id));
+        // Só a ocorrência **covariante** do parâmetro de tipo pede conferência
+        // (`void Function(T)` é contravariante em `T`: sempre seguro).
+        let cita = ocorre_covariante(&l.ty, &da_classe, true);
         if !(cita || p.covariant) || matches!(l.ty, Ty::Dynamic) {
             continue;
         }
-        out.push_str(&format!("{}[_as]({});\n", e.rti(&l.ty), l.js));
+        // `null` passa: o tipo local pode ter perdido o `?` de um parâmetro-função
+        // (`E Function()? orElse`), e a chamada tipada já provou a nulidade.
+        out.push_str(&format!("if ({0} != null) {1}[_as]({0});\n", l.js, e.rti(&l.ty)));
     }
     out
+}
+
+/// Um parâmetro de tipo de `ids` ocorre em posição covariante de `t`
+/// (`positivo` é a polaridade corrente; parâmetro de função a inverte).
+fn ocorre_covariante(t: &Ty, ids: &HashSet<u32>, positivo: bool) -> bool {
+    match t {
+        Ty::Param { id, .. } => positivo && ids.contains(id),
+        Ty::Iface { args, .. } => args.iter().any(|a| ocorre_covariante(a, ids, positivo)),
+        Ty::FutureOr { arg, .. } => ocorre_covariante(arg, ids, positivo),
+        Ty::Fn { ret, pos, opt, named, .. } => {
+            ocorre_covariante(ret, ids, positivo)
+                || pos.iter().chain(opt.iter()).any(|p| ocorre_covariante(p, ids, !positivo))
+                || named.iter().any(|(_, p, _)| ocorre_covariante(p, ids, !positivo))
+        }
+        Ty::Record { pos, named, .. } => pos.iter().any(|p| ocorre_covariante(p, ids, positivo)) || named.iter().any(|(_, p)| ocorre_covariante(p, ids, positivo)),
+        _ => false,
+    }
 }
 
 /// `@rest` no último parâmetro posicional (`compiler.dart:3722-3726`): o

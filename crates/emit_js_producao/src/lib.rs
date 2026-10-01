@@ -102,7 +102,10 @@ pub struct Opcoes {
 impl Default for Opcoes {
     fn default() -> Self {
         let stub = std::env::var("DARTFORGE_JSPROD_VERIFICAR").is_ok_and(|v| v == "stub");
-        let sdk_proprio = std::env::var("DARTFORGE_JSPROD_SDK").is_ok_and(|v| v == "proprio");
+        // O SDK próprio é o padrão (passa o corpus/js inteiro igual à VM);
+        // `DARTFORGE_JSPROD_SDK=ddc` ou `--sdk-ddc` voltam ao `dart_sdk.js`
+        // podado. O modo *stub* do verificador só existe no caminho antigo.
+        let sdk_proprio = !stub && !std::env::var("DARTFORGE_JSPROD_SDK").is_ok_and(|v| v == "ddc");
         Opcoes { podar_sdk: true, por_membro: true, podar_usuario: true, stub, minificar: true, sdk_proprio }
     }
 }

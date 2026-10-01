@@ -9,6 +9,12 @@ código, como manda `docs/historico/briefs/BRIEF-JS-PRODUCAO.md`, e traz junto a
 que o justificam — elas mudaram a ordem de duas etapas e mostraram que uma
 terceira é maior do que parecia.
 
+> **Atualização (2026-10-01).** O piso do `dart_sdk.js` descrito aqui foi
+> resolvido pelo plano seguinte, `docs/JS-PRODUCAO-SDK-PROPRIO.md`: o SDK
+> passou a ser compilado pela nossa trilha, e isso é o padrão do
+> `dartforge-jsprod`. O caminho deste documento continua disponível com
+> `--sdk-ddc`. Os resultados estão na §12 de lá.
+
 Referência estudada antes de escrever: `docs/PESQUISA-OTIMIZACAO.md` (a
 bibliografia aplicada — RTA, Safe ICF, ThinLTO, Liška, HyFM),
 `references/dart-sdk/pkg/compiler` (`universe/`, `js_backend/`,

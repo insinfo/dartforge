@@ -512,3 +512,76 @@ lá é 97% do arquivo.
    §1.1.
 5. Determinismo: duas montagens iguais dão o mesmo arquivo (teste de
    unidade).
+
+---
+
+## 12. Resultado (2026-10-01)
+
+O SDK próprio é o **padrão** do `dartforge-jsprod`. `--sdk-ddc` (ou
+`DARTFORGE_JSPROD_SDK=ddc`) volta ao `dart_sdk.js` podado, e
+`--verificar-stub` também usa o caminho antigo: o *stub* não existe no SDK
+próprio.
+
+### 12.1 Verificação
+
+| item | resultado |
+| --- | --- |
+| `dartforge-diferencial --producao`, SDK próprio | **238/238** iguais à VM |
+| o mesmo com `--sdk-ddc` | 238/238 |
+| testes de `emit_js_producao`, `mundo`, `emit_js`, `elements`, `types` | verdes |
+| `limitless_ui/example` em produção, suíte `ui_test/e2e` (Puppeteer) | **26/26** |
+| `new_sali/frontend` em produção, `scripts/fluxo.mjs` | 11 passos, 0 com erro, igual ao `dart2js -O4` |
+
+### 12.2 Tamanhos
+
+Bytes; `gzip -9`. A coluna "antes" é a §1.1.
+
+| programa | antes | gzip | agora | gzip | dart2js -O4 | gzip |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `01_print` | 1.369.630 | 176.389 | **257.738** | **46.988** | 34.929 | 11.551 |
+| `120_convert_json` | 1.551.412 | 200.514 | **408.091** | **75.468** | 58.553 | 18.965 |
+| `135_convert_json_classes` | 1.718.947 | 227.966 | **522.234** | **100.292** | 101.196 | 32.005 |
+| `limitless_ui/example` | ~45,1 MB | — | **14.043.321** | **2.074.627** | 4.511.811 ¹ | 1.195.800 |
+| `new_sali/frontend` | — | — | **24.895.868** | **3.578.704** | 7.616.039 ² | 2.025.116 |
+
+¹ O build oficial (`build_web_compilers --release`).
+² `dart compile js -O4` sobre uma cópia com os `.template.dart` gerados
+ao lado das fontes (sem `build_runner`).
+
+Em relação ao antes, o `print` ficou 5,3× menor em bruto e 3,8× em gzip. O
+`limitless_ui` ficou 3,2× menor. A meta do conjunto (§10: 80-150 KB bruto
+no `01_print`) **não foi atingida**. Composição do que sobra no `01_print`,
+antes da troca de nomes do `oxc`:
+
+* `dart:_rti`: 92 KB, o motor de tipos inteiro;
+* `core`: 34 KB;
+* `_js_helper`, `_internal` e `_interceptors`: 25 KB cada;
+* o objeto `dart`: 16 KB;
+* *strings*: 100 KB dos 257 KB, em receitas rti, nomes de `dartx` e
+  `setLibraryUri`.
+
+O que falta para chegar perto do `dart2js` é o que a §7.2 deixou fora:
+renomear propriedades e enxugar o motor rti.
+
+### 12.3 Correções que a validação pediu
+
+* **Escopo dos patches do SDK** (`crates/elements/src/outline.rs`,
+  `escopos_de_patch`): os imports de um arquivo de patch valem nele e
+  escondem os da biblioteca, como no CFE. O
+  `js_interop_unsafe_patch.dart` importa `dart:_foreign_helper show JS` e
+  `dart:js_interop hide JS`. Antes, `JS(...)` resolvia para a anotação
+  `@JS` (`238_interop_is_a`).
+* O único `assert` do `dart:_runtime` (`assertInterop`) fica, como no
+  `dart_sdk.js` (`209_js_interop`).
+* **Nome da expressão de classe**: quando o corpo cita o próprio nome como
+  identificador livre (`new ResizeObserver(#)` no `_create_1`), a classe sai
+  como `class ResizeObserver$`. É o que faz o DDC, e sem isso o *template*
+  construía a própria classe Dart (14 testes do `limitless_ui`).
+
+### 12.4 Pendências
+
+1. **Tempo do mundo fechado nos projetos reais**: 7,6 min no
+   `limitless_ui` e 11,7 min no `new_sali`. O `dart compile js -O4` do
+   `new_sali` leva 55 s.
+2. **Tamanho**: motor rti enxuto e minificação de nomes de propriedade.
+3. Relatório do despacho direto (§8) e medição da deduplicação (§9).

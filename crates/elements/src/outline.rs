@@ -574,6 +574,9 @@ pub fn build_outline(
 /// biblioteca vale para todas as unidades.
 fn escopos_de_unidade(program: &Program, lib_id: LibraryId) -> HashMap<UnitId, EscopoDeUnidade> {
     let lib = &program.libraries[lib_id.0 as usize];
+    if lib.is_sdk {
+        return escopos_de_patch(program, lib);
+    }
     let mut saida = HashMap::new();
     let com_imports_em_parte = lib
         .imports
@@ -644,6 +647,52 @@ fn escopos_de_unidade(program: &Program, lib_id: LibraryId) -> HashMap<UnitId, E
             }
         }
         saida.insert(unidade, escopo);
+    }
+    saida
+}
+
+/// Os escopos dos arquivos de patch de uma biblioteca do SDK que importam:
+/// como no CFE, os imports do patch valem nele e escondem os da biblioteca —
+/// `js_interop_unsafe_patch.dart` importa `dart:_foreign_helper show JS` e
+/// `dart:js_interop hide JS`, e o `JS(...)` do corpo é o intrínseco, não a
+/// anotação `@JS` que o arquivo da biblioteca traz. Nomes que o patch não
+/// importa caem no escopo da biblioteca (declarações, imports, `dart:core`).
+fn escopos_de_patch(program: &Program, lib: &crate::model::Library) -> HashMap<UnitId, EscopoDeUnidade> {
+    let mut saida: HashMap<UnitId, EscopoDeUnidade> = HashMap::new();
+    for import in &lib.imports {
+        if program.units[import.unit.0 as usize].role != UnitRole::Patch {
+            continue;
+        }
+        let escopo = saida
+            .entry(import.unit)
+            .or_insert_with(|| EscopoDeUnidade { scope: HashMap::new(), prefixes: HashMap::new() });
+        let exportado = &program.libraries[import.library.0 as usize].exported;
+        let filtrado = filter_namespace(exportado, &import.combinators);
+        match import.prefix {
+            Some(p) => {
+                let ns = escopo.prefixes.entry(p).or_default();
+                for (sym, b) in filtrado {
+                    merge_binding_com(ns.entry(sym).or_default(), b, &|e| elemento_do_sdk(program, e));
+                }
+                escopo.scope.insert(p, Binding { getter: Some(Element::Prefix(import.library, p)), setter: None, ambiguous: false });
+            }
+            None => {
+                for (sym, b) in filtrado {
+                    if lib.declared.contains_key(&sym) {
+                        continue;
+                    }
+                    merge_binding_com(escopo.scope.entry(sym).or_default(), b, &|e| elemento_do_sdk(program, e));
+                }
+            }
+        }
+    }
+    for escopo in saida.values_mut() {
+        for (sym, b) in &lib.scope {
+            escopo.scope.entry(*sym).or_insert(*b);
+        }
+        for (p, ns) in &lib.prefixes {
+            escopo.prefixes.entry(*p).or_insert_with(|| ns.clone());
+        }
     }
     saida
 }

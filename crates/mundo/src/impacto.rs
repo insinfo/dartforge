@@ -528,7 +528,14 @@ fn stmt(m: &mut Motor<'_>, ctx: &Contexto, id: StmtId) {
             }
             stmt(m, ctx, *body);
         }
-        StmtKind::ForIn { target, iterable, body, .. } => {
+        StmtKind::ForIn { target, iterable, body, await_ } => {
+            // `await for`: o emissor percorre por um `StreamIterator`
+            // (`moveNext`/`current`/`cancel`), chamadas que a AST não tem.
+            if *await_ && m.incluir_sdk {
+                for n in ["moveNext", "current", "cancel"] {
+                    m.novo_seletor_externo(n);
+                }
+            }
             alvo_for_in(m, ctx, target);
             expr(m, ctx, *iterable);
             stmt(m, ctx, *body);
@@ -997,6 +1004,28 @@ fn expr(m: &mut Motor<'_>, ctx: &Contexto, id: ExprId) {
                         }
                     }
                 }
+            }
+            // `x.isA<T>()` de `dart:js_interop` é baixado pelo emissor para
+            // `JSAnyUtilityExtension|instanceOfString(x, "T")`.
+            if m.incluir_sdk {
+                let alvo_ast = &m.e.program.unit(ctx.unidade).ast;
+                let alvo_real = match &alvo_ast.expr(*target).kind {
+                    ExprKind::TypeArguments { target: t, .. } => *t,
+                    _ => *target,
+                };
+                if let ExprKind::Property { name, .. } = &alvo_ast.expr(alvo_real).kind {
+                    if m.e.interner.resolve(name.sym) == "isA" {
+                        m.novo_seletor_externo("instanceOfString");
+                    }
+                }
+            }
+            if m.e.program.library(ctx.biblioteca).is_sdk {
+                let ast = &m.e.program.unit(ctx.unidade).ast;
+                let nome = match &ast.expr(*target).kind {
+                    ExprKind::Identifier(n) => Some(n.sym),
+                    ExprKind::Property { name, .. } => Some(name.sym),
+                    _ => None,
+                };
                 if nome.is_some_and(|s| m.e.interner.resolve(s) == "JS_CLASS_REF") {
                     if let Some(a) = arguments.args.first() {
                         if let Some(Alvo::Classe(c)) = alvo_estatico(m, ctx, a.value) {

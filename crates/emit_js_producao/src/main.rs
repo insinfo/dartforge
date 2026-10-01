@@ -46,7 +46,10 @@ fn executar() -> Result<(), String> {
             "--sem-minificar" => op.minificar = false,
             "--sdk-proprio" => op.sdk_proprio = true,
             "--sdk-ddc" => op.sdk_proprio = false,
-            "--verificar-stub" => op.stub = true,
+            "--verificar-stub" => {
+                op.stub = true;
+                op.sdk_proprio = false;
+            }
             "-h" | "--help" => {
                 println!("{USO}");
                 return Ok(());

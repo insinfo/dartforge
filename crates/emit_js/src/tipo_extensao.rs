@@ -67,7 +67,7 @@ pub fn tem_construtor(ctx: &Ctx, c: ClassId, nome: &str) -> bool {
 }
 
 /// Nome do construtor primário (a representação) de `c`: `""` para o sem nome.
-fn nome_do_primario(ctx: &Ctx, c: ClassId) -> Option<String> {
+pub(crate) fn nome_do_primario(ctx: &Ctx, c: ClassId) -> Option<String> {
     let decl = ctx.program.class(c).decl?;
     match &ctx.program.unit(decl.unit).ast.decl(decl.decl).kind {
         DeclKind::ExtensionType(ed) => Some(ed.constructor.map(|n| ctx.name(n.sym).to_string()).unwrap_or_default()),

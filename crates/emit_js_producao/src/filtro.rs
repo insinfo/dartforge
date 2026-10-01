@@ -64,6 +64,8 @@ impl Vivos for Adaptador<'_> {
         self.stub || self.mundo.tearoff_de_construtor(f)
     }
     fn assinatura(&self, nome: &str) -> bool {
-        self.assinaturas.is_none_or(|s| s.contains(nome))
+        // O texto cita o nome JS (`dload(o, "_constructor")`, `dsend(o, "_get")`);
+        // o emissor pergunta pelo nome Dart dos campos e acessores.
+        self.assinaturas.is_none_or(|s| s.contains(nome) || s.contains(dartforge_emit_js::body::js_member_name(nome).as_str()))
     }
 }

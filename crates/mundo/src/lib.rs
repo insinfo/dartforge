@@ -712,6 +712,19 @@ impl<'a> Motor<'a> {
             Some((int, num)) if t == int => num,
             _ => t,
         };
+        // Tipo de extensão (inclusive o `this` implícito de um membro dele):
+        // em execução o valor é a representação.
+        let t = if self.incluir_sdk && self.e.program.class(t).kind == ClassKind::ExtensionType {
+            match self.e.program.class(t).representation.and_then(|v| self.e.outline.variables.get(v.0 as usize)).and_then(|vt| vt.declared_type.or(vt.inferred)).and_then(|ty| self.classe_do_tipo(ty)) {
+                Some(r) if r != t => match self.int_num {
+                    Some((int, num)) if r == int => num,
+                    _ => r,
+                },
+                _ => t,
+            }
+        } else {
+            t
+        };
         if self.sel.contains(nome) {
             return;
         }

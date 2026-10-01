@@ -1819,6 +1819,17 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// `recv.name` (getter, campo, ou tearoff de método).
     pub fn emit_member_get(&mut self, recv: &Js, recv_ty: &Ty, name: &str, member: Option<Member>) -> (Js, Ty) {
+        // Modo SDK: `this._jsString` num tipo de extensão é o próprio valor
+        // (o tipo é apagado para a representação).
+        if self.ctx.sdk.is_some() {
+            if let Ty::Iface { class, .. } = recv_ty.non_null() {
+                if let Some(rep) = self.ctx.program.class(class).representation {
+                    if self.ctx.name(self.ctx.program.variable(rep).name) == name {
+                        return (recv.clone(), self.ctx.var_ty(rep));
+                    }
+                }
+            }
+        }
         if self.forced_ext.is_some() {
             if let Some(r) = self.try_extension_get(recv, recv_ty, name) {
                 return r;

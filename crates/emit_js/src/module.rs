@@ -731,7 +731,8 @@ pub(crate) fn function_text(ctx: &Ctx, m: &ModState, fid: FunctionElementId, hea
     e.async_kind = kind;
     e.ret_ty = ret_ty.clone();
     let mut extra_prologue = String::new();
-    let mut params_js: Vec<String> = tp_js;
+    // Modo SDK: `@NoReifyGeneric` não declara os parâmetros de tipo.
+    let mut params_js: Vec<String> = if crate::sdk_proprio::sem_generico(ctx, fid) { Vec::new() } else { tp_js };
     if let Some(t) = extension_this {
         // `$this` é o receptor da extensão.
         params_js.push("$this".into());
@@ -1111,6 +1112,18 @@ struct FieldInfo {
     ty: Ty,
 }
 
+/// `texto` cita `nome` como identificador livre (não depois de `.`, nem
+/// colado a outro identificador)? Aproximado: uma ocorrência dentro de
+/// *string* também conta, e aí só se renomeia sem precisar.
+fn cita_nome_livre(texto: &str, nome: &str) -> bool {
+    let ident = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+    texto.match_indices(nome).any(|(i, _)| {
+        let antes = texto[..i].chars().next_back();
+        let depois = texto[i + nome.len()..].chars().next();
+        !antes.is_some_and(|c| ident(c) || c == '.') && !depois.is_some_and(ident)
+    })
+}
+
 pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     let class = ctx.program.class(c);
     let Some(decl) = class.decl else { return };
@@ -1184,6 +1197,8 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     // Corpo da classe.
     let mut cw = Writer::default();
     cw.indent = 1;
+    let mut estaticos_do_mixin = Writer::default();
+    estaticos_do_mixin.indent = 1;
     let mut ext_methods: Vec<String> = Vec::new();
     let mut ext_accessors: Vec<String> = Vec::new();
     // Modo SDK: classe nativa declara os membros pelo símbolo `dartx` e não
@@ -1352,8 +1367,11 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     text
                 };
                 let text = if name == "==" { fix_equals_param(&text) } else { text };
+                // Estático de `mixin` vai para a classe declarada (a casca), não
+                // para a do `mixinOn`: é por ela que `M.f()` o acha.
+                let destino = if af.static_ && is_mixin { &mut estaticos_do_mixin } else { &mut cw };
                 for line in text.lines() {
-                    cw.line(line);
+                    destino.line(line);
                 }
                 if af.static_ {
                     if af.kind == ast::FunctionKind::Function {
@@ -1541,12 +1559,18 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     // cadeia de protótipos (`compiler.dart:1236-1248`).
     let ext_no_mixin = is_mixin && (!ext_methods.is_empty() || !ext_accessors.is_empty());
     let head = if ext_no_mixin {
-        format!("{cref} = class {cname} extends core.Object {{}};\n{cref}[dart.mixinOn] = {cname}$mixin_super => {{\nconst {cname}$m = class {cname} extends {cname}$mixin_super {{")
+        format!("{cref} = class {cname} extends core.Object {{{casca}}};\n{cref}[dart.mixinOn] = {cname}$mixin_super => {{\nconst {cname}$m = class {cname} extends {cname}$mixin_super {{", casca = casca_do_mixin(&estaticos_do_mixin))
     } else if is_mixin {
-        format!("{cref} = class {cname} extends core.Object {{}};\n{cref}[dart.mixinOn] = {}$mixin_super => class {cname} extends {}$mixin_super {{", cname, cname)
+        format!("{cref} = class {cname} extends core.Object {{{}}};\n{cref}[dart.mixinOn] = {}$mixin_super => class {cname} extends {}$mixin_super {{", casca_do_mixin(&estaticos_do_mixin), cname, cname)
     } else if ctx.sdk.is_some() && Some(c) == ctx.object {
         // Modo SDK: `Object` não tem herança (`compiler.dart:1257-1259`).
         format!("{cref} = class {cname} {{")
+    } else if ctx.sdk.is_some() && cita_nome_livre(&cw.out, &cname) {
+        // Modo SDK: o nome da expressão de classe esconderia, no corpo, o
+        // global de mesmo nome que um *template* `JS()` cita — `new
+        // ResizeObserver(#)` no `_create_1` de `html.ResizeObserver`. O DDC
+        // renomeia o identificador temporário da classe (`ResizeObserver$`).
+        format!("{cref} = class {cname}$ extends {super_ref} {{")
     } else {
         format!("{cref} = class {cname} extends {super_ref} {{")
     };
@@ -2134,6 +2158,11 @@ fn emit_field_inits(ctx: &Ctx, m: &ModState, c: ClassId, fields: &[FieldInfo], s
             _ => crate::linha!(body, "{target} = null;"),
         }
     }
+}
+
+/// O corpo da casca de um `mixin`: vazio (como sempre foi), ou os estáticos dele.
+fn casca_do_mixin(w: &Writer) -> String {
+    if w.out.is_empty() { String::new() } else { format!("\n{}", w.out) }
 }
 
 /// A classe é uma aplicação de mixin com nome (`class C = S with M;`).
