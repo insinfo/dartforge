@@ -341,7 +341,11 @@ fn pode_ser_igual(inf: &mut BodyInferrer<'_>, c: TypeId, v: TypeId, prof: u32) -
             if c_int && Some(class) == inf.core.double_class {
                 return true;
             }
-            // `eliminateToGreatest`: os `_` viram `Object?` (sem `_` aqui).
+            // `eliminateToGreatest`: o fecho maior do tipo casado; com
+            // parâmetro de tipo dentro, pelo lado seguro (pode ser igual).
+            if referencia_parametro(inf, v) {
+                return true;
+            }
             inf.sub(c, v)
         }
         Type::TypeParameter { param, nullable } => {

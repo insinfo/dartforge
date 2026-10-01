@@ -269,7 +269,7 @@ pub const UNNECESSARY_CAST: DiagnosticCode = DiagnosticCode::new(
 );
 
 pub const UNNECESSARY_TYPE_CHECK_TRUE: DiagnosticCode = DiagnosticCode::new(
-    "unnecessary_type_check_true",
+    "unnecessary_type_check",
     "O teste de tipo sempre avalia para true.",
 );
 

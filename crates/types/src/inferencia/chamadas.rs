@@ -422,8 +422,8 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             // O tipo nomeado da criação implícita: `A`, `A<int>`, `p.A`
             // (sem o nome do construtor).
             let sp = match &a.expr(target).kind {
-                ExprKind::Property { target: t, .. } if expr::referencia_a_tipo(inf, cx, *t).is_some() => tipo_nomeado_da_criacao(inf, cx, *t),
-                _ => tipo_nomeado_da_criacao(inf, cx, target),
+                ExprKind::Property { target: t, .. } if expr::referencia_a_tipo(inf, cx, *t).is_some() => tipo_nomeado_da_criacao(inf, cx, *t, &[]),
+                _ => tipo_nomeado_da_criacao(inf, cx, target, &args.type_args),
             };
             avisar_classe_abstrata(inf, c, f, sp);
         }
@@ -449,7 +449,7 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 && (k.modifiers.abstract_ || k.modifiers.sealed)
                 && k.constructors.is_empty()
             {
-                let sp = tipo_nomeado_da_criacao(inf, cx, target);
+                let sp = tipo_nomeado_da_criacao(inf, cx, target, &args.type_args);
                 inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::INSTANTIATE_ABSTRACT_CLASS, sp, &[]);
             }
         }
@@ -1089,7 +1089,7 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
 
 /// O intervalo do tipo nomeado de uma criação implícita: `A`, `p.A` ou
 /// `A<int>` (até o `>`).
-fn tipo_nomeado_da_criacao(inf: &BodyInferrer<'_>, cx: &Corpo, alvo: ExprId) -> Span {
+fn tipo_nomeado_da_criacao(inf: &BodyInferrer<'_>, cx: &Corpo, alvo: ExprId, targs: &[ast::TypeId]) -> Span {
     let a = &inf.program.unit(cx.unit).ast;
     match &a.expr(alvo).kind {
         ExprKind::TypeArguments { target, type_args } => {
@@ -1100,7 +1100,19 @@ fn tipo_nomeado_da_criacao(inf: &BodyInferrer<'_>, cx: &Corpo, alvo: ExprId) -> 
             let fecha = resto.find('>').map(|i| fim + i + 1).unwrap_or(fim);
             Span { start: ini, end: fecha }
         }
-        _ => a.expr(alvo).span,
+        _ => {
+            let sp = a.expr(alvo).span;
+            // `A<int>()`: os argumentos de tipo vêm na lista da chamada.
+            match targs.last() {
+                Some(&t) => {
+                    let fim = a.ty(t).span.end;
+                    let resto = inf.program.unit(cx.unit).source.get(fim..).unwrap_or("");
+                    let fecha = resto.find('>').map(|i| fim + i + 1).unwrap_or(fim);
+                    Span { start: sp.start, end: fecha }
+                }
+                None => sp,
+            }
+        }
     }
 }
 

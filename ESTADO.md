@@ -1,4 +1,25 @@
-# Estado do DartForge — 2026-09-26
+# Estado do DartForge — 2026-10-01
+
+## Analisador: paridade com o analyzer 3.6.2 (2026-10-01)
+
+**Placar: 16.014 → 17.428/23.030 na posição exata (69,5% → 75,7%)**,
+mensagem igual 15.581 → 17.000, FP 667 → 617, FN 6.749 → 5.351, posição
+errada 267 → 251 (o "12.241" do pedido era anterior aos passos 2–4 do A01).
+Especificação e resultado por código: docs/ANALISADOR-PARIDADE-PLANO.md. O
+que entrou: diagnósticos de `types` com a unidade (não mais adivinhada pelo
+intervalo), nomes de tipo pelo `NamedTypeResolver` inteiro (corpos e
+outline, escopo de instância, número de argumentos de tipo), a regra de
+elementos iguais por localização da 6.11 nas duplicatas, código morto em
+expressões, atribuição definida de `final`/`late`, avisos de tipo
+(`unnecessary_type_check`, `unnecessary_null_comparison`,
+`dead_null_aware_expression`, `?..`/`...?`/`C?.x`), extensões ambíguas,
+anotações, `super` (membro concreto, abstrato, indefinido), padrões que
+nunca casam, receptor `Never`, classe abstrata instanciada, retornos
+(`return;`, closures, `yield`), parâmetro de tipo em estático, variável não
+anulável sem inicializador. Importação condicional pela URI principal, como
+o analyzer. **Publicados: 50 → 159 códigos**, 0 erro emitido no corpus e
+nos 209 pacotes do pub-cache (`scripts/paridade-pub-cache.py`). O LSP já
+rodava `types` (L01); os códigos novos chegam ao editor pela mesma regra.
 
 ## Analisador: A01–A04 (2026-09-27)
 

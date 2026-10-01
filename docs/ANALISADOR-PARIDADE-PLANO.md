@@ -311,6 +311,81 @@ representação de tipos; porte grande).
 * no fim, `cargo test --workspace` e `cargo run --release -p dartforge-diferencial`
   (o `crates/types` é comum a todos os backends).
 
-## 6. Resultado
+## 6. Resultado (2026-10-01)
 
-(preenchido ao fim da rodada)
+Placar (oráculo 3.6.2, lotes de 12, `DARTFORGE_SDK_LIB` do 3.6.2):
+
+| passo | posição exata | mensagem igual | FP | FN | pos. errada |
+|---|---:|---:|---:|---:|---:|
+| partida (`4e23a447`) | 16.014 (69,5%) | 15.581 | 667 | 6.749 | 267 |
+| C1 unidade dos diagnósticos | 16.093 | 15.660 | 660 | 6.669 | 268 |
+| C2 + C3 porta e escopo de instância | 16.292 | 15.859 | 657 | 6.470 | 268 |
+| C5 elementos iguais (6.11) | 16.455 | 16.022 | 657 | 6.307 | 268 |
+| C4 `NamedTypeResolver` | 16.571 | 16.146 | 626 | 6.203 | 256 |
+| C6–C8, C10, super | 17.203 | 16.777 | 640 | 5.576 | 251 |
+| C12, padrões, `Never`, construção abstrata, retornos | **17.428 (75,7%)** | 17.000 | **617** | **5.351** | 251 |
+
+Acertos por código (partida → agora; FP partida → agora):
+
+| código | antes | agora | FP antes | FP agora |
+|---|---:|---:|---:|---:|
+| `not_a_type` | 4 | 171 | 23 | 0 |
+| `undefined_class` | 168 | 293 | 15 | 7 |
+| `invalid_annotation` | 0 | 101 | 0 | 0 |
+| `invalid_null_aware_operator` | 42 | 134 | 0 | 0 |
+| `duplicate_definition` | 925 | 1.007 | 14 | 14 |
+| `unnecessary_type_check` | 0 | 76 | 0 | 5 |
+| `read_potentially_unassigned_final` | 0 | 74 | 0 | 0 |
+| `dead_code` | 74 | 133 | 3 | 5 |
+| `ambiguous_extension_member_access` | 0 | 54 | 0 | 0 |
+| `pattern_never_matches_value_type` | 0 | 53 | 0 | 2 |
+| `conflicting_static_and_instance` | 156 | 207 | 0 | 0 |
+| `unnecessary_null_comparison` | 0 | 46 | 0 | 0 |
+| `definitely_unassigned_late_local_variable` | 0 | 44 | 0 | 0 |
+| `wrong_number_of_type_arguments` | 0 | 36 | 0 | 1 |
+| `non_type_as_type_argument` | 0 | 32 | 0 | 1 |
+| `dead_null_aware_expression` | 0 | 29 | 0 | 2 |
+| `instantiate_abstract_class` | 0 | 29 | 0 | 0 |
+| `duplicate_constructor` | 95 | 123 | 0 | 0 |
+| `receiver_of_type_never` | 0 | 24 | 0 | 0 |
+| `yield_of_invalid_type` | 0 | 24 | 0 | 0 |
+| `constant_pattern_never_matches_value_type` | 0 | 19 | 0 | 0 |
+| `return_without_value` | 0 | 19 | 0 | 0 |
+| `late_final_local_already_assigned` | 0 | 18 | 0 | 1 |
+| `not_initialized_non_nullable_variable` | 0 | 17 | 0 | 0 |
+| `type_parameter_referenced_by_static` | 0 | 17 | 0 | 0 |
+| `return_of_invalid_type_from_closure` | 0 | 16 | 0 | 0 |
+| `abstract_super_member_reference` | 0 | 15 | 0 | 0 |
+| `undefined_super_member` | 0 | 15 | 0 | 0 |
+| `non_type_in_catch_clause`, `type_test_with_undefined_name`, `cast_to_non_type`, `type_check_with_null`, `undefined_annotation` | 0 | 10, 10, 8, 7, 6 | 0 | 0, 2, 0, 0, 0 |
+| `assignment_to_final_local` | 49 | 49 | 15 | 0 |
+| `type_arguments_on_type_variable` | 0 | 0 | 11 | 0 |
+
+**Projetos reais.** Os 209 pacotes do pub-cache (oráculo 3.6.2 gravado
+neles): nenhum FP, posição ou mensagem errada de código publicado. A
+partida tinha 7 FP publicados ali (`unnecessary_cast` 4,
+`unnecessary_non_null_assertion` 3), de duas causas corrigidas: a
+importação condicional escolhia o ramo `dart.library.js_interop` (o analyzer
+fica com a URI principal, `file_state.dart:785-800`) e `super[i]`/`super.x`
+achavam o membro da própria classe ou um abstrato da interface (agora a
+cadeia concreta do super, com encaminhadores de `noSuchMethod`).
+
+**Publicação.** `verificados.txt`: 50 → 159 códigos (109 novos, todos com
+0 erro emitido no corpus e nos 209 pacotes). Ficaram de fora, por FP nos
+pacotes: `equal_elements_in_const_set` (12), `map_value_type_not_assignable`
+(17), `getter_not_subtype_setter_types` (6), `invalid_override` (1). O
+`constant_pattern_never_matches_value_type` tinha 16 FP nos pacotes (tipo
+casado genérico, `BaseSqlType<D2>`): corrigido (fecho maior pelo lado
+seguro) e publicado com a medição seguinte limpa.
+
+**Testes novos.** `crates/paridade/tests/regras_do_analyzer.rs`: 18
+diagnósticos de sete arquivos mínimos, cada um conferido contra o `dart
+analyze` 3.6.2 (`sonda_arquivos --livre`); `duplicatas::declaracoes_de_mesmo_nome_juntam_os_membros`.
+
+**Não feito nesta rodada** (registrado, com a regra em §3): C9 (alias de
+`typedef` e `Never?` na exibição, mudança de representação comum aos
+backends), exaustividade (`non_exhaustive_switch_*`,
+`unreachable_switch_case`, porte do algoritmo de espaços), C13 (recuperação
+do parser: `expected_token`, `extraneous_modifier`), `could_not_infer`, os
+FN de `unused_element` (parâmetros opcionais nunca passados, `_` em
+bibliotecas com curinga) e a cauda de códigos com menos de 20 casos.
