@@ -1505,6 +1505,15 @@ demais:
    lista quando fecharem 100% no corpus (hoje 96% e 55%).
 ### 2.5 Backend nativo
 
+**Projetos reais (2026-10-01, docs/NATIVO-PROJETOS-REAIS.md).** O
+`new_sali/backend` (angel3, `dart:io`, isolados, FFI, Postgres, Redis)
+compila, liga e sobe no nativo; com banco e Redis descartáveis, 39 de 42
+requisições de ponta a ponta (login OIDC, token, 31 rotas de API) iguais à
+VM — as 3 restantes são o texto do stack trace num JSON de erro e linhas
+de auditoria do mesmo banco. Treze causas corrigidas (C1–C14 do documento),
+com os programas `corpus/nativo/120`–`128`. O placar do pub roda no CI
+(`scripts/pub-placar.py`, `.github/workflows/pub-placar.yml`).
+
 **Estado atual.** O SDK da fonte é o padrão e o corpus nativo passa por
 ele (`docs/NATIVO-PLANO.md` §7.10 e §7.13, que registram 225/225, e JIT × AOT
 225/225); o último placar registrado neste arquivo é **183/223** no SDK da

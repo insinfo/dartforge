@@ -79,7 +79,9 @@ struct ClassesDoRuntime {
 
 #[derive(Default)]
 struct Universo {
-    tipos: Vec<Tipo>,
+    /// Cópia local (sem trava) dos tipos do [`UniversoGlobal`] que este
+    /// isolado já viu, pelo id.
+    tipos: Vec<Option<&'static Tipo>>,
     indice: HashMap<Tipo, i64>,
     /// Supertipos de cada classe: (classe do supertipo, modelo em `P<i>`).
     regras: HashMap<i64, Vec<(i64, i64)>>,
@@ -157,6 +159,42 @@ fn chave_do_valor(h: i64) -> Option<i64> {
 
 thread_local! {
     static RTI: RefCell<Universo> = RefCell::new(Universo::novo());
+}
+
+/// Os ids de tipo são do PROCESSO, não do isolado (docs/NATIVO-PROJETOS-REAIS.md,
+/// C11): um id guardado como palavra crua — o argumento de tipo `T` que uma
+/// closure genérica capturou no contexto, a tupla de tipos de uma chamada —
+/// atravessa `Isolate.spawn` copiado como número, e no isolado novo tinha de
+/// denotar o mesmo tipo. Com um universo por isolado, o id do principal
+/// apontava para outro tipo (ou para fora da tabela: o pânico
+/// "index out of bounds" do `NotificationServiceWorker` do new_sali/backend).
+/// A VM manda os argumentos de tipo como objetos. Aqui a tabela canônica é
+/// uma só, só de acréscimo (cada tipo vazado para viver o processo todo); cada
+/// isolado guarda a sua cópia local dos que já viu, e só o tipo novo passa
+/// pela trava.
+struct UniversoGlobal {
+    tipos: Vec<&'static Tipo>,
+    indice: HashMap<Tipo, i64>,
+}
+
+fn universo_global() -> &'static std::sync::RwLock<UniversoGlobal> {
+    static G: std::sync::OnceLock<std::sync::RwLock<UniversoGlobal>> = std::sync::OnceLock::new();
+    G.get_or_init(|| {
+        let mut g = UniversoGlobal { tipos: Vec::new(), indice: HashMap::default() };
+        // Os ids fixos: T_DINAMICO, T_VAZIO, T_NUNCA, T_NULO.
+        for t in [Tipo::Dinamico, Tipo::Vazio, Tipo::Nunca, Tipo::Nulo] {
+            let id = g.tipos.len() as i64;
+            g.tipos.push(Box::leak(Box::new(t.clone())));
+            g.indice.insert(t, id);
+        }
+        std::sync::RwLock::new(g)
+    })
+}
+
+/// O tipo `id` da tabela do processo.
+fn tipo_global(id: i64) -> Option<&'static Tipo> {
+    let g = universo_global().read().unwrap_or_else(|e| e.into_inner());
+    usize::try_from(id).ok().and_then(|i| g.tipos.get(i).copied())
 }
 
 /// Vagas da [`MEMO_RAPIDO`] (potência de 2).
@@ -322,14 +360,38 @@ impl Universo {
         if let Some(&id) = self.indice.get(&t) {
             return id;
         }
-        let id = self.tipos.len() as i64;
-        self.tipos.push(t.clone());
+        let (id, r) = {
+            let mut g = universo_global().write().unwrap_or_else(|e| e.into_inner());
+            match g.indice.get(&t) {
+                Some(&id) => (id, g.tipos[id as usize]),
+                None => {
+                    let id = g.tipos.len() as i64;
+                    let r: &'static Tipo = Box::leak(Box::new(t.clone()));
+                    g.tipos.push(r);
+                    g.indice.insert(t.clone(), id);
+                    (id, r)
+                }
+            }
+        };
+        let i = id as usize;
+        if self.tipos.len() <= i {
+            self.tipos.resize(i + 1, None);
+        }
+        self.tipos[i] = Some(r);
         self.indice.insert(t, id);
         id
     }
 
+    /// O tipo `id`, se existe (a cópia local, senão a tabela do processo).
+    fn obter(&self, id: i64) -> Option<&Tipo> {
+        match usize::try_from(id).ok().and_then(|i| self.tipos.get(i).copied().flatten()) {
+            Some(t) => Some(t),
+            None => tipo_global(id),
+        }
+    }
+
     fn tipo(&self, id: i64) -> &Tipo {
-        &self.tipos[usize::try_from(id).expect("tipo inválido")]
+        self.obter(id).expect("tipo inválido")
     }
 
     fn e_topo(&self, id: i64) -> bool {
@@ -907,10 +969,10 @@ pub(crate) fn lista_aceita_escalar(meta: i64, codigo: i64) -> bool {
             3 => u.rt.bool_,
             _ => return false,
         };
-        let Some(Tipo::Interface(_, args)) = u.tipos.get(meta as usize) else { return false };
+        let Some(Tipo::Interface(_, args)) = u.obter(meta) else { return false };
         let mut e = args.first().copied().unwrap_or(T_DINAMICO);
         loop {
-            match u.tipos.get(e as usize) {
+            match u.obter(e) {
                 Some(Tipo::Dinamico | Tipo::Vazio) => return true,
                 Some(Tipo::Anulavel(x) | Tipo::FutureOr(x)) => e = *x,
                 Some(Tipo::Interface(c, a)) => return a.is_empty() && (*c == alvo || *c == u.rt.object),
@@ -930,9 +992,9 @@ pub(crate) fn forma_da_lista_do_tipo(meta: i64) -> crate::listas::Elemento {
     use crate::listas::Elemento;
     RTI.with(|u| {
         let u = u.borrow();
-        let Some(Tipo::Interface(_, args)) = u.tipos.get(meta as usize) else { return Elemento::Geral };
+        let Some(Tipo::Interface(_, args)) = u.obter(meta) else { return Elemento::Geral };
         let Some(&e) = args.first() else { return Elemento::Geral };
-        match u.tipos.get(e as usize) {
+        match u.obter(e) {
             Some(Tipo::Interface(c, a)) if a.is_empty() && *c != 0 => {
                 if *c == u.rt.int {
                     Elemento::Int

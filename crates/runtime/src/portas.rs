@@ -46,8 +46,14 @@ enum ValG {
     /// compartilha as constantes; aqui cada isolado tem a sua, e `identical`
     /// continua valendo entre eles).
     Constante(usize),
-    /// O tear-off canônico de uma função de topo, pelo código.
-    TearOff(i64),
+    /// O tear-off canônico de uma função de topo, pelo código, com o corpo
+    /// tipado, a ABI e o metadado RTI (o tipo da função) da closure de
+    /// origem: o destino que ainda não tem o tear-off o cria igual — antes
+    /// nascia sem tipo (`runtimeType` `Function`) e o `as Stream
+    /// Function(Stream, dynamic)` do `StreamIsolate` do new_sali/backend
+    /// falhava no isolado novo (docs/NATIVO-PROJETOS-REAIS.md, C11). Os ids
+    /// de tipo são do processo (`tipos.rs`).
+    TearOff { codigo: i64, tipado: i64, abi: i64, metadado: u32 },
 }
 
 /// Um nó do grafo: um bloco do espaço de objetos copiado pelo formato, com as
@@ -125,7 +131,8 @@ fn ref_de_handle(heap: &Heap, h: i64, mapa: &mut crate::hash::HashMap<i64, usize
     } else if let Some(g) = heap.getter_da_constante(h) {
         return ValG::Constante(g);
     } else if let Some(c) = heap.codigo_do_tearoff(h) {
-        return ValG::TearOff(c);
+        let (tipado, abi) = heap.closure(h).map_or((0, 0), |f| (f.tipado, f.abi));
+        return ValG::TearOff { codigo: c, tipado, abi, metadado: heap.cabecalho(h).metadado };
     }
     let c = *heap.cabecalho(h);
     // Um anexo nativo que o grafo não sabe copiar (só o acumulador do
@@ -454,7 +461,7 @@ impl Grafo {
                 ValG::Palavra(bits) if smi::e_smi(bits) => Portavel::Int(smi::valor(bits)),
                 ValG::Palavra(_) => Portavel::Nulo,
                 ValG::Estatico(h) => portavel_de_estatico(h),
-                ValG::Mesmo(_) | ValG::Constante(_) | ValG::TearOff(_) => Portavel::Nulo,
+                ValG::Mesmo(_) | ValG::Constante(_) | ValG::TearOff { .. } => Portavel::Nulo,
                 ValG::No(i) => {
                     if visitando[i] {
                         return Portavel::Nulo;
@@ -656,8 +663,21 @@ fn materializar(g: &Grafo) -> i64 {
                 f()
             });
         }
-        ValG::TearOff(c) => {
-            tearoffs.entry(c).or_insert_with(|| HEAP.with(|h| h.borrow_mut().tearoff(c)));
+        ValG::TearOff { codigo, tipado, abi, metadado } => {
+            tearoffs.entry(codigo).or_insert_with(|| {
+                HEAP.with(|h| {
+                    let mut heap = h.borrow_mut();
+                    if let Some(t) = heap.tearoff_registrado(codigo) {
+                        return t;
+                    }
+                    let t = heap.nova_closure(codigo, (0, false), tipado, abi);
+                    if metadado != 0 {
+                        heap.set_metadado(t, i64::from(metadado));
+                    }
+                    heap.registrar_tearoff(codigo, t);
+                    t
+                })
+            });
         }
         _ => {}
     });
@@ -694,7 +714,7 @@ fn materializar(g: &Grafo) -> i64 {
                 ValG::Estatico(h) => h,
                 ValG::Mesmo(h) if mesmo => h,
                 ValG::Constante(getter) => canonicas.get(&getter).copied().unwrap_or(0),
-                ValG::TearOff(c) => tearoffs.get(&c).copied().unwrap_or(0),
+                ValG::TearOff { codigo, .. } => tearoffs.get(&codigo).copied().unwrap_or(0),
                 // Fora do isolado de origem não há o que compartilhar: o
                 // emissor copia (`compartilhar` falso) para outro isolado.
                 ValG::Mesmo(_) => 0,

@@ -362,7 +362,7 @@ fn argumentos_da_tupla(tupla: i64) -> Vec<i64> {
     if tupla <= 0 {
         return Vec::new();
     }
-    RTI.with(|u| match u.borrow().tipos.get(tupla as usize) {
+    RTI.with(|u| match u.borrow().obter(tupla) {
         Some(Tipo::Tupla(v)) => v.clone(),
         _ => Vec::new(),
     })

@@ -81,6 +81,24 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
         _ => unreachable!(),
     };
     let elements: &[CollectionElement] = elements;
+    // Num literal `const` o contexto vale pelo fecho menor em relação às
+    // variáveis de tipo (uma constante não pode depender delas): o padrão
+    // `{Iterable<T> m = const []}` de uma classe genérica é
+    // `const <Never>[]`, como na VM (o `Router<T>` do angel3; sem isto o
+    // literal saía `List<dynamic>` no nativo e o argumento padrão falhava na
+    // conferência do parâmetro, docs/NATIVO-PROJETOS-REAIS.md C12).
+    let ctx = if const_ && type_args.is_empty() && !inf.e_desconhecido(ctx) {
+        let mut ps = Vec::new();
+        params_no_tipo(inf.table, ctx, &mut ps);
+        if ps.is_empty() {
+            ctx
+        } else {
+            let mut env = inf.env();
+            crate::bounds::least_closure(ctx, &ps, &mut env)
+        }
+    } else {
+        ctx
+    };
     let t = if !type_args.is_empty() {
         let args: Vec<TypeId> = type_args.iter().map(|&t| inf.tipo_de_argumento_de_tipo(cx, t)).collect();
         let (ce, ck, cv) = match forma {
@@ -124,6 +142,41 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
         validar_colecao_const(inf, cx, e);
     }
     t
+}
+
+/// As variáveis de tipo que aparecem em `t`.
+fn params_no_tipo(table: &crate::table::TypeTable, t: TypeId, saida: &mut Vec<TypeParamId>) {
+    match table.get(t) {
+        Type::TypeParameter { param, .. } => {
+            if !saida.contains(param) {
+                saida.push(*param);
+            }
+        }
+        Type::Interface { args, .. } | Type::ExtensionType { args, .. } => {
+            for a in args.iter() {
+                params_no_tipo(table, *a, saida);
+            }
+        }
+        Type::FutureOr { arg, .. } => params_no_tipo(table, *arg, saida),
+        Type::Function { ret, positional, optional, named, .. } => {
+            params_no_tipo(table, *ret, saida);
+            for a in positional.iter().chain(optional.iter()) {
+                params_no_tipo(table, *a, saida);
+            }
+            for (_, a, _) in named.iter() {
+                params_no_tipo(table, *a, saida);
+            }
+        }
+        Type::Record { positional, named, .. } => {
+            for a in positional.iter() {
+                params_no_tipo(table, *a, saida);
+            }
+            for (_, a) in named.iter() {
+                params_no_tipo(table, *a, saida);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn tipo_final(inf: &mut BodyInferrer<'_>, forma: Forma, args: &[TypeId]) -> TypeId {

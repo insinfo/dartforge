@@ -741,7 +741,16 @@ impl Calculo<'_, '_> {
         let u = ctx.program.unit(unit);
         let ast = &u.ast;
         for an in ast.members[member.0 as usize].metadata.iter() {
-            let nome = ctx.interner.resolve(an.name.first()?.sym);
+            // A classe que a anotação nomeia, pelo escopo da biblioteca: um
+            // alias (`typedef DWORD = Uint32;` e `@DWORD()`, as estruturas
+            // do Win32 do prometheus_client no new_sali/backend) e um prefixo
+            // (`@ffi.Int32()`) levam à classe do `dart:ffi`. Pelo texto, o
+            // campo ficava sem tipo, a struct sem layout e o `.ref` lançava
+            // "struct or union not registered" (docs/NATIVO-PROJETOS-REAIS.md, C13).
+            let nome = match self.classe_da_anotacao(u.library, an) {
+                Some(c) => ctx.symbol_name(ctx.program.classes[c.0 as usize].name),
+                None => ctx.interner.resolve(an.name.first()?.sym),
+            };
             if nome == "Array" {
                 let dims = dimensoes_do_array(&u.source, ast, an)?;
                 let elem = self.elemento_do_array(declarado)?;
@@ -759,6 +768,27 @@ impl Calculo<'_, '_> {
             T::Interface { class, .. } if self.e_composto(*class) => Some(TipoCampo::Composto(*class)),
             _ => None,
         }
+    }
+
+    /// A classe nomeada por uma anotação `@Nome()`, `@p.Nome()` ou
+    /// `@Alias()` (alias de uma classe), pelo escopo da biblioteca.
+    fn classe_da_anotacao(&self, lib: dartforge_elements::model::LibraryId, an: &ast::Annotation) -> Option<ClassId> {
+        use dartforge_elements::model::Element;
+        let ctx = self.ctx;
+        let classe = |el: Option<Element>| match el? {
+            Element::Class(c) => Some(c),
+            Element::Typedef(td) => match ctx.table.get(ctx.outline.typedefs.get(td.0 as usize)?.target_type) {
+                T::Interface { class, .. } => Some(*class),
+                _ => None,
+            },
+            _ => None,
+        };
+        // `@Nome()`/`@Nome.ctor()`, senão `@p.Nome()`/`@p.Nome.ctor()`.
+        let primeiro = an.name.first()?;
+        classe(ctx.program.lookup(lib, primeiro.sym).and_then(|b| b.getter)).or_else(|| {
+            let n = an.name.get(1)?;
+            classe(ctx.program.lookup_prefixed(lib, primeiro.sym, n.sym).and_then(|b| b.getter))
+        })
     }
 
     /// O tipo mais interno de `Array<Array<…<E>>>`.

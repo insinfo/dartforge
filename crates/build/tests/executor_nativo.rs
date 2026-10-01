@@ -178,6 +178,13 @@ fn corpus_builders_pelo_executor_nativo() {
             motivos.join("; ")
         ));
         println!("{}", linhas.last().unwrap());
+        // A tabela só leva a 1ª linha do motivo; o texto inteiro (a saída do
+        // compilador, quando a compilação do executor falha) vai no log.
+        for (k, n) in p.motivos() {
+            if k.contains('\n') {
+                println!("{nome}: {n}× motivo completo:\n{k}");
+            }
+        }
         for (id, motivo) in &p.diferentes {
             diferentes.push(format!("{nome}: {} ({motivo})", id.texto()));
         }

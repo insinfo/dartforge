@@ -62,6 +62,13 @@ Etapas (`crates/emit_native/src/lib.rs`, `emitir_ir` e `compilar`):
    objeto por hash do IR (`cache_objeto.rs`) e o runtime Rust compilado uma vez
    por conteúdo (`cache.rs`).
 
+Para programas grandes (docs/NATIVO-PROJETOS-REAIS.md): antes do lowering,
+o mundo fechado do programa (`mundo_nativo.rs`, sobre o `crates/mundo`)
+decide o que o `main` alcança, e o resto vira corpo que lança, sem entrada
+na tabela de métodos nem adaptadores; depois da emissão, um IR acima de
+48 MB é dividido em partes de ~16 MB (`particao.rs`), cada uma um objeto
+(ou bitcode, na produção) com a sua chave no cache, geradas poucas por vez.
+
 ### 1.1 Sistemas
 
 Windows (COFF), Linux (ELF) e macOS (Mach-O); o alvo é sempre o do

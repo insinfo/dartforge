@@ -165,7 +165,14 @@ impl<'a> Context<'a> {
     pub fn membro_podado(&self, f: usize) -> bool {
         let Some(m) = &self.mundo else { return false };
         let func = &self.program.functions[f];
-        !self.program.library(func.library).is_sdk
+        // Só o que tem corpo escrito (`FunctionRef::Function`) ou é acessor
+        // de campo: os membros sintéticos (os encaminhadores de
+        // `noSuchMethod` que o CFE criaria) não passam pelo mundo, e sem
+        // entrada na tabela a chamada caía no `NoSuchMethodError`
+        // (corpus/js/223_nosuchmethod_argumentos).
+        let com_no = matches!(func.node, dartforge_elements::model::FunctionRef::Function { .. }) || func.variable.is_some();
+        com_no
+            && !self.program.library(func.library).is_sdk
             && !matches!(
                 func.kind,
                 dartforge_elements::model::FunctionKind::Constructor | dartforge_elements::model::FunctionKind::SyntheticConstructor
@@ -176,7 +183,12 @@ impl<'a> Context<'a> {
     /// O global `v` do programa ficou fora do mundo fechado.
     pub fn global_podado(&self, v: dartforge_elements::model::VariableId) -> bool {
         let Some(m) = &self.mundo else { return false };
-        !self.program.library(self.program.variables[v.0 as usize].library).is_sdk && !m.variavel(v)
+        let var = &self.program.variables[v.0 as usize];
+        // Uma `const` fica sempre: ela é valor padrão de parâmetro de membro
+        // abstrato, que o encaminhador de `noSuchMethod` gerado pelo lowering
+        // lê e o mundo não vê (o `Pintor.padrao` de
+        // corpus/js/223_nosuchmethod_argumentos); o getter é pequeno.
+        !var.const_ && !self.program.library(var.library).is_sdk && !m.variavel(v)
     }
 
     /// As classes do programa que são subtipo de `cid` (ela inclusive), na

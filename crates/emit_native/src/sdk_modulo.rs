@@ -1078,7 +1078,11 @@ mod testes {
         if !Path::new(SDK_DIR.as_str()).join("libraries.json").is_file() {
             return;
         }
-        std::panic::set_hook(Box::new(|_| {}));
+        // Sem trocar o gancho de pânico do processo: um gancho silencioso
+        // aqui (como era) calava o pânico de TODOS os testes que rodam junto
+        // — no job do macOS, `producao_e_um_executavel_autocontido` e
+        // `poda_tira_membros_nao_usados` falhavam sem mensagem nenhuma. Os
+        // pânicos do lowering pegos por `catch_unwind` só fazem barulho.
         let membros = std::thread::Builder::new()
             .stack_size(256 << 20)
             .spawn(|| medir_lowering_do_sdk(Path::new(SDK_DIR.as_str())).unwrap())

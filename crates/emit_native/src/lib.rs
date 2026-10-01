@@ -346,7 +346,9 @@ fn emitir_ir_interno(
     let emitter = llvm::LlvmEmitter::new(&hir_module)
         .com_area_anterior(area_anterior)
         .com_area_enxuta(enxuta)
-        .com_objetos_estaticos(objetos_estaticos);
+        .com_objetos_estaticos(objetos_estaticos)
+        // Desenvolvimento (`-O0`): o endereço dos campos por chamada (C9).
+        .com_campos_por_chamada(!options.optimize);
     let llvm_ir = emitter.emit_all();
     let llvm_duration = t_llvm.elapsed();
 

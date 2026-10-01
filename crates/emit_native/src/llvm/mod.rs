@@ -120,6 +120,12 @@ pub struct LlvmEmitter<'a> {
     /// verdadeiro no AOT e nos módulos do SDK; falso nos módulos do programa no
     /// JIT, cuja memória é liberada (J02).
     objetos_estaticos: bool,
+    /// O endereço dos campos de um objeto por chamada a `@df.corpo` em vez
+    /// das 15 instruções em linha (o perfil de desenvolvimento do programa,
+    /// `-O0`): o IR do new_sali/backend tinha 465 mil cópias da sequência,
+    /// 21% das linhas (docs/NATIVO-PROJETOS-REAIS.md, C9). A produção e os
+    /// módulos do SDK continuam em linha.
+    campos_por_chamada: bool,
     /// As tabelas de métodos são montadas na ligação
     /// (docs/NATIVO-PODA-DE-TABELAS.md §3.2): o módulo só declara a função
     /// de cada tabela, e o conteúdo vai para o resumo (`poda.rs`). É o SDK
@@ -180,6 +186,7 @@ impl<'a> LlvmEmitter<'a> {
                 m
             },
             objetos_estaticos: false,
+            campos_por_chamada: false,
             tabelas_na_ligacao: false,
             textos: Default::default(),
             caixas: Default::default(),
@@ -190,6 +197,12 @@ impl<'a> LlvmEmitter<'a> {
 
     /// Os literais de string como objetos estáticos do módulo (§2.11 da
     /// especificação do espaço unificado): o AOT e os módulos do SDK.
+    /// Veja [`LlvmEmitter::campos_por_chamada`].
+    pub fn com_campos_por_chamada(mut self, sim: bool) -> Self {
+        self.campos_por_chamada = sim;
+        self
+    }
+
     pub fn com_objetos_estaticos(mut self, sim: bool) -> Self {
         self.objetos_estaticos = sim;
         self
@@ -378,6 +391,7 @@ impl<'a> LlvmEmitter<'a> {
         let classe_do_valor = classe_do_valor(&self.module.cids_do_runtime);
         self.out.push_str(&classe_do_valor);
         self.out.push_str(&ajudantes_do_espaco());
+        self.out.push_str(&ajudante_do_corpo(self.campos_por_chamada));
         if compostas || !self.module.ffi_callbacks.is_empty() {
             self.out.push_str(
                 "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n\
@@ -2348,6 +2362,11 @@ impl<'a> LlvmEmitter<'a> {
     /// desvio. Sem chamada.
     fn emitir_endereco_dos_campos(&mut self, v: u32, so: &str) {
         let o = &mut self.out;
+        if self.campos_por_chamada {
+            writeln!(o, "  %fcb{v} = call ptr @df.corpo(i64 {so}, ptr %ctx)").unwrap();
+            writeln!(o, "  %fp{v} = getelementptr inbounds i8, ptr %fcb{v}, i64 16").unwrap();
+            return;
+        }
         // O bit de sinal entra na máscara: negativo nunca é objeto.
         writeln!(o, "  %fxk{v} = and i64 {so}, {MASCARA_DE_OBJETO}").unwrap();
         writeln!(o, "  %fxo{v} = icmp eq i64 %fxk{v}, 2").unwrap();
@@ -2962,6 +2981,36 @@ lento:\n\
 /// * `@df.alocar(cabecalho, w)`: a TLAB de `w ≤ TLAB_N` palavras (o cursor
 ///   avança `16 + 8w` e grava a palavra 0); esgotada ou `w` maior,
 ///   `dartforge_alocar(cid, w, cabecalho >> 8)`.
+/// `@df.corpo(h, ctx)`: o começo do corpo de um objeto (o cabeçalho; os
+/// campos 16 bytes depois), a mesma conta de `emitir_endereco_dos_campos` em
+/// linha — um valor que não é objeto lê o objeto de reserva do contexto
+/// (`ctx + 40`), e um corpo fora do bloco (anexo, `flags & 1`) é seguido pelo
+/// ponteiro em `+16`. `alwaysinline` quando o emissor está em linha (para o
+/// otimizador ver igual); sem o atributo no desenvolvimento, uma chamada.
+fn ajudante_do_corpo(por_chamada: bool) -> String {
+    let atributo = if por_chamada { "" } else { " alwaysinline" };
+    format!(
+        "define internal ptr @df.corpo(i64 %o, ptr %ctx){atributo} {{
+  %k = and i64 %o, {MASCARA_DE_OBJETO}
+  %e = icmp eq i64 %k, 2
+  %a = add i64 %o, -2
+  %q = inttoptr i64 %a to ptr
+  %vp = getelementptr inbounds i8, ptr %ctx, i64 40
+  %v = load ptr, ptr %vp, align 8
+  %h = select i1 %e, ptr %q, ptr %v
+  %fp = getelementptr inbounds i8, ptr %h, i64 1
+  %f = load i8, ptr %fp, align 1
+  %b = and i8 %f, 1
+  %x = icmp ne i8 %b, 0
+  %cp = getelementptr inbounds i8, ptr %h, i64 16
+  %c = load ptr, ptr %cp, align 8
+  %r = select i1 %x, ptr %c, ptr %h
+  ret ptr %r
+}}
+"
+    )
+}
+
 fn ajudantes_do_espaco() -> String {
     use layout::{contexto, desl, estado, flags};
     let d = |x: usize| x as i64 - layout::DESLOCAMENTO_DO_HANDLE;

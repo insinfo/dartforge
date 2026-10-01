@@ -149,19 +149,20 @@ pub fn compile_and_link(
     // um objeto, com a sua chave no cache, compiladas poucas por vez.
     let t_clang = Instant::now();
     let cache = CacheObjeto::do_ambiente();
-    if !producao
-        && let Some((limiar, alvo)) = crate::particao::limites()
+    // Também na produção: cada parte vira um bitcode, e o ThinLTO do
+    // ligador as otimiza juntas (o IR já montado com as tabelas podadas).
+    if let Some((limiar, alvo)) = crate::particao::limites()
         && llvm_ir.len() > limiar
     {
-        let partes = crate::particao::dividir(llvm_ir, alvo);
-        let objetos = gerar_partes(&partes, &gerador, geracao, cache, &staging, &stem)?;
-        drop(partes);
+        let plano = crate::particao::planejar(llvm_ir, alvo);
+        let objetos = gerar_partes(&plano, &gerador, geracao, cache, &staging, &stem)?;
+        drop(plano);
         let clang_duration = t_clang.elapsed();
         let t_link = Instant::now();
         let mut extras: Vec<PathBuf> = objetos[1..].to_vec();
         extras.extend(sdk_objetos.iter().cloned());
         ligar(&options.clang, &objetos[0], &extras, &ligar_com, output, options.depuracao, options.cpu)?;
-        if let Some(s) = sdk.as_ref() {
+        if let Some(s) = sdk.as_ref().filter(|_| !producao) {
             let destino = output.parent().unwrap_or(Path::new(".")).join(s.dll.file_name().unwrap_or_default());
             if !destino.is_file() && std::fs::hard_link(&s.dll, &destino).is_err() {
                 std::fs::copy(&s.dll, &destino).map_err(|e| format!("não foi possível pôr a DLL do SDK em {}: {e}", destino.display()))?;
@@ -239,38 +240,49 @@ pub fn compile_and_link(
     })
 }
 
+/// Quantas gerações de código (partes, ou módulos do ThinLTO no ligador) ao
+/// mesmo tempo: `DARTFORGE_PARTES_PARALELAS`, senão metade das threads da
+/// máquina, no máximo 3.
+pub fn tarefas_de_geracao() -> usize {
+    std::env::var("DARTFORGE_PARTES_PARALELAS")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| (n.get() / 2).clamp(1, 3)))
+        .max(1)
+}
+
 /// Os objetos das partes de um módulo grande (C9), na ordem: cada parte
-/// pelo cache de objetos (ou no `staging`), `DARTFORGE_PARTES_PARALELAS`
-/// (padrão 2: a memória de um Clang é a medida, não os núcleos) por vez.
+/// montada só quando é a vez dela, pelo cache de objetos (ou no `staging`),
+/// `DARTFORGE_PARTES_PARALELAS` por vez (padrão: metade das threads da
+/// máquina, no máximo 3 — a memória de um gerador, ~44 bytes por byte de
+/// IR no `-O0`, é a medida, não os núcleos).
 fn gerar_partes(
-    partes: &[String],
+    plano: &crate::particao::Plano<'_>,
     gerador: &Gerador,
     geracao: Geracao,
     cache: Option<&'static CacheObjeto>,
     staging: &Path,
     stem: &str,
 ) -> Result<Vec<PathBuf>, String> {
-    let paralelas = std::env::var("DARTFORGE_PARTES_PARALELAS")
-        .ok()
-        .and_then(|v| v.trim().parse::<usize>().ok())
-        .unwrap_or(2)
-        .max(1);
+    let paralelas = tarefas_de_geracao();
     let identidade = gerador.identidade()?;
     let descricao = geracao.descricao();
     if cache.is_none() {
         std::fs::create_dir_all(staging).map_err(|e| format!("{}: {e}", staging.display()))?;
     }
     let proxima = std::sync::atomic::AtomicUsize::new(0);
+    let n = plano.len();
     let resultados: std::sync::Mutex<Vec<Option<Result<PathBuf, String>>>> =
-        std::sync::Mutex::new((0..partes.len()).map(|_| None).collect());
+        std::sync::Mutex::new((0..n).map(|_| None).collect());
     std::thread::scope(|s| {
-        for _ in 0..paralelas.min(partes.len()) {
+        for _ in 0..paralelas.min(n) {
             s.spawn(|| loop {
                 let i = proxima.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                if i >= partes.len() {
+                if i >= n {
                     break;
                 }
-                let ir = partes[i].as_str();
+                let texto = plano.parte(i);
+                let ir = texto.as_str();
                 let r = match cache {
                     Some(c) => {
                         let chave = cache_objeto::chave(ir, &identidade, &[descricao.as_str()]);

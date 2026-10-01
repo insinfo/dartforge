@@ -219,6 +219,159 @@ mesmo, pelas mesmas funções; as bibliotecas de importação geradas ganham
 `SystemTimeToTzSpecificLocalTime` (kernel32) e `_tzset`, `_get_timezone`
 (ucrtbase) (`EN/ligador_windows.rs`).
 
+### C7. O programa inteiro era baixado (sem mundo fechado)
+
+**Medido.** Com C1 corrigido, a emissão do backend terminou: 311 850
+funções e **2,8 GB** de LLVM IR. As maiores eram dados (as tabelas do
+`unorm_dart`, 25 MB de IR cada; o `pg_timezone`; as gramáticas do
+`highlight`) e ligações FFI geradas (`openssl_bindings`, 180 MB), quase
+tudo inalcançável a partir do `main`. O `-O0` do Clang gasta ~44 bytes de
+memória por byte de IR (24,8 MB de IR, pico de 1,08 GB, medido): 55 GB
+para o módulo inteiro.
+
+**Regra.** O Dart AOT só compila o que a análise de fluxo de tipos retém
+(`VM/pkg/vm/lib/transformations/type_flow/`;
+`VM/runtime/vm/compiler/aot/precompiler.cc`, `DropFunctions`).
+
+**Desenho** (`EN/mundo_nativo.rs`). O mundo fechado do `crates/mundo` (o
+RTA do JS de produção: classes instanciadas × seletores, o SDK como
+fronteira) com as raízes do nativo: o `main`, o que tem
+`@pragma('vm:entry-point')`, os nomes que o lowering chama por seletor
+(`iterator`, `moveNext`, `current`, `[]=`…) e, como seletores externos,
+**todo nome de membro escrito nas bibliotecas do SDK** (`x.nome`, `nome`
+solto, `#nome`, campo de padrão de objeto) — superconjunto sintático do
+que o SDK compilado pode chamar num objeto do programa. O que fica fora:
+
+* função de topo, estática ou método com corpo (`FunctionRef::Function`)
+  → corpo que lança `UnsupportedError` "código podado como inalcançável foi
+  chamado: <símbolo>" (`FnBuilder::corpo_podado`; o símbolo continua
+  definido);
+* global → getter que lança (o setter fica); campo `late` de instância →
+  getter que lança;
+* membro de instância (inclusive acessor de campo) → sem entrada na tabela
+  de métodos e sem adaptadores (`$c`, `$g`, `$s`, `$tc`…); o seletor fica
+  tomado na linearização, para uma superclasse não preencher o lugar. Os
+  membros sintéticos (encaminhadores de `noSuchMethod`) nunca são podados.
+
+`DARTFORGE_SEM_PODA_DO_PROGRAMA=1` desliga. No backend: 38 062 de 110 817
+funções do programa vivas; o IR caiu para 1,32 GB.
+
+### C8. O inliner copiava getters preguiçosos de globais
+
+**Medido.** Uma constante de 16 mil `CharacterCategory.lu` (o `bidi` do
+`pdf_plus`) virou um getter de 97 MB de IR: cada leitura de valor de enum
+recebia a cópia inteira do getter (alocação, registro como constante,
+gravação do global), ~135 linhas por elemento.
+
+**Regra.** A VM lê o campo estático e só chama o inicializador na primeira
+vez (`LoadStaticField` + `InitStaticField`).
+
+**Desenho.** `otimizar::inline::copiavel` recusa função com `StoreGlobal`
+(o getter preguiçoso de global ou de valor de enum).
+
+### C9. O módulo grande em partes; o endereço dos campos por chamada
+
+**Medido.** Mesmo podado, o IR do backend tinha 1,3 GB: um Clang só não
+cabe na máquina. O endereço dos campos de um objeto
+(`emitir_endereco_dos_campos`, 15 instruções em linha) aparecia 465 mil
+vezes — 21% das linhas.
+
+**Desenho.**
+
+1. `EN/particao.rs`: o texto do módulo é lido em itens (funções, globais,
+   declarações, `comdat`) e dividido em partes de ~16 MB agrupadas pela
+   biblioteca do símbolo. Itens com ligação externa ou `linkonce_odr` vão a
+   uma parte só, e as outras recebem a declaração (`declare` com os tipos
+   dos parâmetros; `@g = external global|constant <tipo>`); `private` e
+   `internal` imutáveis (textos, vetores, os ajudantes `@df.*`) são
+   copiados em cada parte que os cita; o único `internal global` mutável
+   (`@df.area_id`) passa a externo na parte 0. Cada parte é montada só
+   quando é a vez dela (`Plano::parte`) e tem a sua chave no cache de
+   objetos — uma edição recompila só as partes que mudaram.
+   `DARTFORGE_PARTE_MB` (0 desliga), `DARTFORGE_PARTES_PARALELAS` (padrão:
+   metade das threads, no máximo 3). Vale também na produção: cada parte
+   vira um bitcode e o ThinLTO do ligador as junta (`/opt:lldltojobs`,
+   `--thinlto-jobs` no mesmo número).
+2. `EN/driver.rs`, `gerar_partes`: as partes em paralelo; a ligação recebe
+   todos os objetos.
+3. No desenvolvimento (`-O0`), o endereço dos campos é `call @df.corpo(h,
+   ctx)` (`llvm/mod.rs`, `ajudante_do_corpo`); a produção e os módulos do
+   SDK continuam em linha (`alwaysinline`). O IR caiu de 1,32 para 1,06 GB.
+
+### C10. Simplificação da HIR com trocas em cadeia
+
+**Medido.** O LLVM recusava o IR: "use of undefined value '%v129'" no
+`RIPEMD128Digest.processBlock` do `pointycastle` (`a = aa = state[0]` com
+locais `int?`). Reproduz sem pacote (`corpus/nativo/124`), também com o
+`dartforge` de antes destas mudanças.
+
+**Desenho.** `otimizar::simplificar::dobrar_constantes` troca
+`Unbox(Box(x))` por `x` e tira as duas instruções; quando o próprio `x`
+também sai na mesma volta, a troca apontava para um valor removido. As
+trocas agora seguem a cadeia antes de aplicar.
+
+### C11. Tipos e tear-offs entre isolados
+
+**Medido.** No backend compilado, o isolado do servidor morria com
+`index out of bounds: the len is 1858 but the index is 1992`
+(`RT/tipos.rs`, `tipo(id)`), e depois com `type 'Function' is not a
+subtype of type '(Stream<dynamic>, dynamic) => Stream<dynamic>' in type
+cast` (o `StreamIsolate` do projeto). Reproduzem em `corpus/nativo/125` e
+`126`.
+
+**Regra.** Na VM os argumentos de tipo e as closures atravessam
+`Isolate.spawn` como objetos com o tipo.
+
+**Desenho.**
+
+1. Os ids de tipo do RTI eram por isolado; um id guardado como palavra
+   crua (o `T` que uma closure genérica capturou no contexto, a tupla de
+   tipos de uma chamada) chegava ao isolado novo como número e apontava
+   para outro tipo. Agora a tabela canônica é do processo
+   (`UniversoGlobal`, só de acréscimo, cada tipo vazado), e cada isolado
+   guarda a cópia local dos que já viu (`Universo::obter`): só o tipo novo
+   passa pela trava.
+2. O tear-off canônico mandado numa mensagem era recriado no destino sem o
+   corpo tipado, a ABI e o metadado RTI (`runtimeType` `Function`). O nó do
+   grafo (`ValG::TearOff`) leva os três (`RT/portas.rs`).
+
+### C12. `const []` padrão de parâmetro com variável de tipo
+
+**Medido.** O servidor parava com `type 'List<dynamic>' is not a subtype
+of type 'Iterable<(RequestContext<dynamic>, ResponseContext<dynamic>) =>
+dynamic>' of 'middleware'` — o `{Iterable<T> middleware = const []}` do
+`Router<T>` do `angel3_route`.
+
+**Regra.** Uma constante não depende de variáveis de tipo: o contexto de um
+literal `const` vale pelo fecho menor (a VM dá `List<Never>`,
+`corpus/nativo/127`).
+
+**Desenho.** `crates/types/src/inferencia/colecoes.rs`, `literal`: com
+`const` explícito e sem argumentos de tipo, o contexto passa por
+`bounds::least_closure` em relação às variáveis de tipo que aparecem nele.
+
+### C13. Anotação de campo de struct por alias ou prefixo
+
+**Medido.** O `/metrics` do backend devolvia 500: "struct or union not
+registered in the DartForge native backend" — as estruturas do Win32 do
+`prometheus_client` do projeto anotam os campos por aliases
+(`typedef DWORD = Uint32;` … `@DWORD()`).
+
+**Desenho.** `EN/lower/ffi.rs`, `tipo_do_campo`: a classe da anotação vem
+do escopo da biblioteca (`classe_da_anotacao`: `@Nome()`, `@p.Nome()`,
+alias de classe), não do texto (`corpus/nativo/128`).
+
+### C14. Testes do SDK sem mensagem no macOS
+
+**Medido.** No job do macOS, `producao_e_um_executavel_autocontido` e
+`poda_tira_membros_nao_usados` falhavam sem mensagem nenhuma; com
+`--test-threads 1` passavam. O teste de medição
+`medir_lowering_das_bibliotecas_da_fonte` trocava o gancho de pânico do
+PROCESSO por um silencioso e não o restaurava: todo pânico dos testes que
+rodavam junto sumia. O gancho saiu (`EN/sdk_modulo.rs`); e a ligação de
+produção passou a limitar as tarefas do ThinLTO (C9), o que reduz o pico
+de memória de dois testes de produção simultâneos.
+
 ## 2. Programas do corpus
 
 | programa | causa |
@@ -227,9 +380,15 @@ mesmo, pelas mesmas funções; as bibliotecas de importação geradas ganham
 | `corpus/nativo/121_estaticos_por_typedef_e_extensao_prefixada/` | C2 |
 | `corpus/nativo/122_literais_grandes_constantes.dart` | C4 |
 | `corpus/nativo/123_fuso_horario_por_ano.dart` | C6 |
+| `corpus/nativo/124_atribuicao_encadeada_anulavel.dart` | C10 |
+| `corpus/nativo/125_tipos_capturados_entre_isolados.dart` | C11 |
+| `corpus/nativo/126_tearoff_entre_isolados.dart` | C11 |
+| `corpus/nativo/127_const_padrao_com_variavel_de_tipo.dart` | C12 |
+| `corpus/nativo/128_ffi_anotacoes_por_alias.dart` | C13 |
 
-C1 é de escala (não cabe num programa do corpus); C5 precisa de
-`package_config` e vai num teste do carregador.
+C1, C7, C8 e C9 são de escala (medidos no backend; o 122 cobre a parte de
+C4 que cabe no corpus); C5 precisa de `package_config` e vai num teste do
+carregador (`crates/elements/tests/unit_tests.rs`, `parte_por_uri_package`).
 
 ## 3. Resultados
 

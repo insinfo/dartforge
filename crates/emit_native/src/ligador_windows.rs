@@ -899,6 +899,9 @@ pub fn argumentos(sysroot: &SysrootWindows, l: &Ligacao<'_>) -> Vec<std::ffi::Os
         let particoes = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, 16);
         a.push("/opt:lldlto=2".into());
         a.push(format!("/opt:lldltopartitions={particoes}").into());
+        // ThinLTO (os bitcodes das partes de um programa grande, C9): um
+        // módulo por tarefa, poucas ao mesmo tempo — a memória é a medida.
+        a.push(format!("/opt:lldltojobs={}", crate::driver::tarefas_de_geracao()).into());
         // A CPU-alvo da geração de código da LTO (`--cpu`): a opção
         // `-mcpu` do LLVM, que o `lld` lê para a LTO (`native` é detectada).
         if let Some(c) = l.cpu {

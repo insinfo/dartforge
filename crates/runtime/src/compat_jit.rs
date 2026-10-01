@@ -45,7 +45,7 @@ fn classe_do_objeto_tipo(tipo: i64) -> Option<i64> {
         let u = u.borrow();
         let mut t = t;
         loop {
-            match u.tipos.get(t as usize)? {
+            match u.obter(t)? {
                 Tipo::Interface(c, _) => return Some(*c),
                 Tipo::Anulavel(x) => t = *x,
                 _ => return None,

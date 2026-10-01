@@ -190,6 +190,7 @@ pub fn ligar(ld: &Path, sysroot: &SysrootLinux, l: &Ligacao<'_>) -> Result<(), S
         let particoes = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, 16);
         let cpu = l.cpu.unwrap_or(if cfg!(target_arch = "x86_64") { "x86-64" } else { "generic" });
         cmd.arg("--lto-O2").arg(format!("--lto-partitions={particoes}")).arg(format!("-plugin-opt=mcpu={cpu}"));
+        cmd.arg(format!("--thinlto-jobs={}", crate::driver::tarefas_de_geracao()));
     }
     if l.podar {
         cmd.arg("--gc-sections");

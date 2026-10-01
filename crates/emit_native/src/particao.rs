@@ -35,7 +35,7 @@ use std::collections::{HashMap, HashSet};
 /// Tamanho de IR a partir do qual o módulo é dividido.
 pub const LIMIAR_PADRAO: usize = 48 << 20;
 /// Tamanho de cada parte.
-pub const ALVO_PADRAO: usize = 24 << 20;
+pub const ALVO_PADRAO: usize = 16 << 20;
 
 /// O limiar e o alvo, ajustáveis (`DARTFORGE_PARTE_MB`, em MiB; `0` desliga
 /// a divisão).
@@ -78,15 +78,21 @@ fn e_ident(b: u8) -> bool {
     b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'$' | b'-')
 }
 
-/// O nome em `@nome…` a partir de `s` (que começa depois do `@`); nomes
-/// entre aspas (`@"…"`) também.
-fn nome_em(s: &str) -> &str {
+/// O nome em `@nome…` a partir de `s` (que começa depois do `@`) e quantos
+/// bytes ele ocupa no texto: `@"…"` (o emissor cita assim os nomes com `$`
+/// numa referência, `@"df.ffi.S1$p_$ent"`) vale o nome sem as aspas, para
+/// casar com a definição escrita sem elas.
+fn nome_e_largura(s: &str) -> (&str, usize) {
     let b = s.as_bytes();
     if b.first() == Some(&b'"') {
-        return s[1..].find('"').map_or("", |f| &s[..f + 2]);
+        return s[1..].find('"').map_or(("", 0), |f| (&s[1..f + 1], f + 2));
     }
     let fim = b.iter().position(|c| !e_ident(*c)).unwrap_or(b.len());
-    &s[..fim]
+    (&s[..fim], fim)
+}
+
+fn nome_em(s: &str) -> &str {
+    nome_e_largura(s).0
 }
 
 /// Todas as referências `@nome` de um texto.
@@ -94,16 +100,35 @@ fn referencias<'a>(texto: &'a str, saida: &mut Vec<&'a str>) {
     let b = texto.as_bytes();
     let mut i = 0;
     while let Some(p) = memchr_at(b, b'@', i) {
-        let n = nome_em(&texto[p + 1..]);
+        let (n, largura) = nome_e_largura(&texto[p + 1..]);
         if !n.is_empty() {
             saida.push(n);
         }
-        i = p + 1 + n.len();
+        i = p + 1 + largura;
     }
 }
 
 fn memchr_at(b: &[u8], c: u8, de: usize) -> Option<usize> {
     b.get(de..)?.iter().position(|x| *x == c).map(|p| p + de)
+}
+
+/// `$x`/`$"x"` → `x`.
+fn nome_do_comdat(s: &str) -> &str {
+    let s = s.strip_prefix('$').unwrap_or(s);
+    s.strip_prefix('"').and_then(|r| r.strip_suffix('"')).unwrap_or(s)
+}
+
+/// O comdat de um `define`/global: `comdat($x)` explícito, ou só `comdat`
+/// (o do mesmo nome do item — os objetos estáticos da produção,
+/// `@df.img.…`).
+fn comdat_da_linha<'a>(linha: &'a str, nome: &'a str) -> Option<&'a str> {
+    if let Some(c) = linha.find("comdat($") {
+        let r = &linha[c + 7..];
+        return Some(nome_do_comdat(&r[..r.find(')').unwrap_or(r.len())]));
+    }
+    let i = linha.find(" comdat")?;
+    let depois = &linha[i + " comdat".len()..];
+    depois.chars().next().is_none_or(|c| c == ',' || c.is_whitespace()).then_some(nome)
 }
 
 fn ler(ir: &str) -> Modulo<'_> {
@@ -137,25 +162,19 @@ fn ler(ir: &str) -> Modulo<'_> {
             let cab = &linha[..linha.find('(').unwrap_or(linha.len())];
             let nome = cab.rfind('@').map_or("", |a| nome_em(&cab[a + 1..]));
             let local = cab.contains(" internal ") || cab.contains(" private ");
-            let comdat = linha.find("comdat($").map(|c| {
-                let r = &linha[c + 7..];
-                &r[..r.find(')').unwrap_or(r.len())]
-            });
+            let comdat = comdat_da_linha(linha, nome);
             m.indice.insert(nome, m.itens.len());
             m.itens.push(Item { nome, tipo: Tipo::Funcao, texto: &ir[pos..fim], local, mutavel: false, comdat });
             pos = fim;
             continue;
         }
         if let Some(r) = linha.strip_prefix('@') {
-            let nome = nome_em(r);
-            let depois = &r[nome.len()..];
+            let (nome, largura) = nome_e_largura(r);
+            let depois = &r[largura..];
             let depois = depois.trim_start().strip_prefix('=').unwrap_or(depois).trim_start();
             let local = depois.starts_with("private ") || depois.starts_with("internal ");
             let mutavel = local && cabeca_do_global(depois).0 == "global";
-            let comdat = linha.find("comdat($").map(|c| {
-                let r = &linha[c + 7..];
-                &r[..r.find(')').unwrap_or(r.len())]
-            });
+            let comdat = comdat_da_linha(linha, nome);
             m.indice.insert(nome, m.itens.len());
             m.itens.push(Item { nome, tipo: Tipo::Global, texto: linha, local, mutavel, comdat });
         } else if linha.starts_with("declare ") {
@@ -164,7 +183,7 @@ fn ler(ir: &str) -> Modulo<'_> {
             m.declaracoes.push((nome, linha));
         } else if linha.starts_with('$') {
             let n = linha.split(' ').next().unwrap_or("");
-            m.comdats.insert(n, linha);
+            m.comdats.insert(nome_do_comdat(n), linha);
         } else if linha.starts_with(';') {
             m.comentarios.push(linha);
         } else {
@@ -212,7 +231,7 @@ fn tipo_no_comeco(s: &str) -> &str {
 fn declaracao(item: &Item) -> String {
     match item.tipo {
         Tipo::Global => {
-            let r = &item.texto[1 + item.nome.len()..];
+            let r = &item.texto[1 + nome_e_largura(&item.texto[1..]).1..];
             let r = r.trim_start().trim_start_matches('=').trim_start();
             let (palavra, depois) = cabeca_do_global(r);
             let tipo = tipo_no_comeco(depois);
@@ -292,60 +311,36 @@ fn grupo(nome: &str) -> &str {
     }
 }
 
-/// Divide o módulo em partes de ~`alvo` bytes. Um módulo menor que `alvo`
-/// volta inteiro, como está.
-pub fn dividir(ir: &str, alvo: usize) -> Vec<String> {
-    if ir.len() <= alvo {
-        return vec![ir.to_string()];
+/// O módulo dividido: as partes são montadas uma a uma ([`Plano::parte`]),
+/// para que só as que estão sendo geradas existam ao mesmo tempo.
+pub struct Plano<'a> {
+    m: Modulo<'a>,
+    partes: Vec<Vec<usize>>,
+    declarados: HashMap<&'a str, &'a str>,
+    alvo: usize,
+}
+
+impl<'a> Plano<'a> {
+    /// Quantas partes.
+    pub fn len(&self) -> usize {
+        self.partes.len()
     }
-    let m = ler(ir);
-    // Os itens com ligação externa, agrupados pela biblioteca na ordem em
-    // que aparecem; os grupos, em partes de ~`alvo` bytes.
-    let mut ordem_dos_grupos: Vec<&str> = Vec::new();
-    let mut por_grupo: HashMap<&str, Vec<usize>> = HashMap::new();
-    for (i, it) in m.itens.iter().enumerate() {
-        if it.local {
-            continue;
-        }
-        let g = grupo(it.nome);
-        por_grupo.entry(g).or_insert_with(|| {
-            ordem_dos_grupos.push(g);
-            Vec::new()
-        }).push(i);
+
+    /// Nenhuma parte (nunca: um módulo tem ao menos uma).
+    pub fn is_empty(&self) -> bool {
+        self.partes.is_empty()
     }
-    let mut partes: Vec<Vec<usize>> = vec![Vec::new()];
-    let mut tamanho = 0usize;
-    for g in &ordem_dos_grupos {
-        for &i in &por_grupo[g] {
-            let t = m.itens[i].texto.len();
-            if tamanho > 0 && tamanho + t > alvo {
-                partes.push(Vec::new());
-                tamanho = 0;
-            }
-            partes.last_mut().expect("uma parte").push(i);
-            tamanho += t;
-        }
-    }
-    let mut parte_de: Vec<Option<usize>> = vec![None; m.itens.len()];
-    for (p, itens) in partes.iter().enumerate() {
-        for &i in itens {
-            parte_de[i] = Some(p);
-        }
-    }
-    // O estado mutável local vai à parte 0, com ligação externa.
-    for (i, it) in m.itens.iter().enumerate() {
-        if it.mutavel {
-            parte_de[i] = Some(0);
-            partes[0].push(i);
-        }
-    }
-    let declarados: HashMap<&str, &str> = m.declaracoes.iter().copied().collect();
-    let mut saida = Vec::with_capacity(partes.len());
-    for (p, itens) in partes.iter().enumerate() {
+
+    /// O texto da parte `p`.
+    pub fn parte(&self, p: usize) -> String {
+        let m = &self.m;
+        let alvo = self.alvo;
+        let declarados = &self.declarados;
+        let itens = &self.partes[p];
         // O fecho: os itens da parte, os locais que eles citam (copiados), e
         // as declarações do que mora fora.
         let mut incluidos: HashSet<usize> = itens.iter().copied().collect();
-        let mut fila: Vec<usize> = itens.clone();
+        let mut fila: Vec<usize> = itens.to_vec();
         let mut externos: Vec<usize> = Vec::new();
         let mut vistos_ext: HashSet<usize> = HashSet::new();
         let mut decls: Vec<&str> = Vec::new();
@@ -408,9 +403,58 @@ pub fn dividir(ir: &str, alvo: usize) -> Vec<String> {
                 texto.push_str(it.texto);
             }
         }
-        saida.push(texto);
+        texto
     }
-    saida
+}
+
+/// Planeja a divisão do módulo em partes de ~`alvo` bytes.
+pub fn planejar(ir: &str, alvo: usize) -> Plano<'_> {
+    let m = ler(ir);
+    // Os itens com ligação externa, agrupados pela biblioteca na ordem em
+    // que aparecem; os grupos, em partes de ~`alvo` bytes.
+    let mut ordem_dos_grupos: Vec<&str> = Vec::new();
+    let mut por_grupo: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (i, it) in m.itens.iter().enumerate() {
+        if it.local {
+            continue;
+        }
+        let g = grupo(it.nome);
+        por_grupo.entry(g).or_insert_with(|| {
+            ordem_dos_grupos.push(g);
+            Vec::new()
+        }).push(i);
+    }
+    let mut partes: Vec<Vec<usize>> = vec![Vec::new()];
+    let mut tamanho = 0usize;
+    for g in &ordem_dos_grupos {
+        for &i in &por_grupo[g] {
+            let t = m.itens[i].texto.len();
+            if tamanho > 0 && tamanho + t > alvo {
+                partes.push(Vec::new());
+                tamanho = 0;
+            }
+            partes.last_mut().expect("uma parte").push(i);
+            tamanho += t;
+        }
+    }
+    // O estado mutável local vai à parte 0, com ligação externa.
+    for (i, it) in m.itens.iter().enumerate() {
+        if it.mutavel {
+            partes[0].push(i);
+        }
+    }
+    let declarados: HashMap<&str, &str> = m.declaracoes.iter().copied().collect();
+    Plano { m, partes, declarados, alvo }
+}
+
+/// Divide o módulo em partes de ~`alvo` bytes (todas de uma vez; os testes).
+/// Um módulo menor que `alvo` volta inteiro, como está.
+pub fn dividir(ir: &str, alvo: usize) -> Vec<String> {
+    if ir.len() <= alvo {
+        return vec![ir.to_string()];
+    }
+    let plano = planejar(ir, alvo);
+    (0..plano.len()).map(|p| plano.parte(p)).collect()
 }
 
 #[cfg(test)]
@@ -431,7 +475,7 @@ define internal i64 @df.ajuda(i64 %x) alwaysinline {\n\
 define i64 @df.a.f(i64 %v0, { i64, i64 } %v1) {\n\
 b0:\n\
   %r = call i64 @df.ajuda(i64 %v0)\n\
-  %s = call i64 @df.b.k(ptr @.str.0)\n\
+  %s = call i64 @\"df.b.k\"(ptr @.str.0)\n\
   ret i64 %s\n\
 }\n\
 define linkonce_odr i64 @df.b.k(ptr %p) comdat($\"df.b.k\") {\n\
@@ -465,5 +509,22 @@ b0:\n\
         let m = ler(MOD);
         let i = m.indice["df.a.f"];
         assert_eq!(declaracao(&m.itens[i]), "declare i64 @df.a.f(i64, { i64, i64 })\n");
+    }
+
+    #[test]
+    fn comdat_implicito_vai_com_o_item() {
+        let m = "$df.img.a = comdat any
+@df.img.a = linkonce_odr constant i64 1, comdat
+define i64 @df.x.f() {
+b0:
+  %v = load i64, ptr @df.img.a
+  ret i64 %v
+}
+";
+        let p = dividir(m, 40);
+        let def = p.iter().find(|t| t.contains("@df.img.a = linkonce_odr")).unwrap();
+        assert!(def.contains("$df.img.a = comdat any"), "{def}");
+        let usa = p.iter().find(|t| t.contains("define i64 @df.x.f")).unwrap();
+        assert!(usa.contains("@df.img.a = external constant i64") || usa.contains("@df.img.a = linkonce_odr"), "{usa}");
     }
 }

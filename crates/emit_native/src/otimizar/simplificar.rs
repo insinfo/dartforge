@@ -93,6 +93,26 @@ pub fn dobrar_constantes(func: &mut Function) -> bool {
                 }
             }
         }
+        // As trocas em cadeia: `v178 = Unbox(Box(v49))` vira `v49`, mas o
+        // próprio `v49 = Unbox(Box(v46))` também sai nesta volta — sem seguir
+        // a cadeia, quem usava `v178` ficava com o `v49` já removido ("use
+        // of undefined value" no LLVM: `a = aa = x` com `int?`, o
+        // `RIPEMD128Digest` do pointycastle no new_sali/backend;
+        // docs/NATIVO-PROJETOS-REAIS.md, C10). A cadeia é acíclica: cada
+        // troca aponta para um valor definido antes.
+        let chaves: Vec<ValueId> = valores.keys().copied().collect();
+        for k in chaves {
+            let mut alvo = valores[&k].clone();
+            let mut passos = 0;
+            while let Operand::Val(x) = &alvo
+                && let Some(prox) = valores.get(x)
+                && passos < valores.len()
+            {
+                alvo = prox.clone();
+                passos += 1;
+            }
+            valores.insert(k, alvo);
+        }
         let mut mudou_aqui = false;
         if !valores.is_empty() {
             for b in &mut func.blocks {
