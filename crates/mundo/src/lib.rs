@@ -218,7 +218,8 @@ pub fn calcular(e: Entrada<'_>, r: &Raizes) -> Mundo {
 /// critério de `emit_js::sdk_proprio::literal_inlinavel`.
 pub fn constante_inlinavel(p: &Program, v: VariableId) -> bool {
     let var = p.variable(v);
-    if !var.const_ {
+    // Estático de extensão é lido pela chave `L['Ext|x']`, sem dobra.
+    if !var.const_ || var.extension.is_some() {
         return false;
     }
     let (unit, init) = match var.node {
@@ -298,6 +299,33 @@ pub fn tags_nativas(e: &Entrada<'_>) -> Vec<(ClassId, Vec<String>)> {
     out
 }
 
+/// Para cada supertipo de classe nativa que não é nativo nem de
+/// `dart:core`/`dart:_interceptors`/`dart:collection`, as nativas que o
+/// implementam (determinístico: ordenadas).
+fn nativas_por_interface(e: &Entrada<'_>, nativas: &HashSet<ClassId>) -> HashMap<ClassId, Vec<ClassId>> {
+    let p = e.program;
+    let mut out: HashMap<ClassId, Vec<ClassId>> = HashMap::new();
+    let mut ns: Vec<ClassId> = nativas.iter().copied().collect();
+    ns.sort();
+    for n in ns {
+        let mut vistos: HashSet<ClassId> = HashSet::new();
+        let mut pilha = vec![n];
+        while let Some(k) = pilha.pop() {
+            if !vistos.insert(k) {
+                continue;
+            }
+            let c = p.class(k);
+            if k != n && !nativas.contains(&k) && !matches!(p.library(c.library).uri.as_str(), "dart:core" | "dart:_interceptors" | "dart:collection") {
+                out.entry(k).or_default().push(n);
+            }
+            pilha.extend(c.supertype_class);
+            pilha.extend(c.mixin_classes.iter().copied());
+            pilha.extend(c.interface_classes.iter().copied());
+        }
+    }
+    out
+}
+
 /// `int` e `num` de `dart:core`.
 fn int_num(e: &Entrada<'_>) -> Option<(ClassId, ClassId)> {
     let core = e.program.core?;
@@ -315,6 +343,7 @@ pub fn calcular_com(e: Entrada<'_>, r: &Raizes, op: Opcoes) -> Mundo {
         m.incluir_sdk = true;
         m.nativas = classes_nativas(&e);
         m.int_num = int_num(&e);
+        m.nativas_por_interface = nativas_por_interface(&e, &m.nativas);
     }
     m.causa = Causa::Raiz;
     for s in {
@@ -384,6 +413,7 @@ pub fn conferir(e: Entrada<'_>, r: &Raizes, mundo: &Mundo) -> Vec<Inconsistencia
         m.incluir_sdk = true;
         m.nativas = classes_nativas(&e);
         m.int_num = int_num(&e);
+        m.nativas_por_interface = nativas_por_interface(&e, &m.nativas);
     }
     m.classes = mundo.classes.clone();
     m.f_vivo = mundo.funcoes.clone();
@@ -520,6 +550,9 @@ pub(crate) struct Motor<'a> {
     nativas: HashSet<ClassId>,
     /// `(int, num)` de `dart:core`, com o SDK no mundo.
     int_num: Option<(ClassId, ClassId)>,
+    /// Interface (fora de `core`/`_interceptors`/`collection`) → classes nativas
+    /// que a implementam: um `ByteBuffer` vivo pode ser um `ArrayBuffer` do JS.
+    nativas_por_interface: HashMap<ClassId, Vec<ClassId>>,
 }
 
 impl<'a> Motor<'a> {
@@ -562,6 +595,7 @@ impl<'a> Motor<'a> {
             incluir_sdk: false,
             nativas: HashSet::new(),
             int_num: None,
+            nativas_por_interface: HashMap::new(),
         }
     }
 
@@ -783,7 +817,18 @@ impl<'a> Motor<'a> {
             }
             match self.e.table.get(cur) {
                 Type::Dynamic | Type::Void | Type::Never | Type::Null => return None,
-                Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => return Some(*class),
+                Type::Interface { class, .. } => return Some(*class),
+                // Com o SDK no mundo, um tipo de extensão é, em execução, o
+                // valor da representação: o cone é o dela (`$this[$toUpperCase]`
+                // num tipo de extensão sobre `String` chama `JSString`).
+                Type::ExtensionType { decl: class, .. } if self.incluir_sdk => {
+                    let rep = self.e.program.class(*class).representation;
+                    match rep.and_then(|v| self.e.outline.variables.get(v.0 as usize)).and_then(|vt| vt.declared_type.or(vt.inferred)) {
+                        Some(t) if t != cur => cur = t,
+                        _ => return Some(*class),
+                    }
+                }
+                Type::ExtensionType { decl: class, .. } => return Some(*class),
                 Type::Function { .. } | Type::Record { .. } => return None,
                 Type::TypeParameter { param, .. } => cur = self.e.table.param(*param).bound,
                 // `X & B` (variável de tipo promovida): o valor é um `B`.
@@ -911,11 +956,35 @@ impl<'a> Motor<'a> {
         // Enum referenciado: as constantes existem com a classe.
         if class.kind == ClassKind::Enum {
             self.instanciar(c);
+            // Os campos de `_Enum` que o emissor lê sem passar pelo modelo
+            // (o `index` sintético do enum, o `_name` do `toString`).
+            // No modelo de elementos o enum implementa `Enum`; no JS ele estende
+            // `core._Enum`, que o emissor põe como superclasse.
+            if self.incluir_sdk {
+                let en = p.core.and_then(|core| {
+                    let s = self.e.interner.lookup("_Enum")?;
+                    match p.library(core).declared.get(&s)?.getter? {
+                        Element::Class(k) => Some(k),
+                        _ => None,
+                    }
+                });
+                if let Some(en) = en {
+                    self.instanciar(en);
+                    for n in ["index", "_name", "toString", "_enumToString", "name"] {
+                        self.novo_seletor_com_receptor(n, Some(en));
+                    }
+                }
+            }
         }
         // Classe nativa viva como tipo é instanciada: o objeto vem do
         // navegador (ou é um primitivo do JS), não de um `new` do programa.
         if self.nativas.contains(&c) {
             self.instanciar(c);
+        }
+        if let Some(ns) = self.nativas_por_interface.get(&c).cloned() {
+            for n in ns {
+                self.marcar_tipo(n);
+            }
         }
         let mut supers: Vec<ClassId> = Vec::new();
         supers.extend(class.supertype_class);

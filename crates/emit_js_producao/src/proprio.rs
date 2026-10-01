@@ -108,9 +108,6 @@ fn nomes_dinamicos(textos: &[(String, String)]) -> HashSet<String> {
             let Some(fim) = resto.find('"') else { continue };
             privados.insert(var, &resto[..fim]);
         }
-        if privados.is_empty() {
-            continue;
-        }
         let b = t.as_bytes();
         for (p, _) in t.match_indices('(') {
             let mut i = p;
@@ -144,8 +141,13 @@ fn nomes_dinamicos(textos: &[(String, String)]) -> HashSet<String> {
                 j += 1;
             }
             if arg == posicao {
-                if let Some(n) = privados.get(t[ini..j].trim()) {
+                let a = t[ini..j].trim();
+                if let Some(n) = privados.get(a) {
                     out.insert(n.to_string());
+                } else if a.len() >= 2 && (a.starts_with('"') && a.ends_with('"') || a.starts_with('\'') && a.ends_with('\'')) {
+                    // Operadores (`dsend(a, "+", [b])`), que a extração por
+                    // identificador não aceita.
+                    out.insert(a[1..a.len() - 1].to_string());
                 }
             }
         }

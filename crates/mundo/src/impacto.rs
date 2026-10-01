@@ -875,6 +875,13 @@ fn expr(m: &mut Motor<'_>, ctx: &Contexto, id: ExprId) {
             for el in elements.iter() {
                 elemento(m, ctx, el);
             }
+            // Com o SDK no mundo: o literal com `if`/`for`/`...` é montado pelo
+            // emissor com `conjunto.add(v)` e `mapa[$_set](k, v)` sobre a
+            // implementação (`LinkedHashSet`/`LinkedMap`), sem nó na AST.
+            if m.incluir_sdk && matches!(&ast.expr(id).kind, ExprKind::SetOrMap { .. }) && elements.iter().any(|x| !matches!(x, CollectionElement::Expression(_) | CollectionElement::MapEntry { .. })) {
+                m.novo_seletor_externo("add");
+                m.novo_seletor_externo("[]=");
+            }
         }
         ExprKind::Record { positional, named, .. } => {
             for x in positional.iter() {
@@ -961,6 +968,35 @@ fn expr(m: &mut Motor<'_>, ctx: &Contexto, id: ExprId) {
                     ExprKind::Property { name, .. } => Some(name.sym),
                     _ => None,
                 };
+                // `JS('', '#.moveNext()', it)`: o nome de membro escrito no
+                // *template* é chamado num receptor sem tipo — seletor
+                // irrestrito, nas duas espécies.
+                if m.incluir_sdk && nome.is_some_and(|s| m.e.interner.resolve(s) == "JS") {
+                    if let Some(a) = arguments.args.get(1) {
+                        if let ExprKind::String(lit) = &ast.expr(a.value).kind {
+                            let mut nomes: Vec<String> = Vec::new();
+                            for parte in lit.parts.iter() {
+                                if let StringPart::Text(t) = parte {
+                                    let t = t.to_string_lossy();
+                                    let b = t.as_bytes();
+                                    for (i, _) in t.match_indices('.') {
+                                        let ini = i + 1;
+                                        let mut f = ini;
+                                        while f < b.len() && (b[f].is_ascii_alphanumeric() || b[f] == b'_' || b[f] == b'$') {
+                                            f += 1;
+                                        }
+                                        if f > ini && !b[ini].is_ascii_digit() {
+                                            nomes.push(t[ini..f].to_string());
+                                        }
+                                    }
+                                }
+                            }
+                            for n in nomes {
+                                m.novo_seletor_externo(&n);
+                            }
+                        }
+                    }
+                }
                 if nome.is_some_and(|s| m.e.interner.resolve(s) == "JS_CLASS_REF") {
                     if let Some(a) = arguments.args.first() {
                         if let Some(Alvo::Classe(c)) = alvo_estatico(m, ctx, a.value) {

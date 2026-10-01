@@ -1678,6 +1678,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             IdentTarget::Prefix(_) => (Js::prim("null"), Ty::Dynamic),
             IdentTarget::Unknown => {
+                // Modo SDK: numa extensão sobre um tipo de extensão (o *patch*
+                // `JSArrayToList on JSArray<T>`), o campo de representação
+                // lido sem `this` é o próprio valor: o tipo de extensão é
+                // apagado para a representação.
+                if self.ctx.sdk.is_some() {
+                    if let Some(Ty::Iface { class, .. }) = self.extension_this.clone() {
+                        if let Some(rep) = self.ctx.program.class(class).representation {
+                            if self.ctx.program.variable(rep).name == sym {
+                                return (Js::prim("$this"), self.ctx.var_ty(rep));
+                            }
+                        }
+                    }
+                }
                 // Literais de tipo especiais.
                 let special = match n.as_str() {
                     "dynamic" => Some(Ty::Dynamic),
@@ -1896,6 +1909,31 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let (ext, fid, subst) = found?;
         let f = self.ctx.program.function(fid);
         let e = self.ctx.program.extension(ext);
+        // `Function.toJS`/`toJSCaptureThis` do `dart:js_interop`: o
+        // transformador de interop do CFE os troca pelo `_functionToJS{N}` do
+        // `dart:js_util`, N = parâmetros posicionais do tipo estático
+        // (`_js_interop_checks/.../js_util_optimizer.dart:1003-1041`; no DDC o
+        // `toJSCaptureThis` sempre pelo `_functionToJSCaptureThisN`).
+        if self.ctx.program.library(e.library).uri == "dart:js_interop"
+            && e.name.is_some_and(|n| self.ctx.name(n) == "FunctionToJSExportedDartFunction")
+            && matches!(name, "toJS" | "toJSCaptureThis")
+        {
+            if let Ty::Fn { pos, opt, .. } = recv_ty {
+                let n = pos.len() + opt.len();
+                let ret = match self.ctx.fn_ty(fid) {
+                    Ty::Fn { ret, .. } => (*ret).clone(),
+                    _ => Ty::Dynamic,
+                };
+                self.m.use_sdk("js_util");
+                let r = &recv.code;
+                let call = match name {
+                    "toJS" if n <= 5 => format!("js_util._functionToJS{n}({r})"),
+                    "toJS" => format!("js_util._functionToJSN({r}, {n})"),
+                    _ => format!("js_util._functionToJSCaptureThisN({r}, {n})"),
+                };
+                return Some((Js::prim(call), ret));
+            }
+        }
         let ext_name = self.extension_js_name(ext);
         let lib_var = self.lib_var(e.library);
         let ty = self.ctx.fn_ty(fid).subst_prop(&subst);
@@ -2043,6 +2081,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             Ty::Iface { class, args, .. } => {
                 let actual_r = self.ctx.resolve_param_bound(actual);
+                // Todo tipo de função é subtipo de `Function` (a extensão
+                // `on Function` do `dart:js_interop` aplica a um `f.toJS`).
+                if Some(*class) == self.ctx.function_ && matches!(actual_r.non_null(), Ty::Fn { .. }) {
+                    return true;
+                }
                 let Some(sup) = self.ctx.as_super(&actual_r.non_null(), *class) else {
                     return matches!(actual, Ty::Dynamic | Ty::Never | Ty::Null);
                 };
@@ -2213,14 +2256,33 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let t = self.expr(target);
         // `Ext(x).membro`: aplicação explícita de extensão.
         if let ExprKind::Call { target: ct, arguments } = &t.kind {
-            if let ExprKind::Identifier(id) = &self.expr(*ct).kind {
-                if let IdentTarget::Element(Element::Extension(ext)) = self.alvo_do_identificador(id.sym, *ct) {
-                    if let Some(a) = arguments.args.first() {
-                        let (js, ty) = self.emit_expr(a.value, None);
-                        self.forced_ext = Some(ext);
-                        return (js, ty, vec![]);
-                    }
-                }
+            // `Ext(x)` ou `prefixo.Ext(x)` (o template do ngdart escreve
+            // `import18.FunctionToJSExportedDartFunction(h).toJS`).
+            let ext = match &self.expr(*ct).kind {
+                ExprKind::Identifier(id) => match self.alvo_do_identificador(id.sym, *ct) {
+                    IdentTarget::Element(Element::Extension(ext)) => Some(ext),
+                    _ => None,
+                },
+                ExprKind::Property { target: pt, name, null_aware: false } => match &self.expr(*pt).kind {
+                    ExprKind::Identifier(pid) => match self.alvo_do_identificador(pid.sym, *pt) {
+                        IdentTarget::Prefix(p) => self
+                            .ctx
+                            .program
+                            .lookup_prefixed_na_unidade(self.unit, p, name.sym)
+                            .and_then(|b| match b.getter {
+                                Some(Element::Extension(ext)) => Some(ext),
+                                _ => None,
+                            }),
+                        _ => None,
+                    },
+                    _ => None,
+                },
+                _ => None,
+            };
+            if let (Some(ext), Some(a)) = (ext, arguments.args.first()) {
+                let (js, ty) = self.emit_expr(a.value, None);
+                self.forced_ext = Some(ext);
+                return (js, ty, vec![]);
             }
         }
         match &t.kind {

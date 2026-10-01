@@ -504,6 +504,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let (ext, fid, subst) = found?;
         let f = self.ctx.program.function(fid);
         let e = self.ctx.program.extension(ext);
+        if let Some(r) = self.baixar_is_a(ext, name, recv, arguments) {
+            return Some(r);
+        }
         let ext_name = self.extension_js_name(ext);
         let lib_var = self.lib_var(e.library);
         let ext_tps: Vec<u32> = self.ctx.outline.extensions[ext.0 as usize].type_params.iter().map(|p| p.0).collect();
@@ -998,4 +1001,85 @@ fn mentions_any(t: &Ty, free: &[u32]) -> bool {
     let mut v = Vec::new();
     t.collect_params(&mut v);
     v.iter().any(|x| free.contains(x))
+}
+
+impl<'m, 'a> FnEmitter<'m, 'a> {
+    /// `x.isA<T>()` do `dart:js_interop` (`JSAnyUtilityExtension`): o
+    /// transformador de interop do CFE o troca pela checagem de tipo JS
+    /// (`_js_interop_checks/.../shared_interop_transformer.dart`
+    /// `_createIsACheck`); para um tipo de extensão de interop que não é um
+    /// primitivo do JS (o `HTMLElement` do package:web), um `instanceof` pelo
+    /// nome JS do tipo — no DDC 3.6.2, `x != null &&
+    /// js_interop['JSAnyUtilityExtension|instanceOfString'](x, "HTMLElement")`
+    /// (`x == null || …` com `T?`). Os primitivos (`JSString`…) vão pelo
+    /// `typeof`. O resto (`JSAny`, `JSObject`, `JSArray`…) segue o caminho
+    /// comum.
+    pub(crate) fn baixar_is_a(
+        &mut self,
+        ext: dartforge_elements::model::ExtensionId,
+        name: &str,
+        recv: &Js,
+        arguments: &ast::Arguments,
+    ) -> Option<(Js, Ty)> {
+        let e = self.ctx.program.extension(ext);
+        if name != "isA"
+            || self.ctx.program.library(e.library).uri != "dart:js_interop"
+            || !e.name.is_some_and(|n| self.ctx.name(n) == "JSAnyUtilityExtension")
+            || !arguments.args.is_empty()
+        {
+            return None;
+        }
+        let [t] = &arguments.type_args[..] else { return None };
+        let no = self.ast().ty(*t);
+        let ast::TypeKind::Named { name: partes, .. } = &no.kind else { return None };
+        let anulavel = no.nullable;
+        let binding = match &partes[..] {
+            [p, n] => self.ctx.program.lookup_prefixed_na_unidade(self.unit, p.sym, n.sym),
+            [n] => self.ctx.program.lookup_na_unidade(self.unit, n.sym),
+            _ => None,
+        };
+        let Some(Element::Class(c)) = binding.and_then(|b| b.getter) else { return None };
+        let classe = self.ctx.program.class(c);
+        let nome_dart = self.ctx.name(classe.name).to_string();
+        let do_js_interop = self.ctx.program.library(classe.library).uri == "dart:js_interop";
+        let checagem = |v: &str| -> Option<String> {
+            if do_js_interop {
+                let tipo = match nome_dart.as_str() {
+                    "JSNumber" => "number",
+                    "JSBoolean" => "boolean",
+                    "JSString" => "string",
+                    "JSBigInt" => "bigint",
+                    "JSSymbol" => "symbol",
+                    _ => return None,
+                };
+                return Some(format!("typeof {v} === \"{tipo}\""));
+            }
+            if !self.ctx.is_js_class(c) {
+                return None;
+            }
+            let tipo = self
+                .ctx
+                .js_classes
+                .get(&c)
+                .and_then(|j| j.name.clone())
+                .filter(|n| !n.is_empty())
+                .unwrap_or_else(|| nome_dart.clone());
+            let nome = match self.ctx.js_libs.get(&classe.library).cloned().flatten() {
+                Some(l) if !l.is_empty() => format!("{l}.{tipo}"),
+                _ => tipo,
+            };
+            Some(format!(
+                "js_interop['JSAnyUtilityExtension|instanceOfString']({v}, {})",
+                js::string_literal(&nome)
+            ))
+        };
+        let teste = checagem("v")?;
+        self.m.use_sdk("js_interop");
+        let corpo = if anulavel {
+            format!("v == null || {teste}")
+        } else {
+            format!("v != null && {teste}")
+        };
+        Some((Js::prim(format!("((v) => {corpo})({})", recv.code)), self.ctx.t_bool()))
+    }
 }

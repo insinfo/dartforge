@@ -750,6 +750,7 @@ pub(crate) fn function_text(ctx: &Ctx, m: &ModState, fid: FunctionElementId, hea
     extra_prologue.push_str(&prologue);
     // Modo SDK: `@nullCheck` nos parâmetros.
     if ctx.sdk.is_some() {
+        extra_prologue.push_str(&crate::sdk_proprio::verificacoes_de_covariancia(&e, ps));
         extra_prologue.push_str(&crate::sdk_proprio::verificacoes_de_nulo(&e, ps));
     }
     e.emit_body(&af.body);
@@ -1584,6 +1585,43 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     if ctor_members.is_empty() && !is_mixin && (has_synthetic || class.constructors.is_empty() || is_enum) && estado_sintetico == crate::filtro::Estado::Stub {
         let r = js::string_literal(&ctx.rotulo_podado(class.library, Some(c), "new"));
         crate::linha!(w, "({cref}.new = function(...a) {{ dart_podado({r}); }}).prototype = {cref}.prototype;");
+    } else if ctor_members.is_empty() && !is_mixin && e_aplicacao_de_mixin(ctx, c) && !ctx.mixins_of(c).is_empty() {
+        // `class C = S with M;`: um construtor encaminhador para cada
+        // construtor gerativo de `S`, com os mesmos argumentos (sem isso o
+        // `_AsyncStreamController = _StreamController with …` do SDK perdia
+        // o `onListen`).
+        let sup = ctx.superclass_of(c);
+        let s_generic = sup.is_some_and(|s| ctx.requires_rti(s));
+        let tmp = FnEmitter::new(ctx, m, unit, None, true);
+        let base = mixin_base_ref(ctx, c, &sup.map(|s| tmp.class_ref(s)).unwrap_or_else(|| "core.Object".to_string()));
+        let mut nomes: Vec<String> = sup
+            .map(|s| {
+                ctx.program
+                    .class(s)
+                    .construtores()
+                    .into_iter()
+                    .filter(|(_, f)| !ctx.program.function(*f).factory && ctx.estado_fn(*f) != crate::filtro::Estado::Morta)
+                    .map(|(n, _)| {
+                        let n = ctx.name(n);
+                        if n.is_empty() { "new".to_string() } else { static_member_name(n) }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if nomes.is_empty() {
+            nomes.push("new".into());
+        }
+        for n in nomes {
+            ctor_names.push(n.clone());
+            let (params, chamada) = match (generic, s_generic) {
+                (true, true) => ("_ti, ...args", format!("{base}.{n}.call(this, _ti, ...args);")),
+                (true, false) => ("_ti, ...args", format!("{base}.{n}.apply(this, args);")),
+                (false, true) => ("...args", format!("{base}.{n}.call(this, null, ...args);")),
+                (false, false) => ("...args", format!("{base}.{n}.apply(this, args);")),
+            };
+            let ti = if generic { "this.$ti = this.$ti || _ti || dart.getReifiedType(this); " } else { "" };
+            crate::linha!(w, "({cref}.{n} = function({params}) {{ {ti}{chamada} }}).prototype = {cref}.prototype;");
+        }
     } else if ctor_members.is_empty() && !is_mixin && (has_synthetic || class.constructors.is_empty() || is_enum) && estado_sintetico == crate::filtro::Estado::Viva {
         // Construtor sintético.
         let jsname = "new";
@@ -2096,6 +2134,12 @@ fn emit_field_inits(ctx: &Ctx, m: &ModState, c: ClassId, fields: &[FieldInfo], s
             _ => crate::linha!(body, "{target} = null;"),
         }
     }
+}
+
+/// A classe é uma aplicação de mixin com nome (`class C = S with M;`).
+fn e_aplicacao_de_mixin(ctx: &Ctx, c: ClassId) -> bool {
+    let Some(d) = ctx.program.class(c).decl else { return false };
+    matches!(&ctx.program.unit(d.unit).ast.decl(d.decl).kind, ast::DeclKind::Class(k) if k.mixin_application)
 }
 
 /// `ctor` é o construtor primário elaborado (Dart 3.13) da classe `c`?

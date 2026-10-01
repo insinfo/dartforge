@@ -17,7 +17,7 @@
 
 use crate::body::{js_member_name, FnEmitter};
 use crate::ctx::Ctx;
-use crate::js::{self, Js, P_ADD, P_COMMA, P_PRIMARY, P_REL};
+use crate::js::{self, Js, P_ADD, P_PRIMARY, P_REL};
 use crate::module::ModState;
 use crate::ty::Ty;
 use dartforge_elements::model::{ClassId, Element, FunctionElementId, FunctionKind, FunctionRef, LibraryId, UnitId, VariableId, VariableRef};
@@ -456,7 +456,7 @@ pub fn literal_inlinavel(ast: &ast::Ast, x: ExprId) -> bool {
 pub fn constante_inline(e: &FnEmitter, vid: VariableId) -> Option<Js> {
     e.ctx.sdk.as_ref()?;
     let v = e.ctx.program.variable(vid);
-    if !v.const_ {
+    if !v.const_ || v.extension.is_some() {
         return None;
     }
     let (unit, init) = match v.node {
@@ -477,6 +477,32 @@ pub fn constante_inline(e: &FnEmitter, vid: VariableId) -> Option<Js> {
     let ty = e.ctx.var_ty(vid);
     let (js, _) = sub.emit_expr(init, Some(&ty));
     Some(js)
+}
+
+/// Conferências de covariância dos parâmetros de um método de instância de
+/// classe genérica do SDK (`compiler.dart:3848-3856`): parâmetro cujo tipo
+/// cita um parâmetro de tipo da classe (ou marcado `covariant`) é conferido
+/// na entrada — `List<num> l = <int>[]; l.add(2.5)` lança `TypeError` no
+/// `JSArray.add`.
+pub fn verificacoes_de_covariancia(e: &FnEmitter, params: &[ast::Parameter]) -> String {
+    let Some(c) = e.class else { return String::new() };
+    if e.ctx.sdk.is_none() || e.is_static || !e.ctx.libs[e.lib.0 as usize].is_sdk {
+        return String::new();
+    }
+    let da_classe: HashSet<u32> = e.ctx.class_params[c.0 as usize].iter().map(|p| p.id).collect();
+    let mut out = String::new();
+    for p in params {
+        let Some(n) = p.name else { continue };
+        let Some(l) = e.lookup_local(n.sym) else { continue };
+        let mut usados = Vec::new();
+        l.ty.collect_params(&mut usados);
+        let cita = usados.iter().any(|id| da_classe.contains(id));
+        if !(cita || p.covariant) || matches!(l.ty, Ty::Dynamic) {
+            continue;
+        }
+        out.push_str(&format!("{}[_as]({});\n", e.rti(&l.ty), l.js));
+    }
+    out
 }
 
 /// `@rest` no último parâmetro posicional (`compiler.dart:3722-3726`): o
@@ -831,7 +857,10 @@ pub fn emitir_intrinseco(e: &mut FnEmitter, fid: FunctionElementId, args: &ast::
                 // Instrução em posição de expressão: numa função-flecha.
                 return Some((Js::prim(format!("(() => {{ {texto}; }})()")), ty));
             }
-            Some((Js::new(texto, P_COMMA), ty))
+            // Entre parênteses: o *template* é JS livre, e nem todo ponto do
+            // emissor confere a precedência (`!JS('', '# || #', a, b)`).
+            let simples = texto.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'$' | b'.'));
+            Some((if simples { Js::prim(texto) } else { Js::prim(format!("({texto})")) }, ty))
         }
         Intrinseco::GetFlag => {
             let nome = string_constante(e, *pos.first()?)?;

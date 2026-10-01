@@ -1398,10 +1398,14 @@ lugar de `dart:html`); o gerador ganhou o dialeto dele
 (`crates/gerador_ng/src/dialeto.rs`), e o motor registra o builder
 `ngx_dart:ngx_dart` como nativo.
 
-O que continua fora do gerador: o `.css` servido sai do Sass nativo, que
-imita o dart-sass 1.102.0 e o 1.66.0; os locks desses projetos têm o
-1.101.0/1.101.2 (cor no modo `compressed` sai em outra forma; o shim, com o
-`.css` oficial de entrada, sai igual).
+O Sass nativo ganhou o modo dart-sass 1.101.0–1.101.3 (os locks dos dois
+projetos), e o emissor JS as baixas de interop do `package:web` que o
+`ngx_dart` usa (construtor não-`external` de *extension type*,
+`Function.toJS`, `isA<T>()`; casos 236–238 do `corpus/js`). Pelo motor
+(`build --comparar`): new_sali 1561 saídas iguais / 0 / 0, limitless 937 /
+0 / 0. `dartforge serve` em cópias sem `.dart_tool/build`: os dois abrem no
+Edge headless com 0 erros no console e o CSS servido.
+
 ### 2.1 Correção (ordem de prioridade)
 
 1. **Lacunas de inferência de tipos** (o `dart analyze` oficial dá 0

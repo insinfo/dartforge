@@ -399,20 +399,53 @@ saídas (`Motor::saidas_invisiveis_a`); o harness passou a ocultar os
 4. Verificação: oráculo dos dois projetos, testes do crate, `dartforge serve`
    dos dois no navegador sem `build_runner`.
 
-## D. Fora do compilador de visões (registrado)
+## D. Fora do compilador de visões
 
-- Sass: o modo dart-sass 1.101.x (`crates/sass`), para o `.css` servido sair
-  do nativo igual ao do `sass_builder` desses locks.
+O que o `serve` precisou além do gerador, feito nesta rodada com o aval do
+coordenador:
+
+- **Sass 1.101.x** (`crates/sass`, `VersaoDartSass::V1_101`, aceito pelo
+  `do_lock` para 1.101.0–1.101.3 e pelo `imita` do motor): até o 1.101.3 a cor
+  legada no `compressed` escolhe `rgb`/`hsl` pelo tamanho só dos canais
+  (`hsla(0,0%,100%,.1)`), o `rgb()` escreve canal não inteiro como número, o
+  inteiro é o aproximado fora do `inspect` (o 1.101.4 trocou os três), o
+  `if()` do CSS leva o valor pelo `toString`, e a gama do rec2020 é a da
+  BT.2020 (o 1.102.0 trocou). Conferido pelo motor (`dartforge build
+  --comparar` nas cópias com oráculo): new_sali **1561 iguais / 0 / 0** (192
+  `.css`, 192 `.css.map`, 200 `.css.shim.dart`, 773 `.template.dart`…),
+  limitless_ui/example **937 / 0 / 0** (99 `.css`, 99 `.css.map`, 531
+  `.template.dart`, 2 `.i18n.dart`…).
+- **Interop do `package:web` no `crates/emit_js`** (regras do DDC e do
+  transformador de interop do CFE; casos novos no `corpus/js`, conferidos
+  contra o DDC):
+  - construtor gerativo não-`external` de *extension type* de interop
+    (`HTMLStyleElement() : _ = document.createElement('style')`): só membro
+    `external` é interop (`dev_compiler/.../js_interop.dart:151-161`
+    `usesJSInterop`); o resto é Dart comum (`_emitLibraryProcedures`,
+    `compiler.dart:3527`) — emitido no objeto da classe de interop pelo mesmo
+    `texto_de_construtor` dos tipos apagados, chamado sem `new`, com o `this`
+    implícito tipado pelo próprio tipo de extensão (caso 236);
+  - `Function.toJS`/`toJSCaptureThis` → `js_util._functionToJS{N}(f)`
+    (`_js_interop_checks/.../js_util_optimizer.dart:1003-1041`), também na
+    aplicação explícita com prefixo (`importN.FunctionToJSExportedDartFunction
+    (h as void Function(E)).toJS`, que o template escreve) e com `on
+    Function` aplicando a tipo de função (caso 237);
+  - `x.isA<T>()` → `x != null && js_interop['JSAnyUtilityExtension|
+    instanceOfString'](x, "Nome")` para tipo de interop, `typeof` para os
+    primitivos (`shared_interop_transformer.dart` `_createIsACheck`; a forma
+    é a do DDC 3.6.2 no `.ddc.js` do oráculo) (caso 238).
+- **Sessão do `dev`/`serve`** (`crates/dev`): carrega também as entradas do
+  ngdart do `lib/`/`web/` do pacote (ver abaixo).
+
+Registrado, sem efeito no comportamento:
+
 - `crates/frontend`: o valor de string de várias linhas com CRLF no fonte deve
-  ser com `\n` (§A2) — afeta também o JS gerado.
-- `crates/emit_js`: construtor não-`external` de *extension type* de interop
-  (`package:web`) — `finish_ctor_call` cai no `new X.new()`, e o objeto de
-  apoio dos tipos de extensão só sai para os apagados. Bloqueia o limitless
-  no navegador.
-- Programa do `dev`/`serve` enxerga as saídas `build_to: source` de fases
+  ser com `\n` (§A2) — o gerador normaliza o par CRLF; o JS gerado pelo
+  emissor ainda leva o `\r`.
+- O programa do `dev`/`serve` enxerga as saídas `build_to: source` de fases
   posteriores ao ngdart (o `messages.i18n.dart`): o template sai com
   `interpolateString0` onde o oficial tem `interpolate0` — mesmo
-  comportamento, texto diferente.
+  comportamento, texto diferente (o `build`/`--comparar` oculta e bate).
 
 ## E. Resultado
 
@@ -440,14 +473,9 @@ pendentes**, incremental, Sass e shim — todos verdes.
   `app_component.dart` só era alcançável pelo próprio `.template.dart` (que
   ainda não existia), ficava fora do programa e o gerador o recusava — a
   carga falhava com 83 templates ausentes;
-- **new_sali/frontend**: pronto em 12 s, 592 módulos, 968 ações nativas do
-  motor; a tela de login monta ("Bem-vindo(a) … ENTRAR"), 0 exceções; único
-  erro: `style.css` 404 (o `web/style.scss` é do `sass_builder`, e o lock tem
-  o dart-sass 1.101.0, que o Sass nativo não imita — §D);
-- **limitless_ui/example**: pronto em 10 s, 477 módulos, 636 ações nativas do
-  `ngx_dart`; quebra em tempo de execução no `ngx_dart`
-  (`HTMLStyleElement.new is not a constructor`): o construtor gerativo
-  não-`external` de *extension type* de interop do `package:web`
-  (`HTMLStyleElement() : _ = document.createElement('style')`) sai do
-  `crates/emit_js` como `new X.new()` de classe — defeito do emissor JS,
-  encaminhado (§D).
+- **new_sali/frontend**: pronto em 17 s, 592 módulos, 968 ações nativas do
+  motor (Sass incluído); a tela de login monta ("Bem-vindo(a) … ENTRAR"), **0
+  erros** no console;
+- **limitless_ui/example**: pronto em 6 s, 477 módulos, 636 ações nativas do
+  `ngx_dart`; a galeria monta (navegação, "Visão geral da biblioteca…", 29 KB
+  no `my-app`), **0 erros** no console.
