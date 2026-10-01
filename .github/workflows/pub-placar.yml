@@ -1,0 +1,120 @@
+# Placar do pub: os exemplos e os menores testes de 82 pacotes populares
+# (corpus/pub/pubspec.yaml, versões fixas) compilados pelo `dartforge aot` e
+# comparados com a VM (`dart --enable-asserts`), por scripts/pub-placar.py.
+#
+# Um job compila o dartforge uma vez e monta a distribuição (`dartforge
+# empacotar`); os shards só a baixam e dividem os ~272 programas. O placar
+# junto e as falhas agrupadas por causa vão para o resumo da execução; os
+# relatórios de cada shard ficam como artefato (`gh run download`).
+name: Placar do pub
+on:
+  workflow_dispatch:
+    inputs:
+      shards:
+        description: número de shards (a matriz abaixo tem 8)
+        default: '8'
+      filtro:
+        description: só os programas cuja chave contém este texto (vazio = todos)
+        default: ''
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_RELEASE_LTO: 'false'
+  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+jobs:
+  compilar:
+    name: compilar e empacotar o dartforge
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/dart
+      - uses: ./.github/actions/llvm-unix
+      - name: Rust fixado (rust-toolchain.toml)
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: pesado-unix
+          save-if: false
+      - name: Compilar dartforge (nativo)
+        run: cargo build --locked --release -p dartforge-cli --features nativo
+      - name: Empacotar
+        run: |
+          set -euo pipefail
+          ./target/release/dartforge empacotar "$RUNNER_TEMP/dartforge"
+          tar -czf "$RUNNER_TEMP/dartforge.tar.gz" -C "$RUNNER_TEMP" dartforge
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: dartforge-dist
+          path: ${{ runner.temp }}/dartforge.tar.gz
+          retention-days: 3
+
+  shard:
+    name: shard ${{ matrix.i }}/8
+    needs: compilar
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        i: [1, 2, 3, 4, 5, 6, 7, 8]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/dart
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: dartforge-dist
+          path: ${{ runner.temp }}
+      - name: Distribuição
+        run: tar -xzf "$RUNNER_TEMP/dartforge.tar.gz" -C "$RUNNER_TEMP"
+      - name: Placar (shard ${{ matrix.i }})
+        env:
+          FILTRO: ${{ inputs.filtro }}
+        run: |
+          python3 scripts/pub-placar.py \
+            --dartforge "$RUNNER_TEMP/dartforge/bin/dartforge" --dart dart \
+            --shard ${{ matrix.i }}/8 --trabalho "$RUNNER_TEMP/placar" \
+            --tempo-compilacao 900 --tempo-execucao 120 --filtro "$FILTRO"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: placar-${{ matrix.i }}
+          path: |
+            ${{ runner.temp }}/placar/relatorio.txt
+            ${{ runner.temp }}/placar/resultados.json
+          retention-days: 14
+
+  juntar:
+    name: placar junto
+    needs: shard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: placar-*
+          path: placar
+      - name: Resumo
+        shell: python
+        run: |
+          import glob, json, os, collections
+          estados = collections.Counter()
+          grupos = collections.defaultdict(list)
+          for f in sorted(glob.glob('placar/*/resultados.json')):
+              for r in json.load(open(f, encoding='utf8')):
+                  estados[r['estado']] += 1
+                  if r['estado'] not in ('ok', 'vm-invalido'):
+                      grupos[(r['estado'], (r.get('erro') or '').split('\n')[0][:160])].append(r['k'])
+          validos = sum(v for e, v in estados.items() if e != 'vm-invalido')
+          linhas = ['## Placar do pub', '',
+                    f"**{estados.get('ok', 0)}/{validos} iguais à VM** — " + ', '.join(f'{e} {n}' for e, n in sorted(estados.items())),
+                    '', '| programas | estado | primeira linha do erro |', '|---:|---|---|']
+          for (e, g), ks in sorted(grupos.items(), key=lambda x: -len(x[1]))[:60]:
+              linhas.append(f"| {len(ks)} | {e} | {g.replace('|', '/')} |")
+          open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf8').write('\n'.join(linhas) + '\n')
+          print('\n'.join(linhas))
