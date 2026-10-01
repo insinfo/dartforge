@@ -187,12 +187,14 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `DIRECTIVE_AFTER_DECLARATION`; `library` fora do começo,
     /// `LIBRARY_DIRECTIVE_NOT_FIRST`/`MULTIPLE_LIBRARY_DIRECTIVES`; numa
     /// `part of`, outra diretiva é `NON_PART_OF_DIRECTIVE_IN_PART` (salvo
-    /// com `enhanced-parts`) e outro `part of`, `MULTIPLE_PART_OF_DIRECTIVES`.
+    /// com `enhanced-parts` ou `macros`) e outro `part of`, `MULTIPLE_PART_OF_DIRECTIVES`.
     /// O erro vai na palavra que abre a diretiva.
     fn conferir_ordem_de_diretiva(&mut self, kind: &DirectiveKind, palavra: Span) {
         use super::EstadoDiretivas as E;
         use codigos::parser as c;
-        let partes = self.features.tem(Feature::EnhancedParts);
+        // `macros` traz `enhanced-parts` (o experimento depende dele): o
+        // `*.macro.dart` materializado é um `part of` com `import`s.
+        let partes = self.features.tem(Feature::EnhancedParts) || self.features.tem(Feature::Macros);
         let estado = self.estado_diretivas;
         let erro = match kind {
             DirectiveKind::Import { .. } | DirectiveKind::Export { .. } => {
