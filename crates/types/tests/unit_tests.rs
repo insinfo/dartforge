@@ -518,8 +518,9 @@ fn test_accumulated_diagnostics_unknown_type() {
         "deve acumular diagnóstico para o tipo inexistente"
     );
     assert!(
-        diags.iter().any(|d| d.message.contains("Tipo não encontrado")),
-        "mensagem de erro deve indicar tipo não encontrado: {:?}",
+        diags.iter().any(|d| d.code.is_some_and(|c| c.info().nome == "undefined_class")
+            && d.message.starts_with("Undefined class '")),
+        "o erro deve ser o undefined_class do analyzer: {:?}",
         diags
     );
 

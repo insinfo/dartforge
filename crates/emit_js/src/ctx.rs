@@ -145,6 +145,10 @@ pub struct Ctx<'a> {
     /// (`DARTFORGE_JS_CONFERIR_TIPOS`, ver `crate::conferencia`); `None`
     /// quando desligada.
     pub conferencia: Option<RefCell<crate::conferencia::Conferencia>>,
+    /// Modo SDK (`crate::sdk_proprio`): as bibliotecas `dart:` também são
+    /// compiladas, pela nossa trilha. `None` em todo caminho que liga
+    /// contra o `dart_sdk.js` — os ganchos do modo não disparam.
+    pub sdk: Option<Box<crate::sdk_proprio::ModoSdk>>,
 }
 
 /// Classe de interop JS (`js_interop.dart` do DDC: `usesJSInterop`,
@@ -243,6 +247,7 @@ impl<'a> Ctx<'a> {
             erros: RefCell::new(Vec::new()),
             filtro: None,
             conferencia: crate::conferencia::Conferencia::do_ambiente().map(RefCell::new),
+            sdk: None,
         };
         // A interop vem antes da hierarquia: os tipos de extensão de interop
         // não são apagados, e os supertipos (`implements JSAny`) precisam
@@ -2120,7 +2125,15 @@ fn compute_libs(program: &Program) -> Vec<LibInfo> {
     for lib in &program.libraries {
         let uri = &lib.uri;
         let info = if let Some(name) = uri.strip_prefix("dart:") {
-            LibInfo { ident: name.to_string(), module_path: String::new(), is_sdk: true, js_var: name.to_string() }
+            // O runtime é o objeto `dart` e `dart:_rti` é `dart_rti` (os nomes
+            // do contrato do DDC); a receita rti continua pelo caminho
+            // (`_rti|Rti`), que é o `ident`.
+            let js_var = match name {
+                "_runtime" => "dart",
+                "_rti" => "dart_rti",
+                n => n,
+            };
+            LibInfo { ident: name.to_string(), module_path: String::new(), is_sdk: true, js_var: js_var.to_string() }
         } else if let Some(rest) = uri.strip_prefix("package:") {
             let path = rest.strip_suffix(".dart").unwrap_or(rest);
             let ident = path_ident(path);

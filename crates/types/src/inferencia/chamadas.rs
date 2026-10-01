@@ -291,6 +291,15 @@ pub(crate) fn invocar(
 
 /// Invoca um valor de tipo `t` (função, objeto com `call`, `dynamic`).
 fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, t: TypeId, args: &ast::Arguments, ctx: TypeId, explicitos: Option<Vec<TypeId>>, span: Span) -> (TypeId, TypeId) {
+    if let ExprKind::Call { target, .. } = &inf.program.unit(cx.unit).ast.expr(e).kind {
+        let alvo = *target;
+        if !matches!(inf.program.unit(cx.unit).ast.expr(alvo).kind, ExprKind::Property { .. }) && expr::receptor_nunca(inf, cx, alvo, t) {
+            for a in args.args.iter() {
+                inferir_livre(inf, cx, a.value);
+            }
+            return (inf.core.never, t);
+        }
+    }
     let t_nn = inf.nao_nulo(t);
     // `x(3)` com `x` de tipo `void`: `use_of_void_result` na função.
     if matches!(inf.table.get(t_nn), Type::Void) {
@@ -324,7 +333,22 @@ fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, t: TypeI
                 if let Some(m) = inf.membro_de_interface(t_nn, call, false) {
                     return invocar(inf, cx, m.tipo, args, ctx, explicitos);
                 }
-                if let Busca::Achado(m) = inf.buscar_membro(cx.lib, t_nn, call, false) {
+                let busca = inf.buscar_membro(cx.lib, t_nn, call, false);
+                if inf.ambiguidade_de_extensao.is_some() {
+                    // `call` ambíguo: o analyzer relata a ambiguidade no alvo
+                    // (`function_expression_invocation_resolver.dart`) e não
+                    // resolve.
+                    let sp = match &inf.program.unit(cx.unit).ast.expr(e).kind {
+                        ExprKind::Call { target, .. } => inf.span_expr(cx.unit, *target),
+                        _ => span,
+                    };
+                    inf.relatar_ambiguidade_de_extensao(sp);
+                    for a in args.args.iter() {
+                        inferir_livre(inf, cx, a.value);
+                    }
+                    return (inf.core.dynamic_, t);
+                }
+                if let Busca::Achado(m) = busca {
                     // `valor(args)` com o `call` de uma extensão
                     // (`calloc<Int32>(4)`, o `AllocatorAlloc.call`): a
                     // chamada registra o membro, que o lowering invoca com
@@ -373,7 +397,7 @@ fn argumentos_de_tipo(inf: &mut BodyInferrer<'_>, cx: &Corpo, args: &ast::Argume
     if args.type_args.is_empty() {
         return None;
     }
-    Some(args.type_args.iter().map(|&t| inf.tipo_de_anotacao(cx, t)).collect())
+    Some(args.type_args.iter().map(|&t| inf.tipo_de_argumento_de_tipo(cx, t)).collect())
 }
 
 /// `f(args)`, `r.m(args)`, `C(args)`, `C.nome(args)`...
@@ -393,6 +417,15 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 inferir_livre(inf, cx, arg.value);
             }
             return (inf.core.dynamic_, false);
+        }
+        if let Some(f) = f {
+            // O tipo nomeado da criação implícita: `A`, `A<int>`, `p.A`
+            // (sem o nome do construtor).
+            let sp = match &a.expr(target).kind {
+                ExprKind::Property { target: t, .. } if expr::referencia_a_tipo(inf, cx, *t).is_some() => a.expr(*t).span,
+                _ => a.expr(target).span,
+            };
+            avisar_classe_abstrata(inf, c, f, sp);
         }
         let t = construir(inf, cx, Some(e), c, f, targs.or(explicitos), args, ctx);
         return (t, false);
@@ -447,6 +480,9 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
     match &a.expr(target).kind {
         ExprKind::Property { target: recv, name, null_aware } => {
             let (recv, name, null_aware) = (*recv, *name, *null_aware);
+            if null_aware && expr::referencia_a_tipo(inf, cx, recv).is_some() {
+                expr::operador_nulo_em_tipo(inf, cx, recv);
+            }
             // `p.f(args)`
             if let ExprKind::Identifier(p) = &a.expr(recv).kind {
                 if matches!(resolver_nome(inf, cx, p.sym, false), RefNome::Prefixo) {
@@ -484,12 +520,18 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             if matches!(a.expr(recv).kind, ExprKind::Super) {
                 let this = cx.tipo_this.unwrap_or(inf.core.dynamic_);
                 registrar(inf, cx, recv, this);
-                let t = expr::membro_super(inf, cx, target, name, false);
+                let t = expr::membro_super(inf, cx, target, name, expr::UsoDoSuper::Invocacao);
                 registrar(inf, cx, target, t);
                 let (r, _) = invocar_valor(inf, cx, e, t, args, ctx, explicitos, span);
                 return (r, false);
             }
             let (r_ty, curto) = receptor(inf, cx, recv, null_aware);
+            if expr::receptor_nunca(inf, cx, recv, r_ty) {
+                for arg in args.args.iter() {
+                    inferir_livre(inf, cx, arg.value);
+                }
+                return (inf.core.never, curto);
+            }
             // `void` e receptor anulável: as mesmas regras do acesso a
             // propriedade (`expr::propriedade`), na variante de invocação.
             if matches!(inf.table.get(r_ty), crate::table::Type::Void) {
@@ -520,6 +562,7 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 );
             }
             let mut busca = expr::buscar_membro_do_alvo(inf, cx, recv, r_ty, name.sym, false);
+            inf.relatar_ambiguidade_de_extensao(name.span);
             if matches!(busca, Busca::Ausente) {
                 if let Some((x, _)) = cx.sobreposicoes.get(&recv).cloned() {
                     if let Some(m) = inf.membro_estatico_de_extensao(x, name.sym, false) {
@@ -671,7 +714,7 @@ fn alvo_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, target: ExprId) -
     let vazio = inf.sym.vazio?;
     let tipo_args = |inf: &mut BodyInferrer<'_>, cx: &Corpo, rt: &RefTipo| -> (ClassId, Option<Vec<TypeId>>) {
         match rt {
-            RefTipo::Classe(c, Some(ts)) => (*c, Some(ts.iter().map(|&t| inf.tipo_de_anotacao(cx, t)).collect())),
+            RefTipo::Classe(c, Some(ts)) => (*c, Some(ts.iter().map(|&t| inf.tipo_de_argumento_de_tipo(cx, t)).collect())),
             RefTipo::Classe(c, None) => (*c, None),
             RefTipo::Alias(c, args, _) => (*c, args.clone()),
             RefTipo::Extensao(_) => unreachable!(),
@@ -944,16 +987,16 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
         inf.program.lookup_na_unidade(cx.unit, name[0].sym)
     };
     // `new C.nome()` chega como tipo de duas partes quando `C` não é prefixo.
-    let (binding, constructor) = match (binding, name.len()) {
+    let (binding, constructor, ctor_do_nome) = match (binding, name.len()) {
         (None, 2) => match inf.program.lookup_na_unidade(cx.unit, name[0].sym) {
-            Some(b) if matches!(b.getter, Some(Element::Class(_))) && constructor.is_none() => (Some(b), Some(name[1])),
-            _ => (binding, constructor),
+            Some(b) if matches!(b.getter, Some(Element::Class(_))) && constructor.is_none() => (Some(b), Some(name[1]), true),
+            _ => (binding, constructor, false),
         },
-        _ => (binding, constructor),
+        _ => (binding, constructor, false),
     };
     let (c, explicitos) = match binding.and_then(|b| b.getter) {
         Some(Element::Class(c)) => {
-            let ex = if targs.is_empty() { None } else { Some(targs.iter().map(|&t| inf.tipo_de_anotacao(cx, t)).collect::<Vec<_>>()) };
+            let ex = if targs.is_empty() { None } else { Some(targs.iter().map(|&t| inf.tipo_de_argumento_de_tipo(cx, t)).collect::<Vec<_>>()) };
             (c, ex)
         }
         Some(Element::Typedef(_)) => {
@@ -1012,5 +1055,29 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
         }
         return inf.tipo_de_classe_com_args(c, explicitos.unwrap_or_default());
     };
+    if let Some(fid) = f {
+        // O tipo nomeado: sem o nome do construtor que veio como 2ª parte.
+        let sp = if constructor.is_some() && ctor_do_nome {
+            name[0].span
+        } else {
+            a.ty(ty).span
+        };
+        avisar_classe_abstrata(inf, c, fid, sp);
+    }
     construir(inf, cx, Some(e), c, f, explicitos, args, ctx)
+}
+
+/// `INSTANTIATE_ABSTRACT_CLASS` (`_checkForConstOrNewWithAbstractClass`,
+/// `an611:src/generated/error_verifier.dart:2950-2973`): criação de uma
+/// classe abstrata (ou `sealed`) por um construtor que não é `factory`, no
+/// tipo nomeado.
+fn avisar_classe_abstrata(inf: &mut BodyInferrer<'_>, c: ClassId, f: FunctionElementId, span: Span) {
+    let k = inf.program.class(c);
+    if k.kind != ClassKind::Class || !(k.modifiers.abstract_ || k.modifiers.sealed) {
+        return;
+    }
+    if inf.program.function(f).factory {
+        return;
+    }
+    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::INSTANTIATE_ABSTRACT_CLASS, span, &[]);
 }

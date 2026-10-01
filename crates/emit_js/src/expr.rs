@@ -667,6 +667,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     if let IdentTarget::Element(Element::Class(c)) = self.alvo_do_identificador(id.sym, *target) {
                         let t = Ty::Iface { class: c, args: tys, nullable: false };
                         let rti = self.rti(&t);
+                        if self.em_js_estrangeiro {
+                            return (Js::prim(rti), self.ctx.t_type());
+                        }
                         return (Js::prim(format!("dart_rti.createRuntimeType({rti})")), self.ctx.t_type());
                     }
                 }
@@ -1636,6 +1639,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             IdentTarget::ThisMember(m) => self.emit_member_get(&Js::prim("this"), &self.class.map(|c| self.ctx.this_ty(c)).unwrap_or(Ty::Dynamic), &n, Some(m)),
             IdentTarget::Static(c, mk) => self.emit_static_get(c, &n, mk),
             IdentTarget::Element(el) => self.emit_element_get(el, &n),
+            IdentTarget::TypeParam(t) if self.em_js_estrangeiro => (Js::prim(self.rti(&t)), self.ctx.t_type()),
             IdentTarget::TypeParam(t) => (Js::prim(format!("dart_rti.createRuntimeType({})", self.rti(&t))), self.ctx.t_type()),
             IdentTarget::ExtThisMember(_) => {
                 let t = self.extension_this.clone().unwrap_or(Ty::Dynamic);
@@ -1697,6 +1701,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     pub fn emit_element_get(&mut self, el: Element, n: &str) -> (Js, Ty) {
         match el {
             Element::Function(fid) => {
+                // Modo SDK: `staticInteropGlobalContext` é `dart.global`.
+                if crate::sdk_proprio::intrinseco_de(self.ctx, fid) == Some(crate::sdk_proprio::Intrinseco::GlobalContext) {
+                    return (Js::prim("dart.global"), Ty::Dynamic);
+                }
                 let (js, ty) = self.element_ref(el).expect("função");
                 // Tearoff de função de topo.
                 let f = self.ctx.program.function(fid);
@@ -1710,10 +1718,17 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 match f.kind {
                     FunctionKind::Getter => (Js::prim(js), self.ctx.ty_of(self.ctx.outline.functions[fid.0 as usize].return_type)),
                     FunctionKind::Setter => (Js::prim(js), Ty::Dynamic),
+                    // Modo SDK: dentro de `JS()` e para funções do runtime, o
+                    // *tearoff* é a função crua (`compiler.dart:7331-7338, 7366`).
+                    _ if self.em_js_estrangeiro || crate::sdk_proprio::funcao_sem_reificar(self.ctx, fid) => (Js::prim(js), ty),
                     _ => (self.tearoff_static(&js, &ty), ty),
                 }
             }
             Element::Variable(vid) => {
+                // Modo SDK: constante primitiva dobrada no uso.
+                if let Some(js) = crate::sdk_proprio::constante_inline(self, vid) {
+                    return (js, self.ctx.var_ty(vid));
+                }
                 let (js, ty) = self.element_ref(el).expect("variável");
                 if self.ctx.is_js_var(vid) {
                     return (self.js_null_check(Js::prim(js), &MemberKind::Field(vid)), ty);
@@ -1722,6 +1737,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             Element::Class(c) => {
                 let rti = self.rti(&self.ctx.this_ty_default(c));
+                // Modo SDK: literal de tipo dentro de `JS()` é a rti crua.
+                if self.em_js_estrangeiro {
+                    return (Js::prim(rti), self.ctx.t_type());
+                }
                 (Js::prim(format!("dart_rti.createRuntimeType({rti})")), self.ctx.t_type())
             }
             _ => (Js::prim(js::ident(n)), Ty::Dynamic),
@@ -2096,7 +2115,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     return (r.0, r.1, vec![]);
                 }
                 if let ExprKind::Super = self.expr(*target).kind {
-                    let sup_ty = self.super_ty();
+                    let sup_ty = self.super_ty_de(&n, false);
                     let m = self.ctx.lookup_member(&sup_ty, &n, false);
                     let ty = m.as_ref().map(|m| self.ctx.member_ty(m)).unwrap_or(Ty::Dynamic);
                     let access = self.member_access(&sup_ty, &n, false);
@@ -2151,6 +2170,26 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             .filter(|t| matches!(t, Ty::Iface { .. }))
             .or_else(|| self.ctx.object.map(Ty::iface))
             .unwrap_or(Ty::Dynamic)
+    }
+
+    /// O tipo do `super` para o membro `nome`: a superclasse, ou — quando o
+    /// membro vem de um mixin aplicado à classe (`extends B with M`) — o
+    /// último mixin que o declara. Sem isso, `super.m()` de um membro de
+    /// mixin caía em `dart.dsend(super, …)`, que nem é JS válido.
+    pub fn super_ty_de(&self, nome: &str, setter: bool) -> Ty {
+        let base = self.super_ty();
+        if self.ctx.lookup_member(&base, nome, setter).is_some() {
+            return base;
+        }
+        let Some(c) = self.class else { return base };
+        let mixins = self.ctx.mixins_of(c);
+        let supers = self.ctx.direct_supers(&self.ctx.this_ty(c));
+        for t in supers.iter().rev() {
+            if t.class().is_some_and(|k| mixins.contains(&k)) && self.ctx.lookup_member(t, nome, setter).is_some() {
+                return t.clone();
+            }
+        }
+        base
     }
 
     pub fn super_ref(&self) -> String {
@@ -2636,7 +2675,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
         // `super == x` / `super + x`: chamada direta do operador da superclasse.
         if let ExprKind::Super = self.expr(left).kind {
-            let sup_ty = self.super_ty();
+            let sup_ty = self.super_ty_de(if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) { "==" } else { binop_name(op) }, false);
             let name = binop_name(op);
             let is_eq = matches!(op, BinaryOp::Eq | BinaryOp::NotEq);
             let mname = if is_eq { "==" } else { name };
@@ -2865,7 +2904,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     return (Js::new(format!("{target_js} = {}", v.at(P_ASSIGN)), P_ASSIGN), Ty::Dynamic);
                 }
                 if let ExprKind::Super = self.expr(*recv).kind {
-                    let sup_ty = self.super_ty();
+                    let sup_ty = self.super_ty_de(&n, true);
                     let access = self.member_access(&sup_ty, &n, true);
                     return (Js::new(format!("{}{access} = {}", self.super_ref(), v.at(P_ASSIGN)), P_ASSIGN), Ty::Dynamic);
                 }
@@ -3136,7 +3175,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     let sjs2 = sjs.clone();
                     (Js::prim(sjs), rt, Box::new(move |_s: &mut Self, v: &Js| Js::new(format!("{sjs2} = {}", v.at(P_ASSIGN)), P_ASSIGN)))
                 } else if let ExprKind::Super = self.expr(*recv).kind {
-                    let sup_ty = self.super_ty();
+                    let sup_ty = self.super_ty_de(&n, false);
                     let m = self.ctx.lookup_member(&sup_ty, &n, false);
                     let rt = m.map(|m| self.ctx.member_ty(&m)).unwrap_or(Ty::Dynamic);
                     let get = self.member_access(&sup_ty, &n, false);

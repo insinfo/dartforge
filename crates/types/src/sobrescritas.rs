@@ -1182,6 +1182,56 @@ fn anulavel(table: &TypeTable, t: TypeId) -> bool {
     }
 }
 
+/// `NOT_INITIALIZED_NON_NULLABLE_VARIABLE`
+/// (`_checkForNotInitializedNonNullableVariable`,
+/// `an611:src/generated/error_verifier.dart:4872-4911`): variável de topo
+/// (não `final`) ou campo estático, sem `const`, `late` nem `external`, com
+/// tipo escrito potencialmente não anulável e sem inicializador — no nome.
+pub fn variaveis_nao_inicializadas(
+    program: &Program,
+    interner: &Interner,
+    table: &TypeTable,
+    outline: &OutlineTypes,
+    lib: dartforge_elements::model::LibraryId,
+) -> Vec<(UnitId, Diagnostic)> {
+    use dartforge_elements::model::VariableRef;
+    let mut saida = Vec::new();
+    for (i, v) in program.variables.iter().enumerate() {
+        if v.library != lib {
+            continue;
+        }
+        let (unit, lista, topo) = match v.node {
+            VariableRef::TopLevel { unit, decl, index } => match &program.unit(unit).ast.decl(decl).kind {
+                ast::DeclKind::Variables(l) => (unit, (l, index), true),
+                _ => continue,
+            },
+            VariableRef::Field { unit, member, index } => match &program.unit(unit).ast.member(member).kind {
+                MemberKind::Field(l) if l.static_ => (unit, (l, index), false),
+                _ => continue,
+            },
+            _ => continue,
+        };
+        let (l, index) = lista;
+        if l.const_ || (topo && l.final_) || l.late || l.external || l.ty.is_none() {
+            continue;
+        }
+        let Some(var) = l.variables.get(index) else { continue };
+        if var.initializer.is_some() {
+            continue;
+        }
+        let Some(t) = outline.variables.get(i).and_then(|d| d.declared_type) else { continue };
+        if anulavel(table, t) {
+            continue;
+        }
+        let nome = var.name;
+        if nome.span.start == nome.span.end {
+            continue;
+        }
+        saida.push((unit, Diagnostic::com_codigo(c::NOT_INITIALIZED_NON_NULLABLE_VARIABLE, nome.span, [interner.resolve(nome.sym)])));
+    }
+    saida
+}
+
 /// `ErrorVerifier._checkUseOfDefaultValuesInParameters`: parâmetro opcional
 /// sem valor padrão cujo tipo pode não aceitar `null`
 /// (`missing_default_value_for_parameter`, `_POSITIONAL`,

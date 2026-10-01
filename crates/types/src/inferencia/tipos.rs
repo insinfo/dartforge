@@ -309,12 +309,31 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// Tipo de uma anotação escrita num corpo (parâmetros de tipo em escopo
-    /// vêm de `cx`).
+    /// vêm de `cx`; os membros da classe ou extensão de `cx` escondem os
+    /// nomes de topo, como o `InstanceScope` do analyzer).
     pub(crate) fn tipo_de_anotacao(&mut self, cx: &Corpo, t: ast::TypeId) -> TypeId {
         let unit = cx.unit;
         let lib = cx.lib;
         let escopo = cx.parametros_de_tipo_visiveis();
-        self.resolver_anotacao(unit, lib, t, &escopo)
+        let antes = std::mem::replace(&mut self.conteiner_de_tipos, (cx.classe, cx.extensao));
+        let estatico_antes = std::mem::replace(&mut self.em_membro_estatico, cx.membro_estatico);
+        let r = self.resolver_anotacao(unit, lib, t, &escopo);
+        self.conteiner_de_tipos = antes;
+        self.em_membro_estatico = estatico_antes;
+        r
+    }
+
+    /// Como [`BodyInferrer::tipo_de_anotacao`], para a anotação que aparece
+    /// no `contexto` dado (`is`, `as`, `catch`, argumento de tipo): é o que
+    /// escolhe o código de um nome que não é tipo.
+    pub(crate) fn tipo_no_contexto(&mut self, cx: &Corpo, t: ast::TypeId, contexto: crate::resolve::ContextoDeTipo) -> TypeId {
+        self.contexto_de_tipo = contexto;
+        self.tipo_de_anotacao(cx, t)
+    }
+
+    /// Um argumento de tipo escrito (`f<T>()`, `<T>[]`, `C<T>()`).
+    pub(crate) fn tipo_de_argumento_de_tipo(&mut self, cx: &Corpo, t: ast::TypeId) -> TypeId {
+        self.tipo_no_contexto(cx, t, crate::resolve::ContextoDeTipo::ArgumentoDeTipo)
     }
 
     pub(crate) fn resolver_anotacao(
@@ -326,14 +345,30 @@ impl<'a> BodyInferrer<'a> {
     ) -> TypeId {
         let node = self.program.unit(unit).ast.ty(t);
         let anulavel = node.nullable;
+        let span = node.span;
+        let contexto = std::mem::take(&mut self.contexto_de_tipo);
         let r = match &node.kind {
             ast::TypeKind::Void => return self.core.void_,
             ast::TypeKind::Named { name, args } => {
+                // Faixa dos erros de nome: do prefixo ao fim do nome
+                // (`_getErrorRange`); o número de argumentos vai no tipo todo.
+                let faixa = dartforge_diagnostics::Span { start: name[0].span.start, end: name[name.len() - 1].span.end };
+                let texto = self.interner.resolve(name[name.len() - 1].sym).to_string();
                 let binding = if name.len() == 2 {
                     self.program.lookup_prefixed_na_unidade(unit, name[0].sym, name[1].sym)
                 } else {
                     let sym = name[0].sym;
                     if let Some(&pid) = escopo.get(&sym) {
+                        if !args.is_empty() {
+                            self.relatar_argumentos_de_tipo(&texto, 0, args.len(), span);
+                        }
+                        if self.em_membro_estatico && crate::resolve::param_da_classe(self.table, pid) {
+                            self.aviso_com_codigo(
+                                dartforge_diagnostics::codigos::compile_time_error::TYPE_PARAMETER_REFERENCED_BY_STATIC,
+                                faixa,
+                                &[],
+                            );
+                        }
                         let tp = self.table.intern(Type::TypeParameter { param: pid, nullable: false });
                         return if anulavel { self.anulavel(tp) } else { tp };
                     }
@@ -345,10 +380,43 @@ impl<'a> BodyInferrer<'a> {
                         }
                         _ => {}
                     }
+                    // O escopo de instância esconde o de topo.
+                    let (classe, extensao) = self.conteiner_de_tipos;
+                    if faixa.start != faixa.end {
+                        match crate::resolve::nome_no_conteiner(self.program, self.interner, classe, extensao, sym) {
+                            Some(crate::resolve::NoConteiner::Getter) => {
+                                self.relatar_nome_de_tipo(contexto, true, &texto, faixa);
+                                return self.core.dynamic_;
+                            }
+                            Some(crate::resolve::NoConteiner::SoSetter) => {
+                                self.relatar_nome_de_tipo(contexto, false, &texto, faixa);
+                                return self.core.dynamic_;
+                            }
+                            None => {}
+                        }
+                    }
                     self.program.lookup_na_unidade(unit, sym)
                 };
                 let args: Vec<ast::TypeId> = args.to_vec();
-                let resolvidos: Vec<TypeId> = args.iter().map(|&a| self.resolver_anotacao(unit, lib, a, escopo)).collect();
+                let resolvidos: Vec<TypeId> = args
+                    .iter()
+                    .map(|&a| {
+                        self.contexto_de_tipo = crate::resolve::ContextoDeTipo::ArgumentoDeTipo;
+                        self.resolver_anotacao(unit, lib, a, escopo)
+                    })
+                    .collect();
+                // Quantos parâmetros o tipo nomeado declara (para o número de
+                // argumentos escritos).
+                let n_params = match binding.and_then(|b| b.getter) {
+                    Some(Element::Class(cid)) => Some(self.outline.classes[cid.0 as usize].type_params.len()),
+                    Some(Element::Typedef(tid)) => Some(self.outline.typedefs[tid.0 as usize].type_params.len()),
+                    _ => None,
+                };
+                if let Some(n) = n_params {
+                    if !args.is_empty() && args.len() != n {
+                        self.relatar_argumentos_de_tipo(&texto, n, args.len(), span);
+                    }
+                }
                 match binding.and_then(|b| b.getter) {
                     // `Null` do `dart:core` é uma classe, mas o tipo é o `Null`
                     // da tabela (como no outline): senão `flatten(Future<Null>)`
@@ -369,10 +437,21 @@ impl<'a> BodyInferrer<'a> {
                     _ => {
                         let nome = self.interner.resolve(name[name.len() - 1].sym);
                         match nome {
-                            "dynamic" => return self.core.dynamic_,
-                            "Never" => return if anulavel { self.core.null } else { self.core.never },
-                            "Null" => return self.core.null,
-                            _ => self.core.dynamic_,
+                            "dynamic" if name.len() == 1 => return self.core.dynamic_,
+                            "Never" if name.len() == 1 => return if anulavel { self.core.null } else { self.core.never },
+                            "Null" if name.len() == 1 => return self.core.null,
+                            _ => {
+                                // Nome que não resolve para tipo
+                                // (`NamedTypeResolver`); um nome sintético da
+                                // recuperação (sem largura) e uma referência
+                                // ambígua (relatada à parte) ficam fora.
+                                let ambiguo = binding.is_some_and(|b| b.ambiguous);
+                                if faixa.start != faixa.end && !ambiguo {
+                                    let achou = binding.is_some_and(|b| b.getter.is_some());
+                                    self.relatar_nome_de_tipo(contexto, achou, &texto, faixa);
+                                }
+                                self.core.dynamic_
+                            }
                         }
                     }
                 }
@@ -423,6 +502,42 @@ impl<'a> BodyInferrer<'a> {
         } else {
             r
         }
+    }
+
+    /// Nome de tipo que não resolve para tipo, no código do contexto.
+    fn relatar_nome_de_tipo(&mut self, contexto: crate::resolve::ContextoDeTipo, achou: bool, nome: &str, faixa: dartforge_diagnostics::Span) {
+        let d = crate::resolve::diagnostico_de_nome_de_tipo(contexto, achou, nome, faixa);
+        let args: Vec<&str> = d.args.iter().map(|a| &**a).collect();
+        let codigo = d.code.expect("com código");
+        self.aviso_com_codigo(codigo, faixa, &args);
+    }
+
+    /// `WRONG_NUMBER_OF_TYPE_ARGUMENTS` no tipo inteiro.
+    fn relatar_argumentos_de_tipo(&mut self, nome: &str, parametros: usize, argumentos: usize, span: dartforge_diagnostics::Span) {
+        let (p, a) = (parametros.to_string(), argumentos.to_string());
+        self.aviso_com_codigo(
+            dartforge_diagnostics::codigos::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS,
+            span,
+            &[nome, &p, &a],
+        );
+    }
+
+    /// `extensionTypeErasure` (o tipo de representação no lugar de cada tipo
+    /// de extensão).
+    pub(crate) fn apagar_extensao(&mut self, t: TypeId) -> TypeId {
+        let outline = &*self.outline;
+        let program = self.program;
+        let rep = |decl: ClassId, args: &[TypeId], table: &mut crate::table::TypeTable| -> Option<TypeId> {
+            let v = program.class(decl).representation?;
+            let t = outline.variables[v.0 as usize].declared_type?;
+            let params = &outline.classes[decl.0 as usize].type_params;
+            if params.is_empty() || params.len() != args.len() {
+                return Some(t);
+            }
+            let mapa: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
+            Some(crate::ops::substitute(t, &mapa, table))
+        };
+        crate::ops::erase_extension_type(t, self.table, &rep)
     }
 
     /// `C<args>` (com instanciação para os limites se faltarem argumentos).

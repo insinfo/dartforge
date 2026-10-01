@@ -445,10 +445,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 {
                     return self.atribuir_extensao(ast, op, Some(*recv), member, name.sym, value, span);
                 }
-                let alvo_e_classe = matches!(
-                    self.ctx.get_resolved(self.unit_id, *recv),
-                    Some(Resolved::Element(Element::Class(_)))
-                );
+                // `C.x = v` (ou `A.x = v` com `typedef A = C<…>`).
+                let alvo_e_classe = self.classe_do_alvo_estatico(*recv).is_some();
                 if alvo_e_classe {
                     let Some(Resolved::Member { class, member, .. }) =
                         self.ctx.get_resolved(self.unit_id, target).cloned()

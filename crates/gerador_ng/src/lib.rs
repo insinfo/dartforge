@@ -19,6 +19,7 @@
 pub mod componente;
 pub mod css;
 pub mod csslib;
+pub mod dialeto;
 pub mod diretivas;
 pub mod dom;
 mod entidades;
@@ -632,7 +633,7 @@ impl Indice {
         let interner = r.interner();
         for (uri, arvore, unidade, fonte, caminho) in r.bibliotecas() {
             let achados = achar(arvore, unidade, fonte, interner);
-            indice.juntar(uri, caminho, &achados, Some(r), true);
+            indice.juntar(&uri, caminho, &achados, Some(r), true);
         }
         indice
     }
@@ -1148,12 +1149,12 @@ fn injetado(
     let simples = tipo.rsplit('.').next().unwrap_or(tipo).to_string();
     // Os embutidos do elemento (o nó, a visão, o `ViewContainer`) com
     // `@Self`/`@Host`/`@SkipSelf`/`@Optional`: ainda sem caso.
-    let embutido = (uri == "dart:html" && matches!(simples.as_str(), "Element" | "HtmlElement"))
+    let embutido = crate::dialeto::no_embutido(&uri, &simples).is_some()
         || embutido_do_ngdart(&uri, &simples);
     if embutido && p.anotado {
         return Err("embutido do elemento anotado no construtor do filho");
     }
-    if uri == "dart:html" && matches!(simples.as_str(), "Element" | "HtmlElement") {
+    if crate::dialeto::no_embutido(&uri, &simples).is_some() {
         return Ok(visao::Injetado::Elemento);
     }
     if embutido_do_ngdart(&uri, &simples) {
@@ -1241,10 +1242,7 @@ fn indexar(
                         };
                         let simples = nome.rsplit('.').next().unwrap_or(nome);
                         match uri {
-                            Some(u)
-                                if u == "dart:html"
-                                    && matches!(simples, "HtmlElement" | "Element") =>
-                            {
+                            Some(u) if crate::dialeto::no_embutido(&u, simples).is_some() => {
                                 Some(visao::LeituraDaConsulta::Elemento)
                             }
                             Some(u)
@@ -1366,7 +1364,11 @@ pub fn nome_do_pacote(raiz: &Path) -> Option<String> {
 fn uri_de_biblioteca(pacote: &Pacote, caminho: &Path) -> Option<String> {
     let rel = pacote.relativo(caminho);
     let dentro = rel.strip_prefix("lib/")?;
-    Some(format!("package:{}/{dentro}", pacote.nome))
+    // Na forma canônica, a do índice (`package:ngx_forms/` → `ngforms`).
+    Some(dialeto::canonica_string(format!(
+        "package:{}/{dentro}",
+        pacote.nome
+    )))
 }
 
 /// O que sai de um arquivo: o `.template.dart`, os arquivos que o alimentam

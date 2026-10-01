@@ -513,7 +513,8 @@ impl Analisador for AnalisadorSintatico {
             .collect();
         let unidade = dartforge_analise::Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: texto };
         let curinga = features.tem(dartforge_frontend::features::Feature::WildcardVariables);
-        let semanticos = dartforge_analise::duplicatas::duplicatas(&[unidade], &nomes, curinga)
+        let juntar = !dartforge_analise::duplicatas::usa_sintaxe_posterior_ao_3_6(&saida);
+        let semanticos = dartforge_analise::duplicatas::duplicatas(&[unidade], &nomes, curinga, juntar)
             .into_iter()
             .map(|(_, d)| d)
             .chain(dartforge_analise::enums::sem_constantes(&[unidade]).into_iter().map(|(_, d)| d))

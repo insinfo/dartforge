@@ -969,25 +969,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         }
                     }
                 }
-                // `C.x`: membro estático (o alvo é um literal de classe).
-                let alvo_e_classe = matches!(
-                    self.ctx.get_resolved(self.unit_id, *target),
-                    Some(Resolved::Element(
-                        dartforge_elements::model::Element::Class(_)
-                    ))
-                );
-                if alvo_e_classe {
-                    if let Some(Resolved::Element(dartforge_elements::model::Element::Class(c))) =
-                        self.ctx.get_resolved(self.unit_id, *target).cloned()
-                        && prop_name == "values"
-                        && super::enums::e_enum(self.ctx, c)
-                    {
+                // `C.x`: membro estático (o alvo é um literal de classe, ou
+                // um `typedef A = C<…>` — especificação §15 "Type Aliases":
+                // `A.x` denota o membro estático `x` de `C`).
+                if let Some(c) = self.classe_do_alvo_estatico(*target) {
+                    if prop_name == "values" && super::enums::e_enum(self.ctx, c) {
                         return self.valores_do_enum(c, span);
                     }
                     // `C.new`/`C.nome`: tear-off de construtor (P4).
-                    if let Some(Resolved::Element(dartforge_elements::model::Element::Class(c))) =
-                        self.ctx.get_resolved(self.unit_id, *target).cloned()
-                        && self.ctx.biblioteca_compilada(self.ctx.program.classes[c.0 as usize].library)
+                    if self.ctx.biblioteca_compilada(self.ctx.program.classes[c.0 as usize].library)
+                        && matches!(
+                            self.ctx.get_resolved(self.unit_id, *target),
+                            Some(Resolved::Element(dartforge_elements::model::Element::Class(_)))
+                        )
                     {
                         let chave = if prop_name == "new" {
                             self.ctx.interner.lookup("")
@@ -1175,8 +1169,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ExprKind::Call { target, arguments } => {
                 self.lower_chamada(ast, expr_id, expr, target, arguments)
             }
+            // Com elementos de controle, ou grande e constante (o caminho
+            // em pedaços de `literais.rs`, que não põe um buffer de `n`
+            // palavras e `n` valores vivos no quadro).
             ExprKind::List { elements, .. }
-                if !elements.iter().all(|e| matches!(e, ast::CollectionElement::Expression(_))) =>
+                if !elements.iter().all(|e| matches!(e, ast::CollectionElement::Expression(_)))
+                    || self.literal_grande_e_constante(ast, elements) =>
             {
                 let l = self.lower_literal_de_colecao(ast, super::literais::Colecao::Lista, elements, expr.span);
                 self.rti_do_literal(l, expr_id)

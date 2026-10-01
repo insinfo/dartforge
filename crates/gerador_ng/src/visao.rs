@@ -46,6 +46,15 @@ impl Importacoes {
         if a.is_empty() { a } else { format!("{a}.") }
     }
 
+    /// Um identificador de DOM do compilador (`document`, `HtmlElement`,
+    /// `DivElement`…, pelo nome do `dart:html`), qualificado pelo import do
+    /// módulo dele no dialeto da geração ([`crate::dialeto::dom`]):
+    /// `import8.DivElement` no 8, `import5.HTMLDivElement` no 9.
+    pub fn dom(&mut self, nome: &str) -> String {
+        let (uri, n) = crate::dialeto::dom(nome);
+        format!("{}{n}", self.q(uri))
+    }
+
     /// Aloca um número sem prefixo — a URI é importada aberta.
     pub fn sem_alias(&mut self, uri: &str) {
         self.indice(uri, false);
@@ -78,6 +87,8 @@ impl Importacoes {
 
     fn escrever(&self, saida: &mut String) {
         for (i, (_, uri, com_alias)) in self.itens.iter().enumerate() {
+            // Por dentro as URIs são as do `ngdart` 8; a saída, no dialeto.
+            let uri = crate::dialeto::escrita(uri);
             if *com_alias {
                 let _ = writeln!(saida, "import '{uri}' as import{i};");
             } else {
@@ -991,6 +1002,12 @@ fn formas_contra_o_template(
         // visão (também no conteúdo projetado de um filho, caso j69),
         // `@ViewChild` (não lista).
         if referencia_com_valor(nos, &consulta.referencia) {
+            // Dentro de `*`: o provedor exportado é o resultado registrado na
+            // visão aninhada (`compile_element.dart:254-262`), lido pelo
+            // `mapNestedViews` como o nó de um elemento (§A5).
+            if consulta_em_embutida(nos, consulta, filhos, local, resolvedor) {
+                continue;
+            }
             // No elemento de um filho, a instância da diretiva exportada é
             // lida do mesmo jeito (caso j109).
             if !(matches!(
@@ -1287,7 +1304,13 @@ fn consulta_em_embutida(
     }
     let elemento = e_tipo_de_elemento(&consulta.tipo, local, resolvedor);
     let leitura = consulta.leitura.is_some();
+    // `#ref="exportAs"`: o valor é a instância exportada (o `#ref` a lê no
+    // mapa dos refs), na única sem `read:` (§A5).
+    let exportado = !consulta.por_tipo && referencia_com_valor(nos, &chave);
     let terminal = |l: Lugar| match l {
+        _ if exportado => {
+            !leitura && !consulta.lista && matches!(l, Lugar::Raiz | Lugar::Projetado)
+        }
         Lugar::Raiz if leitura => {
             !consulta.por_tipo
                 && (valor_de_elemento(consulta, local, resolvedor).is_some()
@@ -2588,13 +2611,64 @@ fn onde_casa(
 /// (conferido no `html_dart2js.dart` do SDK 3.6.2).
 fn e_tipo_de_elemento(tipo: &str, local: &Local, resolvedor: Option<&dyn Resolucao>) -> bool {
     let tipo = tipo.trim().trim_end_matches('?');
-    let simples = tipo.rsplit('.').next().unwrap_or(tipo);
-    simples.ends_with("Element")
-        && simples != "NoncedElement"
-        && resolvedor
-            .and_then(|r| r.uri_do_tipo(local.caminho, tipo))
-            .as_deref()
-            == Some("dart:html")
+    let simples = crate::resolucao::sem_ancora(tipo.rsplit('.').next().unwrap_or(tipo));
+    // No 9 o `Element` é o do `package:web` (`find_components.dart:533`).
+    resolvedor
+        .and_then(|r| r.uri_do_tipo(local.caminho, tipo))
+        .is_some_and(|uri| crate::dialeto::e_elemento(&uri, simples))
+}
+
+/// O valor de `[style.x.unidade]` quando a fonte é nula: `null` no 8, `''`
+/// no 9 (o `setProperty` do `package:web` não aceita nulo,
+/// `NX:compiler/view_compiler/update_statement_visitor.dart:145`).
+fn estilo_nulo() -> &'static str {
+    match crate::dialeto::atual() {
+        crate::dialeto::Dialeto::Ngdart => "null",
+        crate::dialeto::Dialeto::Ngx => "''",
+    }
+}
+
+/// O valor de `[style.x]` sem unidade (`visitStyleBinding`): o próprio valor
+/// se é `String`, senão `v.toString()` (`v?.toString()` quando pode ser
+/// nulo); no 9, com `?? ''` em volta quando pode ser nulo
+/// (`update_statement_visitor.dart:148-159`).
+fn estilo_sem_unidade(valor: &str, e_texto: bool, pode_ser_nulo: bool) -> String {
+    let v = if e_texto {
+        valor.to_string()
+    } else if pode_ser_nulo {
+        format!("{valor}?.toString()")
+    } else {
+        format!("{valor}.toString()")
+    };
+    if crate::dialeto::atual() == crate::dialeto::Dialeto::Ngx && pode_ser_nulo {
+        format!("({v} ?? '')")
+    } else {
+        v
+    }
+}
+
+/// O valor de uma consulta estática no 9: com o campo `Element` (ou lista de
+/// `Element`, o `isElementType`), cada resultado vai num `unsafeCast(..)`
+/// (`NX:compiler/view_compiler/compile_query.dart:473-486`); no 8, como está.
+fn elemento_com_cast(
+    valor: String,
+    consulta: &crate::componente::Consulta,
+    local: &Local,
+    resolvedor: Option<&dyn Resolucao>,
+) -> String {
+    if crate::dialeto::atual() == crate::dialeto::Dialeto::Ngdart {
+        return valor;
+    }
+    let tipo = if consulta.lista {
+        tipo_do_elemento(&consulta.tipo)
+    } else {
+        Some(consulta.tipo.clone())
+    };
+    if tipo.is_some_and(|t| e_tipo_de_elemento(&t, local, resolvedor)) {
+        format!("{}unsafeCast({valor})", tardio_q(UTILITIES))
+    } else {
+        valor
+    }
 }
 
 /// O valor de uma consulta de visão cujo resultado é um elemento HTML.
@@ -2627,7 +2701,9 @@ fn valor_de_elemento(
     let uri = resolvedor.and_then(|r| r.uri_do_tipo(local.caminho, t))?;
     match (t, uri.as_str()) {
         ("ElementRef", ELEMENT_REF) => Some(ValorDeElemento::ElementRef),
-        ("Element" | "HtmlElement", "dart:html") => Some(ValorDeElemento::No),
+        (t, u) if crate::dialeto::no_embutido(u, t.rsplit('.').next().unwrap_or(t)).is_some() => {
+            Some(ValorDeElemento::No)
+        }
         _ => None,
     }
 }
@@ -3540,6 +3616,12 @@ struct Corpo<'a> {
     /// Os métodos `_handleEvent_N` desta visão, na ordem em que foram
     /// criados (`createEventHandler`); saem depois do `destroyInternal`.
     metodos_evento: Vec<String>,
+    /// O tipo do `$event` do próximo `_handleEvent_N` (no 9: o do evento
+    /// nativo ou o da saída, qualificado por marca tardia); `None`, cru.
+    tipo_do_evento: Option<String>,
+    /// Por que o tipo do `$event` não se sabe: só o handler complexo (o
+    /// `_handleEvent_N`) precisa dele, e é ele que recusa.
+    tipo_do_evento_falha: Option<Recusa>,
     /// Os métodos `static String _message_N(..)` das mensagens `@i18n` com
     /// HTML, que abrem os métodos da visão.
     metodos_i18n: Vec<String>,
@@ -3654,7 +3736,6 @@ struct Corpo<'a> {
     /// `project`, e não consome índice de nó.
     proxima_projecao: u32,
     imp: &'a mut Importacoes,
-    html: String,
     /// Os pipes do template, com a chamada de cada visão.
     pipes: &'a PipesDoTemplate,
     /// Número desta visão (0 a do componente, o `indice` na embutida) e
@@ -4485,11 +4566,13 @@ impl Corpo<'_> {
                         } else {
                             format!("{valor}.toString()")
                         };
-                        format!("(({valor} == null) ? null : ({texto} + {}))", literal(u))
+                        format!(
+                            "(({valor} == null) ? {} : ({texto} + {}))",
+                            estilo_nulo(),
+                            literal(u)
+                        )
                     }
-                    None if e_texto => valor.to_string(),
-                    None if c.pode_ser_nulo => format!("{valor}?.toString()"),
-                    None => format!("{valor}.toString()"),
+                    None => estilo_sem_unidade(valor, e_texto, c.pode_ser_nulo),
                 };
                 format!("{alvo}.style.setProperty('{nome}', {valor})")
             } else if l.nome.contains('.') {
@@ -4534,6 +4617,8 @@ impl Corpo<'_> {
             }
         }
         for (nome, handlers) in grupos {
+            self.tipo_do_evento_falha = None;
+            self.tipo_do_evento = tipo_de_evento_nativo(nome);
             match self.handler(&handlers) {
                 Ok(h) => self.ouvinte(nome, alvo, &h),
                 Err(r) => self.anotar(r)?,
@@ -4547,7 +4632,7 @@ impl Corpo<'_> {
     /// próprio) — `visitNativeEvent` × `visitCustomEvent`.
     fn ouvinte(&mut self, nome: &str, alvo: &str, handler: &str) {
         let linha = if evento_nativo(nome) {
-            format!("    {alvo}.addEventListener('{nome}', {handler});")
+            format!("    {alvo}.addEventListener('{nome}', {});", ouvinte_nativo(nome, handler))
         } else {
             let utils = tardio_q(APP_VIEW_UTILS);
             format!(
@@ -4599,8 +4684,12 @@ impl Corpo<'_> {
             self.usa_ctx_no_build = true;
             return Ok(format!("this.eventHandler{aridade}(_ctx.{metodo})"));
         }
-        // Complexo: as instruções, com os locais que elas leem declarados
-        // no topo do método (o escopo do `scopeNamespace`).
+        // Complexo: o método leva o tipo do `$event` (no 9).
+        if let Some(r) = self.tipo_do_evento_falha.clone() {
+            return Err(r);
+        }
+        // As instruções, com os locais que elas leem declarados no topo do
+        // método (o escopo do `scopeNamespace`).
         let mut instrucoes = Vec::new();
         let mut locais: Vec<String> = Vec::new();
         for a in &acoes {
@@ -4637,7 +4726,8 @@ impl Corpo<'_> {
         corpo.extend(extras.iter().map(|i| format!("    {i};")));
         let n = self.metodos_evento.len();
         self.metodos_evento.push(format!(
-            "\n  void _handleEvent_{n}($event) {{\n{}\n  }}\n",
+            "\n  void _handleEvent_{n}({}) {{\n{}\n  }}\n",
+            parametro_do_evento(&self.tipo_do_evento),
             corpo.join("\n")
         ));
         Ok(format!("this.eventHandler1(this._handleEvent_{n})"))
@@ -4826,9 +4916,8 @@ impl Corpo<'_> {
         {
             format!("_el_{n}")
         } else {
-            let html = self.html.clone();
-            self.campos_el
-                .push(format!("  late final {html}.HtmlElement _el_{n};"));
+            let tipo = self.imp.dom("HtmlElement");
+            self.campos_el.push(format!("  late final {tipo} _el_{n};"));
             format!("this._el_{n}")
         };
         let fora_de_lib = || recusa(Motivo::ComponenteNoTemplate, "filho sem caminho de import");
@@ -4895,7 +4984,10 @@ impl Corpo<'_> {
         };
         let campo_inst = match &resolvido {
             Some((r, pos)) => r.instancias[*pos].campo.clone(),
-            None => format!("_{classe}_{n}_{}", if container { 8 } else { 5 }),
+            None => format!(
+                "_{classe}_{n}_{}",
+                crate::dialeto::embutidos_extra() + if container { 8 } else { 5 }
+            ),
         };
         // As diretivas do nó antes e depois do filho, na ordem das ligações
         // e dos ganchos (`transformedDirectiveAsts`).
@@ -6184,6 +6276,8 @@ impl Corpo<'_> {
                 .flat_map(|(_, lista)| lista)
                 .map(|(campo, o)| format!("this.{campo}.{}({})", o.metodo, o.args))
                 .collect();
+            self.tipo_do_evento_falha = None;
+            self.tipo_do_evento = tipo_de_evento_nativo(&l.nome);
             match self.handler_com(&[&l.valor], &extras) {
                 Ok(h) => self.ouvinte(&l.nome, alvo, &h),
                 Err(r) => self.anotar(r)?,
@@ -6193,6 +6287,8 @@ impl Corpo<'_> {
             if do_template.contains(&evento.as_str()) {
                 continue;
             }
+            self.tipo_do_evento_falha = None;
+            self.tipo_do_evento = tipo_de_evento_nativo(evento);
             let h = match lista.as_slice() {
                 [(campo, o)] => self.handler_de_hospedeiro(campo, o),
                 varios => self.handler_de_grupo(varios),
@@ -6228,6 +6324,40 @@ impl Corpo<'_> {
         }
     }
 
+    /// O tipo do `$event` do handler de uma `@Output` (`membro` da classe
+    /// `classe` de `uri`): no 9, o `T` do `Stream<T>` dela pelo
+    /// `fromDartType` (§B4); no 8, nenhum.
+    fn tipo_da_saida(&self, uri: &str, classe: &str, membro: &str) -> Result<Option<String>, Recusa> {
+        if crate::dialeto::atual() == crate::dialeto::Dialeto::Ngdart {
+            return Ok(None);
+        }
+        let falha = || recusa(Motivo::Evento, "@Output sem o tipo do Stream");
+        let (r, _) = self.tipos.ok_or_else(falha)?;
+        let (t, escopo) = r.tipo_da_saida(uri, classe, membro).ok_or_else(falha)?;
+        if t == "dynamic" {
+            return Ok(Some(t));
+        }
+        let cheio = instanciar_crus(&t, &escopo, r).ok_or_else(falha)?;
+        tipo_qualificado(&cheio, &escopo, r, &self.asset, &[])
+            .map(Some)
+            .ok_or_else(falha)
+    }
+
+    /// O tipo do `$event` para o handler de uma `@Output`; sem ele, a falha
+    /// fica guardada para o handler complexo, o único que o escreve.
+    fn definir_tipo_da_saida(&mut self, uri: &str, classe: &str, membro: &str) {
+        match self.tipo_da_saida(uri, classe, membro) {
+            Ok(t) => {
+                self.tipo_do_evento = t;
+                self.tipo_do_evento_falha = None;
+            }
+            Err(r) => {
+                self.tipo_do_evento = None;
+                self.tipo_do_evento_falha = Some(r);
+            }
+        }
+    }
+
     /// As `@Output` do filho ligadas no template: `subscription_N`
     /// (`bindDirectiveOutputs`), na vez do filho entre as diretivas do nó.
     fn saidas_do_filho(
@@ -6246,6 +6376,7 @@ impl Corpo<'_> {
             }
             vistos.push(&l.nome);
             let membro = filho.saida(&l.nome).unwrap_or_default().to_string();
+            self.definir_tipo_da_saida(&filho.uri_dart, &filho.classe, &membro);
             match self.handler(&[&l.valor]) {
                 Ok(h) => {
                     let k = self.subscricoes;
@@ -6345,7 +6476,10 @@ impl Corpo<'_> {
         let indice = self.proxima_embutida;
         self.proxima_embutida += 1 + contar_estruturais(&e.filhos);
         let nome_fabrica = format!("viewFactory_{}{indice}", &self.classe_da_visao[4..]);
-        let campo = format!("_{classe_dir}_{n}_9");
+        // No 9 há o `JSObject` a mais entre os embutidos (§B3).
+        let x = crate::dialeto::embutidos_extra();
+        let (k_tr, k_dir) = (8 + x, 9 + x);
+        let campo = format!("_{classe_dir}_{n}_{k_dir}");
         // Num `<template>` os provedores embutidos ocupam 0..7 e o
         // `TemplateRef` é o 8 — ver docs/GERADOR-NG.md §2.
         self.campos_filho
@@ -6373,12 +6507,12 @@ impl Corpo<'_> {
             "    this._appEl_{n} = {vc}ViewContainer({n}, {pai_indice}, this, _anchor_{n});"
         ));
         self.linhas.push(format!(
-            "    var _TemplateRef_{n}_8 = {tr}TemplateRef(this._appEl_{n}, {});",
+            "    var _TemplateRef_{n}_{k_tr} = {tr}TemplateRef(this._appEl_{n}, {});",
             self.fabrica_do_molde(&nome_fabrica)
         ));
         let extra = hospedeiro.map(|h| format!(", {h}")).unwrap_or_default();
         let molde = if dir.com_template {
-            format!(", _TemplateRef_{n}_8")
+            format!(", _TemplateRef_{n}_{k_tr}")
         } else {
             String::new()
         };
@@ -6633,7 +6767,10 @@ impl Corpo<'_> {
             .as_ref()
             .is_some_and(|r| self.moldes_com_container.contains(r));
         let (resolvido, k_tr) = if casadas.is_empty() {
-            (None, if forcar_container { 8 } else { 7 })
+            (
+                None,
+                crate::dialeto::embutidos_extra() + if forcar_container { 8 } else { 7 },
+            )
         } else {
             let provedores = self.provedores_acima_com(&tardio(UTILITIES));
             let acima = crate::diretivas::Acima {
@@ -7035,12 +7172,10 @@ impl Corpo<'_> {
                 }
                 "index" | "count" => ("int".to_string(), None),
                 "first" | "last" | "even" | "odd" => ("bool".to_string(), None),
-                _ => {
-                    return Err(recusa(
-                        Motivo::Ligacao,
-                        "local de `*` com chave desconhecida",
-                    ));
-                }
+                // Chave que o `_typeNgForLocals` não tipa (`$index`): o local
+                // fica sem tipo, lido sem cast (`template_optimize.dart:76-95`,
+                // `view_name_resolver.dart:55`).
+                _ => ("dynamic".to_string(), None),
             };
             locais.insert(
                 nome.clone(),
@@ -7257,10 +7392,11 @@ impl Corpo<'_> {
     /// expressão primitiva mutável sozinha (`_maybeOptimizeInterpolation`) é
     /// conferida crua e interpolada só onde o valor é usado (`na_acao`).
     /// Aloca o número da ligação (`k`).
+    ///
+    /// O valor do atributo é o cru: o tokenizador do ngast não decodifica
+    /// entidades nele (`02-parser-de-template.md` R1.5/R1.6), e o `&&` de
+    /// `placeholder="{{ a && b }}"` chega assim ao parser de expressões (§A6).
     fn valor_interpolado(&mut self, texto: &str, motivo: Motivo) -> Result<Interpolada, Recusa> {
-        if texto.contains('&') {
-            return Err(recusa(motivo, "atributo interpolado com entidade HTML"));
-        }
         let (textos, exprs) = partes_da_interpolacao(texto)
             .ok_or_else(|| recusa(motivo, "atributo interpolado mal formado"))?;
         let mut convertidas = Vec::new();
@@ -7395,12 +7531,7 @@ impl Corpo<'_> {
                 "atributo interpolado renomeado, protegido ou fora do esquema",
             ));
         }
-        if a.valor.contains('&') {
-            return Err(recusa(
-                Motivo::Interpolacao,
-                "atributo interpolado com entidade HTML",
-            ));
-        }
+        // O valor é o cru (sem decodificar entidade, §A6).
         let v = self.valor_interpolado(&a.valor, Motivo::Interpolacao)?;
         // O valor da ligação é a `Interpolation`, não a expressão de dentro:
         // nunca é nula (`canBeNull` dá `false`, daí o `setAttribute` do
@@ -7783,9 +7914,8 @@ impl Corpo<'_> {
         }
         if !self.tem_doc {
             self.tem_doc = true;
-            let html = self.html.clone();
-            self.linhas
-                .push(format!("    final doc = {html}.document;"));
+            let documento = self.imp.dom("document");
+            self.linhas.push(format!("    final doc = {documento};"));
         }
         let dom = self.dom();
         // Com namespace, o nome vira `@ns:tag` (`mergeNsAndName`): não é
@@ -7835,15 +7965,22 @@ impl Corpo<'_> {
             format!("doc.createElementNS({uri}, '{nome}')")
         } else if pai.is_empty() {
             let util = self.imp.alias(UTILITIES);
-            format!("{util}.unsafeCast(doc.createElement('{tag}'))")
+            // No 9 o nó solto leva o tipo dele (`unsafeCast<T>`, para o
+            // despacho estático dos *extension types* do `package:web`,
+            // `NX:compiler/view_compiler/compile_view.dart:822-834`).
+            let tipo_do_no = if crate::dialeto::atual() == crate::dialeto::Dialeto::Ngx {
+                format!("<{}>", self.imp.dom(dom::tipo_da_tag(&tag)))
+            } else {
+                String::new()
+            };
+            format!("{util}.unsafeCast{tipo_do_no}(doc.createElement('{tag}'))")
         } else {
             match tag.as_str() {
                 "div" => format!("{dom}.appendDiv(doc, {pai})"),
                 "span" => format!("{dom}.appendSpan(doc, {pai})"),
                 _ => {
-                    let tipo = dom::tipo_da_tag(&tag);
-                    let html = &self.html;
-                    format!("{dom}.appendElement<{html}.{tipo}>(doc, {pai}, '{tag}')")
+                    let tipo = self.imp.dom(dom::tipo_da_tag(&tag));
+                    format!("{dom}.appendElement<{tipo}>(doc, {pai}, '{tag}')")
                 }
             }
         };
@@ -7873,8 +8010,8 @@ impl Corpo<'_> {
             self.linhas.push(format!("    final _el_{n} = {criacao};"));
             format!("_el_{n}")
         } else {
-            let html = self.html.clone();
-            let campo = format!("  late final {html}.{tipo} _el_{n};");
+            let tipo_do_campo = self.imp.dom(tipo);
+            let campo = format!("  late final {tipo_do_campo} _el_{n};");
             let consultado = e
                 .referencias
                 .iter()
@@ -8230,7 +8367,8 @@ impl Corpo<'_> {
             .map(|(campo, o)| format!("    this.{campo}.{}({});", o.metodo, o.args))
             .collect();
         self.metodos_evento.push(format!(
-            "\n  void _handleEvent_{n}($event) {{\n{}\n  }}\n",
+            "\n  void _handleEvent_{n}({}) {{\n{}\n  }}\n",
+            parametro_do_evento(&self.tipo_do_evento),
             corpo.join("\n")
         ));
         format!("this.eventHandler1(this._handleEvent_{n})")
@@ -8247,7 +8385,8 @@ impl Corpo<'_> {
             args => {
                 let n = self.metodos_evento.len();
                 self.metodos_evento.push(format!(
-                    "\n  void _handleEvent_{n}($event) {{\n    this.{campo}.{m}({args});\n  }}\n"
+                    "\n  void _handleEvent_{n}({}) {{\n    this.{campo}.{m}({args});\n  }}\n",
+                    parametro_do_evento(&self.tipo_do_evento)
                 ));
                 format!("this.eventHandler1(this._handleEvent_{n})")
             }
@@ -8569,6 +8708,7 @@ impl Corpo<'_> {
                 }
                 vistos.push(&l.nome);
                 let membro = d.saida(&l.nome).unwrap_or_default();
+                self.definir_tipo_da_saida(&d.uri, &d.classe, membro);
                 match self.handler(&[&l.valor]) {
                     Ok(h) => {
                         let k = self.subscricoes;
@@ -9501,7 +9641,6 @@ struct Contexto<'a> {
     genericos: String,
     genericos_decl: String,
     preservar_espacos: bool,
-    html: String,
     pipes: &'a PipesDoTemplate,
     /// Os nomes de `#ref` que podem virar local ([`referencias_candidatas`]).
     refs_candidatos: std::collections::HashSet<String>,
@@ -9610,6 +9749,8 @@ impl<'a> Contexto<'a> {
             metodos: self.metodos,
             aridades: self.aridades,
             metodos_evento: Vec::new(),
+            tipo_do_evento: None,
+            tipo_do_evento_falha: None,
             metodos_i18n: Vec::new(),
             decl_locais: Default::default(),
             locais_raiz: Vec::new(),
@@ -9641,7 +9782,6 @@ impl<'a> Contexto<'a> {
             usa_ctx_no_build: false,
             proxima_projecao: 0,
             imp,
-            html: self.html.clone(),
             pipes: self.pipes,
             vista: 0,
             profundidade: 0,
@@ -10204,6 +10344,11 @@ fn declaracao_de_local(
         let livres: Vec<&str> = ctx.nomes_genericos.iter().map(String::as_str).collect();
         tipo_qualificado(&cheio, escopo, r, &ctx.asset, &livres).ok_or_else(sem_import)?
     };
+    // Tipo privado vira `dynamic` no `fromDartType`, e o `getLocal` só põe o
+    // cast quando o tipo não é `dynamic` (`view_name_resolver.dart:55`).
+    if tipo == "dynamic" {
+        return Ok(format!("final {d} = {locals}[{chave}];"));
+    }
     Ok(format!(
         "final {d} = {util}.unsafeCast<{tipo}>({locals}[{chave}]);"
     ))
@@ -10357,10 +10502,64 @@ fn alocar_imports_dos_campos(
     for uri in pipes {
         imp.alias(uri);
     }
-    if tem_elemento_ligado(nos, filhos, usadas, refs) {
-        imp.alias("dart:html");
+    // O `dart:html` dos campos de elemento. No 9 cada tipo tem o seu módulo
+    // do `package:web`: cada um entra na posição do primeiro campo dele.
+    match crate::dialeto::atual() {
+        crate::dialeto::Dialeto::Ngdart => {
+            if tem_elemento_ligado(nos, filhos, usadas, refs) {
+                imp.alias("dart:html");
+            }
+        }
+        crate::dialeto::Dialeto::Ngx => {
+            let mut tipos = Vec::new();
+            tipos_dos_elementos_ligados(nos, filhos, usadas, refs, false, &mut tipos);
+            for t in tipos {
+                imp.alias(crate::dialeto::dom(t).0);
+            }
+        }
     }
     Ok(())
+}
+
+/// Os tipos (pelo nome do `dart:html`) dos nós desta visão que viram campo,
+/// em ordem de documento: o que [`tem_elemento_ligado`] acha, com o tipo de
+/// cada um (`Element` com namespace, `HtmlElement` no nó de um filho).
+fn tipos_dos_elementos_ligados(
+    nos: &[No],
+    filhos: &std::collections::HashMap<String, Filho>,
+    usadas: &[Usada],
+    refs: &std::collections::HashSet<String>,
+    em_ns: bool,
+    saida: &mut Vec<&'static str>,
+) {
+    for n in nos {
+        let No::Elemento(e) = n else { continue };
+        if e.estrela.is_some() {
+            continue;
+        }
+        let ns = em_ns
+            || e.nome.contains(':')
+            || matches!(e.nome.to_ascii_lowercase().as_str(), "svg" | "math");
+        match filhos.get(&e.nome) {
+            None => {
+                if liga_no_elemento(e, &diretivas_casadas(usadas, e))
+                    || e.referencias.iter().any(|r| refs.contains(&r.nome))
+                {
+                    saida.push(if ns {
+                        "Element"
+                    } else {
+                        dom::tipo_da_tag(&e.nome)
+                    });
+                }
+            }
+            Some(f) => {
+                if elemento_do_filho_ligado(e, f, &diretivas_casadas(usadas, e)) {
+                    saida.push("HtmlElement");
+                }
+            }
+        }
+        tipos_dos_elementos_ligados(&e.filhos, filhos, usadas, refs, ns, saida);
+    }
 }
 
 /// Alguma linha usa `_ctx`?
@@ -10638,8 +10837,16 @@ fn tipo_qualificado(
             if nome == "Function" {
                 return None;
             }
+            let simples = crate::resolucao::sem_ancora(nome.rsplit('.').next().unwrap_or(&nome));
+            // Tipo privado não é visível no arquivo gerado: o `fromDartType`
+            // o troca por `dynamic`, com os argumentos e o `?` dele
+            // (`convert.dart:35-37`).
+            if simples.starts_with('_') {
+                saida.push_str("dynamic");
+                pular_argumentos_e_anulavel(&mut chars);
+                continue;
+            }
             let uri = r.uri_do_tipo(escopo, &nome)?;
-            let simples = nome.rsplit('.').next().unwrap_or(&nome);
             let caminho = if uri.starts_with("dart:") {
                 uri
             } else {
@@ -10658,6 +10865,68 @@ fn tipo_qualificado(
         }
     }
     Some(saida)
+}
+
+/// O segundo argumento do `addEventListener` de um evento nativo: o handler
+/// no 8; no 9, a função exportada para o JS com o tipo do evento
+/// (`FunctionToJSExportedDartFunction((h as void Function(MouseEvent))).toJS`,
+/// `NX:compiler/view_compiler/update_statement_visitor.dart:254-261`). Os
+/// imports vão como marcas tardias, alocados na ordem do texto.
+fn ouvinte_nativo(nome: &str, handler: &str) -> String {
+    if crate::dialeto::atual() == crate::dialeto::Dialeto::Ngdart {
+        return handler.to_string();
+    }
+    let js = tardio_q("dart:js_interop");
+    let tipo = tipo_do_evento_nativo(nome);
+    format!("{js}FunctionToJSExportedDartFunction(({handler} as void Function({tipo}))).toJS")
+}
+
+/// O tipo de um evento nativo no 9, qualificado por marca tardia
+/// (`nativeHtmlEventType`, `NX:compiler/html_events.dart:116-177`).
+fn tipo_do_evento_nativo(nome: &str) -> String {
+    let (uri, n) = crate::dialeto::dom(crate::dialeto::tipo_do_evento_nativo(nome));
+    format!("{}{n}", tardio_q(uri))
+}
+
+/// O tipo do `$event` de um evento escrito no elemento: no 9, o do evento
+/// nativo (`NativeEvent`); evento próprio (`keyup.enter`, `CustomEvent`) e o
+/// 8 não têm (`binding_converter.dart:75,228`).
+fn tipo_de_evento_nativo(nome: &str) -> Option<String> {
+    (crate::dialeto::atual() == crate::dialeto::Dialeto::Ngx && evento_nativo(nome))
+        .then(|| tipo_do_evento_nativo(nome))
+}
+
+/// O parâmetro de um `_handleEvent_N`: `$event` cru no 8 (e no 9 sem tipo:
+/// evento próprio, saída que não é `Stream`), `T $event` com o tipo do evento
+/// no 9 (`NX:compiler/view_compiler/compile_view.dart:726-760`).
+fn parametro_do_evento(tipo: &Option<String>) -> String {
+    match tipo {
+        Some(t) => format!("{t} $event"),
+        None => "$event".to_string(),
+    }
+}
+
+/// Consome, depois de um nome de tipo, os argumentos (`<..>`, aninhados) e o
+/// `?` dele.
+fn pular_argumentos_e_anulavel(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
+    while chars.next_if(|c| c.is_whitespace()).is_some() {}
+    if chars.next_if_eq(&'<').is_some() {
+        let mut nivel = 1usize;
+        for c in chars.by_ref() {
+            match c {
+                '<' => nivel += 1,
+                '>' => {
+                    nivel -= 1;
+                    if nivel == 0 {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    while chars.next_if(|c| c.is_whitespace()).is_some() {}
+    chars.next_if_eq(&'?');
 }
 
 /// Prefixo de import alocado mais tarde. O oficial numera os imports na
@@ -11008,7 +11277,7 @@ pub fn classe_ngcd(h: &crate::Hospedeira, arquivo: &str, imp: &mut Importacoes) 
     let cd = imp.alias(DIRECTIVE_CHANGE_DETECTOR);
     let proprio = imp.alias(arquivo);
     let rv = imp.alias(RENDER_VIEW);
-    let html = imp.alias("dart:html");
+    let elemento = imp.dom("Element");
     // Os imports do corpo são alocados na ordem do texto, que só se conhece
     // montado (as imutáveis vêm antes): marcas tardias, resolvidas no fim.
     let chk = tardio(CHECK_BINDING);
@@ -11035,7 +11304,9 @@ pub fn classe_ngcd(h: &crate::Hospedeira, arquivo: &str, imp: &mut Importacoes) 
                     .unwrap_or_default()
             };
             *texto = tipo.trim_end_matches('?') == "String";
-            *nulo = tipo.ends_with('?') || tipo == "dynamic";
+            // `isNullable` é o `canBeNull` da expressão (`ir/model.dart:609`):
+            // fora do literal, sempre (`analyzed_class.dart:210-221`).
+            *nulo = true;
         }
         if h.imutaveis.contains(membro) || estatico {
             let valor = if estatico {
@@ -11064,7 +11335,7 @@ pub fn classe_ngcd(h: &crate::Hospedeira, arquivo: &str, imp: &mut Importacoes) 
     }
     let corpo = resolver_tardios(imp, &corpo);
     format!(
-        "\nclass {x}NgCd extends {cd}.DirectiveChangeDetector {{\n  final {proprio}.{x} instance;\n{campos}  {x}NgCd(this.instance);\n  void detectHostChanges({rv}.RenderView view, {html}.Element el) {{\n{corpo}  }}\n}}\n"
+        "\nclass {x}NgCd extends {cd}.DirectiveChangeDetector {{\n  final {proprio}.{x} instance;\n{campos}  {x}NgCd(this.instance);\n  void detectHostChanges({rv}.RenderView view, {elemento} el) {{\n{corpo}  }}\n}}\n"
     )
 }
 
@@ -11278,11 +11549,9 @@ impl FormaDoHospedeiro {
                         } else {
                             format!("{v}.toString()")
                         };
-                        format!("(({v} == null) ? null : ({t} + {}))", literal(u))
+                        format!("(({v} == null) ? {} : ({t} + {}))", estilo_nulo(), literal(u))
                     }
-                    None if *texto => v.to_string(),
-                    None if *nulo => format!("{v}?.toString()"),
-                    None => format!("{v}.toString()"),
+                    None => estilo_sem_unidade(v, *texto, *nulo),
                 };
                 format!("{el}.style.setProperty('{nome}', {valor})")
             }
@@ -11388,7 +11657,8 @@ fn ligacoes_do_componente(
                 return Err(fora("@HostBinding('style.x') de tipo desconhecido"));
             }
             *texto = base == "String";
-            *nulo = tipo.trim().ends_with('?');
+            // `canBeNull` de `_ctx.x`: sempre (`analyzed_class.dart:210-221`).
+            *nulo = true;
         }
         saida.push(LigacaoDoHospedeiro {
             membro,
@@ -11702,8 +11972,9 @@ fn gerar_componente_com(
     let cd = imp.alias(CHANGE_DETECTION);
     let util = imp.alias(UTILITIES);
     // O construtor da visão usa `document.createElement`, então `dart:html`
-    // sempre entra antes do corpo do `build()`.
-    let html = imp.alias("dart:html");
+    // (no 9, o `dom.dart` do `package:web`) sempre entra antes do corpo do
+    // `build()`.
+    let documento = imp.dom("document");
     // Os `@HostBinding` estáticos saem no construtor, logo depois do
     // `rootElement`: os imports deles vêm antes dos do `build()`.
     let estaticos_no_construtor: String = do_hospedeiro
@@ -11763,7 +12034,6 @@ fn gerar_componente_com(
         genericos,
         genericos_decl,
         preservar_espacos: c.preservar_espacos,
-        html: html.clone(),
         pipes: &tabela,
         refs_ambiguos: referencias_ambiguas(nos),
         refs_candidatos,
@@ -11974,6 +12244,10 @@ fn gerar_componente_com(
                     return Err(r);
                 }
             }
+            let valores: Vec<String> = valores
+                .into_iter()
+                .map(|v| elemento_com_cast(v, q, local, resolvedor))
+                .collect();
             consultas.push(format!(
                 "    _ctx.{} = [{}];",
                 q.propriedade,
@@ -12031,7 +12305,7 @@ fn gerar_componente_com(
                 {
                     format!("{}ElementRef({alvo})", tardio_q(ELEMENT_REF))
                 } else {
-                    alvo
+                    elemento_com_cast(alvo, q, local, resolvedor)
                 };
                 consultas.push(format!("    _ctx.{} = {alvo};", q.propriedade));
             }
@@ -12039,11 +12313,12 @@ fn gerar_componente_com(
             None if corpo.coletando() => {}
             // Nenhum `#ref` com o nome no template: a única não recebe nada
             // (caso j82).
+            // Sem atribuição, o `build()` não lê o `_ctx` por ela.
             None if !q.por_tipo && {
                 let mut l = Vec::new();
                 onde_esta(nos, &q.referencia, filhos, false, &mut l);
                 l.is_empty()
-            } => {}
+            } => continue,
             None => {
                 return Err(recusa(
                     Motivo::ViewChildDinamico,
@@ -12107,10 +12382,21 @@ fn gerar_componente_com(
     };
     let mut hospedeiro = Vec::new();
     for o in &ouvintes_do_hospedeiro {
+        corpo.tipo_do_evento_falha = None;
+        corpo.tipo_do_evento = tipo_de_evento_nativo(&o.evento);
         match corpo.handler(&[&o.handler]) {
-            Ok(h) => hospedeiro.push(format!(
-                "    parentRenderNode.addEventListener('{}', {h});",
-                o.evento
+            // As marcas do `package:web` no 9, na ordem do texto.
+            Ok(h) => hospedeiro.push(resolver_tardios(
+                corpo.imp,
+                &format!(
+                    "    parentRenderNode.addEventListener('{}', {});",
+                    o.evento,
+                    if evento_nativo(&o.evento) {
+                        ouvinte_nativo(&o.evento, &h)
+                    } else {
+                        h.clone()
+                    }
+                ),
             )),
             Err(r) => {
                 let r = r.em(Motivo::HostListenerEmComponente);
@@ -12547,7 +12833,7 @@ class View{x}0{decl} extends {vista}.ComponentView<{proprio}.{x}{args}> {{
 {campos}  static {estilos}.ComponentStyles? _componentStyles;
   View{x}0({view}.View parentView, int parentIndex) : super(parentView, parentIndex, {cd}.ChangeDetectionCheckedState.{estado}) {{
     this.initComponentStyles();
-    this.rootElement = {util}.unsafeCast({html}.document.createElement('{tag}'));{estaticos_no_construtor}
+    this.rootElement = {util}.unsafeCast({documento}.createElement('{tag}'));{estaticos_no_construtor}
   }}
   static String? get _debugComponentUrl {{
     return ({util}.isDevMode ? '{asset}' : null);
@@ -13264,11 +13550,16 @@ fn e_container(
             .is_some_and(|u| u.starts_with("package:ngdart/"))
 }
 
+/// O parâmetro pede o nó do elemento: `Element`/`HtmlElement` do `dart:html`,
+/// ou `Element`/`HTMLElement` do `package:web` no 9.
 fn e_elemento(tipo: Option<&str>) -> bool {
-    matches!(
-        tipo.map(|t| t.rsplit('.').next().unwrap_or(t)),
-        Some("Element" | "HtmlElement")
-    )
+    let ngx = crate::dialeto::atual() == crate::dialeto::Dialeto::Ngx;
+    match tipo.map(|t| t.rsplit('.').next().unwrap_or(t)) {
+        Some("Element") => true,
+        Some("HtmlElement") => !ngx,
+        Some("HTMLElement") => ngx,
+        _ => false,
+    }
 }
 
 /// O token de um parâmetro pelo tipo escrito (`_tokenForType`/`_idFor`): a

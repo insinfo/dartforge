@@ -267,6 +267,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             return self.instanciar(ast, f, &arguments.args, expr.span);
                         }
                     }
+                    // `p.E(x)`: aplicação explícita de extensão importada
+                    // com prefixo (§13.3), como `E(x)` acima: o valor é `x`.
+                    Element::Extension(_) => {
+                        let Some(a) = arguments.args.first() else {
+                            return self.nao_suportado("aplicação de extensão sem receptor", expr.span);
+                        };
+                        return self.lower_expr(ast, a.value);
+                    }
                     outro => {
                         let v = self.ler_elemento(outro, expr.span);
                         let avaliados = self.avaliar_args(ast, &arguments.args);
@@ -617,6 +625,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let lib = self.ctx.program.unit(self.unit_id).library;
         self.ctx.program.library(lib).imports.iter().any(|i| i.deferred && i.prefix == Some(p.sym))
+    }
+
+    /// A classe cujos membros estáticos `alvo.x` alcança: o literal de
+    /// classe `C` (ou `p.C`), ou um alias `typedef A = C<…>` (especificação
+    /// §15 "Type Aliases": `A.x` é o membro estático `x` de `C`; os
+    /// argumentos de tipo do alias não contam para membros estáticos).
+    pub fn classe_do_alvo_estatico(&self, alvo: ExprId) -> Option<dartforge_elements::model::ClassId> {
+        use dartforge_elements::model::Element;
+        match self.ctx.get_resolved(self.unit_id, alvo)? {
+            Resolved::Element(Element::Class(c)) => Some(*c),
+            Resolved::Element(Element::Typedef(td)) => {
+                let dados = self.ctx.outline.typedefs.get(td.0 as usize)?;
+                match self.ctx.table.get(dados.target_type) {
+                    dartforge_types::table::Type::Interface { class, .. } => Some(*class),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
     }
 
     pub fn elemento_prefixado(

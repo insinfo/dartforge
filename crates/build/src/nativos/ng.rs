@@ -20,11 +20,31 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-#[derive(Default)]
 pub struct NgEstagioA {
+    /// A chave do builder: `ngdart:ngdart` (ngdart 8) ou `ngx_dart:ngx_dart`
+    /// (o fork 9 com `package:web`); o `gerador_ng` escolhe o dialeto pelo
+    /// programa (`docs/NGDART-COMPILADOR-DE-VISOES.md` parte B).
+    chave: &'static str,
     /// Por pacote: a entrada e cada dependência com componentes têm a sua
     /// rodada.
     cache: Mutex<HashMap<String, CacheNg>>,
+}
+
+impl Default for NgEstagioA {
+    fn default() -> Self {
+        Self::com_chave("ngdart:ngdart")
+    }
+}
+
+impl NgEstagioA {
+    /// O gerador para o builder `chave` (`ngdart:ngdart` ou
+    /// `ngx_dart:ngx_dart`).
+    pub fn com_chave(chave: &'static str) -> Self {
+        NgEstagioA {
+            chave,
+            cache: Mutex::new(HashMap::new()),
+        }
+    }
 }
 
 struct CacheNg {
@@ -114,7 +134,7 @@ fn arquivos(dir: &std::path::Path, v: &mut Vec<PathBuf>) {
 
 impl GeradorNativo for NgEstagioA {
     fn chave(&self) -> &'static str {
-        "ngdart:ngdart"
+        self.chave
     }
 
     fn cobre(&self, fabrica: &str) -> bool {

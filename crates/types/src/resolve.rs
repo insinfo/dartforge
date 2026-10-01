@@ -111,6 +111,142 @@ pub struct SobrescritaDeCampo {
     pub parametro: Option<usize>,
 }
 
+/// Onde um nome de tipo aparece: o `parent` do `NamedType` que o
+/// `NamedTypeResolver` consulta para escolher o código de um nome que não
+/// resolve para tipo (`an611:src/dart/resolver/named_type_resolver.dart:515-643`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ContextoDeTipo {
+    /// Anotação comum (variável, parâmetro, retorno, limite…).
+    #[default]
+    Normal,
+    /// Elemento de uma lista de argumentos de tipo (`List<X>`, `f<X>()`).
+    ArgumentoDeTipo,
+    /// O tipo de `on T` de um `catch`.
+    Catch,
+    /// O tipo de `e as T`.
+    As,
+    /// O tipo de `e is T` / `e is! T`.
+    Is,
+}
+
+/// O código e os argumentos do analyzer para um nome de tipo que não
+/// resolve para tipo (`_ErrorHelper.reportNullOrNonTypeElement`,
+/// `an611:src/dart/resolver/named_type_resolver.dart:515-643`): `achou` é a
+/// busca ter encontrado um elemento (que não é tipo). As cláusulas de herança
+/// e a criação de instância não passam por aqui (outros códigos).
+pub fn codigo_de_nome_de_tipo(contexto: ContextoDeTipo, achou: bool, nome: &str) -> dartforge_diagnostics::Codigo {
+    use dartforge_diagnostics::codigos::compile_time_error as c;
+    if nome == "boolean" {
+        return c::UNDEFINED_CLASS_BOOLEAN;
+    }
+    match contexto {
+        ContextoDeTipo::Catch => c::NON_TYPE_IN_CATCH_CLAUSE,
+        ContextoDeTipo::As => c::CAST_TO_NON_TYPE,
+        ContextoDeTipo::Is if achou => c::TYPE_TEST_WITH_NON_TYPE,
+        ContextoDeTipo::Is => c::TYPE_TEST_WITH_UNDEFINED_NAME,
+        ContextoDeTipo::ArgumentoDeTipo => c::NON_TYPE_AS_TYPE_ARGUMENT,
+        ContextoDeTipo::Normal if achou => c::NOT_A_TYPE,
+        ContextoDeTipo::Normal if nome == "await" => c::UNDEFINED_IDENTIFIER_AWAIT,
+        ContextoDeTipo::Normal => c::UNDEFINED_CLASS,
+    }
+}
+
+/// O diagnóstico de [`codigo_de_nome_de_tipo`] no nome (`faixa`: do prefixo,
+/// se houver, ao fim do nome — o `_getErrorRange`).
+pub fn diagnostico_de_nome_de_tipo(contexto: ContextoDeTipo, achou: bool, nome: &str, faixa: dartforge_diagnostics::Span) -> Diagnostic {
+    let codigo = codigo_de_nome_de_tipo(contexto, achou, nome);
+    if codigo == dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_IDENTIFIER_AWAIT {
+        return Diagnostic::com_codigo(codigo, faixa, std::iter::empty::<&str>());
+    }
+    Diagnostic::com_codigo(codigo, faixa, [nome])
+}
+
+/// `WRONG_NUMBER_OF_TYPE_ARGUMENTS` (`_buildTypeArguments`,
+/// `an611:src/dart/resolver/named_type_resolver.dart:136-150`): no tipo
+/// inteiro, com o nome, o número de parâmetros e o de argumentos.
+pub fn diagnostico_de_argumentos_de_tipo(nome: &str, parametros: usize, argumentos: usize, span: dartforge_diagnostics::Span) -> Diagnostic {
+    Diagnostic::com_codigo(
+        dartforge_diagnostics::codigos::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS,
+        span,
+        [nome.to_string(), parametros.to_string(), argumentos.to_string()],
+    )
+}
+
+/// O parâmetro de tipo é de uma classe, mixin, enum ou extensão.
+pub(crate) fn param_da_classe(table: &TypeTable, p: TypeParamId) -> bool {
+    matches!(table.param(p).owner, TypeParamOwner::Class(_) | TypeParamOwner::Extension(_))
+}
+
+/// `TYPE_PARAMETER_REFERENCED_BY_STATIC` (`_checkForTypeParameterReferencedByStatic`,
+/// `an611:src/generated/error_verifier.dart:5419-5434`): um parâmetro de tipo
+/// da classe citado num método ou campo estático, no nome.
+pub fn diagnostico_de_parametro_em_estatico(faixa: dartforge_diagnostics::Span) -> Diagnostic {
+    Diagnostic::com_codigo(
+        dartforge_diagnostics::codigos::compile_time_error::TYPE_PARAMETER_REFERENCED_BY_STATIC,
+        faixa,
+        std::iter::empty::<&str>(),
+    )
+}
+
+/// O nome `sym` no escopo de instância de um contêiner (classe, mixin,
+/// enum, extension type ou extensão): os membros **declarados** (getters,
+/// inclusive os implícitos de campos e de constantes de enum, métodos,
+/// setters), estáticos ou não (`an611:src/dart/element/scope.dart:273-279`,
+/// `ExtensionScope` em `:92-100`). O `values` sintético de um enum conta (é
+/// um campo estático declarado pelo analyzer); o `index` sintético não (é
+/// herdado de `Enum`).
+pub(crate) fn nome_no_conteiner(
+    program: &Program,
+    interner: &Interner,
+    classe: Option<ClassId>,
+    extensao: Option<ExtensionId>,
+    sym: SymbolId,
+) -> Option<NoConteiner> {
+    let (instancia, estaticos, campos) = match (classe, extensao) {
+        (Some(c), _) => {
+            let k = program.class(c);
+            (&k.instance_members, &k.static_members, k.fields.iter().chain(&k.enum_constants).copied().collect::<Vec<_>>())
+        }
+        (None, Some(e)) => {
+            let x = &program.extensions[e.0 as usize];
+            (&x.instance_members, &x.static_members, x.fields.clone())
+        }
+        _ => return None,
+    };
+    let declarado = |f: FunctionElementId| {
+        let fe = &program.functions[f.0 as usize];
+        !matches!(fe.node, FunctionRef::None) || fe.variable.is_some() || (fe.static_ && interner.resolve(fe.name) == "values")
+    };
+    let getter = [instancia, estaticos]
+        .iter()
+        .any(|m| m.get(&sym).is_some_and(|&f| declarado(f) && program.functions[f.0 as usize].kind != FunctionKind::Constructor))
+        || campos.iter().any(|v| program.variables[v.0 as usize].name == sym);
+    if getter {
+        return Some(NoConteiner::Getter);
+    }
+    let nome_setter = format!("{}_=", interner.resolve(sym));
+    let setter = interner
+        .lookup(&nome_setter)
+        .is_some_and(|k| [instancia, estaticos].iter().any(|m| m.get(&k).is_some_and(|&f| declarado(f))));
+    setter.then_some(NoConteiner::SoSetter)
+}
+
+/// Declaração cujos membros formam um escopo (o `InstanceScope` do analyzer).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Conteiner {
+    Classe(ClassId),
+    Extensao(ExtensionId),
+}
+
+/// O que um nome é no escopo de instância de um contêiner.
+pub(crate) enum NoConteiner {
+    /// Getter (inclusive o implícito de campo e de constante de enum) ou
+    /// método: o resultado da busca tem `getter`, e não é tipo.
+    Getter,
+    /// Só setter: a busca para aqui, sem `getter` — tipo indefinido.
+    SoSetter,
+}
+
 /// Contexto de resolução com acesso ao programa e acumuladores de estado.
 pub struct OutlineResolver<'a> {
     pub program: &'a Program,
@@ -118,6 +254,20 @@ pub struct OutlineResolver<'a> {
     pub table: &'a mut TypeTable,
     pub core: &'a CoreTypes,
     pub diagnostics: Vec<Diagnostic>,
+    /// Unidade de cada diagnóstico (paralelo a `diagnostics`): o arquivo em
+    /// que ele é relatado, sem depender de adivinhar pelo intervalo.
+    pub unidades_dos_avisos: Vec<UnitId>,
+    /// O contêiner (classe, mixin, enum, extension type ou extensão) cujos
+    /// membros estão em escopo na anotação sendo resolvida: o
+    /// `InstanceScope` do analyzer (docs/ANALISADOR-PARIDADE-PLANO.md §3.3).
+    conteiner: Option<Conteiner>,
+    /// O contexto da anotação que a próxima chamada de `resolve_annotation`
+    /// resolve (lido e zerado na entrada; os argumentos de tipo o põem em
+    /// [`ContextoDeTipo::ArgumentoDeTipo`]).
+    contexto_de_tipo: ContextoDeTipo,
+    /// Resolvendo a assinatura de um método ou campo estático (os parâmetros
+    /// de tipo da classe não valem ali).
+    membro_estatico: bool,
     /// Parâmetros de tipo alocados por classe: `[ClassId] -> Box<[TypeParamId]>`
     pub class_type_params: Vec<Box<[TypeParamId]>>,
     /// Parâmetros de tipo alocados por typedef: `[TypedefId] -> Box<[TypeParamId]>`
@@ -147,6 +297,10 @@ impl<'a> OutlineResolver<'a> {
             table,
             core,
             diagnostics: Vec::new(),
+            unidades_dos_avisos: Vec::new(),
+            conteiner: None,
+            contexto_de_tipo: ContextoDeTipo::Normal,
+            membro_estatico: false,
             class_type_params: vec![Box::new([]); num_classes],
             typedef_type_params: vec![Box::new([]); num_typedefs],
             extension_type_params: vec![Box::new([]); num_extensions],
@@ -155,8 +309,30 @@ impl<'a> OutlineResolver<'a> {
         }
     }
 
+    /// Registra um diagnóstico relatado em `unidade`.
+    fn avisar(&mut self, unidade: UnitId, d: Diagnostic) {
+        self.diagnostics.push(d);
+        self.unidades_dos_avisos.push(unidade);
+    }
+
+    /// O nome `sym` no escopo de instância do contêiner em resolução
+    /// ([`nome_no_conteiner`]).
+    fn no_conteiner(&self, sym: SymbolId) -> Option<NoConteiner> {
+        let (classe, extensao) = match self.conteiner? {
+            Conteiner::Classe(c) => (Some(c), None),
+            Conteiner::Extensao(e) => (None, Some(e)),
+        };
+        nome_no_conteiner(self.program, self.interner, classe, extensao, sym)
+    }
+
     /// Resolve todo o outline do programa, retornando as tabelas laterais e os diagnósticos acumulados.
-    pub fn resolve_all(mut self) -> (OutlineTypes, Vec<Diagnostic>) {
+    pub fn resolve_all(self) -> (OutlineTypes, Vec<Diagnostic>) {
+        let (o, d, _) = self.resolve_all_com_unidades();
+        (o, d)
+    }
+
+    /// Como [`OutlineResolver::resolve_all`], com a unidade de cada diagnóstico.
+    pub fn resolve_all_com_unidades(mut self) -> (OutlineTypes, Vec<Diagnostic>, Vec<UnitId>) {
         // 1. Alocar TypeParamIds para classes, typedefs e extensions
         self.allocate_outline_type_params();
 
@@ -195,7 +371,7 @@ impl<'a> OutlineResolver<'a> {
             sobrescritas_de_campo: std::mem::take(&mut self.sobrescritas_de_campo),
         };
 
-        (outline, self.diagnostics)
+        (outline, self.diagnostics, self.unidades_dos_avisos)
     }
 
     fn allocate_outline_type_params(&mut self) {
@@ -484,7 +660,11 @@ impl<'a> OutlineResolver<'a> {
                     if let MemberKind::Field(var_list) = &mem_node.kind {
                         let scope = self.get_enclosing_type_param_scope(var.class, var.extension);
                         if let Some(ast_ty) = var_list.ty {
+                            self.conteiner = conteiner_de(var.class, var.extension);
+                            self.membro_estatico = var.static_;
                             let ty = self.resolve_annotation(unit, ast_ty, var.library, &scope);
+                            self.conteiner = None;
+                            self.membro_estatico = false;
                             (Some(ty), Some(ty))
                         } else {
                             (None, None)
@@ -508,6 +688,8 @@ impl<'a> OutlineResolver<'a> {
                 VariableRef::Representation { unit, decl } => {
                     let decl_node = self.program.unit(unit).ast.decl(decl);
                     if let DeclKind::ExtensionType(ext) = &decl_node.kind {
+                        // A representação é resolvida antes do escopo de
+                        // instância (`an611:src/summary2/reference_resolver.dart:204-207`).
                         let scope = self.get_enclosing_type_param_scope(var.class, None);
                         let ty = self.resolve_annotation(
                             unit,
@@ -667,7 +849,27 @@ impl<'a> OutlineResolver<'a> {
         Some((sig, novo_ret, novos.into_boxed_slice()))
     }
 
+    /// A assinatura de um membro é resolvida com o escopo de instância do
+    /// contêiner dele (`InstanceScope`).
     fn resolve_function_signature(
+        &mut self,
+        func_id: FunctionElementId,
+        func: &FunctionElement,
+        hierarchy: &ClassHierarchy,
+        variables: &[VariableTypeData],
+    ) -> (TypeId, TypeId, Box<[ParameterTypeData]>, Box<[TypeParamId]>) {
+        self.conteiner = conteiner_de(func.class, func.extension);
+        self.membro_estatico = func.static_
+            && !func.factory
+            && func.kind != FunctionKind::Constructor
+            && (func.class.is_some() || func.extension.is_some());
+        let r = self.resolve_function_signature_no_escopo(func_id, func, hierarchy, variables);
+        self.conteiner = None;
+        self.membro_estatico = false;
+        r
+    }
+
+    fn resolve_function_signature_no_escopo(
         &mut self,
         func_id: FunctionElementId,
         func: &FunctionElement,
@@ -1163,20 +1365,25 @@ impl<'a> OutlineResolver<'a> {
         let annot = self.program.unit(unit_id).ast.ty(ast_ty_id);
         let is_nullable = annot.nullable;
         let span = annot.span;
+        let contexto = std::mem::take(&mut self.contexto_de_tipo);
 
         match &annot.kind {
             ast::TypeKind::Void => self.core.void_,
             ast::TypeKind::Named { name, args } => {
+                // O nome (com o prefixo) é a faixa dos erros de nome; o tipo
+                // inteiro, a do número de argumentos.
+                let faixa = dartforge_diagnostics::Span { start: name[0].span.start, end: name[name.len() - 1].span.end };
+                let texto = self.interner.resolve(name[name.len() - 1].sym).to_string();
                 if name.len() == 1 {
                     let sym = name[0].sym;
 
                     // 1. Verificar escopo de parâmetros de tipo vigentes
                     if let Some(&param_id) = type_param_scope.get(&sym) {
                         if !args.is_empty() {
-                            self.diagnostics.push(Diagnostic::new(
-                                "Parâmetro de tipo não aceita argumentos de tipo",
-                                span,
-                            ));
+                            self.avisar(unit_id, diagnostico_de_argumentos_de_tipo(&texto, 0, args.len(), span));
+                        }
+                        if self.membro_estatico && param_da_classe(self.table, param_id) {
+                            self.avisar(unit_id, diagnostico_de_parametro_em_estatico(faixa));
                         }
                         return self.table.intern(Type::TypeParameter {
                             param: param_id,
@@ -1220,21 +1427,31 @@ impl<'a> OutlineResolver<'a> {
                                 nullable: is_nullable,
                             });
                         } else {
-                            self.diagnostics.push(Diagnostic::new(
-                                "FutureOr exige exatamente um argumento de tipo",
-                                span,
-                            ));
+                            self.avisar(unit_id, diagnostico_de_argumentos_de_tipo(&texto, 1, args.len(), span));
                             return self.core.dynamic_;
                         }
                     }
 
-                    // 3. Resolução no escopo da biblioteca
+                    // 3. O escopo de instância do contêiner esconde o de topo.
+                    // (Nome sintético da recuperação, sem largura: nada.)
+                    match if span.start == span.end { None } else { self.no_conteiner(sym) } {
+                        Some(NoConteiner::Getter) => {
+                            self.avisar(unit_id, diagnostico_de_nome_de_tipo(contexto, true, &texto, faixa));
+                            return self.core.dynamic_;
+                        }
+                        Some(NoConteiner::SoSetter) => {
+                            self.avisar(unit_id, diagnostico_de_nome_de_tipo(contexto, false, &texto, faixa));
+                            return self.core.dynamic_;
+                        }
+                        None => {}
+                    }
+
+                    // 4. Resolução no escopo da biblioteca
                     let binding = self.program.lookup_na_unidade(unit_id, sym);
                     match binding {
                         Some(b) => {
                             if b.ambiguous {
-                                self.diagnostics
-                                    .push(Diagnostic::new("Referência ambígua de tipo", span));
+                                self.avisar(unit_id, Diagnostic::new("Referência ambígua de tipo", span));
                                 return self.core.dynamic_;
                             }
                             match b.getter {
@@ -1242,6 +1459,7 @@ impl<'a> OutlineResolver<'a> {
                                     let resolved_args: Vec<TypeId> = args
                                         .iter()
                                         .map(|&a| {
+                                            self.contexto_de_tipo = ContextoDeTipo::ArgumentoDeTipo;
                                             self.resolve_annotation(
                                                 unit_id,
                                                 a,
@@ -1251,6 +1469,10 @@ impl<'a> OutlineResolver<'a> {
                                         })
                                         .collect();
 
+                                    let n_params = self.class_type_params[cid.0 as usize].len();
+                                    if !args.is_empty() && args.len() != n_params {
+                                        self.avisar(unit_id, diagnostico_de_argumentos_de_tipo(&texto, n_params, args.len(), span));
+                                    }
                                     let resolved_args = self.args_ou_limites(cid, resolved_args);
                                     let is_ext =
                                         self.program.class(cid).kind == ClassKind::ExtensionType;
@@ -1272,6 +1494,7 @@ impl<'a> OutlineResolver<'a> {
                                     let resolved_args: Vec<TypeId> = args
                                         .iter()
                                         .map(|&a| {
+                                            self.contexto_de_tipo = ContextoDeTipo::ArgumentoDeTipo;
                                             self.resolve_annotation(
                                                 unit_id,
                                                 a,
@@ -1283,6 +1506,9 @@ impl<'a> OutlineResolver<'a> {
 
                                     let target_ty = self.ensure_typedef_resolved(tid);
                                     let formals = self.typedef_type_params[tid.0 as usize].clone();
+                                    if !args.is_empty() && args.len() != formals.len() {
+                                        self.avisar(unit_id, diagnostico_de_argumentos_de_tipo(&texto, formals.len(), args.len(), span));
+                                    }
                                     let resolved_args = if resolved_args.len() == formals.len() {
                                         resolved_args
                                     } else {
@@ -1300,10 +1526,7 @@ impl<'a> OutlineResolver<'a> {
                                     }
                                 }
                                 _ => {
-                                    self.diagnostics.push(Diagnostic::new(
-                                        "O símbolo encontrado não é um tipo",
-                                        span,
-                                    ));
+                                    self.avisar(unit_id, diagnostico_de_nome_de_tipo(contexto, true, &texto, faixa));
                                     self.core.dynamic_
                                 }
                             }
@@ -1312,10 +1535,7 @@ impl<'a> OutlineResolver<'a> {
                             // Nome sintético da recuperação do parser (vazio,
                             // sem largura): o analyzer não o relata.
                             if span.start != span.end {
-                                self.diagnostics.push(Diagnostic::new(
-                                    "Tipo não encontrado no escopo da biblioteca",
-                                    span,
-                                ));
+                                self.avisar(unit_id, diagnostico_de_nome_de_tipo(contexto, false, &texto, faixa));
                             }
                             self.core.dynamic_
                         }
@@ -1330,6 +1550,7 @@ impl<'a> OutlineResolver<'a> {
                                 let resolved_args: Vec<TypeId> = args
                                     .iter()
                                     .map(|&a| {
+                                        self.contexto_de_tipo = ContextoDeTipo::ArgumentoDeTipo;
                                         self.resolve_annotation(
                                             unit_id,
                                             a,
@@ -1339,6 +1560,10 @@ impl<'a> OutlineResolver<'a> {
                                     })
                                     .collect();
 
+                                let n_params = self.class_type_params[cid.0 as usize].len();
+                                if !args.is_empty() && args.len() != n_params {
+                                    self.avisar(unit_id, diagnostico_de_argumentos_de_tipo(&texto, n_params, args.len(), span));
+                                }
                                 let resolved_args = self.args_ou_limites(cid, resolved_args);
                                 let is_ext =
                                     self.program.class(cid).kind == ClassKind::ExtensionType;
@@ -1360,6 +1585,7 @@ impl<'a> OutlineResolver<'a> {
                                 let resolved_args: Vec<TypeId> = args
                                     .iter()
                                     .map(|&a| {
+                                        self.contexto_de_tipo = ContextoDeTipo::ArgumentoDeTipo;
                                         self.resolve_annotation(
                                             unit_id,
                                             a,
@@ -1371,6 +1597,9 @@ impl<'a> OutlineResolver<'a> {
 
                                 let target_ty = self.ensure_typedef_resolved(tid);
                                 let formals = self.typedef_type_params[tid.0 as usize].clone();
+                                if !args.is_empty() && args.len() != formals.len() {
+                                    self.avisar(unit_id, diagnostico_de_argumentos_de_tipo(&texto, formals.len(), args.len(), span));
+                                }
                                 let resolved_args = if resolved_args.len() == formals.len() {
                                     resolved_args
                                 } else {
@@ -1388,16 +1617,12 @@ impl<'a> OutlineResolver<'a> {
                                 }
                             }
                             _ => {
-                                self.diagnostics.push(Diagnostic::new(
-                                    "O elemento prefixado não é um tipo",
-                                    span,
-                                ));
+                                self.avisar(unit_id, diagnostico_de_nome_de_tipo(contexto, true, &texto, faixa));
                                 self.core.dynamic_
                             }
                         },
                         None => {
-                            self.diagnostics
-                                .push(Diagnostic::new("Tipo prefixado não encontrado", span));
+                            self.avisar(unit_id, diagnostico_de_nome_de_tipo(contexto, false, &texto, faixa));
                             self.core.dynamic_
                         }
                     }
@@ -1613,5 +1838,14 @@ impl<'a> OutlineResolver<'a> {
         }
 
         (positional, optional, named)
+    }
+}
+
+/// O contêiner de um membro (classe ou extensão), se houver.
+fn conteiner_de(classe: Option<ClassId>, extensao: Option<ExtensionId>) -> Option<Conteiner> {
+    match (classe, extensao) {
+        (Some(c), _) => Some(Conteiner::Classe(c)),
+        (None, Some(e)) => Some(Conteiner::Extensao(e)),
+        _ => None,
     }
 }

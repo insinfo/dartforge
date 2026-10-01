@@ -231,11 +231,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => *v,
                     _ => return None,
                 };
-                if !self.ctx.program.variables[vid.0 as usize].const_ {
+                let var = &self.ctx.program.variables[vid.0 as usize];
+                if !var.const_ {
                     return None;
                 }
+                let unidade = match var.node {
+                    dartforge_elements::model::VariableRef::Field { unit, .. }
+                    | dartforge_elements::model::VariableRef::TopLevel { unit, .. } => unit,
+                    _ => return None,
+                };
                 let init = self.variable_initializer_em(vid)?;
-                self.partes_do_espalhado(ast, init, mapa)
+                if unidade == self.unit_id {
+                    return self.partes_do_espalhado(ast, init, mapa);
+                }
+                // A `const` de outra unidade (outra biblioteca ou outra
+                // `part`): o inicializador é um `ExprId` da AST *dela*, lido
+                // com as resoluções e a fonte dela. Com a AST corrente, o
+                // índice apontava para outra expressão (a chave saía errada,
+                // `identical` dava falso) ou para fora da arena (pânico).
+                let outro = FnBuilder::new(self.ctx, unidade, String::new(), String::new(), Type::Ref);
+                let ast_outro = &self.ctx.program.unit(unidade).ast;
+                outro.partes_do_espalhado(ast_outro, init, mapa)
             }
             _ => None,
         }

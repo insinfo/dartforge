@@ -520,3 +520,32 @@ fn parte_de_si_mesma_nao_recarrega() {
     let lib = p.library(p.entry.unwrap());
     assert_eq!(lib.units.len(), 1);
 }
+
+/// `part 'package:p/x.dart'` (o `diff_match_patch`, docs/NATIVO-PROJETOS-REAIS.md
+/// C5): a URI absoluta da parte vai ao `package_config`, como a de um
+/// `import`; antes era juntada ao diretório da biblioteca (`lib/src/package:p/…`).
+#[test]
+fn parte_por_uri_package() {
+    let tmp = tempdir().unwrap();
+    let sdk = empty_sdk(tmp.path());
+    let mut interner = Interner::new();
+    let proj = tmp.path().join("proj");
+    fs::create_dir_all(proj.join("lib/src/sub")).unwrap();
+    fs::create_dir_all(proj.join(".dart_tool")).unwrap();
+    fs::create_dir_all(proj.join("bin")).unwrap();
+    fs::write(proj.join("pubspec.yaml"), "name: p\nenvironment:\n  sdk: ^3.6.0\n").unwrap();
+    fs::write(
+        proj.join(".dart_tool/package_config.json"),
+        r#"{"configVersion":2,"packages":[{"name":"p","rootUri":"../","packageUri":"lib/","languageVersion":"3.6"}]}"#,
+    )
+    .unwrap();
+    fs::write(proj.join("lib/src/a.dart"), "library a;\npart 'package:p/src/sub/b.dart';\nint f() => g();\n").unwrap();
+    fs::write(proj.join("lib/src/sub/b.dart"), "part of a;\nint g() => 1;\n").unwrap();
+    fs::write(proj.join("bin/main.dart"), "import 'package:p/src/a.dart';\nvoid main() { f(); }\n").unwrap();
+    let config = proj.join(".dart_tool/package_config.json");
+    let prog = load(&proj.join("bin/main.dart"), &sdk, Some(&config), &mut interner).expect("carregamento falhou");
+    let a = prog.libraries.iter().find(|l| l.uri == "package:p/src/a.dart").expect("biblioteca a");
+    assert_eq!(a.units.len(), 2, "a parte entrou na biblioteca");
+    let g = interner.intern("g");
+    assert!(a.declared.contains_key(&g));
+}

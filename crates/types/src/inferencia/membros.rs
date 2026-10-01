@@ -294,6 +294,17 @@ impl<'a> BodyInferrer<'a> {
 
     /// Busca completa: interface, depois extensões acessíveis em `lib`.
     pub(crate) fn buscar_membro(&mut self, lib: LibraryId, recv: TypeId, nome: SymbolId, setter: bool) -> Busca {
+        self.ambiguidade_de_extensao = None;
+        let b = self.buscar_membro_sem_ambiguidade(lib, recv, nome, setter);
+        // Extensões ambíguas: o analyzer não resolve (tipo inválido) e só
+        // relata a ambiguidade.
+        if matches!(b, Busca::Ausente) && self.ambiguidade_de_extensao.is_some() {
+            return Busca::Dinamico;
+        }
+        b
+    }
+
+    fn buscar_membro_sem_ambiguidade(&mut self, lib: LibraryId, recv: TypeId, nome: SymbolId, setter: bool) -> Busca {
         match self.table.get(recv) {
             Type::Dynamic => return Busca::Dinamico,
             Type::Never => return Busca::Nunca,
@@ -397,35 +408,116 @@ impl<'a> BodyInferrer<'a> {
         if candidatos.is_empty() {
             return None;
         }
-        let mut melhor = 0;
-        if candidatos.len() > 1 {
-            let n = candidatos.len();
-            let sdk: Vec<bool> = candidatos.iter().map(|c| self.program.library(self.program.extension(c.0).library).is_sdk).collect();
-            'fora: for i in 0..n {
-                for j in 0..n {
-                    if i == j {
-                        continue;
+        // `_chooseMostSpecific` (`an611:src/dart/resolver/extension_member_resolver.dart:273-312`).
+        let mut melhor_ate_aqui: Option<usize> = None;
+        let mut empatados: Vec<usize> = Vec::new();
+        for i in 0..candidatos.len() {
+            if !empatados.is_empty() {
+                let mut e_o_mais = true;
+                let mut ha_mais = false;
+                for &o in &empatados.clone() {
+                    if !self.extensao_mais_especifica(&candidatos[i], &candidatos[o]) {
+                        e_o_mais = false;
                     }
-                    let mais = if sdk[i] != sdk[j] {
-                        !sdk[i]
-                    } else {
-                        let (a, b) = (candidatos[i].3, candidatos[j].3);
-                        self.sub(a, b)
-                    };
-                    if !mais {
-                        continue 'fora;
+                    if self.extensao_mais_especifica(&candidatos[o], &candidatos[i]) {
+                        ha_mais = true;
                     }
                 }
-                melhor = i;
-                break;
+                if e_o_mais {
+                    melhor_ate_aqui = Some(i);
+                    empatados.clear();
+                } else if !ha_mais {
+                    empatados.push(i);
+                }
+            } else if let Some(b) = melhor_ate_aqui {
+                if self.extensao_mais_especifica(&candidatos[b], &candidatos[i]) {
+                } else if self.extensao_mais_especifica(&candidatos[i], &candidatos[b]) {
+                    melhor_ate_aqui = Some(i);
+                } else {
+                    empatados.push(b);
+                    empatados.push(i);
+                    melhor_ate_aqui = None;
+                }
+            } else {
+                melhor_ate_aqui = Some(i);
             }
         }
+        let Some(melhor) = melhor_ate_aqui else {
+            // Ambíguo: `AMBIGUOUS_EXTENSION_MEMBER_ACCESS` fica pendente
+            // para quem tem o nome (`relatar_ambiguidade_de_extensao`).
+            let nomes: Vec<String> = empatados
+                .iter()
+                .map(|&i| {
+                    let x = self.program.extension(candidatos[i].0);
+                    match x.name {
+                        Some(n) => format!("extension '{}'", self.interner.resolve(n)),
+                        None => {
+                            let on = self.outline.extensions[candidatos[i].0 .0 as usize].on;
+                            format!("unnamed extension on '{}'", self.table.format(on, self.interner, self.program))
+                        }
+                    }
+                })
+                .collect();
+            let lista = match nomes.len() {
+                0 | 1 => nomes.join(""),
+                2 => format!("{} and {}", nomes[0], nomes[1]),
+                n => format!("{}, and {}", nomes[..n - 1].join(", "), nomes[n - 1]),
+            };
+            self.ambiguidade_de_extensao = Some((self.interner.resolve(nome).to_string(), lista));
+            return None;
+        };
         let (e, f, args, _) = candidatos.swap_remove(melhor);
         let (t, metodo) = self.tipo_do_membro_declarado(f, setter);
         let dados = self.outline.extensions[e.0 as usize].clone();
         let mapa = self.mapa(&dados.type_params, &args);
         let t = self.subst(t, &mapa);
         Some(Membro { resolved: Resolved::ExtensionMember { extension: e, member: f }, tipo: t, metodo, funcao: Some(f), de_extensao: true })
+    }
+
+    /// `_isMoreSpecific` (`extension_member_resolver.dart:382-418`): fora da
+    /// plataforma vence a da plataforma; senão o tipo estendido instanciado
+    /// é subtipo do outro e não o inverso, ou, empatando, o mesmo para os
+    /// tipos estendidos instanciados para os limites.
+    fn extensao_mais_especifica(
+        &mut self,
+        a: &(ExtensionId, FunctionElementId, Vec<TypeId>, TypeId),
+        b: &(ExtensionId, FunctionElementId, Vec<TypeId>, TypeId),
+    ) -> bool {
+        let sdk_a = self.program.library(self.program.extension(a.0).library).is_sdk;
+        let sdk_b = self.program.library(self.program.extension(b.0).library).is_sdk;
+        if sdk_a != sdk_b {
+            return !sdk_a;
+        }
+        if !self.sub(a.3, b.3) {
+            return false;
+        }
+        if !self.sub(b.3, a.3) {
+            return true;
+        }
+        let la = self.on_nos_limites(a.0);
+        let lb = self.on_nos_limites(b.0);
+        self.sub(la, lb) && !self.sub(lb, la)
+    }
+
+    /// O tipo estendido de `e` instanciado para os limites.
+    fn on_nos_limites(&mut self, e: ExtensionId) -> TypeId {
+        let dados = self.outline.extensions[e.0 as usize].clone();
+        let args = self.instanciar_para_limites(&dados.type_params);
+        let mapa = self.mapa(&dados.type_params, &args);
+        self.subst(dados.on, &mapa)
+    }
+
+    /// Relata, no nome, a ambiguidade de extensão deixada pela última busca
+    /// (`AMBIGUOUS_EXTENSION_MEMBER_ACCESS`,
+    /// `extension_member_resolver.dart:115-128`).
+    pub(crate) fn relatar_ambiguidade_de_extensao(&mut self, nome: dartforge_diagnostics::Span) {
+        if let Some((n, lista)) = self.ambiguidade_de_extensao.take() {
+            self.aviso_com_codigo(
+                dartforge_diagnostics::codigos::compile_time_error::AMBIGUOUS_EXTENSION_MEMBER_ACCESS,
+                nome,
+                &[&n, &lista],
+            );
+        }
     }
 
     /// Membro de instância da extensão `e` já instanciada (`E(x).m`,

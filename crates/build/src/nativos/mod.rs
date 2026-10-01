@@ -11,6 +11,7 @@ use std::sync::Arc;
 pub fn todos() -> Vec<Arc<dyn GeradorNativo>> {
     vec![
         Arc::new(ng::NgEstagioA::default()),
+        Arc::new(ng::NgEstagioA::com_chave("ngx_dart:ngx_dart")),
         Arc::new(sass::SassNativo),
         Arc::new(i18n::I18nNativo),
     ]

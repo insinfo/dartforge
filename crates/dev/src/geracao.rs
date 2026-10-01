@@ -46,11 +46,20 @@ pub trait EtapaDeGeracao: Send {
     fn mudancas(&mut self) -> Vec<PathBuf>;
     fn atualizar(&mut self, ctx: &CtxSessao<'_>, mudados: &[PathBuf]) -> Result<AtualizacaoEtapa, String>;
     fn provedor(&self) -> Option<Provedor>;
+    /// Bibliotecas que entram no programa além da entrada: as entradas do
+    /// gerador do ngdart (como o `build_runner` resolve cada uma). Sem elas,
+    /// um componente só alcançável pelo próprio `.template.dart` (que ainda não
+    /// existe) fica fora do programa, e o gerador o recusa.
+    fn raizes(&self) -> Vec<PathBuf> {
+        Vec::new()
+    }
 }
 
 /// A etapa do motor de build.
 pub struct EtapaBuild {
     motor: Arc<Mutex<Motor>>,
+    /// Raiz do pacote da entrada.
+    raiz: PathBuf,
     esperadas: HashSet<PathBuf>,
     /// Digest do texto de cada biblioteca (`FonteBiblioteca`), memorizado
     /// entre compilações e invalidado quando uma unidade dela fica suja.
@@ -75,6 +84,7 @@ pub fn etapa_de_build(entrada: &Path, packages: Option<&Path>) -> Option<Result<
         dartforge_build::vm::ligar_do_ambiente(&mut m, &caminho);
         m
     }).map(|m| EtapaBuild {
+        raiz: raiz.clone(),
         esperadas: m.saidas_esperadas().clone(),
         motor: Arc::new(Mutex::new(m)),
         fontes: Mutex::new(HashMap::new()),
@@ -152,6 +162,27 @@ impl BancoSemantico for BancoSessao<'_> {
 }
 
 impl EtapaDeGeracao for EtapaBuild {
+    fn raizes(&self) -> Vec<PathBuf> {
+        let Ok(m) = self.motor.lock() else { return Vec::new() };
+        // O builder do ngdart do plano: o do `ngdart` 8 ou o do fork `ngx_dart` 9.
+        let chave_ng =
+            if m.entradas_de("ngx_dart:ngx_dart").is_empty() { "ngdart:ngdart" } else { "ngx_dart:ngx_dart" };
+        let mut v = m.entradas_de(chave_ng);
+        let ocultos = m.saidas_invisiveis_a(chave_ng);
+        // Só as do `lib/` e do `web/` do pacote da entrada (o `test/` e os
+        // pacotes de teste não entram na aplicação; as dependências chegam
+        // pelas bibliotecas que a aplicação importa), e só bibliotecas: uma
+        // parte (`part of`) entra pela dona.
+        let (lib, web) = (self.raiz.join("lib"), self.raiz.join("web"));
+        v.retain(|p| {
+            (p.starts_with(&lib) || p.starts_with(&web))
+                && !ocultos.contains(p)
+                && std::fs::read_to_string(p)
+                    .is_ok_and(|t| !t.lines().any(|l| l.trim_start().starts_with("part of")))
+        });
+        v
+    }
+
     fn espera(&self, p: &Path) -> bool {
         self.esperadas.contains(&chave(p))
     }

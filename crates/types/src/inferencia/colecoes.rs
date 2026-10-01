@@ -82,7 +82,7 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
     };
     let elements: &[CollectionElement] = elements;
     let t = if !type_args.is_empty() {
-        let args: Vec<TypeId> = type_args.iter().map(|&t| inf.tipo_de_anotacao(cx, t)).collect();
+        let args: Vec<TypeId> = type_args.iter().map(|&t| inf.tipo_de_argumento_de_tipo(cx, t)).collect();
         let (ce, ck, cv) = match forma {
             Forma::Mapa => (inf.core.dynamic_, args[0], args.get(1).copied().unwrap_or(inf.core.dynamic_)),
             _ => (args[0], inf.core.dynamic_, inf.core.dynamic_),
@@ -248,6 +248,9 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, f
                 Some(t) => t,
                 None => inferir(inf, cx, *value, c),
             };
+            if *null_aware {
+                super::expr::espalhamento_nulo_desnecessario(inf, cx, *value, t);
+            }
             let t = inf.nao_nulo(t);
             if inf.e_dynamic(t) {
                 let d = inf.core.dynamic_;

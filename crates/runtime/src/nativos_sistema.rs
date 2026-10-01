@@ -85,15 +85,38 @@ fn fuso_local(segundos: i64) -> (i64, String) {
     (tm.tm_gmtoff as i64, nome)
 }
 
-/// O fuso local no Windows (`GetTimeZoneInformation`): o viés e o nome do
-/// horário padrão ou de verão, como a VM (`os_win.cc`).
+/// O fuso local no Windows no instante `segundos`, como a VM
+/// (runtime/vm/os_win.cc: `LocalTime`, `GetTimeZoneOffsetInSeconds`,
+/// `GetDaylightSavingBiasInSeconds`, `GetTimeZoneName`):
+///
+/// * o horário de verão do INSTANTE vem das regras do fuso para o ano dele
+///   (`GetTimeZoneInformationForYear` + `SystemTimeToTzSpecificLocalTime`,
+///   convertido duas vezes — com o viés de verão e com ele zerado; horas
+///   diferentes = em horário de verão);
+/// * o deslocamento é `-_timezone` da CRT (depois do `_tzset`), menos o viés
+///   de verão ATUAL do sistema quando o instante está em horário de verão;
+/// * o nome é o `DaylightName`/`StandardName` do fuso atual.
+///
+/// Antes usava só o estado de agora (`GetTimeZoneInformation`), para
+/// qualquer instante: `DateTime(2019)` no fuso de Brasília dava 00:00 onde a
+/// VM dá 01:00 (a meia-noite caiu no horário de verão daquele ano), e todo
+/// `DateTime` de verão de um ano passado saía com o deslocamento errado.
 #[cfg(windows)]
-fn fuso_local(_segundos: i64) -> (i64, String) {
+fn fuso_local(segundos: i64) -> (i64, String) {
     #[repr(C)]
+    #[derive(Clone, Copy)]
     struct SystemTime {
-        campos: [u16; 8],
+        ano: u16,
+        mes: u16,
+        dia_da_semana: u16,
+        dia: u16,
+        hora: u16,
+        minuto: u16,
+        segundo: u16,
+        milissegundo: u16,
     }
     #[repr(C)]
+    #[derive(Clone, Copy)]
     struct TimeZoneInformation {
         bias: i32,
         standard_name: [u16; 32],
@@ -106,16 +129,77 @@ fn fuso_local(_segundos: i64) -> (i64, String) {
     #[link(name = "kernel32")]
     unsafe extern "system" {
         fn GetTimeZoneInformation(tz: *mut TimeZoneInformation) -> u32;
+        fn GetTimeZoneInformationForYear(ano: u16, dtzi: *const u8, tz: *mut TimeZoneInformation) -> i32;
+        fn FileTimeToSystemTime(ft: *const u64, st: *mut SystemTime) -> i32;
+        fn SystemTimeToTzSpecificLocalTime(tz: *const TimeZoneInformation, utc: *const SystemTime, local: *mut SystemTime) -> i32;
     }
-    // SAFETY: a estrutura é só dados (zeros são válidos) e a função escreve
-    // nela.
-    let mut tz: TimeZoneInformation = unsafe { std::mem::zeroed() };
-    let modo = unsafe { GetTimeZoneInformation(&mut tz) };
-    let verao = modo == 2;
-    let vies = tz.bias + if verao { tz.daylight_bias } else { tz.standard_bias };
-    let nome = if verao { &tz.daylight_name } else { &tz.standard_name };
-    let fim = nome.iter().position(|c| *c == 0).unwrap_or(nome.len());
-    (-(vies as i64) * 60, String::from_utf16_lossy(&nome[..fim]))
+    unsafe extern "C" {
+        fn _tzset();
+        fn _get_timezone(segundos: *mut i32) -> i32;
+    }
+    const TIME_ZONE_ID_INVALID: u32 = 0xFFFF_FFFF;
+    // 1601-01-01 → 1970-01-01, em unidades de 100 ns (`kTimeEpoc`).
+    const EPOCA_DO_FILETIME: i64 = 116_444_736_000_000_000;
+
+    // `LocalTime`: o instante em horário de verão? (`None`: a conversão falhou.)
+    // SAFETY: as estruturas são só dados (zeros são válidos) e as funções
+    // escrevem nelas.
+    let em_verao = (|| unsafe {
+        let ft = EPOCA_DO_FILETIME.checked_add(segundos.checked_mul(10_000_000)?)? as u64;
+        let mut utc: SystemTime = std::mem::zeroed();
+        if FileTimeToSystemTime(&ft, &mut utc) == 0 {
+            return None;
+        }
+        let mut tz: TimeZoneInformation = std::mem::zeroed();
+        if GetTimeZoneInformationForYear(utc.ano, std::ptr::null(), &mut tz) == 0 {
+            return None;
+        }
+        let mut local: SystemTime = std::mem::zeroed();
+        if SystemTimeToTzSpecificLocalTime(&tz, &utc, &mut local) == 0 {
+            return None;
+        }
+        if tz.daylight_bias == 0 {
+            return Some(false);
+        }
+        let com_vies = local.hora;
+        tz.daylight_bias = 0;
+        if SystemTimeToTzSpecificLocalTime(&tz, &utc, &mut local) == 0 {
+            return None;
+        }
+        Some(com_vies != local.hora)
+    })();
+    // SAFETY: idem.
+    let mut atual: TimeZoneInformation = unsafe { std::mem::zeroed() };
+    let modo = unsafe { GetTimeZoneInformation(&mut atual) };
+    let deslocamento = match em_verao {
+        None => 0, // "Return zero like V8 does."
+        Some(verao) => {
+            let mut oeste = 0i32;
+            // SAFETY: `_tzset` só lê o ambiente e o fuso do sistema;
+            // `_get_timezone` escreve no inteiro.
+            unsafe {
+                _tzset();
+                _get_timezone(&mut oeste);
+            }
+            let mut d = -(oeste as i64);
+            if verao {
+                let vies_de_verao =
+                    if modo == TIME_ZONE_ID_INVALID { -60 * 60 } else { atual.daylight_bias as i64 * 60 };
+                d -= vies_de_verao;
+            }
+            d
+        }
+    };
+    let nome = match em_verao {
+        _ if modo == TIME_ZONE_ID_INVALID => String::new(),
+        None => String::new(),
+        Some(verao) => {
+            let nome = if verao { &atual.daylight_name } else { &atual.standard_name };
+            let fim = nome.iter().position(|c| *c == 0).unwrap_or(nome.len());
+            String::from_utf16_lossy(&nome[..fim])
+        }
+    };
+    (deslocamento, nome)
 }
 
 /// `DateTime_timeZoneOffsetInSeconds`.

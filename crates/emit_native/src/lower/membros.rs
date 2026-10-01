@@ -1252,9 +1252,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             decl.name
         };
         let mut saida = Vec::new();
-        for (k, classe) in ctx.program.classes.iter().enumerate() {
-            let kid = ClassId(k as u32);
-            if !ctx.biblioteca_compilada(classe.library) || !subclasse_de(ctx, kid, cdecl) {
+        for &kid in ctx.subtipos(cdecl).iter() {
+            let classe = &ctx.program.classes[kid.0 as usize];
+            if !ctx.biblioteca_compilada(classe.library) {
                 continue;
             }
             if (classe.modifiers.abstract_ && kid != cdecl) || e_mixin(ctx, kid) {

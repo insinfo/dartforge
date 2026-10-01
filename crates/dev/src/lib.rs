@@ -14,7 +14,7 @@ pub mod hashes;
 pub mod servidor;
 pub mod ws;
 
-use dartforge_elements::load::load_lenient_gerados;
+use dartforge_elements::load::load_lenient_entradas;
 use dartforge_elements::model::{LibraryId, Program};
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_elements::{CacheUnidades, SdkCache};
@@ -279,8 +279,15 @@ impl Sessao {
         // O que mudou desde a compilação anterior, para as etapas de geração.
         let mudados: Vec<PathBuf> =
             if self.etapas.is_empty() { Vec::new() } else { self.sujos.iter().cloned().collect() };
-        let (mut program, mut diags) = load_lenient_gerados(
-            &self.entrada,
+        // A entrada e, com o motor, as entradas do ngdart: um componente só
+        // alcançável pelo próprio `.template.dart` (que ainda não existe)
+        // também entra no programa, e o gerador o vê.
+        let raizes: Vec<PathBuf> = std::iter::once(self.entrada.clone())
+            .chain(self.etapas.iter().flat_map(|e| e.raizes()))
+            .collect();
+        let raizes: Vec<&Path> = raizes.iter().map(PathBuf::as_path).collect();
+        let (mut program, mut diags) = load_lenient_entradas(
+            &raizes,
             &self.sdk,
             self.packages.as_deref(),
             &mut self.interner,
@@ -328,8 +335,8 @@ impl Sessao {
                     self.unidades.invalidar(p);
                     self.sujos.insert(p.clone());
                 }
-                let (p2, d2) = load_lenient_gerados(
-                    &self.entrada,
+                let (p2, d2) = load_lenient_entradas(
+                    &raizes,
                     &self.sdk,
                     self.packages.as_deref(),
                     &mut self.interner,

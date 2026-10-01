@@ -118,6 +118,8 @@ pub struct Mundo {
     causa_classe: Vec<Option<Causa>>,
     causa_var: Vec<Option<Causa>>,
     pub estat: Estatisticas,
+    /// Calculado com o SDK no ponto fixo (`Opcoes::incluir_sdk`).
+    pub incluir_sdk: bool,
 }
 
 impl Mundo {
@@ -194,10 +196,82 @@ enum Item {
     Campos(ClassId),
 }
 
+/// Opções do cálculo.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Opcoes {
+    /// As bibliotecas `dart:` entram no ponto fixo como as do programa (o
+    /// perfil de produção com o SDK compilado pela nossa trilha,
+    /// `docs/JS-PRODUCAO-SDK-PROPRIO.md` §4). Exige os corpos do SDK
+    /// inferidos. Sem ela, o SDK é fronteira, como sempre.
+    pub incluir_sdk: bool,
+}
+
 /// Calcula o mundo. Determinístico: a fila é FIFO, as raízes são ordenadas, e
 /// o resultado (os conjuntos) é o menor ponto fixo, que não depende da ordem.
 pub fn calcular(e: Entrada<'_>, r: &Raizes) -> Mundo {
+    calcular_com(e, r, Opcoes::default())
+}
+
+/// Classes `@Native`/`@JsPeerInterface` das bibliotecas do SDK
+/// (`native_types.dart` do DDC).
+fn classes_nativas(e: &Entrada<'_>) -> HashSet<ClassId> {
+    let p = e.program;
+    let mut out = HashSet::new();
+    for (i, c) in p.classes.iter().enumerate() {
+        if !p.library(c.library).is_sdk {
+            continue;
+        }
+        let Some(d) = c.decl else { continue };
+        let decl = p.unit(d.unit).ast.decl(d.decl);
+        if decl.metadata.iter().any(|a| a.name.last().is_some_and(|n| matches!(e.interner.resolve(n.sym), "Native" | "JsPeerInterface"))) {
+            out.insert(ClassId(i as u32));
+        }
+    }
+    out
+}
+
+/// Classes nativas do SDK com as *tags* JS de `@Native('A,B')` /
+/// `@JsPeerInterface(name: 'A')` — quem compila o SDK usa as das tags
+/// embutidas do JS (`String`, `Number`, `Array`…) como raízes: um valor
+/// primitivo do JS vira instância delas sem `new` nenhum.
+pub fn tags_nativas(e: &Entrada<'_>) -> Vec<(ClassId, Vec<String>)> {
+    let p = e.program;
+    let mut out = Vec::new();
+    for (i, c) in p.classes.iter().enumerate() {
+        if !p.library(c.library).is_sdk {
+            continue;
+        }
+        let Some(d) = c.decl else { continue };
+        let unit = p.unit(d.unit);
+        let decl = unit.ast.decl(d.decl);
+        for a in decl.metadata.iter() {
+            if !a.name.last().is_some_and(|n| matches!(e.interner.resolve(n.sym), "Native" | "JsPeerInterface")) {
+                continue;
+            }
+            let Some(args) = &a.arguments else { continue };
+            for arg in args.args.iter() {
+                if arg.name.is_some_and(|n| e.interner.resolve(n.sym) != "name") {
+                    continue;
+                }
+                if let ast::ExprKind::String(lit) = &unit.ast.expr(arg.value).kind {
+                    if let Some(v) = lit.constant_value() {
+                        let tags = v.to_string_lossy().split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty() && !s.starts_with('!')).collect();
+                        out.push((ClassId(i as u32), tags));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Como [`calcular`], com [`Opcoes`].
+pub fn calcular_com(e: Entrada<'_>, r: &Raizes, op: Opcoes) -> Mundo {
     let mut m = Motor::novo(e);
+    if op.incluir_sdk {
+        m.incluir_sdk = true;
+        m.nativas = classes_nativas(&e);
+    }
     m.causa = Causa::Raiz;
     for s in {
         let mut v = r.seletores.clone();
@@ -262,6 +336,10 @@ pub fn conferir(e: Entrada<'_>, r: &Raizes, mundo: &Mundo) -> Vec<Inconsistencia
     // Recalcula num motor novo, semeado com o mundo pronto, e compara: se o
     // motor achar qualquer coisa nova, o mundo não era um ponto fixo.
     let mut m = Motor::novo(e);
+    if mundo.incluir_sdk {
+        m.incluir_sdk = true;
+        m.nativas = classes_nativas(&e);
+    }
     m.classes = mundo.classes.clone();
     m.f_vivo = mundo.funcoes.clone();
     m.v_vivo = mundo.variaveis.clone();
@@ -390,6 +468,11 @@ pub(crate) struct Motor<'a> {
     /// dele é escrita (`foo_=`), não leitura. Consumido (e zerado) pelo braço
     /// `Property`/`Identifier`; o resto do alvo continua sendo leitura.
     pub(crate) alvo_de_escrita: Option<dartforge_frontend::ast::ExprId>,
+    /// O SDK entra no ponto fixo como o programa (`Opcoes::incluir_sdk`).
+    incluir_sdk: bool,
+    /// Classes nativas (`@Native`/`@JsPeerInterface`): viva como tipo é
+    /// instanciada, porque o objeto nasce no navegador.
+    nativas: HashSet<ClassId>,
 }
 
 impl<'a> Motor<'a> {
@@ -429,11 +512,13 @@ impl<'a> Motor<'a> {
             itens: 0,
             extensoes_prontas: false,
             alvo_de_escrita: None,
+            incluir_sdk: false,
+            nativas: HashSet::new(),
         }
     }
 
     fn e_usuario_lib(&self, l: LibraryId) -> bool {
-        !self.e.program.library(l).is_sdk
+        self.incluir_sdk || !self.e.program.library(l).is_sdk
     }
     fn e_usuario_classe(&self, c: ClassId) -> bool {
         self.e_usuario_lib(self.e.program.class(c).library)
@@ -766,6 +851,11 @@ impl<'a> Motor<'a> {
         if class.kind == ClassKind::Enum {
             self.instanciar(c);
         }
+        // Classe nativa viva como tipo é instanciada: o objeto vem do
+        // navegador (ou é um primitivo do JS), não de um `new` do programa.
+        if self.nativas.contains(&c) {
+            self.instanciar(c);
+        }
         let mut supers: Vec<ClassId> = Vec::new();
         supers.extend(class.supertype_class);
         supers.extend(class.mixin_classes.iter().copied());
@@ -1080,6 +1170,7 @@ impl<'a> Motor<'a> {
             causa_classe: self.causa_classe,
             causa_var: self.causa_var,
             estat: est,
+            incluir_sdk: self.incluir_sdk,
         }
     }
 

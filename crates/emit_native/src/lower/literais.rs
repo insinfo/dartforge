@@ -13,6 +13,12 @@ use crate::hir::*;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{self, CollectionElement, ExprId, ForInit};
 
+/// A partir de quantos elementos um literal constante vai em pedaços
+/// (`FnBuilder::preencher_em_pedacos`).
+const LIMIAR_DE_PEDACOS: usize = 256;
+/// Quantos elementos cada função auxiliar de um literal em pedaços avalia.
+const PEDACO_DE_LITERAL: usize = 128;
+
 /// Que coleção o literal constrói.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Colecao {
@@ -94,6 +100,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.preencher_de_tabela(ast, alvo.clone(), tipo, elements) {
             return alvo;
         }
+        if self.preencher_em_pedacos(ast, alvo.clone(), tipo, elements, span) {
+            return alvo;
+        }
         for el in elements {
             self.elemento_de_colecao(ast, alvo.clone(), tipo, el, span);
         }
@@ -106,8 +115,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// (`dartforge_lista_de_tabela`), e um apoio Dart que a copia para a
     /// coleção — em vez de uma chamada de `add`/`[]=` por elemento, que
     /// fazia do getter de uma constante de 2 mil entradas uma função de 50
-    /// mil instruções. Os inteiros ficam de fora: o tipo de contexto pode
-    /// fazer de um literal inteiro um `double`.
+    /// mil instruções. Os números entram pelo tipo estático do literal
+    /// (`int` como `i`, `double` como `d`); um número de outro tipo estático
+    /// (`num`, `Object`: o valor é o `int`, mas sem garantia aqui) deixa o
+    /// literal fora da tabela.
     fn preencher_de_tabela(&mut self, ast: &ast::Ast, alvo: Operand, tipo: Colecao, elements: &[CollectionElement]) -> bool {
         const MINIMO: usize = 8;
         if elements.len() < MINIMO {
@@ -115,6 +126,41 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let mut tabela: Vec<u8> = Vec::new();
         let escalar = |e: ast::ExprId, tabela: &mut Vec<u8>| -> bool {
+            // Número literal (ou `-literal`): pelo TIPO ESTÁTICO da expressão,
+            // que já diz se o contexto fez de um literal inteiro um `double`
+            // (as tabelas `Map<int, int>` do `enough_convert`, 30 mil
+            // entradas).
+            let numero = matches!(ast.expr(e).kind, ast::ExprKind::Int(_) | ast::ExprKind::Double(_))
+                || matches!(&ast.expr(e).kind, ast::ExprKind::Unary { op: ast::UnaryOp::Neg, operand }
+                    if matches!(ast.expr(*operand).kind, ast::ExprKind::Int(_) | ast::ExprKind::Double(_)));
+            if numero {
+                let Some(chave) = self.chave_constante(ast, e, true) else { return false };
+                let tipo = self.ctx.get_type(self.unit_id, e);
+                let (int, double) = (Some(self.ctx.core.int), Some(self.ctx.core.double));
+                let valor = match chave.as_str() {
+                    k if k.starts_with("i:") => k[2..].parse::<i64>().ok().map(|v| (v, false)),
+                    k if k.starts_with("d:") => k[2..].parse::<u64>().ok().map(|b| (b as i64, true)),
+                    k if k.starts_with("neg(i:") && k.ends_with(')') => {
+                        k[6..k.len() - 1].parse::<i64>().ok().map(|v| (v.wrapping_neg(), false))
+                    }
+                    k if k.starts_with("neg(d:") && k.ends_with(')') => {
+                        k[6..k.len() - 1].parse::<u64>().ok().map(|b| ((-f64::from_bits(b)).to_bits() as i64, true))
+                    }
+                    _ => None,
+                };
+                let Some((v, e_double)) = valor else { return false };
+                if tipo == int && !e_double {
+                    tabela.push(b'i');
+                    tabela.extend_from_slice(&v.to_le_bytes());
+                } else if tipo == double {
+                    let bits = if e_double { v as u64 } else { (v as f64).to_bits() };
+                    tabela.push(b'd');
+                    tabela.extend_from_slice(&bits.to_le_bytes());
+                } else {
+                    return false;
+                }
+                return true;
+            }
             match &ast.expr(e).kind {
                 ast::ExprKind::Null => tabela.push(b'n'),
                 ast::ExprKind::Bool(b) => tabela.push(if *b { b't' } else { b'f' }),
@@ -171,6 +217,120 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         true
     }
 
+    /// O literal grande de elementos constantes que a tabela não cobre
+    /// (inteiros, valores de enum, `const` de outras declarações — as
+    /// tabelas Unicode do `bidi`, 16 mil entradas `65: CharacterCategory.lu`).
+    ///
+    /// Numa função só, cada elemento deixava no quadro o seu buffer de
+    /// argumentos (`[]=` por seletor) e, no `-O0`, uma palavra de
+    /// derramamento por valor que atravessa a conferência de exceção: o
+    /// quadro do getter passava de 1 MiB e estourava a pilha do isolado
+    /// principal (a thread principal do processo, 1 MiB no Windows — a
+    /// mesma reserva da VM, `OSThread::GetMaxStackSize`,
+    /// runtime/vm/os_thread_win.cc:101-104). A VM não tem o problema porque
+    /// o literal é um vetor preenchido por `StoreIndexed` e um só
+    /// `Map._fromLiteral`/`_GrowableList._literal`
+    /// (runtime/vm/compiler/frontend/kernel_binary_flowgraph.cc:4051-4140).
+    ///
+    /// Aqui os elementos vão, em ordem, por funções auxiliares de
+    /// [`PEDACO_DE_LITERAL`] elementos cada (`<função>$lit<pos>_<i>(alvo)`), que
+    /// acrescentam ao `alvo` como o caminho comum. Só com elementos
+    /// constantes (a chave canônica existe): uma constante não lê locais,
+    /// `this` nem parâmetros de tipo, então a avaliação fora da função que
+    /// contém o literal é a mesma, na mesma ordem — e as `const` locais vão
+    /// junto (`chaves_de_const_locais`), reavaliadas pelo inicializador
+    /// como no getter de constante.
+    fn preencher_em_pedacos(
+        &mut self,
+        ast: &ast::Ast,
+        alvo: Operand,
+        tipo: Colecao,
+        elements: &[CollectionElement],
+        span: Span,
+    ) -> bool {
+        if elements.len() < LIMIAR_DE_PEDACOS {
+            return false;
+        }
+        let constantes = elements.iter().all(|el| match (el, tipo) {
+            (CollectionElement::Expression(e), Colecao::Lista | Colecao::Conjunto) => {
+                self.chave_constante(ast, *e, true).is_some()
+            }
+            (
+                CollectionElement::MapEntry { key, value, null_aware_key: false, null_aware_value: false },
+                Colecao::Mapa,
+            ) => self.chave_constante(ast, *key, true).is_some() && self.chave_constante(ast, *value, true).is_some(),
+            _ => false,
+        });
+        if !constantes {
+            return false;
+        }
+        let alvo = self.coagir(alvo, Type::Ref);
+        for (i, pedaco) in elements.chunks(PEDACO_DE_LITERAL).enumerate() {
+            let simbolo = format!("{}$lit{}_{i}", self.func.symbol, span.start);
+            let mut g = FnBuilder::new(self.ctx, self.unit_id, simbolo.clone(), "literal".to_string(), Type::Ref);
+            g.em_contexto_const = self.em_contexto_const;
+            g.chaves_de_const_locais = self.chaves_de_const_locais.clone();
+            let p = Operand::Val(g.add_param("alvo".to_string(), Type::Ref));
+            for el in pedaco {
+                if g.is_terminated() {
+                    break;
+                }
+                g.elemento_de_colecao(ast, p.clone(), tipo, el, span);
+            }
+            if !g.is_terminated() {
+                g.terminate(Terminator::Return(Some(Operand::Constant(Constant::Null))));
+            }
+            self.absorver(g);
+            self.emit_call_with_check(
+                Instruction::CallStatic { symbol: simbolo, args: vec![alvo.clone()], ret_ty: Type::Ref },
+                Type::Ref,
+            );
+        }
+        true
+    }
+
+    /// O literal de lista só de expressões vai pelo caminho em pedaços?
+    /// (grande, e todo elemento constante: `preencher_em_pedacos`).
+    pub fn literal_grande_e_constante(&self, ast: &ast::Ast, elements: &[CollectionElement]) -> bool {
+        elements.len() >= LIMIAR_DE_PEDACOS
+            && elements.iter().all(|el| match el {
+                CollectionElement::Expression(e) => self.chave_constante(ast, *e, true).is_some(),
+                _ => false,
+            })
+    }
+
+    /// `e` nomeia uma `const` (de topo ou estática, desta ou de outra
+    /// unidade) cujo inicializador é um literal de lista, conjunto ou mapa:
+    /// a unidade e o literal.
+    fn literal_da_constante(&self, ast: &ast::Ast, e: ExprId) -> Option<(dartforge_elements::model::UnitId, ExprId)> {
+        use dartforge_elements::model::{Element, VariableRef};
+        use dartforge_types::resolved::{MemberRef, Resolved};
+        if !matches!(ast.expr(e).kind, ast::ExprKind::Identifier(_) | ast::ExprKind::Property { .. }) {
+            return None;
+        }
+        let vid = match self.ctx.get_resolved(self.unit_id, e)? {
+            Resolved::Element(Element::Variable(v)) => *v,
+            Resolved::Element(Element::Function(f)) => self.ctx.program.functions[f.0 as usize].variable?,
+            Resolved::Member { member: MemberRef::Variable(v), .. } => *v,
+            Resolved::Member { member: MemberRef::Function(f), .. } => self.ctx.program.functions[f.0 as usize].variable?,
+            _ => return None,
+        };
+        let var = &self.ctx.program.variables[vid.0 as usize];
+        if !var.const_ {
+            return None;
+        }
+        let unidade = match var.node {
+            VariableRef::Field { unit, .. } | VariableRef::TopLevel { unit, .. } => unit,
+            _ => return None,
+        };
+        let mut init = self.variable_initializer_em(vid)?;
+        let ast_c = &self.ctx.program.unit(unidade).ast;
+        while let ast::ExprKind::Parenthesized(x) = &ast_c.expr(init).kind {
+            init = *x;
+        }
+        matches!(ast_c.expr(init).kind, ast::ExprKind::List { .. } | ast::ExprKind::SetOrMap { .. }).then_some((unidade, init))
+    }
+
     /// A função de topo `nome` da biblioteca `uri`.
     pub fn funcao_de_topo(&self, uri: &str, nome: &str) -> Option<usize> {
         let lib = self.ctx.program.libraries.iter().position(|l| l.uri == uri)?;
@@ -218,6 +378,31 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.acrescentar_entrada(alvo, k, v);
             }
             CollectionElement::Spread { value, null_aware } => {
+                // Num contexto constante, `...c` de uma `const` cujo
+                // inicializador é um literal acrescenta os elementos DO
+                // LITERAL (§17.9.1: o resultado é o mesmo), em vez de ler o
+                // global `c`. Ler o global criava um ciclo quando a
+                // constante que se monta tem a mesma chave canônica que a
+                // de `c` (`const [...c]` com `const c = [1, 2]`): o getter
+                // canônico avaliava `c`, cujo inicializador chamava o mesmo
+                // getter ainda em curso — o `StackOverflowError` do global
+                // reentrante (corpus/nativo/120).
+                if self.em_contexto_const
+                    && let Some((unidade, init)) = self.literal_da_constante(ast, *value)
+                {
+                    let ctx = self.ctx;
+                    let ast_c = &ctx.program.unit(unidade).ast;
+                    let elementos = match &ast_c.expr(init).kind {
+                        ast::ExprKind::List { elements, .. } | ast::ExprKind::SetOrMap { elements, .. } => elements,
+                        _ => unreachable!("literal_da_constante devolve um literal"),
+                    };
+                    let salvo = std::mem::replace(&mut self.unit_id, unidade);
+                    for el in elementos.iter() {
+                        self.elemento_de_colecao(ast_c, alvo.clone(), tipo, el, span);
+                    }
+                    self.unit_id = salvo;
+                    return;
+                }
                 let fonte = self.lower_expr(ast, *value);
                 let fonte = self.coagir(fonte, Type::Ref);
                 // `...e` é o `addAll` da coleção (§17.9.1).

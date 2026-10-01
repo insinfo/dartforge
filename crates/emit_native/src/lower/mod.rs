@@ -400,6 +400,13 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                         builder.params_de_tipo_de(f_idx).iter().map(|&p| ctx.table.param(p).name).collect();
                 }
 
+                // Fora do mundo fechado do programa (C7, `mundo_nativo.rs`):
+                // o símbolo fica (tabelas e entradas o citam), o corpo lança.
+                if ctx.funcao_podada(f_idx) {
+                    builder.corpo_podado();
+                    builder.finalizar(module);
+                    return;
+                }
                 match ast_func.modifier {
                     // P6: o corpo `async` vira máquina de estados
                     // (`async_sm.rs`); os geradores `sync*`/`async*` também.
@@ -607,6 +614,12 @@ fn lower_globais_e_resto(ctx: &Context, mut module: Module) -> Module {
             let obj = Operand::Val(b.add_param("this".to_string(), Type::Ref));
             b.this_param = Some(obj.clone());
             b.enclosing_class = v.class;
+            // Campo fora do mundo fechado (C7): ninguém o lê.
+            if ctx.campo_podado(vid) {
+                b.corpo_podado();
+                b.finalizar(m);
+                return;
+            }
             b.lower_getter_campo_late(obj, vid, ctx.program.unit(unit).ast.member(member).span);
             b.finalizar(m);
         };
@@ -647,7 +660,11 @@ fn lower_globais_e_resto(ctx: &Context, mut module: Module) -> Module {
         let repr = if repr == Type::Void { Type::Ref } else { repr };
         module.globais.push((vid.0, repr, simbolo_valor_global(ctx, vid)));
         // O getter (ou a recusa dele) e o setter que outro módulo chama para
-        // gravar (P5c).
+        // gravar (P5c). Fora do mundo fechado (C7), o getter lança.
+        if ctx.global_podado(vid) {
+            sdk_fonte::lower_global_podado(ctx, &mut module, vid, unit, repr);
+            continue;
+        }
         sdk_fonte::lower_global_ou_recusa(ctx, &mut module, vid, unit, repr);
     }
 

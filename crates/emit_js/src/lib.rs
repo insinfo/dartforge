@@ -12,6 +12,7 @@ pub mod filtro;
 pub mod js;
 pub mod module;
 pub mod pattern;
+pub mod sdk_proprio;
 pub mod tipo_extensao;
 pub mod ty;
 
@@ -55,6 +56,53 @@ impl<'a> Analise<'a> {
         ctx.filtro = filtro;
         module::emitir_com_cache(&ctx, None, None).map_err(|ds| ds.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"))
     }
+
+    /// Emite o programa **e o SDK** pela nossa trilha (o modo SDK,
+    /// [`sdk_proprio`]; `docs/JS-PRODUCAO-SDK-PROPRIO.md`). Os corpos do SDK
+    /// têm de ter sido inferidos ([`compilar_com_opcoes`] com `inferir_sdk`).
+    ///
+    /// # Erros
+    ///
+    /// Os erros de linguagem achados na emissão, um por linha.
+    pub fn emitir_com_sdk<'b>(&'b self, filtro: Option<&'b dyn filtro::Vivos>) -> Result<EmitidoComSdk, String> {
+        let mut ctx: ctx::Ctx<'b> = ctx::Ctx::new(self.program, self.interner, self.table, self.core, self.outline, self.bodies);
+        ctx.filtro = filtro;
+        let modo = sdk_proprio::ModoSdk::novo(&ctx);
+        ctx.sdk = Some(Box::new(modo));
+        let juntar = |ds: Vec<Diagnostic>| ds.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n");
+        let emitido = module::emitir_com_cache(&ctx, None, None).map_err(juntar)?;
+        let (sdk, mut dartx) = sdk_proprio::emitir_modulo_sdk(&ctx);
+        let erros = std::mem::take(&mut *ctx.erros.borrow_mut());
+        if !erros.is_empty() {
+            return Err(juntar(erros));
+        }
+        // Os símbolos `dartx` que os módulos do programa citam no prelúdio
+        // (`var $x = dartx.x;`), para o *bootstrap* criar cada um uma vez.
+        for (_, t) in &emitido.modulos {
+            for linha in t.lines() {
+                let Some(r) = linha.strip_prefix("var $") else { continue };
+                let Some((_, valor)) = r.split_once(" = dartx") else { continue };
+                let valor = valor.trim_end_matches(';');
+                if let Some(n) = valor.strip_prefix('.') {
+                    dartx.insert(n.to_string());
+                } else if let Some(n) = valor.strip_prefix("[\"").and_then(|x| x.strip_suffix("\"]")) {
+                    dartx.insert(n.replace("\\\\", "\\").replace("\\\"", "\""));
+                }
+            }
+        }
+        let bootstrap = sdk_proprio::bootstrap(&ctx, &dartx);
+        Ok(EmitidoComSdk { emitido, sdk, bootstrap })
+    }
+}
+
+/// O programa e o SDK emitidos pela nossa trilha ([`Analise::emitir_com_sdk`]).
+pub struct EmitidoComSdk {
+    /// Os módulos do programa, como em [`Analise::emitir`].
+    pub emitido: Emitido,
+    /// O módulo do SDK (sem o *bootstrap*).
+    pub sdk: String,
+    /// O *bootstrap*: `dart`, os namespaces, `dartx` e os seus símbolos.
+    pub bootstrap: String,
 }
 
 /// Emite um módulo por biblioteca não-SDK do programa e o `main.mjs`.
@@ -297,6 +345,25 @@ pub fn compilar_com_gerador<R>(
     gerador: Option<Gerador<'_>>,
     fim: impl FnOnce(&Analise<'_>) -> Result<R, String>,
 ) -> Result<(R, Relatorio), String> {
+    compilar_com_opcoes(entrada, sdk_lib, packages, linguagem, gerador, false, fim)
+}
+
+/// Como [`compilar_com_gerador`]; com `inferir_sdk`, os corpos das
+/// bibliotecas do SDK também são inferidos — o que o modo SDK
+/// ([`Analise::emitir_com_sdk`]) e o mundo fechado com o SDK precisam.
+///
+/// # Erros
+///
+/// Os mesmos de [`compilar_com_gerador`].
+pub fn compilar_com_opcoes<R>(
+    entrada: &std::path::Path,
+    sdk_lib: Option<&std::path::Path>,
+    packages: Option<&std::path::Path>,
+    linguagem: &dartforge_elements::sdk::Linguagem,
+    gerador: Option<Gerador<'_>>,
+    inferir_sdk: bool,
+    fim: impl FnOnce(&Analise<'_>) -> Result<R, String>,
+) -> Result<(R, Relatorio), String> {
     use dartforge_elements::sdk::SdkLayout;
     use std::time::Instant;
     let mut rel = Relatorio::default();
@@ -480,8 +547,13 @@ pub fn compilar_com_gerador<R>(
     let (mut outline, outline_diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
     rel.fase("outline (tipos)", t);
     let t = Instant::now();
-    let (bodies, body_diags) =
-        dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
+    let (bodies, body_diags) = if inferir_sdk {
+        let todas: Vec<dartforge_elements::model::LibraryId> =
+            (0..program.libraries.len() as u32).map(dartforge_elements::model::LibraryId).collect();
+        dartforge_types::infer_bodies_das_bibliotecas(&program, &interner, &mut table, &core, &mut outline, &todas)
+    } else {
+        dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline)
+    };
     rel.fase("inferência de corpos", t);
     // Erros de linguagem dos recursos 3.7–3.13 (docs/VERSOES-LINGUAGEM.md
     // §3) e leitura de local não definitivamente atribuído abortam como os

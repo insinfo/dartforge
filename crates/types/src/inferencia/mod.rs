@@ -136,6 +136,15 @@ pub struct BodyInferrer<'a> {
     pub sonda_escopo: Option<(UnitId, usize)>,
     /// O escopo capturado pela [`BodyInferrer::sonda_escopo`].
     pub escopo_sondado: Option<crate::resolved::EscopoSondado>,
+    /// O contexto da próxima anotação resolvida (lido e zerado por
+    /// `resolver_anotacao`).
+    pub(crate) contexto_de_tipo: crate::resolve::ContextoDeTipo,
+    /// A classe e a extensão cujos membros estão em escopo na anotação.
+    pub(crate) conteiner_de_tipos: (Option<dartforge_elements::model::ClassId>, Option<ExtensionId>),
+    /// Ambiguidade de extensão da última busca de membro: `(nome, lista)`.
+    pub(crate) ambiguidade_de_extensao: Option<(String, String)>,
+    /// A anotação em resolução está num método ou campo estático.
+    pub(crate) em_membro_estatico: bool,
 }
 
 impl<'a> BodyInferrer<'a> {
@@ -181,6 +190,10 @@ impl<'a> BodyInferrer<'a> {
             registrar_locais: false,
             sonda_escopo: None,
             escopo_sondado: None,
+            contexto_de_tipo: crate::resolve::ContextoDeTipo::Normal,
+            conteiner_de_tipos: (None, None),
+            ambiguidade_de_extensao: None,
+            em_membro_estatico: false,
         }
     }
 
@@ -527,6 +540,7 @@ impl<'a> BodyInferrer<'a> {
         let arquivo = self.program.unit(unit).path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
         let texto = format!("{}{arquivo}:{}: {msg}", crate::codes::ERRO_DE_LINGUAGEM, span.start);
         self.diagnostics.push(Diagnostic::new(texto, span));
+        self.unidades_dos_avisos.push(Some(unit));
     }
 
     pub(crate) fn span_expr(&self, unit: UnitId, e: ast::ExprId) -> Span {

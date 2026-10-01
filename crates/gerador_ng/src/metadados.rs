@@ -150,7 +150,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
         let p = self.r.programa();
         let c = p.class(id);
         Classe {
-            uri: p.library(c.library).uri.clone(),
+            uri: crate::dialeto::canonica_string(p.library(c.library).uri.clone()),
             nome: self.r.interner().resolve(c.name).to_string(),
             id,
         }
@@ -657,7 +657,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
     fn token_de_dependencia(&self, v: &Valor) -> Result<Token, String> {
         match v {
             Valor::Tipo(c)
-                if c.uri == "dart:html" && (c.nome == "HtmlElement" || c.nome == "Element") =>
+                if crate::dialeto::no_embutido(&c.uri, &c.nome).is_some() =>
             {
                 Ok(Token::Elemento)
             }
@@ -1051,8 +1051,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 Some("read") => {
                     leitura = Some(match self.valor(dc.unidade, x.value, 0)? {
                         Valor::Tipo(c)
-                            if c.uri == "dart:html"
-                                && matches!(c.nome.as_str(), "HtmlElement" | "Element") =>
+                            if crate::dialeto::no_embutido(&c.uri, &c.nome).is_some() =>
                         {
                             LeituraDaConsulta::Elemento
                         }
@@ -1299,7 +1298,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                     .classe_do_tipo(t.2, t.0, t.1)
                     .ok_or("tipo não resolvido no construtor da diretiva")?
                     .ok_or("parâmetro dynamic no construtor da diretiva")?;
-                if c.uri == "dart:html" && (c.nome == "HtmlElement" || c.nome == "Element") {
+                if crate::dialeto::no_embutido(&c.uri, &c.nome).is_some() {
                     Token::Elemento
                 } else if c.uri.starts_with("package:ngdart/") && c.nome == "ChangeDetectorRef" {
                     Token::Detector
@@ -1524,7 +1523,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                         return Err("função que não é de topo".into());
                     }
                     Ok(Valor::Funcao {
-                        uri: p.library(fe.library).uri.clone(),
+                        uri: crate::dialeto::canonica_string(p.library(fe.library).uri.clone()),
                         nome: self.r.interner().resolve(fe.name).to_string(),
                         id: f,
                     })
@@ -1818,7 +1817,11 @@ impl Modulo {
 /// (`InjectorReader.findInjectors`), na ordem das variáveis de topo.
 pub fn ler_injetores(r: &Resolvedor, uri: &str) -> Vec<(String, Result<Injetor, String>)> {
     let p = r.programa();
-    let Some(i) = p.libraries.iter().position(|l| l.uri == uri) else {
+    let Some(i) = p
+        .libraries
+        .iter()
+        .position(|l| crate::dialeto::canonica(&l.uri) == uri)
+    else {
         return Vec::new();
     };
     let lib = LibraryId(i as u32);
@@ -2422,7 +2425,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                     && publico(nome)
                 {
                     return Ok(Revivido::Acesso {
-                        uri: p.library(lib).uri.clone(),
+                        uri: crate::dialeto::canonica_string(p.library(lib).uri.clone()),
                         nome: nome.to_string(),
                     });
                 }

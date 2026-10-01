@@ -419,6 +419,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Construto que o lowering não sabe baixar: diagnóstico com posição
     /// (N1). O operando devolvido nunca chega a ser emitido — um módulo com
     /// erros não gera código.
+    /// O corpo de uma função (ou getter de global) que o mundo fechado do
+    /// programa não alcança (C7, `mundo_nativo.rs`): lança
+    /// `UnsupportedError` com o símbolo. Só roda se a análise errou — o erro
+    /// é alto e diz o que faltou.
+    pub fn corpo_podado(&mut self) {
+        let msg = format!("dartforge: código podado como inalcançável foi chamado: {}", self.func.symbol);
+        let m = self.emit(Instruction::Const(Constant::String(msg)), Type::Ref);
+        let e = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_unsupported_error_new".to_string(),
+                args: vec![(m, Type::Ref)],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        );
+        self.emit_throw_op(e);
+    }
+
     pub fn nao_suportado(&mut self, oque: &str, span: dartforge_diagnostics::Span) -> Operand {
         let unit = self.ctx.program.unit(self.unit_id);
         // P6: no código do SDK compilado da fonte (mundo aberto: a poda é

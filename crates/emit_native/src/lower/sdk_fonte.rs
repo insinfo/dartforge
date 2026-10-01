@@ -68,10 +68,9 @@ pub fn classe_fechada(ctx: &Context, cid: ClassId) -> bool {
     if !ctx.symbol_name(classe.name).starts_with('_') {
         return false;
     }
-    ctx.program.classes.iter().enumerate().all(|(k, c)| {
-        c.library != classe.library
-            || !subclasse_de(ctx, ClassId(k as u32), cid)
-            || ctx.symbol_name(c.name).starts_with('_')
+    ctx.subtipos(cid).iter().all(|&k| {
+        let c = &ctx.program.classes[k.0 as usize];
+        c.library != classe.library || ctx.symbol_name(c.name).starts_with('_')
     })
 }
 
@@ -99,10 +98,10 @@ pub fn classe_fechada_por_modificador(ctx: &Context, cid: ClassId) -> bool {
     if !(classe.modifiers.final_ || classe.modifiers.sealed) {
         return false;
     }
-    ctx.program.classes.iter().enumerate().all(|(k, c)| {
-        !subclasse_de(ctx, ClassId(k as u32), cid)
-            || (c.library == classe.library
-                && (c.modifiers.final_ || c.modifiers.sealed || ctx.symbol_name(c.name).starts_with('_')))
+    ctx.subtipos(cid).iter().all(|&k| {
+        let c = &ctx.program.classes[k.0 as usize];
+        c.library == classe.library
+            && (c.modifiers.final_ || c.modifiers.sealed || ctx.symbol_name(c.name).starts_with('_'))
     })
 }
 
@@ -996,13 +995,21 @@ pub enum Implementacao {
 /// achada pela linearização da classe (a primeira que implementa).
 pub fn implementacoes(ctx: &Context, cid: ClassId, chave: &str) -> Vec<Implementacao> {
     let Some(sym) = ctx.interner.lookup(chave) else { return Vec::new() };
+    if let Some(r) = ctx.memoria_implementacoes.borrow().get(&(cid, sym)) {
+        return r.as_ref().clone();
+    }
+    let r = implementacoes_sem_memoria(ctx, cid, sym);
+    ctx.memoria_implementacoes.borrow_mut().insert((cid, sym), std::rc::Rc::new(r.clone()));
+    r
+}
+
+fn implementacoes_sem_memoria(ctx: &Context, cid: ClassId, sym: dartforge_intern::SymbolId) -> Vec<Implementacao> {
     let mut saida = Vec::new();
-    for (k, classe) in ctx.program.classes.iter().enumerate() {
-        let kid = ClassId(k as u32);
+    for &kid in ctx.subtipos(cid).iter() {
+        let classe = &ctx.program.classes[kid.0 as usize];
         if !ctx.biblioteca_compilada(classe.library)
             || classe.modifiers.abstract_
             || super::membros::e_mixin(ctx, kid)
-            || !subclasse_de(ctx, kid, cid)
         {
             continue;
         }
@@ -1030,13 +1037,25 @@ pub fn implementacoes(ctx: &Context, cid: ClassId, chave: &str) -> Vec<Implement
 /// id de classe do runtime; `None` se alguma não tem id.
 pub fn implementacoes_por_classe(ctx: &Context, cid: ClassId, chave: &str) -> Option<Vec<(i64, Implementacao)>> {
     let sym = ctx.interner.lookup(chave)?;
+    if let Some(r) = ctx.memoria_implementacoes_por_classe.borrow().get(&(cid, sym)) {
+        return r.as_ref().map(|v| v.as_ref().clone());
+    }
+    let r = implementacoes_por_classe_sem_memoria(ctx, cid, sym);
+    ctx.memoria_implementacoes_por_classe.borrow_mut().insert((cid, sym), r.clone().map(std::rc::Rc::new));
+    r
+}
+
+fn implementacoes_por_classe_sem_memoria(
+    ctx: &Context,
+    cid: ClassId,
+    sym: dartforge_intern::SymbolId,
+) -> Option<Vec<(i64, Implementacao)>> {
     let mut saida = Vec::new();
-    for (k, classe) in ctx.program.classes.iter().enumerate() {
-        let kid = ClassId(k as u32);
+    for &kid in ctx.subtipos(cid).iter() {
+        let classe = &ctx.program.classes[kid.0 as usize];
         if !ctx.biblioteca_compilada(classe.library)
             || classe.modifiers.abstract_
             || super::membros::e_mixin(ctx, kid)
-            || !subclasse_de(ctx, kid, cid)
         {
             continue;
         }
@@ -1140,9 +1159,15 @@ pub fn tabela_de_metodos(ctx: &Context, cid: ClassId) -> Vec<(String, String)> {
             let tipada = f.variable.is_none()
                 && !matches!(f.kind, FunctionKind::Getter)
                 && super::entrada_tipada::precisa_entrada_tipada(ctx, fid);
+            // Fora do mundo fechado do programa (C7, `mundo_nativo.rs`): o
+            // seletor fica tomado (uma superclasse não preenche o lugar com
+            // outro membro), mas sem entrada nem adaptador — a chamada
+            // dinâmica a ele cai no `noSuchMethod`, como a que o mundo diz
+            // que não acontece.
+            let vivo = !ctx.membro_podado(fid);
             let mut por = |tipo: Tipo, a: Adaptador, base: &str| {
                 let s = texto_seletor(ctx, tipo, nome, f.library);
-                if vistos.insert(s.clone()) {
+                if vistos.insert(s.clone()) && vivo {
                     if tipada && a != Adaptador::Ler {
                         saida.push((super::entrada_tipada::seletor_tipado(&s), format!("{base}$t{}", &a.sufixo()[1..])));
                     }
@@ -1632,13 +1657,14 @@ pub fn lower_adaptadores_e_tabelas(ctx: &Context, module: &mut Module) {
         fids.sort_unstable();
         fids.dedup();
         for fid in fids {
-            if ctx.program.functions[fid].class != Some(cid) {
+            // Fora do mundo fechado (C7): sem entrada na tabela, sem adaptador.
+            if ctx.program.functions[fid].class != Some(cid) || ctx.membro_podado(fid) {
                 continue;
             }
             adaptadores_ou_recusa(ctx, module, |m| lower_adaptadores_da_funcao(ctx, m, fid));
         }
         for &vid in &classe.fields {
-            if ctx.program.variables[vid.0 as usize].static_ {
+            if ctx.program.variables[vid.0 as usize].static_ || ctx.campo_podado(vid) {
                 continue;
             }
             adaptadores_ou_recusa(ctx, module, |m| lower_adaptadores_do_campo(ctx, m, vid));
@@ -1887,6 +1913,27 @@ pub fn lower_getter_late_ou_recusa(
 
 /// O getter preguiçoso de um global do SDK da fonte (ou a recusa dele) e o
 /// setter `<getter>$set`, que outro módulo chama para gravar o global.
+/// O global do programa fora do mundo fechado (C7, `mundo_nativo.rs`): o
+/// getter lança (`FnBuilder::corpo_podado`); o setter é o de sempre.
+pub fn lower_global_podado(
+    ctx: &Context,
+    module: &mut Module,
+    vid: VariableId,
+    unit: dartforge_elements::model::UnitId,
+    repr: Type,
+) {
+    let nome = ctx.symbol_name(ctx.program.variables[vid.0 as usize].name).to_string();
+    let getter = super::simbolo_global(ctx, vid);
+    let mut b = FnBuilder::new(ctx, unit, getter.clone(), nome.clone(), repr);
+    b.corpo_podado();
+    b.finalizar(module);
+    let mut s = FnBuilder::new(ctx, unit, format!("{getter}$set"), nome, Type::Void);
+    let v = s.add_param("v".to_string(), repr);
+    s.gravar_global(vid, Operand::Val(v), Span { start: 0, end: 0 });
+    s.terminate(Terminator::Return(None));
+    s.finalizar(module);
+}
+
 pub fn lower_global_ou_recusa(
     ctx: &Context,
     module: &mut Module,

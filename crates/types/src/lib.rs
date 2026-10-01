@@ -69,6 +69,18 @@ pub fn resolve_outline(
     resolver.resolve_all()
 }
 
+/// Como [`resolve_outline`], com a unidade (arquivo) de cada diagnóstico,
+/// na mesma ordem: quem analisa vários arquivos de uma vez não precisa
+/// adivinhar o arquivo pelo intervalo (dois arquivos podem ter o mesmo).
+pub fn resolve_outline_com_unidades(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    core: &CoreTypes,
+) -> (OutlineTypes, Vec<Diagnostic>, Vec<dartforge_elements::model::UnitId>) {
+    OutlineResolver::new(program, interner, table, core).resolve_all_com_unidades()
+}
+
 /// Ponto de entrada para a inferência de tipos e resolução de corpos em um [`Program`].
 ///
 /// Percorre todos os corpos de funções, métodos e inicializadores, preenchendo as tabelas
@@ -99,6 +111,24 @@ pub fn infer_bodies_das_bibliotecas_com_locais(
     inferrer.apenas_bibliotecas = Some(bibliotecas.iter().map(|l| l.0).collect());
     inferrer.registrar_locais = true;
     inferrer.infer_all()
+}
+
+/// Como [`infer_bodies_das_bibliotecas`] (com `registrar_locais`, como
+/// [`infer_bodies_das_bibliotecas_com_locais`]), com a unidade de cada
+/// diagnóstico, na mesma ordem (`None` quando não há corpo em inferência).
+pub fn infer_bodies_das_bibliotecas_com_unidades(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    core: &CoreTypes,
+    outline: &mut OutlineTypes,
+    bibliotecas: &[dartforge_elements::model::LibraryId],
+    registrar_locais: bool,
+) -> (BodyTypes, Vec<Diagnostic>, Vec<Option<dartforge_elements::model::UnitId>>) {
+    let mut inferrer = BodyInferrer::new(program, interner, table, core, outline);
+    inferrer.apenas_bibliotecas = Some(bibliotecas.iter().map(|l| l.0).collect());
+    inferrer.registrar_locais = registrar_locais;
+    inferrer.infer_all_com_unidades()
 }
 
 /// Como [`infer_program_bodies`], inferindo os corpos **só** das bibliotecas

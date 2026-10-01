@@ -301,4 +301,9 @@ impl Resolucao for Gravador<'_> {
         }
         self.dentro.membro_estatico(arquivo, tipo, membro)
     }
+
+    fn tipo_da_saida(&self, uri: &str, classe: &str, membro: &str) -> Option<(String, PathBuf)> {
+        self.anotar(uri, classe);
+        self.dentro.tipo_da_saida(uri, classe, membro)
+    }
 }

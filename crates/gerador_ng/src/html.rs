@@ -392,8 +392,11 @@ impl<'a> Parser<'a> {
             match resto.find("}}") {
                 Some(f) => {
                     let ini = resto.as_ptr() as usize - self.fonte.as_ptr() as usize - 2;
+                    // O valor da interpolação de texto passa pelo
+                    // `_unEscapeText` como o texto (R1.5: `{{ a &amp;&amp; b }}`
+                    // é `a && b`).
                     saida.push(No::Interpolacao {
-                        expr: resto[..f].trim().to_string(),
+                        expr: decodificar(&resto[..f]).trim().to_string(),
                         inicio: ini,
                         fim: ini + 2 + f + 2,
                     });

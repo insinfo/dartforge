@@ -75,7 +75,7 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             let ret = dados.return_type;
             let ctx_ret = inf.contexto_de_retorno_declarado(ret, af.modifier);
             let executavel = inf.executavel_declarado(f);
-            cx.funcoes.push(CtxFuncao { modificador: af.modifier, retorno: Some(ret), contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, executavel });
+            cx.funcoes.push(CtxFuncao { modificador: af.modifier, retorno: Some(ret), contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, expressoes_retornadas: Vec::new(), executavel });
             corpo_de_funcao(inf, &mut cx, &af.body, af.modifier, ret, None);
             cx.funcoes.pop();
         }
@@ -125,7 +125,7 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             let ctx_ret = ret;
             // Construtor gerador: `return e;` é `return_in_generative_constructor`.
             let executavel = if fe.factory { inf.executavel_declarado(f) } else { None };
-            cx2.funcoes.push(CtxFuncao { modificador: AsyncModifier::None, retorno: Some(ret), contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, executavel });
+            cx2.funcoes.push(CtxFuncao { modificador: AsyncModifier::None, retorno: Some(ret), contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, expressoes_retornadas: Vec::new(), executavel });
             // `flowEnd(ConstructorDeclaration)`: o analyzer não apara o
             // construtor na última instrução; o trecho vai até o fim dele.
             let fim = inf.program.unit(unit).ast.member(member).span.end;
@@ -582,7 +582,7 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
         }),
         _ => None,
     };
-    cx.funcoes.push(CtxFuncao { modificador: m, retorno: declarado, contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, executavel });
+    cx.funcoes.push(CtxFuncao { modificador: m, retorno: declarado, contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, expressoes_retornadas: Vec::new(), executavel });
     let saltos_salvos = std::mem::take(&mut cx.saltos);
     let cascatas_salvas = std::mem::take(&mut cx.cascatas);
     let (corpo_t, completa) = match &af.body {
@@ -590,6 +590,9 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
             let t = inferir(inf, cx, *e, ctx_ret);
             if let Some(fc) = cx.funcoes.last().cloned() {
                 verificar_retorno_de_expressao(inf, cx, &fc, *e, t);
+            }
+            if let Some(f) = cx.funcoes.last_mut() {
+                f.expressoes_retornadas.push((*e, t));
             }
             (Some(t), false)
         }
@@ -667,6 +670,12 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
                 }
             };
             let estatico = embrulhar(inf, t);
+            // O retorno inferido não cabe no do contexto e foi trocado por
+            // ele: cada `return` confere contra esse tipo
+            // (`RETURN_OF_INVALID_TYPE_FROM_CLOSURE`).
+            if fc.executavel.is_none() && !gerador && !inf.sub(t, r) && !matches!(inf.table.get(r), Type::Void | Type::Dynamic) && !inf.e_desconhecido(r) {
+                retornos_da_closure(inf, cx, &fc, r, estatico);
+            }
             // O tipo de execução do gerador (a regra do CFE, conferida contra
             // a VM 3.6.2 e a 3.13.4): o elemento é o limite superior dos
             // `yield` (o `return;` não conta; `Null` sem nenhum), embrulhado
@@ -767,7 +776,7 @@ pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: Uni
                             let explicitos = if k.type_args.is_empty() {
                                 None
                             } else {
-                                Some(k.type_args.iter().map(|&t| inf.tipo_de_anotacao(&cx, t)).collect())
+                                Some(k.type_args.iter().map(|&t| inf.tipo_de_argumento_de_tipo(&cx, t)).collect())
                             };
                             let u = inf.core.unknown;
                             super::chamadas::construir(inf, &mut cx, None, c, Some(f), explicitos, args, u);
@@ -795,11 +804,27 @@ pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: Uni
             }
         }
     }
-    for f in a.functions.iter() {
+    // Funções de topo e métodos (as locais e os literais veem locais que a
+    // anotação pode citar: ficam sem a validação de nomes).
+    let declaradas: std::collections::HashSet<u32> = inf
+        .program
+        .functions
+        .iter()
+        .filter_map(|fe| match fe.node {
+            dartforge_elements::model::FunctionRef::Function { unit: u, function } if u == unit => Some(function.0),
+            _ => None,
+        })
+        .collect();
+    for (i, f) in a.functions.iter().enumerate() {
+        let validar = declaradas.contains(&(i as u32));
         if let Some(ps) = &f.parameters {
             for p in ps.iter() {
                 for m in p.metadata.iter() {
-                    anotacao(inf, unit, None, None, m);
+                    if validar {
+                        anotacao(inf, unit, None, None, m);
+                    } else {
+                        anotacao_sem_validar(inf, unit, None, m);
+                    }
                 }
             }
         }
@@ -821,8 +846,175 @@ fn classe_da_decl(inf: &BodyInferrer<'_>, unit: UnitId, d: &ast::Decl) -> (Optio
     }
 }
 
+/// O que um nome da anotação é, para o `AnnotationResolver`.
+enum NaAnotacao {
+    Nada,
+    Prefixo,
+    Classe(ClassId),
+    Extensao(dartforge_elements::model::ExtensionId),
+    Alias,
+    /// Getter: o implícito de uma variável (`Some(const)`) ou um escrito (`None`).
+    Getter(Option<bool>),
+    Outro,
+}
+
+fn classificar_na_anotacao(inf: &BodyInferrer<'_>, b: Option<dartforge_elements::model::Binding>) -> NaAnotacao {
+    use dartforge_elements::model::FunctionKind as K;
+    match b.and_then(|b| b.getter) {
+        None => NaAnotacao::Nada,
+        Some(Element::Prefix(..)) => NaAnotacao::Prefixo,
+        Some(Element::Class(c)) => NaAnotacao::Classe(c),
+        Some(Element::Extension(x)) => NaAnotacao::Extensao(x),
+        Some(Element::Typedef(_)) => NaAnotacao::Alias,
+        Some(Element::Variable(v)) => NaAnotacao::Getter(Some(inf.program.variable(v).const_)),
+        Some(Element::Function(f)) => {
+            let fe = inf.program.function(f);
+            match (fe.kind, fe.variable) {
+                (K::ImplicitAccessor, Some(v)) => NaAnotacao::Getter(Some(inf.program.variable(v).const_)),
+                (K::Getter, _) => NaAnotacao::Getter(None),
+                _ => NaAnotacao::Outro,
+            }
+        }
+    }
+}
+
+/// O getter estático `nome` de uma classe ou extensão (`getGetter`):
+/// `Some(Some(const))` para o implícito de um campo (ou constante de enum,
+/// ou `values`), `Some(None)` para um getter escrito.
+fn getter_estatico(
+    inf: &BodyInferrer<'_>,
+    classe: Option<ClassId>,
+    ext: Option<dartforge_elements::model::ExtensionId>,
+    nome: dartforge_intern::SymbolId,
+) -> Option<Option<bool>> {
+    use dartforge_elements::model::FunctionKind as K;
+    let (estaticos, campos) = match (classe, ext) {
+        (Some(c), _) => {
+            let k = inf.program.class(c);
+            if k.enum_constants.iter().any(|&v| inf.program.variable(v).name == nome) {
+                return Some(Some(true));
+            }
+            if k.kind == dartforge_elements::model::ClassKind::Enum && inf.interner.resolve(nome) == "values" {
+                return Some(Some(true));
+            }
+            (&k.static_members, k.fields.clone())
+        }
+        (None, Some(x)) => {
+            let e = inf.program.extension(x);
+            (&e.static_members, e.fields.clone())
+        }
+        _ => return None,
+    };
+    if let Some(&f) = estaticos.get(&nome) {
+        let fe = inf.program.function(f);
+        return match (fe.kind, fe.variable) {
+            (K::ImplicitAccessor, Some(v)) => Some(Some(inf.program.variable(v).const_)),
+            (K::Getter, _) => Some(None),
+            _ => None,
+        };
+    }
+    campos
+        .iter()
+        .find(|&&v| inf.program.variable(v).name == nome && inf.program.variable(v).static_)
+        .map(|&v| Some(inf.program.variable(v).const_))
+}
+
+/// O `AnnotationResolver` (`an611:src/dart/resolver/annotation_resolver.dart:
+/// 30-420`): `UNDEFINED_ANNOTATION` no nome que não resolve,
+/// `INVALID_ANNOTATION` na anotação que não é referência a constante nem
+/// invocação de construtor constante. Os nomes são resolvidos no escopo da
+/// biblioteca (o da classe, só quando ela é conhecida).
+fn validar_anotacao(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option<ClassId>, m: &ast::Annotation) {
+    use dartforge_diagnostics::codigos::compile_time_error as c;
+    let span = m.span;
+    let Some(&n1) = m.name.first() else { return };
+    let args = m.arguments.is_some();
+    let n2 = m.name.get(1).copied();
+    // Constantes estáticas da classe em que a anotação está.
+    if m.name.len() == 1 {
+        if let Some(g) = getter_estatico(inf, classe, None, n1.sym) {
+            if g != Some(true) || args {
+                inf.aviso_com_codigo(c::INVALID_ANNOTATION, span, &[]);
+            }
+            return;
+        }
+    }
+    let b1 = inf.program.lookup_na_unidade(unit, n1.sym);
+    let mut e1 = classificar_na_anotacao(inf, b1);
+    if matches!(e1, NaAnotacao::Nada) && inf.program.prefixos_na_unidade(unit).contains_key(&n1.sym) {
+        e1 = NaAnotacao::Prefixo;
+    }
+    // Para o prefixo: o segundo nome resolvido nele, e o terceiro é o membro.
+    let (alvo, membro, nome_alvo) = match e1 {
+        NaAnotacao::Prefixo => {
+            let Some(n2) = n2 else {
+                inf.aviso_com_codigo(c::INVALID_ANNOTATION, span, &[]);
+                return;
+            };
+            let b2 = inf.program.lookup_prefixed_na_unidade(unit, n1.sym, n2.sym);
+            match classificar_na_anotacao(inf, b2) {
+                NaAnotacao::Prefixo | NaAnotacao::Outro => {
+                    inf.aviso_com_codigo(c::INVALID_ANNOTATION, span, &[]);
+                    return;
+                }
+                x => (x, m.name.get(2).copied(), n2),
+            }
+        }
+        x => (x, n2, n1),
+    };
+    let invalida = match alvo {
+        NaAnotacao::Nada => {
+            let t = inf.interner.resolve(nome_alvo.sym).to_string();
+            inf.aviso_com_codigo(c::UNDEFINED_ANNOTATION, span, &[&t]);
+            return;
+        }
+        NaAnotacao::Classe(k) => {
+            let kind = inf.program.class(k).kind;
+            let e_classe = matches!(kind, dartforge_elements::model::ClassKind::Class | dartforge_elements::model::ClassKind::MixinApplication);
+            // `C.new` é o construtor sem nome.
+            let ctor = |inf: &BodyInferrer<'_>, n: Option<ast::Name>| {
+                let n = n.filter(|n| inf.interner.resolve(n.sym) != "new");
+                let chave = n.map(|n| n.sym).or(inf.sym.vazio);
+                chave.and_then(|ch| inf.program.class(k).constructors.get(&ch).copied()).is_some()
+            };
+            if kind == dartforge_elements::model::ClassKind::ExtensionType {
+                // O construtor (primário) de um extension type: o modelo não
+                // o põe na tabela pelo nome; fica sem relato.
+                false
+            } else if e_classe && args {
+                !ctor(inf, membro)
+            } else {
+                match membro {
+                    Some(n) => match getter_estatico(inf, Some(k), None, n.sym) {
+                        Some(g) => g != Some(true) || args,
+                        None => !ctor(inf, Some(n)),
+                    },
+                    None => !ctor(inf, None),
+                }
+            }
+        }
+        NaAnotacao::Extensao(x) => match membro.and_then(|n| getter_estatico(inf, None, Some(x), n.sym)) {
+            Some(g) => g != Some(true) || args,
+            None => true,
+        },
+        NaAnotacao::Getter(g) => g != Some(true) || args,
+        // Alias: o tipo apelidado decide; fica sem relato.
+        NaAnotacao::Alias => false,
+        NaAnotacao::Prefixo | NaAnotacao::Outro => true,
+    };
+    if invalida {
+        inf.aviso_com_codigo(c::INVALID_ANNOTATION, span, &[]);
+    }
+}
+
 /// Uma anotação: `@x`, `@C(args)`, `@C.nome(args)`, `@p.C(args)`.
 fn anotacao(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option<ClassId>, _ext: Option<dartforge_elements::model::ExtensionId>, m: &ast::Annotation) {
+    validar_anotacao(inf, unit, classe, m);
+    anotacao_sem_validar(inf, unit, classe, m);
+}
+
+/// Os argumentos da anotação (inferência), sem a validação dos nomes.
+fn anotacao_sem_validar(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option<ClassId>, m: &ast::Annotation) {
     let Some(args) = &m.arguments else { return };
     let mut cx = Corpo::novo(inf, unit, classe, None, true);
     let nomes: Vec<dartforge_intern::SymbolId> = m.name.iter().map(|n| n.sym).collect();
@@ -843,7 +1035,7 @@ fn anotacao(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option<ClassId>, _
             let explicitos = if m.type_args.is_empty() {
                 None
             } else {
-                Some(m.type_args.iter().map(|&t| inf.tipo_de_anotacao(&cx, t)).collect())
+                Some(m.type_args.iter().map(|&t| inf.tipo_de_argumento_de_tipo(&cx, t)).collect())
             };
             super::chamadas::construir(inf, &mut cx, None, c, Some(f), explicitos, args, u);
             return;
@@ -851,6 +1043,41 @@ fn anotacao(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option<ClassId>, _
     }
     for x in args.args.iter() {
         inferir_livre(inf, &mut cx, x.value);
+    }
+}
+
+/// `_checkReturnExpression` de uma closure cujo retorno é o do contexto `r`
+/// (embrulhado: `exibido`): `RETURN_OF_INVALID_TYPE_FROM_CLOSURE`
+/// (`an611:src/error/return_type_verifier.dart:150-170`), com o tipo
+/// retornado e o da closure.
+fn retornos_da_closure(inf: &mut BodyInferrer<'_>, cx: &Corpo, fc: &CtxFuncao, r: TypeId, exibido: TypeId) {
+    let e_void_dyn = |inf: &BodyInferrer<'_>, x: TypeId| matches!(inf.table.get(x), Type::Void | Type::Dynamic);
+    for &(e, s) in &fc.expressoes_retornadas {
+        let erro = match fc.modificador {
+            AsyncModifier::None => {
+                if matches!(inf.table.get(s), Type::Void) {
+                    !e_void_dyn(inf, r)
+                } else {
+                    !inf.atribuivel(s, r)
+                }
+            }
+            AsyncModifier::Async => {
+                let tv = inf.flatten(r);
+                let fs = inf.flatten(s);
+                if matches!(inf.table.get(fs), Type::Void) {
+                    !e_void_dyn(inf, tv)
+                } else {
+                    !inf.atribuivel(s, tv) && !inf.sub(fs, tv)
+                }
+            }
+            _ => false,
+        };
+        if erro {
+            let sp = inf.span_expr(cx.unit, e);
+            let de = inf.table.format(s, inf.interner, inf.program);
+            let para = inf.table.format(exibido, inf.interner, inf.program);
+            inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::RETURN_OF_INVALID_TYPE_FROM_CLOSURE, sp, &[&de, &para]);
+        }
     }
 }
 

@@ -47,6 +47,8 @@ struct Relato<'a> {
     interner: &'a Interner,
     unidade: usize,
     out: Vec<(usize, Diagnostic)>,
+    /// Ver [`duplicatas`].
+    juntar: bool,
 }
 
 impl Relato<'_> {
@@ -118,11 +120,39 @@ fn tipo_da_funcao(k: FunctionKind) -> Tipo {
     }
 }
 
+/// Recursos que o analyzer 3.6.2 não conhece (os de
+/// `dartforge_paridade::oraculo::RECURSOS_DESCONHECIDOS_NO_3_6_2`): uma
+/// biblioteca que os usa tem por referência o analyzer 3.13.4
+/// (docs/VERSOES-LINGUAGEM.md, placar), que não junta declarações de mesmo
+/// nome (ver [`duplicatas`]).
+pub const RECURSOS_POSTERIORES_AO_3_6: &[&str] = &["dot-shorthands", "primary-constructors", "private-named-parameters"];
+
+/// A sintaxe da unidade (os diagnósticos do parser) usa um recurso que o
+/// 3.6.2 não conhece.
+pub fn usa_sintaxe_posterior_ao_3_6(sintaxe: &[Diagnostic]) -> bool {
+    sintaxe.iter().any(|d| {
+        d.code.is_some_and(|c| c.info().nome == "experiment_not_enabled")
+            && d.args.first().is_some_and(|a| RECURSOS_POSTERIORES_AO_3_6.contains(&&**a))
+    })
+}
+
 /// Todos os diagnósticos de nomes duplicados de uma biblioteca, com o índice
 /// da unidade em que cada um cai. `curinga`: a biblioteca tem
 /// `wildcard-variables` (3.7+), e `_` local não declara nada.
-pub fn duplicatas(unidades: &[Unidade<'_>], interner: &Interner, curinga: bool) -> Vec<(usize, Diagnostic)> {
-    let mut rel = Relato { interner, unidade: 0, out: Vec::new() };
+///
+/// `juntar_mesma_localizacao`: o comportamento do analyzer 6.11 (Dart
+/// 3.6.2), em que duas declarações de mesmo nome e espécie na mesma unidade
+/// são o mesmo elemento e os membros de uma se conferem com os da outra
+/// ([`ChaveDeElemento`]). O 3.13.4 não junta (conferido com os dois SDKs):
+/// passe `false` numa biblioteca com sintaxe posterior ao 3.6
+/// ([`usa_sintaxe_posterior_ao_3_6`]).
+pub fn duplicatas(
+    unidades: &[Unidade<'_>],
+    interner: &Interner,
+    curinga: bool,
+    juntar_mesma_localizacao: bool,
+) -> Vec<(usize, Diagnostic)> {
+    let mut rel = Relato { interner, unidade: 0, out: Vec::new(), juntar: juntar_mesma_localizacao };
     let nomes_da_biblioteca = nomes_de_topo(unidades, interner);
     for (i, u) in unidades.iter().enumerate() {
         rel.unidade = i;
@@ -131,14 +161,14 @@ pub fn duplicatas(unidades: &[Unidade<'_>], interner: &Interner, curinga: bool) 
     }
     // Membros: primeiro os de instância de todas as unidades, depois os
     // estáticos (`MemberDuplicateDefinitionVerifier.checkLibrary`).
-    let mut contextos: Vec<Vec<Contexto>> = Vec::new();
+    let mut contextos: Vec<(Vec<Contexto>, HashMap<ChaveDeElemento, Escopos>)> = Vec::new();
     for (i, u) in unidades.iter().enumerate() {
         rel.unidade = i;
         contextos.push(membros_da_unidade(&mut rel, u));
     }
     for (i, u) in unidades.iter().enumerate() {
         rel.unidade = i;
-        estaticos_da_unidade(&mut rel, u, &contextos[i]);
+        estaticos_da_unidade(&mut rel, u, &contextos[i].0, &contextos[i].1);
     }
     rel.out
 }
@@ -476,12 +506,66 @@ struct Contexto {
     /// Nome da declaração (`None` em extension anônima).
     nome: Option<String>,
     especie: Especie,
+    /// A espécie do elemento do analyzer (`ElementKind`): classe, mixin,
+    /// enum, extension, extension type. Com o nome, é a localização do
+    /// elemento na unidade.
+    tipo_de_elemento: &'static str,
     construtores: HashSet<String>,
     ig: Escopo,
     is: Escopo,
     sg: Escopo,
     ss: Escopo,
     membros: Vec<MemberId>,
+}
+
+/// Os nomes de membros de um elemento (`_InstanceElementContext`).
+#[derive(Default)]
+struct Escopos {
+    construtores: HashSet<String>,
+    ig: Escopo,
+    is: Escopo,
+    sg: Escopo,
+    ss: Escopo,
+}
+
+/// Chave do elemento: a localização da 6.11 (`ElementImpl.==` compara a
+/// espécie e a localização, `an611:src/dart/element/element.dart:2877-2884`),
+/// que é a cadeia de nomes — duas declarações de mesmo nome e espécie na
+/// mesma unidade são **o mesmo** elemento, e o `DuplicateDefinitionVerifier`
+/// junta os membros delas (`_getElementContext`,
+/// `src/error/duplicate_definition_verifier.dart:808-811`). Extension anônima
+/// não junta (cada uma tem a sua referência).
+type ChaveDeElemento = (&'static str, String);
+
+impl Contexto {
+    fn chave(&self) -> Option<ChaveDeElemento> {
+        self.nome.clone().map(|n| (self.tipo_de_elemento, n))
+    }
+
+    /// A chave, quando as declarações de mesma localização se juntam.
+    fn chave_se(&self, juntar: bool) -> Option<ChaveDeElemento> {
+        if juntar { self.chave() } else { None }
+    }
+
+    /// Recebe os nomes já acumulados pelo elemento.
+    fn retomar(&mut self, e: Escopos) {
+        self.construtores.extend(e.construtores);
+        self.ig.extend(e.ig);
+        self.is.extend(e.is);
+        self.sg.extend(e.sg);
+        self.ss.extend(e.ss);
+    }
+
+    /// Devolve os nomes acumulados para o próximo do mesmo elemento.
+    fn guardar(&mut self) -> Escopos {
+        Escopos {
+            construtores: std::mem::take(&mut self.construtores),
+            ig: std::mem::take(&mut self.ig),
+            is: std::mem::take(&mut self.is),
+            sg: std::mem::take(&mut self.sg),
+            ss: std::mem::take(&mut self.ss),
+        }
+    }
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
@@ -492,26 +576,41 @@ enum Especie {
     Extension,
 }
 
-fn membros_da_unidade(rel: &mut Relato<'_>, u: &Unidade<'_>) -> Vec<Contexto> {
+/// Os membros das declarações da unidade, com os nomes acumulados por
+/// elemento (ver [`ChaveDeElemento`]); devolve o contexto de cada
+/// declaração e os nomes finais de cada elemento.
+fn membros_da_unidade(rel: &mut Relato<'_>, u: &Unidade<'_>) -> (Vec<Contexto>, HashMap<ChaveDeElemento, Escopos>) {
     let mut v = Vec::new();
+    let mut elementos: HashMap<ChaveDeElemento, Escopos> = HashMap::new();
     for &d in &u.unit.declarations {
         let mut ctx = Contexto::default();
+        // A espécie e o nome primeiro: os nomes do elemento vêm antes de
+        // qualquer membro desta declaração.
+        let (tipo, nome) = match &u.ast.decl(d).kind {
+            DeclKind::Class(x) => ("class", Some(x.name)),
+            DeclKind::Mixin(x) => ("mixin", Some(x.name)),
+            DeclKind::Extension(x) => ("extension", x.name),
+            DeclKind::ExtensionType(x) => ("extension type", Some(x.name)),
+            DeclKind::Enum(x) => ("enum", Some(x.name)),
+            _ => continue,
+        };
+        ctx.tipo_de_elemento = tipo;
+        ctx.nome = nome.map(|n| rel.nome(n));
+        if let Some(e) = ctx.chave_se(rel.juntar).and_then(|k| elementos.remove(&k)) {
+            ctx.retomar(e);
+        }
         match &u.ast.decl(d).kind {
             DeclKind::Class(x) => {
-                ctx.nome = Some(rel.nome(x.name));
                 ctx.membros = x.members.clone();
             }
             DeclKind::Mixin(x) => {
-                ctx.nome = Some(rel.nome(x.name));
                 ctx.membros = x.members.clone();
             }
             DeclKind::Extension(x) => {
-                ctx.nome = x.name.map(|n| rel.nome(n));
                 ctx.especie = Especie::Extension;
                 ctx.membros = x.members.clone();
             }
             DeclKind::ExtensionType(x) => {
-                ctx.nome = Some(rel.nome(x.name));
                 ctx.construtores.insert(x.constructor.map(|n| rel.nome(n)).unwrap_or_default());
                 ctx.ig.insert(rel.nome(x.representation_name), Elem { tipo: Tipo::Getter, de_campo: true, formal_campo: false });
                 ctx.membros = x.members.clone();
@@ -541,9 +640,12 @@ fn membros_da_unidade(rel: &mut Relato<'_>, u: &Unidade<'_>) -> Vec<Contexto> {
                 rel.por(c::ENUM_WITH_NAME_VALUES, x.name.span, &[]);
             }
         }
+        if let Some(k) = ctx.chave_se(rel.juntar) {
+            elementos.insert(k, ctx.guardar());
+        }
         v.push(ctx);
     }
-    v
+    (v, elementos)
 }
 
 /// `_checkClassMembers`.
@@ -625,11 +727,22 @@ fn membros(rel: &mut Relato<'_>, ast: &Ast, ctx: &mut Contexto) {
 /// `_checkClassStatic` / `_checkExtensionStatic`: estático com o nome de um
 /// membro de instância declarado ali. (O do enum consulta a interface
 /// herdada e fica para quando houver o gerente de herança.)
-fn estaticos_da_unidade(rel: &mut Relato<'_>, u: &Unidade<'_>, contextos: &[Contexto]) {
+fn estaticos_da_unidade(rel: &mut Relato<'_>, u: &Unidade<'_>, contextos: &[Contexto], elementos: &HashMap<ChaveDeElemento, Escopos>) {
+    let vazio = Escopos::default();
     for ctx in contextos {
         if ctx.especie == Especie::Enum {
             continue;
         }
+        // Os nomes de instância do elemento inteiro (todas as declarações
+        // de mesma localização), como no analyzer, que confere os estáticos
+        // depois de todos os membros de instância.
+        let (ig, is) = match ctx.chave_se(rel.juntar) {
+            Some(k) => {
+                let e = elementos.get(&k).unwrap_or(&vazio);
+                (&e.ig, &e.is)
+            }
+            None => (&ctx.ig, &ctx.is),
+        };
         for &m in &ctx.membros {
             let nomes: Vec<ast::Name> = match &u.ast.member(m).kind {
                 MemberKind::Field(vl) if vl.static_ => vl.variables.iter().map(|v| v.name).collect(),
@@ -638,7 +751,7 @@ fn estaticos_da_unidade(rel: &mut Relato<'_>, u: &Unidade<'_>, contextos: &[Cont
             };
             for n in nomes {
                 let nome = rel.nome(n);
-                if ctx.ig.contains_key(&nome) || ctx.is.contains_key(&nome) {
+                if ig.contains_key(&nome) || is.contains_key(&nome) {
                     match (ctx.especie, &ctx.nome) {
                         (Especie::Extension, _) => rel.por(c::EXTENSION_CONFLICTING_STATIC_AND_INSTANCE, n.span, &[&nome]),
                         (_, Some(classe)) => {
@@ -661,7 +774,7 @@ mod testes {
         let mut interner = Interner::new();
         let p = dartforge_frontend::parser::parse(fonte, &mut interner);
         let u = Unidade { ast: &p.ast, unit: &p.unit, fonte };
-        let mut v: Vec<_> = duplicatas(&[u], &interner, false)
+        let mut v: Vec<_> = duplicatas(&[u], &interner, false, true)
             .into_iter()
             .map(|(_, d)| (d.code.unwrap().info().nome.to_string(), d.span.start, d.span.end))
             .collect();
@@ -697,5 +810,35 @@ mod testes {
         // pointycastle `ECFieldElement`: `operator -(b)` e `operator -()`.
         assert!(rodar("abstract class E { E operator -(E b); E operator -(); }\n").is_empty());
         assert_eq!(rodar("abstract class E { E operator -(); E operator -(); }\n").len(), 1);
+    }
+
+    /// Duas `class A` na mesma unidade são o mesmo elemento na 6.11: os
+    /// membros se conferem entre si (conferido com o `dart analyze` 3.6.2:
+    /// `augment class A` sem o experimento deixa duas `class A`).
+    #[test]
+    fn declaracoes_de_mesmo_nome_juntam_os_membros() {
+        let f = "class A {
+  static void foo() {}
+}
+class A {
+  void foo() {}
+  int bar = 0;
+}
+class A {
+  int bar = 1;
+  A();
+  A();
+}
+";
+        let r = rodar(f);
+        // static foo (offset 24) contra o foo de instância da segunda.
+        assert!(r.contains(&("conflicting_static_and_instance".to_string(), 24, 27)), "{r:?}");
+        let bar2 = f.rfind("bar").unwrap();
+        assert!(r.contains(&("duplicate_definition".to_string(), bar2, bar2 + 3)), "{r:?}");
+        assert_eq!(r.iter().filter(|x| x.0 == "duplicate_constructor").count(), 1, "{r:?}");
+        // Mixin com o mesmo nome é outra espécie: não junta.
+        assert!(rodar("class B { void m() {} }
+mixin B { static void m() {} }
+").iter().all(|x| x.0 != "conflicting_static_and_instance"));
     }
 }

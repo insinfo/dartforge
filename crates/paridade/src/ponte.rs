@@ -134,7 +134,8 @@ pub fn codificar_tipos(d: &Diagnostic, texto_no_span: &str) -> Diagnostic {
             return Diagnostic::com_codigo(codigo, d.span, args);
         }
     }
-    // Outline (`types/src/resolve.rs`): mensagens fixas, o nome é o texto no span.
+    // Mensagens fixas antigas do outline (hoje `types` relata nomes de tipo
+    // já com o código do analyzer); o nome é o texto no span.
     let nome = texto_no_span.split('<').next().unwrap_or("").trim_end_matches('?').trim();
     let codigo = match d.message.as_str() {
         "Tipo não encontrado no escopo da biblioteca" => Some((codigos::compile_time_error::UNDEFINED_CLASS, vec![nome])),

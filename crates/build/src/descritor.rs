@@ -30,6 +30,9 @@ pub fn substituido(chave: &str) -> Option<&'static str> {
 pub fn imita(chave: &str) -> &'static [(&'static str, &'static [&'static str])] {
     match chave {
         "ngdart:ngdart" => &[("ngdart", &["8.0.0-dev.4"])],
+        // O fork com `package:web` (`ngx_compiler` 9.0.0-dev.2): o mesmo
+        // gerador, no dialeto 9 (`docs/NGDART-COMPILADOR-DE-VISOES.md`).
+        "ngx_dart:ngx_dart" => &[("ngx_dart", &["9.0.0-dev.2"])],
         // O Sass é o do `dartforge-sass`: o port do dart-sass 1.102.0 e o
         // modo de compatibilidade com o 1.66.0 (o do ngcomponents
         // 3.0.0-dev.1). Outra versão do `sass` no lock muda a saída.
@@ -90,15 +93,15 @@ pub fn extensoes_de_execucao(
         // `ngdart-8.0.0-dev.4/lib/src/build.dart:33-76`,
         // `ngcompiler-3.0.0-dev.3` (Placeholder, Compiler.asBuilder,
         // StylesheetCompiler).
-        ("ngdart:ngdart", "templatePlaceholder") => e(&[(".dart", &[".ng_placeholder"])]),
-        ("ngdart:ngdart", "templateCompiler") => {
+        ("ngdart:ngdart" | "ngx_dart:ngx_dart", "templatePlaceholder") => e(&[(".dart", &[".ng_placeholder"])]),
+        ("ngdart:ngdart" | "ngx_dart:ngx_dart", "templateCompiler") => {
             if opcoes.obter("outline-only").is_some() {
                 e(&[(".dart", &[".outline.template.dart"])])
             } else {
                 e(&[(".dart", &[".template.dart"])])
             }
         }
-        ("ngdart:ngdart", "stylesheetCompiler") => e(&[(".css", &[".css.shim.dart", ".css.dart"])]),
+        ("ngdart:ngdart" | "ngx_dart:ngx_dart", "stylesheetCompiler") => e(&[(".css", &[".css.shim.dart", ".css.dart"])]),
         // `sass_builder-2.2.1/lib/sass_builder.dart:130-132`.
         ("sass_builder:sass_builder", _) => e(&[
             (".scss", &[".css", ".css.map"]),

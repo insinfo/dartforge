@@ -305,9 +305,17 @@ pub struct Parametro {
 
 /// Valor de um argumento nomeado, quando é uma string literal sem
 /// interpolação.
+///
+/// Numa string de várias linhas, cada fim de linha do fonte (`\r\n`, `\r`)
+/// vale `\n` no valor (especificação do Dart, *Strings*); é o valor que o
+/// analyzer entrega ao ngcompiler (`li_highlight_component.dart`, com CRLF).
 fn texto_do_argumento(arvore: &ast::Ast, id: ast::ExprId) -> Option<String> {
     match &arvore.expr(id).kind {
-        ast::ExprKind::String(lit) => lit.constant_value().map(|s| s.to_string_lossy()),
+        ast::ExprKind::String(lit) => lit
+            .constant_value()
+            // Só o par CRLF: o valor já vem decodificado, e um `\r` sozinho
+            // pode ser o escape `\r` do fonte, que fica.
+            .map(|s| s.to_string_lossy().replace("\r\n", "\n")),
         ast::ExprKind::Parenthesized(inner) => texto_do_argumento(arvore, *inner),
         _ => None,
     }
@@ -1565,6 +1573,23 @@ pub(crate) fn tipo_inferido(
                         interner.resolve(prefixo.sym),
                         interner.resolve(name.sym)
                     )),
+                    _ => None,
+                },
+                // `Classe<A>.nomeado(..)`: com os argumentos de tipo da classe
+                // antes do `.nome(`, só pode ser construtor (método estático
+                // não recebe os da classe); o tipo é `Classe<A>` como escrito.
+                ast::ExprKind::Property {
+                    target: p,
+                    null_aware: false,
+                    ..
+                } => match &arvore.expr(*p).kind {
+                    ast::ExprKind::TypeArguments { target: classe, .. }
+                        if matches!(&arvore.expr(*classe).kind,
+                            ast::ExprKind::Identifier(n) if maiuscula(n)) =>
+                    {
+                        let sp = arvore.expr(*p).span;
+                        fonte.get(sp.start..sp.end).map(|t| t.trim().to_string())
+                    }
                     _ => None,
                 },
                 _ => None,

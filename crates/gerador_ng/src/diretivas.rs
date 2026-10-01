@@ -586,7 +586,7 @@ pub fn resolver_de_molde(
     template_ref: &dyn Fn(u32) -> String,
 ) -> Result<(NoResolvido, u32), &'static str> {
     let container = forcar_container || casadas.iter().any(|d| pede_container(d));
-    let indice = if container { 8 } else { 7 };
+    let indice = crate::dialeto::embutidos_extra() + if container { 8 } else { 7 };
     let leitura = template_ref(indice);
     let r = resolver_com(
         casadas,
@@ -850,8 +850,8 @@ fn resolver_com(
     // No `<template>`, as diretivas vêm depois do `TemplateRef`.
     let mut tamanho = match molde {
         Some((_, indice)) => indice + 1,
-        None if container => 8,
-        None => 5,
+        None if container => 8 + crate::dialeto::embutidos_extra(),
+        None => 5 + crate::dialeto::embutidos_extra(),
     };
     let mut campos: Vec<(Token, String)> = Vec::new();
     let mut apelidos: Vec<(Token, Token)> = Vec::new();

@@ -267,7 +267,7 @@ pub fn emitir(injetores: &[&Injetor]) -> Result<(String, String), String> {
         .uris
         .iter()
         .enumerate()
-        .map(|(i, u)| format!("import '{u}' as _i{};\n", i + 1))
+        .map(|(i, u)| format!("import '{}' as _i{};\n", crate::dialeto::escrita(u), i + 1))
         .collect();
     let corpo = format!(
         "// ignore_for_file: no_leading_underscores_for_library_prefixes\n{}",

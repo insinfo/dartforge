@@ -14,6 +14,8 @@ dartforge-intern = { path = "../intern" }
 dartforge-frontend = { path = "../frontend" }
 dartforge-elements = { path = "../elements" }
 dartforge-types = { path = "../types" }
+# O mundo fechado (RTA) do programa: o que o lowering poda (`src/mundo_nativo.rs`).
+dartforge-mundo = { path = "../mundo" }
 dartforge-runtime = { path = "../runtime" }
 dartforge-instrument = { path = "../instrument" }
 blake3 = "1"

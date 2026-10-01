@@ -259,7 +259,7 @@ fn lib_main_is_async(ctx: &Ctx, lib: LibraryId) -> bool {
 }
 
 /// Ordena classes: superclasses e mixins antes das subclasses.
-fn order_classes(ctx: &Ctx, classes: &[ClassId]) -> Vec<ClassId> {
+pub(crate) fn order_classes(ctx: &Ctx, classes: &[ClassId]) -> Vec<ClassId> {
     let set: HashSet<ClassId> = classes.iter().copied().collect();
     let mut out = Vec::new();
     let mut done: HashSet<ClassId> = HashSet::new();
@@ -425,7 +425,16 @@ fn emit_group(ctx: &Ctx, group: &[LibraryId], cache: Option<&RefCell<CacheFragme
 }
 
 /// Funções, variáveis de topo e estáticos de extensão de uma biblioteca.
-fn emit_library_rest(ctx: &Ctx, m: &ModState, lib: LibraryId, body: &mut Writer) {
+pub(crate) fn emit_library_rest(ctx: &Ctx, m: &ModState, lib: LibraryId, body: &mut Writer) {
+    emit_library_rest_partes(ctx, m, lib, body, true, true);
+}
+
+/// [`emit_library_rest`] em duas partes: `funcoes` (funções e acessores de
+/// topo — só definições, nada executa ao carregar) e `resto` (variáveis e
+/// estáticos de extensão). O módulo do SDK emite as funções de todas as
+/// bibliotecas antes das classes, porque a definição de uma classe executa
+/// código (`registerExtension`…) que pode chamá-las.
+pub(crate) fn emit_library_rest_partes(ctx: &Ctx, m: &ModState, lib: LibraryId, body: &mut Writer, funcoes: bool, resto: bool) {
     let lvar = ctx.libs[lib.0 as usize].js_var.clone();
     let mut functions: Vec<FunctionElementId> = Vec::new();
     let mut variables: Vec<VariableId> = Vec::new();
@@ -446,14 +455,19 @@ fn emit_library_rest(ctx: &Ctx, m: &ModState, lib: LibraryId, body: &mut Writer)
     }
     // Funções de topo e de extensão; acessores de topo agrupados por nome.
     let mut accessors: Vec<(String, String)> = Vec::new();
-    for fid in functions {
-        emit_top_function(ctx, m, fid, body, &mut accessors);
+    if funcoes {
+        for fid in functions {
+            emit_top_function(ctx, m, fid, body, &mut accessors);
+        }
+        if !accessors.is_empty() {
+            crate::linha!(body, "dart.copyProperties({lvar}, {{");
+            let texts: Vec<String> = accessors.iter().map(|(_, t)| indent(t)).collect();
+            body.push_raw(&texts.join(",\n"));
+            body.push_raw("\n});\n");
+        }
     }
-    if !accessors.is_empty() {
-        crate::linha!(body, "dart.copyProperties({lvar}, {{");
-        let texts: Vec<String> = accessors.iter().map(|(_, t)| indent(t)).collect();
-        body.push_raw(&texts.join(",\n"));
-        body.push_raw("\n});\n");
+    if !resto {
+        return;
     }
     // Variáveis de topo.
     emit_top_variables(ctx, m, lib, &variables, body);
@@ -502,6 +516,12 @@ fn emit_library_rest(ctx: &Ctx, m: &ModState, lib: LibraryId, body: &mut Writer)
 // ---------------------------------------------------------------------------
 
 fn emit_rules(ctx: &Ctx, m: &ModState) -> String {
+    emit_rules_com(ctx, m, false)
+}
+
+/// Como [`emit_rules`]; com `sdk`, as classes do SDK também (o módulo do SDK
+/// no modo SDK, `crate::sdk_proprio`).
+pub(crate) fn emit_rules_com(ctx: &Ctx, m: &ModState, sdk: bool) -> String {
     let mut entries: Vec<String> = Vec::new();
     let noted: Vec<u32> = m.noted_classes.borrow().iter().copied().collect();
     let mut seen: HashSet<u32> = HashSet::new();
@@ -514,7 +534,7 @@ fn emit_rules(ctx: &Ctx, m: &ModState) -> String {
             continue;
         }
         let lib = ctx.lib_of_class(c);
-        if ctx.libs[lib.0 as usize].is_sdk {
+        if ctx.libs[lib.0 as usize].is_sdk != sdk {
             continue;
         }
         if ctx.program.class(c).decl.is_none() {
@@ -560,7 +580,7 @@ fn emit_rules(ctx: &Ctx, m: &ModState) -> String {
             }
             let arg_recipes: Vec<String> = args.iter().map(|a| json_str(&rule_recipe(ctx, a, c))).collect();
             items.push(format!("{}:[{}]", json_str(&ctx.class_recipe(*sc)), arg_recipes.join(",")));
-            if !ctx.libs[ctx.lib_of_class(*sc).0 as usize].is_sdk {
+            if ctx.libs[ctx.lib_of_class(*sc).0 as usize].is_sdk == sdk {
                 queue.push(*sc);
             }
         }
@@ -726,6 +746,10 @@ pub(crate) fn function_text(ctx: &Ctx, m: &ModState, fid: FunctionElementId, hea
         params_js.push(pjs);
     }
     extra_prologue.push_str(&prologue);
+    // Modo SDK: `@nullCheck` nos parâmetros.
+    if ctx.sdk.is_some() {
+        extra_prologue.push_str(&crate::sdk_proprio::verificacoes_de_nulo(&e, ps));
+    }
     e.emit_body(&af.body);
     let body = finish_body(&mut e);
     let head = match head_name {
@@ -855,15 +879,19 @@ pub(crate) fn finish_body(e: &mut FnEmitter) -> String {
     body
 }
 
-fn emit_top_function(ctx: &Ctx, m: &ModState, fid: FunctionElementId, w: &mut Writer, accessors: &mut Vec<(String, String)>) {
+pub(crate) fn emit_top_function(ctx: &Ctx, m: &ModState, fid: FunctionElementId, w: &mut Writer, accessors: &mut Vec<(String, String)>) {
     let f = ctx.program.function(fid);
     // Declaração completada por outra da cadeia de augmentation: só o
     // elemento efetivo é emitido (docs/AUGMENTATIONS.md).
-    if f.patched_by.is_some() && !ctx.program.library(f.library).is_sdk {
+    if f.patched_by.is_some() && (!ctx.program.library(f.library).is_sdk || ctx.sdk.is_some()) {
+        return;
+    }
+    // Modo SDK: `external` sem corpo (os intrínsecos) nunca é emitida.
+    if ctx.sdk.is_some() && crate::sdk_proprio::externa_sem_corpo(ctx, fid) {
         return;
     }
     let lvar = &ctx.libs[f.library.0 as usize].js_var;
-    let name = ctx.name(f.name);
+    let name = crate::sdk_proprio::nome_de_topo(ctx, fid).unwrap_or(ctx.name(f.name));
     if ctx.is_js_member(fid) {
         return; // `external` de interop: acesso direto a `dart.global`
     }
@@ -968,7 +996,7 @@ fn function_text_ext(ctx: &Ctx, m: &ModState, fid: FunctionElementId, ext_tps: &
     (e.wrap_async_head(kind, &head, &prologue, &body, &ret_ty), kind)
 }
 
-fn emit_top_variables(ctx: &Ctx, m: &ModState, lib: LibraryId, vars: &[VariableId], w: &mut Writer) {
+pub(crate) fn emit_top_variables(ctx: &Ctx, m: &ModState, lib: LibraryId, vars: &[VariableId], w: &mut Writer) {
     if vars.is_empty() {
         return;
     }
@@ -1080,7 +1108,7 @@ struct FieldInfo {
     ty: Ty,
 }
 
-fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
+pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     let class = ctx.program.class(c);
     let Some(decl) = class.decl else { return };
     let unit = decl.unit;
@@ -1117,7 +1145,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     // Os membros da declaração e das augmentations dela (docs/AUGMENTATIONS.md),
     // cada um com a sua unidade.
     let members: Vec<(UnitId, ast::MemberId)> = match &d.kind {
-        DeclKind::Class(_) | DeclKind::Mixin(_) | DeclKind::Enum(_) => ctx.program.membros_da_classe(c),
+        DeclKind::Class(_) | DeclKind::Mixin(_) | DeclKind::Enum(_) => crate::sdk_proprio::membros_da_classe(ctx, c),
         _ => vec![],
     };
 
@@ -1155,7 +1183,15 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     cw.indent = 1;
     let mut ext_methods: Vec<String> = Vec::new();
     let mut ext_accessors: Vec<String> = Vec::new();
-    let natives = native_member_names(ctx, c);
+    // Modo SDK: classe nativa declara os membros pelo símbolo `dartx` e não
+    // tem `defineExtensionMethods` (`property_model.dart:283`).
+    let nativa = crate::sdk_proprio::classe_nativa(ctx, c);
+    let natives = if nativa { HashSet::new() } else { native_member_names(ctx, c) };
+    if let Some(k) = crate::sdk_proprio::construtor_especial(ctx, c) {
+        for l in k.lines() {
+            cw.line(l);
+        }
+    }
 
     // Getters/setters de campos virtuais.
     for f in &fields {
@@ -1259,6 +1295,12 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 if estado == crate::filtro::Estado::Morta {
                     continue;
                 }
+                // Modo SDK: estático `external` sem corpo não existe no JS (o
+                // acesso é `dart.global.Peer.x`); de instância só em nativa.
+                let externo_nativo = nativa && !af.static_ && (af.external || matches!(af.body, FunctionBody::Native(_)));
+                if ctx.sdk.is_some() && !externo_nativo && crate::sdk_proprio::externa_sem_corpo(ctx, feid) {
+                    continue;
+                }
                 let jsname = js_member_name(&name);
                 let e_tmp = FnEmitter::new(ctx, m, mu, Some(c), af.static_);
                 let key_js = e_tmp.decl_member_key(c, &name);
@@ -1276,8 +1318,14 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     match af.kind {
                         ast::FunctionKind::Getter => format!("get {key_js}"),
                         ast::FunctionKind::Setter => format!("set {key_js}"),
-                        _ => if name.starts_with('_') { key_js.clone() } else { js::prop_key(&jsname) },
+                        _ => if name.starts_with('_') || nativa { key_js.clone() } else { js::prop_key(&jsname) },
                     }
+                };
+                // Modo SDK: `@JSExportName('Symbol.iterator')` num membro.
+                let head = match crate::sdk_proprio::nome_de_topo(ctx, feid) {
+                    Some(x) if !af.static_ && x.contains('.') => format!("[{x}]"),
+                    Some(x) if !af.static_ => js::prop_key(x),
+                    _ => head,
                 };
                 if estado == crate::filtro::Estado::Stub {
                     let r = js::string_literal(&ctx.rotulo_podado(class.library, Some(c), &name));
@@ -1288,7 +1336,11 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     }
                     continue;
                 }
-                let (text, _) = function_text(ctx, m, feid, Some(&head), Some(c), af.static_, None);
+                let (text, _) = if externo_nativo {
+                    (crate::sdk_proprio::membro_externo_nativo(ctx, &head, feid, &name, af.kind), crate::body::AsyncKind::None)
+                } else {
+                    function_text(ctx, m, feid, Some(&head), Some(c), af.static_, None)
+                };
                 let text = if name == "==" && !af.static_ {
                     has_equals = true;
                     // `_equals(other)`: verifica nulo antes.
@@ -1329,7 +1381,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                                 }).collect();
                                 generic_methods.push((jsname.clone(), defaults));
                             }
-                            if natives.contains(&name) || name == "==" {
+                            if natives.contains(&name) || (name == "==" && !nativa) {
                                 ext_methods.push(jsname.clone());
                             }
                         }
@@ -1363,7 +1415,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     let _ = has_equals;
 
     // `[Symbol.iterator]` para classes Iterable cuja superclasse não é Iterable.
-    if !is_mixin && ctx.nivel_classe(c) == crate::filtro::Nivel::Instanciada {
+    if !is_mixin && !nativa && ctx.nivel_classe(c) == crate::filtro::Nivel::Instanciada {
         if let Some(it) = ctx.iterable_ {
             let declares_iterator = ctx.sym("iterator").is_some_and(|s| class.instance_members.contains_key(&s));
             let super_is_iterable = ctx.superclass_of(c).is_some_and(|sc| ctx.is_subclass(sc, it) && Some(sc) != ctx.object);
@@ -1477,8 +1529,21 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     }
 
     // Declaração da classe.
-    let head = if is_mixin {
+    ext_methods.sort();
+    ext_methods.dedup();
+    ext_accessors.sort();
+    ext_accessors.dedup();
+    // Mixin com membros de interface nativa: os `defineExtension*` vão dentro
+    // do `mixinOn`, sobre a classe de cada aplicação — é ela que entra na
+    // cadeia de protótipos (`compiler.dart:1236-1248`).
+    let ext_no_mixin = is_mixin && (!ext_methods.is_empty() || !ext_accessors.is_empty());
+    let head = if ext_no_mixin {
+        format!("{cref} = class {cname} extends core.Object {{}};\n{cref}[dart.mixinOn] = {cname}$mixin_super => {{\nconst {cname}$m = class {cname} extends {cname}$mixin_super {{")
+    } else if is_mixin {
         format!("{cref} = class {cname} extends core.Object {{}};\n{cref}[dart.mixinOn] = {}$mixin_super => class {cname} extends {}$mixin_super {{", cname, cname)
+    } else if ctx.sdk.is_some() && Some(c) == ctx.object {
+        // Modo SDK: `Object` não tem herança (`compiler.dart:1257-1259`).
+        format!("{cref} = class {cname} {{")
     } else {
         format!("{cref} = class {cname} extends {super_ref} {{")
     };
@@ -1486,6 +1551,19 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     w.line(&head);
     w.push_raw(&cw.out);
     w.line("};");
+    if ext_no_mixin {
+        if !ext_methods.is_empty() {
+            let items: Vec<String> = ext_methods.iter().map(|n| js::string_literal(n)).collect();
+            w.line(&format!("dart.defineExtensionMethods({cname}$m, [{}]);", items.join(", ")));
+        }
+        if !ext_accessors.is_empty() {
+            let items: Vec<String> = ext_accessors.iter().map(|n| js::string_literal(n)).collect();
+            w.line(&format!("dart.defineExtensionAccessors({cname}$m, [{}]);", items.join(", ")));
+        }
+        w.line(&format!("return {cname}$m;\n}};"));
+        ext_methods.clear();
+        ext_accessors.clear();
+    }
 
     // Construtores generativos.
     let mut ctor_names: Vec<String> = Vec::new();
@@ -1574,24 +1652,51 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     // Assinaturas.
     let mut se = FnEmitter::new(ctx, m, unit, Some(c), false);
     se.sig_mode = true;
+    // Modo SDK: a base das assinaturas de `Object` é um objeto vazio
+    // (`compiler.dart:1568-1572`); e o membro de interface nativa de uma
+    // classe Dart do SDK aparece também pela chave `dartx` (`:1702-1720`),
+    // que é a que o `bind`/`dsend` sobre o símbolo procura.
+    let base_sig = |kind: &str| if ctx.sdk.is_some() && Some(c) == ctx.object { "Object.create(null)".to_string() } else { format!("dart.{kind}(Object.getPrototypeOf({cref}))") };
+    let duplica = ctx.sdk.is_some() && !nativa && ctx.libs[class.library.0 as usize].is_sdk;
+    let com_dartx = |items: &mut Vec<String>, n: &str, valor: &str| {
+        if duplica && natives.contains(n) {
+            items.push(format!("{}: {valor}", crate::sdk_proprio::chave_nativa(m, n)));
+        }
+    };
     if !method_sigs.is_empty() {
-        let items: Vec<String> = method_sigs.iter().map(|(n, t)| format!("{}: _ti => {}", sig_key(&n, &se, c), se.rti(t))).collect();
-        w.line(&format!("dart.setMethodSignature({cref}, () => Object.setPrototypeOf({{{}}}, dart.getMethods(Object.getPrototypeOf({cref}))));", items.join(", ")));
+        let mut items: Vec<String> = Vec::new();
+        for (n, t) in method_sigs.iter() {
+            let valor = format!("_ti => {}", se.rti(t));
+            items.push(format!("{}: {valor}", sig_key(n, &se, c)));
+            let dart_n = match n.as_str() { "_equals" => "==", "_get" => "[]", "_set" => "[]=", "_negate" => "unary-", x => x };
+            com_dartx(&mut items, dart_n, &valor);
+        }
+        w.line(&format!("dart.setMethodSignature({cref}, () => Object.setPrototypeOf({{{}}}, {}));", items.join(", "), base_sig("getMethods")));
     }
     if !generic_methods.is_empty() {
         let items: Vec<String> = generic_methods
             .iter()
             .map(|(n, ds)| format!("{}: _ti => [{}]", sig_key(n, &se, c), ds.iter().map(|d| se.rti(d)).collect::<Vec<_>>().join(", ")))
             .collect();
-        w.line(&format!("dart.setMethodsDefaultTypeArgSignature({cref}, () => Object.setPrototypeOf({{{}}}, dart.getMethodsDefaultTypeArgs(Object.getPrototypeOf({cref}))));", items.join(", ")));
+        w.line(&format!("dart.setMethodsDefaultTypeArgSignature({cref}, () => Object.setPrototypeOf({{{}}}, {}));", items.join(", "), base_sig("getMethodsDefaultTypeArgs")));
     }
     if !getter_sigs.is_empty() {
-        let items: Vec<String> = getter_sigs.iter().map(|(n, t)| format!("{}: _ti => {}", sig_key(n, &se, c), se.rti(t))).collect();
-        w.line(&format!("dart.setGetterSignature({cref}, () => Object.setPrototypeOf({{{}}}, dart.getGetters(Object.getPrototypeOf({cref}))));", items.join(", ")));
+        let mut items: Vec<String> = Vec::new();
+        for (n, t) in getter_sigs.iter() {
+            let valor = format!("_ti => {}", se.rti(t));
+            items.push(format!("{}: {valor}", sig_key(n, &se, c)));
+            com_dartx(&mut items, n, &valor);
+        }
+        w.line(&format!("dart.setGetterSignature({cref}, () => Object.setPrototypeOf({{{}}}, {}));", items.join(", "), base_sig("getGetters")));
     }
     if !setter_sigs.is_empty() {
-        let items: Vec<String> = setter_sigs.iter().map(|(n, t)| format!("{}: _ti => {}", sig_key(n, &se, c), se.rti(t))).collect();
-        w.line(&format!("dart.setSetterSignature({cref}, () => Object.setPrototypeOf({{{}}}, dart.getSetters(Object.getPrototypeOf({cref}))));", items.join(", ")));
+        let mut items: Vec<String> = Vec::new();
+        for (n, t) in setter_sigs.iter() {
+            let valor = format!("_ti => {}", se.rti(t));
+            items.push(format!("{}: {valor}", sig_key(n, &se, c)));
+            com_dartx(&mut items, n, &valor);
+        }
+        w.line(&format!("dart.setSetterSignature({cref}, () => Object.setPrototypeOf({{{}}}, {}));", items.join(", "), base_sig("getSetters")));
     }
     if !static_methods.is_empty() {
         let items: Vec<String> = static_methods.iter().map(|n| js::string_literal(&static_member_name(n))).collect();
@@ -1611,7 +1716,7 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 format!("{key}: {{type: _ti => {}, isConst: false, isFinal: {}}}", se.rti(&ty), f.final_ && !f.late)
             })
             .collect();
-        w.line(&format!("dart.setFieldSignature({cref}, () => Object.setPrototypeOf({{{}}}, dart.getFields(Object.getPrototypeOf({cref}))));", items.join(", ")));
+        w.line(&format!("dart.setFieldSignature({cref}, () => Object.setPrototypeOf({{{}}}, {}));", items.join(", "), base_sig("getFields")));
     }
     // Estáticos: campos.
     let static_fields: Vec<VariableId> = class.fields.iter().copied().filter(|v| ctx.program.variable(*v).static_ && ctx.estado_var(*v) != crate::filtro::Estado::Morta).collect();
@@ -1638,6 +1743,10 @@ fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     if !ext_accessors.is_empty() {
         let items: Vec<String> = ext_accessors.iter().map(|n| js::string_literal(n)).collect();
         w.line(&format!("dart.defineExtensionAccessors({cref}, [{}]);", items.join(", ")));
+    }
+    // Modo SDK: `_installIdentityEquals`, `definePrimitiveHashCode`, `registerExtension`.
+    if ctx.sdk.is_some() {
+        w.push_raw(&crate::sdk_proprio::epilogo_de_classe(ctx, c, &cref));
     }
     // Campos estáticos e constantes de enum (lazy).
     let mut lazy: Vec<String> = Vec::new();
@@ -1832,6 +1941,10 @@ fn fix_equals_param(text: &str) -> String {
 }
 
 fn sig_key(name: &str, e: &FnEmitter, c: ClassId) -> String {
+    // Modo SDK: classe nativa, a chave é o símbolo `dartx` (a da declaração).
+    if crate::sdk_proprio::classe_nativa(e.ctx, c) && (!name.starts_with('_') || matches!(name, "_equals" | "_get" | "_set" | "_negate")) {
+        return crate::sdk_proprio::chave_nativa(e.m, name);
+    }
     if name.starts_with('_') && !matches!(name, "_equals" | "_get" | "_set" | "_negate") {
         e.decl_member_key(c, name)
     } else {

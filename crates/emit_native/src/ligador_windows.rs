@@ -73,6 +73,7 @@ pub const IMPORTACOES: &[(&str, &[&str])] = &[
             "DuplicateHandle",
             "EnterCriticalSection",
             "ExitProcess",
+            "FileTimeToSystemTime",
             "FindClose",
             "FindFirstFileExW",
             "FindNextFileW",
@@ -122,6 +123,7 @@ pub const IMPORTACOES: &[(&str, &[&str])] = &[
             "GetSystemTimePreciseAsFileTime",
             "GetTempPathW",
             "GetTimeZoneInformation",
+            "GetTimeZoneInformationForYear",
             "GetUserDefaultLocaleName",
             "GetWindowsDirectoryW",
             "HeapAlloc",
@@ -169,6 +171,7 @@ pub const IMPORTACOES: &[(&str, &[&str])] = &[
             "Sleep",
             "SleepEx",
             "SwitchToThread",
+            "SystemTimeToTzSpecificLocalTime",
             "TerminateProcess",
             "TlsAlloc",
             "TlsFree",
@@ -300,6 +303,9 @@ pub const IMPORTACOES: &[(&str, &[&str])] = &[
             "qsort",
             "getenv",
             "_errno",
+            // O fuso horário como a VM (`os_win.cc`: `_tzset` e `_timezone`).
+            "_tzset",
+            "_get_timezone",
             // O zlib (`gz*`) e o `ring`, compilados com o `cl.exe`.
             "__stdio_common_vsprintf",
             "_close",

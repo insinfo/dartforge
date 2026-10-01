@@ -553,7 +553,11 @@ fn carregar_leniente(
                         let Some(base_path) = &unit_path else {
                             continue;
                         };
-                        let pela_uri = resolver_relativo_a_package(&unit_uri, &uri)
+                        // `part 'package:p/x.dart'` (o `diff_match_patch`): a URI
+                        // já é absoluta; o resto é relativo à da biblioteca.
+                        let absoluta = uri.starts_with("package:").then(|| uri.clone());
+                        let pela_uri = absoluta
+                            .or_else(|| resolver_relativo_a_package(&unit_uri, &uri))
                             .and_then(|u| package_config.resolve_package_uri(&u).ok().map(|p| (p, u)));
                         let (canonical_part, part_uri) = match pela_uri {
                             Some(x) => x,

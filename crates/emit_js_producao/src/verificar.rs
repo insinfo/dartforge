@@ -85,12 +85,9 @@ fn chave(t: &str) -> Option<(bool, String)> {
 }
 
 /// `L$x` no começo de `t` (depois de espaços): o identificador e onde acaba.
-fn namespace(t: &str) -> Option<(&str, usize)> {
-    if !t.starts_with("L$") {
-        return None;
-    }
+fn namespace<'t>(t: &'t str, idents: &HashSet<&str>) -> Option<(&'t str, usize)> {
     let f = ident_em(t.as_bytes(), 0);
-    Some((&t[..f], f))
+    (f > 0 && idents.contains(&t[..f])).then(|| (&t[..f], f))
 }
 
 struct Definicoes {
@@ -98,14 +95,51 @@ struct Definicoes {
     classes: HashSet<String>,
 }
 
-fn definicoes(modulos: &[(String, String)]) -> Definicoes {
+fn definicoes(modulos: &[(String, String)], idents: &HashSet<&str>) -> Definicoes {
     let mut d = Definicoes { nomes: HashSet::new(), classes: HashSet::new() };
     for (_, texto) in modulos {
-        for (ini, fim) in varredura::declaracoes(texto) {
-            let t = texto[ini..fim].trim_start();
-            // `(L$x.C.n = function …).prototype = …` e `(L$x.C[dart.mixinNew] = …)`
+        // Cada instrução de topo que o emissor escreve começa na coluna 0:
+        // ler por início de linha é robusto a JS que a varredura por
+        // caracteres não entende (regex e *template literals* dos `JS()` do
+        // runtime). O fim de cada trecho vem do casamento de chaves.
+        let mut inicios: Vec<usize> = vec![0];
+        inicios.extend(texto.match_indices('\n').map(|(i, _)| i + 1));
+        for ini in inicios {
+            if ini >= texto.len() || matches!(texto.as_bytes()[ini], b' ' | b'\t' | b'\n' | b'\r' | b'}') {
+                continue;
+            }
+            let t = &texto[ini..];
+            // `dart.defineLazy(ns, {…})` e `dart.copyProperties(ns.C, {…})`.
+            let mut tratado = false;
+            for pre in ["dart.copyProperties(", "dart.defineLazy("] {
+                let Some(r) = t.strip_prefix(pre) else { continue };
+                tratado = true;
+                let Some(virg) = r.find(',') else { continue };
+                let alvo = r[..virg].trim();
+                // Alvo é um namespace (`core`) ou uma classe (`core.C`, os
+                // estáticos preguiçosos dela).
+                let ns = alvo.split('.').next().unwrap_or(alvo);
+                if !idents.contains(ns) || alvo.contains('(') {
+                    continue;
+                }
+                let Some(rel) = r.find('{') else { continue };
+                let abre = t.len() - r.len() + rel;
+                let Some(fecha) = varredura::fecha_chave(t, abre) else { continue };
+                let corpo = &t[abre + 1..fecha];
+                for (a, z) in varredura::entradas_de_objeto(corpo) {
+                    if let Some((_, k)) = chave(&corpo[a..z]) {
+                        d.nomes.insert(format!("{alvo}.{k}"));
+                    }
+                }
+            }
+            if tratado {
+                continue;
+            }
+            // `(L$x.C.n = function …).prototype = …` e `(L$x.C[dart.mixinNew] = …)`.
+            // Só declaração conta (`=` depois do nome): `dart.f(…)` é chamada.
+            let atribui = |s: &str| s.starts_with('=') && !s.starts_with("==");
             let t2 = t.strip_prefix('(').unwrap_or(t);
-            if let Some((ns, f)) = namespace(t2) {
+            if let Some((ns, f)) = namespace(t2, idents) {
                 let b = t2.as_bytes();
                 if b.get(f) == Some(&b'.') {
                     let g = ident_em(b, f + 1);
@@ -113,7 +147,10 @@ fn definicoes(modulos: &[(String, String)]) -> Definicoes {
                     let resto = t2[g..].trim_start();
                     if let Some(r) = resto.strip_prefix('.') {
                         let h = ident_em(r.as_bytes(), 0);
-                        d.nomes.insert(format!("{nome}.{}", &r[..h]));
+                        if atribui(r[h..].trim_start()) {
+                            d.nomes.insert(format!("{nome}.{}", &r[..h]));
+                            d.nomes.insert(nome);
+                        }
                     } else if resto.starts_with("= class ") {
                         d.classes.insert(nome.clone());
                         // Membros estáticos no corpo da classe.
@@ -128,29 +165,13 @@ fn definicoes(modulos: &[(String, String)]) -> Definicoes {
                                 }
                             }
                         }
+                        d.nomes.insert(nome);
+                    } else if atribui(resto) || resto.starts_with('[') {
+                        d.nomes.insert(nome);
                     }
-                    d.nomes.insert(nome);
                 } else if b.get(f) == Some(&b'[') {
                     if let Some((_, k)) = chave(&t2[f..]) {
                         d.nomes.insert(format!("{ns}.{k}"));
-                    }
-                }
-                continue;
-            }
-            for pre in ["dart.copyProperties(", "dart.defineLazy("] {
-                let Some(r) = t.strip_prefix(pre) else { continue };
-                let Some(virg) = r.find(',') else { continue };
-                let alvo = r[..virg].trim();
-                if !alvo.starts_with("L$") {
-                    continue;
-                }
-                let Some(rel) = r.find('{') else { continue };
-                let abre = t.len() - r.len() + rel;
-                let Some(fecha) = varredura::fecha_chave(t, abre) else { continue };
-                let corpo = &t[abre + 1..fecha];
-                for (a, z) in varredura::entradas_de_objeto(corpo) {
-                    if let Some((_, k)) = chave(&corpo[a..z]) {
-                        d.nomes.insert(format!("{alvo}.{k}"));
                     }
                 }
             }
@@ -159,20 +180,54 @@ fn definicoes(modulos: &[(String, String)]) -> Definicoes {
     d
 }
 
-/// Referências a `L$…` e receitas `ident|Nome` no texto.
-fn referencias(texto: &str, idents: &HashSet<&str>, classes: &HashSet<String>, out: &mut HashSet<String>) {
+/// Referências a namespaces (`L$x.Nome`, `core.Nome`, `dart.f`) e receitas
+/// `ident|Nome` no texto. O conteúdo de *strings* e comentários não é
+/// referência (só as receitas, que vivem dentro de *strings*).
+fn referencias(texto: &str, idents: &HashSet<&str>, receitas: &HashMap<&str, &str>, classes: &HashSet<String>, out: &mut HashSet<String>) {
     let b = texto.as_bytes();
     let mut i = 0usize;
-    while let Some(p) = texto[i..].find("L$") {
-        let s = i + p;
-        i = s + 2;
-        if s > 0 && e_ident(b[s - 1]) {
+    while i < b.len() {
+        match b[i] {
+            b'"' | b'\'' | b'`' => {
+                let q = b[i];
+                i += 1;
+                while i < b.len() && b[i] != q {
+                    if b[i] == b'\\' {
+                        i += 1;
+                    }
+                    i += 1;
+                }
+                i += 1;
+                continue;
+            }
+            b'/' if b.get(i + 1) == Some(&b'/') => {
+                while i < b.len() && b[i] != b'\n' {
+                    i += 1;
+                }
+                continue;
+            }
+            b'/' if b.get(i + 1) == Some(&b'*') => {
+                i += 2;
+                while i + 1 < b.len() && !(b[i] == b'*' && b[i + 1] == b'/') {
+                    i += 1;
+                }
+                i += 2;
+                continue;
+            }
+            c if c.is_ascii_alphabetic() || c == b'_' || c == b'$' => {}
+            _ => {
+                i += 1;
+                continue;
+            }
+        }
+        let s = i;
+        let f = ident_em(b, s);
+        i = f;
+        if s > 0 && (e_ident(b[s - 1]) || b[s - 1] == b'.') {
             continue;
         }
-        let f = ident_em(b, s);
         let ns = &texto[s..f];
-        i = f;
-        if !idents.contains(&ns[2..]) {
+        if !idents.contains(ns) {
             continue;
         }
         let nome = match b.get(f) {
@@ -228,12 +283,9 @@ fn referencias(texto: &str, idents: &HashSet<&str>, classes: &HashSet<String>, o
         if ini == p {
             continue;
         }
-        let ident = &texto[ini..p];
-        if !idents.contains(ident) {
-            continue;
-        }
+        let Some(var) = receitas.get(&texto[ini..p]) else { continue };
         let fim = ident_em(b, p + 1);
-        out.insert(format!("L${ident}.{}", &texto[p + 1..fim]));
+        out.insert(format!("{var}.{}", &texto[p + 1..fim]));
     }
 }
 
@@ -300,6 +352,17 @@ fn seletores_do_texto(texto: &str, leituras: &mut HashSet<String>, escritas: &mu
             }
         }
     };
+    // Variáveis de símbolo privado do prelúdio (`var _eval =
+    // dart.privateName(dart_rti, "_eval");`): `x[_eval]` usa o membro `_eval`.
+    let mut privados: HashMap<&str, &str> = HashMap::new();
+    for linha in texto.lines() {
+        let Some(r) = linha.strip_prefix("var ") else { continue };
+        let Some((var, resto)) = r.split_once(" = dart.privateName(") else { continue };
+        let Some(q) = resto.find('"') else { continue };
+        let resto = &resto[q + 1..];
+        let Some(fim) = resto.find('"') else { continue };
+        privados.insert(var, &resto[..fim]);
+    }
     while i < b.len() {
         match b[i] {
             // Conteúdo de string não é acesso a membro (`dart.privateName(L,
@@ -326,11 +389,16 @@ fn seletores_do_texto(texto: &str, leituras: &mut HashSet<String>, escritas: &mu
                 }
                 i = f;
             }
-            b'[' if i + 2 < b.len() && b[i + 1] == b'$' => {
-                let f = ident_em(b, i + 2);
+            b'[' if i + 2 < b.len() && (b[i + 1] == b'$' || b[i + 1] == b'_' || b[i + 1].is_ascii_alphabetic()) => {
+                let f = ident_em(b, i + 1);
                 if b.get(f) == Some(&b']') {
+                    let var = &texto[i + 1..f];
                     let e = especie_apos(b, f + 1);
-                    registra(&texto[i + 2..f], e, leituras, escritas);
+                    if let Some(n) = privados.get(var) {
+                        registra(n, e, leituras, escritas);
+                    } else if let Some(n) = var.strip_prefix('$') {
+                        registra(n, e, leituras, escritas);
+                    }
                 }
                 i = f.max(i + 1);
             }
@@ -356,9 +424,12 @@ pub fn bibliotecas_do_texto(modulos: &[(String, String)], program: &Program) -> 
             let linha = linha.trim();
             let Some((uri, var)) = linha.rsplit_once(": ") else { continue };
             let uri = uri.trim().trim_matches('"');
-            let Some(ident) = var.trim().strip_prefix("L$") else { continue };
+            let var = var.trim();
+            if !var.starts_with("L$") {
+                continue;
+            }
             if let Some(&l) = por_uri.get(uri) {
-                out.insert(ident.to_string(), l);
+                out.insert(var.to_string(), l);
             }
         }
     }
@@ -367,11 +438,22 @@ pub fn bibliotecas_do_texto(modulos: &[(String, String)], program: &Program) -> 
 
 /// Confere o texto emitido contra o mundo e devolve o que falta.
 pub fn conferir(modulos: &[(String, String)], libs: &HashMap<String, LibraryId>, program: &Program, interner: &Interner, mundo: &Mundo) -> Faltas {
-    let defs = definicoes(modulos);
     let idents: HashSet<&str> = libs.keys().map(String::as_str).collect();
+    let defs = definicoes(modulos, &idents);
+    // Receita rti (`main|D`, `_rti|Rti`) → variável do namespace.
+    let mut por_receita: HashMap<String, &str> = HashMap::new();
+    for (var, l) in libs {
+        let lib = program.library(*l);
+        let ident = match lib.uri.strip_prefix("dart:") {
+            Some(n) => n.to_string(),
+            None => var.strip_prefix("L$").unwrap_or(var).to_string(),
+        };
+        por_receita.insert(ident, var.as_str());
+    }
+    let receitas: HashMap<&str, &str> = por_receita.iter().map(|(k, v)| (k.as_str(), *v)).collect();
     let mut refs: HashSet<String> = HashSet::new();
     for (_, t) in modulos {
-        referencias(t, &idents, &defs.classes, &mut refs);
+        referencias(t, &idents, &receitas, &defs.classes, &mut refs);
     }
     let mut faltas = Faltas::default();
     let mut pendentes: Vec<&String> = refs.iter().filter(|r| !defs.nomes.contains(*r)).collect();
@@ -397,7 +479,7 @@ pub fn conferir(modulos: &[(String, String)], libs: &HashMap<String, LibraryId>,
     }
     let mut novos: HashSet<String> = HashSet::new();
     for (i, c) in program.classes.iter().enumerate() {
-        if program.library(c.library).is_sdk || mundo.classe(ClassId(i as u32)) != NivelClasse::Instanciada {
+        if (program.library(c.library).is_sdk && !mundo.incluir_sdk) || mundo.classe(ClassId(i as u32)) != NivelClasse::Instanciada {
             continue;
         }
         for (&chave, &f) in c.instance_members.iter() {
@@ -442,15 +524,15 @@ pub fn conferir(modulos: &[(String, String)], libs: &HashMap<String, LibraryId>,
 
 /// `L$x.Nome` / `L$x.C.m` → elemento.
 fn traduzir(r: &str, libs: &HashMap<String, LibraryId>, program: &Program, interner: &Interner, f: &mut Faltas) -> bool {
-    let Some(resto) = r.strip_prefix("L$") else { return false };
-    let Some((ident, nomes)) = resto.split_once('.') else { return false };
+    let Some((ident, nomes)) = r.split_once('.') else { return false };
     let Some(&lib) = libs.get(ident) else { return false };
     let (nome, membro) = match nomes.split_once('.') {
         Some((a, b)) => (a, Some(b)),
         None => (nomes, None),
     };
-    let Some(sym) = interner.lookup(nome) else { return false };
-    let Some(b) = program.library(lib).declared.get(&sym) else { return false };
+    // `@JSExportName` do SDK: `dart.throw` é `throw_`, `dart.notNull` é `_notNull`.
+    let declarado = |n: &str| interner.lookup(n).and_then(|s| program.library(lib).declared.get(&s));
+    let Some(b) = declarado(nome).or_else(|| declarado(&format!("{nome}_"))).or_else(|| declarado(&format!("_{nome}"))) else { return false };
     let mut ok = false;
     for el in [b.getter, b.setter].into_iter().flatten() {
         // Tipo de extensão que não é de interop: o emissor nunca escreve a
@@ -540,23 +622,25 @@ mod testes {
             )
             .to_string(),
         )];
-        let d = definicoes(&m);
+        let idents: HashSet<&str> = ["L$a"].into_iter().collect();
+        let d = definicoes(&m, &idents);
         for n in ["L$a.C", "L$a.C.f", "L$a.C._#new#tearOff", "L$a.C.new", "L$a.x", "L$a.y", "L$a.h"] {
             assert!(d.nomes.contains(n), "{n}: {:?}", d.nomes);
         }
         assert!(!d.nomes.contains("L$a.C.g"), "membro de instância não é definição estática");
-        let idents: HashSet<&str> = ["a"].into_iter().collect();
+        let receitas: HashMap<&str, &str> = [("a", "L$a")].into_iter().collect();
         let mut r = HashSet::new();
-        referencias(&m[0].1, &idents, &d.classes, &mut r);
+        referencias(&m[0].1, &idents, &receitas, &d.classes, &mut r);
         let pend: Vec<&String> = r.iter().filter(|x| !d.nomes.contains(*x)).collect();
         assert_eq!(pend, vec!["L$a.z"]);
     }
 
     #[test]
     fn receita_rti_e_referencia() {
-        let idents: HashSet<&str> = ["main"].into_iter().collect();
+        let idents: HashSet<&str> = ["L$main"].into_iter().collect();
+        let receitas: HashMap<&str, &str> = [("main", "L$main")].into_iter().collect();
         let mut r = HashSet::new();
-        referencias("x[_is](dart_rti._Universe.eval(u, \"main|D<core|int>\"))", &idents, &HashSet::new(), &mut r);
+        referencias("x[_is](dart_rti._Universe.eval(u, \"main|D<core|int>\"))", &idents, &receitas, &HashSet::new(), &mut r);
         assert!(r.contains("L$main.D"), "{r:?}");
         assert!(!r.iter().any(|x| x.contains("core")));
     }

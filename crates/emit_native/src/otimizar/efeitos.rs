@@ -44,18 +44,39 @@ fn funcao_lanca(func: &Function, nao_lancam: &HashSet<String>) -> bool {
 }
 
 /// As funções do módulo que não lançam.
+///
+/// O maior ponto fixo de cima, calculado por lista de trabalho: uma função
+/// lança se tem uma operação que lança por si (com todas as do módulo
+/// supostas sem lançar) ou se chama (`CallStatic`) uma que lança. Parte das
+/// que lançam por si e sobe pelas arestas inversas de chamada. Era uma
+/// varredura do módulo inteiro por rodada, uma rodada por nível da cadeia de
+/// chamadas — quadrática num programa real (o new_sali/backend).
 pub fn nao_lancam(module: &Module) -> HashSet<String> {
-    let mut conjunto: HashSet<String> = module.functions.iter().map(|f| f.symbol.clone()).collect();
-    loop {
-        let lancam: Vec<String> =
-            module.functions.iter().filter(|f| conjunto.contains(&f.symbol) && funcao_lanca(f, &conjunto)).map(|f| f.symbol.clone()).collect();
-        if lancam.is_empty() {
-            return conjunto;
-        }
-        for s in lancam {
-            conjunto.remove(&s);
+    use std::collections::HashMap;
+    let todos: HashSet<String> = module.functions.iter().map(|f| f.symbol.clone()).collect();
+    let mut chamadores: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (k, f) in module.functions.iter().enumerate() {
+        for b in &f.blocks {
+            for (_, i, _) in &b.instructions {
+                if let Instruction::CallStatic { symbol, .. } = i {
+                    chamadores.entry(symbol.as_str()).or_default().push(k);
+                }
+            }
         }
     }
+    let mut lanca: HashSet<&str> = HashSet::new();
+    let mut fila: Vec<usize> =
+        module.functions.iter().enumerate().filter(|(_, f)| funcao_lanca(f, &todos)).map(|(k, _)| k).collect();
+    while let Some(k) = fila.pop() {
+        let s = module.functions[k].symbol.as_str();
+        if !lanca.insert(s) {
+            continue;
+        }
+        if let Some(cs) = chamadores.get(s) {
+            fila.extend(cs.iter().copied().filter(|&c| !lanca.contains(module.functions[c].symbol.as_str())));
+        }
+    }
+    todos.into_iter().filter(|s| !lanca.contains(s.as_str())).collect()
 }
 
 /// Toda operação da função que pode lançar é conferida logo em seguida? (As

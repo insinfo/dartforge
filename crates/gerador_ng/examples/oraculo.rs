@@ -11,7 +11,7 @@
 //! ```
 use dartforge_elements::config::PackageConfig;
 use dartforge_elements::gerado::{Construtor, do_build_runner};
-use dartforge_elements::load::load_lenient_gerados;
+use dartforge_elements::load::load_lenient_entradas_ocultando;
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_gerador_ng::resolucao::Resolvedor;
 use dartforge_gerador_ng::{Pacote, Placar, caminho_do_template, gerar_em};
@@ -30,6 +30,10 @@ fn main() -> std::process::ExitCode {
         dartforge_elements::config::sem_verbatim(std::fs::canonicalize(&raiz).unwrap_or(raiz));
     let resto: Vec<String> = args.collect();
     let listar = resto.iter().any(|a| a == "--listar");
+    // `--todos`: também as dependências com saída oficial do ngdart (o
+    // `limitless_ui` hospedado, o próprio ngdart, o ngforms…), que o `serve`
+    // pede do mesmo jeito que as do pacote da entrada.
+    let todos = resto.iter().any(|a| a == "--todos");
     // `--despejar <dir>`: grava o nosso e o oficial de cada diferente, para
     // comparar com um diff.
     let despejar = resto
@@ -51,6 +55,18 @@ fn main() -> std::process::ExitCode {
         "oficial: {} arquivos gerados pelo build_runner",
         oficial.len()
     );
+    // As folhas `.css` que o `sass_builder` desta build escreveu: o shim do
+    // ngdart parte delas, como no motor (que as recebe do Sass nativo). O
+    // oráculo mede o compilador do ngdart; o Sass tem o seu (`crates/sass`),
+    // e cada pacote compila no estilo e na versão do dart-sass dele.
+    let css_oficial = do_build_runner(&cfg, &[".css"], None);
+    let folhas_de = |dir: &std::path::Path| -> std::collections::HashMap<PathBuf, String> {
+        css_oficial
+            .iter()
+            .filter(|(p, _)| p.starts_with(dir))
+            .map(|(p, f)| (p.clone(), f.conteudo.to_string()))
+            .collect()
+    };
 
     // Fase 1: carregar o projeto sem os gerados. A carga é tolerante, então
     // os `.template.dart` que faltam viram diagnóstico e o resto do programa
@@ -59,7 +75,34 @@ fn main() -> std::process::ExitCode {
         eprintln!("sem `name:` no pubspec.yaml de {}", raiz.display());
         return std::process::ExitCode::FAILURE;
     };
-    let (entrada, sintetica) = entrada_de_todos(&raiz, &nome_do_pacote);
+    // As dependências que o oráculo cobre: as que têm saída oficial em
+    // `.dart_tool/build/generated/<pacote>/lib`.
+    let mut dependencias: Vec<(String, PathBuf)> = Vec::new();
+    if todos {
+        let gerados = raiz.join(".dart_tool").join("build").join("generated");
+        for (nome, pkg) in &cfg.packages {
+            if *nome == nome_do_pacote || !gerados.join(nome).join("lib").is_dir() {
+                continue;
+            }
+            // O compilador do ngdart não entra no programa da aplicação (o
+            // DDC nunca pede os gerados dele), e carregá-lo traria o
+            // `analyzer` inteiro.
+            if matches!(
+                nome.as_str(),
+                "ngcompiler" | "ngx_compiler" | "ngast" | "ngx_ast"
+            ) {
+                continue;
+            }
+            if let Ok(dir) = pkg.root_uri.to_file_path() {
+                let dir = dartforge_elements::config::sem_verbatim(
+                    std::fs::canonicalize(&dir).unwrap_or(dir),
+                );
+                dependencias.push((nome.clone(), dir));
+            }
+        }
+        dependencias.sort();
+    }
+    let (raizes, ocultos) = arquivos_de_todos(&raiz, &dependencias);
     let sdk_dir =
         SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
     let sdk = match SdkLayout::load(&sdk_dir, "dartdevc") {
@@ -71,14 +114,13 @@ fn main() -> std::process::ExitCode {
     };
     let mut nomes = Interner::new();
     let t = std::time::Instant::now();
-    let (programa, _) = load_lenient_gerados(
-        &entrada,
+    let raizes: Vec<&std::path::Path> = raizes.iter().map(PathBuf::as_path).collect();
+    let (programa, _) = load_lenient_entradas_ocultando(
+        &raizes,
         &sdk,
         Some(&cfg_path),
         &mut nomes,
-        None,
-        None,
-        Some(sintetica),
+        std::sync::Arc::new(ocultos),
     );
     println!(
         "programa: {} bibliotecas em {} ms",
@@ -98,7 +140,7 @@ fn main() -> std::process::ExitCode {
     let pacote = Pacote {
         nome: nome_do_pacote,
         raiz: raiz.clone(),
-        ..Default::default()
+        folhas_geradas: folhas_de(&raiz),
     };
     println!("pacote: {}", pacote.nome);
     gerar_em(
@@ -109,6 +151,21 @@ fn main() -> std::process::ExitCode {
         &mut placar,
         Some(&resolvedor),
     );
+    for (nome, dir) in &dependencias {
+        let pacote = Pacote {
+            nome: nome.clone(),
+            raiz: dir.clone(),
+            folhas_geradas: folhas_de(dir),
+        };
+        gerar_em(
+            &pacote,
+            &[dir.join("lib")],
+            &mut interner,
+            &mut c,
+            &mut placar,
+            Some(&resolvedor),
+        );
+    }
     let nossa = match c.concluir(1) {
         Ok(g) => g,
         Err(erros) => {
@@ -263,7 +320,7 @@ fn main() -> std::process::ExitCode {
         println!("    {l}");
     }
     if listar {
-        for d in divergentes.iter().take(20) {
+        for d in divergentes.iter() {
             println!("  != {d}");
         }
         for (p, c) in placar.pendentes.iter().zip(placar.conjuntos.iter()) {
@@ -278,20 +335,26 @@ fn main() -> std::process::ExitCode {
     }
 }
 
-/// Entrada da carga que alcança **todos** os `.dart` que o gerador examina
-/// (`lib/`, `web/`, `test/`), não só os que o `main` importa: uma biblioteca
-/// sintética, só em memória, que importa cada um. Sem ela, um componente que
-/// nenhuma página usa fica fora do banco semântico, e a lista `directives:`
-/// dele não se resolve.
-fn entrada_de_todos(
+/// As raízes da carga: **todos** os `.dart` que o gerador examina (`lib/`,
+/// `web/`, `test/` do pacote e o `lib/` das dependências), não só os que o
+/// `main` importa — como o `build_runner` resolve cada entrada do ngdart.
+/// Sem isso, um componente que nenhuma página usa fica fora do banco
+/// semântico, e a lista `directives:` dele não se resolve. A primeira raiz
+/// é uma biblioteca (as partes ficam para quem as inclui).
+///
+/// E os ocultos: as saídas `build_to: source` de fases posteriores à do
+/// ngdart, que o resolvedor dele não enxerga (o `x.i18n.dart` do `i18n`,
+/// ao lado do `x.i18n.yaml`), como o `Motor::saidas_invisiveis_a` faz.
+fn arquivos_de_todos(
     raiz: &std::path::Path,
-    pacote: &str,
-) -> (PathBuf, std::sync::Arc<dartforge_elements::gerado::Geracao>) {
-    let lib = raiz.join("lib");
-    let entrada = lib.join("__oraculo_todos__.dart");
-    let mut texto = String::from("// Gerado pelo oráculo: importa todo o pacote.\n");
-    for dir in ["lib", "web", "test"] {
-        let mut pilha = vec![raiz.join(dir)];
+    dependencias: &[(String, PathBuf)],
+) -> (Vec<PathBuf>, std::collections::HashSet<PathBuf>) {
+    let mut dirs: Vec<PathBuf> = ["lib", "web", "test"].iter().map(|d| raiz.join(d)).collect();
+    dirs.extend(dependencias.iter().map(|(_, d)| d.join("lib")));
+    let mut todos = Vec::new();
+    let mut ocultos = std::collections::HashSet::new();
+    for dir in dirs {
+        let mut pilha = vec![dir];
         let mut arquivos = Vec::new();
         while let Some(d) = pilha.pop() {
             let Ok(entradas) = std::fs::read_dir(&d) else {
@@ -301,32 +364,35 @@ fn entrada_de_todos(
                 let p = e.path();
                 if p.is_dir() {
                     pilha.push(p);
-                } else {
-                    let n = p.to_string_lossy().to_string();
-                    if n.ends_with(".dart") && !n.ends_with(".template.dart") {
-                        arquivos.push(p);
-                    }
+                    continue;
                 }
+                let n = p.to_string_lossy().replace('\\', "/");
+                // O `generate_for` do ngdart exclui o compilador dele.
+                let do_compilador = n.contains("/lib/src/compiler/")
+                    || n.contains("/lib/src/source_gen/")
+                    || n.ends_with("/lib/src/build.dart");
+                if !n.ends_with(".dart") || n.ends_with(".template.dart") || do_compilador {
+                    continue;
+                }
+                if let Some(base) = n.strip_suffix(".i18n.dart")
+                    && std::path::Path::new(&format!("{base}.i18n.yaml")).is_file()
+                {
+                    ocultos.insert(dartforge_elements::gerado::chave(&p));
+                    continue;
+                }
+                arquivos.push(p);
             }
         }
         arquivos.sort();
-        for p in arquivos {
-            let rel = p
-                .strip_prefix(raiz)
-                .unwrap_or(&p)
-                .to_string_lossy()
-                .replace('\\', "/");
-            let uri = match rel.strip_prefix("lib/") {
-                Some(dentro) => format!("package:{pacote}/{dentro}"),
-                None => format!("../{rel}"),
-            };
-            texto.push_str(&format!("import '{uri}';\n"));
-        }
+        todos.extend(arquivos);
     }
-    let mut c = Construtor::nova();
-    c.por(entrada.clone(), texto, "oraculo", Vec::new());
-    let g = c.concluir(0).unwrap_or_default();
-    (entrada, g)
+    // A primeira raiz tem de ser biblioteca (não `part of`).
+    if let Some(i) = todos.iter().position(|p| {
+        std::fs::read_to_string(p).is_ok_and(|t| !t.lines().any(|l| l.trim_start().starts_with("part of")))
+    }) {
+        todos.swap(0, i);
+    }
+    (todos, ocultos)
 }
 
 /// Sem SDK não há resolução de nomes; o placar ainda vale para o resto.

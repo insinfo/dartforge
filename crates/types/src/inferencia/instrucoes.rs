@@ -156,8 +156,17 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
             conts.extend(alvo.continues);
             let base = cx.fluxo.clone();
             cx.fluxo = inf.juntar_todos(&base, &conts);
+            // Atualizações inalcançáveis: o trecho delas é o do
+            // `_reportForUpdaters` (ou nenhum); nada de dentro abre outro.
+            let fechar = !cx.fluxo.alcancavel && cx.trecho_morto.is_none();
+            if fechar {
+                cx.trecho_morto = Some(usize::MAX);
+            }
             for u in updates.iter() {
                 inferir_livre(inf, cx, *u);
+            }
+            if fechar {
+                cx.trecho_morto = None;
             }
             let mut saidas = vec![ff];
             saidas.extend(alvo.breaks);
@@ -279,10 +288,13 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                 Some(f) => (f.modificador, f.contexto_retorno),
                 None => (AsyncModifier::None, inf.core.unknown),
             };
+            // O tipo de retorno declarado do gerador (`imposedType`).
+            let declarado = cx.funcoes.last().and_then(|f| f.retorno.filter(|_| f.executavel.is_some()));
             if *star {
                 let ctx = if m == AsyncModifier::AsyncStar { inf.fluxo_de(k) } else { inf.iteravel(k) };
                 let t = inferir(inf, cx, *value, ctx);
                 expr::uso_de_void(inf, cx, *value, t);
+                yield_invalido(inf, cx, *value, t, declarado, true, m);
                 let classe = if m == AsyncModifier::AsyncStar { inf.core.stream_class } else { inf.core.iterable_class };
                 let el = if inf.e_dynamic(t) { inf.core.dynamic_ } else { inf.como_instancia_de(t, classe).map(|a| a[0]).unwrap_or(inf.core.dynamic_) };
                 if let Some(f) = cx.funcoes.last_mut() {
@@ -291,6 +303,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
             } else {
                 let t = inferir(inf, cx, *value, k);
                 expr::uso_de_void(inf, cx, *value, t);
+                yield_invalido(inf, cx, *value, t, declarado, false, m);
                 if let Some(f) = cx.funcoes.last_mut() {
                     f.retornados.push(t);
                 }
@@ -308,7 +321,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                 cx.fluxo = f;
                 cx.empurrar_escopo();
                 let tipo_ex = match c.on_type {
-                    Some(t) => inf.tipo_de_anotacao(cx, t),
+                    Some(t) => inf.tipo_no_contexto(cx, t, crate::resolve::ContextoDeTipo::Catch),
                     None => inf.core.object,
                 };
                 if let Some(n) = &c.exception {
@@ -526,6 +539,83 @@ fn sempre_exaustivo(inf: &mut BodyInferrer<'_>, t: TypeId, prof: u32) -> bool {
     }
 }
 
+/// `_checkForYieldOfInvalidType` (`an611:src/dart/resolver/yield_statement_resolver.dart:
+/// 72-140`): o valor de `yield` não cabe no elemento do retorno declarado
+/// (`YIELD_OF_INVALID_TYPE`), ou o de `yield*` não cabe no retorno
+/// (`YIELD_EACH_OF_INVALID_TYPE`), na expressão.
+fn yield_invalido(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, t: TypeId, r: Option<TypeId>, estrela: bool, m: AsyncModifier) {
+    use dartforge_diagnostics::codigos::compile_time_error as c;
+    if !matches!(m, AsyncModifier::SyncStar | AsyncModifier::AsyncStar) {
+        return;
+    }
+    let sp = inf.span_expr(cx.unit, e);
+    let classe = if m == AsyncModifier::AsyncStar { inf.core.stream_class } else { inf.core.iterable_class };
+    if estrela {
+        if let Some(r) = r.filter(|&r| !inf.atribuivel(t, r)) {
+            let (a, b) = (inf.table.format(t, inf.interner, inf.program), inf.table.format(r, inf.interner, inf.program));
+            inf.aviso_com_codigo(c::YIELD_EACH_OF_INVALID_TYPE, sp, &[&a, &b]);
+            return;
+        }
+        let d = inf.core.dynamic_;
+        let req = if m == AsyncModifier::AsyncStar { inf.fluxo_de(d) } else { inf.iteravel(d) };
+        if !inf.atribuivel(t, req) {
+            let (a, b) = (inf.table.format(t, inf.interner, inf.program), inf.table.format(req, inf.interner, inf.program));
+            inf.aviso_com_codigo(c::YIELD_EACH_OF_INVALID_TYPE, sp, &[&a, &b]);
+        }
+    } else if let Some(args) = r.and_then(|r| inf.como_instancia_de(r, classe)) {
+        let v = args[0];
+        if !inf.atribuivel(t, v) {
+            let (a, b) = (inf.table.format(t, inf.interner, inf.program), inf.table.format(v, inf.interner, inf.program));
+            inf.aviso_com_codigo(c::YIELD_OF_INVALID_TYPE, sp, &[&a, &b]);
+        }
+    }
+}
+
+/// O inicializador de uma local `late`: o fluxo o trata como um literal de
+/// função (`lateInitializer_begin`/`_end` são os de `functionExpression`):
+/// lá dentro, as variáveis escritas em qualquer lugar do membro não estão
+/// definitivamente não atribuídas; depois dele, o fluxo é o de antes, e o
+/// que ele escreve conta como escrita capturada.
+fn inicializador_late(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, init: ExprId, ctx: TypeId) -> TypeId {
+    let antes = cx.fluxo.clone();
+    let mut dentro = antes.clone();
+    if cx.escritos_no_corpo.is_none() {
+        let a = &inf.program.unit(cx.unit).ast;
+        cx.escritos_no_corpo = Some(match cx.raiz {
+            super::corpo::Raiz::Funcao(f) => nomes_escritos_separados(inf, cx.unit, &a.function(f).body),
+            super::corpo::Raiz::Construtor(m) => match &a.member(m).kind {
+                ast::MemberKind::Constructor(c) => nomes_escritos_separados(inf, cx.unit, &c.body),
+                _ => Default::default(),
+            },
+            super::corpo::Raiz::Nada => Default::default(),
+        });
+    }
+    let (fora, capturadas) = cx.escritos_no_corpo.clone().unwrap_or_default();
+    for e in fora.iter() {
+        if let Some(id) = local_da_escrita(cx, *e) {
+            dentro.juncao_conservadora(&[id], &[]);
+        }
+    }
+    for e in capturadas.iter() {
+        if let Some(id) = local_da_escrita(cx, *e) {
+            dentro.juncao_conservadora(&[], &[id]);
+        }
+    }
+    cx.fluxo = dentro;
+    let t = inferir(inf, cx, init, ctx);
+    // O que o inicializador escreve, sintaticamente.
+    let mut v = Varredura::nova(&inf.program.unit(cx.unit).ast);
+    v.expr(init, false);
+    let escritas: Vec<Escrita> = v.fora.into_iter().chain(v.dentro).collect();
+    cx.fluxo = antes;
+    for e in escritas {
+        if let Some(id) = local_da_escrita(cx, e) {
+            cx.fluxo.capturar(id);
+        }
+    }
+    t
+}
+
 /// Declaração de variáveis locais (`var`, `final`, tipadas, `late`, `const`).
 pub(crate) fn declaracao_de_variaveis(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, vl: &ast::VariableList) {
     let declarado = vl.ty.map(|t| inf.tipo_de_anotacao(cx, t));
@@ -538,7 +628,9 @@ pub(crate) fn declaracao_de_variaveis(inf: &mut BodyInferrer<'_>, cx: &mut Corpo
             // Inicializador que é condição (`x != null && …`): os modelos
             // verdadeiro/falso ficam guardados na variável (§7.10); `late`
             // nunca guarda.
-            let t = if !vl.late && expr::e_forma_de_condicao(inf, cx, init) {
+            let t = if vl.late {
+                inicializador_late(inf, cx, init, declarado.unwrap_or(u))
+            } else if expr::e_forma_de_condicao(inf, cx, init) {
                 let (sim, nao) = expr::condicao(inf, cx, init);
                 cx.fluxo = inf.juntar(&sim, &nao);
                 condicao_guardada = Some((sim, nao));
@@ -674,6 +766,9 @@ fn retorno(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: Option<ExprId>, span: 
                     super::funcoes::verificar_retorno(inf, cx, &fc, e, t);
                 }
                 None => {
+                    if let Some(f) = cx.funcoes.last_mut() {
+                        f.expressoes_retornadas.push((e, t));
+                    }
                     let t = if fc.modificador == AsyncModifier::Async { inf.flatten(t) } else { t };
                     if let Some(f) = cx.funcoes.last_mut() {
                         f.retornados.push(t);
@@ -682,6 +777,20 @@ fn retorno(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: Option<ExprId>, span: 
             }
         }
         None => {
+            // `RETURN_WITHOUT_VALUE` (`_checkReturnWithoutValue`,
+            // `an611:src/error/return_type_verifier.dart:277-295`): num
+            // executável declarado não gerador, com retorno (o valor futuro,
+            // em `async`) que não é `void`, `dynamic` nem `Null`.
+            if let (Some(t), Some(_)) = (fc.retorno, fc.executavel.as_ref()) {
+                let gerador = matches!(fc.modificador, AsyncModifier::SyncStar | AsyncModifier::AsyncStar);
+                if !gerador {
+                    let tv = if fc.modificador == AsyncModifier::Async { inf.tipo_valor_futuro(t) } else { t };
+                    if !matches!(inf.table.get(tv), Type::Void | Type::Dynamic | Type::Null) {
+                        let sp = dartforge_diagnostics::Span { start: span.start, end: span.start + "return".len() };
+                        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::RETURN_WITHOUT_VALUE, sp, &[]);
+                    }
+                }
+            }
             if let Some(f) = cx.funcoes.last_mut() {
                 f.retorno_vazio = true;
             }

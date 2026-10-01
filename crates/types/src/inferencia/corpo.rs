@@ -50,6 +50,9 @@ pub(crate) struct CtxFuncao {
     pub retornados: Vec<TypeId>,
     /// Há `return;` sem valor.
     pub retorno_vazio: bool,
+    /// As expressões de `return e;` (e o corpo `=> e`) com os tipos, para a
+    /// conferência de uma closure cujo retorno acaba sendo o do contexto.
+    pub expressoes_retornadas: Vec<(ast::ExprId, TypeId)>,
     /// O executável que declara o retorno, para `return_of_invalid_type`;
     /// `None` em closures e construtores geradores (outras regras).
     pub executavel: Option<Executavel>,
@@ -93,6 +96,9 @@ pub(crate) struct Corpo {
     /// Tipando o padrão de um `case`/`if-case` (refutável): o identificador
     /// solto é uma constante (`case _padrao:`), não uma variável nova.
     pub padrao_refutavel: bool,
+    /// Corpo de um método ou inicializador de campo estático: os parâmetros
+    /// de tipo da classe não valem ali (`TYPE_PARAMETER_REFERENCED_BY_STATIC`).
+    pub membro_estatico: bool,
     /// Pilha de alvos de `break`/`continue` (rótulos e laços): modelos de
     /// fluxo acumulados nos saltos.
     pub saltos: Vec<AlvoSalto>,
@@ -186,6 +192,7 @@ impl Corpo {
             funcoes: Vec::new(),
             cascatas: Vec::new(),
             padrao_refutavel: false,
+            membro_estatico: false,
             saltos: Vec::new(),
             tipo_this: None,
             escritos_em_closure: Vec::new(),
@@ -238,6 +245,7 @@ impl Corpo {
         // Inicializadores de campos de instância não veem `this` (só os `late`).
         let estatico = v.static_ || (classe.is_none() && extensao.is_none()) || !v.late;
         let mut cx = Corpo::novo(inf, unit, classe, extensao, estatico);
+        cx.membro_estatico = v.static_ && (classe.is_some() || extensao.is_some());
         if !v.static_ && v.late {
             cx.estatico = false;
             if let Some(c) = classe {
@@ -253,7 +261,13 @@ impl Corpo {
         let (classe, extensao) = (fe.class, fe.extension);
         let estatico = fe.static_ && !matches!(fe.kind, dartforge_elements::model::FunctionKind::Constructor) || fe.factory;
         let estatico = estatico || (classe.is_none() && extensao.is_none());
-        Corpo::novo(inf, unit, classe, extensao, estatico)
+        let membro_estatico = fe.static_
+            && !fe.factory
+            && !matches!(fe.kind, dartforge_elements::model::FunctionKind::Constructor)
+            && (classe.is_some() || extensao.is_some());
+        let mut cx = Corpo::novo(inf, unit, classe, extensao, estatico);
+        cx.membro_estatico = membro_estatico;
+        cx
     }
 
     pub fn empurrar_escopo(&mut self) {

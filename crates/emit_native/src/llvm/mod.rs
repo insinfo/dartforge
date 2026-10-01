@@ -29,6 +29,11 @@ use std::fmt::Write;
 
 pub struct LlvmEmitter<'a> {
     module: &'a Module,
+    /// As funções do módulo pelo símbolo (a primeira com cada nome, como o
+    /// `find` linear que esta tabela substituiu: ele era feito a cada
+    /// `CallStatic` e tornava a emissão quadrática — dezenas de minutos no
+    /// new_sali/backend, docs/NATIVO-PROJETOS-REAIS.md).
+    funcao_por_simbolo: std::collections::HashMap<&'a str, &'a Function>,
     out: String,
     /// As constantes de string, na ordem de emissão (determinística); o
     /// índice de cada uma é a posição.
@@ -167,6 +172,13 @@ impl<'a> LlvmEmitter<'a> {
             area_anterior: None,
             area_enxuta: false,
             depuracao: module.functions.iter().any(|f| f.depuracao.is_some()).then(depuracao::Depuracao::nova),
+            funcao_por_simbolo: {
+                let mut m = std::collections::HashMap::with_capacity(module.functions.len());
+                for f in &module.functions {
+                    m.entry(f.symbol.as_str()).or_insert(f);
+                }
+                m
+            },
             objetos_estaticos: false,
             tabelas_na_ligacao: false,
             textos: Default::default(),
@@ -816,8 +828,7 @@ impl<'a> LlvmEmitter<'a> {
                         ).unwrap();
                     }
                     Instruction::CallStatic { symbol, args, ret_ty } => {
-                        let modulo = self.module;
-                        let target_func = modulo.functions.iter().find(|f| f.symbol == *symbol);
+                        let target_func = self.funcao_por_simbolo.get(symbol.as_str()).copied();
                         let mut args_str: Vec<String> = Vec::with_capacity(args.len());
                         let mut tipos_args = Vec::with_capacity(args.len());
                         for (idx, a) in args.iter().enumerate() {

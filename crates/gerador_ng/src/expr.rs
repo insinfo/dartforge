@@ -32,6 +32,10 @@ use std::path::{Path, PathBuf};
 /// `\u{3}nome/argumentos\u{4}`. Quem converte não sabe a visão nem a ordem
 /// das chamadas; a visão troca a marca pelo proxy.
 pub const MARCA_DE_PIPE: char = '\u{3}';
+
+/// Prefixo de [`Convertida::estatica`] para o receptor de `exports:` sem
+/// `AnalyzedClass` ([`crate::resolucao::Exportado::TipoSemClasse`]).
+const SEM_CLASSE: char = '\u{7}';
 pub const FIM_DE_PIPE: char = '\u{4}';
 
 /// Um local de visão embutida: o nome em Dart e o tipo.
@@ -670,6 +674,13 @@ impl Conversor<'_> {
                             estatica: Some(nome.to_string()),
                             ..Convertida::nova(texto, "classe de exports:")
                         }),
+                        // Sem `AnalyzedClass` (enum, mixin): `X.y` é um
+                        // `PropertyRead` comum, mutável e `dynamic`.
+                        Exportado::TipoSemClasse => Ok(Convertida {
+                            tipo: Some("dynamic".into()),
+                            estatica: Some(format!("{SEM_CLASSE}{nome}")),
+                            ..Convertida::nova(texto, "enum ou mixin de exports:")
+                        }),
                         Exportado::Variavel { .. } => Ok(Convertida {
                             imutavel: true,
                             tipo: Some("dynamic".into()),
@@ -737,9 +748,21 @@ impl Conversor<'_> {
                 }
                 // `isImmutable` de `PropertyRead` com receptor implícito:
                 // campo `final`/`const` (o getter já chega aqui mutável).
+                // Sem tipo escrito, o que o banco semântico infere da
+                // declaração (`Enum.values`, `Classe<A>.nomeado()`…), com o
+                // escopo dela.
+                let (tipo, escopo) = if m.tipo.is_empty() {
+                    match self.membro_herdado(nome) {
+                        Some(c) => (c.tipo, c.escopo),
+                        None => (None, None),
+                    }
+                } else {
+                    (Some(m.tipo.clone()), None)
+                };
                 Ok(Convertida {
                     imutavel: m.imutavel,
-                    tipo: (!m.tipo.is_empty()).then(|| m.tipo.clone()),
+                    tipo,
+                    escopo,
                     ..Convertida::nova(format!("_ctx.{nome}"), "membro")
                 })
             }
@@ -755,6 +778,20 @@ impl Conversor<'_> {
                 // `const`/`final` (e o valor de enum) é imutável, o getter
                 // não, e o método é ("methods are immutable",
                 // `analyzed_class.dart:140-150`). Tipo `dynamic` (caso j51).
+                if alvo
+                    .estatica
+                    .as_deref()
+                    .is_some_and(|c| c.starts_with(SEM_CLASSE))
+                {
+                    return Ok(Convertida {
+                        tipo: Some("dynamic".into()),
+                        locais: alvo.locais,
+                        ..Convertida::nova(
+                            format!("{}{ponto}{nome}", alvo.texto),
+                            "membro de enum ou mixin",
+                        )
+                    });
+                }
                 if let Some(classe) = &alvo.estatica {
                     use crate::resolucao::Estatico;
                     let Some((r, arquivo)) = self.escopo.tipos else {

@@ -314,13 +314,20 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
                 "SDK do Dart não encontrado: defina DARTFORGE_SDK_LIB (o lib/ do SDK) ou DART_SDK",
             )?;
             let layout = dartforge_elements::sdk::SdkLayout::load(&dir, "dartdevc")?;
+            // O builder do ngdart do plano: o do `ngdart` 8 ou o do fork
+            // `ngx_dart` 9 (`docs/NGDART-COMPILADOR-DE-VISOES.md` parte B).
+            let chave_ng = if motor.entradas_de("ngx_dart:ngx_dart").is_empty() {
+                "ngdart:ngdart"
+            } else {
+                "ngx_dart:ngx_dart"
+            };
             // O resolvedor do ngdart não vê as saídas de fases que rodam
             // depois dele (`Motor::saidas_invisiveis_a`).
-            let ocultos = std::sync::Arc::new(motor.saidas_invisiveis_a("ngdart:ngdart"));
+            let ocultos = std::sync::Arc::new(motor.saidas_invisiveis_a(chave_ng));
             // Todo arquivo que o ngdart gera entra como raiz: o `build_runner`
             // resolve cada um, alcançável a partir do `main` ou não (um
             // componente que ninguém importa também ganha `.template.dart`).
-            let extras = motor.entradas_de("ngdart:ngdart");
+            let extras = motor.entradas_de(chave_ng);
             let mut raizes: Vec<&std::path::Path> = vec![e.as_path()];
             raizes.extend(
                 extras

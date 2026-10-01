@@ -313,7 +313,11 @@ pub fn e_erro_de_linguagem(mensagem: &str) -> bool {
 /// assert!(!e_erro_de_compilacao("O tipo 'int' não pode ser atribuído a 'String'."));
 /// ```
 pub fn e_erro_de_compilacao(mensagem: &str) -> bool {
-    e_erro_de_linguagem(mensagem) || mensagem.starts_with(DEFINITELY_UNASSIGNED_VARIABLE.template)
+    e_erro_de_linguagem(mensagem)
+        || mensagem.starts_with(DEFINITELY_UNASSIGNED_VARIABLE.template)
+        // `READ_POTENTIALLY_UNASSIGNED_FINAL` (com código do analyzer): leitura
+        // de `final` local talvez não atribuída também aborta, como antes.
+        || (mensagem.starts_with("The final variable '") && mensagem.ends_with("because it's potentially unassigned at this point."))
 }
 
 pub const WILDCARD_NAO_LIGA: DiagnosticCode = DiagnosticCode::new(

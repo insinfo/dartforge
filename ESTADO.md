@@ -1356,54 +1356,31 @@ quando está mais velho que a fonte; erro com `dartforge build --estrito`).
 
 ### 2.0 O compilador de visões do ngdart
 
-Sem ele, `dartforge serve` ainda depende de o `build_runner` ter rodado
-uma vez no projeto (os 114 arquivos pendentes vêm do disco). Medido no
-new_sali/frontend em 2026-09-23 (`oraculo --listar`, fim da rodada 3),
-com o conjunto completo de recusas de cada arquivo e cada uma contada pela
-sub-forma:
+Especificação e resultado da rodada de 2026-09-30:
+`docs/NGDART-COMPILADOR-DE-VISOES.md`. Medido pelo oráculo do
+`build_runner` (cópias em `E:\dftemp\ngdart`, `oraculo --todos`: o pacote e
+toda dependência com saída do ngdart, menos o próprio compilador, que o DDC
+nunca pede):
 
-| motivo | aparece em | destrava sozinho |
+| projeto | antes (iguais / diferentes / pendentes) | agora |
 |---|---|---|
-| ligação no template | 65 | 3 |
-| diretiva casada por seletor | 40 | 4 |
-| interpolação | 37 | 1 |
-| `@ViewChild` em visão embutida / `@ViewChildren` | 34 | 3 |
-| ligação em componente filho | 31 | 3 |
-| `@ViewChild` de componente ou diretiva | 31 | 4 |
-| folha de estilo | 27 | 5 |
-| evento | 21 | 0 |
-| `providers: [..]` | 11 | 2 |
+| new_sali/frontend (ngdart 8, com `limitless_ui` 1.0.0-dev.34, ngdart, ngforms, ngrouter, ngtest) | 791 / 6 / 25 | **821 / 0 / 1** |
+| limitless_ui/example (ngx_dart 9, com `limitless_ui`, ngx_dart, ngx_forms, ngx_router) | 368 / 23 / 114 | **504 / 0 / 1** |
 
-As sub-formas mais frequentes:
+O pendente que sobra em cada um é o `web/scrollbar.css`, que o
+`generate_for` do `build.yaml` exclui (o oficial não gera nada; o harness
+não aplica o `generate_for`, o motor sim). Ou seja, nenhum `.template.dart`
+ou `.css.shim.dart` desses projetos precisa vir do disco.
 
-| sub-forma | aparece em | destrava sozinha |
-|---|---|---|
-| interpolação: tipo desconhecido de propriedade | 31 | 0 |
-| `@ViewChild` de `#ref` em componente filho | 27 | 4 |
-| Sass ou CSS fora do subconjunto | 25 | 5 |
-| local de `*ngFor` sem o tipo do elemento | 23 | 1 |
-| `@ViewChild` sem `#ref` / de `#ref` em visão embutida | 20 / 19 | 3 / 0 |
-| nome fora do componente (ligação / evento) | 17 / 17 | 0 / 0 |
-| `#ref` usado em expressão / em visão embutida | 15 / 14 | 0 / 0 |
-| dependência de diretiva de fora do nó (injetor) | 13 | 2 |
-| `<template>` escrito no template | 11 | 0 |
-| `providers:` no próprio componente | 11 | 2 |
-| `#ref` com valor (`#f="ngForm"`) | 10 | 0 |
+O `limitless_ui` atual usa o fork `ngx_dart` 9.0.0-dev.2 (`package:web` no
+lugar de `dart:html`); o gerador ganhou o dialeto dele
+(`crates/gerador_ng/src/dialeto.rs`), e o motor registra o builder
+`ngx_dart:ngx_dart` como nativo.
 
-O que a rodada 3 destravou, sobre os 162 de antes: metadados lidos do
-programa no lugar do catálogo +0 (a mesma saída, 0 diferentes); page
-header (seletor composto, diretiva em tag não HTML, `@ContentChildren`
-preenchido) +8; `select`/`option` e diretivas do projeto (`@Host`,
-`OnDestroy`, ouvintes agrupados) +4; `NgModel` em componente, provedor
-preguiçoso, `XNgCd` de validador usado, `style`/`tabindex` escritos +12.
-As sub-formas "diretiva X" que dominavam (page header 47/43,
-`CustomSelectControlValueAccessor` 28, `CustomNgSelectOption` 20,
-`NgModel` em componente 28, `MaxLengthValidator` 17, `style` 34) saíram
-da lista. O que domina agora é tipagem de expressão (membro de tipo
-desconhecido, local de `*ngFor`) e `#ref`/`@ViewChild` fora da visão raiz.
-Nada disso é adivinhável: cada forma tem a sua regra no `ngcompiler` e o
-arquivo oficial correspondente serve de teste byte a byte.
-
+O que continua fora do gerador: o `.css` servido sai do Sass nativo, que
+imita o dart-sass 1.102.0 e o 1.66.0; os locks desses projetos têm o
+1.101.0/1.101.2 (cor no modo `compressed` sai em outra forma; o shim, com o
+`.css` oficial de entrada, sai igual).
 ### 2.1 Correção (ordem de prioridade)
 
 1. **Lacunas de inferência de tipos** (o `dart analyze` oficial dá 0

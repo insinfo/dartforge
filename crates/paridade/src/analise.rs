@@ -122,6 +122,17 @@ impl Motor {
                 }
             }
         }
+        // Importação condicional: o analyzer escolhe a configuração cujo
+        // `dart.library.x` está nas variáveis declaradas do contexto
+        // (`an611:src/dart/analysis/file_state.dart:785-800`), e o `dart
+        // analyze` não declara nenhuma — vale sempre a URI principal. Sem
+        // biblioteca "suportada", a carga também fica com a principal
+        // (`import 'fake.dart' if (dart.library.js_interop) 'real.dart'`
+        // resolve para `fake.dart`, como no analyzer). Exceção conhecida: uma
+        // condição `== 'false'` seria escolhida aqui e não no analyzer.
+        for lib in sdk.libraries.values_mut() {
+            lib.supported = false;
+        }
         let json: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(sdk_lib.join("libraries.json")).map_err(|e| e.to_string())?,
         )
@@ -281,6 +292,9 @@ impl Motor {
             }
         }
 
+        // Bibliotecas com sintaxe posterior ao 3.6: a referência é o
+        // analyzer 3.13.4 (docs/VERSOES-LINGUAGEM.md), com outro SDK.
+        let mut libs_com_sintaxe_nova: BTreeSet<LibraryId> = BTreeSet::new();
         // 3. Nomes duplicados (`crates/analise`), por biblioteca do lote.
         for lib in &libs_proprias {
             let biblioteca = program.library(*lib);
@@ -295,7 +309,20 @@ impl Motor {
                 .map(|u| dartforge_analise::Unidade { ast: &program.unit(*u).ast, unit: &program.unit(*u).unit, fonte: &program.unit(*u).source })
                 .collect();
             let curinga = biblioteca.features.tem(dartforge_frontend::features::Feature::WildcardVariables);
-            let mut achados = dartforge_analise::duplicatas::duplicatas(&unidades, &interner, curinga);
+            // O 6.11 junta declarações de mesmo nome; o 3.13.4 (referência
+            // de uma biblioteca com sintaxe posterior ao 3.6) não.
+            let sintaxe_nova = ids.iter().any(|u| {
+                program
+                    .unit(*u)
+                    .path
+                    .as_ref()
+                    .and_then(|p| analise.arquivos.get(&chave(p)))
+                    .is_some_and(|a| dartforge_analise::duplicatas::usa_sintaxe_posterior_ao_3_6(&a.diags[..a.sintaticos]))
+            });
+            if sintaxe_nova {
+                libs_com_sintaxe_nova.insert(*lib);
+            }
+            let mut achados = dartforge_analise::duplicatas::duplicatas(&unidades, &interner, curinga, !sintaxe_nova);
             achados.extend(dartforge_analise::enums::sem_constantes(&unidades));
             achados.extend(dartforge_analise::inicializacao::finais_nao_inicializados(&unidades, &interner));
             for (i, u) in unidades.iter().enumerate() {
@@ -359,14 +386,22 @@ impl Motor {
         // 4. Tipos.
         let mut table = dartforge_types::TypeTable::new();
         let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
-        let (mut outline, diags_outline) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+        let (mut outline, diags_outline, unidades_outline) =
+            dartforge_types::resolve_outline_com_unidades(&program, &interner, &mut table, &core);
         let indice = Indice::novo(&program, &unidades_proprias);
         // Inicializadores: `types` os infere em toda passada, de qualquer
         // biblioteca. Uma passada sem corpo nenhum (`&[]`) estabiliza os tipos
         // inferidos; a segunda dá só os diagnósticos deles.
         let _ = dartforge_types::infer_bodies_das_bibliotecas(&program, &interner, &mut table, &core, &mut outline, &[]);
-        let (_, diags_init) =
-            dartforge_types::infer_bodies_das_bibliotecas(&program, &interner, &mut table, &core, &mut outline, &[]);
+        let (_, diags_init, unidades_init) = dartforge_types::infer_bodies_das_bibliotecas_com_unidades(
+            &program,
+            &interner,
+            &mut table,
+            &core,
+            &mut outline,
+            &[],
+            false,
+        );
         let mut atribuidos: Vec<(UnitId, Diagnostic)> = Vec::new();
         // As tabelas laterais das bibliotecas do lote, cada unidade da passada
         // da sua biblioteca (a avaliação de constantes lê todas).
@@ -376,13 +411,14 @@ impl Motor {
             if cancelado() {
                 return None;
             }
-            let (bt, ds) = dartforge_types::infer_bodies_das_bibliotecas_com_locais(
+            let (bt, ds, us) = dartforge_types::infer_bodies_das_bibliotecas_com_unidades(
                 &program,
                 &interner,
                 &mut table,
                 &core,
                 &mut outline,
                 std::slice::from_ref(lib),
+                true,
             );
             match &mut corpos {
                 None => corpos = Some(bt),
@@ -396,19 +432,21 @@ impl Motor {
                     }
                 }
             }
-            let corpo = if ds.len() >= diags_init.len() && ds[..diags_init.len()] == diags_init[..] {
-                &ds[diags_init.len()..]
+            let inicio = if ds.len() >= diags_init.len() && ds[..diags_init.len()] == diags_init[..] {
+                diags_init.len()
             } else {
                 // O prefixo mudou: não dá para separar; conta como ambíguo.
                 analise.ambiguos += 1;
-                &ds[..]
+                0
             };
             let unidades: Vec<UnitId> = program.library(*lib).units.clone();
-            for d in corpo {
-                let u = if unidades.len() == 1 {
-                    Some(unidades[0])
-                } else {
-                    indice.atribuir_entre(&program, d.span, &unidades)
+            for (d, registrada) in ds[inicio..].iter().zip(&us[inicio..]) {
+                // A unidade do corpo em inferência, quando é desta
+                // biblioteca; senão, pelo intervalo.
+                let u = match registrada {
+                    Some(u) if unidades.contains(u) => Some(*u),
+                    _ if unidades.len() == 1 => Some(unidades[0]),
+                    _ => indice.atribuir_entre(&program, d.span, &unidades),
                 };
                 if let Some(u) = u {
                     atribuidos.push((u, d.clone()));
@@ -418,7 +456,11 @@ impl Motor {
         // Inicializadores, em ordem, no primeiro inicializador que os contém.
         let inits = inicializadores(&program);
         let mut pos = 0;
-        for d in &diags_init {
+        for (d, registrada) in diags_init.iter().zip(&unidades_init) {
+            if let Some(u) = registrada {
+                atribuidos.push((*u, d.clone()));
+                continue;
+            }
             match (pos..inits.len()).find(|&i| inits[i].1.start <= d.span.start && d.span.end <= inits[i].1.end) {
                 Some(i) => {
                     pos = i;
@@ -432,12 +474,9 @@ impl Motor {
                 }
             }
         }
-        // Outline: pelo intervalo exato do tipo anotado.
-        for d in &diags_outline {
-            if let Some((u, amb)) = indice.atribuir(d.span) {
-                analise.ambiguos += usize::from(amb);
-                atribuidos.push((u, d.clone()));
-            }
+        // Outline: na unidade da anotação resolvida.
+        for (d, u) in diags_outline.iter().zip(&unidades_outline) {
+            atribuidos.push((*u, d.clone()));
         }
         // Constantes (`ConstantVerifier`): as bibliotecas do lote são as
         // inferidas; as outras (SDK, pacotes) ficam opacas.
@@ -469,6 +508,7 @@ impl Motor {
             ));
             atribuidos.extend(dartforge_types::sobrescritas::membros_em_conflito(&program, &interner, &mut table, &core, &outline, *lib));
             atribuidos.extend(dartforge_types::sobrescritas::valores_padrao(&program, &interner, &mut table, &outline, *lib));
+            atribuidos.extend(dartforge_types::sobrescritas::variaveis_nao_inicializadas(&program, &interner, &table, &outline, *lib));
             atribuidos.extend(dartforge_types::sobrescritas::getters_e_setters(
                 &program, &interner, &mut table, &core, &outline, *lib, &classes,
             ));
@@ -504,6 +544,14 @@ impl Motor {
                 }
             }
             let cod = ponte::codificar_tipos(d, trecho);
+            // A validade de uma anotação depende do SDK (`@Deprecated.optional()`
+            // só existe depois do 3.6.2): numa biblioteca julgada pelo 3.13.4,
+            // o nosso SDK 3.6.2 não decide.
+            if cod.code.is_some_and(|c| matches!(c.info().nome, "invalid_annotation" | "undefined_annotation"))
+                && libs_com_sintaxe_nova.contains(&program.unit(unidade).library)
+            {
+                continue;
+            }
             if cod.code.is_some_and(|c| matches!(c.info().nome, "undefined_class" | "not_a_type"))
                 && clausulas.contains(&(unidade, cod.span.start))
             {
@@ -701,20 +749,23 @@ fn ponto_e_virgula_inserido(fonte: &str, fim: usize) -> bool {
     }
 }
 
-/// Códigos de nome que não resolve: dependem de todas as declarações da
-/// biblioteca terem sido recuperadas pelo parser.
+/// Códigos de nome que não resolve numa **expressão**: dependem de todas as
+/// declarações da biblioteca terem sido recuperadas pelo parser, e a nossa
+/// recuperação de comandos e expressões ainda diverge da do fasta em casos
+/// medidos (FP de `undefined_identifier`/`undefined_getter` sem esta porta).
+/// Os nomes de **tipo** (`undefined_class`, `not_a_type` e os do
+/// `NamedTypeResolver`) não passam por aqui: a recuperação de declarações é
+/// a do fasta (docs/ANALISADOR-PARIDADE-PLANO.md §3.2), e o analyzer resolve
+/// a árvore recuperada como qualquer outra.
 fn depende_de_declaracoes(codigo: &str) -> bool {
     matches!(
         codigo,
-        "creation_with_non_type"
-            | "undefined_class"
-            | "undefined_identifier"
+        "undefined_identifier"
             | "undefined_function"
             | "undefined_method"
             | "undefined_getter"
             | "undefined_setter"
             | "undefined_operator"
-            | "not_a_type"
     )
 }
 

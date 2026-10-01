@@ -45,6 +45,16 @@ pub fn copiavel(f: &Function) -> bool {
                     // Os adaptadores da convenção uniforme leem os
                     // parâmetros da própria entrada.
                     Instruction::LoadIndexed { .. } => false,
+                    // O getter preguiçoso de um global ou de um valor de
+                    // enum (grava o valor na primeira leitura): copiá-lo
+                    // duplica a inicialização inteira, que roda uma vez, em
+                    // cada leitura. Numa tabela de 16 mil `Cat.lu` (o `bidi`
+                    // do `pdf_plus` no new_sali/backend) eram ~135 linhas de
+                    // IR por elemento — 97 MB num getter de constante
+                    // (docs/NATIVO-PROJETOS-REAIS.md, C8). A VM também lê o
+                    // campo estático e só chama o inicializador na primeira
+                    // vez (`LoadStaticField` + `InitStaticField`).
+                    Instruction::StoreGlobal { .. } => false,
                     _ => true,
                 })
         })

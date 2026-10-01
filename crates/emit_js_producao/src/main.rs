@@ -10,7 +10,7 @@ use dartforge_emit_js_producao::{Opcoes, compilar};
 
 const USO: &str = "uso: dartforge-jsprod <entrada.dart> -o <saida.js> \
 [--sdk <lib>] [--packages <package_config.json>] [--dart-sdk-js <arquivo>] \
-[--sem-poda] [--sem-membros] [--sem-poda-usuario] [--sem-minificar] [--verificar-stub] \
+[--sem-poda] [--sem-membros] [--sem-poda-usuario] [--sem-minificar] [--verificar-stub] [--sdk-proprio|--sdk-ddc] \
 [--versao-linguagem x.y] [--enable-experiment=a,b]";
 
 fn main() {
@@ -44,6 +44,8 @@ fn executar() -> Result<(), String> {
             "--sem-membros" => op.por_membro = false,
             "--sem-poda-usuario" => op.podar_usuario = false,
             "--sem-minificar" => op.minificar = false,
+            "--sdk-proprio" => op.sdk_proprio = true,
+            "--sdk-ddc" => op.sdk_proprio = false,
             "--verificar-stub" => op.stub = true,
             "-h" | "--help" => {
                 println!("{USO}");
@@ -67,7 +69,13 @@ fn executar() -> Result<(), String> {
     let (e2, s2, p2, r2) = (entrada.clone(), sdk.clone(), packages.clone(), runtime.clone());
     let prod = std::thread::Builder::new()
         .stack_size(1 << 30)
-        .spawn(move || compilar(&e2, s2.as_deref(), p2.as_deref(), &r2, op, &linguagem))
+        .spawn(move || {
+            if op.sdk_proprio {
+                dartforge_emit_js_producao::compilar_sdk_proprio(&e2, s2.as_deref(), p2.as_deref(), op, &linguagem)
+            } else {
+                compilar(&e2, s2.as_deref(), p2.as_deref(), &r2, op, &linguagem)
+            }
+        })
         .map_err(|e| e.to_string())?
         .join()
         .map_err(|_| "a compilação abortou")??;

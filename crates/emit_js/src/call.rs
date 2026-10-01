@@ -55,7 +55,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     return (r.0, r.1, vec![]);
                 }
                 if let ExprKind::Super = self.expr(*recv).kind {
-                    let sup_ty = self.super_ty();
+                    let sup_ty = self.super_ty_de(&n, false);
                     let (js, ty) = self.emit_method_call(&Js::prim(self.super_ref()), &sup_ty, &n, arguments, expected, true, None);
                     return (js, ty, vec![]);
                 }
@@ -728,6 +728,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     pub fn emit_element_call(&mut self, el: Element, arguments: &ast::Arguments, expected: Option<&Ty>) -> (Js, Ty) {
         match el {
             Element::Function(fid) => {
+                // Modo SDK: `JS(...)`, `JS_GET_FLAG(...)`, `TYPE_REF<T>()`…
+                if self.ctx.sdk.is_some() {
+                    if let Some(r) = crate::sdk_proprio::emitir_intrinseco(self, fid, arguments, expected) {
+                        return r;
+                    }
+                }
                 let f = self.ctx.program.function(fid);
                 if f.kind == FunctionKind::Getter {
                     let (g, gty) = self.element_ref(el).map(|(j, _)| (Js::prim(j), self.ctx.ty_of(self.ctx.outline.functions[fid.0 as usize].return_type))).expect("getter");
@@ -917,6 +923,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let text = self.wrap_async_head(kind, &head, &prologue, &body, &ret_ty);
         self.fn_type_params = saved_tps;
         self.params_comuns = saved_comuns;
+        // Modo SDK: `@ReifyFunctionTypes(false)` (o runtime) — função JS crua.
+        if crate::sdk_proprio::sem_reificar(self.ctx, self.lib) {
+            return (Js::prim(format!("({text})")), fn_ty);
+        }
         let rti = self.rti(&fn_ty);
         if tps.is_empty() {
             (Js::prim(format!("dart.fn({text}, {rti})")), fn_ty)

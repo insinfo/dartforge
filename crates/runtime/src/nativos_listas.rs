@@ -487,6 +487,11 @@ pub unsafe extern "C" fn dartforge_lista_de_tabela(dados: *const u8, len: i64) -
                     i += 8;
                     crate::heap::Valor::Int(x)
                 }
+                b'd' => {
+                    let x = f64::from_bits(palavra(b, i, 8));
+                    i += 8;
+                    crate::heap::Valor::Double(x)
+                }
                 b's' => {
                     let n = palavra(b, i, 4) as usize;
                     i += 4;

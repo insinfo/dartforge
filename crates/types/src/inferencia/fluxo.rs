@@ -102,10 +102,14 @@ impl Fluxo {
         self.modelo(id).and_then(|m| m.cadeia.last().copied()).unwrap_or(declarado)
     }
 
+    /// Escrita numa closure: sem promoção e, como no `conservativeJoin` do
+    /// `functionExpression_begin`/`_end`, nunca mais definitivamente não
+    /// atribuída.
     pub fn capturar(&mut self, id: LocalId) {
         if let Some(m) = self.slot(id) {
             m.capturada = true;
             m.cadeia.clear();
+            m.nao_atribuida = false;
             m.versao = nova_versao();
         }
     }

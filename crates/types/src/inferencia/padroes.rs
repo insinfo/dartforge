@@ -9,7 +9,7 @@ use super::membros::Busca;
 use super::BodyInferrer;
 use crate::constraints::GenericInferrer;
 use crate::table::{Type, TypeId};
-use dartforge_elements::model::Element;
+use dartforge_elements::model::{ClassId, Element};
 use dartforge_frontend::ast::{self, ExprId, ListPatternElement, PatternId, PatternKind};
 
 /// Esquema de tipo de um padrão (`_` onde nada restringe).
@@ -43,7 +43,7 @@ pub(crate) fn esquema(inf: &mut BodyInferrer<'_>, cx: &Corpo, p: PatternId) -> T
         PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => esquema(inf, cx, *x),
         PatternKind::List { type_args, elements } => {
             let el = if let Some(t) = type_args.first() {
-                inf.tipo_de_anotacao(cx, *t)
+                inf.tipo_de_argumento_de_tipo(cx, *t)
             } else {
                 let mut acc = u;
                 for e in elements.iter() {
@@ -58,7 +58,7 @@ pub(crate) fn esquema(inf: &mut BodyInferrer<'_>, cx: &Corpo, p: PatternId) -> T
         }
         PatternKind::Map { type_args, .. } => {
             let (k, v) = if type_args.len() == 2 {
-                (inf.tipo_de_anotacao(cx, type_args[0]), inf.tipo_de_anotacao(cx, type_args[1]))
+                (inf.tipo_de_argumento_de_tipo(cx, type_args[0]), inf.tipo_de_argumento_de_tipo(cx, type_args[1]))
             } else {
                 (u, u)
             };
@@ -116,6 +116,12 @@ fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, fi
     let a = &inf.program.unit(cx.unit).ast;
     let u = inf.core.unknown;
     match &a.pattern(p).kind {
+        PatternKind::Wildcard { ty: Some(x) } => {
+            let x = *x;
+            let r = inf.tipo_de_anotacao(cx, x);
+            let sp = inf.program.unit(cx.unit).ast.ty(x).span;
+            nunca_casa(inf, cx, t, r, sp);
+        }
         PatternKind::Wildcard { .. } => {}
         PatternKind::Variable { final_: f2, var_, ty, name } => {
             let (f2, ty, name) = (*f2, *ty, *name);
@@ -134,7 +140,11 @@ fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, fi
                 return;
             }
             let tipo = match ty {
-                Some(x) => inf.tipo_de_anotacao(cx, x),
+                Some(x) => {
+                    let r = inf.tipo_de_anotacao(cx, x);
+                    nunca_casa(inf, cx, t, r, inf.program.unit(cx.unit).ast.ty(x).span);
+                    r
+                }
                 None => t,
             };
             declarar_local(inf, cx, Local { nome: name.sym, tipo, final_: final_ || f2, late: false, const_: false, offset: name.span.start, funcao_local: false }, true);
@@ -183,16 +193,23 @@ fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, fi
         PatternKind::Cast { pattern, ty } => {
             let (pattern, ty) = (*pattern, *ty);
             let c = inf.tipo_de_anotacao(cx, ty);
+            let sp = inf.program.unit(cx.unit).ast.ty(ty).span;
+            nunca_casa(inf, cx, t, c, sp);
             tipar(inf, cx, pattern, c, final_, atribuicao);
         }
         PatternKind::List { type_args, elements } => {
             let el = if let Some(x) = type_args.first() {
-                inf.tipo_de_anotacao(cx, *x)
+                inf.tipo_de_argumento_de_tipo(cx, *x)
             } else if inf.e_dynamic(t) {
                 inf.core.dynamic_
             } else {
                 inf.como_instancia_de(t, inf.core.list_class).map(|a| a[0]).unwrap_or(inf.core.object_nullable)
             };
+            {
+                let requerido = inf.lista(el);
+                let sp = inf.program.unit(cx.unit).ast.pattern(p).span;
+                nunca_casa(inf, cx, t, requerido, sp);
+            }
             let els: Vec<ListPatternElement> = elements.iter().map(|e| match e {
                 ListPatternElement::Pattern(x) => ListPatternElement::Pattern(*x),
                 ListPatternElement::Rest(x) => ListPatternElement::Rest(*x),
@@ -210,7 +227,7 @@ fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, fi
         }
         PatternKind::Map { type_args, entries, .. } => {
             let (k, v) = if type_args.len() == 2 {
-                (inf.tipo_de_anotacao(cx, type_args[0]), inf.tipo_de_anotacao(cx, type_args[1]))
+                (inf.tipo_de_argumento_de_tipo(cx, type_args[0]), inf.tipo_de_argumento_de_tipo(cx, type_args[1]))
             } else if inf.e_dynamic(t) {
                 (inf.core.dynamic_, inf.core.dynamic_)
             } else {
@@ -252,6 +269,10 @@ fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, fi
             let ty = *ty;
             let fields: Vec<(Option<ast::Name>, PatternId)> = fields.iter().map(|f| (f.name, f.pattern)).collect();
             let obj = tipo_do_padrao_objeto(inf, cx, ty, t);
+            {
+                let sp = inf.program.unit(cx.unit).ast.ty(ty).span;
+                nunca_casa(inf, cx, t, obj, sp);
+            }
             for (n, x) in fields {
                 let nome = n.map(|n| n.sym).or_else(|| nome_implicito(inf, cx, x));
                 let ft = match nome {
@@ -266,6 +287,175 @@ fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, fi
             }
         }
     }
+}
+
+/// `PATTERN_NEVER_MATCHES_VALUE_TYPE` (`checkPatternNeverMatchesValueType`,
+/// `an611:src/generated/resolver.dart:613-640`): num contexto refutável, o
+/// tipo casado não pode ser subtipo do tipo exigido pelo padrão. Relatado no
+/// tipo escrito (variável, curinga, cast, objeto) ou no padrão (lista).
+fn nunca_casa(inf: &mut BodyInferrer<'_>, cx: &Corpo, casado: TypeId, requerido: TypeId, span: dartforge_diagnostics::Span) {
+    if !cx.padrao_refutavel || span.start == span.end {
+        return;
+    }
+    if pode_ser_subtipo(inf, casado, requerido, 0) {
+        return;
+    }
+    let a = inf.table.format(casado, inf.interner, inf.program);
+    let b = inf.table.format(requerido, inf.interner, inf.program);
+    inf.aviso_com_codigo(dartforge_diagnostics::codigos::warning::PATTERN_NEVER_MATCHES_VALUE_TYPE, span, &[&a, &b]);
+}
+
+/// `TypeSystemImpl.canBeSubtypeOf` (`an611:src/dart/element/type_system.dart:
+/// 147-315`): pode existir um valor de `left` que seja de `right`? Pelo lado
+/// otimista: só diz "não" quando sabe (Null, funções contra interfaces,
+/// enums, classes `final`/`sealed` com todos os subtipos na biblioteca,
+/// registros).
+pub(crate) fn pode_ser_subtipo(inf: &mut BodyInferrer<'_>, left: TypeId, right: TypeId, prof: u32) -> bool {
+    if prof > 16 {
+        return true;
+    }
+    let left = inf.apagar_extensao(left);
+    let right = inf.apagar_extensao(right);
+    if matches!(inf.table.get(left), Type::Dynamic | Type::Void) || matches!(inf.table.get(right), Type::Dynamic | Type::Void) {
+        return true;
+    }
+    let left_anulavel = !inf.e_nao_anulavel(left);
+    let right_anulavel = !inf.e_nao_anulavel(right);
+    if matches!(inf.table.get(left), Type::Null) {
+        return right_anulavel;
+    }
+    if matches!(inf.table.get(right), Type::Null) {
+        return left_anulavel;
+    }
+    if left_anulavel && right_anulavel {
+        return true;
+    }
+    let left = inf.nao_nulo(left);
+    let right = inf.nao_nulo(right);
+    let e_function = |inf: &BodyInferrer<'_>, c: ClassId| Some(c) == inf.core.function_class;
+    let e_object = |inf: &BodyInferrer<'_>, c: ClassId| Some(c) == inf.core.object_class;
+    let e_record = |inf: &BodyInferrer<'_>, c: ClassId| inf.interner.resolve(inf.program.class(c).name) == "Record" && inf.program.library(inf.program.class(c).library).is_sdk;
+    match (inf.table.get(left).clone(), inf.table.get(right).clone()) {
+        (Type::Function { .. }, Type::Interface { class, .. }) => return e_function(inf, class) || e_object(inf, class),
+        (Type::Interface { class, .. }, Type::Function { .. }) => return e_function(inf, class) || e_object(inf, class),
+        _ => {}
+    }
+    if let Type::FutureOr { arg, .. } = inf.table.get(left).clone() {
+        let fut = inf.futuro(arg);
+        return pode_ser_subtipo(inf, arg, right, prof + 1) || pode_ser_subtipo(inf, fut, right, prof + 1);
+    }
+    if let Type::FutureOr { arg, .. } = inf.table.get(right).clone() {
+        let fut = inf.futuro(arg);
+        return pode_ser_subtipo(inf, left, arg, prof + 1) || pode_ser_subtipo(inf, left, fut, prof + 1);
+    }
+    if let (Type::Interface { class: lc, args: la, .. }, Type::Interface { class: rc, args: ra, .. }) =
+        (inf.table.get(left).clone(), inf.table.get(right).clone())
+    {
+        let int = inf.core.int_class;
+        let double = inf.core.double_class;
+        if (Some(lc) == int && Some(rc) == double) || (Some(lc) == double && Some(rc) == int) {
+            return true;
+        }
+        // Enum: os tipos de todas as instâncias são conhecidos.
+        if inf.program.class(lc).kind == dartforge_elements::model::ClassKind::Enum {
+            return inf.sub(left, right);
+        }
+        if lc == rc {
+            return la.iter().zip(ra.iter()).all(|(&a, &b)| pode_ser_subtipo(inf, a, b, prof + 1));
+        }
+        if let Some(subtipos) = todos_os_subtipos(inf, lc) {
+            for cand in std::iter::once(lc).chain(subtipos) {
+                let tc = inf.tipo_this_classe(cand);
+                if let Some(args) = inf.como_instancia_de(tc, Some(rc)) {
+                    // `_canBeEqualArguments`: só classes diferentes impedem.
+                    let iguais = args.iter().zip(ra.iter()).all(|(&a, &b)| {
+                        match (inf.table.get(a), inf.table.get(b)) {
+                            (Type::Interface { class: x, .. }, Type::Interface { class: y, .. }) => x == y,
+                            _ => true,
+                        }
+                    });
+                    if iguais {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+        if let Some(subtipos) = todos_os_subtipos(inf, rc) {
+            for cand in std::iter::once(rc).chain(subtipos) {
+                let tc = if cand == rc { right } else { inf.tipo_this_classe(cand) };
+                if let Some(args) = inf.como_instancia_de(tc, Some(lc)) {
+                    if la.iter().zip(args.iter()).all(|(&a, &b)| pode_ser_subtipo(inf, a, b, prof + 1)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+    }
+    match (inf.table.get(left).clone(), inf.table.get(right).clone()) {
+        (Type::Record { .. }, Type::Function { .. }) | (Type::Function { .. }, Type::Record { .. }) => return false,
+        (Type::Record { .. }, Type::Interface { class, .. }) | (Type::Interface { class, .. }, Type::Record { .. }) => {
+            return e_object(inf, class) || e_record(inf, class);
+        }
+        (Type::Record { positional: lp, named: ln, .. }, Type::Record { positional: rp, named: rn, .. }) => {
+            if lp.len() != rp.len() || ln.len() != rn.len() {
+                return false;
+            }
+            for (&a, &b) in lp.iter().zip(rp.iter()) {
+                if !pode_ser_subtipo(inf, a, b, prof + 1) {
+                    return false;
+                }
+            }
+            for ((na, a), (nb, b)) in ln.iter().zip(rn.iter()) {
+                if na != nb || !pode_ser_subtipo(inf, *a, *b, prof + 1) {
+                    return false;
+                }
+            }
+        }
+        _ => {}
+    }
+    true
+}
+
+/// `ClassElementImpl.allSubtypes` (`an611:src/dart/element/element.dart:
+/// 235-276`): de uma classe `final`, todas as classes da biblioteca que a
+/// têm por supertipo; de uma `sealed`, idem, desde que cada uma seja
+/// `final`/`sealed` ou enum (senão, desconhecido). Outras: desconhecido.
+fn todos_os_subtipos(inf: &mut BodyInferrer<'_>, c: ClassId) -> Option<Vec<ClassId>> {
+    let k = inf.program.class(c);
+    if k.kind != dartforge_elements::model::ClassKind::Class {
+        return None;
+    }
+    let (final_, sealed) = (k.modifiers.final_, k.modifiers.sealed);
+    if !final_ && !sealed {
+        return None;
+    }
+    let lib = k.library;
+    let mut out = Vec::new();
+    for i in 0..inf.program.classes.len() {
+        let cand = ClassId(i as u32);
+        if cand == c || inf.program.class(cand).library != lib || inf.program.class(cand).decl.is_none() {
+            continue;
+        }
+        let tc = inf.tipo_this_classe(cand);
+        if inf.como_instancia_de(tc, Some(c)).is_none() {
+            continue;
+        }
+        if sealed && !final_ {
+            let ck = inf.program.class(cand);
+            let ok = match ck.kind {
+                dartforge_elements::model::ClassKind::Enum => true,
+                dartforge_elements::model::ClassKind::Class => ck.modifiers.final_ || ck.modifiers.sealed,
+                _ => false,
+            };
+            if !ok {
+                return None;
+            }
+        }
+        out.push(cand);
+    }
+    Some(out)
 }
 
 /// Tipo de um padrão objeto `C(...)`: com `C` genérico cru, os argumentos

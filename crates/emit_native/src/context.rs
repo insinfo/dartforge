@@ -68,6 +68,30 @@ pub struct Context<'a> {
     /// id; uma classe nova ganha um id acima de todos eles (os objetos vivos
     /// no heap guardam o id).
     ids_anteriores: Option<std::collections::HashMap<(String, String), u32>>,
+    /// O mundo fechado do programa (`mundo_nativo.rs`): a função ou o
+    /// global do programa fora dele vira corpo que lança. `None`: sem poda
+    /// (os módulos do SDK, `DARTFORGE_SEM_PODA_DO_PROGRAMA=1`).
+    pub mundo: Option<dartforge_mundo::Mundo>,
+    /// Memória de `sdk_fonte::implementacoes` por (classe, nome): a busca
+    /// percorre TODAS as classes do programa e a linearização de cada uma, e
+    /// é feita a cada acesso a membro pelo despacho por classe. Num programa
+    /// real (o new_sali/backend: milhares de classes, centenas de milhares
+    /// de acessos) era quadrática e dominava a emissão (minutos). O
+    /// resultado só depende do programa e das bibliotecas compiladas, fixos
+    /// depois da construção do contexto.
+    pub memoria_implementacoes:
+        std::cell::RefCell<std::collections::HashMap<(dartforge_elements::model::ClassId, SymbolId), std::rc::Rc<Vec<crate::lower::sdk_fonte::Implementacao>>>>,
+    /// Os subtipos de cada classe (`Context::subtipos`), calculados na
+    /// primeira consulta.
+    pub memoria_subtipos:
+        std::cell::RefCell<std::collections::HashMap<dartforge_elements::model::ClassId, std::rc::Rc<Vec<dartforge_elements::model::ClassId>>>>,
+    /// Idem para `sdk_fonte::implementacoes_por_classe`.
+    pub memoria_implementacoes_por_classe: std::cell::RefCell<
+        std::collections::HashMap<
+            (dartforge_elements::model::ClassId, SymbolId),
+            Option<std::rc::Rc<Vec<(i64, crate::lower::sdk_fonte::Implementacao)>>>,
+        >,
+    >,
 }
 
 /// O nome da variável de um padrão `:x`/`:var x`/`:x?`/`:x as T`.
@@ -105,6 +129,73 @@ pub fn escapar(parte: &str) -> String {
 }
 
 impl<'a> Context<'a> {
+    /// A função `f` do programa ficou fora do mundo fechado (vira corpo que
+    /// lança). Só funções de bibliotecas do programa, com nó de função
+    /// (métodos, de topo, acessores); construtores nunca.
+    pub fn funcao_podada(&self, f: usize) -> bool {
+        let Some(m) = &self.mundo else { return false };
+        let func = &self.program.functions[f];
+        !self.program.library(func.library).is_sdk
+            && matches!(func.node, dartforge_elements::model::FunctionRef::Function { .. })
+            && !m.funcao(dartforge_elements::model::FunctionElementId(f as u32))
+    }
+
+    /// O campo de instância `v` de uma classe do programa ficou fora do
+    /// mundo fechado (ninguém o lê nem grava).
+    pub fn campo_podado(&self, v: dartforge_elements::model::VariableId) -> bool {
+        let Some(m) = &self.mundo else { return false };
+        let var = &self.program.variables[v.0 as usize];
+        if self.program.library(var.library).is_sdk {
+            return false;
+        }
+        // O mundo acompanha os acessores implícitos do campo (membros de
+        // instância com `variable`), não a variável.
+        let Some(c) = var.class else { return false };
+        let mut acessores = self.program.classes[c.0 as usize]
+            .instance_members
+            .values()
+            .filter(|f| self.program.functions[f.0 as usize].variable == Some(v))
+            .peekable();
+        acessores.peek().is_some() && acessores.all(|f| !m.funcao(*f))
+    }
+
+    /// O membro de instância `f` de uma classe do programa (método, acessor
+    /// explícito ou implícito de campo) ficou fora do mundo fechado: sem
+    /// entrada na tabela de métodos nem adaptador.
+    pub fn membro_podado(&self, f: usize) -> bool {
+        let Some(m) = &self.mundo else { return false };
+        let func = &self.program.functions[f];
+        !self.program.library(func.library).is_sdk
+            && !matches!(
+                func.kind,
+                dartforge_elements::model::FunctionKind::Constructor | dartforge_elements::model::FunctionKind::SyntheticConstructor
+            )
+            && !m.funcao(dartforge_elements::model::FunctionElementId(f as u32))
+    }
+
+    /// O global `v` do programa ficou fora do mundo fechado.
+    pub fn global_podado(&self, v: dartforge_elements::model::VariableId) -> bool {
+        let Some(m) = &self.mundo else { return false };
+        !self.program.library(self.program.variables[v.0 as usize].library).is_sdk && !m.variavel(v)
+    }
+
+    /// As classes do programa que são subtipo de `cid` (ela inclusive), na
+    /// ordem dos ids de elemento — o que as buscas por implementação
+    /// percorriam varrendo TODAS as classes a cada acesso a membro.
+    pub fn subtipos(&self, cid: dartforge_elements::model::ClassId) -> std::rc::Rc<Vec<dartforge_elements::model::ClassId>> {
+        if let Some(r) = self.memoria_subtipos.borrow().get(&cid) {
+            return r.clone();
+        }
+        let r: std::rc::Rc<Vec<_>> = std::rc::Rc::new(
+            (0..self.program.classes.len() as u32)
+                .map(dartforge_elements::model::ClassId)
+                .filter(|&k| crate::lower::membros::subclasse_de(self, k, cid))
+                .collect(),
+        );
+        self.memoria_subtipos.borrow_mut().insert(cid, r.clone());
+        r
+    }
+
     /// Liga a informação de depuração (J05): indexa as linhas das unidades.
     pub fn ligar_depuracao(&mut self) {
         let linhas = self
@@ -162,6 +253,10 @@ impl<'a> Context<'a> {
             usa_dart_async: false,
             com_corpo_da_fonte: std::cell::OnceCell::new(),
             compostos_ffi: std::cell::OnceCell::new(),
+            memoria_implementacoes: Default::default(),
+            mundo: None,
+            memoria_subtipos: Default::default(),
+            memoria_implementacoes_por_classe: Default::default(),
             te: crate::apagamento::TiposDeExtensao::default(),
             ids_anteriores: None,
             depuracao: None,

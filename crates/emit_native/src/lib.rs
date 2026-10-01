@@ -14,6 +14,7 @@ pub mod ligador_windows;
 pub mod hir;
 pub mod llvm;
 pub mod lower;
+pub mod mundo_nativo;
 pub mod nativos;
 pub mod otimizar;
 pub mod poda;
@@ -63,6 +64,10 @@ pub type Gerador<'a> = &'a (dyn Fn(
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TemposEmissao {
     pub frontend: Duration,
+    /// O mundo fechado do programa (`mundo_nativo.rs`).
+    pub mundo: Duration,
+    /// Funções do programa vivas no mundo fechado / todas (0/0 sem poda).
+    pub funcoes_vivas: (usize, usize),
     pub hir: Duration,
     pub llvm_ir: Duration,
 }
@@ -81,6 +86,8 @@ impl IrEmitido {
     /// As linhas de `--timings` da emissão, no formato de [`compilar`].
     pub fn imprimir_tempos(&self) {
         eprintln!("  Front-end: {:?}", self.tempos.frontend);
+        let (vivas, todas) = self.tempos.funcoes_vivas;
+        eprintln!("  Mundo:     {:?} ({vivas} de {todas} funções do programa vivas)", self.tempos.mundo);
         eprintln!("  HIR:       {:?}", self.tempos.hir);
         eprintln!("  LLVM IR:   {:?}", self.tempos.llvm_ir);
         let pct = if self.texto.is_empty() { 0.0 } else { 100.0 * self.bytes_sdk as f64 / self.texto.len() as f64 };
@@ -280,6 +287,12 @@ fn emitir_ir_interno(
     }
     ctx.da_fonte = bibliotecas_da_fonte.into_iter().collect();
     ctx.usa_dart_async = usa_dart_async;
+    // O mundo fechado do programa (C7, `mundo_nativo.rs`): o que o `main`
+    // não alcança não é baixado.
+    let t_mundo = Instant::now();
+    ctx.mundo = mundo_nativo::calcular(&program, &interner, &table, &outline, &bodies);
+    let mundo_duracao = t_mundo.elapsed();
+    let estat_mundo = ctx.mundo.as_ref().map_or((0, 0), |m| (m.estat.funcoes_vivas, m.estat.funcoes_usuario));
     // Um programa sem `main` na biblioteca de entrada não executa: a VM
     // recusa ("Invoked Dart programs must have a 'main' function defined").
     // Na recarga, é o arquivo lido no meio de uma gravação (vazio), que não
@@ -339,7 +352,13 @@ fn emitir_ir_interno(
     let bytes_sdk = bytes_do_sdk(&llvm_ir, &program);
     Ok(IrEmitido {
         texto: llvm_ir,
-        tempos: TemposEmissao { frontend: front_duration, hir: hir_duration, llvm_ir: llvm_duration },
+        tempos: TemposEmissao {
+            frontend: front_duration,
+            mundo: mundo_duracao,
+            funcoes_vivas: estat_mundo,
+            hir: hir_duration,
+            llvm_ir: llvm_duration,
+        },
         bytes_sdk,
     })
 }
