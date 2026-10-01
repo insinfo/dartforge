@@ -112,6 +112,11 @@ fn memchr_at(b: &[u8], c: u8, de: usize) -> Option<usize> {
     b.get(de..)?.iter().position(|x| *x == c).map(|p| p + de)
 }
 
+/// A primeira linha de um texto, com a quebra de linha.
+fn primeira_linha(t: &str) -> &str {
+    t.find(char::from(10)).map_or(t, |i| &t[..=i])
+}
+
 /// `$x`/`$"x"` → `x`.
 fn nome_do_comdat(s: &str) -> &str {
     let s = s.strip_prefix('$').unwrap_or(s);
@@ -399,6 +404,15 @@ impl<'a> Plano<'a> {
             if it.mutavel {
                 // `@df.area_id = internal global …` → ligação externa.
                 texto.push_str(&it.texto.replacen(" = internal ", " = ", 1).replacen(" = private ", " = ", 1));
+            } else if !it.local && primeira_linha(it.texto).contains(" linkonce_odr ") {
+                // `linkonce_odr` → `weak_odr`: a definição tem de ficar no
+                // objeto da parte dela. Com o ThinLTO (produção) o
+                // `linkonce_odr` que só outras partes citam era descartado e
+                // a ligação dava "undefined symbol: dfc.….get" (as
+                // constantes canônicas do new_sali/backend).
+                let primeira = primeira_linha(it.texto);
+                texto.push_str(&primeira.replacen(" linkonce_odr ", " weak_odr ", 1));
+                texto.push_str(&it.texto[primeira.len()..]);
             } else {
                 texto.push_str(it.texto);
             }
@@ -495,7 +509,7 @@ b0:\n\
         assert!(pa.contains("@.str.0 = private"));
         assert!(pa.contains("declare i64 @df.b.k(ptr)"));
         assert!(pa.contains("@df.area_id = external global i64") || pa.contains("@df.area_id = global i64 0"));
-        let pb = p.iter().find(|t| t.contains("define linkonce_odr i64 @df.b.k")).unwrap();
+        let pb = p.iter().find(|t| t.contains("define weak_odr i64 @df.b.k")).unwrap();
         assert!(pb.contains("$\"df.b.k\" = comdat any"));
         assert!(pb.contains("declare i64 @dartforge_x(i64)"));
         assert!(pb.contains("@df.a.g = external global { i64, [2 x ptr] }"), "{pb}");
@@ -522,9 +536,9 @@ b0:
 }
 ";
         let p = dividir(m, 40);
-        let def = p.iter().find(|t| t.contains("@df.img.a = linkonce_odr")).unwrap();
+        let def = p.iter().find(|t| t.contains("@df.img.a = weak_odr")).unwrap();
         assert!(def.contains("$df.img.a = comdat any"), "{def}");
         let usa = p.iter().find(|t| t.contains("define i64 @df.x.f")).unwrap();
-        assert!(usa.contains("@df.img.a = external constant i64") || usa.contains("@df.img.a = linkonce_odr"), "{usa}");
+        assert!(usa.contains("@df.img.a = external constant i64") || usa.contains("@df.img.a = weak_odr"), "{usa}");
     }
 }

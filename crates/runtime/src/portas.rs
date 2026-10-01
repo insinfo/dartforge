@@ -691,7 +691,7 @@ fn materializar(g: &Grafo) -> i64 {
             handles[i] = h;
         }
     }
-    HEAP.with(|heap| {
+    let resultado = HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         for (i, (no, _)) in g.nos.iter().enumerate() {
             if handles[i] != 0 {
@@ -772,10 +772,40 @@ fn materializar(g: &Grafo) -> i64 {
                 heap.set_metadado(h, meta);
             }
         }
-        let resultado = palavra(&g.raiz, &handles);
-        heap.pop_frame(frame);
-        resultado
-    })
+        palavra(&g.raiz, &handles)
+    });
+    refazer_indices_copiados(g, &handles);
+    HEAP.with(|heap| heap.borrow_mut().pop_frame(frame));
+    resultado
+}
+
+/// Os `_Map`/`_Set` copiados chegam com o `_index` da origem, calculado com
+/// os hashes de identidade de lá (aqui o hash é o endereço, `heap.rs`
+/// `hash_de_identidade`): como a VM (`runtime/vm/object_graph_copy.cc`,
+/// `CopyLinkedHashBase` + `_rehashObjects`), o índice é refeito no destino
+/// quando alguma chave pode ter outro hash. A decisão e o refazer são do
+/// Dart (`_dartforgeRefazerIndiceCopiado`, `sdk_nativo/collection/
+/// compact_hash.dart`): -1 para objeto que não é `_Map`/`_Set` (a classe
+/// inteira fica de fora daí em diante). Os nós continuam enraizados no
+/// quadro de [`materializar`].
+fn refazer_indices_copiados(g: &Grafo, handles: &[i64]) {
+    let Some(f) = ajudante("_dartforgeRefazerIndiceCopiado") else { return };
+    // SAFETY: registrado pela `dart:_compact_hash` com a assinatura
+    // `(Object) -> int`.
+    let refazer: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(f) };
+    let mut outras: crate::hash::HashSet<i32> = crate::hash::HashSet::default();
+    for (i, (no, _)) in g.nos.iter().enumerate() {
+        let NoG::Instancia { cid, .. } = no else { continue };
+        if handles[i] == 0 || outras.contains(cid) {
+            continue;
+        }
+        if refazer(handles[i]) < 0 {
+            outras.insert(*cid);
+        }
+        if dartforge_exception_pending() != 0 {
+            return;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

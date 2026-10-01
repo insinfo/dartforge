@@ -90,6 +90,13 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
     let ctx = if const_ && type_args.is_empty() && !inf.e_desconhecido(ctx) {
         let mut ps = Vec::new();
         params_no_tipo(inf.table, ctx, &mut ps);
+        // Só as variáveis de tipo em escopo (classe, método, funções
+        // envolventes): as da invocação genérica sendo inferida (o `T` de
+        // `Stream.fromIterable(const [1])`) não são variáveis livres do
+        // literal — a CFE as tem como `_` no contexto
+        // (type_schema_environment.dart `setupGenericTypeInference`).
+        let visiveis = cx.parametros_de_tipo_visiveis();
+        ps.retain(|p| visiveis.values().any(|q| q == p));
         if ps.is_empty() {
             ctx
         } else {

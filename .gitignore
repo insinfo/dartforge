@@ -46,3 +46,4 @@ runtime/ddc/*/
 /RELATORIO-DISCO-C.md
 /bench/simd/.dart_tool/
 /bench/simd/pubspec.lock
+__pycache__/

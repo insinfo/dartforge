@@ -34,8 +34,11 @@ use std::time::{Duration, SystemTime};
 /// forma do nome do arquivo): invalida tudo o que foi gravado antes.
 pub const VERSAO_FORMATO: u32 = 1;
 
-/// Teto padrão do cache em disco; `DARTFORGE_CACHE_OBJ_MB` ajusta.
-pub const TETO_PADRAO_MB: u64 = 256;
+/// Teto padrão do cache em disco; `DARTFORGE_CACHE_OBJ_MB` ajusta. Cabe as
+/// partes de um programa grande (o new_sali/backend: ~60 objetos, ~600 MB,
+/// docs/NATIVO-PROJETOS-REAIS.md C9) — com 256 MB a poda tirava as partes
+/// e a recompilação nunca as achava.
+pub const TETO_PADRAO_MB: u64 = 2048;
 
 /// A cada quantas inserções a poda roda de novo.
 const PODAR_A_CADA: usize = 16;

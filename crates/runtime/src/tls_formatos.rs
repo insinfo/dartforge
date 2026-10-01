@@ -153,6 +153,8 @@ mod oid {
     pub const CERTIFICADO_X509: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x09, 0x16, 0x01];
     pub const ID_LOCAL_DA_CHAVE: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x09, 0x15];
     // PBE do PKCS#12 (RFC 7292, apêndice C).
+    pub const PBE_SHA1_RC4_128: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x0c, 0x01, 0x01];
+    pub const PBE_SHA1_RC4_40: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x0c, 0x01, 0x02];
     pub const PBE_SHA1_RC2_128: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x0c, 0x01, 0x05];
     pub const PBE_SHA1_RC2_40: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x0c, 0x01, 0x06];
     pub const PBE_SHA1_3DES: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x0c, 0x01, 0x03];
@@ -346,9 +348,33 @@ fn decifrar_pbe(alg: &Tlv, senha: &str, dados: &[u8]) -> Result<Vec<u8>, &'stati
         oid::PBE_SHA1_2DES => decifrar_cbc(des::TdesEde2::new_from_slice(&k(1, 16)).map_err(|_| DECODIFICACAO)?, &k(2, 8), dados),
         oid::PBE_SHA1_RC2_128 => decifrar_cbc(rc2::Rc2::new_with_eff_key_len(&k(1, 16), 128), &k(2, 8), dados),
         oid::PBE_SHA1_RC2_40 => decifrar_cbc(rc2::Rc2::new_with_eff_key_len(&k(1, 5), 40), &k(2, 8), dados),
+        // RC4 (sem IV): a chave do `http_multi_server` nos testes dele;
+        // o BoringSSL da VM a aceita.
+        oid::PBE_SHA1_RC4_128 => Some(rc4(&k(1, 16), dados)),
+        oid::PBE_SHA1_RC4_40 => Some(rc4(&k(1, 5), dados)),
         _ => return Err("UNKNOWN_ALGORITHM(algorithm.c:0)"),
     };
     r.ok_or("BAD_DECRYPT(cipher.c:0)")
+}
+
+/// RC4 (a cifra de fluxo; cifrar e decifrar são o mesmo).
+fn rc4(chave: &[u8], dados: &[u8]) -> Vec<u8> {
+    let mut s: [u8; 256] = std::array::from_fn(|i| i as u8);
+    let mut j = 0u8;
+    for i in 0..256 {
+        j = j.wrapping_add(s[i]).wrapping_add(chave[i % chave.len()]);
+        s.swap(i, j as usize);
+    }
+    let (mut i, mut j) = (0u8, 0u8);
+    dados
+        .iter()
+        .map(|&b| {
+            i = i.wrapping_add(1);
+            j = j.wrapping_add(s[i as usize]);
+            s.swap(i as usize, j as usize);
+            b ^ s[s[i as usize].wrapping_add(s[j as usize]) as usize]
+        })
+        .collect()
 }
 
 /// `EncryptedPrivateKeyInfo` → o `PrivateKeyInfo` (DER) decifrado.
@@ -737,6 +763,12 @@ mod testes {
             0xa3,
         ];
         assert_eq!(k, esperado);
+    }
+
+    #[test]
+    fn rc4_vetor_conhecido() {
+        // O vetor clássico: chave "Key", texto "Plaintext".
+        assert_eq!(rc4(b"Key", b"Plaintext"), [0xbb, 0xf3, 0x16, 0xe8, 0xd9, 0x40, 0xaf, 0x0a, 0xd3]);
     }
 
     #[test]

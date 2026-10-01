@@ -348,7 +348,16 @@ literal `const` vale pelo fecho menor (a VM dá `List<Never>`,
 
 **Desenho.** `crates/types/src/inferencia/colecoes.rs`, `literal`: com
 `const` explícito e sem argumentos de tipo, o contexto passa por
-`bounds::least_closure` em relação às variáveis de tipo que aparecem nele.
+`bounds::least_closure` em relação às variáveis de tipo **em escopo** que
+aparecem nele (classe, extensão, método e funções envolventes:
+`Corpo::parametros_de_tipo_visiveis`). A CFE elimina todas as variáveis
+livres (`VM/pkg/front_end/lib/src/type_inference/type_schema_environment.dart`,
+`setupGenericTypeInference`, `isConst`), mas no contexto dela as variáveis
+da invocação genérica sendo inferida já são `_`; aqui o contexto de um
+argumento de construtor de fábrica ainda pode trazer o parâmetro de tipo
+da fábrica, e fechá-lo dava `Stream.fromIterable(const [1, 1])` como
+`Stream<Never>` (`rxdart` `distinct_test`/`join_test`: "type 'int' is not
+a subtype of type 'Never'").
 
 ### C13. Anotação de campo de struct por alias ou prefixo
 
@@ -372,6 +381,123 @@ rodavam junto sumia. O gancho saiu (`EN/sdk_modulo.rs`); e a ligação de
 produção passou a limitar as tarefas do ThinLTO (C9), o que reduz o pico
 de memória de dois testes de produção simultâneos.
 
+### C15. `import ''` (a própria biblioteca)
+
+**Medido.** O `sqlite3/example/main.dart` não compilava: "não foi
+possível ler …/generated: Is a directory" — o `native.dart` gerado pelo
+`ffigen` do `sqlite3` faz `import '' as self;`.
+
+**Regra.** A URI vazia resolvida contra a da biblioteca é a própria
+biblioteca (RFC 3986 §5.2.2: referência vazia dá a base; a CFE resolve
+pelo `Uri.resolve`).
+
+**Desenho.** `crates/elements/src/load.rs`, `resolve_directive_target`:
+URI vazia → a base (`corpus/nativo/129`).
+
+### C16. Extensão genérica sobre um tipo registro
+
+**Medido.** No `petitparser/test/all_test`, `type
+'SequenceParser2<dynamic, dynamic>' is not a subtype of type
+'Parser<(String, String)>'`: o `toSequenceParser()` é de `extension
+RecordOfParsersExtension2<R1, R2> on (Parser<R1>, Parser<R2>)`.
+
+**Regra.** Os argumentos de tipo de uma extensão são os inferidos do tipo
+estático do receptor contra o `on` pela inferência genérica comum
+(`VM/pkg/front_end/lib/src/type_inference/inference_visitor_base.dart:1075`,
+`inferExtensionTypeArguments`: o receptor como argumento do parâmetro
+`on`), o que num registro casa campo a campo.
+
+**Desenho.** `EN/lower/rti.rs`, `unificar` (que arma a tupla da extensão
+pelo receptor): casa registro com registro — posicionais pela posição,
+nomeados pelo nome (`corpus/nativo/130`).
+
+### C17. Chave PKCS#12 cifrada com RC4
+
+**Medido.** O `http_multi_server_test` falhava em
+`SecurityContext.usePrivateKeyBytes`: o certificado de teste do pacote tem
+a chave em `pbeWithSHAAnd128BitRC4`; o leitor de formatos do runtime
+recusava (`UNKNOWN_ALGORITHM`).
+
+**Regra.** Os PBE do PKCS#12 com RC4 são os da RFC 7292, apêndice C; o
+BoringSSL da VM os aceita (o fonte dele não está em `VM/`, só o
+`third_party/boringssl/BUILD.gn`; verificado pelo comportamento: o mesmo
+teste passa na VM 3.6.2).
+
+**Desenho.** `RT/tls_formatos.rs`, `decifrar_pbe`: `PBE_SHA1_RC4_128` e
+`_40` com a chave derivada pelo mesmo KDF do PKCS#12 e RC4 sem IV
+(teste `rc4_vetor_conhecido`). Resta a diferença do texto da pilha
+(`handshake.cc:392` com o caminho do BoringSSL na VM), que o placar
+conta como divergência de texto de erro.
+
+### C18. Partes do módulo: nomes entre aspas, `comdat` implícito, ThinLTO
+
+**Medido.** Três falhas só da partição (C9): (a) o executor do `mockito`
+não ligava — símbolos `@"…"` (nomes com caracteres fora de
+`[A-Za-z0-9._$]`) não eram reconhecidos como referência e ficavam sem
+declaração na parte; (b) com `--optimize`, "undefined comdat
+`$df.img.a`": a global com `comdat` implícito (sem `($nome)`) ia para uma
+parte e o `$df.img.a = comdat any` para outra; (c) com `--optimize` no
+backend, "undefined symbol: dfc.….get": o ThinLTO descarta a definição
+`linkonce_odr` que não é usada no próprio módulo.
+
+**Desenho** (`EN/particao.rs`). (a) `nome_e_largura` lê o nome entre
+aspas; (b) `comdat_da_linha` dá o `comdat` implícito ao item, que vai junto
+com a definição dele; (c) fora do item local, `linkonce_odr` vira
+`weak_odr` na parte (a mesma semântica de ligação, mas retida). Testes
+`divide_com_declaracoes_e_copias`, `comdat_implicito_vai_com_o_item`.
+
+### C19. O que a poda (C7) não pode tirar
+
+**Medido.** `corpus/js/223` (no nativo) passou a dar `NoSuchMethodError`:
+o valor padrão `const Pintor.padrao()` é uma constante criada pelo
+lowering, não pelo `main`; e os encaminhadores sintéticos de
+`noSuchMethod` não aparecem na análise por nome.
+
+**Desenho.** `EN/context.rs`: globais `const` e membros sintéticos nunca
+são podados (`global_podado`, `membro_podado`); a função podada também não
+passa pela análise de capturas (`EN/lower/mod.rs`).
+
+### C20. Mapas e conjuntos copiados entre isolados
+
+**Medido.** No `pdf`, `roll_paper_test` e `isolate_test` (e qualquer
+`Document().save()`) davam "Null check operator used on a null value": o
+`save()` roda em `Isolate.run` (`pdfCompute`), e no isolado novo
+`PdfPage.prepare` faz `_contentGraphics[content]!` com `content` vindo de
+`contents` — a chave está no mapa, mas a busca não a acha (rastro com
+`DARTFORGE_RASTRO=1` + `DARTFORGE_DEPURAR=1`).
+
+**Regra.** A cópia de mensagem da VM refaz o índice de um `_Map`/`_Set`
+cuja chave pode mudar de hash no destino (hash de identidade novo, ou
+`hashCode` do usuário): `VM/runtime/vm/object_graph_copy.cc:1890`,
+`CopyLinkedHashBase` (com `MightNeedReHashing`, `:214`: texto, número,
+bool, null e portas têm hash estrutural), e depois `_rehashObjects`
+(`_regenerateIndex`).
+
+**Desenho.** Aqui o hash de identidade é o endereço (`RT/heap.rs`,
+`hash_de_identidade`), então o índice copiado nunca vale para chave de
+identidade. `RT/portas.rs`, `materializar` → `refazer_indices_copiados`:
+com os nós ainda enraizados, chama para cada instância copiada o ajudante
+Dart `_dartforgeRefazerIndiceCopiado`
+(`sdk_nativo/collection/compact_hash.dart`), que confere as chaves como
+`MightNeedReHashing` e, se preciso, zera `_hashMask`/`_deletedKeys` e chama
+o `_regenerateIndex` do próprio SDK; a classe que não é `_Map`/`_Set` sai
+na primeira consulta (uma chamada por classe, não por objeto)
+(`corpus/nativo/132`).
+
+### Infraestrutura do placar
+
+* `EN/cache_objeto.rs`: o teto do cache de objetos subiu de 256 MB para
+  2 GB — as ~60 partes do backend (~600 MB) não cabiam, e a segunda
+  compilação nunca achava as partes podadas pelo teto.
+* `scripts/pub-placar.py`: cada programa (a compilação do dartforge e os
+  filhos dela, o executável, a VM) roda num grupo de processos próprio com
+  `RLIMIT_DATA` (`--memoria-compilacao 6000`, `--memoria-execucao 3000`
+  MB) e o grupo inteiro morre no tempo-limite; estouro de memória vira o
+  estado `memoria`, não derruba o job do CI (na rodada "depois" quatro
+  shards morreram pelo runner sem memória). O executável recebe
+  `DARTFORGE_PACKAGE_CONFIG` (o `Isolate.resolvePackageUriSync` dos
+  testes), e os instantes impressos (`2026-…T…`) são normalizados.
+
 ## 2. Programas do corpus
 
 | programa | causa |
@@ -385,6 +511,10 @@ de memória de dois testes de produção simultâneos.
 | `corpus/nativo/126_tearoff_entre_isolados.dart` | C11 |
 | `corpus/nativo/127_const_padrao_com_variavel_de_tipo.dart` | C12 |
 | `corpus/nativo/128_ffi_anotacoes_por_alias.dart` | C13 |
+| `corpus/nativo/129_importa_a_si_mesma.dart` | C15 |
+| `corpus/nativo/130_extensao_sobre_registro.dart` | C16 |
+| `corpus/nativo/131_const_no_argumento_de_fabrica.dart` | C12 |
+| `corpus/nativo/132_mapas_entre_isolados.dart` | C20 |
 
 C1, C7, C8 e C9 são de escala (medidos no backend; o 122 cobre a parte de
 C4 que cabe no corpus); C5 precisa de `package_config` e vai num teste do

@@ -102,6 +102,43 @@ void _rehashObjects(List objects) {
   }
 }
 
+// DartForge: um `_Map`/`_Set` copiado entre isolados
+// (`crates/runtime/src/portas.rs`, `refazer_indices_copiados`) chega com o
+// `_index` da origem. Como a VM (`object_graph_copy.cc`,
+// `CopyLinkedHashBase` com `MightNeedReHashing`, e `_rehashObjects` acima),
+// o índice é refeito quando alguma chave pode ter outro hash no destino —
+// texto, número, bool e null têm hash estrutural. Devolve -1 para objeto
+// que não é `_Map`/`_Set`, 1 quando refez e 0 quando não precisou.
+@pragma("vm:entry-point")
+int _dartforgeRefazerIndiceCopiado(Object objeto) {
+  final int passo;
+  if (objeto is _Map) {
+    passo = 2;
+  } else if (objeto is _Set) {
+    passo = 1;
+  } else {
+    return -1;
+  }
+  final h = internal.unsafeCast<_HashVMBase>(objeto);
+  final data = h._data;
+  final usados = h._usedData;
+  for (int i = 0; i < usados; i += passo) {
+    final chave = data[i];
+    if (_HashBase._isDeleted(data, chave) ||
+        chave == null ||
+        chave is String ||
+        chave is num ||
+        chave is bool) {
+      continue;
+    }
+    h._hashMask = _HashBase._UNINITIALIZED_HASH_MASK;
+    h._deletedKeys = 0;
+    internal.unsafeCast<_HashBase>(objeto)._regenerateIndex();
+    return 1;
+  }
+  return 0;
+}
+
 // Common interface for [_HashFieldBase] and [_HashVMBase].
 abstract class _HashAbstractBase {
   abstract Uint32List _index;

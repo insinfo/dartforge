@@ -1158,6 +1158,13 @@ fn resolve_directive_target(
     sdk: &SdkLayout,
     package_config: &PackageConfig,
 ) -> Result<(String, Option<PathBuf>), String> {
+    // `import '' as self;` (o `native.dart` gerado do `sqlite3`): a URI
+    // vazia, resolvida contra a da biblioteca, é a própria biblioteca
+    // (RFC 3986 §5.2: referência vazia = a base). Juntada ao diretório, dava
+    // "não foi possível ler …/generated: Is a directory".
+    if uri_str.is_empty() {
+        return Ok((base_uri.to_string(), base_path.map(Path::to_path_buf)));
+    }
     if let Some(sdk_name) = uri_str.strip_prefix("dart:") {
         if sdk.library(sdk_name).is_some() {
             Ok((format!("dart:{sdk_name}"), None))

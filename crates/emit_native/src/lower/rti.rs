@@ -1015,6 +1015,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.unificar(*x, *y, params, achados);
                 }
             }
+            // Registros: campo a campo (`extension E<A, B> on (P<A>, P<B>)`
+            // contra `(P<String>, P<int>)`; o `toSequenceParser` do
+            // petitparser), posicionais pela posição e nomeados pelo nome.
+            (
+                T::Record { positional: p1, named: n1, .. },
+                T::Record { positional: p2, named: n2, .. },
+            ) if p1.len() == p2.len() && n1.len() == n2.len() => {
+                for (x, y) in p1.iter().zip(p2.iter()) {
+                    self.unificar(*x, *y, params, achados);
+                }
+                for (nome, x) in n1.iter() {
+                    if let Some((_, y)) = n2.iter().find(|(m, _)| m == nome) {
+                        self.unificar(*x, *y, params, achados);
+                    }
+                }
+            }
             _ => {}
         }
     }

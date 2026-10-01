@@ -352,14 +352,18 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                 };
 
                 let mut builder = fn_builder::FnBuilder::new(ctx, unit, symbol, name.to_string(), ret_ty);
-                builder.preparar_capturas(
-                    ast,
-                    captura::Raiz {
-                        parametros: ast_func.parameters.as_deref().unwrap_or(&[]),
-                        corpo: Some(&ast_func.body),
-                        inicializadores: &[],
-                    },
-                );
+                // A análise de capturas percorre o corpo inteiro; o corpo
+                // podado (C7) não o usa.
+                if !ctx.funcao_podada(f_idx) {
+                    builder.preparar_capturas(
+                        ast,
+                        captura::Raiz {
+                            parametros: ast_func.parameters.as_deref().unwrap_or(&[]),
+                            corpo: Some(&ast_func.body),
+                            inicializadores: &[],
+                        },
+                    );
+                }
                 let is_instance_member = func_elem.class.is_some() && !func_elem.static_;
                 if let Some(e) = func_elem.extension.filter(|_| !func_elem.static_) {
                     // Membro de instância de extensão (P4): o receptor é o

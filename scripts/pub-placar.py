@@ -96,43 +96,65 @@ def chave(trabalho, nome, arq):
 
 
 def limitar_memoria(mb):
-    """No Linux, o `preexec_fn` que limita o espaço de endereçamento do
-    processo e dos filhos (o Clang e o ligador que o dartforge chama) a `mb`
-    MiB: o programa que estoura falha sozinho, com estado `memoria`, em vez
-    de levar o runner junto (o OOM killer)."""
-    if os.name == 'nt' or not mb:
+    """No Linux, o `preexec_fn` do processo: sessão própria (o limite de
+    tempo mata o grupo inteiro — o programa que abre processos filhos, o
+    Clang e o ligador do dartforge) e `RLIMIT_DATA` de `mb` MiB (o heap e o
+    `mmap` gravável; a reserva de endereços da VM não conta). O programa que
+    estoura falha sozinho, com estado `memoria`, em vez de o OOM do sistema
+    derrubar o runner."""
+    if os.name == 'nt':
         return None
     import resource
 
     def aplicar():
-        b = mb * 1024 * 1024
-        resource.setrlimit(resource.RLIMIT_AS, (b, b))
+        os.setsid()
+        if mb:
+            b = mb * 1024 * 1024
+            resource.setrlimit(resource.RLIMIT_DATA, (b, b))
     return aplicar
 
 
 def rodar(cmd, cwd, limite, env, memoria_mb=0):
     t = time.time()
+    p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
+                         preexec_fn=limitar_memoria(memoria_mb))
     try:
-        r = subprocess.run(cmd, cwd=cwd, capture_output=True, timeout=limite, env=env,
-                           preexec_fn=limitar_memoria(memoria_mb))
-        return r.returncode, r.stdout.decode('utf8', 'replace'), r.stderr.decode('utf8', 'replace'), time.time() - t
-    except subprocess.TimeoutExpired as e:
-        return 'timeout', (e.stdout or b'').decode('utf8', 'replace'), (e.stderr or b'').decode('utf8', 'replace'), time.time() - t
+        out, err = p.communicate(timeout=limite)
+        return p.returncode, out.decode('utf8', 'replace'), err.decode('utf8', 'replace'), time.time() - t
+    except subprocess.TimeoutExpired:
+        if os.name == 'nt':
+            subprocess.run(['taskkill', '/F', '/T', '/PID', str(p.pid)], capture_output=True)
+        else:
+            import signal
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except OSError:
+                pass
+        out, err = p.communicate()
+        return 'timeout', out.decode('utf8', 'replace'), err.decode('utf8', 'replace'), time.time() - t
+
+
+def sem_memoria(rc, texto):
+    return rc in (-9, 137) or re.search(
+        r'out of memory|Out of memory|memory allocation of|Cannot allocate memory|bad_alloc|Exhausted heap space', texto)
 
 
 def normalizar(s):
     s = s.replace('\r\n', '\n')
     s = re.sub(r'^\d\d:\d\d ', '', s, flags=re.M)
     s = re.sub(r'Random Seed: \d+', 'Random Seed: N', s)
+    # instantes impressos pelos programas (`logging`: `2026-10-01 02:03:22.979720`)
+    s = re.sub(r'\d{4}-\d\d-\d\d[ T]\d\d:\d\d:\d\d(\.\d+)?', '<instante>', s)
     return s
 
 
 def um(a, cfg, k, nome, arq, env):
     cwd = os.path.join(a.trabalho, 'pkgs', nome)
     res = {'k': k}
-    rc, vout, verr, _ = rodar([a.dart, '--enable-asserts', '--packages=' + cfg, arq], cwd, a.tempo_execucao, env)
+    rc, vout, verr, _ = rodar([a.dart, '--enable-asserts', '--packages=' + cfg, arq], cwd, a.tempo_execucao, env,
+                              a.memoria_execucao)
     res['vm_rc'] = rc
-    if rc == 'timeout' or rc == 254:
+    if rc == 'timeout' or rc == 254 or (rc != 0 and sem_memoria(rc, verr)):
         res['estado'] = 'vm-invalido'
         res['erro'] = ((verr.strip().splitlines() or ['timeout na VM'])[0])[:300]
         return res
@@ -147,8 +169,7 @@ def um(a, cfg, k, nome, arq, env):
     rc, out, err, dt = rodar([a.dartforge, 'aot', arq, exe, '--packages', cfg], cwd, a.tempo_compilacao, env_df,
                              a.memoria_compilacao)
     res['t_compilacao'] = round(dt, 1)
-    sem_memoria = rc in (-9, 137) or re.search(r'out of memory|memory allocation of|Cannot allocate memory|bad_alloc', err + out)
-    if rc != 0 and sem_memoria:
+    if rc != 0 and sem_memoria(rc, err + out):
         res['estado'] = 'memoria'
         res['erro'] = 'memória esgotada na compilação (limite %d MiB)' % a.memoria_compilacao
         res['saida_erro'] = (err + out)[-4000:]
@@ -159,8 +180,17 @@ def um(a, cfg, k, nome, arq, env):
         res['erro'] = (linhas[0] if linhas else 'timeout na compilação' if rc == 'timeout' else str(rc))[:300]
         res['saida_erro'] = (err + out)[-4000:]
         return res
-    rc, out, err, dt = rodar([exe], cwd, a.tempo_execucao, env)
+    # O equivalente do `--packages` que o oráculo recebe: `Isolate.packageConfig`
+    # e `Isolate.resolvePackageUriSync` do executável leem este arquivo.
+    env_exe = dict(env)
+    env_exe['DARTFORGE_PACKAGE_CONFIG'] = cfg
+    rc, out, err, dt = rodar([exe], cwd, a.tempo_execucao, env_exe, a.memoria_execucao)
     res['t_execucao'] = round(dt, 1)
+    if rc != 0 and rc != res['vm_rc'] and sem_memoria(rc, err):
+        res['estado'] = 'memoria'
+        res['erro'] = 'memória esgotada na execução (limite %d MiB)' % a.memoria_execucao
+        res['stderr'] = err[-3000:]
+        return res
     try:
         os.remove(exe)
     except OSError:
@@ -199,7 +229,9 @@ def main():
     ap.add_argument('--tempo-compilacao', type=int, default=900)
     ap.add_argument('--tempo-execucao', type=int, default=120)
     ap.add_argument('--memoria-compilacao', type=int, default=6000,
-                    help='MiB de espaço de endereçamento do dartforge e dos filhos (Linux; 0 = sem limite)')
+                    help='MiB de dados (RLIMIT_DATA) do dartforge e dos filhos (Linux; 0 = sem limite)')
+    ap.add_argument('--memoria-execucao', type=int, default=3000,
+                    help='MiB de dados da VM do oráculo e do executável (Linux; 0 = sem limite)')
     ap.add_argument('--filtro', default='')
     a = ap.parse_args()
     a.trabalho = os.path.abspath(a.trabalho)
