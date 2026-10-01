@@ -13,6 +13,8 @@ pub struct Adaptador<'m> {
     /// Nomes cujas entradas de assinatura são emitidas (os do despacho
     /// dinâmico e dos *tearoffs* no texto); `None`: todas.
     pub assinaturas: Option<&'m std::collections::HashSet<String>>,
+    /// Condições constantes e `assert` (perfil com o SDK próprio).
+    pub constantes: Option<&'m dartforge_mundo::Constantes<'m>>,
 }
 
 impl Vivos for Adaptador<'_> {
@@ -67,5 +69,11 @@ impl Vivos for Adaptador<'_> {
         // O texto cita o nome JS (`dload(o, "_constructor")`, `dsend(o, "_get")`);
         // o emissor pergunta pelo nome Dart dos campos e acessores.
         self.assinaturas.is_none_or(|s| s.contains(nome) || s.contains(dartforge_emit_js::body::js_member_name(nome).as_str()))
+    }
+    fn manter_asserts(&self) -> bool {
+        self.constantes.is_none_or(|c| !c.sem_asserts())
+    }
+    fn constante_bool(&self, u: dartforge_elements::model::UnitId, x: dartforge_frontend::ast::ExprId) -> Option<bool> {
+        self.constantes?.bool_de(u, x)
     }
 }

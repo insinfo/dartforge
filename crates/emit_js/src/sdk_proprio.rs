@@ -87,6 +87,76 @@ pub struct ModoSdk {
     /// Os `assert` do SDK não são emitidos (o dart2js também não emite os
     /// do SDK; os do programa ficam, como no perfil de desenvolvimento).
     pub sem_asserts_do_sdk: bool,
+    /// Nomes de membro declarados por descendentes de cada classe (pela
+    /// cadeia de superclasses e mixins) e as classes usadas como mixin:
+    /// [`campo_nao_virtual`], calculado na primeira consulta.
+    pub virtualidade: std::cell::OnceCell<(HashMap<ClassId, HashSet<dartforge_intern::SymbolId>>, HashSet<ClassId>)>,
+}
+
+/// Campo público de instância que nenhuma classe do programa sobrescreve nem
+/// que sobrescreve um membro concreto herdado: no perfil de produção (mundo
+/// fechado) ele vira propriedade comum do objeto, sem o par `get`/`set`
+/// sobre um símbolo de armazenamento que o DDC escreve para todo campo
+/// público porque, modular, não sabe se algum módulo o sobrescreverá
+/// (`docs/JS-PRODUCAO-TAMANHO.md` §3.4). Classes nativas, mixins e classes
+/// usadas como mixin ficam como antes.
+pub fn campo_nao_virtual(ctx: &Ctx, c: ClassId, nome: dartforge_intern::SymbolId) -> bool {
+    let Some(s) = ctx.sdk.as_ref() else { return false };
+    let p = ctx.program;
+    // Só no código do programa: as classes do SDK têm acessos que o emissor
+    // não vê (`JS()`, *patches*, o runtime lendo campos por nome).
+    if classe_nativa(ctx, c) || ctx.libs[p.class(c).library.0 as usize].is_sdk || p.class(c).kind != dartforge_elements::model::ClassKind::Class {
+        return false;
+    }
+    let (desc, mixins) = s.virtualidade.get_or_init(|| {
+        let mut desc: HashMap<ClassId, HashSet<dartforge_intern::SymbolId>> = HashMap::new();
+        let mut mixins: HashSet<ClassId> = HashSet::new();
+        for (i, k) in p.classes.iter().enumerate() {
+            mixins.extend(k.mixin_classes.iter().copied());
+            // Os ancestrais de `k` pela superclasse e pelos mixins aplicados.
+            let mut vistos: HashSet<ClassId> = HashSet::new();
+            let mut pilha: Vec<ClassId> = k.supertype_class.into_iter().chain(k.mixin_classes.iter().copied()).collect();
+            while let Some(a) = pilha.pop() {
+                if a.0 as usize == i || !vistos.insert(a) {
+                    continue;
+                }
+                desc.entry(a).or_default().extend(k.instance_members.keys().copied());
+                let ka = p.class(a);
+                pilha.extend(ka.supertype_class);
+                pilha.extend(ka.mixin_classes.iter().copied());
+            }
+        }
+        (desc, mixins)
+    });
+    if mixins.contains(&c) {
+        return false;
+    }
+    let texto = ctx.interner.resolve(nome);
+    let setter = ctx.interner.lookup(&format!("{texto}_="));
+    let tem = |k: ClassId| {
+        let m = &p.class(k).instance_members;
+        m.contains_key(&nome) || setter.is_some_and(|s| m.contains_key(&s))
+    };
+    // Sobrescrito por um descendente.
+    if desc.get(&c).is_some_and(|ns| ns.contains(&nome) || setter.is_some_and(|s| ns.contains(&s))) {
+        return false;
+    }
+    // Sobrescreve um membro de um ancestral (superclasse ou mixin aplicado).
+    let mut vistos: HashSet<ClassId> = HashSet::new();
+    let k = p.class(c);
+    let mut pilha: Vec<ClassId> = k.supertype_class.into_iter().chain(k.mixin_classes.iter().copied()).collect();
+    while let Some(a) = pilha.pop() {
+        if a == c || !vistos.insert(a) {
+            continue;
+        }
+        if tem(a) {
+            return false;
+        }
+        let ka = p.class(a);
+        pilha.extend(ka.supertype_class);
+        pilha.extend(ka.mixin_classes.iter().copied());
+    }
+    true
 }
 
 fn nome_da_anotacao<'a>(ctx: &'a Ctx, a: &ast::Annotation) -> &'a str {
@@ -144,6 +214,7 @@ impl ModoSdk {
             primitivas: [ctx.jsbool, ctx.jsnumber, ctx.jsstring].into_iter().flatten().collect(),
             sem_asserts_do_sdk: true,
             patches: HashMap::new(),
+            virtualidade: std::cell::OnceCell::new(),
         };
         // Intrínsecos, por (biblioteca, nome).
         for (i, f) in p.functions.iter().enumerate() {
@@ -428,7 +499,8 @@ pub fn omitir_assert(ctx: &Ctx, lib: LibraryId) -> bool {
     // O único `assert` do `dart:_runtime` é o de `assertInterop` (função Dart
     // passada ao JS sem `allowInterop`), comportamento observável que o
     // `dart_sdk.js` do DDC mantém: fica.
-    ctx.sdk.as_ref().is_some_and(|s| s.sem_asserts_do_sdk && s.runtime != Some(lib)) && ctx.libs[lib.0 as usize].is_sdk
+    (ctx.sdk.as_ref().is_some_and(|s| s.sem_asserts_do_sdk && s.runtime != Some(lib)) && ctx.libs[lib.0 as usize].is_sdk)
+        || ctx.filtro.is_some_and(|f| !f.manter_asserts())
 }
 
 /// Conferências de `@nullCheck` dos parâmetros já declarados (`compiler.dart:3855`):
@@ -1090,7 +1162,7 @@ pub fn bibliotecas_do_sdk(ctx: &Ctx) -> Vec<LibraryId> {
 /// O *bootstrap* (`compiler.dart:7934-7989`): o objeto `dart`, um namespace
 /// por biblioteca, o `dartx`, o `dart.privateName` e os símbolos `dartx`
 /// usados por qualquer módulo do arquivo — **um** `Symbol()` por nome.
-pub fn bootstrap(ctx: &Ctx, dartx: &BTreeSet<String>) -> String {
+pub fn bootstrap(ctx: &Ctx, dartx: &BTreeSet<String>, campos_tardios: bool) -> String {
     let mut out = String::new();
     out.push_str("const _library = Object.create(null);\nconst dart = Object.create(_library);\ndart.library = _library;\n");
     for l in bibliotecas_do_sdk(ctx) {
@@ -1103,6 +1175,18 @@ pub fn bootstrap(ctx: &Ctx, dartx: &BTreeSet<String>) -> String {
     out.push_str(
         "const _privateNames = Symbol(\"_privateNames\");\ndart.privateName = function(library, name) {\n  let names = library[_privateNames];\n  if (names == null) names = library[_privateNames] = new Map();\n  let symbol = names.get(name);\n  if (symbol == null) names.set(name, symbol = Symbol(name));\n  return symbol;\n};\n",
     );
+    if campos_tardios {
+        // `late` sem inicializador (`module.rs`, `tardios`): o mesmo par
+        // `get`/`set` que a classe escreveria, definido uma vez por campo.
+        out.push_str("dart.lateField = function(p, k, s, n, f) {
+  Object.defineProperty(p, k, {
+    get() { let t = this[s]; return t == null ? dart.throw(new _internal.LateError.fieldNI(n)) : t; },
+    set: f ? function(v) { if (this[s] != null) dart.throw(new _internal.LateError.fieldAI(n)); this[s] = v; } : function(v) { this[s] = v; },
+    configurable: true
+  });
+};
+");
+    }
     for n in dartx {
         let chave = if js::is_js_ident(n) { format!(".{n}") } else { format!("[{}]", js::string_literal(n)) };
         out.push_str(&format!("dartx{chave} = Symbol({});\n", js::string_literal(&format!("dartx.{n}"))));

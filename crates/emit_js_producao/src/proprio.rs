@@ -179,14 +179,18 @@ fn ponto_fixo(
     rel: &mut RelatorioMundo,
 ) -> Result<Option<EmitidoComSdk>, String> {
     let mut raizes = raizes(a, &entrada);
-    let opm = dartforge_mundo::Opcoes { incluir_sdk: true };
+    let opm = dartforge_mundo::Opcoes { incluir_sdk: true, sem_asserts: !op.asserts };
+    let constantes = dartforge_mundo::Constantes::nova(entrada, !op.asserts);
     let max_rodadas: usize = std::env::var("DARTFORGE_JSPROD_RODADAS").ok().and_then(|v| v.parse().ok()).unwrap_or(40).max(1);
     let rastro = std::env::var("DARTFORGE_JSPROD_RASTRO").is_ok();
+    // O motor fica vivo entre as rodadas: cada uma só acrescenta raízes.
+    let mut calculo = dartforge_mundo::Calculo::novo(entrada, opm);
     for rodada in 1..=max_rodadas {
         let t = Instant::now();
-        let mundo = dartforge_mundo::calcular_com(entrada, &raizes, opm);
+        calculo.semear(&raizes);
+        let mundo = calculo.mundo();
         rel.tempo_mundo += t.elapsed();
-        let ad = filtro::Adaptador { mundo: &mundo, program: a.program, stub: op.stub, assinaturas };
+        let ad = filtro::Adaptador { mundo: &mundo, program: a.program, stub: op.stub, assinaturas, constantes: Some(&constantes) };
         let t = Instant::now();
         let mut e = a.emitir_com_sdk(Some(&ad))?;
         // O mapa namespace → biblioteca sai do `trackLibraries`, que o
@@ -213,6 +217,7 @@ fn ponto_fixo(
         }
         if faltas.vazia() {
             rel.estat = mundo.estat.clone();
+            rel.nomes_js = mundo.nomes_js.clone();
             if let Ok(alvo) = std::env::var("DARTFORGE_JSPROD_POR") {
                 diagnosticar(a, &mundo, &alvo);
             }
@@ -316,7 +321,7 @@ pub fn apelidar_receitas(js: &str) -> String {
 }
 
 /// Monta o arquivo único.
-pub fn montar(e: &EmitidoComSdk, op: Opcoes) -> Producao {
+pub fn montar(e: &EmitidoComSdk, op: Opcoes, nomes: Option<&crate::propriedades::Nomes>) -> Producao {
     let modulos: Vec<bundle::Modulo> = e
         .emitido
         .modulos
@@ -336,8 +341,18 @@ pub fn montar(e: &EmitidoComSdk, op: Opcoes) -> Producao {
     let antes_de_compactar = js.len();
     // Identificadores por escopo e espaço (oxc); `DARTFORGE_JSPROD_NOMES=0`
     // fica só na compactação de espaço.
-    let nomes = std::env::var("DARTFORGE_JSPROD_NOMES").map_or(true, |v| v != "0");
-    let js = if op.minificar && nomes {
+    let nomes_ok = std::env::var("DARTFORGE_JSPROD_NOMES").map_or(true, |v| v != "0");
+    // `DARTFORGE_JSPROD_PROPS=0` desliga o renomeio de propriedades.
+    let props = nomes_ok && std::env::var("DARTFORGE_JSPROD_PROPS").map_or(true, |v| v != "0");
+    let js = if op.minificar && props && nomes.is_some() {
+        match minificar::minificar_com_propriedades(&js, nomes.unwrap_or(&crate::propriedades::Nomes::default())) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("aviso: {e}; o arquivo sai só compactado");
+                minificar::compactar(&js)
+            }
+        }
+    } else if op.minificar && nomes_ok {
         match minificar::minificar_nomes(&js) {
             Ok(m) => m,
             Err(e) => {

@@ -335,6 +335,189 @@ mod testes {
 ///
 /// O texto não é JS válido para o parser (o que seria defeito do emissor):
 /// a primeira mensagem do parser.
+/// *Strings* literais com forma de identificador: nomes que chegam à
+/// execução por texto (`dsend(o, "foo")`, `"a" in opts`,
+/// `defineExtensionMethods(C, ["foo"])`) e por isso não podem ser renomeados.
+struct StringsIdentificador(std::collections::HashSet<String>);
+
+impl<'a> oxc_ast_visit::Visit<'a> for StringsIdentificador {
+    fn visit_string_literal(&mut self, it: &oxc_ast::ast::StringLiteral<'a>) {
+        self.guardar(it.value.as_str());
+    }
+    fn visit_template_literal(&mut self, it: &oxc_ast::ast::TemplateLiteral<'a>) {
+        for q in &it.quasis {
+            if let Some(c) = &q.value.cooked {
+                self.guardar(c.as_str());
+            }
+        }
+        oxc_ast_visit::walk::walk_template_literal(self, it);
+    }
+}
+
+impl StringsIdentificador {
+    fn guardar(&mut self, v: &str) {
+        let mut cs = v.chars();
+        let ok = cs.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$') && cs.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+        if ok && !self.0.contains(v) {
+            self.0.insert(v.to_string());
+        }
+    }
+}
+
+/// *Strings* literais em posição de expressão (não chaves de objeto nem
+/// diretivas), com o trecho do fonte de cada ocorrência.
+struct OcorrenciasDeString(std::collections::HashMap<String, Vec<(u32, u32)>>);
+
+impl<'a> oxc_ast_visit::Visit<'a> for OcorrenciasDeString {
+    fn visit_string_literal(&mut self, it: &oxc_ast::ast::StringLiteral<'a>) {
+        self.0.entry(it.value.as_str().to_string()).or_default().push((it.span.start, it.span.end));
+    }
+    fn visit_property_key(&mut self, it: &oxc_ast::ast::PropertyKey<'a>) {
+        if matches!(it, oxc_ast::ast::PropertyKey::StringLiteral(_)) {
+            return;
+        }
+        oxc_ast_visit::walk::walk_property_key(self, it);
+    }
+    fn visit_directive(&mut self, _it: &oxc_ast::ast::Directive<'a>) {}
+}
+
+/// Deduplicação de *strings* (`docs/JS-PRODUCAO-TAMANHO.md` §3.4): toda
+/// *string* repetida que compensa vira uma `var t$S…` no topo da IIFE do
+/// arquivo, e cada ocorrência em posição de expressão passa a citar a
+/// variável (as receitas rti `t$R("core|int")`, os nomes de `dsend`, as
+/// mensagens). O valor continua literal na declaração: a reserva de nomes do
+/// renomeio de propriedades o enxerga.
+fn deduplicar_strings(fonte: &str) -> Result<String, String> {
+    use oxc_ast_visit::Visit;
+    let alocador = oxc_allocator::Allocator::default();
+    let lido = oxc_parser::Parser::new(&alocador, fonte, oxc_span::SourceType::cjs()).parse();
+    if let Some(e) = lido.diagnostics.first() {
+        return Err(format!("oxc não leu o arquivo de produção: {e}"));
+    }
+    let mut oc = OcorrenciasDeString(std::collections::HashMap::new());
+    oc.visit_program(&lido.program);
+    // Compensa quando as `n` cópias custam mais que a declaração e as `n`
+    // referências (≈ 3 bytes cada depois da minificação).
+    let mut escolhidas: Vec<(String, Vec<(u32, u32)>)> = oc
+        .0
+        .into_iter()
+        .filter(|(_, v)| {
+            let n = v.len();
+            let tam = (v[0].1 - v[0].0) as usize;
+            n >= 2 && tam * n > tam + 8 + 3 * n
+        })
+        .collect();
+    escolhidas.sort_by(|a, b| a.0.cmp(&b.0));
+    let cabeca = "(function () {\n";
+    if escolhidas.is_empty() || !fonte.starts_with(cabeca) {
+        return Ok(fonte.to_string());
+    }
+    let mut trocas: Vec<(usize, usize, String)> = Vec::new();
+    let mut decl = String::new();
+    for (i, (_, v)) in escolhidas.iter().enumerate() {
+        let nome = format!("t$S{i}");
+        let (a, b) = v[0];
+        decl.push_str(if decl.is_empty() { "var " } else { ",\n" });
+        decl.push_str(&format!("{nome} = {}", &fonte[a as usize..b as usize]));
+        for &(a, b) in v {
+            trocas.push((a as usize, b as usize, nome.clone()));
+        }
+    }
+    decl.push_str(";\n");
+    trocas.sort_by_key(|t| t.0);
+    let mut out = String::with_capacity(fonte.len());
+    out.push_str(cabeca);
+    out.push_str(&decl);
+    let mut pos = cabeca.len();
+    for (a, b, nome) in trocas {
+        if a < pos {
+            continue;
+        }
+        out.push_str(&fonte[pos..a]);
+        out.push_str(&nome);
+        pos = b;
+    }
+    out.push_str(&fonte[pos..]);
+    Ok(out)
+}
+
+/// Como [`minificar_nomes`], renomeando também as propriedades de
+/// `nomes.renomeaveis` que não estão reservadas nem aparecem como *string*
+/// (`docs/JS-PRODUCAO-TAMANHO.md` §3.1), com o `PropertyMangler` do
+/// `oxc_minifier`.
+pub fn minificar_com_propriedades(js: &str, nomes: &crate::propriedades::Nomes) -> Result<String, String> {
+    use oxc_allocator::Allocator;
+    use oxc_ast_visit::Visit;
+    use oxc_codegen::{Codegen, CodegenOptions};
+    use oxc_minifier::{ManglePropertiesOptions, Minifier, MinifierOptions};
+    use oxc_parser::Parser;
+    use oxc_span::SourceType;
+    let fonte = format!("(function () {{\n{js}\n}})();\n");
+    // `DARTFORGE_JSPROD_DEDUP=0` desliga a deduplicação de strings.
+    let fonte = if std::env::var("DARTFORGE_JSPROD_DEDUP").map_or(true, |v| v != "0") { deduplicar_strings(&fonte)? } else { fonte };
+    let alocador = Allocator::default();
+    let lido = Parser::new(&alocador, &fonte, SourceType::cjs()).parse();
+    if let Some(e) = lido.diagnostics.first() {
+        return Err(format!("oxc não leu o arquivo de produção: {e}"));
+    }
+    let mut programa = lido.program;
+    // Primeiro a compressão (código morto, dobra de constantes) — as
+    // *strings* de declarações mortas (`var x = dart.privateName(L, "_n")`
+    // sem uso) somem antes de reservar nomes. `DARTFORGE_JSPROD_COMPRIMIR=0`
+    // desliga.
+    if std::env::var("DARTFORGE_JSPROD_COMPRIMIR").map_or(true, |v| v != "0") {
+        let mut c = oxc_minifier::CompressOptions::smallest();
+        c.treeshake.manual_pure_functions = ["dart.privateName", "dart.fnType", "dart.gFnType", "t$R"].iter().map(|s| s.to_string()).collect();
+        let _ = Minifier::new(MinifierOptions { mangle: None, mangle_properties: None, compress: Some(c) }).minify(&alocador, &mut programa);
+    }
+    let mut strings = StringsIdentificador(std::collections::HashSet::new());
+    strings.visit_program(&programa);
+    let mut livres: Vec<&str> = nomes
+        .renomeaveis
+        .iter()
+        .map(String::as_str)
+        .filter(|n| !nomes.reservados.contains(*n) && !strings.0.contains(*n) && n.len() > 1)
+        .filter(|n| n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$') && !n.as_bytes()[0].is_ascii_digit())
+        .collect();
+    livres.sort_unstable();
+    // O `include` do `oxc` é uma regex; a lista de nomes livres não cabe
+    // numa. Então: uma coleta com tudo elegível dá os candidatos que o `oxc`
+    // enxerga; os que não são livres entram nos reservados; a segunda coleta
+    // renomeia só os livres.
+    if !livres.is_empty() {
+        let livres: std::collections::HashSet<&str> = livres.iter().copied().collect();
+        let mut base = ManglePropertiesOptions::from_pattern(".")?;
+        for r in nomes.reservados.iter().chain(strings.0.iter()) {
+            base.reserved.insert(r.as_str().into());
+        }
+        let mut sonda = oxc_minifier::PropertyMangler::new_in(base.clone(), &alocador);
+        sonda.collect(&programa);
+        let candidatos: Vec<String> = sonda.assign().keys().map(|k| k.as_str().to_string()).collect();
+        let mut o = base;
+        for c in candidatos {
+            if !livres.contains(c.as_str()) {
+                o.reserved.insert(c.as_str().into());
+            }
+        }
+        let mut pm = oxc_minifier::PropertyMangler::new_in(o, &alocador);
+        pm.collect(&programa);
+        pm.assign();
+        pm.rewrite(&mut programa);
+    }
+    let opcoes = MinifierOptions {
+        mangle: Some(oxc_minifier::MangleOptions { top_level: Some(true), ..oxc_minifier::MangleOptions::default() }),
+        mangle_properties: None,
+        compress: None,
+    };
+    let ret = Minifier::new(opcoes).minify(&alocador, &mut programa);
+    let saida = Codegen::new()
+        .with_options(CodegenOptions::minify())
+        .with_scoping(ret.scoping)
+        .with_private_member_mappings(ret.class_private_mappings)
+        .build(&programa);
+    Ok(saida.code)
+}
+
 pub fn minificar_nomes(js: &str) -> Result<String, String> {
     use oxc_allocator::Allocator;
     use oxc_codegen::{Codegen, CodegenOptions};

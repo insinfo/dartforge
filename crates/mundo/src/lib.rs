@@ -32,7 +32,10 @@
 //! * três níveis de classe — morta, só tipo (identidade e rti) e instanciada —
 //!   que são as três alcançabilidades de `docs/PESQUISA-OTIMIZACAO.md` §5.
 
+mod constantes;
 mod impacto;
+
+pub use constantes::Constantes;
 
 use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionElementId, FunctionKind, FunctionRef, LibraryId, Program, VariableId, VariableRef};
 use dartforge_frontend::ast;
@@ -41,6 +44,118 @@ use dartforge_types::resolve::OutlineTypes;
 use dartforge_types::resolved::BodyTypes;
 use dartforge_types::table::{Type, TypeTable};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
+
+/// Fecho de supertipos de toda classe, calculado uma vez: `sub ⊑ sup` vira um
+/// teste de bit (`docs/JS-PRODUCAO-TAMANHO.md` §2.1). A cadeia é a nominal —
+/// a própria classe, superclasse, mixins aplicados, interfaces e `on`,
+/// transitivamente —, sem argumentos de tipo (conservador para genéricos).
+pub struct Hierarquia {
+    palavras: usize,
+    bits: Vec<u64>,
+    listas: Vec<Vec<ClassId>>,
+}
+
+impl Hierarquia {
+    pub fn nova(p: &Program) -> Hierarquia {
+        let n = p.classes.len();
+        let palavras = n.div_ceil(64).max(1);
+        let mut h = Hierarquia { palavras, bits: vec![0; n * palavras], listas: vec![Vec::new(); n] };
+        // 0 = por fazer, 1 = em curso (ciclo: a classe fica com o que já
+        // tem), 2 = feita.
+        let mut estado = vec![0u8; n];
+        for raiz in 0..n {
+            if estado[raiz] != 0 {
+                continue;
+            }
+            // DFS pós-ordem sem recursão: cada classe junta os bits dos pais.
+            let mut pilha: Vec<(usize, bool)> = vec![(raiz, false)];
+            while let Some((c, pais_feitos)) = pilha.pop() {
+                if pais_feitos {
+                    let base = c * palavras;
+                    h.bits[base + c / 64] |= 1 << (c % 64);
+                    let k = p.class(ClassId(c as u32));
+                    let pais: Vec<usize> = k
+                        .supertype_class
+                        .iter()
+                        .chain(k.mixin_classes.iter())
+                        .chain(k.interface_classes.iter())
+                        .chain(k.on_classes.iter())
+                        .map(|x| x.0 as usize)
+                        .collect();
+                    for q in pais {
+                        if q == c || q >= n {
+                            continue;
+                        }
+                        for w in 0..palavras {
+                            let v = h.bits[q * palavras + w];
+                            h.bits[base + w] |= v;
+                        }
+                    }
+                    estado[c] = 2;
+                    continue;
+                }
+                if estado[c] != 0 {
+                    continue;
+                }
+                estado[c] = 1;
+                pilha.push((c, true));
+                let k = p.class(ClassId(c as u32));
+                for q in k.supertype_class.iter().chain(k.mixin_classes.iter()).chain(k.interface_classes.iter()).chain(k.on_classes.iter()) {
+                    let q = q.0 as usize;
+                    if q < n && estado[q] == 0 {
+                        pilha.push((q, false));
+                    }
+                }
+            }
+        }
+        for c in 0..n {
+            let base = c * palavras;
+            let mut l = Vec::new();
+            for w in 0..palavras {
+                let mut v = h.bits[base + w];
+                while v != 0 {
+                    let b = v.trailing_zeros() as usize;
+                    l.push(ClassId((w * 64 + b) as u32));
+                    v &= v - 1;
+                }
+            }
+            h.listas[c] = l;
+        }
+        h
+    }
+    /// `sub ⊑ sup` na cadeia nominal (a própria classe inclusive).
+    pub fn e_subtipo(&self, sub: ClassId, sup: ClassId) -> bool {
+        let (a, b) = (sub.0 as usize, sup.0 as usize);
+        if a * self.palavras >= self.bits.len() {
+            return sub == sup;
+        }
+        (self.bits[a * self.palavras + b / 64] >> (b % 64)) & 1 == 1
+    }
+    /// Os supertipos de `c`, ela inclusive, em ordem de id.
+    pub fn supertipos(&self, c: ClassId) -> &[ClassId] {
+        self.listas.get(c.0 as usize).map(Vec::as_slice).unwrap_or(&[])
+    }
+}
+
+/// A regra de alcance do cone, com a hierarquia pronta e os subtipos
+/// instanciados de cada classe: o membro do dono `membro` atende um receptor
+/// de tipo estático `cone` se é a mesma classe, se um é ancestral do outro
+/// (herdado ou sobrescrito) ou se algum subtipo **instanciado** do cone tem o
+/// membro na cadeia (o subtipo traz mixin/interface fora da hierarquia do
+/// cone). Percorre a menor das duas listas de instanciados.
+fn alcance(h: &Hierarquia, inst_sub: &[Vec<ClassId>], membro: ClassId, cone: ClassId) -> bool {
+    if h.e_subtipo(membro, cone) || h.e_subtipo(cone, membro) {
+        return true;
+    }
+    let de_cone = inst_sub.get(cone.0 as usize).map(Vec::as_slice).unwrap_or(&[]);
+    let de_membro = inst_sub.get(membro.0 as usize).map(Vec::as_slice).unwrap_or(&[]);
+    if de_cone.len() <= de_membro.len() {
+        de_cone.iter().any(|s| h.e_subtipo(*s, membro))
+    } else {
+        de_membro.iter().any(|s| h.e_subtipo(*s, cone))
+    }
+}
 
 /// O programa analisado, emprestado de quem compilou.
 #[derive(Clone, Copy)]
@@ -120,6 +235,11 @@ pub struct Mundo {
     pub estat: Estatisticas,
     /// Calculado com o SDK no ponto fixo (`Opcoes::incluir_sdk`).
     pub incluir_sdk: bool,
+    hier: Arc<Hierarquia>,
+    /// Subtipos instanciados de cada classe (a regra de cone, [`alcance`]).
+    inst_sub: Vec<Vec<ClassId>>,
+    /// Palavras dos *templates* `JS()` vivos (nomes do JavaScript).
+    pub nomes_js: HashSet<String>,
 }
 
 impl Mundo {
@@ -144,28 +264,12 @@ impl Mundo {
     /// `nome` mantém vivo um membro da `classe`: seletor irrestrito vale para
     /// todas; restrito, só para as classes alcançáveis do cone do receptor
     /// (a mesma regra do ponto fixo, [`Motor::alcanca`]).
-    pub fn seletor_vivo_para(&self, program: &Program, nome: &str, classe: ClassId) -> bool {
+    pub fn seletor_vivo_para(&self, _program: &Program, nome: &str, classe: ClassId) -> bool {
         if self.seletores.contains(nome) {
             return true;
         }
         let Some(cones) = self.sel_cone.get(nome) else { return false };
-        cones.iter().any(|c| self.alcancada(program, classe, *c))
-    }
-    /// A regra de alcance fora do ponto fixo (sem memo): `membro` atende um
-    /// receptor de tipo estático `cone` se é a mesma classe, se um é
-    /// ancestral do outro (herdado ou sobrescrito) ou se algum subtipo
-    /// **instanciado** do cone tem o membro na cadeia (o subtipo traz
-    /// mixin/interface fora da hierarquia do cone).
-    fn alcancada(&self, program: &Program, membro: ClassId, cone: ClassId) -> bool {
-        if contem_na_cadeia(program, membro, cone) || contem_na_cadeia(program, cone, membro) {
-            return true;
-        }
-        self.classes
-            .iter()
-            .enumerate()
-            .filter(|(_, n)| **n == NivelClasse::Instanciada)
-            .map(|(i, _)| ClassId(i as u32))
-            .any(|s| contem_na_cadeia(program, s, cone) && contem_na_cadeia(program, s, membro))
+        cones.iter().any(|c| alcance(&self.hier, &self.inst_sub, classe, *c))
     }
     /// Os seletores vivos, em ordem alfabética (o conjunto é um `HashSet`).
     pub fn seletores(&self) -> impl Iterator<Item = &str> {
@@ -204,6 +308,10 @@ pub struct Opcoes {
     /// `docs/JS-PRODUCAO-SDK-PROPRIO.md` §4). Exige os corpos do SDK
     /// inferidos. Sem ela, o SDK é fronteira, como sempre.
     pub incluir_sdk: bool,
+    /// `assert` desligados (o padrão do perfil de produção, como no
+    /// `dart2js`): o corpo deles não é percorrido, e as condições que só
+    /// eles mudavam viram constantes (`constantes.rs`).
+    pub sem_asserts: bool,
 }
 
 /// Calcula o mundo. Determinístico: a fila é FIFO, as raízes são ordenadas, e
@@ -338,13 +446,42 @@ fn int_num(e: &Entrada<'_>) -> Option<(ClassId, ClassId)> {
 
 /// Como [`calcular`], com [`Opcoes`].
 pub fn calcular_com(e: Entrada<'_>, r: &Raizes, op: Opcoes) -> Mundo {
-    let mut m = Motor::novo(e);
-    if op.incluir_sdk {
-        m.incluir_sdk = true;
-        m.nativas = classes_nativas(&e);
-        m.int_num = int_num(&e);
-        m.nativas_por_interface = nativas_por_interface(&e, &m.nativas);
+    let mut c = Calculo::novo(e, op);
+    c.semear(r);
+    c.motor.finalizar()
+}
+
+/// O ponto fixo retomável: as rodadas do laço externo (`emit_js_producao`,
+/// mundo → emissão → verificação do texto) só acrescentam raízes, e o mundo
+/// é monotônico, então o motor fica vivo entre elas e cada rodada processa
+/// só o que as raízes novas alcançam (`docs/JS-PRODUCAO-TAMANHO.md` §2.1).
+pub struct Calculo<'a> {
+    motor: Motor<'a>,
+}
+
+impl<'a> Calculo<'a> {
+    pub fn novo(e: Entrada<'a>, op: Opcoes) -> Calculo<'a> {
+        let mut m = Motor::novo(e);
+        if op.incluir_sdk {
+            m.incluir_sdk = true;
+            m.nativas = classes_nativas(&e);
+            m.int_num = int_num(&e);
+            m.nativas_por_interface = nativas_por_interface(&e, &m.nativas);
+            m.constantes = Some(Constantes::nova(e, op.sem_asserts));
+        }
+        Calculo { motor: m }
     }
+    /// Acrescenta raízes e roda até o ponto fixo.
+    pub fn semear(&mut self, r: &Raizes) {
+        semear(&mut self.motor, r);
+    }
+    /// O mundo atual (cópia; o motor continua retomável).
+    pub fn mundo(&self) -> Mundo {
+        self.motor.fotografar()
+    }
+}
+
+fn semear(m: &mut Motor<'_>, r: &Raizes) {
     m.causa = Causa::Raiz;
     for s in {
         let mut v = r.seletores.clone();
@@ -386,7 +523,6 @@ pub fn calcular_com(e: Entrada<'_>, r: &Raizes, op: Opcoes) -> Mundo {
     }
     m.inicializar_extensoes();
     m.rodar();
-    m.finalizar()
 }
 
 /// Uma inconsistência achada pela conferência a seco.
@@ -420,8 +556,14 @@ pub fn conferir(e: Entrada<'_>, r: &Raizes, mundo: &Mundo) -> Vec<Inconsistencia
     m.v_vivo = mundo.variaveis.clone();
     m.tearoff = mundo.tearoffs.clone();
     m.sel = mundo.seletores.clone();
+    m.inst_sub = mundo.inst_sub.clone();
     for (n, cs) in mundo.sel_cone.iter() {
         m.sel_cone.insert(n.clone(), cs.iter().copied().collect());
+        for c in cs {
+            if let Some(l) = m.nomes_por_cone.get_mut(c.0 as usize) {
+                l.push(n.clone());
+            }
+        }
     }
     for c in &r.classes_todos_os_membros {
         m.todos_membros.insert(*c);
@@ -483,32 +625,8 @@ pub fn conferir(e: Entrada<'_>, r: &Raizes, mundo: &Mundo) -> Vec<Inconsistencia
     out
 }
 
-/// `alvo` está na cadeia de supertipos de `classe` (ela mesma, superclasse,
-/// mixins aplicados, interfaces e `on`, transitivamente) — dirigido: `classe`
-/// é subtipo nominal de `alvo`. Só anda na hierarquia de classes, sem
-/// consultar a `TypeTable`: argumentos de tipo são ignorados de propósito
-/// (nível de nome, conservador para genéricos).
-fn contem_na_cadeia(p: &Program, classe: ClassId, alvo: ClassId) -> bool {
-    if classe == alvo {
-        return true;
-    }
-    let mut vistos: HashSet<ClassId> = HashSet::new();
-    let mut pilha = vec![classe];
-    while let Some(k) = pilha.pop() {
-        if !vistos.insert(k) {
-            continue;
-        }
-        if k == alvo {
-            return true;
-        }
-        let c = p.class(k);
-        pilha.extend(c.supertype_class);
-        pilha.extend(c.mixin_classes.iter().copied());
-        pilha.extend(c.interface_classes.iter().copied());
-        pilha.extend(c.on_classes.iter().copied());
-    }
-    false
-}
+/// Dono dos pendentes que não têm classe (membros de extensão).
+const SEM_DONO: ClassId = ClassId(u32::MAX);
 
 pub(crate) struct Motor<'a> {
     pub(crate) e: Entrada<'a>,
@@ -520,11 +638,23 @@ pub(crate) struct Motor<'a> {
     /// Seletores com receptor de tipo conhecido: nome → classes dos tipos
     /// estáticos dos receptores (`foo` chamado em `T` vive no cone de `T`).
     sel_cone: HashMap<String, HashSet<ClassId>>,
-    /// Cadeias de supertipos já calculadas (memo de [`Motor::e_subtipo`]).
-    ancestrais: HashMap<ClassId, HashSet<ClassId>>,
+    /// Fecho de supertipos (`e_subtipo` em O(1)).
+    hier: Arc<Hierarquia>,
+    /// Subtipos instanciados de cada classe (o terceiro caso de [`alcance`]).
+    inst_sub: Vec<Vec<ClassId>>,
+    /// Palavras dos *templates* `JS()` vivos: nomes do JavaScript que o
+    /// renomeio de propriedades não pode tocar.
+    nomes_js: HashSet<String>,
+    /// Condições constantes (perfil de produção com o SDK no mundo).
+    pub(crate) constantes: Option<Constantes<'a>>,
+    /// Nomes registrados com receptor de cada classe-cone (o lado "classe
+    /// nova" do casamento acorda os pendentes desses nomes).
+    nomes_por_cone: Vec<Vec<String>>,
     /// Membros de classes instanciadas cujo nome ainda não é seletor vivo
-    /// (`_invokableInstanceMembersByName`, `resolution_world_builder.dart:232`).
-    pendentes: HashMap<String, Vec<FunctionElementId>>,
+    /// para eles (`_invokableInstanceMembersByName`,
+    /// `resolution_world_builder.dart:232`), por nome e por classe dona
+    /// (`SEM_DONO` para membros de extensão).
+    pendentes: HashMap<String, HashMap<ClassId, Vec<FunctionElementId>>>,
     todos_membros: HashSet<ClassId>,
     fila: VecDeque<Item>,
     /// Tipos (da `TypeTable`) já varridos atrás de classes.
@@ -578,7 +708,11 @@ impl<'a> Motor<'a> {
             tearoff: vec![false; p.functions.len()],
             sel: HashSet::new(),
             sel_cone: HashMap::new(),
-            ancestrais: HashMap::new(),
+            hier: Arc::new(Hierarquia::nova(p)),
+            inst_sub: vec![Vec::new(); p.classes.len()],
+            nomes_por_cone: vec![Vec::new(); p.classes.len()],
+            nomes_js: HashSet::new(),
+            constantes: None,
             pendentes: HashMap::new(),
             todos_membros: HashSet::new(),
             fila: VecDeque::new(),
@@ -678,8 +812,10 @@ impl<'a> Motor<'a> {
             return;
         }
         self.sel.insert(nome.to_string());
-        if let Some(v) = self.pendentes.remove(nome) {
-            for f in v {
+        if let Some(por_dono) = self.pendentes.remove(nome) {
+            let mut fs: Vec<FunctionElementId> = por_dono.into_values().flatten().collect();
+            fs.sort();
+            for f in fs {
                 self.viva_fn(f);
             }
         }
@@ -728,73 +864,43 @@ impl<'a> Motor<'a> {
         if self.sel.contains(nome) {
             return;
         }
-        self.sel_cone.entry(nome.to_string()).or_default().insert(t);
-        // Acorda só os pendentes da mesma chave dentro do cone de `t`; o
-        // resto continua pendente (não é poda, é espera).
-        if let Some(pend) = self.pendentes.remove(nome) {
-            let mut ficam = Vec::new();
-            for f in pend {
-                let dentro = match self.e.program.function(f).class {
-                    // Membro de extensão não tem classe dona: vive por nome,
-                    // como antes (a aplicabilidade `on` é do emissor).
-                    None => true,
-                    Some(k) => self.alcanca(k, t),
-                };
-                if dentro {
-                    self.viva_fn(f);
-                } else {
-                    ficam.push(f);
+        // O par (nome, cone) já registrado não acorda nada de novo (o
+        // `addReceiverConstraint` do dart2js, `resolution_world_builder.dart:541-560`).
+        match self.sel_cone.get_mut(nome) {
+            Some(cs) => {
+                if !cs.insert(t) {
+                    return;
                 }
             }
-            if !ficam.is_empty() {
-                self.pendentes.insert(nome.to_string(), ficam);
+            None => {
+                self.sel_cone.insert(nome.to_string(), HashSet::from([t]));
             }
         }
-    }
-
-    /// `sup` está na cadeia de supertipos de `sub` (ela mesma, superclasse,
-    /// mixins aplicados, interfaces e `on`, transitivamente) — dirigido, com
-    /// memo. É o [`contem_na_cadeia`] do ponto fixo.
-    pub(crate) fn e_subtipo(&mut self, sub: ClassId, sup: ClassId) -> bool {
-        if sub == sup {
-            return true;
+        if let Some(l) = self.nomes_por_cone.get_mut(t.0 as usize) {
+            l.push(nome.to_string());
         }
-        if let Some(a) = self.ancestrais.get(&sub) {
-            return a.contains(&sup);
-        }
-        let p = self.e.program;
-        let mut vistos: HashSet<ClassId> = HashSet::new();
-        let mut pilha = vec![sub];
-        while let Some(k) = pilha.pop() {
-            if !vistos.insert(k) {
-                continue;
+        // Acorda só os pendentes da mesma chave dentro do cone de `t`; o
+        // resto continua pendente (não é poda, é espera).
+        let Some(por_dono) = self.pendentes.get_mut(nome) else { return };
+        let mut acordar: Vec<ClassId> = Vec::new();
+        for &k in por_dono.keys() {
+            // Membro de extensão não tem classe dona: vive por nome, como
+            // antes (a aplicabilidade `on` é do emissor).
+            if k == SEM_DONO || alcance(&self.hier, &self.inst_sub, k, t) {
+                acordar.push(k);
             }
-            let c = p.class(k);
-            pilha.extend(c.supertype_class);
-            pilha.extend(c.mixin_classes.iter().copied());
-            pilha.extend(c.interface_classes.iter().copied());
-            pilha.extend(c.on_classes.iter().copied());
         }
-        let r = vistos.contains(&sup);
-        self.ancestrais.insert(sub, vistos);
-        r
-    }
-
-    /// Um membro declarado em `membro` atende um receptor de tipo estático
-    /// `cone`: a mesma classe, um herdado (`cone` subtipo do dono — `f` numa
-    /// `Folha` executa o `descreve` do `Raiz`), um sobrescrito (dono subtipo
-    /// do cone) ou um herdado por algum subtipo **instanciado** do cone (o
-    /// subtipo traz mixin/interface fora da hierarquia do cone). Só o que não
-    /// é nenhum dos quatro é poda de desenho.
-    pub(crate) fn alcanca(&mut self, membro: ClassId, cone: ClassId) -> bool {
-        if self.e_subtipo(membro, cone) || self.e_subtipo(cone, membro) {
-            return true;
+        let mut fs: Vec<FunctionElementId> = Vec::new();
+        for k in acordar {
+            fs.extend(por_dono.remove(&k).unwrap_or_default());
         }
-        let insts: Vec<ClassId> = (0..self.classes.len() as u32)
-            .map(ClassId)
-            .filter(|c| self.classes[c.0 as usize] == NivelClasse::Instanciada)
-            .collect();
-        insts.into_iter().any(|s| self.e_subtipo(s, cone) && self.e_subtipo(s, membro))
+        if por_dono.is_empty() {
+            self.pendentes.remove(nome);
+        }
+        fs.sort();
+        for f in fs {
+            self.viva_fn(f);
+        }
     }
 
     /// O seletor `nome` (irrestrito ou restrito) mantém vivo um membro da
@@ -803,11 +909,10 @@ impl<'a> Motor<'a> {
         if self.sel.contains(nome) {
             return true;
         }
-        let cones: Vec<ClassId> = match self.sel_cone.get(nome) {
-            Some(c) => c.iter().copied().collect(),
-            None => return false,
-        };
-        cones.into_iter().any(|c| self.alcanca(classe, c))
+        match self.sel_cone.get(nome) {
+            Some(cs) => cs.iter().any(|c| alcance(&self.hier, &self.inst_sub, classe, *c)),
+            None => false,
+        }
     }
 
     /// O seletor `nome` vive de algum jeito (irrestrito ou restrito): o que os
@@ -1136,8 +1241,91 @@ impl<'a> Motor<'a> {
         if self.causa_classe[i].is_none() {
             self.causa_classe[i] = Some(self.causa);
         }
+        self.registrar_instanciada(k);
         self.fila.push_back(Item::Campos(k));
         self.processar_membros(k, false);
+    }
+
+    /// Guarda as palavras (identificadores) de um *template* `JS()`.
+    pub(crate) fn registrar_palavras_js(&mut self, t: &str) {
+        // Só o que pode ser nome de propriedade: depois de `.`, antes de
+        // `:` (chave de objeto literal) ou entre aspas. Variáveis locais e
+        // globais do *template* não são propriedades.
+        let b = t.as_bytes();
+        let ident = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
+        let mut i = 0;
+        let mut aspas: Option<u8> = None;
+        while i < b.len() {
+            let c = b[i];
+            if let Some(q) = aspas {
+                if c == q {
+                    aspas = None;
+                }
+            } else if c == b'\'' || c == b'"' {
+                aspas = Some(c);
+            }
+            if !ident(c) || c.is_ascii_digit() {
+                i += 1;
+                continue;
+            }
+            let ini = i;
+            while i < b.len() && ident(b[i]) {
+                i += 1;
+            }
+            let w = &t[ini..i];
+            let mut j = i;
+            while j < b.len() && b[j] == b' ' {
+                j += 1;
+            }
+            let depois_de_ponto = ini > 0 && b[ini - 1] == b'.';
+            let chave = j < b.len() && b[j] == b':' && b.get(j + 1) != Some(&b':');
+            if (depois_de_ponto || chave || aspas.is_some()) && !self.nomes_js.contains(w) {
+                self.nomes_js.insert(w.to_string());
+            }
+        }
+    }
+
+    /// `k` acabou de ser instanciada: entra nos subtipos instanciados de cada
+    /// supertipo dela e acorda os pendentes que o terceiro caso de
+    /// [`alcance`] passa a atender — membro de um dono `M` com `k ⊑ M`,
+    /// pendente de um nome registrado com cone `T` e `k ⊑ T`. É o lado
+    /// "classe nova" do casamento (`_processInstantiatedClass` →
+    /// `processClassMembers`, `resolution/enqueuer.dart:135-139`).
+    fn registrar_instanciada(&mut self, k: ClassId) {
+        let hier = Arc::clone(&self.hier);
+        let sups = hier.supertipos(k);
+        for t in sups {
+            if let Some(l) = self.inst_sub.get_mut(t.0 as usize) {
+                l.push(k);
+            }
+        }
+        if self.pendentes.is_empty() {
+            return;
+        }
+        let mut fs: Vec<FunctionElementId> = Vec::new();
+        for t in sups {
+            let Some(nomes) = self.nomes_por_cone.get(t.0 as usize) else { continue };
+            if nomes.is_empty() {
+                continue;
+            }
+            for n in nomes {
+                let Some(por_dono) = self.pendentes.get_mut(n.as_str()) else { continue };
+                for m in sups {
+                    if let Some(v) = por_dono.remove(m) {
+                        fs.extend(v);
+                    }
+                }
+            }
+        }
+        if fs.is_empty() {
+            return;
+        }
+        self.pendentes.retain(|_, v| !v.is_empty());
+        fs.sort();
+        fs.dedup();
+        for f in fs {
+            self.viva_fn(f);
+        }
     }
 
     /// Membros de instância de `k` (já instanciada): vivos se a chave é
@@ -1160,7 +1348,7 @@ impl<'a> Motor<'a> {
             if vive && !so_pendentes {
                 self.viva_fn(f);
             } else if !vive {
-                self.pendentes.entry(nome).or_default().push(f);
+                self.pendentes.entry(nome).or_default().entry(k).or_default().push(f);
             }
         }
     }
@@ -1241,7 +1429,7 @@ impl<'a> Motor<'a> {
                 if self.seletor_algum(nome.as_str()) || p.function(f).kind == FunctionKind::Operator {
                     self.viva_fn(f);
                 } else {
-                    self.pendentes.entry(nome).or_default().push(f);
+                    self.pendentes.entry(nome).or_default().entry(SEM_DONO).or_default().push(f);
                 }
             }
         }
@@ -1267,6 +1455,63 @@ impl<'a> Motor<'a> {
                 Item::Campos(c) => impacto::de_campos(self, c),
             }
         }
+    }
+
+    /// O mundo atual sem consumir o motor.
+    fn fotografar(&self) -> Mundo {
+        let mut est = self.estatisticas();
+        est.itens_processados = self.itens;
+        let mut sel_cone: HashMap<String, Vec<ClassId>> = HashMap::new();
+        for (n, cs) in &self.sel_cone {
+            let mut v: Vec<ClassId> = cs.iter().copied().collect();
+            v.sort();
+            sel_cone.insert(n.clone(), v);
+        }
+        Mundo {
+            classes: self.classes.clone(),
+            funcoes: self.f_vivo.clone(),
+            variaveis: self.v_vivo.clone(),
+            tearoffs: self.tearoff.clone(),
+            seletores: self.sel.clone(),
+            sel_cone,
+            causa_fn: self.causa_fn.clone(),
+            causa_classe: self.causa_classe.clone(),
+            causa_var: self.causa_var.clone(),
+            estat: est,
+            incluir_sdk: self.incluir_sdk,
+            hier: Arc::clone(&self.hier),
+            inst_sub: self.inst_sub.clone(),
+            nomes_js: self.nomes_js.clone(),
+        }
+    }
+
+    fn estatisticas(&self) -> Estatisticas {
+        let p = self.e.program;
+        let mut est = Estatisticas::default();
+        for (i, c) in p.classes.iter().enumerate() {
+            if p.library(c.library).is_sdk {
+                continue;
+            }
+            est.classes_usuario += 1;
+            match self.classes[i] {
+                NivelClasse::Instanciada => est.classes_instanciadas += 1,
+                NivelClasse::Tipo => est.classes_tipo += 1,
+                NivelClasse::Morta => {}
+            }
+        }
+        for (i, f) in p.functions.iter().enumerate() {
+            if p.library(f.library).is_sdk {
+                continue;
+            }
+            est.funcoes_usuario += 1;
+            if self.f_vivo[i] {
+                est.funcoes_vivas += 1;
+            }
+        }
+        est.variaveis_vivas = self.v_vivo.iter().filter(|v| **v).count();
+        est.seletores = self.sel.len();
+        est.seletores_restritos = self.sel_cone.len();
+        est
     }
 
     fn finalizar(self) -> Mundo {
@@ -1314,6 +1559,9 @@ impl<'a> Motor<'a> {
             causa_var: self.causa_var,
             estat: est,
             incluir_sdk: self.incluir_sdk,
+            hier: self.hier,
+            inst_sub: self.inst_sub,
+            nomes_js: self.nomes_js,
         }
     }
 

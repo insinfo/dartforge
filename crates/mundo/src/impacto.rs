@@ -88,6 +88,7 @@ pub(crate) fn de_funcao(m: &mut Motor<'_>, f: FunctionElementId) {
                         }
                         argumentos(m, &ctx, arguments);
                     }
+                    Initializer::Assert { .. } if sem_asserts(m) => {}
                     Initializer::Assert { condition, message, .. } => {
                         expr(m, &ctx, *condition);
                         if let Some(x) = message {
@@ -503,6 +504,14 @@ fn stmt(m: &mut Motor<'_>, ctx: &Contexto, id: StmtId) {
         }
         StmtKind::Function(f) => percorrer_funcao(m, ctx, *f),
         StmtKind::Expression(x) => expr(m, ctx, *x),
+        StmtKind::If { condition, case_pattern: None, guard: None, then, else_ } if constante(m, ctx, *condition).is_some() => {
+            // Desvio morto por condição constante: o emissor também não o escreve.
+            if constante(m, ctx, *condition) == Some(true) {
+                stmt(m, ctx, *then);
+            } else if let Some(x) = else_ {
+                stmt(m, ctx, *x);
+            }
+        }
         StmtKind::If { condition, case_pattern, guard, then, else_ } => {
             expr(m, ctx, *condition);
             if let Some(pp) = case_pattern {
@@ -578,6 +587,7 @@ fn stmt(m: &mut Motor<'_>, ctx: &Contexto, id: StmtId) {
             }
         }
         StmtKind::Labeled { body, .. } => stmt(m, ctx, *body),
+        StmtKind::Assert { .. } if sem_asserts(m) => {}
         StmtKind::Assert { condition, message } => {
             expr(m, ctx, *condition);
             if let Some(x) = message {
@@ -826,7 +836,26 @@ fn membro_estatico(m: &mut Motor<'_>, ctx: &Contexto, alvo: Alvo, nome: dartforg
     }
 }
 
+/// `assert` desligados no perfil de produção.
+fn sem_asserts(m: &Motor<'_>) -> bool {
+    m.constantes.as_ref().is_some_and(|c| c.sem_asserts())
+}
+
+/// A condição `x` é constante (`constantes.rs`)? Só para as formas que o
+/// emissor também dobra (identificador, propriedade, `!`, `&&`, `||`,
+/// parênteses); literal não conta (não há o que poupar).
+pub(crate) fn constante(m: &Motor<'_>, ctx: &Contexto, x: ExprId) -> Option<bool> {
+    let c = m.constantes.as_ref()?;
+    match &m.e.program.unit(ctx.unidade).ast.expr(x).kind {
+        ExprKind::Identifier(_) | ExprKind::Property { .. } | ExprKind::Unary { .. } | ExprKind::Binary { .. } | ExprKind::Parenthesized(_) => c.bool_de(ctx.unidade, x),
+        _ => None,
+    }
+}
+
 fn expr(m: &mut Motor<'_>, ctx: &Contexto, id: ExprId) {
+    if constante(m, ctx, id).is_some() {
+        return;
+    }
     let e = m.e;
     let p = e.program;
     let ast = &p.unit(ctx.unidade).ast;
@@ -985,6 +1014,9 @@ fn expr(m: &mut Motor<'_>, ctx: &Contexto, id: ExprId) {
                             for parte in lit.parts.iter() {
                                 if let StringPart::Text(t) = parte {
                                     let t = t.to_string_lossy();
+                                    // Toda palavra do *template* é nome JS (propriedade, chave
+                                    // de objeto, global): o renomeio de propriedades não a toca.
+                                    m.registrar_palavras_js(&t);
                                     let b = t.as_bytes();
                                     for (i, _) in t.match_indices('.') {
                                         let ini = i + 1;
@@ -1060,11 +1092,15 @@ fn expr(m: &mut Motor<'_>, ctx: &Contexto, id: ExprId) {
             expr(m, ctx, *left);
             expr(m, ctx, *right);
         }
-        ExprKind::Conditional { condition, then, else_ } => {
-            expr(m, ctx, *condition);
-            expr(m, ctx, *then);
-            expr(m, ctx, *else_);
-        }
+        ExprKind::Conditional { condition, then, else_ } => match constante(m, ctx, *condition) {
+            Some(true) => expr(m, ctx, *then),
+            Some(false) => expr(m, ctx, *else_),
+            None => {
+                expr(m, ctx, *condition);
+                expr(m, ctx, *then);
+                expr(m, ctx, *else_);
+            }
+        },
         ExprKind::Is { value, ty, .. } | ExprKind::As { value, ty } => {
             expr(m, ctx, *value);
             tipo_ast(m, ctx, *ty);

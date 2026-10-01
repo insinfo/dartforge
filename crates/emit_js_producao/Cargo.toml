@@ -13,6 +13,8 @@ dartforge-emit-js = { path = "../emit_js" }
 dartforge-mundo = { path = "../mundo" }
 dartforge-elements = { path = "../elements" }
 dartforge-intern = { path = "../intern" }
+dartforge-types = { path = "../types" }
+dartforge-frontend = { path = "../frontend" }
 serde = { version = "1", features = ["derive"] }
 postcard = { version = "1", default-features = false, features = ["use-std"] }
 # Minificação de identificadores por escopo (docs/JS-PRODUCAO-SDK-PROPRIO.md §7.2).
@@ -21,6 +23,10 @@ oxc_parser = "0.152"
 oxc_span = "0.152"
 oxc_mangler = "0.152"
 oxc_codegen = "0.152"
+# Renomeio de propriedades e compressão (docs/JS-PRODUCAO-TAMANHO.md §3).
+oxc_minifier = "0.152"
+oxc_ast = "0.152"
+oxc_ast_visit = "0.152"
 
 [lib]
 path = "src/lib.rs"
@@ -28,3 +34,4 @@ path = "src/lib.rs"
 [[bin]]
 name = "dartforge-jsprod"
 path = "src/main.rs"
+

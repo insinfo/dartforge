@@ -449,6 +449,11 @@ pub fn conferir(modulos: &[(String, String)], libs: &HashMap<String, LibraryId>,
             None => var.strip_prefix("L$").unwrap_or(var).to_string(),
         };
         por_receita.insert(ident, var.as_str());
+        // O perfil de produção escreve a biblioteca do programa com o
+        // rótulo curto (`dartforge_emit_js::tag_de_receita`).
+        if !lib.uri.starts_with("dart:") {
+            por_receita.insert(dartforge_emit_js::tag_de_receita(*l), var.as_str());
+        }
     }
     let receitas: HashMap<&str, &str> = por_receita.iter().map(|(k, v)| (k.as_str(), *v)).collect();
     let mut refs: HashSet<String> = HashSet::new();

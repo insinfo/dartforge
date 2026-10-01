@@ -639,7 +639,10 @@ pub fn dartforge_producao(amb: &Ambiente, programa: &Programa, dir: &Path) -> Sa
         .ok()
         .map(PathBuf::from)
         .or_else(|| std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join(exe))).filter(|p| p.is_file()));
-    let mut args = vec![entrada, "-o".into(), saida_s];
+    // O oráculo roda a VM com `--enable-asserts`; o perfil de produção, que
+    // desliga os `assert` por padrão (como o `dart2js`), é comparado com eles
+    // ligados.
+    let mut args = vec![entrada, "-o".into(), saida_s, "--enable-asserts".into()];
     args.extend(args_de_linguagem(amb, programa));
     let pacotes = programa.diretorio_dartforge()
         .ancestors()

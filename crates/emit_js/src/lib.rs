@@ -14,6 +14,24 @@ pub mod module;
 pub mod pattern;
 pub mod sdk_proprio;
 pub mod tipo_extensao;
+
+/// Rótulo curto da biblioteca nas receitas rti do perfil de produção
+/// (`Ctx::class_recipe` no modo SDK): `$` + o id em base 36. Começa com
+/// `$`, que nenhum identificador de biblioteca do SDK usa.
+pub fn tag_de_receita(lib: dartforge_elements::model::LibraryId) -> String {
+    let mut n = lib.0;
+    let mut d: Vec<u8> = Vec::new();
+    loop {
+        let r = (n % 36) as u8;
+        d.push(if r < 10 { b'0' + r } else { b'a' + r - 10 });
+        n /= 36;
+        if n == 0 {
+            break;
+        }
+    }
+    d.reverse();
+    format!("${}", String::from_utf8(d).unwrap_or_default())
+}
 pub mod ty;
 
 /// Opções de linguagem (`--versao-linguagem`, `--enable-experiment`) de quem chama
@@ -90,7 +108,8 @@ impl<'a> Analise<'a> {
                 }
             }
         }
-        let bootstrap = sdk_proprio::bootstrap(&ctx, &dartx);
+        let tardios = sdk.contains("dart.lateField(") || emitido.modulos.iter().any(|(_, t)| t.contains("dart.lateField("));
+        let bootstrap = sdk_proprio::bootstrap(&ctx, &dartx, tardios);
         Ok(EmitidoComSdk { emitido, sdk, bootstrap })
     }
 }

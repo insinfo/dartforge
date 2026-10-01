@@ -635,6 +635,7 @@ pub(crate) fn texto_de_construtor(ctx: &Ctx, m: &ModState, c: ClassId, unit: dar
                 flush_stmts(&mut e, &mut corpo);
                 crate::linha!(corpo, "$this = {};", js.code);
             }
+            ast::Initializer::Assert { .. } if e.ctx.filtro.is_some_and(|f| !f.manter_asserts()) => {}
             ast::Initializer::Assert { condition, message, .. } => {
                 let (cjs, _) = e.emit_cond(*condition);
                 let msg = message.map(|mm| e.emit_expr(mm, None).0.code).unwrap_or("null".into());

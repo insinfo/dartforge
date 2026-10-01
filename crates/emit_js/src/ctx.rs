@@ -1993,9 +1993,17 @@ impl<'a> Ctx<'a> {
         &self.libs[lib.0 as usize].ident
     }
 
-    /// Prefixo de receita rti da classe: `core|int`, `main|P`.
+    /// Prefixo de receita rti da classe: `core|int`, `main|P`. No modo SDK
+    /// (perfil de produção), a biblioteca do programa é um rótulo curto
+    /// ([`crate::tag_de_receita`]): a parte antes do `|` é opaca para o
+    /// runtime (`_rtiToString` só lê o que vem depois), e o nome inteiro
+    /// da biblioteca repetido em toda receita era ~20% do arquivo
+    /// (`docs/JS-PRODUCAO-TAMANHO.md` §3.2).
     pub fn class_recipe(&self, c: ClassId) -> String {
         let lib = self.lib_of_class(c);
+        if self.sdk.is_some() && !self.libs[lib.0 as usize].is_sdk {
+            return format!("{}|{}", crate::tag_de_receita(lib), self.class_name(c));
+        }
         format!("{}|{}", self.lib_ident(lib), self.class_name(c))
     }
 

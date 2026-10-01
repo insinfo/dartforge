@@ -374,7 +374,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     /// Emite uma expressão; `expected` é o tipo de contexto (inferência descendente).
+    /// Valor booleano constante de `x` provado pelo mundo (`Vivos::constante_bool`),
+    /// só nas formas que o mundo também dobra (as mesmas de
+    /// `dartforge_mundo::impacto::constante`).
+    pub fn constante(&self, x: ExprId) -> Option<bool> {
+        let f = self.ctx.filtro?;
+        match &self.expr(x).kind {
+            ExprKind::Identifier(_) | ExprKind::Property { .. } | ExprKind::Unary { .. } | ExprKind::Binary { .. } | ExprKind::Parenthesized(_) => f.constante_bool(self.unit, x),
+            _ => None,
+        }
+    }
+
     pub fn emit_expr(&mut self, e: ExprId, expected: Option<&Ty>) -> (Js, Ty) {
+        if let Some(b) = self.constante(e) {
+            return (Js::prim(if b { "true" } else { "false" }.to_string()), self.ctx.t_bool());
+        }
         let expr = self.expr(e);
         let registro = self.registrar_contexto_atalho(e, expected);
         let (js, ty) = match &expr.kind {
@@ -706,6 +720,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 self.tipo_ext_operador(&l, Some(*left), dono, f, &[r])
             }
             ExprKind::Binary { op, left, right } => self.emit_binary(*op, *left, *right, expected, e),
+            ExprKind::Conditional { condition, then, else_ } if self.constante(*condition).is_some() => {
+                let ramo = if self.constante(*condition) == Some(true) { *then } else { *else_ };
+                self.emit_expr(ramo, expected)
+            }
             ExprKind::Conditional { condition, then, else_ } => {
                 self.pending_promotions.clear();
                 self.negated_promotions.clear();

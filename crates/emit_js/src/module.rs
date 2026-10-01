@@ -1166,6 +1166,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     };
 
     // Campos de instância.
+    let nomes_nativos = if ctx.sdk.is_some() { native_member_names(ctx, c) } else { HashSet::new() };
     let mut fields: Vec<FieldInfo> = Vec::new();
     for &vid in &class.fields {
         let v = ctx.program.variable(vid);
@@ -1178,16 +1179,21 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         let MemberKind::Field(list) = &mem.kind else { continue };
         let var = &list.variables[index];
         let private = name.starts_with('_');
+        // Perfil de produção: campo público que ninguém sobrescreve é
+        // propriedade comum (`sdk_proprio::campo_nao_virtual`).
+        // Nome de membro de um supertipo nativo fica acessor: o `defineExtensionAccessors`
+        // copia o *getter* para a chave `dartx`, que é por onde ele é lido.
+        let comum = !private && !is_enum && !v.late && !nomes_nativos.contains(&name) && crate::sdk_proprio::campo_nao_virtual(ctx, c, v.name);
         let storage = if v.late {
             Some(m.private_sym(ctx, class.library, &format!("_#{cname}#{name}")))
         } else if private {
             Some(m.private_sym(ctx, class.library, &name))
-        } else if is_enum {
+        } else if is_enum || comum {
             None
         } else {
             Some(m.private_sym(ctx, class.library, &format!("{cname}.{name}")))
         };
-        let virtual_ = v.late || (!private && !is_enum);
+        let virtual_ = v.late || (!private && !is_enum && !comum);
         fields.push(FieldInfo { vid, name, virtual_, storage, late: v.late, final_: v.final_, init: var.initializer, unit: fu, ty: ctx.var_ty(vid) });
     }
 
@@ -1211,6 +1217,8 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         }
     }
 
+    // Campos `late` pelo auxiliar `dart.lateField` (perfil de produção).
+    let mut tardios: Vec<String> = Vec::new();
     // Getters/setters de campos virtuais.
     for f in &fields {
         if !f.virtual_ {
@@ -1226,7 +1234,13 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         }
         if let Some(sym) = &f.storage {
             let key = if f.name.starts_with('_') { format!("[{}]", m.private_sym(ctx, class.library, &f.name)) } else { js::prop_key(&crate::body::js_member_name(&f.name)) };
-            if f.late {
+            if f.late && f.init.is_none() && ctx.sdk.is_some() && f.name.starts_with('_') && !is_mixin {
+                // Perfil de produção: o par `get`/`set` com `LateError` sai de
+                // um auxiliar do *bootstrap* (`dart.lateField`), uma chamada
+                // por campo depois da classe (`docs/JS-PRODUCAO-TAMANHO.md` §3.4).
+                let chave = m.private_sym(ctx, class.library, &f.name);
+                tardios.push(format!("dart.lateField({cref}.prototype, {chave}, {sym}, {}, {});", js::string_literal(&f.name), f.final_));
+            } else if f.late {
                 m.use_sdk("_internal");
                 let mut e = FnEmitter::new(ctx, m, f.unit, Some(c), false);
                 match f.init {
@@ -1578,6 +1592,9 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     w.line(&head);
     w.push_raw(&cw.out);
     w.line("};");
+    for t in &tardios {
+        w.line(t);
+    }
     if ext_no_mixin {
         if !ext_methods.is_empty() {
             let items: Vec<String> = ext_methods.iter().map(|n| js::string_literal(n)).collect();
@@ -2350,6 +2367,7 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
                 let target = field_target(fields, &n);
                 crate::linha!(body, "{target} = {};", js.code);
             }
+            ast::Initializer::Assert { .. } if ctx.filtro.is_some_and(|f| !f.manter_asserts()) => {}
             ast::Initializer::Assert { condition, message, .. } => {
                 let (cjs, _) = e.emit_cond(*condition);
                 let msg = message.map(|mm| e.emit_expr(mm, None).0.code).unwrap_or("null".into());
@@ -2494,7 +2512,7 @@ pub(crate) fn flush_stmts(e: &mut FnEmitter, body: &mut Writer) {
 fn field_target(fields: &[FieldInfo], name: &str) -> String {
     match fields.iter().find(|f| f.name == name) {
         Some(FieldInfo { storage: Some(s), .. }) => format!("this[{s}]"),
-        _ => format!("this{}", js::prop_access(name)),
+        _ => format!("this{}", js::prop_access(&crate::body::js_member_name(name))),
     }
 }
 

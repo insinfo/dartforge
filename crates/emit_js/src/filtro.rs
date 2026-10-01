@@ -48,6 +48,17 @@ pub trait Vivos {
     fn assinatura(&self, _nome: &str) -> bool {
         true
     }
+    /// Os `assert` do programa são emitidos (o perfil de produção os
+    /// desliga por padrão, como o `dart2js`).
+    fn manter_asserts(&self) -> bool {
+        true
+    }
+    /// Valor booleano constante provado para a expressão `x` da unidade
+    /// `u` (`dartforge_mundo::Constantes`): o emissor escreve o literal, e
+    /// o desvio morto de um `if` some.
+    fn constante_bool(&self, _u: dartforge_elements::model::UnitId, _x: dartforge_frontend::ast::ExprId) -> Option<bool> {
+        None
+    }
 }
 
 /// Tudo vivo: tem de emitir exatamente o que o caminho sem filtro emite.
