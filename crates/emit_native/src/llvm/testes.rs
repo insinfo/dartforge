@@ -146,8 +146,14 @@ fn quadro_de_raizes_em_todo_ret() {
     );
     assert!(corpo.contains("store i64 %v0, ptr %gcs0"), "{corpo}");
     assert!(!corpo.contains("store i64 %v1, ptr"), "{corpo}");
-    let rets = corpo.matches("\n  ret ").count();
-    let pops = corpo.matches("store ptr %gcvolta").count();
+    // A saída da conferência da pilha (C22) volta antes de o quadro ser
+    // encadeado: nada a fechar ali.
+    let (prologo, resto) = corpo.split_once("pilha.ok:").expect("conferência da pilha no prólogo");
+    assert!(prologo.contains("pilha.estouro:") && prologo.contains("call void @dartforge_estouro_de_pilha()"), "{corpo}");
+    assert!(!prologo.contains("store ptr %gcq, ptr %ctxtopo"), "o quadro não pode estar encadeado no estouro: {corpo}");
+    assert_eq!(prologo.matches("\n  ret ").count(), 1, "{corpo}");
+    let rets = resto.matches("\n  ret ").count();
+    let pops = resto.matches("store ptr %gcvolta").count();
     assert_eq!(rets, 2, "{corpo}");
     assert_eq!(pops, rets, "todo ret fecha o quadro: {corpo}");
 }

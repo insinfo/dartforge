@@ -145,14 +145,26 @@ Feito (as medidas estão na §5):
    * No programa pequeno, os ajudantes ficam em linha também no `-O0`. Fora de linha, o
      `corpus/nativo` levou 116 s em vez de 53 s.
 
+4. **HIR em paralelo.**
+   * O lowering vai em pedaços de 512 funções distribuídos sob demanda entre até 4 threads,
+     cada pedaço no seu módulo, juntados na ordem (`lower::baixar_funcoes`). O contexto
+     (`Context`) passou a `Sync`: `OnceLock` e memórias em `RwLock`/`Arc`.
+   * Os passes por função da otimização (`otimizar::em_paralelo`) também vão em paralelo.
+   * O resultado é o mesmo da ordem sequencial, e os objetos em cache batem.
+   * No backend (desenvolvimento): baixar 10,5–15 → 8,5–9 s; otimizar 21–25 → 12–16 s.
+   * Medido e descartado: a emissão do IR em paralelo (trabalhadores com registros próprios)
+     não ganhou nada, 20–35 s nas duas formas. O tempo é de alocação (`String`, `format!`), e o
+     heap do Windows serializa as threads.
+5. **A poda da HIR antes da otimização e da emissão** (`poda::podar_hir`, §3.13 de
+   `NATIVO-PODA-DE-TABELAS.md`). O mesmo grafo da montagem da ligação, com os resumos do SDK
+   (gravados também no desenvolvimento), tira da HIR o que a ligação tiraria depois. As funções
+   mortas deixam de ser otimizadas, emitidas e geradas, nos dois perfis.
+
 Falta, por ordem de ganho estimado:
 
-4. **O piso do front-end, do HIR e do IR** (75–90 s, numa thread só). Caminhos:
-   * baixar e emitir as funções em paralelo, o que pede o contexto do lowering sem `RefCell`
-     compartilhado;
-   * ou guardar o HIR/IR por biblioteca de pacote entre compilações. O resultado da poda
-     depende do programa todo; a chave tem de incluí-la.
-5. **Forma do código** (§1.4), em especificação própria:
+6. **O piso do front-end e do IR**: guardar o HIR/IR por biblioteca de pacote entre
+   compilações. O resultado da poda depende do programa todo; a chave tem de incluí-la.
+7. **Forma do código** (§1.4), em especificação própria:
    * a verificação de exceção (`cmpb $0,(ctx); jne`, ~400 mil no executável) num bloco comum
      por função;
    * `this` sabido objeto, sem a seleção null/`Smi`;
@@ -161,7 +173,7 @@ Falta, por ordem de ganho estimado:
    * o registro das classes (`df.registrar.programa`, 620 KB) e o `df.preparar_isolado`
      (340 KB) como dados em vez de código;
    * as constantes (`dfc.*`, 5 MB) como objetos estáticos da imagem, como os textos já são.
-6. **TFA** (§4), depois de 5: o número de funções retidas já é o do Dart.
+8. **TFA** (§4), depois de 7: o número de funções retidas já é o do Dart.
 
 ## 4. O TFA do Dart (referência)
 
@@ -231,6 +243,24 @@ ligação, `tools/tamanho/quebra.py` e `tam/mapa_cat.py`:
 | `$async` | 13,0 MB | 8,4 MB |
 | constantes (`dfc.*`) | 8,0 MB | 5,1 MB |
 | adaptadores | 6,1 MB | 5,1 MB |
+
+### Desenvolvimento frio
+
+`aot` do backend sem `--optimize`, com o SDK em cache e os objetos do programa frios
+(`DARTFORGE_CACHE_OBJ=0`), em duas rodadas:
+
+| fase | antes | com a HIR em paralelo e a poda da HIR |
+|---|---:|---:|
+| front-end + mundo | 14 s | 12–15 s |
+| poda da HIR | — | 1,5–2,2 s (64 661 de 183 440 funções ficam) |
+| HIR (baixar + otimizar) | 31–48 s | 19–27 s |
+| LLVM IR | 18–33 s | 13–15 s |
+| objetos (`-O0`) | 79–100 s | 45 s |
+| **total** | **157–185 s** | **91–101 s** |
+
+O total fica em 1,5–1,7× os 58–60 s do `dart compile exe`, dentro da meta de ~2×. Na
+produção, a poda da HIR não muda os objetos nem a ligação: a montagem já tirava o mesmo IR. Ela
+só poupa a otimização e a emissão.
 
 ### 5.1 O preço em desempenho
 

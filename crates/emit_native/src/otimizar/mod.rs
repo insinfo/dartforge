@@ -20,7 +20,7 @@ mod efeitos;
 mod escape;
 mod inline;
 mod mem2reg;
-mod operandos;
+pub(crate) mod operandos;
 mod simplificar;
 
 #[cfg(test)]
@@ -50,21 +50,81 @@ fn limpar(func: &mut Function, nao_lancam: &std::collections::HashSet<String>) {
     simplificar::tirar_mortos(func);
 }
 
+/// A entrada é o primeiro bloco em todo o resto do compilador.
+fn valida(f: &Function) -> bool {
+    f.blocks.first().is_some_and(|b| b.id.0 == 0)
+}
+
+/// Quantas threads os passes por função usam: as da máquina, no máximo 4
+/// (`DARTFORGE_THREADS_HIR` escolhe; 1 = sequencial).
+fn threads() -> usize {
+    std::env::var("DARTFORGE_THREADS_HIR")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get().min(4)))
+        .max(1)
+}
+
+/// Aplica `passe` a cada função válida, em pedaços contíguos por thread: os
+/// passes por função só leem o resto do módulo pelo que recebem pronto
+/// (`nao_lancam`, as cópias do inliner), então o resultado é o mesmo da
+/// ordem sequencial. Devolve se algum passe mudou alguma função. No
+/// new_sali/backend (~180 mil funções) os passes levavam ~20 s numa thread.
+fn em_paralelo(funcoes: &mut [Function], passe: &(dyn Fn(&mut Function) -> bool + Sync)) -> bool {
+    let n = threads();
+    if n == 1 || funcoes.len() < 2048 {
+        let mut mudou = false;
+        for f in funcoes.iter_mut().filter(|f| valida(f)) {
+            mudou |= passe(f);
+        }
+        return mudou;
+    }
+    // Pedaços pequenos distribuídos sob demanda: as funções grandes (os
+    // literais e as tabelas de dados) se agrupam, e um pedaço por thread
+    // deixava uma thread com quase todo o trabalho.
+    let pedacos: Vec<std::sync::Mutex<&mut [Function]>> =
+        funcoes.chunks_mut(256).map(std::sync::Mutex::new).collect();
+    let proximo = std::sync::atomic::AtomicUsize::new(0);
+    std::thread::scope(|s| {
+        let tarefas: Vec<_> = (0..n)
+            .map(|_| {
+                let (pedacos, proximo) = (&pedacos, &proximo);
+                std::thread::Builder::new()
+                    .stack_size(64 << 20)
+                    .spawn_scoped(s, move || {
+                        let mut mudou = false;
+                        loop {
+                            let i = proximo.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            let Some(p) = pedacos.get(i) else { break };
+                            let mut pedaco = p.lock().unwrap_or_else(|e| e.into_inner());
+                            for f in pedaco.iter_mut().filter(|f| valida(f)) {
+                                mudou |= passe(f);
+                            }
+                        }
+                        mudou
+                    })
+                    .expect("thread dos passes da HIR")
+            })
+            .collect();
+        tarefas.into_iter().fold(false, |acc, t| acc | t.join().expect("passe da HIR em pânico"))
+    })
+}
+
 /// Otimiza as funções do módulo.
 pub fn otimizar(module: &mut Module) {
     if desligado() {
         return;
     }
-    // A entrada é o primeiro bloco em todo o resto do compilador.
-    let validas = |f: &Function| f.blocks.first().is_some_and(|b| b.id.0 == 0);
-    for f in module.functions.iter_mut().filter(|f| validas(f)) {
+    em_paralelo(&mut module.functions, &|f| {
         mem2reg::promover(f);
-    }
+        false
+    });
     for _ in 0..3 {
         let nao_lancam = efeitos::nao_lancam(module);
-        for f in module.functions.iter_mut().filter(|f| validas(f)) {
+        em_paralelo(&mut module.functions, &|f| {
             limpar(f, &nao_lancam);
-        }
+            false
+        });
         let copias: HashMap<String, (Function, bool)> = module
             .functions
             .iter()
@@ -74,22 +134,24 @@ pub fn otimizar(module: &mut Module) {
             .filter(|f| f.depuracao.is_none() && inline::copiavel(f))
             .map(|f| (f.symbol.clone(), (f.clone(), !nao_lancam.contains(&f.symbol))))
             .collect();
-        let mut mudou = false;
-        for f in module.functions.iter_mut().filter(|f| validas(f)) {
+        let mudou = em_paralelo(&mut module.functions, &|f| {
             if inline::inlining(f, &copias) {
-                mudou = true;
                 limpar(f, &nao_lancam);
+                true
+            } else {
+                false
             }
-        }
+        });
         if !mudou {
             break;
         }
     }
     let nao_lancam = efeitos::nao_lancam(module);
-    for f in module.functions.iter_mut().filter(|f| validas(f)) {
+    em_paralelo(&mut module.functions, &|f| {
         if escape::substituir_objetos(f) {
             mem2reg::promover(f);
             limpar(f, &nao_lancam);
         }
-    }
+        false
+    });
 }

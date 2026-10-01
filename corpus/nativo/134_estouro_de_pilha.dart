@@ -23,6 +23,12 @@ class A implements No {
 
 int fib(int n) => n < 2 ? n : fib(n - 1) + fib(n - 2);
 
+// Recursão sem nenhuma outra operação que lance (o `Trace.from` do
+// `stack_trace`): a função num ciclo de chamadas lança pela pilha.
+void pura() => pura();
+int par(int n) => impar(n + 1);
+int impar(int n) => par(n + 1);
+
 void main() async {
   try {
     desce();
@@ -44,6 +50,16 @@ void main() async {
     a.visitar(0);
   } on StackOverflowError {
     print('virtual: pegou');
+  }
+  try {
+    pura();
+  } on StackOverflowError {
+    print('pura: pegou');
+  }
+  try {
+    par(0);
+  } on StackOverflowError {
+    print('mútua: pegou');
   }
   print(fib(20));
   // Num isolado (outra thread).

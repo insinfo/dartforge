@@ -54,9 +54,9 @@ pub struct Context<'a> {
     /// `da_fonte` fica vazio).
     pub usa_dart_async: bool,
     /// P6: os símbolos das funções da fonte com corpo (`lower::com_corpo_da_fonte`).
-    pub com_corpo_da_fonte: std::cell::OnceCell<std::collections::HashSet<String>>,
+    pub com_corpo_da_fonte: std::sync::OnceLock<std::collections::HashSet<String>>,
     /// `dart:ffi`: o layout das structs e unions do programa (`lower::ffi::compostos`).
-    pub compostos_ffi: std::cell::OnceCell<Option<crate::lower::ffi::Compostos>>,
+    pub compostos_ffi: std::sync::OnceLock<Option<crate::lower::ffi::Compostos>>,
     /// Os tipos de extensão apagados (`apagamento.rs`), calculados antes do
     /// contexto; vazio sem tipo de extensão.
     pub te: crate::apagamento::TiposDeExtensao,
@@ -80,16 +80,16 @@ pub struct Context<'a> {
     /// resultado só depende do programa e das bibliotecas compiladas, fixos
     /// depois da construção do contexto.
     pub memoria_implementacoes:
-        std::cell::RefCell<std::collections::HashMap<(dartforge_elements::model::ClassId, SymbolId), std::rc::Rc<Vec<crate::lower::sdk_fonte::Implementacao>>>>,
+        std::sync::RwLock<std::collections::HashMap<(dartforge_elements::model::ClassId, SymbolId), std::sync::Arc<Vec<crate::lower::sdk_fonte::Implementacao>>>>,
     /// Os subtipos de cada classe (`Context::subtipos`), calculados na
     /// primeira consulta.
     pub memoria_subtipos:
-        std::cell::RefCell<std::collections::HashMap<dartforge_elements::model::ClassId, std::rc::Rc<Vec<dartforge_elements::model::ClassId>>>>,
+        std::sync::RwLock<std::collections::HashMap<dartforge_elements::model::ClassId, std::sync::Arc<Vec<dartforge_elements::model::ClassId>>>>,
     /// Idem para `sdk_fonte::implementacoes_por_classe`.
-    pub memoria_implementacoes_por_classe: std::cell::RefCell<
+    pub memoria_implementacoes_por_classe: std::sync::RwLock<
         std::collections::HashMap<
             (dartforge_elements::model::ClassId, SymbolId),
-            Option<std::rc::Rc<Vec<(i64, crate::lower::sdk_fonte::Implementacao)>>>,
+            Option<std::sync::Arc<Vec<(i64, crate::lower::sdk_fonte::Implementacao)>>>,
         >,
     >,
 }
@@ -194,17 +194,17 @@ impl<'a> Context<'a> {
     /// As classes do programa que são subtipo de `cid` (ela inclusive), na
     /// ordem dos ids de elemento — o que as buscas por implementação
     /// percorriam varrendo TODAS as classes a cada acesso a membro.
-    pub fn subtipos(&self, cid: dartforge_elements::model::ClassId) -> std::rc::Rc<Vec<dartforge_elements::model::ClassId>> {
-        if let Some(r) = self.memoria_subtipos.borrow().get(&cid) {
+    pub fn subtipos(&self, cid: dartforge_elements::model::ClassId) -> std::sync::Arc<Vec<dartforge_elements::model::ClassId>> {
+        if let Some(r) = self.memoria_subtipos.read().unwrap_or_else(|e| e.into_inner()).get(&cid) {
             return r.clone();
         }
-        let r: std::rc::Rc<Vec<_>> = std::rc::Rc::new(
+        let r: std::sync::Arc<Vec<_>> = std::sync::Arc::new(
             (0..self.program.classes.len() as u32)
                 .map(dartforge_elements::model::ClassId)
                 .filter(|&k| crate::lower::membros::subclasse_de(self, k, cid))
                 .collect(),
         );
-        self.memoria_subtipos.borrow_mut().insert(cid, r.clone());
+        self.memoria_subtipos.write().unwrap_or_else(|e| e.into_inner()).insert(cid, r.clone());
         r
     }
 
@@ -263,8 +263,8 @@ impl<'a> Context<'a> {
             da_fonte: std::collections::HashSet::new(),
             ids_rti_sdk: std::collections::HashMap::new(),
             usa_dart_async: false,
-            com_corpo_da_fonte: std::cell::OnceCell::new(),
-            compostos_ffi: std::cell::OnceCell::new(),
+            com_corpo_da_fonte: std::sync::OnceLock::new(),
+            compostos_ffi: std::sync::OnceLock::new(),
             memoria_implementacoes: Default::default(),
             mundo: None,
             memoria_subtipos: Default::default(),

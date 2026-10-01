@@ -3088,24 +3088,6 @@ lento:\n\
   ret i8 %y\n\
 }\n";
 
-/// Os ajudantes da fundação do espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md
-/// §3.5), com os deslocamentos do contrato de layout:
-///
-/// * `@df.e_objeto(h)`: `h & (7 | i64::MIN) == 2`;
-/// * `@df.filho_jovem(v)`: o filho gravado pede a barreira (objeto jovem);
-/// * `@df.barreira(o, v)`: `o` velho recebendo filho jovem → `dartforge_lembrar`
-///   (peso 1:9 no ramo lento, como a barreira da Julia);
-/// * `@df.barreira_elemento(o, i, v)`: a mesma com cartões (`o` velho ou
-///   lembrado com `CARTOES`: suja o cartão do elemento `i`);
-/// * `@df.alocar(cabecalho, w)`: a TLAB de `w ≤ TLAB_N` palavras (o cursor
-///   avança `16 + 8w` e grava a palavra 0); esgotada ou `w` maior,
-///   `dartforge_alocar(cid, w, cabecalho >> 8)`.
-/// `@df.corpo(h, ctx)`: o começo do corpo de um objeto (o cabeçalho; os
-/// campos 16 bytes depois), a mesma conta de `emitir_endereco_dos_campos` em
-/// linha — um valor que não é objeto lê o objeto de reserva do contexto
-/// (`ctx + 40`), e um corpo fora do bloco (anexo, `flags & 1`) é seguido pelo
-/// ponteiro em `+16`. `alwaysinline` quando o emissor está em linha (para o
-/// otimizador ver igual); sem o atributo no desenvolvimento, uma chamada.
 /// Ajudantes `@df.*` que vão fora de linha (com o `seletor` e a `classe`, o
 /// despacho dinâmico, em [`ajudantes_fora_de_linha`]): cada um é uma
 /// sequência que se repete em centenas de milhares de lugares do programa
@@ -3213,6 +3195,24 @@ fn fora_de_linha(texto: &str, nomes: &[String]) -> String {
     saida
 }
 
+/// Os ajudantes da fundação do espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md
+/// §3.5), com os deslocamentos do contrato de layout:
+///
+/// * `@df.e_objeto(h)`: `h & (7 | i64::MIN) == 2`;
+/// * `@df.filho_jovem(v)`: o filho gravado pede a barreira (objeto jovem);
+/// * `@df.barreira(o, v)`: `o` velho recebendo filho jovem → `dartforge_lembrar`
+///   (peso 1:9 no ramo lento, como a barreira da Julia);
+/// * `@df.barreira_elemento(o, i, v)`: a mesma com cartões (`o` velho ou
+///   lembrado com `CARTOES`: suja o cartão do elemento `i`);
+/// * `@df.alocar(cabecalho, w)`: a TLAB de `w ≤ TLAB_N` palavras (o cursor
+///   avança `16 + 8w` e grava a palavra 0); esgotada ou `w` maior,
+///   `dartforge_alocar(cid, w, cabecalho >> 8)`.
+/// `@df.corpo(h, ctx)`: o começo do corpo de um objeto (o cabeçalho; os
+/// campos 16 bytes depois), a mesma conta de `emitir_endereco_dos_campos` em
+/// linha — um valor que não é objeto lê o objeto de reserva do contexto
+/// (`ctx + 40`), e um corpo fora do bloco (anexo, `flags & 1`) é seguido pelo
+/// ponteiro em `+16`. `alwaysinline` quando o emissor está em linha (para o
+/// otimizador ver igual); sem o atributo no desenvolvimento, uma chamada.
 fn ajudante_do_corpo(por_chamada: bool, producao: bool) -> String {
     // Na produção por chamada: fora de linha de verdade, e só leitura (o
     // otimizador junta duas chamadas sobre o mesmo objeto sem escrita no

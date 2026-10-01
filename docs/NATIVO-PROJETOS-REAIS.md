@@ -520,9 +520,18 @@ overflow trace correctly" derrubava o executável com o código -11
   (`EN/llvm/mod.rs`, `emitir_conferencia_da_pilha`). Abaixo dele, chama
   `dartforge_estouro_de_pilha`, que lança o `StackOverflowError` do SDK, e
   volta com a exceção pendente.
+* Uma função num ciclo de chamadas diretas (Tarjan sobre os `CallStatic`,
+  `otimizar/efeitos.rs`, `em_ciclo`) conta como função que lança. Antes, o
+  resumo de exceções supunha que a recursão sem outra operação que lance não
+  lançava (`void f() => f();`). Então a função ficava sem conferência, sem
+  o `%ctx` e sem a conferência da pilha, e ainda derrubava o
+  `stack_trace/test/vm_test` no Linux.
+* O ret do estouro vem antes de o quadro de raízes ser encadeado
+  (`llvm::testes::quadro_de_raizes_em_todo_ret`). `corpus/nativo/136` estoura
+  e depois aloca muito com `--gc-stress`.
 
-Corpus: `corpus/nativo/134`, que cobre recursão direta e virtual e um
-isolado.
+Corpus: `corpus/nativo/134`, que cobre recursão direta, pura, mútua e
+virtual e um isolado.
 
 ### C23. `void f() => e` devolve o valor de `e`
 
@@ -600,6 +609,7 @@ a entrada o chama como `void`. Corpus: `corpus/nativo/135`.
 | `corpus/nativo/133_fabrica_redirecionada_prefixada/` | C21 |
 | `corpus/nativo/134_estouro_de_pilha.dart` | C22 |
 | `corpus/nativo/135_void_de_seta_devolve_o_valor.dart` | C23 |
+| `corpus/nativo/136_estouro_de_pilha_e_coleta.dart` | C22 |
 
 C1, C7, C8 e C9 são de escala (medidos no backend; o 122 cobre a parte de
 C4 que cabe no corpus); C5 precisa de `package_config` e vai num teste do

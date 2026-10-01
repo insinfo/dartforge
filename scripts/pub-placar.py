@@ -12,7 +12,11 @@ cópia) do pacote como corrente; a saída padrão (sem os tempos `00:00` do
 comparados. Programa que a VM não compila (código 254) fica fora do placar
 (`vm-invalido`), e também o que se reabre pelo `Platform.executable` — na VM
 o `dart`, num executável AOT ele mesmo (`aot-diferente`, uma diferença de
-plataforma, não do DartForge: o `dart compile exe` faz o mesmo).
+plataforma, não do DartForge: o `dart compile exe` faz o mesmo). Quando a
+saída difere, a VM roda de novo: se ela não repete a própria saída (chaves
+aleatórias, horas, tempos medidos), as linhas que mudam entre as duas rodadas
+dela não contam (`linhas_variaveis` no resultado); se muda até o número de
+linhas, o programa sai do placar (`vm-instavel`).
 
 uso:
   python3 scripts/pub-placar.py --dartforge <dartforge> [--dart dart]
@@ -116,7 +120,7 @@ ARQUIVO_MAX = 512 * 1024 * 1024
 MAX_PROCESSOS = 64
 # Estados que não contam no placar: a VM não roda o programa, ou o programa
 # só faz sentido na VM (`aot-diferente`).
-FORA_DO_PLACAR = ('vm-invalido', 'aot-diferente')
+FORA_DO_PLACAR = ('vm-invalido', 'aot-diferente', 'vm-instavel')
 
 
 def limitar_memoria(mb):
@@ -297,6 +301,29 @@ def desfazer_criados(raiz, antes):
             pass
 
 
+def comparar_com_saida_variavel(a, cfg, k, arq, cwd, env, vout, out):
+    """Roda a VM de novo. Se ela repete a saída, `None` (a divergência é
+    real). Se muda só o conteúdo de algumas linhas, o número de linhas
+    variáveis quando o nativo bate em todas as outras, ou 0 quando não bate.
+    Se muda o número de linhas, `'instavel'`."""
+    antes = arquivos_de(cwd)
+    _, vout2, _, _ = rodar([a.dart, '--enable-asserts', '--packages=' + cfg, arq], cwd, a.tempo_execucao, env,
+                           a.memoria_execucao, k + ' [vm de novo]')
+    desfazer_criados(cwd, antes)
+    v1, v2 = normalizar(vout).splitlines(), normalizar(vout2).splitlines()
+    if v1 == v2:
+        return None
+    if len(v1) != len(v2):
+        return 'instavel'
+    n = normalizar(out).splitlines()
+    if len(n) != len(v1):
+        return 0
+    variaveis = [i for i in range(len(v1)) if v1[i] != v2[i]]
+    if all(n[i] == v1[i] for i in range(len(v1)) if v1[i] == v2[i]):
+        return len(variaveis)
+    return 0
+
+
 def um(a, cfg, k, nome, arq, env):
     cwd = os.path.join(a.trabalho, 'pkgs', nome)
     res = {'k': k}
@@ -353,12 +380,27 @@ def um(a, cfg, k, nome, arq, env):
         os.remove(exe)
     except OSError:
         pass
+    mesmo_codigo = rc == res['vm_rc'] or (isinstance(rc, int) and rc != 0 and res['vm_rc'] != 0)
     if rc == 'timeout':
         res['estado'] = 'timeout'
         res['erro'] = 'timeout na execução'
-    elif normalizar(out) == normalizar(vout) and (rc == res['vm_rc'] or (rc != 0 and res['vm_rc'] != 0)):
+    elif normalizar(out) == normalizar(vout) and mesmo_codigo:
         res['estado'] = 'ok'
         return res
+    elif mesmo_codigo and (variavel := comparar_com_saida_variavel(a, cfg, k, arq, cwd, env, vout, out)) is not None:
+        # A VM não repete a própria saída (chaves aleatórias, horas, tempos
+        # medidos): a comparação ignora as linhas que mudam entre duas
+        # rodadas dela.
+        if variavel == 'instavel':
+            res['estado'] = 'vm-instavel'
+            res['erro'] = 'a VM não repete a própria saída (número de linhas muda)'
+            return res
+        if variavel:
+            res['estado'] = 'ok'
+            res['linhas_variaveis'] = variavel
+            return res
+        res['estado'] = 'divergente'
+        res['erro'] = 'saída diferente nas linhas que a VM repete'
     else:
         quebra = isinstance(rc, int) and (rc < 0 or rc > 255)
         res['estado'] = 'crash' if quebra else 'divergente'

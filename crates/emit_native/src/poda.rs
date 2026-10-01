@@ -878,6 +878,160 @@ pub fn montar_producao(ir: &str, arquivos: &[PathBuf], timings: bool) -> Result<
     Ok(m.ir)
 }
 
+/// O resumo do módulo HIR do programa, antes da emissão (§3.13): o mesmo
+/// grafo que [`resumir`] leria do IR que a emissão escreveria, com as
+/// referências que o emissor acrescenta sozinho postas como raízes da
+/// entrada (`dartforge_entry`): o `main`, os registros das bibliotecas, as
+/// tabelas de métodos do programa (o registro as cita todas), o `toString`
+/// e as vtables das classes, os trampolins e callbacks da FFI, os
+/// ajudantes e as raízes da fonte.
+pub fn resumo_da_hir(m: &crate::hir::Module) -> Resumo {
+    use crate::hir::{Constant, Instruction, Operand};
+    let mut r = Resumo::novo("programa");
+    let mut vistos_seletores: HashSet<i64> = HashSet::new();
+    let mut seletor = |r: &mut Resumo, d: &mut Definicao, texto: &str| {
+        let h = hash_seletor(texto);
+        d.chama.push(h);
+        if vistos_seletores.insert(h) {
+            r.seletores.push((h, texto.to_string()));
+        }
+        // A volta do seletor tipado (`dartforge_seletor`), como no IR.
+        if let Some(sem_t) = texto.strip_prefix('t') {
+            let h2 = hash_seletor(sem_t);
+            d.chama.push(h2);
+            if vistos_seletores.insert(h2) {
+                r.seletores.push((h2, sem_t.to_string()));
+            }
+        }
+    };
+    for f in &m.functions {
+        let mut d = Definicao { nome: r.id(&f.symbol), ..Default::default() };
+        let mut nomes: Vec<&str> = Vec::new();
+        // Os `Constant::Funcao` dos operandos (o visitante não empresta o
+        // operando além da chamada).
+        let mut funcoes: Vec<String> = Vec::new();
+        for b in &f.blocks {
+            for (_, inst, _) in &b.instructions {
+                match inst {
+                    Instruction::CallStatic { symbol, .. } => nomes.push(symbol),
+                    Instruction::AllocClosure { code_symbol, .. } | Instruction::TearOff { code_symbol } => nomes.push(code_symbol),
+                    Instruction::AllocClosureTipada { code_symbol, tipado, .. } => {
+                        nomes.push(code_symbol);
+                        nomes.push(tipado);
+                    }
+                    Instruction::CallRuntime { name, args, .. } => {
+                        nomes.push(name);
+                        // A alocação cita a tabela de métodos da classe
+                        // (`dartforge_object_new_t`, `llvm/mod.rs`).
+                        if name.starts_with("dartforge_object_new")
+                            && let Some((Operand::Constant(Constant::Int(cid)), _)) = args.first()
+                            && let Some(t) = m.funcoes_de_tabela.get(&(*cid as u32))
+                        {
+                            nomes.push(t);
+                        }
+                    }
+                    Instruction::CallSeletor { seletor: s, .. } | Instruction::CallSeletorRepasse { seletor: s, .. } => {
+                        seletor(&mut r, &mut d, s);
+                    }
+                    _ => {}
+                }
+                crate::otimizar::operandos::operandos(inst, &mut |o| {
+                    if let Operand::Constant(Constant::Funcao(s)) = o {
+                        funcoes.push(s.clone());
+                    }
+                });
+            }
+            crate::otimizar::operandos::operandos_do_terminador(&b.terminator, &mut |o| {
+                if let Operand::Constant(Constant::Funcao(s)) = o {
+                    funcoes.push(s.clone());
+                }
+            });
+        }
+        d.refs = nomes.into_iter().chain(funcoes.iter().map(String::as_str)).map(|n| r.id(n)).collect();
+        r.definicoes.push(d);
+    }
+    // As tabelas de métodos do programa (`df.mt.X` devolve `df.mt.X$d`).
+    for (cid, simbolo, metodos) in &m.tabelas_de_metodos {
+        let funcao = r.id(simbolo);
+        let no = r.id(&format!("{simbolo}$d"));
+        let pares: Vec<(i64, u32)> = pares_da_tabela(*cid, metodos)
+            .into_iter()
+            .map(|(h, s, f)| {
+                if vistos_seletores.insert(h) {
+                    r.seletores.push((h, s));
+                }
+                (h, r.id(&f))
+            })
+            .collect();
+        r.definicoes.push(Definicao { nome: funcao, refs: vec![no], chama: Vec::new() });
+        r.tabelas.push(TabelaResumida { no, cid: i64::from(*cid), pares });
+    }
+    // A entrada: o que o emissor cita sem instrução da HIR.
+    let mut raizes: Vec<String> = Vec::new();
+    raizes.extend(m.entry_symbol.iter().cloned());
+    raizes.extend(m.registros_do_sdk.iter().cloned());
+    raizes.extend(m.registro.iter().cloned());
+    raizes.extend(m.iniciar_rti.iter().cloned());
+    raizes.extend(m.chamar_dart.iter().cloned());
+    raizes.extend(m.tabelas_de_metodos.iter().map(|(_, s, _)| s.clone()));
+    raizes.extend(m.funcoes_de_tabela.values().cloned());
+    for c in &m.classes {
+        raizes.extend(c.to_string_symbol.iter().cloned());
+        raizes.extend(c.vtable.iter().map(|(_, s)| s.clone()));
+    }
+    raizes.extend(m.ffi_trampolins.iter().map(|(_, s)| s.clone()));
+    raizes.extend(m.ffi_callbacks.iter().map(|c| c.corpo.clone()));
+    raizes.extend(m.ajudantes.iter().map(|(_, s)| s.clone()));
+    raizes.extend(m.raizes_da_fonte.iter().cloned());
+    raizes.extend(m.globais.iter().map(|(_, _, s)| s.clone()));
+    let mut entrada = Definicao { nome: r.id("dartforge_entry"), ..Default::default() };
+    entrada.refs = raizes.iter().map(|n| r.id(n)).collect();
+    r.definicoes.push(entrada);
+    r
+}
+
+/// Números da poda da HIR (`--timings`).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PodaDaHir {
+    pub funcoes: usize,
+    pub funcoes_vivas: usize,
+    pub pares: usize,
+    pub pares_vivos: usize,
+}
+
+/// A poda da HIR do programa antes da otimização e da emissão (§3.13): o
+/// ponto fixo de [`montar`] sobre o resumo da HIR ([`resumo_da_hir`]) e os
+/// resumos das bibliotecas do SDK, e o módulo sem as funções que ele não
+/// alcança e sem os pares de tabela de seletor que ninguém chama. É a
+/// decisão que a montagem da ligação tomaria depois (o mesmo grafo), sem
+/// otimizar nem emitir o que vai sair.
+pub fn podar_hir(m: &mut crate::hir::Module, sdk: &[&Resumo]) -> PodaDaHir {
+    let programa = resumo_da_hir(m);
+    let mut todos: Vec<&Resumo> = sdk.to_vec();
+    todos.push(&programa);
+    let alcance = alcancar(&todos, true);
+    let indice: HashMap<&str, u32> = alcance.nomes.iter().enumerate().map(|(i, n)| (n.as_str(), i as u32)).collect();
+    let vivo = |n: &str| indice.get(n).is_none_or(|&i| alcance.vivo(i));
+    let mut e = PodaDaHir { funcoes: m.functions.len(), ..Default::default() };
+    let mut removidas: HashSet<String> = HashSet::new();
+    m.functions.retain(|f| {
+        let fica = vivo(&f.symbol) || f.symbol.starts_with("dartforge_");
+        if !fica {
+            removidas.insert(f.symbol.clone());
+        }
+        fica
+    });
+    e.funcoes_vivas = m.functions.len();
+    // O par de tabela cujo seletor ninguém chama sai, e o da função que saiu
+    // também (a entrada de um par vivo é sempre alcançada).
+    for (_, _, pares) in &mut m.tabelas_de_metodos {
+        e.pares += pares.len();
+        pares.retain(|(s, f)| alcance.par_vivo(hash_seletor(s)) && !removidas.contains(f));
+        e.pares_vivos += pares.len();
+    }
+    e
+}
+
 #[cfg(test)]
 mod testes {
     use super::*;
@@ -985,6 +1139,75 @@ mod testes {
         assert!(main.chama.contains(&h("c:usado")), "{:?}", main.chama);
         // O descritor é citado (fica vivo com quem chama).
         assert!(main.refs.iter().any(|&i| r.nomes[i as usize] == "programa#df.seld.0"));
+    }
+
+    /// Um módulo HIR: `main` chama `f` e o seletor `c:usado`; `g` ninguém
+    /// cita; a classe 300 tem os pares `c:usado` e `c:morto`.
+    fn modulo_hir() -> crate::hir::Module {
+        use crate::hir::*;
+        let funcao = |nome: &str, instrucoes: Vec<(ValueId, Instruction, Type)>| Function {
+            symbol: nome.into(),
+            name: nome.into(),
+            depuracao: None,
+            params: Vec::new(),
+            return_ty: Type::Void,
+            blocks: vec![BasicBlock { id: BlockId(0), instructions: instrucoes, terminator: Terminator::Return(None) }],
+        };
+        let mut m = Module::new();
+        m.functions.push(funcao(
+            "dart_main",
+            vec![
+                (ValueId(0), Instruction::CallStatic { symbol: "f".into(), args: Vec::new(), ret_ty: Type::Void }, Type::Void),
+                (
+                    ValueId(1),
+                    Instruction::CallSeletor {
+                        seletor: "c:usado".into(),
+                        recv: Operand::Constant(Constant::Null),
+                        args: Vec::new(),
+                        nomes: Vec::new(),
+                        tupla_tipos: Operand::Constant(Constant::Int(0)),
+                    },
+                    Type::Ref,
+                ),
+            ],
+        ));
+        m.functions.push(funcao("f", Vec::new()));
+        m.functions.push(funcao("g", Vec::new()));
+        m.functions.push(funcao("P.usado$c", Vec::new()));
+        m.functions.push(funcao("P.morto$c", Vec::new()));
+        m.entry_symbol = Some("dart_main".into());
+        m.registros_do_sdk = vec!["df.registrar.core".into()];
+        m.tabelas_de_metodos = vec![(
+            300,
+            "df.mt.P".into(),
+            vec![("c:usado".into(), "P.usado$c".into()), ("c:morto".into(), "P.morto$c".into())],
+        )];
+        m
+    }
+
+    #[test]
+    fn poda_da_hir_tira_o_que_nao_alcanca() {
+        let mut m = modulo_hir();
+        let e = podar_hir(&mut m, &[]);
+        let nomes: Vec<&str> = m.functions.iter().map(|f| f.symbol.as_str()).collect();
+        assert_eq!(nomes, vec!["dart_main", "f", "P.usado$c"], "{e:?}");
+        assert_eq!(m.tabelas_de_metodos[0].2, vec![("c:usado".to_string(), "P.usado$c".to_string())]);
+        assert_eq!((e.funcoes, e.funcoes_vivas, e.pares, e.pares_vivos), (5, 3, 2, 1));
+    }
+
+    #[test]
+    fn poda_da_hir_ve_o_seletor_chamado_pelo_sdk() {
+        // O SDK chama `c:morto` numa função que o registro dele alcança.
+        let ir = "define void @df.registrar.core() {\n  call void @x()\n  ret void\n}\n\
+                  define void @x() {\n  %f = call ptr @df.seletor(ptr %ic, i64 %o, i64 HASH, ptr @df.seln.0, i64 7)\n  ret void\n}\n\
+                  @df.seln.0 = private unnamed_addr constant [7 x i8] c\"c:morto\"\n"
+            .replace("HASH", &h("c:morto").to_string());
+        let sdk = resumir(&ir, "dart:core", &[]);
+        let mut m = modulo_hir();
+        podar_hir(&mut m, &[&sdk]);
+        assert!(m.functions.iter().any(|f| f.symbol == "P.morto$c"));
+        assert_eq!(m.tabelas_de_metodos[0].2.len(), 2);
+        assert!(!m.functions.iter().any(|f| f.symbol == "g"));
     }
 
     #[test]

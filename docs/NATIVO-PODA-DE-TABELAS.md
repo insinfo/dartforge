@@ -227,6 +227,35 @@ O despacho compacto do programa grande (`docs/NATIVO-PRODUCAO-GRANDE.md` §3) ch
 hash do descritor citado (`descritor_de_seletor`, `chamada_de_seletor_compacta`; teste
 `chamada_compacta_le_o_seletor_do_descritor`).
 
+### 3.13 A poda da HIR, antes da otimização e da emissão
+
+`poda::podar_hir` faz o ponto fixo de §3.5 antes, sobre o módulo HIR do programa recém-baixado.
+O resumo do programa é tirado da própria HIR (`resumo_da_hir`), com os resumos das bibliotecas
+do SDK do perfil. Saem:
+
+* as funções que o grafo não alcança;
+* os pares de tabela de seletor que ninguém chama.
+
+Essas funções deixam de passar pela otimização da HIR, pela emissão e pela geração de código.
+
+* **Arestas do resumo da HIR:**
+  * `CallStatic`;
+  * o código das closures e dos tear-offs;
+  * `Constant::Funcao`;
+  * o nome do `CallRuntime`;
+  * a tabela citada por uma alocação;
+  * os seletores dos `CallSeletor`, com a volta do tipado.
+* **Raízes:** a entrada sintética `dartforge_entry`, que cita o que o emissor acrescenta sem
+  instrução — o `main`, os registros, as tabelas do programa, o `toString` e as vtables, a FFI,
+  os ajudantes e as raízes da fonte.
+
+O desenvolvimento também grava os resumos do SDK (`<lib>.poda`, ao lado dos objetos da DLL),
+então a poda vale nos dois perfis. Ela não vale no JIT, porque a geração seguinte de uma
+recarga pode chamar qualquer seletor.
+
+Testes: `poda_da_hir_tira_o_que_nao_alcanca` e `poda_da_hir_ve_o_seletor_chamado_pelo_sdk`.
+`DARTFORGE_SEM_PODA_HIR=1` desliga.
+
 ## 4. Verificação
 
 * **Teste de ausência** (o `deadstrip.test.ts` do scriptc): `corpus/nativo/81_poda_de_tabelas.dart`

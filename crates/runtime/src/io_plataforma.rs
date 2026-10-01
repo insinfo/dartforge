@@ -559,6 +559,11 @@ pub extern "C" fn dartforge_argumentos_do_main() -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Platform_GetVersion() -> i64 {
     let versao = VERSAO_DO_SDK.get().map_or("unknown", String::as_str);
+    // A versão completa, como a VM a escreve (o compilador a perguntou ao
+    // `dart --version`, com o canal e a data): só o sistema falta.
+    if versao.contains(" (") {
+        return alocar_str(&format!("{versao} on \"{NOME_DO_SISTEMA}_{NOME_DA_ARQUITETURA}\""));
+    }
     let canal = if versao.contains("-edge") {
         "edge"
     } else if versao.contains(".dev") || versao.contains("-dev") {

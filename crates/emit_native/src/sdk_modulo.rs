@@ -512,11 +512,9 @@ pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk
     let ext_obj = crate::alvo::ext_objeto();
     let pronto = |d: &Path, frio| SdkCompilado {
         objetos: BIBLIOTECAS_DA_FONTE.iter().map(|b| d.join(format!("{b}.{ext_obj}"))).collect(),
-        resumos: if perfil == PerfilDoSdk::Producao {
-            BIBLIOTECAS_DA_FONTE.iter().map(|b| d.join(format!("{b}.poda"))).collect()
-        } else {
-            Vec::new()
-        },
+        // Os dois perfis: a produção poda na ligação (`poda::montar`), e os
+        // dois podam a HIR do programa (`poda::podar_hir`).
+        resumos: BIBLIOTECAS_DA_FONTE.iter().map(|b| d.join(format!("{b}.poda"))).collect(),
         dll: d.join(&arquivo_dll),
         // No Windows liga-se contra a biblioteca de importação; no ELF e no
         // Mach-O, contra a própria biblioteca compartilhada.
@@ -569,11 +567,10 @@ pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk
         for (s, m) in &lib.recusados {
             resumo.push_str(&format!("{}\t{s}\t{m}\n", lib.uri));
         }
-        // O resumo da poda (produção): do IR que vira o bitcode.
-        if perfil == PerfilDoSdk::Producao {
-            let poda = crate::poda::resumir(&lib.ir, &lib.uri, &lib.tabelas);
-            std::fs::write(tmp.join(format!("{b}.poda")), poda.para_texto()).map_err(|e| e.to_string())?;
-        }
+        // O resumo da poda: do IR que vira o bitcode (produção) ou o objeto
+        // da DLL (desenvolvimento).
+        let poda = crate::poda::resumir(&lib.ir, &lib.uri, &lib.tabelas);
+        std::fs::write(tmp.join(format!("{b}.poda")), poda.para_texto()).map_err(|e| e.to_string())?;
     }
     std::fs::write(tmp.join("recusados.tsv"), resumo).map_err(|e| e.to_string())?;
     // Cada biblioteca num gerador, no máximo 4 ao mesmo tempo (a memória de

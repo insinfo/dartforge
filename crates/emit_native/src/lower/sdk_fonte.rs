@@ -995,11 +995,11 @@ pub enum Implementacao {
 /// achada pela linearização da classe (a primeira que implementa).
 pub fn implementacoes(ctx: &Context, cid: ClassId, chave: &str) -> Vec<Implementacao> {
     let Some(sym) = ctx.interner.lookup(chave) else { return Vec::new() };
-    if let Some(r) = ctx.memoria_implementacoes.borrow().get(&(cid, sym)) {
+    if let Some(r) = ctx.memoria_implementacoes.read().unwrap_or_else(|e| e.into_inner()).get(&(cid, sym)) {
         return r.as_ref().clone();
     }
     let r = implementacoes_sem_memoria(ctx, cid, sym);
-    ctx.memoria_implementacoes.borrow_mut().insert((cid, sym), std::rc::Rc::new(r.clone()));
+    ctx.memoria_implementacoes.write().unwrap_or_else(|e| e.into_inner()).insert((cid, sym), std::sync::Arc::new(r.clone()));
     r
 }
 
@@ -1037,11 +1037,11 @@ fn implementacoes_sem_memoria(ctx: &Context, cid: ClassId, sym: dartforge_intern
 /// id de classe do runtime; `None` se alguma não tem id.
 pub fn implementacoes_por_classe(ctx: &Context, cid: ClassId, chave: &str) -> Option<Vec<(i64, Implementacao)>> {
     let sym = ctx.interner.lookup(chave)?;
-    if let Some(r) = ctx.memoria_implementacoes_por_classe.borrow().get(&(cid, sym)) {
+    if let Some(r) = ctx.memoria_implementacoes_por_classe.read().unwrap_or_else(|e| e.into_inner()).get(&(cid, sym)) {
         return r.as_ref().map(|v| v.as_ref().clone());
     }
     let r = implementacoes_por_classe_sem_memoria(ctx, cid, sym);
-    ctx.memoria_implementacoes_por_classe.borrow_mut().insert((cid, sym), r.clone().map(std::rc::Rc::new));
+    ctx.memoria_implementacoes_por_classe.write().unwrap_or_else(|e| e.into_inner()).insert((cid, sym), r.clone().map(std::sync::Arc::new));
     r
 }
 

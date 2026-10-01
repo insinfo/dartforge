@@ -248,18 +248,10 @@ fn lower_classes_e_funcoes(ctx: &Context, mut module: Module) -> Module {
     }
 
     // 2. Funções do usuário
-    for f_idx in 0..ctx.program.functions.len() {
-        if !ctx.biblioteca_no_modulo(ctx.program.functions[f_idx].library) {
-            continue;
-        }
-        if ctx.program.library(ctx.program.functions[f_idx].library).is_sdk {
-            // Módulo do SDK da fonte (P5c): o membro que não baixa é
-            // recusado sozinho, com o motivo (`sdk_fonte.rs`).
-            sdk_fonte::lower_funcao_ou_recusa(ctx, &mut module, f_idx);
-        } else {
-            lower_funcao(ctx, &mut module, f_idx);
-        }
-    }
+    let funcoes: Vec<usize> = (0..ctx.program.functions.len())
+        .filter(|&f| ctx.biblioteca_no_modulo(ctx.program.functions[f].library))
+        .collect();
+    baixar_funcoes(ctx, &mut module, &funcoes);
     sdk_fonte::lower_adaptadores_e_tabelas(ctx, &mut module);
     let mut module = lower_globais_e_resto(ctx, module);
     sdk_fonte::tabelas_das_formas_de_record(ctx, &mut module);
@@ -267,6 +259,96 @@ fn lower_classes_e_funcoes(ctx: &Context, mut module: Module) -> Module {
         ffi::lower_ffi(ctx, &mut module);
     }
     module
+}
+
+/// Baixa uma função do módulo: a do SDK da fonte (P5c) é recusada sozinha,
+/// com o motivo, quando não baixa (`sdk_fonte.rs`).
+fn baixar_uma(ctx: &Context, module: &mut Module, f_idx: usize) {
+    if ctx.program.library(ctx.program.functions[f_idx].library).is_sdk {
+        sdk_fonte::lower_funcao_ou_recusa(ctx, module, f_idx);
+    } else {
+        lower_funcao(ctx, module, f_idx);
+    }
+}
+
+/// Quantas threads baixam as funções: as da máquina, no máximo 4
+/// (`DARTFORGE_THREADS_HIR`; 1 = sequencial).
+fn threads_do_lowering() -> usize {
+    std::env::var("DARTFORGE_THREADS_HIR")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get().min(4)))
+        .max(1)
+}
+
+/// Baixa as funções `funcoes` para `module`. O programa grande vai em
+/// pedaços contíguos, um por thread, cada um num módulo próprio, juntados
+/// na ordem: o resultado é o da ordem sequencial (o mesmo IR, as mesmas
+/// chaves no cache de objetos). Cada função só escreve no módulo as próprias
+/// funções, globais, erros e recusas, o `toString` da classe dela e a
+/// entrada (`main`); o contexto só tem memórias de consulta.
+fn baixar_funcoes(ctx: &Context, module: &mut Module, funcoes: &[usize]) {
+    let n = threads_do_lowering();
+    if n == 1 || funcoes.len() < 4096 {
+        for &f in funcoes {
+            baixar_uma(ctx, module, f);
+        }
+        return;
+    }
+    // Pedaços pequenos distribuídos sob demanda (as funções caras se
+    // agrupam), cada um no seu módulo; a junção segue a ordem dos pedaços.
+    let modo_sdk = module.modo_sdk;
+    let biblioteca_sdk = module.biblioteca_sdk;
+    let classes = &module.classes;
+    let pedacos: Vec<&[usize]> = funcoes.chunks(512).collect();
+    let feitos: Vec<std::sync::Mutex<Option<Module>>> = pedacos.iter().map(|_| std::sync::Mutex::new(None)).collect();
+    let proximo = std::sync::atomic::AtomicUsize::new(0);
+    std::thread::scope(|s| {
+        let tarefas: Vec<_> = (0..n)
+            .map(|_| {
+                let (pedacos, feitos, proximo) = (&pedacos, &feitos, &proximo);
+                std::thread::Builder::new()
+                    // A mesma pilha da thread da compilação (`lib.rs`).
+                    .stack_size(64 << 20)
+                    .spawn_scoped(s, move || loop {
+                        let i = proximo.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(pedaco) = pedacos.get(i) else { break };
+                        let mut m = Module::new();
+                        m.modo_sdk = modo_sdk;
+                        m.biblioteca_sdk = biblioteca_sdk;
+                        m.classes = classes.clone();
+                        for &f in pedaco.iter() {
+                            baixar_uma(ctx, &mut m, f);
+                        }
+                        *feitos[i].lock().unwrap_or_else(|e| e.into_inner()) = Some(m);
+                    })
+                    .expect("thread do lowering")
+            })
+            .collect();
+        for t in tarefas {
+            if let Err(p) = t.join() {
+                std::panic::resume_unwind(p);
+            }
+        }
+    });
+    let partes = feitos.into_iter().map(|m| m.into_inner().unwrap_or_else(|e| e.into_inner()).expect("pedaço baixado"));
+    for m in partes {
+        module.functions.extend(m.functions);
+        module.globais.extend(m.globais);
+        module.erros.extend(m.erros);
+        module.erros_da_fonte.extend(m.erros_da_fonte);
+        module.recusados.extend(m.recusados);
+        module.ajudantes.extend(m.ajudantes);
+        if m.entry_symbol.is_some() {
+            module.entry_symbol = m.entry_symbol;
+            module.entry_params = m.entry_params;
+        }
+        for (c, d) in module.classes.iter_mut().zip(m.classes.iter()) {
+            if c.to_string_symbol.is_none() && d.to_string_symbol.is_some() {
+                c.to_string_symbol.clone_from(&d.to_string_symbol);
+            }
+        }
+    }
 }
 
 /// P6: os símbolos das funções da fonte que têm corpo — um `external` cujo

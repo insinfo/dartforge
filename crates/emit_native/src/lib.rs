@@ -100,6 +100,64 @@ impl IrEmitido {
 /// (`FnBuilder::nao_suportado`, N1). [`construtos_do_erro`] é quem o lê.
 pub const PREFIXO_NAO_SUPORTADO: &str = "não suportado no backend nativo: ";
 
+/// [`poda::podar_hir`] com os resumos das bibliotecas do SDK do perfil (o
+/// SDK sai do cache, ou é compilado agora, como a ligação faria em
+/// seguida). `None` quando o módulo não usa o SDK da fonte.
+fn podar_hir_do_programa(module: &mut hir::Module, producao: bool) -> Result<Option<poda::PodaDaHir>, String> {
+    if module.biblioteca_sdk || module.registros_do_sdk.is_empty() {
+        return Ok(None);
+    }
+    let perfil = if producao { sdk_modulo::PerfilDoSdk::Producao } else { sdk_modulo::PerfilDoSdk::Desenvolvimento };
+    let clang = driver::NativeDriverOptions::default().clang;
+    // O mesmo diretório e o mesmo Clang da ligação (`driver::compile_and_link`):
+    // a mesma chave de cache.
+    let sdk = sdk_modulo::sdk_compilado_no_perfil(&sdk_do_dart()?, &clang, perfil)?;
+    if !sdk.resumos.iter().all(|r| r.is_file()) {
+        return Ok(None);
+    }
+    let resumos = poda::ler_resumos(&sdk.resumos)?;
+    let refs: Vec<&poda::Resumo> = resumos.iter().map(|r| r.as_ref()).collect();
+    Ok(Some(poda::podar_hir(module, &refs)))
+}
+
+/// A versão do SDK em `raiz` como a VM a escreve em `Platform.version`
+/// (`VM/runtime/vm/version_in.cc:33`, `{{VERSION_STR}} ({{CHANNEL}})
+/// ({{COMMIT_TIME}})`): `3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800)`,
+/// sem o ` on "<sistema>"` que o runtime põe. A data do commit só o próprio
+/// `dart` sabe: a primeira compilação a pergunta (`dart --version`) e a
+/// guarda no cache nativo, pela versão; sem o `dart`, só o número do arquivo
+/// `version` (o `sqlite3` imprime o `Platform.version`).
+fn versao_do_sdk(raiz: &Path) -> Option<String> {
+    let numero = std::fs::read_to_string(raiz.join("version")).ok()?.trim().to_string();
+    let guardada = cache::dir_cache_nativo().join(format!("versao_do_sdk_{numero}.txt"));
+    if let Ok(v) = std::fs::read_to_string(&guardada)
+        && v.starts_with(&numero)
+    {
+        return Some(v.trim().to_string());
+    }
+    let dart = raiz.join("bin").join(if cfg!(windows) { "dart.exe" } else { "dart" });
+    let completa = std::process::Command::new(&dart)
+        .arg("--version")
+        .output()
+        .ok()
+        .and_then(|s| {
+            // `Dart SDK version: 3.6.2 (stable) (…) on "windows_x64"` (na
+            // saída padrão desde o 2.15; antes, na de erro).
+            let texto = format!("{}{}", String::from_utf8_lossy(&s.stdout), String::from_utf8_lossy(&s.stderr));
+            let resto = texto.split("Dart SDK version: ").nth(1)?;
+            let v = resto.split(" on \"").next()?.trim().to_string();
+            v.starts_with(&numero).then_some(v)
+        });
+    match completa {
+        Some(v) => {
+            let _ = std::fs::create_dir_all(cache::dir_cache_nativo());
+            let _ = std::fs::write(&guardada, &v);
+            Some(v)
+        }
+        None => Some(numero),
+    }
+}
+
 /// A partir de quantas funções no módulo HIR do programa a produção o trata
 /// como grande (`compile`, campos e ajudantes por chamada): o
 /// new_sali/backend tem ~200 mil; os programas do corpus e os benchmarks,
@@ -174,7 +232,7 @@ pub fn sdk_do_dart() -> Result<PathBuf, String> {
 /// literal do programa é internado no heap e canonicalizado contra os
 /// estáticos da DLL, como no JIT.
 pub fn emitir_ir_com(entrada: &Path, options: &CompileOptions) -> Result<IrEmitido, String> {
-    emitir_ir_interno(entrada, options, None, None, options.optimize)
+    emitir_ir_interno(entrada, options, None, None, options.optimize, true)
 }
 
 /// [`emitir_ir`] de uma geração nova de um programa em execução (o hot
@@ -186,7 +244,7 @@ pub fn emitir_ir_recarregavel(entrada: &Path, options: &CompileOptions, ir_anter
     let ids = ir_anterior.map(context::ids_do_ir);
     // O JIT libera a memória de uma geração (J02): sem objetos estáticos nos
     // módulos do programa (docs/NATIVO-ESPACO-UNIFICADO.md §2.11).
-    emitir_ir_interno(entrada, options, area, ids, false)
+    emitir_ir_interno(entrada, options, area, ids, false, false)
 }
 
 /// Os nomes (hashes) dos slots da área de globais do programa no IR `ir`:
@@ -208,6 +266,7 @@ fn emitir_ir_interno(
     area_anterior: Option<Vec<i64>>,
     ids_anteriores: Option<std::collections::HashMap<(String, String), u32>>,
     objetos_estaticos: bool,
+    podar: bool,
 ) -> Result<IrEmitido, String> {
     // 1. Carregamento e Inferência (Front-end)
     let t_front = Instant::now();
@@ -333,15 +392,36 @@ fn emitir_ir_interno(
     hir_module.campos_do_programa = ctx.campos_do_programa();
     hir_module.registros_do_sdk = sdk_modulo::registros_do_sdk();
     hir_module.cids_do_runtime = sdk_modulo::cids_do_runtime(&ctx);
-    hir_module.versao_do_sdk = sdk_dir
-        .parent()
-        .and_then(|d| std::fs::read_to_string(d.join("version")).ok())
-        .map(|v| v.trim().to_string());
+    hir_module.versao_do_sdk = sdk_dir.parent().and_then(versao_do_sdk);
     if !hir_module.erros.is_empty() {
         return Err(erro_de_compilacao(&hir_module.erros));
     }
+    // 2a. A poda da HIR do programa pelo grafo de símbolos e seletores com
+    // os resumos do SDK (`poda::podar_hir`): o que a ligação de produção
+    // tiraria depois sai antes de otimizar e emitir. Não no JIT (a geração
+    // seguinte de uma recarga pode chamar qualquer seletor).
+    // `DARTFORGE_SEM_PODA_HIR=1` desliga.
+    if podar && !std::env::var("DARTFORGE_SEM_PODA_HIR").is_ok_and(|v| v == "1") {
+        let t_poda = Instant::now();
+        if let Some(e) = podar_hir_do_programa(&mut hir_module, options.optimize)?
+            && options.timings
+        {
+            eprintln!(
+                "  Poda HIR:  {} de {} funções, {} de {} pares ({:?})",
+                e.funcoes_vivas,
+                e.funcoes,
+                e.pares_vivos,
+                e.pares,
+                t_poda.elapsed()
+            );
+        }
+    }
     // 2b. Otimização da HIR (inlining, substituição escalar: `otimizar/`).
+    let t_otimizar = Instant::now();
     otimizar::otimizar(&mut hir_module);
+    if options.timings {
+        eprintln!("  HIR:       baixar {:?}, otimizar {:?}", t_otimizar.duration_since(t_hir), t_otimizar.elapsed());
+    }
     let hir_duration = t_hir.elapsed();
 
     // 3. Emissão de LLVM IR
