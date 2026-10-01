@@ -146,6 +146,19 @@ uma e uma rajada de 20 sem esperar):
 | `linguagem/void/void_type_usage_test.dart` | 74 KB, 2.256 linhas | 2,0 ms | 35 ms (34–47) | 1 publicação tipada, 106 ms |
 | `linguagem/generic/super_bounded_types_error_test.dart` | 196 KB, 3.186 linhas | 11 ms | 56 ms (54–63) | 1 publicação tipada, 297 ms |
 
+Remedido em 2026-10-01 no Windows (release, SDK 3.6.2, 159 códigos
+publicados; mesmo exemplo), com a publicação idêntica à do `dartforge
+analyze` em todos (24, 0, 81 e 604 semânticos):
+
+| Arquivo (corpus) | Imediata (mediana) | Tipada após edição (mediana; mín–máx) | Rajada de 20 |
+|---|---|---|---|
+| `linguagem/mixin/superclass_test.dart` | 0,5 ms | 55 ms (49–63) | 1 publicação tipada, 91 ms |
+| `pacotes/expect/lib/expect.dart` | 2,0 ms | 57 ms (50–63) | 1 publicação tipada, 114 ms |
+| `linguagem/void/void_type_usage_test.dart` | 3,3 ms | 51 ms (48–58) | 1 publicação tipada, 198 ms |
+| `linguagem/generic/super_bounded_types_error_test.dart` | 14 ms | 68 ms (62–82) | 1 publicação tipada, 329 ms |
+
+Vivo acima da base depois de fechar os documentos: 0,04 MiB.
+
 A primeira análise da sessão com o cache do SDK frio (construído na hora)
 levou 227 ms no arquivo de 6,5 KB. Depois de fechar os documentos, o vivo
 acima da base ficou em 0,03 MiB (alocador contador). Na rajada, o tempo é

@@ -378,6 +378,13 @@ pacotes: `equal_elements_in_const_set` (12), `map_value_type_not_assignable`
 casado genérico, `BaseSqlType<D2>`): corrigido (fecho maior pelo lado
 seguro) e publicado com a medição seguinte limpa.
 
+**LSP.** Sem mudança de código além da regra de duplicatas com a versão
+da sintaxe: os códigos novos chegam ao editor pela publicação tipada.
+Latência remedida no Windows (docs/LSP.md): tipada após edição com mediana
+de 51–68 ms nos quatro arquivos do exemplo, rajada de 20 edições = 1
+publicação, publicação idêntica à do `dartforge analyze`. Testes do crate
+`lsp` verdes.
+
 **Testes novos.** `crates/paridade/tests/regras_do_analyzer.rs`: 18
 diagnósticos de sete arquivos mínimos, cada um conferido contra o `dart
 analyze` 3.6.2 (`sonda_arquivos --livre`); `duplicatas::declaracoes_de_mesmo_nome_juntam_os_membros`.
