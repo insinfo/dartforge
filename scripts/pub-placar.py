@@ -9,7 +9,10 @@ na VM (`dart --enable-asserts --packages=…`, o oráculo do corpus) e no
 nativo (`dartforge aot`, perfil de desenvolvimento), com o diretório (uma
 cópia) do pacote como corrente; a saída padrão (sem os tempos `00:00` do
 `package:test` e as sementes `Random Seed: N`) e o código de saída são
-comparados. Programa que a VM não compila (código 254) fica fora do placar.
+comparados. Programa que a VM não compila (código 254) fica fora do placar
+(`vm-invalido`), e também o que se reabre pelo `Platform.executable` — na VM
+o `dart`, num executável AOT ele mesmo (`aot-diferente`, uma diferença de
+plataforma, não do DartForge: o `dart compile exe` faz o mesmo).
 
 uso:
   python3 scripts/pub-placar.py --dartforge <dartforge> [--dart dart]
@@ -111,6 +114,9 @@ ARQUIVO_MAX = 512 * 1024 * 1024
 # `io/test/process_manager_test.dart`, `pubspec_parse/test/dependency_test.dart`
 # derrubavam o runner do CI assim.
 MAX_PROCESSOS = 64
+# Estados que não contam no placar: a VM não roda o programa, ou o programa
+# só faz sentido na VM (`aot-diferente`).
+FORA_DO_PLACAR = ('vm-invalido', 'aot-diferente')
 
 
 def limitar_memoria(mb):
@@ -267,11 +273,37 @@ def normalizar(s):
     return s
 
 
+def arquivos_de(raiz):
+    """Os caminhos (arquivos e diretórios) sob `raiz`."""
+    vistos = set()
+    for d, ds, fs in os.walk(raiz):
+        for n in ds + fs:
+            vistos.add(os.path.join(d, n))
+    return vistos
+
+
+def desfazer_criados(raiz, antes):
+    """Apaga o que apareceu sob `raiz` desde `antes`: o que a execução da VM
+    criou (um cache `cache_<hash>.jpg` do `pdf`, um arquivo de saída) não
+    pode mudar o que o executável nativo vê depois."""
+    novos = sorted(arquivos_de(raiz) - antes, key=len, reverse=True)
+    for c in novos:
+        try:
+            if os.path.isdir(c) and not os.path.islink(c):
+                shutil.rmtree(c, ignore_errors=True)
+            else:
+                os.remove(c)
+        except OSError:
+            pass
+
+
 def um(a, cfg, k, nome, arq, env):
     cwd = os.path.join(a.trabalho, 'pkgs', nome)
     res = {'k': k}
+    antes = arquivos_de(cwd)
     rc, vout, verr, _ = rodar([a.dart, '--enable-asserts', '--packages=' + cfg, arq], cwd, a.tempo_execucao, env,
                               a.memoria_execucao, k + ' [vm]')
+    desfazer_criados(cwd, antes)
     res['vm_rc'] = rc
     if rc in ('timeout', 'memoria', 'processos') or rc == 254 or (rc != 0 and sem_memoria(rc, verr)):
         res['estado'] = 'vm-invalido'
@@ -306,7 +338,10 @@ def um(a, cfg, k, nome, arq, env):
     rc, out, err, dt = rodar([exe], cwd, a.tempo_execucao, env_exe, a.memoria_execucao, k + ' [nativo]')
     res['t_execucao'] = round(dt, 1)
     if rc == 'processos':
-        res['estado'] = 'processos'
+        # Diferença legítima AOT × VM, fora do placar como `vm-invalido`: o
+        # `Platform.executable` do executável AOT (nosso ou do `dart compile
+        # exe`) é ele mesmo, e o programa que o reabre se reabre sem fim.
+        res['estado'] = 'aot-diferente'
         res['erro'] = 'mais de %d processos (o programa reabre Platform.executable, que no AOT é ele mesmo)' % MAX_PROCESSOS
         return res
     if rc != 0 and rc != res['vm_rc'] and sem_memoria(rc, err):
@@ -384,11 +419,11 @@ def main():
     grupos = {}
     for r in resultados:
         cont[r['estado']] = cont.get(r['estado'], 0) + 1
-        if r['estado'] not in ('ok', 'vm-invalido'):
+        if r['estado'] not in FORA_DO_PLACAR + ('ok',):
             g = re.sub(r'\(\S+:\d+:\d+\)', '', r.get('erro', ''))
             g = re.sub(r'\d+', 'N', g)
             grupos.setdefault((r['estado'], g), []).append(r['k'])
-    validos = sum(v for e, v in cont.items() if e != 'vm-invalido')
+    validos = sum(v for e, v in cont.items() if e not in FORA_DO_PLACAR)
     placar = 'PLACAR: %d/%d ok (%s)' % (cont.get('ok', 0), validos, ', '.join('%s %d' % kv for kv in sorted(cont.items())))
     relatorio.append('')
     relatorio.append(placar)

@@ -126,6 +126,27 @@ pub struct LlvmEmitter<'a> {
     /// 21% das linhas (docs/NATIVO-PROJETOS-REAIS.md, C9). A produção e os
     /// módulos do SDK continuam em linha.
     campos_por_chamada: bool,
+    /// A alocação de instância por chamada ao `@df.nova_instancia` (a
+    /// produção do programa com `nova_instancia` em
+    /// [`LlvmEmitter::ajudantes_fora`]).
+    alocacao_fora_de_linha: bool,
+    /// Os ajudantes `@df.*` que vão `noinline` no módulo do programa de
+    /// produção ([`ajudantes_fora_de_linha`]).
+    ajudantes_fora: Vec<String>,
+    /// O despacho por seletor fora de linha (`seletor` em
+    /// [`LlvmEmitter::ajudantes_fora`]): o ponto de chamada passa o
+    /// descritor estático do seletor (`@df.seld.<k>`: hash, nome,
+    /// comprimento) ao `@df.seletor_d`, que tem o `@df.seletor` em linha —
+    /// três argumentos em vez de cinco em cada um dos ~170 mil pontos do
+    /// programa grande.
+    seletor_compacto: bool,
+    /// `optsize` em cada função do módulo (o programa grande na produção;
+    /// o SDK de produção já o tem, `sdk_modulo::com_optsize`).
+    otimizar_tamanho: bool,
+    /// O módulo é do perfil de produção (`--optimize`): com
+    /// [`Self::campos_por_chamada`], o `@df.corpo` vai `noinline` (o
+    /// otimizador o poria de volta em linha).
+    producao: bool,
     /// As tabelas de métodos são montadas na ligação
     /// (docs/NATIVO-PODA-DE-TABELAS.md §3.2): o módulo só declara a função
     /// de cada tabela, e o conteúdo vai para o resumo (`poda.rs`). É o SDK
@@ -187,6 +208,11 @@ impl<'a> LlvmEmitter<'a> {
             },
             objetos_estaticos: false,
             campos_por_chamada: false,
+            producao: false,
+            alocacao_fora_de_linha: false,
+            ajudantes_fora: Vec::new(),
+            otimizar_tamanho: false,
+            seletor_compacto: false,
             tabelas_na_ligacao: false,
             textos: Default::default(),
             caixas: Default::default(),
@@ -200,6 +226,32 @@ impl<'a> LlvmEmitter<'a> {
     /// Veja [`LlvmEmitter::campos_por_chamada`].
     pub fn com_campos_por_chamada(mut self, sim: bool) -> Self {
         self.campos_por_chamada = sim;
+        self
+    }
+
+    /// Veja [`LlvmEmitter::producao`].
+    pub fn com_producao(mut self, sim: bool) -> Self {
+        self.producao = sim;
+        self
+    }
+
+    /// `optsize` em cada função do módulo (veja [`LlvmEmitter::otimizar_tamanho`]).
+    pub fn com_otimizar_tamanho(mut self, sim: bool) -> Self {
+        self.otimizar_tamanho = sim;
+        self
+    }
+
+    /// Os ajudantes fora de linha do módulo do programa (veja
+    /// [`ajudantes_fora_de_linha`]); um módulo do SDK os ignora.
+    pub fn com_ajudantes_fora(mut self, nomes: Vec<String>) -> Self {
+        if self.module.biblioteca_sdk {
+            return self;
+        }
+        self.alocacao_fora_de_linha = nomes.iter().any(|n| n == "nova_instancia");
+        self.seletor_compacto = nomes.iter().any(|n| n == "seletor");
+        // O `@df.seletor` continua `alwaysinline`: só o `@df.seletor_d`
+        // (fora de linha) o chama.
+        self.ajudantes_fora = nomes.into_iter().filter(|n| n != "seletor").collect();
         self
     }
 
@@ -307,7 +359,13 @@ impl<'a> LlvmEmitter<'a> {
         // A área no prólogo de cada função: o id do módulo indexa a tabela
         // desta thread no `Contexto` (deslocamentos 16 e 24); uma entrada
         // ausente vai ao runtime, que a preenche (e dá o id na primeira vez).
-        self.out.push_str(OBTER_AREA);
+        // O índice da área do programa tem nome próprio: o particionamento
+        // (`particao.rs`) o promove a externo, e a LTO completa dos módulos
+        // do SDK, ao dividir o módulo juntado em partições, promove o
+        // `@df.area_id` interno de um deles com o mesmo nome — "duplicate
+        // symbol: df.area_id" (docs/NATIVO-PRODUCAO-GRANDE.md §5).
+        let obter_area = OBTER_AREA.replace("@df.area_id", "@df.area_id.programa");
+        self.out.push_str(&fora_de_linha(&obter_area, &self.ajudantes_fora));
         self.emitir_globais_de_texto();
         self.emitir_declaracoes_externas();
         if let Some(d) = self.depuracao.take() {
@@ -384,6 +442,7 @@ impl<'a> LlvmEmitter<'a> {
             self.out.push('\n');
         }
         // Os ajudantes `@df.*` de cada pacote (§3.5).
+        let inicio_dos_ajudantes = self.out.len();
         self.out.push_str(textos_ir::AJUDANTES);
         self.out.push_str(caixas_ir::AJUDANTES);
         self.out.push_str(listas_ir::AJUDANTES);
@@ -391,7 +450,17 @@ impl<'a> LlvmEmitter<'a> {
         let classe_do_valor = classe_do_valor(&self.module.cids_do_runtime);
         self.out.push_str(&classe_do_valor);
         self.out.push_str(&ajudantes_do_espaco());
-        self.out.push_str(&ajudante_do_corpo(self.campos_por_chamada));
+        self.out.push_str(&ajudante_do_corpo(self.campos_por_chamada, self.producao));
+        if !self.ajudantes_fora.is_empty() {
+            let ajudantes = self.out.split_off(inicio_dos_ajudantes);
+            self.out.push_str(&fora_de_linha(&ajudantes, &self.ajudantes_fora));
+        }
+        if self.alocacao_fora_de_linha {
+            self.out.push_str(&nova_instancia());
+        }
+        if self.seletor_compacto {
+            self.out.push_str(SELETOR_POR_DESCRITOR);
+        }
         if compostas || !self.module.ffi_callbacks.is_empty() {
             self.out.push_str(
                 "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n\
@@ -508,7 +577,8 @@ impl<'a> LlvmEmitter<'a> {
         let (ligacao, comdat) = self.ligacao_de(&func.symbol);
         let inicio_da_funcao = self.out.len();
         let mut posicao_escrita: Option<(u32, u32)> = None;
-        writeln!(self.out, "define {ligacao}{ret_ty} @{}({}){comdat} {{", func.symbol, params_str).unwrap();
+        let atributos = if self.otimizar_tamanho { " optsize" } else { "" };
+        writeln!(self.out, "define {ligacao}{ret_ty} @{}({}){atributos}{comdat} {{", func.symbol, params_str).unwrap();
 
         // G1/G2 (docs/NATIVO-PLANO.md §6.5): um slot por `alloca` de tipo
         // `Ref`, e os valores SSA `Ref` vivos em algum ponto de coleta, com
@@ -528,7 +598,7 @@ impl<'a> LlvmEmitter<'a> {
             .filter_map(|b| {
                 b.instructions.iter().rev().find_map(|(vid, i, _)| {
                     let v = vid.0;
-                    if Self::alocacao_em_linha(i).is_some() {
+                    if Self::alocacao_em_linha(i).is_some() && !self.alocacao_fora_de_linha {
                         Some((b.id.0, format!("ao{v}.fim")))
                     } else if self.barreira_em_linha(i) {
                         Some((b.id.0, format!("wb{v}.fim")))
@@ -589,6 +659,7 @@ impl<'a> LlvmEmitter<'a> {
             if block.id.0 == 0 && self.tem_ctx {
                 writeln!(self.out, "  %ctx = call ptr @dartforge_contexto()").unwrap();
                 writeln!(self.out, "  %ctxtopo = getelementptr inbounds i8, ptr %ctx, i64 8").unwrap();
+                self.emitir_conferencia_da_pilha(func);
             }
             if block.id.0 == 0 && self.tem_frame {
                 // O quadro de raízes no stack da função (a pilha-sombra,
@@ -2351,6 +2422,40 @@ impl<'a> LlvmEmitter<'a> {
     }
 
 
+    /// A conferência da pilha no prólogo (o `stack_overflow_check` da VM,
+    /// `runtime/vm/compiler/backend/il.h:9693`, `CheckStackOverflowInstr`): o
+    /// endereço de um `alloca` do quadro abaixo de
+    /// `Contexto::limite_da_pilha` lança `StackOverflowError`
+    /// (`dartforge_estouro_de_pilha`) e a função volta com a exceção
+    /// pendente, antes de encadear o quadro de raízes. Só nas funções que
+    /// chamam (as que têm `%ctx`): uma folha não aprofunda a pilha.
+    fn emitir_conferencia_da_pilha(&mut self, func: &Function) {
+        let o = &mut self.out;
+        writeln!(o, "  %pilhaq = alloca i8, align 1").unwrap();
+        writeln!(o, "  %pilhalp = getelementptr inbounds i8, ptr %ctx, i64 {}", layout::contexto::LIMITE_DA_PILHA).unwrap();
+        writeln!(o, "  %pilhal = load ptr, ptr %pilhalp, align 8").unwrap();
+        writeln!(o, "  %pilhab = icmp ult ptr %pilhaq, %pilhal").unwrap();
+        writeln!(o, "  %pilhax = call i1 @llvm.expect.i1(i1 %pilhab, i1 false)").unwrap();
+        writeln!(o, "  br i1 %pilhax, label %pilha.estouro, label %pilha.ok").unwrap();
+        writeln!(o, "pilha.estouro:").unwrap();
+        writeln!(o, "  call void @dartforge_estouro_de_pilha()").unwrap();
+        if self.rastro.is_some() {
+            writeln!(o, "  call void @dartforge_rastro_saida()").unwrap();
+        }
+        match func.return_ty {
+            Type::Void => writeln!(o, "  ret void").unwrap(),
+            Type::F64 => writeln!(o, "  ret double 0.0").unwrap(),
+            Type::I1 => writeln!(o, "  ret i1 false").unwrap(),
+            Type::Ptr => writeln!(o, "  ret ptr null").unwrap(),
+            Type::I64 | Type::Ref => writeln!(o, "  ret i64 0").unwrap(),
+            Type::I8 => writeln!(o, "  ret i8 0").unwrap(),
+            t => writeln!(o, "  ret {} zeroinitializer", t.llvm_ir()).unwrap(),
+        }
+        writeln!(o, "pilha.ok:").unwrap();
+        self.rotulo_atual = "pilha.ok".to_string();
+        self.rotulos_de_saida.entry(0).or_insert_with(|| "pilha.ok".to_string());
+    }
+
     /// O corpo do objeto `so` (`%fcb{v}`, o cabeçalho) e os campos dele
     /// (`%fp{v}`), em linha: um objeto do espaço de objetos (`h & 3 == 2` e
     /// `h > 0`; `crates/runtime/src/heap.rs`, `Cabecalho`) tem o cabeçalho em
@@ -2460,11 +2565,25 @@ impl<'a> LlvmEmitter<'a> {
         if let Some(f) = &tabela {
             self.anotar_externo(f, Type::Ptr, &[]);
         }
-        let o = &mut self.out;
         // A TLAB é por palavras do corpo: `n ≤ TLAB_N` campos ocupam
         // `max(n, 1)` palavras (sem extensão do mapa).
         let w = layout::palavras_de_instancia(n as usize);
         let tamanho = layout::bytes_do_bloco(w);
+        if self.alocacao_fora_de_linha {
+            // Produção do programa grande: a mesma conta, numa chamada ao
+            // `@df.nova_instancia` (docs/NATIVO-PRODUCAO-GRANDE.md §3).
+            let cabecalho = layout::palavra_do_cabecalho(layout::estado::JOVEM, layout::flags::INSTANCIA, n as usize, c as i32);
+            let t = tabela.as_ref().map_or("null".to_string(), |f| format!("@{f}"));
+            writeln!(
+                self.out,
+                "  %v{v} = call i64 @df.nova_instancia(ptr %ctx, i64 {}, i64 {tamanho}, i64 {}, i64 {c}, i64 {n}, ptr {t})",
+                layout::contexto::tlab_cursor(w),
+                cabecalho as i64
+            )
+            .unwrap();
+            return;
+        }
+        let o = &mut self.out;
         writeln!(o, "  %ta{v} = getelementptr inbounds i8, ptr %ctx, i64 {}", layout::contexto::tlab_cursor(w)).unwrap();
         writeln!(o, "  %tb{v} = load ptr, ptr %ta{v}, align 8").unwrap();
         writeln!(o, "  %tfa{v} = getelementptr inbounds i8, ptr %ctx, i64 {}", layout::contexto::tlab_fim(w)).unwrap();
@@ -2987,8 +3106,122 @@ lento:\n\
 /// (`ctx + 40`), e um corpo fora do bloco (anexo, `flags & 1`) é seguido pelo
 /// ponteiro em `+16`. `alwaysinline` quando o emissor está em linha (para o
 /// otimizador ver igual); sem o atributo no desenvolvimento, uma chamada.
-fn ajudante_do_corpo(por_chamada: bool) -> String {
-    let atributo = if por_chamada { "" } else { " alwaysinline" };
+/// Ajudantes `@df.*` que vão fora de linha (com o `seletor` e a `classe`, o
+/// despacho dinâmico, em [`ajudantes_fora_de_linha`]): cada um é uma
+/// sequência que se repete em centenas de milhares de lugares do programa
+/// grande (docs/NATIVO-PRODUCAO-GRANDE.md §1.4).
+pub const AJUDANTES_FORA_DO_PROGRAMA_GRANDE: &[&str] =
+    &["subclasse", "alocar", "barreira", "barreira_elemento", "obter_area", "nova_instancia"];
+
+/// A lista de ajudantes fora de linha: `DARTFORGE_AJUDANTES_FORA` (lista
+/// separada por vírgula; `1`, todos; vazio, nenhum); senão todos no
+/// programa grande, no desenvolvimento (`-O0`, onde o `alwaysinline` copia
+/// o ajudante em cada uso e a geração de código paga por cada cópia:
+/// `desenvolvimento_grande`) e na produção (`programa_grande`), e nenhum
+/// nos demais — o programa pequeno roda o dobro do tempo no `-O0` sem os
+/// ajudantes em linha (o corpus/nativo: 53 → 116 s).
+pub fn ajudantes_fora_de_linha(desenvolvimento_grande: bool, programa_grande: bool) -> Vec<String> {
+    let todos = || ["seletor", "classe"].iter().chain(AJUDANTES_FORA_DO_PROGRAMA_GRANDE).map(|s| (*s).to_string()).collect();
+    match std::env::var("DARTFORGE_AJUDANTES_FORA") {
+        Ok(v) if v == "1" => todos(),
+        Ok(v) => v.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect(),
+        Err(_) if desenvolvimento_grande || programa_grande => todos(),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// O despacho por seletor com o descritor estático (`@df.seld.<k>`), fora
+/// de linha ([`LlvmEmitter::seletor_compacto`]).
+const SELETOR_POR_DESCRITOR: &str = "define internal ptr @df.seletor_d(ptr %c, i64 %r, ptr %d) noinline {
+  %h = load i64, ptr %d, align 8
+  %np = getelementptr inbounds i8, ptr %d, i64 8
+  %n = load ptr, ptr %np, align 8
+  %lp = getelementptr inbounds i8, ptr %d, i64 16
+  %l = load i64, ptr %lp, align 8
+  %f = call ptr @df.seletor(ptr %c, i64 %r, i64 %h, ptr %n, i64 %l)
+  ret ptr %f
+}
+";
+
+/// A alocação de instância de `emitir_alocacao_em_linha` fora de linha:
+/// `%cur` é o deslocamento do cursor da TLAB das palavras do objeto no
+/// contexto (o fim vem 8 bytes depois), `%tam` os bytes do bloco, `%cab` a
+/// palavra do cabeçalho, `%tab` a função da tabela de métodos (null quando a
+/// classe não registra a tabela na primeira alocação).
+fn nova_instancia() -> String {
+    format!(
+        "define internal i64 @df.nova_instancia(ptr %ctx, i64 %cur, i64 %tam, i64 %cab, i64 %c, i64 %n, ptr %tab) noinline {{
+  %ta = getelementptr inbounds i8, ptr %ctx, i64 %cur
+  %tb = load ptr, ptr %ta, align 8
+  %tfa = getelementptr inbounds i8, ptr %ta, i64 8
+  %tf = load ptr, ptr %tfa, align 8
+  %tnx = getelementptr i8, ptr %tb, i64 %tam
+  %tz = icmp ugt ptr %tnx, %tf
+  %semtab = icmp eq ptr %tab, null
+  br i1 %tz, label %lento, label %reg
+reg:
+  br i1 %semtab, label %rapido, label %reg2
+reg2:
+  %tnp = getelementptr inbounds i8, ptr %ctx, i64 56
+  %tn = load i64, ptr %tnp, align 8
+  %tk = icmp ule i64 %tn, %c
+  br i1 %tk, label %lento, label %reg3
+reg3:
+  %trp = getelementptr inbounds i8, ptr %ctx, i64 48
+  %tr = load ptr, ptr %trp, align 8
+  %trb = getelementptr inbounds i8, ptr %tr, i64 %c
+  %trv = load i8, ptr %trb, align 1
+  %trz = icmp eq i8 %trv, 0
+  br i1 %trz, label %lento, label %rapido
+rapido:
+  store ptr %tnx, ptr %ta, align 8
+  %tpp = getelementptr inbounds i8, ptr %tb, i64 16
+  store i64 0, ptr %tpp, align 8
+  store i64 %cab, ptr %tb, align 8
+  %thb = ptrtoint ptr %tb to i64
+  %th = add i64 %thb, 2
+  ret i64 %th
+lento:
+  br i1 %semtab, label %semt, label %comt
+comt:
+  %a = call i64 @dartforge_object_new_t(i64 %c, i64 %n, ptr %tab)
+  ret i64 %a
+semt:
+  %b = call i64 @dartforge_object_new(i64 %c, i64 %n)
+  ret i64 %b
+}}
+"
+    )
+}
+
+/// `texto` com os `define internal … @df.<nome>(…) alwaysinline` de `nomes`
+/// trocados para `noinline`.
+fn fora_de_linha(texto: &str, nomes: &[String]) -> String {
+    if nomes.is_empty() {
+        return texto.to_string();
+    }
+    let mut saida = String::with_capacity(texto.len());
+    for linha in texto.split_inclusive('\n') {
+        let alvo = linha.starts_with("define internal ")
+            && nomes.iter().any(|n| linha.contains(&format!("@df.{n}(")));
+        if alvo {
+            saida.push_str(&linha.replacen(" alwaysinline", " noinline", 1));
+        } else {
+            saida.push_str(linha);
+        }
+    }
+    saida
+}
+
+fn ajudante_do_corpo(por_chamada: bool, producao: bool) -> String {
+    // Na produção por chamada: fora de linha de verdade, e só leitura (o
+    // otimizador junta duas chamadas sobre o mesmo objeto sem escrita no
+    // meio).
+    let atributo = match (por_chamada, producao) {
+        (false, _) => " alwaysinline",
+        (true, false) => "",
+        (true, true) => " noinline nounwind willreturn memory(read)",
+    };
     format!(
         "define internal ptr @df.corpo(i64 %o, ptr %ctx){atributo} {{
   %k = and i64 %o, {MASCARA_DE_OBJETO}

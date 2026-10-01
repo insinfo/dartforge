@@ -167,9 +167,13 @@ pub fn gerar(nome: &str, ir: &str, opcoes: &Opcoes) -> Result<Vec<u8>, String> {
     let triple = modulo.triple().unwrap_or_else(triple_padrao);
     let maquina = MaquinaAlvo::do_triple(&triple, opcoes.otimizar, opcoes.cpu)?;
     modulo.completar_alvo(&triple, &maquina);
+    // `DARTFORGE_PIPELINE_OBJETO` troca o pipeline do objeto otimizado
+    // (medida de tempo e tamanho: `default<O1>`, `default<Os>`;
+    // docs/NATIVO-PRODUCAO-GRANDE.md).
+    let escolhido = std::env::var("DARTFORGE_PIPELINE_OBJETO").ok().filter(|p| !p.is_empty());
     let pipeline = match (opcoes.formato, opcoes.otimizar) {
         (Formato::Bitcode, _) => "lto-pre-link<O2>",
-        (Formato::Objeto, true) => "default<O2>",
+        (Formato::Objeto, true) => escolhido.as_deref().unwrap_or("default<O2>"),
         (Formato::Objeto, false) => "default<O0>",
     };
     modulo.otimizar(pipeline, &maquina)?;

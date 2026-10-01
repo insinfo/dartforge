@@ -100,6 +100,12 @@ impl IrEmitido {
 /// (`FnBuilder::nao_suportado`, N1). [`construtos_do_erro`] é quem o lê.
 pub const PREFIXO_NAO_SUPORTADO: &str = "não suportado no backend nativo: ";
 
+/// A partir de quantas funções no módulo HIR do programa a produção o trata
+/// como grande (`compile`, campos e ajudantes por chamada): o
+/// new_sali/backend tem ~200 mil; os programas do corpus e os benchmarks,
+/// poucos milhares.
+pub const FUNCOES_DO_PROGRAMA_GRANDE: usize = 50_000;
+
 /// O erro de um módulo com diagnósticos do lowering.
 ///
 /// A primeira linha é `erro de compilação: ` e o primeiro diagnóstico **sem a
@@ -343,12 +349,37 @@ fn emitir_ir_interno(
     // Produção (`--optimize`) nunca recarrega: o descritor da área vai sem
     // os nomes dos slots (`com_area_enxuta`). O JIT emite sem `optimize`.
     let enxuta = options.optimize && area_anterior.is_none();
+    // O programa grande (o new_sali/backend: ~180 mil funções HIR) na
+    // produção: o endereço dos campos e os ajudantes (despacho, alocação,
+    // barreira, área, subtipo) por chamada, fora de linha — o executável
+    // cai de 94,6 para ~71 MB e a geração de 707 para ~460 s
+    // (docs/NATIVO-PRODUCAO-GRANDE.md §5). O preço é o desempenho do código
+    // que chama muito por despacho dinâmico ou lê muitos campos
+    // (`bench/desempenho/chamadas.dart`: 1,4–2,5× mais lento); com
+    // `DARTFORGE_AJUDANTES_FORA=` (vazio) e `DARTFORGE_CAMPOS_POR_CHAMADA=0`
+    // o programa grande volta todo em linha. O programa pequeno continua em
+    // linha (a LTO tira o que sobra).
+    let tamanho_grande = hir_module.functions.len() >= FUNCOES_DO_PROGRAMA_GRANDE;
+    let grande = options.optimize && tamanho_grande;
+    if grande && options.timings {
+        eprintln!("  Programa grande: {} funções HIR (campos e ajudantes por chamada)", hir_module.functions.len());
+    }
+    let campos_por_chamada = match std::env::var("DARTFORGE_CAMPOS_POR_CHAMADA") {
+        Ok(v) => v == "1",
+        Err(_) => grande,
+    };
     let emitter = llvm::LlvmEmitter::new(&hir_module)
         .com_area_anterior(area_anterior)
         .com_area_enxuta(enxuta)
         .com_objetos_estaticos(objetos_estaticos)
         // Desenvolvimento (`-O0`): o endereço dos campos por chamada (C9).
-        .com_campos_por_chamada(!options.optimize);
+        .com_campos_por_chamada(!options.optimize || campos_por_chamada)
+        .com_ajudantes_fora(llvm::ajudantes_fora_de_linha(!options.optimize && tamanho_grande, grande))
+        // `optsize` nas funções do programa grande: −8,7% no executável do
+        // backend, sem mudar o tempo (docs/NATIVO-PRODUCAO-GRANDE.md §5);
+        // `DARTFORGE_OPTSIZE_PROGRAMA=0` desliga.
+        .com_otimizar_tamanho(grande && !std::env::var("DARTFORGE_OPTSIZE_PROGRAMA").is_ok_and(|v| v == "0"))
+        .com_producao(options.optimize);
     let llvm_ir = emitter.emit_all();
     let llvm_duration = t_llvm.elapsed();
 

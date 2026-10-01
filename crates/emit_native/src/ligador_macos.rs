@@ -938,6 +938,9 @@ pub fn ligar(ld: &Path, sysroot: &SysrootMacos, l: &Ligacao<'_>) -> Result<(), S
     if l.lto {
         cmd.arg("--lto-O2");
         cmd.arg(format!("--thinlto-jobs={}", crate::driver::tarefas_de_geracao()));
+        if let Some(d) = crate::driver::cache_do_thinlto() {
+            cmd.arg("-cache_path_lto").arg(d);
+        }
         if let Some(c) = l.cpu {
             cmd.arg("-mllvm").arg(format!("-mcpu={c}"));
         }

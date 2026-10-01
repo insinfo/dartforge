@@ -1502,7 +1502,7 @@ pub fn funcao_recusada(ctx: &Context, fid: usize, motivo: &str) -> Function {
     let ret = if generativo {
         Type::Void
     } else {
-        ctx.outline.functions.get(fid).map_or(Type::Ref, |d| ctx.to_hir_type(d.return_type))
+        ctx.retorno_hir(fid)
     };
     let simbolo = super::simbolo_de(ctx, fid);
     let mut b = FnBuilder::new(ctx, unit, simbolo.clone(), ctx.symbol_name(f.name).to_string(), ret);

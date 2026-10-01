@@ -484,6 +484,64 @@ o `_regenerateIndex` do próprio SDK; a classe que não é `_Map`/`_Set` sai
 na primeira consulta (uma chamada por classe, não por objeto)
 (`corpus/nativo/132`).
 
+### C21. Fábrica redirecionadora para classe importada com prefixo
+
+**Medido.** O `mustache_template` não compilava: "não suportado no
+backend nativo: factory redirecionadora". O `Template` público tem
+`factory Template(…) = t.Template.fromSource;`, e a classe de destino,
+importada com o prefixo `t`, tem o mesmo nome da classe pública.
+
+**Desenho.** `EN/lower/membros.rs`, `construtor_do_tipo`: o destino é lido
+nas quatro formas, `Alvo`, `Alvo.nome`, `p.Alvo` e `p.Alvo.nome`; o prefixo
+é procurado no escopo de importação (`lookup_prefixed`). Antes, o último nome
+era procurado no escopo da própria biblioteca, que acha a classe pública e
+não a de destino. Corpus: `corpus/nativo/133`.
+
+### C22. Recursão sem fim estourava a pilha do sistema
+
+**Medido.** No `stack_trace/test/vm_test`, "Trace.from handles a stack
+overflow trace correctly" derrubava o executável com o código -11
+(SIGSEGV). Nenhuma função conferia a pilha.
+
+**Regra.** A VM confere a pilha no prólogo e lança `StackOverflowError`
+(`CheckStackOverflowInstr`, `VM/runtime/vm/compiler/backend/il.h:9693`).
+
+**Desenho.**
+
+* O runtime guarda o limite em `Contexto::limite_da_pilha`
+  (`RT/heap.rs`, deslocamento 376). O limite é o início da pilha da
+  thread, pego na primeira vez em `dartforge_contexto`, mais uma folga de
+  256 KiB:
+  * Windows: `GetCurrentThreadStackLimits`;
+  * Linux: `pthread_getattr_np`;
+  * macOS: `pthread_get_stack*_np`.
+* Toda função que chama outra (as que têm `%ctx`) compara o endereço de um
+  `alloca` com esse limite antes de encadear o quadro de raízes
+  (`EN/llvm/mod.rs`, `emitir_conferencia_da_pilha`). Abaixo dele, chama
+  `dartforge_estouro_de_pilha`, que lança o `StackOverflowError` do SDK, e
+  volta com a exceção pendente.
+
+Corpus: `corpus/nativo/134`, que cobre recursão direta e virtual e um
+isolado.
+
+### C23. `void f() => e` devolve o valor de `e`
+
+**Medido.** No `intl/test/number_format_web_test`, o `NumberFormat.parse`
+de "1 234 567 890" dava `FormatException: Invalid double`, e o texto
+normalizado saía `1null234null567null890`. O motivo é o
+`void handleSpace() => cond ? '' : invalidFormat();`, guardado num
+`Map<String, Function>` e chamado para escrever o resultado.
+
+**Regra.** `void` é só estático: a função de seta devolve o valor da
+expressão, e quem chama por `Function` ou `dynamic` o recebe. A VM devolve
+`''`.
+
+**Desenho.** `EN/context.rs`, `retorno_hir`: a função ou método comum
+`void` de corpo `=> e` síncrono tem retorno HIR `Ref`. Isso vale para a
+definição, para as chamadas diretas (`repr_retorno`) e para os
+adaptadores. Quem chama direto ignora o valor. O `main` fica de fora, porque
+a entrada o chama como `void`. Corpus: `corpus/nativo/135`.
+
 ### Infraestrutura do placar
 
 * `EN/cache_objeto.rs`: o teto do cache de objetos subiu de 256 MB para
@@ -497,6 +555,30 @@ na primeira consulta (uma chamada por classe, não por objeto)
   shards morreram pelo runner sem memória). O executável recebe
   `DARTFORGE_PACKAGE_CONFIG` (o `Isolate.resolvePackageUriSync` dos
   testes), e os instantes impressos (`2026-…T…`) são normalizados.
+* Com o limite, três shards do CI ainda morriam sem mensagem ("runner has
+  received a shutdown signal"). A causa eram três testes que reabrem
+  `Platform.executable`: `http_parser/test/example_test.dart`,
+  `io/test/process_manager_test.dart` e
+  `pubspec_parse/test/dependency_test.dart`. Na VM, `Platform.executable` é
+  o `dart`; num executável AOT (o nosso ou o do `dart compile exe`) é o
+  próprio executável do teste, que roda o teste de novo e se reabre sem fim.
+  O harness agora tem:
+  * a linha `iniciando <programa> [vm|compilacao|nativo]` antes de cada
+    execução;
+  * `RLIMIT_AS` (3× o `RLIMIT_DATA`, no mínimo 8 GiB) e `RLIMIT_FSIZE`;
+  * um vigia que segue a sessão e os descendentes pelo `/proc` e mata
+    tudo acima de 4 GiB de RSS somado (estado `memoria`) ou de 64
+    processos (estado `aot-diferente`, fora do placar como o
+    `vm-invalido`);
+  * no fim de toda execução, a morte do que o programa deixou vivo;
+  * a saída lida até 2 MiB, de arquivos temporários;
+  * `stdin` vazio;
+  * a remoção do que a execução da VM criou no diretório do pacote antes
+    do nativo rodar. Era o caso do cache `cache_<hash>.jpg` do
+    `pdf/test/isolate_test`: a VM baixava e imprimia "Downloading…", e o
+    nativo achava o arquivo e não imprimia.
+
+  Placar completo (8/8 shards, run 36871177856): 224/253 iguais à VM.
 
 ## 2. Programas do corpus
 
@@ -515,6 +597,9 @@ na primeira consulta (uma chamada por classe, não por objeto)
 | `corpus/nativo/130_extensao_sobre_registro.dart` | C16 |
 | `corpus/nativo/131_const_no_argumento_de_fabrica.dart` | C12 |
 | `corpus/nativo/132_mapas_entre_isolados.dart` | C20 |
+| `corpus/nativo/133_fabrica_redirecionada_prefixada/` | C21 |
+| `corpus/nativo/134_estouro_de_pilha.dart` | C22 |
+| `corpus/nativo/135_void_de_seta_devolve_o_valor.dart` | C23 |
 
 C1, C7, C8 e C9 são de escala (medidos no backend; o 122 cobre a parte de
 C4 que cabe no corpus); C5 precisa de `package_config` e vai num teste do

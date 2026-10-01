@@ -209,6 +209,24 @@ mapa da ligação, os bytes por causa. `DARTFORGE_MAPA_DA_LIGACAO=1` pede o mapa
 mesma estrutura de módulos): serve para medir o ganho e para isolar um erro. Só o `montar` a lê; a
 chave do SDK não muda.
 
+### 3.12 O programa sem o que não foi alcançado
+
+Com a poda, o `montar` também tira do texto do programa as definições (funções e globais) que o
+ponto fixo não alcançou. É a mesma decisão que a LTO e o `/OPT:REF` tomariam, com as mesmas
+raízes (`main`, `dartforge_*`, `llvm.*`) e as mesmas arestas (todo `@nome` citado). A diferença
+está em quando ela acontece: antes da otimização e da geração de código, e não depois delas.
+
+No `new_sali/backend` saem 131 270 funções e 77 633 globais: 476 MB dos 1,31 GB de IR
+(`docs/NATIVO-PRODUCAO-GRANDE.md` §1.3). `--timings` mostra a contagem na linha `Poda:`. Teste:
+`poda::testes::definicoes_mortas_do_programa_saem_do_ir`. `DARTFORGE_SEM_PODA_DE_TABELAS=1`
+desliga também isto.
+
+O despacho compacto do programa grande (`docs/NATIVO-PRODUCAO-GRANDE.md` §3) chama
+`@df.seletor_d(ptr <cache>, i64 <receptor>, ptr @df.seld.<k>)`, e o descritor
+`@df.seld.<k> = … { i64 <hash>, ptr @df.seln.<k>, i64 <len> }` leva o seletor: o `resumir` lê o
+hash do descritor citado (`descritor_de_seletor`, `chamada_de_seletor_compacta`; teste
+`chamada_compacta_le_o_seletor_do_descritor`).
+
 ## 4. Verificação
 
 * **Teste de ausência** (o `deadstrip.test.ts` do scriptc): `corpus/nativo/81_poda_de_tabelas.dart`

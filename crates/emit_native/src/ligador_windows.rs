@@ -96,6 +96,7 @@ pub const IMPORTACOES: &[(&str, &[&str])] = &[
             "GetCurrentProcessId",
             "GetCurrentThread",
             "GetCurrentThreadId",
+            "GetCurrentThreadStackLimits",
             "GetEnvironmentStringsW",
             "GetEnvironmentVariableW",
             "GetExitCodeProcess",
@@ -902,6 +903,12 @@ pub fn argumentos(sysroot: &SysrootWindows, l: &Ligacao<'_>) -> Vec<std::ffi::Os
         // ThinLTO (os bitcodes das partes de um programa grande, C9): um
         // módulo por tarefa, poucas ao mesmo tempo — a memória é a medida.
         a.push(format!("/opt:lldltojobs={}", crate::driver::tarefas_de_geracao()).into());
+        if let Some(d) = crate::driver::cache_do_thinlto() {
+            let mut o = std::ffi::OsString::from("/lldltocache:");
+            o.push(d.as_os_str());
+            a.push(o);
+            a.push("/lldltocachepolicy:cache_size_bytes=4g:prune_after=168h".into());
+        }
         // A CPU-alvo da geração de código da LTO (`--cpu`): a opção
         // `-mcpu` do LLVM, que o `lld` lê para a LTO (`native` é detectada).
         if let Some(c) = l.cpu {

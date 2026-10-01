@@ -696,6 +696,35 @@ impl<'a> Context<'a> {
     /// tipo anulável (`int?` inclusive), `num`, `Object`, `dynamic` e
     /// parâmetros de tipo são `Ref` — `Type` inclusive: é o objeto canônico
     /// do RTI (`lower/rti.rs`).
+    /// O tipo HIR do retorno da função `fid` (declarado ou inferido). Uma
+    /// função `void` de corpo `=> e` síncrono devolve o valor de `e` (`Ref`):
+    /// o `void` é só estático, e quem chama por `dynamic` ou `Function`
+    /// recebe o valor, como na VM (o `handleSpace` do `intl`, `void f() =>
+    /// cond ? '' : erro()`, guardado num `Map<String, Function>` e chamado
+    /// para escrever o resultado; docs/NATIVO-PROJETOS-REAIS.md C23). Quem
+    /// chama direto ignora o valor.
+    pub fn retorno_hir(&self, fid: usize) -> crate::hir::Type {
+        let Some(d) = self.outline.functions.get(fid) else { return crate::hir::Type::Ref };
+        let t = self.to_hir_type(d.return_type);
+        if t == crate::hir::Type::Void && self.void_de_seta(fid) { crate::hir::Type::Ref } else { t }
+    }
+
+    /// `void f() => e;` síncrono, função ou método comum (não getter, setter,
+    /// operador nem construtor). Ver [`Self::retorno_hir`].
+    fn void_de_seta(&self, fid: usize) -> bool {
+        let f = &self.program.functions[fid];
+        // O `main` é chamado pela entrada como `void` (`lower/mod.rs`).
+        if f.kind != dartforge_elements::model::FunctionKind::Function
+            || (f.class.is_none() && self.symbol_name(f.name) == "main")
+        {
+            return false;
+        }
+        let dartforge_elements::model::FunctionRef::Function { unit, function } = f.node else { return false };
+        let funcao = self.program.unit(unit).ast.function(function);
+        matches!(funcao.body, dartforge_frontend::ast::FunctionBody::Expression(_))
+            && funcao.modifier == dartforge_frontend::ast::AsyncModifier::None
+    }
+
     pub fn to_hir_type(&self, ty: TypeId) -> crate::hir::Type {
         let ty = self.apagar(ty);
         if self.is_void(ty) {

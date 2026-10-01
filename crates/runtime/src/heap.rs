@@ -296,6 +296,12 @@ pub struct Contexto {
     /// SDK têm cada um a sua cópia; só a do runtime ativo é a canônica).
     pub verdadeiro: *const u8,
     pub falso: *const u8,
+    /// O limite da pilha nativa da thread (deslocamento 376): o prólogo de
+    /// cada função que chama outra compara o endereço do seu quadro com ele
+    /// e, abaixo, lança `StackOverflowError` em vez de estourar a pilha do
+    /// sistema (o `stack_overflow_check` da VM). 0 = ainda não calculado
+    /// ([`crate::gc_raizes`], `dartforge_contexto`); 1 = sem limite conhecido.
+    pub limite_da_pilha: std::cell::Cell<usize>,
 }
 
 /// O `is C` lido em linha pelo código gerado ([`Contexto::subtipos`]). Para
@@ -322,6 +328,7 @@ const _: () = {
     assert!(std::mem::offset_of!(Contexto, largura_subtipos) == c::LARGURA_SUBTIPOS);
     assert!(std::mem::offset_of!(Contexto, verdadeiro) == c::VERDADEIRO);
     assert!(std::mem::offset_of!(Contexto, falso) == c::FALSO);
+    assert!(std::mem::offset_of!(Contexto, limite_da_pilha) == c::LIMITE_DA_PILHA);
 };
 
 thread_local! {
@@ -341,6 +348,7 @@ thread_local! {
             largura_subtipos: std::cell::Cell::new(0),
             verdadeiro: (&raw const dartforge_verdadeiro).cast::<u8>().wrapping_add(DESLOCAMENTO_DO_HANDLE as usize),
             falso: (&raw const dartforge_falso).cast::<u8>().wrapping_add(DESLOCAMENTO_DO_HANDLE as usize),
+            limite_da_pilha: std::cell::Cell::new(0),
         }
     };
 }

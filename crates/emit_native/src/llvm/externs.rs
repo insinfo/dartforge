@@ -348,6 +348,11 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_stack_overflow_error_new()",
         efeitos: CONSERVADOR,
     },
+    // O prólogo achou a pilha no limite (`Contexto::limite_da_pilha`).
+    Extern {
+        decl: "declare void @dartforge_estouro_de_pilha()",
+        efeitos: CONSERVADOR,
+    },
     Extern {
         decl: "declare i8 @dartforge_late_field_initializing(i64, i64)",
         efeitos: CONSERVADOR,

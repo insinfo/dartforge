@@ -345,8 +345,8 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
 
                 let ret_ty = if is_main {
                     Type::Void
-                } else if let Some(fdata) = ctx.outline.functions.get(f_idx) {
-                    ctx.to_hir_type(fdata.return_type)
+                } else if ctx.outline.functions.get(f_idx).is_some() {
+                    ctx.retorno_hir(f_idx)
                 } else {
                     Type::Void
                 };

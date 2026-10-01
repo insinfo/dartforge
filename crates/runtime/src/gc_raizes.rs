@@ -24,7 +24,100 @@ fn com_raizes<R>(handles: &[i64], f: impl FnOnce() -> R) -> R {
 /// chamada.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_contexto() -> *const crate::heap::Contexto {
-    crate::heap::CONTEXTO.with(|c| c as *const crate::heap::Contexto)
+    crate::heap::CONTEXTO.with(|c| {
+        if c.limite_da_pilha.get() == 0 {
+            c.limite_da_pilha.set(limite_da_pilha_da_thread());
+        }
+        c as *const crate::heap::Contexto
+    })
+}
+
+/// Folga entre o limite que o código gerado confere e o fim da pilha da
+/// thread: o que o runtime ainda usa para montar e lançar o
+/// `StackOverflowError` (o rastro, a alocação) e para as chamadas nativas
+/// de uma função que passou do prólogo.
+const FOLGA_DA_PILHA: usize = 256 * 1024;
+
+/// O endereço mais baixo que a pilha da thread corrente pode usar, mais a
+/// [`FOLGA_DA_PILHA`]; 1 quando o sistema não diz (sem conferência).
+#[allow(unsafe_code)]
+fn limite_da_pilha_da_thread() -> usize {
+    let base = base_da_pilha();
+    if base == 0 { 1 } else { base + FOLGA_DA_PILHA }
+}
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn base_da_pilha() -> usize {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetCurrentThreadStackLimits(baixo: *mut usize, alto: *mut usize);
+    }
+    let (mut baixo, mut alto) = (0usize, 0usize);
+    // SAFETY: dois ponteiros para `usize` locais.
+    unsafe { GetCurrentThreadStackLimits(&mut baixo, &mut alto) };
+    baixo
+}
+
+#[cfg(target_os = "linux")]
+#[allow(unsafe_code)]
+fn base_da_pilha() -> usize {
+    // `pthread_attr_t` tem 56 bytes no glibc x86-64 e 64 no aarch64.
+    #[repr(C, align(8))]
+    struct Atributos([u8; 64]);
+    unsafe extern "C" {
+        fn pthread_self() -> usize;
+        fn pthread_getattr_np(t: usize, a: *mut Atributos) -> i32;
+        fn pthread_attr_getstack(a: *const Atributos, endereco: *mut usize, tamanho: *mut usize) -> i32;
+        fn pthread_attr_destroy(a: *mut Atributos) -> i32;
+    }
+    let mut a = Atributos([0; 64]);
+    let (mut endereco, mut tamanho) = (0usize, 0usize);
+    // SAFETY: atributos locais, iniciados pelo `pthread_getattr_np` e
+    // destruídos no fim.
+    unsafe {
+        if pthread_getattr_np(pthread_self(), &mut a) != 0 {
+            return 0;
+        }
+        let ok = pthread_attr_getstack(&a, &mut endereco, &mut tamanho) == 0;
+        pthread_attr_destroy(&mut a);
+        if ok { endereco } else { 0 }
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+fn base_da_pilha() -> usize {
+    unsafe extern "C" {
+        fn pthread_self() -> usize;
+        fn pthread_get_stackaddr_np(t: usize) -> usize;
+        fn pthread_get_stacksize_np(t: usize) -> usize;
+    }
+    // SAFETY: consultas da thread corrente; o endereço é o topo da pilha.
+    unsafe {
+        let t = pthread_self();
+        pthread_get_stackaddr_np(t).saturating_sub(pthread_get_stacksize_np(t))
+    }
+}
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+fn base_da_pilha() -> usize {
+    0
+}
+
+/// O prólogo de uma função achou o quadro abaixo do limite da pilha
+/// (`Contexto::limite_da_pilha`): lança o `StackOverflowError` do SDK, e a
+/// função volta com a exceção pendente, como depois de uma chamada que
+/// lançou. O limite é desligado enquanto o erro é montado (o rastro e a
+/// alocação usam a folga) e religado depois.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_estouro_de_pilha() {
+    let limite = crate::heap::CONTEXTO.with(|c| c.limite_da_pilha.replace(1));
+    let erro = dartforge_stack_overflow_error_new();
+    if dartforge_exception_pending() == 0 {
+        com_raizes(&[erro], || dartforge_exception_throw(erro, 3));
+    }
+    crate::heap::CONTEXTO.with(|c| c.limite_da_pilha.set(limite));
 }
 
 /// Valor corrente de um global `Ref` do programa, mantido como raiz permanente.

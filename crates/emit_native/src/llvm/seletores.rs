@@ -74,12 +74,18 @@ impl LlvmEmitter<'_> {
         let h = hash_seletor(seletor);
         let slot = self.slot_de_cache();
         writeln!(self.out, "  %sic{v} = getelementptr i64, ptr %area, i64 {slot}").unwrap();
-        writeln!(
-            self.out,
-            "  %sf{v} = call ptr @df.seletor(ptr %sic{v}, i64 {r}, i64 {h}, ptr @df.seln.{nome}, i64 {})",
-            seletor.len()
-        )
-        .unwrap();
+        if self.seletor_compacto {
+            // O hash, o nome e o comprimento num descritor estático
+            // (`@df.seld.<k>`): três argumentos no lugar de cinco.
+            writeln!(self.out, "  %sf{v} = call ptr @df.seletor_d(ptr %sic{v}, i64 {r}, ptr @df.seld.{nome})").unwrap();
+        } else {
+            writeln!(
+                self.out,
+                "  %sf{v} = call ptr @df.seletor(ptr %sic{v}, i64 {r}, i64 {h}, ptr @df.seln.{nome}, i64 {})",
+                seletor.len()
+            )
+            .unwrap();
+        }
         writeln!(self.out, "  %v{v} = call i64 %sf{v}(i64 {r}, ptr %sargs{v}, ptr @df.arr.{k})").unwrap();
     }
 
@@ -108,12 +114,18 @@ impl LlvmEmitter<'_> {
         let h = hash_seletor(seletor);
         let slot = self.slot_de_cache();
         writeln!(self.out, "  %sic{v} = getelementptr i64, ptr %area, i64 {slot}").unwrap();
-        writeln!(
-            self.out,
-            "  %sf{v} = call ptr @df.seletor(ptr %sic{v}, i64 {r}, i64 {h}, ptr @df.seln.{nome}, i64 {})",
-            seletor.len()
-        )
-        .unwrap();
+        if self.seletor_compacto {
+            // O hash, o nome e o comprimento num descritor estático
+            // (`@df.seld.<k>`): três argumentos no lugar de cinco.
+            writeln!(self.out, "  %sf{v} = call ptr @df.seletor_d(ptr %sic{v}, i64 {r}, ptr @df.seld.{nome})").unwrap();
+        } else {
+            writeln!(
+                self.out,
+                "  %sf{v} = call ptr @df.seletor(ptr %sic{v}, i64 {r}, i64 {h}, ptr @df.seln.{nome}, i64 {})",
+                seletor.len()
+            )
+            .unwrap();
+        }
         writeln!(self.out, "  %v{v} = call i64 %sf{v}(i64 {r}, ptr {a}, ptr {d})").unwrap();
     }
 
@@ -140,6 +152,15 @@ impl LlvmEmitter<'_> {
                 bytes_llvm(s)
             )
             .unwrap();
+            if self.seletor_compacto {
+                writeln!(
+                    self.out,
+                    "@df.seld.{j} = private unnamed_addr constant {{ i64, ptr, i64 }} {{ i64 {}, ptr @df.seln.{j}, i64 {} }}",
+                    hash_seletor(s),
+                    s.len()
+                )
+                .unwrap();
+            }
         }
         self.out.push('\n');
     }

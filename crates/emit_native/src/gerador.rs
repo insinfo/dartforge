@@ -52,8 +52,14 @@ impl Geracao {
 
     /// A descrição que entra nas chaves de cache.
     pub fn descricao(&self) -> String {
+        // O pipeline trocado para medida (`dartforge_llvm::gerar`) muda o
+        // objeto: entra na chave.
+        let pipeline = match std::env::var("DARTFORGE_PIPELINE_OBJETO") {
+            Ok(p) if self.otimizar && self.formato == Formato::Objeto && !p.is_empty() => format!(" {p}"),
+            _ => String::new(),
+        };
         format!(
-            "{} {}{}{}",
+            "{} {}{}{}{pipeline}",
             if self.otimizar { "O2" } else { "O0" },
             match self.formato {
                 Formato::Objeto => "objeto",

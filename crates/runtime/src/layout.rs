@@ -350,6 +350,8 @@ pub mod contexto {
     /// executável e a DLL do SDK só o runtime ativo vale, §4.10 item 9).
     pub const VERDADEIRO: usize = 360;
     pub const FALSO: usize = 368;
+    /// O limite da pilha nativa da thread (`Contexto::limite_da_pilha`).
+    pub const LIMITE_DA_PILHA: usize = 376;
 
     /// O cursor da TLAB de `w` palavras.
     pub const fn tlab_cursor(w: usize) -> usize {

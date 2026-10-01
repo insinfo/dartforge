@@ -191,6 +191,9 @@ pub fn ligar(ld: &Path, sysroot: &SysrootLinux, l: &Ligacao<'_>) -> Result<(), S
         let cpu = l.cpu.unwrap_or(if cfg!(target_arch = "x86_64") { "x86-64" } else { "generic" });
         cmd.arg("--lto-O2").arg(format!("--lto-partitions={particoes}")).arg(format!("-plugin-opt=mcpu={cpu}"));
         cmd.arg(format!("--thinlto-jobs={}", crate::driver::tarefas_de_geracao()));
+        if let Some(d) = crate::driver::cache_do_thinlto() {
+            cmd.arg(format!("--thinlto-cache-dir={}", d.display()));
+        }
     }
     if l.podar {
         cmd.arg("--gc-sections");

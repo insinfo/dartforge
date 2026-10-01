@@ -1167,11 +1167,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         {
             return self.ctx.te.this.get(&c).map_or(Type::Ref, |&t| self.repr(t));
         }
-        self.ctx
-            .outline
-            .functions
-            .get(fid)
-            .map_or(Type::Ref, |d| self.ctx.to_hir_type(d.return_type))
+        self.ctx.retorno_hir(fid)
     }
 
     /// Chamada direta a uma função do usuário, com `this` quando é membro.
@@ -2217,21 +2213,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return None;
         };
         let lib = self.ctx.program.unit(self.unit_id).library;
-        // `= Alvo` ou `= Alvo.nome` (o parser lê `Alvo.nome` como um nome
-        // de tipo em duas partes).
-        let (classe, nome) = match (&name[..], nome) {
-            ([c, n], None)
-                if matches!(
-                    self.ctx.program.lookup(lib, c.sym).and_then(|b| b.getter),
-                    Some(Element::Class(_))
-                ) =>
-            {
-                (c.sym, Some(n.sym))
-            }
-            (partes, n) => (partes.last()?.sym, n),
+        let classe_local = |s: dartforge_intern::SymbolId| match self.ctx.program.lookup(lib, s).and_then(|b| b.getter) {
+            Some(Element::Class(c)) => Some(c),
+            _ => None,
         };
-        let Some(Element::Class(c)) = self.ctx.program.lookup(lib, classe)?.getter else {
-            return None;
+        let classe_prefixada = |p: dartforge_intern::SymbolId, s: dartforge_intern::SymbolId| {
+            match self.ctx.program.lookup_prefixed(lib, p, s).and_then(|b| b.getter) {
+                Some(Element::Class(c)) => Some(c),
+                _ => None,
+            }
+        };
+        // `= Alvo`, `= Alvo.nome`, `= p.Alvo` e `= p.Alvo.nome` (o parser lê
+        // `Alvo.nome` como um nome de tipo em duas partes, e `p.Alvo.nome`
+        // em três; o `= t.Template.fromSource` do `mustache_template`).
+        let (c, nome) = match (&name[..], nome) {
+            ([c, n], None) if classe_local(c.sym).is_some() => (classe_local(c.sym)?, Some(n.sym)),
+            ([p, c], n) if classe_prefixada(p.sym, c.sym).is_some() => (classe_prefixada(p.sym, c.sym)?, n),
+            ([p, c, n], None) => (classe_prefixada(p.sym, c.sym)?, Some(n.sym)),
+            (partes, n) => (classe_local(partes.last()?.sym)?, n),
         };
         let chave = nome.or_else(|| self.ctx.interner.lookup(""))?;
         self.ctx.program.classes[c.0 as usize].constructors.get(&chave).copied()

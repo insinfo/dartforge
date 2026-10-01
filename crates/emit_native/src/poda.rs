@@ -185,6 +185,27 @@ fn chamada_de_seletor(linha: &str) -> Option<(i64, &str)> {
     Some((h, nome.trim_end_matches(')')))
 }
 
+/// O hash e o nome (`@df.seln.<k>`) do descritor `@df.seld.<k> = …
+/// { i64 <hash>, ptr @df.seln.<k>, i64 <len> }` (o despacho compacto,
+/// `llvm/seletores.rs`).
+fn descritor_de_seletor(resto: &str) -> Option<(i64, &str)> {
+    let valores = resto[resto.find("} {")? + 3..].trim_start();
+    let mut it = valores.split(", ");
+    let h: i64 = it.next()?.strip_prefix("i64 ")?.trim().parse().ok()?;
+    let nome = it.next()?.trim().strip_prefix("ptr @")?;
+    Some((h, nome))
+}
+
+/// O descritor da chamada `@df.seletor_d(ptr …, i64 …, ptr @df.seld.<k>)`.
+fn chamada_de_seletor_compacta(linha: &str) -> Option<&str> {
+    let i = linha.find("@df.seletor_d(")? + "@df.seletor_d(".len();
+    let mut args = linha[i..].split(", ");
+    args.next()?;
+    args.next()?;
+    let d = args.next()?.strip_prefix("ptr @")?;
+    Some(d.trim_end_matches(')'))
+}
+
 /// Uma tabela de métodos lida de uma linha `@X$d = … constant { … } { i64
 /// cid, i64 n, i64 h, ptr @f, … }`: `(cid, [(hash, entrada)])`.
 fn tabela_da_linha(resto: &str) -> Option<(i64, Vec<(i64, String)>)> {
@@ -365,10 +386,11 @@ pub fn resumir(ir: &str, modulo: &str, externas: &[TabelaDoModulo]) -> Resumo {
     // Passo 1: os nomes locais e os textos dos seletores.
     let mut locais: HashSet<&str> = HashSet::new();
     let mut textos_seln: HashMap<&str, String> = HashMap::new();
+    let mut descritores: HashMap<&str, (i64, &str)> = HashMap::new();
     for l in ir.lines() {
         if let Some((n, true)) = nome_do_define(l) {
             locais.insert(n);
-        } else if let Some((n, local, _)) = nome_do_global(l) {
+        } else if let Some((n, local, resto)) = nome_do_global(l) {
             if local {
                 locais.insert(n);
             }
@@ -376,6 +398,10 @@ pub fn resumir(ir: &str, modulo: &str, externas: &[TabelaDoModulo]) -> Resumo {
                 && let Some(t) = texto_de_constante(l)
             {
                 textos_seln.insert(n, t);
+            } else if n.starts_with("df.seld.")
+                && let Some(d) = descritor_de_seletor(resto)
+            {
+                descritores.insert(n, d);
             }
         }
     }
@@ -390,9 +416,14 @@ pub fn resumir(ir: &str, modulo: &str, externas: &[TabelaDoModulo]) -> Resumo {
                 r.definicoes.push(atual.take().expect("definição corrente"));
                 continue;
             }
-            if l.contains("@df.seletor(")
-                && let Some((h, seln)) = chamada_de_seletor(l)
-            {
+            let chamada = if l.contains("@df.seletor(") {
+                chamada_de_seletor(l)
+            } else if l.contains("@df.seletor_d(") {
+                chamada_de_seletor_compacta(l).and_then(|d| descritores.get(d).copied())
+            } else {
+                None
+            };
+            if let Some((h, seln)) = chamada {
                 d.chama.push(h);
                 if let Some(t) = textos_seln.get(seln) {
                     if vistos_seletores.insert(h) {
@@ -628,6 +659,10 @@ pub struct Estatisticas {
     pub pares_vivos: usize,
     pub nos: usize,
     pub nos_vivos: usize,
+    /// Definições do programa tiradas antes da geração (§3.12).
+    pub funcoes_podadas: usize,
+    pub globais_podados: usize,
+    pub bytes_podados: usize,
     pub tempo: std::time::Duration,
 }
 
@@ -672,8 +707,27 @@ pub fn montar(ir: &str, resumos: &[&Resumo], podar: bool) -> Result<Montagem, St
         resumos.iter().flat_map(|r| r.externas.iter().map(move |&e| r.nomes[e as usize].as_str())).collect();
     let mut declarados: HashSet<String> = HashSet::new();
     let mut saida = String::with_capacity(ir.len() + ir.len() / 4);
+    // Com a poda, as definições do programa que o ponto fixo não alcançou
+    // saem já aqui (§3.12): a LTO e o `/OPT:REF` as tirariam depois, mas só
+    // depois de otimizá-las e gerá-las — no new_sali/backend, a maior parte
+    // do IR.
+    let morto = |n: &str, local: bool| -> bool {
+        if !podar {
+            return false;
+        }
+        let chave = if local { format!("{PROGRAMA}#{n}") } else { n.to_string() };
+        indice.get(chave.as_str()).is_some_and(|&no| !alcance.vivo(no))
+    };
+    let mut pulando = false;
     for l in ir.split_inclusive('\n') {
         let sem_fim = l.trim_end_matches(['\n', '\r']);
+        if pulando {
+            est.bytes_podados += l.len();
+            if sem_fim == "}" {
+                pulando = false;
+            }
+            continue;
+        }
         if let Some(d) = sem_fim.strip_prefix("declare ") {
             if let Some(n) = d.find('@').and_then(|i| citados(&d[i..]).next()) {
                 if externas.contains(n) {
@@ -681,11 +735,23 @@ pub fn montar(ir: &str, resumos: &[&Resumo], podar: bool) -> Result<Montagem, St
                 }
                 declarados.insert(n.to_string());
             }
-        } else if let Some((n, _)) = nome_do_define(sem_fim) {
+        } else if let Some((n, local)) = nome_do_define(sem_fim) {
+            if morto(n, local) {
+                est.funcoes_podadas += 1;
+                est.bytes_podados += l.len();
+                pulando = !sem_fim.trim_end().ends_with('}');
+                continue;
+            }
             declarados.insert(n.to_string());
         } else if let Some((n, local, resto)) = nome_do_global(sem_fim) {
+            let tabela = n.starts_with("df.mt.") && n.ends_with("$d");
+            if !tabela && morto(n, local) {
+                est.globais_podados += 1;
+                est.bytes_podados += l.len();
+                continue;
+            }
             declarados.insert(n.to_string());
-            if n.starts_with("df.mt.") && n.ends_with("$d") {
+            if tabela {
                 let (cid, pares) = tabela_da_linha(resto).ok_or_else(|| format!("tabela de métodos ilegível no programa: {n}"))?;
                 let pares: Vec<(i64, String)> = pares.into_iter().map(|(h, f)| (h, nome_llvm(&f))).collect();
                 let chave = if local { format!("{PROGRAMA}#{n}") } else { n.to_string() };
@@ -795,13 +861,16 @@ pub fn montar_producao(ir: &str, arquivos: &[PathBuf], timings: bool) -> Result<
     if timings {
         let e = m.estatisticas;
         eprintln!(
-            "  Poda:      {} de {} tabelas vivas, {} de {} pares, {} de {} símbolos ({:?}){}",
+            "  Poda:      {} de {} tabelas vivas, {} de {} pares, {} de {} símbolos; fora do IR: {} funções, {} globais, {} MB ({:?}){}",
             e.tabelas_vivas,
             e.tabelas,
             e.pares_vivos,
             e.pares,
             e.nos_vivos,
             e.nos,
+            e.funcoes_podadas,
+            e.globais_podados,
+            e.bytes_podados / 1_000_000,
             e.tempo,
             if podar { "" } else { " [sem poda]" }
         );
@@ -899,6 +968,43 @@ mod testes {
         assert!(!m.alcance.vivo(m.alcance.nomes.iter().position(|n| n == "C.morto").unwrap() as u32));
         let e = m.estatisticas;
         assert_eq!((e.tabelas, e.tabelas_vivas, e.pares, e.pares_vivos), (2, 1, 3, 1));
+    }
+
+    #[test]
+    fn chamada_compacta_le_o_seletor_do_descritor() {
+        let ir = format!(
+            "@df.seln.0 = private unnamed_addr constant [7 x i8] c\"tc:usado\"\n\
+             @df.seld.0 = private unnamed_addr constant {{ i64, ptr, i64 }} {{ i64 {}, ptr @df.seln.0, i64 8 }}\n\
+             define i32 @main() {{\n  %f = call ptr @df.seletor_d(ptr %ic, i64 %o, ptr @df.seld.0)\n  ret i32 0\n}}\n",
+            h("tc:usado")
+        );
+        let r = resumir(&ir, "programa", &[]);
+        let main = r.definicoes.iter().find(|d| r.nomes[d.nome as usize] == "main").unwrap();
+        assert!(main.chama.contains(&h("tc:usado")), "{:?}", main.chama);
+        // A volta do seletor tipado.
+        assert!(main.chama.contains(&h("c:usado")), "{:?}", main.chama);
+        // O descritor é citado (fica vivo com quem chama).
+        assert!(main.refs.iter().any(|&i| r.nomes[i as usize] == "programa#df.seld.0"));
+    }
+
+    #[test]
+    fn definicoes_mortas_do_programa_saem_do_ir() {
+        let s = sdk();
+        let m = montar(&programa("c:usado"), &[&s], true).unwrap();
+        let ir = &m.ir;
+        // `df.mt.P` (ninguém cita) e o par dela saem; `main` e o `df.classe`
+        // local não citado também: só o que o ponto fixo alcança fica.
+        assert!(!ir.contains("define ptr @df.mt.P()"), "{ir}");
+        assert!(!ir.contains("define i64 @P.nunca$c"), "{ir}");
+        assert!(!ir.contains("define internal i64 @df.classe"), "{ir}");
+        assert!(ir.contains("define i32 @main()"), "{ir}");
+        assert!(ir.contains("@df.seln.0 = private"), "o texto do seletor que main cita fica: {ir}");
+        let e = m.estatisticas;
+        assert_eq!(e.funcoes_podadas, 3, "{ir}");
+        // Sem a poda, nada sai.
+        let m = montar(&programa("c:usado"), &[&s], false).unwrap();
+        assert!(m.ir.contains("define i64 @P.nunca$c"));
+        assert_eq!(m.estatisticas.funcoes_podadas, 0);
     }
 
     #[test]

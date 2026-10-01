@@ -136,7 +136,11 @@ pub fn compile_and_link(
     // Produção com o SDK da fonte: bitcode, otimizado junto com o do SDK na
     // ligação (LTO).
     let gerador = Gerador::escolher(&options.clang);
-    let geracao = Geracao { cpu: options.cpu, ..Geracao::do_programa(options.optimize, producao) };
+    // `DARTFORGE_PRODUCAO_SEM_LTO=1` (medida, docs/NATIVO-PRODUCAO-GRANDE.md
+    // §3.2): as partes do programa vão como objetos `-O2`, e só o bitcode do
+    // SDK passa pela LTO do ligador.
+    let sem_lto = producao && std::env::var("DARTFORGE_PRODUCAO_SEM_LTO").is_ok_and(|v| v == "1");
+    let geracao = Geracao { cpu: options.cpu, ..Geracao::do_programa(options.optimize, producao && !sem_lto) };
     if manter_ir {
         // A cópia em `.df_tmp` só existe para quem pediu DARTFORGE_KEEP_IR
         // (o `determinismo --executar` do harness lê essas cópias).
@@ -155,7 +159,17 @@ pub fn compile_and_link(
         && llvm_ir.len() > limiar
     {
         let plano = crate::particao::planejar(llvm_ir, alvo);
-        let objetos = gerar_partes(&plano, &gerador, geracao, cache, &staging, &stem)?;
+        // Produção em partes: o bitcode tem de levar o resumo do ThinLTO,
+        // que só o Clang escreve (o gerador embutido não: o `lld` faria a
+        // LTO completa num módulo só, numa thread — 1 600 s no
+        // new_sali/backend, docs/NATIVO-PRODUCAO-GRANDE.md §1.2).
+        // `DARTFORGE_GERADOR` escolhe à mão.
+        let gerador_das_partes = if producao && !sem_lto && std::env::var_os("DARTFORGE_GERADOR").is_none() {
+            Gerador::Clang(options.clang.clone())
+        } else {
+            gerador.clone()
+        };
+        let objetos = gerar_partes(&plano, &gerador_das_partes, geracao, cache, &staging, &stem)?;
         drop(plano);
         let clang_duration = t_clang.elapsed();
         let t_link = Instant::now();
@@ -238,6 +252,19 @@ pub fn compile_and_link(
         link: link_duration,
         objeto_do_cache: matches!(do_cache, Some((_, _, true))),
     })
+}
+
+/// O diretório do cache do ThinLTO da ligação de produção (ao lado do cache
+/// de objetos); `None` com `DARTFORGE_SEM_CACHE_THINLTO=1` ou sem cache de
+/// objetos.
+pub fn cache_do_thinlto() -> Option<PathBuf> {
+    if std::env::var("DARTFORGE_SEM_CACHE_THINLTO").is_ok_and(|v| v == "1") {
+        return None;
+    }
+    CacheObjeto::do_ambiente()?;
+    let d = dir_cache_nativo().join("thinlto");
+    std::fs::create_dir_all(&d).ok()?;
+    Some(d)
 }
 
 /// Quantas gerações de código (partes, ou módulos do ThinLTO no ligador) ao
@@ -475,6 +502,23 @@ fn ligar_antigo_com_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &L
                 }
             }
             cmd.args(["-fuse-ld=lld", "-flto=thin", "-O2"]);
+            // O cache do ThinLTO: numa religação, só os módulos que mudaram
+            // (ou cujas importações mudaram) passam de novo pela otimização
+            // e pela geração de código (docs/NATIVO-PRODUCAO-GRANDE.md).
+            if let Some(d) = cache_do_thinlto() {
+                match sistema {
+                    Sistema::Windows => {
+                        cmd.arg(format!("-Wl,/lldltocache:{}", d.display()));
+                        cmd.arg("-Wl,/lldltocachepolicy:cache_size_bytes=4g:prune_after=168h");
+                    }
+                    Sistema::Linux => {
+                        cmd.arg(format!("-Wl,--thinlto-cache-dir={}", d.display()));
+                    }
+                    Sistema::MacOs => {
+                        cmd.arg(format!("-Wl,-cache_path_lto,{}", d.display()));
+                    }
+                }
+            }
             // A CPU-alvo da geração de código da LTO (`--cpu`).
             if let Some(c) = cpu {
                 cmd.arg(format!("-march={}", c.nome()));
