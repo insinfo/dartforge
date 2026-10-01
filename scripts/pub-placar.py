@@ -95,13 +95,33 @@ def chave(trabalho, nome, arq):
     return nome + '/' + os.path.relpath(arq, os.path.join(trabalho, 'pkgs', nome)).replace(os.sep, '/')
 
 
+# Teto do RSS somado de tudo o que um programa abriu (o vigia de `rodar`):
+# acima dele o grupo inteiro morre e o estado é `memoria`. Os limites por
+# processo (`RLIMIT_DATA`/`RLIMIT_AS`) não pegam a soma de vários processos.
+TETO_RSS_MB = 4096
+# A saída guardada de cada execução (o resto é descartado: um programa em
+# laço imprimindo enchia a memória do próprio harness).
+SAIDA_MAX = 2 * 1024 * 1024
+# Maior arquivo que um programa pode gravar (`RLIMIT_FSIZE`): o disco do
+# runner é pequeno.
+ARQUIVO_MAX = 512 * 1024 * 1024
+# Mais processos que isto num grupo é o programa se reabrindo sem fim: um
+# teste que roda `Platform.executable` (na VM, o `dart`; num executável AOT,
+# ele mesmo) — `http_parser/test/example_test.dart`,
+# `io/test/process_manager_test.dart`, `pubspec_parse/test/dependency_test.dart`
+# derrubavam o runner do CI assim.
+MAX_PROCESSOS = 64
+
+
 def limitar_memoria(mb):
-    """No Linux, o `preexec_fn` do processo: sessão própria (o limite de
-    tempo mata o grupo inteiro — o programa que abre processos filhos, o
-    Clang e o ligador do dartforge) e `RLIMIT_DATA` de `mb` MiB (o heap e o
-    `mmap` gravável; a reserva de endereços da VM não conta). O programa que
-    estoura falha sozinho, com estado `memoria`, em vez de o OOM do sistema
-    derrubar o runner."""
+    """No Linux, o `preexec_fn` do processo: sessão própria (o fim da
+    execução e o limite de tempo matam o grupo inteiro — o programa que abre
+    processos filhos, o Clang e o ligador do dartforge), `RLIMIT_DATA` de
+    `mb` MiB (o heap e o `mmap` gravável), `RLIMIT_AS` folgado (3×, no
+    mínimo 8 GiB: a reserva de endereços da VM e do runtime não conta
+    memória de verdade) e `RLIMIT_FSIZE`. O programa que estoura falha
+    sozinho, com estado `memoria`, em vez de o OOM do sistema derrubar o
+    runner."""
     if os.name == 'nt':
         return None
     import resource
@@ -111,31 +131,130 @@ def limitar_memoria(mb):
         if mb:
             b = mb * 1024 * 1024
             resource.setrlimit(resource.RLIMIT_DATA, (b, b))
+            a = max(3 * b, 8 * 1024 * 1024 * 1024)
+            resource.setrlimit(resource.RLIMIT_AS, (a, a))
+        resource.setrlimit(resource.RLIMIT_FSIZE, (ARQUIVO_MAX, ARQUIVO_MAX))
     return aplicar
 
 
-def rodar(cmd, cwd, limite, env, memoria_mb=0):
+def processos_do_grupo(sid):
+    """Os processos da sessão `sid` e os descendentes deles (um neto que
+    abriu sessão própria continua sendo seguido pelo pai), com o RSS somado
+    em bytes. Lê o `/proc`. Só o que está vivo agora: um pid guardado de uma
+    leitura antiga pode já ser de outro processo."""
+    pais = {}
+    sessao = {}
+    rss = {}
+    pagina = os.sysconf('SC_PAGE_SIZE')
+    for d in os.listdir('/proc'):
+        if not d.isdigit():
+            continue
+        try:
+            with open('/proc/%s/stat' % d) as f:
+                campos = f.read().rsplit(')', 1)[1].split()
+        except OSError:
+            continue
+        pid = int(d)
+        pais[pid] = int(campos[1])
+        sessao[pid] = int(campos[3])
+        rss[pid] = int(campos[21]) * pagina
+    grupo = {pid for pid, s in sessao.items() if s == sid}
+    mudou = True
+    while mudou:
+        mudou = False
+        for pid, pai in pais.items():
+            if pid not in grupo and pai in grupo:
+                grupo.add(pid)
+                mudou = True
+    return grupo, sum(rss.get(pid, 0) for pid in grupo)
+
+
+def matar(pids):
+    import signal
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+
+
+def ler_saida(f):
+    f.seek(0)
+    b = f.read(SAIDA_MAX)
+    if f.read(1):
+        b += b'\n[harness: saida cortada em %d bytes]\n' % SAIDA_MAX
+    return b.decode('utf8', 'replace')
+
+
+def rodar(cmd, cwd, limite, env, memoria_mb=0, rotulo=''):
+    """Roda `cmd` com os limites; devolve `(rc, saida, erro, segundos)`. O
+    `rc` é `'timeout'` no limite de tempo e `'memoria'` quando o vigia mata
+    o grupo pelo RSS somado. No fim (normal ou não), todo processo que o
+    programa deixou para trás morre."""
+    import tempfile
+    import threading
+    print('iniciando %s %s' % (rotulo, ' '.join(os.path.basename(c) if i == 0 else c for i, c in enumerate(cmd))),
+          flush=True)
     t = time.time()
-    p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
-                         preexec_fn=limitar_memoria(memoria_mb))
-    try:
-        out, err = p.communicate(timeout=limite)
-        return p.returncode, out.decode('utf8', 'replace'), err.decode('utf8', 'replace'), time.time() - t
-    except subprocess.TimeoutExpired:
+    with tempfile.TemporaryFile() as fo, tempfile.TemporaryFile() as fe:
+        p = subprocess.Popen(cmd, cwd=cwd, stdout=fo, stderr=fe, stdin=subprocess.DEVNULL, env=env,
+                             preexec_fn=limitar_memoria(memoria_mb))
+        estouro = []
+        if os.name != 'nt':
+            parar = threading.Event()
+
+            def vigiar():
+                while not parar.wait(0.5):
+                    try:
+                        grupo, total = processos_do_grupo(p.pid)
+                    except OSError:
+                        continue
+                    if total > TETO_RSS_MB * 1024 * 1024:
+                        estouro.append('memoria')
+                        print('  vigia: %d MiB no grupo de %s; matando' % (total >> 20, rotulo), flush=True)
+                    elif len(grupo) > MAX_PROCESSOS:
+                        estouro.append('processos')
+                        print('  vigia: %d processos no grupo de %s; matando' % (len(grupo), rotulo), flush=True)
+                    if estouro:
+                        # Até o grupo acabar: os que nascem entre uma
+                        # leitura e a morte do pai também.
+                        for _ in range(20):
+                            matar(grupo)
+                            try:
+                                grupo, _ = processos_do_grupo(p.pid)
+                            except OSError:
+                                break
+                            if not grupo:
+                                break
+                        return
+            vigia = threading.Thread(target=vigiar, daemon=True)
+            vigia.start()
+        try:
+            p.wait(timeout=limite)
+            rc = p.returncode
+        except subprocess.TimeoutExpired:
+            rc = 'timeout'
         if os.name == 'nt':
-            subprocess.run(['taskkill', '/F', '/T', '/PID', str(p.pid)], capture_output=True)
+            if rc == 'timeout':
+                subprocess.run(['taskkill', '/F', '/T', '/PID', str(p.pid)], capture_output=True)
+                p.wait()
         else:
-            import signal
+            parar.set()
+            vigia.join()
+            # O que sobrou: a sessão e os descendentes dela.
             try:
-                os.killpg(p.pid, signal.SIGKILL)
+                grupo, _ = processos_do_grupo(p.pid)
             except OSError:
-                pass
-        out, err = p.communicate()
-        return 'timeout', out.decode('utf8', 'replace'), err.decode('utf8', 'replace'), time.time() - t
+                grupo = set()
+            matar(grupo - {os.getpid()})
+            p.wait()
+        if estouro:
+            rc = estouro[0]
+        return rc, ler_saida(fo), ler_saida(fe), time.time() - t
 
 
 def sem_memoria(rc, texto):
-    return rc in (-9, 137) or re.search(
+    return rc == 'memoria' or rc in (-9, 137) or re.search(
         r'out of memory|Out of memory|memory allocation of|Cannot allocate memory|bad_alloc|Exhausted heap space', texto)
 
 
@@ -152,9 +271,9 @@ def um(a, cfg, k, nome, arq, env):
     cwd = os.path.join(a.trabalho, 'pkgs', nome)
     res = {'k': k}
     rc, vout, verr, _ = rodar([a.dart, '--enable-asserts', '--packages=' + cfg, arq], cwd, a.tempo_execucao, env,
-                              a.memoria_execucao)
+                              a.memoria_execucao, k + ' [vm]')
     res['vm_rc'] = rc
-    if rc == 'timeout' or rc == 254 or (rc != 0 and sem_memoria(rc, verr)):
+    if rc in ('timeout', 'memoria', 'processos') or rc == 254 or (rc != 0 and sem_memoria(rc, verr)):
         res['estado'] = 'vm-invalido'
         res['erro'] = ((verr.strip().splitlines() or ['timeout na VM'])[0])[:300]
         return res
@@ -167,7 +286,7 @@ def um(a, cfg, k, nome, arq, env):
     # desenvolvimento dela.
     env_df['DARTFORGE_BUILD_COMPILANDO_EXECUTOR'] = '1'
     rc, out, err, dt = rodar([a.dartforge, 'aot', arq, exe, '--packages', cfg], cwd, a.tempo_compilacao, env_df,
-                             a.memoria_compilacao)
+                             a.memoria_compilacao, k + ' [compilacao]')
     res['t_compilacao'] = round(dt, 1)
     if rc != 0 and sem_memoria(rc, err + out):
         res['estado'] = 'memoria'
@@ -184,8 +303,12 @@ def um(a, cfg, k, nome, arq, env):
     # e `Isolate.resolvePackageUriSync` do executável leem este arquivo.
     env_exe = dict(env)
     env_exe['DARTFORGE_PACKAGE_CONFIG'] = cfg
-    rc, out, err, dt = rodar([exe], cwd, a.tempo_execucao, env_exe, a.memoria_execucao)
+    rc, out, err, dt = rodar([exe], cwd, a.tempo_execucao, env_exe, a.memoria_execucao, k + ' [nativo]')
     res['t_execucao'] = round(dt, 1)
+    if rc == 'processos':
+        res['estado'] = 'processos'
+        res['erro'] = 'mais de %d processos (o programa reabre Platform.executable, que no AOT é ele mesmo)' % MAX_PROCESSOS
+        return res
     if rc != 0 and rc != res['vm_rc'] and sem_memoria(rc, err):
         res['estado'] = 'memoria'
         res['erro'] = 'memória esgotada na execução (limite %d MiB)' % a.memoria_execucao
