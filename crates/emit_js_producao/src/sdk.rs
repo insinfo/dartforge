@@ -892,6 +892,8 @@ pub fn seletores_dinamicos_por_especie(src: &str) -> (Vec<String>, Vec<String>) 
                     k += 1;
                 }
                 let s = &src[ini..k];
+                // Nome privado do perfil de produção (`"_n$1c"`): o seletor é `_n`.
+                let s = dartforge_emit_js::nome_dart_de_privado(s).unwrap_or(s);
                 if !s.is_empty() && s.len() < 64 && e_nome_de_seletor(s) {
                     if escrita {
                         escritas.push(s.to_string());

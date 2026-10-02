@@ -15,6 +15,26 @@ pub mod pattern;
 pub mod sdk_proprio;
 pub mod tipo_extensao;
 
+/// A propriedade de um nome privado (ou de um armazenamento de campo,
+/// `C.x`/`_#C#x`) de uma biblioteca do programa no perfil de produção
+/// ([`module::ModState::private_sym`]): o nome com `.`/`#` trocados por
+/// `$` e o rótulo da biblioteca no fim. Armazenamento começa com `$`.
+pub fn nome_privado_de_producao(name: &str, lib: dartforge_elements::model::LibraryId) -> String {
+    let seguro: String = name.chars().map(|c| if c == '.' || c == '#' { '$' } else { c }).collect();
+    let prefixo = if seguro.starts_with('_') { "" } else { "$" };
+    format!("{prefixo}{seguro}{}", tag_de_receita(lib))
+}
+
+/// O nome Dart de uma propriedade de [`nome_privado_de_producao`] (sem o
+/// rótulo), quando o texto tem a forma dela.
+pub fn nome_dart_de_privado(s: &str) -> Option<&str> {
+    if !s.starts_with('_') {
+        return None;
+    }
+    let (base, tag) = s.rsplit_once('$')?;
+    (!base.is_empty() && !tag.is_empty() && tag.bytes().all(|c| c.is_ascii_digit() || c.is_ascii_lowercase())).then_some(base)
+}
+
 /// Rótulo curto da biblioteca nas receitas rti do perfil de produção
 /// (`Ctx::class_recipe` no modo SDK): `$` + o id em base 36. Começa com
 /// `$`, que nenhum identificador de biblioteca do SDK usa.
@@ -108,7 +128,7 @@ impl<'a> Analise<'a> {
                 }
             }
         }
-        let tardios = sdk.contains("dart.lateField(") || emitido.modulos.iter().any(|(_, t)| t.contains("dart.lateField("));
+        let tardios = sdk.contains("dart.lateFields(") || emitido.modulos.iter().any(|(_, t)| t.contains("dart.lateFields("));
         let bootstrap = sdk_proprio::bootstrap(&ctx, &dartx, tardios);
         Ok(EmitidoComSdk { emitido, sdk, bootstrap })
     }

@@ -44,6 +44,9 @@ const PROTOCOLO_JS: &[&str] = &[
 pub struct Nomes {
     pub renomeaveis: HashSet<String>,
     pub reservados: HashSet<String>,
+    /// Rótulos das bibliotecas do programa (`dartforge_emit_js::tag_de_receita`):
+    /// as propriedades de nomes privados terminam com eles.
+    pub tags: HashSet<String>,
 }
 
 fn anotacoes_de_interop(p: &Program, i: &Interner, c: ClassId) -> bool {
@@ -61,6 +64,11 @@ pub fn calcular(a: &dartforge_emit_js::Analise<'_>, nomes_js: &HashSet<String>) 
     let (p, i, table) = (a.program, a.interner, a.table);
     let ctx = a.ctx();
     let mut n = Nomes::default();
+    for (k, l) in p.libraries.iter().enumerate() {
+        if !l.is_sdk {
+            n.tags.insert(dartforge_emit_js::tag_de_receita(dartforge_elements::model::LibraryId(k as u32)));
+        }
+    }
     // Interop: classes `@JS`, tipos de extensão (os do `package:web` são o
     // DOM) e as anotadas como nativas ou exportadas.
     let interop: Vec<bool> = (0..p.classes.len())
@@ -108,7 +116,10 @@ pub fn calcular(a: &dartforge_emit_js::Analise<'_>, nomes_js: &HashSet<String>) 
         } else {
             continue;
         };
-        if f.external || de_interop(f.class) {
+        // `external` do SDK com *patch* (`unsafeCast`, `identical`) é Dart
+        // comum: o corpo vem do patch, nada do JS o chama pelo nome.
+        let externo_js = f.external && !(p.library(f.library).is_sdk && f.patched_by.is_some());
+        if externo_js || de_interop(f.class) {
             n.reservados.insert(js);
             n.reservados.insert(nome.to_string());
         } else {
@@ -153,7 +164,7 @@ pub fn calcular(a: &dartforge_emit_js::Analise<'_>, nomes_js: &HashSet<String>) 
     }
     // Os auxiliares que o *bootstrap* e o emissor penduram em `dart` e em
     // cada biblioteca: nomes do JS gerado, chamados só pelo próprio texto.
-    for x in ["privateName", "lateField", "$constCache", "$C"] {
+    for x in ["privateName", "lateFields", "$constCache", "$C"] {
         n.renomeaveis.insert(x.to_string());
     }
     n.reservados.extend(nomes_js.iter().cloned());

@@ -146,8 +146,10 @@ fn nomes_dinamicos(textos: &[(String, String)]) -> HashSet<String> {
                     out.insert(n.to_string());
                 } else if a.len() >= 2 && (a.starts_with('"') && a.ends_with('"') || a.starts_with('\'') && a.ends_with('\'')) {
                     // Operadores (`dsend(a, "+", [b])`), que a extração por
-                    // identificador não aceita.
-                    out.insert(a[1..a.len() - 1].to_string());
+                    // identificador não aceita, e nomes privados do programa
+                    // (`"_n$1c"` → `_n`).
+                    let s = &a[1..a.len() - 1];
+                    out.insert(dartforge_emit_js::nome_dart_de_privado(s).unwrap_or(s).to_string());
                 }
             }
         }

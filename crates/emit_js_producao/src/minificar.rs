@@ -370,7 +370,15 @@ struct OcorrenciasDeString(std::collections::HashMap<String, Vec<(u32, u32)>>);
 
 impl<'a> oxc_ast_visit::Visit<'a> for OcorrenciasDeString {
     fn visit_string_literal(&mut self, it: &oxc_ast::ast::StringLiteral<'a>) {
-        self.0.entry(it.value.as_str().to_string()).or_default().push((it.span.start, it.span.end));
+        // Com forma de identificador fica literal: no acesso `x["_n$1c"]` a
+        // compressão o troca por `x._n$1c`, que o renomeio de propriedades
+        // encurta — uma variável no lugar impediria as duas coisas.
+        let v = it.value.as_str();
+        let mut cs = v.chars();
+        if cs.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$') && cs.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$') {
+            return;
+        }
+        self.0.entry(v.to_string()).or_default().push((it.span.start, it.span.end));
     }
     fn visit_property_key(&mut self, it: &oxc_ast::ast::PropertyKey<'a>) {
         if matches!(it, oxc_ast::ast::PropertyKey::StringLiteral(_)) {
@@ -461,16 +469,18 @@ pub fn minificar_com_propriedades(js: &str, nomes: &crate::propriedades::Nomes) 
         return Err(format!("oxc não leu o arquivo de produção: {e}"));
     }
     let mut programa = lido.program;
-    // Primeiro a compressão (código morto, dobra de constantes) — as
-    // *strings* de declarações mortas (`var x = dart.privateName(L, "_n")`
-    // sem uso) somem antes de reservar nomes. `DARTFORGE_JSPROD_COMPRIMIR=0`
-    // desliga.
+    // As *strings* com forma de identificador são lidas **antes** da
+    // compressão: ela junta listas de *strings* (`["a","b"]` vira
+    // `"a.b".split(".")` no `defineExtensionAccessors`), e o nome some do
+    // texto sem deixar de ser lido em execução. E de novo depois, para o que
+    // ela criar. `DARTFORGE_JSPROD_COMPRIMIR=0` desliga a compressão.
+    let mut strings = StringsIdentificador(std::collections::HashSet::new());
+    strings.visit_program(&programa);
     if std::env::var("DARTFORGE_JSPROD_COMPRIMIR").map_or(true, |v| v != "0") {
         let mut c = oxc_minifier::CompressOptions::smallest();
         c.treeshake.manual_pure_functions = ["dart.privateName", "dart.fnType", "dart.gFnType", "t$R"].iter().map(|s| s.to_string()).collect();
         let _ = Minifier::new(MinifierOptions { mangle: None, mangle_properties: None, compress: Some(c) }).minify(&alocador, &mut programa);
     }
-    let mut strings = StringsIdentificador(std::collections::HashSet::new());
     strings.visit_program(&programa);
     let mut livres: Vec<&str> = nomes
         .renomeaveis
@@ -495,7 +505,10 @@ pub fn minificar_com_propriedades(js: &str, nomes: &crate::propriedades::Nomes) 
         let candidatos: Vec<String> = sonda.assign().keys().map(|k| k.as_str().to_string()).collect();
         let mut o = base;
         for c in candidatos {
-            if !livres.contains(c.as_str()) {
+            // Propriedade de nome privado do programa (`_x$1c`, `$C$x$1c`):
+            // gerada pelo emissor, só citada pelo próprio texto.
+            let privado = c.rsplit_once('$').is_some_and(|(b, t)| !b.is_empty() && nomes.tags.contains(&format!("${t}")));
+            if !livres.contains(c.as_str()) && !(privado && !nomes.reservados.contains(&c) && !strings.0.contains(&c)) {
                 o.reserved.insert(c.as_str().into());
             }
         }

@@ -913,16 +913,17 @@ as receitas curtas, os `assert` desligados e a compressão do `oxc`
 
 | programa | antes | agora | `dart2js -O4` |
 | --- | ---: | ---: | ---: |
-| `01_print` | 1.370/176 KB | **176/41 KB** | 35/11,5 KB |
-| `limitless_ui` | 45,1 MB | **7,0/1,58 MB** | 4,5/1,2 MB |
-| `new_sali` | — | **12,7/2,74 MB** | 7,6/2,0 MB |
+| `01_print` | 1.370/176 KB | **172/38 KB** | 35/11,5 KB |
+| `limitless_ui` | 45,1 MB | **7,2/1,45 MB** | 4,5/1,2 MB |
+| `new_sali` | — | **12,8/2,56 MB** | 7,6/2,0 MB |
 
 Tempo de compilação: o `new_sali` leva 35–45 s, contra 57 s do `dart2js`
 (o mundo fechado caiu de 707 s para cerca de 1 s), e o `limitless_ui`
 leva 13 s.
 
 Pendência: o tamanho, que ainda está 1,7× acima do `dart2js` em bruto e
-1,35× em gzip no `new_sali`.
+1,27× em gzip no `new_sali`. O que falta é mudança de contrato do emissor
+(`docs/JS-PRODUCAO-TAMANHO.md` §7).
 
 ### 1.3 Latência e memória — `crates/dev`
 

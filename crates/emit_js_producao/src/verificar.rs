@@ -389,6 +389,22 @@ fn seletores_do_texto(texto: &str, leituras: &mut HashSet<String>, escritas: &mu
                 }
                 i = f;
             }
+            // Nome privado do programa no perfil de produção: `x["_n$1c"]`
+            // (`dartforge_emit_js::nome_privado_de_producao`).
+            b'[' if i + 2 < b.len() && b[i + 1] == b'"' && b[i + 2] == b'_' => {
+                let ini = i + 2;
+                let mut f = ini;
+                while f < b.len() && b[f] != b'"' && b[f] != b'\n' {
+                    f += 1;
+                }
+                if b.get(f + 1) == Some(&b']') {
+                    if let Some(n) = dartforge_emit_js::nome_dart_de_privado(&texto[ini..f]) {
+                        let e = especie_apos(b, f + 2);
+                        registra(n, e, leituras, escritas);
+                    }
+                }
+                i = f + 1;
+            }
             b'[' if i + 2 < b.len() && (b[i + 1] == b'$' || b[i + 1] == b'_' || b[i + 1].is_ascii_alphabetic()) => {
                 let f = ident_em(b, i + 1);
                 if b.get(f) == Some(&b']') {

@@ -91,6 +91,27 @@ pub struct ModoSdk {
     /// cadeia de superclasses e mixins) e as classes usadas como mixin:
     /// [`campo_nao_virtual`], calculado na primeira consulta.
     pub virtualidade: std::cell::OnceCell<(HashMap<ClassId, HashSet<dartforge_intern::SymbolId>>, HashSet<ClassId>)>,
+    /// Nomes simples de classe que se repetem no programa ([`precisa_uri_da_biblioteca`]).
+    pub nomes_repetidos: std::cell::OnceCell<HashSet<dartforge_intern::SymbolId>>,
+}
+
+/// `dart.setLibraryUri(C, uri)` só é lido pela mensagem de erro de `as`
+/// quando os dois tipos têm o mesmo nome (`errors.dart:110-117`): no perfil
+/// de produção ele sai só para as classes cujo nome simples se repete.
+pub fn precisa_uri_da_biblioteca(ctx: &Ctx, c: ClassId) -> bool {
+    let Some(s) = ctx.sdk.as_ref() else { return true };
+    let p = ctx.program;
+    let repetidos = s.nomes_repetidos.get_or_init(|| {
+        let mut vistos: HashSet<dartforge_intern::SymbolId> = HashSet::new();
+        let mut rep: HashSet<dartforge_intern::SymbolId> = HashSet::new();
+        for k in p.classes.iter() {
+            if !vistos.insert(k.name) {
+                rep.insert(k.name);
+            }
+        }
+        rep
+    });
+    repetidos.contains(&p.class(c).name)
 }
 
 /// Campo público de instância que nenhuma classe do programa sobrescreve nem
@@ -215,6 +236,7 @@ impl ModoSdk {
             sem_asserts_do_sdk: true,
             patches: HashMap::new(),
             virtualidade: std::cell::OnceCell::new(),
+            nomes_repetidos: std::cell::OnceCell::new(),
         };
         // Intrínsecos, por (biblioteca, nome).
         for (i, f) in p.functions.iter().enumerate() {
@@ -1178,12 +1200,17 @@ pub fn bootstrap(ctx: &Ctx, dartx: &BTreeSet<String>, campos_tardios: bool) -> S
     if campos_tardios {
         // `late` sem inicializador (`module.rs`, `tardios`): o mesmo par
         // `get`/`set` que a classe escreveria, definido uma vez por campo.
-        out.push_str("dart.lateField = function(p, k, s, n, f) {
-  Object.defineProperty(p, k, {
-    get() { let t = this[s]; return t == null ? dart.throw(new _internal.LateError.fieldNI(n)) : t; },
-    set: f ? function(v) { if (this[s] != null) dart.throw(new _internal.LateError.fieldAI(n)); this[s] = v; } : function(v) { this[s] = v; },
-    configurable: true
-  });
+        out.push_str("dart.lateFields = function(p, fin, outros) {
+  for (const [o, f] of [[fin, true], [outros, false]]) {
+    for (const k of Reflect.ownKeys(o)) {
+      const n = o[k], s = Symbol(n);
+      Object.defineProperty(p, k, {
+        get() { let t = this[s]; return t == null ? dart.throw(new _internal.LateError.fieldNI(n)) : t; },
+        set: f ? function(v) { if (this[s] != null) dart.throw(new _internal.LateError.fieldAI(n)); this[s] = v; } : function(v) { this[s] = v; },
+        configurable: true
+      });
+    }
+  }
 };
 ");
     }

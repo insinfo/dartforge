@@ -349,3 +349,74 @@ Validação deste estado:
 O tempo já está na ordem do dart2js. O tamanho ainda não: falta 1,7× no
 `new_sali` (bruto) e 1,35× em gzip. Os próximos passos medidos estão na
 §7.
+
+### 6.1 Segunda rodada
+
+Entraram mais quatro mudanças:
+
+* **Nomes privados do programa como propriedades** (`_x$1c`, com o rótulo
+  da biblioteca) em vez de `Symbol` (`dart.privateName`). A privacidade do
+  Dart é por biblioteca, e o rótulo já a separa. Assim saem uma declaração
+  por nome e o colchete em cada acesso, e o renomeio de propriedades
+  encurta o nome. As bibliotecas do SDK continuam com símbolos. Os acessos
+  `x["_n$1c"]` contam para o verificador e para os seletores dinâmicos
+  (`dartforge_emit_js::nome_dart_de_privado`).
+* **`dart.lateFields`**: uma chamada por classe, com as chaves num objeto
+  literal. O auxiliar cria os símbolos de armazenamento, e o construtor não
+  escreve mais `= null` nesses campos.
+* Assinaturas com `__proto__` no objeto literal, que é a forma do DDC.
+* Assinaturas estáticas (`setStatic*Signature`) só com os nomes do despacho
+  dinâmico. `setLibraryUri` só nas classes cujo nome simples se repete,
+  que são as únicas em que `_castErrorMessage` o lê (`errors.dart:110-117`).
+
+A reserva de *strings* passa a ser lida **antes** e **depois** da
+compressão. A compressão junta listas de *strings* (`["a","b"]` vira
+`"a.b".split(".")`), e com isso o `defineExtensionAccessors` do `dart:html`
+perdia os nomes. O e2e do `limitless_ui` pegou isso e o corpus não, porque
+não tem DOM.
+
+| projeto | rodada 1 | gzip | agora | gzip | dart2js -O4 | gzip |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `new_sali/frontend` | 12.719.130 | 2.743.682 | **12.752.196** | **2.564.658** | 7.616.039 | 2.025.116 |
+| `limitless_ui/example` | 7.036.699 | 1.579.793 | **7.248.222** | **1.453.241** | 4.511.811 | 1.195.800 |
+| `01_print` | 176.102 | 40.664 | **171.534** | **38.303** | 34.929 | 11.551 |
+
+Em bruto, o ganho das formas compactas foi comido pelos nomes que voltaram
+a ser reservados quando a reserva passou a ser lida antes da compressão.
+Em gzip, o ganho ficou: −7% no `new_sali` e −8% no `limitless_ui`.
+
+Validação:
+
+* corpus 238/238;
+* testes verdes;
+* `limitless_ui` 26/26;
+* `new_sali` com o `fluxo.mjs` igual ao controle `dart2js`.
+
+O `new_sali` compila em 29–45 s, contra 57 s do `dart2js`.
+
+## 7. O que falta para o tamanho do dart2js
+
+Medido no `new_sali` (12,75 MB): pontuação, palavras-chave e
+identificadores são ~55% (o volume de código no contrato do DDC), os nomes
+de propriedade ~22% e as *strings* ~25%. Destas, as tabelas de dados dos
+pacotes (bidi do `pdf_plus`, entidades HTML, linguagens do `highlight`) o
+`dart2js` também tem, e o JSON das regras rti é 0,7 MB. O que o `dart2js`
+faz e nós não:
+
+1. **Nomes de parâmetros nomeados.** Ficam reservados porque a checagem
+   do `dcall` compara as chaves do objeto de argumentos com os nomes que
+   estão dentro das receitas rti (*strings*), e o `Function.apply` monta a
+   chave pelo `Symbol`. Renomeá-los exige trocar a convenção de chamada
+   nomeada (o dart2js usa *stubs* `$named`, `codegen_world_builder.dart:674-733`).
+2. **Checagens implícitas** (`omitImplicitChecks` do `-O4`,
+   `options.dart:1102-1126`). São ~7.400 `[_as]` no `new_sali`. O contrato
+   do DDC as exige, e o corpus compara com a VM, que faz as checagens.
+3. **Regras rti só para as classes testadas**
+   (`RuntimeTypesChecks.requiredClasses`, `runtime_types.dart:26-45`).
+4. ***Inlining*** e devirtualização do SSA (`ssa/builder.dart:7851-8075`):
+   `unsafeCast`, *getters* triviais e `dart.fn` de *closures* que não
+   precisam de assinatura (`methodNeedsSignature`,
+   `runtime_types_resolution.dart:942`).
+
+Cada um desses é uma mudança de contrato do emissor, não uma compactação
+de texto: é especificação nova, com o mesmo método.
