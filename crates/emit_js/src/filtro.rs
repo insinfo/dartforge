@@ -59,6 +59,23 @@ pub trait Vivos {
     fn constante_bool(&self, _u: dartforge_elements::model::UnitId, _x: dartforge_frontend::ast::ExprId) -> Option<bool> {
         None
     }
+    /// A chave JS de um parâmetro nomeado (perfil de produção:
+    /// `docs/JS-PRODUCAO-TAMANHO.md` §8.2); `None` é o próprio nome.
+    fn nome_nomeado(&self, _nome: &str) -> Option<&str> {
+        None
+    }
+    /// O mapa dos nomeados como JSON (nome → chave), quando o runtime precisa
+    /// traduzir nomes em execução (`Function.apply` vivo).
+    fn tabela_de_nomeados(&self) -> Option<String> {
+        None
+    }
+    /// `--omitir-checagens` (o `omitImplicitChecks` do `dart2js -O3/-O4`,
+    /// `options.dart:1102-1126`): as conversões implícitas de `dynamic` e as
+    /// checagens de covariância não são emitidas. **Inseguro**: um programa
+    /// com erro de tipo segue em vez de lançar `TypeError`.
+    fn omitir_checagens(&self) -> bool {
+        false
+    }
 }
 
 /// Tudo vivo: tem de emitir exatamente o que o caminho sem filtro emite.

@@ -19,6 +19,7 @@ pub mod bundle;
 pub mod cache;
 pub mod filtro;
 pub mod minificar;
+pub mod nomeados;
 pub mod propriedades;
 pub mod proprio;
 pub mod regras;
@@ -80,6 +81,8 @@ pub struct RelatorioMundo {
     pub inconsistencias: Option<usize>,
     /// Palavras dos *templates* `JS()` vivos no mundo final (nomes do JS).
     pub nomes_js: std::collections::HashSet<String>,
+    /// O mapa dos parâmetros nomeados usado na emissão final (`nomeados.rs`).
+    pub nomeados: Option<crate::nomeados::Nomeados>,
 }
 
 /// Opções do perfil.
@@ -104,6 +107,9 @@ pub struct Opcoes {
     /// `--enable-asserts`: os `assert` do programa são emitidos. Desligados
     /// por padrão, como no `dart2js` (`docs/JS-PRODUCAO-TAMANHO.md` §3.3).
     pub asserts: bool,
+    /// `--omitir-checagens`: sem as conversões implícitas de `dynamic` nem as
+    /// checagens de covariância, como o `dart2js -O4`. Inseguro.
+    pub omitir_checagens: bool,
 }
 
 impl Default for Opcoes {
@@ -113,7 +119,7 @@ impl Default for Opcoes {
         // `DARTFORGE_JSPROD_SDK=ddc` ou `--sdk-ddc` voltam ao `dart_sdk.js`
         // podado. O modo *stub* do verificador só existe no caminho antigo.
         let sdk_proprio = !stub && !std::env::var("DARTFORGE_JSPROD_SDK").is_ok_and(|v| v == "ddc");
-        Opcoes { podar_sdk: true, por_membro: true, podar_usuario: true, stub, minificar: true, sdk_proprio, asserts: false }
+        Opcoes { podar_sdk: true, por_membro: true, podar_usuario: true, stub, minificar: true, sdk_proprio, asserts: false, omitir_checagens: false }
     }
 }
 
@@ -133,7 +139,7 @@ pub fn compilar_sdk_proprio(
     let ((e, rel, nomes), _) = dartforge_emit_js::compilar_com_opcoes(entrada, sdk_lib, packages, linguagem, None, true, |a| {
         let (e, rel) = proprio::emitir(a, op)?;
         let vazio = std::collections::HashSet::new();
-        let nomes = propriedades::calcular(a, rel.as_ref().map_or(&vazio, |r| &r.nomes_js));
+        let nomes = propriedades::calcular(a, rel.as_ref().map_or(&vazio, |r| &r.nomes_js), rel.as_ref().and_then(|r| r.nomeados.as_ref()).map(|n| &n.mapa));
         Ok((e, rel, nomes))
     })?;
     let mut p = proprio::montar(&e, op, Some(&nomes));
@@ -197,7 +203,7 @@ pub fn emitir_com_mundo(a: &dartforge_emit_js::Analise<'_>, indice: &sdk::Indice
         let t = Instant::now();
         let mundo = dartforge_mundo::calcular(entrada, &raizes);
         rel.tempo_mundo += t.elapsed();
-        let ad = filtro::Adaptador { mundo: &mundo, program: a.program, stub: op.stub, assinaturas: None, constantes: None };
+        let ad = filtro::Adaptador { mundo: &mundo, program: a.program, stub: op.stub, assinaturas: None, constantes: None, nomeados: None, omitir_checagens: false };
         let t = Instant::now();
         let emitido = a.emitir(Some(&ad))?;
         rel.tempo_emissao += t.elapsed();
@@ -392,7 +398,7 @@ mod testes {
 
     #[test]
     fn monta_um_arquivo_na_ordem_topologica() {
-        let p = montar(&emitido(), SDK, Opcoes { podar_sdk: false, por_membro: false, podar_usuario: false, stub: false, minificar: false, sdk_proprio: false, asserts: true });
+        let p = montar(&emitido(), SDK, Opcoes { podar_sdk: false, por_membro: false, podar_usuario: false, stub: false, minificar: false, sdk_proprio: false, asserts: true, omitir_checagens: false });
         assert!(p.ciclos.is_empty());
         assert_eq!(p.modulos, 2);
         // `util.js` não importa ninguém, então vem antes de `main.js`.
@@ -413,7 +419,7 @@ mod testes {
     /// sim; unificar identidade de biblioteca, não).
     #[test]
     fn empacotar_nao_funde_bibliotecas() {
-        let p = montar(&emitido(), SDK, Opcoes { podar_sdk: false, por_membro: false, podar_usuario: false, stub: false, minificar: false, sdk_proprio: false, asserts: true });
+        let p = montar(&emitido(), SDK, Opcoes { podar_sdk: false, por_membro: false, podar_usuario: false, stub: false, minificar: false, sdk_proprio: false, asserts: true, omitir_checagens: false });
         assert_eq!(p.js.matches("Object.create(dart.library)").count(), 3, "core + as duas do usuário");
     }
 
@@ -432,8 +438,8 @@ mod testes {
     /// alcança — no arquivo único, não num `dart_sdk.js` ao lado.
     #[test]
     fn poda_o_runtime_embutido() {
-        let com = montar(&emitido(), SDK, Opcoes { podar_sdk: true, por_membro: false, podar_usuario: false, stub: false, minificar: false, sdk_proprio: false, asserts: true });
-        let sem = montar(&emitido(), SDK, Opcoes { podar_sdk: false, por_membro: false, podar_usuario: false, stub: false, minificar: false, sdk_proprio: false, asserts: true });
+        let com = montar(&emitido(), SDK, Opcoes { podar_sdk: true, por_membro: false, podar_usuario: false, stub: false, minificar: false, sdk_proprio: false, asserts: true, omitir_checagens: false });
+        let sem = montar(&emitido(), SDK, Opcoes { podar_sdk: false, por_membro: false, podar_usuario: false, stub: false, minificar: false, sdk_proprio: false, asserts: true, omitir_checagens: false });
         assert!(com.js.contains("core.print = function"), "o que o programa usa fica");
         assert!(!com.js.contains("core.Morta"), "o que ele não usa sai");
         assert!(com.sdk_depois < sem.sdk_depois);

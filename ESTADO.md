@@ -907,22 +907,21 @@ Validação:
 * `limitless_ui` 26/26 no e2e;
 * `new_sali/frontend` com 11 passos sem erro no `fluxo.mjs`.
 
-Tamanhos, bruto/gzip, com o mundo incremental, o renomeio de propriedades,
+Tamanhos em bytes, com o mundo incremental, o renomeio de propriedades,
 as receitas curtas, os `assert` desligados e a compressão do `oxc`
 (`docs/JS-PRODUCAO-TAMANHO.md`):
 
 | programa | antes | agora | `dart2js -O4` |
 | --- | ---: | ---: | ---: |
-| `01_print` | 1.370/176 KB | **172/38 KB** | 35/11,5 KB |
-| `limitless_ui` | 45,1 MB | **7,2/1,45 MB** | 4,5/1,2 MB |
-| `new_sali` | — | **12,8/2,56 MB** | 7,6/2,0 MB |
+| `01_print` | 1.370 KB | **156 KB** | 35 KB |
+| `limitless_ui` | 45,1 MB | **6,94 MB** | 4,5 MB |
+| `new_sali` | 24,9 MB | **12,36 MB** | 7,6 MB |
 
 Tempo de compilação: o `new_sali` leva 35–45 s, contra 57 s do `dart2js`
 (o mundo fechado caiu de 707 s para cerca de 1 s), e o `limitless_ui`
 leva 13 s.
 
-Pendência: o tamanho, que ainda está 1,7× acima do `dart2js` em bruto e
-1,27× em gzip no `new_sali`. O que falta é mudança de contrato do emissor
+Pendência: o tamanho, que ainda está 1,6× acima do `dart2js` no `new_sali`. O que falta é mudança de contrato do emissor
 (`docs/JS-PRODUCAO-TAMANHO.md` §7).
 
 ### 1.3 Latência e memória — `crates/dev`

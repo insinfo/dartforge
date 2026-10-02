@@ -529,7 +529,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 Ty::Fn { .. } | Ty::Record { .. } | Ty::FutureOr { .. } => true,
                 _ => false,
             };
-            if needs_cast && !expected.mentions_params() && js.code != "null" {
+            if needs_cast && !expected.mentions_params() && js.code != "null" && !self.ctx.filtro.is_some_and(|f| f.omitir_checagens()) {
                 return (self.as_cast(&js, expected), expected.clone());
             }
             return (js, ty);

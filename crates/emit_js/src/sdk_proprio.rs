@@ -593,9 +593,14 @@ pub fn constante_inline(e: &FnEmitter, vid: VariableId) -> Option<Js> {
 /// cita um parâmetro de tipo da classe (ou marcado `covariant`) é conferido
 /// na entrada — `List<num> l = <int>[]; l.add(2.5)` lança `TypeError` no
 /// `JSArray.add`.
+/// Sem as checagens de covariância com `--omitir-checagens`.
+fn checagens_omitidas(e: &FnEmitter) -> bool {
+    e.ctx.filtro.is_some_and(|f| f.omitir_checagens())
+}
+
 pub fn verificacoes_de_covariancia(e: &FnEmitter, params: &[ast::Parameter]) -> String {
     let Some(c) = e.class else { return String::new() };
-    if e.ctx.sdk.is_none() || e.is_static || !e.ctx.libs[e.lib.0 as usize].is_sdk {
+    if e.ctx.sdk.is_none() || e.is_static || !e.ctx.libs[e.lib.0 as usize].is_sdk || checagens_omitidas(e) {
         return String::new();
     }
     let da_classe: HashSet<u32> = e.ctx.class_params[c.0 as usize].iter().map(|p| p.id).collect();
@@ -976,6 +981,19 @@ pub fn emitir_intrinseco(e: &mut FnEmitter, fid: FunctionElementId, args: &ast::
     match k {
         Intrinseco::Js => {
             let ty = tipo_do_generico(e, args, expected);
+            // `Function.apply` (`core_patch.dart:96-101`) monta o objeto dos
+            // nomeados com `JS('', '#[#] = #', map, _symbolToString(symbol), arg)`:
+            // com as chaves curtas dos nomeados (`emit_js_producao/src/nomeados.rs`),
+            // o nome de origem é traduzido em execução por `dart.nomeadoJS`.
+            if e.class.is_some() && e.class == e.ctx.function_ && e.ctx.filtro.is_some_and(|f| f.tabela_de_nomeados().is_some()) {
+                let tpl = pos.get(1).and_then(|t| string_constante(e, *t));
+                if tpl.as_deref() == Some("#[#] = #") && pos.len() == 5 {
+                    let a = arg_estrangeiro(e, pos[2]).code;
+                    let k = arg_estrangeiro(e, pos[3]).code;
+                    let v = arg_estrangeiro(e, pos[4]).code;
+                    return Some((Js::prim(format!("({a}[dart.nomeadoJS({k})] = {v})")), ty));
+                }
+            }
             let tpl_instrucao = pos.get(1).is_some_and(|t| match &e.expr(*t).kind {
                 ExprKind::String(lit) => matches!(lit.parts.first(), Some(StringPart::Text(x)) if x.to_string_lossy().trim_start().starts_with("throw ")),
                 _ => false,
@@ -1197,6 +1215,12 @@ pub fn bootstrap(ctx: &Ctx, dartx: &BTreeSet<String>, campos_tardios: bool) -> S
     out.push_str(
         "const _privateNames = Symbol(\"_privateNames\");\ndart.privateName = function(library, name) {\n  let names = library[_privateNames];\n  if (names == null) names = library[_privateNames] = new Map();\n  let symbol = names.get(name);\n  if (symbol == null) names.set(name, symbol = Symbol(name));\n  return symbol;\n};\n",
     );
+    if let Some(t) = ctx.filtro.and_then(|f| f.tabela_de_nomeados()) {
+        out.push_str(&format!(
+            "dart.nomeadoJS = (function () {{\n  const t = JSON.parse({});\n  return n => t[n] !== void 0 ? t[n] : n;\n}})();\n",
+            js::string_literal(&t)
+        ));
+    }
     if campos_tardios {
         // `late` sem inicializador (`module.rs`, `tardios`): o mesmo par
         // `get`/`set` que a classe escreveria, definido uma vez por campo.

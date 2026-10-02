@@ -835,8 +835,9 @@ fn encaminhador_nsm(ctx: &Ctx, m: &ModState, c: ClassId, unit_classe: UnitId, fi
                 }
                 for (i, (n, _, _)) in named.iter().enumerate() {
                     let jsn = format!("n{i}");
+                    let chave = ctx.nomeado(n);
                     prologo.push_str(&format!("let {jsn} = opts && {} in opts ? opts{} : null;
-", js::string_literal(n), js::prop_access(n)));
+", js::string_literal(&chave), js::prop_access(&chave)));
                     nomes.push((ast::ParameterKind::Named, n.clone(), jsn));
                 }
                 if !named.is_empty() {
@@ -2073,7 +2074,15 @@ fn emit_js_interop_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 .filter(|p| p.kind == ast::ParameterKind::Named)
                 .filter_map(|p| p.name.map(|n| ctx.name(n).to_string()))
                 .collect();
-            let props: Vec<String> = names.iter().map(|n| format!("{}: opts && {} in opts ? opts{} : null", js::prop_key(n), js::string_literal(n), js::prop_access(n))).collect();
+            // A chave do literal é o nome JS (interop); a leitura de `opts` é a
+            // chave da chamada (`Ctx::nomeado`).
+            let props: Vec<String> = names
+                .iter()
+                .map(|n| {
+                    let c = ctx.nomeado(n);
+                    format!("{}: opts && {} in opts ? opts{} : null", js::prop_key(n), js::string_literal(&c), js::prop_access(&c))
+                })
+                .collect();
             cw.line(&format!("static [{}](opts) {{ return {{{}}}; }}", js::string_literal(&format!("_#{jsname}#tearOff")), props.join(", ")));
             continue;
         } else {
@@ -2462,7 +2471,7 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
                             let Some(n) = p.name else { continue };
                             let jsn = e.js_do_parametro(n);
                             if p.kind == ast::ParameterKind::Named {
-                                named_js.push(format!("{}: {jsn}", js::prop_key(ctx.name(n.sym))));
+                                named_js.push(format!("{}: {jsn}", js::prop_key(&ctx.nomeado(ctx.name(n.sym)))));
                             } else {
                                 pos_js.push(jsn);
                             }
@@ -2500,9 +2509,10 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
                     let Some(n) = p.name else { continue };
                     let jsn = e.js_do_parametro(n);
                     if p.kind == ast::ParameterKind::Named {
-                        let key = js::prop_key(ctx.name(n.sym));
+                        let chave = ctx.nomeado(ctx.name(n.sym));
+                        let key = js::prop_key(&chave);
                         if p.default_value.is_none() && !p.required {
-                            super_named.push(format!("...(opts && {} in opts ? {{{key}: {jsn}}} : {{}})", js::string_literal(ctx.name(n.sym))));
+                            super_named.push(format!("...(opts && {} in opts ? {{{key}: {jsn}}} : {{}})", js::string_literal(&chave)));
                         } else {
                             super_named.push(format!("{key}: {jsn}"));
                         }

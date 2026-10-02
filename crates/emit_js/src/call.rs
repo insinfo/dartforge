@@ -183,7 +183,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let (js, ty) = self.emit_expr(a.value, None);
             tys.push(ty);
             match a.name {
-                Some(n) => named.push(format!("{}: {}", js::prop_key(self.name(n.sym)), js.at(P_ASSIGN))),
+                Some(n) => named.push(format!("{}: {}", js::prop_key(&self.ctx.nomeado(self.name(n.sym))), js.at(P_ASSIGN))),
                 None => pos.push(js.into_at(P_ASSIGN)),
             }
         }
@@ -387,7 +387,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         for (i, a) in arguments.args.iter().enumerate() {
             let js = out[i].clone().unwrap_or_else(|| "null".into());
             match a.name {
-                Some(nm) => named_js.push(format!("{}: {}", js::prop_key(self.name(nm.sym)), js)),
+                Some(nm) => named_js.push(format!("{}: {}", js::prop_key(&self.ctx.nomeado(self.name(nm.sym))), js)),
                 None => pos_js.push(js),
             }
         }

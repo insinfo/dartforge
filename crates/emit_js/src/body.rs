@@ -768,7 +768,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     parts.push(format!("[{}]", o.join(",")));
                 }
                 if !named.is_empty() {
-                    let n: Vec<String> = named
+                    // O rti compara os nomeados em ordem de nome: a ordem é a
+                    // do nome que vai no JS (`Ctx::nomeado`).
+                    let mut ns: Vec<(String, &Ty, bool)> = named.iter().map(|(n, t, r)| (self.ctx.nomeado(n), t, *r)).collect();
+                    ns.sort_by(|a, b| a.0.cmp(&b.0));
+                    let n: Vec<String> = ns
                         .iter()
                         .map(|(n, t, r)| format!("{n}{}{}", if *r { "!" } else { ":" }, self.recipe(t, unbound, used_fn, used_class)))
                         .collect();
@@ -1014,10 +1018,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     // A `Invocation` do `noSuchMethod` vê o nome externo.
                     let key = self.name(externo.sym);
                     nomes.push((p.kind, key.to_string(), jsn.clone()));
+                    let chave = self.ctx.nomeado(key);
                     prologue.push_str(&format!(
                         "let {jsn} = opts && {} in opts ? opts{} : {def};\n",
-                        js::string_literal(key),
-                        js::prop_access(key)
+                        js::string_literal(&chave),
+                        js::prop_access(&chave)
                     ));
                 }
             }

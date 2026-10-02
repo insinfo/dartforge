@@ -10,7 +10,7 @@ use dartforge_emit_js_producao::{Opcoes, compilar};
 
 const USO: &str = "uso: dartforge-jsprod <entrada.dart> -o <saida.js> \
 [--sdk <lib>] [--packages <package_config.json>] [--dart-sdk-js <arquivo>] \
-[--sem-poda] [--sem-membros] [--sem-poda-usuario] [--sem-minificar] [--verificar-stub] [--sdk-proprio|--sdk-ddc] [--enable-asserts] \
+[--sem-poda] [--sem-membros] [--sem-poda-usuario] [--sem-minificar] [--verificar-stub] [--sdk-proprio|--sdk-ddc] [--enable-asserts] [--omitir-checagens|-O4] \
 [--versao-linguagem x.y] [--enable-experiment=a,b]";
 
 fn main() {
@@ -47,6 +47,8 @@ fn executar() -> Result<(), String> {
             "--sdk-proprio" => op.sdk_proprio = true,
             "--sdk-ddc" => op.sdk_proprio = false,
             "--enable-asserts" => op.asserts = true,
+            // O `omitImplicitChecks` do `dart2js -O4`: inseguro (ver `Opcoes`).
+            "--omitir-checagens" | "-O4" => op.omitir_checagens = true,
             "--verificar-stub" => {
                 op.stub = true;
                 op.sdk_proprio = false;

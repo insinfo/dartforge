@@ -28,19 +28,19 @@ Referências lidas para escrevê-lo:
 
 `dartforge-jsprod` do `main` (mundo fechado do usuário, poda por membro do
 `dart_sdk.js`, compactação de espaço) contra `dart compile js` do SDK 3.6.2.
-Bytes; `gzip -9`.
+Bytes.
 
-| programa | jsprod | gzip | dart2js -O2 | gzip | dart2js -O4 | gzip |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `01_print` | 1.369.630 | 176.389 | 37.159 | 12.453 | 34.929 | 11.551 |
-| `40_classes_basico` | 1.379.223 | 177.816 | 37.072 | 12.338 | 35.227 | 11.675 |
-| `80_async_await_basico` | 1.376.136 | 177.617 | 52.533 | 17.339 | 49.502 | 16.187 |
-| `120_convert_json` | 1.551.412 | 200.514 | 60.870 | 19.754 | 58.553 | 18.965 |
-| `128_uri` | 1.632.196 | 217.494 | 128.849 | 41.614 | 119.204 | 39.105 |
-| `135_convert_json_classes` | 1.718.947 | 227.966 | 105.796 | 33.267 | 101.196 | 32.005 |
-| `138_collection_hashmap_ordenado` | 1.396.494 | 179.403 | 70.729 | 21.293 | 65.676 | 19.928 |
+| programa | jsprod | dart2js -O2 | dart2js -O4 |
+| --- | ---: | ---: | ---: |
+| `01_print` | 1.369.630 | 37.159 | 34.929 |
+| `40_classes_basico` | 1.379.223 | 37.072 | 35.227 |
+| `80_async_await_basico` | 1.376.136 | 52.533 | 49.502 |
+| `120_convert_json` | 1.551.412 | 60.870 | 58.553 |
+| `128_uri` | 1.632.196 | 128.849 | 119.204 |
+| `135_convert_json_classes` | 1.718.947 | 105.796 | 101.196 |
+| `138_collection_hashmap_ordenado` | 1.396.494 | 70.729 | 65.676 |
 
-Somos **14 a 39× maiores em bruto e 5,5 a 15× em gzip**. Os projetos reais
+Somos **14 a 39× maiores**. Os projetos reais
 (`limitless_ui/example`, `new_sali/frontend`) estão em §1.4.
 
 ### 1.2 Do que é feito o arquivo de um `print`
@@ -180,7 +180,7 @@ runtime (`JS('', '#[dartx.toString]()', …)`, `registerExtension`, `$ti`,
 objetos do dart2js) seria um backend novo; não é este plano. Consequência
 honesta, registrada em §11: o contrato do DDC carrega custos que o do dart2js
 não tem (receita rti por classe, `dart.fn` em cada *closure*), e o alvo
-realista é ficar **de 2 a 4× do dart2js em bruto e menos em gzip**, não
+realista é ficar **de 2 a 4× do dart2js**, não
 empatar.
 
 ---
@@ -496,7 +496,7 @@ pequeno (<3%); o passo mede antes e só fica ligado se ganhar.
 | 4 | despacho direto (§8) | ~0 | idem; relatório de sítios |
 | 5 | deduplicação (§9) | <3% | idem; ligada só se ganhar |
 
-Alvo do conjunto: `01_print` **na casa de 80-150 KB bruto e 25-40 KB gzip**
+Alvo do conjunto: `01_print` **na casa de 80-150 KB**
 (de 1.370 / 176 KB), ou seja, 2,5 a 4× o dart2js em vez de 40×; nos
 projetos reais, o ganho dos passos 2 e 3 vale sobre o código do usuário, que
 lá é 97% do arquivo.
@@ -508,7 +508,7 @@ lá é 97% do arquivo.
 2. Os testes do crate (`identidade.rs` garante que sem o modo SDK nada muda).
 3. `limitless_ui/example` e `new_sali/frontend` no navegador, pelo
    `scripts/fluxo.mjs`/`sondar-limitless-ui.mjs` do repositório.
-4. Tamanhos antes/depois contra o dart2js, bruto e gzip, na mesma tabela de
+4. Tamanhos antes/depois contra o dart2js (bruto), na mesma tabela de
    §1.1.
 5. Determinismo: duas montagens iguais dão o mesmo arquivo (teste de
    unidade).
@@ -534,21 +534,21 @@ próprio.
 
 ### 12.2 Tamanhos
 
-Bytes; `gzip -9`. A coluna "antes" é a §1.1.
+Bytes. A coluna "antes" é a §1.1.
 
-| programa | antes | gzip | agora | gzip | dart2js -O4 | gzip |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `01_print` | 1.369.630 | 176.389 | **257.738** | **46.988** | 34.929 | 11.551 |
-| `120_convert_json` | 1.551.412 | 200.514 | **408.091** | **75.468** | 58.553 | 18.965 |
-| `135_convert_json_classes` | 1.718.947 | 227.966 | **522.234** | **100.292** | 101.196 | 32.005 |
-| `limitless_ui/example` | ~45,1 MB | — | **14.043.321** | **2.074.627** | 4.511.811 ¹ | 1.195.800 |
-| `new_sali/frontend` | — | — | **24.895.868** | **3.578.704** | 7.616.039 ² | 2.025.116 |
+| programa | antes | agora | dart2js -O4 |
+| --- | ---: | ---: | ---: |
+| `01_print` | 1.369.630 | **257.738** | 34.929 |
+| `120_convert_json` | 1.551.412 | **408.091** | 58.553 |
+| `135_convert_json_classes` | 1.718.947 | **522.234** | 101.196 |
+| `limitless_ui/example` | ~45,1 MB | **14.043.321** | 4.511.811 ¹ |
+| `new_sali/frontend` | — | **24.895.868** | 7.616.039 ² |
 
 ¹ O build oficial (`build_web_compilers --release`).
 ² `dart compile js -O4` sobre uma cópia com os `.template.dart` gerados
 ao lado das fontes (sem `build_runner`).
 
-Em relação ao antes, o `print` ficou 5,3× menor em bruto e 3,8× em gzip. O
+Em relação ao antes, o `print` ficou 5,3× menor. O
 `limitless_ui` ficou 3,2× menor. A meta do conjunto (§10: 80-150 KB bruto
 no `01_print`) **não foi atingida**. Composição do que sobra no `01_print`,
 antes da troca de nomes do `oxc`:

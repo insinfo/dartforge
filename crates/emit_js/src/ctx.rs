@@ -1993,6 +1993,13 @@ impl<'a> Ctx<'a> {
         &self.libs[lib.0 as usize].ident
     }
 
+    /// A chave JS de um parâmetro nomeado: o nome Dart, ou o curto do perfil
+    /// de produção (`Vivos::nome_nomeado`). O mesmo mapa vale na chamada, no
+    /// prólogo da função e na receita rti do tipo de função.
+    pub fn nomeado(&self, nome: &str) -> String {
+        self.filtro.and_then(|f| f.nome_nomeado(nome)).unwrap_or(nome).to_string()
+    }
+
     /// Prefixo de receita rti da classe: `core|int`, `main|P`. No modo SDK
     /// (perfil de produção), a biblioteca do programa é um rótulo curto
     /// ([`crate::tag_de_receita`]): a parte antes do `|` é opaca para o

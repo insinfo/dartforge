@@ -23,11 +23,11 @@ Referências lidas, com arquivo:linha citado onde a regra é usada:
 
 ### 1.1 Tamanho e tempo
 
-| projeto | nosso, bruto | gzip | dart2js -O4, bruto | gzip | nosso, tempo | dart2js, tempo |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `new_sali/frontend` | 24.895.868 | 3.578.704 | 7.616.039 | 2.025.116 | 14 min 22 s | 57 s |
-| `limitless_ui/example` | 14.043.321 | 2.074.627 | 4.511.811 ¹ | 1.195.800 | 8 min 23 s | — |
-| `01_print` | 257.738 | 46.988 | 34.929 | 11.551 | 0,3 s | 2,6 s |
+| projeto | nosso | dart2js -O4 | nosso, tempo | dart2js, tempo |
+| --- | ---: | ---: | ---: | ---: |
+| `new_sali/frontend` | 24.895.868 | 7.616.039 | 14 min 22 s | 57 s |
+| `limitless_ui/example` | 14.043.321 | 4.511.811 ¹ | 8 min 23 s | — |
+| `01_print` | 257.738 | 34.929 | 0,3 s | 2,6 s |
 
 ¹ O build oficial (`build_web_compilers --release`).
 
@@ -288,7 +288,7 @@ trabalho, não substitui a medida.
 2. Testes de `mundo`, `emit_js`, `emit_js_producao` e `elements`.
 3. `limitless_ui/example`: e2e 26/26.
 4. `new_sali/frontend`: `scripts/fluxo.mjs`, os 11 passos sem erro.
-5. Tamanho (bruto e gzip) e tempo por fase, na tabela da §1.1.
+5. Tamanho (bruto) e tempo por fase, na tabela da §1.1.
 
 ---
 
@@ -323,13 +323,13 @@ O que entrou:
     pela chave `dartx` que o `defineExtensionAccessors` copia do *getter*,
     e era isso que quebrava o `ArgumentError.name` do SDK.
 
-| projeto | antes, bruto | gzip | agora, bruto | gzip | dart2js -O4 | gzip |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `new_sali/frontend` | 24.895.868 | 3.578.704 | **12.719.130** | **2.743.682** | 7.616.039 | 2.025.116 |
-| `limitless_ui/example` | 14.043.321 | 2.074.627 | **7.036.699** | **1.579.793** | 4.511.811 | 1.195.800 |
-| `01_print` | 257.738 | 46.988 | **176.102** | **40.664** | 34.929 | 11.551 |
-| `120_convert_json` | 408.091 | 75.468 | **284.323** | **66.619** | 58.553 | 18.965 |
-| `135_convert_json_classes` | 522.234 | 100.292 | **370.735** | **88.785** | 101.196 | 32.005 |
+| projeto | antes, bruto | agora, bruto | dart2js -O4 |
+| --- | ---: | ---: | ---: |
+| `new_sali/frontend` | 24.895.868 | **12.719.130** | 7.616.039 |
+| `limitless_ui/example` | 14.043.321 | **7.036.699** | 4.511.811 |
+| `01_print` | 257.738 | **176.102** | 34.929 |
+| `120_convert_json` | 408.091 | **284.323** | 58.553 |
+| `135_convert_json_classes` | 522.234 | **370.735** | 101.196 |
 
 | projeto | antes | agora | dart2js |
 | --- | ---: | ---: | ---: |
@@ -347,7 +347,7 @@ Validação deste estado:
   a página abre já autenticada.
 
 O tempo já está na ordem do dart2js. O tamanho ainda não: falta 1,7× no
-`new_sali` (bruto) e 1,35× em gzip. Os próximos passos medidos estão na
+`new_sali`. Os próximos passos medidos estão na
 §7.
 
 ### 6.1 Segunda rodada
@@ -375,15 +375,14 @@ compressão. A compressão junta listas de *strings* (`["a","b"]` vira
 perdia os nomes. O e2e do `limitless_ui` pegou isso e o corpus não, porque
 não tem DOM.
 
-| projeto | rodada 1 | gzip | agora | gzip | dart2js -O4 | gzip |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `new_sali/frontend` | 12.719.130 | 2.743.682 | **12.752.196** | **2.564.658** | 7.616.039 | 2.025.116 |
-| `limitless_ui/example` | 7.036.699 | 1.579.793 | **7.248.222** | **1.453.241** | 4.511.811 | 1.195.800 |
-| `01_print` | 176.102 | 40.664 | **171.534** | **38.303** | 34.929 | 11.551 |
+| projeto | rodada 1 | agora | dart2js -O4 |
+| --- | ---: | ---: | ---: |
+| `new_sali/frontend` | 12.719.130 | **12.752.196** | 7.616.039 |
+| `limitless_ui/example` | 7.036.699 | **7.248.222** | 4.511.811 |
+| `01_print` | 176.102 | **171.534** | 34.929 |
 
 Em bruto, o ganho das formas compactas foi comido pelos nomes que voltaram
 a ser reservados quando a reserva passou a ser lida antes da compressão.
-Em gzip, o ganho ficou: −7% no `new_sali` e −8% no `limitless_ui`.
 
 Validação:
 
@@ -457,11 +456,79 @@ de um `is`/`as`/`catch`, um argumento de tipo, uma substituição. Então
 
 `DARTFORGE_JSPROD_REGRAS=0` desliga.
 
-| projeto | antes | gzip | depois | gzip |
-| --- | ---: | ---: | ---: | ---: |
-| `new_sali/frontend` | 12.752.196 | 2.564.658 | **12.601.153** | **2.551.586** |
-| `limitless_ui/example` | 7.248.222 | 1.453.241 | **7.073.375** | **1.434.698** |
-| `01_print` | 171.534 | 38.303 | **157.690** | — |
+| projeto | antes | depois |
+| --- | ---: | ---: |
+| `new_sali/frontend` | 12.752.196 | **12.601.153** |
+| `limitless_ui/example` | 7.248.222 | **7.073.375** |
+| `01_print` | 171.534 | **157.690** |
 
 Validação: corpus 238/238, `limitless_ui` 26/26, `new_sali` igual ao
 controle.
+
+### 8.2 Parâmetros nomeados com chave curta
+
+O que o `dart2js` faz: os nomes dos argumentos nomeados viram parte do
+nome minificado do *stub* de chamada (`$named`,
+`universe/codegen_world_builder.dart:674-733`). No contrato do DDC o nome
+é a chave de um objeto (`f(1, {limite: 2})`), lida no prólogo (`opts &&
+"limite" in opts ? opts.limite : …`), e também está na receita rti do tipo
+da função (`~(core|int{limite:core|int})`). A checagem da chamada dinâmica
+(`_checkAndCall`) compara essa receita com as chaves do objeto. Como a
+receita é uma *string*, o nome não podia passar pelo renomeio de
+propriedades e ficava reservado, e junto com ele todo membro homônimo.
+
+A regra (`emit_js_producao/src/nomeados.rs`, `Ctx::nomeado`):
+
+* um mapa **global por nome**, nome → `$` + base 36, aplicado ao mesmo
+  tempo nas chaves da chamada (`call.rs`), no prólogo (`body.rs`,
+  `module.rs`), no repasse `super` e no redirecionamento de tipo de
+  extensão, e na receita rti do tipo de função. Por ser função só do nome,
+  chamador e chamado concordam sem se conhecer, inclusive nas chamadas
+  dinâmicas;
+* na receita, os nomeados são ordenados pela **chave curta**, porque o rti
+  compara as listas em ordem de nome;
+* ficam com o nome de origem os nomeados de `external` e de classes de
+  interop (são chaves de objeto do JavaScript) e as palavras dos
+  *templates* `JS()` vivos;
+* com um `noSuchMethod` próprio vivo, o mapa é desligado: a `Invocation`
+  de uma chamada dinâmica mostraria as chaves;
+* com `Function.apply` vivo, que monta as chaves a partir do `Symbol` do
+  nome, o mapa vai também para o runtime. O `#[#] = #` do `core_patch`
+  passa pela tradução `dart.nomeadoJS` (`sdk_proprio::emitir_intrinseco`).
+  O `new_sali` usa `Function.apply`, pelo `uuid` e pelo `petitparser`.
+
+Efeito visível: o `toString` de um tipo de função com nomeados mostra a
+chave curta. Nenhum programa do corpus imprime um.
+`DARTFORGE_JSPROD_NOMEADOS=0` desliga.
+
+| projeto | antes | depois |
+| --- | ---: | ---: |
+| `new_sali/frontend` | 12.601.153 | **12.356.255** |
+| `limitless_ui/example` | 7.073.375 | **6.942.798** |
+| `01_print` | 157.690 | **156.012** |
+
+Validação: corpus 238/238 (entre eles os quatro com `Function.apply`),
+`limitless_ui` 26/26, `new_sali` igual ao controle.
+
+### 8.3 `--omitir-checagens` (o `-O4` do dart2js), opcional e inseguro
+
+O padrão continua com a semântica da VM, como o `dart2js -O2`. Com
+`--omitir-checagens` (ou `-O4`) saem as conversões implícitas de `dynamic`
+(`FnEmitter::coerce_to`) e as checagens de covariância de parâmetro
+(`sdk_proprio::verificacoes_de_covariancia`), como o `omitImplicitChecks`
+do `dart2js` (`options.dart:1102-1126`). Um programa com erro de tipo
+segue adiante em vez de lançar `TypeError`. A comparação justa com o
+`dart2js -O4` é com a opção ligada.
+
+Medido no `new_sali`:
+
+| configuração | bytes |
+| --- | ---: |
+| padrão (semântica da VM) | 12.356.255 |
+| `--omitir-checagens` | 12.286.128 |
+| `dart2js -O2` | 8.022.592 |
+| `dart2js -O4` | 7.616.039 |
+
+A opção tira só 70 KB. No `dart2js`, a distância entre `-O2` e `-O4`
+(406 KB) vem também de `--trust-primitives` e do *inlining* que o
+`-O4` libera.

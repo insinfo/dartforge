@@ -575,7 +575,7 @@ pub(crate) fn texto_de_construtor(ctx: &Ctx, m: &ModState, c: ClassId, unit: dar
                 let mut nomeados = Vec::new();
                 for (k, dart, jsn) in &nomes {
                     match k {
-                        ast::ParameterKind::Named => nomeados.push(format!("{}: {jsn}", js::prop_key(dart))),
+                        ast::ParameterKind::Named => nomeados.push(format!("{}: {jsn}", js::prop_key(&ctx.nomeado(dart)))),
                         _ => args.push(jsn.clone()),
                     }
                 }

@@ -15,6 +15,10 @@ pub struct Adaptador<'m> {
     pub assinaturas: Option<&'m std::collections::HashSet<String>>,
     /// Condições constantes e `assert` (perfil com o SDK próprio).
     pub constantes: Option<&'m dartforge_mundo::Constantes<'m>>,
+    /// Chaves curtas dos parâmetros nomeados (`nomeados.rs`).
+    pub nomeados: Option<&'m crate::nomeados::Nomeados>,
+    /// `--omitir-checagens`.
+    pub omitir_checagens: bool,
 }
 
 impl Vivos for Adaptador<'_> {
@@ -75,5 +79,14 @@ impl Vivos for Adaptador<'_> {
     }
     fn constante_bool(&self, u: dartforge_elements::model::UnitId, x: dartforge_frontend::ast::ExprId) -> Option<bool> {
         self.constantes?.bool_de(u, x)
+    }
+    fn nome_nomeado(&self, nome: &str) -> Option<&str> {
+        self.nomeados?.mapa.get(nome).map(String::as_str)
+    }
+    fn omitir_checagens(&self) -> bool {
+        self.omitir_checagens
+    }
+    fn tabela_de_nomeados(&self) -> Option<String> {
+        self.nomeados.filter(|n| n.tabela).map(|n| n.json())
     }
 }

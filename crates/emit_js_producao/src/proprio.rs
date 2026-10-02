@@ -192,7 +192,9 @@ fn ponto_fixo(
         calculo.semear(&raizes);
         let mundo = calculo.mundo();
         rel.tempo_mundo += t.elapsed();
-        let ad = filtro::Adaptador { mundo: &mundo, program: a.program, stub: op.stub, assinaturas, constantes: Some(&constantes) };
+        // `DARTFORGE_JSPROD_NOMEADOS=0` mantém os nomes de origem.
+        let nomeados = if std::env::var("DARTFORGE_JSPROD_NOMEADOS").map_or(true, |v| v != "0") { crate::nomeados::calcular(a, &mundo) } else { None };
+        let ad = filtro::Adaptador { mundo: &mundo, program: a.program, stub: op.stub, assinaturas, constantes: Some(&constantes), nomeados: nomeados.as_ref(), omitir_checagens: op.omitir_checagens };
         let t = Instant::now();
         let mut e = a.emitir_com_sdk(Some(&ad))?;
         // O mapa namespace → biblioteca sai do `trackLibraries`, que o
@@ -220,6 +222,7 @@ fn ponto_fixo(
         if faltas.vazia() {
             rel.estat = mundo.estat.clone();
             rel.nomes_js = mundo.nomes_js.clone();
+            rel.nomeados = nomeados.clone();
             if let Ok(alvo) = std::env::var("DARTFORGE_JSPROD_POR") {
                 diagnosticar(a, &mundo, &alvo);
             }

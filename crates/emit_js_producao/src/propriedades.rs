@@ -58,7 +58,7 @@ fn anotacoes_de_interop(p: &Program, i: &Interner, c: ClassId) -> bool {
 
 /// Calcula os conjuntos a partir do modelo. `nomes_js` são as palavras dos
 /// *templates* `JS()` vivos (`dartforge_mundo::Mundo::nomes_js`).
-pub fn calcular(a: &dartforge_emit_js::Analise<'_>, nomes_js: &HashSet<String>) -> Nomes {
+pub fn calcular(a: &dartforge_emit_js::Analise<'_>, nomes_js: &HashSet<String>, nomeados: Option<&std::collections::HashMap<String, String>>) -> Nomes {
     use dartforge_elements::model::ClassKind;
     use dartforge_emit_js::body::{js_member_name, static_member_name, top_level_name};
     let (p, i, table) = (a.program, a.interner, a.table);
@@ -151,7 +151,13 @@ pub fn calcular(a: &dartforge_emit_js::Analise<'_>, nomes_js: &HashSet<String>) 
         match table.get(dartforge_types::table::TypeId(t as u32)) {
             Type::Function { named, .. } => {
                 for (s, _, _) in named.iter() {
-                    n.reservados.insert(i.resolve(*s).to_string());
+                    // Com o mapa dos nomeados (`nomeados.rs`) a chave é a curta,
+                    // e o nome de origem fica livre para os membros homônimos.
+                    let nome = i.resolve(*s);
+                    match nomeados.and_then(|m| m.get(nome)) {
+                        Some(curto) => n.reservados.insert(curto.clone()),
+                        None => n.reservados.insert(nome.to_string()),
+                    };
                 }
             }
             Type::Record { named, .. } => {
