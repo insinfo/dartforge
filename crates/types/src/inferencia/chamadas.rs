@@ -12,7 +12,7 @@ use crate::constraints::{instanciar_funcao, GenericInferrer};
 use crate::resolved::Resolved;
 use crate::table::{Type, TypeId, TypeParamId};
 use dartforge_diagnostics::Span;
-use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionElementId};
+use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionElementId, FunctionKind};
 use dartforge_frontend::ast::{self, ExprId, ExprKind};
 use std::collections::HashMap;
 
@@ -43,35 +43,190 @@ fn parametros_dos_argumentos(
         .collect()
 }
 
-/// Diagnósticos de aridade e nomes.
+/// O que a verificação de aridade precisa saber da chamada (o `nameNode` e
+/// o `errorEntity` do analyzer), definido por quem conhece a forma dela.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct AlvoDaAridade {
+    /// Nome citado em `NOT_ENOUGH_POSITIONAL_ARGUMENTS_NAME_*`
+    /// (`_reportNotEnoughPositionalArguments`,
+    /// an611:src/generated/resolver.dart:4370-4420); `None` usa as
+    /// variantes sem nome.
+    pub nome: Option<String>,
+    /// Intervalo do `MISSING_REQUIRED_ARGUMENT`
+    /// (an611:src/error/required_parameters_verifier.dart:21-110): o nome do
+    /// método, o nome do construtor, a chamada inteira ou a lista de
+    /// argumentos, conforme a forma.
+    pub entidade: Option<Span>,
+    /// Parâmetros `super.x` posicionais do construtor corrente (argumentos
+    /// implícitos de um `super(...)`, `verifySuperFormalParameters`,
+    /// an611:src/error/super_formal_parameters_verifier.dart:11-37).
+    pub super_posicionais: usize,
+    /// Nomes dos parâmetros `super.x` nomeados do construtor corrente.
+    pub super_nomeados: Vec<dartforge_intern::SymbolId>,
+}
+
+/// Constante de enum sem argumentos (`v;`) com construtor sem nome que
+/// exige argumentos: `NOT_ENOUGH_POSITIONAL_ARGUMENTS_NAME_*` no nome da
+/// constante (an611:src/generated/resolver.dart:2531-2544) e
+/// `MISSING_REQUIRED_ARGUMENT` também nele
+/// (an611:src/error/required_parameters_verifier.dart:37-43).
+pub(crate) fn aridade_sem_argumentos(inf: &mut BodyInferrer<'_>, f: FunctionElementId, nome_enum: String, span: Span) {
+    use dartforge_diagnostics::codigos::compile_time_error as ce;
+    let sig = inf.outline.functions[f.0 as usize].signature;
+    let Type::Function { positional, named, .. } = inf.table.get(sig).clone() else { return };
+    let n = positional.len();
+    if n == 1 {
+        inf.aviso_com_codigo(ce::NOT_ENOUGH_POSITIONAL_ARGUMENTS_NAME_SINGULAR, span, &[&nome_enum]);
+    } else if n > 1 {
+        inf.aviso_com_codigo(ce::NOT_ENOUGH_POSITIONAL_ARGUMENTS_NAME_PLURAL, span, &[&n.to_string(), "0", &nome_enum]);
+    }
+    for (s, _, req) in named.iter() {
+        if *req {
+            let nome = inf.interner.resolve(*s).to_string();
+            inf.aviso_com_codigo(ce::MISSING_REQUIRED_ARGUMENT, span, &[&nome]);
+        }
+    }
+}
+
+/// Define o alvo da próxima verificação de aridade.
+pub(crate) fn definir_alvo(inf: &mut BodyInferrer<'_>, nome: Option<String>, entidade: Span) {
+    inf.alvo_da_aridade = Some(AlvoDaAridade { nome, entidade: Some(entidade), ..Default::default() });
+}
+
+/// O próximo token da fonte a partir de `pos` (pula espaços e comentários):
+/// um identificador inteiro ou um caractere.
+fn proximo_token(fonte: &str, mut pos: usize) -> Span {
+    let b = fonte.as_bytes();
+    loop {
+        while pos < b.len() && (b[pos] as char).is_ascii_whitespace() {
+            pos += 1;
+        }
+        if b.get(pos) == Some(&b'/') && b.get(pos + 1) == Some(&b'/') {
+            while pos < b.len() && b[pos] != b'\n' {
+                pos += 1;
+            }
+            continue;
+        }
+        if b.get(pos) == Some(&b'/') && b.get(pos + 1) == Some(&b'*') {
+            match fonte[pos + 2..].find("*/") {
+                Some(i) => pos = pos + 2 + i + 2,
+                None => pos = b.len(),
+            }
+            continue;
+        }
+        break;
+    }
+    let ident = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
+    let mut fim = pos;
+    if b.get(pos).is_some_and(|&c| ident(c)) {
+        while fim < b.len() && ident(b[fim]) {
+            fim += 1;
+        }
+    } else if pos < b.len() {
+        fim = pos + fonte[pos..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+    }
+    Span { start: pos, end: fim }
+}
+
+/// Diagnósticos de aridade e nomes (`resolveArgumentsToParameters`,
+/// an611:src/generated/resolver.dart:4229-4355, e
+/// `RequiredParametersVerifier`): nomeado indefinido e repetido no nome do
+/// argumento; poucos posicionais no token depois do último posicional (ou
+/// depois do `(`); posicionais demais no primeiro excedente, com a variante
+/// `_COULD_BE_NAMED` quando sobram nomeados não usados; nomeado obrigatório
+/// ausente na entidade da chamada.
 fn verificar_aridade(
     inf: &mut BodyInferrer<'_>,
+    cx: &Corpo,
     positional: &[TypeId],
     optional: &[TypeId],
     named: &[(dartforge_intern::SymbolId, TypeId, bool)],
     args: &ast::Arguments,
+    alvo: Option<AlvoDaAridade>,
 ) {
-    let npos = args.args.iter().filter(|a| a.name.is_none()).count();
-    if npos < positional.len() {
-        let msg = format!("{}: esperava pelo menos {}, recebeu {}", NOT_ENOUGH_POSITIONAL_ARGUMENTS.template, positional.len(), npos);
-        inf.aviso(msg, args.span);
-    } else if npos > positional.len() + optional.len() {
-        let msg = format!("{}: esperava no máximo {}, recebeu {}", EXTRA_POSITIONAL_ARGUMENTS.template, positional.len() + optional.len(), npos);
-        inf.aviso(msg, args.span);
+    use dartforge_diagnostics::codigos::compile_time_error as ce;
+    let alvo = alvo.unwrap_or_default();
+    let a = &inf.program.unit(cx.unit).ast;
+    let fonte = &inf.program.unit(cx.unit).source;
+    let sem_nome = positional.len() + optional.len();
+    let mut npos = 0usize;
+    let mut sem_branco = true;
+    let mut primeiro_excedente: Option<Span> = None;
+    let mut ultimo_posicional: Option<Span> = None;
+    for x in args.args.iter().filter(|x| x.name.is_none()) {
+        let sp = a.expr(x.value).span;
+        if sp.start >= sp.end {
+            sem_branco = false;
+        }
+        if npos >= sem_nome && primeiro_excedente.is_none() {
+            primeiro_excedente = Some(sp);
+        }
+        npos += 1;
+        ultimo_posicional = Some(sp);
     }
-    for a in args.args.iter() {
-        if let Some(n) = &a.name {
+    // Token do "poucos posicionais": depois do último posicional, ou o
+    // primeiro depois do `(`.
+    let token_poucos = match ultimo_posicional {
+        Some(sp) => proximo_token(fonte, sp.end),
+        None => {
+            let ini = args.type_args.last().map(|&t| a.ty(t).span.end).unwrap_or(args.span.start);
+            let abre = fonte.get(ini..).and_then(|r| r.find('(')).map(|i| ini + i + 1).unwrap_or(args.span.start);
+            proximo_token(fonte, abre)
+        }
+    };
+    let total_pos = npos + alvo.super_posicionais;
+    let mut usados: Vec<dartforge_intern::SymbolId> = alvo.super_nomeados.clone();
+    let mut avisos: Vec<(dartforge_diagnostics::Codigo, Span, Vec<String>)> = Vec::new();
+    for x in args.args.iter() {
+        if let Some(n) = &x.name {
+            let texto = inf.interner.resolve(n.sym).to_string();
             if !named.iter().any(|(s, _, _)| *s == n.sym) {
-                let msg = format!("{}: '{}'", UNDEFINED_NAMED_PARAMETER.template, inf.interner.resolve(n.sym));
-                inf.aviso(msg, n.span);
+                avisos.push((ce::UNDEFINED_NAMED_PARAMETER, n.span, vec![texto.clone()]));
+            }
+            if usados.contains(&n.sym) {
+                avisos.push((ce::DUPLICATE_NAMED_ARGUMENT, n.span, vec![texto]));
+            } else {
+                usados.push(n.sym);
             }
         }
     }
-    for (s, _, req) in named.iter() {
-        if *req && !args.args.iter().any(|a| a.name.map(|n| n.sym) == Some(*s)) {
-            let msg = format!("{}: '{}'", MISSING_REQUIRED_ARGUMENT.template, inf.interner.resolve(*s));
-            inf.aviso(msg, args.span);
+    if total_pos < positional.len() && sem_branco {
+        let requeridos = positional.len();
+        let plural = requeridos > 1;
+        let mut argumentos: Vec<String> = Vec::new();
+        if plural {
+            argumentos.push(requeridos.to_string());
+            argumentos.push(total_pos.to_string());
         }
+        let codigo = match (&alvo.nome, plural) {
+            (None, true) => ce::NOT_ENOUGH_POSITIONAL_ARGUMENTS_PLURAL,
+            (None, false) => ce::NOT_ENOUGH_POSITIONAL_ARGUMENTS_SINGULAR,
+            (Some(_), true) => ce::NOT_ENOUGH_POSITIONAL_ARGUMENTS_NAME_PLURAL,
+            (Some(_), false) => ce::NOT_ENOUGH_POSITIONAL_ARGUMENTS_NAME_SINGULAR,
+        };
+        if let Some(n) = &alvo.nome {
+            argumentos.push(n.clone());
+        }
+        avisos.push((codigo, token_poucos, argumentos));
+    } else if total_pos > sem_nome && sem_branco {
+        let codigo = if named.len() > usados.len() {
+            ce::EXTRA_POSITIONAL_ARGUMENTS_COULD_BE_NAMED
+        } else {
+            ce::EXTRA_POSITIONAL_ARGUMENTS
+        };
+        if let Some(sp) = primeiro_excedente {
+            avisos.push((codigo, sp, vec![sem_nome.to_string(), total_pos.to_string()]));
+        }
+    }
+    let entidade = alvo.entidade.unwrap_or(args.span);
+    for (s, _, req) in named.iter() {
+        if *req && !args.args.iter().any(|x| x.name.map(|n| n.sym) == Some(*s)) && !alvo.super_nomeados.contains(s) {
+            avisos.push((ce::MISSING_REQUIRED_ARGUMENT, entidade, vec![inf.interner.resolve(*s).to_string()]));
+        }
+    }
+    for (codigo, sp, argumentos) in avisos {
+        let refs: Vec<&str> = argumentos.iter().map(|s| s.as_str()).collect();
+        inf.aviso_com_codigo(codigo, sp, &refs);
     }
 }
 
@@ -171,6 +326,7 @@ pub(crate) fn invocar(
     ctx: TypeId,
     explicitos: Option<Vec<TypeId>>,
 ) -> (TypeId, TypeId) {
+    let alvo = inf.alvo_da_aridade.take();
     let Type::Function { type_params, ret, positional, optional, named, .. } = inf.table.get(f).clone() else {
         inf.entidade_da_inferencia = None;
         inf.nomes_posicionais = None;
@@ -199,6 +355,7 @@ pub(crate) fn invocar(
         let optional: Box<[TypeId]> = optional.iter().map(|&t| inf.subst(t, &mapa)).collect();
         let named: Box<[_]> = named.iter().map(|&(n, t, r)| (n, inf.subst(t, &mapa), r)).collect();
         let f2 = inf.table.intern(Type::Function { type_params: novos.into_boxed_slice(), ret, positional, optional, named, nullable: false });
+        inf.alvo_da_aridade = alvo;
         return invocar(inf, cx, f2, args, ctx, explicitos);
     }
     // O `errorEntity` vale só para esta invocação (os argumentos têm as suas).
@@ -212,11 +369,12 @@ pub(crate) fn invocar(
                 let inst = instanciar_funcao(f, &ex, &mut env);
                 drop(env);
                 inf.body_types.units[cx.unit.0 as usize].set_instanciacao(args.span.start, ex.into_boxed_slice());
+                inf.alvo_da_aridade = alvo;
                 return invocar(inf, cx, inst, args, ctx, None);
             }
         }
     }
-    verificar_aridade(inf, &positional, &optional, &named, args);
+    verificar_aridade(inf, cx, &positional, &optional, &named, args, alvo);
     let params = parametros_dos_argumentos(inf, &positional, &optional, &named, args);
     let contexto_numerico = inf.contexto_numerico_pendente.take();
     if type_params.is_empty() {
@@ -315,6 +473,8 @@ pub(crate) fn invocar(
 
 /// Invoca um valor de tipo `t` (função, objeto com `call`, `dynamic`).
 fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, t: TypeId, args: &ast::Arguments, ctx: TypeId, explicitos: Option<Vec<TypeId>>, span: Span) -> (TypeId, TypeId) {
+    // O alvo da aridade só vale se a invocação de fato acontecer.
+    let alvo = inf.alvo_da_aridade.take();
     if let ExprKind::Call { target, .. } = &inf.program.unit(cx.unit).ast.expr(e).kind {
         let alvo = *target;
         if !matches!(inf.program.unit(cx.unit).ast.expr(alvo).kind, ExprKind::Property { .. }) && expr::receptor_nunca(inf, cx, alvo, t) {
@@ -333,7 +493,10 @@ fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, t: TypeI
         }
     }
     match inf.table.get(t_nn).clone() {
-        Type::Function { .. } => invocar(inf, cx, t_nn, args, ctx, explicitos),
+        Type::Function { .. } => {
+            inf.alvo_da_aridade = alvo;
+            invocar(inf, cx, t_nn, args, ctx, explicitos)
+        }
         Type::Dynamic => {
             for a in args.args.iter() {
                 inferir_livre(inf, cx, a.value);
@@ -355,6 +518,7 @@ fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, t: TypeI
         _ => {
             if let Some(call) = inf.sym.call {
                 if let Some(m) = inf.membro_de_interface(t_nn, call, false) {
+                    inf.alvo_da_aridade = alvo;
                     return invocar(inf, cx, m.tipo, args, ctx, explicitos);
                 }
                 let busca = inf.buscar_membro(cx.lib, t_nn, call, false);
@@ -380,6 +544,7 @@ fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, t: TypeI
                     if m.de_extensao {
                         super::expr::resolver(inf, cx, e, m.resolved.clone());
                     }
+                    inf.alvo_da_aridade = alvo;
                     return invocar(inf, cx, m.tipo, args, ctx, explicitos);
                 }
             }
@@ -475,7 +640,21 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             };
             avisar_classe_abstrata(inf, c, f, sp);
         }
+        // `C(...)`/`p.C(...)` viram `InstanceCreationExpression` no analyzer:
+        // o nome é `C.new` (ou o do construtor) e a entidade, o
+        // `constructorName` (tipo com prefixo e argumentos, mais `.nome`).
+        let (nome, ent) = match &a.expr(target).kind {
+            ExprKind::Property { target: t, name, .. } if expr::referencia_a_tipo(inf, cx, *t).is_some() => {
+                (inf.interner.resolve(name.sym).to_string(), a.expr(target).span)
+            }
+            _ => {
+                let classe = ultimo_identificador(inf, cx, target).map(|s| inf.interner.resolve(s).to_string()).unwrap_or_default();
+                (format!("{classe}.new"), tipo_nomeado_da_criacao(inf, cx, target, &args.type_args))
+            }
+        };
+        definir_alvo(inf, Some(nome), ent);
         let t = construir(inf, cx, Some(e), c, f, targs.or(explicitos), args, ctx);
+        inf.alvo_da_aridade = None;
         return (t, false);
     }
     // `E()`: o sem nome implícito do enum não está na tabela de
@@ -512,12 +691,51 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
         }
     }
     let u = inf.core.unknown;
+    // `E(a, b)` / `E()`: `INVALID_EXTENSION_ARGUMENT_COUNT` na lista de
+    // argumentos (an611:src/dart/resolver/extension_member_resolver.dart:189-197).
+    if let Some(RefTipo::Extensao(x)) = referencia_a_tipo(inf, cx, target)
+        && !(args.args.len() == 1 && args.args[0].name.is_none())
+        && args.args.iter().all(|a| a.name.is_none())
+        && args.args.len() != 1
+    {
+        let fonte = &inf.program.unit(cx.unit).source;
+        let ini = args.type_args.last().map(|&t| a.ty(t).span.end).unwrap_or(args.span.start);
+        let abre = fonte.get(ini..).and_then(|r| r.find('(')).map(|i| ini + i).unwrap_or(args.span.start);
+        let sp = Span { start: abre, end: args.span.end.max(abre) };
+        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::INVALID_EXTENSION_ARGUMENT_COUNT, sp, &[]);
+        for arg in args.args.iter() {
+            inferir_livre(inf, cx, arg.value);
+        }
+        let dados = inf.outline.extensions[x.0 as usize].clone();
+        let ext_args = inf.instanciar_para_limites(&dados.type_params);
+        cx.sobreposicoes.insert(e, (x, ext_args));
+        return (inf.core.dynamic_, false);
+    }
     // `E(x)` / `E<T>(x)`: sobreposição explícita de extensão (R-EXT-02).
     if let Some(RefTipo::Extensao(x)) = referencia_a_tipo(inf, cx, target)
         && args.args.len() == 1
         && args.args[0].name.is_none()
     {
         let dados = inf.outline.extensions[x.0 as usize].clone();
+        // `E<A, B>(x)` com número errado de argumentos de tipo
+        // (an611:src/dart/resolver/extension_member_resolver.dart:333-345).
+        if let Some(ex) = &explicitos
+            && ex.len() != dados.type_params.len()
+            && let (Some(&p), Some(&u2)) = (args.type_args.first(), args.type_args.last())
+        {
+            let fonte = &inf.program.unit(cx.unit).source;
+            let ini_t = a.ty(p).span.start;
+            let fim_t = a.ty(u2).span.end;
+            let abre = fonte.get(..ini_t).and_then(|r| r.rfind('<')).unwrap_or(ini_t);
+            let fecha = fonte.get(fim_t..).and_then(|r| r.find('>')).map(|i| fim_t + i + 1).unwrap_or(fim_t);
+            let nome = inf.program.extension(x).name.map(|n| inf.interner.resolve(n).to_string()).unwrap_or_default();
+            let (np, na) = (dados.type_params.len().to_string(), ex.len().to_string());
+            inf.aviso_com_codigo(
+                dartforge_diagnostics::codigos::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS_EXTENSION,
+                Span { start: abre, end: fecha },
+                &[&nome, &np, &na],
+            );
+        }
         let ext_args = match &explicitos {
             Some(ex) if ex.len() == dados.type_params.len() => Some(ex.clone()),
             _ => None,
@@ -530,10 +748,32 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             None => u,
         };
         let t = inferir(inf, cx, args.args[0].value, ctx_arg);
+        let explicitos_ok = ext_args.is_some();
         let ext_args = match ext_args {
             Some(ex) => ex,
             None => inf.extensao_aplicavel(x, t).unwrap_or_else(|| inf.instanciar_para_limites(&dados.type_params)),
         };
+        // `EXTENSION_OVERRIDE_ARGUMENT_NOT_ASSIGNABLE` no argumento
+        // (an611:src/dart/resolver/extension_member_resolver.dart:227-243);
+        // `void` é `USE_OF_VOID_RESULT`. Só sem parâmetros de tipo ou com
+        // argumentos explícitos (a inferência falha tem outro relato).
+        if dados.type_params.is_empty() || explicitos_ok {
+            let arg = args.args[0].value;
+            if !expr::uso_de_void(inf, cx, arg, t) {
+                let mapa = inf.mapa(&dados.type_params, &ext_args);
+                let on = inf.subst(dados.on, &mapa);
+                if !inf.atribuivel(t, on) {
+                    let a0 = inf.table.format(t, inf.interner, inf.program);
+                    let a1 = inf.table.format(on, inf.interner, inf.program);
+                    let sp = inf.span_expr(cx.unit, arg);
+                    inf.aviso_com_codigo(
+                        dartforge_diagnostics::codigos::compile_time_error::EXTENSION_OVERRIDE_ARGUMENT_NOT_ASSIGNABLE,
+                        sp,
+                        &[&a0, &a1],
+                    );
+                }
+            }
+        }
         cx.sobreposicoes.insert(e, (x, ext_args));
         return (t, false);
     }
@@ -546,11 +786,38 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             // `p.f(args)`
             if let ExprKind::Identifier(p) = &a.expr(recv).kind {
                 if matches!(resolver_nome(inf, cx, p.sym, false), RefNome::Prefixo) {
+                    // `p.f(args)` sem getter `f` no prefixo
+                    // (`_resolveReceiverPrefix`,
+                    // `an611:src/dart/resolver/method_invocation_resolver.dart:666-722`):
+                    // `UNDEFINED_FUNCTION`, salvo `loadLibrary` de import
+                    // adiado e o nome ignorado de import que não existe.
+                    let p = *p;
+                    if inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.getter).is_none()
+                        && expr::load_library(inf, cx, p.sym, name.sym).is_none()
+                    {
+                        expr::resolver(inf, cx, recv, Resolved::Prefix(cx.lib));
+                        if !crate::scope::deve_ignorar_indefinido(inf.program, inf.interner, cx.unit, Some(p.sym), name.sym) {
+                            let nome = inf.interner.resolve(name.sym).to_string();
+                            inf.aviso_com_codigo(
+                                dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_FUNCTION,
+                                name.span,
+                                &[&nome],
+                            );
+                        }
+                        let d = inf.core.dynamic_;
+                        registrar(inf, cx, target, d);
+                        for x in args.args.iter() {
+                            inferir_livre(inf, cx, x.value);
+                        }
+                        return (d, false);
+                    }
                     let t = inferir(inf, cx, target, u);
                     let f = funcao_resolvida(inf, cx, target);
                     preparar_entidade(inf, name.span, f);
+                    alvo_de_metodo(inf, f, name, span);
                     let (r, _) = invocar_valor(inf, cx, e, t, args, ctx, explicitos, span);
                     inf.entidade_da_inferencia = None;
+                    inf.alvo_da_aridade = None;
                     return (r, false);
                 }
             }
@@ -575,11 +842,40 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                         return (inf.core.dynamic_, false);
                     }
                 }
+                // `C.m(args)` sem membro estático `m` nem de instância (este
+                // é `STATIC_ACCESS_TO_INSTANCE_MEMBER`, pelo acesso): o
+                // analyzer relata `UNDEFINED_METHOD` com o **nome** do
+                // elemento (`_resolveReceiverTypeLiteral`,
+                // an611:src/dart/resolver/method_invocation_resolver.dart:890-939;
+                // alias de interface: o elemento aliasado). `C.new()` e
+                // `C<T>.m()` seguem o caminho comum.
+                let classe = match &rt {
+                    RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) => Some(*c),
+                    _ => None,
+                };
+                if let Some(c) = classe
+                    && !matches!(a.expr(recv).kind, ExprKind::TypeArguments { .. })
+                    && Some(name.sym) != inf.sym.new_
+                    && inf.membro_estatico(c, name.sym, false).is_none()
+                    && !inf.program.class(c).instance_members.contains_key(&name.sym)
+                {
+                    let nome = inf.interner.resolve(name.sym).to_string();
+                    let tipo = inf.interner.resolve(inf.program.class(c).name).to_string();
+                    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_METHOD, name.span, &[&nome, &tipo]);
+                    let d = inf.core.dynamic_;
+                    registrar(inf, cx, target, d);
+                    for arg in args.args.iter() {
+                        inferir_livre(inf, cx, arg.value);
+                    }
+                    return (d, false);
+                }
                 let t = inferir(inf, cx, target, u);
                 let f = funcao_resolvida(inf, cx, target);
                 preparar_entidade(inf, name.span, f);
+                alvo_de_metodo(inf, f, name, span);
                 let (r, _) = invocar_valor(inf, cx, e, t, args, ctx, explicitos, span);
                 inf.entidade_da_inferencia = None;
+                inf.alvo_da_aridade = None;
                 return (r, false);
             }
             // `super.m(args)`.
@@ -588,7 +884,10 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 registrar(inf, cx, recv, this);
                 let t = expr::membro_super(inf, cx, target, name, expr::UsoDoSuper::Invocacao);
                 registrar(inf, cx, target, t);
+                let f = funcao_resolvida(inf, cx, target);
+                alvo_de_metodo(inf, f, name, span);
                 let (r, _) = invocar_valor(inf, cx, e, t, args, ctx, explicitos, span);
+                inf.alvo_da_aridade = None;
                 return (r, false);
             }
             let (r_ty, curto) = receptor(inf, cx, recv, null_aware);
@@ -662,11 +961,23 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                     let (mut r, _) = if m.metodo {
                         let t = inf.nao_nulo(m.tipo);
                         preparar_entidade(inf, name.span, m.funcao);
+                        // `f.call(...)` com `f` de tipo função: a entidade do
+                        // nomeado obrigatório é a lista de argumentos.
+                        let r_nn = inf.nao_nulo(r_ty);
+                        let ent = if Some(name.sym) == inf.sym.call && matches!(inf.table.get(r_nn), Type::Function { .. }) {
+                            args.span
+                        } else {
+                            name.span
+                        };
+                        { let t = inf.interner.resolve(name.sym).to_string(); definir_alvo(inf, Some(t), ent); }
                         let r = invocar(inf, cx, t, args, ctx, explicitos);
                         inf.entidade_da_inferencia = None;
                         r
                     } else {
-                        invocar_valor(inf, cx, e, m.tipo, args, ctx, explicitos, span)
+                        definir_alvo(inf, None, span);
+                        let r = invocar_valor(inf, cx, e, m.tipo, args, ctx, explicitos, span);
+                        inf.alvo_da_aridade = None;
+                        r
                     };
                     if m.metodo {
                         // Refinamento numérico de `remainder`/`clamp`.
@@ -688,6 +999,7 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                     if let Some(m) = inf.membro_de_interface(o, name.sym, false) {
                         if m.metodo {
                             registrar(inf, cx, target, m.tipo);
+                            { let t = inf.interner.resolve(name.sym).to_string(); definir_alvo(inf, Some(t), name.span); }
                             let (r, _) = invocar(inf, cx, m.tipo, args, ctx, explicitos);
                             return (r, curto);
                         }
@@ -728,13 +1040,12 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                         return (d, curto);
                     }
                     if !inf.acesso_de_instancia_a_estatico(r_ty, name.sym, false, name.span) {
-                        let msg = format!(
-                            "{}: '{}' para o tipo '{}'",
-                            UNDEFINED_METHOD.template,
-                            inf.interner.resolve(name.sym),
-                            inf.table.format(r_ty, inf.interner, inf.program)
-                        );
-                        inf.aviso(msg, name.span);
+                        // `{1}` é o nome do elemento, não o tipo
+                        // (`_resolveReceiverType`,
+                        // an611:src/dart/resolver/method_invocation_resolver.dart:862-873).
+                        let nome = inf.interner.resolve(name.sym).to_string();
+                        let tipo = nome_do_receptor(inf, r_ty);
+                        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_METHOD, name.span, &[&nome, &tipo]);
                     }
                     let d = inf.core.dynamic_;
                     registrar(inf, cx, target, d);
@@ -746,10 +1057,24 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             }
         }
         _ => {
+            // `nome(args)` sem getter no escopo léxico: o erro é o da
+            // invocação (`UNDEFINED_FUNCTION`/`UNDEFINED_METHOD`…), não o
+            // de nome indefinido (ver `expr::invocacao_sem_alvo_indefinida`).
+            if let ExprKind::Identifier(n) = &a.expr(target).kind
+                && expr::invocacao_sem_alvo_indefinida(inf, cx, *n)
+            {
+                let d = inf.core.dynamic_;
+                registrar(inf, cx, target, d);
+                for x in args.args.iter() {
+                    inferir_livre(inf, cx, x.value);
+                }
+                return (d, false);
+            }
             let t = inferir(inf, cx, target, u);
             if let Some((x, ext_args)) = cx.sobreposicoes.get(&target).cloned() {
                 if let Some(call) = inf.sym.call {
                     if let Some(m) = inf.membro_de_extensao_explicita(x, &ext_args, call, false) {
+                        definir_alvo(inf, None, span);
                         let (r, _) = invocar(inf, cx, m.tipo, args, ctx, explicitos);
                         return (r, false);
                     }
@@ -760,6 +1085,7 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                             EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template.to_string(),
                             args.span,
                         );
+                        definir_alvo(inf, None, span);
                         let (r, _) = invocar(inf, cx, m.tipo, args, ctx, explicitos);
                         return (r, false);
                     }
@@ -772,14 +1098,76 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 }
                 return (inf.core.dynamic_, false);
             }
-            if matches!(a.expr(target).kind, ExprKind::Identifier(_)) {
+            if let ExprKind::Identifier(n) = &a.expr(target).kind {
                 let f = funcao_resolvida(inf, cx, target);
                 preparar_entidade(inf, a.expr(target).span, f);
+                // Função (de topo, método, local) é `MethodInvocation` (a
+                // entidade é o nome); variável ou getter vira
+                // `FunctionExpressionInvocation` (a chamada inteira). O nome
+                // é o identificador nos dois casos.
+                let funcao = match f {
+                    Some(f) => matches!(inf.program.function(f).kind, FunctionKind::Function),
+                    None => match cx.buscar(n.sym) {
+                        Some(super::corpo::Nome::Local(id)) => local_e_funcao(inf, cx, cx.locais[id.0 as usize].offset),
+                        _ => false,
+                    },
+                };
+                let ent = if funcao { n.span } else { span };
+                { let t = inf.interner.resolve(n.sym).to_string(); definir_alvo(inf, Some(t), ent); }
+            } else {
+                definir_alvo(inf, None, span);
             }
             let (r, _) = invocar_valor(inf, cx, e, t, args, ctx, explicitos, span);
             inf.entidade_da_inferencia = None;
+            inf.alvo_da_aridade = None;
             (r, false)
         }
+    }
+}
+
+/// Alvo da aridade de `x.m(...)`/`p.f(...)`/`super.m(...)`: um método (ou
+/// função) é `MethodInvocation` (nome e entidade no `m`); um getter ou
+/// variável vira `FunctionExpressionInvocation` sobre o acesso (sem nome,
+/// a chamada inteira).
+fn alvo_de_metodo(inf: &mut BodyInferrer<'_>, f: Option<FunctionElementId>, name: ast::Name, span: Span) {
+    if f.is_some_and(|f| matches!(inf.program.function(f).kind, FunctionKind::Function)) {
+        { let t = inf.interner.resolve(name.sym).to_string(); definir_alvo(inf, Some(t), name.span); }
+    } else {
+        definir_alvo(inf, None, span);
+    }
+}
+
+/// O `{1}` do `UNDEFINED_METHOD` de instância: o nome do elemento do tipo
+/// do receptor (sem argumentos de tipo), `'Function'` para tipos de função
+/// e `'<unknown>'` para o resto (records, parâmetros de tipo).
+pub(crate) fn nome_do_receptor(inf: &BodyInferrer<'_>, t: TypeId) -> String {
+    match inf.table.get(t) {
+        Type::Interface { class, .. } => inf.interner.resolve(inf.program.class(*class).name).to_string(),
+        Type::ExtensionType { decl, .. } => inf.interner.resolve(inf.program.class(*decl).name).to_string(),
+        Type::FutureOr { .. } => "FutureOr".to_string(),
+        Type::Null => "Null".to_string(),
+        Type::Function { .. } => "Function".to_string(),
+        _ => "<unknown>".to_string(),
+    }
+}
+
+/// O local declarado em `offset` é uma função local (o nome segue de `(`
+/// ou `<` na declaração).
+fn local_e_funcao(inf: &BodyInferrer<'_>, cx: &Corpo, offset: usize) -> bool {
+    let fonte = &inf.program.unit(cx.unit).source;
+    let resto = fonte.get(offset..).unwrap_or("");
+    let depois = resto.trim_start_matches(|c: char| c.is_alphanumeric() || c == '_' || c == '$').trim_start();
+    depois.starts_with('(') || depois.starts_with('<')
+}
+
+/// O último identificador de uma referência a tipo (`C`, `p.C`, `C<int>`).
+fn ultimo_identificador(inf: &BodyInferrer<'_>, cx: &Corpo, e: ExprId) -> Option<dartforge_intern::SymbolId> {
+    let a = &inf.program.unit(cx.unit).ast;
+    match &a.expr(e).kind {
+        ExprKind::Identifier(n) => Some(n.sym),
+        ExprKind::Property { name, .. } => Some(name.sym),
+        ExprKind::TypeArguments { target, .. } => ultimo_identificador(inf, cx, *target),
+        _ => None,
     }
 }
 
@@ -1027,6 +1415,12 @@ fn criacao_sem_classe(inf: &mut BodyInferrer<'_>, cx: &Corpo, name: &[ast::Name]
     let mut prefixo = false;
     if name.len() == 2 {
         if inf.program.prefixos_na_unidade(cx.unit).contains_key(&primeiro.sym) {
+            // `shouldIgnoreUndefinedNamedType`
+            // (`an611:src/dart/resolver/named_type_resolver.dart:310`): o
+            // prefixo de um import que não existe.
+            if crate::scope::deve_ignorar_indefinido(inf.program, inf.interner, cx.unit, Some(primeiro.sym), ultimo.sym) {
+                return;
+            }
             prefixo = true;
         } else if inf.program.lookup_na_unidade(cx.unit, primeiro.sym).is_some_and(|b| {
             !matches!(b.getter, Some(Element::Class(_)))
@@ -1034,6 +1428,12 @@ fn criacao_sem_classe(inf: &mut BodyInferrer<'_>, cx: &Corpo, name: &[ast::Name]
         {
             return;
         }
+    }
+    if name.len() == 1
+        && inf.program.lookup_na_unidade(cx.unit, primeiro.sym).is_none()
+        && crate::scope::deve_ignorar_indefinido(inf.program, inf.interner, cx.unit, None, primeiro.sym)
+    {
+        return;
     }
     let inicio = if prefixo { ultimo.span.start } else { primeiro.span.start };
     let texto = inf.interner.resolve(ultimo.sym).to_string();
@@ -1159,7 +1559,21 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
         };
         avisar_classe_abstrata(inf, c, fid, sp);
     }
-    construir(inf, cx, Some(e), c, f, explicitos, args, ctx)
+    // `constructorName`: o tipo (com prefixo e argumentos) e o `.nome`; o
+    // nome citado é o do construtor, ou `C.new` (sem o prefixo).
+    {
+        let classe = if ctor_do_nome { name[0] } else { *name.last().unwrap_or(&name[0]) };
+        let nome = match constructor {
+            Some(n) => inf.interner.resolve(n.sym).to_string(),
+            None => format!("{}.new", inf.interner.resolve(classe.sym)),
+        };
+        let t = a.ty(ty).span;
+        let ent = Span { start: t.start, end: constructor.map(|n| n.span.end).unwrap_or(t.end).max(t.end) };
+        definir_alvo(inf, Some(nome), ent);
+    }
+    let r = construir(inf, cx, Some(e), c, f, explicitos, args, ctx);
+    inf.alvo_da_aridade = None;
+    r
 }
 
 /// O intervalo do tipo nomeado de uma criação implícita: `A`, `p.A` ou

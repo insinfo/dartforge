@@ -717,6 +717,7 @@ pub(crate) fn cabecalho_for_in(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, targe
     };
     let t = inferir(inf, cx, iterable, ctx);
     expr::uso_de_void(inf, cx, iterable, t);
+    for_in_tipo_invalido(inf, cx, target, iterable, t, escrito, await_);
     let el = if inf.e_dynamic(t) {
         inf.core.dynamic_
     } else {
@@ -746,6 +747,75 @@ pub(crate) fn cabecalho_for_in(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, targe
             }
             inferir_livre(inf, cx, *e);
         }
+    }
+}
+
+/// `_checkForEachParts` (an611:src/generated/error_verifier.dart:3103-3233):
+/// `FOR_IN_OF_INVALID_TYPE` quando o iterável (resolvido ao limite) não é
+/// `Iterable`/`Stream`, e `FOR_IN_OF_INVALID_ELEMENT_TYPE` quando o tipo dos
+/// elementos não é atribuível à variável do laço. `void` (relatado antes),
+/// `dynamic` e tipos anuláveis (o erro é o de nulo) não relatam.
+fn for_in_tipo_invalido(
+    inf: &mut BodyInferrer<'_>,
+    cx: &Corpo,
+    target: &ast::ForInTarget,
+    iterable: ExprId,
+    t: TypeId,
+    escrito: Option<TypeId>,
+    await_: bool,
+) {
+    use dartforge_diagnostics::codigos::compile_time_error as ce;
+    let Some(classe) = (if await_ { inf.core.stream_class } else { inf.core.iterable_class }) else { return };
+    if inf.e_dynamic(t) || inf.e_desconhecido(t) || matches!(inf.table.get(t), Type::Void | Type::Null) || inf.table.get(t).is_declared_nullable() {
+        return;
+    }
+    // `resolveToBound`.
+    let mut base = t;
+    for _ in 0..16 {
+        match inf.table.get(base) {
+            Type::TypeParameter { param, nullable: false } => {
+                let b = inf.table.param(*param).bound;
+                if b == base {
+                    break;
+                }
+                base = b;
+            }
+            Type::Intersection { bound, .. } => base = *bound,
+            _ => break,
+        }
+    }
+    let d = inf.core.dynamic_;
+    let requerido = inf.iface(Some(classe), vec![d]);
+    let nome = if await_ { "Stream" } else { "Iterable" };
+    if inf.e_dynamic(base) || matches!(inf.table.get(base), Type::Void) || base == inf.core.object_nullable {
+        return;
+    }
+    let sp = inf.span_expr(cx.unit, iterable);
+    if !inf.atribuivel(base, requerido) {
+        let tt = inf.table.format(base, inf.interner, inf.program);
+        inf.aviso_com_codigo(ce::FOR_IN_OF_INVALID_TYPE, sp, &[&tt, nome]);
+        return;
+    }
+    // Tipo da variável: o escrito, ou o do local existente em `for (x in …)`.
+    let var = match target {
+        ast::ForInTarget::Declared { .. } => escrito,
+        ast::ForInTarget::Expression(e) => match &inf.program.unit(cx.unit).ast.expr(*e).kind {
+            ExprKind::Identifier(n) => match cx.buscar(n.sym) {
+                Some(Nome::Local(id)) => Some(cx.local(id).tipo),
+                _ => None,
+            },
+            _ => None,
+        },
+        ast::ForInTarget::Pattern { .. } => None,
+    };
+    let Some(var) = var else { return };
+    let Some(el) = inf.como_instancia_de(base, Some(classe)).map(|a| a[0]) else { return };
+    let tearoff = matches!(inf.table.get(var), Type::Function { .. } | Type::FutureOr { .. })
+        && matches!(inf.table.get(el), Type::Interface { .. } | Type::ExtensionType { .. } | Type::TypeParameter { .. } | Type::Intersection { .. });
+    if !tearoff && !inf.atribuivel(el, var) {
+        let tt = inf.table.format(base, inf.interner, inf.program);
+        let tv = inf.table.format(var, inf.interner, inf.program);
+        inf.aviso_com_codigo(ce::FOR_IN_OF_INVALID_ELEMENT_TYPE, sp, &[&tt, nome, &tv]);
     }
 }
 

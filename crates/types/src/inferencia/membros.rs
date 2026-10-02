@@ -331,6 +331,15 @@ impl<'a> BodyInferrer<'a> {
         if let Some(m) = self.membro_de_extensao(lib, recv, nome, setter) {
             return Busca::Achado(m);
         }
+        // `f.call` com `f` do tipo `Function` (de `dart:core`): sem erro e
+        // dinâmico (`TypePropertyResolver`,
+        // an611:src/dart/resolver/type_property_resolver.dart:186-191).
+        if !anulavel
+            && Some(nome) == self.sym.call
+            && matches!(self.table.get(recv), Type::Interface { class, .. } if Some(*class) == self.core.function_class)
+        {
+            return Busca::Dinamico;
+        }
         Busca::Ausente
     }
 

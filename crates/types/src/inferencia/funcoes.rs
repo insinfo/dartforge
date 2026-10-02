@@ -157,21 +157,21 @@ fn inicializador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, classe: Option<Clas
                 expr::verificar_atribuivel_expr(inf, cx, *value, tv, t, INVALID_ASSIGNMENT.template);
             }
         }
-        ast::Initializer::Super { constructor, arguments, .. } => {
+        ast::Initializer::Super { span, constructor, arguments } => {
             let alvo = classe.and_then(|c| {
                 let sup = inf.outline.classes[c.0 as usize].supertype?;
                 let Type::Interface { class: sc, args, .. } = inf.table.get(sup).clone() else { return None };
                 Some((sc, args))
             });
-            chamar_construtor_de(inf, cx, alvo, *constructor, arguments, params);
+            chamar_construtor_de(inf, cx, alvo, *constructor, arguments, params, *span);
         }
-        ast::Initializer::Redirect { constructor, arguments, .. } => {
+        ast::Initializer::Redirect { span, constructor, arguments } => {
             let alvo = classe.map(|c| {
                 let ps = inf.outline.classes[c.0 as usize].type_params.clone();
                 let args: Vec<TypeId> = ps.iter().map(|&p| inf.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
                 (c, args.into_boxed_slice())
             });
-            chamar_construtor_de(inf, cx, alvo, *constructor, arguments, &[]);
+            chamar_construtor_de(inf, cx, alvo, *constructor, arguments, &[], *span);
         }
         ast::Initializer::Assert { condition, message, .. } => {
             expr::condicao_de_assert(inf, cx, *condition);
@@ -262,7 +262,7 @@ fn classe_de_elemento(inf: &mut BodyInferrer<'_>, el: Element) -> Option<ClassId
 /// `super(...)`/`this(...)`: invoca o construtor da classe instanciada.
 /// Os parâmetros `super.x` do construtor corrente são argumentos
 /// implícitos (posicionais depois dos explícitos; nomeados pelo nome).
-fn chamar_construtor_de(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: Option<(ClassId, Box<[TypeId]>)>, nome: Option<ast::Name>, args: &ast::Arguments, params: &[ast::Parameter]) {
+fn chamar_construtor_de(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: Option<(ClassId, Box<[TypeId]>)>, nome: Option<ast::Name>, args: &ast::Arguments, params: &[ast::Parameter], span: dartforge_diagnostics::Span) {
     let u = inf.core.unknown;
     let chave = nome.map(|n| n.sym).or(inf.sym.vazio);
     let f = alvo.as_ref().and_then(|(c, _)| chave.and_then(|k| inf.program.class(*c).constructors.get(&k).copied()));
@@ -276,8 +276,47 @@ fn chamar_construtor_de(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: Option
             } else {
                 sig
             };
-            let sig = sem_parametros_super(inf, sig, args, params);
+            // Aridade: os `super.x` contam como argumentos implícitos
+            // (`verifySuperFormalParameters`); o nome citado é o do
+            // construtor, ou `<tipo de retorno>.new`; a entidade do nomeado
+            // obrigatório é a invocação inteira.
+            let nome_citado = match nome {
+                Some(n) => inf.interner.resolve(n.sym).to_string(),
+                None => {
+                    let ret = match inf.table.get(sig) {
+                        Type::Function { ret, .. } => *ret,
+                        _ => sig,
+                    };
+                    format!("{}.new", inf.table.format(ret, inf.interner, inf.program))
+                }
+            };
+            let super_posicionais = params.iter().filter(|p| p.super_ && p.kind != ast::ParameterKind::Named).count();
+            // `POSITIONAL_SUPER_FORMAL_PARAMETER_WITH_POSITIONAL_ARGUMENT`
+            // (`verifySuperFormalParameters`,
+            // an611:src/error/super_formal_parameters_verifier.dart:22-33): no
+            // nome de cada `super.x` posicional, se o `super(...)` tem
+            // argumento posicional.
+            if args.args.iter().any(|a| a.name.is_none()) {
+                for p in params.iter().filter(|p| p.super_ && p.kind != ast::ParameterKind::Named) {
+                    if let Some(n) = p.name {
+                        inf.aviso_com_codigo(
+                            dartforge_diagnostics::codigos::compile_time_error::POSITIONAL_SUPER_FORMAL_PARAMETER_WITH_POSITIONAL_ARGUMENT,
+                            n.span,
+                            &[],
+                        );
+                    }
+                }
+            }
+            let super_nomeados: Vec<_> =
+                params.iter().filter(|p| p.super_ && p.kind == ast::ParameterKind::Named).filter_map(|p| p.name.map(|n| n.sym)).collect();
+            inf.alvo_da_aridade = Some(super::chamadas::AlvoDaAridade {
+                nome: Some(nome_citado),
+                entidade: Some(span),
+                super_posicionais,
+                super_nomeados,
+            });
             super::chamadas::invocar(inf, cx, sig, args, u, None);
+            inf.alvo_da_aridade = None;
         }
         _ => {
             for a in args.args.iter() {
@@ -285,27 +324,6 @@ fn chamar_construtor_de(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: Option
             }
         }
     }
-}
-
-/// Tira da assinatura do super construtor os parâmetros que os `super.x`
-/// do construtor corrente já passam.
-fn sem_parametros_super(inf: &mut BodyInferrer<'_>, sig: TypeId, args: &ast::Arguments, params: &[ast::Parameter]) -> TypeId {
-    let k = params.iter().filter(|p| p.super_ && p.kind != ast::ParameterKind::Named).count();
-    let nomeados: Vec<_> = params.iter().filter(|p| p.super_ && p.kind == ast::ParameterKind::Named).filter_map(|p| p.name.map(|n| n.sym)).collect();
-    if k == 0 && nomeados.is_empty() {
-        return sig;
-    }
-    let Type::Function { type_params, ret, positional, optional, named, nullable } = inf.table.get(sig).clone() else { return sig };
-    let explicitos = args.args.iter().filter(|a| a.name.is_none()).count();
-    let mut todos: Vec<(TypeId, bool)> = positional.iter().map(|&t| (t, true)).chain(optional.iter().map(|&t| (t, false))).collect();
-    let fim = (explicitos + k).min(todos.len());
-    if explicitos < fim {
-        todos.drain(explicitos..fim);
-    }
-    let positional: Box<[TypeId]> = todos.iter().filter(|x| x.1).map(|x| x.0).collect();
-    let optional: Box<[TypeId]> = todos.iter().filter(|x| !x.1).map(|x| x.0).collect();
-    let named: Box<[_]> = named.iter().copied().filter(|(n, _, _)| !nomeados.contains(n)).collect();
-    inf.table.intern(Type::Function { type_params, ret, positional, optional, named, nullable })
 }
 
 /// Infere um corpo (bloco ou expressão) com o retorno já no contexto.
@@ -691,7 +709,11 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
             // O retorno inferido não cabe no do contexto e foi trocado por
             // ele: cada `return` confere contra esse tipo
             // (`RETURN_OF_INVALID_TYPE_FROM_CLOSURE`).
-            if fc.executavel.is_none() && !gerador && !inf.sub(t, r) && !matches!(inf.table.get(r), Type::Void | Type::Dynamic) && !inf.e_desconhecido(r) {
+            // Closure `async` em contexto de retorno `void`: o retorno dela é
+            // `Future<void>` e todo `return e;` com `flatten(e)` fora de
+            // `void`/`dynamic`/`Null` é erro (`return_type_verifier.dart:245-256`).
+            let async_void = m == AsyncModifier::Async && matches!(inf.table.get(r), Type::Void);
+            if fc.executavel.is_none() && !gerador && ((!inf.sub(t, r) && !matches!(inf.table.get(r), Type::Void | Type::Dynamic) && !inf.e_desconhecido(r)) || async_void) {
                 retornos_da_closure(inf, cx, &fc, r, estatico);
             }
             // O tipo de execução do gerador (a regra do CFE, conferida contra
@@ -797,12 +819,36 @@ pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: Uni
                                 Some(k.type_args.iter().map(|&t| inf.tipo_de_argumento_de_tipo(&cx, t)).collect())
                             };
                             let u = inf.core.unknown;
+                            let nome_enum = inf.interner.resolve(en.name.sym).to_string();
+                            super::chamadas::definir_alvo(inf, Some(nome_enum), k.name.span);
                             super::chamadas::construir(inf, &mut cx, None, c, Some(f), explicitos, args, u);
+                            inf.alvo_da_aridade = None;
+                        } else if k.constructor.is_none() && inf.program.class(c).constructors.is_empty() {
+                            // Construtor sem nome implícito `const E()`: os
+                            // argumentos passam pela aridade dele (sem
+                            // parâmetros).
+                            let ret = inf.tipo_this_classe(c);
+                            let sig = inf.table.intern(Type::Function {
+                                type_params: Box::new([]),
+                                ret,
+                                positional: Box::new([]),
+                                optional: Box::new([]),
+                                named: Box::new([]),
+                                nullable: false,
+                            });
+                            let nome_enum = inf.interner.resolve(en.name.sym).to_string();
+                            super::chamadas::definir_alvo(inf, Some(nome_enum), k.name.span);
+                            let u = inf.core.unknown;
+                            super::chamadas::invocar(inf, &mut cx, sig, args, u, None);
+                            inf.alvo_da_aridade = None;
                         } else {
                             for x in args.args.iter() {
                                 inferir_livre(inf, &mut cx, x.value);
                             }
                         }
+                    } else if let Some(f) = inf.sym.vazio.and_then(|v| inf.program.class(c).constructors.get(&v).copied()) {
+                        let nome_enum = inf.interner.resolve(en.name.sym).to_string();
+                        super::chamadas::aridade_sem_argumentos(inf, f, nome_enum, k.name.span);
                     }
                 }
             }
@@ -1055,7 +1101,29 @@ fn anotacao_sem_validar(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option
             } else {
                 Some(m.type_args.iter().map(|&t| inf.tipo_de_argumento_de_tipo(&cx, t)).collect())
             };
+            // `_reportNotEnoughPositionalArguments` com `Annotation`: o
+            // `identifier` do nome prefixado (`@A.nome` → `nome`, `@p.A` →
+            // `A`), ou `<nome>.new`; o `MISSING_REQUIRED_ARGUMENT` vai no
+            // identificador do construtor, ou no da classe.
+            let prefixo0 = m.name.first().is_some_and(|n| inf.program.prefixos_na_unidade(unit).contains_key(&n.sym));
+            let nome_citado = match m.name.as_slice() {
+                [a] => format!("{}.new", inf.interner.resolve(a.sym)),
+                [a, b] if !m.type_args.is_empty() && !prefixo0 => {
+                    let _ = b;
+                    format!("{}.new", inf.interner.resolve(a.sym))
+                }
+                [_, b, ..] => inf.interner.resolve(b.sym).to_string(),
+                [] => String::new(),
+            };
+            let entidade = match m.name.as_slice() {
+                [a] => a.span,
+                [_, b] => b.span,
+                [_, _, c] => c.span,
+                _ => m.span,
+            };
+            super::chamadas::definir_alvo(inf, Some(nome_citado), entidade);
             super::chamadas::construir(inf, &mut cx, None, c, Some(f), explicitos, args, u);
+            inf.alvo_da_aridade = None;
             return;
         }
     }
@@ -1082,7 +1150,9 @@ fn retornos_da_closure(inf: &mut BodyInferrer<'_>, cx: &Corpo, fc: &CtxFuncao, r
             AsyncModifier::Async => {
                 let tv = inf.flatten(r);
                 let fs = inf.flatten(s);
-                if matches!(inf.table.get(fs), Type::Void) {
+                if matches!(inf.table.get(tv), Type::Void) {
+                    !matches!(inf.table.get(fs), Type::Void | Type::Dynamic | Type::Null)
+                } else if matches!(inf.table.get(fs), Type::Void) {
                     !e_void_dyn(inf, tv)
                 } else {
                     !inf.atribuivel(s, tv) && !inf.sub(fs, tv)

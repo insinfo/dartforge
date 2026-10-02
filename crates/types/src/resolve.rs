@@ -82,7 +82,7 @@ pub struct TypedefTypeData {
 }
 
 /// Conjunto de todas as tabelas laterais de tipos do outline, indexadas pelos IDs dos elementos.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OutlineTypes {
     pub functions: Vec<FunctionTypeData>,
     pub variables: Vec<VariableTypeData>,
