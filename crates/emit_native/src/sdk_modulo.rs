@@ -470,8 +470,8 @@ fn chave_do_sdk(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
 /// ```
 pub fn geracao_do_sdk(perfil: PerfilDoSdk) -> Geracao {
     match perfil {
-        PerfilDoSdk::Desenvolvimento => Geracao { otimizar: false, formato: Formato::Objeto, compartilhado: true, cpu: None },
-        PerfilDoSdk::Producao => Geracao { otimizar: true, formato: Formato::Bitcode, compartilhado: false, cpu: None },
+        PerfilDoSdk::Desenvolvimento => Geracao { otimizar: false, formato: Formato::Objeto, compartilhado: true, cpu: None, pre_ligacao: 2 },
+        PerfilDoSdk::Producao => Geracao { otimizar: true, formato: Formato::Bitcode, compartilhado: false, cpu: None, pre_ligacao: 2 },
     }
 }
 
@@ -502,7 +502,16 @@ pub fn sdk_compilado(lib_dir: &Path, clang: &Path) -> Result<SdkCompilado, Strin
 pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk) -> Result<SdkCompilado, String> {
     static TRAVA: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _g = TRAVA.lock().unwrap_or_else(|e| e.into_inner());
-    let gerador = Gerador::escolher(clang);
+    // Na produção, o bitcode do SDK sai do Clang, com o resumo do ThinLTO
+    // (como as partes do programa, `driver.rs`): do gerador embutido ele
+    // não tem o resumo, e o `lld` fazia a LTO completa do SDK num módulo
+    // só, numa thread, antes das partes (docs/NATIVO-PRODUCAO-GRANDE.md).
+    // `DARTFORGE_GERADOR` escolhe à mão.
+    let gerador = if perfil == PerfilDoSdk::Producao && std::env::var_os("DARTFORGE_GERADOR").is_none() {
+        Gerador::Clang(clang.to_path_buf())
+    } else {
+        Gerador::escolher(clang)
+    };
     let geracao = geracao_do_sdk(perfil);
     let chave = chave_do_sdk(lib_dir, &gerador.identidade()?, &[geracao.descricao().as_str()]);
     let raiz = crate::cache::dir_cache_nativo().join("sdk");

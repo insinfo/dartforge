@@ -86,11 +86,12 @@ cache (a chave já inclui o hash do emissor). Texto, uma linha por registro, cam
 tabulação:
 
 ```
-dartforge-poda	1	<biblioteca>
+dartforge-poda	2	<biblioteca>
 N	<símbolo>                     (tabela de nomes; a posição é o índice)
 D	<i>	<L|G>	<refs…>	<hashes…>   (definição: local ou global; índices citados; seletores chamados)
 T	<i da função>	<cid>	<hash>:<i da entrada>…
 S	<hash>	<texto do seletor>        (para o relatório)
+R	<i>	<receita RTI com F<…>>       (as assinaturas da FFI, §3.14)
 ```
 
 O resumo sai do próprio IR emitido (`poda::resumir`), não da HIR: o que o bitcode cita é
@@ -255,6 +256,36 @@ recarga pode chamar qualquer seletor.
 
 Testes: `poda_da_hir_tira_o_que_nao_alcanca` e `poda_da_hir_ve_o_seletor_chamado_pelo_sdk`.
 `DARTFORGE_SEM_PODA_HIR=1` desliga.
+
+### 3.14 Os trampolins da FFI pelas assinaturas pedidas
+
+`lower_ffi` gera um trampolim (`df.ffi.<chave>$ent`) e um callback (`$cb`) para **toda**
+assinatura nativa da tabela de tipos, inclusive a do código morto. No new_sali/backend
+(com o `openssl_bindings` gerado) são 3 591 assinaturas e 7 182 funções, 17,6 MB de IR (3% do
+programa), todas raízes da poda: o registro do isolado cita todas.
+
+O Dart exige o tipo nativo constante no sítio de `asFunction`, `lookupFunction`,
+`Pointer.fromFunction` e `NativeCallable` (o transformador de FFI do front-end recusa um
+genérico). Então a assinatura que o runtime vai procurar (`ffi.rs::chave_da_assinatura`, pela
+RTI) está escrita numa receita RTI do código que chama: o termo `F<0;R;n;P1,…;>` dentro da
+receita do argumento de tipo (sozinho, na tupla `L<…>` ou em `NativeFunction<…>`).
+
+* **Receitas no resumo.** O resumo leva as receitas com `F<` e o nó que as tem (linha `R`):
+  * na HIR do programa, o `Const(String)` da função (os getters `df.rti.*`);
+  * no IR das bibliotecas do SDK (`resumir`), a constante do texto (`df.s.*`, ou `.str.N` com
+    `F\3C`).
+* **Ponto fixo.** `podar_hir` põe como raízes só os trampolins e callbacks das chaves achadas
+  nas receitas de nós vivos (`chaves_ffi_da_receita`: retorno e parâmetros que são classes da
+  tabela de tipos nativos, `S<rti>.` das structs por valor, `*` do `VarArgs`; nada de opcional,
+  nomeado ou genérico). Um trampolim vivo alcança código novo, então o ponto fixo repete até as
+  chaves pararem de crescer. As listas `ffi_trampolins` e `ffi_callbacks` do módulo ficam só
+  com as chaves vivas, e o registro do isolado só as registra.
+* **Medida (new_sali/backend):** as receitas do IR inteiro dão 44 chaves, todas registradas
+  (nenhuma chave achada fica sem trampolim).
+
+Testes: `testes_ffi::chave_da_assinatura_na_receita` e `receitas_do_ir_vao_ao_resumo`; o corpus
+de FFI (`08`, `12`, `13`, `15`–`19`, `128`) nos quatro modos. `DARTFORGE_SEM_PODA_FFI=1`
+desliga.
 
 ## 4. Verificação
 

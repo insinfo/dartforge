@@ -246,7 +246,10 @@ pub extern "C" fn dartforge_exception_throw(bits: i64, tag: u8) {
                     1004 => 7,
                     _ => 1,
                 };
-                (fields.get(st_idx).map_or(0, |f| f.0) == 0).then_some(st_idx)
+                // Sem o campo do rastro, nada (o corpo de fora só nasce na
+                // recarga do JIT: o código de produção lê o corpo uma vez por
+                // objeto, `llvm/mod.rs`, `ajudante_do_corpo`).
+                fields.get(st_idx).is_some_and(|f| f.0 == 0).then_some(st_idx)
             }
             Some(fields) if erro_sdk.is_some_and(|cid| dartforge_is_subclass(fields.class_id, cid) != 0) => {
                 fields.first().is_some_and(|(valor, _)| valor == 0).then_some(0)

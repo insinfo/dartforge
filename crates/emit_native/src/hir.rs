@@ -429,6 +429,11 @@ pub enum Instruction {
     /// Endereço (`Ptr`) de um vetor constante de `i64`, global do módulo
     /// (a assinatura de uma entrada uniforme para a checagem de aridade).
     ConstArray(Vec<i64>),
+    /// Endereço (`Ptr`) de um vetor constante com o endereço de cada função
+    /// (`@df.fns.<k>`, global do módulo): os getters das constantes de um
+    /// literal grande que vira tabela (`lower/literais.rs`,
+    /// `preencher_de_tabela`), que o runtime chama.
+    TabelaDeFuncoes(Vec<String>),
 
     // --- P5c (SDK da fonte, δ) ------------------------------------------
     /// Chamada de membro de instância pelo **seletor** (`c:m`, `g:x`,

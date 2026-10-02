@@ -362,6 +362,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if !explicita {
             return None;
         }
+        let getter = self.getter_da_constante(ast, e)?;
+        Some(self.emit_call_with_check(
+            Instruction::CallStatic {
+                symbol: getter,
+                args: Vec::new(),
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        ))
+    }
+
+    /// O getter canônico (`dfc.<hash>.get`) da expressão constante `e`,
+    /// criado na primeira vez, sem chamá-lo (a tabela de um literal grande
+    /// o cita, `literais.rs`); `None` sem chave.
+    pub fn getter_da_constante(&mut self, ast: &ast::Ast, e: ExprId) -> Option<String> {
+        if self.constante_em_curso == Some(e) {
+            return None;
+        }
         let chave = self.chave_constante(ast, e, true)?;
         let hash = super::closures::hash_nome(&chave) as u64;
         let simbolo_valor = format!("dfc.{hash:016x}");
@@ -380,14 +398,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.globais_extras.extend(std::mem::take(&mut g.globais_extras));
             self.absorver(g);
         }
-        Some(self.emit_call_with_check(
-            Instruction::CallStatic {
-                symbol: getter,
-                args: Vec::new(),
-                ret_ty: Type::Ref,
-            },
-            Type::Ref,
-        ))
+        Some(getter)
     }
 
     /// Corpo do getter de uma constante canônica.

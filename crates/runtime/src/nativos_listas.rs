@@ -461,6 +461,84 @@ mod testes_runtime_type {
 /// (`_dartforgePreencherLista`…) a percorre e a descarta.
 ///
 /// # Safety
+/// `dados` aponta para `len` bytes legíveis; `getters`, para um vetor com
+/// o endereço de cada getter que a tabela cita (`g` + 4 bytes de índice:
+/// uma constante do programa, `dfc.<hash>.get`, sem argumentos).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_lista_de_tabela_g(dados: *const u8, len: i64, getters: *const extern "C" fn() -> i64) -> i64 {
+    // SAFETY: garantido por quem chama (constantes do módulo).
+    let b = unsafe { std::slice::from_raw_parts(dados, usize::try_from(len).unwrap_or(0)) };
+    // Os elementos, sem o heap emprestado: o getter roda código Dart.
+    enum Item<'a> {
+        Valor(crate::heap::Valor),
+        Texto(&'a [u8]),
+        Getter(usize),
+    }
+    let palavra = |b: &[u8], i: usize, n: usize| {
+        let mut w = [0u8; 8];
+        w[..n].copy_from_slice(&b[i..i + n]);
+        u64::from_le_bytes(w)
+    };
+    let mut itens: Vec<Item<'_>> = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        let tag = b[i];
+        i += 1;
+        itens.push(match tag {
+            b'n' => Item::Valor(crate::heap::Valor::Ref(0)),
+            b't' => Item::Valor(crate::heap::Valor::Bool(true)),
+            b'f' => Item::Valor(crate::heap::Valor::Bool(false)),
+            b'i' => {
+                i += 8;
+                Item::Valor(crate::heap::Valor::Int(palavra(b, i - 8, 8) as i64))
+            }
+            b'd' => {
+                i += 8;
+                Item::Valor(crate::heap::Valor::Double(f64::from_bits(palavra(b, i - 8, 8))))
+            }
+            b's' => {
+                let n = palavra(b, i, 4) as usize;
+                i += 4 + n;
+                Item::Texto(&b[i - n..i])
+            }
+            b'g' => {
+                i += 4;
+                Item::Getter(palavra(b, i - 4, 4) as usize)
+            }
+            _ => panic!("bug do compilador: tabela de coleção com o marcador {tag}"),
+        });
+    }
+    let h = HEAP.with(|heap| heap.borrow_mut().nova_lista(crate::layout::cid::LIST, itens.len(), crate::listas::Elemento::Geral));
+    // A lista fica enraizada enquanto os textos e os getters alocam.
+    com_raizes(&[h], || {
+        for (k, item) in itens.into_iter().enumerate() {
+            let v = match item {
+                Item::Valor(v) => v,
+                // Strings literais são canônicas e permanentes (a tabela
+                // `literais` é raiz).
+                Item::Texto(t) => {
+                    let t = Texto::de_wtf8(t);
+                    crate::heap::Valor::Ref(HEAP.with(|heap| heap.borrow_mut().string_literal(t.vista())))
+                }
+                Item::Getter(g) => {
+                    // SAFETY: o índice é de uma entrada do vetor (o compilador
+                    // escreve os dois juntos); o getter é uma função do módulo.
+                    let f = unsafe { *getters.add(g) };
+                    let v = f();
+                    if dartforge_exception_pending() != 0 {
+                        return;
+                    }
+                    crate::heap::Valor::Ref(v)
+                }
+            };
+            // As caixas de `int` fora do `Smi` alocam: `lista_set` enraíza `h`.
+            HEAP.with(|heap| heap.borrow_mut().lista_set(h, k, v));
+        }
+    });
+    h
+}
+
+/// # Safety
 /// `dados` aponta para `len` bytes legíveis.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_lista_de_tabela(dados: *const u8, len: i64) -> i64 {

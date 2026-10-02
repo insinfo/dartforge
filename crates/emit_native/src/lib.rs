@@ -407,11 +407,12 @@ fn emitir_ir_interno(
             && options.timings
         {
             eprintln!(
-                "  Poda HIR:  {} de {} funções, {} de {} pares ({:?})",
+                "  Poda HIR:  {} de {} funções, {} de {} pares, {} assinaturas FFI ({:?})",
                 e.funcoes_vivas,
                 e.funcoes,
                 e.pares_vivos,
                 e.pares,
+                if e.ffi.1 { e.ffi.0.to_string() } else { "todas as".to_string() },
                 t_poda.elapsed()
             );
         }

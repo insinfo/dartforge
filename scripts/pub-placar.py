@@ -371,6 +371,16 @@ def um(a, cfg, k, nome, arq, env):
         res['estado'] = 'aot-diferente'
         res['erro'] = 'mais de %d processos (o programa reabre Platform.executable, que no AOT é ele mesmo)' % MAX_PROCESSOS
         return res
+    sdk_ao_lado = os.path.join(os.path.dirname(os.path.dirname(exe)), 'lib') + os.sep
+    if rc != 0 and rc != res['vm_rc'] and sdk_ao_lado in err:
+        # Também legítima: o programa acha o SDK por
+        # `Platform.resolvedExecutable` (`<sdk>/bin/dart` → `<sdk>/lib`), e o
+        # executável AOT não mora num SDK (o do `dart compile exe` também
+        # não). O erro cita um arquivo do "SDK" ao lado do executável.
+        res['estado'] = 'aot-diferente'
+        res['erro'] = 'o programa procura o SDK ao lado de Platform.resolvedExecutable, que no AOT é ele mesmo'
+        res['stderr'] = err[-3000:]
+        return res
     if rc != 0 and rc != res['vm_rc'] and sem_memoria(rc, err):
         res['estado'] = 'memoria'
         res['erro'] = 'memória esgotada na execução (limite %d MiB)' % a.memoria_execucao

@@ -12,7 +12,8 @@ macro_rules! visitar {
                 | Instruction::Alloca(_)
                 | Instruction::LoadGlobal { .. }
                 | Instruction::TearOff { .. }
-                | Instruction::ConstArray(_) => {}
+                | Instruction::ConstArray(_)
+                | Instruction::TabelaDeFuncoes(_) => {}
                 Instruction::Add(a, b)
                 | Instruction::Sub(a, b)
                 | Instruction::Mul(a, b)

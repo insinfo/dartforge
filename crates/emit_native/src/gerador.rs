@@ -41,13 +41,18 @@ pub struct Geracao {
     pub compartilhado: bool,
     /// A CPU-alvo (`--cpu`); `None`, a base do alvo.
     pub cpu: Option<Cpu>,
+    /// O nível da otimização do bitcode antes da ligação (0–2; o ThinLTO
+    /// refaz a otimização no módulo de cada parte). Só o do programa muda
+    /// (`DARTFORGE_PRELINK_O`, medida); o SDK fica no 2.
+    pub pre_ligacao: u8,
 }
 
 impl Geracao {
     /// O objeto do programa no perfil pedido: `-O0` em desenvolvimento;
     /// em produção com o SDK da fonte, bitcode (`lto`).
     pub fn do_programa(otimizar: bool, lto: bool) -> Self {
-        Geracao { otimizar, formato: if lto { Formato::Bitcode } else { Formato::Objeto }, compartilhado: false, cpu: None }
+        let pre_ligacao = std::env::var("DARTFORGE_PRELINK_O").ok().and_then(|v| v.trim().parse::<u8>().ok()).filter(|n| *n <= 2).unwrap_or(2);
+        Geracao { otimizar, formato: if lto { Formato::Bitcode } else { Formato::Objeto }, compartilhado: false, cpu: None, pre_ligacao }
     }
 
     /// A descrição que entra nas chaves de cache.
@@ -60,7 +65,7 @@ impl Geracao {
         };
         format!(
             "{} {}{}{}{pipeline}",
-            if self.otimizar { "O2" } else { "O0" },
+            self.nivel(),
             match self.formato {
                 Formato::Objeto => "objeto",
                 Formato::Bitcode => "bitcode-lto",
@@ -70,9 +75,26 @@ impl Geracao {
         )
     }
 
+    /// O nível da geração: `-O0` sem otimizar; `-O2` com, salvo o bitcode
+    /// com outra [`Geracao::pre_ligacao`].
+    fn nivel(&self) -> &'static str {
+        &self.nivel_clang()[1..]
+    }
+
+    fn nivel_clang(&self) -> &'static str {
+        if !self.otimizar {
+            return "-O0";
+        }
+        match (self.formato, self.pre_ligacao) {
+            (Formato::Bitcode, 0) => "-O0",
+            (Formato::Bitcode, 1) => "-O1",
+            _ => "-O2",
+        }
+    }
+
     /// As bandeiras do `clang -x ir -c` equivalentes.
     pub fn args_clang(&self) -> Vec<&'static str> {
-        let mut args = vec!["-x", "ir", "-c", if self.otimizar { "-O2" } else { "-O0" }];
+        let mut args = vec!["-x", "ir", "-c", self.nivel_clang()];
         // No COFF, zerar o TimeDateStamp: o objeto é função da chave.
         args.extend(crate::alvo::bandeiras_objeto());
         if self.compartilhado {
@@ -282,7 +304,7 @@ mod testes {
 
     #[test]
     fn bandeiras_do_clang() {
-        let g = Geracao { otimizar: true, formato: Formato::Bitcode, compartilhado: false, cpu: None };
+        let g = Geracao { otimizar: true, formato: Formato::Bitcode, compartilhado: false, cpu: None, pre_ligacao: 2 };
         assert!(g.args_clang().contains(&"-flto=thin"));
         assert!(Geracao::do_programa(false, false).args_clang().contains(&"-O0"));
     }

@@ -898,11 +898,25 @@ pub fn argumentos(sysroot: &SysrootWindows, l: &Ligacao<'_>) -> Vec<std::ffi::Os
     }
     if l.lto {
         let particoes = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, 16);
-        a.push("/opt:lldlto=2".into());
+        a.push(format!("/opt:lldlto={}", crate::driver::nivel_da_lto()).into());
         a.push(format!("/opt:lldltopartitions={particoes}").into());
         // ThinLTO (os bitcodes das partes de um programa grande, C9): um
         // módulo por tarefa, poucas ao mesmo tempo — a memória é a medida.
         a.push(format!("/opt:lldltojobs={}", crate::driver::tarefas_de_geracao()).into());
+        // Medida: opções do LLVM para a LTO (`DARTFORGE_LTO_MLLVM="-a -b=1"`).
+        if let Ok(v) = std::env::var("DARTFORGE_LTO_MLLVM") {
+            for o in v.split_whitespace() {
+                a.push(format!("/mllvm:{o}").into());
+            }
+        }
+        // Medida: o perfil de tempo da LTO (módulo a módulo, passe a passo),
+        // `DARTFORGE_LTO_PERFIL=<arquivo.json>`.
+        if let Some(f) = std::env::var_os("DARTFORGE_LTO_PERFIL") {
+            let mut o = std::ffi::OsString::from("--time-trace=");
+            o.push(&f);
+            a.push(o);
+            a.push("--time-trace-granularity=20000".into());
+        }
         if let Some(d) = crate::driver::cache_do_thinlto() {
             let mut o = std::ffi::OsString::from("/lldltocache:");
             o.push(d.as_os_str());

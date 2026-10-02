@@ -175,7 +175,10 @@ pub fn compile_and_link(
         let t_link = Instant::now();
         let mut extras: Vec<PathBuf> = objetos[1..].to_vec();
         extras.extend(sdk_objetos.iter().cloned());
-        ligar(&options.clang, &objetos[0], &extras, &ligar_com, output, options.depuracao, options.cpu)?;
+        LIGACAO_EM_PARTES.set(true);
+        let ligou = ligar(&options.clang, &objetos[0], &extras, &ligar_com, output, options.depuracao, options.cpu);
+        LIGACAO_EM_PARTES.set(false);
+        ligou?;
         if let Some(s) = sdk.as_ref().filter(|_| !producao) {
             let destino = output.parent().unwrap_or(Path::new(".")).join(s.dll.file_name().unwrap_or_default());
             if !destino.is_file() && std::fs::hard_link(&s.dll, &destino).is_err() {
@@ -252,6 +255,20 @@ pub fn compile_and_link(
         link: link_duration,
         objeto_do_cache: matches!(do_cache, Some((_, _, true))),
     })
+}
+
+thread_local! {
+    /// A ligação em curso nesta thread é a do programa em partes (ThinLTO).
+    static LIGACAO_EM_PARTES: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// O nível de otimização da LTO da produção (`DARTFORGE_LTO_NIVEL`, 0–3):
+/// `-O1` no programa em partes (ThinLTO; docs/NATIVO-PRODUCAO-GRANDE.md
+/// §6.2: a otimização cai de 275 para 150 s de CPU no new_sali/backend, o
+/// `bench/desempenho` não muda), `-O2` no resto.
+pub fn nivel_da_lto() -> u8 {
+    let padrao = if LIGACAO_EM_PARTES.get() { 1 } else { 2 };
+    std::env::var("DARTFORGE_LTO_NIVEL").ok().and_then(|v| v.trim().parse::<u8>().ok()).filter(|n| *n <= 3).unwrap_or(padrao)
 }
 
 /// O diretório do cache do ThinLTO da ligação de produção (ao lado do cache
@@ -501,7 +518,8 @@ fn ligar_antigo_com_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &L
                     cmd.env("PATH", novo);
                 }
             }
-            cmd.args(["-fuse-ld=lld", "-flto=thin", "-O2"]);
+            cmd.args(["-fuse-ld=lld", "-flto=thin"]);
+            cmd.arg(format!("-O{}", nivel_da_lto()));
             // O cache do ThinLTO: numa religação, só os módulos que mudaram
             // (ou cujas importações mudaram) passam de novo pela otimização
             // e pela geração de código (docs/NATIVO-PRODUCAO-GRANDE.md).

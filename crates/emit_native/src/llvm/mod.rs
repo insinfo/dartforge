@@ -73,6 +73,9 @@ pub struct LlvmEmitter<'a> {
     /// Vetores constantes de `i64` (`@df.arr.<k>`): assinaturas e descritores.
     vetores: Vec<Vec<i64>>,
     vetor_de: std::collections::HashMap<Vec<i64>, usize>,
+    /// Vetores constantes de endereços de função (`@df.fns.<k>`).
+    tabelas_de_funcoes: Vec<Vec<String>>,
+    tabela_de_funcoes_de: std::collections::HashMap<Vec<String>, usize>,
     /// Os nomes dos argumentos nomeados dos descritores do módulo: o
     /// descritor só guarda o hash, e o `Invocation` de um `noSuchMethod`
     /// precisa do nome (`dartforge_registrar_nome_de_argumento`).
@@ -184,6 +187,8 @@ impl<'a> LlvmEmitter<'a> {
 
             vetores: Vec::new(),
             vetor_de: std::collections::HashMap::new(),
+            tabelas_de_funcoes: Vec::new(),
+            tabela_de_funcoes_de: std::collections::HashMap::new(),
             nomes_de_argumento: std::collections::BTreeSet::new(),
             caches_de_seletor: 0,
             funcao_atual: String::new(),
@@ -1414,6 +1419,17 @@ impl<'a> LlvmEmitter<'a> {
                         Instruction::ConstArray(v) => {
                             self.registrar_vetor(v.clone());
                         }
+                        Instruction::TabelaDeFuncoes(v) => {
+                            if !self.tabela_de_funcoes_de.contains_key(v) {
+                                self.tabela_de_funcoes_de.insert(v.clone(), self.tabelas_de_funcoes.len());
+                                self.tabelas_de_funcoes.push(v.clone());
+                            }
+                            for s in v {
+                                if !self.funcao_por_simbolo.contains_key(s.as_str()) {
+                                    self.anotar_externo(s, Type::Ref, &[]);
+                                }
+                            }
+                        }
                         Instruction::CallClosure { args, nomes, .. } | Instruction::CallSeletor { args, nomes, .. } => {
                             self.registrar_vetor(Self::descritor(args.len(), nomes));
                             self.nomes_de_argumento.extend(nomes.iter().cloned());
@@ -1438,6 +1454,10 @@ impl<'a> LlvmEmitter<'a> {
                 itens.join(", ")
             )
             .unwrap();
+        }
+        for (k, v) in self.tabelas_de_funcoes.iter().enumerate() {
+            let itens: Vec<String> = v.iter().map(|s| format!("ptr @{s}")).collect();
+            writeln!(self.out, "@df.fns.{k} = private unnamed_addr constant [{} x ptr] [{}]", v.len(), itens.join(", ")).unwrap();
         }
         self.out.push('\n');
     }
@@ -1530,6 +1550,10 @@ impl<'a> LlvmEmitter<'a> {
             Instruction::ConstArray(vals) => {
                 let k = self.vetor_de[vals];
                 writeln!(self.out, "  %v{v} = getelementptr i64, ptr @df.arr.{k}, i64 0").unwrap();
+            }
+            Instruction::TabelaDeFuncoes(fns) => {
+                let k = self.tabela_de_funcoes_de[fns];
+                writeln!(self.out, "  %v{v} = getelementptr ptr, ptr @df.fns.{k}, i64 0").unwrap();
             }
             _ => return false,
         }
@@ -2401,7 +2425,7 @@ impl<'a> LlvmEmitter<'a> {
                 if destino.is_some() { Type::Void } else { ret.tipo_hir() }
             }
             Instruction::CellSet { .. } => Type::Void,
-            Instruction::ConstArray(_) => Type::Ptr,
+            Instruction::ConstArray(_) | Instruction::TabelaDeFuncoes(_) => Type::Ptr,
             Instruction::Unbox { to, .. } => *to,
             Instruction::Alloca(_) => Type::Ptr,
             Instruction::GetField { .. } => Type::I64,
@@ -3214,13 +3238,18 @@ fn fora_de_linha(texto: &str, nomes: &[String]) -> String {
 /// ponteiro em `+16`. `alwaysinline` quando o emissor está em linha (para o
 /// otimizador ver igual); sem o atributo no desenvolvimento, uma chamada.
 fn ajudante_do_corpo(por_chamada: bool, producao: bool) -> String {
-    // Na produção por chamada: fora de linha de verdade, e só leitura (o
-    // otimizador junta duas chamadas sobre o mesmo objeto sem escrita no
-    // meio).
+    // Na produção por chamada: fora de linha de verdade, e sem efeito nem
+    // dependência de memória (`memory(none)`): o corpo de um objeto não
+    // muda durante a vida dele — o coletor não move, e o corpo de fora só
+    // nasce na migração da recarga do JIT (que nunca é produção) —, então o
+    // otimizador junta todas as chamadas sobre o mesmo objeto, mesmo com
+    // gravações e chamadas no meio (o quadro do `$async`, o `this`).
+    // Antes, `memory(read)`: duas chamadas só se juntavam sem escrita entre
+    // elas. docs/NATIVO-PRODUCAO-GRANDE.md §6.3.
     let atributo = match (por_chamada, producao) {
         (false, _) => " alwaysinline",
         (true, false) => "",
-        (true, true) => " noinline nounwind willreturn memory(read)",
+        (true, true) => " noinline nounwind willreturn memory(none)",
     };
     format!(
         "define internal ptr @df.corpo(i64 %o, ptr %ctx){atributo} {{

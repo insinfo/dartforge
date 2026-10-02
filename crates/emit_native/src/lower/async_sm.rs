@@ -1125,7 +1125,7 @@ pub(crate) fn usos_de(inst: &Instruction) -> Vec<ValueId> {
         }
     };
     match inst {
-        Instruction::Const(_) | Instruction::Alloca(_) | Instruction::LoadGlobal { .. } | Instruction::TearOff { .. } | Instruction::ConstArray(_) => {}
+        Instruction::Const(_) | Instruction::Alloca(_) | Instruction::LoadGlobal { .. } | Instruction::TearOff { .. } | Instruction::ConstArray(_) | Instruction::TabelaDeFuncoes(_) => {}
         Instruction::Add(a, b)
         | Instruction::Sub(a, b)
         | Instruction::Mul(a, b)
@@ -1261,7 +1261,7 @@ fn trocar_usos(inst: &mut Instruction, troca: &dyn Fn(ValueId) -> Option<ValueId
         }
     };
     match inst {
-        Instruction::Const(_) | Instruction::Alloca(_) | Instruction::LoadGlobal { .. } | Instruction::TearOff { .. } | Instruction::ConstArray(_) | Instruction::Phi { .. } => {}
+        Instruction::Const(_) | Instruction::Alloca(_) | Instruction::LoadGlobal { .. } | Instruction::TearOff { .. } | Instruction::ConstArray(_) | Instruction::TabelaDeFuncoes(_) | Instruction::Phi { .. } => {}
         Instruction::Add(a, b)
         | Instruction::Sub(a, b)
         | Instruction::Mul(a, b)

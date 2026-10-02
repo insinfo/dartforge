@@ -19,7 +19,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 /// Primeira linha de um resumo; o número muda com o formato.
-const CABECALHO: &str = "dartforge-poda\t1";
+const CABECALHO: &str = "dartforge-poda\t2";
 
 /// Seletores que vivem em toda classe viva, sem chamada no IR (§3.6):
 /// `c:call` o runtime procura pelo texto (`dartforge_closure_entry`, a
@@ -257,6 +257,10 @@ pub struct Resumo {
     /// (o SDK de produção): o programa as define (`montar`). Índices do nó
     /// da função.
     pub externas: Vec<u32>,
+    /// As receitas RTI com um tipo de função (`F<…>`) e o nó que as tem (a
+    /// função, ou a constante do texto no IR): de onde saem as assinaturas
+    /// nativas que o programa pode pedir ao runtime (§3.14).
+    pub receitas: Vec<(u32, String)>,
     indice: HashMap<String, u32>,
 }
 
@@ -300,6 +304,9 @@ impl Resumo {
         }
         for (h, t) in &self.seletores {
             writeln!(s, "S\t{h}\t{t}").unwrap();
+        }
+        for (no, t) in &self.receitas {
+            writeln!(s, "R\t{no}\t{t}").unwrap();
         }
         s
     }
@@ -355,6 +362,10 @@ impl Resumo {
                     let h = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| ruim(l))?;
                     r.seletores.push((h, c.next().unwrap_or_default().to_string()));
                 }
+                Some("R") => {
+                    let no = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| ruim(l))?;
+                    r.receitas.push((no, c.next().unwrap_or_default().to_string()));
+                }
                 _ if l.is_empty() => {}
                 _ => return Err(ruim(l)),
             }
@@ -387,6 +398,7 @@ pub fn resumir(ir: &str, modulo: &str, externas: &[TabelaDoModulo]) -> Resumo {
     let mut locais: HashSet<&str> = HashSet::new();
     let mut textos_seln: HashMap<&str, String> = HashMap::new();
     let mut descritores: HashMap<&str, (i64, &str)> = HashMap::new();
+    let mut receitas: Vec<(&str, String)> = Vec::new();
     for l in ir.lines() {
         if let Some((n, true)) = nome_do_define(l) {
             locais.insert(n);
@@ -402,6 +414,13 @@ pub fn resumir(ir: &str, modulo: &str, externas: &[TabelaDoModulo]) -> Resumo {
                 && let Some(d) = descritor_de_seletor(resto)
             {
                 descritores.insert(n, d);
+            } else if (resto.contains("F\\3C") || resto.contains("F<"))
+                && let Some(t) = texto_de_constante(l)
+                && t.contains("F<")
+            {
+                // `F<` no IR: `F\3C` nos textos privados
+                // (`emit_string_constants`), `F<` nos objetos estáticos.
+                receitas.push((n, t.trim_end_matches('\0').to_string()));
             }
         }
     }
@@ -494,8 +513,166 @@ pub fn resumir(ir: &str, modulo: &str, externas: &[TabelaDoModulo]) -> Resumo {
         r.tabelas.push(TabelaResumida { no, cid: i64::from(*cid), pares });
         r.externas.push(funcao);
     }
+    for (n, t) in receitas {
+        let no = r.id(&chave(n));
+        r.receitas.push((no, t));
+    }
     r
 }
+
+/// O fim do termo de receita RTI que começa em `i` (letra, dígitos, `<…>`,
+/// `?`; `lower/rti.rs`, `escrever_tipo`).
+fn fim_do_termo(b: &[u8], mut i: usize) -> Option<usize> {
+    if !b.get(i)?.is_ascii_uppercase() {
+        return None;
+    }
+    i += 1;
+    while b.get(i).is_some_and(u8::is_ascii_digit) {
+        i += 1;
+    }
+    if b.get(i) == Some(&b'<') {
+        let mut n = 0usize;
+        loop {
+            match b.get(i)? {
+                b'<' => n += 1,
+                b'>' => {
+                    n -= 1;
+                    if n == 0 {
+                        i += 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+    }
+    if b.get(i) == Some(&b'?') {
+        i += 1;
+    }
+    Some(i)
+}
+
+/// Os termos separados por vírgula a partir de `i`, até `fim` (que fica na
+/// posição devolvida).
+fn termos_ate(b: &[u8], mut i: usize, fim: u8) -> Option<(Vec<(usize, usize)>, usize)> {
+    let mut v = Vec::new();
+    if b.get(i) == Some(&fim) {
+        return Some((v, i));
+    }
+    loop {
+        let f = fim_do_termo(b, i)?;
+        v.push((i, f));
+        match *b.get(f)? {
+            b',' => i = f + 1,
+            c if c == fim => return Some((v, f)),
+            _ => return None,
+        }
+    }
+}
+
+/// O número decimal em `i` e a posição depois dele.
+fn numero_em(b: &[u8], mut i: usize) -> Option<(i64, usize)> {
+    let ini = i;
+    while b.get(i).is_some_and(u8::is_ascii_digit) {
+        i += 1;
+    }
+    std::str::from_utf8(&b[ini..i]).ok()?.parse().ok().map(|n| (n, i))
+}
+
+/// A letra (ou `S<rti>.`) de um tipo nativo `C<id>` na chave da FFI.
+fn letra_ffi(b: &[u8], i: usize, letras: &HashMap<i64, char>, compostos: &HashSet<i64>, s: &mut String) -> Option<i64> {
+    if b.get(i) != Some(&b'C') {
+        return None;
+    }
+    let (id, _) = numero_em(b, i + 1)?;
+    if compostos.contains(&id) {
+        s.push_str(&format!("S{id}."));
+    } else {
+        s.push(*letras.get(&id)?);
+    }
+    Some(id)
+}
+
+/// As chaves da FFI (`lower/ffi.rs::chave_da_assinatura`, a mesma do
+/// runtime, `crates/runtime/src/ffi.rs::chave_da_assinatura`) das
+/// assinaturas nativas escritas na receita RTI `texto`: cada termo
+/// `F<0;R;n;P1,…,Pn;>` sem parâmetros opcionais nem nomeados cujo retorno e
+/// parâmetros são classes de tipo nativo (`letras`, a tabela que o runtime
+/// recebe; `S<rti>.` para as structs e unions por valor, `compostos`;
+/// `VarArgs`, a letra `*`, abre os tipos variádicos). O Dart exige o tipo
+/// nativo constante em `asFunction`, `lookupFunction`, `fromFunction` e
+/// `NativeCallable` (o transformador de FFI do front-end recusa um
+/// genérico), então toda assinatura que o programa pede ao runtime está
+/// escrita numa receita do sítio da chamada (§3.14).
+pub fn chaves_ffi_da_receita(texto: &str, letras: &HashMap<i64, char>, compostos: &HashSet<i64>, saida: &mut HashSet<String>) {
+    let b = texto.as_bytes();
+    // A parte da chave do termo `b[i..f]`.
+    let parte = |i: usize, f: usize, s: &mut String| -> Option<()> {
+        let antes = s.len();
+        let id = letra_ffi(b, i, letras, compostos, s)?;
+        if !s[antes..].ends_with('*') || compostos.contains(&id) {
+            return Some(());
+        }
+        // `VarArgs<(T1, T2…)>` ou `VarArgs<T>`: os tipos depois da marca.
+        let (_, j) = numero_em(b, i + 1)?;
+        if j >= f || b[j] != b'<' {
+            return Some(());
+        }
+        let tipos: Vec<(usize, usize)> = if b.get(j + 1) == Some(&b'R') && b.get(j + 2) == Some(&b'<') {
+            let (v, fim) = termos_ate(b, j + 3, b';')?;
+            if b.get(fim + 1) != Some(&b'>') {
+                return None;
+            }
+            v
+        } else {
+            vec![(j + 1, fim_do_termo(b, j + 1)?)]
+        };
+        for (a, _) in tipos {
+            let antes = s.len();
+            letra_ffi(b, a, letras, compostos, s)?;
+            if s[antes..].ends_with('*') {
+                return None;
+            }
+        }
+        Some(())
+    };
+    let mut i = 0;
+    while let Some(d) = texto[i..].find("F<") {
+        let ini = i + d;
+        i = ini + 2;
+        let chave = (|| -> Option<String> {
+            let (genericos, j) = numero_em(b, ini + 2)?;
+            if genericos != 0 || b.get(j) != Some(&b';') {
+                return None;
+            }
+            let r_fim = fim_do_termo(b, j + 1)?;
+            if b.get(r_fim) != Some(&b';') {
+                return None;
+            }
+            let (n, k) = numero_em(b, r_fim + 1)?;
+            if b.get(k) != Some(&b';') {
+                return None;
+            }
+            let (params, fim) = termos_ate(b, k + 1, b';')?;
+            // Sem opcionais nem nomeados.
+            if params.len() as i64 != n || b.get(fim + 1) != Some(&b'>') {
+                return None;
+            }
+            let mut s = String::new();
+            parte(j + 1, r_fim, &mut s)?;
+            s.push('_');
+            for (a, z) in params {
+                parte(a, z, &mut s)?;
+            }
+            Some(s)
+        })();
+        if let Some(c) = chave {
+            saida.insert(c);
+        }
+    }
+}
+
 
 /// Por que um nó está vivo (a primeira vez que ele entrou).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -886,6 +1063,12 @@ pub fn montar_producao(ir: &str, arquivos: &[PathBuf], timings: bool) -> Result<
 /// e as vtables das classes, os trampolins e callbacks da FFI, os
 /// ajudantes e as raízes da fonte.
 pub fn resumo_da_hir(m: &crate::hir::Module) -> Resumo {
+    resumo_da_hir_com(m, None)
+}
+
+/// [`resumo_da_hir`] com os trampolins e callbacks da FFI como raízes só
+/// para as chaves de `ffi_vivas` (`None`: todos, §3.14).
+fn resumo_da_hir_com(m: &crate::hir::Module, ffi_vivas: Option<&HashSet<String>>) -> Resumo {
     use crate::hir::{Constant, Instruction, Operand};
     let mut r = Resumo::novo("programa");
     let mut vistos_seletores: HashSet<i64> = HashSet::new();
@@ -910,9 +1093,12 @@ pub fn resumo_da_hir(m: &crate::hir::Module) -> Resumo {
         // Os `Constant::Funcao` dos operandos (o visitante não empresta o
         // operando além da chamada).
         let mut funcoes: Vec<String> = Vec::new();
+        let mut receitas: Vec<String> = Vec::new();
         for b in &f.blocks {
             for (_, inst, _) in &b.instructions {
                 match inst {
+                    // As receitas RTI com tipo de função (§3.14).
+                    Instruction::Const(Constant::String(t)) if t.contains("F<") => receitas.push(t.clone()),
                     Instruction::CallStatic { symbol, .. } => nomes.push(symbol),
                     Instruction::AllocClosure { code_symbol, .. } | Instruction::TearOff { code_symbol } => nomes.push(code_symbol),
                     Instruction::AllocClosureTipada { code_symbol, tipado, .. } => {
@@ -933,12 +1119,13 @@ pub fn resumo_da_hir(m: &crate::hir::Module) -> Resumo {
                     Instruction::CallSeletor { seletor: s, .. } | Instruction::CallSeletorRepasse { seletor: s, .. } => {
                         seletor(&mut r, &mut d, s);
                     }
+                    Instruction::TabelaDeFuncoes(v) => nomes.extend(v.iter().map(String::as_str)),
                     _ => {}
                 }
-                crate::otimizar::operandos::operandos(inst, &mut |o| {
-                    if let Operand::Constant(Constant::Funcao(s)) = o {
-                        funcoes.push(s.clone());
-                    }
+                crate::otimizar::operandos::operandos(inst, &mut |o| match o {
+                    Operand::Constant(Constant::Funcao(s)) => funcoes.push(s.clone()),
+                    Operand::Constant(Constant::String(t)) if t.contains("F<") => receitas.push(t.clone()),
+                    _ => {}
                 });
             }
             crate::otimizar::operandos::operandos_do_terminador(&b.terminator, &mut |o| {
@@ -948,6 +1135,7 @@ pub fn resumo_da_hir(m: &crate::hir::Module) -> Resumo {
             });
         }
         d.refs = nomes.into_iter().chain(funcoes.iter().map(String::as_str)).map(|n| r.id(n)).collect();
+        r.receitas.extend(receitas.into_iter().map(|t| (d.nome, t)));
         r.definicoes.push(d);
     }
     // As tabelas de métodos do programa (`df.mt.X` devolve `df.mt.X$d`).
@@ -979,8 +1167,9 @@ pub fn resumo_da_hir(m: &crate::hir::Module) -> Resumo {
         raizes.extend(c.to_string_symbol.iter().cloned());
         raizes.extend(c.vtable.iter().map(|(_, s)| s.clone()));
     }
-    raizes.extend(m.ffi_trampolins.iter().map(|(_, s)| s.clone()));
-    raizes.extend(m.ffi_callbacks.iter().map(|c| c.corpo.clone()));
+    let ffi_viva = |k: &str| ffi_vivas.is_none_or(|v| v.contains(k));
+    raizes.extend(m.ffi_trampolins.iter().filter(|(k, _)| ffi_viva(k)).map(|(_, s)| s.clone()));
+    raizes.extend(m.ffi_callbacks.iter().filter(|c| ffi_viva(&c.chave)).map(|c| c.corpo.clone()));
     raizes.extend(m.ajudantes.iter().map(|(_, s)| s.clone()));
     raizes.extend(m.raizes_da_fonte.iter().cloned());
     raizes.extend(m.globais.iter().map(|(_, _, s)| s.clone()));
@@ -997,6 +1186,8 @@ pub struct PodaDaHir {
     pub funcoes_vivas: usize,
     pub pares: usize,
     pub pares_vivos: usize,
+    /// As assinaturas da FFI que ficaram, e se a poda delas valeu (§3.14).
+    pub ffi: (usize, bool),
 }
 
 /// A poda da HIR do programa antes da otimização e da emissão (§3.13): o
@@ -1006,13 +1197,43 @@ pub struct PodaDaHir {
 /// decisão que a montagem da ligação tomaria depois (o mesmo grafo), sem
 /// otimizar nem emitir o que vai sair.
 pub fn podar_hir(m: &mut crate::hir::Module, sdk: &[&Resumo]) -> PodaDaHir {
-    let programa = resumo_da_hir(m);
-    let mut todos: Vec<&Resumo> = sdk.to_vec();
-    todos.push(&programa);
-    let alcance = alcancar(&todos, true);
+    // Os trampolins e callbacks da FFI (um par por assinatura nativa da
+    // tabela de tipos inteira) só ficam pelas assinaturas escritas nas
+    // receitas vivas (§3.14). Um trampolim vivo pode alcançar receitas
+    // novas: o ponto fixo repete até as chaves pararem de crescer.
+    let letras: HashMap<i64, char> = m.ffi_tipos.iter().copied().collect();
+    let compostos: HashSet<i64> = m.ffi_compostos.iter().map(|c| c.rti).collect();
+    let podar_ffi = !m.ffi_trampolins.is_empty() && !std::env::var("DARTFORGE_SEM_PODA_FFI").is_ok_and(|v| v == "1");
+    let mut ffi_vivas: HashSet<String> = HashSet::new();
+    let (programa, alcance) = loop {
+        let programa = resumo_da_hir_com(m, podar_ffi.then_some(&ffi_vivas));
+        let mut todos: Vec<&Resumo> = sdk.to_vec();
+        todos.push(&programa);
+        let alcance = alcancar(&todos, true);
+        if !podar_ffi {
+            break (programa, alcance);
+        }
+        let indice: HashMap<&str, u32> = alcance.nomes.iter().enumerate().map(|(i, n)| (n.as_str(), i as u32)).collect();
+        let antes = ffi_vivas.len();
+        for r in &todos {
+            for (no, t) in &r.receitas {
+                if indice.get(r.nomes[*no as usize].as_str()).is_some_and(|&i| alcance.vivo(i)) {
+                    chaves_ffi_da_receita(t, &letras, &compostos, &mut ffi_vivas);
+                }
+            }
+        }
+        if ffi_vivas.len() == antes {
+            break (programa, alcance);
+        }
+    };
+    drop(programa);
+    if podar_ffi {
+        m.ffi_trampolins.retain(|(k, _)| ffi_vivas.contains(k));
+        m.ffi_callbacks.retain(|c| ffi_vivas.contains(&c.chave));
+    }
     let indice: HashMap<&str, u32> = alcance.nomes.iter().enumerate().map(|(i, n)| (n.as_str(), i as u32)).collect();
     let vivo = |n: &str| indice.get(n).is_none_or(|&i| alcance.vivo(i));
-    let mut e = PodaDaHir { funcoes: m.functions.len(), ..Default::default() };
+    let mut e = PodaDaHir { funcoes: m.functions.len(), ffi: (ffi_vivas.len(), podar_ffi), ..Default::default() };
     let mut removidas: HashSet<String> = HashSet::new();
     m.functions.retain(|f| {
         let fica = vivo(&f.symbol) || f.symbol.starts_with("dartforge_");
@@ -1275,5 +1496,50 @@ mod testes {
         assert!(m.ir.contains("ptr @P.vivo$c"));
         assert!(!m.ir.contains("@P.morto$c"));
         assert!(m.ir.contains("{ i64, i64, i64, ptr } { i64 300, i64 1,"));
+    }
+}
+
+#[cfg(test)]
+mod testes_ffi {
+    use super::*;
+
+    fn chaves(texto: &str) -> Vec<String> {
+        let letras: HashMap<i64, char> = [(703, 'i'), (719, 'p'), (737, 'v'), (736, '*'), (698, 'd')].into_iter().collect();
+        let compostos: HashSet<i64> = [900].into_iter().collect();
+        let mut s = HashSet::new();
+        chaves_ffi_da_receita(texto, &letras, &compostos, &mut s);
+        let mut v: Vec<String> = s.into_iter().collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn chave_da_assinatura_na_receita() {
+        assert_eq!(chaves("F<0;C703;2;C703,C719<C900>;>"), vec!["i_ip"]);
+        // Dentro de outra receita (a tupla de `asFunction`, `NativeFunction<F>`).
+        assert_eq!(chaves("L<C597<F<0;C737;0;;>>,F<0;D;0;;>>"), vec!["v_"]);
+        // Struct por valor e variádicas.
+        assert_eq!(chaves("F<0;C900;1;C719?;>"), vec!["S900._p"]);
+        assert_eq!(chaves("F<0;C703;2;C719,C736<R<C703,C698;>>;>"), vec!["i_p*id"]);
+        assert_eq!(chaves("F<0;C703;2;C719,C736<C698>;>"), vec!["i_p*d"]);
+        // Não são assinaturas nativas: tipo Dart, genérica, opcional, nomeado.
+        assert!(chaves("F<0;D;1;C703;>").is_empty());
+        assert!(chaves("F<1;C703;1;B0;>").is_empty());
+        assert!(chaves("F<0;C703;0;C703;>").is_empty());
+        assert!(chaves("F<0;C703;0;;x:C703>").is_empty());
+    }
+
+    #[test]
+    fn receitas_do_ir_vao_ao_resumo() {
+        let ir = "@\"df.s.1\" = linkonce_odr constant { i64, [24 x i8] } { i64 1, [24 x i8] c\"F<0;C703;1;C719;>\\00\\00\\00\\00\\00\\00\\00\" }\n\
+                  @.str.2 = private unnamed_addr constant [9 x i8] c\"F\\3C0\\3BV\\3B0\\3B\\3B\\3E\"\n\
+                  define i64 @f() {\n  %a = call i64 @g(ptr @\"df.s.1\", ptr @.str.2)\n  ret i64 %a\n}\n";
+        let r = resumir(ir, "m", &[]);
+        let textos: Vec<&str> = r.receitas.iter().map(|(_, t)| t.as_str()).collect();
+        assert_eq!(textos, vec!["F<0;C703;1;C719;>", "F<0;V;0;;>"]);
+        assert_eq!(r.nomes[r.receitas[0].0 as usize], "df.s.1");
+        assert_eq!(r.nomes[r.receitas[1].0 as usize], "m#.str.2");
+        let de_novo = Resumo::de_texto(&r.para_texto()).unwrap();
+        assert_eq!(de_novo.receitas, r.receitas);
     }
 }

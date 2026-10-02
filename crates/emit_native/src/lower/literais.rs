@@ -119,13 +119,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// (`int` como `i`, `double` como `d`); um número de outro tipo estático
     /// (`num`, `Object`: o valor é o `int`, mas sem garantia aqui) deixa o
     /// literal fora da tabela.
+    ///
+    /// Num contexto constante (o getter de uma constante), um elemento que é
+    /// outra constante (`C(…)`, outro literal, `E.valor`) entra como `g` e o
+    /// índice do getter canônico dele (`dfc.<hash>.get`) num vetor de
+    /// endereços (`TabelaDeFuncoes`), que o runtime chama
+    /// (`dartforge_lista_de_tabela_g`): os mapas constantes grandes de
+    /// valores constantes (`{'a': C(1), …}`) faziam um `[]=` por seletor por
+    /// entrada — 30 MB de IR em 234 getters no new_sali/backend
+    /// (docs/NATIVO-PRODUCAO-GRANDE.md §6.5).
     fn preencher_de_tabela(&mut self, ast: &ast::Ast, alvo: Operand, tipo: Colecao, elements: &[CollectionElement]) -> bool {
         const MINIMO: usize = 8;
         if elements.len() < MINIMO {
             return false;
         }
         let mut tabela: Vec<u8> = Vec::new();
-        let escalar = |e: ast::ExprId, tabela: &mut Vec<u8>| -> bool {
+        let mut por_getter: Vec<ast::ExprId> = Vec::new();
+        let em_const = self.em_contexto_const;
+        let escalar = |e: ast::ExprId, tabela: &mut Vec<u8>, por_getter: &mut Vec<ast::ExprId>| -> bool {
             // Número literal (ou `-literal`): pelo TIPO ESTÁTICO da expressão,
             // que já diz se o contexto fez de um literal inteiro um `double`
             // (as tabelas `Map<int, int>` do `enough_convert`, 30 mil
@@ -161,6 +172,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 return true;
             }
+            let outra_constante = |tabela: &mut Vec<u8>, por_getter: &mut Vec<ast::ExprId>| -> bool {
+                if !em_const || self.chave_constante(ast, e, true).is_none() {
+                    return false;
+                }
+                tabela.push(b'g');
+                tabela.extend_from_slice(&(por_getter.len() as u32).to_le_bytes());
+                por_getter.push(e);
+                true
+            };
             match &ast.expr(e).kind {
                 ast::ExprKind::Null => tabela.push(b'n'),
                 ast::ExprKind::Bool(b) => tabela.push(if *b { b't' } else { b'f' }),
@@ -171,22 +191,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     tabela.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
                     tabela.extend_from_slice(bytes);
                 }
-                _ => return false,
+                _ => return outra_constante(tabela, por_getter),
             }
             true
         };
         for el in elements {
             let ok = match (el, tipo) {
-                (CollectionElement::Expression(e), Colecao::Lista | Colecao::Conjunto) => escalar(*e, &mut tabela),
+                (CollectionElement::Expression(e), Colecao::Lista | Colecao::Conjunto) => escalar(*e, &mut tabela, &mut por_getter),
                 (
                     CollectionElement::MapEntry { key, value, null_aware_key: false, null_aware_value: false },
                     Colecao::Mapa,
-                ) => escalar(*key, &mut tabela) && escalar(*value, &mut tabela),
+                ) => escalar(*key, &mut tabela, &mut por_getter) && escalar(*value, &mut tabela, &mut por_getter),
                 _ => false,
             };
             if !ok {
                 return false;
             }
+        }
+        let mut getters: Vec<String> = Vec::with_capacity(por_getter.len());
+        for e in por_getter {
+            let Some(g) = self.getter_da_constante(ast, e) else { return false };
+            getters.push(g);
         }
         let apoio = match tipo {
             Colecao::Lista => "_dartforgePreencherLista",
@@ -203,14 +228,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             })
             .collect();
         let dados = self.emit(Instruction::ConstArray(palavras), Type::Ptr);
-        let valores = self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_lista_de_tabela".to_string(),
-                args: vec![(dados, Type::Ptr), (Operand::Constant(Constant::Int(tabela.len() as i64)), Type::I64)],
-                ret_ty: Type::Ref,
-            },
-            Type::Ref,
-        );
+        let tamanho = (Operand::Constant(Constant::Int(tabela.len() as i64)), Type::I64);
+        let valores = if getters.is_empty() {
+            self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_lista_de_tabela".to_string(),
+                    args: vec![(dados, Type::Ptr), tamanho],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            )
+        } else {
+            let fns = self.emit(Instruction::TabelaDeFuncoes(getters), Type::Ptr);
+            self.emit_call_with_check(
+                Instruction::CallRuntime {
+                    name: "dartforge_lista_de_tabela_g".to_string(),
+                    args: vec![(dados, Type::Ptr), tamanho, (fns, Type::Ptr)],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            )
+        };
         let avaliados: Vec<super::membros::Avaliado> = vec![(None, alvo), (None, valores)];
         let args = self.casar_args(fid, &avaliados);
         self.chamar_direto(fid, None, args);

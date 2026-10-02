@@ -124,8 +124,8 @@ Feito (as medidas estão na §5):
    * Teste: `poda::testes::definicoes_mortas_do_programa_saem_do_ir`.
 2. **P1: ThinLTO de verdade.**
    * Na produção em partes, o bitcode das partes sai do Clang (`EN/driver.rs`,
-     `gerador_das_partes`), com o resumo do ThinLTO. O SDK continua no gerador embutido, em LTO
-     completa (é pequeno).
+     `gerador_das_partes`), com o resumo do ThinLTO. O SDK de produção também sai do Clang, em
+     ThinLTO e no mesmo cache (§6.1).
    * A ligação usa o cache do ThinLTO (`driver::cache_do_thinlto`: `/lldltocache`,
      `--thinlto-cache-dir`, `-cache_path_lto`). Numa religação, só os módulos que mudaram passam
      de novo pela otimização e pela geração de código.
@@ -301,3 +301,124 @@ Achado no caminho: com as partes do programa em ThinLTO e o SDK em LTO completa,
 módulo do SDK em partições (`/opt:lldltopartitions`) promove o `@df.area_id` interno de um
 módulo do SDK com o mesmo nome do `@df.area_id` que `particao.rs` promove a externo no
 programa: "duplicate symbol: df.area_id". O programa agora usa `@df.area_id.programa`.
+
+## 6. Segunda rodada: a ligação medida, o corpo, a FFI e as constantes
+
+Tudo medido no new_sali/backend, `aot --optimize`, na mesma máquina: 4 núcleos e 8 threads,
+7,7 GB de RAM, dividida com outros builds. Os tempos de relógio oscilam 10–20% com a carga, e
+as rodadas com a máquina cheia estão marcadas. Os tempos de CPU vêm do perfil da ligação e
+variam menos.
+
+### 6.1 Onde o tempo da ligação vai
+
+O perfil é o `--time-trace` do `lld` (`DARTFORGE_LTO_PERFIL=<arquivo.json>`). Com a ligação
+fria (objetos em cache, cache do ThinLTO vazio) e 3 tarefas, o ThinLTO gasta 771 s de CPU
+(266 s de relógio):
+
+* otimização: 275 s de CPU;
+* geração de código: 466 s de CPU, com a seleção de instruções (`X86 DAG->DAG`) à frente.
+
+Os dois maiores corpos são os dois `unormdata` (o mapa literal não constante do `unorm_dart` e a
+cópia dele no `dargres`): 12,8 e 10,5 s de otimização. Nenhuma outra função passa de 6 s. O
+custo está espalhado pelo código, proporcional ao volume de IR.
+
+Também medido:
+
+* **SDK de produção em ThinLTO.** O bitcode do SDK agora sai do Clang (`sdk_modulo.rs`), e o SDK
+  também entra no cache. Uma religação sem mudança cai de 148 s para 57–65 s, com a ligação em
+  3,5 s.
+* **Uma edição pequena** (um texto num arquivo do backend): o IR muda 7 linhas, porque os nomes
+  são estáveis (hash do conteúdo). Mesmo assim a ligação leva 217 s e refaz os 43 módulos. A
+  chave do cache do ThinLTO de um módulo inclui o hash de cada módulo de que ele importa, e a
+  mudança se propaga.
+* **6 tarefas em vez de 3:** 206 → 161 s de relógio, mas 591 → 915 s de CPU (são 4 núcleos
+  físicos) e pico de 1,9 GB contra 1,25 GB. O padrão continua 3.
+* **`-import-instr-limit=10`:** 550 contra 535 s de CPU, sem efeito.
+
+### 6.2 LTO `-O1` no programa em partes
+
+Ligação fria com os objetos em cache:
+
+| variante | CPU do ThinLTO (otimização / código) | ligação | executável |
+|---|---:|---:|---:|
+| `-O2` (antes) | 771 s (275 / 466) | 266 s | 63,4 MB |
+| **`-O1`** | 588 s (150 / 414) | 205 s | 63,6 MB |
+| `-O2` + `-fast-isel` | 544 s (240 / 276) | 191 s | 66,7 MB |
+| `-O1` + pré-ligação `-O0` | 730 s (257 / 444) | 253 s | 63,9 MB |
+| `-O1` + `-fast-isel` + pré-ligação `-O0` | 571 s (250 / 293) | 202 s | 67,9 MB |
+
+* A pré-ligação `-O0` gera o bitcode das partes sem otimizar: os objetos caem de 77 para 22 s.
+  Mas o ThinLTO recebe o IR cru e gasta mais, então o saldo de CPU fica igual.
+* O `-fast-isel` paga 3–4 MB de executável.
+
+O `bench/desempenho` (mínimo de 3 rodadas por medida) fica entre 0,94 e 1,09× com `-O1` contra
+`-O2`, dentro do ruído da máquina.
+
+Padrão: `-O1` na ligação do programa em partes (`driver::nivel_da_lto`); `-O2` no programa
+pequeno. Ficam como chaves de medida: `DARTFORGE_LTO_NIVEL`, `DARTFORGE_PRELINK_O` (o nível da
+pré-ligação das partes) e `DARTFORGE_LTO_MLLVM` (opções do LLVM na ligação, Windows).
+
+### 6.3 O corpo do objeto sem dependência de memória
+
+O `@df.corpo` (o endereço dos campos, por chamada no programa grande) passa de `memory(read)` a
+`memory(none)`. O otimizador junta todas as chamadas sobre o mesmo objeto, mesmo com gravações e
+chamadas no meio, como no quadro do `$async` e no `this`. Antes eram 332 mil chamadas.
+
+Isso é correto porque o corpo de um objeto não muda durante a vida dele:
+
+* o coletor não move objetos;
+* o corpo de fora (`FORA`) só nasce na migração da recarga do JIT, que nunca é produção;
+* o outro caso, o erro lançado sem o campo do rastro, deixou de criar corpo de fora. O
+  `dartforge_exception_throw` só grava o rastro quando o campo existe.
+
+Resultado: executável 63,6 → 60,8 MB; CPU do ThinLTO 591 → 574 s.
+
+### 6.4 A FFI pelas assinaturas pedidas
+
+Ver `NATIVO-PODA-DE-TABELAS.md` §3.14. Saem 3 547 das 3 591 assinaturas: 7 094 funções HIR, das
+64 661 vivas ficam 57 567. Executável 60,8 → 59,0 MB.
+
+### 6.5 Literais constantes grandes por tabela
+
+No contexto constante, um literal grande (8 ou mais elementos) cujos elementos são outras
+constantes vai para a tabela de dados que já servia aos escalares. Cada elemento entra como
+`g` + índice num vetor de endereços dos getters canônicos (`Instruction::TabelaDeFuncoes`,
+`@df.fns.<k>`), que o runtime chama (`dartforge_lista_de_tabela_g`, com a lista enraizada).
+
+Antes, os 234 getters de constante que não cabiam na tabela somavam 30 MB de IR: um `[]=` por
+seletor por entrada, cada um com o seu vetor de argumentos e a sua checagem de exceção.
+
+* As funções HIR baixadas sobem de 183 mil para 201 mil (um getter por constante aninhada
+  distinta). As vivas sobem 160.
+* Executável 59,0 → 57,2 MB.
+* Teste: `corpus/nativo/137_constantes_grandes_por_tabela.dart` (identidade canônica,
+  imutabilidade, o caso não constante), igual à VM em desenvolvimento, produção e `gc-stress`.
+
+### 6.6 Resultado e o que resta
+
+`aot --optimize` frio (objetos e cache do ThinLTO vazios, `DARTFORGE_CACHE_OBJ=0`), SDK em cache:
+
+| passo | objetos | ligação | total | executável |
+|---|---:|---:|---:|---:|
+| padrão da §5 | 77 s | 225 s | 405 s | 63,4 MB |
+| + SDK ThinLTO, LTO `-O1`, corpo `memory(none)`, FFI | 95 s | 178 s | 340 s | 59,0 MB |
+| + constantes por tabela (máquina cheia: front-end 36 s contra 10 s) | 144 s | 265 s | 560 s | 57,2 MB |
+| religação sem mudança | 1,6 s | 3,5 s | 57–65 s | — |
+
+O e2e do backend continua com 39 de 42 rotas iguais à VM, com as mesmas 3 diferenças da §5.
+
+O que falta para a meta (≤ ~2 min, ≤ 27 MB) não é bandeira do LLVM: com 3 tarefas, a ligação fria
+fica perto de 550 s de CPU (≥ 180 s de relógio). O `.text` tem 55 MB em 58 mil funções. Contra
+o Dart (§1.3: 10,7 MB de código para 23,5 mil funções), o volume de código por função ainda é a
+diferença. No IR vivo:
+
+| padrão | ocorrências |
+|---|---:|
+| volta do quadro de raízes em cada saída (`%gcvolta`, 2 linhas) | 396 mil saídas |
+| gravação de raiz no quadro | 674 mil |
+| checagem da exceção pendente depois de chamada | 495 mil |
+| mapa de referências na gravação de campo | 238 mil |
+| funções `$async` | 1 287 funções, 76,5 MB de IR |
+
+São as causas P4 e P5 da §2: a pilha-sombra de raízes e a exceção por bandeira. Cada passo de
+forma que não mexe nelas dá 3–5%.
