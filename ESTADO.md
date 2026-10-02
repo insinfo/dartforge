@@ -1,4 +1,85 @@
-# Estado do DartForge — 2026-10-01
+# Estado do DartForge — 2026-10-02
+
+## Fechamento do dia 2026-10-02
+
+### O que entrou no `main` hoje
+
+| commit | o quê |
+| --- | --- |
+| `f6d11d9e`, `5325e977`, `2d2571ab`, `c47214be` | JS de produção: SDK próprio como padrão, mundo fechado incremental, `oxc_minifier`, nomes de propriedade minificados, rti só para tipos testados, parâmetros nomeados com chave curta, `--omitir-checagens`/`-O4` opcional, `assert` desligado por padrão (`--enable-asserts`) |
+| `40e33061`, `fbeded9b` | Nativo: HIR em paralelo e poda da HIR; SDK de produção em ThinLTO, LTO `-O1` no programa em partes, corpo de objeto `memory(none)`, trampolins da FFI só das assinaturas pedidas (3.591 → 44), literais constantes grandes por tabela |
+| `36584c8e` | Parser: `part of` com experimento macros |
+| `bc0f9c7d` | `docs/ANALYZER-ESPECIFICACAO.md` (436 códigos com perda, achados T1–T8) e `docs/LSP-ESPECIFICACAO.md` |
+| este commit | `docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md` (chave `--raizes=sombra\|mapas` e `--excecoes=checagem\|tabelas`, etapas com critério de abandono) |
+
+CI verde em `fbeded9b`; placar do pub verde (232/244). Falhou o
+workflow "Sem toolchain do sistema" (Windows sem MSVC, passo "Ligar e
+executar sem MSVC") em `fbeded9b` — **investigar primeiro amanhã**. O
+Pesado de `fbeded9b` ainda rodava no encerramento.
+
+### Números (bytes brutos)
+
+| JS | início do dia | agora | `dart2js -O4` |
+| --- | ---: | ---: | ---: |
+| `new_sali/frontend` | 24.895.868 | 12.356.255 | 7.616.039 (`-O2` 8.022.592) |
+| `limitless_ui` | 14.043.321 | 6.942.798 | 4.511.811 |
+| `01_print` | 257.738 | 156.012 | 34.929 |
+
+Compilação do `new_sali`: 14 min 22 s → 29–45 s (`dart2js` 57 s);
+`limitless_ui` 8 min 23 s → ~13 s.
+
+Nativo, `new_sali/backend` em `aot --optimize`: 94,0 → 57,2 MB (meta do
+`dart compile exe`: 27,3 MB). Frio 405 → 340 s medido **antes** dos
+literais por tabela; a única rodada com tudo (560 s) foi com a máquina
+cheia — remedir com a máquina vazia. Religação sem mudança 148 → 57–65 s.
+Desenvolvimento frio 91–101 s (1,5–1,7× o Dart). e2e 39/42.
+
+Analisador: paridade 80,5% na última medição publicada; a medição
+intermediária r8 deu 82,6% (19.015/23.030; FP 493 → 339), mas **não foi
+publicada**.
+
+### Trabalho guardado (fora do `main`)
+
+* **Analisador (r3, T1–T4, famílias):** a árvore não compilava
+  (`ForInit::Pattern` novo sem os braços em
+  `crates/types/src/constantes/verificador.rs` e
+  `inferencia/instrucoes.rs`) e quatro códigos publicados davam erro no
+  corpus (`conflicting_static_and_instance`, `enum_without_constants`,
+  `unnecessary_null_comparison`, `invalid_override`). Tudo continua no
+  working tree e também em `E:\dftempnalise\wip-2026-10-02.patch`.
+* **JS:** `this` como local (−278 KB no `new_sali`, não validado) em
+  `E:\dftemp\jsprod\guardado`.
+* **Pub:** normalização de durações do placar em
+  `E:\dftempackend-real\pub-placar-duracoes.diff`.
+* Experimentos dos mapas de pilha e patches do linzj em
+  `E:\dftemp\spec-mapas`.
+
+### O que falta, por frente (ordem de prioridade)
+
+1. **CI:** consertar o "Sem toolchain do sistema" (Windows sem MSVC).
+2. **Analisador:** fechar `ForInit::Pattern` em `types`; corrigir os 4
+   códigos publicados com erro; terminar T1 (homônimos/`augment`: a
+   primeira declaração vence) e T3; placar sem regressão; publicar os 12
+   candidatos novos; depois as famílias A–F da especificação.
+3. **LSP:** source actions (Sort Members, Fix All), assists, selectionRange
+   48%, references 58%, completion top-1 63%; inferência incremental por
+   corpo.
+4. **Nativo:** etapa 1 da `NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md` (exceções
+   por tabelas com a pilha-sombra atual; abandonar se `.text` + tabelas não
+   cair ≥ 3%); depois o protótipo de mapas no Windows x86-64. Pilha
+   simbólica no formato da VM junto (7 das 12 divergências do pub).
+   Estabilizar a chave do cache do ThinLTO (uma edição pequena refaz 43
+   módulos). Remedir o frio com a máquina vazia.
+5. **Pub (12 divergências):** 7 texto de stack trace, 3 tempo (`args`,
+   `html` noah_ark, `mysql`), 1 mirrors, 1 `resolvedExecutable` (já
+   `aot-diferente`).
+6. **JS:** reaplicar e validar o `this` como local; construtor sem `.new`
+   (~80 KB); honrar `@pragma('dart2js:as:trust')`/`tryInline` (~30–50 KB);
+   o resto do intervalo até o `dart2js` pede um emissor de produção no
+   estilo `dart2js` (spec nova).
+7. Pendente de resposta do dono: apagar `E:\dfpoda-antes`,
+   `dfpoda-depois`, `dfpoda-medidas`, `dfantes`, `llvmwrap`.
+
 
 ## Analisador: paridade com o analyzer 3.6.2 (2026-10-01)
 
