@@ -420,3 +420,48 @@ faz e nós não:
 
 Cada um desses é uma mudança de contrato do emissor, não uma compactação
 de texto: é especificação nova, com o mesmo método.
+
+## 8. Mudanças de contrato (decisão do dono: tamanho do dart2js)
+
+A ordem e as regras foram decididas pelo dono:
+
+* cada mudança tem a sua spec curta e é validada com o corpus `--producao`,
+  o e2e do `limitless_ui` e o `new_sali`;
+* o padrão mantém a semântica da VM, como o `dart2js -O2`;
+* o corte das checagens implícitas no estilo `-O4` só entra como opção
+  explícita, documentada como insegura;
+* as medidas são contra o `-O2` (padrão) e contra o `-O4` (com a opção).
+
+### 8.1 Regras rti e marcas de interface só para os tipos testados
+
+O que o `dart2js` faz: emite as regras de subtipagem só das classes cujas
+checagens são alcançáveis (`RuntimeTypesChecks.requiredChecks` e
+`requiredClasses`, `js_backend/runtime_types.dart:26-45`).
+
+No runtime compartilhado (`dart:_rti`), `S <: T` com `T` de interface
+consulta só `regra[S][T]` (`_isSubtype`, `lookupSupertype`), e o teste
+rápido de `is` lê a marca `$is_<T>` que o `addRtiResources` pôs no
+protótipo. `T` é sempre um tipo que alguma receita do arquivo cita: o alvo
+de um `is`/`as`/`catch`, um argumento de tipo, uma substituição. Então
+(`emit_js_producao/src/regras.rs`):
+
+* **citados** são os nomes `lib|Classe` do arquivo inteiro, menos as chaves
+  das regras e as listas do `addRtiResources`, mais os dos **valores** das
+  regras (argumentos de supertipo e substituições, que viram alvo quando
+  avaliados);
+* uma entrada de supertipo (`"lib|T": [...]`) e uma marca de interface (os
+  itens 2… da lista do `addRtiResources`) **saem** se `T` não é citado. As
+  substituições `"T.E"` e as regras de encaminhamento ficam todas;
+* regra que fica vazia sai também: sem ela, o `_isSubtype` dá o mesmo
+  `false` (regra ausente).
+
+`DARTFORGE_JSPROD_REGRAS=0` desliga.
+
+| projeto | antes | gzip | depois | gzip |
+| --- | ---: | ---: | ---: | ---: |
+| `new_sali/frontend` | 12.752.196 | 2.564.658 | **12.601.153** | **2.551.586** |
+| `limitless_ui/example` | 7.248.222 | 1.453.241 | **7.073.375** | **1.434.698** |
+| `01_print` | 171.534 | 38.303 | **157.690** | — |
+
+Validação: corpus 238/238, `limitless_ui` 26/26, `new_sali` igual ao
+controle.

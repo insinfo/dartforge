@@ -339,7 +339,11 @@ pub fn montar(e: &EmitidoComSdk, op: Opcoes, nomes: Option<&crate::propriedades:
     let sdk = format!("{}const t$R = r => {PREFIXO_RTI}r, true);\n(function () {{\n{}}})();\n", e.bootstrap, e.sdk);
     let usuario = modulos.iter().map(|m| m.corpo.len() + m.namespaces.iter().map(|n| n.len() + 1).sum::<usize>()).sum();
     let preambulo = if op.stub { bundle::PREAMBULO_STUB } else { "" };
-    let js = apelidar_receitas(&bundle::montar(&sdk, &modulos, &entrada, preambulo));
+    let js = bundle::montar(&sdk, &modulos, &entrada, preambulo);
+    // Regras rti só para os supertipos que alguma receita cita
+    // (`regras.rs`); `DARTFORGE_JSPROD_REGRAS=0` desliga.
+    let js = if std::env::var("DARTFORGE_JSPROD_REGRAS").map_or(true, |v| v != "0") { crate::regras::podar(&js) } else { js };
+    let js = apelidar_receitas(&js);
     let antes_de_compactar = js.len();
     // Identificadores por escopo e espaço (oxc); `DARTFORGE_JSPROD_NOMES=0`
     // fica só na compactação de espaço.

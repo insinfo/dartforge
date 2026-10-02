@@ -17,6 +17,7 @@ dartforge-types = { path = "../types" }
 dartforge-frontend = { path = "../frontend" }
 serde = { version = "1", features = ["derive"] }
 postcard = { version = "1", default-features = false, features = ["use-std"] }
+serde_json = "1"
 # Minificação de identificadores por escopo (docs/JS-PRODUCAO-SDK-PROPRIO.md §7.2).
 oxc_allocator = "0.152"
 oxc_parser = "0.152"

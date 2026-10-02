@@ -21,6 +21,7 @@ pub mod filtro;
 pub mod minificar;
 pub mod propriedades;
 pub mod proprio;
+pub mod regras;
 pub mod sdk;
 pub mod varredura;
 pub mod verificar;
