@@ -24,7 +24,7 @@ pub struct ClassHierarchyData {
 }
 
 /// Grafo completo da hierarquia instanciada do programa.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default)]
 pub struct ClassHierarchy {
     classes: Vec<Option<ClassHierarchyData>>,
 }

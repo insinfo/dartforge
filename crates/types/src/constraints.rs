@@ -526,20 +526,15 @@ impl GenericInferrer {
             };
             inferidos[i] = t;
         }
-        // Dois vetores: `rec`, a escolha do analyzer (`_chooseTypes` final:
-        // a inferior conhecida vence, a cláusula `extends` com os já
-        // escolhidos), que dá o "Tried to infer" da mensagem; e `fin`, o
-        // escolhido de fato (`choose_final`), que decide se há erro (pelo
-        // lado seguro: a nossa escolha pode divergir da do analyzer).
-        let rec = inferidos.clone();
-        let mut fin = inferidos;
+        // O tipo testado é o escolhido de fato (`choose_final`), quando há:
+        // a refeitura acima só vale para os parâmetros sem escolha.
         for i in 0..n.min(finais.len()) {
             if !env.core.is_unknown(env.table, finais[i]) && !has_unknown(finais[i], env) {
-                fin[i] = finais[i];
+                inferidos[i] = finais[i];
             }
         }
         for i in 0..n {
-            let t = fin[i];
+            let t = inferidos[i];
             // Argumento `dynamic` (ou inválido) que leva o escolhido a
             // `dynamic`: o analyzer não acusa.
             if matches!(env.table.get(t), Type::Dynamic)
@@ -558,15 +553,91 @@ impl GenericInferrer {
             if de_future_or {
                 continue;
             }
-            if self.mensagem_de_falha(i, &fin, env, interner, program).is_none() {
+            // Um argumento `dynamic` não restringe (o analyzer não acusa
+            // `max(d, 2.0)` com `d` dinâmico).
+            let proprias: Vec<Restricao> = self
+                .restricoes
+                .iter()
+                .filter(|r| r.param == i && !matches!(env.table.get(r.lower), Type::Dynamic))
+                .copied()
+                .collect();
+            let satisfaz = |r: &Restricao, env: &mut SubtypeEnv| {
+                let ok_l = env.core.is_unknown(env.table, r.lower) || {
+                    let l = schema_least(r.lower, env);
+                    is_subtype(l, t, env)
+                };
+                let ok_u = env.core.is_unknown(env.table, r.upper) || {
+                    let u = schema_greatest(r.upper, env);
+                    is_subtype(t, u, env)
+                };
+                ok_l && ok_u
+            };
+            let mut sucesso = proprias.iter().all(|r| satisfaz(r, env));
+            let mut extends: Option<(String, String, bool)> = None;
+            if sucesso {
+                if let Some(b) = self.limite_escrito(i, &inferidos, env) {
+                    let bruto = env.table.param(self.params[i]).bound;
+                    let ok = is_subtype(t, b, env);
+                    extends = Some((fmt(env, bruto), fmt(env, b), ok));
+                    sucesso = ok;
+                }
+            }
+            if sucesso {
                 continue;
             }
             let nome = interner.resolve(env.table.param(self.params[i]).name).to_string();
-            let msg = self
-                .mensagem_de_falha(i, &rec, env, interner, program)
-                .or_else(|| self.mensagem_de_falha(i, &fin, env, interner, program))
-                .unwrap_or_default();
-            saida.push((nome, msg));
+            // Por origem, na ordem de chegada: as não satisfeitas e as satisfeitas.
+            let mut por_origem: Vec<(Option<usize>, bool)> = Vec::new();
+            for r in &proprias {
+                let ok = satisfaz(r, env);
+                match por_origem.iter_mut().find(|(o, _)| *o == r.origem) {
+                    Some(x) => x.1 &= ok,
+                    None => por_origem.push((r.origem, ok)),
+                }
+            }
+            let mut linhas_ns: Vec<Vec<String>> = Vec::new();
+            let mut linhas_s: Vec<Vec<String>> = Vec::new();
+            for (o, ok) in &por_origem {
+                let partes = match o.and_then(|o| self.origens.get(o)) {
+                    Some(Origem::Argumento { parametro, declarado, argumento, prefixo }) => vec![
+                        prefixo.clone().unwrap_or_else(|| format!("Parameter '{parametro}'")),
+                        format!("declared as     '{}'", fmt(env, *declarado)),
+                        format!("but argument is '{}'.", fmt(env, *argumento)),
+                    ],
+                    Some(Origem::Retorno { declarado, contexto }) => vec![
+                        "Return type".to_string(),
+                        format!("declared as '{}'", fmt(env, *declarado)),
+                        format!("used where  '{}' is required.", fmt(env, *contexto)),
+                    ],
+                    Some(Origem::Funcao { declarado, contexto }) => vec![
+                        "Function type".to_string(),
+                        format!("declared as '{}'", fmt(env, *declarado)),
+                        format!("used where  '{}' is required.", fmt(env, *contexto)),
+                    ],
+                    None => continue,
+                };
+                if *ok {
+                    linhas_s.push(partes);
+                } else {
+                    linhas_ns.push(partes);
+                }
+            }
+            if let Some((bruto, produzido, ok)) = extends {
+                let partes = vec![format!("Type parameter '{nome}'"), format!("is declared to extend '{bruto}' producing '{produzido}'.")];
+                if ok {
+                    linhas_s.push(partes);
+                } else {
+                    linhas_ns.push(partes);
+                }
+            }
+            let ts = fmt(env, t);
+            let nao = formatar_restricoes(&linhas_ns);
+            let mut sim = formatar_restricoes(&linhas_s);
+            if !sim.is_empty() {
+                sim = format!("\nThe type '{ts}' was inferred from:\n{sim}");
+            }
+            let intro = format!("Tried to infer '{ts}' for '{nome}' which doesn't work:");
+            saida.push((nome, format!("\n\n{intro}\n{nao}{sim}\n\nConsider passing explicit type argument(s) to the generic.\n\n")));
         }
         if saida.is_empty() {
             for i in 0..n.min(finais.len()) {
@@ -595,115 +666,6 @@ impl GenericInferrer {
             }
         }
         saida
-    }
-
-    /// O sufixo de `COULD_NOT_INFER` do parâmetro `i` com os tipos
-    /// `vetor` (`_formatError`, `an611:src/dart/element/generic_inferrer.dart:587-630`),
-    /// ou `None` se o escolhido satisfaz as restrições e o limite.
-    fn mensagem_de_falha(
-        &self,
-        i: usize,
-        vetor: &[TypeId],
-        env: &mut SubtypeEnv,
-        interner: &dartforge_intern::Interner,
-        program: &dartforge_elements::model::Program,
-    ) -> Option<String> {
-        let fmt = |env: &SubtypeEnv, t: TypeId| env.table.format_sem_alias(t, interner, program);
-        let t = vetor[i];
-        // Um argumento `dynamic` não restringe (o analyzer não acusa
-        // `max(d, 2.0)` com `d` dinâmico).
-        let proprias: Vec<Restricao> = self
-            .restricoes
-            .iter()
-            .filter(|r| r.param == i && !matches!(env.table.get(r.lower), Type::Dynamic))
-            .copied()
-            .collect();
-        let satisfaz = |r: &Restricao, env: &mut SubtypeEnv| {
-            let ok_l = env.core.is_unknown(env.table, r.lower) || {
-                let l = schema_least(r.lower, env);
-                is_subtype(l, t, env)
-            };
-            let ok_u = env.core.is_unknown(env.table, r.upper) || {
-                let u = schema_greatest(r.upper, env);
-                is_subtype(t, u, env)
-            };
-            ok_l && ok_u
-        };
-        let mut sucesso = proprias.iter().all(|r| satisfaz(r, env));
-        let mut extends: Option<(String, String, bool)> = None;
-        if sucesso {
-            if let Some(b) = self.limite_escrito(i, vetor, env) {
-                let bruto = env.table.param(self.params[i]).bound;
-                let ok = is_subtype(t, b, env);
-                extends = Some((fmt(env, bruto), fmt(env, b), ok));
-                sucesso = ok;
-            }
-        }
-        if sucesso {
-            return None;
-        }
-        let nome = interner.resolve(env.table.param(self.params[i]).name).to_string();
-        // Por origem, na ordem de chegada: as não satisfeitas e as satisfeitas.
-        let mut por_origem: Vec<(Option<usize>, bool)> = Vec::new();
-        for r in &proprias {
-            let ok = satisfaz(r, env);
-            match por_origem.iter_mut().find(|(o, _)| *o == r.origem) {
-                Some(x) => x.1 &= ok,
-                None => por_origem.push((r.origem, ok)),
-            }
-        }
-        let mut linhas_ns: Vec<Vec<String>> = Vec::new();
-        let mut linhas_s: Vec<Vec<String>> = Vec::new();
-        for (o, ok) in &por_origem {
-            let partes = match o.and_then(|o| self.origens.get(o)) {
-                Some(Origem::Argumento { parametro, declarado, argumento, prefixo }) => vec![
-                    prefixo.clone().unwrap_or_else(|| format!("Parameter '{parametro}'")),
-                    format!("declared as     '{}'", fmt(env, *declarado)),
-                    format!("but argument is '{}'.", fmt(env, *argumento)),
-                ],
-                Some(Origem::Retorno { declarado, contexto }) => vec![
-                    "Return type".to_string(),
-                    format!("declared as '{}'", fmt(env, *declarado)),
-                    format!("used where  '{}' is required.", fmt(env, *contexto)),
-                ],
-                Some(Origem::Funcao { declarado, contexto }) => vec![
-                    "Function type".to_string(),
-                    format!("declared as '{}'", fmt(env, *declarado)),
-                    format!("used where  '{}' is required.", fmt(env, *contexto)),
-                ],
-                None => continue,
-            };
-            if *ok {
-                linhas_s.push(partes);
-            } else {
-                linhas_ns.push(partes);
-            }
-        }
-        if let Some((bruto, produzido, ok)) = extends {
-            let partes = vec![format!("Type parameter '{nome}'"), format!("is declared to extend '{bruto}' producing '{produzido}'.")];
-            if ok {
-                linhas_s.push(partes);
-            } else {
-                linhas_ns.push(partes);
-            }
-        }
-        let ts = fmt(env, t);
-        let nao = formatar_restricoes(&linhas_ns);
-        let mut sim = formatar_restricoes(&linhas_s);
-        if !sim.is_empty() {
-            sim = format!("
-The type '{ts}' was inferred from:
-{sim}");
-        }
-        let intro = format!("Tried to infer '{ts}' for '{nome}' which doesn't work:");
-        Some(format!("
-
-{intro}
-{nao}{sim}
-
-Consider passing explicit type argument(s) to the generic.
-
-"))
     }
 
     /// O limite escrito do parâmetro `i`, com os parâmetros substituídos

@@ -46,11 +46,11 @@ publicada**.
   `inferencia/instrucoes.rs`) e quatro códigos publicados davam erro no
   corpus (`conflicting_static_and_instance`, `enum_without_constants`,
   `unnecessary_null_comparison`, `invalid_override`). Tudo continua no
-  working tree e também em `E:\dftempnalise\wip-2026-10-02.patch`.
+  working tree e também em `E:\dftemp\analise\wip-2026-10-02.patch`.
 * **JS:** `this` como local (−278 KB no `new_sali`, não validado) em
   `E:\dftemp\jsprod\guardado`.
 * **Pub:** normalização de durações do placar em
-  `E:\dftempackend-real\pub-placar-duracoes.diff`.
+  `E:\dftemp\backend-real\pub-placar-duracoes.diff`.
 * Experimentos dos mapas de pilha e patches do linzj em
   `E:\dftemp\spec-mapas`.
 

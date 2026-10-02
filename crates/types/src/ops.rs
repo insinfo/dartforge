@@ -18,7 +18,7 @@ pub fn nullable(ty: TypeId, table: &mut TypeTable) -> TypeId {
         let c = table.canonico(ty);
         let n = nullable(c, table);
         return match ex {
-            crate::table::Exibicao::NeverAnulavel | crate::table::Exibicao::Invalido => ty,
+            crate::table::Exibicao::NeverAnulavel => ty,
             ex if n != c => table.decorar(n, ex),
             _ => ty,
         };
@@ -103,7 +103,6 @@ pub fn non_nullable(ty: TypeId, table: &mut TypeTable) -> TypeId {
             crate::table::Exibicao::Alias { .. } if n != c => table.decorar(n, ex),
             crate::table::Exibicao::Alias { .. } => ty,
             crate::table::Exibicao::NeverAnulavel => n,
-            crate::table::Exibicao::Invalido => ty,
         };
     }
     let t = table.get(ty).clone();
@@ -271,7 +270,7 @@ pub fn substitute(
                     table.decorar(nc, crate::table::Exibicao::Alias { typedef, args: novos })
                 }
             }
-            crate::table::Exibicao::NeverAnulavel | crate::table::Exibicao::Invalido => ty,
+            crate::table::Exibicao::NeverAnulavel => ty,
         };
     }
 

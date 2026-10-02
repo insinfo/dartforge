@@ -147,342 +147,6 @@ pub(crate) fn resolver_nome(inf: &mut BodyInferrer<'_>, cx: &Corpo, nome: Symbol
     RefNome::Nenhum
 }
 
-/// O `thisType` do `ResolverVisitor` (`_setupThisType`,
-/// `an611:src/generated/resolver.dart:4180-4193`): o tipo `this` da classe
-/// ou o tipo estendido da extensão envolvente, em **qualquer** membro —
-/// estático, fábrica, inicializador de campo ou de construtor. A busca por
-/// `this` implícito de um nome que não resolve lexicamente usa esse tipo
-/// mesmo onde `this` não vale (o erro passa a ser o de acesso a membro de
-/// instância, não o de nome indefinido).
-fn tipo_this_do_analyzer(inf: &mut BodyInferrer<'_>, cx: &Corpo) -> Option<TypeId> {
-    if cx.tipo_this.is_some() {
-        return cx.tipo_this;
-    }
-    if let Some(c) = cx.classe {
-        return Some(inf.tipo_this_classe(c));
-    }
-    cx.extensao.map(|x| inf.outline.extensions[x.0 as usize].on)
-}
-
-/// O que a busca léxica do analyzer acha para a **leitura** de um nome
-/// (`LexicalLookup.resolveGetter`, `an611:src/dart/resolver/lexical_lookup.dart:17-33`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Lexico {
-    /// Getter, método, variável, tipo, prefixo…: a leitura resolve.
-    Getter,
-    /// Só um setter de instância declarado no contêiner: a busca segue
-    /// pelo `this` implícito.
-    SetterDeInstancia,
-    /// Só um setter que não é de instância (de topo, estático, importado):
-    /// recuperação — a leitura não tem elemento, e a busca para aqui.
-    SetterSolto,
-    /// Nada no escopo léxico.
-    Nada,
-}
-
-fn busca_lexica_de_leitura(inf: &mut BodyInferrer<'_>, cx: &Corpo, nome: SymbolId) -> Lexico {
-    match resolver_nome(inf, cx, nome, false) {
-        RefNome::Nenhum | RefNome::ThisImplicito => Lexico::Nada,
-        RefNome::MembroLexico(f, estatico) => {
-            if inf.program.function(f).kind == FunctionKind::Setter {
-                if estatico {
-                    Lexico::SetterSolto
-                } else {
-                    Lexico::SetterDeInstancia
-                }
-            } else {
-                Lexico::Getter
-            }
-        }
-        RefNome::Elemento(Element::Function(f)) if inf.program.function(f).kind == FunctionKind::Setter => {
-            // Setter de topo (declarado ou importado) sem getter de mesmo nome.
-            match inf.program.lookup_na_unidade(cx.unit, nome) {
-                Some(b) if b.getter.is_none() => Lexico::SetterSolto,
-                _ => Lexico::Getter,
-            }
-        }
-        _ => Lexico::Getter,
-    }
-}
-
-/// O que a busca por `this` implícito acha (`ThisLookup`,
-/// `an611:src/dart/resolver/this_lookup.dart:20-83`, que chama
-/// `TypePropertyResolver.resolve` com a recuperação estática de
-/// `_lookupInterfaceType`, `an611:src/dart/resolver/type_property_resolver.dart:251-281`).
-#[derive(Debug, Clone, Copy)]
-enum PeloThis {
-    /// Membro de instância (da interface ou de extensão aplicável).
-    Instancia,
-    /// Membro estático da classe ou de uma superclasse/mixin (recuperação):
-    /// `(classe que o declara, é método)`.
-    Estatico(ClassId, bool),
-    Ausente,
-    /// Receptor anulável ou que não é de interface: o analyzer segue por
-    /// outros caminhos (erros de nulo); não relatamos nada.
-    Incerto,
-}
-
-fn buscar_pelo_this(inf: &mut BodyInferrer<'_>, cx: &Corpo, this: TypeId, nome: SymbolId, setter: bool) -> PeloThis {
-    let classe = match inf.table.get(this) {
-        Type::Interface { class, nullable: false, .. } => *class,
-        Type::ExtensionType { decl, nullable: false, .. } => *decl,
-        _ => return PeloThis::Incerto,
-    };
-    match inf.buscar_membro(cx.lib, this, nome, setter) {
-        Busca::Achado(_) => PeloThis::Instancia,
-        Busca::Dinamico | Busca::Nunca => PeloThis::Incerto,
-        Busca::Ausente => match estatico_na_cadeia(inf, cx, classe, nome, setter) {
-            Some((dono, metodo)) => PeloThis::Estatico(dono, metodo),
-            None => PeloThis::Ausente,
-        },
-    }
-}
-
-/// `lookupStaticGetter`/`lookupStaticMethod`/`lookupStaticSetter`
-/// (`an611:src/dart/element/element.dart:5383-5408`): o membro estático
-/// acessível de nome `nome` na classe, nos seus mixins (o último primeiro) e
-/// na cadeia de superclasses. `(classe que o declara, é método)`.
-fn estatico_na_cadeia(inf: &BodyInferrer<'_>, cx: &Corpo, classe: ClassId, nome: SymbolId, setter: bool) -> Option<(ClassId, bool)> {
-    let chave = if setter { inf.chave_setter(nome)? } else { nome };
-    let privado = inf.interner.resolve(nome).starts_with('_');
-    let mut vistos = std::collections::HashSet::new();
-    let mut atual = Some(classe);
-    while let Some(c) = atual {
-        if !vistos.insert(c) {
-            break;
-        }
-        let ce = inf.program.class(c);
-        let ordem: Vec<ClassId> = std::iter::once(c).chain(ce.mixin_classes.iter().rev().copied()).collect();
-        for k in ordem {
-            let ke = inf.program.class(k);
-            if privado && ke.library != cx.lib {
-                continue;
-            }
-            if let Some(&f) = ke.static_members.get(&chave) {
-                let fe = inf.program.function(f);
-                let e_setter = fe.kind == FunctionKind::Setter || (fe.kind == FunctionKind::ImplicitAccessor && setter);
-                if e_setter == setter {
-                    return Some((k, fe.kind == FunctionKind::Function));
-                }
-            }
-            if !setter && ke.enum_constants.iter().any(|&v| inf.program.variable(v).name == nome) {
-                return Some((k, false));
-            }
-        }
-        atual = ce.supertype_class;
-    }
-    None
-}
-
-/// O erro de acessar um membro de instância sem `this`
-/// (`_checkForInvalidInstanceMemberAccess`,
-/// `an611:src/generated/error_verifier.dart:3976-4038`): método estático
-/// (e o que ele aninha), construtor de fábrica, inicializador de construtor
-/// (os de campo ficam de fora: veja o braço `Raiz::Nada`). `None` onde
-/// `this` vale.
-fn erro_de_instancia_sem_this(inf: &BodyInferrer<'_>, cx: &Corpo) -> Option<dartforge_diagnostics::Codigo> {
-    use dartforge_diagnostics::codigos::compile_time_error as c;
-    if cx.tipo_this.is_some() && !cx.estatico {
-        return None;
-    }
-    if cx.classe.is_none() && cx.extensao.is_none() {
-        return None;
-    }
-    match cx.raiz {
-        super::corpo::Raiz::Funcao(_) if cx.membro_estatico => Some(c::INSTANCE_MEMBER_ACCESS_FROM_STATIC),
-        super::corpo::Raiz::Funcao(_) => None,
-        super::corpo::Raiz::Construtor(m) => match &inf.program.unit(cx.unit).ast.member(m).kind {
-            ast::MemberKind::Constructor(k) if k.factory => Some(c::INSTANCE_MEMBER_ACCESS_FROM_FACTORY),
-            ast::MemberKind::Constructor(_) => Some(c::IMPLICIT_THIS_REFERENCE_IN_INITIALIZER),
-            _ => None,
-        },
-        // Inicializador de campo, mas também argumentos de constante de enum
-        // e anotações, que usam o mesmo corpo sem raiz e onde o analyzer não
-        // relata nada: na dúvida, nada.
-        super::corpo::Raiz::Nada => None,
-    }
-}
-
-/// Relata o acesso a membro de instância onde `this` não vale (ver
-/// [`erro_de_instancia_sem_this`]).
-fn avisar_instancia_sem_this(inf: &mut BodyInferrer<'_>, cx: &Corpo, n: ast::Name) {
-    if let Some(codigo) = erro_de_instancia_sem_this(inf, cx) {
-        let nome = inf.interner.resolve(n.sym).to_string();
-        if codigo.info().nome == "implicit_this_reference_in_initializer" {
-            inf.aviso_com_codigo(codigo, n.span, &[&nome]);
-        } else {
-            inf.aviso_com_codigo(codigo, n.span, &[]);
-        }
-    }
-}
-
-/// Referência sem qualificação a um membro estático herdado
-/// (`_checkForUnqualifiedReferenceToNonLocalStaticMember`,
-/// `an611:src/generated/error_verifier.dart:5660-5700`, e
-/// `_reportInstanceAccessToStaticMember`,
-/// `an611:src/dart/resolver/method_invocation_resolver.dart:208-227`).
-fn avisar_estatico_nao_qualificado(inf: &mut BodyInferrer<'_>, cx: &Corpo, dono: ClassId, n: ast::Name) {
-    use dartforge_diagnostics::codigos::compile_time_error as c;
-    let codigo = if cx.extensao.is_some() {
-        c::UNQUALIFIED_REFERENCE_TO_STATIC_MEMBER_OF_EXTENDED_TYPE
-    } else {
-        c::UNQUALIFIED_REFERENCE_TO_NON_LOCAL_STATIC_MEMBER
-    };
-    let nome = inf.interner.resolve(inf.program.class(dono).name).to_string();
-    inf.aviso_com_codigo(codigo, n.span, &[&nome]);
-}
-
-/// `p.loadLibrary` de um prefixo de import `deferred` (`PrefixScope.lookup`,
-/// `an611:src/dart/element/scope.dart:576-583`): a função sintética
-/// `Future<dynamic> Function()` da biblioteca adiada.
-pub(crate) fn load_library(inf: &mut BodyInferrer<'_>, cx: &Corpo, prefixo: SymbolId, nome: SymbolId) -> Option<TypeId> {
-    if inf.interner.resolve(nome) != "loadLibrary" {
-        return None;
-    }
-    let lib = inf.program.library(cx.lib);
-    let adiado = lib
-        .imports
-        .iter()
-        .any(|im| im.prefix == Some(prefixo) && im.deferred && !inf.program.library(im.library).units.is_empty());
-    if !adiado {
-        return None;
-    }
-    let ret = match inf.core.future_class {
-        Some(f) => {
-            let d = inf.core.dynamic_;
-            inf.table.intern(Type::Interface { class: f, args: Box::new([d]), nullable: false })
-        }
-        None => inf.core.dynamic_,
-    };
-    Some(inf.table.intern(Type::Function {
-        type_params: Box::new([]),
-        ret,
-        positional: Box::new([]),
-        optional: Box::new([]),
-        named: Box::new([]),
-        nullable: false,
-    }))
-}
-
-/// `p.nome` que o prefixo não tem (`_resolveTargetPrefixElement`,
-/// `an611:src/dart/resolver/property_element_resolver.dart:744-786`):
-/// `UNDEFINED_PREFIXED_NAME`, salvo o nome ignorado de um import que não
-/// existe.
-pub(crate) fn avisar_nome_prefixado_indefinido(inf: &mut BodyInferrer<'_>, cx: &Corpo, prefixo: SymbolId, name: ast::Name) {
-    if crate::scope::deve_ignorar_indefinido(inf.program, inf.interner, cx.unit, Some(prefixo), name.sym) {
-        return;
-    }
-    let nome = inf.interner.resolve(name.sym).to_string();
-    let p = inf.interner.resolve(prefixo).to_string();
-    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_PREFIXED_NAME, name.span, &[&nome, &p]);
-}
-
-/// A leitura de um nome simples cuja busca léxica não achou getter
-/// (`SimpleIdentifierResolver._resolve1`,
-/// `an611:src/dart/resolver/simple_identifier_resolver.dart:209-224`, com a
-/// busca de `PropertyElementResolver.resolveSimpleIdentifier`,
-/// `an611:src/dart/resolver/property_element_resolver.dart:243-272`): o
-/// `this` implícito ainda pode achar o membro (o erro é então o de acesso
-/// sem `this` ou o de estático não qualificado); senão `await` num corpo de
-/// função, o nome ignorado de um import que não existe, ou nome indefinido.
-fn nome_lido_indefinido(inf: &mut BodyInferrer<'_>, cx: &Corpo, n: ast::Name, lexico: Lexico) {
-    if lexico != Lexico::SetterSolto
-        && let Some(this) = tipo_this_do_analyzer(inf, cx)
-    {
-        match buscar_pelo_this(inf, cx, this, n.sym, false) {
-            PeloThis::Instancia => {
-                avisar_instancia_sem_this(inf, cx, n);
-                return;
-            }
-            PeloThis::Estatico(dono, metodo) => {
-                // Tear-off de método estático: o `ErrorVerifier` não relata.
-                if !metodo {
-                    avisar_estatico_nao_qualificado(inf, cx, dono, n);
-                }
-                return;
-            }
-            PeloThis::Incerto => return,
-            PeloThis::Ausente => {}
-        }
-    }
-    nome_indefinido_sem_this(inf, cx, n);
-}
-
-/// O fim de [`nome_lido_indefinido`]: `await` num corpo de função, nome
-/// ignorado ou `UNDEFINED_IDENTIFIER`.
-fn nome_indefinido_sem_this(inf: &mut BodyInferrer<'_>, cx: &Corpo, n: ast::Name) {
-    let texto = inf.interner.resolve(n.sym).to_string();
-    let em_funcao = !matches!(cx.raiz, super::corpo::Raiz::Nada) || !cx.funcoes.is_empty();
-    if texto == "await" && em_funcao {
-        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_IDENTIFIER_AWAIT, n.span, &[]);
-        return;
-    }
-    if crate::scope::deve_ignorar_indefinido(inf.program, inf.interner, cx.unit, None, n.sym) {
-        return;
-    }
-    let msg = format!("{}: '{}'", UNDEFINED_IDENTIFIER.template, texto);
-    inf.aviso(msg, n.span);
-}
-
-/// A invocação `nome(args)` sem alvo (`MethodInvocationResolver._resolveReceiverNull`,
-/// `an611:src/dart/resolver/method_invocation_resolver.dart:559-657`) quando
-/// a busca léxica não acha getter: sem `this`, `UNDEFINED_FUNCTION`; com
-/// `this`, a busca nele (membro de instância achado segue o caminho comum;
-/// estático herdado, estático não qualificado; nada, `UNDEFINED_METHOD` com
-/// o nome da classe). Devolve se tratou a invocação (e relatou o que havia a
-/// relatar): o chamador infere os argumentos sem contexto e dá `dynamic`.
-pub(crate) fn invocacao_sem_alvo_indefinida(inf: &mut BodyInferrer<'_>, cx: &Corpo, n: ast::Name) -> bool {
-    use dartforge_diagnostics::codigos::compile_time_error as c;
-    if cx.curinga == Some(n.sym) {
-        return false;
-    }
-    let lexico = busca_lexica_de_leitura(inf, cx, n.sym);
-    if lexico == Lexico::Getter {
-        return false;
-    }
-    let Some(this) = tipo_this_do_analyzer(inf, cx) else {
-        if !crate::scope::deve_ignorar_indefinido(inf.program, inf.interner, cx.unit, None, n.sym) {
-            let nome = inf.interner.resolve(n.sym).to_string();
-            inf.aviso_com_codigo(c::UNDEFINED_FUNCTION, n.span, &[&nome]);
-        }
-        return true;
-    };
-    let nome_do_tipo = |inf: &BodyInferrer<'_>| -> String {
-        match inf.table.get(this) {
-            Type::Interface { class, .. } => inf.interner.resolve(inf.program.class(*class).name).to_string(),
-            Type::ExtensionType { decl, .. } => inf.interner.resolve(inf.program.class(*decl).name).to_string(),
-            Type::Function { .. } => "Function".to_string(),
-            _ => "<unknown>".to_string(),
-        }
-    };
-    if lexico == Lexico::SetterSolto {
-        // Setter de topo, de extensão ou estático: não há getter possível.
-        let nome = inf.interner.resolve(n.sym).to_string();
-        let tipo = nome_do_tipo(inf);
-        inf.aviso_com_codigo(c::UNDEFINED_METHOD, n.span, &[&nome, &tipo]);
-        return true;
-    }
-    match buscar_pelo_this(inf, cx, this, n.sym, false) {
-        // Membro de instância: onde `this` vale, o caminho comum o resolve.
-        PeloThis::Instancia if cx.tipo_this.is_some() && !cx.estatico => false,
-        PeloThis::Instancia => {
-            avisar_instancia_sem_this(inf, cx, n);
-            true
-        }
-        PeloThis::Estatico(dono, _) => {
-            avisar_estatico_nao_qualificado(inf, cx, dono, n);
-            true
-        }
-        PeloThis::Incerto => true,
-        PeloThis::Ausente => {
-            let nome = inf.interner.resolve(n.sym).to_string();
-            let tipo = nome_do_tipo(inf);
-            inf.aviso_com_codigo(c::UNDEFINED_METHOD, n.span, &[&nome, &tipo]);
-            true
-        }
-    }
-}
-
 /// Uma referência a tipo usada como receptor (`C.m`, `p.C.m`, `C<T>.m`).
 #[derive(Debug, Clone)]
 pub(crate) enum RefTipo {
@@ -680,17 +344,11 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
         RefNome::TipoEmbutido => inf.core.type_,
         RefNome::Elemento(el) => {
             resolver(inf, cx, e, Resolved::Element(el));
-            // Só um setter de topo com esse nome: a leitura não tem elemento.
-            if busca_lexica_de_leitura(inf, cx, n.sym) == Lexico::SetterSolto {
-                nome_lido_indefinido(inf, cx, n, Lexico::SetterSolto);
-                return inf.core.dynamic_;
-            }
             ler_elemento(inf, el)
         }
         RefNome::MembroLexico(f, estatico) => {
             let r = resolved_de_membro_lexico(inf, cx, f, estatico);
             resolver(inf, cx, e, r);
-            let so_setter = inf.program.function(f).kind == FunctionKind::Setter;
             if !estatico {
                 // Membro de instância declarado aqui: pelo tipo `this` (a
                 // substituição é a identidade).
@@ -699,16 +357,6 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
                         return leitura_de_campo(inf, cx, e, Base::This, m.tipo);
                     }
                 }
-            }
-            if so_setter {
-                // Leitura de um nome que só tem setter no contêiner: a de
-                // instância ainda busca pelo `this` implícito; a estática não.
-                let lexico = if estatico { Lexico::SetterSolto } else { Lexico::SetterDeInstancia };
-                nome_lido_indefinido(inf, cx, n, lexico);
-                return inf.core.dynamic_;
-            }
-            if !estatico {
-                avisar_instancia_sem_this(inf, cx, n);
             }
             inf.tipo_do_membro_declarado(f, false).0
         }
@@ -733,7 +381,8 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
                 Busca::Dinamico => inf.core.dynamic_,
                 Busca::Nunca => inf.core.never,
                 Busca::Ausente => {
-                    nome_lido_indefinido(inf, cx, n, Lexico::Nada);
+                    let msg = format!("{}: '{}'", UNDEFINED_IDENTIFIER.template, inf.interner.resolve(n.sym));
+                    inf.aviso(msg, n.span);
                     inf.core.dynamic_
                 }
             }
@@ -750,7 +399,8 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
             inf.core.dynamic_
         }
         RefNome::Nenhum => {
-            nome_lido_indefinido(inf, cx, n, Lexico::Nada);
+            let msg = format!("{}: '{}'", UNDEFINED_IDENTIFIER.template, inf.interner.resolve(n.sym));
+            inf.aviso(msg, n.span);
             inf.core.dynamic_
         }
     }
@@ -1071,26 +721,11 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
             let k1 = contexto_de_await(inf, ctx);
             let t1 = inferir(inf, cx, *i, k1);
             uso_de_void(inf, cx, *i, t1);
-            // `AWAIT_OF_INCOMPATIBLE_TYPE` no `await`
-            // (an611:src/generated/error_verifier.dart:2214-2223).
-            if incompativel_com_await(inf, t1, 0) {
-                let ini = inf.span_expr(cx.unit, e).start;
-                let sp = dartforge_diagnostics::Span { start: ini, end: ini + 5 };
-                inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::AWAIT_OF_INCOMPATIBLE_TYPE, sp, &[]);
-            }
             inf.flatten(t1)
         }
         ExprKind::Throw(i) => {
             let t = inferir_livre(inf, cx, *i);
             uso_de_void(inf, cx, *i, t);
-            // `THROW_OF_INVALID_TYPE` (an611:src/generated/error_verifier.dart:5336-5347):
-            // não atribuível a `Object`; `void` relata também.
-            let objeto = inf.core.object;
-            if !inf.atribuivel(t, objeto) {
-                let tt = inf.table.format(t, inf.interner, inf.program);
-                let sp = inf.span_expr(cx.unit, *i);
-                inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::THROW_OF_INVALID_TYPE, sp, &[&tt]);
-            }
             cx.fluxo.alcancavel = false;
             inf.core.never
         }
@@ -1183,110 +818,13 @@ pub(crate) fn uso_de_void(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, t: 
     true
 }
 
-/// `isIncompatibleWithAwait` (an611:src/dart/element/type_system.dart:971-1001):
-/// `S?` com `S` incompatível; extension type que não é subtipo de
-/// `Future<Object?>`; parâmetro de tipo (promovido ou não) pelo limite.
-fn incompativel_com_await(inf: &mut BodyInferrer<'_>, t: TypeId, prof: u32) -> bool {
-    if prof > 16 {
-        return false;
-    }
-    match inf.table.get(t).clone() {
-        Type::ExtensionType { nullable, .. } => {
-            if nullable {
-                let nn = inf.nao_nulo(t);
-                return incompativel_com_await(inf, nn, prof + 1);
-            }
-            let oq = inf.core.object_nullable;
-            let fut = inf.futuro(oq);
-            !inf.sub(t, fut)
-        }
-        Type::Intersection { bound, .. } => incompativel_com_await(inf, bound, prof + 1),
-        Type::TypeParameter { param, .. } => {
-            let b = inf.table.param(param).bound;
-            if b == t {
-                return false;
-            }
-            incompativel_com_await(inf, b, prof + 1)
-        }
-        _ => false,
-    }
-}
-
-/// `getErrorNode` de `checkForAssignableExpressionAtType`
-/// (an611:src/generated/error_detection_helpers.dart:83-91): desce
-/// parênteses e o alvo de cascata.
-pub(crate) fn sem_parenteses(inf: &BodyInferrer<'_>, cx: &Corpo, e: ExprId) -> ExprId {
-    let a = ast(inf, cx);
-    let mut x = e;
-    loop {
-        match &a.expr(x).kind {
-            ExprKind::Parenthesized(i) => x = *i,
-            ExprKind::Cascade { target, .. } => x = *target,
-            _ => return x,
-        }
-    }
-}
-
 /// `checkForAssignableExpressionAtType`: com o alvo não `void`, valor `void`
 /// é `use_of_void_result`; senão, a atribuibilidade.
 pub(crate) fn verificar_atribuivel_expr(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, de: TypeId, para: TypeId, template: &str) {
-    verificar_atribuivel_expr_em(inf, cx, e, de, para, template, true);
-}
-
-/// Como [`verificar_atribuivel_expr`]; `desembrulhar` aplica o
-/// `getErrorNode` (falso no lado direito de atribuição, que o analyzer
-/// relata como escrito: `assignment_expression_resolver.dart:148-154`).
-pub(crate) fn verificar_atribuivel_expr_em(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, de: TypeId, para: TypeId, template: &str, desembrulhar: bool) {
     if !matches!(inf.table.get(para), Type::Void) && uso_de_void(inf, cx, e, de) {
         return;
     }
-    if inf.atribuivel(de, para) {
-        return;
-    }
-    // Record de um campo posicional com `(x)` sem vírgula
-    // (an611:src/generated/error_detection_helpers.dart:93-108): no parêntese.
-    if let Type::Record { positional, named, .. } = inf.table.get(para).clone()
-        && positional.len() == 1
-        && named.is_empty()
-        && !matches!(inf.table.get(de), Type::Record { .. })
-        && matches!(ast(inf, cx).expr(e).kind, ExprKind::Parenthesized(_))
-        && inf.atribuivel(positional[0], de)
-    {
-        let sp = inf.span_expr(cx.unit, e);
-        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::RECORD_LITERAL_ONE_POSITIONAL_NO_TRAILING_COMMA, sp, &[]);
-        return;
-    }
-    let no = if desembrulhar { sem_parenteses(inf, cx, e) } else { e };
-    let sp = inf.span_expr(cx.unit, no);
-    if template == ARGUMENT_TYPE_NOT_ASSIGNABLE.template {
-        // `{2}`: só entre records (`error_detection_helpers.dart:109-139`).
-        let mut info: Vec<String> = Vec::new();
-        if let (Type::Record { positional: pa, named: na, .. }, Type::Record { positional: pe, named: ne, .. }) =
-            (inf.table.get(de).clone(), inf.table.get(para).clone())
-        {
-            if !pe.is_empty() && pa.len() != pe.len() {
-                info.push(format!("Expected {} positional arguments, but got {} instead.", pe.len(), pa.len()));
-            }
-            if !ne.is_empty() && na.len() != ne.len() {
-                info.push(format!("Expected {} named arguments, but got {} instead.", ne.len(), na.len()));
-            }
-            if !ne.is_empty() {
-                let mut nomeados: Vec<(String, TypeId)> = na.iter().map(|(n, t)| (inf.interner.resolve(*n).to_string(), *t)).collect();
-                nomeados.sort_by(|a, b| a.0.cmp(&b.0));
-                for (nome, t) in nomeados {
-                    if !ne.iter().any(|(n2, t2)| inf.interner.resolve(*n2) == nome && *t2 == t) {
-                        let tt = inf.table.format_sem_alias(t, inf.interner, inf.program);
-                        info.push(format!("Unexpected named argument `{nome}` with type `{tt}`."));
-                    }
-                }
-            }
-        }
-        let a1 = inf.table.format(de, inf.interner, inf.program);
-        let a2 = inf.table.format(para, inf.interner, inf.program);
-        let a3 = info.join(" ");
-        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::ARGUMENT_TYPE_NOT_ASSIGNABLE, sp, &[&a1, &a2, &a3]);
-        return;
-    }
+    let sp = inf.span_expr(cx.unit, e);
     inf.verificar_atribuivel(de, para, sp, template);
 }
 
@@ -1535,10 +1073,8 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
                     return (ler_elemento(inf, el), false);
                 }
                 None => {
-                    if let Some(t) = load_library(inf, cx, p.sym, name.sym) {
-                        return (t, false);
-                    }
-                    avisar_nome_prefixado_indefinido(inf, cx, p.sym, name);
+                    let msg = format!("{}: '{}'", UNDEFINED_IDENTIFIER.template, inf.interner.resolve(name.sym));
+                    inf.aviso(msg, name.span);
                     return (inf.core.dynamic_, false);
                 }
             }
@@ -2570,31 +2106,11 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
             let res = match sym.map(|s| inf.buscar_membro(cx.lib, leitura, s, false)) {
                 Some(Busca::Achado(m)) => {
                     resolver(inf, cx, e, m.resolved.clone());
-                    let (ret, param) = match inf.table.get(m.tipo) {
-                        Type::Function { ret, positional, .. } => (*ret, positional.first().copied()),
-                        _ => (inf.core.dynamic_, None),
+                    let ret = match inf.table.get(m.tipo) {
+                        Type::Function { ret, .. } => *ret,
+                        _ => inf.core.dynamic_,
                     };
-                    let r = refinar_numerico(inf, leitura, &m, sym.unwrap(), &[int], ret);
-                    // `++a`/`a++`: o `1` implícito (`int`) contra o parâmetro do
-                    // operador, relatado no operando
-                    // (`_checkForIntNotAssignable`, an611:src/generated/error_verifier.dart:3899-3906);
-                    // o resultado contra o tipo de escrita, no nó inteiro
-                    // (`_checkForInvalidAssignmentIncDec`,
-                    // an611:src/dart/resolver/prefix_expression_resolver.dart:96-110).
-                    if !inf.e_dynamic(leitura) && !matches!(inf.table.get(leitura), Type::Void) {
-                        if let Some(p) = param {
-                            let sp = inf.span_expr(cx.unit, sem_parenteses(inf, cx, operand));
-                            inf.verificar_atribuivel(int, p, sp, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
-                        }
-                        // Getter e setter de tipos diferentes (`int get x`, `set
-                        // x(String)`): o oráculo 3.6.2 não relata (conferido no
-                        // corpus, `InvalidAssignment__postfixExpression_in_*`).
-                        if !inf.e_dynamic(escrita) && (local.is_some() || leitura == escrita) {
-                            let rr = if *curto { inf.anulavel(r) } else { r };
-                            inf.verificar_atribuivel(rr, escrita, span, INVALID_ASSIGNMENT.template);
-                        }
-                    }
-                    r
+                    refinar_numerico(inf, leitura, &m, sym.unwrap(), &[int], ret)
                 }
                 Some(Busca::Nunca) => inf.core.never,
                 _ => inf.core.dynamic_,
@@ -2820,7 +2336,8 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
                             }
                         }
                     }
-                    nome_escrito_indefinido(inf, cx, n);
+                    let msg = format!("{}: '{}'", UNDEFINED_IDENTIFIER.template, inf.interner.resolve(n.sym));
+                    inf.aviso(msg, n.span);
                     inf.core.dynamic_
                 }
                 _ => inf.core.dynamic_,
@@ -2834,40 +2351,12 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
             inf.core.dynamic_
         }
         RefNome::Nenhum => {
-            nome_escrito_indefinido(inf, cx, n);
+            let msg = format!("{}: '{}'", UNDEFINED_IDENTIFIER.template, inf.interner.resolve(n.sym));
+            inf.aviso(msg, n.span);
             inf.core.dynamic_
         }
         _ => inf.core.dynamic_,
     }
-}
-
-/// A escrita num nome simples sem setter no escopo léxico
-/// (`AssignmentVerifier.verify`, `an611:src/error/assignment_verifier.dart:28-113`,
-/// com `ThisLookup.lookupSetter`): o `this` implícito ainda pode achar o
-/// setter (o erro é então o de acesso sem `this` ou o de estático não
-/// qualificado) ou um getter de recuperação (o erro é outro: escrita em
-/// final, em método…); senão, nome indefinido — sem a exceção dos imports
-/// que não existem, que a escrita não consulta.
-fn nome_escrito_indefinido(inf: &mut BodyInferrer<'_>, cx: &Corpo, n: ast::Name) {
-    if let Some(this) = tipo_this_do_analyzer(inf, cx) {
-        match buscar_pelo_this(inf, cx, this, n.sym, true) {
-            PeloThis::Instancia => {
-                avisar_instancia_sem_this(inf, cx, n);
-                return;
-            }
-            PeloThis::Estatico(dono, _) => {
-                avisar_estatico_nao_qualificado(inf, cx, dono, n);
-                return;
-            }
-            PeloThis::Incerto => return,
-            PeloThis::Ausente => {}
-        }
-        if !matches!(buscar_pelo_this(inf, cx, this, n.sym, false), PeloThis::Ausente) {
-            return;
-        }
-    }
-    let msg = format!("{}: '{}'", UNDEFINED_IDENTIFIER.template, inf.interner.resolve(n.sym));
-    inf.aviso(msg, n.span);
 }
 
 /// Atribuições: `=`, compostas e `??=`.
@@ -2949,7 +2438,7 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                 cx.esquecer_campos_de(id);
             }
             if !inf.e_dynamic(escrita) {
-                verificar_atribuivel_expr_em(inf, cx, valor, tv, escrita, INVALID_ASSIGNMENT.template, false);
+                verificar_atribuivel_expr(inf, cx, valor, tv, escrita, INVALID_ASSIGNMENT.template);
             } else {
                 uso_de_void(inf, cx, valor, tv);
             }
@@ -2972,13 +2461,6 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                 if !matches!(inf.table.get(escrita), Type::Void) {
                     uso_de_void(inf, cx, valor, tv);
                 }
-                // `x ??= e`: o tipo de `e` contra o tipo de escrita, no lado
-                // direito (`_checkForInvalidAssignment`,
-                // an611:src/dart/resolver/assignment_expression_resolver.dart:117-155, 263-270).
-                if !inf.e_dynamic(escrita) && !matches!(inf.table.get(tv), Type::Void) {
-                    let sp = inf.span_expr(cx.unit, valor);
-                    inf.verificar_atribuivel(tv, escrita, sp, INVALID_ASSIGNMENT.template);
-                }
                 let depois = cx.fluxo.clone();
                 cx.fluxo = inf.juntar(&antes, &depois);
                 let nn = inf.nao_nulo(leitura);
@@ -2996,13 +2478,6 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
             let token = token_de_operador(inf, cx, inf.span_expr(cx.unit, alvo).end);
             let posicoes = PosicoesDeOperador { token, indefinido: token, composta: true, super_: false };
             let (t, _) = operador_binario(inf, cx, leitura, sym, valor, u, posicoes, Some(e));
-            // `x op= e`: o retorno do operador contra o tipo de escrita, no
-            // lado direito (`_resolveTypes` + `_checkForInvalidAssignment`,
-            // an611:src/dart/resolver/assignment_expression_resolver.dart:117-155, 272-290).
-            if !inf.e_dynamic(escrita) && !inf.e_dynamic(leitura) && !matches!(inf.table.get(t), Type::Void) && (local.is_some() || leitura == escrita) {
-                let sp = inf.span_expr(cx.unit, valor);
-                inf.verificar_atribuivel(t, escrita, sp, INVALID_ASSIGNMENT.template);
-            }
             if let Some(id) = local {
                 // A regra de escrita vê o estado de antes da escrita.
                 let alvo_span = inf.span_expr(cx.unit, alvo);
@@ -3242,40 +2717,8 @@ fn escrita_indice(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, recv
         }
         Busca::Ausente => {
             inferir_livre(inf, cx, index);
-            // `Never?` em `x?[i] = v`: promovido a `Never`, nada a relatar.
-            let nn = inf.nao_nulo(recv);
-            if matches!(inf.table.get(nn), Type::Never) {
-                return inf.core.dynamic_;
-            }
-            // `[]=` ausente: `UNDEFINED_OPERATOR` (ou `…_SUPER_OPERATOR`) do
-            // `[` ao `]` (`_reportUnresolvedIndex`,
-            // an611:src/dart/resolver/property_element_resolver.dart:109-133, 365-381).
-            let tipo = inf.table.format(recv, inf.interner, inf.program);
-            let (sp, codigo) = match target {
-                Some(t) => {
-                    let sup = matches!(ast(inf, cx).expr(t).kind, ExprKind::Super);
-                    let c = if sup {
-                        dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_SUPER_OPERATOR
-                    } else {
-                        dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_OPERATOR
-                    };
-                    (span_indice(inf, cx, alvo, t), c)
-                }
-                None => (span, dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_OPERATOR),
-            };
-            // Composta sem `[]` nem `[]=`: o oráculo só relata o `[]=` (o
-            // `[]` da leitura, no mesmo intervalo, sai).
-            let mut i = 0;
-            while i < inf.diagnostics.len() {
-                let d = &inf.diagnostics[i];
-                if d.span == sp && d.code == Some(codigo) && d.args.first().is_some_and(|a| &**a == "[]") {
-                    inf.diagnostics.remove(i);
-                    inf.unidades_dos_avisos.remove(i);
-                } else {
-                    i += 1;
-                }
-            }
-            inf.aviso_com_codigo(codigo, sp, &["[]=", &tipo]);
+            let msg = format!("{}: operador '[]=' para o tipo '{}'", UNDEFINED_METHOD.template, inf.table.format(recv, inf.interner, inf.program));
+            inf.aviso(msg, span);
             inf.core.dynamic_
         }
         _ => {
@@ -3502,31 +2945,6 @@ fn condicao_binaria(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: B
             }
             if let Some(eq) = inf.sym.igual {
                 if let Busca::Achado(m) = inf.buscar_membro(cx.lib, tl, eq, false) {
-                    // O lado direito contra o parâmetro de `operator ==`
-                    // tornado anulável (`binary_expression_resolver.dart:117-124`,
-                    // `promoteParameterToNullable`), procurado no tipo
-                    // esquerdo promovido a não nulo.
-                    let tl_nn = inf.nao_nulo(tl);
-                    let membro = if tl_nn != tl {
-                        match inf.buscar_membro(cx.lib, tl_nn, eq, false) {
-                            Busca::Achado(m2) => Some(m2),
-                            _ => None,
-                        }
-                    } else {
-                        Some(m.clone())
-                    };
-                    let param = membro.and_then(|m| match inf.table.get(m.tipo) {
-                        Type::Function { positional, .. } => positional.first().copied(),
-                        _ => None,
-                    });
-                    if let Some(p) = param
-                        && !matches!(inf.table.get(tr), Type::Void)
-                        && !cx.sobreposicoes.contains_key(&left)
-                        && !matches!(inf.program.unit(cx.unit).ast.expr(left).kind, ExprKind::Super)
-                    {
-                        let p = inf.anulavel(p);
-                        verificar_atribuivel_expr(inf, cx, right, tr, p, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
-                    }
                     resolver(inf, cx, e, m.resolved);
                 }
             }

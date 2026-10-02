@@ -115,10 +115,6 @@ fn campo_nomeado_implicito(inf: &BodyInferrer<'_>, cx: &Corpo, pai: PatternId, f
 fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, final_: bool, atribuicao: bool) {
     let a = &inf.program.unit(cx.unit).ast;
     let u = inf.core.unknown;
-    // O tipo casado de cada padrão, lido pelo verificador de constantes
-    // (`UnitBodyTypes::tipos_casados`); ainda sem a promoção do fluxo de
-    // padrões (T6 da especificação).
-    inf.body_types.units[cx.unit.0 as usize].tipos_casados.insert(p, t);
     match &a.pattern(p).kind {
         PatternKind::Wildcard { ty: Some(x) } => {
             let x = *x;
