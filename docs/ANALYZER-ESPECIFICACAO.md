@@ -5401,6 +5401,14 @@ relatos iguais do analyzer contam um.
 - **Posição:** o nome do membro (campo: nome da variável; nos mixins: o `NamedType` do mixin).
 - **Mensagem:** "'{1}.{0}' ('{2}') isn't a valid override of '{3}.{0}' ('{4}')." / "The setter …";
   tipos de função com `getDisplayString` (genéricos `<T>`).
+- **Estado em 2026-10-05 (escrito, não compilado):** a inferência de sobrescrita é a do `InstanceMemberInferrer`
+  (`crates/types/src/inferencia/sobrescrita.rs`, no começo da inferência de corpos; o campo sem tipo em
+  `funcoes::tipo_sobreposto`): assinatura combinada dos `getOverridden2` com o `topMerge`, só métodos para
+  método, getters e setters pelas regras de `_inferAccessorOrField`, `_toOverriddenFunctionType`, e o omitido
+  sem sobrescrito como `dynamic`. O `sobrescritas.rs` deixou a recusa `inferencia_confiavel` e consulta a
+  interface pelo `InheritanceManager3` de `heranca.rs`, com a covariância escrita e herdada; o
+  `CovariantParametersVerifier` não pula mais os genéricos. Ficam as quatro FN de `variance` (experimento) e a
+  de `augment`.
 - **No DartForge:** `crates/types/src/sobrescritas.rs:313-466`. 9 FN:
   - tipos omitidos com mais de um supertipo declarante (`InvalidOverride__method_normalParamType_27ff3ba9`,
     `…optionalParamTy_1088b290`: `m(String n)` sem retorno → `dynamic` pela combinação; `inferencia_confiavel`

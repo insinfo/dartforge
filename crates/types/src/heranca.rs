@@ -381,6 +381,13 @@ impl Heranca {
         r
     }
 
+    /// Tira do cache a interface de `c` (os tipos dos membros dela mudaram).
+    pub fn esquecer(&mut self, program: &Program, c: ClassId) {
+        let c = program.dono_da_classe(c);
+        self.interfaces.remove(&c);
+        self.herdados.remove(&c);
+    }
+
     /// `getMember2`.
     pub fn membro<'p>(
         &mut self,

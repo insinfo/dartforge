@@ -33,6 +33,7 @@ mod funcoes;
 mod instrucoes;
 mod membros;
 mod padroes;
+mod sobrescrita;
 mod tipos;
 
 use crate::resolved::{BodyTypes, UnitBodyTypes};
@@ -294,6 +295,9 @@ impl<'a> BodyInferrer<'a> {
             }
         }
         self.completar_sobrescritas_de_campo();
+        // `_performOverrideInference`: a assinatura combinada dos
+        // sobrescritos nos tipos omitidos dos membros de instância.
+        self.inferir_sobrescritas();
         if let Some(corpos) = self.apenas_corpos.clone() {
             for c in corpos {
                 match c {

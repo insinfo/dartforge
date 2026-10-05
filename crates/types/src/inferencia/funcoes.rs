@@ -403,7 +403,7 @@ pub(crate) fn inferir_tipo_de_variavel_sem_tipo(inf: &mut BodyInferrer<'_>, vid:
     // Sobreposição de membro herdado (campos de instância).
     if !v.static_ {
         if let Some(c) = v.class {
-            if let Some(t) = tipo_sobreposto(inf, c, v.name) {
+            if let Some(t) = tipo_sobreposto(inf, c, vid) {
                 if let Some((unit, init)) = inf.inicializador(vid) {
                     let mut cx = Corpo::para_variavel(inf, vid, unit);
                     inferir(inf, &mut cx, init, t);
@@ -438,19 +438,30 @@ pub(crate) fn inferir_tipo_de_variavel_sem_tipo(inf: &mut BodyInferrer<'_>, vid:
     }
 }
 
-/// Tipo do getter homônimo nas superinterfaces diretas da classe, se houver.
-fn tipo_sobreposto(inf: &mut BodyInferrer<'_>, c: ClassId, nome: dartforge_intern::SymbolId) -> Option<TypeId> {
-    let this = inf.tipo_this_classe(c);
-    for (sup, _) in crate::scope::supertipos_ordenados(inf.program, &inf.outline.hierarchy, c) {
-        if let Some(&f) = inf.program.class(sup).instance_members.get(&nome) {
-            let (t, metodo) = inf.tipo_do_membro_declarado(f, false);
-            if metodo {
-                return None;
+/// O tipo de um campo de instância sem tipo pela inferência de sobrescrita
+/// (`_inferAccessorOrField` com `field`): os getters e os setters que ele
+/// sobrescreve nas superinterfaces diretas (`getOverridden2`), pela
+/// assinatura combinada. Só getters: o retorno do getter combinado; só
+/// setters: o parâmetro do setter combinado; os dois: o do getter num campo
+/// `final`, e num não `final` o tipo só quando os dois coincidem. Sem nada
+/// (ou sem coincidência), o inicializador decide.
+fn tipo_sobreposto(inf: &mut BodyInferrer<'_>, c: ClassId, vid: VariableId) -> Option<TypeId> {
+    let v = inf.program.variable(vid);
+    let final_ = v.final_ || v.const_;
+    let (getters, setters, n_getter, n_setter) = inf.getters_e_setters_sobrescritos(c, v.library, v.name);
+    match (getters.is_empty(), setters.is_empty(), n_setter) {
+        (false, true, _) => Some(inf.tipo_de_getter_combinado(c, &getters, n_getter)),
+        (true, false, Some(ns)) => Some(inf.tipo_de_setter_combinado(c, &setters, ns)),
+        (false, false, Some(ns)) => {
+            let g = inf.tipo_de_getter_combinado(c, &getters, n_getter);
+            if final_ {
+                return Some(g);
             }
-            return Some(inf.substituir_do_dono(this, c, sup, t));
+            let s = inf.tipo_de_setter_combinado(c, &setters, ns);
+            (inf.table.canonico(g) == inf.table.canonico(s)).then_some(g)
         }
+        _ => None,
     }
-    None
 }
 
 /// Extrai de um contexto o tipo de função (através de `?` e `FutureOr`).

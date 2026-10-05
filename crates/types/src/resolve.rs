@@ -99,6 +99,9 @@ pub struct OutlineTypes {
     /// o `TypeAnnotation.type` do analyzer. As dos corpos ficam em
     /// [`crate::resolved::UnitBodyTypes::tipos_de_anotacoes`].
     pub tipos_escritos: HashMap<(UnitId, ast::TypeId), TypeId>,
+    /// A inferência de sobrescrita fiel (`InstanceMemberInferrer`) já rodou
+    /// sobre estes tipos (na primeira inferência de corpos).
+    pub sobrescritas_inferidas: bool,
 }
 
 /// Parte omitida de uma sobrescrita que herda o tipo de um campo sem tipo
@@ -378,6 +381,7 @@ impl<'a> OutlineResolver<'a> {
             hierarchy,
             sobrescritas_de_campo: std::mem::take(&mut self.sobrescritas_de_campo),
             tipos_escritos: std::mem::take(&mut self.tipos_escritos),
+            sobrescritas_inferidas: false,
         };
 
         (outline, self.diagnostics, self.unidades_dos_avisos)
