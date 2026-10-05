@@ -7030,6 +7030,8 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
   `// @Dart = 2.0`, `/// @dart = 2.0`, `// dart @ 2.0`). Implementação puramente léxica: precisa dos
   comentários com offset (o lexer do frontend) — um verificador novo em `crates/analise` (o código já
   está em `verificados.txt`; nada de FP).
+- **Estado em 2026-10-05 (escrito, não compilado):** `crates/analise/src/versao_de_linguagem.rs` porta o
+  verificador inteiro (os oito códigos de formato e o `_LOCATION`), ligado por unidade na paridade.
 ##### `wrong_explicit_type_parameter_variance_in_superinterface` (perda 14: msg 14) e `wrong_type_parameter_variance_in_superinterface` (perda 13: msg 13)
 - **Emissão:** `ErrorVerifier._checkForWrongTypeParameterVarianceInSuperinterfaces`
   (`analyzer/lib/src/generated/error_verifier.dart:5926-5975`), chamado de visitClassDeclaration,

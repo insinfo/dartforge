@@ -378,6 +378,7 @@ impl Motor {
                 achados.extend(dartforge_analise::c2_sintaticos::verificar(*u, &interner).into_iter().map(|d| (i, d)));
                 achados.extend(dartforge_analise::fases::texto_bidirecional(*u).into_iter().map(|d| (i, d)));
                 achados.extend(dartforge_analise::todos::verificar(u.fonte).into_iter().map(|d| (i, d)));
+                achados.extend(dartforge_analise::versao_de_linguagem::verificar(*u).into_iter().map(|d| (i, d)));
                 achados.extend(
                     dartforge_analise::fases::dois_pontos_no_padrao(*u, biblioteca.features.versao().major < 3).into_iter().map(|d| (i, d)),
                 );

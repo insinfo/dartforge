@@ -47,6 +47,7 @@ pub mod operadores;
 pub mod privados;
 pub mod publicacao;
 pub mod todos;
+pub mod versao_de_linguagem;
 
 use dartforge_frontend::ast::{Ast, CompilationUnit};
 
