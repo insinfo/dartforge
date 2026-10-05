@@ -683,7 +683,7 @@ pub struct Function {
 /// gerou), para as tabelas de linha do depurador (`llvm/depuracao.rs`).
 /// Instrução sem posição (criada por um passo de otimização) herda a da
 /// anterior no bloco.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct DepuracaoDaFuncao {
     /// O caminho absoluto do arquivo `.dart` (ou o URI, sem arquivo).
     pub arquivo: String,
@@ -696,6 +696,121 @@ pub struct DepuracaoDaFuncao {
     /// A do terminador de cada bloco (o `return` e o `break` não emitem
     /// instrução).
     pub saidas: std::collections::HashMap<BlockId, (u32, u32)>,
+    // --- o rastro no formato da VM (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14)
+    /// A posição do token da função (o `Function.token_pos` da VM: o nome,
+    /// ou o começo de uma closure): a do quadro de uma closure que escuta um
+    /// `Future` (`kFutureListenerPcOffset`).
+    pub token: (u32, u32),
+    /// As funções copiadas nesta pelo inlining da HIR (`otimizar::inline`),
+    /// para o rastro mostrar o quadro de cada uma como a VM mostra os quadros
+    /// embutidos (`GetInlinedFunctionsAtReturnAddress`).
+    pub embutidas: Vec<Embutida>,
+    /// `(linha, coluna, contexto)` das instruções copiadas pelo inlining: a
+    /// posição na função copiada e o índice dela em `embutidas`. Fica fora de
+    /// `posicoes`, que é das tabelas de linha (o arquivo é o desta função).
+    pub posicoes_embutidas: std::collections::HashMap<ValueId, (u32, u32, u32)>,
+    /// As marcas do rastro ([`marcas_do_rastro`]).
+    pub marcas: u8,
+    /// Corpo `async` (a máquina de estados): a entrada das closures dele e a
+    /// posição de cada `await`.
+    pub corpo_async: Option<CorpoAsyncDoRastro>,
+    /// A entrada uniforme (`$ent`), quando esta função é o corpo de uma
+    /// closure: o código que a closure guarda, pelo qual o runtime acha a
+    /// função de uma closure que escuta um `Future`.
+    pub entrada_de_closure: Option<String>,
+    /// A captura marcada `@pragma('vm:awaiter-link')` de uma closure: o elo
+    /// com quem espera (`ClosureData::awaiter_link` da VM).
+    pub elo: Option<EloDeEspera>,
+}
+
+impl Function {
+    /// O nome da função no rastro no formato da VM (o
+    /// `QualifiedUserVisibleName`): o qualificado do Dart, tirado do símbolo
+    /// estável `df.<biblioteca>.<classe>.<membro>`, com as partes que o
+    /// lowering acrescenta trocadas como a VM as escreve: `$clo<k>` vira
+    /// `.<anonymous closure>`, `$<nome>` de função local vira `.<nome>`, e as
+    /// impressões digitais e os sufixos de corpo (`$e…`, `$q…`, `$async`,
+    /// `$ent`, `$novo`, a repetição `$<k>`) saem.
+    pub fn nome_do_rastro(&self) -> String {
+        let base = match self.symbol.strip_prefix("dart_main") {
+            Some(resto) => format!("main{resto}"),
+            None => self
+                .symbol
+                .strip_prefix("df.")
+                .and_then(|resto| resto.split_once('.'))
+                .map(|(_, nome)| nome.trim_start_matches('.').to_string())
+                .filter(|n| !n.is_empty())
+                .unwrap_or_else(|| self.name.clone()),
+        };
+        let impressao = |s: &str, p: char| s.len() == 9 && s.starts_with(p) && s[1..].bytes().all(|b| b.is_ascii_hexdigit());
+        let mut partes = base.split('$');
+        let mut nome = partes.next().unwrap_or_default().to_string();
+        for p in partes {
+            if p.is_empty() || p == "async" || p == "ent" || p == "novo" || impressao(p, 'e') || impressao(p, 'q') || p.bytes().all(|b| b.is_ascii_digit()) {
+                continue;
+            }
+            if let Some(k) = p.strip_prefix("clo")
+                && !k.is_empty()
+                && k.bytes().all(|b| b.is_ascii_digit())
+            {
+                nome.push_str(".<anonymous closure>");
+                continue;
+            }
+            nome.push('.');
+            nome.push_str(p);
+        }
+        nome
+    }
+}
+
+/// Uma função copiada pelo inlining da HIR.
+#[derive(Debug, Clone)]
+pub struct Embutida {
+    /// O nome da função copiada, como o rastro o escreve.
+    pub nome: String,
+    /// A url do script dela.
+    pub url: String,
+    /// A posição da chamada que a copiou, na função de fora (o contexto
+    /// `pai`, ou a própria função).
+    pub chamada: (u32, u32),
+    /// O contexto de fora (índice em `embutidas`); `None`: a própria função.
+    pub pai: Option<u32>,
+    /// As marcas do rastro da função copiada.
+    pub marcas: u8,
+}
+
+/// A parte do rastro de um corpo `async`.
+#[derive(Debug, Clone, Default)]
+pub struct CorpoAsyncDoRastro {
+    /// A entrada uniforme do corpo (o código da closure do corpo, cujo
+    /// ambiente guarda o quadro na posição 0).
+    pub entrada: String,
+    /// A posição do `await` de cada estado: o índice `k − 1` para o estado `k`.
+    pub esperas: Vec<(u32, u32)>,
+}
+
+/// Onde mora a captura que é o elo com quem espera.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EloDeEspera {
+    /// A posição no ambiente (sem `direto`).
+    pub indice: usize,
+    /// O ambiente é o próprio valor capturado (`lower/closures.rs`).
+    pub direto: bool,
+    /// A captura mora numa célula.
+    pub celula: bool,
+}
+
+/// As marcas do rastro de uma função ([`DepuracaoDaFuncao::marcas`]).
+pub mod marcas_do_rastro {
+    /// O corpo de uma função `async` (a máquina de estados): o quadro dele,
+    /// retomado, começa a cadeia de quem espera.
+    pub const CORPO_ASYNC: u8 = 1;
+    /// Fora do rastro: o stub de uma função `async` (a VM tem um quadro só
+    /// para ela) e os apoios do `async_patch` (`@pragma("dartforge:rastro-oculto")`).
+    pub const OCULTA: u8 = 2;
+    /// `_FutureListener.handleValue`: o ouvinte dela começa a cadeia
+    /// (`MethodRecognizer::kFutureListenerHandleValue`).
+    pub const ESCUTA: u8 = 4;
 }
 
 /// Definição de classe na HIR.
@@ -845,6 +960,10 @@ pub struct Module {
     /// Programa com o SDK da fonte: as funções de registro das bibliotecas
     /// do SDK, chamadas por `dartforge_entry` antes das do programa.
     pub registros_do_sdk: Vec<String>,
+    /// Os campos do `dart:async` que o rastro percorre para achar quem espera
+    /// (§13.14): `(id da classe, "Classe.campo", posição)`, registrados na
+    /// partida com o rastro simbólico.
+    pub campos_do_rastro: Vec<(u32, String, usize)>,
     /// Os ids das classes do programa, `(id, biblioteca, classe)`: escritos
     /// no IR (`; df.classe …`) para que a geração seguinte de uma recarga do
     /// JIT dê o mesmo id à mesma classe (J03, `Context::com_ids_anteriores`).

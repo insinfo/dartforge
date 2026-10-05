@@ -1914,10 +1914,54 @@ retorno acha a entrada do maior rótulo abaixo dele, que tem de estar na funçã
 desenrolador dá); o quadro sem entrada (o runtime, o sistema, função sem posição) fica de fora. Sem
 quadro nenhum, o texto de hoje. O `StackTrace.current` captura a pilha dele.
 
-*Não feito.* A linha `<asynchronous suspension>`; os quadros das funções copiadas pelo inlining (o
-quadro da função de fora some; a VM os mostra pela tabela de inlining); a forma compacta do item 1
-(deltas por função, no conversor de objeto); a tabela no JIT. O `StackTrace.current` chamado pelo
-getter do SDK mostra o quadro do getter quando ele tem posição.
+*Não feito.* A forma compacta do item 1 (deltas por função, no conversor de objeto); a tabela no
+JIT. O `StackTrace.current` chamado pelo getter do SDK mostra o quadro do getter quando ele tem
+posição.
+
+**Estado em 2026-10-05 (escrito, não compilado): quadros embutidos e `<asynchronous suspension>`.**
+
+*Quadros embutidos.* O inlining da HIR (`otimizar/inline.rs`) guarda, para cada instrução copiada,
+a posição na função copiada e o contexto (`DepuracaoDaFuncao::embutidas` e `posicoes_embutidas`:
+o nome e a url da copiada, a posição da chamada que a copiou e o contexto de fora); a emissão escreve
+o marcador `; df.emb linha coluna contexto`, que as tabelas de linha ignoram. O ponto de chamada
+dentro de um corpo copiado tem uma entrada por quadro, todas com o mesmo rótulo, da função de dentro
+para a de fora (o `GetInlinedFunctionsAtReturnAddress` da VM); o runtime escreve a cadeia inteira. A
+entrada uniforme de uma closure, sem posições, que recebe a cópia do corpo ganha uma depuração
+oculta: só os quadros copiados aparecem. O inlining do LLVM não deixa rastro: com o rastro ligado, a
+chamada direta a uma função Dart sai `noinline` (o custo fica só nesse modo).
+
+*O registro* ganhou um byte de marcas (`hir::marcas_do_rastro`): o corpo `async`, o quadro oculto (o
+stub da função `async`, que na VM não existe, e os apoios do `async_patch` marcados
+`@pragma("dartforge:rastro-oculto")`, com as closures deles) e `_FutureListener.handleValue`. Os
+nomes saem como a VM os escreve (`Function::nome_do_rastro`): `main.<anonymous closure>`,
+`C.m.inner`, sem as impressões digitais e os sufixos de corpo.
+
+*A cadeia de quem espera* (o `AsyncAwareStackUnwinder` de `runtime/vm/stack_trace.cc`, ramo main; a
+igualdade com o 3.6.2 é não verificada). Os dois bits baixos do campo do registro dizem a espécie
+da entrada: ponto de chamada; a identidade de uma função pela entrada uniforme das closures dela, com
+o token (`Function.token_pos`); a posição do `await` de cada estado de um corpo `async`; o elo de uma
+closure cuja captura tem `@pragma('vm:awaiter-link')` (`_awaitOnObject` e `_envolverCorpo` no
+`async_patch`). O corpo `async` e o `handleValue` empurram o quadro ou o ouvinte numa pilha por
+thread (`dartforge_rastro_entrar`, que devolve a profundidade, e `dartforge_rastro_sair`, que corta
+nela, antes de cada saída), só com o rastro ligado. No `throw`, o percurso dos quadros de máquina dá
+também o topo da pilha de cada um (`heap::enderecos_de_retorno`); cada quadro marcado casa com a
+entrada mais alta gravada logo abaixo do topo dele. O primeiro corpo `async` já suspenso (estado
+diferente de zero) ou o ouvinte começa a cadeia: quadro → `_AsyncAwaitCompleter._future` (ou o
+`future` de `_SyncCompleter`/`_AsyncCompleter`) → `_Future._resultOrListeners` →
+`_FutureListener` (o `result` nos estados da VM, o `callback`) → os elos das closures até um que não
+é closure (o quadro do próximo corpo suspenso). Cada passo sai como `<asynchronous suspension>` e o
+quadro de quem espera, na posição do `await` do estado guardado no quadro dele, ou, para uma closure
+que escuta, no token dela; a lacuna sai uma vez entre trechos e no fim. Os campos do `dart:async`
+que o percurso lê são registrados pelo emissor na partida (`dartforge_registrar_campo_do_rastro`,
+`Module::campos_do_rastro`). Os pares do objeto `_StackTrace` codificam a lacuna como `(0, 0)` e os
+quadros de quem espera com os bits 62 e 61.
+
+*Desvios conhecidos.* Os ramos de stream da VM (`_SyncStreamController`, `async*`, `await for`,
+`yield*`) e a conta de "erro tratado" (`encountered_async_catch_error`) não foram portados; o corpo
+`async*` sai como quadro síncrono. O estado do quadro já é o do `await` durante o registro da
+continuação (a VM ainda coleta o rastro síncrono nesse intervalo). Um tear-off que escuta um `Future`
+não é achado (a entrada de tear-off não tem a identidade). O casamento pela pilha usa uma janela de
+16 KiB abaixo do topo do quadro.
 
 ---
 

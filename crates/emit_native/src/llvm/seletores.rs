@@ -201,6 +201,7 @@ impl LlvmEmitter<'_> {
         // O rastro simbólico (§13.14): a tabela da imagem, idempotente.
         if let Some(c) = self.chamada_de_registro_do_rastro() {
             corpo.push_str(&c);
+            corpo.push_str(&self.chamadas_de_registro_dos_campos_do_rastro());
         }
         // As classes do programa (e as formas de record) registram a tabela
         // na partida. `_StackTrace` do SDK também precisa: o runtime cria o

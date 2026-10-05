@@ -272,6 +272,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
         // --- corpo ---------------------------------------------------------
         let mut b = FnBuilder::new(self.ctx, self.unit_id, simbolo.clone(), legivel.clone(), ret_repr);
+        // O rastro simbólico (§13.14): o token da closure, a entrada pela
+        // qual o runtime a acha, o elo com quem espera e o oculto herdado.
+        if self.ctx.rastro {
+            b.rastro.token = self.ctx.linha_e_coluna(self.unit_id, f.name.map_or(f.span.start, |n| n.span.start));
+            b.rastro.marcas |= self.rastro.marcas & crate::hir::marcas_do_rastro::OCULTA;
+            b.rastro.entrada_de_closure = Some(format!("{simbolo}$ent"));
+            b.rastro.elo = capturas
+                .iter()
+                .enumerate()
+                .find(|(_, (_, l))| l.offset.is_some_and(|o| self.elo_de_espera_em(ast, o)))
+                .map(|(i, (_, l))| crate::hir::EloDeEspera {
+                    indice: if direto { 0 } else { base + i },
+                    direto,
+                    celula: matches!(l.modo, Modo::Celula(_) | Modo::Ambiente { celula: true, .. }),
+                });
+        }
         let env_b = Operand::Val(b.add_param("env".to_string(), Type::Ref));
         if direto && com_this {
             b.this_param = Some(env_b.clone());
@@ -508,9 +524,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
+    /// O parâmetro declarado em `offset` tem `@pragma('vm:awaiter-link')`:
+    /// a closure que o captura leva ao quadro de quem espera
+    /// (`StackTraceUtils`, `TryGetAwaiterLink`).
+    fn elo_de_espera_em(&self, ast: &ast::Ast, offset: usize) -> bool {
+        ast.functions.iter().any(|f| {
+            f.parameters.iter().flatten().any(|p| {
+                p.name.is_some_and(|n| n.span.start == offset)
+                    && p.metadata.iter().any(|a| crate::fonte::pragma_com_texto(self.ctx.interner, ast, a, "vm:awaiter-link"))
+            })
+        })
+    }
+
     /// Entrega ao módulo (pelas `extra_functions` desta função) uma função
     /// construída à parte, com os diagnósticos dela.
-    pub fn absorver(&mut self, b: FnBuilder<'a, 'c>) {
+    pub fn absorver(&mut self, mut b: FnBuilder<'a, 'c>) {
+        b.fechar_rastro();
         self.erros.extend(b.erros);
         self.globais_extras.extend(b.globais_extras);
         self.extra_functions.push(b.func);

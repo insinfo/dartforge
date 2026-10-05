@@ -68,6 +68,10 @@ pub struct Context<'a> {
     /// J05: as posições viram tabelas de linha do depurador (`--depuracao`);
     /// sem isto, só o rastro simbólico as usa.
     pub dwarf: bool,
+    /// O rastro simbólico (§13.14) está ligado: o lowering marca as funções
+    /// (quadros ocultos, corpos `async`, elos de quem espera) e insere a
+    /// pilha do rastro.
+    pub rastro: bool,
     /// Recarga do JIT (J03): os ids que a geração viva deu às classes do
     /// programa, por `(biblioteca, classe)`. A mesma classe fica com o mesmo
     /// id; uma classe nova ganha um id acima de todos eles (os objetos vivos
@@ -304,6 +308,7 @@ impl<'a> Context<'a> {
             ids_anteriores: None,
             depuracao: None,
             dwarf: false,
+            rastro: false,
         };
         // Formas de record com campo nomeado: literais, padrões e tipos de
         // todas as unidades do programa (o conjunto inteiro, antes do

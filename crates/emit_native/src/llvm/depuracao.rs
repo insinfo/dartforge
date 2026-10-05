@@ -25,6 +25,10 @@ use std::fmt::Write as _;
 
 /// O prefixo do marcador de posição no texto de uma função.
 pub(super) const MARCADOR: &str = "  ; df.pos ";
+/// O marcador da posição de uma instrução copiada pelo inlining da HIR:
+/// `linha coluna contexto` (o índice em `DepuracaoDaFuncao::embutidas`). Só o
+/// rastro o lê (`llvm/rastro.rs`); para as tabelas de linha é comentário.
+pub(super) const MARCADOR_EMBUTIDO: &str = "  ; df.emb ";
 
 /// Os metadados de depuração do módulo, numerados na ordem de criação.
 pub(super) struct Depuracao {

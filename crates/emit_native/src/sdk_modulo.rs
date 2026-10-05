@@ -316,6 +316,7 @@ pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path, producao: bool) -> Result<Vec<B
             .so_a_biblioteca(lib);
         if rastro_simbolico {
             ctx.ligar_depuracao();
+            ctx.rastro = true;
         }
         debug_assert_eq!(ctx.ids_de_classe, base.ids_de_classe);
         let mut module = crate::lower::lower_program(&ctx);

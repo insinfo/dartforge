@@ -659,6 +659,9 @@ dartforge_pedir_no_ponto_seguro	1	1	0
 dartforge_personalidade	1	1	0
 dartforge_lancar_desenrolamento	1	1	0
 dartforge_registrar_rastro	0	0	0
+dartforge_registrar_campo_do_rastro	0	0	0
+dartforge_rastro_entrar	0	0	0
+dartforge_rastro_sair	0	0	0
 dartforge_rastro_texto	1	1	0
 dartforge_ponto_seguro	1	1	1
 dartforge_preparar_embedder	1	1	1

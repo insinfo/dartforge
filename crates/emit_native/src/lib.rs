@@ -373,6 +373,7 @@ fn emitir_ir_interno(
         // As posições sem o DWARF: só a tabela do rastro (§13.14).
         ctx.ligar_depuracao();
     }
+    ctx.rastro = rastro_simbolico;
     ctx.da_fonte = bibliotecas_da_fonte.into_iter().collect();
     ctx.usa_dart_async = usa_dart_async;
     // O mundo fechado do programa (C7, `mundo_nativo.rs`): o que o `main`

@@ -83,7 +83,12 @@ Completer<T> _makeAsyncAwaitCompleter<T>() {
 
 /// Começa o corpo de uma função `async` de forma síncrona e devolve o
 /// `Future` dela.
+///
+/// Os apoios marcados `dartforge:rastro-oculto` (e as closures deles) ficam
+/// fora do rastro simbólico: a VM não tem esses quadros
+/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14).
 @pragma("vm:entry-point", "call")
+@pragma("dartforge:rastro-oculto")
 dynamic _asyncStartSync(
     _WrappedAsyncBody bodyFunction, _AsyncAwaitCompleter completer) {
   bodyFunction(_SUCESSO, null);
@@ -98,12 +103,14 @@ Future<Null> _dartforgeCarregarBiblioteca() => new _Future<Null>.value(null);
 
 /// O `await` de uma função `async`: registra a continuação no objeto.
 @pragma("vm:entry-point", "call")
+@pragma("dartforge:rastro-oculto")
 dynamic _asyncAwait(dynamic object, _WrappedAsyncBody bodyFunction) {
   _awaitOnObject(object, bodyFunction);
 }
 
 /// O `return` de uma função `async`.
 @pragma("vm:entry-point", "call")
+@pragma("dartforge:rastro-oculto")
 dynamic _asyncReturn(dynamic object, Completer completer) {
   completer.complete(object);
 }
@@ -111,13 +118,18 @@ dynamic _asyncReturn(dynamic object, Completer completer) {
 /// A exceção não capturada de uma função `async` (o modelo por valor: o
 /// corpo termina com a exceção pendente, que chega aqui como valor).
 @pragma("vm:entry-point", "call")
+@pragma("dartforge:rastro-oculto")
 dynamic _asyncRethrow(Object error, StackTrace stackTrace, Completer completer) {
   completer.completeError(error, stackTrace);
 }
 
 /// Espera `object`: se é `Future`, registra a continuação nele; senão, num
 /// `_Future` já completado com ele (a ordem de microtarefas é a da fonte).
-void _awaitOnObject(object, _WrappedAsyncBody bodyFunction) {
+///
+/// `vm:awaiter-link`: as closures que capturam `bodyFunction` levam o rastro
+/// simbólico a quem espera (o `TryGetAwaiterLink` da VM).
+@pragma("dartforge:rastro-oculto")
+void _awaitOnObject(object, @pragma('vm:awaiter-link') _WrappedAsyncBody bodyFunction) {
   FutureOr<dynamic> Function(dynamic) thenCallback =
       (result) => bodyFunction(_SUCESSO, result);
 
@@ -140,7 +152,8 @@ void _awaitOnObject(object, _WrappedAsyncBody bodyFunction) {
 /// corpo é chamado de novo com `_ERRO` — o laço que o dart2js escreve em JS
 /// em `_wrapJsFunctionForAsync`.
 @pragma("vm:entry-point", "call")
-_WrappedAsyncBody _envolverCorpo(_WrappedAsyncBody corpo) {
+@pragma("dartforge:rastro-oculto")
+_WrappedAsyncBody _envolverCorpo(@pragma('vm:awaiter-link') _WrappedAsyncBody corpo) {
   void protegido(int codigo, dynamic resultado) {
     while (true) {
       try {

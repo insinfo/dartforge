@@ -207,6 +207,28 @@ pub struct FnBuilder<'a, 'c> {
     /// J05: `(linha, coluna)` do comando que está sendo baixado, com a
     /// depuração ligada; cada instrução emitida a registra.
     pub posicao: Option<(u32, u32)>,
+    /// O que o rastro simbólico precisa da função além das posições (§13.14).
+    pub rastro: RastroDaFuncao,
+}
+
+/// O que o rastro no formato da VM precisa de uma função além das posições
+/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14), passado à
+/// [`crate::hir::DepuracaoDaFuncao`] quando a função é entregue
+/// ([`FnBuilder::fechar_rastro`]).
+#[derive(Debug, Clone, Default)]
+pub struct RastroDaFuncao {
+    /// A posição do token da função.
+    pub token: Option<(u32, u32)>,
+    /// [`crate::hir::marcas_do_rastro`].
+    pub marcas: u8,
+    pub corpo_async: Option<crate::hir::CorpoAsyncDoRastro>,
+    pub entrada_de_closure: Option<String>,
+    pub elo: Option<crate::hir::EloDeEspera>,
+    /// A pilha do rastro (`dartforge_rastro_entrar(tipo, valor)` na entrada e
+    /// `dartforge_rastro_sair` em cada saída): o quadro de um corpo `async`
+    /// (tipo 0) e o ouvinte de `_FutureListener.handleValue` (tipo 1), que o
+    /// runtime casa com os quadros da pilha de máquina.
+    pub pilha: Option<(i64, Operand)>,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
@@ -341,6 +363,88 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             classe_do_membro: None,
             sitios_de_callback: 0,
             posicao: None,
+            rastro: RastroDaFuncao::default(),
+        }
+    }
+
+    /// Passa à depuração da função o que o rastro precisa dela e insere a
+    /// pilha do rastro, quando pedida. Sem o rastro simbólico, nada.
+    pub fn fechar_rastro(&mut self) {
+        if !self.ctx.rastro {
+            return;
+        }
+        let r = std::mem::take(&mut self.rastro);
+        let precisa = r.marcas != 0 || r.corpo_async.is_some() || r.entrada_de_closure.is_some() || r.elo.is_some() || r.pilha.is_some();
+        if self.func.depuracao.is_none() {
+            if !precisa {
+                return;
+            }
+            let unidade = self.ctx.program.unit(self.unit_id);
+            self.func.depuracao = Some(Box::new(crate::hir::DepuracaoDaFuncao {
+                arquivo: unidade.path.as_ref().map_or_else(|| unidade.uri.clone(), |p| p.display().to_string()),
+                url: self.ctx.url_do_rastro(self.unit_id),
+                linha: r.token.map_or(0, |t| t.0),
+                ..Default::default()
+            }));
+        }
+        if let Some(d) = self.func.depuracao.as_mut() {
+            d.token = r.token.unwrap_or((d.linha, 0));
+            d.marcas |= r.marcas;
+            d.corpo_async = r.corpo_async;
+            d.entrada_de_closure = r.entrada_de_closure;
+            d.elo = r.elo;
+        }
+        if let Some((tipo, valor)) = r.pilha {
+            self.instrumentar_pilha_do_rastro(tipo, valor);
+        }
+    }
+
+    /// `dartforge_rastro_entrar(tipo, valor)` no começo do bloco de entrada
+    /// (depois da definição de `valor`, quando é dele) e
+    /// `dartforge_rastro_sair(profundidade)` antes de cada `Return` e `Throw`:
+    /// a profundidade devolvida pela entrada corta também o que funções
+    /// desenroladas por exceção deixaram em cima.
+    fn instrumentar_pilha_do_rastro(&mut self, tipo: i64, valor: Operand) {
+        if self.func.blocks.is_empty() {
+            return;
+        }
+        let novo = |n: &mut u32| {
+            let v = ValueId(*n);
+            *n += 1;
+            v
+        };
+        let prof = novo(&mut self.next_value);
+        let chamada = Instruction::CallRuntime {
+            name: "dartforge_rastro_entrar".to_string(),
+            args: vec![(Operand::Constant(Constant::Int(tipo)), Type::I64), (valor.clone(), Type::Ref)],
+            ret_ty: Type::I64,
+        };
+        self.value_types.insert(prof, Type::I64);
+        let bloco = &mut self.func.blocks[0];
+        let depois = match &valor {
+            Operand::Val(v) => bloco.instructions.iter().position(|(x, _, _)| x == v).map_or(0, |i| i + 1),
+            _ => 0,
+        };
+        // Um `phi` não há no bloco de entrada; os `alloca` podem ficar antes.
+        bloco.instructions.insert(depois, (prof, chamada, Type::I64));
+        let mut saidas = Vec::new();
+        for (bi, b) in self.func.blocks.iter().enumerate() {
+            if matches!(b.terminator, Terminator::Return(_) | Terminator::Throw(_)) {
+                saidas.push(bi);
+            }
+        }
+        for bi in saidas {
+            let v = novo(&mut self.next_value);
+            self.value_types.insert(v, Type::Void);
+            self.func.blocks[bi].instructions.push((
+                v,
+                Instruction::CallRuntime {
+                    name: "dartforge_rastro_sair".to_string(),
+                    args: vec![(Operand::Val(prof), Type::I64)],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            ));
         }
     }
 
@@ -400,7 +504,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// Entrega a função (e as funções locais) ao módulo, com os diagnósticos.
-    pub fn finalizar(self, module: &mut Module) {
+    pub fn finalizar(mut self, module: &mut Module) {
+        self.fechar_rastro();
         // P6: o diagnóstico de uma função da fonte só vale se a poda a
         // mantiver (`fonte::podar`).
         let lib = self.ctx.program.unit(self.unit_id).library;
@@ -725,8 +830,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 arquivo: unidade.path.as_ref().map_or_else(|| unidade.uri.clone(), |p| p.display().to_string()),
                 url: self.ctx.url_do_rastro(self.unit_id),
                 linha: pos.0,
-                posicoes: HashMap::new(),
-                saidas: HashMap::new(),
+                ..Default::default()
             })
         });
         Some((pos, d))

@@ -183,6 +183,35 @@ fn usa_dart_async(program: &Program, interner: &Interner, async_lib: LibraryId) 
     false
 }
 
+/// A função `fid` tem `@pragma("<texto>")` no `Member`/`Decl` que a declara.
+pub fn tem_pragma(program: &Program, interner: &Interner, fid: usize, texto: &str) -> bool {
+    use dartforge_elements::model::FunctionRef;
+    use dartforge_frontend::ast;
+    let f = &program.functions[fid];
+    let FunctionRef::Function { unit, function } = f.node else { return false };
+    let a = &program.unit(unit).ast;
+    let metadata: &[ast::Annotation] = a
+        .members
+        .iter()
+        .find(|m| matches!(m.kind, ast::MemberKind::Method(id) if id == function))
+        .map(|m| &*m.metadata)
+        .or_else(|| a.decls.iter().find(|d| matches!(d.kind, ast::DeclKind::Function(id) if id == function)).map(|d| &*d.metadata))
+        .unwrap_or(&[]);
+    metadata.iter().any(|an| pragma_com_texto(interner, a, an, texto))
+}
+
+/// A anotação é `@pragma("<texto>", …)`.
+pub fn pragma_com_texto(interner: &Interner, ast: &dartforge_frontend::ast::Ast, an: &dartforge_frontend::ast::Annotation, texto: &str) -> bool {
+    if an.name.len() != 1 || interner.resolve(an.name[0].sym) != "pragma" {
+        return false;
+    }
+    let Some(args) = &an.arguments else { return false };
+    args.args.first().is_some_and(|a| match &ast.exprs[a.value.0 as usize].kind {
+        dartforge_frontend::ast::ExprKind::String(lit) => lit.constant_value().is_some_and(|t| t.as_bytes() == texto.as_bytes()),
+        _ => false,
+    })
+}
+
 /// Os pragmas `vm:external-name`/`vm:recognized` de uma função: o nome do
 /// native, se há um, e se ela é intrínseco. O pragma mora no `Member`/`Decl`
 /// que declara a função (o mesmo que `nativos::inventario` lê).

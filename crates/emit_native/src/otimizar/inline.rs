@@ -186,6 +186,47 @@ fn copiar(func: &mut Function, bi: usize, ii: usize, copias: &HashMap<String, (F
         novos.push(BasicBlock { id, instructions: instrucoes, terminator: term });
     }
 
+    // O rastro simbólico (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14):
+    // as instruções copiadas guardam a posição na função copiada e o
+    // contexto de inlining, para o quadro dela aparecer como a VM mostra os
+    // quadros embutidos. Fica fora das posições das tabelas de linha (o
+    // arquivo delas é o desta função). Quem chama sem posições (a entrada
+    // uniforme de uma closure) ganha uma depuração oculta: só os quadros
+    // copiados aparecem.
+    if let Some(da) = alvo.depuracao.as_deref()
+        && (func.depuracao.is_some() || crate::alvo::rastro_simbolico().unwrap_or(false))
+    {
+        let dc = func.depuracao.get_or_insert_with(|| {
+            Box::new(DepuracaoDaFuncao {
+                arquivo: da.arquivo.clone(),
+                url: da.url.clone(),
+                linha: da.linha,
+                marcas: marcas_do_rastro::OCULTA,
+                ..Default::default()
+            })
+        });
+        let (posicao_da_chamada, pai) = match dc.posicoes_embutidas.get(&chamada) {
+            Some(&(l, c, j)) => ((l, c), Some(j)),
+            None => (dc.posicoes.get(&chamada).copied().unwrap_or((dc.linha, 0)), None),
+        };
+        let k = dc.embutidas.len() as u32;
+        dc.embutidas.push(Embutida { nome: alvo.nome_do_rastro(), url: da.url.clone(), chamada: posicao_da_chamada, pai, marcas: da.marcas });
+        for e in &da.embutidas {
+            dc.embutidas.push(Embutida { pai: Some(e.pai.map_or(k, |p| k + 1 + p)), ..e.clone() });
+        }
+        for b in &alvo.blocks {
+            for (v, _, _) in &b.instructions {
+                let Some(Operand::Val(novo)) = valores.get(v) else { continue };
+                let p = match (da.posicoes_embutidas.get(v), da.posicoes.get(v)) {
+                    (Some(&(l, c, j)), _) => (l, c, k + 1 + j),
+                    (None, Some(&(l, c))) => (l, c, k),
+                    (None, None) => continue,
+                };
+                dc.posicoes_embutidas.insert(*novo, p);
+            }
+        }
+    }
+
     // O resultado: o único retorno, ou um `phi` na continuação.
     let mut inicio = Vec::new();
     let resultado = match retornos.len() {

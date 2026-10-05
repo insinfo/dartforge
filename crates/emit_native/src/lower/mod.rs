@@ -200,7 +200,40 @@ pub fn lower_program(ctx: &Context) -> Module {
     lower_classes_e_funcoes(ctx, module)
 }
 
+/// Os campos do `dart:async` que o rastro simbólico percorre para achar quem
+/// espera (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14; os
+/// `USED_FIELD_LIST` do `AsyncAwareStackUnwinder` da VM), quando este módulo
+/// tem as classes deles: a posição de cada um no objeto.
+fn campos_do_rastro(ctx: &Context, module: &mut Module) {
+    if !ctx.rastro {
+        return;
+    }
+    const CAMPOS: &[(&str, &str)] = &[
+        ("_AsyncAwaitCompleter", "_future"),
+        ("_AsyncCompleter", "future"),
+        ("_SyncCompleter", "future"),
+        ("_Future", "_resultOrListeners"),
+        ("_Future", "_state"),
+        ("_FutureListener", "state"),
+        ("_FutureListener", "callback"),
+        ("_FutureListener", "result"),
+        ("_FutureListener", "_nextListener"),
+    ];
+    for (classe, campo) in CAMPOS {
+        let Some(c) = ctx.classe_do_sdk("async", classe) else { continue };
+        if !ctx.biblioteca_no_modulo(ctx.program.class(c).library) {
+            continue;
+        }
+        let Some(id) = ctx.id_de_classe(c) else { continue };
+        let Some(i) = membros::layout(ctx, c).iter().position(|&v| ctx.symbol_name(ctx.program.variables[v.0 as usize].name) == *campo) else {
+            continue;
+        };
+        module.campos_do_rastro.push((id, format!("{classe}.{campo}"), i + enums::base_do_layout(ctx, c)));
+    }
+}
+
 fn lower_classes_e_funcoes(ctx: &Context, mut module: Module) -> Module {
+    campos_do_rastro(ctx, &mut module);
     for (c_idx, class) in ctx.program.classes.iter().enumerate() {
         // Classes do SDK não viram objetos do nosso heap (o runtime tem as
         // suas próprias representações); só as do usuário são registradas.
@@ -435,6 +468,21 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                 };
 
                 let mut builder = fn_builder::FnBuilder::new(ctx, unit, symbol, name.to_string(), ret_ty);
+                // O rastro simbólico (§13.14): o token da função, os apoios
+                // ocultos do `async_patch` e `_FutureListener.handleValue`,
+                // cujo ouvinte começa a cadeia de quem espera.
+                if ctx.rastro {
+                    builder.rastro.token = ast_func.name.and_then(|n| ctx.linha_e_coluna(unit, n.span.start));
+                    if crate::fonte::tem_pragma(ctx.program, ctx.interner, f_idx, "dartforge:rastro-oculto") {
+                        builder.rastro.marcas |= crate::hir::marcas_do_rastro::OCULTA;
+                    }
+                    if name == "handleValue"
+                        && ctx.program.library(func_elem.library).uri == "dart:async"
+                        && func_elem.class.is_some_and(|c| ctx.symbol_name(ctx.program.class(c).name) == "_FutureListener")
+                    {
+                        builder.rastro.marcas |= crate::hir::marcas_do_rastro::ESCUTA;
+                    }
+                }
                 // A análise de capturas percorre o corpo inteiro; o corpo
                 // podado (C7) não o usa.
                 if !ctx.funcao_podada(f_idx) {
@@ -478,6 +526,11 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                     builder.enclosing_class = func_elem.class;
                 }
                 builder.classe_do_membro = func_elem.class;
+                if builder.rastro.marcas & crate::hir::marcas_do_rastro::ESCUTA != 0
+                    && let Some(t) = builder.this_param.clone()
+                {
+                    builder.rastro.pilha = Some((1, t));
+                }
                 // RTI: a função genérica recebe a tupla dos argumentos de
                 // tipo no último parâmetro (`M<i>` das receitas).
                 if builder.funcao_generica(f_idx) {

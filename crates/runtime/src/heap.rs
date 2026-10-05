@@ -1085,15 +1085,18 @@ fn visitar_quadros_por_mapas(mut f: impl FnMut(i64)) {
 fn visitar_quadros_por_mapas(_f: impl FnMut(i64)) {}
 
 /// Os endereços de retorno da pilha desta thread, de dentro para fora, com o
-/// começo da função de cada um (0 quando o desenrolador não o dá), até
-/// `maximo` quadros: o rastro simbólico (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
-/// §13.14) os guarda no `throw` e só os simboliza quando o texto é pedido.
+/// começo da função de cada um (0 quando o desenrolador não o dá) e o topo
+/// da pilha do quadro em que o endereço está (o ponteiro de pilha dele na
+/// chamada; 0 quando não se sabe), até `maximo` quadros: o rastro simbólico
+/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14) os guarda no `throw` e
+/// só os simboliza quando o texto é pedido; o topo casa o quadro com a pilha
+/// do rastro (a cadeia de quem espera).
 /// O mesmo percurso de [`visitar_quadros_por_mapas`], sem ler raízes: não
 /// depende dos mapas, e vale nos dois modos de raízes.
 #[cfg(all(windows, target_arch = "x86_64"))]
 #[allow(unsafe_code)]
 #[inline(never)]
-pub fn enderecos_de_retorno(maximo: usize) -> Vec<(u64, u64)> {
+pub fn enderecos_de_retorno(maximo: usize) -> Vec<(u64, u64, u64)> {
     /// O `CONTEXT` do x86-64 (veja `visitar_quadros_por_mapas`).
     #[repr(C, align(16))]
     struct ContextoDaCpu([u8; 1232]);
@@ -1138,7 +1141,7 @@ pub fn enderecos_de_retorno(maximo: usize) -> Vec<(u64, u64)> {
             let mut base_seguinte = 0u64;
             let seguinte = RtlLookupFunctionEntry(retorno, &mut base_seguinte, std::ptr::null_mut());
             let inicio = if seguinte.is_null() { 0 } else { base_seguinte + u64::from(seguinte.cast::<u32>().read_unaligned()) };
-            saida.push((retorno, inicio));
+            saida.push((retorno, inicio, sp));
             pc = retorno;
             base = base_seguinte;
             funcao = seguinte;
@@ -1153,18 +1156,21 @@ pub fn enderecos_de_retorno(maximo: usize) -> Vec<(u64, u64)> {
 #[cfg(all(unix, any(target_arch = "x86_64", target_arch = "aarch64")))]
 #[allow(unsafe_code)]
 #[inline(never)]
-pub fn enderecos_de_retorno(maximo: usize) -> Vec<(u64, u64)> {
+pub fn enderecos_de_retorno(maximo: usize) -> Vec<(u64, u64, u64)> {
     unsafe extern "C" {
         fn _Unwind_Backtrace(passo: unsafe extern "C" fn(*mut u8, *mut u8) -> i32, argumento: *mut u8) -> i32;
         fn _Unwind_GetIP(contexto: *mut u8) -> usize;
         fn _Unwind_GetRegionStart(contexto: *mut u8) -> usize;
+        fn _Unwind_GetCFA(contexto: *mut u8) -> usize;
     }
     /// `_URC_NO_REASON` (continua) e `_URC_NORMAL_STOP` (para).
     const CONTINUA: i32 = 0;
     const PARA: i32 = 4;
     struct Estado {
-        saida: Vec<(u64, u64)>,
+        saida: Vec<(u64, u64, u64)>,
         maximo: usize,
+        /// O CFA do quadro anterior (mais fundo): o topo da pilha deste.
+        cfa_anterior: u64,
     }
     unsafe extern "C" fn passo(contexto: *mut u8, argumento: *mut u8) -> i32 {
         // SAFETY: `argumento` é o `Estado` abaixo, vivo durante o percurso;
@@ -1175,11 +1181,12 @@ pub fn enderecos_de_retorno(maximo: usize) -> Vec<(u64, u64)> {
             if ip == 0 || e.saida.len() >= e.maximo {
                 return PARA;
             }
-            e.saida.push((ip, _Unwind_GetRegionStart(contexto) as u64));
+            e.saida.push((ip, _Unwind_GetRegionStart(contexto) as u64, e.cfa_anterior));
+            e.cfa_anterior = _Unwind_GetCFA(contexto) as u64;
             CONTINUA
         }
     }
-    let mut estado = Estado { saida: Vec::new(), maximo };
+    let mut estado = Estado { saida: Vec::new(), maximo, cfa_anterior: 0 };
     // SAFETY: o desenrolador percorre a pilha desta thread; `passo` só lê.
     unsafe {
         _Unwind_Backtrace(passo, std::ptr::addr_of_mut!(estado).cast::<u8>());
@@ -1188,7 +1195,7 @@ pub fn enderecos_de_retorno(maximo: usize) -> Vec<(u64, u64)> {
 }
 
 #[cfg(not(any(all(windows, target_arch = "x86_64"), all(unix, any(target_arch = "x86_64", target_arch = "aarch64")))))]
-pub fn enderecos_de_retorno(_maximo: usize) -> Vec<(u64, u64)> {
+pub fn enderecos_de_retorno(_maximo: usize) -> Vec<(u64, u64, u64)> {
     Vec::new()
 }
 

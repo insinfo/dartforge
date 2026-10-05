@@ -300,6 +300,16 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
+    /// O registro dos campos do `dart:async` que o rastro percorre (§13.14).
+    fn chamadas_de_registro_dos_campos_do_rastro(&self) -> String {
+        let mut s = String::new();
+        for (cid, nome, posicao) in &self.module.campos_do_rastro {
+            let idx = self.string_const_index(nome.as_bytes()).unwrap_or(0);
+            writeln!(s, "  call void @dartforge_registrar_campo_do_rastro(i64 {cid}, ptr @.str.{idx}, i64 {}, i64 {posicao})", nome.len()).unwrap();
+        }
+        s
+    }
+
     /// A chamada de registro da tabela do rastro da imagem (§13.14).
     fn chamada_de_registro_do_rastro(&self) -> Option<String> {
         self.rastro_vm.as_ref()?;
@@ -520,6 +530,9 @@ impl<'a> LlvmEmitter<'a> {
         }
         for class in &self.module.classes {
             Self::registrar_string(&mut self.string_constants, &mut self.indice_de_string, class.name.as_bytes());
+        }
+        for (_, nome, _) in &self.module.campos_do_rastro {
+            Self::registrar_string(&mut self.string_constants, &mut self.indice_de_string, nome.as_bytes());
         }
     }
 
@@ -756,6 +769,8 @@ impl<'a> LlvmEmitter<'a> {
         let compartilhada = !ligacao.is_empty();
         let inicio_da_funcao = self.out.len();
         let mut posicao_escrita: Option<(u32, u32)> = None;
+        // A posição de uma instrução copiada pelo inlining (só o rastro).
+        let mut embutida_escrita: Option<(u32, u32, u32)> = None;
         let atributos = if self.otimizar_tamanho { " optsize" } else { "" };
         // Exceções por tabelas: a decisão do passe para esta função. Só a
         // função com pouso nomeia a personalidade (é ela que lê a tabela dos
@@ -986,12 +1001,21 @@ impl<'a> LlvmEmitter<'a> {
 
             for (vid, inst, ty) in &block.instructions {
                 let v = vid.0;
-                // J05: a posição do comando, quando muda (`llvm/depuracao.rs`).
-                if let Some(p) = func.depuracao.as_ref().and_then(|d| d.posicoes.get(vid))
+                // J05: a posição do comando, quando muda (`llvm/depuracao.rs`);
+                // a de uma instrução copiada pelo inlining da HIR, com o
+                // contexto dela, vai num marcador só do rastro (§13.14).
+                if let Some(e) = func.depuracao.as_ref().and_then(|d| d.posicoes_embutidas.get(vid)) {
+                    if embutida_escrita != Some(*e) {
+                        writeln!(self.out, "{}{} {} {}", depuracao::MARCADOR_EMBUTIDO, e.0, e.1, e.2).unwrap();
+                        embutida_escrita = Some(*e);
+                        posicao_escrita = None;
+                    }
+                } else if let Some(p) = func.depuracao.as_ref().and_then(|d| d.posicoes.get(vid))
                     && posicao_escrita != Some(*p)
                 {
                     writeln!(self.out, "{}{} {}", depuracao::MARCADOR, p.0, p.1).unwrap();
                     posicao_escrita = Some(*p);
+                    embutida_escrita = None;
                 }
                 if !matches!(inst, Instruction::Phi { .. }) && !raizes_de_phi.is_empty() {
                     for (slot, pv) in std::mem::take(&mut raizes_de_phi) {
@@ -1654,6 +1678,7 @@ impl<'a> LlvmEmitter<'a> {
             {
                 writeln!(self.out, "{}{} {}", depuracao::MARCADOR, p.0, p.1).unwrap();
                 posicao_escrita = Some(*p);
+                embutida_escrita = None;
             }
             // Exceções por tabelas: o `Return` com a exceção pendente não
             // retorna — desenrola até o pouso de quem a trata (que restaura
@@ -2446,6 +2471,8 @@ impl<'a> LlvmEmitter<'a> {
         }
         if let Some(c) = self.chamada_de_registro_do_rastro() {
             self.out.push_str(&c);
+            let campos = self.chamadas_de_registro_dos_campos_do_rastro();
+            self.out.push_str(&campos);
         }
         // Registra grafo de subtipagem
         for (sub, sup) in &self.module.subtyping_edges {

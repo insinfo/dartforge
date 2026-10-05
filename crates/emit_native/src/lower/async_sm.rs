@@ -121,6 +121,8 @@ pub struct EstadoAsync {
     /// O próximo `Return` é cru (suspensão ou o fim do tratador do topo):
     /// não passa por `_asyncReturn`.
     pub retorno_cru: bool,
+    /// O rastro simbólico (§13.14): a posição de cada `await`, pelo estado.
+    pub esperas: Vec<(i64, (u32, u32))>,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
@@ -302,7 +304,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             retomadas: Vec::new(),
             suspensoes: Vec::new(),
             retorno_cru: false,
+            esperas: Vec::new(),
         }));
+        // O rastro simbólico (§13.14): o stub fica fora do rastro (a VM tem
+        // um quadro só para a função), e o corpo `async` retomado começa a
+        // cadeia de quem espera pelo quadro, que ele empurra na pilha do
+        // rastro.
+        if self.ctx.rastro {
+            self.rastro.marcas |= crate::hir::marcas_do_rastro::OCULTA;
+            b.rastro.token = self.rastro.token;
+            if tipo == TipoCorpo::Async {
+                b.rastro.marcas |= crate::hir::marcas_do_rastro::CORPO_ASYNC;
+                b.rastro.pilha = Some((0, quadro.clone()));
+            }
+        }
         let entrada = b.current_block;
         let inicio = b.new_block();
         b.set_block(inicio);
@@ -421,6 +436,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             (super::closures::hash_nome(&format!("{tamanho}|{:?}", b.func.blocks)) as u64) as u32
         );
         b.func.symbol = simbolo_corpo.clone();
+        if self.ctx.rastro && tipo == TipoCorpo::Async {
+            let n = est.retomadas.iter().map(|(k, _)| *k).max().unwrap_or(0).max(0) as usize;
+            let mut esperas = vec![(0u32, 0u32); n];
+            for (k, p) in &est.esperas {
+                if let Some(x) = usize::try_from(*k).ok().and_then(|k| k.checked_sub(1)).and_then(|i| esperas.get_mut(i)) {
+                    *x = *p;
+                }
+            }
+            b.rastro.corpo_async = Some(crate::hir::CorpoAsyncDoRastro { entrada: format!("{simbolo_corpo}$ent"), esperas });
+        }
         self.absorver(b);
 
         // --- entrada uniforme do corpo: ([iterador,] código, resultado) --
@@ -883,6 +908,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let est = self.async_estado.as_ref().expect("corpo async");
         let (quadro, corpo) = (est.quadro.clone(), est.corpo.clone());
         let k = est.retomadas.len() as i64 + 1;
+        // A posição do `await` (o `fileOffset` dele): a do quadro de quem
+        // espera aqui, no rastro.
+        let posicao = self.posicao.unwrap_or((0, 0));
+        if let Some(e) = self.async_estado.as_mut() {
+            e.esperas.push((k, posicao));
+        }
         self.gravar_posicao(quadro, Q_ESTADO, Operand::Constant(Constant::Int(k)));
         self.chamar_apoio("_asyncAwait", vec![v, corpo], span);
         let suspende = self.current_block;
