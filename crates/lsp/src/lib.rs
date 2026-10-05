@@ -34,6 +34,7 @@ mod contorno;
 mod correcoes;
 mod criar;
 mod dartdoc;
+mod destaques;
 mod descricao;
 mod indice;
 mod navegacao;

@@ -146,7 +146,14 @@ impl AnalisadorSemantico {
         let projeto = self.projeto(documentos, uri)?;
         let unidade = projeto.unidade_do_uri(uri)?;
         let d = projeto.identificar(unidade, offset).ok()??;
-        let declaracao = projeto.declaracao(&d);
+        if let crate::projeto::Alvo::Prefixo { biblioteca, nome } = d.alvo {
+            let (declaracao, usos) = projeto.referencias_de_prefixo(unidade, offset, biblioteca, nome)?;
+            let mut usos: Vec<(String, Span)> = usos.into_iter().filter_map(|(u, s)| Some((projeto.uri_da_unidade(u)?, s))).collect();
+            usos.sort_by(|a, b| (a.0.as_str(), a.1.start).cmp(&(b.0.as_str(), b.1.start)));
+            let declaracao = declaracao.and_then(|(u, s)| Some((projeto.uri_da_unidade(u)?, s)));
+            return Some(Referencias { declaracao, usos });
+        }
+        let declaracao = projeto.declaracao_para_referencias(&d);
         let declaracoes = projeto.declaracoes(&d.alvo);
         let mut usos: Vec<(String, Span)> = Vec::new();
         for (u, de, ate) in projeto.ocorrencias(&d.alvo, false).ok()? {

@@ -1027,10 +1027,12 @@ impl<A: Analisador> Servidor<A> {
                     let tabela = self.documentos.linhas(u)?;
                     let offset = tabela.offset_de_posicao(&texto, p.linha, p.coluna);
                     let achados = self.analisador.referencias_em(&self.documentos, u, offset)?;
+                    // A declaração vai no fim (`_getDeclarations`, §11.5).
                     let declaracao = achados.declaracao.filter(|_| incluir_declaracao);
-                    let locais: Vec<Value> = declaracao
+                    let locais: Vec<Value> = achados
+                        .usos
                         .iter()
-                        .chain(achados.usos.iter())
+                        .chain(declaracao.iter())
                         .filter_map(|(alvo, s)| {
                             Some(json!({"uri": alvo, "range": self.faixa(alvo, *s)?}))
                         })
@@ -1345,7 +1347,8 @@ impl<A: Analisador> Servidor<A> {
                 };
                 let destaques = self.analisador.destaques(&self.documentos, &u, offset).unwrap_or_default();
                 let itens: Vec<Value> = destaques.into_iter().filter_map(|s| Some(json!({"range": self.faixa(&u, s)?}))).collect();
-                resposta(&id, if itens.is_empty() { Value::Null } else { json!(itens) })
+                // O Dart responde `[]`, nunca `null` (§11.6).
+                resposta(&id, json!(itens))
             }
             "textDocument/implementation" => {
                 let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {

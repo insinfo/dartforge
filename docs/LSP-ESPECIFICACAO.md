@@ -2802,6 +2802,23 @@ restantes há diferença **dentro do projeto**:
 
 ### 11.8 Estado no DartForge
 
+**Estado em 2026-10-05 (escrito, não compilado), a parte E de 11.9.** `documentHighlight` é o
+visitante de 11.6 sobre a árvore no formato do analyzer (`crates/lsp/src/destaques.rs`: elemento
+canônico, sem família, grupos que cobrem o cursor, `[]` em vez de `null`). `references`: a
+declaração vai no fim e é a do `nonSynthetic` (classe em `A()`, getter de um setter declarado,
+variável de um acessor implícito); o prefixo em tipo é o `PrefixElement` e em expressão ou no
+`as p` é o `LibraryImportElement` do `getImportElement` (`p.` com o ponto, declaração vazia no
+`import`); construtores com `.nome` (com o ponto) e o sem nome com comprimento 0 (fim do tipo,
+`super`/`this`, constante de enum), a chamada implícita do super-construtor e a classe que só tem o
+sintético; o opcional posicional ganha o comprimento 0 dos argumentos que passam pelo
+`visitExpression`; o nomeado de método não traz as declarações dos homônimos, mas traz o `[nome]`
+do doc deles; a família de membro é a de 11.4 (`projeto.rs`, `familia`). `identificar`: o
+`returnType` do construtor declarado é o construtor, `@A(...)` é o construtor sem nome, o `x` de
+`x = e` é o campo, o rótulo `x:` é o parâmetro declarado (também de executável do SDK). O
+renomear de construtor segue 12.7 com as faixas novas (`renomear.rs`, `edicoes_de_construtor`).
+Faltam o índice por unidade (A), os arquivos candidatos com o SDK e os pacotes (B) e as buscas por
+`ChaveElem` (C).
+
 * **Não há índice de referências.** `crates/lsp/src/indice.rs` só indexa
   **nomes públicos de topo** para o completar e para "importar biblioteca"
   (`IndiceSdk`, `indice.rs:101`; `IndiceProjeto`, `indice.rs:169-172`).

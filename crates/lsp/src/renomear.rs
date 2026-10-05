@@ -699,24 +699,117 @@ pub(crate) fn renomear(
     }
     projeto.conflitos(&d.alvo, &antigo, novo)?;
     let mut edicoes = Vec::new();
-    for (u, inicio, fim) in projeto.ocorrencias(&d.alvo, true)? {
-        let Some(uri) = projeto.uri_da_unidade(u) else {
-            continue;
-        };
-        edicoes.push(Edicao {
-            uri,
-            span: Span {
-                start: inicio,
-                end: fim,
-            },
-            texto: novo.to_string(),
-        });
+    if let Alvo::Construtor(f) = d.alvo {
+        edicoes = projeto.edicoes_de_construtor(f, novo)?;
+    } else {
+        for (u, inicio, fim) in projeto.ocorrencias(&d.alvo, true)? {
+            let Some(uri) = projeto.uri_da_unidade(u) else {
+                continue;
+            };
+            edicoes.push(Edicao {
+                uri,
+                span: Span {
+                    start: inicio,
+                    end: fim,
+                },
+                texto: novo.to_string(),
+            });
+        }
     }
     // `ocorrencias` já vem ordenada por (unidade, início) e sem repetições.
     Ok(Renomeacao {
         edicoes,
         arquivo: projeto.arquivo_da_classe(&d.alvo, &antigo, novo),
     })
+}
+
+impl Projeto {
+    /// As edições de `RenameConstructorRefactoringImpl.fillChange` (§12.7):
+    /// cada referência (`.nome` ou comprimento 0) vira `.novo` (sem nome:
+    /// `.new` num tear-off, nada nos outros; a constante de enum sem
+    /// argumentos ganha `()`); a chamada implícita do super-construtor ganha
+    /// `super.novo()`; a declaração troca `.nome` (ou o vazio no fim do nome
+    /// da classe) por `.novo`.
+    pub(crate) fn edicoes_de_construtor(&self, f: dartforge_elements::model::FunctionElementId, novo: &str) -> Result<Vec<Edicao>, String> {
+        let p = self.programa();
+        let mut edicoes = Vec::new();
+        let declaracao = self.nome_da_funcao(f);
+        let ponto_novo = if novo.is_empty() { String::new() } else { format!(".{novo}") };
+        for (u, inicio, fim) in self.ocorrencias(&Alvo::Construtor(f), true)? {
+            let Some(uri) = self.uri_da_unidade(u) else { continue };
+            let unidade = p.unit(u);
+            let fonte = unidade.source.as_str();
+            let ast = &unidade.ast;
+            // A declaração.
+            if declaracao == Some((u, Span { start: inicio, end: fim })) {
+                let sem_nome = self.nome(p.function(f).name).is_empty();
+                let span = if sem_nome {
+                    Span { start: fim, end: fim }
+                } else {
+                    let antes = fonte[..inicio].trim_end();
+                    Span { start: if antes.ends_with('.') { antes.len() - 1 } else { inicio }, end: fim }
+                };
+                edicoes.push(Edicao { uri, span, texto: ponto_novo.clone() });
+                continue;
+            }
+            // A subclasse sem construtor declarado: o nome da classe.
+            let classe_sem_construtor = ast.decls.iter().find_map(|d| match &d.kind {
+                ast::DeclKind::Class(c) if c.name.span.start == inicio && c.name.span.end == fim => Some(d),
+                _ => None,
+            });
+            if let Some(d) = classe_sem_construtor {
+                let ast::DeclKind::Class(c) = &d.kind else { continue };
+                let chave = fonte[c.name.span.end..d.span.end].find('{').map(|k| c.name.span.end + k + 1);
+                if let Some(o) = chave {
+                    let nome = &fonte[c.name.span.start..c.name.span.end];
+                    let chamada = if novo.is_empty() { "super()".to_string() } else { format!("super.{novo}()") };
+                    edicoes.push(Edicao { uri, span: Span { start: o, end: o }, texto: format!("
+  {nome}() : {chamada};") });
+                }
+                continue;
+            }
+            // O construtor da subclasse sem `super(...)` explícito.
+            let implicito = ast.members.iter().find_map(|m| match &m.kind {
+                ast::MemberKind::Constructor(k) if k.class_name.span.start == inicio => Some(k),
+                _ => None,
+            });
+            if let Some(k) = implicito {
+                let chamada = if novo.is_empty() { "super()".to_string() } else { format!("super.{novo}()") };
+                let (o, texto) = match k.initializers.last() {
+                    Some(ultimo) => {
+                        let s = match ultimo {
+                            ast::Initializer::Field { span, .. }
+                            | ast::Initializer::Super { span, .. }
+                            | ast::Initializer::Redirect { span, .. }
+                            | ast::Initializer::Assert { span, .. } => *span,
+                        };
+                        (s.end, format!(", {chamada}"))
+                    }
+                    None => {
+                        let fim_dos_parametros = k.parameters.last().map_or(k.name.map_or(k.class_name.span.end, |n| n.span.end), |q| q.span.end);
+                        let fecha = fonte[fim_dos_parametros..].find(')').map_or(fim_dos_parametros, |x| fim_dos_parametros + x + 1);
+                        (fecha, format!(" : {chamada}"))
+                    }
+                };
+                edicoes.push(Edicao { uri, span: Span { start: o, end: o }, texto });
+                continue;
+            }
+            // As demais referências.
+            let tear_off = fonte[inicio..fim] == *".new" && !fonte[fim..].trim_start().starts_with('(');
+            let mut texto = if novo.is_empty() { if tear_off { ".new".to_string() } else { String::new() } } else { ponto_novo.clone() };
+            // A constante de enum sem argumentos.
+            let constante_sem_argumentos = inicio == fim
+                && ast.decls.iter().any(|d| match &d.kind {
+                    ast::DeclKind::Enum(e) => e.constants.iter().any(|c| c.name.span.end == inicio && c.arguments.is_none()),
+                    _ => false,
+                });
+            if constante_sem_argumentos {
+                texto.push_str("()");
+            }
+            edicoes.push(Edicao { uri, span: Span { start: inicio, end: fim }, texto });
+        }
+        Ok(edicoes)
+    }
 }
 
 #[cfg(test)]

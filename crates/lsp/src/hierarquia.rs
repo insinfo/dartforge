@@ -26,21 +26,10 @@ use dartforge_types::Type;
 use std::collections::BTreeSet;
 
 impl Projeto {
-    /// As ocorrências, em `unidade`, do que `offset` denota.
+    /// Os destaques de `offset` em `unidade` (`DartUnitOccurrencesComputer`,
+    /// `destaques.rs`): lista vazia quando nada cobre o cursor.
     pub(crate) fn destaques(&self, unidade: UnitId, offset: usize) -> Option<Vec<Span>> {
-        let d = self.identificar(unidade, offset).ok()??;
-        let ocorrencias = self.ocorrencias(&d.alvo, false).ok()?;
-        let mut spans: Vec<Span> = ocorrencias
-            .into_iter()
-            .filter(|(u, _, _)| *u == unidade)
-            .map(|(_, de, ate)| Span { start: de, end: ate })
-            .collect();
-        if !spans.iter().any(|s| s.start <= d.nome.start && d.nome.end <= s.end) {
-            spans.push(d.nome);
-        }
-        spans.sort_by_key(|s| s.start);
-        spans.dedup();
-        Some(spans)
+        Some(self.destaques_do_dart(unidade, offset))
     }
 
     /// As classes que têm `c` como supertipo (transitivo), com declaração.

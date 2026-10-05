@@ -642,6 +642,24 @@ impl Projeto {
         if let Some(d) = self.em_metadados(unidade, nome) {
             return Ok(Some(d));
         }
+        // `x = e` num inicializador de construtor: o campo.
+        for (mi, m) in ast.members.iter().enumerate() {
+            let MemberKind::Constructor(k) = &m.kind else { continue };
+            for ini in k.initializers.iter() {
+                if let ast::Initializer::Field { name, .. } = ini
+                    && name.span == nome
+                    && let Some(c) = self.construtor_do_no(unidade, ast::MemberId(mi as u32)).and_then(|f| self.programa().function(f).class)
+                    && let Some(v) = self.programa().class(c).fields.iter().copied().find(|v| self.programa().variable(*v).name == name.sym)
+                {
+                    return denotado(self.membro_de_variavel(v), None, Some(Concreto::Variavel(v)));
+                }
+            }
+        }
+        // O rótulo `x:` de um argumento nomeado: o parâmetro declarado (um
+        // `this.x` vira o campo), inclusive de executável do SDK.
+        if let Some(d) = self.em_rotulo_de_argumento(unidade, nome) {
+            return Ok(Some(d));
+        }
         // Referências de comentários de documentação.
         if let Some(d) = self.em_dartdoc(unidade, nome) {
             return Ok(Some(d));
@@ -853,17 +871,9 @@ impl Projeto {
                 MemberKind::Constructor(k) => {
                     let f = self.construtor_do_no(unidade, mid);
                     if k.class_name.span == nome {
-                        let classe = programa
-                            .library(u.library)
-                            .declared
-                            .get(&k.class_name.sym)
-                            .and_then(|b| b.getter);
-                        return match classe {
-                            Some(el @ Element::Class(_)) => {
-                                Some((Alvo::Topo(el), f.map(Concreto::Funcao)))
-                            }
-                            _ => None,
-                        };
+                        // `ElementLocator`: o `returnType` de uma declaração de
+                        // construtor denota o construtor (o sem nome também).
+                        return f.map(|f| (Alvo::Construtor(f), Some(Concreto::Funcao(f))));
                     }
                     if k.name.is_some_and(|n| n.span == nome) {
                         let f = f?;
@@ -898,6 +908,45 @@ impl Projeto {
         None
     }
 
+    /// O rótulo de argumento nomeado em `nome`: o parâmetro do executável
+    /// chamado.
+    fn em_rotulo_de_argumento(&self, unidade: UnitId, nome: Span) -> Option<Denotado> {
+        let p = self.programa();
+        let u = p.unit(unidade);
+        let ast = &u.ast;
+        let corpos = &self.consulta.corpos.units[unidade.0 as usize];
+        for (i, e) in ast.exprs.iter().enumerate() {
+            let (argumentos, alvo) = match &e.kind {
+                ExprKind::Call { target, arguments } => (&**arguments, Some(*target)),
+                ExprKind::InstanceCreation { arguments, .. } => (&**arguments, None),
+                _ => continue,
+            };
+            let Some(rotulo) = argumentos.args.iter().filter_map(|a| a.name).find(|n| n.span == nome) else { continue };
+            let chamada = [Some(ast::ExprId(i as u32)), alvo].into_iter().flatten().find_map(|x| match corpos.get_resolved(x) {
+                Some(Resolved::Constructor(f))
+                | Some(Resolved::Element(Element::Function(f)))
+                | Some(Resolved::Member { member: MemberRef::Function(f), .. })
+                | Some(Resolved::ExtensionMember { member: f, .. }) => Some(*f),
+                _ => None,
+            })?;
+            let fe = p.function(chamada);
+            let parametros: (UnitId, &[ast::Parameter]) = match fe.node {
+                FunctionRef::Function { unit, function } => (unit, p.unit(unit).ast.function(function).parameters.as_deref().unwrap_or(&[])),
+                FunctionRef::Constructor { unit, member } => match &p.unit(unit).ast.member(member).kind {
+                    MemberKind::Constructor(k) => (unit, &k.parameters[..]),
+                    _ => return None,
+                },
+                FunctionRef::None => return None,
+            };
+            let (pu, lista) = parametros;
+            let q = lista.iter().find(|q| q.kind == ast::ParameterKind::Named && q.name.is_some_and(|n| n.sym == rotulo.sym))?;
+            let decl = q.name?.span.start;
+            let (alvo, concreto) = self.local_ou_campo(pu, decl);
+            return Some(Denotado { alvo, nome, expr: None, concreto });
+        }
+        None
+    }
+
     /// Nome sob o cursor numa anotação de metadados.
     fn em_metadados(&self, unidade: UnitId, nome: Span) -> Option<Denotado> {
         let u = self.programa().unit(unidade);
@@ -906,7 +955,23 @@ impl Projeto {
                 continue;
             };
             let partes: Vec<SymbolId> = a.name.iter().map(|n| n.sym).collect();
-            let (alvo, concreto) = self.resolver_caminho(u.library, None, &partes[..=pos])?;
+            let (mut alvo, mut concreto) = self.resolver_caminho(u.library, None, &partes[..=pos])?;
+            // `@A(...)`: o nome da anotação, sem nome de construtor, denota o
+            // `annotation.element`, o construtor sem nome.
+            if a.name.len() == 1
+                && a.arguments.is_some()
+                && let Alvo::Topo(Element::Class(c)) = alvo
+                && let Some(f) = self
+                    .programa()
+                    .class(c)
+                    .constructors
+                    .iter()
+                    .find(|(s, _)| self.nome(**s).is_empty())
+                    .map(|(_, f)| *f)
+            {
+                alvo = Alvo::Construtor(f);
+                concreto = Some(Concreto::Funcao(f));
+            }
             return Some(Denotado {
                 alvo,
                 nome,
@@ -1330,6 +1395,48 @@ impl Projeto {
         }
     }
 
+    /// A declaração que `references` acrescenta (`_getDeclarations`, §11.5):
+    /// a do elemento do passo 6, pelo `nonSynthetic`. `A` de `A()` é a
+    /// classe; um setter declarado vira o getter homônimo (o campo
+    /// sintético dá `getter ?? setter`); um acessor implícito vira a
+    /// variável.
+    pub(crate) fn declaracao_para_referencias(&self, d: &Denotado) -> Option<(UnitId, Span)> {
+        let p = self.programa();
+        if let Alvo::Topo(Element::Class(c)) = &d.alvo {
+            return self.nome_do_elemento_de_topo(Element::Class(*c));
+        }
+        if let Some(Concreto::Funcao(f)) = d.concreto {
+            let fe = p.function(f);
+            match fe.kind {
+                FunctionKind::ImplicitAccessor => {
+                    if let Some(v) = fe.variable {
+                        return self.nome_da_variavel(v);
+                    }
+                }
+                FunctionKind::Setter => {
+                    let base = nome_base(self.nome(fe.name)).to_string();
+                    let getter = match (fe.class, fe.extension) {
+                        (Some(c), _) => p.class(c).instance_members.values().chain(p.class(c).static_members.values()).copied().find(|&g| {
+                            p.function(g).kind == FunctionKind::Getter && self.nome(p.function(g).name) == base
+                        }),
+                        (_, Some(x)) => p.extension(x).instance_members.values().chain(p.extension(x).static_members.values()).copied().find(|&g| {
+                            p.function(g).kind == FunctionKind::Getter && self.nome(p.function(g).name) == base
+                        }),
+                        _ => match self.consulta.nomes.lookup(&base).and_then(|s| p.lookup(fe.library, s)).and_then(|b| b.getter) {
+                            Some(Element::Function(g)) if p.function(g).kind == FunctionKind::Getter => Some(g),
+                            _ => None,
+                        },
+                    };
+                    if let Some(g) = getter {
+                        return self.nome_da_funcao(g);
+                    }
+                }
+                _ => {}
+            }
+        }
+        self.declaracao(d)
+    }
+
     /// Onde o alvo é declarado (a primeira declaração, na família).
     pub(crate) fn declaracao_do_alvo(&self, alvo: &Alvo) -> Option<(UnitId, Span)> {
         match alvo {
@@ -1504,7 +1611,10 @@ impl Projeto {
                         if let Some((a, _)) = self.resolver_referencia_doc(u, c.span, &r[..=i])
                             && self.mesmo_alvo(&a, alvo)
                         {
-                            por(u, r[i].0);
+                            // `[A.nome]`: do fim do prefixo ao fim (`.nome`).
+                            let s = r[i].0;
+                            let s = if matches!(alvo, Alvo::Construtor(_)) && i > 0 { Span { start: r[i - 1].0.end, end: s.end } } else { s };
+                            por(u, s);
                         }
                     }
                 }
@@ -1561,16 +1671,21 @@ impl Projeto {
     ) -> Result<Vec<(UnitId, Span)>, String> {
         let mut saida = Vec::new();
         let u = self.programa().unit(unidade);
-        let usos_de = |unidade: UnitId, declaracao: usize, saida: &mut Vec<(UnitId, Span)>| {
+        // `com_declaracao`: o nome declarado entra (no renomear, e no próprio
+        // elemento); nas referências, os parâmetros homônimos da hierarquia
+        // só dão os usos (§11.9 E5).
+        let usos_de = |unidade: UnitId, declaracao: usize, saida: &mut Vec<(UnitId, Span)>, com_declaracao: bool| {
             let u = self.programa().unit(unidade);
             let fim = palavra(&u.source, declaracao).map_or(declaracao, |s| s.end);
-            saida.push((
-                unidade,
-                Span {
-                    start: declaracao,
-                    end: fim,
-                },
-            ));
+            if com_declaracao {
+                saida.push((
+                    unidade,
+                    Span {
+                        start: declaracao,
+                        end: fim,
+                    },
+                ));
+            }
             let corpos = &self.consulta.corpos.units[unidade.0 as usize];
             for (e, d) in &corpos.declaracoes_de_locais {
                 if *d == declaracao
@@ -1580,10 +1695,33 @@ impl Projeto {
                 }
             }
         };
-        usos_de(unidade, declaracao, &mut saida);
+        usos_de(unidade, declaracao, &mut saida, true);
         let Some((p, dono)) = parametro_em(&u.ast, declaracao) else {
             return Ok(saida);
         };
+        // Opcional posicional: nas referências, o comprimento 0 no início de
+        // cada argumento passado que passa pelo `visitExpression` do índice
+        // (não um identificador simples nem uma `MethodInvocation`).
+        if p.kind == ast::ParameterKind::Optional && !recusar_externos {
+            let (funcao, posicionais): (Option<FunctionElementId>, Vec<usize>) = match dono {
+                DonoParametro::Funcao(fid) => (
+                    self.funcao_do_no(unidade, fid),
+                    u.ast.function(fid).parameters.iter().flatten().filter(|q| q.kind != ast::ParameterKind::Named).filter_map(|q| q.name.map(|n| n.span.start)).collect(),
+                ),
+                DonoParametro::Construtor(mid) => (
+                    self.construtor_do_no(unidade, mid),
+                    match &u.ast.member(mid).kind {
+                        MemberKind::Constructor(k) => k.parameters.iter().filter(|q| q.kind != ast::ParameterKind::Named).filter_map(|q| q.name.map(|n| n.span.start)).collect(),
+                        _ => Vec::new(),
+                    },
+                ),
+            };
+            if let (Some(f), Some(indice)) = (funcao, posicionais.iter().position(|&o| o == declaracao)) {
+                for (x, s) in self.argumentos_posicionais(f, indice) {
+                    saida.push((x, s));
+                }
+            }
+        }
         if p.kind != ast::ParameterKind::Named || p.public_name.is_some() {
             return Ok(saida);
         }
@@ -1630,13 +1768,85 @@ impl Projeto {
                         .bibliotecas
                         .contains(&self.programa().unit(unit).library)
                     {
-                        usos_de(unit, n.span.start, &mut saida);
+                        usos_de(unit, n.span.start, &mut saida, recusar_externos);
+                        // Nas referências, o `[nome]` do doc do membro
+                        // homônimo (a busca local tem o membro inteiro como
+                        // raiz).
+                        if !recusar_externos {
+                            saida.extend(self.docs_que_referem(&Alvo::Local { unidade: unit, declaracao: n.span.start }));
+                        }
                     }
                 }
             }
         }
         self.rotulos_de_argumento(&funcoes, Some(rotulo), &mut |u, s| saida.push((u, s)));
         Ok(saida)
+    }
+
+    /// Os `[ref]` de documentação que resolvem para `alvo`.
+    fn docs_que_referem(&self, alvo: &Alvo) -> Vec<(UnitId, Span)> {
+        let mut v = Vec::new();
+        for u in self.unidades() {
+            let fonte = &self.programa().unit(u).source;
+            if !fonte.contains('[') {
+                continue;
+            }
+            for c in dartdoc::comentarios(fonte) {
+                for r in &c.referencias {
+                    for i in 0..r.len() {
+                        if let Some((a, _)) = self.resolver_referencia_doc(u, c.span, &r[..=i])
+                            && &a == alvo
+                        {
+                            v.push((u, r[i].0));
+                        }
+                    }
+                }
+            }
+        }
+        v
+    }
+
+    /// O `i`-ésimo argumento posicional de cada chamada de `f`, quando ele
+    /// passa pelo `visitExpression` do índice: o intervalo vazio no começo.
+    fn argumentos_posicionais(&self, f: FunctionElementId, indice: usize) -> Vec<(UnitId, Span)> {
+        let mut v = Vec::new();
+        for u in self.unidades() {
+            let corpos = &self.consulta.corpos.units[u.0 as usize];
+            let ast = &self.programa().unit(u).ast;
+            for (i, e) in ast.exprs.iter().enumerate() {
+                let (argumentos, alvo) = match &e.kind {
+                    ExprKind::Call { target, arguments } => (&**arguments, Some(*target)),
+                    ExprKind::InstanceCreation { arguments, .. } => (&**arguments, None),
+                    _ => continue,
+                };
+                let chamada = [Some(ast::ExprId(i as u32)), alvo].into_iter().flatten().find_map(|x| match corpos.get_resolved(x) {
+                    Some(Resolved::Constructor(g))
+                    | Some(Resolved::Element(Element::Function(g)))
+                    | Some(Resolved::Member { member: MemberRef::Function(g), .. })
+                    | Some(Resolved::ExtensionMember { member: g, .. }) => Some(*g),
+                    _ => None,
+                });
+                if chamada != Some(f) {
+                    continue;
+                }
+                let Some(a) = argumentos.args.iter().filter(|a| a.name.is_none()).nth(indice) else { continue };
+                let x = ast.expr(a.value);
+                let sem_visit_expression = match &x.kind {
+                    ExprKind::Identifier(_) => true,
+                    // `MethodInvocation`: chamada com alvo identificador ou
+                    // propriedade que não é construtor.
+                    ExprKind::Call { target, .. } => {
+                        matches!(ast.expr(*target).kind, ExprKind::Identifier(_) | ExprKind::Property { .. })
+                            && !matches!(corpos.get_resolved(a.value), Some(Resolved::Constructor(_)))
+                    }
+                    _ => false,
+                };
+                if !sem_visit_expression {
+                    v.push((u, Span { start: x.span.start, end: x.span.start }));
+                }
+            }
+        }
+        v
     }
 
     /// Membro: as declarações da família, os usos resolvidos para ela e,
@@ -1736,6 +1946,11 @@ impl Projeto {
     /// `new A.nome()`), os tear-offs, os redirecionamentos (`this.nome()`,
     /// `super.nome()`, `= A.nome`), as constantes de enum e os metadados.
     fn ocorrencias_de_construtor(&self, f: FunctionElementId, por: &mut impl FnMut(UnitId, Span)) {
+        // As relações do índice (§11.1.2): o construtor nomeado é `.nome`
+        // (com o ponto; `A.new` dá `.new`); o sem nome tem comprimento 0 no
+        // fim do tipo, de `super`/`this`, do nome da constante de enum; a
+        // chamada implícita do super-construtor é o `A`/`A.nome` do
+        // construtor filho, ou o nome da classe que só tem o sintético.
         let p = self.programa();
         if let Some((u, s)) = self.nome_da_funcao(f) {
             por(u, s);
@@ -1744,32 +1959,42 @@ impl Projeto {
             return;
         };
         let simbolo = p.function(f).name;
+        let sem_nome = self.nome(simbolo).is_empty();
+        let vazio = |o: usize| Span { start: o, end: o };
         for u in self.unidades() {
             let unidade = p.unit(u);
             let ast = &unidade.ast;
+            let fonte = unidade.source.as_str();
+            let com_ponto = |s: Span| {
+                let antes = fonte[..s.start].trim_end();
+                if antes.ends_with('.') { Span { start: antes.len() - 1, end: s.end } } else { s }
+            };
             let corpos = &self.consulta.corpos.units[u.0 as usize];
             for (i, e) in ast.exprs.iter().enumerate() {
                 let id = ast::ExprId(i as u32);
                 let deste = matches!(corpos.get_resolved(id), Some(Resolved::Constructor(g)) if *g == f)
-                    || corpos.get_resolved(id).is_none()
+                    || corpos.get_resolved(id).is_none() && construtor_da_chamada(ast, corpos, id) == Some(f)
+                    || matches!(corpos.get_resolved(id), Some(Resolved::Element(Element::Class(c))) if *c == classe)
                         && construtor_da_chamada(ast, corpos, id) == Some(f);
                 if !deste {
                     continue;
                 }
                 match &e.kind {
-                    ExprKind::Property { name, .. } if name.sym == simbolo => por(u, name.span),
-                    ExprKind::InstanceCreation {
-                        constructor: Some(n),
-                        ..
-                    } if n.sym == simbolo => por(u, n.span),
+                    ExprKind::Property { name, .. } if name.sym == simbolo || (sem_nome && self.nome(name.sym) == "new") => por(u, com_ponto(name.span)),
+                    // `p.A()`: o tipo prefixado.
+                    ExprKind::Property { .. } if sem_nome => por(u, vazio(e.span.end)),
+                    ExprKind::Identifier(_) | ExprKind::TypeArguments { .. } if sem_nome => por(u, vazio(e.span.end)),
+                    ExprKind::InstanceCreation { constructor: Some(n), .. } if n.sym == simbolo || (sem_nome && self.nome(n.sym) == "new") => {
+                        por(u, com_ponto(n.span))
+                    }
                     // `new A.nome()`: o nome do construtor vem no tipo.
-                    ExprKind::InstanceCreation {
-                        constructor: None,
-                        ty,
-                        ..
-                    } => {
-                        if let Some(n) = self.construtor_no_tipo(u, *ty, classe, simbolo) {
-                            por(u, n);
+                    ExprKind::InstanceCreation { constructor: None, ty, .. } => {
+                        if sem_nome {
+                            if self.construtor_no_tipo(u, *ty, classe, simbolo).is_none() {
+                                por(u, vazio(ast.ty(*ty).span.end));
+                            }
+                        } else if let Some(n) = self.construtor_no_tipo(u, *ty, classe, simbolo) {
+                            por(u, com_ponto(n));
                         }
                     }
                     _ => {}
@@ -1780,66 +2005,96 @@ impl Projeto {
                     continue;
                 };
                 // A classe dona deste construtor, para `this.`/`super.`.
-                let dono = self
-                    .construtor_do_no(u, ast::MemberId(mi as u32))
-                    .and_then(|g| p.function(g).class);
+                let dono = self.construtor_do_no(u, ast::MemberId(mi as u32)).and_then(|g| p.function(g).class);
+                let mut chama_super = false;
                 for ini in k.initializers.iter() {
-                    let (alvo_classe, n) = match ini {
-                        ast::Initializer::Redirect {
-                            constructor: Some(n),
-                            ..
-                        } => (dono, n),
-                        ast::Initializer::Super {
-                            constructor: Some(n),
-                            ..
-                        } => (dono.and_then(|d| p.class(d).supertype_class), n),
+                    let (alvo_classe, nome, span, palavra) = match ini {
+                        ast::Initializer::Redirect { constructor, span, .. } => {
+                            chama_super = true;
+                            (dono, *constructor, *span, "this")
+                        }
+                        ast::Initializer::Super { constructor, span, .. } => {
+                            chama_super = true;
+                            (dono.and_then(|d| p.class(d).supertype_class), *constructor, *span, "super")
+                        }
                         _ => continue,
                     };
-                    if alvo_classe == Some(classe) && n.sym == simbolo {
-                        por(u, n.span);
+                    if alvo_classe != Some(classe) {
+                        continue;
+                    }
+                    match nome {
+                        Some(n) if n.sym == simbolo => por(u, com_ponto(n.span)),
+                        None if sem_nome => por(u, vazio(span.start + palavra.len())),
+                        _ => {}
                     }
                 }
                 if let Some(r) = &k.redirect {
+                    chama_super = true;
                     match r.constructor {
-                        Some(n)
-                            if n.sym == simbolo && self.classe_do_tipo(u, r.ty) == Some(classe) =>
-                        {
-                            por(u, n.span)
-                        }
+                        Some(n) if n.sym == simbolo && self.classe_do_tipo(u, r.ty) == Some(classe) => por(u, com_ponto(n.span)),
                         None => {
                             if let Some(n) = self.construtor_no_tipo(u, r.ty, classe, simbolo) {
-                                por(u, n);
+                                por(u, com_ponto(n));
+                            } else if sem_nome && self.classe_do_tipo(u, r.ty) == Some(classe) {
+                                por(u, vazio(ast.ty(r.ty).span.end));
                             }
                         }
                         _ => {}
                     }
                 }
+                // A chamada implícita do super-construtor sem nome.
+                if sem_nome
+                    && !chama_super
+                    && !k.factory
+                    && let Some(d) = dono
+                    && p.class(d).supertype_class == Some(classe)
+                {
+                    let fim = k.name.map_or(k.class_name.span.end, |n| n.span.end);
+                    por(u, Span { start: k.class_name.span.start, end: fim });
+                }
             }
-            // Constantes de enum `a.nome(...)`.
+            // A classe que só tem o construtor sintético chama o sem nome da
+            // superclasse: o nome dela.
+            if sem_nome {
+                for (ci, c) in p.classes.iter().enumerate() {
+                    let Some(dr) = c.decl else { continue };
+                    if dr.unit != u || c.supertype_class != Some(classe) {
+                        continue;
+                    }
+                    let DeclKind::Class(cd) = &ast.decl(dr.decl).kind else { continue };
+                    if cd.mixin_application {
+                        continue;
+                    }
+                    let so_sintetico = c.constructors.values().all(|g| p.function(*g).kind == FunctionKind::SyntheticConstructor);
+                    let _ = ci;
+                    if so_sintetico {
+                        por(u, cd.name.span);
+                    }
+                }
+            }
+            // Constantes de enum: `a.nome(...)` é `.nome`; sem seletor, o
+            // construtor sem nome no fim do nome.
             for d in &ast.decls {
                 if let DeclKind::Enum(e) = &d.kind {
-                    let eh_dono = p
-                        .class(classe)
-                        .decl
-                        .is_some_and(|dr| dr.unit == u && std::ptr::eq(ast.decl(dr.decl), d));
+                    let eh_dono = p.class(classe).decl.is_some_and(|dr| dr.unit == u && std::ptr::eq(ast.decl(dr.decl), d));
                     if !eh_dono {
                         continue;
                     }
                     for c in &e.constants {
-                        if let Some(n) = c.constructor
-                            && n.sym == simbolo
-                        {
-                            por(u, n.span);
+                        match c.constructor {
+                            Some(n) if n.sym == simbolo => por(u, com_ponto(n.span)),
+                            None if sem_nome => por(u, vazio(c.name.span.end)),
+                            _ => {}
                         }
                     }
                 }
             }
-            // Metadados `@A.nome(...)` e `@p.A.nome(...)`.
+            // Metadados `@A.nome(...)` e `@p.A.nome(...)`: o `nome` (sem o
+            // ponto, um `SimpleIdentifier`).
             for a in metadados(ast, &unidade.unit) {
                 let partes: Vec<SymbolId> = a.name.iter().map(|n| n.sym).collect();
                 if partes.len() >= 2
-                    && let Some((Alvo::Construtor(g), _)) =
-                        self.resolver_caminho(unidade.library, None, &partes)
+                    && let Some((Alvo::Construtor(g), _)) = self.resolver_caminho(unidade.library, None, &partes)
                     && g == f
                 {
                     por(u, a.name[a.name.len() - 1].span);
@@ -1888,6 +2143,149 @@ impl Projeto {
             Element::Class(c) => Some(c),
             _ => None,
         }
+    }
+
+    /// `references` num prefixo de import (§11.5): num tipo (`p.A`) é o
+    /// `PrefixElement` (cada `p` de expressões e tipos da biblioteca, sem o
+    /// `as p`; declaração = o nome no `as p`); numa expressão ou no `as p` é
+    /// o `LibraryImportElement` escolhido pelo `getImportElement` (cada `p.`
+    /// com o ponto dos usos de elementos do namespace dele; declaração =
+    /// `(início do import, 0)`). `None` sem import.
+    pub(crate) fn referencias_de_prefixo(
+        &self,
+        unidade: UnitId,
+        offset: usize,
+        lib: LibraryId,
+        nome: SymbolId,
+    ) -> Option<(Option<(UnitId, Span)>, Vec<(UnitId, Span)>)> {
+        let p = self.programa();
+        let u = p.unit(unidade);
+        let ast = &u.ast;
+        let em_tipo = ast.types.iter().any(|t| match &t.kind {
+            ast::TypeKind::Named { name, .. } => matches!(&name[..], [pr, _] if pr.span.start <= offset && offset <= pr.span.end),
+            _ => false,
+        });
+        if em_tipo {
+            let mut usos = Vec::new();
+            for &x in &p.library(lib).units {
+                let un = p.unit(x);
+                let corpos = &self.consulta.corpos.units[x.0 as usize];
+                for (i, e) in un.ast.exprs.iter().enumerate() {
+                    if let ExprKind::Identifier(n) = &e.kind
+                        && n.sym == nome
+                        && matches!(
+                            corpos.get_resolved(ast::ExprId(i as u32)),
+                            Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..)))
+                        )
+                    {
+                        usos.push((x, n.span));
+                    }
+                }
+                for t in &un.ast.types {
+                    if let ast::TypeKind::Named { name, .. } = &t.kind
+                        && let [pr, _] = &name[..]
+                        && pr.sym == nome
+                    {
+                        usos.push((x, pr.span));
+                    }
+                }
+            }
+            let declaracao = p.library(lib).imports.iter().find_map(|i| {
+                if i.prefix != Some(nome) {
+                    return None;
+                }
+                match &p.unit(i.unit).unit.directives.get(i.directive)?.kind {
+                    ast::DirectiveKind::Import { prefix: Some(n), .. } => Some((i.unit, n.span)),
+                    _ => None,
+                }
+            });
+            return Some((declaracao, usos));
+        }
+        // O import: o do `as p` sob o cursor, ou o `getImportElement` pelo
+        // elemento usado depois de `p.`.
+        let definidora = *p.library(lib).units.first()?;
+        let imports: Vec<&dartforge_elements::model::Import> =
+            p.library(lib).imports.iter().filter(|i| i.unit == definidora && i.prefix == Some(nome)).collect();
+        let no_as = imports.iter().position(|i| match p.unit(i.unit).unit.directives.get(i.directive).map(|d| &d.kind) {
+            Some(ast::DirectiveKind::Import { prefix: Some(n), .. }) => i.unit == unidade && n.span.start <= offset && offset <= n.span.end,
+            _ => false,
+        });
+        let escolhido = match no_as {
+            Some(k) => Some(k),
+            None => {
+                let corpos = &self.consulta.corpos.units[unidade.0 as usize];
+                let usado = ast.exprs.iter().enumerate().find_map(|(i, e)| match &e.kind {
+                    ExprKind::Property { target, name, .. } => match &ast.expr(*target).kind {
+                        ExprKind::Identifier(pn) if pn.sym == nome && pn.span.start <= offset && offset <= pn.span.end => {
+                            let id = ast::ExprId(i as u32);
+                            let r = corpos.get_resolved(id).cloned().or_else(|| construtor_da_chamada(ast, corpos, id).map(Resolved::Constructor));
+                            Some((r, name.sym))
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                });
+                let (resolvido, nome_usado) = usado?;
+                let elemento = match resolvido {
+                    Some(Resolved::Element(el)) => el,
+                    Some(Resolved::Constructor(f)) => Element::Class(p.function(f).class?),
+                    _ => return None,
+                };
+                let lib_do_elemento = self.biblioteca_do_elemento(elemento);
+                let candidatos: Vec<usize> = (0..imports.len()).filter(|&k| imports[k].library == lib_do_elemento).collect();
+                if let Some(&k) = candidatos.iter().find(|&&k| imports[k].combinators.is_empty()) {
+                    Some(k)
+                } else if candidatos.len() == 1 {
+                    Some(candidatos[0])
+                } else {
+                    candidatos
+                        .into_iter()
+                        .find(|&k| p.library(imports[k].library).exported.get(&nome_usado).and_then(|b| b.getter.or(b.setter)) == Some(elemento))
+                }
+            }
+        };
+        let imp = imports.get(escolhido?)?;
+        let diretiva = p.unit(imp.unit).unit.directives.get(imp.directive)?;
+        let declaracao = Some((imp.unit, Span { start: diretiva.span.start, end: diretiva.span.start }));
+        // Os usos `p.` de elementos do namespace deste import.
+        let namespace = &p.library(imp.library).exported;
+        let visivel = |s: SymbolId| {
+            namespace.contains_key(&s)
+                && imp.combinators.iter().all(|c| match c {
+                    ast::Combinator::Show(ns) => ns.iter().any(|n| n.sym == s),
+                    ast::Combinator::Hide(ns) => !ns.iter().any(|n| n.sym == s),
+                })
+        };
+        let mut usos = Vec::new();
+        for &x in &p.library(lib).units {
+            let un = p.unit(x);
+            let fx = un.source.as_str();
+            let ate_o_proximo = |pr: Span| {
+                let depois_do_ponto = fx[pr.end..].find('.').map_or(pr.end, |k| pr.end + k + 1);
+                let espacos = fx[depois_do_ponto..].len() - fx[depois_do_ponto..].trim_start().len();
+                Span { start: pr.start, end: depois_do_ponto + espacos }
+            };
+            for e in un.ast.exprs.iter() {
+                if let ExprKind::Property { target, name, .. } = &e.kind
+                    && let ExprKind::Identifier(pn) = &un.ast.expr(*target).kind
+                    && pn.sym == nome
+                    && eh_prefixo(p, lib, nome)
+                    && visivel(name.sym)
+                {
+                    usos.push((x, ate_o_proximo(pn.span)));
+                }
+            }
+            for t in &un.ast.types {
+                if let ast::TypeKind::Named { name, .. } = &t.kind
+                    && let [pr, n] = &name[..]
+                    && pr.sym == nome
+                    && visivel(n.sym)
+                {
+                    usos.push((x, ate_o_proximo(pr.span)));
+                }
+            }
+        }
+        Some((declaracao, usos))
     }
 
     /// Prefixo de import: o `as p` de cada import da biblioteca e cada `p.`
