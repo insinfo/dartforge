@@ -651,6 +651,150 @@ fn avaliar(l: &Leitor<'_>, lib: LibraryId, id: ClassId) -> Option<Resultado> {
     Some(Resultado { porta, relatos })
 }
 
+/// O construtor sem nome que uma classe oferece a uma subclasse:
+/// `Ok(f)` declarado, `Err(())` o sintético sem parâmetros (também o de
+/// uma abstrata, que o modelo não cria); numa aplicação de mixin, o gerador
+/// repassado da base.
+fn sem_nome_da_superclasse(l: &Leitor<'_>, s: ClassId) -> Option<Result<dartforge_elements::model::FunctionElementId, ()>> {
+    let vazio = l.nomes.lookup("");
+    let mut atual = s;
+    let mut repassado = false;
+    for _ in 0..16 {
+        let ce = l.programa.class(atual);
+        if ce.kind == ClassKind::MixinApplication {
+            atual = ce.supertype_class?;
+            repassado = true;
+            continue;
+        }
+        if let Some(&f) = vazio.and_then(|v| ce.constructors.get(&v)) {
+            let fe = l.programa.function(f);
+            if repassado && fe.factory {
+                return None;
+            }
+            if matches!(fe.node, dartforge_elements::model::FunctionRef::None) {
+                return Some(Err(()));
+            }
+            return Some(Ok(f));
+        }
+        return (ce.constructors.is_empty() && ce.kind == ClassKind::Class).then_some(Err(()));
+    }
+    None
+}
+
+/// `_checkForNoDefaultSuperConstructorImplicit`
+/// (`an611:src/generated/error_verifier.dart:4634-4678`): classe sem
+/// construtor declarado cujo `extends` é uma classe com o sem nome factory
+/// (`non_generative_implicit_constructor`) ou sem um sem nome que dispense
+/// argumentos (`no_default_super_constructor`, calado para as classes que
+/// não se estendem). No nome da classe. Fica de fora o `extends` que não
+/// resolve aqui (o supertipo seria `Object`, e a porta já está incerta).
+fn super_implicito_da_classe(
+    l: &Leitor<'_>,
+    u: UnitId,
+    ast_: &ast::Ast,
+    nome: SymbolId,
+    nome_span: dartforge_diagnostics::Span,
+    t: ast::TypeId,
+    params: &[SymbolId],
+) -> Option<Diagnostic> {
+    let Alvo::Classe(s) = l.alvo(u, ast_, t, 0) else { return None };
+    let se = l.programa.class(s);
+    if !matches!(se.kind, ClassKind::Class | ClassKind::MixinApplication) || l.anulavel(u, ast_, t, 0) {
+        return None;
+    }
+    if l.programa.library(se.library).uri == "dart:core" && matches!(l.nome(se.name), "Function" | "Null") {
+        return None;
+    }
+    let classe = l.nome(nome).to_string();
+    match sem_nome_da_superclasse(l, s) {
+        Some(Ok(f)) if l.programa.function(f).factory => {
+            let super_nome = l.nome(se.name).to_string();
+            let exibido = exibir_construtor_sem_nome(l, s, f);
+            return Some(Diagnostic::com_codigo(
+                c::NON_GENERATIVE_IMPLICIT_CONSTRUCTOR,
+                nome_span,
+                [super_nome.as_str(), classe.as_str(), exibido.as_str()],
+            ));
+        }
+        // `isDefaultConstructor`: nenhum parâmetro obrigatório.
+        Some(Err(())) => return None,
+        Some(Ok(f)) => {
+            let dartforge_elements::model::FunctionRef::Constructor { unit, member } = l.programa.function(f).node else { return None };
+            let ast::MemberKind::Constructor(k) = &l.programa.unit(unit).ast.member(member).kind else { return None };
+            if !k.parameters.iter().any(|p| p.kind == ast::ParameterKind::Required || (p.kind == ast::ParameterKind::Named && p.required)) {
+                return None;
+            }
+        }
+        None => {}
+    }
+    if l.proibida(s) {
+        return None;
+    }
+    let exibido = l.exibir(u, ast_, t, params)?;
+    Some(Diagnostic::com_codigo(c::NO_DEFAULT_SUPER_CONSTRUCTOR_IMPLICIT, nome_span, [exibido.as_str(), classe.as_str()]))
+}
+
+/// `ConstructorElement.getDisplayString()` do sem nome `f` de `s` (só vai à
+/// correção de `non_generative_implicit_constructor`): `A A(int x)`, com os
+/// tipos como escritos.
+fn exibir_construtor_sem_nome(l: &Leitor<'_>, s: ClassId, f: dartforge_elements::model::FunctionElementId) -> String {
+    let se = l.programa.class(s);
+    let params_de_s: Vec<SymbolId> = se.type_params.iter().map(|p| p.name).collect();
+    let mut texto = l.nome(se.name).to_string();
+    if !params_de_s.is_empty() {
+        let nomes: Vec<&str> = params_de_s.iter().map(|&p| l.nome(p)).collect();
+        texto = format!("{texto}<{}>", nomes.join(", "));
+    }
+    let mut s_ = format!("{texto} {}(", l.nome(se.name));
+    if let dartforge_elements::model::FunctionRef::Constructor { unit, member } = l.programa.function(f).node
+        && let ast::MemberKind::Constructor(k) = &l.programa.unit(unit).ast.member(member).kind
+    {
+        let ast_k = &l.programa.unit(unit).ast;
+        let fonte = &l.programa.unit(unit).source;
+        let mut ultimo: Option<ast::ParameterKind> = None;
+        let mut fecho = "";
+        for (i, p) in k.parameters.iter().enumerate() {
+            if i != 0 {
+                s_.push_str(", ");
+            }
+            if ultimo != Some(p.kind) {
+                s_.push_str(fecho);
+                let (abre, fecha) = match p.kind {
+                    ast::ParameterKind::Required => ("", ""),
+                    ast::ParameterKind::Optional => ("[", "]"),
+                    ast::ParameterKind::Named => ("{", "}"),
+                };
+                s_.push_str(abre);
+                fecho = fecha;
+                ultimo = Some(p.kind);
+            }
+            if p.kind == ast::ParameterKind::Named && p.required {
+                s_.push_str("required ");
+            }
+            let tipo = match p.ty {
+                Some(ty) => l.exibir(unit, ast_k, ty, &params_de_s).unwrap_or_else(|| {
+                    let sp = ast_k.ty(ty).span;
+                    fonte[sp.start..sp.end].to_string()
+                }),
+                None => "dynamic".to_string(),
+            };
+            s_.push_str(&tipo);
+            s_.push(' ');
+            if let Some(n) = p.nome_externo() {
+                s_.push_str(l.nome(n.sym));
+            }
+            if let Some(d) = p.default_value {
+                let sp = ast_k.expr(d).span;
+                s_.push_str(" = ");
+                s_.push_str(&fonte[sp.start..sp.end]);
+            }
+        }
+        s_.push_str(fecho);
+    }
+    s_.push(')');
+    s_
+}
+
 /// `_checkForImplementsClauseErrorCodes`.
 #[allow(clippy::too_many_arguments)]
 fn implements(
@@ -1507,6 +1651,16 @@ pub fn verificar(
         // `_checkClassInheritance`, depois da porta: `implements` repetido,
         // e a superclasse de novo em `implements` ou `with`.
         repetidos(&l, u, ast_, cl.implements, c::IMPLEMENTS_REPEATED, &mut saida);
+        // `_checkForNoDefaultSuperConstructorImplicit`, com a porta aberta.
+        if classe.kind == ClassKind::Class
+            && let DeclKind::Class(x) = &ast_.decl(decl.decl).kind
+            && !x.mixin_application
+            && !x.members.iter().any(|&m| matches!(ast_.member(m).kind, ast::MemberKind::Constructor(_)))
+            && let Some(t) = cl.extends
+            && let Some(d) = super_implicito_da_classe(&l, u, ast_, classe.name, x.name.span, t, &cl.params)
+        {
+            saida.push((decl.unit, d));
+        }
         let superclasse = match (classe.kind, cl.extends) {
             (ClassKind::Enum, _) => l.do_core("Enum"),
             (_, None) => l.do_core("Object"),

@@ -6092,6 +6092,44 @@ Fonte: `E:\references\dart-sdk-3.6.2\pkg` (citado como `analyzer/lib/...:linha`,
 `_fe_analyzer_shared/lib/...:linha`). Amostras: `placar-base-r3.txt`. "SN" = arquivo listado em
 `corpus/diagnosticos/sintaxe-nova.json` (oráculo **3.13.4**, não 3.6.2).
 
+**Estado em 2026-10-05 (escrito, não compilado).** Em `crates/types/src/inferencia/funcoes.rs`:
+- `alvo_de_factory_redirecionadora` foi reescrita sobre `resolver_alvo_escrito`, que resolve o nome do
+  alvo no escopo do construtor como o `NamedTypeResolver` (parâmetros, parâmetros de tipo da classe,
+  membros, unidade; `shouldIgnoreUndefinedNamedType`). Saem `redirect_to_non_class`,
+  `redirect_to_type_alias_expands_to_type_parameter` e `prefix_shadowed_by_local_declaration`. Depois,
+  na ordem do `visitConstructorDeclaration`, saem `redirect_to_non_const_constructor`,
+  `redirect_to_abstract_class_constructor` (com o sintético da abstrata, achado 2),
+  `invalid_reference_to_generative_enum_constructor` e `recursive_factory_redirect`
+  (`redireciona_em_ciclo`, o `_hasRedirectingFactoryConstructorCycle`). Sem ciclo seguem
+  `redirect_to_missing_constructor` (também para enum, parâmetro de tipo, `Never` e alias de função),
+  `redirect_to_invalid_return_type` e `redirect_to_invalid_function_type`. Os testes de tipo valem quando o
+  alvo não tem parâmetros de tipo (`_inferRedirectedConstructor` não foi portado).
+- `this(...)`: `redirect_generative_to_missing_constructor`,
+  `redirect_generative_to_non_generative_constructor`, `redirect_to_non_const_constructor` (no nome ou no
+  `this`) e `recursive_constructor_redirect`.
+- `super(...)`: o supertipo é o do analyzer (`supertipo_do_analyzer`: o `extends` de classe ou `Object`).
+  Saem `undefined_constructor_in_initializer(_default)` (com acessibilidade) e `non_generative_constructor`
+  (`exibir_construtor` porta o `getDisplayString` do elemento).
+- `super_implicito` cobre o `_checkForUndefinedConstructorInInitializerImplicit`: `_default`,
+  `non_generative_constructor`, `implicit_super_initializer_missing_arguments` e, abaixo de 2.17,
+  `no_default_super_constructor` explícito.
+- `parametros_super` usa o `superConstructor` do `SuperConstructorResolver` e emite
+  `super_formal_parameter_without_associated_*` e `super_formal_parameter_type_is_not_subtype_of_associated`.
+- Constantes de enum: `enum_constant_invokes_factory_constructor` e `undefined_enum_constructor_*`.
+
+Fora de funcoes.rs:
+- `expr.rs::tearoff_de_construtor` emite `tearoff_of_generative_constructor_of_abstract_class` e passa a
+  aceitar o sintético da abstrata.
+- `analise/src/clausulas.rs::super_implicito_da_classe`, com a porta aberta, emite
+  `non_generative_implicit_constructor` e `no_default_super_constructor`.
+- `analise/src/membros.rs` emite `default_value_in_redirecting_factory_constructor`, a cópia do parser de
+  `field_initializer_outside_constructor` e `invalid_super_formal_parameter_location`. No tipo de extensão o
+  código é `extension_type_constructor_with_super_formal_parameter`, também em métodos e aninhados.
+
+Desvio aceito: a busca do `super(...)` explícito em enum fica de fora, porque o supertipo `Enum` não é
+modelado. Os `super.x` de enum saem todos sem associado, como no `SuperConstructorResolver`, que só
+percorre classes.
+
 #### Achados transversais (valem para vários códigos)
 
 1. **Nenhum dos códigos de redirecionamento é emitido hoje** (`redirect_*`, `non_generative_*`,

@@ -1837,6 +1837,31 @@ fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
         inf.aviso(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template.to_string(), ast(inf, cx).expr(e).span);
         return inf.core.dynamic_;
     }
+    // `ConstructorReferenceResolver.resolve`
+    // (`an611:src/dart/resolver/constructor_reference_resolver.dart:31-41`):
+    // gerador (também o sintético sem nome, que o modelo não cria) de classe
+    // abstrata, no `ConstructorReference` inteiro.
+    let abstrata = {
+        let ce = inf.program.class(c);
+        matches!(ce.kind, dartforge_elements::model::ClassKind::Class | dartforge_elements::model::ClassKind::MixinApplication) && ce.modifiers.abstract_
+    };
+    let sintetico = construtor.is_none() && !primario && Some(chave) == inf.sym.vazio && super::funcoes::sem_nome_implicito(inf, c);
+    if abstrata && (sintetico || construtor.is_some_and(|f| !inf.program.function(f).factory)) {
+        let sp = ast(inf, cx).expr(e).span;
+        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::TEAROFF_OF_GENERATIVE_CONSTRUCTOR_OF_ABSTRACT_CLASS, sp, &[]);
+    }
+    if sintetico {
+        let ret = inf.tipo_this_classe(c);
+        let sig = inf.table.intern(Type::Function {
+            type_params: Box::new([]),
+            ret,
+            positional: Box::new([]),
+            optional: Box::new([]),
+            named: Box::new([]),
+            nullable: false,
+        });
+        return tearoff_com_argumentos(inf, c, sig, args);
+    }
     let Some(f) = construtor else {
         if primario {
             let sig = inf.assinatura_primario(c);

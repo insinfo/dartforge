@@ -4,7 +4,7 @@
 //! metadados.
 
 use super::corpo::{Corpo, CtxFuncao, Local};
-use super::expr::{self, declarar_local, inferir, inferir_livre, RefNome};
+use super::expr::{self, declarar_local, inferir, inferir_livre};
 use super::instrucoes;
 use super::BodyInferrer;
 use crate::codes::*;
@@ -114,7 +114,25 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             let estatico_salvo = cx.estatico;
             cx.estatico = true;
             for init in ctor.initializers.iter() {
-                inicializador(inf, &mut cx, fe.class, init, &ctor.parameters, fe.const_);
+                inicializador(inf, &mut cx, fe.class, init, &ctor.parameters, fe.const_, f);
+            }
+            // `_checkForRecursiveConstructorRedirect` (`error_verifier.dart:5047-5066`):
+            // no primeiro `this(...)` de um construtor gerador em ciclo.
+            if !fe.factory
+                && let Some(sp) = ctor.initializers.iter().find_map(|i| match i {
+                    ast::Initializer::Redirect { span, .. } => Some(*span),
+                    _ => None,
+                })
+                && redireciona_em_ciclo(inf, f)
+            {
+                inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::RECURSIVE_CONSTRUCTOR_REDIRECT, sp, &[]);
+            }
+            if let Some(red) = &ctor.redirect {
+                alvo_de_factory_redirecionadora(inf, &mut cx, red, f, ctor);
+            }
+            if let Some(c) = fe.class {
+                super_implicito(inf, c, ctor);
+                parametros_super(inf, c, ctor, &tipos);
             }
             // `_checkForValidField` (`error_verifier.dart:5702-5760`): o tipo
             // escrito de `this.x` contra o do campo (subtipo, não atribuível).
@@ -143,9 +161,6 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             }
             cx.tipo_this = this_salvo;
             cx.estatico = estatico_salvo;
-            if let Some(red) = &ctor.redirect {
-                alvo_de_factory_redirecionadora(inf, &mut cx, red, fe.class);
-            }
             cx.tirar_escopo();
             // Escopo do corpo: parâmetros sem `this.`/`super.`.
             cx.empurrar_escopo();
@@ -176,7 +191,7 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
 }
 
 /// Um inicializador de construtor.
-fn inicializador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, classe: Option<ClassId>, init: &ast::Initializer, params: &[ast::Parameter], construtor_const: bool) {
+fn inicializador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, classe: Option<ClassId>, init: &ast::Initializer, params: &[ast::Parameter], construtor_const: bool, atual: FunctionElementId) {
     let u = inf.core.unknown;
     match init {
         ast::Initializer::Field { name, value, .. } => {
@@ -200,14 +215,10 @@ fn inicializador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, classe: Option<Clas
             }
         }
         ast::Initializer::Super { span, constructor, arguments } => {
-            let alvo = classe.and_then(|c| {
-                let sup = inf.outline.classes[c.0 as usize].supertype?;
-                let Type::Interface { class: sc, args, .. } = inf.table.get(sup).clone() else { return None };
-                Some((sc, args))
-            });
-            chamar_construtor_de(inf, cx, alvo, *constructor, arguments, params, *span);
+            inicializador_super(inf, cx, classe, *span, *constructor, arguments, params);
         }
         ast::Initializer::Redirect { span, constructor, arguments } => {
+            inicializador_redirecionador(inf, classe, *span, *constructor, atual);
             let alvo = classe.map(|c| {
                 let ps = inf.outline.classes[c.0 as usize].type_params.clone();
                 let args: Vec<TypeId> = ps.iter().map(|&p| inf.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
@@ -224,120 +235,870 @@ fn inicializador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, classe: Option<Clas
     }
 }
 
-/// `factory E() = E.named;`: o alvo não pode ser um construtor gerador
-/// de enum — só factories (ou valores) podem ser referenciados assim.
-/// `: this(...)` é outro caminho ([`inicializador`]) e continua legal, e
-/// nome indefinido (`= E.inexistente`) é de outro código
-/// (`const_with_undefined_constructor`) e segue mudo.
-///
-/// O ponto do alvo vem dentro do tipo (`E.named` é um nome de duas
-/// partes; `constructor` só aparece com argumentos de tipo, em
-/// `= E<T>.nome`), então a resolução é sintática — sem inferir nada, sem
-/// recursão.
-fn alvo_de_factory_redirecionadora(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, red: &ast::RedirectTarget, dona: Option<ClassId>) {
-    let (partes, escrito): (Vec<dartforge_intern::SymbolId>, Option<ast::Name>) = {
-        let nodo = inf.program.unit(cx.unit).ast.ty(red.ty);
-        let ast::TypeKind::Named { name, .. } = &nodo.kind else { return };
-        (name.iter().map(|n| n.sym).collect(), red.constructor)
-    };
-    // (classe alvo, nome do construtor; `None` = sem nome)
-    let Some((alvo, ctor)): Option<(ClassId, Option<dartforge_intern::SymbolId>)> = (|| {
-        match partes.as_slice() {
-            [a] => Some((resolver_classe_alvo(inf, cx, *a)?, escrito.map(|n| n.sym))),
-            [a, b] if inf.program.prefixos_na_unidade(cx.unit).contains_key(a) => {
-                let el = inf.program.lookup_prefixed_na_unidade(cx.unit, *a, *b)?.getter?;
-                Some((classe_de_elemento(inf, el)?, escrito.map(|n| n.sym)))
-            }
-            [a, b] => {
-                if escrito.is_some() {
-                    return None;
-                }
-                Some((resolver_classe_alvo(inf, cx, *a)?, Some(*b)))
-            }
-            _ => None,
+/// O que o nome do tipo de um alvo de redirecionamento (`= X`, `= p.X`,
+/// `= X.n`, `= X<T>.n`) designa, como o `NamedTypeResolver` o resolve com
+/// `redirectedConstructor_namedType`
+/// (`an611:src/dart/resolver/named_type_resolver.dart:84-133`, `:230-312`).
+enum TipoDoAlvo {
+    /// Classe, enum, tipo de extensão ou alias que expande a um deles.
+    Classe(ClassId),
+    /// Um tipo sem construtores (parâmetro de tipo, `Never`, alias de tipo de
+    /// função): o `staticElement` fica nulo e o tipo é o do `{1}` de
+    /// `redirect_to_missing_constructor`.
+    SemConstrutores(TypeId),
+    /// `dynamic` (ou alias dele): nada a relatar.
+    Dinamico,
+    /// Alias que expande a um parâmetro de tipo (`_verifyTypeAliasForContext`).
+    AliasDeParametro,
+    /// `reportNullOrNonTypeElement`: `redirect_to_non_class` com o nome.
+    NaoClasse(dartforge_intern::SymbolId),
+    /// `p.X` com `p` que não é prefixo nem tipo.
+    PrefixoSombreado,
+    /// Indefinido mas calado (`shouldIgnoreUndefinedNamedType`) ou sintaxe
+    /// que não chega a ser alvo.
+    Nada,
+}
+
+/// O alvo escrito de uma factory redirecionadora, já resolvido.
+struct AlvoEscrito {
+    tipo: TipoDoAlvo,
+    /// O nome do construtor (`None` = sem nome; `new` já vira sem nome).
+    construtor: Option<dartforge_intern::SymbolId>,
+    /// `NamedType.qualifiedName` com o `.nome` do construtor, como escrito
+    /// (o `{0}` de `redirect_to_missing_constructor`).
+    nome_citado: String,
+    /// `_getErrorRange`: do prefixo ao nome do tipo, sem argumentos de tipo.
+    faixa_do_tipo: dartforge_diagnostics::Span,
+    /// O token do prefixo (para `prefix_shadowed_by_local_declaration`).
+    prefixo: Option<ast::Name>,
+}
+
+/// O nome `nome` no escopo do construtor de `classe` (os parâmetros dele, os
+/// parâmetros de tipo da classe, os membros dela e o escopo da unidade), como
+/// o `nameScope` do `ResolutionVisitor.visitConstructorDeclaration`
+/// (`an611:src/dart/resolver/resolution_visitor.dart:356-382`: os
+/// parâmetros são definidos antes de `_resolveRedirectedConstructor`).
+enum NoEscopo {
+    Elemento(Element),
+    TipoParam(TypeParamId),
+    Prefixo,
+    Embutido,
+    /// Parâmetro, membro ou constante de enum: não é tipo.
+    Outro,
+    Nenhum,
+}
+
+fn nome_no_escopo_do_construtor(inf: &BodyInferrer<'_>, unit: UnitId, classe: Option<ClassId>, params: &[ast::Parameter], nome: dartforge_intern::SymbolId) -> NoEscopo {
+    if params.iter().any(|p| p.name.is_some_and(|n| n.sym == nome)) {
+        return NoEscopo::Outro;
+    }
+    if let Some(c) = classe {
+        if let Some(&p) = inf.outline.classes[c.0 as usize].type_params.iter().find(|&&p| inf.table.param(p).name == nome) {
+            return NoEscopo::TipoParam(p);
         }
-    })() else { return };
-    let vazio = inf.sym.vazio;
-    let chave = match ctor {
-        // `= E.new` é o sem nome escrito por extenso, como no tearoff.
-        Some(s) if Some(s) == inf.sym.new_ => vazio,
-        Some(s) => Some(s),
-        None => vazio,
+        let chave_setter = inf.chave_setter(nome);
+        if inf.membro_declarado_lexico(Some(c), None, nome, chave_setter).is_some() {
+            return NoEscopo::Outro;
+        }
+        let ce = inf.program.class(c);
+        if ce.enum_constants.iter().chain(ce.fields.iter()).any(|&v| inf.program.variable(v).name == nome) {
+            return NoEscopo::Outro;
+        }
+    }
+    if let Some(b) = inf.program.lookup_na_unidade(unit, nome)
+        && let Some(el) = b.getter.or(b.setter)
+    {
+        if let Element::Prefix(..) = el {
+            return NoEscopo::Prefixo;
+        }
+        return NoEscopo::Elemento(el);
+    }
+    if inf.program.prefixos_na_unidade(unit).contains_key(&nome) {
+        return NoEscopo::Prefixo;
+    }
+    if matches!(inf.interner.resolve(nome), "dynamic" | "Never") {
+        return NoEscopo::Embutido;
+    }
+    NoEscopo::Nenhum
+}
+
+/// O tipo que um elemento de tipo designa (`_resolveToElement`).
+fn tipo_do_elemento(inf: &mut BodyInferrer<'_>, el: Element, nome: dartforge_intern::SymbolId) -> TipoDoAlvo {
+    match el {
+        Element::Class(c) => TipoDoAlvo::Classe(c),
+        Element::Typedef(td) => {
+            let alvo = inf.outline.typedefs[td.0 as usize].target_type;
+            match inf.table.get(alvo).clone() {
+                Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => TipoDoAlvo::Classe(class),
+                Type::TypeParameter { .. } => TipoDoAlvo::AliasDeParametro,
+                _ if inf.e_dynamic(alvo) => TipoDoAlvo::Dinamico,
+                _ if inf.table.e_invalido(alvo) => TipoDoAlvo::Nada,
+                _ => TipoDoAlvo::SemConstrutores(alvo),
+            }
+        }
+        _ => TipoDoAlvo::NaoClasse(nome),
+    }
+}
+
+/// Resolve o alvo escrito de `= …` no escopo do construtor.
+fn resolver_alvo_escrito(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option<ClassId>, params: &[ast::Parameter], red: &ast::RedirectTarget) -> Option<AlvoEscrito> {
+    let (nomes, escrito): (Vec<ast::Name>, Option<ast::Name>) = {
+        let nodo = inf.program.unit(unit).ast.ty(red.ty);
+        let ast::TypeKind::Named { name, .. } = &nodo.kind else { return None };
+        (name.to_vec(), red.constructor)
     };
-    let Some(chave) = chave else { return };
-    if inf.program.class(alvo).kind != ClassKind::Enum {
-        // `_checkForAllRedirectConstructorErrorCodes` (EV:2025-2075):
-        // `redirect_to_missing_constructor` sem o construtor no alvo e
-        // `redirect_to_invalid_return_type` com o tipo do alvo fora do da
-        // classe da factory (só entre classes sem parâmetros de tipo: com
-        // eles o tipo do alvo é inferido contra o da classe, o que não se faz
-        // aqui). O alvo pode ser o homônimo que o nome designa (T1, `c10`).
-        match inf.construtor_de(alvo, chave) {
-            // O construtor padrão implícito de uma classe sem construtor
-            // declarado (a abstrata não ganha o sintético no outline; o
-            // `= Abstrata` é outro código, `redirect_to_abstract_class_constructor`).
-            None if Some(chave) == vazio && inf.program.class(alvo).constructors.is_empty() => {}
-            None => {
-                // `{0}`: o nome do tipo como escrito, com o do construtor.
-                let tipo_escrito: Vec<&str> = match (partes.as_slice(), escrito) {
-                    ([a, _b], None) => vec![inf.interner.resolve(*a)],
-                    _ => partes.iter().map(|s| inf.interner.resolve(*s)).collect(),
+    let sem_new = |inf: &BodyInferrer<'_>, s: Option<dartforge_intern::SymbolId>| match s {
+        Some(x) if Some(x) == inf.sym.new_ => None,
+        x => x,
+    };
+    // (prefixo, nome do tipo, nome do construtor)
+    let (prefixo, tipo, ctor): (Option<ast::Name>, ast::Name, Option<ast::Name>) = match (nomes.as_slice(), escrito) {
+        ([a], c) => (None, *a, c),
+        ([a, b], None) => {
+            // `A.b`: o parser não distingue `prefixo.Tipo` de
+            // `Tipo.construtor`; o resolvedor reescreve o segundo quando o
+            // primeiro designa uma classe ou alias.
+            match nome_no_escopo_do_construtor(inf, unit, classe, params, a.sym) {
+                NoEscopo::Elemento(Element::Class(_) | Element::Typedef(_)) => (None, *a, Some(*b)),
+                _ => (Some(*a), *b, None),
+            }
+        }
+        ([a, b], Some(c)) => (Some(*a), *b, Some(c)),
+        ([a, b, c], None) => (Some(*a), *b, Some(*c)),
+        _ => return None,
+    };
+    let construtor = sem_new(inf, ctor.map(|n| n.sym));
+    let mut nome_citado: String = match prefixo {
+        Some(p) => format!("{}.{}", inf.interner.resolve(p.sym), inf.interner.resolve(tipo.sym)),
+        None => inf.interner.resolve(tipo.sym).to_string(),
+    };
+    if let Some(c) = ctor {
+        nome_citado.push('.');
+        nome_citado.push_str(inf.interner.resolve(c.sym));
+    }
+    let faixa_do_tipo = dartforge_diagnostics::Span { start: prefixo.map_or(tipo.span.start, |p| p.span.start), end: tipo.span.end };
+    let tipo_do_alvo = match prefixo {
+        None => match nome_no_escopo_do_construtor(inf, unit, classe, params, tipo.sym) {
+            NoEscopo::Elemento(el) => tipo_do_elemento(inf, el, tipo.sym),
+            NoEscopo::TipoParam(p) => TipoDoAlvo::SemConstrutores(inf.table.intern(Type::TypeParameter { param: p, nullable: false })),
+            NoEscopo::Embutido if inf.interner.resolve(tipo.sym) == "dynamic" => TipoDoAlvo::Dinamico,
+            NoEscopo::Embutido => TipoDoAlvo::SemConstrutores(inf.core.never),
+            NoEscopo::Prefixo | NoEscopo::Outro => TipoDoAlvo::NaoClasse(tipo.sym),
+            NoEscopo::Nenhum => {
+                if crate::scope::deve_ignorar_indefinido(inf.program, inf.interner, unit, None, tipo.sym) {
+                    TipoDoAlvo::Nada
+                } else {
+                    TipoDoAlvo::NaoClasse(tipo.sym)
+                }
+            }
+        },
+        Some(p) => match nome_no_escopo_do_construtor(inf, unit, classe, params, p.sym) {
+            NoEscopo::Prefixo => match inf.program.lookup_prefixed_na_unidade(unit, p.sym, tipo.sym).and_then(|b| b.getter) {
+                Some(el) => tipo_do_elemento(inf, el, tipo.sym),
+                None if crate::scope::deve_ignorar_indefinido(inf.program, inf.interner, unit, Some(p.sym), tipo.sym) => TipoDoAlvo::Nada,
+                None => TipoDoAlvo::NaoClasse(tipo.sym),
+            },
+            NoEscopo::Nenhum => {
+                if crate::scope::deve_ignorar_indefinido(inf.program, inf.interner, unit, Some(p.sym), tipo.sym) {
+                    TipoDoAlvo::Nada
+                } else {
+                    TipoDoAlvo::NaoClasse(tipo.sym)
+                }
+            }
+            // `p.X.n` com `p` classe: sintaxe que não chega a alvo.
+            NoEscopo::Elemento(Element::Class(_) | Element::Typedef(_)) => TipoDoAlvo::Nada,
+            _ => TipoDoAlvo::PrefixoSombreado,
+        },
+    };
+    Some(AlvoEscrito { tipo: tipo_do_alvo, construtor, nome_citado, faixa_do_tipo, prefixo })
+}
+
+/// O construtor que um alvo designa (`lookUpConstructor`: com o teste de
+/// acessibilidade do privado).
+#[derive(Clone, Copy)]
+enum Construtor {
+    Declarado(FunctionElementId),
+    /// O sintético sem nome de uma classe abstrata ou enum sem construtor
+    /// declarado (o modelo só cria o das classes concretas), ou o primário de
+    /// um tipo de extensão.
+    Implicito,
+}
+
+fn achar_construtor(inf: &BodyInferrer<'_>, alvo: ClassId, nome: Option<dartforge_intern::SymbolId>, lib: dartforge_elements::model::LibraryId) -> Option<Construtor> {
+    let chave = nome.or(inf.sym.vazio)?;
+    if inf.interner.resolve(chave).starts_with('_') && inf.program.class(alvo).library != lib {
+        return None;
+    }
+    match inf.construtor_ou_primario(alvo, chave) {
+        Some(Some(f)) => Some(Construtor::Declarado(f)),
+        Some(None) => Some(Construtor::Implicito),
+        None => {
+            if nome.is_some() {
+                return None;
+            }
+            // O sintético que o modelo não cria, também repassado por uma
+            // aplicação de mixin.
+            let mut c = alvo;
+            loop {
+                let ce = inf.program.class(c);
+                match ce.kind {
+                    ClassKind::MixinApplication => c = ce.supertype_class?,
+                    ClassKind::Class | ClassKind::Enum if ce.constructors.is_empty() => return Some(Construtor::Implicito),
+                    _ => return None,
+                }
+            }
+        }
+    }
+}
+
+/// O sintético sem nome que o modelo não cria (classe abstrata sem
+/// construtor declarado, também através de aplicações de mixin).
+pub(crate) fn sem_nome_implicito(inf: &BodyInferrer<'_>, c: ClassId) -> bool {
+    let mut atual = c;
+    for _ in 0..16 {
+        let ce = inf.program.class(atual);
+        match ce.kind {
+            ClassKind::MixinApplication => match ce.supertype_class {
+                Some(s) => atual = s,
+                None => return false,
+            },
+            ClassKind::Class | ClassKind::Enum => return ce.constructors.is_empty(),
+            _ => return false,
+        }
+    }
+    false
+}
+
+/// `isFactory`/`isConst` de um construtor achado.
+fn fabrica_e_const(inf: &BodyInferrer<'_>, alvo: ClassId, c: Construtor) -> (bool, bool) {
+    match c {
+        Construtor::Declarado(f) => {
+            let fe = inf.program.function(f);
+            (fe.factory, fe.const_)
+        }
+        // O sintético de enum é `const`; o de classe não. O primário de um
+        // tipo de extensão é `const` com `extension type const`.
+        Construtor::Implicito => {
+            let ce = inf.program.class(alvo);
+            match ce.kind {
+                ClassKind::Enum => (false, true),
+                ClassKind::ExtensionType => {
+                    let const_ = ce.decl.is_some_and(|d| matches!(&inf.program.unit(d.unit).ast.decl(d.decl).kind, ast::DeclKind::ExtensionType(et) if et.const_));
+                    (false, const_)
+                }
+                _ => (false, false),
+            }
+        }
+    }
+}
+
+/// O tipo de função de um construtor, com o retorno trocado pelo tipo
+/// `this` da classe (o do construtor repassado de uma aplicação de mixin é
+/// o da aplicação).
+fn tipo_do_construtor(inf: &mut BodyInferrer<'_>, alvo: ClassId, c: Construtor) -> TypeId {
+    let this = inf.tipo_this_classe(alvo);
+    let sig = match c {
+        Construtor::Declarado(f) if !matches!(inf.program.function(f).node, FunctionRef::None) => inf.outline.functions[f.0 as usize].signature,
+        Construtor::Implicito if inf.program.class(alvo).kind == ClassKind::ExtensionType => inf.assinatura_primario(alvo),
+        _ => inf.table.intern(Type::Function {
+            type_params: Box::new([]),
+            ret: this,
+            positional: Box::new([]),
+            optional: Box::new([]),
+            named: Box::new([]),
+            nullable: false,
+        }),
+    };
+    // Os parâmetros de tipo da classe ficam livres (o `ConstructorElement.type`
+    // não tem parâmetros de tipo próprios).
+    match inf.table.get(sig).clone() {
+        Type::Function { positional, optional, named, nullable, .. } => {
+            inf.table.intern(Type::Function { type_params: Box::new([]), ret: this, positional, optional, named, nullable })
+        }
+        _ => sig,
+    }
+}
+
+/// `redirectedConstructor?.declaration` de um construtor declarado: o alvo
+/// de `= …` ou do `this(...)` (o primeiro), quando é um construtor
+/// declarado.
+pub(crate) fn construtor_redirecionado(inf: &mut BodyInferrer<'_>, f: FunctionElementId) -> Option<FunctionElementId> {
+    let fe = inf.program.function(f);
+    let FunctionRef::Constructor { unit, member } = fe.node else { return None };
+    let classe = fe.class;
+    let lib = fe.library;
+    let ast::MemberKind::Constructor(ctor) = &inf.program.unit(unit).ast.member(member).kind else { return None };
+    if let Some(red) = &ctor.redirect {
+        let alvo = resolver_alvo_escrito(inf, unit, classe, &ctor.parameters, red)?;
+        let TipoDoAlvo::Classe(c) = alvo.tipo else { return None };
+        return match achar_construtor(inf, c, alvo.construtor, lib)? {
+            Construtor::Declarado(g) => Some(g),
+            Construtor::Implicito => None,
+        };
+    }
+    if ctor.factory {
+        return None;
+    }
+    let nome = ctor.initializers.iter().find_map(|i| match i {
+        ast::Initializer::Redirect { constructor, .. } => Some(*constructor),
+        _ => None,
+    })?;
+    let c = classe?;
+    let chave = match nome.map(|n| n.sym) {
+        Some(s) if Some(s) == inf.sym.new_ => inf.sym.vazio,
+        Some(s) => Some(s),
+        None => inf.sym.vazio,
+    }?;
+    inf.construtor_de(c, chave)
+}
+
+/// `_hasRedirectingFactoryConstructorCycle`
+/// (`an611:src/generated/error_verifier.dart:6327-6338`): `f` volta a si
+/// mesmo pela cadeia de redirecionamentos (um ciclo adiante dele não conta).
+pub(crate) fn redireciona_em_ciclo(inf: &mut BodyInferrer<'_>, f: FunctionElementId) -> bool {
+    let mut vistos = std::collections::HashSet::new();
+    let mut atual = Some(f);
+    while let Some(g) = atual {
+        if !vistos.insert(g) {
+            return g == f;
+        }
+        atual = construtor_redirecionado(inf, g);
+    }
+    false
+}
+
+/// As regras de `visitConstructorDeclaration` para a factory
+/// redirecionadora `= alvo` (`an611:src/generated/error_verifier.dart:589-605`),
+/// na ordem do analyzer:
+///
+/// 1. `_checkForRedirectingConstructorErrorCodes` (`:5094-5137`):
+///    `redirect_to_non_const_constructor`,
+///    `redirect_to_abstract_class_constructor` e
+///    `invalid_reference_to_generative_enum_constructor`;
+/// 2. `_checkForRecursiveFactoryRedirect` (`:5073-5089`) ou, sem ciclo,
+///    `_checkForAllRedirectConstructorErrorCodes` (`:2025-2075`):
+///    `redirect_to_missing_constructor`, `redirect_to_invalid_return_type` e
+///    `redirect_to_invalid_function_type`.
+///
+/// Antes, os da resolução do tipo do alvo (`redirect_to_non_class`,
+/// `redirect_to_type_alias_expands_to_type_parameter`,
+/// `prefix_shadowed_by_local_declaration`).
+fn alvo_de_factory_redirecionadora(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, red: &ast::RedirectTarget, f_atual: FunctionElementId, ctor: &ast::Constructor) {
+    use dartforge_diagnostics::codigos::compile_time_error as ce;
+    let fe = inf.program.function(f_atual);
+    let (dona, lib, const_atual) = (fe.class, fe.library, fe.const_);
+    let Some(alvo) = resolver_alvo_escrito(inf, cx.unit, dona, &ctor.parameters, red) else { return };
+    let classe = match alvo.tipo {
+        TipoDoAlvo::Classe(c) => c,
+        TipoDoAlvo::NaoClasse(nome) => {
+            let texto = inf.interner.resolve(nome).to_string();
+            inf.aviso_com_codigo(ce::REDIRECT_TO_NON_CLASS, alvo.faixa_do_tipo, &[&texto]);
+            return;
+        }
+        TipoDoAlvo::AliasDeParametro => {
+            inf.aviso_com_codigo(ce::REDIRECT_TO_TYPE_ALIAS_EXPANDS_TO_TYPE_PARAMETER, alvo.faixa_do_tipo, &[]);
+            return;
+        }
+        TipoDoAlvo::PrefixoSombreado => {
+            if let Some(p) = alvo.prefixo {
+                let texto = inf.interner.resolve(p.sym).to_string();
+                inf.aviso_com_codigo(ce::PREFIX_SHADOWED_BY_LOCAL_DECLARATION, p.span, &[&texto]);
+            }
+            return;
+        }
+        TipoDoAlvo::SemConstrutores(t) => {
+            if !redireciona_em_ciclo(inf, f_atual) {
+                let exibido = inf.table.format(t, inf.interner, inf.program);
+                inf.aviso_com_codigo(ce::REDIRECT_TO_MISSING_CONSTRUCTOR, red.span, &[&alvo.nome_citado, &exibido]);
+            }
+            return;
+        }
+        TipoDoAlvo::Dinamico | TipoDoAlvo::Nada => return,
+    };
+    let achado = achar_construtor(inf, classe, alvo.construtor, lib);
+    // 1. `_checkForRedirectingConstructorErrorCodes`.
+    if let Some(c) = achado {
+        let (fabrica, const_alvo) = fabrica_e_const(inf, classe, c);
+        if const_atual && !const_alvo {
+            inf.aviso_com_codigo(ce::REDIRECT_TO_NON_CONST_CONSTRUCTOR, red.span, &[]);
+        }
+        let ce_alvo = inf.program.class(classe);
+        if matches!(ce_alvo.kind, ClassKind::Class | ClassKind::MixinApplication) && ce_alvo.modifiers.abstract_ && !fabrica {
+            let mut nome = dona.map(|d| inf.interner.resolve(inf.program.class(d).name).to_string()).unwrap_or_default();
+            if let Some(n) = ctor.name {
+                nome.push('.');
+                nome.push_str(inf.interner.resolve(n.sym));
+            }
+            let classe_alvo = inf.interner.resolve(ce_alvo.name).to_string();
+            inf.aviso_com_codigo(ce::REDIRECT_TO_ABSTRACT_CLASS_CONSTRUCTOR, red.span, &[&nome, &classe_alvo]);
+        }
+        // `_checkForInvalidGenerativeConstructorReference`.
+        if inf.program.class(classe).kind == ClassKind::Enum && !fabrica {
+            inf.aviso(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template.to_string(), red.span);
+        }
+    }
+    // 2. Ciclo, ou as regras do alvo.
+    if achado.is_some_and(|c| matches!(c, Construtor::Declarado(_))) && redireciona_em_ciclo(inf, f_atual) {
+        inf.aviso_com_codigo(ce::RECURSIVE_FACTORY_REDIRECT, red.span, &[]);
+        return;
+    }
+    let Some(c) = achado else {
+        // `{1}`: o tipo do alvo como `DartType` (o da classe instanciada com
+        // os próprios parâmetros, que é o que a inferência dá sem
+        // argumentos escritos).
+        let tipo = inf.tipo_this_classe(classe);
+        let exibido = inf.table.format(tipo, inf.interner, inf.program);
+        inf.aviso_com_codigo(ce::REDIRECT_TO_MISSING_CONSTRUCTOR, red.span, &[&alvo.nome_citado, &exibido]);
+        return;
+    };
+    // Os testes de tipo só sem inferência de argumentos de tipo
+    // (`_inferRedirectedConstructor` não é portado): alvo sem parâmetros de
+    // tipo.
+    let Some(dona) = dona else { return };
+    if !inf.program.class(classe).type_params.is_empty() {
+        return;
+    }
+    let de = tipo_do_construtor(inf, classe, c);
+    let para = tipo_do_construtor(inf, dona, Construtor::Declarado(f_atual));
+    let (Type::Function { ret: ret_de, .. }, Type::Function { ret: ret_para, .. }) = (inf.table.get(de).clone(), inf.table.get(para).clone()) else { return };
+    if !inf.atribuivel(ret_de, ret_para) {
+        let (a, b) = (inf.table.format(ret_de, inf.interner, inf.program), inf.table.format(ret_para, inf.interner, inf.program));
+        inf.aviso_com_codigo(ce::REDIRECT_TO_INVALID_RETURN_TYPE, red.span, &[&a, &b]);
+    } else if !inf.sub(de, para) {
+        let (a, b) = (inf.table.format(de, inf.interner, inf.program), inf.table.format(para, inf.interner, inf.program));
+        inf.aviso_com_codigo(ce::REDIRECT_TO_INVALID_FUNCTION_TYPE, red.span, &[&a, &b]);
+    }
+}
+
+/// `enclosingClass.supertype` do analyzer para uma classe
+/// (`an611:src/summary2/types_builder.dart:117-127` e
+/// `library_builder.dart:732-743`): o `extends` escrito quando é uma classe
+/// (não enum, tipo de extensão, mixin, `Function`, `Null` nem anulável);
+/// senão `Object`. Nada para o próprio `Object`, para enums (o supertipo é
+/// `Enum`, cujo sintético sem nome nunca falta) e para o que não é classe.
+/// Com mixins o supertipo continua o do `extends` (o analyzer não
+/// desaçucara a aplicação).
+fn supertipo_do_analyzer(inf: &mut BodyInferrer<'_>, c: ClassId) -> Option<(ClassId, TypeId)> {
+    if inf.program.class(c).kind != ClassKind::Class {
+        return None;
+    }
+    let objeto = inf.core.object_class?;
+    if c == objeto {
+        return None;
+    }
+    if let Some(t) = inf.outline.classes[c.0 as usize].supertype
+        && let Type::Interface { class: s, nullable: false, .. } = inf.table.get(t).clone()
+        && matches!(inf.program.class(s).kind, ClassKind::Class | ClassKind::MixinApplication)
+        && Some(s) != inf.core.function_class
+        && Some(s) != inf.core.null_class
+    {
+        return Some((s, t));
+    }
+    Some((objeto, inf.core.object))
+}
+
+/// `shouldIgnoreUndefinedNamedType` do `extends` escrito de `c`.
+fn extends_ignorado(inf: &BodyInferrer<'_>, c: ClassId) -> bool {
+    let Some((u, t)) = inf.program.class(c).supertype else { return false };
+    let ast::TypeKind::Named { name, .. } = &inf.program.unit(u).ast.ty(t).kind else { return false };
+    let (prefixo, nome) = match name.as_ref() {
+        [a] => (None, a.sym),
+        [p, a] => (Some(p.sym), a.sym),
+        _ => return false,
+    };
+    crate::scope::deve_ignorar_indefinido(inf.program, inf.interner, u, prefixo, nome)
+}
+
+/// `constructors.every((c) => c.isFactory)` da classe `s` (o sintético é
+/// gerador; os de uma aplicação de mixin são os geradores repassados da
+/// base, e a lista vazia passa).
+fn so_fabricas(inf: &BodyInferrer<'_>, s: ClassId) -> bool {
+    let ce = inf.program.class(s);
+    if ce.kind == ClassKind::MixinApplication {
+        let mut base = ce.supertype_class;
+        while let Some(b) = base {
+            let be = inf.program.class(b);
+            if be.kind != ClassKind::MixinApplication {
+                return !(be.constructors.is_empty() || be.constructors.values().any(|&f| !inf.program.function(f).factory));
+            }
+            base = be.supertype_class;
+        }
+        return true;
+    }
+    !ce.constructors.is_empty() && ce.constructors.values().all(|&f| inf.program.function(f).factory)
+}
+
+/// Os parâmetros de um construtor achado: o nó do AST (com a unidade) e os
+/// tipos do outline, na mesma ordem.
+fn parametros_do_construtor<'a>(inf: &BodyInferrer<'a>, k: Construtor) -> Option<(UnitId, &'a ast::Constructor, Vec<crate::resolve::ParameterTypeData>)> {
+    let Construtor::Declarado(f) = k else { return None };
+    let programa: &'a dartforge_elements::model::Program = inf.program;
+    let FunctionRef::Constructor { unit, member } = programa.function(f).node else { return None };
+    let ast::MemberKind::Constructor(ctor) = &programa.unit(unit).ast.member(member).kind else { return None };
+    Some((unit, ctor, inf.outline.functions[f.0 as usize].parameters.to_vec()))
+}
+
+/// Os posicionais obrigatórios e os nomes dos nomeados `required`.
+fn obrigatorios_do_construtor(inf: &BodyInferrer<'_>, k: Construtor) -> (usize, Vec<dartforge_intern::SymbolId>) {
+    let Some((_, ctor, _)) = parametros_do_construtor(inf, k) else { return (0, Vec::new()) };
+    let posicionais = ctor.parameters.iter().filter(|p| p.kind == ast::ParameterKind::Required).count();
+    let nomeados = ctor.parameters.iter().filter(|p| p.kind == ast::ParameterKind::Named && p.required).filter_map(|p| p.nome_externo().map(|n| n.sym)).collect();
+    (posicionais, nomeados)
+}
+
+/// `ConstructorElement.getDisplayString()`
+/// (`an611:src/dart/element/display_string_builder.dart:78-93`, `:405-461`,
+/// `:531-553`): `Tipo Classe.nome(int a, [int b = 0], {required int c})`,
+/// com o tipo e os parâmetros do construtor visto pelo tipo `tipo` (o
+/// `ConstructorMember` substituído).
+fn exibir_construtor(inf: &mut BodyInferrer<'_>, alvo: ClassId, k: Construtor, tipo: TypeId) -> String {
+    let mut s = inf.table.format(tipo, inf.interner, inf.program);
+    s.push(' ');
+    s.push_str(inf.interner.resolve(inf.program.class(alvo).name));
+    if let Construtor::Declarado(f) = k {
+        let nome = inf.program.function(f).name;
+        if Some(nome) != inf.sym.vazio {
+            s.push('.');
+            s.push_str(inf.interner.resolve(nome));
+        }
+    }
+    s.push('(');
+    let mapa = match inf.table.get(tipo).clone() {
+        Type::Interface { args, .. } => {
+            let ps = inf.outline.classes[alvo.0 as usize].type_params.clone();
+            (ps.len() == args.len()).then(|| inf.mapa(&ps, &args))
+        }
+        _ => None,
+    };
+    if let Some((unit, ctor, tipos)) = parametros_do_construtor(inf, k) {
+        let programa: &dartforge_elements::model::Program = inf.program;
+        let fonte = &programa.unit(unit).source;
+        let mut pedacos: Vec<(ast::ParameterKind, String)> = Vec::new();
+        for (i, p) in ctor.parameters.iter().enumerate() {
+            let mut t = tipos.get(i).map_or(inf.core.dynamic_, |d| d.ty);
+            if let Some(m) = &mapa {
+                t = inf.subst(t, m);
+            }
+            let mut texto = String::new();
+            if p.kind == ast::ParameterKind::Named && p.required {
+                texto.push_str("required ");
+            }
+            texto.push_str(&inf.table.format(t, inf.interner, inf.program));
+            texto.push(' ');
+            if let Some(n) = p.nome_externo() {
+                texto.push_str(inf.interner.resolve(n.sym));
+            }
+            if let Some(d) = p.default_value {
+                let sp = programa.unit(unit).ast.expr(d).span;
+                texto.push_str(" = ");
+                texto.push_str(&fonte[sp.start..sp.end]);
+            }
+            pedacos.push((p.kind, texto));
+        }
+        let mut ultimo: Option<ast::ParameterKind> = None;
+        let mut fecho = "";
+        for (i, (tipo_p, texto)) in pedacos.iter().enumerate() {
+            if i != 0 {
+                s.push_str(", ");
+            }
+            if ultimo != Some(*tipo_p) {
+                s.push_str(fecho);
+                let (abre, fecha) = match tipo_p {
+                    ast::ParameterKind::Required => ("", ""),
+                    ast::ParameterKind::Optional => ("[", "]"),
+                    ast::ParameterKind::Named => ("{", "}"),
                 };
-                let mut nome = tipo_escrito.join(".");
-                if let Some(c) = ctor {
-                    nome.push('.');
-                    nome.push_str(inf.interner.resolve(c));
-                }
-                let tipo = inf.tipo_this_classe(alvo);
-                let exibido = inf.table.format(tipo, inf.interner, inf.program);
-                inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::REDIRECT_TO_MISSING_CONSTRUCTOR, red.span, &[&nome, &exibido]);
+                s.push_str(abre);
+                fecho = fecha;
+                ultimo = Some(*tipo_p);
             }
-            Some(_) => {
-                if let Some(classe) = dona
-                    && inf.program.class(alvo).type_params.is_empty()
-                    && inf.program.class(classe).type_params.is_empty()
-                {
-                    let de = inf.tipo_this_classe(alvo);
-                    let para = inf.tipo_this_classe(classe);
-                    if !inf.sub(de, para) {
-                        let (a, b) = (inf.table.format(de, inf.interner, inf.program), inf.table.format(para, inf.interner, inf.program));
-                        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::REDIRECT_TO_INVALID_RETURN_TYPE, red.span, &[&a, &b]);
-                    }
-                }
+            s.push_str(texto);
+        }
+        s.push_str(fecho);
+    }
+    s.push(')');
+    s
+}
+
+/// `super(...)`/`super.n(...)`: `ElementResolver.visitSuperConstructorInvocation`
+/// (`an611:src/generated/element_resolver.dart:338-404`):
+/// `undefined_constructor_in_initializer(_default)` sem o construtor (ou
+/// privado de outra biblioteca) e `non_generative_constructor` com uma
+/// factory numa superclasse que tem algum gerador; depois os argumentos
+/// contra o construtor (salvo com o `extends` calado por
+/// `shouldIgnoreUndefinedNamedType`).
+fn inicializador_super(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, classe: Option<ClassId>, span: dartforge_diagnostics::Span, constructor: Option<ast::Name>, arguments: &ast::Arguments, params: &[ast::Parameter]) {
+    use dartforge_diagnostics::codigos::compile_time_error as ce;
+    let sup = classe.and_then(|c| supertipo_do_analyzer(inf, c).map(|s| (c, s)));
+    let Some((c, (s, st))) = sup else {
+        for a in arguments.args.iter() {
+            inferir_livre(inf, cx, a.value);
+        }
+        return;
+    };
+    let chave = match constructor.map(|n| n.sym) {
+        Some(x) if Some(x) == inf.sym.new_ => None,
+        x => x,
+    };
+    let lib = inf.program.class(c).library;
+    let Some(k) = achar_construtor(inf, s, chave, lib) else {
+        let exibido = inf.table.format(st, inf.interner, inf.program);
+        match constructor {
+            Some(n) => {
+                let nome = inf.interner.resolve(n.sym).to_string();
+                inf.aviso_com_codigo(ce::UNDEFINED_CONSTRUCTOR_IN_INITIALIZER, span, &[&exibido, &nome]);
             }
+            None => inf.aviso_com_codigo(ce::UNDEFINED_CONSTRUCTOR_IN_INITIALIZER_DEFAULT, span, &[&exibido]),
+        }
+        for a in arguments.args.iter() {
+            inferir_livre(inf, cx, a.value);
+        }
+        return;
+    };
+    if fabrica_e_const(inf, s, k).0 && !so_fabricas(inf, s) {
+        let exibido = exibir_construtor(inf, s, k, st);
+        inf.aviso_com_codigo(ce::NON_GENERATIVE_CONSTRUCTOR, span, &[&exibido]);
+    }
+    if extends_ignorado(inf, c) {
+        for a in arguments.args.iter() {
+            inferir_livre(inf, cx, a.value);
         }
         return;
     }
-    match inf.construtor_de(alvo, chave) {
-        Some(f) if inf.program.function(f).factory => {}
-        Some(_) => {
-            inf.aviso(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template.to_string(), red.span);
+    let alvo = match inf.table.get(st).clone() {
+        Type::Interface { class, args, .. } => Some((class, args)),
+        _ => None,
+    };
+    chamar_construtor_de(inf, cx, alvo, constructor, arguments, params, span);
+}
+
+/// `this(...)`/`this.n(...)` (`_checkForConflictingInitializerErrorCodes`,
+/// `an611:src/generated/error_verifier.dart:2705-2733`): fora de `factory`,
+/// `redirect_generative_to_missing_constructor` sem o alvo (procurado só na
+/// própria classe) e `redirect_generative_to_non_generative_constructor`
+/// com uma factory; e `redirect_to_non_const_constructor` no nome (ou no
+/// `this`) quando o atual é `const` e o alvo não.
+fn inicializador_redirecionador(inf: &mut BodyInferrer<'_>, classe: Option<ClassId>, span: dartforge_diagnostics::Span, constructor: Option<ast::Name>, atual: FunctionElementId) {
+    use dartforge_diagnostics::codigos::compile_time_error as ce;
+    let Some(c) = classe else { return };
+    let chave = match constructor.map(|n| n.sym) {
+        Some(x) if Some(x) == inf.sym.new_ => inf.sym.vazio,
+        Some(x) => Some(x),
+        None => inf.sym.vazio,
+    };
+    let achado = chave.and_then(|k| inf.construtor_ou_primario(c, k)).map(|f| match f {
+        Some(f) => Construtor::Declarado(f),
+        None => Construtor::Implicito,
+    });
+    let fe = inf.program.function(atual);
+    let (fabrica_atual, const_atual) = (fe.factory, fe.const_);
+    if !fabrica_atual {
+        match achado {
+            None => {
+                let classe_nome = inf.interner.resolve(inf.program.class(c).name).to_string();
+                let mut nome = classe_nome.clone();
+                if let Some(n) = constructor {
+                    nome.push('.');
+                    nome.push_str(inf.interner.resolve(n.sym));
+                }
+                inf.aviso_com_codigo(ce::REDIRECT_GENERATIVE_TO_MISSING_CONSTRUCTOR, span, &[&nome, &classe_nome]);
+            }
+            Some(k) if fabrica_e_const(inf, c, k).0 => {
+                inf.aviso_com_codigo(ce::REDIRECT_GENERATIVE_TO_NON_GENERATIVE_CONSTRUCTOR, span, &[]);
+            }
+            Some(_) => {}
         }
-        // Sem nome implícito = gerador implícito (como em `E()`); nome
-        // explícito sem alvo é outro diagnóstico.
-        None if ctor.is_none() => {
-            inf.aviso(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template.to_string(), red.span);
-        }
-        None => {}
+    }
+    if let Some(k) = achado
+        && const_atual
+        && !fabrica_e_const(inf, c, k).1
+    {
+        let sp = constructor.map_or(dartforge_diagnostics::Span { start: span.start, end: span.start + 4 }, |n| n.span);
+        inf.aviso_com_codigo(ce::REDIRECT_TO_NON_CONST_CONSTRUCTOR, sp, &[]);
     }
 }
 
-/// Classe nomeada por um segmento de alvo de factory redirecionadora
-/// (`E` em `= E` ou `= E.nomeado`).
-fn resolver_classe_alvo(inf: &mut BodyInferrer<'_>, cx: &Corpo, nome: dartforge_intern::SymbolId) -> Option<ClassId> {
-    let RefNome::Elemento(el) = expr::resolver_nome(inf, cx, nome, false) else { return None };
-    classe_de_elemento(inf, el)
+/// `SuperConstructorResolver._constructor`
+/// (`an611:src/summary2/super_constructor_resolver.dart:28-62`): o
+/// `superConstructor` é o construtor do supertipo com o nome do `super(...)`
+/// (ou o sem nome), comparado ao pé da letra (`super.new()` não acha), sem
+/// teste de acessibilidade e factory incluída; só para classes (enum fica
+/// sem).
+fn super_construtor(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Constructor) -> Option<(ClassId, TypeId, Construtor)> {
+    let nome = ctor
+        .initializers
+        .iter()
+        .find_map(|i| match i {
+            ast::Initializer::Super { constructor, .. } => Some(constructor.map(|n| n.sym)),
+            _ => None,
+        })
+        .flatten();
+    let (s, st) = supertipo_do_analyzer(inf, c)?;
+    let chave = nome.or(inf.sym.vazio)?;
+    if Some(chave) == inf.sym.new_ {
+        return None;
+    }
+    let mut atual = s;
+    let mut repassado = false;
+    for _ in 0..16 {
+        let ce = inf.program.class(atual);
+        if ce.kind == ClassKind::MixinApplication {
+            atual = ce.supertype_class?;
+            repassado = true;
+            continue;
+        }
+        if let Some(&f) = ce.constructors.get(&chave) {
+            if repassado && inf.program.function(f).factory {
+                return None;
+            }
+            if matches!(inf.program.function(f).node, FunctionRef::None) {
+                return Some((s, st, Construtor::Implicito));
+            }
+            return Some((s, st, Construtor::Declarado(f)));
+        }
+        return (Some(chave) == inf.sym.vazio && ce.constructors.is_empty() && ce.kind == ClassKind::Class).then_some((s, st, Construtor::Implicito));
+    }
+    None
 }
 
-/// Classe por trás de um elemento de alvo (classe ou typedef de classe).
-fn classe_de_elemento(inf: &mut BodyInferrer<'_>, el: Element) -> Option<ClassId> {
-    match el {
-        Element::Class(c) => Some(c),
-        Element::Typedef(td) => match inf.table.get(inf.outline.typedefs[td.0 as usize].target_type).clone() {
-            Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => Some(class),
-            _ => None,
-        },
-        _ => None,
+/// `ErrorVerifier.visitSuperFormalParameter`
+/// (`an611:src/generated/error_verifier.dart:1457-1503`) nos `super.x` de um
+/// construtor gerador não redirecionador e não `external` (os outros lugares
+/// são `invalid_super_formal_parameter_location`, em `analise`; num tipo de
+/// extensão, `extension_type_constructor_with_super_formal_parameter`): sem
+/// o parâmetro associado (o posicional pelo índice entre os `super.`, o
+/// nomeado pelo nome) `super_formal_parameter_without_associated_*`; com
+/// ele e o tipo escrito fora do dele,
+/// `super_formal_parameter_type_is_not_subtype_of_associated`. No nome.
+fn parametros_super(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Constructor, tipos: &[TypeId]) {
+    use dartforge_diagnostics::codigos::compile_time_error as ce;
+    if ctor.factory || ctor.external || ctor.initializers.iter().any(|i| matches!(i, ast::Initializer::Redirect { .. })) {
+        return;
+    }
+    if inf.program.class(c).kind == ClassKind::ExtensionType || !ctor.parameters.iter().any(|p| p.super_) {
+        return;
+    }
+    let associado = super_construtor(inf, c, ctor);
+    // Os parâmetros do construtor associado, vistos pelo supertipo.
+    let (posicionais, nomeados): (Vec<TypeId>, Vec<(dartforge_intern::SymbolId, TypeId)>) = match associado {
+        Some((s, st, k)) => {
+            let mapa = match inf.table.get(st).clone() {
+                Type::Interface { args, .. } => {
+                    let ps = inf.outline.classes[s.0 as usize].type_params.clone();
+                    (ps.len() == args.len()).then(|| inf.mapa(&ps, &args))
+                }
+                _ => None,
+            };
+            let mut pos = Vec::new();
+            let mut nom = Vec::new();
+            if let Some((_, k_ast, dados)) = parametros_do_construtor(inf, k) {
+                for (i, p) in k_ast.parameters.iter().enumerate() {
+                    let mut t = dados.get(i).map_or(inf.core.dynamic_, |d| d.ty);
+                    if let Some(m) = &mapa {
+                        t = inf.subst(t, m);
+                    }
+                    match p.kind {
+                        ast::ParameterKind::Named => {
+                            if let Some(n) = p.nome_externo() {
+                                nom.push((n.sym, t));
+                            }
+                        }
+                        _ => pos.push(t),
+                    }
+                }
+            }
+            (pos, nom)
+        }
+        None => (Vec::new(), Vec::new()),
+    };
+    let mut indice = 0usize;
+    for (i, p) in ctor.parameters.iter().enumerate() {
+        if !p.super_ {
+            continue;
+        }
+        let Some(n) = p.name else {
+            indice += 1;
+            continue;
+        };
+        let alvo = if p.kind == ast::ParameterKind::Named {
+            let externo = p.nome_externo().map_or(n.sym, |x| x.sym);
+            nomeados.iter().find(|(m, _)| *m == externo).map(|(_, t)| *t)
+        } else {
+            posicionais.get(indice).copied()
+        };
+        indice += 1;
+        let Some(tipo_associado) = alvo else {
+            let codigo = if p.kind == ast::ParameterKind::Named { ce::SUPER_FORMAL_PARAMETER_WITHOUT_ASSOCIATED_NAMED } else { ce::SUPER_FORMAL_PARAMETER_WITHOUT_ASSOCIATED_POSITIONAL };
+            inf.aviso_com_codigo(codigo, n.span, &[]);
+            continue;
+        };
+        // Sem tipo escrito o tipo é o herdado: nunca dispara.
+        if p.ty.is_none() && p.function_parameters.is_none() {
+            continue;
+        }
+        let Some(&proprio) = tipos.get(i) else { continue };
+        if !inf.sub(proprio, tipo_associado) {
+            inf.aviso_com_args(
+                ce::SUPER_FORMAL_PARAMETER_TYPE_IS_NOT_SUBTYPE_OF_ASSOCIATED,
+                n.span,
+                &[crate::exibicao::Arg::Tipo(proprio), crate::exibicao::Arg::Tipo(tipo_associado)],
+            );
+        }
+    }
+}
+
+/// `_checkForUndefinedConstructorInInitializerImplicit`
+/// (`an611:src/generated/error_verifier.dart:5444-5551`): construtor
+/// gerador, não `external`, sem `super(...)` nem `this(...)`, numa classe
+/// cuja superclasse tem algum gerador — o sem nome dela falta
+/// (`undefined_constructor_in_initializer_default`), é factory
+/// (`non_generative_constructor`) ou exige mais argumentos do que os
+/// `super.x` dão (`implicit_super_initializer_missing_arguments`; sem
+/// `super-parameters`, `no_default_super_constructor`). No nome da classe
+/// (até o nome do construtor nos dois últimos).
+fn super_implicito(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Constructor) {
+    use dartforge_diagnostics::codigos::compile_time_error as ce;
+    if ctor.factory || ctor.external {
+        return;
+    }
+    if ctor.initializers.iter().any(|i| matches!(i, ast::Initializer::Super { .. } | ast::Initializer::Redirect { .. })) {
+        return;
+    }
+    let Some((s, st)) = supertipo_do_analyzer(inf, c) else { return };
+    if so_fabricas(inf, s) {
+        return;
+    }
+    let tipo = ctor.class_name.span;
+    let lib = inf.program.class(c).library;
+    // `superElement.unnamedConstructor`: sem o teste de acessibilidade.
+    let Some(k) = achar_construtor(inf, s, None, inf.program.class(s).library) else {
+        let nome = inf.interner.resolve(inf.program.class(s).name).to_string();
+        inf.aviso_com_codigo(ce::UNDEFINED_CONSTRUCTOR_IN_INITIALIZER_DEFAULT, tipo, &[&nome]);
+        return;
+    };
+    if fabrica_e_const(inf, s, k).0 {
+        // `{0}` = o elemento: `superElement.unnamedConstructor`, sem
+        // substituição (o tipo é o da classe com os próprios parâmetros).
+        let proprio = inf.tipo_this_classe(s);
+        let exibido = exibir_construtor(inf, s, k, proprio);
+        inf.aviso_com_codigo(ce::NON_GENERATIVE_CONSTRUCTOR, tipo, &[&exibido]);
+        return;
+    }
+    let (posicionais, mut nomeados) = obrigatorios_do_construtor(inf, k);
+    let faixa = dartforge_diagnostics::Span { start: tipo.start, end: ctor.name.map_or(tipo.end, |n| n.span.end) };
+    let exibido = inf.table.format(st, inf.interner, inf.program);
+    let super_parametros = inf.program.library(lib).features.versao() >= dartforge_frontend::features::LanguageVersion::new(2, 17);
+    if !super_parametros {
+        if posicionais != 0 || !nomeados.is_empty() {
+            inf.aviso_com_codigo(ce::NO_DEFAULT_SUPER_CONSTRUCTOR_EXPLICIT, faixa, &[&exibido]);
+        }
+        return;
+    }
+    let super_posicionais = ctor.parameters.iter().filter(|p| p.super_ && p.kind != ast::ParameterKind::Named).count();
+    let super_nomeados: Vec<dartforge_intern::SymbolId> = ctor.parameters.iter().filter(|p| p.super_ && p.kind == ast::ParameterKind::Named).filter_map(|p| p.nome_externo().map(|n| n.sym)).collect();
+    nomeados.retain(|n| !super_nomeados.contains(n));
+    if posicionais > super_posicionais || !nomeados.is_empty() {
+        inf.aviso_com_codigo(ce::IMPLICIT_SUPER_INITIALIZER_MISSING_ARGUMENTS, faixa, &[&exibido]);
     }
 }
 
@@ -940,9 +1701,39 @@ pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: Uni
                     for m in k.metadata.iter() {
                         anotacao(inf, unit, Some(c), None, m);
                     }
+                    // `ResolverVisitor.visitEnumConstantDeclaration`
+                    // (`an611:src/generated/resolver.dart:2483-2520`), antes
+                    // dos argumentos: o construtor da criação sintética é
+                    // factory, ou não existe (o sintético `const` só sem
+                    // construtor declarado).
+                    let chave = match k.constructor.map(|n| n.sym) {
+                        Some(x) if Some(x) == inf.sym.new_ => inf.sym.vazio,
+                        Some(x) => Some(x),
+                        None => inf.sym.vazio,
+                    };
+                    {
+                        use dartforge_diagnostics::codigos::compile_time_error as ce;
+                        let ce_enum = inf.program.class(c);
+                        let declarado = chave.and_then(|ch| ce_enum.constructors.get(&ch).copied());
+                        let sintetico = chave == inf.sym.vazio && ce_enum.constructors.is_empty();
+                        match declarado {
+                            Some(f) if inf.program.function(f).factory => {
+                                let sp = k.constructor.map_or(k.name.span, |n| n.span);
+                                inf.aviso_com_codigo(ce::ENUM_CONSTANT_INVOKES_FACTORY_CONSTRUCTOR, sp, &[]);
+                            }
+                            Some(_) => {}
+                            None if sintetico => {}
+                            None => match k.constructor {
+                                Some(n) => {
+                                    let nome = inf.interner.resolve(n.sym).to_string();
+                                    inf.aviso_com_codigo(ce::UNDEFINED_ENUM_CONSTRUCTOR_NAMED, n.span, &[&nome]);
+                                }
+                                None => inf.aviso_com_codigo(ce::UNDEFINED_ENUM_CONSTRUCTOR_UNNAMED, k.name.span, &[]),
+                            },
+                        }
+                    }
                     if let Some(args) = &k.arguments {
                         let mut cx = Corpo::novo(inf, unit, Some(c), None, true);
-                        let chave = k.constructor.map(|n| n.sym).or(inf.sym.vazio);
                         let f = chave.and_then(|ch| inf.program.class(c).constructors.get(&ch).copied());
                         if let Some(f) = f {
                             let explicitos = if k.type_args.is_empty() {
@@ -955,7 +1746,7 @@ pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: Uni
                             super::chamadas::definir_alvo(inf, Some(nome_enum), k.name.span);
                             super::chamadas::construir(inf, &mut cx, None, c, Some(f), explicitos, args, u);
                             inf.alvo_da_aridade = None;
-                        } else if k.constructor.is_none() && inf.program.class(c).constructors.is_empty() {
+                        } else if chave == inf.sym.vazio && inf.program.class(c).constructors.is_empty() {
                             // Construtor sem nome implícito `const E()`: os
                             // argumentos passam pela aridade dele (sem
                             // parâmetros).

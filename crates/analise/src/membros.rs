@@ -355,6 +355,18 @@ impl Ctx<'_> {
     }
 
     fn construtor(&mut self, k: &ast::Constructor) {
+        // `_checkForRedirectingConstructorErrorCodes`
+        // (`error_verifier.dart:5094-5107`): valor padrão num parâmetro de
+        // construtor com `= alvo`, no nome do parâmetro.
+        if k.redirect.is_some() {
+            for p in k.parameters.iter() {
+                if p.default_value.is_some()
+                    && let Some(n) = p.name
+                {
+                    self.relatar(c::DEFAULT_VALUE_IN_REDIRECTING_FACTORY_CONSTRUCTOR, n.span, &[]);
+                }
+            }
+        }
         if !k.factory {
             match &k.body {
                 FunctionBody::Expression(e) => {
@@ -380,6 +392,62 @@ impl Ctx<'_> {
             }
             if let Some(inner) = &p.function_parameters {
                 self.formais_fora(inner);
+            }
+        }
+    }
+}
+
+/// `ErrorVerifier.visitSuperFormalParameter`
+/// (`error_verifier.dart:1457-1478`) fora de um construtor gerador não
+/// redirecionador e não `external`: em funções, métodos, parâmetros-função
+/// aninhados (mesmo dentro de um construtor), `factory`, construtor
+/// `external` ou com `this(...)` — `invalid_super_formal_parameter_location`;
+/// dentro de um tipo de extensão o código é sempre
+/// `extension_type_constructor_with_super_formal_parameter` (o da lista do
+/// construtor sai em `a_contexto`). No token `super`.
+fn super_fora_de_lugar(cx: &mut Ctx<'_>, ast_: &ast::Ast) {
+    let tipos_de_extensao: Vec<Span> = ast_
+        .decls
+        .iter()
+        .filter(|d| matches!(d.kind, DeclKind::ExtensionType(_)))
+        .map(|d| d.span)
+        .collect();
+    let em_tipo_de_extensao = |s: Span| tipos_de_extensao.iter().any(|x| x.start <= s.start && s.end <= x.end);
+    fn relatar_super(cx: &mut Ctx<'_>, p: &Parameter, extensao: bool) {
+        let fim = p.name.map_or(p.span.end, |n| n.span.start);
+        let Some(trecho) = cx.fonte.get(p.span.start..fim) else { return };
+        let Some(i) = trecho.rfind("super") else { return };
+        let s = Span { start: p.span.start + i, end: p.span.start + i + 5 };
+        let codigo = if extensao { c::EXTENSION_TYPE_CONSTRUCTOR_WITH_SUPER_FORMAL_PARAMETER } else { c::INVALID_SUPER_FORMAL_PARAMETER_LOCATION };
+        cx.relatar(codigo, s, &[]);
+    }
+    fn todos(cx: &mut Ctx<'_>, ps: &[Parameter], extensao: bool) {
+        for p in ps {
+            if p.super_ {
+                relatar_super(cx, p, extensao);
+            }
+            if let Some(inner) = &p.function_parameters {
+                todos(cx, inner, extensao);
+            }
+        }
+    }
+    for f in &ast_.functions {
+        if let Some(ps) = &f.parameters {
+            let extensao = em_tipo_de_extensao(f.span);
+            todos(cx, ps, extensao);
+        }
+    }
+    for m in &ast_.members {
+        let MemberKind::Constructor(k) = &m.kind else { continue };
+        let extensao = em_tipo_de_extensao(m.span);
+        let gerador_direto = !k.factory && !k.external && !k.initializers.iter().any(|i| matches!(i, Initializer::Redirect { .. }));
+        for p in k.parameters.iter() {
+            // A lista do construtor num tipo de extensão já sai em `a_contexto`.
+            if p.super_ && !gerador_direto && !extensao {
+                relatar_super(cx, p, false);
+            }
+            if let Some(inner) = &p.function_parameters {
+                todos(cx, inner, extensao);
             }
         }
     }
@@ -1010,6 +1078,32 @@ pub fn verificar(
                 cx.formais_fora(ps);
             }
         }
+        // A cópia do parser (`AstBuilder.checkFieldFormalParameters`,
+        // `ast_builder.dart:779-789`): só nos métodos de membro e nas funções
+        // locais, e só nos posicionais obrigatórios diretos (os demais vêm
+        // embrulhados em `DefaultFormalParameter`); no token `this`.
+        let mut funcoes_do_parser: Vec<ast::FunctionId> = Vec::new();
+        for m in &ast_.members {
+            if let MemberKind::Method(fid) = &m.kind {
+                funcoes_do_parser.push(*fid);
+            }
+        }
+        for s in &ast_.stmts {
+            if let StmtKind::Function(fid) = &s.kind {
+                funcoes_do_parser.push(*fid);
+            }
+        }
+        for fid in funcoes_do_parser {
+            let Some(ps) = &ast_.function(fid).parameters else { continue };
+            for p in ps.iter().filter(|p| p.this_ && !p.super_ && p.kind == ast::ParameterKind::Required) {
+                let fim = p.name.map_or(p.span.end, |n| n.span.start);
+                let Some(trecho) = cx.fonte.get(p.span.start..fim) else { continue };
+                let Some(i) = trecho.rfind("this") else { continue };
+                let s = Span { start: p.span.start + i, end: p.span.start + i + 4 };
+                cx.relatar(dartforge_diagnostics::codigos::parser::FIELD_INITIALIZER_OUTSIDE_CONSTRUCTOR, s, &[]);
+            }
+        }
+        super_fora_de_lugar(&mut cx, ast_);
         this_sem_acesso(&mut cx);
         identificadores_embutidos(&mut cx);
         saida.append(&mut cx.saida);
